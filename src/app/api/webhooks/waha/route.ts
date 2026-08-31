@@ -12,6 +12,7 @@ import {
   idCrudoDeMensaje,
   leerAckWaha,
   leerPresenciaWaha,
+  reintentarMediaWaha,
   traducirEventoWaha,
   type EstadoDeEntrega,
   type PresenciaWaha,
@@ -88,12 +89,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  const traduccion = traducirEventoWaha(cuerpo);
-  if (!traduccion.evolution) {
-    console.log("[waha webhook] evento ignorado:", traduccion.motivo);
-    return NextResponse.json({ ok: true, ignorado: traduccion.motivo });
-  }
-
   const sesion = typeof (cuerpo as { session?: unknown }).session === "string"
     ? ((cuerpo as { session: string }).session)
     : "";
@@ -103,6 +98,49 @@ export async function POST(request: NextRequest) {
         select: { workspaceId: true, metadata: true },
       })
     : null;
+
+  let traduccion = traducirEventoWaha(cuerpo);
+
+  /*
+    Si el archivo no vino, se pide UNA vez mas antes de darlo por perdido.
+
+    A veces la primera descarga falla por algo pasajero y en el segundo intento entra. Si entra, se
+    parchea el evento crudo y se vuelve a traducir: asi el mensaje sigue el mismo camino de siempre,
+    con su archivo, en vez de tener un camino aparte para el caso recuperado.
+  */
+  if (traduccion.mediaFaltante && canal) {
+    const conexion = readGatewayConnection(canal.metadata);
+    if (conexion?.apiToken) {
+      const recuperada = await reintentarMediaWaha({
+        connection: { baseUrl: conexion.baseUrl, apiToken: conexion.apiToken },
+        sesion,
+        chatId: traduccion.mediaFaltante.chatId,
+        mensajeId: traduccion.mediaFaltante.mensajeId,
+      });
+      if (recuperada) {
+        const payload = (cuerpo as { payload?: Record<string, unknown> }).payload;
+        if (payload) {
+          payload.media = {
+            url: recuperada.url,
+            mimetype: recuperada.mimetype,
+            ...(recuperada.filename ? { filename: recuperada.filename } : {}),
+          };
+          traduccion = traducirEventoWaha(cuerpo);
+          console.log("[waha media] recuperada en el reintento");
+        }
+      } else {
+        console.warn("[waha media] no se pudo bajar; el mensaje se guarda sin el archivo", {
+          sesion,
+          mensajeId: traduccion.mediaFaltante.mensajeId,
+        });
+      }
+    }
+  }
+
+  if (!traduccion.evolution) {
+    console.log("[waha webhook] evento ignorado:", traduccion.motivo);
+    return NextResponse.json({ ok: true, ignorado: traduccion.motivo });
+  }
 
   /*
     La media se baja ACA, antes de procesar el mensaje.

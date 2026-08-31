@@ -85,7 +85,18 @@ export function ForwardMessageDialog({
     const temporizador = setTimeout(async () => {
       setCargando(true);
       try {
-        const params = new URLSearchParams({ limit: "30" });
+        /*
+          TODOS los chats, no los mios.
+
+          La ruta entiende la ausencia de `assigned` como "mine", asi que sin decirlo se veian
+          unicamente los chats propios: 63 de 1959. Uno abria "Reenviar" para mandarle algo a una
+          clienta de otra asesora y esa clienta no figuraba, sin ninguna explicacion. (A una
+          empleada la ruta le sigue mostrando solo los suyos: eso lo decide el servidor.)
+
+          Y `status=all` porque un chat resuelto sigue siendo un destino valido: reenviarle la
+          remision a alguien a quien ya se le cerro la conversacion es de lo mas normal.
+        */
+        const params = new URLSearchParams({ limit: "40", assigned: "all", status: "all" });
         if (busqueda.trim()) {
           params.set("q", busqueda.trim());
         }
@@ -200,7 +211,16 @@ export function ForwardMessageDialog({
 
   return (
     <Dialog open={abierto} onOpenChange={(valor) => !valor && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      {/*
+        En el celular va ARRIBA, no centrado.
+
+        Centrado, al abrirse el teclado para buscar, la lista de destinos queda debajo del teclado:
+        se ve la caja de busqueda y nada mas, justo cuando uno necesita ver a quien le manda.
+        Anclado arriba, el teclado se come el espacio de la lista, que es scrolleable. El alto se
+        mide con `--app-viewport-height`, que es lo unico que sabe cuanto se ve DE VERDAD con el
+        teclado encima.
+      */}
+      <DialogContent className="max-h-[calc(var(--app-viewport-height,100dvh)-2rem)] overflow-y-auto max-sm:top-4 max-sm:translate-y-0 sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Reenviar</DialogTitle>
         </DialogHeader>
@@ -220,7 +240,7 @@ export function ForwardMessageDialog({
           />
         </div>
 
-        <div className="max-h-[45vh] min-h-[120px] overflow-y-auto">
+        <div className="min-h-[120px] flex-1 overflow-y-auto">
           {cargando && chats.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">Buscando…</p>
           ) : chats.length === 0 ? (

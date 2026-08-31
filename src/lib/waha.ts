@@ -546,19 +546,15 @@ function nodoSegunMime(mimetype: string): string {
 
 export function traducirEventoWaha(
   cuerpo: unknown,
-  /**
-   * `historial: true` cuando el mensaje viene de una importacion y no del webhook.
-   *
-   * Cambia una sola cosa, y es importante: al importar NO se piden los adjuntos -bajarlos todos
-   * multiplicaria el tiempo y el peso por cada foto de cada chat-, asi que los mensajes con
-   * archivo llegan sin url. En vivo eso significa "WAHA todavia la esta bajando" y conviene
-   * esperar; al importar significa "no la pedimos", y descartarlos dejaria la conversacion con
-   * agujeros. Se guardan igual, con su tipo y sin archivo, como hace WhatsApp Web.
-   */
-  opciones?: { historial?: boolean },
 ):
-  | { evolution: Record<string, unknown>; media?: MediaPendiente; motivo?: undefined }
-  | { evolution?: undefined; media?: undefined; motivo: string } {
+  | {
+      evolution: Record<string, unknown>;
+      media?: MediaPendiente;
+      /** El mensaje trae archivo pero WAHA no lo pudo bajar: se puede pedir una vez mas. */
+      mediaFaltante?: { chatId: string; mensajeId: string };
+      motivo?: undefined;
+    }
+  | { evolution?: undefined; media?: undefined; mediaFaltante?: undefined; motivo: string } {
   if (!cuerpo || typeof cuerpo !== "object") {
     return { motivo: "el cuerpo no es un objeto" };
   }
@@ -615,15 +611,17 @@ export function traducirEventoWaha(
   const tieneMedia = mensaje.hasMedia === true && Boolean(urlDelArchivo);
 
   /*
-    Un mensaje con media pero SIN url no se guarda.
+    Un mensaje con media pero SIN archivo se guarda IGUAL.
 
-    Pasa cuando WAHA todavia no termino de bajar el archivo. Guardarlo igual dejaria una burbuja
-    vacia en el chat, y la asesora creeria que el cliente no mando nada; WAHA vuelve a avisar
-    cuando lo tiene.
+    Antes se descartaba, dando por hecho que WAHA volveria a avisar al terminar de bajarlo. No
+    vuelve: cuando la descarga falla, ese mensaje no llega nunca. Medido el 31-ago-2026 fueron 22
+    en 24 horas —audios y fotos que el cliente mando y la asesora nunca vio—, y WhatsApp contesta
+    403 al pedir el archivo de nuevo, asi que reintentar tampoco lo recupera.
+
+    Lo caro no es perder el archivo: es que no quede NI RASTRO. El cliente manda un audio, en el
+    chat no aparece ni una burbuja, y la asesora cree que no escribio. Una burbuja que dice "mando
+    un audio y no se pudo descargar" es peor que el audio, pero muchisimo mejor que el silencio.
   */
-  if (mensaje.hasMedia === true && !urlDelArchivo && !opciones?.historial) {
-    return { motivo: "media sin url todavia (WAHA aun la esta bajando)" };
-  }
   const mediaSinArchivo = mensaje.hasMedia === true && !urlDelArchivo;
   if (!tieneMedia && !mediaSinArchivo && !texto.trim()) {
     return { motivo: "mensaje sin texto ni media" };
@@ -656,7 +654,8 @@ export function traducirEventoWaha(
                 ...(urlDelArchivo ? { url: urlDelArchivo } : {}),
                 mimetype,
                 // En WhatsApp el texto que acompana una foto ES el caption, no un mensaje aparte.
-                caption: texto,
+                // Sin archivo se deja dicho QUE mando, para que la fila de la lista no quede muda.
+                caption: texto || (mediaSinArchivo ? avisoDeMediaPerdida(mimetype) : ""),
                 ...(nombreDelArchivo ? { fileName: nombreDelArchivo } : {}),
               },
             }
@@ -666,7 +665,66 @@ export function traducirEventoWaha(
       },
     },
     ...(tieneMedia ? { media: { url: urlDelArchivo, mimetype } } : {}),
+    ...(mediaSinArchivo
+      ? {
+          mediaFaltante: {
+            chatId: de,
+            mensajeId: typeof mensaje.id === "string" ? mensaje.id : "",
+          },
+        }
+      : {}),
   };
+}
+
+/** Que fue lo que mando, cuando el archivo no se pudo bajar. */
+function avisoDeMediaPerdida(mimetype: string): string {
+  const que = mimetype.startsWith("image/")
+    ? "una foto"
+    : mimetype.startsWith("video/")
+      ? "un video"
+      : mimetype.startsWith("audio/")
+        ? "un audio"
+        : "un archivo";
+  return `⚠️ Te mando ${que}, pero no se pudo descargar. Pediselo de nuevo.`;
+}
+
+/**
+ * Vuelve a pedirle a WAHA el archivo de un mensaje.
+ *
+ * A veces la primera descarga falla por algo pasajero y en el segundo intento entra. Cuando el
+ * archivo ya expiro del lado de WhatsApp no hay caso -contesta 403- y por eso el reintento es UNO
+ * solo: insistir no lo trae y demora el mensaje, que es lo unico que si podemos mostrar.
+ */
+export async function reintentarMediaWaha(input: {
+  connection: WahaConnection;
+  sesion: string;
+  chatId: string;
+  mensajeId: string;
+}): Promise<{ url: string; mimetype: string; filename?: string } | null> {
+  if (!input.chatId || !input.mensajeId) {
+    return null;
+  }
+  try {
+    const respuesta = await wahaRequest<{
+      media?: { url?: unknown; mimetype?: unknown; filename?: unknown } | null;
+    }>(
+      input.connection,
+      `/api/${encodeURIComponent(input.sesion)}/chats/${encodeURIComponent(input.chatId)}` +
+        `/messages/${encodeURIComponent(input.mensajeId)}?downloadMedia=true`,
+    );
+    const media = respuesta?.media;
+    const url = typeof media?.url === "string" ? media.url : "";
+    if (!url) {
+      return null;
+    }
+    return {
+      url,
+      mimetype: typeof media?.mimetype === "string" ? media.mimetype : "",
+      ...(typeof media?.filename === "string" ? { filename: media.filename } : {}),
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -982,10 +1040,7 @@ export function comoMensajeDeEvolution(
   sesion: string,
   mensaje: Record<string, unknown>,
 ): Record<string, unknown> | null {
-  const traduccion = traducirEventoWaha(
-    { event: "message", session: sesion, payload: mensaje },
-    { historial: true },
-  );
+  const traduccion = traducirEventoWaha({ event: "message", session: sesion, payload: mensaje });
   if (!traduccion.evolution) {
     return null;
   }
