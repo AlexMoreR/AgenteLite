@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { saveProductBasicsAction } from "@/app/actions/product-playbook-actions";
+import { crearProductoAction, saveProductBasicsAction } from "@/app/actions/product-playbook-actions";
 
 /**
  * Lo basico del producto: tipo, nombre, descripcion y precio.
@@ -29,12 +29,15 @@ export function ProductBasicsForm({
   description,
   price,
   sells,
+  onCreado,
 }: {
   productId: string;
   name: string;
   description: string;
   price: number | null;
   sells: boolean;
+  /** Se avisa al crear uno nuevo, para que la pantalla pase a editar ESE producto. */
+  onCreado?: (id: string) => void;
 }) {
   const router = useRouter();
   const [nombre, setNombre] = useState(name);
@@ -65,6 +68,29 @@ export function ProductBasicsForm({
     }
     setOcupado(true);
     try {
+      /*
+        Sin id, es un producto NUEVO.
+
+        "Nuevo producto" abria este mismo formulario con el id vacio y al guardar llamaba a la
+        accion que solo ACTUALIZA: contestaba "El nombre no puede quedar vacío" con el nombre
+        escrito ahi delante. No habia forma de crear un producto desde esta pantalla.
+      */
+      if (!productId) {
+        const creado = await crearProductoAction({
+          name: nombre,
+          description: descripcion,
+          price: vende ? precioNumero : null,
+        });
+        if (creado?.error) {
+          toast.error(creado.error);
+          return;
+        }
+        toast.success("Producto creado");
+        onCreado?.(creado.id ?? "");
+        router.refresh();
+        return;
+      }
+
       const result = await saveProductBasicsAction({
         productId,
         name: nombre,

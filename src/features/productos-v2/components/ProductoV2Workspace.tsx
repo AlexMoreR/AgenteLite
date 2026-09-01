@@ -227,6 +227,9 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
 
         <TabsContent value="producto" className="pt-4 space-y-4">
           <ProductBasicsForm
+            // Al crearlo, la pantalla pasa a editar ESE producto: si se quedara en "nuevo", el
+            // siguiente guardado crearia un segundo producto igual.
+            onCreado={(id) => setView({ mode: "editor", productId: id })}
             productId={selected?.id ?? ""}
             name={selected?.name ?? ""}
             description={selected?.description ?? ""}

@@ -182,7 +182,9 @@ function EtapaNode({ data }: NodeProps) {
                 value={seguimiento.content}
                 placeholder="Que se le manda. Sin mensaje no se guarda."
                 onChange={(evento) => d.onSeguimiento(d.stage, posicion, evento.target.value)}
-                className="mt-1 w-full resize-y rounded-lg border border-border bg-background px-2 py-1 text-[11px] leading-4 text-foreground outline-none focus:border-[var(--primary)]"
+                /* Sin marco ni relleno: la fila YA es el contenedor, y un campo con su propio
+                   borde adentro era una caja dentro de otra. */
+                className="w-full resize-y border-0 bg-transparent p-0 text-[11px] leading-4 text-foreground outline-none focus:ring-0"
               />
             </span>
             <button

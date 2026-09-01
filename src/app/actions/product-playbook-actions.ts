@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { slugifyProductSegment } from "@/lib/product-slugs";
 import {
   isPlaybookRuleKind,
   PRODUCT_FUNNEL_STAGES,
@@ -341,8 +342,18 @@ export async function saveProductBasicsAction(input: {
 
   const productId = input.productId?.trim();
   const name = input.name?.trim();
-  if (!productId || !name) {
+  /*
+    Los dos casos, separados.
+
+    Estaban juntos bajo "El nombre no puede quedar vacío", y al crear un producto nuevo -donde el
+    id todavia no existe- saltaba ese error con el nombre escrito ahi delante. El mensaje mandaba
+    a arreglar lo unico que estaba bien.
+  */
+  if (!name) {
     return { error: "El nombre no puede quedar vacío" };
+  }
+  if (!productId) {
+    return { error: "Todavía no se creó el producto. Recargá la página e intentá de nuevo." };
   }
 
   const producto = await prisma.product.findUnique({ where: { id: productId }, select: { id: true } });
@@ -366,4 +377,79 @@ export async function saveProductBasicsAction(input: {
 
   revalidatePath("/cliente/productos-v2");
   return { ok: true };
+}
+
+
+/**
+ * Crear un producto desde Productos v2.
+ *
+ * "Nuevo producto" abria el formulario pero no habia con que crearlo: al guardar se llamaba a la
+ * accion que solo ACTUALIZA, con el id vacio, y contestaba que faltaba el nombre. Nunca se pudo
+ * crear un producto desde esta pantalla.
+ *
+ * Se piden solo los tres campos que se ven. El resto -costos, margenes, categoria- son del modulo
+ * viejo de productos y quedan en su valor por defecto: pedirlos aca convertiria "agregar un
+ * producto" en un formulario de doce campos, que es justo lo que esta pantalla evita.
+ */
+export async function crearProductoAction(input: {
+  name: string;
+  description: string;
+  /** null = producto de catalogo (sin precio). */
+  price: number | null;
+}): Promise<{ id?: string; error?: string }> {
+  const workspaceId = await getAccess();
+  if (!workspaceId) {
+    return { error: "No autorizado" };
+  }
+
+  const name = input.name?.trim();
+  if (!name) {
+    return { error: "El nombre no puede quedar vacío" };
+  }
+
+  const precio = input.price === null ? 0 : Number(input.price);
+  if (!Number.isFinite(precio) || precio < 0) {
+    return { error: "El precio no es válido" };
+  }
+
+  // El slug tiene que ser unico en toda la base y se arma con el mismo generador que el modulo
+  // viejo: dos "Camilla" no pueden pelearse por la misma direccion.
+  const slug = await generarSlugUnico(name);
+
+  const creado = await prisma.product.create({
+    data: {
+      name,
+      slug,
+      description: input.description?.trim() || null,
+      price: precio,
+      // Obligatoria en el modelo y sin valor por defecto. Vacia significa "sin foto todavia", que
+      // es lo correcto para un producto recien creado.
+      thumbnailUrl: "",
+    },
+    select: { id: true },
+  });
+
+  revalidatePath("/cliente/productos-v2");
+  return { id: creado.id };
+}
+
+/** El primer slug libre para ese nombre: "camilla", "camilla-2", "camilla-3"... */
+async function generarSlugUnico(name: string): Promise<string> {
+  const base = slugifyProductSegment(name) || "producto";
+  const usados = new Set(
+    (
+      await prisma.product.findMany({
+        where: { slug: { startsWith: base } },
+        select: { slug: true },
+      })
+    ).map((item) => item.slug),
+  );
+  if (!usados.has(base)) {
+    return base;
+  }
+  let numero = 2;
+  while (usados.has(`${base}-${numero}`)) {
+    numero += 1;
+  }
+  return `${base}-${numero}`;
 }
