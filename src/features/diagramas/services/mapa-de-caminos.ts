@@ -59,8 +59,14 @@ const ETIQUETA_POR_TIPO: Record<string, string> = {
   CONTACTS: "\ud83d\udc64 Contacto",
 };
 
-/** Mas largo que esto la caja se vuelve un parrafo y el mapa deja de leerse. */
-const LARGO_MAXIMO = 180;
+/*
+  El texto va COMPLETO.
+
+  Antes se cortaba a 180 caracteres para que la caja no creciera. Pero el mapa existe justamente
+  para LEER lo que se hablo: cortado a la mitad obliga a ir a buscar el chat, que es lo que uno
+  queria evitar. Las cajas quedan mas grandes y esta bien; el ancho y la separacion se ajustaron
+  para eso.
+*/
 
 export type MensajeDelChat = {
   direction: "INBOUND" | "OUTBOUND";
@@ -82,7 +88,8 @@ export function pasosLiteralesDelChat(mensajes: MensajeDelChat[]): PasoDelChat[]
 
   for (const mensaje of mensajes) {
     const quien: QuienHabla = mensaje.direction === "INBOUND" ? "cliente" : "nosotros";
-    let texto = (mensaje.content ?? "").trim().replace(FIRMA_AL_PRINCIPIO, "").trim();
+    const texto0 = (mensaje.content ?? "").trim().replace(FIRMA_AL_PRINCIPIO, "").trim();
+    let texto = texto0;
 
     if (!texto) {
       texto = ETIQUETA_POR_TIPO[(mensaje.type ?? "").toUpperCase()] ?? "";
@@ -92,9 +99,6 @@ export function pasosLiteralesDelChat(mensajes: MensajeDelChat[]): PasoDelChat[]
       }
     }
 
-    if (texto.length > LARGO_MAXIMO) {
-      texto = texto.slice(0, LARGO_MAXIMO).trimEnd() + "\u2026";
-    }
 
     // Dos mensajes seguidos IDENTICOS del mismo lado son el mismo momento repetido.
     const anterior = pasos[pasos.length - 1];
@@ -201,7 +205,7 @@ export function fundirChatEnMapa(input: {
       id: RAIZ,
       type: "idea",
       position: { x: 0, y: 0 },
-      style: { width: 200 },
+      style: { width: ANCHO_DE_CAJA },
       data: {
         texto: "Empieza la conversación",
         icono: "🎯",
@@ -263,7 +267,7 @@ export function fundirChatEnMapa(input: {
       id,
       type: "idea",
       position: { x: 0, y: 0 },
-      style: { width: 200 },
+      style: { width: ANCHO_DE_CAJA },
       data: {
         texto: textoDeNodo(paso.paso, 1),
         icono: ICONO_POR_QUIEN[paso.quien],
@@ -286,8 +290,20 @@ export function fundirChatEnMapa(input: {
   return { nodos: acomodar(nodos, aristas), aristas };
 }
 
-const SEPARACION_HORIZONTAL = 240;
-const SEPARACION_VERTICAL = 150;
+/*
+  El mapa avanza de IZQUIERDA a DERECHA, como se lee.
+
+  Iba de arriba hacia abajo y con el texto completo se volvia una columna larguisima: para seguir
+  una conversacion habia que scrollear sin parar, y las ramas quedaban una debajo de otra, lejos
+  entre si. De costado, cada paso de la charla avanza a la derecha y las ramas se abren hacia
+  arriba y hacia abajo, que es donde se ven de un vistazo.
+*/
+/** Cuanto avanza el mapa por cada paso de la conversacion. */
+const PASO_HORIZONTAL = 340;
+/** Cuanto se separan dos ramas. Generoso porque con el texto completo las cajas son altas. */
+const SEPARACION_ENTRE_RAMAS = 190;
+/** Ancho de cada caja. Mas ancha que antes porque ahora entra el mensaje entero. */
+const ANCHO_DE_CAJA = 260;
 
 /**
  * Acomoda el mapa por capas, de arriba hacia abajo.
@@ -377,7 +393,8 @@ function acomodar(nodos: Node[], aristas: Edge[]): Node[] {
     }
     return {
       ...nodo,
-      position: { x: col * SEPARACION_HORIZONTAL, y: nivel * SEPARACION_VERTICAL },
+      // Nivel = a la derecha (avanza la charla). Columna = arriba/abajo (se abren las ramas).
+      position: { x: nivel * PASO_HORIZONTAL, y: col * SEPARACION_ENTRE_RAMAS },
     };
   });
 }

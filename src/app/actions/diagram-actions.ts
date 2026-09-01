@@ -128,11 +128,12 @@ function claveDelMapa(workspaceId: string) {
 /**
  * La version del formato de las cajas.
  *
- * El primer mapa guardaba pasos resumidos por IA ("Pregunta precio"); ahora guarda los mensajes
- * tal cual. Mezclar los dos en el mismo arbol da un mapa que no se entiende, asi que al cambiar el
- * formato se empieza uno nuevo y el viejo queda en la lista de Diagramas por si se quiere mirar.
+ * El primer mapa guardaba pasos resumidos por IA ("Pregunta precio"), el segundo los mensajes
+ * cortados a 180 caracteres, y este los guarda enteros. Mezclarlos en el mismo arbol da un mapa
+ * que no se entiende -mitad resumen, mitad frase cortada-, asi que al cambiar el formato se
+ * empieza uno nuevo y el anterior queda en la lista de Diagramas por si se quiere mirar.
  */
-const FORMATO_ACTUAL = "detalle-1";
+const FORMATO_ACTUAL = "detalle-2";
 
 type EstadoDelMapa = { diagramId: string; chats: string[]; formato?: string };
 
