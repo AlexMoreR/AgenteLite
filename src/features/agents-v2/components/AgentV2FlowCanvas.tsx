@@ -142,6 +142,8 @@ type EntradaKind = "general" | "keyword";
 type MatchType = "exacta" | "contiene" | "ia";
 
 type NodeDataPatch = Partial<{
+  /** El texto del nodo Bienvenida. */
+  texto: string;
   welcome: string;
   keywords: string;
   prompt: string;
@@ -305,6 +307,68 @@ type EntradaData = {
   onSaveBusiness?: (business: BusinessData) => void;
   onDelete?: (id: string) => void;
 };
+
+type BienvenidaData = {
+  texto: string;
+  collapsed?: boolean;
+  onChange?: (id: string, patch: NodeDataPatch) => void;
+};
+
+/**
+ * La bienvenida, en su propio nodo.
+ *
+ * Estaba adentro del nodo Agente, arriba del prompt. Ahi no se leia como lo que es: el PRIMER
+ * mensaje que recibe el cliente, antes de que el agente piense nada. Sacada afuera y puesta entre
+ * "Comenzar" y "Agente", el grafo se lee en el orden en que pasan las cosas: primero saluda,
+ * despues piensa.
+ *
+ * Tiene un solo campo, el texto, a proposito: es un mensaje, no una configuracion.
+ */
+function BienvenidaNode({ id, data, selected }: NodeProps) {
+  const nodeData = data as BienvenidaData;
+  const collapsed = nodeData.collapsed ?? false;
+  const texto = nodeData.texto ?? "";
+
+  return (
+    <>
+      <NodeActionsToolbar
+        selected={selected}
+        collapsed={collapsed}
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
+      />
+      <Handle
+        id="target"
+        type="target"
+        position={Position.Left}
+        className="!h-4 !w-4 !border-2 !border-white !bg-sky-600"
+      />
+      <BaseNode className={cn("w-[280px]", selected && SELECTED_NODE_CLASS)}>
+        <BaseNodeHeader className="items-center justify-start gap-2.5">
+          <span className="inline-flex shrink-0 items-center justify-center">
+            <MessageSquare className="h-4 w-4 text-sky-600" />
+          </span>
+          <BaseNodeHeaderTitle className="truncate">Bienvenida</BaseNodeHeaderTitle>
+        </BaseNodeHeader>
+        {!collapsed ? (
+          <BaseNodeContent>
+            <textarea
+              className="nodrag min-h-[92px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-[12px] leading-5 text-foreground outline-none focus:border-[var(--primary)]"
+              value={texto}
+              placeholder="El primer mensaje que recibe el cliente. Si lo dejas vacio, lo escribe la IA."
+              onChange={(evento) => nodeData.onChange?.(id, { texto: evento.target.value })}
+            />
+          </BaseNodeContent>
+        ) : null}
+        <Handle
+          id="source"
+          type="source"
+          position={Position.Right}
+          className="!h-4 !w-4 !border-2 !border-white !bg-sky-600"
+        />
+      </BaseNode>
+    </>
+  );
+}
 
 type AgentData = {
   name: string;

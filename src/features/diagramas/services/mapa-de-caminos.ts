@@ -254,7 +254,14 @@ export function fundirChatEnMapa(input: {
 
       const idUnion = `union-${actual}-${existente.id}`;
       if (!aristas.some((arista) => arista.id === idUnion)) {
-        aristas.push({ id: idUnion, source: actual, target: existente.id, type: "borrable" });
+        aristas.push({
+          id: idUnion,
+          source: actual,
+          target: existente.id,
+          sourceHandle: SALIDA,
+          targetHandle: ENTRADA,
+          type: "borrable",
+        });
       }
       actual = existente.id;
       pisadosEnEsteChat.add(existente.id);
@@ -281,6 +288,8 @@ export function fundirChatEnMapa(input: {
       id: `union-${actual}-${id}`,
       source: actual,
       target: id,
+      sourceHandle: SALIDA,
+      targetHandle: ENTRADA,
       type: "borrable",
     });
     actual = id;
@@ -302,6 +311,17 @@ export function fundirChatEnMapa(input: {
 const PASO_HORIZONTAL = 340;
 /** Cuanto se separan dos ramas. Generoso porque con el texto completo las cajas son altas. */
 const SEPARACION_ENTRE_RAMAS = 190;
+/*
+  Por que borde sale y entra cada linea.
+
+  La caja tiene conectores en los cuatro lados y, si no se le dice cual usar, React Flow agarra el
+  primero de la lista -el de arriba- y las lineas salian por el techo de las cajas, cruzando el
+  mapa. Yendo de izquierda a derecha la union tiene que salir por la DERECHA y entrar por la
+  IZQUIERDA: ahi queda a la altura del medio y se lee como una flecha entre dos pasos.
+*/
+const SALIDA = "derecha-out";
+const ENTRADA = "izquierda-in";
+
 /** Ancho de cada caja. Mas ancha que antes porque ahora entra el mensaje entero. */
 const ANCHO_DE_CAJA = 260;
 
