@@ -43,7 +43,16 @@ export default async function EmbudoDiagramaPage({ searchParams }: PageProps) {
     where: { productId },
     select: {
       stages: {
-        select: { stage: true, goal: true, script: true },
+        select: {
+          stage: true,
+          goal: true,
+          script: true,
+          // Los "si no contesta" de cada etapa: es la mitad del embudo que faltaba dibujar.
+          followUps: {
+            select: { timeType: true, timeValue: true, content: true },
+            orderBy: { timeValue: "asc" },
+          },
+        },
         orderBy: { sortOrder: "asc" },
       },
     },
@@ -76,6 +85,11 @@ export default async function EmbudoDiagramaPage({ searchParams }: PageProps) {
           stage: etapa.stage,
           goal: etapa.goal ?? "",
           script: etapa.script ?? "",
+          followUps: etapa.followUps.map((seguimiento) => ({
+            timeType: seguimiento.timeType,
+            timeValue: seguimiento.timeValue,
+            content: seguimiento.content ?? "",
+          })),
         }))}
         perdidosEnEtapa={perdidosEnEtapa}
         volverA={`/cliente/productos-v2?producto=${encodeURIComponent(product.id)}`}

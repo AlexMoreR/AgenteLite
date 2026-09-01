@@ -18,17 +18,38 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, Check, Loader2 } from "lucide-react";
+import { ArrowLeft, Check, Clock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveProductFunnelAction } from "@/app/actions/product-playbook-actions";
 import { PRODUCT_FUNNEL_STAGES } from "@/lib/product-funnel-stages";
 
+export type SeguimientoDeEmbudo = {
+  timeType: string;
+  timeValue: number;
+  content: string;
+};
+
 export type EtapaDelEmbudo = {
   stage: string;
   goal: string;
   script: string;
+  followUps: SeguimientoDeEmbudo[];
 };
+
+/** Como se lee un tiempo de espera. La base guarda MINUTES/HOURS/DAYS y un numero. */
+const UNIDAD: Record<string, string> = {
+  MINUTES: "minutos",
+  HOURS: "horas",
+  DAYS: "dias",
+};
+
+function comoSeLee(seguimiento: SeguimientoDeEmbudo): string {
+  const unidad = UNIDAD[seguimiento.timeType] ?? seguimiento.timeType.toLowerCase();
+  // "1 horas" se lee mal y aparece seguido: casi todos los seguimientos empiezan en uno.
+  const singular = seguimiento.timeValue === 1 ? unidad.replace(/s$/, "") : unidad;
+  return `${seguimiento.timeValue} ${singular} sin responder`;
+}
 
 type DatosDeEtapa = {
   numero: number;
@@ -36,6 +57,7 @@ type DatosDeEtapa = {
   ayuda: string;
   goal: string;
   script: string;
+  followUps: SeguimientoDeEmbudo[];
   perdidos?: { valor: number; pct: number };
   onChange: (stage: string, campo: "goal" | "script", valor: string) => void;
   stage: string;
@@ -114,6 +136,46 @@ function EtapaNode({ data }: NodeProps) {
             />
           </div>
         </div>
+
+        {/*
+          Los "si no contesta" de esta etapa.
+
+          Es la mitad del embudo que faltaba dibujar: el guion dice que se manda cuando el cliente
+          responde, y esto dice que pasa cuando NO responde, que -medido en este mismo producto- es
+          el 100% de los que se caen. Sin verlos, el diagrama muestra el camino bueno y esconde el
+          que de verdad ocurre.
+
+          Se muestran, no se editan: se cargan desde la lista, donde ademas se escribe el mensaje
+          de cada uno.
+        */}
+        {d.followUps.length > 0 ? (
+          <div className="space-y-1 border-t border-border px-3 py-2.5">
+            {d.followUps.map((seguimiento, posicion) => (
+              <div
+                key={`${d.stage}-${posicion}`}
+                className="flex items-start gap-2 rounded-lg bg-amber-50 px-2.5 py-1.5 dark:bg-amber-950/40"
+              >
+                <Clock className="mt-0.5 h-3 w-3 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[11px] font-medium text-amber-800 dark:text-amber-300">
+                    {comoSeLee(seguimiento)}
+                  </span>
+                  {seguimiento.content ? (
+                    <span className="block truncate text-[11px] leading-4 text-muted-foreground">
+                      {seguimiento.content}
+                    </span>
+                  ) : null}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="border-t border-border px-3 py-2.5">
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              Sin “si no contesta”. Si el cliente se queda callado en esta etapa, no pasa nada.
+            </p>
+          </div>
+        )}
       </div>
       <Handle
         type="source"
@@ -146,6 +208,7 @@ function Lienzo({
         stage: meta.stage,
         goal: guardada?.goal ?? "",
         script: guardada?.script ?? "",
+        followUps: guardada?.followUps ?? [],
       };
     }),
   );
@@ -212,6 +275,7 @@ function Lienzo({
             ayuda: meta?.ayuda ?? "",
             goal: etapa?.goal ?? "",
             script: etapa?.script ?? "",
+            followUps: etapa?.followUps ?? [],
             perdidos: perdidosEnEtapa[nodo.id],
             stage: nodo.id,
             onChange: cambiar,
@@ -230,6 +294,18 @@ function Lienzo({
           stage: item.stage,
           goal: item.goal,
           script: item.script,
+          /*
+            Los seguimientos VUELVEN aunque este lienzo no los edite.
+
+            La accion de guardar los borra y los vuelve a crear con lo que le llega. Mandando solo
+            el guion, el primer "Guardar" desde aca le borraba a Alex todos los "si no contesta" de
+            las cinco etapas, en silencio y sin manera de recuperarlos.
+          */
+          followUps: item.followUps.map((seguimiento) => ({
+            timeType: seguimiento.timeType,
+            timeValue: seguimiento.timeValue,
+            content: seguimiento.content,
+          })),
         })),
       });
       if (resultado?.error) {
