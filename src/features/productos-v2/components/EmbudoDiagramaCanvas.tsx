@@ -57,6 +57,48 @@ const UNIDAD: Record<string, string> = {
   DAYS: "dias",
 };
 
+/**
+ * Un campo de texto que crece con lo que se escribe.
+ *
+ * Con alto fijo, un mensaje de tres renglones se leia por una ventanita con barra al costado, y en
+ * el lienzo no hay forma de agrandar la fila: el texto quedaba escondido justo donde uno lo
+ * quiere revisar. Creciendo, la caja siempre muestra el mensaje entero.
+ */
+function CampoQueCrece({
+  value,
+  placeholder,
+  onChange,
+  className,
+}: {
+  value: string;
+  placeholder: string;
+  onChange: (valor: string) => void;
+  className: string;
+}) {
+  const ajustar = (elemento: HTMLTextAreaElement | null) => {
+    if (!elemento) {
+      return;
+    }
+    // Se pone en cero primero: si no, el alto solo crece y nunca se achica al borrar texto.
+    elemento.style.height = "0px";
+    elemento.style.height = `${elemento.scrollHeight}px`;
+  };
+
+  return (
+    <textarea
+      ref={ajustar}
+      rows={1}
+      value={value}
+      placeholder={placeholder}
+      onChange={(evento) => {
+        ajustar(evento.currentTarget);
+        onChange(evento.target.value);
+      }}
+      className={className}
+    />
+  );
+}
+
 function comoSeLee(seguimiento: SeguimientoDeEmbudo): string {
   const unidad = UNIDAD[seguimiento.timeType] ?? seguimiento.timeType.toLowerCase();
   // "1 horas" se lee mal y aparece seguido: casi todos los seguimientos empiezan en uno.
@@ -131,24 +173,22 @@ function EtapaNode({ data }: NodeProps) {
             <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Qué hay que lograr
             </p>
-            <textarea
-              className="nodrag w-full resize-y rounded-lg border border-border bg-background px-2.5 py-1.5 text-[12px] leading-5 text-foreground outline-none focus:border-[var(--primary)]"
-              rows={2}
+            <CampoQueCrece
+              className="nodrag w-full resize-none overflow-hidden rounded-lg border border-border bg-background px-2.5 py-1.5 text-[12px] leading-5 text-foreground outline-none focus:border-[var(--primary)]"
               value={d.goal}
               placeholder={d.ayuda}
-              onChange={(evento) => d.onChange(d.stage, "goal", evento.target.value)}
+              onChange={(valor) => d.onChange(d.stage, "goal", valor)}
             />
           </div>
           <div className="space-y-1">
             <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Qué decir
             </p>
-            <textarea
-              className="nodrag w-full resize-y rounded-lg border border-border bg-background px-2.5 py-1.5 text-[12px] leading-5 text-foreground outline-none focus:border-[var(--primary)]"
-              rows={6}
+            <CampoQueCrece
+              className="nodrag w-full resize-none overflow-hidden rounded-lg border border-border bg-background px-2.5 py-1.5 text-[12px] leading-5 text-foreground outline-none focus:border-[var(--primary)]"
               value={d.script}
               placeholder="El mensaje que le llega al cliente en esta etapa."
-              onChange={(evento) => d.onChange(d.stage, "script", evento.target.value)}
+              onChange={(valor) => d.onChange(d.stage, "script", valor)}
             />
           </div>
         </div>
@@ -170,21 +210,20 @@ function EtapaNode({ data }: NodeProps) {
         {d.followUps.map((seguimiento, posicion) => (
           <div
             key={`${d.stage}-${posicion}`}
-            className="nodrag flex items-start gap-2 rounded-xl border border-border bg-card px-3 py-2 shadow-sm"
+            className="nodrag flex items-start gap-2 rounded-xl border border-border bg-card px-2 py-2 shadow-sm"
           >
             <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
             <span className="min-w-0 flex-1">
               <span className="block text-[12px] font-medium text-foreground">
                 {comoSeLee(seguimiento)}
               </span>
-              <textarea
-                rows={2}
+              {/* Sin marco ni relleno: la fila YA es el contenedor, y un campo con su propio
+                  borde adentro era una caja dentro de otra. */}
+              <CampoQueCrece
                 value={seguimiento.content}
                 placeholder="Que se le manda. Sin mensaje no se guarda."
-                onChange={(evento) => d.onSeguimiento(d.stage, posicion, evento.target.value)}
-                /* Sin marco ni relleno: la fila YA es el contenedor, y un campo con su propio
-                   borde adentro era una caja dentro de otra. */
-                className="w-full resize-y border-0 bg-transparent p-0 text-[11px] leading-4 text-foreground outline-none focus:ring-0"
+                onChange={(valor) => d.onSeguimiento(d.stage, posicion, valor)}
+                className="w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-[11px] leading-4 text-foreground outline-none focus:ring-0"
               />
             </span>
             <button
