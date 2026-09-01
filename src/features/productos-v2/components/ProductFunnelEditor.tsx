@@ -22,6 +22,7 @@ import {
 import { saveProductFunnelAction } from "@/app/actions/product-playbook-actions";
 import { PRODUCT_FUNNEL_STAGES } from "@/lib/product-funnel-stages";
 import { StageFollowUpDialog, type SeguimientoDeEtapa } from "./StageFollowUpDialog";
+import { ProductFunnelDiagram } from "./ProductFunnelDiagram";
 
 type EtapaEditable = {
   stage: string;
@@ -87,6 +88,8 @@ export function ProductFunnelEditor({
   } | null;
 }) {
   const router = useRouter();
+  /** Lista para editar, diagrama para mirar. Arranca en lista: es donde se trabaja. */
+  const [vista, setVista] = useState<"lista" | "diagrama">("lista");
   const [etapas, setEtapas] = useState<EtapaEditable[]>(() =>
     PRODUCT_FUNNEL_STAGES.map((meta) => {
       const guardada = stages.find((etapa) => etapa.stage === meta.stage);
@@ -255,6 +258,34 @@ export function ProductFunnelEditor({
       {/* Sin titulo: la pestaña de arriba ya dice "Embudo", y las cinco etapas numeradas debajo
           no se pueden confundir con otra cosa. */}
       <CardContent className="space-y-3">
+        {/*
+          Dos formas de mirar el mismo embudo.
+
+          "Lista" es donde se edita. "Diagrama" es para VERLO de corrido, con el guion de cada paso
+          como burbuja: leerlo escrito como parrafo de configuracion y leerlo como el mensaje que
+          le llega al cliente no son la misma lectura, y el equipo se enredaba con la primera.
+        */}
+        <div className="flex items-center gap-1 self-start rounded-lg bg-muted p-0.5">
+          {(["lista", "diagrama"] as const).map((modo) => (
+            <button
+              key={modo}
+              type="button"
+              onClick={() => setVista(modo)}
+              className={`rounded-md px-3 py-1.5 text-[13px] font-medium capitalize transition ${
+                vista === modo
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {modo}
+            </button>
+          ))}
+        </div>
+
+        {vista === "diagrama" ? (
+          <ProductFunnelDiagram etapas={etapas} perdidosEnEtapa={perdidosEnEtapa} />
+        ) : (
+          <>
         {/* Todas cerradas al entrar: abierta la primera, lo que se veia era UNA etapa a media
             pantalla en vez de las cinco. El embudo se revisa mirando el recorrido completo, y
             para eso hay que poder verlo entero. */}
@@ -432,6 +463,8 @@ export function ProductFunnelEditor({
             );
           })}
         </Accordion>
+          </>
+        )}
 
         <div className="flex items-center gap-3">
           <Button type="button" size="sm" onClick={() => void guardar()} disabled={ocupado}>
