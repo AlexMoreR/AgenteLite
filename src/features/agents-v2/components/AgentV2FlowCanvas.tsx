@@ -2222,6 +2222,14 @@ function AgentEdge({
 const edgeTypes = { agentEdge: AgentEdge };
 
 type StoredGraph = {
+  /*
+    Version del grafo.
+
+    Dice si a este grafo ya se le hizo la mudanza de la bienvenida a su propio nodo. Sin esto la
+    mudanza corria cada vez que NO encontraba el nodo, asi que borrarlo no servia de nada: al
+    recargar volvia a aparecer solo.
+  */
+  version?: number;
   nodes: Array<{
     id: string;
     type: string;
@@ -2411,7 +2419,7 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
       Se hace al CARGAR y no con una migracion de base: el grafo es un JSON que ya se lee entero
       aca, y tocar la base de produccion por esto seria mucho mas riesgo del que justifica.
     */
-    if (!nodes.some((node) => node.type === "bienvenida")) {
+    if (!parsed.version && !nodes.some((node) => node.type === "bienvenida")) {
       const agente = nodes.find((node) => node.type === "agent");
       if (agente) {
         const datos = agente.data as AgentData;
@@ -2451,8 +2459,12 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
   }
 }
 
+/** Se sube cuando cambia la forma del grafo, para no repetir mudanzas ya hechas. */
+const VERSION_DEL_GRAFO = 2;
+
 function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
   return {
+    version: VERSION_DEL_GRAFO,
     nodes: nodes.map((node) => ({
       id: node.id,
       type: node.type ?? "entrada",
@@ -2948,6 +2960,31 @@ function FlowCanvasInner({
     setNodes((current) => [...current, newNode]);
   }, [setNodes, getSpawnPosition]);
 
+  /**
+   * Volver a poner la Bienvenida despues de haberla borrado.
+   *
+   * Se puede borrar como cualquier nodo, asi que tiene que haber camino de vuelta. Solo una: el
+   * compilador toma la primera que encuentra, y dos bienvenidas serian dos verdades sobre cual es
+   * el primer mensaje.
+   */
+  const addBienvenida = useCallback(() => {
+    setNodes((current) => {
+      if (current.some((node) => node.type === "bienvenida")) {
+        return current;
+      }
+      return [
+        ...current,
+        {
+          id: BIENVENIDA_NODE_ID,
+          type: "bienvenida",
+          position: getSpawnPosition(),
+          style: { width: 280, height: 190 },
+          data: { texto: "" } satisfies BienvenidaData,
+        },
+      ];
+    });
+  }, [setNodes, getSpawnPosition]);
+
   const addPregunta = useCallback(() => {
     const newId = `pregunta-${crypto.randomUUID()}`;
     setNodes((current) => [
@@ -3259,6 +3296,7 @@ function FlowCanvasInner({
             </p>
             <div className="grid gap-0.5">
               {[
+                { label: "Bienvenida", icon: MessageSquare, color: "text-sky-500", onClick: addBienvenida },
                 { label: "Producto", icon: ShoppingBag, color: "text-emerald-600", onClick: addProduct },
                 { label: "Condición", icon: Split, color: "text-amber-600", onClick: addCondition },
                 { label: "Pregunta", icon: HelpCircle, color: "text-teal-600", onClick: addPregunta },
