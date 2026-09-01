@@ -9,7 +9,7 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
 import {
   fundirChatEnMapa,
-  resumirChatEnPasos,
+  pasosLiteralesDelChat,
 } from "@/features/diagramas/services/mapa-de-caminos";
 
 /**
@@ -125,7 +125,16 @@ function claveDelMapa(workspaceId: string) {
   return `diagramas:mapaDeCaminos:${workspaceId}`;
 }
 
-type EstadoDelMapa = { diagramId: string; chats: string[] };
+/**
+ * La version del formato de las cajas.
+ *
+ * El primer mapa guardaba pasos resumidos por IA ("Pregunta precio"); ahora guarda los mensajes
+ * tal cual. Mezclar los dos en el mismo arbol da un mapa que no se entiende, asi que al cambiar el
+ * formato se empieza uno nuevo y el viejo queda en la lista de Diagramas por si se quiere mirar.
+ */
+const FORMATO_ACTUAL = "detalle-1";
+
+type EstadoDelMapa = { diagramId: string; chats: string[]; formato?: string };
 
 async function leerEstadoDelMapa(workspaceId: string): Promise<EstadoDelMapa | null> {
   const fila = await prisma.appSetting.findUnique({ where: { key: claveDelMapa(workspaceId) } });
@@ -137,7 +146,11 @@ async function leerEstadoDelMapa(workspaceId: string): Promise<EstadoDelMapa | n
     if (typeof datos.diagramId !== "string") {
       return null;
     }
-    return { diagramId: datos.diagramId, chats: Array.isArray(datos.chats) ? datos.chats : [] };
+    return {
+      diagramId: datos.diagramId,
+      chats: Array.isArray(datos.chats) ? datos.chats : [],
+      formato: typeof datos.formato === "string" ? datos.formato : "",
+    };
   } catch {
     return null;
   }
@@ -195,36 +208,25 @@ export async function agregarChatAlMapaDeCaminosAction(input: {
     return { error: "No encontré ese chat" };
   }
 
-  const lineas = conversacion.messages
-    .map((mensaje) => {
-      const quien = mensaje.direction === "INBOUND" ? "Cliente" : "Nosotros";
-      // Un adjunto sin texto igual es un movimiento de la conversacion: mandar el catalogo ES un
-      // paso. Sin esto, "Envia catalogo" -que es media venta- desaparecia del mapa.
-      const texto = mensaje.content?.trim() || `[${(mensaje.type ?? "archivo").toLowerCase()}]`;
-      return `${quien}: ${texto}`;
-    })
-    .join("\n")
-    .slice(0, 12000);
+  /*
+    El chat AL DETALLE, no un resumen.
 
-  if (!lineas.trim()) {
-    return { error: "Ese chat no tiene mensajes para resumir" };
+    Antes esto armaba una transcripcion y le pedia a la IA que la resumiera en pasos genericos
+    ("Pregunta precio"). Alex lo probo y pidio lo contrario: quiere ver lo que se hablo, mensaje
+    por mensaje. De paso deja de costar plata, deja de tardar y deja de poder equivocarse.
+  */
+  const pasos = pasosLiteralesDelChat(conversacion.messages);
+  if (pasos.length === 0) {
+    return { error: "Ese chat no tiene mensajes para dibujar" };
   }
 
-  const estado = await leerEstadoDelMapa(membership.workspace.id);
+  const guardado = await leerEstadoDelMapa(membership.workspace.id);
+  // Un mapa de otro formato no se toca: se empieza uno nuevo.
+  const estado = guardado?.formato === FORMATO_ACTUAL ? guardado : null;
   if (estado?.chats.includes(conversacion.id)) {
     return { diagramId: estado.diagramId, yaEstaba: true };
   }
 
-  let pasos;
-  try {
-    pasos = await resumirChatEnPasos({ transcripcion: lineas });
-  } catch (error) {
-    console.error("[diagramas] resumen_fallido", error);
-    return { error: "La IA no pudo resumir el chat. Probá de nuevo." };
-  }
-  if (!pasos || pasos.length === 0) {
-    return { error: "No pude sacar los pasos de ese chat" };
-  }
 
   // El diagrama del mapa: el guardado, o uno nuevo si nunca se armo (o si lo borraron).
   const existente = estado
@@ -264,7 +266,7 @@ export async function agregarChatAlMapaDeCaminosAction(input: {
       ).id;
 
   const chats = [...(estado?.chats ?? []), conversacion.id];
-  const value = JSON.stringify({ diagramId, chats } satisfies EstadoDelMapa);
+  const value = JSON.stringify({ diagramId, chats, formato: FORMATO_ACTUAL } satisfies EstadoDelMapa);
   await prisma.appSetting.upsert({
     where: { key: claveDelMapa(membership.workspace.id) },
     create: { key: claveDelMapa(membership.workspace.id), value },

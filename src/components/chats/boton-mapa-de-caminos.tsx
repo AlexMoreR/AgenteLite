@@ -12,13 +12,10 @@ import { agregarChatAlMapaDeCaminosAction } from "@/app/actions/diagram-actions"
 /**
  * Suma esta conversación al mapa de caminos de los clientes.
  *
- * No dibuja este chat aparte: lo funde en un ÚNICO mapa donde los pasos iguales se apilan. Un chat
- * solo son cuarenta cajas que no se comparan con nada; treinta chats fundidos dicen "24 preguntan
- * precio, 18 piden envío, 3 compran", que es donde se ve por dónde se cae la venta.
- *
- * Lleva pantalla de espera porque no es instantáneo: hay que leer la conversación entera y
- * resumirla con IA, y son varios segundos. Sin algo que lo diga, el botón parece roto y se aprieta
- * de nuevo —y cada apretón cuesta plata—.
+ * Dibuja la conversación COMPLETA, mensaje por mensaje, dentro de un único mapa que va creciendo.
+ * Lo que se repite entre chats —la bienvenida, el guion, las respuestas del bot— cae en la misma
+ * caja, así que el tronco común se arma solo y las ramas se abren justo donde cada cliente agarró
+ * para su lado. Ahí se ven los caminos.
  */
 export function BotonDeMapaDeCaminos({ conversationId }: { conversationId: string }) {
   const [trabajando, setTrabajando] = React.useState(false);
@@ -71,9 +68,9 @@ export function BotonDeMapaDeCaminos({ conversationId }: { conversationId: strin
           <DialogTitle className="sr-only">Armando el mapa</DialogTitle>
           <div className="flex flex-col items-center gap-3 py-4 text-center">
             <LoaderCircle className="size-7 animate-spin text-[var(--primary)]" />
-            <p className="text-sm font-medium text-foreground">Leyendo la conversación…</p>
+            <p className="text-sm font-medium text-foreground">Armando el mapa…</p>
             <p className="text-xs text-muted-foreground">
-              La IA la resume en pasos y los suma al mapa. Tarda unos segundos.
+              Se suman los mensajes de este chat al mapa de caminos.
             </p>
           </div>
         </DialogContent>
@@ -83,9 +80,9 @@ export function BotonDeMapaDeCaminos({ conversationId }: { conversationId: strin
         <DialogContent className="sm:max-w-sm">
           <DialogTitle>Sumado al mapa</DialogTitle>
           <p className="text-sm text-muted-foreground">
-            Esta conversación entró como {listo?.pasos ?? 0} paso
-            {(listo?.pasos ?? 0) === 1 ? "" : "s"}. Los pasos que ya hacían otros clientes se
-            juntaron en la misma caja.
+            Esta conversación entró con {listo?.pasos ?? 0} mensaje
+            {(listo?.pasos ?? 0) === 1 ? "" : "s"}. Los que ya decían igual en otros chats —la
+            bienvenida, el guion— se juntaron en la misma caja.
           </p>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setListo(null)}>

@@ -35,163 +35,77 @@ const COLOR_POR_QUIEN: Record<QuienHabla, string> = {
 
 const RAIZ = "camino-inicio";
 
-/** Cuantos pasos se le piden a la IA por chat. Mas que esto deja de ser un resumen. */
-export const MAXIMO_DE_PASOS = 12;
-
 /**
- * Los pasos que existen. La IA elige de ACA y de ningun otro lado.
+ * Los mensajes del chat, tal cual, listos para el mapa.
  *
- * Probado con tres conversaciones reales el 1-sep-2026: dejando que la IA redactara libre salieron
- * 37 cajas con UN cliente cada una. "Envia catalogo", "Ofrece catálogo" y "Envía catálogo y audio"
- * son el mismo movimiento y quedaron en tres cajas distintas, asi que el mapa no fundio nada y
- * volvio a ser tres conversaciones dibujadas una al lado de la otra —justo lo que no sirve—.
+ * Un intento anterior resumia cada conversacion con IA en pasos genericos ("Pregunta precio").
+ * Alex lo probo y pidio lo contrario: quiere leer LO QUE SE HABLO, mensaje por mensaje. Y eso trae
+ * de regalo que no haga falta IA: no cuesta plata, no tarda y no puede equivocarse.
  *
- * Con una lista cerrada el cruce funciona por construccion: si dos clientes preguntan el precio,
- * los dos traen exactamente "Pregunta precio" y caen en la misma caja.
- *
- * La lista sale de lo que de verdad pasa en los chats de Magilus. Agregar un paso es barato;
- * quitarlo parte los mapas ya armados, asi que conviene pecar de completo.
+ * El cruce entre chats sigue existiendo donde de verdad existe: los mensajes NUESTROS son
+ * guionados y salen identicos en todas las conversaciones, asi que la bienvenida y el guion arman
+ * el tronco comun. Lo que escribe cada cliente casi nunca coincide, y por eso las ramas se abren
+ * justo donde cada uno agarro para su lado, que es lo que se quiere ver.
  */
-export const PASOS_DEL_CLIENTE = [
-  "Saluda",
-  "Pide catálogo",
-  "Pregunta por un producto",
-  "Pregunta precio",
-  "Pregunta medidas",
-  "Pregunta si hay stock",
-  "Pregunta envío",
-  "Pregunta dónde quedan",
-  "Pregunta formas de pago",
-  "Manda fotos o audio",
-  "Objeta el precio",
-  "Dice que lo va a pensar",
-  "Da datos de compra",
-  "Manda comprobante de pago",
-  "Reclama demora",
-  "Agradece",
-  "No responde",
-] as const;
 
-export const PASOS_NUESTROS = [
-  "Da la bienvenida",
-  "Pregunta qué busca",
-  "Envía catálogo",
-  "Envía fotos del producto",
-  "Da precio",
-  "Pregunta ciudad",
-  "Explica el envío",
-  "Da datos de pago",
-  "Pide los datos de compra",
-  "Pasa a un asesor",
-  "Hace seguimiento",
-  "No contesta",
-] as const;
+/** Lo que se muestra cuando el mensaje es un archivo y no texto. */
+const ETIQUETA_POR_TIPO: Record<string, string> = {
+  IMAGE: "\ud83d\udcf7 Foto",
+  VIDEO: "\ud83c\udfa5 Video",
+  AUDIO: "\ud83c\udfa4 Audio",
+  DOCUMENT: "\ud83d\udcc4 Documento",
+  STICKER: "\ud83d\ude42 Sticker",
+  LOCATION: "\ud83d\udccd Ubicacion",
+  CONTACTS: "\ud83d\udc64 Contacto",
+};
 
-const SISTEMA = `Sos un analista comercial. Te paso una conversacion de WhatsApp entre un negocio de muebles para peluqueria/spa y un cliente.
+/** Mas largo que esto la caja se vuelve un parrafo y el mapa deja de leerse. */
+const LARGO_MAXIMO = 180;
 
-Devolve JSON: {"pasos":[{"quien":"cliente"|"nosotros","paso":"..."}]}
+export type MensajeDelChat = {
+  direction: "INBOUND" | "OUTBOUND";
+  content: string | null;
+  type: string | null;
+};
 
-El campo "paso" SOLO puede ser uno de estos textos, copiado EXACTO (con sus tildes):
+/*
+  La firma se saca del texto.
 
-Cuando el movimiento lo hace el cliente ("quien":"cliente"):
-${PASOS_DEL_CLIENTE.join(" | ")}
+  Los mensajes que escriben las asesoras a mano salen firmados ("...*Ingrid Sanchez* ..."), y
+  dejandola pegada el MISMO mensaje escrito por dos personas distintas queda como dos cajas
+  distintas: el tronco comun se partiria al medio por quien lo mando.
+*/
+const FIRMA_AL_PRINCIPIO = /^[^\p{L}\p{N}]*\*[^*]+\*\s*/u;
 
-Cuando el movimiento lo hace el negocio o el bot ("quien":"nosotros"):
-${PASOS_NUESTROS.join(" | ")}
-
-Reglas:
-- Si algo no encaja en ninguno, OMITILO. Nunca inventes un paso nuevo.
-- Un paso por MOVIMIENTO, no por mensaje: tres mensajes seguidos preguntando lo mismo son un solo paso.
-- No repitas el mismo paso dos veces seguidas.
-- Maximo ${MAXIMO_DE_PASOS} pasos, en el orden en que pasaron.
-- Si la conversacion termina sin respuesta del cliente, cerra con {"quien":"cliente","paso":"No responde"}.`;
-
-/**
- * Resume una conversacion en pasos.
- *
- * Devuelve null si no hay clave de OpenAI o si la respuesta no se entiende: el llamador decide que
- * hacer, y lo que NO hay que hacer es meter basura en el mapa comun —una vez fundida, sacarla es
- * a mano—.
- */
-export async function resumirChatEnPasos(input: {
-  transcripcion: string;
-  model?: string;
-}): Promise<PasoDelChat[] | null> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey || !input.transcripcion.trim()) {
-    return null;
-  }
-
-  const respuesta = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: input.model?.trim() || "gpt-4.1-mini",
-      temperature: 0,
-      max_tokens: 500,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SISTEMA },
-        { role: "user", content: input.transcripcion },
-      ],
-    }),
-    cache: "no-store",
-  });
-
-  if (!respuesta.ok) {
-    throw new Error(`OpenAI respondio ${respuesta.status}`);
-  }
-
-  const cuerpo = (await respuesta.json()) as { choices?: Array<{ message?: { content?: string } }> };
-  const crudo = cuerpo.choices?.[0]?.message?.content?.trim();
-  if (!crudo) {
-    return null;
-  }
-
-  let datos: unknown;
-  try {
-    datos = JSON.parse(crudo);
-  } catch {
-    return null;
-  }
-
-  const lista = (datos as { pasos?: unknown })?.pasos;
-  if (!Array.isArray(lista)) {
-    return null;
-  }
-
+export function pasosLiteralesDelChat(mensajes: MensajeDelChat[]): PasoDelChat[] {
   const pasos: PasoDelChat[] = [];
-  for (const item of lista) {
-    const quien = (item as { quien?: unknown })?.quien;
-    const paso = (item as { paso?: unknown })?.paso;
-    if (typeof paso !== "string" || !paso.trim()) {
-      continue;
+
+  for (const mensaje of mensajes) {
+    const quien: QuienHabla = mensaje.direction === "INBOUND" ? "cliente" : "nosotros";
+    let texto = (mensaje.content ?? "").trim().replace(FIRMA_AL_PRINCIPIO, "").trim();
+
+    if (!texto) {
+      texto = ETIQUETA_POR_TIPO[(mensaje.type ?? "").toUpperCase()] ?? "";
+      if (!texto) {
+        // Un mensaje sin texto y sin tipo conocido no aporta nada al mapa.
+        continue;
+      }
     }
-    const dequien: QuienHabla = quien === "cliente" ? "cliente" : "nosotros";
-    const permitidos: readonly string[] =
-      dequien === "cliente" ? PASOS_DEL_CLIENTE : PASOS_NUESTROS;
-    const limpio = paso.trim();
-    // Lo que no este en la lista se DESCARTA. Un solo paso inventado que entre al mapa comun ya no
-    // se funde con nada y hay que sacarlo a mano de un diagrama compartido.
-    const canonico = permitidos.find(
-      (opcion) => llaveDePaso(dequien, opcion) === llaveDePaso(dequien, limpio),
-    );
-    if (!canonico) {
+
+    if (texto.length > LARGO_MAXIMO) {
+      texto = texto.slice(0, LARGO_MAXIMO).trimEnd() + "\u2026";
+    }
+
+    // Dos mensajes seguidos IDENTICOS del mismo lado son el mismo momento repetido.
+    const anterior = pasos[pasos.length - 1];
+    if (anterior && anterior.quien === quien && anterior.paso === texto) {
       continue;
     }
 
-    // Dos veces el mismo paso seguido es el mismo movimiento contado dos veces.
-    if (pasos[pasos.length - 1]?.paso === canonico && pasos[pasos.length - 1]?.quien === dequien) {
-      continue;
-    }
-
-    pasos.push({ quien: dequien, paso: canonico });
-    if (pasos.length >= MAXIMO_DE_PASOS) {
-      break;
-    }
+    pasos.push({ quien, paso: texto });
   }
 
-  return pasos.length > 0 ? pasos : null;
+  return pasos;
 }
 
 /** La llave con la que dos pasos se consideran EL MISMO. Sin tildes, sin mayusculas, sin puntos. */
@@ -248,6 +162,29 @@ function leerDatos(nodo: Node): DatosDeNodo | null {
  * Respeta lo que haya editado una persona: el cruce se hace por `paso` (que no se toca al escribir
  * en la caja) y solo se reescribe el `texto` de las cajas que este recorrido tocó.
  */
+/** Si desde `desde` se puede llegar a `hasta` siguiendo las flechas. */
+function alcanza(aristas: Edge[], desde: string, hasta: string): boolean {
+  if (desde === hasta) {
+    return true;
+  }
+  const pendientes = [desde];
+  const vistos = new Set<string>([desde]);
+  while (pendientes.length > 0) {
+    const actual = pendientes.pop()!;
+    for (const arista of aristas) {
+      if (arista.source !== actual || vistos.has(arista.target)) {
+        continue;
+      }
+      if (arista.target === hasta) {
+        return true;
+      }
+      vistos.add(arista.target);
+      pendientes.push(arista.target);
+    }
+  }
+  return false;
+}
+
 export function fundirChatEnMapa(input: {
   nodos: Node[];
   aristas: Edge[];
@@ -282,24 +219,44 @@ export function fundirChatEnMapa(input: {
   }
 
   let actual = RAIZ;
+  const pisadosEnEsteChat = new Set<string>([RAIZ]);
+
   for (const paso of input.pasos) {
     const llave = llaveDePaso(paso.quien, paso.paso);
 
-    const hijo = aristas
-      .filter((arista) => arista.source === actual)
-      .map((arista) => nodos.find((nodo) => nodo.id === arista.target))
-      .find((nodo) => {
-        const datos = nodo ? leerDatos(nodo) : null;
-        return datos ? llaveDePaso(datos.quien, datos.paso) === llave : false;
-      });
+    const existente = nodos.find((nodo) => {
+      if (pisadosEnEsteChat.has(nodo.id)) {
+        return false;
+      }
+      const datos = leerDatos(nodo);
+      if (!datos || llaveDePaso(datos.quien, datos.paso) !== llave) {
+        return false;
+      }
+      /*
+        No se une si eso cerraria un circulo.
 
-    if (hijo) {
-      const datos = leerDatos(hijo)!;
+        Pasa cuando un chat llega a una frase que OTRO chat ya habia dicho antes en su recorrido:
+        la flecha volveria hacia atras y el mapa dejaria de leerse de arriba hacia abajo. Medido:
+        4 de 76 flechas quedaban apuntando para arriba. En ese caso se prefiere una caja repetida
+        antes que un mapa con vueltas.
+      */
+      return !alcanza(aristas, nodo.id, actual);
+    });
+
+    if (existente) {
+      const datos = leerDatos(existente)!;
       const veces = datos.veces + 1;
-      hijo.data = { ...datos, veces, texto: textoDeNodo(datos.paso, veces) };
-      actual = hijo.id;
+      existente.data = { ...datos, veces, texto: textoDeNodo(datos.paso, veces) };
+
+      const idUnion = `union-${actual}-${existente.id}`;
+      if (!aristas.some((arista) => arista.id === idUnion)) {
+        aristas.push({ id: idUnion, source: actual, target: existente.id, type: "borrable" });
+      }
+      actual = existente.id;
+      pisadosEnEsteChat.add(existente.id);
       continue;
     }
+
 
     const id = `camino-${llave.replace(/[^a-z0-9]/g, "-")}-${nodos.length}`;
     nodos.push({
@@ -323,6 +280,7 @@ export function fundirChatEnMapa(input: {
       type: "borrable",
     });
     actual = id;
+    pisadosEnEsteChat.add(id);
   }
 
   return { nodos: acomodar(nodos, aristas), aristas };
@@ -332,55 +290,94 @@ const SEPARACION_HORIZONTAL = 240;
 const SEPARACION_VERTICAL = 150;
 
 /**
- * Acomoda el arbol de arriba hacia abajo.
+ * Acomoda el mapa por capas, de arriba hacia abajo.
  *
- * Se reacomoda ENTERO en cada chat nuevo y no solo lo agregado: al aparecer una rama, las que ya
- * estaban tienen que correrse o quedan una encima de la otra. Es un mapa que se genera, no uno que
- * se dibuja a mano, asi que mandar el orden automatico es lo correcto —y si alguien mueve una caja,
- * el proximo chat la vuelve a alinear, que para leer caminos es lo que se quiere.
+ * Esto ya no es un arbol: como la misma frase es una sola caja, a una caja pueden llegarle flechas
+ * de varios chats distintos. El acomodado anterior recorria como arbol y dejaba 15 de 72 cajas
+ * pisadas una encima de otra.
+ *
+ * Ahora la altura de cada caja es su camino MAS LARGO desde el inicio: asi una caja compartida
+ * queda siempre por debajo de todas las que llegan a ella y las flechas van siempre hacia abajo.
+ * Dentro de cada capa se ordenan por el promedio de donde estan sus padres, para que las lineas
+ * queden cortas y no se crucen mas de lo necesario.
+ *
+ * Se reacomoda ENTERO en cada chat nuevo: al aparecer una rama, las que ya estaban tienen que
+ * correrse o se pisan. Si alguien mueve una caja a mano, el proximo chat la vuelve a alinear —para
+ * leer caminos, mandar el orden automatico es lo correcto—.
  */
 function acomodar(nodos: Node[], aristas: Edge[]): Node[] {
-  const hijosDe = new Map<string, string[]>();
-  for (const arista of aristas) {
-    const lista = hijosDe.get(arista.source) ?? [];
-    lista.push(arista.target);
-    hijosDe.set(arista.source, lista);
-  }
-
   const porId = new Map(nodos.map((nodo) => [nodo.id, nodo]));
-  const posiciones = new Map<string, { x: number; y: number }>();
-  let siguienteColumna = 0;
-  const visitados = new Set<string>();
-
-  // Recorrido en profundidad: cada hoja se lleva una columna, y cada padre se centra sobre sus
-  // hijos. Es lo que hace que un camino se lea de corrido para abajo.
-  const ubicar = (id: string, nivel: number): number => {
-    if (visitados.has(id)) {
-      return posiciones.get(id)?.x ?? 0;
+  const entrantes = new Map<string, string[]>();
+  for (const arista of aristas) {
+    if (!porId.has(arista.source) || !porId.has(arista.target)) {
+      continue;
     }
-    visitados.add(id);
-
-    const hijos = (hijosDe.get(id) ?? []).filter((hijo) => porId.has(hijo));
-    if (hijos.length === 0) {
-      const x = siguienteColumna * SEPARACION_HORIZONTAL;
-      siguienteColumna += 1;
-      posiciones.set(id, { x, y: nivel * SEPARACION_VERTICAL });
-      return x;
-    }
-
-    const xs = hijos.map((hijo) => ubicar(hijo, nivel + 1));
-    const x = (Math.min(...xs) + Math.max(...xs)) / 2;
-    posiciones.set(id, { x, y: nivel * SEPARACION_VERTICAL });
-    return x;
-  };
-
-  if (porId.has(RAIZ)) {
-    ubicar(RAIZ, 0);
+    entrantes.set(arista.target, [...(entrantes.get(arista.target) ?? []), arista.source]);
   }
 
-  // Lo que quedo suelto (por ejemplo cajas que alguien agrego a mano) se deja donde estaba.
+  /*
+    Altura = camino mas largo desde el inicio.
+
+    Se relaja de a pasadas en vez de recorrer en profundidad: con caminos que se vuelven a juntar,
+    un recorrido en profundidad le pone a la caja compartida la altura del PRIMER chat que llego y
+    despues las flechas de los otros apuntan para arriba. El tope de pasadas es la red de seguridad
+    contra un circulo: no deberia haberlos, pero no puede colgar la pantalla si lo hay.
+  */
+  const altura = new Map<string, number>();
+  for (const nodo of nodos) {
+    altura.set(nodo.id, 0);
+  }
+  for (let pasada = 0; pasada < nodos.length; pasada += 1) {
+    let cambio = false;
+    for (const arista of aristas) {
+      const desde = altura.get(arista.source);
+      const hasta = altura.get(arista.target);
+      if (desde === undefined || hasta === undefined) {
+        continue;
+      }
+      if (hasta < desde + 1) {
+        altura.set(arista.target, desde + 1);
+        cambio = true;
+      }
+    }
+    if (!cambio) {
+      break;
+    }
+  }
+
+  const capas = new Map<number, string[]>();
+  for (const nodo of nodos) {
+    const nivel = altura.get(nodo.id) ?? 0;
+    capas.set(nivel, [...(capas.get(nivel) ?? []), nodo.id]);
+  }
+
+  const columna = new Map<string, number>();
+  const niveles = [...capas.keys()].sort((a, b) => a - b);
+  for (const nivel of niveles) {
+    const ids = capas.get(nivel) ?? [];
+    // Cada caja se pone donde estan sus padres; las de la primera capa, en el orden que vinieron.
+    const conPeso = ids.map((id, indice) => {
+      const padres = (entrantes.get(id) ?? [])
+        .map((padre) => columna.get(padre))
+        .filter((valor): valor is number => valor !== undefined);
+      return {
+        id,
+        peso: padres.length > 0 ? padres.reduce((a, b) => a + b, 0) / padres.length : indice,
+      };
+    });
+    conPeso.sort((a, b) => a.peso - b.peso);
+    conPeso.forEach((item, indice) => columna.set(item.id, indice));
+  }
+
   return nodos.map((nodo) => {
-    const posicion = posiciones.get(nodo.id);
-    return posicion ? { ...nodo, position: posicion } : nodo;
+    const nivel = altura.get(nodo.id);
+    const col = columna.get(nodo.id);
+    if (nivel === undefined || col === undefined) {
+      return nodo;
+    }
+    return {
+      ...nodo,
+      position: { x: col * SEPARACION_HORIZONTAL, y: nivel * SEPARACION_VERTICAL },
+    };
   });
 }
