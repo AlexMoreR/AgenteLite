@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bell, Check, Pencil, Plus, Trash2 } from "lucide-react";
+import { Bell, Check, GitBranch, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -22,7 +22,6 @@ import {
 import { saveProductFunnelAction } from "@/app/actions/product-playbook-actions";
 import { PRODUCT_FUNNEL_STAGES } from "@/lib/product-funnel-stages";
 import { StageFollowUpDialog, type SeguimientoDeEtapa } from "./StageFollowUpDialog";
-import { ProductFunnelDiagram } from "./ProductFunnelDiagram";
 
 type EtapaEditable = {
   stage: string;
@@ -259,33 +258,19 @@ export function ProductFunnelEditor({
           no se pueden confundir con otra cosa. */}
       <CardContent className="space-y-3">
         {/*
-          Dos formas de mirar el mismo embudo.
+          El embudo tambien se puede ver como diagrama, en su propia pantalla.
 
-          "Lista" es donde se edita. "Diagrama" es para VERLO de corrido, con el guion de cada paso
-          como burbuja: leerlo escrito como parrafo de configuracion y leerlo como el mensaje que
-          le llega al cliente no son la misma lectura, y el equipo se enredaba con la primera.
+          Va a una pagina aparte y no a una pestaña de aca: un lienzo necesita TODA la pantalla, y
+          metido en esta franja las cinco etapas no se leen ni se arrastran.
         */}
-        <div className="flex items-center gap-1 self-start rounded-lg bg-muted p-0.5">
-          {(["lista", "diagrama"] as const).map((modo) => (
-            <button
-              key={modo}
-              type="button"
-              onClick={() => setVista(modo)}
-              className={`rounded-md px-3 py-1.5 text-[13px] font-medium capitalize transition ${
-                vista === modo
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {modo}
-            </button>
-          ))}
-        </div>
+        <Link
+          href={`/cliente/productos-v2/embudo?producto=${encodeURIComponent(productId)}`}
+          className="inline-flex w-fit items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-[13px] font-medium text-foreground transition hover:bg-muted"
+        >
+          <GitBranch className="h-3.5 w-3.5 text-emerald-600" />
+          Ver como diagrama
+        </Link>
 
-        {vista === "diagrama" ? (
-          <ProductFunnelDiagram etapas={etapas} perdidosEnEtapa={perdidosEnEtapa} />
-        ) : (
-          <>
         {/* Todas cerradas al entrar: abierta la primera, lo que se veia era UNA etapa a media
             pantalla en vez de las cinco. El embudo se revisa mirando el recorrido completo, y
             para eso hay que poder verlo entero. */}
@@ -463,8 +448,6 @@ export function ProductFunnelEditor({
             );
           })}
         </Accordion>
-          </>
-        )}
 
         <div className="flex items-center gap-3">
           <Button type="button" size="sm" onClick={() => void guardar()} disabled={ocupado}>
