@@ -102,6 +102,20 @@ import { cn } from "@/lib/utils";
 const AGENT_NODE_ID = "agent-root";
 const BIENVENIDA_NODE_ID = "bienvenida-root";
 
+/*
+  La escalera de "si no contesta".
+
+  Van de a una y en este orden: la primera insistida a los cinco minutos sirve mientras el cliente
+  todavia esta con el telefono en la mano; a la semana ya es otra conversacion. Se agregan con el
+  "+" en vez de aparecer las cuatro juntas, para no llenar el lienzo de conectores vacios.
+*/
+const ESPERAS_SIN_RESPUESTA = [
+  { handle: "no-reply-5m", titulo: "5 minutos sin responder" },
+  { handle: "no-reply-1h", titulo: "1 hora sin responder" },
+  { handle: "no-reply-1d", titulo: "1 dia sin responder" },
+  { handle: "no-reply-3d", titulo: "3 dias sin responder" },
+] as const;
+
 const SELECTED_NODE_CLASS =
   "border-blue-400 shadow-[0_24px_50px_-28px_rgba(37,99,235,0.52)]";
 
@@ -147,6 +161,8 @@ type EntradaKind = "general" | "keyword";
 type MatchType = "exacta" | "contiene" | "ia";
 
 type NodeDataPatch = Partial<{
+  /** Escalones de "si no contesta" del nodo Bienvenida. */
+  esperas: number;
   /** El texto del nodo Bienvenida. */
   texto: string;
   welcome: string;
@@ -315,6 +331,8 @@ type EntradaData = {
 
 type BienvenidaData = {
   texto: string;
+  /** Cuantos escalones de "si no contesta" estan puestos. Se guarda: es parte del diseño. */
+  esperas?: number;
   collapsed?: boolean;
   onChange?: (id: string, patch: NodeDataPatch) => void;
   onDelete?: (id: string) => void;
@@ -340,10 +358,17 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
     Un "ya revele el de 5 minutos" guardado se puede desincronizar: si despues se borra la union,
     la fila quedaria mostrando una salida que no lleva a ningun lado.
   */
-  const respondeConectado =
-    useNodeConnections({ id, handleType: "source", handleId: "on-reply" }).length > 0;
-  const cincoMinutosConectado =
-    useNodeConnections({ id, handleType: "source", handleId: "no-reply-5m" }).length > 0;
+  /*
+    Cuantos escalones de "si no contesta" mostrar.
+
+    Se guarda en el nodo y no se deduce de las uniones: el primer intento los revelaba al conectar,
+    y asi no habia forma de planear la escalera —para ver el segundo escalon habia que conectar el
+    primero, y para eso ya hay que haber decidido a donde va—.
+  */
+  const esperas = Math.min(
+    Math.max(nodeData.esperas ?? 0, 0),
+    ESPERAS_SIN_RESPUESTA.length,
+  );
   const [editando, setEditando] = useState(false);
 
   return (
@@ -456,23 +481,33 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
             color="text-emerald-500"
             titulo="Cuando responda"
           />
-          {respondeConectado ? (
+          {ESPERAS_SIN_RESPUESTA.slice(0, esperas).map((espera) => (
             <SalidaPegada
+              key={espera.handle}
               nodeId={id}
-              handleId="no-reply-5m"
+              handleId={espera.handle}
               icono={<Clock className="h-4 w-4" />}
               color="text-amber-500"
-              titulo="5 minutos sin responder"
+              titulo={espera.titulo}
             />
-          ) : null}
-          {cincoMinutosConectado ? (
-            <SalidaPegada
-              nodeId={id}
-              handleId="no-reply-1h"
-              icono={<Clock className="h-4 w-4" />}
-              color="text-orange-500"
-              titulo="1 hora sin responder"
-            />
+          ))}
+
+          {/*
+            El "+" para sumar el siguiente escalon.
+
+            Antes el de 1 hora aparecia solo al CONECTAR el de 5 minutos, y no habia forma de
+            planear la escalera sin ir conectando: se veia un solo escalon y nada que indicara que
+            podia haber mas. Con el boton, el que arma el embudo decide cuantas veces insistir.
+          */}
+          {esperas < ESPERAS_SIN_RESPUESTA.length ? (
+            <button
+              type="button"
+              onClick={() => nodeData.onChange?.(id, { esperas: esperas + 1 })}
+              className="nodrag flex w-full items-center gap-2.5 rounded-xl border border-dashed border-border bg-transparent px-3 py-2.5 text-[13px] text-muted-foreground transition hover:border-solid hover:bg-muted hover:text-foreground"
+            >
+              <Plus className="size-4 shrink-0" />
+              Si no contesta
+            </button>
           ) : null}
         </div>
       ) : null}
@@ -2321,6 +2356,7 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
         node.type === "bienvenida"
           ? ({
               texto: node.data.texto ?? "",
+              esperas: typeof node.data.esperas === "number" ? node.data.esperas : 0,
               collapsed: node.data.collapsed === true,
             } satisfies BienvenidaData)
           :
@@ -2472,6 +2508,7 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
       data:
         node.type === "bienvenida"
           ? {
+              esperas: (node.data as BienvenidaData).esperas ?? 0,
               texto: (node.data as BienvenidaData).texto,
               collapsed: (node.data as BienvenidaData).collapsed === true,
             }
