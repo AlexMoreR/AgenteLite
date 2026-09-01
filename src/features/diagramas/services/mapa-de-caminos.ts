@@ -38,17 +38,73 @@ const RAIZ = "camino-inicio";
 /** Cuantos pasos se le piden a la IA por chat. Mas que esto deja de ser un resumen. */
 export const MAXIMO_DE_PASOS = 12;
 
+/**
+ * Los pasos que existen. La IA elige de ACA y de ningun otro lado.
+ *
+ * Probado con tres conversaciones reales el 1-sep-2026: dejando que la IA redactara libre salieron
+ * 37 cajas con UN cliente cada una. "Envia catalogo", "Ofrece catálogo" y "Envía catálogo y audio"
+ * son el mismo movimiento y quedaron en tres cajas distintas, asi que el mapa no fundio nada y
+ * volvio a ser tres conversaciones dibujadas una al lado de la otra —justo lo que no sirve—.
+ *
+ * Con una lista cerrada el cruce funciona por construccion: si dos clientes preguntan el precio,
+ * los dos traen exactamente "Pregunta precio" y caen en la misma caja.
+ *
+ * La lista sale de lo que de verdad pasa en los chats de Magilus. Agregar un paso es barato;
+ * quitarlo parte los mapas ya armados, asi que conviene pecar de completo.
+ */
+export const PASOS_DEL_CLIENTE = [
+  "Saluda",
+  "Pide catálogo",
+  "Pregunta por un producto",
+  "Pregunta precio",
+  "Pregunta medidas",
+  "Pregunta si hay stock",
+  "Pregunta envío",
+  "Pregunta dónde quedan",
+  "Pregunta formas de pago",
+  "Manda fotos o audio",
+  "Objeta el precio",
+  "Dice que lo va a pensar",
+  "Da datos de compra",
+  "Manda comprobante de pago",
+  "Reclama demora",
+  "Agradece",
+  "No responde",
+] as const;
+
+export const PASOS_NUESTROS = [
+  "Da la bienvenida",
+  "Pregunta qué busca",
+  "Envía catálogo",
+  "Envía fotos del producto",
+  "Da precio",
+  "Pregunta ciudad",
+  "Explica el envío",
+  "Da datos de pago",
+  "Pide los datos de compra",
+  "Pasa a un asesor",
+  "Hace seguimiento",
+  "No contesta",
+] as const;
+
 const SISTEMA = `Sos un analista comercial. Te paso una conversacion de WhatsApp entre un negocio de muebles para peluqueria/spa y un cliente.
 
 Devolve JSON: {"pasos":[{"quien":"cliente"|"nosotros","paso":"..."}]}
 
-Reglas del campo "paso":
-- Maximo 4 palabras, en espanol, empezando con verbo en 3ra persona. Ej: "Pregunta precio", "Envia catalogo", "Pide envio a Cali", "Da datos de compra".
-- GENERICO y REUTILIZABLE: tiene que poder repetirse igual en otra conversacion distinta. Nunca incluyas nombres, telefonos, direcciones ni cifras concretas.
-- Un paso por MOVIMIENTO de la conversacion, no por mensaje. Si el cliente manda tres mensajes seguidos preguntando lo mismo, es un solo paso.
+El campo "paso" SOLO puede ser uno de estos textos, copiado EXACTO (con sus tildes):
+
+Cuando el movimiento lo hace el cliente ("quien":"cliente"):
+${PASOS_DEL_CLIENTE.join(" | ")}
+
+Cuando el movimiento lo hace el negocio o el bot ("quien":"nosotros"):
+${PASOS_NUESTROS.join(" | ")}
+
+Reglas:
+- Si algo no encaja en ninguno, OMITILO. Nunca inventes un paso nuevo.
+- Un paso por MOVIMIENTO, no por mensaje: tres mensajes seguidos preguntando lo mismo son un solo paso.
+- No repitas el mismo paso dos veces seguidas.
 - Maximo ${MAXIMO_DE_PASOS} pasos, en el orden en que pasaron.
-- "quien" es "cliente" cuando el movimiento lo hace el cliente y "nosotros" cuando lo hace el negocio (o el bot).
-- Si la conversacion termina sin respuesta del cliente, el ultimo paso es {"quien":"cliente","paso":"No responde"}.`;
+- Si la conversacion termina sin respuesta del cliente, cerra con {"quien":"cliente","paso":"No responde"}.`;
 
 /**
  * Resume una conversacion en pasos.
@@ -111,10 +167,25 @@ export async function resumirChatEnPasos(input: {
     if (typeof paso !== "string" || !paso.trim()) {
       continue;
     }
-    pasos.push({
-      quien: quien === "cliente" ? "cliente" : "nosotros",
-      paso: paso.trim().slice(0, 60),
-    });
+    const dequien: QuienHabla = quien === "cliente" ? "cliente" : "nosotros";
+    const permitidos: readonly string[] =
+      dequien === "cliente" ? PASOS_DEL_CLIENTE : PASOS_NUESTROS;
+    const limpio = paso.trim();
+    // Lo que no este en la lista se DESCARTA. Un solo paso inventado que entre al mapa comun ya no
+    // se funde con nada y hay que sacarlo a mano de un diagrama compartido.
+    const canonico = permitidos.find(
+      (opcion) => llaveDePaso(dequien, opcion) === llaveDePaso(dequien, limpio),
+    );
+    if (!canonico) {
+      continue;
+    }
+
+    // Dos veces el mismo paso seguido es el mismo movimiento contado dos veces.
+    if (pasos[pasos.length - 1]?.paso === canonico && pasos[pasos.length - 1]?.quien === dequien) {
+      continue;
+    }
+
+    pasos.push({ quien: dequien, paso: canonico });
     if (pasos.length >= MAXIMO_DE_PASOS) {
       break;
     }
