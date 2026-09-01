@@ -16,7 +16,6 @@ import {
   Bot,
   Boxes,
   Clock,
-  CornerDownRight,
   Copy,
   Filter,
   Headset,
@@ -31,6 +30,7 @@ import {
   Plus,
   Reply,
   Rocket,
+  Send,
   ShoppingBag,
   Split,
   Trash2,
@@ -48,6 +48,7 @@ import {
   getSmoothStepPath,
   Handle,
   MarkerType,
+  NodeResizeControl,
   NodeToolbar,
   Position,
   ReactFlow,
@@ -332,6 +333,16 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
   const nodeData = data as BienvenidaData;
   const collapsed = nodeData.collapsed ?? false;
   const texto = nodeData.texto ?? "";
+  /*
+    Que tiempos mostrar se DEDUCE de las uniones, no se guarda.
+
+    Un "ya revele el de 5 minutos" guardado se puede desincronizar: si despues se borra la union,
+    la fila quedaria mostrando una salida que no lleva a ningun lado.
+  */
+  const respondeConectado =
+    useNodeConnections({ id, handleType: "source", handleId: "on-reply" }).length > 0;
+  const cincoMinutosConectado =
+    useNodeConnections({ id, handleType: "source", handleId: "no-reply-5m" }).length > 0;
 
   return (
     <>
@@ -346,7 +357,25 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
         position={Position.Left}
         className="!h-4 !w-4 !border-2 !border-white !bg-sky-600"
       />
-      <BaseNode className={cn("w-[280px]", selected && SELECTED_NODE_CLASS)}>
+      {/*
+        La manija para estirar la caja, abajo a la derecha y solo con el nodo seleccionado.
+
+        La bienvenida puede ser un renglon o quince, y con un alto fijo el mensaje largo quedaba
+        asomando por una ventanita. Ahora la caja se hace del tamano que haga falta y el texto la
+        llena entera. Igual que en el mapa de ideas, la manija aparece al seleccionar: siempre
+        visible en cada nodo ensucia el lienzo.
+      */}
+      {selected ? (
+        <NodeResizeControl
+          position="bottom-right"
+          minWidth={220}
+          minHeight={120}
+          style={{ background: "transparent", border: "none" }}
+        >
+          <span className="absolute -bottom-1 -right-1 size-3 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-muted-foreground/60" />
+        </NodeResizeControl>
+      ) : null}
+      <BaseNode className={cn("flex h-full w-full flex-col", selected && SELECTED_NODE_CLASS)}>
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <MessageSquare className="h-4 w-4 text-sky-600" />
@@ -355,21 +384,68 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
         </BaseNodeHeader>
         {!collapsed ? (
           <BaseNodeContent>
+            {/*
+              El texto va suelto, sin caja adentro de la caja.
+
+              Tenia el marco y la barra de un campo de formulario: una caja dentro de otra, con el
+              mensaje asomando por una ventanita de cuatro renglones. El nodo YA es el contenedor.
+              Sin marco y ocupando todo el alto, la caja del grafo muestra exactamente lo que le va
+              a llegar al cliente.
+            */}
             <textarea
-              className="nodrag min-h-[92px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-[12px] leading-5 text-foreground outline-none focus:border-[var(--primary)]"
+              className="nodrag h-full w-full resize-none border-0 bg-transparent p-0 text-[12px] leading-5 text-foreground outline-none focus:ring-0"
               value={texto}
               placeholder="El primer mensaje que recibe el cliente. Si lo dejas vacio, lo escribe la IA."
               onChange={(evento) => nodeData.onChange?.(id, { texto: evento.target.value })}
             />
           </BaseNodeContent>
         ) : null}
-        <Handle
-          id="source"
-          type="source"
-          position={Position.Right}
-          className="!h-4 !w-4 !border-2 !border-white !bg-sky-600"
-        />
       </BaseNode>
+
+      {/*
+        Las salidas, pegadas debajo de la caja.
+
+        Los tiempos aparecen de a uno y solo cuando hacen falta: el de 5 minutos recien cuando
+        "Cuando responda" ya esta conectado, y el de 1 hora recien cuando el de 5 minutos se uso.
+        Mostrar los cuatro de entrada llena el lienzo de conectores vacios y obliga a decidir todo
+        junto; asi cada uno aparece cuando llega su turno.
+      */}
+      {!collapsed ? (
+        <div className="mt-2 space-y-2">
+          <SalidaPegada
+            nodeId={id}
+            handleId="next-block"
+            icono={<Send className="h-4 w-4" />}
+            color="text-sky-500"
+            titulo="Llamar al siguiente bloque"
+          />
+          <SalidaPegada
+            nodeId={id}
+            handleId="on-reply"
+            icono={<MessageSquare className="h-4 w-4" />}
+            color="text-emerald-500"
+            titulo="Cuando responda"
+          />
+          {respondeConectado ? (
+            <SalidaPegada
+              nodeId={id}
+              handleId="no-reply-5m"
+              icono={<Clock className="h-4 w-4" />}
+              color="text-amber-500"
+              titulo="5 minutos sin responder"
+            />
+          ) : null}
+          {cincoMinutosConectado ? (
+            <SalidaPegada
+              nodeId={id}
+              handleId="no-reply-1h"
+              icono={<Clock className="h-4 w-4" />}
+              color="text-orange-500"
+              titulo="1 hora sin responder"
+            />
+          ) : null}
+        </div>
+      ) : null}
     </>
   );
 }
@@ -640,18 +716,6 @@ function AgentNode({ id, data, selected }: NodeProps) {
   const collapsed = nodeData.collapsed ?? false;
   const promptPreview = nodeData.prompt?.trim() ?? "";
 
-  /*
-    Que tiempos mostrar se DEDUCE de las uniones, no se guarda.
-
-    Guardar un "ya revele el de 5 minutos" seria un dato mas para mantener sincronizado y que se
-    puede desincronizar: si despues se borra la union, la fila quedaria mostrando una salida que no
-    lleva a ningun lado. Leyendolo de las uniones siempre dice la verdad, y sobrevive a recargar la
-    pagina sin guardar nada.
-  */
-  const respondeConectado =
-    useNodeConnections({ id, handleType: "source", handleId: "on-reply" }).length > 0;
-  const cincoMinutosConectado =
-    useNodeConnections({ id, handleType: "source", handleId: "no-reply-5m" }).length > 0;
 
   return (
     <>
@@ -716,51 +780,6 @@ function AgentNode({ id, data, selected }: NodeProps) {
               />
             </div>
           </div>
-
-          {/*
-            Las salidas del agente.
-
-            "Siguiente bloque" es por donde sigue la conversacion. "Cuando responda" es la rama de
-            que el cliente contesto.
-
-            Los tiempos aparecen de a uno y solo cuando hacen falta: el de 5 minutos recien cuando
-            "Cuando responda" ya esta conectado, y el de 1 hora recien cuando el de 5 minutos se
-            uso. Mostrar los cuatro de entrada llena la caja de conectores vacios y obliga a
-            decidir todo junto; asi cada uno aparece cuando llega su turno.
-          */}
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium text-foreground">Salidas</p>
-            <SalidaDelAgente
-              handleId="next-block"
-              icono={<CornerDownRight className="h-4 w-4" />}
-              titulo="Siguiente bloque"
-              color="border-slate-600 bg-slate-600"
-            />
-            <SalidaDelAgente
-              handleId="on-reply"
-              icono={<Reply className="h-4 w-4" />}
-              titulo="Cuando responda"
-              color="border-sky-600 bg-sky-600"
-            />
-            {respondeConectado ? (
-              <SalidaDelAgente
-                handleId="no-reply-5m"
-                icono={<Clock className="h-4 w-4" />}
-                titulo="Si no responde"
-                detalle="a los 5 minutos"
-                color="border-amber-600 bg-amber-600"
-              />
-            ) : null}
-            {cincoMinutosConectado ? (
-              <SalidaDelAgente
-                handleId="no-reply-1h"
-                icono={<Clock className="h-4 w-4" />}
-                titulo="Si no responde"
-                detalle="a la hora"
-                color="border-orange-700 bg-orange-700"
-              />
-            ) : null}
-          </div>
         </BaseNodeContent>
         ) : null}
         <Handle
@@ -781,44 +800,42 @@ function AgentNode({ id, data, selected }: NodeProps) {
 }
 
 /**
- * Una salida del agente: icono, nombre y su conector a la derecha.
+ * Una salida pegada debajo del nodo: icono, nombre y su conector a la derecha.
  *
- * Misma forma que las filas de Herramientas, y a proposito: en este lienzo "una fila con un punto
- * al costado" ya significa "de aca sale una linea", y no hay que aprender nada nuevo.
+ * Va como una fila blanca aparte y no dentro del cuerpo del nodo: asi se lee que son SALIDAS de
+ * esa caja y no partes de su contenido. El punto se pone verde cuando ya tiene una linea, para
+ * distinguir de un vistazo lo que esta conectado de lo que falta.
  */
-function SalidaDelAgente({
+function SalidaPegada({
+  nodeId,
   handleId,
   icono,
-  titulo,
-  detalle,
   color,
+  titulo,
 }: {
+  nodeId: string;
   handleId: string;
   icono: React.ReactNode;
-  titulo: string;
-  detalle?: string;
   color: string;
+  titulo: string;
 }) {
+  const conectado =
+    useNodeConnections({ id: nodeId, handleType: "source", handleId }).length > 0;
+
   return (
-    <div
-      className={cn(
-        "nodrag relative flex items-center gap-2 rounded-lg border px-3 py-2",
-        color,
-      )}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <span className="shrink-0 text-white">{icono}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-white">{titulo}</span>
-        {detalle ? (
-          <span className="block text-[10px] leading-3 text-white/80">{detalle}</span>
-        ) : null}
+    <div className="nodrag relative flex items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm">
+      <span className={cn("inline-flex size-5 shrink-0 items-center justify-center", color)}>
+        {icono}
       </span>
+      <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{titulo}</span>
       <Handle
         id={handleId}
         type="source"
         position={Position.Right}
-        className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-white"
+        className={cn(
+          "!-right-2.5 !h-4 !w-4 !border-2 !border-white",
+          conectado ? "!bg-emerald-500" : "!bg-blue-500",
+        )}
       />
     </div>
   );
@@ -2209,6 +2226,8 @@ function buildDefaultGraph(agentName: string): { nodes: Node[]; edges: Edge[] } 
         id: BIENVENIDA_NODE_ID,
         type: "bienvenida",
         position: { x: 380, y: 80 },
+        // Tamano de arranque: desde aca se estira con la manija de la esquina.
+        style: { width: 280, height: 190 },
         data: { texto: "" } satisfies BienvenidaData,
       },
       {
@@ -2368,6 +2387,7 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
           id: BIENVENIDA_NODE_ID,
           type: "bienvenida",
           position: { x: agente.position.x - 380, y: agente.position.y },
+          style: { width: 280, height: 190 },
           data: {
             // Solo si estaba en modo "bienvenida fija": si la escribia la IA no hay texto que
             // rescatar, y el nodo nace vacio, que significa exactamente eso.
