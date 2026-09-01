@@ -19,7 +19,7 @@ import {
   readDiscoveredPhone,
   readLinkedLid,
 } from "@/lib/whatsapp-lid";
-import { syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
+import { marcarCierreDeCompra, syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
 import { syncFunnelStageFromCommercialStage } from "@/lib/funnel-stage-sync";
 import { recalentarLeadSiRespondio } from "@/features/crm/services/lead-temperature";
 import { agendarSeguimientoDeEtapa } from "@/features/crm/services/stage-follow-up";
@@ -2906,6 +2906,35 @@ export async function POST(request: NextRequest) {
 
       if (shouldHandoffToHuman) {
         await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
+      }
+
+      /*
+        Cierre: el cliente entrego datos de compra.
+
+        Hasta ahora esto solo mandaba un WhatsApp a la asesora y pausaba la IA; en el CRM el lead
+        se quedaba donde estaba. Ahora ademas pasa a Caliente y queda anotado para preguntarle a
+        la asesora, en el chat, si se cerro. La venta la sigue marcando una persona.
+
+        Va en after() y con su propio try: es contabilidad interna y no puede demorar ni romper la
+        respuesta al cliente.
+      */
+      // El canal administrativo no alimenta el CRM (mismo criterio que el puente de abajo).
+      if (notifyHumanAction?.reason === "closing" && channel.purpose !== "ADMIN") {
+        after(async () => {
+          try {
+            await marcarCierreDeCompra({
+              workspaceId: channel.workspaceId,
+              contactId: contact.id,
+              conversationId: conversation.id,
+              channelId: channel.id,
+            });
+          } catch (error) {
+            console.warn("[EVOLUTION] cierre_no_marcado", {
+              conversationId: conversation.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        });
       }
 
       if (quickResponseFlow && !quickResponseFlow.replyEveryMessageEnabled) {

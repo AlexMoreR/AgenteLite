@@ -37,6 +37,7 @@ import {
 } from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
 import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
+import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -1133,22 +1134,25 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   // Etapa actual del CRM para el contacto de la conversación seleccionada.
   const selectedContactId = selectedConversation?.contactId ?? null;
-  const selectedContactCrmStage = selectedContactId
+  const selectedContactRow = selectedContactId
     ? await (async () => {
         try {
-          const rows = await prisma.$queryRaw<Array<{ crmStage: string }>>`
-            SELECT c."crmStage"::text AS "crmStage"
+          const rows = await prisma.$queryRaw<Array<{ crmStage: string; metadata: unknown }>>`
+            SELECT c."crmStage"::text AS "crmStage", c."metadata" AS "metadata"
             FROM "Contact" c
             WHERE c."id" = ${selectedContactId}
               AND c."workspaceId" = ${membership.workspace.id}
             LIMIT 1
           `;
-          return rows[0]?.crmStage ?? "NUEVO";
+          return rows[0] ?? null;
         } catch {
-          return "NUEVO";
+          return null;
         }
       })()
-    : "NUEVO";
+    : null;
+  const selectedContactCrmStage = selectedContactRow?.crmStage ?? "NUEVO";
+  // Si a este cliente le falta que alguien diga si se cerro la venta (ver crm-stage-sync).
+  const selectedCierrePendiente = tieneCierrePendiente(selectedContactRow?.metadata);
 
   return (
     <section className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden">
@@ -1252,7 +1256,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         // elegir el guion. Sin esto el panel abría en blanco por no saber en qué etapa está.
         selectedConversation={
           selectedConversation
-            ? { ...selectedConversation, crmStage: selectedContactCrmStage ?? null }
+            ? {
+                ...selectedConversation,
+                crmStage: selectedContactCrmStage ?? null,
+                cierrePendiente: selectedCierrePendiente,
+              }
             : selectedConversation
         }
         selectedConversationTags={selectedConversation?.tags ?? []}

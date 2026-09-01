@@ -63,6 +63,7 @@ import { FichaDeCotizacion } from "@/features/cotizaciones/components/FichaDeCot
 import { CHAT_COMPOSER_RECENT_KEY, type ComposerEmojiTab } from "./chat-inbox-emojis";
 import { MessageBubble } from "./chat-message-bubble";
 import { ComposerEmojiPicker, ComposerSendButton } from "./chat-composer";
+import { AvisoDeCierre } from "./aviso-de-cierre";
 
 const CHAT_MESSAGES_BACKGROUND_BASE_STYLE = {
   // Token por defecto de shadcn: blanco con una tonalidad un poco mas oscura.
@@ -155,6 +156,19 @@ export const ConversationPanel = memo(function ConversationPanel({
   contactPanelHeaderActions,
   canDeleteTags,
 }: ConversationPanelProps) {
+  /**
+   * Ya se respondio la pregunta del cierre en esta pantalla.
+   *
+   * El servidor tambien deja de mandarla, pero eso llega en el proximo repintado: sin este
+   * estado la barra se queda un rato mas y parece que el toque no hizo nada.
+   */
+  const [cierreRespondido, setCierreRespondido] = useState(false);
+  const idDelChat = renderedConversation?.contactId ?? null;
+  useEffect(() => {
+    // Al cambiar de chat vuelve a preguntarse por el nuevo cliente.
+    setCierreRespondido(false);
+  }, [idDelChat]);
+
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
@@ -1053,6 +1067,19 @@ export const ConversationPanel = memo(function ConversationPanel({
                   </div>
                 )}
               </div>
+            ) : null}
+            {/*
+              La pregunta del cierre, arriba de los mensajes.
+
+              Va acá y no en el Kanban porque este es el momento y el lugar donde la asesora sabe
+              si se cerró. Pedirle que se acuerde de ir a arrastrar la tarjeta despues es
+              exactamente lo que no pasaba: 4 ventas registradas en toda la historia del CRM.
+            */}
+            {renderedConversation?.cierrePendiente && renderedConversation.contactId && !cierreRespondido ? (
+              <AvisoDeCierre
+                contactId={renderedConversation.contactId}
+                alResponder={() => setCierreRespondido(true)}
+              />
             ) : null}
             <div className="relative min-h-0 flex-1">
               <div

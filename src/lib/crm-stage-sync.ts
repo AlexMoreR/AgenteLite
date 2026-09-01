@@ -163,3 +163,101 @@ export async function syncCrmStageFromCommercialStage(input: {
 
   return target;
 }
+
+/** Donde queda anotado que el cliente entrego datos de compra y falta confirmar si se cerro. */
+export const CLAVE_CIERRE_PENDIENTE = "cierrePendienteEn";
+
+/**
+ * El cliente entrego datos de compra: se marca el momento y el lead pasa a Caliente.
+ *
+ * Esta señal ya existia y no servia para nada en el CRM. Cuando alguien manda su nombre y su
+ * direccion despues de que se le mostro precio y fotos, el sistema lo reconoce, le avisa por
+ * WhatsApp a la asesora y pausa la IA. Pero el lead se quedaba donde estaba: medido el
+ * 31-ago-2026, de 10 clientes que entregaron datos de compra, 9 seguian en "Frio" y 1 en "Tibio".
+ * Ninguno en "Ganado", y el CRM entero tenia 4 ventas registradas en toda su historia.
+ *
+ * Lo que se hace aca son dos cosas, y NINGUNA es dar la venta por hecha:
+ *
+ *  1. Mover el lead a Caliente, que es hasta donde el bot tiene permitido llegar. Dar la
+ *     direccion es la intencion de compra mas fuerte que existe, y merece esa etapa.
+ *  2. Dejar la marca para que en el chat aparezca la pregunta "¿se cerro?", con un toque para
+ *     responderla.
+ *
+ * "Ganado" lo sigue poniendo una persona, a proposito: una venta es plata recibida, no una
+ * direccion escrita. Marcarla sola cambiaria un numero que miente por abajo por uno que miente
+ * por arriba, y ese es peor -queda trabado y alimenta las vistas de plata-.
+ */
+export async function marcarCierreDeCompra(input: {
+  workspaceId: string;
+  contactId: string;
+  conversationId: string;
+  channelId: string | null;
+  recordActivity?: boolean;
+}): Promise<boolean> {
+  const contact = await prisma.contact.findFirst({
+    where: { id: input.contactId, workspaceId: input.workspaceId },
+    select: { crmStage: true, metadata: true, excludedFromCrm: true },
+  });
+
+  // Un numero marcado fuera del CRM no es un lead: no se le mueve la etapa ni se le pregunta nada.
+  if (!contact || contact.excludedFromCrm) {
+    return false;
+  }
+
+  const actual = contact.crmStage as CrmStage;
+  // Ya cerrado por una persona: manda esa decision, igual que en el puente del embudo.
+  if (actual === "GANADO" || actual === "PERDIDO") {
+    return false;
+  }
+
+  const metadata =
+    contact.metadata && typeof contact.metadata === "object" && !Array.isArray(contact.metadata)
+      ? (contact.metadata as Record<string, unknown>)
+      : {};
+
+  // Si ya estaba preguntado y sin responder, no se pisa la fecha: interesa CUANDO entrego los
+  // datos la primera vez, no la ultima vez que escribio.
+  const yaMarcado = typeof metadata[CLAVE_CIERRE_PENDIENTE] === "string";
+
+  await prisma.contact.update({
+    where: { id: input.contactId },
+    data: {
+      ...(yaMarcado ? {} : { metadata: { ...metadata, [CLAVE_CIERRE_PENDIENTE]: new Date().toISOString() } }),
+      // Solo hacia adelante: si ya venia en Caliente se deja como esta.
+      ...(BOT_STAGE_ORDER.indexOf(actual) < BOT_STAGE_ORDER.indexOf("NEGOCIACION")
+        ? { crmStage: "NEGOCIACION" as CrmStage }
+        : {}),
+    },
+  });
+
+  const avanzo = BOT_STAGE_ORDER.indexOf(actual) < BOT_STAGE_ORDER.indexOf("NEGOCIACION");
+  if (avanzo) {
+    await createFollowsFromRulesForSource({
+      workspaceId: input.workspaceId,
+      contactId: input.contactId,
+      sourceType: "CRM_STAGE",
+      sourceId: "NEGOCIACION",
+    }).catch(() => {});
+
+    if (input.recordActivity !== false) {
+      await recordConversationActivity({
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        channelId: input.channelId,
+        contactId: input.contactId,
+        kind: "stage_changed",
+        text: `El cliente entregó datos de compra: la etapa pasó a "${CRM_STAGE_META.NEGOCIACION.label}"`,
+      }).catch(() => {});
+    }
+  }
+
+  return true;
+}
+
+/** Si a este contacto le falta responder "¿se cerró?". */
+export function tieneCierrePendiente(metadata: unknown): boolean {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return false;
+  }
+  return typeof (metadata as Record<string, unknown>)[CLAVE_CIERRE_PENDIENTE] === "string";
+}

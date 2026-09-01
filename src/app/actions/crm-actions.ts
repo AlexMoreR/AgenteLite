@@ -13,6 +13,7 @@ import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { buildSnoozeMetadata } from "@/lib/lead-snooze";
 import { CRM_STAGE_META, getCrmLostReasonLabel } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
+import { CLAVE_CIERRE_PENDIENTE } from "@/lib/crm-stage-sync";
 
 const updateCrmStageSchema = z.object({
   contactId: z.string().trim().min(1),
@@ -250,5 +251,64 @@ export async function snoozeLeadAction(input: {
   });
 
   revalidatePath("/cliente/crm/mi-dia");
+  return { ok: true };
+}
+
+/**
+ * La respuesta a "¿se cerró la venta?".
+ *
+ * La pregunta aparece en el chat cuando el cliente entregó datos de compra (ver crm-stage-sync).
+ * Se responde de un toque, ahí donde la asesora ya está trabajando, en vez de tener que acordarse
+ * de ir al Kanban a arrastrar la tarjeta después: por eso el CRM tenía 4 ventas registradas
+ * mientras se vendía todos los días.
+ *
+ * "Todavía no" NO es "se perdió": solo saca la pregunta. El lead queda en Caliente, que es donde
+ * lo dejó la señal de cierre, y sigue su curso normal.
+ */
+export async function responderCierreDeCompraAction(input: {
+  contactId: string;
+  seCerro: boolean;
+}): Promise<{ ok?: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+
+  const contact = await prisma.contact.findFirst({
+    where: { id: input.contactId.trim(), workspaceId: membership.workspace.id },
+    select: { id: true, metadata: true },
+  });
+  if (!contact) {
+    return { error: "Contacto no encontrado" };
+  }
+
+  if (input.seCerro) {
+    // Se reusa la accion de siempre: pone la etapa, la fecha de venta, dispara los seguimientos y
+    // deja la nota en el chat. Marcar la venta desde acá tiene que dejar el CRM exactamente igual
+    // que arrastrar la tarjeta a mano, o serían dos ventas distintas segun por donde se marcó.
+    const resultado = await updateCrmStageAction({ contactId: contact.id, status: "GANADO" });
+    if (resultado?.error) {
+      return { error: resultado.error };
+    }
+  }
+
+  // La pregunta se saca siempre: ya fue respondida.
+  const metadata =
+    contact.metadata && typeof contact.metadata === "object" && !Array.isArray(contact.metadata)
+      ? { ...(contact.metadata as Record<string, unknown>) }
+      : {};
+  delete metadata[CLAVE_CIERRE_PENDIENTE];
+  await prisma.contact.update({
+    where: { id: contact.id },
+    data: { metadata: metadata as Prisma.InputJsonValue },
+  });
+
+  revalidatePath("/cliente/chats");
+  revalidatePath("/cliente/crm");
   return { ok: true };
 }

@@ -27,6 +27,8 @@ export type LoadedAgentConversationDetail = {
     name: string | null;
     phoneNumber: string;
     avatarUrl: string | null;
+    /** De aca sale si falta responder "¿se cerro la venta?" (ver crm-stage-sync). */
+    metadata: unknown;
   };
   channel: {
     id: string;
@@ -127,6 +129,7 @@ export async function loadAgentConversationDetail(input: {
             phoneNumber: true,
             avatarUrl: true,
             crmStage: true,
+            metadata: true,
           },
         },
         channel: {

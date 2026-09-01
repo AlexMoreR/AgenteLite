@@ -9,6 +9,7 @@ import { scheduleSingleContactAvatarRefresh } from "@/lib/contact-avatar-refresh
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
 
 const INITIAL_MESSAGE_BATCH_SIZE = 10;
 const HISTORY_MESSAGE_BATCH_SIZE = 10;
@@ -320,6 +321,10 @@ export async function GET(request: Request) {
       // server component: solo los canales con instancia de Evolution guardan historial (evogo
       // responde 404), y sin esto el boton aparecia y fallaba en la cara de la asesora.
       crmStage: conversation.contact.crmStage ?? null,
+      // Si al abrir el chat hay que preguntarle a la asesora si se cerro la venta. Viaja por ACA
+      // ademas de por el render del servidor: abrir un chat con clic no recarga la pagina, asi que
+      // lo que solo arma el servidor en la carga inicial no existe en el uso real.
+      cierrePendiente: tieneCierrePendiente(conversation.contact.metadata),
       channelId: conversation.channel?.id ?? null,
       canImportHistory: Boolean(conversation.channel?.evolutionInstanceName),
       messages,
