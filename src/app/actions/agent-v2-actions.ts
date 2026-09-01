@@ -313,6 +313,7 @@ export async function publishAgentV2Action(input: {
   const edges = Array.isArray(graph?.edges) ? graph.edges : [];
 
   const agentNode = nodes.find((node) => node.type === "agent");
+  const bienvenidaNode = nodes.find((node) => node.type === "bienvenida");
   // Solo cuentan los nodos Producto/Flujo realmente conectados al Agente (handles
   // tool-products / tool-flows). Sin conexión, la herramienta no los considera.
   const agentToolTargets = new Set(
@@ -383,8 +384,25 @@ export async function publishAgentV2Action(input: {
 
   const agentData = agentNode?.data ?? {};
   const agentPrompt = asString(agentData.prompt);
-  const fixedWelcome = agentData.fixedWelcome === true;
-  const welcomeText = asString(agentData.welcome);
+  /*
+    La bienvenida sale de su propio nodo.
+
+    Vivia adentro del nodo Agente y se saco afuera, entre "Comenzar" y "Agente", para que el grafo
+    se lea en el orden en que pasan las cosas. Si esto siguiera leyendo del Agente, mover la caja
+    habria dejado al agente sin saludo en produccion sin que nada avisara.
+
+    El texto del nodo manda; si no hay nodo (un grafo viejo que todavia no se abrio en el editor)
+    se sigue leyendo de donde estaba. Y ya no hace falta un interruptor de "bienvenida fija": que
+    haya texto escrito ES la decision de tener una bienvenida fija; vacio significa que la escribe
+    la IA.
+  */
+  const textoDeBienvenida = bienvenidaNode
+    ? asString(bienvenidaNode.data?.texto)
+    : asString(agentData.welcome);
+  const fixedWelcome = bienvenidaNode
+    ? textoDeBienvenida.trim().length > 0
+    : agentData.fixedWelcome === true;
+  const welcomeText = textoDeBienvenida;
   const consultProducts = agentData.consultProducts !== false;
   const consultFlows = agentData.consultFlows !== false;
 

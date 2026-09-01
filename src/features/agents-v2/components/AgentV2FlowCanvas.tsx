@@ -15,6 +15,8 @@ import {
   Bell,
   Bot,
   Boxes,
+  Clock,
+  CornerDownRight,
   Copy,
   Filter,
   Headset,
@@ -27,6 +29,7 @@ import {
   Pencil,
   Phone,
   Plus,
+  Reply,
   Rocket,
   ShoppingBag,
   Split,
@@ -96,6 +99,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 const AGENT_NODE_ID = "agent-root";
+const BIENVENIDA_NODE_ID = "bienvenida-root";
 
 const SELECTED_NODE_CLASS =
   "border-blue-400 shadow-[0_24px_50px_-28px_rgba(37,99,235,0.52)]";
@@ -370,6 +374,77 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
   );
 }
 
+type PreguntaData = {
+  texto: string;
+  collapsed?: boolean;
+  onChange?: (id: string, patch: NodeDataPatch) => void;
+};
+
+/**
+ * Una pregunta al cliente, con UNA salida: la respuesta.
+ *
+ * La caja dice que se le pregunta; lo que cuelga del conector es que se hace con lo que conteste,
+ * y puede ser un Texto o un Flujo indistintamente. El conector no elige: se le engancha lo que
+ * corresponda.
+ */
+function PreguntaNode({ id, data, selected }: NodeProps) {
+  const nodeData = data as PreguntaData;
+  const collapsed = nodeData.collapsed ?? false;
+
+  return (
+    <>
+      <NodeActionsToolbar
+        selected={selected}
+        collapsed={collapsed}
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
+      />
+      <Handle
+        id="target"
+        type="target"
+        position={Position.Left}
+        className="!h-4 !w-4 !border-2 !border-white !bg-teal-600"
+      />
+      <BaseNode className={cn("w-[280px]", selected && SELECTED_NODE_CLASS)}>
+        <BaseNodeHeader className="items-center justify-start gap-2.5">
+          <span className="inline-flex shrink-0 items-center justify-center">
+            <HelpCircle className="h-4 w-4 text-teal-600" />
+          </span>
+          <BaseNodeHeaderTitle className="truncate">Pregunta</BaseNodeHeaderTitle>
+        </BaseNodeHeader>
+        {!collapsed ? (
+          <BaseNodeContent>
+            <textarea
+              className="nodrag min-h-[72px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-[12px] leading-5 text-foreground outline-none focus:border-[var(--primary)]"
+              value={nodeData.texto ?? ""}
+              placeholder="Que se le pregunta al cliente"
+              onChange={(evento) => nodeData.onChange?.(id, { texto: evento.target.value })}
+            />
+            <div
+              className="nodrag relative mt-2 flex items-center gap-2 rounded-lg border border-teal-600 bg-teal-600 px-3 py-2"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Reply className="h-4 w-4 shrink-0 text-white" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-white">La respuesta</span>
+                <span className="block text-[10px] leading-3 text-white/80">
+                  Enganchale un Texto o un Flujo
+                </span>
+              </span>
+              <Handle
+                id="respuesta"
+                type="source"
+                position={Position.Right}
+                className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-white"
+              />
+            </div>
+          </BaseNodeContent>
+        ) : null}
+      </BaseNode>
+    </>
+  );
+}
+
+
 type AgentData = {
   name: string;
   welcome: string;
@@ -564,7 +639,19 @@ function AgentNode({ id, data, selected }: NodeProps) {
   const [editorOpen, setEditorOpen] = useState(false);
   const collapsed = nodeData.collapsed ?? false;
   const promptPreview = nodeData.prompt?.trim() ?? "";
-  const welcomePreview = nodeData.welcome?.trim() ?? "";
+
+  /*
+    Que tiempos mostrar se DEDUCE de las uniones, no se guarda.
+
+    Guardar un "ya revele el de 5 minutos" seria un dato mas para mantener sincronizado y que se
+    puede desincronizar: si despues se borra la union, la fila quedaria mostrando una salida que no
+    lleva a ningun lado. Leyendolo de las uniones siempre dice la verdad, y sobrevive a recargar la
+    pagina sin guardar nada.
+  */
+  const respondeConectado =
+    useNodeConnections({ id, handleType: "source", handleId: "on-reply" }).length > 0;
+  const cincoMinutosConectado =
+    useNodeConnections({ id, handleType: "source", handleId: "no-reply-5m" }).length > 0;
 
   return (
     <>
@@ -593,14 +680,6 @@ function AgentNode({ id, data, selected }: NodeProps) {
         {!collapsed ? (
         <BaseNodeContent>
           <div className="nodrag space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-foreground">Bienvenida</p>
-              <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-                {nodeData.fixedWelcome
-                  ? welcomePreview || "Mensaje de bienvenida sin definir."
-                  : "La genera la IA segun el prompt principal."}
-              </p>
-            </div>
             <div className="space-y-1">
               <p className="text-xs font-medium text-foreground">Prompt principal</p>
               <p className="line-clamp-3 text-[11px] leading-4 text-muted-foreground">
@@ -637,6 +716,51 @@ function AgentNode({ id, data, selected }: NodeProps) {
               />
             </div>
           </div>
+
+          {/*
+            Las salidas del agente.
+
+            "Siguiente bloque" es por donde sigue la conversacion. "Cuando responda" es la rama de
+            que el cliente contesto.
+
+            Los tiempos aparecen de a uno y solo cuando hacen falta: el de 5 minutos recien cuando
+            "Cuando responda" ya esta conectado, y el de 1 hora recien cuando el de 5 minutos se
+            uso. Mostrar los cuatro de entrada llena la caja de conectores vacios y obliga a
+            decidir todo junto; asi cada uno aparece cuando llega su turno.
+          */}
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-foreground">Salidas</p>
+            <SalidaDelAgente
+              handleId="next-block"
+              icono={<CornerDownRight className="h-4 w-4" />}
+              titulo="Siguiente bloque"
+              color="border-slate-600 bg-slate-600"
+            />
+            <SalidaDelAgente
+              handleId="on-reply"
+              icono={<Reply className="h-4 w-4" />}
+              titulo="Cuando responda"
+              color="border-sky-600 bg-sky-600"
+            />
+            {respondeConectado ? (
+              <SalidaDelAgente
+                handleId="no-reply-5m"
+                icono={<Clock className="h-4 w-4" />}
+                titulo="Si no responde"
+                detalle="a los 5 minutos"
+                color="border-amber-600 bg-amber-600"
+              />
+            ) : null}
+            {cincoMinutosConectado ? (
+              <SalidaDelAgente
+                handleId="no-reply-1h"
+                icono={<Clock className="h-4 w-4" />}
+                titulo="Si no responde"
+                detalle="a la hora"
+                color="border-orange-700 bg-orange-700"
+              />
+            ) : null}
+          </div>
         </BaseNodeContent>
         ) : null}
         <Handle
@@ -653,6 +777,50 @@ function AgentNode({ id, data, selected }: NodeProps) {
         onChange={(patch) => nodeData.onChange?.(id, patch)}
       />
     </>
+  );
+}
+
+/**
+ * Una salida del agente: icono, nombre y su conector a la derecha.
+ *
+ * Misma forma que las filas de Herramientas, y a proposito: en este lienzo "una fila con un punto
+ * al costado" ya significa "de aca sale una linea", y no hay que aprender nada nuevo.
+ */
+function SalidaDelAgente({
+  handleId,
+  icono,
+  titulo,
+  detalle,
+  color,
+}: {
+  handleId: string;
+  icono: React.ReactNode;
+  titulo: string;
+  detalle?: string;
+  color: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "nodrag relative flex items-center gap-2 rounded-lg border px-3 py-2",
+        color,
+      )}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <span className="shrink-0 text-white">{icono}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-white">{titulo}</span>
+        {detalle ? (
+          <span className="block text-[10px] leading-3 text-white/80">{detalle}</span>
+        ) : null}
+      </span>
+      <Handle
+        id={handleId}
+        type="source"
+        position={Position.Right}
+        className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-white"
+      />
+    </div>
   );
 }
 
@@ -1930,6 +2098,8 @@ function NotificarEditorDialog({
 
 const nodeTypes = {
   entrada: EntradaNode,
+  bienvenida: BienvenidaNode,
+  pregunta: PreguntaNode,
   agent: AgentNode,
   producto: ProductoNode,
   condicion: ConditionNode,
@@ -2007,7 +2177,9 @@ type StoredGraph = {
     id: string;
     type: string;
     position: { x: number; y: number };
-    data: Partial<EntradaData> &
+    data: Partial<BienvenidaData> &
+      Partial<PreguntaData> &
+      Partial<EntradaData> &
       Partial<AgentData> &
       Partial<ProductoData> &
       Partial<ConditionData> &
@@ -2034,9 +2206,15 @@ function buildDefaultGraph(agentName: string): { nodes: Node[]; edges: Edge[] } 
         } satisfies EntradaData,
       },
       {
+        id: BIENVENIDA_NODE_ID,
+        type: "bienvenida",
+        position: { x: 380, y: 80 },
+        data: { texto: "" } satisfies BienvenidaData,
+      },
+      {
         id: AGENT_NODE_ID,
         type: "agent",
-        position: { x: 440, y: 80 },
+        position: { x: 760, y: 80 },
         data: {
           name: agentName,
           welcome: "",
@@ -2049,9 +2227,18 @@ function buildDefaultGraph(agentName: string): { nodes: Node[]; edges: Edge[] } 
     ],
     edges: [
       {
-        id: "entry-general-agent",
+        id: "entry-general-bienvenida",
         type: "agentEdge",
         source: "entry-general",
+        sourceHandle: "source",
+        target: BIENVENIDA_NODE_ID,
+        targetHandle: "target",
+        markerEnd: { type: MarkerType.ArrowClosed },
+      },
+      {
+        id: "bienvenida-agent",
+        type: "agentEdge",
+        source: BIENVENIDA_NODE_ID,
         sourceHandle: "source",
         target: AGENT_NODE_ID,
         targetHandle: "target",
@@ -2072,6 +2259,12 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
       type: node.type,
       position: node.position,
       data:
+        node.type === "bienvenida"
+          ? ({
+              texto: node.data.texto ?? "",
+              collapsed: node.data.collapsed === true,
+            } satisfies BienvenidaData)
+          :
         node.type === "agent"
           ? ({
               name: node.data.name ?? agentName,
@@ -2156,6 +2349,50 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
       type: "agentEdge",
       markerEnd: { type: MarkerType.ArrowClosed },
     }));
+
+    /*
+      Grafos viejos: la bienvenida vivia DENTRO del nodo Agente.
+
+      Al sacarla a su propio nodo, un agente ya publicado se abriria sin ella y el texto se
+      perderia en el primer guardado. Asi que se le crea el nodo con lo que tenia y se lo mete en
+      el medio: lo que iba a parar al Agente ahora pasa antes por la Bienvenida.
+
+      Se hace al CARGAR y no con una migracion de base: el grafo es un JSON que ya se lee entero
+      aca, y tocar la base de produccion por esto seria mucho mas riesgo del que justifica.
+    */
+    if (!nodes.some((node) => node.type === "bienvenida")) {
+      const agente = nodes.find((node) => node.type === "agent");
+      if (agente) {
+        const datos = agente.data as AgentData;
+        nodes.push({
+          id: BIENVENIDA_NODE_ID,
+          type: "bienvenida",
+          position: { x: agente.position.x - 380, y: agente.position.y },
+          data: {
+            // Solo si estaba en modo "bienvenida fija": si la escribia la IA no hay texto que
+            // rescatar, y el nodo nace vacio, que significa exactamente eso.
+            texto: datos?.fixedWelcome ? (datos.welcome ?? "") : "",
+          } satisfies BienvenidaData,
+        });
+
+        for (const edge of edges) {
+          if (edge.target === agente.id) {
+            edge.target = BIENVENIDA_NODE_ID;
+            edge.targetHandle = "target";
+          }
+        }
+        edges.push({
+          id: "bienvenida-agent",
+          type: "agentEdge",
+          source: BIENVENIDA_NODE_ID,
+          sourceHandle: "source",
+          target: agente.id,
+          targetHandle: "target",
+          markerEnd: { type: MarkerType.ArrowClosed },
+        });
+      }
+    }
+
     return { nodes, edges };
   } catch {
     return buildDefaultGraph(agentName);
@@ -2169,6 +2406,12 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
       type: node.type ?? "entrada",
       position: node.position,
       data:
+        node.type === "bienvenida"
+          ? {
+              texto: (node.data as BienvenidaData).texto,
+              collapsed: (node.data as BienvenidaData).collapsed === true,
+            }
+          :
         node.type === "agent"
           ? {
               name: (node.data as AgentData).name,
@@ -2631,6 +2874,19 @@ function FlowCanvasInner({
     setNodes((current) => [...current, newNode]);
   }, [setNodes, getSpawnPosition]);
 
+  const addPregunta = useCallback(() => {
+    const newId = `pregunta-${crypto.randomUUID()}`;
+    setNodes((current) => [
+      ...current,
+      {
+        id: newId,
+        type: "pregunta",
+        position: getSpawnPosition(),
+        data: { texto: "" } satisfies PreguntaData,
+      },
+    ]);
+  }, [setNodes, getSpawnPosition]);
+
   const addFlujo = useCallback(() => {
     flujoCount.current += 1;
     const newId = `flujo-${crypto.randomUUID()}`;
@@ -2931,6 +3187,7 @@ function FlowCanvasInner({
               {[
                 { label: "Producto", icon: ShoppingBag, color: "text-emerald-600", onClick: addProduct },
                 { label: "Condición", icon: Split, color: "text-amber-600", onClick: addCondition },
+                { label: "Pregunta", icon: HelpCircle, color: "text-teal-600", onClick: addPregunta },
                 { label: "Texto", icon: MessageSquare, color: "text-sky-600", onClick: addText },
                 { label: "Flujo", icon: Workflow, color: "text-indigo-600", onClick: addFlujo },
                 { label: "Seguimiento", icon: Bell, color: "text-rose-500", onClick: addSeguimiento },
