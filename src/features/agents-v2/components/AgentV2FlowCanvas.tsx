@@ -343,6 +343,7 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
     useNodeConnections({ id, handleType: "source", handleId: "on-reply" }).length > 0;
   const cincoMinutosConectado =
     useNodeConnections({ id, handleType: "source", handleId: "no-reply-5m" }).length > 0;
+  const [editando, setEditando] = useState(false);
 
   return (
     <>
@@ -383,21 +384,48 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
           <BaseNodeHeaderTitle className="truncate">Bienvenida</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         {!collapsed ? (
-          <BaseNodeContent>
+          <BaseNodeContent className="flex min-h-0 flex-1 flex-col overflow-auto">
             {/*
-              El texto va suelto, sin caja adentro de la caja.
+              El texto se ve, no se edita todo el tiempo. Igual que en el mapa de ideas.
 
-              Tenia el marco y la barra de un campo de formulario: una caja dentro de otra, con el
-              mensaje asomando por una ventanita de cuatro renglones. El nodo YA es el contenedor.
-              Sin marco y ocupando todo el alto, la caja del grafo muestra exactamente lo que le va
-              a llegar al cliente.
+              Un campo de texto siempre puesto trae su marco y su barra de desplazamiento, y el
+              mensaje asomaba por una ventanita de cuatro renglones con flechitas al costado. Y
+              sobre un campo de texto el dedo escribe o marca letras: no arrastra, asi que en el
+              celular la caja se volvia dificil de mover.
+
+              Ahora se ve el texto plano y el doble clic entra a escribir, que es como funciona el
+              otro lienzo de la app: se aprende una vez y sirve en los dos.
             */}
-            <textarea
-              className="nodrag h-full w-full resize-none border-0 bg-transparent p-0 text-[12px] leading-5 text-foreground outline-none focus:ring-0"
-              value={texto}
-              placeholder="El primer mensaje que recibe el cliente. Si lo dejas vacio, lo escribe la IA."
-              onChange={(evento) => nodeData.onChange?.(id, { texto: evento.target.value })}
-            />
+            <div
+              className="min-h-0 flex-1"
+              onDoubleClick={() => setEditando(true)}
+              title={editando ? undefined : "Doble clic para escribir"}
+              role="presentation"
+            >
+              {editando ? (
+                <textarea
+                  autoFocus
+                  value={texto}
+                  onChange={(evento) => nodeData.onChange?.(id, { texto: evento.target.value })}
+                  onBlur={() => setEditando(false)}
+                  onKeyDown={(evento) => {
+                    if (evento.key === "Escape") {
+                      evento.currentTarget.blur();
+                    }
+                  }}
+                  placeholder="El primer mensaje que recibe el cliente. Si lo dejas vacio, lo escribe la IA."
+                  className="nodrag h-full min-h-0 w-full resize-none border-0 bg-transparent p-0 text-[12px] leading-5 text-foreground outline-none focus:ring-0"
+                />
+              ) : (
+                <p className="whitespace-pre-wrap break-words text-[12px] leading-5 text-foreground">
+                  {texto || (
+                    <span className="text-muted-foreground">
+                      El primer mensaje que recibe el cliente. Si lo dejas vacio, lo escribe la IA.
+                    </span>
+                  )}
+                </p>
+              )}
+            </div>
           </BaseNodeContent>
         ) : null}
       </BaseNode>
