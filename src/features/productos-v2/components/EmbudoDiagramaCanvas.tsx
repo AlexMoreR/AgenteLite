@@ -18,7 +18,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, Check, Clock, Loader2 } from "lucide-react";
+import { ArrowLeft, Check, Clock, Loader2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveProductFunnelAction } from "@/app/actions/product-playbook-actions";
@@ -36,6 +36,19 @@ export type EtapaDelEmbudo = {
   script: string;
   followUps: SeguimientoDeEmbudo[];
 };
+
+/*
+  La escalera de esperas, la misma que en el constructor del agente.
+
+  Insistir a los cinco minutos sirve mientras el cliente todavia tiene el telefono en la mano; a
+  los tres dias ya es otra conversacion. Se agregan de a una con el "+", no aparecen las cuatro.
+*/
+const ESCALERA = [
+  { timeType: "MINUTES", timeValue: 5 },
+  { timeType: "HOURS", timeValue: 1 },
+  { timeType: "DAYS", timeValue: 1 },
+  { timeType: "DAYS", timeValue: 3 },
+] as const;
 
 /** Como se lee un tiempo de espera. La base guarda MINUTES/HOURS/DAYS y un numero. */
 const UNIDAD: Record<string, string> = {
@@ -60,6 +73,9 @@ type DatosDeEtapa = {
   followUps: SeguimientoDeEmbudo[];
   perdidos?: { valor: number; pct: number };
   onChange: (stage: string, campo: "goal" | "script", valor: string) => void;
+  onSeguimiento: (stage: string, posicion: number, texto: string) => void;
+  onAgregarSeguimiento: (stage: string) => void;
+  onBorrarSeguimiento: (stage: string, posicion: number) => void;
   stage: string;
 };
 
@@ -137,45 +153,59 @@ function EtapaNode({ data }: NodeProps) {
           </div>
         </div>
 
-        {/*
-          Los "si no contesta" de esta etapa.
+      </div>
 
-          Es la mitad del embudo que faltaba dibujar: el guion dice que se manda cuando el cliente
-          responde, y esto dice que pasa cuando NO responde, que -medido en este mismo producto- es
-          el 100% de los que se caen. Sin verlos, el diagrama muestra el camino bueno y esconde el
-          que de verdad ocurre.
+      {/*
+        Las esperas van PEGADAS abajo de la caja, no adentro.
 
-          Se muestran, no se editan: se cargan desde la lista, donde ademas se escribe el mensaje
-          de cada uno.
-        */}
-        {d.followUps.length > 0 ? (
-          <div className="space-y-1 border-t border-border px-3 py-2.5">
-            {d.followUps.map((seguimiento, posicion) => (
-              <div
-                key={`${d.stage}-${posicion}`}
-                className="flex items-start gap-2 rounded-lg bg-amber-50 px-2.5 py-1.5 dark:bg-amber-950/40"
-              >
-                <Clock className="mt-0.5 h-3 w-3 shrink-0 text-amber-600 dark:text-amber-400" />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[11px] font-medium text-amber-800 dark:text-amber-300">
-                    {comoSeLee(seguimiento)}
-                  </span>
-                  {seguimiento.content ? (
-                    <span className="block truncate text-[11px] leading-4 text-muted-foreground">
-                      {seguimiento.content}
-                    </span>
-                  ) : null}
-                </span>
-              </div>
-            ))}
+        Es la misma forma que en el constructor del agente: una fila con su icono y su punto al
+        costado. Adentro de la caja se leian como un renglon mas del guion; afuera se leen como lo
+        que son, salidas de esta etapa.
+
+        Aca esta la mitad del embudo que faltaba: el guion dice que se manda cuando el cliente
+        responde, y esto dice que pasa cuando NO responde, que en este producto es el 100% de los
+        que se caen.
+      */}
+      <div className="mt-1.5 space-y-1.5" style={{ width: ANCHO }}>
+        {d.followUps.map((seguimiento, posicion) => (
+          <div
+            key={`${d.stage}-${posicion}`}
+            className="nodrag flex items-start gap-2 rounded-xl border border-border bg-card px-3 py-2 shadow-sm"
+          >
+            <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[12px] font-medium text-foreground">
+                {comoSeLee(seguimiento)}
+              </span>
+              <textarea
+                rows={2}
+                value={seguimiento.content}
+                placeholder="Que se le manda. Sin mensaje no se guarda."
+                onChange={(evento) => d.onSeguimiento(d.stage, posicion, evento.target.value)}
+                className="mt-1 w-full resize-y rounded-lg border border-border bg-background px-2 py-1 text-[11px] leading-4 text-foreground outline-none focus:border-[var(--primary)]"
+              />
+            </span>
+            <button
+              type="button"
+              onClick={() => d.onBorrarSeguimiento(d.stage, posicion)}
+              aria-label="Quitar esta espera"
+              className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
-        ) : (
-          <div className="border-t border-border px-3 py-2.5">
-            <p className="text-[11px] leading-4 text-muted-foreground">
-              Sin “si no contesta”. Si el cliente se queda callado en esta etapa, no pasa nada.
-            </p>
-          </div>
-        )}
+        ))}
+
+        {d.followUps.length < ESCALERA.length ? (
+          <button
+            type="button"
+            onClick={() => d.onAgregarSeguimiento(d.stage)}
+            className="nodrag flex w-full items-center gap-2 rounded-xl border border-dashed border-border px-3 py-2 text-[12px] text-muted-foreground transition hover:border-solid hover:bg-muted hover:text-foreground"
+          >
+            <Plus className="h-4 w-4 shrink-0" />
+            Si no contesta
+          </button>
+        ) : null}
       </div>
       <Handle
         type="source"
@@ -224,6 +254,59 @@ function Lienzo({
   */
   const etapasRef = useRef(etapas);
   etapasRef.current = etapas;
+
+  const cambiarSeguimiento = useCallback((stage: string, posicion: number, texto: string) => {
+    setHayCambios(true);
+    setEtapas(
+      etapasRef.current.map((item) =>
+        item.stage === stage
+          ? {
+              ...item,
+              followUps: item.followUps.map((seguimiento, indice) =>
+                indice === posicion ? { ...seguimiento, content: texto } : seguimiento,
+              ),
+            }
+          : item,
+      ),
+    );
+  }, []);
+
+  /*
+    La espera nueva toma el siguiente escalon que falte.
+
+    Se elige por posicion y no se deja escribir cualquier numero: dos productos con "a los 5
+    minutos" y "a los 7 minutos" no se pueden comparar entre si, y nadie va a poder decir cual de
+    los dos anda mejor.
+  */
+  const agregarSeguimiento = useCallback((stage: string) => {
+    setHayCambios(true);
+    setEtapas(
+      etapasRef.current.map((item) => {
+        if (item.stage !== stage || item.followUps.length >= ESCALERA.length) {
+          return item;
+        }
+        const siguiente = ESCALERA[item.followUps.length];
+        return {
+          ...item,
+          followUps: [
+            ...item.followUps,
+            { timeType: siguiente.timeType, timeValue: siguiente.timeValue, content: "" },
+          ],
+        };
+      }),
+    );
+  }, []);
+
+  const borrarSeguimiento = useCallback((stage: string, posicion: number) => {
+    setHayCambios(true);
+    setEtapas(
+      etapasRef.current.map((item) =>
+        item.stage === stage
+          ? { ...item, followUps: item.followUps.filter((_, indice) => indice !== posicion) }
+          : item,
+      ),
+    );
+  }, []);
 
   const cambiar = useCallback((stage: string, campo: "goal" | "script", valor: string) => {
     setHayCambios(true);
@@ -279,10 +362,13 @@ function Lienzo({
             perdidos: perdidosEnEtapa[nodo.id],
             stage: nodo.id,
             onChange: cambiar,
+            onSeguimiento: cambiarSeguimiento,
+            onAgregarSeguimiento: agregarSeguimiento,
+            onBorrarSeguimiento: borrarSeguimiento,
           } satisfies DatosDeEtapa as unknown as Record<string, unknown>,
         };
       }),
-    [nodes, etapas, perdidosEnEtapa, cambiar],
+    [nodes, etapas, perdidosEnEtapa, cambiar, cambiarSeguimiento, agregarSeguimiento, borrarSeguimiento],
   );
 
   const guardar = async () => {
