@@ -10,6 +10,7 @@ import {
   MarkerType,
   Position,
   ReactFlow,
+  NodeResizeControl,
   ReactFlowProvider,
   useEdgesState,
   useNodesState,
@@ -133,8 +134,10 @@ const PASO_HORIZONTAL = 420;
  *
  * Lo unico que se toca son los dos campos: que hay que lograr, y que decir para lograrlo.
  */
-function EtapaNode({ data }: NodeProps) {
+function EtapaNode({ data, selected, width }: NodeProps) {
   const d = data as unknown as DatosDeEtapa;
+  // El ancho lo manda el nodo cuando se lo estiro a mano; si no, el de siempre.
+  const ancho = typeof width === "number" && width > 0 ? width : ANCHO;
 
   return (
     <>
@@ -143,10 +146,7 @@ function EtapaNode({ data }: NodeProps) {
         position={Position.Left}
         className="!h-3 !w-3 !border-2 !border-white !bg-emerald-600"
       />
-      <div
-        className="rounded-2xl border border-border bg-card shadow-sm"
-        style={{ width: ANCHO }}
-      >
+      <div className="rounded-2xl border border-border bg-card shadow-sm" style={{ width: ancho }}>
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <span
             className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold ${
@@ -206,7 +206,7 @@ function EtapaNode({ data }: NodeProps) {
         responde, y esto dice que pasa cuando NO responde, que en este producto es el 100% de los
         que se caen.
       */}
-      <div className="mt-1.5 space-y-1.5" style={{ width: ANCHO }}>
+      <div className="mt-1.5 space-y-1.5" style={{ width: ancho }}>
         {d.followUps.map((seguimiento, posicion) => (
           <div
             key={`${d.stage}-${posicion}`}
@@ -253,6 +253,24 @@ function EtapaNode({ data }: NodeProps) {
         position={Position.Right}
         className="!h-3 !w-3 !border-2 !border-white !bg-emerald-600"
       />
+
+      {/*
+        La manija para agrandar la caja, en la esquina de abajo a la derecha.
+
+        Solo con la caja seleccionada: es la misma regla que en el mapa de ideas, y evita que el
+        lienzo este lleno de manijas de cajas que nadie esta tocando. Estirar la etapa estira
+        tambien sus esperas, porque son la misma columna.
+      */}
+      {selected ? (
+        <NodeResizeControl
+          position="bottom-right"
+          minWidth={240}
+          minHeight={120}
+          style={{ background: "transparent", border: "none" }}
+        >
+          <span className="absolute -bottom-1 -right-1 size-3 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-muted-foreground/60" />
+        </NodeResizeControl>
+      ) : null}
     </>
   );
 }

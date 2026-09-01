@@ -18,6 +18,12 @@ import { getProductMatchRule } from "@/features/productos-v2/services/productCon
  */
 export const dynamic = "force-dynamic";
 
+/** El tiempo de una espera en minutos, para poder compararlas entre si. */
+function enMinutos(seguimiento: { timeType: string; timeValue: number }): number {
+  const factor = seguimiento.timeType === "DAYS" ? 1440 : seguimiento.timeType === "HOURS" ? 60 : 1;
+  return seguimiento.timeValue * factor;
+}
+
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
@@ -48,9 +54,13 @@ export default async function EmbudoDiagramaPage({ searchParams }: PageProps) {
           goal: true,
           script: true,
           // Los "si no contesta" de cada etapa: es la mitad del embudo que faltaba dibujar.
+          /*
+            Sin orderBy: ordenar por timeValue pone "1 hora" ANTES que "5 minutos", porque compara
+            1 contra 5 sin mirar la unidad. La base no puede ordenarlas bien -son dos columnas- asi
+            que se ordenan abajo, ya convertidas a minutos.
+          */
           followUps: {
             select: { timeType: true, timeValue: true, content: true },
-            orderBy: { timeValue: "asc" },
           },
         },
         orderBy: { sortOrder: "asc" },
@@ -85,11 +95,13 @@ export default async function EmbudoDiagramaPage({ searchParams }: PageProps) {
           stage: etapa.stage,
           goal: etapa.goal ?? "",
           script: etapa.script ?? "",
-          followUps: etapa.followUps.map((seguimiento) => ({
-            timeType: seguimiento.timeType,
-            timeValue: seguimiento.timeValue,
-            content: seguimiento.content ?? "",
-          })),
+          followUps: [...etapa.followUps]
+            .sort((a, b) => enMinutos(a) - enMinutos(b))
+            .map((seguimiento) => ({
+              timeType: seguimiento.timeType,
+              timeValue: seguimiento.timeValue,
+              content: seguimiento.content ?? "",
+            })),
         }))}
         perdidosEnEtapa={perdidosEnEtapa}
         volverA={`/cliente/productos-v2?producto=${encodeURIComponent(product.id)}`}
