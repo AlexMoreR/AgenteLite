@@ -317,6 +317,7 @@ type BienvenidaData = {
   texto: string;
   collapsed?: boolean;
   onChange?: (id: string, patch: NodeDataPatch) => void;
+  onDelete?: (id: string) => void;
 };
 
 /**
@@ -351,6 +352,7 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
         selected={selected}
         collapsed={collapsed}
         onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
+        onDelete={() => nodeData.onDelete?.(id)}
       />
       <Handle
         id="target"
@@ -482,6 +484,7 @@ type PreguntaData = {
   texto: string;
   collapsed?: boolean;
   onChange?: (id: string, patch: NodeDataPatch) => void;
+  onDelete?: (id: string) => void;
 };
 
 /**
@@ -501,6 +504,7 @@ function PreguntaNode({ id, data, selected }: NodeProps) {
         selected={selected}
         collapsed={collapsed}
         onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
+        onDelete={() => nodeData.onDelete?.(id)}
       />
       <Handle
         id="target"
@@ -2763,6 +2767,28 @@ function FlowCanvasInner({
           };
         }
         if (node.type === "texto") {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              onChange: updateNodeData,
+              onDelete: deleteEntrada,
+              onDuplicate: duplicateNode,
+            },
+          };
+        }
+        /*
+          Sin esta rama, el nodo se dibuja pero NO se puede tocar.
+
+          Los manejadores se le enganchan a cada nodo por TIPO, uno por uno. Bienvenida y Pregunta
+          se agregaron sin pasar por aca: se veian perfectas y no reaccionaban a nada -no se podia
+          escribir el texto ni plegar la caja- porque `onChange` les llegaba vacio y escribir no
+          guardaba en ningun lado.
+
+          Es el mismo lugar que hay que tocar al agregar cualquier nodo nuevo, y es facil de pasar
+          por alto porque no rompe la compilacion: falla en silencio, en la cara de quien lo usa.
+        */
+        if (node.type === "bienvenida" || node.type === "pregunta") {
           return {
             ...node,
             data: {
