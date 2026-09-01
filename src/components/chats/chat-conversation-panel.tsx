@@ -64,6 +64,7 @@ import { CHAT_COMPOSER_RECENT_KEY, type ComposerEmojiTab } from "./chat-inbox-em
 import { MessageBubble } from "./chat-message-bubble";
 import { ComposerEmojiPicker, ComposerSendButton } from "./chat-composer";
 import { AvisoDeCierre } from "./aviso-de-cierre";
+import { BotonDeMapaDeCaminos } from "./boton-mapa-de-caminos";
 
 const CHAT_MESSAGES_BACKGROUND_BASE_STYLE = {
   // Token por defecto de shadcn: blanco con una tonalidad un poco mas oscura.
@@ -92,6 +93,8 @@ type ConversationPanelProps = {
   showJumpToBottom: boolean;
   onScrollToBottom: () => void;
   onEditContact: () => void;
+  /** Dueño/admin: solo ellos pueden sumar el chat al mapa de caminos (cada uno cuesta IA). */
+  isManager?: boolean;
   onComposerDraft: (message: string, formData: FormData) => void;
   onRetryFailedMessage?: () => void;
   onReplyToMessage?: (message: SharedInboxMessageItem) => void;
@@ -137,6 +140,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   showJumpToBottom,
   onScrollToBottom,
   onEditContact,
+  isManager = false,
   onComposerDraft,
   onRetryFailedMessage,
   onReplyToMessage,
@@ -163,6 +167,20 @@ export const ConversationPanel = memo(function ConversationPanel({
    * estado la barra se queda un rato mas y parece que el toque no hizo nada.
    */
   const [cierreRespondido, setCierreRespondido] = useState(false);
+
+  /**
+   * El id PELADO del chat, para el mapa de caminos.
+   *
+   * `selectedConversationId` es la CLAVE del chat, con su fuente adelante ("agent:cmxxx"). Pasarla
+   * tal cual a una accion que busca por id ya rompio el envio de mensajes una vez (commit 571d10e):
+   * el WHERE no encontraba nada y fallaba en silencio.
+   *
+   * Los chats de la API oficial quedan afuera a proposito: viven en otra tabla y el mapa lee
+   * Conversation. Mejor que el boton no aparezca a que aparezca y falle.
+   */
+  const idDeLaConversacionParaElMapa = selectedConversationId?.startsWith("agent:")
+    ? selectedConversationId.slice("agent:".length)
+    : "";
   const idDelChat = renderedConversation?.contactId ?? null;
   useEffect(() => {
     // Al cambiar de chat vuelve a preguntarse por el nuevo cliente.
@@ -890,6 +908,15 @@ export const ConversationPanel = memo(function ConversationPanel({
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
+        ) : null}
+        {/*
+          Sumar este chat al mapa de caminos.
+
+          Solo para dueño/admin: cada chat que entra cuesta una llamada a la IA, y esto se enciende
+          para ver si sirve antes de dejarlo suelto para todo el equipo.
+        */}
+        {isManager && idDeLaConversacionParaElMapa ? (
+          <BotonDeMapaDeCaminos conversationId={idDeLaConversacionParaElMapa} />
         ) : null}
       </div>
 

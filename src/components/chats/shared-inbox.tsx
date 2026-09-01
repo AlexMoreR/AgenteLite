@@ -2325,6 +2325,7 @@ export function SharedInbox({
         showJumpToBottom={showJumpToBottom}
         onScrollToBottom={scrollToBottom}
         onEditContact={handleOpenEditContact}
+        isManager={isManager}
         onComposerDraft={handleComposerDraft}
         onRetryFailedMessage={handleRetryFailedMessage}
         onReplyToMessage={handleReplyToMessage}

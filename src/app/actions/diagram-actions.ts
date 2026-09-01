@@ -7,6 +7,10 @@ import { auth } from "@/auth";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
+import {
+  fundirChatEnMapa,
+  resumirChatEnPasos,
+} from "@/features/diagramas/services/mapa-de-caminos";
 
 /**
  * Diagramas: mapas mentales para pensar el negocio.
@@ -112,4 +116,162 @@ export async function borrarDiagramaAction(id: string): Promise<{ ok?: true; err
   await prisma.diagram.delete({ where: { id: propio.id } });
   revalidatePath("/cliente/diagramas");
   return { ok: true };
+}
+
+/* ------------------------------------------------ el mapa de caminos de los clientes */
+
+/** Donde queda anotado cual es el mapa comun y que chats ya entraron. */
+function claveDelMapa(workspaceId: string) {
+  return `diagramas:mapaDeCaminos:${workspaceId}`;
+}
+
+type EstadoDelMapa = { diagramId: string; chats: string[] };
+
+async function leerEstadoDelMapa(workspaceId: string): Promise<EstadoDelMapa | null> {
+  const fila = await prisma.appSetting.findUnique({ where: { key: claveDelMapa(workspaceId) } });
+  if (!fila?.value) {
+    return null;
+  }
+  try {
+    const datos = JSON.parse(fila.value) as Partial<EstadoDelMapa>;
+    if (typeof datos.diagramId !== "string") {
+      return null;
+    }
+    return { diagramId: datos.diagramId, chats: Array.isArray(datos.chats) ? datos.chats : [] };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Suma un chat al mapa de caminos.
+ *
+ * Todos los chats caen en el MISMO diagrama y los pasos iguales se funden en una caja. Un chat
+ * dibujado solo son cuarenta cajas que no se comparan con nada; treinta chats fundidos dicen "24
+ * preguntan precio, 18 piden envio, 3 compran", que es donde se ve por donde se cae la venta.
+ *
+ * Solo dueño/admin: cada chat cuesta una llamada a la IA, y esto se enciende para ver si sirve
+ * antes de dejarlo suelto para todo el equipo.
+ *
+ * La lista de chats ya incluidos vive en AppSetting y NO dentro del diagrama, a proposito: el
+ * lienzo se guarda solo cada vez que alguien mueve una caja, y guarda unicamente nodos y aristas.
+ * Guardada ahi, la lista se borraria la primera vez que alguien tocara el mapa y el mismo chat se
+ * contaria dos veces.
+ */
+export async function agregarChatAlMapaDeCaminosAction(input: {
+  conversationId: string;
+}): Promise<{ diagramId?: string; pasos?: number; yaEstaba?: true; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: "No autorizado" };
+  }
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+  if (membership.role !== "OWNER" && membership.role !== "ADMIN") {
+    return { error: "Solo el dueño puede armar el mapa de caminos" };
+  }
+
+  const conversationId = input.conversationId.trim();
+  if (!conversationId) {
+    return { error: "Conversación inválida" };
+  }
+
+  const conversacion = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId: membership.workspace.id },
+    select: {
+      id: true,
+      contact: { select: { name: true, phoneNumber: true } },
+      messages: {
+        where: { deletedAt: null, isStatusBroadcast: false, type: { not: "SYSTEM" } },
+        orderBy: { createdAt: "asc" },
+        take: 120,
+        select: { direction: true, content: true, type: true },
+      },
+    },
+  });
+  if (!conversacion) {
+    return { error: "No encontré ese chat" };
+  }
+
+  const lineas = conversacion.messages
+    .map((mensaje) => {
+      const quien = mensaje.direction === "INBOUND" ? "Cliente" : "Nosotros";
+      // Un adjunto sin texto igual es un movimiento de la conversacion: mandar el catalogo ES un
+      // paso. Sin esto, "Envia catalogo" -que es media venta- desaparecia del mapa.
+      const texto = mensaje.content?.trim() || `[${(mensaje.type ?? "archivo").toLowerCase()}]`;
+      return `${quien}: ${texto}`;
+    })
+    .join("\n")
+    .slice(0, 12000);
+
+  if (!lineas.trim()) {
+    return { error: "Ese chat no tiene mensajes para resumir" };
+  }
+
+  const estado = await leerEstadoDelMapa(membership.workspace.id);
+  if (estado?.chats.includes(conversacion.id)) {
+    return { diagramId: estado.diagramId, yaEstaba: true };
+  }
+
+  let pasos;
+  try {
+    pasos = await resumirChatEnPasos({ transcripcion: lineas });
+  } catch (error) {
+    console.error("[diagramas] resumen_fallido", error);
+    return { error: "La IA no pudo resumir el chat. Probá de nuevo." };
+  }
+  if (!pasos || pasos.length === 0) {
+    return { error: "No pude sacar los pasos de ese chat" };
+  }
+
+  // El diagrama del mapa: el guardado, o uno nuevo si nunca se armo (o si lo borraron).
+  const existente = estado
+    ? await prisma.diagram.findFirst({
+        where: { id: estado.diagramId, workspaceId: membership.workspace.id },
+        select: { id: true, data: true },
+      })
+    : null;
+
+  const contenido = (existente?.data ?? null) as { nodes?: unknown; edges?: unknown } | null;
+  const fundido = fundirChatEnMapa({
+    nodos: Array.isArray(contenido?.nodes) ? (contenido!.nodes as never[]) : [],
+    aristas: Array.isArray(contenido?.edges) ? (contenido!.edges as never[]) : [],
+    pasos,
+  });
+
+  const data = { nodes: fundido.nodos, edges: fundido.aristas } as unknown as Prisma.InputJsonValue;
+
+  const diagramId = existente
+    ? (
+        await prisma.diagram.update({
+          where: { id: existente.id },
+          data: { data },
+          select: { id: true },
+        })
+      ).id
+    : (
+        await prisma.diagram.create({
+          data: {
+            workspaceId: membership.workspace.id,
+            createdById: session.user.id,
+            title: "Caminos de los clientes",
+            data,
+          },
+          select: { id: true },
+        })
+      ).id;
+
+  const chats = [...(estado?.chats ?? []), conversacion.id];
+  const value = JSON.stringify({ diagramId, chats } satisfies EstadoDelMapa);
+  await prisma.appSetting.upsert({
+    where: { key: claveDelMapa(membership.workspace.id) },
+    create: { key: claveDelMapa(membership.workspace.id), value },
+    update: { value },
+  });
+
+  revalidatePath("/cliente/diagramas");
+  revalidatePath(`/cliente/diagramas/${diagramId}`);
+  return { diagramId, pasos: pasos.length };
 }
