@@ -51,6 +51,8 @@ export default async function MiTableroPage({ searchParams }: PageProps) {
     workspaceId: access.workspaceId,
     userId,
     advisorName: usuario?.name?.trim() || usuario?.email || "Asesora",
+    // Solo el dueño/admin ve lo del equipo: a una asesora las ventas de las demas le agregan ruido.
+    esJefe: access.isOwner || access.role === "ADMIN",
     desde: desde || diaDeHoyBogota(),
     hasta: hasta || diaDeHoyBogota(),
   });

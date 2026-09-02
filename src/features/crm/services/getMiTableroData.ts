@@ -47,6 +47,17 @@ export type MiTableroData = {
   movidos: number;
   llamadas: number;
   ventas: number;
+  /*
+    Las ventas del EQUIPO, con nombre y apellido.
+
+    El panel cuenta solo lo propio, y esta bien para una asesora. Pero al dueño le decia
+    "Ventas: 0" un dia en que el negocio SI vendio -la venta era de Ingrid-, y eso se lee como que
+    no se vendio nada. El numero era correcto y la lectura enganosa.
+
+    Vacio para quien no es dueño ni admin: a una asesora las ventas de las demas no le cambian el
+    dia y le agregan ruido.
+  */
+  ventasDelEquipo: Array<{ nombre: string; total: number }>;
   // Leads suyos, vivos, que llevan +5 dias sin que nadie los toque. Es la fuga personal.
   // Va contra HOY siempre: "se enfria" es una alerta del presente, no del rango.
   enfriandose: number;
@@ -58,6 +69,8 @@ export async function getMiTableroData(input: {
   workspaceId: string;
   userId: string;
   advisorName: string;
+  /** Dueño o admin: solo a ellos se les muestran las ventas del equipo. */
+  esJefe?: boolean;
   // Rango a mirar (YYYY-MM-DD, los dos inclusive). Sin esto, hoy.
   desde?: string | null;
   hasta?: string | null;
@@ -88,11 +101,39 @@ export async function getMiTableroData(input: {
     movidos: 0,
     llamadas: 0,
     ventas: 0,
+    ventasDelEquipo: [],
     enfriandose: 0,
   };
 
   try {
     const mias = { workspaceId: input.workspaceId, assignedToUserId: input.userId };
+
+    /*
+      Las ventas del equipo, agrupadas por quien las cerro.
+
+      Se leen las conversaciones ganadas del rango con el nombre de su asesora y se cuentan aca en
+      vez de con un groupBy: son unas pocas por dia y el groupBy solo devuelve el id, con lo que
+      habria que ir a buscar los nombres igual.
+    */
+    const ganadasDelEquipo = input.esJefe
+      ? await prisma.conversation.findMany({
+          where: {
+            workspaceId: input.workspaceId,
+            contact: { crmStage: "GANADO", wonAt: { gte: inicioRango, lt: finRango } },
+          },
+          select: { assignedTo: { select: { name: true, email: true } } },
+        })
+      : [];
+
+    const porAsesora = new Map<string, number>();
+    for (const fila of ganadasDelEquipo) {
+      // Una venta sin asesora asignada igual se cuenta: esconderla haria que los numeros no cierren.
+      const nombre = fila.assignedTo?.name?.trim() || fila.assignedTo?.email || "Sin asignar";
+      porAsesora.set(nombre, (porAsesora.get(nombre) ?? 0) + 1);
+    }
+    const ventasDelEquipo = [...porAsesora.entries()]
+      .map(([nombre, total]) => ({ nombre, total }))
+      .sort((a, b) => b.total - a.total);
 
     const [leadsACargo, movidos, ventas, enfriandose, llamadas] = await Promise.all([
       prisma.conversation.count({
@@ -147,6 +188,7 @@ export async function getMiTableroData(input: {
       movidos,
       llamadas,
       ventas,
+      ventasDelEquipo,
       enfriandose,
     };
   } catch (error) {
