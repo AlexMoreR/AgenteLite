@@ -342,10 +342,24 @@ export async function publishAgentV2Action(input: {
       .map((edge) => edge.target)
       .filter((target): target is string => Boolean(target)),
   );
+  /*
+    Lo que sale de "Llamar al siguiente bloque" de la Bienvenida.
+
+    Alex conecto ahi un Flujo, publico, y el agente saludo y siguio improvisando: el compilador
+    solo miraba los flujos colgados del Agente o de una Condicion, asi que ese quedaba fuera de la
+    lista de flujos conocidos y la conexion era un dibujo.
+  */
+  const despuesDeLaBienvenida = bienvenidaNode
+    ? edges.find((edge) => edge.source === bienvenidaNode.id && edge.sourceHandle === "next-block")
+        ?.target
+    : undefined;
+
   const flowNodes = nodes.filter(
     (node) =>
       node.type === "flujo" &&
-      (agentToolTargets.has(node.id) || flowNodeIdsFromConditions.has(node.id)),
+      (agentToolTargets.has(node.id) ||
+        flowNodeIdsFromConditions.has(node.id) ||
+        node.id === despuesDeLaBienvenida),
   );
   const textNodes = nodes.filter((node) => node.type === "texto");
   const conditionNodes = nodes.filter((node) => node.type === "condicion");
@@ -842,6 +856,21 @@ export async function publishAgentV2Action(input: {
     "Conduce la venta por etapas: entiende para que lo necesita, presenta el valor conectado a su necesidad, resuelve dudas y cierra. " +
       "Si el cliente cambia de tema o pregunta por otro producto, sigue su tema y atiende lo que pide; el embudo es una guia, no una camisa de fuerza.",
   );
+  /*
+    Que hacer APENAS termina la bienvenida.
+
+    Sin esto, "Llamar al siguiente bloque" no llegaba al agente de ninguna forma: se dibujaba la
+    flecha, se publicaba, y el agente saludaba y despues improvisaba. La orden se arma con el mismo
+    describeNodeAction que usan las ramas de Condicion, asi que un Flujo colgado aca se ejecuta
+    igual que uno colgado de una rama.
+  */
+  if (despuesDeLaBienvenida) {
+    rules.push(
+      `Apenas des la bienvenida, y ANTES de preguntar nada, ${describeNodeAction(despuesDeLaBienvenida)}.`,
+    );
+  }
+
+
   const compiledRules = rules.join("\n\n");
 
   const training = buildAgentTrainingConfig({
