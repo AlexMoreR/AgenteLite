@@ -202,7 +202,32 @@ export async function POST(request: NextRequest) {
     el chat se actualiza igual por el refresco de respaldo.
   */
   if (canal) {
-    void notifyRealtimeUpdate({ workspaceId: canal.workspaceId, type: "waha-update" });
+    /*
+      Si es un mensaje del CLIENTE, el aviso lleva sus datos para que suene la campanita.
+
+      El sonido lo disparaba solo el socket de Evolution; al pasar todo a WAHA ese camino dejo de
+      correr y los mensajes entraban en silencio. Los datos viajan EN el aviso -como la presencia-
+      porque el navegador necesita distinguir un mensaje entrante del eco de uno nuestro: sin eso
+      sonaria tambien al mandar.
+    */
+    const datos = traduccion.evolution.data as
+      | { key?: { fromMe?: unknown; remoteJid?: unknown }; message?: Record<string, unknown>; pushName?: unknown }
+      | undefined;
+    const esDelCliente = datos?.key?.fromMe !== true;
+    const jid = typeof datos?.key?.remoteJid === "string" ? datos.key.remoteJid : "";
+
+    void notifyRealtimeUpdate({
+      workspaceId: canal.workspaceId,
+      type: esDelCliente ? "waha-incoming" : "waha-update",
+      data: esDelCliente
+        ? {
+            phoneNumber: jid.split("@")[0]?.replace(/[^0-9]/g, "") ?? "",
+            senderName: typeof datos?.pushName === "string" ? datos.pushName : null,
+            text: textoDelMensaje(datos?.message),
+            type: null,
+          }
+        : null,
+    });
   }
 
   return respuesta;
@@ -334,4 +359,26 @@ async function avisarPresencia(sesion: string, presencia: PresenciaWaha) {
       que: presencia.que,
     },
   });
+}
+
+/**
+ * El texto del mensaje, para que la notificacion del sistema muestre algo util.
+ *
+ * Una foto o un audio no traen "conversation": lo que hay es el epigrafe, si lo escribio.
+ */
+function textoDelMensaje(mensaje: Record<string, unknown> | undefined): string {
+  if (!mensaje) {
+    return "";
+  }
+  const conversacion = mensaje.conversation;
+  if (typeof conversacion === "string") {
+    return conversacion.slice(0, 160);
+  }
+  for (const nodo of Object.values(mensaje)) {
+    const epigrafe = (nodo as { caption?: unknown } | null)?.caption;
+    if (typeof epigrafe === "string" && epigrafe.trim()) {
+      return epigrafe.slice(0, 160);
+    }
+  }
+  return "";
 }

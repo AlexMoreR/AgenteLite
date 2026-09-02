@@ -1196,7 +1196,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           selectedConversationPhoneNumber={selectedUnified?.source === "agent" ? selectedUnified.secondaryLabel : null}
         />
       ))}
-      <ChatIncomingNotifier enabled={chatsRealtimeSyncEnabled} />
+      {/*
+        La campanita va SIEMPRE, sin depender de Evolution.
+
+        Estaba atada a que hubiera credenciales de Evolution configuradas, porque el sonido nacia
+        de ese socket. Ahora el aviso puede llegar tambien por el altavoz (WAHA), asi que atarla al
+        gateway viejo dejaria sin sonido justo a quien ya migro. Solo escucha un evento del
+        navegador: montarla no cuesta nada.
+      */}
+      <ChatIncomingNotifier />
       <PushSubscriptionManager enabled={chatsRealtimeSyncEnabled} />
       <QueryFeedbackToast
         okMessage={okMessage}

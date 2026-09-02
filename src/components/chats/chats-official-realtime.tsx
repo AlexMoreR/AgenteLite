@@ -79,6 +79,23 @@ export function ChatsOfficialRealtime({
           return;
         }
 
+        /*
+          Un mensaje ENTRANTE tambien hace sonar la campanita.
+
+          El sonido lo disparaba unicamente el socket de Evolution (ChatsRealtimeSync). Al pasar
+          todas las lineas a WAHA -que no tiene socket propio y avisa por el altavoz- ese camino
+          dejo de correr, y desde entonces entraban los mensajes pero no sonaba nada.
+
+          Los datos del mensaje viajan EN el aviso, como la presencia: sin eso el navegador sabe
+          que "algo cambio" pero no si fue un mensaje del cliente o el eco de uno nuestro, y
+          sonaria tambien al mandar.
+        */
+        if (payload.type === "waha-incoming") {
+          window.dispatchEvent(
+            new CustomEvent("chat-incoming-message", { detail: payload.data ?? {} }),
+          );
+        }
+
         window.dispatchEvent(new CustomEvent("official-realtime-poke"));
       };
 
