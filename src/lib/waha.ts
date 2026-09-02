@@ -435,6 +435,35 @@ async function chatIdParaEnviar(input: {
   return directo;
 }
 
+/**
+ * Manda algo a WAHA y, si WhatsApp responde que ese numero no existe, lo reintenta como LID.
+ *
+ * Deja de adivinar por la cantidad de digitos. La regla "de 14 para arriba es un LID" fallo con
+ * 9307244503114, que tiene TRECE y es un LID igual: la asesora vio media pantalla de codigo rojo y
+ * el mensaje no salio. Y no hay forma de saberlo de antemano —el endpoint /lids de WAHA contesta
+ * lo mismo para un LID que para un telefono real, probado el 2-sep-2026—.
+ *
+ * Asi que decide WhatsApp: se intenta como telefono y, si contesta "no LID found", se manda al
+ * "@lid". Un intento extra solo en el caso que hoy fallaba del todo.
+ */
+async function enviarConReintentoDeLid<T>(
+  chatId: string,
+  enviar: (chatId: string) => Promise<T>,
+): Promise<T> {
+  try {
+    return await enviar(chatId);
+  } catch (error) {
+    const detalle = error instanceof Error ? error.message : String(error);
+    const digitos = chatId.split("@")[0]?.replace(/[^0-9]/g, "") ?? "";
+    const puedeSerLid = /no lid found/i.test(detalle) && chatId.endsWith("@c.us") && digitos;
+    if (!puedeSerLid) {
+      throw error;
+    }
+    console.warn("[waha] no era un telefono, se reintenta como LID", { chatId });
+    return enviar(`${digitos}@lid`);
+  }
+}
+
 export async function enviarTextoWaha(input: {
   connection: WahaConnection;
   sesion: string;
@@ -442,18 +471,20 @@ export async function enviarTextoWaha(input: {
   texto: string;
   citarId?: string | null;
 }): Promise<{ externalId: string | null; raw: unknown }> {
-  const respuesta = await wahaRequest<{ id?: string | { id?: string }; _data?: unknown }>(
-    input.connection,
-    "/api/sendText",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        session: input.sesion,
-        chatId: await chatIdParaEnviar(input),
-        text: input.texto,
-        ...(input.citarId ? { reply_to: input.citarId } : {}),
-      }),
-    },
+  const respuesta = await enviarConReintentoDeLid(await chatIdParaEnviar(input), (chatId) =>
+    wahaRequest<{ id?: string | { id?: string }; _data?: unknown }>(
+      input.connection,
+      "/api/sendText",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          session: input.sesion,
+          chatId,
+          text: input.texto,
+          ...(input.citarId ? { reply_to: input.citarId } : {}),
+        }),
+      },
+    ),
   );
 
   return { externalId: leerIdDeMensaje(respuesta), raw: respuesta };
@@ -897,10 +928,12 @@ export async function enviarMediaWaha(input: {
     cuerpo.caption = input.epigrafe.trim();
   }
 
-  const respuesta = await wahaRequest<unknown>(input.connection, RUTA_POR_TIPO[input.tipo], {
-    method: "POST",
-    body: JSON.stringify(cuerpo),
-  });
+  const respuesta = await enviarConReintentoDeLid(String(cuerpo.chatId), (chatId) =>
+    wahaRequest<unknown>(input.connection, RUTA_POR_TIPO[input.tipo], {
+      method: "POST",
+      body: JSON.stringify({ ...cuerpo, chatId }),
+    }),
+  );
 
   return { externalId: leerIdDeMensaje(respuesta), raw: respuesta };
 }
