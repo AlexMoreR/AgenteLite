@@ -26,6 +26,7 @@ import {
   Sparkles,
   StickyNote,
   Trash2,
+  TriangleAlert,
   Workflow,
   FolderOpen,
   X,
@@ -200,6 +201,14 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isFollowUpOpen, setIsFollowUpOpen] = useState(false);
   // Archivos elegidos pendientes de confirmar en la vista previa (con caption) antes de enviar.
   const [pendingMediaFiles, setPendingMediaFiles] = useState<File[]>([]);
+  /**
+   * Lo que no se pudo subir, para poder reintentarlo.
+   *
+   * Antes solo salia un aviso que se desvanecia y el archivo se perdia: habia que volver a la
+   * galeria, buscar la misma foto y empezar de nuevo. Con la señal de la calle eso pasa seguido, y
+   * es la diferencia entre reintentar de un toque o dejar al cliente sin la foto.
+   */
+  const [mediaFallida, setMediaFallida] = useState<{ files: File[]; caption?: string } | null>(null);
   const [isSuggestingReply, setIsSuggestingReply] = useState(false);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState("");
   const [pestanaChat, setPestanaChat] = useState<"mensajes" | "cotizaciones">("mensajes");
@@ -514,13 +523,20 @@ export const ConversationPanel = memo(function ConversationPanel({
       setIsSendingMedia(true);
 
       let sentCount = 0;
+      const fallidos: File[] = [];
       for (let index = 0; index < files.length; index += 1) {
         // El caption (mensaje) va con el primer archivo, como WhatsApp.
         const ok = await sendSingleMediaFile(files[index], index === 0 ? caption : undefined);
         if (ok) {
           sentCount += 1;
+        } else {
+          fallidos.push(files[index]);
         }
       }
+
+      // El archivo se guarda para poder reintentarlo, en vez de perderse con el aviso.
+      setMediaFallida(fallidos.length > 0 ? { files: fallidos, caption } : null);
+
 
       if (sentCount > 0) {
         composerRouter.refresh();
@@ -1752,6 +1768,45 @@ export const ConversationPanel = memo(function ConversationPanel({
           onClose={() => setIsFollowUpOpen(false)}
           contactId={renderedConversation?.contactId ?? null}
         />
+        {/*
+          Lo que se corto, con su boton de reintentar.
+
+          Va pegado arriba del compositor y no como aviso flotante: un aviso se va solo y el archivo
+          se pierde con el. Aca se queda hasta que ella decida reintentar o descartar.
+        */}
+        {mediaFallida ? (
+          <div className="mx-3 mb-2 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/40">
+            <TriangleAlert className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="min-w-0 flex-1 text-[12px] leading-4 text-amber-900 dark:text-amber-200">
+              No se pudo enviar{" "}
+              {mediaFallida.files.length === 1
+                ? `"${mediaFallida.files[0].name}"`
+                : `${mediaFallida.files.length} archivos`}
+              . Revisá la señal.
+            </span>
+            <button
+              type="button"
+              disabled={isSendingMedia}
+              onClick={() => {
+                const reintento = mediaFallida;
+                setMediaFallida(null);
+                void uploadAndSendMediaFiles(reintento.files, reintento.caption);
+              }}
+              className="shrink-0 rounded-lg bg-amber-600 px-2.5 py-1 text-[12px] font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+            >
+              Reintentar
+            </button>
+            <button
+              type="button"
+              onClick={() => setMediaFallida(null)}
+              aria-label="Descartar"
+              className="shrink-0 rounded-lg px-1.5 py-1 text-amber-800 transition hover:bg-amber-100 dark:text-amber-300"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        ) : null}
+
         {pendingMediaFiles.length > 0 ? (
           <MediaPreviewDialog
             files={pendingMediaFiles}
