@@ -62,31 +62,23 @@ async function ensureWorkspaceTag(input: {
   });
 }
 
+/**
+ * Le pone una etiqueta a un contacto. Si ya la tiene, no pasa nada.
+ *
+ * Va con createMany y skipDuplicates, no con upsert. El upsert atrapaba el choque y seguia, pero
+ * Prisma YA habia escrito el error en el registro antes de que ese catch existiera: el log de
+ * produccion se llenaba de "Unique constraint failed on (contactId, tagId)" por algo que no es un
+ * problema. Que dos mensajes del mismo contacto entren a la vez y los dos quieran ponerle la misma
+ * etiqueta es NORMAL aca.
+ *
+ * Un registro lleno de errores que no importan es peor que no tener registro: se deja de mirar, y
+ * el dia que aparece uno de verdad pasa desapercibido.
+ */
 async function assignTagToContact(input: { workspaceId: string; contactId: string; tagId: string }) {
-  try {
-    await prisma.contactTag.upsert({
-      where: {
-        contactId_tagId: {
-          contactId: input.contactId,
-          tagId: input.tagId,
-        },
-      },
-      create: {
-        contactId: input.contactId,
-        tagId: input.tagId,
-        workspaceId: input.workspaceId,
-      },
-      update: {},
-    });
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.includes("Unique constraint failed")
-    ) {
-      return;
-    }
-    throw error;
-  }
+  await prisma.contactTag.createMany({
+    data: [{ contactId: input.contactId, tagId: input.tagId, workspaceId: input.workspaceId }],
+    skipDuplicates: true,
+  });
 }
 
 async function removeTagFromContact(input: { contactId: string; tagId: string }) {

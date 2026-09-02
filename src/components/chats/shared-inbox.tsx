@@ -1954,33 +1954,66 @@ export function SharedInbox({
         setShowJumpToBottom(debeMostrarse);
       }
 
-      if (
-        historyLoadSuppressed ||
-        !historyLoadArmedRef.current ||
-        historyLoadConsumedRef.current ||
-        nextScrollTop > TOP_SCROLL_THRESHOLD_PX ||
-        loadMoreHistoryInFlightRef.current
-      ) {
-        return;
-      }
+      /*
+        Quien dispara la carga es el observador de mas abajo, no un umbral de pixeles.
 
-      historyLoadArmedRef.current = false;
-      historyLoadConsumedRef.current = true;
-
-      const loadMoreHref = loadMoreHrefRef.current;
-      if (loadMoreHref && messageScrollBehaviorRef.current === "preserve") {
-        router.replace(loadMoreHref, { scroll: false });
-        return;
-      }
-
-      if (canLoadOlderMessagesRef.current) {
-        void loadOlderMessagesRef.current();
-      }
+        Medir "estoy a menos de 96 px del tope" falla justo en el celular: con el impulso del dedo
+        el scroll pasa de largo esa franja entre dos mediciones y no se dispara nada. Ademas
+        llevaba dos banderas -"armado" y "ya consumido"- para no repetirse, y despues de la primera
+        carga habia que apretar el boton a mano, que es lo que reporto Alex.
+      */
     }
 
     container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
   }, [router]);
+
+  /**
+   * Al llegar arriba, trae los mensajes anteriores solo.
+   *
+   * Se vigila un elemento invisible puesto arriba de todo: cuando entra en pantalla, se pide la
+   * pagina anterior. El navegador avisa por su cuenta, asi que no depende de cuanto se movio el
+   * dedo ni de que el scroll caiga dentro de una franja de pixeles —con el impulso de un celular
+   * eso se saltea, y por eso habia que apretar el boton—.
+   *
+   * El margen de 300px lo dispara ANTES de tocar el borde, para que los mensajes ya esten cuando
+   * uno llega.
+   *
+   * Se respeta la ventana de silencio de despues de abrir el chat: ahi el scroll lo mueve el
+   * codigo (el pin al fondo) y sin eso cada apertura pediria historial sin que nadie lo pida.
+   */
+  useEffect(() => {
+    const centinela = loadMoreSentinelRef.current;
+    const contenedor = messagesScrollRef.current;
+    if (!centinela || !contenedor) {
+      return;
+    }
+
+    const observador = new IntersectionObserver(
+      (entradas) => {
+        if (!entradas.some((entrada) => entrada.isIntersecting)) {
+          return;
+        }
+        if (suppressHistoryLoadUntilRef.current > Date.now() || loadMoreHistoryInFlightRef.current) {
+          return;
+        }
+
+        const loadMoreHref = loadMoreHrefRef.current;
+        if (loadMoreHref && messageScrollBehaviorRef.current === "preserve") {
+          router.replace(loadMoreHref, { scroll: false });
+          return;
+        }
+        if (canLoadOlderMessagesRef.current) {
+          void loadOlderMessagesRef.current();
+        }
+      },
+      { root: contenedor, rootMargin: "300px 0px 0px 0px" },
+    );
+
+    observador.observe(centinela);
+    return () => observador.disconnect();
+    // Se rearma al cambiar de chat: el centinela pasa a ser otro elemento.
+  }, [selectedConversationId, router]);
 
   // Smart scroll: auto-scroll only when near bottom; count new messages when scrolled up.
   useLayoutEffect(() => {
