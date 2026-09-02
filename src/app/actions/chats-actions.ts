@@ -14,6 +14,7 @@ import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { persistAvatarUrl } from "@/lib/contact-avatar-refresh";
 import { backfillEvolutionMessagesByPhone } from "@/lib/evolution-chat-sync";
 import { buildEvolutionGoHistoryAnchor, deleteEvolutionMessageForEveryone, fetchEvolutionProfilePictureUrl, readGatewayConnection, requestEvolutionGoHistorySync, sendEvolutionTextMessage } from "@/lib/evolution";
+import { WAHA_GATEWAY_KIND } from "@/lib/waha";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -2072,7 +2073,18 @@ export async function importConversationHistoryAction(input: {
   //                    persiste el webhook. Aca solo sabemos que el pedido salio.
   const gateway = readGatewayConnection(conversation.channel.metadata);
 
-  if (gateway?.kind === "EVOLUTION_API") {
+  /*
+    WAHA va por el mismo camino que Evolution API: los dos GUARDAN los mensajes y los devuelven.
+
+    Antes caia al camino de evogo, que necesita un mensaje "ancla" con la forma de whatsmeow para
+    pedirle el historial al celular. Los mensajes de WAHA no tienen esa forma, asi que no habia
+    ancla y el boton contestaba "este chat no tiene un mensaje desde el cual pedir historial" —un
+    aviso que hacia pensar que el chat estaba roto cuando el problema era que se le preguntaba al
+    gateway equivocado—.
+
+    Comprobado el 2-sep-2026: WAHA tenia 23 mensajes de un chat donde la base tenia 10.
+  */
+  if (gateway?.kind === "EVOLUTION_API" || gateway?.kind === WAHA_GATEWAY_KIND) {
     const result = await backfillEvolutionMessagesByPhone({
       workspaceId: membership.workspace.id,
       channelId: conversation.channel.id,

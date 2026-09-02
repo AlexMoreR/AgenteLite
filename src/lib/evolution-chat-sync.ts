@@ -686,12 +686,29 @@ async function fetchWahaChatMessageRecords(input: {
     return [];
   }
 
-  const crudos = await mensajesDeChatWaha({
-    connection: input.connection,
-    sesion: input.instanceName,
-    chatId: `${telefono}@c.us`,
-    limite: input.limite,
-  }).catch(() => []);
+  /*
+    Se prueban las DOS direcciones: "@c.us" y "@lid".
+
+    Los leads que entran por un anuncio ocultan su numero y WhatsApp los identifica con un LID.
+    WAHA guarda esa conversacion bajo "<lid>@lid", asi que preguntando solo por "@c.us" contestaba
+    cero mensajes y el boton de historial parecia no traer nada. Comprobado el 2-sep-2026: para
+    92599629176927, "@c.us" devolvia 0 mensajes y "@lid" devolvia 23.
+
+    No se puede saber cual es cual mirando el numero -hay LIDs de 13 digitos, tan largos como un
+    telefono real-, asi que se pide una y, si vuelve vacia, la otra.
+  */
+  const pedir = (chatId: string) =>
+    mensajesDeChatWaha({
+      connection: input.connection,
+      sesion: input.instanceName,
+      chatId,
+      limite: input.limite,
+    }).catch(() => [] as Array<Record<string, unknown>>);
+
+  let crudos = await pedir(`${telefono}@c.us`);
+  if (crudos.length === 0) {
+    crudos = await pedir(`${telefono}@lid`);
+  }
 
   return crudos
     .map((mensaje) => comoMensajeDeEvolution(input.instanceName, mensaje))
