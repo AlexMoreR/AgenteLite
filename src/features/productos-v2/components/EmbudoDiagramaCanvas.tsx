@@ -10,7 +10,6 @@ import {
   MarkerType,
   Position,
   ReactFlow,
-  NodeResizeControl,
   ReactFlowProvider,
   useEdgesState,
   useNodesState,
@@ -134,19 +133,46 @@ const PASO_HORIZONTAL = 420;
  *
  * Lo unico que se toca son los dos campos: que hay que lograr, y que decir para lograrlo.
  */
-function EtapaNode({ data, selected, width }: NodeProps) {
+function EtapaNode({ data, width }: NodeProps) {
   const d = data as unknown as DatosDeEtapa;
   // El ancho lo manda el nodo cuando se lo estiro a mano; si no, el de siempre.
   const ancho = typeof width === "number" && width > 0 ? width : ANCHO;
 
   return (
     <>
-      <Handle
-        type="target"
-        position={Position.Left}
-        className="!h-3 !w-3 !border-2 !border-white !bg-emerald-600"
-      />
-      <div className="rounded-2xl border border-border bg-card shadow-sm" style={{ width: ancho }}>
+      {/*
+        Los conectores van al medio de la CAJA, no del nodo entero.
+
+        Estaban puestos al nivel del nodo, y React Flow los centra sobre TODO lo que el nodo ocupa
+        -caja mas esperas-, asi que la linea salia por el borde de abajo de la caja y parecia colgar
+        de la nada. Metidos adentro de este envoltorio, que solo contiene la caja, el 50% es el
+        medio de la caja.
+      */}
+      <div className="relative" style={{ width: ancho }}>
+        <Handle
+          type="target"
+          position={Position.Left}
+          style={{ top: "50%" }}
+          className="!h-3 !w-3 !border-2 !border-white !bg-emerald-600"
+        />
+        <Handle
+          type="source"
+          position={Position.Right}
+          style={{ top: "50%" }}
+          className="!h-3 !w-3 !border-2 !border-white !bg-emerald-600"
+        />
+        {/*
+          La caja se agranda desde su esquina.
+
+          Con `resize` del navegador y no con el redimensionador de React Flow: ese estira el NODO
+          entero -caja y esperas juntas-, y lo que hace falta es poder agrandar cada pieza por su
+          cuenta. El `nodrag` es imprescindible: sin el, arrastrar la esquina mueve la caja en vez
+          de estirarla.
+        */}
+        <div
+          className="nodrag resize overflow-auto rounded-2xl border border-border bg-card shadow-sm"
+          style={{ minWidth: 240, minHeight: 140 }}
+        >
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <span
             className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold ${
@@ -193,6 +219,7 @@ function EtapaNode({ data, selected, width }: NodeProps) {
           </div>
         </div>
 
+        </div>
       </div>
 
       {/*
@@ -210,7 +237,8 @@ function EtapaNode({ data, selected, width }: NodeProps) {
         {d.followUps.map((seguimiento, posicion) => (
           <div
             key={`${d.stage}-${posicion}`}
-            className="nodrag flex items-start gap-2 rounded-xl border border-border bg-card px-2 py-2 shadow-sm"
+            className="nodrag flex resize items-start gap-2 overflow-auto rounded-xl border border-border bg-card px-2 py-2 shadow-sm"
+            style={{ minHeight: 56 }}
           >
             <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
             <span className="min-w-0 flex-1">
@@ -248,29 +276,6 @@ function EtapaNode({ data, selected, width }: NodeProps) {
           </button>
         ) : null}
       </div>
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="!h-3 !w-3 !border-2 !border-white !bg-emerald-600"
-      />
-
-      {/*
-        La manija para agrandar la caja, en la esquina de abajo a la derecha.
-
-        Solo con la caja seleccionada: es la misma regla que en el mapa de ideas, y evita que el
-        lienzo este lleno de manijas de cajas que nadie esta tocando. Estirar la etapa estira
-        tambien sus esperas, porque son la misma columna.
-      */}
-      {selected ? (
-        <NodeResizeControl
-          position="bottom-right"
-          minWidth={240}
-          minHeight={120}
-          style={{ background: "transparent", border: "none" }}
-        >
-          <span className="absolute -bottom-1 -right-1 size-3 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-muted-foreground/60" />
-        </NodeResizeControl>
-      ) : null}
     </>
   );
 }
