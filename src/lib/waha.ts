@@ -401,6 +401,54 @@ export function chatIdDeTelefono(telefono: string): string {
  */
 const telefonoDeLid = new Map<string, string>();
 
+/**
+ * El telefono real detras de un LID, preguntandoselo a WAHA.
+ *
+ * Los leads que entran por un anuncio ocultan su numero: WhatsApp los identifica con un LID y el
+ * contacto nacia llamandose "37898875334784". En evogo esto ya estaba resuelto por el fork; al
+ * pasar a WAHA volvio, porque WAHA no traduce solo.
+ *
+ * Pero SI tiene la tabla: al 2-sep-2026, 1.860 equivalencias guardadas en la linea de Ventas 1.
+ * Solo habia que preguntarle.
+ *
+ * Devuelve null si esa linea no conoce la equivalencia -pasa cuando el lead escribe por primera
+ * vez y WhatsApp todavia no la mando-; en ese caso el contacto nace con el LID, como hasta ahora,
+ * y se resuelve la proxima.
+ *
+ * La respuesta se guarda: una equivalencia no cambia.
+ */
+export async function telefonoDeUnLid(input: {
+  connection: WahaConnection;
+  sesion: string;
+  lid: string;
+}): Promise<string | null> {
+  const lid = input.lid.replace(/[^0-9]/g, "");
+  if (!lid) {
+    return null;
+  }
+  const clave = `${input.sesion}:${lid}`;
+  const guardado = telefonoDeLid.get(clave);
+  if (guardado) {
+    return guardado.split("@")[0] ?? null;
+  }
+
+  try {
+    const respuesta = await wahaRequest<{ pn?: string | null }>(
+      input.connection,
+      `/api/${encodeURIComponent(input.sesion)}/lids/${encodeURIComponent(lid)}`,
+    );
+    const telefono = respuesta?.pn?.trim();
+    if (!telefono) {
+      return null;
+    }
+    telefonoDeLid.set(clave, chatIdDeTelefono(telefono));
+    return telefono.split("@")[0]?.replace(/[^0-9]/g, "") || null;
+  } catch {
+    // Sin equivalencia se sigue con el LID: preguntar es una mejora, no un requisito para recibir.
+    return null;
+  }
+}
+
 async function chatIdParaEnviar(input: {
   connection: WahaConnection;
   sesion: string;

@@ -13,6 +13,7 @@ import {
   leerAckWaha,
   leerPresenciaWaha,
   reintentarMediaWaha,
+  telefonoDeUnLid,
   traducirEventoWaha,
   type EstadoDeEntrega,
   type PresenciaWaha,
@@ -98,6 +99,34 @@ export async function POST(request: NextRequest) {
         select: { workspaceId: true, metadata: true },
       })
     : null;
+
+  /*
+    Si el lead viene con LID, se traduce a su telefono ANTES de procesarlo.
+
+    Los que entran por un anuncio ocultan su numero: WhatsApp los identifica con un LID y el
+    contacto nacia llamandose "37898875334784". Peor que feo: la MISMA persona entraba dos veces,
+    una con el LID y otra con su numero, en dos chats distintos. En evogo esto ya estaba resuelto
+    por el fork; al pasar a WAHA volvio, porque WAHA no traduce solo -pero tiene la tabla y basta
+    con preguntarle-.
+
+    Se hace aca, sobre el evento crudo, para que TODO lo de mas abajo -contacto, conversacion,
+    embudo, agente- vea el telefono de verdad sin enterarse de que existe un LID.
+  */
+  if (canal) {
+    const conexion = readGatewayConnection(canal.metadata);
+    const de = (cuerpo as { payload?: { from?: unknown } }).payload?.from;
+    if (conexion?.apiToken && typeof de === "string" && de.toLowerCase().endsWith("@lid")) {
+      const telefono = await telefonoDeUnLid({
+        connection: { baseUrl: conexion.baseUrl, apiToken: conexion.apiToken },
+        sesion,
+        lid: de,
+      });
+      if (telefono) {
+        (cuerpo as { payload: { from: string } }).payload.from = `${telefono}@c.us`;
+        console.log("[waha lid] resuelto", { lid: de, telefono });
+      }
+    }
+  }
 
   let traduccion = traducirEventoWaha(cuerpo);
 
