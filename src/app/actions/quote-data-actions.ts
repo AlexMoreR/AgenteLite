@@ -113,7 +113,9 @@ export async function leerFichaDeCotizacionAction(
     // falta el nombre completo, y el de WhatsApp suele ser "Ana 💅" o el nombre del salon.
     fullName: leerTexto(metadata, "fullName") || ctx.contact.name || "",
     document: leerTexto(metadata, "document"),
+    email: leerTexto(metadata, "email"),
     city: leerTexto(metadata, "city"),
+    department: leerTexto(metadata, "department"),
     address: leerTexto(metadata, "address"),
     products: leerTexto(metadata, "products"),
   };
@@ -235,7 +237,9 @@ export async function guardarFichaDeCotizacionAction(input: {
   const limites: Record<CampoDeFicha, number> = {
     fullName: 120,
     document: 30,
+    email: 160,
     city: 120,
+    department: 120,
     address: 200,
     products: 300,
   };

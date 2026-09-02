@@ -34,7 +34,14 @@ import {
  */
 
 /** Las casillas que necesitan mas de un renglon. */
-const LARGOS: CampoDeFicha[] = ["address", "products"];
+/*
+  Solo "Productos" va como area de texto.
+
+  La direccion es UNA linea -"Cra 45 #12-30, Barrio San Fernando"- y en un area de dos renglones
+  se veia como si esperara un parrafo. Lo que si lleva varias lineas es el pedido, que suele ser
+  una lista.
+*/
+const LARGOS: CampoDeFicha[] = ["products"];
 
 export function FichaDeCotizacion({
   contactId,

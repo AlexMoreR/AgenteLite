@@ -18,7 +18,9 @@
 export const CAMPOS_DE_FICHA = [
   { clave: "fullName", etiqueta: "Nombre completo", ejemplo: "Como va en la factura" },
   { clave: "document", etiqueta: "NIT / Cédula", ejemplo: "Sin puntos" },
+  { clave: "email", etiqueta: "Correo electrónico", ejemplo: "Para enviar la factura" },
   { clave: "city", etiqueta: "Ciudad", ejemplo: "Para el envío" },
+  { clave: "department", etiqueta: "Departamento", ejemplo: "Valle del Cauca, Antioquia…" },
   { clave: "address", etiqueta: "Dirección", ejemplo: "Calle, número, barrio" },
   { clave: "products", etiqueta: "Productos", ejemplo: "Qué pidió y cuántos" },
 ] as const;
@@ -47,7 +49,15 @@ export type TurnoDelChat = {
 };
 
 export function fichaVacia(): FichaDeCotizacion {
-  return { fullName: "", document: "", city: "", address: "", products: "" };
+  return {
+    fullName: "",
+    document: "",
+    email: "",
+    city: "",
+    department: "",
+    address: "",
+    products: "",
+  };
 }
 
 /* ------------------------------------------------------------------ reglas */
@@ -188,6 +198,34 @@ function buscarCiudad(turnos: TurnoDelChat[]): DatoHallado | null {
   return null;
 }
 
+/*
+  El correo tiene forma fija, asi que sale con una regla y no cuesta una llamada a la IA.
+
+  Se busca en lo que escribio el CLIENTE, como todo lo demas: nuestras plantillas llevan el correo
+  del negocio y sin ese filtro se propondria "ventas@magilus.com" como el correo de la clienta.
+*/
+const PATRON_CORREO = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+
+function buscarCorreo(turnos: TurnoDelChat[]): DatoHallado | null {
+  // Del final hacia atras: si lo corrigio, vale el ultimo que dicto.
+  for (const turno of [...turnos].reverse()) {
+    const texto = (turno.content ?? "").trim();
+    if (!texto) {
+      continue;
+    }
+    const hallado = PATRON_CORREO.exec(texto);
+    if (hallado) {
+      return {
+        valor: hallado[0].toLowerCase(),
+        frase: recortar(texto),
+        fecha: turno.createdAt.toISOString(),
+        como: "reglas",
+      };
+    }
+  }
+  return null;
+}
+
 /** Lo que se puede sacar sin gastar un peso. */
 export function buscarPorReglas(turnos: TurnoDelChat[]): Sugerencias {
   // Solo lo que dijo EL CLIENTE: nuestra propia plantilla dice "envianos tu cedula" y contiene la
@@ -204,6 +242,10 @@ export function buscarPorReglas(turnos: TurnoDelChat[]): Sugerencias {
   const ciudad = buscarCiudad(delCliente);
   if (ciudad) {
     sugerencias.city = ciudad;
+  }
+  const correo = buscarCorreo(delCliente);
+  if (correo) {
+    sugerencias.email = correo;
   }
   return sugerencias;
 }
@@ -245,14 +287,16 @@ Reglas que no se rompen:
 type RespuestaIA = {
   fullName?: unknown;
   address?: unknown;
+  department?: unknown;
   products?: unknown;
   fraseFullName?: unknown;
   fraseAddress?: unknown;
+  fraseDepartment?: unknown;
   fraseProducts?: unknown;
 };
 
 /** Los campos de texto libre: los unicos que justifican pagar una llamada a la IA. */
-const CAMPOS_DE_IA: CampoDeFicha[] = ["fullName", "address", "products"];
+const CAMPOS_DE_IA: CampoDeFicha[] = ["fullName", "address", "department", "products"];
 
 export async function buscarConIA(input: {
   transcripcion: string;
@@ -304,6 +348,11 @@ export async function buscarConIA(input: {
       frase: texto(datos.fraseFullName, 160),
     },
     { campo: "address", valor: texto(datos.address, 200), frase: texto(datos.fraseAddress, 160) },
+    {
+      campo: "department",
+      valor: texto(datos.department, 120),
+      frase: texto(datos.fraseDepartment, 160),
+    },
     {
       campo: "products",
       valor: texto(datos.products, 300),
