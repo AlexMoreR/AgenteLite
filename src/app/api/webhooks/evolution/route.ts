@@ -438,7 +438,13 @@ function extractAdLeadOrigin(payload: unknown): AdLeadOrigin | null {
 // versión idéntica caen al mismo string aunque cambie algún signo.
 function normalizeForRepeatCheck(text: string): string {
   return text
-    .normalize("NFD")
+    /*
+      NFKD y no NFD: hay clientes que escriben con las fuentes raras de WhatsApp
+      -"𝑩𝒖𝒆𝒏𝒂𝒔 𝒏𝒊𝒄𝒉𝒆𝒔"-, que son letras matematicas de Unicode, no la "b" comun. NFD no
+      las toca, el filtro de abajo se las come, y el mensaje ENTERO quedaba en blanco: sus
+      palabras eran invisibles para todos los buscadores. NFKD las devuelve a letras normales.
+    */
+    .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
@@ -2820,6 +2826,33 @@ export async function POST(request: NextRequest) {
     );
 
     const inboundTextForProcessing = (batchedInboundText.trim() || messageText?.trim() || latestIncomingAudioTranscript || "").trim();
+
+    /*
+      Lo que el cliente ESCRIBIO, sin la descripcion de la foto.
+
+      Cuando llega una foto sin texto, la descripcion que arma la IA ocupa el lugar del mensaje.
+      Para la IA esta bien -lee "muebles para pedicura" y entiende-, pero para los buscadores por
+      palabras es veneno: son parrafos de adjetivos genericos -asiento, espaldar, vidrio, color
+      negro- y en un catalogo donde TODO es mueble negro acolchado, siempre le pegan a algo.
+
+      Caso real (3-sep-2026, 573161619022): mando la foto de una mesa de manicura y la descripcion
+      saco 55 puntos contra "Combo Lavacabezas+Silla Neumatica" -umbral 18- por compartir
+      "asiento", "espaldar", "vidrio" y "color negro". El producto quedo fijado y el agente le
+      ofrecio un lavacabezas a una manicurista.
+
+      Los buscadores por palabra usan esto; la IA sigue recibiendo la descripcion aparte.
+    */
+    const textoEscritoPorElCliente = (
+      buildAutoReplyBufferText(batchedInboundMessages, latestIncomingAudioTranscript, null).trim() ||
+      messageText?.trim() ||
+      latestIncomingAudioTranscript ||
+      ""
+    )
+      // Sin la foto, un mensaje de solo-imagen queda como "[IMAGEN]": un cartel nuestro, no algo
+      // que el cliente haya dicho. Se saca para que no sume palabras al buscador.
+      .replace(/\[(?:IMAGEN|AUDIO|DOCUMENTO)\]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
     const hasInboundContent = Boolean(inboundTextForProcessing || resolvedCurrentMediaUrl);
 
     if (process.env.NODE_ENV !== "production") {
@@ -2841,7 +2874,7 @@ export async function POST(request: NextRequest) {
         ? await resolveEvolutionQuickResponseFlow({
             workspaceId: channel.workspaceId,
             channelId: channel.id,
-            manualMessage: inboundTextForProcessing,
+            manualMessage: textoEscritoPorElCliente,
           })
         : null;
 
@@ -3009,7 +3042,7 @@ export async function POST(request: NextRequest) {
         : await resolveAgentProductFlowReply({
             agentId: agent.id,
             workspaceId: channel.workspaceId,
-            latestUserMessage: inboundTextForProcessing,
+            latestUserMessage: textoEscritoPorElCliente,
             history: recentMessagesForModel,
             includeOfficialApi: true,
             commercialContext: previousCommercialContext,

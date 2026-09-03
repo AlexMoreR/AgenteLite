@@ -40,7 +40,13 @@ type QuickResponseFlowReply = {
 
 function normalizeText(value: string) {
   return value
-    .normalize("NFD")
+    /*
+      NFKD y no NFD: hay clientes que escriben con las fuentes raras de WhatsApp
+      -"𝑩𝒖𝒆𝒏𝒂𝒔 𝒏𝒊𝒄𝒉𝒆𝒔"-, que son letras matematicas de Unicode, no la "b" comun. NFD no
+      las toca, el filtro de abajo se las come, y el mensaje ENTERO quedaba en blanco: sus
+      palabras eran invisibles para todos los buscadores. NFKD las devuelve a letras normales.
+    */
+    .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
