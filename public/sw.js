@@ -197,9 +197,10 @@ self.addEventListener("push", (event) => {
     chat: payload.tag || "chat",
     titulo: payload.title || "Nuevo mensaje",
     cuerpo: payload.body || "",
+    // La foto de quien escribe, si la tenemos guardada.
+    foto: payload.icon || "",
   };
   const url = payload.url || "/cliente/chats";
-  const icon = payload.icon || "/icon?size=192";
   const badge = payload.badge || "/icon?size=192";
 
   /**
@@ -222,13 +223,22 @@ self.addEventListener("push", (event) => {
     const { mensajes, total } = await acumularMensaje(entrada);
     const { titulo, cuerpo } = armarResumen(mensajes, total);
 
+    /*
+      La foto que se ve es la del cliente, pero solo cuando hay UN chat esperando.
+
+      La notificacion tiene un solo lugar para una imagen. Con dos clientes distintos escribiendo,
+      mostrar la cara de uno solo hace pensar que el aviso es de el; ahi se pone el logo, que es
+      honesto: el aviso es de varios.
+    */
+    const imagen = (mensajes.length === 1 && mensajes[0].foto) || "/icon?size=192";
+
     return self.registration.showNotification(titulo, {
       body: cuerpo,
       // UN solo tag para todos los chats: cada mensaje nuevo REEMPLAZA la tarjeta anterior con el
       // resumen al dia, en vez de apilar una tarjeta por cliente.
       tag: TAG_DEL_GRUPO,
       renotify: true,
-      icon,
+      icon: imagen,
       badge,
       // Vibración tipo mensajería (patrón corto) en dispositivos que la soportan.
       vibrate: [120, 60, 120],

@@ -2501,6 +2501,22 @@ export async function POST(request: NextRequest) {
 
     after(async () => {
       try {
+        /*
+          La foto del cliente en el aviso, como WhatsApp.
+
+          Antes salia el logo de Magilus en cada notificacion, que no dice nada: uno ya sabe de que
+          app es el aviso. Lo util es la cara de quien escribe.
+
+          La consulta va aca adentro, en el after(): es una busqueda por clave primaria y no demora
+          la respuesta al webhook. Si no hay foto, el Service Worker pone el logo como antes.
+        */
+        const fotoDelContacto = contact.id
+          ? await prisma.contact
+              .findUnique({ where: { id: contact.id }, select: { avatarUrl: true } })
+              .then((fila) => fila?.avatarUrl?.trim() || "")
+              .catch(() => "")
+          : "";
+
         await sendChatPushToWorkspace({
           workspaceId: channel.workspaceId,
           payload: {
@@ -2508,6 +2524,7 @@ export async function POST(request: NextRequest) {
             body: pushBody,
             tag: `chat:${conversation.id || phoneNumber}`,
             url: "/cliente/chats",
+            ...(fotoDelContacto ? { icon: fotoDelContacto } : {}),
           },
         });
       } catch (error) {
