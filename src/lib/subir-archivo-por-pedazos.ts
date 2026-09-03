@@ -63,6 +63,27 @@ export async function subirArchivoPorPedazos(input: {
   /** Avance de 0 a 1, para poder mostrarlo mientras dura. */
   onAvance?: (avance: number) => void;
 }): Promise<{ archivo?: ArchivoSubido; error?: string }> {
+  /*
+    Antes de empezar, se comprueba que el archivo se pueda LEER.
+
+    En Android, un archivo que llega compartido desde otra app (o que se movio despues de elegirlo)
+    deja un File que ya no apunta a nada. Al mandarlo, fetch falla con "Failed to fetch" ANTES de
+    salir a la red: los seis reintentos caen instantaneos y no llega ni un pedido al servidor. Visto
+    el 3-sep-2026 con un video de 85 MB, tres veces seguidas, sin una sola linea en el servidor.
+
+    El aviso decia "revisa la señal", que manda a buscar donde no es. Se lee el ultimo byte -que
+    obliga al navegador a tocar el archivo de verdad- y si falla se dice lo que pasa.
+  */
+  if (input.file.size > 0) {
+    try {
+      await input.file.slice(input.file.size - 1, input.file.size).arrayBuffer();
+    } catch {
+      return {
+        error: "No se pudo leer el archivo desde el telefono. Volve a elegirlo desde la galeria.",
+      };
+    }
+  }
+
   const uploadId = generarId();
   const total = Math.max(1, Math.ceil(input.file.size / TAMANO_TROZO));
 

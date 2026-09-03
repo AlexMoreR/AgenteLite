@@ -62,6 +62,20 @@ class WahaError extends Error {
 /** Cuanto se espera a WAHA antes de cortar. Sin limite, un gateway colgado cuelga la pantalla. */
 const TIMEOUT_MS = 20_000;
 
+/*
+  Los envios de media tienen su propio plazo, mucho mas largo.
+
+  20 segundos alcanzan para preguntar el estado de una sesion, pero no para mandar un archivo:
+  WAHA lo descarga de nuestro servidor, lo CONVIERTE con ffmpeg (los videos van con convert: true,
+  sin eso los rechaza) y recien ahi lo sube a WhatsApp. Un video de 85 MB no entra ni cerca en 20
+  segundos.
+
+  Caso real (3-sep-2026): 1001685636.mp4, 85 MB. La subida al servidor termino bien y el envio
+  murio con "The operation was aborted due to timeout" -el plazo nuestro, no un rechazo de
+  WhatsApp-.
+*/
+const TIMEOUT_MEDIA_MS = 300_000;
+
 /**
  * Los eventos que le pedimos a WAHA.
  *
@@ -74,7 +88,7 @@ const EVENTOS = ["message", "message.any", "message.ack", "session.status"] as c
 async function wahaRequest<T>(
   connection: WahaConnection,
   path: string,
-  init?: RequestInit & { esperaJson?: boolean },
+  init?: RequestInit & { esperaJson?: boolean; timeoutMs?: number },
 ): Promise<T> {
   const baseUrl = connection.baseUrl.replace(/\/+$/, "");
   if (!baseUrl || !connection.apiToken) {
@@ -92,7 +106,7 @@ async function wahaRequest<T>(
       ...(init?.headers ?? {}),
     },
     cache: "no-store",
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(init?.timeoutMs ?? TIMEOUT_MS),
   });
 
   const texto = await respuesta.text().catch(() => "");
@@ -980,6 +994,7 @@ export async function enviarMediaWaha(input: {
     wahaRequest<unknown>(input.connection, RUTA_POR_TIPO[input.tipo], {
       method: "POST",
       body: JSON.stringify({ ...cuerpo, chatId }),
+      timeoutMs: TIMEOUT_MEDIA_MS,
     }),
   );
 

@@ -1,6 +1,6 @@
 "use server";
 
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -68,6 +68,15 @@ import {
 } from "@/lib/workspace";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { resolveEvolutionQuickResponseFlow } from "@/features/flows/services/resolveEvolutionQuickResponseFlow";
+
+/*
+  Hasta aca se guarda el respaldo en base64 de un archivo que se manda por chat.
+
+  Arriba de esto no vale la pena: el gateway recibe una URL y descarga el archivo el mismo, y
+  pasar 85 MB a base64 son ~114 MB de texto en memoria para un reintento que con ese tamano
+  tampoco iba a entrar en el pedido.
+*/
+const MAX_BASE64_FALLBACK_BYTES = 8 * 1024 * 1024;
 
 const createAgentSchema = z.object({
   assistantName: z.string().trim().max(40).default(""),
@@ -3246,16 +3255,26 @@ export async function sendChatMediaReplyAction(input: {
     return { error: "No se encontro el canal o contacto" };
   }
 
-  // Leemos el archivo para conocer su tamaño y tener un respaldo en base64 (path legacy).
+  /*
+    Solo se mira cuanto pesa; el archivo NO se carga entero.
+
+    Antes se leia completo y se pasaba a base64 por si habia que reintentar por ahi. Para un video
+    de 85 MB eso son ~114 MB de texto en memoria, en un servidor donde el kernel ya viene matando
+    Postgres por falta de RAM, y ademas al pedo: el gateway se lleva la URL, no el contenido.
+
+    El respaldo en base64 se conserva solo para los archivos chicos, que es donde de verdad
+    sirvio alguna vez (una nota de voz, una foto).
+  */
   let mediaBase64 = "";
   let fileSize = 0;
   let mediaPathname = "";
   try {
     mediaPathname = new URL(parsed.data.mediaUrl).pathname;
     const filePath = path.join(process.cwd(), "public", mediaPathname);
-    const buffer = await readFile(filePath);
-    mediaBase64 = buffer.toString("base64");
-    fileSize = buffer.length;
+    fileSize = (await stat(filePath)).size;
+    if (fileSize <= MAX_BASE64_FALLBACK_BYTES) {
+      mediaBase64 = (await readFile(filePath)).toString("base64");
+    }
   } catch {
     return { error: "No se pudo leer el archivo" };
   }
