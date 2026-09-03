@@ -25,6 +25,7 @@ import { recalentarLeadSiRespondio } from "@/features/crm/services/lead-temperat
 import { agendarSeguimientoDeEtapa } from "@/features/crm/services/stage-follow-up";
 import {
   buildActiveProductContextNote,
+  getFlowReply,
   resolveAgentProductFlowReply,
   resolveProductScopedFlowIds,
   type ActiveProductContext,
@@ -3018,6 +3019,71 @@ export async function POST(request: NextRequest) {
       let hardFlowReply = hardFlowResolution?.steps
         ? hardFlowResolution
         : null;
+
+      /*
+        La bienvenida por flujo: se manda ACA, no se le pide a la IA.
+
+        Cuando en el nodo Bienvenida se escribe "/nombre", ese flujo ES el saludo. Se intento
+        primero como una regla del prompt y no sirvio: el Prompt principal del agente puede traer
+        su propia frase de apertura ("usa exactamente esta frase... sin agregar nada mas antes ni
+        despues") y esa orden le gana a la nuestra. El cliente terminaba recibiendo la frase suelta
+        y el flujo nunca salia.
+
+        Aca no hay nada que convencer: es el primer mensaje de la conversacion, hay flujo de
+        bienvenida, se manda. Se reusa hardFlowReply a proposito -es el mismo carril por el que ya
+        salen los flujos por palabra clave-, asi que abajo se envian los pasos, no se antepone
+        saludo y no se llama a la IA este turno.
+
+        No pisa nada: solo entra si NO hubo respuesta previa del bot en esta conversacion y si el
+        motor no resolvio ya otro flujo para este mensaje.
+      */
+      if (!existingOutbound && !hardFlowReply && !shouldHandoffToHuman && !quickResponseFlow) {
+        const flujoDeBienvenida = agentTraining?.welcomeFlowId?.trim() || "";
+        if (flujoDeBienvenida) {
+          const saludo = await getFlowReply({
+            workspaceId: channel.workspaceId,
+            flowId: flujoDeBienvenida,
+            includeOfficialApi: true,
+          }).catch((error) => {
+            console.warn("[EVOLUTION] welcome_flow_failed", {
+              conversationId: conversation.id,
+              flowId: flujoDeBienvenida,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          });
+          if (saludo?.steps?.length) {
+            // El titulo solo se busca aca -primer mensaje y con saludo configurado-, que es donde
+            // hace falta para el evento de la linea de tiempo; no se paga en cada mensaje.
+            const tituloDelSaludo = await getCreatedFlowItems({
+              workspaceId: channel.workspaceId,
+              includeOfficialApi: true,
+            })
+              .then((items) => items.find((item) => item.id === flujoDeBienvenida)?.title ?? null)
+              .catch(() => null);
+            hardFlowReply = {
+              steps: saludo.steps,
+              flowTitle: tituloDelSaludo,
+              productName: null,
+              flowId: flujoDeBienvenida,
+              aiFollowUpEnabled: saludo.aiFollowUpEnabled,
+              activeProductContext: null,
+            };
+            console.log("[EVOLUTION] welcome_flow_sent", {
+              conversationId: conversation.id,
+              flowId: flujoDeBienvenida,
+              pasos: saludo.steps.length,
+            });
+          } else {
+            // Sin pasos el flujo esta vacio o lo borraron: se avisa y se sigue con la IA, que es
+            // mejor que dejar al cliente sin respuesta.
+            console.warn("[EVOLUTION] welcome_flow_empty", {
+              conversationId: conversation.id,
+              flowId: flujoDeBienvenida,
+            });
+          }
+        }
+      }
 
       const previousCommercialStage = previousCommercialContext?.currentStage ?? null;
       const commercialStageResolution = classifyCommercialStage({

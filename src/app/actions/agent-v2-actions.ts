@@ -18,6 +18,10 @@ import {
   type AgentKnowledgePromptProduct,
 } from "@/lib/agent-training";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
+import {
+  nombreDelFlujoEnBienvenida,
+  textoSinLaLineaDeFlujo,
+} from "@/features/agents-v2/domain/flujo-de-bienvenida";
 
 async function getV2Workspace() {
   const session = await auth();
@@ -519,25 +523,32 @@ export async function publishAgentV2Action(input: {
   };
 
   /*
-    Un "/nombre" adentro de la bienvenida ES el flujo con el que se saluda.
+    Un "Flujo: Bienvenida" adentro del nodo ES el flujo con el que se saluda.
 
-    Alex lo pidio asi y tiene razon: la convencion ya existe en los guiones del embudo, se escribe
-    "/Bienvenida" y el equipo la entiende. Inventar un interruptor aparte para lo mismo era una
-    regla nueva que aprender.
+    Se escribe con el nombre completo -y el nodo lo pinta como etiqueta- porque la primera version
+    usaba "/Bienvenida" y ahi no se veia que eso fuera un flujo: una barra suelta se lee como parte
+    del mensaje. La forma vieja se sigue entendiendo, para no romper lo ya escrito.
 
-    El "/nombre" se SACA del texto que se manda: si no, el cliente recibiria literalmente
-    "/Bienvenida" como primer mensaje del negocio. Y si al sacarlo no queda nada, no hay bienvenida
-    fija —el saludo lo da el flujo entero, que es justo lo que se pidio—.
+    El renglon se SACA del texto que se manda: si no, el cliente recibiria literalmente
+    "Flujo: Bienvenida" como primer mensaje del negocio. Y si al sacarlo no queda nada, no hay
+    bienvenida fija -el saludo lo da el flujo entero, que es justo lo que se pidio-.
   */
-  /** Saca el "/nombre" del texto: el cliente no tiene que recibir esa barra. */
-  const quitarLaBarraDelFlujo = (texto: string) =>
-    // La bandera m hace que ^ y $ valgan por RENGLON: se borran los renglones que empiezan con
-    // barra y se deja intacto el resto del saludo.
-    texto.replace(/^[ 	]*\/.*$/gm, "").trim();
-
-  const flujoDeBienvenida = flujoReferidoEnElEmbudo(textoDeBienvenida);
+  const nombreDelSaludo = nombreDelFlujoEnBienvenida(textoDeBienvenida);
+  const flujoDeBienvenida = nombreDelSaludo
+    ? (() => {
+        const buscado = normalizarTitulo(nombreDelSaludo);
+        // Primero el nombre tal cual, y recien despues uno que lo contenga: si hay "Fotos" y
+        // "Fotos combo camillas", escribir "Fotos" tiene que dar "Fotos".
+        const exacto = allFlowItems.find((flujo) => normalizarTitulo(flujo.title) === buscado);
+        if (exacto) {
+          return exacto.id;
+        }
+        const porLargo = [...allFlowItems].sort((a, b) => b.title.length - a.title.length);
+        return porLargo.find((flujo) => normalizarTitulo(flujo.title).includes(buscado))?.id ?? null;
+      })()
+    : null;
   const welcomeText = flujoDeBienvenida
-    ? quitarLaBarraDelFlujo(textoDeBienvenida)
+    ? textoSinLaLineaDeFlujo(textoDeBienvenida)
     : textoDeBienvenida;
 
 
@@ -900,14 +911,26 @@ export async function publishAgentV2Action(input: {
     Va antes que el "siguiente bloque" porque es mas directo -se escribio adentro del saludo- y
     porque si estan los dos, manda el que se escribio ahi.
   */
+  /*
+    Pedirle a la IA que mande el saludo NO alcanzaba.
+
+    Se probo en Ventas 1 el 3-sep-2026: la regla estaba en el prompt publicado y el flujo estaba
+    en la lista de permitidos, y aun asi el cliente recibio la frase de apertura escrita en el
+    Prompt principal ("usa exactamente esta frase... sin agregar nada mas antes ni despues"). Esa
+    orden es mas concreta que la nuestra y gana; pelearle al prompt del usuario con otra regla es
+    una pelea que se pierde sola.
+
+    Asi que el saludo deja de ser una sugerencia: el id queda guardado en welcomeFlowId y el motor
+    manda ese flujo en el primer mensaje, antes de que la IA hable. A la IA solo se le avisa -para
+    los turnos que siguen- que ese flujo YA salio, para que no lo repita.
+  */
   if (flujoDeBienvenida) {
     const tituloDelSaludo = flowTitleById.get(flujoDeBienvenida);
     if (tituloDelSaludo) {
       rules.push(
-        `Al recibir un cliente nuevo, ejecuta OBLIGATORIAMENTE el flujo "${tituloDelSaludo}" ` +
-          `llamando a la herramienta consultar_flujos con ese nombre exacto. Ese flujo ES la ` +
-          `bienvenida: no escribas un saludo propio ni antes ni despues, deja que el flujo ` +
-          `entregue el contenido.`,
+        `La bienvenida de este negocio es el flujo "${tituloDelSaludo}", y se envia solo, ` +
+          `automaticamente, apenas escribe un cliente nuevo. Cuando te toque responder ya salio: ` +
+          `NO lo vuelvas a enviar y NO describas su contenido; continua la conversacion desde ahi.`,
       );
     }
   }
@@ -942,6 +965,8 @@ export async function publishAgentV2Action(input: {
     customWelcomeMessage: fixedWelcome ? welcomeText : "",
     customRules: compiledRules,
     knowledgeFlowIds: flowIds,
+    // El saludo por flujo: lo ejecuta el motor en el primer mensaje, no la IA.
+    welcomeFlowId: flujoDeBienvenida ?? "",
     // Toggles "Consultar productos/flujos": apagados => el motor no ofrece la tool.
     enableProductLookup: consultProducts,
     enableFlowLookup: consultFlows,

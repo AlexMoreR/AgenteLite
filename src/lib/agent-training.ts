@@ -104,6 +104,17 @@ export type AgentTrainingConfig = {
   forbiddenRules: string[];
   customRules: string;
   knowledgeFlowIds: string[];
+  /*
+    El flujo con el que se SALUDA, cuando en el nodo Bienvenida se escribio "/nombre".
+
+    Va aca y no solo como una regla del prompt porque la regla no alcanzaba: el prompt principal
+    del agente puede traer su propia orden de apertura ("usa exactamente esta frase... sin agregar
+    nada mas antes ni despues") y esa gana. Con el id guardado, el saludo lo manda el motor antes
+    de que la IA opine, igual que un flujo por palabra clave.
+
+    Vacio => no hay flujo de bienvenida y todo sigue como antes.
+  */
+  welcomeFlowId: string;
   // Toggles de Agente V2: si están en false, el motor NO ofrece esa tool al modelo.
   // Ausente/undefined => true (preserva el comportamiento de V1, que siempre las tiene).
   enableProductLookup: boolean;
@@ -188,6 +199,7 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   forbiddenRules: [...forbiddenRuleOptions.slice(0, 4)],
   customRules: "",
   knowledgeFlowIds: [],
+  welcomeFlowId: "",
   enableProductLookup: true,
   enableFlowLookup: true,
   aiDrivenFlows: false,
@@ -247,8 +259,9 @@ export function getResponseLengthSliderValue(value: ResponseLength) {
 export function buildAgentTrainingConfig(
   // Los toggles de tools son opcionales: V1 no los setea y por defecto van en true
   // (siempre ofrece las tools). Solo Agente V2 los pasa explícitamente.
-  input: Omit<AgentTrainingConfig, "enableProductLookup" | "enableFlowLookup"> &
-    Partial<Pick<AgentTrainingConfig, "enableProductLookup" | "enableFlowLookup">>,
+  // welcomeFlowId tambien: solo Agente V2 sabe si el nodo Bienvenida trae un "/flujo".
+  input: Omit<AgentTrainingConfig, "enableProductLookup" | "enableFlowLookup" | "welcomeFlowId"> &
+    Partial<Pick<AgentTrainingConfig, "enableProductLookup" | "enableFlowLookup" | "welcomeFlowId">>,
 ): AgentTrainingConfig {
   const notify = input.actions.notify;
 
@@ -260,6 +273,7 @@ export function buildAgentTrainingConfig(
     customWelcomeMessage: input.customWelcomeMessage.trim(),
     customRules: input.customRules.trim(),
     knowledgeFlowIds: input.knowledgeFlowIds.filter((value, index, array) => Boolean(value) && array.indexOf(value) === index),
+    welcomeFlowId: (input.welcomeFlowId ?? "").trim(),
     enableProductLookup: input.enableProductLookup !== false,
     enableFlowLookup: input.enableFlowLookup !== false,
     aiDrivenFlows: input.aiDrivenFlows === true,
@@ -698,6 +712,7 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
     forbiddenRules,
     customRules: typeof data.customRules === "string" ? data.customRules : "",
     knowledgeFlowIds,
+    welcomeFlowId: typeof data.welcomeFlowId === "string" ? data.welcomeFlowId.trim() : "",
     enableProductLookup: data.enableProductLookup !== false,
     enableFlowLookup: data.enableFlowLookup !== false,
     aiDrivenFlows: data.aiDrivenFlows === true,

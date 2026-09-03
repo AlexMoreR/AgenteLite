@@ -97,6 +97,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  nombreDelFlujoEnBienvenida,
+  textoSinLaLineaDeFlujo,
+} from "@/features/agents-v2/domain/flujo-de-bienvenida";
 import { cn } from "@/lib/utils";
 
 const AGENT_NODE_ID = "agent-root";
@@ -352,6 +356,10 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
   const nodeData = data as BienvenidaData;
   const collapsed = nodeData.collapsed ?? false;
   const texto = nodeData.texto ?? "";
+  // Lo que se escribio como flujo va aparte del mensaje: uno se pinta como etiqueta y el
+  // otro como texto.
+  const nombreDelFlujo = nombreDelFlujoEnBienvenida(texto);
+  const restoDelTexto = nombreDelFlujo ? textoSinLaLineaDeFlujo(texto) : texto;
   /*
     Que tiempos mostrar se DEDUCE de las uniones, no se guarda.
 
@@ -444,13 +452,31 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
                   className="nodrag h-full min-h-0 w-full resize-none border-0 bg-transparent p-0 text-[12px] leading-5 text-foreground outline-none focus:ring-0"
                 />
               ) : (
-                <p className="whitespace-pre-wrap break-words text-[12px] leading-5 text-foreground">
-                  {texto || (
-                    <span className="text-muted-foreground">
-                      El primer mensaje que recibe el cliente. Si lo dejas vacio, lo escribe la IA.
+                <div className="flex flex-col gap-1.5">
+                  {/*
+                    El flujo del saludo se ve como etiqueta, no como texto.
+
+                    Escrito como un renglon mas -"Flujo: Bienvenida"- se lee como parte del mensaje
+                    y no como lo que es: una orden. La etiqueta lo separa de un vistazo y avisa que
+                    ese renglon NO le llega al cliente.
+                  */}
+                  {nombreDelFlujo ? (
+                    <span className="inline-flex w-fit max-w-full items-center gap-1 rounded-md bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+                      <Workflow className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{nombreDelFlujo}</span>
                     </span>
-                  )}
-                </p>
+                  ) : null}
+                  {restoDelTexto ? (
+                    <p className="whitespace-pre-wrap break-words text-[12px] leading-5 text-foreground">
+                      {restoDelTexto}
+                    </p>
+                  ) : null}
+                  {!nombreDelFlujo && !restoDelTexto ? (
+                    <p className="text-[12px] leading-5 text-muted-foreground">
+                      El primer mensaje que recibe el cliente. Si lo dejas vacio, lo escribe la IA.
+                    </p>
+                  ) : null}
+                </div>
               )}
             </div>
           </BaseNodeContent>
