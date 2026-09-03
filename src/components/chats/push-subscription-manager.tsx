@@ -35,10 +35,39 @@ export function PushSubscriptionManager({ enabled = true }: { enabled?: boolean 
       void requestPermissionAndSubscribe();
     };
 
+    /*
+      Con la app a la vista se borran los avisos pendientes.
+
+      Sin esto quedaban colgados en la bandeja del telefono: la asesora leia el mensaje adentro de
+      la app, el aviso seguia ahi, y como el resumen se arma a partir del que ya estaba en pantalla,
+      al llegar el siguiente mensaje volvian a aparecer renglones de chats YA leidos. Se tocaba y no
+      habia nada nuevo -las "notificaciones fantasmas"-.
+
+      Es lo mismo que hace WhatsApp: abris la app y la bandeja de avisos queda limpia.
+    */
+    const limpiarAvisos = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      void navigator.serviceWorker.ready
+        .then((registration) => registration.getNotifications())
+        .then((avisos) => {
+          for (const aviso of avisos) {
+            aviso.close();
+          }
+        })
+        .catch(() => undefined);
+    };
+
+    limpiarAvisos();
+    document.addEventListener("visibilitychange", limpiarAvisos);
+    window.addEventListener("focus", limpiarAvisos);
     window.addEventListener("pointerdown", handleGesture);
     window.addEventListener("keydown", handleGesture);
 
     return () => {
+      document.removeEventListener("visibilitychange", limpiarAvisos);
+      window.removeEventListener("focus", limpiarAvisos);
       window.removeEventListener("pointerdown", handleGesture);
       window.removeEventListener("keydown", handleGesture);
     };

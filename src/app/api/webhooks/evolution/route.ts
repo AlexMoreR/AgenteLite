@@ -2523,7 +2523,19 @@ export async function POST(request: NextRequest) {
             title: pushContactName,
             body: pushBody,
             tag: `chat:${conversation.id || phoneNumber}`,
-            url: "/cliente/chats",
+            /*
+              Al tocar la notificacion se abre ESE chat, no la lista.
+
+              Antes caia en /cliente/chats a secas, y la bandeja abre por defecto en "Mias": si el
+              mensaje era de un chat de otra asesora -y el aviso les llega a todos-, se tocaba y no
+              aparecia nada. Se veia como una notificacion fantasma.
+
+              La clave `agent:<id>` es la misma que usa el buscador, y la pagina ya sabe abrir un
+              chat que no venga en el lote cargado.
+            */
+            url: conversation.id
+              ? `/cliente/chats?chatKey=agent:${conversation.id}`
+              : "/cliente/chats",
             ...(fotoDelContacto ? { icon: fotoDelContacto } : {}),
           },
         });

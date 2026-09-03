@@ -58,6 +58,29 @@ export async function POST(request: Request) {
     },
   });
 
+  /*
+    Un dispositivo, una suscripcion.
+
+    Apple cambia el endpoint cada tanto: el mismo iPhone se re-suscribia y quedaba una fila NUEVA
+    sin borrar la anterior. Medido el 3-sep-2026: Alex tenia 12 filas, OCHO del mismo telefono.
+    Mientras la vieja siga viva, el servidor manda el aviso dos veces y el telefono suena dos veces.
+
+    Se borran las otras filas del MISMO usuario con el MISMO navegador. Dos telefonos distintos
+    traen user-agent distinto, asi que cada uno conserva la suya; dos telefonos iguales del mismo
+    usuario se pisarian, que es un caso raro y el precio es solo que le llegue a uno.
+  */
+  if (userAgent) {
+    await prisma.webPushSubscription
+      .deleteMany({
+        where: {
+          userId: session.user.id,
+          userAgent,
+          endpoint: { not: endpoint },
+        },
+      })
+      .catch(() => undefined);
+  }
+
   return NextResponse.json({ ok: true });
 }
 
