@@ -958,35 +958,17 @@ function AgentEditorDialog({
           </DialogTitle>
         </DialogHeader>
 
+        {/*
+          Aca ya no va la bienvenida.
+
+          Estaba duplicada: el saludo vive en el nodo Bienvenida, que se lee en el lienzo y se
+          conecta con el resto del dibujo. Tenerlo tambien escondido adentro de este modal era
+          tener el mismo mensaje en dos lugares, y al publicar gana el nodo -asi que lo que se
+          escribiera aca no se enviaba nunca-.
+
+          Para que NO haya bienvenida fija se borra el nodo, y la IA saluda segun el prompt.
+        */}
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="space-y-0.5">
-              <span className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <Rocket className="h-4 w-4" />
-                Bienvenida fija
-              </span>
-              <p className="text-[11px] leading-4 text-muted-foreground">
-                Si esta apagada, la IA genera la bienvenida segun el prompt.
-              </p>
-            </div>
-            <Switch
-              checked={data.fixedWelcome}
-              onCheckedChange={(checked) => onChange({ fixedWelcome: checked })}
-              aria-label="Bienvenida fija"
-            />
-          </div>
-
-          {data.fixedWelcome ? (
-            <div>
-              <TextareaExpandible
-                value={data.welcome}
-                onChange={(event) => onChange({ welcome: event.target.value })}
-                placeholder="Hola, bienvenido a..."
-                className="block min-h-[88px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-[1.35] text-foreground outline-none transition placeholder:text-muted-foreground focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:focus:ring-violet-950"
-              />
-            </div>
-          ) : null}
-
           <div className="space-y-1.5">
             <label className="flex items-center gap-2 text-sm font-medium text-foreground">
               <MessageSquare className="h-4 w-4" />
