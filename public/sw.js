@@ -199,17 +199,7 @@ self.addEventListener("push", (event) => {
     cuerpo: payload.body || "",
   };
   const url = payload.url || "/cliente/chats";
-  /*
-    Sin `icon`: no va la estampilla grande a la derecha.
-
-    Ese cuadrado morado con la M lo pinta Android cuando se manda `icon`, y ocupa un tercio de la
-    tarjeta repitiendo algo que ya se sabe -de que app es-. WhatsApp ahi pone la foto de quien
-    escribe, no su propio logo. Como nosotros no tenemos una foto por renglon, queda mejor vacio:
-    el texto usa todo el ancho.
-
-    `badge` si se conserva: es el iconito chico de la barra de estado, que es como se reconoce de
-    un vistazo que el aviso es de la app.
-  */
+  const icon = payload.icon || "/icon?size=192";
   const badge = payload.badge || "/icon?size=192";
 
   /**
@@ -238,6 +228,7 @@ self.addEventListener("push", (event) => {
       // resumen al dia, en vez de apilar una tarjeta por cliente.
       tag: TAG_DEL_GRUPO,
       renotify: true,
+      icon,
       badge,
       // Vibración tipo mensajería (patrón corto) en dispositivos que la soportan.
       vibrate: [120, 60, 120],
