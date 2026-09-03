@@ -416,7 +416,6 @@ export async function publishAgentV2Action(input: {
   const fixedWelcome = bienvenidaNode
     ? textoDeBienvenida.trim().length > 0
     : agentData.fixedWelcome === true;
-  const welcomeText = textoDeBienvenida;
   const consultProducts = agentData.consultProducts !== false;
   const consultFlows = agentData.consultFlows !== false;
 
@@ -518,6 +517,29 @@ export async function publishAgentV2Action(input: {
     }
     return null;
   };
+
+  /*
+    Un "/nombre" adentro de la bienvenida ES el flujo con el que se saluda.
+
+    Alex lo pidio asi y tiene razon: la convencion ya existe en los guiones del embudo, se escribe
+    "/Bienvenida" y el equipo la entiende. Inventar un interruptor aparte para lo mismo era una
+    regla nueva que aprender.
+
+    El "/nombre" se SACA del texto que se manda: si no, el cliente recibiria literalmente
+    "/Bienvenida" como primer mensaje del negocio. Y si al sacarlo no queda nada, no hay bienvenida
+    fija —el saludo lo da el flujo entero, que es justo lo que se pidio—.
+  */
+  /** Saca el "/nombre" del texto: el cliente no tiene que recibir esa barra. */
+  const quitarLaBarraDelFlujo = (texto: string) =>
+    // La bandera m hace que ^ y $ valgan por RENGLON: se borran los renglones que empiezan con
+    // barra y se deja intacto el resto del saludo.
+    texto.replace(/^[ 	]*\/.*$/gm, "").trim();
+
+  const flujoDeBienvenida = flujoReferidoEnElEmbudo(textoDeBienvenida);
+  const welcomeText = flujoDeBienvenida
+    ? quitarLaBarraDelFlujo(textoDeBienvenida)
+    : textoDeBienvenida;
+
 
   const describeRuleTrigger = (rule: Record<string, unknown>): string => {
     const matchType = asString(rule.matchType);
@@ -801,7 +823,15 @@ export async function publishAgentV2Action(input: {
 
   // 2) Knowledge flows desde los nodos Flujo.
   const flowIds = consultFlows
-    ? Array.from(new Set(flowNodes.flatMap((node) => getGraphNodeFlowIds(node))))
+    ? Array.from(
+        new Set([
+          ...flowNodes.flatMap((node) => getGraphNodeFlowIds(node)),
+          // El flujo con el que se saluda tiene que estar en la lista de flujos CONOCIDOS: sin
+          // esto se le da la orden de ejecutarlo y su propia busqueda no lo encuentra, y termina
+          // disculpandose.
+          ...(flujoDeBienvenida ? [flujoDeBienvenida] : []),
+        ]),
+      )
     : [];
   let knowledgeFlows: AgentKnowledgePromptFlow[] = [];
   if (flowIds.length) {
@@ -864,6 +894,25 @@ export async function publishAgentV2Action(input: {
     describeNodeAction que usan las ramas de Condicion, asi que un Flujo colgado aca se ejecuta
     igual que uno colgado de una rama.
   */
+  /*
+    El "/nombre" escrito dentro de la bienvenida: ese flujo ES el saludo.
+
+    Va antes que el "siguiente bloque" porque es mas directo -se escribio adentro del saludo- y
+    porque si estan los dos, manda el que se escribio ahi.
+  */
+  if (flujoDeBienvenida) {
+    const tituloDelSaludo = flowTitleById.get(flujoDeBienvenida);
+    if (tituloDelSaludo) {
+      rules.push(
+        `Al recibir un cliente nuevo, ejecuta OBLIGATORIAMENTE el flujo "${tituloDelSaludo}" ` +
+          `llamando a la herramienta consultar_flujos con ese nombre exacto. Ese flujo ES la ` +
+          `bienvenida: no escribas un saludo propio ni antes ni despues, deja que el flujo ` +
+          `entregue el contenido.`,
+      );
+    }
+  }
+
+
   if (despuesDeLaBienvenida) {
     rules.push(
       `Apenas des la bienvenida, y ANTES de preguntar nada, ${describeNodeAction(despuesDeLaBienvenida)}.`,
@@ -913,10 +962,19 @@ export async function publishAgentV2Action(input: {
     },
   });
 
+  /*
+    Con flujo de bienvenida y sin texto suelto, NO se manda un saludo automatico.
+
+    Si se escribio solo "/Bienvenida", al sacarle la barra el texto queda vacio y aca se caia al
+    saludo generico: el cliente recibia un "hola" armado por la app y despues el flujo. Dos
+    saludos, que es justo lo que se venia de arreglar.
+  */
   const welcomeMessage =
     fixedWelcome && welcomeText.trim()
       ? welcomeText
-      : buildWelcomeMessage({ agentName: agent.name, businessName: business.name, training });
+      : flujoDeBienvenida
+        ? ""
+        : buildWelcomeMessage({ agentName: agent.name, businessName: business.name, training });
 
   const systemPrompt = buildAgentSystemPrompt({
     agentName: agent.name,
