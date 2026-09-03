@@ -151,6 +151,18 @@ async function acumularMensaje(entrada) {
       mensajes = anterior.mensajes;
       total = typeof anterior.total === "number" ? anterior.total : mensajes.length;
     }
+
+    /*
+      Se cierran las anteriores a mano.
+
+      El mismo tag deberia REEMPLAZAR la tarjeta que ya estaba, y en Android asi es. En el iPhone
+      (probado en iOS 18) no: la vieja se queda y la nueva se apila debajo, asi que quedaban dos
+      tarjetas -"2 mensajes de X" y arriba "3 mensajes de 2 chats"- diciendo lo mismo dos veces.
+      Cerrarlas explicitamente deja UNA sola en cualquier telefono, que es lo que se pidio.
+    */
+    for (const notificacion of enPantalla) {
+      notificacion.close();
+    }
   } catch (error) {
     // Si no se puede leer lo anterior, se arranca de cero: mejor una notificacion suelta que ninguna.
   }
