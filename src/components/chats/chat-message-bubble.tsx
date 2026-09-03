@@ -11,12 +11,14 @@ import {
   ChevronDown,
   Copy,
   Facebook,
+  Download,
   Forward,
   LoaderCircle,
   MapPin,
   MessageCircle,
   Pencil,
   Pin,
+  MoreVertical,
   Reply,
   RotateCcw,
   Smile,
@@ -404,6 +406,7 @@ export const MessageBubble = memo(function MessageBubble({
 }) {
   const [imagePreviewIndex, setImagePreviewIndex] = useState(0);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
+  const [menuDeImagenAbierto, setMenuDeImagenAbierto] = useState(false);
   const portalTarget = typeof document === "undefined" ? null : document.body;
   const outbound = message.direction === "OUTBOUND";
   const currentDateKey = chatDateFormatter.format(message.createdAt);
@@ -469,6 +472,8 @@ export const MessageBubble = memo(function MessageBubble({
 
   const closeImageViewer = useCallback(() => {
     setIsImageViewerOpen(false);
+    // Si no, al volver a abrir la foto el menu aparece ya desplegado.
+    setMenuDeImagenAbierto(false);
   }, []);
 
   useEffect(() => {
@@ -747,14 +752,77 @@ export const MessageBubble = memo(function MessageBubble({
                         className="relative flex h-full w-full items-center justify-center"
                         onClick={(event) => event.stopPropagation()}
                       >
-                        <button
-                          type="button"
-                          onClick={closeImageViewer}
-                          className="absolute right-2 top-2 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
-                          aria-label="Cerrar imagen"
-                        >
-                          <X className="h-5 w-5" />
-                        </button>
+                        {/*
+                          Arriba: cerrar y los tres puntos. Abajo a la derecha: responder.
+
+                          Se separan a proposito. Cerrar y "que hago con esta foto" son cosas de la
+                          ventana y viven en su borde de arriba; responder es lo que uno hace
+                          DESPUES de mirarla, y el pulgar ya esta abajo a la derecha.
+                        */}
+                        <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setMenuDeImagenAbierto((abierto) => !abierto)}
+                              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+                              aria-label="Opciones de la imagen"
+                              aria-expanded={menuDeImagenAbierto}
+                            >
+                              <MoreVertical className="h-5 w-5" />
+                            </button>
+                            {menuDeImagenAbierto ? (
+                              <div className="absolute right-0 top-12 w-52 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg">
+                                <a
+                                  href={imagePreviewUrl}
+                                  download
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={() => setMenuDeImagenAbierto(false)}
+                                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-foreground transition hover:bg-muted"
+                                >
+                                  <Download className="size-4 shrink-0 text-muted-foreground" />
+                                  Descargar
+                                </a>
+                                {onForward ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setMenuDeImagenAbierto(false);
+                                      closeImageViewer();
+                                      onForward(message);
+                                    }}
+                                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-foreground transition hover:bg-muted"
+                                  >
+                                    <Forward className="size-4 shrink-0 text-muted-foreground" />
+                                    Reenviar a otro contacto
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={closeImageViewer}
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+                            aria-label="Cerrar imagen"
+                          >
+                            <X className="h-5 w-5" />
+                          </button>
+                        </div>
+
+                        {onReply ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              closeImageViewer();
+                              onReply(message);
+                            }}
+                            className="absolute bottom-4 right-4 z-10 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2.5 text-sm font-medium text-white backdrop-blur-sm transition hover:bg-white/25"
+                          >
+                            <Reply className="size-4" />
+                            Responder
+                          </button>
+                        ) : null}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={imagePreviewUrl}
