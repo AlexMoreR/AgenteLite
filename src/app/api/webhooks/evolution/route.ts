@@ -3021,6 +3021,13 @@ export async function POST(request: NextRequest) {
         : null;
 
       /*
+        Si el flujo de bienvenida tiene prendido "Responder final con IA", despues de los pasos
+        habla la IA. Se anota aca porque abajo hay que dejarla correr: sin esto el flujo cierra el
+        turno y el cierre que se configuro nunca sale.
+      */
+      let saludoConCierreDeIa = false;
+
+      /*
         La bienvenida por flujo: se manda ACA, no se le pide a la IA.
 
         Cuando en el nodo Bienvenida se escribe "/nombre", ese flujo ES el saludo. Se intento
@@ -3069,10 +3076,12 @@ export async function POST(request: NextRequest) {
               aiFollowUpEnabled: saludo.aiFollowUpEnabled,
               activeProductContext: null,
             };
+            saludoConCierreDeIa = saludo.aiFollowUpEnabled;
             console.log("[EVOLUTION] welcome_flow_sent", {
               conversationId: conversation.id,
               flowId: flujoDeBienvenida,
               pasos: saludo.steps.length,
+              cierreConIa: saludo.aiFollowUpEnabled,
             });
           } else {
             // Sin pasos el flujo esta vacio o lo borraron: se avisa y se sigue con la IA, que es
@@ -3352,7 +3361,7 @@ export async function POST(request: NextRequest) {
       } else if (quickResponseFlow) {
         replyText = null;
         shouldComposeWelcome = false;
-      } else if (hardFlowReply) {
+      } else if (hardFlowReply && !saludoConCierreDeIa) {
         // steps executed directly in the flow engine block below
         replyText = null;
         shouldComposeWelcome = false;
@@ -3367,6 +3376,20 @@ export async function POST(request: NextRequest) {
         const matchContextNote = latestConversationMatch ? buildConversationMatchContextNote(latestConversationMatch) : null;
         if (matchContextNote) {
           aiContextNotes.add(matchContextNote);
+        }
+        /*
+          Cuando la IA habla DESPUES del saludo, tiene que saber que el saludo ya salio.
+
+          Sin esta nota vuelve a presentarse -es el primer mensaje de la conversacion, no
+          tiene con que darse cuenta- y el cliente recibe la bienvenida dos veces.
+        */
+        if (saludoConCierreDeIa && hardFlowReply) {
+          aiContextNotes.add(
+            `Al cliente ya se le envio la bienvenida completa${
+              hardFlowReply.flowTitle ? ` (el flujo "${hardFlowReply.flowTitle}")` : ""
+            }. NO vuelvas a saludar, NO te presentes y NO repitas ese contenido: escribi solo ` +
+              `el mensaje que sigue para arrancar la conversacion.`,
+          );
         }
         const aiLatestUserMessage = aiContextNotes.size > 0
           ? `${Array.from(aiContextNotes).join("\n")}\n\nMensaje del cliente: ${inboundTextForProcessing}`
@@ -3599,7 +3622,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      if (shouldComposeWelcome) {
+      // Con saludo por flujo no hay nada que anteponer: el flujo YA fue la bienvenida.
+      if (shouldComposeWelcome && !saludoConCierreDeIa) {
         replyText = composeAgentWelcomeReply({
           welcomeMessage: agent.welcomeMessage,
           reply: replyText,
@@ -3817,6 +3841,43 @@ export async function POST(request: NextRequest) {
               agentId: agent.id,
               instanceName: channel.evolutionInstanceName,
               phoneNumber,
+            });
+          }
+
+          /*
+            El cierre con IA, DESPUES de los pasos del flujo.
+
+            Va aca y no en el envio normal porque ese es un "else": si el flujo mando pasos, el
+            texto de la IA no se enviaba nunca. Por eso "Responder final con IA" quedaba prendido
+            en el flujo y no pasaba nada.
+
+            Es un mensaje aparte, no pegado al ultimo paso: asi lo pidio Alex y ademas es lo que
+            se ve bien cuando el flujo termina en un audio o una foto.
+          */
+          if (saludoConCierreDeIa && replyText?.trim()) {
+            await sleep(700);
+            const cierre = replyText.trim();
+            const cierreOutbound = await sendEvolutionTextMessageWithReconnect({
+              instanceName: channel.evolutionInstanceName,
+              phoneNumber,
+              text: cierre,
+              delayMs: 0,
+            });
+            await persistEvolutionMessage({
+              data: {
+                workspaceId: channel.workspaceId,
+                conversationId: conversation.id,
+                channelId: channel.id,
+                contactId: contact.id,
+                agentId: agent.id,
+                externalId: cierreOutbound.externalId,
+                direction: "OUTBOUND",
+                type: "TEXT",
+                status: "SENT",
+                content: cierre,
+                sentAt: new Date(),
+                rawPayload: cierreOutbound.raw as never,
+              },
             });
           }
 
