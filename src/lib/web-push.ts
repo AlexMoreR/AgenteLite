@@ -123,6 +123,25 @@ export async function sendChatPushToWorkspace(input: {
     select: { id: true, endpoint: true, p256dh: true, auth: true },
   });
 
+  /*
+    Queda constancia de CADA aviso que sale.
+
+    Sin esto no habia forma de contestar "me llego esta notificacion, de donde viene": el aviso se
+    ve en el celular y del lado del servidor no quedaba nada. Paso el 4-sep-2026 con uno que decia
+    "Gran rifa de amor y amistad", cuyo texto no existe en la base; sin registro no se pudo saber
+    que lo mando.
+
+    Se guarda un pedazo del texto, no el mensaje entero: alcanza para reconocerlo y no llena el log
+    con conversaciones ajenas.
+  */
+  console.log("[web-push] enviado", {
+    workspaceId: input.workspaceId,
+    titulo: input.payload.title,
+    cuerpo: input.payload.body.slice(0, 60),
+    tag: input.payload.tag ?? null,
+    dispositivos: subscriptions.length,
+  });
+
   return deliverToSubscriptions(subscriptions, input.payload);
 }
 
