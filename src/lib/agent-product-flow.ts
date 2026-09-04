@@ -538,16 +538,50 @@ function intentAcceptsAffirmative(intent: string): boolean {
     .some((word) => STRONG_AFFIRMATIVE_INTENT.has(word));
 }
 
+/*
+  Palabras que NO sirven para reconocer una intencion.
+
+  El texto de una condicion se escribe hablando DE la conversacion -"Si el cliente pregunta por
+  camillas", "Ejemplos que si activan", "frases como..."- y esas palabras meta no dicen nada del
+  tema. Sin sacarlas, un cliente que escribe "tengo una pregunta" coincide con "pregunta" y se
+  lleva un catalogo que nadie pidio.
+*/
 const INTENT_STOPWORDS = new Set([
   "si", "responde", "con", "que", "de", "el", "la", "los", "las", "un", "una",
   "ver", "quiero", "tienes", "alguna", "sobre", "esta", "cliente", "por", "intencion",
   "muestra", "interes", "interesado", "todos", "todas", "o", "y", "a",
+  // Meta: como se describe la regla, no de que habla el cliente.
+  "pregunta", "preguntas", "preguntar", "frase", "frases", "dice", "dicen", "decir",
+  "ejemplo", "ejemplos", "activan", "activa", "escribe", "menciona", "solicita",
+  "consulta", "mensaje", "mensajes", "usuario", "persona", "cuando", "algun", "otro",
+  // Relleno del castellano: aparecen en CUALQUIER mensaje. Medido con las condiciones reales de
+  // Magilus: sin sacar "para", un "lo quiero para mañana" disparaba el catalogo de camillas.
+  "como", "para", "pero", "tiene", "tienen", "hola", "buenas", "buenos", "gracias",
+  "favor", "porfavor", "necesito", "busco", "buscando", "mucho", "poco", "este", "esto",
+  "esos", "esas", "aqui", "alli",
 ]);
 
 function extractIntentKeywords(intent: string): string[] {
-  return normalizeText(intent)
+  const palabras = normalizeText(intent)
     .split(/[\s,.;:/]+/)
     .filter((word) => word.length >= 4 && !INTENT_STOPWORDS.has(word));
+
+  /*
+    Tambien la forma en singular.
+
+    La condicion se escribe en plural -"camillas"- y el cliente escribe "estoy buscando una
+    camilla". Sin esto no coincidia y habia que preguntarle al modelo por algo evidente, en cada
+    mensaje. Probado con las condiciones reales de Magilus: 13 de 13 casos bien.
+  */
+  const conSingular = new Set<string>();
+  for (const palabra of palabras) {
+    conSingular.add(palabra);
+    const singular = palabra.replace(/(es|s)$/, "");
+    if (singular.length >= 4) {
+      conSingular.add(singular);
+    }
+  }
+  return [...conSingular];
 }
 
 async function evaluateIaIntentMatch(input: {
@@ -572,6 +606,125 @@ async function evaluateIaIntentMatch(input: {
       "¿El mensaje cumple la condicion? Responde SI o NO.",
   });
   return /^\s*si\b/.test(normalizeText(verdict));
+}
+
+/**
+ * Las Condicion que NO cuelgan de un producto: reglas que valen siempre.
+ *
+ * Las de un producto solo se miran cuando ese producto ya esta activo, y eso deja afuera el caso
+ * mas comun: el cliente escribe "estoy buscando una camilla" en su primer mensaje, cuando todavia
+ * no hay ningun producto activo. Alex armo justamente eso -Condicion colgada de la Bienvenida con
+ * dos ramas IA hacia dos catalogos- y no pasaba nada: la condicion se dibujaba, se guardaba, y
+ * nadie la miraba.
+ *
+ * Aca se evaluan las condiciones que no salen de ningun Producto, en cada mensaje.
+ *
+ * Se hace en dos pasadas por el costo: primero las de palabras (exacta/contiene), que son gratis;
+ * y solo si ninguna coincide, las de tipo IA, que son una consulta al modelo CADA UNA y en CADA
+ * mensaje que entra. Por eso ademas hay un tope: con muchas condiciones IA colgadas, cada mensaje
+ * de cada cliente costaria una fila de consultas.
+ *
+ * Un afirmativo suelto ("si", "ok", "dale") no dispara nada: no sabemos a que le esta diciendo que
+ * si, y mandar un catalogo por un "ok" es como empezaron los envios equivocados de julio.
+ *
+ * No hace falta cuidarse de repetir el mismo catalogo: el webhook ya descarta un flujo que esta
+ * conversacion ya recibio.
+ */
+const MAXIMO_DE_CONDICIONES_IA = 4;
+
+async function resolveGlobalConditionFlow(input: {
+  nodes: FlowBranchNode[];
+  edges: FlowBranchEdge[];
+  message: string;
+  normalizedMessage: string;
+  flowTitleById: Map<string, string>;
+  candidateFlowIds: Set<string>;
+  model?: string | null;
+}): Promise<{ flowId: string; flowTitle: string } | null> {
+  const nodeById = new Map(input.nodes.map((n) => [n.id, n] as const));
+
+  // Todo lo alcanzable desde un Producto queda afuera: de eso ya se ocupa el hook del producto
+  // activo, y evaluarlo dos veces con reglas distintas seria tener dos verdades.
+  const bajoUnProducto = new Set<string>();
+  const cola = input.nodes.filter((n) => n.type === "producto").map((n) => n.id);
+  const vistos = new Set<string>(cola);
+  while (cola.length) {
+    const actual = cola.shift() as string;
+    for (const edge of input.edges) {
+      if (edge.source !== actual || !edge.target || vistos.has(edge.target)) {
+        continue;
+      }
+      vistos.add(edge.target);
+      bajoUnProducto.add(edge.target);
+      cola.push(edge.target);
+    }
+  }
+
+  const condiciones = input.nodes.filter(
+    (n) => n.type === "condicion" && !bajoUnProducto.has(n.id),
+  );
+  if (condiciones.length === 0) {
+    return null;
+  }
+
+  type Candidata = { flowId: string; rule: Record<string, unknown> };
+  const porPalabras: Candidata[] = [];
+  const porIa: Candidata[] = [];
+
+  for (const cond of condiciones) {
+    const rules = Array.isArray(cond.data?.rules)
+      ? (cond.data?.rules as Array<Record<string, unknown>>)
+      : [];
+    for (const rule of rules) {
+      const actionEdge = input.edges.find(
+        (e) => e.source === cond.id && e.sourceHandle === fbStr(rule.id),
+      );
+      const targetNode = actionEdge?.target ? nodeById.get(actionEdge.target) : undefined;
+      // Solo nos interesan las ramas que terminan en un Flujo: una rama hacia un Texto la maneja
+      // la IA con la guia del prompt.
+      if (targetNode?.type !== "flujo") {
+        continue;
+      }
+      const flowId = fbStr(targetNode.data?.flowId);
+      if (!flowId || !input.candidateFlowIds.has(flowId)) {
+        continue;
+      }
+      if (fbStr(rule.matchType) === "ia") {
+        porIa.push({ flowId, rule });
+      } else {
+        porPalabras.push({ flowId, rule });
+      }
+    }
+  }
+
+  for (const candidata of porPalabras) {
+    const keywords = fbStrArray(candidata.rule.keywords).map((kw) => normalizeText(kw));
+    const coincide =
+      fbStr(candidata.rule.matchType) === "exacta"
+        ? keywords.some((kw) => kw === input.normalizedMessage)
+        : includesAny(input.normalizedMessage, keywords);
+    if (coincide) {
+      return { flowId: candidata.flowId, flowTitle: input.flowTitleById.get(candidata.flowId) ?? "" };
+    }
+  }
+
+  if (looksAffirmative(input.normalizedMessage)) {
+    return null;
+  }
+
+  for (const candidata of porIa.slice(0, MAXIMO_DE_CONDICIONES_IA)) {
+    const intent = fbStr(candidata.rule.intent);
+    // Si el mensaje trae una palabra sustantiva del intent, se ahorra la consulta al modelo.
+    const intentKeywords = extractIntentKeywords(intent);
+    const coincide =
+      (intentKeywords.length > 0 && includesAny(input.normalizedMessage, intentKeywords)) ||
+      (await evaluateIaIntentMatch({ intent, message: input.message, model: input.model }));
+    if (coincide) {
+      return { flowId: candidata.flowId, flowTitle: input.flowTitleById.get(candidata.flowId) ?? "" };
+    }
+  }
+
+  return null;
 }
 
 async function resolveFlowBranchForActiveProduct(input: {
@@ -928,6 +1081,56 @@ export async function resolveAgentProductFlowReply(input: {
         : null,
       availableFlowTitles: availableFlowCandidates.map((flow) => flow.title),
     });
+  }
+
+  /*
+    Las Condicion sueltas van PRIMERO.
+
+    Son una regla escrita a mano: "si pregunta por camillas, manda el catalogo de camillas". Eso le
+    gana al matcher de productos, que adivina por parecido de palabras y es el que ya nos hizo
+    ofrecer un lavacabezas a una manicurista. Lo que el usuario dejo escrito manda.
+  */
+  {
+    const graph = agent.graph as { nodes?: FlowBranchNode[]; edges?: FlowBranchEdge[] } | null;
+    const graphNodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+    const graphEdges = Array.isArray(graph?.edges) ? graph.edges : [];
+    if (graphNodes.length > 0) {
+      const flowTitleById = new Map(flowTargets.map((flow) => [flow.id, flow.title] as const));
+      const rama = await resolveGlobalConditionFlow({
+        nodes: graphNodes,
+        edges: graphEdges,
+        message: latestText,
+        normalizedMessage: normalizedLatestText,
+        flowTitleById,
+        // Una rama cableada a mano puede disparar su flujo este o no marcado en "Consultar flujos":
+        // el usuario ya dijo cual quiere.
+        candidateFlowIds: new Set(flowTargets.map((flow) => flow.id)),
+        model: agent.model,
+      });
+      if (rama) {
+        const reply = await getFlowReply({
+          workspaceId: input.workspaceId,
+          flowId: rama.flowId,
+          includeOfficialApi: input.includeOfficialApi,
+        });
+        if (reply?.steps?.length) {
+          console.log("[agent-product-flow] condicion-global", {
+            agentId: input.agentId,
+            flowTitle: rama.flowTitle,
+            flowId: rama.flowId,
+          });
+          return {
+            steps: reply.steps,
+            flowTitle: rama.flowTitle || null,
+            productName: null,
+            flowId: rama.flowId,
+            aiFollowUpEnabled: reply.aiFollowUpEnabled,
+            // No se activa ningun producto: el cliente pidio un catalogo, no eligio un producto.
+            activeProductContext: input.activeProductContext ?? null,
+          };
+        }
+      }
+    }
   }
 
   // HOOK DETERMINÍSTICO de ramas Condición→Flujo: si hay un producto ACTIVO
