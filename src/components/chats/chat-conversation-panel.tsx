@@ -127,6 +127,46 @@ type ConversationPanelProps = {
   canDeleteTags: boolean;
 };
 
+/*
+  Se copia el archivo a memoria APENAS se elige, no al enviarlo.
+
+  En Android lo que devuelve el selector no es el archivo: es un permiso prestado para leerlo. Ese
+  permiso se cae solo -la app de fotos limpia su cache, el sistema recorta memoria, pasan unos
+  minutos mientras se escribe el mensaje- y entonces el File deja de apuntar a nada. Se ve clarito
+  en la pantalla de "Enviar archivo": la miniatura sale ROTA, porque el navegador tampoco lo puede
+  leer.
+
+  Al enviarlo, el fetch falla con "Failed to fetch" ANTES de salir a la red: por eso los seis
+  reintentos caen instantaneos y en el servidor no queda ni un pedido. Visto el 3 y 4-sep-2026 con
+  1001685636.mp4 y 1001687585.jpg.
+
+  Copiandolo apenas se elige, el archivo pasa a ser nuestro y ya no depende de ese permiso. Y si no
+  se puede leer, se avisa AHI, antes de que escriba el mensaje y espere la subida.
+*/
+/** Hasta aca se copia a memoria. Un video de 85 MB en memoria puede tumbar la pestaña. */
+const LIMITE_PARA_COPIAR_EN_MEMORIA = 30 * 1024 * 1024;
+
+async function copiarArchivosAMemoria(
+  files: File[],
+): Promise<{ archivos: File[]; ilegible: string | null }> {
+  const archivos: File[] = [];
+  for (const file of files) {
+    if (file.size > LIMITE_PARA_COPIAR_EN_MEMORIA) {
+      archivos.push(file);
+      continue;
+    }
+    try {
+      const datos = await file.arrayBuffer();
+      archivos.push(
+        new File([datos], file.name, { type: file.type, lastModified: file.lastModified }),
+      );
+    } catch {
+      return { archivos: [], ilegible: file.name };
+    }
+  }
+  return { archivos, ilegible: null };
+}
+
 export const ConversationPanel = memo(function ConversationPanel({
   backHref,
   composer,
@@ -1390,7 +1430,16 @@ export const ConversationPanel = memo(function ConversationPanel({
                                 const files = Array.from(event.currentTarget.files ?? []);
                                 event.currentTarget.value = "";
                                 if (files.length > 0) {
-                                  setPendingMediaFiles(files);
+                                  void copiarArchivosAMemoria(files).then((copia) => {
+                                    if (copia.ilegible) {
+                                      toast.error(
+                                        `No se pudo leer "${copia.ilegible}" desde el telefono. Abrila en la galeria y compartila a la app, o elegila de nuevo.`,
+                                        { duration: 10000 },
+                                      );
+                                      return;
+                                    }
+                                    setPendingMediaFiles(copia.archivos);
+                                  });
                                 }
                               }}
                             />
@@ -1409,7 +1458,16 @@ export const ConversationPanel = memo(function ConversationPanel({
                                 const files = Array.from(event.currentTarget.files ?? []);
                                 event.currentTarget.value = "";
                                 if (files.length > 0) {
-                                  setPendingMediaFiles(files);
+                                  void copiarArchivosAMemoria(files).then((copia) => {
+                                    if (copia.ilegible) {
+                                      toast.error(
+                                        `No se pudo leer "${copia.ilegible}" desde el telefono. Abrila en la galeria y compartila a la app, o elegila de nuevo.`,
+                                        { duration: 10000 },
+                                      );
+                                      return;
+                                    }
+                                    setPendingMediaFiles(copia.archivos);
+                                  });
                                 }
                               }}
                             />
