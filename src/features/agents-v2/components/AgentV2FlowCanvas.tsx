@@ -32,6 +32,7 @@ import {
   Rocket,
   Send,
   ShoppingBag,
+  Sparkles,
   Split,
   Trash2,
   TriangleAlert,
@@ -535,6 +536,134 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
               Si no contesta
             </button>
           ) : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+type IaData = {
+  texto: string;
+  collapsed?: boolean;
+  onChange?: (id: string, patch: NodeDataPatch) => void;
+  onDelete?: (id: string) => void;
+};
+
+/**
+ * Un prompt adicional para el agente, en su propia caja.
+ *
+ * Alex lo pidio para llevar las reglas del Prompt principal al lienzo, de a una: en vez de un
+ * bloque de texto escondido en un modal, cada instruccion es una caja que se ve, se conecta y se
+ * borra sola. Y escribiendo "Flujo: nombre" adentro, el agente queda habilitado para mandar ese
+ * flujo cuando la instruccion lo pida.
+ *
+ * Se ve y se edita igual que la Bienvenida -texto plano, doble clic para escribir, etiqueta para
+ * el flujo- y trae las mismas dos salidas pegadas debajo. Una sola forma de hacer las cosas.
+ */
+function IaNode({ id, data, selected }: NodeProps) {
+  const nodeData = data as IaData;
+  const collapsed = nodeData.collapsed ?? false;
+  const texto = nodeData.texto ?? "";
+  const nombreDelFlujo = nombreDelFlujoEnBienvenida(texto);
+  const restoDelTexto = nombreDelFlujo ? textoSinLaLineaDeFlujo(texto) : texto;
+  const [editando, setEditando] = useState(false);
+
+  return (
+    <>
+      <NodeActionsToolbar
+        selected={selected}
+        collapsed={collapsed}
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
+        onDelete={() => nodeData.onDelete?.(id)}
+      />
+      <Handle
+        id="target"
+        type="target"
+        position={Position.Left}
+        className="!h-4 !w-4 !border-2 !border-white !bg-violet-600"
+      />
+      {selected ? (
+        <NodeResizeControl
+          position="bottom-right"
+          minWidth={220}
+          minHeight={120}
+          style={{ background: "transparent", border: "none" }}
+        >
+          <span className="absolute -bottom-1 -right-1 size-3 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-muted-foreground/60" />
+        </NodeResizeControl>
+      ) : null}
+      <BaseNode className={cn("flex h-full w-full flex-col", selected && SELECTED_NODE_CLASS)}>
+        <BaseNodeHeader className="items-center justify-start gap-2.5">
+          <span className="inline-flex shrink-0 items-center justify-center">
+            <Sparkles className="h-4 w-4 text-violet-600" />
+          </span>
+          <BaseNodeHeaderTitle className="truncate">IA</BaseNodeHeaderTitle>
+        </BaseNodeHeader>
+        {!collapsed ? (
+          <BaseNodeContent className="flex min-h-0 flex-1 flex-col overflow-auto">
+            <div
+              className="min-h-0 flex-1"
+              onDoubleClick={() => setEditando(true)}
+              title={editando ? undefined : "Doble clic para escribir"}
+              role="presentation"
+            >
+              {editando ? (
+                <textarea
+                  autoFocus
+                  value={texto}
+                  onChange={(evento) => nodeData.onChange?.(id, { texto: evento.target.value })}
+                  onBlur={() => setEditando(false)}
+                  onKeyDown={(evento) => {
+                    if (evento.key === "Escape") {
+                      evento.currentTarget.blur();
+                    }
+                  }}
+                  placeholder="Una instruccion mas para el agente. Escribi Flujo: nombre para que pueda mandar ese flujo."
+                  className="nodrag h-full min-h-0 w-full resize-none border-0 bg-transparent p-0 text-[12px] leading-5 text-foreground outline-none focus:ring-0"
+                />
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {nombreDelFlujo ? (
+                    <span className="inline-flex w-fit max-w-full items-center gap-1 rounded-md bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+                      <Workflow className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{nombreDelFlujo}</span>
+                    </span>
+                  ) : null}
+                  {restoDelTexto ? (
+                    <p className="whitespace-pre-wrap break-words text-[12px] leading-5 text-foreground">
+                      {restoDelTexto}
+                    </p>
+                  ) : null}
+                  {!nombreDelFlujo && !restoDelTexto ? (
+                    <p className="text-[12px] leading-5 text-muted-foreground">
+                      Una instruccion mas para el agente. Escribi Flujo: nombre para que pueda mandar
+                      ese flujo.
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          </BaseNodeContent>
+        ) : null}
+      </BaseNode>
+
+      {/* Las mismas dos salidas que la Bienvenida, para que se lea igual. */}
+      {!collapsed ? (
+        <div className="mt-2 space-y-2">
+          <SalidaPegada
+            nodeId={id}
+            handleId="next-block"
+            icono={<Send className="h-4 w-4" />}
+            color="text-sky-500"
+            titulo="Llamar al siguiente nodo"
+          />
+          <SalidaPegada
+            nodeId={id}
+            handleId="on-reply"
+            icono={<MessageSquare className="h-4 w-4" />}
+            color="text-emerald-500"
+            titulo="Cuando responda"
+          />
         </div>
       ) : null}
     </>
@@ -2191,6 +2320,7 @@ function NotificarEditorDialog({
 const nodeTypes = {
   entrada: EntradaNode,
   bienvenida: BienvenidaNode,
+  ia: IaNode,
   pregunta: PreguntaNode,
   agent: AgentNode,
   producto: ProductoNode,
@@ -2278,6 +2408,7 @@ type StoredGraph = {
     type: string;
     position: { x: number; y: number };
     data: Partial<BienvenidaData> &
+      Partial<IaData> &
       Partial<PreguntaData> &
       Partial<EntradaData> &
       Partial<AgentData> &
@@ -2367,6 +2498,12 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
               esperas: typeof node.data.esperas === "number" ? node.data.esperas : 0,
               collapsed: node.data.collapsed === true,
             } satisfies BienvenidaData)
+          :
+        node.type === "ia"
+          ? ({
+              texto: node.data.texto ?? "",
+              collapsed: node.data.collapsed === true,
+            } satisfies IaData)
           :
         node.type === "agent"
           ? ({
@@ -2519,6 +2656,12 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
               esperas: (node.data as BienvenidaData).esperas ?? 0,
               texto: (node.data as BienvenidaData).texto,
               collapsed: (node.data as BienvenidaData).collapsed === true,
+            }
+          :
+        node.type === "ia"
+          ? {
+              texto: (node.data as IaData).texto,
+              collapsed: (node.data as IaData).collapsed === true,
             }
           :
         node.type === "agent"
@@ -2845,7 +2988,7 @@ function FlowCanvasInner({
           Es el mismo lugar que hay que tocar al agregar cualquier nodo nuevo, y es facil de pasar
           por alto porque no rompe la compilacion: falla en silencio, en la cara de quien lo usa.
         */
-        if (node.type === "bienvenida" || node.type === "pregunta") {
+        if (node.type === "bienvenida" || node.type === "ia" || node.type === "pregunta") {
           return {
             ...node,
             data: {
@@ -3028,6 +3171,20 @@ function FlowCanvasInner({
         },
       ];
     });
+  }, [setNodes, getSpawnPosition]);
+
+  const addIa = useCallback(() => {
+    const newId = `ia-${crypto.randomUUID()}`;
+    setNodes((current) => [
+      ...current,
+      {
+        id: newId,
+        type: "ia",
+        position: getSpawnPosition(),
+        style: { width: 280, height: 170 },
+        data: { texto: "" } satisfies IaData,
+      },
+    ]);
   }, [setNodes, getSpawnPosition]);
 
   const addPregunta = useCallback(() => {
@@ -3342,6 +3499,7 @@ function FlowCanvasInner({
             <div className="grid gap-0.5">
               {[
                 { label: "Bienvenida", icon: MessageSquare, color: "text-sky-500", onClick: addBienvenida },
+                { label: "IA", icon: Sparkles, color: "text-violet-600", onClick: addIa },
                 { label: "Producto", icon: ShoppingBag, color: "text-emerald-600", onClick: addProduct },
                 { label: "Condición", icon: Split, color: "text-amber-600", onClick: addCondition },
                 { label: "Pregunta", icon: HelpCircle, color: "text-teal-600", onClick: addPregunta },

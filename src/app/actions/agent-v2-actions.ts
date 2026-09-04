@@ -358,12 +358,28 @@ export async function publishAgentV2Action(input: {
         ?.target
     : undefined;
 
+  /*
+    Los nodos IA: una instruccion suelta cada uno, para ir sacando reglas del Prompt principal y
+    ponerlas donde se ven. Lo que cuelga de su "Llamar al siguiente nodo" tiene que entrar en la
+    lista de flujos conocidos por el mismo motivo que el de la Bienvenida: si no, la conexion es
+    un dibujo.
+  */
+  const iaNodes = nodes.filter((node) => node.type === "ia");
+  const iaNodeIds = new Set(iaNodes.map((node) => node.id));
+  const despuesDeCadaIa = new Set(
+    edges
+      .filter((edge) => Boolean(edge.source) && iaNodeIds.has(edge.source as string) && edge.sourceHandle === "next-block")
+      .map((edge) => edge.target)
+      .filter((target): target is string => Boolean(target)),
+  );
+
   const flowNodes = nodes.filter(
     (node) =>
       node.type === "flujo" &&
       (agentToolTargets.has(node.id) ||
         flowNodeIdsFromConditions.has(node.id) ||
-        node.id === despuesDeLaBienvenida),
+        node.id === despuesDeLaBienvenida ||
+        despuesDeCadaIa.has(node.id)),
   );
   const textNodes = nodes.filter((node) => node.type === "texto");
   const conditionNodes = nodes.filter((node) => node.type === "condicion");
@@ -533,23 +549,48 @@ export async function publishAgentV2Action(input: {
     "Flujo: Bienvenida" como primer mensaje del negocio. Y si al sacarlo no queda nada, no hay
     bienvenida fija -el saludo lo da el flujo entero, que es justo lo que se pidio-.
   */
-  const nombreDelSaludo = nombreDelFlujoEnBienvenida(textoDeBienvenida);
-  const flujoDeBienvenida = nombreDelSaludo
-    ? (() => {
-        const buscado = normalizarTitulo(nombreDelSaludo);
-        // Primero el nombre tal cual, y recien despues uno que lo contenga: si hay "Fotos" y
-        // "Fotos combo camillas", escribir "Fotos" tiene que dar "Fotos".
-        const exacto = allFlowItems.find((flujo) => normalizarTitulo(flujo.title) === buscado);
-        if (exacto) {
-          return exacto.id;
-        }
-        const porLargo = [...allFlowItems].sort((a, b) => b.title.length - a.title.length);
-        return porLargo.find((flujo) => normalizarTitulo(flujo.title).includes(buscado))?.id ?? null;
-      })()
-    : null;
+  /** El flujo que se llama asi, o null. Lo usan la Bienvenida y los nodos IA. */
+  const idDelFlujoPorNombre = (nombre: string | null): string | null => {
+    if (!nombre) {
+      return null;
+    }
+    const buscado = normalizarTitulo(nombre);
+    // Primero el nombre tal cual, y recien despues uno que lo contenga: si hay "Fotos" y
+    // "Fotos combo camillas", escribir "Fotos" tiene que dar "Fotos".
+    const exacto = allFlowItems.find((flujo) => normalizarTitulo(flujo.title) === buscado);
+    if (exacto) {
+      return exacto.id;
+    }
+    const porLargo = [...allFlowItems].sort((a, b) => b.title.length - a.title.length);
+    return porLargo.find((flujo) => normalizarTitulo(flujo.title).includes(buscado))?.id ?? null;
+  };
+  const flujoDeBienvenida = idDelFlujoPorNombre(nombreDelFlujoEnBienvenida(textoDeBienvenida));
   const welcomeText = flujoDeBienvenida
     ? textoSinLaLineaDeFlujo(textoDeBienvenida)
     : textoDeBienvenida;
+
+  /*
+    Cada nodo IA se compila a una regla mas del prompt.
+
+    El "Flujo: nombre" escrito adentro se convierte en dos cosas: el flujo entra a la lista de
+    permitidos (si no, consultar_flujos no lo encuentra y el agente termina disculpandose) y la
+    regla le dice al agente que ESE es el flujo que manda cuando la instruccion lo pida. El renglon
+    del flujo se saca del texto: es una orden nuestra, no algo que decirle al cliente.
+
+    Un nodo vacio y sin flujo no compila a nada: no hay que meterle al prompt una regla en blanco.
+  */
+  const instruccionesIa = iaNodes
+    .map((node) => {
+      const textoCompleto = asString(node.data?.texto);
+      const flujoId = idDelFlujoPorNombre(nombreDelFlujoEnBienvenida(textoCompleto));
+      return {
+        texto: (flujoId ? textoSinLaLineaDeFlujo(textoCompleto) : textoCompleto).trim(),
+        flujoId,
+        siguiente: edges.find((edge) => edge.source === node.id && edge.sourceHandle === "next-block")
+          ?.target,
+      };
+    })
+    .filter((instruccion) => instruccion.texto || instruccion.flujoId);
 
 
   const describeRuleTrigger = (rule: Record<string, unknown>): string => {
@@ -841,6 +882,7 @@ export async function publishAgentV2Action(input: {
           // esto se le da la orden de ejecutarlo y su propia busqueda no lo encuentra, y termina
           // disculpandose.
           ...(flujoDeBienvenida ? [flujoDeBienvenida] : []),
+          ...instruccionesIa.flatMap((instruccion) => (instruccion.flujoId ? [instruccion.flujoId] : [])),
         ]),
       )
     : [];
@@ -940,6 +982,22 @@ export async function publishAgentV2Action(input: {
     rules.push(
       `Apenas des la bienvenida, y ANTES de preguntar nada, ${describeNodeAction(despuesDeLaBienvenida)}.`,
     );
+  }
+
+  for (const instruccion of instruccionesIa) {
+    const tituloDelFlujo = instruccion.flujoId ? flowTitleById.get(instruccion.flujoId) : undefined;
+    const partes = [instruccion.texto];
+    if (tituloDelFlujo) {
+      partes.push(
+        `Para eso, envia el flujo "${tituloDelFlujo}": llama a consultar_flujos con ese nombre ` +
+          `exacto, toma el flow_id que devuelve y llama a enviar_flujo con ese id. Lo haces vos, ` +
+          `sin avisar ni pedir permiso.`,
+      );
+    }
+    if (instruccion.siguiente) {
+      partes.push(`Despues de eso, ${describeNodeAction(instruccion.siguiente)}.`);
+    }
+    rules.push(partes.filter(Boolean).join(" "));
   }
 
 
