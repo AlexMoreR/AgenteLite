@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
-import { lookupEvolutionPhoneForLid } from "@/lib/evolution";
+import { lookupEvolutionPhoneForLid, readGatewayConnection } from "@/lib/evolution";
+import { telefonoDeUnLid } from "@/lib/waha";
 import { mergeLidContactIntoPhoneContact } from "@/lib/lid-contact-merge";
 import { prisma } from "@/lib/prisma";
 import { buildLinkedLidMetadata, looksLikeLidNumber } from "@/lib/whatsapp-lid";
@@ -18,6 +19,15 @@ import type { Prisma } from "@prisma/client";
  * Va POR TANDAS y no de una: cada contacto es una consulta al gateway, y evogo es UN contenedor
  * que atiende a todos los canales. Ya paso una vez que lo saturamos pidiendole fotos de perfil y
  * dejo de enviar mensajes; no se repite. Se llama varias veces hasta que "restantes" llegue a 0.
+ *
+ * Por que reintentar sirve: la tabla de equivalencias del gateway se va llenando con el uso. Un
+ * lead que llega hoy no se puede resolver en el primer mensaje -nadie lo conoce todavia- pero si
+ * un rato despues. Medido el 4-sep-2026 contra WAHA: de los 20 LIDs mas recientes de la semana,
+ * que habian entrado SIN telefono, se resolvieron los 20 al volver a preguntar.
+ *
+ * Por eso tampoco se marca "revisado" para siempre: se guarda CUANDO se reviso, y pasados unos
+ * dias vuelve a entrar en la lista. Marcarlo definitivo dejaba fuera para siempre justo a los que
+ * hoy si se pueden recuperar.
  */
 
 export const dynamic = "force-dynamic";
@@ -44,19 +54,51 @@ export async function POST(request: Request) {
 
   const canal = await prisma.whatsAppChannel.findFirst({
     where: { workspaceId: access.workspaceId, provider: "EVOLUTION", status: "CONNECTED" },
-    select: { evolutionInstanceName: true },
+    select: { evolutionInstanceName: true, metadata: true },
   });
   if (!canal?.evolutionInstanceName) {
     return NextResponse.json({ ok: false, error: "No hay un canal de WhatsApp conectado." }, { status: 404 });
   }
   const instanceName = canal.evolutionInstanceName;
 
-  // Los candidatos: telefono de 14 digitos o mas. Uno real no pasa de 13 con indicativo.
+  /*
+    A quien se le pregunta depende del gateway del canal.
+
+    Este barrido se escribio cuando todo pasaba por evogo. Ventas 1 se mudo a WAHA y quedo
+    preguntandole al gateway equivocado: no resolvia ninguno y encima marcaba los contactos como
+    revisados, asi que los daba por perdidos sin haberlo intentado de verdad.
+  */
+  const conexion = readGatewayConnection(canal.metadata);
+  const esWaha = conexion?.kind === "WAHA";
+  const resolverTelefono = async (lid: string): Promise<string | null> => {
+    if (esWaha) {
+      if (!conexion?.apiToken) {
+        return null;
+      }
+      return telefonoDeUnLid({
+        connection: { baseUrl: conexion.baseUrl, apiToken: conexion.apiToken },
+        sesion: instanceName,
+        lid,
+      });
+    }
+    return lookupEvolutionPhoneForLid({ instanceName, lid });
+  };
+
+  /*
+    Los candidatos: telefono de 14 digitos o mas. Uno real no pasa de 13 con indicativo.
+
+    Entran los que no se revisaron nunca y los revisados hace mas de tres dias. El campo viejo
+    (lidBackfillDone, un si/no) se ignora a proposito: marcaba definitivo a contactos que se
+    intentaron contra el gateway que no era, y son justo los que ahora si se pueden recuperar.
+  */
   const candidatos = await prisma.$queryRaw<Array<{ id: string; phoneNumber: string }>>`
     SELECT "id", "phoneNumber" FROM "Contact"
     WHERE "workspaceId" = ${access.workspaceId}
       AND length(regexp_replace("phoneNumber", '\\D', '', 'g')) >= 14
-      AND ("metadata"->>'lidBackfillDone') IS NULL
+      AND (
+        ("metadata"->>'lidBackfillAt') IS NULL
+        OR ("metadata"->>'lidBackfillAt')::timestamptz < now() - make_interval(days => 3)
+      )
     ORDER BY "createdAt" DESC
     LIMIT ${limite}
   `;
@@ -65,7 +107,10 @@ export async function POST(request: Request) {
     SELECT COUNT(*) AS total FROM "Contact"
     WHERE "workspaceId" = ${access.workspaceId}
       AND length(regexp_replace("phoneNumber", '\\D', '', 'g')) >= 14
-      AND ("metadata"->>'lidBackfillDone') IS NULL
+      AND (
+        ("metadata"->>'lidBackfillAt') IS NULL
+        OR ("metadata"->>'lidBackfillAt')::timestamptz < now() - make_interval(days => 3)
+      )
   `;
 
   let resueltos = 0;
@@ -80,7 +125,7 @@ export async function POST(request: Request) {
 
     try {
       const lid = candidato.phoneNumber.replace(/\D/g, "");
-      const telefono = await lookupEvolutionPhoneForLid({ instanceName, lid });
+      const telefono = await resolverTelefono(lid);
 
       // Se marca SIEMPRE como revisado, resuelva o no: si no, la proxima tanda vuelve a traer
       // los mismos y el barrido nunca avanza.
@@ -95,7 +140,13 @@ export async function POST(request: Request) {
             : {};
         await prisma.contact.update({
           where: { id: candidato.id },
-          data: { metadata: { ...base, ...extra, lidBackfillDone: true } as Prisma.InputJsonValue },
+          data: {
+            metadata: {
+              ...base,
+              ...extra,
+              lidBackfillAt: new Date().toISOString(),
+            } as Prisma.InputJsonValue,
+          },
         });
       };
 
@@ -138,7 +189,7 @@ export async function POST(request: Request) {
           phoneNumber: telefono,
           metadata: {
             ...(buildLinkedLidMetadata(ficha?.metadata, lid) as Record<string, unknown>),
-            lidBackfillDone: true,
+            lidBackfillAt: new Date().toISOString(),
           } as Prisma.InputJsonValue,
         },
       });
