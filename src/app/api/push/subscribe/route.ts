@@ -59,16 +59,24 @@ export async function POST(request: Request) {
   });
 
   /*
-    Un dispositivo, una suscripcion.
+    Se limpian las suscripciones ABANDONADAS, no las que siguen vivas.
 
-    Apple cambia el endpoint cada tanto: el mismo iPhone se re-suscribia y quedaba una fila NUEVA
-    sin borrar la anterior. Medido el 3-sep-2026: Alex tenia 12 filas, OCHO del mismo telefono.
-    Mientras la vieja siga viva, el servidor manda el aviso dos veces y el telefono suena dos veces.
+    El problema original: el navegador cambia la direccion de registro cada tanto, se guardaba una
+    fila nueva y la vieja quedaba ahi. Alex acumulo doce, ocho del mismo telefono; mientras alguna
+    vieja siguiera viva, el aviso salia dos veces y el telefono sonaba dos veces.
 
-    Se borran las otras filas del MISMO usuario con el MISMO navegador. Dos telefonos distintos
-    traen user-agent distinto, asi que cada uno conserva la suya; dos telefonos iguales del mismo
-    usuario se pisarian, que es un caso raro y el precio es solo que le llegue a uno.
+    El primer intento borraba TODAS las filas del mismo usuario con el mismo user-agent, y estuvo
+    mal: en Android el navegador y la app instalada mandan el MISMO user-agent y sin embargo son
+    dos registros distintos, cada uno con su propia suscripcion. Abrir la app en el navegador le
+    borraba la suscripcion a la PWA, y con la PWA cerrada ya no llegaba nada. Reportado el
+    4-sep-2026, unas horas despues de desplegarlo.
+
+    La diferencia entre las dos cosas no es el user-agent: es si la fila SIGUE EN USO. Cada vez que
+    se abre la app, su registro se re-suscribe y refresca su updatedAt. Una direccion que rota deja
+    la fila vieja quieta para siempre; un segundo registro de verdad se refresca solo. Asi que se
+    borra por antiguedad: mismo usuario, mismo navegador, y sin usarse hace mas de una semana.
   */
+  const HACE_UNA_SEMANA = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   if (userAgent) {
     await prisma.webPushSubscription
       .deleteMany({
@@ -76,6 +84,7 @@ export async function POST(request: Request) {
           userId: session.user.id,
           userAgent,
           endpoint: { not: endpoint },
+          updatedAt: { lt: HACE_UNA_SEMANA },
         },
       })
       .catch(() => undefined);
