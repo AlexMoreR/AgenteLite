@@ -70,7 +70,18 @@ async function deliverToSubscriptions(
             keys: { p256dh: subscription.p256dh, auth: subscription.auth },
           },
           body,
-          { TTL: 60 },
+          /*
+            Cuanto lo guarda el servicio de push si el aparato no esta disponible.
+
+            Estaba en 60 segundos: con el navegador cerrado, el celular en reposo o sin señal mas
+            de un minuto, Google o Apple DESCARTAN el aviso y no llega nunca. Nadie se entera,
+            porque del lado de aca el envio figura como exitoso. Es lo que hacia que "no me llegan
+            notificaciones al cerrar la web" no dejara ningun rastro de error.
+
+            Cuatro horas: si el telefono estuvo apagado toda la mañana igual querés enterarte de que
+            escribio un cliente; pasado ese rato el aviso ya no sirve y mejor que caduque.
+          */
+          { TTL: 4 * 60 * 60 },
         );
         delivered += 1;
       } catch (error) {

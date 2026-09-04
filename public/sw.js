@@ -246,7 +246,27 @@ self.addEventListener("push", (event) => {
     });
   };
 
-  event.waitUntil(mostrar().catch(() => undefined));
+  /*
+    Si algo falla armando el resumen, igual se muestra el aviso.
+
+    Antes el error se tragaba y no salia NADA: cualquier tropiezo leyendo las notificaciones en
+    pantalla dejaba a la asesora sin enterarse de que le escribieron. Un aviso suelto, sin resumen,
+    es infinitamente mejor que ninguno.
+  */
+  event.waitUntil(
+    mostrar().catch(() =>
+      self.registration
+        .showNotification(entrada.titulo, {
+          body: entrada.cuerpo,
+          tag: TAG_DEL_GRUPO,
+          renotify: true,
+          badge,
+          vibrate: [120, 60, 120],
+          data: { url },
+        })
+        .catch(() => undefined),
+    ),
+  );
 });
 
 // Al tocar la notificación: enfoca una pestaña abierta de la app o abre una nueva
