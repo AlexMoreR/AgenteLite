@@ -30,6 +30,34 @@ const TAMANO_TROZO = 512 * 1024;
 const REINTENTOS_POR_TROZO = 6;
 const ESPERA_BASE_MS = 1000;
 
+/**
+ * Le avisa al servidor que una subida se corto.
+ *
+ * Va sin await y tragandose el error: es telemetria, no puede demorar ni romper el aviso que de
+ * verdad le importa a quien esta esperando.
+ */
+function avisarQueSeCorto(input: {
+  endpoint: string;
+  file: File;
+  trozo: number;
+  total: number;
+  motivo: string;
+}) {
+  void fetch(`${input.endpoint}/fallo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fileName: input.file.name,
+      size: input.file.size,
+      mimeType: input.file.type,
+      trozo: input.trozo,
+      total: input.total,
+      motivo: input.motivo.slice(0, 200),
+    }),
+    keepalive: true,
+  }).catch(() => null);
+}
+
 function generarId() {
   return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
     ? crypto.randomUUID()
@@ -77,7 +105,16 @@ export async function subirArchivoPorPedazos(input: {
   if (input.file.size > 0) {
     try {
       await input.file.slice(input.file.size - 1, input.file.size).arrayBuffer();
-    } catch {
+    } catch (error) {
+      // Tambien se avisa al servidor: si no, este fallo es invisible del lado de aca y volvemos
+      // a quedarnos sin saber si pasa una vez al dia o veinte.
+      avisarQueSeCorto({
+        endpoint: input.endpoint,
+        file: input.file,
+        trozo: 0,
+        total: 1,
+        motivo: `no se pudo leer el archivo: ${error instanceof Error ? error.message : String(error)}`,
+      });
       return {
         error: "No se pudo leer el archivo desde el telefono. Volve a elegirlo desde la galeria.",
       };
@@ -156,19 +193,13 @@ export async function subirArchivoPorPedazos(input: {
         Va sin await y tragandose el error: es telemetria, no puede demorar ni romper el aviso que
         de verdad le importa a quien esta esperando.
       */
-      void fetch(`${input.endpoint}/fallo`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileName: input.file.name,
-          size: input.file.size,
-          mimeType: input.file.type,
-          trozo: indice,
-          total,
-          motivo: ultimoError.slice(0, 200),
-        }),
-        keepalive: true,
-      }).catch(() => null);
+      avisarQueSeCorto({
+        endpoint: input.endpoint,
+        file: input.file,
+        trozo: indice,
+        total,
+        motivo: ultimoError,
+      });
 
       return {
         error: ultimoError

@@ -208,7 +208,9 @@ export const ConversationPanel = memo(function ConversationPanel({
    * galeria, buscar la misma foto y empezar de nuevo. Con la señal de la calle eso pasa seguido, y
    * es la diferencia entre reintentar de un toque o dejar al cliente sin la foto.
    */
-  const [mediaFallida, setMediaFallida] = useState<{ files: File[]; caption?: string } | null>(null);
+  const [mediaFallida, setMediaFallida] = useState<
+    { files: File[]; caption?: string; motivo?: string } | null
+  >(null);
   const [isSuggestingReply, setIsSuggestingReply] = useState(false);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState("");
   const [pestanaChat, setPestanaChat] = useState<"mensajes" | "cotizaciones">("mensajes");
@@ -415,12 +417,22 @@ export const ConversationPanel = memo(function ConversationPanel({
     }
   }, [mediaConfig, audioConfig, isSendingLocation, onScrollToBottom]);
 
-  // Sube y envía UN archivo; devuelve true si se envió. No toca el estado de carga global
-  // (eso lo maneja el batch) para poder reutilizarlo al enviar varios en secuencia.
+  /*
+    Sube y envia UN archivo. Devuelve el MOTIVO del fallo, no solo que fallo.
+
+    Antes devolvia true/false y el motivo real se iba con el aviso flotante: en la tarjeta que
+    queda arriba del compositor siempre decia "Revisa la señal", aunque el problema fuera otro
+    -por ejemplo que el telefono no puede LEER el archivo, que es lo que pasa con un video o una
+    foto que llegaron compartidos desde otra app-. Mandaba a la asesora a pelear con la señal
+    cuando la señal estaba bien.
+
+    No toca el estado de carga global (eso lo maneja el batch) para poder reutilizarlo al enviar
+    varios en secuencia.
+  */
   const sendSingleMediaFile = useCallback(
-    async (file: File, caption?: string): Promise<boolean> => {
+    async (file: File, caption?: string): Promise<string | null> => {
       if (!mediaConfig) {
-        return false;
+        return "No se pudo preparar el envio.";
       }
 
       const trimmedCaption = caption?.trim() || "";
@@ -439,8 +451,9 @@ export const ConversationPanel = memo(function ConversationPanel({
           endpoint: `${mediaConfig.uploadPath}/chunk`,
         });
         if (subida.error || !subida.archivo) {
-          toast.error(subida.error || `No se pudo subir "${file.name}".`);
-          return false;
+          const motivo = subida.error || `No se pudo subir "${file.name}".`;
+          toast.error(motivo);
+          return motivo;
         }
         const data = subida.archivo;
 
@@ -478,13 +491,15 @@ export const ConversationPanel = memo(function ConversationPanel({
         });
 
         if (result && "ok" in result && result.ok) {
-          return true;
+          return null;
         }
 
         // Falló el envío: quitar la burbuja optimista.
         setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== optimisticId));
-        toast.error((result && "error" in result && result.error) || `No se pudo enviar "${file.name}".`);
-        return false;
+        const motivo =
+          (result && "error" in result && result.error) || `No se pudo enviar "${file.name}".`;
+        toast.error(motivo);
+        return motivo;
       } catch {
         if (optimisticId) {
           const failedId = optimisticId;
@@ -498,15 +513,17 @@ export const ConversationPanel = memo(function ConversationPanel({
          * archivo equivocado, asi que primero se pregunta si la pagina quedo vieja.
          */
         if (await hayVersionNueva()) {
-          toast.error("Actualizamos la app. Recargá y volvé a mandarlo.", {
+          const motivo = "Actualizamos la app. Recarga y volve a mandarlo.";
+          toast.error(motivo, {
             duration: 15000,
             action: { label: "Recargar", onClick: () => window.location.reload() },
           });
-          return false;
+          return motivo;
         }
 
-        toast.error(`No se pudo enviar "${file.name}".`);
-        return false;
+        const motivo = `No se pudo enviar "${file.name}".`;
+        toast.error(motivo);
+        return motivo;
       }
     },
     [mediaConfig, onScrollToBottom],
@@ -524,18 +541,22 @@ export const ConversationPanel = memo(function ConversationPanel({
 
       let sentCount = 0;
       const fallidos: File[] = [];
+      let motivoDelFallo = "";
       for (let index = 0; index < files.length; index += 1) {
         // El caption (mensaje) va con el primer archivo, como WhatsApp.
-        const ok = await sendSingleMediaFile(files[index], index === 0 ? caption : undefined);
-        if (ok) {
+        const motivo = await sendSingleMediaFile(files[index], index === 0 ? caption : undefined);
+        if (!motivo) {
           sentCount += 1;
         } else {
           fallidos.push(files[index]);
+          motivoDelFallo = motivo;
         }
       }
 
       // El archivo se guarda para poder reintentarlo, en vez de perderse con el aviso.
-      setMediaFallida(fallidos.length > 0 ? { files: fallidos, caption } : null);
+      setMediaFallida(
+        fallidos.length > 0 ? { files: fallidos, caption, motivo: motivoDelFallo } : null,
+      );
 
 
       if (sentCount > 0) {
@@ -1782,7 +1803,8 @@ export const ConversationPanel = memo(function ConversationPanel({
               {mediaFallida.files.length === 1
                 ? `"${mediaFallida.files[0].name}"`
                 : `${mediaFallida.files.length} archivos`}
-              . Revisá la señal.
+              {/* El motivo REAL, no un "revisa la señal" que casi nunca es cierto. */}
+              {mediaFallida.motivo ? `. ${mediaFallida.motivo}` : ". Revisa la señal."}
             </span>
             <button
               type="button"
