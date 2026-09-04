@@ -30,7 +30,7 @@ export function isWhatsAppCdnMediaSourceUrl(value: string) {
   }
 }
 
-export function toProxiedMediaUrl(url: string) {
+export function toProxiedMediaUrl(url: string, fileName?: string | null) {
   if (
     url.startsWith("data:") ||
     url.startsWith("blob:") ||
@@ -42,7 +42,13 @@ export function toProxiedMediaUrl(url: string) {
     return url;
   }
 
-  return `/api/media/proxy?url=${encodeURIComponent(url)}`;
+  // El nombre viaja para que la descarga no se llame "proxy" (el navegador la nombra con la
+  // ultima parte de la URL). Solo se manda cuando lo tenemos: en una foto de una burbuja no hace
+  // falta y ensuciaria la URL.
+  const nombre = fileName?.trim();
+  return `/api/media/proxy?url=${encodeURIComponent(url)}${
+    nombre ? `&name=${encodeURIComponent(nombre)}` : ""
+  }`;
 }
 
 export function uniquePush(values: string[], candidate?: string | null) {
@@ -79,8 +85,17 @@ export function getMediaUrlExtractionCacheEntry(rawPayload: unknown) {
 }
 
 export function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT") {
+  /*
+    Solo a los documentos se les manda el nombre.
+
+    Es lo unico que la gente baja a su computadora, y sin nombre la descarga se llama "proxy". Una
+    foto se mira en la burbuja: agregarle el nombre a la URL no cambia nada y la ensucia.
+  */
+  const nombreDelArchivo =
+    type === "DOCUMENT" ? getDocumentMetaFromMessage(message).fileName : null;
+
   if (typeof message.mediaUrl === "string" && isMediaSourceUrl(message.mediaUrl)) {
-    return toProxiedMediaUrl(message.mediaUrl);
+    return toProxiedMediaUrl(message.mediaUrl, nombreDelArchivo);
   }
 
   const cacheEntry = getMediaUrlExtractionCacheEntry(message.rawPayload);
@@ -114,7 +129,10 @@ export function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type
     message.mediaUrl ||
     null;
 
-  const resolvedUrl = typeof candidate === "string" && isMediaSourceUrl(candidate) ? toProxiedMediaUrl(candidate) : null;
+  const resolvedUrl =
+    typeof candidate === "string" && isMediaSourceUrl(candidate)
+      ? toProxiedMediaUrl(candidate, nombreDelArchivo)
+      : null;
 
   cacheEntry?.set(type, resolvedUrl);
 

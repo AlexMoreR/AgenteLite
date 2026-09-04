@@ -85,11 +85,39 @@ export async function GET(request: Request) {
   const contentType = response.headers.get("content-type")?.trim() || "application/octet-stream";
   const body = Buffer.from(await response.arrayBuffer());
 
+  /*
+    El nombre del archivo, para que la descarga no se llame "proxy".
+
+    El navegador nombra lo que baja segun la ultima parte de la URL, y la nuestra termina en
+    /api/media/proxy: una cotizacion de 1,8 MB llegaba a Descargas como "proxy", sin extension y
+    sin poder abrirse de un doble clic. Se veia en el historial de Chrome como "proxy" y "proxy (1)".
+
+    Va como `inline`: un PDF se sigue abriendo en la pestaña, y al guardarlo toma este nombre. Con
+    `attachment` se forzaria la descarga y se perderia la vista previa.
+
+    El nombre se limpia de comillas, saltos de linea y barras -partirian la cabecera o dejarian
+    escribir en otra carpeta- y ademas se manda en la forma con codificacion, que es la que entiende
+    los acentos y las ñ.
+  */
+  const nombrePedido = requestUrl.searchParams.get("name")?.trim() || "";
+  const nombreLimpio = nombrePedido
+    // Fuera comillas, barras y todo lo que no sea imprimible: partirian la cabecera o dejarian
+    // escribir en otra carpeta.
+    .replace(/[\u0000-\u001F"\\/]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+
   return new NextResponse(body, {
     status: 200,
     headers: {
       "Content-Type": contentType,
       "Cache-Control": "private, max-age=0, no-cache, no-store, must-revalidate",
+      ...(nombreLimpio
+        ? {
+            "Content-Disposition": `inline; filename="${nombreLimpio.replace(/[^ -~]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(nombreLimpio)}`,
+          }
+        : {}),
     },
   });
 }
