@@ -364,6 +364,34 @@ export async function publishAgentV2Action(input: {
     lista de flujos conocidos por el mismo motivo que el de la Bienvenida: si no, la conexion es
     un dibujo.
   */
+  /*
+    La escalera "si no contesta" de la Bienvenida.
+
+    Cada escalon es una union desde un asa "no-reply-*" hacia un nodo Texto. Se compila a tiempo +
+    mensaje y se guarda en la configuracion; el envio lo hace el motor de Seguimientos que ya
+    existe, con su cancelacion incluida: si el cliente contesta antes, el webhook ya cancela lo
+    pendiente. Eso es todo el sentido de "si no contesta".
+
+    Un escalon conectado a algo que no sea Texto se ignora en silencio: un Flujo tendria que
+    mandarse por otro camino y prometer a medias es peor que no prometer.
+  */
+  const TIEMPO_POR_ESPERA: Record<string, { timeType: "MINUTES" | "HOURS" | "DAYS"; timeValue: number }> = {
+    "no-reply-5m": { timeType: "MINUTES", timeValue: 5 },
+    "no-reply-1h": { timeType: "HOURS", timeValue: 1 },
+    "no-reply-1d": { timeType: "DAYS", timeValue: 1 },
+    "no-reply-3d": { timeType: "DAYS", timeValue: 3 },
+  };
+  const noReplyFollowUps = bienvenidaNode
+    ? Object.entries(TIEMPO_POR_ESPERA).flatMap(([asa, tiempo]) => {
+        const edge = edges.find(
+          (e) => e.source === bienvenidaNode.id && e.sourceHandle === asa,
+        );
+        const destino = edge?.target ? nodeById.get(edge.target) : undefined;
+        const texto = destino?.type === "texto" ? asString(destino.data?.text).trim() : "";
+        return texto ? [{ ...tiempo, content: texto }] : [];
+      })
+    : [];
+
   const iaNodes = nodes.filter((node) => node.type === "ia");
   const iaNodeIds = new Set(iaNodes.map((node) => node.id));
   const despuesDeCadaIa = new Set(
@@ -984,6 +1012,24 @@ export async function publishAgentV2Action(input: {
     );
   }
 
+  /*
+    "Cuando responda": lo que sale de esa union es lo que hay que hacer con la PRIMERA respuesta.
+
+    Va como regla del prompt y no como disparo del motor porque el destino puede ser cualquier
+    cosa -una Condicion, un Flujo, un Texto- y las Condicion ya se evaluan solas en cada mensaje.
+    Antes esta union no llegaba al agente de ninguna forma: se dibujaba y no existia.
+  */
+  const alResponderLaBienvenida = bienvenidaNode
+    ? edges.find((edge) => edge.source === bienvenidaNode.id && edge.sourceHandle === "on-reply")
+        ?.target
+    : undefined;
+  if (alResponderLaBienvenida) {
+    const accion = describeNodeAction(alResponderLaBienvenida);
+    if (accion !== "continua la conversacion normal con la IA") {
+      rules.push(`Cuando el cliente responda a la bienvenida, ${accion}.`);
+    }
+  }
+
   for (const instruccion of instruccionesIa) {
     const tituloDelFlujo = instruccion.flujoId ? flowTitleById.get(instruccion.flujoId) : undefined;
     const partes = [instruccion.texto];
@@ -1025,6 +1071,7 @@ export async function publishAgentV2Action(input: {
     knowledgeFlowIds: flowIds,
     // El saludo por flujo: lo ejecuta el motor en el primer mensaje, no la IA.
     welcomeFlowId: flujoDeBienvenida ?? "",
+    noReplyFollowUps,
     // Toggles "Consultar productos/flujos": apagados => el motor no ofrece la tool.
     enableProductLookup: consultProducts,
     enableFlowLookup: consultFlows,

@@ -115,6 +115,14 @@ export type AgentTrainingConfig = {
     Vacio => no hay flujo de bienvenida y todo sigue como antes.
   */
   welcomeFlowId: string;
+  /*
+    La escalera "si no contesta" del nodo Bienvenida, ya resuelta a tiempos y textos.
+
+    Se guarda compilada -no el grafo- porque quien la usa es el webhook, en el momento de
+    contestarle a un cliente nuevo: ahi no se puede poner a recorrer el diagrama. Vacia = no hay
+    escalera y no se agenda nada.
+  */
+  noReplyFollowUps: Array<{ timeType: "MINUTES" | "HOURS" | "DAYS"; timeValue: number; content: string }>;
   // Toggles de Agente V2: si están en false, el motor NO ofrece esa tool al modelo.
   // Ausente/undefined => true (preserva el comportamiento de V1, que siempre las tiene).
   enableProductLookup: boolean;
@@ -200,6 +208,7 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   customRules: "",
   knowledgeFlowIds: [],
   welcomeFlowId: "",
+  noReplyFollowUps: [],
   enableProductLookup: true,
   enableFlowLookup: true,
   aiDrivenFlows: false,
@@ -260,8 +269,16 @@ export function buildAgentTrainingConfig(
   // Los toggles de tools son opcionales: V1 no los setea y por defecto van en true
   // (siempre ofrece las tools). Solo Agente V2 los pasa explícitamente.
   // welcomeFlowId tambien: solo Agente V2 sabe si el nodo Bienvenida trae un "/flujo".
-  input: Omit<AgentTrainingConfig, "enableProductLookup" | "enableFlowLookup" | "welcomeFlowId"> &
-    Partial<Pick<AgentTrainingConfig, "enableProductLookup" | "enableFlowLookup" | "welcomeFlowId">>,
+  input: Omit<
+    AgentTrainingConfig,
+    "enableProductLookup" | "enableFlowLookup" | "welcomeFlowId" | "noReplyFollowUps"
+  > &
+    Partial<
+      Pick<
+        AgentTrainingConfig,
+        "enableProductLookup" | "enableFlowLookup" | "welcomeFlowId" | "noReplyFollowUps"
+      >
+    >,
 ): AgentTrainingConfig {
   const notify = input.actions.notify;
 
@@ -274,6 +291,9 @@ export function buildAgentTrainingConfig(
     customRules: input.customRules.trim(),
     knowledgeFlowIds: input.knowledgeFlowIds.filter((value, index, array) => Boolean(value) && array.indexOf(value) === index),
     welcomeFlowId: (input.welcomeFlowId ?? "").trim(),
+    noReplyFollowUps: (input.noReplyFollowUps ?? []).filter(
+      (seguimiento) => seguimiento.timeValue > 0 && seguimiento.content.trim().length > 0,
+    ),
     enableProductLookup: input.enableProductLookup !== false,
     enableFlowLookup: input.enableFlowLookup !== false,
     aiDrivenFlows: input.aiDrivenFlows === true,
@@ -713,6 +733,23 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
     customRules: typeof data.customRules === "string" ? data.customRules : "",
     knowledgeFlowIds,
     welcomeFlowId: typeof data.welcomeFlowId === "string" ? data.welcomeFlowId.trim() : "",
+    noReplyFollowUps: Array.isArray(data.noReplyFollowUps)
+      ? (data.noReplyFollowUps as unknown[]).flatMap((item) => {
+          if (!item || typeof item !== "object") {
+            return [];
+          }
+          const fila = item as { timeType?: unknown; timeValue?: unknown; content?: unknown };
+          const timeType =
+            fila.timeType === "MINUTES" || fila.timeType === "HOURS" || fila.timeType === "DAYS"
+              ? fila.timeType
+              : null;
+          const timeValue = typeof fila.timeValue === "number" ? fila.timeValue : 0;
+          const content = typeof fila.content === "string" ? fila.content : "";
+          return timeType && timeValue > 0 && content.trim()
+            ? [{ timeType, timeValue, content }]
+            : [];
+        })
+      : [],
     enableProductLookup: data.enableProductLookup !== false,
     enableFlowLookup: data.enableFlowLookup !== false,
     aiDrivenFlows: data.aiDrivenFlows === true,

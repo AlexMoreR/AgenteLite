@@ -38,6 +38,7 @@ import { prisma } from "@/lib/prisma";
 import { sendChatPushToWorkspace } from "@/lib/web-push";
 import {
   cancelPendingFollowsByContact,
+  createFollow,
   createFollowsFromRulesForSource,
   scheduleFollowRuleForContact,
 } from "@/features/seguimientos/services/follows";
@@ -4155,6 +4156,53 @@ export async function POST(request: NextRequest) {
         }
         } else {
         // noop: no reply generated
+      }
+
+      /*
+        La escalera "si no contesta" del diagrama, agendada al primer contacto.
+
+        Se dibujaba en el nodo Bienvenida -"5 minutos sin responder", "1 hora"...- y no hacia nada:
+        el grafo se guardaba y el motor no lo miraba. Ahora cada escalon se agenda como un
+        Seguimiento normal, asi que hereda todo lo que ya funciona: el envio del cron, el candado
+        para que dos procesos no lo manden dos veces y, sobre todo, la CANCELACION -el webhook
+        cancela lo pendiente en cuanto entra un mensaje del cliente-. Sin eso "si no contesta"
+        seria "escribile igual".
+
+        Solo en el primer contacto: la escalera cuelga de la Bienvenida, que es lo unico que pasa
+        una vez por conversacion.
+      */
+      if (!existingOutbound && agentTraining?.noReplyFollowUps?.length) {
+        after(async () => {
+          try {
+            let agendados = 0;
+            for (const [indice, escalon] of agentTraining.noReplyFollowUps.entries()) {
+              const creado = await createFollow({
+                workspaceId: channel.workspaceId,
+                contactId: contact.id,
+                name: `Sin responder ${indice + 1}`,
+                channelId: channel.id,
+                timeType: escalon.timeType,
+                timeValue: escalon.timeValue,
+                messageType: "TEXT",
+                content: escalon.content,
+                cancelOnActivity: true,
+              });
+              if (creado) {
+                agendados += 1;
+              }
+            }
+            console.log("[EVOLUTION] escalera_sin_responder_agendada", {
+              conversationId: conversation.id,
+              contactId: contact.id,
+              agendados,
+            });
+          } catch (error) {
+            console.warn("[EVOLUTION] escalera_sin_responder_fallo", {
+              conversationId: conversation.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        });
       }
     } else {
       // noop: auto-reply intentionally skipped
