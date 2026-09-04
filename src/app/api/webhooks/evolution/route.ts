@@ -3106,7 +3106,7 @@ export async function POST(request: NextRequest) {
         No pisa nada: solo entra si NO hubo respuesta previa del bot en esta conversacion y si el
         motor no resolvio ya otro flujo para este mensaje.
       */
-      if (!existingOutbound && !hardFlowReply && !shouldHandoffToHuman && !quickResponseFlow) {
+      if (!existingOutbound && !shouldHandoffToHuman && !quickResponseFlow) {
         const flujoDeBienvenida = agentTraining?.welcomeFlowId?.trim() || "";
         if (flujoDeBienvenida) {
           const saludo = await getFlowReply({
@@ -3130,21 +3130,48 @@ export async function POST(request: NextRequest) {
             })
               .then((items) => items.find((item) => item.id === flujoDeBienvenida)?.title ?? null)
               .catch(() => null);
-            hardFlowReply = {
-              steps: saludo.steps,
-              flowTitle: tituloDelSaludo,
-              productName: null,
-              flowId: flujoDeBienvenida,
-              aiFollowUpEnabled: saludo.aiFollowUpEnabled,
-              activeProductContext: null,
-            };
-            saludoConCierreDeIa = saludo.aiFollowUpEnabled;
-            console.log("[EVOLUTION] welcome_flow_sent", {
-              conversationId: conversation.id,
-              flowId: flujoDeBienvenida,
-              pasos: saludo.steps.length,
-              cierreConIa: saludo.aiFollowUpEnabled,
-            });
+            /*
+              Si el primer mensaje ya disparo otro flujo, el saludo va ADELANTE, no se pierde.
+
+              Pasa siempre que el cliente arranca diciendo que busca: manda la foto de una poltrona
+              y una Condicion resuelve el catalogo en el mismo turno. Antes esta parte pedia que NO
+              hubiera otro flujo, asi que el catalogo salia y la bienvenida se saltaba: el negocio
+              nunca se presentaba. Visto el 4-sep-2026 apenas se prendieron las Condicion sueltas.
+
+              Se pegan los pasos en orden -primero saluda, despues responde- y se conserva el titulo
+              del OTRO flujo: es el que importa para la linea de tiempo y para no reenviarlo despues.
+              La bienvenida no necesita esa marca porque solo puede salir en el primer mensaje.
+            */
+            if (hardFlowReply?.steps) {
+              hardFlowReply = {
+                ...hardFlowReply,
+                steps: [...saludo.steps, ...hardFlowReply.steps],
+              };
+              console.log("[EVOLUTION] welcome_flow_prepended", {
+                conversationId: conversation.id,
+                flowId: flujoDeBienvenida,
+                pasosDelSaludo: saludo.steps.length,
+                flujoDelTurno: hardFlowReply.flowTitle,
+              });
+            } else {
+              hardFlowReply = {
+                steps: saludo.steps,
+                flowTitle: tituloDelSaludo,
+                productName: null,
+                flowId: flujoDeBienvenida,
+                aiFollowUpEnabled: saludo.aiFollowUpEnabled,
+                activeProductContext: null,
+              };
+              // El cierre con IA solo cuando el saludo es TODA la respuesta: si ademas salio un
+              // catalogo, ese ya contesta y agregar un remate de la IA es hablar de mas.
+              saludoConCierreDeIa = saludo.aiFollowUpEnabled;
+              console.log("[EVOLUTION] welcome_flow_sent", {
+                conversationId: conversation.id,
+                flowId: flujoDeBienvenida,
+                pasos: saludo.steps.length,
+                cierreConIa: saludo.aiFollowUpEnabled,
+              });
+            }
           } else {
             // Sin pasos el flujo esta vacio o lo borraron: se avisa y se sigue con la IA, que es
             // mejor que dejar al cliente sin respuesta.
