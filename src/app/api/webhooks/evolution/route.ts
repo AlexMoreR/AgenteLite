@@ -3078,6 +3078,18 @@ export async function POST(request: NextRequest) {
             commercialContext: previousCommercialContext,
             activeProductContext: previousActiveProductContext,
             aiDrivenFlows,
+            /*
+              Se relee aca, no se reusa el de arriba.
+
+              El de arriba se pide al empezar el turno, y cuando el cliente contesta rapido -dentro
+              del mismo minuto- el turno anterior todavia no habia anotado el flujo que acababa de
+              mandar. Resultado: la condicion lo mandaba de nuevo. Una consulta mas por mensaje es
+              barata al lado de mandarle dos veces un PDF de 15 MB al cliente.
+            */
+            flujosYaEnviados: await getConversationExecutedFlowSlugs({
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
+            }).catch(() => executedFlowSlugs),
           });
       let hardFlowReply = hardFlowResolution?.steps
         ? hardFlowResolution

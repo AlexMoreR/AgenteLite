@@ -632,6 +632,16 @@ async function evaluateIaIntentMatch(input: {
  */
 const MAXIMO_DE_CONDICIONES_IA = 4;
 
+/** El mismo apodo que usa el registro de flujos enviados (flow-execution-history). */
+function slugDeFlujo(valor: string): string {
+  return valor
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 async function resolveGlobalConditionFlow(input: {
   nodes: FlowBranchNode[];
   edges: FlowBranchEdge[];
@@ -639,6 +649,19 @@ async function resolveGlobalConditionFlow(input: {
   normalizedMessage: string;
   flowTitleById: Map<string, string>;
   candidateFlowIds: Set<string>;
+  /*
+    Lo que esta conversacion ya recibio. Sin esto la condicion se dispara para siempre.
+
+    Visto el 5-sep-2026: se mando el catalogo de camillas, el cliente contesto "Si la SVG01"
+    -eligiendo un codigo del catalogo- y la condicion volvio a dispararse, porque el mensaje habla
+    de camillas. Y va a pasar SIEMPRE: despues de mandar un catalogo uno pregunta "¿que codigo te
+    interesa?", y toda respuesta a esa pregunta habla del mismo tema.
+
+    Habia un candado en el webhook, pero llegaba tarde: leia los flujos ya enviados al arrancar el
+    turno, y el turno anterior todavia no habia terminado de anotarlo (el cliente contesto dentro
+    del mismo minuto). Ahora la lista se lee JUSTO antes de resolver y se decide aca.
+  */
+  flujosYaEnviados?: Set<string>;
   model?: string | null;
 }): Promise<{ flowId: string; flowTitle: string } | null> {
   const nodeById = new Map(input.nodes.map((n) => [n.id, n] as const));
@@ -687,6 +710,10 @@ async function resolveGlobalConditionFlow(input: {
       }
       const flowId = fbStr(targetNode.data?.flowId);
       if (!flowId || !input.candidateFlowIds.has(flowId)) {
+        continue;
+      }
+      // Un catalogo se manda UNA vez por conversacion: lo que sigue es conversar sobre el.
+      if (input.flujosYaEnviados?.has(slugDeFlujo(input.flowTitleById.get(flowId) ?? ""))) {
         continue;
       }
       if (fbStr(rule.matchType) === "ia") {
@@ -961,6 +988,8 @@ export async function resolveAgentProductFlowReply(input: {
   // selectFlowByAI que ADIVINA un catálogo ante algo ambiguo (el que mandaba manicura). En ese
   // caso devuelve null para que la IA maneje el hueco con la tool enviar_flujo.
   aiDrivenFlows?: boolean;
+  /** Apodos de los flujos que esta conversacion YA recibio, para no repetirlos. */
+  flujosYaEnviados?: Set<string>;
 }): Promise<ProductFlowResolution | null> {
   const latestText = input.latestUserMessage?.trim() || "";
   if (!latestText) {
@@ -1105,6 +1134,7 @@ export async function resolveAgentProductFlowReply(input: {
         // Una rama cableada a mano puede disparar su flujo este o no marcado en "Consultar flujos":
         // el usuario ya dijo cual quiere.
         candidateFlowIds: new Set(flowTargets.map((flow) => flow.id)),
+        flujosYaEnviados: input.flujosYaEnviados,
         model: agent.model,
       });
       if (rama) {
