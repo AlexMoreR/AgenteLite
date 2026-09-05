@@ -450,7 +450,12 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
                     }
                   }}
                   placeholder="El primer mensaje que recibe el cliente. Si lo dejas vacio, lo escribe la IA."
-                  className="nodrag h-full min-h-0 w-full resize-none border-0 bg-transparent p-0 text-[12px] leading-5 text-foreground outline-none focus:ring-0"
+                  /*
+                    min-h: el campo ocupa el alto del nodo, y si el nodo no tiene alto definido
+                    -pasa al recargar, o en un nodo recien traido- ese "alto completo" es CERO y la
+                    caja se veia diminuta justo al entrar a escribir. Con un minimo nunca colapsa.
+                  */
+                  className="nodrag h-full min-h-[120px] w-full resize-none border-0 bg-transparent p-0 text-[12px] leading-5 text-foreground outline-none focus:ring-0"
                 />
               ) : (
                 <div className="flex flex-col gap-1.5">
@@ -619,7 +624,12 @@ function IaNode({ id, data, selected }: NodeProps) {
                     }
                   }}
                   placeholder="Una instruccion mas para el agente. Escribi Flujo: nombre para que pueda mandar ese flujo."
-                  className="nodrag h-full min-h-0 w-full resize-none border-0 bg-transparent p-0 text-[12px] leading-5 text-foreground outline-none focus:ring-0"
+                  /*
+                    min-h: el campo ocupa el alto del nodo, y si el nodo no tiene alto definido
+                    -pasa al recargar, o en un nodo recien traido- ese "alto completo" es CERO y la
+                    caja se veia diminuta justo al entrar a escribir. Con un minimo nunca colapsa.
+                  */
+                  className="nodrag h-full min-h-[120px] w-full resize-none border-0 bg-transparent p-0 text-[12px] leading-5 text-foreground outline-none focus:ring-0"
                 />
               ) : (
                 <div className="flex flex-col gap-1.5">
@@ -2463,6 +2473,14 @@ type StoredGraph = {
     id: string;
     type: string;
     position: { x: number; y: number };
+    /*
+      El tamaño al que quedo la caja.
+
+      No se guardaba: se estiraba un nodo para leer un prompt largo y al recargar volvia a su
+      tamaño de fabrica. Peor todavia, sin alto definido el campo de escritura -que ocupa el alto
+      del nodo- se quedaba sin altura y la caja se veia diminuta al entrar a escribir.
+    */
+    style?: { width?: number; height?: number };
     data: Partial<BienvenidaData> &
       Partial<IaData> &
       Partial<PreguntaData> &
@@ -2547,6 +2565,7 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
       id: node.id,
       type: node.type,
       position: node.position,
+      ...(node.style?.width || node.style?.height ? { style: node.style } : {}),
       data:
         node.type === "bienvenida"
           ? ({
@@ -2707,6 +2726,15 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
       id: node.id,
       type: node.type ?? "entrada",
       position: node.position,
+      // Se guarda el tamaño para que estirar una caja no se pierda al recargar.
+      ...(typeof node.style?.width === "number" || typeof node.style?.height === "number"
+        ? {
+            style: {
+              ...(typeof node.style?.width === "number" ? { width: node.style.width } : {}),
+              ...(typeof node.style?.height === "number" ? { height: node.style.height } : {}),
+            },
+          }
+        : {}),
       data:
         node.type === "bienvenida"
           ? {
