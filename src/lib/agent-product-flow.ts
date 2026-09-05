@@ -663,7 +663,9 @@ async function resolveGlobalConditionFlow(input: {
   */
   flujosYaEnviados?: Set<string>;
   model?: string | null;
-}): Promise<{ flowId: string; flowTitle: string } | null> {
+}): Promise<
+  { tipo: "flujo"; flowId: string; flowTitle: string } | { tipo: "texto"; texto: string } | null
+> {
   const nodeById = new Map(input.nodes.map((n) => [n.id, n] as const));
 
   // Todo lo alcanzable desde un Producto queda afuera: de eso ya se ocupa el hook del producto
@@ -690,7 +692,18 @@ async function resolveGlobalConditionFlow(input: {
     return null;
   }
 
-  type Candidata = { flowId: string; rule: Record<string, unknown> };
+  /*
+    Una rama puede terminar en un Flujo o en un Texto.
+
+    El Texto hacia falta para desambiguar, que es como se arma una venta de verdad: "si dicen solo
+    sillas, preguntales que tipo de silla necesitan" en vez de tirarles los tres catalogos. Antes
+    aca solo se miraban las ramas que terminaban en Flujo, asi que esa regla no podia ganar nunca:
+    se dibujaba y el turno seguia de largo hasta la primera regla que si mandaba un catalogo.
+  */
+  type Destino =
+    | { tipo: "flujo"; flowId: string }
+    | { tipo: "texto"; texto: string };
+  type Candidata = { destino: Destino; rule: Record<string, unknown> };
   const porPalabras: Candidata[] = [];
   const porIa: Candidata[] = [];
 
@@ -703,23 +716,33 @@ async function resolveGlobalConditionFlow(input: {
         (e) => e.source === cond.id && e.sourceHandle === fbStr(rule.id),
       );
       const targetNode = actionEdge?.target ? nodeById.get(actionEdge.target) : undefined;
-      // Solo nos interesan las ramas que terminan en un Flujo: una rama hacia un Texto la maneja
-      // la IA con la guia del prompt.
-      if (targetNode?.type !== "flujo") {
-        continue;
+      let destino: Destino | null = null;
+
+      if (targetNode?.type === "flujo") {
+        const flowId = fbStr(targetNode.data?.flowId);
+        if (!flowId || !input.candidateFlowIds.has(flowId)) {
+          continue;
+        }
+        // Un catalogo se manda UNA vez por conversacion: lo que sigue es conversar sobre el.
+        if (input.flujosYaEnviados?.has(slugDeFlujo(input.flowTitleById.get(flowId) ?? ""))) {
+          continue;
+        }
+        destino = { tipo: "flujo", flowId };
+      } else if (targetNode?.type === "texto") {
+        const texto = fbStr(targetNode.data?.text).trim();
+        if (!texto) {
+          continue;
+        }
+        destino = { tipo: "texto", texto };
       }
-      const flowId = fbStr(targetNode.data?.flowId);
-      if (!flowId || !input.candidateFlowIds.has(flowId)) {
-        continue;
-      }
-      // Un catalogo se manda UNA vez por conversacion: lo que sigue es conversar sobre el.
-      if (input.flujosYaEnviados?.has(slugDeFlujo(input.flowTitleById.get(flowId) ?? ""))) {
+
+      if (!destino) {
         continue;
       }
       if (fbStr(rule.matchType) === "ia") {
-        porIa.push({ flowId, rule });
+        porIa.push({ destino, rule });
       } else {
-        porPalabras.push({ flowId, rule });
+        porPalabras.push({ destino, rule });
       }
     }
   }
@@ -731,7 +754,7 @@ async function resolveGlobalConditionFlow(input: {
         ? keywords.some((kw) => kw === input.normalizedMessage)
         : includesAny(input.normalizedMessage, keywords);
     if (coincide) {
-      return { flowId: candidata.flowId, flowTitle: input.flowTitleById.get(candidata.flowId) ?? "" };
+      return resolverDestino(candidata.destino);
     }
   }
 
@@ -747,11 +770,21 @@ async function resolveGlobalConditionFlow(input: {
       (intentKeywords.length > 0 && includesAny(input.normalizedMessage, intentKeywords)) ||
       (await evaluateIaIntentMatch({ intent, message: input.message, model: input.model }));
     if (coincide) {
-      return { flowId: candidata.flowId, flowTitle: input.flowTitleById.get(candidata.flowId) ?? "" };
+      return resolverDestino(candidata.destino);
     }
   }
 
   return null;
+
+  function resolverDestino(destino: Destino) {
+    return destino.tipo === "texto"
+      ? ({ tipo: "texto", texto: destino.texto } as const)
+      : ({
+          tipo: "flujo",
+          flowId: destino.flowId,
+          flowTitle: input.flowTitleById.get(destino.flowId) ?? "",
+        } as const);
+  }
 }
 
 async function resolveFlowBranchForActiveProduct(input: {
@@ -1137,6 +1170,21 @@ export async function resolveAgentProductFlowReply(input: {
         flujosYaEnviados: input.flujosYaEnviados,
         model: agent.model,
       });
+      if (rama?.tipo === "texto") {
+        console.log("[agent-product-flow] condicion-global-texto", {
+          agentId: input.agentId,
+          texto: rama.texto.slice(0, 60),
+        });
+        return {
+          steps: [{ kind: "text", content: rama.texto }],
+          flowTitle: null,
+          productName: null,
+          flowId: null,
+          // Es una repregunta nuestra: la IA no tiene que agregarle nada.
+          aiFollowUpEnabled: false,
+          activeProductContext: input.activeProductContext ?? null,
+        };
+      }
       if (rama) {
         const reply = await getFlowReply({
           workspaceId: input.workspaceId,
