@@ -1456,15 +1456,16 @@ function FlujoNode({ id, data, selected }: NodeProps) {
         insistir con un mensaje es la diferencia entre un lead perdido y una venta. Antes eso solo
         se podia armar por producto y por etapa, en otra pantalla.
       */}
+      {/*
+        Sin "Llamar al siguiente nodo".
+
+        Un Flujo no encadena con el nodo que sigue: manda el catalogo y ahi termina. Lo que viene
+        despues depende del cliente -si contesta o si se calla-, y para eso estan las otras dos
+        salidas. Se puso por copiar la Bienvenida y no compilaba a nada: una fila mas que ocupa
+        lugar y promete algo que no pasa.
+      */}
       {!collapsed ? (
         <div className="mt-2 w-[300px] space-y-2">
-          <SalidaPegada
-            nodeId={id}
-            handleId="next-block"
-            icono={<Send className="h-4 w-4" />}
-            color="text-sky-500"
-            titulo="Llamar al siguiente nodo"
-          />
           <SalidaPegada
             nodeId={id}
             handleId="on-reply"
