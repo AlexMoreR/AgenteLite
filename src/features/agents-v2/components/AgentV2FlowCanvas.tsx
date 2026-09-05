@@ -1363,6 +1363,8 @@ type FlujoData = {
   onDuplicate?: (id: string) => void;
   flowId: string;
   flowIds?: string[];
+  /** Escalones de "si no contesta" revelados en este nodo. Igual que en Bienvenida. */
+  esperas?: number;
   collapsed?: boolean;
   flows?: AgentV2Flow[];
   onChange?: (id: string, patch: NodeDataPatch) => void;
@@ -1383,6 +1385,7 @@ function FlujoNode({ id, data, selected }: NodeProps) {
     .filter((flow): flow is AgentV2Flow => Boolean(flow));
   const [editorOpen, setEditorOpen] = useState(false);
   const collapsed = nodeData.collapsed ?? false;
+  const esperas = Math.min(Math.max(nodeData.esperas ?? 0, 0), ESPERAS_SIN_RESPUESTA.length);
 
   return (
     <>
@@ -1445,6 +1448,58 @@ function FlujoNode({ id, data, selected }: NodeProps) {
           className="!h-4 !w-4 !border-2 !border-white !bg-indigo-600"
         />
       </BaseNode>
+
+      {/*
+        Las mismas salidas que la Bienvenida, y por la misma razon.
+
+        Mandar un catalogo es el momento en que mas gente se calla: si no contesta en una hora,
+        insistir con un mensaje es la diferencia entre un lead perdido y una venta. Antes eso solo
+        se podia armar por producto y por etapa, en otra pantalla.
+      */}
+      {!collapsed ? (
+        <div className="mt-2 w-[300px] space-y-2">
+          <SalidaPegada
+            nodeId={id}
+            handleId="next-block"
+            icono={<Send className="h-4 w-4" />}
+            color="text-sky-500"
+            titulo="Llamar al siguiente nodo"
+          />
+          <SalidaPegada
+            nodeId={id}
+            handleId="on-reply"
+            icono={<MessageSquare className="h-4 w-4" />}
+            color="text-emerald-500"
+            titulo="Cuando responda"
+          />
+          {ESPERAS_SIN_RESPUESTA.slice(0, esperas).map((espera) => (
+            <SalidaPegada
+              key={espera.handle}
+              nodeId={id}
+              handleId={espera.handle}
+              icono={<Clock className="h-4 w-4" />}
+              color="text-amber-500"
+              titulo={espera.titulo}
+            />
+          ))}
+          {esperas < ESPERAS_SIN_RESPUESTA.length ? (
+            <button
+              type="button"
+              onClick={(evento) => {
+                // Sin esto el clic tambien abre el editor del flujo, porque la caja entera es un
+                // boton.
+                evento.stopPropagation();
+                nodeData.onChange?.(id, { esperas: esperas + 1 });
+              }}
+              className="nodrag flex w-full items-center gap-2.5 rounded-xl border border-dashed border-border bg-transparent px-3 py-2.5 text-[13px] text-muted-foreground transition hover:border-solid hover:bg-muted hover:text-foreground"
+            >
+              <Plus className="size-4 shrink-0" />
+              Si no contesta
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       <FlujoEditorDialog
         open={editorOpen}
         onOpenChange={setEditorOpen}
@@ -2558,6 +2613,7 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
                         : node.data.flowId
                           ? [node.data.flowId]
                           : [],
+                      esperas: typeof node.data.esperas === "number" ? node.data.esperas : 0,
                       collapsed: node.data.collapsed === true,
                     } satisfies FlujoData)
                   : node.type === "seguimiento"
@@ -2698,6 +2754,7 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
                   ? {
                       flowId: (node.data as FlujoData).flowId,
                       flowIds: getSelectedFlowIds(node.data as FlujoData),
+                      esperas: (node.data as FlujoData).esperas ?? 0,
                       collapsed: (node.data as FlujoData).collapsed === true,
                     }
                   : node.type === "seguimiento"

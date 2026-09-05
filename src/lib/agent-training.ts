@@ -123,6 +123,22 @@ export type AgentTrainingConfig = {
     escalera y no se agenda nada.
   */
   noReplyFollowUps: Array<{ timeType: "MINUTES" | "HOURS" | "DAYS"; timeValue: number; content: string }>;
+  /*
+    Lo mismo, pero por FLUJO: "mande el catalogo, si no contesta en una hora escribile".
+
+    Va aparte de noReplyFollowUps -que es la del saludo- porque se agendan en momentos distintos:
+    la del saludo en el primer contacto, esta cada vez que sale ese flujo.
+  */
+  flowNoReplyFollowUps: Array<{
+    flowId: string;
+    followUps: Array<{ timeType: "MINUTES" | "HOURS" | "DAYS"; timeValue: number; content: string }>;
+  }>;
+  /*
+    Lo mismo, pero por FLUJO: "mande el catalogo, si no contesta en una hora escribile".
+
+    Va aparte de noReplyFollowUps -que es la del saludo- porque se agendan en momentos distintos:
+    la del saludo en el primer contacto, esta cada vez que sale ese flujo.
+  */
   // Toggles de Agente V2: si están en false, el motor NO ofrece esa tool al modelo.
   // Ausente/undefined => true (preserva el comportamiento de V1, que siempre las tiene).
   enableProductLookup: boolean;
@@ -209,6 +225,7 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   knowledgeFlowIds: [],
   welcomeFlowId: "",
   noReplyFollowUps: [],
+  flowNoReplyFollowUps: [],
   enableProductLookup: true,
   enableFlowLookup: true,
   aiDrivenFlows: false,
@@ -271,12 +288,12 @@ export function buildAgentTrainingConfig(
   // welcomeFlowId tambien: solo Agente V2 sabe si el nodo Bienvenida trae un "/flujo".
   input: Omit<
     AgentTrainingConfig,
-    "enableProductLookup" | "enableFlowLookup" | "welcomeFlowId" | "noReplyFollowUps"
+    "enableProductLookup" | "enableFlowLookup" | "welcomeFlowId" | "noReplyFollowUps" | "flowNoReplyFollowUps"
   > &
     Partial<
       Pick<
         AgentTrainingConfig,
-        "enableProductLookup" | "enableFlowLookup" | "welcomeFlowId" | "noReplyFollowUps"
+        "enableProductLookup" | "enableFlowLookup" | "welcomeFlowId" | "noReplyFollowUps" | "flowNoReplyFollowUps"
       >
     >,
 ): AgentTrainingConfig {
@@ -293,6 +310,9 @@ export function buildAgentTrainingConfig(
     welcomeFlowId: (input.welcomeFlowId ?? "").trim(),
     noReplyFollowUps: (input.noReplyFollowUps ?? []).filter(
       (seguimiento) => seguimiento.timeValue > 0 && seguimiento.content.trim().length > 0,
+    ),
+    flowNoReplyFollowUps: (input.flowNoReplyFollowUps ?? []).filter(
+      (fila) => fila.flowId.trim().length > 0 && fila.followUps.length > 0,
     ),
     enableProductLookup: input.enableProductLookup !== false,
     enableFlowLookup: input.enableFlowLookup !== false,
@@ -753,6 +773,33 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
     enableProductLookup: data.enableProductLookup !== false,
     enableFlowLookup: data.enableFlowLookup !== false,
     aiDrivenFlows: data.aiDrivenFlows === true,
+    flowNoReplyFollowUps: Array.isArray(data.flowNoReplyFollowUps)
+      ? (data.flowNoReplyFollowUps as unknown[]).flatMap((item) => {
+          if (!item || typeof item !== "object") {
+            return [];
+          }
+          const fila = item as { flowId?: unknown; followUps?: unknown };
+          const flowId = typeof fila.flowId === "string" ? fila.flowId.trim() : "";
+          const followUps = Array.isArray(fila.followUps)
+            ? (fila.followUps as unknown[]).flatMap((paso) => {
+                if (!paso || typeof paso !== "object") {
+                  return [];
+                }
+                const p = paso as { timeType?: unknown; timeValue?: unknown; content?: unknown };
+                const timeType: "MINUTES" | "HOURS" | "DAYS" | null =
+                  p.timeType === "MINUTES" || p.timeType === "HOURS" || p.timeType === "DAYS"
+                    ? p.timeType
+                    : null;
+                const timeValue = typeof p.timeValue === "number" ? p.timeValue : 0;
+                const content = typeof p.content === "string" ? p.content : "";
+                return timeType && timeValue > 0 && content.trim()
+                  ? [{ timeType, timeValue, content }]
+                  : [];
+              })
+            : [];
+          return flowId && followUps.length > 0 ? [{ flowId, followUps }] : [];
+        })
+      : [],
     actions: normalizeAgentActionsConfig(data.actions),
     useCustomPrompt: Boolean(data.useCustomPrompt),
     customSystemPrompt: typeof data.customSystemPrompt === "string" ? data.customSystemPrompt : "",

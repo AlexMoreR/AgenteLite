@@ -392,6 +392,38 @@ export async function publishAgentV2Action(input: {
       })
     : [];
 
+  /*
+    La misma escalera, pero colgando de un nodo Flujo.
+
+    Se guarda por flowId y no por nodo porque quien la usa es el webhook, que sabe QUE flujo acaba
+    de mandar, no de que caja del dibujo salio. Si dos nodos apuntan al mismo flujo gana el
+    primero: dos escaleras para el mismo catalogo serian dos tandas de mensajes por el mismo
+    silencio.
+  */
+  const flowNoReplyFollowUps: Array<{
+    flowId: string;
+    followUps: Array<{ timeType: "MINUTES" | "HOURS" | "DAYS"; timeValue: number; content: string }>;
+  }> = [];
+  const flujosConEscalera = new Set<string>();
+  for (const node of nodes.filter((n) => n.type === "flujo")) {
+    const followUps = Object.entries(TIEMPO_POR_ESPERA).flatMap(([asa, tiempo]) => {
+      const edge = edges.find((e) => e.source === node.id && e.sourceHandle === asa);
+      const destino = edge?.target ? nodeById.get(edge.target) : undefined;
+      const texto = destino?.type === "texto" ? asString(destino.data?.text).trim() : "";
+      return texto ? [{ ...tiempo, content: texto }] : [];
+    });
+    if (followUps.length === 0) {
+      continue;
+    }
+    for (const flowId of getGraphNodeFlowIds(node)) {
+      if (flujosConEscalera.has(flowId)) {
+        continue;
+      }
+      flujosConEscalera.add(flowId);
+      flowNoReplyFollowUps.push({ flowId, followUps });
+    }
+  }
+
   const iaNodes = nodes.filter((node) => node.type === "ia");
   const iaNodeIds = new Set(iaNodes.map((node) => node.id));
   const despuesDeCadaIa = new Set(
@@ -1072,6 +1104,7 @@ export async function publishAgentV2Action(input: {
     // El saludo por flujo: lo ejecuta el motor en el primer mensaje, no la IA.
     welcomeFlowId: flujoDeBienvenida ?? "",
     noReplyFollowUps,
+    flowNoReplyFollowUps,
     // Toggles "Consultar productos/flujos": apagados => el motor no ofrece la tool.
     enableProductLookup: consultProducts,
     enableFlowLookup: consultFlows,

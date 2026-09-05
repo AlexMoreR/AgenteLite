@@ -4171,6 +4171,62 @@ export async function POST(request: NextRequest) {
         Solo en el primer contacto: la escalera cuelga de la Bienvenida, que es lo unico que pasa
         una vez por conversacion.
       */
+      /*
+        La escalera del FLUJO que acaba de salir.
+
+        Mandar un catalogo es el momento en que mas gente se calla: si no contesta en una hora,
+        insistir es la diferencia entre un lead perdido y una venta. Se agenda cada vez que sale ese
+        flujo, no solo en el primer contacto -a diferencia de la del saludo, que cuelga de la
+        Bienvenida y pasa una vez-.
+
+        Si ya hay algo pendiente para este contacto no se agenda: dos escaleras vivas serian dos
+        tandas de mensajes por el mismo silencio. Es el mismo candado del seguimiento por etapa.
+      */
+      const escaleraDelFlujo = hardFlowReply?.flowId
+        ? agentTraining?.flowNoReplyFollowUps?.find((fila) => fila.flowId === hardFlowReply?.flowId)
+        : undefined;
+      if (escaleraDelFlujo?.followUps.length) {
+        const flujoDeLaEscalera = escaleraDelFlujo;
+        after(async () => {
+          try {
+            const pendiente = await prisma.follow.findFirst({
+              where: { workspaceId: channel.workspaceId, contactId: contact.id, status: "PENDING" },
+              select: { id: true },
+            });
+            if (pendiente) {
+              return;
+            }
+            let agendados = 0;
+            for (const [indice, escalon] of flujoDeLaEscalera.followUps.entries()) {
+              const creado = await createFollow({
+                workspaceId: channel.workspaceId,
+                contactId: contact.id,
+                name: `Sin responder al flujo ${indice + 1}`,
+                channelId: channel.id,
+                timeType: escalon.timeType,
+                timeValue: escalon.timeValue,
+                messageType: "TEXT",
+                content: escalon.content,
+                cancelOnActivity: true,
+              });
+              if (creado) {
+                agendados += 1;
+              }
+            }
+            console.log("[EVOLUTION] escalera_de_flujo_agendada", {
+              conversationId: conversation.id,
+              flowId: flujoDeLaEscalera.flowId,
+              agendados,
+            });
+          } catch (error) {
+            console.warn("[EVOLUTION] escalera_de_flujo_fallo", {
+              conversationId: conversation.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        });
+      }
+
       if (!existingOutbound && agentTraining?.noReplyFollowUps?.length) {
         after(async () => {
           try {
