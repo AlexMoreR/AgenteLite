@@ -632,6 +632,53 @@ async function evaluateIaIntentMatch(input: {
  */
 const MAXIMO_DE_CONDICIONES_IA = 4;
 
+/**
+ * Elige cual de las reglas IA corresponde al mensaje, o ninguna.
+ *
+ * Antes se preguntaba regla por regla ("¿este mensaje cumple esta condicion? SI/NO") y, para
+ * ahorrar consultas, si el mensaje traia una palabra del texto de la regla se la daba por buena sin
+ * preguntar. Ese atajo era el problema: la regla se parte en palabras sueltas, asi que
+ * "silla hidraulica" se guardaba como "silla" + "hidraulica" por separado y despues un "Tienen
+ * sillas" pegaba con "silla". El usuario nunca escribio "silla sola" -la escribimos nosotros al
+ * despedazar sus frases-.
+ *
+ * Preguntando por TODAS juntas el modelo compara, que es justo lo que hace falta para distinguir
+ * "tienen sillas" (generico, no elige ninguna) de "silla hidraulica" (la de peluqueria). Y ademas
+ * sale mas barato: una consulta en vez de una por regla.
+ *
+ * Si el mensaje es generico o ambiguo devuelve null a proposito: ahi tiene que hablar la IA y
+ * preguntar de que tipo, no adivinar un catalogo.
+ */
+async function elegirReglaIa(input: {
+  intenciones: string[];
+  message: string;
+  model?: string | null;
+}): Promise<number | null> {
+  const lista = input.intenciones
+    .map((intent, indice) => `${indice + 1}. ${intent.replace(/\s+/g, " ").trim()}`)
+    .join("\n");
+
+  const veredicto = await generateAgentReply({
+    model: input.model,
+    rawSystemPrompt: true,
+    systemPrompt:
+      "Eres un clasificador. Recibes reglas numeradas y un mensaje de un cliente. " +
+      "Devuelves UNICAMENTE el numero de la regla que corresponde, o 0 si ninguna corresponde. " +
+      "Elige una regla SOLO si el mensaje encaja claramente con ella. " +
+      "Si el mensaje es generico o ambiguo entre varias reglas, responde 0. " +
+      "No expliques nada.",
+    history: [],
+    temperature: 0,
+    latestUserMessage: `Reglas:\n${lista}\n\nMensaje del cliente: "${input.message}"\n\nNumero:`,
+  });
+
+  const numero = Number.parseInt(veredicto.replace(/[^0-9-]/g, " ").trim().split(/\s+/)[0] ?? "", 10);
+  if (!Number.isFinite(numero) || numero < 1 || numero > input.intenciones.length) {
+    return null;
+  }
+  return numero - 1;
+}
+
 /** El mismo apodo que usa el registro de flujos enviados (flow-execution-history). */
 function slugDeFlujo(valor: string): string {
   return valor
@@ -762,19 +809,21 @@ async function resolveGlobalConditionFlow(input: {
     return null;
   }
 
-  for (const candidata of porIa.slice(0, MAXIMO_DE_CONDICIONES_IA)) {
-    const intent = fbStr(candidata.rule.intent);
-    // Si el mensaje trae una palabra sustantiva del intent, se ahorra la consulta al modelo.
-    const intentKeywords = extractIntentKeywords(intent);
-    const coincide =
-      (intentKeywords.length > 0 && includesAny(input.normalizedMessage, intentKeywords)) ||
-      (await evaluateIaIntentMatch({ intent, message: input.message, model: input.model }));
-    if (coincide) {
-      return resolverDestino(candidata.destino);
-    }
+  const enJuego = porIa.slice(0, MAXIMO_DE_CONDICIONES_IA);
+  if (enJuego.length === 0) {
+    return null;
   }
 
-  return null;
+  const elegida = await elegirReglaIa({
+    intenciones: enJuego.map((candidata) => fbStr(candidata.rule.intent)),
+    message: input.message,
+    model: input.model,
+  }).catch(() => null);
+
+  if (elegida === null) {
+    return null;
+  }
+  return resolverDestino(enJuego[elegida].destino);
 
   function resolverDestino(destino: Destino) {
     return destino.tipo === "texto"
