@@ -347,16 +347,13 @@ export async function publishAgentV2Action(input: {
       .filter((target): target is string => Boolean(target)),
   );
   /*
-    Lo que sale de "Llamar al siguiente bloque" de la Bienvenida.
+    Se saco "Llamar al siguiente bloque" de la Bienvenida.
 
-    Alex conecto ahi un Flujo, publico, y el agente saludo y siguio improvisando: el compilador
-    solo miraba los flujos colgados del Agente o de una Condicion, asi que ese quedaba fuera de la
-    lista de flujos conocidos y la conexion era un dibujo.
+    La bienvenida saluda y ahi termina; lo que viene depende del cliente. Se saca tambien de aca y
+    no solo del dibujo: dejar el compilador leyendo una union que ya no se puede crear seria peor
+    -un grafo viejo seguiria haciendo algo que nadie puede ver ni cambiar-, y eso es exactamente lo
+    que veniamos limpiando.
   */
-  const despuesDeLaBienvenida = bienvenidaNode
-    ? edges.find((edge) => edge.source === bienvenidaNode.id && edge.sourceHandle === "next-block")
-        ?.target
-    : undefined;
 
   /*
     Los nodos IA: una instruccion suelta cada uno, para ir sacando reglas del Prompt principal y
@@ -438,7 +435,6 @@ export async function publishAgentV2Action(input: {
       node.type === "flujo" &&
       (agentToolTargets.has(node.id) ||
         flowNodeIdsFromConditions.has(node.id) ||
-        node.id === despuesDeLaBienvenida ||
         despuesDeCadaIa.has(node.id)),
   );
   const textNodes = nodes.filter((node) => node.type === "texto");
@@ -1037,12 +1033,6 @@ export async function publishAgentV2Action(input: {
     }
   }
 
-
-  if (despuesDeLaBienvenida) {
-    rules.push(
-      `Apenas des la bienvenida, y ANTES de preguntar nada, ${describeNodeAction(despuesDeLaBienvenida)}.`,
-    );
-  }
 
   /*
     "Cuando responda": lo que sale de esa union es lo que hay que hacer con la PRIMERA respuesta.

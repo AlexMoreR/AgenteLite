@@ -501,13 +501,12 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
       */}
       {!collapsed ? (
         <div className="mt-2 space-y-2">
-          <SalidaPegada
-            nodeId={id}
-            handleId="next-block"
-            icono={<Send className="h-4 w-4" />}
-            color="text-sky-500"
-            titulo="Llamar al siguiente bloque"
-          />
+          {/*
+            Sin "Llamar al siguiente bloque".
+
+            La bienvenida saluda y ahi termina; lo que viene depende del cliente -si contesta o si
+            se calla- y para eso estan las otras salidas. Lo mismo que se saco del nodo Flujo.
+          */}
           <SalidaPegada
             nodeId={id}
             handleId="on-reply"
