@@ -749,7 +749,19 @@ async function resolveGlobalConditionFlow(input: {
   */
   type Destino =
     | { tipo: "flujo"; flowId: string }
-    | { tipo: "texto"; texto: string };
+    | { tipo: "texto"; texto: string }
+    /*
+      La rama que va al nodo IA: "de esto se encarga la IA".
+
+      Es la forma natural de escribir "si solo dice 'sillas', sin decir de que tipo, que pregunte
+      la IA". Antes esa rama se descartaba antes de empezar -solo se miraban Flujo y Texto-, asi
+      que ni siquiera entraba en la comparacion: el clasificador veia unicamente las reglas de los
+      catalogos y elegia la menos mala. Por eso un "Tiene sillas" seguia llevandose el catalogo.
+
+      Cuando gana, no se hace nada deterministico a proposito: se deja pasar el turno para que
+      conteste la IA con su instruccion.
+    */
+    | { tipo: "ia" };
   type Candidata = { destino: Destino; rule: Record<string, unknown> };
   const porPalabras: Candidata[] = [];
   const porIa: Candidata[] = [];
@@ -781,6 +793,8 @@ async function resolveGlobalConditionFlow(input: {
           continue;
         }
         destino = { tipo: "texto", texto };
+      } else if (targetNode?.type === "ia" || targetNode?.type === "agent") {
+        destino = { tipo: "ia" };
       }
 
       if (!destino) {
@@ -820,12 +834,29 @@ async function resolveGlobalConditionFlow(input: {
     model: input.model,
   }).catch(() => null);
 
+  /*
+    Queda constancia de que regla eligio, incluso cuando no elige ninguna.
+
+    Sin esto, un "mando el catalogo equivocado" solo se puede mirar adivinando: no se sabe si el
+    clasificador eligio mal o si la regla ni siquiera estaba en la lista -que fue exactamente lo
+    que paso con la rama que iba al nodo IA-.
+  */
+  console.log("[agent-product-flow] condicion-eleccion", {
+    mensaje: input.message.slice(0, 60),
+    opciones: enJuego.length,
+    elegida: elegida === null ? "ninguna" : elegida + 1,
+    destino: elegida === null ? null : enJuego[elegida].destino.tipo,
+  });
+
   if (elegida === null) {
     return null;
   }
   return resolverDestino(enJuego[elegida].destino);
 
   function resolverDestino(destino: Destino) {
+    if (destino.tipo === "ia") {
+      return null;
+    }
     return destino.tipo === "texto"
       ? ({ tipo: "texto", texto: destino.texto } as const)
       : ({
