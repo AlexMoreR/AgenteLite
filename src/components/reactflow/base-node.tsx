@@ -8,7 +8,9 @@ export function BaseNode({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-border bg-card text-card-foreground shadow-[0_18px_40px_-28px_rgba(15,23,42,0.35)]",
+        // relative: en Agente V2 el nombre del nodo se dibuja por fuera de la caja y necesita
+        // esta referencia. Solo agrega el punto de anclaje; no cambia como se ve.
+        "relative rounded-2xl border border-border bg-card text-card-foreground shadow-[0_18px_40px_-28px_rgba(15,23,42,0.35)]",
         className,
       )}
       {...props}

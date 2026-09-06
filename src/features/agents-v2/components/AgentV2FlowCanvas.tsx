@@ -68,12 +68,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import { Button } from "@/components/ui/button";
-import {
-  BaseNode,
-  BaseNodeContent,
-  BaseNodeHeader,
-  BaseNodeHeaderTitle,
-} from "@/components/reactflow/base-node";
+import { BaseNode, BaseNodeContent } from "@/components/reactflow/base-node";
 import { Switch } from "@/components/ui/switch";
 import { useSetBreadcrumbLabel } from "@/components/breadcrumb-label-context";
 import { saveAgentV2BusinessConfigAction } from "@/app/actions/agent-v2-actions";
@@ -106,6 +101,45 @@ import {
   textoSinLaLineaDeFlujo,
 } from "@/features/agents-v2/domain/flujo-de-bienvenida";
 import { cn } from "@/lib/utils";
+
+/*
+  El nombre del nodo, flotando ARRIBA de la caja.
+
+  Antes era una barra adentro: unos 40 pixeles por nodo para decir "IA" o "Flujo", con su linea
+  divisoria. Con catorce nodos eso es media pantalla, y en el celular se nota. Ahora el nombre queda
+  afuera, chico y apagado, y toda la caja es contenido.
+
+  Se dibuja por fuera pero sigue estando DENTRO del nodo: asi se arrastra desde el titulo como
+  siempre y la seleccion sigue envolviendo lo que corresponde. Si estuviera de verdad afuera serian
+  dos cosas sueltas que se mueven juntas por casualidad.
+
+  Va a la IZQUIERDA porque a la derecha, a la misma altura, aparecen las acciones del nodo cuando
+  esta seleccionado. Cada uno en su punta y no se pisan; el pr-24 le reserva ese lugar para que un
+  titulo largo no se meta abajo de los botones.
+
+  Estos dos viven aca y no en base-node porque ese encabezado lo comparte el lienzo de Flujos, y
+  ahi no se pidio cambiar nada.
+*/
+function BaseNodeHeader({ className, ...props }: ComponentProps<"div">) {
+  return (
+    <div
+      className={cn(
+        "absolute -top-6 left-1 flex max-w-full items-center gap-1.5 pr-24 [&_svg]:!h-3.5 [&_svg]:!w-3.5",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function BaseNodeHeaderTitle({ className, ...props }: ComponentProps<"h4">) {
+  return (
+    <h4
+      className={cn("truncate text-[12px] font-medium leading-5 text-muted-foreground", className)}
+      {...props}
+    />
+  );
+}
 
 const AGENT_NODE_ID = "agent-root";
 const BIENVENIDA_NODE_ID = "bienvenida-root";
@@ -415,7 +449,7 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
           <span className="absolute -bottom-1 -right-1 size-3 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-muted-foreground/60" />
         </NodeResizeControl>
       ) : null}
-      <BaseNode className={cn("flex h-full w-full flex-col", selected && SELECTED_NODE_CLASS)}>
+      <BaseNode className={cn("relative flex h-full w-full flex-col", selected && SELECTED_NODE_CLASS)}>
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <MessageSquare className="h-4 w-4 text-sky-600" />
@@ -599,7 +633,7 @@ function IaNode({ id, data, selected }: NodeProps) {
           <span className="absolute -bottom-1 -right-1 size-3 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-muted-foreground/60" />
         </NodeResizeControl>
       ) : null}
-      <BaseNode className={cn("flex h-full w-full flex-col", selected && SELECTED_NODE_CLASS)}>
+      <BaseNode className={cn("relative flex h-full w-full flex-col", selected && SELECTED_NODE_CLASS)}>
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <Sparkles className="h-4 w-4 text-violet-600" />
