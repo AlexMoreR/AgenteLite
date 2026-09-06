@@ -60,6 +60,7 @@ import {
   useNodeConnections,
   useNodesState,
   useReactFlow,
+  useUpdateNodeInternals,
   type Connection,
   type Edge,
   type EdgeProps,
@@ -2883,6 +2884,15 @@ function FlowCanvasInner({
   // fijas lejanas), con un pequeño escalonado para que no se apilen exactamente.
   const flowWrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
+  /*
+    Avisarle al lienzo que los conectores de un nodo cambiaron de lugar.
+
+    React Flow mide una sola vez donde queda cada conector y despues dibuja las lineas con esa
+    medida. Al mover una regla, la fila cambia de posicion pero la linea se quedaba clavada donde
+    estaba antes: la regla arriba y su flecha saliendo del medio. Hay que pedirle que vuelva a
+    medir ese nodo.
+  */
+  const updateNodeInternals = useUpdateNodeInternals();
   const spawnCount = useRef(0);
   const getSpawnPosition = useCallback(() => {
     const stagger = (spawnCount.current % 6) * 36;
@@ -2984,8 +2994,10 @@ function FlowCanvasInner({
           return { ...node, data: { ...node.data, rules } };
         }),
       );
+      // Una fila mas empuja a las demas: hay que volver a medir donde quedo cada conector.
+      updateNodeInternals(nodeId);
     },
-    [setNodes],
+    [setNodes, updateNodeInternals],
   );
 
   const updateRule = useCallback(
@@ -3021,8 +3033,10 @@ function FlowCanvasInner({
       setEdges((current) =>
         current.filter((edge) => !(edge.source === nodeId && edge.sourceHandle === ruleId)),
       );
+      // Al sacar una fila, las de abajo suben: sus conectores quedan en otro lado.
+      updateNodeInternals(nodeId);
     },
-    [setNodes, setEdges],
+    [setNodes, setEdges, updateNodeInternals],
   );
 
   /*
@@ -3052,8 +3066,9 @@ function FlowCanvasInner({
           return { ...node, data: { ...node.data, rules } };
         }),
       );
+      updateNodeInternals(nodeId);
     },
-    [setNodes],
+    [setNodes, updateNodeInternals],
   );
 
   // Inyecta callbacks en los nodos de entrada (no se persisten, se re-atan en cada render).
