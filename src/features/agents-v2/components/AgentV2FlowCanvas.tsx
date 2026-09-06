@@ -15,6 +15,8 @@ import {
   Bell,
   Bot,
   Boxes,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Copy,
   Filter,
@@ -1739,6 +1741,7 @@ type ConditionData = {
     patch: Partial<Pick<ConditionRule, "matchType" | "keywords" | "intent">>,
   ) => void;
   onDeleteRule?: (nodeId: string, ruleId: string) => void;
+  onMoveRule?: (nodeId: string, ruleId: string, direccion: -1 | 1) => void;
   onDelete?: (nodeId: string) => void;
 };
 
@@ -2093,6 +2096,30 @@ function ConditionEditorDialog({
                   </button>
                 }
               />
+              {rules.length > 1 ? (
+                <div className="my-auto flex shrink-0 flex-col">
+                  <button
+                    type="button"
+                    disabled={index === 0}
+                    onClick={() => data.onMoveRule?.(id, rule.id, -1)}
+                    className="inline-flex h-5 w-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+                    aria-label="Subir la regla"
+                    title="Subir"
+                  >
+                    <ChevronUp className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={index === rules.length - 1}
+                    onClick={() => data.onMoveRule?.(id, rule.id, 1)}
+                    className="inline-flex h-5 w-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+                    aria-label="Bajar la regla"
+                    title="Bajar"
+                  >
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : null}
               {rules.length > 1 ? (
                 <button
                   type="button"
@@ -2999,6 +3026,37 @@ function FlowCanvasInner({
     [setNodes, setEdges],
   );
 
+  /*
+    Subir y bajar una regla dentro de la Condicion.
+
+    El orden importa y no habia forma de cambiarlo: las reglas quedaban en el orden en que se
+    fueron agregando, asi que una regla pensada para ir primera -la que atrapa lo generico- caia
+    ultima solo porque se escribio despues, y habia que borrar y rehacer todo para reordenarlas.
+
+    Las uniones no se tocan: cada rama cuelga del id de su regla, no de su posicion.
+  */
+  const moveRule = useCallback(
+    (nodeId: string, ruleId: string, direccion: -1 | 1) => {
+      setNodes((current) =>
+        current.map((node) => {
+          if (node.id !== nodeId) {
+            return node;
+          }
+          const data = node.data as ConditionData;
+          const rules = [...(data.rules ?? [])];
+          const desde = rules.findIndex((rule) => rule.id === ruleId);
+          const hasta = desde + direccion;
+          if (desde < 0 || hasta < 0 || hasta >= rules.length) {
+            return node;
+          }
+          [rules[desde], rules[hasta]] = [rules[hasta], rules[desde]];
+          return { ...node, data: { ...node.data, rules } };
+        }),
+      );
+    },
+    [setNodes],
+  );
+
   // Inyecta callbacks en los nodos de entrada (no se persisten, se re-atan en cada render).
   const nodesWithHandlers = useMemo(
     () =>
@@ -3105,6 +3163,7 @@ function FlowCanvasInner({
               onAddRule: addRule,
               onUpdateRule: updateRule,
               onDeleteRule: deleteRule,
+              onMoveRule: moveRule,
               onDelete: deleteEntrada,
               onDuplicate: duplicateNode,
             },
