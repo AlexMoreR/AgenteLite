@@ -1815,7 +1815,6 @@ function RulePopover({
   onSubmit: (matchType: MatchType, keywords: string[], intent: string) => void;
   trigger: ReactNode;
 }) {
-  const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [matchType, setMatchType] = useState<MatchType>(initialMatchType);
   const [keywords, setKeywords] = useState<string[]>(initialKeywords);
@@ -1835,31 +1834,43 @@ function RulePopover({
     setDraft("");
   };
 
+  const abrir = () => {
+    setMatchType(initialMatchType);
+    setKeywords(initialKeywords);
+    setDraft("");
+    setIntent(initialIntent);
+    setOpen(true);
+  };
+
+  /*
+    Un modal, no un globito anclado a la fila.
+
+    El globo salia pegado a la regla que se estaba tocando, y esa regla vive DENTRO de otro modal
+    que ya ocupa casi toda la pantalla. En el celular quedaba encajado en cualquier lado, tapando
+    la lista y con el teclado comiendose la mitad; se editaba a ciegas. Y esto no es un detalle
+    menor de la pantalla: aca se escribe lo que decide si un lead se lleva un catalogo o una
+    pregunta.
+
+    Un modal se planta en el medio, del ancho que haga falta, y el navegador se encarga de subir el
+    campo cuando aparece el teclado.
+  */
   return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) {
-          setMatchType(initialMatchType);
-          setKeywords(initialKeywords);
-          setDraft("");
-          setIntent(initialIntent);
-        }
-      }}
-    >
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      <PopoverContent
-        // En escritorio se abre a la derecha, donde sobra lienzo. En movil eso lo tira fuera de
-        // la pantalla: el disparador vive dentro de un modal que ya ocupa casi todo el ancho, asi
-        // que 288px mas hacia la derecha quedan cortados y la regla no se puede editar (que es
-        // justo lo que decide si un lead se vende o se escala). Abajo siempre hay lugar.
-        align={isMobile ? "center" : "start"}
-        side={isMobile ? "bottom" : "right"}
-        // El ancho fijo w-72 tampoco entra en pantallas angostas.
-        className="nodrag w-[min(18rem,calc(100vw-2rem))] space-y-3 rounded-2xl border border-border bg-background p-4 text-foreground"
-        onClick={(event) => event.stopPropagation()}
-      >
+    <>
+      {/* contents: el envoltorio no debe alterar la fila donde vive el disparador. */}
+      <span className="contents" onClick={abrir}>
+        {trigger}
+      </span>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent
+          className="nodrag w-[calc(100vw-2rem)] space-y-3 sm:max-w-md"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-amber-600" />
+              Editar regla
+            </DialogTitle>
+          </DialogHeader>
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-foreground">Tipo de coincidencia</label>
           <div className="flex gap-0.5 rounded-lg border border-border p-0.5">
@@ -1940,18 +1951,18 @@ function RulePopover({
             </p>
           </div>
         )}
-        <Button
-          size="sm"
-          className="w-full"
-          onClick={() => {
-            onSubmit(matchType, addDraft(keywords), intent);
-            setOpen(false);
-          }}
-        >
-          {submitLabel}
-        </Button>
-      </PopoverContent>
-    </Popover>
+          <Button
+            className="w-full"
+            onClick={() => {
+              onSubmit(matchType, addDraft(keywords), intent);
+              setOpen(false);
+            }}
+          >
+            {submitLabel}
+          </Button>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
