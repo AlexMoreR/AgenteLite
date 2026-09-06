@@ -1279,6 +1279,19 @@ export async function resolveAgentProductFlowReply(input: {
           No se manda nada por nuestra cuenta: el usuario dijo "cuando digan esto, la charla es
           sobre este producto", no "mandale un archivo". Lo que sigue lo guia el embudo.
         */
+        /*
+          El producto se busca primero en el catalogo del agente y, si no esta, en el catalogo del
+          negocio.
+
+          Esa tabla se llena al PUBLICAR. Alex conecto la regla al nodo Producto, probo sin publicar
+          y no paso nada: la regla se resolvia bien pero el producto no existia para el agente, asi
+          que se caia en silencio y contestaba la IA de cero. El dibujo ya dice cual es; no tiene
+          sentido no hacer nada por un paso administrativo.
+
+          Sin publicar falta el embudo -apertura, calificacion, cierre-, que vive en la fila del
+          agente: por eso queda anotado en el registro, para que se entienda por que el agente habla
+          del producto pero no lo lleva por sus etapas.
+        */
         const fila = await prisma.agentKnowledgeProduct
           .findFirst({
             where: { agentId: input.agentId, productId: rama.productId },
@@ -1286,27 +1299,43 @@ export async function resolveAgentProductFlowReply(input: {
           })
           .catch(() => null);
 
-        if (fila?.product) {
+        const producto =
+          fila?.product ??
+          (await prisma.product
+            .findUnique({
+              where: { id: rama.productId },
+              include: { category: { select: { name: true } } },
+            })
+            .catch(() => null));
+
+        if (!fila && producto) {
+          console.warn("[agent-product-flow] condicion-producto-sin-publicar", {
+            agentId: input.agentId,
+            producto: producto.name,
+          });
+        }
+
+        if (producto) {
           console.log("[agent-product-flow] condicion-producto", {
             agentId: input.agentId,
-            producto: fila.product.name,
+            producto: producto.name,
           });
           return {
             steps: null,
             flowTitle: null,
-            productName: fila.product.name,
+            productName: producto.name,
             flowId: null,
             aiFollowUpEnabled: false,
             activeProductContext: {
-              productId: fila.product.id,
-              productName: fila.product.name,
-              code: fila.product.code ?? null,
-              slug: fila.product.slug ?? null,
-              description: fila.product.description ?? null,
-              price: fila.product.price ? fila.product.price.toString() : null,
-              categoryName: fila.product.category?.name ?? null,
-              instructions: fila.instructions ?? null,
-              followUpFlowId: fila.followUpFlowId ?? null,
+              productId: producto.id,
+              productName: producto.name,
+              code: producto.code ?? null,
+              slug: producto.slug ?? null,
+              description: producto.description ?? null,
+              price: producto.price ? producto.price.toString() : null,
+              categoryName: producto.category?.name ?? null,
+              instructions: fila?.instructions ?? null,
+              followUpFlowId: fila?.followUpFlowId ?? null,
             },
           };
         }
