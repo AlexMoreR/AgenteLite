@@ -711,7 +711,10 @@ async function resolveGlobalConditionFlow(input: {
   flujosYaEnviados?: Set<string>;
   model?: string | null;
 }): Promise<
-  { tipo: "flujo"; flowId: string; flowTitle: string } | { tipo: "texto"; texto: string } | null
+  | { tipo: "flujo"; flowId: string; flowTitle: string }
+  | { tipo: "texto"; texto: string }
+  | { tipo: "producto"; productId: string }
+  | null
 > {
   const nodeById = new Map(input.nodes.map((n) => [n.id, n] as const));
 
@@ -761,7 +764,17 @@ async function resolveGlobalConditionFlow(input: {
       Cuando gana, no se hace nada deterministico a proposito: se deja pasar el turno para que
       conteste la IA con su instruccion.
     */
-    | { tipo: "ia" };
+    | { tipo: "ia" }
+    /*
+      La rama que va a un nodo Producto: "de aca en mas, la charla es sobre este producto".
+
+      Es lo que uno espera al conectar una regla a un Producto -Alex escribio "Contiene: el COMBO
+      de estetica" y lo unio al combo-, y no pasaba nada: aca solo se miraban las ramas que
+      terminaban en Flujo o en Texto, asi que la regla se descartaba antes de empezar y el mensaje
+      seguia de largo hasta la primera regla de catalogo que le pegara. Por eso mandaba camillas:
+      el mensaje decia "camilla, escalera, silla y auxiliar".
+    */
+    | { tipo: "producto"; productId: string };
   type Candidata = { destino: Destino; rule: Record<string, unknown> };
   const porPalabras: Candidata[] = [];
   const porIa: Candidata[] = [];
@@ -795,6 +808,12 @@ async function resolveGlobalConditionFlow(input: {
         destino = { tipo: "texto", texto };
       } else if (targetNode?.type === "ia" || targetNode?.type === "agent") {
         destino = { tipo: "ia" };
+      } else if (targetNode?.type === "producto") {
+        const productId = fbStr(targetNode.data?.productId);
+        if (!productId) {
+          continue;
+        }
+        destino = { tipo: "producto", productId };
       }
 
       if (!destino) {
@@ -856,6 +875,9 @@ async function resolveGlobalConditionFlow(input: {
   function resolverDestino(destino: Destino) {
     if (destino.tipo === "ia") {
       return null;
+    }
+    if (destino.tipo === "producto") {
+      return { tipo: "producto", productId: destino.productId } as const;
     }
     return destino.tipo === "texto"
       ? ({ tipo: "texto", texto: destino.texto } as const)
@@ -1250,6 +1272,46 @@ export async function resolveAgentProductFlowReply(input: {
         flujosYaEnviados: input.flujosYaEnviados,
         model: agent.model,
       });
+      if (rama?.tipo === "producto") {
+        /*
+          Se activa el producto y se deja hablar a la IA con el embudo de ese producto.
+
+          No se manda nada por nuestra cuenta: el usuario dijo "cuando digan esto, la charla es
+          sobre este producto", no "mandale un archivo". Lo que sigue lo guia el embudo.
+        */
+        const fila = await prisma.agentKnowledgeProduct
+          .findFirst({
+            where: { agentId: input.agentId, productId: rama.productId },
+            include: { product: { include: { category: { select: { name: true } } } } },
+          })
+          .catch(() => null);
+
+        if (fila?.product) {
+          console.log("[agent-product-flow] condicion-producto", {
+            agentId: input.agentId,
+            producto: fila.product.name,
+          });
+          return {
+            steps: null,
+            flowTitle: null,
+            productName: fila.product.name,
+            flowId: null,
+            aiFollowUpEnabled: false,
+            activeProductContext: {
+              productId: fila.product.id,
+              productName: fila.product.name,
+              code: fila.product.code ?? null,
+              slug: fila.product.slug ?? null,
+              description: fila.product.description ?? null,
+              price: fila.product.price ? fila.product.price.toString() : null,
+              categoryName: fila.product.category?.name ?? null,
+              instructions: fila.instructions ?? null,
+              followUpFlowId: fila.followUpFlowId ?? null,
+            },
+          };
+        }
+      }
+
       if (rama?.tipo === "texto") {
         console.log("[agent-product-flow] condicion-global-texto", {
           agentId: input.agentId,
@@ -1265,7 +1327,7 @@ export async function resolveAgentProductFlowReply(input: {
           activeProductContext: input.activeProductContext ?? null,
         };
       }
-      if (rama) {
+      if (rama?.tipo === "flujo") {
         const reply = await getFlowReply({
           workspaceId: input.workspaceId,
           flowId: rama.flowId,

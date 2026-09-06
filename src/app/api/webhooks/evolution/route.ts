@@ -437,6 +437,33 @@ function extractAdLeadOrigin(payload: unknown): AdLeadOrigin | null {
 // Normaliza un texto para comparar repeticiones: sin acentos, minúsculas, sin emojis/puntuación/
 // asteriscos de WhatsApp, espacios colapsados. Así "¡Perfecto! ¿Qué *servicios*...?" y una segunda
 // versión idéntica caen al mismo string aunque cambie algún signo.
+/**
+ * La vista previa que WhatsApp adjunto a un enlace, si vino en el evento.
+ *
+ * Se guarda aparte (linkPreview) y no adentro del payload traducido: el mensaje ya esta guardado
+ * con SU forma y meterle campos a mano seria pelear con esa estructura por cada gateway.
+ */
+function leerVistaPreviaDeEnlace(payload: unknown): Record<string, unknown> | null {
+  const raiz = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
+  const data = raiz?.data && typeof raiz.data === "object" ? (raiz.data as Record<string, unknown>) : null;
+  const message =
+    data?.message && typeof data.message === "object" ? (data.message as Record<string, unknown>) : null;
+  const extended =
+    message?.extendedTextMessage && typeof message.extendedTextMessage === "object"
+      ? (message.extendedTextMessage as Record<string, unknown>)
+      : null;
+  if (!extended || typeof extended.matchedText !== "string" || typeof extended.title !== "string") {
+    return null;
+  }
+  return {
+    matchedText: extended.matchedText,
+    title: extended.title,
+    ...(typeof extended.description === "string" ? { description: extended.description } : {}),
+    ...(typeof extended.jpegThumbnail === "string" ? { jpegThumbnail: extended.jpegThumbnail } : {}),
+    ...(typeof extended.JPEGThumbnail === "string" ? { jpegThumbnail: extended.JPEGThumbnail } : {}),
+  };
+}
+
 function normalizeForRepeatCheck(text: string): string {
   return text
     /*
@@ -1588,11 +1615,37 @@ export async function POST(request: NextRequest) {
           conversationId: true,
           contactId: true,
           agentId: true,
+          rawPayload: true,
         },
       })
     : null;
 
   if (existingMessage && !messageWasEdited && !messageWasDeleted) {
+    /*
+      El eco de un mensaje NUESTRO trae la vista previa del enlace que armo WhatsApp.
+
+      Al mandar un texto con un link, WAHA le genera la tarjeta -titulo y miniatura- y el cliente la
+      recibe. Nosotros guardamos el mensaje antes de eso, con el texto pelado, asi que en nuestro
+      chat quedaba la URL cruda mientras el cliente veia la tarjeta.
+
+      Cuando el mensaje vuelve por el webhook ya lo tenemos guardado y se descarta por repetido.
+      Antes de descartarlo se le copia esa vista previa a lo que ya esta guardado: es gratis y evita
+      tener que salir a leer la pagina desde nuestro servidor.
+    */
+    const vistaPrevia = leerVistaPreviaDeEnlace(payload);
+    const guardado =
+      existingMessage.rawPayload && typeof existingMessage.rawPayload === "object" && !Array.isArray(existingMessage.rawPayload)
+        ? (existingMessage.rawPayload as Record<string, unknown>)
+        : null;
+    if (vistaPrevia && guardado && !guardado.linkPreview) {
+      await prisma.message
+        .update({
+          where: { id: existingMessage.id },
+          data: { rawPayload: { ...guardado, linkPreview: vistaPrevia } as never },
+        })
+        .catch(() => undefined);
+    }
+
     return NextResponse.json({
       ok: true,
       message: "Duplicate inbound event ignored",

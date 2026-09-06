@@ -460,7 +460,15 @@ export function extraerVistaPreviaDeEnlace(rawPayload: unknown): VistaPreviaDeEn
   const root = getNestedRecord(rawPayload, "evolution") ?? (isObjectRecord(rawPayload) ? rawPayload : null);
   const data = getNestedRecord(root, "data");
   const message = getNestedRecord(data, "message") ?? getNestedRecord(root, "message");
-  const extended = getNestedRecord(message, "extendedTextMessage");
+  /*
+    Dos lugares, por como llega cada uno.
+
+    En un mensaje ENTRANTE la vista previa viene adentro del mensaje traducido. En uno NUESTRO la
+    arma WhatsApp al enviarlo y nos vuelve por el eco, ya con el mensaje guardado: ahi se anota
+    aparte, en la raiz, para no pelear con la forma que cada gateway le da al payload.
+  */
+  const extended =
+    getNestedRecord(message, "extendedTextMessage") ?? getNestedRecord(rawPayload, "linkPreview");
   if (!extended) {
     return null;
   }
