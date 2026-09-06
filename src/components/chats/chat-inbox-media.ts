@@ -436,3 +436,56 @@ export function extractChatAdPreview(rawPayload: unknown): ChatAdPreview | null 
 
 // Helpers para detectar montaje en cliente sin setState en efecto (evita el mismatch
 // de hidratación del DropdownMenu de base-ui).
+
+export type VistaPreviaDeEnlace = {
+  url: string;
+  titulo: string;
+  descripcion: string | null;
+  miniatura: string | null;
+  sitio: string;
+};
+
+/**
+ * La vista previa de un enlace, tal como la mando WhatsApp.
+ *
+ * Cuando alguien manda un link, la app de quien lo envia ya adjunta el titulo de la pagina y una
+ * miniatura, y eso viaja DENTRO del mensaje. Se lee de ahi y no se sale a buscar la pagina desde
+ * nuestro servidor: no cuesta nada, no hay nada que cachear y no abre la puerta a que un cliente
+ * nos mande un enlace apuntando a la red interna para ver que hay.
+ *
+ * Sin titulo no hay tarjeta: una tarjeta con solo la URL no agrega nada al enlace subrayado que ya
+ * se ve en el texto.
+ */
+export function extraerVistaPreviaDeEnlace(rawPayload: unknown): VistaPreviaDeEnlace | null {
+  const root = getNestedRecord(rawPayload, "evolution") ?? (isObjectRecord(rawPayload) ? rawPayload : null);
+  const data = getNestedRecord(root, "data");
+  const message = getNestedRecord(data, "message") ?? getNestedRecord(root, "message");
+  const extended = getNestedRecord(message, "extendedTextMessage");
+  if (!extended) {
+    return null;
+  }
+
+  const url = getNestedString(extended, "matchedText") || getNestedString(extended, "canonicalUrl");
+  const titulo = getNestedString(extended, "title");
+  if (!url || !titulo) {
+    return null;
+  }
+
+  const miniatura = getNestedString(extended, "jpegThumbnail") || getNestedString(extended, "JPEGThumbnail");
+
+  let sitio = "";
+  try {
+    sitio = new URL(url).hostname.replace(/^www\./i, "");
+  } catch {
+    sitio = "";
+  }
+
+  return {
+    url,
+    titulo,
+    descripcion: getNestedString(extended, "description") || null,
+    // Viaja en base64 dentro del mensaje: se arma el data: y listo, no hay que descargar nada.
+    miniatura: miniatura ? `data:image/jpeg;base64,${miniatura}` : null,
+    sitio,
+  };
+}

@@ -56,6 +56,7 @@ import {
   getDocumentMetaFromMessage,
   collectImagePreviewUrls,
   extractChatAdPreview,
+  extraerVistaPreviaDeEnlace,
 } from "./chat-inbox-media";
 
 /*
@@ -484,6 +485,10 @@ export const MessageBubble = memo(function MessageBubble({
   const documentUrl = useMemo(
     () => (message.type === "DOCUMENT" ? extractMediaUrlFromPayload(message, "DOCUMENT") : null),
     [message],
+  );
+  const vistaPreviaDelEnlace = useMemo(
+    () => extraerVistaPreviaDeEnlace(message.rawPayload),
+    [message.rawPayload],
   );
   const documentMeta = useMemo(
     () => (message.type === "DOCUMENT" ? getDocumentMetaFromMessage(message) : null),
@@ -1028,11 +1033,51 @@ export const MessageBubble = memo(function MessageBubble({
               {shouldRenderMediaCaption ? renderMessageText(message.content) : null}
             </div>
           ) : (
-            renderMessageText(message.content) || (
-              <p className={`text-[12px] italic ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"}`}>
-                {isDeleted ? "Mensaje eliminado" : "-"}
-              </p>
-            )
+            <div className="space-y-1.5">
+              {/*
+                La tarjeta del enlace va ARRIBA del texto, como en WhatsApp: primero se ve de que
+                es el link y despues la direccion.
+              */}
+              {vistaPreviaDelEnlace ? (
+                <a
+                  href={vistaPreviaDelEnlace.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  onClick={(evento) => evento.stopPropagation()}
+                  className={`block w-full max-w-[280px] overflow-hidden rounded-xl border transition hover:opacity-90 ${
+                    outbound
+                      ? "border-[var(--chat-out-overlay-strong)] bg-[var(--chat-out-overlay)]"
+                      : "border-border bg-background"
+                  }`}
+                >
+                  {vistaPreviaDelEnlace.miniatura ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={vistaPreviaDelEnlace.miniatura}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      className="h-auto max-h-[160px] w-full object-cover"
+                    />
+                  ) : null}
+                  <div className="space-y-0.5 px-2.5 py-2">
+                    <p className={`line-clamp-2 text-[12px] font-medium leading-4 ${outbound ? "text-[var(--chat-out-text)]" : "text-foreground"}`}>
+                      {vistaPreviaDelEnlace.titulo}
+                    </p>
+                    {vistaPreviaDelEnlace.sitio ? (
+                      <p className={`truncate text-[11px] ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"}`}>
+                        {vistaPreviaDelEnlace.sitio}
+                      </p>
+                    ) : null}
+                  </div>
+                </a>
+              ) : null}
+              {renderMessageText(message.content) || (
+                <p className={`text-[12px] italic ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"}`}>
+                  {isDeleted ? "Mensaje eliminado" : "-"}
+                </p>
+              )}
+            </div>
           )}
           </div>
 

@@ -720,7 +720,43 @@ export function traducirEventoWaha(
     return { motivo: "mensaje sin texto ni media" };
   }
 
-  const datosCrudos = (mensaje._data ?? {}) as { notifyName?: unknown; pushName?: unknown };
+  /*
+    La vista previa del enlace viene en el mensaje: no hay que salir a buscarla.
+
+    Cuando alguien manda un link, WhatsApp ya adjunta el titulo de la pagina y una miniatura -es lo
+    que hace la app del que lo mando, antes de enviarlo- y WAHA nos lo entrega entero. Lo estabamos
+    tirando: el mensaje se guardaba como texto pelado y en el chat se veia una URL cruda.
+
+    Aprovecharlo es infinitamente mejor que ir a leer la pagina desde nuestro servidor: no cuesta
+    nada, no hay que cachear, no se demora, y sobre todo no abre la puerta a que un cliente nos
+    mande un enlace apuntando a la red interna del servidor para ver que hay ahi.
+  */
+  const datosCrudos = (mensaje._data ?? {}) as {
+    notifyName?: unknown;
+    pushName?: unknown;
+    Message?: { extendedTextMessage?: Record<string, unknown> };
+  };
+  const previoDelEnlace = datosCrudos.Message?.extendedTextMessage;
+  const enlaceConVistaPrevia =
+    previoDelEnlace && typeof previoDelEnlace.matchedText === "string"
+      ? {
+          matchedText: previoDelEnlace.matchedText,
+          ...(typeof previoDelEnlace.title === "string" ? { title: previoDelEnlace.title } : {}),
+          ...(typeof previoDelEnlace.description === "string"
+            ? { description: previoDelEnlace.description }
+            : {}),
+          ...(typeof previoDelEnlace.canonicalUrl === "string"
+            ? { canonicalUrl: previoDelEnlace.canonicalUrl }
+            : {}),
+          /*
+            La miniatura viaja en base64 dentro del propio mensaje (unos 5 KB). Se guarda tal cual:
+            es la misma que muestra WhatsApp y no depende de que la pagina siga existiendo.
+          */
+          ...(typeof previoDelEnlace.JPEGThumbnail === "string"
+            ? { jpegThumbnail: previoDelEnlace.JPEGThumbnail }
+            : {}),
+        }
+      : null;
   const nombreDeQuienEscribe =
     typeof datosCrudos.notifyName === "string"
       ? datosCrudos.notifyName
@@ -752,7 +788,9 @@ export function traducirEventoWaha(
                 ...(nombreDelArchivo ? { fileName: nombreDelArchivo } : {}),
               },
             }
-          : { conversation: texto },
+          : enlaceConVistaPrevia
+            ? { extendedTextMessage: { text: texto, ...enlaceConVistaPrevia } }
+            : { conversation: texto },
         pushName: nombreDeQuienEscribe,
         messageTimestamp: typeof mensaje.timestamp === "number" ? mensaje.timestamp : undefined,
       },
