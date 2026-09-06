@@ -211,11 +211,33 @@ function getProductScore(input: { query: string; row: ProductRow }) {
     const instructionTokens = tokenize(instructions);
     const keywordTokens = activationKeywords.flatMap((keyword) => tokenize(keyword));
 
-    const nameOverlap = nameTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
-    const categoryOverlap = categoryTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
-    const descriptionOverlap = descriptionTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
-    const instructionOverlap = instructionTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
-    const keywordOverlap = keywordTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
+    /*
+      Se cuentan palabras DISTINTAS, no repeticiones.
+
+      Que la descripcion repita una palabra no hace mejor a la coincidencia: es la misma pista dos
+      veces. Y ahi estaba el problema medido el 5-sep-2026: un "tiene sillas" sacaba exactamente 18
+      puntos -el umbral- contra "Combo Lavacabezas+Silla Neumatica", porque "silla" aparece una vez
+      en el nombre y DOS en la descripcion. Con eso el combo quedaba fijado como producto de la
+      conversacion y dos mensajes despues el agente lo recomendaba, aunque el cliente solo hubiera
+      dicho "sillas".
+
+      Contando distintas, "tiene sillas" queda en 13 y no alcanza: el cliente dijo algo generico y
+      quien tiene que hablar es la IA, preguntando de que tipo. "silla neumatica" -dos palabras
+      distintas- sigue sacando 26 y si engancha.
+    */
+    const coincidenConLaConsulta = (tokens: string[]) =>
+      Array.from(new Set(tokens)).filter((token) =>
+        queryTokens.some(
+          (queryToken) =>
+            token === queryToken || queryToken.includes(token) || token.includes(queryToken),
+        ),
+      ).length;
+
+    const nameOverlap = coincidenConLaConsulta(nameTokens);
+    const categoryOverlap = coincidenConLaConsulta(categoryTokens);
+    const descriptionOverlap = coincidenConLaConsulta(descriptionTokens);
+    const instructionOverlap = coincidenConLaConsulta(instructionTokens);
+    const keywordOverlap = coincidenConLaConsulta(keywordTokens);
 
     if (activationMode !== "chatbot" && nameOverlap > 0) {
       score += nameOverlap * 8;
