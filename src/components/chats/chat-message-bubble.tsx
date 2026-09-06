@@ -58,6 +58,58 @@ import {
   extractChatAdPreview,
 } from "./chat-inbox-media";
 
+/*
+  Los enlaces que llegan en un mensaje se pueden tocar.
+
+  Se veian como texto negro cualquiera: nadie sabia que eran un enlace y tocarlos no hacia nada.
+  Los clientes mandan links todo el tiempo -un video de Facebook, una publicacion, una ubicacion- y
+  la asesora tenia que copiarlo a mano y pegarlo en el navegador.
+
+  Se subrayan y se dejan del mismo color del texto a proposito: la burbuja saliente es verde y la
+  entrante blanca, asi que un azul fijo se veria mal en una de las dos. El subrayado se entiende
+  igual en las dos.
+*/
+const ENLACE = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
+function enlazar(texto: string, claveBase: string) {
+  return texto.split(ENLACE).map((trozo, indice) => {
+    if (!trozo) {
+      return null;
+    }
+    const clave = `${claveBase}-${indice}`;
+    if (!/^(https?:\/\/|www\.)/i.test(trozo)) {
+      return <span key={clave}>{trozo}</span>;
+    }
+
+    /*
+      La puntuacion del final no es parte del enlace.
+
+      "mira esto https://sitio.com/algo." o "(https://sitio.com)": si se la deja adentro, el enlace
+      se abre roto. Se corta y se muestra aparte, como texto.
+    */
+    const cola = trozo.match(/[).,;:!?"»']+$/)?.[0] ?? "";
+    const limpio = cola ? trozo.slice(0, -cola.length) : trozo;
+    const destino = /^www\./i.test(limpio) ? `https://${limpio}` : limpio;
+
+    return (
+      <span key={clave}>
+        <a
+          href={destino}
+          target="_blank"
+          rel="noreferrer noopener"
+          // La burbuja escucha clics (abrir la foto, responder): sin esto, tocar el enlace
+          // dispararia tambien eso.
+          onClick={(evento) => evento.stopPropagation()}
+          className="break-all underline underline-offset-2"
+        >
+          {limpio}
+        </a>
+        {cola}
+      </span>
+    );
+  });
+}
+
 function renderWhatsAppText(content: string) {
   const parts = content.split(/(\*[^*\n]+\*)/g);
 
@@ -65,12 +117,12 @@ function renderWhatsAppText(content: string) {
     if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
       return (
         <strong key={`${part}-${index}`} className="font-semibold">
-          {part.slice(1, -1)}
+          {enlazar(part.slice(1, -1), `b-${index}`)}
         </strong>
       );
     }
 
-    return <span key={`${part}-${index}`}>{part}</span>;
+    return <span key={`${part}-${index}`}>{enlazar(part, `t-${index}`)}</span>;
   });
 }
 
