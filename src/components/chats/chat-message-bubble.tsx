@@ -65,9 +65,9 @@ import {
   Los clientes mandan links todo el tiempo -un video de Facebook, una publicacion, una ubicacion- y
   la asesora tenia que copiarlo a mano y pegarlo en el navegador.
 
-  Se subrayan y se dejan del mismo color del texto a proposito: la burbuja saliente es verde y la
-  entrante blanca, asi que un azul fijo se veria mal en una de las dos. El subrayado se entiende
-  igual en las dos.
+  Azul y subrayado, como WhatsApp. Se probo primero con el color del texto -por miedo a que un azul
+  fijo se viera mal sobre el verde de la burbuja saliente- y no: se leen bien en las dos, y el azul
+  es lo que la gente reconoce como "esto se toca".
 */
 const ENLACE = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
 
@@ -100,7 +100,7 @@ function enlazar(texto: string, claveBase: string) {
           // La burbuja escucha clics (abrir la foto, responder): sin esto, tocar el enlace
           // dispararia tambien eso.
           onClick={(evento) => evento.stopPropagation()}
-          className="break-all underline underline-offset-2"
+          className="break-all text-blue-600 underline underline-offset-2 dark:text-blue-400"
         >
           {limpio}
         </a>
