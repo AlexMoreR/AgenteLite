@@ -325,9 +325,17 @@ export async function publishAgentV2Action(input: {
       .filter((edge) => edge.source === agentNode?.id && Boolean(edge.target))
       .map((edge) => edge.target),
   );
-  const productNodes = nodes.filter(
-    (node) => node.type === "producto" && agentToolTargets.has(node.id),
-  );
+  /*
+    Los productos que el agente conoce.
+
+    Antes solo entraban los colgados de "Consultar productos" del Agente. Alex conecto un Producto a
+    una rama de Condicion -"Contiene: el COMBO de estetica"- y al publicar quedo afuera; peor, la
+    publicacion BORRA los que no estan en esta lista, asi que el agente se quedo sin ningun producto
+    y la regla no tenia a que apuntar. En el dibujo la conexion se veia perfecta.
+
+    Es el mismo agujero que ya se tapo con los flujos: lo que una rama de Condicion señala tambien
+    cuenta. Se calcula despues de las condiciones y por eso la lista se arma mas abajo.
+  */
   /**
    * Los flujos que la IA puede ejecutar.
    *
@@ -428,6 +436,21 @@ export async function publishAgentV2Action(input: {
       .filter((edge) => Boolean(edge.source) && iaNodeIds.has(edge.source as string) && edge.sourceHandle === "next-block")
       .map((edge) => edge.target)
       .filter((target): target is string => Boolean(target)),
+  );
+
+  /*
+    Los Producto que señala una rama de Condicion cuentan igual que los colgados del Agente.
+  */
+  const productNodeIdsFromConditions = new Set(
+    edges
+      .filter((edge) => Boolean(edge.source) && conditionNodeIds.has(edge.source as string))
+      .map((edge) => edge.target)
+      .filter((target): target is string => Boolean(target)),
+  );
+  const productNodes = nodes.filter(
+    (node) =>
+      node.type === "producto" &&
+      (agentToolTargets.has(node.id) || productNodeIdsFromConditions.has(node.id)),
   );
 
   const flowNodes = nodes.filter(
