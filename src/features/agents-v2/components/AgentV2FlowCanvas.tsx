@@ -27,7 +27,6 @@ import {
   MessageSquare,
   Minimize2,
   Minus,
-  Pencil,
   Phone,
   Plus,
   Reply,
@@ -95,7 +94,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useIsMobile } from "@/hooks/use-mobile";
 import {
   nombreDelFlujoEnBienvenida,
   textoSinLaLineaDeFlujo,
@@ -1169,13 +1167,6 @@ function AgentEditorDialog({
   );
 }
 
-const PRODUCT_STAGES = [
-  { key: "empresa", label: "1. Presentacion empresa" },
-  { key: "necesidad", label: "2. Identificacion (dolor / necesidad)" },
-  { key: "producto", label: "3. Presentacion (producto / solucion)" },
-  { key: "dudas", label: "4. Aclarar dudas y objeciones" },
-  { key: "cierre", label: "5. Cierre / toma del pedido" },
-] as const;
 
 type ProductoData = {
   onDuplicate?: (id: string) => void;
@@ -1192,12 +1183,23 @@ type ProductoData = {
   onDelete?: (id: string) => void;
 };
 
+/**
+ * El producto, igual de simple que el nodo Flujo.
+ *
+ * Antes traia adentro el disparo por palabras clave y las cinco etapas del embudo, cada una con su
+ * conector. Eso quedo de cuando el embudo se escribia aca; hoy se escribe en Producto V2, que es
+ * donde estan las fichas de verdad, y al publicar el guion del PRODUCTO le gana al del diagrama.
+ * Eran dos lugares para lo mismo, y el que se veia no era el que mandaba.
+ *
+ * Ahora es lo que dice ser: una etiqueta con el producto y un selector para cambiarlo. Cuando
+ * corresponda activarlo se le cuelga una Condicion, que es como se viene armando.
+ */
 function ProductoNode({ id, data, selected }: NodeProps) {
   const nodeData = data as ProductoData;
   const products = nodeData.products ?? [];
   const [editorOpen, setEditorOpen] = useState(false);
   const collapsed = nodeData.collapsed ?? false;
-  const selectedProduct = products.find((p) => p.id === nodeData.productId);
+  const selectedProduct = products.find((product) => product.id === nodeData.productId);
 
   return (
     <>
@@ -1217,7 +1219,18 @@ function ProductoNode({ id, data, selected }: NodeProps) {
         position={Position.Left}
         className="!h-4 !w-4 !border-2 !border-white !bg-emerald-600"
       />
-      <BaseNode className={cn("w-[340px] transition-shadow", selected && SELECTED_NODE_CLASS)}>
+      <BaseNode
+        role="button"
+        tabIndex={0}
+        onClick={() => setEditorOpen(true)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setEditorOpen(true);
+          }
+        }}
+        className={cn("group w-[300px] cursor-pointer transition-shadow", selected && SELECTED_NODE_CLASS)}
+      >
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <ShoppingBag className="h-4 w-4 text-emerald-600" />
@@ -1225,67 +1238,29 @@ function ProductoNode({ id, data, selected }: NodeProps) {
           <BaseNodeHeaderTitle className="truncate">Producto</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         {!collapsed ? (
-        <BaseNodeContent className="space-y-3">
-          <div
-            className="nodrag space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <p className="truncate text-sm font-medium text-foreground">
-              {selectedProduct?.name ?? "Sin producto seleccionado"}
-            </p>
-            <p className="text-[11px] leading-4 text-muted-foreground">
-              {nodeData.startOnMatch
-                ? `Coincidencia: ${MATCH_LABELS[nodeData.matchType]}`
-                : "Inicio por defecto"}
-              {nodeData.useFunnel ? " · Embudo activo" : ""}
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="nodrag w-full gap-2"
-              onClick={(event) => {
-                event.stopPropagation();
-                setEditorOpen(true);
-              }}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Editar producto
-            </Button>
-          </div>
-
-          <ProductEditorDialog
-            open={editorOpen}
-            onOpenChange={setEditorOpen}
-            data={nodeData}
-            onChange={(patch) => nodeData.onChange?.(id, patch)}
-            onUpdateMatch={(matchType, keywords, intent) =>
-              nodeData.onUpdateMatch?.(id, matchType, keywords, intent)
-            }
-          />
-
-          {nodeData.useFunnel ? (
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-foreground">Etapas del embudo</p>
-              {PRODUCT_STAGES.map((stage) => (
-                <div
-                  key={stage.key}
-                  className="relative rounded-xl border border-border bg-muted/30 px-3 py-2.5"
-                >
-                  <span className="text-xs font-medium text-foreground">{stage.label}</span>
-                  <Handle
-                    id={stage.key}
-                    type="source"
-                    position={Position.Right}
-                    className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-emerald-500"
-                  />
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </BaseNodeContent>
+          <BaseNodeContent>
+            {selectedProduct ? (
+              <span className="inline-flex max-w-full items-center self-start rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
+                <span className="truncate">{selectedProduct.name}</span>
+              </span>
+            ) : (
+              <p className="text-sm text-muted-foreground">Selecciona un producto</p>
+            )}
+          </BaseNodeContent>
         ) : null}
+        <Handle
+          id="source"
+          type="source"
+          position={Position.Right}
+          className="!h-4 !w-4 !border-2 !border-white !bg-emerald-600"
+        />
       </BaseNode>
+      <ProductEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        data={nodeData}
+        onChange={(patch) => nodeData.onChange?.(id, patch)}
+      />
     </>
   );
 }
@@ -1295,13 +1270,11 @@ function ProductEditorDialog({
   onOpenChange,
   data,
   onChange,
-  onUpdateMatch,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   data: ProductoData;
   onChange: (patch: NodeDataPatch) => void;
-  onUpdateMatch: (matchType: MatchType, keywords: string[], intent: string) => void;
 }) {
   const products = data.products ?? [];
 
@@ -1311,90 +1284,42 @@ function ProductEditorDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShoppingBag className="h-4 w-4 text-emerald-600" />
-            Editar producto
+            Elegir producto
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-foreground">Producto</label>
-            <Select
-              value={data.productId}
-              onValueChange={(value) => onChange({ productId: value ?? "" })}
+        <div className="space-y-3">
+          <Select value={data.productId} onValueChange={(value) => onChange({ productId: value ?? "" })}>
+            <SelectTrigger className="h-9 w-full text-sm">
+              <SelectValue placeholder="Selecciona un producto">
+                {(value) => products.find((product) => product.id === value)?.name ?? "Selecciona un producto"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent
+              className="w-auto min-w-(--anchor-width) max-w-[24rem] p-1"
+              alignItemWithTrigger={false}
+              side="bottom"
             >
-              <SelectTrigger className="h-9 w-full text-sm">
-                <SelectValue placeholder="Selecciona un producto">
-                  {(value) => products.find((p) => p.id === value)?.name ?? "Selecciona un producto"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent
-                className="w-auto min-w-(--anchor-width) max-w-[22rem] p-1"
-                alignItemWithTrigger={false}
-                side="bottom"
-              >
-                {products.length === 0 ? (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                    No hay productos en el catalogo
-                  </div>
-                ) : (
-                  products.map((product) => (
-                    <SelectItem key={product.id} value={product.id} className="text-sm">
-                      {product.name}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
+              {products.length === 0 ? (
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">No hay productos creados</div>
+              ) : (
+                products.map((product) => (
+                  <SelectItem key={product.id} value={product.id} className="text-sm">
+                    {product.name}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
 
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
-            <span className="text-sm text-foreground">Iniciar con coincidencia</span>
-            <Switch
-              checked={data.startOnMatch}
-              onCheckedChange={(checked) => onChange({ startOnMatch: checked })}
-              aria-label="Iniciar con coincidencia"
-            />
-          </div>
-
-          {data.startOnMatch ? (
-            <RulePopover
-              initialMatchType={data.matchType}
-              initialKeywords={data.matchKeywords}
-              initialIntent={data.intent}
-              submitLabel="Guardar"
-              onSubmit={onUpdateMatch}
-              trigger={
-                <button
-                  type="button"
-                  className="w-full rounded-xl border border-border bg-muted/30 px-3 py-2 text-left transition hover:bg-muted/60"
-                >
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Coincidencia
-                  </span>
-                  <p className="break-words text-sm text-foreground">
-                    <span>{MATCH_LABELS[data.matchType]}</span>
-                    {" · "}
-                    {data.matchType === "ia"
-                      ? data.intent.trim()
-                        ? data.intent
-                        : "sin intencion"
-                      : data.matchKeywords.length
-                        ? data.matchKeywords.join(", ")
-                        : "sin palabras"}
-                  </p>
-                </button>
-              }
-            />
-          ) : null}
-
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
-            <span className="text-sm text-foreground">Embudo</span>
-            <Switch
-              checked={data.useFunnel}
-              onCheckedChange={(checked) => onChange({ useFunnel: checked })}
-              aria-label="Embudo"
-            />
-          </div>
+          {/*
+            Se dice donde se escribe el embudo. Antes se editaba aca y ahora no, asi que sin este
+            renglon uno abre el nodo, no encuentra las etapas y cree que se perdieron.
+          */}
+          <p className="text-[12px] leading-4 text-muted-foreground">
+            El embudo de este producto -presentacion, identificacion, producto, objeciones y cierre-
+            se escribe en Producto V2, y es el que usa el agente.
+          </p>
         </div>
 
         <DialogFooter>
