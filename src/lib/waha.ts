@@ -83,7 +83,18 @@ const TIMEOUT_MEDIA_MS = 300_000;
  * llego al cliente ni si lo leyo. Es exactamente el dato que falto para diagnosticar la caida del
  * 28-ago, donde todo "figuraba enviado".
  */
-const EVENTOS = ["message", "message.any", "message.ack", "session.status"] as const;
+/*
+  `message.any` en vez de `message`: son el MISMO mensaje dos veces.
+
+  `message` trae lo que entra y `message.any` trae lo que entra Y lo que sale, asi que pidiendo
+  los dos cada mensaje del cliente llegaba dos veces: se procesaba dos veces y el equipo recibia
+  DOS notificaciones identicas por cada mensaje (el "sonido doble"). Con `message.any` solo no se
+  pierde nada: sigue trayendo lo que escriben las asesoras desde el celular.
+
+  `presence.update` es el "escribiendo..." y el "grabando audio". Faltaba, asi que en las lineas
+  nuevas no aparecia nunca -solo lo tenian dos sesiones viejas configuradas a mano-.
+*/
+const EVENTOS = ["message.any", "message.ack", "session.status", "presence.update"] as const;
 
 async function wahaRequest<T>(
   connection: WahaConnection,
@@ -593,6 +604,12 @@ type EventoWaha = {
 };
 
 /** `573001112233@c.us` es lo de WAHA; el resto del CRM habla `@s.whatsapp.net`. */
+/** Un estado ("historia"), una lista de difusion o un canal: ninguno es un chat con alguien. */
+function esEstadoOCanal(jid: string): boolean {
+  const valor = jid.trim().toLowerCase();
+  return valor === "status@broadcast" || valor.endsWith("@broadcast") || valor.endsWith("@newsletter");
+}
+
 function jidDeWaha(valor: string): string {
   if (valor.endsWith("@c.us")) {
     return `${valor.slice(0, -"@c.us".length)}@s.whatsapp.net`;
@@ -670,7 +687,17 @@ export function traducirEventoWaha(
     };
   }
 
-  if (nombre !== "message" && nombre !== "message.any") {
+  /*
+    Se procesa `message.any` y se descarta `message`: WAHA manda los dos por el MISMO mensaje.
+
+    Las sesiones viejas quedaron suscritas a ambos, asi que no alcanza con pedir uno solo: hay que
+    ignorar el repetido tambien aca, o el mensaje se sigue procesando dos veces (dos avisos push,
+    dos veces el motor del agente) hasta que se reconfigure cada sesion.
+  */
+  if (nombre === "message") {
+    return { motivo: "repetido: el mismo mensaje ya viene en message.any" };
+  }
+  if (nombre !== "message.any") {
     return { motivo: `evento no soportado: ${nombre || "(sin nombre)"}` };
   }
 
@@ -689,6 +716,25 @@ export function traducirEventoWaha(
   const de = typeof mensaje.from === "string" ? mensaje.from : "";
   if (!de) {
     return { motivo: "el mensaje no dice de quien viene" };
+  }
+
+  /*
+    Los ESTADOS de WhatsApp no entran al CRM.
+
+    Un estado no es un mensaje para nosotros: es la historia que el contacto le publica a toda su
+    agenda, y nos llega igual que un mensaje comun. Entrando al CRM se veia como un chat nuevo y
+    -lo peor- sonaba como notificacion en el celular de todo el equipo. Esas eran las
+    "notificaciones fantasma": se tocaban y no llevaban a ninguna conversacion real.
+
+    Se mira el chat en los DOS lados: WAHA lo pone en `from`, pero el motor whatsmeow deja ahi al
+    autor y el "status@broadcast" queda adentro, en `_data.Info.Chat`. Mirando uno solo, la mitad
+    de los estados pasaba igual.
+
+    Las listas de difusion y los canales entran por la misma puerta y tampoco son una conversacion.
+  */
+  const chatCrudo = (mensaje._data as { Info?: { Chat?: unknown } } | undefined)?.Info?.Chat;
+  if (esEstadoOCanal(de) || esEstadoOCanal(typeof chatCrudo === "string" ? chatCrudo : "")) {
+    return { motivo: "estado, difusion o canal de WhatsApp" };
   }
 
   const texto = typeof mensaje.body === "string" ? mensaje.body : "";
@@ -1174,7 +1220,7 @@ export function comoMensajeDeEvolution(
   sesion: string,
   mensaje: Record<string, unknown>,
 ): Record<string, unknown> | null {
-  const traduccion = traducirEventoWaha({ event: "message", session: sesion, payload: mensaje });
+  const traduccion = traducirEventoWaha({ event: "message.any", session: sesion, payload: mensaje });
   if (!traduccion.evolution) {
     return null;
   }

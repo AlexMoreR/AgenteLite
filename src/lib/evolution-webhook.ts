@@ -729,16 +729,39 @@ export function isEvolutionStatusBroadcastJid(value: string | null | undefined):
 }
 
 export function isEvolutionStatusBroadcastPayload(payload: unknown): boolean {
-  const remoteJid = extractEvolutionRemoteJid(payload);
-  if (isEvolutionStatusBroadcastJid(remoteJid)) {
-    return true;
-  }
-
   const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
+  const info = asRecord(data?.Info) ?? asRecord(root?.Info);
+  const key = asRecord(data?.key) ?? asRecord(data?.Key);
+  const rootKey = asRecord(root?.key) ?? asRecord(root?.Key);
   const message = getMessageRecord(payload);
   const update = asRecord(root?.update);
   const updateMessage = asRecord(update?.message);
+
+  /*
+    Se pregunta por el chat en TODOS los lugares donde puede venir, no solo en el que elige
+    extractEvolutionRemoteJid.
+
+    Ese resolvedor devuelve a proposito el jid de la PERSONA por encima del chat -lo necesita para
+    los grupos y para los @lid-, y un estado viene justo asi: el chat es "status@broadcast" y el
+    remitente es el numero de quien lo publico. Preguntandole solo a el, un estado se veia como un
+    mensaje comun de esa persona: entraba al CRM y sonaba como notificacion en todo el equipo.
+  */
+  const chatsPosibles = [
+    extractEvolutionRemoteJid(payload),
+    readString(info?.Chat),
+    readString(data?.chatId),
+    readString(data?.remoteJid),
+    readString(data?.from),
+    readString(key?.remoteJid),
+    readString(rootKey?.remoteJid),
+    readString(root?.chatId),
+    readString(root?.from),
+  ];
+
+  if (chatsPosibles.some((jid) => isEvolutionStatusBroadcastJid(jid))) {
+    return true;
+  }
 
   return Boolean(
     asRecord(root?.statusMessage) ||
