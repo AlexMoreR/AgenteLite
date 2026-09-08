@@ -539,12 +539,33 @@ export function SharedInbox({
   // coincidencia por contenido de mensaje. Sin texto → se muestran todos. Esto hace que
   // escribir filtre al instante y que borrar restaure la lista completa de inmediato.
   const displayedConversationItems = useMemo(() => {
+    /*
+      Un chat resuelto no vuelve a la bandeja de "abiertas", lo actualice quien lo actualice.
+
+      La lista se refresca haciendo upsert: agrega y actualiza, nunca quita. Y resolver ESCRIBE un
+      mensaje en la conversacion -"Fulano resolvio la conversacion"-, asi que el propio acto de
+      resolver la devolvia a la lista un segundo despues de haberla sacado. La asesora resolvia, la
+      veia desaparecer y reaparecer.
+
+      Se filtra aca, en un solo lugar, y no en cada camino que mete items: son varios (el refresco,
+      el scroll infinito, el tiempo real) y alcanza con que uno se olvide para que vuelva el
+      problema. Los items sin estado conocido se dejan pasar: no se puede decidir sobre lo que no
+      se sabe.
+    */
+    const porEstado = conversationItems.filter((item) => {
+      if (!item.status) {
+        return true;
+      }
+      const cerrada = item.status === "CLOSED" || item.status === "ARCHIVED";
+      return statusFilter === "open" ? !cerrada : statusFilter === "resolved" ? cerrada : true;
+    });
+
     const normalizedQuery = normalizeChatSearchText(searchInputValue.trim());
     if (!normalizedQuery) {
-      return conversationItems;
+      return porEstado;
     }
 
-    return conversationItems.filter((item) => {
+    return porEstado.filter((item) => {
       if (searchMatchIds?.has(item.id)) {
         return true;
       }
@@ -555,7 +576,7 @@ export function SharedInbox({
         normalizeChatSearchText(item.lastMessage ?? "").includes(normalizedQuery)
       );
     });
-  }, [conversationItems, searchInputValue, searchMatchIds]);
+  }, [conversationItems, searchInputValue, searchMatchIds, statusFilter]);
 
   const loadMoreConversationItems = useCallback(async () => {
     if (isLoadingMoreConversationItems || !hasMoreConversationItems) {

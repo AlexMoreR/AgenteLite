@@ -2587,8 +2587,16 @@ export async function POST(request: NextRequest) {
               La clave `agent:<id>` es la misma que usa el buscador, y la pagina ya sabe abrir un
               chat que no venga en el lote cargado.
             */
+            /*
+              assigned=all: sin eso el aviso abre la bandeja filtrada en "Mias".
+
+              El aviso le llega a TODO el equipo, asi que la mayoria de las veces el chat es de otra
+              asesora o no esta asignado: se tocaba la notificacion, se abria la bandeja en "Mias" y
+              el chat no estaba ahi. Parecia que el enlace no llevaba a ningun lado. A quien no es
+              jefe el servidor le fuerza "Mias" igual, asi que esto no le abre nada que no deba ver.
+            */
             url: conversation.id
-              ? `/cliente/chats?chatKey=agent:${conversation.id}`
+              ? `/cliente/chats?chatKey=agent:${conversation.id}&assigned=all`
               : "/cliente/chats",
             ...(fotoDelContacto ? { icon: fotoDelContacto } : {}),
           },
