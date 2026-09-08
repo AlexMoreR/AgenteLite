@@ -2562,6 +2562,12 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
       id: node.id,
       type: node.type,
       position: node.position,
+      /*
+        Se devuelve el tamaño por los dos caminos: `style` -que es como nacen los nodos- y
+        `width`/`height`, que es donde el lienzo lo espera al dibujar uno que ya viene medido.
+      */
+      ...(typeof node.style?.width === "number" ? { width: node.style.width } : {}),
+      ...(typeof node.style?.height === "number" ? { height: node.style.height } : {}),
       ...(node.style?.width || node.style?.height ? { style: node.style } : {}),
       data:
         node.type === "bienvenida"
@@ -2723,15 +2729,28 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
       id: node.id,
       type: node.type ?? "entrada",
       position: node.position,
-      // Se guarda el tamaño para que estirar una caja no se pierda al recargar.
-      ...(typeof node.style?.width === "number" || typeof node.style?.height === "number"
-        ? {
-            style: {
-              ...(typeof node.style?.width === "number" ? { width: node.style.width } : {}),
-              ...(typeof node.style?.height === "number" ? { height: node.style.height } : {}),
-            },
-          }
-        : {}),
+      /*
+        El tamaño se lee de DOS lados, y ese era el error.
+
+        Al crear un nodo le ponemos el tamaño en `style`, pero cuando el usuario lo estira desde la
+        esquina, el lienzo escribe `width`/`height` en el nodo y NO toca `style`. Se guardaba solo
+        `style`, asi que se conservaba el tamaño de fabrica y se perdia el que la persona habia
+        elegido: se agrandaba la caja, se recargaba, y volvia chiquita.
+
+        Se toma primero lo que dejo el usuario y despues lo de fabrica.
+      */
+      ...(() => {
+        const ancho = typeof node.width === "number" ? node.width : node.style?.width;
+        const alto = typeof node.height === "number" ? node.height : node.style?.height;
+        return typeof ancho === "number" || typeof alto === "number"
+          ? {
+              style: {
+                ...(typeof ancho === "number" ? { width: ancho } : {}),
+                ...(typeof alto === "number" ? { height: alto } : {}),
+              },
+            }
+          : {};
+      })(),
       data:
         node.type === "bienvenida"
           ? {
