@@ -3,6 +3,8 @@ import { Prisma } from "@prisma/client";
 import {
   WAHA_GATEWAY_KIND,
   asegurarSesionWaha,
+  borrarMensajeWaha,
+  chatIdDeTelefono,
   borrarSesionWaha,
   enviarMediaWaha,
   fotoDeContactoWaha,
@@ -2433,6 +2435,25 @@ export async function deleteEvolutionMessageForEveryone(input: {
   instanceName: string;
   key: { id: string; remoteJid: string; fromMe: boolean; participant?: string };
 }) {
+  /*
+    En WAHA se borra por otra ruta.
+
+    Aca abajo se hablan las de Evolution (`/message/delete`), que en WAHA no existen: el pedido
+    fallaba y la pantalla decia "No se pudo eliminar en WhatsApp" en TODAS las lineas nuevas, que
+    ya son casi todas. El mensaje quedaba en el telefono del cliente.
+  */
+  const waha = await conexionWahaDe(input.instanceName);
+  if (waha) {
+    const telefono = input.key.remoteJid.split("@")[0] ?? "";
+    await borrarMensajeWaha({
+      connection: waha,
+      sesion: input.instanceName,
+      chatId: telefono ? chatIdDeTelefono(telefono) : input.key.remoteJid,
+      mensajeId: input.key.id,
+    });
+    return;
+  }
+
   await evolutionInstanceRequest({
     instanceName: input.instanceName,
     path: "/message/delete",

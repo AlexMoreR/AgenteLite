@@ -1321,6 +1321,30 @@ export function leerPresenciaWaha(
 }
 
 /**
+ * Borra un mensaje para todos.
+ *
+ * Verificado contra el servidor: `DELETE /api/{sesion}/chats/{chat}/messages/{id}` y devuelve el
+ * acuse del borrado. El id es el mismo que guardamos (`true_<chat>_<hash>`), y el chat va en
+ * forma `@c.us`.
+ *
+ * A diferencia del envio, aca NO se traga el error: el que borra esta mirando la pantalla y tiene
+ * que enterarse si el mensaje sigue en el telefono del cliente.
+ */
+export async function borrarMensajeWaha(input: {
+  connection: WahaConnection;
+  sesion: string;
+  chatId: string;
+  mensajeId: string;
+}): Promise<void> {
+  await wahaRequest(
+    input.connection,
+    `/api/${encodeURIComponent(input.sesion)}/chats/${encodeURIComponent(input.chatId)}` +
+      `/messages/${encodeURIComponent(input.mensajeId)}`,
+    { method: "DELETE", esperaJson: false },
+  );
+}
+
+/**
  * Avisa a WhatsApp que queremos saber cuando este contacto escribe.
  *
  * Sin esto no llega ningun evento. Y caduca: se vuelve a llamar cada vez que alguien abre el chat.
