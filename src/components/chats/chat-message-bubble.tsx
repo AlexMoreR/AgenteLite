@@ -542,7 +542,18 @@ export const MessageBubble = memo(function MessageBubble({
   const isPendingMedia = message.id.startsWith("optimistic-media:");
   const isDeleted = Boolean(message.deletedAt);
   const mediaPreviewLabel = getMediaPreviewLabel(message.type);
-  const mediaCaption = message.content?.trim() || "";
+  /*
+    Si el archivo ya se recupero, el aviso de que no se pudo bajar deja de ser cierto.
+
+    En la base ya se borro al recuperarlo, pero la burbuja sigue teniendo el texto viejo hasta que
+    la lista se vuelva a cargar: quedaba el audio sonando con un cartel abajo diciendo que no se
+    habia podido descargar.
+  */
+  const contenidoVisible =
+    archivoRecuperado && (message.content ?? "").includes("no se pudo descargar")
+      ? null
+      : message.content;
+  const mediaCaption = contenidoVisible?.trim() || "";
   const shouldRenderMediaCaption = mediaCaption && mediaCaption !== mediaPreviewLabel;
   /*
     Este mensaje traia un archivo y se quedo sin el.
@@ -825,7 +836,7 @@ export const MessageBubble = memo(function MessageBubble({
                   </div>
                 </div>
               )}
-              {renderMessageText(message.content)}
+              {renderMessageText(contenidoVisible)}
             </div>
           ) : hasImagePreview ? (
             <div className="space-y-2 max-w-[360px]">
@@ -862,7 +873,7 @@ export const MessageBubble = memo(function MessageBubble({
                   </div>
                 ) : null}
               </div>
-              {renderMessageText(message.content)}
+              {renderMessageText(contenidoVisible)}
               {portalTarget && isImageViewerOpen && hasImagePreview
                 ? createPortal(
                     <div
@@ -967,7 +978,7 @@ export const MessageBubble = memo(function MessageBubble({
               }`}>
                 <span className="text-sm font-medium">Imagen no disponible</span>
               </div>
-              {renderMessageText(message.content)}
+              {renderMessageText(contenidoVisible)}
             </div>
           ) : videoUrl ? (
             <div className="space-y-2">
@@ -989,7 +1000,7 @@ export const MessageBubble = memo(function MessageBubble({
                   {formatChatTime(message.createdAt)}
                 </div>
               </div>
-              {renderMessageText(message.content)}
+              {renderMessageText(contenidoVisible)}
             </div>
           ) : stickerUrl ? (
             <div className="space-y-2">
@@ -1003,12 +1014,12 @@ export const MessageBubble = memo(function MessageBubble({
                   className="h-auto w-full max-w-[220px] object-contain"
                 />
               </div>
-              {renderMessageText(message.content)}
+              {renderMessageText(contenidoVisible)}
             </div>
           ) : audioUrl ? (
             <AudioMessageCard
               mediaUrl={audioUrl}
-              content={message.content}
+              content={contenidoVisible}
             />
           ) : documentUrl ? (
             <div className="space-y-2">
@@ -1039,7 +1050,7 @@ export const MessageBubble = memo(function MessageBubble({
               {/* No repetir el nombre del archivo abajo: WhatsApp manda el nombre como
                   "caption" cuando no hay mensaje real, y ya se muestra en la tarjeta. */}
               {message.content?.trim() && message.content.trim() !== (documentMeta?.fileName ?? "").trim()
-                ? renderMessageText(message.content)
+                ? renderMessageText(contenidoVisible)
                 : null}
             </div>
           ) : locationInfo ? (
@@ -1122,7 +1133,7 @@ export const MessageBubble = memo(function MessageBubble({
                   {buscandoElArchivo ? "Buscando..." : "Buscar el archivo"}
                 </button>
               ) : null}
-              {shouldRenderMediaCaption ? renderMessageText(message.content) : null}
+              {shouldRenderMediaCaption ? renderMessageText(contenidoVisible) : null}
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -1164,7 +1175,7 @@ export const MessageBubble = memo(function MessageBubble({
                   </div>
                 </a>
               ) : null}
-              {renderMessageText(message.content) || (
+              {renderMessageText(contenidoVisible) || (
                 <p className={`text-[12px] italic ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"}`}>
                   {isDeleted ? "Mensaje eliminado" : "-"}
                 </p>
