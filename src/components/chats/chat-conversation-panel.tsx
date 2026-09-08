@@ -51,6 +51,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Card } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -319,6 +320,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   const composerSelectionRef = useRef({ start: 0, end: 0 });
   const composerRouter = useRouter();
   const [isRefreshingAvatar, setIsRefreshingAvatar] = useState(false);
+  const [fotoDelContactoAbierta, setFotoDelContactoAbierta] = useState(false);
   const [composerHasText, setComposerHasText] = useState(false);
   /**
    * El texto del cuadro salio de una respuesta rapida.
@@ -1926,6 +1928,43 @@ export const ConversationPanel = memo(function ConversationPanel({
             {contactPanelContent}
           </SheetContent>
         </Sheet>
+        <Dialog open={fotoDelContactoAbierta} onOpenChange={setFotoDelContactoAbierta}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogTitle className="truncate">{renderedConversation?.label ?? "Contacto"}</DialogTitle>
+            <div className="flex justify-center">
+              <ContactAvatar
+                avatarUrl={renderedConversation?.avatarUrl}
+                label={renderedConversation?.label ?? ""}
+                className="h-56 w-56 rounded-2xl border border-border bg-muted text-3xl text-muted-foreground"
+                fallbackClassName="rounded-2xl bg-muted text-muted-foreground"
+              />
+            </div>
+            {/*
+              WhatsApp solo entrega la foto de quien la tiene visible para desconocidos, que es la
+              minoria. Por eso se dice que puede no haber ninguna: si no, uno aprieta, no pasa nada
+              y parece que la app fallo.
+            */}
+            <p className="text-center text-[12px] leading-4 text-muted-foreground">
+              La foto la trae WhatsApp, y solo si el cliente la tiene visible para quien no lo tiene
+              agendado.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2"
+              onClick={handleRefreshAvatar}
+              disabled={isRefreshingAvatar || !renderedConversation?.contactId}
+            >
+              {isRefreshingAvatar ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+              ) : (
+                <Camera className="h-4 w-4" />
+              )}
+              {renderedConversation?.avatarUrl ? "Actualizar la foto" : "Traer la foto"}
+            </Button>
+          </DialogContent>
+        </Dialog>
+
         {isContactPanelOpen ? (
           <aside className="hidden w-72 shrink-0 flex-col border-l border-border bg-card md:flex lg:w-80">
             <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
@@ -1944,30 +1983,27 @@ export const ConversationPanel = memo(function ConversationPanel({
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
               <div className="flex items-center gap-3">
-                <div className="relative shrink-0">
+                {/*
+                  La foto se toca y se ve en grande; el boton de traerla esta adentro.
+
+                  Antes habia una camarita pegada al borde de la miniatura que disparaba la
+                  descarga de una. En una foto de 48 pixeles ese boton es mas chico que un dedo, y
+                  lo que uno quiere al tocar una foto es VERLA, no reemplazarla sin querer.
+                */}
+                <button
+                  type="button"
+                  onClick={() => setFotoDelContactoAbierta(true)}
+                  aria-label="Ver la foto del contacto"
+                  title="Ver la foto"
+                  className="shrink-0 rounded-full transition hover:opacity-90"
+                >
                   <ContactAvatar
                     avatarUrl={renderedConversation.avatarUrl}
                     label={renderedConversation.label}
                     className="h-12 w-12 rounded-full border border-border bg-muted text-muted-foreground"
                     fallbackClassName="rounded-full bg-muted text-muted-foreground"
                   />
-                  {renderedConversation.contactId ? (
-                    <button
-                      type="button"
-                      onClick={handleRefreshAvatar}
-                      disabled={isRefreshingAvatar}
-                      aria-label="Traer foto de perfil"
-                      title="Traer foto de perfil de WhatsApp"
-                      className="absolute -bottom-1 -right-1 inline-flex h-6 w-6 items-center justify-center rounded-full border border-background bg-[var(--primary)] text-white shadow-sm transition hover:opacity-90 disabled:opacity-60"
-                    >
-                      {isRefreshingAvatar ? (
-                        <LoaderCircle className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Camera className="h-3 w-3" />
-                      )}
-                    </button>
-                  ) : null}
-                </div>
+                </button>
                 <div className="min-w-0 flex-1 space-y-0.5">
                   <div className="flex items-center gap-1.5">
                     <p className="truncate text-sm font-semibold text-foreground">
