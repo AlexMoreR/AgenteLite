@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { AVISO_MODO_MONITOREO, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import {
@@ -106,6 +107,16 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
     return { error: "Workspace no encontrado" };
   }
   const workspaceId = membership.workspace.id;
+
+  /*
+    Quien solo monitorea no llama.
+
+    Registrar una llamada es afirmar que se hablo con el cliente, y el modo existe justamente para
+    que no lo contacte. Ver `modo-monitoreo.ts`.
+  */
+  if (await estaEnModoMonitoreo({ workspaceId, userId: session.user.id })) {
+    return { error: AVISO_MODO_MONITOREO };
+  }
 
   const contact = await prisma.contact.findFirst({
     where: { id: parsed.data.contactId, workspaceId },

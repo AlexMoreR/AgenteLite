@@ -34,6 +34,17 @@ export function leerPausadosDeReparto(metadata: unknown): string[] {
 }
 
 /**
+ * Quienes SOLO MIRAN este canal: ven todos sus chats y no pueden escribir.
+ *
+ * Es un subconjunto de los colaboradores, como la pausa. Se guarda aparte y no como un valor de
+ * la pausa porque son cosas distintas: la pausada sigue siendo asesora -atiende, escribe, cierra-
+ * y la que monitorea no atiende a nadie. Ver `modo-monitoreo.ts`.
+ */
+export function leerMonitores(metadata: unknown): string[] {
+  return leerLista(metadata, "monitorIds");
+}
+
+/**
  * Los que pueden recibir un lead nuevo: colaboradores menos los pausados.
  *
  * Si quedan cero, el reparto automático no corre y el lead entra sin dueño — que es lo correcto:
@@ -42,5 +53,8 @@ export function leerPausadosDeReparto(metadata: unknown): string[] {
  */
 export function calcularReparto(metadata: unknown): string[] {
   const pausados = new Set(leerPausadosDeReparto(metadata));
-  return leerColaboradores(metadata).filter((id) => !pausados.has(id));
+  // Quien solo monitorea NUNCA recibe un lead: no puede contestarlo, asi que darselo seria
+  // mandarlo a un cajon. Se descuenta aca y no en cada llamador, que es donde se olvidaria.
+  const monitores = new Set(leerMonitores(metadata));
+  return leerColaboradores(metadata).filter((id) => !pausados.has(id) && !monitores.has(id));
 }

@@ -11,7 +11,7 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AD_CAMPAIGN_ROUTING_METADATA_KEY } from "@/lib/ad-campaign-routing";
-import { leerColaboradores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
+import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { getEstadoDeCanal } from "@/lib/wacalls";
 
 export const dynamic = "force-dynamic";
@@ -108,6 +108,7 @@ async function ConnectionDetailContent({
   // vincular, que es lo unico accionable cuando no se sabe nada de ella.
   const estadoLlamadas = detail.channel?.id ? await getEstadoDeCanal(detail.channel.id) : null;
   const pausedAssignmentIds = leerPausadosDeReparto(channelMetadata);
+  const monitorIds = leerMonitores(channelMetadata);
   // Regla de campana: a quien le tocan los leads que entran por un anuncio.
   const adRouting = channelMetadata[AD_CAMPAIGN_ROUTING_METADATA_KEY];
   const adRoutingRecord =
@@ -157,6 +158,7 @@ async function ConnectionDetailContent({
       collaboratorMembers={collaboratorMembers}
       collaboratorIds={collaboratorIds}
       pausedAssignmentIds={pausedAssignmentIds}
+      monitorIds={monitorIds}
       estadoLlamadas={estadoLlamadas}
       adRoutingKeywords={adRoutingKeywords}
       adRoutingUserIds={adRoutingUserIds}

@@ -59,6 +59,7 @@ import {
 } from "@/lib/official-api-messaging";
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { buildDefaultWorkspacePlan } from "@/lib/plans";
+import { AVISO_MODO_MONITOREO, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import { prisma } from "@/lib/prisma";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import {
@@ -2581,6 +2582,16 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     return { ok: false, error: "Debes configurar tu negocio primero" };
   }
 
+  /*
+    Quien solo monitorea no envia. Se corta ACA, en el servidor.
+
+    Ocultar el cuadro de escribir alcanza para que no pase sin querer, pero no es una puerta con
+    llave: la accion se puede llamar igual desde afuera. La regla vale donde de verdad se decide.
+  */
+  if (await estaEnModoMonitoreo({ workspaceId: membership.workspace.id, userId: session.user.id })) {
+    return { ok: false, error: AVISO_MODO_MONITOREO };
+  }
+
   const conversation = await prisma.conversation.findFirst({
     where: {
       id: parsed.data.conversationId,
@@ -3003,6 +3014,16 @@ export async function sendChatAudioReplyAction(input: {
     return { error: "Debes configurar tu negocio primero" };
   }
 
+  /*
+    Quien solo monitorea no envia. Se corta ACA, en el servidor.
+
+    Ocultar el cuadro de escribir alcanza para que no pase sin querer, pero no es una puerta con
+    llave: la accion se puede llamar igual desde afuera. La regla vale donde de verdad se decide.
+  */
+  if (await estaEnModoMonitoreo({ workspaceId: membership.workspace.id, userId: session.user.id })) {
+    return { error: AVISO_MODO_MONITOREO };
+  }
+
   if (parsed.data.source === "official") {
     return sendOfficialApiChatFile({
       workspaceId: membership.workspace.id,
@@ -3213,6 +3234,16 @@ export async function sendChatMediaReplyAction(input: {
     return { error: "Debes configurar tu negocio primero" };
   }
 
+  /*
+    Quien solo monitorea no envia. Se corta ACA, en el servidor.
+
+    Ocultar el cuadro de escribir alcanza para que no pase sin querer, pero no es una puerta con
+    llave: la accion se puede llamar igual desde afuera. La regla vale donde de verdad se decide.
+  */
+  if (await estaEnModoMonitoreo({ workspaceId: membership.workspace.id, userId: session.user.id })) {
+    return { error: AVISO_MODO_MONITOREO };
+  }
+
   if (parsed.data.source === "official") {
     const enviado = await sendOfficialApiChatFile({
       workspaceId: membership.workspace.id,
@@ -3419,6 +3450,16 @@ export async function sendChatLocationReplyAction(input: {
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
     return { error: "Debes configurar tu negocio primero" };
+  }
+
+  /*
+    Quien solo monitorea no envia. Se corta ACA, en el servidor.
+
+    Ocultar el cuadro de escribir alcanza para que no pase sin querer, pero no es una puerta con
+    llave: la accion se puede llamar igual desde afuera. La regla vale donde de verdad se decide.
+  */
+  if (await estaEnModoMonitoreo({ workspaceId: membership.workspace.id, userId: session.user.id })) {
+    return { error: AVISO_MODO_MONITOREO };
   }
 
   const workspace = await prisma.workspace.findUnique({

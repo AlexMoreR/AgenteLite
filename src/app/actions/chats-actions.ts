@@ -21,6 +21,7 @@ import {
   reintentarMediaWaha,
 } from "@/lib/waha";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
+import { AVISO_MODO_MONITOREO, enmascararTelefono, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -145,11 +146,22 @@ export async function getContactDetailsAction(
     return { error: "Contacto no encontrado" };
   }
 
+  /*
+    La ficha del contacto tambien sale tapada en modo monitoreo.
+
+    Es la puerta mas obvia despues de la lista: se abre el panel del cliente y ahi esta el numero
+    entero, listo para copiar. Ver `modo-monitoreo.ts`.
+  */
+  const taparTelefonos = await estaEnModoMonitoreo({
+    workspaceId: membership.workspace.id,
+    userId: session.user.id,
+  });
+
   return {
     details: {
       contactId: contact.id,
       name: contact.name ?? "",
-      phoneNumber: contact.phoneNumber,
+      phoneNumber: taparTelefonos ? enmascararTelefono(contact.phoneNumber) : contact.phoneNumber,
       city: readMetadataString(contact.metadata, "city"),
       address: readMetadataString(contact.metadata, "address"),
       interested: readMetadataString(contact.metadata, "interested"),
@@ -893,6 +905,10 @@ export async function deleteChatMessageAction(formData: FormData): Promise<{ ok:
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
     return { ok: false, error: "Workspace no encontrado" };
+  }
+
+  if (await estaEnModoMonitoreo({ workspaceId: membership.workspace.id, userId: session.user.id })) {
+    return { ok: false, error: AVISO_MODO_MONITOREO };
   }
 
   const parsed = deleteChatMessageSchema.safeParse({ messageId: formData.get("messageId") });
@@ -1857,6 +1873,14 @@ export async function updateChannelCollaboratorsAction(input: {
    * trabajo nuevo, no que pierda de vista lo que ya venía atendiendo.
    */
   pausedAssignmentIds?: string[];
+  /**
+   * De los colaboradores, quienes SOLO MIRAN: ven todos los chats del canal y no pueden escribir.
+   *
+   * Ver `modo-monitoreo.ts`. Se guarda junto a los otros dos porque es la misma pregunta -que
+   * hace cada persona en este canal- y asi la pantalla de Conexion sigue siendo el unico lugar
+   * donde se decide.
+   */
+  monitorIds?: string[];
 }): Promise<{ error?: string }> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
@@ -1908,6 +1932,13 @@ export async function updateChannelCollaboratorsAction(input: {
     ),
   );
 
+  // Los monitores tambien se recortan a los colaboradores, por lo mismo que los pausados.
+  const monitorIds = Array.from(
+    new Set(
+      (Array.isArray(input.monitorIds) ? input.monitorIds : []).filter((id) => colaboradoresSet.has(id)),
+    ),
+  );
+
   const baseMetadata =
     channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
       ? (channel.metadata as Record<string, unknown>)
@@ -1916,7 +1947,12 @@ export async function updateChannelCollaboratorsAction(input: {
   await prisma.whatsAppChannel.update({
     where: { id: channel.id },
     data: {
-      metadata: { ...baseMetadata, collaboratorIds, pausedAssignmentIds } as Prisma.InputJsonValue,
+      metadata: {
+        ...baseMetadata,
+        collaboratorIds,
+        pausedAssignmentIds,
+        monitorIds,
+      } as Prisma.InputJsonValue,
     },
   });
 

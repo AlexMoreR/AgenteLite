@@ -20,11 +20,13 @@ export function ChannelCollaboratorsForm({
   members,
   collaboratorIds,
   pausedAssignmentIds = [],
+  monitorIds = [],
 }: {
   channelId: string;
   members: CollaboratorMember[];
   collaboratorIds: string[];
   pausedAssignmentIds?: string[];
+  monitorIds?: string[];
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<string[]>(() =>
@@ -32,6 +34,9 @@ export function ChannelCollaboratorsForm({
   );
   const [paused, setPaused] = useState<string[]>(() =>
     pausedAssignmentIds.filter((id) => collaboratorIds.includes(id)),
+  );
+  const [monitores, setMonitores] = useState<string[]>(() =>
+    monitorIds.filter((id) => collaboratorIds.includes(id)),
   );
   const [isPending, startTransition] = useTransition();
 
@@ -47,9 +52,35 @@ export function ChannelCollaboratorsForm({
   const removeMember = (id: string) => {
     setSelected((current) => current.filter((x) => x !== id));
     setPaused((current) => current.filter((x) => x !== id));
+    setMonitores((current) => current.filter((x) => x !== id));
   };
-  const togglePaused = (id: string) =>
-    setPaused((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id]));
+
+  /*
+    Un solo boton con los tres estados, en el orden en que se van sacando permisos:
+
+      Recibe leads  ->  En pausa  ->  Solo monitorea  ->  Recibe leads
+
+    Podrian ser dos controles -uno de pausa y otro de monitoreo-, pero son la misma pregunta: que
+    hace esta persona en este canal. Con dos, quedan combinaciones que no significan nada (pausada
+    y monitoreando a la vez) y hay que explicarlas.
+  */
+  const siguienteEstado = (id: string) => {
+    const enPausa = paused.includes(id);
+    const monitorea = monitores.includes(id);
+
+    if (monitorea) {
+      setMonitores((current) => current.filter((x) => x !== id));
+      setPaused((current) => current.filter((x) => x !== id));
+      return;
+    }
+    if (enPausa) {
+      // Quien solo monitorea no recibe leads: la pausa se deja puesta para que sea cierto tambien
+      // si mañana se le quita el monitoreo desde otro lado.
+      setMonitores((current) => [...current, id]);
+      return;
+    }
+    setPaused((current) => [...current, id]);
+  };
 
   const handleSave = () => {
     startTransition(async () => {
@@ -57,6 +88,7 @@ export function ChannelCollaboratorsForm({
         channelId,
         collaboratorIds: selected,
         pausedAssignmentIds: paused,
+        monitorIds: monitores,
       });
       if (result?.error) {
         toast.error(result.error);
@@ -83,6 +115,7 @@ export function ChannelCollaboratorsForm({
               const member = memberById.get(id);
               if (!member) return null;
               const enPausa = paused.includes(id);
+              const monitorea = monitores.includes(id);
               return (
                 <div
                   key={id}
@@ -95,20 +128,23 @@ export function ChannelCollaboratorsForm({
                   */}
                   <button
                     type="button"
-                    onClick={() => togglePaused(id)}
-                    aria-pressed={!enPausa}
+                    onClick={() => siguienteEstado(id)}
                     title={
-                      enPausa
-                        ? "No le entran leads nuevos. Sigue viendo el canal y sus chats."
-                        : "Le entran leads nuevos por turno."
+                      monitorea
+                        ? "Ve TODOS los chats del canal y no puede escribir. Los números le salen tapados."
+                        : enPausa
+                          ? "No le entran leads nuevos. Sigue viendo el canal y sus chats."
+                          : "Le entran leads nuevos por turno."
                     }
                     className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium transition ${
-                      enPausa
-                        ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
-                        : "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300"
+                      monitorea
+                        ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-300"
+                        : enPausa
+                          ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+                          : "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300"
                     }`}
                   >
-                    {enPausa ? "En pausa" : "Recibe leads"}
+                    {monitorea ? "Solo monitorea" : enPausa ? "En pausa" : "Recibe leads"}
                   </button>
                   <button
                     type="button"
@@ -136,7 +172,10 @@ export function ChannelCollaboratorsForm({
       */}
       <p className="text-[11px] leading-relaxed text-muted-foreground">
         <strong className="font-medium text-foreground">En pausa</strong> = deja de recibir leads
-        nuevos, pero sigue viendo el canal y atendiendo los suyos. La{" "}
+        nuevos, pero sigue viendo el canal y atendiendo los suyos.{" "}
+        <strong className="font-medium text-foreground">Solo monitorea</strong> = ve todos los chats
+        del canal para aprender cómo responde el agente, no puede escribir ni enviar nada, y los
+        números le salen tapados. La{" "}
         <strong className="font-medium text-foreground">✕</strong> lo saca del canal y le esconde
         todos estos chats.
       </p>

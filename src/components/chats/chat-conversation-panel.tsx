@@ -1821,6 +1821,19 @@ export const ConversationPanel = memo(function ConversationPanel({
                   </div>
                 </form>
               </div>
+            ) : renderedConversation ? (
+              /*
+                Sin cuadro de escribir, se dice POR QUE.
+
+                Un chat abierto sin donde escribir se lee como que la pantalla se rompio. Este
+                renglon convierte una ausencia rara en una regla entendible, y de paso le recuerda
+                a quien mira que esta viendo trabajar al agente, no atendiendo.
+              */
+              <div className="z-20 shrink-0 px-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] pt-1.5 md:px-2 md:py-2">
+                <p className="mx-auto w-full max-w-5xl rounded-xl border border-border bg-muted/60 px-3 py-2.5 text-center text-[13px] leading-snug text-muted-foreground">
+                  Modo monitoreo: podés ver la conversación, pero no escribir.
+                </p>
+              </div>
             ) : null}
           </div>
         </div>

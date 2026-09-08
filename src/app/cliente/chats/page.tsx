@@ -29,6 +29,7 @@ import { Prisma } from "@prisma/client";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
+import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
 import {
   idsSinResponder,
   leerFiltrosDeBandeja,
@@ -250,19 +251,40 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
    * para encontrar las suyas, todos los dias. Ver el trabajo propio primero es lo que uno espera
    * al abrir una bandeja; "Todas" sigue a un toque de distancia.
    */
+  /*
+    Modo monitoreo: mira todos los chats del canal y no puede escribir (ver modo-monitoreo.ts).
+
+    Se resuelve aca arriba porque cambia tres cosas de esta pantalla: que conversaciones entran,
+    si se dibuja el cuadro de escribir, y si los telefonos salen tapados.
+  */
+  const canalesMonitoreados = await canalesQueMonitorea({
+    workspaceId: membership.workspace.id,
+    userId: access.userId,
+  });
+  const modoMonitoreo = canalesMonitoreados.length > 0;
+
   const assignedParam = typeof params.assigned === "string" ? params.assigned.trim() : "";
   let assignedFilter: "all" | "mine" | "unassigned" =
     assignedParam === "all" || assignedParam === "unassigned" ? assignedParam : "mine";
   // Los no-managers (empleados) solo pueden ver sus chats asignados: nunca "Todos" ni "Sin asignar".
-  if (!isManager) {
+  if (!isManager && !modoMonitoreo) {
     assignedFilter = "mine";
   }
+  /*
+    Quien monitorea ve TODO lo de su canal, tenga dueño o no.
+
+    Es el motivo de existir del modo: se entra a mirar como trabaja el agente, y los chats donde
+    trabaja son justamente los que no son de ella. Por eso no se mira la pestaña -"Mías" y "Todas"
+    le muestran lo mismo-: no tiene chats propios, y una pestaña vacia se leeria como un error.
+  */
   const assignedWhere: Prisma.ConversationWhereInput =
-    assignedFilter === "mine"
-      ? { assignedToUserId: access.userId }
-      : assignedFilter === "unassigned"
-        ? { assignedToUserId: null }
-        : {};
+    modoMonitoreo && !isManager
+      ? { channelId: { in: canalesMonitoreados } }
+      : assignedFilter === "mine"
+        ? { assignedToUserId: access.userId }
+        : assignedFilter === "unassigned"
+          ? { assignedToUserId: null }
+          : {};
 
   // Filtro de estado de conversación. Por DEFECTO se ocultan las resueltas (solo abiertas):
   // las resueltas solo aparecen al elegir "Resueltas" o "Todas".
@@ -305,6 +327,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     userId: access.userId,
     esJefe: access.isOwner || access.role === "ADMIN",
   });
+
 
   /**
    * La conexion elegida se valida contra ESTE negocio antes de filtrar por ella: una que quedo
@@ -831,10 +854,30 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     : null;
   const shouldIncludeOfficialRows =
     !selectedConnectionChannelId || selectedConnectionChannel?.provider === "OFFICIAL_API";
-  const merged = dedupeAndSortConversationListRows([
-    ...agentRows,
-    ...(shouldIncludeOfficialRows ? officialRows : []),
-  ])
+  /*
+    Los telefonos se tapan ACA, del lado del servidor.
+
+    Enmascararlos en la pantalla no serviria: el numero real ya habria viajado al navegador y se
+    leeria con las herramientas de desarrollo. Tapar lo que ya llego no es tapar.
+
+    Se tapa el titulo tambien, porque cuando el cliente no tiene nombre guardado el titulo ES su
+    numero.
+  */
+  const taparSiHaceFalta = (filas: UnifiedConversation[]): UnifiedConversation[] =>
+    modoMonitoreo
+      ? filas.map((fila) => ({
+          ...fila,
+          label: enmascararSiEsTelefono(fila.label),
+          secondaryLabel: enmascararTelefono(fila.secondaryLabel),
+        }))
+      : filas;
+
+  const merged = taparSiHaceFalta(
+    dedupeAndSortConversationListRows([
+      ...agentRows,
+      ...(shouldIncludeOfficialRows ? officialRows : []),
+    ]),
+  )
       .filter((item) => {
         if (!searchQuery) return true;
       const q = searchQuery.toLowerCase();
@@ -1342,7 +1385,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             />
           ) : null
         }
-        composer={{
+        /*
+          Sin cuadro de escribir en modo monitoreo.
+
+          El panel ya sabe dibujarse sin el -es opcional-, asi que no hay que apagar boton por
+          boton: se va el texto, los adjuntos, el microfono y las respuestas rapidas de una vez.
+          El servidor igual rechaza el envio; esto es para que no se intente.
+        */
+        composer={modoMonitoreo ? undefined : {
           action: sendUnifiedChatReplyAction,
           hiddenFields: selectedUnified
             ? [

@@ -5,6 +5,7 @@ import { getOfficialApiChatsData } from "@/features/official-api/services/getOff
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { readGatewayConnection, resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
 import { WAHA_GATEWAY_KIND, suscribirPresenciaWaha } from "@/lib/waha";
+import { enmascararSiEsTelefono, enmascararTelefono, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import { scheduleSingleContactAvatarRefresh } from "@/lib/contact-avatar-refresh";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { prisma } from "@/lib/prisma";
@@ -86,6 +87,18 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
   }
 
+  /*
+    Modo monitoreo: los telefonos salen tapados tambien por aca.
+
+    Esta ruta es la que carga el chat abierto cuando se hace clic en la lista, sin recargar la
+    pagina. Tapando solo en el render del servidor, bastaba con abrir un chat para que el numero
+    real volviera entero. Ver `modo-monitoreo.ts`.
+  */
+  const taparTelefonos = await estaEnModoMonitoreo({
+    workspaceId: membership.workspace.id,
+    userId: session.user.id,
+  });
+
   const requestUrl = new URL(request.url);
   const chatKey = requestUrl.searchParams.get("chatKey")?.trim() || "";
   const beforeMessageId = requestUrl.searchParams.get("beforeMessageId")?.trim() || "";
@@ -132,8 +145,10 @@ export async function GET(request: Request) {
         agentId: null,
         status: detalle.status,
         automationPaused: detalle.automationPaused,
-        label: etiqueta,
-        secondaryLabel: detalle.contact.phoneNumber?.trim() || detalle.contact.waId,
+        label: taparTelefonos ? enmascararSiEsTelefono(etiqueta) : etiqueta,
+        secondaryLabel: taparTelefonos
+          ? enmascararTelefono(detalle.contact.phoneNumber?.trim() || detalle.contact.waId)
+          : detalle.contact.phoneNumber?.trim() || detalle.contact.waId,
         avatarUrl: null,
         // La ficha del CRM, no la de la tabla oficial: es la que usan etapa, etiquetas y guiones.
         contactId: detalle.contact.crmContactId ?? null,
@@ -312,8 +327,27 @@ export async function GET(request: Request) {
     ok: true,
     conversation: {
       ...conversation,
-      label: conversation.contact.name?.trim() || conversation.contact.phoneNumber,
-      secondaryLabel: conversation.contact.phoneNumber,
+      /*
+        El contacto se reescribe entero, no solo las etiquetas.
+
+        Arriba hay un `...conversation` que arrastra el contacto COMPLETO, con su telefono real
+        adentro. Tapar `secondaryLabel` y dejar eso seria tapar la puerta y abrir la ventana: el
+        numero viajaba igual y se leia con las herramientas del navegador.
+      */
+      ...(taparTelefonos
+        ? {
+            contact: {
+              ...conversation.contact,
+              phoneNumber: enmascararTelefono(conversation.contact.phoneNumber),
+            },
+          }
+        : {}),
+      label: taparTelefonos
+        ? enmascararSiEsTelefono(conversation.contact.name?.trim() || conversation.contact.phoneNumber)
+        : conversation.contact.name?.trim() || conversation.contact.phoneNumber,
+      secondaryLabel: taparTelefonos
+        ? enmascararTelefono(conversation.contact.phoneNumber)
+        : conversation.contact.phoneNumber,
       avatarUrl: conversation.contact.avatarUrl ?? null,
       contactId: conversation.contact.id,
       // Se suben al nivel de la conversacion para que el cliente pueda dibujar los controles de

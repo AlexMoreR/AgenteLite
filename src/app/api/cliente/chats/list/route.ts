@@ -14,6 +14,7 @@ import {
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
+import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
 import { prisma } from "@/lib/prisma";
 
 type UnifiedConversation = {
@@ -140,12 +141,22 @@ async function getAgentConversationList(input: {
   currentUserId: string;
   // Canales que esta persona puede ver, o null si ve todos (ver channel-visibility).
   visibleChannelIds: string[] | null;
+  /** Canales que solo MIRA: ve todo lo de ahi y los telefonos le salen tapados. */
+  monitoredChannelIds: string[];
   offset: number;
   limit: number;
 }) {
   const normalizedSearchQuery = input.searchQuery.trim();
-  const assignedWhere: Prisma.ConversationWhereInput =
-    input.assignedFilter === "mine"
+  const tapar = input.monitoredChannelIds.length > 0;
+  /*
+    Quien monitorea ve TODO lo de su canal, sin importar la pestaña.
+
+    Es el motivo del modo: se entra a mirar como trabaja el agente, y esos chats son justamente
+    los que no son de ella. Ver `modo-monitoreo.ts`.
+  */
+  const assignedWhere: Prisma.ConversationWhereInput = input.monitoredChannelIds.length
+    ? { channelId: { in: input.monitoredChannelIds } }
+    : input.assignedFilter === "mine"
       ? { assignedToUserId: input.currentUserId }
       : input.assignedFilter === "unassigned"
         ? { assignedToUserId: null }
@@ -471,14 +482,25 @@ async function getAgentConversationList(input: {
       channelId: conversation.channelId || undefined,
       assignedToUserId: conversation.assignedToUserId ?? null,
       assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
-      label: latestMessage
-        ? resolveStoredAgentContactLabel({
-            contactName: conversation.contact.name,
-            phoneNumber: conversation.contact.phoneNumber,
-            rawPayload: payloadByConversationId.get(conversation.id),
-          })
-        : getAgentContactLabel(conversation.contact),
-      secondaryLabel: conversation.contact.phoneNumber,
+      label: enmascararSiEsTelefono(
+        latestMessage
+          ? resolveStoredAgentContactLabel({
+              contactName: conversation.contact.name,
+              phoneNumber: conversation.contact.phoneNumber,
+              rawPayload: payloadByConversationId.get(conversation.id),
+            })
+          : getAgentContactLabel(conversation.contact),
+      ),
+      /*
+        Los telefonos se tapan ACA, del lado del servidor.
+
+        Enmascararlos en la pantalla no serviria: el numero real ya habria viajado y se leeria con
+        las herramientas del navegador. Y el titulo se tapa tambien, porque cuando el cliente no
+        tiene nombre guardado el titulo ES su numero.
+      */
+      secondaryLabel: tapar
+        ? enmascararTelefono(conversation.contact.phoneNumber)
+        : conversation.contact.phoneNumber,
       crmStage: conversation.contact.crmStage ?? null,
       status: conversation.status ?? null,
       tags,
@@ -592,6 +614,18 @@ export async function GET(request: Request) {
     esJefe: isManager,
   });
 
+  /*
+    Los canales que esta persona solo MIRA (ver modo-monitoreo.ts).
+
+    Va tambien en esta ruta y no solo en la pantalla: esta es la que refresca la bandeja sola cada
+    pocos segundos, asi que si el modo se aplicara nada mas del lado del servidor de la pagina, a
+    los segundos la lista volveria con los telefonos destapados.
+  */
+  const monitoredChannelIds = await canalesQueMonitorea({
+    workspaceId: membership.workspace.id,
+    userId: session.user.id,
+  });
+
   const data = await getAgentConversationList({
     workspaceId: membership.workspace.id,
     searchQuery,
@@ -605,6 +639,7 @@ export async function GET(request: Request) {
     filtros: leerFiltrosDeBandeja((clave) => requestUrl.searchParams.get(clave)),
     currentUserId: session.user.id,
     visibleChannelIds,
+    monitoredChannelIds,
     offset,
     limit,
   });

@@ -73,6 +73,7 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
   /** Estado de la linea de llamadas de ESTE canal, o null si todavia no tiene. */
   estadoLlamadas?: WaCallsEstado | null;
   pausedAssignmentIds?: string[];
+  monitorIds?: string[];
   // Regla "los leads de esta campana son de tal persona" (por titulo del anuncio).
   adRoutingKeywords?: string[];
   adRoutingUserIds?: string[];
@@ -100,6 +101,7 @@ export function WhatsAppBusinessConnectionWorkspace({
   collaboratorIds = [],
   estadoLlamadas = null,
   pausedAssignmentIds = [],
+  monitorIds = [],
   adRoutingKeywords = [],
   adRoutingUserIds = [],
   evolutionApiGateways = [],
@@ -420,6 +422,7 @@ export function WhatsAppBusinessConnectionWorkspace({
                       members={collaboratorMembers}
                       collaboratorIds={collaboratorIds}
                       pausedAssignmentIds={pausedAssignmentIds}
+                      monitorIds={monitorIds}
                     />
                   </CardContent>
                 </Card>
@@ -452,6 +455,7 @@ export function WhatsAppBusinessConnectionWorkspace({
                       members={collaboratorMembers}
                       collaboratorIds={collaboratorIds}
                       pausedAssignmentIds={pausedAssignmentIds}
+                      monitorIds={monitorIds}
                     />
                   </CardContent>
                 </Card>
