@@ -1263,6 +1263,8 @@ export type PresenciaWaha = {
   activo: boolean;
   /** "typing" | "recording" — para decir "escribiendo..." o "grabando audio...". */
   que: "escribiendo" | "grabando" | null;
+  /** Tiene WhatsApp abierto en este momento. Escribir implica estar en linea. */
+  enLinea: boolean;
 };
 
 /**
@@ -1306,7 +1308,16 @@ export function leerPresenciaWaha(
 
   const que = estado === "typing" ? "escribiendo" : estado === "recording" ? "grabando" : null;
 
-  return { sesion, presencia: { identidad, activo: Boolean(que), que } };
+  /*
+    "En linea" tambien sale de aca, y es el MISMO evento que el "escribiendo".
+
+    WhatsApp avisa `online` cuando la persona abre la app y `offline` cuando la cierra; estabamos
+    tirando esos dos y quedandonos solo con typing/recording. Y quien escribe esta en linea por
+    definicion, aunque en ese aviso no lo diga.
+  */
+  const enLinea = estado === "online" || estado === "available" || Boolean(que);
+
+  return { sesion, presencia: { identidad, activo: Boolean(que), que, enLinea } };
 }
 
 /**

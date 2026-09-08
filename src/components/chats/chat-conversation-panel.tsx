@@ -263,6 +263,13 @@ export const ConversationPanel = memo(function ConversationPanel({
    * preguntar, la persona ya paro-.
    */
   const [escribiendo, setEscribiendo] = useState<"escribiendo" | "grabando" | null>(null);
+  /*
+    "En linea", debajo del nombre, como en WhatsApp.
+
+    Va aparte del "escribiendo" porque son dos cosas distintas y una tapa a la otra: mientras
+    escribe se muestra eso, y cuando para queda "en linea" hasta que cierre la app.
+  */
+  const [enLinea, setEnLinea] = useState(false);
   const telefonoDelChat = renderedConversation?.secondaryLabel?.replace(/\D/g, "") ?? "";
 
   useEffect(() => {
@@ -270,10 +277,16 @@ export const ConversationPanel = memo(function ConversationPanel({
       return;
     }
     let apagar: ReturnType<typeof setTimeout> | null = null;
+    let apagarEnLinea: ReturnType<typeof setTimeout> | null = null;
 
     const alLlegar = (evento: Event) => {
       const detalle = (evento as CustomEvent).detail as
-        | { telefono?: string; activo?: boolean; que?: "escribiendo" | "grabando" | null }
+        | {
+            telefono?: string;
+            activo?: boolean;
+            que?: "escribiendo" | "grabando" | null;
+            enLinea?: boolean;
+          }
         | null;
       if (!detalle?.telefono) {
         return;
@@ -298,6 +311,23 @@ export const ConversationPanel = memo(function ConversationPanel({
       if (detalle.activo) {
         apagar = setTimeout(() => setEscribiendo(null), 10_000);
       }
+
+      /*
+        El "en linea" se apaga solo a los 2 minutos.
+
+        WhatsApp avisa cuando la persona cierra la app, pero ese aviso se puede perder igual que el
+        de "dejo de escribir", y ademas la suscripcion caduca sola a los pocos minutos. Sin este
+        limite el chat diria "en linea" para siempre, que es peor que no decir nada: la asesora
+        insiste creyendo que la estan leyendo.
+      */
+      if (apagarEnLinea) {
+        clearTimeout(apagarEnLinea);
+        apagarEnLinea = null;
+      }
+      setEnLinea(Boolean(detalle.enLinea));
+      if (detalle.enLinea) {
+        apagarEnLinea = setTimeout(() => setEnLinea(false), 120_000);
+      }
     };
 
     window.addEventListener("chat-presence", alLlegar);
@@ -306,12 +336,16 @@ export const ConversationPanel = memo(function ConversationPanel({
       if (apagar) {
         clearTimeout(apagar);
       }
+      if (apagarEnLinea) {
+        clearTimeout(apagarEnLinea);
+      }
     };
   }, [telefonoDelChat]);
 
   // Al cambiar de chat se limpia: si no, se arrastraria el "escribiendo…" del anterior.
   useEffect(() => {
     setEscribiendo(null);
+    setEnLinea(false);
   }, [selectedConversationId]);
   const [emojiPickerTab, setEmojiPickerTab] = useState<ComposerEmojiTab>("todos");
   const [recentComposerEmojis, setRecentComposerEmojis] = useState<string[]>([]);
@@ -1100,10 +1134,14 @@ export const ConversationPanel = memo(function ConversationPanel({
                       escribiendo tocaba abrir el panel del contacto. Se omite cuando el nombre
                       YA es el numero (contacto sin nombre), para no escribirlo dos veces.
                     */}
-                    {escribiendo ? (
+                    {escribiendo || enLinea ? (
                       /* Reemplaza al telefono, como hace WhatsApp: el dato de ahora importa mas. */
                       <p className="truncate text-[13px] font-medium leading-tight text-emerald-600 dark:text-emerald-400">
-                        {escribiendo === "grabando" ? "grabando audio…" : "escribiendo…"}
+                        {escribiendo === "grabando"
+                          ? "grabando audio…"
+                          : escribiendo
+                            ? "escribiendo…"
+                            : "en línea"}
                       </p>
                     ) : renderedConversation.secondaryLabel &&
                       renderedConversation.secondaryLabel !== renderedConversation.label ? (

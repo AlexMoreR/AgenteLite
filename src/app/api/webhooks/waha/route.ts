@@ -419,7 +419,9 @@ async function avisarPresencia(sesion: string, presencia: PresenciaWaha) {
     cuando la funcion termina: el aviso no llegaba nunca. Tiene su propio limite de 1,5s, asi que
     esperarlo no retrasa nada.
   */
-  console.log(`[waha presencia] ${contacto.phoneNumber} ${presencia.que ?? "paro"}`);
+  console.log(
+    `[waha presencia] ${contacto.phoneNumber} ${presencia.que ?? (presencia.enLinea ? "en linea" : "paro")}`,
+  );
   await notifyRealtimeUpdate({
     workspaceId: canal.workspaceId,
     type: "presence",
@@ -428,6 +430,7 @@ async function avisarPresencia(sesion: string, presencia: PresenciaWaha) {
       lid: readLinkedLid(contacto.metadata),
       activo: presencia.activo,
       que: presencia.que,
+      enLinea: presencia.enLinea,
     },
   });
 }
