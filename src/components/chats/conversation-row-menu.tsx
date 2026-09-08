@@ -15,6 +15,7 @@ import { toast } from "sonner";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { updateConversationStatusAction } from "@/app/actions/chats-actions";
+import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
 import { snoozeLeadAction } from "@/app/actions/crm-actions";
 
 /**
@@ -34,12 +35,18 @@ const POSPONER_HORAS = 24;
 
 export function ConversationRowMenu({
   conversationId,
+  source = "agent",
   contactId,
   phoneNumber,
   status,
   chatHref,
 }: {
   conversationId: string;
+  /*
+    De donde sale la conversacion. Las de la API oficial viven en otra tabla, y resolverlas
+    buscandolas entre las del agente no las encuentra nunca.
+  */
+  source?: "agent" | "official";
   contactId: string | null;
   phoneNumber: string | null;
   status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
@@ -62,13 +69,25 @@ export function ConversationRowMenu({
       const resultado = await updateConversationStatusAction({
         conversationId,
         status: resuelto ? "OPEN" : "CLOSED",
-        source: "agent",
+        source,
       });
       if (resultado?.error) {
         toast.error(resultado.error);
         return;
       }
       toast.success(resuelto ? "Conversación reabierta" : "Conversación resuelta");
+      /*
+        La bandeja escucha esto para sacar la fila en el acto.
+
+        Su refresco solo agrega y actualiza, nunca quita: sin el aviso, uno resolvia desde el menu
+        y el chat se quedaba ahi, como si no hubiera pasado nada. Es lo mismo que ya hace el boton
+        "Resolver" de adentro del chat.
+      */
+      window.dispatchEvent(
+        new CustomEvent<ChatStatusChangedDetail>(CHAT_STATUS_CHANGED_EVENT, {
+          detail: { conversationId, source, resolved: !resuelto },
+        }),
+      );
       router.refresh();
     });
 

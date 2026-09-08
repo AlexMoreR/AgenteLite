@@ -318,7 +318,13 @@ const ConversationListItem = memo(function ConversationListItem({
             abria la conversacion por debajo del modal.
           */}
           <ConversationRowMenu
-            conversationId={conversation.id}
+            /*
+              El id de la fila viene con el prefijo del origen (`agent:` / `official:`), que es
+              como la bandeja distingue las dos fuentes. Mandandolo asi al servidor, la busqueda
+              no encontraba nada y resolver desde el menu contestaba "Conversacion no encontrada".
+            */
+            conversationId={conversation.id.replace(/^(agent|official):/, "")}
+            source={conversation.source}
             contactId={conversation.contactId ?? null}
             phoneNumber={conversation.secondaryLabel ?? null}
             status={conversation.status ?? "OPEN"}
