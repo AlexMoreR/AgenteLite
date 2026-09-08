@@ -630,6 +630,88 @@ type EventoWaha = {
 };
 
 /** `573001112233@c.us` es lo de WAHA; el resto del CRM habla `@s.whatsapp.net`. */
+/**
+ * Un campo del payload crudo, sin pelearse con las mayusculas.
+ *
+ * El mismo dato aparece como `itemCount`, `ItemCount` o `item_count` segun por donde venga: WAHA
+ * serializa las estructuras de Go y no siempre respeta el nombre del protocolo. Buscar por nombre
+ * exacto es lo que hace que un campo "no exista" cuando esta ahi a la vista.
+ */
+function campoCrudo(nodo: Record<string, unknown>, ...nombres: string[]): unknown {
+  const normalizar = (valor: string) => valor.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const buscados = new Set(nombres.map(normalizar));
+  for (const [clave, valor] of Object.entries(nodo)) {
+    if (buscados.has(normalizar(clave))) {
+      return valor;
+    }
+  }
+  return undefined;
+}
+
+/** El bloque del pedido, venga como `orderMessage` o como `OrderMessage`. */
+function nodoDePedido(bloque: unknown): Record<string, unknown> | null {
+  if (!bloque || typeof bloque !== "object") {
+    return null;
+  }
+  for (const [nombre, valor] of Object.entries(bloque as Record<string, unknown>)) {
+    if (/order/i.test(nombre) && valor && typeof valor === "object" && !Array.isArray(valor)) {
+      return valor as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+/**
+ * Que dice la burbuja de un pedido hecho desde el catalogo de WhatsApp.
+ *
+ * Este mensaje no trae texto ni archivo -es una tarjeta que WhatsApp arma sola-, asi que se
+ * descartaba entero: la clienta mandaba un pedido de 3 articulos y en el CRM no quedaba NADA. La
+ * asesora contestaba "que buscas en particular?" a alguien que ya habia dicho exactamente que
+ * queria. Peor que un mensaje feo es un mensaje invisible.
+ *
+ * Se arma un resumen con lo que trae la tarjeta. El detalle de los articulos no viaja en el
+ * evento -hay que pedirselo aparte a WhatsApp con el token del pedido-, asi que por ahora se dice
+ * cuantos son y cuanto suman, que es lo que decide si hay que abrir el telefono.
+ */
+function resumenDelPedido(pedido: Record<string, unknown>): string {
+  const numero = (valor: unknown): number | null => {
+    if (typeof valor === "number" && Number.isFinite(valor)) {
+      return valor;
+    }
+    if (typeof valor === "string" && valor.trim() && Number.isFinite(Number(valor))) {
+      return Number(valor);
+    }
+    return null;
+  };
+  const texto = (valor: unknown): string => (typeof valor === "string" ? valor.trim() : "");
+
+  const articulos = numero(campoCrudo(pedido, "itemCount"));
+  // El total viene multiplicado por 1000: es como lo manda WhatsApp para no usar decimales.
+  const total = numero(campoCrudo(pedido, "totalAmount1000"));
+  const moneda = texto(campoCrudo(pedido, "totalCurrencyCode"));
+  const nota = texto(campoCrudo(pedido, "message"));
+  const titulo = texto(campoCrudo(pedido, "orderTitle"));
+
+  const partes = ["🛒 *Pedido desde el catálogo*"];
+  if (articulos !== null) {
+    partes.push(`${articulos} ${articulos === 1 ? "artículo" : "artículos"}`);
+  }
+  if (total !== null && total > 0) {
+    const valor = Math.round(total / 1000).toLocaleString("es-CO");
+    partes.push(`Total: ${valor}${moneda ? ` ${moneda}` : ""}`);
+  }
+  if (titulo) {
+    partes.push(titulo);
+  }
+  if (nota) {
+    partes.push(nota);
+  }
+  // Se dice donde esta el detalle: los articulos no vienen en el evento y la asesora los necesita.
+  partes.push("_El detalle de los artículos se ve en WhatsApp._");
+
+  return partes.join("\n");
+}
+
 /** Un estado ("historia"), una lista de difusion o un canal: ninguno es un chat con alguien. */
 function esEstadoOCanal(jid: string): boolean {
   const valor = jid.trim().toLowerCase();
@@ -765,6 +847,13 @@ export function traducirEventoWaha(
 
   const texto = typeof mensaje.body === "string" ? mensaje.body : "";
 
+  /*
+    Un pedido del catalogo no trae ni texto ni archivo, y asi se perdia entero.
+  */
+  const bloqueCrudo = (mensaje._data ?? {}) as { Message?: unknown };
+  const pedido = nodoDePedido(bloqueCrudo.Message);
+  const textoVisible = texto.trim() ? texto : pedido ? resumenDelPedido(pedido) : "";
+
   const archivo = (mensaje.media ?? {}) as {
     url?: unknown;
     mimetype?: unknown;
@@ -788,8 +877,16 @@ export function traducirEventoWaha(
     un audio y no se pudo descargar" es peor que el audio, pero muchisimo mejor que el silencio.
   */
   const mediaSinArchivo = mensaje.hasMedia === true && !urlDelArchivo;
-  if (!tieneMedia && !mediaSinArchivo && !texto.trim()) {
-    return { motivo: "mensaje sin texto ni media" };
+  if (!tieneMedia && !mediaSinArchivo && !textoVisible.trim()) {
+    /*
+      Se dice QUE traia el mensaje que no supimos leer.
+
+      Un "mensaje sin texto ni media" a secas no permite arreglar nada: asi estuvo perdiendose el
+      pedido del catalogo sin que nadie pudiera saber que era. Con los nombres de los bloques,
+      el proximo tipo que aparezca se reconoce leyendo el log.
+    */
+    const nodos = Object.keys((bloqueCrudo.Message ?? {}) as Record<string, unknown>);
+    return { motivo: `mensaje sin texto ni media (${nodos.join(", ") || "sin bloques"})` };
   }
 
   /*
@@ -856,13 +953,13 @@ export function traducirEventoWaha(
                 mimetype,
                 // En WhatsApp el texto que acompana una foto ES el caption, no un mensaje aparte.
                 // Sin archivo se deja dicho QUE mando, para que la fila de la lista no quede muda.
-                caption: texto || (mediaSinArchivo ? avisoDeMediaPerdida(mimetype) : ""),
+                caption: textoVisible || (mediaSinArchivo ? avisoDeMediaPerdida(mimetype) : ""),
                 ...(nombreDelArchivo ? { fileName: nombreDelArchivo } : {}),
               },
             }
           : enlaceConVistaPrevia
-            ? { extendedTextMessage: { text: texto, ...enlaceConVistaPrevia } }
-            : { conversation: texto },
+            ? { extendedTextMessage: { text: textoVisible, ...enlaceConVistaPrevia } }
+            : { conversation: textoVisible },
         pushName: nombreDeQuienEscribe,
         messageTimestamp: typeof mensaje.timestamp === "number" ? mensaje.timestamp : undefined,
       },
