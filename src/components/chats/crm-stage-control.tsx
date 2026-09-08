@@ -141,7 +141,13 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
     cualquier cosa que se salga de la fila se corta contra ese borde. Se veia apenas una franja
     blanca asomando. Por eso se mide donde quedo la etiqueta y se dibuja encima de todo.
   */
-  const [posicion, setPosicion] = useState<{ top: number; left: number } | null>(null);
+  const [posicion, setPosicion] = useState<{
+    left: number;
+    /** Se ancla por ARRIBA o por ABAJO, segun de que lado haya lugar. */
+    top?: number;
+    bottom?: number;
+    alto: number;
+  } | null>(null);
   const [conteo, setConteo] = useState<Record<string, number>>(() => conteoEnMemoria?.datos ?? {});
 
   useEffect(() => {
@@ -162,7 +168,30 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
         Math.max(margen, caja.left),
         Math.max(margen, window.innerWidth - ancho - margen),
       );
-      setPosicion({ top: caja.bottom + 6, left: izquierda });
+
+      /*
+        Se abre para ARRIBA cuando abajo no hay lugar.
+
+        Salia siempre para abajo, asi que al tocar una etiqueta de las ultimas filas la lista de
+        etapas nacia contra el borde de la pantalla y se veia cortada por la mitad: justo las
+        etapas de mas abajo, que son las que uno va a elegir.
+
+        Anclando por `bottom` no hace falta saber cuanto mide el panel antes de dibujarlo: se le
+        dice donde termina y el crece hacia arriba solo.
+      */
+      const espacioAbajo = window.innerHeight - caja.bottom - margen;
+      const espacioArriba = caja.top - margen;
+      const abreAbajo = espacioAbajo >= 240 || espacioAbajo >= espacioArriba;
+
+      setPosicion(
+        abreAbajo
+          ? { left: izquierda, top: caja.bottom + 6, alto: Math.max(120, espacioAbajo - 6) }
+          : {
+              left: izquierda,
+              bottom: window.innerHeight - caja.top + 6,
+              alto: Math.max(120, espacioArriba - 6),
+            },
+      );
     };
 
     ubicar();
@@ -240,8 +269,15 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
         ? createPortal(
         <div
           ref={menuRef}
-          style={{ top: posicion.top, left: posicion.left, width: 224 }}
-          className="fixed z-[100] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]"
+          style={{
+            ...(posicion.top === undefined ? {} : { top: posicion.top }),
+            ...(posicion.bottom === undefined ? {} : { bottom: posicion.bottom }),
+            left: posicion.left,
+            width: 224,
+            // Si aun asi no entra -una pantalla muy baja, el teclado abierto-, se desplaza adentro.
+            maxHeight: posicion.alto,
+          }}
+          className="fixed z-[100] max-w-[calc(100vw-1.5rem)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-popover shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]"
         >
           {/*
             Sin titulo: la lista de etapas de colores ya dice que es esto, y el renglon gastaba
