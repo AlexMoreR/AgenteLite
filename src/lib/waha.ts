@@ -1257,3 +1257,23 @@ export async function suscribirPresenciaWaha(input: {
     // Es cosmetico: si falla, el chat funciona igual y solo no se ve "escribiendo...".
   }
 }
+
+/**
+ * A que chat pertenece un mensaje, sacado de su propio id.
+ *
+ * WAHA arma el id como `<fromMe>_<chat>_<hash>`, asi que el chat viaja adentro del id que ya
+ * tenemos guardado en el mensaje. Sirve para volver a pedirle el archivo a un mensaje viejo sin
+ * adivinar el jid a partir del telefono del contacto -los que entran por un anuncio no tienen
+ * telefono, son un @lid- y sin salir a leer el payload crudo.
+ */
+export function chatIdDeUnMensajeWaha(externalId?: string | null): string | null {
+  const id = (externalId ?? "").trim();
+  const primerGuion = id.indexOf("_");
+  const ultimoGuion = id.lastIndexOf("_");
+  if (primerGuion < 1 || ultimoGuion <= primerGuion) {
+    return null;
+  }
+  const chat = id.slice(primerGuion + 1, ultimoGuion);
+  // Sin arroba no es un chat de WhatsApp; mejor decir que no se pudo que pedir cualquier cosa.
+  return chat.includes("@") ? chat : null;
+}

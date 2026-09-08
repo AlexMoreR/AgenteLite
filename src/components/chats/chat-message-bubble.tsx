@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { recuperarArchivoPerdidoAction } from "@/app/actions/chats-actions";
 import type { SharedInboxMessageItem } from "./chat-inbox-types";
 import {
   chatDateFormatter,
@@ -466,25 +467,62 @@ export const MessageBubble = memo(function MessageBubble({
   const previousDateKey = previousMessage ? chatDateFormatter.format(previousMessage.createdAt) : null;
   const showDateDivider = currentDateKey !== previousDateKey;
   const adPreview = useMemo(() => extractChatAdPreview(message.rawPayload), [message]);
+  /*
+    El archivo que se fue a buscar despues, cuando la primera descarga habia fallado.
+
+    Se guarda aca y no se espera a que la lista se refresque: el mensaje ya quedo arreglado en la
+    base, pero la burbuja tiene que mostrarlo en el momento, que es cuando la asesora lo pidio.
+  */
+  const [archivoRecuperado, setArchivoRecuperado] = useState<{
+    url: string;
+    tipo: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT";
+  } | null>(null);
+  const [buscandoElArchivo, setBuscandoElArchivo] = useState(false);
+
   const isImageMessage = message.type === "IMAGE";
   const isStickerMessage = message.type === "STICKER";
-  const imagePreviewUrls = useMemo(() => (isImageMessage ? collectImagePreviewUrls(message) : []), [message, isImageMessage]);
+  const imagePreviewUrls = useMemo(() => {
+    if (archivoRecuperado?.tipo === "IMAGE" || archivoRecuperado?.tipo === "STICKER") {
+      return [archivoRecuperado.url];
+    }
+    return isImageMessage ? collectImagePreviewUrls(message) : [];
+  }, [archivoRecuperado, isImageMessage, message]);
   const imagePreviewUrl = imagePreviewUrls[imagePreviewIndex] ?? null;
   const audioUrl = useMemo(
-    () => (message.type === "AUDIO" ? extractMediaUrlFromPayload(message, "AUDIO") : null),
-    [message],
+    () =>
+      archivoRecuperado?.tipo === "AUDIO"
+        ? archivoRecuperado.url
+        : message.type === "AUDIO"
+          ? extractMediaUrlFromPayload(message, "AUDIO")
+          : null,
+    [archivoRecuperado, message],
   );
   const videoUrl = useMemo(
-    () => (message.type === "VIDEO" ? extractMediaUrlFromPayload(message, "VIDEO") : null),
-    [message],
+    () =>
+      archivoRecuperado?.tipo === "VIDEO"
+        ? archivoRecuperado.url
+        : message.type === "VIDEO"
+          ? extractMediaUrlFromPayload(message, "VIDEO")
+          : null,
+    [archivoRecuperado, message],
   );
   const stickerUrl = useMemo(
-    () => (isStickerMessage ? extractMediaUrlFromPayload(message, "STICKER") : null),
-    [isStickerMessage, message],
+    () =>
+      archivoRecuperado?.tipo === "STICKER"
+        ? archivoRecuperado.url
+        : isStickerMessage
+          ? extractMediaUrlFromPayload(message, "STICKER")
+          : null,
+    [archivoRecuperado, isStickerMessage, message],
   );
   const documentUrl = useMemo(
-    () => (message.type === "DOCUMENT" ? extractMediaUrlFromPayload(message, "DOCUMENT") : null),
-    [message],
+    () =>
+      archivoRecuperado?.tipo === "DOCUMENT"
+        ? archivoRecuperado.url
+        : message.type === "DOCUMENT"
+          ? extractMediaUrlFromPayload(message, "DOCUMENT")
+          : null,
+    [archivoRecuperado, message],
   );
   const vistaPreviaDelEnlace = useMemo(
     () => extraerVistaPreviaDeEnlace(message.rawPayload),
@@ -506,6 +544,35 @@ export const MessageBubble = memo(function MessageBubble({
   const mediaPreviewLabel = getMediaPreviewLabel(message.type);
   const mediaCaption = message.content?.trim() || "";
   const shouldRenderMediaCaption = mediaCaption && mediaCaption !== mediaPreviewLabel;
+  /*
+    Este mensaje traia un archivo y se quedo sin el.
+
+    El aviso lo escribe el webhook cuando la descarga falla, y se reconoce por el: no alcanza con
+    mirar que no haya archivo -un mensaje de texto tampoco tiene- ni con el tipo, porque WhatsApp
+    manda los audios perdidos como si fueran un documento.
+  */
+  const archivoQueNoBajo =
+    !archivoRecuperado &&
+    message.direction === "INBOUND" &&
+    (message.content ?? "").includes("no se pudo descargar");
+
+  const buscarElArchivo = async () => {
+    setBuscandoElArchivo(true);
+    try {
+      const resultado = await recuperarArchivoPerdidoAction(message.id);
+      if (resultado.ok && resultado.mediaUrl && resultado.tipo) {
+        setArchivoRecuperado({ url: resultado.mediaUrl, tipo: resultado.tipo });
+        toast.success("Archivo recuperado");
+        return;
+      }
+      toast.error(resultado.error ?? "No se pudo recuperar el archivo");
+    } catch {
+      toast.error("No se pudo recuperar el archivo");
+    } finally {
+      setBuscandoElArchivo(false);
+    }
+  };
+
   const hasImagePreview = isImageMessage && imagePreviewUrl !== null;
   const imagePreviewExhausted = isImageMessage && imagePreviewUrls.length > 0 && !hasImagePreview;
   const showInlineImageTimestamp = hasImagePreview;
@@ -1025,11 +1092,36 @@ export const MessageBubble = memo(function MessageBubble({
                   <span className="truncate">{documentMeta?.fileName ?? mediaPreviewLabel}</span>
                   {!isPendingMedia ? (
                     <span className={`truncate text-[11px] font-normal leading-tight ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"}`}>
-                      Enviado · no se puede abrir desde acá
+                      {archivoQueNoBajo ? "No se pudo descargar" : "Enviado · no se puede abrir desde acá"}
                     </span>
                   ) : null}
                 </span>
               </div>
+              {/*
+                Se puede ir a buscarlo: que la descarga fallara no quiere decir que el archivo se
+                haya perdido. Probando un audio que habia quedado asi, WhatsApp lo devolvio entero
+                horas despues. Se pide a mano y no solo porque a veces si expira, y reintentar en
+                cada carga seria pegarle al gateway por gusto.
+              */}
+              {archivoQueNoBajo ? (
+                <button
+                  type="button"
+                  onClick={buscarElArchivo}
+                  disabled={buscandoElArchivo}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-medium transition disabled:opacity-60 ${
+                    outbound
+                      ? "border-[var(--chat-out-border)] text-[var(--chat-out-text)] hover:bg-[var(--chat-out-overlay)]"
+                      : "border-border text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {buscandoElArchivo ? (
+                    <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  )}
+                  {buscandoElArchivo ? "Buscando..." : "Buscar el archivo"}
+                </button>
+              ) : null}
               {shouldRenderMediaCaption ? renderMessageText(message.content) : null}
             </div>
           ) : (

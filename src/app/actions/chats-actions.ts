@@ -14,7 +14,13 @@ import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { persistAvatarUrl } from "@/lib/contact-avatar-refresh";
 import { backfillEvolutionMessagesByPhone } from "@/lib/evolution-chat-sync";
 import { buildEvolutionGoHistoryAnchor, deleteEvolutionMessageForEveryone, fetchEvolutionProfilePictureUrl, readGatewayConnection, requestEvolutionGoHistorySync, sendEvolutionTextMessage } from "@/lib/evolution";
-import { WAHA_GATEWAY_KIND } from "@/lib/waha";
+import {
+  WAHA_GATEWAY_KIND,
+  chatIdDeUnMensajeWaha,
+  descargarMediaWaha,
+  reintentarMediaWaha,
+} from "@/lib/waha";
+import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -2264,4 +2270,149 @@ export async function addConversationNoteAction(input: {
 
   revalidatePath("/cliente/chats");
   return { ok: true };
+}
+
+/* ------------------------------------------------ el archivo que no se pudo bajar */
+
+/** Que clase de mensaje es, segun lo que WhatsApp diga que es el archivo. */
+function claseDeArchivo(mimetype: string): "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" {
+  const mime = mimetype.toLowerCase();
+  if (mime.startsWith("image/webp")) {
+    return "STICKER";
+  }
+  if (mime.startsWith("image/")) {
+    return "IMAGE";
+  }
+  if (mime.startsWith("audio/")) {
+    return "AUDIO";
+  }
+  if (mime.startsWith("video/")) {
+    return "VIDEO";
+  }
+  return "DOCUMENT";
+}
+
+/**
+ * Va a buscar de nuevo el archivo de un mensaje que quedo sin el.
+ *
+ * Cuando la descarga falla, el mensaje se guarda igual con un aviso -"te mando un audio y no se
+ * pudo descargar"- para que no quede en silencio. Pero ese aviso es definitivo solo si el archivo
+ * ya expiro: probando el audio de un chat de Vacantes, WAHA lo devolvio entero varias horas
+ * despues. O sea que la mayoria de esos avisos son recuperables y no habia forma de pedirlos.
+ *
+ * Se pide con lo que ya tenemos guardado: el id del mensaje es el mismo que usa WAHA, y adentro
+ * de ese id viene el chat. Si entra, el archivo se baja y se guarda de nuestro lado -la URL de
+ * WAHA exige la clave, el navegador de la asesora no puede abrirla- y el mensaje pasa a ser lo que
+ * siempre fue: un audio, una foto, un video.
+ */
+export async function recuperarArchivoPerdidoAction(messageId: string): Promise<{
+  ok: boolean;
+  error?: string;
+  mediaUrl?: string;
+  tipo?: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT";
+}> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { ok: false, error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { ok: false, error: "Workspace no encontrado" };
+  }
+
+  const id = messageId.trim();
+  if (!id) {
+    return { ok: false, error: "Mensaje invalido" };
+  }
+
+  const message = await prisma.message.findFirst({
+    where: { id, workspaceId: membership.workspace.id },
+    select: {
+      id: true,
+      externalId: true,
+      mediaUrl: true,
+      content: true,
+      channel: { select: { evolutionInstanceName: true, metadata: true } },
+      contact: { select: { phoneNumber: true } },
+    },
+  });
+
+  if (!message) {
+    return { ok: false, error: "Mensaje no encontrado" };
+  }
+  if (message.mediaUrl) {
+    return { ok: true, mediaUrl: message.mediaUrl };
+  }
+  if (!message.externalId) {
+    return { ok: false, error: "Ese mensaje no tiene id de WhatsApp" };
+  }
+
+  const conexion = readGatewayConnection(message.channel?.metadata);
+  const sesion = message.channel?.evolutionInstanceName ?? "";
+  if (!conexion?.apiToken || conexion.kind !== WAHA_GATEWAY_KIND || !sesion) {
+    return { ok: false, error: "Solo se puede en los canales conectados por WAHA" };
+  }
+
+  /*
+    El chat sale del propio id del mensaje, y el telefono queda de respaldo.
+
+    Los leads que entran por un anuncio no tienen telefono -son un @lid-, asi que armar el chat con
+    el contacto no alcanzaba justo para los mensajes que mas se pierden.
+  */
+  const chatId =
+    chatIdDeUnMensajeWaha(message.externalId) ??
+    (message.contact?.phoneNumber ? `${message.contact.phoneNumber}@c.us` : null);
+  if (!chatId) {
+    return { ok: false, error: "No pude saber de que chat es" };
+  }
+
+  const recuperada = await reintentarMediaWaha({
+    connection: { baseUrl: conexion.baseUrl, apiToken: conexion.apiToken },
+    sesion,
+    chatId,
+    mensajeId: message.externalId,
+  });
+  if (!recuperada) {
+    return { ok: false, error: "WhatsApp ya no tiene ese archivo" };
+  }
+
+  const base64 = await descargarMediaWaha(
+    { baseUrl: conexion.baseUrl, apiToken: conexion.apiToken },
+    recuperada.url,
+  );
+  if (!base64) {
+    return { ok: false, error: "No se pudo bajar el archivo" };
+  }
+
+  // El mimetype viene con adornos ("audio/ogg; codecs=opus"); para la extension sirve el tipo solo.
+  const mimetype = (recuperada.mimetype || "application/octet-stream").split(";")[0]!.trim();
+  const tipo = claseDeArchivo(mimetype);
+
+  const mediaUrl = await persistChatMediaFromDataUrl({
+    dataUrl: `data:${mimetype};base64,${base64}`,
+    mediaType: tipo,
+  });
+  if (!mediaUrl) {
+    return { ok: false, error: "No se pudo guardar el archivo" };
+  }
+
+  /*
+    El aviso se borra: ya no es cierto. Un texto del cliente, en cambio, se respeta -si mando una
+    foto con algo escrito, eso escrito sigue siendo suyo-.
+  */
+  const avisoDeQueFallo = (message.content ?? "").trim().startsWith("\u26a0");
+  await prisma.message.update({
+    where: { id: message.id },
+    data: {
+      type: tipo,
+      mediaUrl,
+      ...(avisoDeQueFallo ? { content: null } : {}),
+    },
+  });
+
+  console.log("[waha media] recuperada a pedido", { messageId: message.id, tipo, sesion });
+
+  return { ok: true, mediaUrl, tipo };
 }
