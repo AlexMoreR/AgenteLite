@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import {
   WAHA_GATEWAY_KIND,
   asegurarSesionWaha,
+  borrarSesionWaha,
   enviarMediaWaha,
   fotoDeContactoWaha,
   leerSesionWaha,
@@ -2167,6 +2168,21 @@ export async function recreateEvolutionInstanceForChannel(input: {
       },
     });
 
+    /*
+      La sesion que queda atras se borra, como ya se hacia del lado de evogo.
+
+      Sin esto el canal apuntaba a la nueva y la vieja seguia viva en WAHA, vinculada al mismo
+      telefono: cada mensaje llegaba DOS veces (una por sesion) y la copia de la huerfana se
+      descartaba con `channel_not_found`. Asi quedaron `vacantes` y `vacantes-2`.
+
+      Va despues de apuntar el canal a la nueva: si el borrado falla, lo peor que pasa es que
+      sobre una sesion; al reves nos quedariamos sin ninguna.
+    */
+    const anterior = channel.evolutionInstanceName ?? "";
+    if (anterior && anterior !== sesion) {
+      await borrarSesionWaha(wahaExistente, anterior);
+    }
+
     return { instanceName: sesion };
   }
 
@@ -2277,6 +2293,19 @@ export async function createEvolutionChannelForAgent(input: {
 }
 
 export async function deleteEvolutionInstance(instanceName: string) {
+  /*
+    Un canal de WAHA se borra por otra puerta.
+
+    Aca abajo se hablan las rutas de Evolution (`/instance/delete/...`), que en WAHA no existen:
+    el borrado fallaba en silencio -es best-effort- y la sesion quedaba viva, vinculada al
+    telefono y recibiendo mensajes de un canal que ya no existe.
+  */
+  const waha = await conexionWahaDe(instanceName);
+  if (waha) {
+    await borrarSesionWaha(waha, instanceName);
+    return;
+  }
+
   const settings = await getEvolutionSettings();
   if (!settings.apiBaseUrl || !settings.apiToken) {
     return;

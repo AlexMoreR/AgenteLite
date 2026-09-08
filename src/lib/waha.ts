@@ -317,6 +317,32 @@ async function sincronizarWebhookUnaVez(
  * El resto de la app compara contra "open"/"close", que viene de Evolution. Traducir aca evita
  * tener que enseñarle a toda la app un tercer juego de nombres.
  */
+/**
+ * Borra una sesion de WAHA.
+ *
+ * Hace falta cuando un canal cambia de sesion o se elimina: la sesion vieja no se cae sola, sigue
+ * vinculada al telefono y siguiendo recibiendo. Paso con Vacantes: quedaron `vacantes` y
+ * `vacantes-2` sobre la MISMA linea, cada mensaje llegaba dos veces y la copia huerfana se
+ * descartaba con `channel_not_found`, ensuciando todo el log.
+ *
+ * Es best-effort a proposito: que no se pueda borrar la vieja no puede impedir que la nueva quede
+ * conectada, que es lo que el usuario esta esperando en pantalla.
+ */
+export async function borrarSesionWaha(connection: WahaConnection, sesion: string): Promise<void> {
+  if (!sesion.trim()) {
+    return;
+  }
+  try {
+    await wahaRequest(connection, `/api/sessions/${encodeURIComponent(sesion)}`, {
+      method: "DELETE",
+      esperaJson: false,
+    });
+    console.log("[waha] sesion borrada", { sesion });
+  } catch (error) {
+    console.error("[waha] no pude borrar la sesion", sesion, error);
+  }
+}
+
 export async function estadoDeSesionWaha(
   connection: WahaConnection,
   sesion: string,
