@@ -2740,8 +2740,44 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  /*
+    Que una asesora conteste desde su celular apaga la IA de ese chat. Pero solo si fue ELLA.
+
+    Medido el 8-sep-2026 en Vacantes: 53 conversaciones quedaron pausadas en 8 horas, y las de
+    los leads de anuncios se apagaban SOLAS al primer mensaje. El culpable es un mensaje que la
+    propia linea manda automaticamente cuando entra un lead de anuncio -"Hola Magilus, QUIERO
+    APLICAR..."-, que llega como `fromMe` con el nombre del negocio y a nombre de nadie:
+
+      fromMe: true · Sender: 116643191648471@lid (nuestra linea) · PushName: "Aizenproyects"
+
+    Para el CRM era indistinguible de una asesora escribiendo, asi que apagaba el agente 4
+    segundos despues de que el lead escribia. El lead contestaba y ya nadie le respondia: el bot
+    seguia "prendido" en la pantalla, pero mudo en ese chat.
+
+    El corte es el tiempo, que es lo unico que los separa de verdad: una persona no lee y contesta
+    un lead nuevo en menos de un minuto; un automatismo si. Si igual llegara a pasar, la asesora
+    tiene el interruptor de "Pausar agente" a mano.
+  */
   if (fromMe && channel.agentId && !isCallEvent) {
-    await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
+    const primerMensaje = conversation.id
+      ? await prisma.message.findFirst({
+          where: { conversationId: conversation.id },
+          orderBy: { createdAt: "asc" },
+          select: { createdAt: true },
+        })
+      : null;
+    const conversacionRecienNacida =
+      !primerMensaje || Date.now() - primerMensaje.createdAt.getTime() < 60_000;
+
+    if (conversacionRecienNacida) {
+      console.log("[EVOLUTION] pausa_automatica_evitada", {
+        conversationId: conversation.id,
+        instanceName,
+        motivo: "saliente automatico en una conversacion recien abierta",
+      });
+    } else {
+      await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
+    }
   }
 
       if (!fromMe && channel.agentId && !isCallEvent) {
