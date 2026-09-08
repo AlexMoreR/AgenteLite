@@ -74,6 +74,8 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
   estadoLlamadas?: WaCallsEstado | null;
   pausedAssignmentIds?: string[];
   monitorIds?: string[];
+  moduleDefinitions?: Array<{ key: string; label: string; description?: string }>;
+  puedeEditarVistas?: boolean;
   // Regla "los leads de esta campana son de tal persona" (por titulo del anuncio).
   adRoutingKeywords?: string[];
   adRoutingUserIds?: string[];
@@ -102,6 +104,8 @@ export function WhatsAppBusinessConnectionWorkspace({
   estadoLlamadas = null,
   pausedAssignmentIds = [],
   monitorIds = [],
+  moduleDefinitions = [],
+  puedeEditarVistas = false,
   adRoutingKeywords = [],
   adRoutingUserIds = [],
   evolutionApiGateways = [],
@@ -423,6 +427,8 @@ export function WhatsAppBusinessConnectionWorkspace({
                       collaboratorIds={collaboratorIds}
                       pausedAssignmentIds={pausedAssignmentIds}
                       monitorIds={monitorIds}
+                      moduleDefinitions={moduleDefinitions}
+                      puedeEditarVistas={puedeEditarVistas}
                     />
                   </CardContent>
                 </Card>
@@ -456,6 +462,8 @@ export function WhatsAppBusinessConnectionWorkspace({
                       collaboratorIds={collaboratorIds}
                       pausedAssignmentIds={pausedAssignmentIds}
                       monitorIds={monitorIds}
+                      moduleDefinitions={moduleDefinitions}
+                      puedeEditarVistas={puedeEditarVistas}
                     />
                   </CardContent>
                 </Card>

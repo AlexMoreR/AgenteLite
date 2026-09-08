@@ -12,6 +12,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AD_CAMPAIGN_ROUTING_METADATA_KEY } from "@/lib/ad-campaign-routing";
 import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
+import {
+  clientAssignableModuleDefinitions,
+  sanitizeClientModuleAccess,
+} from "@/lib/client-workspace-modules";
 import { getEstadoDeCanal } from "@/lib/wacalls";
 
 export const dynamic = "force-dynamic";
@@ -51,6 +55,7 @@ export default async function ClienteConexionWhatsAppBusinessDetailPage({ params
         agentId={agentId}
         okMessage={okMessage}
         errorMessage={errorMessage}
+        puedeEditarVistas={access.isOwner || access.role === "ADMIN"}
       />
     </Suspense>
   );
@@ -61,7 +66,9 @@ async function ConnectionDetailContent({
   agentId,
   okMessage,
   errorMessage,
+  puedeEditarVistas,
 }: {
+  puedeEditarVistas: boolean;
   workspaceId: string;
   agentId: string;
   okMessage: string;
@@ -87,7 +94,13 @@ async function ConnectionDetailContent({
     }),
     prisma.workspaceMember.findMany({
       where: { workspaceId, isActive: true },
-      select: { user: { select: { id: true, name: true, email: true } } },
+      // moduleAccess y el rol viajan para el modal de cada colaborador: ahi se editan las vistas
+      // sin tener que ir hasta Equipo.
+      select: {
+        role: true,
+        moduleAccess: true,
+        user: { select: { id: true, name: true, email: true, role: true } },
+      },
       orderBy: { createdAt: "asc" },
     }),
     getOfficialApiProviderSettings(),
@@ -130,6 +143,10 @@ async function ConnectionDetailContent({
     id: member.user.id,
     name: member.user.name,
     email: member.user.email,
+    // Las vistas solo se pueden repartir a las empleadas: al dueño y a los administradores no se
+    // les recortan, y ofrecerlo seria ofrecer un boton que no hace nada.
+    editableModules: member.role === "AGENT" && member.user.role === "EMPLEADO",
+    moduleAccess: sanitizeClientModuleAccess(member.moduleAccess),
   }));
 
   const webhookCallbackUrl = `${getPublicBaseUrl()}/api/webhooks/meta/official-api`;
@@ -159,6 +176,8 @@ async function ConnectionDetailContent({
       collaboratorIds={collaboratorIds}
       pausedAssignmentIds={pausedAssignmentIds}
       monitorIds={monitorIds}
+      moduleDefinitions={clientAssignableModuleDefinitions}
+      puedeEditarVistas={puedeEditarVistas}
       estadoLlamadas={estadoLlamadas}
       adRoutingKeywords={adRoutingKeywords}
       adRoutingUserIds={adRoutingUserIds}

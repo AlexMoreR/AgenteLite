@@ -22,6 +22,8 @@ import {
 } from "@/lib/waha";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { AVISO_MODO_MONITOREO, enmascararTelefono, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
+import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
+import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -2451,4 +2453,117 @@ export async function recuperarArchivoPerdidoAction(messageId: string): Promise<
   console.log("[waha media] recuperada a pedido", { messageId: message.id, tipo, sesion });
 
   return { ok: true, mediaUrl, tipo };
+}
+
+/* ------------------------------------------------ una persona en un canal */
+
+/**
+ * Que hace una persona en este canal, y que pantallas ve en el CRM.
+ *
+ * Va todo junto y no en dos pantallas porque es una sola pregunta: "que le dejo hacer a esta
+ * persona". Antes, para dejar a alguien mirando sin que pudiera contactar, habia que poner el
+ * estado aca y despues acordarse de ir a Equipo a quitarle las otras pantallas -y si no se
+ * acordaba, el numero salia igual por Contactos-.
+ *
+ * OJO con el alcance, que es distinto para cada cosa:
+ *  - el ESTADO es de este canal (se puede monitorear Ventas 1 y atender Vacantes);
+ *  - las VISTAS son de la persona en todo el CRM, porque asi funcionan los permisos.
+ * La pantalla lo dice; aca se respeta.
+ */
+export async function actualizarColaboradorDelCanalAction(input: {
+  channelId: string;
+  userId: string;
+  estado: "recibe" | "pausa" | "monitorea";
+  /** Modulos visibles para esa persona. `null` = no tocarlos. */
+  modulos?: string[] | null;
+}): Promise<{ error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  const access = await requireClientWorkspaceAccess("connection");
+
+  const channelId = input.channelId?.trim();
+  const userId = input.userId?.trim();
+  if (!channelId || !userId) {
+    return { error: "Datos invalidos" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: { id: channelId, workspaceId: membership.workspace.id },
+    select: { id: true, metadata: true },
+  });
+  if (!channel) {
+    return { error: "Canal no encontrado" };
+  }
+
+  const colaboradores = leerColaboradores(channel.metadata);
+  if (!colaboradores.includes(userId)) {
+    return { error: "Esa persona no trabaja este canal" };
+  }
+
+  const pausados = new Set(leerPausadosDeReparto(channel.metadata));
+  const monitores = new Set(leerMonitores(channel.metadata));
+
+  // Quien solo monitorea queda ademas en pausa: no puede contestar, asi que un lead nuevo en sus
+  // manos seria un lead perdido. Se deja escrito y no implicito, para que siga siendo cierto si
+  // mañana se le quita el monitoreo desde otro lado.
+  if (input.estado === "monitorea") {
+    monitores.add(userId);
+    pausados.add(userId);
+  } else if (input.estado === "pausa") {
+    monitores.delete(userId);
+    pausados.add(userId);
+  } else {
+    monitores.delete(userId);
+    pausados.delete(userId);
+  }
+
+  const baseMetadata =
+    channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
+      ? (channel.metadata as Record<string, unknown>)
+      : {};
+
+  await prisma.whatsAppChannel.update({
+    where: { id: channel.id },
+    data: {
+      metadata: {
+        ...baseMetadata,
+        collaboratorIds: colaboradores,
+        pausedAssignmentIds: colaboradores.filter((id) => pausados.has(id)),
+        monitorIds: colaboradores.filter((id) => monitores.has(id)),
+      } as Prisma.InputJsonValue,
+    },
+  });
+
+  /*
+    Las vistas las cambia solo el dueño o un administrador.
+
+    Es repartir permisos, no organizar el trabajo del canal: si cualquiera con acceso a Conexion
+    pudiera hacerlo, una asesora se daria a si misma las pantallas que quisiera.
+  */
+  if (Array.isArray(input.modulos)) {
+    if (!access.isOwner && access.role !== "ADMIN") {
+      return { error: "Solo el dueño o un administrador puede cambiar las vistas" };
+    }
+
+    const modulos = sanitizeClientModuleAccess(input.modulos);
+    await prisma.workspaceMember.updateMany({
+      where: {
+        workspaceId: membership.workspace.id,
+        userId,
+        role: "AGENT",
+        user: { role: "EMPLEADO" },
+      },
+      data: { moduleAccess: modulos },
+    });
+  }
+
+  revalidatePath(`/cliente/conexion/whatsapp-business/${channelId}`);
+  return {};
 }
