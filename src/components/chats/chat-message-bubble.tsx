@@ -478,6 +478,15 @@ export const MessageBubble = memo(function MessageBubble({
     tipo: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT";
   } | null>(null);
   const [buscandoElArchivo, setBuscandoElArchivo] = useState(false);
+  /*
+    El PDF se abre DENTRO del chat, como en WhatsApp.
+
+    Antes el toque lo mandaba a otra pestaña y el navegador -sobre todo en el celular- lo bajaba
+    en vez de mostrarlo: para leer un curriculum habia que ir a la carpeta de descargas y volver.
+    Ahora se mira sin salir de la conversacion, y queda igual el "Abrir" para quien lo prefiera
+    en su lector de siempre.
+  */
+  const [pdfAbierto, setPdfAbierto] = useState(false);
 
   const isImageMessage = message.type === "IMAGE";
   const isStickerMessage = message.type === "STICKER";
@@ -524,6 +533,15 @@ export const MessageBubble = memo(function MessageBubble({
           : null,
     [archivoRecuperado, message],
   );
+  /*
+    Se mira el nombre Y la direccion: el nombre puede venir vacio, y la direccion de un archivo ya
+    guardado siempre termina en `.pdf`, porque la extension se pone al guardarlo.
+  */
+  const esPdf = useMemo(() => {
+    const direccion = (documentUrl ?? "").toLowerCase();
+    return /\.pdf($|[?#])/.test(direccion) || direccion.includes(".pdf");
+  }, [documentUrl]);
+
   const vistaPreviaDelEnlace = useMemo(
     () => extraerVistaPreviaDeEnlace(message.rawPayload),
     [message.rawPayload],
@@ -1023,10 +1041,27 @@ export const MessageBubble = memo(function MessageBubble({
             />
           ) : documentUrl ? (
             <div className="space-y-2">
+              {/*
+                Un PDF se mira aca; los demas archivos siguen abriendose como siempre.
+
+                Es la diferencia entre "lo puedo leer" y "lo tengo que bajar": casi todo lo que
+                mandan es un curriculum en PDF, y un Excel o un Word el navegador no los sabe
+                mostrar igual, asi que ahi abrir aparte sigue siendo lo correcto.
+
+                Sigue siendo un enlace -no un boton- para no perder lo que uno espera de uno: el
+                clic del medio y "abrir en otra pestaña" siguen funcionando.
+              */}
               <a
                 href={documentUrl}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(evento) => {
+                  if (!esPdf) {
+                    return;
+                  }
+                  evento.preventDefault();
+                  setPdfAbierto(true);
+                }}
                 title={documentMeta?.fileName ?? "Abrir documento"}
                 className={`flex max-w-[min(230px,68vw)] items-center gap-2 rounded-xl p-1.5 pr-3 transition ${
                   outbound ? "bg-[var(--chat-out-overlay)] hover:bg-[var(--chat-out-overlay-strong)]" : "bg-background hover:bg-muted"
@@ -1047,6 +1082,60 @@ export const MessageBubble = memo(function MessageBubble({
                   </span>
                 </span>
               </a>
+
+              {portalTarget && pdfAbierto && documentUrl
+                ? createPortal(
+                    <div
+                      className="fixed inset-0 z-[120] flex flex-col bg-black/90 backdrop-blur-sm"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-label={documentMeta?.fileName ?? "Documento"}
+                      onClick={(evento) => {
+                        if (evento.target === evento.currentTarget) {
+                          setPdfAbierto(false);
+                        }
+                      }}
+                    >
+                      <div className="flex shrink-0 items-center gap-2 px-3 py-2.5">
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-white">
+                          {documentMeta?.fileName ?? "Documento"}
+                        </span>
+                        <a
+                          href={documentUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(evento) => evento.stopPropagation()}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white/10 px-3 text-[12px] font-medium text-white transition hover:bg-white/20"
+                        >
+                          <Download className="size-4" />
+                          Abrir
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => setPdfAbierto(false)}
+                          aria-label="Cerrar"
+                          className="inline-flex size-9 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+                        >
+                          <X className="size-5" />
+                        </button>
+                      </div>
+                      {/*
+                        Lo dibuja el visor del navegador, que ya sabe hacerlo.
+
+                        Traer una biblioteca para pintar el PDF nosotros serian cientos de
+                        kilobytes en CADA carga del chat, para algo que el navegador hace solo. Si
+                        alguno no lo muestra -pasa en algunos celulares-, arriba esta "Abrir", que
+                        se lo entrega al lector del telefono.
+                      */}
+                      <iframe
+                        src={documentUrl}
+                        title={documentMeta?.fileName ?? "Documento"}
+                        className="min-h-0 w-full flex-1 border-0 bg-white"
+                      />
+                    </div>,
+                    portalTarget,
+                  )
+                : null}
               {/* No repetir el nombre del archivo abajo: WhatsApp manda el nombre como
                   "caption" cuando no hay mensaje real, y ya se muestra en la tarjeta. */}
               {message.content?.trim() && message.content.trim() !== (documentMeta?.fileName ?? "").trim()

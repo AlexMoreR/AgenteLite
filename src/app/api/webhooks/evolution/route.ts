@@ -1522,18 +1522,39 @@ export async function POST(request: NextRequest) {
     ? extractEvolutionReaction(payload)
     : null;
   if (reaction) {
-    if (!fromMe) {
-      // Emoji vacio = el cliente quito la reaccion.
-      const nextEmoji = reaction.emoji.trim() || null;
-      await prisma.message
-        .updateMany({
-          where: { channelId: channel.id, externalId: reaction.targetExternalId },
-          data: { reactionEmoji: nextEmoji },
-        })
-        .catch((error) => {
-          console.error("[EVOLUTION] reaction_update_failed", error);
-        });
-    }
+    /*
+      Tambien se guarda la reaccion NUESTRA, no solo la del cliente.
+
+      Antes se ignoraba lo que sale de nuestra linea, asi que Alex reaccionaba desde su celular y
+      en el CRM no aparecia nada. La reaccion se pega a la burbuja del mensaje reaccionado, igual
+      que en WhatsApp: quien reacciono se ve por CUAL burbuja la tiene.
+    */
+    // Emoji vacio = se quito la reaccion.
+    const nextEmoji = reaction.emoji.trim() || null;
+    /*
+      El id del mensaje reaccionado se busca tambien por su parte final.
+
+      Es el mismo desencuentro que ya tuvimos con el doble check: al enviar, el id se arma con el
+      numero y en el aviso viene armado con el LID. Nunca coinciden como texto, y la reaccion no
+      encontraria su mensaje.
+    */
+    const crudoDelObjetivo = reaction.targetExternalId.split("_").pop() ?? "";
+    await prisma.message
+      .updateMany({
+        where: {
+          channelId: channel.id,
+          OR: [
+            { externalId: reaction.targetExternalId },
+            ...(crudoDelObjetivo.length >= 8
+              ? [{ externalId: { endsWith: `_${crudoDelObjetivo}` } }]
+              : []),
+          ],
+        },
+        data: { reactionEmoji: nextEmoji },
+      })
+      .catch((error) => {
+        console.error("[EVOLUTION] reaction_update_failed", error);
+      });
 
     console.log("[EVOLUTION] reaction_received", {
       instanceName,

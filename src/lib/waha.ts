@@ -94,7 +94,13 @@ const TIMEOUT_MEDIA_MS = 300_000;
   `presence.update` es el "escribiendo..." y el "grabando audio". Faltaba, asi que en las lineas
   nuevas no aparecia nunca -solo lo tenian dos sesiones viejas configuradas a mano-.
 */
-const EVENTOS = ["message.any", "message.ack", "session.status", "presence.update"] as const;
+const EVENTOS = [
+  "message.any",
+  "message.ack",
+  "message.reaction",
+  "session.status",
+  "presence.update",
+] as const;
 
 async function wahaRequest<T>(
   connection: WahaConnection,
@@ -796,6 +802,46 @@ export function traducirEventoWaha(
   }
 
   /*
+    Las reacciones (👍 ❤️) vienen por su PROPIO evento, no dentro de los mensajes.
+
+    Por eso no se veian: no estabamos suscritos a `message.reaction` y no llegaban nunca -ni
+    siquiera al log de descartados-. Se traducen a la forma que el webhook de Evolution ya
+    entiende (`reactionMessage`), que sabe pegarlas a la burbuja del mensaje reaccionado.
+  */
+  if (nombre === "message.reaction") {
+    const datos = (evento.payload ?? {}) as {
+      id?: unknown;
+      from?: unknown;
+      fromMe?: unknown;
+      timestamp?: unknown;
+      reaction?: unknown;
+    };
+    const de = typeof datos.from === "string" ? datos.from : "";
+    const reaccion = (datos.reaction ?? {}) as { text?: unknown; messageId?: unknown };
+    const objetivo = typeof reaccion.messageId === "string" ? reaccion.messageId : "";
+    // El texto vacio es quitar la reaccion, y hay que pasarlo igual: si no, sacarla no se veria.
+    const emoji = typeof reaccion.text === "string" ? reaccion.text : "";
+    if (!de || !objetivo) {
+      return { motivo: "reaccion sin mensaje al que pegarse" };
+    }
+    return {
+      evolution: {
+        event: "messages.upsert",
+        instance: sesion,
+        data: {
+          key: {
+            remoteJid: jidDeWaha(de),
+            fromMe: datos.fromMe === true,
+            id: typeof datos.id === "string" ? datos.id : null,
+          },
+          message: { reactionMessage: { key: { id: objetivo }, text: emoji } },
+          messageTimestamp: typeof datos.timestamp === "number" ? datos.timestamp : undefined,
+        },
+      },
+    };
+  }
+
+  /*
     Se procesa `message.any` y se descarta `message`: WAHA manda los dos por el MISMO mensaje.
 
     Las sesiones viejas quedaron suscritas a ambos, asi que no alcanza con pedir uno solo: hay que
@@ -852,6 +898,34 @@ export function traducirEventoWaha(
   */
   const bloqueCrudo = (mensaje._data ?? {}) as { Message?: unknown };
   const pedido = nodoDePedido(bloqueCrudo.Message);
+
+  /*
+    La CITA de un mensaje ("responder") viaja en el contextInfo, y la estabamos tirando.
+
+    Al traducir armabamos el nodo de texto a mano -texto y nada mas- asi que la respuesta llegaba
+    al CRM como un mensaje suelto: se leia "si, esa" sin saber a que. El dato venia entero desde
+    el principio.
+
+    Se busca en todos los nodos porque cuelga del que corresponda al tipo de mensaje: en un texto
+    de `extendedTextMessage`, en una foto de `imageMessage`. Y se reenvia tal cual, sin
+    reinterpretarlo: la burbuja ya sabe leer esta forma, que es la misma de Evolution.
+  */
+  const citaCruda = ((): Record<string, unknown> | null => {
+    const bloque = bloqueCrudo.Message;
+    if (!bloque || typeof bloque !== "object") {
+      return null;
+    }
+    for (const valor of Object.values(bloque as Record<string, unknown>)) {
+      if (!valor || typeof valor !== "object") {
+        continue;
+      }
+      const contexto = (valor as Record<string, unknown>).contextInfo;
+      if (contexto && typeof contexto === "object" && (contexto as Record<string, unknown>).quotedMessage) {
+        return contexto as Record<string, unknown>;
+      }
+    }
+    return null;
+  })();
   const textoVisible = texto.trim() ? texto : pedido ? resumenDelPedido(pedido) : "";
 
   const archivo = (mensaje.media ?? {}) as {
@@ -949,6 +1023,7 @@ export function traducirEventoWaha(
         message: tieneMedia || mediaSinArchivo
           ? {
               [nodoSegunMime(mimetype)]: {
+                ...(citaCruda ? { contextInfo: citaCruda } : {}),
                 ...(urlDelArchivo ? { url: urlDelArchivo } : {}),
                 mimetype,
                 // En WhatsApp el texto que acompana una foto ES el caption, no un mensaje aparte.
@@ -958,7 +1033,9 @@ export function traducirEventoWaha(
               },
             }
           : enlaceConVistaPrevia
-            ? { extendedTextMessage: { text: textoVisible, ...enlaceConVistaPrevia } }
+            ? { extendedTextMessage: { text: textoVisible, ...enlaceConVistaPrevia, ...(citaCruda ? { contextInfo: citaCruda } : {}) } }
+            : citaCruda
+            ? { extendedTextMessage: { text: textoVisible, contextInfo: citaCruda } }
             : { conversation: textoVisible },
         pushName: nombreDeQuienEscribe,
         messageTimestamp: typeof mensaje.timestamp === "number" ? mensaje.timestamp : undefined,
