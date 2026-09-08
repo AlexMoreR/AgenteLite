@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { readGatewayConnection } from "@/lib/evolution";
-import { readLinkedLid } from "@/lib/whatsapp-lid";
+import { buildLinkedLidMetadata, readLinkedLid } from "@/lib/whatsapp-lid";
 import {
   avanzaElEstado,
   descargarMediaWaha,
@@ -342,7 +342,7 @@ async function aplicarAck(ack: {
 async function avisarPresencia(sesion: string, presencia: PresenciaWaha) {
   const canal = await prisma.whatsAppChannel.findUnique({
     where: { evolutionInstanceName: sesion },
-    select: { workspaceId: true },
+    select: { workspaceId: true, metadata: true },
   });
   if (!canal) {
     return;
@@ -354,7 +354,7 @@ async function avisarPresencia(sesion: string, presencia: PresenciaWaha) {
     return;
   }
 
-  const contacto = await prisma.contact.findFirst({
+  let contacto = await prisma.contact.findFirst({
     where: {
       workspaceId: canal.workspaceId,
       OR: [
@@ -364,6 +364,48 @@ async function avisarPresencia(sesion: string, presencia: PresenciaWaha) {
     },
     select: { id: true, phoneNumber: true, metadata: true },
   });
+
+  /*
+    Si vino con LID y no lo reconocimos, se le pregunta a WhatsApp de quien es.
+
+    Medido el 8-sep-2026: TODOS los avisos de presencia llegan con LID, ninguno con el telefono.
+    Buscar por el LID anotado en la ficha no alcanzaba porque esa anotacion la deja el camino de
+    los mensajes y la mayoria de las fichas no la tiene, asi que el "escribiendo..." no se veia en
+    ningun chat -no en los de anuncios: en NINGUNO-.
+
+    Es la misma traduccion que ya se usa cuando entra un mensaje, y esa guarda la respuesta en
+    memoria: por cada LID se pregunta una sola vez, aunque la persona teclee cien veces.
+
+    El LID ademas queda anotado en la ficha, asi que a partir de la segunda vez ni siquiera hay
+    que salir a preguntar.
+  */
+  if (!contacto && identidad.toLowerCase().endsWith("@lid")) {
+    const conexion = readGatewayConnection(canal.metadata);
+    if (conexion?.apiToken) {
+      const telefono = await telefonoDeUnLid({
+        connection: { baseUrl: conexion.baseUrl, apiToken: conexion.apiToken },
+        sesion,
+        lid: identidad,
+      });
+      if (telefono) {
+        contacto = await prisma.contact.findFirst({
+          where: { workspaceId: canal.workspaceId, phoneNumber: telefono },
+          select: { id: true, phoneNumber: true, metadata: true },
+        });
+        if (contacto && readLinkedLid(contacto.metadata) !== soloDigitos) {
+          await prisma.contact
+            .update({
+              where: { id: contacto.id },
+              data: {
+                metadata: buildLinkedLidMetadata(contacto.metadata, soloDigitos) as never,
+              },
+            })
+            .catch(() => undefined);
+        }
+      }
+    }
+  }
+
   if (!contacto) {
     console.log(`[waha presencia] sin contacto para ${identidad}`);
     return;
