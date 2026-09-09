@@ -759,12 +759,29 @@ export function SharedInbox({
       }
 
       const currentById = new Map(current.map((item) => [item.id, item]));
-      const merged = normalizeConversationItems(conversations, (item) =>
+      const frescos = normalizeConversationItems(conversations, (item) =>
         buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
       ).map((conversation) =>
         mergeConversationListItem(conversation, currentById.get(conversation.id) ?? null),
       );
-      const sorted = sortConversationItems(merged);
+
+      /*
+        Lo que se cargo bajando NO se tira en el proximo refresco.
+
+        El servidor manda siempre la primera tanda -los mas recientes-, y esta lista se rearmaba
+        solo con eso. Todo lo que uno habia cargado al bajar desaparecia un segundo despues, en el
+        refresco automatico que corre cada pocos segundos. Desde afuera se veia como que la lista
+        "no baja": uno llega al fondo, se cargan veinte, y se borran antes de que alcance a verlos.
+
+        Medido el 9-sep-2026: la segunda pagina traia 20 chats que NO estaban en pantalla, el
+        navegador los pedia, los recibia, y la lista seguia teniendo exactamente los mismos 56.
+
+        Los que ya no correspondan salen por su propio camino -resolver, posponer, cambiar de
+        filtro-, que es donde se sabe de verdad que hay que sacarlos.
+      */
+      const idsFrescos = new Set(frescos.map((item) => item.id));
+      const cargadosAlBajar = current.filter((item) => !idsFrescos.has(item.id));
+      const sorted = sortConversationItems([...frescos, ...cargadosAlBajar]);
 
       if (
         current.length === sorted.length &&
