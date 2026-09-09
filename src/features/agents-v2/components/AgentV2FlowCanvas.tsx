@@ -218,7 +218,6 @@ type NodeDataPatch = Partial<{
     "asesor comercial experto", el metodo de cinco pasos y el bloque de etapa comercial de cada
     turno. Queda solo con lo que se escribio en el diagrama.
   */
-  vendeProductos: boolean;
   startOnMatch: boolean;
   useFunnel: boolean;
   useBusiness: boolean;
@@ -802,7 +801,6 @@ type AgentData = {
   fixedWelcome: boolean;
   consultProducts: boolean;
   /** Si este agente VENDE: apagado, no recibe el andamiaje comercial del sistema. */
-  vendeProductos: boolean;
   consultFlows: boolean;
   collapsed?: boolean;
   onChange?: (id: string, patch: NodeDataPatch) => void;
@@ -1027,34 +1025,6 @@ function AgentNode({ id, data, selected }: NodeProps) {
               </p>
             </div>
           </div>
-          {/*
-            El interruptor va DENTRO del nodo y no en una pantalla aparte.
-
-            Es la decision mas grande que se toma sobre un agente -si vende o no- y decide como se
-            comporta todo lo demas. Escondida en un menu, nadie la encuentra; aca se ve al abrir
-            el diagrama, que es donde uno mira cuando el agente contesta cualquier cosa.
-          */}
-          <label
-            className="nodrag flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <input
-              type="checkbox"
-              checked={nodeData.vendeProductos !== false}
-              onChange={(event) =>
-                nodeData.onChange?.(id, { vendeProductos: event.target.checked })
-              }
-              className="mt-0.5 size-4 shrink-0 accent-[var(--primary)]"
-            />
-            <span className="min-w-0">
-              <span className="block text-xs font-medium text-foreground">Este agente vende</span>
-              <span className="block text-[11px] leading-4 text-muted-foreground">
-                Apagado, se le quita el guion de ventas del sistema y queda solo con lo que
-                escribiste acá. Para agentes que no venden: reclutamiento, soporte, encuestas.
-              </span>
-            </span>
-          </label>
-
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-foreground">Herramientas</p>
             <div
@@ -2563,7 +2533,6 @@ function buildDefaultGraph(agentName: string): { nodes: Node[]; edges: Edge[] } 
           prompt: "",
           fixedWelcome: false,
           consultProducts: true,
-          vendeProductos: true,
           consultFlows: true,
         } satisfies AgentData,
       },
@@ -2629,7 +2598,6 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
               prompt: node.data.prompt ?? "",
               fixedWelcome: node.data.fixedWelcome ?? false,
               consultProducts: node.data.consultProducts ?? true,
-              vendeProductos: node.data.vendeProductos ?? true,
               consultFlows: node.data.consultFlows ?? true,
               collapsed: node.data.collapsed === true,
             } satisfies AgentData)
@@ -2812,7 +2780,6 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
               prompt: (node.data as AgentData).prompt,
               fixedWelcome: (node.data as AgentData).fixedWelcome,
               consultProducts: (node.data as AgentData).consultProducts,
-              vendeProductos: (node.data as AgentData).vendeProductos,
               consultFlows: (node.data as AgentData).consultFlows,
               collapsed: (node.data as AgentData).collapsed === true,
             }

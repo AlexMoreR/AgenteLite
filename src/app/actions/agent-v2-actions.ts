@@ -517,7 +517,6 @@ export async function publishAgentV2Action(input: {
     : agentData.fixedWelcome === true;
   const consultProducts = agentData.consultProducts !== false;
   // Sin marcar = vende, que es como funcionaron siempre los agentes.
-  const vendeProductos = agentData.vendeProductos !== false;
   const consultFlows = agentData.consultFlows !== false;
 
   // Un nodo Texto es un mensaje literal escrito por el usuario: debe enviarse tal
@@ -1127,7 +1126,6 @@ export async function publishAgentV2Action(input: {
       cinco pasos, y el motor deja de pegarle el bloque de etapa comercial en cada turno. Ver
       `agent-training.ts` y el webhook.
     */
-    vendeProductos,
     // Toggles "Consultar productos/flujos": apagados => el motor no ofrece la tool.
     enableProductLookup: consultProducts,
     enableFlowLookup: consultFlows,

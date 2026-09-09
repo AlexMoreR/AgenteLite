@@ -127,7 +127,6 @@ export type AgentTrainingConfig = {
     que ademas es mas concreto y llega al final del prompt, y terminaba preguntandole a una
     candidata que presupuesto tenia para comprar muebles.
   */
-  vendeProductos: boolean;
   welcomeFlowId: string;
   /*
     La escalera "si no contesta" del nodo Bienvenida, ya resuelta a tiempos y textos.
@@ -237,7 +236,6 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   forbiddenRules: [...forbiddenRuleOptions.slice(0, 4)],
   customRules: "",
   knowledgeFlowIds: [],
-  vendeProductos: true,
   welcomeFlowId: "",
   noReplyFollowUps: [],
   flowNoReplyFollowUps: [],
@@ -308,7 +306,6 @@ export function buildAgentTrainingConfig(
     | "welcomeFlowId"
     | "noReplyFollowUps"
     | "flowNoReplyFollowUps"
-    | "vendeProductos"
   > &
     Partial<
       Pick<
@@ -318,7 +315,6 @@ export function buildAgentTrainingConfig(
     | "welcomeFlowId"
     | "noReplyFollowUps"
     | "flowNoReplyFollowUps"
-    | "vendeProductos"
       >
     >,
 ): AgentTrainingConfig {
@@ -333,7 +329,6 @@ export function buildAgentTrainingConfig(
     customRules: input.customRules.trim(),
     knowledgeFlowIds: input.knowledgeFlowIds.filter((value, index, array) => Boolean(value) && array.indexOf(value) === index),
     // Ausente = vende, que es como funcionaron siempre los agentes.
-    vendeProductos: input.vendeProductos ?? true,
     welcomeFlowId: (input.welcomeFlowId ?? "").trim(),
     noReplyFollowUps: (input.noReplyFollowUps ?? []).filter(
       (seguimiento) => seguimiento.timeValue > 0 && seguimiento.content.trim().length > 0,
@@ -383,24 +378,6 @@ export function buildAgentSystemPrompt(input: {
   commercialConversationContext?: CommercialConversationContext | null;
 }) {
   const { businessName, training } = input;
-  const agentName = training.assistantName?.trim() || input.agentName;
-  const sectorRubro = training.sectorRubro?.trim() || "No definido";
-  const businessDataLines = [
-    `* **Nombre:** ${businessName.trim() || "No definido"}`,
-    `* **Sector/Rubro:** ${sectorRubro}`,
-    training.location?.trim() ? `* **Ubicación/Dirección:** ${training.location.trim()}` : null,
-    `* **Horarios de atención:** No definido`,
-    training.contactPhone?.trim() ? `* **Número de contacto:** ${training.contactPhone.trim()}` : null,
-    training.contactEmail?.trim() ? `* **Correo electrónico:** ${training.contactEmail.trim()}` : null,
-    training.website?.trim() ? `* **Sitio web:** ${training.website.trim()}` : null,
-    training.facebook?.trim() ? `* **Facebook:** ${training.facebook.trim()}` : null,
-    training.instagram?.trim() ? `* **Instagram:** ${training.instagram.trim()}` : null,
-    training.tiktok?.trim() ? `* **TikTok:** ${training.tiktok.trim()}` : null,
-    training.youtube?.trim() ? `* **YouTube:** ${training.youtube.trim()}` : null,
-  ].filter(Boolean) as string[];
-  const businessNotes = training.businessDescription.trim()
-    ? `Notas adicionales:\n${training.businessDescription.trim()}`
-    : "Notas adicionales:\nSin notas adicionales.";
   const voiceRules = [
     `Adopta este tono como prioridad: ${getTonePrompt(training.salesTone)}`,
     `Longitud de respuesta obligatoria: ${getResponseLengthPrompt(training.responseLength)}`,
@@ -414,32 +391,6 @@ export function buildAgentSystemPrompt(input: {
     training.useExpressivePunctuation
       ? "Usa signos expresivos como ! y ? cuando refuercen la cercania y el cierre comercial."
       : "No abuses de signos expresivos; prioriza claridad y limpieza.",
-  ];
-
-  const salesBehaviors = [
-    training.askNameFirst
-      ? training.greetNewCustomers
-        ? `Si aun no sabes el nombre del cliente, preséntate ÚNICAMENTE con tu nombre ("Soy ${agentName}") sin agregar "de ${businessName}" ni ninguna referencia al negocio —el saludo de bienvenida ya lo mencionó arriba— y pide el nombre del cliente para continuar.`
-        : "Si aun no sabes el nombre del cliente, tu primera respuesta debe presentarte y pedir su nombre antes de seguir vendiendo."
-      : "No pidas el nombre al inicio si no hace falta para avanzar.",
-    training.greetNewCustomers
-      ? `El saludo inicial del chat lo maneja la aplicacion con este texto: "${resolveWelcomeMessageTemplate(training.customWelcomeMessage || buildDefaultNewCustomerWelcomeMessage(businessName), businessName)}". Solo debe usarse cuando la conversacion esta vacia; si ya existe historial, no lo repitas ni lo vuelvas a agregar.`
-      : "No uses un saludo fijo para todos los clientes nuevos; adapta la apertura segun el contexto.",
-    training.offerBestSeller
-      ? "Si el cliente duda o pide recomendacion, sugiere de forma proactiva la opcion mas vendida o mas conveniente."
-      : "No empujes recomendaciones proactivas si el cliente no las necesita.",
-    training.handlePriceObjections
-      ? 'Si el cliente dice que esta caro, responde con argumentos de valor, beneficio, diferencia o resultado; no entres en descuento facil.'
-      : "Si el cliente objeta por precio, responde solo con informacion basica y sin argumentacion comercial extensa.",
-    training.askForOrder
-      ? 'Despues de resolver dudas, intenta cerrar con una pregunta directa de avance como "Te lo reservo?", "Te lo envio?" o equivalente.'
-      : "No fuerces el cierre directo si esa opcion esta desactivada.",
-    training.sendPaymentLink
-      ? "Si el cliente confirma compra, indica de inmediato el siguiente paso de pago o comparte el link de pago si esta disponible."
-      : "No menciones links de pago automaticos si esa opcion esta desactivada.",
-    training.handoffToHuman
-      ? "Si falta informacion clave, el caso se sale de tus reglas o no puedes ayudar con seguridad, dilo con claridad y escala a una persona."
-      : "No escales a humano salvo que sea estrictamente indispensable.",
   ];
 
   /*
@@ -490,27 +441,9 @@ export function buildAgentSystemPrompt(input: {
     "Los enlaces deben enviarse con 2 saltos de línea, sin comillas ni artefactos de código.",
   ];
 
-  const contactLines = [
-    training.location && `Ubicacion: ${training.location}`,
-    training.website && `Sitio web: ${training.website}`,
-    training.contactPhone && `Telefono de contacto: ${training.contactPhone}`,
-    training.contactEmail && `Correo: ${training.contactEmail}`,
-    training.instagram && `Instagram: ${training.instagram}`,
-    training.facebook && `Facebook: ${training.facebook}`,
-    training.tiktok && `TikTok: ${training.tiktok}`,
-    training.youtube && `YouTube: ${training.youtube}`,
-  ].filter(Boolean) as string[];
-
   const instructionSection = training.instruction.trim()
     ? `INSTRUCCIÓN\n- ${training.instruction.trim()}`
     : null;
-
-  const businessRules = [
-    `Solo vendes esto: ${training.businessDescription}`,
-    `Tu cliente ideal es: ${training.targetAudiences.join(", ")}`,
-    `Rango de precios de referencia: ${formatPriceRange(training.priceRangeMax)}`,
-    "No te salgas de esta informacion ni inventes catalogo adicional.",
-  ].filter(Boolean) as string[];
 
   const strictRules = guardrails.length
     ? guardrails
@@ -595,20 +528,6 @@ export function buildAgentSystemPrompt(input: {
   // Metodología ÚNICA de venta, product-agnóstica. Reemplaza los embudos rígidos por-producto
   // que antes se horneaban: la IA conversa naturalmente y trae el detalle de cada producto
   // on-demand, sin scripts literales que se mezclen entre productos.
-  const playbookSection = [
-    "PLAYBOOK DE VENTA (aplica IGUAL a todos los productos)",
-    "Conversa de forma natural siguiendo esta metodología. NO uses mensajes fijos ni scripts literales; adapta las palabras al cliente y al producto del que se está hablando.",
-    "1. Apertura: saluda, presenta brevemente el negocio y pregunta qué busca o en qué puedes ayudarle.",
-    "2. Calificación: entiende qué necesita (qué producto, para qué espacio o uso). Una sola pregunta a la vez.",
-    training.aiDrivenFlows
-      ? "3. Presentación: cuando el cliente concreta un producto, llama a consultar_productos para su detalle y preséntalo por su valor. Si hay un catálogo/flujo para lo que pidió, ENVÍALO VOS con enviar_flujo (ver la sección ENVÍO DE CATÁLOGOS). No esperes a que otro lo mande."
-      : "3. Presentación: cuando el cliente concreta un producto, llama a consultar_productos para su detalle y preséntalo por su valor (para qué sirve, beneficios). Si hay un catálogo/flujo para ese producto, lo envía el motor de flujos.",
-    "4. Objeciones: si duda o pausa la compra, valida + re-ancla el valor + una pregunta que avance. Evita frases pasivas ('quedo atento', 'cuando quieras').",
-    "5. Cierre: cuando muestra intención, pide los datos para cotizar (color, ciudad, nombre, dirección) y avanza al cierre.",
-    "REGLA ANTI-REGRESIÓN: una vez que el cliente eligió un producto o la conversación ya avanzó, NUNCA reinicies el embudo ni repitas la pregunta de apertura/calificación (p.ej. '¿qué servicios vas a ofrecer?'). Avanza siempre al siguiente paso comercial.",
-    "REGLA DE UN SOLO PRODUCTO: cada respuesta trata del producto en curso. Nunca traigas el precio, colores, política de despacho o guion de otro producto distinto.",
-  ].join("\n");
-
   /*
     Un agente que NO vende no recibe el andamiaje de ventas.
 
@@ -624,35 +543,28 @@ export function buildAgentSystemPrompt(input: {
     Apagado el interruptor, el agente queda con los datos del negocio, sus reglas y lo que se
     escribio en Agente V2. Nada mas.
   */
-  const vende = training.vendeProductos !== false;
+  /*
+    EL SISTEMA YA NO ESCRIBE EL GUION. Lo escribe quien usa la app.
+
+    Hasta ahora todo agente nacia con un guion de ventas pegado en el codigo: rol de "asesor
+    comercial experto", objetivo de "llevar la conversacion hacia una venta real", comportamiento
+    de venta, un metodo de cinco pasos y los datos del negocio. No habia pantalla donde verlo ni
+    donde apagarlo, y lo que el usuario escribia en el diagrama entraba DESPUES, peleando.
+
+    Se vio clarisimo en el agente de Vacantes: su guion pedia filtrar aspirantes y el del sistema
+    le ordenaba vender muebles, en el mismo mensaje. Ganaba el del sistema, y le pregunto a una
+    candidata que presupuesto tenia para comprar mobiliario.
+
+    Queda solo lo que un agente necesita para operar -quien es, sus limites, como usar las
+    herramientas, como responder en WhatsApp- y despues, mandando sobre todo, el guion que
+    escribio el usuario. Una empresa nueva escribe el suyo; no hereda el de otra.
+  */
 
   const sections = [
-    /*
-      Los datos del negocio solo van si el agente VENDE.
-
-      De aca salio, palabra por palabra, la frase con la que el agente de Vacantes recibio a una
-      candidata: 'que tipo de mobiliario para peluquerias, barberias, spas o salones de belleza
-      estas buscando'. Es la descripcion del negocio, pegada al prompt. Util para vender; para
-      reclutar, es justo lo que no tiene que decir.
-    */
-    vende
-      ? `## 🏢 DATOS DEL NEGOCIO\n\n${businessDataLines.join("\n")}\n\n${businessNotes}\n\n---`
-      : null,
-    vende
-      ? `ROL\nEres un asesor comercial experto por whatsapp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`
-      : `ROL\nSos el asistente de ${businessName} por whatsapp. Actuas como una persona real del negocio y segui EXACTAMENTE las instrucciones que vienen mas abajo.`,
-    vende
-      ? `OBJETIVO\nTu objetivo es entender lo que necesita el cliente, responder solo dentro de la realidad del negocio y llevar la conversacion hacia una venta real o al siguiente paso correcto.`
-      : null,
+    `ROL\nSos el asistente de ${businessName} por whatsapp. Actuas como una persona real del negocio y segui EXACTAMENTE las instrucciones de este agente, que estan mas abajo.`,
     `REGLAS NO NEGOCIABLES\n- ${nonNegotiables.join("\n- ")}`,
     instructionSection,
-    // El contexto comercial (envios, pagos, politicas) tampoco le sirve a un agente que no vende.
-    vende
-      ? `CONTEXTO DEL NEGOCIO\n- ${businessRules.join("\n- ")}${contactLines.length ? `\n\nDATOS DE CONTACTO\n- ${contactLines.join("\n- ")}` : ""}`
-      : null,
     `COMO HABLAS\n- ${voiceRules.join("\n- ")}`,
-    vende ? `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}` : null,
-    vende ? playbookSection : null,
     training.aiDrivenFlows
       ? [
           "ENVÍO DE CATÁLOGOS (herramienta enviar_flujo)",
@@ -838,7 +750,6 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
     customRules: typeof data.customRules === "string" ? data.customRules : "",
     knowledgeFlowIds,
     // Ausente = true: los agentes que ya existen siguen vendiendo, como hasta ahora.
-    vendeProductos: data.vendeProductos === undefined ? true : Boolean(data.vendeProductos),
     welcomeFlowId: typeof data.welcomeFlowId === "string" ? data.welcomeFlowId.trim() : "",
     noReplyFollowUps: Array.isArray(data.noReplyFollowUps)
       ? (data.noReplyFollowUps as unknown[]).flatMap((item) => {

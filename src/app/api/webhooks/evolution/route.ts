@@ -3582,13 +3582,7 @@ export async function POST(request: NextRequest) {
 
         Se apaga desde el agente. Encendido por defecto: los que ya existen siguen igual.
       */
-      const vendeProductos = agentTraining?.vendeProductos !== false;
-      const commercialStagePrompt = vendeProductos
-        ? buildCommercialStagePromptSection(commercialStageResolution)
-        : "";
-      const commercialContextPrompt = vendeProductos
-        ? buildCommercialConversationContextPromptSection(commercialConversationContext)
-        : "";
+
 
       let shouldComposeWelcome = true;
 
@@ -3635,17 +3629,21 @@ export async function POST(request: NextRequest) {
           latestIncomingImageAnalysis
             ? `${aiLatestUserMessage}\n\nAnalisis visual de la imagen del cliente: ${latestIncomingImageAnalysis}`
             : aiLatestUserMessage;
-        // Se unen solo los pedazos que existen: sin esto, apagar el embudo dejaba el prompt con
-        // dos renglones en blanco al final, que no rompe nada pero ensucia lo que ve el modelo.
-        const effectiveSystemPrompt = [
+        /*
+          El prompt es el del agente y nada mas.
+        
+          Aca se le pegaba, en CADA turno, un bloque "ETAPA COMERCIAL ACTUAL" que le ordenaba detectar
+          necesidad, presupuesto, plazo y uso del producto. Es la otra mitad del guion que el sistema
+          escribia por su cuenta: el agente de Vacantes terminaba preguntandole a una candidata que
+          presupuesto tenia para comprar muebles.
+        
+          La etapa comercial se sigue calculando -mueve la etapa del CRM, que si sirve-, pero ya no se
+          le dicta al modelo. Lo que el agente hace lo decide su guion.
+        */
+        const effectiveSystemPrompt =
           agentTraining?.useCustomPrompt && agentTraining.customSystemPrompt?.trim()
             ? agentTraining.customSystemPrompt.trim()
-            : agent.systemPrompt,
-          commercialStagePrompt,
-          commercialContextPrompt,
-        ]
-          .filter((parte) => Boolean(parte && parte.trim()))
-          .join("\n\n");
+            : agent.systemPrompt;
         const toolHandlers = {
           Notificar_asesor: async (args: Record<string, unknown>) => {
             const result = await sendNotificarAsesorNotification({

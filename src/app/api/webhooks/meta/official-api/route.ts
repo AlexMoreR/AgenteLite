@@ -7,8 +7,6 @@ import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { generateAgentReply } from "@/lib/agent-ai";
 import {
   buildCommercialConversationContext,
-  buildCommercialConversationContextPromptSection,
-  buildCommercialStagePromptSection,
   buildNegotiationAdvanceReply,
   classifyCommercialStage,
   parseCommercialConversationContext,
@@ -1499,29 +1497,28 @@ export async function POST(request: Request) {
           el webhook de Evolution: un agente de reclutamiento recibia la orden de averiguar
           presupuesto y plazo, y le ganaba a su propio guion.
         */
-        const vendeProductos = agentTraining?.vendeProductos !== false;
-        const commercialStagePrompt = vendeProductos
-          ? buildCommercialStagePromptSection(commercialStageResolution)
-          : "";
-        const commercialContextPrompt = vendeProductos
-          ? buildCommercialConversationContextPromptSection(commercialConversationContext)
-          : "";
-        const effectiveSystemPrompt = [
+        /*
+          El prompt es el del agente y nada mas.
+        
+          Aca se le pegaba, en CADA turno, un bloque "ETAPA COMERCIAL ACTUAL" que le ordenaba detectar
+          necesidad, presupuesto, plazo y uso del producto. Es la otra mitad del guion que el sistema
+          escribia por su cuenta: el agente de Vacantes terminaba preguntandole a una candidata que
+          presupuesto tenia para comprar muebles.
+        
+          La etapa comercial se sigue calculando -mueve la etapa del CRM, que si sirve-, pero ya no se
+          le dicta al modelo. Lo que el agente hace lo decide su guion.
+        */
+        const effectiveSystemPrompt =
           agentTraining?.useCustomPrompt && agentTraining.customSystemPrompt?.trim()
             ? agentTraining.customSystemPrompt.trim()
-            : iaAgent.systemPrompt ?? "",
-          commercialStagePrompt,
-          commercialContextPrompt,
-        ]
-          .filter((parte) => Boolean(parte && parte.trim()))
-          .join("\n\n");
+            : iaAgent.systemPrompt ?? "";
 
         // Notas de contexto que se anteponen al mensaje del cliente (no al system prompt).
         const aiContextNotes = new Set<string>();
         const productNote = buildActiveProductContextNote(activeProductContext ?? null);
         if (productNote) aiContextNotes.add(productNote);
-        if (commercialStagePrompt) aiContextNotes.add(commercialStagePrompt);
-        if (commercialContextPrompt) aiContextNotes.add(commercialContextPrompt);
+        // La etapa comercial ya no se le dicta al modelo: la decide su guion. Se sigue
+        // calculando porque mueve la etapa del CRM, que es otra cosa.
         const latestUserMessageForIa =
           aiContextNotes.size > 0
             ? `${Array.from(aiContextNotes).join("\n")}\n\nMensaje del cliente: ${message.content ?? ""}`
