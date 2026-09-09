@@ -473,6 +473,23 @@ async function getAgentConversationList(input: {
       contactTagsByContactId.get(conversation.contact.id) ?? [],
       getConversationContextTags(activeProductContext),
     );
+    /*
+      El titulo se tapa SOLO en modo monitoreo.
+
+      Salio tapado para todo el mundo un rato: la mascara se aplicaba sin preguntar. Como la
+      mayoria de los clientes no tienen nombre guardado, el titulo ES su numero, y la bandeja
+      entera aparecio con asteriscos hasta que el refresco por tiempo real la volvia a dibujar
+      con el dato crudo. Se veia parpadear.
+    */
+    const tituloCrudo = latestMessage
+      ? resolveStoredAgentContactLabel({
+          contactName: conversation.contact.name,
+          phoneNumber: conversation.contact.phoneNumber,
+          rawPayload: payloadByConversationId.get(conversation.id),
+        })
+      : getAgentContactLabel(conversation.contact);
+    const tituloDelChat = tapar ? enmascararSiEsTelefono(tituloCrudo) : tituloCrudo;
+
     return {
       key: `agent:${conversation.id}`,
       source: "agent",
@@ -482,15 +499,7 @@ async function getAgentConversationList(input: {
       channelId: conversation.channelId || undefined,
       assignedToUserId: conversation.assignedToUserId ?? null,
       assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
-      label: enmascararSiEsTelefono(
-        latestMessage
-          ? resolveStoredAgentContactLabel({
-              contactName: conversation.contact.name,
-              phoneNumber: conversation.contact.phoneNumber,
-              rawPayload: payloadByConversationId.get(conversation.id),
-            })
-          : getAgentContactLabel(conversation.contact),
-      ),
+      label: tituloDelChat,
       /*
         Los telefonos se tapan ACA, del lado del servidor.
 

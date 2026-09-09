@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { enmascararSiEsTelefono, enmascararTelefono, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import { prisma } from "@/lib/prisma";
 import {
   canAccessClientModule,
@@ -51,6 +52,16 @@ export async function GET(request: Request) {
   }
 
   const esJefe = membership.role === "OWNER" || membership.role === "ADMIN";
+  /*
+    El buscador tapa los telefonos igual que la bandeja.
+
+    Sin esto, buscar seria la forma facil de saltearse el modo monitoreo: el numero entero
+    aparece en el resultado, al lado del nombre. Ver `modo-monitoreo.ts`.
+  */
+  const taparTelefonos = await estaEnModoMonitoreo({
+    workspaceId: membership.workspace.id,
+    userId: session.user.id,
+  });
   const canalesVisibles = await getVisibleChannelIds({
     workspaceId,
     userId: session.user.id,
@@ -127,15 +138,19 @@ export async function GET(request: Request) {
     ...chats.map((chat) => ({
       id: `chat:${chat.id}`,
       tipo: "chat" as const,
-      titulo: chat.contact.name?.trim() || chat.contact.phoneNumber,
-      detalle: chat.contact.phoneNumber,
+      titulo: taparTelefonos
+        ? enmascararSiEsTelefono(chat.contact.name?.trim() || chat.contact.phoneNumber)
+        : chat.contact.name?.trim() || chat.contact.phoneNumber,
+      detalle: taparTelefonos ? enmascararTelefono(chat.contact.phoneNumber) : chat.contact.phoneNumber,
       href: `/cliente/chats?chatKey=${encodeURIComponent(`agent:${chat.id}`)}`,
     })),
     ...contactos.map((contacto) => ({
       id: `contacto:${contacto.id}`,
       tipo: "contacto" as const,
-      titulo: contacto.name?.trim() || contacto.phoneNumber,
-      detalle: `${contacto.phoneNumber} · ${contacto.crmStage.toLowerCase()}`,
+      titulo: taparTelefonos
+        ? enmascararSiEsTelefono(contacto.name?.trim() || contacto.phoneNumber)
+        : contacto.name?.trim() || contacto.phoneNumber,
+      detalle: `${taparTelefonos ? enmascararTelefono(contacto.phoneNumber) : contacto.phoneNumber} · ${contacto.crmStage.toLowerCase()}`,
       href: `/cliente/contactos?contactId=${encodeURIComponent(contacto.id)}`,
     })),
     ...productos.map((producto) => ({
