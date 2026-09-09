@@ -198,9 +198,26 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
     // El conteo se pide al ABRIR, no al pintar la fila: si no, serian cientos de consultas por
     // un dato que casi nadie mira.
     void traerConteoDeEtapas().then(setConteo);
-    // Si la lista se desplaza con el panel abierto, seguirlo seria peor que cerrarlo: quedaria
-    // flotando lejos de la fila que lo abrio.
-    const cerrar = () => setOpen(false);
+    /*
+      Si la lista se desplaza con el panel abierto se cierra: seguirlo seria peor -quedaria
+      flotando lejos de la fila que lo abrio-.
+
+      PERO no el desplazamiento que provoca el propio clic. Al tocar la chapita, el navegador le
+      da el foco al boton y desplaza la lista para dejarlo a la vista; eso disparaba el cierre en
+      el mismo instante en que se abria. Medido: al enfocar una chapita de las de abajo, la lista
+      salta de 0 a 2042 pixeles. El panel se abria y moria, y desde afuera se veia como que el
+      boton no hacia nada. Justo las filas de mas abajo, que son las que uno mira.
+
+      Por eso se ignoran los desplazamientos de los primeros 400 ms: es el tiempo del salto del
+      navegador, y nadie alcanza a desplazar a mano en ese rato.
+    */
+    const abiertoDesde = Date.now();
+    const cerrar = () => {
+      if (Date.now() - abiertoDesde < 400) {
+        return;
+      }
+      setOpen(false);
+    };
     window.addEventListener("resize", cerrar);
     window.addEventListener("scroll", cerrar, true);
     return () => {
@@ -251,6 +268,13 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
         ref={botonRef}
         type="button"
         disabled={isPending}
+        /*
+          El clic no le da el foco al boton, y asi el navegador no desplaza la lista.
+
+          Es la mitad del arreglo: sin esto, el salto ocurre igual y el panel aparece corrido de
+          la fila que lo abrio. Con teclado el boton se sigue enfocando normal.
+        */
+        onMouseDown={(evento) => evento.preventDefault()}
         onClick={() => setOpen((abierto) => !abierto)}
         aria-haspopup="menu"
         aria-expanded={open}
