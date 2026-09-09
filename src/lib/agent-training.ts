@@ -442,13 +442,27 @@ export function buildAgentSystemPrompt(input: {
       : "No escales a humano salvo que sea estrictamente indispensable.",
   ];
 
-  const guardrails = [
-    ...training.forbiddenRules,
-    ...training.customRules
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean),
-  ];
+  /*
+    Las prohibiciones son SOLO las casillas de "nunca hagas".
+
+    Aca adentro se metia tambien, renglon por renglon, todo lo que uno escribe en el diagrama. El
+    guion de reclutamiento de Vacantes -6.000 caracteres con su rol, su tono y sus cuatro pasos-
+    llegaba al modelo bajo el titulo "COSAS QUE NUNCA DEBES HACER". Le estabamos ordenando que
+    NUNCA hiciera exactamente lo que le pedimos que haga.
+
+    Y como la unica instruccion en positivo que quedaba era la de vender, hacia eso: por eso el
+    agente de reclutamiento hablaba de muebles.
+  */
+  const guardrails = [...training.forbiddenRules];
+
+  /*
+    Lo que se escribe en el diagrama va ENTERO y como instruccion.
+
+    Entero -sin partir en renglones- porque tiene forma: titulos, pasos, mensajes entre comillas
+    que hay que enviar tal cual. Partido en viñetas, esa estructura se pierde y el modelo ya no
+    sabe que "PASO 2" viene despues de "PASO 1".
+  */
+  const guionDelDiagrama = training.customRules.trim();
 
   const nonNegotiables = [
     "Cumple primero las reglas estrictas y los limites del negocio antes que sonar amable o creativo.",
@@ -613,7 +627,17 @@ export function buildAgentSystemPrompt(input: {
   const vende = training.vendeProductos !== false;
 
   const sections = [
-    `## 🏢 DATOS DEL NEGOCIO\n\n${businessDataLines.join("\n")}\n\n${businessNotes}\n\n---`,
+    /*
+      Los datos del negocio solo van si el agente VENDE.
+
+      De aca salio, palabra por palabra, la frase con la que el agente de Vacantes recibio a una
+      candidata: 'que tipo de mobiliario para peluquerias, barberias, spas o salones de belleza
+      estas buscando'. Es la descripcion del negocio, pegada al prompt. Util para vender; para
+      reclutar, es justo lo que no tiene que decir.
+    */
+    vende
+      ? `## 🏢 DATOS DEL NEGOCIO\n\n${businessDataLines.join("\n")}\n\n${businessNotes}\n\n---`
+      : null,
     vende
       ? `ROL\nEres un asesor comercial experto por whatsapp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`
       : `ROL\nSos el asistente de ${businessName} por whatsapp. Actuas como una persona real del negocio y segui EXACTAMENTE las instrucciones que vienen mas abajo.`,
@@ -622,7 +646,10 @@ export function buildAgentSystemPrompt(input: {
       : null,
     `REGLAS NO NEGOCIABLES\n- ${nonNegotiables.join("\n- ")}`,
     instructionSection,
-    `CONTEXTO DEL NEGOCIO\n- ${businessRules.join("\n- ")}${contactLines.length ? `\n\nDATOS DE CONTACTO\n- ${contactLines.join("\n- ")}` : ""}`,
+    // El contexto comercial (envios, pagos, politicas) tampoco le sirve a un agente que no vende.
+    vende
+      ? `CONTEXTO DEL NEGOCIO\n- ${businessRules.join("\n- ")}${contactLines.length ? `\n\nDATOS DE CONTACTO\n- ${contactLines.join("\n- ")}` : ""}`
+      : null,
     `COMO HABLAS\n- ${voiceRules.join("\n- ")}`,
     vende ? `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}` : null,
     vende ? playbookSection : null,
@@ -666,6 +693,16 @@ export function buildAgentSystemPrompt(input: {
         }\n- Esa instruccion MANDA: si dice que notifiques en un caso, notifica aunque creas que podes resolverlo por tu cuenta.\n- Fuera de los casos que nombra, no la uses para dudas que puedas resolver solo.\n- Cuando la uses, entrega un motivo claro y un resumen breve del caso.`
       : null,
     `COSAS QUE NUNCA DEBES HACER\n- ${strictRules.join("\n- ")}`,
+    /*
+      El guion del usuario va ULTIMO y se dice que manda.
+
+      Ultimo porque lo que llega al final del prompt es lo que mas pesa, y porque asi corrige a
+      cualquier cosa de arriba que lo contradiga. Es lo que uno espera al escribir un guion: que
+      el agente haga eso, no que compita con un texto que no escribio ni ve.
+    */
+    guionDelDiagrama
+      ? `INSTRUCCIONES DE ESTE AGENTE (mandan sobre todo lo anterior)\n${guionDelDiagrama}`
+      : null,
     `FORMA DE RESPONDER\n- Responde en texto plano para WhatsApp.\n- Prioriza mensajes claros, utiles y faciles de leer.\n- No des listas largas salvo que ayuden a vender o aclarar opciones.\n- Cuando puedas, termina con un siguiente paso concreto.`,
   ].filter(Boolean) as string[];
 
