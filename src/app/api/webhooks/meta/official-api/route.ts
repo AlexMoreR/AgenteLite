@@ -1494,12 +1494,27 @@ export async function POST(request: Request) {
           WHERE "id" = ${message.conversationId}
         `;
 
-        const commercialStagePrompt = buildCommercialStagePromptSection(commercialStageResolution);
-        const commercialContextPrompt = buildCommercialConversationContextPromptSection(commercialConversationContext);
-        const effectiveSystemPrompt =
+        /*
+          El embudo comercial solo se le pega al prompt si el agente VENDE. Ver el mismo bloque en
+          el webhook de Evolution: un agente de reclutamiento recibia la orden de averiguar
+          presupuesto y plazo, y le ganaba a su propio guion.
+        */
+        const vendeProductos = agentTraining?.vendeProductos !== false;
+        const commercialStagePrompt = vendeProductos
+          ? buildCommercialStagePromptSection(commercialStageResolution)
+          : "";
+        const commercialContextPrompt = vendeProductos
+          ? buildCommercialConversationContextPromptSection(commercialConversationContext)
+          : "";
+        const effectiveSystemPrompt = [
           agentTraining?.useCustomPrompt && agentTraining.customSystemPrompt?.trim()
-            ? `${agentTraining.customSystemPrompt.trim()}\n\n${commercialStagePrompt}\n\n${commercialContextPrompt}`
-            : `${iaAgent.systemPrompt ?? ""}\n\n${commercialStagePrompt}\n\n${commercialContextPrompt}`;
+            ? agentTraining.customSystemPrompt.trim()
+            : iaAgent.systemPrompt ?? "",
+          commercialStagePrompt,
+          commercialContextPrompt,
+        ]
+          .filter((parte) => Boolean(parte && parte.trim()))
+          .join("\n\n");
 
         // Notas de contexto que se anteponen al mensaje del cliente (no al system prompt).
         const aiContextNotes = new Set<string>();

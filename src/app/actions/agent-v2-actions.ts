@@ -516,6 +516,8 @@ export async function publishAgentV2Action(input: {
     ? textoDeBienvenida.trim().length > 0
     : agentData.fixedWelcome === true;
   const consultProducts = agentData.consultProducts !== false;
+  // Sin marcar = vende, que es como funcionaron siempre los agentes.
+  const vendeProductos = agentData.vendeProductos !== false;
   const consultFlows = agentData.consultFlows !== false;
 
   // Un nodo Texto es un mensaje literal escrito por el usuario: debe enviarse tal
@@ -1118,6 +1120,14 @@ export async function publishAgentV2Action(input: {
     welcomeFlowId: flujoDeBienvenida ?? "",
     noReplyFollowUps,
     flowNoReplyFollowUps,
+    /*
+      "Este agente vende": apagado, el prompt sale sin el andamiaje comercial.
+
+      Se van el rol de asesor, el objetivo de venta, el comportamiento de venta y el metodo de
+      cinco pasos, y el motor deja de pegarle el bloque de etapa comercial en cada turno. Ver
+      `agent-training.ts` y el webhook.
+    */
+    vendeProductos,
     // Toggles "Consultar productos/flujos": apagados => el motor no ofrece la tool.
     enableProductLookup: consultProducts,
     enableFlowLookup: consultFlows,

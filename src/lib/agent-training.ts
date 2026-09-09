@@ -114,6 +114,20 @@ export type AgentTrainingConfig = {
 
     Vacio => no hay flujo de bienvenida y todo sigue como antes.
   */
+  /*
+    Si este agente VENDE.
+
+    Encendido para todos, que es lo que era hasta ahora. Apagarlo saca el embudo comercial: el
+    motor deja de pegarle al prompt, en cada turno, un bloque que le ordena "detectar necesidad,
+    presupuesto, plazo y uso del producto", deja de mover la etapa del CRM y deja de buscar el
+    cierre de una venta.
+
+    Existe por el agente de Vacantes: su guion es de reclutamiento -tres preguntas, una prueba,
+    una decision- y el embudo le ordenaba otra cosa en el MISMO mensaje. La IA obedecia al embudo,
+    que ademas es mas concreto y llega al final del prompt, y terminaba preguntandole a una
+    candidata que presupuesto tenia para comprar muebles.
+  */
+  vendeProductos: boolean;
   welcomeFlowId: string;
   /*
     La escalera "si no contesta" del nodo Bienvenida, ya resuelta a tiempos y textos.
@@ -223,6 +237,7 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   forbiddenRules: [...forbiddenRuleOptions.slice(0, 4)],
   customRules: "",
   knowledgeFlowIds: [],
+  vendeProductos: true,
   welcomeFlowId: "",
   noReplyFollowUps: [],
   flowNoReplyFollowUps: [],
@@ -288,12 +303,22 @@ export function buildAgentTrainingConfig(
   // welcomeFlowId tambien: solo Agente V2 sabe si el nodo Bienvenida trae un "/flujo".
   input: Omit<
     AgentTrainingConfig,
-    "enableProductLookup" | "enableFlowLookup" | "welcomeFlowId" | "noReplyFollowUps" | "flowNoReplyFollowUps"
+    "enableProductLookup"
+    | "enableFlowLookup"
+    | "welcomeFlowId"
+    | "noReplyFollowUps"
+    | "flowNoReplyFollowUps"
+    | "vendeProductos"
   > &
     Partial<
       Pick<
         AgentTrainingConfig,
-        "enableProductLookup" | "enableFlowLookup" | "welcomeFlowId" | "noReplyFollowUps" | "flowNoReplyFollowUps"
+        "enableProductLookup"
+    | "enableFlowLookup"
+    | "welcomeFlowId"
+    | "noReplyFollowUps"
+    | "flowNoReplyFollowUps"
+    | "vendeProductos"
       >
     >,
 ): AgentTrainingConfig {
@@ -307,6 +332,8 @@ export function buildAgentTrainingConfig(
     customWelcomeMessage: input.customWelcomeMessage.trim(),
     customRules: input.customRules.trim(),
     knowledgeFlowIds: input.knowledgeFlowIds.filter((value, index, array) => Boolean(value) && array.indexOf(value) === index),
+    // Ausente = vende, que es como funcionaron siempre los agentes.
+    vendeProductos: input.vendeProductos ?? true,
     welcomeFlowId: (input.welcomeFlowId ?? "").trim(),
     noReplyFollowUps: (input.noReplyFollowUps ?? []).filter(
       (seguimiento) => seguimiento.timeValue > 0 && seguimiento.content.trim().length > 0,
@@ -568,16 +595,37 @@ export function buildAgentSystemPrompt(input: {
     "REGLA DE UN SOLO PRODUCTO: cada respuesta trata del producto en curso. Nunca traigas el precio, colores, política de despacho o guion de otro producto distinto.",
   ].join("\n");
 
+  /*
+    Un agente que NO vende no recibe el andamiaje de ventas.
+
+    Todo agente nacia vendedor: se le pegaba "Eres un asesor comercial experto", el objetivo de
+    "llevar la conversacion hacia una venta real", el comportamiento de venta y un metodo de cinco
+    pasos -apertura, calificacion, presentacion, objeciones, cierre-. Escrito en el codigo, sin
+    pantalla donde apagarlo.
+
+    Para el agente de Vacantes eso era una contraorden permanente: su guion pide filtrar
+    candidatas y estos bloques le ordenaban vender muebles. Y ganaban, porque lo que se escribe en
+    el diagrama entra DESPUES, como agregado, peleando contra tres bloques.
+
+    Apagado el interruptor, el agente queda con los datos del negocio, sus reglas y lo que se
+    escribio en Agente V2. Nada mas.
+  */
+  const vende = training.vendeProductos !== false;
+
   const sections = [
     `## 🏢 DATOS DEL NEGOCIO\n\n${businessDataLines.join("\n")}\n\n${businessNotes}\n\n---`,
-    `ROL\nEres un asesor comercial experto por whatsapp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`,
-    `OBJETIVO\nTu objetivo es entender lo que necesita el cliente, responder solo dentro de la realidad del negocio y llevar la conversacion hacia una venta real o al siguiente paso correcto.`,
+    vende
+      ? `ROL\nEres un asesor comercial experto por whatsapp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`
+      : `ROL\nSos el asistente de ${businessName} por whatsapp. Actuas como una persona real del negocio y segui EXACTAMENTE las instrucciones que vienen mas abajo.`,
+    vende
+      ? `OBJETIVO\nTu objetivo es entender lo que necesita el cliente, responder solo dentro de la realidad del negocio y llevar la conversacion hacia una venta real o al siguiente paso correcto.`
+      : null,
     `REGLAS NO NEGOCIABLES\n- ${nonNegotiables.join("\n- ")}`,
     instructionSection,
     `CONTEXTO DEL NEGOCIO\n- ${businessRules.join("\n- ")}${contactLines.length ? `\n\nDATOS DE CONTACTO\n- ${contactLines.join("\n- ")}` : ""}`,
     `COMO HABLAS\n- ${voiceRules.join("\n- ")}`,
-    `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}`,
-    playbookSection,
+    vende ? `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}` : null,
+    vende ? playbookSection : null,
     training.aiDrivenFlows
       ? [
           "ENVÍO DE CATÁLOGOS (herramienta enviar_flujo)",
@@ -752,6 +800,8 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
     forbiddenRules,
     customRules: typeof data.customRules === "string" ? data.customRules : "",
     knowledgeFlowIds,
+    // Ausente = true: los agentes que ya existen siguen vendiendo, como hasta ahora.
+    vendeProductos: data.vendeProductos === undefined ? true : Boolean(data.vendeProductos),
     welcomeFlowId: typeof data.welcomeFlowId === "string" ? data.welcomeFlowId.trim() : "",
     noReplyFollowUps: Array.isArray(data.noReplyFollowUps)
       ? (data.noReplyFollowUps as unknown[]).flatMap((item) => {

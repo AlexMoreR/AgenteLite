@@ -3570,8 +3570,25 @@ export async function POST(request: NextRequest) {
        * que se escribe en el nodo "Notificar asesor" del diagrama. Un texto que se lee y se
        * corrige, en vez de una lista de palabras escondida en el codigo.
        */
-      const commercialStagePrompt = buildCommercialStagePromptSection(commercialStageResolution);
-      const commercialContextPrompt = buildCommercialConversationContextPromptSection(commercialConversationContext);
+      /*
+        El embudo comercial solo se le pega al prompt si el agente VENDE.
+
+        En cada turno el motor le agrega al prompt un bloque -"ETAPA COMERCIAL ACTUAL"- que le
+        ordena detectar necesidad, presupuesto, plazo y uso del producto. Para un agente de ventas
+        es exactamente lo que se quiere. Para el de Vacantes era una contraorden: su guion pide
+        tres preguntas, una prueba y una decision, y el embudo le mandaba otra cosa en el MISMO
+        mensaje. Ganaba el embudo -es mas concreto y llega al final del prompt- y termino
+        preguntandole a una candidata que presupuesto tenia para comprar muebles.
+
+        Se apaga desde el agente. Encendido por defecto: los que ya existen siguen igual.
+      */
+      const vendeProductos = agentTraining?.vendeProductos !== false;
+      const commercialStagePrompt = vendeProductos
+        ? buildCommercialStagePromptSection(commercialStageResolution)
+        : "";
+      const commercialContextPrompt = vendeProductos
+        ? buildCommercialConversationContextPromptSection(commercialConversationContext)
+        : "";
 
       let shouldComposeWelcome = true;
 
@@ -3618,9 +3635,17 @@ export async function POST(request: NextRequest) {
           latestIncomingImageAnalysis
             ? `${aiLatestUserMessage}\n\nAnalisis visual de la imagen del cliente: ${latestIncomingImageAnalysis}`
             : aiLatestUserMessage;
-        const effectiveSystemPrompt = agentTraining?.useCustomPrompt && agentTraining.customSystemPrompt?.trim()
-          ? `${agentTraining.customSystemPrompt.trim()}\n\n${commercialStagePrompt}\n\n${commercialContextPrompt}`
-          : `${agent.systemPrompt}\n\n${commercialStagePrompt}\n\n${commercialContextPrompt}`;
+        // Se unen solo los pedazos que existen: sin esto, apagar el embudo dejaba el prompt con
+        // dos renglones en blanco al final, que no rompe nada pero ensucia lo que ve el modelo.
+        const effectiveSystemPrompt = [
+          agentTraining?.useCustomPrompt && agentTraining.customSystemPrompt?.trim()
+            ? agentTraining.customSystemPrompt.trim()
+            : agent.systemPrompt,
+          commercialStagePrompt,
+          commercialContextPrompt,
+        ]
+          .filter((parte) => Boolean(parte && parte.trim()))
+          .join("\n\n");
         const toolHandlers = {
           Notificar_asesor: async (args: Record<string, unknown>) => {
             const result = await sendNotificarAsesorNotification({
