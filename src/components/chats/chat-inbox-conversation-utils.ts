@@ -8,7 +8,7 @@ import type {
   SharedInboxMessageItem,
   SharedInboxSelectedConversation,
 } from "./chat-inbox-types";
-import { getMessagePreviewText } from "./chat-inbox-format";
+import { getMessagePreviewText, isActivityMessage } from "./chat-inbox-format";
 import { mergeConversationSnapshots } from "./chat-history-cache";
 
 export function normalizeLiveConversationSnapshot(value: unknown): LiveConversationSnapshot | null {
@@ -198,7 +198,19 @@ export function buildConversationItemFromSnapshot(
   snapshot: LiveConversationSnapshot,
   existing?: SharedInboxConversationItem | null,
 ): SharedInboxConversationItem {
-  const latestMessage = snapshot.messages.at(-1) ?? null;
+  /*
+    Las notas de actividad no son el ultimo mensaje de la fila.
+
+    "Fulana tomo esta conversacion al responder", "movio la etapa a Frio": son marcas del
+    historial, para leer DENTRO del chat. En la fila de la lista pisaban al mensaje de verdad, y
+    lo que uno necesita ver ahi es lo ultimo que se dijeron -es como decide a cual entrar-.
+
+    El servidor ya las descarta al armar la lista; aca no, y por eso volvian a aparecer apenas se
+    abria el chat: esta funcion reconstruye la fila con lo que tiene cargado el panel, donde las
+    notas SI estan porque ahi se muestran.
+  */
+  const latestMessage =
+    [...snapshot.messages].reverse().find((mensaje) => !isActivityMessage(mensaje)) ?? null;
   const resolvedId = existing?.id ?? snapshot.id;
   const nextItem: SharedInboxConversationItem = {
     id: resolvedId,
