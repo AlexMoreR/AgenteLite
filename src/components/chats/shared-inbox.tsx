@@ -2061,8 +2061,15 @@ export function SharedInbox({
 
     observador.observe(centinela);
     return () => observador.disconnect();
-    // Se rearma al cambiar de chat: el centinela pasa a ser otro elemento.
-  }, [selectedConversationId, router]);
+    /*
+      Se rearma al cambiar de chat Y cuando aparece el centinela.
+
+      Lo segundo no estaba y por eso, al sacar el boton, algunos chats se quedaban sin historial:
+      el centinela recien se dibuja cuando llegan los datos de la conversacion -un instante
+      despues de abrirla-, asi que al correr este efecto todavia no existia y el observador no
+      quedaba vigilando nada. Antes el boton tapaba ese hueco; sin boton, subir no hacia nada.
+    */
+  }, [selectedConversationId, canLoadOlderMessages, router]);
 
   // Smart scroll: auto-scroll only when near bottom; count new messages when scrolled up.
   useLayoutEffect(() => {
