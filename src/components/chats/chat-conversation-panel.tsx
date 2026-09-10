@@ -103,7 +103,6 @@ type ConversationPanelProps = {
   onDeleteMessage?: (message: SharedInboxMessageItem) => void;
   replyTarget?: ComposerReplyTarget | null;
   onCancelReply?: () => void;
-  onLoadOlderMessages: () => void | Promise<void>;
   renderedConversation: SharedInboxSelectedConversation | null;
   renderedMessages: SharedInboxMessageItem[];
   selectedConversationId: string;
@@ -189,7 +188,6 @@ export const ConversationPanel = memo(function ConversationPanel({
   onDeleteMessage,
   replyTarget,
   onCancelReply,
-  onLoadOlderMessages,
   renderedConversation,
   renderedMessages,
   selectedConversationId,
@@ -1251,17 +1249,18 @@ export const ConversationPanel = memo(function ConversationPanel({
                         sobre `bg-card` (casi negro) no se leia. Es el unico camino para ver lo
                         que se hablo antes.
                       */}
-                      {renderedConversation.loadMoreHref ? (
-                        <div className="flex justify-center">
-                          <Link
-                            href={renderedConversation.loadMoreHref}
-                            scroll={false}
-                            className="inline-flex items-center rounded-full border border-border bg-muted px-3 py-1.5 text-[11px] font-medium text-foreground shadow-sm transition hover:bg-accent"
-                          >
-                            Cargar mensajes anteriores
-                          </Link>
-                        </div>
-                      ) : isLoadingOlderMessages ? (
+                      {/*
+                        Sin boton: al subir, el historial se carga solo.
+
+                        El centinela de arriba avisa 300 px antes de llegar al tope y ahi se piden
+                        los mensajes anteriores, como en WhatsApp. El boton era un paso de mas
+                        justo cuando uno esta leyendo hacia atras, y ademas disparaba la version
+                        pesada -recargaba la pagina entera para traer veinte mensajes-.
+
+                        Queda la ruedita, que no es decoracion: sin ella, subir y que no pase nada
+                        durante un segundo se lee como que el chat se quedo sin historial.
+                      */}
+                      {isLoadingOlderMessages ? (
                         <div className="flex justify-center px-3 py-1.5">
                           <span
                             className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border bg-muted text-foreground shadow-sm"
@@ -1271,17 +1270,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                             <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                           </span>
                         </div>
-                      ) : (
-                        <div className="flex justify-center">
-                          <button
-                            type="button"
-                            onClick={() => void onLoadOlderMessages()}
-                            className="inline-flex items-center rounded-full border border-border bg-muted px-3 py-1.5 text-[11px] font-medium text-foreground shadow-sm transition hover:bg-accent"
-                          >
-                            Cargar mensajes anteriores
-                          </button>
-                        </div>
-                      )}
+                      ) : null}
                     </div>
                   ) : null}
                   <div className="space-y-2.5 md:space-y-3">

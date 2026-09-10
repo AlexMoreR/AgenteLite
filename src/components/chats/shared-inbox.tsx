@@ -2036,13 +2036,24 @@ export function SharedInbox({
           return;
         }
 
+        /*
+          Primero el camino liviano, y la navegacion como ultimo recurso.
+
+          Estaba al reves: al llegar arriba se hacia `router.replace`, o sea el servidor rearmaba
+          la PAGINA ENTERA -lista, panel, contadores- para traer veinte mensajes viejos. El otro
+          camino pide solo los mensajes y los agrega arriba conservando la posicion, que es lo que
+          uno espera al subir en una conversacion.
+
+          La navegacion queda por si algun chat llega sin cursor -no deberia, el bloque que dibuja
+          el centinela exige tenerlo- para no dejar el historial inalcanzable.
+        */
+        if (canLoadOlderMessagesRef.current) {
+          void loadOlderMessagesRef.current();
+          return;
+        }
         const loadMoreHref = loadMoreHrefRef.current;
         if (loadMoreHref && messageScrollBehaviorRef.current === "preserve") {
           router.replace(loadMoreHref, { scroll: false });
-          return;
-        }
-        if (canLoadOlderMessagesRef.current) {
-          void loadOlderMessagesRef.current();
         }
       },
       { root: contenedor, rootMargin: "300px 0px 0px 0px" },
@@ -2403,7 +2414,6 @@ export function SharedInbox({
         onDeleteMessage={handleDeleteMessage}
         replyTarget={replyTarget}
         onCancelReply={handleCancelReply}
-        onLoadOlderMessages={loadOlderMessages}
         renderedConversation={renderedConversation}
         renderedMessages={renderedMessages}
         selectedConversationId={selectedConversationId}
