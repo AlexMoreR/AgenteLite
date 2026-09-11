@@ -1464,6 +1464,14 @@ export type PresenciaWaha = {
   que: "escribiendo" | "grabando" | null;
   /** Tiene WhatsApp abierto en este momento. Escribir implica estar en linea. */
   enLinea: boolean;
+  /*
+    El estado TAL CUAL lo mando WhatsApp.
+
+    Solo para el log. Todo lo que no sea typing/recording/online cae en el mismo saco de "paro",
+    asi que si el aviso de grabar llegara con otro nombre lo estariamos tirando sin enterarnos.
+    Guardando el crudo, el log lo delata en vez de callarlo.
+  */
+  crudo: string;
 };
 
 /**
@@ -1516,7 +1524,7 @@ export function leerPresenciaWaha(
   */
   const enLinea = estado === "online" || estado === "available" || Boolean(que);
 
-  return { sesion, presencia: { identidad, activo: Boolean(que), que, enLinea } };
+  return { sesion, presencia: { identidad, activo: Boolean(que), que, enLinea, crudo: estado } };
 }
 
 /**

@@ -419,8 +419,10 @@ async function avisarPresencia(sesion: string, presencia: PresenciaWaha) {
     cuando la funcion termina: el aviso no llegaba nunca. Tiene su propio limite de 1,5s, asi que
     esperarlo no retrasa nada.
   */
+  // El crudo va al lado del traducido: sin el, un estado que no sabemos leer se confunde con
+  // "paro" y parece que WhatsApp no avisa, cuando en realidad avisa y no le entendemos.
   console.log(
-    `[waha presencia] ${contacto.phoneNumber} ${presencia.que ?? (presencia.enLinea ? "en linea" : "paro")}`,
+    `[waha presencia] ${contacto.phoneNumber} ${presencia.que ?? (presencia.enLinea ? "en linea" : "paro")} (${presencia.crudo || "vacio"})`,
   );
   await notifyRealtimeUpdate({
     workspaceId: canal.workspaceId,
