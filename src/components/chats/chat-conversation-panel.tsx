@@ -11,12 +11,15 @@ import {
   Camera,
   ChevronDown,
   Copy,
+  CornerUpLeft,
+  Forward,
   FileText,
   Headphones,
   ImageIcon,
   LoaderCircle,
   MapPin,
   MessageSquareText,
+  MoreVertical,
   PenLine,
   Mic,
   Pencil,
@@ -268,6 +271,32 @@ export const ConversationPanel = memo(function ConversationPanel({
     escribe se muestra eso, y cuando para queda "en linea" hasta que cierre la app.
   */
   const [enLinea, setEnLinea] = useState(false);
+
+  /*
+    Los mensajes marcados, como en WhatsApp.
+
+    Se mantiene apretada una burbuja y la conversacion entra en "modo seleccion": la fila se pinta,
+    y los accesos rapidos reemplazan a la cabecera -ARRIBA, que es donde WhatsApp los pone y donde
+    no tapan lo que se esta leyendo-. Con una sola marcada ademas flotan los emoticones sobre ella.
+
+    Se guardan ids y no mensajes: la lista se refresca sola con cada mensaje nuevo, y un objeto
+    viejo guardado aca quedaria congelado con datos de hace un rato.
+  */
+  const [seleccionados, setSeleccionados] = useState<string[]>([]);
+
+  const alternarSeleccion = useCallback((mensaje: SharedInboxMessageItem) => {
+    setSeleccionados((actuales) =>
+      actuales.includes(mensaje.id)
+        ? actuales.filter((id) => id !== mensaje.id)
+        : [...actuales, mensaje.id],
+    );
+  }, []);
+
+  // Cambiar de chat limpia la seleccion: mensajes marcados en una charla no significan nada en
+  // otra, y la barra de arriba quedaria ofreciendo borrar lo que ya no esta a la vista.
+  useEffect(() => {
+    setSeleccionados([]);
+  }, [selectedConversationId]);
   const telefonoDelChat = renderedConversation?.secondaryLabel?.replace(/\D/g, "") ?? "";
 
   useEffect(() => {
@@ -1054,6 +1083,36 @@ export const ConversationPanel = memo(function ConversationPanel({
     </div>
   ) : null;
 
+  const mensajesSeleccionados = displayedMessages.filter((mensaje) =>
+    seleccionados.includes(mensaje.id),
+  );
+  /*
+    Con UNA sola marcada se puede responder y reenviar; con varias, no.
+
+    Responder cita un mensaje: citar cinco no existe. Reenviar de a varios si existe en WhatsApp,
+    pero la ventana de reenvio de aca manda uno; antes que reenviar el primero y perder los otros
+    en silencio, el boton no aparece.
+  */
+  const unicoSeleccionado = mensajesSeleccionados.length === 1 ? mensajesSeleccionados[0] : null;
+
+  const copiarSeleccionados = () => {
+    const texto = mensajesSeleccionados
+      .map((mensaje) => mensaje.content?.trim())
+      .filter((linea): linea is string => Boolean(linea))
+      .join("\n");
+    if (!texto) {
+      toast.error("Los mensajes marcados no tienen texto para copiar");
+      return;
+    }
+    void navigator.clipboard
+      .writeText(texto)
+      .then(() => {
+        toast.success(mensajesSeleccionados.length > 1 ? "Mensajes copiados" : "Mensaje copiado");
+        setSeleccionados([]);
+      })
+      .catch(() => toast.error("No se pudo copiar"));
+  };
+
   return (
     <Card
       className={`${selectedConversationId ? "flex md:flex" : "!hidden md:!flex"} chat-inbox-panel relative min-h-0 flex-1 overflow-hidden rounded-none border border-border bg-transparent p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
@@ -1064,6 +1123,103 @@ export const ConversationPanel = memo(function ConversationPanel({
         <div className="relative z-10 flex min-h-0 h-full w-full flex-1">
         <div className="flex min-h-0 h-full min-w-0 flex-1 flex-col">
           <div className="shrink-0 border-b border-border bg-card px-3 pb-2 pt-[max(env(safe-area-inset-top),0.5rem)] min-h-[3.25rem] md:min-h-0 md:px-[10px] md:py-[10px]">
+            {/*
+              Los accesos rapidos de la seleccion, en el lugar de la cabecera.
+
+              WhatsApp no agrega una barra: REEMPLAZA la de arriba mientras haya mensajes marcados.
+              Asi la conversacion no se corre ni un pixel al marcar, y los botones caen donde el
+              pulgar ya estaba. Al salir, la cabecera vuelve tal cual estaba.
+            */}
+            {seleccionados.length > 0 ? (
+              <div className="flex min-w-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSeleccionados([])}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted"
+                  aria-label="Salir de la seleccion"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+                <span className="text-[16px] font-semibold tabular-nums text-foreground">
+                  {seleccionados.length}
+                </span>
+
+                <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                  {unicoSeleccionado && onReplyToMessage ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onReplyToMessage(unicoSeleccionado);
+                        setSeleccionados([]);
+                      }}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-foreground transition hover:bg-muted"
+                      aria-label="Responder"
+                      title="Responder"
+                    >
+                      <CornerUpLeft className="h-5 w-5" />
+                    </button>
+                  ) : null}
+
+                  {unicoSeleccionado ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMensajeAReenviar(unicoSeleccionado);
+                        setSeleccionados([]);
+                      }}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-foreground transition hover:bg-muted"
+                      aria-label="Reenviar"
+                      title="Reenviar"
+                    >
+                      <Forward className="h-5 w-5" />
+                    </button>
+                  ) : null}
+
+                  {onDeleteMessage ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Se copia la lista antes de borrar: cada borrado cambia la conversacion y
+                        // `mensajesSeleccionados` se recalcularia en el medio del recorrido.
+                        const aBorrar = [...mensajesSeleccionados];
+                        setSeleccionados([]);
+                        aBorrar.forEach((mensaje) => onDeleteMessage(mensaje));
+                      }}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-foreground transition hover:bg-muted"
+                      aria-label="Eliminar"
+                      title="Eliminar"
+                    >
+                      <Trash2 className="h-5 w-5" />
+                    </button>
+                  ) : null}
+
+                  <Popover>
+                    <PopoverTrigger
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-foreground transition hover:bg-muted"
+                      aria-label="Mas opciones"
+                    >
+                      <MoreVertical className="h-5 w-5" />
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-44 p-1">
+                      <button
+                        type="button"
+                        onClick={copiarSeleccionados}
+                        className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground transition hover:bg-muted"
+                      >
+                        <Copy className="size-4" /> Copiar texto
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSeleccionados(displayedMessages.map((m) => m.id))}
+                        className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground transition hover:bg-muted"
+                      >
+                        <MessageSquareText className="size-4" /> Marcar todos
+                      </button>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+            ) : (
             <div className="@container/chathdr flex min-w-0 items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <Link
@@ -1158,6 +1314,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                 </div>
               ) : null}
             </div>
+            )}
           </div>
 
           {/*
@@ -1285,6 +1442,14 @@ export const ConversationPanel = memo(function ConversationPanel({
                         onReply={onReplyToMessage}
                         onForward={setMensajeAReenviar}
                         onDelete={onDeleteMessage}
+                        seleccionado={seleccionados.includes(message.id)}
+                        haySeleccion={seleccionados.length > 0}
+                        onSeleccionar={alternarSeleccion}
+                        /*
+                          Los emoticones salen solo sobre la UNICA marcada: con varias no hay un
+                          mensaje al cual reaccionar, y seis filas de emojis a la vez serian ruido.
+                        */
+                        mostrarReacciones={unicoSeleccionado?.id === message.id}
                       />
                     ))}
                     {/*

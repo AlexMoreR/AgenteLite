@@ -517,6 +517,10 @@ export const MessageBubble = memo(function MessageBubble({
   onReply,
   onForward,
   onDelete,
+  seleccionado,
+  haySeleccion,
+  onSeleccionar,
+  mostrarReacciones,
 }: {
   message: SharedInboxMessageItem;
   previousMessage: SharedInboxMessageItem | undefined;
@@ -524,6 +528,13 @@ export const MessageBubble = memo(function MessageBubble({
   onReply?: (message: SharedInboxMessageItem) => void;
   onForward?: (message: SharedInboxMessageItem) => void;
   onDelete?: (message: SharedInboxMessageItem) => void;
+  /** Esta burbuja esta seleccionada: se pinta la fila entera. */
+  seleccionado?: boolean;
+  /** Hay una seleccion abierta: un toque simple suma o saca, sin mantener apretado. */
+  haySeleccion?: boolean;
+  onSeleccionar?: (message: SharedInboxMessageItem) => void;
+  /** Los emoticones flotan sobre esta burbuja (solo cuando es la unica seleccionada). */
+  mostrarReacciones?: boolean;
 }) {
   const [imagePreviewIndex, setImagePreviewIndex] = useState(0);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
@@ -725,10 +736,24 @@ export const MessageBubble = memo(function MessageBubble({
   // Acciones del mensaje: menu de hover en escritorio, hoja al mantener apretado en el celular.
   const [isTouchMenuOpen, setIsTouchMenuOpen] = useState(false);
   const tieneAcciones = !isDeleted && !callSummary;
+  /*
+    Mantener apretado SELECCIONA, como en WhatsApp.
+
+    Antes abria una hoja desde abajo con la lista de acciones. Ahora la burbuja se marca, los
+    accesos rapidos aparecen ARRIBA -donde no tapan la conversacion- y los emoticones flotan
+    sobre el mensaje.
+
+    La hoja queda de respaldo para una pantalla que no ofrezca seleccion: antes que no pase nada,
+    que abra lo de antes.
+  */
   const abrirMenuTactil = useCallback(() => {
     navigator.vibrate?.(15);
+    if (onSeleccionar) {
+      onSeleccionar(message);
+      return;
+    }
     setIsTouchMenuOpen(true);
-  }, []);
+  }, [message, onSeleccionar]);
   const longPress = useLongPress(abrirMenuTactil, tieneAcciones);
 
   return (
@@ -764,7 +789,46 @@ export const MessageBubble = memo(function MessageBubble({
           </TooltipProvider>
         </div>
       ) : (
-      <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
+      <>
+      {mostrarReacciones ? (
+        <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
+          <div className="rounded-full border border-border bg-popover px-1 shadow-lg">
+            <FilaDeReacciones message={message} />
+          </div>
+        </div>
+      ) : null}
+
+      <div
+        className={`flex ${outbound ? "justify-end" : "justify-start"} ${
+          seleccionado ? "-mx-2 rounded-md bg-[var(--primary)]/12 px-2 py-0.5" : ""
+        }`}
+        onClick={(evento) => {
+          /*
+            Con la seleccion abierta, un toque suma o saca. Sin seleccion, el toque sigue siendo
+            para lo de siempre: abrir una foto, reproducir un audio, seguir un enlace.
+          */
+          if (!haySeleccion || !onSeleccionar) {
+            return;
+          }
+          evento.preventDefault();
+          evento.stopPropagation();
+          onSeleccionar(message);
+        }}
+        onContextMenu={(evento) => {
+          /*
+            En computadora se entra a la seleccion con el boton derecho.
+
+            Mantener apretado es un gesto de dedo: con mouse no existe. Sin esto, en el escritorio
+            no habria forma de marcar un mensaje. En el celular el menu del navegador ya viene
+            frenado mas adentro, asi que esto no le pisa nada.
+          */
+          if (!onSeleccionar) {
+            return;
+          }
+          evento.preventDefault();
+          onSeleccionar(message);
+        }}
+      >
         <div
           {...longPress}
           className={`group/bubble relative max-w-[88%] rounded-[8px] px-[7px] py-[6px] text-[14px] leading-5 shadow-[0_1px_1px_rgba(15,23,42,0.14)] [-webkit-touch-callout:none] md:max-w-[72%] [@media(pointer:coarse)]:select-none ${
@@ -1426,6 +1490,7 @@ export const MessageBubble = memo(function MessageBubble({
           ) : null}
         </div>
       </div>
+      </>
       )}
     </div>
   );
