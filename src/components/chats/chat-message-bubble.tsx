@@ -1049,7 +1049,16 @@ export const MessageBubble = memo(function MessageBubble({
           {/* Contenido + hora en flujo tipo WhatsApp: en mensajes cortos la hora
               queda a la derecha en la MISMA linea; en los largos baja al pie. */}
           <div className="flex flex-wrap items-end gap-x-2">
-          <div className="min-w-0">
+          {/*
+            Con la tarjeta del PDF, la hora BAJA.
+
+            La hora se acomoda al lado del contenido cuando le da el ancho, y con la tarjeta le
+            daba: la burbuja terminaba 90px mas ancha que la hoja y quedaba un vacio a la derecha
+            -el mismo que se acababa de sacar de los bordes-. Ocupando el ancho entero, la hora
+            pasa al renglon de abajo y la burbuja mide exactamente lo que mide la tarjeta, como
+            en WhatsApp.
+          */}
+          <div className={`min-w-0 ${documentUrl && esPdf ? "w-full" : ""}`}>
           {callSummary ? (
             <div className="space-y-2">
               <Badge
