@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { extractEvolutionLocation } from "@/lib/evolution-webhook";
+import { tapaDePdfDesdeUrl, type TapaDePdf } from "@/lib/portada-de-pdf";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -52,6 +53,7 @@ import {
   isMediaSourceUrl,
   toProxiedMediaUrl,
   extractMediaUrlFromPayload,
+  formatDocumentSize,
   getDocumentIcon,
   getDocumentMetaFromMessage,
   collectImagePreviewUrls,
@@ -300,6 +302,162 @@ function useLongPress(onLongPress: () => void, enabled: boolean) {
     onClickCapture: handleClickCapture,
     onContextMenu: handleContextMenu,
   };
+}
+
+/**
+ * La tarjeta de un PDF, con la primera hoja a la vista.
+ *
+ * Como en WhatsApp: arriba el principio de la pagina 1, abajo el nombre y "2 paginas - 395 kB -
+ * PDF". Un icono rojo igual para todos obliga a abrir uno por uno; con la hoja a la vista, una
+ * tanda de hojas de vida se reconoce de un vistazo.
+ *
+ * La tapa se dibuja EN EL NAVEGADOR y solo cuando la burbuja llega a la pantalla: pdf.js pesa y el
+ * archivo hay que bajarlo entero para dibujarlo. Un chat con veinte PDF mas arriba no se baja
+ * veinte archivos al abrirlo; se bajan los que se miran. Mientras tanto -y si el PDF esta roto,
+ * protegido o pesa demasiado- se ve la tarjeta de siempre, que nunca falla.
+ */
+function TarjetaDePdf({
+  url,
+  nombre,
+  etiquetaDeTamano,
+  outbound,
+  onAbrir,
+}: {
+  url: string;
+  nombre: string;
+  etiquetaDeTamano: string | null;
+  outbound: boolean;
+  onAbrir: () => void;
+}) {
+  const contenedorRef = useRef<HTMLAnchorElement | null>(null);
+  const [tapa, setTapa] = useState<TapaDePdf | null>(null);
+
+  useEffect(() => {
+    const elemento = contenedorRef.current;
+    if (!elemento) {
+      return;
+    }
+
+    let vivo = true;
+    const dibujar = () => {
+      void tapaDePdfDesdeUrl(url).then((resultado) => {
+        if (vivo && resultado) {
+          setTapa(resultado);
+        }
+      });
+    };
+
+    // Sin IntersectionObserver (navegadores viejos) se dibuja de una: mejor gastar datos que
+    // dejar la tarjeta muda para siempre.
+    if (typeof IntersectionObserver === "undefined") {
+      dibujar();
+      return () => {
+        vivo = false;
+      };
+    }
+
+    /*
+      Con margen de una pantalla: la tapa tarda un momento en dibujarse, asi que se empieza ANTES
+      de que la burbuja se vea. Si se esperara al pixel exacto, uno la vería aparecer ya estando
+      ahi, que se siente como una falla.
+    */
+    const observador = new IntersectionObserver(
+      (entradas) => {
+        if (entradas.some((entrada) => entrada.isIntersecting)) {
+          observador.disconnect();
+          dibujar();
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observador.observe(elemento);
+
+    return () => {
+      vivo = false;
+      observador.disconnect();
+    };
+  }, [url]);
+
+  // El peso que manda WhatsApp gana: es el del archivo original. El nuestro sale de lo que se
+  // bajo, y solo existe cuando la tapa ya se dibujo.
+  const tamano = etiquetaDeTamano ?? formatDocumentSize(tapa?.bytes ?? null);
+  const detalle = [
+    tapa ? `${tapa.paginas} ${tapa.paginas === 1 ? "página" : "páginas"}` : null,
+    tamano,
+    "PDF",
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
+  return (
+    <a
+      ref={contenedorRef}
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(evento) => {
+        evento.preventDefault();
+        onAbrir();
+      }}
+      title={nombre}
+      className={`block w-[min(250px,70vw)] overflow-hidden rounded-xl transition ${
+        outbound
+          ? "bg-[var(--chat-out-overlay)] hover:bg-[var(--chat-out-overlay-strong)]"
+          : "bg-background hover:bg-muted"
+      }`}
+    >
+      {tapa ? (
+        /*
+          Recortada por arriba y no encogida entera: lo que identifica una hoja de vida es el
+          nombre y la foto, que estan en los primeros centimetros. Una hoja A4 completa a este
+          tamano no se lee.
+        */
+        <span className="block h-[128px] w-full overflow-hidden bg-white">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={tapa.imagen}
+            alt={`Primera página de ${nombre}`}
+            decoding="async"
+            className="h-full w-full object-cover object-top"
+          />
+        </span>
+      ) : null}
+
+      <span className="flex items-center gap-2 p-1.5 pr-2.5">
+        {tapa ? null : (
+          <>
+            {(() => {
+              const { Icon, color } = getDocumentIcon("PDF");
+              return <Icon className="size-8 shrink-0" style={{ color }} />;
+            })()}
+          </>
+        )}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span
+            className={`truncate text-[13px] font-normal leading-tight ${
+              outbound ? "text-[var(--chat-out-text)]" : "text-foreground"
+            }`}
+          >
+            {nombre}
+          </span>
+          <span
+            className={`truncate text-[11px] leading-tight ${
+              outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"
+            }`}
+          >
+            {detalle}
+          </span>
+        </span>
+        {tapa ? (
+          <Download
+            className={`size-4 shrink-0 ${
+              outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"
+            }`}
+          />
+        ) : null}
+      </span>
+    </a>
+  );
 }
 
 /*
@@ -1182,17 +1340,19 @@ export const MessageBubble = memo(function MessageBubble({
                 Sigue siendo un enlace -no un boton- para no perder lo que uno espera de uno: el
                 clic del medio y "abrir en otra pestaña" siguen funcionando.
               */}
+              {esPdf ? (
+                <TarjetaDePdf
+                  url={documentUrl}
+                  nombre={documentMeta?.fileName ?? "Documento"}
+                  etiquetaDeTamano={documentMeta?.sizeLabel ?? null}
+                  outbound={outbound}
+                  onAbrir={() => setPdfAbierto(true)}
+                />
+              ) : (
               <a
                 href={documentUrl}
                 target="_blank"
                 rel="noreferrer"
-                onClick={(evento) => {
-                  if (!esPdf) {
-                    return;
-                  }
-                  evento.preventDefault();
-                  setPdfAbierto(true);
-                }}
                 title={documentMeta?.fileName ?? "Abrir documento"}
                 className={`flex max-w-[min(230px,68vw)] items-center gap-2 rounded-xl p-1.5 pr-3 transition ${
                   outbound ? "bg-[var(--chat-out-overlay)] hover:bg-[var(--chat-out-overlay-strong)]" : "bg-background hover:bg-muted"
@@ -1213,6 +1373,7 @@ export const MessageBubble = memo(function MessageBubble({
                   </span>
                 </span>
               </a>
+              )}
 
               {portalTarget && pdfAbierto && documentUrl
                 ? createPortal(
