@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/lib/prisma";
 import { normalizePhoneFromJid } from "@/lib/evolution-webhook";
+import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { CALL_RESULT_PENDING } from "@/features/crm/domain/crm-config";
 
 export const dynamic = "force-dynamic";
@@ -197,6 +198,13 @@ export async function POST(request: Request) {
    */
   const result = huboContacto ? CALL_RESULT_PENDING : "no_contesto";
 
+  const resumen = comoFue(
+    saliente,
+    huboContacto,
+    llamada.endReason ?? "",
+    duracionEnSegundos(llamada),
+  );
+
   await prisma.callAttempt.create({
     data: {
       workspaceId: contacto.workspaceId,
@@ -212,9 +220,17 @@ export async function POST(request: Request) {
       calledByUserId: autora,
       attemptNumber: intentosPrevios + 1,
       result,
-      summary: comoFue(saliente, huboContacto, llamada.endReason ?? "", duracionEnSegundos(llamada)),
+      summary: resumen,
       calledAt,
     },
+  });
+
+  await dejarLaLlamadaEnElChat({
+    workspaceId: contacto.workspaceId,
+    contactId: contacto.id,
+    saliente,
+    resumen,
+    calledAt,
   });
 
   console.info(
@@ -223,7 +239,102 @@ export async function POST(request: Request) {
 
   revalidatePath("/cliente/llamadas");
   revalidatePath("/cliente/crm/mi-dia");
+  revalidatePath("/cliente/chats");
   return NextResponse.json({ ok: true, registrada: true });
+}
+
+/**
+ * La llamada, dentro de la conversacion.
+ *
+ * Hasta hoy una llamada quedaba anotada en Llamadas y el chat no se enteraba: la asesora abria la
+ * charla, leia "quedamos en eso" y no habia forma de saber que ese "eso" se hablo por telefono
+ * hace diez minutos. WhatsApp deja la llamada entre los mensajes por esa misma razon.
+ *
+ * La burbuja ya estaba programada y esperando (`getCallMessageSummary`): dibuja cualquier mensaje
+ * de tipo SYSTEM cuyo texto empiece con "Llamada". El texto que se guarda en Llamadas ya viene
+ * con ese formato a proposito; lo unico que faltaba era escribir el mensaje. Antes lo hacia el
+ * webhook de Evolution al recibir un evento CALL, y al pasar las lineas a WAHA ese camino quedo
+ * muerto sin que nadie ocupara su lugar: en toda la base habia CERO registros de llamada en chats.
+ *
+ * No rompe nada si falla: la llamada YA quedo anotada en Llamadas, que es el registro que importa.
+ * Por eso va con su propio try: perder la burbuja es molesto, perder el registro no es opcion.
+ */
+async function dejarLaLlamadaEnElChat(input: {
+  workspaceId: string;
+  contactId: string;
+  saliente: boolean;
+  resumen: string;
+  calledAt: Date;
+}) {
+  try {
+    /*
+      El mismo contacto puede tener varias conversaciones (una por linea). Va en la ULTIMA que
+      tuvo movimiento: es la que la asesora tiene abierta y donde la llamada tiene sentido.
+    */
+    const conversacion = await prisma.conversation.findFirst({
+      where: { workspaceId: input.workspaceId, contactId: input.contactId },
+      orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+      select: { id: true, channelId: true, lastMessageAt: true },
+    });
+    if (!conversacion) {
+      console.info("[wacalls] llamada sin conversacion donde dejarla");
+      return;
+    }
+
+    await prisma.message.create({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: conversacion.id,
+        channelId: conversacion.channelId,
+        contactId: input.contactId,
+        // De que lado queda la burbuja: la que hicimos nosotros va a la derecha, como un mensaje
+        // nuestro; la que entro, a la izquierda.
+        direction: input.saliente ? "OUTBOUND" : "INBOUND",
+        type: "SYSTEM",
+        content: input.resumen,
+        /*
+          Se guarda con la hora en que ARRANCO la llamada, no con la de ahora.
+
+          El aviso de WaCalls llega cuando la llamada termina; en una de veinte minutos, fecharla
+          al final la pondria despues de mensajes que en realidad se escribieron durante. Va donde
+          de verdad paso.
+        */
+        createdAt: input.calledAt,
+        /*
+          Marcada como llamada.
+
+          La lista tapa TODOS los mensajes de sistema en la vista previa de la fila -es lo que
+          evita que "cambio la etapa a Caliente" pise el ultimo mensaje del cliente-. Una llamada
+          no es eso: es actividad real con la persona, y en WhatsApp la fila lo dice. Con esta
+          marca la lista la deja pasar sin abrirle la puerta a las notas internas.
+        */
+        rawPayload: { source: "llamada" },
+      },
+    });
+
+    /*
+      El chat sube al tope de la bandeja, como en WhatsApp: una llamada es actividad con ese
+      cliente y la fila pasa a decir "Llamada saliente - 18s".
+
+      Solo si es mas nueva que lo ultimo que hay. Un aviso que llega tarde -WaCalls reintenta
+      hasta tres veces- no puede tirar la conversacion hacia atras ni pisar un mensaje posterior.
+    */
+    if (!conversacion.lastMessageAt || conversacion.lastMessageAt < input.calledAt) {
+      await prisma.conversation.update({
+        where: { id: conversacion.id },
+        data: { lastMessageAt: input.calledAt },
+      });
+    }
+
+    // Para que aparezca sola en la pantalla de quien la tenga abierta, sin recargar.
+    void notifyRealtimeUpdate({
+      workspaceId: input.workspaceId,
+      conversationId: conversacion.id,
+      type: "llamada",
+    });
+  } catch (error) {
+    console.error("[wacalls] no se pudo dejar la llamada en el chat", error);
+  }
 }
 
 function duracionEnSegundos(llamada: { startedAt?: number; endedAt?: number }) {

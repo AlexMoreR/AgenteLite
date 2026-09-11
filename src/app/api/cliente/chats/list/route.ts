@@ -347,7 +347,10 @@ async function getAgentConversationList(input: {
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
           AND m."isStatusBroadcast" = false
           AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
-          AND m."type" IS DISTINCT FROM 'SYSTEM'
+          -- Los mensajes de sistema no se muestran como vista previa de la fila (una nota de
+          -- "cambio la etapa" taparia el ultimo mensaje del cliente), con UNA excepcion: las
+          -- llamadas. Esas si son actividad con la persona y en WhatsApp la fila las muestra.
+          AND (m."type" IS DISTINCT FROM 'SYSTEM' OR (m."rawPayload"->>'source') = 'llamada')
         ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
       `
     : Promise.resolve([] as Array<{
@@ -441,7 +444,10 @@ async function getAgentConversationList(input: {
           AND m."conversationId" IN (${Prisma.join(conversationIdsNeedingPayload)})
           AND m."isStatusBroadcast" = false
           AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
-          AND m."type" IS DISTINCT FROM 'SYSTEM'
+          -- Los mensajes de sistema no se muestran como vista previa de la fila (una nota de
+          -- "cambio la etapa" taparia el ultimo mensaje del cliente), con UNA excepcion: las
+          -- llamadas. Esas si son actividad con la persona y en WhatsApp la fila las muestra.
+          AND (m."type" IS DISTINCT FROM 'SYSTEM' OR (m."rawPayload"->>'source') = 'llamada')
         ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
       `;
       for (const row of payloadRows) {
