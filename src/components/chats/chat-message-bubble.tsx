@@ -321,16 +321,35 @@ function TarjetaDePdf({
   nombre,
   etiquetaDeTamano,
   outbound,
-  onAbrir,
 }: {
   url: string;
   nombre: string;
   etiquetaDeTamano: string | null;
   outbound: boolean;
-  onAbrir: () => void;
 }) {
   const contenedorRef = useRef<HTMLAnchorElement | null>(null);
   const [tapa, setTapa] = useState<TapaDePdf | null>(null);
+  const [esTactil, setEsTactil] = useState(false);
+
+  /*
+    En el celular el PDF se lo queda el TELEFONO; en computadora se abre en otra pestaña.
+
+    Son dos formas distintas de leer lo mismo. En el escritorio, otra pestaña con el visor del
+    navegador es lo comodo: se lee al lado del chat y se cierra. En el telefono no: ahi la gente
+    ya tiene su lector -es el que le sale a WhatsApp en "Abrir con"- y es el que sabe hacer zoom
+    con los dedos, pasar hojas y compartir. `download` es lo unico que la web puede hacer para
+    llegar a eso: el archivo baja y el telefono ofrece abrirlo con lo que uno tenga.
+  */
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) {
+      return;
+    }
+    const consulta = window.matchMedia("(pointer: coarse)");
+    const anotar = () => setEsTactil(consulta.matches);
+    anotar();
+    consulta.addEventListener("change", anotar);
+    return () => consulta.removeEventListener("change", anotar);
+  }, []);
 
   useEffect(() => {
     const elemento = contenedorRef.current;
@@ -395,10 +414,9 @@ function TarjetaDePdf({
       href={url}
       target="_blank"
       rel="noreferrer"
-      onClick={(evento) => {
-        evento.preventDefault();
-        onAbrir();
-      }}
+      // Con `download` el navegador ignora el target y guarda el archivo: es lo que hace que el
+      // telefono saque su "Abrir con".
+      download={esTactil ? nombre : undefined}
       title={nombre}
       className={`block w-[min(250px,70vw)] overflow-hidden rounded-xl transition ${
         outbound
@@ -714,16 +732,6 @@ export const MessageBubble = memo(function MessageBubble({
     tipo: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT";
   } | null>(null);
   const [buscandoElArchivo, setBuscandoElArchivo] = useState(false);
-  /*
-    El PDF se abre DENTRO del chat, como en WhatsApp.
-
-    Antes el toque lo mandaba a otra pestaña y el navegador -sobre todo en el celular- lo bajaba
-    en vez de mostrarlo: para leer un curriculum habia que ir a la carpeta de descargas y volver.
-    Ahora se mira sin salir de la conversacion, y queda igual el "Abrir" para quien lo prefiera
-    en su lector de siempre.
-  */
-  const [pdfAbierto, setPdfAbierto] = useState(false);
-
   const isImageMessage = message.type === "IMAGE";
   const isStickerMessage = message.type === "STICKER";
   const imagePreviewUrls = useMemo(() => {
@@ -1346,7 +1354,6 @@ export const MessageBubble = memo(function MessageBubble({
                   nombre={documentMeta?.fileName ?? "Documento"}
                   etiquetaDeTamano={documentMeta?.sizeLabel ?? null}
                   outbound={outbound}
-                  onAbrir={() => setPdfAbierto(true)}
                 />
               ) : (
               <a
@@ -1375,59 +1382,6 @@ export const MessageBubble = memo(function MessageBubble({
               </a>
               )}
 
-              {portalTarget && pdfAbierto && documentUrl
-                ? createPortal(
-                    <div
-                      className="fixed inset-0 z-[120] flex flex-col bg-black/90 backdrop-blur-sm"
-                      role="dialog"
-                      aria-modal="true"
-                      aria-label={documentMeta?.fileName ?? "Documento"}
-                      onClick={(evento) => {
-                        if (evento.target === evento.currentTarget) {
-                          setPdfAbierto(false);
-                        }
-                      }}
-                    >
-                      <div className="flex shrink-0 items-center gap-2 px-3 py-2.5">
-                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-white">
-                          {documentMeta?.fileName ?? "Documento"}
-                        </span>
-                        <a
-                          href={documentUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(evento) => evento.stopPropagation()}
-                          className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white/10 px-3 text-[12px] font-medium text-white transition hover:bg-white/20"
-                        >
-                          <Download className="size-4" />
-                          Abrir
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => setPdfAbierto(false)}
-                          aria-label="Cerrar"
-                          className="inline-flex size-9 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
-                        >
-                          <X className="size-5" />
-                        </button>
-                      </div>
-                      {/*
-                        Lo dibuja el visor del navegador, que ya sabe hacerlo.
-
-                        Traer una biblioteca para pintar el PDF nosotros serian cientos de
-                        kilobytes en CADA carga del chat, para algo que el navegador hace solo. Si
-                        alguno no lo muestra -pasa en algunos celulares-, arriba esta "Abrir", que
-                        se lo entrega al lector del telefono.
-                      */}
-                      <iframe
-                        src={documentUrl}
-                        title={documentMeta?.fileName ?? "Documento"}
-                        className="min-h-0 w-full flex-1 border-0 bg-white"
-                      />
-                    </div>,
-                    portalTarget,
-                  )
-                : null}
               {/* No repetir el nombre del archivo abajo: WhatsApp manda el nombre como
                   "caption" cuando no hay mensaje real, y ya se muestra en la tarjeta. */}
               {message.content?.trim() && message.content.trim() !== (documentMeta?.fileName ?? "").trim()
