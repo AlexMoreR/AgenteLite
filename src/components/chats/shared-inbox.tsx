@@ -2060,7 +2060,37 @@ export function SharedInbox({
     );
 
     observador.observe(centinela);
-    return () => observador.disconnect();
+
+    /*
+      Ademas del centinela, un escucha del desplazamiento. Los dos, a proposito.
+
+      El centinela es un IntersectionObserver, y hay situaciones normales en las que no avisa: el
+      elemento se dibuja despues de armarlo, el contenedor todavia no tiene alto, la pestaña esta
+      en segundo plano -ahi el navegador colapsa el alto y no dispara nada- o simplemente lo
+      estrangula para ahorrar bateria. Cada una de esas es un "a veces no carga" para quien lo
+      usa, y no hay forma de distinguirlas desde afuera.
+
+      Preguntar "estas a menos de 300 px del tope?" en cada desplazamiento es tosco pero no falla,
+      y es barato: comparar dos numeros. Si los dos caminos coinciden no pasa nada, porque el
+      candado de "ya hay una carga en curso" deja entrar a uno solo.
+    */
+    const alDesplazar = () => {
+      if (contenedor.scrollTop > 300) {
+        return;
+      }
+      if (suppressHistoryLoadUntilRef.current > Date.now() || loadMoreHistoryInFlightRef.current) {
+        return;
+      }
+      if (canLoadOlderMessagesRef.current) {
+        void loadOlderMessagesRef.current();
+      }
+    };
+    contenedor.addEventListener("scroll", alDesplazar, { passive: true });
+
+    return () => {
+      observador.disconnect();
+      contenedor.removeEventListener("scroll", alDesplazar);
+    };
     /*
       Se rearma al cambiar de chat Y cuando aparece el centinela.
 
