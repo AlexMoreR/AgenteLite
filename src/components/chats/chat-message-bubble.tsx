@@ -321,11 +321,14 @@ function TarjetaDePdf({
   nombre,
   etiquetaDeTamano,
   outbound,
+  pegadaArriba,
 }: {
   url: string;
   nombre: string;
   etiquetaDeTamano: string | null;
   outbound: boolean;
+  /** Falso cuando arriba hay un mensaje citado: ahi no se sube, o se le montaria encima. */
+  pegadaArriba: boolean;
 }) {
   const contenedorRef = useRef<HTMLAnchorElement | null>(null);
   const [tapa, setTapa] = useState<TapaDePdf | null>(null);
@@ -418,10 +421,21 @@ function TarjetaDePdf({
       // telefono saque su "Abrir con".
       download={esTactil ? nombre : undefined}
       title={nombre}
-      className={`block w-[min(250px,70vw)] overflow-hidden rounded-xl transition ${
+      /*
+        Pegada a los bordes de la burbuja, como en WhatsApp.
+
+        La burbuja tiene 7px de aire a los lados y 6 arriba. Con la tarjeta adentro, esa orilla
+        quedaba como un marco blanco alrededor de la hoja y se veia como un cuadro colgado, no
+        como el archivo. Los margenes en negativo se comen ese aire; el ancho suma los 14px que
+        se ganan para que la burbuja termine igual de ancha.
+
+        Las esquinas de arriba copian las de la burbuja -incluida la puntita de 3px del lado del
+        que escribe-. Las de abajo quedan rectas: ahi sigue la hora, que va sobre la burbuja.
+      */
+      className={`-mx-[7px] ${pegadaArriba ? "-mt-[6px]" : ""} block w-[calc(min(250px,70vw)+14px)] overflow-hidden rounded-t-[8px] transition ${
         outbound
-          ? "bg-[var(--chat-out-overlay)] hover:bg-[var(--chat-out-overlay-strong)]"
-          : "bg-background hover:bg-muted"
+          ? "rounded-tr-[3px] bg-[var(--chat-out-overlay)] hover:bg-[var(--chat-out-overlay-strong)]"
+          : "rounded-tl-[3px] bg-muted hover:bg-muted/70"
       }`}
     >
       {tapa ? (
@@ -430,7 +444,7 @@ function TarjetaDePdf({
           nombre y la foto, que estan en los primeros centimetros. Una hoja A4 completa a este
           tamano no se lee.
         */
-        <span className="block h-[128px] w-full overflow-hidden bg-white">
+        <span className="block h-[136px] w-full overflow-hidden bg-white">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={tapa.imagen}
@@ -1354,6 +1368,7 @@ export const MessageBubble = memo(function MessageBubble({
                   nombre={documentMeta?.fileName ?? "Documento"}
                   etiquetaDeTamano={documentMeta?.sizeLabel ?? null}
                   outbound={outbound}
+                  pegadaArriba={!replyPreview}
                 />
               ) : (
               <a
