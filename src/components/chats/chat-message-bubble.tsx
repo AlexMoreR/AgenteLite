@@ -21,7 +21,6 @@ import {
   MoreVertical,
   Reply,
   RotateCcw,
-  Smile,
   Star,
   Trash2,
   UserRound,
@@ -38,7 +37,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { recuperarArchivoPerdidoAction } from "@/app/actions/chats-actions";
+import { reaccionarAlMensajeAction, recuperarArchivoPerdidoAction } from "@/app/actions/chats-actions";
 import type { SharedInboxMessageItem } from "./chat-inbox-types";
 import {
   chatDateFormatter,
@@ -303,6 +302,69 @@ function useLongPress(onLongPress: () => void, enabled: boolean) {
   };
 }
 
+/*
+  Los seis de WhatsApp, en el mismo orden.
+
+  Son los que la gente ya tiene en el dedo: reconocerlos es mas rapido que leerlos. El septimo
+  -el "+"- no esta todavia; con estos se cubre casi todo, y un selector completo de emojis en el
+  celular es otra pantalla.
+*/
+const EMOJIS_DE_REACCION = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
+
+/**
+ * La fila de emoticones que aparece sobre la burbuja.
+ *
+ * Reacciona de verdad: se manda a WhatsApp y el cliente la ve en su telefono. Tocando el mismo
+ * emoji que ya estaba, se quita -asi funciona WhatsApp, y es lo que uno intenta sin pensarlo-.
+ */
+function FilaDeReacciones({
+  message,
+  onDone,
+}: {
+  message: SharedInboxMessageItem;
+  onDone?: () => void;
+}) {
+  const [enviando, setEnviando] = useState<string | null>(null);
+
+  const reaccionar = (emoji: string) => {
+    const quitar = message.reactionEmoji === emoji;
+    setEnviando(emoji);
+    void reaccionarAlMensajeAction({ messageId: message.id, emoji: quitar ? "" : emoji })
+      .then((resultado) => {
+        if (!resultado?.ok) {
+          toast.error(resultado?.error ?? "No se pudo reaccionar");
+          return;
+        }
+        onDone?.();
+      })
+      .catch(() => toast.error("No se pudo reaccionar"))
+      .finally(() => setEnviando(null));
+  };
+
+  return (
+    <div className="flex items-center justify-center gap-1 px-2 py-1.5">
+      {EMOJIS_DE_REACCION.map((emoji) => {
+        const puesto = message.reactionEmoji === emoji;
+        return (
+          <button
+            key={emoji}
+            type="button"
+            disabled={enviando !== null}
+            onClick={() => reaccionar(emoji)}
+            aria-label={puesto ? `Quitar ${emoji}` : `Reaccionar con ${emoji}`}
+            aria-pressed={puesto}
+            className={`inline-flex size-10 items-center justify-center rounded-full text-[22px] leading-none transition active:scale-95 disabled:opacity-50 ${
+              puesto ? "bg-primary/15" : "hover:bg-muted"
+            }`}
+          >
+            {enviando === emoji ? <LoaderCircle className="size-4 animate-spin" /> : emoji}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function MessageTouchActionsSheet({
   message,
   open,
@@ -345,7 +407,11 @@ function MessageTouchActionsSheet({
       >
         <SheetTitle className="sr-only">Opciones del mensaje</SheetTitle>
         <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-border" />
-        <p className="truncate px-4 pb-2 pt-3 text-xs text-muted-foreground">{preview}</p>
+        {/* Las reacciones van ARRIBA de la lista, como en WhatsApp: es lo que mas se usa. */}
+        <FilaDeReacciones message={message} onDone={() => onOpenChange(false)} />
+        <p className="truncate border-t border-border px-4 pb-2 pt-3 text-xs text-muted-foreground">
+          {preview}
+        </p>
         <div className="border-t border-border">
           {acciones.map(({ label, icon: Icon, onClick, destructive }) => (
             <button
@@ -413,15 +479,16 @@ function MessageActionsMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="bottom" className="w-52">
+        {/* Igual que en el celular: los emoticones primero, que es lo que mas se usa. */}
+        <FilaDeReacciones message={message} />
+        <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => onReply?.(message)}>
           <Reply className="size-4" /> Responder
         </DropdownMenuItem>
         <DropdownMenuItem onClick={handleCopy}>
           <Copy className="size-4" /> Copiar
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={pending("Reaccionar")}>
-          <Smile className="size-4" /> Reaccionar
-        </DropdownMenuItem>
+
         <DropdownMenuItem onClick={() => onForward?.(message)}>
           <Forward className="size-4" /> Reenviar
         </DropdownMenuItem>

@@ -569,6 +569,31 @@ async function enviarConReintentoDeLid<T>(
   }
 }
 
+/**
+ * Reacciona a un mensaje (👍 ❤️ …), o quita la reaccion si el emoji va vacio.
+ *
+ * Verificado contra el servidor: la ruta es `PUT /api/reaction` y pide la sesion, el id del
+ * mensaje y el emoji. Es la misma reaccion que ve el cliente en su WhatsApp, no una marca
+ * nuestra: por eso se manda y recien despues se guarda de este lado.
+ */
+export async function enviarReaccionWaha(input: {
+  connection: WahaConnection;
+  sesion: string;
+  mensajeId: string;
+  emoji: string;
+}): Promise<void> {
+  await wahaRequest(input.connection, "/api/reaction", {
+    method: "PUT",
+    body: JSON.stringify({
+      session: input.sesion,
+      messageId: input.mensajeId,
+      // Vacio = quitar la reaccion, que es como lo entiende WhatsApp.
+      reaction: input.emoji,
+    }),
+    esperaJson: false,
+  });
+}
+
 export async function enviarTextoWaha(input: {
   connection: WahaConnection;
   sesion: string;

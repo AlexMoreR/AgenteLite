@@ -16,6 +16,7 @@ import { backfillEvolutionMessagesByPhone } from "@/lib/evolution-chat-sync";
 import { buildEvolutionGoHistoryAnchor, deleteEvolutionMessageForEveryone, fetchEvolutionProfilePictureUrl, readGatewayConnection, requestEvolutionGoHistorySync, sendEvolutionTextMessage } from "@/lib/evolution";
 import {
   WAHA_GATEWAY_KIND,
+  enviarReaccionWaha,
   chatIdDeUnMensajeWaha,
   descargarMediaWaha,
   reintentarMediaWaha,
@@ -2566,4 +2567,86 @@ export async function actualizarColaboradorDelCanalAction(input: {
 
   revalidatePath(`/cliente/conexion/whatsapp-business/${channelId}`);
   return {};
+}
+
+/* ---------------------------------------------------- reaccionar a un mensaje */
+
+/**
+ * Reacciona a un mensaje con un emoji, o quita la reaccion si va vacio.
+ *
+ * Se manda a WhatsApp PRIMERO y recien despues se guarda de este lado. Al reves quedaria una
+ * reaccion que se ve en el CRM y que el cliente nunca recibio, que es peor que no tenerla: uno
+ * cree que contesto y del otro lado no paso nada.
+ *
+ * Hasta ahora el menu de la burbuja ofrecia "Reaccionar" y mostraba "disponible proximamente".
+ */
+export async function reaccionarAlMensajeAction(input: {
+  messageId: string;
+  emoji: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { ok: false, error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { ok: false, error: "Workspace no encontrado" };
+  }
+
+  if (await estaEnModoMonitoreo({ workspaceId: membership.workspace.id, userId: session.user.id })) {
+    return { ok: false, error: AVISO_MODO_MONITOREO };
+  }
+
+  const messageId = input.messageId?.trim();
+  if (!messageId) {
+    return { ok: false, error: "Mensaje invalido" };
+  }
+  // Se acepta vacio a proposito: es como se quita una reaccion.
+  const emoji = (input.emoji ?? "").trim().slice(0, 8);
+
+  const message = await prisma.message.findFirst({
+    where: { id: messageId, workspaceId: membership.workspace.id },
+    select: {
+      id: true,
+      externalId: true,
+      channel: { select: { evolutionInstanceName: true, metadata: true } },
+    },
+  });
+
+  if (!message) {
+    return { ok: false, error: "Mensaje no encontrado" };
+  }
+  if (!message.externalId) {
+    return { ok: false, error: "Ese mensaje no tiene id de WhatsApp" };
+  }
+
+  const conexion = readGatewayConnection(message.channel?.metadata);
+  const sesion = message.channel?.evolutionInstanceName ?? "";
+  if (!conexion?.apiToken || conexion.kind !== WAHA_GATEWAY_KIND || !sesion) {
+    return { ok: false, error: "Solo se puede en los canales conectados por WAHA" };
+  }
+
+  try {
+    await enviarReaccionWaha({
+      connection: { baseUrl: conexion.baseUrl, apiToken: conexion.apiToken },
+      sesion,
+      mensajeId: message.externalId,
+      emoji,
+    });
+  } catch (error) {
+    console.error("[chats] no pude reaccionar", {
+      messageId: message.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { ok: false, error: "WhatsApp no acepto la reaccion" };
+  }
+
+  await prisma.message.update({
+    where: { id: message.id },
+    data: { reactionEmoji: emoji || null },
+  });
+
+  return { ok: true };
 }
