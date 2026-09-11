@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
-import { getWaCallsSessionId, getWaCallsSessionIdForChannel, waCallsRequest } from "@/lib/wacalls";
+import {
+  getWaCallsSessionIdDelNegocio,
+  getWaCallsSessionIdForChannel,
+  waCallsRequest,
+} from "@/lib/wacalls";
 
 export const dynamic = "force-dynamic";
 
@@ -52,11 +56,15 @@ export async function POST(request: Request) {
 
   /**
    * La linea con la que se marca es la DEL CANAL del chat, para que al cliente le entre la
-   * llamada desde el mismo numero con el que viene hablando. Solo si no se sabe de que canal
-   * viene —marcar desde una pantalla que no lo conoce— se cae a cualquier linea vinculada.
+   * llamada desde el mismo numero con el que viene hablando.
+   *
+   * Si ese canal no tiene linea propia, se cae a otra DEL MISMO NEGOCIO. Nunca a una de otro:
+   * el servidor de llamadas atiende a los tres, y antes la unica linea vinculada marcaba las
+   * llamadas de todos.
    */
   const sid =
-    (await getWaCallsSessionIdForChannel(cuerpo.channelId ?? null)) ?? (await getWaCallsSessionId());
+    (await getWaCallsSessionIdForChannel(cuerpo.channelId ?? null)) ??
+    (await getWaCallsSessionIdDelNegocio(access.workspaceId));
   if (!sid) {
     return NextResponse.json(
       { error: "Este canal todavía no tiene línea de llamadas. Vinculala en Conexión." },

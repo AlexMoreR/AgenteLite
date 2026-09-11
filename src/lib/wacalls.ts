@@ -119,20 +119,43 @@ export async function getWaCallsSessionIdForChannel(channelId: string | null): P
 }
 
 /**
- * El id de una linea cualquiera, para cuando no se sabe de que canal viene la llamada.
+ * Una linea del MISMO negocio, para cuando el canal del chat no tiene la suya.
  *
- * Es el ultimo recurso —marcar desde un lugar que no conoce el canal— y no el camino normal.
+ * Antes esto agarraba "una linea cualquiera" preguntandole al servidor de llamadas por todas las
+ * que tuviera, sin mirar de quien eran. El servidor de llamadas atiende a los tres negocios, asi
+ * que la unica linea vinculada —Ventas 1 de Magilus— terminaba marcando TAMBIEN las llamadas de
+ * Aizenproeycts y de Verzay: al candidato de Vacantes le entraba una llamada del numero de ventas
+ * de muebles. Medido el 11-sep-2026, con una llamada real.
+ *
+ * Ahora se buscan las lineas ENTRE LOS CANALES DE ESE NEGOCIO. Cruzar de negocio deja de ser
+ * posible, no por cuidado al escribir sino porque no hay por donde: si el negocio no tiene
+ * ninguna linea vinculada, no se marca y se lo dice.
+ *
+ * Sigue sin ser el camino ideal —lo correcto es que cada canal tenga la suya y el cliente vea el
+ * numero con el que viene hablando—, pero un numero del mismo negocio es algo que el cliente
+ * puede reconocer; el de otra empresa, no.
  */
-export async function getWaCallsSessionId(): Promise<string | null> {
-  const respuesta = await waCallsRequest<{ sessions?: Array<{ id?: string; paired?: boolean }> }>({
-    path: "/api/sessions",
-    timeoutMs: 5000,
-  });
-  if (!respuesta.ok) {
+export async function getWaCallsSessionIdDelNegocio(
+  workspaceId: string,
+): Promise<string | null> {
+  if (!workspaceId) {
     return null;
   }
-  const sesion = respuesta.data.sessions?.find((s) => s.paired !== false) ?? respuesta.data.sessions?.[0];
-  return sesion?.id?.trim() || null;
+  const canales = await prisma.whatsAppChannel
+    .findMany({
+      where: { workspaceId, isActive: true },
+      select: { metadata: true },
+      orderBy: { createdAt: "asc" },
+    })
+    .catch(() => []);
+
+  for (const canal of canales) {
+    const sid = leerSesionDeLlamadas(canal.metadata);
+    if (sid) {
+      return sid;
+    }
+  }
+  return null;
 }
 
 /** El estado de la linea de llamadas de un canal, para dibujarlo en su pantalla. */
