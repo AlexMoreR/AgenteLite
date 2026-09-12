@@ -58,6 +58,8 @@ export type ResumenLlamada = {
   nextContactAt: string | null;
   lostReasonLabel: string | null;
   answered: boolean;
+  /** Solo las llamadas hechas desde el marcador del CRM tienen audio. */
+  recordingUrl: string | null;
 };
 
 export type ResumenDiaData = {
@@ -116,6 +118,7 @@ export async function getResumenDiaData(input: {
           summary: true,
           nextContactAt: true,
           lostReason: true,
+          recordingUrl: true,
           contact: { select: { name: true, phoneNumber: true } },
         },
       }),
@@ -139,6 +142,7 @@ export async function getResumenDiaData(input: {
       nextContactAt: call.nextContactAt ? call.nextContactAt.toISOString() : null,
       lostReasonLabel: call.lostReason ? getCrmLostReasonLabel(call.lostReason) : null,
       answered: call.result !== NO_ANSWER_RESULT,
+      recordingUrl: call.recordingUrl,
     }));
 
     return {

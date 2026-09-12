@@ -65,6 +65,8 @@ export type LlamadaLead = {
    * contado con el doble de intentos de los que tuvo.
    */
   pendingAttemptId?: string | null;
+  /** La grabacion de la llamada pendiente, si salio del marcador del CRM. */
+  recordingUrl?: string | null;
 };
 
 export type LlamadasVendedoraData = {
@@ -191,6 +193,7 @@ export async function getLlamadasVendedoraData(
         summary: true,
         attemptNumber: true,
         calledAt: true,
+        recordingUrl: true,
         contact: {
           select: {
             id: true,
@@ -218,6 +221,7 @@ export async function getLlamadasVendedoraData(
       attemptCount: intento.attemptNumber,
       nextContactAt: null,
       pendingAttemptId: intento.id,
+      recordingUrl: intento.recordingUrl,
     }));
 
     // Nuevos sin tocar: etapa NUEVO y CERO llamadas registradas. Máx. 10, los más recientes.

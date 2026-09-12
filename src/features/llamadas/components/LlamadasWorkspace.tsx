@@ -54,6 +54,7 @@ type PresetContact = {
    * clasificarla crearía un segundo intento y el lead figuraría con el doble de llamadas.
    */
   pendingAttemptId?: string | null;
+  recordingUrl?: string | null;
 };
 
 function todayInputValue() {
@@ -351,6 +352,21 @@ function LeadCard({ lead, mode, onRegister, puedeMarcarEnLaApp }: { lead: Llamad
             <span className="text-muted-foreground italic">Sin llamadas aún · intento 0</span>
           )}
         </div>
+        {/*
+          La grabacion, al lado de la llamada que hay que clasificar.
+
+          Es justo donde sirve: para elegir "interesada" o "lo piensa" la asesora tiene que acordarse
+          de que le dijeron, y la llamada puede ser de hace una hora. `preload="none"` porque la lista
+          trae hasta 20: sin eso el navegador bajaba 20 WAVs de varios megas al abrir la pantalla.
+        */}
+        {lead.recordingUrl ? (
+          <audio
+            controls
+            preload="none"
+            src={lead.recordingUrl}
+            className="mt-1.5 h-8 w-full max-w-xs"
+          />
+        ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         {/* Sin telefono no se ofrece "Llamar": se cae a WhatsApp, que es lo unico que anda. */}

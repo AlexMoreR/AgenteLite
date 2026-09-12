@@ -193,6 +193,15 @@ export function ResumenDiaView({ data }: { data: ResumenDiaData }) {
                 </div>
                 <p className="text-xs text-foreground/70">{call.resultLabel}</p>
                 {call.summary ? <p className="text-xs text-muted-foreground">{call.summary}</p> : null}
+                {/* preload="none": el resumen puede listar decenas de llamadas del dia. */}
+                {call.recordingUrl ? (
+                  <audio
+                    controls
+                    preload="none"
+                    src={call.recordingUrl}
+                    className="mt-1 h-8 w-full"
+                  />
+                ) : null}
                 {call.nextContactAt ? (
                   <p className="text-[11px] text-muted-foreground">
                     Vuelve a llamar el {formatDate(call.nextContactAt)}

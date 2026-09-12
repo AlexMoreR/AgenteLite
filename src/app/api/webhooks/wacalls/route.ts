@@ -1,10 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { NextResponse } from "next/server";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { NextResponse, after } from "next/server";
 import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/lib/prisma";
 import { normalizePhoneFromJid } from "@/lib/evolution-webhook";
 import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
+import { getWaCallsBaseUrl } from "@/lib/wacalls";
 import { CALL_RESULT_PENDING } from "@/features/crm/domain/crm-config";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +50,8 @@ const TOLERANCIA_SEGUNDOS = 300;
 type WaCallsWebhookBody = {
   event?: string;
   call?: {
+    /** La linea de WaCalls por la que salio. Junto con callId, arma el nombre del WAV grabado. */
+    sessionId?: string;
     callId?: string;
     /** Quien marco. Viaja como X-Client-Id al iniciar y vuelve aca; es el id del usuario del CRM. */
     owner?: string | null;
@@ -205,7 +210,7 @@ export async function POST(request: Request) {
     duracionEnSegundos(llamada),
   );
 
-  await prisma.callAttempt.create({
+  const intento = await prisma.callAttempt.create({
     data: {
       workspaceId: contacto.workspaceId,
       contactId: contacto.id,
@@ -232,6 +237,25 @@ export async function POST(request: Request) {
     resumen,
     calledAt,
   });
+
+  /*
+    La grabacion se trae DESPUES de responder.
+
+    Es un WAV de varios megas -una llamada de 5 minutos son ~10 MB- y WaCalls reintenta el aviso si
+    nuestra respuesta tarda. Bajarla antes de contestar podia terminar en el mismo aviso llegando
+    dos o tres veces mientras el archivo todavia viajaba.
+  */
+  const sesionDeLaLlamada = llamada.sessionId?.trim();
+  const idDeLaLlamada = llamada.callId?.trim();
+  if (sesionDeLaLlamada && idDeLaLlamada) {
+    after(() =>
+      guardarLaGrabacion({
+        attemptId: intento.id,
+        sessionId: sesionDeLaLlamada,
+        callId: idDeLaLlamada,
+      }),
+    );
+  }
 
   console.info(
     `[wacalls] anotada llamada ${saliente ? "saliente" : "entrante"} a ${telefono} (${llamada.endReason}) como ${result}, intento ${intentosPrevios + 1}`,
@@ -381,6 +405,88 @@ function comoFue(saliente: boolean, huboContacto: boolean, endReason: string, se
       return `${cabecera} · se cortó antes de que atendiera`;
     default:
       return `${cabecera} · sin contacto`;
+  }
+}
+
+/*
+  El tope de una grabacion. 200 MB son unas 17 horas de audio: ninguna llamada llega, pero un
+  archivo anomalo no puede llenar el disco del servidor.
+*/
+const MAX_BYTES_GRABACION = 200 * 1024 * 1024;
+
+/**
+ * Trae el WAV de la llamada desde WaCalls y lo deja en /uploads/grabaciones.
+ *
+ * Solo hay grabacion para las llamadas hechas desde el marcador del CRM: son las unicas cuyo audio
+ * pasa por WaCalls. Una llamada desde el celular llega igual a este buzon y aca no encuentra nada
+ * que bajar, que es lo esperado -no un error-.
+ *
+ * Se reintenta porque el archivo se termina de escribir cuando la llamada se cierra, en paralelo
+ * con este aviso: el primer pedido puede llegar antes de que el WAV este completo.
+ *
+ * No rompe nada si falla: la llamada ya quedo anotada. Se pierde el audio, no el registro.
+ */
+async function guardarLaGrabacion(input: { attemptId: string; sessionId: string; callId: string }) {
+  const base = getWaCallsBaseUrl();
+  const token = process.env.WACALLS_API_TOKEN?.trim();
+  if (!base || !token) {
+    return;
+  }
+
+  const direccion = `${base}/api/sessions/${encodeURIComponent(input.sessionId)}/calls/${encodeURIComponent(input.callId)}/recording`;
+
+  for (const espera of [0, 2000, 5000]) {
+    if (espera) {
+      await new Promise((resolver) => setTimeout(resolver, espera));
+    }
+
+    try {
+      const respuesta = await fetch(direccion, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+        signal: AbortSignal.timeout(60000),
+      });
+
+      if (respuesta.status === 404) {
+        const texto = await respuesta.text().catch(() => "");
+        // Con la grabacion apagada en WaCalls no tiene sentido insistir.
+        if (texto.includes("recording disabled")) {
+          return;
+        }
+        continue;
+      }
+      if (!respuesta.ok) {
+        continue;
+      }
+
+      const largoDeclarado = Number(respuesta.headers.get("content-length") ?? "0");
+      if (largoDeclarado > MAX_BYTES_GRABACION) {
+        console.warn(`[wacalls] grabacion demasiado grande (${largoDeclarado} bytes), no se guarda`);
+        return;
+      }
+
+      const audio = Buffer.from(await respuesta.arrayBuffer());
+      // 44 bytes es la cabecera sola: el archivo existe pero no se grabo nada adentro.
+      if (audio.length <= 44 || audio.length > MAX_BYTES_GRABACION) {
+        return;
+      }
+
+      const nombre = `${input.callId.replace(/[^A-Za-z0-9_-]/g, "-")}.wav`;
+      const carpeta = path.join(process.cwd(), "public", "uploads", "grabaciones");
+      await mkdir(carpeta, { recursive: true });
+      await writeFile(path.join(carpeta, nombre), audio);
+
+      await prisma.callAttempt.update({
+        where: { id: input.attemptId },
+        data: { recordingUrl: `/uploads/grabaciones/${nombre}` },
+      });
+
+      console.info(`[wacalls] grabacion guardada: ${nombre} (${Math.round(audio.length / 1024)} KB)`);
+      revalidatePath("/cliente/llamadas");
+      return;
+    } catch (error) {
+      console.warn("[wacalls] no se pudo traer la grabacion", error);
+    }
   }
 }
 

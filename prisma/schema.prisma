@@ -1109,6 +1109,10 @@ model CallAttempt {
   // Fecha real de la llamada. EDITABLE (default now) para registrar llamadas retroactivas hechas
   // antes de lanzar el modulo (migracion del Google Sheet).
   calledAt       DateTime  @default(now())
+  // La grabacion de la llamada, cuando la hubo: una direccion propia (/uploads/grabaciones/...).
+  // Solo existe para las llamadas hechas desde el marcador del CRM -las unicas cuyo audio pasa por
+  // WaCalls-; las del celular y las registradas a mano quedan en null. Ver el webhook de wacalls.
+  recordingUrl   String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
