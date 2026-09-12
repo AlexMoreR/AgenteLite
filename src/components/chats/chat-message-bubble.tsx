@@ -815,16 +815,20 @@ export const MessageBubble = memo(function MessageBubble({
   }, [documentUrl]);
 
   /*
-    Las tarjetas que mandan el ancho de la burbuja: la nota de voz y el PDF.
+    Lo que manda el ancho de la burbuja: la nota de voz, el PDF y los stickers.
 
-    Las dos tienen un ancho fijo y a la derecha les quedaba un hueco blanco. Medido en
+    Los tres tienen un ancho fijo y a la derecha les quedaba un hueco blanco. Medido en
     produccion: tarjeta 276px, hora 63px, separacion 8 -> la burbuja terminaba en 363. La hora se
-    acomoda AL LADO del contenido cuando le da el ancho, y con estas le daba; como ademas va
+    acomoda AL LADO del contenido cuando le da el ancho, y con estos le daba; como ademas va
     alineada abajo, se ve como si estuviera debajo, pero el ancho ya se gasto.
 
-    Con la hora apilada la burbuja mide lo que mide la tarjeta, que es como se ve en WhatsApp.
+    Con la hora apilada la burbuja mide lo que mide el contenido, que es como se ve en WhatsApp.
+
+    Las fotos y los videos NO entran aca: esos llevan la hora encima de la imagen
+    (showInlineMediaTimestamp). Un sticker no puede -es transparente y el texto quedaria ilegible
+    sobre el fondo del chat-, asi que va apilada.
   */
-  const apilarLaHora = Boolean(audioUrl) || Boolean(documentUrl && esPdf);
+  const apilarLaHora = Boolean(audioUrl) || Boolean(documentUrl && esPdf) || Boolean(stickerUrl);
 
   const vistaPreviaDelEnlace = useMemo(
     () => extraerVistaPreviaDeEnlace(message.rawPayload),
