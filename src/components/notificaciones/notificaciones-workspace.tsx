@@ -150,21 +150,13 @@ export function NotificacionesWorkspace() {
     );
   }, [busqueda, sinLeer]);
 
-  const total = sinLeer.reduce(
-    (suma, conversacion) => suma + (conversacion.incomingCount ?? 0),
-    0,
-  );
-
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold text-foreground">Notificaciones</h1>
-        {total > 0 ? (
-          <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#ef4444] px-2 text-[12px] font-semibold text-white">
-            {total > 99 ? "99+" : total}
-          </span>
-        ) : null}
-      </div>
+      {/*
+        Sin titulo propio: "Notificaciones" ya esta en el encabezado de la app, arriba de todo.
+        Escrito dos veces, uno se come una pantalla de alto en el celular para no decir nada
+        nuevo. El conteo tampoco se repite: el punto rojo de la campana, ahi al lado, es el mismo.
+      */}
 
       {/* El permiso del celular se pedia desde el menu de la campanita. Al mudar los avisos aca,
           se muda con ellos: si no, no quedaba ningun lugar donde activarlos. */}
