@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { Bell } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -19,10 +18,10 @@ import { NotificationPermissionInline } from "@/components/chats/notification-pe
 /**
  * Cada cuanto la campanita pregunta si hay mensajes sin leer.
  *
- * Estaba en 15s, y cada consulta trae la lista COMPLETA de conversaciones con su ultimo
- * mensaje y su conteo de no leidos: es la consulta mas cara de la app (medida el 29-jul-2026:
- * ~2s cada una). O sea que la campanita, sola, mantenia al servidor y a la base trabajando
- * sin parar todo el dia, aunque nadie la mirara.
+ * Estaba en 15s, y cada consulta trae la lista COMPLETA de conversaciones con su ultimo mensaje
+ * y su conteo de no leidos: era la consulta mas cara de la app (medida el 29-jul-2026: ~2s cada
+ * una). O sea que la campanita, sola, mantenia al servidor y a la base trabajando sin parar todo
+ * el dia, aunque nadie la mirara.
  *
  * A 60s sigue avisando a tiempo -- es una notificacion, no un cronometro -- y hace la cuarta
  * parte del trabajo.
@@ -75,18 +74,20 @@ function getInitial(label?: string) {
 export function ChatNotificationBell({ className }: { className?: string }) {
   const [conversations, setConversations] = React.useState<NotificationConversation[]>([]);
   const [hasAccess, setHasAccess] = React.useState(true);
-  const pathname = usePathname();
 
-  // Estando DENTRO de chats la campanita no aporta nada: la bandeja ya muestra los no leidos,
-  // con su propio globo verde y en tiempo real. Y era justo ahi donde mas molestaba: sumaba su
-  // consulta pesada a la de la bandeja, en la pantalla donde las asesoras pasan el dia.
-  const estaEnChats = (pathname ?? "").startsWith("/cliente/chats");
+  /*
+    La campanita tambien cuenta dentro de Chats.
 
+    Estuvo apagada ahi por la consulta cara de arriba: sumarle 2 segundos de base a la pantalla
+    donde las asesoras pasan el dia no valia la pena, porque la bandeja ya muestra los no leidos
+    con su globito verde en cada fila.
+
+    Ese motivo se termino. Medida de nuevo el 12-sep-2026, ya sin el detoast del rawPayload: 278
+    ms. Y apagada tenia un costo propio que no se habia pensado: el boton seguia ahi, sin poder
+    encenderse nunca, diciendo "No tienes mensajes nuevos" con la bandeja llena. Un boton que no
+    puede funcionar se lee como roto, y es peor que no tenerlo.
+  */
   React.useEffect(() => {
-    if (estaEnChats) {
-      return;
-    }
-
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
@@ -121,7 +122,7 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [estaEnChats]);
+  }, []);
 
   const unreadConversations = React.useMemo(
     () =>
