@@ -130,15 +130,16 @@ export function BuscadorGlobal() {
           que un `[&_svg]:` suelto, asi que gana siempre... salvo que el svg tenga su propia clase
           de tamaño. Poniendosela, el `:not` deja de coincidir y el conflicto desaparece.
 
-          Queda en 28 dentro de un boton de 40: llena el boton, se ve de lejos, y de paso los dos
-          iconos quedan a 4px uno del otro en vez de a 30.
+          Queda en 24 dentro de un boton de 36. Primero fue a 28 y quedo demasiado grande para
+          el encabezado; 24 sigue siendo la mitad mas que los 16 de antes y ya no manda en la
+          pantalla. Los dos iconos quedan a unos 14px uno del otro, no a los 30 de antes.
         */
-        className="size-10"
+        className="size-9"
         aria-label="Buscar en todo (Ctrl+K)"
         title="Buscar en todo (Ctrl+K)"
         onClick={() => setAbierto(true)}
       >
-        <Search data-icon="inline-start" className="size-7" />
+        <Search data-icon="inline-start" className="size-6" />
       </Button>
 
       <CommandDialog
