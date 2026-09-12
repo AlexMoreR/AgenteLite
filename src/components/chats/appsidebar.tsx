@@ -229,19 +229,13 @@ export function AppSidebar({
                 aria-expanded={filterMenuOpen}
                 aria-haspopup="dialog"
                 title="Cambiar filtro"
-                /*
-                  El mas, tambien mas grande: 36px de rueda con el signo de 18.
-
-                  Era una rueda de 28 con un signo de 14 adentro -la mitad del circulo era aire-
-                  y es el boton que abre TODOS los filtros de la bandeja. Se veia como un adorno.
-                */
-                className={`relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-dashed transition hover:border-solid hover:bg-muted hover:text-foreground ${
+                className={`relative inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed transition hover:border-solid hover:bg-muted hover:text-foreground ${
                   filterMenuOpen || filtersActive
                     ? "border-primary text-primary"
                     : "border-border text-muted-foreground"
                 }`}
               >
-                <Plus className="h-[18px] w-[18px]" />
+                <Plus className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>

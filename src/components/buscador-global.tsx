@@ -122,13 +122,13 @@ export function BuscadorGlobal() {
         // y en el celular se tocan con el pulgar, asi que el dibujo tiene que verse de lejos.
         size="icon-sm"
         /*
-          40px de boton con la lupa de 32.
+          La lupa, de 28 a 36.
 
-          Estaba en 28 y 28: el dibujo ocupaba el boton entero, sin aire, y en el celular habia
-          que apuntarle. 40 es lo que piden Android y iPhone para algo que se toca con el dedo, y
-          se toca todo el dia.
+          Primero la subi a 32 y en el celular no se noto: 4px sobre 28 no se ven. Lo que se mira
+          es el DIBUJO -el boton no tiene borde-, asi que el numero que importa es ese. 36 en un
+          boton de 40, que es lo que piden Android y iPhone para algo que se toca con el dedo.
         */
-        className="size-10 [&_svg]:size-8"
+        className="size-10 [&_svg]:size-9"
         aria-label="Buscar en todo (Ctrl+K)"
         title="Buscar en todo (Ctrl+K)"
         onClick={() => setAbierto(true)}
