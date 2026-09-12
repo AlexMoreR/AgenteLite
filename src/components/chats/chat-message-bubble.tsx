@@ -933,6 +933,96 @@ export const MessageBubble = memo(function MessageBubble({
   }, [message, onSeleccionar]);
   const longPress = useLongPress(abrirMenuTactil, tieneAcciones);
 
+  /*
+    La hora del mensaje, que en las notas de voz cambia de lugar.
+
+    En una nota de voz la esquina de abajo a la derecha la ocupa la foto de quien habla, y la hora
+    ahi al lado se veia apretada contra el avatar. Alex pidio moverla al renglon de abajo a la
+    izquierda, pegada a la duracion: "0:06 - 9:11 a. m.", y que debajo del avatar no quede nada.
+
+    Por eso sale de aca y se le entrega a la tarjeta del audio, que la dibuja al lado de la
+    duracion. En todo lo demas se queda donde estaba, a la derecha.
+  */
+  const horaEnElAudio = Boolean(audioUrl);
+  const filaDeLaHora = (
+    <div
+      className={`flex shrink-0 items-center gap-1 text-[10px] ${horaEnElAudio ? "" : "ml-auto justify-end"} ${
+              outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"
+            }`}
+          >
+            {isDeleted ? (
+              <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
+                outbound ? "bg-[var(--chat-out-overlay)] text-[var(--chat-out-text-soft)]" : "bg-rose-50 text-rose-600"
+              }`}>
+                <Trash2 className="h-2.5 w-2.5" />
+                Eliminado
+              </Badge>
+            ) : null}
+            {message.editedAt ? (
+              <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
+                outbound ? "bg-[var(--chat-out-overlay)] text-[var(--chat-out-text-soft)]" : "bg-muted text-muted-foreground"
+              }`}>
+                <Pencil className="h-2.5 w-2.5" />
+                Editado
+              </Badge>
+            ) : null}
+            {!showInlineMediaTimestamp ? (
+              message.authorType === "bot" ? (
+                <Bot className="h-3 w-3" />
+              ) : (
+                <UserRound className="h-3 w-3" />
+              )
+            ) : null}
+            {!showInlineMediaTimestamp ? <span>{formatChatTime(message.createdAt)}</span> : null}
+            {isPendingMedia ? (
+              <LoaderCircle className="ml-0.5 h-3 w-3 shrink-0 animate-spin" aria-label="Enviando" />
+            ) : null}
+            {outbound && message.outboundStatusLabel ? (
+              // Acuses tipo WhatsApp. La API oficial sí avisa cuando el cliente RECIBIÓ y cuando
+              // ABRIÓ el mensaje; antes se imprimía el estado crudo ("DELIVERED", "READ") como
+              // texto. El doble check azul es el que dice "lo leyó".
+              message.outboundStatusLabel === "READ" ? (
+                <CheckCheck className="ml-1 h-3 w-3 shrink-0 text-sky-500" aria-label="Leído" />
+              ) : message.outboundStatusLabel === "DELIVERED" ? (
+                <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-label="Entregado" />
+              ) : message.outboundStatusLabel === "SENT" ? (
+                <Check className="ml-1 h-3 w-3 shrink-0" aria-label="Enviado" />
+              ) : message.outboundStatusLabel === "FAILED" ? (
+                // Antes era solo un triangulito, sin texto: la asesora veia que "algo paso" y
+                // tenia que mandar el archivo a mano sin saber por que. Ahora se dice, y el
+                // motivo exacto de WhatsApp queda en el tooltip.
+                <span
+                  // El ambar oscuro se pierde sobre la burbuja verde profunda del tema noche.
+                  className="ml-1 inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-300"
+                  title={message.errorDetail?.trim() || "WhatsApp rechazó el mensaje."}
+                >
+                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  No se envió
+                </span>
+              ) : message.outboundStatusLabel === "entregado" ? (
+                <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
+              ) : message.outboundStatusLabel === "error" ? (
+                <span className="ml-1 inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-300">
+                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  No se envió
+                  {onRetry ? (
+                    <button
+                      type="button"
+                      onClick={onRetry}
+                      className="ml-0.5 inline-flex cursor-pointer items-center gap-0.5 rounded-full bg-amber-600/15 px-1.5 py-0.5 font-semibold text-amber-800 transition hover:bg-amber-600/25 dark:bg-amber-300/20 dark:text-amber-200 dark:hover:bg-amber-300/30"
+                    >
+                      <RotateCcw className="h-2.5 w-2.5" />
+                      Reintentar
+                    </button>
+                  ) : null}
+                </span>
+              ) : (
+                <span className="ml-1">{message.outboundStatusLabel}</span>
+              )
+            ) : null}
+    </div>
+  );
+
   return (
     <div
       className="space-y-2.5 md:space-y-3"
@@ -1355,6 +1445,7 @@ export const MessageBubble = memo(function MessageBubble({
               outbound={outbound}
               avatarUrl={avatarUrl}
               contactLabel={contactLabel}
+              hora={filaDeLaHora}
             >
               {renderMessageText(contenidoVisible)}
             </AudioMessageCard>
@@ -1542,82 +1633,7 @@ export const MessageBubble = memo(function MessageBubble({
           )}
           </div>
 
-          <div
-            className={`ml-auto flex shrink-0 items-center justify-end gap-1 text-[10px] ${
-              outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"
-            }`}
-          >
-            {isDeleted ? (
-              <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
-                outbound ? "bg-[var(--chat-out-overlay)] text-[var(--chat-out-text-soft)]" : "bg-rose-50 text-rose-600"
-              }`}>
-                <Trash2 className="h-2.5 w-2.5" />
-                Eliminado
-              </Badge>
-            ) : null}
-            {message.editedAt ? (
-              <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
-                outbound ? "bg-[var(--chat-out-overlay)] text-[var(--chat-out-text-soft)]" : "bg-muted text-muted-foreground"
-              }`}>
-                <Pencil className="h-2.5 w-2.5" />
-                Editado
-              </Badge>
-            ) : null}
-            {!showInlineMediaTimestamp ? (
-              message.authorType === "bot" ? (
-                <Bot className="h-3 w-3" />
-              ) : (
-                <UserRound className="h-3 w-3" />
-              )
-            ) : null}
-            {!showInlineMediaTimestamp ? <span>{formatChatTime(message.createdAt)}</span> : null}
-            {isPendingMedia ? (
-              <LoaderCircle className="ml-0.5 h-3 w-3 shrink-0 animate-spin" aria-label="Enviando" />
-            ) : null}
-            {outbound && message.outboundStatusLabel ? (
-              // Acuses tipo WhatsApp. La API oficial sí avisa cuando el cliente RECIBIÓ y cuando
-              // ABRIÓ el mensaje; antes se imprimía el estado crudo ("DELIVERED", "READ") como
-              // texto. El doble check azul es el que dice "lo leyó".
-              message.outboundStatusLabel === "READ" ? (
-                <CheckCheck className="ml-1 h-3 w-3 shrink-0 text-sky-500" aria-label="Leído" />
-              ) : message.outboundStatusLabel === "DELIVERED" ? (
-                <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-label="Entregado" />
-              ) : message.outboundStatusLabel === "SENT" ? (
-                <Check className="ml-1 h-3 w-3 shrink-0" aria-label="Enviado" />
-              ) : message.outboundStatusLabel === "FAILED" ? (
-                // Antes era solo un triangulito, sin texto: la asesora veia que "algo paso" y
-                // tenia que mandar el archivo a mano sin saber por que. Ahora se dice, y el
-                // motivo exacto de WhatsApp queda en el tooltip.
-                <span
-                  // El ambar oscuro se pierde sobre la burbuja verde profunda del tema noche.
-                  className="ml-1 inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-300"
-                  title={message.errorDetail?.trim() || "WhatsApp rechazó el mensaje."}
-                >
-                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  No se envió
-                </span>
-              ) : message.outboundStatusLabel === "entregado" ? (
-                <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
-              ) : message.outboundStatusLabel === "error" ? (
-                <span className="ml-1 inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-300">
-                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  No se envió
-                  {onRetry ? (
-                    <button
-                      type="button"
-                      onClick={onRetry}
-                      className="ml-0.5 inline-flex cursor-pointer items-center gap-0.5 rounded-full bg-amber-600/15 px-1.5 py-0.5 font-semibold text-amber-800 transition hover:bg-amber-600/25 dark:bg-amber-300/20 dark:text-amber-200 dark:hover:bg-amber-300/30"
-                    >
-                      <RotateCcw className="h-2.5 w-2.5" />
-                      Reintentar
-                    </button>
-                  ) : null}
-                </span>
-              ) : (
-                <span className="ml-1">{message.outboundStatusLabel}</span>
-              )
-            ) : null}
-          </div>
+          {horaEnElAudio ? null : filaDeLaHora}
           </div>
 
           {/* Reaccion del cliente (👍 ❤️ …): circulito pegado abajo a la derecha de la burbuja,

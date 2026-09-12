@@ -82,6 +82,7 @@ export function AudioMessageCard({
   outbound,
   avatarUrl,
   contactLabel,
+  hora,
   children,
 }: {
   message: SharedInboxMessageItem;
@@ -89,6 +90,14 @@ export function AudioMessageCard({
   outbound: boolean;
   avatarUrl?: string | null;
   contactLabel?: string | null;
+  /**
+   * La hora del mensaje con sus chulitos, que la arma la burbuja.
+   *
+   * Viene de afuera y se dibuja aca, al lado de la duracion: en una nota de voz la esquina de
+   * abajo a la derecha la ocupa la foto de quien habla, y la hora ahi quedaba apretada contra
+   * el avatar.
+   */
+  hora?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -243,6 +252,8 @@ export function AudioMessageCard({
         <span className="text-[11px] leading-none tabular-nums">
           {reloj(posicion > 0 ? posicion : duracionMostrada)}
         </span>
+
+        {hora}
 
         {/*
           La velocidad aparece recien cuando el audio arranco.
