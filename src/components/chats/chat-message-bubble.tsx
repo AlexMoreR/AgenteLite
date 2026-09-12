@@ -785,6 +785,18 @@ export const MessageBubble = memo(function MessageBubble({
     return /\.pdf($|[?#])/.test(direccion) || direccion.includes(".pdf");
   }, [documentUrl]);
 
+  /*
+    Las tarjetas que mandan el ancho de la burbuja: la nota de voz y el PDF.
+
+    Las dos tienen un ancho fijo y a la derecha les quedaba un hueco blanco. Medido en
+    produccion: tarjeta 276px, hora 63px, separacion 8 -> la burbuja terminaba en 363. La hora se
+    acomoda AL LADO del contenido cuando le da el ancho, y con estas le daba; como ademas va
+    alineada abajo, se ve como si estuviera debajo, pero el ancho ya se gasto.
+
+    Con la hora apilada la burbuja mide lo que mide la tarjeta, que es como se ve en WhatsApp.
+  */
+  const apilarLaHora = Boolean(audioUrl) || Boolean(documentUrl && esPdf);
+
   const vistaPreviaDelEnlace = useMemo(
     () => extraerVistaPreviaDeEnlace(message.rawPayload),
     [message.rawPayload],
@@ -1033,7 +1045,13 @@ export const MessageBubble = memo(function MessageBubble({
           ) : null}
           {/* Contenido + hora en flujo tipo WhatsApp: en mensajes cortos la hora
               queda a la derecha en la MISMA linea; en los largos baja al pie. */}
-          <div className="flex flex-wrap items-end gap-x-2">
+          <div
+            className={
+              apilarLaHora
+                ? "flex flex-col"
+                : "flex flex-wrap items-end gap-x-2"
+            }
+          >
           <div className="min-w-0">
           {callSummary ? (
             <div className="space-y-2">
@@ -1524,22 +1542,10 @@ export const MessageBubble = memo(function MessageBubble({
           )}
           </div>
 
-          {/*
-            Con la tarjeta del PDF, la hora BAJA — y el ancho entero va ACA, no en la tarjeta.
-
-            Puesto en el contenido, el navegador tomaba ese 100% como "toda la burbuja" al decidir
-            cuanto medir, y la burbuja se estiraba al 88% de la pantalla mientras la tarjeta se
-            quedaba en su ancho: quedaba una franja blanca a la derecha, justo el hueco que se
-            venia a sacar.
-
-            En la hora no pasa: al medir, una hora es angosta, asi que la burbuja sigue midiendo
-            lo que mide la tarjeta. Recien despues la hora se estira a ese ancho, se queda sola en
-            su renglon y se va a la derecha. Igual que WhatsApp.
-          */}
           <div
             className={`ml-auto flex shrink-0 items-center justify-end gap-1 text-[10px] ${
-              documentUrl && esPdf ? "w-full" : ""
-            } ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"}`}
+              outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"
+            }`}
           >
             {isDeleted ? (
               <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${

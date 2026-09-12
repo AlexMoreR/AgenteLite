@@ -160,12 +160,15 @@ export function AudioMessageCard({
         fallbackClassName="rounded-full bg-muted text-muted-foreground"
       />
       {/*
-        El microfono pegado a la foto. Verde cuando todavia no se escucho y gris despues, igual
-        que WhatsApp: de un vistazo se ve cuales quedan pendientes en una tanda de audios.
+        El microfono pegado a la foto. Azul mientras no se escucho y gris despues: de un vistazo
+        se ve cuales quedan pendientes en una tanda de audios.
+
+        Azul y no el verde de WhatsApp por pedido de Alex, y ademas se lee mejor: la burbuja
+        saliente ya es verde y ahi el microfono se perdia contra el fondo.
       */}
       <span
         className={`absolute -bottom-0.5 -right-0.5 inline-flex size-5 items-center justify-center rounded-full ${
-          posicion > 0 ? "text-muted-foreground" : "text-[#25D366]"
+          posicion > 0 ? "text-muted-foreground" : "text-[#2563eb]"
         }`}
       >
         <Mic className="size-4 fill-current" />
