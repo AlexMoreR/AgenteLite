@@ -93,7 +93,18 @@ export function ChatNotificationBell({ className }: { className?: string }) {
 
     const poll = async () => {
       try {
-        const response = await fetch("/api/cliente/chats/list?limit=40", {
+        /*
+          `assigned=all`: el punto avisa de CUALQUIER mensaje nuevo, no solo de los chats propios.
+
+          Sin esto la campanita preguntaba por la bandeja "Mias" -el default de la ruta-, asi que
+          un mensaje entrando a un chat de otra asesora, o a uno sin asignar, no encendia nada.
+          Alex mira las 79 conversaciones y tiene 41 propias: para el la campanita se quedaba
+          muda casi siempre, que es justo lo que reporto.
+
+          No destapa nada: la ruta le impone "mias" a quien no es jefe y filtra por los canales
+          visibles de cada quien. Pedir "todas" no cambia ninguna de las dos cosas.
+        */
+        const response = await fetch("/api/cliente/chats/list?limit=40&assigned=all", {
           cache: "no-store",
         });
 
@@ -118,8 +129,22 @@ export function ChatNotificationBell({ className }: { className?: string }) {
 
     poll();
 
+    /*
+      Ademas del minuto, la campanita escucha el aviso del altavoz.
+
+      Con solo el intervalo, el punto podia tardar hasta 60 segundos en aparecer despues de que
+      el mensaje YA estaba en la bandeja: se veia la fila nueva y la campana seguia apagada, que
+      es peor que no tenerla. El altavoz avisa en el instante en que entra el mensaje; el
+      intervalo queda de red de seguridad por si el socket esta caido.
+    */
+    const alLlegarAlgo = () => {
+      void poll();
+    };
+    window.addEventListener("official-realtime-poke", alLlegarAlgo);
+
     return () => {
       cancelled = true;
+      window.removeEventListener("official-realtime-poke", alLlegarAlgo);
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, []);
@@ -159,15 +184,17 @@ export function ChatNotificationBell({ className }: { className?: string }) {
             size="icon-sm"
             // Del mismo tamaño que la lupa, que esta al lado: dos botones iguales se leen
             // como un par, y uno mas chico parece un error.
-            className={cn("relative size-10 [&_svg]:size-9", className)}
+            className={cn("relative size-11 [&_svg]:size-10", className)}
             aria-label={hasUnread ? `${totalUnread} mensajes nuevos en chats` : "Notificaciones de chats"}
           />
         }
       >
         <Bell data-icon="inline-start" />
         {hasUnread ? (
-          <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#ef4444] px-1 shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
-            <span className="text-[10px] font-semibold leading-none text-white">{badgeLabel}</span>
+          /* Con el icono mas grande, el globito de antes quedaba como una mota. Crece con el, y
+             el borde del color del encabezado lo despega de la campana. */
+          <span className="absolute top-0 right-0 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-sidebar bg-[#ef4444] px-1 shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
+            <span className="text-[11px] font-bold leading-none text-white">{badgeLabel}</span>
           </span>
         ) : null}
       </DropdownMenuTrigger>

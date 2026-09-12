@@ -118,17 +118,16 @@ export function BuscadorGlobal() {
       <Button
         type="button"
         variant="ghost"
-        // El icono ocupa el boton entero (28/28): son los dos botones que se usan todo el dia
-        // y en el celular se tocan con el pulgar, asi que el dibujo tiene que verse de lejos.
         size="icon-sm"
         /*
-          La lupa, de 28 a 36.
+          La lupa, de 28 a 40.
 
-          Primero la subi a 32 y en el celular no se noto: 4px sobre 28 no se ven. Lo que se mira
-          es el DIBUJO -el boton no tiene borde-, asi que el numero que importa es ese. 36 en un
-          boton de 40, que es lo que piden Android y iPhone para algo que se toca con el dedo.
+          Fue en tres pasos porque los dos primeros no se vieron: 32 y despues 36. Lo que se mira
+          es el DIBUJO -el boton no tiene borde ni fondo-, y sobre 28 esos saltos son del 14%.
+          40 en un boton de 44 deja apenas 2px de aire: el dibujo ocupa el boton, y de paso los
+          dos iconos quedan mas juntos sin mover nada de alrededor.
         */
-        className="size-10 [&_svg]:size-9"
+        className="size-11 [&_svg]:size-10"
         aria-label="Buscar en todo (Ctrl+K)"
         title="Buscar en todo (Ctrl+K)"
         onClick={() => setAbierto(true)}
