@@ -165,7 +165,7 @@ export function AudioMessageCard({
       <ContactAvatar
         avatarUrl={avatarUrl}
         label={contactLabel ?? ""}
-        className="size-11 rounded-full border-0 bg-muted text-muted-foreground after:border-0"
+        className="size-12 rounded-full border-0 bg-muted text-muted-foreground after:border-0"
         fallbackClassName="rounded-full bg-muted text-muted-foreground"
       />
       {/*
@@ -176,11 +176,11 @@ export function AudioMessageCard({
         saliente ya es verde y ahi el microfono se perdia contra el fondo.
       */}
       <span
-        className={`absolute -bottom-0.5 -right-0.5 inline-flex size-5 items-center justify-center rounded-full ${
+        className={`absolute -bottom-0.5 -right-0.5 inline-flex size-[22px] items-center justify-center rounded-full ${
           posicion > 0 ? "text-muted-foreground" : "text-[#2563eb]"
         }`}
       >
-        <Mic className="size-4 fill-current" />
+        <Mic className="size-[18px] fill-current" />
       </span>
     </span>
   );
@@ -190,6 +190,16 @@ export function AudioMessageCard({
       <div className="flex items-center gap-2">
         {outbound ? foto : null}
 
+        {/*
+          El triangulo y la onda comparten fila; esa fila y el pie comparten columna; el avatar
+          queda AFUERA de todo.
+
+          De ahi salen las tres cosas: el avatar abarca las dos lineas y llega hasta abajo, el pie
+          termina donde termina la onda -sin meterse debajo de la foto- y el triangulo queda
+          centrado CON LA ONDA y no con la tarjeta entera, que era lo que lo dejaba un poco caido.
+        */}
+        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={alternar}
@@ -199,21 +209,12 @@ export function AudioMessageCard({
           }`}
         >
           {sonando ? (
-            <Pause className="size-6 fill-current" />
+            <Pause className="size-5 fill-current" />
           ) : (
-            <Play className="size-6 fill-current" />
+            <Play className="size-5 fill-current" />
           )}
         </button>
 
-        {/*
-          La onda y el pie comparten columna; el avatar queda AFUERA.
-
-          Asi el avatar abarca las dos lineas -queda centrado contra la tarjeta entera y llega
-          hasta abajo, como en WhatsApp- y el pie termina donde termina la onda, sin meterse
-          debajo de la foto. Antes el pie iba por fuera, ocupando todo el ancho: la hora se metia
-          abajo del avatar y la foto quedaba flotando arriba.
-        */}
-        <div className="flex min-w-0 flex-1 flex-col">
         <div
           onClick={saltarA}
           role="slider"
@@ -222,7 +223,7 @@ export function AudioMessageCard({
           aria-valuemin={0}
           aria-valuemax={Math.round(duracionMostrada)}
           aria-valuenow={Math.round(posicion)}
-          className="relative flex h-8 w-full cursor-pointer items-center gap-[2px]"
+          className="relative flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-[2px]"
         >
           {barras.map((alto, indice) => {
             const leida = indice / BARRAS <= avance;
@@ -244,6 +245,7 @@ export function AudioMessageCard({
             }`}
             style={{ left: `${avance * 100}%` }}
           />
+        </div>
         </div>
 
         <div
