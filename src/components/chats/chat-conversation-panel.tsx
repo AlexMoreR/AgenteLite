@@ -1450,6 +1450,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                           mensaje al cual reaccionar, y seis filas de emojis a la vez serian ruido.
                         */
                         mostrarReacciones={unicoSeleccionado?.id === message.id}
+                        /* Para la nota de voz: WhatsApp muestra la foto de quien habla. */
+                        avatarUrl={renderedConversation.avatarUrl}
+                        contactLabel={renderedConversation.label}
                       />
                     ))}
                     {/*

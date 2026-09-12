@@ -497,3 +497,83 @@ export function extraerVistaPreviaDeEnlace(rawPayload: unknown): VistaPreviaDeEn
     sitio,
   };
 }
+
+/*
+  La onda y la duracion de una nota de voz.
+
+  WhatsApp manda dibujada la onda del audio -64 numeros de 0 a 100, en base64- y cuantos segundos
+  dura. Es el mismo dibujo que ve el cliente en su telefono.
+
+  Se busca a la profundidad que sea: el bloque cuelga en un lugar distinto segun el gateway y con
+  otras mayusculas (ver "Payload evogo: rutas distintas"). Fijar la ruta fue el error que ya
+  costo una vez que la tarjeta del anuncio no se viera aunque el dato estuviera.
+
+  Medido sobre 30 dias: la traen 554 de 830 notas. Las otras se dibujan con una onda inventada a
+  partir del id del mensaje -siempre la misma para el mismo audio-, que es preferible a una barra
+  lisa: lo que uno mira ahi no es la forma exacta, es "cuanto falta".
+*/
+export function getAudioMetaFromMessage(message: SharedInboxMessageItem): {
+  waveform: number[] | null;
+  seconds: number | null;
+} {
+  const encontrado = buscarEnElPayload(message.rawPayload, ["waveform", "seconds"], 0);
+  return {
+    waveform: decodificarOnda(encontrado.waveform),
+    seconds: typeof encontrado.seconds === "number"
+      ? encontrado.seconds
+      : typeof encontrado.seconds === "string" && /^\d+$/.test(encontrado.seconds)
+        ? Number(encontrado.seconds)
+        : null,
+  };
+}
+
+/** Recorre el payload buscando esas claves, sin importar donde esten colgadas. */
+function buscarEnElPayload(
+  valor: unknown,
+  claves: string[],
+  profundidad: number,
+): Record<string, unknown> {
+  const resultado: Record<string, unknown> = {};
+  // 12 niveles cubre de sobra lo mas hondo que anida cualquiera de los gateways, y corta la
+  // posibilidad de quedarse dando vueltas en un payload raro.
+  if (profundidad > 12 || !valor || typeof valor !== "object") {
+    return resultado;
+  }
+
+  for (const [clave, dentro] of Object.entries(valor as Record<string, unknown>)) {
+    const minuscula = clave.toLowerCase();
+    if (claves.includes(minuscula) && resultado[minuscula] === undefined) {
+      if (typeof dentro === "string" || typeof dentro === "number") {
+        resultado[minuscula] = dentro;
+        continue;
+      }
+    }
+    if (dentro && typeof dentro === "object") {
+      const adentro = buscarEnElPayload(dentro, claves, profundidad + 1);
+      for (const [k, v] of Object.entries(adentro)) {
+        if (resultado[k] === undefined) {
+          resultado[k] = v;
+        }
+      }
+    }
+  }
+
+  return resultado;
+}
+
+function decodificarOnda(valor: unknown): number[] | null {
+  if (typeof valor !== "string" || !valor.trim()) {
+    return null;
+  }
+  try {
+    const binario = atob(valor.trim());
+    const numeros: number[] = [];
+    for (let i = 0; i < binario.length; i += 1) {
+      numeros.push(binario.charCodeAt(i));
+    }
+    // Menos de 8 barras no es una onda, es basura que dio la casualidad de decodificar.
+    return numeros.length >= 8 ? numeros : null;
+  } catch {
+    return null;
+  }
+}

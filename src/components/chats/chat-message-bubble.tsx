@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { extractEvolutionLocation } from "@/lib/evolution-webhook";
+import { AudioMessageCard } from "@/components/chats/audio-message-card";
 import { tapaDePdfDesdeUrl, type TapaDePdf } from "@/lib/portada-de-pdf";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -135,27 +136,6 @@ function renderMessageText(content?: string | null, className = "") {
   }
 
   return <p className={`whitespace-pre-wrap break-words ${className}`}>{renderWhatsAppText(content)}</p>;
-}
-
-function AudioMessageCard({
-  mediaUrl,
-  content,
-}: {
-  mediaUrl: string;
-  content: string | null;
-}) {
-  return (
-    <div className="w-[280px] max-w-full space-y-2">
-      <audio
-        src={mediaUrl}
-        controls
-        preload="metadata"
-        className="block w-full min-w-0 rounded-xl"
-      />
-
-      {renderMessageText(content)}
-    </div>
-  );
 }
 
 const subscribeNoop = () => () => {};
@@ -711,6 +691,8 @@ export const MessageBubble = memo(function MessageBubble({
   haySeleccion,
   onSeleccionar,
   mostrarReacciones,
+  avatarUrl,
+  contactLabel,
 }: {
   message: SharedInboxMessageItem;
   previousMessage: SharedInboxMessageItem | undefined;
@@ -725,6 +707,9 @@ export const MessageBubble = memo(function MessageBubble({
   onSeleccionar?: (message: SharedInboxMessageItem) => void;
   /** Los emoticones flotan sobre esta burbuja (solo cuando es la unica seleccionada). */
   mostrarReacciones?: boolean;
+  /** Foto y nombre del contacto: los usa la nota de voz, como WhatsApp. */
+  avatarUrl?: string | null;
+  contactLabel?: string | null;
 }) {
   const [imagePreviewIndex, setImagePreviewIndex] = useState(0);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
@@ -1347,9 +1332,14 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           ) : audioUrl ? (
             <AudioMessageCard
+              message={message}
               mediaUrl={audioUrl}
-              content={contenidoVisible}
-            />
+              outbound={outbound}
+              avatarUrl={avatarUrl}
+              contactLabel={contactLabel}
+            >
+              {renderMessageText(contenidoVisible)}
+            </AudioMessageCard>
           ) : documentUrl ? (
             <div className="space-y-2">
               {/*
