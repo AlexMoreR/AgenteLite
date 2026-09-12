@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 const POLL_INTERVAL_MS = 60000;
 
 type NotificationConversation = {
+  key?: string;
   incomingCount?: number | null;
 };
 
@@ -39,8 +40,27 @@ type ConversationListResponse = {
  * Lo unico que se quedo aca es el conteo: es lo que enciende el punto rojo.
  */
 export function ChatNotificationBell({ className }: { className?: string }) {
-  const [totalUnread, setTotalUnread] = React.useState(0);
+  /*
+    Cuantos sin leer tiene CADA chat, no solo el total.
+
+    Guardado chat por chat se puede apagar el que se acaba de abrir sin esperar a la proxima
+    consulta. Con un total suelto habria que restar a ciegas y dos aperturas seguidas lo dejarian
+    en negativo.
+  */
+  const [porChat, setPorChat] = React.useState<Record<string, number>>({});
   const [hasAccess, setHasAccess] = React.useState(true);
+
+  /*
+    Chats recien abiertos, con la hora.
+
+    El servidor marca los mensajes como leidos DESPUES de responder la pantalla. En esos segundos
+    una consulta todavia los cuenta, asi que sin esto el numero se apagaba al abrir el chat y
+    volvia a encenderse solo un momento despues -un parpadeo peor que el problema original-.
+
+    15 segundos alcanzan de sobra para esa escritura y son pocos para tapar un mensaje nuevo de
+    verdad: si entra otro en ese rato, aparece en la consulta siguiente.
+  */
+  const leidosRecien = React.useRef<Map<string, number>>(new Map());
 
   React.useEffect(() => {
     let cancelled = false;
@@ -70,12 +90,21 @@ export function ChatNotificationBell({ className }: { className?: string }) {
 
         const payload = (await response.json().catch(() => null)) as ConversationListResponse | null;
         if (!cancelled && payload?.ok && Array.isArray(payload.conversations)) {
-          setTotalUnread(
-            payload.conversations.reduce(
-              (sum, conversation) => sum + (conversation.incomingCount ?? 0),
-              0,
-            ),
-          );
+          const ahora = Date.now();
+          const cuentas: Record<string, number> = {};
+          for (const conversation of payload.conversations) {
+            const clave = conversation.key?.trim();
+            const cuenta = conversation.incomingCount ?? 0;
+            if (!clave || cuenta <= 0) {
+              continue;
+            }
+            const leidoHace = leidosRecien.current.get(clave);
+            if (leidoHace && ahora - leidoHace < 15000) {
+              continue;
+            }
+            cuentas[clave] = cuenta;
+          }
+          setPorChat(cuentas);
         }
       } catch {
         // Ignoramos errores de red: se reintenta en el siguiente intervalo.
@@ -98,9 +127,34 @@ export function ChatNotificationBell({ className }: { className?: string }) {
     const alLlegarAlgo = () => void poll();
     window.addEventListener("official-realtime-poke", alLlegarAlgo);
 
+    /*
+      Abrir un chat apaga su aviso en el acto (lo avisa shared-inbox).
+
+      Sin esto el numero seguia ahi hasta un minuto despues de haber leido el mensaje: uno
+      entraba, leia, volvia, y la campanita seguia en 1. Y no alcanzaba con volver a preguntar al
+      navegar, porque el servidor marca los mensajes como leidos DESPUES de responder.
+    */
+    const alLeerUnChat = (evento: Event) => {
+      const clave = (evento as CustomEvent<{ key?: string }>).detail?.key?.trim();
+      if (!clave) {
+        return;
+      }
+      leidosRecien.current.set(clave, Date.now());
+      setPorChat((actuales) => {
+        if (!actuales[clave]) {
+          return actuales;
+        }
+        const siguiente = { ...actuales };
+        delete siguiente[clave];
+        return siguiente;
+      });
+    };
+    window.addEventListener("chat-conversation-read", alLeerUnChat);
+
     return () => {
       cancelled = true;
       window.removeEventListener("official-realtime-poke", alLlegarAlgo);
+      window.removeEventListener("chat-conversation-read", alLeerUnChat);
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, []);
@@ -109,6 +163,7 @@ export function ChatNotificationBell({ className }: { className?: string }) {
     return null;
   }
 
+  const totalUnread = Object.values(porChat).reduce((suma, cuenta) => suma + cuenta, 0);
   const hasUnread = totalUnread > 0;
   const badgeLabel = totalUnread > 99 ? "99+" : String(totalUnread);
 

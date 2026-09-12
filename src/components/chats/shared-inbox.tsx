@@ -721,6 +721,27 @@ export function SharedInbox({
   // leyendolo crudo apuntarian al chat viejo; sombreandolo pasan todos a la fuente unica.
   const selectedConversationKey = useOpenChatKey(selectedConversationIdFromUrl);
   const selectedConversationId = selectedConversationKey;
+
+  /*
+    Abrir un chat apaga su aviso en la campanita, en el acto.
+
+    La campanita vive en el encabezado de la app y pregunta por su cuenta cada minuto, asi que
+    despues de leer un chat seguia mostrando el 1 hasta un minuto entero: uno entraba, veia el
+    mensaje, volvia, y el numero seguia ahi. Parecia que la app no se habia enterado.
+
+    No alcanza con que la campanita vuelva a preguntar al navegar: el servidor marca los mensajes
+    como leidos DESPUES de responder (va en un after(), para no demorar la pantalla), asi que una
+    consulta inmediata todavia los contaria. Por eso el aviso viaja de aca: quien abrio el chat es
+    esta pantalla, y lo sabe antes que la base. La proxima consulta confirma o corrige.
+  */
+  useEffect(() => {
+    if (!selectedConversationKey) {
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("chat-conversation-read", { detail: { key: selectedConversationKey } }),
+    );
+  }, [selectedConversationKey]);
   // En movil la lista y el chat son dos vistas y esta bandera decide cual se ve. Sale del chat
   // abierto (misma fuente unica), no del servidor: hay chat abierto => se ve el chat.
   const mobileConversationActive = Boolean(selectedConversationKey);
