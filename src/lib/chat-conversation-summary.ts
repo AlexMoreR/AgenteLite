@@ -16,6 +16,15 @@ export type ChatConversationSummary = {
   lastMessage: string | null;
   lastMessageType: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   lastMessageDirection: "INBOUND" | "OUTBOUND" | null;
+  /*
+    El acuse del ultimo mensaje: es lo que dibuja el chulito en la fila de la lista.
+
+    Faltaba. La fila se refresca por aca en cada mensaje y en cada aviso, asi que al recibir un
+    resumen sin este dato el chulito se quedaba con el de la carga inicial: en el chat el mensaje
+    ya estaba ENTREGADO (dos chulitos) y en la lista seguia en ENVIADO (uno). Lo reporto Alex con
+    las dos pantallas al lado.
+  */
+  lastMessageStatus: string | null;
   lastMessageAt: Date | null;
   channelType: "whatsapp" | "whatsapp_official" | "instagram" | "facebook";
 };
@@ -115,6 +124,7 @@ export async function getAgentConversationSummaryByConversationId(input: {
         createdAt: true,
         deletedAt: true,
         type: true,
+        status: true,
       },
     }),
     prisma.$queryRaw<Array<{ name: string; color: string }>>`
@@ -149,6 +159,7 @@ export async function getAgentConversationSummaryByConversationId(input: {
     lastMessage: getConversationPreviewText(lastMessage),
     lastMessageType: lastMessage?.type ?? null,
     lastMessageDirection: lastMessage?.direction ?? null,
+    lastMessageStatus: lastMessage?.status ?? null,
     lastMessageAt: lastMessage?.createdAt ?? null,
     channelType: "whatsapp",
   };
@@ -235,6 +246,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
         createdAt: true,
         deletedAt: true,
         type: true,
+        status: true,
       },
     }),
     prisma.$queryRaw<Array<{ name: string; color: string }>>`
@@ -269,6 +281,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     lastMessage: getConversationPreviewText(lastMessage),
     lastMessageType: lastMessage?.type ?? null,
     lastMessageDirection: lastMessage?.direction ?? null,
+    lastMessageStatus: lastMessage?.status ?? null,
     lastMessageAt: lastMessage?.createdAt ?? null,
     channelType: "whatsapp",
   };

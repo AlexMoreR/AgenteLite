@@ -232,6 +232,10 @@ export function buildConversationItemFromSnapshot(
     lastMessage: latestMessage ? getMessagePreviewText(latestMessage) : existing?.lastMessage ?? null,
     lastMessageType: latestMessage?.type ?? existing?.lastMessageType ?? null,
     lastMessageDirection: latestMessage?.direction ?? existing?.lastMessageDirection ?? null,
+    // El chulito de la fila. Sin esto, en el chat el mensaje pasaba a ENTREGADO (dos chulitos) y
+    // en la lista se quedaba en ENVIADO (uno) hasta recargar la pagina.
+    lastMessageStatus:
+      latestMessage?.outboundStatusLabel ?? existing?.lastMessageStatus ?? null,
     lastMessageAt: latestMessage?.createdAt ?? existing?.lastMessageAt ?? null,
     href: existing?.href ?? "",
   };
@@ -269,6 +273,7 @@ export function buildConversationItemFromListSnapshot(
     lastMessage: lastMessage || (isMediaPreviewType ? null : existing?.lastMessage ?? null),
     lastMessageType: snapshot.lastMessageType ?? existing?.lastMessageType ?? null,
     lastMessageDirection: snapshot.lastMessageDirection ?? existing?.lastMessageDirection ?? null,
+    lastMessageStatus: snapshot.lastMessageStatus ?? existing?.lastMessageStatus ?? null,
     // No usar existing como fallback para lastMessageAt: si el snapshot trae null pero existing
     // tiene una fecha vieja, el item quedaría anclado en su posición anterior en el sort.
     lastMessageAt: snapshot.lastMessageAt ?? null,
@@ -365,6 +370,7 @@ export function mergeConversationListItem(
     lastMessage: existing.lastMessage ?? next.lastMessage ?? null,
     lastMessageType: existing.lastMessageType ?? next.lastMessageType ?? null,
     lastMessageDirection: existing.lastMessageDirection ?? next.lastMessageDirection ?? null,
+    lastMessageStatus: existing.lastMessageStatus ?? next.lastMessageStatus ?? null,
     lastMessageAt: existing.lastMessageAt ?? next.lastMessageAt ?? null,
   };
 }
@@ -412,6 +418,8 @@ export function areConversationListItemsEqual(
     left.lastMessage === right.lastMessage &&
     left.lastMessageType === right.lastMessageType &&
     left.lastMessageDirection === right.lastMessageDirection &&
+    // Sin esto, pasar de ENVIADO a ENTREGADO se considera "la misma fila" y el chulito no cambia.
+    (left.lastMessageStatus ?? null) === (right.lastMessageStatus ?? null) &&
     getConversationLastMessageTimestamp(left.lastMessageAt) === getConversationLastMessageTimestamp(right.lastMessageAt) &&
     left.incomingCount === right.incomingCount &&
     left.channelType === right.channelType &&
