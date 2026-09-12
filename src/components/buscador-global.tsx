@@ -121,7 +121,14 @@ export function BuscadorGlobal() {
         // El icono ocupa el boton entero (28/28): son los dos botones que se usan todo el dia
         // y en el celular se tocan con el pulgar, asi que el dibujo tiene que verse de lejos.
         size="icon-sm"
-        className="[&_svg]:size-7"
+        /*
+          40px de boton con la lupa de 32.
+
+          Estaba en 28 y 28: el dibujo ocupaba el boton entero, sin aire, y en el celular habia
+          que apuntarle. 40 es lo que piden Android y iPhone para algo que se toca con el dedo, y
+          se toca todo el dia.
+        */
+        className="size-10 [&_svg]:size-8"
         aria-label="Buscar en todo (Ctrl+K)"
         title="Buscar en todo (Ctrl+K)"
         onClick={() => setAbierto(true)}

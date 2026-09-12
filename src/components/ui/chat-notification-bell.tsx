@@ -156,7 +156,9 @@ export function ChatNotificationBell({ className }: { className?: string }) {
           <Button
             variant="ghost"
             size="icon-sm"
-            className={cn("relative [&_svg]:size-7", className)}
+            // Del mismo tamaño que la lupa, que esta al lado: dos botones iguales se leen
+            // como un par, y uno mas chico parece un error.
+            className={cn("relative size-10 [&_svg]:size-8", className)}
             aria-label={hasUnread ? `${totalUnread} mensajes nuevos en chats` : "Notificaciones de chats"}
           />
         }
