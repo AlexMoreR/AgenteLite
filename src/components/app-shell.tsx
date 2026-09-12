@@ -82,6 +82,7 @@ const breadcrumbLabels: Record<string, string> = {
   kanban: "Kanban",
   "marketing-ia": "Marketing IA",
   negocio: "Negocio",
+  notificaciones: "Notificaciones",
   onboarding: "Onboarding",
   perfil: "Perfil",
   profile: "Perfil",
