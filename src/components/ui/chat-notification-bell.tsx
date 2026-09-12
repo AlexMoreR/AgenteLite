@@ -191,10 +191,17 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       >
         <Bell data-icon="inline-start" />
         {hasUnread ? (
-          /* Con el icono mas grande, el globito de antes quedaba como una mota. Crece con el, y
-             el borde del color del encabezado lo despega de la campana. */
-          <span className="absolute top-0 right-0 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-sidebar bg-[#ef4444] px-1 shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
-            <span className="text-[11px] font-bold leading-none text-white">{badgeLabel}</span>
+          /*
+            Redondo, rojo y liso.
+
+            Tenia un borde del color del encabezado para despegarlo de la campana: se veia como un
+            aro blanco alrededor y ensuciaba la forma. Sin el, el circulo se lee de una.
+
+            El numero va chico a proposito -10px sobre un circulo de 18-: lo que avisa es la
+            mancha roja, que se ve de lejos y de reojo; el numero se lee despues, ya mirando.
+          */
+          <span className="absolute top-0 right-0 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ef4444] px-1 shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
+            <span className="text-[10px] font-semibold leading-none text-white">{badgeLabel}</span>
           </span>
         ) : null}
       </DropdownMenuTrigger>
