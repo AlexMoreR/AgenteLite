@@ -7,8 +7,15 @@ import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { getAudioMetaFromMessage } from "./chat-inbox-media";
 import type { SharedInboxMessageItem } from "./chat-inbox-types";
 
-/** Cuantas barras se dibujan. WhatsApp manda 64; en el ancho de la burbuja entran unas 40. */
-const BARRAS = 40;
+/*
+  Cuantas barras se dibujan.
+
+  WhatsApp manda 64. Poniendo esas 64 -o 40- en los 180px que quedan, cada raya salia de 2px y
+  se veian como pelos: la onda parecia una trama gris y no un audio. Con 26 cada raya pasa de 2
+  a 5px y se leen como las de WhatsApp. Se pierde detalle del dibujo, que no es lo que uno mira:
+  lo que uno mira es por donde va.
+*/
+const BARRAS = 26;
 
 /**
  * Una onda inventada, siempre la misma para el mismo audio.
@@ -209,9 +216,9 @@ export function AudioMessageCard({
           }`}
         >
           {sonando ? (
-            <Pause className="size-5 fill-current" />
+            <Pause className="size-[18px] fill-current" />
           ) : (
-            <Play className="size-5 fill-current" />
+            <Play className="size-[18px] fill-current" />
           )}
         </button>
 
@@ -233,7 +240,7 @@ export function AudioMessageCard({
                 className={`w-full rounded-full ${leida ? colorLeido : colorPendiente}`}
                 // El minimo de 3px es para que las partes calladas se sigan viendo como una
                 // linea y la onda no se corte por la mitad.
-                style={{ height: `${Math.max(3, Math.round((alto / 100) * 22))}px` }}
+                style={{ height: `${Math.max(3, Math.round((alto / 100) * 26))}px` }}
               />
             );
           })}
@@ -248,8 +255,15 @@ export function AudioMessageCard({
         </div>
         </div>
 
+        {/*
+          El pie arranca donde arranca la ONDA, no debajo del triangulo.
+
+          Los 40px son el ancho del boton de play (32) mas su separacion (8). Sin esto la duracion
+          quedaba colgada debajo del triangulo, en el borde de la tarjeta, y se leia como si fuera
+          parte del boton en vez del audio.
+        */}
         <div
-          className={`mt-0.5 flex items-center justify-between gap-2 ${
+          className={`mt-0.5 flex items-center justify-between gap-2 pl-10 ${
             outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"
           }`}
         >
