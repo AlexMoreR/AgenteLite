@@ -1049,16 +1049,7 @@ export const MessageBubble = memo(function MessageBubble({
           {/* Contenido + hora en flujo tipo WhatsApp: en mensajes cortos la hora
               queda a la derecha en la MISMA linea; en los largos baja al pie. */}
           <div className="flex flex-wrap items-end gap-x-2">
-          {/*
-            Con la tarjeta del PDF, la hora BAJA.
-
-            La hora se acomoda al lado del contenido cuando le da el ancho, y con la tarjeta le
-            daba: la burbuja terminaba 90px mas ancha que la hoja y quedaba un vacio a la derecha
-            -el mismo que se acababa de sacar de los bordes-. Ocupando el ancho entero, la hora
-            pasa al renglon de abajo y la burbuja mide exactamente lo que mide la tarjeta, como
-            en WhatsApp.
-          */}
-          <div className={`min-w-0 ${documentUrl && esPdf ? "w-full" : ""}`}>
+          <div className="min-w-0">
           {callSummary ? (
             <div className="space-y-2">
               <Badge
@@ -1543,7 +1534,23 @@ export const MessageBubble = memo(function MessageBubble({
           )}
           </div>
 
-          <div className={`ml-auto flex shrink-0 items-center justify-end gap-1 text-[10px] ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"}`}>
+          {/*
+            Con la tarjeta del PDF, la hora BAJA — y el ancho entero va ACA, no en la tarjeta.
+
+            Puesto en el contenido, el navegador tomaba ese 100% como "toda la burbuja" al decidir
+            cuanto medir, y la burbuja se estiraba al 88% de la pantalla mientras la tarjeta se
+            quedaba en su ancho: quedaba una franja blanca a la derecha, justo el hueco que se
+            venia a sacar.
+
+            En la hora no pasa: al medir, una hora es angosta, asi que la burbuja sigue midiendo
+            lo que mide la tarjeta. Recien despues la hora se estira a ese ancho, se queda sola en
+            su renglon y se va a la derecha. Igual que WhatsApp.
+          */}
+          <div
+            className={`ml-auto flex shrink-0 items-center justify-end gap-1 text-[10px] ${
+              documentUrl && esPdf ? "w-full" : ""
+            } ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"}`}
+          >
             {isDeleted ? (
               <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
                 outbound ? "bg-[var(--chat-out-overlay)] text-[var(--chat-out-text-soft)]" : "bg-rose-50 text-rose-600"
