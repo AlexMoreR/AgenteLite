@@ -612,12 +612,15 @@ function MessageActionsMenu({
   onReply,
   onForward,
   onDelete,
+  audioUrl,
 }: {
   message: SharedInboxMessageItem;
   outbound: boolean;
   onReply?: (message: SharedInboxMessageItem) => void;
   onForward?: (message: SharedInboxMessageItem) => void;
   onDelete?: (message: SharedInboxMessageItem) => void;
+  /** Solo en las notas de voz: habilita "Descargar audio". */
+  audioUrl?: string | null;
 }) {
   // El DropdownMenu de base-ui (FloatingTree/ids/atributos) no es estable en SSR y
   // provoca un mismatch de hidratación que ROMPE la interactividad del menú. Lo
@@ -658,6 +661,32 @@ function MessageActionsMenu({
         <DropdownMenuItem onClick={handleCopy}>
           <Copy className="size-4" /> Copiar
         </DropdownMenuItem>
+
+        {/*
+          Bajar la nota de voz al computador.
+
+          Es un enlace y no un boton: asi el navegador la guarda solo, sin que tengamos que
+          armar la descarga a mano. `download` funciona porque el archivo es NUESTRO (sale de
+          /uploads, mismo dominio); con una direccion de afuera el navegador lo ignora y abriria
+          el audio en otra pestaña.
+
+          El nombre sale del id del mensaje para que dos audios del mismo dia no se pisen en la
+          carpeta de descargas.
+        */}
+        {audioUrl ? (
+          <DropdownMenuItem
+            render={
+              <a
+                href={audioUrl}
+                download={`audio-${message.id}.ogg`}
+                target="_blank"
+                rel="noreferrer"
+              />
+            }
+          >
+            <Download className="size-4" /> Descargar audio
+          </DropdownMenuItem>
+        ) : null}
 
         <DropdownMenuItem onClick={() => onForward?.(message)}>
           <Forward className="size-4" /> Reenviar
@@ -1106,7 +1135,7 @@ export const MessageBubble = memo(function MessageBubble({
         >
           {tieneAcciones ? (
             <>
-              <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onForward={onForward} onDelete={onDelete} />
+              <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onForward={onForward} onDelete={onDelete} audioUrl={audioUrl} />
               <MessageTouchActionsSheet
                 message={message}
                 open={isTouchMenuOpen}
