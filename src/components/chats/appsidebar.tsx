@@ -39,7 +39,7 @@ const ASSIGNED_FILTER_TABS: Array<{ value: AssignedFilter; label: string; manage
 ];
 
 /** Las que se ven sin abrir el modal, en este orden. */
-const PASTILLAS_A_LA_VISTA = ["mine", "all"] as const;
+const PASTILLAS_A_LA_VISTA = ["all", "mine"] as const;
 
 const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "Todas" },
@@ -140,9 +140,12 @@ export function AppSidebar({
           <div className="flex items-center gap-2">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
               {/*
-                "Mias" y "Todas" a la vista, con Mias primero: el trabajo de una asesora empieza
-                por lo suyo, y verlo requeria abrir el modal de filtros. La que esta activa va en
-                azul de la marca; la otra en contorno, para que se lea cual estas mirando.
+                "Todas" y "Mias" a la vista, sin abrir el modal. La que esta activa va en azul de
+                la marca; la otra en contorno, para que se lea cual estas mirando.
+
+                Todas primero, por pedido de Alex. Y sin emoticones: la palabra ya dice que es
+                cada una, y los dibujos le robaban ancho al nombre y al conteo, que es lo unico
+                que se mira de estas pastillas.
 
                 "Sin asignar" sigue solo en el modal: es una vista de reparto, no del dia a dia.
               */}
@@ -160,7 +163,6 @@ export function AppSidebar({
                         : "border-border text-muted-foreground hover:bg-muted"
                     }`}
                   >
-                    <span aria-hidden="true">{valor === "mine" ? "🙋" : "💬"}</span>
                     {tab?.label ?? "Todas"}
                     {assignedCounts ? (
                       <span className="text-[11px] font-semibold leading-none">
