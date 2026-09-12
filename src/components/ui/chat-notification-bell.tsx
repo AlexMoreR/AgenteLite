@@ -184,12 +184,14 @@ export function ChatNotificationBell({ className }: { className?: string }) {
             size="icon-sm"
             // Del mismo tamaño que la lupa, que esta al lado: dos botones iguales se leen
             // como un par, y uno mas chico parece un error.
-            className={cn("relative size-11 [&_svg]:size-10", className)}
+            // Mismo tamaño que la lupa, que esta al lado: dos botones iguales se leen como un
+            // par. El tamaño del dibujo va en el <Bell/> de abajo, no aca (ver buscador-global).
+            className={cn("relative size-10", className)}
             aria-label={hasUnread ? `${totalUnread} mensajes nuevos en chats` : "Notificaciones de chats"}
           />
         }
       >
-        <Bell data-icon="inline-start" />
+        <Bell data-icon="inline-start" className="size-7" />
         {hasUnread ? (
           /*
             Redondo, rojo y liso.

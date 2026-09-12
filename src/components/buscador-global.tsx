@@ -120,19 +120,25 @@ export function BuscadorGlobal() {
         variant="ghost"
         size="icon-sm"
         /*
-          La lupa, de 28 a 40.
+          El tamaño va EN EL DIBUJO, no en el boton.
 
-          Fue en tres pasos porque los dos primeros no se vieron: 32 y despues 36. Lo que se mira
-          es el DIBUJO -el boton no tiene borde ni fondo-, y sobre 28 esos saltos son del 14%.
-          40 en un boton de 44 deja apenas 2px de aire: el dibujo ocupa el boton, y de paso los
-          dos iconos quedan mas juntos sin mover nada de alrededor.
+          Medido en produccion: el boton media 44px y el dibujo 16. Tres intentos de agrandarlo
+          desde afuera (`[&_svg]:size-7`, luego 8, 9, 10) no movieron nada, y el primero llevaba
+          meses sin hacer efecto.
+
+          El motivo: el Button trae `[&_svg:not([class*='size-'])]:size-4`. Ese `:not` pesa mas
+          que un `[&_svg]:` suelto, asi que gana siempre... salvo que el svg tenga su propia clase
+          de tamaño. Poniendosela, el `:not` deja de coincidir y el conflicto desaparece.
+
+          Queda en 28 dentro de un boton de 40: llena el boton, se ve de lejos, y de paso los dos
+          iconos quedan a 4px uno del otro en vez de a 30.
         */
-        className="size-11 [&_svg]:size-10"
+        className="size-10"
         aria-label="Buscar en todo (Ctrl+K)"
         title="Buscar en todo (Ctrl+K)"
         onClick={() => setAbierto(true)}
       >
-        <Search data-icon="inline-start" />
+        <Search data-icon="inline-start" className="size-7" />
       </Button>
 
       <CommandDialog
