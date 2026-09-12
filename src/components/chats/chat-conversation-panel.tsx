@@ -1430,7 +1430,16 @@ export const ConversationPanel = memo(function ConversationPanel({
                       ) : null}
                     </div>
                   ) : null}
-                  <div className="space-y-2.5 md:space-y-3">
+                  {/*
+                    Las burbujas, mas juntas.
+
+                    Estaban a 10px en celular y 12 en computadora, que es la separacion de una
+                    lista, no de una conversacion: dos mensajes seguidos de la misma persona se
+                    leian como dos cosas distintas. WhatsApp las deja casi pegadas. A 4 y 6 se
+                    sigue viendo donde termina una y empieza la otra -cada una tiene su fondo- y
+                    entran mas mensajes por pantalla, que en el celular es lo que mas cuenta.
+                  */}
+                  <div className="space-y-1 md:space-y-1.5">
                     {displayedMessages.map((message, index) => (
                       <MessageBubble
                         key={message.id}
