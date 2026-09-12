@@ -10,12 +10,11 @@ import type { SharedInboxMessageItem } from "./chat-inbox-types";
 /*
   Cuantas barras se dibujan.
 
-  WhatsApp manda 64. Poniendo esas 64 -o 40- en los 180px que quedan, cada raya salia de 2px y
-  se veian como pelos: la onda parecia una trama gris y no un audio. Con 26 cada raya pasa de 2
-  a 5px y se leen como las de WhatsApp. Se pierde detalle del dibujo, que no es lo que uno mira:
-  lo que uno mira es por donde va.
+  WhatsApp manda 64 y las dibuja FINAS: rayitas de un par de pixeles, muchas y juntas. Se probo
+  engordarlas a 5px con 26 barras y no es el dibujo de WhatsApp -queda como un ecualizador-, asi
+  que vuelven a 40 en los 180px que hay, o sea unos 2px cada una.
 */
-const BARRAS = 26;
+const BARRAS = 40;
 
 /**
  * Una onda inventada, siempre la misma para el mismo audio.
@@ -240,7 +239,7 @@ export function AudioMessageCard({
                 className={`w-full rounded-full ${leida ? colorLeido : colorPendiente}`}
                 // El minimo de 3px es para que las partes calladas se sigan viendo como una
                 // linea y la onda no se corte por la mitad.
-                style={{ height: `${Math.max(3, Math.round((alto / 100) * 26))}px` }}
+                style={{ height: `${Math.max(3, Math.round((alto / 100) * 22))}px` }}
               />
             );
           })}
