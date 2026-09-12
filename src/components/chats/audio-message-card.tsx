@@ -206,9 +206,14 @@ export function AudioMessageCard({
         </button>
 
         {/*
-          La onda es el control: tocarla salta a ese punto del audio, como en WhatsApp. Es lo que
-          uno intenta sin pensarlo cuando quiere volver a oir algo que se perdio.
+          La onda y el pie comparten columna; el avatar queda AFUERA.
+
+          Asi el avatar abarca las dos lineas -queda centrado contra la tarjeta entera y llega
+          hasta abajo, como en WhatsApp- y el pie termina donde termina la onda, sin meterse
+          debajo de la foto. Antes el pie iba por fuera, ocupando todo el ancho: la hora se metia
+          abajo del avatar y la foto quedaba flotando arriba.
         */}
+        <div className="flex min-w-0 flex-1 flex-col">
         <div
           onClick={saltarA}
           role="slider"
@@ -217,7 +222,7 @@ export function AudioMessageCard({
           aria-valuemin={0}
           aria-valuemax={Math.round(duracionMostrada)}
           aria-valuenow={Math.round(posicion)}
-          className="relative flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-[2px]"
+          className="relative flex h-8 w-full cursor-pointer items-center gap-[2px]"
         >
           {barras.map((alto, indice) => {
             const leida = indice / BARRAS <= avance;
@@ -241,19 +246,16 @@ export function AudioMessageCard({
           />
         </div>
 
-        {outbound ? null : foto}
-      </div>
+        <div
+          className={`mt-0.5 flex items-center justify-between gap-2 ${
+            outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"
+          }`}
+        >
+          <span className="text-[11px] leading-none tabular-nums">
+            {reloj(posicion > 0 ? posicion : duracionMostrada)}
+          </span>
 
-      <div
-        className={`mt-0.5 flex items-center gap-2 ${
-          outbound ? "pl-[52px] text-[var(--chat-out-text-faint)]" : "text-muted-foreground"
-        }`}
-      >
-        <span className="text-[11px] leading-none tabular-nums">
-          {reloj(posicion > 0 ? posicion : duracionMostrada)}
-        </span>
-
-        {hora}
+          <span className="flex items-center gap-1.5">
 
         {/*
           La velocidad aparece recien cuando el audio arranco.
@@ -277,6 +279,13 @@ export function AudioMessageCard({
             {velocidad}x
           </button>
         ) : null}
+
+            {hora}
+          </span>
+        </div>
+        </div>
+
+        {outbound ? null : foto}
       </div>
 
       <audio
