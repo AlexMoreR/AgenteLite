@@ -263,7 +263,23 @@ async function conLlamadas(input: {
     return input.mensajes;
   }
 
-  const comoMensajes: AgentConversationMessageRecord[] = llamadas.map((llamada) => {
+  /*
+    Las llamadas que ya estan guardadas como mensaje no se vuelven a agregar.
+
+    Desde el 13-sep-2026 el aviso de WaCalls deja la llamada como Message (asi aparece en la lista y
+    en vivo). Esas llamadas TAMBIEN tienen su CallAttempt, y el chat las mostraba dos veces. Se
+    reconocen por tiempo: una nota de llamada guardada a menos de 2 minutos del intento es la misma.
+    Las viejas, que no tienen mensaje, se siguen armando desde el intento como antes.
+  */
+  const notasGuardadas = input.mensajes
+    .filter((mensaje) => mensaje.type === "SYSTEM" && /^llamada\s/i.test(mensaje.content ?? ""))
+    .map((mensaje) => mensaje.createdAt.getTime());
+  const yaEstaGuardada = (calledAt: Date) =>
+    notasGuardadas.some((instante) => Math.abs(instante - calledAt.getTime()) <= 2 * 60 * 1000);
+
+  const comoMensajes: AgentConversationMessageRecord[] = llamadas
+    .filter((llamada) => !yaEstaGuardada(llamada.calledAt))
+    .map((llamada) => {
     const contenido = comoNotaDeLlamada(llamada.summary, llamada.result);
 
     return {
