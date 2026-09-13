@@ -84,8 +84,20 @@ export function NotificacionesWorkspace() {
   React.useEffect(() => {
     let cancelado = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let enCurso = false;
+    let pedirOtraVez = false;
 
     const pedir = async () => {
+      // Una sola cadena de consultas: cada aviso del altavoz sumaba otra (ver la campanita).
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
+      if (enCurso) {
+        pedirOtraVez = true;
+        return;
+      }
+      enCurso = true;
       try {
         /*
           `assigned=all`: los avisos son de TODO lo que uno puede ver, no solo de sus chats.
@@ -109,10 +121,12 @@ export function NotificacionesWorkspace() {
       } catch {
         // Sin red se reintenta en el siguiente turno; no tiene sentido molestar con un error.
       } finally {
+        enCurso = false;
         if (!cancelado) {
           setCargando(false);
-          timeoutId = setTimeout(pedir, CADA_CUANTO_MS);
+          timeoutId = setTimeout(pedir, pedirOtraVez ? 1500 : CADA_CUANTO_MS);
         }
+        pedirOtraVez = false;
       }
     };
 
@@ -120,7 +134,14 @@ export function NotificacionesWorkspace() {
 
     // El altavoz avisa en el instante en que entra un mensaje: sin esto, la pantalla de avisos
     // podia tardar hasta un minuto en enterarse de algo que ya habia pasado.
-    const alLlegarAlgo = () => void pedir();
+    const alLlegarAlgo = (evento: Event) => {
+      // Un visto, o el eco de un mensaje nuestro, no traen avisos nuevos.
+      const tipo = (evento as CustomEvent<{ type?: string | null } | null>).detail?.type;
+      if (tipo === "waha-ack" || tipo === "waha-update") {
+        return;
+      }
+      void pedir();
+    };
     window.addEventListener("official-realtime-poke", alLlegarAlgo);
 
     return () => {

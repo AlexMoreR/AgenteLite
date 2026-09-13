@@ -83,9 +83,9 @@ export async function POST(request: NextRequest) {
       en el refresco de respaldo: hasta 8 segundos mirando un mensaje que ya estaba entregado.
       Solo se avisa cuando el estado AVANZO de verdad, asi que son a lo sumo dos por mensaje.
     */
-    const workspaceId = await aplicarAck(ack);
-    if (workspaceId) {
-      void notifyRealtimeUpdate({ workspaceId, type: "waha-ack" });
+    const acuse = await aplicarAck(ack);
+    if (acuse) {
+      void notifyRealtimeUpdate({ ...acuse, type: "waha-ack" });
     }
     return NextResponse.json({ ok: true });
   }
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
   const canal = sesion
     ? await prisma.whatsAppChannel.findUnique({
         where: { evolutionInstanceName: sesion },
-        select: { workspaceId: true, metadata: true },
+        select: { id: true, workspaceId: true, metadata: true },
       })
     : null;
 
@@ -240,13 +240,33 @@ export async function POST(request: NextRequest) {
       sonaria tambien al mandar.
     */
     const datos = traduccion.evolution.data as
-      | { key?: { fromMe?: unknown; remoteJid?: unknown }; message?: Record<string, unknown>; pushName?: unknown }
+      | {
+          key?: { fromMe?: unknown; remoteJid?: unknown; id?: unknown };
+          message?: Record<string, unknown>;
+          pushName?: unknown;
+        }
       | undefined;
     const esDelCliente = datos?.key?.fromMe !== true;
     const jid = typeof datos?.key?.remoteJid === "string" ? datos.key.remoteJid : "";
 
+    /*
+      El aviso dice en QUE conversacion entro el mensaje.
+
+      Sin eso el navegador solo sabia que "algo cambio" y volvia a pedir la pantalla entera (79 kB)
+      por cada mensaje. Con la conversacion trae solo esa fila. Si no se encuentra, el aviso sale
+      igual sin ella y el navegador hace lo de antes: nunca queda peor.
+    */
+    const conversationId = await conversacionDeUnMensaje(
+      canal.id,
+      typeof datos?.key?.id === "string" ? datos.key.id : null,
+    );
+    if (!conversationId) {
+      console.log(`[waha aviso] sin conversacion para ${String(datos?.key?.id ?? "?")} en ${sesion}`);
+    }
+
     void notifyRealtimeUpdate({
       workspaceId: canal.workspaceId,
+      conversationId,
       type: esDelCliente ? "waha-incoming" : "waha-update",
       data: esDelCliente
         ? {
@@ -277,7 +297,7 @@ async function aplicarAck(ack: {
   sesion: string;
   idMensaje: string;
   estado: EstadoDeEntrega;
-}): Promise<string | null> {
+}): Promise<{ workspaceId: string; conversationId: string } | null> {
   /*
     Se busca tambien por el id CRUDO, no solo por la cadena completa.
 
@@ -300,7 +320,7 @@ async function aplicarAck(ack: {
       ],
     },
     orderBy: { createdAt: "desc" },
-    select: { id: true, status: true, workspaceId: true },
+    select: { id: true, status: true, workspaceId: true, conversationId: true },
   });
 
   if (!mensaje) {
@@ -329,7 +349,40 @@ async function aplicarAck(ack: {
     },
   });
 
-  return mensaje.workspaceId;
+  return { workspaceId: mensaje.workspaceId, conversationId: mensaje.conversationId };
+}
+
+/**
+ * La conversacion a la que pertenece un mensaje de WAHA, para decirsela al navegador en el aviso.
+ *
+ * Primero por el id exacto, que es como se guarda lo que entra. Si no, por el id crudo: el eco de
+ * lo que enviamos llega compuesto con el LID y lo guardamos compuesto con el numero (ver
+ * `aplicarAck`), y nunca coinciden como texto.
+ */
+async function conversacionDeUnMensaje(
+  channelId: string,
+  idMensaje: string | null,
+): Promise<string | null> {
+  if (!idMensaje) {
+    return null;
+  }
+  const exacto = await prisma.message.findUnique({
+    where: { channelId_externalId: { channelId, externalId: idMensaje } },
+    select: { conversationId: true },
+  });
+  if (exacto) {
+    return exacto.conversationId;
+  }
+  const crudo = idCrudoDeMensaje(idMensaje);
+  if (crudo.length < 8) {
+    return null;
+  }
+  const parecido = await prisma.message.findFirst({
+    where: { channelId, externalId: { endsWith: `_${crudo}` } },
+    orderBy: { createdAt: "desc" },
+    select: { conversationId: true },
+  });
+  return parecido?.conversationId ?? null;
 }
 
 /**

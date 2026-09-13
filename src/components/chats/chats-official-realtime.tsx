@@ -52,10 +52,15 @@ export function ChatsOfficialRealtime({
       };
 
       socket.onmessage = (event) => {
-        let payload: { type?: string; data?: Record<string, unknown> | null } | null = null;
+        let payload: {
+          type?: string;
+          conversationId?: string | null;
+          data?: Record<string, unknown> | null;
+        } | null = null;
         try {
           payload = JSON.parse(event.data as string) as {
             type?: string;
+            conversationId?: string | null;
             data?: Record<string, unknown> | null;
           };
         } catch {
@@ -96,7 +101,21 @@ export function ChatsOfficialRealtime({
           );
         }
 
-        window.dispatchEvent(new CustomEvent("official-realtime-poke"));
+        /*
+          El aviso dice QUE paso y en QUE conversacion.
+
+          Con eso, quien lo escucha puede traer solo esa fila en vez de volver a pedir la pantalla
+          entera. Un aviso sin conversacion sigue el camino de siempre.
+        */
+        window.dispatchEvent(
+          new CustomEvent("official-realtime-poke", {
+            detail: {
+              type: typeof payload.type === "string" ? payload.type : null,
+              conversationId:
+                typeof payload.conversationId === "string" ? payload.conversationId : null,
+            },
+          }),
+        );
       };
 
       socket.onclose = () => {

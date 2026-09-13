@@ -10,11 +10,9 @@ type ChatsAutoRefreshProps = {
   // Active conversation key (for example: "agent:xxx" or "official:xxx").
   // For Evolution chats we use /live instead of router.refresh().
   selectedConversationKey?: string | null;
-  // Refresco propio para la API oficial (ms; 0 = apagado). Los canales oficiales NO tienen
-  // realtime push: Meta manda webhooks a nuestro servidor, no al navegador. Su unica via es
-  // este poll, y por eso no puede compartir el del resto: el poll general corre cada 60s y
-  // ADEMAS se cancela cuando el realtime de Evolution refresco la lista, asi que un chat
-  // oficial se quedaba congelado (el mensaje aparecia recien al recargar a mano).
+  // Respaldo propio para la API oficial (ms; 0 = apagado). Sus avisos llegan por el altavoz;
+  // este tick solo cubre un socket caido. No comparte el poll general porque ese se cancela
+  // cuando el realtime refresco la lista, y un chat oficial se quedaba congelado.
   officialRefreshMs?: number;
 };
 
@@ -32,6 +30,12 @@ function hydrateConversationSnapshot(value: unknown) {
   };
 }
 
+/*
+  Los avisos del altavoz que dicen en que conversacion paso algo: para esos basta traer la fila.
+  El resto (la API oficial, cuyas filas no tienen ruta propia) sigue pidiendo la pantalla entera.
+*/
+const AVISOS_CON_CONVERSACION = new Set(["waha-ack", "waha-incoming", "waha-update", "llamada"]);
+
 function hydrateConversationListSnapshot(value: unknown) {
   if (!value || typeof value !== "object") return null;
   const snapshot = value as { id?: unknown; lastMessageAt?: string | Date | null };
@@ -41,6 +45,28 @@ function hydrateConversationListSnapshot(value: unknown) {
     id: snapshot.id,
     lastMessageAt: snapshot.lastMessageAt ? new Date(snapshot.lastMessageAt) : null,
   };
+}
+
+async function publicarChatAbierto(response: Response | null, chatKey: string) {
+  if (!response?.ok) return;
+  const payload = (await response.json().catch(() => null)) as
+    | { ok?: boolean; conversation?: unknown }
+    | null;
+  const conversation = payload?.ok ? hydrateConversationSnapshot(payload.conversation) : null;
+  if (conversation) {
+    window.dispatchEvent(new CustomEvent("chat-live-update", { detail: { conversation, chatKey } }));
+  }
+}
+
+async function publicarFila(response: Response | null) {
+  if (!response?.ok) return;
+  const payload = (await response.json().catch(() => null)) as
+    | { ok?: boolean; conversation?: unknown }
+    | null;
+  const conversation = payload?.ok ? hydrateConversationListSnapshot(payload.conversation) : null;
+  if (conversation) {
+    window.dispatchEvent(new CustomEvent("chat-list-update", { detail: { conversation } }));
+  }
 }
 
 export function ChatsAutoRefresh({
@@ -141,36 +167,8 @@ export function ChatsAutoRefresh({
             }),
           ]);
 
-          if (liveResponse.ok) {
-            const livePayload = (await liveResponse.json().catch(() => null)) as
-              | { ok?: boolean; conversation?: unknown }
-              | null;
-
-            if (livePayload?.ok && livePayload.conversation) {
-              const conversation = hydrateConversationSnapshot(livePayload.conversation);
-
-              if (conversation) {
-                window.dispatchEvent(
-                  new CustomEvent("chat-live-update", { detail: { conversation, chatKey } }),
-                );
-              }
-            }
-          }
-
-          if (summaryResponse.ok) {
-            const summaryPayload = (await summaryResponse.json().catch(() => null)) as
-              | { ok?: boolean; conversation?: unknown }
-              | null;
-
-            if (summaryPayload?.ok && summaryPayload.conversation) {
-              const summaryConversation = hydrateConversationListSnapshot(summaryPayload.conversation);
-              if (summaryConversation) {
-                window.dispatchEvent(
-                  new CustomEvent("chat-list-update", { detail: { conversation: summaryConversation } }),
-                );
-              }
-            }
-          }
+          await publicarChatAbierto(liveResponse, chatKey);
+          await publicarFila(summaryResponse);
         } catch {
           // Network error: the next tick will retry.
         } finally {
@@ -199,40 +197,107 @@ export function ChatsAutoRefresh({
     // The interval should not reset when the active chat changes.
   }, [enabled, isVisible, intervalMs, realtimeEnabled, router, startTransition]);
 
-  // Poll propio de la API oficial: corre SIEMPRE (no lo cancela el realtime de Evolution,
-  // que no dice nada de los canales oficiales) y con su propio intervalo, mas corto que el
-  // general. Es un router.refresh() suave: re-pide el RSC, no recarga la pagina.
+  // Respaldo de la API oficial: re-pide la pantalla entera, por eso va largo. Los avisos de verdad
+  // llegan por el altavoz (efecto de abajo).
   useEffect(() => {
     if (!enabled || !isVisible || officialRefreshMs <= 0) {
       return;
     }
 
-    const refresh = () => {
+    const timer = window.setInterval(() => {
+      startTransition(() => {
+        router.refresh();
+      });
+    }, officialRefreshMs);
+
+    return () => window.clearInterval(timer);
+  }, [enabled, isVisible, officialRefreshMs, router, startTransition]);
+
+  const isVisibleRef = useRef(isVisible);
+  isVisibleRef.current = isVisible;
+
+  /*
+    El altavoz avisa en el instante que algo cambio. Que hacer depende de si el aviso dice DONDE.
+
+    Los de WhatsApp (WAHA) y las llamadas traen la conversacion: se trae SOLO esa fila (~0,4 kB) y,
+    si es el chat abierto, sus mensajes. Antes cada aviso -cada mensaje, cada visto- volvia a pedir
+    la pantalla entera (79 kB, ~680 ms) y React repintaba las 40 filas y el chat para cambiar un
+    chulito de gris a azul: ese era el parpadeo.
+
+    Los que no dicen donde siguen pidiendo la pantalla entera, con freno para no repintar en rafaga.
+  */
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    const pendientes = new Set<string>();
+    let juntarTimer: number | undefined;
+    let lastRefreshAt = 0;
+
+    const traerConversacion = async (conversationId: string) => {
+      const chatKey = `agent:${conversationId}`;
+      const query = `chatKey=${encodeURIComponent(chatKey)}`;
+      const estaAbierto = selectedConversationKeyRef.current?.trim() === chatKey;
+
+      try {
+        const [liveResponse, summaryResponse] = await Promise.all([
+          estaAbierto
+            ? fetch(`/api/cliente/chats/live?${query}`, { credentials: "same-origin", cache: "no-store" })
+            : Promise.resolve(null),
+          fetch(`/api/cliente/chats/summary?${query}`, { credentials: "same-origin", cache: "no-store" }),
+        ]);
+        await publicarChatAbierto(liveResponse, chatKey);
+        await publicarFila(summaryResponse);
+      } catch {
+        // Sin red: el refresco de respaldo lo recoge.
+      }
+    };
+
+    const handlePoke = (event: Event) => {
+      const detail = (event as CustomEvent<{ type?: string | null; conversationId?: string | null } | null>)
+        .detail;
+      const conversationId = detail?.conversationId?.trim() || "";
+
+      if (conversationId && AVISOS_CON_CONVERSACION.has(detail?.type ?? "")) {
+        pendientes.add(conversationId);
+        // Se juntan los avisos de un mismo instante: un mensaje trae su "entregado" y su "leido"
+        // casi pegados, y no tiene sentido pedir la misma fila dos veces.
+        if (juntarTimer === undefined) {
+          juntarTimer = window.setTimeout(() => {
+            juntarTimer = undefined;
+            const ids = Array.from(pendientes);
+            pendientes.clear();
+            for (const id of ids) {
+              void traerConversacion(id);
+            }
+          }, 250);
+        }
+        return;
+      }
+
+      if (!isVisibleRef.current) {
+        return;
+      }
+      const now = Date.now();
+      if (now - lastRefreshAt < 1200) {
+        return;
+      }
+      lastRefreshAt = now;
       startTransition(() => {
         router.refresh();
       });
     };
 
-    const timer = window.setInterval(refresh, officialRefreshMs);
-
-    // El altavoz (WebSocket) avisa en el instante que llega el webhook de Meta: refrescamos
-    // ya, sin esperar el tick. El intervalo queda como red de seguridad por si el socket
-    // esta caido. Se ignoran avisos muy seguidos para no repintar de mas en una rafaga.
-    let lastPokeAt = 0;
-    const handlePoke = () => {
-      const now = Date.now();
-      if (now - lastPokeAt < 1200) return;
-      lastPokeAt = now;
-      refresh();
-    };
-
     window.addEventListener("official-realtime-poke", handlePoke);
 
     return () => {
-      window.clearInterval(timer);
+      if (juntarTimer !== undefined) {
+        window.clearTimeout(juntarTimer);
+      }
       window.removeEventListener("official-realtime-poke", handlePoke);
     };
-  }, [enabled, isVisible, officialRefreshMs, router, startTransition]);
+  }, [enabled, router, startTransition]);
 
   return null;
 }

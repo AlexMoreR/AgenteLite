@@ -65,8 +65,28 @@ export function ChatNotificationBell({ className }: { className?: string }) {
   React.useEffect(() => {
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let enCurso = false;
+    let pedirOtraVez = false;
 
     const poll = async () => {
+      /*
+        Una sola cadena de consultas, no una por aviso.
+
+        Cada consulta agenda la siguiente al terminar. Cuando un aviso del altavoz la llamaba
+        mientras la anterior esperaba su turno, quedaban DOS cadenas corriendo, y con cada mensaje
+        del dia se sumaba otra: una pestaña abierta toda la tarde terminaba pidiendo la lista -la
+        consulta mas cara de la app- cientos de veces por minuto. Se cancela el turno pendiente, y
+        si ya hay una consulta en vuelo se pide otra para cuando termine en vez de lanzarla encima.
+      */
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
+      if (enCurso) {
+        pedirOtraVez = true;
+        return;
+      }
+      enCurso = true;
       try {
         /*
           `assigned=all`: el punto avisa de CUALQUIER mensaje nuevo, no solo de los chats propios.
@@ -109,9 +129,11 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       } catch {
         // Ignoramos errores de red: se reintenta en el siguiente intervalo.
       } finally {
+        enCurso = false;
         if (!cancelled) {
-          timeoutId = setTimeout(poll, POLL_INTERVAL_MS);
+          timeoutId = setTimeout(poll, pedirOtraVez ? 1500 : POLL_INTERVAL_MS);
         }
+        pedirOtraVez = false;
       }
     };
 
@@ -124,7 +146,14 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       mensaje YA estaba en la bandeja: se veia la fila nueva y la campana seguia apagada, que es
       peor que no tenerla. El intervalo queda de red de seguridad por si el socket esta caido.
     */
-    const alLlegarAlgo = () => void poll();
+    const alLlegarAlgo = (evento: Event) => {
+      // Un visto, o el eco de un mensaje nuestro, no cambian cuantos hay sin leer.
+      const tipo = (evento as CustomEvent<{ type?: string | null } | null>).detail?.type;
+      if (tipo === "waha-ack" || tipo === "waha-update") {
+        return;
+      }
+      void poll();
+    };
     window.addEventListener("official-realtime-poke", alLlegarAlgo);
 
     /*

@@ -1205,14 +1205,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         realtimeEnabled={chatsRealtimeSyncEnabled}
         selectedConversationKey={selectedUnified?.key ?? null}
         /*
-          Los canales WAHA no necesitan el intervalo corto: el altavoz les avisa al instante
-          cuando pasa algo de verdad. Cada tick vuelve a pedir el arbol entero al servidor, asi
-          que aca queda solo como red de seguridad por si el altavoz se cae. La API oficial si lo
-          necesita corto: no tiene altavoz propio para sus mensajes.
+          Red de seguridad por si el altavoz se cae, nada mas.
+
+          Cada tick vuelve a pedir la pantalla entera (79 kB). Con 8 segundos, Magilus -que tiene 36
+          chats abiertos de la API oficial- la pedia siete veces por minuto por pestaña aunque no
+          pasara nada. Los mensajes de Meta ya avisan por el altavoz (webhooks/meta/official-api),
+          asi que el tick solo cubre un socket caido. Los canales WAHA no lo necesitan: para ese
+          mismo caso esta el refresco general de 60s.
         */
-        officialRefreshMs={
-          officialChatsData.conversations.length > 0 ? 8000 : hayCanalWaha ? 30000 : 0
-        }
+        officialRefreshMs={officialChatsData.conversations.length > 0 ? 60000 : 0}
       />
       <ChatsOfficialRealtime
         enabled={officialChatsData.conversations.length > 0 || hayCanalWaha}
