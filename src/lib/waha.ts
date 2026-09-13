@@ -621,6 +621,8 @@ export async function enviarTextoWaha(input: {
       },
     ),
   );
+  // Enviar tambien deja la linea online (visto en Admin: offline, audio, y quedo online).
+  await volverADesconectadaWaha(input.connection, input.sesion);
 
   return { externalId: leerIdDeMensaje(respuesta), raw: respuesta };
 }
@@ -1313,6 +1315,8 @@ export async function enviarMediaWaha(input: {
       timeoutMs: TIMEOUT_MEDIA_MS,
     }),
   );
+  // Enviar tambien deja la linea online: se la baja despues, no solo antes.
+  await volverADesconectadaWaha(input.connection, input.sesion);
 
   return { externalId: leerIdDeMensaje(respuesta), raw: respuesta };
 }
