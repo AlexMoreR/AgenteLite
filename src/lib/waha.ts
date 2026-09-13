@@ -1645,7 +1645,7 @@ const PLAZO_DE_PRESENCIA_MS = 3000;
  * linea -la asesora que atiende desde el telefono dejaria de enterarse de los mensajes-. Por eso
  * todo lo que toca la presencia termina aca, pase lo que pase.
  */
-async function volverADesconectadaWaha(connection: WahaConnection, sesion: string): Promise<void> {
+export async function volverADesconectadaWaha(connection: WahaConnection, sesion: string): Promise<void> {
   try {
     await wahaRequest(connection, `/api/${encodeURIComponent(sesion)}/presence`, {
       method: "POST",

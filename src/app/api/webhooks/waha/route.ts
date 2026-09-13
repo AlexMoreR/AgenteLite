@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 
 import { POST as recibirEvolution } from "@/app/api/webhooks/evolution/route";
 import { prisma } from "@/lib/prisma";
@@ -16,6 +16,7 @@ import {
   reintentarMediaWaha,
   telefonoDeUnLid,
   traducirEventoWaha,
+  volverADesconectadaWaha,
   type CambioDeMensajeWaha,
   type EstadoDeEntrega,
   type PresenciaWaha,
@@ -117,6 +118,30 @@ export async function POST(request: NextRequest) {
         select: { id: true, workspaceId: true, metadata: true },
       })
     : null;
+
+  /*
+    Cada vez que una linea (re)conecta, se la baja a "desconectada".
+
+    Probado en el servidor (13-sep-2026): al reiniciar una sesion GOWS vuelve ONLINE a los ~5 s, y
+    no hay opcion para evitarlo (el `markOnline: false` existe solo en NOWEB). Mientras esta online
+    WhatsApp no manda notificaciones al celular de esa linea. Pasa en cada reinicio de WAHA, en cada
+    cambio de configuracion de la sesion y en cada reconexion. Se espera a que WhatsApp la haya
+    marcado online, porque bajarla antes no sirve: la vuelve a subir.
+  */
+  const estadoDeSesion = (cuerpo as { event?: unknown; payload?: { status?: unknown } | null });
+  if (canal && estadoDeSesion.event === "session.status" && estadoDeSesion.payload?.status === "WORKING") {
+    const conexionDeLaLinea = readGatewayConnection(canal.metadata);
+    if (conexionDeLaLinea?.apiToken) {
+      const conexion = { baseUrl: conexionDeLaLinea.baseUrl, apiToken: conexionDeLaLinea.apiToken };
+      after(async () => {
+        for (const espera of [8000, 20000]) {
+          await new Promise((listo) => setTimeout(listo, espera));
+          await volverADesconectadaWaha(conexion, sesion);
+        }
+        console.log(`[waha presencia] ${sesion} conecto: devuelta a desconectada`);
+      });
+    }
+  }
 
   /*
     Si el lead viene con LID, se traduce a su telefono ANTES de procesarlo.
