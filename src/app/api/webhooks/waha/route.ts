@@ -11,10 +11,12 @@ import {
   descargarMediaWaha,
   idCrudoDeMensaje,
   leerAckWaha,
+  leerEdicionOBorradoWaha,
   leerPresenciaWaha,
   reintentarMediaWaha,
   telefonoDeUnLid,
   traducirEventoWaha,
+  type CambioDeMensajeWaha,
   type EstadoDeEntrega,
   type PresenciaWaha,
 } from "@/lib/waha";
@@ -71,6 +73,22 @@ export async function POST(request: NextRequest) {
   const presencia = leerPresenciaWaha(cuerpo);
   if (presencia) {
     await avisarPresencia(presencia.sesion, presencia.presencia);
+    return NextResponse.json({ ok: true });
+  }
+
+  /*
+    El cliente edito o borro un mensaje en su WhatsApp.
+
+    Se resuelve ACA, como el acuse, y no traducido al webhook de Evolution: aquel busca el mensaje
+    por el id completo, y WAHA manda el del original crudo, sin el chat adelante. Nunca lo
+    encontraria.
+  */
+  const cambio = leerEdicionOBorradoWaha(cuerpo);
+  if (cambio) {
+    const aviso = await aplicarEdicionOBorrado(cambio);
+    if (aviso) {
+      await notifyRealtimeUpdate({ ...aviso, type: "waha-update" });
+    }
     return NextResponse.json({ ok: true });
   }
 
@@ -297,6 +315,7 @@ async function aplicarAck(ack: {
   sesion: string;
   idMensaje: string;
   estado: EstadoDeEntrega;
+  reproducido: boolean;
 }): Promise<{ workspaceId: string; conversationId: string } | null> {
   /*
     Se busca tambien por el id CRUDO, no solo por la cadena completa.
@@ -328,9 +347,36 @@ async function aplicarAck(ack: {
     console.log(`[waha ack] sin mensaje para ${ack.idMensaje} en ${ack.sesion}`);
     return null;
   }
+  /*
+    El cliente ESCUCHO el audio (acuse 4).
+
+    Para el estado es "leido", que ya lo tiene casi siempre (el 3 llega antes), asi que no avanzaria
+    y se perdia. Se guarda aparte, dentro del payload, para no agregar un valor al enum de la base:
+    solo lo mira el microfono de la burbuja. Se marca una sola vez.
+  */
+  let reproducidoNuevo = false;
+  if (ack.reproducido) {
+    const marcadas = await prisma.$executeRaw`
+      UPDATE "Message"
+      SET "rawPayload" = CASE
+        WHEN jsonb_typeof("rawPayload") = 'object' THEN "rawPayload"
+        ELSE '{}'::jsonb
+      END || jsonb_build_object('reproducidoAt', ${new Date().toISOString()}::text)
+      WHERE "id" = ${mensaje.id}
+        AND ("rawPayload" IS NULL OR jsonb_typeof("rawPayload") IN ('object', 'null'))
+        AND NOT COALESCE("rawPayload" ? 'reproducidoAt', false)
+    `;
+    reproducidoNuevo = marcadas > 0;
+    if (reproducidoNuevo) {
+      console.log(`[waha ack] ${ack.sesion} audio escuchado`);
+    }
+  }
+
   if (!avanzaElEstado(mensaje.status, ack.estado)) {
     console.log(`[waha ack] ${ack.estado} no avanza sobre ${mensaje.status}`);
-    return null;
+    return reproducidoNuevo
+      ? { workspaceId: mensaje.workspaceId, conversationId: mensaje.conversationId }
+      : null;
   }
 
   // Se deja rastro: sin esto, el camino del ack era mudo y averiguar por que un mensaje no
@@ -349,6 +395,51 @@ async function aplicarAck(ack: {
     },
   });
 
+  return { workspaceId: mensaje.workspaceId, conversationId: mensaje.conversationId };
+}
+
+/**
+ * Deja en el CRM lo que el cliente edito o borro en su WhatsApp.
+ *
+ * Se busca por el id crudo acotado al canal, igual que el acuse. Un borrado de algo ya borrado -el
+ * eco de eliminar desde el CRM- o una edicion que no cambia el texto no escriben nada ni avisan.
+ */
+async function aplicarEdicionOBorrado(
+  cambio: CambioDeMensajeWaha,
+): Promise<{ workspaceId: string; conversationId: string } | null> {
+  const crudo = idCrudoDeMensaje(cambio.idMensaje);
+  if (crudo.length < 8) {
+    return null;
+  }
+  const mensaje = await prisma.message.findFirst({
+    where: {
+      channel: { evolutionInstanceName: cambio.sesion },
+      OR: [{ externalId: cambio.idMensaje }, { externalId: { endsWith: `_${crudo}` } }],
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, workspaceId: true, conversationId: true, content: true, deletedAt: true },
+  });
+  if (!mensaje) {
+    console.log(`[waha ${cambio.tipo}] sin mensaje para ${cambio.idMensaje} en ${cambio.sesion}`);
+    return null;
+  }
+
+  if (cambio.tipo === "borrado") {
+    if (mensaje.deletedAt) {
+      return null;
+    }
+    await prisma.message.update({ where: { id: mensaje.id }, data: { deletedAt: new Date() } });
+  } else {
+    if (cambio.texto === null || cambio.texto === mensaje.content) {
+      return null;
+    }
+    await prisma.message.update({
+      where: { id: mensaje.id },
+      data: { content: cambio.texto, editedAt: new Date() },
+    });
+  }
+
+  console.log(`[waha ${cambio.tipo}] ${cambio.sesion} mensaje ${mensaje.id}`);
   return { workspaceId: mensaje.workspaceId, conversationId: mensaje.conversationId };
 }
 

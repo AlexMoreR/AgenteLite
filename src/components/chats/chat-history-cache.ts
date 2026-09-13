@@ -356,6 +356,13 @@ function getMessageDeletedAtTime(message: CachedMessageItem | SharedInboxSelecte
   return typeof message.deletedAt === "string" ? new Date(message.deletedAt).getTime() : message.deletedAt.getTime();
 }
 
+/** Cuando el cliente escucho un audio nuestro (lo deja el acuse 4 de WAHA en el payload). */
+function leerReproducidoAt(message: unknown): string | null {
+  const payload = (message as { rawPayload?: unknown }).rawPayload;
+  const valor = payload && typeof payload === "object" ? (payload as { reproducidoAt?: unknown }).reproducidoAt : null;
+  return typeof valor === "string" ? valor : null;
+}
+
 function areMergedMessagesEqual(
   left: CachedMessageItem | SharedInboxSelectedConversation["messages"][number],
   right: CachedMessageItem | SharedInboxSelectedConversation["messages"][number],
@@ -371,6 +378,8 @@ function areMergedMessagesEqual(
     // La reaccion cambia un mensaje que YA existe: sin compararla, el merge daba los dos mensajes
     // por iguales, se quedaba con el viejo y el emoji no aparecia hasta recargar.
     (left.reactionEmoji ?? null) === (right.reactionEmoji ?? null) &&
+    // Lo mismo con el audio escuchado por el cliente: vive en el payload y cambia un mensaje viejo.
+    leerReproducidoAt(left) === leerReproducidoAt(right) &&
     getMessageCreatedAtTime(left) === getMessageCreatedAtTime(right) &&
     getMessageEditedAtTime(left) === getMessageEditedAtTime(right) &&
     getMessageDeletedAtTime(left) === getMessageDeletedAtTime(right)

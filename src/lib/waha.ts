@@ -100,6 +100,9 @@ const EVENTOS = [
   "message.reaction",
   "session.status",
   "presence.update",
+  // Sin estos dos, lo que el cliente editaba o borraba en su WhatsApp seguia igual en el CRM.
+  "message.edited",
+  "message.revoked",
 ] as const;
 
 async function wahaRequest<T>(
@@ -601,7 +604,9 @@ export async function enviarTextoWaha(input: {
   texto: string;
   citarId?: string | null;
 }): Promise<{ externalId: string | null; raw: unknown }> {
-  const respuesta = await enviarConReintentoDeLid(await chatIdParaEnviar(input), (chatId) =>
+  const destino = await chatIdParaEnviar(input);
+  await marcarChatLeidoAntesDeResponder(input.connection, input.sesion, destino);
+  const respuesta = await enviarConReintentoDeLid(destino, (chatId) =>
     wahaRequest<{ id?: string | { id?: string }; _data?: unknown }>(
       input.connection,
       "/api/sendText",
@@ -1192,11 +1197,12 @@ export function avanzaElEstado(actual: string | null | undefined, siguiente: Est
  * Lee un evento `message.ack`.
  *
  * Los niveles son los de WhatsApp: -1 error, 0 pendiente, 1 llego al servidor, 2 llego al
- * telefono, 3 leido, 4 escuchado (audio). Para nosotros 4 es leido tambien: el cliente lo abrio.
+ * telefono, 3 leido, 4 escuchado (audio). Para el estado 4 es leido tambien: el cliente lo abrio.
+ * Ademas se avisa aparte que lo ESCUCHO, que es lo que pinta de azul el microfono del audio.
  */
 export function leerAckWaha(
   cuerpo: unknown,
-): { sesion: string; idMensaje: string; estado: EstadoDeEntrega } | null {
+): { sesion: string; idMensaje: string; estado: EstadoDeEntrega; reproducido: boolean } | null {
   if (!cuerpo || typeof cuerpo !== "object") {
     return null;
   }
@@ -1227,7 +1233,7 @@ export function leerAckWaha(
   if (!estado) {
     return null;
   }
-  return { sesion, idMensaje, estado };
+  return { sesion, idMensaje, estado, reproducido: datos.ack === 4 };
 }
 
 /**
@@ -1299,6 +1305,7 @@ export async function enviarMediaWaha(input: {
     cuerpo.caption = input.epigrafe.trim();
   }
 
+  await marcarChatLeidoAntesDeResponder(input.connection, input.sesion, String(cuerpo.chatId));
   const respuesta = await enviarConReintentoDeLid(String(cuerpo.chatId), (chatId) =>
     wahaRequest<unknown>(input.connection, RUTA_POR_TIPO[input.tipo], {
       method: "POST",
@@ -1590,4 +1597,129 @@ export function chatIdDeUnMensajeWaha(externalId?: string | null): string | null
   const chat = id.slice(primerGuion + 1, ultimoGuion);
   // Sin arroba no es un chat de WhatsApp; mejor decir que no se pudo que pedir cualquier cosa.
   return chat.includes("@") ? chat : null;
+}
+
+/* ------------------------------------------------- ediciones y borrados */
+
+export type CambioDeMensajeWaha =
+  | { tipo: "edicion"; sesion: string; idMensaje: string; texto: string | null }
+  | { tipo: "borrado"; sesion: string; idMensaje: string };
+
+/**
+ * Lee `message.edited` y `message.revoked`: el cliente edito o borro un mensaje en su WhatsApp.
+ *
+ * El id que traen (`editedMessageId`, `revokedMessageId`) es el del mensaje ORIGINAL y viene crudo,
+ * sin el `<fromMe>_<chat>_` adelante; el `id` de afuera es el de la accion misma y no sirve para
+ * encontrar la burbuja. Si falta, se deja rastro de lo que vino: la doc no muestra el payload de GOWS.
+ */
+export function leerEdicionOBorradoWaha(cuerpo: unknown): CambioDeMensajeWaha | null {
+  if (!cuerpo || typeof cuerpo !== "object") {
+    return null;
+  }
+  const evento = cuerpo as EventoWaha;
+  if (evento.event !== "message.edited" && evento.event !== "message.revoked") {
+    return null;
+  }
+  const sesion = typeof evento.session === "string" ? evento.session : "";
+  const datos = (evento.payload ?? {}) as Record<string, unknown>;
+  const clave = evento.event === "message.edited" ? "editedMessageId" : "revokedMessageId";
+  const idMensaje = typeof datos[clave] === "string" ? (datos[clave] as string) : "";
+  if (!sesion || !idMensaje) {
+    console.log(`[waha ${evento.event}] sin ${clave}; claves:`, Object.keys(datos).join(","));
+    return null;
+  }
+  return evento.event === "message.edited"
+    ? { tipo: "edicion", sesion, idMensaje, texto: typeof datos.body === "string" ? datos.body : null }
+    : { tipo: "borrado", sesion, idMensaje };
+}
+
+/* --------------------------------------------- escribiendo y visto azul */
+
+const PLAZO_DE_PRESENCIA_MS = 3000;
+
+/**
+ * Devuelve la linea a "desconectada".
+ *
+ * Probado contra el servidor (13-sep-2026): `startTyping` pone la sesion ONLINE y `stopTyping` NO la
+ * devuelve. Mientras una sesion esta online WhatsApp deja de mandar notificaciones al celular de esa
+ * linea -la asesora que atiende desde el telefono dejaria de enterarse de los mensajes-. Por eso
+ * todo lo que toca la presencia termina aca, pase lo que pase.
+ */
+async function volverADesconectadaWaha(connection: WahaConnection, sesion: string): Promise<void> {
+  try {
+    await wahaRequest(connection, `/api/${encodeURIComponent(sesion)}/presence`, {
+      method: "POST",
+      body: JSON.stringify({ presence: "offline" }),
+      timeoutMs: PLAZO_DE_PRESENCIA_MS,
+    });
+  } catch (error) {
+    console.warn("[waha presencia] no se pudo volver a desconectada", {
+      sesion,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Visto azul en el WhatsApp del cliente, pero SOLO al responder.
+ *
+ * Decision de Alex (13-sep-2026): abrir un chat en el CRM no marca nada -la asesora puede leer sin que
+ * el cliente se entere-; responder si, lo haga una asesora o el agente de IA, como pasa en el
+ * telefono. Por eso vive en el envio y no en la apertura del chat.
+ *
+ * Usa la ruta que lee todo lo pendiente del chat sin pedir ids (con GOWS `sendSeen` necesita la
+ * lista). Nunca frena el envio: si falla, el mensaje sale igual.
+ */
+async function marcarChatLeidoAntesDeResponder(
+  connection: WahaConnection,
+  sesion: string,
+  chatId: string,
+): Promise<void> {
+  if (!chatId) {
+    return;
+  }
+  try {
+    await wahaRequest(
+      connection,
+      `/api/${encodeURIComponent(sesion)}/chats/${encodeURIComponent(chatId)}/messages/read`,
+      { method: "POST", body: "{}", timeoutMs: PLAZO_DE_PRESENCIA_MS },
+    );
+  } catch {
+    // Es cosmetico: el mensaje sale igual.
+  } finally {
+    await volverADesconectadaWaha(connection, sesion);
+  }
+}
+
+/**
+ * "Escribiendo..." en el WhatsApp del cliente, justo antes de que salga la respuesta.
+ *
+ * Primero el visto (la doc de WAHA recomienda leer antes de responder, contra bloqueos). La espera va
+ * con techo de 2,5 s porque el agente YA espero su demora antes de armar la respuesta: aca solo se
+ * muestra, no se demora de nuevo.
+ */
+export async function escribiendoWaha(input: {
+  connection: WahaConnection;
+  sesion: string;
+  telefono: string;
+  esperaMs: number;
+}): Promise<void> {
+  const chatId = chatIdDeTelefono(input.telefono);
+  const cuerpo = JSON.stringify({ session: input.sesion, chatId });
+  try {
+    await marcarChatLeidoAntesDeResponder(input.connection, input.sesion, chatId);
+    await wahaRequest(input.connection, "/api/startTyping", {
+      method: "POST",
+      body: cuerpo,
+      timeoutMs: PLAZO_DE_PRESENCIA_MS,
+    });
+    await new Promise((listo) => setTimeout(listo, Math.max(0, Math.min(input.esperaMs, 2500))));
+    await wahaRequest(input.connection, "/api/stopTyping", {
+      method: "POST",
+      body: cuerpo,
+      timeoutMs: PLAZO_DE_PRESENCIA_MS,
+    }).catch(() => null);
+  } finally {
+    await volverADesconectadaWaha(input.connection, input.sesion);
+  }
 }

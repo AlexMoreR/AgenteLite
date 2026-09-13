@@ -163,6 +163,13 @@ export function AudioMessageCard({
     [duracionMostrada],
   );
 
+  /*
+    Un audio NUESTRO lleva el microfono gris hasta que el cliente lo escucha, y azul despues, como en
+    WhatsApp. El dato lo deja el acuse 4 de WAHA dentro del payload (ver aplicarAck).
+  */
+  const escuchadoPorElCliente =
+    outbound && Boolean((message.rawPayload as { reproducidoAt?: unknown } | null | undefined)?.reproducidoAt);
+
   const colorLeido = outbound ? "bg-[var(--chat-out-accent)]" : "bg-[var(--primary)]";
   const colorPendiente = outbound ? "bg-[var(--chat-out-text-faint)]" : "bg-muted-foreground/35";
 
@@ -183,7 +190,13 @@ export function AudioMessageCard({
       */}
       <span
         className={`absolute -bottom-0.5 -right-0.5 inline-flex size-[22px] items-center justify-center rounded-full ${
-          posicion > 0 ? "text-muted-foreground" : "text-[#2563eb]"
+          outbound
+            ? escuchadoPorElCliente
+              ? "text-[#2563eb]"
+              : "text-muted-foreground"
+            : posicion > 0
+              ? "text-muted-foreground"
+              : "text-[#2563eb]"
         }`}
       >
         <Mic className="size-[18px] fill-current" />

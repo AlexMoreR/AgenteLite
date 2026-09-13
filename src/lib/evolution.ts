@@ -4,6 +4,7 @@ import {
   WAHA_GATEWAY_KIND,
   asegurarSesionWaha,
   borrarMensajeWaha,
+  escribiendoWaha,
   chatIdDeTelefono,
   borrarSesionWaha,
   enviarMediaWaha,
@@ -2909,6 +2910,26 @@ export async function sendEvolutionPresence(input: {
   presence?: EvolutionPresence;
   delay?: number;
 }) {
+  /*
+    En WAHA el "escribiendo" tiene su propia ruta, y deja la linea online si no se la baja: ver
+    `escribiendoWaha`. Antes esto iba a `/message/presence` de Evolution y en las lineas WAHA fallaba
+    en silencio, asi que el cliente nunca veia que le estaban por responder.
+  */
+  const waha = await conexionWahaDe(input.instanceName);
+  if (waha) {
+    const presencia = input.presence ?? "composing";
+    if (presencia !== "composing" && presencia !== "recording") {
+      return;
+    }
+    await escribiendoWaha({
+      connection: waha,
+      sesion: input.instanceName,
+      telefono: input.phoneNumber,
+      esperaMs: input.delay ?? 1200,
+    });
+    return;
+  }
+
   await evolutionInstanceRequest({
     instanceName: input.instanceName,
     path: "/message/presence",
