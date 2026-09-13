@@ -1049,6 +1049,10 @@ export const MessageBubble = memo(function MessageBubble({
                     </button>
                   ) : null}
                 </span>
+              ) : /^[A-Z_]+$/.test(message.outboundStatusLabel) ? (
+                // Un estado crudo de la base ("RECEIVED" en las llamadas, "QUEUED"...) no le dice nada
+                // a la asesora: se imprimia tal cual al lado de la hora.
+                null
               ) : (
                 <span className="ml-1">{message.outboundStatusLabel}</span>
               )
@@ -1629,7 +1633,9 @@ export const MessageBubble = memo(function MessageBubble({
                   target="_blank"
                   rel="noreferrer noopener"
                   onClick={(evento) => evento.stopPropagation()}
-                  className={`block w-full max-w-[280px] overflow-hidden rounded-xl border transition hover:opacity-90 ${
+                  // Sin tope de ancho: con 280px la direccion de abajo ensanchaba la burbuja y la
+                  // tarjeta quedaba corta, con un hueco blanco a la derecha. Ocupa lo que ocupe el texto.
+                  className={`block w-full overflow-hidden rounded-xl border transition hover:opacity-90 ${
                     outbound
                       ? "border-[var(--chat-out-overlay-strong)] bg-[var(--chat-out-overlay)]"
                       : "border-border bg-background"
