@@ -228,6 +228,17 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
       if (Date.now() - abiertoDesde < 400) {
         return;
       }
+      /*
+        Escribiendo adentro del panel (la razon de "Otro") NO se cierra.
+
+        En el celular, tocar el campo abre el teclado: la pantalla cambia de alto y se desplaza para
+        mostrar el campo. Eso disparaba este cierre y la asesora no alcanzaba a escribir nada
+        (14-sep-2026). Mientras el foco este adentro, el panel solo se reacomoda.
+      */
+      if (menuRef.current?.contains(document.activeElement)) {
+        ubicar();
+        return;
+      }
       setOpen(false);
     };
     window.addEventListener("resize", cerrar);
@@ -348,7 +359,8 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
                   maxLength={LARGO_DEL_OTRO_MOTIVO}
                   onChange={(evento) => setOtroDetalle(evento.target.value)}
                   placeholder="¿Cuál fue la razón?"
-                  className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-[13px] text-foreground outline-none focus:border-[var(--primary)]"
+                  // 16px en el celular: por debajo de eso el iPhone hace zoom al tocar el campo.
+                  className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-[16px] text-foreground outline-none focus:border-[var(--primary)] md:text-[13px]"
                 />
                 <button
                   type="submit"

@@ -262,7 +262,7 @@ function RegisterCallDialog({
                   maxLength={LARGO_DEL_OTRO_MOTIVO}
                   onChange={(event) => setOtroDetalle(event.target.value)}
                   placeholder="¿Cuál fue la razón?"
-                  className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-[var(--primary)]"
+                  className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2 text-[16px] text-foreground outline-none focus:border-[var(--primary)] md:text-sm"
                 />
               ) : null}
             </div>

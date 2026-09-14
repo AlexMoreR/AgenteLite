@@ -627,7 +627,7 @@ export function CrmKanbanBoard({
                 maxLength={LARGO_DEL_OTRO_MOTIVO}
                 onChange={(evento) => setOtroDetalleKanban(evento.target.value)}
                 placeholder="¿Cuál fue la razón?"
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] text-foreground outline-none focus:border-[var(--primary)]"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-[16px] text-foreground outline-none focus:border-[var(--primary)] md:text-[13px]"
               />
               <button
                 type="submit"
