@@ -26,9 +26,9 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import type {
   AutomatizacionDeAsignacion,
   BorradorDeAutomatizacion,
-} from "@/features/crm/automatizaciones/tipos";
-import { CRM_STAGE_ORDER, getCrmStageMeta } from "../domain/crm-config";
-import type { CrmStage } from "../types";
+} from "@/features/automatizaciones/tipos";
+import { CRM_STAGE_ORDER, getCrmStageMeta } from "@/features/crm/domain/crm-config";
+import type { CrmStage } from "@/features/crm/types";
 
 type Persona = { id: string; nombre: string };
 type Canal = { id: string; nombre: string };

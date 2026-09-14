@@ -183,13 +183,28 @@ export function AppSidebar({
                         ? "registro"
                         : pathname.startsWith("/cliente/crm/guiones")
                           ? "guiones"
-                          : pathname.startsWith("/cliente/crm/automatizaciones")
-                            ? "automatizaciones"
-                            : "mi-dia"
+                          : "mi-dia"
                 }
                 isCrmRoute={pathname.startsWith("/cliente/crm")}
-                mostrarAutomatizaciones={user?.role !== "EMPLEADO"}
               />
+            ) : null}
+            {/*
+              Automatizaciones va SOLA, fuera del CRM: es administrativa (mover leads en cantidad) y no
+              una vista de trabajo. A una asesora no se le muestra; la pagina igual exige ser dueño o
+              administrador del negocio.
+            */}
+            {user?.role && user.role !== "EMPLEADO" ? (
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    render={<Link href="/cliente/automatizaciones" />}
+                    isActive={pathname.startsWith("/cliente/automatizaciones")}
+                  >
+                    <Workflow />
+                    <span>Automatizaciones</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
             ) : null}
             {contactsModule ? (
               <SidebarMenu>

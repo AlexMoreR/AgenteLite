@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
-import { AutomatizacionesWorkspace } from "@/features/crm/components/AutomatizacionesWorkspace";
-import { contarLeads, leerAutomatizaciones } from "@/features/crm/automatizaciones/servicio";
+import { AutomatizacionesWorkspace } from "@/features/automatizaciones/components/AutomatizacionesWorkspace";
+import { contarLeads, leerAutomatizaciones } from "@/features/automatizaciones/servicio";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 
@@ -11,8 +11,12 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default async function ClienteCrmAutomatizacionesPage() {
-  const access = await requireClientWorkspaceAccess("crm");
+/*
+  Modulo administrativo, aparte del CRM: mover leads en cantidad es una decision del negocio, no una
+  vista de trabajo. No depende de tener el modulo CRM habilitado; alcanza con ser dueño o administrador.
+*/
+export default async function ClienteAutomatizacionesPage() {
+  const access = await requireClientWorkspaceAccess();
   const esJefe = access.isOwner || access.membershipRole === "OWNER" || access.membershipRole === "ADMIN";
 
   if (!esJefe) {

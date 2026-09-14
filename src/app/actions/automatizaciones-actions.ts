@@ -9,23 +9,23 @@ import {
   ejecutarAsignacion,
   guardarAutomatizaciones,
   leerAutomatizaciones,
-} from "@/features/crm/automatizaciones/servicio";
+} from "@/features/automatizaciones/servicio";
 import {
   limpiarAutomatizacion,
   type AutomatizacionDeAsignacion,
   type BorradorDeAutomatizacion,
-} from "@/features/crm/automatizaciones/tipos";
+} from "@/features/automatizaciones/tipos";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 
-const RUTA = "/cliente/crm/automatizaciones";
+const RUTA = "/cliente/automatizaciones";
 
 /**
  * Solo el dueno o un administrador del negocio. Mover leads de una asesora a otra en cantidad es
  * una decision de jefe; las asesoras siguen pudiendo pasar SUS chats uno por uno desde Chats.
  */
 async function accesoDeJefe() {
-  const access = await requireClientWorkspaceAccess("crm");
+  const access = await requireClientWorkspaceAccess();
   const esJefe = access.isOwner || access.membershipRole === "OWNER" || access.membershipRole === "ADMIN";
   return esJefe ? access : null;
 }
