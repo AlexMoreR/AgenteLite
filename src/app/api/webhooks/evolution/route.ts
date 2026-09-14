@@ -36,6 +36,7 @@ import { getConversationAutomationPaused, setConversationAutomationPaused } from
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { prisma } from "@/lib/prisma";
 import { sendChatPushToWorkspace } from "@/lib/web-push";
+import { quienesNoSeEnteran } from "@/lib/quien-se-entera-del-mensaje";
 import {
   cancelPendingFollowsByContact,
   createFollow,
@@ -2594,6 +2595,12 @@ export async function POST(request: NextRequest) {
 
         await sendChatPushToWorkspace({
           workspaceId: channel.workspaceId,
+          // Cada quien se entera solo de lo suyo: la misma regla que su bandeja de Chats.
+          excludeUserIds: await quienesNoSeEnteran({
+            workspaceId: channel.workspaceId,
+            channelId: channel.id,
+            conversationId: conversation.id || null,
+          }).catch(() => []),
           payload: {
             title: pushContactName,
             body: pushBody,

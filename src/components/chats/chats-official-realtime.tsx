@@ -15,14 +15,22 @@ import { useEffect, useRef } from "react";
 export function ChatsOfficialRealtime({
   enabled,
   workspaceId,
+  userId = null,
 }: {
   enabled: boolean;
   workspaceId: string;
+  /** Quien esta mirando: si el aviso dice que no se entera, no suena. */
+  userId?: string | null;
 }) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptsRef = useRef(0);
   const closedByUsRef = useRef(false);
+  // En un ref para leer el usuario al llegar cada aviso sin reabrir el socket si cambia.
+  const userIdRef = useRef(userId);
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
 
   useEffect(() => {
     if (!enabled || !workspaceId || typeof window === "undefined") {
@@ -95,7 +103,12 @@ export function ChatsOfficialRealtime({
           que "algo cambio" pero no si fue un mensaje del cliente o el eco de uno nuestro, y
           sonaria tambien al mandar.
         */
-        if (payload.type === "waha-incoming") {
+        const noSeEnteran = payload.data?.noSeEnteran;
+        const quienMira = userIdRef.current;
+        const noSeEntera =
+          Boolean(quienMira) && Array.isArray(noSeEnteran) && (noSeEnteran as unknown[]).includes(quienMira);
+        // El sonido y la campanita solo para quien le toca ese chat; el refresco de abajo va igual.
+        if (payload.type === "waha-incoming" && !noSeEntera) {
           window.dispatchEvent(
             new CustomEvent("chat-incoming-message", { detail: payload.data ?? {} }),
           );

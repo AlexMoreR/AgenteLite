@@ -64,6 +64,8 @@ type AppShellProps = {
   sidebarDefaultOpen?: boolean;
   // Negocio cuyos mensajes suenan dentro de la app, en CUALQUIER pantalla (null = no suena).
   chatRealtimeWorkspaceId?: string | null;
+  // Quien esta conectado, para que el sonido respete a quien le toca cada chat.
+  chatRealtimeUserId?: string | null;
 };
 
 const breadcrumbLabels: Record<string, string> = {
@@ -198,6 +200,7 @@ export function AppShell({
   clientPlanBlock,
   sidebarDefaultOpen = true,
   chatRealtimeWorkspaceId = null,
+  chatRealtimeUserId = null,
 }: AppShellProps) {
   const { data } = useSession();
   const pathname = usePathname();
@@ -333,7 +336,11 @@ export function AppShell({
                 {/* Solo en /cliente: es donde el Service Worker calla el aviso porque suena la app. */}
                 {chatRealtimeWorkspaceId && pathname.startsWith("/cliente") ? (
                   <>
-                    <ChatsOfficialRealtime enabled workspaceId={chatRealtimeWorkspaceId} />
+                    <ChatsOfficialRealtime
+                      enabled
+                      workspaceId={chatRealtimeWorkspaceId}
+                      userId={chatRealtimeUserId}
+                    />
                     <ChatIncomingNotifier />
                   </>
                 ) : null}

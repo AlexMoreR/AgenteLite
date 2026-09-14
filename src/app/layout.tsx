@@ -271,6 +271,7 @@ export default async function RootLayout({
                 ? primaryWorkspace.workspace.id
                 : null
             }
+            chatRealtimeUserId={session?.user?.id ?? null}
           >
             {children}
           </AppShell>

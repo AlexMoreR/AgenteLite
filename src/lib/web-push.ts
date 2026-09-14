@@ -121,15 +121,21 @@ export async function sendChatPushToWorkspace(input: {
   payload: WebPushNotificationPayload;
   // Opcional: no notificar a este usuario (p. ej. quien envió el mensaje saliente).
   excludeUserId?: string | null;
+  // Quienes no deben enterarse de este chat (ver quien-se-entera-del-mensaje.ts).
+  excludeUserIds?: string[];
 }): Promise<number> {
   if (!ensureVapidConfigured()) {
     return 0;
   }
 
+  const excluidos = [
+    ...(input.excludeUserIds ?? []),
+    ...(input.excludeUserId ? [input.excludeUserId] : []),
+  ];
   const subscriptions = await prisma.webPushSubscription.findMany({
     where: {
       workspaceId: input.workspaceId,
-      ...(input.excludeUserId ? { userId: { not: input.excludeUserId } } : {}),
+      ...(excluidos.length ? { userId: { notIn: excluidos } } : {}),
     },
     select: { id: true, endpoint: true, p256dh: true, auth: true },
   });

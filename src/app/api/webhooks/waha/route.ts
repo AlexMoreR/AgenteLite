@@ -3,6 +3,7 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { POST as recibirEvolution } from "@/app/api/webhooks/evolution/route";
 import { prisma } from "@/lib/prisma";
 import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
+import { quienesNoSeEnteran } from "@/lib/quien-se-entera-del-mensaje";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { readGatewayConnection } from "@/lib/evolution";
 import { buildLinkedLidMetadata, readLinkedLid } from "@/lib/whatsapp-lid";
@@ -317,6 +318,13 @@ export async function POST(request: NextRequest) {
             senderName: typeof datos?.pushName === "string" ? datos.pushName : null,
             text: textoDelMensaje(datos?.message),
             type: null,
+            // Cada navegador mira si su usuario esta en la lista: si esta, no suena. Misma regla que
+            // la notificacion del celular y que la bandeja de Chats.
+            noSeEnteran: await quienesNoSeEnteran({
+              workspaceId: canal.workspaceId,
+              channelId: canal.id,
+              conversationId,
+            }).catch(() => []),
           }
         : null,
     });
