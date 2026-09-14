@@ -63,6 +63,8 @@ import {
 } from "./chat-inbox-conversation-utils";
 import { ConversationPanel } from "./chat-conversation-panel";
 import { ChatHeaderActions } from "./chat-header-actions";
+import { CopyConversationButton } from "./copy-conversation-button";
+import { ImportHistoryControl } from "./import-history-control";
 import type { CrmStage } from "@/features/crm/types";
 import { resolveCallablePhone } from "@/lib/whatsapp-lid";
 
@@ -1865,6 +1867,33 @@ export function SharedInbox({
     );
   }, [renderedConversation, selectedConversationKey]);
 
+  /*
+    Botones de la ficha del contacto (copiar la conversacion, traer el historial) armados en el CLIENTE.
+
+    Mismo problema que la cabecera: el servidor los arma solo para el chat que venia en la URL. Abriendo
+    un chat con un toque -como entra una asesora desde el celular- la ficha salia sin "Cargar historial"
+    (Genesis, 14-sep-2026). /live ya trae canImportHistory; con eso alcanza.
+  */
+  const clientContactPanelHeaderActions = useMemo(() => {
+    const conversation = renderedConversation;
+    if (!conversation || conversation.isPreview || !selectedConversationKey.startsWith("agent:")) {
+      return null;
+    }
+    return (
+      <>
+        <CopyConversationButton
+          key={`panel-copy:${selectedConversationKey}`}
+          chatKey={selectedConversationKey}
+          label={conversation.label}
+          phone={conversation.secondaryLabel}
+        />
+        {conversation.canImportHistory ? (
+          <ImportHistoryControl key={`panel-history:${conversation.id}`} conversationId={conversation.id} />
+        ) : null}
+      </>
+    );
+  }, [renderedConversation, selectedConversationKey]);
+
   // "El chat ya esta asentado" = tenemos el contenido real del chat abierto, no el preview.
   // Antes se comprobaba contra currentSelectedConversation, que sale del prop del SERVIDOR: al
   // no navegar ese prop se congela en el chat con el que cargo la pagina y esto quedaba siempre
@@ -2482,7 +2511,7 @@ export function SharedInbox({
         headerActions={clientHeaderActions ?? headerActions}
         headerBadge={headerBadge}
         contactPanelActions={contactPanelActions}
-        contactPanelHeaderActions={contactPanelHeaderActions}
+        contactPanelHeaderActions={clientContactPanelHeaderActions ?? contactPanelHeaderActions}
       />
     </div>
 
