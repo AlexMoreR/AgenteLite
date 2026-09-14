@@ -20,10 +20,11 @@ function esVencida(nextContactAt: string | null) {
 import type { MiDiaData } from "../services/getMiDiaData";
 
 function formatSince(hours: number) {
-  if (hours < 1) return "hace un rato";
-  if (hours < 24) return `hace ${hours} h`;
+  // Sin el "hace": al lado del reloj ya se entiende, y en el celular la fila se partia en dos lineas.
+  if (hours < 1) return "ahora";
+  if (hours < 24) return `${hours} h`;
   const days = Math.floor(hours / 24);
-  return days === 1 ? "hace 1 día" : `hace ${days} días`;
+  return days === 1 ? "1 día" : `${days} días`;
 }
 
 function StageBadge({ stage }: { stage: CrmStage }) {
@@ -100,10 +101,9 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-foreground">{primero.name}</span>
             <StageBadge stage={primero.stage} />
-            <span className="text-[13px] text-muted-foreground">
-              sin contacto {formatSince(primero.hoursSinceContact)}
-              {primero.waitingOnUs ? " · está esperando respuesta" : ""}
-            </span>
+            {primero.waitingOnUs ? (
+              <span className="text-[13px] text-muted-foreground">Está esperando respuesta</span>
+            ) : null}
             <Link
               href={`/cliente/chats?chatKey=${encodeURIComponent(primero.chatKey)}`}
               onClick={(evento) => {
@@ -176,7 +176,7 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
                         {lead.lastCallResultLabel ? ` · ${lead.lastCallResultLabel}` : ""}
                       </span>
                     ) : lead.waitingOnUs ? (
-                      <span className="font-semibold text-rose-600 dark:text-rose-400">Te escribió · sin responder</span>
+                      <span className="font-semibold text-rose-600 dark:text-rose-400">Sin responder</span>
                     ) : (
                       <span className="text-muted-foreground">Sin respuesta · hacé seguimiento</span>
                     )}
