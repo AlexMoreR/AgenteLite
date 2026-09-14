@@ -697,13 +697,29 @@ async function fetchWahaChatMessageRecords(input: {
     No se puede saber cual es cual mirando el numero -hay LIDs de 13 digitos, tan largos como un
     telefono real-, asi que se pide una y, si vuelve vacia, la otra.
   */
-  const pedir = (chatId: string) =>
-    mensajesDeChatWaha({
-      connection: input.connection,
-      sesion: input.instanceName,
-      chatId,
-      limite: input.limite,
-    }).catch(() => [] as Array<Record<string, unknown>>);
+  /*
+    Por tandas: WAHA devuelve a lo sumo 500 por pedido. Se sigue pidiendo hasta que una tanda venga
+    incompleta (no hay mas) o se llegue al limite pedido.
+  */
+  const TANDA = 500;
+  const pedir = async (chatId: string) => {
+    const todos: Array<Record<string, unknown>> = [];
+    for (let desde = 0; desde < input.limite; desde += TANDA) {
+      const cuantos = Math.min(TANDA, input.limite - desde);
+      const tanda = await mensajesDeChatWaha({
+        connection: input.connection,
+        sesion: input.instanceName,
+        chatId,
+        limite: cuantos,
+        desplazamiento: desde,
+      }).catch(() => [] as Array<Record<string, unknown>>);
+      todos.push(...tanda);
+      if (tanda.length < cuantos) {
+        break;
+      }
+    }
+    return todos;
+  };
 
   let crudos = await pedir(`${telefono}@c.us`);
   if (crudos.length === 0) {
@@ -727,8 +743,9 @@ async function fetchEvolutionChatMessageRecords(
       connection: { baseUrl: connection.baseUrl, apiToken: connection.apiToken },
       instanceName,
       remoteJid,
-      // El preview solo quiere una muestra; el import, todo lo que haya.
-      limite: options?.maxPages && options.maxPages <= 1 ? 20 : 300,
+      // El preview solo quiere una muestra; el import, todo lo que haya (con un techo de seguridad
+      // para que un chat gigante no deje el pedido colgado).
+      limite: options?.maxPages && options.maxPages <= 1 ? 20 : 5000,
     });
   }
 

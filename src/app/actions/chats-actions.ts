@@ -2134,6 +2134,9 @@ export async function importConversationHistoryAction(input: {
       workspaceId: membership.workspace.id,
       channelId: conversation.channel.id,
       phoneNumber: conversation.contact.phoneNumber,
+      // Sin tope (pedido de Alex, 14-sep-2026): el boton es de UN chat y se usa cuando falta algo;
+      // traer solo los 20 mas recientes dejaba huecos. Lo ya guardado no se duplica.
+      importLimit: null,
     });
 
     if (!result.ok) {
