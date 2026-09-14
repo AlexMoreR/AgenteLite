@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { getVisibleChannelIds } from "@/lib/channel-visibility";
 import type { CSSProperties } from "react";
 import { cookies } from "next/headers";
 import Script from "next/script";
@@ -168,10 +169,24 @@ export default async function RootLayout({
     }
     adminModuleAccess.client_team = canAccessClientModule(clientAccess, "client_team");
   }
+  /*
+    En el menu solo los canales que esta persona puede ver, con la MISMA regla que la bandeja
+    (channel-visibility): el jefe todos; el resto, aquellos donde es colaborador. A Genesis, que
+    solo trabaja Ventas 1, le aparecian tambien Ventas 2 y Admin (14-sep-2026).
+  */
+  const canalesVisiblesDelMenu =
+    primaryWorkspace?.workspace.id && session?.user?.id
+      ? await getVisibleChannelIds({
+          workspaceId: primaryWorkspace.workspace.id,
+          userId: session.user.id,
+          esJefe: primaryWorkspace.role === "OWNER" || primaryWorkspace.role === "ADMIN",
+        })
+      : null;
   const chatSidebarItems = primaryWorkspace?.workspace.id
     ? await prisma.whatsAppChannel.findMany({
         where: {
           workspaceId: primaryWorkspace.workspace.id,
+          ...(canalesVisiblesDelMenu ? { id: { in: canalesVisiblesDelMenu } } : {}),
           provider: {
             in: ["EVOLUTION", "OFFICIAL_API"],
           },
