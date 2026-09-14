@@ -142,9 +142,69 @@ const subscribeNoop = () => () => {};
 const getMountedClient = () => true;
 const getMountedServer = () => false;
 
+/**
+ * El id de WhatsApp del mensaje, crudo (sin el `<fromMe>_<chat>_` que agrega WAHA adelante).
+ *
+ * Es lo que trae una cita para decir A QUE mensaje responde, asi que es lo que marca cada burbuja en
+ * pantalla para poder saltar a ella. Sale del evento guardado: el item del chat no trae el externalId.
+ */
+function idCrudoDelMensajeWhatsApp(message: SharedInboxMessageItem): string | null {
+  const raw = message.rawPayload as { evolution?: { data?: { key?: { id?: unknown; ID?: unknown } } } } | null;
+  const key = raw?.evolution?.data?.key;
+  const id = typeof key?.id === "string" ? key.id : typeof key?.ID === "string" ? key.ID : "";
+  const crudo = id.split("_").pop() ?? "";
+  return crudo.length >= 8 ? crudo : null;
+}
+
+/**
+ * Lo que se lee en la cita segun lo que se cito.
+ *
+ * Solo sabia leer TEXTO: si el cliente respondia a una foto, a un audio o a un album ("2 fotos"), la
+ * cita no se mostraba y parecia que el mensaje venia suelto (Alex, 14-sep-2026).
+ */
+function textoDeLaCita(citado: Record<string, unknown>): string {
+  const nodo = (clave: string) => citado[clave] as Record<string, unknown> | undefined;
+  const texto = (valor: unknown) => (typeof valor === "string" ? valor.trim() : "");
+
+  const plano = texto(citado.conversation) || texto(nodo("extendedTextMessage")?.text);
+  if (plano) return plano;
+  if (nodo("imageMessage")) return texto(nodo("imageMessage")?.caption) || "📷 Foto";
+  if (nodo("albumMessage")) return "📷 Fotos";
+  if (nodo("videoMessage")) return texto(nodo("videoMessage")?.caption) || "🎥 Video";
+  if (nodo("audioMessage")) return "🎤 Audio";
+  if (nodo("documentMessage")) return texto(nodo("documentMessage")?.fileName) || "📄 Documento";
+  if (nodo("stickerMessage")) return "Sticker";
+  if (nodo("locationMessage")) return "📍 Ubicación";
+  return "Mensaje";
+}
+
+/**
+ * Tocar la cita lleva al mensaje citado y lo resalta un momento, como en WhatsApp.
+ *
+ * Si no esta en pantalla -mas viejo que lo cargado, o un album cuya cabecera no se guarda- se avisa
+ * en vez de no hacer nada: un toque mudo se lee como que la app no funciona.
+ */
+function irAlMensajeCitado(idCitado: string | null) {
+  const destino = idCitado
+    ? document.querySelector<HTMLElement>(`[data-wa-id="${CSS.escape(idCitado)}"]`)
+    : null;
+  if (!destino) {
+    toast.info("Ese mensaje está más arriba en la conversación");
+    return;
+  }
+  destino.scrollIntoView({ behavior: "smooth", block: "center" });
+  destino.classList.remove("mensaje-citado-resaltado");
+  // Forzar el reflow para que la animacion arranque de nuevo si se toca dos veces seguidas.
+  void destino.offsetWidth;
+  destino.classList.add("mensaje-citado-resaltado");
+  window.setTimeout(() => destino.classList.remove("mensaje-citado-resaltado"), 1700);
+}
+
 // Extrae el preview de una cita (Responder): para mensajes propios usa el `replyTo`
 // que guardamos al enviar; para entrantes lee la cita de WhatsApp (contextInfo).
-function getMessageReplyPreview(message: SharedInboxMessageItem): { author: string; text: string } | null {
+function getMessageReplyPreview(
+  message: SharedInboxMessageItem,
+): { author: string; text: string; quotedId: string | null } | null {
   const raw = message.rawPayload;
   if (!raw || typeof raw !== "object") {
     return null;
@@ -155,7 +215,8 @@ function getMessageReplyPreview(message: SharedInboxMessageItem): { author: stri
   if (replyTo && typeof replyTo === "object") {
     const r = replyTo as Record<string, unknown>;
     const text = typeof r.content === "string" ? r.content.trim() : "";
-    return { author: r.direction === "OUTBOUND" ? "Tú" : "Cliente", text: text || "Mensaje" };
+    const citadoId = typeof r.externalId === "string" ? r.externalId.split("_").pop() ?? null : null;
+    return { author: r.direction === "OUTBOUND" ? "Tú" : "Cliente", text: text || "Mensaje", quotedId: citadoId };
   }
 
   const evolution = record.evolution as Record<string, unknown> | undefined;
@@ -171,14 +232,10 @@ function getMessageReplyPreview(message: SharedInboxMessageItem): { author: stri
       if (!quoted) {
         continue;
       }
-      const ext = quoted.extendedTextMessage as Record<string, unknown> | undefined;
-      const text =
-        (typeof quoted.conversation === "string" && quoted.conversation) ||
-        (ext && typeof ext.text === "string" ? ext.text : "") ||
-        "";
-      if (text) {
-        return { author: "", text: text.trim() };
-      }
+      // evogo/whatsmeow lo escribe `stanzaID`; Baileys, `stanzaId`.
+      const idCitado =
+        typeof ctx?.stanzaId === "string" ? ctx.stanzaId : typeof ctx?.stanzaID === "string" ? ctx.stanzaID : null;
+      return { author: "", text: textoDeLaCita(quoted), quotedId: idCitado };
     }
   }
   return null;
@@ -941,6 +998,7 @@ export const MessageBubble = memo(function MessageBubble({
   const callSummary = getCallMessageSummary(message);
   const CallIcon = callSummary?.icon ?? null;
   const replyPreview = useMemo(() => getMessageReplyPreview(message), [message]);
+  const idWhatsApp = useMemo(() => idCrudoDelMensajeWhatsApp(message), [message]);
   const activity = isActivityMessage(message);
 
   // Acciones del mensaje: menu de hover en escritorio, hoja al mantener apretado en el celular.
@@ -1103,6 +1161,7 @@ export const MessageBubble = memo(function MessageBubble({
       ) : null}
 
       <div
+        data-wa-id={idWhatsApp ?? undefined}
         className={`flex ${outbound ? "justify-end" : "justify-start"} ${
           seleccionado ? "-mx-2 rounded-md bg-[var(--primary)]/12 px-2 py-0.5" : ""
         }`}
@@ -1155,8 +1214,17 @@ export const MessageBubble = memo(function MessageBubble({
             </>
           ) : null}
           {replyPreview ? (
-            <div
-              className={`mb-1 rounded-md border-l-2 px-2 py-1 text-[11px] ${
+            <button
+              type="button"
+              onClick={(evento) => {
+                // Con la seleccion abierta el toque es para marcar el mensaje, no para saltar.
+                if (haySeleccion) {
+                  return;
+                }
+                evento.stopPropagation();
+                irAlMensajeCitado(replyPreview.quotedId);
+              }}
+              className={`mb-1 block w-full cursor-pointer rounded-md border-l-2 px-2 py-1 text-left text-[11px] transition hover:brightness-95 ${
                 outbound ? "border-[var(--chat-out-quote-border)] bg-[var(--chat-out-overlay)]" : "border-[var(--primary)] bg-muted"
               }`}
             >
@@ -1168,7 +1236,7 @@ export const MessageBubble = memo(function MessageBubble({
               <p className={`truncate ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"}`}>
                 {replyPreview.text}
               </p>
-            </div>
+            </button>
           ) : null}
           {/* Contenido + hora en flujo tipo WhatsApp: en mensajes cortos la hora
               queda a la derecha en la MISMA linea; en los largos baja al pie. */}

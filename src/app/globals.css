@@ -853,3 +853,21 @@ body {
     animation: none;
   }
 }
+
+/* El mensaje al que se salto desde una cita parpadea un momento, para encontrarlo de un vistazo. */
+@keyframes mensajeCitado {
+  0%, 35% { background-color: color-mix(in srgb, var(--primary) 22%, transparent); }
+  100% { background-color: transparent; }
+}
+
+.mensaje-citado-resaltado {
+  border-radius: 8px;
+  animation: mensajeCitado 1.6s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mensaje-citado-resaltado {
+    animation: none;
+    background-color: color-mix(in srgb, var(--primary) 18%, transparent);
+  }
+}
