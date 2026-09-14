@@ -86,6 +86,11 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
   // Tercer paso: eligio "Otro" y tiene que escribir cual fue la razon.
   const [escribiendoOtro, setEscribiendoOtro] = useState(false);
   const [otroDetalle, setOtroDetalle] = useState("");
+  // Para leerlo desde los oyentes de la ventana sin volver a registrarlos.
+  const escribiendoOtroRef = useRef(false);
+  useEffect(() => {
+    escribiendoOtroRef.current = escribiendoOtro;
+  }, [escribiendoOtro]);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -235,7 +240,14 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
         mostrar el campo. Eso disparaba este cierre y la asesora no alcanzaba a escribir nada
         (14-sep-2026). Mientras el foco este adentro, el panel solo se reacomoda.
       */
-      if (menuRef.current?.contains(document.activeElement)) {
+      /*
+        Y tampoco mientras se esta en el paso de escribir la razon, aunque el foco ya no este en el campo.
+
+        Al tocar "Descartar" en el celular, el campo pierde el foco, el teclado se cierra y la pantalla
+        cambia de alto ANTES de que llegue el toque: el panel se cerraba y el descarte no se guardaba
+        (Maria, 14-sep-2026). En ese paso el panel solo se cierra con Descartar, la flecha o tocando afuera.
+      */
+      if (escribiendoOtroRef.current || menuRef.current?.contains(document.activeElement)) {
         ubicar();
         return;
       }
