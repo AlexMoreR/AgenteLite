@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getCrmData, getCrmKanbanData } from "@/features/crm";
+import { leerColaboradores, leerMonitores } from "@/lib/channel-collaborators";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { canalesQueMonitorea } from "@/lib/modo-monitoreo";
 import { prisma } from "@/lib/prisma";
 
 export type AsesoraDelFiltro = { id: string; nombre: string };
@@ -19,8 +21,25 @@ async function resolverMirada(pedido: string) {
   const access = await requireClientWorkspaceAccess("crm");
   const esJefe = access.isOwner || access.role === "ADMIN";
 
-  if (!esJefe) {
-    return { access, esJefe, verComoUserId: access.userId, asesoras: [] as AsesoraDelFiltro[] };
+  /*
+    La monitora no es jefa, pero tampoco una asesora: a ella nunca se le asigna un lead (el
+    reparto la saltea), asi que "solo lo suyo" le dejaba el Registro vacio y sin selector. Ve lo
+    del canal que monitorea, con el mismo selector que el jefe y los numeros tapados.
+  */
+  const canalesMonitoreados = esJefe
+    ? []
+    : await canalesQueMonitorea({ workspaceId: access.workspaceId, userId: access.userId });
+  const esMonitora = canalesMonitoreados.length > 0;
+
+  if (!esJefe && !esMonitora) {
+    return {
+      access,
+      esJefe,
+      esMonitora,
+      canalIds: null,
+      verComoUserId: access.userId,
+      asesoras: [] as AsesoraDelFiltro[],
+    };
   }
 
   const miembros = await prisma.workspaceMember.findMany({
@@ -28,7 +47,12 @@ async function resolverMirada(pedido: string) {
     select: { userId: true, user: { select: { name: true, email: true } } },
   });
 
+  // Para la monitora, solo quienes trabajan esos canales (lista vacia = todo el equipo) y sin
+  // las otras monitoras: no tienen leads, elegirlas siempre daria vacio.
+  const delCanal = esMonitora ? await quienesTrabajanLosCanales(canalesMonitoreados) : null;
+
   const asesoras: AsesoraDelFiltro[] = miembros
+    .filter((miembro) => !delCanal || delCanal(miembro.userId))
     .map((miembro) => ({
       id: miembro.userId,
       nombre: miembro.user?.name?.trim() || miembro.user?.email || "Sin nombre",
@@ -38,16 +62,40 @@ async function resolverMirada(pedido: string) {
   // Vacio = todo el equipo. Un id que no sea del negocio se ignora y se cae a "todo".
   const elegida = pedido && asesoras.some((asesora) => asesora.id === pedido) ? pedido : null;
 
-  return { access, esJefe, verComoUserId: elegida, asesoras };
+  return {
+    access,
+    esJefe,
+    esMonitora,
+    canalIds: esMonitora ? canalesMonitoreados : null,
+    verComoUserId: elegida,
+    asesoras,
+  };
+}
+
+async function quienesTrabajanLosCanales(canalIds: string[]) {
+  const canales = await prisma.whatsAppChannel.findMany({
+    where: { id: { in: canalIds } },
+    select: { metadata: true },
+  });
+
+  const monitoras = new Set(canales.flatMap((canal) => leerMonitores(canal.metadata)));
+  const colaboradores = canales.map((canal) => leerColaboradores(canal.metadata));
+  const abierto = colaboradores.some((lista) => lista.length === 0);
+  const trabajan = new Set(colaboradores.flat());
+
+  return (userId: string) => !monitoras.has(userId) && (abierto || trabajan.has(userId));
 }
 
 export async function getAuthorizedCrmData(pedido = "") {
-  const { access, esJefe, verComoUserId, asesoras } = await resolverMirada(pedido);
+  const { access, esJefe, esMonitora, canalIds, verComoUserId, asesoras } = await resolverMirada(pedido);
+  const eligeAsesora = esJefe || esMonitora;
 
   const data = await getCrmData({
     workspaceId: access.workspaceId,
     workspaceName: access.workspaceName,
     assignedToUserId: verComoUserId,
+    channelIds: canalIds,
+    enmascararTelefonos: esMonitora,
   });
 
   if (!data) {
@@ -56,20 +104,24 @@ export async function getAuthorizedCrmData(pedido = "") {
 
   return {
     ...data,
-    esInformePersonal: !esJefe,
-    // El selector solo existe para el jefe: la asesora no elige, ve lo suyo.
-    asesoras: esJefe ? asesoras : [],
-    asesoraElegida: esJefe ? (verComoUserId ?? "") : "",
+    esInformePersonal: !eligeAsesora,
+    soloLectura: esMonitora,
+    // El selector es del jefe y de la monitora: la asesora no elige, ve lo suyo.
+    asesoras: eligeAsesora ? asesoras : [],
+    asesoraElegida: eligeAsesora ? (verComoUserId ?? "") : "",
   };
 }
 
 export async function getAuthorizedCrmKanbanData(pedido = "") {
-  const { access, esJefe, verComoUserId, asesoras } = await resolverMirada(pedido);
+  const { access, esJefe, esMonitora, canalIds, verComoUserId, asesoras } = await resolverMirada(pedido);
+  const eligeAsesora = esJefe || esMonitora;
 
   const data = await getCrmKanbanData({
     workspaceId: access.workspaceId,
     workspaceName: access.workspaceName,
     assignedToUserId: verComoUserId,
+    channelIds: canalIds,
+    enmascararTelefonos: esMonitora,
   });
 
   if (!data) {
@@ -78,7 +130,8 @@ export async function getAuthorizedCrmKanbanData(pedido = "") {
 
   return {
     ...data,
-    asesoras: esJefe ? asesoras : [],
-    asesoraElegida: esJefe ? (verComoUserId ?? "") : "",
+    soloLectura: esMonitora,
+    asesoras: eligeAsesora ? asesoras : [],
+    asesoraElegida: eligeAsesora ? (verComoUserId ?? "") : "",
   };
 }

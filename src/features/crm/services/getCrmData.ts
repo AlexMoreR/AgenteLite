@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getContactTags } from "@/lib/chat-conversation-summary";
+import { enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
 import { groupCrmRecordsByStage, sortCrmRecords } from "../domain/crm-config";
 import type { CrmData, CrmRecord } from "../types";
 
@@ -15,7 +16,26 @@ type GetCrmDataInput = {
    * dicen nada sobre su propio trabajo (y de paso le mostraban las ventas de las demas).
    */
   assignedToUserId?: string | null;
+  /** Solo los leads con chat en estos canales (la monitora ve el canal que monitorea). */
+  channelIds?: string[] | null;
+  /** Tapar los telefonos desde aca, no en pantalla. Ver `modo-monitoreo.ts`. */
+  enmascararTelefonos?: boolean;
 };
+
+function filtroDeConversaciones(assignedToUserId: string | null, channelIds: string[] | null) {
+  if (!assignedToUserId && !channelIds) {
+    return {};
+  }
+  // En un solo `some`: el lead tiene que tener UNA conversacion que cumpla las dos cosas.
+  return {
+    conversations: {
+      some: {
+        ...(assignedToUserId ? { assignedToUserId } : {}),
+        ...(channelIds ? { channelId: { in: channelIds } } : {}),
+      },
+    },
+  };
+}
 
 function getContactDisplayName(contact: { name: string | null; phoneNumber: string }) {
   return contact.name?.trim() || contact.phoneNumber;
@@ -214,15 +234,15 @@ export async function getCrmData({
   workspaceId,
   workspaceName,
   assignedToUserId = null,
+  channelIds = null,
+  enmascararTelefonos = false,
 }: GetCrmDataInput): Promise<CrmData | null> {
   const rawContacts = await prisma.contact.findMany({
     where: {
       workspaceId,
       // Los contactos marcados como ocultos (proveedores, personales, etc.) no entran al CRM.
       excludedFromCrm: false,
-      ...(assignedToUserId
-        ? { conversations: { some: { assignedToUserId } } }
-        : {}),
+      ...filtroDeConversaciones(assignedToUserId, channelIds),
     },
     orderBy: [{ updatedAt: "desc" }],
     select: {
@@ -269,9 +289,9 @@ export async function getCrmData({
 
   const records: CrmRecord[] = rawContacts.map((contact) => ({
     id: contact.id,
-    number: contact.phoneNumber,
+    number: enmascararTelefonos ? enmascararTelefono(contact.phoneNumber) : contact.phoneNumber,
     avatarUrl: contact.avatarUrl,
-    name: getContactDisplayName(contact),
+    name: enmascararTelefonos ? enmascararSiEsTelefono(getContactDisplayName(contact)) : getContactDisplayName(contact),
     // En GANADO la fecha mostrada es la de la VENTA (wonAt), no la última actividad. En el resto
     // de etapas sigue siendo la última actividad (cuándo se movió/habló por última vez).
     date: (contact.crmStage === "GANADO" && contact.wonAt ? contact.wonAt : getContactLastActivity(contact)).toISOString(),
@@ -318,6 +338,8 @@ export async function getCrmKanbanData({
   workspaceId,
   workspaceName,
   assignedToUserId = null,
+  channelIds = null,
+  enmascararTelefonos = false,
 }: GetCrmDataInput): Promise<CrmData | null> {
   const rawContacts = await prisma.contact.findMany({
     where: {
@@ -326,7 +348,7 @@ export async function getCrmKanbanData({
       excludedFromCrm: false,
       // Para una asesora, el kanban es SU embudo. Ver los 1146 del negocio no le sirve para
       // trabajar y ademas le muestra los leads de las companeras.
-      ...(assignedToUserId ? { conversations: { some: { assignedToUserId } } } : {}),
+      ...filtroDeConversaciones(assignedToUserId, channelIds),
     },
     orderBy: [{ updatedAt: "desc" }],
     select: {
@@ -373,9 +395,9 @@ export async function getCrmKanbanData({
 
   const records: CrmRecord[] = rawContacts.map((contact) => ({
     id: contact.id,
-    number: contact.phoneNumber,
+    number: enmascararTelefonos ? enmascararTelefono(contact.phoneNumber) : contact.phoneNumber,
     avatarUrl: contact.avatarUrl,
-    name: getContactDisplayName(contact),
+    name: enmascararTelefonos ? enmascararSiEsTelefono(getContactDisplayName(contact)) : getContactDisplayName(contact),
     // En GANADO la fecha mostrada es la de la VENTA (wonAt), no la última actividad. En el resto
     // de etapas sigue siendo la última actividad (cuándo se movió/habló por última vez).
     date: (contact.crmStage === "GANADO" && contact.wonAt ? contact.wonAt : getContactLastActivity(contact)).toISOString(),

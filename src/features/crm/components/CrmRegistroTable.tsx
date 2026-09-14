@@ -125,6 +125,7 @@ export function CrmRegistroTable({
   records,
   referenceNow,
   filtroExtra,
+  soloLectura = false,
 }: {
   records: CrmRecord[];
   referenceNow: string;
@@ -135,6 +136,8 @@ export function CrmRegistroTable({
    * lo ve— y eso lo sabe la pagina, no la tabla.
    */
   filtroExtra?: React.ReactNode;
+  /** Modo monitoreo: ve todo, no mueve etapas. El servidor lo rechaza igual. */
+  soloLectura?: boolean;
 }) {
   const router = useRouter();
   const [editableRecords, setEditableRecords] = React.useState(records);
@@ -621,7 +624,7 @@ export function CrmRegistroTable({
                       <Select
                         value={record.status}
                         onValueChange={(value) => handleChangeStatus(record.id, value as CrmStage)}
-                        disabled={savingContactIds[record.id]}
+                        disabled={soloLectura || savingContactIds[record.id]}
                       >
                         <SelectTrigger
                           size="sm"

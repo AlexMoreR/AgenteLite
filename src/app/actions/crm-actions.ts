@@ -7,6 +7,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { AVISO_MODO_MONITOREO, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
@@ -60,6 +61,12 @@ export async function updateCrmStageAction(input: {
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
     return { error: "Workspace no encontrado" };
+  }
+
+  // La monitora mira el CRM pero no mueve leads: la pantalla ya bloquea el control, esto es
+  // para que no alcance con llamar la accion a mano. Ver `modo-monitoreo.ts`.
+  if (await estaEnModoMonitoreo({ workspaceId: membership.workspace.id, userId: session.user.id })) {
+    return { error: AVISO_MODO_MONITOREO };
   }
 
   const contact = await prisma.contact.findFirst({

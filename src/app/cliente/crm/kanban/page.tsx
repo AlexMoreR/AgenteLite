@@ -32,7 +32,7 @@ export default async function ClienteCrmKanbanPage({ searchParams }: PageProps) 
 
       <CrmStatsCards data={data} />
 
-      <CrmKanbanBoard columns={data.columns} />
+      <CrmKanbanBoard columns={data.columns} soloLectura={data.soloLectura} />
     </section>
   );
 }

@@ -170,7 +170,8 @@ function KanbanDetailModal({
 }: {
   record: CrmRecord;
   onClose: () => void;
-  onEditWonDate: (recordId: string, dateISO: string) => void;
+  /** Sin esto (modo monitoreo) no hay lapiz de la fecha de venta. */
+  onEditWonDate?: (recordId: string, dateISO: string) => void;
 }) {
   const meta = getCrmStageMeta(record.status);
   const [history, setHistory] = React.useState<CallHistoryItem[] | null>(null);
@@ -234,12 +235,15 @@ function KanbanDetailModal({
                 </Button>
               </Link>
             ) : null}
-            <a href={`tel:${record.number.replace(/[^0-9+]/g, "")}`} aria-label="Llamar">
-              <Button variant="outline" size="sm" className="gap-1.5">
-                <Phone className="h-4 w-4" />
-                Llamar
-              </Button>
-            </a>
+            {/* Con el numero tapado (modo monitoreo) no hay a quien llamar. */}
+            {record.number.includes("*") ? null : (
+              <a href={`tel:${record.number.replace(/[^0-9+]/g, "")}`} aria-label="Llamar">
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  <Phone className="h-4 w-4" />
+                  Llamar
+                </Button>
+              </a>
+            )}
           </div>
 
           <div className="space-y-1 text-xs text-muted-foreground">
@@ -248,13 +252,15 @@ function KanbanDetailModal({
                 <span>
                   Venta: <b className="text-foreground">{formatCrmDate(record.date)}</b>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => onEditWonDate(record.id, record.date)}
-                  className="inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-[11px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                >
-                  <Pencil className="h-3 w-3" /> editar
-                </button>
+                {onEditWonDate ? (
+                  <button
+                    type="button"
+                    onClick={() => onEditWonDate(record.id, record.date)}
+                    className="inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-[11px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                  >
+                    <Pencil className="h-3 w-3" /> editar
+                  </button>
+                ) : null}
               </div>
             ) : (
               <p>
@@ -327,7 +333,14 @@ function KanbanDetailModal({
   );
 }
 
-export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
+export function CrmKanbanBoard({
+  columns,
+  soloLectura = false,
+}: {
+  columns: CrmColumn[];
+  /** Modo monitoreo: ve el tablero, no arrastra ni edita. El servidor lo rechaza igual. */
+  soloLectura?: boolean;
+}) {
   const [localColumns, setLocalColumns] = React.useState(columns);
   const [draggedRecordId, setDraggedRecordId] = React.useState<string | null>(null);
   const [savingRecordIds, setSavingRecordIds] = React.useState<Record<string, boolean>>({});
@@ -405,6 +418,9 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
   };
 
   const handleDrop = async (recordId: string, nextStage: CrmColumn["stage"]) => {
+    if (soloLectura) {
+      return;
+    }
     const currentRecord = localColumns.flatMap((column) => column.records).find((record) => record.id === recordId);
 
     if (!currentRecord || currentRecord.status === nextStage) {
@@ -549,10 +565,14 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
                         setDraggedRecordId(null);
                         setDropTargetStage(null);
                       }}
-                      onEditWonDate={(recordId, dateISO) => {
-                        setWonDateValue(toDateInputValue(dateISO));
-                        setPendingWonRecordId(recordId);
-                      }}
+                      onEditWonDate={
+                        soloLectura
+                          ? undefined
+                          : (recordId, dateISO) => {
+                              setWonDateValue(toDateInputValue(dateISO));
+                              setPendingWonRecordId(recordId);
+                            }
+                      }
                       onOpenDetail={(nextRecord) => setDetailRecord(nextRecord)}
                     />
                   ))
@@ -644,11 +664,15 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
         <KanbanDetailModal
           record={detailRecord}
           onClose={() => setDetailRecord(null)}
-          onEditWonDate={(recordId, dateISO) => {
-            setDetailRecord(null);
-            setWonDateValue(toDateInputValue(dateISO));
-            setPendingWonRecordId(recordId);
-          }}
+          onEditWonDate={
+            soloLectura
+              ? undefined
+              : (recordId, dateISO) => {
+                  setDetailRecord(null);
+                  setWonDateValue(toDateInputValue(dateISO));
+                  setPendingWonRecordId(recordId);
+                }
+          }
         />
       ) : null}
     </div>

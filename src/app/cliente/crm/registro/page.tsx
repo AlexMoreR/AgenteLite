@@ -35,6 +35,7 @@ export default async function ClienteCrmRegistroPage({ searchParams }: PageProps
       <CrmRegistroTable
         records={data.records}
         referenceNow={data.generatedAt}
+        soloLectura={data.soloLectura}
         filtroExtra={
           data.asesoras.length > 0 ? (
             <SelectorDeAsesora asesoras={data.asesoras} elegida={data.asesoraElegida} />
