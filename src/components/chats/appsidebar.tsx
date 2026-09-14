@@ -41,6 +41,45 @@ const ASSIGNED_FILTER_TABS: Array<{ value: AssignedFilter; label: string; manage
 /** Las que se ven sin abrir el modal, en este orden. */
 const PASTILLAS_A_LA_VISTA = ["all", "mine"] as const;
 
+/**
+ * La chapita de un filtro puesto: el nombre abre los filtros, solo la X lo quita.
+ *
+ * Antes toda la chapita era el boton de quitar: una asesora tocaba "Descartado" para ir a los
+ * descartados y el filtro desaparecia. Quitar tiene que ser un gesto a proposito, sobre la X.
+ */
+function ChapaDeFiltro({
+  children,
+  className,
+  alAbrir,
+  alQuitar,
+  tituloQuitar,
+}: {
+  children: React.ReactNode;
+  className: string;
+  alAbrir: () => void;
+  alQuitar: () => void;
+  tituloQuitar: string;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center whitespace-nowrap rounded-full border text-[13px] font-medium ${className}`}
+    >
+      <button type="button" onClick={alAbrir} className="py-1 pr-1 pl-3" title="Cambiar filtros">
+        {children}
+      </button>
+      <button
+        type="button"
+        onClick={alQuitar}
+        aria-label={tituloQuitar}
+        title={tituloQuitar}
+        className="mr-1 inline-flex size-5 items-center justify-center rounded-full opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/15"
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </span>
+  );
+}
+
 export function AppSidebar({
   conversationItems,
   selectedConversationId,
@@ -177,15 +216,14 @@ export function AppSidebar({
                 que es y al tocarlo vuelve a Abiertas.
               */}
               {statusFilter !== "open" ? (
-                <button
-                  type="button"
-                  onClick={() => aplicarFiltros(assignedFilter, "open")}
-                  title="Volver a solo abiertas"
-                  className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-border px-3 py-1 text-[13px] font-medium text-muted-foreground transition hover:bg-muted"
+                <ChapaDeFiltro
+                  className="border-border text-muted-foreground"
+                  alAbrir={() => setFilterMenuOpen(true)}
+                  alQuitar={() => aplicarFiltros(assignedFilter, "open")}
+                  tituloQuitar="Volver a solo abiertas"
                 >
                   {statusFilter === "all" ? "Abiertas y resueltas" : "Resueltas"}
-                  <X className="h-3 w-3 opacity-60" />
-                </button>
+                </ChapaDeFiltro>
               ) : null}
 
               {/*
@@ -197,36 +235,32 @@ export function AppSidebar({
               {filtros.etapas.map((etapa) => {
                 const meta = CRM_STAGE_META[etapa];
                 return (
-                  <button
+                  <ChapaDeFiltro
                     key={etapa}
-                    type="button"
-                    onClick={() =>
+                    className={`${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
+                    alAbrir={() => setFilterMenuOpen(true)}
+                    alQuitar={() =>
                       aplicarFiltros(assignedFilter, statusFilter, {
                         ...filtros,
                         etapas: filtros.etapas.filter((valor) => valor !== etapa),
                       })
                     }
-                    title={`Quitar el filtro ${meta.label}`}
-                    className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
+                    tituloQuitar={`Quitar el filtro ${meta.label}`}
                   >
                     {meta.label}
-                    <X className="h-3 w-3 opacity-60" />
-                  </button>
+                  </ChapaDeFiltro>
                 );
               })}
 
               {filtros.sinResponder ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    aplicarFiltros(assignedFilter, statusFilter, { ...filtros, sinResponder: false })
-                  }
-                  title="Quitar el filtro Sin responder"
-                  className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-primary bg-primary/10 px-3 py-1 text-[13px] font-medium text-primary"
+                <ChapaDeFiltro
+                  className="border-primary bg-primary/10 text-primary"
+                  alAbrir={() => setFilterMenuOpen(true)}
+                  alQuitar={() => aplicarFiltros(assignedFilter, statusFilter, { ...filtros, sinResponder: false })}
+                  tituloQuitar="Quitar el filtro Sin responder"
                 >
                   Sin responder
-                  <X className="h-3 w-3 opacity-60" />
-                </button>
+                </ChapaDeFiltro>
               ) : null}
             </div>
 
