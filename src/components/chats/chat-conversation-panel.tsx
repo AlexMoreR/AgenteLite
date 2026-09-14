@@ -2032,6 +2032,24 @@ export const ConversationPanel = memo(function ConversationPanel({
                             setComposerHasText(event.currentTarget.value.trim().length > 0);
                             autoResizeComposer(event.currentTarget);
                           }}
+                          onKeyDown={(event) => {
+                            /*
+                              En computadora Enter envia y Shift+Enter hace un renglon nuevo, como en
+                              WhatsApp Web. En el celular Enter sigue siendo un renglon y se envia con el
+                              boton, igual que en WhatsApp. Con teclados que arman letras (isComposing),
+                              Enter confirma la letra y no envia.
+                            */
+                            if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+                              return;
+                            }
+                            if (window.matchMedia("(pointer: coarse)").matches) {
+                              return;
+                            }
+                            event.preventDefault();
+                            if (event.currentTarget.value.trim()) {
+                              event.currentTarget.form?.requestSubmit();
+                            }
+                          }}
                           onSelect={(event) => syncComposerSelection(event.currentTarget)}
                           onKeyUp={(event) => syncComposerSelection(event.currentTarget)}
                           onMouseUp={(event) => syncComposerSelection(event.currentTarget)}
