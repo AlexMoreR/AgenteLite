@@ -958,7 +958,44 @@ export function traducirEventoWaha(
     }
     return null;
   })();
-  const textoVisible = texto.trim() ? texto : pedido ? resumenDelPedido(pedido) : "";
+  /*
+    El saludo automatico de un anuncio (interactiveMessage) y el origen del anuncio (externalAdReply).
+
+    Cuando alguien llega por un anuncio de Click-to-WhatsApp, WhatsApp Business manda solo una tarjeta
+    "Anuncio / Somos Magilus" con los datos del anuncio. No trae `body` ni archivo, asi que se
+    descartaba como "mensaje sin texto ni media" y en el chat no quedaba de que anuncio venia el
+    cliente (Alex, 14-sep-2026). El texto esta en `interactiveMessage.body.text` y el anuncio en su
+    contextInfo; la burbuja ya sabe dibujar la tarjeta si el contextInfo llega.
+
+    Tambien se conserva el contextInfo con externalAdReply de CUALQUIER mensaje (el primero del
+    cliente lo trae): antes solo se guardaba si era una cita.
+  */
+  const bloqueDelMensaje =
+    bloqueCrudo.Message && typeof bloqueCrudo.Message === "object"
+      ? (bloqueCrudo.Message as Record<string, unknown>)
+      : null;
+  const interactivo = bloqueDelMensaje?.interactiveMessage as
+    | { body?: { text?: unknown } }
+    | undefined;
+  const textoInteractivo = typeof interactivo?.body?.text === "string" ? interactivo.body.text : "";
+  const contextoDeAnuncio = ((): Record<string, unknown> | null => {
+    for (const valor of Object.values(bloqueDelMensaje ?? {})) {
+      const contexto = valor && typeof valor === "object" ? (valor as Record<string, unknown>).contextInfo : null;
+      if (contexto && typeof contexto === "object" && (contexto as Record<string, unknown>).externalAdReply) {
+        return contexto as Record<string, unknown>;
+      }
+    }
+    return null;
+  })();
+  const contextoDelMensaje = citaCruda ?? contextoDeAnuncio;
+
+  const textoVisible = texto.trim()
+    ? texto
+    : textoInteractivo.trim()
+      ? textoInteractivo
+      : pedido
+        ? resumenDelPedido(pedido)
+        : "";
 
   const archivo = (mensaje.media ?? {}) as {
     url?: unknown;
@@ -1055,7 +1092,7 @@ export function traducirEventoWaha(
         message: tieneMedia || mediaSinArchivo
           ? {
               [nodoSegunMime(mimetype)]: {
-                ...(citaCruda ? { contextInfo: citaCruda } : {}),
+                ...(contextoDelMensaje ? { contextInfo: contextoDelMensaje } : {}),
                 ...(urlDelArchivo ? { url: urlDelArchivo } : {}),
                 mimetype,
                 // En WhatsApp el texto que acompana una foto ES el caption, no un mensaje aparte.
@@ -1065,9 +1102,15 @@ export function traducirEventoWaha(
               },
             }
           : enlaceConVistaPrevia
-            ? { extendedTextMessage: { text: textoVisible, ...enlaceConVistaPrevia, ...(citaCruda ? { contextInfo: citaCruda } : {}) } }
-            : citaCruda
-            ? { extendedTextMessage: { text: textoVisible, contextInfo: citaCruda } }
+            ? {
+                extendedTextMessage: {
+                  text: textoVisible,
+                  ...enlaceConVistaPrevia,
+                  ...(contextoDelMensaje ? { contextInfo: contextoDelMensaje } : {}),
+                },
+              }
+            : contextoDelMensaje
+            ? { extendedTextMessage: { text: textoVisible, contextInfo: contextoDelMensaje } }
             : { conversation: textoVisible },
         pushName: nombreDeQuienEscribe,
         messageTimestamp: typeof mensaje.timestamp === "number" ? mensaje.timestamp : undefined,
