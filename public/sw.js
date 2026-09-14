@@ -1,4 +1,4 @@
-const CACHE_NAME = "agente-lite-v5";
+const CACHE_NAME = "agente-lite-v6";
 const APP_SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -215,8 +215,27 @@ self.addEventListener("push", (event) => {
    * no esta a la vista, y ahi la asesora SI necesita el aviso.
    */
   const mostrar = async () => {
+    /*
+      Solo se calla si lo que esta a la vista es CHATS.
+
+      El sonido propio de la app (ChatIncomingNotifier) vive unicamente en /cliente/chats. Con la app
+      abierta en Inicio, Llamadas o cualquier otra pantalla, antes no sonaba NADA: el Service Worker
+      se callaba porque "la app esta a la vista" y la pagina no tenia quien pusiera el sonido. Alex lo
+      vio en Inicio (13-sep-2026). Tambien por eso el boton "Probar" -en Notificaciones- nunca
+      mostraba el aviso.
+    */
     const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    if (clientList.some((client) => client.visibilityState === "visible")) {
+    const chatsALaVista = clientList.some((client) => {
+      if (client.visibilityState !== "visible") {
+        return false;
+      }
+      try {
+        return new URL(client.url).pathname.startsWith("/cliente/chats");
+      } catch {
+        return false;
+      }
+    });
+    if (chatsALaVista) {
       return undefined;
     }
 
