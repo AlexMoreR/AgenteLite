@@ -68,12 +68,12 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-[var(--primary)]">
-            {leads.length} por contactar
+            {leads.length} Contactar
           </span>
           {waiting > 0 ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-3 py-1 text-sm font-semibold text-rose-700 dark:bg-rose-500/10">
               <Flame className="h-3.5 w-3.5" />
-              {waiting} esperan respuesta
+              {waiting} Responder
             </span>
           ) : null}
         </div>
