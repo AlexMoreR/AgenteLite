@@ -46,14 +46,15 @@ export function ImportHistoryControl({ conversationId, withLabel = false }: Impo
 
       // Importa solo lo que falta: si no trajo nada, el chat ya estaba completo. Decirlo
       // explicitamente evita que se quede probando de nuevo pensando que no funcionó.
-      if (result.imported === 0) {
+      const fusionados = result.fusionados ?? 0;
+      if (result.imported === 0 && fusionados === 0) {
         toast.info("El historial ya está completo");
         return;
       }
 
-      toast.success(
-        result.imported === 1 ? "Se trajo 1 mensaje" : `Se trajeron ${result.imported} mensajes`,
-      );
+      const trajo = result.imported === 1 ? "Se trajo 1 mensaje" : `Se trajeron ${result.imported} mensajes`;
+      // El chat duplicado del mismo cliente (el del numero oculto del anuncio) se unio a este.
+      toast.success(fusionados > 0 ? `${trajo} y se unió el chat duplicado de este cliente` : trajo);
       router.refresh();
     });
   }, [conversationId, router]);

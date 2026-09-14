@@ -7,6 +7,7 @@ import {
   mensajesDeChatWaha,
 } from "@/lib/waha";
 import { prisma } from "@/lib/prisma";
+import { fusionarChatDuplicado } from "@/lib/fusionar-chat-duplicado";
 import {
   ensureEvolutionInstanceFullHistory,
   readGatewayConnection,
@@ -1701,6 +1702,7 @@ export async function applyEvolutionChatSyncCandidate(input: {
   candidate: EvolutionChatSyncCandidate;
   // Cantidad de mensajes mas recientes a importar. null = todo el historial.
   importLimit?: number | null;
+  fusionarDuplicados?: boolean;
 }) {
   const candidate = input.candidate;
 
@@ -1773,6 +1775,7 @@ export async function applyEvolutionChatSyncCandidate(input: {
     channel,
     candidate,
     importedMessages,
+    fusionarDuplicados: input.fusionarDuplicados,
   });
 }
 
@@ -1788,6 +1791,8 @@ async function persistEvolutionChatSyncCandidate(input: {
   channel: { id: string; agentId: string | null };
   candidate: EvolutionChatSyncCandidate;
   importedMessages: EvolutionChatSyncImportedMessageDraft[];
+  /** Unir el chat duplicado del mismo cliente si aparece. Solo "Cargar historial". */
+  fusionarDuplicados?: boolean;
 }) {
   const { candidate, channel, importedMessages } = input;
 
@@ -1893,6 +1898,9 @@ async function persistEvolutionChatSyncCandidate(input: {
   }
 
   const { contactId, conversationId, createdContact, createdConversation } = contactAndConversation;
+  let cuantosNuevos = importedMessages.length;
+  let chatsFusionados = 0;
+  let mensajesDeDuplicados = 0;
 
   if (importedMessages.length > 0) {
     try {
@@ -1917,11 +1925,39 @@ async function persistEvolutionChatSyncCandidate(input: {
                 ...crudos.map((crudo) => ({ externalId: { endsWith: `_${crudo}` } })),
               ],
             },
-            select: { externalId: true },
+            select: { externalId: true, conversationId: true },
           })
         : [];
+
+      /*
+        Si WAHA devolvio para ESTE chat mensajes que estan guardados en OTRO chat del canal, ese otro
+        es un duplicado del mismo cliente (el que abrio evogo con el numero oculto). Se une aca.
+        Solo desde "Cargar historial": ver fusionar-chat-duplicado.ts.
+      */
+      if (input.fusionarDuplicados) {
+        const duplicadas = new Set(
+          yaGuardados
+            .map((mensaje) => mensaje.conversationId)
+            .filter((otra) => otra !== conversationId),
+        );
+        for (const conversacionDuplicada of duplicadas) {
+          try {
+            mensajesDeDuplicados += await fusionarChatDuplicado({
+              workspaceId: input.workspaceId,
+              channelId: channel.id,
+              conversacionReal: conversationId,
+              conversacionDuplicada,
+            });
+            chatsFusionados += 1;
+          } catch (error) {
+            console.error("[historial] no se pudo unir el chat duplicado", conversacionDuplicada, error);
+          }
+        }
+      }
+
       const crudosGuardados = new Set(yaGuardados.map((mensaje) => crudoDe(mensaje.externalId ?? "")));
       const mensajesNuevos = importedMessages.filter((mensaje) => !crudosGuardados.has(crudoDe(mensaje.externalId)));
+      cuantosNuevos = mensajesNuevos.length;
 
       for (let index = 0; index < mensajesNuevos.length; index += 50) {
         const batch = mensajesNuevos.slice(index, index + 50);
@@ -1983,6 +2019,10 @@ async function persistEvolutionChatSyncCandidate(input: {
             ? "Se agrego la conversacion local."
             : "Se sincronizo la conversacion local.",
     ...contactAndConversation,
+    // Lo que de verdad se agrego: antes contaba todo lo que devolvia el gateway, y el boton nunca
+    // podia decir "el historial ya esta completo".
+    messagesImported: cuantosNuevos + mensajesDeDuplicados,
+    chatsFusionados,
   };
 }
 
@@ -1996,8 +2036,10 @@ export async function backfillEvolutionMessagesByPhone(input: {
   phoneNumber: string;
   // Cantidad de mensajes mas recientes a traer. Por defecto IMPORT_RECENT_MESSAGE_LIMIT (20).
   importLimit?: number | null;
+  // Unir el chat duplicado del mismo cliente (numero oculto). Solo desde "Cargar historial".
+  fusionarDuplicados?: boolean;
 }): Promise<
-  | { ok: true; imported: number; created: boolean }
+  | { ok: true; imported: number; created: boolean; fusionados: number }
   | { ok: false; reason: string }
 > {
   const scan = await scanEvolutionChatSyncCandidateByPhone({
@@ -2012,7 +2054,7 @@ export async function backfillEvolutionMessagesByPhone(input: {
 
   if (scan.kind !== "batch" || !scan.candidates.length) {
     // "none": no hay mensajes en Evolution para ese numero en este canal.
-    return { ok: true, imported: 0, created: false };
+    return { ok: true, imported: 0, created: false, fusionados: 0 };
   }
 
   const result = await applyEvolutionChatSyncCandidate({
@@ -2020,6 +2062,7 @@ export async function backfillEvolutionMessagesByPhone(input: {
     channelId: input.channelId,
     candidate: scan.candidates[0],
     importLimit: input.importLimit === undefined ? IMPORT_RECENT_MESSAGE_LIMIT : input.importLimit,
+    fusionarDuplicados: input.fusionarDuplicados,
   });
 
   if (!result.ok) {
@@ -2030,6 +2073,7 @@ export async function backfillEvolutionMessagesByPhone(input: {
     ok: true,
     imported: result.messagesImported ?? 0,
     created: Boolean(result.createdContact || result.createdConversation),
+    fusionados: "chatsFusionados" in result ? (result.chatsFusionados ?? 0) : 0,
   };
 }
 

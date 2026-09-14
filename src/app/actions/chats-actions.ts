@@ -2071,7 +2071,7 @@ export async function importConversationHistoryAction(input: {
   conversationId: string;
   // `imported: null` = el pedido salio pero los mensajes llegan despues (Evolution GO responde
   // asincrono, por el evento HISTORYSYNC). Con Evolution API sabemos el numero en el momento.
-}): Promise<{ ok: true; imported: number | null } | { error: string }> {
+}): Promise<{ ok: true; imported: number | null; fusionados?: number } | { error: string }> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
@@ -2137,6 +2137,8 @@ export async function importConversationHistoryAction(input: {
       // Sin tope (pedido de Alex, 14-sep-2026): el boton es de UN chat y se usa cuando falta algo;
       // traer solo los 20 mas recientes dejaba huecos. Lo ya guardado no se duplica.
       importLimit: null,
+      // Si aparece el chat duplicado del mismo cliente (el del numero oculto), se une a este.
+      fusionarDuplicados: true,
     });
 
     if (!result.ok) {
@@ -2144,7 +2146,7 @@ export async function importConversationHistoryAction(input: {
     }
 
     revalidatePath("/cliente/chats");
-    return { ok: true, imported: result.imported };
+    return { ok: true, imported: result.imported, fusionados: result.fusionados };
   }
 
   /**
