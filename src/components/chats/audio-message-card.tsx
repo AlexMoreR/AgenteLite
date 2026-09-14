@@ -111,6 +111,10 @@ export function AudioMessageCard({
   const [posicion, setPosicion] = useState(0);
   const [duracion, setDuracion] = useState(0);
   const [velocidad, setVelocidad] = useState<(typeof VELOCIDADES)[number]>(1);
+  // Mientras el dedo arrastra el punto, el audio no lo mueve: si no, la bolita salta entre el dedo
+  // y lo que va sonando. El ref es para leerlo sin esperar el render.
+  const arrastrandoRef = useRef(false);
+  const [arrastrando, setArrastrando] = useState(false);
 
   const meta = useMemo(() => getAudioMetaFromMessage(message), [message]);
 
@@ -149,16 +153,84 @@ export function AudioMessageCard({
     }
   }, [velocidad]);
 
-  const saltarA = useCallback(
-    (evento: React.MouseEvent<HTMLDivElement>) => {
-      const audio = audioRef.current;
-      if (!audio || duracionMostrada <= 0) {
+  /*
+    El punto se ARRASTRA, como en WhatsApp, no solo se toca.
+
+    Con eventos de puntero sirve igual para el dedo y el mouse, y la captura hace que el arrastre
+    siga aunque el dedo se salga de la onda. El salto de verdad se hace al soltar: mover el audio en
+    cada milimetro lo haria tartamudear mientras se busca el lugar.
+  */
+  const segundosDelToque = useCallback(
+    (evento: React.PointerEvent<HTMLDivElement>) => {
+      const caja = evento.currentTarget.getBoundingClientRect();
+      const parte = caja.width > 0 ? Math.min(1, Math.max(0, (evento.clientX - caja.left) / caja.width)) : 0;
+      return parte * duracionMostrada;
+    },
+    [duracionMostrada],
+  );
+
+  const empezarArrastre = useCallback(
+    (evento: React.PointerEvent<HTMLDivElement>) => {
+      if (duracionMostrada <= 0) {
         return;
       }
-      const caja = evento.currentTarget.getBoundingClientRect();
-      const parte = Math.min(1, Math.max(0, (evento.clientX - caja.left) / caja.width));
-      audio.currentTime = parte * duracionMostrada;
-      setPosicion(parte * duracionMostrada);
+      // Que tocar la onda no seleccione ni abra el mensaje.
+      evento.stopPropagation();
+      evento.currentTarget.setPointerCapture(evento.pointerId);
+      arrastrandoRef.current = true;
+      setArrastrando(true);
+      setPosicion(segundosDelToque(evento));
+    },
+    [duracionMostrada, segundosDelToque],
+  );
+
+  const seguirArrastre = useCallback(
+    (evento: React.PointerEvent<HTMLDivElement>) => {
+      if (arrastrandoRef.current) {
+        setPosicion(segundosDelToque(evento));
+      }
+    },
+    [segundosDelToque],
+  );
+
+  const soltarArrastre = useCallback(
+    (evento: React.PointerEvent<HTMLDivElement>) => {
+      if (!arrastrandoRef.current) {
+        return;
+      }
+      arrastrandoRef.current = false;
+      setArrastrando(false);
+      const segundos = segundosDelToque(evento);
+      const audio = audioRef.current;
+      if (audio) {
+        audio.currentTime = segundos;
+      }
+      setPosicion(segundos);
+    },
+    [segundosDelToque],
+  );
+
+  // Si el navegador corta el gesto (por ejemplo, el dedo termino haciendo scroll) se vuelve a donde
+  // estaba sonando, sin saltar.
+  const cancelarArrastre = useCallback(() => {
+    arrastrandoRef.current = false;
+    setArrastrando(false);
+    setPosicion(audioRef.current?.currentTime ?? 0);
+  }, []);
+
+  const moverConTeclado = useCallback(
+    (evento: React.KeyboardEvent<HTMLDivElement>) => {
+      const audio = audioRef.current;
+      if (!audio || duracionMostrada <= 0 || (evento.key !== "ArrowLeft" && evento.key !== "ArrowRight")) {
+        return;
+      }
+      evento.preventDefault();
+      const segundos = Math.min(
+        duracionMostrada,
+        Math.max(0, audio.currentTime + (evento.key === "ArrowRight" ? 5 : -5)),
+      );
+      audio.currentTime = segundos;
+      setPosicion(segundos);
     },
     [duracionMostrada],
   );
@@ -235,14 +307,21 @@ export function AudioMessageCard({
         </button>
 
         <div
-          onClick={saltarA}
+          onPointerDown={empezarArrastre}
+          onPointerMove={seguirArrastre}
+          onPointerUp={soltarArrastre}
+          onPointerCancel={cancelarArrastre}
+          onClick={(evento) => evento.stopPropagation()}
+          onKeyDown={moverConTeclado}
           role="slider"
           tabIndex={0}
           aria-label="Avance del audio"
           aria-valuemin={0}
           aria-valuemax={Math.round(duracionMostrada)}
           aria-valuenow={Math.round(posicion)}
-          className="relative flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-[2px]"
+          // pan-y: el dedo que va de costado arrastra el punto; el que va para arriba sigue
+          // haciendo scroll del chat.
+          className="relative flex h-8 min-w-0 flex-1 cursor-pointer touch-pan-y select-none items-center gap-[2px]"
         >
           {barras.map((alto, indice) => {
             const leida = indice / BARRAS <= avance;
@@ -259,7 +338,9 @@ export function AudioMessageCard({
           {/* La bolita del avance, encima de la onda. */}
           <span
             aria-hidden="true"
-            className={`pointer-events-none absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full ${
+            className={`pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-[width,height] ${
+              arrastrando ? "size-4" : "size-3"
+            } ${
               outbound ? "bg-[var(--chat-out-accent)]" : "bg-[var(--primary)]"
             }`}
             style={{ left: `${avance * 100}%` }}
@@ -323,7 +404,11 @@ export function AudioMessageCard({
         className="hidden"
         onPlay={() => setSonando(true)}
         onPause={() => setSonando(false)}
-        onTimeUpdate={(evento) => setPosicion(evento.currentTarget.currentTime)}
+        onTimeUpdate={(evento) => {
+          if (!arrastrandoRef.current) {
+            setPosicion(evento.currentTarget.currentTime);
+          }
+        }}
         onLoadedMetadata={(evento) => {
           const valor = evento.currentTarget.duration;
           if (Number.isFinite(valor) && valor > 0) {
