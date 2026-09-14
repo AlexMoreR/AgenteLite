@@ -1879,8 +1879,35 @@ async function persistEvolutionChatSyncCandidate(input: {
 
   if (importedMessages.length > 0) {
     try {
-      for (let index = 0; index < importedMessages.length; index += 50) {
-        const batch = importedMessages.slice(index, index + 50);
+      /*
+        Se descartan los que ya estan guardados con OTRO formato de id.
+
+        El mismo mensaje puede tener dos ids: evogo guardaba el crudo ("3EB02FA5...") y WAHA lo compone
+        con el chat adelante ("true_25172853715069@lid_3EB02FA5..."). La base solo rechaza el repetido
+        EXACTO, asi que "Cargar historial" en un chat que venia de evogo duplicaba la bienvenida
+        (14-sep-2026). Se compara por el pedazo final, que es el id de verdad, igual que el acuse.
+      */
+      const crudoDe = (id: string) => id.split("_").pop() ?? id;
+      const crudos = Array.from(
+        new Set(importedMessages.map((mensaje) => crudoDe(mensaje.externalId)).filter((crudo) => crudo.length >= 8)),
+      );
+      const yaGuardados = crudos.length
+        ? await prisma.message.findMany({
+            where: {
+              channelId: channel.id,
+              OR: [
+                { externalId: { in: crudos } },
+                ...crudos.map((crudo) => ({ externalId: { endsWith: `_${crudo}` } })),
+              ],
+            },
+            select: { externalId: true },
+          })
+        : [];
+      const crudosGuardados = new Set(yaGuardados.map((mensaje) => crudoDe(mensaje.externalId ?? "")));
+      const mensajesNuevos = importedMessages.filter((mensaje) => !crudosGuardados.has(crudoDe(mensaje.externalId)));
+
+      for (let index = 0; index < mensajesNuevos.length; index += 50) {
+        const batch = mensajesNuevos.slice(index, index + 50);
         await prisma.message.createMany({
           data: batch.map((messageDraft) => ({
             workspaceId: input.workspaceId,
