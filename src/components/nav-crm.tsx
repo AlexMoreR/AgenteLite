@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, KanbanSquare, Sun, type LucideIcon } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, KanbanSquare, Sun, Workflow, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -18,7 +18,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "guiones";
+type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "guiones" | "automatizaciones";
 
 const crmViews: Array<{
   title: string;
@@ -30,9 +30,19 @@ const crmViews: Array<{
   { title: "Kanban", view: "kanban", icon: KanbanSquare },
   { title: "Informe", view: "informe", icon: ChartNoAxesCombined },
   { title: "Guiones", view: "guiones", icon: BookOpen },
+  { title: "Automatizaciones", view: "automatizaciones", icon: Workflow },
 ];
 
-export function NavCrm({ currentView, isCrmRoute }: { currentView: CrmView; isCrmRoute: boolean }) {
+export function NavCrm({
+  currentView,
+  isCrmRoute,
+  mostrarAutomatizaciones = false,
+}: {
+  currentView: CrmView;
+  isCrmRoute: boolean;
+  /** Solo para quien puede usarlas (dueño o administrador): a una asesora le llevaria a un aviso. */
+  mostrarAutomatizaciones?: boolean;
+}) {
   const [manualOpen, setManualOpen] = useState(false);
   const open = manualOpen || isCrmRoute;
 
@@ -51,7 +61,7 @@ export function NavCrm({ currentView, isCrmRoute }: { currentView: CrmView; isCr
 
         <CollapsibleContent>
           <SidebarMenuSub>
-            {crmViews.map((item) => (
+            {crmViews.filter((item) => mostrarAutomatizaciones || item.view !== "automatizaciones").map((item) => (
               <SidebarMenuSubItem key={item.view}>
                 <SidebarMenuSubButton
                   render={<Link href={`/cliente/crm/${item.view}`} prefetch />}

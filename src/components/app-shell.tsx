@@ -74,6 +74,7 @@ const breadcrumbLabels: Record<string, string> = {
   api: "API",
   "api-oficial": "API oficial",
   automatizar: "Automatizar",
+  automatizaciones: "Automatizaciones",
   canales: "Canales",
   cliente: "Cliente",
   configuracion: "Configuracion",

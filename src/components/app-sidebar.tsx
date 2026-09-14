@@ -183,9 +183,12 @@ export function AppSidebar({
                         ? "registro"
                         : pathname.startsWith("/cliente/crm/guiones")
                           ? "guiones"
-                          : "mi-dia"
+                          : pathname.startsWith("/cliente/crm/automatizaciones")
+                            ? "automatizaciones"
+                            : "mi-dia"
                 }
                 isCrmRoute={pathname.startsWith("/cliente/crm")}
+                mostrarAutomatizaciones={user?.role !== "EMPLEADO"}
               />
             ) : null}
             {contactsModule ? (
