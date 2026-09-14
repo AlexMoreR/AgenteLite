@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
+import { useOpenChatKey } from "@/components/chats/chat-selection-store";
+
 type ChatsAutoRefreshProps = {
   intervalMs?: number;
   enabled?: boolean;
@@ -90,9 +92,20 @@ export function ChatsAutoRefresh({
   // Ultima vez que el realtime actualizo la LISTA. Si el websocket esta vivo y trayendo
   // cambios, el refresco de la lista sobra: la lista ya se actualiza sola, fila por fila.
   const lastListUpdateAtRef = useRef(0);
-  // Stable ref so the interval always reads the latest active conversation.
-  const selectedConversationKeyRef = useRef(selectedConversationKey);
-  selectedConversationKeyRef.current = selectedConversationKey;
+  /*
+    El chat abierto se lee de la seleccion del cliente, NO de la prop.
+
+    La prop viene del servidor y queda congelada en el chat con el que cargo la pagina: abrir un
+    chat con un clic no navega. Mientras cada aviso repintaba la pagina entera daba igual; desde que
+    se trae solo lo que cambio, el mensaje nuevo entraba a la lista pero NO al chat abierto, porque
+    aca se creia que el abierto era otro (Alex con Sthefany, 14-sep-2026). `useOpenChatKey` es la
+    misma fuente que usa la bandeja.
+  */
+  const chatAbierto = useOpenChatKey(selectedConversationKey ?? "");
+  const selectedConversationKeyRef = useRef<string | null>(chatAbierto || null);
+  useEffect(() => {
+    selectedConversationKeyRef.current = chatAbierto || null;
+  }, [chatAbierto]);
 
   useEffect(() => {
     function handleVisibilityChange() {
