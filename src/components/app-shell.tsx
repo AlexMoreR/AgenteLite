@@ -24,6 +24,8 @@ import { BuscadorGlobal } from "@/components/buscador-global";
 import { AppVersionGuard } from "@/components/app-version-guard";
 import { MobileKeyboardViewport } from "@/components/mobile-keyboard-viewport";
 import { ChatNotificationBell } from "@/components/ui/chat-notification-bell";
+import { ChatsOfficialRealtime } from "@/components/chats/chats-official-realtime";
+import { ChatIncomingNotifier } from "@/components/chats/chat-incoming-notifier";
 import { AvisoDeCanalCaido } from "@/features/monitoreo/components/AvisoDeCanalCaido";
 import { HelpCopilotWidget } from "@/components/help/help-copilot-widget";
 import type { AdminModuleKey } from "@/lib/admin-modules";
@@ -60,6 +62,8 @@ type AppShellProps = {
   // Estado inicial del sidebar leído de la cookie `sidebar_state` en el server,
   // para que persista entre recargas.
   sidebarDefaultOpen?: boolean;
+  // Negocio cuyos mensajes suenan dentro de la app, en CUALQUIER pantalla (null = no suena).
+  chatRealtimeWorkspaceId?: string | null;
 };
 
 const breadcrumbLabels: Record<string, string> = {
@@ -193,6 +197,7 @@ export function AppShell({
   clientPlanAlert,
   clientPlanBlock,
   sidebarDefaultOpen = true,
+  chatRealtimeWorkspaceId = null,
 }: AppShellProps) {
   const { data } = useSession();
   const pathname = usePathname();
@@ -317,6 +322,20 @@ export function AppShell({
               <div className="ml-auto flex items-center gap-0.5">
                 <BuscadorGlobal />
                 <ChatNotificationBell />
+                {/*
+                  El aviso de mensaje nuevo SUENA en toda la app, no solo en Chats.
+
+                  El altavoz y el sonido vivian en la pagina de Chats: estando en Inicio entraba un
+                  mensaje y no sonaba nada (Alex, 13-sep-2026). Montados aca, junto a la campanita,
+                  estan en cualquier pantalla; la pagina de Chats ya no los monta, para no sonar
+                  dos veces. De paso la campanita se entera al instante en todas las pantallas.
+                */}
+                {chatRealtimeWorkspaceId ? (
+                  <>
+                    <ChatsOfficialRealtime enabled workspaceId={chatRealtimeWorkspaceId} />
+                    <ChatIncomingNotifier />
+                  </>
+                ) : null}
                 {/*
                   El signo de pregunta (copiloto de ayuda) sale del encabezado por ahora: nadie
                   lo usaba y ocupaba un lugar caro. El widget y su base de conocimiento siguen

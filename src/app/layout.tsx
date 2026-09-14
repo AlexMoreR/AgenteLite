@@ -259,6 +259,11 @@ export default async function RootLayout({
             clientPlanAlert={clientPlanAlert}
             clientPlanBlock={clientPlanBlock}
             sidebarDefaultOpen={sidebarDefaultOpen}
+            chatRealtimeWorkspaceId={
+              clientWorkspace?.workspace.id && clientAccess && canAccessClientModule(clientAccess, "chats")
+                ? clientWorkspace.workspace.id
+                : null
+            }
           >
             {children}
           </AppShell>

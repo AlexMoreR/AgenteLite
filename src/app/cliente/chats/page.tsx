@@ -9,8 +9,6 @@ import type { CrmStage } from "@/features/crm/types";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
 import { ChatsEvolutionApiRealtime } from "@/components/chats/chats-evolution-api-realtime";
-import { ChatsOfficialRealtime } from "@/components/chats/chats-official-realtime";
-import { ChatIncomingNotifier } from "@/components/chats/chat-incoming-notifier";
 import { PushSubscriptionManager } from "@/components/chats/push-subscription-manager";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { CopyConversationButton } from "@/components/chats/copy-conversation-button";
@@ -974,16 +972,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     return gateways;
   })();
 
-  /*
-    Los canales de WAHA no tienen socket propio.
-
-    evogo trae su WebSocket y Evolution API su socket.io; WAHA no expone nada equivalente, asi que
-    sus mensajes solo aparecian al recargar. Se reusa el altavoz interno -el mismo que usa la API
-    oficial-: el webhook avisa al servidor de realtime y el navegador refresca al instante.
-  */
-  const hayCanalWaha = Array.from(channelsById.values()).some(
-    (channel) => readGatewayConnection(channel.metadata)?.kind === "WAHA",
-  );
   // Los dos gateways de WhatsApp traen historial, cada uno a su manera (Evolution API lee su
   // base y responde en el momento; evogo se lo pide al celular del usuario y contesta despues,
   // por el evento HISTORYSYNC). La API oficial no tiene historial que traer, y ese caso ya lo
@@ -1215,10 +1203,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         */
         officialRefreshMs={officialChatsData.conversations.length > 0 ? 60000 : 0}
       />
-      <ChatsOfficialRealtime
-        enabled={officialChatsData.conversations.length > 0 || hayCanalWaha}
-        workspaceId={membership.workspace.id}
-      />
+      {/*
+        El altavoz (WAHA y API oficial) y el sonido de mensaje nuevo ya no se montan aca: viven en el
+        marco de la app (app-shell), para que suenen en todas las pantallas. Montarlos tambien aca
+        abriria un segundo socket y cada mensaje sonaria dos veces.
+      */}
       <ChatsRealtimeSync
         enabled={chatsRealtimeSyncEnabled}
         apiBaseUrl={evolutionSettings.apiBaseUrl}
@@ -1240,15 +1229,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           selectedConversationPhoneNumber={selectedUnified?.source === "agent" ? selectedUnified.secondaryLabel : null}
         />
       ))}
-      {/*
-        La campanita va SIEMPRE, sin depender de Evolution.
-
-        Estaba atada a que hubiera credenciales de Evolution configuradas, porque el sonido nacia
-        de ese socket. Ahora el aviso puede llegar tambien por el altavoz (WAHA), asi que atarla al
-        gateway viejo dejaria sin sonido justo a quien ya migro. Solo escucha un evento del
-        navegador: montarla no cuesta nada.
-      */}
-      <ChatIncomingNotifier />
       <PushSubscriptionManager enabled={chatsRealtimeSyncEnabled} />
       <QueryFeedbackToast
         okMessage={okMessage}
