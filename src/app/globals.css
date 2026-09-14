@@ -817,3 +817,39 @@ body {
   max-width: 14px;
   max-height: 14px;
 }
+
+/*
+  La campanita "suena" cuando entra un mensaje: se balancea desde arriba, como una campana de verdad,
+  y el punto rojo da un saltito. Dura menos de un segundo para llamar la atencion sin molestar.
+*/
+@keyframes campanaSonando {
+  0% { transform: rotate(0); }
+  15% { transform: rotate(18deg); }
+  30% { transform: rotate(-16deg); }
+  45% { transform: rotate(12deg); }
+  60% { transform: rotate(-8deg); }
+  75% { transform: rotate(4deg); }
+  100% { transform: rotate(0); }
+}
+
+@keyframes puntoDeCampana {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+
+.campana-sonando {
+  transform-origin: 50% 8%;
+  animation: campanaSonando 0.9s ease-in-out;
+}
+
+.punto-de-campana-saltando {
+  animation: puntoDeCampana 0.5s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .campana-sonando,
+  .punto-de-campana-saltando {
+    animation: none;
+  }
+}

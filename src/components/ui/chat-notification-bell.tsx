@@ -51,6 +51,19 @@ export function ChatNotificationBell({ className }: { className?: string }) {
   const [hasAccess, setHasAccess] = React.useState(true);
 
   /*
+    Cuantas veces "sono" la campana. Se usa como `key` del dibujo: cambiarla lo vuelve a montar y
+    la animacion arranca de nuevo aunque lleguen dos mensajes seguidos.
+  */
+  const [vecesQueSono, setVecesQueSono] = React.useState(0);
+  const sonar = React.useCallback(() => setVecesQueSono((veces) => veces + 1), []);
+
+  // Suena apenas el altavoz avisa un mensaje del cliente, sin esperar a la consulta.
+  React.useEffect(() => {
+    window.addEventListener("chat-incoming-message", sonar);
+    return () => window.removeEventListener("chat-incoming-message", sonar);
+  }, [sonar]);
+
+  /*
     Chats recien abiertos, con la hora.
 
     El servidor marca los mensajes como leidos DESPUES de responder la pantalla. En esos segundos
@@ -210,7 +223,7 @@ export function ChatNotificationBell({ className }: { className?: string }) {
         className,
       )}
     >
-      <Bell className="size-6" />
+      <Bell key={vecesQueSono} className={cn("size-6", vecesQueSono > 0 && "campana-sonando")} />
       {hasUnread ? (
         /*
           Redondo, rojo y liso.
@@ -221,7 +234,13 @@ export function ChatNotificationBell({ className }: { className?: string }) {
           El numero va chico a proposito -10px sobre un circulo de 18-: lo que avisa es la mancha
           roja, que se ve de lejos y de reojo; el numero se lee despues, ya mirando.
         */
-        <span className="absolute top-0 right-0 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ef4444] px-1 shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
+        <span
+          key={`punto-${vecesQueSono}`}
+          className={cn(
+            "absolute top-0 right-0 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ef4444] px-1 shadow-[0_1px_4px_rgba(15,23,42,0.18)]",
+            vecesQueSono > 0 && "punto-de-campana-saltando",
+          )}
+        >
           <span className="text-[10px] font-semibold leading-none text-white">{badgeLabel}</span>
         </span>
       ) : null}
