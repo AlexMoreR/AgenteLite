@@ -12,8 +12,7 @@ import {
   CALL_RESULT_LOST,
   CALL_RESULT_STAGE_EFFECT,
   getCallResultLabel,
-  type CallResult,
-} from "@/features/crm/domain/crm-config";
+  type CallResult, motivoOtroSinDetalle } from "@/features/crm/domain/crm-config";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
 
 const CALL_RESULT_VALUES = CALL_RESULTS.map((result) => result.value) as [string, ...string[]];
@@ -25,7 +24,7 @@ const registerCallSchema = z.object({
   // ISO date del PRÓXIMO contacto (solo la fecha importa, se ancla al mediodía de Bogotá).
   nextContactAt: z.string().trim().min(1).optional(),
   // Obligatorio solo cuando result === "perdido".
-  lostReason: z.string().trim().min(1).max(60).optional(),
+  lostReason: z.string().trim().min(1).max(140).optional(),
   // Fecha REAL de la llamada (para registro retroactivo del Google Sheet). Si no viene, es ahora.
   calledAt: z.string().trim().min(1).optional(),
   /**
@@ -100,6 +99,9 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
   // "Perdido" SIEMPRE requiere motivo — no se puede guardar sin él (regla del Playbook).
   if (isLost && !lostReason) {
     return { error: "Para cerrar como Perdido tenés que elegir un motivo." };
+  }
+  if (isLost && motivoOtroSinDetalle(lostReason)) {
+    return { error: "Escribe cuál fue la razón de «Otro»." };
   }
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);

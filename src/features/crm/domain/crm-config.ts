@@ -136,10 +136,40 @@ export const CRM_LOST_REASONS = [
   { value: "solo_curioseando", label: "Solo curioseando" },
   { value: "precio_alto", label: "Precio muy alto" },
   { value: "sin_respuesta", label: "Sin respuesta" },
+  // Pedido de Alex (14-sep-2026): clientes de otro pais o ciudad donde no se entrega.
+  { value: "fuera_de_cobertura", label: "Fuera de cobertura" },
   { value: "otro", label: "Otro" },
 ] as const;
 
 export type CrmLostReason = (typeof CRM_LOST_REASONS)[number]["value"];
+
+/*
+  "Otro" lleva la razon escrita (pedido de Alex, 14-sep-2026): un "Otro" suelto no le dice nada a nadie.
+
+  Se guarda en el mismo campo como "otro: <lo que escribieron>", sin migrar la base. Para mostrar sale
+  "Otro: <texto>"; para CONTAR (graficos, informe) todos cuentan como "Otro", o cada frase distinta
+  seria una barra de uno.
+*/
+export const MOTIVO_OTRO = "otro";
+const PREFIJO_DEL_OTRO = "otro:";
+export const LARGO_DEL_OTRO_MOTIVO = 120;
+
+export function motivoOtroConDetalle(detalle: string) {
+  return `${PREFIJO_DEL_OTRO} ${detalle.trim().slice(0, LARGO_DEL_OTRO_MOTIVO)}`;
+}
+
+/** "Otro" elegido pero sin escribir cual: no se acepta. */
+export function motivoOtroSinDetalle(value: string | null | undefined) {
+  return value?.trim() === MOTIVO_OTRO;
+}
+
+/** El nombre para agrupar: igual que el de mostrar, salvo que todos los "Otro: ..." son "Otro". */
+export function getCrmLostReasonGroupLabel(value: string | null | undefined) {
+  if (value?.startsWith(PREFIJO_DEL_OTRO)) {
+    return "Otro";
+  }
+  return getCrmLostReasonLabel(value);
+}
 
 // Etiquetas de motivos VIEJOS (lista previa al Playbook v1.0). Ya NO son seleccionables; solo
 // sirven para MOSTRAR con nombre legible los contactos PERDIDO que ya se guardaron con esos
@@ -156,6 +186,10 @@ const LEGACY_LOST_REASON_LABELS: Record<string, string> = {
 export function getCrmLostReasonLabel(value: string | null | undefined) {
   if (!value) {
     return null;
+  }
+  if (value.startsWith(PREFIJO_DEL_OTRO)) {
+    const detalle = value.slice(PREFIJO_DEL_OTRO.length).trim();
+    return detalle ? `Otro: ${detalle}` : "Otro";
   }
 
   return (

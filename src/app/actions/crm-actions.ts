@@ -12,7 +12,7 @@ import { createFollowsFromRulesForSource } from "@/features/seguimientos/service
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { buildSnoozeMetadata } from "@/lib/lead-snooze";
-import { CRM_STAGE_META, getCrmLostReasonLabel } from "@/features/crm/domain/crm-config";
+import { CRM_STAGE_META, getCrmLostReasonLabel, motivoOtroSinDetalle } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 import { CLAVE_CIERRE_PENDIENTE } from "@/lib/crm-stage-sync";
 
@@ -21,7 +21,8 @@ const updateCrmStageSchema = z.object({
   status: z.enum(["NUEVO", "CALIFICADO", "PROPUESTA", "NEGOCIACION", "GANADO", "PERDIDO"]),
   // Solo se guarda al cerrar como PERDIDO. Es el unico dato del CRM que la maquina NO puede
   // deducir: por que se cayo la venta lo sabe la vendedora y nadie mas.
-  lostReason: z.string().trim().min(1).max(60).optional(),
+  // Hasta 140: "Otro" trae la razon escrita (ver motivoOtroConDetalle).
+  lostReason: z.string().trim().min(1).max(140).optional(),
   // Fecha real de la venta. Solo aplica a GANADO. Si no viene, se usa la fecha de hoy. Editable
   // para poder corregir ventas mal fechadas o cargar ventas viejas con su dia real.
   wonAt: z.string().trim().min(1).optional(),
@@ -87,6 +88,9 @@ export async function updateCrmStageAction(input: {
   // cerro por error y se reabre, no puede quedar arrastrando un motivo de perdida viejo que
   // despues ensucie el informe de razones.
   const lostReason = parsed.data.status === "PERDIDO" ? parsed.data.lostReason ?? null : null;
+  if (motivoOtroSinDetalle(lostReason)) {
+    return { error: "Escribe cuál fue la razón de «Otro»." };
+  }
 
   // wonAt solo aplica a GANADO: la fecha real de la venta. Si no viene, hoy. Al mover el lead a
   // cualquier otra etapa se limpia (igual que lostReason) para que no ensucie el reporte.

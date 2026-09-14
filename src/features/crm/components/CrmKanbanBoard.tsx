@@ -11,7 +11,14 @@ import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { updateCrmCollapsedAction, updateCrmStageAction } from "@/app/actions/crm-actions";
 import { getContactCallHistoryAction, type CallHistoryItem } from "@/app/actions/call-actions";
 import type { CrmColumn, CrmRecord } from "../types";
-import { CRM_LOST_REASONS, getCrmStageMeta, getCrmLostReasonLabel } from "../domain/crm-config";
+import {
+  CRM_LOST_REASONS,
+  LARGO_DEL_OTRO_MOTIVO,
+  MOTIVO_OTRO,
+  getCrmStageMeta,
+  getCrmLostReasonLabel,
+  motivoOtroConDetalle,
+} from "../domain/crm-config";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 // Valor "YYYY-MM-DD" (para <input type="date">) a partir de una fecha, en hora local.
@@ -348,6 +355,8 @@ export function CrmKanbanBoard({
   // Arrastre a Descartado en espera del motivo (mismo flujo que el selector del chat): guardamos
   // a quien mover y abrimos el dialogo de razon en vez de cerrar de una.
   const [pendingLostRecordId, setPendingLostRecordId] = React.useState<string | null>(null);
+  // null = eligiendo motivo; texto = eligio "Otro" y escribe la razon.
+  const [otroDetalleKanban, setOtroDetalleKanban] = React.useState<string | null>(null);
   // Arrastre a Ganado / edición de la fecha de venta: guardamos a quién y la fecha elegida (por
   // defecto hoy), y abrimos el diálogo para confirmar el DÍA REAL de la venta antes de guardar.
   const [pendingWonRecordId, setPendingWonRecordId] = React.useState<string | null>(null);
@@ -590,19 +599,55 @@ export function CrmKanbanBoard({
       <Dialog
         open={Boolean(pendingLostRecordId)}
         onOpenChange={(next) => {
-          if (!next) setPendingLostRecordId(null);
+          if (!next) {
+            setPendingLostRecordId(null);
+            setOtroDetalleKanban(null);
+          }
         }}
       >
         <DialogContent showCloseButton={false} className="w-[calc(100vw-2rem)] max-w-sm gap-0 overflow-hidden p-0">
           <div className="border-b border-border px-4 py-3">
             <DialogTitle className="text-[13px] font-semibold text-foreground">¿Por qué se perdió?</DialogTitle>
           </div>
-          <div className="py-1">
+          {otroDetalleKanban !== null ? (
+            <form
+              className="space-y-2 p-4"
+              onSubmit={(evento) => {
+                evento.preventDefault();
+                const recordId = pendingLostRecordId;
+                if (!recordId || !otroDetalleKanban.trim()) return;
+                setPendingLostRecordId(null);
+                void commitStageChange(recordId, "PERDIDO", motivoOtroConDetalle(otroDetalleKanban));
+                setOtroDetalleKanban(null);
+              }}
+            >
+              <input
+                autoFocus
+                value={otroDetalleKanban}
+                maxLength={LARGO_DEL_OTRO_MOTIVO}
+                onChange={(evento) => setOtroDetalleKanban(evento.target.value)}
+                placeholder="¿Cuál fue la razón?"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] text-foreground outline-none focus:border-[var(--primary)]"
+              />
+              <button
+                type="submit"
+                disabled={!otroDetalleKanban.trim()}
+                className="w-full rounded-md bg-red-600 px-3 py-2 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:opacity-50"
+              >
+                Descartar
+              </button>
+            </form>
+          ) : null}
+          <div className={otroDetalleKanban !== null ? "hidden" : "py-1"}>
             {CRM_LOST_REASONS.map((reason) => (
               <button
                 key={reason.value}
                 type="button"
                 onClick={() => {
+                  if (reason.value === MOTIVO_OTRO) {
+                    setOtroDetalleKanban("");
+                    return;
+                  }
                   const recordId = pendingLostRecordId;
                   setPendingLostRecordId(null);
                   if (recordId) {

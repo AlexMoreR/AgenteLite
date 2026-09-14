@@ -5,7 +5,14 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Check, ChevronDown } from "lucide-react";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
-import { CRM_LOST_REASONS, CRM_STAGE_META, CRM_STAGE_ORDER } from "@/features/crm/domain/crm-config";
+import {
+  CRM_LOST_REASONS,
+  CRM_STAGE_META,
+  CRM_STAGE_ORDER,
+  LARGO_DEL_OTRO_MOTIVO,
+  MOTIVO_OTRO,
+  motivoOtroConDetalle,
+} from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 
 /**
@@ -76,6 +83,9 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
   const [error, setError] = useState<string | null>(null);
   // Segundo paso del modal: eligio "Descartado" y falta el motivo.
   const [askingLostReason, setAskingLostReason] = useState(false);
+  // Tercer paso: eligio "Otro" y tiene que escribir cual fue la razon.
+  const [escribiendoOtro, setEscribiendoOtro] = useState(false);
+  const [otroDetalle, setOtroDetalle] = useState("");
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -89,6 +99,8 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
       setCurrentStage(nextStage);
       setOpen(false);
       setAskingLostReason(false);
+      setEscribiendoOtro(false);
+      setOtroDetalle("");
       startTransition(async () => {
         const result = await updateCrmStageAction({ contactId, status: nextStage, lostReason });
         if (result?.error) {
@@ -311,7 +323,7 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
           {askingLostReason ? (
             <button
               type="button"
-              onClick={() => setAskingLostReason(false)}
+              onClick={() => (escribiendoOtro ? setEscribiendoOtro(false) : setAskingLostReason(false))}
               className="flex w-full items-center gap-1.5 border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground transition hover:text-foreground"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
@@ -320,13 +332,41 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
           ) : null}
 
           <div className="max-h-[60vh] overflow-y-auto py-1">
-            {askingLostReason
+            {askingLostReason && escribiendoOtro ? (
+              <form
+                className="space-y-2 px-3 py-2"
+                onSubmit={(evento) => {
+                  evento.preventDefault();
+                  if (otroDetalle.trim()) {
+                    commitStage("PERDIDO", motivoOtroConDetalle(otroDetalle));
+                  }
+                }}
+              >
+                <input
+                  autoFocus
+                  value={otroDetalle}
+                  maxLength={LARGO_DEL_OTRO_MOTIVO}
+                  onChange={(evento) => setOtroDetalle(evento.target.value)}
+                  placeholder="¿Cuál fue la razón?"
+                  className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-[13px] text-foreground outline-none focus:border-[var(--primary)]"
+                />
+                <button
+                  type="submit"
+                  disabled={isPending || !otroDetalle.trim()}
+                  className="w-full rounded-md bg-red-600 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-red-700 disabled:opacity-50"
+                >
+                  Descartar
+                </button>
+              </form>
+            ) : askingLostReason
               ? CRM_LOST_REASONS.map((reason) => (
                   <button
                     key={reason.value}
                     type="button"
                     disabled={isPending}
-                    onClick={() => commitStage("PERDIDO", reason.value)}
+                    onClick={() =>
+                      reason.value === MOTIVO_OTRO ? setEscribiendoOtro(true) : commitStage("PERDIDO", reason.value)
+                    }
                     className="flex w-full items-center px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted disabled:opacity-50"
                   >
                     {reason.label}

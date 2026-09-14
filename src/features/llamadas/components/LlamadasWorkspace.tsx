@@ -25,6 +25,9 @@ import {
   CALL_RESULTS,
   CALL_RESULT_LOST,
   CRM_LOST_REASONS,
+  LARGO_DEL_OTRO_MOTIVO,
+  MOTIVO_OTRO,
+  motivoOtroConDetalle,
   getCrmStageMeta,
 } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
@@ -98,6 +101,7 @@ function RegisterCallDialog({
   const [summary, setSummary] = useState("");
   const [nextContact, setNextContact] = useState("");
   const [lostReason, setLostReason] = useState<string>(CRM_LOST_REASONS[0].value);
+  const [otroDetalle, setOtroDetalle] = useState("");
   const [calledAt, setCalledAt] = useState(todayInputValue());
 
   // Sincroniza el preset cuando se abre desde otra tarjeta.
@@ -108,6 +112,7 @@ function RegisterCallDialog({
     setSummary("");
     setNextContact("");
     setLostReason(CRM_LOST_REASONS[0].value);
+    setOtroDetalle("");
     setCalledAt(todayInputValue());
     setSearchTerm("");
     setSearchResults([]);
@@ -145,7 +150,7 @@ function RegisterCallDialog({
       toast.error("Elegí un contacto primero.");
       return;
     }
-    if (isLost && !lostReason) {
+    if (isLost && (!lostReason || (lostReason === MOTIVO_OTRO && !otroDetalle.trim()))) {
       toast.error("Elegí el motivo de pérdida.");
       return;
     }
@@ -155,7 +160,7 @@ function RegisterCallDialog({
         result,
         summary: summary.trim() || undefined,
         nextContactAt: nextContact || undefined,
-        lostReason: isLost ? lostReason : undefined,
+        lostReason: isLost ? (lostReason === MOTIVO_OTRO ? motivoOtroConDetalle(otroDetalle) : lostReason) : undefined,
         calledAt: calledAt || undefined,
         completeAttemptId: selected.pendingAttemptId || undefined,
       });
@@ -167,7 +172,7 @@ function RegisterCallDialog({
       onOpenChange(false);
       router.refresh();
     });
-  }, [selected, isLost, lostReason, result, summary, nextContact, calledAt, onOpenChange, router]);
+  }, [selected, isLost, lostReason, otroDetalle, result, summary, nextContact, calledAt, onOpenChange, router]);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -251,6 +256,15 @@ function RegisterCallDialog({
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
+              {lostReason === MOTIVO_OTRO ? (
+                <input
+                  value={otroDetalle}
+                  maxLength={LARGO_DEL_OTRO_MOTIVO}
+                  onChange={(event) => setOtroDetalle(event.target.value)}
+                  placeholder="¿Cuál fue la razón?"
+                  className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-[var(--primary)]"
+                />
+              ) : null}
             </div>
           ) : null}
 

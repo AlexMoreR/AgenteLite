@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { TrendingDown, CircleSlash2 } from "lucide-react";
-import { CRM_STAGE_META, getCrmLostReasonLabel } from "../domain/crm-config";
+import { CRM_STAGE_META, getCrmLostReasonGroupLabel } from "../domain/crm-config";
 import type { CrmRecord, CrmStage } from "../types";
 
 // Orden lineal del embudo. PERDIDO queda fuera: es una salida lateral y ademas el registro no
@@ -84,7 +84,8 @@ export function CrmLostReasons({ records }: { records: CrmRecord[] }) {
     const counts = new Map<string, number>();
     for (const record of records) {
       if (record.status !== "PERDIDO") continue;
-      const label = getCrmLostReasonLabel(record.lostReason) ?? "Sin motivo";
+      // Todos los "Otro: ..." en una sola barra: cada frase distinta seria una barra de uno.
+      const label = getCrmLostReasonGroupLabel(record.lostReason) ?? "Sin motivo";
       counts.set(label, (counts.get(label) ?? 0) + 1);
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);

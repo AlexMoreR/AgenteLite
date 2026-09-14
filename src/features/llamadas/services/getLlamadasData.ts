@@ -3,6 +3,7 @@ import { resolveCallablePhone } from "@/lib/whatsapp-lid";
 import {
   CALL_RESULT_PENDING,
   getCallResultLabel,
+  getCrmLostReasonGroupLabel,
   getCrmLostReasonLabel,
 } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
@@ -434,13 +435,19 @@ export async function getLlamadasOwnerData(workspaceId: string): Promise<Llamada
       where: { workspaceId, excludedFromCrm: false, crmStage: "PERDIDO", lostReason: { not: null } },
       _count: { _all: true },
     });
-    result.lostReasons = lostGroups
-      .map((group) => ({
-        reason: group.lostReason as string,
-        label: getCrmLostReasonLabel(group.lostReason) ?? (group.lostReason as string),
-        count: group._count._all,
-      }))
-      .sort((a, b) => b.count - a.count);
+    // Los "Otro: <razon escrita>" se juntan en una sola fila "Otro".
+    const porMotivo = new Map<string, { reason: string; label: string; count: number }>();
+    for (const group of lostGroups) {
+      const label =
+        getCrmLostReasonGroupLabel(group.lostReason) ?? getCrmLostReasonLabel(group.lostReason) ?? (group.lostReason as string);
+      const fila = porMotivo.get(label);
+      if (fila) {
+        fila.count += group._count._all;
+      } else {
+        porMotivo.set(label, { reason: group.lostReason as string, label, count: group._count._all });
+      }
+    }
+    result.lostReasons = [...porMotivo.values()].sort((a, b) => b.count - a.count);
 
     // Leads que se pudren: activos, con última llamada hace +5 días O sin ninguna llamada.
     const rottingRows = await prisma.$queryRaw<
