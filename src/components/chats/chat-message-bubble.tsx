@@ -149,9 +149,16 @@ const getMountedServer = () => false;
  * pantalla para poder saltar a ella. Sale del evento guardado: el item del chat no trae el externalId.
  */
 function idCrudoDelMensajeWhatsApp(message: SharedInboxMessageItem): string | null {
+  /*
+    Primero el externalId: los mensajes que enviamos desde el CRM (manuales y de flujos) no guardan el
+    evento de WhatsApp, solo el id. Y son justo los que mas se citan: la foto del catalogo, la
+    pregunta de la asesora. El evento queda de respaldo para lo que llego sin externalId.
+  */
   const raw = message.rawPayload as { evolution?: { data?: { key?: { id?: unknown; ID?: unknown } } } } | null;
   const key = raw?.evolution?.data?.key;
-  const id = typeof key?.id === "string" ? key.id : typeof key?.ID === "string" ? key.ID : "";
+  const id =
+    (typeof message.externalId === "string" && message.externalId) ||
+    (typeof key?.id === "string" ? key.id : typeof key?.ID === "string" ? key.ID : "");
   const crudo = id.split("_").pop() ?? "";
   return crudo.length >= 8 ? crudo : null;
 }

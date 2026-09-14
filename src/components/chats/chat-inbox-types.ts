@@ -41,6 +41,8 @@ export type SharedInboxConversationItem = {
 
 export type SharedInboxMessageItem = {
   id: string;
+  /** Id de WhatsApp. Es lo que trae una cita para decir a que mensaje responde. */
+  externalId?: string | null;
   content: string | null;
   direction: "INBOUND" | "OUTBOUND";
   createdAt: Date;
