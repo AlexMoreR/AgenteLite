@@ -22,6 +22,7 @@ import {
   MoreVertical,
   PenLine,
   Mic,
+  Pause,
   Pencil,
   Plus,
   SendHorizonal,
@@ -34,6 +35,9 @@ import {
   FolderOpen,
   X,
 } from "lucide-react";
+
+/** Cuantas barras tiene la onda mientras se graba una nota de voz. */
+const BARRAS_DE_GRABACION = 36;
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { hayVersionNueva } from "@/components/app-version-guard";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
@@ -393,6 +397,9 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [desdeRespuestaRapida, setDesdeRespuestaRapida] = useState(false);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
+  const [grabacionPausada, setGrabacionPausada] = useState(false);
+  // Nivel del microfono de las ultimas lecturas (0 a 1), para dibujar la onda mientras se graba.
+  const [ondaEnVivo, setOndaEnVivo] = useState<number[]>([]);
   const [isSendingAudio, setIsSendingAudio] = useState(false);
 
   // Trae la foto de perfil del contacto abierto AL INSTANTE (acción manual del usuario).
@@ -421,6 +428,10 @@ export const ConversationPanel = memo(function ConversationPanel({
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordStreamRef = useRef<MediaStream | null>(null);
   const recordCancelledRef = useRef(false);
+  const analizadorDeGrabacionRef = useRef<{
+    contexto: AudioContext;
+    temporizador: ReturnType<typeof setInterval>;
+  } | null>(null);
   const audioConfig = composer?.audio;
   const mediaConfig = composer?.media;
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -674,6 +685,14 @@ export const ConversationPanel = memo(function ConversationPanel({
   const stopRecordTracks = useCallback(() => {
     recordStreamRef.current?.getTracks().forEach((track) => track.stop());
     recordStreamRef.current = null;
+    const analizador = analizadorDeGrabacionRef.current;
+    if (analizador) {
+      clearInterval(analizador.temporizador);
+      void analizador.contexto.close().catch(() => undefined);
+      analizadorDeGrabacionRef.current = null;
+    }
+    setOndaEnVivo([]);
+    setGrabacionPausada(false);
   }, []);
 
   const clearRecordTimer = useCallback(() => {
@@ -768,6 +787,39 @@ export const ConversationPanel = memo(function ConversationPanel({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       recordStreamRef.current = stream;
+
+      /*
+        La onda se mueve con la voz, como en WhatsApp: es lo que confirma que el microfono de verdad
+        esta tomando sonido. Si el navegador no deja medir, se graba igual, sin onda.
+      */
+      try {
+        const Contexto =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (Contexto) {
+          const contexto = new Contexto();
+          const analizador = contexto.createAnalyser();
+          analizador.fftSize = 512;
+          contexto.createMediaStreamSource(stream).connect(analizador);
+          const muestras = new Uint8Array(analizador.fftSize);
+          const temporizador = setInterval(() => {
+            if (mediaRecorderRef.current?.state === "paused") {
+              return;
+            }
+            analizador.getByteTimeDomainData(muestras);
+            let pico = 0;
+            for (let indice = 0; indice < muestras.length; indice += 1) {
+              pico = Math.max(pico, Math.abs(muestras[indice] - 128));
+            }
+            const nivel = Math.min(1, pico / 60);
+            setOndaEnVivo((actual) => [...actual.slice(-(BARRAS_DE_GRABACION - 1)), nivel]);
+          }, 110);
+          analizadorDeGrabacionRef.current = { contexto, temporizador };
+        }
+      } catch {
+        // Sin onda: la grabacion no depende de esto.
+      }
+
       const recorder = new MediaRecorder(stream);
       audioChunksRef.current = [];
       recordCancelledRef.current = false;
@@ -800,7 +852,12 @@ export const ConversationPanel = memo(function ConversationPanel({
       mediaRecorderRef.current = recorder;
       setIsRecordingAudio(true);
       setRecordSeconds(0);
-      recordTimerRef.current = setInterval(() => setRecordSeconds((value) => value + 1), 1000);
+      setGrabacionPausada(false);
+      recordTimerRef.current = setInterval(() => {
+        if (mediaRecorderRef.current?.state === "recording") {
+          setRecordSeconds((value) => value + 1);
+        }
+      }, 1000);
     } catch {
       stopRecordTracks();
     }
@@ -810,6 +867,20 @@ export const ConversationPanel = memo(function ConversationPanel({
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       recordCancelledRef.current = false;
       mediaRecorderRef.current.stop();
+    }
+  }, []);
+
+  const alternarPausaDeGrabacion = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) {
+      return;
+    }
+    if (recorder.state === "recording" && typeof recorder.pause === "function") {
+      recorder.pause();
+      setGrabacionPausada(true);
+    } else if (recorder.state === "paused") {
+      recorder.resume();
+      setGrabacionPausada(false);
     }
   }, []);
 
@@ -1591,35 +1662,74 @@ export const ConversationPanel = memo(function ConversationPanel({
 
                   <div className="flex items-end gap-2 md:gap-3">
                     {isRecordingAudio ? (
-                      <div className="flex min-h-[38px] flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/80 px-4 text-sm text-foreground md:min-h-[40px]">
-                        <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
-                        <span className="font-medium">Grabando</span>
-                        <span className="tabular-nums text-muted-foreground">
-                          {`${Math.floor(recordSeconds / 60)}:${String(recordSeconds % 60).padStart(2, "0")}`}
-                        </span>
-                        <div className="ml-auto flex items-center gap-1">
-                          <Button
+                      /*
+                        Grabando, como en WhatsApp: arriba el tiempo y la onda que se mueve con la voz;
+                        abajo borrar, pausar y enviar, grandes para el dedo. Antes era un renglon con
+                        "Grabando" y dos iconos chicos: no se podia pausar y no se veia si el
+                        microfono estaba tomando sonido.
+                      */
+                      <div className="flex w-full min-w-0 flex-1 flex-col gap-2.5 rounded-2xl border border-border bg-card px-3 py-2.5 shadow-[0_1px_6px_#0000001f]">
+                        <div className="flex items-center gap-3">
+                          <span className="w-12 shrink-0 text-lg font-medium tabular-nums text-foreground">
+                            {`${Math.floor(recordSeconds / 60)}:${String(recordSeconds % 60).padStart(2, "0")}`}
+                          </span>
+                          <div className="flex h-8 min-w-0 flex-1 items-center justify-center gap-[3px] overflow-hidden" aria-hidden="true">
+                            {Array.from({ length: BARRAS_DE_GRABACION }, (_, indice) => {
+                              const posicion = ondaEnVivo.length - (BARRAS_DE_GRABACION - indice);
+                              const nivel = posicion >= 0 ? ondaEnVivo[posicion] : undefined;
+                              return (
+                                <span
+                                  key={indice}
+                                  className={`w-[3px] shrink-0 rounded-full transition-[height] duration-100 ${
+                                    nivel === undefined ? "bg-muted-foreground/25" : "bg-foreground/70"
+                                  }`}
+                                  style={{ height: `${nivel === undefined ? 3 : Math.max(4, Math.round(nivel * 28))}px` }}
+                                />
+                              );
+                            })}
+                          </div>
+                          {grabacionPausada ? (
+                            <span className="shrink-0 text-[11px] font-medium text-muted-foreground">En pausa</span>
+                          ) : (
+                            <span className="inline-block size-2.5 shrink-0 animate-pulse rounded-full bg-red-500" />
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
                             type="button"
-                            variant="ghost"
-                            size="icon"
                             onClick={cancelAudioRecording}
-                            aria-label="Cancelar grabacion"
-                            title="Cancelar"
-                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 md:size-8"
+                            aria-label="Borrar grabacion"
+                            title="Borrar"
+                            className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-red-500/10 text-red-600 transition hover:bg-red-500/20 focus:outline-none focus:ring-2 focus:ring-ring/50 dark:text-red-400"
                           >
                             <Trash2 className="size-5" />
-                          </Button>
-                          <Button
+                          </button>
+                          <button
                             type="button"
-                            variant="ghost"
-                            size="icon"
+                            onClick={alternarPausaDeGrabacion}
+                            className="inline-flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-muted text-[14px] font-medium text-foreground transition hover:bg-muted/70 focus:outline-none focus:ring-2 focus:ring-ring/50"
+                          >
+                            {grabacionPausada ? (
+                              <>
+                                <Mic className="size-5" />
+                                Reanudar
+                              </>
+                            ) : (
+                              <>
+                                <Pause className="size-5 fill-current" />
+                                Pausar
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
                             onClick={stopAndSendAudio}
                             aria-label="Enviar nota de voz"
                             title="Enviar"
-                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-background focus:outline-none focus:ring-2 focus:ring-ring/50 md:size-8"
+                            className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring/50"
                           >
-                            <SendHorizonal className="size-6" />
-                          </Button>
+                            <SendHorizonal className="size-5" />
+                          </button>
                         </div>
                       </div>
                     ) : (
