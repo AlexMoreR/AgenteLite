@@ -41,12 +41,6 @@ const ASSIGNED_FILTER_TABS: Array<{ value: AssignedFilter; label: string; manage
 /** Las que se ven sin abrir el modal, en este orden. */
 const PASTILLAS_A_LA_VISTA = ["all", "mine"] as const;
 
-const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
-  { value: "all", label: "Todas" },
-  { value: "open", label: "Abiertas" },
-  { value: "resolved", label: "Resueltas" },
-];
-
 export function AppSidebar({
   conversationItems,
   selectedConversationId,
@@ -175,10 +169,23 @@ export function AppSidebar({
 
               {/* El estado solo aparece cuando NO es el de siempre (Abiertas): si no, seria una
                   pastilla que dice lo mismo todos los dias y no informa nada. */}
+              {/*
+                Se saca de un toque, como las etapas, y no dice "Todas".
+
+                Era un texto quieto que decia "Todas" -el mismo nombre de la pastilla de asignacion-:
+                una asesora lo tocaba creyendo que era esa pastilla y no pasaba nada. Ahora dice lo
+                que es y al tocarlo vuelve a Abiertas.
+              */}
               {statusFilter !== "open" ? (
-                <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border px-3 py-1 text-[13px] font-medium text-muted-foreground">
-                  {STATUS_FILTER_OPTIONS.find((option) => option.value === statusFilter)?.label}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => aplicarFiltros(assignedFilter, "open")}
+                  title="Volver a solo abiertas"
+                  className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-border px-3 py-1 text-[13px] font-medium text-muted-foreground transition hover:bg-muted"
+                >
+                  {statusFilter === "all" ? "Abiertas y resueltas" : "Resueltas"}
+                  <X className="h-3 w-3 opacity-60" />
+                </button>
               ) : null}
 
               {/*

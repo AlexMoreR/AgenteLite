@@ -1245,7 +1245,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
          * seguian a la vista los chats del filtro anterior mientras "Mias 1" ya decia 1. Con la
          * clave, cambiar de filtro rearma la lista desde cero y no queda nada viejo.
          */
-        key={`${assignedFilter}|${statusFilter}|${selectedConnectionKey}`}
+        /*
+          Los filtros de etapa y "sin responder" tambien van en la clave. Sin ellos, elegir
+          "Descartado" ponia la chapita pero la lista seguia con los chats de antes: la bandeja solo
+          agrega y actualiza, nunca quita, asi que nada sacaba a los que no eran descartados.
+        */
+        key={`${assignedFilter}|${statusFilter}|${selectedConnectionKey}|${paramsDeFiltros(filtros)
+          .map(([clave, valor]) => `${clave}=${valor}`)
+          .join("&")}`}
         searchAction="/cliente/chats"
         selectedConversationId={selectedUnified?.key ?? ""}
         mobileConversationActive={Boolean(selectedChatKeyParam)}
