@@ -259,9 +259,16 @@ export default async function RootLayout({
             clientPlanAlert={clientPlanAlert}
             clientPlanBlock={clientPlanBlock}
             sidebarDefaultOpen={sidebarDefaultOpen}
+            /*
+              El MISMO negocio que usa la pagina de Chats (getPrimaryWorkspaceForUser), para CUALQUIER
+              rol. Con clientWorkspace -que solo existe para CLIENTE/EMPLEADO- los administradores se
+              quedaron sin tiempo real en toda la app (Alex en Aizen Proyects, 13-sep-2026). A cliente y
+              empleado se les exige ademas el modulo de chats.
+            */
             chatRealtimeWorkspaceId={
-              clientWorkspace?.workspace.id && clientAccess && canAccessClientModule(clientAccess, "chats")
-                ? clientWorkspace.workspace.id
+              primaryWorkspace?.workspace.id &&
+              (!isClientAreaRole || (clientAccess && canAccessClientModule(clientAccess, "chats")))
+                ? primaryWorkspace.workspace.id
                 : null
             }
           >

@@ -330,7 +330,8 @@ export function AppShell({
                   estan en cualquier pantalla; la pagina de Chats ya no los monta, para no sonar
                   dos veces. De paso la campanita se entera al instante en todas las pantallas.
                 */}
-                {chatRealtimeWorkspaceId ? (
+                {/* Solo en /cliente: es donde el Service Worker calla el aviso porque suena la app. */}
+                {chatRealtimeWorkspaceId && pathname.startsWith("/cliente") ? (
                   <>
                     <ChatsOfficialRealtime enabled workspaceId={chatRealtimeWorkspaceId} />
                     <ChatIncomingNotifier />
