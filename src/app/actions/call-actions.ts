@@ -17,6 +17,7 @@ import {
   CALL_RESULT_STAGE_EFFECT,
   CALL_RESULT_PENDING,
   getCallResultLabel,
+  getCrmLostReasonLabel,
   isPendingCallResult,
   type CallResult, motivoOtroSinDetalle } from "@/features/crm/domain/crm-config";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
@@ -125,6 +126,123 @@ export async function sugerenciaDeLlamadaAction(
     console.warn("[llamadas] no se pudo transcribir", error);
     return { error: "No se pudo escuchar la grabación" };
   }
+}
+
+export type DetalleDeLlamada = {
+  id: string;
+  contactId: string;
+  cliente: string;
+  calledAt: string;
+  asesora: string | null;
+  intento: number;
+  resultado: string;
+  pendiente: boolean;
+  /** Lo que escribio la asesora al clasificar; el automatico ("Llamada saliente · 12s") va en `como`. */
+  resumen: string | null;
+  como: string | null;
+  proximoContacto: string | null;
+  motivoPerdida: string | null;
+  grabacion: string | null;
+  resumenIa: string | null;
+  transcripcion: string | null;
+};
+
+/**
+ * El detalle de la llamada que se toco en el chat (Alex, 15-sep-2026: la burbuja con el resumen
+ * largo desbordaba el chat; ahora es corta y el detalle se abre aparte).
+ *
+ * El id viene del mensaje: `llamada:<intento>` cuando la nota se armo desde el intento, o el id de
+ * un Message guardado por WaCalls, que se ubica por contacto y hora (±2 min, igual que el cargador).
+ */
+export async function detalleDeLlamadaAction(messageId: string): Promise<{ detalle: DetalleDeLlamada } | { error: string }> {
+  const session = await auth();
+  if (!session?.user?.id || typeof messageId !== "string" || !messageId.trim()) {
+    return { error: "No autorizado" };
+  }
+  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  if (!access) {
+    return { error: "No autorizado" };
+  }
+
+  const seleccion = {
+    id: true,
+    contactId: true,
+    calledAt: true,
+    attemptNumber: true,
+    result: true,
+    summary: true,
+    nextContactAt: true,
+    lostReason: true,
+    recordingUrl: true,
+    calledBy: { select: { name: true, email: true } },
+    contact: { select: { name: true, phoneNumber: true } },
+  } as const;
+
+  let intento = null;
+  if (messageId.startsWith("llamada:")) {
+    intento = await prisma.callAttempt.findFirst({
+      where: { id: messageId.slice("llamada:".length), workspaceId: access.workspaceId },
+      select: seleccion,
+    });
+  } else {
+    const mensaje = await prisma.message.findFirst({
+      where: { id: messageId, workspaceId: access.workspaceId, type: "SYSTEM" },
+      select: { contactId: true, createdAt: true },
+    });
+    if (mensaje?.contactId) {
+      const cercanos = await prisma.callAttempt.findMany({
+        where: {
+          workspaceId: access.workspaceId,
+          contactId: mensaje.contactId,
+          calledAt: {
+            gte: new Date(mensaje.createdAt.getTime() - 2 * 60 * 1000),
+            lte: new Date(mensaje.createdAt.getTime() + 2 * 60 * 1000),
+          },
+        },
+        select: seleccion,
+      });
+      intento =
+        cercanos.sort(
+          (a, b) =>
+            Math.abs(a.calledAt.getTime() - mensaje.createdAt.getTime()) -
+            Math.abs(b.calledAt.getTime() - mensaje.createdAt.getTime()),
+        )[0] ?? null;
+    }
+  }
+  if (!intento) {
+    return { error: "No se encontró el registro de esta llamada" };
+  }
+
+  const guardada = await prisma.appSetting.findUnique({ where: { key: `llamada:transcripcion:${intento.id}` } });
+  let ia: { resumen?: string; transcripcion?: string } = {};
+  try {
+    ia = guardada ? (JSON.parse(guardada.value) as typeof ia) : {};
+  } catch {
+    ia = {};
+  }
+
+  const resumen = intento.summary?.trim() || null;
+  const esAutomatico = Boolean(resumen && /^llamada\s+(entrante|saliente)/i.test(resumen));
+
+  return {
+    detalle: {
+      id: intento.id,
+      contactId: intento.contactId,
+      cliente: intento.contact.name?.trim() || intento.contact.phoneNumber,
+      calledAt: intento.calledAt.toISOString(),
+      asesora: intento.calledBy?.name?.trim() || intento.calledBy?.email || null,
+      intento: intento.attemptNumber,
+      resultado: getCallResultLabel(intento.result) ?? intento.result,
+      pendiente: isPendingCallResult(intento.result),
+      resumen: esAutomatico ? null : resumen,
+      como: esAutomatico ? resumen : null,
+      proximoContacto: intento.nextContactAt ? intento.nextContactAt.toISOString() : null,
+      motivoPerdida: intento.lostReason ? getCrmLostReasonLabel(intento.lostReason) : null,
+      grabacion: intento.recordingUrl,
+      resumenIa: ia.resumen?.trim() || null,
+      transcripcion: ia.transcripcion?.trim() || null,
+    },
+  };
 }
 
 export type LlamadaDelEquipo = {

@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { extractEvolutionLocation } from "@/lib/evolution-webhook";
 import { AudioMessageCard } from "@/components/chats/audio-message-card";
+import { DetalleDeLlamadaDialog } from "@/components/chats/detalle-de-llamada-dialog";
 import { tapaDePdfDesdeUrl, type TapaDePdf } from "@/lib/portada-de-pdf";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -1004,6 +1005,8 @@ export const MessageBubble = memo(function MessageBubble({
 
   const callSummary = getCallMessageSummary(message);
   const CallIcon = callSummary?.icon ?? null;
+  // La llamada cuyo detalle esta abierto (id del mensaje). Solo aplica a burbujas de llamada.
+  const [llamadaAbierta, setLlamadaAbierta] = useState<string | null>(null);
   const replyPreview = useMemo(() => getMessageReplyPreview(message), [message]);
   const idWhatsApp = useMemo(() => idCrudoDelMensajeWhatsApp(message), [message]);
   const activity = isActivityMessage(message);
@@ -1220,6 +1223,9 @@ export const MessageBubble = memo(function MessageBubble({
               />
             </>
           ) : null}
+          {callSummary ? (
+            <DetalleDeLlamadaDialog messageId={llamadaAbierta} alCerrar={() => setLlamadaAbierta(null)} />
+          ) : null}
           {replyPreview ? (
             <button
               type="button"
@@ -1256,21 +1262,41 @@ export const MessageBubble = memo(function MessageBubble({
           >
           <div className="min-w-0">
           {callSummary ? (
-            <div className="space-y-2">
-              <Badge
-                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold normal-case tracking-normal shadow-none ${
-                  outbound ? "bg-[var(--chat-out-overlay)] text-[var(--chat-out-text)]" : "bg-muted text-foreground"
-                }`}
-              >
-                {CallIcon ? <CallIcon className={`h-4 w-4 ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-[var(--primary)]"}`} /> : null}
-                <span>Llamada {callSummary.directionLabel}</span>
+            /*
+              Corta y en un renglon: el resumen de una llamada registrada a mano podia ser un parrafo,
+              y en una sola linea sin corte desbordaba el chat hacia la derecha (Alex, 15-sep-2026). El
+              detalle -como quedo, proximo contacto, grabacion y texto- se abre al tocarla.
+            */
+            <button
+              type="button"
+              onClick={(evento) => {
+                if (haySeleccion) return;
+                evento.stopPropagation();
+                setLlamadaAbierta(message.id);
+              }}
+              className={`flex w-full max-w-[280px] items-center gap-2 rounded-xl px-3 py-2 text-left text-[12px] transition ${
+                outbound
+                  ? "bg-[var(--chat-out-overlay)] text-[var(--chat-out-text)] hover:bg-[var(--chat-out-overlay-strong)]"
+                  : "bg-muted text-foreground hover:bg-muted/80"
+              }`}
+            >
+              {CallIcon ? (
+                <CallIcon className={`h-4 w-4 shrink-0 ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-[var(--primary)]"}`} />
+              ) : null}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-semibold">Llamada {callSummary.directionLabel}</span>
                 {callSummary.statusText ? (
-                  <span className={`font-normal ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"}`}>
-                    {callSummary.statusText}
+                  <span
+                    className={`block truncate ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"}`}
+                  >
+                    {callSummary.statusText.replace(/^·\s*/, "")}
                   </span>
                 ) : null}
-              </Badge>
-            </div>
+              </span>
+              <span className={`shrink-0 text-[11px] font-medium ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-[var(--primary)]"}`}>
+                Ver detalle
+              </span>
+            </button>
           ) : adPreview ? (
             <div className="space-y-3">
               {adPreview.sourceUrl ? (
