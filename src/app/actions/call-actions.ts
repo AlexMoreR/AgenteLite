@@ -127,6 +127,107 @@ export async function sugerenciaDeLlamadaAction(
   }
 }
 
+export type LlamadaDelEquipo = {
+  id: string;
+  calledAt: string;
+  asesora: string;
+  cliente: string;
+  telefono: string;
+  conversationId: string | null;
+  resultado: string;
+  pendiente: boolean;
+  resumen: string | null;
+  /** Lo que resumio la IA de la grabacion, si se transcribio. */
+  resumenIa: string | null;
+  grabacion: string | null;
+};
+
+const LLAMADAS_POR_PAGINA = 30;
+
+/**
+ * Todas las llamadas del negocio, de la mas nueva a la mas vieja, con su grabacion.
+ *
+ * Solo dueño o administrador (Alex, 15-sep-2026): escuchar las llamadas de todo el equipo es
+ * supervision. Cada asesora sigue viendo las suyas en su Resumen.
+ */
+export async function llamadasDelEquipoAction(input: {
+  pagina?: number;
+  soloConGrabacion?: boolean;
+}): Promise<{ llamadas: LlamadaDelEquipo[]; hayMas: boolean } | { error: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: "No autorizado" };
+  }
+  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  if (!access || !canAccessClientModule(access, "llamadas") || !(access.isOwner || access.role === "ADMIN")) {
+    return { error: "Solo el dueño o un administrador" };
+  }
+
+  const pagina = Math.max(0, Math.floor(Number(input.pagina) || 0));
+  const intentos = await prisma.callAttempt.findMany({
+    where: {
+      workspaceId: access.workspaceId,
+      ...(input.soloConGrabacion ? { recordingUrl: { not: null } } : {}),
+    },
+    orderBy: { calledAt: "desc" },
+    skip: pagina * LLAMADAS_POR_PAGINA,
+    take: LLAMADAS_POR_PAGINA + 1,
+    select: {
+      id: true,
+      calledAt: true,
+      result: true,
+      summary: true,
+      recordingUrl: true,
+      calledBy: { select: { name: true, email: true } },
+      contact: {
+        select: {
+          name: true,
+          phoneNumber: true,
+          conversations: {
+            where: { workspaceId: access.workspaceId },
+            orderBy: { lastMessageAt: "desc" },
+            take: 1,
+            select: { id: true },
+          },
+        },
+      },
+    },
+  });
+
+  const pagina30 = intentos.slice(0, LLAMADAS_POR_PAGINA);
+  const transcripciones = pagina30.length
+    ? await prisma.appSetting.findMany({
+        where: { key: { in: pagina30.map((intento) => `llamada:transcripcion:${intento.id}`) } },
+        select: { key: true, value: true },
+      })
+    : [];
+  const resumenIaDe = (id: string) => {
+    const fila = transcripciones.find((t) => t.key === `llamada:transcripcion:${id}`);
+    try {
+      return fila ? ((JSON.parse(fila.value) as { resumen?: string }).resumen?.trim() || null) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  return {
+    hayMas: intentos.length > LLAMADAS_POR_PAGINA,
+    llamadas: pagina30.map((intento) => ({
+      id: intento.id,
+      calledAt: intento.calledAt.toISOString(),
+      asesora: intento.calledBy?.name?.trim() || intento.calledBy?.email || "Sin asesora",
+      cliente: intento.contact.name?.trim() || intento.contact.phoneNumber,
+      telefono: intento.contact.phoneNumber,
+      conversationId: intento.contact.conversations[0]?.id ?? null,
+      resultado: getCallResultLabel(intento.result) ?? intento.result,
+      pendiente: isPendingCallResult(intento.result),
+      resumen: intento.summary?.trim() || null,
+      resumenIa: resumenIaDe(intento.id),
+      grabacion: intento.recordingUrl,
+    })),
+  };
+}
+
 const SOLO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
 function bogotaToday(now: Date) {

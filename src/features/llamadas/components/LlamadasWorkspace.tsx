@@ -21,6 +21,7 @@ import type { ResumenDiaData } from "@/features/llamadas/services/getResumenDia"
 import { ResumenDiaView } from "@/features/llamadas/components/ResumenDiaView";
 import { BotonLlamar } from "@/features/llamadas/components/BotonLlamar";
 import { RegisterCallDialog, type PresetContact } from "@/features/llamadas/components/RegisterCallDialog";
+import { TodasLasLlamadas } from "@/features/llamadas/components/TodasLasLlamadas";
 
 function StageChip({ stage }: { stage: CrmStage }) {
   const meta = getCrmStageMeta(stage);
@@ -272,6 +273,9 @@ function OwnerBoard({ data }: { data: LlamadasOwnerData }) {
           </p>
         </CardContent>
       </Card>
+
+      {/* Cada llamada del equipo con su grabacion: esto es lo que se revisa para supervisar. */}
+      <TodasLasLlamadas />
 
       <Card>
         <CardHeader className="pb-2">
