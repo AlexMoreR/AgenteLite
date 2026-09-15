@@ -528,7 +528,12 @@ function ChapaDeRol({ employee }: { employee: EmployeeRow }) {
 function LineasDeLaPersona({ employee }: { employee: EmployeeRow }) {
   const suyas = employee.lineas.filter((linea) => linea.estado !== "no");
   if (suyas.length === 0) {
-    return <span className="text-xs text-muted-foreground">Solo líneas abiertas</span>;
+    // "Solo lineas abiertas" solo si de verdad hay alguna abierta; si no, no ve ninguna y hay que decirlo.
+    return (
+      <span className="text-xs text-muted-foreground">
+        {employee.lineas.some((linea) => linea.abierta) ? "Solo líneas abiertas" : "Sin líneas"}
+      </span>
+    );
   }
   return (
     <div className="flex flex-wrap gap-1.5">
