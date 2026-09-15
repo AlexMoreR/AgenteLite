@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
-import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import {
+  canAccessClientModule,
+  getClientWorkspaceAccessForUser,
+  requireClientWorkspaceAccess,
+} from "@/lib/client-workspace-access";
 import { AVISO_MODO_MONITOREO, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -12,6 +16,7 @@ import {
   CALL_RESULT_LOST,
   CALL_RESULT_STAGE_EFFECT,
   getCallResultLabel,
+  isPendingCallResult,
   type CallResult, motivoOtroSinDetalle } from "@/features/crm/domain/crm-config";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
 
@@ -38,6 +43,55 @@ const registerCallSchema = z.object({
 });
 
 export type RegisterCallInput = z.infer<typeof registerCallSchema>;
+
+export type UltimaLlamada = {
+  id: string;
+  etiqueta: string;
+  /** Se hablo pero nadie dijo todavia como quedo: el aviso ofrece clasificarla. */
+  pendiente: boolean;
+  noContesto: boolean;
+  resumen: string | null;
+  calledAt: string;
+  intento: number;
+};
+
+/**
+ * La ultima llamada de un contacto, para el aviso de arriba del chat (pedido de Alex, 14-sep-2026):
+ * quien abre el chat ve que paso en la llamada antes de escribir, y si falta, la clasifica ahi.
+ *
+ * Devuelve null -sin aviso- si no hubo llamadas o si quien mira no tiene el modulo de Llamadas.
+ * No usa requireClientWorkspaceAccess porque ese REDIRIGE: llamado desde el chat sacaria a la
+ * asesora de la pantalla.
+ */
+export async function ultimaLlamadaDelContactoAction(contactId: string): Promise<UltimaLlamada | null> {
+  const session = await auth();
+  if (!session?.user?.id || typeof contactId !== "string" || !contactId.trim()) {
+    return null;
+  }
+  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  if (!access || !canAccessClientModule(access, "llamadas")) {
+    return null;
+  }
+
+  const intento = await prisma.callAttempt.findFirst({
+    where: { workspaceId: access.workspaceId, contactId: contactId.trim() },
+    orderBy: { calledAt: "desc" },
+    select: { id: true, result: true, summary: true, calledAt: true, attemptNumber: true },
+  });
+  if (!intento) {
+    return null;
+  }
+
+  return {
+    id: intento.id,
+    etiqueta: getCallResultLabel(intento.result) ?? intento.result,
+    pendiente: isPendingCallResult(intento.result),
+    noContesto: intento.result === "no_contesto",
+    resumen: intento.summary?.trim() || null,
+    calledAt: intento.calledAt.toISOString(),
+    intento: intento.attemptNumber,
+  };
+}
 
 const SOLO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 

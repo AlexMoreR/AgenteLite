@@ -73,6 +73,7 @@ import { CHAT_COMPOSER_RECENT_KEY, type ComposerEmojiTab } from "./chat-inbox-em
 import { MessageBubble } from "./chat-message-bubble";
 import { ComposerEmojiPicker, ComposerSendButton } from "./chat-composer";
 import { AvisoDeCierre } from "./aviso-de-cierre";
+import { AvisoDeLlamada } from "./aviso-de-llamada";
 import { BotonDeMapaDeCaminos } from "./boton-mapa-de-caminos";
 
 const CHAT_MESSAGES_BACKGROUND_BASE_STYLE = {
@@ -1449,6 +1450,15 @@ export const ConversationPanel = memo(function ConversationPanel({
               <AvisoDeCierre
                 contactId={renderedConversation.contactId}
                 alResponder={() => setCierreRespondido(true)}
+              />
+            ) : null}
+            {/* Que paso en la ultima llamada con este cliente, y "¿Cómo quedó?" si falta. */}
+            {renderedConversation?.contactId ? (
+              <AvisoDeLlamada
+                key={renderedConversation.contactId}
+                contactId={renderedConversation.contactId}
+                conversationId={selectedConversationId ?? null}
+                nombre={renderedConversation.label}
               />
             ) : null}
             <div className="relative min-h-0 flex-1">
