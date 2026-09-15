@@ -15,6 +15,7 @@ import {
 } from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
 import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
+import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 
 type UnifiedConversation = {
@@ -598,7 +599,9 @@ export async function GET(request: Request) {
   const offset = Math.max(0, Number.parseInt(requestUrl.searchParams.get("offset") || "0", 10) || 0);
   const limit = Math.max(1, Math.min(40, Number.parseInt(requestUrl.searchParams.get("limit") || "20", 10) || 20));
 
-  const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
+  // Jefe (dueño/admin) ve todas las lineas. La supervisora ve "Todas" pero solo de SUS lineas.
+  const esJefe = membership.role === "OWNER" || membership.role === "ADMIN";
+  const isManager = esJefe || (await esSupervisora(membership.workspace.id, session.user.id));
   /**
    * Por defecto, LO MIO.
    *
@@ -626,7 +629,7 @@ export async function GET(request: Request) {
   const visibleChannelIds = await getVisibleChannelIds({
     workspaceId: membership.workspace.id,
     userId: session.user.id,
-    esJefe: isManager,
+    esJefe,
   });
 
   /*

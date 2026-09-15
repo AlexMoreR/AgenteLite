@@ -16,6 +16,7 @@ import {
   type BorradorDeAutomatizacion,
 } from "@/features/automatizaciones/tipos";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 
 const RUTA = "/cliente/automatizaciones";
@@ -26,8 +27,8 @@ const RUTA = "/cliente/automatizaciones";
  */
 async function accesoDeJefe() {
   const access = await requireClientWorkspaceAccess();
-  const esJefe = access.isOwner || access.membershipRole === "OWNER" || access.membershipRole === "ADMIN";
-  return esJefe ? access : null;
+  // Dueño, administradores y supervisoras (ver permisos-del-equipo.ts).
+  return (await puedeSupervisar(access)) ? access : null;
 }
 
 async function validarReferencias(workspaceId: string, borrador: { asignarA: string; canalId: string | null; dueno: string }) {

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { AutomatizacionesWorkspace } from "@/features/automatizaciones/components/AutomatizacionesWorkspace";
 import { contarLeads, leerAutomatizaciones } from "@/features/automatizaciones/servicio";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = {
@@ -17,7 +18,7 @@ export const dynamic = "force-dynamic";
 */
 export default async function ClienteAutomatizacionesPage() {
   const access = await requireClientWorkspaceAccess();
-  const esJefe = access.isOwner || access.membershipRole === "OWNER" || access.membershipRole === "ADMIN";
+  const esJefe = await puedeSupervisar(access);
 
   if (!esJefe) {
     return (

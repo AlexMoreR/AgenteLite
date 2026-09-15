@@ -22,6 +22,7 @@ import {
   type CallResult, motivoOtroSinDetalle } from "@/features/crm/domain/crm-config";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
 import { transcribirYResumirLlamada, type SugerenciaDeLlamada } from "@/lib/llamada-transcripcion";
+import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 
 const CALL_RESULT_VALUES = CALL_RESULTS.map((result) => result.value) as [string, ...string[]];
 
@@ -277,7 +278,7 @@ export async function llamadasDelEquipoAction(input: {
     return { error: "No autorizado" };
   }
   const access = await getClientWorkspaceAccessForUser(session.user.id);
-  if (!access || !canAccessClientModule(access, "llamadas") || !(access.isOwner || access.role === "ADMIN")) {
+  if (!access || !canAccessClientModule(access, "llamadas") || !(await puedeSupervisar(access))) {
     return { error: "Solo el dueño o un administrador" };
   }
 

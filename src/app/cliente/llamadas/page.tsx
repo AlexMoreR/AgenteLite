@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 import {
   getLlamadasVendedoraData,
   getLlamadasOwnerData,
@@ -21,7 +22,7 @@ type PageProps = {
 
 export default async function ClienteLlamadasPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("llamadas");
-  const canSeeOwner = access.isOwner || access.role === "ADMIN";
+  const canSeeOwner = await puedeSupervisar(access);
 
   /**
    * El marcador se abre con el número puesto cuando se llega desde el botón "Llamar" de un lead

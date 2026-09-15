@@ -1,6 +1,7 @@
 "use server";
 
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 import { getDetalleDelTablero, type TipoDeDetalle } from "@/features/crm/services/getDetalleDelTablero";
 
@@ -30,7 +31,7 @@ export async function detalleDelTableroAction(input: {
     return { error: "Lista desconocida" };
   }
 
-  const esJefe = access.isOwner || access.role === "ADMIN";
+  const esJefe = await puedeSupervisar(access);
   let userId = access.userId;
   if (typeof input.userId === "string" && input.userId && input.userId !== access.userId) {
     if (!esJefe) {

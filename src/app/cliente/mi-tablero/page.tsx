@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { MiTableroView } from "@/features/crm/components/MiTableroView";
 import { diaDeHoyBogota, getMiTableroData } from "@/features/crm/services/getMiTableroData";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = {
@@ -18,7 +19,7 @@ export default async function MiTableroPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("crm");
   const params = await searchParams;
 
-  const esJefe = access.isOwner || access.role === "ADMIN";
+  const esJefe = await puedeSupervisar(access);
   const pedido = typeof params.userId === "string" ? params.userId.trim() : "";
   // Rango a mirar. Sin nada en la URL, hoy. Se acepta `dia` a secas por los enlaces viejos.
   const diaSuelto = typeof params.dia === "string" ? params.dia.trim() : "";
@@ -52,7 +53,7 @@ export default async function MiTableroPage({ searchParams }: PageProps) {
     userId,
     advisorName: usuario?.name?.trim() || usuario?.email || "Asesora",
     // Solo el dueño/admin ve lo del equipo: a una asesora las ventas de las demas le agregan ruido.
-    esJefe: access.isOwner || access.role === "ADMIN",
+    esJefe,
     desde: desde || diaDeHoyBogota(),
     hasta: hasta || diaDeHoyBogota(),
   });

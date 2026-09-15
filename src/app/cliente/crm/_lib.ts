@@ -3,6 +3,7 @@ import { getCrmData, getCrmKanbanData } from "@/features/crm";
 import { leerColaboradores, leerMonitores } from "@/lib/channel-collaborators";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { canalesQueMonitorea } from "@/lib/modo-monitoreo";
+import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 
 export type AsesoraDelFiltro = { id: string; nombre: string };
@@ -19,7 +20,8 @@ export type AsesoraDelFiltro = { id: string; nombre: string };
  */
 async function resolverMirada(pedido: string) {
   const access = await requireClientWorkspaceAccess("crm");
-  const esJefe = access.isOwner || access.role === "ADMIN";
+  // Dueño, administradores y supervisoras eligen asesora y ven todo (ver permisos-del-equipo.ts).
+  const esJefe = await puedeSupervisar(access);
 
   /*
     La monitora no es jefa, pero tampoco una asesora: a ella nunca se le asigna un lead (el

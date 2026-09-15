@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
@@ -62,8 +63,6 @@ export function ChannelCollaboratorsForm({
   collaboratorIds,
   pausedAssignmentIds = [],
   monitorIds = [],
-  moduleDefinitions = [],
-  puedeEditarVistas = false,
 }: {
   channelId: string;
   members: CollaboratorMember[];
@@ -207,8 +206,6 @@ export function ChannelCollaboratorsForm({
           estado={
             monitores.includes(editando) ? "monitorea" : paused.includes(editando) ? "pausa" : "recibe"
           }
-          moduleDefinitions={moduleDefinitions}
-          puedeEditarVistas={puedeEditarVistas}
           onClose={() => setEditando(null)}
           onSaved={(estado) => {
             /*
@@ -269,30 +266,18 @@ function ColaboradorDialog({
   channelId,
   member,
   estado,
-  moduleDefinitions,
-  puedeEditarVistas,
   onClose,
   onSaved,
 }: {
   channelId: string;
   member: CollaboratorMember | null;
   estado: EstadoEnElCanal;
-  moduleDefinitions: ModuleDefinition[];
-  puedeEditarVistas: boolean;
   onClose: () => void;
   onSaved: (estado: EstadoEnElCanal) => void;
 }) {
   const router = useRouter();
   const [elegido, setElegido] = useState<EstadoEnElCanal>(estado);
-  const [vistas, setVistas] = useState<string[]>(() => member?.moduleAccess ?? []);
   const [isPending, startTransition] = useTransition();
-
-  const puedeTocarVistas = puedeEditarVistas && Boolean(member?.editableModules);
-
-  const alternarVista = (clave: string) =>
-    setVistas((current) =>
-      current.includes(clave) ? current.filter((x) => x !== clave) : [...current, clave],
-    );
 
   const guardar = () => {
     if (!member) {
@@ -303,7 +288,7 @@ function ColaboradorDialog({
         channelId,
         userId: member.id,
         estado: elegido,
-        modulos: puedeTocarVistas ? vistas : null,
+        modulos: null,
       });
       if (result?.error) {
         toast.error(result.error);
@@ -356,44 +341,17 @@ function ColaboradorDialog({
             </div>
           </div>
 
-          {puedeTocarVistas ? (
-            <div className="space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Qué pantallas ve {member ? memberLabel(member) : ""}
-              </p>
-              {/*
-                Se dice de quien son estas casillas, y hasta donde llegan.
-
-                Son dos malentendidos distintos y los dos salen caros. Uno: parece que fueran del
-                canal, y no -son de la persona en todo el CRM-. Dos, el que importa: parece que
-                destildar "Contactos" se lo quitara a TODO el equipo. Es por persona: quitarselo a
-                una no se lo toca a las demas.
-              */}
-              <p className="text-[11px] leading-snug text-muted-foreground">
-                Solo afectan a esta persona: destildar una no se la quita a nadie más. Valen para
-                toda la aplicación, no solo para este canal.
-              </p>
-              <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-border p-1.5">
-                {moduleDefinitions.map((modulo) => {
-                  const marcado = vistas.includes(modulo.key);
-                  return (
-                    <label
-                      key={modulo.key}
-                      className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] transition hover:bg-muted/60"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={marcado}
-                        onChange={() => alternarVista(modulo.key)}
-                        className="size-4 shrink-0 accent-[var(--primary)]"
-                      />
-                      <span className="min-w-0 truncate text-foreground">{modulo.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
+          {/*
+            Las pantallas y el rol de la persona ya no se editan aca (Alex, 15-sep-2026): son de la
+            persona en toda la aplicacion, no de la linea, y viven en Mi empresa -> Equipo.
+          */}
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            El rol y las pantallas de cada persona se editan en{" "}
+            <Link href="/cliente/equipo" className="font-medium text-[var(--primary)] hover:underline">
+              Mi empresa → Equipo
+            </Link>
+            .
+          </p>
         </div>
 
         <DialogFooter>

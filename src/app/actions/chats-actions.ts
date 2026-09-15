@@ -24,6 +24,7 @@ import {
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { AVISO_MODO_MONITOREO, enmascararTelefono, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
+import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
@@ -1592,6 +1593,8 @@ async function assignOfficialApiChat(input: {
   targetUserId: string | null;
   workspaceId: string;
   role: string;
+  /** Asigna como el jefe (ver permisos-del-equipo.ts). */
+  esSupervisora?: boolean;
   actorId: string;
 }): Promise<{
   ok?: boolean;
@@ -1604,7 +1607,7 @@ async function assignOfficialApiChat(input: {
   });
   if (!conversation) return { error: "Conversacion no encontrada" };
 
-  const isManager = input.role === "OWNER" || input.role === "ADMIN";
+  const isManager = input.role === "OWNER" || input.role === "ADMIN" || input.esSupervisora === true;
   if (!isManager) {
     const esChatPropio =
       !conversation.assignedToUserId || conversation.assignedToUserId === input.actorId;
@@ -1664,6 +1667,7 @@ export async function assignChatAction(input: {
       targetUserId,
       workspaceId: membership.workspace.id,
       role: membership.role,
+      esSupervisora: await esSupervisora(membership.workspace.id, session.user.id),
       actorId: session.user.id,
     });
   }
@@ -1677,7 +1681,11 @@ export async function assignChatAction(input: {
   // OWNER/ADMIN pueden asignar a cualquiera. Una asesora manda sobre SUS chats (y sobre los
   // que no tienen dueño): puede tomarlos, soltarlos y pasarlos a una companera —a alguien con
   // mas experiencia, por ejemplo—, pero no puede meterse con el chat de otra ni quitarselo.
-  const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
+  // La supervisora asigna como el jefe (ver permisos-del-equipo.ts).
+  const isManager =
+    membership.role === "OWNER" ||
+    membership.role === "ADMIN" ||
+    (await esSupervisora(membership.workspace.id, session.user.id));
   if (!isManager) {
     const esChatPropio =
       !conversation.assignedToUserId || conversation.assignedToUserId === session.user.id;

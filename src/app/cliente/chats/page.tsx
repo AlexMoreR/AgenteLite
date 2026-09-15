@@ -28,6 +28,7 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
+import { esSupervisora } from "@/lib/permisos-del-equipo";
 import {
   idsSinResponder,
   leerFiltrosDeBandeja,
@@ -232,7 +233,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
 
-  const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
+  // La supervisora ve "Todas" y asigna como el jefe, pero sigue viendo solo sus lineas (canalesVisibles).
+  const isManager =
+    membership.role === "OWNER" ||
+    membership.role === "ADMIN" ||
+    (await esSupervisora(membership.workspace.id, access.userId));
 
   // La firma va al compositor para que se VEA y se pueda borrar antes de enviar. Antes se pegaba
   // en el servidor: la asesora no la veia y no habia forma de sacarla cuando no correspondia.
