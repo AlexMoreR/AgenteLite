@@ -138,8 +138,7 @@ function LeadCard({ lead, mode, onRegister, puedeMarcarEnLaApp }: { lead: Llamad
         {/*
           Solo cuando hay una llamada hablada sin clasificar (pedido de Alex, 14-sep-2026). Las
           llamadas del marcador ya se anotan solas -las no contestadas, con su resultado-, asi que
-          "Registrar" en cada tarjeta era un paso de mas. Una hecha desde el celular se carga con
-          "Registrar llamada", arriba de todo.
+          "Registrar" en cada tarjeta era un paso de mas.
         */}
         {lead.pendingAttemptId ? (
           <Button
@@ -447,16 +446,9 @@ export function LlamadasWorkspace({
         Sin titulo ni bajada: el encabezado de la app ya dice "Llamadas" dos centimetros mas
         arriba, y la bajada explicaba una pantalla que se explica sola.
 
-        "Registrar llamada" queda, pero en secundario: desde que WaCalls las anota solas, cargar
-        una a mano es la excepcion —una hecha desde el celular, o una vieja que hay que meter
-        retroactiva—, y en azul competia con el trabajo de verdad, que es clasificar las que ya
-        estan.
+        Sin "Registrar llamada" (Alex, 14-sep-2026): las llamadas se hacen desde el marcador del CRM,
+        que las anota solas y las graba; lo unico que queda es decir como quedo.
       */}
-      <div className="mb-4 flex justify-end">
-        <Button variant="outline" size="sm" onClick={() => openRegister(null)}>
-          Registrar llamada
-        </Button>
-      </div>
 
       {/* "Resumen" lo ve CUALQUIERA (cada una manda el suyo); "Tablero" solo el dueño. */}
       <Tabs defaultValue={pestanaInicial}>

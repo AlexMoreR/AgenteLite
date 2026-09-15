@@ -27,8 +27,10 @@ import {
 import {
   registerCallAttemptAction,
   searchContactsForCallAction,
+  sugerenciaDeLlamadaAction,
   type CallContactSearchItem,
 } from "@/app/actions/call-actions";
+import type { SugerenciaDeLlamada } from "@/lib/llamada-transcripcion";
 
 /*
   El formulario de "¿Como quedo la llamada?" vive aparte porque se abre desde DOS lugares: la
@@ -84,6 +86,47 @@ export function RegisterCallDialog({
   const [lostReason, setLostReason] = useState<string>(CRM_LOST_REASONS[0].value);
   const [otroDetalle, setOtroDetalle] = useState("");
   const [calledAt, setCalledAt] = useState(todayInputValue());
+  const [verTranscripcion, setVerTranscripcion] = useState(false);
+
+  /*
+    Sugerencia de la IA a partir de la grabacion: resultado, resumen y proximo contacto ya puestos,
+    para que confirmar sea un toque. `sugerencia.attemptId` dice de que llamada es; mientras no
+    coincida con la abierta, se esta escuchando.
+  */
+  const [sugerencia, setSugerencia] = useState<{
+    attemptId: string;
+    datos: SugerenciaDeLlamada | null;
+    error: string | null;
+  } | null>(null);
+  const idPendiente = open ? preset?.pendingAttemptId ?? null : null;
+  const escuchando = Boolean(idPendiente) && sugerencia?.attemptId !== idPendiente;
+
+  useEffect(() => {
+    if (!idPendiente) {
+      return;
+    }
+    let vigente = true;
+    sugerenciaDeLlamadaAction(idPendiente)
+      .then((respuesta) => {
+        if (!vigente) return;
+        if ("error" in respuesta) {
+          setSugerencia({ attemptId: idPendiente, datos: null, error: respuesta.error });
+          return;
+        }
+        const datos = respuesta.sugerencia;
+        setSugerencia({ attemptId: idPendiente, datos, error: null });
+        if (datos?.resultado) setResult(datos.resultado);
+        if (datos?.motivoPerdida) setLostReason(datos.motivoPerdida);
+        if (datos?.resumen) setSummary((actual) => actual || datos.resumen);
+        if (datos?.proximoContacto) setNextContact((actual) => actual || datos.proximoContacto || "");
+      })
+      .catch(() => {
+        if (vigente) setSugerencia({ attemptId: idPendiente, datos: null, error: "No se pudo escuchar la grabación" });
+      });
+    return () => {
+      vigente = false;
+    };
+  }, [idPendiente]);
 
   // Sincroniza el preset cuando se abre desde otra tarjeta.
   const effectivePreset = preset;
@@ -211,6 +254,37 @@ export function RegisterCallDialog({
                     </div>
                   ) : null}
                 </div>
+              )}
+            </div>
+          ) : null}
+
+          {idPendiente ? (
+            <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-[13px]">
+              {escuchando ? (
+                <p className="text-muted-foreground">Escuchando la grabación…</p>
+              ) : sugerencia?.datos ? (
+                <div className="space-y-1.5">
+                  <p className="text-foreground">
+                    <span className="font-medium">Sugerido por la IA</span>
+                    <span className="text-muted-foreground"> según la grabación. Revisalo antes de guardar.</span>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setVerTranscripcion((valor) => !valor)}
+                    className="text-[12px] font-medium text-[var(--primary)] hover:underline"
+                  >
+                    {verTranscripcion ? "Ocultar transcripción" : "Ver transcripción"}
+                  </button>
+                  {verTranscripcion ? (
+                    <p className="max-h-48 overflow-y-auto whitespace-pre-wrap text-[12px] leading-5 text-muted-foreground">
+                      {sugerencia.datos.transcripcion || "(La grabación no tiene voz que se entienda)"}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-muted-foreground">
+                  {sugerencia?.error ?? "Esta llamada no tiene grabación para escuchar."}
+                </p>
               )}
             </div>
           ) : null}

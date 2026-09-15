@@ -208,7 +208,12 @@ export async function getLlamadasVendedoraData(
         },
       },
     });
-    sinRegistrar = pendientes.map((intento) => ({
+    // Una tarjeta por cliente: la llamada mas reciente (vienen de la mas nueva a la mas vieja). Al
+    // clasificarla se cierran tambien las anteriores que quedaron pendientes (registerCallAttemptAction).
+    const unaPorCliente = pendientes.filter(
+      (intento, indice) => pendientes.findIndex((otro) => otro.contact.id === intento.contact.id) === indice,
+    );
+    sinRegistrar = unaPorCliente.map((intento) => ({
       contactId: intento.contact.id,
       name: intento.contact.name?.trim() || intento.contact.phoneNumber,
       phoneNumber: intento.contact.phoneNumber,

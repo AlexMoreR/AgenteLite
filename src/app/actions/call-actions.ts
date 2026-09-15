@@ -15,10 +15,12 @@ import {
   CALL_RESULTS,
   CALL_RESULT_LOST,
   CALL_RESULT_STAGE_EFFECT,
+  CALL_RESULT_PENDING,
   getCallResultLabel,
   isPendingCallResult,
   type CallResult, motivoOtroSinDetalle } from "@/features/crm/domain/crm-config";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
+import { transcribirYResumirLlamada, type SugerenciaDeLlamada } from "@/lib/llamada-transcripcion";
 
 const CALL_RESULT_VALUES = CALL_RESULTS.map((result) => result.value) as [string, ...string[]];
 
@@ -91,6 +93,38 @@ export async function ultimaLlamadaDelContactoAction(contactId: string): Promise
     calledAt: intento.calledAt.toISOString(),
     intento: intento.attemptNumber,
   };
+}
+
+/**
+ * La transcripcion y el resultado sugerido de una llamada grabada, para llenar "¿Cómo quedó?".
+ *
+ * Si todavia no se habia transcrito (llamadas anteriores a esto, o fallo al guardar la grabacion),
+ * se hace ahora: tarda unos segundos y el formulario muestra que esta escuchando.
+ */
+export async function sugerenciaDeLlamadaAction(
+  attemptId: string,
+): Promise<{ sugerencia: SugerenciaDeLlamada | null } | { error: string }> {
+  const session = await auth();
+  if (!session?.user?.id || typeof attemptId !== "string" || !attemptId.trim()) {
+    return { error: "No autorizado" };
+  }
+  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  if (!access || !canAccessClientModule(access, "llamadas")) {
+    return { error: "No autorizado" };
+  }
+  const intento = await prisma.callAttempt.findFirst({
+    where: { id: attemptId.trim(), workspaceId: access.workspaceId },
+    select: { id: true },
+  });
+  if (!intento) {
+    return { error: "Esa llamada ya no está disponible" };
+  }
+  try {
+    return { sugerencia: await transcribirYResumirLlamada(intento.id) };
+  } catch (error) {
+    console.warn("[llamadas] no se pudo transcribir", error);
+    return { error: "No se pudo escuchar la grabación" };
+  }
 }
 
 const SOLO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
@@ -214,6 +248,20 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
         nextContactAt,
         lostReason,
       },
+    });
+    /*
+      Las llamadas ANTERIORES del mismo cliente que seguian sin clasificar quedan con el mismo
+      resultado. En "Sin registrar" se muestra una tarjeta por cliente (la ultima llamada); sin esto
+      las viejas nunca se cerraban y el cliente volvia a aparecer repetido.
+    */
+    await prisma.callAttempt.updateMany({
+      where: {
+        workspaceId,
+        contactId: contact.id,
+        result: CALL_RESULT_PENDING,
+        calledAt: { lt: paraCompletar.calledAt },
+      },
+      data: { calledByUserId: session.user.id, result: parsed.data.result, lostReason },
     });
   } else {
     // intento_numero = cuántas llamadas ya tiene este lead + 1.

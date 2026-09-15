@@ -9,6 +9,7 @@ import { normalizePhoneFromJid } from "@/lib/evolution-webhook";
 import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { getWaCallsBaseUrl } from "@/lib/wacalls";
 import { CALL_RESULT_PENDING } from "@/features/crm/domain/crm-config";
+import { transcribirYResumirLlamada } from "@/lib/llamada-transcripcion";
 
 export const dynamic = "force-dynamic";
 
@@ -483,6 +484,17 @@ async function guardarLaGrabacion(input: { attemptId: string; sessionId: string;
 
       console.info(`[wacalls] grabacion guardada: ${nombre} (${Math.round(audio.length / 1024)} KB)`);
       revalidatePath("/cliente/llamadas");
+
+      /*
+        Si hablaron, la llamada se pasa a texto y se resume ya: cuando la asesora abra "¿Cómo quedó?"
+        la sugerencia esta lista. Si falla, se reintenta sola al abrir el formulario.
+      */
+      const intento = await prisma.callAttempt.findUnique({ where: { id: input.attemptId }, select: { result: true } });
+      if (intento?.result === CALL_RESULT_PENDING) {
+        await transcribirYResumirLlamada(input.attemptId).catch((error) =>
+          console.warn("[wacalls] no se pudo transcribir la grabacion", error),
+        );
+      }
       return;
     } catch (error) {
       console.warn("[wacalls] no se pudo traer la grabacion", error);
