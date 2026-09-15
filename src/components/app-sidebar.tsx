@@ -18,6 +18,7 @@ import {
   MessageSquareMore,
   Package,
   PhoneCall,
+  Plug,
   Share2,
   Tags,
   Truck,
@@ -202,6 +203,16 @@ export function AppSidebar({
                   >
                     <Workflow />
                     <span>Automatizaciones</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                {/* Conectar Claude por MCP: mismo criterio, es de jefe (la clave ve todo el negocio). */}
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    render={<Link href="/cliente/claude" />}
+                    isActive={pathname.startsWith("/cliente/claude")}
+                  >
+                    <Plug />
+                    <span>Claude</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
