@@ -527,12 +527,6 @@ export function CrmRegistroTable({
                 </span>
               </TableHead>
               <TableHead className="px-2 py-1 normal-case tracking-normal">
-                <span className="inline-flex items-center gap-2 text-[13px] font-normal text-muted-foreground">
-                  <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                  Detalle
-                </span>
-              </TableHead>
-              <TableHead className="px-2 py-1 normal-case tracking-normal">
                 <HeaderLabel
                   active={sortKey === "estado"}
                   direction={sortDirection}
@@ -550,7 +544,7 @@ export function CrmRegistroTable({
           <TableBody>
             {pagedRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="px-1.5 py-0.5 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="px-1.5 py-0.5 text-center text-muted-foreground">
                   No hay registros para el filtro actual.
                 </TableCell>
               </TableRow>
@@ -607,17 +601,6 @@ export function CrmRegistroTable({
                           </Badge>
                         ))}
                       </div>
-                    </TableCell>
-                    <TableCell className="max-w-[18rem] px-1.5 py-0.5 text-[13px] leading-5 text-muted-foreground">
-                      <HoverCard>
-                        <HoverCardTrigger className="block w-full cursor-help truncate text-left">
-                          {record.detail}
-                        </HoverCardTrigger>
-                        <HoverCardContent className="max-w-md border border-border bg-card p-3 text-[12px] leading-6 text-foreground shadow-[0_16px_34px_-28px_rgba(15,23,42,0.2)]">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Detalle completo</p>
-                          <p className="mt-2 whitespace-pre-wrap text-[13px]">{record.detail}</p>
-                        </HoverCardContent>
-                      </HoverCard>
                     </TableCell>
                     <TableCell className="px-1.5 py-0.5">
                       <Select
