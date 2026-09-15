@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 
-import { ArrowRight, Phone, Snowflake, TrendingUp, Trophy, Users, type LucideIcon } from "lucide-react";
+import { ArrowRight, ChevronRight, Phone, Snowflake, TrendingUp, Trophy, Users, type LucideIcon } from "lucide-react";
 
 import { useSetBreadcrumbLabel } from "@/components/breadcrumb-label-context";
 import { getCrmStageLabel } from "../domain/crm-config";
 import type { MiTableroData } from "../services/getMiTableroData";
+import type { TipoDeDetalle } from "../services/getDetalleDelTablero";
+import { DetalleDelTableroDialog } from "./DetalleDelTableroDialog";
 import { SelectorDeRango } from "./SelectorDeRango";
 
 /**
@@ -15,16 +18,11 @@ import { SelectorDeRango } from "./SelectorDeRango";
  * Va aparte del informe del CRM a proposito: ese es del negocio y esta pensado para el jefe.
  * Esta pantalla responde lo que a ella le importa —cuanto tengo, cuanto movi, cuanto cerre— y
  * termina siempre empujando a Mi dia, que es donde estan las tareas del dia.
+ *
+ * Cada cifra se puede tocar y muestra QUIENES son (Alex, 15-sep-2026): un numero solo no dice que
+ * hacer; la lista lleva a cada chat.
  */
 
-/**
- * Tarjeta de estadistica: rotulo arriba, cifra y contexto en la misma linea.
- *
- * Sin icono y con la cifra mas chica que antes. Cuatro tarjetas con icono grande y numero enorme
- * competian entre si y con el resto de la pantalla; lo que se mira de reojo es el numero, y para
- * eso no hace falta que grite. El contexto ("1 en la semana") va pegado a la cifra en vez de en
- * un renglon aparte: se lee de un golpe.
- */
 /*
   Cada cifra con su color y su dibujito, en dos columnas en el celular.
 
@@ -45,27 +43,34 @@ function Tarjeta({
   detalle,
   icono: Icono,
   acento,
+  alTocar,
 }: {
   titulo: string;
   valor: number;
   detalle: string;
   icono: LucideIcon;
   acento: keyof typeof ACENTOS;
+  alTocar: () => void;
 }) {
   const colores = ACENTOS[acento];
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-3.5 sm:p-4">
-      <div className="flex items-center gap-2">
+    <button
+      type="button"
+      onClick={alTocar}
+      className="group flex flex-col gap-3 rounded-2xl border border-border bg-card p-3.5 text-left transition hover:border-[var(--primary)]/40 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:p-4"
+    >
+      <div className="flex w-full items-center gap-2">
         <span className={`inline-flex size-8 shrink-0 items-center justify-center rounded-xl ${colores.chip}`}>
           <Icono className="size-4" />
         </span>
-        <p className="truncate text-[13px] font-medium text-muted-foreground">{titulo}</p>
+        <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-muted-foreground">{titulo}</p>
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground/50 transition group-hover:text-foreground" />
       </div>
       <div>
         <span className={`block text-3xl font-semibold leading-none tabular-nums ${colores.cifra}`}>{valor}</span>
         <span className="mt-1 block truncate text-[11px] text-muted-foreground">{detalle}</span>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -79,11 +84,15 @@ const COLOR_DE_ETAPA: Record<string, string> = {
 
 export function MiTableroView({
   data,
+  userId,
   esDeOtraPersona = false,
 }: {
   data: MiTableroData;
+  /** De quien es el tablero: la lista de cada cifra se pide para esta persona. */
+  userId: string;
   esDeOtraPersona?: boolean;
 }) {
+  const [lista, setLista] = useState<{ tipo: TipoDeDetalle; titulo: string } | null>(null);
   const vivos = data.porEtapa.filter((fila) => !["GANADO", "PERDIDO"].includes(fila.stage));
   const maximo = Math.max(1, ...vivos.map((fila) => fila.count));
   const totalVivos = vivos.reduce((suma, fila) => suma + fila.count, 0);
@@ -92,6 +101,8 @@ export function MiTableroView({
 
   // Mirando el tablero de otra persona va su nombre: no es su tablero, lo esta revisando.
   useSetBreadcrumbLabel(esDeOtraPersona ? data.advisorName : `Hola, ${primerNombre} 👋`);
+
+  const abrir = (tipo: TipoDeDetalle, titulo: string) => setLista({ tipo, titulo });
 
   return (
     <div className="space-y-4">
@@ -122,10 +133,32 @@ export function MiTableroView({
           detalle={esDeOtraPersona ? "Chats que son suyos" : "Chats que son tuyos"}
           icono={Users}
           acento="violeta"
+          alTocar={() => abrir("leads", "Leads a cargo")}
         />
-        <Tarjeta titulo="Movidos" valor={data.movidos} detalle="Con movimiento" icono={TrendingUp} acento="azul" />
-        <Tarjeta titulo="Llamadas" valor={data.llamadas} detalle="Registradas" icono={Phone} acento="celeste" />
-        <Tarjeta titulo="Ventas" valor={data.ventas} detalle="Cerradas" icono={Trophy} acento="verde" />
+        <Tarjeta
+          titulo="Movidos"
+          valor={data.movidos}
+          detalle="Con movimiento"
+          icono={TrendingUp}
+          acento="azul"
+          alTocar={() => abrir("movidos", "Movidos")}
+        />
+        <Tarjeta
+          titulo="Llamadas"
+          valor={data.llamadas}
+          detalle="Registradas"
+          icono={Phone}
+          acento="celeste"
+          alTocar={() => abrir("llamadas", "Llamadas")}
+        />
+        <Tarjeta
+          titulo="Ventas"
+          valor={data.ventas}
+          detalle="Cerradas"
+          icono={Trophy}
+          acento="verde"
+          alTocar={() => abrir("ventas", "Ventas")}
+        />
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
@@ -150,9 +183,14 @@ export function MiTableroView({
               )}
             </div>
           ) : null}
-          <div className="mt-4 space-y-3">
+          <div className="mt-3 space-y-0.5">
             {vivos.map((fila) => (
-              <div key={fila.stage} className="flex items-center gap-3">
+              <button
+                key={fila.stage}
+                type="button"
+                onClick={() => abrir(`etapa:${fila.stage}`, `Leads en ${getCrmStageLabel(fila.stage)}`)}
+                className="flex w-full items-center gap-3 rounded-lg px-1 py-1.5 text-left transition hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
                 <span className={`size-2.5 shrink-0 rounded-full ${COLOR_DE_ETAPA[fila.stage] ?? "bg-[var(--primary)]"}`} />
                 <span className="w-16 shrink-0 text-[13px] text-muted-foreground">{getCrmStageLabel(fila.stage)}</span>
                 <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
@@ -164,23 +202,30 @@ export function MiTableroView({
                 <span className="w-7 shrink-0 text-right text-[13px] font-semibold tabular-nums text-foreground">
                   {fila.count}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
 
         {/* Lo unico que esta pantalla senala como problema: leads suyos que se estan enfriando.
-            Es accionable de una — por eso el boton lleva directo a la lista del dia. */}
+            Es accionable de una — por eso la cifra abre la lista y el boton lleva a Mi dia. */}
         <div className="rounded-xl border border-border bg-card p-4">
-          <div className="flex items-center gap-2 text-[13px] font-medium text-foreground">
-            <Snowflake className="size-4 text-sky-500" />
-            {esDeOtraPersona ? "Se le están enfriando" : "Se te están enfriando"}
-          </div>
-          <p className="mt-2 text-3xl font-semibold tabular-nums text-foreground">{data.enfriandose}</p>
-          <p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">
-            Leads {esDeOtraPersona ? "suyos" : "tuyos"}, todavía vivos, con más de 5 días sin que
-            nadie los toque. Son los que se pierden sin que nadie se dé cuenta.
-          </p>
+          <button
+            type="button"
+            onClick={() => abrir("enfriandose", esDeOtraPersona ? "Se le están enfriando" : "Se te están enfriando")}
+            className="group -m-1 w-[calc(100%+0.5rem)] rounded-lg p-1 text-left transition hover:bg-muted/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <div className="flex items-center gap-2 text-[13px] font-medium text-foreground">
+              <Snowflake className="size-4 text-sky-500" />
+              <span className="flex-1">{esDeOtraPersona ? "Se le están enfriando" : "Se te están enfriando"}</span>
+              <ChevronRight className="size-4 text-muted-foreground/50 transition group-hover:text-foreground" />
+            </div>
+            <p className="mt-2 text-3xl font-semibold tabular-nums text-foreground">{data.enfriandose}</p>
+            <p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">
+              Leads {esDeOtraPersona ? "suyos" : "tuyos"}, todavía vivos, con más de 5 días sin que
+              nadie los toque. Son los que se pierden sin que nadie se dé cuenta.
+            </p>
+          </button>
           {data.enfriandose > 0 && !esDeOtraPersona ? (
             <Link
               href="/cliente/crm/mi-dia"
@@ -192,6 +237,16 @@ export function MiTableroView({
           ) : null}
         </div>
       </div>
+
+      <DetalleDelTableroDialog
+        abierto={Boolean(lista)}
+        alCerrar={() => setLista(null)}
+        titulo={lista?.titulo ?? ""}
+        tipo={lista?.tipo ?? null}
+        userId={userId}
+        desde={data.desde}
+        hasta={data.hasta}
+      />
     </div>
   );
 }

@@ -59,7 +59,7 @@ export default async function MiTableroPage({ searchParams }: PageProps) {
 
   return (
     <section className="p-4 md:p-6">
-      <MiTableroView data={data} esDeOtraPersona={userId !== access.userId} />
+      <MiTableroView data={data} userId={userId} esDeOtraPersona={userId !== access.userId} />
     </section>
   );
 }

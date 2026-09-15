@@ -21,7 +21,7 @@ function inicioDelDiaBogota(now: Date) {
 }
 
 /** "2026-08-03" (dia de Bogota) -> el instante en que arranca ese dia. */
-function inicioDeLaFecha(dia: string | null, now: Date): Date {
+export function inicioDeLaFecha(dia: string | null, now: Date): Date {
   const partes = (dia ?? "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!partes) {
     return inicioDelDiaBogota(now);
@@ -63,7 +63,7 @@ export type MiTableroData = {
   enfriandose: number;
 };
 
-const ETAPAS_VIVAS: CrmStage[] = ["NUEVO", "CALIFICADO", "PROPUESTA", "NEGOCIACION"];
+export const ETAPAS_VIVAS: CrmStage[] = ["NUEVO", "CALIFICADO", "PROPUESTA", "NEGOCIACION"];
 
 export async function getMiTableroData(input: {
   workspaceId: string;
