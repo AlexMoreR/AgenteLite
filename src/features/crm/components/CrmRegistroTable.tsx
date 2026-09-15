@@ -13,6 +13,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
+import {
+  CRM_DATE_RANGE_DEFAULT,
+  CRM_DATE_RANGE_OPTIONS,
+  getCrmDateRangeLabel,
+  isInCrmDateRange,
+  type CrmDateRange,
+} from "../domain/crm-date-range";
 import { CRM_STAGE_ORDER, getCrmOriginLabel, getCrmOriginMeta, getCrmStageMeta, getCrmStageLabel } from "../domain/crm-config";
 import type { CrmRecord, CrmStage } from "../types";
 
@@ -20,13 +27,8 @@ type SortKey = "numero" | "nombre" | "fecha" | "estado";
 type SortDirection = "asc" | "desc";
 
 const PAGE_SIZE = 10;
-const DATE_RANGE_LABELS: Record<string, string> = {
-  "1": "1 Dia",
-  "7": "7 Dias",
-  "15": "15 Dias",
-  "30": "30 Dias",
-  __all__: "Todos",
-};
+// Sobre el fondo gris de la pagina, los controles transparentes casi no se veian.
+const FILTER_CONTROL_CLASS = "bg-card shadow-xs";
 
 function formatCrmDate(value: string) {
   const date = new Date(value);
@@ -143,7 +145,7 @@ export function CrmRegistroTable({
   const [editableRecords, setEditableRecords] = React.useState(records);
   const [query, setQuery] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<CrmStage | "__all__">("__all__");
-  const [dateRangeFilter, setDateRangeFilter] = React.useState<"1" | "7" | "15" | "30" | "__all__">("1");
+  const [dateRangeFilter, setDateRangeFilter] = React.useState<CrmDateRange>(CRM_DATE_RANGE_DEFAULT);
   const [sortKey, setSortKey] = React.useState<SortKey>("fecha");
   const [sortDirection, setSortDirection] = React.useState<SortDirection>("desc");
   const [page, setPage] = React.useState(1);
@@ -160,11 +162,8 @@ export function CrmRegistroTable({
 
   const filteredRecords = React.useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    const maxAgeDays = dateRangeFilter === "__all__" ? null : Number(dateRangeFilter);
-    const now = new Date(referenceNow).getTime();
 
     return editableRecords.filter((record) => {
-      const recordAgeDays = (now - new Date(record.date).getTime()) / (1000 * 60 * 60 * 24);
       const haystack = [
         record.number,
         record.name,
@@ -178,7 +177,7 @@ export function CrmRegistroTable({
 
       const queryMatches = !normalizedQuery || haystack.includes(normalizedQuery);
       const statusMatches = statusFilter === "__all__" || record.status === statusFilter;
-      const dateMatches = maxAgeDays === null || recordAgeDays <= maxAgeDays;
+      const dateMatches = isInCrmDateRange(record.date, dateRangeFilter, referenceNow);
 
       return queryMatches && statusMatches && dateMatches;
     });
@@ -237,7 +236,7 @@ export function CrmRegistroTable({
   const clearFilters = () => {
     setQuery("");
     setStatusFilter("__all__");
-    setDateRangeFilter("1");
+    setDateRangeFilter(CRM_DATE_RANGE_DEFAULT);
   };
 
   const handleCopy = async (value: string, field: string) => {
@@ -312,7 +311,7 @@ export function CrmRegistroTable({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar por numero, nombre, origen, detalle o etiqueta"
-            className="h-9 pr-9 pl-9 text-sm"
+            className={`h-9 pr-9 pl-9 text-sm ${FILTER_CONTROL_CLASS}`}
           />
           {query ? (
             <button
@@ -331,7 +330,7 @@ export function CrmRegistroTable({
             value={statusFilter}
             onValueChange={(value) => setStatusFilter(value as CrmStage | "__all__")}
           >
-            <SelectTrigger className="h-9 w-full sm:w-auto sm:min-w-40" aria-label="Filtrar por estado">
+            <SelectTrigger className={`h-9 w-full sm:w-auto sm:min-w-40 ${FILTER_CONTROL_CLASS}`} aria-label="Filtrar por estado">
               <SelectValue placeholder="Estados">
                 {(value) => (value === "__all__" ? "Estados" : getCrmStageLabel(value as CrmStage))}
               </SelectValue>
@@ -347,17 +346,17 @@ export function CrmRegistroTable({
           </Select>
           <Select
             value={dateRangeFilter}
-            onValueChange={(value) => setDateRangeFilter(value as "__all__" | "1" | "7" | "15" | "30")}
+            onValueChange={(value) => setDateRangeFilter(value as CrmDateRange)}
           >
-            <SelectTrigger className="h-9 w-full sm:w-auto sm:min-w-40" aria-label="Filtrar por rango de dias">
-              <SelectValue>{(value) => DATE_RANGE_LABELS[value as string] ?? "Todos"}</SelectValue>
+            <SelectTrigger className={`h-9 w-full sm:w-auto sm:min-w-40 ${FILTER_CONTROL_CLASS}`} aria-label="Filtrar por rango de dias">
+              <SelectValue>{(value) => getCrmDateRangeLabel(value as string)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="1">1 Dia</SelectItem>
-              <SelectItem value="7">7 Dias</SelectItem>
-              <SelectItem value="15">15 Dias</SelectItem>
-              <SelectItem value="30">30 Dias</SelectItem>
-              <SelectItem value="__all__">Todos</SelectItem>
+              {CRM_DATE_RANGE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Button

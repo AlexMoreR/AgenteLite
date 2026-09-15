@@ -2,7 +2,16 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronUp, MessageCircle, Pencil, Phone } from "lucide-react";
+import { ChevronDown, ChevronUp, MessageCircle, Pencil, Phone, Search, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  CRM_DATE_RANGE_DEFAULT,
+  CRM_DATE_RANGE_OPTIONS,
+  getCrmDateRangeLabel,
+  isInCrmDateRange,
+  type CrmDateRange,
+} from "../domain/crm-date-range";
 import { Card } from "@/components/ui/card";
 import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { Button } from "@/components/ui/button";
@@ -342,13 +351,40 @@ function KanbanDetailModal({
 
 export function CrmKanbanBoard({
   columns,
+  referenceNow,
   soloLectura = false,
+  filtroExtra,
 }: {
   columns: CrmColumn[];
+  referenceNow: string;
   /** Modo monitoreo: ve el tablero, no arrastra ni edita. El servidor lo rechaza igual. */
   soloLectura?: boolean;
+  /** Control que se suma a la fila de filtros (hoy: el selector de asesora). */
+  filtroExtra?: React.ReactNode;
 }) {
   const [localColumns, setLocalColumns] = React.useState(columns);
+  const [query, setQuery] = React.useState("");
+  const [dateRange, setDateRange] = React.useState<CrmDateRange>(CRM_DATE_RANGE_DEFAULT);
+
+  // Se filtra al dibujar y no sobre localColumns: arrastrar y guardar siguen trabajando con todo.
+  const visibleColumns = React.useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return localColumns.map((column) => ({
+      ...column,
+      records: column.records.filter((record) => {
+        if (!isInCrmDateRange(record.date, dateRange, referenceNow)) {
+          return false;
+        }
+        if (!normalizedQuery) {
+          return true;
+        }
+        return [record.name, record.number, record.detail, ...record.tags.map((tag) => tag.label)]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedQuery);
+      }),
+    }));
+  }, [dateRange, localColumns, query, referenceNow]);
   const [draggedRecordId, setDraggedRecordId] = React.useState<string | null>(null);
   const [savingRecordIds, setSavingRecordIds] = React.useState<Record<string, boolean>>({});
   const [dropTargetStage, setDropTargetStage] = React.useState<CrmColumn["stage"] | null>(null);
@@ -513,9 +549,45 @@ export function CrmKanbanBoard({
   };
 
   return (
+    <div className="space-y-3">
+      <div className="flex w-full flex-col gap-2 lg:flex-row lg:items-center">
+        {filtroExtra}
+        <div className="relative w-full flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Buscar por numero, nombre, detalle o etiqueta"
+            className="h-9 bg-card pr-9 pl-9 text-sm shadow-xs"
+          />
+          {query ? (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted"
+              aria-label="Limpiar busqueda"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
+        <Select value={dateRange} onValueChange={(value) => setDateRange(value as CrmDateRange)}>
+          <SelectTrigger className="h-9 w-full bg-card shadow-xs sm:w-auto sm:min-w-40" aria-label="Filtrar por rango de dias">
+            <SelectValue>{(value) => getCrmDateRangeLabel(value as string)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {CRM_DATE_RANGE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
     <div className="overflow-x-auto pb-2">
       <div className="grid min-w-[1320px] grid-cols-6 gap-3">
-        {localColumns.map((column) => {
+        {visibleColumns.map((column) => {
           const meta = getCrmStageMeta(column.stage);
           const isDropTarget = dropTargetStage === column.stage;
 
@@ -720,6 +792,7 @@ export function CrmKanbanBoard({
           }
         />
       ) : null}
+    </div>
     </div>
   );
 }

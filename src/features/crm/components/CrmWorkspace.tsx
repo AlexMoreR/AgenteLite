@@ -168,7 +168,7 @@ export function CrmWorkspace({
         </TabsContent>
 
         <TabsContent value="kanban">
-          <CrmKanbanBoard columns={data.columns} />
+          <CrmKanbanBoard columns={data.columns} referenceNow={data.generatedAt} />
         </TabsContent>
 
         <TabsContent value="informe" className="space-y-3">

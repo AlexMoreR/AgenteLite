@@ -51,7 +51,7 @@ export function SelectorDeAsesora({
         disabled={pendiente}
         aria-label="Ver los leads de"
         onChange={(evento) => cambiar(evento.target.value)}
-        className="h-9 min-w-44"
+        className="h-9 min-w-44 rounded-lg bg-card shadow-xs [&_select]:h-9"
       >
         <NativeSelectOption value="">Todo el equipo</NativeSelectOption>
         {asesoras.map((asesora) => (

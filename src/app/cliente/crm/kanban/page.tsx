@@ -24,15 +24,19 @@ export default async function ClienteCrmKanbanPage({ searchParams }: PageProps) 
 
   return (
     <section className="space-y-3 p-6">
-      {data.asesoras.length > 0 ? (
-        <div className="flex justify-end">
-          <SelectorDeAsesora asesoras={data.asesoras} elegida={data.asesoraElegida} />
-        </div>
-      ) : null}
-
       <CrmStatsCards data={data} />
 
-      <CrmKanbanBoard columns={data.columns} soloLectura={data.soloLectura} />
+      {/* Los filtros van debajo de las estadisticas, en la misma fila que el Registro. */}
+      <CrmKanbanBoard
+        columns={data.columns}
+        referenceNow={data.generatedAt}
+        soloLectura={data.soloLectura}
+        filtroExtra={
+          data.asesoras.length > 0 ? (
+            <SelectorDeAsesora asesoras={data.asesoras} elegida={data.asesoraElegida} />
+          ) : null
+        }
+      />
     </section>
   );
 }
