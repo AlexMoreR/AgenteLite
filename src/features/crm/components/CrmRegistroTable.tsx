@@ -273,7 +273,7 @@ export function CrmRegistroTable({
 
   const exportCsv = () => {
     const lines = [
-      ["Numero", "Nombre", "Origen", "Fecha", "Etiquetas", "Detalle", "Estado"].join(","),
+      ["Numero", "Nombre", "Origen", "Fecha", "Etiquetas", "Detalle", "Etapa"].join(","),
       ...sortedRecords.map((record) =>
         [
           record.number,
@@ -330,13 +330,13 @@ export function CrmRegistroTable({
             value={statusFilter}
             onValueChange={(value) => setStatusFilter(value as CrmStage | "__all__")}
           >
-            <SelectTrigger className={`h-9 w-full sm:w-auto sm:min-w-40 ${FILTER_CONTROL_CLASS}`} aria-label="Filtrar por estado">
-              <SelectValue placeholder="Estados">
-                {(value) => (value === "__all__" ? "Estados" : getCrmStageLabel(value as CrmStage))}
+            <SelectTrigger className={`h-9 w-full sm:w-auto sm:min-w-40 ${FILTER_CONTROL_CLASS}`} aria-label="Filtrar por etapa">
+              <SelectValue placeholder="Etapas">
+                {(value) => (value === "__all__" ? "Etapas" : getCrmStageLabel(value as CrmStage))}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__all__">Estados</SelectItem>
+              <SelectItem value="__all__">Etapas</SelectItem>
               {statusOptions.map((status) => (
                 <SelectItem key={status.value} value={status.value}>
                   {status.label}
@@ -533,7 +533,7 @@ export function CrmRegistroTable({
                   onClick={() => toggleSort("estado")}
                   icon={<ChartNoAxesCombined className="h-3.5 w-3.5" />}
                 >
-                  Estado
+                  Etapa
                 </HeaderLabel>
               </TableHead>
               <TableHead className="px-2 py-1 normal-case tracking-normal">
@@ -613,7 +613,10 @@ export function CrmRegistroTable({
                           aria-label={`Cambiar estado de ${record.name}`}
                           className={`h-8 min-w-28 rounded-sm border px-2.5 py-1 text-[10px] font-semibold tracking-[0.08em] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
                         >
-                          <SelectValue placeholder={meta.label} />
+                          {/* Con funcion: sin ella mostraba el valor interno (CALIFICADO) y no la etapa (Frío). */}
+                          <SelectValue placeholder={meta.label}>
+                            {(value) => getCrmStageLabel(value as CrmStage)}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent align="end" className="min-w-36 rounded-lg">
                           {statusOptions.map((status) => (
