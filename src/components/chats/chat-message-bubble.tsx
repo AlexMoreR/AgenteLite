@@ -1152,7 +1152,7 @@ export const MessageBubble = memo(function MessageBubble({
             <Tooltip>
               <TooltipTrigger
                 type="button"
-                className="cursor-default rounded-full border border-border bg-white px-3 py-1 text-[11px] font-medium text-black shadow-sm"
+                className="cursor-default rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium text-foreground shadow-sm backdrop-blur"
               >
                 {message.content}
               </TooltipTrigger>
