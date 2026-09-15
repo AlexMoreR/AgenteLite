@@ -1154,7 +1154,8 @@ export const MessageBubble = memo(function MessageBubble({
                 type="button"
                 className="cursor-default rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium text-foreground shadow-sm backdrop-blur"
               >
-                {message.content}
+                {/* Las notas viejas quedaron guardadas con "la conversación": dentro del chat sobra. */}
+                {message.content?.replace(/ la conversación\b/g, "")}
               </TooltipTrigger>
               <TooltipContent side="top">{formatActivityDate(message.createdAt)}</TooltipContent>
             </Tooltip>

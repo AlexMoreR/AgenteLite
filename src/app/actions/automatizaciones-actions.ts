@@ -115,7 +115,7 @@ export async function ejecutarAutomatizacionAction(id: string) {
   const asignados = await ejecutarAsignacion({
     workspaceId: access.workspaceId,
     criterios: automatizacion,
-    textoDeLaNota: `${quien} asignó la conversación a ${referencias.destinoNombre} (automatización «${automatizacion.nombre}»)`,
+    textoDeLaNota: `${quien} asignó a ${referencias.destinoNombre} (automatización «${automatizacion.nombre}»)`,
   });
 
   await guardarAutomatizaciones(

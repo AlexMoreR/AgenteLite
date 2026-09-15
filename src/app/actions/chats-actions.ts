@@ -1710,8 +1710,8 @@ export async function assignChatAction(input: {
   const activityText = !targetUserId
     ? `${actorName} quitó la asignación`
     : targetUserId === session.user.id
-      ? `${actorName} se asignó la conversación`
-      : `${actorName} asignó la conversación a ${assignedTo?.name?.trim() || "un colaborador"}`;
+      ? `${actorName} se asignó`
+      : `${actorName} asignó a ${assignedTo?.name?.trim() || "un colaborador"}`;
   await recordConversationActivity({
     workspaceId: membership.workspace.id,
     conversationId: conversation.id,
@@ -1853,8 +1853,8 @@ export async function updateConversationStatusAction(input: {
     contactId: conversation.contactId,
     kind: input.status === "CLOSED" ? "resolved" : "reopened",
     text: input.status === "CLOSED"
-      ? `${actorName} resolvió la conversación`
-      : `${actorName} reabrió la conversación`,
+      ? `${actorName} resolvió`
+      : `${actorName} reabrió`,
   });
 
   revalidatePath("/cliente/chats");
