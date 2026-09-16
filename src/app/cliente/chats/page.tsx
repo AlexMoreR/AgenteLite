@@ -266,9 +266,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   });
   const modoMonitoreo = canalesMonitoreados.length > 0;
 
+  /*
+    Por defecto, TODAS (Alex, 15-sep-2026).
+
+    Se habia puesto "Mias" para que una asesora no entrara a 1.800 conversaciones, pero para quien
+    mira el negocio -dueño, administrador o supervisora- abrir en "Mias" esconde lo que entra a los
+    chats de las demas, que es justo lo que quiere ver al abrir. A quien no puede ver "Todas" le
+    sigue quedando "Mias": se lo impone el permiso, unas lineas mas abajo.
+  */
   const assignedParam = typeof params.assigned === "string" ? params.assigned.trim() : "";
   let assignedFilter: "all" | "mine" | "unassigned" =
-    assignedParam === "all" || assignedParam === "unassigned" ? assignedParam : "mine";
+    assignedParam === "mine" || assignedParam === "unassigned" ? assignedParam : "all";
   // Los no-managers (empleados) solo pueden ver sus chats asignados: nunca "Todos" ni "Sin asignar".
   if (!isManager && !modoMonitoreo) {
     assignedFilter = "mine";

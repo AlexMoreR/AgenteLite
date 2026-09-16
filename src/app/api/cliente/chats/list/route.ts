@@ -602,16 +602,17 @@ export async function GET(request: Request) {
   // Jefe (dueño/admin) ve todas las lineas. La supervisora ve "Todas" pero solo de SUS lineas.
   const esJefe = membership.role === "OWNER" || membership.role === "ADMIN";
   const isManager = esJefe || (await esSupervisora(membership.workspace.id, session.user.id));
-  /**
-   * Por defecto, LO MIO.
-   *
-   * Antes abria en "Todas": una asesora entraba a 1.800 conversaciones y tenia que filtrar a mano
-   * para encontrar las suyas, todos los dias. Ver el trabajo propio primero es lo que uno espera
-   * al abrir una bandeja; "Todas" sigue a un toque de distancia.
-   */
+  /*
+    Por defecto, TODAS (Alex, 15-sep-2026).
+
+    Se habia puesto "Mias" para que una asesora no entrara a 1.800 conversaciones, pero para quien
+    mira el negocio -dueño, administrador o supervisora- abrir en "Mias" esconde lo que entra a los
+    chats de las demas, que es justo lo que quiere ver al abrir. A quien no puede ver "Todas" le
+    sigue quedando "Mias": se lo impone el permiso, unas lineas mas abajo.
+  */
   const requestedFilterRaw = requestUrl.searchParams.get("assigned")?.trim() || "";
   let assignedFilter: "all" | "mine" | "unassigned" =
-    requestedFilterRaw === "all" || requestedFilterRaw === "unassigned" ? requestedFilterRaw : "mine";
+    requestedFilterRaw === "mine" || requestedFilterRaw === "unassigned" ? requestedFilterRaw : "all";
   // Los no-managers (empleados) solo pueden ver sus chats asignados: nunca "Todos" ni "Sin asignar".
   if (!isManager) {
     assignedFilter = "mine";
