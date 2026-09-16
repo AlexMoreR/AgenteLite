@@ -80,6 +80,8 @@ const COLOR_DE_ETAPA: Record<string, string> = {
   CALIFICADO: "bg-cyan-500",
   PROPUESTA: "bg-yellow-400",
   NEGOCIACION: "bg-orange-500",
+  GANADO: "bg-emerald-500",
+  PERDIDO: "bg-rose-500",
 };
 
 export function MiTableroView({
@@ -94,6 +96,8 @@ export function MiTableroView({
 }) {
   const [lista, setLista] = useState<{ tipo: TipoDeDetalle; titulo: string } | null>(null);
   const vivos = data.porEtapa.filter((fila) => !["GANADO", "PERDIDO"].includes(fila.stage));
+  // Ganados y descartados se muestran aparte: son historia, no carga (no entran en "a cargo").
+  const cerrados = data.porEtapa.filter((fila) => ["GANADO", "PERDIDO"].includes(fila.stage));
   const maximo = Math.max(1, ...vivos.map((fila) => fila.count));
   const totalVivos = vivos.reduce((suma, fila) => suma + fila.count, 0);
   // Solo el nombre de pila: "Hola, Angy Marcela Ortiz" suena a carta del banco.
@@ -130,7 +134,7 @@ export function MiTableroView({
         <Tarjeta
           titulo="Leads a cargo"
           valor={data.leadsACargo}
-          detalle={esDeOtraPersona ? "Chats que son suyos" : "Chats que son tuyos"}
+          detalle="Vivos, sin ganados ni descartados"
           icono={Users}
           acento="violeta"
           alTocar={() => abrir("leads", "Leads a cargo")}
@@ -205,6 +209,26 @@ export function MiTableroView({
               </button>
             ))}
           </div>
+
+          {/* Cerrados: separados de los vivos y sin barra de progreso, para que no se lean como carga. */}
+          {cerrados.length > 0 ? (
+            <div className="mt-3 space-y-0.5 border-t border-border pt-3">
+              {cerrados.map((fila) => (
+                <button
+                  key={fila.stage}
+                  type="button"
+                  onClick={() => abrir(`etapa:${fila.stage}`, `Leads en ${getCrmStageLabel(fila.stage)}`)}
+                  className="flex w-full items-center gap-3 rounded-lg px-1 py-1.5 text-left transition hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                >
+                  <span className={`size-2.5 shrink-0 rounded-full ${COLOR_DE_ETAPA[fila.stage]}`} />
+                  <span className="flex-1 text-[13px] text-muted-foreground">{getCrmStageLabel(fila.stage)}</span>
+                  <span className="w-10 shrink-0 text-right text-[13px] font-semibold tabular-nums text-foreground">
+                    {fila.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         {/* Lo unico que esta pantalla senala como problema: leads suyos que se estan enfriando.
