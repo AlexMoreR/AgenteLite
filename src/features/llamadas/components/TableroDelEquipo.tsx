@@ -89,8 +89,14 @@ export function TableroDelEquipo({ data }: { data: LlamadasOwnerData }) {
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <div className="flex gap-4 text-xs text-muted-foreground">
-            <span>Hoy: <b className="text-foreground">{data.callsToday}</b></span>
-            <span>Semana: <b className="text-foreground">{data.callsThisWeek}</b></span>
+            <span>
+              Hoy: <b className="text-foreground">{data.callsToday}</b>
+              <span className="text-emerald-600"> · contestaron {data.answeredToday}</span>
+            </span>
+            <span>
+              Semana: <b className="text-foreground">{data.callsThisWeek}</b>
+              <span className="text-emerald-600"> · contestaron {data.answeredThisWeek}</span>
+            </span>
           </div>
           {data.byUser.length === 0 ? (
             <p className="text-xs text-muted-foreground">Sin llamadas registradas todavía.</p>
@@ -98,8 +104,10 @@ export function TableroDelEquipo({ data }: { data: LlamadasOwnerData }) {
             data.byUser.map((entry) => (
               <div key={entry.userId ?? "sin"} className="flex items-center justify-between">
                 <span className="truncate">{entry.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  hoy {entry.today} · semana {entry.week}
+                <span className="text-right text-xs text-muted-foreground">
+                  hoy {entry.today} <span className="text-emerald-600">({entry.answeredToday} contestaron)</span>
+                  {" · "}semana {entry.week}{" "}
+                  <span className="text-emerald-600">({entry.answeredWeek} contestaron)</span>
                 </span>
               </div>
             ))

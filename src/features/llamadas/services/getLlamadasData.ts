@@ -288,8 +288,18 @@ export type LlamadasOwnerData = {
   generatedAt: string;
   callsToday: number;
   callsThisWeek: number;
+  /** De esas, en cuantas contesto el cliente (todo lo que no fue "no contesto"). */
+  answeredToday: number;
+  answeredThisWeek: number;
   // Llamadas por vendedor (hoy / semana).
-  byUser: Array<{ userId: string | null; name: string; today: number; week: number }>;
+  byUser: Array<{
+    userId: string | null;
+    name: string;
+    today: number;
+    week: number;
+    answeredToday: number;
+    answeredWeek: number;
+  }>;
   /**
    * Tablero por vendedora: como viene cada una, en una sola fila.
    *
@@ -330,6 +340,8 @@ export async function getLlamadasOwnerData(workspaceId: string): Promise<Llamada
     generatedAt: now.toISOString(),
     callsToday: 0,
     callsThisWeek: 0,
+    answeredToday: 0,
+    answeredThisWeek: 0,
     byUser: [],
     equipo: [],
     stageDistribution: [],
@@ -342,18 +354,34 @@ export async function getLlamadasOwnerData(workspaceId: string): Promise<Llamada
     // Llamadas de la semana con quién llamó, para contar hoy/semana por vendedor.
     const weekCalls = await prisma.callAttempt.findMany({
       where: { workspaceId, calledAt: { gte: startWeek } },
-      select: { calledAt: true, calledByUserId: true, calledBy: { select: { name: true, email: true } } },
+      select: { calledAt: true, result: true, calledByUserId: true, calledBy: { select: { name: true, email: true } } },
     });
 
-    const perUser = new Map<string, { name: string; today: number; week: number }>();
+    /*
+      Contestaron = todo lo que no fue "no contesto" (mismo criterio que el Resumen del dia). Una
+      llamada sin clasificar se hablo, asi que cuenta como contestada (Alex, 16-sep-2026).
+    */
+    const perUser = new Map<
+      string,
+      { name: string; today: number; week: number; answeredToday: number; answeredWeek: number }
+    >();
     for (const call of weekCalls) {
       const key = call.calledByUserId ?? "sin_usuario";
       const name = call.calledBy?.name?.trim() || call.calledBy?.email || "Sin asignar";
-      const entry = perUser.get(key) ?? { name, today: 0, week: 0 };
+      const entry = perUser.get(key) ?? { name, today: 0, week: 0, answeredToday: 0, answeredWeek: 0 };
+      const contesto = call.result !== "no_contesto";
       entry.week += 1;
+      if (contesto) {
+        entry.answeredWeek += 1;
+        result.answeredThisWeek += 1;
+      }
       if (call.calledAt >= startToday) {
         entry.today += 1;
         result.callsToday += 1;
+        if (contesto) {
+          entry.answeredToday += 1;
+          result.answeredToday += 1;
+        }
       }
       result.callsThisWeek += 1;
       perUser.set(key, entry);
