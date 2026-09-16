@@ -102,6 +102,16 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
   const ctxRef = useRef<AudioContext | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const callIdRef = useRef<string | null>(null);
+  /*
+    La linea con la que se INICIO la llamada, para todos los pasos que siguen.
+
+    Solo "iniciar" mandaba el canal: conectar el audio, colgar y silenciar iban sin el, y el
+    servidor los mandaba a la linea por defecto del negocio (Ventas 1). En Ventas 2 la llamada
+    existia en otra linea, WaCalls contestaba "no such call" y la asesora veia "Esa llamada ya
+    terminó" mientras al cliente le seguia sonando (Alex, 16-sep-2026). Se guarda en un ref y no se
+    lee de la prop: la llamada vive en SU linea aunque la pantalla cambie de chat en el medio.
+  */
+  const canalRef = useRef<string | undefined>(undefined);
 
   /** Suelta micrófono, audio y conexión. Se llama al colgar y al desmontar. */
   const limpiar = useCallback(() => {
@@ -137,7 +147,7 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
     setEstado("cortando");
     try {
       if (callId) {
-        await pedir({ accion: "colgar", callId });
+        await pedir({ accion: "colgar", callId, channelId: canalRef.current });
       }
     } catch {
       // Si el servicio no contesta igual se corta de este lado: lo que no puede pasar es que la
@@ -159,10 +169,12 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
         const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
         micRef.current = mic;
 
+        // La linea queda fijada ANTES de iniciar: si algo falla despues, el colgar va a la misma.
+        canalRef.current = channelId ?? undefined;
         const iniciada = (await pedir({
           accion: "iniciar",
           phone: telefono,
-          channelId: channelId ?? undefined,
+          channelId: canalRef.current,
         })) as { callId?: string };
         const callId = iniciada.callId;
         if (!callId) {
@@ -229,6 +241,7 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
         const respuesta = (await pedir({
           accion: "webrtc",
           callId,
+          channelId: canalRef.current,
           sdpOffer: pc.localDescription?.sdp ?? oferta.sdp,
         })) as { sdpAnswer?: string };
 
@@ -247,7 +260,7 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
         // Si ya se había creado la llamada del otro lado, se corta: si no, el número queda
         // sonando en el teléfono del cliente sin nadie del otro lado.
         if (callIdRef.current) {
-          void pedir({ accion: "colgar", callId: callIdRef.current }).catch(() => {});
+          void pedir({ accion: "colgar", callId: callIdRef.current, channelId: canalRef.current }).catch(() => {});
         }
         limpiar();
         setEstado("libre");
@@ -269,7 +282,7 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
     });
     setSilenciado(siguiente);
     try {
-      await pedir({ accion: "silenciar", callId, muted: siguiente });
+      await pedir({ accion: "silenciar", callId, muted: siguiente, channelId: canalRef.current });
     } catch {
       // El corte local ya ocurrió; que el servicio no se entere no cambia lo que se escucha.
     }
