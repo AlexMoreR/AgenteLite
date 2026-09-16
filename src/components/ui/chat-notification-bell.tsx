@@ -23,7 +23,11 @@ const POLL_INTERVAL_MS = 60000;
 type NotificationConversation = {
   key?: string;
   incomingCount?: number | null;
+  lastMessageAt?: string | null;
 };
+
+/** Lo que la campana guarda de cada chat: cuantos sin leer y de cuando es el ultimo. */
+type AvisoDeChat = { cuenta: number; cuando: number };
 
 type ConversationListResponse = {
   ok?: boolean;
@@ -47,8 +51,20 @@ export function ChatNotificationBell({ className }: { className?: string }) {
     consulta. Con un total suelto habria que restar a ciegas y dos aperturas seguidas lo dejarian
     en negativo.
   */
-  const [porChat, setPorChat] = React.useState<Record<string, number>>({});
+  const [porChat, setPorChat] = React.useState<Record<string, AvisoDeChat>>({});
   const [hasAccess, setHasAccess] = React.useState(true);
+
+  /*
+    Hasta cuando ya se miraron las notificaciones.
+
+    El punto rojo NO es "mensajes sin leer": es "avisos nuevos desde la ultima vez que entre a
+    Notificaciones" (Alex, 15-sep-2026). Marcar leidos los mensajes al entrar seria otra cosa -eso
+    pasa al abrir cada chat- y le borraria a la asesora la marca de lo que le falta contestar.
+
+    Se lee del servidor para que valga en todos sus dispositivos; hasta que conteste, se cuenta
+    todo, que es como venia funcionando.
+  */
+  const [vistoEl, setVistoEl] = React.useState(0);
 
   /*
     Cuantas veces "sono" la campana. Se usa como `key` del dibujo: cambiarla lo vuelve a montar y
@@ -124,7 +140,7 @@ export function ChatNotificationBell({ className }: { className?: string }) {
         const payload = (await response.json().catch(() => null)) as ConversationListResponse | null;
         if (!cancelled && payload?.ok && Array.isArray(payload.conversations)) {
           const ahora = Date.now();
-          const cuentas: Record<string, number> = {};
+          const cuentas: Record<string, AvisoDeChat> = {};
           for (const conversation of payload.conversations) {
             const clave = conversation.key?.trim();
             const cuenta = conversation.incomingCount ?? 0;
@@ -135,7 +151,8 @@ export function ChatNotificationBell({ className }: { className?: string }) {
             if (leidoHace && ahora - leidoHace < 15000) {
               continue;
             }
-            cuentas[clave] = cuenta;
+            const cuando = conversation.lastMessageAt ? new Date(conversation.lastMessageAt).getTime() : 0;
+            cuentas[clave] = { cuenta, cuando: Number.isFinite(cuando) ? cuando : 0 };
           }
           setPorChat(cuentas);
         }
@@ -151,6 +168,17 @@ export function ChatNotificationBell({ className }: { className?: string }) {
     };
 
     void poll();
+
+    // Desde cuando ya se miraron: sin esto, el punto contaria avisos que ya vio en otro dispositivo.
+    void fetch("/api/cliente/notificaciones/visto", { cache: "no-store" })
+      .then((respuesta) => (respuesta.ok ? respuesta.json() : null))
+      .then((datos: { vistoEl?: string | null } | null) => {
+        const marca = datos?.vistoEl ? new Date(datos.vistoEl).getTime() : 0;
+        if (!cancelled && Number.isFinite(marca)) {
+          setVistoEl(marca);
+        }
+      })
+      .catch(() => undefined);
 
     /*
       Ademas del minuto, la campanita escucha el aviso del altavoz.
@@ -193,10 +221,20 @@ export function ChatNotificationBell({ className }: { className?: string }) {
     };
     window.addEventListener("chat-conversation-read", alLeerUnChat);
 
+    /*
+      Entrar a Notificaciones apaga el punto en el acto.
+
+      Lo avisa la propia pantalla (notificaciones-workspace) apenas abre, sin esperar a que el
+      servidor conteste: el punto tiene que apagarse mientras uno mira, no un minuto despues.
+    */
+    const alMirarLasNotificaciones = () => setVistoEl(Date.now());
+    window.addEventListener("notificaciones-vistas", alMirarLasNotificaciones);
+
     return () => {
       cancelled = true;
       window.removeEventListener("official-realtime-poke", alLlegarAlgo);
       window.removeEventListener("chat-conversation-read", alLeerUnChat);
+      window.removeEventListener("notificaciones-vistas", alMirarLasNotificaciones);
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, []);
@@ -205,7 +243,16 @@ export function ChatNotificationBell({ className }: { className?: string }) {
     return null;
   }
 
-  const totalUnread = Object.values(porChat).reduce((suma, cuenta) => suma + cuenta, 0);
+  /*
+    Solo lo llegado DESPUES de la ultima visita a Notificaciones.
+
+    Un mensaje sin leer de ayer, que ya se vio en la lista de avisos, no tiene por que seguir
+    encendiendo el punto: para eso esta el contador de cada chat en la bandeja.
+  */
+  const totalUnread = Object.values(porChat).reduce(
+    (suma, aviso) => (aviso.cuando > vistoEl ? suma + aviso.cuenta : suma),
+    0,
+  );
   const hasUnread = totalUnread > 0;
   const badgeLabel = totalUnread > 99 ? "99+" : String(totalUnread);
 

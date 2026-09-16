@@ -76,6 +76,29 @@ function vistaPrevia(conversacion: Conversacion) {
   }
 }
 
+/**
+ * Deja marcado que estas notificaciones YA se miraron, y apaga el punto rojo en el acto.
+ *
+ * Pedido de Alex (15-sep-2026): entrar aca tiene que apagar el punto. Ojo con lo que NO hace: no
+ * marca los mensajes como leidos. Eso pasa al abrir cada chat, y es lo que sostiene el contador de
+ * la bandeja ("me faltan 3 por contestar"). Son dos cosas distintas a proposito.
+ */
+let ultimaMarca = 0;
+
+function marcarComoVistas() {
+  window.dispatchEvent(new CustomEvent("notificaciones-vistas"));
+  // El aviso de arriba es gratis y va siempre; la escritura, como mucho una cada 5 segundos: con la
+  // pantalla abierta en un dia movido serian decenas de escrituras para guardar casi la misma hora.
+  const ahora = Date.now();
+  if (ahora - ultimaMarca < 5000) {
+    return;
+  }
+  ultimaMarca = ahora;
+  void fetch("/api/cliente/notificaciones/visto", { method: "POST", cache: "no-store" }).catch(
+    () => undefined,
+  );
+}
+
 export function NotificacionesWorkspace() {
   const [conversaciones, setConversaciones] = React.useState<Conversacion[]>([]);
   const [cargando, setCargando] = React.useState(true);
@@ -131,6 +154,7 @@ export function NotificacionesWorkspace() {
     };
 
     void pedir();
+    marcarComoVistas();
 
     // El altavoz avisa en el instante en que entra un mensaje: sin esto, la pantalla de avisos
     // podia tardar hasta un minuto en enterarse de algo que ya habia pasado.
@@ -141,6 +165,11 @@ export function NotificacionesWorkspace() {
         return;
       }
       void pedir();
+      /*
+        Lo que entra MIENTRAS la pantalla esta abierta tambien queda visto: si no, uno sale de aca
+        con el punto encendido por un aviso que acaba de leer.
+      */
+      marcarComoVistas();
     };
     window.addEventListener("official-realtime-poke", alLlegarAlgo);
 
