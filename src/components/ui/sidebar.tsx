@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { usePathname } from "next/navigation"
 import { mergeProps } from "@base-ui/react/merge-props"
 import { useRender } from "@base-ui/react/use-render"
 import { cva, type VariantProps } from "class-variance-authority"
@@ -94,6 +95,29 @@ function SidebarProvider({
   const toggleSidebar = React.useCallback(() => {
     return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open)
   }, [isMobile, setOpen, setOpenMobile])
+
+  /*
+    El menu del celular se cierra solo al cambiar de pantalla y al volver de segundo plano.
+
+    Nadie lo cerraba: se tocaba una opcion, la app navegaba y el menu quedaba marcado como ABIERTO
+    aunque no se viera. El siguiente toque al boton de menu solo lo ponia en "cerrado", asi que
+    parecia que el boton no respondia; cerrando y abriendo la app volvia a andar (Alex, en su
+    iPhone, 15-sep-2026). Cerrarlo al navegar deja el estado y lo que se ve siempre de acuerdo.
+  */
+  const pathname = usePathname()
+  React.useEffect(() => {
+    setOpenMobile(false)
+  }, [pathname])
+
+  React.useEffect(() => {
+    const alVolver = () => {
+      if (document.visibilityState === "visible") {
+        setOpenMobile(false)
+      }
+    }
+    document.addEventListener("visibilitychange", alVolver)
+    return () => document.removeEventListener("visibilitychange", alVolver)
+  }, [])
 
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {

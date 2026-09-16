@@ -28,7 +28,16 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
     <SheetPrimitive.Backdrop
       data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-black/10 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
+        /*
+          `data-ending-style:pointer-events-none` es un SEGURO, no un detalle de la animacion.
+
+          Si la animacion de salida no termina -en iOS pasa al volver de segundo plano- queda un
+          panel invisible tapando la pantalla entera y se come cada toque: la app parece colgada.
+          Le paso a Alex con el boton de menu en el iPhone (15-sep-2026): tocaba y no abria, y
+          cerrando y abriendo la app volvia a andar. Un fondo que ya se esta yendo no tiene por que
+          recibir toques en ningun caso.
+        */
+        "fixed inset-0 z-50 bg-black/10 transition-opacity duration-150 data-ending-style:pointer-events-none data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
         className
       )}
       {...props}
