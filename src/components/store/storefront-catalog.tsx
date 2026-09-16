@@ -282,7 +282,7 @@ export async function StorefrontCatalog({ query = "", categorySlug }: Storefront
               }}
             />
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.2),transparent_30%),radial-gradient(circle_at_75%_18%,rgba(255,255,255,0.12),transparent_18%),linear-gradient(180deg,transparent,rgba(20,5,44,0.18))]" />
-            <div className="mx-auto max-w-6xl px-4 md:px-6">
+            <div className="mx-auto max-w-7xl px-4 md:px-8">
               <div className="relative py-3 text-white md:py-4">
                 <div className="grid items-center gap-2.5 md:grid-cols-[minmax(0,1.02fr)_minmax(300px,0.98fr)] md:gap-6">
                   <div className="space-y-2.5 text-center md:space-y-4 md:text-left">
@@ -391,7 +391,7 @@ export async function StorefrontCatalog({ query = "", categorySlug }: Storefront
               <Link
                 key={item.id}
                 href={`/${item.slug}`}
-                className="group block w-24 shrink-0 snap-start transition hover:-translate-y-0.5 sm:w-28"
+                className="group block w-28 shrink-0 snap-start transition hover:-translate-y-0.5 sm:w-32 md:w-36"
               >
                 <div className="aspect-square overflow-hidden rounded-xl">
                   <img
@@ -411,7 +411,7 @@ export async function StorefrontCatalog({ query = "", categorySlug }: Storefront
 
       {!normalizedQuery && !category ? (
         <div className="relative left-1/2 right-1/2 -mx-[50vw] w-screen bg-slate-50 py-6">
-          <div className="mx-auto max-w-6xl px-4 md:px-6">
+          <div className="mx-auto max-w-7xl px-4 md:px-8">
             <div className="grid grid-cols-3 gap-4 text-center md:grid-cols-3">
               <div className="flex flex-col items-center gap-1.5">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--primary)]/10">
@@ -488,7 +488,7 @@ export async function StorefrontCatalog({ query = "", categorySlug }: Storefront
                       <img
                         src={product.thumbnailUrl}
                         alt={product.name}
-                        className="h-40 w-full bg-white object-contain p-2 transition duration-500 group-hover:scale-[1.02] md:h-52"
+                        className="aspect-square w-full bg-white object-contain p-1.5 transition duration-500 group-hover:scale-[1.02]"
                         loading="lazy"
                       />
                       <div className="absolute -bottom-1 left-2.5 z-10 rounded-md border border-[color-mix(in_srgb,var(--primary)_24%,white)] bg-[linear-gradient(135deg,var(--primary)_0%,var(--primary-strong)_100%)] px-1.5 py-1 text-white shadow-[0_12px_20px_-14px_color-mix(in_srgb,var(--primary)_70%,black)]">
@@ -568,7 +568,7 @@ export async function StorefrontCatalog({ query = "", categorySlug }: Storefront
                   <Link
                     key={item.id}
                     href={`/${item.slug}`}
-                    className="group block w-24 shrink-0 snap-start transition hover:-translate-y-0.5 sm:w-28"
+                    className="group block w-28 shrink-0 snap-start transition hover:-translate-y-0.5 sm:w-32 md:w-36"
                   >
                     <div className="aspect-square overflow-hidden rounded-xl">
                       <img

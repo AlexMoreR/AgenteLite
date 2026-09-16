@@ -17,7 +17,7 @@ export function ProductGallery({ name, images }: ProductGalleryProps) {
   if (gallery.length === 0) {
     return (
       <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
-        <div className="grid h-[280px] place-items-center text-sm text-slate-500 md:h-[460px]">
+        <div className="grid h-[360px] place-items-center text-sm text-slate-500 md:h-[580px]">
           Sin imagen disponible
         </div>
       </div>
@@ -32,7 +32,7 @@ export function ProductGallery({ name, images }: ProductGalleryProps) {
         <img
           src={mainImage}
           alt={name}
-          className="h-[280px] w-full object-cover md:h-[460px]"
+          className="h-[360px] w-full object-cover md:h-[580px]"
         />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/35 to-transparent" />
       </div>
