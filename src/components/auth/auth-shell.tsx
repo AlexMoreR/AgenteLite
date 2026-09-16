@@ -2,6 +2,16 @@ import Link from "next/link";
 import { ArrowLeft, Bot, Gauge, MessagesSquare, QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+/*
+  La entrada a la app (login, registro, recuperar contraseña).
+
+  Antes era una pantalla oscura con acentos verde menta, de cuando esto era una landing de venta.
+  Adentro la app es clara -fondo gris muy suave, tarjetas blancas, acento del tema-, asi que entrar
+  era pasar por dos productos distintos (Alex, 15-sep-2026). Ahora usa los MISMOS tokens que el
+  resto (bg-background, bg-card, border-border, var(--primary)): si mañana cambia el tema de la
+  app, esta pantalla cambia con el, sin tocarla.
+*/
+
 type AuthShellProps = {
   eyebrow: string;
   title: string;
@@ -16,7 +26,12 @@ type AuthShellProps = {
 
 const authMetrics = [
   { label: "Respuesta", value: "24/7" },
-  { label: "Activacion", value: "< 10 min" },
+  { label: "Activación", value: "menos de 10 min" },
+];
+
+const authShowcase = [
+  { icono: QrCode, titulo: "Canal listo", detalle: "Conexión activa" },
+  { icono: Gauge, titulo: "IA en marcha", detalle: "Lista para vender" },
 ];
 
 export function AuthShell({
@@ -28,150 +43,108 @@ export function AuthShell({
   showShowcase = true,
   showIntro = true,
   centerContent = false,
-  showAccentGlow = true,
 }: AuthShellProps) {
-  const alignTop = !centerContent && (!showIntro || !showMetrics || !showShowcase);
-  const compactVariant = !centerContent && !showIntro && !showMetrics && !showShowcase;
-
   return (
-    <section className="relative min-h-screen overflow-hidden bg-[#07111f] px-4 py-8 text-[#f3f7fb] md:px-8 md:py-10">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[30rem] bg-[radial-gradient(circle_at_top_left,_rgba(46,211,183,0.2),_transparent_36%),radial-gradient(circle_at_top_right,_rgba(64,132,255,0.18),_transparent_30%),linear-gradient(180deg,_rgba(6,12,24,0.2),_rgba(6,12,24,0))]" />
-      {showAccentGlow ? (
-        <div className="pointer-events-none absolute right-[-10%] top-28 h-72 w-72 rounded-full bg-[#2ed3b7]/10 blur-3xl" />
-      ) : null}
+    <section className="relative min-h-dvh overflow-hidden bg-background px-4 py-8 text-foreground md:px-8 md:py-12">
+      {/* Un velo de color del tema arriba: da profundidad sin romper el fondo claro de la app. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-80 bg-[radial-gradient(circle_at_top,_color-mix(in_srgb,var(--primary)_14%,transparent),_transparent_70%)]" />
 
       <div
-        className={`relative mx-auto grid w-full gap-8 ${
+        className={`relative mx-auto grid w-full gap-10 ${
           centerContent
-            ? "max-w-6xl lg:min-h-[calc(100vh-5rem)] lg:place-items-center"
-            : compactVariant
-              ? "max-w-none lg:min-h-[calc(100vh-5rem)] lg:grid-cols-1 lg:items-start"
-              : `max-w-6xl lg:grid-cols-[minmax(0,1fr)_24rem] ${alignTop ? "lg:items-start" : "lg:items-center"}`
+            ? "max-w-xl place-items-center"
+            : "max-w-5xl lg:grid-cols-[minmax(0,1fr)_26rem] lg:items-center"
         }`}
       >
-        <div
-          className={`order-2 w-full max-w-2xl space-y-6 lg:order-1 ${
-            centerContent ? "hidden" : compactVariant ? "lg:absolute lg:left-0 lg:top-0 lg:z-10 lg:max-w-none" : ""
-          }`}
-        >
+        <div className={`order-2 w-full space-y-6 lg:order-1 ${centerContent ? "hidden" : ""}`}>
           <Button
-            asChild
             variant="outline"
             size="sm"
-            className="hidden gap-2 rounded-full border-white/12 bg-white/6 text-white hover:bg-white/10 hover:text-white lg:inline-flex"
-          >
-            <Link href="/">
-              <ArrowLeft className="h-4 w-4" />
-              Volver al inicio
-            </Link>
-          </Button>
+            className="hidden gap-2 rounded-full lg:inline-flex"
+            render={
+              <Link href="/">
+                <ArrowLeft className="h-4 w-4" />
+                Volver al inicio
+              </Link>
+            }
+          />
 
           {showIntro ? (
-            <div className="space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8deedc]">{eyebrow}</p>
-              <h1 className="max-w-lg text-4xl font-semibold tracking-[-0.05em] text-white md:text-5xl lg:text-[3.4rem]">
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--primary)]">{eyebrow}</p>
+              <h1 className="max-w-lg text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
                 {title}
               </h1>
-              <p className="max-w-md text-sm leading-7 text-[#b8c6d9] md:text-base">{description}</p>
+              <p className="max-w-md text-sm leading-6 text-muted-foreground md:text-base">{description}</p>
             </div>
           ) : null}
 
           {showMetrics ? (
             <div className="grid max-w-md gap-3 sm:grid-cols-2">
               {authMetrics.map((item) => (
-                <div
-                  key={item.label}
-                  className="rounded-[1.4rem] border border-white/10 bg-white/[0.045] px-5 py-4 backdrop-blur-sm"
-                >
-                  <p className="text-2xl font-semibold tracking-[-0.04em] text-white">{item.value}</p>
-                  <p className="mt-1 text-sm text-[#9fb0c5]">{item.label}</p>
+                <div key={item.label} className="rounded-2xl border border-border bg-card px-5 py-4">
+                  <p className="text-2xl font-semibold tracking-tight text-foreground">{item.value}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{item.label}</p>
                 </div>
               ))}
             </div>
           ) : null}
 
           {showShowcase ? (
-            <div className="max-w-xl overflow-hidden rounded-[2rem] border border-white/10 bg-[#0c1828] p-5 shadow-[0_30px_80px_-45px_rgba(0,0,0,0.9)]">
-              <div className="rounded-[1.4rem] border border-white/8 bg-[#0f2034] p-4">
-                <div className="flex items-center justify-between gap-4 border-b border-white/8 pb-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#7ee8d5]">
-                      Control Center
-                    </p>
+            <div className="max-w-md space-y-3 rounded-2xl border border-border bg-card p-4 shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)]">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Tu panel
+              </p>
+
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                {authShowcase.map(({ icono: Icono, titulo, detalle }) => (
+                  <div key={titulo} className="flex items-center gap-3 rounded-xl border border-border bg-background/60 p-3">
+                    <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-[var(--primary)]">
+                      <Icono className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-foreground">{titulo}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{detalle}</span>
+                    </span>
                   </div>
+                ))}
+              </div>
+
+              {/* Dos burbujas, como en Chats: se entiende de un vistazo para qué es la app. */}
+              <div className="space-y-2 rounded-xl border border-border bg-background/60 p-3">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                    <Bot className="h-4 w-4" />
+                  </span>
+                  <p className="rounded-2xl rounded-tl-sm border border-border bg-card px-3 py-2 text-sm text-foreground">
+                    Entra un cliente nuevo.
+                  </p>
                 </div>
-
-                <div className="grid gap-3 py-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-[1.2rem] border border-white/8 bg-[#0a1422] p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="rounded-2xl bg-[#14344a] p-2.5 text-[#91f2e3]">
-                          <QrCode className="h-4 w-4" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-white">Canal listo</p>
-                          <p className="text-xs text-[#91a5bc]">Conexion activa</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-[1.2rem] border border-white/8 bg-[#0a1422] p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="rounded-2xl bg-[#1f304e] p-2.5 text-[#9cc8ff]">
-                          <Gauge className="h-4 w-4" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-white">IA en marcha</p>
-                          <p className="text-xs text-[#91a5bc]">Lista para vender</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-[1.4rem] border border-white/8 bg-[#08111c] p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-2xl bg-[#0f2f30] p-2.5 text-[#95f4e6]">
-                        <Bot className="h-4 w-4" />
-                      </div>
-                      <div className="rounded-[1.1rem] border border-white/8 bg-white/6 px-4 py-3 text-sm text-[#dce7f5]">
-                        <p>Cliente entra. Todo sigue igual.</p>
-                      </div>
-                    </div>
-                    <div className="mt-3 flex items-center justify-end gap-3">
-                      <div className="rounded-[1.1rem] bg-[#2ed3b7] px-4 py-3 text-sm font-medium text-[#06202a]">
-                        <p>Tu panel responde.</p>
-                      </div>
-                      <div className="rounded-2xl bg-[#102941] p-2.5 text-[#8feedd]">
-                        <MessagesSquare className="h-4 w-4" />
-                      </div>
-                    </div>
-                  </div>
+                <div className="flex items-center justify-end gap-2">
+                  <p className="rounded-2xl rounded-tr-sm bg-[var(--primary)] px-3 py-2 text-sm font-medium text-[var(--primary-foreground)]">
+                    Tu panel responde.
+                  </p>
+                  <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[var(--primary)]">
+                    <MessagesSquare className="h-4 w-4" />
+                  </span>
                 </div>
               </div>
             </div>
           ) : null}
         </div>
 
-        <div
-          className={`order-1 w-full max-w-md justify-self-center space-y-4 lg:order-2 lg:space-y-0 ${
-            centerContent
-              ? "lg:max-w-xl"
-              : compactVariant
-                ? "lg:mx-auto lg:max-w-xl lg:w-full lg:justify-self-auto"
-                : "lg:mt-10 lg:justify-self-end"
-          }`}
-        >
+        <div className="order-1 w-full max-w-md justify-self-center space-y-4 lg:order-2 lg:justify-self-end">
           <Button
-            asChild
             variant="outline"
             size="sm"
-            className="inline-flex gap-2 rounded-full border-white/12 bg-white/6 text-white hover:bg-white/10 hover:text-white lg:hidden"
-          >
-            <Link href="/">
-              <ArrowLeft className="h-4 w-4" />
-              Volver al inicio
-            </Link>
-          </Button>
+            className="inline-flex gap-2 rounded-full lg:hidden"
+            render={
+              <Link href="/">
+                <ArrowLeft className="h-4 w-4" />
+                Volver al inicio
+              </Link>
+            }
+          />
           {children}
         </div>
       </div>

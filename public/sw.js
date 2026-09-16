@@ -1,4 +1,4 @@
-const CACHE_NAME = "agente-lite-v7";
+const CACHE_NAME = "agente-lite-v8";
 const APP_SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -64,10 +64,24 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // TODO lo demás (HTML/navegación y assets sin hash): NETWORK-FIRST. Siempre trae la última
-  // versión desplegada; el cache es SOLO respaldo offline. Antes esto era cache-first y el
-  // Service Worker servía JS/HTML viejos para SIEMPRE aunque se desplegara: el equipo quedaba
-  // corriendo código viejo ("los cambios no salen") con bugs ya arreglados sin enterarse.
+  /*
+    Una PANTALLA (navegación) NUNCA se guarda en el caché.
+
+    Guardábamos el HTML de cualquier pantalla que respondiera bien, y ese HTML es DE QUIEN ESTABA
+    CONECTADO: Alex cerró sesión de Aizen Proyects, entró con la otra cuenta, cerró la app y al
+    abrirla le apareció otra vez Aizen Proyects (15-sep-2026). Y como ese HTML viejo pide archivos
+    de una versión que ya no existe, la pantalla quedaba en blanco con "Application error".
+
+    Se va a la red siempre. Sin red, el respaldo es la portada pública -que no tiene datos de
+    nadie-, no la última pantalla que se vio.
+  */
+  const esPantalla = request.mode === "navigate";
+  if (esPantalla) {
+    event.respondWith(fetch(request).catch(() => caches.match("/")));
+    return;
+  }
+
+  // El resto (iconos, manifiesto y demás archivos sin hash): red primero, con respaldo offline.
   event.respondWith(
     fetch(request)
       .then((response) => {
@@ -79,13 +93,7 @@ self.addEventListener("fetch", (event) => {
       })
       .catch(async () => {
         const cached = await caches.match(request);
-        if (cached) {
-          return cached;
-        }
-        if (request.mode === "navigate") {
-          return caches.match("/");
-        }
-        return Response.error();
+        return cached ?? Response.error();
       }),
   );
 });
