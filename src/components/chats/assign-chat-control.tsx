@@ -16,6 +16,32 @@ type AssignChatControlProps = {
   source?: "agent" | "official";
 };
 
+/*
+  La lista del equipo, UNA vez para toda la pantalla (Alex, 16-sep-2026: "se demora en cargar a
+  quien asignar").
+
+  Se pedia al abrir el menu y en CADA chat: el control se vuelve a montar al cambiar de chat, asi que
+  cada apertura era una consulta nueva, y ademas esperaba en fila detras de las que dispara el chat al
+  abrirse. El equipo cambia muy poco: se guarda un minuto y se comparte entre chats.
+*/
+type ResultadoMiembros = Awaited<ReturnType<typeof getAssignableMembersAction>>;
+let miembrosEnCache: { cuando: number; pedido: Promise<ResultadoMiembros> } | null = null;
+
+function pedirMiembros() {
+  const ahora = Date.now();
+  if (!miembrosEnCache || ahora - miembrosEnCache.cuando > 60_000) {
+    const pedido = getAssignableMembersAction().catch(() => ({ error: "No se pudo cargar el equipo" }) as ResultadoMiembros);
+    miembrosEnCache = { cuando: ahora, pedido };
+    // Un error no se guarda: el proximo intento vuelve a preguntar.
+    void pedido.then((resultado) => {
+      if (resultado.error && miembrosEnCache?.pedido === pedido) {
+        miembrosEnCache = null;
+      }
+    });
+  }
+  return miembrosEnCache.pedido;
+}
+
 function memberLabel(member: { name: string | null; email: string }) {
   return member.name?.trim() || member.email;
 }
@@ -25,38 +51,36 @@ export function AssignChatControl({ conversationId, assignee, source = "agent" }
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [members, setMembers] = useState<AssignableMember[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isManager, setIsManager] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  // Mientras no llego la lista, el menu muestra "Cargando…".
+  const loading = !loaded && !error;
 
-  const loadMembers = useCallback(async () => {
-    if (loaded || loading) return;
-    setLoading(true);
-    setError(null);
-    const result = await getAssignableMembersAction();
-    if (result.error) {
-      setError(result.error);
-    } else {
+  // Se pide apenas se abre el chat, no al tocar el menu: cuando la asesora lo abre, ya esta.
+  useEffect(() => {
+    let vigente = true;
+    void pedirMiembros().then((result) => {
+      if (!vigente) return;
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
       setMembers(result.members ?? []);
       setCurrentUserId(result.currentUserId ?? null);
       setIsManager(Boolean(result.isManager));
       setLoaded(true);
-    }
-    setLoading(false);
-  }, [loaded, loading]);
+    });
+    return () => {
+      vigente = false;
+    };
+  }, []);
 
   const handleToggle = useCallback(() => {
     setOpen((value) => !value);
   }, []);
-
-  useEffect(() => {
-    if (open) {
-      void loadMembers();
-    }
-  }, [open, loadMembers]);
 
   useEffect(() => {
     if (!open) return;

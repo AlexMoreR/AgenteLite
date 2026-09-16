@@ -1576,7 +1576,11 @@ export async function getAssignableMembersAction(): Promise<{
       role: m.role,
     })),
     currentUserId: session.user.id,
-    isManager: membership.role === "OWNER" || membership.role === "ADMIN",
+    // La supervisora asigna como el jefe (ver permisos-del-equipo.ts).
+    isManager:
+      membership.role === "OWNER" ||
+      membership.role === "ADMIN" ||
+      (await esSupervisora(membership.workspace.id, session.user.id)),
   };
 }
 
