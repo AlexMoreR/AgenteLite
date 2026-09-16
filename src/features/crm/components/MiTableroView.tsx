@@ -98,8 +98,11 @@ export function MiTableroView({
   const vivos = data.porEtapa.filter((fila) => !["GANADO", "PERDIDO"].includes(fila.stage));
   // Ganados y descartados se muestran aparte: son historia, no carga (no entran en "a cargo").
   const cerrados = data.porEtapa.filter((fila) => ["GANADO", "PERDIDO"].includes(fila.stage));
-  const maximo = Math.max(1, ...vivos.map((fila) => fila.count));
+  // Todas las etapas comparten escala, asi Ganado y Descartado se leen contra las vivas.
+  const todas = [...vivos, ...cerrados];
+  const maximo = Math.max(1, ...todas.map((fila) => fila.count));
   const totalVivos = vivos.reduce((suma, fila) => suma + fila.count, 0);
+  const totalTodas = todas.reduce((suma, fila) => suma + fila.count, 0);
   // Solo el nombre de pila: "Hola, Angy Marcela Ortiz" suena a carta del banco.
   const primerNombre = data.advisorName.trim().split(/\s+/)[0] || data.advisorName;
 
@@ -167,21 +170,30 @@ export function MiTableroView({
 
       <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-2xl border border-border bg-card p-4">
-          <p className="text-[13px] font-medium text-foreground">
-            {esDeOtraPersona ? "Sus leads por etapa" : "Tus leads por etapa"}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-[13px] font-medium text-foreground">
+              {esDeOtraPersona ? "Sus leads por etapa" : "Tus leads por etapa"}
+            </p>
+            {/* Activos = sin ganados ni descartados: lo que de verdad sigue en juego. */}
+            <span
+              className="inline-flex items-center rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-violet-700 dark:text-violet-300"
+              title="Nuevo, Frío, Tibio y Caliente (sin ganados ni descartados)"
+            >
+              {totalVivos} activos
+            </span>
+          </div>
           {/*
             Una sola barra partida por etapa, arriba: de un vistazo se ve cuanto del total es frio y
             cuanto esta por cerrarse. Abajo cada etapa con su color, el mismo de su chapita.
           */}
-          {totalVivos > 0 ? (
+          {totalTodas > 0 ? (
             <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-muted">
-              {vivos.map((fila) =>
+              {todas.map((fila) =>
                 fila.count > 0 ? (
                   <div
                     key={fila.stage}
                     className={`h-full ${COLOR_DE_ETAPA[fila.stage] ?? "bg-[var(--primary)]"}`}
-                    style={{ width: `${(fila.count / totalVivos) * 100}%` }}
+                    style={{ width: `${(fila.count / totalTodas) * 100}%` }}
                   />
                 ) : null,
               )}
@@ -210,7 +222,7 @@ export function MiTableroView({
             ))}
           </div>
 
-          {/* Cerrados: separados de los vivos y sin barra de progreso, para que no se lean como carga. */}
+          {/* Cerrados: separados de los vivos por una linea, con la misma barra. */}
           {cerrados.length > 0 ? (
             <div className="mt-3 space-y-0.5 border-t border-border pt-3">
               {cerrados.map((fila) => (
@@ -221,8 +233,14 @@ export function MiTableroView({
                   className="flex w-full items-center gap-3 rounded-lg px-1 py-1.5 text-left transition hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                 >
                   <span className={`size-2.5 shrink-0 rounded-full ${COLOR_DE_ETAPA[fila.stage]}`} />
-                  <span className="flex-1 text-[13px] text-muted-foreground">{getCrmStageLabel(fila.stage)}</span>
-                  <span className="w-10 shrink-0 text-right text-[13px] font-semibold tabular-nums text-foreground">
+                  <span className="w-16 shrink-0 text-[13px] text-muted-foreground">{getCrmStageLabel(fila.stage)}</span>
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={`h-full rounded-full ${COLOR_DE_ETAPA[fila.stage]}`}
+                      style={{ width: `${Math.round((fila.count / maximo) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="w-7 shrink-0 text-right text-[13px] font-semibold tabular-nums text-foreground">
                     {fila.count}
                   </span>
                 </button>
