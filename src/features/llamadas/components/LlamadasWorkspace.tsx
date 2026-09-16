@@ -2,14 +2,11 @@
 
 import Link from "next/link";
 
-import { Phone, AlertTriangle } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { getCrmStageMeta } from "@/features/crm/domain/crm-config";
 import type { LlamadasOwnerData } from "@/features/llamadas/services/getLlamadasData";
-import type { ResumenDiaData } from "@/features/llamadas/services/getResumenDia";
-import { ResumenDiaView } from "@/features/llamadas/components/ResumenDiaView";
-import { TodasLasLlamadas } from "@/features/llamadas/components/TodasLasLlamadas";
+import { TodasLasLlamadas, type AsesoraDeLlamadas } from "@/features/llamadas/components/TodasLasLlamadas";
 
 // ── Tablero del dueño ─────────────────────────────────────────────────────────────────────────
 
@@ -181,48 +178,37 @@ function OwnerBoard({ data }: { data: LlamadasOwnerData }) {
 export function LlamadasWorkspace({
   owner,
   canSeeOwner,
-  resumen,
-  pestanaInicial,
+  asesoras,
 }: {
   owner: LlamadasOwnerData | null;
   canSeeOwner: boolean;
-  resumen: ResumenDiaData;
-  pestanaInicial: string;
+  /** Para el filtro por asesora. Vacio para quien no supervisa: ve solo sus llamadas. */
+  asesoras: AsesoraDeLlamadas[];
 }) {
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-5">
+    <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-5">
       {/*
-        Sin pestaña "Mi dia" (Alex, 15-sep-2026): a quien llamar hoy, lo que falta clasificar y los
-        leads nuevos se mudaron a Mi dia, junto con los chats. Habia DOS "Mi dia" -uno aca y otro en
-        el CRM- y la asesora tenia que mirar los dos para saber que le tocaba.
+        Llamadas = las llamadas recientes (Alex, 15-sep-2026).
 
-        Aca queda lo que no es trabajo del dia: el resumen que ella manda y el tablero del jefe.
+        Antes esta pantalla eran tres pestañas: "Mi dia" (se mudo a Mi dia, junto con los chats),
+        "Resumen" (el informe del dia, que se cierra al final de Mi dia) y "Tablero". Lo que uno
+        viene a buscar aca es la lista: quien llamo, a quien, por que linea y como quedo.
+
+        Quien supervisa ve las de todo el equipo y puede filtrar por asesora; una asesora ve solo
+        las suyas -se lo impone la accion, no la pantalla-.
       */}
-      <div className="mb-4">
-        <Link
-          href="/cliente/crm/mi-dia"
-          className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[var(--primary)] hover:underline"
-        >
-          <Phone className="size-3.5" />
-          A quién llamar hoy está en Mi día
-        </Link>
-      </div>
+      <TodasLasLlamadas asesoras={asesoras} />
 
-      {/* "Resumen" lo ve CUALQUIERA (cada una manda el suyo); "Tablero" solo el dueño. */}
-      <Tabs defaultValue={pestanaInicial === "vendedora" ? "resumen" : pestanaInicial}>
-        <TabsList className="mb-4">
-          <TabsTrigger value="resumen">Resumen</TabsTrigger>
-          {canSeeOwner && owner ? <TabsTrigger value="tablero">Tablero</TabsTrigger> : null}
-        </TabsList>
-        <TabsContent value="resumen">
-          <ResumenDiaView data={resumen} />
-        </TabsContent>
-        {canSeeOwner && owner ? (
-          <TabsContent value="tablero">
+      {canSeeOwner && owner ? (
+        <details className="rounded-xl border border-border bg-card px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium text-foreground">
+            Tablero del equipo
+          </summary>
+          <div className="pt-4">
             <OwnerBoard data={owner} />
-          </TabsContent>
-        ) : null}
-      </Tabs>
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }

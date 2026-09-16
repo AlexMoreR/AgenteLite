@@ -250,6 +250,8 @@ export type LlamadaDelEquipo = {
   id: string;
   calledAt: string;
   asesora: string;
+  /** De que linea de WhatsApp salio (la del chat del cliente). */
+  canal: string | null;
   cliente: string;
   telefono: string;
   conversationId: string | null;
@@ -269,23 +271,36 @@ const LLAMADAS_POR_PAGINA = 30;
  * Solo dueño o administrador (Alex, 15-sep-2026): escuchar las llamadas de todo el equipo es
  * supervision. Cada asesora sigue viendo las suyas en su Resumen.
  */
+/**
+ * Las llamadas recientes del negocio.
+ *
+ * Quien supervisa (dueño, admin o supervisora) las ve TODAS, de todas las asesoras y todas las
+ * lineas, y puede filtrar por asesora. Una asesora ve SOLO las suyas: el filtro no se lo ofrece la
+ * pantalla, y aunque mande un id, aca se le impone el propio (Alex, 15-sep-2026).
+ */
 export async function llamadasDelEquipoAction(input: {
   pagina?: number;
   soloConGrabacion?: boolean;
-}): Promise<{ llamadas: LlamadaDelEquipo[]; hayMas: boolean } | { error: string }> {
+  /** Filtrar por quien llamo. Vacio = todas (solo para quien supervisa). */
+  asesoraId?: string | null;
+}): Promise<{ llamadas: LlamadaDelEquipo[]; hayMas: boolean; soloLasMias: boolean } | { error: string }> {
   const session = await auth();
   if (!session?.user?.id) {
     return { error: "No autorizado" };
   }
   const access = await getClientWorkspaceAccessForUser(session.user.id);
-  if (!access || !canAccessClientModule(access, "llamadas") || !(await puedeSupervisar(access))) {
-    return { error: "Solo el dueño o un administrador" };
+  if (!access || !canAccessClientModule(access, "llamadas")) {
+    return { error: "No autorizado" };
   }
+  const supervisa = await puedeSupervisar(access);
+  const asesoraPedida = typeof input.asesoraId === "string" ? input.asesoraId.trim() : "";
+  const calledByUserId = supervisa ? (asesoraPedida || null) : access.userId;
 
   const pagina = Math.max(0, Math.floor(Number(input.pagina) || 0));
   const intentos = await prisma.callAttempt.findMany({
     where: {
       workspaceId: access.workspaceId,
+      ...(calledByUserId ? { calledByUserId } : {}),
       ...(input.soloConGrabacion ? { recordingUrl: { not: null } } : {}),
     },
     orderBy: { calledAt: "desc" },
@@ -306,7 +321,7 @@ export async function llamadasDelEquipoAction(input: {
             where: { workspaceId: access.workspaceId },
             orderBy: { lastMessageAt: "desc" },
             take: 1,
-            select: { id: true },
+            select: { id: true, channel: { select: { name: true } } },
           },
         },
       },
@@ -331,10 +346,12 @@ export async function llamadasDelEquipoAction(input: {
 
   return {
     hayMas: intentos.length > LLAMADAS_POR_PAGINA,
+    soloLasMias: !supervisa,
     llamadas: pagina30.map((intento) => ({
       id: intento.id,
       calledAt: intento.calledAt.toISOString(),
       asesora: intento.calledBy?.name?.trim() || intento.calledBy?.email || "Sin asesora",
+      canal: intento.contact.conversations[0]?.channel?.name ?? null,
       cliente: intento.contact.name?.trim() || intento.contact.phoneNumber,
       telefono: intento.contact.phoneNumber,
       conversationId: intento.contact.conversations[0]?.id ?? null,

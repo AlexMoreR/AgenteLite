@@ -2,10 +2,8 @@ import type { Metadata } from "next";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 import { getLlamadasOwnerData } from "@/features/llamadas/services/getLlamadasData";
-import { getResumenDiaData } from "@/features/llamadas/services/getResumenDia";
 import { LlamadasWorkspace } from "@/features/llamadas/components/LlamadasWorkspace";
 import { prisma } from "@/lib/prisma";
-import { buildWaCallsDialerUrl } from "@/lib/wacalls";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -25,29 +23,29 @@ export default async function ClienteLlamadasPage({ searchParams }: PageProps) {
    * El marcador se abre con el número puesto cuando se llega desde el botón "Llamar" de un lead
    * (?tab=marcador&to=...). Es lo que evita que la asesora copie el número a mano.
    */
-  const params = await searchParams;
-  const telefono = typeof params.to === "string" ? params.to : "";
-  const marcadorUrl = buildWaCallsDialerUrl(telefono);
-  const pestanaInicial = params.tab === "marcador" && marcadorUrl ? "marcador" : "vendedora";
+  await searchParams;
 
-  // El resumen es de QUIEN abre la pantalla: cada asesora ve y manda el suyo.
-  const currentUser = await prisma.user.findUnique({
-    where: { id: access.userId },
-    select: { name: true, email: true },
-  });
-  const advisorName = currentUser?.name?.trim() || currentUser?.email || "Asesora";
-
-  const [owner, resumen] = await Promise.all([
+  /*
+    El filtro por asesora es de quien supervisa. A una asesora se le manda la lista vacia: no lo ve,
+    y la accion igual le devuelve solo sus llamadas.
+  */
+  const [owner, miembros] = await Promise.all([
     canSeeOwner ? getLlamadasOwnerData(access.workspaceId) : Promise.resolve(null),
-    getResumenDiaData({ workspaceId: access.workspaceId, userId: access.userId, advisorName }),
+    canSeeOwner
+      ? prisma.workspaceMember.findMany({
+          where: { workspaceId: access.workspaceId, isActive: true },
+          select: { userId: true, user: { select: { name: true, email: true } } },
+        })
+      : Promise.resolve([]),
   ]);
+  const asesoras = miembros
+    .map((miembro) => ({
+      id: miembro.userId,
+      nombre: miembro.user?.name?.trim() || miembro.user?.email || "Sin nombre",
+    }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 
   return (
-    <LlamadasWorkspace
-      owner={owner}
-      canSeeOwner={canSeeOwner}
-      resumen={resumen}
-      pestanaInicial={pestanaInicial}
-    />
+    <LlamadasWorkspace owner={owner} canSeeOwner={canSeeOwner} asesoras={asesoras} />
   );
 }

@@ -7,6 +7,7 @@ import { Loader2, MessageCircle } from "lucide-react";
 import { llamadasDelEquipoAction, type LlamadaDelEquipo } from "@/app/actions/call-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 
 const CUANDO = new Intl.DateTimeFormat("es-CO", {
   timeZone: "America/Bogota",
@@ -16,7 +17,15 @@ const CUANDO = new Intl.DateTimeFormat("es-CO", {
   minute: "2-digit",
 });
 
-type Estado = { filtro: boolean; llamadas: LlamadaDelEquipo[]; hayMas: boolean; pagina: number; error: string | null };
+type Estado = {
+  clave: string;
+  llamadas: LlamadaDelEquipo[];
+  hayMas: boolean;
+  pagina: number;
+  error: string | null;
+};
+
+export type AsesoraDeLlamadas = { id: string; nombre: string };
 
 /**
  * Todas las llamadas del equipo con su grabacion, para el dueño (Alex, 15-sep-2026).
@@ -25,39 +34,42 @@ type Estado = { filtro: boolean; llamadas: LlamadaDelEquipo[]; hayMas: boolean; 
  * resto del tablero no tiene por que esperarla. `preload="none"` en cada audio para no bajar 30
  * archivos al abrir.
  */
-export function TodasLasLlamadas() {
+export function TodasLasLlamadas({ asesoras = [] }: { asesoras?: AsesoraDeLlamadas[] }) {
   const [soloConGrabacion, setSoloConGrabacion] = useState(false);
+  // "" = todas las asesoras. A quien no supervisa no se le ofrece el selector.
+  const [asesoraId, setAsesoraId] = useState("");
   const [estado, setEstado] = useState<Estado | null>(null);
   const [cargandoMas, setCargandoMas] = useState(false);
-  const cargando = estado?.filtro !== soloConGrabacion;
+  const clave = `${soloConGrabacion ? "grabadas" : "todas"}|${asesoraId}`;
+  const cargando = estado?.clave !== clave;
 
   useEffect(() => {
     let vigente = true;
-    llamadasDelEquipoAction({ pagina: 0, soloConGrabacion })
+    llamadasDelEquipoAction({ pagina: 0, soloConGrabacion, asesoraId })
       .then((respuesta) => {
         if (!vigente) return;
         setEstado(
           "error" in respuesta
-            ? { filtro: soloConGrabacion, llamadas: [], hayMas: false, pagina: 0, error: respuesta.error }
-            : { filtro: soloConGrabacion, llamadas: respuesta.llamadas, hayMas: respuesta.hayMas, pagina: 0, error: null },
+            ? { clave, llamadas: [], hayMas: false, pagina: 0, error: respuesta.error }
+            : { clave, llamadas: respuesta.llamadas, hayMas: respuesta.hayMas, pagina: 0, error: null },
         );
       })
       .catch(() => {
         if (vigente) {
-          setEstado({ filtro: soloConGrabacion, llamadas: [], hayMas: false, pagina: 0, error: "No se pudieron cargar las llamadas" });
+          setEstado({ clave, llamadas: [], hayMas: false, pagina: 0, error: "No se pudieron cargar las llamadas" });
         }
       });
     return () => {
       vigente = false;
     };
-  }, [soloConGrabacion]);
+  }, [soloConGrabacion, asesoraId, clave]);
 
   const verMas = async () => {
     if (!estado || cargandoMas) return;
     setCargandoMas(true);
     try {
       const siguiente = estado.pagina + 1;
-      const respuesta = await llamadasDelEquipoAction({ pagina: siguiente, soloConGrabacion });
+      const respuesta = await llamadasDelEquipoAction({ pagina: siguiente, soloConGrabacion, asesoraId });
       if (!("error" in respuesta)) {
         setEstado({ ...estado, llamadas: [...estado.llamadas, ...respuesta.llamadas], hayMas: respuesta.hayMas, pagina: siguiente });
       }
@@ -74,8 +86,25 @@ export function TodasLasLlamadas() {
   return (
     <Card className="md:col-span-2">
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
-        <CardTitle className="text-sm">Todas las llamadas</CardTitle>
-        <div className="flex gap-1.5">
+        <CardTitle className="text-sm">Llamadas recientes</CardTitle>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* El filtro por asesora solo lo ve quien supervisa: a una asesora la accion ya le
+              devuelve unicamente las suyas. */}
+          {asesoras.length > 0 ? (
+            <NativeSelect
+              className="h-8 w-44 text-[16px] md:text-xs"
+              value={asesoraId}
+              onChange={(evento) => setAsesoraId(evento.target.value)}
+              aria-label="Filtrar por asesora"
+            >
+              <NativeSelectOption value="">Todas las asesoras</NativeSelectOption>
+              {asesoras.map((asesora) => (
+                <NativeSelectOption key={asesora.id} value={asesora.id}>
+                  {asesora.nombre}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          ) : null}
           {filtros.map((filtro) => (
             <button
               key={filtro.etiqueta}
@@ -112,7 +141,8 @@ export function TodasLasLlamadas() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{llamada.cliente}</p>
                     <p className="truncate text-[11px] text-muted-foreground">
-                      {CUANDO.format(new Date(llamada.calledAt))} · {llamada.asesora} · {llamada.telefono}
+                      {CUANDO.format(new Date(llamada.calledAt))} · {llamada.asesora}
+                      {llamada.canal ? ` · ${llamada.canal}` : ""} · {llamada.telefono}
                     </p>
                   </div>
                   {llamada.conversationId ? (
