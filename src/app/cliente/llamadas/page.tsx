@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
-import { getLlamadasOwnerData } from "@/features/llamadas/services/getLlamadasData";
 import { LlamadasWorkspace } from "@/features/llamadas/components/LlamadasWorkspace";
 import { prisma } from "@/lib/prisma";
 
@@ -29,15 +28,12 @@ export default async function ClienteLlamadasPage({ searchParams }: PageProps) {
     El filtro por asesora es de quien supervisa. A una asesora se le manda la lista vacia: no lo ve,
     y la accion igual le devuelve solo sus llamadas.
   */
-  const [owner, miembros] = await Promise.all([
-    canSeeOwner ? getLlamadasOwnerData(access.workspaceId) : Promise.resolve(null),
-    canSeeOwner
-      ? prisma.workspaceMember.findMany({
-          where: { workspaceId: access.workspaceId, isActive: true },
-          select: { userId: true, user: { select: { name: true, email: true } } },
-        })
-      : Promise.resolve([]),
-  ]);
+  const miembros = canSeeOwner
+    ? await prisma.workspaceMember.findMany({
+        where: { workspaceId: access.workspaceId, isActive: true },
+        select: { userId: true, user: { select: { name: true, email: true } } },
+      })
+    : [];
   const asesoras = miembros
     .map((miembro) => ({
       id: miembro.userId,
@@ -46,6 +42,6 @@ export default async function ClienteLlamadasPage({ searchParams }: PageProps) {
     .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 
   return (
-    <LlamadasWorkspace owner={owner} canSeeOwner={canSeeOwner} asesoras={asesoras} />
+    <LlamadasWorkspace asesoras={asesoras} />
   );
 }

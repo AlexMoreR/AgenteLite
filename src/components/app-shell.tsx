@@ -66,6 +66,8 @@ type AppShellProps = {
   chatRealtimeWorkspaceId?: string | null;
   // Quien esta conectado, para que el sonido respete a quien le toca cada chat.
   chatRealtimeUserId?: string | null;
+  /** Dueño, administrador o supervisora: le aparece el Tablero del equipo en CRM. */
+  puedeSupervisarElEquipo?: boolean;
 };
 
 const breadcrumbLabels: Record<string, string> = {
@@ -202,6 +204,7 @@ export function AppShell({
   sidebarDefaultOpen = true,
   chatRealtimeWorkspaceId = null,
   chatRealtimeUserId = null,
+  puedeSupervisarElEquipo = false,
 }: AppShellProps) {
   const { data } = useSession();
   const pathname = usePathname();
@@ -295,6 +298,7 @@ export function AppShell({
           }}
           currentConnectionKey={currentConnectionKey}
           chatSidebarItems={chatSidebarItems}
+          puedeSupervisarElEquipo={puedeSupervisarElEquipo}
         />
         <AppVersionGuard />
         <MobileKeyboardViewport />

@@ -87,6 +87,8 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
     role?: string | null
   }
   currentConnectionKey?: string
+  /** Dueño, administrador o supervisora: le aparece el Tablero del equipo dentro de CRM. */
+  puedeSupervisarElEquipo?: boolean
   chatSidebarItems?: Array<{
     title: string
     url: string
@@ -100,6 +102,7 @@ export function AppSidebar({
   brandName = "Workspace",
   user,
   currentConnectionKey = "",
+  puedeSupervisarElEquipo = false,
   chatSidebarItems = [],
   ...props
 }: AppSidebarProps) {
@@ -176,8 +179,10 @@ export function AppSidebar({
             {adminModuleAccess.crm ? (
               <NavCrm
                 currentView={
-                  pathname.startsWith("/cliente/crm/informe")
-                    ? "informe"
+                  pathname.startsWith("/cliente/crm/tablero")
+                    ? "tablero"
+                    : pathname.startsWith("/cliente/crm/informe")
+                      ? "informe"
                     : pathname.startsWith("/cliente/crm/kanban")
                       ? "kanban"
                       : pathname.startsWith("/cliente/crm/registro")
@@ -187,6 +192,7 @@ export function AppSidebar({
                           : "mi-dia"
                 }
                 isCrmRoute={pathname.startsWith("/cliente/crm")}
+                puedeSupervisar={puedeSupervisarElEquipo}
               />
             ) : null}
             {/*
