@@ -86,7 +86,7 @@ export function AppSidebar({
   searchAction,
   selectedConnectionKey = "",
   searchQuery = "",
-  assignedFilter = "mine",
+  assignedFilter = "all",
   statusFilter = "open",
   assignedCounts = null,
   isManager = false,
@@ -115,8 +115,14 @@ export function AppSidebar({
       const params = new URLSearchParams();
       if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
       if (searchQuery.trim()) params.set("q", searchQuery.trim());
-      // Los valores por defecto no van en la direccion: una URL corta se lee y se comparte mejor.
-      if (asignacion !== "mine") params.set("assigned", asignacion);
+      /*
+        Los valores por defecto no van en la direccion: una URL corta se lee y se comparte mejor.
+
+        El defecto es "all" desde el 15-sep-2026. Cuando era "mine", esta linea omitia justamente
+        "mine" — y al invertir el defecto, tocar "Mias" dejaba de mandar nada y la bandeja volvia a
+        "Todas": el chip parecia no funcionar.
+      */
+      if (asignacion !== "all") params.set("assigned", asignacion);
       if (estado !== "open") params.set("status", estado);
       for (const [clave, valor] of paramsDeFiltros(nuevos)) {
         params.set(clave, valor);
