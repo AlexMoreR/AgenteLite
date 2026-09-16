@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { MiDiaLeadDialog } from "./MiDiaLeadDialog";
 import { MessageCircle, Clock, Flame, PhoneCall } from "lucide-react";
@@ -39,7 +39,16 @@ function StageBadge({ stage }: { stage: CrmStage }) {
   );
 }
 
-export function MiDiaView({ data }: { data: MiDiaData }) {
+export function MiDiaView({
+  data,
+  llamadasUrgentes = null,
+  llamadasDespues = null,
+}: {
+  data: MiDiaData;
+  /* Las llamadas del dia, que antes vivian en su propia pestaña (ver LlamadasDeMiDia). */
+  llamadasUrgentes?: ReactNode;
+  llamadasDespues?: ReactNode;
+}) {
   const { leads } = data;
   const [leadAbierto, setLeadAbierto] = useState<MiDiaLead | null>(null);
   const waiting = leads.filter((lead) => lead.waitingOnUs).length;
@@ -79,6 +88,8 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
           ) : null}
         </div>
       </div>
+
+      {llamadasUrgentes}
 
       {porEtapa.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -192,6 +203,8 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
           ))}
         </ul>
       )}
+
+      {llamadasDespues}
 
       <MiDiaLeadDialog lead={leadAbierto} onClose={() => setLeadAbierto(null)} />
     </section>

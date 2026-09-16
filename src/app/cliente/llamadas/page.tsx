@@ -1,10 +1,7 @@
 import type { Metadata } from "next";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
-import {
-  getLlamadasVendedoraData,
-  getLlamadasOwnerData,
-} from "@/features/llamadas/services/getLlamadasData";
+import { getLlamadasOwnerData } from "@/features/llamadas/services/getLlamadasData";
 import { getResumenDiaData } from "@/features/llamadas/services/getResumenDia";
 import { LlamadasWorkspace } from "@/features/llamadas/components/LlamadasWorkspace";
 import { prisma } from "@/lib/prisma";
@@ -40,19 +37,16 @@ export default async function ClienteLlamadasPage({ searchParams }: PageProps) {
   });
   const advisorName = currentUser?.name?.trim() || currentUser?.email || "Asesora";
 
-  const [vendedora, owner, resumen] = await Promise.all([
-    getLlamadasVendedoraData(access.workspaceId, access.userId),
+  const [owner, resumen] = await Promise.all([
     canSeeOwner ? getLlamadasOwnerData(access.workspaceId) : Promise.resolve(null),
     getResumenDiaData({ workspaceId: access.workspaceId, userId: access.userId, advisorName }),
   ]);
 
   return (
     <LlamadasWorkspace
-      vendedora={vendedora}
       owner={owner}
       canSeeOwner={canSeeOwner}
       resumen={resumen}
-      marcadorUrl={marcadorUrl}
       pestanaInicial={pestanaInicial}
     />
   );
