@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
 import { MiDiaLeadDialog } from "./MiDiaLeadDialog";
-import { MessageCircle, Clock, Flame, PhoneCall } from "lucide-react";
+import { Clock, Flame, PhoneCall } from "lucide-react";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { CRM_STAGE_META } from "../domain/crm-config";
 import type { CrmStage } from "../types";
@@ -104,8 +104,19 @@ export function MiDiaView({
 
       {/* La PRIMERA tarea, destacada: sin esto la asesora abria la pantalla y tenia que decidir
           por donde empezar. Es la misma que encabeza la lista, puesta al frente. */}
+      {/*
+        Sin boton: la tarjeta entera abre (Alex, 15-sep-2026). Un boton al lado de una fila que ya
+        era tocable no agregaba nada y en el celular se comia el ancho del nombre.
+      */}
       {primero ? (
-        <div className="rounded-xl border border-[var(--primary)]/25 bg-primary/[0.04] px-3 py-2.5">
+        <Link
+          href={`/cliente/chats?chatKey=${encodeURIComponent(primero.chatKey)}`}
+          onClick={(evento) => {
+            evento.preventDefault();
+            setLeadAbierto(primero);
+          }}
+          className="block rounded-xl border border-[var(--primary)]/25 bg-primary/[0.04] px-3 py-2.5 transition hover:bg-primary/[0.08]"
+        >
           <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--primary)]">
             Empezá por acá
           </p>
@@ -115,19 +126,8 @@ export function MiDiaView({
             {primero.waitingOnUs ? (
               <span className="text-[13px] text-muted-foreground">Está esperando respuesta</span>
             ) : null}
-            <Link
-              href={`/cliente/chats?chatKey=${encodeURIComponent(primero.chatKey)}`}
-              onClick={(evento) => {
-                evento.preventDefault();
-                setLeadAbierto(primero);
-              }}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-3 py-1 text-[13px] font-semibold text-white transition hover:opacity-90"
-            >
-              <MessageCircle className="h-3.5 w-3.5" />
-              Escribirle
-            </Link>
           </div>
-        </div>
+        </Link>
       ) : null}
 
       {leads.length === 0 ? (
@@ -194,10 +194,6 @@ export function MiDiaView({
                   </div>
                 </div>
 
-                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--primary)] px-3 py-1.5 text-[13px] font-semibold text-white">
-                  <MessageCircle className="h-4 w-4" />
-                  Abrir
-                </span>
               </Link>
             </li>
           ))}
