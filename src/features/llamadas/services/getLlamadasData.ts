@@ -303,6 +303,8 @@ export type LlamadasOwnerData = {
     name: string;
     leadsACargo: number;
     conMovimientoHoy: number;
+    /** Chats suyos en los que una PERSONA (no el agente) respondio hoy. */
+    respondidosHoy: number;
     llamadasHoy: number;
     llamadasSemana: number;
     ventasSemana: number;
@@ -401,6 +403,29 @@ export async function getLlamadasOwnerData(workspaceId: string): Promise<Llamada
       }),
     ]);
 
+    /*
+      Respondidos hoy (Alex, 16-sep-2026): "Movidos" cuenta cualquier movimiento, escriba quien
+      escriba; esto cuenta solo los chats donde una PERSONA contesto.
+
+      Los mensajes no guardan QUIEN los envio, pero si DESDE DONDE: "manual" = desde el CRM,
+      "instance" = desde el celular de la linea. Sin eso -o con otro valor- es el agente o un flujo,
+      y no cuenta. Se atribuye a la asesora dueña del chat. Leer rawPayload es caro sobre muchos
+      mensajes, pero aca son solo los de hoy.
+    */
+    const respondidos = await prisma.$queryRaw<Array<{ uid: string; n: number }>>`
+      SELECT cv."assignedToUserId" AS uid, COUNT(DISTINCT m."conversationId")::int AS n
+      FROM "Message" m
+      JOIN "Conversation" cv ON cv."id" = m."conversationId"
+      WHERE m."workspaceId" = ${workspaceId}
+        AND m."direction" = 'OUTBOUND'
+        AND m."type" <> 'SYSTEM'
+        AND m."createdAt" >= ${startToday}
+        AND cv."assignedToUserId" IS NOT NULL
+        AND COALESCE(m."rawPayload"->>'source', '') IN ('manual', 'instance')
+      GROUP BY cv."assignedToUserId"
+    `;
+    const mapaRespondidos = new Map(respondidos.map((fila) => [fila.uid, Number(fila.n)]));
+
     const cuenta = (filas: Array<{ assignedToUserId: string | null; _count: { _all: number } }>) =>
       new Map(filas.map((fila) => [fila.assignedToUserId ?? "", fila._count._all]));
     const mapaACargo = cuenta(aCargo);
@@ -415,6 +440,7 @@ export async function getLlamadasOwnerData(workspaceId: string): Promise<Llamada
           name: miembro.user?.name?.trim() || miembro.user?.email || "Sin nombre",
           leadsACargo: mapaACargo.get(miembro.userId) ?? 0,
           conMovimientoHoy: mapaMovidos.get(miembro.userId) ?? 0,
+          respondidosHoy: mapaRespondidos.get(miembro.userId) ?? 0,
           llamadasHoy: llamadas?.today ?? 0,
           llamadasSemana: llamadas?.week ?? 0,
           ventasSemana: mapaGanados.get(miembro.userId) ?? 0,

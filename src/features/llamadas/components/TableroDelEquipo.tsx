@@ -37,6 +37,7 @@ export function TableroDelEquipo({ data }: { data: LlamadasOwnerData }) {
                     <th className="px-4 py-2 font-medium">Vendedora</th>
                     <th className="px-3 py-2 text-right font-medium">Leads</th>
                     <th className="px-3 py-2 text-right font-medium">Movidos hoy</th>
+                    <th className="px-3 py-2 text-right font-medium">Respondidos hoy</th>
                     <th className="px-3 py-2 text-right font-medium">Llamadas hoy</th>
                     <th className="px-3 py-2 text-right font-medium">Semana</th>
                     <th className="px-4 py-2 text-right font-medium">Ventas</th>
@@ -61,6 +62,7 @@ export function TableroDelEquipo({ data }: { data: LlamadasOwnerData }) {
                       </td>
                       <td className="px-3 py-2 text-right">{persona.leadsACargo}</td>
                       <td className="px-3 py-2 text-right">{persona.conMovimientoHoy}</td>
+                      <td className="px-3 py-2 text-right font-semibold">{persona.respondidosHoy}</td>
                       <td className="px-3 py-2 text-right">{persona.llamadasHoy}</td>
                       <td className="px-3 py-2 text-right text-muted-foreground">{persona.llamadasSemana}</td>
                       <td className="px-4 py-2 text-right font-semibold text-emerald-600">
@@ -73,8 +75,9 @@ export function TableroDelEquipo({ data }: { data: LlamadasOwnerData }) {
             </div>
           )}
           <p className="px-4 pb-3 pt-2 text-[11px] leading-4 text-muted-foreground">
-            &quot;Movidos hoy&quot; son los chats suyos con movimiento hoy — escriba ella o escriba el
-            cliente. Los mensajes no guardan quién los escribió, así que no se puede separar.
+            &quot;Movidos hoy&quot; son sus chats con cualquier movimiento hoy, escriba quien escriba.
+            &quot;Respondidos hoy&quot; son sus chats en los que una persona contestó hoy, desde la
+            app o desde el celular de la línea (no cuenta lo que respondió el agente).
             &quot;Ventas&quot; y &quot;Semana&quot; van de los últimos 7 días.
           </p>
         </CardContent>
