@@ -337,13 +337,17 @@ export function NodoIdea({
           seleccionar no enganchaba en ningun lado.
         */
         const visible = selected || puntosEnUso.has(clave);
-        const estilo = `!size-2.5 !border-0 !bg-muted-foreground/40 transition hover:!bg-primary ${
+        // Los puntos toman el color de la caja, igual que las uniones que salen de ella. El gris
+        // va como clase y el color como estilo: una clase con ! le ganaria al estilo.
+        const colorDelPunto = opcionDelColor(data?.color).linea;
+        const estilo = `!size-2.5 !border-0 ${colorDelPunto ? "" : "!bg-muted-foreground/40"} transition hover:!bg-primary ${
           visible ? "opacity-100" : "opacity-0"
         }`;
+        const pintura = colorDelPunto ? { backgroundColor: colorDelPunto } : undefined;
         return (
           <div key={clave}>
-            <Handle type="target" id={`${clave}-in`} position={posicion} className={estilo} />
-            <Handle type="source" id={`${clave}-out`} position={posicion} className={estilo} />
+            <Handle type="target" id={`${clave}-in`} position={posicion} className={estilo} style={pintura} />
+            <Handle type="source" id={`${clave}-out`} position={posicion} className={estilo} style={pintura} />
           </div>
         );
       })}

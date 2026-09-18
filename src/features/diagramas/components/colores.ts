@@ -35,6 +35,11 @@ export type OpcionDeColor = {
   caja: string;
   /** El puntito del selector. */
   punto: string;
+  /**
+   * El color de las uniones que SALEN de esta caja y de sus puntos para conectar. Sin valor, el
+   * gris de siempre: el blanco y el transparente no tienen un color que prestar.
+   */
+  linea?: string;
 };
 
 export const COLORES_DE_IDEA: OpcionDeColor[] = [
@@ -58,60 +63,70 @@ export const COLORES_DE_IDEA: OpcionDeColor[] = [
     nombre: "Gris",
     caja: "border-slate-300 bg-slate-100 dark:border-slate-500/50 dark:bg-slate-500/20",
     punto: "bg-slate-300 border-slate-400",
+    linea: "#94a3b8",
   },
   {
     valor: "azul",
     nombre: "Azul claro",
     caja: "border-sky-300 bg-sky-50 dark:border-sky-500/40 dark:bg-sky-500/10",
     punto: "bg-sky-300 border-sky-400",
+    linea: "#38bdf8",
   },
   {
     valor: "azulOscuro",
     nombre: "Azul oscuro",
     caja: "border-blue-400 bg-blue-200 dark:border-blue-400/60 dark:bg-blue-500/35",
     punto: "bg-blue-600 border-blue-700",
+    linea: "#2563eb",
   },
   {
     valor: "amarillo",
     nombre: "Amarillo",
     caja: "border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10",
     punto: "bg-amber-300 border-amber-400",
+    linea: "#f59e0b",
   },
   {
     valor: "naranja",
     nombre: "Naranja",
     caja: "border-orange-300 bg-orange-100 dark:border-orange-500/50 dark:bg-orange-500/20",
     punto: "bg-orange-400 border-orange-500",
+    linea: "#f97316",
   },
   {
     valor: "verde",
     nombre: "Verde claro",
     caja: "border-emerald-300 bg-emerald-50 dark:border-emerald-500/40 dark:bg-emerald-500/10",
     punto: "bg-emerald-300 border-emerald-400",
+    linea: "#34d399",
   },
   {
     valor: "verdeOscuro",
     nombre: "Verde oscuro",
     caja: "border-emerald-500 bg-emerald-200 dark:border-emerald-400/60 dark:bg-emerald-600/35",
     punto: "bg-emerald-600 border-emerald-700",
+    linea: "#059669",
   },
   {
     valor: "rojo",
     nombre: "Rojo",
     caja: "border-red-400 bg-red-100 dark:border-red-500/60 dark:bg-red-500/25",
     punto: "bg-red-500 border-red-600",
+    linea: "#ef4444",
   },
   {
     valor: "rosa",
     nombre: "Rosado",
     caja: "border-pink-300 bg-pink-50 dark:border-pink-500/40 dark:bg-pink-500/10",
     punto: "bg-pink-300 border-pink-400",
+    linea: "#f472b6",
   },
   {
     valor: "violeta",
     nombre: "Morado",
     caja: "border-violet-300 bg-violet-50 dark:border-violet-500/40 dark:bg-violet-500/10",
     punto: "bg-violet-400 border-violet-500",
+    linea: "#8b5cf6",
   },
 ];
 

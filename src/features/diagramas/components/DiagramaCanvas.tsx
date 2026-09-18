@@ -39,6 +39,7 @@ import {
 import { guardarDiagramaAction } from "@/app/actions/diagram-actions";
 import { NodoIdea } from "./NodoIdea";
 import { AristaBorrable } from "./AristaBorrable";
+import { opcionDelColor } from "./colores";
 
 /**
  * El lienzo de un mapa mental.
@@ -555,9 +556,6 @@ export function DiagramaCanvas({
    * al toque lo que queda escondido, y lo guardado sigue siendo el mapa entero.
    */
   const { nodosAMostrar, aristasAMostrar } = useMemo(() => {
-    if (!nodes.some((nodo) => nodo.data?.colapsado === true)) {
-      return { nodosAMostrar: nodes, aristasAMostrar: edges };
-    }
     /*
       Que va "despues" de una caja se decide por POSICION, no por el sentido de la union.
 
@@ -637,9 +635,23 @@ export function DiagramaCanvas({
             ? { ...nodo, data: { ...nodo.data, ocultas: cuantas.get(nodo.id) } }
             : nodo,
       ),
-      aristasAMostrar: edges.map((arista) =>
-        ocultos.has(arista.source) || ocultos.has(arista.target) ? { ...arista, hidden: true } : arista,
-      ),
+      aristasAMostrar: edges.map((arista) => {
+        if (ocultos.has(arista.source) || ocultos.has(arista.target)) {
+          return { ...arista, hidden: true };
+        }
+        /*
+          Cada union va del color de su caja PRINCIPAL, la que esta antes (a la izquierda, o
+          arriba si estan alineadas), sin importar hacia donde se trazo. Asi una rama entera se
+          lee del color de la caja de donde sale.
+        */
+        const desde = centro(arista.source);
+        const hasta = centro(arista.target);
+        const dx = hasta.x - desde.x;
+        const principal =
+          dx > 10 || (Math.abs(dx) <= 10 && hasta.y >= desde.y) ? arista.source : arista.target;
+        const color = opcionDelColor(porId.get(principal)?.data?.color).linea;
+        return color ? { ...arista, style: { ...arista.style, stroke: color } } : arista;
+      }),
     };
   }, [edges, nodes]);
 
