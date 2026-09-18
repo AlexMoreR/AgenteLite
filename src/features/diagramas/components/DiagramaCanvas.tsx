@@ -58,6 +58,36 @@ export type DiagramaGuardado = {
 
 const RETARDO_GUARDADO_MS = 2000;
 
+const esFondo = (nodo: Node) => nodo.data?.fondo === true;
+
+/**
+ * Los fondos van PRIMERO en la lista.
+ *
+ * React Flow dibuja en ese orden -así un fondo queda detrás de lo que tiene encima- y además exige
+ * que el padre aparezca antes que sus hijos. Como un fondo no se mete dentro de otro, ponerlos
+ * todos adelante cumple las dos cosas.
+ */
+function fondosPrimero(lista: Node[]): Node[] {
+  return [...lista.filter(esFondo), ...lista.filter((nodo) => !esFondo(nodo))];
+}
+
+/** Saca las ideas de un fondo y las deja sueltas donde estaban a la vista. */
+function soltarHijos(lista: Node[], idPadre: string): Node[] {
+  const padre = lista.find((nodo) => nodo.id === idPadre);
+  if (!padre) {
+    return lista;
+  }
+  return lista.map((nodo) =>
+    nodo.parentId === idPadre
+      ? {
+          ...nodo,
+          parentId: undefined,
+          position: { x: padre.position.x + nodo.position.x, y: padre.position.y + nodo.position.y },
+        }
+      : nodo,
+  );
+}
+
 export function DiagramaCanvas({
   id,
   tituloInicial,
@@ -217,6 +247,8 @@ export function DiagramaCanvas({
           ...actuales.map((nodo) => ({ ...nodo, selected: false })),
           ...copiadas.map((original, indice) => ({
             ...original,
+            // Si el fondo de donde salió ya no está, la copia queda suelta.
+            parentId: actuales.some((nodo) => nodo.id === original.parentId) ? original.parentId : undefined,
             id: `idea-${marca}-${indice}-${Math.round(Math.random() * 1000)}`,
             position: {
               x: original.position.x + corrimiento,
@@ -226,6 +258,7 @@ export function DiagramaCanvas({
             selected: true,
           })),
         ]);
+        setNodes(fondosPrimero);
         programarGuardado();
       }
     };
@@ -243,7 +276,7 @@ export function DiagramaCanvas({
   );
 
   const agregarIdea = useCallback(
-    (posicion?: { x: number; y: number }) => {
+    (posicion?: { x: number; y: number }, idPadre?: string) => {
       const centro =
         posicion ??
         flujoRef.current?.screenToFlowPosition({
@@ -259,6 +292,7 @@ export function DiagramaCanvas({
         // con la manija de la esquina: el minimo del nodo es chico a proposito.
         style: { width: 180 },
         data: { texto: "" },
+        ...(idPadre ? { parentId: idPadre } : {}),
       };
       setNodes((actuales) => [...actuales, nuevo]);
       programarGuardado();
@@ -342,6 +376,8 @@ export function DiagramaCanvas({
             // Pegada a la anterior, apenas separada: naciendo lejos obligaba a arrastrarla de
             // vuelta en cada paso, y armar una cadena era mover cajas todo el tiempo.
             position: { x: origen.position.x + anchoOrigen + 40, y: origen.position.y },
+            // Nace en el mismo fondo que la anterior: la posicion ya es relativa a el.
+            ...(origen.parentId ? { parentId: origen.parentId } : {}),
             style: { width: 180 },
             data: { texto: "" },
             selected: true,
@@ -389,13 +425,113 @@ export function DiagramaCanvas({
 
   const borrarNodo = useCallback(
     (idNodo: string) => {
-      setNodes((actuales) => actuales.filter((nodo) => nodo.id !== idNodo));
+      // Borrar un fondo NO se lleva lo que tenía adentro: esas ideas quedan sueltas.
+      setNodes((actuales) => soltarHijos(actuales, idNodo).filter((nodo) => nodo.id !== idNodo));
       setEdges((actuales) =>
         actuales.filter((arista) => arista.source !== idNodo && arista.target !== idNodo),
       );
       programarGuardado();
     },
     [programarGuardado, setEdges, setNodes],
+  );
+
+  /**
+   * Convertir una caja en fondo, o devolverla a idea.
+   *
+   * Al volverse fondo crece a un tamaño donde entren cosas, y si estaba dentro de otro fondo sale:
+   * un fondo dentro de otro no se admite. Al dejar de serlo suelta lo que tenía adentro.
+   */
+  const alternarFondo = useCallback(
+    (idNodo: string) => {
+      setNodes((actuales) => {
+        const nodo = actuales.find((actual) => actual.id === idNodo);
+        if (!nodo) {
+          return actuales;
+        }
+        if (esFondo(nodo)) {
+          return fondosPrimero(
+            soltarHijos(actuales, idNodo).map((actual) =>
+              actual.id === idNodo ? { ...actual, data: { ...actual.data, fondo: false } } : actual,
+            ),
+          );
+        }
+        const padre = nodo.parentId ? actuales.find((actual) => actual.id === nodo.parentId) : undefined;
+        const ancho = typeof nodo.style?.width === "number" ? nodo.style.width : (nodo.measured?.width ?? 180);
+        const alto = typeof nodo.style?.height === "number" ? nodo.style.height : (nodo.measured?.height ?? 0);
+        return fondosPrimero(
+          actuales.map((actual) =>
+            actual.id === idNodo
+              ? {
+                  ...actual,
+                  parentId: undefined,
+                  position: padre
+                    ? { x: padre.position.x + actual.position.x, y: padre.position.y + actual.position.y }
+                    : actual.position,
+                  style: { ...actual.style, width: Math.max(ancho, 360), height: Math.max(alto, 240) },
+                  data: { ...actual.data, fondo: true },
+                }
+              : actual,
+          ),
+        );
+      });
+      programarGuardado();
+    },
+    [programarGuardado, setNodes],
+  );
+
+  /**
+   * Al soltar una idea, se mete en el fondo que tenga debajo, o sale del que estaba.
+   *
+   * Cuenta el CENTRO de la caja: una idea grande que roza el borde de un fondo no se mete sola,
+   * hay que dejarla adentro de verdad.
+   */
+  const alSoltarNodos = useCallback(
+    (arrastrados: Node[]) => {
+      const flujo = flujoRef.current;
+      if (!flujo) {
+        return;
+      }
+      const ids = new Set(arrastrados.map((nodo) => nodo.id));
+      setNodes((actuales) => {
+        const fondos = actuales.filter(esFondo);
+        let huboCambio = false;
+        const nuevos = actuales.map((nodo) => {
+          // Si su fondo tambien se arrastro, viajo con el: sigue adentro.
+          if (!ids.has(nodo.id) || esFondo(nodo) || (nodo.parentId && ids.has(nodo.parentId))) {
+            return nodo;
+          }
+          const interno = flujo.getInternalNode(nodo.id);
+          if (!interno) {
+            return nodo;
+          }
+          const absoluta = interno.internals.positionAbsolute;
+          const centroX = absoluta.x + (interno.measured.width ?? 0) / 2;
+          const centroY = absoluta.y + (interno.measured.height ?? 0) / 2;
+          const destino = [...fondos].reverse().find((fondo) => {
+            const medida = flujo.getInternalNode(fondo.id)?.measured;
+            return (
+              centroX >= fondo.position.x &&
+              centroX <= fondo.position.x + (medida?.width ?? 0) &&
+              centroY >= fondo.position.y &&
+              centroY <= fondo.position.y + (medida?.height ?? 0)
+            );
+          });
+          if (destino?.id === nodo.parentId) {
+            return nodo;
+          }
+          huboCambio = true;
+          return destino
+            ? {
+                ...nodo,
+                parentId: destino.id,
+                position: { x: absoluta.x - destino.position.x, y: absoluta.y - destino.position.y },
+              }
+            : { ...nodo, parentId: undefined, position: { x: absoluta.x, y: absoluta.y } };
+        });
+        return huboCambio ? fondosPrimero(nuevos) : actuales;
+      });
+    },
+    [setNodes],
   );
 
   /**
@@ -413,6 +549,7 @@ export function DiagramaCanvas({
     agregarConectada,
     borrarNodo,
     borrarArista,
+    alternarFondo,
   });
   useEffect(() => {
     manejadoresRef.current = {
@@ -423,9 +560,11 @@ export function DiagramaCanvas({
       agregarConectada,
       borrarNodo,
       borrarArista,
+      alternarFondo,
     };
   }, [
     agregarConectada,
+    alternarFondo,
     borrarArista,
     borrarNodo,
     cambiarColor,
@@ -445,6 +584,7 @@ export function DiagramaCanvas({
           onDuplicar={(idNodo) => manejadoresRef.current.duplicarNodo(idNodo)}
           onAgregarConectada={(idNodo) => manejadoresRef.current.agregarConectada(idNodo)}
           onBorrar={(idNodo) => manejadoresRef.current.borrarNodo(idNodo)}
+          onFondo={(idNodo) => manejadoresRef.current.alternarFondo(idNodo)}
         />
       ),
     }),
@@ -557,6 +697,13 @@ export function DiagramaCanvas({
         }
 
         const idsValidos = new Set(nodos.map((nodo) => nodo.id));
+        // Una idea que dice estar dentro de un fondo que no vino queda suelta: React Flow falla
+        // con un padre que no existe.
+        const nodosSanos = fondosPrimero(
+          nodos.map((nodo) =>
+            nodo.parentId && !idsValidos.has(nodo.parentId) ? { ...nodo, parentId: undefined } : nodo,
+          ),
+        );
         const crudasAristas = Array.isArray(crudo.edges) ? (crudo.edges as Edge[]) : [];
         const aristas = crudasAristas
           // Una union que apunta a una caja que no vino deja una linea al vacio.
@@ -571,7 +718,7 @@ export function DiagramaCanvas({
 
         const datos = {
           titulo: typeof crudo.titulo === "string" ? crudo.titulo : "",
-          nodes: nodos,
+          nodes: nodosSanos,
           edges: aristas,
         };
 
@@ -686,6 +833,10 @@ export function DiagramaCanvas({
             }
           }}
           onConnect={alConectar}
+          onNodeDragStop={(_evento, _nodo, arrastrados) => {
+            alSoltarNodos(arrastrados);
+            programarGuardado();
+          }}
           onInit={(instancia) => {
             flujoRef.current = instancia;
           }}
@@ -693,13 +844,21 @@ export function DiagramaCanvas({
             // Doble clic en el lienzo VACIO crea una idea ahi mismo. Si el doble clic cayo sobre
             // una caja, no: ahi lo que uno quiere es escribir.
             const destino = evento.target as HTMLElement;
-            if (destino.closest(".react-flow__node")) {
-              return;
-            }
             const posicion = flujoRef.current?.screenToFlowPosition({
               x: evento.clientX,
               y: evento.clientY,
             });
+            const cajaTocada = destino.closest<HTMLElement>(".react-flow__node");
+            if (cajaTocada) {
+              // Sobre el espacio libre de un fondo SI crea una idea, ya metida adentro. Sobre su
+              // titulo o sobre otra caja no: ahi lo que uno quiere es escribir.
+              const fondo = nodesRef.current.find((nodo) => nodo.id === cajaTocada.dataset.id && esFondo(nodo));
+              if (!fondo || !posicion || destino.closest("[data-titulo-fondo]")) {
+                return;
+              }
+              agregarIdea({ x: posicion.x - fondo.position.x, y: posicion.y - fondo.position.y }, fondo.id);
+              return;
+            }
             agregarIdea(posicion);
           }}
           nodeTypes={tiposDeNodo}

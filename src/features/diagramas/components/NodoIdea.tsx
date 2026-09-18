@@ -8,15 +8,8 @@ import {
   useNodeConnections,
   type NodeProps,
 } from "@xyflow/react";
-import { Bold, Copy, Plus, StickyNote, X } from "lucide-react";
+import { Bold, Copy, Group, Plus, X } from "lucide-react";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { COLORES_DE_IDEA, cajaDelColor } from "./colores";
 import { ICONOS_DE_IDEA } from "./iconos";
 import { TextoConNegrita } from "./TextoConNegrita";
@@ -53,6 +46,7 @@ export function NodoIdea({
   onDuplicar,
   onAgregarConectada,
   onBorrar,
+  onFondo,
 }: NodeProps & {
   onTexto: (id: string, texto: string) => void;
   onColor: (id: string, color: string) => void;
@@ -60,6 +54,7 @@ export function NodoIdea({
   onDuplicar: (id: string) => void;
   onAgregarConectada: (id: string) => void;
   onBorrar: (id: string) => void;
+  onFondo: (id: string) => void;
 }) {
   /**
    * Qué puntos están realmente en uso.
@@ -84,8 +79,13 @@ export function NodoIdea({
 
   const texto = typeof data?.texto === "string" ? data.texto : "";
   const icono = typeof data?.icono === "string" ? data.icono : "";
+  /*
+    Una caja "fondo" es un marco: se le meten otras ideas arrastrándolas adentro y se mueven con
+    ella (Alex, 18-sep-2026). Su texto pasa a ser el título, arriba, y el resto queda libre para
+    lo que se ponga encima.
+  */
+  const esFondo = data?.fondo === true;
   const areaRef = useRef<HTMLTextAreaElement>(null);
-  const [eligiendoQueAgregar, setEligiendoQueAgregar] = useState(false);
   /**
    * Escribir es un modo aparte de estar seleccionado.
    *
@@ -170,7 +170,7 @@ export function NodoIdea({
       */
       className={`group relative flex size-full min-h-[30px] min-w-[56px] flex-col rounded-xl border px-2.5 py-1.5 shadow-sm transition ${cajaDelColor(
         data?.color,
-      )} ${selected ? "ring-1 ring-primary/40" : ""}`}
+      )} ${esFondo ? "border-2 border-dashed" : ""} ${selected ? "ring-1 ring-primary/40" : ""}`}
     >
       {/*
         La barra aparece SOLO con la caja seleccionada. Permanente en cada idea convertía el mapa
@@ -215,6 +215,18 @@ export function NodoIdea({
               className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
             >
               <Copy className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onFondo(id)}
+              title={esFondo ? "Dejar de ser fondo" : "Usar como fondo, para meter ideas adentro"}
+              aria-label={esFondo ? "Dejar de ser fondo" : "Usar como fondo"}
+              aria-pressed={esFondo}
+              className={`flex size-6 items-center justify-center rounded-md transition hover:bg-muted hover:text-foreground ${
+                esFondo ? "bg-muted text-foreground ring-1 ring-foreground/30" : "text-muted-foreground"
+              }`}
+            >
+              <Group className="size-3.5" />
             </button>
             <span className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
             {COLORES_DE_IDEA.map((opcion) => (
@@ -263,7 +275,10 @@ export function NodoIdea({
       {/* overflow-auto: una vez que la caja tiene un tamano fijo puesto a mano, un texto largo
           se desbordaria por fuera del borde. Asi se desplaza adentro. */}
       <div
-        className="flex min-h-0 flex-1 gap-1.5 overflow-auto"
+        // En un fondo, el texto es solo el título de arriba: el resto de la caja es el espacio
+        // donde van las ideas, y un doble clic ahí crea una adentro (lo maneja el lienzo).
+        data-titulo-fondo={esFondo ? "" : undefined}
+        className={esFondo ? "flex min-h-5 shrink-0 gap-1.5" : "flex min-h-0 flex-1 gap-1.5 overflow-auto"}
         onDoubleClick={() => setEditando(true)}
         // Tocar una caja que YA estaba seleccionada entra a escribir. Reemplaza al lápiz: en el
         // celular el doble toque no siempre llega (el navegador lo usa para el zoom).
@@ -301,7 +316,9 @@ export function NodoIdea({
         ) : (
           <TextoConNegrita
             texto={texto}
-            className="min-h-0 w-full flex-1 whitespace-pre-wrap break-words text-[13px] leading-snug text-foreground"
+            className={`min-h-0 w-full flex-1 whitespace-pre-wrap break-words leading-snug text-foreground ${
+              esFondo ? "text-sm font-semibold" : "text-[13px]"
+            }`}
           />
         )}
       </div>
@@ -323,13 +340,13 @@ export function NodoIdea({
 
       {/*
         El "+" para seguir la cadena. Aparece al seleccionar la caja, a su derecha, que es hacia
-        donde crece un flujo. Abre un modal para elegir QUE agregar: hoy hay una sola opción, pero
-        el gesto es el mismo cuando haya mas, y asi no hay que reaprenderlo despues.
+        donde crece un flujo, y crea la idea siguiente YA CONECTADA de un toque. Antes abria un
+        modal para elegir que agregar, con una sola opcion: un paso de mas en cada eslabon.
       */}
       {selected ? (
         <button
           type="button"
-          onClick={() => setEligiendoQueAgregar(true)}
+          onClick={() => onAgregarConectada(id)}
           aria-label="Agregar una idea conectada a esta"
           title="Agregar conectada"
           className="nodrag nopan absolute -right-9 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md border border-dashed border-muted-foreground/50 bg-background text-muted-foreground transition hover:border-solid hover:border-primary hover:text-primary"
@@ -337,34 +354,6 @@ export function NodoIdea({
           <Plus className="size-3.5" />
         </button>
       ) : null}
-
-      <Dialog open={eligiendoQueAgregar} onOpenChange={setEligiendoQueAgregar}>
-        <DialogContent className="sm:max-w-xs">
-          <DialogHeader>
-            <DialogTitle className="text-base">¿Qué querés agregar?</DialogTitle>
-            <DialogDescription className="text-xs">
-              Se conecta sola a esta caja.
-            </DialogDescription>
-          </DialogHeader>
-
-          <button
-            type="button"
-            onClick={() => {
-              setEligiendoQueAgregar(false);
-              onAgregarConectada(id);
-            }}
-            className="flex w-full items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-left transition hover:bg-muted"
-          >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <StickyNote className="size-4" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-foreground">Idea</span>
-              <span className="block text-xs text-muted-foreground">Una caja con texto</span>
-            </span>
-          </button>
-        </DialogContent>
-      </Dialog>
 
       {/*
         La manija para estirar la caja, en la esquina de abajo a la derecha. Solo con la caja
@@ -374,8 +363,8 @@ export function NodoIdea({
       {selected ? (
         <NodeResizeControl
           position="bottom-right"
-          minWidth={56}
-          minHeight={30}
+          minWidth={esFondo ? 160 : 56}
+          minHeight={esFondo ? 100 : 30}
           style={{ background: "transparent", border: "none" }}
         >
           <span className="absolute -bottom-1 -right-1 size-3 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-muted-foreground/60" />
