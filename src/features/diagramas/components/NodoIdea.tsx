@@ -428,9 +428,25 @@ export function NodoIdea({
           position="bottom-right"
           minWidth={esFondo ? 160 : 56}
           minHeight={esFondo ? 100 : 30}
-          style={{ background: "transparent", border: "none" }}
+          // 22 px de lado, centrado en la esquina: el area para agarrar es comoda con el dedo.
+          style={{ background: "transparent", border: "none", width: 22, height: 22, cursor: "nwse-resize" }}
         >
-          <span className="absolute -bottom-1 -right-1 size-3 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-muted-foreground/60" />
+          {/*
+            Un arco que abraza la esquina redondeada por fuera, como en las herramientas de
+            diagramas: se entiende de un vistazo que ahi se estira, y el cuadradito de antes se
+            confundia con un borde mal dibujado. El centro del arco coincide con el del redondeo
+            de la caja (12 px), y el radio es 5 px mayor para que quede separado del borde.
+          */}
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 22 22"
+            overflow="visible"
+            aria-hidden="true"
+            className="pointer-events-none text-muted-foreground/80"
+          >
+            <path d="M 16 -1 A 17 17 0 0 1 -1 16" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          </svg>
         </NodeResizeControl>
       ) : null}
     </div>
