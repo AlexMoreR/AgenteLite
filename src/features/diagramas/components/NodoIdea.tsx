@@ -301,7 +301,6 @@ export function NodoIdea({
         ) : (
           <TextoConNegrita
             texto={texto}
-            vacio="Escribí acá…"
             className="min-h-0 w-full flex-1 whitespace-pre-wrap break-words text-[13px] leading-snug text-foreground"
           />
         )}
