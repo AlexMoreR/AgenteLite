@@ -105,7 +105,7 @@ export function NodoIdea({
 
     Con un tamaño fijo, en una caja de un renglón el arco era casi la mitad de la caja (Alex,
     18-sep-2026). Ahora sigue el redondeo real de la esquina -que en una caja baja es menor- a
-    unos 2 px de aire, cubre solo el tramo del medio de la curva y es más fino en las chicas.
+    unos 4 px de aire, cubre solo el tramo del medio de la curva y es más fino en las chicas.
   */
   // La medida REAL: `height` viene vacio en las cajas que crecen con el texto.
   const medida = useInternalNode(id)?.measured;
@@ -114,7 +114,7 @@ export function NodoIdea({
   const arcoDeEstirar = useMemo(() => {
     const redondeo = Math.min(12, alto / 2, ancho / 2);
     const grosor = alto < 48 ? 2 : 2.5;
-    const radio = redondeo + 2 + grosor / 2;
+    const radio = redondeo + 4 + grosor / 2;
     // La esquina de la caja cae en el centro del cuadro de 22 px de la manija.
     const centro = 11 - redondeo;
     const punto = (grados: number) => {
