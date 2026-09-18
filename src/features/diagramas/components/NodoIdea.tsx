@@ -94,7 +94,8 @@ export function NodoIdea({
   */
   const plegada = data?.colapsado === true;
   const ocultas = typeof data?.ocultas === "number" ? data.ocultas : 0;
-  const tieneSiguientes = conexiones.some((conexion) => conexion.source === id);
+  // Cualquier union cuenta: que va despues lo decide el lienzo por posicion.
+  const tieneSiguientes = conexiones.length > 0;
   const areaRef = useRef<HTMLTextAreaElement>(null);
   /**
    * Escribir es un modo aparte de estar seleccionado.

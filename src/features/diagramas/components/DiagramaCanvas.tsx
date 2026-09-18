@@ -558,23 +558,61 @@ export function DiagramaCanvas({
     if (!nodes.some((nodo) => nodo.data?.colapsado === true)) {
       return { nodosAMostrar: nodes, aristasAMostrar: edges };
     }
-    const salidas = new Map<string, string[]>();
+    /*
+      Que va "despues" de una caja se decide por POSICION, no por el sentido de la union.
+
+      Primero se seguia la flecha, pero una union trazada a mano desde la caja de la derecha
+      hacia la de la izquierda quedaba al reves y esa rama no se escondia (Alex, 18-sep-2026).
+      Ahora cuenta como anterior lo que esta a la izquierda (o arriba, si estan alineadas), y todo
+      lo demas que cuelga de la caja se esconde, siga la linea para donde siga.
+    */
+    const vecinos = new Map<string, Set<string>>();
     for (const arista of edges) {
-      salidas.set(arista.source, [...(salidas.get(arista.source) ?? []), arista.target]);
+      if (!vecinos.has(arista.source)) vecinos.set(arista.source, new Set());
+      if (!vecinos.has(arista.target)) vecinos.set(arista.target, new Set());
+      vecinos.get(arista.source)!.add(arista.target);
+      vecinos.get(arista.target)!.add(arista.source);
     }
-    const siguientesDe = (idNodo: string) => {
+    const porId = new Map(nodes.map((nodo) => [nodo.id, nodo]));
+    const centro = (idNodo: string) => {
+      const nodo = porId.get(idNodo);
+      if (!nodo) return { x: 0, y: 0 };
+      const padre = nodo.parentId ? porId.get(nodo.parentId) : undefined;
+      const ancho = nodo.measured?.width ?? (typeof nodo.style?.width === "number" ? nodo.style.width : 180);
+      const alto = nodo.measured?.height ?? 40;
+      return {
+        x: nodo.position.x + (padre?.position.x ?? 0) + ancho / 2,
+        y: nodo.position.y + (padre?.position.y ?? 0) + alto / 2,
+      };
+    };
+    // Todo lo que se alcanza desde `inicio` por las uniones sin pasar por `excluida`.
+    const alcanzables = (inicio: string[], excluida: string) => {
       const vistos = new Set<string>();
-      const cola = [...(salidas.get(idNodo) ?? [])];
+      const cola = [...inicio];
       while (cola.length > 0) {
         const actual = cola.shift()!;
-        // Una cadena que vuelve a la caja plegada no la esconde a ella misma.
-        if (actual === idNodo || vistos.has(actual)) {
+        if (actual === excluida || vistos.has(actual)) {
           continue;
         }
         vistos.add(actual);
-        cola.push(...(salidas.get(actual) ?? []));
+        cola.push(...(vecinos.get(actual) ?? []));
       }
       return vistos;
+    };
+    const siguientesDe = (idNodo: string) => {
+      const propio = centro(idNodo);
+      const anteriores: string[] = [];
+      const posteriores: string[] = [];
+      for (const vecino of vecinos.get(idNodo) ?? []) {
+        const otro = centro(vecino);
+        const dx = otro.x - propio.x;
+        const esAnterior = dx < -10 || (Math.abs(dx) <= 10 && otro.y < propio.y);
+        (esAnterior ? anteriores : posteriores).push(vecino);
+      }
+      // Si una rama de adelante vuelve a unirse con lo de atras, lo de atras no se esconde.
+      const deAtras = alcanzables(anteriores, idNodo);
+      const deAdelante = alcanzables(posteriores, idNodo);
+      return new Set([...deAdelante].filter((id) => !deAtras.has(id)));
     };
     const ocultos = new Set<string>();
     const cuantas = new Map<string, number>();
