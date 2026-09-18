@@ -8,7 +8,7 @@ import {
   useNodeConnections,
   type NodeProps,
 } from "@xyflow/react";
-import { Bold, Copy, Pencil, Plus, StickyNote, X } from "lucide-react";
+import { Bold, Copy, Plus, StickyNote, X } from "lucide-react";
 
 import {
   Dialog,
@@ -153,8 +153,12 @@ export function NodoIdea({
       ? `${texto.slice(0, desde)}${elegido.slice(1, -1)}${texto.slice(hasta)}`
       : `${texto.slice(0, desde)}*${elegido}*${texto.slice(hasta)}`;
     onTexto(id, nuevo);
-    // Se devuelve el foco para poder seguir escribiendo sin volver a tocar la caja.
-    requestAnimationFrame(() => area.focus());
+    // Se devuelve el foco con el mismo texto marcado, para poder seguir escribiendo o deshacerlo.
+    const fin = yaEstaba ? hasta - 2 : hasta + 2;
+    requestAnimationFrame(() => {
+      area.focus();
+      area.setSelectionRange(desde, fin);
+    });
   };
 
   return (
@@ -191,24 +195,11 @@ export function NodoIdea({
           </div>
 
           <div className="flex items-center gap-1">
-            {/*
-              El lápiz es el camino seguro en el celular: el doble toque no siempre llega como
-              doble clic —el navegador se lo queda para hacer zoom—, y sin este botón la caja
-              podía quedar sin forma de escribirle.
-            */}
             <button
               type="button"
-              onClick={() => setEditando(true)}
-              title="Escribir en esta idea"
-              aria-label="Escribir en esta idea"
-              className={`flex size-6 items-center justify-center rounded-md transition hover:bg-muted hover:text-foreground ${
-                editando ? "bg-muted text-foreground" : "text-muted-foreground"
-              }`}
-            >
-              <Pencil className="size-3.5" />
-            </button>
-            <button
-              type="button"
+              // Sin esto, tocar la B le quitaba el foco al texto: se salía de escribir y la selección
+              // se perdía antes de que el botón actuara, así que nunca ponía nada en negrita.
+              onMouseDown={(evento) => evento.preventDefault()}
               onClick={alternarNegrita}
               title="Negrita: seleccioná el texto primero"
               aria-label="Poner en negrita"
@@ -274,7 +265,14 @@ export function NodoIdea({
       <div
         className="flex min-h-0 flex-1 gap-1.5 overflow-auto"
         onDoubleClick={() => setEditando(true)}
-        title={editando ? undefined : "Doble clic para escribir"}
+        // Tocar una caja que YA estaba seleccionada entra a escribir. Reemplaza al lápiz: en el
+        // celular el doble toque no siempre llega (el navegador lo usa para el zoom).
+        onClick={() => {
+          if (selected && !editando) {
+            setEditando(true);
+          }
+        }}
+        title={editando ? undefined : "Tocá de nuevo para escribir"}
         role="presentation"
       >
         {icono ? (
