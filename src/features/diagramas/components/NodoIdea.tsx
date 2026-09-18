@@ -5,6 +5,7 @@ import {
   Handle,
   NodeResizeControl,
   Position,
+  useInternalNode,
   useNodeConnections,
   type NodeProps,
 } from "@xyflow/react";
@@ -40,6 +41,8 @@ export function NodoIdea({
   id,
   data,
   selected,
+  width,
+  height,
   onTexto,
   onColor,
   onIcono,
@@ -96,6 +99,30 @@ export function NodoIdea({
   const ocultas = typeof data?.ocultas === "number" ? data.ocultas : 0;
   // Cualquier union cuenta: que va despues lo decide el lienzo por posicion.
   const tieneSiguientes = conexiones.length > 0;
+
+  /*
+    El arco de la esquina para estirar, a la medida de ESTA caja.
+
+    Con un tamaño fijo, en una caja de un renglón el arco era casi la mitad de la caja (Alex,
+    18-sep-2026). Ahora sigue el redondeo real de la esquina -que en una caja baja es menor- a
+    unos 2 px de aire, cubre solo el tramo del medio de la curva y es más fino en las chicas.
+  */
+  // La medida REAL: `height` viene vacio en las cajas que crecen con el texto.
+  const medida = useInternalNode(id)?.measured;
+  const alto = medida?.height ?? height ?? 30;
+  const ancho = medida?.width ?? width ?? 180;
+  const arcoDeEstirar = useMemo(() => {
+    const redondeo = Math.min(12, alto / 2, ancho / 2);
+    const grosor = alto < 48 ? 2 : 2.5;
+    const radio = redondeo + 2 + grosor / 2;
+    // La esquina de la caja cae en el centro del cuadro de 22 px de la manija.
+    const centro = 11 - redondeo;
+    const punto = (grados: number) => {
+      const angulo = (grados * Math.PI) / 180;
+      return `${(centro + radio * Math.cos(angulo)).toFixed(2)} ${(centro + radio * Math.sin(angulo)).toFixed(2)}`;
+    };
+    return { d: `M ${punto(15)} A ${radio.toFixed(2)} ${radio.toFixed(2)} 0 0 1 ${punto(75)}`, grosor };
+  }, [alto, ancho]);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   /**
    * Escribir es un modo aparte de estar seleccionado.
@@ -445,7 +472,13 @@ export function NodoIdea({
             aria-hidden="true"
             className="pointer-events-none text-muted-foreground/80"
           >
-            <path d="M 14 -1 A 15 15 0 0 1 -1 14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+            <path
+              d={arcoDeEstirar.d}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={arcoDeEstirar.grosor}
+              strokeLinecap="round"
+            />
           </svg>
         </NodeResizeControl>
       ) : null}
