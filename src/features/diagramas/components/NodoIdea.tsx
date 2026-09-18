@@ -435,7 +435,7 @@ export function NodoIdea({
             Un arco que abraza la esquina redondeada por fuera, como en las herramientas de
             diagramas: se entiende de un vistazo que ahi se estira, y el cuadradito de antes se
             confundia con un borde mal dibujado. El centro del arco coincide con el del redondeo
-            de la caja (12 px), y el radio es 5 px mayor para que quede separado del borde.
+            de la caja (12 px), y el radio deja unos 2 px de aire con el borde.
           */}
           <svg
             width="22"
@@ -445,7 +445,7 @@ export function NodoIdea({
             aria-hidden="true"
             className="pointer-events-none text-muted-foreground/80"
           >
-            <path d="M 16 -1 A 17 17 0 0 1 -1 16" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+            <path d="M 14 -1 A 15 15 0 0 1 -1 14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
           </svg>
         </NodeResizeControl>
       ) : null}

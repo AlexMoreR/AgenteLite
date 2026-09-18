@@ -994,8 +994,15 @@ export function DiagramaCanvas({
           maxZoom={3}
           fitView
           proOptions={{ hideAttribution: true }}
-          // Blanco puro en modo claro (Alex, 18-sep-2026): el gris azulado apagaba las cajas.
-          className="bg-white dark:bg-background"
+          /*
+            Blanco puro en modo claro (Alex, 18-sep-2026): el gris azulado apagaba las cajas.
+
+            Va en `style` y no en una clase: la hoja de React Flow pinta `.react-flow` con fondo
+            transparente FUERA de las capas de Tailwind, y eso le gana a cualquier utilidad
+            (bg-white no hacia nada y se veia el gris de la pagina de atras). --card es blanco en
+            modo claro y el gris oscuro de las tarjetas en modo oscuro.
+          */
+          style={{ backgroundColor: "var(--card)" }}
         >
           <Background gap={18} size={1} />
           <Controls showInteractive={false} />
