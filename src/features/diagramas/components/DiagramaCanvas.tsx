@@ -994,7 +994,8 @@ export function DiagramaCanvas({
           maxZoom={3}
           fitView
           proOptions={{ hideAttribution: true }}
-          className="bg-muted/30"
+          // Blanco puro en modo claro (Alex, 18-sep-2026): el gris azulado apagaba las cajas.
+          className="bg-white dark:bg-background"
         >
           <Background gap={18} size={1} />
           <Controls showInteractive={false} />
