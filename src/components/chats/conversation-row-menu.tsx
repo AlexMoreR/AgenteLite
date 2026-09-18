@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { updateConversationStatusAction } from "@/app/actions/chats-actions";
 import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
+import { irALaBandejaLimpia } from "@/components/chats/ir-a-la-bandeja-limpia";
 import { snoozeLeadAction } from "@/app/actions/crm-actions";
 
 /**
@@ -88,7 +89,7 @@ export function ConversationRowMenu({
           detail: { conversationId, source, resolved: !resuelto },
         }),
       );
-      router.refresh();
+      irALaBandejaLimpia(router, !resuelto, conversationId);
     });
 
   const posponer = () =>

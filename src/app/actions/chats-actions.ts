@@ -10,6 +10,7 @@ import { buildActiveProductContextNote, type ActiveProductContext } from "@/lib/
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { persistAvatarUrl } from "@/lib/contact-avatar-refresh";
 import { backfillEvolutionMessagesByPhone } from "@/lib/evolution-chat-sync";
@@ -1806,6 +1807,27 @@ export async function toggleContactTagAction(
   return {};
 }
 
+/*
+  Resolver o reabrir se le avisa a TODO el equipo por el altavoz, no solo a quien lo hizo.
+
+  La bandeja de las demas se refresca agregando y actualizando filas, nunca quitando: sin este
+  aviso, cuando Ingrid resolvia un chat, el admin lo seguia viendo en "Todas" hasta recargar
+  (Alex, 18-sep-2026). El navegador lo convierte en el mismo evento que dispara el boton.
+*/
+async function avisarCambioDeEstado(
+  workspaceId: string,
+  conversationId: string,
+  source: "agent" | "official",
+  status: "OPEN" | "CLOSED",
+) {
+  await notifyRealtimeUpdate({
+    workspaceId,
+    conversationId,
+    type: "chat-estado",
+    data: { source, resolved: status === "CLOSED" },
+  });
+}
+
 // Cambia el estado de la conversación (Abierto / Resuelto). "Resuelto" = CLOSED.
 export async function updateConversationStatusAction(input: {
   conversationId: string;
@@ -1835,6 +1857,7 @@ export async function updateConversationStatusAction(input: {
       return { error: "Conversacion no encontrada" };
     }
     await setOfficialApiConversationStatus({ conversationId: officialConversation.id, status: input.status });
+    await avisarCambioDeEstado(membership.workspace.id, officialConversation.id, "official", input.status);
     revalidatePath("/cliente/chats");
     return {};
   }
@@ -1868,6 +1891,7 @@ export async function updateConversationStatusAction(input: {
       ? `${actorName} resolvió`
       : `${actorName} reabrió`,
   });
+  await avisarCambioDeEstado(membership.workspace.id, conversation.id, "agent", input.status);
 
   revalidatePath("/cliente/chats");
   if (conversation.agentId) {

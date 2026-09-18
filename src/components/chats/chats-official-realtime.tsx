@@ -2,6 +2,8 @@
 
 import { useEffect, useRef } from "react";
 
+import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
+
 /**
  * Escucha el altavoz (realtime-server.js) y avisa a la app que hubo un cambio en la API
  * oficial, para que refresque AL INSTANTE en vez de esperar el poll de 8s.
@@ -89,6 +91,24 @@ export function ChatsOfficialRealtime({
         */
         if (payload.type === "presence") {
           window.dispatchEvent(new CustomEvent("chat-presence", { detail: payload.data ?? null }));
+          return;
+        }
+
+        /*
+          Otra persona resolvio (o reabrio) un chat: la bandeja lo saca o lo deja volver al toque.
+          Es el mismo evento que dispara el boton "Resolver", asi que no hace falta volver a pedir
+          la pantalla entera.
+        */
+        if (payload.type === "chat-estado" && typeof payload.conversationId === "string") {
+          window.dispatchEvent(
+            new CustomEvent<ChatStatusChangedDetail>(CHAT_STATUS_CHANGED_EVENT, {
+              detail: {
+                conversationId: payload.conversationId,
+                source: payload.data?.source === "official" ? "official" : "agent",
+                resolved: payload.data?.resolved === true,
+              },
+            }),
+          );
           return;
         }
 

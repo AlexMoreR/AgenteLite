@@ -220,6 +220,19 @@ export function SharedInbox({
   );
 
   const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number } | null>(null);
+  // Se sube cada vez que alguien resuelve o reabre: vuelve a pedir los numeros de las pestañas en
+  // el acto, en vez de esperar la vuelta de 15 s.
+  const [pedidoDeConteos, setPedidoDeConteos] = useState(0);
+  /*
+    Los chats que se resolvieron mientras la bandeja estaba abierta, con la hora de su ultimo
+    mensaje en ese momento.
+
+    Hace falta porque varias cosas vuelven a meter filas SIN decir su estado (el chat abierto que la
+    pagina agrega siempre, el tiempo real), y una fila sin estado pasa el filtro. Si despues el
+    cliente escribe, el ultimo mensaje es mas nuevo que el guardado y el chat vuelve: esta vivo.
+  */
+  const [resueltasAca, setResueltasAca] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const conversationItemsRef = useRef<SharedInboxConversationItem[]>([]);
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [liveConversation, setLiveConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
@@ -293,13 +306,25 @@ export function SharedInbox({
         return;
       }
 
+      const itemId = `${detail.source ?? "agent"}:${detail.conversationId}`;
+      setPedidoDeConteos((actual) => actual + 1);
+      setResueltasAca((actual) => {
+        const siguiente = new Map(actual);
+        if (detail.resolved) {
+          const fila = conversationItemsRef.current.find((item) => item.id === itemId);
+          siguiente.set(itemId, fila?.lastMessageAt ? new Date(fila.lastMessageAt).getTime() : 0);
+        } else {
+          siguiente.delete(itemId);
+        }
+        return siguiente;
+      });
+
       const yaNoCorresponde =
         statusFilter === "open" ? detail.resolved : statusFilter === "resolved" ? !detail.resolved : false;
       if (!yaNoCorresponde) {
         return;
       }
 
-      const itemId = `${detail.source ?? "agent"}:${detail.conversationId}`;
       setConversationItems((current) => current.filter((item) => item.id !== itemId));
     };
 
@@ -374,7 +399,11 @@ export function SharedInbox({
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosNuevos]);
+  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosNuevos, pedidoDeConteos]);
+
+  useEffect(() => {
+    conversationItemsRef.current = conversationItems;
+  }, [conversationItems]);
 
   // Al montar / cambiar de conexión o filtros, refresca la lista base desde el servidor
   // (fetch directo, cache: no-store) y hace upsert. Evita depender del RSC cacheado en
@@ -555,6 +584,13 @@ export function SharedInbox({
       se sabe.
     */
     const porEstado = conversationItems.filter((item) => {
+      const resueltaAca = statusFilter === "open" ? resueltasAca.get(item.id) : undefined;
+      if (resueltaAca !== undefined) {
+        const ultimo = item.lastMessageAt ? new Date(item.lastMessageAt).getTime() : 0;
+        if (ultimo <= resueltaAca) {
+          return false;
+        }
+      }
       if (!item.status) {
         return true;
       }
@@ -578,7 +614,7 @@ export function SharedInbox({
         normalizeChatSearchText(item.lastMessage ?? "").includes(normalizedQuery)
       );
     });
-  }, [conversationItems, searchInputValue, searchMatchIds, statusFilter]);
+  }, [conversationItems, resueltasAca, searchInputValue, searchMatchIds, statusFilter]);
 
   const loadMoreConversationItems = useCallback(async () => {
     if (isLoadingMoreConversationItems || !hasMoreConversationItems) {

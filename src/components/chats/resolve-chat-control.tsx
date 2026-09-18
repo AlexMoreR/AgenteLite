@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { updateConversationStatusAction } from "@/app/actions/chats-actions";
 import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
+import { irALaBandejaLimpia } from "@/components/chats/ir-a-la-bandeja-limpia";
 
 type ResolveChatControlProps = {
   conversationId: string;
@@ -64,7 +65,7 @@ export function ResolveChatControl({ conversationId, status, source = "agent" }:
           detail: { conversationId, source, resolved: nextResolved },
         }),
       );
-      router.refresh();
+      irALaBandejaLimpia(router, nextResolved, conversationId);
     });
   }, [conversationId, resolved, router, source]);
 
