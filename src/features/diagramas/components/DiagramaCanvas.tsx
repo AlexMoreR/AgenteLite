@@ -339,7 +339,8 @@ export function DiagramaCanvas({
           ...original,
           id: `idea-${Date.now()}-${Math.round(Math.random() * 1000)}`,
           position: { x: original.position.x + 28, y: original.position.y + 28 },
-          data: { ...original.data },
+          // La copia no tiene uniones propias: plegada no escondería nada.
+          data: { ...original.data, colapsado: false },
           selected: true,
         };
         return [...actuales.map((nodo) => ({ ...nodo, selected: false })), copia];
@@ -534,6 +535,76 @@ export function DiagramaCanvas({
     [setNodes],
   );
 
+  /** Plegar o desplegar la cadena que sigue a una idea. Queda guardado con el diagrama. */
+  const alternarColapso = useCallback(
+    (idNodo: string) => {
+      setNodes((actuales) =>
+        actuales.map((nodo) =>
+          nodo.id === idNodo ? { ...nodo, data: { ...nodo.data, colapsado: nodo.data?.colapsado !== true } } : nodo,
+        ),
+      );
+      programarGuardado();
+    },
+    [programarGuardado, setNodes],
+  );
+
+  /**
+   * Lo que se dibuja: el mapa con las cadenas plegadas escondidas.
+   *
+   * Se calcula al dibujar y NO se guarda en las cajas: así una unión nueva, o una borrada, cambia
+   * al toque lo que queda escondido, y lo guardado sigue siendo el mapa entero.
+   */
+  const { nodosAMostrar, aristasAMostrar } = useMemo(() => {
+    if (!nodes.some((nodo) => nodo.data?.colapsado === true)) {
+      return { nodosAMostrar: nodes, aristasAMostrar: edges };
+    }
+    const salidas = new Map<string, string[]>();
+    for (const arista of edges) {
+      salidas.set(arista.source, [...(salidas.get(arista.source) ?? []), arista.target]);
+    }
+    const siguientesDe = (idNodo: string) => {
+      const vistos = new Set<string>();
+      const cola = [...(salidas.get(idNodo) ?? [])];
+      while (cola.length > 0) {
+        const actual = cola.shift()!;
+        // Una cadena que vuelve a la caja plegada no la esconde a ella misma.
+        if (actual === idNodo || vistos.has(actual)) {
+          continue;
+        }
+        vistos.add(actual);
+        cola.push(...(salidas.get(actual) ?? []));
+      }
+      return vistos;
+    };
+    const ocultos = new Set<string>();
+    const cuantas = new Map<string, number>();
+    for (const nodo of nodes) {
+      if (nodo.data?.colapsado === true) {
+        const siguientes = siguientesDe(nodo.id);
+        cuantas.set(nodo.id, siguientes.size);
+        siguientes.forEach((idOculto) => ocultos.add(idOculto));
+      }
+    }
+    // Un fondo escondido se lleva lo que tiene adentro.
+    for (const nodo of nodes) {
+      if (nodo.parentId && ocultos.has(nodo.parentId)) {
+        ocultos.add(nodo.id);
+      }
+    }
+    return {
+      nodosAMostrar: nodes.map((nodo) =>
+        ocultos.has(nodo.id)
+          ? { ...nodo, hidden: true }
+          : cuantas.has(nodo.id)
+            ? { ...nodo, data: { ...nodo.data, ocultas: cuantas.get(nodo.id) } }
+            : nodo,
+      ),
+      aristasAMostrar: edges.map((arista) =>
+        ocultos.has(arista.source) || ocultos.has(arista.target) ? { ...arista, hidden: true } : arista,
+      ),
+    };
+  }, [edges, nodes]);
+
   /**
    * Los manejadores, en una ref.
    *
@@ -550,6 +621,7 @@ export function DiagramaCanvas({
     borrarNodo,
     borrarArista,
     alternarFondo,
+    alternarColapso,
   });
   useEffect(() => {
     manejadoresRef.current = {
@@ -561,9 +633,11 @@ export function DiagramaCanvas({
       borrarNodo,
       borrarArista,
       alternarFondo,
+      alternarColapso,
     };
   }, [
     agregarConectada,
+    alternarColapso,
     alternarFondo,
     borrarArista,
     borrarNodo,
@@ -585,6 +659,7 @@ export function DiagramaCanvas({
           onAgregarConectada={(idNodo) => manejadoresRef.current.agregarConectada(idNodo)}
           onBorrar={(idNodo) => manejadoresRef.current.borrarNodo(idNodo)}
           onFondo={(idNodo) => manejadoresRef.current.alternarFondo(idNodo)}
+          onColapsar={(idNodo) => manejadoresRef.current.alternarColapso(idNodo)}
         />
       ),
     }),
@@ -808,8 +883,8 @@ export function DiagramaCanvas({
 
       <div className="min-h-0 flex-1">
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
+          nodes={nodosAMostrar}
+          edges={aristasAMostrar}
           onNodesChange={(cambios) => {
             onNodesChange(cambios);
             // Mover o seleccionar no ensucia el guardado; soltar despues de mover, estirar la

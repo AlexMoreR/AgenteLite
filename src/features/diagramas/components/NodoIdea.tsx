@@ -8,7 +8,7 @@ import {
   useNodeConnections,
   type NodeProps,
 } from "@xyflow/react";
-import { Bold, Copy, Group, Plus, X } from "lucide-react";
+import { Bold, Copy, Eye, EyeOff, Group, Plus, X } from "lucide-react";
 
 import { COLORES_DE_IDEA, cajaDelColor } from "./colores";
 import { ICONOS_DE_IDEA } from "./iconos";
@@ -47,6 +47,7 @@ export function NodoIdea({
   onAgregarConectada,
   onBorrar,
   onFondo,
+  onColapsar,
 }: NodeProps & {
   onTexto: (id: string, texto: string) => void;
   onColor: (id: string, color: string) => void;
@@ -55,6 +56,7 @@ export function NodoIdea({
   onAgregarConectada: (id: string) => void;
   onBorrar: (id: string) => void;
   onFondo: (id: string) => void;
+  onColapsar: (id: string) => void;
 }) {
   /**
    * Qué puntos están realmente en uso.
@@ -85,6 +87,14 @@ export function NodoIdea({
     lo que se ponga encima.
   */
   const esFondo = data?.fondo === true;
+  /*
+    Plegar la cadena: esconde todas las ideas que siguen a esta por sus uniones, y en lugar del
+    "+" queda un punto con cuántas hay escondidas (Alex, 18-sep-2026). `ocultas` lo calcula el
+    lienzo al dibujar; no se guarda.
+  */
+  const plegada = data?.colapsado === true;
+  const ocultas = typeof data?.ocultas === "number" ? data.ocultas : 0;
+  const tieneSiguientes = conexiones.some((conexion) => conexion.source === id);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   /**
    * Escribir es un modo aparte de estar seleccionado.
@@ -228,6 +238,20 @@ export function NodoIdea({
             >
               <Group className="size-3.5" />
             </button>
+            {tieneSiguientes || plegada ? (
+              <button
+                type="button"
+                onClick={() => onColapsar(id)}
+                title={plegada ? "Mostrar las ideas que siguen" : "Ocultar las ideas que siguen"}
+                aria-label={plegada ? "Mostrar las ideas que siguen" : "Ocultar las ideas que siguen"}
+                aria-pressed={plegada}
+                className={`flex size-6 items-center justify-center rounded-md transition hover:bg-muted hover:text-foreground ${
+                  plegada ? "bg-muted text-foreground ring-1 ring-foreground/30" : "text-muted-foreground"
+                }`}
+              >
+                {plegada ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+              </button>
+            ) : null}
             <span className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
             {COLORES_DE_IDEA.map((opcion) => (
               <button
@@ -343,7 +367,21 @@ export function NodoIdea({
         donde crece un flujo, y crea la idea siguiente YA CONECTADA de un toque. Antes abria un
         modal para elegir que agregar, con una sola opcion: un paso de mas en cada eslabon.
       */}
-      {selected ? (
+      {/*
+        Con la cadena plegada, el "+" se vuelve un punto con cuántas ideas hay escondidas. Se ve
+        SIEMPRE, no solo con la caja seleccionada: si no, no quedaría rastro de que ahí hay más.
+      */}
+      {plegada && ocultas > 0 ? (
+        <button
+          type="button"
+          onClick={() => onColapsar(id)}
+          aria-label={`Mostrar ${ocultas} ${ocultas === 1 ? "idea oculta" : "ideas ocultas"}`}
+          title={`Mostrar ${ocultas} ${ocultas === 1 ? "idea oculta" : "ideas ocultas"}`}
+          className="nodrag nopan absolute -right-8 top-1/2 flex h-5 min-w-5 -translate-y-1/2 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold tabular-nums text-primary-foreground shadow-sm transition hover:scale-110"
+        >
+          {ocultas}
+        </button>
+      ) : selected ? (
         <button
           type="button"
           onClick={() => onAgregarConectada(id)}
