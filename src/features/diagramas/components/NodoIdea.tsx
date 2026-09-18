@@ -10,7 +10,7 @@ import {
 } from "@xyflow/react";
 import { Bold, ChevronDown, ChevronUp, Copy, Eye, EyeOff, Group, Plus, X } from "lucide-react";
 
-import { COLORES_DE_IDEA, cajaDelColor } from "./colores";
+import { COLORES_DE_IDEA, cajaDelColor, opcionDelColor } from "./colores";
 import { ICONOS_DE_IDEA } from "./iconos";
 import { TextoConNegrita } from "./TextoConNegrita";
 
@@ -110,8 +110,7 @@ export function NodoIdea({
   const [editando, setEditando] = useState(false);
   // El color se elige desde un boton tipo selector: los seis puntos sueltos ocupaban media barra.
   const [eligiendoColor, setEligiendoColor] = useState(false);
-  const colorActual =
-    COLORES_DE_IDEA.find((opcion) => opcion.valor === data?.color) ?? COLORES_DE_IDEA[0];
+  const colorActual = opcionDelColor(data?.color);
 
   const ajustarAlto = () => {
     const area = areaRef.current;
