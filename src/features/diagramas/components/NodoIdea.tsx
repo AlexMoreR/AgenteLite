@@ -8,7 +8,7 @@ import {
   useNodeConnections,
   type NodeProps,
 } from "@xyflow/react";
-import { Bold, Copy, Eye, EyeOff, Group, Plus, X } from "lucide-react";
+import { Bold, ChevronDown, ChevronUp, Copy, Eye, EyeOff, Group, Plus, X } from "lucide-react";
 
 import { COLORES_DE_IDEA, cajaDelColor } from "./colores";
 import { ICONOS_DE_IDEA } from "./iconos";
@@ -108,6 +108,10 @@ export function NodoIdea({
    * escribir, que es como funcionan las herramientas de diagramas.
    */
   const [editando, setEditando] = useState(false);
+  // El color se elige desde un boton tipo selector: los seis puntos sueltos ocupaban media barra.
+  const [eligiendoColor, setEligiendoColor] = useState(false);
+  const colorActual =
+    COLORES_DE_IDEA.find((opcion) => opcion.valor === data?.color) ?? COLORES_DE_IDEA[0];
 
   const ajustarAlto = () => {
     const area = areaRef.current;
@@ -133,6 +137,7 @@ export function NodoIdea({
   useEffect(() => {
     if (!selected) {
       setEditando(false);
+      setEligiendoColor(false);
     }
   }, [selected]);
 
@@ -254,20 +259,40 @@ export function NodoIdea({
               </button>
             ) : null}
             <span className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
-            {COLORES_DE_IDEA.map((opcion) => (
+            <div className="relative">
               <button
-                key={opcion.valor}
                 type="button"
-                onClick={() => onColor(id, opcion.valor)}
-                aria-label={opcion.nombre}
-                title={opcion.nombre}
-                className={`size-3.5 rounded-full border transition hover:scale-125 ${opcion.punto} ${
-                  data?.color === opcion.valor || (!data?.color && opcion.valor === "neutro")
-                    ? "ring-1 ring-foreground/40 ring-offset-1"
-                    : ""
+                onClick={() => setEligiendoColor((abierto) => !abierto)}
+                title={`Color: ${colorActual.nombre}`}
+                aria-label={`Color: ${colorActual.nombre}`}
+                aria-expanded={eligiendoColor}
+                className={`flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground ${
+                  eligiendoColor ? "bg-muted text-foreground" : ""
                 }`}
-              />
-            ))}
+              >
+                <span className={`size-3.5 rounded-full border ${colorActual.punto}`} />
+                {eligiendoColor ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+              </button>
+              {eligiendoColor ? (
+                <div className="absolute left-0 top-full z-10 mt-1.5 flex items-center gap-1.5 rounded-full border border-border bg-popover px-2 py-1.5 shadow-md">
+                  {COLORES_DE_IDEA.map((opcion) => (
+                    <button
+                      key={opcion.valor}
+                      type="button"
+                      onClick={() => {
+                        onColor(id, opcion.valor);
+                        setEligiendoColor(false);
+                      }}
+                      aria-label={opcion.nombre}
+                      title={opcion.nombre}
+                      className={`size-5 rounded-full border transition hover:scale-110 ${opcion.punto} ${
+                        colorActual.valor === opcion.valor ? "ring-2 ring-foreground/40 ring-offset-1 ring-offset-popover" : ""
+                      }`}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}
