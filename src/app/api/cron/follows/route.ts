@@ -3,6 +3,7 @@ import { executePendingFollows } from "@/features/seguimientos/services/follows"
 import { demoteUnresponsiveStaleLeads } from "@/features/llamadas/services/lead-cooldown";
 import { enfriarLeadsSinRespuesta } from "@/features/crm/services/lead-temperature";
 import { procesarTandasDeCampanas } from "@/features/campanas/services/campaigns";
+import { purgeOldWebhookEventLogs } from "@/lib/webhook-log-retention";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -73,12 +74,25 @@ async function handleCron(request: Request) {
     console.error("[cron/follows] campanas error", error);
   }
 
+  // Retencion del archivo de webhooks. Va colgado de este cron, como los de arriba, para no
+  // montar otro. Throttle de una vez por hora (en el minuto 7): el vencimiento es por dias, no
+  // hay nada que ganar mirandolo cada 60 segundos, y cada corrida borra de a 5000.
+  let webhookLogs: { deleted: number } | null = null;
+  if (new Date().getMinutes() === 7) {
+    try {
+      webhookLogs = await purgeOldWebhookEventLogs();
+    } catch (error) {
+      console.error("[cron/follows] purga de webhook logs error", error);
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     ...result,
     cooldown,
     temperatura,
     campanas,
+    webhookLogs,
   });
 }
 

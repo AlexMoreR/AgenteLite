@@ -1059,6 +1059,30 @@ async function autoAssignConversationToCollaborator(args: {
   });
 }
 
+/**
+ * Saca el archivo en base64 del payload antes de archivarlo en WebhookEventLog.
+ *
+ * El gateway manda la media adentro del evento (`data.base64`), y ESA sola clave es el 99.9% del
+ * peso del log: medido el 19-sep-2026, hasta 20 MB en una fila mientras el resto del payload
+ * —key, message, mimetype, pushName— no llegaba a 9 KB. Guardandola, la tabla se comio 49 GB en
+ * seis meses (20 GB solo en la primera quincena de septiembre) y encaminaba el disco del servidor
+ * al 100%. No se pierde nada util: el archivo ya se persiste por su camino normal, y lo unico que
+ * lee esta tabla es el "Cargar historial" de evogo (readEvolutionGoHistoryChats), que solo mira
+ * eventos HISTORYSYNC y ni toca esta clave.
+ */
+function stripMediaFromWebhookPayload(payload: unknown) {
+  const record = payload as Record<string, unknown> | null;
+  const data = record?.data as Record<string, unknown> | undefined;
+  if (!data || typeof data.base64 !== "string") {
+    return payload;
+  }
+
+  return {
+    ...record,
+    data: { ...data, base64: `[omitido: ${data.base64.length} bytes de media]` },
+  };
+}
+
 export async function POST(request: NextRequest) {
   const payload = await request.json().catch(() => null);
 
@@ -1156,7 +1180,7 @@ export async function POST(request: NextRequest) {
       channelId: channel?.id ?? null,
       workspaceId: channel?.workspaceId ?? null,
       status: channel ? "matched" : "unmatched",
-      payload: payload as never,
+      payload: stripMediaFromWebhookPayload(payload) as never,
     },
   });
 
