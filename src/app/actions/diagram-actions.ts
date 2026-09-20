@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { Prisma } from "@prisma/client";
 
 import { auth } from "@/auth";
@@ -11,6 +12,12 @@ import {
   fundirChatEnMapa,
   pasosLiteralesDelChat,
 } from "@/features/diagramas/services/mapa-de-caminos";
+import {
+  anotarVersion,
+  borrarHistorial,
+  leerHistorial,
+  type VersionEnLaLista,
+} from "@/features/diagramas/services/historial";
 
 /**
  * Diagramas: mapas mentales para pensar el negocio.
@@ -30,7 +37,11 @@ async function contexto() {
   if (!membership) {
     return null;
   }
-  return { userId: session.user.id, workspaceId: membership.workspace.id };
+  return {
+    userId: session.user.id,
+    workspaceId: membership.workspace.id,
+    nombre: session.user.name?.trim() || session.user.email || "Alguien",
+  };
 }
 
 export async function crearDiagramaAction(
@@ -94,6 +105,11 @@ export async function guardarDiagramaAction(input: {
     },
   });
 
+  // Una foto para el historial, cada tanto. No demora el guardado: el lienzo ya siguió su camino.
+  if (input.data !== undefined) {
+    after(() => anotarVersion({ diagramId: propio.id, data: input.data, autor: ctx.nombre }));
+  }
+
   revalidatePath("/cliente/diagramas");
   return { ok: true };
 }
@@ -114,8 +130,59 @@ export async function borrarDiagramaAction(id: string): Promise<{ ok?: true; err
   }
 
   await prisma.diagram.delete({ where: { id: propio.id } });
+  await borrarHistorial(propio.id);
   revalidatePath("/cliente/diagramas");
   return { ok: true };
+}
+
+/** Las versiones guardadas de un diagrama, de la más nueva a la más vieja. Sin el contenido. */
+export async function historialDelDiagramaAction(
+  id: string,
+): Promise<{ versiones?: VersionEnLaLista[]; error?: string }> {
+  const ctx = await contexto();
+  if (!ctx) {
+    return { error: "No autorizado" };
+  }
+  const propio = await prisma.diagram.findFirst({
+    where: { id: id?.trim(), workspaceId: ctx.workspaceId, createdById: ctx.userId },
+    select: { id: true },
+  });
+  if (!propio) {
+    return { error: "Diagrama no encontrado" };
+  }
+  const historial = await leerHistorial(propio.id);
+  return {
+    versiones: historial.map(({ data: _contenido, ...resto }) => resto),
+  };
+}
+
+/**
+ * Devuelve el contenido de una versión para ponerlo en el lienzo.
+ *
+ * Antes de entregarlo guarda lo que hay AHORA como una versión más: volver atrás no puede ser la
+ * forma de perder el trabajo de hoy.
+ */
+export async function versionDelDiagramaAction(input: {
+  id: string;
+  versionId: string;
+}): Promise<{ data?: unknown; error?: string }> {
+  const ctx = await contexto();
+  if (!ctx) {
+    return { error: "No autorizado" };
+  }
+  const propio = await prisma.diagram.findFirst({
+    where: { id: input.id?.trim(), workspaceId: ctx.workspaceId, createdById: ctx.userId },
+    select: { id: true, data: true },
+  });
+  if (!propio) {
+    return { error: "Diagrama no encontrado" };
+  }
+  const version = (await leerHistorial(propio.id)).find((fila) => fila.id === input.versionId);
+  if (!version) {
+    return { error: "Esa versión ya no está guardada" };
+  }
+  await anotarVersion({ diagramId: propio.id, data: propio.data, autor: ctx.nombre, forzar: true });
+  return { data: version.data };
 }
 
 /* ------------------------------------------------ el mapa de caminos de los clientes */

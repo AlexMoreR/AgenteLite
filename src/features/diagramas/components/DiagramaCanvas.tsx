@@ -17,7 +17,7 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Check, Download, EllipsisVertical, Loader2, Plus, Upload } from "lucide-react";
+import { Check, Download, EllipsisVertical, History, Loader2, Plus, Undo2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { guardarDiagramaAction } from "@/app/actions/diagram-actions";
+import {
+  guardarDiagramaAction,
+  historialDelDiagramaAction,
+  versionDelDiagramaAction,
+} from "@/app/actions/diagram-actions";
 import { NodoIdea } from "./NodoIdea";
 import { AristaBorrable } from "./AristaBorrable";
 import { opcionDelColor } from "./colores";
@@ -58,6 +62,19 @@ export type DiagramaGuardado = {
 };
 
 const RETARDO_GUARDADO_MS = 2000;
+
+/** Un paso para atrás: el mapa entero como estaba antes del cambio. */
+type PasoDelMapa = { nodes: Node[]; edges: Edge[] };
+
+const CUANDO = new Intl.DateTimeFormat("es-CO", {
+  timeZone: "America/Bogota",
+  day: "numeric",
+  month: "short",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+type VersionDeLaLista = { id: string; at: string; autor: string; cajas: number };
 
 const esFondo = (nodo: Node) => nodo.data?.fondo === true;
 
@@ -158,8 +175,37 @@ export function DiagramaCanvas({
     setGuardado(true);
   }, [id]);
 
+  /**
+   * Deshacer y rehacer (Ctrl+Z / Ctrl+Y).
+   *
+   * El paso se guarda EN EL MOMENTO del cambio, no mirando el estado después: las refs todavía
+   * tienen el mapa de antes -se actualizan al terminar de pintar-, así que aquí adentro `nodesRef`
+   * es exactamente "cómo estaba" y eso es lo que hay que devolver.
+   *
+   * Vive en esta pestaña: cerrarla lo borra. Para volver más atrás está el historial del servidor.
+   */
+  const paraAtrasRef = useRef<PasoDelMapa[]>([]);
+  const paraAdelanteRef = useRef<PasoDelMapa[]>([]);
+  const [puedeDeshacer, setPuedeDeshacer] = useState(false);
+
   const programarGuardado = useCallback(
-    (siguienteTitulo?: string) => {
+    (siguienteTitulo?: string, opciones?: { sinPaso?: boolean }) => {
+      /*
+        Escribir NO deja pasos propios.
+
+        Mientras se escribe, Ctrl+Z es del cuadro de texto -deshace letra por letra, como en
+        cualquier lado-, y si además guardáramos un paso por tecla, veinte letras se comerían los
+        veinte pasos anteriores y ya no se podría recuperar la caja que se borró antes.
+      */
+      if (!opciones?.sinPaso) {
+        paraAtrasRef.current = [
+          ...paraAtrasRef.current,
+          { nodes: nodesRef.current, edges: edgesRef.current },
+        ].slice(-40);
+        // Un cambio nuevo cierra el camino de "rehacer": esa rama ya no existe.
+        paraAdelanteRef.current = [];
+        setPuedeDeshacer(true);
+      }
       // El contenido se lee al DISPARAR el temporizador, no al programarlo: entre una tecla y la
       // siguiente el mapa sigue cambiando, y guardar la foto vieja perderia las ultimas letras.
       pendienteRef.current = { titulo: siguienteTitulo ?? tituloRef.current, data: { nodes: [], edges: [] } };
@@ -167,6 +213,7 @@ export function DiagramaCanvas({
       if (temporizadorRef.current) {
         clearTimeout(temporizadorRef.current);
       }
+
       temporizadorRef.current = setTimeout(() => {
         pendienteRef.current = {
           titulo: siguienteTitulo ?? tituloRef.current,
@@ -177,6 +224,39 @@ export function DiagramaCanvas({
     },
     [guardarAhora],
   );
+
+  const deshacer = useCallback(() => {
+    const paso = paraAtrasRef.current[paraAtrasRef.current.length - 1];
+    if (!paso) {
+      toast.info("No hay nada más para deshacer");
+      return;
+    }
+    paraAtrasRef.current = paraAtrasRef.current.slice(0, -1);
+    paraAdelanteRef.current = [
+      ...paraAdelanteRef.current,
+      { nodes: nodesRef.current, edges: edgesRef.current },
+    ];
+    setNodes(paso.nodes);
+    setEdges(paso.edges);
+    setPuedeDeshacer(paraAtrasRef.current.length > 0);
+    programarGuardado(undefined, { sinPaso: true });
+  }, [programarGuardado, setEdges, setNodes]);
+
+  const rehacer = useCallback(() => {
+    const paso = paraAdelanteRef.current[paraAdelanteRef.current.length - 1];
+    if (!paso) {
+      return;
+    }
+    paraAdelanteRef.current = paraAdelanteRef.current.slice(0, -1);
+    paraAtrasRef.current = [
+      ...paraAtrasRef.current,
+      { nodes: nodesRef.current, edges: edgesRef.current },
+    ];
+    setNodes(paso.nodes);
+    setEdges(paso.edges);
+    setPuedeDeshacer(true);
+    programarGuardado(undefined, { sinPaso: true });
+  }, [programarGuardado, setEdges, setNodes]);
 
   /**
    * Guardar lo pendiente al salir.
@@ -220,6 +300,19 @@ export function DiagramaCanvas({
       }
 
       const tecla = evento.key.toLowerCase();
+
+      // Ctrl+Z deshace; Ctrl+Y o Ctrl+Shift+Z rehacen, las dos formas que usa la gente.
+      if (tecla === "z" && !evento.shiftKey) {
+        evento.preventDefault();
+        deshacer();
+        return;
+      }
+
+      if (tecla === "y" || (tecla === "z" && evento.shiftKey)) {
+        evento.preventDefault();
+        rehacer();
+        return;
+      }
 
       if (tecla === "c") {
         const elegidas = nodesRef.current.filter((nodo) => nodo.selected);
@@ -266,7 +359,7 @@ export function DiagramaCanvas({
 
     window.addEventListener("keydown", alTeclado);
     return () => window.removeEventListener("keydown", alTeclado);
-  }, [programarGuardado, setNodes]);
+  }, [deshacer, programarGuardado, rehacer, setNodes]);
 
   const alConectar = useCallback(
     (conexion: Connection) => {
@@ -307,7 +400,7 @@ export function DiagramaCanvas({
       setNodes((actuales) =>
         actuales.map((nodo) => (nodo.id === idNodo ? { ...nodo, data: { ...nodo.data, texto } } : nodo)),
       );
-      programarGuardado();
+      programarGuardado(undefined, { sinPaso: true });
     },
     [programarGuardado, setNodes],
   );
@@ -742,6 +835,57 @@ export function DiagramaCanvas({
     edges: Edge[];
   } | null>(null);
 
+  /*
+    El historial: las fotos que el servidor fue guardando del mapa.
+
+    Se piden al abrir el panel y no al cargar la pantalla: son el mapa entero repetido varias veces
+    y no hacen falta hasta que alguien quiere volver atrás.
+  */
+  const [historialAbierto, setHistorialAbierto] = useState(false);
+  const [versiones, setVersiones] = useState<VersionDeLaLista[] | null>(null);
+  const [restaurando, setRestaurando] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!historialAbierto) {
+      return;
+    }
+    let vigente = true;
+    historialDelDiagramaAction(id)
+      .then((respuesta) => {
+        if (!vigente) return;
+        setVersiones(respuesta.versiones ?? []);
+        if (respuesta.error) {
+          toast.error(respuesta.error);
+        }
+      })
+      .catch(() => {
+        if (vigente) setVersiones([]);
+      });
+    return () => {
+      vigente = false;
+    };
+  }, [historialAbierto, id]);
+
+  const restaurar = useCallback(
+    async (versionId: string) => {
+      setRestaurando(versionId);
+      const respuesta = await versionDelDiagramaAction({ id, versionId });
+      setRestaurando(null);
+      if (respuesta.error || !respuesta.data) {
+        toast.error(respuesta.error ?? "No se pudo restaurar");
+        return;
+      }
+      const contenido = respuesta.data as DiagramaGuardado;
+      setNodes(contenido.nodes ?? []);
+      setEdges((contenido.edges ?? []).map((arista) => ({ ...arista, type: "borrable" })));
+      programarGuardado();
+      setHistorialAbierto(false);
+      requestAnimationFrame(() => flujoRef.current?.fitView({ padding: 0.2 }));
+      toast.success("Listo, volvió a esa versión");
+    },
+    [id, programarGuardado, setEdges, setNodes],
+  );
+
   const exportar = useCallback(() => {
     const contenido = JSON.stringify(
       {
@@ -888,7 +1032,20 @@ export function DiagramaCanvas({
           )}
         </span>
 
-        <Button size="sm" className="ml-auto gap-1.5" onClick={() => agregarIdea()}>
+        {/* En el celular no hay Ctrl+Z: el botón es la única forma de deshacer. */}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="ml-auto size-9 p-0"
+          onClick={deshacer}
+          disabled={!puedeDeshacer}
+          aria-label="Deshacer"
+          title="Deshacer (Ctrl+Z)"
+        >
+          <Undo2 className="size-4" />
+        </Button>
+
+        <Button size="sm" className="gap-1.5" onClick={() => agregarIdea()}>
           <Plus className="size-4" />
           Idea
         </Button>
@@ -905,6 +1062,9 @@ export function DiagramaCanvas({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
             {/* onClick y no onSelect: este menu es Base UI, y ahi onSelect se ignora en silencio. */}
+            <DropdownMenuItem onClick={() => setHistorialAbierto(true)}>
+              <History className="size-4" /> Historial de cambios
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={exportar}>
               <Download className="size-4" /> Exportar diagrama
             </DropdownMenuItem>
@@ -1026,6 +1186,54 @@ export function DiagramaCanvas({
           Doble clic en el lienzo para poner una idea. Arrastrá de un borde a otro para unirlas.
         </p>
       ) : null}
+
+      <Dialog open={historialAbierto} onOpenChange={setHistorialAbierto}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Historial de cambios</DialogTitle>
+            <DialogDescription>
+              Cómo estaba el mapa en cada momento. Al volver a una versión, lo de ahora se guarda
+              también, así que no se pierde nada.
+            </DialogDescription>
+          </DialogHeader>
+
+          {versiones === null ? (
+            <p className="flex justify-center py-6 text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+            </p>
+          ) : versiones.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Todavía no hay versiones guardadas. Se guarda una cada pocos minutos, mientras trabajás.
+            </p>
+          ) : (
+            <div className="max-h-[50vh] space-y-1.5 overflow-auto">
+              {versiones.map((version) => (
+                <div
+                  key={version.id}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm">{CUANDO.format(new Date(version.at))}</p>
+                    <p className="truncate text-[11px] text-muted-foreground">
+                      {version.autor} · {version.cajas} {version.cajas === 1 ? "idea" : "ideas"}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    disabled={restaurando !== null}
+                    onClick={() => void restaurar(version.id)}
+                  >
+                    {restaurando === version.id ? <Loader2 className="size-4 animate-spin" /> : null}
+                    Volver a esta
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/*
         Importar PISA lo que hay, y hay que decirlo antes.
