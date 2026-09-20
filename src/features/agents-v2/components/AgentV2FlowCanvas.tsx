@@ -33,6 +33,7 @@ import {
   Rocket,
   Send,
   ShoppingBag,
+  SlidersHorizontal,
   Sparkles,
   Split,
   Trash2,
@@ -66,6 +67,8 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
+import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
 import { BaseNode, BaseNodeContent } from "@/components/reactflow/base-node";
 import { Switch } from "@/components/ui/switch";
@@ -1321,13 +1324,34 @@ function ProductEditorDialog({
           </Select>
 
           {/*
-            Se dice donde se escribe el embudo. Antes se editaba aca y ahora no, asi que sin este
-            renglon uno abre el nodo, no encuentra las etapas y cree que se perdieron.
+            Se dice donde se escribe el embudo, y se LLEVA hasta ahi.
+
+            Antes solo lo decia: uno leia "se escribe en Producto V2", cerraba, y tenia que ir a
+            buscar el producto a mano por el menu (Alex, 18-sep-2026). El boton abre el embudo de
+            este producto, ya elegido, en otra pestaña, asi el diagrama del agente no se pierde.
           */}
           <p className="text-[12px] leading-4 text-muted-foreground">
             El embudo de este producto -presentacion, identificacion, producto, objeciones y cierre-
             se escribe en Producto V2, y es el que usa el agente.
           </p>
+
+          {data.productId ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-1.5"
+              render={
+                <Link
+                  href={`/cliente/productos-v2/embudo?producto=${encodeURIComponent(data.productId)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                />
+              }
+            >
+              <SlidersHorizontal className="size-4" />
+              Abrir el embudo de este producto
+            </Button>
+          ) : null}
         </div>
 
         <DialogFooter>
