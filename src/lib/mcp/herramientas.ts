@@ -1,4 +1,9 @@
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
+import {
+  HERRAMIENTAS_MCP_ESCRITURA,
+  ejecutarHerramientaMcpEscritura,
+  esHerramientaDeEscritura,
+} from "@/lib/mcp/escritura";
 import { getFlowReply } from "@/lib/agent-product-flow";
 import { prisma } from "@/lib/prisma";
 import { parseWorkspaceBusinessConfig } from "@/lib/workspace-business-config";
@@ -19,7 +24,7 @@ type Argumentos = Record<string, unknown>;
 
 const SOLO_LECTURA = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
 
-export const HERRAMIENTAS_MCP = [
+const HERRAMIENTAS_DE_LECTURA = [
   {
     name: "resumen_del_negocio",
     title: "Resumen del negocio",
@@ -614,7 +619,19 @@ async function buscarMensajes(args: Argumentos, contexto: Contexto) {
   };
 }
 
+/*
+  La lista que ve Claude: primero lo que lee, despues lo que escribe (etapa 2, 18-sep-2026).
+
+  Van juntas y no en dos servidores separados porque corregir es un solo trabajo: Claude lee la
+  conversacion, entiende que salio mal y arregla el guion sin que nadie tenga que cambiar de
+  herramienta a mitad de camino.
+*/
+export const HERRAMIENTAS_MCP = [...HERRAMIENTAS_DE_LECTURA, ...HERRAMIENTAS_MCP_ESCRITURA];
+
 export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, contexto: Contexto) {
+  if (esHerramientaDeEscritura(nombre)) {
+    return ejecutarHerramientaMcpEscritura(nombre, args, contexto);
+  }
   switch (nombre) {
     case "resumen_del_negocio":
       return resumenDelNegocio(contexto);

@@ -1,14 +1,20 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, Copy, KeyRound, Trash2 } from "lucide-react";
+import { Check, Copy, KeyRound, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { crearClaveMcpAction, revocarClaveMcpAction } from "@/app/actions/mcp-actions";
+import {
+  crearClaveMcpAction,
+  deshacerCambioMcpAction,
+  revocarClaveMcpAction,
+} from "@/app/actions/mcp-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 type ClaveListada = { id: string; nombre: string; creadaEl: string; ultimoUso: string | null };
+
+type CambioListado = { id: string; at: string; titulo: string; accion: string; deshecho: boolean };
 
 const FECHA = new Intl.DateTimeFormat("es-CO", {
   timeZone: "America/Bogota",
@@ -48,10 +54,12 @@ export function ConexionClaudeWorkspace({
   direccion,
   negocio,
   claves,
+  cambios,
 }: {
   direccion: string;
   negocio: string;
   claves: ClaveListada[];
+  cambios: CambioListado[];
 }) {
   const [nombre, setNombre] = useState("Claude de Alex");
   const [claveNueva, setClaveNueva] = useState<string | null>(null);
@@ -163,6 +171,60 @@ export function ConexionClaudeWorkspace({
                   <Trash2 className="size-4" />
                   Revocar
                 </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/*
+        Lo que Claude cambio, y como volver atras.
+
+        Es la condicion con la que esto escribe: aplica directo, pero cualquier cambio se deshace
+        en un clic, sin depender de tener Claude abierto (Alex, 18-sep-2026).
+      */}
+      <section className="space-y-2 rounded-2xl border border-border bg-card p-4">
+        <h2 className="text-sm font-semibold text-foreground">Cambios hechos desde Claude</h2>
+        {cambios.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Todavía no cambió nada. Cuando le pidas a Claude que corrija un guion, un texto del agente
+            o un seguimiento, va a quedar acá para revisarlo o deshacerlo.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {cambios.map((cambio) => (
+              <li
+                key={cambio.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-foreground">{cambio.titulo}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">
+                    {FECHA.format(new Date(cambio.at))} · {cambio.accion}
+                    {cambio.deshecho ? " · deshecho" : ""}
+                  </p>
+                </div>
+                {cambio.deshecho ? null : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={pendiente}
+                    onClick={() => {
+                      startTransition(async () => {
+                        const resultado = await deshacerCambioMcpAction(cambio.id);
+                        if (resultado?.error) {
+                          toast.error(resultado.error);
+                          return;
+                        }
+                        toast.success("Listo, quedó como estaba");
+                      });
+                    }}
+                  >
+                    <RotateCcw className="size-4" />
+                    Deshacer
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

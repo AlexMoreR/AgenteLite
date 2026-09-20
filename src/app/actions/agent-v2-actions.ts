@@ -280,7 +280,21 @@ export async function publishAgentV2Action(input: {
   if (!membership) {
     return { ok: false, error: "Sin workspace" };
   }
-  const workspaceId = membership.workspace.id;
+  return publicarAgenteV2({ agentId: input.agentId, workspaceId: membership.workspace.id });
+}
+
+/**
+ * Publicar de verdad, ya sabiendo de que negocio se trata.
+ *
+ * Va aparte de la accion porque el MCP tambien tiene que publicar: cuando Claude corrige un texto
+ * del agente hay que recompilarlo, o se edita el diagrama y el que contesta sigue con lo viejo
+ * (18-sep-2026). El permiso lo resuelve quien llama: la accion con la sesion, el MCP con su clave.
+ */
+export async function publicarAgenteV2(input: {
+  agentId: string;
+  workspaceId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const workspaceId = input.workspaceId;
 
   const agent = await prisma.agent.findFirst({
     where: { id: input.agentId, workspaceId, agentType: "V2" },

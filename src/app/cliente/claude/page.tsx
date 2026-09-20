@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { ConexionClaudeWorkspace } from "@/features/mcp/components/ConexionClaudeWorkspace";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { listarClavesMcp } from "@/lib/mcp/claves";
+import { listarCambiosMcp } from "@/lib/mcp/cambios";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -27,7 +28,11 @@ export default async function ClienteClaudePage() {
     );
   }
 
-  const [claves, cabeceras] = await Promise.all([listarClavesMcp(access.workspaceId), headers()]);
+  const [claves, cambios, cabeceras] = await Promise.all([
+    listarClavesMcp(access.workspaceId),
+    listarCambiosMcp(access.workspaceId),
+    headers(),
+  ]);
   const host = cabeceras.get("x-forwarded-host") ?? cabeceras.get("host") ?? "app.aizenbot.com";
   const protocolo = host.startsWith("localhost") ? "http" : "https";
 
@@ -35,6 +40,13 @@ export default async function ClienteClaudePage() {
     <ConexionClaudeWorkspace
       direccion={`${protocolo}://${host}/api/mcp`}
       negocio={access.workspaceName}
+      cambios={cambios.slice(0, 20).map((cambio) => ({
+        id: cambio.id,
+        at: cambio.at,
+        titulo: cambio.titulo,
+        accion: cambio.accion,
+        deshecho: cambio.deshecho === true,
+      }))}
       claves={claves.map((clave) => ({
         id: clave.id,
         nombre: clave.nombre,

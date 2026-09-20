@@ -6,8 +6,11 @@ import { HERRAMIENTAS_MCP, ejecutarHerramientaMcp } from "@/lib/mcp/herramientas
 export const dynamic = "force-dynamic";
 
 /*
-  Servidor MCP del CRM: la puerta por la que Claude entra a leer (14-sep-2026, etapa 1 del plan
-  MCP + Agente V3 con Alex). SOLO LECTURA: ninguna herramienta escribe, asi que no puede romper nada.
+  Servidor MCP del CRM: la puerta por la que Claude entra (14-sep-2026, plan MCP + Agente V3).
+
+  Etapa 1: leer. Etapa 2 (18-sep-2026): corregir el guion del embudo, los textos del agente y los
+  seguimientos. Todo lo que escribe queda en un historial con el "antes" completo y se puede
+  deshacer, en el chat o desde Mi empresa -> Claude.
 
   Protocolo MCP "Streamable HTTP" en su forma mas simple: cada POST trae un mensaje JSON-RPC y se
   contesta con JSON. Sin sesiones ni SSE: no hay nada que el servidor tenga que empujar solo. Se
@@ -47,10 +50,12 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "aizenbot-crm", version: "1.0.0" },
         instructions:
-          "Herramientas de SOLO LECTURA del CRM Aizenbot, limitadas al negocio de la clave. Sirven para " +
-          "encontrar errores del agente de WhatsApp: leer conversaciones, ver que dijo el agente y " +
-          "compararlo con la informacion correcta (productos, configuracion del agente, datos del negocio). " +
-          "Nada se modifica: las correcciones se proponen a la persona para que las aplique.",
+          "Herramientas del CRM Aizenbot, limitadas al negocio de la clave. Sirven para encontrar errores " +
+          "del agente de WhatsApp y corregirlos: leer conversaciones, ver que dijo el agente, compararlo " +
+          "con la informacion correcta (productos, configuracion, datos del negocio) y despues arreglar el " +
+          "guion de un paso del embudo, un texto del agente o un seguimiento. Lo que se cambia queda activo " +
+          "al instante y se puede deshacer con deshacer_cambio. Antes de cambiar algo, leer siempre lo que " +
+          "hay hoy (ver_embudo_del_producto, ver_textos_del_agente) y decirle a la persona que se va a tocar.",
       });
     }
     case "ping":

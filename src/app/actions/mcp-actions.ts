@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 
 import { auth } from "@/auth";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { publicarAgenteV2 } from "@/app/actions/agent-v2-actions";
 import { crearClaveMcp, revocarClaveMcp } from "@/lib/mcp/claves";
+import { deshacerCambioMcp } from "@/lib/mcp/cambios";
 
 const RUTA = "/cliente/claude";
 
@@ -42,4 +44,28 @@ export async function revocarClaveMcpAction(id: string) {
   }
   revalidatePath(RUTA);
   return { ok: true as const };
+}
+
+/**
+ * Deshacer un cambio que hizo Claude, desde la app.
+ *
+ * El mismo boton existe en el chat (`deshacer_cambio`), pero la vuelta atras no puede depender de
+ * tener Claude abierto: si algo quedo mal y el agente esta contestando raro, hay que poder
+ * arreglarlo desde el celular (Alex, 18-sep-2026).
+ */
+export async function deshacerCambioMcpAction(cambioId: string) {
+  const access = await accesoDeJefe();
+  if (!access) {
+    return { error: "Solo el dueño o un administrador" };
+  }
+  const resultado = await deshacerCambioMcp(access.workspaceId, typeof cambioId === "string" ? cambioId : "");
+  if (!resultado.ok) {
+    return { error: resultado.error };
+  }
+  // Si lo que se deshizo era del agente, hay que volver a publicarlo o sigue contestando con lo otro.
+  if (resultado.agenteId) {
+    await publicarAgenteV2({ agentId: resultado.agenteId, workspaceId: access.workspaceId });
+  }
+  revalidatePath(RUTA);
+  return { ok: true as const, titulo: resultado.titulo };
 }
