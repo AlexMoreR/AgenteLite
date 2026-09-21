@@ -98,6 +98,26 @@ export const HERRAMIENTAS_MCP_DIAGRAMA = [
     annotations: ESCRIBE,
   },
   {
+    name: "editar_regla_de_condicion",
+    title: "Editar una regla de una condicion",
+    description:
+      "Cambia las palabras o la intencion de una regla que ya existe en una caja Condicion, sin tocar a donde esta conectada. Sirve para acotar una condicion que estaba disparando de mas.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agente_id: { type: "string" },
+        nodo_id: { type: "string", description: "Id de la caja Condicion (ver ver_diagrama_del_agente)" },
+        regla_id: { type: "string" },
+        palabras: { type: "array", items: { type: "string" }, description: "Solo para tipo contiene/exacta" },
+        intencion: { type: "string", description: "Solo para tipo ia" },
+        tipo: { type: "string", enum: TIPOS_DE_COINCIDENCIA },
+      },
+      required: ["agente_id", "nodo_id", "regla_id"],
+      additionalProperties: false,
+    },
+    annotations: ESCRIBE,
+  },
+  {
     name: "crear_nodo_de_flujo",
     title: "Crear una caja de Flujo",
     description:
@@ -350,6 +370,57 @@ export async function ejecutarHerramientaMcpDiagrama(
       despues: { nodo_id: nodoId, palabras, tipo },
     });
     return { ...resultado, nodo_id: nodoId, regla_id: reglaId };
+  }
+
+  if (nombre === "editar_regla_de_condicion") {
+    const { agente, nodos, aristas } = await agenteDelNegocio(contexto, agenteId);
+    const nodoId = String(argumentos.nodo_id ?? "");
+    const reglaId = String(argumentos.regla_id ?? "");
+    const nodo = nodos.find((fila) => fila.id === nodoId);
+    if (!nodo || nodo.type !== "condicion") {
+      throw new Error("Esa caja no es una condicion de este agente");
+    }
+    const reglas = Array.isArray(nodo.data?.rules) ? (nodo.data.rules as Record<string, unknown>[]) : [];
+    const regla = reglas.find((fila) => String(fila.id) === reglaId);
+    if (!regla) {
+      throw new Error("Esa regla no existe en la condicion");
+    }
+
+    const palabras = Array.isArray(argumentos.palabras)
+      ? argumentos.palabras.map((palabra) => String(palabra).trim()).filter(Boolean)
+      : undefined;
+    const intencion = argumentos.intencion === undefined ? undefined : String(argumentos.intencion).trim();
+    const tipo = TIPOS_DE_COINCIDENCIA.includes(argumentos.tipo as (typeof TIPOS_DE_COINCIDENCIA)[number])
+      ? (argumentos.tipo as (typeof TIPOS_DE_COINCIDENCIA)[number])
+      : undefined;
+    if (palabras === undefined && intencion === undefined && tipo === undefined) {
+      throw new Error("No mandaste nada para cambiar");
+    }
+
+    const reglaNueva = {
+      ...regla,
+      ...(tipo ? { matchType: tipo } : {}),
+      ...(palabras ? { keywords: palabras } : {}),
+      ...(intencion === undefined ? {} : { intent: intencion }),
+    };
+    return guardarYPublicar({
+      contexto,
+      agente,
+      nodos: nodos.map((fila) =>
+        fila.id === nodoId
+          ? {
+              ...fila,
+              data: {
+                ...(fila.data ?? {}),
+                rules: reglas.map((otra) => (String(otra.id) === reglaId ? reglaNueva : otra)),
+              },
+            }
+          : fila,
+      ),
+      aristas,
+      titulo: `Regla de condicion acotada en ${agente.name}`,
+      despues: { nodo_id: nodoId, regla_id: reglaId, palabras, intencion, tipo },
+    });
   }
 
   if (nombre === "crear_nodo_de_flujo") {
