@@ -130,12 +130,22 @@ export function pesoDeLaRegla(regla: ReglaV3): number {
   return 90;
 }
 
-/** Texto sin tildes ni mayúsculas, para comparar frases como las escribe la gente. */
+/**
+ * Texto sin tildes, sin mayúsculas y sin el formato de WhatsApp, para comparar frases como las
+ * escribe la gente.
+ *
+ * Lo de quitar el formato no es un detalle: los anuncios de Meta le dejan escrito al cliente
+ * "me interesa el *COMBO* de estética", con los asteriscos de negrita adentro. Sin sacarlos, la
+ * frase "combo de estetica" NO coincide —queda "combo* de estetica"— y el agente no reconoce ni
+ * su propio anuncio. Se vio en la primera prueba del V3 con el libro real (21-sep-2026).
+ */
 export function normalizar(texto: string): string {
   return texto
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase()
+    // Marcas de formato de WhatsApp y signos que la gente pega sin pensar.
+    .replace(/[*_~`"'¡!¿?.,;:()\[\]]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

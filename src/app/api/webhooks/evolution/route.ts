@@ -19,6 +19,7 @@ import {
   readDiscoveredPhone,
   readLinkedLid,
 } from "@/lib/whatsapp-lid";
+import type { CrmStage } from "@/features/crm/types";
 import { marcarCierreDeCompra, syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
 import { syncFunnelStageFromCommercialStage } from "@/lib/funnel-stage-sync";
 import { recalentarLeadSiRespondio } from "@/features/crm/services/lead-temperature";
@@ -32,6 +33,7 @@ import {
   type FlowStep,
 } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
+import { atenderConAgenteV3 } from "@/features/agente-v3/motor/ejecutar";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { prisma } from "@/lib/prisma";
@@ -983,6 +985,55 @@ async function assignAdLeadByCampaign(args: {
   });
 
   return true;
+}
+
+/**
+ * Mueve la etapa del CRM desde una regla del V3.
+ *
+ * Las reglas hablan en palabras del negocio ("Tibio", "Descartado") porque las dicta una persona,
+ * no un programador. Aca se traducen a las etapas reales; si el nombre no se reconoce, no se toca
+ * nada y queda en el log: mejor no mover una etapa que moverla a la equivocada.
+ */
+async function cambiarEtapaDesdeV3(args: {
+  workspaceId: string;
+  conversationId: string;
+  channelId: string;
+  contactId: string;
+  etapa: string;
+}) {
+  const normalizada = args.etapa
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim();
+  const MAPA: Record<string, CrmStage> = {
+    nuevo: "NUEVO",
+    frio: "CALIFICADO",
+    calificado: "CALIFICADO",
+    tibio: "PROPUESTA",
+    propuesta: "PROPUESTA",
+    caliente: "NEGOCIACION",
+    negociacion: "NEGOCIACION",
+    ganado: "GANADO",
+    vendido: "GANADO",
+    descartado: "PERDIDO",
+    perdido: "PERDIDO",
+  };
+  const destino = MAPA[normalizada];
+  if (!destino) {
+    console.warn("[EVOLUTION] v3_etapa_desconocida", { etapa: args.etapa });
+    return;
+  }
+
+  await prisma.contact.update({ where: { id: args.contactId }, data: { crmStage: destino } });
+  await recordConversationActivity({
+    workspaceId: args.workspaceId,
+    conversationId: args.conversationId,
+    channelId: args.channelId,
+    contactId: args.contactId,
+    kind: "stage_changed",
+    text: `El agente movió la etapa a "${args.etapa}"`,
+  }).catch(() => {});
 }
 
 async function autoAssignConversationToCollaborator(args: {
@@ -2824,6 +2875,120 @@ export async function POST(request: NextRequest) {
       });
     } else {
       await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
+    }
+  }
+
+  /*
+    AGENTE V3: se prende por canal, y atiende ESTE mensaje sin pasar por el V2.
+
+    Va antes que todo el bloque del agente viejo a proposito: mientras el V3 esta en prueba, el V2
+    sigue intacto en las lineas que venden. Se prende poniendo `agenteV3: true` en el metadata del
+    canal (Alex lo pidio para una "linea de pruebas", 21-sep-2026).
+
+    Si el libro esta vacio o ninguna regla encaja, `atendido` vuelve false y el mensaje sigue su
+    camino normal: nunca deja a un cliente sin respuesta por estar probando.
+  */
+  const canalUsaV3 =
+    !fromMe &&
+    !isCallEvent &&
+    Boolean(messageText?.trim()) &&
+    channel.metadata &&
+    typeof channel.metadata === "object" &&
+    !Array.isArray(channel.metadata) &&
+    (channel.metadata as Record<string, unknown>).agenteV3 === true;
+
+  if (canalUsaV3 && channel.evolutionInstanceName) {
+    const instancia = channel.evolutionInstanceName;
+    const ultimos = await prisma.message.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      select: { content: true, direction: true, type: true },
+    });
+
+    const resultado = await atenderConAgenteV3({
+      workspaceId: channel.workspaceId,
+      conversationId: conversation.id,
+      mensaje: messageText ?? "",
+      historial: ultimos
+        .filter((mensaje) => mensaje.type !== "SYSTEM" && mensaje.content?.trim())
+        .reverse()
+        .map((mensaje) => ({
+          de: mensaje.direction === "INBOUND" ? ("cliente" as const) : ("negocio" as const),
+          texto: (mensaje.content ?? "").slice(0, 300),
+        })),
+      herramientas: {
+        enviarPaso: (paso) =>
+          sendAndPersistEvolutionFlowStepResilient({
+            step: paso,
+            workspaceId: channel.workspaceId,
+            conversationId: conversation.id,
+            channelId: channel.id,
+            contactId: contact.id,
+            agentId: channel.agentId ?? "",
+            instanceName: instancia,
+            phoneNumber,
+          }),
+        avisarAsesor: async (motivo) => {
+          await recordConversationActivity({
+            workspaceId: channel.workspaceId,
+            conversationId: conversation.id,
+            channelId: channel.id,
+            contactId: contact.id,
+            kind: "note",
+            text: `El agente pide un asesor: ${motivo}`,
+          }).catch(() => {});
+        },
+        cambiarEtapa: async (etapa) => {
+          await cambiarEtapaDesdeV3({
+            workspaceId: channel.workspaceId,
+            conversationId: conversation.id,
+            channelId: channel.id,
+            contactId: contact.id,
+            etapa,
+          }).catch(() => {});
+        },
+        pausarIa: async () => {
+          await setConversationAutomationPaused({ conversationId: conversation.id, paused: true }).catch(() => {});
+        },
+        responderConIa: async (guia) => {
+          // Todavia no: la IA redactora llega despues. Se anota para no fingir que contesto.
+          console.log("[EVOLUTION] v3_responder_con_ia_pendiente", { conversationId: conversation.id, guia });
+        },
+      },
+    }).catch((error) => {
+      console.error("[EVOLUTION] v3_error", {
+        conversationId: conversation.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+
+    // La traza: que regla gano y por que. Es lo que permite responder "¿por que contesto eso?"
+    // mirando el chat, en vez de leer la base media hora.
+    console.log("[EVOLUTION] v3_decidio", {
+      conversationId: conversation.id,
+      atendido: resultado?.atendido ?? false,
+      regla: resultado?.regla ?? null,
+      porque: resultado?.porque ?? null,
+    });
+
+    if (resultado?.atendido) {
+      await recordConversationActivity({
+        workspaceId: channel.workspaceId,
+        conversationId: conversation.id,
+        channelId: channel.id,
+        contactId: contact.id,
+        kind: "note",
+        text: `Agente V3: ${resultado.porque}`,
+      }).catch(() => {});
+
+      return NextResponse.json({
+        ok: true,
+        message: "Atendido por el agente V3",
+        instanceName,
+        event: eventName,
+      });
     }
   }
 
