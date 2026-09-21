@@ -44,7 +44,9 @@ export type EtapaDelEmbudo = {
   los tres dias ya es otra conversacion. Se agregan de a una con el "+", no aparecen las cuatro.
 */
 const ESCALERA = [
-  { timeType: "MINUTES", timeValue: 5 },
+  // El primer escalon a los 15 y no a los 5 minutos (Alex, 21-sep-2026): a los 5 el cliente
+  // todavia esta leyendo, y el recordatorio llega encima de la conversacion.
+  { timeType: "MINUTES", timeValue: 15 },
   { timeType: "HOURS", timeValue: 1 },
   { timeType: "DAYS", timeValue: 1 },
   { timeType: "DAYS", timeValue: 3 },
