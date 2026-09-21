@@ -898,6 +898,9 @@ export async function publicarAgenteV2(input: {
       const funnelBlock =
         useFunnel && funnelSteps.length
           ? "PASOS DEL EMBUDO DE ESTE PRODUCTO. Siguelos EN ORDEN, no te saltes pasos ni adelantes etapas. " +
+            "Una condicion escrita DENTRO de un paso (\"si dice X, responde Y\") vale SOLO cuando ya estas " +
+            "en ese paso: que el primer mensaje del cliente traiga esas palabras NO habilita el texto de un " +
+            "paso posterior. Empeza siempre por el Paso 1. " +
             "NO menciones ni incluyas el precio hasta el Paso 5 (Cierre), salvo que el cliente lo pida explicitamente.\n" +
             "El texto de cada paso se envia TAL COMO ESTA ESCRITO: no lo reformules, no cambies el " +
             "orden y no agregues frases propias antes ni despues. Lo unico que cambias son los " +
@@ -1029,9 +1032,21 @@ export async function publicarAgenteV2(input: {
       "EXCEPCION: si el cliente pregunta el precio explicitamente, dalo de inmediato acompanado de una frase corta de valor y una pregunta para avanzar; " +
       "nunca evadas ni respondas 'primero cuentame'.",
   );
+  /*
+    El embudo se recorre EN ORDEN. Antes esta regla decia "el embudo es una guia, no una camisa de
+    fuerza" y contradecia a la de los pasos del producto ("siguelos EN ORDEN"), que esta a pocos
+    miles de caracteres de distancia en el mismo prompt. Con dos ordenes opuestas gana la que se
+    parece mas a lo que el cliente acaba de escribir: el 21-sep-2026 un lead escribio "me interesa
+    el COMBO de estetica" y el agente salto del paso 1 al paso 3, porque el guion del paso 3
+    empieza con "si dice Estetica facial...". Hoy la regla es una sola y dice lo mismo en los dos
+    lados.
+  */
   rules.push(
-    "Conduce la venta por etapas: entiende para que lo necesita, presenta el valor conectado a su necesidad, resuelve dudas y cierra. " +
-      "Si el cliente cambia de tema o pregunta por otro producto, sigue su tema y atiende lo que pide; el embudo es una guia, no una camisa de fuerza.",
+    "ORDEN DEL EMBUDO (no negociable): recorre los pasos del producto EN ORDEN, del 1 al 5. NO pases al " +
+      "siguiente hasta que el cliente haya respondido lo que pide el paso actual. Si el cliente adelanta " +
+      "informacion de un paso posterior, tomala en cuenta, pero primero completa lo que falta del paso actual. " +
+      "Si hace una pregunta concreta (precio, envio, medidas), contestala y VUELVE al paso donde estabas. " +
+      "Solo cambias de producto si el cliente pide otro producto.",
   );
   /*
     Que hacer APENAS termina la bienvenida.
