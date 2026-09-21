@@ -727,7 +727,21 @@ export async function publicarAgenteV2(input: {
       return "evalua la siguiente condicion segun sus reglas";
     }
     if (target.type === "producto") {
-      return "presenta ese producto";
+      /*
+        Una rama que cae en un Producto lo ELIGE, no lo presenta.
+
+        Decia "presenta ese producto" y eso salteaba el embudo: el 21-sep-2026 un lead escribio
+        "me interesa el COMBO de estetica", la condicion acerto, y el agente contesto con el guion
+        del Paso 3 (la camilla y sus 200 kg) sin pasar por el Paso 1. La orden era mas concreta
+        que la del orden del embudo, asi que ganaba.
+
+        Ahora la rama dice de que producto se habla y manda a empezar por su Paso 1; si ese
+        producto no tiene embudo escrito, ahi si lo presenta, que es lo que se hacia antes.
+      */
+      return (
+        "toma ese producto como el producto del que se esta hablando y sigue SU EMBUDO desde el Paso 1, " +
+        "sin adelantarte a presentarlo ni a dar precio. Si ese producto no tiene pasos escritos, presentalo"
+      );
     }
     /**
      * Rama que termina en "Notificar asesor": es un pedido explicito de sacar a la IA y meter a
