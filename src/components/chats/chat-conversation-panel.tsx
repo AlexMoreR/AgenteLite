@@ -38,6 +38,32 @@ import {
 
 /** Cuantas barras tiene la onda mientras se graba una nota de voz. */
 const BARRAS_DE_GRABACION = 36;
+
+/*
+  Los datos del contacto se traen ANTES de que se abra su panel.
+
+  Se pedian al tocar el boton, y recien ahi salia el viaje al servidor -que ademas revalida sesion
+  y permisos antes de leer-, asi que el panel aparecia vacio y se llenaba un segundo despues (Alex,
+  21-sep-2026). Ahora se piden al entrar al chat y quedan listos: abrir el panel no espera nada.
+
+  La cache es por contacto y dura poco: si alguien agrega una etiqueta desde otro lado, en medio
+  minuto se vuelve a pedir. Ademas el propio control de etiquetas avisa por evento cuando cambia.
+*/
+const VIDA_DE_LA_CACHE_MS = 30_000;
+type DetalleDeContacto = Awaited<ReturnType<typeof getContactDetailsAction>>;
+const cacheDeContactos = new Map<string, { pedido: Promise<DetalleDeContacto>; at: number }>();
+
+function pedirDetalleDeContacto(contactId: string): Promise<DetalleDeContacto> {
+  const guardado = cacheDeContactos.get(contactId);
+  if (guardado && Date.now() - guardado.at < VIDA_DE_LA_CACHE_MS) {
+    return guardado.pedido;
+  }
+  const pedido = getContactDetailsAction(contactId).catch(
+    (error) => ({ error: error instanceof Error ? error.message : "No se pudo cargar" }) as DetalleDeContacto,
+  );
+  cacheDeContactos.set(contactId, { pedido, at: Date.now() });
+  return pedido;
+}
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { hayVersionNueva } from "@/components/app-version-guard";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
@@ -467,6 +493,16 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [contactPanelTags, setContactPanelTags] = useState<Array<{ label: string; color: string }> | null>(null);
 
   const panelContactId = renderedConversation?.contactId ?? null;
+
+  // Al entrar a un chat se piden los datos del contacto, aunque el panel este cerrado: asi abrirlo
+  // es instantaneo. Es una consulta chica y se guarda en cache por contacto.
+  useEffect(() => {
+    if (!panelContactId) {
+      return;
+    }
+    void pedirDetalleDeContacto(panelContactId);
+  }, [panelContactId]);
+
   useEffect(() => {
     if (!isContactPanelOpen || !panelContactId) {
       setContactCity("");
@@ -475,7 +511,7 @@ export const ConversationPanel = memo(function ConversationPanel({
     }
 
     let cancelled = false;
-    getContactDetailsAction(panelContactId).then((result) => {
+    pedirDetalleDeContacto(panelContactId).then((result) => {
       if (cancelled) return;
       if ("details" in result) {
         setContactCity(result.details.city);

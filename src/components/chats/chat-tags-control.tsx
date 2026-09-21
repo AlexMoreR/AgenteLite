@@ -24,6 +24,31 @@ type DisplayTag = { label: string; color: string };
 
 const createInitialState: { error?: string; success?: boolean } = {};
 
+/*
+  La lista de etiquetas del negocio se pide una vez y se reusa.
+
+  Se pedia cada vez que se abria el desplegable, y son las MISMAS etiquetas para todos los chats:
+  el desplegable quedaba en blanco esperando un viaje al servidor que ya se habia hecho mil veces
+  (Alex, 21-sep-2026). Dura un minuto: crear o borrar una etiqueta la refresca igual, porque esas
+  acciones vuelven a pedirla a proposito.
+*/
+const VIDA_DE_LA_CACHE_MS = 60_000;
+let etiquetasEnCache: { pedido: ReturnType<typeof getEtiquetasAction>; at: number } | null = null;
+
+function pedirEtiquetas() {
+  if (etiquetasEnCache && Date.now() - etiquetasEnCache.at < VIDA_DE_LA_CACHE_MS) {
+    return etiquetasEnCache.pedido;
+  }
+  const pedido = getEtiquetasAction();
+  etiquetasEnCache = { pedido, at: Date.now() };
+  return pedido;
+}
+
+/** Al crear o borrar una etiqueta, la lista guardada ya no sirve. */
+function olvidarEtiquetas() {
+  etiquetasEnCache = null;
+}
+
 // Control unificado de etiquetas del chat: muestra las badges asignadas (cada una con un
 // mini-menú "Quitar de este chat") y un botón "+" que abre un popover para agregar/crear.
 // Reemplaza al modal de etiquetas. Reutiliza el evento `chat-tags-updated` para que las
@@ -73,7 +98,7 @@ export function ChatTagsControl({
   // disparar setState síncrono dentro del efecto.
   const loadAll = useCallback(async () => {
     const [tagsResult, assignedResult] = await Promise.all([
-      getEtiquetasAction(),
+      pedirEtiquetas(),
       contactId ? getContactTagIdsAction(contactId) : Promise.resolve({ tagIds: [] }),
     ]);
     return {
@@ -83,6 +108,11 @@ export function ChatTagsControl({
   }, [contactId]);
 
   const [intento, setIntento] = useState(0);
+
+  // Se piden al montar, no al abrir: cuando el dedo llega al boton ya estan.
+  useEffect(() => {
+    void pedirEtiquetas();
+  }, []);
 
   useEffect(() => {
     if (!popoverOpen) return;
@@ -101,6 +131,7 @@ export function ChatTagsControl({
 
   useEffect(() => {
     if (!state.success) return;
+    olvidarEtiquetas();
     void loadAll().then((next) => {
       setEtiquetas(next.etiquetas);
       setAssignedIds(next.assignedIds);
@@ -161,7 +192,7 @@ export function ChatTagsControl({
         try {
           let list = etiquetas;
           if (!loaded || list.length === 0) {
-            const result = await getEtiquetasAction();
+            const result = await pedirEtiquetas();
             list = result.items ?? [];
             setEtiquetas(list);
           }
@@ -203,6 +234,7 @@ export function ChatTagsControl({
           toast.error(result.error);
           return;
         }
+        olvidarEtiquetas();
         setEtiquetas((prev) => prev.filter((item) => item.id !== tagId));
         setAssignedIds((prev) => {
           const next = new Set(prev);
