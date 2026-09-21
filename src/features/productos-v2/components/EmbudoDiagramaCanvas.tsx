@@ -176,11 +176,17 @@ function EtapaNode({ data, width }: NodeProps) {
           cuenta. El `nodrag` es imprescindible: sin el, arrastrar la esquina mueve la caja en vez
           de estirarla.
         */}
+        {/*
+          Ya no lleva `nodrag`: con eso puesto la caja no se podia mover de ningun lado (Alex,
+          21-sep-2026: "no puedo mover los nodos, esta estatico"). Ahora la caja se arrastra desde
+          su ENCABEZADO -el numero y el titulo- y el resto queda libre para escribir y para
+          estirarla desde la esquina, que es lo que uno hace adentro.
+        */}
         <div
-          className="nodrag resize overflow-auto rounded-2xl border border-border bg-card shadow-sm"
+          className="resize overflow-auto rounded-2xl border border-border bg-card shadow-sm"
           style={{ minWidth: 240, minHeight: 140 }}
         >
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+        <div className="arrastrar-etapa flex cursor-grab items-center gap-2 border-b border-border px-3 py-2.5 active:cursor-grabbing">
           <span
             className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold ${
               d.goal || d.script
@@ -438,6 +444,9 @@ function Lienzo({
         id: meta.stage,
         type: "etapa",
         position: { x: indice * PASO_HORIZONTAL, y: 0 },
+        // Se arrastra SOLO desde el encabezado: adentro se escribe, y un textarea que ademas
+        // mueve la caja hace imposible marcar una palabra.
+        dragHandle: ".arrastrar-etapa",
         // No se borran desde el teclado: quitar una etapa es una decision, va por su boton.
         deletable: false,
         data: {} as Record<string, unknown>,
