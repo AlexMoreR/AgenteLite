@@ -108,7 +108,7 @@ export async function simularConversacion(input: {
       cliente: mensaje.content.trim().slice(0, 200),
       cuando: mensaje.createdAt.toISOString(),
       v2Contesto: respuestas.slice(0, 4),
-      v3Haria: decision.acciones.map((accion) =>
+      v3Haria: [...decision.saludo, ...decision.acciones].map((accion) =>
         enPalabras(
           accion.tipo,
           "texto" in accion
@@ -137,7 +137,7 @@ export async function simularConversacion(input: {
       necesitaIa: input.libro.reglas.some((regla) => regla.activa && regla.cuando.tipo === "intencion"),
     });
 
-    estado = siguienteEstado(estado, decision.acciones);
+    estado = siguienteEstado(estado, [...decision.saludo, ...decision.acciones]);
   }
 
   return { turnos };

@@ -449,7 +449,7 @@ export async function ejecutarHerramientaMcpV3(
     });
     return {
       gana: decision.regla ? { regla_id: decision.regla.id, nombre: decision.regla.nombre } : null,
-      haria: decision.acciones,
+      haria: [...decision.saludo, ...decision.acciones],
       porque: decision.porque,
       tambien_encajaban: decision.tambienEncajaban,
     };

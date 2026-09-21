@@ -32,6 +32,8 @@ export type EstadoDeLaCharla = {
 
 export type Decision = {
   regla: ReglaV3 | null;
+  /** Lo que sale SIEMPRE antes, aunque gane otra regla: hoy, el saludo del primer mensaje. */
+  saludo: Accion[];
   acciones: Accion[];
   /** En palabras: por qué ganó ésta. Es lo que se va a poder leer en el chat. */
   porque: string;
@@ -131,7 +133,27 @@ export function decidir(input: {
   intencionesReconocidas?: string[];
 }): Decision {
   const intenciones = input.intencionesReconocidas ?? [];
+
+  /*
+    El saludo del primer mensaje sale SIEMPRE, aunque gane otra regla.
+
+    No compite: se suma. Si compitiera, un cliente que escribe "quiero el combo de estetica" en su
+    primer mensaje entraria directo al embudo y nunca recibiria la bienvenida, que es obligatoria
+    (Alex, 21-sep-2026). Son las reglas de tipo "siempre" atadas al primer mensaje.
+  */
+  const saludo = input.estado.esPrimerMensaje
+    ? input.libro.reglas
+        .filter((regla) => regla.activa && regla.cuando.tipo === "siempre" && regla.soloSi?.esPrimerMensaje === true)
+        .flatMap((regla) => regla.entonces)
+    : [];
+  const esDelSaludo = new Set(
+    input.libro.reglas
+      .filter((regla) => regla.cuando.tipo === "siempre" && regla.soloSi?.esPrimerMensaje === true)
+      .map((regla) => regla.id),
+  );
+
   const candidatas = input.libro.reglas
+    .filter((regla) => !esDelSaludo.has(regla.id))
     .map((regla, orden) => ({ regla, orden }))
     .filter(({ regla }) => regla.activa)
     .filter(({ regla }) => cumpleLasCondiciones(regla, input.estado))
@@ -140,8 +162,11 @@ export function decidir(input: {
   if (candidatas.length === 0) {
     return {
       regla: null,
+      saludo,
       acciones: [],
-      porque: "Ninguna regla encajó con este mensaje.",
+      porque: saludo.length
+        ? "Sale el saludo del primer mensaje; ninguna otra regla encajó."
+        : "Ninguna regla encajó con este mensaje.",
       tambienEncajaban: [],
     };
   }
@@ -154,6 +179,7 @@ export function decidir(input: {
   const ganadora = ordenadas[0].regla;
   return {
     regla: ganadora,
+    saludo,
     acciones: ganadora.entonces,
     porque: `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}.`,
     tambienEncajaban: ordenadas.slice(1).map(({ regla }) => ({ id: regla.id, nombre: regla.nombre })),
@@ -168,6 +194,7 @@ export function decidir(input: {
  * la forma más cara de perder la confianza en una prueba.
  */
 export function siguienteEstado(estado: EstadoDeLaCharla, acciones: Accion[]): EstadoDeLaCharla {
+  // El saludo tambien cuenta como accion ejecutada: entra por `acciones` desde quien lo ejecuta.
   let siguiente: EstadoDeLaCharla = { ...estado, esPrimerMensaje: false };
   for (const accion of acciones) {
     if (accion.tipo === "activar_producto") {
