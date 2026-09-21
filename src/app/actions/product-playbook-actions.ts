@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { slugifyProductSegment } from "@/lib/product-slugs";
+import { guardarEtapasQuitadas, leerEtapasQuitadas } from "@/lib/etapas-quitadas";
 import {
   isPlaybookRuleKind,
   PRODUCT_FUNNEL_STAGES,
@@ -90,6 +91,13 @@ export async function saveProductPitchAction(input: {
  */
 export async function saveProductFunnelAction(input: {
   productId: string;
+  /*
+    Las etapas que este producto NO usa (Alex, 20-sep-2026).
+
+    Se mandan solo desde la pantalla que las conoce: sin la lista no se toca lo guardado, asi una
+    pantalla vieja que todavia muestra las cinco no borra lo que la otra configuro.
+  */
+  quitadas?: string[];
   stages: Array<{
     stage: string;
     goal: string;
@@ -120,9 +128,27 @@ export async function saveProductFunnelAction(input: {
   const conocidas = new Map(PRODUCT_FUNNEL_STAGES.map((etapa, indice) => [etapa.stage as string, indice]));
   const playbookId = await ensurePlaybook(workspaceId, productId);
 
+  /*
+    Quitar una etapa borra su fila, y ademas queda anotada.
+
+    Las dos cosas: la fila, para que el agente deje de verla al publicar; y la nota, para que la
+    pantalla la dibuje como "quitada" -y ofrezca volver a usarla- en vez de mostrarla vacia como
+    si nunca se hubiera escrito.
+  */
+  if (Array.isArray(input.quitadas)) {
+    await guardarEtapasQuitadas(productId, input.quitadas);
+  }
+  const quitadas = new Set(await leerEtapasQuitadas(productId));
+  if (quitadas.size > 0) {
+    await prisma.productFunnelStage.deleteMany({
+      where: { playbookId, stage: { in: [...quitadas] } },
+    });
+  }
+
   for (const etapa of Array.isArray(input.stages) ? input.stages : []) {
     const orden = conocidas.get(etapa.stage);
-    if (orden === undefined) {
+    // Una etapa quitada no se vuelve a crear desde otra pantalla que todavia la muestre.
+    if (orden === undefined || quitadas.has(etapa.stage)) {
       continue;
     }
     const goal = etapa.goal?.trim() || null;

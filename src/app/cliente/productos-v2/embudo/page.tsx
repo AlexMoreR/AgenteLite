@@ -4,6 +4,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { EmbudoDiagramaCanvas } from "@/features/productos-v2/components/EmbudoDiagramaCanvas";
 import { getProductLeadProgress } from "@/features/productos-v2/services/getProductLeadProgress";
+import { leerEtapasQuitadas } from "@/lib/etapas-quitadas";
 import { getProductMatchRule } from "@/features/productos-v2/services/productConversationFilter";
 
 /**
@@ -74,6 +75,9 @@ export default async function EmbudoDiagramaPage({ searchParams }: PageProps) {
     Es el mismo dato que muestra la lista, y es lo que hace que esto sirva para algo mas que ver el
     guion bonito: sin el numero, el dibujo no dice donde se corta la venta.
   */
+  // Las etapas que este producto no recorre: la pantalla las dibuja como "fuera del embudo".
+  const quitadas = await leerEtapasQuitadas(productId);
+
   const avance = await getProductMatchRule({ workspaceId: access.workspaceId, productId })
     .then((rule) => getProductLeadProgress({ workspaceId: access.workspaceId, rule }))
     .catch(() => null);
@@ -103,6 +107,7 @@ export default async function EmbudoDiagramaPage({ searchParams }: PageProps) {
               content: seguimiento.content ?? "",
             })),
         }))}
+        quitadasIniciales={quitadas}
         perdidosEnEtapa={perdidosEnEtapa}
         volverA={`/cliente/productos-v2?producto=${encodeURIComponent(product.id)}`}
       />

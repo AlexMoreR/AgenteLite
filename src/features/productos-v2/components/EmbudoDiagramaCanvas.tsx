@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Background,
@@ -18,7 +18,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, Check, Clock, Loader2, Plus, X } from "lucide-react";
+import { ArrowLeft, Check, Clock, Loader2, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveProductFunnelAction } from "@/app/actions/product-playbook-actions";
@@ -118,6 +118,7 @@ type DatosDeEtapa = {
   onSeguimiento: (stage: string, posicion: number, texto: string) => void;
   onAgregarSeguimiento: (stage: string) => void;
   onBorrarSeguimiento: (stage: string, posicion: number) => void;
+  onQuitar: (stage: string) => void;
   stage: string;
 };
 
@@ -127,9 +128,13 @@ const PASO_HORIZONTAL = 420;
 /**
  * Una etapa del embudo, como caja del lienzo.
  *
- * Las cinco son FIJAS: no se agregan, no se borran, no cambian de orden. El embudo es el recorrido
- * de una venta y esas cinco etapas son el recorrido; poder agregar una sexta convertiria esto en
- * un lienzo libre donde cada producto inventa su propio embudo y despues no se pueden comparar.
+ * Las cinco son las mismas para todos y no cambian de orden: poder agregar una sexta convertiria
+ * esto en un lienzo libre donde cada producto inventa su propio embudo y despues no se pueden
+ * comparar entre si.
+ *
+ * Lo que SI se puede es quitar una que este producto no recorre (Alex, 20-sep-2026: el Combo
+ * Camillas no necesita "Identificacion", el cliente ya llega sabiendo que quiere). Quitarla no
+ * inventa nada nuevo: se saltea, y se puede volver a usar cuando se quiera.
  *
  * Lo unico que se toca son los dos campos: que hay que lograr, y que decir para lograrlo.
  */
@@ -192,6 +197,15 @@ function EtapaNode({ data, width }: NodeProps) {
               {d.perdidos.valor} · {d.perdidos.pct}%
             </span>
           ) : null}
+          <button
+            type="button"
+            onClick={() => d.onQuitar(d.stage)}
+            title="Quitar esta etapa del embudo"
+            aria-label="Quitar esta etapa del embudo"
+            className="nodrag shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
         </div>
 
         <div className="space-y-2.5 px-3 py-3">
@@ -286,12 +300,14 @@ function Lienzo({
   productId,
   productName,
   etapasIniciales,
+  quitadasIniciales,
   perdidosEnEtapa,
   volverA,
 }: {
   productId: string;
   productName: string;
   etapasIniciales: EtapaDelEmbudo[];
+  quitadasIniciales: string[];
   perdidosEnEtapa: Record<string, { valor: number; pct: number } | undefined>;
   volverA: string;
 }) {
@@ -308,6 +324,15 @@ function Lienzo({
   );
   const [guardando, setGuardando] = useState(false);
   const [hayCambios, setHayCambios] = useState(false);
+  /*
+    Las etapas que este producto no recorre.
+
+    Se quitan de la vista al instante pero NO se borran hasta guardar: asi quitar una por error se
+    arregla saliendo sin guardar, igual que cualquier otro cambio de esta pantalla.
+  */
+  const [quitadas, setQuitadas] = useState<string[]>(() => quitadasIniciales);
+  const quitadasRef = useRef(quitadas);
+  quitadasRef.current = quitadas;
 
   /*
     Los campos viven en una ref ademas del estado.
@@ -372,6 +397,23 @@ function Lienzo({
     );
   }, []);
 
+  const quitarEtapa = useCallback((stage: string) => {
+    // Nunca todas: un embudo sin etapas deja al agente sin nada que decir.
+    if (quitadasRef.current.length >= PRODUCT_FUNNEL_STAGES.length - 1) {
+      toast.error("Tiene que quedar al menos una etapa");
+      return;
+    }
+    setHayCambios(true);
+    setQuitadas([...quitadasRef.current, stage]);
+    const meta = PRODUCT_FUNNEL_STAGES.find((item) => item.stage === stage);
+    toast.success(`"${meta?.label ?? stage}" queda fuera del embudo. Guardá para aplicarlo.`);
+  }, []);
+
+  const volverAUsar = useCallback((stage: string) => {
+    setHayCambios(true);
+    setQuitadas(quitadasRef.current.filter((item) => item !== stage));
+  }, []);
+
   const cambiar = useCallback((stage: string, campo: "goal" | "script", valor: string) => {
     setHayCambios(true);
     setEtapas(
@@ -385,32 +427,45 @@ function Lienzo({
         id: meta.stage,
         type: "etapa",
         position: { x: indice * PASO_HORIZONTAL, y: 0 },
-        // Fijas: el embudo es un recorrido, no un lienzo libre.
+        // No se borran desde el teclado: quitar una etapa es una decision, va por su boton.
         deletable: false,
         data: {} as Record<string, unknown>,
       })),
     [],
   );
 
-  const aristasIniciales = useMemo<Edge[]>(
-    () =>
-      PRODUCT_FUNNEL_STAGES.slice(0, -1).map((meta, indice) => ({
-        id: `${meta.stage}-${PRODUCT_FUNNEL_STAGES[indice + 1].stage}`,
+  const [nodes, , onNodesChange] = useNodesState<Node>(nodosIniciales);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  /*
+    Las lineas unen las etapas QUE QUEDAN, en orden.
+
+    Recalcularlas al quitar una es lo que hace que el recorrido se lea seguido: si no, quedaba un
+    hueco y una flecha apuntando a una caja que ya no esta.
+  */
+  const enUso = useMemo(
+    () => PRODUCT_FUNNEL_STAGES.filter((meta) => !quitadas.includes(meta.stage)),
+    [quitadas],
+  );
+
+  useEffect(() => {
+    setEdges(
+      enUso.slice(0, -1).map((meta, indice) => ({
+        id: `${meta.stage}-${enUso[indice + 1].stage}`,
         source: meta.stage,
-        target: PRODUCT_FUNNEL_STAGES[indice + 1].stage,
+        target: enUso[indice + 1].stage,
         deletable: false,
         markerEnd: { type: MarkerType.ArrowClosed },
       })),
-    [],
-  );
-
-  const [nodes, , onNodesChange] = useNodesState<Node>(nodosIniciales);
-  const [edges, , onEdgesChange] = useEdgesState<Edge>(aristasIniciales);
+    );
+  }, [enUso, setEdges]);
 
   // Los datos se inyectan en cada pintada: asi la caja siempre muestra lo que hay en el estado.
   const nodosConDatos = useMemo(
     () =>
-      nodes.map((nodo) => {
+      nodes
+        .filter((nodo) => !quitadas.includes(nodo.id))
+        .map((nodo) => {
         const meta = PRODUCT_FUNNEL_STAGES.find((item) => item.stage === nodo.id);
         const etapa = etapas.find((item) => item.stage === nodo.id);
         const indice = PRODUCT_FUNNEL_STAGES.findIndex((item) => item.stage === nodo.id);
@@ -429,10 +484,21 @@ function Lienzo({
             onSeguimiento: cambiarSeguimiento,
             onAgregarSeguimiento: agregarSeguimiento,
             onBorrarSeguimiento: borrarSeguimiento,
+            onQuitar: quitarEtapa,
           } satisfies DatosDeEtapa as unknown as Record<string, unknown>,
         };
       }),
-    [nodes, etapas, perdidosEnEtapa, cambiar, cambiarSeguimiento, agregarSeguimiento, borrarSeguimiento],
+    [
+      nodes,
+      etapas,
+      quitadas,
+      perdidosEnEtapa,
+      cambiar,
+      cambiarSeguimiento,
+      agregarSeguimiento,
+      borrarSeguimiento,
+      quitarEtapa,
+    ],
   );
 
   const guardar = async () => {
@@ -440,7 +506,11 @@ function Lienzo({
     try {
       const resultado = await saveProductFunnelAction({
         productId,
-        stages: etapas.map((item) => ({
+        quitadas,
+        // Lo que se quito no se manda: si no, se volveria a crear en la misma pasada.
+        stages: etapas
+          .filter((item) => !quitadas.includes(item.stage))
+          .map((item) => ({
           stage: item.stage,
           goal: item.goal,
           script: item.script,
@@ -504,6 +574,33 @@ function Lienzo({
         </button>
       </div>
 
+      {/*
+        Lo que se quito queda a la vista, no desaparece del todo.
+
+        Una etapa que se esfuma sin dejar rastro se olvida: a los dos meses nadie se acuerda de que
+        el embudo tenia cinco pasos y falta uno a proposito.
+      */}
+      {quitadas.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/40 px-4 py-2">
+          <span className="text-[12px] text-muted-foreground">Fuera del embudo:</span>
+          {quitadas.map((stage) => {
+            const meta = PRODUCT_FUNNEL_STAGES.find((item) => item.stage === stage);
+            return (
+              <button
+                key={stage}
+                type="button"
+                onClick={() => volverAUsar(stage)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[12px] text-muted-foreground transition hover:text-foreground"
+                title="Volver a usar esta etapa"
+              >
+                <RotateCcw className="h-3 w-3" />
+                {meta?.label ?? stage}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
       <div className="min-h-0 flex-1">
         <ReactFlow
           nodes={nodosConDatos}
@@ -529,6 +626,8 @@ export function EmbudoDiagramaCanvas(props: {
   productId: string;
   productName: string;
   etapasIniciales: EtapaDelEmbudo[];
+  /** Las etapas que este producto no recorre. */
+  quitadasIniciales: string[];
   perdidosEnEtapa: Record<string, { valor: number; pct: number } | undefined>;
   volverA: string;
 }) {
