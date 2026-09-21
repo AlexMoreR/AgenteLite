@@ -18,6 +18,7 @@ import {
   MessageSquareMore,
   Package,
   PhoneCall,
+  BookOpen,
   Plug,
   Share2,
   Tags,
@@ -209,6 +210,16 @@ export function AppSidebar({
                   >
                     <Workflow />
                     <span>Automatizaciones</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                {/* El libro de reglas del V3: se dicta por Claude y aca se mira lo que quedo. */}
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    render={<Link href="/cliente/agente-v3" />}
+                    isActive={pathname.startsWith("/cliente/agente-v3")}
+                  >
+                    <BookOpen />
+                    <span>Agente V3</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 {/* Conectar Claude por MCP: mismo criterio, es de jefe (la clave ve todo el negocio). */}
