@@ -627,6 +627,17 @@ function Lienzo({
           nodesConnectable={false}
           fitView
           fitViewOptions={{ padding: 0.15 }}
+          /*
+            Se puede alejar mucho mas de lo que trae React Flow (Alex, 21-sep-2026, desde el
+            celular: "ya no puedo ponerlo mas pequeño").
+
+            El tope de fabrica es la mitad, y cinco cajas de 420 px no entran ni de casualidad en
+            una pantalla de telefono: uno llega al limite y sigue viendo una sola caja. Con esto se
+            alcanza a ver el recorrido entero, que es justo para lo que sirve el dibujo. El
+            encuadre automatico tambien respeta este tope, asi que al abrir ya se ve todo.
+          */
+          minZoom={0.08}
+          maxZoom={2}
           proOptions={{ hideAttribution: true }}
         >
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
