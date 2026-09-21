@@ -91,9 +91,20 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
   }
 }
 
-export async function POST(request: Request) {
+/*
+  La clave puede venir por cabecera o EN LA DIRECCION (/api/mcp/aizen_mcp_...).
+
+  Claude Code manda la cabecera sin problema, pero el conector de claude.ai solo ofrece OAuth o
+  "sin inicio de sesion": no hay donde escribir una clave (Alex, 21-sep-2026, con el dialogo
+  abierto). Con la clave en la direccion se conecta hoy, sin esperar a que exista el OAuth.
+
+  Tiene un costo y hay que saberlo: una clave en la direccion queda escrita en los registros del
+  servidor. Por eso se puede revocar en un clic desde Mi empresa -> Claude.
+*/
+export async function atenderMcp(request: Request, claveDeLaRuta?: string) {
   const autorizacion = request.headers.get("authorization") ?? "";
-  const clave = autorizacion.toLowerCase().startsWith("bearer ") ? autorizacion.slice(7).trim() : "";
+  const claveDeCabecera = autorizacion.toLowerCase().startsWith("bearer ") ? autorizacion.slice(7).trim() : "";
+  const clave = claveDeCabecera || (claveDeLaRuta ?? "").trim();
   const contexto = await validarClaveMcp(clave);
   if (!contexto) {
     return NextResponse.json(error(null, -32001, "Clave invalida o revocada"), { status: 401 });
@@ -114,6 +125,10 @@ export async function POST(request: Request) {
     return new NextResponse(null, { status: 202 });
   }
   return NextResponse.json(Array.isArray(cuerpo) ? respuestas : respuestas[0]);
+}
+
+export async function POST(request: Request) {
+  return atenderMcp(request);
 }
 
 // Sin sesiones ni avisos del servidor: no hay canal GET que abrir.

@@ -68,14 +68,23 @@ export function ConexionClaudeWorkspace({
   const comando = claveNueva
     ? `claude mcp add --transport http aizenbot ${direccion} --header "Authorization: Bearer ${claveNueva}"`
     : "";
+  /*
+    La direccion con la clave adentro, para claude.ai.
+
+    El conector de la web y del celular solo ofrece OAuth o "sin inicio de sesion": no hay donde
+    escribir una clave (Alex, 21-sep-2026). Con esta direccion se conecta eligiendo "sin inicio de
+    sesion". Cuando exista el OAuth, esto queda como atajo.
+  */
+  const direccionConClave = claveNueva ? `${direccion}/${claveNueva}` : "";
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-5 px-4 py-5">
       <div className="space-y-1">
         <h1 className="text-lg font-semibold text-foreground">Conectar Claude</h1>
         <p className="text-sm text-muted-foreground">
-          Claude podrá leer las conversaciones, el agente y los productos de <b>{negocio}</b> para encontrar
-          dónde el agente dio información equivocada. Solo lee: no envía mensajes ni cambia nada.
+          Claude puede leer las conversaciones, el agente y los productos de <b>{negocio}</b> para encontrar
+          dónde el agente dio información equivocada, y corregir el guion del embudo, los textos del agente
+          y los seguimientos. No envía mensajes a clientes, y todo lo que cambia se puede deshacer acá abajo.
         </p>
       </div>
 
@@ -115,11 +124,16 @@ export function ConexionClaudeWorkspace({
             </p>
             <div className="flex flex-wrap gap-2">
               <BotonCopiar texto={claveNueva} etiqueta="Copiar clave" />
+              <BotonCopiar texto={direccionConClave} etiqueta="Copiar dirección para claude.ai" />
               <BotonCopiar texto={comando} etiqueta="Copiar comando para Claude Code" />
             </div>
             <p className="text-[12px] text-amber-900/80 dark:text-amber-100/80">
-              En Claude Code: pegá el comando en una terminal y listo. Después preguntale a Claude, por ejemplo,
-              “revisá los chats de ayer de Ventas 1 y decime dónde el agente dio información equivocada”.
+              <b>En claude.ai (web o celular):</b> Configuración → Conectores → Agregar conector personalizado.
+              Pegá la <b>dirección</b> de arriba —lleva la clave adentro— y elegí <b>“Sin inicio de sesión”</b>.
+            </p>
+            <p className="text-[12px] text-amber-900/80 dark:text-amber-100/80">
+              <b>En Claude Code:</b> pegá el comando en una terminal. Después preguntale, por ejemplo, “revisá
+              los chats de ayer de Ventas 1 y decime dónde el agente dio información equivocada”.
             </p>
           </div>
         ) : null}
@@ -128,7 +142,7 @@ export function ConexionClaudeWorkspace({
           <p>
             Dirección del servidor: <code className="rounded bg-muted px-1 py-0.5">{direccion}</code>
           </p>
-          <p>Cabecera: Authorization: Bearer (la clave)</p>
+          <p>Cabecera: Authorization: Bearer (la clave), o la clave al final de la dirección.</p>
         </div>
       </section>
 
