@@ -283,11 +283,19 @@ export async function ejecutarHerramientaMcpV3(
   if (nombre === "v3_empezar") {
     return {
       como_trabajar:
-        "Preguntale UNA cosa por vez, y preguntale por HECHOS de su dia a dia -que le escriben los clientes, que " +
-        "les contesta- y nunca por abstracciones como 'cual es tu tono' o 'tu propuesta de valor': un dueño de " +
-        "negocio no sabe contestar eso y se traba (Alex, 21-sep-2026). Despues de cada respuesta, PROPONE un " +
-        "borrador y pedile que lo corrija: corregir es facil, escribir de cero no. Nunca inventes productos, " +
-        "precios ni textos; si falta un dato, preguntalo.",
+        "UNA pregunta por mensaje, y esperas la respuesta. NO pegues la lista de preguntas ni encadenes varias " +
+        "en el mismo mensaje: esto es una conversacion, no un formulario (Alex, 21-sep-2026). " +
+        "Pregunta por HECHOS de su dia a dia -que le escriben los clientes, que les contesta- y nunca por " +
+        "abstracciones como 'cual es tu tono' o 'tu propuesta de valor': un dueño de negocio no sabe contestar " +
+        "eso y se traba. Despues de cada respuesta, PROPONE un borrador y pedile que lo corrija: corregir es " +
+        "facil, escribir de cero no. Nunca inventes productos, precios ni textos; si falta un dato, preguntalo. " +
+        "CUESTIONA lo que te dicta: no sos un dictado. Si algo le va a jugar en contra -prometer tiempos que no " +
+        "controla, perseguir al cliente a los dos minutos, un texto que da el precio antes de que vea el valor, " +
+        "una palabra suelta que va a enganchar en otras charlas- decilo con el motivo y propone la alternativa. " +
+        "Si insiste, se hace como el quiere y se deja anotado. " +
+        "AL FINAL, cuando tengas producto, palabras, recorrido, material, escalada y seguimiento, cerra: " +
+        "'ya tengo completo el contexto de tu negocio, esto es lo que consolide' con el resumen en palabras " +
+        "simples, y preguntale si hay algo que corregir antes de dar por cerrado el libro.",
       preguntas: [
         {
           tema: "Quien es",
