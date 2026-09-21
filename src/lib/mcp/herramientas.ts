@@ -1,4 +1,5 @@
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
+import { HERRAMIENTAS_MCP_V3, ejecutarHerramientaMcpV3, esHerramientaV3 } from "@/lib/mcp/agente-v3";
 import {
   HERRAMIENTAS_MCP_DIAGRAMA,
   ejecutarHerramientaMcpDiagrama,
@@ -635,6 +636,7 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_DE_LECTURA,
   ...HERRAMIENTAS_MCP_ESCRITURA,
   ...HERRAMIENTAS_MCP_DIAGRAMA,
+  ...HERRAMIENTAS_MCP_V3,
 ];
 
 export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, contexto: Contexto) {
@@ -643,6 +645,9 @@ export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, c
   }
   if (esHerramientaDeDiagrama(nombre)) {
     return ejecutarHerramientaMcpDiagrama(nombre, args, contexto);
+  }
+  if (esHerramientaV3(nombre)) {
+    return ejecutarHerramientaMcpV3(nombre, args, contexto);
   }
   switch (nombre) {
     case "resumen_del_negocio":
