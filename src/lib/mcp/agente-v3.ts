@@ -283,42 +283,37 @@ export async function ejecutarHerramientaMcpV3(
   if (nombre === "v3_empezar") {
     return {
       como_trabajar:
-        "Preguntale UNA cosa por vez y espera la respuesta. Despues de cada respuesta, escribi la regla " +
-        "con v3_crear_regla y mostrale en palabras que quedo. No inventes productos, precios ni textos: si " +
-        "falta un dato, preguntalo. Si ya existe algo parecido en el V2, podes leerlo con ver_agente o " +
-        "listar_productos y proponerselo para confirmar, pero no lo des por hecho.",
+        "Preguntale UNA cosa por vez, y preguntale por HECHOS de su dia a dia -que le escriben los clientes, que " +
+        "les contesta- y nunca por abstracciones como 'cual es tu tono' o 'tu propuesta de valor': un dueño de " +
+        "negocio no sabe contestar eso y se traba (Alex, 21-sep-2026). Despues de cada respuesta, PROPONE un " +
+        "borrador y pedile que lo corrija: corregir es facil, escribir de cero no. Nunca inventes productos, " +
+        "precios ni textos; si falta un dato, preguntalo.",
       preguntas: [
         {
-          tema: "El negocio",
-          pregunta: "¿Qué vende el negocio y a quién? ¿Cómo querés que hable: de tú o de usted, corto o explicado?",
-          para: "v3_escribir_como_hablamos",
+          tema: "Quien es",
+          pregunta: "¿Cómo se llama tu negocio, y tienes página web o Instagram?",
+          para:
+            "Con eso investigalo vos (web/redes) y volve con un borrador: 'entendi que vendes esto, a esta gente, " +
+            "en esta ciudad, ¿esta bien?'. Recien cuando lo confirme, guardalo con v3_escribir_como_hablamos.",
         },
         {
-          tema: "El saludo",
-          pregunta:
-            "Cuando escribe alguien por primera vez, ¿qué tiene que recibir? ¿Un saludo fijo, un catálogo, o que la IA salude a su manera?",
-          para: "Una regla con cuando.tipo=siempre y soloSi.esPrimerMensaje=true",
+          tema: "El producto estrella",
+          pregunta: "¿Cuál es el producto que más vendes? Con ese armamos todo, y después repetimos el molde con los demás.",
+          para: "No preguntes por toda la lista: uno solo, para que vea el resultado rapido.",
         },
         {
-          tema: "Qué vende",
-          pregunta:
-            "Nombrame los productos con los que trabaja el agente. Por cada uno: ¿cómo se da cuenta de que el cliente pregunta por ese, con qué palabras?",
-          para: "Reglas con cuando.tipo=frase (frases largas) y accion activar_producto",
+          tema: "Como lo piden",
+          pregunta: "¿Con qué palabras te lo piden los clientes? Decime tal cual como lo escriben ellos.",
+          para: "Regla con cuando.tipo=frase (frases largas, no palabras sueltas) + accion activar_producto",
         },
         {
-          tema: "El recorrido de la venta",
-          pregunta:
-            "Para el primer producto: ¿qué le pregunta primero, qué le cuenta después, y qué le manda cuando el cliente dice que sí?",
-          para: "Reglas con cuando.tipo=paso, una por paso del embudo",
+          tema: "Que le decis",
+          pregunta: "Cuando alguien pregunta por eso, ¿qué le preguntas o le cuentas primero? ¿Y qué le mandas cuando dice que sí?",
+          para: "Reglas con cuando.tipo=paso, una por paso, y acciones flujo para el material",
         },
         {
-          tema: "Los envíos de material",
-          pregunta: "¿Qué catálogos, fotos o PDF tiene que mandar, y en qué momento exacto de la charla?",
-          para: "Acciones tipo flujo, con soloSi para que no se pisen entre ellas",
-        },
-        {
-          tema: "Cuándo entra una persona",
-          pregunta: "¿En qué casos tiene que dejar de contestar y avisarle a un asesor?",
+          tema: "Cuando entra una persona",
+          pregunta: "¿En qué casos el bot tiene que dejar de contestar y llamarte a vos o a un asesor?",
           para: "Reglas con accion avisar_asesor y pausar_ia",
         },
         {
@@ -326,9 +321,15 @@ export async function ejecutarHerramientaMcpV3(
           pregunta: "Si el cliente se queda callado, ¿a los cuántos minutos le escribís de nuevo y qué le decís?",
           para: "Reglas con cuando.tipo=sin_respuesta",
         },
+        {
+          tema: "El resto",
+          pregunta: "¿Qué otro producto seguimos?",
+          para: "Mismo molde que el primero. El tono sale de los textos que fue dando, no de preguntarle por su tono.",
+        },
       ],
       despues:
-        "Con las primeras reglas escritas, corre v3_simular_conversacion sobre 2 o 3 charlas reales y mostrale la comparacion contra lo que contesto el V2. Ahi se ve si falta algo.",
+        "Con el primer producto completo, corre v3_simular_conversacion sobre 2 o 3 charlas reales y mostrale la " +
+        "comparacion contra lo que contesto el V2. Ahi se ve que falta, sin tener que adivinarlo.",
     };
   }
 
