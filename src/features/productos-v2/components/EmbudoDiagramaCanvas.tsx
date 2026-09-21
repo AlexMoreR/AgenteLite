@@ -301,6 +301,7 @@ function Lienzo({
   productName,
   etapasIniciales,
   quitadasIniciales,
+  cargadoEl,
   perdidosEnEtapa,
   volverA,
 }: {
@@ -308,6 +309,7 @@ function Lienzo({
   productName: string;
   etapasIniciales: EtapaDelEmbudo[];
   quitadasIniciales: string[];
+  cargadoEl: string;
   perdidosEnEtapa: Record<string, { valor: number; pct: number } | undefined>;
   volverA: string;
 }) {
@@ -333,6 +335,13 @@ function Lienzo({
   const [quitadas, setQuitadas] = useState<string[]>(() => quitadasIniciales);
   const quitadasRef = useRef(quitadas);
   quitadasRef.current = quitadas;
+  /*
+    Desde cuando es lo que muestra esta pantalla.
+
+    Se manda al guardar: si alguien -o Claude por el MCP- cambio algo del embudo despues de esta
+    lectura, el servidor no guarda y avisa, en vez de pisarlo sin que nadie se entere.
+  */
+  const cargadoElRef = useRef(cargadoEl);
 
   /*
     Los campos viven en una ref ademas del estado.
@@ -507,6 +516,7 @@ function Lienzo({
       const resultado = await saveProductFunnelAction({
         productId,
         quitadas,
+        cargadoEl: cargadoElRef.current,
         // Lo que se quito no se manda: si no, se volveria a crear en la misma pasada.
         stages: etapas
           .filter((item) => !quitadas.includes(item.stage))
@@ -531,6 +541,9 @@ function Lienzo({
       if (resultado?.error) {
         toast.error(resultado.error);
         return;
+      }
+      if (resultado?.guardadoEl) {
+        cargadoElRef.current = resultado.guardadoEl;
       }
       setHayCambios(false);
       toast.success("Embudo guardado");
@@ -628,6 +641,8 @@ export function EmbudoDiagramaCanvas(props: {
   etapasIniciales: EtapaDelEmbudo[];
   /** Las etapas que este producto no recorre. */
   quitadasIniciales: string[];
+  /** Cuando se leyo esto del servidor, para no pisar un cambio mas nuevo al guardar. */
+  cargadoEl: string;
   perdidosEnEtapa: Record<string, { valor: number; pct: number } | undefined>;
   volverA: string;
 }) {

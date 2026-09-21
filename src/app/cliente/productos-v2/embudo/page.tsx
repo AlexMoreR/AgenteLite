@@ -108,6 +108,7 @@ export default async function EmbudoDiagramaPage({ searchParams }: PageProps) {
             })),
         }))}
         quitadasIniciales={quitadas}
+        cargadoEl={new Date().toISOString()}
         perdidosEnEtapa={perdidosEnEtapa}
         volverA={`/cliente/productos-v2?producto=${encodeURIComponent(product.id)}`}
       />

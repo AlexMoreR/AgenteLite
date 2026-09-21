@@ -98,6 +98,16 @@ export async function saveProductFunnelAction(input: {
     pantalla vieja que todavia muestra las cinco no borra lo que la otra configuro.
   */
   quitadas?: string[];
+  /*
+    Cuando la pantalla leyo el embudo (ISO).
+
+    Guardar REEMPLAZA los seguimientos con lo que la pantalla tiene cargado. El 21-sep-2026 eso
+    piso en silencio un cambio hecho por fuera: se habia pasado un "si no contesta" de 5 a 15
+    minutos, Alex apreto Guardar con la pantalla vieja abierta, y volvio a quedar en 5 sin que
+    nadie se enterara. Con esta marca, si algo cambio despues de esa lectura no se guarda y se
+    avisa. Ahora que Claude tambien escribe por el MCP, esto va a pasar seguido.
+  */
+  cargadoEl?: string;
   stages: Array<{
     stage: string;
     goal: string;
@@ -109,7 +119,7 @@ export async function saveProductFunnelAction(input: {
       cancelOnActivity?: boolean | null;
     }>;
   }>;
-}): Promise<{ ok?: true; error?: string }> {
+}): Promise<{ ok?: true; guardadoEl?: string; error?: string }> {
   const workspaceId = await getAccess();
   if (!workspaceId) {
     return { error: "No autorizado" };
@@ -127,6 +137,26 @@ export async function saveProductFunnelAction(input: {
 
   const conocidas = new Map(PRODUCT_FUNNEL_STAGES.map((etapa, indice) => [etapa.stage as string, indice]));
   const playbookId = await ensurePlaybook(workspaceId, productId);
+
+  const cargadoEl = input.cargadoEl ? new Date(input.cargadoEl) : null;
+  if (cargadoEl && !Number.isNaN(cargadoEl.getTime())) {
+    const [etapaNueva, seguimientoNuevo] = await Promise.all([
+      prisma.productFunnelStage.findFirst({
+        where: { playbookId, updatedAt: { gt: cargadoEl } },
+        select: { id: true },
+      }),
+      prisma.productStageFollowUp.findFirst({
+        where: { stage: { playbookId }, updatedAt: { gt: cargadoEl } },
+        select: { id: true },
+      }),
+    ]);
+    if (etapaNueva || seguimientoNuevo) {
+      return {
+        error:
+          "Este embudo cambió mientras lo tenías abierto. Recargá la pantalla para no pisar ese cambio.",
+      };
+    }
+  }
 
   /*
     Quitar una etapa borra su fila, y ademas queda anotada.
@@ -206,7 +236,8 @@ export async function saveProductFunnelAction(input: {
   }
 
   revalidatePath("/cliente/productos-v2");
-  return { ok: true };
+  // La hora del servidor: la pantalla se queda con esta marca para el proximo guardado.
+  return { ok: true, guardadoEl: new Date().toISOString() };
 }
 
 /**
