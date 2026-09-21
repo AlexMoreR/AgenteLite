@@ -57,7 +57,10 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "al instante y se puede deshacer con deshacer_cambio. Tambien se puede armar el diagrama del " +
           "agente: crear una condicion con sus palabras, una caja de flujo, y conectarlas. Antes de cambiar " +
           "algo, leer siempre lo que hay hoy (ver_embudo_del_producto, ver_textos_del_agente, " +
-          "ver_diagrama_del_agente) y decirle a la persona que se va a tocar.",
+          "ver_diagrama_del_agente) y decirle a la persona que se va a tocar. " +
+          "Aparte esta el AGENTE V3 (herramientas v3_*), que es el libro de reglas nuevo y todavia NO atiende " +
+          "clientes: se escribe y se prueba en el simulador. Si el libro esta vacio, llamar v3_empezar y hacer " +
+          "esas preguntas de a una; nunca inventar productos, precios ni textos del negocio.",
       });
     }
     case "ping":

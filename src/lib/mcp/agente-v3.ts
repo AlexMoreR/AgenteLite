@@ -109,6 +109,22 @@ export const HERRAMIENTAS_MCP_V3 = [
     annotations: SOLO_LECTURA,
   },
   {
+    name: "v3_empezar",
+    title: "Empezar el libro de reglas (V3)",
+    description:
+      "SE LLAMA PRIMERO cuando el libro esta vacio o casi. Devuelve las preguntas que hay que hacerle a la persona, en orden, ANTES de escribir ninguna regla. No inventar el negocio: preguntar, esperar la respuesta, y recien ahi escribir.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: SOLO_LECTURA,
+  },
+  {
+    name: "v3_que_falta",
+    title: "Que le falta al libro (V3)",
+    description:
+      "Mira el libro como esta hoy y dice que huecos tiene (sin saludo, un producto sin pasos, reglas que nunca se van a disparar) y que preguntar para taparlos.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: SOLO_LECTURA,
+  },
+  {
     name: "v3_escribir_como_hablamos",
     title: "Como habla el negocio (V3)",
     description:
@@ -255,6 +271,104 @@ export async function ejecutarHerramientaMcpV3(
           ? "El libro esta vacio. Se arma hablando: conta que hace el negocio y que deberia contestar el agente en cada caso."
           : undefined,
     };
+  }
+
+  /*
+    El arranque es PREGUNTANDO, no escribiendo.
+
+    Alex lo pidio asi (21-sep-2026) y ademas es lo unico honesto: un libro inventado se ve prolijo
+    y contesta cosas que el negocio nunca dijo. Las preguntas van en el orden en que se necesitan
+    para escribir la primera regla util, no en el orden de un formulario.
+  */
+  if (nombre === "v3_empezar") {
+    return {
+      como_trabajar:
+        "Preguntale UNA cosa por vez y espera la respuesta. Despues de cada respuesta, escribi la regla " +
+        "con v3_crear_regla y mostrale en palabras que quedo. No inventes productos, precios ni textos: si " +
+        "falta un dato, preguntalo. Si ya existe algo parecido en el V2, podes leerlo con ver_agente o " +
+        "listar_productos y proponerselo para confirmar, pero no lo des por hecho.",
+      preguntas: [
+        {
+          tema: "El negocio",
+          pregunta: "¿Qué vende el negocio y a quién? ¿Cómo querés que hable: de tú o de usted, corto o explicado?",
+          para: "v3_escribir_como_hablamos",
+        },
+        {
+          tema: "El saludo",
+          pregunta:
+            "Cuando escribe alguien por primera vez, ¿qué tiene que recibir? ¿Un saludo fijo, un catálogo, o que la IA salude a su manera?",
+          para: "Una regla con cuando.tipo=siempre y soloSi.esPrimerMensaje=true",
+        },
+        {
+          tema: "Qué vende",
+          pregunta:
+            "Nombrame los productos con los que trabaja el agente. Por cada uno: ¿cómo se da cuenta de que el cliente pregunta por ese, con qué palabras?",
+          para: "Reglas con cuando.tipo=frase (frases largas) y accion activar_producto",
+        },
+        {
+          tema: "El recorrido de la venta",
+          pregunta:
+            "Para el primer producto: ¿qué le pregunta primero, qué le cuenta después, y qué le manda cuando el cliente dice que sí?",
+          para: "Reglas con cuando.tipo=paso, una por paso del embudo",
+        },
+        {
+          tema: "Los envíos de material",
+          pregunta: "¿Qué catálogos, fotos o PDF tiene que mandar, y en qué momento exacto de la charla?",
+          para: "Acciones tipo flujo, con soloSi para que no se pisen entre ellas",
+        },
+        {
+          tema: "Cuándo entra una persona",
+          pregunta: "¿En qué casos tiene que dejar de contestar y avisarle a un asesor?",
+          para: "Reglas con accion avisar_asesor y pausar_ia",
+        },
+        {
+          tema: "Si no contesta",
+          pregunta: "Si el cliente se queda callado, ¿a los cuántos minutos le escribís de nuevo y qué le decís?",
+          para: "Reglas con cuando.tipo=sin_respuesta",
+        },
+      ],
+      despues:
+        "Con las primeras reglas escritas, corre v3_simular_conversacion sobre 2 o 3 charlas reales y mostrale la comparacion contra lo que contesto el V2. Ahi se ve si falta algo.",
+    };
+  }
+
+  if (nombre === "v3_que_falta") {
+    const huecos: Array<{ falta: string; preguntar: string }> = [];
+    if (!libro.comoHablamos.trim()) {
+      huecos.push({
+        falta: "No está escrito cómo habla el negocio.",
+        preguntar: "¿Qué vende, a quién, y cómo querés que hable: de tú o de usted, corto o explicado?",
+      });
+    }
+    if (!libro.reglas.some((regla) => regla.soloSi?.esPrimerMensaje === true)) {
+      huecos.push({
+        falta: "No hay nada para el primer mensaje: al cliente nuevo no lo recibe nadie.",
+        preguntar: "Cuando alguien escribe por primera vez, ¿qué tiene que recibir?",
+      });
+    }
+    const productos = new Set(
+      libro.reglas.flatMap((regla) =>
+        regla.entonces.filter((accion) => accion.tipo === "activar_producto").map((accion) => accion.productoId),
+      ),
+    );
+    for (const producto of productos) {
+      const pasos = libro.reglas.filter(
+        (regla) => regla.cuando.tipo === "paso" && regla.cuando.producto === producto,
+      );
+      if (pasos.length === 0) {
+        huecos.push({
+          falta: `El producto ${producto} se activa pero no tiene ningún paso escrito: nadie sabe qué decir después.`,
+          preguntar: `Para ${producto}: ¿qué le pregunta primero, qué le cuenta después, y qué le manda si dice que sí?`,
+        });
+      }
+    }
+    if (!libro.reglas.some((regla) => regla.entonces.some((accion) => accion.tipo === "avisar_asesor"))) {
+      huecos.push({
+        falta: "No hay ningún caso en el que entre una persona.",
+        preguntar: "¿En qué casos tiene que dejar de contestar y avisarle a un asesor?",
+      });
+    }
+    return { huecos, problemas: revisarLibro(libro), reglas: libro.reglas.length };
   }
 
   if (nombre === "v3_escribir_como_hablamos") {
