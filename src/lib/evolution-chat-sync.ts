@@ -6,6 +6,7 @@ import {
   listarChatsWaha,
   mensajesDeChatWaha,
 } from "@/lib/waha";
+import { desdeCuandoTraerHistorial } from "@/lib/historial-ventana";
 import { prisma } from "@/lib/prisma";
 import { fusionarChatDuplicado } from "@/lib/fusionar-chat-duplicado";
 import {
@@ -890,6 +891,8 @@ async function buildImportedEvolutionMessages(input: {
   // Cantidad de mensajes mas recientes a importar. null = todo el historial.
   // undefined = valor por defecto (IMPORT_RECENT_MESSAGE_LIMIT).
   limit?: number | null;
+  /** Cuantos dias hacia atras. Por defecto 15; el tope duro es 30. */
+  dias?: number | null;
   connection?: EvolutionConnection | null;
 }) {
   const limit = input.limit === undefined ? IMPORT_RECENT_MESSAGE_LIMIT : input.limit;
@@ -908,9 +911,24 @@ async function buildImportedEvolutionMessages(input: {
     { maxPages },
     input.connection,
   );
+  /*
+    Solo los ultimos dias.
+
+    Antes se traia "los N mensajes mas recientes", que es una cantidad y no un tiempo: en un chat
+    muy hablado eso eran tres dias, y en uno tranquilo, dos años. Alex lo definio por TIEMPO
+    (21-sep-2026): 15 dias por defecto, 30 como maximo. Asi el CRM se llena de lo que esta vivo y
+    no de charlas muertas.
+  */
+  const desde = desdeCuandoTraerHistorial(input.dias).getTime();
+  const enLaVentana = allRawMessages.filter((mensaje) => {
+    const cuando = extractMessageTimestamp(mensaje)?.getTime();
+    // Sin fecha no se puede decidir: se deja pasar y lo acota el limite de cantidad.
+    return cuando === undefined ? true : cuando >= desde;
+  });
+
   const rawMessages =
     limit && limit > 0
-      ? allRawMessages
+      ? enLaVentana
           .slice()
           .sort((left, right) => {
             const leftTime = extractMessageTimestamp(left)?.getTime() ?? 0;
@@ -918,7 +936,7 @@ async function buildImportedEvolutionMessages(input: {
             return rightTime - leftTime; // mas reciente primero
           })
           .slice(0, limit)
-      : allRawMessages;
+      : enLaVentana;
 
   const seenMessageSignatures = new Set<string>();
   const seenExternalIds = new Set<string>();
@@ -1632,6 +1650,8 @@ export async function applyEvolutionChatSyncCandidates(input: {
   channelId: string;
   candidates: EvolutionChatSyncCandidate[];
   importLimit?: number | null;
+  /** Cuantos dias de historial. Por defecto 15; el tope duro es 30. */
+  dias?: number | null;
 }): Promise<
   | { ok: true; chats: number; messages: number; failed: Array<{ phoneNumber: string; error: string }> }
   | { ok: false; error: string }
@@ -1668,6 +1688,7 @@ export async function applyEvolutionChatSyncCandidates(input: {
             },
             candidate,
             importLimit: input.importLimit,
+            dias: input.dias,
             historyChats,
             mediaBudget,
           })
@@ -1676,6 +1697,7 @@ export async function applyEvolutionChatSyncCandidates(input: {
             channelId: input.channelId,
             candidate,
             importLimit: input.importLimit,
+            dias: input.dias,
           });
 
       if (result.ok) {
@@ -1702,6 +1724,8 @@ export async function applyEvolutionChatSyncCandidate(input: {
   candidate: EvolutionChatSyncCandidate;
   // Cantidad de mensajes mas recientes a importar. null = todo el historial.
   importLimit?: number | null;
+  /** Cuantos dias de historial. Por defecto 15; el tope duro es 30. */
+  dias?: number | null;
   fusionarDuplicados?: boolean;
 }) {
   const candidate = input.candidate;
@@ -1761,6 +1785,7 @@ export async function applyEvolutionChatSyncCandidate(input: {
       remoteJid: candidate.remoteJid ?? buildCanonicalRemoteJid(candidate.remotePhoneNumber) ?? "",
       remoteJidAlt: candidate.remoteJidAlt,
       limit: input.importLimit,
+      dias: input.dias,
       connection,
     });
   } catch {
@@ -2684,6 +2709,8 @@ async function applyEvolutionGoHistoryCandidate(input: {
   channel: { id: string; agentId: string | null; evolutionInstanceName: string };
   candidate: EvolutionChatSyncCandidate;
   importLimit?: number | null;
+  /** Cuantos dias de historial. Por defecto 15; el tope duro es 30. */
+  dias?: number | null;
   // Historial ya leido (importar todos lo lee una vez para toda la tanda) y presupuesto de
   // adjuntos compartido. Sin ellos se lee aca y el tope es el de un solo chat.
   historyChats?: EvolutionGoHistoryChat[];
@@ -2701,7 +2728,19 @@ async function applyEvolutionGoHistoryCandidate(input: {
   }
 
   const limit = input.importLimit;
-  const selected = typeof limit === "number" && limit > 0 ? chat.messages.slice(-limit) : chat.messages;
+  /*
+    La misma ventana de dias que en el otro camino (15 por defecto, 30 como tope).
+
+    Va aca tambien y no solo en el de Evolution: estas lineas son las que usa Magilus hoy, asi que
+    si la ventana viviera en un solo lado, la regla se cumpliria a medias y nadie sabria cual chat
+    trajo que (21-sep-2026).
+  */
+  const desde = desdeCuandoTraerHistorial(input.dias).getTime();
+  const enLaVentana = chat.messages.filter((mensaje) => {
+    const cuando = extractMessageTimestamp(mensaje as UnknownRecord)?.getTime();
+    return cuando === undefined ? true : cuando >= desde;
+  });
+  const selected = typeof limit === "number" && limit > 0 ? enLaVentana.slice(-limit) : enLaVentana;
 
   const importedMessages = await buildEvolutionGoHistoryImportedMessages({
     instanceName: input.channel.evolutionInstanceName,
