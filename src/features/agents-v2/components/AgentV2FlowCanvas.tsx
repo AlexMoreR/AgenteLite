@@ -75,11 +75,7 @@ import { Switch } from "@/components/ui/switch";
 import { useSetBreadcrumbLabel } from "@/components/breadcrumb-label-context";
 import { saveAgentV2BusinessConfigAction } from "@/app/actions/agent-v2-actions";
 import { toast } from "sonner";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Dialog,
   DialogClose,
@@ -140,10 +136,7 @@ function BaseNodeHeader({ className, ...props }: ComponentProps<"div">) {
 function BaseNodeHeaderTitle({ className, ...props }: ComponentProps<"h4">) {
   return (
     <h4
-      className={cn(
-        "truncate text-[12px] font-medium leading-5 text-muted-foreground",
-        className,
-      )}
+      className={cn("truncate text-[12px] font-medium leading-5 text-muted-foreground", className)}
       {...props}
     />
   );
@@ -191,11 +184,7 @@ function TextareaExpandible({
       <textarea
         {...props}
         // pb extra solo en movil: sin eso el boton flotante tapa el ultimo renglon del texto.
-        className={cn(
-          className,
-          "max-sm:pb-10",
-          expandido && "max-sm:min-h-[55vh]",
-        )}
+        className={cn(className, "max-sm:pb-10", expandido && "max-sm:min-h-[55vh]")}
       />
       <button
         type="button"
@@ -204,11 +193,7 @@ function TextareaExpandible({
         title={expandido ? "Achicar" : "Expandir"}
         className="absolute right-2 bottom-2 inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background/95 text-muted-foreground shadow-sm backdrop-blur transition active:scale-95 sm:hidden"
       >
-        {expandido ? (
-          <Minimize2 className="h-4 w-4" />
-        ) : (
-          <Maximize2 className="h-4 w-4" />
-        )}
+        {expandido ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
       </button>
     </div>
   );
@@ -282,26 +267,14 @@ const EMPTY_BUSINESS: BusinessData = {
   youtube: "",
 };
 
-const BUSINESS_FIELDS: {
-  key: keyof BusinessData;
-  label: string;
-  placeholder: string;
-}[] = [
+const BUSINESS_FIELDS: { key: keyof BusinessData; label: string; placeholder: string }[] = [
   { key: "name", label: "Nombre del negocio", placeholder: "Ej. Magilus" },
   { key: "sector", label: "Sector / Rubro", placeholder: "Ej. Mobiliario" },
-  {
-    key: "location",
-    label: "Ubicacion / Direccion",
-    placeholder: "Ciudad, direccion",
-  },
+  { key: "location", label: "Ubicacion / Direccion", placeholder: "Ciudad, direccion" },
   { key: "website", label: "Sitio web", placeholder: "https://..." },
   { key: "phone", label: "Numero de contacto", placeholder: "+57..." },
   { key: "email", label: "Correo", placeholder: "correo@..." },
-  {
-    key: "instagram",
-    label: "Instagram",
-    placeholder: "https://instagram.com/...",
-  },
+  { key: "instagram", label: "Instagram", placeholder: "https://instagram.com/..." },
   { key: "facebook", label: "Facebook", placeholder: "@minegocio" },
   { key: "tiktok", label: "TikTok", placeholder: "https://tiktok.com/@..." },
   { key: "youtube", label: "YouTube", placeholder: "@minegocio" },
@@ -333,10 +306,7 @@ function BusinessDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="nodrag sm:max-w-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
+      <DialogContent className="nodrag sm:max-w-2xl" onClick={(event) => event.stopPropagation()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Rocket className="h-4 w-4 text-blue-600" />
@@ -346,9 +316,7 @@ function BusinessDialog({
 
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
           <div className="space-y-0.5">
-            <span className="text-sm font-medium text-foreground">
-              Activar datos del negocio
-            </span>
+            <span className="text-sm font-medium text-foreground">Activar datos del negocio</span>
             <p className="text-[11px] leading-4 text-muted-foreground">
               Comparte estos datos con la IA al iniciar la conversacion.
             </p>
@@ -364,16 +332,11 @@ function BusinessDialog({
           <div className="grid max-h-[55vh] grid-cols-2 gap-3 overflow-y-auto pr-1">
             {BUSINESS_FIELDS.map((field) => (
               <div key={field.key} className="space-y-1">
-                <label className="text-[11px] font-medium text-foreground">
-                  {field.label}
-                </label>
+                <label className="text-[11px] font-medium text-foreground">{field.label}</label>
                 <input
                   value={form[field.key]}
                   onChange={(event) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      [field.key]: event.target.value,
-                    }))
+                    setForm((prev) => ({ ...prev, [field.key]: event.target.value }))
                   }
                   placeholder={field.placeholder}
                   className="block w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
@@ -388,9 +351,7 @@ function BusinessDialog({
         )}
 
         <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>
-            Cancelar
-          </DialogClose>
+          <DialogClose render={<Button variant="outline" />}>Cancelar</DialogClose>
           <Button
             disabled={!enabled}
             onClick={() => {
@@ -469,9 +430,7 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
       <NodeActionsToolbar
         selected={selected}
         collapsed={collapsed}
-        onToggleCollapsed={() =>
-          nodeData.onChange?.(id, { collapsed: !collapsed })
-        }
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         onDelete={() => nodeData.onDelete?.(id)}
       />
       <Handle
@@ -498,19 +457,12 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
           <span className="absolute -bottom-1 -right-1 size-3 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-muted-foreground/60" />
         </NodeResizeControl>
       ) : null}
-      <BaseNode
-        className={cn(
-          "relative flex h-full w-full flex-col",
-          selected && SELECTED_NODE_CLASS,
-        )}
-      >
+      <BaseNode className={cn("relative flex h-full w-full flex-col", selected && SELECTED_NODE_CLASS)}>
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <MessageSquare className="h-4 w-4 text-sky-600" />
           </span>
-          <BaseNodeHeaderTitle className="truncate">
-            Bienvenida
-          </BaseNodeHeaderTitle>
+          <BaseNodeHeaderTitle className="truncate">Bienvenida</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         {!collapsed ? (
           <BaseNodeContent className="flex min-h-0 flex-1 flex-col overflow-auto">
@@ -535,9 +487,7 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
                 <textarea
                   autoFocus
                   value={texto}
-                  onChange={(evento) =>
-                    nodeData.onChange?.(id, { texto: evento.target.value })
-                  }
+                  onChange={(evento) => nodeData.onChange?.(id, { texto: evento.target.value })}
                   onBlur={() => setEditando(false)}
                   onKeyDown={(evento) => {
                     if (evento.key === "Escape") {
@@ -574,8 +524,7 @@ function BienvenidaNode({ id, data, selected }: NodeProps) {
                   ) : null}
                   {!nombreDelFlujo && !restoDelTexto ? (
                     <p className="text-[12px] leading-5 text-muted-foreground">
-                      El primer mensaje que recibe el cliente. Si lo dejas
-                      vacio, lo escribe la IA.
+                      El primer mensaje que recibe el cliente. Si lo dejas vacio, lo escribe la IA.
                     </p>
                   ) : null}
                 </div>
@@ -673,9 +622,7 @@ function IaNode({ id, data, selected }: NodeProps) {
       <NodeActionsToolbar
         selected={selected}
         collapsed={collapsed}
-        onToggleCollapsed={() =>
-          nodeData.onChange?.(id, { collapsed: !collapsed })
-        }
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         onDelete={() => nodeData.onDelete?.(id)}
       />
       <Handle
@@ -694,12 +641,7 @@ function IaNode({ id, data, selected }: NodeProps) {
           <span className="absolute -bottom-1 -right-1 size-3 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-muted-foreground/60" />
         </NodeResizeControl>
       ) : null}
-      <BaseNode
-        className={cn(
-          "relative flex h-full w-full flex-col",
-          selected && SELECTED_NODE_CLASS,
-        )}
-      >
+      <BaseNode className={cn("relative flex h-full w-full flex-col", selected && SELECTED_NODE_CLASS)}>
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <Sparkles className="h-4 w-4 text-violet-600" />
@@ -718,9 +660,7 @@ function IaNode({ id, data, selected }: NodeProps) {
                 <textarea
                   autoFocus
                   value={texto}
-                  onChange={(evento) =>
-                    nodeData.onChange?.(id, { texto: evento.target.value })
-                  }
+                  onChange={(evento) => nodeData.onChange?.(id, { texto: evento.target.value })}
                   onBlur={() => setEditando(false)}
                   onKeyDown={(evento) => {
                     if (evento.key === "Escape") {
@@ -750,8 +690,8 @@ function IaNode({ id, data, selected }: NodeProps) {
                   ) : null}
                   {!nombreDelFlujo && !restoDelTexto ? (
                     <p className="text-[12px] leading-5 text-muted-foreground">
-                      Una instruccion mas para el agente. Escribi Flujo: nombre
-                      para que pueda mandar ese flujo.
+                      Una instruccion mas para el agente. Escribi Flujo: nombre para que pueda mandar
+                      ese flujo.
                     </p>
                   ) : null}
                 </div>
@@ -807,9 +747,7 @@ function PreguntaNode({ id, data, selected }: NodeProps) {
       <NodeActionsToolbar
         selected={selected}
         collapsed={collapsed}
-        onToggleCollapsed={() =>
-          nodeData.onChange?.(id, { collapsed: !collapsed })
-        }
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         onDelete={() => nodeData.onDelete?.(id)}
       />
       <Handle
@@ -823,9 +761,7 @@ function PreguntaNode({ id, data, selected }: NodeProps) {
           <span className="inline-flex shrink-0 items-center justify-center">
             <HelpCircle className="h-4 w-4 text-teal-600" />
           </span>
-          <BaseNodeHeaderTitle className="truncate">
-            Pregunta
-          </BaseNodeHeaderTitle>
+          <BaseNodeHeaderTitle className="truncate">Pregunta</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         {!collapsed ? (
           <BaseNodeContent>
@@ -833,9 +769,7 @@ function PreguntaNode({ id, data, selected }: NodeProps) {
               className="nodrag min-h-[72px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-[12px] leading-5 text-foreground outline-none focus:border-[var(--primary)]"
               value={nodeData.texto ?? ""}
               placeholder="Que se le pregunta al cliente"
-              onChange={(evento) =>
-                nodeData.onChange?.(id, { texto: evento.target.value })
-              }
+              onChange={(evento) => nodeData.onChange?.(id, { texto: evento.target.value })}
             />
             <div
               className="nodrag relative mt-2 flex items-center gap-2 rounded-lg border border-teal-600 bg-teal-600 px-3 py-2"
@@ -843,9 +777,7 @@ function PreguntaNode({ id, data, selected }: NodeProps) {
             >
               <Reply className="h-4 w-4 shrink-0 text-white" />
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium text-white">
-                  La respuesta
-                </span>
+                <span className="block text-sm font-medium text-white">La respuesta</span>
                 <span className="block text-[10px] leading-3 text-white/80">
                   Enganchale un Texto o un Flujo
                 </span>
@@ -863,6 +795,7 @@ function PreguntaNode({ id, data, selected }: NodeProps) {
     </>
   );
 }
+
 
 type AgentData = {
   name: string;
@@ -894,12 +827,7 @@ function NodeActionsToolbar({
   deleteLabel?: string;
 }) {
   return (
-    <NodeToolbar
-      isVisible={selected}
-      position={Position.Top}
-      align="end"
-      offset={8}
-    >
+    <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
       <div className="flex items-center gap-1">
         {onToggleCollapsed ? (
           <button
@@ -909,16 +837,10 @@ function NodeActionsToolbar({
               onToggleCollapsed();
             }}
             className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
-            aria-label={
-              collapsed ? "Mostrar cuerpo del nodo" : "Ocultar cuerpo del nodo"
-            }
+            aria-label={collapsed ? "Mostrar cuerpo del nodo" : "Ocultar cuerpo del nodo"}
             title={collapsed ? "Mostrar cuerpo" : "Ocultar cuerpo"}
           >
-            {collapsed ? (
-              <Plus className="h-3.5 w-3.5" />
-            ) : (
-              <Minus className="h-3.5 w-3.5" />
-            )}
+            {collapsed ? <Plus className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
           </button>
         ) : null}
         {onDuplicate ? (
@@ -963,12 +885,7 @@ function EntradaNode({ id, data, selected }: NodeProps) {
   return (
     <>
       {isKeyword ? (
-        <NodeToolbar
-          isVisible={selected}
-          position={Position.Top}
-          align="end"
-          offset={8}
-        >
+        <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
           <div className="flex items-center gap-1">
             <button
               type="button"
@@ -977,18 +894,10 @@ function EntradaNode({ id, data, selected }: NodeProps) {
                 nodeData.onChange?.(id, { collapsed: !collapsed });
               }}
               className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
-              aria-label={
-                collapsed
-                  ? "Mostrar cuerpo del nodo"
-                  : "Ocultar cuerpo del nodo"
-              }
+              aria-label={collapsed ? "Mostrar cuerpo del nodo" : "Ocultar cuerpo del nodo"}
               title={collapsed ? "Mostrar cuerpo" : "Ocultar cuerpo"}
             >
-              {collapsed ? (
-                <Plus className="h-3.5 w-3.5" />
-              ) : (
-                <Minus className="h-3.5 w-3.5" />
-              )}
+              {collapsed ? <Plus className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
             </button>
             <button
               type="button"
@@ -1034,30 +943,22 @@ function EntradaNode({ id, data, selected }: NodeProps) {
             </p>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-foreground">
-                Palabras clave
-              </label>
+              <label className="text-xs font-medium text-foreground">Palabras clave</label>
               <input
                 value={nodeData.keywords}
                 onClick={(event) => event.stopPropagation()}
-                onChange={(event) =>
-                  nodeData.onChange?.(id, { keywords: event.target.value })
-                }
+                onChange={(event) => nodeData.onChange?.(id, { keywords: event.target.value })}
                 placeholder="oferta, promo, descuento"
                 className="nodrag block w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-amber-400 focus:ring-2 focus:ring-amber-100 dark:focus:ring-amber-950"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-foreground">
-                Mensaje de bienvenida
-              </label>
+              <label className="text-xs font-medium text-foreground">Mensaje de bienvenida</label>
               <textarea
                 value={nodeData.welcome}
                 onClick={(event) => event.stopPropagation()}
-                onChange={(event) =>
-                  nodeData.onChange?.(id, { welcome: event.target.value })
-                }
+                onChange={(event) => nodeData.onChange?.(id, { welcome: event.target.value })}
                 placeholder="¡Viste nuestra promo? Te cuento los detalles..."
                 className="nodrag nowheel block min-h-[64px] w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-amber-400 focus:ring-2 focus:ring-amber-100 dark:focus:ring-amber-950"
               />
@@ -1077,9 +978,7 @@ function EntradaNode({ id, data, selected }: NodeProps) {
           open={businessOpen}
           onOpenChange={setBusinessOpen}
           enabled={nodeData.useBusiness}
-          onToggle={(checked) =>
-            nodeData.onChange?.(id, { useBusiness: checked })
-          }
+          onToggle={(checked) => nodeData.onChange?.(id, { useBusiness: checked })}
           initial={nodeData.business ?? EMPTY_BUSINESS}
           onSubmit={(business) => nodeData.onSaveBusiness?.(business)}
         />
@@ -1094,14 +993,13 @@ function AgentNode({ id, data, selected }: NodeProps) {
   const collapsed = nodeData.collapsed ?? false;
   const promptPreview = nodeData.prompt?.trim() ?? "";
 
+
   return (
     <>
       <NodeActionsToolbar
         selected={selected}
         collapsed={collapsed}
-        onToggleCollapsed={() =>
-          nodeData.onChange?.(id, { collapsed: !collapsed })
-        }
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
       />
 
       <Handle
@@ -1111,10 +1009,7 @@ function AgentNode({ id, data, selected }: NodeProps) {
         className="!h-4 !w-4 !border-2 !border-white !bg-sky-600"
       />
       <BaseNode
-        className={cn(
-          "w-[320px] cursor-pointer transition-shadow",
-          selected && SELECTED_NODE_CLASS,
-        )}
+        className={cn("w-[320px] cursor-pointer transition-shadow", selected && SELECTED_NODE_CLASS)}
         onClick={() => setEditorOpen(true)}
       >
         <BaseNodeHeader className="items-center justify-start gap-2.5">
@@ -1124,54 +1019,45 @@ function AgentNode({ id, data, selected }: NodeProps) {
           <BaseNodeHeaderTitle className="truncate">Agente</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         {!collapsed ? (
-          <BaseNodeContent>
-            <div className="nodrag space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-foreground">
-                  Prompt principal
-                </p>
-                <p className="line-clamp-3 text-[11px] leading-4 text-muted-foreground">
-                  {promptPreview ||
-                    "Sin instruccion base. Pulsa Editar agente para definirla."}
-                </p>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium text-foreground">
-                Herramientas
+        <BaseNodeContent>
+          <div className="nodrag space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-foreground">Prompt principal</p>
+              <p className="line-clamp-3 text-[11px] leading-4 text-muted-foreground">
+                {promptPreview || "Sin instruccion base. Pulsa Editar agente para definirla."}
               </p>
-              <div
-                className="nodrag relative flex items-center gap-2 rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <ShoppingBag className="h-4 w-4 shrink-0 text-white" />
-                <span className="text-sm font-medium text-white">
-                  Consultar productos
-                </span>
-                <Handle
-                  id="tool-products"
-                  type="source"
-                  position={Position.Right}
-                  className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-emerald-600"
-                />
-              </div>
-              <div
-                className="nodrag relative flex items-center gap-2 rounded-lg border border-violet-600 bg-violet-600 px-3 py-2"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <Workflow className="h-4 w-4 shrink-0 text-white" />
-                <span className="text-sm font-medium text-white">
-                  Consultar flujos
-                </span>
-                <Handle
-                  id="tool-flows"
-                  type="source"
-                  position={Position.Right}
-                  className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-violet-600"
-                />
-              </div>
             </div>
-          </BaseNodeContent>
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-foreground">Herramientas</p>
+            <div
+              className="nodrag relative flex items-center gap-2 rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <ShoppingBag className="h-4 w-4 shrink-0 text-white" />
+              <span className="text-sm font-medium text-white">Consultar productos</span>
+              <Handle
+                id="tool-products"
+                type="source"
+                position={Position.Right}
+                className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-emerald-600"
+              />
+            </div>
+            <div
+              className="nodrag relative flex items-center gap-2 rounded-lg border border-violet-600 bg-violet-600 px-3 py-2"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Workflow className="h-4 w-4 shrink-0 text-white" />
+              <span className="text-sm font-medium text-white">Consultar flujos</span>
+              <Handle
+                id="tool-flows"
+                type="source"
+                position={Position.Right}
+                className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-violet-600"
+              />
+            </div>
+          </div>
+        </BaseNodeContent>
         ) : null}
         <Handle
           id="source"
@@ -1211,22 +1097,14 @@ function SalidaPegada({
   titulo: string;
 }) {
   const conectado =
-    useNodeConnections({ id: nodeId, handleType: "source", handleId }).length >
-    0;
+    useNodeConnections({ id: nodeId, handleType: "source", handleId }).length > 0;
 
   return (
     <div className="nodrag relative flex items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm">
-      <span
-        className={cn(
-          "inline-flex size-5 shrink-0 items-center justify-center",
-          color,
-        )}
-      >
+      <span className={cn("inline-flex size-5 shrink-0 items-center justify-center", color)}>
         {icono}
       </span>
-      <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
-        {titulo}
-      </span>
+      <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{titulo}</span>
       <Handle
         id={handleId}
         type="source"
@@ -1287,21 +1165,19 @@ function AgentEditorDialog({
               className="block min-h-[240px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-[1.35] text-foreground outline-none transition placeholder:text-muted-foreground focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:focus:ring-violet-950"
             />
             <p className="text-[11px] leading-4 text-muted-foreground">
-              Instruccion base de la IA. Desde aqui conectaras conocimiento,
-              productos y flujos.
+              Instruccion base de la IA. Desde aqui conectaras conocimiento, productos y flujos.
             </p>
           </div>
         </div>
 
         <DialogFooter className="shrink-0 border-t p-4">
-          <DialogClose render={<Button variant="outline" />}>
-            Cerrar
-          </DialogClose>
+          <DialogClose render={<Button variant="outline" />}>Cerrar</DialogClose>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
+
 
 type ProductoData = {
   onDuplicate?: (id: string) => void;
@@ -1314,12 +1190,7 @@ type ProductoData = {
   collapsed?: boolean;
   products?: AgentV2Product[];
   onChange?: (id: string, patch: NodeDataPatch) => void;
-  onUpdateMatch?: (
-    nodeId: string,
-    matchType: MatchType,
-    keywords: string[],
-    intent: string,
-  ) => void;
+  onUpdateMatch?: (nodeId: string, matchType: MatchType, keywords: string[], intent: string) => void;
   onDelete?: (id: string) => void;
 };
 
@@ -1339,9 +1210,7 @@ function ProductoNode({ id, data, selected }: NodeProps) {
   const products = nodeData.products ?? [];
   const [editorOpen, setEditorOpen] = useState(false);
   const collapsed = nodeData.collapsed ?? false;
-  const selectedProduct = products.find(
-    (product) => product.id === nodeData.productId,
-  );
+  const selectedProduct = products.find((product) => product.id === nodeData.productId);
 
   return (
     <>
@@ -1350,9 +1219,7 @@ function ProductoNode({ id, data, selected }: NodeProps) {
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
         collapsed={collapsed}
-        onToggleCollapsed={() =>
-          nodeData.onChange?.(id, { collapsed: !collapsed })
-        }
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         duplicateLabel="Duplicar producto"
         deleteLabel="Eliminar producto"
       />
@@ -1373,18 +1240,13 @@ function ProductoNode({ id, data, selected }: NodeProps) {
             setEditorOpen(true);
           }
         }}
-        className={cn(
-          "group w-[300px] cursor-pointer transition-shadow",
-          selected && SELECTED_NODE_CLASS,
-        )}
+        className={cn("group w-[300px] cursor-pointer transition-shadow", selected && SELECTED_NODE_CLASS)}
       >
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <ShoppingBag className="h-4 w-4 text-emerald-600" />
           </span>
-          <BaseNodeHeaderTitle className="truncate">
-            Producto
-          </BaseNodeHeaderTitle>
+          <BaseNodeHeaderTitle className="truncate">Producto</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         {!collapsed ? (
           <BaseNodeContent>
@@ -1393,9 +1255,7 @@ function ProductoNode({ id, data, selected }: NodeProps) {
                 <span className="truncate">{selectedProduct.name}</span>
               </span>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                Selecciona un producto
-              </p>
+              <p className="text-sm text-muted-foreground">Selecciona un producto</p>
             )}
           </BaseNodeContent>
         ) : null}
@@ -1431,10 +1291,7 @@ function ProductEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="nodrag sm:max-w-lg"
-        onClick={(event) => event.stopPropagation()}
-      >
+      <DialogContent className="nodrag sm:max-w-lg" onClick={(event) => event.stopPropagation()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShoppingBag className="h-4 w-4 text-emerald-600" />
@@ -1444,16 +1301,10 @@ function ProductEditorDialog({
 
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <Select
-              value={data.productId}
-              onValueChange={(value) => onChange({ productId: value ?? "" })}
-            >
+            <Select value={data.productId} onValueChange={(value) => onChange({ productId: value ?? "" })}>
               <SelectTrigger className="h-9 w-full text-sm">
                 <SelectValue placeholder="Selecciona un producto">
-                  {(value) =>
-                    products.find((product) => product.id === value)?.name ??
-                    "Selecciona un producto"
-                  }
+                  {(value) => products.find((product) => product.id === value)?.name ?? "Selecciona un producto"}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent
@@ -1462,16 +1313,10 @@ function ProductEditorDialog({
                 side="bottom"
               >
                 {products.length === 0 ? (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                    No hay productos creados
-                  </div>
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">No hay productos creados</div>
                 ) : (
                   products.map((product) => (
-                    <SelectItem
-                      key={product.id}
-                      value={product.id}
-                      className="text-sm"
-                    >
+                    <SelectItem key={product.id} value={product.id} className="text-sm">
                       {product.name}
                     </SelectItem>
                   ))
@@ -1480,9 +1325,9 @@ function ProductEditorDialog({
             </Select>
 
             {/*
-            El atajo al embudo va CHICO y al lado del producto, no como boton ancho debajo: es un
-            atajo, no la accion principal del dialogo, que es elegir el producto (Alex, 18-sep-2026).
-          */}
+              El atajo al embudo va CHICO y al lado del producto, no como boton ancho debajo: es un
+              atajo, no la accion del dialogo, que es elegir el producto (Alex, 18-sep-2026).
+            */}
             {data.productId ? (
               <Button
                 variant="outline"
@@ -1509,9 +1354,7 @@ function ProductEditorDialog({
         </div>
 
         <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>
-            Cerrar
-          </DialogClose>
+          <DialogClose render={<Button variant="outline" />}>Cerrar</DialogClose>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1532,11 +1375,7 @@ type FlujoData = {
 
 function getSelectedFlowIds(data: Pick<FlujoData, "flowId" | "flowIds">) {
   const ids = Array.isArray(data.flowIds) ? data.flowIds : [];
-  return Array.from(
-    new Set(
-      [...ids, data.flowId].map((value) => value?.trim()).filter(Boolean),
-    ),
-  );
+  return Array.from(new Set([...ids, data.flowId].map((value) => value?.trim()).filter(Boolean)));
 }
 
 function FlujoNode({ id, data, selected }: NodeProps) {
@@ -1548,10 +1387,7 @@ function FlujoNode({ id, data, selected }: NodeProps) {
     .filter((flow): flow is AgentV2Flow => Boolean(flow));
   const [editorOpen, setEditorOpen] = useState(false);
   const collapsed = nodeData.collapsed ?? false;
-  const esperas = Math.min(
-    Math.max(nodeData.esperas ?? 0, 0),
-    ESPERAS_SIN_RESPUESTA.length,
-  );
+  const esperas = Math.min(Math.max(nodeData.esperas ?? 0, 0), ESPERAS_SIN_RESPUESTA.length);
 
   return (
     <>
@@ -1560,9 +1396,7 @@ function FlujoNode({ id, data, selected }: NodeProps) {
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
         collapsed={collapsed}
-        onToggleCollapsed={() =>
-          nodeData.onChange?.(id, { collapsed: !collapsed })
-        }
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         duplicateLabel="Duplicar flujo"
         deleteLabel="Eliminar flujo"
       />
@@ -1583,10 +1417,7 @@ function FlujoNode({ id, data, selected }: NodeProps) {
             setEditorOpen(true);
           }
         }}
-        className={cn(
-          "group w-[300px] cursor-pointer transition-shadow",
-          selected && SELECTED_NODE_CLASS,
-        )}
+        className={cn("group w-[300px] cursor-pointer transition-shadow", selected && SELECTED_NODE_CLASS)}
       >
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
@@ -1595,24 +1426,22 @@ function FlujoNode({ id, data, selected }: NodeProps) {
           <BaseNodeHeaderTitle className="truncate">Flujo</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         {!collapsed ? (
-          <BaseNodeContent>
-            {selectedFlows.length > 0 ? (
-              <div className="flex flex-col gap-1.5">
-                {selectedFlows.map((flow) => (
-                  <span
-                    key={flow.id}
-                    className="inline-flex max-w-full self-start items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
-                  >
-                    <span className="truncate">{flow.name}</span>
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Selecciona uno o varios flujos
-              </p>
-            )}
-          </BaseNodeContent>
+        <BaseNodeContent>
+          {selectedFlows.length > 0 ? (
+            <div className="flex flex-col gap-1.5">
+              {selectedFlows.map((flow) => (
+                <span
+                  key={flow.id}
+                  className="inline-flex max-w-full self-start items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
+                >
+                  <span className="truncate">{flow.name}</span>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Selecciona uno o varios flujos</p>
+          )}
+        </BaseNodeContent>
         ) : null}
         <Handle
           id="source"
@@ -1700,9 +1529,7 @@ function FlujoEditorDialog({
   const rows = selectedFlowIds.length > 0 ? selectedFlowIds : [""];
 
   const commitFlowIds = (nextIds: string[]) => {
-    const cleanIds = Array.from(
-      new Set(nextIds.map((value) => value.trim()).filter(Boolean)),
-    );
+    const cleanIds = Array.from(new Set(nextIds.map((value) => value.trim()).filter(Boolean)));
     onChange({ flowId: cleanIds[0] ?? "", flowIds: cleanIds });
   };
 
@@ -1723,10 +1550,7 @@ function FlujoEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="nodrag sm:max-w-lg"
-        onClick={(event) => event.stopPropagation()}
-      >
+      <DialogContent className="nodrag sm:max-w-lg" onClick={(event) => event.stopPropagation()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Workflow className="h-4 w-4 text-indigo-600" />
@@ -1736,31 +1560,19 @@ function FlujoEditorDialog({
 
         <div className="space-y-4">
           <p className="text-sm leading-5 text-muted-foreground">
-            Configura uno o varios flujos para este nodo. El agente podra
-            ejecutarlos desde el mismo bloque.
+            Configura uno o varios flujos para este nodo. El agente podra ejecutarlos desde el mismo bloque.
           </p>
 
           <div className="space-y-2">
             {rows.map((flowId, index) => {
-              const unavailableIds = new Set(
-                rows.filter((_, rowIndex) => rowIndex !== index),
-              );
+              const unavailableIds = new Set(rows.filter((_, rowIndex) => rowIndex !== index));
 
               return (
-                <div
-                  key={`${flowId || "empty"}-${index}`}
-                  className="flex items-center gap-2"
-                >
-                  <Select
-                    value={flowId}
-                    onValueChange={(value) => changeFlowAt(index, value ?? "")}
-                  >
+                <div key={`${flowId || "empty"}-${index}`} className="flex items-center gap-2">
+                  <Select value={flowId} onValueChange={(value) => changeFlowAt(index, value ?? "")}>
                     <SelectTrigger className="h-9 min-w-0 flex-1 text-sm">
                       <SelectValue placeholder={`Flujo ${index + 1}`}>
-                        {(value) =>
-                          flows.find((flow) => flow.id === value)?.name ??
-                          `Flujo ${index + 1}`
-                        }
+                        {(value) => flows.find((flow) => flow.id === value)?.name ?? `Flujo ${index + 1}`}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent
@@ -1769,9 +1581,7 @@ function FlujoEditorDialog({
                       side="bottom"
                     >
                       {flows.length === 0 ? (
-                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                          No hay flujos creados
-                        </div>
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">No hay flujos creados</div>
                       ) : (
                         flows.map((flow) => (
                           <SelectItem
@@ -1806,9 +1616,7 @@ function FlujoEditorDialog({
             type="button"
             variant="outline"
             onClick={addFlowRow}
-            disabled={
-              flows.length === 0 || selectedFlowIds.length >= flows.length
-            }
+            disabled={flows.length === 0 || selectedFlowIds.length >= flows.length}
             className="w-full justify-center gap-2"
           >
             <Plus className="h-4 w-4" />
@@ -1817,9 +1625,7 @@ function FlujoEditorDialog({
         </div>
 
         <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>
-            Cerrar
-          </DialogClose>
+          <DialogClose render={<Button variant="outline" />}>Cerrar</DialogClose>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1847,9 +1653,7 @@ function SeguimientoNode({ id, data, selected }: NodeProps) {
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
         collapsed={collapsed}
-        onToggleCollapsed={() =>
-          nodeData.onChange?.(id, { collapsed: !collapsed })
-        }
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         duplicateLabel="Duplicar seguimiento"
         deleteLabel="Eliminar seguimiento"
       />
@@ -1860,65 +1664,45 @@ function SeguimientoNode({ id, data, selected }: NodeProps) {
         position={Position.Left}
         className="!h-4 !w-4 !border-2 !border-white !bg-rose-500"
       />
-      <BaseNode
-        className={cn(
-          "w-[300px] transition-shadow",
-          selected && SELECTED_NODE_CLASS,
-        )}
-      >
+      <BaseNode className={cn("w-[300px] transition-shadow", selected && SELECTED_NODE_CLASS)}>
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <Bell className="h-4 w-4 text-rose-500" />
           </span>
-          <BaseNodeHeaderTitle className="truncate">
-            Seguimiento
-          </BaseNodeHeaderTitle>
+          <BaseNodeHeaderTitle className="truncate">Seguimiento</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         {!collapsed ? (
-          <BaseNodeContent>
-            <div
-              className="nodrag space-y-1"
-              onClick={(event) => event.stopPropagation()}
+        <BaseNodeContent>
+          <div className="nodrag space-y-1" onClick={(event) => event.stopPropagation()}>
+            <Select
+              value={nodeData.ruleId}
+              onValueChange={(value) => nodeData.onChange?.(id, { ruleId: value ?? "" })}
             >
-              <Select
-                value={nodeData.ruleId}
-                onValueChange={(value) =>
-                  nodeData.onChange?.(id, { ruleId: value ?? "" })
-                }
+              <SelectTrigger className="h-9 w-full text-xs">
+                <SelectValue placeholder="Selecciona una regla">
+                  {(value) => followRules.find((r) => r.id === value)?.name ?? "Selecciona una regla"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent
+                className="w-auto min-w-(--anchor-width) max-w-[22rem] p-1"
+                alignItemWithTrigger={false}
+                side="bottom"
               >
-                <SelectTrigger className="h-9 w-full text-xs">
-                  <SelectValue placeholder="Selecciona una regla">
-                    {(value) =>
-                      followRules.find((r) => r.id === value)?.name ??
-                      "Selecciona una regla"
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent
-                  className="w-auto min-w-(--anchor-width) max-w-[22rem] p-1"
-                  alignItemWithTrigger={false}
-                  side="bottom"
-                >
-                  {followRules.length === 0 ? (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                      No hay reglas de seguimiento. Créalas en el módulo
-                      Seguimientos.
-                    </div>
-                  ) : (
-                    followRules.map((rule) => (
-                      <SelectItem
-                        key={rule.id}
-                        value={rule.id}
-                        className="text-xs"
-                      >
-                        {rule.name}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-          </BaseNodeContent>
+                {followRules.length === 0 ? (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    No hay reglas de seguimiento. Créalas en el módulo Seguimientos.
+                  </div>
+                ) : (
+                  followRules.map((rule) => (
+                    <SelectItem key={rule.id} value={rule.id} className="text-xs">
+                      {rule.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        </BaseNodeContent>
         ) : null}
       </BaseNode>
     </>
@@ -2043,106 +1827,86 @@ function RulePopover({
               Editar regla
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-foreground">
-              Tipo de coincidencia
-            </label>
-            <div className="flex gap-0.5 rounded-lg border border-border p-0.5">
-              {MATCH_OPTIONS.map((option) => {
-                const active = matchType === option;
-                return (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => setMatchType(option)}
-                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${
-                      active
-                        ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {MATCH_LABELS[option]}
-                  </button>
-                );
-              })}
-            </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-foreground">Tipo de coincidencia</label>
+          <div className="flex gap-0.5 rounded-lg border border-border p-0.5">
+            {MATCH_OPTIONS.map((option) => {
+              const active = matchType === option;
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setMatchType(option)}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${
+                    active
+                      ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {MATCH_LABELS[option]}
+                </button>
+              );
+            })}
           </div>
-          {matchType === "ia" ? (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground">
-                Intencion a detectar
-              </label>
-              <textarea
-                autoFocus
-                value={intent}
-                onChange={(event) => setIntent(event.target.value)}
-                placeholder="Ej. el cliente pregunta por precios o quiere comprar"
-                className="block min-h-[72px] w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-amber-400 focus:ring-2 focus:ring-amber-100 dark:focus:ring-amber-950"
-              />
-              <p className="text-[11px] leading-4 text-muted-foreground">
-                La IA decide si el mensaje coincide con esta intencion.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground">
-                Palabras o frases
-              </label>
-              <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-background p-2 focus-within:border-amber-400 focus-within:ring-2 focus-within:ring-amber-100 dark:focus-within:ring-amber-950">
-                {keywords.map((keyword) => (
-                  <span
-                    key={keyword}
-                    className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+        </div>
+        {matchType === "ia" ? (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground">Intencion a detectar</label>
+            <textarea
+              autoFocus
+              value={intent}
+              onChange={(event) => setIntent(event.target.value)}
+              placeholder="Ej. el cliente pregunta por precios o quiere comprar"
+              className="block min-h-[72px] w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-amber-400 focus:ring-2 focus:ring-amber-100 dark:focus:ring-amber-950"
+            />
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              La IA decide si el mensaje coincide con esta intencion.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground">Palabras o frases</label>
+            <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-background p-2 focus-within:border-amber-400 focus-within:ring-2 focus-within:ring-amber-100 dark:focus-within:ring-amber-950">
+              {keywords.map((keyword) => (
+                <span
+                  key={keyword}
+                  className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                >
+                  {keyword}
+                  <button
+                    type="button"
+                    onClick={() => setKeywords((current) => current.filter((item) => item !== keyword))}
+                    className="text-amber-700/70 transition hover:text-amber-900 dark:text-amber-300/70 dark:hover:text-amber-100"
+                    aria-label={`Quitar ${keyword}`}
                   >
-                    {keyword}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setKeywords((current) =>
-                          current.filter((item) => item !== keyword),
-                        )
-                      }
-                      className="text-amber-700/70 transition hover:text-amber-900 dark:text-amber-300/70 dark:hover:text-amber-100"
-                      aria-label={`Quitar ${keyword}`}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                ))}
-                <input
-                  autoFocus
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    // Solo Enter agrega la frase. La coma NO separa: así una frase con comas
-                    // (p.ej. "camilla, escalera, silla y auxiliar") queda como UNA sola keyword.
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      commitDraft();
-                    } else if (
-                      event.key === "Backspace" &&
-                      !draft &&
-                      keywords.length > 0
-                    ) {
-                      setKeywords((current) => current.slice(0, -1));
-                    }
-                  }}
-                  onBlur={commitDraft}
-                  placeholder={
-                    keywords.length
-                      ? "Agregar otra…"
-                      : "Escribe y presiona Enter"
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+              <input
+                autoFocus
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  // Solo Enter agrega la frase. La coma NO separa: así una frase con comas
+                  // (p.ej. "camilla, escalera, silla y auxiliar") queda como UNA sola keyword.
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitDraft();
+                  } else if (event.key === "Backspace" && !draft && keywords.length > 0) {
+                    setKeywords((current) => current.slice(0, -1));
                   }
-                  className="min-w-[90px] flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-                />
-              </div>
-              <p className="text-[11px] leading-4 text-muted-foreground">
-                Coincide si el mensaje contiene cualquiera de estas frases. Cada
-                frase es un chip; presiona Enter para agregar (podés usar comas
-                dentro de una frase).
-              </p>
+                }}
+                onBlur={commitDraft}
+                placeholder={keywords.length ? "Agregar otra…" : "Escribe y presiona Enter"}
+                className="min-w-[90px] flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+              />
             </div>
-          )}
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              Coincide si el mensaje contiene cualquiera de estas frases. Cada frase es un chip; presiona Enter para agregar (podés usar comas dentro de una frase).
+            </p>
+          </div>
+        )}
           <Button
             className="w-full"
             onClick={() => {
@@ -2161,11 +1925,7 @@ function RulePopover({
 function ConditionNode({ id, data, selected }: NodeProps) {
   const nodeData = data as ConditionData;
   const rules = nodeData.rules ?? [];
-  const elseConnections = useNodeConnections({
-    id,
-    handleType: "source",
-    handleId: "else",
-  });
+  const elseConnections = useNodeConnections({ id, handleType: "source", handleId: "else" });
   const elseConnected = elseConnections.length > 0;
   const [editorOpen, setEditorOpen] = useState(false);
   const collapsed = nodeData.collapsed ?? false;
@@ -2177,9 +1937,7 @@ function ConditionNode({ id, data, selected }: NodeProps) {
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
         collapsed={collapsed}
-        onToggleCollapsed={() =>
-          nodeData.onChange?.(id, { collapsed: !collapsed })
-        }
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         duplicateLabel="Duplicar condicion"
         deleteLabel="Eliminar condicion"
       />
@@ -2201,9 +1959,7 @@ function ConditionNode({ id, data, selected }: NodeProps) {
           <span className="inline-flex shrink-0 items-center justify-center">
             <Filter className="h-4 w-4 text-amber-600" />
           </span>
-          <BaseNodeHeaderTitle className="truncate">
-            Condicion
-          </BaseNodeHeaderTitle>
+          <BaseNodeHeaderTitle className="truncate">Condicion</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         {collapsed ? (
           <>
@@ -2221,59 +1977,55 @@ function ConditionNode({ id, data, selected }: NodeProps) {
               id="else"
               type="source"
               position={Position.Right}
-              style={{
-                top: `${((rules.length + 1) / (rules.length + 2)) * 100}%`,
-              }}
+              style={{ top: `${((rules.length + 1) / (rules.length + 2)) * 100}%` }}
               className="!-right-2 !h-4 !w-4 !border-2 !border-white !bg-slate-400"
             />
           </>
         ) : (
-          <BaseNodeContent className="space-y-2">
-            {rules.map((rule, index) => (
-              <div
-                key={rule.id}
-                className="relative rounded-xl border border-border bg-muted/30 px-3 py-2.5"
-              >
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {index === 0 ? "Si" : "O si"}
-                </span>
-                <p className="break-words text-sm text-foreground">
-                  <span>{MATCH_LABELS[rule.matchType]}</span>
-                  {" · "}
-                  {rule.matchType === "ia"
-                    ? rule.intent.trim()
-                      ? rule.intent
-                      : "sin intencion"
-                    : rule.keywords.length
-                      ? rule.keywords.join(", ")
-                      : "sin palabras"}
-                </p>
-                <Handle
-                  id={rule.id}
-                  type="source"
-                  position={Position.Right}
-                  className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-amber-500"
-                />
-              </div>
-            ))}
-
-            <div className="relative rounded-xl border border-border bg-muted/30 px-3 py-2.5">
-              <span className="text-sm text-foreground">
-                No (sin coincidencia)
+        <BaseNodeContent className="space-y-2">
+          {rules.map((rule, index) => (
+            <div
+              key={rule.id}
+              className="relative rounded-xl border border-border bg-muted/30 px-3 py-2.5"
+            >
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {index === 0 ? "Si" : "O si"}
               </span>
-              {!elseConnected ? (
-                <p className="text-[11px] leading-4 text-muted-foreground">
-                  Por defecto: responde la IA
-                </p>
-              ) : null}
+              <p className="break-words text-sm text-foreground">
+                <span>{MATCH_LABELS[rule.matchType]}</span>
+                {" · "}
+                {rule.matchType === "ia"
+                  ? rule.intent.trim()
+                    ? rule.intent
+                    : "sin intencion"
+                  : rule.keywords.length
+                    ? rule.keywords.join(", ")
+                    : "sin palabras"}
+              </p>
               <Handle
-                id="else"
+                id={rule.id}
                 type="source"
                 position={Position.Right}
-                className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-slate-400"
+                className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-amber-500"
               />
             </div>
-          </BaseNodeContent>
+          ))}
+
+          <div className="relative rounded-xl border border-border bg-muted/30 px-3 py-2.5">
+            <span className="text-sm text-foreground">No (sin coincidencia)</span>
+            {!elseConnected ? (
+              <p className="text-[11px] leading-4 text-muted-foreground">
+                Por defecto: responde la IA
+              </p>
+            ) : null}
+            <Handle
+              id="else"
+              type="source"
+              position={Position.Right}
+              className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-slate-400"
+            />
+          </div>
+        </BaseNodeContent>
         )}
       </BaseNode>
       <ConditionEditorDialog
@@ -2301,10 +2053,7 @@ function ConditionEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="nodrag sm:max-w-lg"
-        onClick={(event) => event.stopPropagation()}
-      >
+      <DialogContent className="nodrag sm:max-w-lg" onClick={(event) => event.stopPropagation()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-amber-600" />
@@ -2324,11 +2073,7 @@ function ConditionEditorDialog({
                 initialIntent={rule.intent}
                 submitLabel="Guardar"
                 onSubmit={(matchType, keywords, intent) =>
-                  data.onUpdateRule?.(id, rule.id, {
-                    matchType,
-                    keywords,
-                    intent,
-                  })
+                  data.onUpdateRule?.(id, rule.id, { matchType, keywords, intent })
                 }
                 trigger={
                   <button
@@ -2410,9 +2155,7 @@ function ConditionEditorDialog({
         </div>
 
         <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>
-            Cerrar
-          </DialogClose>
+          <DialogClose render={<Button variant="outline" />}>Cerrar</DialogClose>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -2447,9 +2190,7 @@ function TextNode({ id, data, selected }: NodeProps) {
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
         collapsed={collapsed}
-        onToggleCollapsed={() =>
-          nodeData.onChange?.(id, { collapsed: !collapsed })
-        }
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         duplicateLabel="Duplicar texto"
         deleteLabel="Eliminar texto"
       />
@@ -2460,12 +2201,7 @@ function TextNode({ id, data, selected }: NodeProps) {
         position={Position.Left}
         className="!h-4 !w-4 !border-2 !border-white !bg-sky-600"
       />
-      <BaseNode
-        className={cn(
-          "w-[320px] transition-shadow",
-          selected && SELECTED_NODE_CLASS,
-        )}
-      >
+      <BaseNode className={cn("w-[320px] transition-shadow", selected && SELECTED_NODE_CLASS)}>
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <MessageSquare className="h-4 w-4 text-sky-600" />
@@ -2481,30 +2217,23 @@ function TextNode({ id, data, selected }: NodeProps) {
               >
                 <HelpCircle className="h-3 w-3" />
               </TooltipTrigger>
-              <TooltipContent
-                side="top"
-                align="end"
-                className="max-w-xs text-left"
-              >
-                Usa exactamente este mensaje sin modificarlo ni agregar nada más
-                antes ni después:
+              <TooltipContent side="top" align="end" className="max-w-xs text-left">
+                Usa exactamente este mensaje sin modificarlo ni agregar nada más antes ni después:
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </BaseNodeHeader>
         {!collapsed ? (
-          <BaseNodeContent>
-            <textarea
-              ref={textareaRef}
-              value={nodeData.text}
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) =>
-                nodeData.onChange?.(id, { text: event.target.value })
-              }
-              placeholder="Escribe el mensaje a enviar..."
-              className="nodrag block min-h-[72px] w-full resize-none overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-sky-400 focus:ring-2 focus:ring-sky-100 dark:focus:ring-sky-950"
-            />
-          </BaseNodeContent>
+        <BaseNodeContent>
+          <textarea
+            ref={textareaRef}
+            value={nodeData.text}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => nodeData.onChange?.(id, { text: event.target.value })}
+            placeholder="Escribe el mensaje a enviar..."
+            className="nodrag block min-h-[72px] w-full resize-none overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-sky-400 focus:ring-2 focus:ring-sky-100 dark:focus:ring-sky-950"
+          />
+        </BaseNodeContent>
         ) : null}
         <Handle
           id="source"
@@ -2538,9 +2267,7 @@ function NotificarNode({ id, data, selected }: NodeProps) {
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
         collapsed={collapsed}
-        onToggleCollapsed={() =>
-          nodeData.onChange?.(id, { collapsed: !collapsed })
-        }
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         duplicateLabel="Duplicar notificar asesor"
         deleteLabel="Eliminar notificar asesor"
       />
@@ -2562,36 +2289,30 @@ function NotificarNode({ id, data, selected }: NodeProps) {
           <span className="inline-flex shrink-0 items-center justify-center">
             <Headset className="h-4 w-4 text-fuchsia-600" />
           </span>
-          <BaseNodeHeaderTitle className="truncate">
-            Notificar asesor
-          </BaseNodeHeaderTitle>
+          <BaseNodeHeaderTitle className="truncate">Notificar asesor</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         {!collapsed ? (
-          <BaseNodeContent>
-            <div className="space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-              <div className="space-y-0.5">
-                <p className="text-xs font-medium text-foreground">
-                  ¿Cuándo notificar?
-                </p>
-                <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-                  {nodeData.instruction?.trim() || "Sin condicion definida."}
-                </p>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Phone className="h-3.5 w-3.5 shrink-0 text-fuchsia-600" />
-                <span className="truncate text-xs text-muted-foreground">
-                  {(() => {
-                    const nums = (nodeData.phoneNumbers ?? [])
-                      .map((n) => n.trim())
-                      .filter(Boolean);
-                    if (nums.length === 0) return "Sin numero";
-                    if (nums.length === 1) return nums[0];
-                    return `${nums[0]} +${nums.length - 1} más`;
-                  })()}
-                </span>
-              </div>
+        <BaseNodeContent>
+          <div className="space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+            <div className="space-y-0.5">
+              <p className="text-xs font-medium text-foreground">¿Cuándo notificar?</p>
+              <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                {nodeData.instruction?.trim() || "Sin condicion definida."}
+              </p>
             </div>
-          </BaseNodeContent>
+            <div className="flex items-center gap-1.5">
+              <Phone className="h-3.5 w-3.5 shrink-0 text-fuchsia-600" />
+              <span className="truncate text-xs text-muted-foreground">
+                {(() => {
+                  const nums = (nodeData.phoneNumbers ?? []).map((n) => n.trim()).filter(Boolean);
+                  if (nums.length === 0) return "Sin numero";
+                  if (nums.length === 1) return nums[0];
+                  return `${nums[0]} +${nums.length - 1} más`;
+                })()}
+              </span>
+            </div>
+          </div>
+        </BaseNodeContent>
         ) : null}
       </BaseNode>
 
@@ -2618,10 +2339,7 @@ function NotificarEditorDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="nodrag sm:max-w-lg"
-        onClick={(event) => event.stopPropagation()}
-      >
+      <DialogContent className="nodrag sm:max-w-lg" onClick={(event) => event.stopPropagation()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Headset className="h-4 w-4 text-fuchsia-600" />
@@ -2631,37 +2349,25 @@ function NotificarEditorDialog({
 
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-foreground">
-              ¿Cuándo notificar?
-            </label>
+            <label className="text-xs font-medium text-foreground">¿Cuándo notificar?</label>
             <TextareaExpandible
               value={data.instruction}
-              onChange={(event) =>
-                onChange({ instruction: event.target.value })
-              }
+              onChange={(event) => onChange({ instruction: event.target.value })}
               placeholder="Ej: cuando el cliente pida hablar con un asesor o quiera cerrar la compra"
               className="block min-h-[96px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-100 dark:focus:ring-fuchsia-950"
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-foreground">
-              Números a notificar
-            </label>
+            <label className="text-xs font-medium text-foreground">Números a notificar</label>
             <div className="space-y-2">
-              {((data.phoneNumbers ?? []).length > 0
-                ? (data.phoneNumbers ?? [])
-                : [""]
-              ).map((num, index) => (
+              {((data.phoneNumbers ?? []).length > 0 ? (data.phoneNumbers ?? []) : [""]).map((num, index) => (
                 <div key={index} className="flex items-center gap-2">
                   <input
                     type="tel"
                     inputMode="numeric"
                     value={num}
                     onChange={(event) => {
-                      const base =
-                        (data.phoneNumbers ?? []).length > 0
-                          ? [...(data.phoneNumbers ?? [])]
-                          : [""];
+                      const base = (data.phoneNumbers ?? []).length > 0 ? [...(data.phoneNumbers ?? [])] : [""];
                       base[index] = event.target.value;
                       onChange({ phoneNumbers: base });
                     }}
@@ -2671,13 +2377,8 @@ function NotificarEditorDialog({
                   <button
                     type="button"
                     onClick={() => {
-                      const base =
-                        (data.phoneNumbers ?? []).length > 0
-                          ? [...(data.phoneNumbers ?? [])]
-                          : [""];
-                      onChange({
-                        phoneNumbers: base.filter((_, i) => i !== index),
-                      });
+                      const base = (data.phoneNumbers ?? []).length > 0 ? [...(data.phoneNumbers ?? [])] : [""];
+                      onChange({ phoneNumbers: base.filter((_, i) => i !== index) });
                     }}
                     className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground"
                     aria-label="Quitar número"
@@ -2690,25 +2391,20 @@ function NotificarEditorDialog({
             </div>
             <button
               type="button"
-              onClick={() =>
-                onChange({ phoneNumbers: [...(data.phoneNumbers ?? []), ""] })
-              }
+              onClick={() => onChange({ phoneNumbers: [...(data.phoneNumbers ?? []), ""] })}
               className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
             >
               <Plus className="h-3.5 w-3.5" />
               Agregar número
             </button>
             <p className="text-[11px] leading-4 text-muted-foreground">
-              Con código de país, sin + ni espacios. Se avisa a todos estos
-              números cuando se cumpla la condición.
+              Con código de país, sin + ni espacios. Se avisa a todos estos números cuando se cumpla la condición.
             </p>
           </div>
         </div>
 
         <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>
-            Cerrar
-          </DialogClose>
+          <DialogClose render={<Button variant="outline" />}>Cerrar</DialogClose>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -2825,15 +2521,10 @@ type StoredGraph = {
       Partial<SeguimientoData> &
       Partial<NotificarData>;
   }>;
-  edges: Array<
-    Pick<Edge, "id" | "source" | "target" | "sourceHandle" | "targetHandle">
-  >;
+  edges: Array<Pick<Edge, "id" | "source" | "target" | "sourceHandle" | "targetHandle">>;
 };
 
-function buildDefaultGraph(agentName: string): {
-  nodes: Node[];
-  edges: Edge[];
-} {
+function buildDefaultGraph(agentName: string): { nodes: Node[]; edges: Edge[] } {
   return {
     nodes: [
       {
@@ -2892,10 +2583,7 @@ function buildDefaultGraph(agentName: string): {
   };
 }
 
-function loadGraph(
-  initialGraph: unknown,
-  agentName: string,
-): { nodes: Node[]; edges: Edge[] } {
+function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; edges: Edge[] } {
   const parsed = initialGraph as StoredGraph | null;
   if (!parsed || !Array.isArray(parsed.nodes) || parsed.nodes.length === 0) {
     return buildDefaultGraph(agentName);
@@ -2909,123 +2597,101 @@ function loadGraph(
         Se devuelve el tamaño por los dos caminos: `style` -que es como nacen los nodos- y
         `width`/`height`, que es donde el lienzo lo espera al dibujar uno que ya viene medido.
       */
-      ...(typeof node.style?.width === "number"
-        ? { width: node.style.width }
-        : {}),
-      ...(typeof node.style?.height === "number"
-        ? { height: node.style.height }
-        : {}),
+      ...(typeof node.style?.width === "number" ? { width: node.style.width } : {}),
+      ...(typeof node.style?.height === "number" ? { height: node.style.height } : {}),
       ...(node.style?.width || node.style?.height ? { style: node.style } : {}),
       data:
         node.type === "bienvenida"
           ? ({
               texto: node.data.texto ?? "",
-              esperas:
-                typeof node.data.esperas === "number" ? node.data.esperas : 0,
+              esperas: typeof node.data.esperas === "number" ? node.data.esperas : 0,
               collapsed: node.data.collapsed === true,
             } satisfies BienvenidaData)
-          : node.type === "ia"
+          :
+        node.type === "ia"
+          ? ({
+              texto: node.data.texto ?? "",
+              collapsed: node.data.collapsed === true,
+            } satisfies IaData)
+          :
+        node.type === "agent"
+          ? ({
+              name: node.data.name ?? agentName,
+              welcome: node.data.welcome ?? "",
+              prompt: node.data.prompt ?? "",
+              fixedWelcome: node.data.fixedWelcome ?? false,
+              consultProducts: node.data.consultProducts ?? true,
+              consultFlows: node.data.consultFlows ?? true,
+              collapsed: node.data.collapsed === true,
+            } satisfies AgentData)
+          : node.type === "producto"
             ? ({
-                texto: node.data.texto ?? "",
+                productId: node.data.productId ?? "",
+                startOnMatch: node.data.startOnMatch ?? false,
+                matchType: (node.data.matchType as MatchType) ?? "contiene",
+                matchKeywords: normalizeKeywords(node.data.matchKeywords),
+                intent: node.data.intent ?? "",
+                useFunnel: node.data.useFunnel ?? false,
                 collapsed: node.data.collapsed === true,
-              } satisfies IaData)
-            : node.type === "agent"
+              } satisfies ProductoData)
+            : node.type === "condicion"
               ? ({
-                  name: node.data.name ?? agentName,
-                  welcome: node.data.welcome ?? "",
-                  prompt: node.data.prompt ?? "",
-                  fixedWelcome: node.data.fixedWelcome ?? false,
-                  consultProducts: node.data.consultProducts ?? true,
-                  consultFlows: node.data.consultFlows ?? true,
+                  rules:
+                    Array.isArray(node.data.rules) && node.data.rules.length > 0
+                      ? node.data.rules.map((rule, ruleIndex) => ({
+                          id: rule.id ?? `${node.id}-r${ruleIndex}`,
+                          matchType: (rule.matchType as MatchType) ?? "contiene",
+                          keywords: normalizeKeywords(rule.keywords),
+                          intent: rule.intent ?? "",
+                        }))
+                      : [
+                          {
+                            id: `${node.id}-r0`,
+                            matchType: "contiene" as MatchType,
+                            keywords: [],
+                            intent: "",
+                          },
+                        ],
                   collapsed: node.data.collapsed === true,
-                } satisfies AgentData)
-              : node.type === "producto"
+                } satisfies ConditionData)
+              : node.type === "texto"
                 ? ({
-                    productId: node.data.productId ?? "",
-                    startOnMatch: node.data.startOnMatch ?? false,
-                    matchType: (node.data.matchType as MatchType) ?? "contiene",
-                    matchKeywords: normalizeKeywords(node.data.matchKeywords),
-                    intent: node.data.intent ?? "",
-                    useFunnel: node.data.useFunnel ?? false,
+                    text: node.data.text ?? "",
                     collapsed: node.data.collapsed === true,
-                  } satisfies ProductoData)
-                : node.type === "condicion"
+                  } satisfies TextData)
+                : node.type === "flujo"
                   ? ({
-                      rules:
-                        Array.isArray(node.data.rules) &&
-                        node.data.rules.length > 0
-                          ? node.data.rules.map((rule, ruleIndex) => ({
-                              id: rule.id ?? `${node.id}-r${ruleIndex}`,
-                              matchType:
-                                (rule.matchType as MatchType) ?? "contiene",
-                              keywords: normalizeKeywords(rule.keywords),
-                              intent: rule.intent ?? "",
-                            }))
-                          : [
-                              {
-                                id: `${node.id}-r0`,
-                                matchType: "contiene" as MatchType,
-                                keywords: [],
-                                intent: "",
-                              },
-                            ],
+                      flowId: node.data.flowId ?? "",
+                      flowIds: Array.isArray(node.data.flowIds)
+                        ? node.data.flowIds.filter((value): value is string => typeof value === "string")
+                        : node.data.flowId
+                          ? [node.data.flowId]
+                          : [],
+                      esperas: typeof node.data.esperas === "number" ? node.data.esperas : 0,
                       collapsed: node.data.collapsed === true,
-                    } satisfies ConditionData)
-                  : node.type === "texto"
+                    } satisfies FlujoData)
+                  : node.type === "seguimiento"
                     ? ({
-                        text: node.data.text ?? "",
+                        ruleId: node.data.ruleId ?? "",
                         collapsed: node.data.collapsed === true,
-                      } satisfies TextData)
-                    : node.type === "flujo"
+                      } satisfies SeguimientoData)
+                    : node.type === "notificar"
                       ? ({
-                          flowId: node.data.flowId ?? "",
-                          flowIds: Array.isArray(node.data.flowIds)
-                            ? node.data.flowIds.filter(
-                                (value): value is string =>
-                                  typeof value === "string",
-                              )
-                            : node.data.flowId
-                              ? [node.data.flowId]
+                          instruction: node.data.instruction ?? "",
+                          phoneNumbers: Array.isArray(node.data.phoneNumbers)
+                            ? node.data.phoneNumbers.filter((value): value is string => typeof value === "string")
+                            : typeof (node.data as { phoneNumber?: unknown }).phoneNumber === "string"
+                              ? [(node.data as { phoneNumber: string }).phoneNumber]
                               : [],
-                          esperas:
-                            typeof node.data.esperas === "number"
-                              ? node.data.esperas
-                              : 0,
                           collapsed: node.data.collapsed === true,
-                        } satisfies FlujoData)
-                      : node.type === "seguimiento"
-                        ? ({
-                            ruleId: node.data.ruleId ?? "",
-                            collapsed: node.data.collapsed === true,
-                          } satisfies SeguimientoData)
-                        : node.type === "notificar"
-                          ? ({
-                              instruction: node.data.instruction ?? "",
-                              phoneNumbers: Array.isArray(
-                                node.data.phoneNumbers,
-                              )
-                                ? node.data.phoneNumbers.filter(
-                                    (value): value is string =>
-                                      typeof value === "string",
-                                  )
-                                : typeof (
-                                      node.data as { phoneNumber?: unknown }
-                                    ).phoneNumber === "string"
-                                  ? [
-                                      (node.data as { phoneNumber: string })
-                                        .phoneNumber,
-                                    ]
-                                  : [],
-                              collapsed: node.data.collapsed === true,
-                            } satisfies NotificarData)
-                          : ({
-                              kind:
-                                (node.data.kind as EntradaKind) ?? "general",
-                              welcome: node.data.welcome ?? "",
-                              keywords: node.data.keywords ?? "",
-                              useBusiness: node.data.useBusiness ?? false,
-                              collapsed: node.data.collapsed === true,
-                            } satisfies EntradaData),
+                        } satisfies NotificarData)
+                      : ({
+                      kind: (node.data.kind as EntradaKind) ?? "general",
+                      welcome: node.data.welcome ?? "",
+                      keywords: node.data.keywords ?? "",
+                      useBusiness: node.data.useBusiness ?? false,
+                      collapsed: node.data.collapsed === true,
+                    } satisfies EntradaData),
       deletable: node.type === "agent" ? false : node.id !== "entry-general",
     }));
     const edges: Edge[] = parsed.edges.map((edge) => ({
@@ -3105,10 +2771,8 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
         Se toma primero lo que dejo el usuario y despues lo de fabrica.
       */
       ...(() => {
-        const ancho =
-          typeof node.width === "number" ? node.width : node.style?.width;
-        const alto =
-          typeof node.height === "number" ? node.height : node.style?.height;
+        const ancho = typeof node.width === "number" ? node.width : node.style?.width;
+        const alto = typeof node.height === "number" ? node.height : node.style?.height;
         return typeof ancho === "number" || typeof alto === "number"
           ? {
               style: {
@@ -3125,74 +2789,68 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
               texto: (node.data as BienvenidaData).texto,
               collapsed: (node.data as BienvenidaData).collapsed === true,
             }
-          : node.type === "ia"
+          :
+        node.type === "ia"
+          ? {
+              texto: (node.data as IaData).texto,
+              collapsed: (node.data as IaData).collapsed === true,
+            }
+          :
+        node.type === "agent"
+          ? {
+              name: (node.data as AgentData).name,
+              welcome: (node.data as AgentData).welcome,
+              prompt: (node.data as AgentData).prompt,
+              fixedWelcome: (node.data as AgentData).fixedWelcome,
+              consultProducts: (node.data as AgentData).consultProducts,
+              consultFlows: (node.data as AgentData).consultFlows,
+              collapsed: (node.data as AgentData).collapsed === true,
+            }
+          : node.type === "producto"
             ? {
-                texto: (node.data as IaData).texto,
-                collapsed: (node.data as IaData).collapsed === true,
+                productId: (node.data as ProductoData).productId,
+                startOnMatch: (node.data as ProductoData).startOnMatch,
+                matchType: (node.data as ProductoData).matchType,
+                matchKeywords: (node.data as ProductoData).matchKeywords,
+                intent: (node.data as ProductoData).intent,
+                useFunnel: (node.data as ProductoData).useFunnel,
+                collapsed: (node.data as ProductoData).collapsed === true,
               }
-            : node.type === "agent"
+            : node.type === "condicion"
               ? {
-                  name: (node.data as AgentData).name,
-                  welcome: (node.data as AgentData).welcome,
-                  prompt: (node.data as AgentData).prompt,
-                  fixedWelcome: (node.data as AgentData).fixedWelcome,
-                  consultProducts: (node.data as AgentData).consultProducts,
-                  consultFlows: (node.data as AgentData).consultFlows,
-                  collapsed: (node.data as AgentData).collapsed === true,
+                  rules: (node.data as ConditionData).rules,
+                  collapsed: (node.data as ConditionData).collapsed === true,
                 }
-              : node.type === "producto"
+              : node.type === "texto"
                 ? {
-                    productId: (node.data as ProductoData).productId,
-                    startOnMatch: (node.data as ProductoData).startOnMatch,
-                    matchType: (node.data as ProductoData).matchType,
-                    matchKeywords: (node.data as ProductoData).matchKeywords,
-                    intent: (node.data as ProductoData).intent,
-                    useFunnel: (node.data as ProductoData).useFunnel,
-                    collapsed: (node.data as ProductoData).collapsed === true,
+                    text: (node.data as TextData).text,
+                    collapsed: (node.data as TextData).collapsed === true,
                   }
-                : node.type === "condicion"
+                : node.type === "flujo"
                   ? {
-                      rules: (node.data as ConditionData).rules,
-                      collapsed:
-                        (node.data as ConditionData).collapsed === true,
+                      flowId: (node.data as FlujoData).flowId,
+                      flowIds: getSelectedFlowIds(node.data as FlujoData),
+                      esperas: (node.data as FlujoData).esperas ?? 0,
+                      collapsed: (node.data as FlujoData).collapsed === true,
                     }
-                  : node.type === "texto"
+                  : node.type === "seguimiento"
                     ? {
-                        text: (node.data as TextData).text,
-                        collapsed: (node.data as TextData).collapsed === true,
+                        ruleId: (node.data as SeguimientoData).ruleId,
+                        collapsed: (node.data as SeguimientoData).collapsed === true,
                       }
-                    : node.type === "flujo"
+                    : node.type === "notificar"
                       ? {
-                          flowId: (node.data as FlujoData).flowId,
-                          flowIds: getSelectedFlowIds(node.data as FlujoData),
-                          esperas: (node.data as FlujoData).esperas ?? 0,
-                          collapsed:
-                            (node.data as FlujoData).collapsed === true,
+                          instruction: (node.data as NotificarData).instruction,
+                          phoneNumbers: (node.data as NotificarData).phoneNumbers,
+                          collapsed: (node.data as NotificarData).collapsed === true,
                         }
-                      : node.type === "seguimiento"
-                        ? {
-                            ruleId: (node.data as SeguimientoData).ruleId,
-                            collapsed:
-                              (node.data as SeguimientoData).collapsed === true,
-                          }
-                        : node.type === "notificar"
-                          ? {
-                              instruction: (node.data as NotificarData)
-                                .instruction,
-                              phoneNumbers: (node.data as NotificarData)
-                                .phoneNumbers,
-                              collapsed:
-                                (node.data as NotificarData).collapsed === true,
-                            }
-                          : {
-                              kind: (node.data as EntradaData).kind,
-                              welcome: (node.data as EntradaData).welcome,
-                              keywords: (node.data as EntradaData).keywords,
-                              useBusiness: (node.data as EntradaData)
-                                .useBusiness,
-                              collapsed:
-                                (node.data as EntradaData).collapsed === true,
-                            },
+                      : {
+                        kind: (node.data as EntradaData).kind,
+                        welcome: (node.data as EntradaData).welcome,
+                        keywords: (node.data as EntradaData).keywords,
+                        useBusiness: (node.data as EntradaData).useBusiness,
+                        collapsed: (node.data as EntradaData).collapsed === true,
+                      },
     })),
     edges: edges.map((edge) => ({
       id: edge.id,
@@ -3229,31 +2887,18 @@ function FlowCanvasInner({
   onPublish,
   onBack,
 }: AgentV2FlowCanvasProps) {
-  const initial = useMemo(
-    () => loadGraph(initialGraph, agentName),
-    [initialGraph, agentName],
-  );
+  const initial = useMemo(() => loadGraph(initialGraph, agentName), [initialGraph, agentName]);
   // Muestra el nombre del agente en el breadcrumb (donde dice "Agente V2") mientras se edita.
   useSetBreadcrumbLabel(agentName);
   const [isPublishing, startPublish] = useTransition();
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
-  const productCount = useRef(
-    initial.nodes.filter((node) => node.type === "producto").length,
-  );
-  const conditionCount = useRef(
-    initial.nodes.filter((node) => node.type === "condicion").length,
-  );
-  const textCount = useRef(
-    initial.nodes.filter((node) => node.type === "texto").length,
-  );
-  const flujoCount = useRef(
-    initial.nodes.filter((node) => node.type === "flujo").length,
-  );
-  const seguimientoCount = useRef(
-    initial.nodes.filter((node) => node.type === "seguimiento").length,
-  );
+  const productCount = useRef(initial.nodes.filter((node) => node.type === "producto").length);
+  const conditionCount = useRef(initial.nodes.filter((node) => node.type === "condicion").length);
+  const textCount = useRef(initial.nodes.filter((node) => node.type === "texto").length);
+  const flujoCount = useRef(initial.nodes.filter((node) => node.type === "flujo").length);
+  const seguimientoCount = useRef(initial.nodes.filter((node) => node.type === "seguimiento").length);
 
   // Posiciona los nodos nuevos en el centro del viewport actual (no en coordenadas
   // fijas lejanas), con un pequeño escalonado para que no se apilen exactamente.
@@ -3297,9 +2942,7 @@ function FlowCanvasInner({
   const deleteEntrada = useCallback(
     (id: string) => {
       setNodes((current) => current.filter((node) => node.id !== id));
-      setEdges((current) =>
-        current.filter((edge) => edge.source !== id && edge.target !== id),
-      );
+      setEdges((current) => current.filter((edge) => edge.source !== id && edge.target !== id));
     },
     [setNodes, setEdges],
   );
@@ -3328,9 +2971,7 @@ function FlowCanvasInner({
           selected: true,
         };
         return [
-          ...current.map((node) =>
-            node.selected ? { ...node, selected: false } : node,
-          ),
+          ...current.map((node) => (node.selected ? { ...node, selected: false } : node)),
           newNode,
         ];
       });
@@ -3349,24 +2990,11 @@ function FlowCanvasInner({
   }, []);
 
   const updateProductMatch = useCallback(
-    (
-      nodeId: string,
-      matchType: MatchType,
-      keywords: string[],
-      intent: string,
-    ) => {
+    (nodeId: string, matchType: MatchType, keywords: string[], intent: string) => {
       setNodes((current) =>
         current.map((node) =>
           node.id === nodeId
-            ? {
-                ...node,
-                data: {
-                  ...node.data,
-                  matchType,
-                  matchKeywords: keywords,
-                  intent,
-                },
-              }
+            ? { ...node, data: { ...node.data, matchType, matchKeywords: keywords, intent } }
             : node,
         ),
       );
@@ -3375,20 +3003,14 @@ function FlowCanvasInner({
   );
 
   const addRule = useCallback(
-    (
-      nodeId: string,
-      rule: { matchType: MatchType; keywords: string[]; intent: string },
-    ) => {
+    (nodeId: string, rule: { matchType: MatchType; keywords: string[]; intent: string }) => {
       setNodes((current) =>
         current.map((node) => {
           if (node.id !== nodeId) {
             return node;
           }
           const data = node.data as ConditionData;
-          const rules = [
-            ...(data.rules ?? []),
-            { id: crypto.randomUUID(), ...rule },
-          ];
+          const rules = [...(data.rules ?? []), { id: crypto.randomUUID(), ...rule }];
           return { ...node, data: { ...node.data, rules } };
         }),
       );
@@ -3399,11 +3021,7 @@ function FlowCanvasInner({
   );
 
   const updateRule = useCallback(
-    (
-      nodeId: string,
-      ruleId: string,
-      patch: Partial<Pick<ConditionRule, "matchType" | "keywords" | "intent">>,
-    ) => {
+    (nodeId: string, ruleId: string, patch: Partial<Pick<ConditionRule, "matchType" | "keywords" | "intent">>) => {
       setNodes((current) =>
         current.map((node) => {
           if (node.id !== nodeId) {
@@ -3433,9 +3051,7 @@ function FlowCanvasInner({
         }),
       );
       setEdges((current) =>
-        current.filter(
-          (edge) => !(edge.source === nodeId && edge.sourceHandle === ruleId),
-        ),
+        current.filter((edge) => !(edge.source === nodeId && edge.sourceHandle === ruleId)),
       );
       // Al sacar una fila, las de abajo suben: sus conectores quedan en otro lado.
       updateNodeInternals(nodeId);
@@ -3550,11 +3166,7 @@ function FlowCanvasInner({
           Es el mismo lugar que hay que tocar al agregar cualquier nodo nuevo, y es facil de pasar
           por alto porque no rompe la compilacion: falla en silencio, en la cara de quien lo usa.
         */
-        if (
-          node.type === "bienvenida" ||
-          node.type === "ia" ||
-          node.type === "pregunta"
-        ) {
+        if (node.type === "bienvenida" || node.type === "ia" || node.type === "pregunta") {
           return {
             ...node,
             data: {
@@ -3636,11 +3248,7 @@ function FlowCanvasInner({
     (connection: Connection) => {
       setEdges((current) =>
         addEdge(
-          {
-            ...connection,
-            type: "agentEdge",
-            markerEnd: { type: MarkerType.ArrowClosed },
-          },
+          { ...connection, type: "agentEdge", markerEnd: { type: MarkerType.ArrowClosed } },
           current,
         ),
       );
@@ -3688,14 +3296,7 @@ function FlowCanvasInner({
       type: "condicion",
       position: getSpawnPosition(),
       data: {
-        rules: [
-          {
-            id: `${newId}-r0`,
-            matchType: "contiene",
-            keywords: [],
-            intent: "",
-          },
-        ],
+        rules: [{ id: `${newId}-r0`, matchType: "contiene", keywords: [], intent: "" }],
       } satisfies ConditionData,
     };
     setNodes((current) => [...current, newNode]);
@@ -3826,13 +3427,7 @@ function FlowCanvasInner({
     const porId = new Map(nodes.map((node) => [node.id, node] as const));
     const nodoAgente = nodes.find((node) => node.type === "agent");
     // Los que el compilador sabe traducir cuando una Condicion apunta hacia ellos.
-    const DESTINOS_QUE_SE_EJECUTAN = new Set([
-      "texto",
-      "flujo",
-      "condicion",
-      "producto",
-      "notificar",
-    ]);
+    const DESTINOS_QUE_SE_EJECUTAN = new Set(["texto", "flujo", "condicion", "producto", "notificar"]);
     const nombreDeTipo: Record<string, string> = {
       seguimiento: "Seguimiento",
       agent: "Agente",
@@ -3855,12 +3450,8 @@ function FlowCanvasInner({
 
     for (const node of nodes) {
       if (node.type === "notificar") {
-        const numeros = Array.isArray(
-          (node.data as NotificarData | undefined)?.phoneNumbers,
-        )
-          ? ((node.data as NotificarData).phoneNumbers ?? []).filter((valor) =>
-              String(valor).trim(),
-            )
+        const numeros = Array.isArray((node.data as NotificarData | undefined)?.phoneNumbers)
+          ? ((node.data as NotificarData).phoneNumbers ?? []).filter((valor) => String(valor).trim())
           : [];
         if (numeros.length === 0) {
           lista.push(
@@ -3874,8 +3465,7 @@ function FlowCanvasInner({
         const loConoceLaIA = edges.some(
           (edge) =>
             edge.target === node.id &&
-            (edge.source === nodoAgente?.id ||
-              porId.get(edge.source)?.type === "condicion"),
+            (edge.source === nodoAgente?.id || porId.get(edge.source)?.type === "condicion"),
         );
         if (!loConoceLaIA) {
           lista.push(
@@ -3889,9 +3479,7 @@ function FlowCanvasInner({
     // El interruptor "Consultar flujos" del Agente le quita la herramienta: con el apagado,
     // cualquier rama que mande ejecutar un flujo es letra muerta.
     const hayFlujos = nodes.some((node) => node.type === "flujo");
-    const consultaFlujos =
-      (nodoAgente?.data as { consultFlows?: boolean } | undefined)
-        ?.consultFlows !== false;
+    const consultaFlujos = (nodoAgente?.data as { consultFlows?: boolean } | undefined)?.consultFlows !== false;
     if (hayFlujos && !consultaFlujos) {
       lista.push(
         "El Agente tiene apagado «Consultar flujos»: no va a poder ejecutar ningún flujo, aunque " +
@@ -3913,9 +3501,7 @@ function FlowCanvasInner({
   // Flow al montar disparaba un autosave que, en una pestaña con datos viejos,
   // sobrescribía en la BD cambios hechos desde otro dispositivo (así se
   // perdían prompts editados en el celular).
-  const lastSavedGraphRef = useRef<string>(
-    JSON.stringify(serializeGraph(initial.nodes, initial.edges)),
-  );
+  const lastSavedGraphRef = useRef<string>(JSON.stringify(serializeGraph(initial.nodes, initial.edges)));
 
   // Persistencia en BD (debounced), solo ante cambios reales de contenido.
   useEffect(() => {
@@ -3973,10 +3559,7 @@ function FlowCanvasInner({
 
   return (
     <div className="flex h-[calc(100dvh-4rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card">
-      <div
-        ref={flowWrapperRef}
-        className="relative flex-1 bg-muted/60 dark:bg-muted/30"
-      >
+      <div ref={flowWrapperRef} className="relative flex-1 bg-muted/60 dark:bg-muted/30">
         <div className="absolute left-4 top-4 z-10 flex items-center gap-2">
           <Button
             variant="outline"
@@ -3994,22 +3577,22 @@ function FlowCanvasInner({
             cual, y el dato que se mira es el numero.
           */}
           <div className="pointer-events-none flex items-center gap-1.5">
-            <span
-              className="inline-flex items-center gap-1.5 rounded-full bg-popover px-2.5 py-1.5 text-xs font-medium tabular-nums text-foreground ring-1 ring-border"
-              title={`${nodes.length} bloques`}
-              aria-label={`${nodes.length} bloques`}
-            >
-              <Boxes className="h-3.5 w-3.5 text-sky-600" />
-              {nodes.length}
-            </span>
-            <span
-              className="inline-flex items-center gap-1.5 rounded-full bg-popover px-2.5 py-1.5 text-xs font-medium tabular-nums text-foreground ring-1 ring-border"
-              title={`${edges.length} conexiones`}
-              aria-label={`${edges.length} conexiones`}
-            >
-              <Split className="h-3.5 w-3.5 text-blue-600" />
-              {edges.length}
-            </span>
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full bg-popover px-2.5 py-1.5 text-xs font-medium tabular-nums text-foreground ring-1 ring-border"
+            title={`${nodes.length} bloques`}
+            aria-label={`${nodes.length} bloques`}
+          >
+            <Boxes className="h-3.5 w-3.5 text-sky-600" />
+            {nodes.length}
+          </span>
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full bg-popover px-2.5 py-1.5 text-xs font-medium tabular-nums text-foreground ring-1 ring-border"
+            title={`${edges.length} conexiones`}
+            aria-label={`${edges.length} conexiones`}
+          >
+            <Split className="h-3.5 w-3.5 text-blue-600" />
+            {edges.length}
+          </span>
           </div>
           {avisosDelDiagrama.length > 0 ? (
             <Popover>
@@ -4033,10 +3616,7 @@ function FlowCanvasInner({
                 </p>
                 <ul className="space-y-2">
                   {avisosDelDiagrama.map((aviso) => (
-                    <li
-                      key={aviso}
-                      className="flex gap-2 text-[12px] leading-snug text-foreground"
-                    >
+                    <li key={aviso} className="flex gap-2 text-[12px] leading-snug text-foreground">
                       <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
                       <span>{aviso}</span>
                     </li>
@@ -4087,87 +3667,40 @@ function FlowCanvasInner({
                 <Plus className="h-4 w-4" strokeWidth={2.5} />
               </Button>
             </PopoverTrigger>
-            <PopoverContent
-              align="end"
-              side="bottom"
-              className="nodrag w-56 rounded-xl border border-border bg-popover p-1.5"
-            >
-              <p className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Agregar nodo
-              </p>
-              <div className="grid gap-0.5">
-                {[
-                  {
-                    label: "Bienvenida",
-                    icon: MessageSquare,
-                    color: "text-sky-500",
-                    onClick: addBienvenida,
-                  },
-                  {
-                    label: "IA",
-                    icon: Sparkles,
-                    color: "text-violet-600",
-                    onClick: addIa,
-                  },
-                  {
-                    label: "Producto",
-                    icon: ShoppingBag,
-                    color: "text-emerald-600",
-                    onClick: addProduct,
-                  },
-                  {
-                    label: "Condición",
-                    icon: Split,
-                    color: "text-amber-600",
-                    onClick: addCondition,
-                  },
-                  {
-                    label: "Pregunta",
-                    icon: HelpCircle,
-                    color: "text-teal-600",
-                    onClick: addPregunta,
-                  },
-                  {
-                    label: "Texto",
-                    icon: MessageSquare,
-                    color: "text-sky-600",
-                    onClick: addText,
-                  },
-                  {
-                    label: "Flujo",
-                    icon: Workflow,
-                    color: "text-indigo-600",
-                    onClick: addFlujo,
-                  },
-                  {
-                    label: "Seguimiento",
-                    icon: Bell,
-                    color: "text-rose-500",
-                    onClick: addSeguimiento,
-                  },
-                  {
-                    label: "Notificar asesor",
-                    icon: Headset,
-                    color: "text-fuchsia-600",
-                    onClick: addNotificar,
-                  },
-                ].map((option) => (
-                  <button
-                    key={option.label}
-                    type="button"
-                    onClick={() => {
-                      option.onClick();
-                      setAddMenuOpen(false);
-                    }}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-foreground transition hover:bg-muted"
-                  >
-                    <option.icon
-                      className={`h-4 w-4 shrink-0 ${option.color}`}
-                    />
-                    {option.label}
-                  </button>
-                ))}
-              </div>
+          <PopoverContent
+            align="end"
+            side="bottom"
+            className="nodrag w-56 rounded-xl border border-border bg-popover p-1.5"
+          >
+            <p className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Agregar nodo
+            </p>
+            <div className="grid gap-0.5">
+              {[
+                { label: "Bienvenida", icon: MessageSquare, color: "text-sky-500", onClick: addBienvenida },
+                { label: "IA", icon: Sparkles, color: "text-violet-600", onClick: addIa },
+                { label: "Producto", icon: ShoppingBag, color: "text-emerald-600", onClick: addProduct },
+                { label: "Condición", icon: Split, color: "text-amber-600", onClick: addCondition },
+                { label: "Pregunta", icon: HelpCircle, color: "text-teal-600", onClick: addPregunta },
+                { label: "Texto", icon: MessageSquare, color: "text-sky-600", onClick: addText },
+                { label: "Flujo", icon: Workflow, color: "text-indigo-600", onClick: addFlujo },
+                { label: "Seguimiento", icon: Bell, color: "text-rose-500", onClick: addSeguimiento },
+                { label: "Notificar asesor", icon: Headset, color: "text-fuchsia-600", onClick: addNotificar },
+              ].map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  onClick={() => {
+                    option.onClick();
+                    setAddMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-foreground transition hover:bg-muted"
+                >
+                  <option.icon className={`h-4 w-4 shrink-0 ${option.color}`} />
+                  {option.label}
+                </button>
+              ))}
+            </div>
             </PopoverContent>
           </Popover>
         </div>
