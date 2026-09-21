@@ -165,12 +165,16 @@ export function revisarLibro(libro: LibroDeReglas): string[] {
     if (regla.cuando.tipo === "frase" && regla.cuando.frases.length === 0) {
       problemas.push(`"${regla.nombre}" no tiene frases: nunca se va a disparar.`);
     }
-    if (regla.cuando.tipo === "frase") {
+    if (regla.cuando.tipo === "frase" && !regla.cuando.exacta) {
       /*
         Una frase de menos de 4 letras engancha adentro de otras palabras.
 
         Pasó de verdad: un "si" suelto matcheaba "silla" y cambiaba de producto en medio de otra
         charla. Se avisa en vez de prohibirlo: puede haber un código corto legítimo.
+
+        Con coincidencia EXACTA no aplica: ahí el mensaje entero tiene que ser esa palabra, así que
+        "si" no puede engancharse dentro de "silla". Avisar igual seria gritar en falso, y una
+        herramienta que grita en falso deja de leerse.
       */
       const cortas = regla.cuando.frases.filter((frase) => normalizar(frase).length < 4);
       if (cortas.length > 0) {
