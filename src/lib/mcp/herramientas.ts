@@ -1,5 +1,10 @@
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import {
+  HERRAMIENTAS_MCP_DIAGRAMA,
+  ejecutarHerramientaMcpDiagrama,
+  esHerramientaDeDiagrama,
+} from "@/lib/mcp/diagrama-del-agente";
+import {
   HERRAMIENTAS_MCP_ESCRITURA,
   ejecutarHerramientaMcpEscritura,
   esHerramientaDeEscritura,
@@ -626,11 +631,18 @@ async function buscarMensajes(args: Argumentos, contexto: Contexto) {
   conversacion, entiende que salio mal y arregla el guion sin que nadie tenga que cambiar de
   herramienta a mitad de camino.
 */
-export const HERRAMIENTAS_MCP = [...HERRAMIENTAS_DE_LECTURA, ...HERRAMIENTAS_MCP_ESCRITURA];
+export const HERRAMIENTAS_MCP = [
+  ...HERRAMIENTAS_DE_LECTURA,
+  ...HERRAMIENTAS_MCP_ESCRITURA,
+  ...HERRAMIENTAS_MCP_DIAGRAMA,
+];
 
 export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, contexto: Contexto) {
   if (esHerramientaDeEscritura(nombre)) {
     return ejecutarHerramientaMcpEscritura(nombre, args, contexto);
+  }
+  if (esHerramientaDeDiagrama(nombre)) {
+    return ejecutarHerramientaMcpDiagrama(nombre, args, contexto);
   }
   switch (nombre) {
     case "resumen_del_negocio":

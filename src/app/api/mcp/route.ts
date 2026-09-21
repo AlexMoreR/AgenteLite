@@ -54,8 +54,10 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "del agente de WhatsApp y corregirlos: leer conversaciones, ver que dijo el agente, compararlo " +
           "con la informacion correcta (productos, configuracion, datos del negocio) y despues arreglar el " +
           "guion de un paso del embudo, un texto del agente o un seguimiento. Lo que se cambia queda activo " +
-          "al instante y se puede deshacer con deshacer_cambio. Antes de cambiar algo, leer siempre lo que " +
-          "hay hoy (ver_embudo_del_producto, ver_textos_del_agente) y decirle a la persona que se va a tocar.",
+          "al instante y se puede deshacer con deshacer_cambio. Tambien se puede armar el diagrama del " +
+          "agente: crear una condicion con sus palabras, una caja de flujo, y conectarlas. Antes de cambiar " +
+          "algo, leer siempre lo que hay hoy (ver_embudo_del_producto, ver_textos_del_agente, " +
+          "ver_diagrama_del_agente) y decirle a la persona que se va a tocar.",
       });
     }
     case "ping":
