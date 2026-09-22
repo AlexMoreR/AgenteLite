@@ -241,7 +241,8 @@ async function sendAndPersistEvolutionFlowStep(input: {
   conversationId: string;
   channelId: string;
   contactId: string;
-  agentId: string;
+  /** Puede faltar: la linea de pruebas del V3 no tiene agente V2 asignado. */
+  agentId?: string;
   instanceName: string;
   phoneNumber: string;
 }) {
@@ -510,7 +511,8 @@ async function sendAndPersistEvolutionFlowStepResilient(input: {
   conversationId: string;
   channelId: string;
   contactId: string;
-  agentId: string;
+  /** Puede faltar: la linea de pruebas del V3 no tiene agente V2 asignado. */
+  agentId?: string;
   instanceName: string;
   phoneNumber: string;
 }): Promise<boolean> {
@@ -2925,7 +2927,9 @@ export async function POST(request: NextRequest) {
             conversationId: conversation.id,
             channelId: channel.id,
             contactId: contact.id,
-            agentId: channel.agentId ?? "",
+            // Sin agente V2 asignado, el mensaje se guarda sin agente: agentId es opcional y un
+            // texto vacio romperia la relacion. La linea de pruebas no tiene agente a proposito.
+            agentId: channel.agentId ?? undefined,
             instanceName: instancia,
             phoneNumber,
           }),
