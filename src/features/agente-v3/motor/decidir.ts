@@ -92,7 +92,16 @@ function seDispara(
       // La IA ya dijo qué reconoció; acá solo se mira si esta regla estaba entre esas.
       return intencionesReconocidas.includes(regla.id);
     case "paso":
-      return estado.productoActivo === regla.cuando.producto && estado.pasoActual === regla.cuando.paso;
+      /*
+        El mensaje de un paso sale AL ENTRAR al paso, no cada vez que el cliente escribe.
+
+        Antes se disparaba con cualquier mensaje mientras uno estuviera parado en ese paso: el
+        cliente contestaba "En cali" y recibia de nuevo "¿que servicios vas a ofrecer?", que es
+        exactamente lo que hace que un bot parezca roto (visto en la prueba del 21-sep-2026).
+        Ahora estas reglas solo salen encadenadas desde la regla que movio el paso; por eso aca
+        nunca se disparan solas.
+      */
+      return false;
     case "sin_respuesta":
       return (estado.minutosSinRespuesta ?? 0) >= regla.cuando.minutos;
     case "siempre":
