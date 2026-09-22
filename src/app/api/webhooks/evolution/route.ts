@@ -2021,19 +2021,26 @@ export async function POST(request: NextRequest) {
       });
 
       /*
-        La regla de campaña tampoco reparte al entrar: se mudó junto al reparto por turnos, al
-        momento en que el lead llega a Tibio. Si el anuncio dice a quién va, eso se respeta igual,
-        solo que más tarde y sobre un lead que ya mostró interés.
+        Vuelto a como estaba antes (Alex, 22-sep-2026): "por el momento no abran asignaciones,
+        dejalo como antes". El reparto por Tibio dependia de que el Agente V3 (o el V2) moviera la
+        etapa, y mientras el V3 este en pruebas con fallos, las asesoras se quedaban sin chats
+        nuevos. Se vuelve a repartir apenas entra el lead, como funcionaba siempre.
       */
-      /*
-        El reparto YA NO pasa cuando entra el lead.
-
-        Alex, 21-sep-2026: "las chicas se estan distrayendo". Un lead que escribe y desaparece le
-        ocupa la cabeza a una asesora igual que uno que compra, y de 32 leads de un dia la mayoria
-        no pasa del primer mensaje. Ahora se reparte cuando el lead llega a *Tibio* -dijo que si
-        quiere ver las fotos-, que es cuando hay algo que atender. Vive en `repartirSiLlegoATibio`,
-        que corre despues de que la etapa se mueve.
-      */
+      if (adLeadOrigin) {
+        await assignAdLeadByCampaign({
+          conversationId: conversation.id,
+          channelId: channel.id,
+          workspaceId: channel.workspaceId,
+          adTitle: adLeadOrigin.title,
+          adBody: adLeadOrigin.body,
+          messageText: messageText ?? "",
+        });
+      }
+      await autoAssignConversationToCollaborator({
+        conversationId: conversation.id,
+        channelId: channel.id,
+        workspaceId: channel.workspaceId,
+      });
 
       // El cliente volvio a escribir: si el reloj lo habia enfriado, vuelve a Tibio. Va ACA y no
       // en el bloque del agente a proposito: cuando una asesora toma el chat la IA queda en pausa
@@ -3617,40 +3624,13 @@ export async function POST(request: NextRequest) {
         if (!canalAlimentaElCrm) {
           return;
         }
-        const etapaNueva = await syncCrmStageFromCommercialStage({
+        await syncCrmStageFromCommercialStage({
           workspaceId: channel.workspaceId,
           contactId: contact.id,
           conversationId: conversation.id,
           channelId: channel.id,
           commercialContext: commercialConversationContext,
-        }).catch(() => null);
-
-        /*
-          Recien AHORA se reparte: el lead llego a Tibio o mas adelante.
-
-          Antes se asignaba al entrar, y una asesora terminaba con decenas de chats que nunca
-          pasaron del primer mensaje. De Tibio para arriba el cliente ya dijo que quiere ver el
-          producto: ahi hay algo que atender (Alex, 21-sep-2026).
-        */
-        const MERECE_DUENO: Array<typeof etapaNueva> = ["PROPUESTA", "NEGOCIACION", "GANADO"];
-        if (etapaNueva && MERECE_DUENO.includes(etapaNueva)) {
-          // La regla de campaña primero -si el anuncio dice a quien va, manda eso- y si no, turno.
-          if (adLeadOrigin) {
-            await assignAdLeadByCampaign({
-              conversationId: conversation.id,
-              channelId: channel.id,
-              workspaceId: channel.workspaceId,
-              adTitle: adLeadOrigin.title,
-              adBody: adLeadOrigin.body,
-              messageText: messageText ?? "",
-            }).catch(() => false);
-          }
-          await autoAssignConversationToCollaborator({
-            conversationId: conversation.id,
-            channelId: channel.id,
-            workspaceId: channel.workspaceId,
-          }).catch(() => {});
-        }
+        }).catch(() => {});
       });
 
       // Anotar en que etapa del embudo quedo la conversacion. El motor ya la sabia (la etapa
