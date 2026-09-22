@@ -2901,6 +2901,68 @@ export async function POST(request: NextRequest) {
 
   if (canalUsaV3 && channel.evolutionInstanceName) {
     const instancia = channel.evolutionInstanceName;
+
+    /*
+      Antes de contestar: esperar, juntar y comportarse como una persona.
+
+      El V3 contestaba al instante y mensaje por mensaje. Dos problemas, los dos serios (Alex,
+      21-sep-2026): se nota que es un bot -nadie responde en medio segundo-, y si el cliente
+      escribe tres mensajes seguidos, recibe tres respuestas cruzadas.
+
+      Se reusa el MISMO agrupador del V2 (`appendConversationBuffer`): el ultimo mensaje de la
+      tanda es el que contesta, los anteriores se van juntando, y el que no gano la tanda se
+      calla. Asi los dos agentes se comportan igual y hay un solo mecanismo que mantener.
+    */
+    const ESPERA_V3_MS = 10_000;
+    const tanda = await appendConversationBuffer({
+      conversationId: conversation.id,
+      bufferedMessage: {
+        content: (messageText ?? "").trim(),
+        type: messageType,
+        createdAt: new Date().toISOString(),
+      },
+      responseDelayMs: ESPERA_V3_MS,
+    });
+
+    await sleep(ESPERA_V3_MS);
+
+    const tandaCerrada = await finalizeConversationBuffer({
+      conversationId: conversation.id,
+      batchToken: tanda.token,
+    });
+
+    // Otro mensaje del cliente llego mientras esperabamos: esa peticion es la que contesta.
+    if (!tandaCerrada) {
+      console.log("[EVOLUTION] v3_tanda_cedida", { conversationId: conversation.id });
+      return NextResponse.json({ ok: true, message: "V3: la tanda la contesta otro mensaje" });
+    }
+
+    /*
+      Todo lo que escribio en la tanda, junto.
+
+      Si mando "hola", "tienen camillas?" y "de que material", el motor tiene que ver las tres
+      cosas: contestar solo la ultima seria ignorar lo que pregunto.
+    */
+    const textoDeLaTanda = tandaCerrada.currentBuffer.messages
+      .map((mensaje) => (mensaje.content ?? "").trim())
+      .filter(Boolean)
+      .join("\n");
+
+    /*
+      El visto y el "escribiendo...", antes de responder.
+
+      No es maquillaje: la documentacion de WAHA lo recomienda contra bloqueos, y un numero que
+      contesta sin haber leido nada es de los patrones que WhatsApp castiga. `sendEvolutionPresence`
+      ya hace las tres cosas en las lineas WAHA -marca leido, muestra escribiendo y devuelve la
+      linea a desconectada- que es lo que evita que la asesora deje de recibir notificaciones.
+    */
+    await sendEvolutionPresence({
+      instanceName: instancia,
+      phoneNumber,
+      presence: "composing",
+      delay: 2000,
+    }).catch(() => {});
+
     const ultimos = await prisma.message.findMany({
       where: { conversationId: conversation.id },
       orderBy: { createdAt: "desc" },
@@ -2911,7 +2973,7 @@ export async function POST(request: NextRequest) {
     const resultado = await atenderConAgenteV3({
       workspaceId: channel.workspaceId,
       conversationId: conversation.id,
-      mensaje: messageText ?? "",
+      mensaje: textoDeLaTanda || (messageText ?? ""),
       historial: ultimos
         .filter((mensaje) => mensaje.type !== "SYSTEM" && mensaje.content?.trim())
         .reverse()
