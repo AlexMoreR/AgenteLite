@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { anotarFusionAutomatica } from "@/lib/fusion-automatica-log";
 import { buildLinkedLidMetadata, readLinkedLid } from "@/lib/whatsapp-lid";
 import type { Prisma } from "@prisma/client";
 
@@ -67,11 +68,37 @@ export async function mergeLidContactIntoPhoneContact(input: {
         : null;
 
       if (destino) {
-        await tx.message.updateMany({
+        const movidos = await tx.message.updateMany({
           where: { conversationId: conversacion.id },
           data: { conversationId: destino.id, contactId: real.id },
         });
+
+        /*
+          RED DE SEGURIDAD: no se borra si queda algo sin mover.
+
+          Antes se borraba pase lo que pase, confiando en que el updateMany de arriba lo movio
+          todo. Una conversacion entera desaparecio sin dejar rastro (22-sep-2026) y no se pudo
+          reconstruir por que. Ahora, si al momento de borrar sigue habiendo un mensaje con este
+          conversationId -un insert que llego a mitad de la fusion, un tipo de fila que no se
+          contempló-, se aborta la fusion entera (la transaccion se revierte) en vez de borrar con
+          algo adentro. El chat duplicado queda como estaba: molesto, pero intacto.
+        */
+        const quedan = await tx.message.count({ where: { conversationId: conversacion.id } });
+        if (quedan > 0) {
+          throw new Error(
+            `No se fusiona: quedan ${quedan} mensajes en la conversacion ${conversacion.id} despues de moverlos.`,
+          );
+        }
+
         await tx.conversation.delete({ where: { id: conversacion.id } });
+        await anotarFusionAutomatica({
+          at: new Date().toISOString(),
+          tipo: "lid-a-telefono",
+          workspaceId: input.workspaceId,
+          destino: { contactId: real.id, conversationId: destino.id },
+          origen: { contactId: fantasma.id, conversationId: conversacion.id },
+          mensajesMovidos: movidos.count,
+        });
       } else {
         await tx.message.updateMany({
           where: { conversationId: conversacion.id },
@@ -115,6 +142,20 @@ export async function mergeLidContactIntoPhoneContact(input: {
         metadata: buildLinkedLidMetadata(real.metadata, lidDigits) as Prisma.InputJsonValue,
       },
     });
+
+    /*
+      Misma red de seguridad, del lado de la ficha: si algo se le olvido mover (una tabla nueva
+      que colgaba del contacto y que este archivo todavia no conoce), no se borra.
+    */
+    const [mensajesRestantes, conversacionesRestantes] = await Promise.all([
+      tx.message.count({ where: { contactId: fantasma.id } }),
+      tx.conversation.count({ where: { contactId: fantasma.id } }),
+    ]);
+    if (mensajesRestantes > 0 || conversacionesRestantes > 0) {
+      throw new Error(
+        `No se borra la ficha ${fantasma.id}: le quedan ${mensajesRestantes} mensajes y ${conversacionesRestantes} conversaciones sin mover.`,
+      );
+    }
 
     await tx.contact.delete({ where: { id: fantasma.id } });
   });

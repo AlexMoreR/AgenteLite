@@ -1,3 +1,4 @@
+import { anotarFusionAutomatica } from "@/lib/fusion-automatica-log";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -130,7 +131,31 @@ export async function fusionarChatDuplicado(input: {
           assignedToUserId: real.assignedToUserId ?? duplicada.assignedToUserId,
         },
       });
+
+      /*
+        RED DE SEGURIDAD: no se borra si queda algo sin mover.
+
+        Ver el mismo comentario en lid-contact-merge.ts (22-sep-2026): una fusion automatica se
+        llevo una conversacion entera sin dejar rastro. Aca se cuenta lo que quedo SIN mover -ni
+        a "real" ni borrado como repetido- antes de borrar la duplicada, y si sobra algo se aborta
+        toda la fusion en vez de perderlo.
+      */
+      const quedan = await tx.message.count({ where: { conversationId: duplicada.id } });
+      if (quedan > 0) {
+        throw new Error(
+          `No se fusiona: quedan ${quedan} mensajes en la conversacion ${duplicada.id} despues de moverlos.`,
+        );
+      }
+
       await tx.conversation.delete({ where: { id: duplicada.id } });
+      await anotarFusionAutomatica({
+        at: new Date().toISOString(),
+        tipo: "chat-duplicado",
+        workspaceId: input.workspaceId,
+        destino: { contactId: real.contactId, conversationId: real.id },
+        origen: { contactId: duplicada.contactId, conversationId: duplicada.id },
+        mensajesMovidos: movidos.count,
+      });
 
       if (duplicada.contactId !== real.contactId) {
         await unirFichas(tx, {
@@ -161,6 +186,14 @@ async function unirFichas(
   // Si el duplicado tiene chats en otros canales, la ficha sigue viva con esos.
   if (otrosChats > 0 || !real || !duplicada || duplicada.workspaceId !== input.workspaceId) {
     return;
+  }
+  // La misma red de seguridad que en lid-contact-merge.ts: si algo quedo colgado de la ficha
+  // duplicada que este archivo no sabe mover, no se borra.
+  const conversacionesRestantes = await tx.conversation.count({ where: { contactId: input.fichaDuplicada } });
+  if (conversacionesRestantes > 0) {
+    throw new Error(
+      `No se borra la ficha ${input.fichaDuplicada}: le quedan ${conversacionesRestantes} conversaciones sin mover.`,
+    );
   }
 
   const hacia = { contactId: input.fichaReal };
