@@ -217,6 +217,10 @@ export function buildConversationItemFromSnapshot(
     source: existing?.source ?? "agent",
     agentId: existing?.agentId ?? null,
     contactId: snapshot.contactId ?? existing?.contactId ?? null,
+    channelId: snapshot.channelId ?? existing?.channelId ?? null,
+    // El realtime no manda el nombre de la linea: sin conservar el que ya tenia, un mensaje
+    // nuevo hacia desaparecer la etiqueta de la fila (Alex, 22-sep-2026).
+    channelName: snapshot.channelName ?? existing?.channelName ?? null,
     label: snapshot.label ?? existing?.label ?? snapshot.id,
     secondaryLabel: snapshot.secondaryLabel ?? existing?.secondaryLabel ?? "",
     tags: snapshot.tags ?? existing?.tags ?? [],
@@ -260,6 +264,10 @@ export function buildConversationItemFromListSnapshot(
     source: existing?.source ?? (snapshot.channelType === "whatsapp_official" ? "official" : "agent"),
     agentId: existing?.agentId ?? null,
     contactId: snapshot.contactId ?? existing?.contactId ?? null,
+    channelId: snapshot.channelId ?? existing?.channelId ?? null,
+    // El realtime no manda el nombre de la linea: sin conservar el que ya tenia, un mensaje
+    // nuevo hacia desaparecer la etiqueta de la fila (Alex, 22-sep-2026).
+    channelName: snapshot.channelName ?? existing?.channelName ?? null,
     label: snapshot.label ?? existing?.label ?? snapshot.id,
     secondaryLabel: snapshot.secondaryLabel ?? existing?.secondaryLabel ?? "",
     tags: snapshot.tags ?? existing?.tags ?? [],

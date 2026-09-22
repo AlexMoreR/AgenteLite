@@ -287,15 +287,27 @@ const ConversationListItem = memo(function ConversationListItem({
       </div>
 
       <div className="min-w-0 space-y-[1px] overflow-hidden">
-        <div className="flex min-w-0 items-center gap-1 text-[10px] leading-[1.1]">
-          <UserRound className="h-3 w-3 shrink-0 text-muted-foreground" />
-          <span
-            className={`min-w-0 truncate font-medium ${
-              conversation.assignedToName ? "text-foreground/70" : "text-muted-foreground italic"
-            }`}
-          >
-            {conversation.assignedToName ?? "---"}
+        {/*
+          La asesora a la izquierda y la LINEA a la derecha, justo arriba de los tres puntos
+          (Alex, 22-sep-2026): viendo "Todas" se mezclan los chats de varias lineas -Ventas 1,
+          Ventas 2, Prueba- y sin esto no se sabe por cual entro cada uno sin abrirlo.
+        */}
+        <div className="flex min-w-0 items-center justify-between gap-1 text-[10px] leading-[1.1]">
+          <span className="flex min-w-0 items-center gap-1">
+            <UserRound className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <span
+              className={`min-w-0 truncate font-medium ${
+                conversation.assignedToName ? "text-foreground/70" : "text-muted-foreground italic"
+              }`}
+            >
+              {conversation.assignedToName ?? "---"}
+            </span>
           </span>
+          {conversation.channelName ? (
+            <span className="shrink-0 truncate text-muted-foreground/70" title={conversation.channelName}>
+              {conversation.channelName}
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 flex flex-1 items-center gap-1.5">

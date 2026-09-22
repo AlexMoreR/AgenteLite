@@ -15,6 +15,8 @@ export type SharedInboxConversationItem = {
   // Canal de la conversacion. Se usa para descartar los chats que llegan por realtime de
   // un canal distinto al que se esta viendo (se colaban en la lista filtrada).
   channelId?: string | null;
+  /** El nombre de la linea (Ventas 1, Ventas 2...), para distinguirlas viendo "Todas" juntas. */
+  channelName?: string | null;
   contactId?: string | null;
   label: string;
   secondaryLabel: string;
@@ -81,6 +83,7 @@ export type SharedInboxSelectedConversation = {
   cierrePendiente?: boolean;
   // Canal al que pertenece el chat: define por QUE numero sale una llamada hecha desde aca.
   channelId?: string | null;
+  channelName?: string | null;
   status?: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED" | null;
   assignedTo?: { id: string; name: string | null; email: string | null } | null;
   canImportHistory?: boolean;

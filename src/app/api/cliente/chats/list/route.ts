@@ -238,6 +238,7 @@ async function getAgentConversationList(input: {
     },
     select: {
       id: true,
+      name: true,
       provider: true,
       evolutionInstanceName: true,
       agent: {
@@ -504,6 +505,9 @@ async function getAgentConversationList(input: {
       agentId: conversation.agentId || linkedChannel?.agent?.id || undefined,
       contactId: conversation.contact.id,
       channelId: conversation.channelId || undefined,
+      // El nombre de la linea (Ventas 1, Ventas 2...): con "Todas" mezclando canales, sin esto
+      // no se distingue de donde vino cada chat (Alex, 22-sep-2026).
+      channelName: linkedChannel?.name?.trim() || null,
       assignedToUserId: conversation.assignedToUserId ?? null,
       assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
       label: tituloDelChat,
