@@ -177,11 +177,38 @@ export function decidir(input: {
   });
 
   const ganadora = ordenadas[0].regla;
+
+  /*
+    Si la regla mueve de paso, el mensaje de ESE paso sale en el mismo turno.
+
+    Sin esto, "me interesa el combo de estetica" elegia el producto y lo dejaba en el paso 1... en
+    silencio: la pregunta del paso 1 esperaba al mensaje siguiente, que nunca llega porque el
+    cliente esta esperando que le hablen. Se vio en la primera prueba por WhatsApp (21-sep-2026).
+
+    Encadena UN solo salto, no en cascada: si el paso al que llega mueve a otro paso, eso ya se
+    resuelve con el proximo mensaje. Un encadenado sin limite es como se arma una avalancha de
+    mensajes de golpe, que es justo lo que no queremos.
+  */
+  const despues = siguienteEstado(input.estado, ganadora.entonces);
+  const reglaDelPaso =
+    despues.pasoActual && despues.pasoActual !== input.estado.pasoActual
+      ? input.libro.reglas.find(
+          (regla) =>
+            regla.activa &&
+            regla.id !== ganadora.id &&
+            regla.cuando.tipo === "paso" &&
+            regla.cuando.producto === despues.productoActivo &&
+            regla.cuando.paso === despues.pasoActual,
+        )
+      : undefined;
+
   return {
     regla: ganadora,
     saludo,
-    acciones: ganadora.entonces,
-    porque: `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}.`,
+    acciones: reglaDelPaso ? [...ganadora.entonces, ...reglaDelPaso.entonces] : ganadora.entonces,
+    porque: reglaDelPaso
+      ? `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}. Y como pasó al paso ${despues.pasoActual}, sigue con "${reglaDelPaso.nombre}".`
+      : `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}.`,
     tambienEncajaban: ordenadas.slice(1).map(({ regla }) => ({ id: regla.id, nombre: regla.nombre })),
   };
 }
