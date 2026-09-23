@@ -2865,7 +2865,18 @@ export async function POST(request: NextRequest) {
     un lead nuevo en menos de un minuto; un automatismo si. Si igual llegara a pasar, la asesora
     tiene el interruptor de "Pausar agente" a mano.
   */
-  if (fromMe && channel.agentId && !isCallEvent) {
+  /*
+    ¿Esta línea trabaja con el V3? Se calcula aparte de `canalUsaV3` -que mira ESTE mensaje- porque
+    la pausa automática de acá abajo también lo necesita: una línea de V3 no tiene `agentId`, y sin
+    esto una asesora escribía y el agente le seguía contestando encima (Alex, 22-sep-2026).
+  */
+  const canalTieneV3 =
+    channel.metadata !== null &&
+    typeof channel.metadata === "object" &&
+    !Array.isArray(channel.metadata) &&
+    (channel.metadata as Record<string, unknown>).agenteV3 === true;
+
+  if (fromMe && (channel.agentId || canalTieneV3) && !isCallEvent) {
     const primerMensaje = conversation.id
       ? await prisma.message.findFirst({
           where: { conversationId: conversation.id },
@@ -2897,16 +2908,31 @@ export async function POST(request: NextRequest) {
     Si el libro esta vacio o ninguna regla encaja, `atendido` vuelve false y el mensaje sigue su
     camino normal: nunca deja a un cliente sin respuesta por estar probando.
   */
-  const canalUsaV3 =
-    !fromMe &&
-    !isCallEvent &&
-    Boolean(messageText?.trim()) &&
-    channel.metadata &&
-    typeof channel.metadata === "object" &&
-    !Array.isArray(channel.metadata) &&
-    (channel.metadata as Record<string, unknown>).agenteV3 === true;
+  const canalUsaV3 = !fromMe && !isCallEvent && Boolean(messageText?.trim()) && canalTieneV3;
 
-  if (canalUsaV3 && channel.evolutionInstanceName) {
+  /*
+    Un chat pausado el V3 NO lo contesta. Punto.
+
+    Se pausa de dos formas: una asesora escribió (arriba), o una regla pidió `pausar_ia` para que
+    cierre una persona. Hasta hoy el V3 ni miraba la bandera: `pausar_ia` la guardaba y nadie la
+    leía, asi que el agente decia "un asesor te contacta" y seguia hablando igual, encima de la
+    asesora (Alex, 22-sep-2026: "el asesor escribe y no esta parando el agente tampoco").
+
+    Se consulta ANTES de la espera y del "escribiendo...", para no marcar leido ni aparentar que va
+    a contestar un chat que ya tomo una persona. Si la linea ademas tiene agente V2, el mensaje
+    sigue su camino y el V2 respeta la misma pausa por su cuenta.
+  */
+  const v3Pausado = canalUsaV3
+    ? await getConversationAutomationPaused({
+        conversationId: conversation.id,
+        workspaceId: channel.workspaceId,
+      })
+    : false;
+  if (v3Pausado) {
+    console.log("[EVOLUTION] v3_chat_pausado", { conversationId: conversation.id });
+  }
+
+  if (canalUsaV3 && !v3Pausado && channel.evolutionInstanceName) {
     const instancia = channel.evolutionInstanceName;
 
     /*
@@ -3011,6 +3037,16 @@ export async function POST(request: NextRequest) {
             kind: "note",
             text: `El agente pide un asesor: ${motivo}`,
           }).catch(() => {});
+
+          await sendChatPushToWorkspace({
+            workspaceId: channel.workspaceId,
+            payload: {
+              title: `Asesor requerido: ${contact.name?.trim() || phoneNumber}`,
+              body: motivo,
+              tag: `advisor-request:${conversation.id}`,
+              url: `/cliente/chats?chatKey=agent:${conversation.id}&assigned=all`,
+            },
+          });
         },
         cambiarEtapa: async (etapa) => {
           await cambiarEtapaDesdeV3({
