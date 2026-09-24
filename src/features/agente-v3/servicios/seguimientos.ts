@@ -25,10 +25,17 @@ import { leerLibro } from "./almacen";
 const DESDE_LA_HORA = 7;
 const HASTA_LA_HORA = 21;
 
-/** Un chat en el que el cliente lleva días callado ya no es un seguimiento: es otra cosa. */
-const VENTANA_MAXIMA_HORAS = 24;
+/**
+ * Hasta dónde mira hacia atrás.
+ *
+ * Estos son recordatorios INMEDIATOS (15 y 60 minutos), no una campaña de reenganche. Con una
+ * ventana ancha, el día que esto se prendió habría salido a escribirle de golpe a todos los que
+ * se callaron en las últimas 24 horas, que es justo lo que nadie pidió.
+ */
+const VENTANA_MAXIMA_HORAS = 3;
 
-const CUANTOS_POR_VUELTA = 40;
+/** Por vuelta y por línea. El cron corre cada minuto: si hay atraso, se drena de a poco. */
+const CUANTOS_POR_VUELTA = 10;
 
 function horaDeBogota(ahora: Date): number {
   const texto = ahora.toLocaleString("en-US", { timeZone: "America/Bogota", hour: "2-digit", hour12: false });
@@ -88,20 +95,22 @@ export async function ejecutarSeguimientosV3(ahora = new Date()): Promise<{ envi
       }
 
       /*
-        Solo se persigue a quien NO contestó. Si el último mensaje es del cliente, o es una nota del
-        sistema, acá no hay nada que recordar -y si es del cliente y quedó sin responder, ese es
-        otro problema, no este.
+        Solo se persigue a quien NO contestó: el último en hablar tenemos que haber sido nosotros.
+
+        Las notas del sistema NO cuentan como hablar. Es el detalle que hizo que esto no sirviera
+        la primera vez: el V3 deja una nota ("Ganó tal regla") después de cada respuesta, así que
+        el último mensaje del chat casi siempre es esa nota, y el reloj los saltaba a todos.
       */
       const ultimo = await prisma.message.findFirst({
-        where: { conversationId: conversacion.id },
+        where: { conversationId: conversacion.id, type: { not: "SYSTEM" } },
         orderBy: { createdAt: "desc" },
-        select: { direction: true, type: true },
+        select: { direction: true, createdAt: true },
       });
-      if (!ultimo || ultimo.direction !== "OUTBOUND" || ultimo.type === "SYSTEM") {
+      if (!ultimo || ultimo.direction !== "OUTBOUND") {
         continue;
       }
 
-      const minutosCallado = Math.floor((ahora.getTime() - conversacion.lastMessageAt.getTime()) / 60_000);
+      const minutosCallado = Math.floor((ahora.getTime() - ultimo.createdAt.getTime()) / 60_000);
       const estado = await leerEstado(conversacion.id);
       const yaSalieron = estado.seguimientosEnviados ?? [];
 
