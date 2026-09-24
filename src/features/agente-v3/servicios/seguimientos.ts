@@ -18,12 +18,17 @@ import { leerLibro } from "./almacen";
  * 1. Cada regla sale UNA vez por silencio. Al volver a escribir el cliente, el contador se limpia.
  * 2. Si se acumuló atraso -la app estuvo caída, por ejemplo- sale SOLO el recordatorio más
  *    avanzado, no la ráfaga de todos los que vencieron.
- * 3. Nada sale de noche: a un cliente no se le escribe a las 3am, y a WhatsApp no le gusta.
+ * 3. Nunca le escribe encima a una asesora: un chat pausado no se toca.
  */
 
-/** Franja en la que se permite escribir, hora de Bogotá. Fuera de esto, el reloj espera. */
-const DESDE_LA_HORA = 7;
-const HASTA_LA_HORA = 21;
+/*
+  SIN horario: el reloj trabaja las 24 horas.
+
+  Nació con tope de 7am a 9pm, puesto por mí para no escribirle a nadie de madrugada. Alex lo
+  cambió el 22-sep-2026, sabiendo el riesgo -un cliente que escribe a las 2am recibe recordatorio
+  a las 2:15-: prefiere no perder ninguna respuesta. Es decisión suya, no un descuido: si algún
+  día se ve mal en los chats, se vuelve a poner una franja acá, en un solo sitio.
+*/
 
 /**
  * Hasta dónde mira hacia atrás.
@@ -37,17 +42,7 @@ const VENTANA_MAXIMA_HORAS = 3;
 /** Por vuelta y por línea. El cron corre cada minuto: si hay atraso, se drena de a poco. */
 const CUANTOS_POR_VUELTA = 10;
 
-function horaDeBogota(ahora: Date): number {
-  const texto = ahora.toLocaleString("en-US", { timeZone: "America/Bogota", hour: "2-digit", hour12: false });
-  return Number.parseInt(texto, 10);
-}
-
 export async function ejecutarSeguimientosV3(ahora = new Date()): Promise<{ enviados: number; revisados: number }> {
-  const hora = horaDeBogota(ahora);
-  if (Number.isNaN(hora) || hora < DESDE_LA_HORA || hora >= HASTA_LA_HORA) {
-    return { enviados: 0, revisados: 0 };
-  }
-
   const canales = await prisma.whatsAppChannel.findMany({
     where: { metadata: { path: ["agenteV3"], equals: true } },
     select: { id: true, workspaceId: true, evolutionInstanceName: true },
