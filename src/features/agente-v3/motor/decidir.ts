@@ -28,6 +28,13 @@ export type EstadoDeLaCharla = {
   esPrimerMensaje: boolean;
   /** Minutos desde el último mensaje del cliente. Para las reglas de "si no contesta". */
   minutosSinRespuesta?: number;
+  /**
+   * Seguimientos ya enviados en ESTE silencio (los minutos de cada regla que ya salió).
+   *
+   * Se limpia apenas el cliente vuelve a escribir: el silencio se terminó y el próximo empieza de
+   * cero. Sin esto, el reloj mandaría el mismo recordatorio cada vez que pasa.
+   */
+  seguimientosEnviados?: number[];
 };
 
 export type Decision = {
@@ -231,7 +238,9 @@ export function decidir(input: {
  */
 export function siguienteEstado(estado: EstadoDeLaCharla, acciones: Accion[]): EstadoDeLaCharla {
   // El saludo tambien cuenta como accion ejecutada: entra por `acciones` desde quien lo ejecuta.
-  let siguiente: EstadoDeLaCharla = { ...estado, esPrimerMensaje: false };
+  // Y el cliente acaba de escribir: se termino el silencio, asi que los seguimientos arrancan
+  // de cero para la proxima vez que se calle.
+  let siguiente: EstadoDeLaCharla = { ...estado, esPrimerMensaje: false, seguimientosEnviados: [] };
   for (const accion of acciones) {
     if (accion.tipo === "activar_producto") {
       siguiente = { ...siguiente, productoActivo: accion.productoId, pasoActual: siguiente.pasoActual ?? "PRESENTACION" };

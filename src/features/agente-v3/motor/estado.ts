@@ -21,6 +21,7 @@ export async function leerEstado(conversationId: string): Promise<EstadoDeLaChar
     pasoActual: null,
     flujosEnviados: [],
     esPrimerMensaje: true,
+    seguimientosEnviados: [],
   };
   const fila = await prisma.appSetting.findUnique({ where: { key: `${CLAVE}${conversationId}` } });
   if (!fila?.value) {
@@ -35,6 +36,9 @@ export async function leerEstado(conversationId: string): Promise<EstadoDeLaChar
         ? guardado.flujosEnviados.filter((id): id is string => typeof id === "string")
         : [],
       esPrimerMensaje: guardado.esPrimerMensaje === true,
+      seguimientosEnviados: Array.isArray(guardado.seguimientosEnviados)
+        ? guardado.seguimientosEnviados.filter((minutos): minutos is number => typeof minutos === "number")
+        : [],
     };
   } catch {
     return vacio;
@@ -48,6 +52,7 @@ export async function guardarEstado(conversationId: string, estado: EstadoDeLaCh
     // Se recortan: una charla larga no necesita recordar cincuenta envíos, y la fila no crece sola.
     flujosEnviados: estado.flujosEnviados.slice(-20),
     esPrimerMensaje: estado.esPrimerMensaje,
+    seguimientosEnviados: estado.seguimientosEnviados ?? [],
   });
   await prisma.appSetting.upsert({
     where: { key: `${CLAVE}${conversationId}` },

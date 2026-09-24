@@ -4,6 +4,7 @@ import { demoteUnresponsiveStaleLeads } from "@/features/llamadas/services/lead-
 import { enfriarLeadsSinRespuesta } from "@/features/crm/services/lead-temperature";
 import { procesarTandasDeCampanas } from "@/features/campanas/services/campaigns";
 import { purgeOldWebhookEventLogs } from "@/lib/webhook-log-retention";
+import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimientos";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -39,6 +40,21 @@ async function handleCron(request: Request) {
   const result = await executePendingFollows({
     limit: 50,
   });
+
+  /*
+    Seguimientos del Agente V3. Van acá y no en un cron propio por lo mismo que los de abajo: un
+    solo reloj es uno solo que vigilar.
+
+    Corre en cada vuelta (cada 60s) a proposito, sin el throttle de 5 minutos de los de abajo: un
+    seguimiento de 15 minutos que sale a los 19 se nota, y la consulta es barata -solo mira chats
+    donde el ultimo que hablo fuimos nosotros-. Best-effort: si falla, no tumba los envios.
+  */
+  let seguimientosV3: { enviados: number; revisados: number } | null = null;
+  try {
+    seguimientosV3 = await ejecutarSeguimientosV3();
+  } catch (error) {
+    console.error("[cron/follows] seguimientos v3 error", error);
+  }
 
   // Enfriamiento de leads (Playbook: 3 intentos + 5 días + cero respuesta → Tibio). Va colgado
   // de este cron para no montar otro. Throttle: solo cada ~5 min (el cron corre cada 60s), porque
@@ -93,6 +109,7 @@ async function handleCron(request: Request) {
     temperatura,
     campanas,
     webhookLogs,
+    seguimientosV3,
   });
 }
 
