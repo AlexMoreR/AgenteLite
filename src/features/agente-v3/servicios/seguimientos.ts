@@ -162,7 +162,14 @@ export async function ejecutarSeguimientosV3(ahora = new Date()): Promise<{ envi
             type: "SYSTEM",
             status: "SENT",
             content: `Agente V3: seguimiento "${toca.regla.nombre}" (${toca.minutos} min sin respuesta)`,
-            sentAt: new Date(),
+            /*
+              SIN `sentAt`: es una nota para el equipo, no un mensaje.
+
+              Con fecha de envio la bandeja la pinta como burbuja verde con su palomita, y parece
+              que al cliente le llego "Agente V3: seguimiento..." (Alex lo vio y pregunto si se
+              habia enviado; no, nunca salio de la base). Las demas notas del sistema tampoco la
+              tienen: asi se dibujan grises y centradas.
+            */
           },
         });
 
