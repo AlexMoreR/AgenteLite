@@ -19,8 +19,7 @@ import {
   readDiscoveredPhone,
   readLinkedLid,
 } from "@/lib/whatsapp-lid";
-import type { CrmStage } from "@/features/crm/types";
-import { marcarCierreDeCompra, syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
+import { marcarCierreDeCompra, moverEtapaDesdeAgente, syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
 import { syncFunnelStageFromCommercialStage } from "@/lib/funnel-stage-sync";
 import { recalentarLeadSiRespondio } from "@/features/crm/services/lead-temperature";
 import { agendarSeguimientoDeEtapa } from "@/features/crm/services/stage-follow-up";
@@ -996,6 +995,16 @@ async function assignAdLeadByCampaign(args: {
  * no un programador. Aca se traducen a las etapas reales; si el nombre no se reconoce, no se toca
  * nada y queda en el log: mejor no mover una etapa que moverla a la equivocada.
  */
+/*
+  El V3 mueve la etapa SOLO por `moverEtapaDesdeAgente`.
+
+  Antes esta funcion traducia la etapa y escribia `contact.crmStage` ella misma, saltandose el
+  candado de crm-stage-sync.ts: su tabla incluia "ganado", asi que una regla del libro podia cerrar
+  una venta sola. Le paso a una clienta que solo habia dicho su ciudad (22-sep-2026).
+
+  Cerrar es decision humana. El candado vive en un solo lugar para que ninguna regla nueva -que
+  las dicta cualquiera hablando- pueda volver a saltarselo.
+*/
 async function cambiarEtapaDesdeV3(args: {
   workspaceId: string;
   conversationId: string;
@@ -1003,39 +1012,13 @@ async function cambiarEtapaDesdeV3(args: {
   contactId: string;
   etapa: string;
 }) {
-  const normalizada = args.etapa
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .trim();
-  const MAPA: Record<string, CrmStage> = {
-    nuevo: "NUEVO",
-    frio: "CALIFICADO",
-    calificado: "CALIFICADO",
-    tibio: "PROPUESTA",
-    propuesta: "PROPUESTA",
-    caliente: "NEGOCIACION",
-    negociacion: "NEGOCIACION",
-    ganado: "GANADO",
-    vendido: "GANADO",
-    descartado: "PERDIDO",
-    perdido: "PERDIDO",
-  };
-  const destino = MAPA[normalizada];
-  if (!destino) {
-    console.warn("[EVOLUTION] v3_etapa_desconocida", { etapa: args.etapa });
-    return;
-  }
-
-  await prisma.contact.update({ where: { id: args.contactId }, data: { crmStage: destino } });
-  await recordConversationActivity({
+  await moverEtapaDesdeAgente({
     workspaceId: args.workspaceId,
+    contactId: args.contactId,
     conversationId: args.conversationId,
     channelId: args.channelId,
-    contactId: args.contactId,
-    kind: "stage_changed",
-    text: `El agente movió la etapa a "${args.etapa}"`,
-  }).catch(() => {});
+    etapa: args.etapa,
+  });
 }
 
 async function autoAssignConversationToCollaborator(args: {

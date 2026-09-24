@@ -261,3 +261,145 @@ export function tieneCierrePendiente(metadata: unknown): boolean {
   }
   return typeof (metadata as Record<string, unknown>)[CLAVE_CIERRE_PENDIENTE] === "string";
 }
+
+/**
+ * LA ÚNICA PUERTA por la que un agente puede mover la etapa del CRM.
+ *
+ * Nace de un bug en producción (22-sep-2026): el Agente V3 escribía `contact.crmStage` con un
+ * `prisma.contact.update` propio, en el webhook, sin pasar por este archivo. Su tabla de
+ * traducción incluía "ganado", así que una regla del libro podía cerrar la venta sola: a Doris la
+ * marcó GANADO por decir su ciudad, sin haber pagado un peso.
+ *
+ * La regla de negocio de Alex, que no se negocia: **cerrar es decisión humana**. Ni el V2, ni el
+ * V3, ni un automatismo ponen GANADO o PERDIDO. Una venta es plata recibida.
+ *
+ * El candado vive acá y no en cada regla a propósito: las reglas las dicta cualquiera hablando, y
+ * una regla mal escrita no puede poder saltarse esto.
+ *
+ * Qué hace con un cierre pedido por el agente:
+ * - GANADO  -> lo rechaza y deja el lead en NEGOCIACION (Caliente). La intención de compra es
+ *   real y merece atención urgente; lo que no es real todavía es la venta.
+ * - PERDIDO -> lo rechaza y NO mueve nada. "Este no compra" también lo decide una persona.
+ */
+const ETIQUETAS_DE_ETAPA: Record<string, CrmStage> = {
+  nuevo: "NUEVO",
+  frio: "CALIFICADO",
+  calificado: "CALIFICADO",
+  tibio: "PROPUESTA",
+  propuesta: "PROPUESTA",
+  caliente: "NEGOCIACION",
+  negociacion: "NEGOCIACION",
+  ganado: "GANADO",
+  vendido: "GANADO",
+  descartado: "PERDIDO",
+  perdido: "PERDIDO",
+};
+
+/**
+ * La decisión, sin base de datos: qué etapa le queda a un lead cuando un agente pide moverlo.
+ *
+ * Va separada para poder probarla de verdad. El candado es una regla de negocio, no un detalle
+ * técnico: merece una prueba que se corra sin tocar producción ni mandarle un WhatsApp a nadie.
+ */
+export function decidirEtapaDeAgente(
+  etapaPedida: string,
+  etapaActual: CrmStage,
+): { destino: CrmStage | null; motivo?: ResultadoEtapaDeAgente["motivo"] } {
+  const normalizada = etapaPedida
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim();
+  const pedida = ETIQUETAS_DE_ETAPA[normalizada];
+
+  if (!pedida) {
+    return { destino: null, motivo: "etapa-desconocida" };
+  }
+
+  // Cerrar es decisión humana: GANADO baja a Caliente, PERDIDO no mueve nada.
+  if (pedida === "PERDIDO") {
+    return { destino: null, motivo: "cierre-prohibido" };
+  }
+  const destino: CrmStage = pedida === "GANADO" ? "NEGOCIACION" : pedida;
+
+  if (etapaActual === "GANADO" || etapaActual === "PERDIDO") {
+    return { destino: null, motivo: "ya-cerrado" };
+  }
+
+  const indiceActual = BOT_STAGE_ORDER.indexOf(etapaActual);
+  const indiceDestino = BOT_STAGE_ORDER.indexOf(destino);
+  if (indiceDestino < 0 || indiceActual < 0 || indiceDestino <= indiceActual) {
+    return { destino: null, motivo: "no-retrocede" };
+  }
+
+  return { destino };
+}
+
+export type ResultadoEtapaDeAgente = {
+  /** Etapa a la que quedó, o null si no se movió. */
+  etapa: CrmStage | null;
+  /** Por qué no se movió, para poder explicarlo sin adivinar. */
+  motivo?: "etapa-desconocida" | "cierre-prohibido" | "ya-cerrado" | "no-retrocede" | "sin-contacto";
+};
+
+export async function moverEtapaDesdeAgente(input: {
+  workspaceId: string;
+  contactId: string;
+  conversationId: string;
+  channelId: string | null;
+  /** Lo que pidió la regla, en palabras del negocio: "Tibio", "Caliente", "Ganado"... */
+  etapa: string;
+  recordActivity?: boolean;
+}): Promise<ResultadoEtapaDeAgente> {
+  const contact = await prisma.contact.findFirst({
+    where: { id: input.contactId, workspaceId: input.workspaceId },
+    select: { crmStage: true, excludedFromCrm: true },
+  });
+  if (!contact || contact.excludedFromCrm) {
+    return { etapa: null, motivo: "sin-contacto" };
+  }
+
+  const { destino, motivo } = decidirEtapaDeAgente(input.etapa, contact.crmStage as CrmStage);
+
+  // El cierre rechazado queda en el log a proposito: si vuelve a pasar, se ve que lo pidio y cuando.
+  if (motivo === "cierre-prohibido" || (destino === "NEGOCIACION" && /ganado|vendido/i.test(input.etapa))) {
+    console.warn("[crm] cierre rechazado: un agente no puede cerrar una venta", {
+      contactId: input.contactId,
+      conversationId: input.conversationId,
+      pidio: input.etapa,
+      queda: destino ?? contact.crmStage,
+    });
+  }
+
+  if (!destino) {
+    return { etapa: null, motivo };
+  }
+
+  await prisma.$executeRaw`
+    UPDATE "Contact"
+    SET "crmStage" = ${destino}::"CrmStage",
+        "updatedAt" = NOW()
+    WHERE "id" = ${input.contactId}
+  `;
+
+  // Las mismas consecuencias que mover la tarjeta a mano, igual que en el puente del V2.
+  await createFollowsFromRulesForSource({
+    workspaceId: input.workspaceId,
+    contactId: input.contactId,
+    sourceType: "CRM_STAGE",
+    sourceId: destino,
+  }).catch(() => {});
+
+  if (input.recordActivity !== false) {
+    await recordConversationActivity({
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      channelId: input.channelId,
+      contactId: input.contactId,
+      kind: "stage_changed",
+      text: `El agente movió la etapa a "${CRM_STAGE_META[destino]?.label ?? destino}"`,
+    }).catch(() => {});
+  }
+
+  return { etapa: destino };
+}
