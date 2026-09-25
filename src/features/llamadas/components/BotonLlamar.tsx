@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Phone } from "lucide-react";
+import { Phone, PhoneOff } from "lucide-react";
 import { toast } from "sonner";
 
 import { PanelDeLlamada } from "./PanelDeLlamada";
@@ -44,10 +44,29 @@ export function BotonLlamar({
   // reaccionando al estado despues, que era una vuelta de mas.
   const [expandido, setExpandido] = useState(true);
 
-  // Sin número marcable no se ofrece: es el caso de los leads que llegan solo con un LID de
-  // WhatsApp, donde el "teléfono" son quince dígitos que no existen.
+  /*
+    Sin numero marcable el boton se muestra APAGADO, no se esconde.
+
+    Es el caso de los leads que llegan solo con un identificador de WhatsApp, donde el "telefono"
+    son quince digitos que no existen: son el 15% de la base y WhatsApp no los traduce -se le
+    pregunto por diez y contesto vacio en los diez (25-09-2026)-.
+
+    Antes el boton simplemente desaparecia, y desde afuera eso se lee como "el CRM esta roto"
+    (Alex: "no aparece el boton para llamar, que rabia"). Apagado y con su explicacion, la asesora
+    entiende en un segundo que no hay a donde marcar y que la salida es pedirle el numero.
+  */
   if (!telefono) {
-    return null;
+    return (
+      <button
+        type="button"
+        disabled
+        title="Este cliente llegó con número oculto de WhatsApp, así que no tenemos a dónde marcar. Pedile el número por el chat."
+        aria-label="No se puede llamar: el cliente llegó con número oculto"
+        className="inline-flex h-10 w-10 shrink-0 cursor-not-allowed items-center justify-center rounded-full text-muted-foreground opacity-40"
+      >
+        <PhoneOff className="h-5 w-5" />
+      </button>
+    );
   }
 
   const ocupada = estado !== "libre";
