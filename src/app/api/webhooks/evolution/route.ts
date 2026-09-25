@@ -93,7 +93,7 @@ import {
 import { buildProductPlaybookPrompt, getProductPlaybook } from "@/lib/product-playbook";
 import { reconocerProductoDelLead } from "@/lib/product-auto-tag";
 import { recordContactMatch } from "@/lib/contact-matches";
-import { calcularReparto } from "@/lib/channel-collaborators";
+import { calcularReparto, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
 import {
@@ -925,10 +925,27 @@ async function assignAdLeadByCampaign(args: {
     where: { workspaceId: args.workspaceId, isActive: true, userId: { in: routing.userIds } },
     select: { userId: true },
   });
-  const elegido = pickNextAdCampaignAssignee(
-    routing,
-    new Set(miembrosActivos.map((miembro) => miembro.userId)),
+
+  /*
+    La PAUSA de reparto tambien manda acá.
+
+    Solo se miraba que la persona siguiera en el equipo, asi que una asesora pausada seguia
+    recibiendo leads si alguna regla de campaña la nombraba: se pausaba en Colaboradores y le
+    llegaban igual (Alex, 24-sep-2026, con María). El reparto por turnos si la respetaba, asi que
+    el bug solo se veia en las lineas con campañas, que son justo las que traen el volumen.
+
+    Quien solo monitorea tampoco recibe, por lo mismo que en `calcularReparto`: no puede contestar.
+  */
+  const fueraDelReparto = new Set([
+    ...leerPausadosDeReparto(channel?.metadata),
+    ...leerMonitores(channel?.metadata),
+  ]);
+  const disponibles = new Set(
+    miembrosActivos.map((miembro) => miembro.userId).filter((userId) => !fueraDelReparto.has(userId)),
   );
+
+  const elegido = pickNextAdCampaignAssignee(routing, disponibles);
+  // Si toda la regla está pausada, no se fuerza: cae al reparto por turnos, que ya sabe a quién sí.
   if (!elegido) {
     return false;
   }

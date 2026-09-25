@@ -12,8 +12,11 @@ import { RefreshCw } from "lucide-react";
  * chat, registrar una llamada. En pantalla no se ve un error entendible, se ve
  * "No se pudo enviar SILLAS DE BARBERIA.pdf" — y no hay nada malo con el PDF ni con el chat.
  *
- * La comprobacion es al volver a la app (no hay poll): es justo el momento en que una asesora
- * retoma el celular despues de un rato, que es cuando el problema aparece.
+ * Se comprueba al volver a la app Y cada pocos minutos mientras este abierta. Lo segundo faltaba,
+ * y es el caso de quien trabaja sin soltar la pantalla: Alex tuvo la pestaña abierta y activa una
+ * noche entera mientras se desplegaba seis veces, nunca perdio el foco, nunca se entero, y lo que
+ * vio fue un panel que no cargaba y un "cambiar asesor" que no hacia nada (24-sep-2026). En el
+ * servidor eso se lee como "Failed to find Server Action".
  */
 
 const VERSION_CARGADA = process.env.NEXT_PUBLIC_DEPLOYMENT_ID?.trim() || "";
@@ -65,9 +68,12 @@ export function AppVersionGuard() {
     void comprobar();
     document.addEventListener("visibilitychange", comprobar);
     window.addEventListener("focus", comprobar);
+    // Cada 3 minutos: es una respuesta de dos lineas, y solo corre con la pestaña a la vista.
+    const reloj = window.setInterval(comprobar, 3 * 60 * 1000);
 
     return () => {
       cancelado = true;
+      window.clearInterval(reloj);
       document.removeEventListener("visibilitychange", comprobar);
       window.removeEventListener("focus", comprobar);
     };
