@@ -147,26 +147,13 @@ export async function ejecutarSeguimientosV3(ahora = new Date()): Promise<{ envi
           });
         }
 
-        await prisma.message.create({
-          data: {
-            workspaceId: canal.workspaceId,
-            conversationId: conversacion.id,
-            channelId: canal.id,
-            contactId: conversacion.contactId,
-            direction: "OUTBOUND",
-            type: "SYSTEM",
-            status: "SENT",
-            content: `Agente V3: seguimiento "${toca.regla.nombre}" (${toca.minutos} min sin respuesta)`,
-            /*
-              SIN `sentAt`: es una nota para el equipo, no un mensaje.
+        /*
+          NO se deja nota en el chat.
 
-              Con fecha de envio la bandeja la pinta como burbuja verde con su palomita, y parece
-              que al cliente le llego "Agente V3: seguimiento..." (Alex lo vio y pregunto si se
-              habia enviado; no, nunca salio de la base). Las demas notas del sistema tampoco la
-              tienen: asi se dibujan grises y centradas.
-            */
-          },
-        });
+          Al principio escribia una ("Agente V3: seguimiento ... 15 min sin respuesta"). Alex la vio
+          y pidio sacarla: en la conversacion estorba y encima parecia un mensaje enviado al cliente.
+          Lo que salio queda igual de rastreable en `seguimientosEnviados` y en el log.
+        */
 
         // Los vencidos quedan marcados aunque haya salido solo el último: no se persigue hacia atrás.
         const marcados = reglas.filter((fila) => fila.minutos <= minutosCallado).map((fila) => fila.minutos);
