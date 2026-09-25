@@ -136,7 +136,8 @@ async function getAgentConversationList(input: {
   workspaceId: string;
   searchQuery: string;
   selectedConnectionKey: string;
-  assignedFilter: "all" | "mine" | "unassigned";
+  /** "all" | "mine" | "unassigned" | "user:<id>" (un jefe mirando la bandeja de una asesora). */
+  assignedFilter: string;
   statusFilter: "all" | "open" | "resolved";
   filtros: FiltrosDeBandeja;
   currentUserId: string;
@@ -161,7 +162,9 @@ async function getAgentConversationList(input: {
       ? { assignedToUserId: input.currentUserId }
       : input.assignedFilter === "unassigned"
         ? { assignedToUserId: null }
-        : {};
+        : input.assignedFilter.startsWith("user:")
+          ? { assignedToUserId: input.assignedFilter.slice("user:".length) }
+          : {};
   const statusWhere: Prisma.ConversationWhereInput =
     input.statusFilter === "resolved"
       ? { status: { in: ["CLOSED", "ARCHIVED"] } }
@@ -615,8 +618,15 @@ export async function GET(request: Request) {
     sigue quedando "Mias": se lo impone el permiso, unas lineas mas abajo.
   */
   const requestedFilterRaw = requestUrl.searchParams.get("assigned")?.trim() || "";
-  let assignedFilter: "all" | "mine" | "unassigned" =
-    requestedFilterRaw === "mine" || requestedFilterRaw === "unassigned" ? requestedFilterRaw : "all";
+  /*
+    `user:<id>` = la bandeja de una asesora concreta. Solo para jefes: unas lineas mas abajo, a
+    quien no lo es se le impone "mine", asi que no hay forma de espiar chats ajenos desde la URL.
+  */
+  const pideUnaAsesora = /^user:[a-z0-9]+$/i.test(requestedFilterRaw);
+  let assignedFilter: string =
+    requestedFilterRaw === "mine" || requestedFilterRaw === "unassigned" || pideUnaAsesora
+      ? requestedFilterRaw
+      : "all";
   // Los no-managers (empleados) solo pueden ver sus chats asignados: nunca "Todos" ni "Sin asignar".
   if (!isManager) {
     assignedFilter = "mine";

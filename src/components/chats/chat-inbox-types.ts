@@ -136,7 +136,14 @@ export type SharedInboxSidebarItem = {
   channelType?: SharedInboxConversationItem["channelType"];
 };
 
-export type AssignedFilter = "all" | "mine" | "unassigned";
+/**
+ * A quién pertenecen los chats que se ven.
+ *
+ * `user:<id>` es para los jefes: mirar la bandeja de UNA asesora en particular, que es como se
+ * revisa si alguien está atendiendo bien (Alex, 25-09-2026). A una asesora el servidor le impone
+ * "mine" pase lo que pase.
+ */
+export type AssignedFilter = "all" | "mine" | "unassigned" | `user:${string}`;
 export type StatusFilter = "all" | "open" | "resolved";
 
 export type SharedInboxProps = {

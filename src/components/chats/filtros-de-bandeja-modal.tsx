@@ -1,7 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Bookmark, Check, Loader2, X } from "lucide-react";
+import { Bookmark, Check, Loader2, UserRound, X } from "lucide-react";
+
+import { pedirMiembros } from "@/components/chats/assign-chat-control";
+import type { AssignableMember } from "@/app/actions/chats-actions";
 
 import {
   Dialog,
@@ -82,6 +85,15 @@ export function FiltrosDeBandejaModal({
   const [etapas, setEtapas] = React.useState<EtapaCrm[]>(filtros.etapas);
   const [sinResponder, setSinResponder] = React.useState(filtros.sinResponder);
 
+  /*
+    El equipo, para que un jefe pueda mirar la bandeja de UNA asesora.
+
+    Se pide al abrir el modal y solo si es jefe: una asesora no tiene por que descargarse la lista
+    del equipo para filtrar sus propios chats. Reusa la misma lista cacheada del selector de
+    asignacion, asi que abrir el filtro no cuesta una consulta nueva.
+  */
+  const [equipo, setEquipo] = React.useState<AssignableMember[]>([]);
+
   const [guardados, setGuardados] = React.useState<FiltroGuardado[]>([]);
   const [nombrando, setNombrando] = React.useState(false);
   const [nombre, setNombre] = React.useState("");
@@ -105,6 +117,15 @@ export function FiltrosDeBandejaModal({
     setErrorAlGuardar("");
 
     let vigente = true;
+
+    if (isManager) {
+      void pedirMiembros().then((resultado) => {
+        if (vigente && resultado.members) {
+          setEquipo(resultado.members);
+        }
+      });
+    }
+
     void fetch("/api/cliente/chats/filtros-guardados", { credentials: "same-origin" })
       .then((respuesta) => respuesta.json())
       .then((datos: { ok?: boolean; filtros?: FiltroGuardado[] }) => {
@@ -118,7 +139,29 @@ export function FiltrosDeBandejaModal({
     return () => {
       vigente = false;
     };
-  }, [abierto, assignedFilter, statusFilter, etapasPuestas, filtros.sinResponder]);
+  }, [abierto, assignedFilter, statusFilter, etapasPuestas, filtros.sinResponder, isManager]);
+
+  /*
+    Lo elegido, en una linea. Sin esto hay que recorrer el modal entero para saber que quedo
+    puesto, que es justo lo que uno quiere ver de un vistazo al abrirlo.
+  */
+  const resumenDeLoElegido = React.useMemo(() => {
+    const partes: string[] = [];
+    if (asignacion === "mine") partes.push("Mías");
+    else if (asignacion === "unassigned") partes.push("Sin asignar");
+    else if (asignacion.startsWith("user:")) {
+      const id = asignacion.slice("user:".length);
+      const quien = equipo.find((miembro) => miembro.id === id);
+      partes.push(quien ? (quien.name?.trim() || quien.email) : "Una asesora");
+    } else partes.push("Todas");
+
+    partes.push(estado === "open" ? "abiertas" : estado === "resolved" ? "resueltas" : "abiertas y resueltas");
+    if (etapas.length > 0) {
+      partes.push(etapas.length === 1 ? CRM_STAGE_META[etapas[0]].label : `${etapas.length} etapas`);
+    }
+    if (sinResponder) partes.push("sin responder");
+    return partes.join(" · ");
+  }, [asignacion, estado, etapas, sinResponder, equipo]);
 
   const alternarEtapa = (etapa: EtapaCrm) => {
     setEtapas((actuales) =>
@@ -198,8 +241,8 @@ export function FiltrosDeBandejaModal({
       >
         <DialogHeader className="border-b border-border px-4 py-3">
           <DialogTitle className="text-[15px]">Filtrar conversaciones</DialogTitle>
-          <DialogDescription className="sr-only">
-            Elegí qué conversaciones querés ver en la bandeja.
+          <DialogDescription className="text-[12.5px] text-muted-foreground">
+            {resumenDeLoElegido}
           </DialogDescription>
         </DialogHeader>
 
@@ -238,7 +281,12 @@ export function FiltrosDeBandejaModal({
               <div className="space-y-0.5">
                 {opcionesDeAsignacion.map((opcion) => {
                   const elegida = asignacion === opcion.value;
-                  const cuenta = assignedCounts ? assignedCounts[opcion.value] : null;
+                  const cuenta =
+                    assignedCounts && opcion.value !== "all" && !opcion.value.startsWith("user:")
+                      ? assignedCounts[opcion.value as "mine" | "unassigned"]
+                      : assignedCounts && opcion.value === "all"
+                        ? assignedCounts.all
+                        : null;
                   return (
                     <button
                       key={opcion.value}
@@ -263,6 +311,37 @@ export function FiltrosDeBandejaModal({
                           {cuenta}
                         </span>
                       ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </Seccion>
+          ) : null}
+
+          {/*
+            La bandeja de UNA asesora. Solo para jefes: es como se revisa si alguien esta
+            atendiendo bien, sin tener que abrir chat por chat (Alex, 25-09-2026).
+          */}
+          {isManager && equipo.length > 0 ? (
+            <Seccion titulo="Por asesora">
+              <div className="flex flex-wrap gap-1.5">
+                {equipo.map((miembro) => {
+                  const valor = `user:${miembro.id}` as AssignedFilter;
+                  const elegida = asignacion === valor;
+                  const nombreCorto = (miembro.name?.trim() || miembro.email).split(" ").slice(0, 2).join(" ");
+                  return (
+                    <button
+                      key={miembro.id}
+                      type="button"
+                      onClick={() => setAsignacion(elegida ? "all" : valor)}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] font-medium transition ${
+                        elegida
+                          ? "border-primary/40 bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {elegida ? <Check className="h-3 w-3" /> : <UserRound className="h-3 w-3" />}
+                      {nombreCorto}
                     </button>
                   );
                 })}
@@ -394,10 +473,10 @@ export function FiltrosDeBandejaModal({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+        <div className="sticky bottom-0 flex items-center justify-between gap-2 border-t border-border bg-background px-4 py-3">
           <button
             type="button"
-            onClick={() => alAplicar("mine", "open", { etapas: [], sinResponder: false })}
+            onClick={() => alAplicar(isManager ? "all" : "mine", "open", { etapas: [], sinResponder: false })}
             className="rounded-md px-2.5 py-2 text-[13px] font-medium text-muted-foreground transition hover:text-foreground"
           >
             Limpiar
@@ -405,7 +484,7 @@ export function FiltrosDeBandejaModal({
           <button
             type="button"
             onClick={() => alAplicar(asignacion, estado, { etapas, sinResponder })}
-            className="rounded-md bg-primary px-4 py-2 text-[13px] font-medium text-primary-foreground transition hover:opacity-90"
+            className="rounded-md bg-primary px-5 py-2 text-[13px] font-medium text-primary-foreground transition hover:opacity-90"
           >
             Aplicar
           </button>

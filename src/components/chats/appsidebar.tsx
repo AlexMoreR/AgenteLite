@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { MessageSquareText, Plus, X } from "lucide-react";
+import { MessageSquareText, SlidersHorizontal, X } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { type AssignedFilter, type StatusFilter, type SharedInboxConversationItem } from "./shared-inbox";
 import { FiltrosDeBandejaModal } from "./filtros-de-bandeja-modal";
@@ -278,13 +278,20 @@ export function AppSidebar({
                 aria-expanded={filterMenuOpen}
                 aria-haspopup="dialog"
                 title="Cambiar filtro"
-                className={`relative inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed transition hover:border-solid hover:bg-muted hover:text-foreground ${
+                /*
+                  Un embudo, no un "+": el boton abre los filtros y un mas significa "agregar".
+                  Se leia como "nueva conversacion" (Alex, 25-09-2026).
+                */
+                className={`relative inline-flex h-7 w-7 items-center justify-center rounded-lg border transition hover:bg-muted hover:text-foreground ${
                   filterMenuOpen || filtersActive
-                    ? "border-primary text-primary"
+                    ? "border-primary/40 bg-primary/10 text-primary"
                     : "border-border text-muted-foreground"
                 }`}
               >
-                <Plus className="h-3.5 w-3.5" />
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                {filtersActive ? (
+                  <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-primary" />
+                ) : null}
               </button>
             </div>
           </div>
