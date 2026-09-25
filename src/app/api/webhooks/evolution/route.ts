@@ -41,6 +41,7 @@ import {
 } from "@/lib/evolution-envio";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { prisma } from "@/lib/prisma";
+import { avisarAsesorPorWhatsApp } from "@/features/agente-v3/servicios/avisos";
 import { sendChatPushToWorkspace } from "@/lib/web-push";
 import { quienesNoSeEnteran } from "@/lib/quien-se-entera-del-mensaje";
 import {
@@ -2893,14 +2894,20 @@ export async function POST(request: NextRequest) {
             text: `El agente pide un asesor: ${motivo}`,
           }).catch(() => {});
 
-          await sendChatPushToWorkspace({
+          /*
+            El aviso va por WHATSAPP, no por push del navegador.
+
+            El push dependia de que cada persona le hubiera dado permiso al navegador, y si no lo
+            dio -que es lo normal- el aviso no le llegaba a nadie y el lead se enfriaba esperando.
+            Alex pidio volver al mecanismo del V2 (25-09-2026): un mensaje a los numeros del
+            equipo, y cada uno recibe SOLO los chats que le tocan.
+          */
+          await avisarAsesorPorWhatsApp({
             workspaceId: channel.workspaceId,
-            payload: {
-              title: `Asesor requerido: ${contact.name?.trim() || phoneNumber}`,
-              body: motivo,
-              tag: `advisor-request:${conversation.id}`,
-              url: `/cliente/chats?chatKey=agent:${conversation.id}&assigned=all`,
-            },
+            conversationId: conversation.id,
+            motivo,
+            cliente: contact.name?.trim() || phoneNumber,
+            telefonoDelCliente: phoneNumber,
           });
         },
         cambiarEtapa: async (etapa) => {

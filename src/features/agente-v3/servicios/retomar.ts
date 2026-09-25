@@ -3,7 +3,7 @@ import { recordConversationActivity } from "@/lib/conversation-activity";
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { sendAndPersistEvolutionFlowStepResilient } from "@/lib/evolution-envio";
 import { prisma } from "@/lib/prisma";
-import { sendChatPushToWorkspace } from "@/lib/web-push";
+import { avisarAsesorPorWhatsApp } from "./avisos";
 
 import { atenderConAgenteV3 } from "../motor/ejecutar";
 
@@ -120,14 +120,12 @@ export async function retomarConversacionV3(input: {
           text: `El agente pide un asesor: ${motivo}`,
         }).catch(() => {});
 
-        await sendChatPushToWorkspace({
+        await avisarAsesorPorWhatsApp({
           workspaceId: channel.workspaceId,
-          payload: {
-            title: `Asesor requerido: ${contact.name?.trim() || telefono}`,
-            body: motivo,
-            tag: `advisor-request:${conversation.id}`,
-            url: `/cliente/chats?chatKey=agent:${conversation.id}&assigned=all`,
-          },
+          conversationId: conversation.id,
+          motivo,
+          cliente: contact.name?.trim() || telefono,
+          telefonoDelCliente: telefono,
         });
       },
       cambiarEtapa: async (etapa) => {
