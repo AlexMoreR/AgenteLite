@@ -35,10 +35,22 @@ function getBaseUrl(request: Request) {
   return process.env.NEXT_PUBLIC_APP_URL?.trim() || "";
 }
 
+/*
+  La extension importa, y mas de lo que parece.
+
+  Una nota de voz grabada desde el CRM llega del navegador como `audio/mp4` (asi la entregan
+  Safari y el iPhone). Se guardaba con extension `.mp4`, que para todo el mundo -WhatsApp
+  incluido- significa VIDEO: al descargar ese audio y querer reenviarlo, WhatsApp contestaba "el
+  archivo que intentaste añadir no es compatible", porque veia un video sin imagen (Alex,
+  25-09-2026).
+
+  El contenedor correcto para audio en MP4 es `.m4a`. Es el mismo archivo, con el nombre que
+  corresponde, y con eso lo reconocen WhatsApp y cualquier reproductor.
+*/
 function getAudioExtension(mimeType: string) {
   if (mimeType.includes("ogg") || mimeType.includes("opus")) return ".ogg";
   if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return ".mp3";
-  if (mimeType.includes("mp4")) return ".mp4";
+  if (mimeType.includes("mp4") || mimeType.includes("m4a") || mimeType.includes("aac")) return ".m4a";
   if (mimeType.includes("wav")) return ".wav";
   return ".webm";
 }
