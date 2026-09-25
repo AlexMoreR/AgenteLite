@@ -160,7 +160,8 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
   }, [limpiar, onTerminada]);
 
   const llamar = useCallback(
-    async (telefono: string) => {
+    /** `esOculto` = el destino es un identificador de WhatsApp, no un teléfono. */
+    async (telefono: string, esOculto = false) => {
       if (estado !== "libre") {
         return;
       }
@@ -173,7 +174,7 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
         canalRef.current = channelId ?? undefined;
         const iniciada = (await pedir({
           accion: "iniciar",
-          phone: telefono,
+          ...(esOculto ? { lid: telefono } : { phone: telefono }),
           channelId: canalRef.current,
         })) as { callId?: string };
         const callId = iniciada.callId;

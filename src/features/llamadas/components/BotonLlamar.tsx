@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Phone, PhoneOff } from "lucide-react";
+
+import { looksLikeLidNumber } from "@/lib/whatsapp-lid";
 import { toast } from "sonner";
 
 import { PanelDeLlamada } from "./PanelDeLlamada";
@@ -24,7 +26,10 @@ export function BotonLlamar({
   avatarUrl,
   channelId,
 }: {
-  /** Número marcable, o null si el contacto solo tiene un LID de WhatsApp. */
+  /**
+   * Con qué se marca: un teléfono, o el identificador oculto de WhatsApp cuando es lo único que
+   * el cliente nos dio. Las dos cosas se pueden llamar.
+   */
   telefono: string | null;
   nombre: string;
   avatarUrl?: string | null;
@@ -45,7 +50,14 @@ export function BotonLlamar({
   const [expandido, setExpandido] = useState(true);
 
   /*
-    Sin numero marcable el boton se muestra APAGADO, no se esconde.
+    Los leads de anuncios llegan con un identificador oculto en vez de telefono, y a ese
+    identificador SI se le puede llamar: probado el 25-09-2026 llamando al numero de Alex por su
+    identificador -timbro, contesto, y el audio se establecio-. Son el 15% de la base.
+  */
+  const esOculto = looksLikeLidNumber(telefono);
+
+  /*
+    Sin NADA con que marcar el boton se muestra APAGADO, no se esconde.
 
     Es el caso de los leads que llegan solo con un identificador de WhatsApp, donde el "telefono"
     son quince digitos que no existen: son el 15% de la base y WhatsApp no los traduce -se le
@@ -77,7 +89,7 @@ export function BotonLlamar({
         type="button"
         onClick={() => {
           setExpandido(true);
-          void llamar(telefono);
+          void llamar(telefono, esOculto);
         }}
         disabled={ocupada}
         title={ocupada ? "Ya hay una llamada en curso" : `Llamar a ${nombre}`}

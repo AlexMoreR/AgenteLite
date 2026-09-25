@@ -116,6 +116,27 @@ export function resolveCallablePhone(contact: {
 }
 
 /**
+ * CON QUE se marca una llamada a este contacto: su telefono, o su identificador oculto.
+ *
+ * Va aparte de `resolveCallablePhone` a proposito: esa dice cual es el TELEFONO del contacto -y
+ * para un lead de anuncio la respuesta sigue siendo "ninguno"-, mientras que esta dice a donde se
+ * puede llamar, que no es lo mismo desde el 25-09-2026.
+ *
+ * Ese dia se probo llamando al numero de Alex por su identificador en vez de por su numero:
+ * timbro, contesto, y el audio se establecio. WhatsApp acepta una llamada dirigida al
+ * identificador porque es la misma direccion con la que se intercambian los mensajes cifrados.
+ * Antes esos contactos -el 15% de la base, 355 fichas- no se podian llamar de ninguna forma.
+ */
+export function resolveCallTarget(contact: { phoneNumber: string | null; metadata?: unknown }): string | null {
+  const telefono = resolveCallablePhone(contact);
+  if (telefono) {
+    return telefono;
+  }
+  const crudo = (contact.phoneNumber ?? "").replace(/\D/g, "");
+  return looksLikeLidNumber(crudo) ? crudo : null;
+}
+
+/**
  * Busca un telefono dentro de lo que escribio el cliente ("mi numero es 3001234567").
  *
  * Es deliberadamente estricto porque en estas conversaciones vuelan numeros que NO son

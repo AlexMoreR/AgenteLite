@@ -30,6 +30,8 @@ type Cuerpo = {
   /** Canal del chat desde donde se llama: define POR QUE numero sale la llamada. */
   channelId?: string;
   phone?: string;
+  /** Identificador oculto de WhatsApp, para los leads que llegan sin telefono. */
+  lid?: string;
   callId?: string;
   sdpOffer?: string;
   muted?: boolean;
@@ -79,13 +81,23 @@ export async function POST(request: Request) {
       // Solo dígitos: WaCalls igual los limpia, pero lo que llega es un teléfono escrito por
       // otra gente y no tiene por qué llegar entero hasta allá.
       const phone = (cuerpo.phone ?? "").replace(/[^0-9+]/g, "");
-      if (!phone) {
+      const lid = (cuerpo.lid ?? "").replace(/[^0-9]/g, "");
+      if (!phone && !lid) {
         return NextResponse.json({ error: "Falta el número" }, { status: 400 });
       }
+
+      /*
+        A los leads de anuncios WhatsApp no nos da su telefono, solo un identificador oculto. Y a
+        ese identificador SÍ se le puede llamar: es la misma direccion con la que intercambiamos
+        mensajes cifrados. Probado el 25-09-2026 llamando al numero de Alex por su identificador:
+        timbro, contesto y el audio se establecio.
+
+        Son el 15% de la base -355 contactos-, que hasta hoy no se podian llamar de ninguna forma.
+      */
       const respuesta = await waCallsRequest<{ call?: { callId?: string } }>({
         path: `/api/sessions/${sid}/calls`,
         method: "POST",
-        body: { phone },
+        body: lid ? { lid } : { phone },
         operadorId,
       });
       if (!respuesta.ok) {

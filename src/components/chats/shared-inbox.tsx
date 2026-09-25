@@ -66,7 +66,7 @@ import { ChatHeaderActions } from "./chat-header-actions";
 import { CopyConversationButton } from "./copy-conversation-button";
 import { ImportHistoryControl } from "./import-history-control";
 import type { CrmStage } from "@/features/crm/types";
-import { resolveCallablePhone } from "@/lib/whatsapp-lid";
+import { resolveCallTarget } from "@/lib/whatsapp-lid";
 
 const CONVERSATION_LIST_LOAD_BATCH_SIZE = 10;
 // Logs de depuración de la lista desactivados (ensuciaban la consola en desarrollo).
@@ -1886,11 +1886,11 @@ export function SharedInbox({
         contactId={conversation.contactId}
         stage={conversation.crmStage as CrmStage}
         /*
-          El numero se pasa por resolveCallablePhone: cuando el cliente llego identificado solo
-          con un LID, secondaryLabel guarda ese LID -sirve para chatear, no es un telefono- y
-          ofrecer "Llamar" ahi mandaba a marcar quince digitos que no existen.
+          Se pasa el DESTINO de la llamada, que puede ser un telefono o el identificador oculto de
+          WhatsApp. A los leads de anuncios -que llegan sin telefono- ahora tambien se les puede
+          llamar: probado el 25-09-2026 y el boton ya no se apaga con ellos.
         */
-        telefono={resolveCallablePhone({ phoneNumber: conversation.secondaryLabel })}
+        telefono={resolveCallTarget({ phoneNumber: conversation.secondaryLabel })}
         nombreContacto={conversation.label}
         channelId={conversation.channelId ?? null}
         avatarUrl={conversation.avatarUrl ?? null}
