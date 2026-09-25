@@ -2709,24 +2709,27 @@ export async function POST(request: NextRequest) {
     const instanciaPausa = channel.evolutionInstanceName;
     after(async () => {
       try {
-        const pausa = await prisma.conversation.findUnique({
-          where: { id: conversation.id },
-          select: { automationPausedAt: true },
-        });
-        const desde = pausa?.automationPausedAt;
-        if (!desde) {
-          return;
-        }
+        /*
+          ¿Hace falta el acuse? Solo si NADIE contesto hace un rato.
 
-        const humanoYaContesto = await prisma.message.count({
+          Antes se comparaba contra `automationPausedAt`, y estaba mal: cada mensaje de la asesora
+          vuelve a marcar la pausa, asi que la pregunta "¿ya contesto una persona desde que se
+          pauso?" daba siempre que no. Resultado: el acuse salia pisandole el mensaje a Ingrid, 13
+          segundos despues de que ella escribiera (25-09-2026).
+
+          Ahora la pregunta es la que de verdad importa: ¿hay alguna respuesta nuestra reciente? Si
+          la hay, la clienta no esta esperando a nadie y el acuse sobra.
+        */
+        const SILENCIO_MINIMO_MS = 3 * 60_000;
+        const respuestaReciente = await prisma.message.count({
           where: {
             conversationId: conversation.id,
             direction: "OUTBOUND",
             type: { not: "SYSTEM" },
-            createdAt: { gt: desde },
+            createdAt: { gt: new Date(Date.now() - SILENCIO_MINIMO_MS) },
           },
         });
-        if (humanoYaContesto > 0) {
+        if (respuestaReciente > 0) {
           return;
         }
 
@@ -2786,6 +2789,23 @@ export async function POST(request: NextRequest) {
       conversationId: conversation.id,
       batchToken: tanda.token,
     });
+
+    /*
+      La asesora pudo TOMAR el chat durante la espera.
+
+      El agente junta mensajes 10 segundos antes de contestar, y la pausa se miraba solo al
+      empezar. Si una asesora entraba en esos 10 segundos, el agente le contestaba encima igual:
+      le paso a Ingrid, que escribio a las 15:56:21 y el bot solto su respuesta a las 15:56:24
+      (25-09-2026). Por eso se vuelve a mirar ACA, que es el ultimo momento antes de hablar.
+    */
+    const pausadoDuranteLaEspera = await getConversationAutomationPaused({
+      conversationId: conversation.id,
+      workspaceId: channel.workspaceId,
+    });
+    if (pausadoDuranteLaEspera) {
+      console.log("[EVOLUTION] v3_pausado_durante_la_espera", { conversationId: conversation.id });
+      return NextResponse.json({ ok: true, message: "V3: una persona tomo el chat mientras esperabamos" });
+    }
 
     // Otro mensaje del cliente llego mientras esperabamos: esa peticion es la que contesta.
     if (!tandaCerrada) {
