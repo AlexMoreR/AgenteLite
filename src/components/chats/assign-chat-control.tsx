@@ -27,7 +27,7 @@ type AssignChatControlProps = {
 type ResultadoMiembros = Awaited<ReturnType<typeof getAssignableMembersAction>>;
 let miembrosEnCache: { cuando: number; pedido: Promise<ResultadoMiembros> } | null = null;
 
-function pedirMiembros() {
+export function pedirMiembros() {
   const ahora = Date.now();
   if (!miembrosEnCache || ahora - miembrosEnCache.cuando > 60_000) {
     const pedido = getAssignableMembersAction().catch(() => ({ error: "No se pudo cargar el equipo" }) as ResultadoMiembros);

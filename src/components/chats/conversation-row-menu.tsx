@@ -3,6 +3,7 @@
 import { useCallback, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  ChevronLeft,
   CircleCheck,
   Clock3,
   Copy,
@@ -10,11 +11,13 @@ import {
   RotateCcw,
   Tag as TagIcon,
   UserRoundCheck,
+  UserRoundX,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { updateConversationStatusAction } from "@/app/actions/chats-actions";
+import { assignChatAction, updateConversationStatusAction, type AssignableMember } from "@/app/actions/chats-actions";
+import { pedirMiembros } from "@/components/chats/assign-chat-control";
 import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
 import { irALaBandejaLimpia } from "@/components/chats/ir-a-la-bandeja-limpia";
 import { snoozeLeadAction } from "@/app/actions/crm-actions";
@@ -26,10 +29,15 @@ import { snoozeLeadAction } from "@/app/actions/crm-actions";
  * cerró, posponer lo que sigue pero no hoy, y copiar el número para pegarlo en otro lado. La
  * etapa NO está acá a propósito: se cambia tocando su chapita, que es lo que uno intenta al verla.
  *
- * "Asignar" y "Etiquetas" abren la conversación en vez de resolverse acá: las dos necesitan
- * cargar datos del servidor (quiénes son las asesoras, qué etiquetas existen) y meter esas
- * consultas en cada una de las filas de una lista de 1.800 chats es la clase de cosa que hace
- * que la bandeja tarde en abrir.
+ * "Asignar asesora" SÍ se resuelve acá, y "Etiquetas" abre la conversación. La diferencia es
+ * cuándo se pide el dato: la lista del equipo se pide al TOCAR el botón, no al dibujar la fila,
+ * así que los 1.800 chats de la bandeja siguen sin costar una consulta cada uno. Además se
+ * comparte la misma lista cacheada del selector del chat (un pedido por minuto para toda la
+ * pantalla).
+ *
+ * Antes este botón solo llevaba al chat: prometía asignar y lo único que hacía era navegar, así
+ * que desde la bandeja no había forma de quitarle un chat a alguien ni de pasárselo a otra
+ * (Alex, 25-09-2026, mirando la pantalla de Stheffani).
  */
 
 const POSPONER_HORAS = 24;
@@ -56,6 +64,11 @@ export function ConversationRowMenu({
   const router = useRouter();
   const [abierto, setAbierto] = useState(false);
   const [isPending, startTransition] = useTransition();
+  // Segunda vista del mismo menú: la lista del equipo.
+  const [vistaAsignar, setVistaAsignar] = useState(false);
+  const [miembros, setMiembros] = useState<AssignableMember[] | null>(null);
+  const [errorMiembros, setErrorMiembros] = useState<string | null>(null);
+  const [asignando, setAsignando] = useState(false);
   const resuelto = status === "CLOSED" || status === "ARCHIVED";
 
   const cerrarYCorrer = useCallback((accion: () => Promise<void>) => {
@@ -107,6 +120,52 @@ export function ConversationRowMenu({
       router.refresh();
     });
 
+  /*
+    La lista del equipo se pide al TOCAR "Asignar asesora", no antes: es lo que permite tenerla
+    en la fila sin que la bandeja pague una consulta por cada uno de sus 1.800 chats.
+  */
+  const abrirAsignar = useCallback(() => {
+    setVistaAsignar(true);
+    if (miembros !== null || errorMiembros) {
+      return;
+    }
+    void pedirMiembros().then((resultado) => {
+      if (resultado.error || !resultado.members) {
+        setErrorMiembros(resultado.error ?? "No se pudo cargar el equipo");
+        return;
+      }
+      setMiembros(resultado.members);
+    });
+  }, [miembros, errorMiembros]);
+
+  const asignar = useCallback(
+    (userId: string | null) => {
+      if (asignando) {
+        return;
+      }
+      setAsignando(true);
+      startTransition(async () => {
+        const resultado = await assignChatAction({
+          conversationId,
+          assignToUserId: userId,
+          source,
+        }).catch(() => ({ error: "No se pudo asignar" }));
+        setAsignando(false);
+
+        if (resultado.error) {
+          toast.error(resultado.error);
+          return;
+        }
+
+        toast.success(userId ? "Chat asignado" : "Asignación quitada");
+        setAbierto(false);
+        setVistaAsignar(false);
+        router.refresh();
+      });
+    },
+    [asignando, conversationId, source, router],
+  );
+
   const copiarNumero = () => {
     setAbierto(false);
     if (!phoneNumber) {
@@ -144,6 +203,45 @@ export function ConversationRowMenu({
           sideOffset={6}
           className="w-60 rounded-2xl border border-border bg-popover p-1.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
         >
+          {vistaAsignar ? (
+            <div className="flex flex-col">
+              <button
+                type="button"
+                onClick={() => setVistaAsignar(false)}
+                className="mb-1 flex items-center gap-1.5 px-2.5 py-1.5 text-left text-[12px] text-muted-foreground transition hover:text-foreground"
+              >
+                <ChevronLeft className="size-3.5" />
+                Asignar asesora
+              </button>
+              <div className="max-h-64 overflow-y-auto">
+                {errorMiembros ? (
+                  <p className="px-2.5 py-2 text-[12.5px] text-muted-foreground">{errorMiembros}</p>
+                ) : miembros === null ? (
+                  <p className="px-2.5 py-2 text-[12.5px] text-muted-foreground">Cargando…</p>
+                ) : miembros.length === 0 ? (
+                  <p className="px-2.5 py-2 text-[12.5px] text-muted-foreground">No hay a quién asignar.</p>
+                ) : (
+                  <>
+                    {miembros.map((miembro) => (
+                      <Opcion
+                        key={miembro.id}
+                        icono={<UserRoundCheck className="size-4" />}
+                        texto={miembro.name?.trim() || miembro.email}
+                        onClick={() => asignar(miembro.id)}
+                      />
+                    ))}
+                    <div className="my-1 h-px bg-border" />
+                    <Opcion
+                      icono={<UserRoundX className="size-4" />}
+                      texto="Quitar asignación"
+                      onClick={() => asignar(null)}
+                    />
+                  </>
+                )}
+              </div>
+            </div>
+          ) : (
+          <>
           <Opcion
             icono={resuelto ? <RotateCcw className="size-4" /> : <CircleCheck className="size-4" />}
             texto={resuelto ? "Reabrir conversación" : "Marcar como resuelto"}
@@ -162,10 +260,7 @@ export function ConversationRowMenu({
           <Opcion
             icono={<UserRoundCheck className="size-4" />}
             texto="Asignar asesora"
-            onClick={() => {
-              setAbierto(false);
-              router.push(chatHref);
-            }}
+            onClick={abrirAsignar}
           />
           <Opcion
             icono={<TagIcon className="size-4" />}
@@ -182,6 +277,8 @@ export function ConversationRowMenu({
               <Opcion icono={<Copy className="size-4" />} texto="Copiar número" onClick={copiarNumero} />
             </>
           ) : null}
+          </>
+          )}
         </PopoverContent>
       </Popover>
     </span>
