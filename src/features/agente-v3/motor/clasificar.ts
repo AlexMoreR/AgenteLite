@@ -21,6 +21,14 @@ export async function clasificarIntenciones(input: {
   reglas: ReglaV3[];
   /** Los últimos mensajes, del más viejo al más nuevo: "si" o "el negro" no se entienden solos. */
   historial?: Array<{ de: "cliente" | "negocio"; texto: string }>;
+  /**
+   * El mensaje al que el cliente le respondió con "responder" de WhatsApp.
+   *
+   * Llega SOLO hasta acá, nunca al comparador de frases: pegado al mensaje, las palabras de
+   * nuestro propio texto citado contarían como dichas por el cliente y dispararían reglas que
+   * nadie pidió. Ya pasó una vez con las descripciones de las fotos.
+   */
+  citado?: string;
 }): Promise<string[]> {
   const candidatas = input.reglas.filter((regla) => regla.activa && regla.cuando.tipo === "intencion");
   if (candidatas.length === 0) {
@@ -61,7 +69,22 @@ export async function clasificarIntenciones(input: {
           },
           {
             role: "user",
-            content: `Intenciones:\n${lista}\n\nConversacion previa:\n${contexto || "(no hay)"}\n\nUltimo mensaje del cliente:\n${input.mensaje}`,
+            content:
+              `Intenciones:
+${lista}
+
+Conversacion previa:
+${contexto || "(no hay)"}
+
+` +
+              (input.citado
+                ? `El cliente esta RESPONDIENDO a este mensaje nuestro:
+"${input.citado.slice(0, 300)}"
+
+`
+                : "") +
+              `Ultimo mensaje del cliente:
+${input.mensaje}`,
           },
         ],
       }),

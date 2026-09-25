@@ -43,6 +43,8 @@ export async function atenderConAgenteV3(input: {
   mensaje: string;
   /** Últimos mensajes para que la IA entienda un "si" suelto. */
   historial?: Array<{ de: "cliente" | "negocio"; texto: string }>;
+  /** A qué mensaje nuestro le respondió, si usó "responder" de WhatsApp. */
+  citado?: string;
   incluirApiOficial?: boolean;
   herramientas: Herramientas;
 }): Promise<ResultadoV3> {
@@ -64,6 +66,7 @@ export async function atenderConAgenteV3(input: {
     mensaje: input.mensaje,
     reglas: libro.reglas,
     historial: input.historial,
+    citado: input.citado,
   });
 
   const decision = decidir({ libro, mensaje: input.mensaje, estado, intencionesReconocidas });

@@ -56,6 +56,7 @@ import {
   extractEvolutionInstanceName,
   extractEvolutionMessageId,
   extractEvolutionMessageText,
+  extractEvolutionQuotedText,
   extractEvolutionMessageType,
   extractEvolutionMediaUrl,
   extractEvolutionPairingCode,
@@ -3007,6 +3008,18 @@ export async function POST(request: NextRequest) {
       workspaceId: channel.workspaceId,
       conversationId: conversation.id,
       mensaje: textoDeLaTanda || (messageText ?? ""),
+      /*
+        A QUE mensaje le respondio, cuando uso "responder" de WhatsApp.
+
+        Un "No" suelto no se puede contestar con sentido: puede ser "no quiero", "no tengo" o "no
+        me llames". El caso que lo destapo fue justo ese -una clienta contesto "No" citando el
+        mensaje donde le anunciabamos la llamada- y el agente no tenia como saberlo (25-09-2026).
+
+        Va SEPARADO del mensaje a proposito: pegado, las palabras de nuestro propio texto citado
+        entrarian al comparador de frases como si las hubiera dicho el cliente y dispararian
+        reglas que nadie pidio. Solo lo ve la IA que reconoce intenciones.
+      */
+      citado: extractEvolutionQuotedText(payload) ?? undefined,
       historial: ultimos
         .filter((mensaje) => mensaje.type !== "SYSTEM" && mensaje.content?.trim())
         .reverse()

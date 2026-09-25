@@ -891,3 +891,52 @@ export function isMessageUpdateEvent(eventName: string | null): boolean {
     eventName.includes("EDIT")
   );
 }
+
+/**
+ * El texto del mensaje al que el cliente le CONTESTÓ, cuando usó "responder" de WhatsApp.
+ *
+ * Sin esto, un "No" llega al agente completamente solo y no hay forma de contestarlo con
+ * sentido: puede ser "no quiero", "no tengo" o —el caso real que lo destapó— "no me llames",
+ * respondiendo sobre el mensaje donde le anunciamos la llamada (Alex, 25-09-2026).
+ *
+ * Se busca la cita RECORRIENDO el payload en vez de por una ruta fija: cada gateway la cuelga a
+ * distinta profundidad y con distinta mayúscula (`quotedMessage`, `QuotedMessage`), y una ruta
+ * fija funciona con uno y devuelve vacío con el otro sin que nadie se entere.
+ */
+export function extractEvolutionQuotedText(payload: unknown): string | null {
+  const visitados = new Set<unknown>();
+
+  const buscar = (valor: unknown, profundidad: number): string | null => {
+    if (!valor || typeof valor !== "object" || profundidad > 8 || visitados.has(valor)) {
+      return null;
+    }
+    visitados.add(valor);
+
+    if (Array.isArray(valor)) {
+      for (const item of valor) {
+        const encontrado = buscar(item, profundidad + 1);
+        if (encontrado) {
+          return encontrado;
+        }
+      }
+      return null;
+    }
+
+    for (const [clave, contenido] of Object.entries(valor as UnknownRecord)) {
+      if (clave.toLowerCase() === "quotedmessage") {
+        const citado = asRecord(contenido);
+        const texto = extractMessageTextFromRecord(citado) || pickString(citado, ["text", "body", "conversation"]);
+        if (texto?.trim()) {
+          return texto.trim();
+        }
+      }
+      const encontrado = buscar(contenido, profundidad + 1);
+      if (encontrado) {
+        return encontrado;
+      }
+    }
+    return null;
+  };
+
+  return buscar(payload, 0);
+}
