@@ -8,6 +8,9 @@ import { sendManualAgentReplyAction, type SendChatReplyResult } from "@/app/acti
 import { generateAgentReply } from "@/lib/agent-ai";
 import { buildActiveProductContextNote, type ActiveProductContext } from "@/lib/agent-product-flow";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
+import { after } from "next/server";
+
+import { retomarConversacionV3 } from "@/features/agente-v3/servicios/retomar";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
@@ -1095,6 +1098,31 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
     } catch {
       // Si falla el envio del mensaje de reactivacion, la IA igual se reactiva.
     }
+  }
+
+  /*
+    Al volver a ENCENDER el agente, retoma la conversacion si quedo algo sin contestar.
+
+    Es la forma de decirle "mira otra vez" a un chat que se congelo: paso con una clienta que
+    contesto "Pestañas" y ninguna regla reconocia esa palabra, asi que el agente se quedo mudo.
+    Corregida la regla, ese chat seguia parado, porque el agente solo reacciona a mensajes nuevos
+    (Alex, 25-09-2026).
+
+    Solo actua si el ULTIMO mensaje es del cliente. Si el ultimo lo escribio una asesora, se
+    queda callado: esta esperando la respuesta del cliente, y hablar ahi seria pisarle el turno.
+
+    Va en after() para que el interruptor responda de inmediato: enviar puede tardar segundos.
+  */
+  if (!nextPaused) {
+    const conversationId = conversation.id;
+    const workspaceId = membership.workspace.id;
+    after(async () => {
+      const resultado = await retomarConversacionV3({ conversationId, workspaceId }).catch((error) => {
+        console.error("[chats] no se pudo retomar la conversacion", error);
+        return null;
+      });
+      console.log("[chats] agente reencendido", { conversationId, ...(resultado ?? {}) });
+    });
   }
 
   revalidatePath("/cliente/chats");
