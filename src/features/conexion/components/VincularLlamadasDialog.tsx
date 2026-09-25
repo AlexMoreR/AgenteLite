@@ -35,6 +35,8 @@ export function VincularLlamadasDialog({
   const router = useRouter();
   const [qr, setQr] = useState<string | null>(null);
   const [vinculado, setVinculado] = useState(false);
+  // Si ya estaba vinculada de antes, se muestra CON QUE numero, que es lo que uno quiere saber.
+  const [numeroVinculado, setNumeroVinculado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Corta el bucle cuando se cierra el diálogo: sin esto seguiría pidiendo QR para siempre.
   const vivoRef = useRef(false);
@@ -102,12 +104,23 @@ export function VincularLlamadasDialog({
         return;
       }
       const datos = (await arranque?.json().catch(() => null)) as
-        | { sid?: string; error?: string }
+        | { sid?: string; error?: string; yaVinculada?: boolean; numero?: string | null }
         | null;
       if (!arranque?.ok || !datos?.sid) {
         setError(datos?.error || "No se pudo iniciar la vinculación.");
         return;
       }
+
+      /*
+        Ya estaba vinculada: no hay QR que esperar. Antes se quedaba girando en "Generando el
+        código…" para siempre, porque WhatsApp no anuncia un codigo cuando no hace falta ninguno.
+      */
+      if (datos.yaVinculada) {
+        setNumeroVinculado(datos.numero ?? null);
+        setVinculado(true);
+        return;
+      }
+
       await escuchar(datos.sid);
     })();
 
@@ -132,7 +145,14 @@ export function VincularLlamadasDialog({
           ) : vinculado ? (
             <div className="flex flex-col items-center gap-2 text-center">
               <CheckCircle2 className="size-10 text-emerald-600" />
-              <p className="text-sm font-medium">Listo, ya podés llamar desde los chats.</p>
+              <p className="text-sm font-medium">
+                {numeroVinculado ? "Esta línea ya está vinculada." : "Listo, ya podés llamar desde los chats."}
+              </p>
+              {numeroVinculado ? (
+                <p className="text-xs text-muted-foreground">
+                  Llamás desde el {numeroVinculado}. No hace falta escanear nada.
+                </p>
+              ) : null}
             </div>
           ) : qr ? (
             <>
@@ -158,7 +178,7 @@ export function VincularLlamadasDialog({
           )}
         </div>
 
-        {error ? (
+        {error || vinculado ? (
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cerrar
           </Button>

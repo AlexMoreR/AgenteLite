@@ -72,6 +72,22 @@ export async function POST(request: Request) {
    * y volver a vincular el mismo número no tiene por qué costarle eso a nadie.
    */
   if (sid) {
+    /*
+      Si YA está vinculada, no se pide QR: se avisa y listo.
+
+      Pedir emparejar una sesión que ya está abierta no da error -contesta que sí- pero WhatsApp
+      nunca anuncia un código nuevo, porque no hace falta ninguno. El modal se quedaba en
+      "Generando el código…" para siempre, sin decir que el problema era justamente que no había
+      nada que vincular (Alex lo vio en Ventas 1, que llevaba días vinculada; 25-09-2026).
+    */
+    const estado = await waCallsRequest<{ state?: string; paired?: boolean; jid?: string }>({
+      path: `/api/sessions/${sid}`,
+    });
+    if (estado.ok && estado.data?.paired && estado.data.state === "open") {
+      const numero = estado.data.jid?.split("@")[0]?.split(":")[0] ?? null;
+      return NextResponse.json({ ok: true, sid, yaVinculada: true, numero });
+    }
+
     const respuesta = await waCallsRequest<unknown>({
       path: `/api/sessions/${sid}/pair`,
       method: "POST",
