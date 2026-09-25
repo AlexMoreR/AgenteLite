@@ -46,7 +46,22 @@ function memberLabel(member: { name: string | null; email: string }) {
   return member.name?.trim() || member.email;
 }
 
-export function AssignChatControl({ conversationId, assignee, source = "agent" }: AssignChatControlProps) {
+export function AssignChatControl({ conversationId, assignee: asignadoDelServidor, source = "agent" }: AssignChatControlProps) {
+  /*
+    Quien lo tiene AHORA, sin esperar al servidor.
+
+    Antes el chip solo cambiaba cuando terminaba `router.refresh()`, que vuelve a renderizar la
+    pantalla entera de chats -mil y pico conversaciones-. Asignar era instantaneo en la base y
+    tardaba segundos en verse, asi que parecia que no habia pasado nada (Alex, 25-09-2026).
+
+    `undefined` significa "todavia no toque nada, mostra lo que dice el servidor".
+  */
+  const [asignadoLocal, setAsignadoLocal] = useState<
+    { conversacion: string; valor: AssignChatControlProps["assignee"] } | null
+  >(null);
+  // El valor local se guarda CON su conversacion: al cambiar de chat deja de aplicar solo, sin
+  // tener que acordarse de limpiarlo.
+  const assignee = asignadoLocal?.conversacion === conversationId ? asignadoLocal.valor : asignadoDelServidor;
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -102,11 +117,33 @@ export function AssignChatControl({ conversationId, assignee, source = "agent" }
           setError(result.error);
           return;
         }
+
+        /*
+          Se ve el cambio de una: el servidor ya lo guardo, no hay nada que esperar.
+
+          El nombre se toma de la lista del equipo, que ya esta cargada, y no de la respuesta:
+          asi el chip nunca queda en blanco si al usuario le falta el nombre y solo tiene correo.
+        */
+        const elegido = targetUserId ? (members.find((miembro) => miembro.id === targetUserId) ?? null) : null;
+        setAsignadoLocal({
+          conversacion: conversationId,
+          valor: elegido
+            ? { id: elegido.id, name: elegido.name, email: elegido.email }
+            : result.assignedTo
+              ? { id: result.assignedTo.id, name: result.assignedTo.name, email: "" }
+              : null,
+        });
         setOpen(false);
-        router.refresh();
       });
+
+      /*
+        El refresco va por FUERA de la transicion y sin esperarlo: sirve para que el resto de la
+        pantalla (la fila de la bandeja) se entere, pero nadie tiene que quedarse mirando mientras
+        se rehacen mil conversaciones.
+      */
+      router.refresh();
     },
-    [conversationId, router, source],
+    [conversationId, members, router, source],
   );
 
   const assignedToMe = Boolean(assignee && currentUserId && assignee.id === currentUserId);
