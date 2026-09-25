@@ -33,6 +33,7 @@ import {
 } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { atenderConAgenteV3 } from "@/features/agente-v3/motor/ejecutar";
+import { guardarEstado, leerEstado } from "@/features/agente-v3/motor/estado";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { prisma } from "@/lib/prisma";
@@ -2929,8 +2930,66 @@ export async function POST(request: NextRequest) {
         workspaceId: channel.workspaceId,
       })
     : false;
-  if (v3Pausado) {
+  /*
+    Chat pausado: el bot NO retoma la conversacion, pero tampoco deja a la clienta en visto.
+
+    Una clienta eligio color, el agente le anuncio la llamada y se paso a una asesora. Ella
+    contesto dos veces mas -"No" y "Ahora reviso lo enviado y te aviso"- y no recibio nada: el bot
+    callado y la asesora todavia sin entrar (Alex, 25-09-2026). Para quien esta del otro lado eso
+    es que la dejaron hablando sola.
+
+    Sale UN solo acuse por pausa, y solo si la asesora todavia no escribio. Si ya escribio, quien
+    contesta es ella y un mensaje automatico encima sobraria.
+  */
+  if (v3Pausado && channel.evolutionInstanceName && !fromMe && !isCallEvent) {
     console.log("[EVOLUTION] v3_chat_pausado", { conversationId: conversation.id });
+    const instanciaPausa = channel.evolutionInstanceName;
+    after(async () => {
+      try {
+        const pausa = await prisma.conversation.findUnique({
+          where: { id: conversation.id },
+          select: { automationPausedAt: true },
+        });
+        const desde = pausa?.automationPausedAt;
+        if (!desde) {
+          return;
+        }
+
+        const humanoYaContesto = await prisma.message.count({
+          where: {
+            conversationId: conversation.id,
+            direction: "OUTBOUND",
+            type: { not: "SYSTEM" },
+            createdAt: { gt: desde },
+          },
+        });
+        if (humanoYaContesto > 0) {
+          return;
+        }
+
+        const estadoPausa = await leerEstado(conversation.id);
+        if (estadoPausa.avisoDePausaEnviado) {
+          return;
+        }
+
+        await sendAndPersistEvolutionFlowStepResilient({
+          step: { kind: "text", content: "En un momento una de nuestras asesoras te contacta 🙌" },
+          workspaceId: channel.workspaceId,
+          conversationId: conversation.id,
+          channelId: channel.id,
+          contactId: contact.id,
+          agentId: channel.agentId ?? undefined,
+          instanceName: instanciaPausa,
+          phoneNumber,
+        });
+        await guardarEstado(conversation.id, { ...estadoPausa, avisoDePausaEnviado: true });
+      } catch (error) {
+        console.warn("[EVOLUTION] v3_aviso_pausa_fallo", {
+          conversationId: conversation.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
   }
 
   if (canalUsaV3 && !v3Pausado && channel.evolutionInstanceName) {

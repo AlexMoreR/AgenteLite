@@ -22,6 +22,7 @@ export async function leerEstado(conversationId: string): Promise<EstadoDeLaChar
     flujosEnviados: [],
     esPrimerMensaje: true,
     seguimientosEnviados: [],
+    avisoDePausaEnviado: false,
   };
   const fila = await prisma.appSetting.findUnique({ where: { key: `${CLAVE}${conversationId}` } });
   if (!fila?.value) {
@@ -39,6 +40,7 @@ export async function leerEstado(conversationId: string): Promise<EstadoDeLaChar
       seguimientosEnviados: Array.isArray(guardado.seguimientosEnviados)
         ? guardado.seguimientosEnviados.filter((minutos): minutos is number => typeof minutos === "number")
         : [],
+      avisoDePausaEnviado: guardado.avisoDePausaEnviado === true,
     };
   } catch {
     return vacio;
@@ -53,6 +55,7 @@ export async function guardarEstado(conversationId: string, estado: EstadoDeLaCh
     flujosEnviados: estado.flujosEnviados.slice(-20),
     esPrimerMensaje: estado.esPrimerMensaje,
     seguimientosEnviados: estado.seguimientosEnviados ?? [],
+    avisoDePausaEnviado: estado.avisoDePausaEnviado === true,
   });
   await prisma.appSetting.upsert({
     where: { key: `${CLAVE}${conversationId}` },

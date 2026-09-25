@@ -35,6 +35,13 @@ export type EstadoDeLaCharla = {
    * cero. Sin esto, el reloj mandaría el mismo recordatorio cada vez que pasa.
    */
   seguimientosEnviados?: number[];
+  /**
+   * Ya se avisó "en un momento te contacta una asesora" durante ESTA pausa.
+   *
+   * Se manda una sola vez: si la clienta escribe cinco veces mientras espera, recibe un aviso, no
+   * cinco. Vuelve a cero cuando el agente retoma el chat, que es cuando la pausa terminó.
+   */
+  avisoDePausaEnviado?: boolean;
 };
 
 export type Decision = {
@@ -240,7 +247,13 @@ export function siguienteEstado(estado: EstadoDeLaCharla, acciones: Accion[]): E
   // El saludo tambien cuenta como accion ejecutada: entra por `acciones` desde quien lo ejecuta.
   // Y el cliente acaba de escribir: se termino el silencio, asi que los seguimientos arrancan
   // de cero para la proxima vez que se calle.
-  let siguiente: EstadoDeLaCharla = { ...estado, esPrimerMensaje: false, seguimientosEnviados: [] };
+  let siguiente: EstadoDeLaCharla = {
+    ...estado,
+    esPrimerMensaje: false,
+    seguimientosEnviados: [],
+    // Si el motor esta decidiendo, el chat no esta pausado: el proximo traspaso vuelve a avisar.
+    avisoDePausaEnviado: false,
+  };
   for (const accion of acciones) {
     if (accion.tipo === "activar_producto") {
       siguiente = { ...siguiente, productoActivo: accion.productoId, pasoActual: siguiente.pasoActual ?? "PRESENTACION" };
