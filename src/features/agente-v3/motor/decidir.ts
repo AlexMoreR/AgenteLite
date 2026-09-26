@@ -55,7 +55,13 @@ export type Decision = {
   tambienEncajaban: Array<{ id: string; nombre: string }>;
 };
 
-function cumpleLasCondiciones(regla: ReglaV3, estado: EstadoDeLaCharla): boolean {
+/**
+ * ¿Se cumplen las condiciones extra de una regla en este momento de la charla?
+ *
+ * Exportada porque el reloj de seguimientos también la necesita: un recordatorio escrito para el
+ * paso de presentación no puede salir cuando el cliente ya vio las fotos.
+ */
+export function cumpleLasCondiciones(regla: ReglaV3, estado: EstadoDeLaCharla): boolean {
   const soloSi = regla.soloSi;
   if (!soloSi) {
     return true;

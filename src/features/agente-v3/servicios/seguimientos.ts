@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 
+import { cumpleLasCondiciones } from "../motor/decidir";
 import { guardarEstado, leerEstado } from "../motor/estado";
 import { leerLibro } from "./almacen";
 
@@ -109,8 +110,18 @@ export async function ejecutarSeguimientosV3(ahora = new Date()): Promise<{ envi
       const estado = await leerEstado(conversacion.id);
       const yaSalieron = estado.seguimientosEnviados ?? [];
 
+      /*
+        El recordatorio tiene que corresponder al PASO en el que está la charla.
+
+        Le mandamos a una clienta "¿qué servicios vas a ofrecer?" quince minutos después de
+        haberle mandado las fotos y preguntado el color: el texto era del paso de presentación y
+        ella ya estaba dos pasos más adelante (Alex, 26-09-2026). El reloj elegía por tiempo y
+        nada más; ahora también mira las condiciones de la regla, igual que el motor.
+      */
+      const delPaso = reglas.filter((fila) => cumpleLasCondiciones(fila.regla, estado));
+
       // El más avanzado que venció y todavía no salió. Los otros se dan por vistos.
-      const toca = reglas.find((fila) => fila.minutos <= minutosCallado && !yaSalieron.includes(fila.minutos));
+      const toca = delPaso.find((fila) => fila.minutos <= minutosCallado && !yaSalieron.includes(fila.minutos));
       if (!toca) {
         continue;
       }
