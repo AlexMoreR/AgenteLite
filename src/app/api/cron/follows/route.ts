@@ -5,6 +5,7 @@ import { enfriarLeadsSinRespuesta } from "@/features/crm/services/lead-temperatu
 import { procesarTandasDeCampanas } from "@/features/campanas/services/campaigns";
 import { purgeOldWebhookEventLogs } from "@/lib/webhook-log-retention";
 import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimientos";
+import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -54,6 +55,20 @@ async function handleCron(request: Request) {
     seguimientosV3 = await ejecutarSeguimientosV3();
   } catch (error) {
     console.error("[cron/follows] seguimientos v3 error", error);
+  }
+
+  /*
+    La red del reparto: un cliente esperando media hora y sin nadie a cargo.
+
+    Desde que los leads se reparten cuando el agente levanta la mano, un chat donde el agente NO
+    escalo se queda sin dueño. Esto lo rescata. Va en este mismo reloj por lo mismo que los otros:
+    uno solo que vigilar. Best-effort: si falla, no tumba los envios.
+  */
+  let rescatados: { repartidos: number; revisados: number } | null = null;
+  try {
+    rescatados = await rescatarChatsHuerfanos();
+  } catch (error) {
+    console.error("[cron/follows] rescate de huerfanos error", error);
   }
 
   // Enfriamiento de leads (Playbook: 3 intentos + 5 días + cero respuesta → Tibio). Va colgado
@@ -110,6 +125,7 @@ async function handleCron(request: Request) {
     campanas,
     webhookLogs,
     seguimientosV3,
+    rescatados,
   });
 }
 

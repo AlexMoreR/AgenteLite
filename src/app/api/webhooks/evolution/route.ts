@@ -97,7 +97,7 @@ import {
 import { buildProductPlaybookPrompt, getProductPlaybook } from "@/lib/product-playbook";
 import { reconocerProductoDelLead } from "@/lib/product-auto-tag";
 import { recordContactMatch } from "@/lib/contact-matches";
-import { calcularReparto, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
+import { leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
 import {
@@ -804,79 +804,6 @@ async function cambiarEtapaDesdeV3(args: {
   });
 }
 
-async function autoAssignConversationToCollaborator(args: {
-  conversationId: string;
-  channelId: string;
-  workspaceId: string;
-}) {
-  const [conversation, channel] = await Promise.all([
-    prisma.conversation.findUnique({
-      where: { id: args.conversationId },
-      select: { assignedToUserId: true },
-    }),
-    prisma.whatsAppChannel.findUnique({
-      where: { id: args.channelId },
-      select: { metadata: true },
-    }),
-  ]);
-
-  // Si ya está asignada, no la tocamos.
-  if (!conversation || conversation.assignedToUserId) {
-    return;
-  }
-
-  const metadata =
-    channel?.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
-      ? (channel.metadata as Record<string, unknown>)
-      : {};
-
-  // Los que trabajan el canal MENOS los que están en pausa de reparto: una asesora pausada sigue
-  // viendo y atendiendo lo suyo, solo deja de recibir leads nuevos.
-  const collaboratorIds = calcularReparto(metadata);
-
-  if (collaboratorIds.length === 0) {
-    return;
-  }
-
-  // Solo colaboradores que sigan siendo miembros activos del workspace.
-  const activeMembers = await prisma.workspaceMember.findMany({
-    where: { workspaceId: args.workspaceId, isActive: true, userId: { in: collaboratorIds } },
-    select: { userId: true },
-  });
-  const activeSet = new Set(activeMembers.map((m) => m.userId));
-  const validIds = collaboratorIds.filter((id) => activeSet.has(id));
-  if (validIds.length === 0) {
-    return;
-  }
-
-  // Siguiente colaborador tras el último asignado (round-robin cíclico).
-  const lastId = typeof metadata.lastAutoAssignedUserId === "string" ? metadata.lastAutoAssignedUserId : null;
-  const lastIndex = lastId ? validIds.indexOf(lastId) : -1;
-  const nextUserId = validIds[(lastIndex + 1) % validIds.length];
-
-  await prisma.conversation.update({
-    where: { id: args.conversationId },
-    data: { assignedToUserId: nextUserId },
-  });
-  await prisma.whatsAppChannel.update({
-    where: { id: args.channelId },
-    data: { metadata: { ...metadata, lastAutoAssignedUserId: nextUserId } as Prisma.InputJsonValue },
-  });
-
-  // Registro de actividad: "<Nombre> auto-asignado a esta conversación".
-  const assignee = await prisma.user.findUnique({
-    where: { id: nextUserId },
-    select: { name: true, email: true },
-  });
-  const assigneeName = assignee?.name?.trim() || assignee?.email || "Colaborador";
-  await recordConversationActivity({
-    workspaceId: args.workspaceId,
-    conversationId: args.conversationId,
-    channelId: args.channelId,
-    kind: "assigned",
-    text: `${assigneeName} auto-asignado a esta conversación`,
-  });
-}
 
 /**
  * Saca el archivo en base64 del payload antes de archivarlo en WebhookEventLog.
@@ -1792,6 +1719,22 @@ export async function POST(request: NextRequest) {
         etapa, y mientras el V3 este en pruebas con fallos, las asesoras se quedaban sin chats
         nuevos. Se vuelve a repartir apenas entra el lead, como funcionaba siempre.
       */
+      /*
+        El reparto YA NO pasa al entrar el lead: pasa cuando el agente levanta la mano.
+
+        Decision de Alex (25-09-2026), y es el mismo problema de siempre visto desde el angulo
+        bueno. Repartir al entrar le llena la bandeja a una asesora de gente que escribe una vez y
+        desaparece; repartir "cuando llegue a Tibio" -lo que probamos el 21-sep- dependia de que el
+        agente moviera bien la etapa, y si no la movia nadie recibia nada.
+
+        Ahora el gatillo es un HECHO, no una interpretacion: el momento en que el agente pide un
+        asesor -eligio color despues de las fotos, pidio hablar con alguien, pregunto algo que el
+        libro no tiene-. Ahi se asigna por turnos y ahi mismo le llega el WhatsApp a esa asesora.
+        Vive en `avisarAsesorPorWhatsApp`.
+
+        La red: si un chat lleva media hora sin dueño y con el cliente esperando, el reloj lo
+        reparte igual. Ver `rescatarChatsHuerfanos`.
+      */
       if (adLeadOrigin) {
         await assignAdLeadByCampaign({
           conversationId: conversation.id,
@@ -1802,11 +1745,6 @@ export async function POST(request: NextRequest) {
           messageText: messageText ?? "",
         });
       }
-      await autoAssignConversationToCollaborator({
-        conversationId: conversation.id,
-        channelId: channel.id,
-        workspaceId: channel.workspaceId,
-      });
 
       // El cliente volvio a escribir: si el reloj lo habia enfriado, vuelve a Tibio. Va ACA y no
       // en el bloque del agente a proposito: cuando una asesora toma el chat la IA queda en pausa

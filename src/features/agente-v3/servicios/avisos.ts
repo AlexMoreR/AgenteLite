@@ -1,4 +1,5 @@
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
+import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -98,10 +99,29 @@ export async function avisarAsesorPorWhatsApp(input: {
       return 0;
     }
 
-    const conversacion = await prisma.conversation.findUnique({
+    /*
+      Si el chat no tiene dueño, se reparte AHORA.
+
+      Este es el momento que Alex eligio para el reparto (25-09-2026): cuando el agente levanta la
+      mano, no cuando entra el lead. Y tiene que pasar ANTES de mirar a quien avisar, porque el
+      aviso va justamente a la asesora que acaba de recibirlo.
+    */
+    let conversacion = await prisma.conversation.findUnique({
       where: { id: input.conversationId },
-      select: { assignedToUserId: true },
+      select: { assignedToUserId: true, channelId: true },
     });
+
+    if (conversacion && !conversacion.assignedToUserId && conversacion.channelId) {
+      await autoAssignConversationToCollaborator({
+        conversationId: input.conversationId,
+        channelId: conversacion.channelId,
+        workspaceId: input.workspaceId,
+      }).catch(() => {});
+      conversacion = await prisma.conversation.findUnique({
+        where: { id: input.conversationId },
+        select: { assignedToUserId: true, channelId: true },
+      });
+    }
 
     /*
       El aviso va SOLO a quien le toca: la asesora que tiene ese chat, y los administradores.
