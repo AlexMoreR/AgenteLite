@@ -506,15 +506,6 @@ export function extractEvolutionLocation(payload: unknown): {
   name: string | null;
   address: string | null;
 } | null {
-  const message = getMessageRecord(payload);
-  const editedMessage = getEditedMessageRecord(payload);
-  const target = editedMessage ?? message;
-  const location = asRecord(target?.locationMessage) ?? asRecord(target?.liveLocationMessage);
-
-  if (!location) {
-    return null;
-  }
-
   const readNumber = (value: unknown) => {
     if (typeof value === "number" && Number.isFinite(value)) return value;
     if (typeof value === "string" && value.trim()) {
@@ -524,9 +515,52 @@ export function extractEvolutionLocation(payload: unknown): {
     return null;
   };
 
+  /*
+    La ubicacion que enviamos NOSOTROS se guarda con otra forma.
+
+    Este extractor entendia solo el formato de una ubicacion que ENTRA desde WhatsApp
+    (`locationMessage`), y al mandar una desde el CRM la guardamos como
+    `{ location: { latitude, longitude, name, address } }`. Resultado: la burbuja no encontraba
+    coordenadas y pintaba el texto pelado "Magilus · Carrera 27 ...", sin mapa ni enlace
+    (Alex, 26-09-2026).
+  */
+  const propia = asRecord(asRecord(payload)?.location);
+  if (propia) {
+    const lat = readNumber(propia.latitude);
+    const lon = readNumber(propia.longitude);
+    if (lat !== null && lon !== null) {
+      return {
+        latitude: lat,
+        longitude: lon,
+        name: pickString(propia, ["name"]),
+        address: pickString(propia, ["address"]),
+      };
+    }
+  }
+
+  const message = getMessageRecord(payload);
+  const editedMessage = getEditedMessageRecord(payload);
+  const target = editedMessage ?? message;
+  const location = asRecord(target?.locationMessage) ?? asRecord(target?.liveLocationMessage);
+
+  if (!location) {
+    return null;
+  }
+
+  const readNumeroDelMensaje = (value: unknown) => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+
   // whatsmeow usa mayuscula inicial (DegreesLatitude); Baileys, minuscula.
-  const latitude = readNumber(location.degreesLatitude) ?? readNumber(location.DegreesLatitude);
-  const longitude = readNumber(location.degreesLongitude) ?? readNumber(location.DegreesLongitude);
+  const latitude =
+    readNumeroDelMensaje(location.degreesLatitude) ?? readNumeroDelMensaje(location.DegreesLatitude);
+  const longitude =
+    readNumeroDelMensaje(location.degreesLongitude) ?? readNumeroDelMensaje(location.DegreesLongitude);
 
   if (latitude === null || longitude === null) {
     return null;
