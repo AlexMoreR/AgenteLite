@@ -2659,6 +2659,31 @@ export async function POST(request: NextRequest) {
           Ahora la pregunta es la que de verdad importa: ¿hay alguna respuesta nuestra reciente? Si
           la hay, la clienta no esta esperando a nadie y el acuse sobra.
         */
+        /*
+          Si una PERSONA esta atendiendo este chat, el bot no abre la boca.
+
+          Los mensajes escritos desde el CRM quedan marcados con `source: manual`; los del agente
+          no. Esa es la unica señal confiable de que alguien del equipo esta adentro.
+
+          Hacia falta: Ingrid mando un audio a las 20:06, la clienta pregunto por metodos de pago a
+          las 20:09 y el bot solto "en un momento una asesora te contacta" -a alguien que ya estaba
+          hablando con una asesora- porque el unico freno era una ventana de 3 minutos y habian
+          pasado tres (Alex, 25-09-2026: "si ya respondio Ingrid por que sigue escribiendo la IA").
+        */
+        const UNA_PERSONA_ADENTRO_MS = 6 * 3_600_000;
+        const personaAtendiendo = await prisma.message.count({
+          where: {
+            conversationId: conversation.id,
+            direction: "OUTBOUND",
+            rawPayload: { path: ["source"], equals: "manual" },
+            createdAt: { gt: new Date(Date.now() - UNA_PERSONA_ADENTRO_MS) },
+          },
+        });
+        if (personaAtendiendo > 0) {
+          return;
+        }
+
+        // Y tampoco se habla encima de algo que se acaba de decir, sea de quien sea.
         const SILENCIO_MINIMO_MS = 3 * 60_000;
         const respuestaReciente = await prisma.message.count({
           where: {
