@@ -60,6 +60,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { DIAS_DE_LA_SEMANA, type HorarioSemanal, type ModoDelDia } from "@/lib/horario-de-reparto-dias";
 import {
   clientAssignableModuleDefinitions,
   defaultClientEmployeeModuleKeys,
@@ -84,6 +85,8 @@ type EmployeeRow = {
   statusLabel: string;
   modules: ClientAssignableModuleKey[];
   lineas: LineaDeLaPersona[];
+  /** Días y horas en que le caen leads automáticos. */
+  horario: HorarioSemanal;
   invitedAtLabel: string;
   acceptedAtLabel: string;
 };
@@ -113,6 +116,80 @@ const CHAPA_DE_LINEA: Record<Exclude<EstadoDeLinea, "no">, { texto: string; clas
     clase: "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-300",
   },
 };
+
+const MODOS_DEL_DIA: Array<{ valor: ModoDelDia; titulo: string }> = [
+  { valor: "todo", titulo: "Todo el día" },
+  { valor: "horas", titulo: "Solo en un horario" },
+  { valor: "nada", titulo: "No recibe" },
+];
+
+/**
+ * En qué días y horas le caen leads automáticos (Alex, 26-sep-2026). Fuera de su horario sigue
+ * viendo y atendiendo lo suyo; solo el reparto automático la salta.
+ */
+function HorarioDeReparto({
+  horario,
+  onChange,
+}: {
+  horario: HorarioSemanal;
+  onChange: (next: HorarioSemanal) => void;
+}) {
+  const cambiarDia = (indice: number, cambios: Partial<HorarioSemanal[number]>) =>
+    onChange(horario.map((dia, posicion) => (posicion === indice ? { ...dia, ...cambios } : dia)));
+
+  // Lunes primero, domingo al final: así lo piensa el equipo.
+  const orden = [1, 2, 3, 4, 5, 6, 0];
+
+  return (
+    <section className="space-y-2">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Horario de leads automáticos</p>
+      <p className="text-xs text-muted-foreground">
+        Fuera de este horario no le entran leads automáticos en ninguna línea. Sigue viendo y atendiendo sus chats, y se le
+        puede asignar a mano. Hora de Colombia.
+      </p>
+      <div className="divide-y divide-border rounded-lg border border-border">
+        {orden.map((indice) => {
+          const dia = horario[indice];
+          return (
+            <div key={indice} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center">
+              <span className="w-24 shrink-0 text-sm font-medium text-foreground">{DIAS_DE_LA_SEMANA[indice]}</span>
+              <NativeSelect
+                className="w-full text-[16px] sm:w-48 md:text-sm"
+                value={dia.modo}
+                onChange={(evento) => cambiarDia(indice, { modo: evento.target.value as ModoDelDia })}
+              >
+                {MODOS_DEL_DIA.map((opcion) => (
+                  <NativeSelectOption key={opcion.valor} value={opcion.valor}>
+                    {opcion.titulo}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+              {dia.modo === "horas" ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="time"
+                    aria-label={`${DIAS_DE_LA_SEMANA[indice]}: desde`}
+                    className="w-28 text-[16px] md:text-sm"
+                    value={dia.desde}
+                    onChange={(evento) => cambiarDia(indice, { desde: evento.target.value || "00:00" })}
+                  />
+                  <span className="text-xs text-muted-foreground">a</span>
+                  <Input
+                    type="time"
+                    aria-label={`${DIAS_DE_LA_SEMANA[indice]}: hasta`}
+                    className="w-28 text-[16px] md:text-sm"
+                    value={dia.hasta}
+                    onChange={(evento) => cambiarDia(indice, { hasta: evento.target.value || "00:00" })}
+                  />
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 function etiquetaDeModulo(clave: ClientAssignableModuleKey) {
   return clientAssignableModuleDefinitions.find((item) => item.key === clave)?.label ?? clave;
@@ -239,6 +316,7 @@ function EditarPersonaDialog({
   const [rol, setRol] = React.useState<"asesora" | "supervisora">(employee.esSupervisora ? "supervisora" : "asesora");
   const [modules, setModules] = React.useState<ClientAssignableModuleKey[]>(employee.modules);
   const [lineas, setLineas] = React.useState<LineaDeLaPersona[]>(employee.lineas);
+  const [horario, setHorario] = React.useState<HorarioSemanal>(employee.horario);
   const [guardando, startTransition] = React.useTransition();
 
   const guardar = () =>
@@ -248,6 +326,7 @@ function EditarPersonaDialog({
         rol,
         modulos: modules,
         lineas: lineas.map((linea) => ({ channelId: linea.channelId, estado: linea.estado })),
+        horario,
       });
       if ("error" in resultado) {
         toast.error(resultado.error);
@@ -345,6 +424,8 @@ function EditarPersonaDialog({
               </div>
             )}
           </section>
+
+          <HorarioDeReparto horario={horario} onChange={setHorario} />
 
           {esAdmin ? null : <ModuleCheckboxes selected={modules} onChange={setModules} />}
         </div>

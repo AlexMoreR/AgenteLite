@@ -172,6 +172,11 @@ Abre el panel del contacto (toca la foto en la cabecera) y busca "Agente asignad
 - Si eres colaborador: "Tomar este chat" para asignártela, o "Soltar chat" para dejarla libre.
 - Si eres administrador: elige "Sin asignar" o el nombre de la persona (tu nombre aparece con "(tú)").
 
+### Horario de leads automáticos de una persona
+Solo el dueño. En Mi empresa → Equipo, abre el menú de la persona y toca "Editar". En "Horario de leads automáticos" elige para cada día: "Todo el día", "Solo en un horario" (pones desde y hasta, hora de Colombia) o "No recibe". Toca "Guardar".
+- Fuera de su horario no le entran leads automáticos en ninguna línea; los recibe el resto del equipo.
+- Sigue viendo y atendiendo sus chats, y se le puede asignar a mano.
+
 ### Pausar o reactivar el bot (la IA) en una conversación
 En la cabecera hay un interruptor:
 - Encendido: la IA responde automáticamente.

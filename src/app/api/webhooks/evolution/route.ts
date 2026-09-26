@@ -98,6 +98,7 @@ import { buildProductPlaybookPrompt, getProductPlaybook } from "@/lib/product-pl
 import { reconocerProductoDelLead } from "@/lib/product-auto-tag";
 import { recordContactMatch } from "@/lib/contact-matches";
 import { leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
+import { filtrarPorHorario } from "@/lib/horario-de-reparto";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
 import {
@@ -706,8 +707,12 @@ async function assignAdLeadByCampaign(args: {
     ...leerPausadosDeReparto(channel?.metadata),
     ...leerMonitores(channel?.metadata),
   ]);
+  // Y el horario de reparto: fuera de su horario, la regla de campaña tampoco le da leads.
   const disponibles = new Set(
-    miembrosActivos.map((miembro) => miembro.userId).filter((userId) => !fueraDelReparto.has(userId)),
+    await filtrarPorHorario(
+      args.workspaceId,
+      miembrosActivos.map((miembro) => miembro.userId).filter((userId) => !fueraDelReparto.has(userId)),
+    ),
   );
 
   const elegido = pickNextAdCampaignAssignee(routing, disponibles);

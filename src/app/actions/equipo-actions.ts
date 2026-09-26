@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
+import { guardarHorarioDeReparto, normalizarHorario } from "@/lib/horario-de-reparto";
 import { guardarSupervisoras, leerSupervisoras } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 
@@ -23,6 +24,8 @@ export async function guardarPersonaDelEquipoAction(input: {
   rol: "asesora" | "supervisora";
   modulos: string[];
   lineas: Array<{ channelId: string; estado: EstadoEnLaLinea }>;
+  /** Días y horas en que le caen leads automáticos. Sin esto, no se toca lo guardado. */
+  horario?: unknown;
 }): Promise<{ ok: true } | { error: string }> {
   const access = await requireClientWorkspaceAccess("client_team", { ownerOnly: true });
 
@@ -122,6 +125,10 @@ export async function guardarPersonaDelEquipoAction(input: {
       access.workspaceId,
       conEsta ? [...supervisoras, miembro.userId] : supervisoras.filter((id) => id !== miembro.userId),
     );
+  }
+
+  if (input.horario !== undefined) {
+    await guardarHorarioDeReparto(access.workspaceId, miembro.userId, normalizarHorario(input.horario));
   }
 
   revalidatePath("/cliente/equipo");

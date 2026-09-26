@@ -5,6 +5,7 @@ import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
+import { horarioSiempre, leerHorariosDeReparto } from "@/lib/horario-de-reparto";
 import { leerSupervisoras } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 
@@ -37,7 +38,7 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
 
   // Muestra empleados (AGENT/EMPLEADO) Y administradores (ADMIN) del negocio. El dueno
   // (OWNER) no se lista aqui: es el titular de la cuenta, no un miembro gestionable.
-  const [employees, canales, supervisoras] = await Promise.all([
+  const [employees, canales, supervisoras, horarios] = await Promise.all([
     prisma.workspaceMember.findMany({
       where: {
         workspaceId: access.workspaceId,
@@ -69,6 +70,7 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
       select: { id: true, name: true, metadata: true },
     }),
     leerSupervisoras(access.workspaceId),
+    leerHorariosDeReparto(access.workspaceId),
   ]);
 
   /*
@@ -115,6 +117,7 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
               status === "inactive" ? "Inactivo" : status === "active" ? "Activo" : "Pendiente",
             modules: sanitizeClientModuleAccess(employee.moduleAccess),
             lineas: lineasDe(employee.user.id),
+            horario: horarios[employee.user.id] ?? horarioSiempre(),
             invitedAtLabel: `Invitado: ${formatDate(employee.invitedAt)}`,
             acceptedAtLabel: employee.acceptedAt ? `Aceptado: ${formatDate(employee.acceptedAt)}` : "Sin aceptar",
           };

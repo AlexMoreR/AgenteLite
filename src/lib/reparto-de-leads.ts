@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { calcularReparto } from "@/lib/channel-collaborators";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import { filtrarPorHorario } from "@/lib/horario-de-reparto";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -61,10 +62,22 @@ export async function autoAssignConversationToCollaborator(args: {
     return;
   }
 
-  // Siguiente colaborador tras el último asignado (round-robin cíclico).
+  // Quien está fuera de su horario de reparto (Mi empresa -> Equipo) se salta en esta vuelta.
+  const enHorario = new Set(await filtrarPorHorario(args.workspaceId, validIds));
+  if (enHorario.size === 0) {
+    return;
+  }
+
+  // Siguiente colaborador tras el último asignado (round-robin cíclico). La rueda sigue siendo la
+  // lista completa: saltar a alguien por horario no le cambia el lugar a nadie en el turno.
   const lastId = typeof metadata.lastAutoAssignedUserId === "string" ? metadata.lastAutoAssignedUserId : null;
   const lastIndex = lastId ? validIds.indexOf(lastId) : -1;
-  const nextUserId = validIds[(lastIndex + 1) % validIds.length];
+  const nextUserId = Array.from({ length: validIds.length }, (_, paso) => validIds[(lastIndex + 1 + paso) % validIds.length]).find(
+    (userId) => enHorario.has(userId),
+  );
+  if (!nextUserId) {
+    return;
+  }
 
   await prisma.conversation.update({
     where: { id: args.conversationId },
