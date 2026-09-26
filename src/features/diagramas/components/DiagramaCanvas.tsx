@@ -721,13 +721,24 @@ export function DiagramaCanvas({
       }
     }
     return {
-      nodosAMostrar: nodes.map((nodo) =>
-        ocultos.has(nodo.id)
-          ? { ...nodo, hidden: true }
+      /*
+        El HUECO de un fondo deja pasar el clic.
+
+        Un fondo es un marco y por dentro pasan las uniones entre las ideas que tiene. Como su caja
+        atrapaba el clic, tocar una union ahi adentro no la seleccionaba y la X para quitarla no
+        aparecia nunca (Alex, 25-09-2026). Con `pointerEvents: "none"` en su contenedor, el clic
+        atraviesa el relleno y llega a la union; las partes del fondo que SI tienen que responder
+        -titulo, barra, puntos de conexion y tirador de tamaño- se reactivan una por una en
+        NodoIdea. Es como se comporta un marco en cualquier tablero.
+      */
+      nodosAMostrar: nodes.map((nodo) => {
+        const base = esFondo(nodo) ? { ...nodo, style: { ...nodo.style, pointerEvents: "none" as const } } : nodo;
+        return ocultos.has(nodo.id)
+          ? { ...base, hidden: true }
           : cuantas.has(nodo.id)
-            ? { ...nodo, data: { ...nodo.data, ocultas: cuantas.get(nodo.id) } }
-            : nodo,
-      ),
+            ? { ...base, data: { ...base.data, ocultas: cuantas.get(nodo.id) } }
+            : base;
+      }),
       aristasAMostrar: edges.map((arista) => {
         if (ocultos.has(arista.source) || ocultos.has(arista.target)) {
           return { ...arista, hidden: true };
@@ -1135,13 +1146,39 @@ export function DiagramaCanvas({
             });
             const cajaTocada = destino.closest<HTMLElement>(".react-flow__node");
             if (cajaTocada) {
-              // Sobre el espacio libre de un fondo SI crea una idea, ya metida adentro. Sobre su
-              // titulo o sobre otra caja no: ahi lo que uno quiere es escribir.
-              const fondo = nodesRef.current.find((nodo) => nodo.id === cajaTocada.dataset.id && esFondo(nodo));
-              if (!fondo || !posicion || destino.closest("[data-titulo-fondo]")) {
-                return;
+              // Sobre otra caja no se crea nada: ahi lo que uno quiere es escribir.
+              return;
+            }
+            if (!posicion) {
+              return;
+            }
+
+            /*
+              ¿Cayo dentro de un fondo? Se decide por POSICION y no por el DOM.
+
+              El relleno de un fondo ya no atrapa clics -para poder tocar las uniones que pasan por
+              adentro-, asi que el doble clic llega al lienzo y no a su caja. Mirando las
+              coordenadas se sigue sabiendo si cayo adentro, y la idea nueva nace metida en el
+              fondo como antes.
+            */
+            const fondoTocado = nodesRef.current.find((nodo) => {
+              if (!esFondo(nodo) || nodo.hidden) {
+                return false;
               }
-              agregarIdea({ x: posicion.x - fondo.position.x, y: posicion.y - fondo.position.y }, fondo.id);
+              const ancho = nodo.width ?? nodo.measured?.width ?? 0;
+              const alto = nodo.height ?? nodo.measured?.height ?? 0;
+              return (
+                posicion.x >= nodo.position.x &&
+                posicion.x <= nodo.position.x + ancho &&
+                posicion.y >= nodo.position.y &&
+                posicion.y <= nodo.position.y + alto
+              );
+            });
+            if (fondoTocado) {
+              agregarIdea(
+                { x: posicion.x - fondoTocado.position.x, y: posicion.y - fondoTocado.position.y },
+                fondoTocado.id,
+              );
               return;
             }
             agregarIdea(posicion);

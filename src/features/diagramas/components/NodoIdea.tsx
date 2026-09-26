@@ -210,16 +210,27 @@ export function NodoIdea({
         lo que dice. Un minimo comodo para escribir se logra con el ancho INICIAL de las cajas
         nuevas, no impidiendo que se achiquen despues.
       */
+      /*
+        El HUECO de un fondo no atrapa clics.
+
+        Un fondo es un marco: adentro van otras ideas y, sobre todo, pasan las conexiones entre
+        ellas. Como era un rectangulo completo, se quedaba con el clic y la conexion que pasaba por
+        debajo no se podia ni seleccionar ni borrar: la X no aparecia nunca (Alex, 25-09-2026).
+
+        Ahora el relleno deja pasar el clic y lo que si responde son sus partes: el titulo -que es
+        por donde se agarra para moverlo-, su barra de herramientas, los puntos de conexion y el
+        tirador de tamaño. Es como se comporta un marco en cualquier tablero.
+      */
       className={`group relative flex size-full min-h-[30px] min-w-[56px] flex-col rounded-xl border px-2.5 py-1.5 shadow-sm transition ${cajaDelColor(
         data?.color,
-      )} ${esFondo ? "border-2 border-dashed" : ""} ${selected ? "ring-1 ring-primary/40" : ""}`}
+      )} ${esFondo ? "pointer-events-none border-2 border-dashed" : ""} ${selected ? "ring-1 ring-primary/40" : ""}`}
     >
       {/*
         La barra aparece SOLO con la caja seleccionada. Permanente en cada idea convertía el mapa
         en una grilla de controles y tapaba lo único que importa, que es lo que dice cada caja.
       */}
       {selected ? (
-        <div className="nodrag nopan absolute -top-[4.5rem] left-0 flex w-max flex-col gap-1 rounded-xl border border-border bg-popover p-1.5 shadow-md">
+        <div className="nodrag nopan pointer-events-auto absolute -top-[4.5rem] left-0 flex w-max flex-col gap-1 rounded-xl border border-border bg-popover p-1.5 shadow-md">
           <div className="flex items-center gap-1">
             {ICONOS_DE_IDEA.map((opcion) => (
               <button
@@ -346,8 +357,20 @@ export function NodoIdea({
         const pintura = colorDelPunto ? { backgroundColor: colorDelPunto } : undefined;
         return (
           <div key={clave}>
-            <Handle type="target" id={`${clave}-in`} position={posicion} className={estilo} style={pintura} />
-            <Handle type="source" id={`${clave}-out`} position={posicion} className={estilo} style={pintura} />
+            <Handle
+              type="target"
+              id={`${clave}-in`}
+              position={posicion}
+              className={`pointer-events-auto ${estilo}`}
+              style={pintura}
+            />
+            <Handle
+              type="source"
+              id={`${clave}-out`}
+              position={posicion}
+              className={`pointer-events-auto ${estilo}`}
+              style={pintura}
+            />
           </div>
         );
       })}
@@ -358,7 +381,11 @@ export function NodoIdea({
         // En un fondo, el texto es solo el título de arriba: el resto de la caja es el espacio
         // donde van las ideas, y un doble clic ahí crea una adentro (lo maneja el lienzo).
         data-titulo-fondo={esFondo ? "" : undefined}
-        className={esFondo ? "flex min-h-5 shrink-0 gap-1.5" : "flex min-h-0 flex-1 gap-1.5 overflow-auto"}
+        className={
+          esFondo
+            ? "pointer-events-auto flex min-h-5 shrink-0 gap-1.5"
+            : "flex min-h-0 flex-1 gap-1.5 overflow-auto"
+        }
         onDoubleClick={() => setEditando(true)}
         // Tocar una caja que YA estaba seleccionada entra a escribir. Reemplaza al lápiz: en el
         // celular el doble toque no siempre llega (el navegador lo usa para el zoom).
@@ -460,7 +487,15 @@ export function NodoIdea({
           minWidth={esFondo ? 160 : 56}
           minHeight={esFondo ? 100 : 30}
           // 22 px de lado, centrado en la esquina: el area para agarrar es comoda con el dedo.
-          style={{ background: "transparent", border: "none", width: 22, height: 22, cursor: "nwse-resize" }}
+          // `pointerEvents` explicito: en un fondo el relleno los deja pasar, y el tirador no debe.
+          style={{
+            background: "transparent",
+            border: "none",
+            width: 22,
+            height: 22,
+            cursor: "nwse-resize",
+            pointerEvents: "auto",
+          }}
         >
           {/*
             Un arco que abraza la esquina redondeada por fuera, como en las herramientas de
