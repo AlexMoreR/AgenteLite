@@ -12,6 +12,7 @@ import {
   leerSesionWaha,
   perfilDeLaLineaWaha,
   enviarTextoWaha,
+  enviarUbicacionWaha,
   estadoDeSesionWaha,
   perfilDeSesionWaha,
   qrDeSesionWaha,
@@ -2406,6 +2407,19 @@ export async function sendEvolutionLocationMessage(input: {
   address?: string | null;
   delayMs?: number;
 }) {
+  const waha = await conexionWahaDe(input.instanceName);
+  if (waha) {
+    return enviarUbicacionWaha({
+      connection: waha,
+      sesion: input.instanceName,
+      telefono: input.phoneNumber,
+      latitud: input.latitude,
+      longitud: input.longitude,
+      // WAHA lleva un solo rotulo: se prefiere el nombre del sitio y, si no hay, la direccion.
+      titulo: input.name?.trim() || input.address?.trim() || null,
+    });
+  }
+
   const sendNumber = normalizeEvolutionSendNumber(input.phoneNumber);
   const name = input.name?.trim() || "";
   const address = input.address?.trim() || "";

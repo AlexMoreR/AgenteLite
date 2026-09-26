@@ -597,6 +597,44 @@ export async function enviarReaccionWaha(input: {
   });
 }
 
+/**
+ * Manda una UBICACION: el pin con su mapita.
+ *
+ * Faltaba, y en WAHA -que son todas las lineas de venta- el boton de ubicacion moria con
+ * "esta operacion todavia no esta implementada" (Alex, 26-09-2026). Es de las cosas que mas
+ * piden los clientes: "mandame la ubicacion".
+ */
+export async function enviarUbicacionWaha(input: {
+  connection: WahaConnection;
+  sesion: string;
+  telefono: string;
+  latitud: number;
+  longitud: number;
+  titulo?: string | null;
+}): Promise<{ externalId: string | null; raw: unknown }> {
+  const destino = await chatIdParaEnviar(input);
+  await marcarChatLeidoAntesDeResponder(input.connection, input.sesion, destino);
+  const respuesta = await enviarConReintentoDeLid(destino, (chatId) =>
+    wahaRequest<{ id?: string | { id?: string }; _data?: unknown }>(
+      input.connection,
+      "/api/sendLocation",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          session: input.sesion,
+          chatId,
+          latitude: input.latitud,
+          longitude: input.longitud,
+          ...(input.titulo?.trim() ? { title: input.titulo.trim() } : {}),
+        }),
+      },
+    ),
+  );
+  await volverADesconectadaWaha(input.connection, input.sesion);
+
+  return { externalId: leerIdDeMensaje(respuesta), raw: respuesta };
+}
+
 export async function enviarTextoWaha(input: {
   connection: WahaConnection;
   sesion: string;
