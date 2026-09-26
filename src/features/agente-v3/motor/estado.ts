@@ -26,7 +26,24 @@ export async function leerEstado(conversationId: string): Promise<EstadoDeLaChar
   };
   const fila = await prisma.appSetting.findUnique({ where: { key: `${CLAVE}${conversationId}` } });
   if (!fila?.value) {
-    return vacio;
+    /*
+      Sin estado guardado NO significa que sea el primer mensaje de la conversación.
+
+      Significa que el agente todavía no ha atendido a nadie ahí. Es distinto: un chat que abrimos
+      NOSOTROS -una campaña, una asesora escribiendo primero- ya tiene historia cuando el cliente
+      por fin contesta.
+
+      Pasó tal cual: le escribimos a las 17:42 con fotos y precio, salieron los dos seguimientos, y
+      cuando ella contestó a las 19:49 el agente le mandó la BIENVENIDA como si acabara de llegar,
+      dos horas y tres mensajes después (Alex, 25-09-2026).
+
+      Así que se mira lo único que de verdad responde la pregunta: ¿ya le dijimos algo a esta
+      persona? Si sí, no es un primer mensaje y no va el saludo.
+    */
+    const yaLeHablamos = await prisma.message.count({
+      where: { conversationId, direction: "OUTBOUND", type: { not: "SYSTEM" } },
+    });
+    return { ...vacio, esPrimerMensaje: yaLeHablamos === 0 };
   }
   try {
     const guardado = JSON.parse(fila.value) as Partial<EstadoDeLaCharla>;
