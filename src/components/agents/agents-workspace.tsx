@@ -310,7 +310,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
-                            onSelect={() => setPendingDelete(agent)}
+                            onClick={() => setPendingDelete(agent)}
                             className="flex items-center gap-2 text-destructive focus:text-destructive"
                           >
                             <Trash2 className="h-4 w-4" />

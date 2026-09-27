@@ -160,7 +160,15 @@ export function ChatNotificationBell({ className }: { className?: string }) {
         // Ignoramos errores de red: se reintenta en el siguiente intervalo.
       } finally {
         enCurso = false;
-        if (!cancelled) {
+        /*
+          Mientras NO se este mirando la pestana, la cadena se corta.
+
+          La campanita vive en el encabezado de TODA la app, asi que cada pestana olvidada -y aqui
+          se dejan varias abiertas- seguia pidiendo la lista de chats, que es la consulta mas cara,
+          una vez por minuto para siempre. Con la app en segundo plano el aviso lo da la
+          notificacion del sistema, no el punto rojo. Al volver se pide de una (abajo).
+        */
+        if (!cancelled && document.visibilityState === "visible") {
           timeoutId = setTimeout(poll, pedirOtraVez ? 1500 : POLL_INTERVAL_MS);
         }
         pedirOtraVez = false;
@@ -168,6 +176,13 @@ export function ChatNotificationBell({ className }: { className?: string }) {
     };
 
     void poll();
+
+    const alVolverAMirar = () => {
+      if (document.visibilityState === "visible") {
+        void poll();
+      }
+    };
+    document.addEventListener("visibilitychange", alVolverAMirar);
 
     // Desde cuando ya se miraron: sin esto, el punto contaria avisos que ya vio en otro dispositivo.
     void fetch("/api/cliente/notificaciones/visto", { cache: "no-store" })
@@ -232,6 +247,7 @@ export function ChatNotificationBell({ className }: { className?: string }) {
 
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", alVolverAMirar);
       window.removeEventListener("official-realtime-poke", alLlegarAlgo);
       window.removeEventListener("chat-conversation-read", alLeerUnChat);
       window.removeEventListener("notificaciones-vistas", alMirarLasNotificaciones);

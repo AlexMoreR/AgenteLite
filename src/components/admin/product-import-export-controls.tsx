@@ -42,11 +42,11 @@ export function ProductImportExportControls() {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-44">
-          <DropdownMenuItem onSelect={() => setOpenModal("import")} className="gap-2">
+          <DropdownMenuItem onClick={() => setOpenModal("import")} className="gap-2">
             <Upload className="h-3.5 w-3.5" />
             Importar CSV
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setOpenModal("export")} className="gap-2">
+          <DropdownMenuItem onClick={() => setOpenModal("export")} className="gap-2">
             <Download className="h-3.5 w-3.5" />
             Exportar CSV
           </DropdownMenuItem>

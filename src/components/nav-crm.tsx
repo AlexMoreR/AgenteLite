@@ -67,8 +67,9 @@ export function NavCrm({
               .filter((item) => !item.soloJefes || puedeSupervisar)
               .map((item) => (
               <SidebarMenuSubItem key={item.view}>
+                {/* Sin `prefetch`: eran seis vistas del CRM pedidas enteras desde cualquier pantalla. */}
                 <SidebarMenuSubButton
-                  render={<Link href={`/cliente/crm/${item.view}`} prefetch />}
+                  render={<Link href={`/cliente/crm/${item.view}`} />}
                   isActive={currentView === item.view}
                 >
                   <item.icon />

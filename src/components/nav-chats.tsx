@@ -53,9 +53,15 @@ export function NavChats({
 
           El desplegable queda en la flecha, que es donde estan los canales sueltos.
         */}
+        {/*
+          Sin `prefetch` a secas: eso le pide al servidor la pantalla de Chats ENTERA -la mas cara
+          de la app- desde cualquier otra pantalla, y con los canales desplegados eran diez
+          peticiones de golpe. El aviso por defecto ya precarga el armazon, y como esta pantalla
+          tiene su `loading`, al tocar se ve igual de inmediata.
+        */}
         <div>
           <SidebarMenuButton
-            render={<Link href="/cliente/chats" prefetch />}
+            render={<Link href="/cliente/chats" />}
             isActive={isChatsRoute && !currentConnectionKey}
           >
             <MessageSquareText />
@@ -71,7 +77,7 @@ export function NavChats({
             {mappedChatSidebarItems.map((item) => (
               <SidebarMenuSubItem key={item.url}>
                 <SidebarMenuSubButton
-                  render={<Link href={item.url} prefetch />}
+                  render={<Link href={item.url} />}
                   isActive={Boolean(item.isActive)}
                 >
                   {item.kind === "official" ? (

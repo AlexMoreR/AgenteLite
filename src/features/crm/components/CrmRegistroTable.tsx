@@ -385,7 +385,7 @@ export function CrmRegistroTable({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-44 rounded-2xl">
-              <DropdownMenuItem onSelect={exportCsv} className="gap-2">
+              <DropdownMenuItem onClick={exportCsv} className="gap-2">
                 <FileText className="h-4 w-4" />
                 Exportar CSV
               </DropdownMenuItem>
@@ -642,7 +642,7 @@ export function CrmRegistroTable({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="min-w-44 rounded-2xl">
-                            <DropdownMenuItem onSelect={() => void handleCopy(record.detail, `detail-${record.id}`)} className="gap-2">
+                            <DropdownMenuItem onClick={() => void handleCopy(record.detail, `detail-${record.id}`)} className="gap-2">
                               <Copy className="h-4 w-4" />
                               Copiar detalle
                             </DropdownMenuItem>

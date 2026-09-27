@@ -869,7 +869,7 @@ export function AdsGeneratorWorkspace({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="min-w-48 rounded-2xl">
                           <DropdownMenuItem
-                            onSelect={() => {
+                            onClick={() => {
                               void handleDownloadMetaImage(ad, "square", index);
                             }}
                             disabled={Boolean(downloadingAdId)}
@@ -877,7 +877,7 @@ export function AdsGeneratorWorkspace({
                             {metaDownloadFormats.square.menuLabel}
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onSelect={() => {
+                            onClick={() => {
                               void handleDownloadMetaImage(ad, "vertical", index);
                             }}
                             disabled={Boolean(downloadingAdId)}
@@ -885,7 +885,7 @@ export function AdsGeneratorWorkspace({
                             {metaDownloadFormats.vertical.menuLabel}
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onSelect={() => {
+                            onClick={() => {
                               void handleDownloadMetaImage(ad, "horizontal", index);
                             }}
                             disabled={Boolean(downloadingAdId)}
@@ -893,7 +893,7 @@ export function AdsGeneratorWorkspace({
                             {metaDownloadFormats.horizontal.menuLabel}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onSelect={() => setDetailAd(ad)}>
+                          <DropdownMenuItem onClick={() => setDetailAd(ad)}>
                             Por que este anuncio
                           </DropdownMenuItem>
                         </DropdownMenuContent>

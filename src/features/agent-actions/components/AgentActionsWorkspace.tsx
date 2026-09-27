@@ -162,14 +162,14 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                           <DropdownMenuContent align="end" className="min-w-44">
                             <DropdownMenuItem
                               className="cursor-pointer gap-2"
-                              onSelect={() => openModal("edit")}
+                              onClick={() => openModal("edit")}
                             >
                               <Pencil className="h-4 w-4" />
                               Editar
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="cursor-pointer gap-2 text-rose-700 focus:text-rose-700"
-                              onSelect={(event) => {
+                              onClick={(event) => {
                                 event.preventDefault();
                                 if (!window.confirm("¿Quieres eliminar esta accion?")) {
                                   return;

@@ -80,10 +80,41 @@ function comoSeLeeLaAccion(accion: Accion): string {
 export function LibroDeReglasView({ libro, problemas }: { libro: LibroDeReglas; problemas: string[] }) {
   const router = useRouter();
 
-  // Se refresca sola: la pantalla está pensada para quedar abierta mientras se dicta el libro.
+  /*
+    Se refresca sola: la pantalla esta pensada para quedar abierta mientras se dicta el libro.
+
+    Solo mientras se este MIRANDO. Antes el reloj corria siempre, asi que una pestana olvidada en
+    segundo plano le pedia al servidor la pantalla entera cada 5 segundos -720 renders por hora por
+    pestana- y eso lo paga la bandeja de las asesoras, que comparte el mismo proceso.
+  */
   useEffect(() => {
-    const reloj = setInterval(() => router.refresh(), 5000);
-    return () => clearInterval(reloj);
+    let reloj: ReturnType<typeof setInterval> | undefined;
+
+    const arrancar = () => {
+      if (reloj || document.visibilityState !== "visible") return;
+      reloj = setInterval(() => router.refresh(), 5000);
+    };
+    const parar = () => {
+      if (!reloj) return;
+      clearInterval(reloj);
+      reloj = undefined;
+    };
+    const alCambiar = () => {
+      if (document.visibilityState === "visible") {
+        // Al volver, lo primero es ponerse al dia: pudo haberse dictado una regla entre tanto.
+        router.refresh();
+        arrancar();
+      } else {
+        parar();
+      }
+    };
+
+    arrancar();
+    document.addEventListener("visibilitychange", alCambiar);
+    return () => {
+      parar();
+      document.removeEventListener("visibilitychange", alCambiar);
+    };
   }, [router]);
 
   // Se muestran en el ORDEN EN QUE MANDAN, no en el que se escribieron: es la única forma de
