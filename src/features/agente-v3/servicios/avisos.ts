@@ -150,12 +150,31 @@ export async function avisarAsesorPorWhatsApp(input: {
     }
 
     const enlace = `https://app.aizenbot.com/cliente/chats?chatKey=agent:${input.conversationId}&assigned=all`;
-    const texto = [
-      "🔔 *Un cliente necesita atención*",
+    /*
+      Al ADMINISTRADOR se le dice a quien le toco; a la asesora no hace falta.
+
+      Un administrador ve todos los avisos y lo primero que quiere saber es quien lo esta
+      atendiendo, para no ir a preguntar ni terminar atendiendolo el (Alex, 26-09-2026). La
+      asesora que lo recibe ya sabe que es suyo: leer su propio nombre ahi solo estorba.
+    */
+    const asesora = duenoDelChat
+      ? await prisma.user
+          .findUnique({ where: { id: duenoDelChat }, select: { name: true, email: true } })
+          .catch(() => null)
+      : null;
+    const nombreDeLaAsesora = asesora?.name?.trim() || asesora?.email || null;
+
+    const encabezado = [
+      "🔔 *Necesita atención*",
       "",
       `👤 ${input.cliente}`,
       `📱 ${input.telefonoDelCliente}`,
       `📌 ${input.motivo}`,
+    ];
+    const textoParaAsesora = [...encabezado, "", enlace].join("\n");
+    const textoParaAdministrador = [
+      ...encabezado,
+      `*Asignado a:* ${nombreDeLaAsesora ?? "nadie todavia"}`,
       "",
       enlace,
     ].join("\n");
@@ -166,7 +185,7 @@ export async function avisarAsesorPorWhatsApp(input: {
         await sendEvolutionTextMessageWithReconnect({
           instanceName: canal.evolutionInstanceName,
           phoneNumber: destino.numero,
-          text: texto,
+          text: destino.soloDe === null ? textoParaAdministrador : textoParaAsesora,
         });
         enviados += 1;
       } catch (error) {
