@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MessageSquare, Package, Search, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { resetConversationSelection } from "@/components/chats/chat-selection-store";
 import {
   CommandDialog,
   CommandEmpty,
@@ -108,6 +109,22 @@ export function BuscadorGlobal() {
     (href: string) => {
       setAbierto(false);
       setTexto("");
+
+      /*
+        Se suelta el chat que la bandeja tiene abierto ANTES de navegar.
+
+        Buscar un chat y tocarlo no hacía nada cuando ya estabas parado en Chats (Alex,
+        28-09-2026): la URL cambiaba y el panel se quedaba en la conversación de antes.
+
+        El motivo es que abrir un chat ya no navega: la bandeja guarda cuál está abierto en
+        memoria y el `?chatKey=` de la URL solo se mira en el primer render. Así que la selección
+        vieja le ganaba al enlace nuevo. Soltándola, la bandeja vuelve a leer la URL — que es para
+        lo que existe `resetConversationSelection`, según dice su propio comentario.
+
+        Se hace para cualquier resultado: si el destino no es un chat igual se navega, y dejar la
+        selección colgada no le sirve a nadie.
+      */
+      resetConversationSelection();
       router.push(href);
     },
     [router],

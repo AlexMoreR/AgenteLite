@@ -5,7 +5,7 @@ import { enfriarLeadsSinRespuesta } from "@/features/crm/services/lead-temperatu
 import { procesarTandasDeCampanas } from "@/features/campanas/services/campaigns";
 import { purgeOldWebhookEventLogs } from "@/lib/webhook-log-retention";
 import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimientos";
-import { ejecutarSeguimientosInteligentes } from "@/features/agente-v3/servicios/seguimientos-inteligentes";
+import { avisarClientesEsperando } from "@/features/agente-v3/servicios/cliente-esperando";
 import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
 
 function resolveCronSecret() {
@@ -59,21 +59,20 @@ async function handleCron(request: Request) {
   }
 
   /*
-    Seguimientos INTELIGENTES del V3: los que escribe la IA leyendo la conversacion entera.
+    Un cliente que escribio y lleva 15 minutos sin respuesta: se le avisa a la asesora.
 
-    Corre DESPUES de los textos fijos a proposito: los fijos mandan dentro del embudo y este solo
-    entra donde no hay nada escrito -despues de las fotos, despues del traspaso a la asesora-, que
-    es donde los chats se quedaban sin un solo seguimiento.
+    Es lo que quedo de los seguimientos inteligentes. La version que ademas le ESCRIBIA al cliente
+    (15 min, 1 h, 1 dia, 3 dias) se quito el 28-09-2026: lo que servia era el aviso, no que el
+    agente insistiera solo. Aca el agente no le manda nada al cliente, solo levanta la mano.
 
-    Con throttle de 2 minutos: cada envio le cuesta una llamada a la IA, y los escalones son de 15
-    minutos para arriba, asi que revisar cada minuto no adelanta nada. Best-effort, como los demas.
+    Con throttle de 2 minutos: el umbral es de 15, asi que mirar cada minuto no adelanta nada.
   */
-  let seguimientosIA: { enviados: number; avisados: number; revisados: number } | null = null;
+  let clientesEsperando: { avisados: number; revisados: number } | null = null;
   if (new Date().getMinutes() % 2 === 0) {
     try {
-      seguimientosIA = await ejecutarSeguimientosInteligentes();
+      clientesEsperando = await avisarClientesEsperando();
     } catch (error) {
-      console.error("[cron/follows] seguimientos inteligentes error", error);
+      console.error("[cron/follows] aviso de cliente esperando error", error);
     }
   }
 
@@ -145,7 +144,7 @@ async function handleCron(request: Request) {
     campanas,
     webhookLogs,
     seguimientosV3,
-    seguimientosIA,
+    clientesEsperando,
     rescatados,
   });
 }
