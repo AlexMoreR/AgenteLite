@@ -2665,6 +2665,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             sentAt: now,
             rawPayload: {
               source: "manual",
+              enviadoPorUserId: session.user.id,
               evolution: outbound.raw,
             } as never,
           },
@@ -2694,6 +2695,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             sentAt: now,
             rawPayload: {
               source: "manual",
+              enviadoPorUserId: session.user.id,
               evolution: outbound.raw,
             } as never,
           },
@@ -2723,6 +2725,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             sentAt: now,
             rawPayload: {
               source: "manual",
+              enviadoPorUserId: session.user.id,
               evolution: outbound.raw,
             } as never,
           },
@@ -2751,6 +2754,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             sentAt: now,
             rawPayload: {
               source: "manual",
+              enviadoPorUserId: session.user.id,
               evolution: outbound.raw,
             } as never,
           },
@@ -2781,6 +2785,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             sentAt: now,
             rawPayload: {
               source: "manual",
+              enviadoPorUserId: session.user.id,
               evolution: outbound.raw,
             } as never,
           },
@@ -2943,6 +2948,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
       sentAt: new Date(),
       rawPayload: {
         source: "manual",
+        enviadoPorUserId: session.user.id,
         evolution: outbound.raw,
         ...(replyTo ? { replyTo } : {}),
       } as never,
@@ -3083,6 +3089,7 @@ export async function sendChatAudioReplyAction(input: {
       sentAt: now,
       rawPayload: {
         source: "manual",
+        enviadoPorUserId: session.user.id,
         evolution: outbound.raw,
       } as never,
     },
@@ -3373,6 +3380,7 @@ export async function sendChatMediaReplyAction(input: {
         sentAt: now,
         rawPayload: {
           source: "manual",
+          enviadoPorUserId: session.user.id,
           fileName: parsed.data.fileName,
           mimeType: parsed.data.mimeType,
           fileSize,
@@ -3524,6 +3532,7 @@ export async function sendChatLocationReplyAction(input: {
       sentAt: now,
       rawPayload: {
         source: "manual",
+        enviadoPorUserId: session.user.id,
         location: { latitude, longitude, name, address },
         evolution: outbound.raw,
       } as never,

@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail, MoreHorizontal, Pencil, Power, RotateCcw, Send, ShieldCheck, UserMinus, UserPlus } from "lucide-react";
+import { Activity, Mail, MoreHorizontal, Pencil, Power, RotateCcw, Send, ShieldCheck, UserMinus, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import {
   clientDeactivateEmployeeAction,
@@ -523,6 +524,19 @@ function EmployeeActions({ employee }: { employee: EmployeeRow }) {
           <DropdownMenuItem onClick={() => setEditOpen(true)}>
             <Pencil />
             Editar
+          </DropdownMenuItem>
+
+          {/*
+            La actividad de esa persona, en su propia pantalla.
+
+            Se entra por el nombre en la direccion y no por un modal a proposito: desde ahi se
+            puede cambiar de dia y saltar de una persona a otra sin volver a Equipo.
+          */}
+          <DropdownMenuItem
+            render={<Link href={`/cliente/equipo/actividad?persona=${encodeURIComponent(employee.userId)}`} />}
+          >
+            <Activity />
+            Ver actividad
           </DropdownMenuItem>
 
           <DropdownMenuItem onClick={() => setPromoteOpen(true)}>

@@ -22,6 +22,8 @@ export type LoadedAgentConversationDetail = {
   id: string;
   agentId: string | null;
   automationPaused: boolean;
+  /** Quien tiene el chat. Viaja al cliente para que la fila de la bandeja se entere de los cambios. */
+  assignedTo: { id: string; name: string | null; email: string | null } | null;
   contact: {
     id: string;
     name: string | null;
@@ -209,6 +211,9 @@ export async function loadAgentConversationDetail(input: {
     id: conversation.id,
     agentId: conversation.agentId,
     automationPaused: conversation.automationPaused,
+    // Se selecciona arriba y hasta ahora no salia de aca: sin esto la fila de la bandeja no podia
+    // enterarse de un cambio de dueño sin recargar la lista entera.
+    assignedTo: conversation.assignedTo,
     contact: conversation.contact,
     channel: conversation.channel,
     messages: await conLlamadas({

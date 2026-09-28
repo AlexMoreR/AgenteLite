@@ -108,6 +108,7 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
         imageUrl: imageToSend.url,
         caption: imageToSend.caption,
         source: "manual",
+        enviadoPorUserId: session.user.id,
       });
 
       if (!imageResult.ok) {
@@ -128,6 +129,7 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
         to: conversation.contactWaId,
         message: textToSend,
         source: "manual",
+        enviadoPorUserId: session.user.id,
       });
 
       if (!textResult.ok) {
@@ -149,6 +151,7 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
         imageUrl: imageToSend.url,
         caption: imageToSend.caption,
         source: "manual",
+        enviadoPorUserId: session.user.id,
       });
 
       if (!imageResult.ok) {
@@ -188,6 +191,7 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
     to: conversation.contactWaId,
     message: parsed.data.message,
     source: "manual",
+    enviadoPorUserId: session.user.id,
   });
 
   if (!result.ok) {

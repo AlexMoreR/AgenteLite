@@ -25,6 +25,17 @@ export async function recordConversationActivity(input: {
   contactId?: string | null;
   kind: ConversationActivityKind;
   text: string;
+  /*
+    QUIEN lo hizo, como dato y no como texto.
+
+    Hasta ahora el autor solo vivia dentro de `text` ("Magilus asigno a Maria"), asi que para saber
+    que hizo cada persona habia que adivinar leyendo nombres: dos Marias, un cambio de nombre o una
+    nota sin autor y ya estaba mal. Con el id se puede contar de verdad (Alex, 28-09-2026).
+
+    Es opcional porque no todo tiene autor: lo que hace el agente, o un reloj del servidor, no lo
+    hizo nadie. Va en rawPayload para no migrar la base de produccion.
+  */
+  actorUserId?: string | null;
 }) {
   const text = input.text.trim();
   if (!text || !input.conversationId) {
@@ -42,7 +53,7 @@ export async function recordConversationActivity(input: {
         type: "SYSTEM",
         status: "SENT",
         content: text,
-        rawPayload: { source: "activity", kind: input.kind } as never,
+        rawPayload: { source: "activity", kind: input.kind, actorUserId: input.actorUserId ?? null } as never,
       },
     });
   } catch {

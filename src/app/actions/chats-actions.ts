@@ -824,6 +824,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       to: conversation.contactWaId,
       message: messageWithSignature,
       source: "manual",
+      enviadoPorUserId: session.user.id,
     });
 
     if (!result.ok) {
@@ -1759,6 +1760,7 @@ export async function assignChatAction(input: {
     channelId: conversation.channelId,
     contactId: conversation.contactId,
     kind: targetUserId ? "assigned" : "unassigned",
+    actorUserId: session.user.id,
     text: activityText,
   });
 
@@ -1826,6 +1828,7 @@ export async function toggleContactTagAction(
       channelId: recentConversation.channelId,
       contactId,
       kind: wasAdded ? "tag_added" : "tag_removed",
+      actorUserId: session.user.id,
       text: wasAdded
         ? `${actorName} agregó la etiqueta "${tag.name}"`
         : `${actorName} quitó la etiqueta "${tag.name}"`,
@@ -1915,6 +1918,7 @@ export async function updateConversationStatusAction(input: {
     channelId: conversation.channelId,
     contactId: conversation.contactId,
     kind: input.status === "CLOSED" ? "resolved" : "reopened",
+    actorUserId: session.user.id,
     text: input.status === "CLOSED"
       ? `${actorName} resolvió`
       : `${actorName} reabrió`,
@@ -2365,6 +2369,7 @@ export async function addConversationNoteAction(input: {
         channelId: conversacion.channelId,
         contactId: conversacion.contactId,
         kind: "note",
+        actorUserId: session.user.id,
         text: contenido,
       });
     }

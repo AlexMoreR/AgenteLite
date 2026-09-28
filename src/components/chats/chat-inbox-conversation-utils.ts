@@ -234,7 +234,17 @@ export function buildConversationItemFromSnapshot(
     // Preservar la etapa del CRM: sin esto, un update de realtime reconstruía el item SIN
     // crmStage y la pastillita "Frío/Tibio" de la fila desaparecía al cambiar de etapa.
     crmStage: snapshot.crmStage ?? existing?.crmStage ?? null,
-    assignedToName: existing?.assignedToName ?? null,
+    /*
+      El dueño sale del chat abierto, que lo trae fresco en cada refresco.
+
+      Antes se conservaba SIEMPRE el que ya tenia la fila, asi que un cambio de dueño no llegaba
+      nunca: la fila decia una asesora y el panel de la derecha otra. Cuando el chat viene sin el
+      dato -no todos los caminos lo mandan- se conserva el de antes, que es mejor que borrarlo.
+    */
+    assignedToName:
+      snapshot.assignedTo !== undefined
+        ? snapshot.assignedTo?.name?.trim() || snapshot.assignedTo?.email || null
+        : existing?.assignedToName ?? null,
     // Esta funcion solo actualiza la conversacion abierta: el usuario la esta viendo,
     // asi que no hay mensajes sin leer.
     incomingCount: 0,

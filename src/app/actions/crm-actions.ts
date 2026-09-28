@@ -128,6 +128,7 @@ export async function updateCrmStageAction(input: {
       channelId: recentConversation.channelId,
       contactId: contact.id,
       kind: "stage_changed",
+      actorUserId: session.user.id,
       text: reasonLabel
         ? `${actorName} cambió la etapa a "${stageLabel}" (motivo: ${reasonLabel})`
         : `${actorName} cambió la etapa a "${stageLabel}"`,

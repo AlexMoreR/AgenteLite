@@ -87,6 +87,8 @@ export async function sendOfficialApiAudioMessage(input: {
   storedMediaUrl?: string | null;
   caption?: string | null;
   source: "manual" | "automation";
+  /** Quien lo escribio, cuando lo escribio una persona. Para la pantalla de Actividad. */
+  enviadoPorUserId?: string | null;
 }) {
   if (!input.config.accessToken?.trim() || !input.config.phoneNumberId?.trim()) {
     return { ok: false as const, error: "La API oficial no tiene credenciales activas." };
@@ -171,6 +173,7 @@ export async function sendOfficialApiAudioMessage(input: {
       ${input.storedMediaUrl ?? input.audioUrl},
       ${JSON.stringify({
         source: input.source,
+        enviadoPorUserId: input.enviadoPorUserId ?? null,
         meta: payload,
       })},
       ${now},
@@ -206,6 +209,8 @@ export async function sendOfficialApiTextMessage(input: {
   to: string;
   message: string;
   source: "manual" | "automation";
+  /** Quien lo escribio, cuando lo escribio una persona. Para la pantalla de Actividad. */
+  enviadoPorUserId?: string | null;
 }) {
   if (!input.config.accessToken?.trim() || !input.config.phoneNumberId?.trim()) {
     return { ok: false as const, error: "La API oficial no tiene credenciales activas." };
@@ -287,6 +292,7 @@ export async function sendOfficialApiTextMessage(input: {
       ${input.message},
       ${JSON.stringify({
         source: input.source,
+        enviadoPorUserId: input.enviadoPorUserId ?? null,
         meta: payload,
       })},
       ${now},
@@ -390,6 +396,8 @@ export async function sendOfficialApiVideoMessage(input: {
   storedMediaUrl?: string | null;
   caption?: string | null;
   source: "manual" | "automation";
+  /** Quien lo escribio, cuando lo escribio una persona. Para la pantalla de Actividad. */
+  enviadoPorUserId?: string | null;
 }) {
   if (!input.config.accessToken?.trim() || !input.config.phoneNumberId?.trim()) {
     return { ok: false as const, error: "La API oficial no tiene credenciales activas." };
@@ -475,6 +483,7 @@ export async function sendOfficialApiVideoMessage(input: {
       ${input.storedMediaUrl ?? input.videoUrl},
       ${JSON.stringify({
         source: input.source,
+        enviadoPorUserId: input.enviadoPorUserId ?? null,
         meta: payload,
       })},
       ${now},
@@ -515,6 +524,8 @@ export async function sendOfficialApiImageMessage(input: {
   storedMediaUrl?: string | null;
   caption?: string | null;
   source: "manual" | "automation";
+  /** Quien lo escribio, cuando lo escribio una persona. Para la pantalla de Actividad. */
+  enviadoPorUserId?: string | null;
 }) {
   if (!input.config.accessToken?.trim() || !input.config.phoneNumberId?.trim()) {
     return { ok: false as const, error: "La API oficial no tiene credenciales activas." };
@@ -600,6 +611,7 @@ export async function sendOfficialApiImageMessage(input: {
       ${input.storedMediaUrl ?? input.imageUrl},
       ${JSON.stringify({
         source: input.source,
+        enviadoPorUserId: input.enviadoPorUserId ?? null,
         meta: payload,
       })},
       ${now},
@@ -648,6 +660,8 @@ export async function sendOfficialApiDocumentMessage(input: {
   fileName?: string | null;
   caption?: string | null;
   source: "manual" | "automation";
+  /** Quien lo escribio, cuando lo escribio una persona. Para la pantalla de Actividad. */
+  enviadoPorUserId?: string | null;
 }) {
   if (!input.config.accessToken?.trim() || !input.config.phoneNumberId?.trim()) {
     return { ok: false as const, error: "La API oficial no tiene credenciales activas." };
@@ -713,7 +727,7 @@ export async function sendOfficialApiDocumentMessage(input: {
       'SENT'::"OfficialApiMessageStatus",
       ${normalizedCaption ?? normalizedFileName},
       ${input.storedMediaUrl ?? input.documentUrl},
-      ${JSON.stringify({ source: input.source, fileName: normalizedFileName, meta: payload })},
+      ${JSON.stringify({ source: input.source, enviadoPorUserId: input.enviadoPorUserId ?? null, fileName: normalizedFileName, meta: payload })},
       ${now}, ${now}, ${now}
     )
   `;

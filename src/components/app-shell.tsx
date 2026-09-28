@@ -22,6 +22,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { BuscadorGlobal } from "@/components/buscador-global";
 import { AppVersionGuard } from "@/components/app-version-guard";
+import { LatidoDeActividad } from "@/components/latido-de-actividad";
 import { MobileKeyboardViewport } from "@/components/mobile-keyboard-viewport";
 import { ChatNotificationBell } from "@/components/ui/chat-notification-bell";
 import { ChatsOfficialRealtime } from "@/components/chats/chats-official-realtime";
@@ -301,6 +302,7 @@ export function AppShell({
           puedeSupervisarElEquipo={puedeSupervisarElEquipo}
         />
         <AppVersionGuard />
+        <LatidoDeActividad />
         <MobileKeyboardViewport />
         <SidebarInset
           className={cn(

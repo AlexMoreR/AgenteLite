@@ -361,6 +361,15 @@ export async function GET(request: Request) {
       cierrePendiente: tieneCierrePendiente(conversation.contact.metadata),
       channelId: conversation.channel?.id ?? null,
       canImportHistory: Boolean(conversation.channel?.evolutionInstanceName),
+      /*
+        QUIEN TIENE EL CHAT. Se cargaba y no se devolvia.
+
+        Por eso la fila de la lista y el panel de la derecha se contradecian: el panel decia
+        "Ingrid Sanchez" y la fila seguia diciendo "Maria Bautista" (Alex, 28-09-2026). Abrir un
+        chat no recarga la pagina, asi que la fila solo se enteraba de un cambio de dueño cuando
+        se volvia a pedir la lista entera. Ahora viaja en cada refresco del chat abierto.
+      */
+      assignedTo: conversation.assignedTo ?? null,
       messages,
     },
   });
