@@ -860,6 +860,9 @@ export const ConversationPanel = memo(function ConversationPanel({
       const recorder = new MediaRecorder(stream);
       audioChunksRef.current = [];
       recordCancelledRef.current = false;
+      // Para saber cuanto duro de verdad: el contador de la pantalla es estado y adentro de
+      // `onstop` llegaria congelado en el valor del primer render.
+      const arrancoEn = Date.now();
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -882,7 +885,27 @@ export const ConversationPanel = memo(function ConversationPanel({
           return;
         }
 
-        void uploadAndSendAudio(new Blob(chunks, { type: mimeType }), mimeType);
+        const grabado = new Blob(chunks, { type: mimeType });
+
+        /*
+          Una nota de voz de cero segundos NO se manda.
+
+          Medido en produccion: 21 de 657 notas de voz pesan menos de 20 KB, y la mas chica 110
+          bytes —un contenedor vacio—. Son las que la asesora toca y suelta al instante, o donde
+          el microfono todavia no habia arrancado. Se subian igual, llegaban al cliente como una
+          burbuja que no suena, y quedaban asi para siempre: el archivo no se puede reparar.
+
+          Se miran las dos cosas porque ninguna alcanza sola: el tiempo no sirve si el microfono
+          tardo en arrancar (medio segundo de silencio igual da un archivo inutil) y el peso
+          depende del codec. Cualquiera de las dos que falle, se descarta y se avisa.
+        */
+        const duroMs = Date.now() - arrancoEn;
+        if (duroMs < 1000 || grabado.size < 2000) {
+          toast.error("La nota de voz quedó muy corta. Mantén el botón mientras hablas.");
+          return;
+        }
+
+        void uploadAndSendAudio(grabado, mimeType);
       };
 
       recorder.start();

@@ -115,6 +115,15 @@ export function AudioMessageCard({
   // y lo que va sonando. El ref es para leerlo sin esperar el render.
   const arrastrandoRef = useRef(false);
   const [arrastrando, setArrastrando] = useState(false);
+  /*
+    El audio no se pudo cargar.
+
+    Sin esto el reproductor se quedaba MUDO: la asesora tocaba play, no pasaba nada y no habia
+    forma de saber si era el audio, la conexion o la app (Alex, 28-09-2026). En produccion hay 21
+    notas de voz de 657 que pesan menos de 20 KB —grabaciones que se cortaron al instante— y
+    quedaron asi para siempre: esas no se arreglan, pero por lo menos ahora lo dicen.
+  */
+  const [fallado, setFallado] = useState(false);
 
   const meta = useMemo(() => getAudioMetaFromMessage(message), [message]);
 
@@ -294,7 +303,8 @@ export function AudioMessageCard({
         <button
           type="button"
           onClick={alternar}
-          aria-label={sonando ? "Pausar" : "Reproducir"}
+          disabled={fallado}
+          aria-label={fallado ? "Audio no disponible" : sonando ? "Pausar" : "Reproducir"}
           className={`inline-flex size-8 shrink-0 items-center justify-center rounded-full transition active:scale-95 ${
             outbound ? "text-[var(--chat-out-text)]" : "text-foreground"
           }`}
@@ -361,7 +371,8 @@ export function AudioMessageCard({
           }`}
         >
           <span className="text-[11px] leading-none tabular-nums">
-            {reloj(posicion > 0 ? posicion : duracionMostrada)}
+            {/* En vez del 0:00 que no explica nada, se dice que ese audio no va a sonar. */}
+            {fallado ? "Audio dañado" : reloj(posicion > 0 ? posicion : duracionMostrada)}
           </span>
 
           <span className="flex items-center gap-1.5">
@@ -409,11 +420,21 @@ export function AudioMessageCard({
             setPosicion(evento.currentTarget.currentTime);
           }
         }}
+        onError={() => setFallado(true)}
         onLoadedMetadata={(evento) => {
           const valor = evento.currentTarget.duration;
           if (Number.isFinite(valor) && valor > 0) {
             setDuracion(valor);
+            setFallado(false);
+            return;
           }
+          /*
+            Carga pero no tiene nada adentro: una grabacion de cero segundos.
+
+            El navegador no lo considera un error -el archivo existe y es un m4a valido-, asi que
+            sin esta linea el reproductor mostraba 0:00 y el play no hacia nada.
+          */
+          setFallado(true);
         }}
         onEnded={() => {
           setSonando(false);
