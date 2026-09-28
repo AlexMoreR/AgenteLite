@@ -131,12 +131,18 @@ export function buildConversationItemHrefFromParams(
   if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
   if (searchQuery.trim()) params.set("q", searchQuery.trim());
   /*
-    Se omite cuando es "mine", que es el default REAL.
+    Se omite cuando es "all", que es el default REAL desde el 15-09-2026.
 
-    Estaba al reves -se omitia "all"-, y el servidor lee la ausencia como "mine": estando en
-    "Todas", cada enlace de conversacion devolvia a "Mias" sin que nadie tocara el filtro.
+    Este comentario decia lo contrario -"el servidor lee la ausencia como mine"- y ya no era
+    cierto: ese dia se invirtio el defecto de la pagina a "Todas" para quien mira el negocio.
+    `appsidebar` se actualizo; este armador de enlaces se quedo con la condicion vieja.
+
+    El resultado, estando en "Mias": cada enlace de conversacion soltaba el `assigned=mine`, el
+    servidor leia la ausencia como "Todas" y la bandeja se devolvia sola a "Todas" sin que nadie
+    tocara el filtro (Alex, 28-09-2026). El mismo bug que el comentario decia haber arreglado,
+    pero al otro lado.
   */
-  if (assignedFilter !== "mine") params.set("assigned", assignedFilter);
+  if (assignedFilter !== "all") params.set("assigned", assignedFilter);
   if (statusFilter !== "open") params.set("status", statusFilter);
   const qs = params.toString();
   return qs ? `${searchAction}?${qs}` : searchAction;

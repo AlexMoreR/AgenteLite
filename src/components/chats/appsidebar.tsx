@@ -109,8 +109,24 @@ export function AppSidebar({
    * eligen en el mismo modal y se confirman con "Aplicar", mandarlos por separado significaria
    * dos navegaciones —y la segunda pisando a la primera.
    */
+  /*
+    La pastilla se pinta apenas la tocas, sin esperar al servidor.
+
+    Cambiar de "Todas" a "Mias" es una navegacion: el servidor rehace la pantalla de Chats entera,
+    que es la mas pesada que tenemos (1,4 s medidos en produccion). Hasta que volvia, la pastilla
+    seguia pintada en la de antes y parecia que el toque no habia hecho nada, asi que se tocaba de
+    nuevo (Alex, 28-09-2026).
+
+    No se guarda un booleano sino DE DONDE se venia: cuando el prop del servidor deja de ser ese
+    valor, la navegacion llego y la marca se descarta sola. Sin efectos y sin quedar pegada si la
+    navegacion se cancela.
+  */
+  const [pedido, setPedido] = React.useState<{ para: AssignedFilter; desde: AssignedFilter } | null>(null);
+  const filtroMostrado = pedido && pedido.desde === assignedFilter ? pedido.para : assignedFilter;
+
   const aplicarFiltros = React.useCallback(
     (asignacion: AssignedFilter, estado: StatusFilter, nuevos: FiltrosDeBandeja = filtros) => {
+      setPedido({ para: asignacion, desde: assignedFilter });
       setFilterMenuOpen(false);
       const params = new URLSearchParams();
       if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
@@ -130,7 +146,7 @@ export function AppSidebar({
       const qs = params.toString();
       router.push(qs ? `${searchAction}?${qs}` : searchAction, { scroll: false });
     },
-    [router, searchAction, selectedConnectionKey, searchQuery, filtros],
+    [assignedFilter, router, searchAction, selectedConnectionKey, searchQuery, filtros],
   );
 
   /**
@@ -155,7 +171,7 @@ export function AppSidebar({
   // El + se marca cuando NO estas en la vista por defecto: abiertas y sin filtro de asignacion.
   const filtersActive =
     statusFilter !== "open" ||
-    (isManager && assignedFilter !== "mine") ||
+    (isManager && assignedFilter !== "all") ||
     filtros.etapas.length > 0 ||
     filtros.sinResponder;
 
@@ -189,7 +205,7 @@ export function AppSidebar({
                 "Sin asignar" sigue solo en el modal: es una vista de reparto, no del dia a dia.
               */}
               {(isManager ? PASTILLAS_A_LA_VISTA : (["mine"] as const)).map((valor) => {
-                const activa = assignedFilter === valor;
+                const activa = filtroMostrado === valor;
                 const tab = ASSIGNED_FILTER_TABS.find((item) => item.value === valor);
                 return (
                   <button

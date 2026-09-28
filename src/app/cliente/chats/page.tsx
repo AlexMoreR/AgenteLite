@@ -997,14 +997,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const chatListHref = `/cliente/chats${
     selectedConnectionKey ||
     searchQuery ||
-    assignedFilter !== "mine" ||
+    assignedFilter !== "all" ||
     statusFilter !== "open" ||
     paramsDeFiltros(filtros).length > 0
       ? `?${new URLSearchParams([
           ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
           ...(searchQuery ? [["q", searchQuery]] : []),
-          // Se omite "mine", que es el default REAL: omitir "all" mandaba de vuelta a "Mias".
-          ...(assignedFilter !== "mine" ? [["assigned", assignedFilter]] : []),
+          // Se omite "all", que es el default REAL desde el 15-09-2026: omitir "mine" devolvia
+          // la bandeja a "Todas" sola. Ver chat-inbox-conversation-utils, que tenia el mismo error.
+          ...(assignedFilter !== "all" ? [["assigned", assignedFilter]] : []),
           ...(statusFilter !== "open" ? [["status", statusFilter]] : []),
           // Los filtros nuevos viajan igual que los viejos: sin esto, abrir un chat los borraba.
           ...paramsDeFiltros(filtros),
@@ -1016,7 +1017,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ["chatKey", selectedUnified.key],
         ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
         ...(searchQuery ? [["q", searchQuery]] : []),
-        ...(assignedFilter !== "mine" ? [["assigned", assignedFilter]] : []),
+        ...(assignedFilter !== "all" ? [["assigned", assignedFilter]] : []),
         ...(statusFilter !== "open" ? [["status", statusFilter]] : []),
         ...paramsDeFiltros(filtros),
         ...(messagePage > 1 ? [["messagePage", String(messagePage)]] : []),
@@ -1301,7 +1302,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           lastMessageDirection: item.lastMessageDirection,
           lastMessageStatus: item.lastMessageStatus,
           lastMessageAt: item.lastMessageAt,
-          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "mine" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}${paramsDeFiltros(filtros)
+          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}${paramsDeFiltros(filtros)
             .map(([clave, valor]) => `&${clave}=${encodeURIComponent(valor)}`)
             .join("")}`,
         }))}
