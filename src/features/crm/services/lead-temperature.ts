@@ -61,6 +61,66 @@ async function anotarEnElChat(input: {
 }
 
 /**
+ * Enfria UN lead: de Tibio a Frio, dejando la marca que permite devolverlo.
+ *
+ * Sale del barrido de abajo para poder usarse suelto. Lo usan dos: el reloj de los 2 dias, y el
+ * ultimo seguimiento inteligente del Agente V3 (a los 3 dias, cuando deja de insistir).
+ *
+ * Solo enfria lo que esta en Tibio, a proposito. Caliente no se toca -si una asesora lo marco asi
+ * el reloj no le pisa la decision- y GANADO/PERDIDO tampoco: cerrar es decision humana.
+ */
+export async function enfriarUnLead(input: {
+  workspaceId: string;
+  contactId: string;
+  /** Lo que queda escrito en el chat. Ej: "2 días sin respuesta del cliente." */
+  motivo: string;
+}): Promise<boolean> {
+  try {
+    const contacto = await prisma.contact.findFirst({
+      where: { id: input.contactId, workspaceId: input.workspaceId },
+      select: { metadata: true },
+    });
+    if (!contacto) {
+      return false;
+    }
+
+    // Con WHERE de la etapa por si otro proceso ya la movio: correr esto dos veces no hace daño.
+    const movidos = await prisma.$executeRaw`
+      UPDATE "Contact"
+      SET "crmStage" = 'CALIFICADO', "updatedAt" = NOW()
+      WHERE "id" = ${input.contactId} AND "crmStage" = 'PROPUESTA'
+    `;
+    if (movidos === 0) {
+      return false;
+    }
+
+    // La marca es lo que hace reversible el enfriamiento: sin ella no se sabria a donde
+    // devolver el lead cuando conteste, ni se podria distinguir de un lead que siempre estuvo
+    // en Frio porque el bot lo dejo ahi.
+    await prisma.contact.update({
+      where: { id: input.contactId },
+      data: {
+        metadata: {
+          ...leerMetadata(contacto.metadata),
+          enfriadoEl: new Date().toISOString(),
+          enfriadoDesde: "PROPUESTA",
+        } as object,
+      },
+    });
+
+    await anotarEnElChat({
+      workspaceId: input.workspaceId,
+      contactId: input.contactId,
+      texto: `Se enfrió a Frío: ${input.motivo}`,
+    });
+    return true;
+  } catch (error) {
+    console.error("[lead-temperature] error enfriando", input.contactId, error);
+    return false;
+  }
+}
+
+/**
  * Baja a Frio los leads que estan en Tibio y llevan DIAS_SIN_RESPUESTA sin escribir.
  *
  * NO dispara seguimientos, a proposito: la primera corrida mueve cientos de leads de una y eso
@@ -91,39 +151,13 @@ export async function enfriarLeadsSinRespuesta(): Promise<{ enfriados: number }>
 
   let enfriados = 0;
   for (const candidato of candidatos) {
-    try {
-      // Con WHERE de la etapa por si otro proceso ya la movio: correr esto dos veces no hace daño.
-      const movidos = await prisma.$executeRaw`
-        UPDATE "Contact"
-        SET "crmStage" = 'CALIFICADO', "updatedAt" = NOW()
-        WHERE "id" = ${candidato.id} AND "crmStage" = 'PROPUESTA'
-      `;
-      if (movidos === 0) {
-        continue;
-      }
-
-      // La marca es lo que hace reversible el enfriamiento: sin ella no se sabria a donde
-      // devolver el lead cuando conteste, ni se podria distinguir de un lead que siempre estuvo
-      // en Frio porque el bot lo dejo ahi.
-      await prisma.contact.update({
-        where: { id: candidato.id },
-        data: {
-          metadata: {
-            ...leerMetadata(candidato.metadata),
-            enfriadoEl: new Date().toISOString(),
-            enfriadoDesde: "PROPUESTA",
-          } as object,
-        },
-      });
-
+    const movido = await enfriarUnLead({
+      workspaceId: candidato.workspaceId,
+      contactId: candidato.id,
+      motivo: `${DIAS_SIN_RESPUESTA} días sin respuesta del cliente.`,
+    });
+    if (movido) {
       enfriados += 1;
-      await anotarEnElChat({
-        workspaceId: candidato.workspaceId,
-        contactId: candidato.id,
-        texto: `Se enfrió a Frío: ${DIAS_SIN_RESPUESTA} días sin respuesta del cliente.`,
-      });
-    } catch (error) {
-      console.error("[lead-temperature] error enfriando", candidato.id, error);
     }
   }
 

@@ -5,6 +5,7 @@ import { enfriarLeadsSinRespuesta } from "@/features/crm/services/lead-temperatu
 import { procesarTandasDeCampanas } from "@/features/campanas/services/campaigns";
 import { purgeOldWebhookEventLogs } from "@/lib/webhook-log-retention";
 import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimientos";
+import { ejecutarSeguimientosInteligentes } from "@/features/agente-v3/servicios/seguimientos-inteligentes";
 import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
 
 function resolveCronSecret() {
@@ -55,6 +56,25 @@ async function handleCron(request: Request) {
     seguimientosV3 = await ejecutarSeguimientosV3();
   } catch (error) {
     console.error("[cron/follows] seguimientos v3 error", error);
+  }
+
+  /*
+    Seguimientos INTELIGENTES del V3: los que escribe la IA leyendo la conversacion entera.
+
+    Corre DESPUES de los textos fijos a proposito: los fijos mandan dentro del embudo y este solo
+    entra donde no hay nada escrito -despues de las fotos, despues del traspaso a la asesora-, que
+    es donde los chats se quedaban sin un solo seguimiento.
+
+    Con throttle de 2 minutos: cada envio le cuesta una llamada a la IA, y los escalones son de 15
+    minutos para arriba, asi que revisar cada minuto no adelanta nada. Best-effort, como los demas.
+  */
+  let seguimientosIA: { enviados: number; avisados: number; revisados: number } | null = null;
+  if (new Date().getMinutes() % 2 === 0) {
+    try {
+      seguimientosIA = await ejecutarSeguimientosInteligentes();
+    } catch (error) {
+      console.error("[cron/follows] seguimientos inteligentes error", error);
+    }
   }
 
   /*
@@ -125,6 +145,7 @@ async function handleCron(request: Request) {
     campanas,
     webhookLogs,
     seguimientosV3,
+    seguimientosIA,
     rescatados,
   });
 }
