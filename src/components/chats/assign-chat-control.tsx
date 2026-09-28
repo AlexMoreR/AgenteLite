@@ -110,6 +110,22 @@ export function AssignChatControl({ conversationId, assignee: asignadoDelServido
 
   const handleAssign = useCallback(
     (targetUserId: string | null) => {
+      /*
+        Asignarle el chat a quien YA lo tiene no es una asignación: es un toque de más.
+
+        En producción quedaron tres notas seguidas en el mismo chat, al mismo destino, en dos
+        segundos (07:37:13, :14 y :15 del 28-09-2026), y varias parejas iguales con doce segundos
+        de diferencia. Los botones ya se deshabilitan mientras la acción viaja, así que no son
+        llamadas simultáneas: son toques repetidos porque en el celular no se ve que haya pasado
+        algo. Cada uno dejaba su nota, y el historial del chat terminaba pareciendo que el sistema
+        reasigna solo — que es justo lo que nos vino a preguntar Alex (28-09-2026).
+
+        Cortarlo acá, además de limpiar el historial, evita mover la rueda del reparto por turnos.
+      */
+      if (targetUserId && assignee?.id === targetUserId) {
+        setOpen(false);
+        return;
+      }
       setError(null);
       startTransition(async () => {
         const result = await assignChatAction({ conversationId, assignToUserId: targetUserId, source });
@@ -143,7 +159,7 @@ export function AssignChatControl({ conversationId, assignee: asignadoDelServido
       */
       router.refresh();
     },
-    [conversationId, members, router, source],
+    [assignee?.id, conversationId, members, router, source],
   );
 
   const assignedToMe = Boolean(assignee && currentUserId && assignee.id === currentUserId);
