@@ -210,19 +210,67 @@ export async function ejecutarSeguimientosInteligentes(
         continue;
       }
 
-      const minutosCallado = Math.floor((ahora.getTime() - ultimo.createdAt.getTime()) / 60_000);
+      /*
+        EL RELOJ CUENTA DESDE EL ÚLTIMO MENSAJE DEL CLIENTE. NO desde el último del chat.
+
+        Acá estaba el bug que le mandó a una clienta el mismo mensaje quince veces, uno cada
+        dieciséis minutos, de las 4:34 a las 8:18 de la mañana (28-09-2026).
+
+        El contador se guardaba atado a la hora del último mensaje del chat — y el seguimiento que
+        acabábamos de mandar ERA el último mensaje del chat. Así que a la vuelta siguiente la marca
+        ya no coincidía, se leía como un silencio nuevo, volvía a empezar en el escalón de 15
+        minutos, y a los 15 minutos mandaba otro. Para siempre.
+
+        Medido desde que habló el cliente, la cuenta no se mueve por lo que escribamos nosotros:
+        los cuatro escalones salen una vez cada uno y se acabó.
+      */
+      const ultimoDelCliente = ultimos.find((mensaje) => mensaje.direction === "INBOUND");
+      if (!ultimoDelCliente) {
+        // Nunca escribió: no hay silencio suyo que perseguir. Un chat que abrimos nosotros no es
+        // un cliente que dejó de contestar.
+        continue;
+      }
+
+      const minutosCallado = Math.floor((ahora.getTime() - ultimoDelCliente.createdAt.getTime()) / 60_000);
       if (minutosCallado < ESCALONES[0]) {
         continue;
       }
 
       // Silencio que ya venía de antes de prender esto: no se persigue historia vieja.
-      if (ultimo.createdAt < arranque) {
+      if (ultimoDelCliente.createdAt < arranque) {
+        continue;
+      }
+
+      /*
+        Cortacircuitos, independiente de lo que digan las marcas.
+
+        Se cuenta en la BASE cuántos seguimientos nuestros salieron desde que el cliente habló por
+        última vez. Si ya hay tantos como escalones, no sale ninguno más, pase lo que pase con el
+        estado guardado. Es la red que faltaba: el bug de arriba vivía justamente en que la marca
+        se leía mal, y nada más miraba la realidad.
+      */
+      const seguimientosYaEnviados = await prisma.message.count({
+        where: {
+          conversationId: conversacion.id,
+          direction: "OUTBOUND",
+          createdAt: { gt: ultimoDelCliente.createdAt },
+          rawPayload: { path: ["source"], equals: "agente-v3-seguimiento-ia" },
+        },
+      });
+      if (seguimientosYaEnviados >= ESCALONES.length) {
         continue;
       }
 
       const marcaGuardada = await leerMarca(conversacion.id);
-      const desde = ultimo.createdAt.toISOString();
-      // Si el chat se movió, la marca era de otro silencio: el contador vuelve a empezar.
+      /*
+        La marca se ata a la hora en que habló el CLIENTE, no a la del último mensaje del chat.
+
+        Es la otra mitad del arreglo: atada al último mensaje, cada seguimiento que mandábamos
+        invalidaba su propia marca y el ciclo volvía a empezar. Atada al cliente, solo se reinicia
+        cuando de verdad hay un silencio nuevo, que es cuando él vuelve a escribir.
+      */
+      const desde = ultimoDelCliente.createdAt.toISOString();
+      // Si el cliente volvió a escribir, la marca era de otro silencio: el contador vuelve a empezar.
       const marca: MarcaDeSeguimiento =
         marcaGuardada && marcaGuardada.desde === desde ? marcaGuardada : { desde, escalones: [] };
 
