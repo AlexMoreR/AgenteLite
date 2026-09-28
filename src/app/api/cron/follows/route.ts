@@ -6,6 +6,7 @@ import { procesarTandasDeCampanas } from "@/features/campanas/services/campaigns
 import { purgeOldWebhookEventLogs } from "@/lib/webhook-log-retention";
 import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimientos";
 import { avisarClientesEsperando } from "@/features/agente-v3/servicios/cliente-esperando";
+import { rescatarMensajesSinDecidir } from "@/features/agente-v3/servicios/rescate-de-mensajes";
 import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
 
 function resolveCronSecret() {
@@ -77,6 +78,24 @@ async function handleCron(request: Request) {
   }
 
   /*
+    El mensaje que nadie miro: se lo vuelve a pasar al motor.
+
+    Es para los mensajes que se pierden cuando el proceso se cae o lo reemplaza un despliegue:
+    WhatsApp no reintenta, asi que sin esto ese lead se queda sin respuesta para siempre. Solo toca
+    lo que el motor NUNCA decidio, y nunca un chat con asesora o con la IA pausada.
+
+    Corre en cada vuelta (cada 60s) y no cada 2 minutos como los avisos: aca cada minuto de retraso
+    es un minuto que el cliente lleva esperando una respuesta que deberia haber llegado en diez
+    segundos. La consulta es barata -solo chats sin dueño y sin pausa de los ultimos 30 minutos-.
+  */
+  let mensajesRescatados: { rescatados: number; revisados: number } | null = null;
+  try {
+    mensajesRescatados = await rescatarMensajesSinDecidir();
+  } catch (error) {
+    console.error("[cron/follows] rescate de mensajes error", error);
+  }
+
+  /*
     La red del reparto: un cliente esperando media hora y sin nadie a cargo.
 
     Desde que los leads se reparten cuando el agente levanta la mano, un chat donde el agente NO
@@ -145,6 +164,7 @@ async function handleCron(request: Request) {
     webhookLogs,
     seguimientosV3,
     clientesEsperando,
+    mensajesRescatados,
     rescatados,
   });
 }

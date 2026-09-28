@@ -2,6 +2,7 @@ import { getFlowReply } from "@/lib/agent-product-flow";
 import type { FlowStep } from "@/lib/agent-product-flow";
 
 import { leerLibro } from "../servicios/almacen";
+import { anotarDecision } from "../servicios/decisiones";
 import { clasificarIntenciones } from "./clasificar";
 import { decidir, siguienteEstado } from "./decidir";
 import { guardarEstado, leerEstado } from "./estado";
@@ -51,6 +52,42 @@ export async function atenderConAgenteV3(input: {
   /** Últimos mensajes para que la IA entienda un "si" suelto. */
   historial?: Array<{ de: "cliente" | "negocio"; texto: string }>;
   /** A qué mensaje nuestro le respondió, si usó "responder" de WhatsApp. */
+  citado?: string;
+  incluirApiOficial?: boolean;
+  herramientas: Herramientas;
+}): Promise<ResultadoV3> {
+  /*
+    La hora se toma ANTES de evaluar, no despues.
+
+    Si un mensaje entra mientras el motor esta pensando, esa vuelta no lo vio. Marcando el inicio,
+    ese mensaje sigue contando como "sin decidir" y el rescate lo puede levantar; marcando el
+    final, quedaria tapado por una decision que nunca lo miro.
+  */
+  const inicio = new Date();
+  const resultado = await evaluar(input);
+
+  /*
+    Queda huella de TODA vuelta, haya respondido o no.
+
+    Va en el envoltorio y no adentro a proposito: el motor tiene varias salidas -libro vacio,
+    ninguna regla, se callo para no repetirse- y si la marca viviera en cada una, la proxima
+    salida que alguien agregue se olvidaria de dejarla. Y una vuelta sin huella es, para el
+    rescate, un mensaje que nadie miro.
+  */
+  await anotarDecision(input.conversationId, {
+    cuando: inicio.toISOString(),
+    atendido: resultado.atendido,
+    regla: resultado.regla,
+  });
+
+  return resultado;
+}
+
+async function evaluar(input: {
+  workspaceId: string;
+  conversationId: string;
+  mensaje: string;
+  historial?: Array<{ de: "cliente" | "negocio"; texto: string }>;
   citado?: string;
   incluirApiOficial?: boolean;
   herramientas: Herramientas;
