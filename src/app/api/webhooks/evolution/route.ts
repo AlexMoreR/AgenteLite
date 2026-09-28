@@ -2894,6 +2894,31 @@ export async function POST(request: NextRequest) {
           // Todavia no: la IA redactora llega despues. Se anota para no fingir que contesto.
           console.log("[EVOLUTION] v3_responder_con_ia_pendiente", { conversationId: conversation.id, guia });
         },
+        /*
+          El candado de "no repetir". La ventana es de un DIA, no de toda la conversacion.
+
+          Sin ventana, una charla que se retoma la semana siguiente dejaria al agente mudo: volver
+          a preguntar "en que ciudad estas?" siete dias despues no es repetirse, es empezar de
+          nuevo. Un dia cubre el caso real -dos mensajes seguidos, o la misma tarde- sin prohibir
+          una frase para siempre.
+        */
+        yaLoDijimos: async (texto) => {
+          const limpio = texto.trim();
+          if (!limpio) {
+            return false;
+          }
+          const veces = await prisma.message
+            .count({
+              where: {
+                conversationId: conversation.id,
+                direction: "OUTBOUND",
+                content: limpio,
+                createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) },
+              },
+            })
+            .catch(() => 0);
+          return veces > 0;
+        },
       },
     }).catch((error) => {
       console.error("[EVOLUTION] v3_error", {

@@ -26,6 +26,13 @@ export type Herramientas = {
   pausarIa: () => Promise<void>;
   /** Cuando la regla dice "que conteste la IA": recibe la guía escrita en el libro. */
   responderConIa: (guia: string) => Promise<void>;
+  /**
+   * ¿Este mismo texto ya salió en esta conversación hace poco?
+   *
+   * Vive acá y no dentro del motor porque es una pregunta a la base, y el motor es una función
+   * pura. Quien no la implemente puede devolver false: se comporta como antes.
+   */
+  yaLoDijimos: (texto: string) => Promise<boolean>;
 };
 
 export type ResultadoV3 = {
@@ -78,17 +85,70 @@ export async function atenderConAgenteV3(input: {
     return { atendido: false, regla: null, porque: decision.porque, acciones: 0 };
   }
 
+  /*
+    NO REPETIR: un texto que ya salió no vuelve a salir.
+
+    Una clienta escribió dos mensajes seguidos —"No me gusta esa varilla" y "Otro modelo por fa"—
+    y ninguno encajaba con una regla, así que la red del paso contestó las dos veces con el MISMO
+    texto palabra por palabra, uno detrás del otro (Alex, 28-09-2026). Las reglas red son
+    justamente las que más se repiten: contestan cuando no se entendió, y cuando no se entiende
+    una vez se suele no entender la siguiente.
+
+    La regla de Alex no se negocia: el agente nunca repite un mensaje ya enviado, y si no tiene
+    nada nuevo que decir no se traba ni insiste — avisa a un asesor y se calla. Es la misma idea
+    que ya estaba escrita para el V2; al V3 le faltaba.
+  */
+  const filtradas: Accion[] = [];
+  let seCallo = false;
   for (const accion of acciones) {
+    if (accion.tipo === "mensaje" && (await input.herramientas.yaLoDijimos(accion.texto))) {
+      seCallo = true;
+      continue;
+    }
+    filtradas.push(accion);
+  }
+
+  const leDiceAlgo = filtradas.some(
+    (accion) => accion.tipo === "mensaje" || accion.tipo === "flujo" || accion.tipo === "responder_con_ia",
+  );
+
+  /*
+    Lo que NO es un mensaje se hace igual: mover la etapa, pausar la IA, avisar.
+
+    Se ejecuta antes de decidir si hay que escalar, y no con un retorno temprano, porque si no una
+    regla del tipo [mensaje + cambiar_etapa] perdería la etapa solo porque el texto se repetía.
+  */
+  for (const accion of filtradas) {
     await ejecutarUna(accion, input);
+  }
+
+  /*
+    Se calló y no le queda nada que decirle: que siga una persona.
+
+    Callarse a secas dejaría al cliente esperando, y repetir es lo que estamos evitando. No se
+    avisa dos veces si la regla ya pedía un asesor por su cuenta, y el aviso tiene además su propia
+    antirrepetición, así que esto no le llena el teléfono a nadie.
+  */
+  const laReglaYaPidioAsesor = filtradas.some((accion) => accion.tipo === "avisar_asesor");
+  if (seCallo && !leDiceAlgo && !laReglaYaPidioAsesor) {
+    await input.herramientas.avisarAsesor(
+      "El agente iba a repetir un mensaje que ya envió y no tiene nada nuevo que decir",
+    );
   }
 
   await guardarEstado(input.conversationId, siguienteEstado(estado, acciones));
 
+  const porque = !seCallo
+    ? decision.porque
+    : leDiceAlgo
+      ? `${decision.porque} (No se repitió un texto que ya había salido.)`
+      : `${decision.porque} Pero ese mensaje ya se había enviado en esta conversación, así que se avisó a un asesor en vez de repetirlo.`;
+
   return {
     atendido: true,
     regla: decision.regla?.nombre ?? "Saludo",
-    porque: decision.porque,
-    acciones: acciones.length,
+    porque,
+    acciones: filtradas.length,
   };
 }
 

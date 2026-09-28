@@ -143,6 +143,25 @@ export async function retomarConversacionV3(input: {
       responderConIa: async (guia) => {
         console.log("[retomar] v3_responder_con_ia_pendiente", { conversationId: conversation.id, guia });
       },
+      // Mismo candado que en el webhook: al retomar la charla es MÁS probable repetirse, porque se
+      // vuelve sobre el último mensaje del cliente, que puede ser el mismo que ya se contestó.
+      yaLoDijimos: async (texto) => {
+        const limpio = texto.trim();
+        if (!limpio) {
+          return false;
+        }
+        const veces = await prisma.message
+          .count({
+            where: {
+              conversationId: conversation.id,
+              direction: "OUTBOUND",
+              content: limpio,
+              createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) },
+            },
+          })
+          .catch(() => 0);
+        return veces > 0;
+      },
     },
   }).catch((error) => {
     console.error("[retomar] v3_error", {
