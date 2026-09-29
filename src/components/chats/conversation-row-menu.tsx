@@ -149,6 +149,9 @@ export function ConversationRowMenu({
           conversationId,
           assignToUserId: userId,
           source,
+          // La lista se reordena sola cuando entra un mensaje: si algun dia aparecen asignaciones
+          // que nadie recuerda haber hecho, saber que salieron de aca es la mitad de la respuesta.
+          origen: "menu-de-la-lista",
         }).catch(() => ({ error: "No se pudo asignar" }));
         setAsignando(false);
 

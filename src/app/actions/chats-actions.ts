@@ -45,6 +45,8 @@ import { AD_CAMPAIGN_ROUTING_METADATA_KEY } from "@/lib/ad-campaign-routing";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { Prisma } from "@prisma/client";
+import { headers } from "next/headers";
+import { leerDispositivo } from "@/lib/actividad-del-equipo";
 
 const updateContactSchema = z.object({
   contactId: z.string().trim().min(1),
@@ -1673,6 +1675,18 @@ async function assignOfficialApiChat(input: {
 export async function assignChatAction(input: {
   conversationId: string;
   assignToUserId: string | null;
+  /*
+    DE DONDE salio la asignacion, y desde que aparato.
+
+    Ingrid dice que no asigno un chat a Maria y el registro dice que si, con su sesion (Alex,
+    29-09-2026). Con solo el nombre no se puede distinguir "lo hizo a proposito" de "se le fue el
+    dedo en el celular", y sin eso la conversacion es palabra contra palabra.
+
+    Guardar el control y el aparato no acusa a nadie: permite ver si los toques raros salen todos
+    del menu de la lista en un telefono, que es donde es facil equivocarse de fila porque la lista
+    se reordena sola cuando entra un mensaje.
+  */
+  origen?: "ficha-del-chat" | "menu-de-la-lista";
   // Los chats de la API oficial viven en otra tabla. Sin esto, el selector de asignacion
   // no tenia a quien escribirle y todo el canal quedaba en "Sin asignar" para siempre.
   source?: "agent" | "official";
@@ -1761,6 +1775,8 @@ export async function assignChatAction(input: {
     contactId: conversation.contactId,
     kind: targetUserId ? "assigned" : "unassigned",
     actorUserId: session.user.id,
+    origen: input?.origen ?? null,
+    dispositivo: leerDispositivo((await headers()).get("user-agent")),
     text: activityText,
   });
 

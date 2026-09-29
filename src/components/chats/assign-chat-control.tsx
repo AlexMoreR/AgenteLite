@@ -8,6 +8,11 @@ import {
   getAssignableMembersAction,
   type AssignableMember,
 } from "@/app/actions/chats-actions";
+import {
+  olvidarSiYaLlego,
+  recordarAsignacion,
+  useAsignadoMostrado,
+} from "@/components/chats/asignacion-optimista";
 
 type AssignChatControlProps = {
   conversationId: string;
@@ -56,12 +61,22 @@ export function AssignChatControl({ conversationId, assignee: asignadoDelServido
 
     `undefined` significa "todavia no toque nada, mostra lo que dice el servidor".
   */
-  const [asignadoLocal, setAsignadoLocal] = useState<
-    { conversacion: string; valor: AssignChatControlProps["assignee"] } | null
-  >(null);
-  // El valor local se guarda CON su conversacion: al cambiar de chat deja de aplicar solo, sin
-  // tener que acordarse de limpiarlo.
-  const assignee = asignadoLocal?.conversacion === conversationId ? asignadoLocal.valor : asignadoDelServidor;
+  /*
+    La marca vive FUERA del componente (ver asignacion-optimista).
+
+    Estaba en `useState`, y el `router.refresh()` que sale justo despues de asignar puede
+    desmontar este control: ahi la marca se perdia y la ficha volvia a mostrar lo viejo. La
+    asesora ve que su toque "no hizo nada" y vuelve a tocar — el 29-09-2026 quedaron dos tomas del
+    mismo chat con 12 segundos de diferencia, y con el menu abierto un segundo toque puede caer en
+    otra opcion.
+  */
+  const assignee = useAsignadoMostrado(conversationId, asignadoDelServidor);
+
+  // Cuando el servidor por fin dice lo mismo, se suelta la marca: si no, una asignacion hecha
+  // desde otro lado -el menu de la lista, otra pestaña, un jefe- no se veria nunca aca.
+  useEffect(() => {
+    olvidarSiYaLlego(conversationId, asignadoDelServidor);
+  }, [conversationId, asignadoDelServidor]);
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -128,7 +143,7 @@ export function AssignChatControl({ conversationId, assignee: asignadoDelServido
       }
       setError(null);
       startTransition(async () => {
-        const result = await assignChatAction({ conversationId, assignToUserId: targetUserId, source });
+        const result = await assignChatAction({ conversationId, assignToUserId: targetUserId, source, origen: "ficha-del-chat" });
         if (result?.error) {
           setError(result.error);
           return;
@@ -141,14 +156,14 @@ export function AssignChatControl({ conversationId, assignee: asignadoDelServido
           asi el chip nunca queda en blanco si al usuario le falta el nombre y solo tiene correo.
         */
         const elegido = targetUserId ? (members.find((miembro) => miembro.id === targetUserId) ?? null) : null;
-        setAsignadoLocal({
-          conversacion: conversationId,
-          valor: elegido
+        recordarAsignacion(
+          conversationId,
+          elegido
             ? { id: elegido.id, name: elegido.name, email: elegido.email }
             : result.assignedTo
               ? { id: result.assignedTo.id, name: result.assignedTo.name, email: "" }
               : null,
-        });
+        );
         setOpen(false);
       });
 

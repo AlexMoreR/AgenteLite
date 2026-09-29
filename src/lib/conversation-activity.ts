@@ -36,6 +36,10 @@ export async function recordConversationActivity(input: {
     hizo nadie. Va en rawPayload para no migrar la base de produccion.
   */
   actorUserId?: string | null;
+  /** Con que control se hizo, cuando importa distinguirlo (ver assignChatAction). */
+  origen?: string | null;
+  /** Android, iPhone, Windows... Sale de la cabecera del navegador. */
+  dispositivo?: string | null;
 }) {
   const text = input.text.trim();
   if (!text || !input.conversationId) {
@@ -53,7 +57,13 @@ export async function recordConversationActivity(input: {
         type: "SYSTEM",
         status: "SENT",
         content: text,
-        rawPayload: { source: "activity", kind: input.kind, actorUserId: input.actorUserId ?? null } as never,
+        rawPayload: {
+          source: "activity",
+          kind: input.kind,
+          actorUserId: input.actorUserId ?? null,
+          ...(input.origen ? { origen: input.origen } : {}),
+          ...(input.dispositivo ? { dispositivo: input.dispositivo } : {}),
+        } as never,
       },
     });
   } catch {
