@@ -167,12 +167,40 @@ function numero(args: Argumentos, clave: string, minimo: number, maximo: number,
   return Math.min(maximo, Math.max(minimo, Math.round(valor)));
 }
 
-/** Una lista que puede venir como arreglo, como texto suelto o separada por comas. */
+/**
+ * Una lista que puede venir como arreglo, como texto suelto o separada por comas.
+ *
+ * Tambien acepta un arreglo escrito como texto (`'["GANADO","PERDIDO"]'`): pasa cuando el cliente
+ * del otro lado todavia tiene cacheado el esquema viejo, donde el parametro era solo texto. Sin
+ * esto llegaba con corchetes y comillas pegados y la etapa se rechazaba sin motivo aparente.
+ */
 function lista(args: Argumentos, clave: string) {
   const valor = args[clave];
-  const crudos = Array.isArray(valor) ? valor : typeof valor === "string" ? valor.split(",") : [];
+  let crudos: unknown[] = [];
+
+  if (Array.isArray(valor)) {
+    crudos = valor;
+  } else if (typeof valor === "string") {
+    const recortado = valor.trim();
+    if (recortado.startsWith("[")) {
+      try {
+        const leido: unknown = JSON.parse(recortado);
+        crudos = Array.isArray(leido) ? leido : [];
+      } catch {
+        // No era JSON valido: se limpian los corchetes y se sigue por comas.
+        crudos = recortado.replace(/^\[|\]$/g, "").split(",");
+      }
+    } else {
+      crudos = recortado.split(",");
+    }
+  }
+
   return crudos
-    .map((item) => (typeof item === "string" ? item.trim().toUpperCase() : ""))
+    .map((item) =>
+      // Las comillas sueltas salen del camino de respaldo de arriba, cuando el texto parecia un
+      // arreglo pero no se pudo leer como JSON.
+      typeof item === "string" ? item.trim().replace(/^["']|["']$/g, "").trim().toUpperCase() : "",
+    )
     .filter((item) => item.length > 0);
 }
 
