@@ -54,19 +54,19 @@ model EmailAuthToken {
 }
 
 model Workspace {
-  id                    String                   @id @default(cuid())
+  id                    String                    @id @default(cuid())
   name                  String
-  slug                  String                   @unique
+  slug                  String                    @unique
   ownerId               String?
-  isActive              Boolean                  @default(true)
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
+  isActive              Boolean                   @default(true)
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
   planTier              WorkspacePlanTier?
   planStartedAt         DateTime?
   planExpiresAt         DateTime?
   businessConfig        Json?
-  dailyReportEnabled    Boolean                  @default(false)
-  dailyReportRecipients String[]                 @default([])
+  dailyReportEnabled    Boolean                   @default(false)
+  dailyReportRecipients String[]                  @default([])
   agents                Agent[]
   agentCopilotMessages  AgentCopilotMessage[]
   contacts              Contact[]
@@ -88,12 +88,16 @@ model Workspace {
   quickReplies          QuickReply[]
   Tag                   Tag[]
   channels              WhatsAppChannel[]
-  owner                 User?                    @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  owner                 User?                     @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   memberships           WorkspaceMember[]
   webPushSubscriptions  WebPushSubscription[]
   callAttempts          CallAttempt[]
   playbookScripts       PlaybookScript[]
   productPlaybooks      ProductPlaybook[]
+  salesFunnel           SalesFunnel?
+  categoryPlaybooks     CategoryPlaybook[]
+  productSpecs          ProductSpec[]
+  funnelStates          ConversationFunnelState[]
 
   @@index([ownerId])
 }
@@ -237,23 +241,23 @@ model Contact {
 }
 
 model Conversation {
-  id                      String             @id @default(cuid())
+  id                      String                   @id @default(cuid())
   workspaceId             String
   agentId                 String?
   channelId               String?
   contactId               String
   assignedToUserId        String?
-  status                  ConversationStatus @default(OPEN)
+  status                  ConversationStatus       @default(OPEN)
   lastMessageAt           DateTime?
   autoReplyBatchStartedAt DateTime?
   autoReplyBatchDueAt     DateTime?
   autoReplyBatchToken     String?
   autoReplyBuffer         Json?
-  startedAt               DateTime           @default(now())
+  startedAt               DateTime                 @default(now())
   closedAt                DateTime?
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
-  automationPaused        Boolean            @default(false)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  automationPaused        Boolean                  @default(false)
   automationPausedAt      DateTime?
   activeProductContext    Json?
   commercialContext       Json?
@@ -261,14 +265,15 @@ model Conversation {
   /// ya se aviso. Se guarda aparte del commercialContext (que lo reescribe el motor en cada
   /// turno) para que el contador no se pierda.
   funnelStage             String?
-  funnelStageCount        Int                @default(0)
+  funnelStageCount        Int                      @default(0)
   funnelNotifiedAt        DateTime?
-  agent                   Agent?             @relation(fields: [agentId], references: [id])
-  channel                 WhatsAppChannel?   @relation(fields: [channelId], references: [id])
-  contact                 Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  workspace               Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assignedTo              User?              @relation("ConversationAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  agent                   Agent?                   @relation(fields: [agentId], references: [id])
+  channel                 WhatsAppChannel?         @relation(fields: [channelId], references: [id])
+  contact                 Contact                  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  workspace               Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignedTo              User?                    @relation("ConversationAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   messages                Message[]
+  funnelState             ConversationFunnelState?
   contactMatches          ContactMatch[]
 
   @@index([workspaceId, status])
@@ -300,6 +305,7 @@ model Product {
   slug               String                  @unique
   agentKnowledge     AgentKnowledgeProduct[]
   playbooks          ProductPlaybook[]
+  specs              ProductSpec[]
   category           Category?               @relation(fields: [categoryId], references: [id])
   images             ProductImage[]
   suppliers          ProductSupplier[]
@@ -337,14 +343,15 @@ model ProductImage {
 }
 
 model Category {
-  id        String    @id @default(cuid())
-  name      String    @unique
-  slug      String    @unique
-  isActive  Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id        String             @id @default(cuid())
+  name      String             @unique
+  slug      String             @unique
+  isActive  Boolean            @default(true)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
   logoUrl   String?
   products  Product[]
+  playbooks CategoryPlaybook[]
 }
 
 model Supplier {
@@ -1406,4 +1413,218 @@ model Diagram {
   createdBy User      @relation("DiagramCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, createdById, updatedAt])
+}
+
+// =============================================================================
+// EL CONTENIDO DE VENTAS EN TRES NIVELES (Alex, 28-09-2026)
+//
+// Lo que hay hoy -ProductPlaybook y sus etapas- guarda el guion YA ESCRITO, y lo guarda POR
+// PRODUCTO: cada producto repite su propio embudo. Cuando cambia la forma de vender hay que
+// tocarlo producto por producto, y lo que aprende una venta no le llega a las demas.
+//
+// Estos tres niveles lo dan vuelta:
+//   1. Embudo    - uno para el negocio: los pasos, su objetivo y sus seguimientos.
+//   2. Categoria - lo que comparten los productos parecidos: su pregunta y sus objeciones.
+//   3. Producto  - SOLO lo suyo: la ficha tecnica y las objeciones que solo a el le hacen.
+//
+// El guion NO se guarda en ningun lado: se arma en el momento juntando los tres. Por eso no hay
+// una columna "guion" en ninguna de estas tablas, y no es un olvido.
+//
+// Cuando dos niveles dicen cosas distintas sobre lo mismo, manda el mas especifico: la ficha le
+// gana a la categoria y la categoria al paso. Es el mismo desempate que ya usa el libro del
+// Agente V3, para no tener dos logicas distintas que recordar.
+//
+// Todo esto convive con lo viejo sin tocarlo, y no lo lee nadie hasta que se prenda
+// SalesFunnel.isActive.
+// =============================================================================
+
+/// NIVEL 1: el embudo del negocio. Uno solo por workspace, a diferencia del de hoy.
+model SalesFunnel {
+  id          String            @id @default(cuid())
+  /// Unico: "un modulo Embudo, unico para el negocio".
+  workspaceId String            @unique
+  name        String            @default("Embudo de ventas")
+  /// LA BANDERA. Apagado, nada de esto se lee: el V3 y su libro siguen exactamente igual.
+  isActive    Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  steps       SalesFunnelStep[]
+}
+
+/// Un paso del embudo.
+model SalesFunnelStep {
+  id                 String                    @id @default(cuid())
+  funnelId           String
+  /// Estable y en mayusculas (PRESENTACION, CATALOGO...): es con lo que el codigo lo reconoce.
+  /// El nombre visible va aparte, asi se puede cambiar sin romper nada.
+  key                String
+  name               String
+  /// Que hay que lograr aca, en generico. Lo del producto vive en su ficha.
+  goal               String?
+  /// Cuantos mensajes puede llevar la charla en este paso antes de avisarle a una asesora.
+  /// Null = sin limite. Es el freno que no depende de lo que decida la IA.
+  alertAfterMessages Int?
+  /// EL PASO DE CALIFICACION POR CATALOGO.
+  ///
+  /// Hoy mandar un catalogo deja la conversacion FUERA del embudo y sin ningun seguimiento: se
+  /// envian las fotos y nadie vuelve a pasar por ahi. Con esto, enviar un flujo mete la charla en
+  /// este paso y hereda sus seguimientos. Uno solo para todos los catalogos, por decision de
+  /// Alex: uno por catalogo serian seis catalogos por cuatro tiempos, veinticuatro textos que
+  /// mantener al dia.
+  entryOnFlowSent    Boolean                   @default(false)
+  sortOrder          Int                       @default(0)
+  isActive           Boolean                   @default(true)
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  funnel             SalesFunnel               @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  followUps          SalesFunnelStepFollowUp[]
+  states             ConversationFunnelState[]
+
+  @@unique([funnelId, key])
+  @@index([funnelId, sortOrder])
+}
+
+/// Un "si no contesta" del paso: cuanto esperar y que decir.
+///
+/// Los cuatro tiempos que pidio Alex -15 min, 1 hora, dia 1 y dia 3- son FILAS y no codigo: se
+/// corrigen desde la pantalla sin desplegar.
+model SalesFunnelStepFollowUp {
+  id           String          @id @default(cuid())
+  stepId       String
+  /// M15 | H1 | D1 | D3. Sirve para recordar cual ya salio sin depender del orden.
+  key          String
+  /// Desde que la conversacion ENTRO al paso, no desde el ultimo mensaje: lo que importa es
+  /// cuanto lleva sin avanzar.
+  delayMinutes Int
+  /// El texto, con variables que rellena el producto: {{producto}}, {{precio}}, {{medidas}}...
+  /// Si una variable no tiene valor, el seguimiento NO sale y queda avisado (decision de Alex):
+  /// es preferible uno que no salio a uno que le llega al cliente con un hueco.
+  body         String
+  isActive     Boolean         @default(true)
+  sortOrder    Int             @default(0)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  step         SalesFunnelStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  @@unique([stepId, key])
+  @@index([stepId, sortOrder])
+}
+
+/// NIVEL 2: lo que comparten los productos de una misma categoria.
+model CategoryPlaybook {
+  id                 String              @id @default(cuid())
+  workspaceId        String
+  categoryId         String
+  /// La pregunta con la que se califica a quien pregunta por algo de esta categoria.
+  qualifyingQuestion String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  category           Category            @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  objections         CategoryObjection[]
+
+  @@unique([workspaceId, categoryId])
+  @@index([workspaceId])
+}
+
+/// Una objecion comun a toda la categoria.
+model CategoryObjection {
+  id         String           @id @default(cuid())
+  playbookId String
+  /// Lo que dice el cliente: "esta caro", "lo tengo que pensar".
+  trigger    String
+  answer     String
+  sortOrder  Int              @default(0)
+  isActive   Boolean          @default(true)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  playbook   CategoryPlaybook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+
+  @@index([playbookId, sortOrder])
+}
+
+/// NIVEL 3: del producto, SOLO lo suyo.
+///
+/// Sin guion, sin pitch y sin "a quien le sirve": eso es del embudo y de la categoria. Aca queda
+/// lo que de verdad no se puede decir en otro lado: sus medidas y las objeciones que solo a el le
+/// hacen.
+model ProductSpec {
+  id          String             @id @default(cuid())
+  workspaceId String
+  productId   String
+  /// Una nota corta para lo que no entra en un campo. Lo importante va en `fields`.
+  notes       String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product     Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  fields      ProductSpecField[]
+  objections  ProductObjection[]
+
+  @@unique([workspaceId, productId])
+  @@index([workspaceId])
+}
+
+/// Un dato de la ficha: "Medidas" -> "180 x 60 x 78 cm".
+///
+/// Campos y no un texto largo porque son los que rellenan las VARIABLES de los seguimientos: de
+/// `label` sale {{medidas}}. Con un texto libre no habria de donde sacarlas.
+model ProductSpecField {
+  id        String      @id @default(cuid())
+  specId    String
+  label     String
+  value     String
+  sortOrder Int         @default(0)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  spec      ProductSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
+
+  @@index([specId, sortOrder])
+}
+
+/// Una objecion que solo le hacen a ESTE producto. Le gana a la de su categoria.
+model ProductObjection {
+  id        String      @id @default(cuid())
+  specId    String
+  trigger   String
+  answer    String
+  sortOrder Int         @default(0)
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  spec      ProductSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
+
+  @@index([specId, sortOrder])
+}
+
+/// En que paso va cada conversacion, y desde cuando.
+///
+/// Va en TABLA y no en AppSetting como el estado del Agente V3, a proposito: hay que poder
+/// preguntar "quienes entraron a este paso hace mas de una hora y todavia no recibieron su
+/// seguimiento", y contra una fila de AppSetting por conversacion eso es recorrerlas todas.
+model ConversationFunnelState {
+  id             String          @id @default(cuid())
+  workspaceId    String
+  /// Una conversacion esta en UN paso: el ultimo al que entro.
+  conversationId String          @unique
+  stepId         String
+  /// Quien rellena las variables de los seguimientos de este paso.
+  productId      String?
+  /// Desde aca se cuentan los seguimientos del paso.
+  enteredAt      DateTime        @default(now())
+  /// Para el limite de mensajes del paso.
+  messagesInStep Int             @default(0)
+  /// Las claves que ya salieron (M15, H1...). Se vacia al cambiar de paso.
+  followUpsSent  String[]        @default([])
+  /// Cuando se aviso por pasarse del limite. Null = todavia no.
+  alertedAt      DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  step           SalesFunnelStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  /// El indice que hace barata la pregunta de arriba.
+  @@index([workspaceId, stepId, enteredAt])
 }
