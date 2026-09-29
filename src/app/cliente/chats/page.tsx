@@ -3,7 +3,6 @@ import { after } from "next/server";
 import { sendUnifiedChatReplyAction, toggleConversationAutomationAction, toggleOfficialApiConversationAutomationAction } from "@/app/actions/chats-actions";
 import { sendChatAudioReplyAction, sendChatMediaReplyAction } from "@/app/actions/agent-actions";
 import { AssignChatControl } from "@/components/chats/assign-chat-control";
-import { ImportHistoryControl } from "@/components/chats/import-history-control";
 import { ChatHeaderActions } from "@/components/chats/chat-header-actions";
 import type { CrmStage } from "@/features/crm/types";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
@@ -11,7 +10,7 @@ import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
 import { ChatsEvolutionApiRealtime } from "@/components/chats/chats-evolution-api-realtime";
 import { PushSubscriptionManager } from "@/components/chats/push-subscription-manager";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
-import { CopyConversationButton } from "@/components/chats/copy-conversation-button";
+import { MenuDelContacto } from "@/components/chats/menu-del-contacto";
 import { SharedInbox } from "@/components/chats/shared-inbox";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
@@ -1350,25 +1349,21 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           ) : null
         }
         contactPanelHeaderActions={
-          <>
-            {/* Copiar la conversacion para pegarsela a una IA. Va en la ficha y no en la barra
-                del chat: se usa cuando uno se sienta a analizar un caso, no todos los dias. */}
-            {selectedUnified?.key ? (
-              <CopyConversationButton
-                key={`panel-copy:${selectedUnified.key}`}
-                chatKey={selectedUnified.key}
-                label={selectedUnified.label}
-                phone={selectedUnified.secondaryLabel}
-              />
-            ) : null}
-            {/* Traer el historial: se usa una vez por cliente. Solo el canal viejo lo expone. */}
-            {selectedUnified?.source === "agent" && selectedConversation && selectedChannelKeepsHistory ? (
-              <ImportHistoryControl
-                key={`panel-history:${selectedConversation.id}`}
-                conversationId={selectedConversation.id}
-              />
-            ) : null}
-          </>
+          /* Descargar el PDF, copiar la conversacion y traer el historial. Van en la ficha y no en
+             la barra del chat: se usan cuando uno se sienta a mirar un caso, no todos los dias.
+             "Traer historial" solo lo expone el canal viejo. */
+          selectedUnified?.key ? (
+            <MenuDelContacto
+              key={`panel-menu:${selectedUnified.key}`}
+              chatKey={selectedUnified.key}
+              label={selectedUnified.label}
+              phone={selectedUnified.secondaryLabel}
+              conversationId={selectedConversation?.id ?? null}
+              puedeTraerHistorial={
+                selectedUnified.source === "agent" && Boolean(selectedConversation) && selectedChannelKeepsHistory
+              }
+            />
+          ) : null
         }
         contactPanelActions={
           selectedUnified?.source === "agent" && selectedConversation ? (

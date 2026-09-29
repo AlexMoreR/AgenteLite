@@ -63,8 +63,7 @@ import {
 } from "./chat-inbox-conversation-utils";
 import { ConversationPanel } from "./chat-conversation-panel";
 import { ChatHeaderActions } from "./chat-header-actions";
-import { CopyConversationButton } from "./copy-conversation-button";
-import { ImportHistoryControl } from "./import-history-control";
+import { MenuDelContacto } from "./menu-del-contacto";
 import type { CrmStage } from "@/features/crm/types";
 import { resolveCallTarget } from "@/lib/whatsapp-lid";
 
@@ -1916,17 +1915,14 @@ export function SharedInbox({
       return null;
     }
     return (
-      <>
-        <CopyConversationButton
-          key={`panel-copy:${selectedConversationKey}`}
-          chatKey={selectedConversationKey}
-          label={conversation.label}
-          phone={conversation.secondaryLabel}
-        />
-        {conversation.canImportHistory ? (
-          <ImportHistoryControl key={`panel-history:${conversation.id}`} conversationId={conversation.id} />
-        ) : null}
-      </>
+      <MenuDelContacto
+        key={`panel-menu:${selectedConversationKey}`}
+        chatKey={selectedConversationKey}
+        label={conversation.label}
+        phone={conversation.secondaryLabel}
+        conversationId={conversation.id}
+        puedeTraerHistorial={Boolean(conversation.canImportHistory)}
+      />
     );
   }, [renderedConversation, selectedConversationKey]);
 
