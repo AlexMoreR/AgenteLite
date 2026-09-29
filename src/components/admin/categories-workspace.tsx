@@ -6,6 +6,8 @@ import { Plus, Tag, X } from "lucide-react";
 import { adminCreateCategoryAction, adminUpdateCategoryAction } from "@/app/actions/catalog-actions";
 import { CategoriesDataTable } from "@/components/admin/categories-data-table";
 import { Input } from "@/components/ui/input";
+import { CampoDeNegocio, FiltroDeNegocio } from "@/components/admin/selector-de-negocio";
+import type { NegocioDelAdmin } from "@/lib/negocios-del-admin";
 
 type CategoryRow = {
   id: string;
@@ -13,13 +15,17 @@ type CategoryRow = {
   slug: string;
   logoUrl: string | null;
   productsCount: number;
+  /** De quien es. Desde el 29-09-2026 las categorias tienen dueño. */
+  negocio: string;
 };
 
 type CategoriesWorkspaceProps = {
   categories: CategoryRow[];
+  negocios: NegocioDelAdmin[];
+  negocioFiltrado: string | null;
 };
 
-export function CategoriesWorkspace({ categories }: CategoriesWorkspaceProps) {
+export function CategoriesWorkspace({ categories, negocios, negocioFiltrado }: CategoriesWorkspaceProps) {
   const [modal, setModal] = useState<"new" | "edit" | null>(null);
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -83,14 +89,18 @@ export function CategoriesWorkspace({ categories }: CategoriesWorkspaceProps) {
           </h1>
           <p className="mt-1 text-xs text-slate-600">Gestiona categorias del catalogo.</p>
         </div>
-        <button
-          type="button"
-          onClick={openNewModal}
-          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
-        >
-          <Plus className="h-4 w-4" />
-          Nueva categoria
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Mirar un negocio a la vez. Sin filtro se ven los nueve, que es lo de siempre. */}
+          <FiltroDeNegocio negocios={negocios} seleccionado={negocioFiltrado} />
+          <button
+            type="button"
+            onClick={openNewModal}
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+          >
+            <Plus className="h-4 w-4" />
+            Nueva categoria
+          </button>
+        </div>
       </div>
 
       <CategoriesDataTable categories={categories} onEditCategory={openEditModal} />
@@ -121,6 +131,8 @@ export function CategoriesWorkspace({ categories }: CategoriesWorkspaceProps) {
 
             <form action={adminCreateCategoryAction} encType="multipart/form-data" className="space-y-3">
               <input type="hidden" name="returnTo" value="/admin/categorias" />
+              {/* Primero de quien es: una categoria sin negocio no se puede guardar. */}
+              <CampoDeNegocio negocios={negocios} porDefecto={negocioFiltrado} />
               <label className="block space-y-1.5">
                 <span className="text-sm font-medium text-slate-700">Nombre</span>
                 <Input name="name" placeholder="Ej. Camillas" required />

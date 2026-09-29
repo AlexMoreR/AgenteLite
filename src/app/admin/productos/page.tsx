@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { ProductsWorkspace } from "@/components/admin/products-workspace";
+import { leerFiltroDeNegocio, listarNegocios } from "@/lib/negocios-del-admin";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { hasAdminModuleAccess } from "@/lib/admin-module-access";
 import { prisma } from "@/lib/prisma";
@@ -25,10 +26,19 @@ export default async function AdminProductosPage({ searchParams }: PageProps) {
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
 
+  const negocios = await listarNegocios();
+  const negocioFiltrado = leerFiltroDeNegocio(params.negocio, negocios);
+
   const [products, categories, suppliers, systemCurrency] = await Promise.all([
     prisma.product.findMany({
+      /*
+        Sin filtro por defecto: el admin de la plataforma sigue viendo los nueve negocios
+        (decision de Alex, 29-09-2026). El filtro de arriba sirve para mirar uno.
+      */
+      where: negocioFiltrado ? { workspaceId: negocioFiltrado } : {},
       orderBy: { createdAt: "desc" },
       include: {
+        workspace: { select: { name: true } },
         category: true,
         images: {
           orderBy: { order: "asc" },
@@ -40,7 +50,11 @@ export default async function AdminProductosPage({ searchParams }: PageProps) {
         },
       },
     }),
-    prisma.category.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+    // Las categorias que se ofrecen al editar un producto son las del negocio que se esta mirando.
+    prisma.category.findMany({
+      where: { isActive: true, ...(negocioFiltrado ? { workspaceId: negocioFiltrado } : {}) },
+      orderBy: { name: "asc" },
+    }),
     prisma.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     getSystemCurrency(),
   ]);
@@ -55,6 +69,8 @@ export default async function AdminProductosPage({ searchParams }: PageProps) {
       />
 
       <ProductsWorkspace
+        negocios={negocios}
+        negocioFiltrado={negocioFiltrado}
         currency={systemCurrency}
         okMessage={okMessage}
         categories={categories.map((category) => ({
@@ -72,6 +88,7 @@ export default async function AdminProductosPage({ searchParams }: PageProps) {
           description: product.description,
           categoryId: product.categoryId,
           categoryName: product.category?.name ?? null,
+          negocio: product.workspace?.name?.trim() || "Sin negocio",
           supplierId: product.suppliers[0]?.supplier.id ?? null,
           supplierName: product.suppliers[0]?.supplier.name ?? null,
           thumbnailUrl: product.thumbnailUrl,

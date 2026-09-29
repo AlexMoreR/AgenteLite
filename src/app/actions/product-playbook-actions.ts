@@ -61,7 +61,8 @@ export async function saveProductPitchAction(input: {
     return { error: "Datos invalidos" };
   }
 
-  const producto = await prisma.product.findUnique({ where: { id: productId }, select: { id: true } });
+  // El id tiene que ser de ESTE negocio: el catalogo dejo de ser compartido (29-09-2026).
+  const producto = await prisma.product.findFirst({ where: { id: productId, workspaceId }, select: { id: true } });
   if (!producto) {
     return { error: "Producto no encontrado" };
   }
@@ -130,7 +131,8 @@ export async function saveProductFunnelAction(input: {
     return { error: "Datos invalidos" };
   }
 
-  const producto = await prisma.product.findUnique({ where: { id: productId }, select: { id: true } });
+  // El id tiene que ser de ESTE negocio: el catalogo dejo de ser compartido (29-09-2026).
+  const producto = await prisma.product.findFirst({ where: { id: productId, workspaceId }, select: { id: true } });
   if (!producto) {
     return { error: "Producto no encontrado" };
   }
@@ -261,7 +263,8 @@ export async function saveProductMatchAction(input: {
     return { error: "Datos invalidos" };
   }
 
-  const producto = await prisma.product.findUnique({ where: { id: productId }, select: { id: true } });
+  // El id tiene que ser de ESTE negocio: el catalogo dejo de ser compartido (29-09-2026).
+  const producto = await prisma.product.findFirst({ where: { id: productId, workspaceId }, select: { id: true } });
   if (!producto) {
     return { error: "Producto no encontrado" };
   }
@@ -317,7 +320,8 @@ export async function addProductPlaybookRuleAction(input: {
     return { error: "Escribe la caracteristica" };
   }
 
-  const producto = await prisma.product.findUnique({ where: { id: productId }, select: { id: true } });
+  // El id tiene que ser de ESTE negocio: el catalogo dejo de ser compartido (29-09-2026).
+  const producto = await prisma.product.findFirst({ where: { id: productId, workspaceId }, select: { id: true } });
   if (!producto) {
     return { error: "Producto no encontrado" };
   }
@@ -413,7 +417,8 @@ export async function saveProductBasicsAction(input: {
     return { error: "Todavía no se creó el producto. Recargá la página e intentá de nuevo." };
   }
 
-  const producto = await prisma.product.findUnique({ where: { id: productId }, select: { id: true } });
+  // El id tiene que ser de ESTE negocio: el catalogo dejo de ser compartido (29-09-2026).
+  const producto = await prisma.product.findFirst({ where: { id: productId, workspaceId }, select: { id: true } });
   if (!producto) {
     return { error: "Producto no encontrado" };
   }
@@ -424,6 +429,7 @@ export async function saveProductBasicsAction(input: {
   }
 
   await prisma.product.update({
+    // Ya se comprobo arriba que el producto es de este negocio.
     where: { id: productId },
     data: {
       name,
@@ -475,6 +481,8 @@ export async function crearProductoAction(input: {
 
   const creado = await prisma.product.create({
     data: {
+      // El producto nace del negocio que lo esta creando, no de una lista compartida.
+      workspaceId,
       name,
       slug,
       description: input.description?.trim() || null,

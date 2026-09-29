@@ -85,14 +85,19 @@ function numero(valor: unknown): number | undefined {
   return typeof valor === "number" && Number.isFinite(valor) && valor >= 0 ? valor : undefined;
 }
 
-/** Un slug que no choque con otro: el catalogo exige que sea unico. */
-async function slugLibre(nombre: string, codigo?: string): Promise<string> {
+/**
+ * Un slug que no choque con otro DEL MISMO NEGOCIO.
+ *
+ * Desde el 29-09-2026 el slug es unico por negocio y no en toda la base, asi que buscar parecidos
+ * en todos lados le inventaria un "-2" a una "Camilla" solo porque otro negocio ya tiene la suya.
+ */
+async function slugLibre(workspaceId: string, nombre: string, codigo?: string): Promise<string> {
   const base = [slugifyProductSegment(nombre), codigo ? slugifyProductSegment(codigo) : ""]
     .filter(Boolean)
     .join("-");
   const inicial = base || `producto-${Date.now()}`;
   const parecidos = await prisma.product.findMany({
-    where: { slug: { startsWith: inicial } },
+    where: { workspaceId, slug: { startsWith: inicial } },
     select: { slug: true },
   });
   const usados = new Set(parecidos.map((fila) => fila.slug));
@@ -121,7 +126,8 @@ export async function ejecutarHerramientaMcpProductos(
 
       const codigo = texto(argumentos.codigo);
       const repetido = await prisma.product.findFirst({
-        where: { name: { equals: nombreDelProducto, mode: "insensitive" } },
+        // Dentro de ESTE negocio: que el vivero tenga una "Maceta" no impide que otro la tenga.
+        where: { workspaceId: contexto.workspaceId, name: { equals: nombreDelProducto, mode: "insensitive" } },
         select: { id: true, name: true },
       });
       if (repetido) {
@@ -132,8 +138,10 @@ export async function ejecutarHerramientaMcpProductos(
 
       const producto = await prisma.product.create({
         data: {
+          // Del negocio que lo crea: el catalogo dejo de ser una lista compartida (29-09-2026).
+          workspaceId: contexto.workspaceId,
           name: nombreDelProducto,
-          slug: await slugLibre(nombreDelProducto, codigo),
+          slug: await slugLibre(contexto.workspaceId, nombreDelProducto, codigo),
           code: codigo ?? null,
           description: texto(argumentos.descripcion) ?? null,
           price: precio,

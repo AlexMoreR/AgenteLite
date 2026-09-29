@@ -94,6 +94,9 @@ model Workspace {
   callAttempts          CallAttempt[]
   playbookScripts       PlaybookScript[]
   productPlaybooks      ProductPlaybook[]
+  categories            Category[]
+  products              Product[]
+  quotes                Quote[]
   salesFunnel           SalesFunnel?
   categoryPlaybooks     CategoryPlaybook[]
   productSpecs          ProductSpec[]
@@ -287,8 +290,18 @@ model Conversation {
   @@index([channelId, lastMessageAt])
 }
 
+/// Los productos son DE CADA NEGOCIO desde el 29-09-2026.
+///
+/// Eran una lista unica: el catalogo se compartia entre todos los workspaces y nadie lo notaba
+/// porque habia un solo negocio cargando. Con dos catalogos distintos -camillas y vivero- eso ya
+/// no sirve.
+///
+/// El slug y el codigo eran unicos GLOBALES. Podian serlo porque el slug era una direccion de la
+/// tienda publica; esa tienda se borro (venia copiada de otro proyecto), asi que el slug paso a
+/// ser un identificador interno y puede repetirse entre negocios.
 model Product {
   id                 String                  @id @default(cuid())
+  workspaceId        String
   name               String
   description        String?
   price              Decimal                 @db.Decimal(10, 2)
@@ -301,8 +314,9 @@ model Product {
   wholesalePrice     Decimal                 @default(0) @db.Decimal(10, 2)
   minWholesaleQty    Int                     @default(6)
   categoryId         String?
-  code               String?                 @unique
-  slug               String                  @unique
+  code               String?
+  slug               String
+  workspace          Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   agentKnowledge     AgentKnowledgeProduct[]
   playbooks          ProductPlaybook[]
   specs              ProductSpec[]
@@ -310,6 +324,10 @@ model Product {
   images             ProductImage[]
   suppliers          ProductSupplier[]
   quoteItems         QuoteItem[]
+
+  @@unique([workspaceId, slug])
+  @@unique([workspaceId, code])
+  @@index([workspaceId])
 }
 
 model AgentKnowledgeProduct {
@@ -342,16 +360,27 @@ model ProductImage {
   @@index([productId])
 }
 
+/// Las categorias son DE CADA NEGOCIO desde el 29-09-2026.
+///
+/// Eran globales -nombre y slug unicos en toda la base- porque el sistema nacio para un solo
+/// negocio. La hermana de Alex va a vender plantas y articulos de vivero: necesita su propia
+/// "Barberia" sin pelearse por el nombre con la de nadie.
 model Category {
-  id        String             @id @default(cuid())
-  name      String             @unique
-  slug      String             @unique
-  isActive  Boolean            @default(true)
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
-  logoUrl   String?
-  products  Product[]
-  playbooks CategoryPlaybook[]
+  id          String             @id @default(cuid())
+  workspaceId String
+  name        String
+  slug        String
+  isActive    Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  logoUrl     String?
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  products    Product[]
+  playbooks   CategoryPlaybook[]
+
+  @@unique([workspaceId, name])
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
 }
 
 model Supplier {
@@ -404,9 +433,15 @@ model WebhookEventLog {
   @@index([workspaceId, createdAt])
 }
 
+/// Las cotizaciones son DE CADA NEGOCIO desde el 29-09-2026.
+///
+/// Se scopearon junto con el catalogo y estando en CERO: una cotizacion apunta a productos, y con
+/// los productos separados por negocio una cotizacion global podria mezclar camillas con plantas.
+/// Hacerlo con cero filas no cuesta nada; con mil, si.
 model Quote {
   id          String      @id @default(cuid())
-  code        String      @unique
+  workspaceId String
+  code        String
   clientId    String
   createdById String
   status      QuoteStatus @default(DRAFT)
@@ -414,13 +449,18 @@ model Quote {
   validUntil  DateTime?
   subtotal    Decimal     @default(0) @db.Decimal(12, 2)
   total       Decimal     @default(0) @db.Decimal(12, 2)
+  /// El enlace publico de la cotizacion. Este SI sigue siendo unico global: es una direccion que
+  /// se le manda al cliente, y dos negocios no pueden tener el mismo token.
   shareToken  String      @unique
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   client      User        @relation("QuoteClient", fields: [clientId], references: [id])
   createdBy   User        @relation("QuoteCreatedBy", fields: [createdById], references: [id])
   items       QuoteItem[]
 
+  @@unique([workspaceId, code])
+  @@index([workspaceId])
   @@index([clientId, createdAt])
   @@index([createdById, createdAt])
 }

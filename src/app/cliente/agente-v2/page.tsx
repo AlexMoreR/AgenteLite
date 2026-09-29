@@ -11,6 +11,8 @@ export default async function ClienteAgenteV2Page() {
 
   const [products, flowItems, followRuleRows, workspace, channels, agentRows] = await Promise.all([
     prisma.product.findMany({
+      // Solo los productos de ESTE negocio: el catalogo dejo de ser compartido (29-09-2026).
+      where: { workspaceId: access.workspaceId },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),

@@ -116,6 +116,9 @@ export async function GET(request: Request) {
     puedeProductos
       ? prisma.product.findMany({
           where: {
+            // Solo el catalogo de ESTE negocio (29-09-2026): buscar "planta" no puede traer las
+            // del vivero de otro workspace.
+            workspaceId: access.workspaceId,
             OR: [
               { name: { contains: q, mode: "insensitive" } },
               { description: { contains: q, mode: "insensitive" } },

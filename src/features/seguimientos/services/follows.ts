@@ -1628,7 +1628,8 @@ export async function resolveFollowSourceLabel(input: {
 
   if (input.sourceType === "PRODUCT") {
     const product = await prisma.product.findFirst({
-      where: { id: sourceId },
+      // De este negocio: un id de otro catalogo no puede poner su nombre en un seguimiento ajeno.
+      where: { id: sourceId, workspaceId: input.workspaceId },
       select: {
         name: true,
       },

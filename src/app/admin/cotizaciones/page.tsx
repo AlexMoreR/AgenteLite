@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { QuotesWorkspace } from "@/components/admin/quotes-workspace";
+import { leerFiltroDeNegocio, listarNegocios } from "@/lib/negocios-del-admin";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { hasAdminModuleAccess } from "@/lib/admin-module-access";
 import { prisma } from "@/lib/prisma";
@@ -25,12 +26,18 @@ export default async function AdminCotizacionesPage({ searchParams }: PageProps)
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
 
+  const negocios = await listarNegocios();
+  const negocioFiltrado = leerFiltroDeNegocio(params.negocio, negocios);
+
   const [quotes, clients, products, currency] = await Promise.all([
     prisma.quote.findMany({
+      // Sin filtro por defecto: el admin sigue viendo los nueve negocios (Alex, 29-09-2026).
+      where: negocioFiltrado ? { workspaceId: negocioFiltrado } : {},
       orderBy: { createdAt: "desc" },
       include: {
         client: true,
         items: true,
+        workspace: { select: { name: true } },
       },
       take: 200,
     }),
@@ -74,12 +81,15 @@ export default async function AdminCotizacionesPage({ searchParams }: PageProps)
       />
 
       <QuotesWorkspace
+        negocios={negocios}
+        negocioFiltrado={negocioFiltrado}
         currency={currency}
         quotes={quotes.map((quote) => ({
           id: quote.id,
           code: quote.code,
           clientName: quote.client.name || quote.client.email,
           itemsCount: quote.items.length,
+          negocio: quote.workspace?.name?.trim() || "Sin negocio",
           total: Number(quote.total),
           status: quote.status,
           createdAt: quote.createdAt.toLocaleDateString("es-CO"),

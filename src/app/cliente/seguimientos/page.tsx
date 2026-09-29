@@ -71,6 +71,8 @@ export default async function SeguimientosPage() {
       includeOfficialApi: canUseOfficialApi,
     }),
     prisma.product.findMany({
+      // Solo los productos de ESTE negocio: el catalogo dejo de ser compartido (29-09-2026).
+      where: { workspaceId: access.workspaceId },
       orderBy: [{ createdAt: "desc" }],
       take: 40,
       select: {

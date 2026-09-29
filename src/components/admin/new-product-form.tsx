@@ -6,6 +6,8 @@ import {
   X,
 } from "lucide-react";
 import { adminCreateProductAction } from "@/app/actions/product-actions";
+import { CampoDeNegocio } from "@/components/admin/selector-de-negocio";
+import type { NegocioDelAdmin } from "@/lib/negocios-del-admin";
 import { ProductFormStepper } from "@/components/admin/product-form-stepper";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,6 +25,8 @@ type SupplierOption = {
 };
 
 type NewProductFormProps = {
+  negocios: NegocioDelAdmin[];
+  negocioFiltrado: string | null;
   categories: CategoryOption[];
   suppliers: SupplierOption[];
   currency: SupportedCurrencyCode;
@@ -47,7 +51,7 @@ type NewProductDraft = {
 
 export const NEW_PRODUCT_DRAFT_KEY = "admin:new-product-draft:v1";
 
-export function NewProductForm({ categories, currency }: NewProductFormProps) {
+export function NewProductForm({ categories, currency, negocios, negocioFiltrado }: NewProductFormProps) {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [description, setDescription] = useState("");
@@ -252,6 +256,11 @@ export function NewProductForm({ categories, currency }: NewProductFormProps) {
 
       <Card className="space-y-6 overflow-hidden px-4 pb-4 pt-0 sm:space-y-7 sm:px-6 sm:pb-6">
         <form action={adminCreateProductAction} className="space-y-7">
+          {/*
+            Primero de que negocio es. El catalogo dejo de ser compartido (29-09-2026) y un
+            producto sin dueño no se puede guardar, asi que se pregunta antes que nada.
+          */}
+          <CampoDeNegocio negocios={negocios} porDefecto={negocioFiltrado} />
           {draftRestored ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
               Se restauro el ultimo borrador. Las imagenes deben seleccionarse de nuevo.

@@ -14,6 +14,7 @@ import {
   Tag,
   Trash2,
   X,
+  Building2,
 } from "lucide-react";
 import { adminDeleteProductAction } from "@/app/actions/product-actions";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,8 @@ type ProductRow = {
   code: string | null;
   name: string;
   categoryName: string | null;
+  /** De quien es. El admin ve los nueve negocios juntos, asi que hay que decirlo. */
+  negocio: string;
   supplierName: string | null;
   thumbnailUrl: string;
   baseCost: number;
@@ -353,6 +356,13 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
                   Producto
                 </HeaderLabel>
               </TableHead>
+              {/* Sin ordenar: es una columna para ubicarse, no para ordenar el catalogo. */}
+              <TableHead className="normal-case tracking-normal">
+                <span className="inline-flex items-center gap-2 text-[15px] font-normal text-slate-600">
+                  <Building2 className="h-3.5 w-3.5 text-slate-500" />
+                  Negocio
+                </span>
+              </TableHead>
               <TableHead className="normal-case tracking-normal">
                 <HeaderLabel
                   active={sortKey === "categoria"}
@@ -388,7 +398,7 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
           <TableBody>
             {pagedProducts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="py-9 text-center text-slate-500">
+                <TableCell colSpan={7} className="py-9 text-center text-slate-500">
                   No hay productos para el filtro actual.
                 </TableCell>
               </TableRow>
@@ -416,6 +426,7 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
                       </div>
                     </Link>
                   </TableCell>
+                  <TableCell className="text-sm text-slate-600">{product.negocio}</TableCell>
                   <TableCell className="text-sm text-slate-600">
                     <span className="inline-flex rounded-md border border-[var(--line)] bg-slate-50 px-2 py-1 text-xs">
                       {product.categoryName ?? "Sin categoria"}

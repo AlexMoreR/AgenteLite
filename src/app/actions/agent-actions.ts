@@ -1885,6 +1885,8 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
   const products = uniqueProductIds.length
     ? await prisma.product.findMany({
         where: {
+          // Del negocio del agente: un id pegado a mano no puede traer el catalogo de otro.
+          workspaceId: membership.workspace.id,
           id: {
             in: uniqueProductIds,
           },
@@ -2085,8 +2087,9 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
     redirect("/cliente/agentes?error=Agente+no+encontrado");
   }
 
-  const product = await prisma.product.findUnique({
-    where: { id: parsed.data.productId },
+  const product = await prisma.product.findFirst({
+    // De este negocio: el catalogo dejo de ser compartido (29-09-2026).
+    where: { id: parsed.data.productId, workspaceId: membership.workspace.id },
     select: { id: true },
   });
 

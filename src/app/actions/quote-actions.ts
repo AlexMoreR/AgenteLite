@@ -249,6 +249,20 @@ export async function adminCreateQuoteAction(formData: FormData): Promise<void> 
     redirect(`${returnTo}?error=Uno+o+mas+productos+no+existen`);
   }
 
+  /*
+    De que negocio es la cotizacion: del de sus productos.
+
+    No se pregunta en el formulario a proposito. Una cotizacion no es algo que se elija de que
+    negocio es: ES del negocio de lo que cotiza, y preguntarlo solo abriria la puerta a guardarla
+    en el equivocado. Y si llegaran productos de dos negocios distintos eso no es una cotizacion
+    posible -mezclaria camillas con plantas-, asi que se rechaza en vez de guardar algo incoherente.
+  */
+  const negociosDeLosProductos = Array.from(new Set(products.map((product) => product.workspaceId)));
+  if (negociosDeLosProductos.length !== 1) {
+    redirect(`${returnTo}?error=Una+cotizacion+no+puede+mezclar+productos+de+dos+negocios`);
+  }
+  const workspaceId = negociosDeLosProductos[0];
+
   const productMap = new Map(products.map((product) => [product.id, product]));
 
   const normalizedItems = parsed.data.items.map((item) => {
@@ -307,6 +321,7 @@ export async function adminCreateQuoteAction(formData: FormData): Promise<void> 
         try {
           await tx.quote.create({
             data: {
+              workspaceId,
               code,
               clientId: resolvedClientId,
               createdById,
@@ -458,6 +473,11 @@ export async function adminUpdateQuoteFullAction(formData: FormData): Promise<vo
 
   if (products.length !== productIds.length) {
     redirect(`${returnTo}?error=Uno+o+mas+productos+no+existen`);
+  }
+
+  // Misma regla al editar: cambiar los renglones no puede convertirla en una cotizacion mezclada.
+  if (new Set(products.map((product) => product.workspaceId)).size !== 1) {
+    redirect(`${returnTo}?error=Una+cotizacion+no+puede+mezclar+productos+de+dos+negocios`);
   }
 
   const productMap = new Map(products.map((product) => [product.id, product]));

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { PackagePlus } from "lucide-react";
 import { auth } from "@/auth";
 import { NewProductForm } from "@/components/admin/new-product-form";
+import { listarNegocios } from "@/lib/negocios-del-admin";
 import { hasAdminModuleAccess } from "@/lib/admin-module-access";
 import { prisma } from "@/lib/prisma";
 import { getSystemCurrency } from "@/lib/system-settings";
@@ -21,6 +22,8 @@ export default async function AdminNuevoProductoPage() {
   ]);
   const systemCurrency = await getSystemCurrency();
 
+  const negocios = await listarNegocios();
+
   return (
     <section className="w-full space-y-5">
       <div className="flex flex-wrap items-start gap-3">
@@ -35,7 +38,13 @@ export default async function AdminNuevoProductoPage() {
         </div>
       </div>
 
-      <NewProductForm categories={categories} suppliers={suppliers} currency={systemCurrency} />
+      <NewProductForm
+        categories={categories}
+        suppliers={suppliers}
+        currency={systemCurrency}
+        negocios={negocios}
+        negocioFiltrado={null}
+      />
     </section>
   );
 }

@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   Trash2,
   User2,
+  Building2,
 } from "lucide-react";
 import { adminDeleteQuoteAction } from "@/app/actions/quote-actions";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,8 @@ type QuoteRow = {
   code: string;
   clientName: string;
   itemsCount: number;
+  /** De quien es. Sale de los productos que cotiza, no se elige. */
+  negocio: string;
   total: number;
   status: QuoteStatus;
   createdAt: string;
@@ -188,6 +191,13 @@ export function QuotesDataTable({ quotes, currency }: QuotesDataTableProps) {
                   Cotizacion
                 </HeaderLabel>
               </TableHead>
+              {/* Sin ordenar: es para ubicarse, no para ordenar las cotizaciones. */}
+              <TableHead className="normal-case tracking-normal">
+                <span className="inline-flex items-center gap-2 text-[15px] font-normal text-slate-600">
+                  <Building2 className="h-3.5 w-3.5 text-slate-500" />
+                  Negocio
+                </span>
+              </TableHead>
               <TableHead className="normal-case tracking-normal">
                 <HeaderLabel
                   active={sortKey === "cliente"}
@@ -243,7 +253,7 @@ export function QuotesDataTable({ quotes, currency }: QuotesDataTableProps) {
           <TableBody>
             {sortedQuotes.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="py-9 text-center text-slate-500">
+                <TableCell colSpan={7} className="py-9 text-center text-slate-500">
                   Aun no hay cotizaciones.
                 </TableCell>
               </TableRow>
@@ -253,6 +263,7 @@ export function QuotesDataTable({ quotes, currency }: QuotesDataTableProps) {
                   <TableCell>
                     <p className="text-sm font-semibold text-slate-900">{quote.code}</p>
                   </TableCell>
+                  <TableCell className="text-sm text-slate-600">{quote.negocio}</TableCell>
                   <TableCell className="text-sm text-slate-700">{quote.clientName}</TableCell>
                   <TableCell>
                     <span

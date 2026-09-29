@@ -4,6 +4,8 @@ import { useMemo, useState, useTransition } from "react";
 import { Boxes, FileText, Link2, Plus, Search, Trash2, UserRound, X } from "lucide-react";
 import { adminCreateQuoteAction, adminResolveClientAction } from "@/app/actions/quote-actions";
 import { QuotesDataTable } from "@/components/admin/quotes-data-table";
+import { FiltroDeNegocio } from "@/components/admin/selector-de-negocio";
+import type { NegocioDelAdmin } from "@/lib/negocios-del-admin";
 import { Input } from "@/components/ui/input";
 import type { SupportedCurrencyCode } from "@/lib/currency";
 import { calculateQuoteLineTotal } from "@/lib/quote-item-meta";
@@ -39,6 +41,8 @@ type QuoteRow = {
   code: string;
   clientName: string;
   itemsCount: number;
+  /** De quien es. Sale de los productos que cotiza, no se elige. */
+  negocio: string;
   total: number;
   status: "DRAFT" | "SENT" | "ACCEPTED" | "REJECTED" | "EXPIRED";
   createdAt: string;
@@ -58,12 +62,14 @@ type QuoteLine = {
 
 type QuotesWorkspaceProps = {
   quotes: QuoteRow[];
+  negocios: NegocioDelAdmin[];
+  negocioFiltrado: string | null;
   clients: ClientOption[];
   products: ProductOption[];
   currency: SupportedCurrencyCode;
 };
 
-export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesWorkspaceProps) {
+export function QuotesWorkspace({ quotes, negocios, negocioFiltrado, clients, products, currency }: QuotesWorkspaceProps) {
   const [openModal, setOpenModal] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [showClientResults, setShowClientResults] = useState(false);
@@ -379,14 +385,18 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
             Crea cotizaciones con cliente, productos y link compartible.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openQuoteModal}
-          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
-        >
-          <Plus className="h-4 w-4" />
-          Nueva cotizacion
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Mirar un negocio a la vez. Sin filtro se ven los nueve, que es lo de siempre. */}
+          <FiltroDeNegocio negocios={negocios} seleccionado={negocioFiltrado} />
+          <button
+            type="button"
+            onClick={openQuoteModal}
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+          >
+            <Plus className="h-4 w-4" />
+            Nueva cotizacion
+          </button>
+        </div>
       </div>
 
       <QuotesDataTable quotes={quotes} currency={currency} />

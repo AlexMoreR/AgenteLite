@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Download, FileSpreadsheet, MoreHorizontal, Upload } from "lucide-react";
 import { adminImportProductsCsvAction } from "@/app/actions/product-actions";
+import { CampoDeNegocio } from "@/components/admin/selector-de-negocio";
+import type { NegocioDelAdmin } from "@/lib/negocios-del-admin";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,7 +14,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export function ProductImportExportControls() {
+export function ProductImportExportControls({
+  negocios,
+  negocioFiltrado,
+}: {
+  negocios: NegocioDelAdmin[];
+  negocioFiltrado: string | null;
+}) {
   const [openModal, setOpenModal] = useState<"import" | "export" | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -88,7 +96,14 @@ export function ProductImportExportControls() {
               </code>
             </div>
 
-            <form action={adminImportProductsCsvAction} className="mt-4">
+            <form action={adminImportProductsCsvAction} className="mt-4 space-y-3">
+              {/*
+                A que negocio entran los productos del archivo.
+
+                Va una sola vez para todo el CSV: un archivo es la carga inicial de UN catalogo.
+                Sin esto la importacion no sabria de quien son los productos y quedarian sin dueño.
+              */}
+              <CampoDeNegocio negocios={negocios} porDefecto={negocioFiltrado} />
               <input
                 ref={fileInputRef}
                 type="file"

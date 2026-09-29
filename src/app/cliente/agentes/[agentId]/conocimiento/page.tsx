@@ -104,6 +104,8 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
 
   const [products, flowTargets] = await Promise.all([
     prisma.product.findMany({
+      // Solo los productos de ESTE negocio: el catalogo dejo de ser compartido (29-09-2026).
+      where: { workspaceId: access.workspaceId },
       select: {
         id: true,
         name: true,

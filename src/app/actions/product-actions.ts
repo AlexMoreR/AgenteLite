@@ -30,7 +30,16 @@ const baseProductSchema = z.object({
   supplierId: z.string().trim().optional(),
 });
 
-const createProductSchema = baseProductSchema;
+/*
+  Al CREAR hace falta decir de que negocio es; al EDITAR no, porque el producto ya tiene dueño.
+
+  Por eso el campo se agrega solo aca y no en el esquema base: sumarlo al de editar obligaria al
+  formulario de edicion a mandarlo siempre, y un descuido ahi moveria un producto de negocio sin
+  que nadie lo pidiera.
+*/
+const createProductSchema = baseProductSchema.extend({
+  workspaceId: z.string().trim().min(1, "Negocio invalido"),
+});
 
 const updateProductSchema = baseProductSchema.extend({
   productId: z.string().trim().min(1, "Producto invalido"),
@@ -230,6 +239,7 @@ export async function adminCreateProductAction(formData: FormData): Promise<void
   await requireAdminSession();
 
   const parsed = createProductSchema.safeParse({
+    workspaceId: formData.get("workspaceId"),
     code: formData.get("code") || undefined,
     name: formData.get("name"),
     description: formData.get("description") || undefined,
@@ -270,6 +280,7 @@ export async function adminCreateProductAction(formData: FormData): Promise<void
   try {
     await prisma.product.create({
       data: {
+        workspaceId: parsed.data.workspaceId,
         name: parsed.data.name,
         code: parsed.data.code || null,
         slug,
@@ -457,6 +468,18 @@ export async function adminDeleteProductAction(formData: FormData): Promise<void
 export async function adminImportProductsCsvAction(formData: FormData): Promise<void> {
   await requireAdminSession();
 
+  /*
+    A que negocio entran los productos del CSV.
+
+    Va una sola vez para todo el archivo y no por fila: un CSV es la carga inicial de UN catalogo.
+    Si algun dia hiciera falta repartir un archivo entre negocios, la columna se agrega ahi y esto
+    pasa a ser el valor por defecto.
+  */
+  const workspaceId = String(formData.get("workspaceId") ?? "").trim();
+  if (!workspaceId) {
+    redirect("/admin/productos?error=Elige+a+que+negocio+entran+los+productos");
+  }
+
   const file = formData.get("file");
   if (!(file instanceof File) || file.size <= 0) {
     redirect("/admin/productos?error=Selecciona+un+archivo+CSV+valido");
@@ -544,6 +567,7 @@ export async function adminImportProductsCsvAction(formData: FormData): Promise<
     try {
       await prisma.product.create({
         data: {
+          workspaceId,
           code,
           slug,
           name,

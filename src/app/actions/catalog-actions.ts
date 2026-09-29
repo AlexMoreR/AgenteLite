@@ -11,6 +11,12 @@ import { prisma } from "@/lib/prisma";
 
 const createCategorySchema = z.object({
   name: z.string().trim().min(2, "Nombre invalido").max(80, "Nombre demasiado largo"),
+  /*
+    De que negocio es. Desde el 29-09-2026 las categorias tienen dueño, asi que una categoria sin
+    negocio no se puede guardar. Se exige aca y no se adivina: el admin de la plataforma ve los
+    nueve negocios, y "el primero" seria una suposicion distinta cada vez que alguien renombre uno.
+  */
+  workspaceId: z.string().trim().min(1, "Negocio invalido"),
 });
 
 const updateCategorySchema = z.object({
@@ -115,6 +121,7 @@ export async function adminCreateCategoryAction(formData: FormData): Promise<voi
 
   const parsed = createCategorySchema.safeParse({
     name: formData.get("name"),
+    workspaceId: formData.get("workspaceId"),
   });
 
   if (!parsed.success) {
@@ -147,6 +154,7 @@ export async function adminCreateCategoryAction(formData: FormData): Promise<voi
   try {
     await prisma.category.create({
       data: {
+        workspaceId: parsed.data.workspaceId,
         name: parsed.data.name,
         slug,
         logoUrl,

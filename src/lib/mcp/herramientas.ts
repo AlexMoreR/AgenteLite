@@ -370,8 +370,14 @@ async function listarProductos(args: Argumentos, contexto: Contexto) {
   const buscar = texto(args, "buscar");
   const productos = await prisma.product.findMany({
     where: {
-      // El catalogo es compartido: solo se muestran los productos que usa algun agente de ESTE negocio.
-      agentKnowledge: { some: { agent: { workspaceId: contexto.workspaceId } } },
+      /*
+        El catalogo ya NO es compartido (29-09-2026): se pregunta derecho por el negocio.
+
+        Antes habia que dar un rodeo -"los productos que usa algun agente de este negocio"- porque
+        el producto no tenia dueño. Ese rodeo ademas escondia los productos que todavia no estaban
+        en ningun agente, que es justo el caso de uno recien creado.
+      */
+      workspaceId: contexto.workspaceId,
       ...(buscar
         ? {
             OR: [

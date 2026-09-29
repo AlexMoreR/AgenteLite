@@ -80,6 +80,13 @@ export async function generateProductFacebookAdsAction(
       };
     }
 
+    /*
+      Sin filtro de negocio A PROPOSITO.
+
+      Esto corre detras de `requireAdminProductsAccess`: es el admin de la plataforma, que por
+      decision de Alex sigue viendo los nueve negocios. Aca el id de cualquier catalogo es valido.
+      No es un filtro olvidado.
+    */
     const product = await prisma.product.findUnique({
       where: { id: parsed.data.productId },
       include: {

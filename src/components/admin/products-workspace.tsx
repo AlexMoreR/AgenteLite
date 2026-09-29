@@ -6,6 +6,8 @@ import { EditProductForm } from "@/components/admin/edit-product-form";
 import { NEW_PRODUCT_DRAFT_KEY, NewProductForm } from "@/components/admin/new-product-form";
 import { ProductImportExportControls } from "@/components/admin/product-import-export-controls";
 import { ProductsDataTable } from "@/components/admin/products-data-table";
+import { FiltroDeNegocio } from "@/components/admin/selector-de-negocio";
+import type { NegocioDelAdmin } from "@/lib/negocios-del-admin";
 import { PageHeader } from "@/components/ui/page-header";
 import type { SupportedCurrencyCode } from "@/lib/currency";
 
@@ -26,6 +28,8 @@ type ProductWorkspaceRow = {
   description: string | null;
   categoryId: string | null;
   categoryName: string | null;
+  /** De quien es. El admin ve los nueve negocios, asi que hace falta decirlo. */
+  negocio: string;
   supplierId: string | null;
   supplierName: string | null;
   thumbnailUrl: string;
@@ -40,6 +44,8 @@ type ProductWorkspaceRow = {
 
 type ProductsWorkspaceProps = {
   products: ProductWorkspaceRow[];
+  negocios: NegocioDelAdmin[];
+  negocioFiltrado: string | null;
   categories: CategoryOption[];
   suppliers: SupplierOption[];
   currency: SupportedCurrencyCode;
@@ -48,6 +54,8 @@ type ProductsWorkspaceProps = {
 
 export function ProductsWorkspace({
   products,
+  negocios,
+  negocioFiltrado,
   categories,
   suppliers,
   currency,
@@ -86,8 +94,10 @@ export function ProductsWorkspace({
     <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader icon={Package} title="Productos" className="min-w-0" />
-        <div className="flex w-full items-center gap-2 sm:w-auto">
-          <ProductImportExportControls />
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          {/* Mirar un negocio a la vez. Sin filtro se ven los nueve, que es lo de siempre. */}
+          <FiltroDeNegocio negocios={negocios} seleccionado={negocioFiltrado} />
+          <ProductImportExportControls negocios={negocios} negocioFiltrado={negocioFiltrado} />
           <button
             type="button"
             onClick={openNewModal}
@@ -128,7 +138,7 @@ export function ProductsWorkspace({
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <NewProductForm categories={categories} suppliers={suppliers} currency={currency} />
+            <NewProductForm categories={categories} suppliers={suppliers} currency={currency} negocios={negocios} negocioFiltrado={negocioFiltrado} />
           </div>
         </div>
       ) : null}

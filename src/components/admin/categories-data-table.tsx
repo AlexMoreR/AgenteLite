@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Edit3, MoreHorizontal, Package, Tag, Trash2 } from "lucide-react";
+import { Building2, Edit3, MoreHorizontal, Package, Tag, Trash2 } from "lucide-react";
 import { adminDeleteCategoryAction } from "@/app/actions/catalog-actions";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +19,8 @@ type CategoryRow = {
   slug: string;
   logoUrl: string | null;
   productsCount: number;
+  /** De quien es la categoria. Se muestra porque el admin ve los nueve negocios juntos. */
+  negocio: string;
 };
 
 type CategoriesDataTableProps = {
@@ -61,6 +63,12 @@ export function CategoriesDataTable({ categories, onEditCategory }: CategoriesDa
             </TableHead>
             <TableHead className="normal-case tracking-normal">
               <span className="inline-flex items-center gap-2 text-[15px] font-normal text-slate-600">
+                <Building2 className="h-3.5 w-3.5 text-slate-500" />
+                Negocio
+              </span>
+            </TableHead>
+            <TableHead className="normal-case tracking-normal">
+              <span className="inline-flex items-center gap-2 text-[15px] font-normal text-slate-600">
                 <Package className="h-3.5 w-3.5 text-slate-500" />
                 Productos
               </span>
@@ -76,7 +84,7 @@ export function CategoriesDataTable({ categories, onEditCategory }: CategoriesDa
         <TableBody>
           {categories.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={3} className="py-10 text-center text-sm text-slate-500">
+              <TableCell colSpan={4} className="py-10 text-center text-sm text-slate-500">
                 Aun no hay categorias.
               </TableCell>
             </TableRow>
@@ -89,6 +97,7 @@ export function CategoriesDataTable({ categories, onEditCategory }: CategoriesDa
                     <p className="text-sm font-medium text-slate-900">{category.name}</p>
                   </div>
                 </TableCell>
+                <TableCell className="text-sm text-slate-600">{category.negocio}</TableCell>
                 <TableCell className="text-sm text-slate-600">{category.productsCount}</TableCell>
                 <TableCell className="text-left">
                   <form data-delete-category-id={category.id} action={adminDeleteCategoryAction}>
