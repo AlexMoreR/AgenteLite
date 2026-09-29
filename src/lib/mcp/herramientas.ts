@@ -35,6 +35,9 @@ type Argumentos = Record<string, unknown>;
 
 const SOLO_LECTURA = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
 
+const ETAPAS_CRM = ["NUEVO", "CALIFICADO", "PROPUESTA", "NEGOCIACION", "GANADO", "PERDIDO"] as const;
+type EtapaCrm = (typeof ETAPAS_CRM)[number];
+
 const HERRAMIENTAS_DE_LECTURA = [
   {
     name: "resumen_del_negocio",
@@ -92,11 +95,21 @@ const HERRAMIENTAS_DE_LECTURA = [
     name: "listar_conversaciones",
     title: "Listar conversaciones",
     description:
-      "Conversaciones con movimiento en los ultimos dias, de la mas reciente a la mas vieja, con contacto, linea, etapa del CRM, asesora asignada y cuantos mensajes hubo de cada lado en ese periodo.",
+      "Conversaciones de un periodo, con contacto, linea, etapa del CRM, asesora asignada y cuantos mensajes hubo de cada lado. Siempre devuelve ademas el total por etapa del periodo. Sin 'etapa' trae las que tuvieron MOVIMIENTO en el periodo, de la mas reciente a la mas vieja. Con 'etapa' trae las que CAYERON en esa etapa dentro del periodo, aunque el chat lleve meses quieto: sirve para 'los ganados de septiembre' o 'los perdidos del mes'. El campo 'fechado_por' de la respuesta dice con que fecha se ubico cada etapa.",
     inputSchema: {
       type: "object",
       properties: {
-        dias: { type: "number", description: "Cuantos dias hacia atras (1 a 30, por defecto 1)" },
+        dias: { type: "number", description: "Cuantos dias hacia atras (1 a 366, por defecto 1). Lo pisan 'desde' y 'hasta'" },
+        desde: { type: "string", description: "Dia de inicio, AAAA-MM-DD en hora de Colombia (opcional, por ejemplo 2026-09-01)" },
+        hasta: { type: "string", description: "Dia final incluido, AAAA-MM-DD (opcional, por ejemplo 2026-09-30)" },
+        etapa: {
+          description:
+            "Etapa o etapas del CRM: NUEVO, CALIFICADO, PROPUESTA, NEGOCIACION, GANADO, PERDIDO. Acepta una sola o varias. Cambia el sentido del periodo: pasa a ser cuando el lead cayo en la etapa, no cuando hablo",
+          anyOf: [
+            { type: "string" },
+            { type: "array", items: { type: "string", enum: [...ETAPAS_CRM] } },
+          ],
+        },
         canal_id: { type: "string", description: "Solo una linea de WhatsApp (opcional)" },
         buscar: { type: "string", description: "Nombre o telefono del contacto (opcional)" },
         limite: { type: "number", description: "Maximo de conversaciones (1 a 100, por defecto 30)" },
@@ -152,6 +165,56 @@ function numero(args: Argumentos, clave: string, minimo: number, maximo: number,
     return porDefecto;
   }
   return Math.min(maximo, Math.max(minimo, Math.round(valor)));
+}
+
+/** Una lista que puede venir como arreglo, como texto suelto o separada por comas. */
+function lista(args: Argumentos, clave: string) {
+  const valor = args[clave];
+  const crudos = Array.isArray(valor) ? valor : typeof valor === "string" ? valor.split(",") : [];
+  return crudos
+    .map((item) => (typeof item === "string" ? item.trim().toUpperCase() : ""))
+    .filter((item) => item.length > 0);
+}
+
+
+/**
+ * CON QUE FECHA SE UBICA CADA ETAPA EN EL TIEMPO.
+ *
+ * No hay historial de etapas: el contacto guarda la etapa en la que esta HOY, no por donde paso.
+ * Asi que "los ganados de septiembre" se responde con la fecha que cada etapa sabe de si misma, y
+ * es la misma convencion que ya usa el informe del dueño, para que los dos numeros coincidan:
+ *
+ *  - GANADO: `wonAt`, la fecha REAL del pago. Los ganados historicos sin `wonAt` no entran: su
+ *    fecha no se conoce, y contarlos por `updatedAt` es justo lo que hacia poco confiable al
+ *    informe (un lead ganado hace meses, tocado hoy, aparecia como venta de hoy).
+ *  - NUEVO: `createdAt`, el dia que el lead entro.
+ *  - El resto (incluido PERDIDO): `updatedAt`. No existe una fecha de perdida, asi que es una
+ *    APROXIMACION: dice cuando se toco la ficha por ultima vez, no cuando cambio de etapa.
+ *
+ * La respuesta lo dice en `fechado_por` para que quien la lea no tenga que adivinarlo.
+ */
+const FECHA_DE_LA_ETAPA: Record<EtapaCrm, "wonAt" | "createdAt" | "updatedAt"> = {
+  NUEVO: "createdAt",
+  CALIFICADO: "updatedAt",
+  PROPUESTA: "updatedAt",
+  NEGOCIACION: "updatedAt",
+  GANADO: "wonAt",
+  PERDIDO: "updatedAt",
+};
+
+// Colombia no tiene horario de verano: el desfase es fijo y no hace falta una libreria.
+const BOGOTA_OFFSET_MS = 5 * 60 * 60 * 1000;
+
+/** El comienzo (en UTC) del dia "AAAA-MM-DD" de Colombia. `fin` toma el dia entero. */
+function diaBogota(valor: string, fin: boolean) {
+  const partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor.trim());
+  if (!partes) {
+    return null;
+  }
+  const [, anio, mes, dia] = partes;
+  const medianoche = Date.UTC(Number(anio), Number(mes) - 1, Number(dia) + (fin ? 1 : 0));
+  const fecha = new Date(medianoche + BOGOTA_OFFSET_MS);
+  return Number.isFinite(fecha.getTime()) ? fecha : null;
 }
 
 const FECHA_BOGOTA = new Intl.DateTimeFormat("sv-SE", {
@@ -452,27 +515,82 @@ async function verFlujo(args: Argumentos, contexto: Contexto) {
 }
 
 async function listarConversaciones(args: Argumentos, contexto: Contexto) {
-  const dias = numero(args, "dias", 1, 30, 1);
   const limite = numero(args, "limite", 1, 100, 30);
   const canalId = texto(args, "canal_id");
   const buscar = texto(args, "buscar");
-  const desde = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+
+  const etapasPedidas = lista(args, "etapa");
+  const desconocidas = etapasPedidas.filter((etapa) => !ETAPAS_CRM.includes(etapa as EtapaCrm));
+  if (desconocidas.length > 0) {
+    throw new Error(
+      `Etapa no valida: ${desconocidas.join(", ")}. Las que existen son ${ETAPAS_CRM.join(", ")}.`,
+    );
+  }
+  const etapas = etapasPedidas as EtapaCrm[];
+
+  /*
+    EL PERIODO.
+
+    `desde`/`hasta` ("AAAA-MM-DD", dia completo en hora de Colombia) mandan sobre `dias`, que queda
+    para las llamadas de siempre. Sin nada, un dia hacia atras, como antes.
+  */
+  const desdeTexto = texto(args, "desde");
+  const hastaTexto = texto(args, "hasta");
+  if ((desdeTexto && !diaBogota(desdeTexto, false)) || (hastaTexto && !diaBogota(hastaTexto, true))) {
+    throw new Error("Las fechas van como AAAA-MM-DD, por ejemplo desde 2026-09-01 hasta 2026-09-30.");
+  }
+  const dias = numero(args, "dias", 1, 366, 1);
+  const desde = desdeTexto ? diaBogota(desdeTexto, false)! : new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+  const hasta = hastaTexto ? diaBogota(hastaTexto, true)! : null;
+  if (hasta && hasta <= desde) {
+    throw new Error("El 'hasta' tiene que ser posterior al 'desde'.");
+  }
+  const rango = { gte: desde, ...(hasta ? { lt: hasta } : {}) };
+
+  /*
+    QUE SIGNIFICA EL PERIODO, que es lo que cambia todo.
+
+    SIN etapa, el periodo es el MOVIMIENTO del chat (`lastMessageAt`): es lo que hacia esta
+    herramienta desde siempre y lo que sirve para "que paso ayer".
+
+    CON etapa, el periodo es CUANDO EL LEAD CAYO EN ESA ETAPA, cada una con su fecha (ver
+    FECHA_DE_LA_ETAPA). Si se filtrara igual por movimiento, "los ganados de septiembre" dejaria
+    afuera justo a los que se cerraron y no volvieron a escribir, que suelen ser la mayoria.
+  */
+  const filtroDeEtapas = etapas.map((etapa) => ({ crmStage: etapa, [FECHA_DE_LA_ETAPA[etapa]]: rango }));
+
+  /*
+    Las dos condiciones sobre el contacto van dentro de un `AND` y no sueltas en el mismo objeto:
+    las dos usan `OR` y la segunda pisaria a la primera, dejando pasar de largo el filtro de etapas.
+  */
+  const condicionesDelContacto = [
+    ...(etapas.length > 0 ? [{ OR: filtroDeEtapas }] : []),
+    ...(buscar
+      ? [
+          {
+            OR: [
+              { name: { contains: buscar, mode: "insensitive" as const } },
+              { phoneNumber: { contains: buscar.replace(/\D/g, "") || buscar } },
+            ],
+          },
+        ]
+      : []),
+  ];
+
+  const contactoWhere = {
+    // Los sacados del CRM a mano no cuentan cuando se pregunta por etapa, igual que en el kanban.
+    ...(etapas.length > 0 ? { excludedFromCrm: false } : {}),
+    AND: condicionesDelContacto,
+  };
 
   const conversaciones = await prisma.conversation.findMany({
     where: {
       workspaceId: contexto.workspaceId,
-      lastMessageAt: { gte: desde },
+      // Con etapa, el rango ya se aplico sobre la fecha de la etapa: pedirlo tambien sobre el
+      // movimiento volveria a dejar afuera a los chats quietos.
+      ...(etapas.length > 0 ? {} : { lastMessageAt: rango }),
       ...(canalId ? { channelId: canalId } : {}),
-      ...(buscar
-        ? {
-            contact: {
-              OR: [
-                { name: { contains: buscar, mode: "insensitive" as const } },
-                { phoneNumber: { contains: buscar.replace(/\D/g, "") || buscar } },
-              ],
-            },
-          }
-        : {}),
+      ...(condicionesDelContacto.length > 0 ? { contact: contactoWhere } : {}),
     },
     orderBy: { lastMessageAt: "desc" },
     take: limite,
@@ -490,15 +608,71 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
   const conteos = conversaciones.length
     ? await prisma.message.groupBy({
         by: ["conversationId", "direction"],
-        where: { conversationId: { in: conversaciones.map((fila) => fila.id) }, createdAt: { gte: desde }, type: { not: "SYSTEM" } },
+        where: { conversationId: { in: conversaciones.map((fila) => fila.id) }, createdAt: rango, type: { not: "SYSTEM" } },
         _count: { _all: true },
       })
     : [];
   const cuantos = (id: string, direccion: "INBOUND" | "OUTBOUND") =>
     conteos.find((fila) => fila.conversationId === id && fila.direction === direccion)?._count._all ?? 0;
 
+  /*
+    EL TOTAL POR ETAPA DEL PERIODO.
+
+    Se cuenta sobre CONTACTOS -personas- y no sobre las conversaciones de arriba, por dos motivos:
+    la lista viene recortada por `limite`, asi que contarla daria un numero que depende de cuantas
+    filas se pidieron; y una misma persona puede tener dos chats (el del numero oculto del anuncio),
+    con lo que contaria doble.
+
+    Cada etapa se cuenta con SU fecha, la misma que usa el filtro de arriba y el informe del dueño.
+    Va siempre, se haya filtrado por etapa o no: es la foto del periodo.
+  */
+  const totales = await Promise.all(
+    ETAPAS_CRM.map(async (etapa) => ({
+      etapa,
+      cuantos: await prisma.contact.count({
+        where: {
+          workspaceId: contexto.workspaceId,
+          excludedFromCrm: false,
+          crmStage: etapa,
+          [FECHA_DE_LA_ETAPA[etapa]]: rango,
+        },
+      }),
+    })),
+  );
+
   return {
     desde: hora(desde),
+    hasta: hasta ? hora(new Date(hasta.getTime() - 1)) : null,
+    filtrado_por: etapas.length > 0 ? "etapa" : "movimiento_del_chat",
+    /*
+      Con que fecha se ubico cada etapa en el periodo. Va en la respuesta a proposito: sin esto,
+      un "5 perdidos en septiembre" parece un dato exacto, y para PERDIDO es la fecha en que se
+      toco la ficha, no la de la perdida.
+    */
+    fechado_por: Object.fromEntries(
+      ETAPAS_CRM.map((etapa) => [
+        etapa,
+        FECHA_DE_LA_ETAPA[etapa] === "wonAt"
+          ? "fecha real de la venta (los ganados historicos sin fecha no entran)"
+          : FECHA_DE_LA_ETAPA[etapa] === "createdAt"
+            ? "fecha en que entro el lead"
+            : "ultima vez que se toco la ficha (aproximado: no hay fecha de cambio de etapa)",
+      ]),
+    ),
+    totales_por_etapa: Object.fromEntries(totales.map((fila) => [fila.etapa, fila.cuantos])),
+    /*
+      Personas del periodo que NO tienen chat y por eso no pueden aparecer en la lista de abajo
+      (se cargaron a mano, o llegaron por telefono). Va solo cuando se filtro por etapa, que es
+      cuando el total y la lista se comparan: sin este numero, un total de 7 con 6 filas parece un
+      error. Hoy son 33 en todo el negocio.
+    */
+    ...(etapas.length > 0
+      ? {
+          personas_sin_chat: await prisma.contact.count({
+            where: { workspaceId: contexto.workspaceId, ...contactoWhere, conversations: { none: {} } },
+          }),
+        }
+      : {}),
     conversaciones: conversaciones.map((fila) => ({
       id: fila.id,
       contacto: fila.contact.name || null,
