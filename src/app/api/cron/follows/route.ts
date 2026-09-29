@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { executePendingFollows } from "@/features/seguimientos/services/follows";
 import { demoteUnresponsiveStaleLeads } from "@/features/llamadas/services/lead-cooldown";
 import { enfriarLeadsSinRespuesta } from "@/features/crm/services/lead-temperature";
+import { ejecutarDescarteAutomatico } from "@/features/crm/services/descarte-automatico";
 import { procesarTandasDeCampanas } from "@/features/campanas/services/campaigns";
 import { purgeOldWebhookEventLogs } from "@/lib/webhook-log-retention";
 import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimientos";
@@ -133,6 +134,21 @@ async function handleCron(request: Request) {
     }
   }
 
+  /*
+    Descarte automatico: el lead que lleva 30 dias callado despues de que le insistimos 3 veces.
+
+    Viene APAGADO por bandera y no hace nada hasta que Alex la prenda. Con throttle de 10 minutos:
+    mueve leads de a 50, y un lead que lleva un mes callado no necesita que lo miren cada minuto.
+  */
+  let descartados: { descartados: number; revisados: number } | null = null;
+  if (new Date().getMinutes() % 10 === 0) {
+    try {
+      descartados = await ejecutarDescarteAutomatico();
+    } catch (error) {
+      console.error("[cron/follows] descarte automatico error", error);
+    }
+  }
+
   // Campañas: la siguiente tanda de cada una que ya cumplio su espera. SIN el throttle de 5 min
   // de los de arriba: cada campaña tiene su propia frecuencia y se fija sola si le toca, asi que
   // saltear corridas solo le agregaria un retraso de hasta 5 minutos a una campaña de 5 minutos.
@@ -164,6 +180,7 @@ async function handleCron(request: Request) {
     webhookLogs,
     seguimientosV3,
     clientesEsperando,
+    descartados,
     mensajesRescatados,
     rescatados,
   });
