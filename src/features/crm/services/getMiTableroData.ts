@@ -136,8 +136,17 @@ export async function getMiTableroData(input: {
       .sort((a, b) => b.total - a.total);
 
     const [leadsACargo, movidos, ventas, enfriandose, llamadas] = await Promise.all([
+      /*
+        "Leads a cargo" cuenta SOLO los vivos: Nuevo, Frio, Tibio y Caliente.
+
+        La tarjeta decia "Vivos, sin ganados ni descartados" y no era cierto: contaba todo lo
+        asignado. A Camila le mostraba 1.033 cuando 952 estaban descartados (Alex, 29-09-2026), asi
+        que el numero grande de su dia era, en su mayoria, gente que ya no iba a comprar.
+
+        No se borra ni se desasigna nada: los descartados siguen ahi, se miran con su propio filtro.
+      */
       prisma.conversation.count({
-        where: { ...mias, contact: { excludedFromCrm: false } },
+        where: { ...mias, contact: { excludedFromCrm: false, crmStage: { in: ETAPAS_VIVAS } } },
       }),
       prisma.conversation.count({
         where: {

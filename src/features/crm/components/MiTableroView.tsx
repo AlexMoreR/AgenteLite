@@ -98,11 +98,21 @@ export function MiTableroView({
   const vivos = data.porEtapa.filter((fila) => !["GANADO", "PERDIDO"].includes(fila.stage));
   // Ganados y descartados se muestran aparte: son historia, no carga (no entran en "a cargo").
   const cerrados = data.porEtapa.filter((fila) => ["GANADO", "PERDIDO"].includes(fila.stage));
-  // Todas las etapas comparten escala, asi Ganado y Descartado se leen contra las vivas.
-  const todas = [...vivos, ...cerrados];
-  const maximo = Math.max(1, ...todas.map((fila) => fila.count));
+  /*
+    LA ESCALA SE MIDE SOLO CONTRA LOS VIVOS.
+
+    Antes las seis etapas compartian escala para poder leer Ganado y Descartado contra las vivas.
+    Con los numeros reales eso no se lee: Camila tiene 952 descartados de 1.033, asi que la barra
+    quedaba 92% de un color y sus 30 nuevos eran una rayita (Alex, 29-09-2026). Los descartados no
+    son trabajo pendiente, son historia, y estaban tapando lo unico que si hay que mirar.
+
+    Los cerrados siguen estando, con su propia escala, detras del boton de abajo.
+  */
+  const maximo = Math.max(1, ...vivos.map((fila) => fila.count));
+  const maximoCerrados = Math.max(1, ...cerrados.map((fila) => fila.count));
   const totalVivos = vivos.reduce((suma, fila) => suma + fila.count, 0);
-  const totalTodas = todas.reduce((suma, fila) => suma + fila.count, 0);
+  const totalCerrados = cerrados.reduce((suma, fila) => suma + fila.count, 0);
+  const [verCerrados, setVerCerrados] = useState(false);
   // Solo el nombre de pila: "Hola, Angy Marcela Ortiz" suena a carta del banco.
   const primerNombre = data.advisorName.trim().split(/\s+/)[0] || data.advisorName;
 
@@ -186,14 +196,14 @@ export function MiTableroView({
             Una sola barra partida por etapa, arriba: de un vistazo se ve cuanto del total es frio y
             cuanto esta por cerrarse. Abajo cada etapa con su color, el mismo de su chapita.
           */}
-          {totalTodas > 0 ? (
+          {totalVivos > 0 ? (
             <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-muted">
-              {todas.map((fila) =>
+              {vivos.map((fila) =>
                 fila.count > 0 ? (
                   <div
                     key={fila.stage}
                     className={`h-full ${COLOR_DE_ETAPA[fila.stage] ?? "bg-[var(--primary)]"}`}
-                    style={{ width: `${(fila.count / totalTodas) * 100}%` }}
+                    style={{ width: `${(fila.count / totalVivos) * 100}%` }}
                   />
                 ) : null,
               )}
@@ -222,9 +232,27 @@ export function MiTableroView({
             ))}
           </div>
 
-          {/* Cerrados: separados de los vivos por una linea, con la misma barra. */}
+          {/*
+            Los cerrados, detras de un boton.
+
+            Ganados y descartados no se borran ni se desasignan: siguen ahi y se miran cuando se
+            quiere. Lo que cambia es que ya no ocupan la pantalla por defecto, porque no son
+            trabajo pendiente.
+          */}
           {cerrados.length > 0 ? (
-            <div className="mt-3 space-y-0.5 border-t border-border pt-3">
+            <div className="mt-3 border-t border-border pt-3">
+              <button
+                type="button"
+                onClick={() => setVerCerrados((valor) => !valor)}
+                className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-left text-[13px] text-muted-foreground transition hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                <span>{verCerrados ? "Ocultar cerrados" : "Ver ganados y descartados"}</span>
+                <span className="tabular-nums font-semibold">{totalCerrados}</span>
+              </button>
+            </div>
+          ) : null}
+          {cerrados.length > 0 && verCerrados ? (
+            <div className="mt-1 space-y-0.5">
               {cerrados.map((fila) => (
                 <button
                   key={fila.stage}
@@ -237,7 +265,9 @@ export function MiTableroView({
                   <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                     <div
                       className={`h-full rounded-full ${COLOR_DE_ETAPA[fila.stage]}`}
-                      style={{ width: `${Math.round((fila.count / maximo) * 100)}%` }}
+                      // Los cerrados se miden entre ellos: contra los vivos, 952 descartados
+                      // volverian a dejar todo lo demas en una rayita.
+                      style={{ width: `${Math.round((fila.count / maximoCerrados) * 100)}%` }}
                     />
                   </div>
                   <span className="w-7 shrink-0 text-right text-[13px] font-semibold tabular-nums text-foreground">

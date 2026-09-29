@@ -7,6 +7,7 @@ import {
   getCrmLostReasonLabel,
 } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
+import { ETAPAS_VIVAS } from "@/features/crm/services/getMiTableroData";
 
 // ── Utilidades de fecha (día de HOY en Bogotá, UTC-5) ───────────────────────────────────────
 const BOGOTA_OFFSET_MS = 5 * 60 * 60 * 1000;
@@ -403,7 +404,13 @@ export async function getLlamadasOwnerData(workspaceId: string): Promise<Llamada
     const [aCargo, movidosHoy, ganadosSemana, miembros] = await Promise.all([
       prisma.conversation.groupBy({
         by: ["assignedToUserId"],
-        where: { workspaceId, assignedToUserId: { not: null }, contact: { excludedFromCrm: false } },
+        // Solo los vivos, igual que en Mi dia: una columna "a cargo" llena de descartados no dice
+        // cuanto trabajo tiene cada una, que es justo para lo que se mira (Alex, 29-09-2026).
+        where: {
+          workspaceId,
+          assignedToUserId: { not: null },
+          contact: { excludedFromCrm: false, crmStage: { in: ETAPAS_VIVAS } },
+        },
         _count: { _all: true },
       }),
       prisma.conversation.groupBy({

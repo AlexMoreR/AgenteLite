@@ -93,7 +93,8 @@ export async function getDetalleDelTablero(input: {
   let orden: Prisma.ConversationOrderByWithRelationInput = { lastMessageAt: { sort: "desc", nulls: "last" } };
 
   if (input.tipo === "leads") {
-    where = { ...mias, contact: { excludedFromCrm: false } };
+    // Los mismos que cuenta la tarjeta: si el numero dice 81, la lista no puede traer 1.033.
+    where = { ...mias, contact: { excludedFromCrm: false, crmStage: { in: ETAPAS_VIVAS } } };
   } else if (input.tipo === "movidos") {
     where = { ...mias, lastMessageAt: { gte: inicioRango, lt: finRango }, contact: { excludedFromCrm: false } };
   } else if (input.tipo === "ventas") {
