@@ -1903,7 +1903,7 @@ function RulePopover({
               />
             </div>
             <p className="text-[11px] leading-4 text-muted-foreground">
-              Coincide si el mensaje contiene cualquiera de estas frases. Cada frase es un chip; presiona Enter para agregar (podés usar comas dentro de una frase).
+              Coincide si el mensaje contiene cualquiera de estas frases. Cada frase es un chip; presiona Enter para agregar (puedes usar comas dentro de una frase).
             </p>
           </div>
         )}

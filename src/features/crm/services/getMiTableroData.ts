@@ -145,8 +145,24 @@ export async function getMiTableroData(input: {
 
         No se borra ni se desasigna nada: los descartados siguen ahi, se miran con su propio filtro.
       */
-      prisma.conversation.count({
-        where: { ...mias, contact: { excludedFromCrm: false, crmStage: { in: ETAPAS_VIVAS } } },
+      /*
+        Se cuentan PERSONAS, no filas de chat.
+
+        Contaba conversaciones, y un mismo cliente puede tener dos: pasa con los leads de anuncio
+        que entran con el numero oculto y despues con el real, y con quien escribe por dos lineas.
+        A Ingrid el contador le decia 1.256 y la barra de etapas 1.222 (Alex, 29-09-2026): los 34
+        de diferencia eran contactos con dos chats, contados dos veces arriba y una abajo.
+
+        Esta consulta es la MISMA forma que la del desglose por etapa, asi que ya no pueden
+        contradecirse.
+      */
+      prisma.contact.count({
+        where: {
+          workspaceId: input.workspaceId,
+          excludedFromCrm: false,
+          crmStage: { in: ETAPAS_VIVAS },
+          conversations: { some: { assignedToUserId: input.userId } },
+        },
       }),
       prisma.conversation.count({
         where: {

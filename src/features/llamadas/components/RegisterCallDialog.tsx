@@ -171,11 +171,11 @@ export function RegisterCallDialog({
 
   const handleSubmit = useCallback(() => {
     if (!selected) {
-      toast.error("Elegí un contacto primero.");
+      toast.error("Elige un contacto primero.");
       return;
     }
     if (isLost && (!lostReason || (lostReason === MOTIVO_OTRO && !otroDetalle.trim()))) {
-      toast.error("Elegí el motivo de pérdida.");
+      toast.error("Elige el motivo de pérdida.");
       return;
     }
     startTransition(async () => {

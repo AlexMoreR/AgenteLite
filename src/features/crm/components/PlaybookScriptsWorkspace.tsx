@@ -272,7 +272,7 @@ export function PlaybookScriptsWorkspace({ scripts }: { scripts: PlaybookScriptI
                   value={editor.content}
                   onChange={(event) => setEditor({ ...editor, content: event.target.value })}
                   rows={7}
-                  placeholder="Escribí el mensaje tal como querés que salga…"
+                  placeholder="Escribe el mensaje tal como quieres que salga…"
                 />
               </div>
             </div>

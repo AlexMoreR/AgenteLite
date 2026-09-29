@@ -402,17 +402,26 @@ export async function getLlamadasOwnerData(workspaceId: string): Promise<Llamada
      * Marcela" seria inventarlo. Se llama como lo que realmente mide.
      */
     const [aCargo, movidosHoy, ganadosSemana, miembros] = await Promise.all([
-      prisma.conversation.groupBy({
-        by: ["assignedToUserId"],
-        // Solo los vivos, igual que en Mi dia: una columna "a cargo" llena de descartados no dice
-        // cuanto trabajo tiene cada una, que es justo para lo que se mira (Alex, 29-09-2026).
-        where: {
-          workspaceId,
-          assignedToUserId: { not: null },
-          contact: { excludedFromCrm: false, crmStage: { in: ETAPAS_VIVAS } },
-        },
-        _count: { _all: true },
-      }),
+      /*
+        PERSONAS vivas a cargo de cada una, no filas de chat.
+
+        Solo los vivos: una columna "a cargo" llena de descartados no dice cuanto trabajo tiene
+        cada quien, que es justo para lo que se mira. Y DISTINCT por contacto, porque un mismo
+        cliente puede tener dos chats -entra con el numero oculto del anuncio y despues con el
+        real- y contarlo dos veces infla la carga de quien mas leads de anuncio recibe.
+
+        Va en SQL y no con groupBy porque Prisma no sabe contar distintos (Alex, 29-09-2026).
+      */
+      prisma.$queryRaw<Array<{ assignedToUserId: string; n: number }>>`
+        SELECT cv."assignedToUserId" AS "assignedToUserId", COUNT(DISTINCT cv."contactId")::int AS n
+        FROM "Conversation" cv
+        JOIN "Contact" c ON c."id" = cv."contactId"
+        WHERE cv."workspaceId" = ${workspaceId}
+          AND cv."assignedToUserId" IS NOT NULL
+          AND c."excludedFromCrm" = false
+          AND c."crmStage" IN ('NUEVO','CALIFICADO','PROPUESTA','NEGOCIACION')
+        GROUP BY cv."assignedToUserId"
+      `,
       prisma.conversation.groupBy({
         by: ["assignedToUserId"],
         where: {
@@ -463,7 +472,7 @@ export async function getLlamadasOwnerData(workspaceId: string): Promise<Llamada
 
     const cuenta = (filas: Array<{ assignedToUserId: string | null; _count: { _all: number } }>) =>
       new Map(filas.map((fila) => [fila.assignedToUserId ?? "", fila._count._all]));
-    const mapaACargo = cuenta(aCargo);
+    const mapaACargo = new Map(aCargo.map((fila) => [fila.assignedToUserId, Number(fila.n)]));
     const mapaMovidos = cuenta(movidosHoy);
     const mapaGanados = cuenta(ganadosSemana);
 

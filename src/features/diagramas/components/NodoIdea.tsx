@@ -394,7 +394,7 @@ export function NodoIdea({
             setEditando(true);
           }
         }}
-        title={editando ? undefined : "Tocá de nuevo para escribir"}
+        title={editando ? undefined : "Toca de nuevo para escribir"}
         role="presentation"
       >
         {icono ? (
@@ -410,7 +410,7 @@ export function NodoIdea({
             onChange={(evento) => onTexto(id, evento.target.value)}
             onInput={ajustarAlto}
             rows={1}
-            placeholder="Escribí acá…"
+            placeholder="Escribe aquí…"
             onBlur={() => setEditando(false)}
             onKeyDown={(evento) => {
               if (evento.key === "Escape") {

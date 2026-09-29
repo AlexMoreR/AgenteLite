@@ -122,7 +122,7 @@ export function CrmFugaPanel({ records, generatedAt }: { records: CrmRecord[]; g
       {criticos.length > 0 ? (
         <div className="border-t border-border">
           <p className="px-3 pt-2.5 text-[12px] text-muted-foreground">
-            Los más caros parados. Tocá para abrir el chat y escribirle.
+            Los más caros parados. Toca para abrir el chat y escribirle.
           </p>
           <ul className="divide-y divide-border">
             {criticos.map(({ record, dias }) => {

@@ -118,7 +118,7 @@ export function MiDiaView({
           className="block rounded-xl border border-[var(--primary)]/25 bg-primary/[0.04] px-3 py-2.5 transition hover:bg-primary/[0.08]"
         >
           <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--primary)]">
-            Empezá por acá
+            Empieza por aquí
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-foreground">{primero.name}</span>
@@ -135,7 +135,7 @@ export function MiDiaView({
           <p className="text-sm font-medium text-foreground">Todo al día 🎉</p>
           <p className="mt-1 text-sm text-muted-foreground">
             No hay leads del embudo esperando seguimiento. Cuando alguien cotizado quede sin
-            respuesta, aparece acá.
+            respuesta, aparece aquí.
           </p>
         </div>
       ) : (
@@ -189,7 +189,7 @@ export function MiDiaView({
                     ) : lead.waitingOnUs ? (
                       <span className="font-semibold text-rose-600 dark:text-rose-400">Sin responder</span>
                     ) : (
-                      <span className="text-muted-foreground">Sin respuesta · hacé seguimiento</span>
+                      <span className="text-muted-foreground">Sin respuesta · haz seguimiento</span>
                     )}
                   </div>
                 </div>

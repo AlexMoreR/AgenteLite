@@ -141,7 +141,7 @@ export function LibroDeReglasView({ libro, problemas }: { libro: LibroDeReglas; 
           <MessageSquare className="size-4" /> Cómo habla el negocio
         </h2>
         <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-          {libro.comoHablamos.trim() || "Todavía sin escribir. Contale a Claude qué vende el negocio y cómo querés que hable."}
+          {libro.comoHablamos.trim() || "Todavía sin escribir. Cuéntale a Claude qué vende el negocio y cómo quieres que hable."}
         </p>
       </section>
 

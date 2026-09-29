@@ -146,7 +146,7 @@ export function VincularLlamadasDialog({
             <div className="flex flex-col items-center gap-2 text-center">
               <CheckCircle2 className="size-10 text-emerald-600" />
               <p className="text-sm font-medium">
-                {numeroVinculado ? "Esta línea ya está vinculada." : "Listo, ya podés llamar desde los chats."}
+                {numeroVinculado ? "Esta línea ya está vinculada." : "Listo, ya puedes llamar desde los chats."}
               </p>
               {numeroVinculado ? (
                 <p className="text-xs text-muted-foreground">
