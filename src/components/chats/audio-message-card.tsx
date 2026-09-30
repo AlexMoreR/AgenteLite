@@ -449,44 +449,45 @@ export function AudioMessageCard({
   );
 }
 
-/** Pasado este largo el texto se recorta: las asesoras recorren decenas de audios por chat. */
-const LARGO_PARA_RECORTAR = 220;
-
 /**
- * Lo que se dice en la nota de voz, debajo del reproductor (ver transcripcion-de-audios).
+ * Lo que se dice en la nota de voz (ver transcripcion-de-audios), plegado detrás de un enlace.
+ *
+ * Arrancó abierto debajo de cada audio, y en el celular un chat con varias notas de voz se volvía
+ * una columna de texto en cursiva que tapaba la conversación (Alex, 30-09-2026). Plegado, el audio
+ * ocupa lo mismo que antes y el texto está a un toque.
+ *
+ * El enlace va en el mismo azul que los links de las burbujas, para que se lea como algo que se
+ * toca y no como parte del mensaje.
  *
  * Sin texto no se dibuja nada: ni "Transcribiendo…", porque un audio de hace dos meses nunca va a
  * tenerlo y el cartel quedaría ahí para siempre, ni "Sin voz", que ocuparía lugar en cada audio
  * mudo sin decir nada útil.
  */
 function TranscripcionDelAudio({ texto, outbound }: { texto?: string | null; outbound: boolean }) {
-  const [completa, setCompleta] = useState(false);
+  const [abierta, setAbierta] = useState(false);
   const limpio = texto?.trim();
   if (!limpio) {
     return null;
   }
 
-  const larga = limpio.length > LARGO_PARA_RECORTAR;
-
   return (
-    <div
-      className={`mt-1.5 border-t pt-1.5 text-[13px] leading-snug ${
-        outbound ? "border-[var(--chat-out-overlay)]" : "border-border"
-      }`}
-    >
-      <p className={`whitespace-pre-wrap break-words italic ${larga && !completa ? "line-clamp-4" : ""}`}>
-        {limpio}
-      </p>
-      {larga ? (
-        <button
-          type="button"
-          onClick={() => setCompleta((actual) => !actual)}
-          className={`mt-0.5 text-[12px] font-medium hover:underline ${
-            outbound ? "text-[var(--chat-out-text-faint)]" : "text-primary"
+    <div className="mt-1 pl-10">
+      <button
+        type="button"
+        onClick={() => setAbierta((actual) => !actual)}
+        aria-expanded={abierta}
+        className="text-[12.5px] font-medium text-blue-600 hover:underline dark:text-blue-400"
+      >
+        {abierta ? "Ocultar transcripción" : "Ver transcripción"}
+      </button>
+      {abierta ? (
+        <p
+          className={`mt-1 whitespace-pre-wrap break-words border-t pt-1.5 text-[13px] italic leading-snug ${
+            outbound ? "border-[var(--chat-out-overlay)]" : "border-border"
           }`}
         >
-          {completa ? "Ver menos" : "Ver todo"}
-        </button>
+          {limpio}
+        </p>
       ) : null}
     </div>
   );
