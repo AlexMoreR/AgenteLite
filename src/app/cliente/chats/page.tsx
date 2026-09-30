@@ -12,6 +12,7 @@ import { PushSubscriptionManager } from "@/components/chats/push-subscription-ma
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { MenuDelContacto } from "@/components/chats/menu-del-contacto";
 import { SharedInbox } from "@/components/chats/shared-inbox";
+import type { AssignedFilter } from "@/components/chats/chat-inbox-types";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
 import {
@@ -274,8 +275,19 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     sigue quedando "Mias": se lo impone el permiso, unas lineas mas abajo.
   */
   const assignedParam = typeof params.assigned === "string" ? params.assigned.trim() : "";
-  let assignedFilter: "all" | "mine" | "unassigned" =
-    assignedParam === "mine" || assignedParam === "unassigned" ? assignedParam : "all";
+  /*
+    `user:<id>` = la bandeja de UNA asesora ("Por asesora" en Filtrar conversaciones).
+
+    El modal y la ruta /list ya lo entendian, pero aca se descartaba en silencio y quedaba "Todas":
+    se elegia a Maria Bautista y la lista no cambiaba (Alex, 30-09-2026). Y como esta pantalla es
+    la que le pasa el filtro a la bandeja, el refresco y el scroll tambien pedian "Todas".
+    Solo para jefes: a quien no lo es se le impone "Mias" justo abajo, igual que en /list.
+  */
+  const pideUnaAsesora = isManager && /^user:[a-z0-9]+$/i.test(assignedParam);
+  let assignedFilter: AssignedFilter =
+    assignedParam === "mine" || assignedParam === "unassigned" || pideUnaAsesora
+      ? (assignedParam as AssignedFilter)
+      : "all";
   // Los no-managers (empleados) solo pueden ver sus chats asignados: nunca "Todos" ni "Sin asignar".
   if (!isManager && !modoMonitoreo) {
     assignedFilter = "mine";
@@ -294,7 +306,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ? { assignedToUserId: access.userId }
         : assignedFilter === "unassigned"
           ? { assignedToUserId: null }
-          : {};
+          : assignedFilter.startsWith("user:")
+            ? { assignedToUserId: assignedFilter.slice("user:".length) }
+            : {};
 
   // Filtro de estado de conversación. Por DEFECTO se ocultan las resueltas (solo abiertas):
   // las resueltas solo aparecen al elegir "Resueltas" o "Todas".
