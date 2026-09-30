@@ -79,6 +79,7 @@ import {
   isEvolutionStatusBroadcastPayload,
   isInboundMessageEvent,
   normalizePhoneFromJid,
+  extractWahaSource,
 } from "@/lib/evolution-webhook";
 import {
   ensureEvolutionInstanceReady,
@@ -1243,6 +1244,12 @@ export async function POST(request: NextRequest) {
   }
   const callDirection = isCallEvent ? extractEvolutionCallDirection(payload) : null;
   const fromMe = extractEvolutionFromMe(payload);
+  /*
+    El eco de un envio NUESTRO (el agente, los seguimientos, los flujos, el CRM), no de una persona
+    escribiendo desde el celular. Solo WAHA lo dice -ver `wahaSource` en waha.ts-; en las lineas de
+    Evolution queda en false y todo sigue como antes.
+  */
+  const enviadoPorNosotros = fromMe && extractWahaSource(payload) === "api";
   // Nombre de perfil de WhatsApp del remitente. Solo para mensajes ENTRANTES: en los
   // salientes (fromMe) el pushName es el del negocio, no el del cliente.
   const contactPushName = !fromMe ? (extractEvolutionPushName(payload)?.trim() || "") : "";
@@ -1782,7 +1789,9 @@ export async function POST(request: NextRequest) {
       content: messageText,
       mediaUrl,
       rawPayload: {
-        source: direction === "OUTBOUND" ? "instance" : "webhook",
+        // "instance" = salio del celular. Un eco de un envio nuestro NO lo es: marcarlo asi lo hacia
+        // pasar por un mensaje de una asesora en el MCP y en el resto del CRM.
+        source: direction === "OUTBOUND" ? (enviadoPorNosotros ? "api" : "instance") : "webhook",
         evolution: payload,
       } as never,
       // Los broadcasts ya se descartan antes de persistir (ver guard de status@broadcast),
@@ -2585,7 +2594,23 @@ export async function POST(request: NextRequest) {
     !Array.isArray(channel.metadata) &&
     (channel.metadata as Record<string, unknown>).agenteV3 === true;
 
-  if (fromMe && (channel.agentId || canalTieneV3) && !isCallEvent) {
+  /*
+    Y el eco de un envio NUESTRO tampoco: lo mando el sistema, no una persona.
+
+    Paso el 30-09-2026 con WAHA: el agente contesto, WhatsApp devolvio el eco antes de que el agente
+    terminara de guardar su propio mensaje, el eco no encontro con quien emparejarse y se tomo por
+    una asesora escribiendo desde el celular. La IA se apago y el cliente pregunto dos veces "¿es
+    portatil?" sin respuesta. Lo mismo podia pasar con cada seguimiento automatico.
+  */
+  if (enviadoPorNosotros && (channel.agentId || canalTieneV3) && !isCallEvent) {
+    console.log("[EVOLUTION] pausa_automatica_evitada", {
+      conversationId: conversation.id,
+      instanceName,
+      motivo: "eco de un envio nuestro (WAHA source=api)",
+    });
+  }
+
+  if (fromMe && !enviadoPorNosotros && (channel.agentId || canalTieneV3) && !isCallEvent) {
     const primerMensaje = conversation.id
       ? await prisma.message.findFirst({
           where: { conversationId: conversation.id },

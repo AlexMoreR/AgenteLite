@@ -930,6 +930,8 @@ export function traducirEventoWaha(
     timestamp?: unknown;
     from?: unknown;
     fromMe?: unknown;
+    /** "api" = lo mandamos nosotros por WAHA; "app" = salio del telefono (o lo mando el cliente). */
+    source?: unknown;
     body?: unknown;
     hasMedia?: unknown;
     media?: unknown;
@@ -1119,6 +1121,16 @@ export function traducirEventoWaha(
       event: "messages.upsert",
       instance: sesion,
       data: {
+        /*
+          De donde salio el mensaje, segun WAHA: "api" si lo mandamos nosotros (el agente, los
+          seguimientos, los flujos, el CRM) y "app" si salio del telefono.
+
+          Es la unica forma confiable de reconocer el eco de un envio NUESTRO. Sin esto, cuando el
+          eco llegaba antes de que el agente terminara de guardar su mensaje, se tomaba por una
+          asesora escribiendo desde el celular y la IA de ese chat se apagaba sola (Alex,
+          30-09-2026: "¿por que aqui se paro el agente?"). Ver la pausa en el webhook.
+        */
+        ...(mensaje.source === "api" || mensaje.source === "app" ? { wahaSource: mensaje.source } : {}),
         key: {
           remoteJid: jidDeWaha(de),
           fromMe: mensaje.fromMe === true,

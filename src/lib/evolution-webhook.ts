@@ -626,6 +626,17 @@ export function extractEvolutionMessageId(payload: unknown): string | null {
   );
 }
 
+/**
+ * Si el mensaje lo mandamos NOSOTROS por la API (el agente, los seguimientos, los flujos, el CRM)
+ * o salio del telefono. Solo lo sabe WAHA, que lo marca en cada mensaje y viaja traducido como
+ * `wahaSource` (ver waha.ts). En las lineas de Evolution devuelve null: no hay como saberlo.
+ */
+export function extractWahaSource(payload: unknown): "api" | "app" | null {
+  const data = asRecord(getPrimaryPayloadRoot(payload)?.data);
+  const origen = data?.wahaSource;
+  return origen === "api" || origen === "app" ? origen : null;
+}
+
 export function extractEvolutionFromMe(payload: unknown): boolean {
   const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
