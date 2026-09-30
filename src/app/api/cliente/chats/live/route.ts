@@ -153,6 +153,9 @@ export async function GET(request: Request) {
         // La ficha del CRM, no la de la tabla oficial: es la que usan etapa, etiquetas y guiones.
         contactId: detalle.contact.crmContactId ?? null,
         crmStage: detalle.contact.crmStage ?? null,
+        // Quien lo tiene: sin esto la ficha no podia mostrar la asesora del chat oficial abierto con
+        // un toque, y mostraba la del chat anterior hasta que se volvia a pedir la pantalla entera.
+        assignedTo: detalle.assignedTo ?? null,
         // El canal oficial no guarda historial de WhatsApp: el boton no debe aparecer.
         canImportHistory: false,
         hasMoreMessages: false,

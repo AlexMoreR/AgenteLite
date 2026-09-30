@@ -64,6 +64,7 @@ import {
 import { ConversationPanel } from "./chat-conversation-panel";
 import { ChatHeaderActions } from "./chat-header-actions";
 import { MenuDelContacto } from "./menu-del-contacto";
+import { AssignChatControl } from "./assign-chat-control";
 import type { CrmStage } from "@/features/crm/types";
 import { resolveCallTarget } from "@/lib/whatsapp-lid";
 
@@ -1926,6 +1927,38 @@ export function SharedInbox({
     );
   }, [renderedConversation, selectedConversationKey]);
 
+  /*
+    El bloque "Agente asignado" de la ficha, armado en el CLIENTE con el chat que esta abierto.
+
+    Venia tal cual del servidor, y el servidor lo arma para el chat que traia la URL. Abriendo un
+    chat con un toque -como entran las asesoras desde el celular- la ficha mostraba la asesora del
+    chat ANTERIOR hasta que la pantalla se volvia a pedir entera, segundos despues, y ahi saltaba a
+    la correcta: "sale Ingrid y despues pasa a Maria". Visto asi, parecia que alguien le estaba
+    cambiando los chats a Ingrid, y nadie lo hacia (Alex, 30-09-2026). Mientras el chat carga no
+    se muestra nadie: vacio un instante es mejor que el nombre equivocado.
+  */
+  const clientContactPanelActions = useMemo(() => {
+    const conversation = renderedConversation;
+    const esOficial = selectedConversationKey.startsWith("official:");
+    if (
+      !conversation ||
+      conversation.isPreview ||
+      (!esOficial && !selectedConversationKey.startsWith("agent:")) ||
+      !conversationIdMatchesKey(selectedConversationKey, conversation.id)
+    ) {
+      return null;
+    }
+    return (
+      <AssignChatControl
+        key={`panel-assign:${selectedConversationKey}`}
+        conversationId={conversation.id}
+        // El selector pide el correo como texto: una cuenta sin correo trae null, y se muestra por nombre.
+        assignee={conversation.assignedTo ? { ...conversation.assignedTo, email: conversation.assignedTo.email ?? "" } : null}
+        source={esOficial ? "official" : "agent"}
+      />
+    );
+  }, [renderedConversation, selectedConversationKey]);
+
   // "El chat ya esta asentado" = tenemos el contenido real del chat abierto, no el preview.
   // Antes se comprobaba contra currentSelectedConversation, que sale del prop del SERVIDOR: al
   // no navegar ese prop se congela en el chat con el que cargo la pagina y esto quedaba siempre
@@ -2542,7 +2575,8 @@ export function SharedInbox({
         emptySelectionDescription={emptySelectionDescription}
         headerActions={clientHeaderActions ?? headerActions}
         headerBadge={headerBadge}
-        contactPanelActions={contactPanelActions}
+        // El del servidor solo si es de ESTE chat: el de otro mostraria a la asesora equivocada.
+        contactPanelActions={clientContactPanelActions ?? (selectedConversationMatchesCurrentKey ? contactPanelActions : null)}
         contactPanelHeaderActions={clientContactPanelHeaderActions ?? contactPanelHeaderActions}
       />
     </div>
