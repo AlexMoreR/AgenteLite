@@ -11,14 +11,21 @@ import { leerMonitores } from "@/lib/channel-collaborators";
  * Lo que cambia para quien esta en modo monitoreo:
  *  - Ve TODOS los chats del canal que monitorea, aunque no sea jefa.
  *  - No puede enviar nada: ni texto, ni audio, ni archivos, ni borrar mensajes.
- *  - Los telefonos le llegan tapados, y tapados DEL SERVIDOR: si se enmascararan en la pantalla,
- *    el numero real seguiria viajando y se leeria abriendo las herramientas del navegador. Tapar
- *    lo que ya llego no es tapar.
+ *  - Los telefonos le llegaban tapados. YA NO (ver TAPAR_TELEFONOS).
  */
+
+/*
+  Tapar los telefonos, apagado (Alex, 30-09-2026: "eso de ocultar numero quitalo a los monitores").
+
+  Todas las pantallas pasan por las dos funciones de abajo, asi que se apaga aca, en un solo lugar,
+  y vuelve igual de facil si algun dia se quiere de nuevo. Cuando estaba prendido se tapaba DEL
+  SERVIDOR, no en la pantalla: el numero real no viajaba, que es lo unico que sirve para taparlo.
+*/
+const TAPAR_TELEFONOS = false;
 
 /** El aviso, escrito una sola vez para que todas las puertas digan lo mismo. */
 export const AVISO_MODO_MONITOREO =
-  "Estás en modo monitoreo: podés ver los chats, pero no escribir ni enviar.";
+  "Estás en modo monitoreo: puedes ver los chats, pero no escribir ni enviar.";
 
 /**
  * Tapa los ultimos 4 digitos: `573214861454` queda `57321486****`.
@@ -29,6 +36,9 @@ export const AVISO_MODO_MONITOREO =
  */
 export function enmascararTelefono(valor?: string | null): string {
   const texto = (valor ?? "").trim();
+  if (!TAPAR_TELEFONOS) {
+    return texto;
+  }
   const digitos = texto.replace(/\D/g, "");
   if (digitos.length < 5) {
     return texto;
@@ -44,7 +54,7 @@ export function enmascararTelefono(valor?: string | null): string {
  */
 export function enmascararSiEsTelefono(valor?: string | null): string {
   const texto = (valor ?? "").trim();
-  if (!texto || /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(texto)) {
+  if (!TAPAR_TELEFONOS || !texto || /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(texto)) {
     return texto;
   }
   return texto.replace(/\D/g, "").length >= 8 ? enmascararTelefono(texto) : texto;

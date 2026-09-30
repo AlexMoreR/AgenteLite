@@ -5,6 +5,7 @@ import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/cl
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
+import { canalesQueMonitorea } from "@/lib/modo-monitoreo";
 import { fragmentosDeFiltrosOficiales } from "@/features/official-api/services/getOfficialApiChatsData";
 import {
   idsSinResponder,
@@ -276,6 +277,31 @@ export async function GET(request: Request) {
       filtros,
     }),
   ]);
+
+  /*
+    La monitora ve "Todas" y "Sin asignar" de SUS lineas (Alex, 30-09-2026): los numeros de las
+    pestañas tienen que contar eso mismo, no sus chats propios -que no tiene-.
+  */
+  const monitoreados = isManager
+    ? []
+    : await canalesQueMonitorea({ workspaceId: membership.workspace.id, userId: session.user.id });
+  if (monitoreados.length > 0) {
+    const deSusLineas: Prisma.ConversationWhereInput = { AND: [baseWhere, { channelId: { in: monitoreados } }] };
+    const [mine, unassigned, all] = await Promise.all([
+      prisma.conversation.count({ where: { AND: [deSusLineas, { assignedToUserId: session.user.id }] } }),
+      prisma.conversation.count({ where: { AND: [deSusLineas, { assignedToUserId: null }] } }),
+      prisma.conversation.count({ where: deSusLineas }),
+    ]);
+    return NextResponse.json({
+      ok: true,
+      isManager,
+      counts: {
+        mine: mine + officialMine,
+        unassigned: unassigned + officialUnassigned,
+        all: all + officialAll,
+      },
+    });
+  }
 
   // Los empleados solo cuentan sus chats asignados.
   if (!isManager) {

@@ -157,6 +157,11 @@ export type SharedInboxProps = {
   assignedFilter?: AssignedFilter;
   statusFilter?: StatusFilter;
   isManager?: boolean;
+  /**
+   * Pestañas y filtros de jefe (Todas, Sin asignar, Por asesora) SIN serlo: es la monitora. Solo
+   * cambia lo que se puede filtrar en la bandeja; los permisos de la ficha siguen con isManager.
+   */
+  veTodoElEquipo?: boolean;
   /** La firma de quien escribe, para dejarla visible en el compositor. */
   chatSignature?: string;
   conversationListApiPath?: string;

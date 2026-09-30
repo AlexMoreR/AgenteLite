@@ -281,10 +281,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     El modal y la ruta /list ya lo entendian, pero aca se descartaba en silencio y quedaba "Todas":
     se elegia a Maria Bautista y la lista no cambiaba (Alex, 30-09-2026). Y como esta pantalla es
     la que le pasa el filtro a la bandeja, el refresco y el scroll tambien pedian "Todas".
-    Solo para jefes: a quien no lo es se le impone "Mias" justo abajo, igual que en /list.
+    Para jefes y para quien monitorea (Alex, 30-09-2026): a una asesora comun se le impone "Mias"
+    justo abajo, igual que en /list. La monitora igual queda dentro de SUS lineas: ver assignedWhere.
   */
   // Una o varias, separadas por coma: `user:id1,id2` (Alex, 30-09-2026, "poder seleccionar mas asesoras").
-  const pideUnaAsesora = isManager && /^user:[a-z0-9]+(,[a-z0-9]+)*$/i.test(assignedParam);
+  const pideUnaAsesora = (isManager || modoMonitoreo) && /^user:[a-z0-9]+(,[a-z0-9]+)*$/i.test(assignedParam);
   let assignedFilter: AssignedFilter =
     assignedParam === "mine" || assignedParam === "unassigned" || pideUnaAsesora
       ? (assignedParam as AssignedFilter)
@@ -293,23 +294,25 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   if (!isManager && !modoMonitoreo) {
     assignedFilter = "mine";
   }
+  const filtroDeAsignacion: Prisma.ConversationWhereInput =
+    assignedFilter === "mine"
+      ? { assignedToUserId: access.userId }
+      : assignedFilter === "unassigned"
+        ? { assignedToUserId: null }
+        : assignedFilter.startsWith("user:")
+          ? { assignedToUserId: { in: assignedFilter.slice("user:".length).split(",") } }
+          : {};
   /*
-    Quien monitorea ve TODO lo de su canal, tenga dueño o no.
+    Quien monitorea ve lo de SU canal, tenga dueño o no, y ahora ademas puede filtrarlo.
 
-    Es el motivo de existir del modo: se entra a mirar como trabaja el agente, y los chats donde
-    trabaja son justamente los que no son de ella. Por eso no se mira la pestaña -"Mías" y "Todas"
-    le muestran lo mismo-: no tiene chats propios, y una pestaña vacia se leeria como un error.
+    Antes la pestaña se ignoraba para ella -"Mias" y "Todas" le mostraban lo mismo- y la bandeja
+    solo le ofrecia "Mias". Alex pidio que tenga "Todas" y el filtro por asesora (30-09-2026): se
+    aplica la pestaña, pero siempre DENTRO de sus lineas, para que no vea otras.
   */
   const assignedWhere: Prisma.ConversationWhereInput =
     modoMonitoreo && !isManager
-      ? { channelId: { in: canalesMonitoreados } }
-      : assignedFilter === "mine"
-        ? { assignedToUserId: access.userId }
-        : assignedFilter === "unassigned"
-          ? { assignedToUserId: null }
-          : assignedFilter.startsWith("user:")
-            ? { assignedToUserId: { in: assignedFilter.slice("user:".length).split(",") } }
-            : {};
+      ? { channelId: { in: canalesMonitoreados }, ...filtroDeAsignacion }
+      : filtroDeAsignacion;
 
   // Filtro de estado de conversación. Por DEFECTO se ocultan las resueltas (solo abiertas):
   // las resueltas solo aparecen al elegir "Resueltas" o "Todas".
@@ -1289,6 +1292,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         assignedFilter={assignedFilter}
         statusFilter={statusFilter}
         isManager={isManager}
+        // Quien monitorea tiene las pestañas y los filtros de un jefe, pero solo eso: no es jefe.
+        veTodoElEquipo={modoMonitoreo}
         chatSignature={chatSignature}
         initialConversationBatchSize={conversationListTake}
         initialHasMoreConversations={hasMoreConversationItems}

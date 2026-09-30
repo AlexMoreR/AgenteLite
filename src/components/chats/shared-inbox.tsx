@@ -165,6 +165,7 @@ export function SharedInbox({
   assignedFilter = "all",
   statusFilter = "open",
   isManager = false,
+  veTodoElEquipo = false,
   chatSignature = "",
   conversationListApiPath = "/api/cliente/chats/list",
   initialConversationBatchSize = 20,
@@ -2523,7 +2524,7 @@ export function SharedInbox({
         assignedFilter={assignedFilter}
         statusFilter={statusFilter}
         assignedCounts={assignedCounts}
-        isManager={isManager}
+        isManager={isManager || veTodoElEquipo}
         filtros={{
           etapas: etapasEnLaUrl ? (etapasEnLaUrl.split(",") as EtapaCrm[]) : [],
           sinResponder: sinResponderEnLaUrl,

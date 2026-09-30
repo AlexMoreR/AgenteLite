@@ -156,15 +156,18 @@ async function getAgentConversationList(input: {
     Es el motivo del modo: se entra a mirar como trabaja el agente, y esos chats son justamente
     los que no son de ella. Ver `modo-monitoreo.ts`.
   */
-  const assignedWhere: Prisma.ConversationWhereInput = input.monitoredChannelIds.length
-    ? { channelId: { in: input.monitoredChannelIds } }
-    : input.assignedFilter === "mine"
+  const filtroDeAsignacion: Prisma.ConversationWhereInput =
+    input.assignedFilter === "mine"
       ? { assignedToUserId: input.currentUserId }
       : input.assignedFilter === "unassigned"
         ? { assignedToUserId: null }
         : input.assignedFilter.startsWith("user:")
           ? { assignedToUserId: { in: input.assignedFilter.slice("user:".length).split(",") } }
           : {};
+  // La monitora filtra igual que un jefe, pero siempre dentro de SUS lineas (Alex, 30-09-2026).
+  const assignedWhere: Prisma.ConversationWhereInput = input.monitoredChannelIds.length
+    ? { channelId: { in: input.monitoredChannelIds }, ...filtroDeAsignacion }
+    : filtroDeAsignacion;
   const statusWhere: Prisma.ConversationWhereInput =
     input.statusFilter === "resolved"
       ? { status: { in: ["CLOSED", "ARCHIVED"] } }
@@ -628,8 +631,24 @@ export async function GET(request: Request) {
     requestedFilterRaw === "mine" || requestedFilterRaw === "unassigned" || pideUnaAsesora
       ? requestedFilterRaw
       : "all";
-  // Los no-managers (empleados) solo pueden ver sus chats asignados: nunca "Todos" ni "Sin asignar".
-  if (!isManager) {
+  /*
+    Los canales que esta persona solo MIRA (ver modo-monitoreo.ts).
+
+    Va tambien en esta ruta y no solo en la pantalla: esta es la que refresca la bandeja sola cada
+    pocos segundos, asi que si el modo se aplicara nada mas del lado del servidor de la pagina, a
+    los segundos la lista volveria con los telefonos destapados.
+  */
+  const monitoredChannelIds = await canalesQueMonitorea({
+    workspaceId: membership.workspace.id,
+    userId: session.user.id,
+  });
+
+  /*
+    Los no-managers (empleados) solo pueden ver sus chats asignados: nunca "Todos" ni "Sin asignar".
+    La monitora si: antes esta linea tambien a ella le imponia "Mias", y como no tiene chats
+    propios, el refresco y el scroll le devolvian la lista vacia.
+  */
+  if (!isManager && monitoredChannelIds.length === 0) {
     assignedFilter = "mine";
   }
 
@@ -648,17 +667,6 @@ export async function GET(request: Request) {
     esJefe,
   });
 
-  /*
-    Los canales que esta persona solo MIRA (ver modo-monitoreo.ts).
-
-    Va tambien en esta ruta y no solo en la pantalla: esta es la que refresca la bandeja sola cada
-    pocos segundos, asi que si el modo se aplicara nada mas del lado del servidor de la pagina, a
-    los segundos la lista volveria con los telefonos destapados.
-  */
-  const monitoredChannelIds = await canalesQueMonitorea({
-    workspaceId: membership.workspace.id,
-    userId: session.user.id,
-  });
 
   const data = await getAgentConversationList({
     workspaceId: membership.workspace.id,
