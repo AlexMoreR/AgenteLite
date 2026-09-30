@@ -5,9 +5,15 @@ const DEFAULT_NEW_LEAD_TAG_NAME = "Nuevo lead";
 const DEFAULT_NEW_LEAD_TAG_SLUG = "nuevo-lead";
 const DEFAULT_NEW_LEAD_TAG_COLOR = "#0f172a";
 
-const DEFAULT_ACTIVE_LEAD_TAG_NAME = "Lead";
-const DEFAULT_ACTIVE_LEAD_TAG_SLUG = "lead";
-const DEFAULT_ACTIVE_LEAD_TAG_COLOR = "#2563eb";
+/*
+  YA NO HAY ETIQUETA "Lead".
+
+  El ciclo era: contacto nuevo -> "Nuevo lead"; en cuanto tenia historial -> "Lead". Resultado:
+  2.803 contactos con la misma chapita "LEAD" al lado de cada chat, que no distinguia nada -todos
+  los contactos del CRM son leads- y le quitaba lugar a las etiquetas que si dicen algo (Alex,
+  30-09-2026: "ya se sabe que es un lead"). Se borro de la base en la migracion
+  20260930190000_quitar_etiqueta_lead. "Nuevo lead" sigue: esa si separa a quien todavia no hablo.
+*/
 
 async function ensureWorkspaceTag(input: {
   workspaceId: string;
@@ -104,32 +110,16 @@ export async function syncLeadLifecycleForContact(input: {
     syncExistingValues: true,
   });
 
-  const activeLeadTag = await ensureWorkspaceTag({
-    workspaceId: input.workspaceId,
-    slug: DEFAULT_ACTIVE_LEAD_TAG_SLUG,
-    name: DEFAULT_ACTIVE_LEAD_TAG_NAME,
-    color: DEFAULT_ACTIVE_LEAD_TAG_COLOR,
-    syncExistingValues: false,
-  });
-
+  // Con historial deja de ser "nuevo": se le quita y no se le pone ninguna otra en su lugar.
   if (input.hasHistory) {
     await removeTagFromContact({
       contactId: input.contactId,
       tagId: newLeadTag.id,
     });
-    await assignTagToContact({
-      workspaceId: input.workspaceId,
-      contactId: input.contactId,
-      tagId: activeLeadTag.id,
-    });
 
-    return { state: "active" as const, tagId: activeLeadTag.id };
+    return { state: "active" as const, tagId: null };
   }
 
-  await removeTagFromContact({
-    contactId: input.contactId,
-    tagId: activeLeadTag.id,
-  });
   await assignTagToContact({
     workspaceId: input.workspaceId,
     contactId: input.contactId,
@@ -163,86 +153,49 @@ export async function syncLeadLifecycleForContacts(input: {
     return { revisados: 0, cambiados: 0 };
   }
 
-  const [tagNuevo, tagActivo] = await Promise.all([
-    ensureWorkspaceTag({
-      workspaceId: input.workspaceId,
-      slug: DEFAULT_NEW_LEAD_TAG_SLUG,
-      name: input.newLeadTagName?.trim() || DEFAULT_NEW_LEAD_TAG_NAME,
-      color: DEFAULT_NEW_LEAD_TAG_COLOR,
-      syncExistingValues: true,
-    }),
-    ensureWorkspaceTag({
-      workspaceId: input.workspaceId,
-      slug: DEFAULT_ACTIVE_LEAD_TAG_SLUG,
-      name: DEFAULT_ACTIVE_LEAD_TAG_NAME,
-      color: DEFAULT_ACTIVE_LEAD_TAG_COLOR,
-      syncExistingValues: false,
-    }),
-  ]);
+  const tagNuevo = await ensureWorkspaceTag({
+    workspaceId: input.workspaceId,
+    slug: DEFAULT_NEW_LEAD_TAG_SLUG,
+    name: input.newLeadTagName?.trim() || DEFAULT_NEW_LEAD_TAG_NAME,
+    color: DEFAULT_NEW_LEAD_TAG_COLOR,
+    syncExistingValues: true,
+  });
 
   // Como esta cada uno HOY. Una sola consulta para toda la lista.
   const puestas = await prisma.contactTag.findMany({
-    where: {
-      contactId: { in: contactIds },
-      tagId: { in: [tagNuevo.id, tagActivo.id] },
-    },
-    select: { contactId: true, tagId: true },
+    where: { contactId: { in: contactIds }, tagId: tagNuevo.id },
+    select: { contactId: true },
   });
-
-  const tieneNuevo = new Set<string>();
-  const tieneActivo = new Set<string>();
-  for (const fila of puestas) {
-    if (fila.tagId === tagNuevo.id) tieneNuevo.add(fila.contactId);
-    if (fila.tagId === tagActivo.id) tieneActivo.add(fila.contactId);
-  }
+  const tieneNuevo = new Set(puestas.map((fila) => fila.contactId));
 
   const ponerNuevo: string[] = [];
-  const ponerActivo: string[] = [];
   const sacarNuevo: string[] = [];
-  const sacarActivo: string[] = [];
 
   for (const contactId of contactIds) {
     if (input.conHistorial.has(contactId)) {
-      if (!tieneActivo.has(contactId)) ponerActivo.push(contactId);
       if (tieneNuevo.has(contactId)) sacarNuevo.push(contactId);
-    } else {
-      if (!tieneNuevo.has(contactId)) ponerNuevo.push(contactId);
-      if (tieneActivo.has(contactId)) sacarActivo.push(contactId);
+    } else if (!tieneNuevo.has(contactId)) {
+      ponerNuevo.push(contactId);
     }
   }
 
-  const cambiados =
-    ponerNuevo.length + ponerActivo.length + sacarNuevo.length + sacarActivo.length;
+  const cambiados = ponerNuevo.length + sacarNuevo.length;
   if (cambiados === 0) {
     // El caso normal: no se escribe NADA.
     return { revisados: contactIds.length, cambiados: 0 };
   }
 
-  await Promise.all([
-    sacarNuevo.length
-      ? prisma.contactTag.deleteMany({
-          where: { tagId: tagNuevo.id, contactId: { in: sacarNuevo } },
-        })
-      : Promise.resolve(null),
-    sacarActivo.length
-      ? prisma.contactTag.deleteMany({
-          where: { tagId: tagActivo.id, contactId: { in: sacarActivo } },
-        })
-      : Promise.resolve(null),
-  ]);
+  if (sacarNuevo.length) {
+    await prisma.contactTag.deleteMany({
+      where: { tagId: tagNuevo.id, contactId: { in: sacarNuevo } },
+    });
+  }
 
-  const aInsertar = [
-    ...ponerNuevo.map((contactId) => ({
-      contactId,
-      tagId: tagNuevo.id,
-      workspaceId: input.workspaceId,
-    })),
-    ...ponerActivo.map((contactId) => ({
-      contactId,
-      tagId: tagActivo.id,
-      workspaceId: input.workspaceId,
-    })),
-  ];
+  const aInsertar = ponerNuevo.map((contactId) => ({
+    contactId,
+    tagId: tagNuevo.id,
+    workspaceId: input.workspaceId,
+  }));
   if (aInsertar.length) {
     // skipDuplicates y no upsert: dos cargas a la vez insertando lo mismo es NORMAL aca, y con el
     // upsert una de las dos reventaba con "Unique constraint failed" y ensuciaba el log.
