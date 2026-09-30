@@ -1,5 +1,7 @@
 import { PDFDocument, PDFFont, PDFImage, PDFName, PDFString, StandardFonts, rgb } from "pdf-lib";
 
+import type { MensajeExportado } from "@/lib/exportar-conversacion";
+
 /**
  * La conversación entera, en un PDF que se puede guardar o mandar por correo.
  *
@@ -20,23 +22,8 @@ import { PDFDocument, PDFFont, PDFImage, PDFName, PDFString, StandardFonts, rgb 
  * ────────────────────────────────────────────────────────────────────────────────────────────
  */
 
-/** Un mensaje, ya aplanado por quien llama: de acá para abajo no se sabe de qué tabla salió. */
-export type MensajeParaPdf = {
-  id: string;
-  /** true = lo escribió el cliente. */
-  delCliente: boolean;
-  tipo: string;
-  texto: string | null;
-  /** URL absoluta y pública del medio, o null si no hay/no se pudo resolver. */
-  medioUrl: string | null;
-  /** Bytes del medio, solo cuando se pudieron descargar y son imagen. */
-  medioBytes: Uint8Array | null;
-  /** Segundos de la nota de voz, si el mensaje los traía. */
-  audioSegundos: number | null;
-  /** Nombre del archivo, para los documentos. */
-  archivoNombre: string | null;
-  cuando: Date;
-};
+/** El mensaje es el mismo que usa la descarga con audios: los dos archivos muestran lo mismo. */
+export type MensajeParaPdf = MensajeExportado;
 
 export type DatosDelPdf = {
   titulo: string;
@@ -66,8 +53,11 @@ const TINTA = rgb(0.106, 0.122, 0.157);
 const TENUE = rgb(0.42, 0.447, 0.502);
 const ENLACE = rgb(0.086, 0.373, 0.749);
 
-const FECHA_CORTA = new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit" });
+// Con la zona fija: el contenedor hoy corre en hora de Colombia, pero si algun dia arranca en UTC
+// cada mensaje de la noche saldria con 5 horas de mas y en el dia siguiente.
+const FECHA_CORTA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit" });
 const FECHA_DIA = new Intl.DateTimeFormat("es-CO", {
+  timeZone: "America/Bogota",
   weekday: "long",
   day: "numeric",
   month: "long",
@@ -312,7 +302,10 @@ export async function construirPdfDeConversacion(datos: DatosDelPdf): Promise<Ui
     const anchoTexto = BURBUJA_MAX - RELLENO * 2;
 
     let imagen: PDFImage | null = null;
-    if (mensaje.medioBytes && mensaje.medioBytes.length > 0) {
+    // Solo fotos: ahora el mensaje puede traer tambien los bytes de un audio (los usa la descarga
+    // con audios), y esos no se dibujan.
+    const esFoto = mensaje.tipo === "IMAGE" || mensaje.tipo === "STICKER";
+    if (esFoto && mensaje.medioBytes && mensaje.medioBytes.length > 0) {
       const clave = mensaje.medioUrl || mensaje.id;
       if (imagenes.has(clave)) {
         imagen = imagenes.get(clave) ?? null;

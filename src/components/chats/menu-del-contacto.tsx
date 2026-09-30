@@ -2,7 +2,7 @@
 
 import { useCallback, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardCopy, FileDown, History, Loader2, MoreVertical } from "lucide-react";
+import { ClipboardCopy, FileAudio, FileDown, History, Loader2, MoreVertical } from "lucide-react";
 import { toast } from "sonner";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -104,43 +104,49 @@ export function MenuDelContacto({ chatKey, label, phone, conversationId, puedeTr
   }, [chatKey, label, phone]);
 
   /*
-    El PDF se baja como archivo, no se abre en una pestaña.
+    Las dos descargas: el PDF y la versión con audios (una página web con las notas de voz
+    reproducibles ahí mismo, que un PDF no puede hacer en Chrome ni en el celular).
 
-    Va por fetch y no por un enlace directo para poder mostrar que está trabajando: un chat con
-    fotos tarda unos segundos, y sin aviso uno vuelve a tocar pensando que no pasó nada.
+    Se bajan como archivo, no se abren en una pestaña. Van por fetch y no por un enlace directo
+    para poder mostrar que está trabajando: un chat con fotos y audios tarda unos segundos, y sin
+    aviso uno vuelve a tocar pensando que no pasó nada.
   */
-  const descargarPdf = useCallback(async () => {
-    setAbierto(false);
-    setBajando(true);
-    try {
-      const respuesta = await fetch(`/api/cliente/chats/pdf?chatKey=${encodeURIComponent(chatKey)}`, {
-        credentials: "same-origin",
-        cache: "no-store",
-      });
+  const descargar = useCallback(
+    async (formato: "pdf" | "html") => {
+      const queEs = formato === "pdf" ? "el PDF" : "el archivo con audios";
+      setAbierto(false);
+      setBajando(true);
+      try {
+        const respuesta = await fetch(`/api/cliente/chats/${formato}?chatKey=${encodeURIComponent(chatKey)}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
 
-      if (!respuesta.ok) {
-        const detalle = await respuesta.json().catch(() => null);
-        toast.error(detalle?.error || "No se pudo armar el PDF.");
-        return;
+        if (!respuesta.ok) {
+          const detalle = await respuesta.json().catch(() => null);
+          toast.error(detalle?.error || `No se pudo armar ${queEs}.`);
+          return;
+        }
+
+        const archivo = await respuesta.blob();
+        const url = URL.createObjectURL(archivo);
+        const enlace = document.createElement("a");
+        enlace.href = url;
+        enlace.download = `Conversacion ${label}.${formato}`.replace(/[\\/:*?"<>|]/g, " ");
+        document.body.appendChild(enlace);
+        enlace.click();
+        enlace.remove();
+        // Sin esto el blob se queda en memoria hasta que se recargue la pestaña.
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        toast.success(formato === "pdf" ? "Conversación descargada" : "Conversación descargada con sus audios");
+      } catch {
+        toast.error(`No se pudo armar ${queEs}.`);
+      } finally {
+        setBajando(false);
       }
-
-      const archivo = await respuesta.blob();
-      const url = URL.createObjectURL(archivo);
-      const enlace = document.createElement("a");
-      enlace.href = url;
-      enlace.download = `Conversacion ${label}.pdf`.replace(/[\\/:*?"<>|]/g, " ");
-      document.body.appendChild(enlace);
-      enlace.click();
-      enlace.remove();
-      // Sin esto el blob se queda en memoria hasta que se recargue la pestaña.
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-      toast.success("Conversación descargada");
-    } catch {
-      toast.error("No se pudo armar el PDF.");
-    } finally {
-      setBajando(false);
-    }
-  }, [chatKey, label]);
+    },
+    [chatKey, label],
+  );
 
   /*
     Trae de WhatsApp los mensajes recientes de este contacto.
@@ -205,7 +211,12 @@ export function MenuDelContacto({ chatKey, label, phone, conversationId, puedeTr
         <Opcion
           icono={<FileDown className="size-4" />}
           texto="Descargar en PDF"
-          onClick={() => void descargarPdf()}
+          onClick={() => void descargar("pdf")}
+        />
+        <Opcion
+          icono={<FileAudio className="size-4" />}
+          texto="Descargar con audios"
+          onClick={() => void descargar("html")}
         />
         <Opcion
           icono={<ClipboardCopy className="size-4" />}
