@@ -227,19 +227,11 @@ export function SharedInbox({
   /*
     Se sube para volver a pedir la lista al servidor, con todos los filtros puestos.
 
-    Lo usa el tiempo real: con un filtro puesto no puede meter a ciegas un chat que no estaba en la
-    lista (ver handleListUpdate), asi que en vez de eso pide la lista y el servidor decide.
+    Lo usa el tiempo real (ver handleListUpdate): su aviso no trae de quien es el chat, ni su etapa,
+    ni si esta resuelto, asi que la fila completa -y la decision de si entra- la da el servidor.
   */
   const [pedidoDeLista, setPedidoDeLista] = useState(0);
   const esperaDelPedidoDeListaRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /*
-    Hay un filtro que el aviso en tiempo real no sabe evaluar: el aviso no trae de quien es el
-    chat, ni su etapa, ni si esta resuelto. "Todas" + "abiertas" sin etapa es la vista sin filtro.
-  */
-  const hayFiltroQueElTiempoRealNoEvalua =
-    assignedFilter !== "all" || statusFilter === "resolved" || Boolean(etapasEnLaUrl) || sinResponderEnLaUrl;
-  const hayFiltroQueElTiempoRealNoEvaluaRef = useRef(hayFiltroQueElTiempoRealNoEvalua);
-  hayFiltroQueElTiempoRealNoEvaluaRef.current = hayFiltroQueElTiempoRealNoEvalua;
   /*
     Los chats que se resolvieron mientras la bandeja estaba abierta, con la hora de su ultimo
     mensaje en ese momento.
@@ -1107,26 +1099,30 @@ export function SharedInbox({
       }
 
       /*
-        Con un filtro puesto, un chat que NO estaba en la lista no se mete a ciegas.
+        EL AVISO EN TIEMPO REAL NO SABE DE QUIEN ES EL CHAT.
 
-        El aviso no dice de quien es el chat, asi que lo metia igual: Sthefany filtraba los chats de
-        Camila y, al entrar un mensaje de un chat de Ingrid, ese chat aparecia arriba y parecia que
-        el filtro se habia quitado solo (Alex, 30-09-2026). Ahora se vuelve a pedir la lista al
-        servidor, que aplica todos los filtros: si el chat corresponde, entra por ahi. Los que ya
-        estaban en la lista se siguen actualizando en el acto, como siempre.
+        Trae el ultimo mensaje y poco mas: ni la asesora, ni la etapa, ni si esta resuelto. Con eso
+        pasaban dos cosas (Alex, 30-09-2026, mirando la pantalla de Sthefany):
+         - Un chat que no estaba en la lista entraba igual, aunque no cumpliera el filtro: con los
+           chats de Camila filtrados, llegaba un mensaje de un chat de Ingrid y aparecia arriba, y
+           parecia que el filtro se habia quitado solo.
+         - Entraba con la asesora vacia ("---") aunque tuviera dueña, y un chat que ya estaba en la
+           lista se quedaba con la asesora vieja cuando lo asignaban.
+
+        Por eso, cada aviso pide la lista de nuevo al servidor -una sola vez aunque lleguen varios
+        mensajes seguidos-, que devuelve la fila completa y aplica todos los filtros. Un chat que no
+        estaba entra por ahi, no a ciegas; el que ya estaba se sigue moviendo arriba en el acto y la
+        recarga le corrige lo que haya cambiado.
       */
-      if (
-        hayFiltroQueElTiempoRealNoEvaluaRef.current &&
-        !findConversationItemBySnapshotId(conversationItemsRef.current, snapshot.id)
-      ) {
-        // Varios mensajes seguidos piden UNA sola lista.
-        if (esperaDelPedidoDeListaRef.current) {
-          clearTimeout(esperaDelPedidoDeListaRef.current);
-        }
-        esperaDelPedidoDeListaRef.current = setTimeout(() => {
-          esperaDelPedidoDeListaRef.current = null;
-          setPedidoDeLista((actual) => actual + 1);
-        }, 800);
+      if (esperaDelPedidoDeListaRef.current) {
+        clearTimeout(esperaDelPedidoDeListaRef.current);
+      }
+      esperaDelPedidoDeListaRef.current = setTimeout(() => {
+        esperaDelPedidoDeListaRef.current = null;
+        setPedidoDeLista((actual) => actual + 1);
+      }, 800);
+
+      if (!findConversationItemBySnapshotId(conversationItemsRef.current, snapshot.id)) {
         return;
       }
 
