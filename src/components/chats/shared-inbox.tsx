@@ -225,6 +225,22 @@ export function SharedInbox({
   // el acto, en vez de esperar la vuelta de 15 s.
   const [pedidoDeConteos, setPedidoDeConteos] = useState(0);
   /*
+    Se sube para volver a pedir la lista al servidor, con todos los filtros puestos.
+
+    Lo usa el tiempo real: con un filtro puesto no puede meter a ciegas un chat que no estaba en la
+    lista (ver handleListUpdate), asi que en vez de eso pide la lista y el servidor decide.
+  */
+  const [pedidoDeLista, setPedidoDeLista] = useState(0);
+  const esperaDelPedidoDeListaRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /*
+    Hay un filtro que el aviso en tiempo real no sabe evaluar: el aviso no trae de quien es el
+    chat, ni su etapa, ni si esta resuelto. "Todas" + "abiertas" sin etapa es la vista sin filtro.
+  */
+  const hayFiltroQueElTiempoRealNoEvalua =
+    assignedFilter !== "all" || statusFilter === "resolved" || Boolean(etapasEnLaUrl) || sinResponderEnLaUrl;
+  const hayFiltroQueElTiempoRealNoEvaluaRef = useRef(hayFiltroQueElTiempoRealNoEvalua);
+  hayFiltroQueElTiempoRealNoEvaluaRef.current = hayFiltroQueElTiempoRealNoEvalua;
+  /*
     Los chats que se resolvieron mientras la bandeja estaba abierta, con la hora de su ultimo
     mensaje en ese momento.
 
@@ -459,7 +475,7 @@ export function SharedInbox({
     return () => {
       cancelled = true;
     };
-  }, [conversationListApiPath, searchAction, searchQuery, selectedConnectionKey, assignedFilter, statusFilter, ponerFiltrosNuevos]);
+  }, [conversationListApiPath, searchAction, searchQuery, selectedConnectionKey, assignedFilter, statusFilter, ponerFiltrosNuevos, pedidoDeLista]);
 
   // Búsqueda aumentativa: trae del servidor los chats que coinciden por contenido de
   // mensaje o que están más allá de lo ya cargado, y los AGREGA (nunca quita) a la lista.
@@ -1087,6 +1103,30 @@ export function SharedInbox({
       // chats de otro canal. Si estamos filtrando por una conexion, no deben entrar en la
       // lista (si no, viendo un canal aparecen chats del otro).
       if (selectedChannelIdFilter && snapshot.channelId && snapshot.channelId !== selectedChannelIdFilter) {
+        return;
+      }
+
+      /*
+        Con un filtro puesto, un chat que NO estaba en la lista no se mete a ciegas.
+
+        El aviso no dice de quien es el chat, asi que lo metia igual: Sthefany filtraba los chats de
+        Camila y, al entrar un mensaje de un chat de Ingrid, ese chat aparecia arriba y parecia que
+        el filtro se habia quitado solo (Alex, 30-09-2026). Ahora se vuelve a pedir la lista al
+        servidor, que aplica todos los filtros: si el chat corresponde, entra por ahi. Los que ya
+        estaban en la lista se siguen actualizando en el acto, como siempre.
+      */
+      if (
+        hayFiltroQueElTiempoRealNoEvaluaRef.current &&
+        !findConversationItemBySnapshotId(conversationItemsRef.current, snapshot.id)
+      ) {
+        // Varios mensajes seguidos piden UNA sola lista.
+        if (esperaDelPedidoDeListaRef.current) {
+          clearTimeout(esperaDelPedidoDeListaRef.current);
+        }
+        esperaDelPedidoDeListaRef.current = setTimeout(() => {
+          esperaDelPedidoDeListaRef.current = null;
+          setPedidoDeLista((actual) => actual + 1);
+        }, 800);
         return;
       }
 
