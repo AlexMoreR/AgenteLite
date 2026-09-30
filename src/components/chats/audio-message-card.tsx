@@ -442,7 +442,52 @@ export function AudioMessageCard({
         }}
       />
 
+      <TranscripcionDelAudio texto={message.transcripcion} outbound={outbound} />
+
       {children}
+    </div>
+  );
+}
+
+/** Pasado este largo el texto se recorta: las asesoras recorren decenas de audios por chat. */
+const LARGO_PARA_RECORTAR = 220;
+
+/**
+ * Lo que se dice en la nota de voz, debajo del reproductor (ver transcripcion-de-audios).
+ *
+ * Sin texto no se dibuja nada: ni "Transcribiendo…", porque un audio de hace dos meses nunca va a
+ * tenerlo y el cartel quedaría ahí para siempre, ni "Sin voz", que ocuparía lugar en cada audio
+ * mudo sin decir nada útil.
+ */
+function TranscripcionDelAudio({ texto, outbound }: { texto?: string | null; outbound: boolean }) {
+  const [completa, setCompleta] = useState(false);
+  const limpio = texto?.trim();
+  if (!limpio) {
+    return null;
+  }
+
+  const larga = limpio.length > LARGO_PARA_RECORTAR;
+
+  return (
+    <div
+      className={`mt-1.5 border-t pt-1.5 text-[13px] leading-snug ${
+        outbound ? "border-[var(--chat-out-overlay)]" : "border-border"
+      }`}
+    >
+      <p className={`whitespace-pre-wrap break-words italic ${larga && !completa ? "line-clamp-4" : ""}`}>
+        {limpio}
+      </p>
+      {larga ? (
+        <button
+          type="button"
+          onClick={() => setCompleta((actual) => !actual)}
+          className={`mt-0.5 text-[12px] font-medium hover:underline ${
+            outbound ? "text-[var(--chat-out-text-faint)]" : "text-primary"
+          }`}
+        >
+          {completa ? "Ver menos" : "Ver todo"}
+        </button>
+      ) : null}
     </div>
   );
 }

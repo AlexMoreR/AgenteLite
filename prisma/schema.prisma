@@ -503,6 +503,11 @@ model Message {
   // Reaccion del CLIENTE sobre este mensaje (👍 ❤️ …), como la muestra WhatsApp: pegada a la
   // burbuja, no como un mensaje aparte. Null = sin reaccion (o la quito).
   reactionEmoji     String?
+  /// Lo que se dice en una nota de voz, pasado a texto. Null = todavia no se transcribio.
+  transcripcion     String?
+  /// Cuando se intento transcribir. Con `transcripcion` en null significa que no se pudo (audio
+  /// que ya no esta, o sin voz) y no se vuelve a intentar.
+  transcritoEn      DateTime?
   rawPayload        Json?
   isStatusBroadcast Boolean          @default(false)
   sentAt            DateTime?

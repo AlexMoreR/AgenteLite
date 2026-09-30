@@ -242,6 +242,8 @@ export async function construirPdfDeConversacion(datos: DatosDelPdf): Promise<Ui
   const doc = await PDFDocument.create();
   const normal = await doc.embedFont(StandardFonts.Helvetica);
   const negrita = await doc.embedFont(StandardFonts.HelveticaBold);
+  // En cursiva va lo que se dijo en un audio: se distingue de lo que se escribio.
+  const cursiva = await doc.embedFont(StandardFonts.HelveticaOblique);
 
   doc.setTitle(aTextoDePdf(`Conversacion con ${datos.titulo}`) || "Conversacion");
   doc.setCreator("Aizenbot");
@@ -346,12 +348,28 @@ export async function construirPdfDeConversacion(datos: DatosDelPdf): Promise<Ui
     const conEnlace = Boolean(mensaje.medioUrl && etiqueta);
     const altoEnlace = conEnlace ? 16 : 0;
 
+    /*
+      Lo que se dice en la nota de voz. En el PDF pesa más que en ningún otro lado: el audio no
+      suena adentro del archivo, así que el texto es lo único que se puede leer de él.
+
+      Con tope de líneas: un audio de diez minutos haría una burbuja más alta que la hoja, que no
+      se puede partir. El texto completo está en la descarga con audios.
+    */
+    const MAX_LINEAS_TRANSCRIPCION = 45;
+    const transcripcion = mensaje.tipo === "AUDIO" && mensaje.transcripcion ? aTextoDePdf(mensaje.transcripcion) : "";
+    let lineasTranscripcion = transcripcion ? partirEnLineas(`"${transcripcion}"`, cursiva, CUERPO, anchoTexto) : [];
+    if (lineasTranscripcion.length > MAX_LINEAS_TRANSCRIPCION) {
+      lineasTranscripcion = [...lineasTranscripcion.slice(0, MAX_LINEAS_TRANSCRIPCION), "[...]"];
+    }
+    const altoTranscripcion = lineasTranscripcion.length ? lineasTranscripcion.length * INTERLINEA + 3 : 0;
+
     const altoBurbuja =
       RELLENO +
       10 + // la línea de quién y a qué hora
       (altoImagen ? altoImagen + 6 : 0) +
       lineas.length * INTERLINEA +
       altoEnlace +
+      altoTranscripcion +
       RELLENO;
 
     hoja.saltar(altoBurbuja + 6);
@@ -359,6 +377,7 @@ export async function construirPdfDeConversacion(datos: DatosDelPdf): Promise<Ui
     const anchoContenido = Math.max(
       anchoImagen,
       ...lineas.map((linea) => normal.widthOfTextAtSize(linea, CUERPO)),
+      ...lineasTranscripcion.map((linea) => cursiva.widthOfTextAtSize(linea, CUERPO)),
       conEnlace ? normal.widthOfTextAtSize(aTextoDePdf(etiqueta!), 8.5) + 14 : 0,
       110,
     );
@@ -418,6 +437,14 @@ export async function construirPdfDeConversacion(datos: DatosDelPdf): Promise<Ui
       hoja.actual.drawText(texto, { x: x + RELLENO + 7, y: cursor - 9.5, size: 8.5, font: normal, color: ENLACE });
       hoja.enlace(mensaje.medioUrl, x + RELLENO, cursor - 13, anchoEnlace, 13);
       cursor -= altoEnlace;
+    }
+
+    if (lineasTranscripcion.length > 0) {
+      cursor -= 3;
+      for (const linea of lineasTranscripcion) {
+        hoja.actual.drawText(linea, { x: x + RELLENO, y: cursor - CUERPO, size: CUERPO, font: cursiva, color: TINTA });
+        cursor -= INTERLINEA;
+      }
     }
 
     hoja.y = arriba - altoBurbuja - 6;

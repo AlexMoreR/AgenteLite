@@ -122,7 +122,7 @@ const HERRAMIENTAS_DE_LECTURA = [
     name: "ver_conversacion",
     title: "Ver una conversacion",
     description:
-      "Los mensajes de una conversacion en orden, marcando QUIEN dijo cada uno: cliente, agente_o_flujo (la IA o un flujo automatico), asesora_desde_crm, enviado_desde_el_celular o sistema. Incluye las decisiones que registro el agente (producto o flujo detectado) y el producto activo.",
+      "Los mensajes de una conversacion en orden, marcando QUIEN dijo cada uno: cliente, agente_o_flujo (la IA o un flujo automatico), asesora_desde_crm, enviado_desde_el_celular o sistema. Incluye las decisiones que registro el agente (producto o flujo detectado) y el producto activo. Las notas de voz traen en 'audio_dice' lo que se dijo en ellas, pasado a texto.",
     inputSchema: {
       type: "object",
       properties: {
@@ -138,7 +138,7 @@ const HERRAMIENTAS_DE_LECTURA = [
     name: "buscar_mensajes",
     title: "Buscar mensajes",
     description:
-      "Busca un texto dentro de los mensajes (por ejemplo un precio, una medida o una frase) y devuelve donde aparece y quien lo dijo. Util para ver cuantas veces el agente repitio un dato equivocado.",
+      "Busca un texto dentro de los mensajes y de lo que se dijo en las notas de voz (por ejemplo un precio, una medida o una frase) y devuelve donde aparece y quien lo dijo. Util para ver cuantas veces el agente repitio un dato equivocado.",
     inputSchema: {
       type: "object",
       properties: {
@@ -744,7 +744,7 @@ async function verConversacion(args: Argumentos, contexto: Contexto) {
       where: { conversationId: conversacion.id, deletedAt: null },
       orderBy: { createdAt: "desc" },
       take: limite,
-      select: { createdAt: true, direction: true, type: true, content: true, mediaUrl: true, editedAt: true, rawPayload: true },
+      select: { createdAt: true, direction: true, type: true, content: true, mediaUrl: true, editedAt: true, rawPayload: true, transcripcion: true },
     }),
     prisma.contactMatch.findMany({
       where: { workspaceId: contexto.workspaceId, conversationId: conversacion.id },
@@ -779,6 +779,8 @@ async function verConversacion(args: Argumentos, contexto: Contexto) {
       quien: quienDijo(mensaje),
       tipo: mensaje.type,
       texto: mensaje.content,
+      // Lo que se dice en la nota de voz: sin esto un audio es solo un archivo y no se sabe que paso.
+      ...(mensaje.transcripcion?.trim() ? { audio_dice: mensaje.transcripcion.trim() } : {}),
       ...(mensaje.mediaUrl ? { archivo: mensaje.mediaUrl } : {}),
       ...(mensaje.editedAt ? { editado: true } : {}),
     })),
@@ -802,7 +804,11 @@ async function buscarMensajes(args: Argumentos, contexto: Contexto) {
       createdAt: { gte: desde },
       deletedAt: null,
       type: { not: "SYSTEM" },
-      content: { contains: buscado, mode: "insensitive" },
+      // Tambien dentro de lo que se dijo en los audios: un precio dicho de viva voz es igual de real.
+      OR: [
+        { content: { contains: buscado, mode: "insensitive" } },
+        { transcripcion: { contains: buscado, mode: "insensitive" } },
+      ],
       ...(quien === "cliente" ? { direction: "INBOUND" as const } : {}),
       ...(quien === "agente" ? { direction: "OUTBOUND" as const } : {}),
     },
@@ -814,6 +820,7 @@ async function buscarMensajes(args: Argumentos, contexto: Contexto) {
       direction: true,
       type: true,
       content: true,
+      transcripcion: true,
       rawPayload: true,
       contact: { select: { name: true, phoneNumber: true } },
     },
@@ -834,6 +841,7 @@ async function buscarMensajes(args: Argumentos, contexto: Contexto) {
       cuando: hora(fila.createdAt),
       quien: dijo,
       texto: fila.content,
+      ...(fila.transcripcion?.trim() ? { audio_dice: fila.transcripcion.trim() } : {}),
     })),
   };
 }

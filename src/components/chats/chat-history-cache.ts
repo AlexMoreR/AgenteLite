@@ -378,6 +378,9 @@ function areMergedMessagesEqual(
     // La reaccion cambia un mensaje que YA existe: sin compararla, el merge daba los dos mensajes
     // por iguales, se quedaba con el viejo y el emoji no aparecia hasta recargar.
     (left.reactionEmoji ?? null) === (right.reactionEmoji ?? null) &&
+    // Igual la transcripcion: llega un minuto despues que el audio. Sin compararla, el merge se
+    // quedaba con el mensaje viejo y el texto no aparecia nunca.
+    (left.transcripcion ?? null) === (right.transcripcion ?? null) &&
     // Lo mismo con el audio escuchado por el cliente: vive en el payload y cambia un mensaje viejo.
     leerReproducidoAt(left) === leerReproducidoAt(right) &&
     getMessageCreatedAtTime(left) === getMessageCreatedAtTime(right) &&
@@ -395,6 +398,7 @@ function areCachedMessagesEqual(left: CachedMessageItem, right: CachedMessageIte
     left.outboundStatusLabel === right.outboundStatusLabel &&
     left.type === right.type &&
     left.mediaUrl === right.mediaUrl &&
+    (left.transcripcion ?? null) === (right.transcripcion ?? null) &&
     left.createdAt === right.createdAt &&
     left.editedAt === right.editedAt &&
     left.deletedAt === right.deletedAt

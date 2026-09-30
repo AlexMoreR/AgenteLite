@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { executePendingFollows } from "@/features/seguimientos/services/follows";
 import { demoteUnresponsiveStaleLeads } from "@/features/llamadas/services/lead-cooldown";
 import { enfriarLeadsSinRespuesta } from "@/features/crm/services/lead-temperature";
@@ -9,6 +9,7 @@ import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimien
 import { avisarClientesEsperando } from "@/features/agente-v3/servicios/cliente-esperando";
 import { rescatarMensajesSinDecidir } from "@/features/agente-v3/servicios/rescate-de-mensajes";
 import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
+import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -148,6 +149,21 @@ async function handleCron(request: Request) {
       console.error("[cron/follows] descarte automatico error", error);
     }
   }
+
+  /*
+    Las notas de voz, pasadas a texto (ver transcripcion-de-audios).
+
+    Va DESPUES de responder, con `after`: cada audio es una llamada a OpenAI de varios segundos, y
+    esperarla aca demoraria todo lo demas de esta vuelta -los envios, las campañas-. Si una vuelta
+    se pisa con la siguiente no pasa nada: cada audio se toma una sola vez.
+  */
+  after(async () => {
+    try {
+      await transcribirAudiosPendientes();
+    } catch (error) {
+      console.error("[cron/follows] transcripcion de audios error", error);
+    }
+  });
 
   // Campañas: la siguiente tanda de cada una que ya cumplio su espera. SIN el throttle de 5 min
   // de los de arriba: cada campaña tiene su propia frecuencia y se fija sola si le toca, asi que

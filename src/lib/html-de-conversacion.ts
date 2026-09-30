@@ -215,6 +215,14 @@ header p { margin: 0; color: var(--tenue); font-size: 12.5px; }
 .audio { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 4px; }
 .audio audio { width: 280px; max-width: 100%; height: 40px; }
 .etiqueta { color: var(--tenue); font-size: 12px; }
+.transcripcion {
+  margin: 2px 0 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--borde);
+  font-style: italic;
+  white-space: pre-wrap;
+  font-size: 13.5px;
+}
 .enlace {
   display: inline-block;
   margin: 2px 0 4px;
@@ -260,6 +268,9 @@ export function construirHtmlDeConversacion(datos: DatosDelHtml): string {
       `<div class="fila ${mensaje.delCliente ? "cliente" : "nuestro"}"><div class="burbuja">` +
         `<span class="quien">${escapar(quien)}</span>` +
         medio(mensaje) +
+        (mensaje.tipo === "AUDIO" && mensaje.transcripcion
+          ? `<div class="transcripcion">${escapar(mensaje.transcripcion)}</div>`
+          : "") +
         (texto && !repetido ? `<div class="texto">${escapar(texto)}</div>` : "") +
         `</div></div>`,
     );

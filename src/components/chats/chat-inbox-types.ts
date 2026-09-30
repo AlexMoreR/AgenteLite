@@ -59,6 +59,8 @@ export type SharedInboxMessageItem = {
   // Reaccion del cliente sobre este mensaje (👍 ❤️ …). Se dibuja pegada a la burbuja, abajo a la
   // derecha, como en WhatsApp; NO es un mensaje aparte.
   reactionEmoji?: string | null;
+  /** La nota de voz pasada a texto (ver transcripcion-de-audios). "" = no habia voz. */
+  transcripcion?: string | null;
   rawPayload?: unknown;
 };
 

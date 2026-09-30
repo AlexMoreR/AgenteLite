@@ -29,6 +29,8 @@ export type MensajeExportado = {
   medioTipo: string | null;
   /** Segundos de la nota de voz, si el mensaje los traía. */
   audioSegundos: number | null;
+  /** Lo que se dice en la nota de voz, pasado a texto (ver transcripcion-de-audios). */
+  transcripcion: string | null;
   /** Nombre del archivo, para los documentos. */
   archivoNombre: string | null;
   cuando: Date;
@@ -263,6 +265,7 @@ export async function cargarConversacionParaExportar(
     texto: string | null;
     mediaUrl: string | null;
     rawPayload: unknown;
+    transcripcion: string | null;
     cuando: Date;
   }> = [];
 
@@ -291,7 +294,7 @@ export async function cargarConversacionParaExportar(
       },
       orderBy: { createdAt: "asc" },
       take: MAX_MENSAJES,
-      select: { id: true, direction: true, type: true, content: true, mediaUrl: true, rawPayload: true, createdAt: true },
+      select: { id: true, direction: true, type: true, content: true, mediaUrl: true, rawPayload: true, transcripcion: true, createdAt: true },
     });
 
     crudos = mensajes.map((mensaje) => ({
@@ -301,6 +304,7 @@ export async function cargarConversacionParaExportar(
       texto: mensaje.content,
       mediaUrl: mensaje.mediaUrl,
       rawPayload: mensaje.rawPayload,
+      transcripcion: mensaje.transcripcion,
       cuando: mensaje.createdAt,
     }));
   } else {
@@ -329,6 +333,8 @@ export async function cargarConversacionParaExportar(
       texto: mensaje.content,
       mediaUrl: mensaje.mediaUrl,
       rawPayload: mensaje.rawPayload,
+      // El canal oficial no tiene audios transcritos: en 30 dias no entro ninguno por ahi.
+      transcripcion: null,
       cuando: mensaje.createdAt,
     }));
   }
@@ -351,6 +357,7 @@ export async function cargarConversacionParaExportar(
       medioBytes: incrustado?.bytes ?? null,
       medioTipo: incrustado?.tipo ?? null,
       audioSegundos: crudo.tipo === "AUDIO" ? segundosDeAudio(crudo.rawPayload) : null,
+      transcripcion: crudo.tipo === "AUDIO" ? crudo.transcripcion?.trim() || null : null,
       archivoNombre: crudo.tipo === "DOCUMENT" ? nombreDeArchivo(crudo.rawPayload) : null,
       cuando: crudo.cuando,
     };

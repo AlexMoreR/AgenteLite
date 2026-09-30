@@ -13,6 +13,8 @@ export type AgentConversationMessageRecord = {
   mediaUrl: string | null;
   // Reaccion del cliente sobre ESTE mensaje (se dibuja pegada a la burbuja, como en WhatsApp).
   reactionEmoji: string | null;
+  /** La nota de voz pasada a texto. "" = se intento y no habia voz; null = todavia no. */
+  transcripcion: string | null;
   /** Estado del envio: dibuja el check simple, el doble y el doble azul. */
   status: "RECEIVED" | "QUEUED" | "SENT" | "DELIVERED" | "READ" | "FAILED";
   rawPayload: unknown;
@@ -187,6 +189,7 @@ export async function loadAgentConversationDetail(input: {
       type: true,
       mediaUrl: true,
       reactionEmoji: true,
+      transcripcion: true,
       // El estado del envio: es lo que dibuja el check simple, el doble y el doble azul.
       // Sin traerlo, la burbuja no podia mostrar acuse alguno por mas que la base lo supiera.
       status: true,
@@ -300,6 +303,7 @@ async function conLlamadas(input: {
       type: "SYSTEM",
       mediaUrl: null,
       reactionEmoji: null,
+      transcripcion: null,
       rawPayload: null,
     };
   });
