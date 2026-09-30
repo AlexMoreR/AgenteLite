@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Bookmark, Check, Loader2, UserRound, X } from "lucide-react";
+import { Bookmark, Check, Loader2, X } from "lucide-react";
 
 import { pedirMiembros } from "@/components/chats/assign-chat-control";
+import { MultiSelect } from "@/components/ui/multi-select";
 import type { AssignableMember } from "@/app/actions/chats-actions";
 
 import {
@@ -14,14 +15,24 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CRM_STAGE_META, CRM_STAGE_ORDER } from "@/features/crm/domain/crm-config";
-import {
-  DIAS_DE_SIN_RESPONDER,
-  type EtapaCrm,
-  type FiltrosDeBandeja,
-} from "@/features/chats/domain/filtros-de-bandeja";
+import { type EtapaCrm, type FiltrosDeBandeja } from "@/features/chats/domain/filtros-de-bandeja";
 import type { AssignedFilter, StatusFilter } from "./shared-inbox";
 
 type FiltroGuardado = { id: string; nombre: string; query: string };
+
+/*
+  VARIAS asesoras en un solo filtro: `user:id1,id2`.
+
+  Empezo siendo de a una (`user:<id>`) y Alex pidio poder mirar varias juntas (30-09-2026). Se
+  mantiene el mismo prefijo para que los filtros guardados de a una sigan sirviendo tal cual.
+*/
+function asesorasDelFiltro(asignacion: AssignedFilter): string[] {
+  return asignacion.startsWith("user:") ? asignacion.slice("user:".length).split(",").filter(Boolean) : [];
+}
+
+function filtroDeAsesoras(ids: string[]): AssignedFilter {
+  return ids.length > 0 ? (`user:${ids.join(",")}` as AssignedFilter) : "all";
+}
 
 type Props = {
   abierto: boolean;
@@ -83,7 +94,6 @@ export function FiltrosDeBandejaModal({
   const [asignacion, setAsignacion] = React.useState<AssignedFilter>(assignedFilter);
   const [estado, setEstado] = React.useState<StatusFilter>(statusFilter);
   const [etapas, setEtapas] = React.useState<EtapaCrm[]>(filtros.etapas);
-  const [sinResponder, setSinResponder] = React.useState(filtros.sinResponder);
 
   /*
     El equipo, para que un jefe pueda mirar la bandeja de UNA asesora.
@@ -111,7 +121,6 @@ export function FiltrosDeBandejaModal({
     setAsignacion(assignedFilter);
     setEstado(statusFilter);
     setEtapas(etapasPuestas ? (etapasPuestas.split(",") as EtapaCrm[]) : []);
-    setSinResponder(filtros.sinResponder);
     setNombrando(false);
     setNombre("");
     setErrorAlGuardar("");
@@ -139,7 +148,7 @@ export function FiltrosDeBandejaModal({
     return () => {
       vigente = false;
     };
-  }, [abierto, assignedFilter, statusFilter, etapasPuestas, filtros.sinResponder, isManager]);
+  }, [abierto, assignedFilter, statusFilter, etapasPuestas, isManager]);
 
   /*
     Lo elegido, en una linea. Sin esto hay que recorrer el modal entero para saber que quedo
@@ -150,18 +159,24 @@ export function FiltrosDeBandejaModal({
     if (asignacion === "mine") partes.push("Mías");
     else if (asignacion === "unassigned") partes.push("Sin asignar");
     else if (asignacion.startsWith("user:")) {
-      const id = asignacion.slice("user:".length);
-      const quien = equipo.find((miembro) => miembro.id === id);
-      partes.push(quien ? (quien.name?.trim() || quien.email) : "Una asesora");
+      const ids = asesorasDelFiltro(asignacion);
+      if (ids.length > 2) {
+        partes.push(`${ids.length} asesoras`);
+      } else {
+        const nombres = ids.map((id) => {
+          const quien = equipo.find((miembro) => miembro.id === id);
+          return quien ? quien.name?.trim() || quien.email : "Una asesora";
+        });
+        partes.push(nombres.join(" y "));
+      }
     } else partes.push("Todas");
 
     partes.push(estado === "open" ? "abiertas" : estado === "resolved" ? "resueltas" : "abiertas y resueltas");
     if (etapas.length > 0) {
       partes.push(etapas.length === 1 ? CRM_STAGE_META[etapas[0]].label : `${etapas.length} etapas`);
     }
-    if (sinResponder) partes.push("sin responder");
     return partes.join(" · ");
-  }, [asignacion, estado, etapas, sinResponder, equipo]);
+  }, [asignacion, estado, etapas, equipo]);
 
   const alternarEtapa = (etapa: EtapaCrm) => {
     setEtapas((actuales) =>
@@ -175,14 +190,13 @@ export function FiltrosDeBandejaModal({
     if (asignacion !== "mine") params.set("assigned", asignacion);
     if (estado !== "open") params.set("status", estado);
     if (etapas.length > 0) params.set("stage", etapas.join(","));
-    if (sinResponder) params.set("pending", "1");
     return params.toString();
   };
 
   const guardarEsteFiltro = async () => {
     const limpio = nombre.trim();
     if (!limpio) {
-      setErrorAlGuardar("Ponele un nombre");
+      setErrorAlGuardar("Ponle un nombre");
       return;
     }
     setGuardando(true);
@@ -324,28 +338,18 @@ export function FiltrosDeBandejaModal({
           */}
           {isManager && equipo.length > 0 ? (
             <Seccion titulo="Por asesora">
-              <div className="flex flex-wrap gap-1.5">
-                {equipo.map((miembro) => {
-                  const valor = `user:${miembro.id}` as AssignedFilter;
-                  const elegida = asignacion === valor;
-                  const nombreCorto = (miembro.name?.trim() || miembro.email).split(" ").slice(0, 2).join(" ");
-                  return (
-                    <button
-                      key={miembro.id}
-                      type="button"
-                      onClick={() => setAsignacion(elegida ? "all" : valor)}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] font-medium transition ${
-                        elegida
-                          ? "border-primary/40 bg-primary/10 text-primary"
-                          : "border-border text-muted-foreground hover:bg-muted"
-                      }`}
-                    >
-                      {elegida ? <Check className="h-3 w-3" /> : <UserRound className="h-3 w-3" />}
-                      {nombreCorto}
-                    </button>
-                  );
-                })}
-              </div>
+              <MultiSelect
+                opciones={equipo.map((miembro) => ({
+                  value: miembro.id,
+                  label: miembro.name?.trim() || miembro.email,
+                }))}
+                valor={asesorasDelFiltro(asignacion)}
+                // Marcar asesoras reemplaza a Mias/Sin asignar/Todas: son formas distintas de decir
+                // de quien son los chats. Sin ninguna marcada, vuelve a "Todas".
+                alCambiar={(ids) => setAsignacion(filtroDeAsesoras(ids))}
+                placeholder="Todas las asesoras"
+                plural="asesoras"
+              />
             </Seccion>
           ) : null}
 
@@ -391,32 +395,6 @@ export function FiltrosDeBandejaModal({
                 );
               })}
             </div>
-          </Seccion>
-
-          <Seccion titulo="Pendientes">
-            <button
-              type="button"
-              onClick={() => setSinResponder((valor) => !valor)}
-              className={`flex w-full items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition ${
-                sinResponder ? "border-primary bg-primary/5" : "border-border hover:bg-muted"
-              }`}
-            >
-              <span className="min-w-0">
-                <span className="block text-[14px] font-medium text-foreground">Sin responder</span>
-                <span className="block text-[12px] leading-4 text-muted-foreground">
-                  El último que escribió fue el cliente. Últimos {DIAS_DE_SIN_RESPONDER} días.
-                </span>
-              </span>
-              <span
-                className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
-                  sinResponder
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border"
-                }`}
-              >
-                {sinResponder ? <Check className="h-3 w-3" /> : null}
-              </span>
-            </button>
           </Seccion>
 
           {/*
@@ -483,7 +461,9 @@ export function FiltrosDeBandejaModal({
           </button>
           <button
             type="button"
-            onClick={() => alAplicar(asignacion, estado, { etapas, sinResponder })}
+            // "Sin responder" se quito del modal (Alex, 30-09-2026): aplicar lo apaga, para que no
+            // quede puesto algo que ya no se ve ni se puede sacar.
+            onClick={() => alAplicar(asignacion, estado, { etapas, sinResponder: false })}
             className="rounded-md bg-primary px-5 py-2 text-[13px] font-medium text-primary-foreground transition hover:opacity-90"
           >
             Aplicar

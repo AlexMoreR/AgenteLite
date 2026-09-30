@@ -163,7 +163,7 @@ async function getAgentConversationList(input: {
       : input.assignedFilter === "unassigned"
         ? { assignedToUserId: null }
         : input.assignedFilter.startsWith("user:")
-          ? { assignedToUserId: input.assignedFilter.slice("user:".length) }
+          ? { assignedToUserId: { in: input.assignedFilter.slice("user:".length).split(",") } }
           : {};
   const statusWhere: Prisma.ConversationWhereInput =
     input.statusFilter === "resolved"
@@ -622,7 +622,8 @@ export async function GET(request: Request) {
     `user:<id>` = la bandeja de una asesora concreta. Solo para jefes: unas lineas mas abajo, a
     quien no lo es se le impone "mine", asi que no hay forma de espiar chats ajenos desde la URL.
   */
-  const pideUnaAsesora = /^user:[a-z0-9]+$/i.test(requestedFilterRaw);
+  // Una o varias, separadas por coma: `user:id1,id2`.
+  const pideUnaAsesora = /^user:[a-z0-9]+(,[a-z0-9]+)*$/i.test(requestedFilterRaw);
   let assignedFilter: string =
     requestedFilterRaw === "mine" || requestedFilterRaw === "unassigned" || pideUnaAsesora
       ? requestedFilterRaw

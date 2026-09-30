@@ -283,7 +283,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     la que le pasa el filtro a la bandeja, el refresco y el scroll tambien pedian "Todas".
     Solo para jefes: a quien no lo es se le impone "Mias" justo abajo, igual que en /list.
   */
-  const pideUnaAsesora = isManager && /^user:[a-z0-9]+$/i.test(assignedParam);
+  // Una o varias, separadas por coma: `user:id1,id2` (Alex, 30-09-2026, "poder seleccionar mas asesoras").
+  const pideUnaAsesora = isManager && /^user:[a-z0-9]+(,[a-z0-9]+)*$/i.test(assignedParam);
   let assignedFilter: AssignedFilter =
     assignedParam === "mine" || assignedParam === "unassigned" || pideUnaAsesora
       ? (assignedParam as AssignedFilter)
@@ -307,7 +308,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         : assignedFilter === "unassigned"
           ? { assignedToUserId: null }
           : assignedFilter.startsWith("user:")
-            ? { assignedToUserId: assignedFilter.slice("user:".length) }
+            ? { assignedToUserId: { in: assignedFilter.slice("user:".length).split(",") } }
             : {};
 
   // Filtro de estado de conversación. Por DEFECTO se ocultan las resueltas (solo abiertas):

@@ -35,7 +35,7 @@ export type OfficialChatsStatusFilter = "all" | "open" | "resolved";
  * quien estaban asignados: sus 37 conversaciones caian en la bandeja con CUALQUIER filtro puesto.
  * Se veia "Mias 1" y abajo treinta y ocho chats, la mayoria de otras asesoras.
  */
-/** `user:<id>` = los chats de UNA asesora: lo pide un jefe desde "Por asesora" en la bandeja. */
+/** `user:<id>[,<id>...]` = los chats de una o varias asesoras: lo pide un jefe desde "Por asesora". */
 export type OfficialChatsAssignedFilter = "all" | "mine" | "unassigned" | `user:${string}`;
 
 type OfficialChatsCacheEntry = {
@@ -297,7 +297,7 @@ async function loadOfficialApiChatsData(input: {
           ? Prisma.sql`AND c."assignedToUserId" = ${currentUserId}`
           : Prisma.sql`AND false`
         : input.assignedFilter?.startsWith("user:")
-          ? Prisma.sql`AND c."assignedToUserId" = ${input.assignedFilter.slice("user:".length)}`
+          ? Prisma.sql`AND c."assignedToUserId" IN (${Prisma.join(input.assignedFilter.slice("user:".length).split(","))})`
           : Prisma.empty;
 
   /**
