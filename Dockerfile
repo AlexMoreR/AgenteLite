@@ -38,6 +38,9 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 # aparte con `node realtime-server.js` (ver stack). JS plano: arranca sin compilar.
 COPY --from=builder /app/realtime-server.js ./realtime-server.js
 COPY docker/entrypoint.sh ./docker/entrypoint.sh
+# Lo que el codigo no sabe del sistema (negocio, decisiones, lo que falta). Lo lee la herramienta
+# `que_es_esta_aplicacion` del MCP en tiempo real; sin esta linea solo saldria la parte en vivo.
+COPY docs/que-es-esta-aplicacion.md ./docs/que-es-esta-aplicacion.md
 RUN chmod +x ./docker/entrypoint.sh
 
 EXPOSE 3000
