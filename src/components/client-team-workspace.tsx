@@ -360,7 +360,7 @@ function EditarPersonaDialog({
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Rol</p>
             {esAdmin ? (
               <p className="text-sm text-muted-foreground">
-                Administrador: tiene acceso total. Para cambiarlo usá “Pasar a empleado” en el menú.
+                Administrador: tiene acceso total. Para cambiarlo usa “Pasar a empleado” en el menú.
               </p>
             ) : (
               <div className="grid gap-2 sm:grid-cols-2">
@@ -400,7 +400,7 @@ function EditarPersonaDialog({
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{linea.nombre}</span>
                     {linea.abierta ? (
                       <span className="text-xs text-muted-foreground sm:max-w-64 sm:text-right">
-                        Abierta a todo el equipo. Para repartirla, agregá colaboradores en Conexión.
+                        Abierta a todo el equipo. Para repartirla, agrega colaboradores en Conexión.
                       </span>
                     ) : (
                       <NativeSelect

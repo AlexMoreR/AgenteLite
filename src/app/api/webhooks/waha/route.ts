@@ -294,6 +294,19 @@ export async function POST(request: NextRequest) {
     const jid = typeof datos?.key?.remoteJid === "string" ? datos.key.remoteJid : "";
 
     /*
+      Solo los chats con UNA persona. Un grupo, un estado o un canal no avisan nada.
+
+      El CRM descarta esos mensajes al guardarlos, pero este aviso sale antes y no se enteraba: con
+      cada mensaje del grupo del equipo ("ADMIN MAGILUS") a todos les sonaba la campanita y les
+      saltaba una notificacion con el numero interno del grupo, 120363424456736422 (Alex,
+      01-10-2026). Y como no hay conversacion, tampoco habia a quien excluir: le sonaba a todos.
+    */
+    const esDeUnaPersona = /@(s\.whatsapp\.net|c\.us|lid)$/i.test(jid);
+    if (!esDeUnaPersona) {
+      return respuesta;
+    }
+
+    /*
       El aviso dice en QUE conversacion entro el mensaje.
 
       Sin eso el navegador solo sabia que "algo cambio" y volvia a pedir la pantalla entera (79 kB)
