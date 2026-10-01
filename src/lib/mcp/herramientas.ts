@@ -95,7 +95,7 @@ const HERRAMIENTAS_DE_LECTURA = [
     name: "listar_conversaciones",
     title: "Listar conversaciones",
     description:
-      "Conversaciones de un periodo, con contacto, linea, etapa del CRM, asesora asignada y cuantos mensajes hubo de cada lado. Siempre devuelve ademas el total por etapa del periodo. Sin 'etapa' trae las que tuvieron MOVIMIENTO en el periodo, de la mas reciente a la mas vieja. Con 'etapa' trae las que CAYERON en esa etapa dentro del periodo, aunque el chat lleve meses quieto: sirve para 'los ganados de septiembre' o 'los perdidos del mes'. El campo 'fechado_por' de la respuesta dice con que fecha se ubico cada etapa.",
+      "Conversaciones de un periodo, con contacto, linea, etapa del CRM, asesora asignada y cuantos mensajes hubo de cada lado. Siempre devuelve ademas el total por etapa del periodo. Sin 'etapa' trae las que tuvieron MOVIMIENTO en el periodo, de la mas reciente a la mas vieja. Con 'etapa' trae las que CAYERON en esa etapa dentro del periodo, aunque el chat lleve meses quieto: sirve para 'los ganados de septiembre' o 'los perdidos del mes'. El campo 'fechado_por' de la respuesta dice con que fecha se ubico cada etapa. Cada conversacion trae las etiquetas del contacto y si esta oculto del CRM; por defecto los ocultos no vienen (ver incluir_ocultos).",
     inputSchema: {
       type: "object",
       properties: {
@@ -110,6 +110,16 @@ const HERRAMIENTAS_DE_LECTURA = [
             { type: "array", items: { type: "string", enum: [...ETAPAS_CRM] } },
           ],
         },
+        etiqueta: {
+          description:
+            "Solo contactos con esta etiqueta (o con alguna de estas). Por nombre o slug, sin importar mayusculas, por ejemplo 'Proveedor'. Una etiqueta que no existe da error con la lista de las que si",
+          anyOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
+        },
+        incluir_ocultos: {
+          type: "boolean",
+          description:
+            "Incluir los contactos ocultos del CRM (lineas administrativas como proveedores, o sacados a mano). Por defecto false, con o sin filtro de etapa. Aplica tambien a totales_por_etapa",
+        },
         canal_id: { type: "string", description: "Solo una linea de WhatsApp (opcional)" },
         buscar: { type: "string", description: "Nombre o telefono del contacto (opcional)" },
         limite: { type: "number", description: "Maximo de conversaciones (1 a 100, por defecto 30)" },
@@ -122,7 +132,7 @@ const HERRAMIENTAS_DE_LECTURA = [
     name: "ver_conversacion",
     title: "Ver una conversacion",
     description:
-      "Los mensajes de una conversacion en orden, marcando QUIEN dijo cada uno: cliente, agente_o_flujo (la IA o un flujo automatico), asesora_desde_crm, enviado_desde_el_celular o sistema. Incluye las decisiones que registro el agente (producto o flujo detectado) y el producto activo. Las notas de voz traen en 'audio_dice' lo que se dijo en ellas, pasado a texto.",
+      "Los mensajes de una conversacion en orden, marcando QUIEN dijo cada uno: cliente, agente_o_flujo (la IA o un flujo automatico), asesora_desde_crm, enviado_desde_el_celular o sistema. Incluye las etiquetas del contacto, si esta oculto del CRM, las decisiones que registro el agente (producto o flujo detectado) y el producto activo. Las notas de voz traen en 'audio_dice' lo que se dijo en ellas, pasado a texto.",
     inputSchema: {
       type: "object",
       properties: {
@@ -174,7 +184,8 @@ function numero(args: Argumentos, clave: string, minimo: number, maximo: number,
  * del otro lado todavia tiene cacheado el esquema viejo, donde el parametro era solo texto. Sin
  * esto llegaba con corchetes y comillas pegados y la etapa se rechazaba sin motivo aparente.
  */
-function lista(args: Argumentos, clave: string) {
+/** `enMayusculas`: las etapas se comparan en mayusculas; las etiquetas se dejan como vinieron. */
+function lista(args: Argumentos, clave: string, enMayusculas = true) {
   const valor = args[clave];
   let crudos: unknown[] = [];
 
@@ -199,7 +210,12 @@ function lista(args: Argumentos, clave: string) {
     .map((item) =>
       // Las comillas sueltas salen del camino de respaldo de arriba, cuando el texto parecia un
       // arreglo pero no se pudo leer como JSON.
-      typeof item === "string" ? item.trim().replace(/^["']|["']$/g, "").trim().toUpperCase() : "",
+      typeof item === "string"
+        ? (() => {
+            const limpio = item.trim().replace(/^["']|["']$/g, "").trim();
+            return enMayusculas ? limpio.toUpperCase() : limpio;
+          })()
+        : "",
     )
     .filter((item) => item.length > 0);
 }
@@ -557,6 +573,37 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
   const etapas = etapasPedidas as EtapaCrm[];
 
   /*
+    Por etiqueta: una o varias, por nombre o por su slug, sin importar mayusculas. Una etiqueta que
+    no existe en el negocio es un error y no una lista vacia: una lista vacia se leeria como "no hay
+    nadie con esa etiqueta", y el problema real seria que se escribio distinto.
+  */
+  const etiquetasPedidas = lista(args, "etiqueta", false);
+  if (etiquetasPedidas.length > 0) {
+    const existentes = await prisma.tag.findMany({
+      where: { workspaceId: contexto.workspaceId },
+      select: { name: true, slug: true },
+      orderBy: { name: "asc" },
+    });
+    const conocidas = new Set(existentes.flatMap((tag) => [tag.name.toLowerCase(), tag.slug.toLowerCase()]));
+    const faltan = etiquetasPedidas.filter((etiqueta) => !conocidas.has(etiqueta.toLowerCase()));
+    if (faltan.length > 0) {
+      throw new Error(
+        `Etiqueta no encontrada: ${faltan.join(", ")}. Las que existen son: ${existentes.map((tag) => tag.name).join(", ")}.`,
+      );
+    }
+  }
+
+  /*
+    LOS OCULTOS DEL CRM (excludedFromCrm): contactos de lineas administrativas -proveedores,
+    logistica- o sacados a mano. Por defecto NO vienen, con o sin filtro de etapa.
+
+    Antes dependia del filtro: con etapa se excluian y sin etapa entraban todos, asi que la misma
+    pregunta daba dos respuestas segun como se hiciera. `incluir_ocultos` los trae, y aplica igual a
+    la lista y a los totales.
+  */
+  const incluirOcultos = args.incluir_ocultos === true || args.incluir_ocultos === "true";
+
+  /*
     EL PERIODO.
 
     `desde`/`hasta` ("AAAA-MM-DD", dia completo en hora de Colombia) mandan sobre `dias`, que queda
@@ -593,6 +640,22 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
   */
   const condicionesDelContacto = [
     ...(etapas.length > 0 ? [{ OR: filtroDeEtapas }] : []),
+    ...(etiquetasPedidas.length > 0
+      ? [
+          {
+            ContactTag: {
+              some: {
+                Tag: {
+                  OR: [
+                    { name: { in: etiquetasPedidas, mode: "insensitive" as const } },
+                    { slug: { in: etiquetasPedidas.map((etiqueta) => etiqueta.toLowerCase()) } },
+                  ],
+                },
+              },
+            },
+          },
+        ]
+      : []),
     ...(buscar
       ? [
           {
@@ -606,8 +669,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
   ];
 
   const contactoWhere = {
-    // Los sacados del CRM a mano no cuentan cuando se pregunta por etapa, igual que en el kanban.
-    ...(etapas.length > 0 ? { excludedFromCrm: false } : {}),
+    ...(incluirOcultos ? {} : { excludedFromCrm: false }),
     AND: condicionesDelContacto,
   };
 
@@ -618,7 +680,8 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       // movimiento volveria a dejar afuera a los chats quietos.
       ...(etapas.length > 0 ? {} : { lastMessageAt: rango }),
       ...(canalId ? { channelId: canalId } : {}),
-      ...(condicionesDelContacto.length > 0 ? { contact: contactoWhere } : {}),
+      // Siempre: aunque no haya otra condicion, por defecto se dejan afuera los ocultos del CRM.
+      contact: contactoWhere,
     },
     orderBy: { lastMessageAt: "desc" },
     take: limite,
@@ -629,7 +692,15 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       automationPaused: true,
       channel: { select: { id: true, name: true } },
       assignedTo: { select: { name: true } },
-      contact: { select: { name: true, phoneNumber: true, crmStage: true } },
+      contact: {
+        select: {
+          name: true,
+          phoneNumber: true,
+          crmStage: true,
+          excludedFromCrm: true,
+          ContactTag: { select: { Tag: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
+        },
+      },
     },
   });
 
@@ -660,7 +731,8 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       cuantos: await prisma.contact.count({
         where: {
           workspaceId: contexto.workspaceId,
-          excludedFromCrm: false,
+          // La misma regla que la lista: si se piden los ocultos, cuentan tambien aca.
+          ...(incluirOcultos ? {} : { excludedFromCrm: false }),
           crmStage: etapa,
           [FECHA_DE_LA_ETAPA[etapa]]: rango,
         },
@@ -672,6 +744,8 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
     desde: hora(desde),
     hasta: hasta ? hora(new Date(hasta.getTime() - 1)) : null,
     filtrado_por: etapas.length > 0 ? "etapa" : "movimiento_del_chat",
+    incluye_ocultos_del_crm: incluirOcultos,
+    ...(etiquetasPedidas.length > 0 ? { etiquetas_pedidas: etiquetasPedidas } : {}),
     /*
       Con que fecha se ubico cada etapa en el periodo. Va en la respuesta a proposito: sin esto,
       un "5 perdidos en septiembre" parece un dato exacto, y para PERDIDO es la fecha en que se
@@ -707,6 +781,9 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       telefono: fila.contact.phoneNumber,
       linea: fila.channel?.name ?? null,
       etapa_crm: fila.contact.crmStage,
+      etiquetas: fila.contact.ContactTag.map((fila) => fila.Tag.name),
+      // Contacto de una linea administrativa (proveedores, logistica) o sacado del CRM a mano.
+      oculto_del_crm: fila.contact.excludedFromCrm,
       asignada_a: fila.assignedTo?.name ?? null,
       estado: fila.status,
       ia_pausada: fila.automationPaused,
@@ -732,7 +809,16 @@ async function verConversacion(args: Argumentos, contexto: Contexto) {
       channel: { select: { name: true } },
       agent: { select: { id: true, name: true } },
       assignedTo: { select: { name: true } },
-      contact: { select: { name: true, phoneNumber: true, crmStage: true, lostReason: true } },
+      contact: {
+        select: {
+          name: true,
+          phoneNumber: true,
+          crmStage: true,
+          lostReason: true,
+          excludedFromCrm: true,
+          ContactTag: { select: { Tag: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
+        },
+      },
     },
   });
   if (!conversacion) {
@@ -762,6 +848,8 @@ async function verConversacion(args: Argumentos, contexto: Contexto) {
     agente: conversacion.agent,
     asignada_a: conversacion.assignedTo?.name ?? null,
     etapa_crm: conversacion.contact.crmStage,
+    etiquetas: conversacion.contact.ContactTag.map((fila) => fila.Tag.name),
+    oculto_del_crm: conversacion.contact.excludedFromCrm,
     motivo_de_perdida: conversacion.contact.lostReason,
     estado: conversacion.status,
     ia_pausada: conversacion.automationPaused,
