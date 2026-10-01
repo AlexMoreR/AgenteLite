@@ -6,6 +6,11 @@ import {
   esHerramientaDeProductos,
 } from "@/lib/mcp/productos";
 import {
+  HERRAMIENTAS_MCP_APLICACION,
+  ejecutarHerramientaMcpAplicacion,
+  esHerramientaDeLaAplicacion,
+} from "@/lib/mcp/que-es-esta-aplicacion";
+import {
   HERRAMIENTAS_MCP_DIAGRAMA,
   ejecutarHerramientaMcpDiagrama,
   esHerramientaDeDiagrama,
@@ -942,6 +947,8 @@ async function buscarMensajes(args: Argumentos, contexto: Contexto) {
   herramienta a mitad de camino.
 */
 export const HERRAMIENTAS_MCP = [
+  // Primero: es la que hay que leer antes de las demas.
+  ...HERRAMIENTAS_MCP_APLICACION,
   ...HERRAMIENTAS_DE_LECTURA,
   ...HERRAMIENTAS_MCP_ESCRITURA,
   ...HERRAMIENTAS_MCP_DIAGRAMA,
@@ -950,6 +957,9 @@ export const HERRAMIENTAS_MCP = [
 ];
 
 export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, contexto: Contexto) {
+  if (esHerramientaDeLaAplicacion(nombre)) {
+    return ejecutarHerramientaMcpAplicacion(nombre, args, contexto);
+  }
   if (esHerramientaDeProductos(nombre)) {
     return ejecutarHerramientaMcpProductos(nombre, args, contexto);
   }
