@@ -1639,7 +1639,7 @@ async function assignOfficialApiChat(input: {
 }> {
   const conversation = await prisma.officialApiConversation.findFirst({
     where: { id: input.conversationId, config: { workspaceId: input.workspaceId } },
-    select: { id: true, assignedToUserId: true },
+    select: { id: true, assignedToUserId: true, status: true },
   });
   if (!conversation) return { error: "Conversacion no encontrada" };
 
@@ -1667,6 +1667,12 @@ async function assignOfficialApiChat(input: {
     where: { id: conversation.id },
     data: { assignedToUserId: input.targetUserId },
   });
+
+  // Igual que en el canal viejo: asignar un chat resuelto lo reabre (ver assignChatAction).
+  if (input.targetUserId && conversation.status !== "OPEN") {
+    await setOfficialApiConversationStatus({ conversationId: conversation.id, status: "OPEN" });
+    await avisarCambioDeEstado(input.workspaceId, conversation.id, "official", "OPEN");
+  }
 
   revalidatePath("/cliente/chats");
   return { ok: true, assignedTo };
@@ -1722,7 +1728,7 @@ export async function assignChatAction(input: {
 
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId: membership.workspace.id },
-    select: { id: true, assignedToUserId: true, channelId: true, contactId: true },
+    select: { id: true, assignedToUserId: true, channelId: true, contactId: true, status: true },
   });
   if (!conversation) return { error: "Conversacion no encontrada" };
 
@@ -1756,9 +1762,21 @@ export async function assignChatAction(input: {
     assignedTo = targetMember.user;
   }
 
+  /*
+    Asignar un chat RESUELTO lo reabre.
+
+    La bandeja de cada asesora muestra los abiertos: un chat que Maria resolvio y despues se le
+    asigno a Genesis le quedaba a Genesis en "Resueltos", sin aviso, y desde la oficina parecia
+    que la asignacion no habia funcionado (Alex, 02-10-2026). Si alguien se lo pasa a una persona
+    es para que lo atienda. Quitar la asignacion no reabre nada.
+  */
+  const reabrir = targetUserId !== null && conversation.status !== "OPEN" && conversation.status !== "PENDING";
+
   await prisma.conversation.update({
     where: { id: conversation.id },
-    data: { assignedToUserId: targetUserId },
+    data: reabrir
+      ? { assignedToUserId: targetUserId, status: "OPEN", closedAt: null }
+      : { assignedToUserId: targetUserId },
   });
 
   // Registro de actividad de asignación.
@@ -1779,6 +1797,18 @@ export async function assignChatAction(input: {
     dispositivo: leerDispositivo((await headers()).get("user-agent")),
     text: activityText,
   });
+  if (reabrir) {
+    await recordConversationActivity({
+      workspaceId: membership.workspace.id,
+      conversationId: conversation.id,
+      channelId: conversation.channelId,
+      contactId: conversation.contactId,
+      kind: "reopened",
+      actorUserId: session.user.id,
+      text: `${actorName} reabrió`,
+    });
+    await avisarCambioDeEstado(membership.workspace.id, conversation.id, "agent", "OPEN");
+  }
 
   revalidatePath("/cliente/chats");
   return { ok: true, assignedTo };
