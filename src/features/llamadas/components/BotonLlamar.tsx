@@ -39,7 +39,7 @@ export function BotonLlamar({
   // Se desestructura en vez de guardar el objeto entero: la referencia del audio va aparte de
   // los valores que sí se leen al dibujar, y así no parece que estuvieramos mirando una
   // referencia durante el render.
-  const { estado, silenciado, segundos, llamar, colgar, alternarSilencio, audioRef } = useLlamada({
+  const { estado, silenciado, segundos, motivoFin, recienContesto, llamar, colgar, alternarSilencio, audioRef } = useLlamada({
     channelId,
     onError: (mensaje) => toast.error(mensaje),
   });
@@ -106,6 +106,8 @@ export function BotonLlamar({
         avatarUrl={avatarUrl}
         silenciado={silenciado}
         segundos={segundos}
+        motivoFin={motivoFin}
+        recienContesto={recienContesto}
         expandido={expandido}
         onMinimizar={() => setExpandido(false)}
         onExpandir={() => setExpandido(true)}

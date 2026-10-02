@@ -24,6 +24,8 @@ export function PanelDeLlamada({
   avatarUrl,
   silenciado,
   segundos,
+  motivoFin,
+  recienContesto,
   expandido,
   onMinimizar,
   onExpandir,
@@ -36,6 +38,10 @@ export function PanelDeLlamada({
   avatarUrl?: string | null;
   silenciado: boolean;
   segundos: number;
+  /** Como termino la llamada, mientras el panel lo muestra antes de cerrarse. */
+  motivoFin?: string | null;
+  /** El cliente acaba de contestar: se dice "Contesto" junto al reloj. */
+  recienContesto?: boolean;
   expandido: boolean;
   onMinimizar: () => void;
   onExpandir: () => void;
@@ -46,7 +52,7 @@ export function PanelDeLlamada({
     return null;
   }
 
-  const detalle = textoDeEstado(estado, segundos, telefono);
+  const detalle = textoDeEstado(estado, segundos, motivoFin ?? null, Boolean(recienContesto));
 
   if (!expandido) {
     return (
@@ -70,11 +76,25 @@ export function PanelDeLlamada({
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span
                   className={`inline-block size-1.5 shrink-0 rounded-full ${
-                    estado === "hablando" ? "bg-emerald-500" : "bg-amber-500 animate-pulse"
+                    estado === "hablando"
+                      ? "bg-emerald-500"
+                      : estado === "terminada"
+                        ? "bg-rose-500"
+                        : "bg-amber-500 animate-pulse"
                   }`}
                   aria-hidden="true"
                 />
-                <span className="tabular-nums">{detalle}</span>
+                <span
+                  className={`tabular-nums ${
+                    estado === "hablando" && recienContesto
+                      ? "font-semibold text-emerald-600 dark:text-emerald-400"
+                      : estado === "terminada"
+                        ? "font-semibold text-rose-600 dark:text-rose-400"
+                        : ""
+                  }`}
+                >
+                  {detalle}
+                </span>
               </span>
             </span>
           </button>
@@ -116,7 +136,27 @@ export function PanelDeLlamada({
         />
         <div className="space-y-1">
           <h2 className="text-balance text-2xl font-semibold">{nombre}</h2>
-          <p className="text-sm tabular-nums text-white/70">{detalle}</p>
+          {telefono && telefono !== nombre ? <p className="text-sm tabular-nums text-white/50">{telefono}</p> : null}
+          {/*
+            El estado se tiene que leer de lejos: la asesora esta con la diadema mirando el chat,
+            no el panel. Amarillo mientras timbra, verde cuando contesta, rojo cuando termina.
+          */}
+          <p
+            className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium tabular-nums ${
+              estado === "hablando"
+                ? recienContesto
+                  ? "bg-emerald-500 text-white"
+                  : "bg-emerald-500/15 text-emerald-300"
+                : estado === "terminada"
+                  ? "bg-rose-500/20 text-rose-200"
+                  : "bg-amber-500/15 text-amber-200"
+            }`}
+          >
+            {estado === "sonando" || estado === "marcando" ? (
+              <span className="inline-block size-2 shrink-0 animate-pulse rounded-full bg-amber-400" aria-hidden="true" />
+            ) : null}
+            {detalle}
+          </p>
         </div>
       </div>
 
@@ -188,17 +228,21 @@ function BotonColgar({ onClick, tamano }: { onClick: () => void; tamano: "chico"
   );
 }
 
-function textoDeEstado(estado: EstadoLlamada, segundos: number, telefono: string) {
+function textoDeEstado(estado: EstadoLlamada, segundos: number, motivoFin: string | null, recienContesto: boolean) {
   if (estado === "hablando") {
     const minutos = Math.floor(segundos / 60);
     const resto = segundos % 60;
-    return `${minutos}:${String(resto).padStart(2, "0")}`;
+    const reloj = `${minutos}:${String(resto).padStart(2, "0")}`;
+    return recienContesto ? `Contestó · ${reloj}` : reloj;
+  }
+  if (estado === "terminada") {
+    return motivoFin || "Llamada terminada";
   }
   if (estado === "cortando") {
     return "Cortando…";
   }
   if (estado === "sonando") {
-    return "Sonando…";
+    return "Timbrando…";
   }
-  return telefono || "Marcando…";
+  return "Llamando…";
 }

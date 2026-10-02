@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
  * era repetir ese bloque cuatro veces con el riesgo de que una quedara sin control.
  */
 
-type Accion = "iniciar" | "webrtc" | "colgar" | "silenciar";
+type Accion = "iniciar" | "webrtc" | "colgar" | "silenciar" | "estado";
 
 type Cuerpo = {
   accion?: Accion;
@@ -156,6 +156,52 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: traducir(respuesta.error) }, { status: respuesta.status });
       }
       return NextResponse.json({ ok: true });
+    }
+
+    /*
+      En que va la llamada: timbrando, contestada o terminada (y por que).
+
+      El navegador NO lo puede saber solo: su audio se conecta con WaCalls apenas se marca, cuando
+      al cliente todavia le esta timbrando. Mirando eso, el marcador mostraba "en llamada" con el
+      reloj corriendo y nadie del otro lado (Alex, 02-10-2026). El que sabe cuando el cliente
+      levanta es WaCalls, y aca se le pregunta.
+
+      Una llamada terminada ya no esta en la lista de las activas (WaCalls la borra al cortar) y
+      pasa a su historial: de ahi sale el motivo -no contesto, rechazo, ocupado-.
+    */
+    case "estado": {
+      if (!cuerpo.callId) {
+        return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
+      }
+      const respuesta = await waCallsRequest<{ call?: { status?: string; endReason?: string } }>({
+        path: `/api/sessions/${sid}/calls/${encodeURIComponent(cuerpo.callId)}`,
+        operadorId,
+        timeoutMs: 5000,
+      });
+      if (respuesta.ok) {
+        return NextResponse.json({
+          ok: true,
+          status: respuesta.data.call?.status ?? "ringing",
+          endReason: respuesta.data.call?.endReason ?? null,
+          enHistorial: false,
+        });
+      }
+      if (respuesta.status !== 404) {
+        return NextResponse.json({ error: traducir(respuesta.error) }, { status: respuesta.status });
+      }
+
+      const historial = await waCallsRequest<{ calls?: Array<{ callId?: string; endReason?: string }> }>({
+        path: `/api/sessions/${sid}/history?limit=20`,
+        operadorId,
+        timeoutMs: 5000,
+      });
+      const fila = historial.ok ? historial.data.calls?.find((call) => call.callId === cuerpo.callId) : undefined;
+      return NextResponse.json({
+        ok: true,
+        status: "ended",
+        endReason: fila?.endReason ?? null,
+        enHistorial: Boolean(fila),
+      });
     }
 
     default:

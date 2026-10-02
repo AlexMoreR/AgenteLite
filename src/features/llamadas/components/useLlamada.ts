@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { empezarTimbrado, pitidoDeContestada, pitidoDeFin, vibrar } from "./sonidos-de-llamada";
+
 /**
  * Una llamada de WhatsApp hecha desde el CRM, sin salir de la pantalla.
  *
@@ -18,7 +20,43 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * El CRM solo hace de intermediario para el saludo inicial (por eso el token nunca llega acá).
  */
 
-export type EstadoLlamada = "libre" | "marcando" | "sonando" | "hablando" | "cortando";
+/**
+ * "sonando" dura hasta que el CLIENTE contesta, no hasta que se conecta el audio con WaCalls: eso
+ * pasa casi enseguida y antes se tomaba como "ya contesto" (ver revisarEstado).
+ * "terminada" es el rato en que el panel dice como termino antes de cerrarse.
+ */
+export type EstadoLlamada = "libre" | "marcando" | "sonando" | "hablando" | "terminada" | "cortando";
+
+/** Cada cuanto se le pregunta a WaCalls en que va la llamada. */
+const SONDEO_MS = 1000;
+/** Cuanto queda a la vista el motivo del final antes de cerrar el panel. */
+const MOTIVO_VISIBLE_MS = 4000;
+/** Cuanto queda el "Contesto" junto al reloj. */
+const CONTESTO_VISIBLE_MS = 3000;
+
+/**
+ * Como termino una llamada que NO se hablo, en palabras de la asesora. Las claves son los motivos
+ * de WaCalls (internal/voip/core/types.go).
+ */
+function motivoSinHablar(endReason: string | null): string {
+  switch (endReason) {
+    case "timeout":
+    case "do_not_disturb":
+      return "No contestó";
+    case "declined":
+      return "Rechazó la llamada";
+    case "busy":
+      return "Ocupado: está en otra llamada";
+    case "failed":
+      return "La llamada no se pudo completar";
+    default:
+      return "La llamada terminó sin que contestara";
+  }
+}
+
+function reloj(segundos: number) {
+  return `${Math.floor(segundos / 60)}:${String(segundos % 60).padStart(2, "0")}`;
+}
 
 const FRECUENCIA = 16000;
 const CANAL_PCM = "pcm";
@@ -96,6 +134,10 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
   const [estado, setEstado] = useState<EstadoLlamada>("libre");
   const [silenciado, setSilenciado] = useState(false);
   const [segundos, setSegundos] = useState(0);
+  /** Lo que dice el panel cuando la llamada termino sola: "No contesto", "Ocupado"... */
+  const [motivoFin, setMotivoFin] = useState<string | null>(null);
+  /** Los primeros segundos despues de que el cliente levanto, para decir "Contesto". */
+  const [recienContesto, setRecienContesto] = useState(false);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const micRef = useRef<MediaStream | null>(null);
@@ -112,9 +154,28 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
     lee de la prop: la llamada vive en SU linea aunque la pantalla cambie de chat en el medio.
   */
   const canalRef = useRef<string | undefined>(undefined);
+  /** El estado leido desde los temporizadores, que no ven el `estado` de React actualizado. */
+  const estadoRef = useRef<EstadoLlamada>("libre");
+  const segundosRef = useRef(0);
+  const sondeoRef = useRef<number | null>(null);
+  const apagarTimbradoRef = useRef<(() => void) | null>(null);
+  const temporizadoresRef = useRef<number[]>([]);
+  /** Veces que se busco la llamada en el historial de WaCalls sin encontrarla todavia. */
+  const busquedasEnHistorialRef = useRef(0);
+
+  const cambiarEstado = useCallback((siguiente: EstadoLlamada) => {
+    estadoRef.current = siguiente;
+    setEstado(siguiente);
+  }, []);
 
   /** Suelta micrófono, audio y conexión. Se llama al colgar y al desmontar. */
   const limpiar = useCallback(() => {
+    apagarTimbradoRef.current?.();
+    apagarTimbradoRef.current = null;
+    if (sondeoRef.current !== null) {
+      window.clearInterval(sondeoRef.current);
+      sondeoRef.current = null;
+    }
     // El micrófono se apaga SIEMPRE, incluso si algo falló antes: dejar la lucecita del micro
     // encendida después de colgar es lo que hace que la gente desconfíe de la herramienta.
     micRef.current?.getTracks().forEach((track) => track.stop());
@@ -127,24 +188,123 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
       audioRef.current.srcObject = null;
     }
     callIdRef.current = null;
+    busquedasEnHistorialRef.current = 0;
     setSilenciado(false);
     setSegundos(0);
+    segundosRef.current = 0;
+    setRecienContesto(false);
   }, []);
 
-  useEffect(() => limpiar, [limpiar]);
+  useEffect(() => {
+    const temporizadores = temporizadoresRef.current;
+    return () => {
+      limpiar();
+      temporizadores.forEach((id) => window.clearTimeout(id));
+    };
+  }, [limpiar]);
 
   // Cronómetro de la conversación.
   useEffect(() => {
     if (estado !== "hablando") {
       return;
     }
-    const intervalo = setInterval(() => setSegundos((s) => s + 1), 1000);
+    const intervalo = setInterval(() => {
+      segundosRef.current += 1;
+      setSegundos(segundosRef.current);
+    }, 1000);
     return () => clearInterval(intervalo);
   }, [estado]);
 
-  const colgar = useCallback(async () => {
+  /**
+   * La llamada termino sola (el cliente colgo, no contesto, rechazo...): el panel dice como
+   * termino durante unos segundos y despues se cierra.
+   */
+  const terminarConMotivo = useCallback(
+    (motivo: string) => {
+      if (estadoRef.current === "terminada" || estadoRef.current === "libre") {
+        return;
+      }
+      limpiar();
+      pitidoDeFin();
+      vibrar(300);
+      setMotivoFin(motivo);
+      cambiarEstado("terminada");
+      const id = window.setTimeout(() => {
+        if (estadoRef.current === "terminada") {
+          setMotivoFin(null);
+          cambiarEstado("libre");
+          onTerminada?.();
+        }
+      }, MOTIVO_VISIBLE_MS);
+      temporizadoresRef.current.push(id);
+    },
+    [cambiarEstado, limpiar, onTerminada],
+  );
+
+  /**
+   * Le pregunta a WaCalls en que va la llamada. Es la UNICA fuente de "el cliente contesto".
+   *
+   * Antes se tomaba como contestada cuando se abria el canal de audio con WaCalls, que pasa casi
+   * enseguida, con el telefono del cliente todavia timbrando: el marcador mostraba el reloj
+   * corriendo y nadie hablaba del otro lado (Alex, 02-10-2026).
+   */
+  const revisarEstado = useCallback(async () => {
     const callId = callIdRef.current;
-    setEstado("cortando");
+    if (!callId) {
+      return;
+    }
+    let respuesta: { status?: string; endReason?: string | null; enHistorial?: boolean };
+    try {
+      respuesta = (await pedir({ accion: "estado", callId, channelId: canalRef.current })) as typeof respuesta;
+    } catch {
+      // Un sondeo que falla no corta nada: se vuelve a preguntar en un segundo.
+      return;
+    }
+    // Mientras se esperaba la respuesta pudieron colgar o empezar otra llamada.
+    if (callIdRef.current !== callId) {
+      return;
+    }
+
+    if (respuesta.status === "connected" && estadoRef.current === "sonando") {
+      apagarTimbradoRef.current?.();
+      apagarTimbradoRef.current = null;
+      if (ctxRef.current) {
+        pitidoDeContestada(ctxRef.current);
+      }
+      vibrar([120, 80, 120]);
+      segundosRef.current = 0;
+      setSegundos(0);
+      setRecienContesto(true);
+      cambiarEstado("hablando");
+      const id = window.setTimeout(() => setRecienContesto(false), CONTESTO_VISIBLE_MS);
+      temporizadoresRef.current.push(id);
+      return;
+    }
+
+    if (respuesta.status === "ended") {
+      // WaCalls pasa la llamada a su historial un instante despues de cortarla: si todavia no
+      // aparece, se espera un par de vueltas antes de dar el motivo por desconocido.
+      if (!respuesta.enHistorial && busquedasEnHistorialRef.current < 3) {
+        busquedasEnHistorialRef.current += 1;
+        return;
+      }
+      const hablaron = estadoRef.current === "hablando";
+      terminarConMotivo(
+        hablaron ? `Llamada terminada · ${reloj(segundosRef.current)}` : motivoSinHablar(respuesta.endReason ?? null),
+      );
+    }
+  }, [cambiarEstado, terminarConMotivo]);
+
+  const colgar = useCallback(async () => {
+    // Con el motivo a la vista, el boton rojo solo cierra el panel: la llamada ya no existe.
+    if (estadoRef.current === "terminada") {
+      setMotivoFin(null);
+      cambiarEstado("libre");
+      onTerminada?.();
+      return;
+    }
+    const callId = callIdRef.current;
+    cambiarEstado("cortando");
     try {
       if (callId) {
         await pedir({ accion: "colgar", callId, channelId: canalRef.current });
@@ -154,10 +314,10 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
       // asesora quede con el micrófono abierto porque el otro extremo falló.
     } finally {
       limpiar();
-      setEstado("libre");
+      cambiarEstado("libre");
       onTerminada?.();
     }
-  }, [limpiar, onTerminada]);
+  }, [cambiarEstado, limpiar, onTerminada]);
 
   const llamar = useCallback(
     /** `esOculto` = el destino es un identificador de WhatsApp, no un teléfono. */
@@ -165,7 +325,8 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
       if (estado !== "libre") {
         return;
       }
-      setEstado("marcando");
+      setMotivoFin(null);
+      cambiarEstado("marcando");
       try {
         const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
         micRef.current = mic;
@@ -182,7 +343,7 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
           throw new Error("El servicio no devolvió la llamada.");
         }
         callIdRef.current = callId;
-        setEstado("sonando");
+        cambiarEstado("sonando");
 
         const pc = new RTCPeerConnection({
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -199,6 +360,12 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
         await ctx.audioWorklet.addModule("/worklets/capture-processor.js");
         await ctx.audioWorklet.addModule("/worklets/playback-processor.js");
         await ctx.resume();
+
+        // "Tuuu... tuuu..." hasta que el cliente conteste, y desde ya se pregunta en que va.
+        if (estadoRef.current === "sonando") {
+          apagarTimbradoRef.current = empezarTimbrado(ctx);
+        }
+        sondeoRef.current = window.setInterval(() => void revisarEstado(), SONDEO_MS);
 
         // Micrófono → canal de datos.
         const fuenteMic = ctx.createMediaStreamSource(mic);
@@ -227,11 +394,19 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
           });
         }
 
-        canal.onopen = () => setEstado("hablando");
+        // Que se abra el canal de audio NO quiere decir que el cliente contesto (ver revisarEstado).
 
         pc.onconnectionstatechange = () => {
           if (pc.connectionState === "failed" || pc.connectionState === "closed") {
-            void colgar();
+            // Se corto el audio. Se le da al sondeo unos segundos para traer COMO termino (WaCalls
+            // tarda un instante en pasarla a su historial) y, si no llega, se cuelga igual.
+            void revisarEstado();
+            const id = window.setTimeout(() => {
+              if (callIdRef.current === callId && estadoRef.current !== "terminada" && estadoRef.current !== "libre") {
+                void colgar();
+              }
+            }, 4000);
+            temporizadoresRef.current.push(id);
           }
         };
 
@@ -264,10 +439,10 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
           void pedir({ accion: "colgar", callId: callIdRef.current, channelId: canalRef.current }).catch(() => {});
         }
         limpiar();
-        setEstado("libre");
+        cambiarEstado("libre");
       }
     },
-    [estado, channelId, colgar, limpiar, onError],
+    [estado, channelId, colgar, limpiar, onError, cambiarEstado, revisarEstado],
   );
 
   const alternarSilencio = useCallback(async () => {
@@ -289,5 +464,5 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
     }
   }, [silenciado]);
 
-  return { estado, silenciado, segundos, llamar, colgar, alternarSilencio, audioRef };
+  return { estado, silenciado, segundos, motivoFin, recienContesto, llamar, colgar, alternarSilencio, audioRef };
 }
