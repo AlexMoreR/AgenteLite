@@ -256,6 +256,7 @@ export async function getCrmData({
       crmStage: true,
       lostReason: true,
       wonAt: true,
+      wonQuoteRef: true,
       createdAt: true,
       updatedAt: true,
       ContactTag: {
@@ -304,6 +305,7 @@ export async function getCrmData({
     }),
     status: (contact.crmStage as CrmRecord["status"]) ?? "NUEVO",
     lostReason: contact.lostReason ?? null,
+    wonQuoteRef: contact.wonQuoteRef ?? null,
     conversationId: contact.conversations[0]?.id ?? null,
     chatKey: contact.conversations[0]?.id
       ? `agent:${contact.conversations[0].id}`
@@ -362,6 +364,7 @@ export async function getCrmKanbanData({
       crmStage: true,
       lostReason: true,
       wonAt: true,
+      wonQuoteRef: true,
       createdAt: true,
       updatedAt: true,
       ContactTag: {
@@ -410,6 +413,7 @@ export async function getCrmKanbanData({
     }),
     status: (contact.crmStage as CrmRecord["status"]) ?? "NUEVO",
     lostReason: contact.lostReason ?? null,
+    wonQuoteRef: contact.wonQuoteRef ?? null,
     conversationId: contact.conversations[0]?.id ?? null,
     chatKey: contact.conversations[0]?.id
       ? `agent:${contact.conversations[0].id}`

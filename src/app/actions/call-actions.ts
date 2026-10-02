@@ -21,6 +21,7 @@ import {
   isPendingCallResult,
   type CallResult, motivoOtroSinDetalle } from "@/features/crm/domain/crm-config";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
+import { AVISO_FALTA_COTIZACION, normalizarCotizacion } from "@/features/crm/domain/cotizacion-de-gestion";
 import { transcribirYResumirLlamada, type SugerenciaDeLlamada } from "@/lib/llamada-transcripcion";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 
@@ -44,6 +45,8 @@ const registerCallSchema = z.object({
    * figuraría con el doble de intentos de los que tuvo.
    */
   completeAttemptId: z.string().trim().min(1).optional(),
+  // Numero de cotizacion de Gestion. Obligatorio cuando el resultado deja al lead en GANADO.
+  wonQuoteRef: z.string().trim().max(40).optional(),
 });
 
 export type RegisterCallInput = z.infer<typeof registerCallSchema>;
@@ -429,6 +432,13 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
     return { error: "Escribe cuál fue la razón de «Otro»." };
   }
 
+  // Ganado sin cotizacion de Gestion no se guarda (Alex, 02-10-2026). Se pregunta ACA, antes de
+  // anotar el intento: si no, quedaba una llamada "ganada" con el lead sin pasar a Ganado.
+  const ganaLaVenta = CALL_RESULT_STAGE_EFFECT[parsed.data.result as CallResult] === "GANADO";
+  if (ganaLaVenta && !normalizarCotizacion(parsed.data.wonQuoteRef)) {
+    return { error: AVISO_FALTA_COTIZACION };
+  }
+
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
     return { error: "Workspace no encontrado" };
@@ -529,6 +539,7 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
       contactId: contact.id,
       status: stageEffect,
       lostReason: isLost ? lostReason ?? undefined : undefined,
+      wonQuoteRef: stageEffect === "GANADO" ? parsed.data.wonQuoteRef : undefined,
       // Playbook: "Ganado el día del pago, ligado al intento que lo cerró" → la fecha de venta
       // es la fecha de ESTA llamada (calledAt, editable para registro retroactivo). Al completar
       // una llamada ya anotada vale la fecha ORIGINAL: la venta se cerró cuando se habló, no

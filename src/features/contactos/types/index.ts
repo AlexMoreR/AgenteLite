@@ -50,6 +50,8 @@ export type ContactosContact = {
   // está Ganado. Se editan desde el CRM/Kanban o Llamadas, no desde la ficha de contacto.
   crmStage: string;
   wonAt: string | null;
+  /** Cotizacion de Gestion de la venta (solo Ganado). */
+  wonQuoteRef: string | null;
   tags: Array<{
     label: string;
     color: string;

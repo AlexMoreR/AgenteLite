@@ -19,11 +19,15 @@ import {
 import {
   CALL_RESULTS,
   CALL_RESULT_LOST,
+  CALL_RESULT_STAGE_EFFECT,
   CRM_LOST_REASONS,
   LARGO_DEL_OTRO_MOTIVO,
   MOTIVO_OTRO,
   motivoOtroConDetalle,
+  type CallResult,
 } from "@/features/crm/domain/crm-config";
+import { CampoDeCotizacion } from "@/features/crm/components/CampoDeCotizacion";
+import { AVISO_FALTA_COTIZACION, normalizarCotizacion } from "@/features/crm/domain/cotizacion-de-gestion";
 import {
   registerCallAttemptAction,
   searchContactsForCallAction,
@@ -85,6 +89,8 @@ export function RegisterCallDialog({
   const [nextContact, setNextContact] = useState("");
   const [lostReason, setLostReason] = useState<string>(CRM_LOST_REASONS[0].value);
   const [otroDetalle, setOtroDetalle] = useState("");
+  // Numero de cotizacion de Gestion: obligatorio si el resultado deja al lead en Ganado.
+  const [cotizacion, setCotizacion] = useState("");
   const [calledAt, setCalledAt] = useState(todayInputValue());
   const [verTranscripcion, setVerTranscripcion] = useState(false);
 
@@ -168,6 +174,7 @@ export function RegisterCallDialog({
   }, []);
 
   const isLost = result === CALL_RESULT_LOST;
+  const ganaLaVenta = CALL_RESULT_STAGE_EFFECT[result as CallResult] === "GANADO";
 
   const handleSubmit = useCallback(() => {
     if (!selected) {
@@ -176,6 +183,10 @@ export function RegisterCallDialog({
     }
     if (isLost && (!lostReason || (lostReason === MOTIVO_OTRO && !otroDetalle.trim()))) {
       toast.error("Elige el motivo de pérdida.");
+      return;
+    }
+    if (ganaLaVenta && !normalizarCotizacion(cotizacion)) {
+      toast.error(AVISO_FALTA_COTIZACION);
       return;
     }
     startTransition(async () => {
@@ -187,6 +198,7 @@ export function RegisterCallDialog({
         lostReason: isLost ? (lostReason === MOTIVO_OTRO ? motivoOtroConDetalle(otroDetalle) : lostReason) : undefined,
         calledAt: calledAt || undefined,
         completeAttemptId: selected.pendingAttemptId || undefined,
+        wonQuoteRef: ganaLaVenta ? cotizacion : undefined,
       });
       if ("error" in res) {
         toast.error(res.error);
@@ -197,7 +209,7 @@ export function RegisterCallDialog({
       alGuardar?.();
       router.refresh();
     });
-  }, [selected, isLost, lostReason, otroDetalle, result, summary, nextContact, calledAt, onOpenChange, router, alGuardar]);
+  }, [selected, isLost, lostReason, otroDetalle, result, summary, nextContact, calledAt, onOpenChange, router, alGuardar, ganaLaVenta, cotizacion]);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -323,6 +335,9 @@ export function RegisterCallDialog({
               ) : null}
             </div>
           ) : null}
+
+          {/* Cotizacion de Gestion (obligatoria solo si Ganado). */}
+          {ganaLaVenta ? <CampoDeCotizacion valor={cotizacion} onCambio={setCotizacion} /> : null}
 
           {/* Resumen breve. */}
           <div className="space-y-1">

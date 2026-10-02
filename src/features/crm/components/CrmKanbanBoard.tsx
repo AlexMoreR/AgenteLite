@@ -29,6 +29,9 @@ import {
   motivoOtroConDetalle,
 } from "../domain/crm-config";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { toast } from "sonner";
+import { CampoDeCotizacion } from "./CampoDeCotizacion";
+import { normalizarCotizacion } from "../domain/cotizacion-de-gestion";
 
 // Valor "YYYY-MM-DD" (para <input type="date">) a partir de una fecha, en hora local.
 function toDateInputValue(value: string | Date) {
@@ -125,6 +128,11 @@ function KanbanCard({
                     <div className="flex items-center justify-between gap-2 pt-0">
                       <span className="text-xs text-muted-foreground">
                         Venta: {formatCrmDate(record.date)}
+                        {record.wonQuoteRef ? (
+                          <span className="tabular-nums"> · {record.wonQuoteRef}</span>
+                        ) : (
+                          <span className="text-amber-600 dark:text-amber-400"> · sin cotización</span>
+                        )}
                       </span>
                       {onEditWonDate ? (
                         <button
@@ -135,8 +143,8 @@ function KanbanCard({
                           }}
                           onPointerDown={(event) => event.stopPropagation()}
                           className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                          aria-label="Editar fecha de venta"
-                          title="Editar fecha de venta"
+                          aria-label="Editar fecha y cotización de la venta"
+                          title="Editar fecha y cotización de la venta"
                         >
                           <Pencil className="h-3 w-3" />
                         </button>
@@ -267,6 +275,12 @@ function KanbanDetailModal({
               <div className="flex items-center gap-2">
                 <span>
                   Venta: <b className="text-foreground">{formatCrmDate(record.date)}</b>
+                  {" · "}
+                  {record.wonQuoteRef ? (
+                    <b className="tabular-nums text-foreground">{record.wonQuoteRef}</b>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400">sin cotización</span>
+                  )}
                 </span>
                 {onEditWonDate ? (
                   <button
@@ -397,6 +411,8 @@ export function CrmKanbanBoard({
   // defecto hoy), y abrimos el diálogo para confirmar el DÍA REAL de la venta antes de guardar.
   const [pendingWonRecordId, setPendingWonRecordId] = React.useState<string | null>(null);
   const [wonDateValue, setWonDateValue] = React.useState<string>("");
+  // Numero de cotizacion de Gestion: obligatorio para Ganado (ver cotizacion-de-gestion.ts).
+  const [wonQuoteValue, setWonQuoteValue] = React.useState<string>("");
   // Lead abierto en el modal de detalle (al hacer clic en una tarjeta).
   const [detailRecord, setDetailRecord] = React.useState<CrmRecord | null>(null);
   const [collapsedRecordIds, setCollapsedRecordIds] = React.useState<Record<string, boolean>>(() =>
@@ -459,6 +475,7 @@ export function CrmKanbanBoard({
 
     if ("error" in result) {
       setLocalColumns(previousColumns);
+      toast.error(result.error);
     }
   };
 
@@ -488,6 +505,7 @@ export function CrmKanbanBoard({
       setDraggedRecordId(null);
       setDropTargetStage(null);
       setWonDateValue(toDateInputValue(new Date()));
+      setWonQuoteValue(currentRecord.wonQuoteRef ?? "");
       setPendingWonRecordId(recordId);
       return;
     }
@@ -497,7 +515,10 @@ export function CrmKanbanBoard({
 
   // Confirma/edita la fecha de venta y deja el lead en Ganado. Sirve para el arrastre a Ganado y
   // para corregir la fecha desde el lápiz de la tarjeta (mismo diálogo).
-  const confirmWonDate = async (recordId: string, dateStr: string) => {
+  const cotizacionDe = (recordId: string) =>
+    localColumns.flatMap((column) => column.records).find((record) => record.id === recordId)?.wonQuoteRef ?? "";
+
+  const confirmWonDate = async (recordId: string, dateStr: string, quoteRef: string) => {
     const wonAtIso = new Date(`${dateStr}T12:00:00`).toISOString();
     const currentRecord = localColumns.flatMap((column) => column.records).find((record) => record.id === recordId);
     if (!currentRecord) {
@@ -511,18 +532,30 @@ export function CrmKanbanBoard({
       current.map((column) => {
         const withoutRecord = column.records.filter((record) => record.id !== recordId);
         if (column.stage === "GANADO") {
-          return { ...column, records: [...withoutRecord, { ...currentRecord, status: "GANADO", date: wonAtIso }] };
+          return {
+            ...column,
+            records: [
+              ...withoutRecord,
+              { ...currentRecord, status: "GANADO", date: wonAtIso, wonQuoteRef: normalizarCotizacion(quoteRef) },
+            ],
+          };
         }
         return { ...column, records: withoutRecord };
       }),
     );
 
-    const result = await updateCrmStageAction({ contactId: recordId, status: "GANADO", wonAt: wonAtIso });
+    const result = await updateCrmStageAction({
+      contactId: recordId,
+      status: "GANADO",
+      wonAt: wonAtIso,
+      wonQuoteRef: quoteRef,
+    });
 
     setSavingRecordIds((current) => ({ ...current, [recordId]: false }));
 
     if ("error" in result) {
       setLocalColumns(previousColumns);
+      toast.error(result.error);
     }
   };
 
@@ -651,6 +684,7 @@ export function CrmKanbanBoard({
                           ? undefined
                           : (recordId, dateISO) => {
                               setWonDateValue(toDateInputValue(dateISO));
+                              setWonQuoteValue(cotizacionDe(recordId));
                               setPendingWonRecordId(recordId);
                             }
                       }
@@ -743,11 +777,11 @@ export function CrmKanbanBoard({
       >
         <DialogContent showCloseButton={false} className="w-[calc(100vw-2rem)] max-w-sm gap-0 overflow-hidden p-0">
           <div className="border-b border-border px-4 py-3">
-            <DialogTitle className="text-[13px] font-semibold text-foreground">Fecha de la venta</DialogTitle>
+            <DialogTitle className="text-[13px] font-semibold text-foreground">Venta ganada</DialogTitle>
           </div>
           <div className="space-y-3 px-4 py-4">
             <p className="text-[12px] text-muted-foreground">
-              ¿Qué día se cerró la venta (el pago)? Podés poner una fecha pasada.
+              ¿Qué día se cerró la venta (el pago)? Puedes poner una fecha pasada.
             </p>
             <input
               type="date"
@@ -755,18 +789,19 @@ export function CrmKanbanBoard({
               onChange={(event) => setWonDateValue(event.target.value)}
               className="h-9 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
             />
+            <CampoDeCotizacion valor={wonQuoteValue} onCambio={setWonQuoteValue} />
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setPendingWonRecordId(null)}>
                 Cancelar
               </Button>
               <Button
                 size="sm"
-                disabled={!wonDateValue}
+                disabled={!wonDateValue || !normalizarCotizacion(wonQuoteValue)}
                 onClick={() => {
                   const recordId = pendingWonRecordId;
                   setPendingWonRecordId(null);
-                  if (recordId && wonDateValue) {
-                    void confirmWonDate(recordId, wonDateValue);
+                  if (recordId && wonDateValue && normalizarCotizacion(wonQuoteValue)) {
+                    void confirmWonDate(recordId, wonDateValue, wonQuoteValue);
                   }
                 }}
               >
@@ -787,6 +822,7 @@ export function CrmKanbanBoard({
               : (recordId, dateISO) => {
                   setDetailRecord(null);
                   setWonDateValue(toDateInputValue(dateISO));
+                  setWonQuoteValue(cotizacionDe(recordId));
                   setPendingWonRecordId(recordId);
                 }
           }

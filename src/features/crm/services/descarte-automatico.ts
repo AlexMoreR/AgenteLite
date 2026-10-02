@@ -160,6 +160,7 @@ export async function ejecutarDescarteAutomatico(): Promise<{ descartados: numbe
           SET "crmStage" = 'PERDIDO',
               "lostReason" = ${MOTIVO},
               "wonAt" = NULL,
+              "wonQuoteRef" = NULL,
               "updatedAt" = NOW()
           WHERE "id" = ${candidato.contactId}
             AND "crmStage"::text IN (${ETAPAS_SQL})

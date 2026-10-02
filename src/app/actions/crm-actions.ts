@@ -15,6 +15,7 @@ import { buildSnoozeMetadata } from "@/lib/lead-snooze";
 import { CRM_STAGE_META, getCrmLostReasonLabel, motivoOtroSinDetalle } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 import { CLAVE_CIERRE_PENDIENTE } from "@/lib/crm-stage-sync";
+import { AVISO_FALTA_COTIZACION, normalizarCotizacion } from "@/features/crm/domain/cotizacion-de-gestion";
 
 const updateCrmStageSchema = z.object({
   contactId: z.string().trim().min(1),
@@ -26,6 +27,9 @@ const updateCrmStageSchema = z.object({
   // Fecha real de la venta. Solo aplica a GANADO. Si no viene, se usa la fecha de hoy. Editable
   // para poder corregir ventas mal fechadas o cargar ventas viejas con su dia real.
   wonAt: z.string().trim().min(1).optional(),
+  // Numero de cotizacion de Gestion (COT-00123). OBLIGATORIO para GANADO (ver
+  // cotizacion-de-gestion.ts); en cualquier otra etapa se ignora.
+  wonQuoteRef: z.string().trim().max(40).optional(),
 });
 
 function parseWonAt(value: string | undefined): Date {
@@ -46,6 +50,7 @@ export async function updateCrmStageAction(input: {
   status: CrmStage;
   lostReason?: string;
   wonAt?: string;
+  wonQuoteRef?: string;
 }) {
   const session = await auth();
 
@@ -96,11 +101,22 @@ export async function updateCrmStageAction(input: {
   // cualquier otra etapa se limpia (igual que lostReason) para que no ensucie el reporte.
   const wonAt = parsed.data.status === "GANADO" ? parseWonAt(parsed.data.wonAt) : null;
 
+  /*
+    Sin numero de cotizacion de Gestion no hay Ganado (Alex, 02-10-2026), igual que sin motivo no
+    hay descarte. Se valida ACA y no solo en las pantallas: todas -kanban, chat, llamadas, el aviso
+    de cierre- pasan por esta accion, y asi ninguna se puede saltear la regla.
+  */
+  const wonQuoteRef = parsed.data.status === "GANADO" ? normalizarCotizacion(parsed.data.wonQuoteRef) : null;
+  if (parsed.data.status === "GANADO" && !wonQuoteRef) {
+    return { error: AVISO_FALTA_COTIZACION };
+  }
+
   await prisma.$executeRaw`
     UPDATE "Contact"
     SET "crmStage" = ${parsed.data.status},
         "lostReason" = ${lostReason},
         "wonAt" = ${wonAt},
+        "wonQuoteRef" = ${wonQuoteRef},
         "updatedAt" = NOW()
     WHERE "id" = ${contact.id}
   `;
@@ -131,7 +147,9 @@ export async function updateCrmStageAction(input: {
       actorUserId: session.user.id,
       text: reasonLabel
         ? `${actorName} cambió la etapa a "${stageLabel}" (motivo: ${reasonLabel})`
-        : `${actorName} cambió la etapa a "${stageLabel}"`,
+        : wonQuoteRef
+          ? `${actorName} cambió la etapa a "${stageLabel}" (cotización ${wonQuoteRef})`
+          : `${actorName} cambió la etapa a "${stageLabel}"`,
     });
   }
 
@@ -280,6 +298,8 @@ export async function snoozeLeadAction(input: {
 export async function responderCierreDeCompraAction(input: {
   contactId: string;
   seCerro: boolean;
+  /** Obligatorio si se cerro: el numero de cotizacion de Gestion. */
+  wonQuoteRef?: string;
 }): Promise<{ ok?: boolean; error?: string }> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
@@ -303,7 +323,11 @@ export async function responderCierreDeCompraAction(input: {
     // Se reusa la accion de siempre: pone la etapa, la fecha de venta, dispara los seguimientos y
     // deja la nota en el chat. Marcar la venta desde acá tiene que dejar el CRM exactamente igual
     // que arrastrar la tarjeta a mano, o serían dos ventas distintas segun por donde se marcó.
-    const resultado = await updateCrmStageAction({ contactId: contact.id, status: "GANADO" });
+    const resultado = await updateCrmStageAction({
+      contactId: contact.id,
+      status: "GANADO",
+      wonQuoteRef: input.wonQuoteRef,
+    });
     if (resultado?.error) {
       return { error: resultado.error };
     }

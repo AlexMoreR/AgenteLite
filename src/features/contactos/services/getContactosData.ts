@@ -178,6 +178,7 @@ function buildContactSelect(agentId: string) {
     excludedFromCrm: true,
     crmStage: true,
     wonAt: true,
+    wonQuoteRef: true,
     createdAt: true,
     updatedAt: true,
     ContactTag: {
@@ -543,6 +544,7 @@ export async function getContactosData({
       excludedFromCrm: contact.excludedFromCrm,
       crmStage: contact.crmStage,
       wonAt: contact.wonAt?.toISOString() ?? null,
+      wonQuoteRef: contact.wonQuoteRef ?? null,
       tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
       createdAt: contact.createdAt.toISOString(),
       updatedAt: contact.updatedAt.toISOString(),
@@ -654,6 +656,7 @@ export async function getContactosData({
         excludedFromCrm: selectedContactFromQuery.excludedFromCrm,
         crmStage: selectedContactFromQuery.crmStage,
         wonAt: selectedContactFromQuery.wonAt?.toISOString() ?? null,
+        wonQuoteRef: selectedContactFromQuery.wonQuoteRef ?? null,
         tags: getContactTags(selectedContactFromQuery.ContactTag.map((item) => item.Tag)),
         createdAt: selectedContactFromQuery.createdAt.toISOString(),
         updatedAt: selectedContactFromQuery.updatedAt.toISOString(),

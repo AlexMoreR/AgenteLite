@@ -16,6 +16,8 @@ export type DailyReportRow = {
   tags: Array<{ name: string; color: string }>;
   summary: string;
   stage: string;
+  /** Cotizacion de Gestion de la venta, solo en los Ganados. Los informes viejos no la traen. */
+  quoteRef?: string | null;
 };
 
 export type DailyReportMetrics = {
@@ -93,6 +95,7 @@ export async function computeDailyMetrics(
     phoneNumber: true,
     aiSummary: true,
     crmStage: true,
+    wonQuoteRef: true,
     ContactTag: { select: { Tag: { select: { name: true, color: true } } } },
   } as const;
 
@@ -164,6 +167,7 @@ export async function computeDailyMetrics(
       tags: c.ContactTag.map((ct) => ({ name: ct.Tag.name, color: ct.Tag.color })),
       summary: c.aiSummary?.trim() || "",
       stage: c.crmStage,
+      quoteRef: c.crmStage === "GANADO" ? c.wonQuoteRef ?? null : null,
     }));
 
   return {

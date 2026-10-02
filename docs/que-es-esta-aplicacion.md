@@ -186,6 +186,15 @@ la IA pausada no lo contesta el agente.
 - **Reparto**: un lead nuevo se asigna por turnos entre las colaboradoras de la línea que no estén en
   pausa ni fuera de su horario; si viene de un anuncio con regla de campaña, va a quien diga la regla. El
   reparto nunca le quita un chat a quien ya lo tiene.
+- **Ganado exige cotización**: nadie puede marcar GANADO sin el número de la cotización de Gestión
+  (`COT-00123`), desde ninguna pantalla; se guarda en `Contact.wonQuoteRef` junto a `wonAt`. Ningún
+  agente ni automatismo pone GANADO o PERDIDO.
+- **Contactos bloqueados** (`Contact.bloqueadoEn`): solo dueño o admin bloquean desde la bandeja. Se
+  bloquean en WhatsApp en cada línea donde tienen chat, salen de la bandeja y del CRM y se les pausa el
+  agente. Se desbloquean en Contactos → Bloqueados.
+- **Freno de automáticos**: ningún mensaje automático (seguimientos del V3, programados, reactivación)
+  sale si el último mensaje nuestro no está leído, ni un tercero seguido sin respuesta del cliente. Las
+  respuestas a lo que escribe el cliente no pasan por el freno.
 - **Roles**: asesora (sus chats), supervisora (ve "Todas" pero solo de sus líneas, asigna, ve tableros y
   automatizaciones; se guarda en `AppSetting equipo:supervisoras:<workspace>`), administradora y dueño.
   La monitora mira sin poder escribir.
@@ -226,6 +235,12 @@ la IA pausada no lo contesta el agente.
 - **El embudo en tres niveles** (SalesFunnel, CategoryPlaybook, ProductSpec) tiene tablas pero no está
   en uso.
 - **Las líneas por WAHA salen todas por una sola IP** del servidor.
+- **La cotización de un Ganado no se verifica contra Gestión**: solo se valida el formato. Gestión no
+  tiene cómo consultar una cotización por número (su MCP solo lista por fechas y trae el nombre del
+  cliente, sin teléfono).
+- **Los clientes con el visto apagado no reciben automáticos**: sus mensajes nunca pasan a "leído", así
+  que el freno los detiene siempre (1 de cada 4 chats que responden, medido el 02-10-2026).
+- **Las campañas no pasan por el freno de automáticos**.
 
 ## Advertencias de operación
 

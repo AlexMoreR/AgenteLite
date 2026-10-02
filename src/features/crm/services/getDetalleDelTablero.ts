@@ -119,7 +119,7 @@ export async function getDetalleDelTablero(input: {
     select: {
       id: true,
       lastMessageAt: true,
-      contact: { select: { name: true, phoneNumber: true, crmStage: true, wonAt: true } },
+      contact: { select: { name: true, phoneNumber: true, crmStage: true, wonAt: true, wonQuoteRef: true } },
     },
   });
 
@@ -134,7 +134,13 @@ export async function getDetalleDelTablero(input: {
         telefono: fila.contact.phoneNumber,
         etapa: fila.contact.crmStage,
         cuando: cuando ? cuando.toISOString() : null,
-        nota: input.tipo === "enfriandose" && dias !== null ? `${dias} días sin movimiento` : null,
+        // En las ventas, la cotizacion de Gestion que la respalda, al lado de cada una.
+        nota:
+          input.tipo === "ventas"
+            ? fila.contact.wonQuoteRef ?? "sin cotización"
+            : input.tipo === "enfriandose" && dias !== null
+              ? `${dias} días sin movimiento`
+              : null,
       };
     }),
   };

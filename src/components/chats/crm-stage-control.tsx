@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { ArrowLeft, Check, ChevronDown } from "lucide-react";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
 import {
@@ -14,6 +15,8 @@ import {
   motivoOtroConDetalle,
 } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
+import { CampoDeCotizacion } from "@/features/crm/components/CampoDeCotizacion";
+import { normalizarCotizacion } from "@/features/crm/domain/cotizacion-de-gestion";
 
 /**
  * Cuanta gente hay en cada etapa, compartido por todas las filas.
@@ -86,11 +89,15 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
   // Tercer paso: eligio "Otro" y tiene que escribir cual fue la razon.
   const [escribiendoOtro, setEscribiendoOtro] = useState(false);
   const [otroDetalle, setOtroDetalle] = useState("");
-  // Para leerlo desde los oyentes de la ventana sin volver a registrarlos.
+  // Paso de Ganado: el numero de cotizacion de Gestion, obligatorio (ver cotizacion-de-gestion.ts).
+  const [pidiendoCotizacion, setPidiendoCotizacion] = useState(false);
+  const [cotizacion, setCotizacion] = useState("");
+  // Para leerlo desde los oyentes de la ventana sin volver a registrarlos. Escribiendo la razon de
+  // "Otro" o la cotizacion, el panel no se cierra al aparecer el teclado del celular.
   const escribiendoOtroRef = useRef(false);
   useEffect(() => {
-    escribiendoOtroRef.current = escribiendoOtro;
-  }, [escribiendoOtro]);
+    escribiendoOtroRef.current = escribiendoOtro || pidiendoCotizacion;
+  }, [escribiendoOtro, pidiendoCotizacion]);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -98,7 +105,7 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
   }, [stage]);
 
   const commitStage = useCallback(
-    (nextStage: CrmStage, lostReason?: string) => {
+    (nextStage: CrmStage, lostReason?: string, wonQuoteRef?: string) => {
       setError(null);
       const previousStage = currentStage;
       setCurrentStage(nextStage);
@@ -106,11 +113,16 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
       setAskingLostReason(false);
       setEscribiendoOtro(false);
       setOtroDetalle("");
+      setPidiendoCotizacion(false);
+      setCotizacion("");
       startTransition(async () => {
-        const result = await updateCrmStageAction({ contactId, status: nextStage, lostReason });
+        const result = await updateCrmStageAction({ contactId, status: nextStage, lostReason, wonQuoteRef });
         if (result?.error) {
           setCurrentStage(previousStage);
           setError(result.error);
+          // Antes el error solo quedaba en el `title` del boton y nadie lo veia: la etapa volvia
+          // atras sin explicacion.
+          toast.error(result.error);
           return;
         }
         router.refresh();
@@ -133,6 +145,14 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
       if (nextStage === "PERDIDO") {
         setError(null);
         setAskingLostReason(true);
+        return;
+      }
+
+      // Ganado pide el numero de cotizacion de Gestion, en el mismo panel (Alex, 02-10-2026).
+      if (nextStage === "GANADO") {
+        setError(null);
+        setCotizacion("");
+        setPidiendoCotizacion(true);
         return;
       }
 
@@ -274,12 +294,14 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
       ) {
         setOpen(false);
         setAskingLostReason(false);
+        setPidiendoCotizacion(false);
       }
     };
     const alTeclear = (evento: KeyboardEvent) => {
       if (evento.key === "Escape") {
         setOpen(false);
         setAskingLostReason(false);
+        setPidiendoCotizacion(false);
       }
     };
     document.addEventListener("mousedown", alTocarAfuera);
@@ -343,6 +365,16 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
             espacio en una pantalla de celular. La cabecera queda solo para poder VOLVER cuando se
             esta eligiendo el motivo de la perdida.
           */}
+          {pidiendoCotizacion ? (
+            <button
+              type="button"
+              onClick={() => setPidiendoCotizacion(false)}
+              className="flex w-full items-center gap-1.5 border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground transition hover:text-foreground"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Venta ganada
+            </button>
+          ) : null}
           {askingLostReason ? (
             <button
               type="button"
@@ -355,7 +387,26 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
           ) : null}
 
           <div className="max-h-[60vh] overflow-y-auto py-1">
-            {askingLostReason && escribiendoOtro ? (
+            {pidiendoCotizacion ? (
+              <form
+                className="space-y-2 px-3 py-2"
+                onSubmit={(evento) => {
+                  evento.preventDefault();
+                  if (normalizarCotizacion(cotizacion)) {
+                    commitStage("GANADO", undefined, cotizacion);
+                  }
+                }}
+              >
+                <CampoDeCotizacion valor={cotizacion} onCambio={setCotizacion} autoFocus />
+                <button
+                  type="submit"
+                  disabled={isPending || !normalizarCotizacion(cotizacion)}
+                  className="w-full rounded-md bg-emerald-600 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  Marcar Ganado
+                </button>
+              </form>
+            ) : askingLostReason && escribiendoOtro ? (
               <form
                 className="space-y-2 px-3 py-2"
                 onSubmit={(evento) => {

@@ -5,6 +5,8 @@ import { Loader2, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 
 import { responderCierreDeCompraAction } from "@/app/actions/crm-actions";
+import { CampoDeCotizacion } from "@/features/crm/components/CampoDeCotizacion";
+import { normalizarCotizacion } from "@/features/crm/domain/cotizacion-de-gestion";
 
 /**
  * "Este cliente entregó datos de compra — ¿se cerró?"
@@ -19,6 +21,9 @@ import { responderCierreDeCompraAction } from "@/app/actions/crm-actions";
  * exactamente lo que no pasaba.
  *
  * "Todavía no" NO es "se perdió": solo saca la pregunta y el lead sigue en Caliente.
+ *
+ * "Sí, se cerró" pide el número de cotización de Gestión antes de guardar: sin él no hay Ganado
+ * (Alex, 02-10-2026; ver cotizacion-de-gestion.ts).
  */
 export function AvisoDeCierre({
   contactId,
@@ -28,11 +33,17 @@ export function AvisoDeCierre({
   alResponder: () => void;
 }) {
   const [enviando, setEnviando] = React.useState<"si" | "no" | null>(null);
+  const [pidiendoCotizacion, setPidiendoCotizacion] = React.useState(false);
+  const [cotizacion, setCotizacion] = React.useState("");
 
   const responder = async (seCerro: boolean) => {
     setEnviando(seCerro ? "si" : "no");
     try {
-      const resultado = await responderCierreDeCompraAction({ contactId, seCerro });
+      const resultado = await responderCierreDeCompraAction({
+        contactId,
+        seCerro,
+        wonQuoteRef: seCerro ? cotizacion : undefined,
+      });
       if (resultado?.error) {
         toast.error(resultado.error);
         setEnviando(null);
@@ -49,6 +60,42 @@ export function AvisoDeCierre({
       setEnviando(null);
     }
   };
+
+  if (pidiendoCotizacion) {
+    return (
+      <div className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-3 py-2.5 dark:border-emerald-900 dark:bg-emerald-950/40">
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(evento) => {
+            evento.preventDefault();
+            if (normalizarCotizacion(cotizacion)) void responder(true);
+          }}
+        >
+          <div className="min-w-[200px] flex-1">
+            <CampoDeCotizacion valor={cotizacion} onCambio={setCotizacion} autoFocus />
+          </div>
+          <span className="flex shrink-0 items-center gap-2 pb-5">
+            <button
+              type="button"
+              disabled={enviando !== null}
+              onClick={() => setPidiendoCotizacion(false)}
+              className="rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-60 dark:text-emerald-200 dark:hover:bg-emerald-900"
+            >
+              Volver
+            </button>
+            <button
+              type="submit"
+              disabled={enviando !== null || !normalizarCotizacion(cotizacion)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {enviando === "si" ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              Marcar Ganado
+            </button>
+          </span>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-3 py-2.5 dark:border-emerald-900 dark:bg-emerald-950/40">
@@ -71,7 +118,7 @@ export function AvisoDeCierre({
           <button
             type="button"
             disabled={enviando !== null}
-            onClick={() => void responder(true)}
+            onClick={() => setPidiendoCotizacion(true)}
             className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-emerald-700 disabled:opacity-60"
           >
             {enviando === "si" ? <Loader2 className="size-3.5 animate-spin" /> : null}

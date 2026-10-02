@@ -13,6 +13,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { toast } from "sonner";
+import { CampoDeCotizacion } from "./CampoDeCotizacion";
+import { normalizarCotizacion } from "../domain/cotizacion-de-gestion";
 import {
   CRM_DATE_RANGE_DEFAULT,
   CRM_DATE_RANGE_OPTIONS,
@@ -245,9 +249,18 @@ export function CrmRegistroTable({
     window.setTimeout(() => setCopiedField((current) => (current === field ? null : current)), 1200);
   };
 
-  const handleChangeStatus = async (recordId: string, nextStatus: CrmStage) => {
+  // Ganado pide el numero de cotizacion de Gestion antes de guardar (ver cotizacion-de-gestion.ts).
+  const [ganadoPendiente, setGanadoPendiente] = React.useState<string | null>(null);
+  const [cotizacion, setCotizacion] = React.useState("");
+
+  const handleChangeStatus = async (recordId: string, nextStatus: CrmStage, wonQuoteRef?: string) => {
     const previousRecord = editableRecords.find((record) => record.id === recordId);
     if (!previousRecord) {
+      return;
+    }
+    if (nextStatus === "GANADO" && !wonQuoteRef) {
+      setCotizacion(previousRecord.wonQuoteRef ?? "");
+      setGanadoPendiente(recordId);
       return;
     }
 
@@ -260,6 +273,7 @@ export function CrmRegistroTable({
     const result = await updateCrmStageAction({
       contactId: recordId,
       status: nextStatus,
+      wonQuoteRef,
     });
 
     setSavingContactIds((current) => ({ ...current, [recordId]: false }));
@@ -268,6 +282,7 @@ export function CrmRegistroTable({
       setEditableRecords((current) =>
         current.map((record) => (record.id === recordId ? { ...record, status: previousRecord.status } : record)),
       );
+      toast.error(result.error);
     }
   };
 
@@ -716,6 +731,47 @@ export function CrmRegistroTable({
       {copiedField ? (
         <p className="text-xs text-emerald-600">Copiado al portapapeles.</p>
       ) : null}
+
+      <Dialog
+        open={Boolean(ganadoPendiente)}
+        onOpenChange={(abierto) => {
+          if (!abierto) setGanadoPendiente(null);
+        }}
+      >
+        <DialogContent showCloseButton={false} className="w-[calc(100vw-2rem)] max-w-sm gap-0 overflow-hidden p-0">
+          <div className="border-b border-border px-4 py-3">
+            <DialogTitle className="text-[13px] font-semibold text-foreground">Venta ganada</DialogTitle>
+          </div>
+          <div className="space-y-3 px-4 py-4">
+            <CampoDeCotizacion
+              valor={cotizacion}
+              onCambio={setCotizacion}
+              autoFocus
+              onEnter={() => {
+                const recordId = ganadoPendiente;
+                setGanadoPendiente(null);
+                if (recordId) void handleChangeStatus(recordId, "GANADO", cotizacion);
+              }}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setGanadoPendiente(null)}>
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                disabled={!normalizarCotizacion(cotizacion)}
+                onClick={() => {
+                  const recordId = ganadoPendiente;
+                  setGanadoPendiente(null);
+                  if (recordId) void handleChangeStatus(recordId, "GANADO", cotizacion);
+                }}
+              >
+                Marcar Ganado
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -41,6 +41,7 @@ export type ContactosCardItem = {
   // Etapa del CRM (badge de solo lectura) y fecha real de venta si está Ganado.
   crmStage: string;
   wonAt: string | null;
+  wonQuoteRef?: string | null;
   tags: Array<{
     label: string;
     color: string;
@@ -348,9 +349,20 @@ export function ContactosCardsList({ contacts }: { contacts: ContactosCardItem[]
                     if (!meta) {
                       return null;
                     }
+                    // Ganado: la fecha real de la venta y la cotizacion de Gestion que la respalda.
                     const wonLabel =
-                      selected.crmStage === "GANADO" && selected.wonAt
-                        ? ` · ${new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(new Date(selected.wonAt))}`
+                      selected.crmStage === "GANADO"
+                        ? [
+                            selected.wonAt
+                              ? new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeZone: "America/Bogota" }).format(
+                                  new Date(selected.wonAt),
+                                )
+                              : null,
+                            selected.wonQuoteRef ?? null,
+                          ]
+                            .filter(Boolean)
+                            .map((parte) => ` · ${parte}`)
+                            .join("")
                         : "";
                     return (
                       <span

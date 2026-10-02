@@ -142,6 +142,12 @@ export default async function DailyReportPublicPage({ params }: PageProps) {
                         >
                           {stageLabel(row.stage)}
                         </span>
+                        {/* La cotizacion de Gestion que respalda cada venta. */}
+                        {row.stage === "GANADO" && row.quoteRef ? (
+                          <span className="ml-1.5 whitespace-nowrap text-xs font-medium tabular-nums text-slate-600">
+                            {row.quoteRef}
+                          </span>
+                        ) : null}
                       </td>
                     </tr>
                   ))}

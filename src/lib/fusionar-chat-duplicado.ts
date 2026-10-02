@@ -231,7 +231,12 @@ async function unirFichas(
       aiSummary: real.aiSummary ?? duplicada.aiSummary,
       avatarUrl: real.avatarUrl ?? duplicada.avatarUrl,
       ...(heredaEtapa
-        ? { crmStage: duplicada.crmStage, lostReason: duplicada.lostReason, wonAt: duplicada.wonAt }
+        ? {
+            crmStage: duplicada.crmStage,
+            lostReason: duplicada.lostReason,
+            wonAt: duplicada.wonAt,
+            wonQuoteRef: duplicada.wonQuoteRef,
+          }
         : {}),
     },
   });

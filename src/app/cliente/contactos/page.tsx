@@ -156,6 +156,7 @@ export default async function ClienteContactosPage({ searchParams }: PageProps) 
                 lastActivityAt: contact.lastActivityAt,
                 crmStage: contact.crmStage,
                 wonAt: contact.wonAt,
+                wonQuoteRef: contact.wonQuoteRef,
                 tags: contact.tags,
               }))}
             />
