@@ -8,6 +8,7 @@ import {
 } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { getVisibleChannelIds } from "@/lib/channel-visibility";
+import { getCrmStageLabel } from "@/features/crm/domain/crm-config";
 
 /**
  * Buscador global: una sola caja para toda la app.
@@ -96,6 +97,9 @@ export async function GET(request: Request) {
           select: {
             id: true,
             contact: { select: { name: true, phoneNumber: true } },
+            // La linea: un mismo cliente puede tener un chat en Ventas 1 y otro en Admin, y sin
+            // esto el buscador mostraba dos resultados identicos (Alex, 02-10-2026).
+            channel: { select: { name: true } },
           },
         })
       : Promise.resolve([]),
@@ -110,7 +114,17 @@ export async function GET(request: Request) {
           },
           orderBy: { updatedAt: "desc" },
           take: POR_GRUPO,
-          select: { id: true, name: true, phoneNumber: true, crmStage: true },
+          select: {
+            id: true,
+            name: true,
+            phoneNumber: true,
+            crmStage: true,
+            // Las lineas donde tiene chat, solo entre las que esta persona puede ver.
+            conversations: {
+              where: canalesVisibles ? { channelId: { in: canalesVisibles } } : {},
+              select: { channel: { select: { name: true } } },
+            },
+          },
         })
       : Promise.resolve([]),
     puedeProductos
@@ -144,7 +158,10 @@ export async function GET(request: Request) {
       titulo: taparTelefonos
         ? enmascararSiEsTelefono(chat.contact.name?.trim() || chat.contact.phoneNumber)
         : chat.contact.name?.trim() || chat.contact.phoneNumber,
-      detalle: taparTelefonos ? enmascararTelefono(chat.contact.phoneNumber) : chat.contact.phoneNumber,
+      detalle: [
+        taparTelefonos ? enmascararTelefono(chat.contact.phoneNumber) : chat.contact.phoneNumber,
+        chat.channel?.name ?? "sin línea",
+      ].join(" · "),
       href: `/cliente/chats?chatKey=${encodeURIComponent(`agent:${chat.id}`)}`,
     })),
     ...contactos.map((contacto) => ({
@@ -153,7 +170,13 @@ export async function GET(request: Request) {
       titulo: taparTelefonos
         ? enmascararSiEsTelefono(contacto.name?.trim() || contacto.phoneNumber)
         : contacto.name?.trim() || contacto.phoneNumber,
-      detalle: `${taparTelefonos ? enmascararTelefono(contacto.phoneNumber) : contacto.phoneNumber} · ${contacto.crmStage.toLowerCase()}`,
+      detalle: [
+        taparTelefonos ? enmascararTelefono(contacto.phoneNumber) : contacto.phoneNumber,
+        Array.from(new Set(contacto.conversations.map((cv) => cv.channel?.name).filter(Boolean))).join(", ") ||
+          "sin chat",
+        // El nombre de la etapa como se ve en la pantalla ("Frio", "Tibio"), no el interno.
+        getCrmStageLabel(contacto.crmStage),
+      ].join(" · "),
       href: `/cliente/contactos?contactId=${encodeURIComponent(contacto.id)}`,
     })),
     ...productos.map((producto) => ({
