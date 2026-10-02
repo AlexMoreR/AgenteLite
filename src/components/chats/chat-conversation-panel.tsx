@@ -97,6 +97,7 @@ import type {
 import { FichaDeCotizacion } from "@/features/cotizaciones/components/FichaDeCotizacion";
 import { CHAT_COMPOSER_RECENT_KEY, type ComposerEmojiTab } from "./chat-inbox-emojis";
 import { MessageBubble } from "./chat-message-bubble";
+import { esNotaInternaDelAgente } from "@/lib/notas-internas-del-agente";
 import { ComposerEmojiPicker, ComposerSendButton } from "./chat-composer";
 import { AvisoDeCierre } from "./aviso-de-cierre";
 import { AvisoDeLlamada } from "./aviso-de-llamada";
@@ -474,14 +475,22 @@ export const ConversationPanel = memo(function ConversationPanel({
   // Lista final a renderizar: mensajes reales + optimistas que aún no llegaron (mismo
   // mediaUrl ⇒ ya está el real, se descarta el optimista para no duplicar).
   const displayedMessages = useMemo(() => {
+    /*
+      Las notas internas del Agente V3 fuera de la vista (ver notas-internas-del-agente). El
+      servidor ya no las manda, pero un chat guardado en la cache del navegador de antes del cambio
+      todavia las trae: se filtran tambien aca.
+    */
+    const sinNotasInternas = renderedMessages.some(esNotaInternaDelAgente)
+      ? renderedMessages.filter((mensaje) => !esNotaInternaDelAgente(mensaje))
+      : renderedMessages;
     if (optimisticMediaMessages.length === 0) {
-      return renderedMessages;
+      return sinNotasInternas;
     }
     const pending = optimisticMediaMessages.filter(
       (optimistic) =>
-        !renderedMessages.some((real) => Boolean(real.mediaUrl) && real.mediaUrl === optimistic.mediaUrl),
+        !sinNotasInternas.some((real) => Boolean(real.mediaUrl) && real.mediaUrl === optimistic.mediaUrl),
     );
-    return pending.length === 0 ? renderedMessages : [...renderedMessages, ...pending];
+    return pending.length === 0 ? sinNotasInternas : [...sinNotasInternas, ...pending];
   }, [renderedMessages, optimisticMediaMessages]);
   const [isContactPanelOpen, setIsContactPanelOpen] = useState(false);
   const isMobile = useIsMobile();

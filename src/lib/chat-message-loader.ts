@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { PREFIJO_NOTA_INTERNA_DEL_AGENTE } from "@/lib/notas-internas-del-agente";
 import { extractEvolutionMessageText } from "@/lib/evolution-webhook";
 
 export type AgentConversationMessageRecord = {
@@ -173,6 +174,20 @@ export async function loadAgentConversationDetail(input: {
       // filtro en JS sobre rawPayload). rawPayload se mantiene en el select
       // porque el UI lo usa para resolver media y previews de anuncios.
       isStatusBroadcast: false,
+      /*
+        Sin las notas internas del Agente V3 (ver notas-internas-del-agente): siguen en la base,
+        pero el chat no las muestra. Se filtran aca, en la consulta, para que cada tanda traiga sus
+        mensajes completos en vez de llegar con huecos.
+
+        Va como OR de tres y no como un NOT de "SYSTEM y empieza con": en SQL, un NOT sobre una
+        comparacion con content NULL da NULL y la fila se pierde. Los audios y las fotos no tienen
+        texto, y con la forma corta desaparecian del chat.
+      */
+      OR: [
+        { type: { not: "SYSTEM" } },
+        { content: null },
+        { NOT: { content: { startsWith: PREFIJO_NOTA_INTERNA_DEL_AGENTE } } },
+      ],
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: batchSize + 1,
