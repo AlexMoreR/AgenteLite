@@ -232,6 +232,9 @@ export async function loadAgentConversationDetail(input: {
     // Se selecciona arriba y hasta ahora no salia de aca: sin esto la fila de la bandeja no podia
     // enterarse de un cambio de dueño sin recargar la lista entera.
     assignedTo: conversation.assignedTo,
+    // Lo mismo con el estado: se leia y no salia, y la cabecera caia en "OPEN" por defecto. Un
+    // chat resuelto mostraba "Resolver" en vez de "Reabrir" (Alex, 02-10-2026).
+    status: conversation.status,
     contact: conversation.contact,
     channel: conversation.channel,
     messages: await conLlamadas({
