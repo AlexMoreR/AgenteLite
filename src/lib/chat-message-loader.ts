@@ -27,6 +27,8 @@ export type LoadedAgentConversationDetail = {
   automationPaused: boolean;
   /** Quien tiene el chat. Viaja al cliente para que la fila de la bandeja se entere de los cambios. */
   assignedTo: { id: string; name: string | null; email: string | null } | null;
+  /** Abierto o resuelto: de aca sale si la cabecera dice "Resolver" o "Reabrir". */
+  status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
   contact: {
     id: string;
     name: string | null;
