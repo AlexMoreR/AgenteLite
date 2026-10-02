@@ -483,6 +483,23 @@ export function areSelectedConversationsEqual(
     left.contactName === right.contactName &&
     left.avatarUrl === right.avatarUrl &&
     left.automationPaused === right.automationPaused &&
+    /*
+      Los datos de la cabecera y de la ficha tambien cuentan como cambio.
+
+      El chat se abre primero con lo que hay en la cache del navegador, que no guarda el estado ni
+      la asignacion, y despues llega /live con los datos de verdad. Si esta comparacion no los
+      miraba, la respuesta fresca se descartaba por "igual" y quedaban los de la cache: un chat
+      resuelto mostraba "Resolver" en vez de "Reabrir" (Alex, 02-10-2026) y la asignada tardaba
+      en aparecer o salia la de antes.
+    */
+    (left.status ?? null) === (right.status ?? null) &&
+    (left.crmStage ?? null) === (right.crmStage ?? null) &&
+    Boolean(left.cierrePendiente) === Boolean(right.cierrePendiente) &&
+    (left.channelId ?? null) === (right.channelId ?? null) &&
+    (left.channelName ?? null) === (right.channelName ?? null) &&
+    (left.assignedTo?.id ?? null) === (right.assignedTo?.id ?? null) &&
+    (left.assignedTo?.name ?? null) === (right.assignedTo?.name ?? null) &&
+    Boolean(left.canImportHistory) === Boolean(right.canImportHistory) &&
     left.loadMoreHref === right.loadMoreHref &&
     left.loadMoreCursor === right.loadMoreCursor &&
     left.hasMoreMessages === right.hasMoreMessages &&
