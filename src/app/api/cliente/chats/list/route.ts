@@ -197,6 +197,8 @@ async function getAgentConversationList(input: {
     workspaceId: input.workspaceId,
     AND: [
       whereDeEtapas(input.filtros),
+      // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
+      { contact: { bloqueadoEn: null } },
       sinResponder ? { id: { in: sinResponder } } : {},
       // Con los mismos filtros que el resto: un fijado que no cumple el filtro puesto no aparece.
       input.soloIds ? { id: { in: input.soloIds } } : {},

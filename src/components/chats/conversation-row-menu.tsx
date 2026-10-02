@@ -3,6 +3,7 @@
 import { useCallback, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Ban,
   ChevronLeft,
   CircleCheck,
   Clock3,
@@ -20,11 +21,18 @@ import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { assignChatAction, updateConversationStatusAction, type AssignableMember } from "@/app/actions/chats-actions";
 import { pedirMiembros } from "@/components/chats/assign-chat-control";
-import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
+import {
+  CHAT_SNOOZED_EVENT,
+  CHAT_STATUS_CHANGED_EVENT,
+  type ChatSnoozedDetail,
+  type ChatStatusChangedDetail,
+} from "@/components/chats/chat-inbox-types";
 import { irALaBandejaLimpia } from "@/components/chats/ir-a-la-bandeja-limpia";
 import { snoozeLeadAction } from "@/app/actions/crm-actions";
 import { fijarChatAction } from "@/app/actions/chats-fijados-actions";
 import { ponerFijados } from "@/components/chats/chats-fijados-store";
+import { usePuedeBloquear } from "@/components/chats/permisos-de-la-bandeja-store";
+import { bloquearContactoAction } from "@/app/actions/bloqueo-actions";
 
 /**
  * El menú de una fila de la bandeja.
@@ -78,6 +86,9 @@ export function ConversationRowMenu({
   const [miembros, setMiembros] = useState<AssignableMember[] | null>(null);
   const [errorMiembros, setErrorMiembros] = useState<string | null>(null);
   const [asignando, setAsignando] = useState(false);
+  // Tercera vista: confirmar el bloqueo. Bloquear corta al cliente en WhatsApp: no va de un toque.
+  const [vistaBloquear, setVistaBloquear] = useState(false);
+  const puedeBloquear = usePuedeBloquear() && source === "agent" && Boolean(contactId);
   const resuelto = status === "CLOSED" || status === "ARCHIVED";
 
   const cerrarYCorrer = useCallback((accion: () => Promise<void>) => {
@@ -195,6 +206,41 @@ export function ConversationRowMenu({
       toast.success(fijado ? "Chat desfijado" : "Chat fijado arriba");
     });
 
+  /*
+    Bloquear: en WhatsApp, en todas las lineas donde tiene chat, y fuera de la bandeja y del CRM
+    (ver lib/bloqueo-de-contactos). Solo duenio y admin; se desbloquea desde Contactos.
+  */
+  const bloquear = () =>
+    cerrarYCorrer(async () => {
+      if (!contactId) {
+        return;
+      }
+      const resultado = await bloquearContactoAction({ contactId }).catch(() => ({
+        error: "No se pudo bloquear",
+      }));
+      setVistaBloquear(false);
+      if ("error" in resultado) {
+        toast.error(resultado.error);
+        return;
+      }
+      if (resultado.lineasConError.length > 0) {
+        toast.warning(
+          `Bloqueado en el CRM, pero en WhatsApp no se pudo en: ${resultado.lineasConError
+            .map((fila) => fila.linea)
+            .join(", ")}.`,
+        );
+      } else {
+        toast.success("Contacto bloqueado. Se desbloquea desde Contactos.");
+      }
+      // Salen de la bandeja en el acto todos sus chats, no solo esta fila: puede tener uno por linea.
+      for (const id of new Set([conversationId, ...resultado.chatIds])) {
+        window.dispatchEvent(
+          new CustomEvent<ChatSnoozedDetail>(CHAT_SNOOZED_EVENT, { detail: { conversationId: id, source } }),
+        );
+      }
+      irALaBandejaLimpia(router, true, conversationId);
+    });
+
   const copiarNumero = () => {
     setAbierto(false);
     if (!phoneNumber) {
@@ -216,7 +262,15 @@ export function ConversationRowMenu({
         evento.stopPropagation();
       }}
     >
-      <Popover open={abierto} onOpenChange={setAbierto}>
+      <Popover
+        open={abierto}
+        onOpenChange={(siguiente) => {
+          setAbierto(siguiente);
+          if (!siguiente) {
+            setVistaBloquear(false);
+          }
+        }}
+      >
         <PopoverTrigger
           className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
           aria-label="Acciones de la conversación"
@@ -232,7 +286,32 @@ export function ConversationRowMenu({
           sideOffset={6}
           className="w-60 rounded-2xl border border-border bg-popover p-1.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
         >
-          {vistaAsignar ? (
+          {vistaBloquear ? (
+            <div className="flex flex-col gap-2 p-1.5">
+              <p className="text-[13px] font-semibold text-foreground">¿Bloquear este contacto?</p>
+              <p className="text-[12px] leading-snug text-muted-foreground">
+                Se bloquea en WhatsApp: ya no podrá escribir ni llamar a ninguna de nuestras líneas. Sus
+                chats salen de la bandeja y del CRM. Se puede desbloquear desde Contactos.
+              </p>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setVistaBloquear(false)}
+                  className="rounded-lg px-3 py-1.5 text-[12.5px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={bloquear}
+                  disabled={isPending}
+                  className="rounded-lg bg-rose-600 px-3 py-1.5 text-[12.5px] font-medium text-white transition hover:bg-rose-700 disabled:opacity-60"
+                >
+                  Bloquear
+                </button>
+              </div>
+            </div>
+          ) : vistaAsignar ? (
             <div className="flex flex-col">
               <button
                 type="button"
@@ -311,6 +390,18 @@ export function ConversationRowMenu({
               <Opcion icono={<Copy className="size-4" />} texto="Copiar número" onClick={copiarNumero} />
             </>
           ) : null}
+
+          {puedeBloquear ? (
+            <>
+              <div className="my-1 h-px bg-border" />
+              <Opcion
+                icono={<Ban className="size-4" />}
+                texto="Bloquear contacto"
+                peligro
+                onClick={() => setVistaBloquear(true)}
+              />
+            </>
+          ) : null}
           </>
           )}
         </PopoverContent>
@@ -323,18 +414,25 @@ function Opcion({
   icono,
   texto,
   onClick,
+  peligro = false,
 }: {
   icono: React.ReactNode;
   texto: string;
   onClick: () => void;
+  /** En rojo: acciones que cortan algo con el cliente (bloquear). */
+  peligro?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] text-foreground transition hover:bg-muted"
+      className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] transition ${
+        peligro
+          ? "text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
+          : "text-foreground hover:bg-muted"
+      }`}
     >
-      <span className="shrink-0 text-muted-foreground">{icono}</span>
+      <span className={`shrink-0 ${peligro ? "" : "text-muted-foreground"}`}>{icono}</span>
       <span className="min-w-0 truncate">{texto}</span>
     </button>
   );

@@ -50,6 +50,8 @@ function buildBaseWhere(input: {
       // El numero de la pastilla tiene que contar LO MISMO que muestra la lista: si no, la asesora
       // filtra, ve 20 chats y al lado un "Todas 1956" que no le dice nada de lo que esta mirando.
       whereDeEtapas(input.filtros),
+      // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
+      { contact: { bloqueadoEn: null } },
       input.sinResponder ? { id: { in: input.sinResponder } } : {},
       input.snoozedContactIds.length ? { contactId: { notIn: input.snoozedContactIds } } : {},
       input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {},

@@ -391,6 +391,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     workspaceId: membership.workspace.id,
     AND: [
       whereDeEtapas(filtros),
+      // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
+      { contact: { bloqueadoEn: null } },
       conversacionesSinResponder ? { id: { in: conversacionesSinResponder } } : {},
       canalesVisibles ? { channelId: { in: canalesVisibles } } : {},
       conexionElegida.startsWith("channel:")
@@ -1303,6 +1305,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         veTodoElEquipo={modoMonitoreo}
         // Los que quien mira fijo arriba de su bandeja (hasta 3, como WhatsApp).
         chatsFijados={await leerChatsFijados(access.userId)}
+        // Bloquear contactos: solo dueño y admin (ver lib/bloqueo-de-contactos).
+        puedeBloquear={access.isOwner || access.role === "ADMIN"}
         chatSignature={chatSignature}
         initialConversationBatchSize={conversationListTake}
         initialHasMoreConversations={hasMoreConversationItems}

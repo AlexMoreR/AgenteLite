@@ -214,6 +214,9 @@ model Contact {
   aiSummary          String?
   aiSummaryAt        DateTime?
   excludedFromCrm    Boolean             @default(false)
+  // Bloqueado desde la bandeja (solo duenio/admin): se bloqueo en WhatsApp y el chat sale de la
+  // bandeja. Null = no bloqueado. Quien y en que lineas queda en metadata.bloqueo.
+  bloqueadoEn        DateTime?
   metadata           Json?
   crmStage           CrmStage            @default(NUEVO)
   // Fecha REAL de la venta (dia del pago). Solo tiene sentido con crmStage = GANADO. Se setea al

@@ -164,6 +164,8 @@ export type SharedInboxProps = {
   veTodoElEquipo?: boolean;
   /** Claves (`agent:<id>` / `official:<id>`) que quien mira fijo arriba de su bandeja. */
   chatsFijados?: string[];
+  /** Dueño o admin: ve "Bloquear contacto" en el menú de cada fila. */
+  puedeBloquear?: boolean;
   /** La firma de quien escribe, para dejarla visible en el compositor. */
   chatSignature?: string;
   conversationListApiPath?: string;

@@ -66,6 +66,7 @@ import { ChatHeaderActions } from "./chat-header-actions";
 import { MenuDelContacto } from "./menu-del-contacto";
 import { AssignChatControl } from "./assign-chat-control";
 import { inicializarFijados, useChatsFijados } from "./chats-fijados-store";
+import { inicializarPermisosDeLaBandeja } from "./permisos-de-la-bandeja-store";
 import type { CrmStage } from "@/features/crm/types";
 import { resolveCallTarget } from "@/lib/whatsapp-lid";
 
@@ -168,6 +169,7 @@ export function SharedInbox({
   isManager = false,
   veTodoElEquipo = false,
   chatsFijados,
+  puedeBloquear = false,
   chatSignature = "",
   conversationListApiPath = "/api/cliente/chats/list",
   initialConversationBatchSize = 20,
@@ -481,6 +483,10 @@ export function SharedInbox({
   useEffect(() => {
     inicializarFijados(firmaDeFijados ? firmaDeFijados.split(",") : []);
   }, [firmaDeFijados]);
+
+  useEffect(() => {
+    inicializarPermisosDeLaBandeja({ puedeBloquear });
+  }, [puedeBloquear]);
 
   /*
     Un fijado que no vino en la primera pagina -un chat viejo, que la bandeja carga de a 20- se pide

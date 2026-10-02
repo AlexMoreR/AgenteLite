@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { BarChart3, MoreVertical, Search } from "lucide-react";
+import { Ban, BarChart3, MoreVertical, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -15,6 +15,38 @@ import { getContactosData } from "@/features/contactos";
 import { ContactosCardsList } from "@/features/contactos/components/ContactosCardsList";
 import { NewContactDialog } from "@/features/contactos/components/NewContactDialog";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { ContactosBloqueados } from "@/features/contactos/components/ContactosBloqueados";
+import { prisma } from "@/lib/prisma";
+
+/** Los bloqueados desde la bandeja, para la vista "Bloqueados" (ver lib/bloqueo-de-contactos). */
+async function leerBloqueados(workspaceId: string) {
+  const contactos = await prisma.contact.findMany({
+    where: { workspaceId, bloqueadoEn: { not: null } },
+    orderBy: { bloqueadoEn: "desc" },
+    select: { id: true, name: true, phoneNumber: true, avatarUrl: true, bloqueadoEn: true, metadata: true },
+  });
+  const fecha = new Intl.DateTimeFormat("es-CO", {
+    timeZone: "America/Bogota",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return contactos.map((contacto) => {
+    const bloqueo =
+      contacto.metadata && typeof contacto.metadata === "object" && !Array.isArray(contacto.metadata)
+        ? ((contacto.metadata as Record<string, unknown>).bloqueo as { porNombre?: unknown } | undefined)
+        : undefined;
+    return {
+      id: contacto.id,
+      nombre: contacto.name?.trim() || contacto.phoneNumber,
+      telefono: contacto.phoneNumber,
+      avatarUrl: contacto.avatarUrl ?? null,
+      bloqueadoEl: contacto.bloqueadoEn ? fecha.format(contacto.bloqueadoEn) : "",
+      bloqueadoPor: typeof bloqueo?.porNombre === "string" ? bloqueo.porNombre : null,
+    };
+  });
+}
 
 export const metadata: Metadata = {
   robots: {
@@ -34,7 +66,14 @@ export default async function ClienteContactosPage({ searchParams }: PageProps) 
 
   const params = await searchParams;
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
-  const activeView = params.view === "informe" ? "informe" : "contacto";
+  // Bloquear y desbloquear es solo de dueño y admin: la vista ni se ofrece a los demás.
+  const puedeBloquear = access.isOwner || access.role === "ADMIN";
+  const activeView =
+    params.view === "informe"
+      ? "informe"
+      : params.view === "bloqueados" && puedeBloquear
+        ? "bloqueados"
+        : "contacto";
 
   const data = await getContactosData({ userId: access.userId, searchQuery });
   if (!data) {
@@ -73,12 +112,30 @@ export default async function ClienteContactosPage({ searchParams }: PageProps) 
                   Informe
                 </Link>
               </DropdownMenuItem>
+              {puedeBloquear ? (
+                <DropdownMenuItem asChild className="gap-2">
+                  <Link href="/cliente/contactos?view=bloqueados">
+                    <Ban className="h-4 w-4" />
+                    Bloqueados
+                  </Link>
+                </DropdownMenuItem>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
 
-      {activeView === "informe" ? (
+      {activeView === "bloqueados" ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-foreground">Contactos bloqueados</h2>
+            <Link href="/cliente/contactos" className="text-xs text-muted-foreground hover:text-foreground">
+              Volver a contactos
+            </Link>
+          </div>
+          <ContactosBloqueados contactos={await leerBloqueados(access.workspaceId)} />
+        </div>
+      ) : activeView === "informe" ? (
         <Card className="border-dashed">
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
             El informe de contactos está en reconstrucción.

@@ -1656,6 +1656,32 @@ export async function borrarMensajeWaha(input: {
 }
 
 /**
+ * Bloquea (o desbloquea) un contacto en WhatsApp, desde la linea de esta sesion.
+ *
+ * Contrato sacado del OpenAPI del servidor (02-10-2026): `POST /api/contacts/block` y
+ * `/api/contacts/unblock` con `{ contactId, session }`. El contacto se arma igual que para enviar:
+ * un lead de anuncio sin telefono va como "@lid", y si WhatsApp no lo reconoce como telefono se
+ * reintenta asi.
+ *
+ * NO se traga el error: quien bloquea tiene que saber si en WhatsApp quedo bloqueado o no.
+ */
+export async function bloquearContactoWaha(input: {
+  connection: WahaConnection;
+  sesion: string;
+  telefono: string;
+  bloquear: boolean;
+}): Promise<void> {
+  const chatId = await chatIdParaEnviar(input);
+  await enviarConReintentoDeLid(chatId, (contactId) =>
+    wahaRequest(input.connection, `/api/contacts/${input.bloquear ? "block" : "unblock"}`, {
+      method: "POST",
+      body: JSON.stringify({ contactId, session: input.sesion }),
+      esperaJson: false,
+    }),
+  );
+}
+
+/**
  * Avisa a WhatsApp que queremos saber cuando este contacto escribe.
  *
  * Sin esto no llega ningun evento. Y caduca: se vuelve a llamar cada vez que alguien abre el chat.
