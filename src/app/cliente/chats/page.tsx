@@ -67,6 +67,9 @@ type UnifiedConversation = {
   crmStage?: string | null;
   incomingCount?: number | null;
   assignedToName?: string | null;
+  // El nombre de la linea (Ventas 1, Admin...). Lo traia solo la recarga de /list, asi que la
+  // lista abria sin linea y "al rato aparecia" (Alex, 02-10-2026).
+  channelName?: string | null;
   lastMessage: string | null;
   lastMessageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "CONTACTS" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
@@ -818,6 +821,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       agentId: conversation.agentId || linkedChannel?.agent?.id || undefined,
       contactId: conversation.contact.id,
       channelId: conversation.channelId || undefined,
+      channelName: linkedChannel?.name?.trim() || null,
       label: latestMessage
         ? resolveStoredAgentContactLabel({
             contactName: conversation.contact.name,
@@ -870,6 +874,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : conversation.incomingCount ?? 0,
     // El badge de quien atiende: antes iba fijo en null y toda la columna salia "---".
     assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
+    // Los chats de la API oficial no tienen canal propio: salen todos por la linea oficial.
+    channelName: channels.find((channel) => channel.provider === "OFFICIAL_API")?.name?.trim() || null,
     lastMessage: conversation.lastMessage?.content ?? null,
     lastMessageType: conversation.lastMessage?.type ?? null,
     lastMessageDirection: conversation.lastMessage?.direction ?? null,
@@ -1320,6 +1326,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           incomingCount: item.incomingCount ?? 0,
           avatarUrl: item.avatarUrl ?? null,
           assignedToName: item.assignedToName ?? null,
+          channelName: item.channelName ?? null,
           lastMessage: item.lastMessage,
           lastMessageType: item.lastMessageType ?? null,
           lastMessageDirection: item.lastMessageDirection,

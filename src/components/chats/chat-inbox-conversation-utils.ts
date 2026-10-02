@@ -436,6 +436,10 @@ export function areConversationListItemsEqual(
     left.secondaryLabel === right.secondaryLabel &&
     left.avatarUrl === right.avatarUrl &&
     left.assignedToName === right.assignedToName &&
+    // La linea y el estado tambien: si no, la fila que llegaba sin linea se quedaba asi aunque la
+    // recarga la trajera, y la linea "aparecia al rato" o nunca (Alex, 02-10-2026).
+    (left.channelName ?? null) === (right.channelName ?? null) &&
+    (left.status ?? null) === (right.status ?? null) &&
     // Sin esto, un cambio de etapa que no toca el ultimo mensaje se considera "igual" y el badge
     // no se refresca hasta recargar.
     (left.crmStage ?? null) === (right.crmStage ?? null) &&
