@@ -11,6 +11,7 @@ import { ChatsEvolutionApiRealtime } from "@/components/chats/chats-evolution-ap
 import { PushSubscriptionManager } from "@/components/chats/push-subscription-manager";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { MenuDelContacto } from "@/components/chats/menu-del-contacto";
+import { leerChatsFijados } from "@/lib/chats-fijados";
 import { SharedInbox } from "@/components/chats/shared-inbox";
 import type { AssignedFilter } from "@/components/chats/chat-inbox-types";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -1294,6 +1295,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         isManager={isManager}
         // Quien monitorea tiene las pestañas y los filtros de un jefe, pero solo eso: no es jefe.
         veTodoElEquipo={modoMonitoreo}
+        // Los que quien mira fijo arriba de su bandeja (hasta 3, como WhatsApp).
+        chatsFijados={await leerChatsFijados(access.userId)}
         chatSignature={chatSignature}
         initialConversationBatchSize={conversationListTake}
         initialHasMoreConversations={hasMoreConversationItems}

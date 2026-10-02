@@ -145,6 +145,8 @@ async function getAgentConversationList(input: {
   visibleChannelIds: string[] | null;
   /** Canales que solo MIRA: ve todo lo de ahi y los telefonos le salen tapados. */
   monitoredChannelIds: string[];
+  /** Solo estas conversaciones (los chats fijados que no vinieron en la primera pagina). */
+  soloIds?: string[];
   offset: number;
   limit: number;
 }) {
@@ -196,6 +198,8 @@ async function getAgentConversationList(input: {
     AND: [
       whereDeEtapas(input.filtros),
       sinResponder ? { id: { in: sinResponder } } : {},
+      // Con los mismos filtros que el resto: un fijado que no cumple el filtro puesto no aparece.
+      input.soloIds ? { id: { in: input.soloIds } } : {},
       input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {},
       input.selectedConnectionKey.startsWith("channel:")
         ? { channelId: input.selectedConnectionKey.slice("channel:".length) }
@@ -606,7 +610,17 @@ export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const searchQuery = requestUrl.searchParams.get("q")?.trim() || "";
   const selectedConnectionKey = requestUrl.searchParams.get("connection")?.trim() || "";
-  const offset = Math.max(0, Number.parseInt(requestUrl.searchParams.get("offset") || "0", 10) || 0);
+  /*
+    `ids` = traer solo estos chats (sin el prefijo `agent:`): los fijados de quien mira que no
+    vinieron en la primera pagina, por ser viejos. Pasan por los mismos filtros y permisos que el
+    resto, asi que un fijado de una linea que esta persona no ve no aparece.
+  */
+  const soloIds = (requestUrl.searchParams.get("ids") ?? "")
+    .split(",")
+    .map((id) => id.trim().replace(/^agent:/, ""))
+    .filter((id) => /^[a-z0-9]+$/i.test(id))
+    .slice(0, 3);
+  const offset = soloIds.length > 0 ? 0 : Math.max(0, Number.parseInt(requestUrl.searchParams.get("offset") || "0", 10) || 0);
   const limit = Math.max(1, Math.min(40, Number.parseInt(requestUrl.searchParams.get("limit") || "20", 10) || 20));
 
   // Jefe (dueño/admin) ve todas las lineas. La supervisora ve "Todas" pero solo de SUS lineas.
@@ -682,6 +696,7 @@ export async function GET(request: Request) {
     currentUserId: session.user.id,
     visibleChannelIds,
     monitoredChannelIds,
+    ...(soloIds.length > 0 ? { soloIds } : {}),
     offset,
     limit,
   });

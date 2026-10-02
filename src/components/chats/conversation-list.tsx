@@ -3,11 +3,12 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { usePresenciaDeChats } from "./usePresenciaDeChats";
 import Link from "next/link";
-import { BadgeCheck, Check, CheckCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Sticker, UserRound, Video } from "lucide-react";
+import { BadgeCheck, Check, CheckCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Pin, Sticker, UserRound, Video } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { Badge } from "@/components/ui/badge";
 import { CrmStageControl } from "./crm-stage-control";
 import { ConversationRowMenu } from "./conversation-row-menu";
+import { useChatsFijados } from "./chats-fijados-store";
 import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { ContactAvatar } from "./contact-avatar";
 import { warmConversationCache } from "./chat-conversation-warmup";
@@ -190,11 +191,13 @@ function ConversationTagsRow({
 const ConversationListItem = memo(function ConversationListItem({
   conversation,
   isSelected,
+  fijado,
   onSelect,
   onPrefetch,
 }: {
   conversation: SharedInboxConversationItem;
   isSelected: boolean;
+  fijado: boolean;
   onSelect: (conversation: SharedInboxConversationItem) => void;
   onPrefetch: (conversation: SharedInboxConversationItem) => void;
 }) {
@@ -322,6 +325,9 @@ const ConversationListItem = memo(function ConversationListItem({
           >
             {conversation.lastMessageAt ? formatConversationTime(conversation.lastMessageAt) : ""}
           </span>
+          {fijado ? (
+            <Pin className="size-3 shrink-0 rotate-45 text-muted-foreground" aria-label="Chat fijado" />
+          ) : null}
           {/*
             Cambiar la etapa sin abrir el chat: al repasar la bandeja uno ya sabe en que quedo
             cada lead, y tener que entrar a cada uno para moverlo era el paso que no se hacia.
@@ -330,6 +336,8 @@ const ConversationListItem = memo(function ConversationListItem({
             abria la conversacion por debajo del modal.
           */}
           <ConversationRowMenu
+            chatKey={conversation.id}
+            fijado={fijado}
             /*
               El id de la fila viene con el prefijo del origen (`agent:` / `official:`), que es
               como la bandeja distingue las dos fuentes. Mandandolo asi al servidor, la busqueda
@@ -402,7 +410,7 @@ const ESTIMATED_ROW_HEIGHT = 96;
 const VIRTUALIZATION_THRESHOLD = 36;
 const OVERSCAN_ROWS = 6;
 export function ConversationList({
-  conversations,
+  conversations: conversacionesPorFecha,
   selectedConversationId,
   scrollContainerRef,
   hasMoreConversations = false,
@@ -416,6 +424,30 @@ export function ConversationList({
   isLoadingMoreConversations?: boolean;
   onLoadMoreConversations?: () => void | Promise<void>;
 }) {
+  /*
+    Los fijados arriba, en el orden en que se fijaron (ver lib/chats-fijados).
+
+    Se reordena ACA, al dibujar, y no en la lista guardada: todo el resto de la bandeja -insertar,
+    actualizar en tiempo real, paginar- depende de que la lista este ordenada por fecha, y meter el
+    fijado ahi obligaria a tocar cada una de esas piezas. Un fijado que no esta en la lista cargada
+    (por ser viejo o por no cumplir el filtro puesto) simplemente no se muestra: los trae aparte
+    shared-inbox, con los mismos filtros.
+  */
+  const fijados = useChatsFijados();
+  const conversations = useMemo(() => {
+    if (fijados.length === 0) {
+      return conversacionesPorFecha;
+    }
+    const arriba = fijados
+      .map((clave) => conversacionesPorFecha.find((fila) => fila.id === clave))
+      .filter((fila): fila is SharedInboxConversationItem => Boolean(fila));
+    if (arriba.length === 0) {
+      return conversacionesPorFecha;
+    }
+    const subidas = new Set(arriba.map((fila) => fila.id));
+    return [...arriba, ...conversacionesPorFecha.filter((fila) => !subidas.has(fila.id))];
+  }, [conversacionesPorFecha, fijados]);
+
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const scrollFrameRef = useRef<number | null>(null);
@@ -684,6 +716,7 @@ export function ConversationList({
           key={conversation.id || conversation.href}
           conversation={conversation}
           isSelected={effectiveSelectedId === conversation.id}
+          fijado={fijados.includes(conversation.id)}
           onSelect={handleSelect}
           onPrefetch={handlePrefetch}
         />

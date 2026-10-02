@@ -8,6 +8,8 @@ import {
   Clock3,
   Copy,
   MoreVertical,
+  Pin,
+  PinOff,
   RotateCcw,
   Tag as TagIcon,
   UserRoundCheck,
@@ -21,6 +23,8 @@ import { pedirMiembros } from "@/components/chats/assign-chat-control";
 import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
 import { irALaBandejaLimpia } from "@/components/chats/ir-a-la-bandeja-limpia";
 import { snoozeLeadAction } from "@/app/actions/crm-actions";
+import { fijarChatAction } from "@/app/actions/chats-fijados-actions";
+import { ponerFijados } from "@/components/chats/chats-fijados-store";
 
 /**
  * El menú de una fila de la bandeja.
@@ -43,6 +47,8 @@ import { snoozeLeadAction } from "@/app/actions/crm-actions";
 const POSPONER_HORAS = 24;
 
 export function ConversationRowMenu({
+  chatKey,
+  fijado = false,
   conversationId,
   source = "agent",
   contactId,
@@ -50,6 +56,9 @@ export function ConversationRowMenu({
   status,
   chatHref,
 }: {
+  /** La clave con prefijo (`agent:` / `official:`), que es como se guardan los fijados. */
+  chatKey: string;
+  fijado?: boolean;
   conversationId: string;
   /*
     De donde sale la conversacion. Las de la API oficial viven en otra tabla, y resolverlas
@@ -169,6 +178,23 @@ export function ConversationRowMenu({
     [asignando, conversationId, source, router],
   );
 
+  /*
+    Fijar arriba de la bandeja, como en WhatsApp: hasta 3 y solo para quien lo fija (ver
+    lib/chats-fijados). La lista se reordena en el acto con lo que devuelve el servidor.
+  */
+  const alternarFijado = () =>
+    cerrarYCorrer(async () => {
+      const resultado = await fijarChatAction({ chatKey, fijar: !fijado }).catch(() => ({
+        error: "No se pudo fijar",
+      }));
+      if ("error" in resultado) {
+        toast.error(resultado.error);
+        return;
+      }
+      ponerFijados(resultado.fijados);
+      toast.success(fijado ? "Chat desfijado" : "Chat fijado arriba");
+    });
+
   const copiarNumero = () => {
     setAbierto(false);
     if (!phoneNumber) {
@@ -245,6 +271,11 @@ export function ConversationRowMenu({
             </div>
           ) : (
           <>
+          <Opcion
+            icono={fijado ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+            texto={fijado ? "Desfijar chat" : "Fijar chat"}
+            onClick={alternarFijado}
+          />
           <Opcion
             icono={resuelto ? <RotateCcw className="size-4" /> : <CircleCheck className="size-4" />}
             texto={resuelto ? "Reabrir conversación" : "Marcar como resuelto"}

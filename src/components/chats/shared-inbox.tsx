@@ -65,6 +65,7 @@ import { ConversationPanel } from "./chat-conversation-panel";
 import { ChatHeaderActions } from "./chat-header-actions";
 import { MenuDelContacto } from "./menu-del-contacto";
 import { AssignChatControl } from "./assign-chat-control";
+import { inicializarFijados, useChatsFijados } from "./chats-fijados-store";
 import type { CrmStage } from "@/features/crm/types";
 import { resolveCallTarget } from "@/lib/whatsapp-lid";
 
@@ -166,6 +167,7 @@ export function SharedInbox({
   statusFilter = "open",
   isManager = false,
   veTodoElEquipo = false,
+  chatsFijados,
   chatSignature = "",
   conversationListApiPath = "/api/cliente/chats/list",
   initialConversationBatchSize = 20,
@@ -468,6 +470,80 @@ export function SharedInbox({
       cancelled = true;
     };
   }, [conversationListApiPath, searchAction, searchQuery, selectedConnectionKey, assignedFilter, statusFilter, ponerFiltrosNuevos, pedidoDeLista]);
+
+  /*
+    LOS CHATS FIJADOS (ver lib/chats-fijados).
+
+    El servidor manda la lista de quien mira; la bandeja la pone en el almacen compartido, que es de
+    donde la leen la lista (para subirlos) y el menu de cada fila (para fijar y desfijar).
+  */
+  const firmaDeFijados = (chatsFijados ?? []).join(",");
+  useEffect(() => {
+    inicializarFijados(firmaDeFijados ? firmaDeFijados.split(",") : []);
+  }, [firmaDeFijados]);
+
+  /*
+    Un fijado que no vino en la primera pagina -un chat viejo, que la bandeja carga de a 20- se pide
+    aparte, con los MISMOS filtros: si no cumple el filtro puesto, el servidor no lo devuelve y no
+    aparece, igual que cualquier otro chat. Solo los del canal viejo: /list no trae los de la API
+    oficial, que igual casi siempre estan entre los recientes.
+  */
+  const fijadosEnVivo = useChatsFijados();
+  const fijadosYaPedidosRef = useRef(new Set<string>());
+  useEffect(() => {
+    const faltan = fijadosEnVivo.filter(
+      (clave) => clave.startsWith("agent:") && !conversationItemsRef.current.some((item) => item.id === clave),
+    );
+    if (faltan.length === 0) {
+      return;
+    }
+    // Una vez por combinacion de fijados y filtros: si el servidor no lo devolvio, no se insiste.
+    const firma = [faltan.join(","), assignedFilter, statusFilter, selectedConnectionKey, searchQuery].join("|");
+    if (fijadosYaPedidosRef.current.has(firma)) {
+      return;
+    }
+    fijadosYaPedidosRef.current.add(firma);
+
+    let cancelado = false;
+    void (async () => {
+      try {
+        const params = new URLSearchParams();
+        params.set("ids", faltan.join(","));
+        if (searchQuery.trim()) params.set("q", searchQuery.trim());
+        if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
+        params.set("assigned", assignedFilter);
+        if (statusFilter !== "open") params.set("status", statusFilter);
+        ponerFiltrosNuevos(params);
+
+        const respuesta = await fetch(`${conversationListApiPath}?${params.toString()}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        const datos = (await respuesta.json().catch(() => null)) as
+          | { ok?: boolean; conversations?: SharedInboxConversationItem[] }
+          | null;
+        if (cancelado || !datos?.ok || !Array.isArray(datos.conversations)) {
+          return;
+        }
+        const filas = normalizeConversationItems(datos.conversations, (item) =>
+          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
+        );
+        setConversationItems((current) => {
+          let next = current;
+          for (const item of filas) {
+            if (item.id) next = updateConversationItemInSortedList(next, item.id, item);
+          }
+          return next;
+        });
+      } catch {
+        // Sin los fijados viejos la bandeja sirve igual.
+      }
+    })();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [fijadosEnVivo, assignedFilter, statusFilter, selectedConnectionKey, searchQuery, ponerFiltrosNuevos, conversationListApiPath, searchAction]);
 
   // Búsqueda aumentativa: trae del servidor los chats que coinciden por contenido de
   // mensaje o que están más allá de lo ya cargado, y los AGREGA (nunca quita) a la lista.

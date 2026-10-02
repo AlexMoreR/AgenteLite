@@ -162,6 +162,8 @@ export type SharedInboxProps = {
    * cambia lo que se puede filtrar en la bandeja; los permisos de la ficha siguen con isManager.
    */
   veTodoElEquipo?: boolean;
+  /** Claves (`agent:<id>` / `official:<id>`) que quien mira fijo arriba de su bandeja. */
+  chatsFijados?: string[];
   /** La firma de quien escribe, para dejarla visible en el compositor. */
   chatSignature?: string;
   conversationListApiPath?: string;
