@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
+import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
 
 import { cumpleLasCondiciones } from "../motor/decidir";
 import { guardarEstado, leerEstado } from "../motor/estado";
@@ -40,10 +41,21 @@ import { leerLibro } from "./almacen";
  */
 const VENTANA_MAXIMA_HORAS = 3;
 
-/** Por vuelta y por línea. El cron corre cada minuto: si hay atraso, se drena de a poco. */
+/** Envíos por vuelta y por línea. El cron corre cada minuto: si hay atraso, se drena de a poco. */
 const CUANTOS_POR_VUELTA = 10;
 
-export async function ejecutarSeguimientosV3(ahora = new Date()): Promise<{ enviados: number; revisados: number }> {
+/**
+ * Cuántos chats se miran por vuelta y por línea.
+ *
+ * Va aparte del tope de envíos a propósito. Antes el tope era de chats MIRADOS: los 10 más
+ * recientes se miraban siempre, y si no les tocaba nada -o los frena el freno de no leídos- se
+ * comían los 10 cupos y los de más atrás no se miraban nunca.
+ */
+const CUANTOS_A_MIRAR = 200;
+
+export async function ejecutarSeguimientosV3(
+  ahora = new Date(),
+): Promise<{ enviados: number; revisados: number; frenados: number }> {
   const canales = await prisma.whatsAppChannel.findMany({
     where: { metadata: { path: ["agenteV3"], equals: true } },
     select: { id: true, workspaceId: true, evolutionInstanceName: true },
@@ -51,6 +63,7 @@ export async function ejecutarSeguimientosV3(ahora = new Date()): Promise<{ envi
 
   let enviados = 0;
   let revisados = 0;
+  let frenados = 0;
 
   for (const canal of canales) {
     if (!canal.evolutionInstanceName) {
@@ -80,10 +93,14 @@ export async function ejecutarSeguimientosV3(ahora = new Date()): Promise<{ envi
       },
       select: { id: true, lastMessageAt: true, contactId: true, contact: { select: { phoneNumber: true } } },
       orderBy: { lastMessageAt: "desc" },
-      take: CUANTOS_POR_VUELTA,
+      take: CUANTOS_A_MIRAR,
     });
 
+    let enviadosEnLaLinea = 0;
     for (const conversacion of conversaciones) {
+      if (enviadosEnLaLinea >= CUANTOS_POR_VUELTA) {
+        break;
+      }
       revisados += 1;
       const telefono = conversacion.contact?.phoneNumber?.trim();
       if (!telefono || !conversacion.lastMessageAt) {
@@ -134,6 +151,17 @@ export async function ejecutarSeguimientosV3(ahora = new Date()): Promise<{ envi
         continue;
       }
 
+      /*
+        Nada automático a quien no leyó lo anterior, ni un tercero seguido sin respuesta (ver
+        lib/freno-de-automaticos). No se marca como enviado: si lo lee dentro de la ventana, el
+        recordatorio todavía puede salir en una vuelta siguiente.
+      */
+      const freno = await revisarFrenoDeAutomatico({ conversationId: conversacion.id });
+      if (!freno.enviar) {
+        frenados += 1;
+        continue;
+      }
+
       try {
         for (const texto of textos) {
           const resultado = await sendEvolutionTextMessageWithReconnect({
@@ -173,6 +201,7 @@ export async function ejecutarSeguimientosV3(ahora = new Date()): Promise<{ envi
           seguimientosEnviados: [...new Set([...yaSalieron, ...marcados])],
         });
         enviados += 1;
+        enviadosEnLaLinea += 1;
       } catch (error) {
         console.error("[agente-v3] no se pudo enviar el seguimiento", {
           conversationId: conversacion.id,
@@ -182,5 +211,5 @@ export async function ejecutarSeguimientosV3(ahora = new Date()): Promise<{ envi
     }
   }
 
-  return { enviados, revisados };
+  return { enviados, revisados, frenados };
 }

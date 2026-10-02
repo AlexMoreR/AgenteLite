@@ -54,7 +54,7 @@ async function handleCron(request: Request) {
     seguimiento de 15 minutos que sale a los 19 se nota, y la consulta es barata -solo mira chats
     donde el ultimo que hablo fuimos nosotros-. Best-effort: si falla, no tumba los envios.
   */
-  let seguimientosV3: { enviados: number; revisados: number } | null = null;
+  let seguimientosV3: { enviados: number; revisados: number; frenados: number } | null = null;
   try {
     seguimientosV3 = await ejecutarSeguimientosV3();
   } catch (error) {

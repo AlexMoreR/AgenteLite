@@ -29,6 +29,7 @@ import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { AVISO_MODO_MONITOREO, enmascararTelefono, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
+import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
 import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
@@ -1058,7 +1059,19 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
       ? ((conversation.agent.trainingConfig as { reactivationMessage?: string }).reactivationMessage ?? "").trim()
       : "";
 
-  if (!nextPaused && reactivationMessage && conversation.channel?.evolutionInstanceName && conversation.contact?.phoneNumber) {
+  // El mensaje de reactivacion sale solo, sin que el cliente haya escrito: pasa por el freno de
+  // automaticos (no leido / dos seguidos sin respuesta). La IA se reactiva igual.
+  const frenoDeReactivacion =
+    !nextPaused && reactivationMessage
+      ? await revisarFrenoDeAutomatico({ conversationId: conversation.id })
+      : { enviar: true as const };
+  if (
+    !nextPaused &&
+    reactivationMessage &&
+    frenoDeReactivacion.enviar &&
+    conversation.channel?.evolutionInstanceName &&
+    conversation.contact?.phoneNumber
+  ) {
     try {
       const outbound = await sendEvolutionTextMessage({
         instanceName: conversation.channel.evolutionInstanceName,

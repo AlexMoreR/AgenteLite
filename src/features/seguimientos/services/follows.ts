@@ -8,6 +8,7 @@ import {
   sendEvolutionVideoMessage,
 } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
+import { revisarFrenoDeAutomatico, type MotivoDeFreno } from "@/lib/freno-de-automaticos";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 
 export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
@@ -1403,7 +1404,42 @@ function resolveFollowExecutionActions(follow: Pick<ClaimedFollowRow, "actions" 
   })];
 }
 
+/**
+ * Un seguimiento que no sale por el freno de automaticos (ver lib/freno-de-automaticos) queda
+ * CANCELADO con el motivo, no se borra: asi se ve en la ficha del contacto por que no salio.
+ */
+async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeFreno) {
+  const now = new Date();
+  const hasActionsColumn = await hasFollowActionsColumn("Follow");
+  const actions = buildCancelledFollowActions({
+    actions: follow.actions,
+    messageType: follow.messageType,
+    content: follow.content,
+    mediaUrl: follow.mediaUrl,
+    reason: motivo,
+  });
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE public."Follow"
+    SET
+      "status" = 'CANCELLED',
+      "cancelledAt" = ${now},
+      "executionError" = ${motivo},
+      "lockedAt" = NULL,
+      "lockedBy" = NULL,
+      ${hasActionsColumn ? Prisma.sql`"actions" = ${JSON.stringify(actions)}::jsonb,` : Prisma.empty}
+      "updatedAt" = ${now}
+    WHERE "id" = ${follow.id}
+  `);
+}
+
 async function executeFollowRecord(follow: ClaimedFollowRow) {
+  // Nada automatico a quien no leyo lo anterior, ni un tercero seguido sin respuesta.
+  const freno = await revisarFrenoDeAutomatico({ contactId: follow.contactId, channelId: follow.channelId });
+  if (!freno.enviar) {
+    await cancelarFollowFrenado(follow, freno.motivo);
+    return { ok: true as const, executionError: null, frenado: freno.motivo };
+  }
+
   const actions = resolveFollowExecutionActions(follow);
   const workerId = follow.lockedBy || randomUUID();
   const actionErrors: Array<{ order: number; message: string }> = [];
