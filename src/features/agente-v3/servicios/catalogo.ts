@@ -169,9 +169,8 @@ function resumen(descripcion: string | null, maximo = 350) {
 export function textoDeUnProducto(producto: ProductoDelCatalogoV3) {
   const lineas = [`*${nombreLegible(producto.nombre)}*${producto.codigo ? ` (${producto.codigo})` : ""}`];
   lineas.push(`💰 Precio: *${PESOS.format(producto.precio)}*`);
-  if (producto.precioMayorista > 0) {
-    lineas.push(`Por mayor: ${PESOS.format(producto.precioMayorista)} desde ${producto.cantidadMinimaMayorista} unidades`);
-  }
+  // El precio al por mayor NUNCA lo da el agente (Alex, 03-10-2026): una compra por cantidad la
+  // negocia una asesora. Por eso no sale aunque Gestión lo tenga (ver servicios/mayorista.ts).
   const descripcion = resumen(producto.descripcion);
   if (descripcion) lineas.push("", descripcion);
   lineas.push("", "Ya le aviso a una asesora para que te ayude con tu pedido 😊");

@@ -66,13 +66,21 @@ type AudioTranscriptionInput = {
   model?: string | null;
 };
 
+/**
+ * El precio al por mayor no lo da el agente (Alex, 03-10-2026), en ningún prompt: ni en el armado
+ * acá ni en el que trae el agente escrito a mano. Una compra por cantidad la negocia una asesora.
+ */
+const REGLA_SIN_PRECIO_MAYORISTA =
+  "REGLA OBLIGATORIA: nunca menciones ni ofrezcas precio al por mayor o mayorista, aunque lo tengas en la informacion del producto. Si el cliente pide 3 o mas unidades o pregunta por precio al por mayor, no des ese precio: dile que una asesora lo atiende directamente y que ya le avisas.";
+
 function buildInstructions(input: GenerateAgentReplyInput) {
   if (input.rawSystemPrompt) {
-    return input.systemPrompt?.trim() || "";
+    return [input.systemPrompt?.trim() || "", REGLA_SIN_PRECIO_MAYORISTA].filter(Boolean).join("\n\n");
   }
 
   return [
     input.systemPrompt?.trim() || "Eres un asistente comercial por WhatsApp.",
+    REGLA_SIN_PRECIO_MAYORISTA,
     "Si el cliente envia una imagen, analízala y responde sobre lo que observas antes de pedir más datos.",
     "Usa el contexto del negocio y el historial de la conversacion cuando ayude.",
     "No inventes informacion que no tengas.",

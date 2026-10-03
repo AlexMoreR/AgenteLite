@@ -201,6 +201,9 @@ la IA pausada no lo contesta el agente.
   o por las palabras del nombre), le responde con nombre, precio, descripción de venta y foto, o le
   pregunta cuál si encaja con varios, y avisa a una asesora. Un producto inactivo (oculto o borrado en
   Gestión) no se ofrece: sus reglas no se aplican y una charla que era de ese producto pasa a una asesora.
+- **Precio al por mayor**: el agente (V3 y V2) nunca lo menciona ni lo ofrece, aunque Gestión lo tenga.
+  Si una clienta pide 3 o más unidades o pregunta por precio al por mayor, el V3 le dice que la atiende
+  una asesora, no da el precio y avisa (`agente-v3/servicios/mayorista.ts`, va antes que las reglas).
 - **Freno de automáticos**: ningún mensaje automático (seguimientos del V3, programados, reactivación, campañas)
   sale si el último mensaje nuestro no está leído, ni un tercero seguido sin respuesta del cliente. Las
   respuestas a lo que escribe el cliente no pasan por el freno.

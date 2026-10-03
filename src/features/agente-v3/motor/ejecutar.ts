@@ -2,6 +2,7 @@ import { getFlowReply } from "@/lib/agent-product-flow";
 import type { FlowStep } from "@/lib/agent-product-flow";
 
 import { leerLibro } from "../servicios/almacen";
+import { RESPUESTA_POR_MAYOR, pidePorMayor } from "../servicios/mayorista";
 import {
   catalogoActivo,
   nombreLegible,
@@ -136,6 +137,27 @@ async function evaluar(input: {
       acciones: 0,
     };
   }
+  /*
+    Compra por cantidad o precio al por mayor: lo atiende una persona, y el agente no da el precio
+    (Alex, 03-10-2026). Va ANTES de las reglas a propósito: una regla de precios contestaría con la
+    lista de precios al detal a quien pidió seis sillas.
+  */
+  if (pidePorMayor(input.mensaje)) {
+    const yaSeLeDijo = await input.herramientas.yaLoDijimos(RESPUESTA_POR_MAYOR);
+    if (!yaSeLeDijo) {
+      await input.herramientas.enviarPaso({ kind: "text", content: RESPUESTA_POR_MAYOR });
+    }
+    await input.herramientas.avisarAsesor(
+      "La clienta pide precio al por mayor o 3 o más unidades: el agente no da ese precio",
+    );
+    return {
+      atendido: true,
+      regla: "Compra por cantidad",
+      porque: "La clienta pidió precio al por mayor o 3 o más unidades: el agente no da ese precio y avisó a una asesora.",
+      acciones: yaSeLeDijo ? 0 : 1,
+    };
+  }
+
   const libro =
     inactivos.size === 0
       ? libroCompleto
