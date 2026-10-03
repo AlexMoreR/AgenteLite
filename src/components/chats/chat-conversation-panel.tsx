@@ -73,6 +73,7 @@ import { clearPendingConversationSelection } from "@/components/chats/chat-selec
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { MediaLibraryDialog } from "@/components/chats/media-library-dialog";
+import { numeroDelChatAction } from "@/app/actions/numero-de-chat-actions";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
 import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
 import { ForwardMessageDialog } from "@/components/chats/forward-message-dialog";
@@ -207,6 +208,27 @@ async function copiarArchivosAMemoria(
 /** Si la barra de primera accion del celular quedo escondida ("no") o visible ("si"). */
 const CLAVE_BARRA_VISIBLE = "chat:barra-de-acciones";
 
+/**
+ * Numeros de chat ya pedidos, por clave. El numero no cambia nunca: se pide una vez por chat y
+ * volver a uno ya abierto lo muestra al instante.
+ */
+const numerosDeChat = new Map<string, Promise<number | null>>();
+function pedirNumeroDeChat(clave: string) {
+  const [fuente, ...resto] = clave.split(":");
+  const conversationId = resto.join(":");
+  if (!conversationId || (fuente !== "agent" && fuente !== "official")) return Promise.resolve(null);
+  let pedido = numerosDeChat.get(clave);
+  if (!pedido) {
+    pedido = numeroDelChatAction({ conversationId, source: fuente }).catch(() => null);
+    numerosDeChat.set(clave, pedido);
+    // Un fallo no se guarda: el proximo chat abierto vuelve a preguntar.
+    void pedido.then((numero) => {
+      if (numero === null) numerosDeChat.delete(clave);
+    });
+  }
+  return pedido;
+}
+
 export const ConversationPanel = memo(function ConversationPanel({
   backHref,
   composer,
@@ -300,6 +322,24 @@ export const ConversationPanel = memo(function ConversationPanel({
     chat. Arranca visible y se lee despues de montar, porque el servidor no sabe que eligio.
   */
   const [barraVisible, setBarraVisible] = useState(true);
+  /*
+    El numero corto del chat ("#1234"), el mismo de los links app.aizenbot.com/c/1234. Sirve para
+    hablar de un chat sin dictar un telefono: "mira el 1234". Se pide aparte del detalle del chat
+    para no tocar el realtime.
+  */
+  const [numeroDelChat, setNumeroDelChat] = useState<{ clave: string; numero: number } | null>(null);
+  useEffect(() => {
+    const clave = selectedConversationId;
+    if (!clave) return;
+    let vigente = true;
+    void pedirNumeroDeChat(clave).then((numero) => {
+      if (vigente && numero !== null) setNumeroDelChat({ clave, numero });
+    });
+    return () => {
+      vigente = false;
+    };
+  }, [selectedConversationId]);
+  const numeroVisible = numeroDelChat?.clave === selectedConversationId ? numeroDelChat.numero : null;
   useEffect(() => {
     try {
       if (window.localStorage.getItem(CLAVE_BARRA_VISIBLE) === "no") setBarraVisible(false);
@@ -1473,7 +1513,10 @@ export const ConversationPanel = memo(function ConversationPanel({
                       renderedConversation.secondaryLabel !== renderedConversation.label ? (
                       <p className="truncate text-[13px] leading-tight text-muted-foreground">
                         {renderedConversation.secondaryLabel}
+                        {numeroVisible ? <span className="tabular-nums"> · #{numeroVisible}</span> : null}
                       </p>
+                    ) : numeroVisible ? (
+                      <p className="truncate text-[13px] leading-tight text-muted-foreground tabular-nums">#{numeroVisible}</p>
                     ) : null}
                   </div>
                 </div>

@@ -252,6 +252,9 @@ model Contact {
 
 model Conversation {
   id                      String                   @id @default(cuid())
+  /// Numero corto del chat para los links que salen de la app (app.aizenbot.com/c/1234). Un solo
+  /// contador para Conversation y OfficialApiConversation: lo da la base al crear el chat.
+  numero                  Int?                     @unique @default(dbgenerated("nextval('chat_numero_seq'::regclass)"))
   workspaceId             String
   agentId                 String?
   channelId               String?
@@ -596,6 +599,8 @@ model OfficialApiContact {
 
 model OfficialApiConversation {
   id                   String                        @id @default(cuid())
+  /// Mismo contador que Conversation.numero (ver ahi).
+  numero               Int?                          @unique @default(dbgenerated("nextval('chat_numero_seq'::regclass)"))
   configId             String
   contactId            String
   externalThreadId     String?

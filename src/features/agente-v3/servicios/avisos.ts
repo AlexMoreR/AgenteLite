@@ -108,7 +108,7 @@ export async function avisarAsesorPorWhatsApp(input: {
     */
     let conversacion = await prisma.conversation.findUnique({
       where: { id: input.conversationId },
-      select: { assignedToUserId: true, channelId: true },
+      select: { assignedToUserId: true, channelId: true, numero: true },
     });
 
     if (conversacion && !conversacion.assignedToUserId && conversacion.channelId) {
@@ -119,7 +119,7 @@ export async function avisarAsesorPorWhatsApp(input: {
       }).catch(() => {});
       conversacion = await prisma.conversation.findUnique({
         where: { id: input.conversationId },
-        select: { assignedToUserId: true, channelId: true },
+        select: { assignedToUserId: true, channelId: true, numero: true },
       });
     }
 
@@ -149,7 +149,14 @@ export async function avisarAsesorPorWhatsApp(input: {
       return 0;
     }
 
-    const enlace = `https://app.aizenbot.com/cliente/chats?chatKey=agent:${input.conversationId}&assigned=all`;
+    /*
+      Link corto con el numero del chat (Alex, 03-10-2026): el largo -con la clave entera del chat-
+      ocupaba dos renglones del aviso. /c/1234 abre el mismo chat. Si el chat todavia no tiene
+      numero (no deberia pasar: la base lo pone al crearlo), va el link largo de siempre.
+    */
+    const enlace = conversacion?.numero
+      ? `https://app.aizenbot.com/c/${conversacion.numero}`
+      : `https://app.aizenbot.com/cliente/chats?chatKey=agent:${input.conversationId}&assigned=all`;
     /*
       Al ADMINISTRADOR se le dice a quien le toco; a la asesora no hace falta.
 
