@@ -1,5 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import {
+  DIAS_DESDE_SU_ULTIMO_MENSAJE,
+  INTENTOS_SIN_RESPUESTA,
+  contactosQueBajan,
+} from "@/features/crm/services/bajada-por-inactividad";
 
 /**
  * TEMPERATURA DEL LEAD: el reloj enfria, el cliente recalienta.
@@ -21,13 +26,15 @@ import { recordConversationActivity } from "@/lib/conversation-activity";
  *    persona.
  */
 
-// Dias corridos sin que el cliente conteste antes de enfriar. Corridos y no habiles a pedido de
-// Alex; lo programable quedo anotado como idea aparte.
-const DIAS_SIN_RESPUESTA = 2;
+/*
+  CUANDO se enfria lo decide la regla del Playbook (ver bajada-por-inactividad.ts): 3 intentos
+  nuestros sin respuesta, 5 dias desde su ultimo mensaje y cero respuesta, y nunca con cotizacion.
 
-// Tope por corrida. La primera vez hay muchos leads viejos que cumplen la condicion; se enfrian
-// de a tandas para que el tablero no cambie de golpe delante de las asesoras.
-const TOPE_POR_CORRIDA = 200;
+  Hasta el 03-10-2026 aca habia otra regla: "2 dias sin que el cliente escriba". No miraba lo que
+  le escribiamos nosotros, y bajo a Frio a una clienta con cotizacion formal cuatro minutos despues
+  de que la asesora le escribiera.
+*/
+const MOTIVO_DEL_PLAYBOOK = `${INTENTOS_SIN_RESPUESTA} intentos nuestros sin respuesta y ${DIAS_DESDE_SU_ULTIMO_MENSAJE} días sin escribir.`;
 
 type MetadataDeContacto = Record<string, unknown>;
 
@@ -121,29 +128,16 @@ export async function enfriarUnLead(input: {
 }
 
 /**
- * Baja a Frio los leads que estan en Tibio y llevan DIAS_SIN_RESPUESTA sin escribir.
+ * Baja a Frio los leads en Tibio que cumplen la regla del Playbook (ver bajada-por-inactividad.ts).
  *
  * NO dispara seguimientos, a proposito: la primera corrida mueve cientos de leads de una y eso
  * seria una rafaga de WhatsApp a gente que lleva semanas callada. Los seguimientos por etapa se
  * arman aparte y con intencion.
  */
 export async function enfriarLeadsSinRespuesta(): Promise<{ enfriados: number }> {
-  let candidatos: Array<{ id: string; workspaceId: string; metadata: unknown }> = [];
+  let candidatos: Array<{ id: string; workspaceId: string }> = [];
   try {
-    candidatos = await prisma.$queryRaw<Array<{ id: string; workspaceId: string; metadata: unknown }>>`
-      SELECT c."id" AS "id", c."workspaceId" AS "workspaceId", c."metadata" AS "metadata"
-      FROM "Contact" c
-      WHERE c."crmStage" = 'PROPUESTA'
-        AND c."excludedFromCrm" = false
-        AND NOT EXISTS (
-          SELECT 1 FROM "Message" m
-          WHERE m."contactId" = c."id"
-            AND m."direction" = 'INBOUND'
-            AND m."isStatusBroadcast" = false
-            AND m."createdAt" >= NOW() - (${DIAS_SIN_RESPUESTA} || ' days')::interval
-        )
-      LIMIT ${TOPE_POR_CORRIDA}
-    `;
+    candidatos = await contactosQueBajan("PROPUESTA");
   } catch (error) {
     console.error("[lead-temperature] error buscando candidatos", error);
     return { enfriados: 0 };
@@ -154,7 +148,7 @@ export async function enfriarLeadsSinRespuesta(): Promise<{ enfriados: number }>
     const movido = await enfriarUnLead({
       workspaceId: candidato.workspaceId,
       contactId: candidato.id,
-      motivo: `${DIAS_SIN_RESPUESTA} días sin respuesta del cliente.`,
+      motivo: MOTIVO_DEL_PLAYBOOK,
     });
     if (movido) {
       enfriados += 1;
@@ -197,10 +191,17 @@ export async function recalentarLeadSiRespondio(input: {
       return false;
     }
 
-    // La marca sobrevive al recalentamiento manual (una asesora pudo mover la tarjeta antes que
-    // el cliente contestara): si ya no esta en Frio, se limpia y no se toca la etapa.
-    const seguiaEnFrio = contacto.crmStage === "CALIFICADO";
-    const destino = metadata.enfriadoDesde === "PROPUESTA" ? "PROPUESTA" : null;
+    /*
+      A donde vuelve y desde donde. Dos relojes bajan: Tibio -> Frio (este) y Caliente -> Tibio
+      (lead-cooldown.ts). Los dos dejan la marca, y el que contesta vuelve a la etapa que tenia.
+
+      La marca sobrevive al recalentamiento manual (una asesora pudo mover la tarjeta antes que el
+      cliente contestara): si ya no esta donde lo dejo el reloj, se limpia y no se toca la etapa.
+    */
+    const destino =
+      metadata.enfriadoDesde === "PROPUESTA" ? "PROPUESTA" : metadata.enfriadoDesde === "NEGOCIACION" ? "NEGOCIACION" : null;
+    const dondeLoDejo = destino === "NEGOCIACION" ? "PROPUESTA" : "CALIFICADO";
+    const seguiaEnFrio = contacto.crmStage === dondeLoDejo;
 
     const { enfriadoEl: _enfriadoEl, enfriadoDesde: _enfriadoDesde, ...metadataLimpia } = metadata;
     await prisma.contact.update({
@@ -214,8 +215,8 @@ export async function recalentarLeadSiRespondio(input: {
 
     const movidos = await prisma.$executeRaw`
       UPDATE "Contact"
-      SET "crmStage" = 'PROPUESTA', "updatedAt" = NOW()
-      WHERE "id" = ${input.contactId} AND "crmStage" = 'CALIFICADO'
+      SET "crmStage" = ${destino}::"CrmStage", "updatedAt" = NOW()
+      WHERE "id" = ${input.contactId} AND "crmStage" = ${dondeLoDejo}::"CrmStage"
     `;
     if (movidos === 0) {
       return false;
@@ -224,7 +225,7 @@ export async function recalentarLeadSiRespondio(input: {
     await anotarEnElChat({
       workspaceId: input.workspaceId,
       contactId: input.contactId,
-      texto: "Volvió a Tibio: el cliente respondió.",
+      texto: destino === "NEGOCIACION" ? "Volvió a Caliente: el cliente respondió." : "Volvió a Tibio: el cliente respondió.",
     });
     return true;
   } catch (error) {

@@ -211,8 +211,8 @@ la IA pausada no lo contesta el agente.
 - `rescate_de_mensajes_v3`: vuelve a pasarle al motor un mensaje que nunca miró (por una caída o un despliegue), solo en chats sin asesora ni pausa.
 - `rescate_de_chats_huerfanos`: reparte un chat que lleva media hora con el cliente esperando y sin nadie a cargo.
 - `reparto_por_turno`: en las líneas de ventas, cuando la clienta contesta CON CONTENIDO (no solo saludo, emoji, "ok" o "gracias") a algo del agente o de un flujo y el chat no tiene asesora, se reparte por la rueda de la línea. Asignar no pausa al agente: sigue hasta que la asesora escribe.
-- `enfriamiento_por_llamadas`: un lead con 3 intentos de llamada, 5 días y cero respuesta pasa a Tibio.
-- `temperatura`: un lead Tibio sin respuesta en 2 días pasa a Frío (Caliente no se toca).
+- `enfriamiento_por_llamadas`: un lead en Caliente baja a Tibio con la regla del Playbook: 3 intentos nuestros sin respuesta (mensajes de asesora o llamadas), 5 días desde su último mensaje y cero respuesta. Nunca si tiene cotización o próximo contacto agendado. Vuelve a Caliente si contesta.
+- `temperatura`: un lead en Tibio baja a Frío con la misma regla del Playbook (ver `enfriamiento_por_llamadas`); nunca si tiene cotización. Vuelve a Tibio si contesta. Hasta el 03-10-2026 bajaba con "2 días sin escribir".
 - `descarte_automatico`: lleva a Descartado a los leads con 30 días sin respuesta y 3 insistencias nuestras. Se corrió una vez y se apagó; hoy no aparece en pantalla.
 - `campanas`: manda la siguiente tanda de cada campaña en curso.
 - `transcripcion_de_audios`: pasa a texto cada nota de voz (Whisper) y la deja debajo del audio.

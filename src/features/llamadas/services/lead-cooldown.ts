@@ -1,11 +1,17 @@
 import { prisma } from "@/lib/prisma";
 import { recordConversationActivity } from "@/lib/conversation-activity";
-
-const NO_ANSWER_RESULT = "no_contesto";
-// Resultados que implican que SÍ hubo contacto/respuesta por llamada (rompen "cero respuesta").
-const ANSWERED_RESULTS = ["interesada", "lo_piensa", "no_interesada", "sin_definir"];
+import {
+  DIAS_DESDE_SU_ULTIMO_MENSAJE,
+  INTENTOS_SIN_RESPUESTA,
+  contactosQueBajan,
+} from "@/features/crm/services/bajada-por-inactividad";
 
 /**
+ * Desde el 03-10-2026 la regla vive en bajada-por-inactividad.ts, compartida con el reloj de Tibio
+ * a Frio. Antes contaba solo LLAMADAS "No contesto" (los mensajes de la asesora no eran intentos)
+ * y no protegia a quien tenia cotizacion ni a quien tenia proximo contacto agendado.
+ *
+ * Lo que sigue es como era (queda como historia):
  * Regla del Playbook: un lead baja a Tibio (PROPUESTA) SOLO cuando se cumplen las TRES
  * condiciones JUNTAS:
  *   1. >= 3 intentos de llamada con resultado "No contestó - reintentar".
@@ -25,33 +31,7 @@ const ANSWERED_RESULTS = ["interesada", "lo_piensa", "no_interesada", "sin_defin
 export async function demoteUnresponsiveStaleLeads(): Promise<{ demoted: number }> {
   let candidates: Array<{ id: string; workspaceId: string }> = [];
   try {
-    candidates = await prisma.$queryRaw<Array<{ id: string; workspaceId: string }>>`
-      WITH nc AS (
-        SELECT "contactId", COUNT(*)::int AS cnt, MIN("calledAt") AS first_nc
-        FROM "CallAttempt"
-        WHERE "result" = ${NO_ANSWER_RESULT}
-        GROUP BY "contactId"
-      )
-      SELECT c."id" AS "id", c."workspaceId" AS "workspaceId"
-      FROM "Contact" c
-      JOIN nc ON nc."contactId" = c."id"
-      WHERE c."crmStage" = 'NEGOCIACION'
-        AND c."excludedFromCrm" = false
-        AND nc.cnt >= 3
-        AND nc.first_nc <= NOW() - INTERVAL '5 days'
-        AND NOT EXISTS (
-          SELECT 1 FROM "CallAttempt" ca2
-          WHERE ca2."contactId" = c."id"
-            AND ca2."result" = ANY(${ANSWERED_RESULTS}::text[])
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM "Message" m
-          WHERE m."contactId" = c."id"
-            AND m."direction" = 'INBOUND'
-            AND m."isStatusBroadcast" = false
-            AND m."createdAt" >= nc.first_nc
-        )
-    `;
+    candidates = await contactosQueBajan("NEGOCIACION");
   } catch (error) {
     console.error("[demoteUnresponsiveStaleLeads] query error", error);
     return { demoted: 0 };
@@ -71,6 +51,17 @@ export async function demoteUnresponsiveStaleLeads(): Promise<{ demoted: number 
       }
       demoted += 1;
 
+      // La marca que permite devolverlo a Caliente si contesta (ver recalentarLeadSiRespondio).
+      const contacto = await prisma.contact.findUnique({ where: { id: candidate.id }, select: { metadata: true } });
+      const metadata =
+        contacto?.metadata && typeof contacto.metadata === "object" && !Array.isArray(contacto.metadata)
+          ? (contacto.metadata as Record<string, unknown>)
+          : {};
+      await prisma.contact.update({
+        where: { id: candidate.id },
+        data: { metadata: { ...metadata, enfriadoEl: new Date().toISOString(), enfriadoDesde: "NEGOCIACION" } as object },
+      });
+
       // Nota de actividad en la conversación más reciente (best-effort). NO dispara seguimientos.
       const conversation = await prisma.conversation.findFirst({
         where: { contactId: candidate.id, workspaceId: candidate.workspaceId },
@@ -84,7 +75,7 @@ export async function demoteUnresponsiveStaleLeads(): Promise<{ demoted: number 
           channelId: conversation.channelId,
           contactId: candidate.id,
           kind: "stage_changed",
-          text: "Se enfrió a Tibio automáticamente: 3 intentos sin respuesta en 5+ días.",
+          text: `Se enfrió a Tibio: ${INTENTOS_SIN_RESPUESTA} intentos nuestros sin respuesta y ${DIAS_DESDE_SU_ULTIMO_MENSAJE} días sin escribir.`,
         });
       }
     } catch (error) {
