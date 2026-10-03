@@ -344,7 +344,7 @@ export function MediaLibraryDialog({
           <MoreVertical className="size-4" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-44">
+      <DropdownMenuContent align="end" className="min-w-52 whitespace-nowrap">
         {/* onClick y no onSelect: el menu es de Base UI y onSelect no se dispara. */}
         <DropdownMenuItem onClick={() => setMirando(item)} className="gap-2">
           <Eye className="size-4" />

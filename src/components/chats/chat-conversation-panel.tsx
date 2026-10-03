@@ -150,6 +150,8 @@ type ConversationPanelProps = {
   emptySelectionDescription: string;
   headerActions?: ReactNode;
   headerBadge?: ReactNode;
+  /** Barra de abajo de la cabecera con la cabecera angosta: etapa, agente, resolver, posponer, asignar. */
+  headerBar?: ReactNode;
   contactPanelActions?: ReactNode;
   /**
    * Acciones de la CABECERA del panel de contacto, al lado del titulo.
@@ -231,6 +233,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   emptySelectionDescription,
   headerActions,
   headerBadge,
+  headerBar,
   contactPanelActions,
   contactPanelHeaderActions,
   canDeleteTags,
@@ -1261,7 +1264,9 @@ export const ConversationPanel = memo(function ConversationPanel({
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-[0.08] dark:opacity-[0.14] dark:invert" style={CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE} />
       {renderedConversation ? (
         <div className="relative z-10 flex min-h-0 h-full w-full flex-1">
-        <div className="flex min-h-0 h-full min-w-0 flex-1 flex-col">
+        {/* @container/chathdr: la cabecera y la barra de abajo deciden por el ANCHO DEL CHAT, no
+            de la pantalla, asi reaccionan tambien a la ficha del contacto abierta. */}
+        <div className="@container/chathdr flex min-h-0 h-full min-w-0 flex-1 flex-col">
           <div className="shrink-0 border-b border-border bg-card px-3 pb-2 pt-[max(env(safe-area-inset-top),0.5rem)] min-h-[3.25rem] md:min-h-0 md:px-[10px] md:py-[10px]">
             {/*
               Los accesos rapidos de la seleccion, en el lugar de la cabecera.
@@ -1360,7 +1365,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                 </div>
               </div>
             ) : (
-            <div className="@container/chathdr flex min-w-0 items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <Link
                   href={backHref}
@@ -1456,6 +1461,48 @@ export const ConversationPanel = memo(function ConversationPanel({
             </div>
             )}
           </div>
+
+          {/*
+            Barra de primera accion, solo con la cabecera angosta (celular, o ficha abierta): arriba
+            no entra y antes vivia escondida en tres puntos. Con la cabecera ancha todo esto ya
+            esta arriba, en linea.
+          */}
+          {hasSettledConversation && seleccionados.length === 0 && (headerBar || mediaConfig) ? (
+            <div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-card px-3 py-1.5 @min-[520px]/chathdr:hidden">
+              {headerBar}
+              {mediaConfig ? (
+                <div className="ml-auto flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsNoteOpen(true)}
+                    aria-label="Nota interna"
+                    title="Nota interna"
+                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card transition hover:bg-muted disabled:opacity-60"
+                  >
+                    <StickyNote className="size-4 text-[#eab308]" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsFollowUpOpen(true)}
+                    aria-label="Agendar seguimiento"
+                    title="Agendar seguimiento"
+                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card transition hover:bg-muted disabled:opacity-60"
+                  >
+                    <AlarmClock className="size-4 text-[#8b5cf6]" />
+                  </button>
+                  {renderedConversation.contactId ? (
+                    <ChatTagsControl
+                      contactId={renderedConversation.contactId}
+                      conversationId={renderedConversation.id}
+                      tags={contactPanelTags ?? renderedConversation.tags ?? []}
+                      canDelete={canDeleteTags}
+                      soloBoton
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {/*
             Pestañas del chat. "Cotizaciones" tiene la ficha de datos del cliente: la que hoy se

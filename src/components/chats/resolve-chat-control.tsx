@@ -13,9 +13,11 @@ type ResolveChatControlProps = {
   conversationId: string;
   status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
   source?: "agent" | "official";
+  /** Solo el icono, para la barra de acciones del celular. */
+  compacto?: boolean;
 };
 
-export function ResolveChatControl({ conversationId, status, source = "agent" }: ResolveChatControlProps) {
+export function ResolveChatControl({ conversationId, status, source = "agent", compacto = false }: ResolveChatControlProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   // Estado optimista para que el botón cambie al instante.
@@ -68,6 +70,27 @@ export function ResolveChatControl({ conversationId, status, source = "agent" }:
       irALaBandejaLimpia(router, nextResolved, conversationId);
     });
   }, [conversationId, resolved, router, source]);
+
+  // En la barra de abajo de la cabecera (celular): solo el icono, en un cuadrito.
+  if (compacto) {
+    return (
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={isPending}
+        aria-pressed={resolved}
+        aria-label={resolved ? "Reabrir conversación" : "Resolver conversación"}
+        title={resolved ? "Reabrir conversación" : "Resolver conversación"}
+        className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card transition hover:bg-muted disabled:opacity-60"
+      >
+        {resolved ? (
+          <RotateCcw className="size-4 text-amber-600" />
+        ) : (
+          <CheckCircle2 className="size-4 text-emerald-600" />
+        )}
+      </button>
+    );
+  }
 
   return (
     <button

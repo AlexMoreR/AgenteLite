@@ -19,6 +19,8 @@ type AssignChatControlProps = {
   assignee: { id: string; name: string | null; email: string } | null;
   // De que canal es el chat: los de la API oficial se guardan en otra tabla.
   source?: "agent" | "official";
+  /** Barra del celular: solo el icono (verde si tiene asesora); el nombre va en el title. */
+  compacto?: boolean;
 };
 
 /*
@@ -51,7 +53,12 @@ function memberLabel(member: { name: string | null; email: string }) {
   return member.name?.trim() || member.email;
 }
 
-export function AssignChatControl({ conversationId, assignee: asignadoDelServidor, source = "agent" }: AssignChatControlProps) {
+export function AssignChatControl({
+  conversationId,
+  assignee: asignadoDelServidor,
+  source = "agent",
+  compacto = false,
+}: AssignChatControlProps) {
   /*
     Quien lo tiene AHORA, sin esperar al servidor.
 
@@ -186,6 +193,23 @@ export function AssignChatControl({ conversationId, assignee: asignadoDelServido
 
   return (
     <div ref={containerRef} className="relative">
+      {compacto ? (
+        <button
+          type="button"
+          onClick={handleToggle}
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card transition hover:bg-muted disabled:opacity-60"
+          title={assignee ? `Asignado a ${buttonLabel}` : "Asignar chat"}
+          aria-label={assignee ? `Asignado a ${buttonLabel}` : "Asignar chat"}
+          aria-haspopup="menu"
+          aria-expanded={open}
+        >
+          {assignee ? (
+            <UserCheck className="size-4 text-emerald-600" />
+          ) : (
+            <UserPlus className="size-4 text-foreground/80" />
+          )}
+        </button>
+      ) : (
       <button
         type="button"
         onClick={handleToggle}
@@ -202,6 +226,7 @@ export function AssignChatControl({ conversationId, assignee: asignadoDelServido
         <span className="truncate">{buttonLabel}</span>
         <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
       </button>
+      )}
 
       {open ? (
         <div className="absolute right-0 z-50 mt-1 w-60 overflow-hidden rounded-xl border border-border bg-popover shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]">

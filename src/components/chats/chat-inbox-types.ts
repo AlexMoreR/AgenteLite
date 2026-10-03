@@ -189,6 +189,8 @@ export type SharedInboxProps = {
   backHref: string;
   headerBadge?: ReactNode;
   headerActions?: ReactNode;
+  /** La barra de abajo de la cabecera angosta (etapa, agente, resolver, posponer, asignar). */
+  headerBar?: ReactNode;
   contactPanelActions?: ReactNode;
   // Acciones de la cabecera del panel de contacto (al lado del titulo "Contacto").
   contactPanelHeaderActions?: ReactNode;

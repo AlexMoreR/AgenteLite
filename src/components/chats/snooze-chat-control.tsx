@@ -25,10 +25,13 @@ export function SnoozeChatControl({
   contactId,
   conversationId,
   source = "agent",
+  compacto = false,
 }: {
   contactId: string;
   conversationId: string;
   source?: "agent" | "official";
+  /** Barra del celular: el reloj abre directo la ventana de posponer. */
+  compacto?: boolean;
 }) {
   const router = useRouter();
   const [menuAbierto, setMenuAbierto] = React.useState(false);
@@ -64,6 +67,17 @@ export function SnoozeChatControl({
 
   return (
     <>
+      {compacto ? (
+        <button
+          type="button"
+          onClick={() => setDialogoAbierto(true)}
+          aria-label="Posponer"
+          title="Posponer"
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card transition hover:bg-muted disabled:opacity-60"
+        >
+          <AlarmClock className="size-4 text-[#8b5cf6]" />
+        </button>
+      ) : (
       <Popover open={menuAbierto} onOpenChange={setMenuAbierto}>
         <PopoverTrigger asChild>
           <button
@@ -90,6 +104,7 @@ export function SnoozeChatControl({
           </button>
         </PopoverContent>
       </Popover>
+      )}
 
       <Dialog open={dialogoAbierto} onOpenChange={(valor) => !valor && !ocupado && setDialogoAbierto(false)}>
         <DialogContent className="sm:max-w-sm">

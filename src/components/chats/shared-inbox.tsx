@@ -62,7 +62,7 @@ import {
   updateConversationItemByContact,
 } from "./chat-inbox-conversation-utils";
 import { ConversationPanel } from "./chat-conversation-panel";
-import { ChatHeaderActions } from "./chat-header-actions";
+import { BarraDeAccionesDelChat, ChatHeaderActions } from "./chat-header-actions";
 import { MenuDelContacto } from "./menu-del-contacto";
 import { AssignChatControl } from "./assign-chat-control";
 import { inicializarFijados, useChatsFijados } from "./chats-fijados-store";
@@ -182,6 +182,7 @@ export function SharedInbox({
   backHref,
   headerBadge,
   headerActions,
+  headerBar,
   contactPanelActions,
   contactPanelHeaderActions,
   composer,
@@ -2022,6 +2023,34 @@ export function SharedInbox({
     );
   }, [renderedConversation, selectedConversationKey]);
 
+  // La barra de abajo de la cabecera angosta, con los mismos datos frescos que la cabecera.
+  const clientHeaderBar = useMemo(() => {
+    const conversation = renderedConversation;
+    if (
+      !conversation ||
+      conversation.isPreview ||
+      !selectedConversationKey.startsWith("agent:") ||
+      !conversation.contactId ||
+      !conversation.crmStage
+    ) {
+      return null;
+    }
+
+    return (
+      <BarraDeAccionesDelChat
+        key={`header-bar:${conversation.id}:${conversation.status ?? "OPEN"}`}
+        contactId={conversation.contactId}
+        stage={conversation.crmStage as CrmStage}
+        conversationId={conversation.id}
+        automationPaused={Boolean(conversation.automationPaused)}
+        status={conversation.status ?? "OPEN"}
+        returnTo={typeof window === "undefined" ? "" : window.location.pathname + window.location.search}
+        toggleAutomationAction={toggleConversationAutomationAction}
+        assignee={conversation.assignedTo ? { ...conversation.assignedTo, email: conversation.assignedTo.email ?? "" } : null}
+      />
+    );
+  }, [renderedConversation, selectedConversationKey]);
+
   /*
     Botones de la ficha del contacto (copiar la conversacion, traer el historial) armados en el CLIENTE.
 
@@ -2694,6 +2723,8 @@ export function SharedInbox({
         emptySelectionDescription={emptySelectionDescription}
         headerActions={clientHeaderActions ?? headerActions}
         headerBadge={headerBadge}
+        // Igual que la ficha: la del servidor solo si es de ESTE chat (Ventas 2 usa siempre esa).
+        headerBar={clientHeaderBar ?? (selectedConversationMatchesCurrentKey ? headerBar : null)}
         // El del servidor solo si es de ESTE chat: el de otro mostraria a la asesora equivocada.
         contactPanelActions={clientContactPanelActions ?? (selectedConversationMatchesCurrentKey ? contactPanelActions : null)}
         contactPanelHeaderActions={clientContactPanelHeaderActions ?? contactPanelHeaderActions}

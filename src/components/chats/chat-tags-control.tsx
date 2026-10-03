@@ -71,6 +71,7 @@ export function ChatTagsControl({
   badgeClassName = "",
   canDelete = false,
   compact = false,
+  soloBoton = false,
 }: {
   contactId?: string | null;
   conversationId: string;
@@ -80,6 +81,8 @@ export function ChatTagsControl({
   canDelete?: boolean;
   // En móvil, colapsa las etiquetas a una sola fila con un chip "+N" para el resto.
   compact?: boolean;
+  /** Barra del celular: solo un cuadrito con el icono que abre el selector, sin las chapitas. */
+  soloBoton?: boolean;
 }) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [etiquetas, setEtiquetas] = useState<EtiquetaItem[]>([]);
@@ -312,6 +315,15 @@ export function ChatTagsControl({
           }
         }}
       >
+        {soloBoton ? (
+          <DialogTrigger
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card transition hover:bg-muted disabled:opacity-60"
+            aria-label="Etiquetas"
+            title="Etiquetas"
+          >
+            <Tag className="size-4 text-sky-600" />
+          </DialogTrigger>
+        ) : (
         <DialogTrigger
           className="inline-flex h-6 items-center justify-center gap-1 rounded-full border border-dashed border-border bg-card px-2 text-[10px] font-medium text-muted-foreground transition hover:border-[var(--primary)] hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
           aria-label="Agregar etiqueta"
@@ -319,6 +331,7 @@ export function ChatTagsControl({
         >
           <Plus className="h-3.5 w-3.5" />
         </DialogTrigger>
+        )}
         {/* Modal con header y footer fijos; solo la lista de etiquetas scrollea.
             Funciona igual en escritorio y movil (se centra y limita al viewport). */}
         <DialogContent
@@ -505,6 +518,10 @@ export function ChatTagsControl({
         </DialogContent>
       </Dialog>
   );
+
+  if (soloBoton) {
+    return addTagButton;
+  }
 
   if (collapsed) {
     const firstTag = tags[0];

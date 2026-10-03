@@ -3,7 +3,7 @@ import { after } from "next/server";
 import { sendUnifiedChatReplyAction, toggleConversationAutomationAction, toggleOfficialApiConversationAutomationAction } from "@/app/actions/chats-actions";
 import { sendChatAudioReplyAction, sendChatMediaReplyAction } from "@/app/actions/agent-actions";
 import { AssignChatControl } from "@/components/chats/assign-chat-control";
-import { ChatHeaderActions } from "@/components/chats/chat-header-actions";
+import { BarraDeAccionesDelChat, ChatHeaderActions } from "@/components/chats/chat-header-actions";
 import type { CrmStage } from "@/features/crm/types";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
@@ -1380,6 +1380,34 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               returnTo={selectedChatHref}
               toggleAutomationAction={toggleOfficialApiConversationAutomationAction}
               source="official"
+            />
+          ) : null
+        }
+        headerBar={
+          selectedUnified?.source === "agent" && selectedConversation ? (
+            <BarraDeAccionesDelChat
+              key={`header-bar:${selectedConversation.id}:${selectedAgentConversation?.status ?? "OPEN"}`}
+              contactId={selectedContactId ?? null}
+              stage={selectedContactCrmStage as CrmStage}
+              conversationId={selectedConversation.id}
+              automationPaused={Boolean(selectedConversation.automationPaused)}
+              status={selectedAgentConversation?.status ?? "OPEN"}
+              returnTo={selectedChatHref}
+              toggleAutomationAction={toggleConversationAutomationAction}
+              assignee={selectedAgentConversation?.assignedTo ?? null}
+            />
+          ) : selectedUnified?.source === "official" && selectedConversation ? (
+            <BarraDeAccionesDelChat
+              key={`header-bar:${selectedConversation.id}:${officialChatsData.selectedConversation?.status ?? "OPEN"}`}
+              contactId={officialChatsData.selectedConversation?.contact.crmContactId ?? null}
+              stage={(officialChatsData.selectedConversation?.contact.crmStage ?? "NUEVO") as CrmStage}
+              conversationId={selectedConversation.id}
+              automationPaused={Boolean(selectedConversation.automationPaused)}
+              status={officialChatsData.selectedConversation?.status ?? "OPEN"}
+              returnTo={selectedChatHref}
+              toggleAutomationAction={toggleOfficialApiConversationAutomationAction}
+              source="official"
+              assignee={officialChatsData.selectedConversation?.assignedTo ?? null}
             />
           ) : null
         }
