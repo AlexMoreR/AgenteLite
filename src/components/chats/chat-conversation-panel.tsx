@@ -2480,7 +2480,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                 <ChatTagsControl
                   contactId={renderedConversation.contactId}
                   conversationId={renderedConversation.id}
-                  tags={renderedConversation.tags ?? []}
+                  tags={contactPanelTags ?? renderedConversation.tags ?? []}
                   canDelete={canDeleteTags}
                 />
               </div>
