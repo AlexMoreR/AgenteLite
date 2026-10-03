@@ -90,8 +90,8 @@ export function ChatHeaderActions({
  * un menu, y desde el celular -donde mas se usa- nadie lo encontraba. Aca queda a la vista y a un
  * toque, como los botones de primera accion de los CRM de chat (Alex, 03-10-2026).
  *
- * Esta parte trae lo del chat (etapa, agente, resolver, posponer, asignar). Las de la
- * conversacion que viven en el panel -nota, seguimiento, etiquetas- las agrega el panel al lado.
+ * Esta parte trae lo del chat (etapa, agente, asignar, y al final resolver y posponer). Las de la
+ * conversacion que viven en el panel -nota, seguimiento, etiquetas- las agrega el panel en el medio.
  */
 export function BarraDeAccionesDelChat({
   contactId,
@@ -116,8 +116,13 @@ export function BarraDeAccionesDelChat({
 > & {
   assignee: { id: string; name: string | null; email: string } | null;
 }) {
+  /*
+    `contents`: los hijos se acomodan directo en la fila del panel. Asi Resolver y Posponer -las
+    dos salidas del chat- quedan AL FINAL, despues de nota, seguimiento y etiquetas que agrega el
+    panel (order-last), y no en el medio (Alex, 03-10-2026).
+  */
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="contents">
       {contactId ? <CrmStageControl contactId={contactId} stage={stage} variant="chip" /> : null}
       <span title={automationPaused ? "Agente apagado en este chat" : "Agente encendido en este chat"} className="inline-flex">
         <FormActionSwitch
@@ -131,11 +136,14 @@ export function BarraDeAccionesDelChat({
         />
       </span>
       <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
-      <ResolveChatControl conversationId={conversationId} status={status} source={source} compacto />
-      {contactId ? (
-        <SnoozeChatControl contactId={contactId} conversationId={conversationId} source={source} compacto />
-      ) : null}
       <AssignChatControl conversationId={conversationId} assignee={assignee} source={source} compacto />
+      <div className="order-last flex items-center gap-1.5">
+        <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
+        <ResolveChatControl conversationId={conversationId} status={status} source={source} compacto />
+        {contactId ? (
+          <SnoozeChatControl contactId={contactId} conversationId={conversationId} source={source} compacto />
+        ) : null}
+      </div>
     </div>
   );
 }
