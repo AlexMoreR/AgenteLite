@@ -15,9 +15,20 @@ type ResolveChatControlProps = {
   source?: "agent" | "official";
   /** Solo el icono, para la barra de acciones del celular. */
   compacto?: boolean;
+  /** Como renglon de un menu (el de Resolver/Posponer de la barra del celular). */
+  comoOpcion?: boolean;
+  /** Se llama al terminar (bien o mal), para que el menu que lo contiene se cierre. */
+  onListo?: () => void;
 };
 
-export function ResolveChatControl({ conversationId, status, source = "agent", compacto = false }: ResolveChatControlProps) {
+export function ResolveChatControl({
+  conversationId,
+  status,
+  source = "agent",
+  compacto = false,
+  comoOpcion = false,
+  onListo,
+}: ResolveChatControlProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   // Estado optimista para que el botón cambie al instante.
@@ -54,6 +65,7 @@ export function ResolveChatControl({ conversationId, status, source = "agent", c
         status: nextResolved ? "CLOSED" : "OPEN",
         source,
       });
+      onListo?.();
       if (result?.error) {
         setResolved(!nextResolved); // revertir
         toast.error(result.error);
@@ -69,7 +81,26 @@ export function ResolveChatControl({ conversationId, status, source = "agent", c
       );
       irALaBandejaLimpia(router, nextResolved, conversationId);
     });
-  }, [conversationId, resolved, router, source]);
+  }, [conversationId, onListo, resolved, router, source]);
+
+  if (comoOpcion) {
+    return (
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={isPending}
+        aria-pressed={resolved}
+        className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground transition hover:bg-muted disabled:opacity-60 md:py-1.5"
+      >
+        {resolved ? (
+          <RotateCcw className="size-4 shrink-0 text-amber-600" />
+        ) : (
+          <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+        )}
+        {resolved ? "Reabrir conversación" : "Resolver conversación"}
+      </button>
+    );
+  }
 
   // En la barra de abajo de la cabecera (celular): solo el icono, en un cuadrito.
   if (compacto) {

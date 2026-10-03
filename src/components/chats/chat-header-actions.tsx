@@ -139,10 +139,19 @@ export function BarraDeAccionesDelChat({
       <AssignChatControl conversationId={conversationId} assignee={assignee} source={source} compacto />
       <div className="order-last flex items-center gap-1.5">
         <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
-        <ResolveChatControl conversationId={conversationId} status={status} source={source} compacto />
+        {/* Resolver y Posponer en UN boton con menu. Sin ficha del CRM no se puede posponer:
+            ahi queda solo el de resolver. */}
         {contactId ? (
-          <SnoozeChatControl contactId={contactId} conversationId={conversationId} source={source} compacto />
-        ) : null}
+          <SnoozeChatControl
+            contactId={contactId}
+            conversationId={conversationId}
+            source={source}
+            estado={status}
+            compacto
+          />
+        ) : (
+          <ResolveChatControl conversationId={conversationId} status={status} source={source} compacto />
+        )}
       </div>
     </div>
   );

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlarmClock, ChevronDown, Loader2 } from "lucide-react";
+import { AlarmClock, CheckCircle2, ChevronDown, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { snoozeLeadAction } from "@/app/actions/crm-actions";
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SNOOZE_PRESETS } from "@/lib/lead-snooze";
 import { CHAT_SNOOZED_EVENT, type ChatSnoozedDetail } from "@/components/chats/chat-inbox-types";
+import { ResolveChatControl } from "@/components/chats/resolve-chat-control";
 
 /**
  * Posponer el lead SIN salir del chat.
@@ -26,12 +27,18 @@ export function SnoozeChatControl({
   conversationId,
   source = "agent",
   compacto = false,
+  estado = "OPEN",
 }: {
   contactId: string;
   conversationId: string;
   source?: "agent" | "official";
-  /** Barra del celular: el reloj abre directo la ventana de posponer. */
+  /**
+   * Barra del celular: UN boton con las dos salidas del chat -Resolver/Reabrir y Posponer- en un
+   * menu, en vez de dos cuadritos (Alex, 03-10-2026).
+   */
   compacto?: boolean;
+  /** Estado del chat, para el icono del boton y la opcion Resolver/Reabrir del menu. */
+  estado?: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
 }) {
   const router = useRouter();
   const [menuAbierto, setMenuAbierto] = React.useState(false);
@@ -68,15 +75,44 @@ export function SnoozeChatControl({
   return (
     <>
       {compacto ? (
-        <button
-          type="button"
-          onClick={() => setDialogoAbierto(true)}
-          aria-label="Posponer"
-          title="Posponer"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card transition hover:bg-muted disabled:opacity-60"
-        >
-          <AlarmClock className="size-4 text-[#8b5cf6]" />
-        </button>
+        <Popover open={menuAbierto} onOpenChange={setMenuAbierto}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label="Resolver o posponer"
+              title="Resolver o posponer"
+              className="inline-flex h-8 shrink-0 items-center justify-center gap-0.5 rounded-lg border border-border bg-card px-1.5 transition hover:bg-muted disabled:opacity-60"
+            >
+              {estado === "CLOSED" || estado === "ARCHIVED" ? (
+                <RotateCcw className="size-4 text-amber-600" />
+              ) : (
+                <CheckCircle2 className="size-4 text-emerald-600" />
+              )}
+              <ChevronDown className="size-3.5 text-muted-foreground" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="end" sideOffset={6} className="w-56 rounded-lg p-1 leading-5">
+            <ResolveChatControl
+              conversationId={conversationId}
+              status={estado}
+              source={source}
+              comoOpcion
+              onListo={() => setMenuAbierto(false)}
+            />
+            {/* Base UI: el onSelect del menu se ignora en silencio, por eso va onClick. */}
+            <button
+              type="button"
+              onClick={() => {
+                setMenuAbierto(false);
+                setDialogoAbierto(true);
+              }}
+              className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground transition hover:bg-muted md:py-1.5"
+            >
+              <AlarmClock className="size-4 shrink-0 text-[#8b5cf6]" />
+              Posponer…
+            </button>
+          </PopoverContent>
+        </Popover>
       ) : (
       <Popover open={menuAbierto} onOpenChange={setMenuAbierto}>
         <PopoverTrigger asChild>
