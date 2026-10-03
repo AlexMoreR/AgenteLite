@@ -5,8 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { sendManualAgentReplyAction, type SendChatReplyResult } from "@/app/actions/agent-actions";
-import { generateAgentReply } from "@/lib/agent-ai";
-import { buildActiveProductContextNote, type ActiveProductContext } from "@/lib/agent-product-flow";
+import { generarSugerenciaDeRespuesta, registrarEnvioDeSugerencia } from "@/lib/sugerencia-de-respuesta";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { after } from "next/server";
 
@@ -691,6 +690,8 @@ const sendUnifiedChatReplySchema = z.object({
   quotedDirection: z.enum(["INBOUND", "OUTBOUND"]).nullish(),
   // "1" cuando el texto salio de una respuesta rapida: va tal cual, sin firma.
   skipSignature: z.string().trim().nullish(),
+  // Id del registro de la estrella cuando el texto salio de una sugerencia (para medir su uso).
+  sugerenciaId: z.string().trim().max(64).nullish(),
 });
 
 const toggleConversationAutomationSchema = z.object({
@@ -747,6 +748,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     conversationId: formData.get("conversationId"),
     message: formData.get("message"),
     skipSignature: formData.get("skipSignature"),
+    sugerenciaId: formData.get("sugerenciaId"),
     agentId: formData.get("agentId"),
     returnTo: formData.get("returnTo"),
     quotedMessageId: formData.get("quotedMessageId"),
@@ -859,6 +861,15 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       workspaceId: membership.workspace.id,
     });
 
+    if (parsed.data.sugerenciaId) {
+      await registrarEnvioDeSugerencia({
+        sugerenciaId: parsed.data.sugerenciaId,
+        userId: session.user.id,
+        workspaceId: membership.workspace.id,
+        mensaje: parsed.data.message,
+      });
+    }
+
     revalidatePath("/cliente/chats");
     revalidatePath("/cliente/api-oficial");
     revalidatePath("/cliente/api-oficial/chats");
@@ -890,13 +901,22 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
   // Quien contesta se queda con el lead si no tenia dueño (ver conversation-claim). Va DESPUES
   // del envio: si el mensaje no salio, la asesora no se quedo con nada.
   if (resultado.ok) {
-    const membership = await getPrimaryWorkspaceForUser((await auth())?.user?.id ?? "");
+    const userId = (await auth())?.user?.id ?? "";
+    const membership = await getPrimaryWorkspaceForUser(userId);
     if (membership?.workspace.id) {
       await claimConversationIfUnassigned({
         source: "agent",
         conversationId: parsed.data.conversationId,
         workspaceId: membership.workspace.id,
       });
+      if (parsed.data.sugerenciaId && userId) {
+        await registrarEnvioDeSugerencia({
+          sugerenciaId: parsed.data.sugerenciaId,
+          userId,
+          workspaceId: membership.workspace.id,
+          mensaje: parsed.data.message,
+        });
+      }
     }
   }
 
@@ -1276,9 +1296,15 @@ export async function getEtiquetasAction(): Promise<{ items?: EtiquetaItem[]; er
   return { items: tags };
 }
 
+/**
+ * La estrella del cuadro de mensajes: redacta una respuesta para la vendedora (nunca la envia).
+ * La redaccion y las reglas viven en lib/sugerencia-de-respuesta. Aca se valida quien pide y se
+ * guarda el registro, para medir el uso por vendedora.
+ */
 export async function generateSuggestedReplyAction(
   conversationId: string,
-): Promise<{ suggestion?: string; error?: string }> {
+  source: "agent" | "official" = "agent",
+): Promise<{ suggestion?: string; sugerenciaId?: string; error?: string }> {
   const session = await auth();
   if (!session?.user?.id) return { error: "No autorizado" };
 
@@ -1288,84 +1314,35 @@ export async function generateSuggestedReplyAction(
   const trimmedId = conversationId.trim();
   if (!trimmedId) return { error: "Conversación inválida" };
 
-  const conversation = await prisma.conversation.findFirst({
-    where: { id: trimmedId, workspaceId: membership.workspace.id },
-    select: {
-      id: true,
-      activeProductContext: true,
-      agent: {
-        select: { systemPrompt: true, model: true, fallbackMessage: true },
-      },
-      messages: {
-        orderBy: { createdAt: "desc" },
-        take: 30,
-        select: { direction: true, content: true, type: true, mediaUrl: true },
-      },
-    },
+  const fuente = source === "official" ? "official" : "agent";
+  const resultado = await generarSugerenciaDeRespuesta({
+    workspaceId: membership.workspace.id,
+    fuente,
+    conversationId: trimmedId,
   });
-
-  if (!conversation) return { error: "Conversación no encontrada" };
-  if (!conversation.agent) {
-    return { error: "Esta conversación no tiene un agente asignado" };
+  if ("error" in resultado) {
+    return { error: resultado.error };
   }
 
-  // Los mensajes vienen del más reciente al más antiguo; el modelo los necesita en orden cronológico.
-  const supportedTurnTypes = new Set([
-    "TEXT",
-    "IMAGE",
-    "AUDIO",
-    "VIDEO",
-    "STICKER",
-    "DOCUMENT",
-    "TEMPLATE",
-    "SYSTEM",
-  ]);
-  const orderedMessages = [...conversation.messages].reverse();
-  const history = orderedMessages.map((message) => ({
-    direction: message.direction,
-    content: message.content,
-    type: supportedTurnTypes.has(message.type)
-      ? (message.type as "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "TEMPLATE" | "SYSTEM")
-      : undefined,
-    mediaUrl: message.mediaUrl,
-  }));
-
-  const latestInbound = [...orderedMessages]
-    .reverse()
-    .find((message) => message.direction === "INBOUND");
-
-  const activeProductContext =
-    (conversation.activeProductContext as ActiveProductContext | null | undefined) ?? null;
-  const productNote = buildActiveProductContextNote(activeProductContext);
-
-  const baseSystemPrompt = conversation.agent.systemPrompt?.trim() || "";
-  const effectiveSystemPrompt = [
-    baseSystemPrompt,
-    productNote,
-    "Genera una sola respuesta lista para enviar al cliente, sin saludos repetidos ni firmas.",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
-  try {
-    const suggestion = await generateAgentReply({
-      model: conversation.agent.model,
-      systemPrompt: effectiveSystemPrompt,
-      fallbackMessage: conversation.agent.fallbackMessage,
-      history,
-      latestUserMessage: latestInbound?.content ?? null,
+  // El registro no puede frenar la sugerencia: si no se guarda, igual se muestra.
+  const registro = await prisma.sugerenciaDeRespuesta
+    .create({
+      data: {
+        workspaceId: membership.workspace.id,
+        userId: session.user.id,
+        fuente,
+        conversationId: trimmedId,
+        productoId: resultado.productoId,
+        texto: resultado.texto,
+      },
+      select: { id: true },
+    })
+    .catch((error) => {
+      console.warn("[generateSuggestedReplyAction] no se pudo registrar", error);
+      return null;
     });
 
-    const cleaned = suggestion?.trim();
-    if (!cleaned) {
-      return { error: "No se pudo generar una sugerencia" };
-    }
-
-    return { suggestion: cleaned };
-  } catch (error) {
-    console.error("[generateSuggestedReplyAction] error", error);
-    return { error: "No se pudo generar la sugerencia. Inténtalo de nuevo." };
-  }
+  return { suggestion: resultado.texto, sugerenciaId: registro?.id };
 }
 
 const createEtiquetaSchema = z.object({

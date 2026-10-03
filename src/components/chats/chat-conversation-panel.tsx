@@ -292,6 +292,12 @@ export const ConversationPanel = memo(function ConversationPanel({
     { files: File[]; caption?: string; motivo?: string } | null
   >(null);
   const [isSuggestingReply, setIsSuggestingReply] = useState(false);
+  /*
+    La sugerencia de la estrella que esta en la caja, para registrar al enviar que salio de ahi (y
+    si se edito). Se suelta si la caja queda vacia -lo que se escriba despues ya es de ella- o al
+    cambiar de chat.
+  */
+  const sugerenciaEnLaCaja = useRef<{ id: string; chat: string } | null>(null);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState("");
   const [pestanaChat, setPestanaChat] = useState<"mensajes" | "cotizaciones">("mensajes");
   /*
@@ -1140,11 +1146,16 @@ export const ConversationPanel = memo(function ConversationPanel({
 
     setIsSuggestingReply(true);
     try {
-      const result = await generateSuggestedReplyAction(conversationId);
+      // La fuente sale de la clave del chat abierto: los de la API oficial se leen de otra tabla.
+      const fuente = selectedConversationId?.startsWith("official:") ? "official" : "agent";
+      const result = await generateSuggestedReplyAction(conversationId, fuente);
       if (result.error || !result.suggestion) {
         toast.error(result.error || "No se pudo generar la sugerencia");
         return;
       }
+      sugerenciaEnLaCaja.current = result.sugerenciaId
+        ? { id: result.sugerenciaId, chat: selectedConversationId ?? "" }
+        : null;
 
       const textarea = composerTextAreaRef.current;
       if (textarea) {
@@ -1164,7 +1175,7 @@ export const ConversationPanel = memo(function ConversationPanel({
     } finally {
       setIsSuggestingReply(false);
     }
-  }, [renderedConversation?.id, mediaConfig?.conversationId, audioConfig?.conversationId, isSuggestingReply, autoResizeComposer]);
+  }, [renderedConversation?.id, mediaConfig?.conversationId, audioConfig?.conversationId, isSuggestingReply, autoResizeComposer, selectedConversationId]);
 
   const contactPanelContent = renderedConversation ? (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -1781,6 +1792,13 @@ export const ConversationPanel = memo(function ConversationPanel({
                       return;
                     }
 
+                    // Salio de la estrella: se marca para medir cuanto se usa (y si se edito).
+                    const sugerencia = sugerenciaEnLaCaja.current;
+                    if (sugerencia && sugerencia.chat === (selectedConversationId ?? "")) {
+                      formData.set("sugerenciaId", sugerencia.id);
+                    }
+                    sugerenciaEnLaCaja.current = null;
+
                     // Respuesta rapida: va tal cual, sin la firma encima.
                     if (desdeRespuestaRapida) {
                       formData.set("skipSignature", "1");
@@ -1822,6 +1840,15 @@ export const ConversationPanel = memo(function ConversationPanel({
                       >
                         <X className="size-4" />
                       </button>
+                    </div>
+                  ) : null}
+
+                  {/* Mientras la estrella redacta: que se vea que esta trabajando, y donde va a aparecer. */}
+                  {isSuggestingReply ? (
+                    <div className="mb-1.5 flex items-center gap-2 rounded-xl bg-muted/70 px-3 py-1.5 text-[13px] text-muted-foreground" role="status">
+                      <Sparkles className="size-4 shrink-0 text-[var(--primary)]" />
+                      <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+                      Generando sugerencia…
                     </div>
                   ) : null}
 
@@ -2197,7 +2224,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                           placeholder={isSendingAudio ? "Enviando nota de voz..." : composer.placeholder || "Escribe un mensaje..."}
                           disabled={isSendingAudio}
                           onChange={(event) => {
-                            setComposerHasText(event.currentTarget.value.trim().length > 0);
+                            const conTexto = event.currentTarget.value.trim().length > 0;
+                            setComposerHasText(conTexto);
+                            if (!conTexto) sugerenciaEnLaCaja.current = null;
                             autoResizeComposer(event.currentTarget);
                           }}
                           onKeyDown={(event) => {

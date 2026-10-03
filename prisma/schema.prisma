@@ -627,6 +627,27 @@ model OfficialApiConversation {
   @@index([configId, assignedToUserId])
 }
 
+/// Cada sugerencia de la estrella del cuadro de mensajes: se crea al generarla y se completa si la
+/// vendedora la envia (editada = el texto enviado no es igual al sugerido). Para medir el uso por
+/// vendedora. Sin relaciones: el chat puede ser de Conversation o de OfficialApiConversation.
+model SugerenciaDeRespuesta {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  userId         String
+  /// "agent" (canal viejo) u "official" (API oficial).
+  fuente         String
+  conversationId String
+  productoId     String?
+  texto          String
+  creadaEn       DateTime  @default(now())
+  enviadaEn      DateTime?
+  textoEnviado   String?
+  editada        Boolean?
+
+  @@index([workspaceId, userId, creadaEn])
+  @@index([conversationId])
+}
+
 model OfficialApiMessage {
   id                String                      @id @default(cuid())
   configId          String

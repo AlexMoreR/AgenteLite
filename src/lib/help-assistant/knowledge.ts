@@ -156,8 +156,10 @@ Para emoticones: toca la carita junto a la casilla y elige uno.
 Para crear una: toca "Crear respuesta rápida", escribe "Título" y "Mensaje", y toca "Crear". Para editar/borrar usa el lápiz ("Editar") o el bote de basura ("Eliminar").
 
 ### Respuesta sugerida con IA
-1. En la casilla, toca el icono de destello/estrellas ("Respuesta sugerida con IA").
-2. La IA escribe una propuesta en la casilla. Revísala, edítala y envíala.
+1. En la casilla, toca el icono de destello/estrellas ("Respuesta sugerida con IA"). Arriba aparece "Generando sugerencia…".
+2. La IA escribe una propuesta en la casilla, leyendo los últimos mensajes, el producto del que se habla y los datos del negocio (precios, formas de pago). Nunca se envía sola: revísala, edítala o bórrala, y envíala tú.
+3. Funciona en Ventas 1 y en Ventas 2, en el computador y en el celular.
+4. Si falta un dato (valor del envío a una ciudad, tiempo de entrega), la sugerencia dice que lo confirmas en vez de inventarlo.
 
 ### Poner o quitar etiquetas a un chat
 Las etiquetas están en el panel del contacto: toca la foto del contacto en la cabecera de la conversación y busca "Etiquetas".

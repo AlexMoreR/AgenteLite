@@ -107,6 +107,7 @@ propio catálogo (la hermana de Alex va a vender plantas y artículos de vivero 
 - `DailyReport`: el informe diario del negocio (números del día, resumen de IA y link público).
 - `WebPushSubscription`: un navegador o celular suscrito a las notificaciones push.
 - `MediaLibraryItem`: la biblioteca de archivos (fotos, PDFs, audios) para mandar desde el chat.
+- `SugerenciaDeRespuesta`: cada sugerencia de la estrella del cuadro de mensajes (texto que la IA le redacta a la vendedora, nunca se envía sola). Guarda quién la pidió, si la envió y si la editó antes: sirve para medir cuánto la usa cada vendedora.
 - `Diagram`: un lienzo de diagrama libre.
 - `AppSetting`: clave-valor para configuración y estado sin migrar la base (libro y estado del Agente V3, supervisoras, banderas de automatizaciones, etc.).
 - `WebhookEventLog`: archivo de los eventos que llegan por webhook (se purga solo por antigüedad).
