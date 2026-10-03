@@ -1,11 +1,33 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, FileText, Image as ImageIcon, LayoutGrid, List, Loader2, Trash2, Upload, Video } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  CheckSquare,
+  Eye,
+  FileText,
+  Image as ImageIcon,
+  LayoutGrid,
+  List,
+  Loader2,
+  MoreVertical,
+  Send,
+  Trash2,
+  Upload,
+  Video,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -79,6 +101,16 @@ export function MediaLibraryDialog({
   // Cuadricula (con tapa) o lista (renglones, entran muchos mas). Se recuerda en ese aparato.
   const [vista, setVista] = useState<Vista>("cuadricula");
   const [tipo, setTipo] = useState<Tipo>("todos");
+  /**
+   * Varios archivos de una (Alex, 03-10-2026): manteniendo presionado uno se entra a elegir, y
+   * despues cada toque suma o saca. En el orden en que se eligieron, que es el orden en que salen.
+   */
+  const [seleccion, setSeleccion] = useState<string[]>([]);
+  const [enviandoVarios, setEnviandoVarios] = useState<{ actual: number; total: number } | null>(null);
+  const temporizador = useRef<number | null>(null);
+  const inicioDelToque = useRef<{ x: number; y: number } | null>(null);
+  // El toque largo termina en un clic: sin esto, el mismo dedo que eligio abria el archivo.
+  const fueToqueLargo = useRef(false);
   const inputArchivo = useRef<HTMLInputElement | null>(null);
   const [filtro, setFiltro] = useState("");
   /**
@@ -139,6 +171,7 @@ export function MediaLibraryDialog({
       setMirando(null);
       setFiltro("");
       setTipo("todos");
+      setSeleccion([]);
     }
   }, [open]);
 
@@ -226,6 +259,127 @@ export function MediaLibraryDialog({
       await cargar();
     }
   };
+
+  const enSeleccion = seleccion.length > 0;
+
+  const alternar = (id: string) =>
+    setSeleccion((actual) => (actual.includes(id) ? actual.filter((otro) => otro !== id) : [...actual, id]));
+
+  const soltarToque = () => {
+    if (temporizador.current !== null) {
+      window.clearTimeout(temporizador.current);
+      temporizador.current = null;
+    }
+    inicioDelToque.current = null;
+  };
+
+  /** Toque normal: abre el archivo (o, eligiendo, lo suma/saca). Mantener presionado: elige. */
+  const toquesDe = (item: MediaLibraryItemDto) => ({
+    onPointerDown: (evento: React.PointerEvent) => {
+      if (evento.button !== 0) return;
+      soltarToque();
+      fueToqueLargo.current = false;
+      inicioDelToque.current = { x: evento.clientX, y: evento.clientY };
+      temporizador.current = window.setTimeout(() => {
+        temporizador.current = null;
+        fueToqueLargo.current = true;
+        alternar(item.id);
+        navigator.vibrate?.(15);
+      }, 450);
+    },
+    // Si el dedo se mueve es que esta scrolleando, no eligiendo.
+    onPointerMove: (evento: React.PointerEvent) => {
+      const inicio = inicioDelToque.current;
+      if (inicio && Math.hypot(evento.clientX - inicio.x, evento.clientY - inicio.y) > 8) soltarToque();
+    },
+    onPointerUp: soltarToque,
+    onPointerLeave: soltarToque,
+    onPointerCancel: soltarToque,
+    // En el celular, mantener presionada una imagen abre el menu de "guardar imagen".
+    onContextMenu: (evento: React.MouseEvent) => evento.preventDefault(),
+    onClick: () => {
+      if (fueToqueLargo.current) {
+        fueToqueLargo.current = false;
+        return;
+      }
+      if (enSeleccion) alternar(item.id);
+      else setMirando(item);
+    },
+  });
+
+  const enviarSeleccion = async () => {
+    const elegidos = seleccion
+      .map((id) => items.find((item) => item.id === id))
+      .filter((item): item is MediaLibraryItemDto => Boolean(item));
+    if (elegidos.length === 0) return;
+    const fallaron: string[] = [];
+    try {
+      // De a uno y en orden, para que le lleguen a la clienta en el orden en que se eligieron.
+      for (const [indice, item] of elegidos.entries()) {
+        setEnviandoVarios({ actual: indice + 1, total: elegidos.length });
+        if (await onSend(item)) void marcarEnvioDeBibliotecaAction({ id: item.id });
+        else fallaron.push(item.id);
+      }
+    } finally {
+      setEnviandoVarios(null);
+    }
+    if (fallaron.length === 0) {
+      setSeleccion([]);
+      onClose();
+      return;
+    }
+    // Quedan elegidos solo los que no salieron, para reintentar sin volver a mandar los otros.
+    setSeleccion(fallaron);
+  };
+
+  const menuDe = (item: MediaLibraryItemDto, claseDelBoton: string) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Opciones de "${item.title}"`}
+          title="Opciones"
+          className={claseDelBoton}
+        >
+          <MoreVertical className="size-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-44">
+        {/* onClick y no onSelect: el menu es de Base UI y onSelect no se dispara. */}
+        <DropdownMenuItem onClick={() => setMirando(item)} className="gap-2">
+          <Eye className="size-4" />
+          Ver
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => void mandar(item)} className="gap-2">
+          <Send className="size-4" />
+          Enviar
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => alternar(item.id)} className="gap-2">
+          <CheckSquare className="size-4" />
+          Elegir varios
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={() => void borrar(item)} className="gap-2">
+          <Trash2 className="size-4" />
+          Quitar de la biblioteca
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const marcaDeElegido = (item: MediaLibraryItemDto, posicion: string) =>
+    enSeleccion ? (
+      <span
+        aria-hidden="true"
+        className={`pointer-events-none absolute ${posicion} flex size-5 items-center justify-center rounded-full border-2 shadow-sm ${
+          seleccion.includes(item.id)
+            ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+            : "border-white bg-black/20"
+        }`}
+      >
+        {seleccion.includes(item.id) ? <Check className="size-3" strokeWidth={3} /> : null}
+      </span>
+    ) : null;
 
   const borrar = async (item: MediaLibraryItemDto) => {
     const resultado = await borrarDeBibliotecaAction({ id: item.id });
@@ -461,13 +615,19 @@ export function MediaLibraryDialog({
           ) : vista === "lista" ? (
             <ul className="flex flex-col">
               {visibles.map((item) => (
-                <li key={item.id} className="flex items-center gap-1 rounded-lg transition hover:bg-muted">
+                <li
+                  key={item.id}
+                  className={`flex items-center gap-1 rounded-lg transition ${
+                    seleccion.includes(item.id) ? "bg-[var(--primary)]/10" : "hover:bg-muted"
+                  }`}
+                >
                   <button
                     type="button"
-                    onClick={() => setMirando(item)}
-                    className="flex min-w-0 flex-1 items-center gap-3 px-2 py-1.5 text-left"
+                    {...toquesDe(item)}
+                    aria-pressed={enSeleccion ? seleccion.includes(item.id) : undefined}
+                    className="flex min-w-0 flex-1 select-none items-center gap-3 px-2 py-1.5 text-left [-webkit-touch-callout:none]"
                   >
-                    <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/50">
+                    <span className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/50">
                       {item.mediaType === "IMAGE" || item.thumbnailUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -475,10 +635,12 @@ export function MediaLibraryDialog({
                           alt=""
                           className="size-full object-cover object-top"
                           loading="lazy"
+                          draggable={false}
                         />
                       ) : (
                         <span className="scale-125">{icono(item.mediaType)}</span>
                       )}
+                      {marcaDeElegido(item, "left-0.5 top-0.5")}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="line-clamp-2 text-[13px] font-medium leading-snug text-foreground">
@@ -490,15 +652,12 @@ export function MediaLibraryDialog({
                       </span>
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    title={`Quitar "${item.title}" de la biblioteca`}
-                    aria-label={`Quitar "${item.title}" de la biblioteca`}
-                    onClick={() => void borrar(item)}
-                    className="mr-1 shrink-0 rounded-full p-2 text-muted-foreground transition hover:bg-background hover:text-destructive"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
+                  {enSeleccion
+                    ? null
+                    : menuDe(
+                        item,
+                        "mr-1 shrink-0 rounded-full p-2 text-muted-foreground transition hover:bg-background hover:text-foreground",
+                      )}
                 </li>
               ))}
             </ul>
@@ -509,12 +668,17 @@ export function MediaLibraryDialog({
               {visibles.map((item) => (
                 <div
                   key={item.id}
-                  className="group relative overflow-hidden rounded-xl border transition hover:border-foreground/20"
+                  className={`group relative overflow-hidden rounded-xl border transition ${
+                    seleccion.includes(item.id)
+                      ? "border-[var(--primary)] ring-2 ring-[var(--primary)]"
+                      : "hover:border-foreground/20"
+                  }`}
                 >
                   <button
                     type="button"
-                    onClick={() => setMirando(item)}
-                    className="block w-full text-left"
+                    {...toquesDe(item)}
+                    aria-pressed={enSeleccion ? seleccion.includes(item.id) : undefined}
+                    className="block w-full select-none text-left [-webkit-touch-callout:none]"
                   >
                     {/* La tapa: la miniatura de la foto, o la primera pagina del PDF si se pudo
                         sacar. object-top porque en un catalogo lo que identifica es el
@@ -527,6 +691,7 @@ export function MediaLibraryDialog({
                           alt=""
                           className="size-full object-cover object-top"
                           loading="lazy"
+                          draggable={false}
                         />
                       ) : (
                         <span className="scale-[2.2]">{icono(item.mediaType)}</span>
@@ -541,22 +706,47 @@ export function MediaLibraryDialog({
                       </span>
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    title={`Quitar "${item.title}" de la biblioteca`}
-                    aria-label={`Quitar "${item.title}" de la biblioteca`}
-                    onClick={() => void borrar(item)}
-                    className="absolute right-1 top-1 rounded-full bg-background/90 p-1.5 text-muted-foreground opacity-0 shadow-sm transition hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 max-sm:opacity-100"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
+                  {marcaDeElegido(item, "left-1.5 top-1.5")}
+                  {enSeleccion
+                    ? null
+                    : menuDe(
+                        item,
+                        "absolute right-1 top-1 rounded-full bg-background/90 p-1 text-foreground/80 opacity-0 shadow-sm transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 data-[popup-open]:opacity-100 max-sm:opacity-100",
+                      )}
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        <div className="border-t p-3">
+        {enSeleccion ? (
+          <div className="flex items-center gap-2 border-t p-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={enviandoVarios !== null}
+              onClick={() => setSeleccion([])}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="flex-1 gap-2"
+              disabled={enviandoVarios !== null}
+              onClick={() => void enviarSeleccion()}
+            >
+              {enviandoVarios ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+              {enviandoVarios
+                ? `Enviando ${enviandoVarios.actual} de ${enviandoVarios.total}…`
+                : seleccion.length === 1
+                  ? "Enviar 1 archivo"
+                  : `Enviar ${seleccion.length} archivos`}
+            </Button>
+          </div>
+        ) : null}
+        <div className={`border-t p-3 ${enSeleccion ? "hidden" : ""}`}>
           <input
             ref={inputArchivo}
             type="file"
@@ -585,7 +775,7 @@ export function MediaLibraryDialog({
           <p className="mt-2 text-center text-[11px] text-muted-foreground">
             {subiendo
               ? "Va por partes: si se corta la señal, sigue desde donde quedó."
-              : "Catálogos en PDF, fotos o videos. Puedes elegir varios a la vez."}
+              : "Mantén presionado un archivo para enviar varios a la vez."}
           </p>
         </div>
       </DialogContent>
