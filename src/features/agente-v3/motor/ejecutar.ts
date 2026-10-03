@@ -2,11 +2,31 @@ import { getFlowReply } from "@/lib/agent-product-flow";
 import type { FlowStep } from "@/lib/agent-product-flow";
 
 import { leerLibro } from "../servicios/almacen";
+import {
+  catalogoActivo,
+  nombreLegible,
+  productosInactivos,
+  reconocerEnElCatalogo,
+  textoDeUnProducto,
+  textoDeVariasOpciones,
+} from "../servicios/catalogo";
 import { anotarDecision } from "../servicios/decisiones";
 import { clasificarIntenciones } from "./clasificar";
 import { decidir, siguienteEstado } from "./decidir";
 import { guardarEstado, leerEstado } from "./estado";
-import type { Accion } from "../domain/reglas";
+import type { Accion, ReglaV3 as Regla } from "../domain/reglas";
+
+/** Los productos que nombra una regla: el que activa, el del paso y el de su condición. */
+function productosDeLaRegla(regla: Regla): string[] {
+  const ids: string[] = [];
+  for (const accion of regla.entonces) {
+    if (accion.tipo === "activar_producto") ids.push(accion.productoId);
+  }
+  if (regla.cuando.tipo === "paso" && regla.cuando.producto) ids.push(regla.cuando.producto);
+  const condicion = regla.soloSi?.productoActivo;
+  if (condicion && condicion !== "ninguno" && condicion !== "cualquiera") ids.push(condicion);
+  return ids;
+}
 
 /**
  * EL EJECUTOR: convierte la decisión del motor en cosas que pasan.
@@ -92,12 +112,37 @@ async function evaluar(input: {
   incluirApiOficial?: boolean;
   herramientas: Herramientas;
 }): Promise<ResultadoV3> {
-  const libro = await leerLibro(input.workspaceId);
-  if (libro.reglas.length === 0) {
+  const libroCompleto = await leerLibro(input.workspaceId);
+  if (libroCompleto.reglas.length === 0) {
     return { atendido: false, regla: null, porque: "El libro de reglas está vacío.", acciones: 0 };
   }
 
   const estado = await leerEstado(input.conversationId);
+
+  /*
+    Un producto INACTIVO (oculto o borrado en Gestión) no se ofrece, aunque tenga reglas (Alex,
+    03-10-2026): esas reglas no se aplican, y si la charla ya era de ese producto, sigue una persona.
+  */
+  const nombrados = [...new Set([...libroCompleto.reglas.flatMap(productosDeLaRegla), ...(estado.productoActivo ? [estado.productoActivo] : [])])];
+  const inactivos = await productosInactivos(input.workspaceId, nombrados).catch(() => new Set<string>());
+  if (estado.productoActivo && inactivos.has(estado.productoActivo)) {
+    await input.herramientas.avisarAsesor(
+      "La clienta habla de un producto que ya no está activo en Gestión: el agente no lo ofrece",
+    );
+    return {
+      atendido: true,
+      regla: null,
+      porque: "El producto de esta charla ya no está activo en Gestión: se avisó a una asesora.",
+      acciones: 0,
+    };
+  }
+  const libro =
+    inactivos.size === 0
+      ? libroCompleto
+      : {
+          ...libroCompleto,
+          reglas: libroCompleto.reglas.filter((regla) => !productosDeLaRegla(regla).some((id) => inactivos.has(id))),
+        };
 
   /*
     La IA solo se llama si hay reglas de intención que puedan aplicar AHORA.
@@ -117,8 +162,16 @@ async function evaluar(input: {
   const acciones = [...decision.saludo, ...decision.acciones];
 
   if (acciones.length === 0) {
+    // Ninguna regla aplica: si la clienta nombró un producto del catálogo, se le responde con él.
+    const delCatalogo = await responderDesdeElCatalogo(input).catch((error) => {
+      console.error("[agente-v3] catalogo", error instanceof Error ? error.message : error);
+      return null;
+    });
     // Nada que hacer no es un error: el cliente dijo algo que no le toca a ninguna regla.
     await guardarEstado(input.conversationId, siguienteEstado(estado, []));
+    if (delCatalogo) {
+      return { atendido: true, regla: "Catálogo de Gestión", porque: delCatalogo, acciones: 1 };
+    }
     return { atendido: false, regla: null, porque: decision.porque, acciones: 0 };
   }
 
@@ -187,6 +240,47 @@ async function evaluar(input: {
     porque,
     acciones: filtradas.length,
   };
+}
+
+/**
+ * La clienta preguntó por un producto que ninguna regla cubre (Alex, 03-10-2026: "responder y
+ * avisar"). Si lo nombró y está activo en el catálogo, se le dice qué es, cuánto vale y se le manda
+ * la foto; si nombró algo que encaja con varios, se le pregunta cuál. En los dos casos se avisa a
+ * una asesora. Devuelve el porqué para la nota del chat, o null si no nombró ningún producto.
+ */
+async function responderDesdeElCatalogo(input: {
+  workspaceId: string;
+  mensaje: string;
+  herramientas: Herramientas;
+}): Promise<string | null> {
+  const coincidencia = reconocerEnElCatalogo(input.mensaje, await catalogoActivo(input.workspaceId));
+  if (!coincidencia) return null;
+
+  const texto =
+    coincidencia.tipo === "uno"
+      ? textoDeUnProducto(coincidencia.producto)
+      : textoDeVariasOpciones(coincidencia.productos, coincidencia.total);
+
+  // La regla de siempre: nunca repetir un mensaje que ya salió; si se repetiría, solo se avisa.
+  if (await input.herramientas.yaLoDijimos(texto)) {
+    await input.herramientas.avisarAsesor("La clienta volvió a preguntar por un producto del catálogo");
+    return "Ya se le había mandado esa información del catálogo: se avisó a una asesora en vez de repetirla.";
+  }
+
+  await input.herramientas.enviarPaso({ kind: "text", content: texto });
+  if (coincidencia.tipo === "uno" && coincidencia.producto.foto) {
+    await input.herramientas.enviarPaso({ kind: "image", url: coincidencia.producto.foto, caption: null });
+  }
+
+  const deQue =
+    coincidencia.tipo === "uno"
+      ? `${nombreLegible(coincidencia.producto.nombre)}${coincidencia.producto.codigo ? ` (${coincidencia.producto.codigo})` : ""}`
+      : `${coincidencia.total} productos parecidos`;
+  await input.herramientas.avisarAsesor(`La clienta preguntó por ${deQue}, que no tiene reglas en el agente`);
+
+  return coincidencia.tipo === "uno"
+    ? `Ninguna regla aplicaba; la clienta nombró ${deQue} del catálogo: se le respondió con precio y foto y se avisó a una asesora.`
+    : `Ninguna regla aplicaba; lo que escribió encaja con ${deQue} del catálogo: se le preguntó cuál y se avisó a una asesora.`;
 }
 
 async function ejecutarUna(

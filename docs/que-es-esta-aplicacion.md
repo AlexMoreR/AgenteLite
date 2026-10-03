@@ -196,6 +196,11 @@ la IA pausada no lo contesta el agente.
 - **Contactos bloqueados** (`Contact.bloqueadoEn`): solo dueño o admin bloquean desde la bandeja. Se
   bloquean en WhatsApp en cada línea donde tienen chat, salen de la bandeja y del CRM y se les pausa el
   agente. Se desbloquean en Contactos → Bloqueados.
+- **El Agente V3 y el catálogo**: el V3 contesta por reglas, que nombran productos por su id (hoy solo el
+  Combo Camillas). Si ninguna regla aplica y la clienta nombra un producto ACTIVO del catálogo (por código
+  o por las palabras del nombre), le responde con nombre, precio, descripción de venta y foto, o le
+  pregunta cuál si encaja con varios, y avisa a una asesora. Un producto inactivo (oculto o borrado en
+  Gestión) no se ofrece: sus reglas no se aplican y una charla que era de ese producto pasa a una asesora.
 - **Freno de automáticos**: ningún mensaje automático (seguimientos del V3, programados, reactivación, campañas)
   sale si el último mensaje nuestro no está leído, ni un tercero seguido sin respuesta del cliente. Las
   respuestas a lo que escribe el cliente no pasan por el freno.
