@@ -6,6 +6,7 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 import { canalesQueMonitorea } from "@/lib/modo-monitoreo";
+import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { fragmentosDeFiltrosOficiales } from "@/features/official-api/services/getOfficialApiChatsData";
 import {
   idsSinResponder,
@@ -199,7 +200,16 @@ export async function GET(request: Request) {
   const statusFilter: ChatsStatusFilter =
     requestedStatusRaw === "all" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "open";
 
-  const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
+  /*
+    Quien ve TODAS las conversaciones de sus lineas: dueño, administrador o supervisora.
+
+    Aca faltaba la supervisora (estaba en la pagina y en /list, no en los contadores): a Maria, ya
+    supervisora, la pestaña "Todas" le contaba como a una asesora -sus 35 chats mas 3- en vez de los
+    ~830 abiertos de Ventas 1 y 2 (Alex, 03-10-2026). Que LINEAS ve sigue siendo otra cosa: eso lo
+    decide `esJefe` (solo dueño y administrador ven todas las lineas).
+  */
+  const esJefe = membership.role === "OWNER" || membership.role === "ADMIN";
+  const isManager = esJefe || (await esSupervisora(membership.workspace.id, session.user.id));
 
   /**
    * Los contactos con el lead pospuesto, para descontarlos.
@@ -216,7 +226,7 @@ export async function GET(request: Request) {
   const visibleChannelIds = await getVisibleChannelIds({
     workspaceId: membership.workspace.id,
     userId: session.user.id,
-    esJefe: isManager,
+    esJefe,
   });
 
   /**
