@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { createFollow } from "@/features/seguimientos/services/follows";
+import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
 import type { CrmStage } from "@/features/crm/types";
 
 /**
@@ -18,7 +19,45 @@ import type { CrmStage } from "@/features/crm/types";
  * El ENVIO no se reimplementa: cada destinatario se convierte en un Follow y lo manda el motor
  * de seguimientos, que ya resuelve el canal, el gateway, los reintentos y deja el mensaje escrito
  * en el chat. Un segundo camino de envio seria un segundo lugar donde se rompen los envios.
+ *
+ * 3. Solo a quien esta "vivo" con nosotros (Alex, 02-10-2026), por el mismo riesgo de bloqueo:
+ *    - el publico es solo de contactos que nos ESCRIBIERON en los ultimos 30 dias;
+ *    - y a cada uno, justo antes de mandarle, se le aplica el freno de automaticos: si no leyo
+ *      nuestro ultimo mensaje, o ya lleva 2 automaticos seguidos sin contestar, no se le manda
+ *      (ver lib/freno-de-automaticos). Queda anotado como frenado, con el motivo.
  */
+
+/** Hasta cuanto atras tiene que haber escrito un contacto para entrar en una campaña. */
+export const DIAS_DESDE_SU_ULTIMO_MENSAJE = 30;
+
+/** Prefijo del error de un destinatario que no se mando por un freno (no es una falla). */
+export const PREFIJO_FRENADO = "Frenado:";
+
+const MOTIVO_DEL_FRENO: Record<string, string> = {
+  no_leido: `${PREFIJO_FRENADO} no leyó nuestro último mensaje`,
+  dos_sin_respuesta: `${PREFIJO_FRENADO} ya tiene 2 mensajes automáticos sin contestar`,
+  sin_mensajes_recientes: `${PREFIJO_FRENADO} no nos escribe hace más de ${DIAS_DESDE_SU_ULTIMO_MENSAJE} días`,
+};
+
+function haceTreintaDias(ahora = new Date()) {
+  return new Date(ahora.getTime() - DIAS_DESDE_SU_ULTIMO_MENSAJE * 86_400_000);
+}
+
+/**
+ * La parte del publico que no depende de la etapa: sin ocultos, con telefono y que nos haya
+ * escrito hace poco. La usa tambien la pantalla para el conteo por etapa, y asi el numero que se
+ * ve antes de crear la campaña es el mismo que despues se congela.
+ */
+export function publicoBaseDeCampana(workspaceId: string, ahora = new Date()) {
+  return {
+    workspaceId,
+    excludedFromCrm: false,
+    // Sin telefono no hay a quien mandarle: se excluye del conteo para que el numero que se ve
+    // antes de disparar sea el numero real de mensajes que van a salir.
+    phoneNumber: { not: "" },
+    messages: { some: { direction: "INBOUND" as const, createdAt: { gte: haceTreintaDias(ahora) } } },
+  };
+}
 
 export type CampaignAudienceFilter = {
   /** Por ahora la unica condicion: la etapa del CRM. */
@@ -27,13 +66,31 @@ export type CampaignAudienceFilter = {
 
 function buildAudienceWhere(workspaceId: string, filtro: CampaignAudienceFilter) {
   return {
-    workspaceId,
-    excludedFromCrm: false,
-    // Sin telefono no hay a quien mandarle: se excluye del conteo para que el numero que se ve
-    // antes de disparar sea el numero real de mensajes que van a salir.
-    phoneNumber: { not: "" },
+    ...publicoBaseDeCampana(workspaceId),
     ...(filtro.crmStage ? { crmStage: filtro.crmStage as CrmStage } : {}),
   };
+}
+
+/**
+ * ¿Le puede salir la campaña a este contacto AHORA?
+ *
+ * Se vuelve a mirar en cada tanda, no solo al congelar el publico: una campaña dura dias, y en el
+ * medio alguien pudo dejar de escribir hace 30 dias o dejar sin leer lo ultimo que le mandamos.
+ */
+async function motivoParaNoMandar(input: {
+  contactId: string;
+  channelId: string | null;
+  ahora: Date;
+}): Promise<string | null> {
+  const reciente = await prisma.message.findFirst({
+    where: { contactId: input.contactId, direction: "INBOUND", createdAt: { gte: haceTreintaDias(input.ahora) } },
+    select: { id: true },
+  });
+  if (!reciente) {
+    return MOTIVO_DEL_FRENO.sin_mensajes_recientes;
+  }
+  const freno = await revisarFrenoDeAutomatico({ contactId: input.contactId, channelId: input.channelId });
+  return freno.enviar ? null : MOTIVO_DEL_FRENO[freno.motivo];
 }
 
 /** Cuantos leads caen en la condicion, para poder verlo ANTES de mandar nada. */
@@ -121,7 +178,7 @@ export async function pausarCampana(input: { workspaceId: string; campaignId: st
  * Corre desde el cron. Una tanda por campaña y por corrida: si una campaña se atrasa, no se
  * "pone al dia" mandando varias tandas juntas, que es exactamente lo que dispara un bloqueo.
  */
-export async function procesarTandasDeCampanas(): Promise<{ enviados: number }> {
+export async function procesarTandasDeCampanas(): Promise<{ enviados: number; frenados: number }> {
   const ahora = new Date();
   const campanas = await prisma.campaign.findMany({
     where: { status: "RUNNING" },
@@ -141,6 +198,7 @@ export async function procesarTandasDeCampanas(): Promise<{ enviados: number }> 
   });
 
   let enviados = 0;
+  let frenados = 0;
 
   for (const campana of campanas) {
     try {
@@ -166,8 +224,25 @@ export async function procesarTandasDeCampanas(): Promise<{ enviados: number }> 
       }
 
       let enviadosEnLaTanda = 0;
+      let frenadosEnLaTanda = 0;
       for (const destinatario of tanda) {
         try {
+          const motivo = await motivoParaNoMandar({
+            contactId: destinatario.contactId,
+            channelId: campana.channelId,
+            ahora,
+          });
+          if (motivo) {
+            // No es una falla: se decidio no mandarle. Queda en FAILED con el motivo porque el
+            // estado no tiene un valor propio y agregarlo pediria migrar; PREFIJO_FRENADO lo separa.
+            await prisma.campaignRecipient.update({
+              where: { id: destinatario.id },
+              data: { status: "FAILED", error: motivo },
+            });
+            frenadosEnLaTanda += 1;
+            continue;
+          }
+
           const follow = await createFollow({
             workspaceId: campana.workspaceId,
             contactId: destinatario.contactId,
@@ -220,9 +295,11 @@ export async function procesarTandasDeCampanas(): Promise<{ enviados: number }> 
       });
 
       enviados += enviadosEnLaTanda;
+      frenados += frenadosEnLaTanda;
       console.log("[campanas] tanda", {
         campaignId: campana.id,
         enviados: enviadosEnLaTanda,
+        frenados: frenadosEnLaTanda,
         pedidos: tanda.length,
       });
     } catch (error) {
@@ -230,5 +307,5 @@ export async function procesarTandasDeCampanas(): Promise<{ enviados: number }> 
     }
   }
 
-  return { enviados };
+  return { enviados, frenados };
 }

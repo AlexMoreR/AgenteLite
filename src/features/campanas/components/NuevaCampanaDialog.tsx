@@ -156,7 +156,8 @@ export function NuevaCampanaDialog({
               ) : (
                 <>
                   <span className="font-medium text-foreground tabular-nums">{publico}</span> leads
-                  con teléfono en esta etapa.
+                  en esta etapa que nos escribieron en los últimos 30 días. A quien no haya leído
+                  nuestro último mensaje no se le envía.
                 </>
               )}
             </p>

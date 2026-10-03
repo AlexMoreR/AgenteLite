@@ -5,6 +5,7 @@ import { CampanasWorkspace } from "@/features/campanas/components/CampanasWorksp
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
+import { PREFIJO_FRENADO, publicoBaseDeCampana } from "@/features/campanas/services/campaigns";
 import { CRM_STAGE_META, CRM_STAGE_ORDER } from "@/features/crm/domain/crm-config";
 
 export const metadata: Metadata = {
@@ -37,6 +38,8 @@ export default async function CampanasPage() {
         status: true,
         totalRecipients: true,
         sentCount: true,
+        // Los que no se mandaron por el freno (no leyo, no escribe hace 30 dias...).
+        _count: { select: { recipients: { where: { status: "FAILED", error: { startsWith: PREFIJO_FRENADO } } } } },
         lastBatchAt: true,
         createdAt: true,
       },
@@ -50,7 +53,8 @@ export default async function CampanasPage() {
     // condicion y no despues de haber creado la campaña.
     prisma.contact.groupBy({
       by: ["crmStage"],
-      where: { workspaceId, excludedFromCrm: false, phoneNumber: { not: "" } },
+      // El MISMO publico que se congela al iniciar (solo quien escribio en los ultimos 30 dias).
+      where: publicoBaseDeCampana(workspaceId),
       _count: true,
     }),
   ]);
@@ -64,6 +68,7 @@ export default async function CampanasPage() {
       campanas={campanas.map((campana) => ({
         ...campana,
         content: campana.content ?? "",
+        frenadosCount: campana._count.recipients,
         lastBatchAt: campana.lastBatchAt?.toISOString() ?? null,
         createdAt: campana.createdAt.toISOString(),
       }))}

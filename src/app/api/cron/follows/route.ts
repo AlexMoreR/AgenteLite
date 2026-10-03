@@ -168,7 +168,7 @@ async function handleCron(request: Request) {
   // Campañas: la siguiente tanda de cada una que ya cumplio su espera. SIN el throttle de 5 min
   // de los de arriba: cada campaña tiene su propia frecuencia y se fija sola si le toca, asi que
   // saltear corridas solo le agregaria un retraso de hasta 5 minutos a una campaña de 5 minutos.
-  let campanas: { enviados: number } | null = null;
+  let campanas: { enviados: number; frenados: number } | null = null;
   try {
     campanas = await procesarTandasDeCampanas();
   } catch (error) {

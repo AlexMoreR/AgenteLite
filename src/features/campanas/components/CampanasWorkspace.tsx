@@ -24,6 +24,8 @@ type CampanaItem = {
   status: "DRAFT" | "RUNNING" | "PAUSED" | "DONE";
   totalRecipients: number;
   sentCount: number;
+  /** Los que no se mandaron por el freno: no leyó lo último o no escribe hace 30 días. */
+  frenadosCount: number;
   lastBatchAt: string | null;
   createdAt: string;
 };
@@ -109,7 +111,7 @@ export function CampanasWorkspace({
             const estado = ESTADO[campana.status];
             const avance =
               campana.totalRecipients > 0
-                ? Math.round((campana.sentCount / campana.totalRecipients) * 100)
+                ? Math.round(((campana.sentCount + campana.frenadosCount) / campana.totalRecipients) * 100)
                 : 0;
             return (
               <Card key={campana.id}>
@@ -141,6 +143,9 @@ export function CampanasWorkspace({
                       </div>
                       <p className="text-[11px] text-muted-foreground tabular-nums">
                         {campana.sentCount} de {campana.totalRecipients} enviados
+                        {campana.frenadosCount > 0
+                          ? ` · ${campana.frenadosCount} sin enviar (no leyeron lo último o no escriben hace 30 días)`
+                          : ""}
                       </p>
                     </div>
                   ) : null}

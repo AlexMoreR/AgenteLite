@@ -178,7 +178,9 @@ la IA pausada no lo contesta el agente.
 - **Seguimientos**: hay tres clases. Los programados (`FollowRule` y `Follow`); los de cada paso del
   embudo del producto; y los del Agente V3, que son reglas "si no contesta en X minutos" y miran el paso
   en que va la charla.
-- **Campañas**: envíos masivos por tandas a los contactos de una etapa, con intervalo entre tandas.
+- **Campañas**: envíos masivos por tandas a los contactos de una etapa, con intervalo entre tandas. Solo
+  entran contactos que escribieron en los últimos 30 días, y a cada uno se le aplica el freno de
+  automáticos antes de mandarle (los frenados quedan como `FAILED` con error "Frenado: …").
 - **Mi día**: la pantalla de cada asesora con sus leads del día, sus números y a quién llamar primero.
 - **Contactos ocultos del CRM** (`excludedFromCrm`): contactos que no son leads (proveedores, logística).
   Salen de los tableros, el kanban y los conteos, pero sus chats siguen en la bandeja. Se ocultan a mano,
@@ -192,7 +194,7 @@ la IA pausada no lo contesta el agente.
 - **Contactos bloqueados** (`Contact.bloqueadoEn`): solo dueño o admin bloquean desde la bandeja. Se
   bloquean en WhatsApp en cada línea donde tienen chat, salen de la bandeja y del CRM y se les pausa el
   agente. Se desbloquean en Contactos → Bloqueados.
-- **Freno de automáticos**: ningún mensaje automático (seguimientos del V3, programados, reactivación)
+- **Freno de automáticos**: ningún mensaje automático (seguimientos del V3, programados, reactivación, campañas)
   sale si el último mensaje nuestro no está leído, ni un tercero seguido sin respuesta del cliente. Las
   respuestas a lo que escribe el cliente no pasan por el freno.
 - **Roles**: asesora (sus chats), supervisora (ve "Todas" pero solo de sus líneas, asigna, ve tableros y
@@ -240,7 +242,6 @@ la IA pausada no lo contesta el agente.
   cliente, sin teléfono).
 - **Los clientes con el visto apagado no reciben automáticos**: sus mensajes nunca pasan a "leído", así
   que el freno los detiene siempre (1 de cada 4 chats que responden, medido el 02-10-2026).
-- **Las campañas no pasan por el freno de automáticos**.
 
 ## Advertencias de operación
 
