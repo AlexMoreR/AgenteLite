@@ -5,7 +5,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  AlarmClock,
+  CalendarPlus,
   ArrowLeft,
   BookOpen,
   Camera,
@@ -1488,7 +1488,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                     title="Agendar seguimiento"
                     className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card transition hover:bg-muted disabled:opacity-60"
                   >
-                    <AlarmClock className="size-4 text-[#8b5cf6]" />
+                    <CalendarPlus className="size-4 text-[#0ea5e9]" />
                   </button>
                   {renderedConversation.contactId ? (
                     <ChatTagsControl
@@ -2037,7 +2037,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   }}
                                   className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <AlarmClock className="size-4 shrink-0 text-[#8b5cf6]" />
+                                  <CalendarPlus className="size-4 shrink-0 text-[#0ea5e9]" />
                                   <span>Agendar seguimiento</span>
                                 </Button>
                                 <div className="-mx-1 my-0.5 h-px bg-border" />
