@@ -45,7 +45,14 @@ type View = { mode: "list" } | { mode: "editor"; productId: string | null };
  * flujos, precio) todavia se lee de lo que existe y se muestra en solo lectura; por eso cada
  * seccion dice si se puede tocar o no, en vez de aparentar que si y no guardar nada.
  */
-export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }) {
+export function ProductoV2Workspace({
+  products,
+  flujos = [],
+}: {
+  products: ProductoV2Item[];
+  /** Los flujos que se pueden mandar como seguimiento de un paso del embudo. */
+  flujos?: Array<{ id: string; title: string }>;
+}) {
   /**
    * Que se esta viendo sale de la DIRECCION, no de un estado del componente.
    *
@@ -251,6 +258,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
             <div className="space-y-4">
               <ProductFunnelEditor
                 productId={selected.id}
+                flujos={flujos}
                 stages={selected.funnelStages}
                 vienenDelAgente={selected.funnelFromAgent}
                 avance={selected.leadProgress}

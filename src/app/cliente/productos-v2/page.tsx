@@ -81,6 +81,7 @@ export default async function ClienteProductoV2Page() {
                 timeType: true,
                 timeValue: true,
                 content: true,
+                flowId: true,
                 cancelOnActivity: true,
               },
             },
@@ -137,6 +138,7 @@ export default async function ClienteProductoV2Page() {
         timeType: "MINUTES" | "HOURS" | "DAYS";
         timeValue: number;
         content: string;
+        flowId: string | null;
         cancelOnActivity: boolean;
       }>;
     }> = [
@@ -165,6 +167,7 @@ export default async function ClienteProductoV2Page() {
         timeType: seguimiento.timeType,
         timeValue: seguimiento.timeValue,
         content: seguimiento.content?.trim() || "",
+        flowId: seguimiento.flowId?.trim() || null,
         cancelOnActivity: seguimiento.cancelOnActivity,
       })),
     }));
@@ -196,5 +199,11 @@ export default async function ClienteProductoV2Page() {
     };
   });
 
-  return <ProductoV2Workspace products={products} />;
+  // Los flujos que un seguimiento del embudo puede mandar en vez de un texto.
+  return (
+    <ProductoV2Workspace
+      products={products}
+      flujos={flowItems.map((flujo) => ({ id: flujo.id, title: flujo.title }))}
+    />
+  );
 }

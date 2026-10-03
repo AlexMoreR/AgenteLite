@@ -58,11 +58,14 @@ type LeadDeEtapa = {
  */
 export function ProductFunnelEditor({
   productId,
+  flujos = [],
   stages,
   vienenDelAgente,
   avance,
 }: {
   productId: string;
+  /** Los flujos que un seguimiento puede mandar en vez de un texto. */
+  flujos?: Array<{ id: string; title: string }>;
   stages: Array<{
     stage: string;
     goal: string;
@@ -72,6 +75,7 @@ export function ProductFunnelEditor({
       timeType: "MINUTES" | "HOURS" | "DAYS";
       timeValue: number;
       content: string;
+      flowId: string | null;
       cancelOnActivity: boolean;
     }>;
   }>;
@@ -101,6 +105,7 @@ export function ProductFunnelEditor({
           timeType: seguimiento.timeType,
           timeValue: String(seguimiento.timeValue),
           content: seguimiento.content,
+          flowId: seguimiento.flowId,
           cancelOnActivity: seguimiento.cancelOnActivity,
         })),
       };
@@ -234,6 +239,7 @@ export function ProductFunnelEditor({
             timeType: seguimiento.timeType,
             timeValue: Number(seguimiento.timeValue),
             content: seguimiento.content,
+            flowId: seguimiento.flowId,
             cancelOnActivity: seguimiento.cancelOnActivity,
           })),
         })),
@@ -412,7 +418,14 @@ export function ProductFunnelEditor({
                                 {seguimiento.timeValue} {UNIDAD_CORTA[seguimiento.timeType]}
                               </span>
                               <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                                {seguimiento.content}
+                                {seguimiento.flowId ? (
+                                  <>
+                                    <GitBranch className="mr-1 inline h-3 w-3 align-[-2px]" />
+                                    Flujo: {flujos.find((flujo) => flujo.id === seguimiento.flowId)?.title ?? "un flujo que ya no existe"}
+                                  </>
+                                ) : (
+                                  seguimiento.content
+                                )}
                               </span>
                               <button
                                 type="button"
@@ -476,6 +489,7 @@ export function ProductFunnelEditor({
           abierto
           etapaLabel={editando.etiqueta}
           seguimiento={editando.seguimiento}
+          flujos={flujos}
           onGuardar={(seguimiento) => guardarSeguimiento(editando.stage, seguimiento)}
           onCerrar={() => setEditando(null)}
         />

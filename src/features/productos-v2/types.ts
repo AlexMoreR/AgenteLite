@@ -34,6 +34,8 @@ export type ProductoV2Item = {
       timeType: "MINUTES" | "HOURS" | "DAYS";
       timeValue: number;
       content: string;
+      /** Si viene, el seguimiento manda ese flujo en vez del texto. */
+      flowId: string | null;
       cancelOnActivity: boolean;
     }>;
   }>;

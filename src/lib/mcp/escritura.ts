@@ -1,6 +1,7 @@
 import { publicarAgenteV2 } from "@/app/actions/agent-v2-actions";
 import { anotarCambioMcp, deshacerCambioMcp, listarCambiosMcp } from "@/lib/mcp/cambios";
 import { prisma } from "@/lib/prisma";
+import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 
 /*
   Herramientas que ESCRIBEN (etapa 2 del plan MCP, Alex 18-sep-2026).
@@ -96,17 +97,21 @@ export const HERRAMIENTAS_MCP_ESCRITURA = [
     name: "crear_seguimiento_del_paso",
     title: "Crear un 'si no contesta' en un paso",
     description:
-      "Agrega un seguimiento al paso de un embudo: cuanto esperar desde que el lead entro a ese paso y que mandarle si no contesta. Se cancela solo si el cliente escribe antes.",
+      "Agrega un seguimiento al paso de un embudo: cuanto esperar desde que el lead entro a ese paso y que mandarle si no contesta: un TEXTO o un FLUJO entero (sus textos, fotos y videos en orden). Se cancela solo si el cliente escribe antes, y no sale si el cliente no leyo nuestro ultimo mensaje o ya tiene 2 automaticos sin contestar.",
     inputSchema: {
       type: "object",
       properties: {
         etapa_id: { type: "string", description: "Id del paso (ver ver_embudo_del_producto)" },
         esperar: { type: "number", description: "Cuanto esperar" },
         unidad: { type: "string", enum: TIEMPOS, description: "MINUTES, HOURS o DAYS" },
-        texto: { type: "string", description: "El mensaje a enviar" },
+        texto: { type: "string", description: "El mensaje a enviar. Va texto O flujo_id, no los dos." },
+        flujo_id: {
+          type: "string",
+          description: "Id del flujo a enviar en vez de un texto (ver listar_flujos). Va texto O flujo_id, no los dos.",
+        },
         cancelar_si_escribe: { type: "boolean", description: "Por defecto true" },
       },
-      required: ["etapa_id", "esperar", "unidad", "texto"],
+      required: ["etapa_id", "esperar", "unidad"],
       additionalProperties: false,
     },
     annotations: ESCRIBE,
@@ -114,14 +119,16 @@ export const HERRAMIENTAS_MCP_ESCRITURA = [
   {
     name: "editar_seguimiento_del_paso",
     title: "Editar un 'si no contesta'",
-    description: "Cambia el texto, la espera o si esta activo, en un seguimiento de un paso del embudo.",
+    description:
+      "Cambia la espera, si esta activo, o que manda un seguimiento de un paso del embudo: un texto o un flujo. Pasar flujo_id lo convierte en seguimiento con flujo; pasar texto lo devuelve a texto (y le quita el flujo).",
     inputSchema: {
       type: "object",
       properties: {
         seguimiento_id: { type: "string" },
         esperar: { type: "number" },
         unidad: { type: "string", enum: TIEMPOS },
-        texto: { type: "string" },
+        texto: { type: "string", description: "Mandar este texto (le quita el flujo si tenia)" },
+        flujo_id: { type: "string", description: "Mandar este flujo en vez del texto (ver listar_flujos)" },
         activo: { type: "boolean" },
       },
       required: ["seguimiento_id"],
@@ -212,6 +219,23 @@ const NOMBRES = new Set(HERRAMIENTAS_MCP_ESCRITURA.map((herramienta) => herramie
 
 export function esHerramientaDeEscritura(nombre: string) {
   return NOMBRES.has(nombre as (typeof HERRAMIENTAS_MCP_ESCRITURA)[number]["name"]);
+}
+
+/**
+ * Un id de flujo que exista en ESTE negocio (los de listar_flujos), o null si no se mando. Un id
+ * inventado o de otro negocio corta con error: un seguimiento con un flujo que no existe no
+ * mandaria nada y nadie se enteraria.
+ */
+async function flujoDelNegocio(contexto: { workspaceId: string }, valor: unknown): Promise<string | null> {
+  const flujoId = typeof valor === "string" ? valor.trim() : "";
+  if (!flujoId) {
+    return null;
+  }
+  const flujos = await getCreatedFlowItems({ workspaceId: contexto.workspaceId, includeOfficialApi: false });
+  if (!flujos.some((flujo) => flujo.id === flujoId)) {
+    throw new Error("No existe ese flujo en este negocio. Ver listar_flujos para los ids.");
+  }
+  return flujoId;
 }
 
 function texto(valor: unknown): string | undefined {
@@ -325,10 +349,15 @@ export async function ejecutarHerramientaMcpEscritura(
           stuckAfterMessages: true,
           followUps: {
             orderBy: { sortOrder: "asc" },
-            select: { id: true, timeType: true, timeValue: true, content: true, isActive: true },
+            select: { id: true, timeType: true, timeValue: true, content: true, flowId: true, isActive: true },
           },
         },
       });
+      const nombreDeFlujo = new Map(
+        (await getCreatedFlowItems({ workspaceId: contexto.workspaceId, includeOfficialApi: false }).catch(() => [])).map(
+          (flujo) => [flujo.id, flujo.title] as const,
+        ),
+      );
       return {
         producto: { id: producto.id, nombre: producto.name },
         pasos: pasos.map((paso) => ({
@@ -341,7 +370,10 @@ export async function ejecutarHerramientaMcpEscritura(
             seguimiento_id: seguimiento.id,
             esperar: seguimiento.timeValue,
             unidad: seguimiento.timeType,
-            texto: seguimiento.content,
+            texto: seguimiento.flowId ? null : seguimiento.content,
+            flujo: seguimiento.flowId
+              ? { flujo_id: seguimiento.flowId, titulo: nombreDeFlujo.get(seguimiento.flowId) ?? "(ya no existe)" }
+              : null,
             activo: seguimiento.isActive,
           })),
         })),
@@ -439,9 +471,16 @@ export async function ejecutarHerramientaMcpEscritura(
     case "crear_seguimiento_del_paso": {
       const paso = await pasoDelNegocio(contexto, String(argumentos.etapa_id ?? ""));
       const cuerpo = texto(argumentos.texto);
+      const flujoId = await flujoDelNegocio(contexto, argumentos.flujo_id);
       const esperar = numero(argumentos.esperar);
-      if (!cuerpo || esperar === undefined || esperar <= 0) {
-        throw new Error("Falta el texto o el tiempo de espera");
+      if (esperar === undefined || esperar <= 0) {
+        throw new Error("Falta el tiempo de espera");
+      }
+      if (cuerpo && flujoId) {
+        throw new Error("Va texto O flujo_id, no los dos: un seguimiento manda una sola cosa");
+      }
+      if (!cuerpo && !flujoId) {
+        throw new Error("Falta que mandar: un texto o un flujo_id");
       }
       const ultimos = await prisma.productStageFollowUp.count({ where: { stageId: paso.id } });
       const creado = await prisma.productStageFollowUp.create({
@@ -451,7 +490,8 @@ export async function ejecutarHerramientaMcpEscritura(
           timeType: unidad(argumentos.unidad),
           timeValue: Math.round(esperar),
           messageType: "TEXT",
-          content: cuerpo,
+          content: flujoId ? null : cuerpo,
+          flowId: flujoId,
           cancelOnActivity: argumentos.cancelar_si_escribe !== false,
         },
         select: { id: true },
@@ -462,7 +502,9 @@ export async function ejecutarHerramientaMcpEscritura(
         filaId: creado.id,
         accion: "crear",
         antes: {},
-        despues: { texto: cuerpo, esperar, unidad: unidad(argumentos.unidad) },
+        despues: flujoId
+          ? { flujo_id: flujoId, esperar, unidad: unidad(argumentos.unidad) }
+          : { texto: cuerpo, esperar, unidad: unidad(argumentos.unidad) },
       });
       return { ok: true, seguimiento_id: creado.id, cambio_id: cambio.id };
     }
@@ -476,6 +518,7 @@ export async function ejecutarHerramientaMcpEscritura(
           content: true,
           timeType: true,
           timeValue: true,
+          flowId: true,
           isActive: true,
           stage: { select: { stage: true } },
         },
@@ -484,8 +527,14 @@ export async function ejecutarHerramientaMcpEscritura(
         throw new Error("Ese seguimiento no existe en este negocio");
       }
       const esperar = numero(argumentos.esperar);
+      const flujoNuevo = argumentos.flujo_id === undefined ? undefined : await flujoDelNegocio(contexto, argumentos.flujo_id);
+      if (texto(argumentos.texto) !== undefined && flujoNuevo) {
+        throw new Error("Va texto O flujo_id, no los dos: un seguimiento manda una sola cosa");
+      }
       const datos = {
-        ...(texto(argumentos.texto) === undefined ? {} : { content: texto(argumentos.texto)! }),
+        // Un texto nuevo lo vuelve seguimiento de texto; un flujo nuevo, de flujo.
+        ...(texto(argumentos.texto) === undefined ? {} : { content: texto(argumentos.texto)!, flowId: null }),
+        ...(flujoNuevo ? { flowId: flujoNuevo, content: null } : {}),
         ...(esperar === undefined ? {} : { timeValue: Math.round(esperar) }),
         ...(argumentos.unidad === undefined ? {} : { timeType: unidad(argumentos.unidad) }),
         ...(typeof argumentos.activo === "boolean" ? { isActive: argumentos.activo } : {}),
@@ -501,6 +550,7 @@ export async function ejecutarHerramientaMcpEscritura(
         accion: "editar",
         antes: {
           content: actual.content,
+          flowId: actual.flowId,
           timeType: actual.timeType,
           timeValue: actual.timeValue,
           isActive: actual.isActive,

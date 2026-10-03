@@ -41,6 +41,8 @@ export type ProductStageFollowUpItem = {
   timeType: "MINUTES" | "HOURS" | "DAYS";
   timeValue: number;
   content: string;
+  /** Si viene, este seguimiento manda ese flujo en vez del texto. */
+  flowId: string | null;
   cancelOnActivity: boolean;
 };
 
@@ -87,6 +89,7 @@ export async function getProductPlaybook(input: {
               timeType: true,
               timeValue: true,
               content: true,
+              flowId: true,
               cancelOnActivity: true,
             },
           },
@@ -122,6 +125,7 @@ export async function getProductPlaybook(input: {
         timeType: seguimiento.timeType,
         timeValue: seguimiento.timeValue,
         content: seguimiento.content?.trim() || "",
+        flowId: seguimiento.flowId?.trim() || null,
         cancelOnActivity: seguimiento.cancelOnActivity,
       })),
     })),

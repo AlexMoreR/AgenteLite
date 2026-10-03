@@ -1293,6 +1293,9 @@ model ProductStageFollowUp {
   messageType      FollowMessageType  @default(TEXT)
   content          String?
   mediaUrl         String?
+  /// Si viene, el seguimiento manda ESE FLUJO (textos, fotos y videos) en vez de `content`. Es el
+  /// id del flujo como lo da la pantalla de Flujos ("evolution:<origen>:<escenario>").
+  flowId           String?
   /// Si el cliente escribe antes, no sale. Es todo el sentido de "si no contesta".
   cancelOnActivity Boolean            @default(true)
   isActive         Boolean            @default(true)

@@ -38,13 +38,15 @@ export async function agendarSeguimientoDeEtapa(input: {
         followUps: {
           where: { isActive: true },
           orderBy: { sortOrder: "asc" },
-          select: { timeType: true, timeValue: true, content: true, cancelOnActivity: true },
+          select: { timeType: true, timeValue: true, content: true, flowId: true, cancelOnActivity: true },
         },
       },
     });
 
+    // Un seguimiento sale con su texto o con su flujo; sin ninguno de los dos no hay nada que mandar.
     const seguimientos = (etapa?.followUps ?? []).filter(
-      (seguimiento) => seguimiento.timeValue > 0 && (seguimiento.content ?? "").trim(),
+      (seguimiento) =>
+        seguimiento.timeValue > 0 && ((seguimiento.content ?? "").trim() || (seguimiento.flowId ?? "").trim()),
     );
     if (seguimientos.length === 0) {
       return { agendados: 0 };
@@ -71,6 +73,7 @@ export async function agendarSeguimientoDeEtapa(input: {
     const etiqueta = ETIQUETA_POR_ETAPA.get(input.stage) ?? input.stage;
     let agendados = 0;
     for (const [indice, seguimiento] of seguimientos.entries()) {
+      const flowId = seguimiento.flowId?.trim() || null;
       const creado = await createFollow({
         workspaceId: input.workspaceId,
         contactId: input.contactId,
@@ -81,7 +84,9 @@ export async function agendarSeguimientoDeEtapa(input: {
         timeType: seguimiento.timeType,
         timeValue: seguimiento.timeValue,
         messageType: "TEXT",
-        content: (seguimiento.content ?? "").trim(),
+        content: flowId ? "Flujo del embudo" : (seguimiento.content ?? "").trim(),
+        // Con flujo, la accion lleva el id y el motor lo arma al enviar (ver follows.ts).
+        ...(flowId ? { actions: [{ messageType: "TEXT" as const, content: "Flujo del embudo", flowId }] } : {}),
         cancelOnActivity: seguimiento.cancelOnActivity,
       });
       if (creado) {

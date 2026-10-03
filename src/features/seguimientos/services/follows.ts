@@ -10,6 +10,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { revisarFrenoDeAutomatico, type MotivoDeFreno } from "@/lib/freno-de-automaticos";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
+import { getFlowReply, type FlowStep } from "@/lib/agent-product-flow";
 
 export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
 export type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
@@ -23,6 +24,8 @@ export type FollowActionInput = {
   messageType: FollowMessageType;
   content?: string | null;
   mediaUrl?: string | null;
+  /** Mandar un FLUJO entero en vez del mensaje (ver enviarFlujoDelSeguimiento). */
+  flowId?: string | null;
 };
 
 export type FollowActionRecord = {
@@ -30,6 +33,12 @@ export type FollowActionRecord = {
   messageType: FollowMessageType;
   content: string | null;
   mediaUrl: string | null;
+  /**
+   * Si viene, la accion manda ese flujo (sus textos, fotos y videos en orden) y `content` es solo
+   * la etiqueta que se ve en las listas. El flujo se arma al ENVIAR, no al agendar: si alguien lo
+   * edita mientras el seguimiento espera, sale la version nueva.
+   */
+  flowId?: string | null;
   status: FollowActionStatus;
   executedAt: string | null;
   executionError: string | null;
@@ -164,6 +173,7 @@ function normalizeFollowActionRecord(
         : "TEXT",
     content: normalizeText(typeof value.content === "string" ? value.content : null) || null,
     mediaUrl: normalizeText(typeof value.mediaUrl === "string" ? value.mediaUrl : null) || null,
+    flowId: normalizeText(typeof value.flowId === "string" ? value.flowId : null) || null,
     status: normalizeFollowActionStatus(value.status),
     executedAt: typeof value.executedAt === "string" ? value.executedAt : null,
     executionError: normalizeText(typeof value.executionError === "string" ? value.executionError : null) || null,
@@ -176,6 +186,7 @@ function buildLegacyFollowAction(input: {
   messageType: FollowMessageType;
   content?: string | null;
   mediaUrl?: string | null;
+  flowId?: string | null;
   order?: number;
 }): FollowActionRecord {
   return {
@@ -183,6 +194,7 @@ function buildLegacyFollowAction(input: {
     messageType: input.messageType,
     content: normalizeText(input.content) || null,
     mediaUrl: normalizeText(input.mediaUrl) || null,
+    flowId: normalizeText(input.flowId) || null,
     status: "PENDING",
     executedAt: null,
     executionError: null,
@@ -205,6 +217,7 @@ function buildPersistedFollowActions(input: {
               messageType: action.messageType,
               content: action.content ?? null,
               mediaUrl: action.mediaUrl ?? null,
+              flowId: action.flowId ?? null,
               order: action.order ?? index + 1,
             }),
           )
@@ -1408,6 +1421,74 @@ function resolveFollowExecutionActions(follow: Pick<ClaimedFollowRow, "actions" 
  * Un seguimiento que no sale por el freno de automaticos (ver lib/freno-de-automaticos) queda
  * CANCELADO con el motivo, no se borra: asi se ve en la ficha del contacto por que no salio.
  */
+/** Un paso del flujo, en el idioma de los seguimientos. */
+function pasoComoMensajeDeSeguimiento(paso: FlowStep): {
+  messageType: FollowMessageType;
+  content: string | null;
+  mediaUrl: string | null;
+} {
+  switch (paso.kind) {
+    case "text":
+      return { messageType: "TEXT", content: paso.content, mediaUrl: null };
+    case "image":
+      return { messageType: "IMAGE", content: paso.caption, mediaUrl: paso.url };
+    case "audio":
+      return { messageType: "AUDIO", content: paso.caption, mediaUrl: paso.url };
+    case "video":
+      return { messageType: "VIDEO", content: paso.caption, mediaUrl: paso.url };
+    default:
+      return { messageType: "DOC", content: paso.caption, mediaUrl: paso.url };
+  }
+}
+
+/**
+ * Manda un FLUJO como seguimiento (Alex, 02-10-2026): sus textos, fotos y videos en orden.
+ *
+ * El flujo se arma con `getFlowReply`, el mismo camino por el que lo mandan el agente V2 y el V3,
+ * y cada paso sale y se guarda como cualquier seguimiento (`source: "follow"`). Eso importa: el
+ * freno de automaticos cuenta esos mensajes, y un flujo de seguimiento sin contestar suma para el
+ * "dos automaticos seguidos" igual que uno de texto.
+ */
+async function enviarFlujoDelSeguimiento(input: {
+  workspaceId: string;
+  contactId: string;
+  channelId: string | null;
+  flowId: string;
+}) {
+  const flujo = await getFlowReply({
+    workspaceId: input.workspaceId,
+    flowId: input.flowId,
+    includeOfficialApi: false,
+  });
+  const pasos = flujo?.steps ?? [];
+  if (pasos.length === 0) {
+    throw new Error("El flujo ya no existe o no tiene nada para enviar");
+  }
+  for (const paso of pasos) {
+    const mensaje = pasoComoMensajeDeSeguimiento(paso);
+    const enviado = await sendFollowMessage({
+      workspaceId: input.workspaceId,
+      contactId: input.contactId,
+      channelId: input.channelId,
+      ...mensaje,
+    });
+    try {
+      await persistFollowMessage({
+        workspaceId: input.workspaceId,
+        contactId: input.contactId,
+        ...mensaje,
+        result: enviado,
+      });
+    } catch (persistError) {
+      // Igual que con un texto: el paso ya salio; no se marca como fallido para no reenviarlo.
+      console.error("[follows] No se pudo guardar un paso del flujo en el chat", {
+        flowId: input.flowId,
+        error: persistError,
+      });
+    }
+  }
+}
+
 async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeFreno) {
   const now = new Date();
   const hasActionsColumn = await hasFollowActionsColumn("Follow");
@@ -1455,6 +1536,22 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
     await persistFollowActionProgress(follow.id, actions);
 
     try {
+      if (action.flowId) {
+        await enviarFlujoDelSeguimiento({
+          workspaceId: follow.workspaceId,
+          contactId: follow.contactId,
+          channelId: follow.channelId,
+          flowId: action.flowId,
+        });
+        action.status = "EXECUTED";
+        action.executedAt = new Date().toISOString();
+        action.executionError = null;
+        action.lockedAt = null;
+        action.lockedBy = null;
+        await persistFollowActionProgress(follow.id, actions);
+        continue;
+      }
+
       const sendResult = await sendFollowMessage({
         workspaceId: follow.workspaceId,
         contactId: follow.contactId,

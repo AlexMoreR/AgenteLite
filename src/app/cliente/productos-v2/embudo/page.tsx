@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { EmbudoDiagramaCanvas } from "@/features/productos-v2/components/EmbudoDiagramaCanvas";
 import { getProductLeadProgress } from "@/features/productos-v2/services/getProductLeadProgress";
 import { leerEtapasQuitadas } from "@/lib/etapas-quitadas";
+import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { getProductMatchRule } from "@/features/productos-v2/services/productConversationFilter";
 
 /**
@@ -61,7 +62,7 @@ export default async function EmbudoDiagramaPage({ searchParams }: PageProps) {
             que se ordenan abajo, ya convertidas a minutos.
           */
           followUps: {
-            select: { timeType: true, timeValue: true, content: true },
+            select: { timeType: true, timeValue: true, content: true, flowId: true },
           },
         },
         orderBy: { sortOrder: "asc" },
@@ -77,6 +78,13 @@ export default async function EmbudoDiagramaPage({ searchParams }: PageProps) {
   */
   // Las etapas que este producto no recorre: la pantalla las dibuja como "fuera del embudo".
   const quitadas = await leerEtapasQuitadas(productId);
+
+  // El nombre de cada flujo, para los seguimientos que mandan un flujo en vez de un texto.
+  const tituloDeFlujo = new Map(
+    (await getCreatedFlowItems({ workspaceId: access.workspaceId, includeOfficialApi: false }).catch(() => [])).map(
+      (flujo) => [flujo.id, flujo.title] as const,
+    ),
+  );
 
   const avance = await getProductMatchRule({ workspaceId: access.workspaceId, productId })
     .then((rule) => getProductLeadProgress({ workspaceId: access.workspaceId, rule }))
@@ -105,6 +113,8 @@ export default async function EmbudoDiagramaPage({ searchParams }: PageProps) {
               timeType: seguimiento.timeType,
               timeValue: seguimiento.timeValue,
               content: seguimiento.content ?? "",
+              flowId: seguimiento.flowId ?? null,
+              flowTitle: seguimiento.flowId ? tituloDeFlujo.get(seguimiento.flowId) ?? null : null,
             })),
         }))}
         quitadasIniciales={quitadas}

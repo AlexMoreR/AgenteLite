@@ -28,6 +28,14 @@ export type SeguimientoDeEmbudo = {
   timeType: string;
   timeValue: number;
   content: string;
+  /**
+   * Si viene, el seguimiento manda ese flujo en vez del texto. Este lienzo no lo cambia (se elige
+   * en la lista del embudo), pero lo tiene que DEVOLVER al guardar: guardar reemplaza todos los
+   * seguimientos, y sin esto un "Guardar" desde aca los convertia en seguimientos vacios.
+   */
+  flowId?: string | null;
+  /** El nombre del flujo, para mostrarlo. */
+  flowTitle?: string | null;
 };
 
 export type EtapaDelEmbudo = {
@@ -269,12 +277,19 @@ function EtapaNode({ data, width }: NodeProps) {
               </span>
               {/* Sin marco ni relleno: la fila YA es el contenedor, y un campo con su propio
                   borde adentro era una caja dentro de otra. */}
-              <CampoQueCrece
-                value={seguimiento.content}
-                placeholder="Que se le manda. Sin mensaje no se guarda."
-                onChange={(valor) => d.onSeguimiento(d.stage, posicion, valor)}
-                className="w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-[11px] leading-4 text-foreground outline-none focus:ring-0"
-              />
+              {seguimiento.flowId ? (
+                <span className="block text-[11px] leading-4 text-foreground">
+                  Manda el flujo «{seguimiento.flowTitle ?? "un flujo que ya no existe"}». Se cambia en la lista
+                  del embudo.
+                </span>
+              ) : (
+                <CampoQueCrece
+                  value={seguimiento.content}
+                  placeholder="Que se le manda. Sin mensaje no se guarda."
+                  onChange={(valor) => d.onSeguimiento(d.stage, posicion, valor)}
+                  className="w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-[11px] leading-4 text-foreground outline-none focus:ring-0"
+                />
+              )}
             </span>
             <button
               type="button"
@@ -546,6 +561,7 @@ function Lienzo({
             timeType: seguimiento.timeType,
             timeValue: seguimiento.timeValue,
             content: seguimiento.content,
+            flowId: seguimiento.flowId ?? null,
           })),
         })),
       });

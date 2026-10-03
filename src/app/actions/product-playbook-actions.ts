@@ -90,6 +90,15 @@ export async function saveProductPitchAction(input: {
  * Van juntas y no una por una porque el embudo se lee y se corrige como un recorrido: cambiar el
  * cierre sin mirar lo que promete la presentacion es como se rompen los embudos.
  */
+/**
+ * Un id de flujo con la forma que da la pantalla de Flujos ("evolution:<origen>:<escenario>").
+ * Lo que no tiene esa forma se descarta: un seguimiento con un flujo inventado no mandaria nada.
+ */
+function flujoValido(valor: string | null | undefined): string | null {
+  const limpio = (valor ?? "").trim();
+  return /^evolution:[^:]+:[^:]+$/.test(limpio) ? limpio : null;
+}
+
 export async function saveProductFunnelAction(input: {
   productId: string;
   /*
@@ -117,6 +126,8 @@ export async function saveProductFunnelAction(input: {
       timeType?: string | null;
       timeValue?: number | null;
       content?: string | null;
+      /** Mandar este flujo en vez del texto. */
+      flowId?: string | null;
       cancelOnActivity?: boolean | null;
     }>;
   }>;
@@ -203,7 +214,8 @@ export async function saveProductFunnelAction(input: {
      * deja el estado guardado igual a lo que se ve, que es la unica forma de que nadie descubra
      * un seguimiento fantasma mandandole un WhatsApp a un cliente.
      *
-     * Un seguimiento sin texto no se guarda: agendaria un envio vacio.
+     * Un seguimiento sin texto ni flujo no se guarda: agendaria un envio vacio. Con flujo, el
+     * texto queda vacio: lo que sale es el flujo (ver follows.ts, enviarFlujoDelSeguimiento).
      */
     const seguimientos = (Array.isArray(etapa.followUps) ? etapa.followUps : [])
       .map((seguimiento) => {
@@ -216,10 +228,15 @@ export async function saveProductFunnelAction(input: {
           timeType: unidad as "MINUTES" | "HOURS" | "DAYS",
           timeValue: Number.isInteger(valor) && valor > 0 && valor <= 999 ? valor : 0,
           content: seguimiento.content?.trim() || "",
+          flowId: flujoValido(seguimiento.flowId),
           cancelOnActivity: seguimiento.cancelOnActivity !== false,
         };
       })
-      .filter((seguimiento) => seguimiento.timeValue > 0 && seguimiento.content.length > 0);
+      .map((seguimiento) => (seguimiento.flowId ? { ...seguimiento, content: "" } : seguimiento))
+      .filter(
+        (seguimiento) =>
+          seguimiento.timeValue > 0 && (seguimiento.content.length > 0 || Boolean(seguimiento.flowId)),
+      );
 
     await prisma.productStageFollowUp.deleteMany({ where: { stageId: guardada.id } });
     if (seguimientos.length > 0) {
@@ -230,7 +247,8 @@ export async function saveProductFunnelAction(input: {
           timeType: seguimiento.timeType,
           timeValue: seguimiento.timeValue,
           messageType: "TEXT" as const,
-          content: seguimiento.content,
+          content: seguimiento.content || null,
+          flowId: seguimiento.flowId,
           cancelOnActivity: seguimiento.cancelOnActivity,
         })),
       });
