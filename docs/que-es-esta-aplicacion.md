@@ -166,7 +166,7 @@ la IA pausada no lo contesta el agente.
 
 ## Conceptos del negocio
 
-- **Etapas del CRM** (`Contact.crmStage`): NUEVO (en pantalla "Nuevo"), CALIFICADO ("Frío"), PROPUESTA
+- **Etapas del CRM** (`Contact.crmStage`): NUEVO (en pantalla "---", sin etapa todavía; hasta el 03-oct-2026 decía "Nuevo"), CALIFICADO ("Frío"), PROPUESTA
   ("Tibio"), NEGOCIACION ("Caliente"), GANADO y PERDIDO ("Descartado"). Los nombres internos no
   coinciden con los de la pantalla. Las cuatro primeras son las "vivas". Hay relojes que enfrían un lead
   sin respuesta (Tibio a Frío) y lo recalientan cuando vuelve a escribir.

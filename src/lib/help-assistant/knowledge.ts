@@ -263,11 +263,11 @@ Configurar: dentro de la conexión, pestaña "Ajustes" ("Credenciales API"), com
 ============================================================
 
 El CRM organiza tus clientes potenciales (leads) según el punto del proceso de venta. Tres vistas dentro de la sección "CRM" del menú: "Registro" (tabla), "Kanban" (tablero por columnas) e "Informe".
-Las etapas son: Nuevo, Frio, Tibio, Caliente, Ganado y Descartado.
+Las etapas son: --- (sin etapa todavía; antes se llamaba "Nuevo"), Frio, Tibio, Caliente, Ganado y Descartado.
 
 ### Abrir el tablero CRM (Kanban)
 1. En el menú lateral, haz clic en "CRM" y luego en "Kanban".
-2. Verás seis columnas (Nuevo, Frio, Tibio, Caliente, Ganado, Descartado), cada una con un número de tarjetas.
+2. Verás seis columnas (---, Frio, Tibio, Caliente, Ganado, Descartado), cada una con un número de tarjetas.
 
 ### Mover un lead entre etapas en el Kanban
 1. Abre la vista "Kanban".
@@ -285,7 +285,7 @@ Las etapas son: Nuevo, Frio, Tibio, Caliente, Ganado y Descartado.
 ### Cambiar la etapa de un contacto desde la tabla
 1. Abre "Registro".
 2. En la fila del contacto, columna "Estado", haz clic en el selector.
-3. Elige la nueva etapa (Nuevo, Frio, Tibio, Caliente, Ganado o Descartado). Se guarda automáticamente.
+3. Elige la nueva etapa (---, Frio, Tibio, Caliente, Ganado o Descartado). Se guarda automáticamente.
 En cada fila, el botón de tres puntos ofrece "Copiar detalle", "Ir a chats" y "Marcar seguimiento".
 
 ### Ocultar un contacto del CRM

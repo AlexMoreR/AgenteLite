@@ -10,12 +10,17 @@ export const CRM_STAGE_ORDER: CrmStage[] = [
 ];
 
 export const CRM_STAGE_META: Record<CrmStage, CrmStageMeta> = {
+  /*
+    "---" y en gris (Alex, 03-10-2026): "Nuevo" no decia nada -todo chat que entra lo es- y en
+    violeta parecia una etapa con algo que hacer. Lo que significa es "todavia sin etapa". El valor
+    guardado sigue siendo NUEVO: cambia solo como se muestra.
+  */
   NUEVO: {
     value: "NUEVO",
-    label: "Nuevo",
-    accentClassName: "text-violet-700",
-    borderClassName: "border-violet-200",
-    backgroundClassName: "bg-violet-50",
+    label: "---",
+    accentClassName: "text-slate-600",
+    borderClassName: "border-slate-200",
+    backgroundClassName: "bg-slate-50",
   },
   CALIFICADO: {
     value: "CALIFICADO",

@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   etapas con dos vocabularios, y quien filtraba aca no encontraba lo que veia alla.
 */
 const CRM_STAGES = [
-  { value: "NUEVO", label: "Nuevo", color: "#8b5cf6" },
+  { value: "NUEVO", label: "---", color: "#94a3b8" },
   { value: "CALIFICADO", label: "Frio", color: "#06b6d4" },
   { value: "PROPUESTA", label: "Tibio", color: "#eab308" },
   { value: "NEGOCIACION", label: "Caliente", color: "#f97316" },

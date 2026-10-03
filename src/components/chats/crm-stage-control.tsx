@@ -71,7 +71,7 @@ type CrmStageControlProps = {
 
 // Color de relleno del botón por etapa.
 const STAGE_BUTTON_CLASS: Record<CrmStage, string> = {
-  NUEVO: "bg-violet-500 hover:bg-violet-600",
+  NUEVO: "bg-slate-400 hover:bg-slate-500",
   CALIFICADO: "bg-cyan-500 hover:bg-cyan-600",
   PROPUESTA: "bg-yellow-500 hover:bg-yellow-600",
   NEGOCIACION: "bg-orange-500 hover:bg-orange-600",

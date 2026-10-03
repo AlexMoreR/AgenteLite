@@ -76,7 +76,7 @@ function Tarjeta({
 
 // El mismo color de la chapita de cada etapa en el resto del CRM: Nuevo violeta, Frio celeste...
 const COLOR_DE_ETAPA: Record<string, string> = {
-  NUEVO: "bg-violet-500",
+  NUEVO: "bg-slate-400",
   CALIFICADO: "bg-cyan-500",
   PROPUESTA: "bg-yellow-400",
   NEGOCIACION: "bg-orange-500",
