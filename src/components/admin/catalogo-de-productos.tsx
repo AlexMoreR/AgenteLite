@@ -3,13 +3,27 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ExternalLink, GitBranch, ImageOff, Lock, RefreshCw, Search, X } from "lucide-react";
+import { GitBranch, ImageOff, Lock, MoreVertical, Plus, RefreshCw, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { FiltroDeNegocio } from "@/components/admin/selector-de-negocio";
 import { guardarDescripcionDeVentaAction, sincronizarCatalogoAction } from "@/app/actions/catalogo-actions";
 import { formatMoney, type SupportedCurrencyCode } from "@/lib/currency";
@@ -118,6 +132,7 @@ export function CatalogoDeProductos({
   const [estado, setEstado] = useState<Estado>("activos");
   const [seleccionado, setSeleccionado] = useState<string | null>(null);
   const [sincronizando, startSincronizar] = useTransition();
+  const [ventanaSincronizar, setVentanaSincronizar] = useState(false);
 
   const categorias = useMemo(
     () => [...new Set(productos.map((producto) => producto.categoria).filter((c): c is string => Boolean(c)))].sort(),
@@ -158,57 +173,30 @@ export function CatalogoDeProductos({
         `Sincronizado: ${actualizados} actualizados, ${creados} nuevos, ${inactivados} inactivos` +
           (imagenesDescartadas ? `, ${imagenesDescartadas} fotos que no cargan descartadas` : ""),
       );
+      setVentanaSincronizar(false);
       router.refresh();
     });
   };
 
+  const textoDelEstadoDeSincronizacion = !conectadoAGestion
+    ? negocioFiltrado
+      ? "Este negocio no está conectado a Gestión."
+      : "Elige un negocio para ver su sincronización."
+    : !ultimaSincronizacion
+      ? "Conectado a Gestión. Todavía no se ha sincronizado."
+      : ultimaSincronizacion.error
+        ? `El último intento no se pudo hacer (${CUANDO.format(new Date(ultimaSincronizacion.en))}): ${ultimaSincronizacion.error}`
+        : `Última sincronización: ${CUANDO.format(new Date(ultimaSincronizacion.en))}. ${ultimaSincronizacion.actualizados} actualizados, ${ultimaSincronizacion.creados} nuevos, ${ultimaSincronizacion.inactivados} pasaron a inactivos` +
+          (ultimaSincronizacion.imagenesDescartadas ? `, ${ultimaSincronizacion.imagenesDescartadas} fotos que no cargan descartadas.` : ".");
+
   return (
     <div className="space-y-4">
-      {/* Encabezado */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        {/* Sin título: la barra de arriba ya dice "Admin > Productos" y se leía dos veces. */}
-        <div className="space-y-1.5">
-          {conectadoAGestion ? (
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                ultimaSincronizacion?.error
-                  ? "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
-                  : "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
-              }`}
-              title={ultimaSincronizacion?.error ?? undefined}
-            >
-              <RefreshCw className="size-3" aria-hidden="true" />
-              {ultimaSincronizacion
-                ? ultimaSincronizacion.error
-                  ? `No se pudo sincronizar (${CUANDO.format(new Date(ultimaSincronizacion.en))})`
-                  : `Sincronizado desde Gestión · ${CUANDO.format(new Date(ultimaSincronizacion.en))}`
-                : "Conectado a Gestión · todavía sin sincronizar"}
-            </span>
-          ) : negocioFiltrado ? (
-            <span className="inline-flex rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">
-              Este negocio no está conectado a Gestión
-            </span>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {variosNegocios ? <FiltroDeNegocio negocios={negocios} seleccionado={negocioFiltrado} /> : null}
-          <Button
-            type="button"
-            onClick={sincronizar}
-            disabled={sincronizando || !conectadoAGestion || !negocioFiltrado}
-            className="gap-1.5"
-          >
-            <RefreshCw className={`size-4 ${sincronizando ? "animate-spin" : ""}`} aria-hidden="true" />
-            {sincronizando ? "Sincronizando…" : "Sincronizar con Gestión"}
-          </Button>
-          <Button type="button" variant="outline" className="gap-1.5" onClick={() => window.open(crearEnGestionHref, "_blank", "noopener")}>
-            <ExternalLink className="size-4" aria-hidden="true" />
-            Crear producto en Gestión
-          </Button>
-        </div>
-      </div>
-
-      {/* Filtros */}
+      {/*
+        Filtros, y al final las acciones: los tres puntos (Sincronizar, que abre su ventana) y Crear.
+        Sin título ni fila propia de botones: la barra de arriba ya dice "Admin > Productos", y la
+        sincronización es algo que se hace de vez en cuando, no lo primero que hay que ver (Alex,
+        03-10-2026).
+      */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -233,7 +221,73 @@ export function CatalogoDeProductos({
           <NativeSelectOption value="inactivos">Inactivos en Gestión</NativeSelectOption>
           <NativeSelectOption value="todos">Todos</NativeSelectOption>
         </NativeSelect>
+        {variosNegocios ? <FiltroDeNegocio negocios={negocios} seleccionado={negocioFiltrado} /> : null}
+        <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Más opciones de productos"
+                className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              >
+                <MoreVertical className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-52">
+              {/* onClick y no onSelect: el menú es de Base UI y onSelect no se dispara. */}
+              <DropdownMenuItem onClick={() => setVentanaSincronizar(true)} className="gap-2">
+                <RefreshCw className="size-3.5" />
+                Sincronizar con Gestión
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            type="button"
+            className="h-9 gap-1.5"
+            title="Los productos se crean en Gestión y llegan solos al sincronizar"
+            onClick={() => window.open(crearEnGestionHref, "_blank", "noopener")}
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            Crear producto
+          </Button>
+        </div>
       </div>
+
+      <Dialog open={ventanaSincronizar} onOpenChange={(abierto) => !sincronizando && setVentanaSincronizar(abierto)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader className="text-left">
+            <DialogTitle>Sincronizar con Gestión</DialogTitle>
+            <DialogDescription>
+              Trae el catálogo de magilus.com: nombre, código, precios, categoría y fotos. La descripción
+              de venta, el embudo y los seguimientos son del CRM y no se tocan. Se hace sola todos los
+              días a las 3 a. m.
+            </DialogDescription>
+          </DialogHeader>
+          <p
+            className={`rounded-lg px-3 py-2 text-sm ${
+              ultimaSincronizacion?.error
+                ? "bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200"
+                : "bg-muted text-foreground"
+            }`}
+          >
+            {textoDelEstadoDeSincronizacion}
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setVentanaSincronizar(false)} disabled={sincronizando}>
+              Cerrar
+            </Button>
+            <Button
+              type="button"
+              onClick={sincronizar}
+              disabled={sincronizando || !conectadoAGestion || !negocioFiltrado}
+              className="gap-1.5"
+            >
+              <RefreshCw className={`size-4 ${sincronizando ? "animate-spin" : ""}`} aria-hidden="true" />
+              {sincronizando ? "Sincronizando…" : "Sincronizar ahora"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Contadores */}
       <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground">
