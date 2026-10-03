@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, FileText, Image as ImageIcon, Loader2, Trash2, Upload, Video } from "lucide-react";
+import { ArrowLeft, FileText, Image as ImageIcon, LayoutGrid, List, Loader2, Trash2, Upload, Video } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
 import { generarPortadaDePdf } from "@/lib/portada-de-pdf";
+import { generarMiniaturaDeImagen } from "@/lib/miniatura-de-imagen";
 import {
   agregarABibliotecaAction,
   borrarDeBibliotecaAction,
@@ -22,6 +23,27 @@ import {
   marcarEnvioDeBibliotecaAction,
   type MediaLibraryItemDto,
 } from "@/app/actions/media-library-actions";
+
+type Vista = "cuadricula" | "lista";
+type Tipo = "todos" | MediaLibraryItemDto["mediaType"];
+
+/** Los badges de abajo del buscador. Salen solos del tipo de archivo: no hay que clasificar nada. */
+const TIPOS: Array<{ valor: Tipo; texto: string }> = [
+  { valor: "todos", texto: "Todos" },
+  { valor: "DOCUMENT", texto: "Catálogos" },
+  { valor: "IMAGE", texto: "Fotos" },
+  { valor: "VIDEO", texto: "Videos" },
+];
+
+const CLAVE_VISTA = "biblioteca:vista";
+
+function leerVista(): Vista {
+  try {
+    return window.localStorage.getItem(CLAVE_VISTA) === "lista" ? "lista" : "cuadricula";
+  } catch {
+    return "cuadricula";
+  }
+}
 
 /**
  * BIBLIOTECA: mandar un catalogo que YA esta en el servidor.
@@ -52,6 +74,11 @@ export function MediaLibraryDialog({
   const [enviando, setEnviando] = useState<string | null>(null);
   const [subiendo, setSubiendo] = useState(false);
   const [avance, setAvance] = useState(0);
+  // Se pueden elegir varias fotos de la galeria de una: "2 de 5" dice por cual va.
+  const [enCola, setEnCola] = useState<{ actual: number; total: number } | null>(null);
+  // Cuadricula (con tapa) o lista (renglones, entran muchos mas). Se recuerda en ese aparato.
+  const [vista, setVista] = useState<Vista>("cuadricula");
+  const [tipo, setTipo] = useState<Tipo>("todos");
   const inputArchivo = useRef<HTMLInputElement | null>(null);
   const [filtro, setFiltro] = useState("");
   /**
@@ -78,8 +105,19 @@ export function MediaLibraryDialog({
   useEffect(() => {
     if (open) {
       void cargar();
+      setVista(leerVista());
     }
   }, [open, cargar]);
+
+  const cambiarVista = () => {
+    const siguiente: Vista = vista === "cuadricula" ? "lista" : "cuadricula";
+    setVista(siguiente);
+    try {
+      window.localStorage.setItem(CLAVE_VISTA, siguiente);
+    } catch {
+      // Sin almacenamiento (ventana privada): la vista vale solo mientras este abierta.
+    }
+  };
 
   const mandar = async (item: MediaLibraryItemDto) => {
     setEnviando(item.id);
@@ -100,67 +138,92 @@ export function MediaLibraryDialog({
     if (!open) {
       setMirando(null);
       setFiltro("");
+      setTipo("todos");
     }
   }, [open]);
 
-  const agregar = async (file: File) => {
-    setSubiendo(true);
+  /** Sube y guarda UN archivo. Devuelve si quedo guardado; los avisos de error los da el mismo. */
+  const agregar = async (file: File): Promise<boolean> => {
     setAvance(0);
+    // Por pedazos SIEMPRE, tambien desde la computadora: es el mismo camino para todos, asi el
+    // que funciona es el que esta probado. Un segundo camino "para archivos chicos" seria un
+    // segundo lugar donde se rompen las subidas.
+    const resultado = await subirArchivoPorPedazos({
+      file,
+      endpoint: `${uploadPath}/chunk`,
+      onAvance: setAvance,
+    });
+
+    if (resultado.error || !resultado.archivo) {
+      toast.error(`${file.name}: ${resultado.error || "no se pudo subir."}`);
+      return false;
+    }
+
+    /**
+     * La tapa se saca del archivo LOCAL, antes de tener nada en el servidor.
+     *
+     * Es lo que la hace gratis: leer 15 MB del disco del celular es instantaneo, bajarlos de
+     * internet para dibujarlos seria justo el problema que vinimos a resolver. Si no sale
+     * —PDF protegido, roto— el archivo se guarda igual y muestra el icono de siempre: una tapa
+     * que falta no puede impedir mandar un catalogo.
+     */
+    let thumbnailUrl: string | null = null;
+    const tapa =
+      resultado.archivo.mediaType === "DOCUMENT" && file.type.includes("pdf")
+        ? generarPortadaDePdf(file)
+        : resultado.archivo.mediaType === "IMAGE"
+          ? generarMiniaturaDeImagen(file)
+          : null;
+    if (tapa) {
+      const portada = await tapa;
+      if (portada) {
+        const subidaPortada = await subirArchivoPorPedazos({
+          file: portada,
+          endpoint: `${uploadPath}/chunk`,
+        });
+        thumbnailUrl = subidaPortada.archivo?.url ?? null;
+      }
+    }
+
+    const guardado = await agregarABibliotecaAction({
+      title: file.name.replace(/\.[^.]+$/, ""),
+      url: resultado.archivo.url,
+      fileName: resultado.archivo.fileName,
+      mimeType: resultado.archivo.mimeType,
+      mediaType: resultado.archivo.mediaType,
+      thumbnailUrl,
+      sizeBytes: file.size,
+    });
+
+    if (guardado?.error) {
+      toast.error(guardado.error);
+      return false;
+    }
+    return true;
+  };
+
+  const agregarVarios = async (archivos: File[]) => {
+    if (archivos.length === 0) return;
+    setSubiendo(true);
+    let guardados = 0;
     try {
-      // Por pedazos SIEMPRE, tambien desde la computadora: es el mismo camino para todos, asi el
-      // que funciona es el que esta probado. Un segundo camino "para archivos chicos" seria un
-      // segundo lugar donde se rompen las subidas.
-      const resultado = await subirArchivoPorPedazos({
-        file,
-        endpoint: `${uploadPath}/chunk`,
-        onAvance: setAvance,
-      });
-
-      if (resultado.error || !resultado.archivo) {
-        toast.error(resultado.error || "No se pudo subir el archivo.");
-        return;
+      // De a uno y en orden: varias subidas a la vez con la señal de la calle se cortan todas.
+      for (const [indice, archivo] of archivos.entries()) {
+        setEnCola({ actual: indice + 1, total: archivos.length });
+        if (await agregar(archivo)) guardados += 1;
       }
-
-      /**
-       * La tapa se saca del archivo LOCAL, antes de tener nada en el servidor.
-       *
-       * Es lo que la hace gratis: leer 15 MB del disco del celular es instantaneo, bajarlos de
-       * internet para dibujarlos seria justo el problema que vinimos a resolver. Si no sale
-       * —PDF protegido, roto— el archivo se guarda igual y muestra el icono de siempre: una tapa
-       * que falta no puede impedir mandar un catalogo.
-       */
-      let thumbnailUrl: string | null = null;
-      if (resultado.archivo.mediaType === "DOCUMENT" && file.type.includes("pdf")) {
-        const portada = await generarPortadaDePdf(file);
-        if (portada) {
-          const subidaPortada = await subirArchivoPorPedazos({
-            file: portada,
-            endpoint: `${uploadPath}/chunk`,
-          });
-          thumbnailUrl = subidaPortada.archivo?.url ?? null;
-        }
-      }
-
-      const guardado = await agregarABibliotecaAction({
-        title: file.name.replace(/\.[^.]+$/, ""),
-        url: resultado.archivo.url,
-        fileName: resultado.archivo.fileName,
-        mimeType: resultado.archivo.mimeType,
-        mediaType: resultado.archivo.mediaType,
-        thumbnailUrl,
-        sizeBytes: file.size,
-      });
-
-      if (guardado?.error) {
-        toast.error(guardado.error);
-        return;
-      }
-
-      toast.success("Guardado. Ya podés mandarlo desde cualquier chat.");
-      await cargar();
     } finally {
       setSubiendo(false);
       setAvance(0);
+      setEnCola(null);
+    }
+    if (guardados > 0) {
+      toast.success(
+        guardados === 1
+          ? "Guardado. Ya puedes mandarlo desde cualquier chat."
+          : `${guardados} archivos guardados. Ya puedes mandarlos desde cualquier chat.`,
+      );
+      await cargar();
     }
   };
 
@@ -173,9 +236,35 @@ export function MediaLibraryDialog({
     setItems((actual) => actual.filter((otro) => otro.id !== item.id));
   };
 
-  const visibles = filtro.trim()
-    ? items.filter((item) => item.title.toLowerCase().includes(filtro.trim().toLowerCase()))
-    : items;
+  const buscado = filtro.trim().toLowerCase();
+  const visibles = items.filter(
+    (item) =>
+      (tipo === "todos" || item.mediaType === tipo) && (!buscado || item.title.toLowerCase().includes(buscado)),
+  );
+  const cuantos = (valor: Tipo) =>
+    valor === "todos" ? items.length : items.filter((item) => item.mediaType === valor).length;
+  // Videos aparece solo si hay alguno; Catalogos y Fotos siempre, para que se vea que se pueden agregar.
+  const tiposVisibles = TIPOS.filter((opcion) => opcion.valor !== "VIDEO" || cuantos("VIDEO") > 0);
+
+  const tamano = (item: MediaLibraryItemDto) =>
+    [
+      item.sizeBytes > 0
+        ? item.sizeBytes < 1024 * 1024
+          ? `${Math.max(1, Math.round(item.sizeBytes / 1024))} KB`
+          : `${Math.round(item.sizeBytes / (1024 * 1024))} MB`
+        : "",
+      item.sentCount > 0 ? `${item.sentCount}×` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+  const vacio = () => {
+    if (items.length === 0) return "Todavía no hay archivos. Agrega tus catálogos y fotos y quedan listos para todo el equipo.";
+    if (buscado) return "Nada con ese nombre.";
+    if (tipo === "IMAGE") return "Todavía no hay fotos. Agrégalas con el botón de abajo.";
+    if (tipo === "VIDEO") return "Todavía no hay videos.";
+    return "Todavía no hay catálogos.";
+  };
 
   const icono = (tipo: MediaLibraryItemDto["mediaType"]) => {
     if (tipo === "IMAGE") return <ImageIcon className="size-4 shrink-0 text-sky-500" />;
@@ -206,7 +295,7 @@ export function MediaLibraryDialog({
             <div className="min-w-0">
               <DialogTitle className="truncate text-sm">{mirando.title}</DialogTitle>
               <DialogDescription className="text-xs">
-                Mirá que sea el correcto antes de mandarlo.
+                Mira que sea el correcto antes de mandarlo.
               </DialogDescription>
             </div>
           </DialogHeader>
@@ -244,7 +333,7 @@ export function MediaLibraryDialog({
                     <p className="text-xs text-muted-foreground">
                       Este archivo se agregó antes de que se guardaran las portadas.
                       <br />
-                      Quitalo y volvé a agregarlo para verla acá.
+                      Quítalo y vuelve a agregarlo para verla acá.
                     </p>
                   </div>
                 )}
@@ -288,52 +377,136 @@ export function MediaLibraryDialog({
         showCloseButton={false}
         className="inset-0 top-0 left-0 flex h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ring-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[80vh] sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:ring-1"
       >
-        <DialogHeader className="flex-row items-center gap-2 border-b p-3 text-left sm:p-4">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onClose}
-            aria-label="Volver al chat"
-            className="shrink-0 sm:hidden"
-          >
-            <ArrowLeft className="size-5" />
-          </Button>
-          <DialogTitle className="text-sm">Biblioteca</DialogTitle>
-          {/* Sin subtitulo: explicar como funciona ocupaba dos renglones en cada apertura, y lo
-              que hace falta ver son los archivos. */}
-          <DialogDescription className="sr-only">
-            Archivos guardados para mandar a un chat.
-          </DialogDescription>
+        {/* Sin titulo arriba (Alex, 03-10-2026): en el celular el renglon "Biblioteca" se comia
+            espacio y lo primero que se usa es el buscador. El titulo queda para lectores de
+            pantalla. */}
+        <DialogHeader className="sr-only">
+          <DialogTitle>Biblioteca</DialogTitle>
+          <DialogDescription>Archivos guardados para mandar a un chat.</DialogDescription>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
-          <Input
-            value={filtro}
-            onChange={(evento) => setFiltro(evento.target.value)}
-            placeholder="Buscar…"
-            className="h-9"
-          />
+        <div className="flex flex-col gap-2 border-b p-3">
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={onClose}
+              aria-label="Volver al chat"
+              className="shrink-0 sm:hidden"
+            >
+              <ArrowLeft className="size-5" />
+            </Button>
+            <Input
+              value={filtro}
+              onChange={(evento) => setFiltro(evento.target.value)}
+              placeholder="Buscar en la biblioteca"
+              aria-label="Buscar en la biblioteca"
+              // 16px en el celular: por debajo de eso el iPhone hace zoom al tocar el campo.
+              className="h-9 flex-1 text-[16px] md:text-sm"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              onClick={cambiarVista}
+              aria-label={vista === "cuadricula" ? "Ver como lista" : "Ver como cuadrícula"}
+              title={vista === "cuadricula" ? "Ver como lista" : "Ver como cuadrícula"}
+              className="size-9 shrink-0"
+            >
+              {vista === "cuadricula" ? <List className="size-4" /> : <LayoutGrid className="size-4" />}
+            </Button>
+          </div>
 
-          {/* En grilla y con tapa, como Drive: los catalogos se reconocen por la portada mucho
-              antes que por el titulo, y aca todos empiezan igual ("CATALOGO ..."). Una lista de
-              renglones obliga a leer ocho nombres parecidos para encontrar uno.
+          <div className="-mx-3 flex gap-1.5 overflow-x-auto px-3 [scrollbar-width:none]">
+            {tiposVisibles.map((opcion) => {
+              const activo = tipo === opcion.valor;
+              return (
+                <button
+                  key={opcion.valor}
+                  type="button"
+                  onClick={() => setTipo(opcion.valor)}
+                  aria-pressed={activo}
+                  className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[12px] font-medium transition ${
+                    activo
+                      ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                      : "border-border bg-background text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {opcion.texto}
+                  <span className={`tabular-nums ${activo ? "text-white/80" : "text-muted-foreground"}`}>
+                    {cuantos(opcion.valor)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-              El pb-6 es para el celular: al llegar al final, la ultima fila quedaba cortada por la
-              mitad y no bajaba mas. En Chrome de Android la barra de direcciones aparece y
-              desaparece, y el alto de la ventana cambia bajo los pies del scroll; ese colchon deja
-              que la ultima fila entre entera igual. */}
-          <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-2 overflow-y-auto pb-6 sm:max-h-[48vh] sm:pb-2">
-            {cargando ? (
-              <p className="col-span-2 p-4 text-center text-xs text-muted-foreground">Abriendo…</p>
-            ) : visibles.length === 0 ? (
-              <p className="col-span-2 p-4 text-center text-xs text-muted-foreground">
-                {items.length === 0
-                  ? "Todavía no hay archivos. Agregá tus catálogos y quedan listos para todo el equipo."
-                  : "Nada con ese nombre."}
-              </p>
-            ) : (
-              visibles.map((item) => (
+        {/* El scroll va en una caja aparte y la grilla adentro, sin alto propio.
+
+            Antes la grilla misma era la que scrolleaba con flex-1: en el celular las filas se
+            achicaban para entrar en el alto disponible (las tarjetas tienen overflow-hidden, y
+            eso les quita el alto minimo), y quedaba a la vista solo el borde de arriba de cada
+            tapa. El nombre, que va abajo, no se veia nunca.
+
+            El pb-6 es para el celular: en Chrome de Android la barra de direcciones aparece y
+            desaparece, y el alto de la ventana cambia bajo los pies del scroll; ese colchon deja
+            que la ultima fila entre entera igual. */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-3 pb-6 sm:max-h-[52vh] sm:pb-3">
+          {cargando ? (
+            <p className="p-4 text-center text-xs text-muted-foreground">Abriendo…</p>
+          ) : visibles.length === 0 ? (
+            <p className="p-4 text-center text-xs text-muted-foreground">{vacio()}</p>
+          ) : vista === "lista" ? (
+            <ul className="flex flex-col">
+              {visibles.map((item) => (
+                <li key={item.id} className="flex items-center gap-1 rounded-lg transition hover:bg-muted">
+                  <button
+                    type="button"
+                    onClick={() => setMirando(item)}
+                    className="flex min-w-0 flex-1 items-center gap-3 px-2 py-1.5 text-left"
+                  >
+                    <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/50">
+                      {item.mediaType === "IMAGE" || item.thumbnailUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={item.thumbnailUrl ?? item.url}
+                          alt=""
+                          className="size-full object-cover object-top"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="scale-125">{icono(item.mediaType)}</span>
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="line-clamp-2 text-[13px] font-medium leading-snug text-foreground">
+                        {item.title}
+                      </span>
+                      <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums">
+                        {icono(item.mediaType)}
+                        {tamano(item)}
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    title={`Quitar "${item.title}" de la biblioteca`}
+                    aria-label={`Quitar "${item.title}" de la biblioteca`}
+                    onClick={() => void borrar(item)}
+                    className="mr-1 shrink-0 rounded-full p-2 text-muted-foreground transition hover:bg-background hover:text-destructive"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            /* En grilla y con tapa, como Drive: los catalogos se reconocen por la portada mucho
+               antes que por el titulo, y aca todos empiezan igual ("CATALOGO ..."). */
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {visibles.map((item) => (
                 <div
                   key={item.id}
                   className="group relative overflow-hidden rounded-xl border transition hover:border-foreground/20"
@@ -343,10 +516,10 @@ export function MediaLibraryDialog({
                     onClick={() => setMirando(item)}
                     className="block w-full text-left"
                   >
-                    {/* La tapa: la imagen misma, o la primera pagina del PDF si se pudo sacar.
-                        object-top porque en un catalogo lo que identifica es el encabezado, no el
-                        medio de la pagina. */}
-                    <span className="flex h-32 items-center justify-center overflow-hidden bg-muted/50">
+                    {/* La tapa: la miniatura de la foto, o la primera pagina del PDF si se pudo
+                        sacar. object-top porque en un catalogo lo que identifica es el
+                        encabezado, no el medio de la pagina. */}
+                    <span className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-muted/50">
                       {item.mediaType === "IMAGE" || item.thumbnailUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -359,44 +532,41 @@ export function MediaLibraryDialog({
                         <span className="scale-[2.2]">{icono(item.mediaType)}</span>
                       )}
                     </span>
-                    <span className="block px-2 pb-2 pt-1.5">
-                      <span className="block truncate text-[12px] font-medium text-foreground">
+                    <span className="block border-t px-2 pb-2 pt-1.5">
+                      <span className="line-clamp-2 text-[12px] font-medium leading-snug text-foreground">
                         {item.title}
                       </span>
-                      <span className="block truncate text-[11px] text-muted-foreground tabular-nums">
-                        {item.sizeBytes > 0
-                          ? `${Math.max(1, Math.round(item.sizeBytes / (1024 * 1024)))} MB`
-                          : ""}
-                        {item.sentCount > 0 ? ` · ${item.sentCount}×` : ""}
+                      <span className="mt-0.5 block truncate text-[11px] text-muted-foreground tabular-nums">
+                        {tamano(item)}
                       </span>
                     </span>
                   </button>
                   <button
                     type="button"
                     title={`Quitar "${item.title}" de la biblioteca`}
+                    aria-label={`Quitar "${item.title}" de la biblioteca`}
                     onClick={() => void borrar(item)}
-                    className="absolute right-1 top-1 rounded-full bg-background/90 p-1.5 text-muted-foreground opacity-0 transition hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 max-sm:opacity-100"
+                    className="absolute right-1 top-1 rounded-full bg-background/90 p-1.5 text-muted-foreground opacity-0 shadow-sm transition hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 max-sm:opacity-100"
                   >
                     <Trash2 className="size-3.5" />
                   </button>
                 </div>
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="border-t p-3">
           <input
             ref={inputArchivo}
             type="file"
+            multiple
             className="hidden"
             accept="image/*,video/mp4,video/webm,video/quicktime,application/pdf"
             onChange={(evento) => {
-              const file = evento.target.files?.[0];
+              const archivos = Array.from(evento.target.files ?? []);
               evento.target.value = "";
-              if (file) {
-                void agregar(file);
-              }
+              void agregarVarios(archivos);
             }}
           />
           <Button
@@ -408,12 +578,14 @@ export function MediaLibraryDialog({
             onClick={() => inputArchivo.current?.click()}
           >
             {subiendo ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-            {subiendo ? `Subiendo… ${Math.round(avance * 100)}%` : "Agregar archivo"}
+            {subiendo
+              ? `Subiendo${enCola && enCola.total > 1 ? ` ${enCola.actual} de ${enCola.total}` : ""}… ${Math.round(avance * 100)}%`
+              : "Agregar archivos"}
           </Button>
           <p className="mt-2 text-center text-[11px] text-muted-foreground">
             {subiendo
               ? "Va por partes: si se corta la señal, sigue desde donde quedó."
-              : "Agregalo una vez y queda disponible para todo el equipo."}
+              : "Catálogos en PDF, fotos o videos. Puedes elegir varios a la vez."}
           </p>
         </div>
       </DialogContent>
