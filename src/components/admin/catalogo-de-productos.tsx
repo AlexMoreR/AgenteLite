@@ -75,6 +75,16 @@ function textoDelEstado(producto: ProductoDelCatalogo) {
 }
 
 /**
+ * La foto achicada para mostrar en chico. Las de Gestion pesan 1-2 MB; el optimizador de Next las
+ * devuelve del ancho pedido y en WebP. Las de otros origenes se muestran tal cual.
+ */
+function achicada(url: string, ancho: 96 | 128) {
+  return url.startsWith("https://magilus.com/uploads/")
+    ? `/_next/image?url=${encodeURIComponent(url)}&w=${ancho}&q=70`
+    : url;
+}
+
+/**
  * Una foto que no carga no se muestra. Las de Gestión ya llegan revisadas, pero una puede romperse
  * entre una sincronización y otra: si falla, desaparece en vez de dejar el ícono roto.
  */
@@ -100,7 +110,7 @@ function Miniatura({ producto }: { producto: ProductoDelCatalogo }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={foto}
+      src={achicada(foto, 96)}
       alt=""
       loading="lazy"
       onError={() => setRota(true)}
@@ -483,7 +493,7 @@ function PanelDelProducto({
             <div className="flex flex-wrap gap-1.5">
               {producto.fotos.map((foto) => (
                 <a key={foto} href={foto} target="_blank" rel="noopener noreferrer">
-                  <Foto src={foto} alt={producto.nombre} className="size-16 rounded-md border border-border object-cover" />
+                  <Foto src={achicada(foto, 128)} alt={producto.nombre} className="size-16 rounded-md border border-border object-cover" />
                 </a>
               ))}
             </div>

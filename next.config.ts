@@ -32,6 +32,15 @@ const nextConfig: NextConfig = {
    * Un dia de cache con una semana de gracia: si algun dia cambia el icono, el peor caso es que
    * alguien vea el viejo hasta mañana.
    */
+  /*
+    Las fotos del catalogo vienen de Gestion (magilus.com) a tamaño completo: PNG de 1 a 2 MB, una
+    tardo 19 s. Para una miniatura de 40 px se piden achicadas por el optimizador de Next
+    (/_next/image), que solo acepta estos origenes (03-10-2026).
+  */
+  images: {
+    remotePatterns: [{ protocol: "https", hostname: "magilus.com", pathname: "/uploads/**" }],
+  },
+
   async headers() {
     return [
       /*
