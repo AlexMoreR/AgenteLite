@@ -2,22 +2,30 @@
 // MAYÚSCULAS, sin negrita, radio pequeño, padding 2px/4px). El COLOR (fondo claro +
 // texto oscuro del mismo tono) va aparte por `style` inline con getTagBadgeColors().
 export const TAG_BADGE_CLASS =
-  "rounded-[4px] px-1 py-0.5 text-[10px] font-normal uppercase tracking-wide";
+  "rounded-[4px] px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide";
 
 // Paleta fija estilo WhatsApp: cada etiqueta se pinta con un FONDO CLARO y un TEXTO
 // OSCURO del mismo tono. Lo que se guarda en la etiqueta es el color de fondo (`bg`);
 // el texto se deriva por este mapa. Los swatches del selector usan estos `bg`.
-export const TAG_COLOR_PAIRS: Array<{ bg: string; text: string }> = [
-  { bg: "#CAECFA", text: "#074B6A" }, // Azul
-  { bg: "#B6D9FE", text: "#092642" }, // Azul oscuro
-  { bg: "#C9F0D8", text: "#0B5B2E" }, // Verde
-  { bg: "#C7F0EC", text: "#0A5B54" }, // Teal
-  { bg: "#FBD7D1", text: "#7A1C12" }, // Rojo
-  { bg: "#FCE4C8", text: "#7A3E06" }, // Naranja
-  { bg: "#FBF0C4", text: "#6B5300" }, // Amarillo
-  { bg: "#E7DAFB", text: "#4A1F7A" }, // Morado
-  { bg: "#FBD6EA", text: "#7A1450" }, // Rosa
-  { bg: "#E2E8F0", text: "#334155" }, // Gris
+/*
+  Mas vivos desde el 03-10-2026 (Alex: "se ven palidos"). Eran pasteles casi blancos -el morado
+  #E7DAFB- con letra fina de 10 px: en la lista de chats no se distinguia una etiqueta de otra.
+
+  `bg` es lo que esta GUARDADO en cada etiqueta y no se toca (es la clave: cambiarlo obligaria a
+  migrar la base y dejaria huerfanas las etiquetas viejas). Lo que cambia es como se PINTA:
+  `fill` es el fondo que se ve, un tono mas saturado, y `text` uno mas oscuro.
+*/
+export const TAG_COLOR_PAIRS: Array<{ bg: string; fill: string; text: string }> = [
+  { bg: "#CAECFA", fill: "#9ED8F2", text: "#05384F" }, // Azul
+  { bg: "#B6D9FE", fill: "#93C2F8", text: "#0A2540" }, // Azul oscuro
+  { bg: "#C9F0D8", fill: "#A3E4BC", text: "#08471F" }, // Verde
+  { bg: "#C7F0EC", fill: "#9EE3DB", text: "#064741" }, // Teal
+  { bg: "#FBD7D1", fill: "#F7B4A9", text: "#64140B" }, // Rojo
+  { bg: "#FCE4C8", fill: "#F9CB97", text: "#663104" }, // Naranja
+  { bg: "#FBF0C4", fill: "#F5E08A", text: "#574400" }, // Amarillo
+  { bg: "#E7DAFB", fill: "#CDB5F6", text: "#3B1366" }, // Morado
+  { bg: "#FBD6EA", fill: "#F6B3D6", text: "#650D40" }, // Rosa
+  { bg: "#E2E8F0", fill: "#CBD5E1", text: "#1E293B" }, // Gris
 ];
 
 // Colores de fondo para el selector de color de etiqueta (lo que se guarda).
@@ -34,18 +42,18 @@ export function getTagBadgeColors(color?: string | null): { backgroundColor: str
   const normalized = color?.trim();
   if (!normalized) {
     return {
-      backgroundColor: "color-mix(in srgb, var(--primary) 20%, white)",
-      color: "color-mix(in srgb, var(--primary) 60%, black)",
+      backgroundColor: "color-mix(in srgb, var(--primary) 35%, white)",
+      color: "color-mix(in srgb, var(--primary) 70%, black)",
     };
   }
 
   const pair = TAG_PAIR_BY_BG.get(normalized.toLowerCase());
   if (pair) {
-    return { backgroundColor: pair.bg, color: pair.text };
+    return { backgroundColor: pair.fill, color: pair.text };
   }
 
   return {
-    backgroundColor: `color-mix(in srgb, ${normalized} 20%, white)`,
-    color: `color-mix(in srgb, ${normalized} 60%, black)`,
+    backgroundColor: `color-mix(in srgb, ${normalized} 35%, white)`,
+    color: `color-mix(in srgb, ${normalized} 70%, black)`,
   };
 }

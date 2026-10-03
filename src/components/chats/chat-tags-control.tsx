@@ -35,13 +35,24 @@ const createInitialState: { error?: string; success?: boolean } = {};
 const VIDA_DE_LA_CACHE_MS = 60_000;
 let etiquetasEnCache: { pedido: ReturnType<typeof getEtiquetasAction>; at: number } | null = null;
 
-function pedirEtiquetas() {
+export function pedirEtiquetas() {
   if (etiquetasEnCache && Date.now() - etiquetasEnCache.at < VIDA_DE_LA_CACHE_MS) {
     return etiquetasEnCache.pedido;
   }
   const pedido = getEtiquetasAction();
   etiquetasEnCache = { pedido, at: Date.now() };
   return pedido;
+}
+
+/** Sin tildes ni mayusculas: "estetica" encuentra "ESTÉTICA". */
+function sinTildes(texto: string) {
+  return texto.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+/** Las etiquetas cuyo nombre contiene lo buscado. Lo usan el chat y el menu de cada fila. */
+export function etiquetasQueCoinciden<T extends { name: string }>(lista: T[], busqueda: string): T[] {
+  const buscado = sinTildes(busqueda);
+  return buscado ? lista.filter((etiqueta) => sinTildes(etiqueta.name).includes(buscado)) : lista;
 }
 
 /** Al crear o borrar una etiqueta, la lista guardada ya no sirve. */
@@ -78,6 +89,8 @@ export function ChatTagsControl({
   const [selectedColor, setSelectedColor] = useState(PRESET_COLORS[0]);
   // Id de la etiqueta cuyo borrado total está pendiente de confirmar (en la lista del popover).
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  // Buscador del selector: con muchas etiquetas, encontrar una era recorrer la lista entera.
+  const [busqueda, setBusqueda] = useState("");
   /**
    * Que fallo al cargar, si fallo.
    *
@@ -295,6 +308,7 @@ export function ChatTagsControl({
             setShowForm(false);
             setSelectedColor(PRESET_COLORS[0]);
             setConfirmingDeleteId(null);
+            setBusqueda("");
           }
         }}
       >
@@ -322,6 +336,19 @@ export function ChatTagsControl({
               <X className="h-4 w-4" />
             </button>
           </div>
+
+          {loaded && !fallo && etiquetas.length > 0 ? (
+            <div className="shrink-0 border-b border-border px-3 py-2">
+              <input
+                value={busqueda}
+                onChange={(evento) => setBusqueda(evento.target.value)}
+                placeholder="Buscar etiqueta"
+                aria-label="Buscar etiqueta"
+                // 16px en el celular: por debajo de eso el iPhone hace zoom al tocar el campo.
+                className="h-9 w-full rounded-[12px] border border-border bg-background px-3 text-[16px] text-foreground outline-none transition focus:border-[var(--primary)] md:text-[13px]"
+              />
+            </div>
+          ) : null}
 
           <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1.5">
             {!loaded ? (
@@ -355,7 +382,10 @@ export function ChatTagsControl({
               <p className="py-4 text-center text-xs text-muted-foreground">Sin etiquetas aún</p>
             ) : (
               <ul className="space-y-0.5">
-                {etiquetas.map((tag) => {
+                {etiquetasQueCoinciden(etiquetas, busqueda).length === 0 ? (
+                  <li className="py-3 text-center text-xs text-muted-foreground">Ninguna etiqueta con ese nombre.</li>
+                ) : null}
+                {etiquetasQueCoinciden(etiquetas, busqueda).map((tag) => {
                   const isAssigned = assignedIds.has(tag.id);
                   const isConfirming = canDelete && confirmingDeleteId === tag.id;
                   return (
@@ -432,7 +462,8 @@ export function ChatTagsControl({
                       onClick={() => setSelectedColor(color)}
                       className="h-6 w-6 rounded-full border border-black/10 transition-transform hover:scale-110"
                       style={{
-                        backgroundColor: color,
+                        // La muestra con el color que se VE en la etiqueta, no el guardado.
+                        backgroundColor: getTagBadgeColors(color).backgroundColor,
                         outline: selectedColor === color ? "2px solid #334155" : "none",
                         outlineOffset: "2px",
                       }}

@@ -4,6 +4,7 @@ import { useCallback, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Ban,
+  Check,
   ChevronLeft,
   CircleCheck,
   Clock3,
@@ -33,6 +34,9 @@ import { fijarChatAction } from "@/app/actions/chats-fijados-actions";
 import { ponerFijados } from "@/components/chats/chats-fijados-store";
 import { usePuedeBloquear } from "@/components/chats/permisos-de-la-bandeja-store";
 import { bloquearContactoAction } from "@/app/actions/bloqueo-actions";
+import { getContactTagIdsAction, toggleContactTagAction, type EtiquetaItem } from "@/app/actions/chats-actions";
+import { etiquetasQueCoinciden, pedirEtiquetas } from "@/components/chats/chat-tags-control";
+import { getTagBadgeColors } from "@/lib/tag-badge";
 
 /**
  * El menú de una fila de la bandeja.
@@ -86,6 +90,17 @@ export function ConversationRowMenu({
   const [miembros, setMiembros] = useState<AssignableMember[] | null>(null);
   const [errorMiembros, setErrorMiembros] = useState<string | null>(null);
   const [asignando, setAsignando] = useState(false);
+  /*
+    Cuarta vista: las etiquetas, con buscador, sin abrir el chat (Alex, 03-10-2026). Antes
+    "Etiquetas" llevaba al chat, y para etiquetar diez filas habia que entrar a diez chats. La
+    lista del negocio sale de la misma cache que el selector del chat; la de este contacto se pide
+    al abrir.
+  */
+  const [vistaEtiquetas, setVistaEtiquetas] = useState(false);
+  const [etiquetas, setEtiquetas] = useState<EtiquetaItem[] | null>(null);
+  const [asignadas, setAsignadas] = useState<Set<string>>(new Set());
+  const [busquedaEtiqueta, setBusquedaEtiqueta] = useState("");
+  const [errorEtiquetas, setErrorEtiquetas] = useState<string | null>(null);
   // Tercera vista: confirmar el bloqueo. Bloquear corta al cliente en WhatsApp: no va de un toque.
   const [vistaBloquear, setVistaBloquear] = useState(false);
   const puedeBloquear = usePuedeBloquear() && source === "agent" && Boolean(contactId);
@@ -241,6 +256,46 @@ export function ConversationRowMenu({
       irALaBandejaLimpia(router, true, conversationId);
     });
 
+  const abrirEtiquetas = () => {
+    if (!contactId) return;
+    setVistaEtiquetas(true);
+    setBusquedaEtiqueta("");
+    setErrorEtiquetas(null);
+    void Promise.all([pedirEtiquetas(), getContactTagIdsAction(contactId)])
+      .then(([lista, deEste]) => {
+        setEtiquetas(lista.items ?? []);
+        setAsignadas(new Set(deEste.tagIds ?? []));
+      })
+      .catch(() => setErrorEtiquetas("No se pudieron cargar las etiquetas"));
+  };
+
+  const alternarEtiqueta = (etiqueta: EtiquetaItem) => {
+    if (!contactId || !etiquetas) return;
+    const antes = asignadas;
+    const despues = new Set(asignadas);
+    if (despues.has(etiqueta.id)) despues.delete(etiqueta.id);
+    else despues.add(etiqueta.id);
+    setAsignadas(despues);
+    startTransition(async () => {
+      const resultado = await toggleContactTagAction(contactId, etiqueta.id).catch(() => ({ error: "No se pudo guardar" }));
+      if (resultado.error) {
+        setAsignadas(antes);
+        toast.error(resultado.error);
+        return;
+      }
+      // La fila (y el chat, si esta abierto) se enteran por el mismo evento que usa el selector del chat.
+      window.dispatchEvent(
+        new CustomEvent("chat-tags-updated", {
+          detail: {
+            contactId,
+            tags: etiquetas.filter((item) => despues.has(item.id)).map((item) => ({ label: item.name, color: item.color })),
+            assignedTagIds: Array.from(despues),
+          },
+        }),
+      );
+    });
+  };
+
   const copiarNumero = () => {
     setAbierto(false);
     if (!phoneNumber) {
@@ -268,6 +323,7 @@ export function ConversationRowMenu({
           setAbierto(siguiente);
           if (!siguiente) {
             setVistaBloquear(false);
+            setVistaEtiquetas(false);
           }
         }}
       >
@@ -286,7 +342,48 @@ export function ConversationRowMenu({
           sideOffset={6}
           className="w-60 rounded-2xl border border-border bg-popover p-1.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
         >
-          {vistaBloquear ? (
+          {vistaEtiquetas ? (
+            <div className="flex flex-col">
+              <button
+                type="button"
+                onClick={() => setVistaEtiquetas(false)}
+                className="mb-1 flex items-center gap-1.5 px-2.5 py-1.5 text-left text-[12px] text-muted-foreground transition hover:text-foreground"
+              >
+                <ChevronLeft className="size-3.5" />
+                Etiquetas
+              </button>
+              <input
+                value={busquedaEtiqueta}
+                onChange={(evento) => setBusquedaEtiqueta(evento.target.value)}
+                placeholder="Buscar etiqueta"
+                aria-label="Buscar etiqueta"
+                autoFocus
+                className="mx-1 mb-1 h-8 rounded-lg border border-border bg-background px-2.5 text-[16px] text-foreground outline-none focus:border-[var(--primary)] md:text-[13px]"
+              />
+              <div className="max-h-64 overflow-y-auto">
+                {errorEtiquetas ? (
+                  <p className="px-2.5 py-2 text-[12.5px] text-muted-foreground">{errorEtiquetas}</p>
+                ) : etiquetas === null ? (
+                  <p className="px-2.5 py-2 text-[12.5px] text-muted-foreground">Cargando…</p>
+                ) : etiquetasQueCoinciden(etiquetas, busquedaEtiqueta).length === 0 ? (
+                  <p className="px-2.5 py-2 text-[12.5px] text-muted-foreground">Ninguna etiqueta con ese nombre.</p>
+                ) : (
+                  etiquetasQueCoinciden(etiquetas, busquedaEtiqueta).map((etiqueta) => (
+                    <button
+                      key={etiqueta.id}
+                      type="button"
+                      onClick={() => alternarEtiqueta(etiqueta)}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] text-foreground transition hover:bg-muted"
+                    >
+                      <TagIcon className="size-3.5 shrink-0 fill-current" style={{ color: getTagBadgeColors(etiqueta.color).color }} />
+                      <span className="min-w-0 flex-1 truncate">{etiqueta.name}</span>
+                      {asignadas.has(etiqueta.id) ? <Check className="size-3.5 shrink-0 text-[var(--primary)]" /> : null}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : vistaBloquear ? (
             <div className="flex flex-col gap-2 p-1.5">
               <p className="text-[13px] font-semibold text-foreground">¿Bloquear este contacto?</p>
               <p className="text-[12px] leading-snug text-muted-foreground">
@@ -375,14 +472,18 @@ export function ConversationRowMenu({
             texto="Asignar asesora"
             onClick={abrirAsignar}
           />
-          <Opcion
-            icono={<TagIcon className="size-4" />}
-            texto="Etiquetas"
-            onClick={() => {
-              setAbierto(false);
-              router.push(chatHref);
-            }}
-          />
+          {contactId ? (
+            <Opcion icono={<TagIcon className="size-4" />} texto="Etiquetas" onClick={abrirEtiquetas} />
+          ) : (
+            <Opcion
+              icono={<TagIcon className="size-4" />}
+              texto="Etiquetas"
+              onClick={() => {
+                setAbierto(false);
+                router.push(chatHref);
+              }}
+            />
+          )}
 
           {phoneNumber ? (
             <>
