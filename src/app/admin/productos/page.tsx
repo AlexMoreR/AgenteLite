@@ -134,7 +134,7 @@ export default async function AdminProductosPage({ searchParams }: PageProps) {
   });
 
   return (
-    <section className="w-full space-y-4 overflow-x-hidden">
+    <section className="w-full space-y-4 overflow-x-hidden px-4 py-4 md:px-6 md:py-5">
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}

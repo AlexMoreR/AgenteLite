@@ -166,8 +166,8 @@ export function CatalogoDeProductos({
     <div className="space-y-4">
       {/* Encabezado */}
       <div className="flex flex-wrap items-start justify-between gap-3">
+        {/* Sin título: la barra de arriba ya dice "Admin > Productos" y se leía dos veces. */}
         <div className="space-y-1.5">
-          <h1 className="text-xl font-semibold text-foreground">Productos</h1>
           {conectadoAGestion ? (
             <span
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
