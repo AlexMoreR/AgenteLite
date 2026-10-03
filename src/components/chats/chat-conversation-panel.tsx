@@ -1883,18 +1883,18 @@ export const ConversationPanel = memo(function ConversationPanel({
                                 align="start"
                                 side="top"
                                 sideOffset={12}
-                                className="w-[min(80vw,16rem)] rounded-2xl border border-border bg-popover p-1.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+                                className="w-[min(80vw,15rem)] rounded-lg border border-border bg-popover p-1 leading-5 shadow-[0_12px_32px_-12px_rgba(15,23,42,0.30)]"
                               >
                                 {/* Prender o apagar la firma sin salir del compositor. Solo si la
                                     persona tiene una configurada: sin firma, el interruptor no
                                     controlaria nada. */}
                                 {firma ? (
-                                  <label className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-sm text-foreground transition hover:bg-muted">
+                                  <label className="flex w-full cursor-pointer items-center justify-between gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted">
                                     <span className="flex items-center gap-3">
-                                      <PenLine className="size-5 shrink-0 text-[#8b5cf6]" />
+                                      <PenLine className="size-4 shrink-0 text-[#8b5cf6]" />
                                       <span>
                                         Firmar mensajes
-                                        <span className="block text-[11px] text-muted-foreground">
+                                        <span className="block text-[11px] font-normal text-muted-foreground">
                                           {firmaActiva ? firma : "Salen sin tu nombre"}
                                         </span>
                                       </span>
@@ -1905,6 +1905,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                                     />
                                   </label>
                                 ) : null}
+                                {firma ? <div className="-mx-1 my-0.5 h-px bg-border" /> : null}
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -1912,9 +1913,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                                     setIsAttachMenuOpen(false);
                                     setIsQuickRepliesOpen(true);
                                   }}
-                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                  className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <MessageSquareText className="size-5 shrink-0 text-[#10b981]" />
+                                  <MessageSquareText className="size-4 shrink-0 text-[#10b981]" />
                                   <span>Respuestas rápidas</span>
                                 </Button>
                                 {/* Guion del Playbook segun la etapa de ESTE cliente: la asesora no
@@ -1926,9 +1927,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                                     setIsAttachMenuOpen(false);
                                     setIsPlaybookOpen(true);
                                   }}
-                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                  className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <BookOpen className="size-5 shrink-0 text-[#f59e0b]" />
+                                  <BookOpen className="size-4 shrink-0 text-[#f59e0b]" />
                                   <span>Qué decir ahora</span>
                                 </Button>
                                 {/* Mandar el catalogo completo con un toque, en vez de buscar el
@@ -1940,9 +1941,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                                     setIsAttachMenuOpen(false);
                                     setIsSendFlowOpen(true);
                                   }}
-                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                  className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <Workflow className="size-5 shrink-0 text-[#0ea5e9]" />
+                                  <Workflow className="size-4 shrink-0 text-[#0ea5e9]" />
                                   <span>Enviar flujos</span>
                                 </Button>
                                 {/* Los catalogos de siempre, ya subidos. Mandarlos desde aca NO
@@ -1957,11 +1958,12 @@ export const ConversationPanel = memo(function ConversationPanel({
                                     setIsAttachMenuOpen(false);
                                     setIsLibraryOpen(true);
                                   }}
-                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                  className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <FolderOpen className="size-5 shrink-0 text-[#8b5cf6]" />
+                                  <FolderOpen className="size-4 shrink-0 text-[#8b5cf6]" />
                                   <span>Biblioteca</span>
                                 </Button>
+                                <div className="-mx-1 my-0.5 h-px bg-border" />
                                 {/* Lo que el equipo necesita saber del cliente y no se le manda
                                     a el. Antes se lo pasaban por WhatsApp entre ellas y se
                                     perdia. */}
@@ -1972,9 +1974,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                                     setIsAttachMenuOpen(false);
                                     setIsNoteOpen(true);
                                   }}
-                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                  className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <StickyNote className="size-5 shrink-0 text-[#eab308]" />
+                                  <StickyNote className="size-4 shrink-0 text-[#eab308]" />
                                   <span>Nota interna</span>
                                 </Button>
                                 {/* Agendar el proximo toque sin salir del chat: es donde la
@@ -1986,11 +1988,12 @@ export const ConversationPanel = memo(function ConversationPanel({
                                     setIsAttachMenuOpen(false);
                                     setIsFollowUpOpen(true);
                                   }}
-                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                  className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <AlarmClock className="size-5 shrink-0 text-[#8b5cf6]" />
+                                  <AlarmClock className="size-4 shrink-0 text-[#8b5cf6]" />
                                   <span>Agendar seguimiento</span>
                                 </Button>
+                                <div className="-mx-1 my-0.5 h-px bg-border" />
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -1998,9 +2001,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                                     setIsAttachMenuOpen(false);
                                     mediaFileInputRef.current?.click();
                                   }}
-                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                  className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <ImageIcon className="size-5 shrink-0 text-[#2f9bff]" />
+                                  <ImageIcon className="size-4 shrink-0 text-[#2f9bff]" />
                                   <span>Fotos y videos</span>
                                 </Button>
                                 {/*
@@ -2023,9 +2026,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                                     documentoFileInputRef.current?.click();
                                   }}
                                   variant="ghost"
-                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                  className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <FileText className="size-5 shrink-0 text-[#ec4899]" />
+                                  <FileText className="size-4 shrink-0 text-[#ec4899]" />
                                   <span>Documento</span>
                                 </Button>
                                 {/* Ubicación del local con UN toque: las coordenadas salen de la
@@ -2038,9 +2041,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                                     setIsAttachMenuOpen(false);
                                     void handleSendLocation();
                                   }}
-                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                  className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <MapPin className="size-5 shrink-0 text-[#ef4444]" />
+                                  <MapPin className="size-4 shrink-0 text-[#ef4444]" />
                                   <span>{isSendingLocation ? "Enviando ubicación…" : "Ubicación del local"}</span>
                                 </Button>
                                 {audioConfig ? (
@@ -2052,9 +2055,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                                       setIsAttachMenuOpen(false);
                                       void startAudioRecording();
                                     }}
-                                    className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                                   >
-                                    <Headphones className="size-5 shrink-0 text-[#ff7a59]" />
+                                    <Headphones className="size-4 shrink-0 text-[#ff7a59]" />
                                     <span>Audio</span>
                                   </Button>
                                 ) : null}
