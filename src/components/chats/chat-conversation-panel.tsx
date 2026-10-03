@@ -204,6 +204,9 @@ async function copiarArchivosAMemoria(
   return { archivos, ilegible: null };
 }
 
+/** Si la barra de primera accion del celular quedo escondida ("no") o visible ("si"). */
+const CLAVE_BARRA_VISIBLE = "chat:barra-de-acciones";
+
 export const ConversationPanel = memo(function ConversationPanel({
   backHref,
   composer,
@@ -291,6 +294,30 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isSuggestingReply, setIsSuggestingReply] = useState(false);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState("");
   const [pestanaChat, setPestanaChat] = useState<"mensajes" | "cotizaciones">("mensajes");
+  /*
+    La barra de primera accion se puede esconder con la flecha de arriba, para ganar alto de chat
+    en el celular. Se recuerda en ese aparato: quien la esconde no quiere volver a hacerlo en cada
+    chat. Arranca visible y se lee despues de montar, porque el servidor no sabe que eligio.
+  */
+  const [barraVisible, setBarraVisible] = useState(true);
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(CLAVE_BARRA_VISIBLE) === "no") setBarraVisible(false);
+    } catch {
+      // Sin almacenamiento (ventana privada): queda visible.
+    }
+  }, []);
+  const alternarBarra = () => {
+    setBarraVisible((actual) => {
+      const siguiente = !actual;
+      try {
+        window.localStorage.setItem(CLAVE_BARRA_VISIBLE, siguiente ? "si" : "no");
+      } catch {
+        // Idem: vale mientras la pantalla siga abierta.
+      }
+      return siguiente;
+    });
+  };
   /**
    * "Escribiendo…", como en WhatsApp.
    *
@@ -1452,10 +1479,23 @@ export const ConversationPanel = memo(function ConversationPanel({
                 </div>
               </div>
 
-              {hasSettledConversation && (headerActions || headerBadge) ? (
+              {hasSettledConversation && (headerActions || headerBadge || headerBar || mediaConfig) ? (
                 <div className="flex shrink-0 items-center justify-end gap-2">
                   {headerActions}
                   {headerBadge}
+                  {/* Esconde o muestra la barra de abajo. Solo existe donde existe la barra. */}
+                  {headerBar || mediaConfig ? (
+                    <button
+                      type="button"
+                      onClick={alternarBarra}
+                      aria-expanded={barraVisible}
+                      aria-label={barraVisible ? "Ocultar la barra de acciones" : "Mostrar la barra de acciones"}
+                      title={barraVisible ? "Ocultar acciones" : "Mostrar acciones"}
+                      className="-ml-1 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted @min-[520px]/chathdr:hidden"
+                    >
+                      <ChevronDown className={`size-5 transition-transform ${barraVisible ? "rotate-180" : ""}`} />
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -1467,7 +1507,7 @@ export const ConversationPanel = memo(function ConversationPanel({
             no entra y antes vivia escondida en tres puntos. Con la cabecera ancha todo esto ya
             esta arriba, en linea.
           */}
-          {hasSettledConversation && seleccionados.length === 0 && (headerBar || mediaConfig) ? (
+          {hasSettledConversation && seleccionados.length === 0 && barraVisible && (headerBar || mediaConfig) ? (
             <div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-card px-3 py-1.5 @min-[520px]/chathdr:hidden">
               {headerBar}
               {mediaConfig ? (
