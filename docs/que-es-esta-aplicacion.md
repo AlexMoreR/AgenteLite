@@ -185,9 +185,11 @@ la IA pausada no lo contesta el agente.
 - **Contactos ocultos del CRM** (`excludedFromCrm`): contactos que no son leads (proveedores, logística).
   Salen de los tableros, el kanban y los conteos, pero sus chats siguen en la bandeja. Se ocultan a mano,
   o solos cuando escriben por una línea administrativa (`purpose = ADMIN`).
-- **Reparto**: un lead nuevo se asigna por turnos entre las colaboradoras de la línea que no estén en
-  pausa ni fuera de su horario; si viene de un anuncio con regla de campaña, va a quien diga la regla. El
-  reparto nunca le quita un chat a quien ya lo tiene.
+- **Reparto**: un chat se asigna por turnos entre las colaboradoras de la línea que no estén en pausa
+  ni fuera de su horario (Mi empresa → Equipo). Se dispara cuando la clienta contesta con contenido a
+  algo del agente o de un flujo (desde el 02-10-2026), cuando el agente pide un asesor, o por el
+  rescate de chats huérfanos; si viene de un anuncio con regla de campaña, va a quien diga la regla. El
+  reparto nunca le quita un chat a quien ya lo tiene. Solo en líneas de ventas (`purpose = SALES`).
 - **Ganado exige cotización**: nadie puede marcar GANADO sin el número de la cotización de Gestión
   (`COT-00123`), desde ninguna pantalla; se guarda en `Contact.wonQuoteRef` junto a `wonAt`. Ningún
   agente ni automatismo pone GANADO o PERDIDO.
@@ -208,6 +210,7 @@ la IA pausada no lo contesta el agente.
 - `aviso_cliente_esperando`: si un cliente escribió y lleva 15 minutos sin respuesta, se le avisa a la asesora (no le escribe al cliente).
 - `rescate_de_mensajes_v3`: vuelve a pasarle al motor un mensaje que nunca miró (por una caída o un despliegue), solo en chats sin asesora ni pausa.
 - `rescate_de_chats_huerfanos`: reparte un chat que lleva media hora con el cliente esperando y sin nadie a cargo.
+- `reparto_por_turno`: en las líneas de ventas, cuando la clienta contesta CON CONTENIDO (no solo saludo, emoji, "ok" o "gracias") a algo del agente o de un flujo y el chat no tiene asesora, se reparte por la rueda de la línea. Asignar no pausa al agente: sigue hasta que la asesora escribe.
 - `enfriamiento_por_llamadas`: un lead con 3 intentos de llamada, 5 días y cero respuesta pasa a Tibio.
 - `temperatura`: un lead Tibio sin respuesta en 2 días pasa a Frío (Caliente no se toca).
 - `descarte_automatico`: lleva a Descartado a los leads con 30 días sin respuesta y 3 insistencias nuestras. Se corrió una vez y se apagó; hoy no aparece en pantalla.

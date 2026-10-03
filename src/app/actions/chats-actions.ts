@@ -1806,6 +1806,7 @@ export async function assignChatAction(input: {
     contactId: conversation.contactId,
     kind: targetUserId ? "assigned" : "unassigned",
     actorUserId: session.user.id,
+    assigneeUserId: targetUserId,
     origen: input?.origen ?? null,
     dispositivo: leerDispositivo((await headers()).get("user-agent")),
     text: activityText,

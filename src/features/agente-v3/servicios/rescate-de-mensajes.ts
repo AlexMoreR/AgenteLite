@@ -20,8 +20,11 @@ import { retomarConversacionV3 } from "./retomar";
  * 1. Solo si el motor no registró NINGUNA decisión sobre ese mensaje. Si decidió —aunque haya
  *    decidido no responder— no se toca. Sin la huella que dejó `decisiones.ts` esto no se podría
  *    distinguir, y el rescate terminaría contestando cosas que el agente ya había resuelto callar.
- * 2. No manda nada si el chat ya tiene asesora o si la IA está pausada ahí. Es el mismo principio
- *    de siempre: el agente no le escribe por encima a una persona.
+ * 2. No manda nada si una asesora ya está escribiendo en ese chat. Es el mismo principio de
+ *    siempre: el agente no le escribe por encima a una persona. Lo que lo dice es la PAUSA de la IA
+ *    (escribir desde el CRM o desde el celular la pausa), no que el chat tenga asesora asignada:
+ *    desde el reparto por turno (02-10-2026) un chat recibe asesora mientras el bot sigue
+ *    contestando, y Alex pidió que el agente no cambie hasta que ella escriba.
  * 3. Queda nota en el chat de cada mensaje rescatado, para poder auditarlo después.
  * 4. Detrás de una bandera que se apaga desde la pantalla del Agente V3.
  */
@@ -99,7 +102,6 @@ export async function rescatarMensajesSinDecidir(
         channelId: canal.id,
         // Condición 2, la mitad que se puede preguntar en la consulta.
         automationPaused: false,
-        assignedToUserId: null,
         status: "OPEN",
         lastMessageAt: {
           lte: new Date(ahora.getTime() - ESPERA_MINUTOS * 60_000),

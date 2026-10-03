@@ -377,6 +377,9 @@ async function automatizaciones(
     aviso_cliente_esperando: v3.hayLineasConV3 ? sinInterruptor : "no aplica: ninguna linea usa el Agente V3",
     rescate_de_mensajes_v3: rescate === "off" ? "apagada (agente-v3:rescate = off)" : "activa",
     rescate_de_chats_huerfanos: sinInterruptor,
+    // Corre en cada mensaje de la clienta (webhook), no en el reloj. Se gobierna desde Equipo
+    // (pausa de reparto y horario por vendedora), no con una bandera.
+    reparto_por_turno: sinInterruptor,
     enfriamiento_por_llamadas: sinInterruptor,
     temperatura: sinInterruptor,
     descarte_automatico: descarte === "on" ? "ACTIVA: mueve leads a Descartado" : "apagada",

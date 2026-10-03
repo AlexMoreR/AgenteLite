@@ -8,6 +8,7 @@ import {
 } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 import { ETAPAS_VIVAS } from "@/features/crm/services/getMiTableroData";
+import { leerAsignacionesDelEquipo } from "@/features/llamadas/services/asignaciones-del-equipo";
 
 // ── Utilidades de fecha (día de HOY en Bogotá, UTC-5) ───────────────────────────────────────
 const BOGOTA_OFFSET_MS = 5 * 60 * 60 * 1000;
@@ -319,6 +320,10 @@ export type LlamadasOwnerData = {
     llamadasHoy: number;
     llamadasSemana: number;
     ventasSemana: number;
+    /** Chats que se le asignaron hoy (reparto o a mano; no los que tomó al responder). */
+    asignadosHoy: number;
+    /** Promedio, en minutos, desde que se le asigna un chat hasta que ella escribe (últimos 7 días). */
+    minutosHastaPrimeraRespuesta: number | null;
   }>;
   // Conteo REAL de leads por etapa (excluye descartados del CRM).
   stageDistribution: Array<{ stage: CrmStage; count: number }>;
@@ -476,6 +481,16 @@ export async function getLlamadasOwnerData(workspaceId: string): Promise<Llamada
     const mapaMovidos = cuenta(movidosHoy);
     const mapaGanados = cuenta(ganadosSemana);
 
+    const asignaciones = await leerAsignacionesDelEquipo({
+      workspaceId,
+      inicioDeHoy: startToday,
+      inicioDeLaSemana: startWeek,
+      miembros: miembros.map((miembro) => ({
+        userId: miembro.userId,
+        nombre: miembro.user?.name?.trim() || "",
+      })),
+    });
+
     result.equipo = miembros
       .map((miembro) => {
         const llamadas = perUser.get(miembro.userId);
@@ -488,6 +503,8 @@ export async function getLlamadasOwnerData(workspaceId: string): Promise<Llamada
           llamadasHoy: llamadas?.today ?? 0,
           llamadasSemana: llamadas?.week ?? 0,
           ventasSemana: mapaGanados.get(miembro.userId) ?? 0,
+          asignadosHoy: asignaciones.asignadosHoy.get(miembro.userId) ?? 0,
+          minutosHastaPrimeraRespuesta: asignaciones.minutosHastaPrimeraRespuesta.get(miembro.userId) ?? null,
         };
       })
       .sort((a, b) => b.ventasSemana - a.ventasSemana || b.leadsACargo - a.leadsACargo);

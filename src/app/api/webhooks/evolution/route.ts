@@ -100,6 +100,7 @@ import { reconocerProductoDelLead } from "@/lib/product-auto-tag";
 import { recordContactMatch } from "@/lib/contact-matches";
 import { leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { filtrarPorHorario } from "@/lib/horario-de-reparto";
+import { repartirSiElTurnoLoAmerita } from "@/lib/reparto-por-turno";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
 import {
@@ -2014,6 +2015,36 @@ export async function POST(request: NextRequest) {
         lastMessageAt: new Date(),
         status: "OPEN",
       },
+    });
+  }
+
+  /*
+    Reparto por turno (Alex, 02-10-2026): si la clienta contesto CON CONTENIDO a algo del agente o
+    de un flujo y el chat no tiene asesora, se reparte. Va despues de guardar el mensaje -es parte
+    del turno que se mira- y en segundo plano: el webhook no espera al reparto. Ver
+    lib/reparto-por-turno.ts.
+  */
+  if (
+    !fromMe &&
+    !isCallEvent &&
+    !messageWasEdited &&
+    !messageWasDeleted &&
+    !isEvolutionStatusBroadcastPayload(payload)
+  ) {
+    const conversacionDelReparto = conversation.id;
+    after(async () => {
+      try {
+        await repartirSiElTurnoLoAmerita({
+          conversationId: conversacionDelReparto,
+          channelId: channel.id,
+          workspaceId: channel.workspaceId,
+        });
+      } catch (error) {
+        console.error("[reparto-por-turno] fallo", {
+          conversationId: conversacionDelReparto,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     });
   }
 

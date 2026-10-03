@@ -14,6 +14,23 @@ import type { LlamadasOwnerData } from "@/features/llamadas/services/getLlamadas
   como viene el equipo -leads, movimiento, ventas, perdidas-, o sea CRM.
 */
 
+/** "12 min", "1 h 20 min", "2 d"; "—" si todavía no respondió ninguno. */
+function formatearDemora(minutos: number | null) {
+  if (minutos === null) {
+    return "—";
+  }
+  const redondo = Math.round(minutos);
+  if (redondo < 60) {
+    return `${redondo} min`;
+  }
+  if (redondo < 24 * 60) {
+    const horas = Math.floor(redondo / 60);
+    const resto = redondo % 60;
+    return resto ? `${horas} h ${resto} min` : `${horas} h`;
+  }
+  return `${Math.round(redondo / (24 * 60))} d`;
+}
+
 export function TableroDelEquipo({ data }: { data: LlamadasOwnerData }) {
   const maxStage = Math.max(1, ...data.stageDistribution.map((entry) => entry.count));
   const maxReason = Math.max(1, ...data.lostReasons.map((entry) => entry.count));
@@ -36,6 +53,8 @@ export function TableroDelEquipo({ data }: { data: LlamadasOwnerData }) {
                   <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                     <th className="px-4 py-2 font-medium">Vendedora</th>
                     <th className="px-3 py-2 text-right font-medium">Leads</th>
+                    <th className="px-3 py-2 text-right font-medium">Asignados hoy</th>
+                    <th className="px-3 py-2 text-right font-medium">1ª respuesta</th>
                     <th className="px-3 py-2 text-right font-medium">Movidos hoy</th>
                     <th className="px-3 py-2 text-right font-medium">Respondidos hoy</th>
                     <th className="px-3 py-2 text-right font-medium">Llamadas hoy</th>
@@ -61,6 +80,8 @@ export function TableroDelEquipo({ data }: { data: LlamadasOwnerData }) {
                         )}
                       </td>
                       <td className="px-3 py-2 text-right">{persona.leadsACargo}</td>
+                      <td className="px-3 py-2 text-right">{persona.asignadosHoy}</td>
+                      <td className="px-3 py-2 text-right">{formatearDemora(persona.minutosHastaPrimeraRespuesta)}</td>
                       <td className="px-3 py-2 text-right">{persona.conMovimientoHoy}</td>
                       <td className="px-3 py-2 text-right font-semibold">{persona.respondidosHoy}</td>
                       <td className="px-3 py-2 text-right">{persona.llamadasHoy}</td>
@@ -78,7 +99,10 @@ export function TableroDelEquipo({ data }: { data: LlamadasOwnerData }) {
             &quot;Movidos hoy&quot; son sus chats con cualquier movimiento hoy, escriba quien escriba.
             &quot;Respondidos hoy&quot; son sus chats en los que una persona contestó hoy, desde la
             app o desde el celular de la línea (no cuenta lo que respondió el agente).
-            &quot;Ventas&quot; y &quot;Semana&quot; van de los últimos 7 días.
+            &quot;Ventas&quot; y &quot;Semana&quot; van de los últimos 7 días. &quot;Asignados hoy&quot; son
+            los chats que le cayeron hoy por el reparto o porque alguien se los pasó. &quot;1ª
+            respuesta&quot; es cuánto tarda en promedio en escribir desde que se le asigna un chat
+            (últimos 7 días; no cuenta lo que contesta el agente).
           </p>
         </CardContent>
       </Card>

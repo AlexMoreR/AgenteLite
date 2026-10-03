@@ -66,6 +66,7 @@ export async function claimConversationIfUnassigned(input: {
         contactId: conversacion.contactId,
         kind: "assigned",
         actorUserId: userId,
+        assigneeUserId: userId,
         text: `${quien?.name?.trim() || quien?.email || "Una asesora"} tomó esta conversación al responder`,
       });
     }

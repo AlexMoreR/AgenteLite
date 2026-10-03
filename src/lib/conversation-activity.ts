@@ -36,6 +36,12 @@ export async function recordConversationActivity(input: {
     hizo nadie. Va en rawPayload para no migrar la base de produccion.
   */
   actorUserId?: string | null;
+  /**
+   * A QUIEN se le asigno el chat, como dato (solo en "assigned"). Antes solo estaba en el texto
+   * ("Magilus asigno a Genesis Moreno") y para contar "asignados hoy" por vendedora habia que
+   * adivinar por el nombre (Alex, 02-10-2026).
+   */
+  assigneeUserId?: string | null;
   /** Con que control se hizo, cuando importa distinguirlo (ver assignChatAction). */
   origen?: string | null;
   /** Android, iPhone, Windows... Sale de la cabecera del navegador. */
@@ -61,6 +67,7 @@ export async function recordConversationActivity(input: {
           source: "activity",
           kind: input.kind,
           actorUserId: input.actorUserId ?? null,
+          ...(input.assigneeUserId ? { assigneeUserId: input.assigneeUserId } : {}),
           ...(input.origen ? { origen: input.origen } : {}),
           ...(input.dispositivo ? { dispositivo: input.dispositivo } : {}),
         } as never,

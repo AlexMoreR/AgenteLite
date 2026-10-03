@@ -17,11 +17,12 @@ import { prisma } from "@/lib/prisma";
  * mudarlo: es el mismo código que venía repartiendo en producción.
  */
 
+/** Devuelve a quién se lo asignó, o null si no lo asignó (ya tenía dueña, nadie en turno...). */
 export async function autoAssignConversationToCollaborator(args: {
   conversationId: string;
   channelId: string;
   workspaceId: string;
-}) {
+}): Promise<string | null> {
   const [conversation, channel] = await Promise.all([
     prisma.conversation.findUnique({
       where: { id: args.conversationId },
@@ -35,7 +36,7 @@ export async function autoAssignConversationToCollaborator(args: {
 
   // Si ya está asignada, no la tocamos.
   if (!conversation || conversation.assignedToUserId) {
-    return;
+    return null;
   }
 
   const metadata =
@@ -48,7 +49,7 @@ export async function autoAssignConversationToCollaborator(args: {
   const collaboratorIds = calcularReparto(metadata);
 
   if (collaboratorIds.length === 0) {
-    return;
+    return null;
   }
 
   // Solo colaboradores que sigan siendo miembros activos del workspace.
@@ -59,13 +60,13 @@ export async function autoAssignConversationToCollaborator(args: {
   const activeSet = new Set(activeMembers.map((m) => m.userId));
   const validIds = collaboratorIds.filter((id) => activeSet.has(id));
   if (validIds.length === 0) {
-    return;
+    return null;
   }
 
   // Quien está fuera de su horario de reparto (Mi empresa -> Equipo) se salta en esta vuelta.
   const enHorario = new Set(await filtrarPorHorario(args.workspaceId, validIds));
   if (enHorario.size === 0) {
-    return;
+    return null;
   }
 
   // Siguiente colaborador tras el último asignado (round-robin cíclico). La rueda sigue siendo la
@@ -76,13 +77,21 @@ export async function autoAssignConversationToCollaborator(args: {
     (userId) => enHorario.has(userId),
   );
   if (!nextUserId) {
-    return;
+    return null;
   }
 
-  await prisma.conversation.update({
-    where: { id: args.conversationId },
+  /*
+    Solo si SIGUE sin dueña. Con el reparto por turno esto corre en cada mensaje de la clienta, y
+    dos mensajes seguidos llegan casi a la vez: sin esta condición los dos asignaban y la rueda
+    avanzaba dos lugares por un solo chat.
+  */
+  const asignada = await prisma.conversation.updateMany({
+    where: { id: args.conversationId, assignedToUserId: null },
     data: { assignedToUserId: nextUserId },
   });
+  if (asignada.count === 0) {
+    return null;
+  }
   await prisma.whatsAppChannel.update({
     where: { id: args.channelId },
     data: { metadata: { ...metadata, lastAutoAssignedUserId: nextUserId } as Prisma.InputJsonValue },
@@ -99,6 +108,8 @@ export async function autoAssignConversationToCollaborator(args: {
     conversationId: args.conversationId,
     channelId: args.channelId,
     kind: "assigned",
+    assigneeUserId: nextUserId,
     text: `${assigneeName} auto-asignado a esta conversación`,
   });
+  return nextUserId;
 }
