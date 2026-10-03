@@ -69,10 +69,13 @@ const HERRAMIENTAS_DE_LECTURA = [
     name: "listar_productos",
     title: "Listar productos",
     description:
-      "Productos que conocen los agentes del negocio, con codigo, precio, precio mayorista, cantidad minima mayorista y descripcion. Sirve para comparar precios o datos que dio el agente.",
+      "Productos ACTIVOS del negocio (los que conoce el agente), con codigo, precio, precio mayorista, cantidad minima mayorista, descripcion y de donde vienen: 'GESTION' (sincronizados desde magilus.com, que manda en nombre, codigo, precios, categoria y fotos) o 'MANUAL'. Los inactivos (ocultos o borrados en Gestion) solo salen con incluir_inactivos.",
     inputSchema: {
       type: "object",
-      properties: { buscar: { type: "string", description: "Filtra por nombre o codigo (opcional)" } },
+      properties: {
+        buscar: { type: "string", description: "Filtra por nombre o codigo (opcional)" },
+        incluir_inactivos: { type: "boolean", description: "Tambien los inactivos. Por defecto false." },
+      },
       additionalProperties: false,
     },
     annotations: SOLO_LECTURA,
@@ -490,6 +493,8 @@ async function listarProductos(args: Argumentos, contexto: Contexto) {
         en ningun agente, que es justo el caso de uno recien creado.
       */
       workspaceId: contexto.workspaceId,
+      // El agente solo conoce los activos; los ocultos o borrados en Gestion, a pedido.
+      ...(args.incluir_inactivos === true ? {} : { activo: true }),
       ...(buscar
         ? {
             OR: [
@@ -509,6 +514,10 @@ async function listarProductos(args: Argumentos, contexto: Contexto) {
       wholesalePrice: true,
       minWholesaleQty: true,
       description: true,
+      origen: true,
+      activo: true,
+      estadoEnGestion: true,
+      sincronizadoEl: true,
       category: { select: { name: true } },
       _count: { select: { images: true } },
     },
@@ -523,6 +532,10 @@ async function listarProductos(args: Argumentos, contexto: Contexto) {
     cantidad_minima_mayorista: producto.minWholesaleQty,
     descripcion: producto.description,
     fotos: producto._count.images,
+    origen: producto.origen,
+    activo: producto.activo,
+    estado_en_gestion: producto.estadoEnGestion,
+    sincronizado_el: producto.sincronizadoEl?.toISOString() ?? null,
   }));
 }
 

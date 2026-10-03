@@ -123,7 +123,7 @@ async function listAgentKnowledgeMediaProducts(agentId: string): Promise<AgentKn
       ORDER BY pimage."order" ASC, pimage."createdAt" ASC
       LIMIT 1
     ) pi ON TRUE
-    WHERE akp."agentId" = ${agentId}
+    WHERE akp."agentId" = ${agentId} AND p."activo" = true
     ORDER BY akp."createdAt" ASC, p."name" ASC
     LIMIT 30
   `;

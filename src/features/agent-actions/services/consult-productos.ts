@@ -300,7 +300,7 @@ async function fetchAgentKnowledgeProducts(agentId: string) {
       FROM "AgentKnowledgeProduct" akp
       INNER JOIN "Product" p ON p."id" = akp."productId"
       LEFT JOIN "Category" c ON c."id" = p."categoryId"
-      WHERE akp."agentId" = ${agentId}
+      WHERE akp."agentId" = ${agentId} AND p."activo" = true
       ORDER BY akp."updatedAt" DESC, akp."createdAt" DESC, p."name" ASC
       LIMIT 60
     `;
@@ -327,7 +327,7 @@ async function fetchAgentKnowledgeProducts(agentId: string) {
           FROM "AgentKnowledgeProduct" akp
           INNER JOIN "Product" p ON p."id" = akp."productId"
           LEFT JOIN "Category" c ON c."id" = p."categoryId"
-          WHERE akp."agentId" = ${agentId}
+          WHERE akp."agentId" = ${agentId} AND p."activo" = true
           ORDER BY akp."updatedAt" DESC, akp."createdAt" DESC, p."name" ASC
           LIMIT 60
         `;

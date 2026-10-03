@@ -323,6 +323,18 @@ model Product {
   categoryId         String?
   code               String?
   slug               String
+  /// De donde viene: "GESTION" (se sincroniza desde magilus.com) o "MANUAL" (escrito en el CRM).
+  /// Lo de Gestion manda en nombre, codigo, precios, categoria e imagenes; la descripcion, el
+  /// embudo, los seguimientos y los flujos son siempre del CRM (ver lib/sincronizacion-gestion).
+  origen             String                  @default("MANUAL")
+  /// El id del producto en Gestion: el enlace que no cambia aunque cambie el codigo.
+  gestionId          String?
+  /// Cuando se sincronizo por ultima vez.
+  sincronizadoEl     DateTime?
+  /// El agente solo conoce los activos. Uno oculto o borrado en Gestion queda inactivo, no se borra.
+  activo             Boolean                 @default(true)
+  /// "visible", "oculto" o "no_existe": como esta en Gestion en la ultima sincronizacion.
+  estadoEnGestion    String?
   workspace          Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   agentKnowledge     AgentKnowledgeProduct[]
   playbooks          ProductPlaybook[]
@@ -334,6 +346,7 @@ model Product {
 
   @@unique([workspaceId, slug])
   @@unique([workspaceId, code])
+  @@unique([workspaceId, gestionId])
   @@index([workspaceId])
 }
 

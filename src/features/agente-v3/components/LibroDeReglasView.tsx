@@ -129,7 +129,8 @@ export function LibroDeReglasView({ libro, problemas }: { libro: LibroDeReglas; 
         <h1 className="text-lg font-semibold text-foreground">Agente V3 · Libro de reglas</h1>
         <p className="text-sm text-muted-foreground">
           Esto es lo que el agente hace, en orden de quién manda primero. Se escribe hablando con Claude;
-          acá se mira. Todavía <b>no atiende clientes</b>: se prueba en el simulador.
+          acá se mira. <b>Atiende a todos los clientes</b> de las líneas donde está prendido; los cambios
+          se pueden probar antes en el simulador.
         </p>
         <p className="text-[12px] text-muted-foreground">
           Versión {libro.version} · {libro.actualizadoEl.startsWith("1970") ? "sin cambios todavía" : `última edición ${CUANDO.format(new Date(libro.actualizadoEl))}`}

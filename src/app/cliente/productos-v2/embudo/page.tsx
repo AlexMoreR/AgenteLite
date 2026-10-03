@@ -39,8 +39,9 @@ export default async function EmbudoDiagramaPage({ searchParams }: PageProps) {
     notFound();
   }
 
-  const product = await prisma.product.findUnique({
-    where: { id: productId },
+  // Solo un producto de ESTE negocio: con el id de otro se veia (y se podia guardar) su embudo.
+  const product = await prisma.product.findFirst({
+    where: { id: productId, workspaceId: access.workspaceId },
     select: { id: true, name: true },
   });
   if (!product) {
@@ -48,7 +49,7 @@ export default async function EmbudoDiagramaPage({ searchParams }: PageProps) {
   }
 
   const playbook = await prisma.productPlaybook.findFirst({
-    where: { productId },
+    where: { productId, workspaceId: access.workspaceId },
     select: {
       stages: {
         select: {
@@ -120,7 +121,12 @@ export default async function EmbudoDiagramaPage({ searchParams }: PageProps) {
         quitadasIniciales={quitadas}
         cargadoEl={new Date().toISOString()}
         perdidosEnEtapa={perdidosEnEtapa}
-        volverA={`/cliente/productos-v2?producto=${encodeURIComponent(product.id)}`}
+        // Se vuelve a donde se vino: la pantalla de Productos abre el embudo con ?volver=productos.
+        volverA={
+          params.volver === "productos"
+            ? "/admin/productos"
+            : `/cliente/productos-v2?producto=${encodeURIComponent(product.id)}`
+        }
       />
     </section>
   );

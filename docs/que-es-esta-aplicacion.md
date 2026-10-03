@@ -217,6 +217,7 @@ la IA pausada no lo contesta el agente.
 - `campanas`: manda la siguiente tanda de cada campaña en curso.
 - `transcripcion_de_audios`: pasa a texto cada nota de voz (Whisper) y la deja debajo del audio.
 - `purga_de_webhooks`: borra el archivo de webhooks viejo para no llenar el disco.
+- `sincronizacion_gestion`: trae el catálogo de Gestión (magilus.com) una vez al día a las 3 a. m. y con el botón "Sincronizar con Gestión". Gestión manda nombre, código, precios, categoría e imágenes (las que no cargan se descartan); la descripción de venta, el embudo, los seguimientos y los flujos son del CRM y no se tocan. Un producto oculto o borrado en Gestión queda inactivo, nunca se borra. No corre hasta que se apruebe el emparejamiento de los productos que ya existían.
 - `informe_diario`: a las 11:59 p. m. (hora de Colombia) arma el informe del día y lo manda por WhatsApp.
 
 ## Qué no existe hoy

@@ -444,7 +444,7 @@ async function getAgentKnowledgePromptProducts(agentId: string) {
       FROM "AgentKnowledgeProduct" akp
       INNER JOIN "Product" p ON p."id" = akp."productId"
       LEFT JOIN "Category" c ON c."id" = p."categoryId"
-      WHERE akp."agentId" = ${agentId}
+      WHERE akp."agentId" = ${agentId} AND p."activo" = true
       ORDER BY akp."createdAt" ASC, p."name" ASC
       LIMIT 30
     `;
@@ -469,7 +469,7 @@ async function getAgentKnowledgePromptProducts(agentId: string) {
           FROM "AgentKnowledgeProduct" akp
         INNER JOIN "Product" p ON p."id" = akp."productId"
         LEFT JOIN "Category" c ON c."id" = p."categoryId"
-        WHERE akp."agentId" = ${agentId}
+        WHERE akp."agentId" = ${agentId} AND p."activo" = true
         ORDER BY akp."createdAt" ASC, p."name" ASC
         LIMIT 30
       `;

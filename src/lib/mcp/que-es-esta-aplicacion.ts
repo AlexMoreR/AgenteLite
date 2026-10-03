@@ -1,3 +1,4 @@
+import { negociosConGestion } from "@/lib/sincronizacion-gestion";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -380,6 +381,10 @@ async function automatizaciones(
     // Corre en cada mensaje de la clienta (webhook), no en el reloj. Se gobierna desde Equipo
     // (pausa de reparto y horario por vendedora), no con una bandera.
     reparto_por_turno: sinInterruptor,
+    sincronizacion_gestion:
+      (await negociosConGestion().catch(() => [])).length > 0
+        ? "activa: una vez al día (3 a. m.) y con el botón de Productos; no corre hasta aprobar el emparejamiento"
+        : "sin negocios conectados a Gestión",
     enfriamiento_por_llamadas: sinInterruptor,
     temperatura: sinInterruptor,
     descarte_automatico: descarte === "on" ? "ACTIVA: mueve leads a Descartado" : "apagada",

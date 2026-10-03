@@ -1013,7 +1013,8 @@ export async function publicarAgenteV2(input: {
 
   // 3) Productos para el prompt.
   const knowledgeRows = await prisma.agentKnowledgeProduct.findMany({
-    where: { agentId: agent.id },
+    // Solo productos activos: uno oculto o borrado en Gestion ya no se ofrece.
+    where: { agentId: agent.id, product: { activo: true } },
     include: { product: { include: { category: { select: { name: true } } } } },
   });
   const knowledgeProducts: AgentKnowledgePromptProduct[] = knowledgeRows.map((row) => ({

@@ -10,6 +10,7 @@ import { avisarClientesEsperando } from "@/features/agente-v3/servicios/cliente-
 import { rescatarMensajesSinDecidir } from "@/features/agente-v3/servicios/rescate-de-mensajes";
 import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
 import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
+import { sincronizarSiTocaHoy } from "@/lib/sincronizacion-gestion";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -185,6 +186,21 @@ async function handleCron(request: Request) {
     } catch (error) {
       console.error("[cron/follows] purga de webhook logs error", error);
     }
+  }
+
+  /*
+    El catalogo desde Gestion, una vez al dia (ver lib/sincronizacion-gestion). Se mira solo en el
+    minuto 17 de cada hora y la funcion decide si toca (a las 3 a. m. de Colombia, una vez por dia).
+    En segundo plano: pide el catalogo y revisa cada foto, y eso no tiene por que demorar esta vuelta.
+  */
+  if (new Date().getMinutes() === 17) {
+    after(async () => {
+      try {
+        await sincronizarSiTocaHoy();
+      } catch (error) {
+        console.error("[cron/follows] sincronizacion con Gestion error", error);
+      }
+    });
   }
 
   return NextResponse.json({

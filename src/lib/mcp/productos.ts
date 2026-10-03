@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { leerConexionConGestion } from "@/lib/sincronizacion-gestion";
 import { slugifyProductSegment } from "@/lib/product-slugs";
 
 /*
@@ -118,6 +119,13 @@ export async function ejecutarHerramientaMcpProductos(
 ): Promise<unknown> {
   switch (nombre) {
     case "crear_producto": {
+      // Con Gestion conectada, los productos se crean alla y llegan solos (03-10-2026): uno creado
+      // aca quedaria por fuera del catalogo, con otro codigo y sin las fotos de Gestion.
+      if (await leerConexionConGestion(contexto.workspaceId)) {
+        throw new Error(
+          "Este negocio se sincroniza con Gestión: el producto se crea en magilus.com y llega solo en la próxima sincronización.",
+        );
+      }
       const nombreDelProducto = texto(argumentos.nombre);
       const precio = numero(argumentos.precio);
       if (!nombreDelProducto || precio === undefined) {
@@ -174,12 +182,24 @@ export async function ejecutarHerramientaMcpProductos(
         throw new Error("Falta el id del producto");
       }
 
-      const suyo = await prisma.productPlaybook.findFirst({
-        where: { productId: productoId, workspaceId: contexto.workspaceId },
-        select: { id: true },
+      // Del negocio por el producto mismo (no por su embudo): uno traido de Gestion puede no
+      // tener embudo todavia y tambien se le puede corregir la descripcion.
+      const suyo = await prisma.product.findFirst({
+        where: { id: productoId, workspaceId: contexto.workspaceId },
+        select: { id: true, origen: true },
       });
       if (!suyo) {
         throw new Error("Ese producto no es de este negocio");
+      }
+      // En uno de Gestion, nombre, codigo y precios los manda Gestion: se pisarian en la proxima
+      // sincronizacion. Aca solo se cambia lo que es del CRM, la descripcion.
+      const tocaLoDeGestion = ["nombre", "precio", "codigo", "precio_mayorista", "cantidad_minima_mayorista"].some(
+        (campo) => argumentos[campo] !== undefined,
+      );
+      if (suyo.origen === "GESTION" && tocaLoDeGestion) {
+        throw new Error(
+          "Ese producto viene de Gestión: nombre, código y precios se cambian en magilus.com. Aquí solo se edita la descripción.",
+        );
       }
 
       const producto = await prisma.product.update({

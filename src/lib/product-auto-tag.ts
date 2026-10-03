@@ -32,7 +32,8 @@ export async function reconocerProductoDelLead(input: {
   }
 
   const reglas = await prisma.productPlaybook.findMany({
-    where: { workspaceId: input.workspaceId },
+    // Un producto inactivo (oculto o borrado en Gestion) no se le reconoce a un lead nuevo.
+    where: { workspaceId: input.workspaceId, product: { activo: true } },
     select: {
       productId: true,
       matchKeywords: true,
