@@ -80,7 +80,8 @@ function textoDelEstado(producto: ProductoDelCatalogo) {
  */
 function achicada(url: string, ancho: 96 | 128) {
   return url.startsWith("https://magilus.com/uploads/")
-    ? `/_next/image?url=${encodeURIComponent(url)}&w=${ancho}&q=70`
+    // q=75: Next 16 solo acepta las calidades configuradas, y por defecto es solo 75 (con 70 da 400).
+    ? `/_next/image?url=${encodeURIComponent(url)}&w=${ancho}&q=75`
     : url;
 }
 

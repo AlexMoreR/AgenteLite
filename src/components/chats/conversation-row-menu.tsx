@@ -340,7 +340,7 @@ export function ConversationRowMenu({
           align="end"
           side="bottom"
           sideOffset={6}
-          className="w-60 rounded-2xl border border-border bg-popover p-1.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+          className="w-60 rounded-lg border border-border bg-popover p-1 shadow-[0_12px_32px_-12px_rgba(15,23,42,0.30)]"
         >
           {vistaEtiquetas ? (
             <div className="flex flex-col">
@@ -373,7 +373,7 @@ export function ConversationRowMenu({
                       key={etiqueta.id}
                       type="button"
                       onClick={() => alternarEtiqueta(etiqueta)}
-                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] text-foreground transition hover:bg-muted"
+                      className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] text-foreground transition hover:bg-muted"
                     >
                       <TagIcon className="size-3.5 shrink-0 fill-current" style={{ color: getTagBadgeColors(etiqueta.color).color }} />
                       <span className="min-w-0 flex-1 truncate">{etiqueta.name}</span>
@@ -435,7 +435,7 @@ export function ConversationRowMenu({
                         onClick={() => asignar(miembro.id)}
                       />
                     ))}
-                    <div className="my-1 h-px bg-border" />
+                    <div className="-mx-1 my-1 h-px bg-border" />
                     <Opcion
                       icono={<UserRoundX className="size-4" />}
                       texto="Quitar asignación"
@@ -465,7 +465,7 @@ export function ConversationRowMenu({
             />
           ) : null}
 
-          <div className="my-1 h-px bg-border" />
+          <div className="-mx-1 my-1 h-px bg-border" />
 
           <Opcion
             icono={<UserRoundCheck className="size-4" />}
@@ -487,14 +487,14 @@ export function ConversationRowMenu({
 
           {phoneNumber ? (
             <>
-              <div className="my-1 h-px bg-border" />
+              <div className="-mx-1 my-1 h-px bg-border" />
               <Opcion icono={<Copy className="size-4" />} texto="Copiar número" onClick={copiarNumero} />
             </>
           ) : null}
 
           {puedeBloquear ? (
             <>
-              <div className="my-1 h-px bg-border" />
+              <div className="-mx-1 my-1 h-px bg-border" />
               <Opcion
                 icono={<Ban className="size-4" />}
                 texto="Bloquear contacto"
@@ -527,7 +527,7 @@ function Opcion({
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] transition ${
+      className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] transition ${
         peligro
           ? "text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
           : "text-foreground hover:bg-muted"
