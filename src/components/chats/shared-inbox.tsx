@@ -217,12 +217,14 @@ export function SharedInbox({
   const parametrosDeLaUrl = useSearchParams();
   const etapasEnLaUrl = parametrosDeLaUrl.get("stage") ?? "";
   const sinResponderEnLaUrl = parametrosDeLaUrl.get("pending") === "1";
+  const etiquetasEnLaUrl = parametrosDeLaUrl.get("tag") ?? "";
   const ponerFiltrosNuevos = useCallback(
     (params: URLSearchParams) => {
       if (etapasEnLaUrl) params.set("stage", etapasEnLaUrl);
       if (sinResponderEnLaUrl) params.set("pending", "1");
+      if (etiquetasEnLaUrl) params.set("tag", etiquetasEnLaUrl);
     },
-    [etapasEnLaUrl, sinResponderEnLaUrl],
+    [etapasEnLaUrl, sinResponderEnLaUrl, etiquetasEnLaUrl],
   );
 
   const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number } | null>(null);
@@ -2675,6 +2677,7 @@ export function SharedInbox({
         filtros={{
           etapas: etapasEnLaUrl ? (etapasEnLaUrl.split(",") as EtapaCrm[]) : [],
           sinResponder: sinResponderEnLaUrl,
+          etiquetas: etiquetasEnLaUrl ? etiquetasEnLaUrl.split(",").filter(Boolean) : [],
         }}
         hasMoreConversationItems={hasMoreConversationItems}
         isLoadingMoreConversationItems={isLoadingMoreConversationItems}

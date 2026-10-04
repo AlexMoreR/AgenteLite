@@ -17,12 +17,21 @@ import {
 
 export * from "../domain/filtros-de-bandeja";
 
-/** La etapa vive en la ficha del contacto, no en la conversacion. */
+/**
+ * La etapa y las etiquetas viven en la ficha del contacto, no en la conversacion.
+ *
+ * Las dos van en el MISMO `contact`: dos objetos `contact` sueltos se pisarian y se perderia uno.
+ * Con etiquetas entra el chat cuyo contacto tenga cualquiera de las elegidas.
+ */
 export function whereDeEtapas(filtros: FiltrosDeBandeja): Prisma.ConversationWhereInput {
-  if (filtros.etapas.length === 0) {
-    return {};
+  const contacto: Prisma.ContactWhereInput = {};
+  if (filtros.etapas.length > 0) {
+    contacto.crmStage = { in: filtros.etapas as EtapaCrm[] };
   }
-  return { contact: { crmStage: { in: filtros.etapas as EtapaCrm[] } } };
+  if (filtros.etiquetas.length > 0) {
+    contacto.ContactTag = { some: { tagId: { in: filtros.etiquetas } } };
+  }
+  return Object.keys(contacto).length > 0 ? { contact: contacto } : {};
 }
 
 /** La respuesta se reusa un minuto: la bandeja se recarga sola y esta consulta no es barata. */

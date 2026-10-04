@@ -116,17 +116,34 @@ export function fragmentosDeFiltrosOficiales(filtros: FiltrosDeBandeja): {
   etapa: Prisma.Sql;
   sinResponder: Prisma.Sql;
 } {
+  /*
+    La etapa y las etiquetas viven en la ficha del CRM del contacto. Van en el mismo fragmento
+    (`etapa`) a proposito: asi las tres consultas que ya lo insertan filtran por etiqueta sin tener
+    que tocarlas una por una, que es como se separan con el tiempo.
+  */
+  const etapa =
+    filtros.etapas.length > 0
+      ? Prisma.sql`AND EXISTS (
+          SELECT 1
+          FROM "OfficialApiContact" ficha
+          INNER JOIN "Contact" crmf ON crmf."id" = ficha."crmContactId"
+          WHERE ficha."id" = c."contactId"
+            AND crmf."crmStage"::text IN (${Prisma.join(filtros.etapas)})
+        )`
+      : Prisma.empty;
+  const etiqueta =
+    (filtros.etiquetas ?? []).length > 0
+      ? Prisma.sql`AND EXISTS (
+          SELECT 1
+          FROM "OfficialApiContact" fichaTag
+          INNER JOIN "ContactTag" ct ON ct."contactId" = fichaTag."crmContactId"
+          WHERE fichaTag."id" = c."contactId"
+            AND ct."tagId" IN (${Prisma.join(filtros.etiquetas)})
+        )`
+      : Prisma.empty;
+
   return {
-    etapa:
-      filtros.etapas.length > 0
-        ? Prisma.sql`AND EXISTS (
-            SELECT 1
-            FROM "OfficialApiContact" ficha
-            INNER JOIN "Contact" crmf ON crmf."id" = ficha."crmContactId"
-            WHERE ficha."id" = c."contactId"
-              AND crmf."crmStage"::text IN (${Prisma.join(filtros.etapas)})
-          )`
-        : Prisma.empty,
+    etapa: Prisma.sql`${etapa} ${etiqueta}`,
 
     /*
       Aca si se puede preguntar de la forma evidente: el canal oficial tiene decenas de

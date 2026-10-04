@@ -2,10 +2,19 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { MessageSquareText, SlidersHorizontal, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, MessageSquareText, Pencil, Plus, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { type AssignedFilter, type StatusFilter, type SharedInboxConversationItem } from "./shared-inbox";
-import { FiltrosDeBandejaModal } from "./filtros-de-bandeja-modal";
+import {
+  FiltrosDeBandejaModal,
+  queryDeFiltro,
+  type ListaDeChats,
+  type ModoDelFiltro,
+} from "./filtros-de-bandeja-modal";
+import { pedirEtiquetas } from "./chat-tags-control";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { getTagBadgeColors } from "@/lib/tag-badge";
+import type { EtiquetaItem } from "@/app/actions/chats-actions";
 import {
   paramsDeFiltros,
   SIN_FILTROS,
@@ -53,16 +62,20 @@ function ChapaDeFiltro({
   alAbrir,
   alQuitar,
   tituloQuitar,
+  estilo,
 }: {
   children: React.ReactNode;
   className: string;
   alAbrir: () => void;
   alQuitar: () => void;
   tituloQuitar: string;
+  /** Colores en linea (las etiquetas traen su propio color). */
+  estilo?: React.CSSProperties;
 }) {
   return (
     <span
-      className={`inline-flex items-center whitespace-nowrap rounded-full border text-[13px] font-medium ${className}`}
+      style={estilo}
+      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border text-[13px] font-medium ${className}`}
     >
       <button type="button" onClick={alAbrir} className="py-1 pr-1 pl-3" title="Cambiar filtros">
         {children}
@@ -79,6 +92,22 @@ function ChapaDeFiltro({
     </span>
   );
 }
+
+/**
+ * Una vista como texto comparable: sin la conexion, la busqueda ni el chat abierto, y con los
+ * parametros ordenados. Dos direcciones que muestran lo mismo dan la misma firma.
+ */
+function firmaDeLaVista(query: string) {
+  const params = new URLSearchParams(query);
+  for (const clave of ["connection", "q", "chatKey"]) params.delete(clave);
+  return [...params.entries()]
+    .map(([clave, valor]) => `${clave}=${valor.split(",").sort().join(",")}`)
+    .sort()
+    .join("&");
+}
+
+/** Cuanto hay que mantener presionada una lista para que aparezca su menu. */
+const TOQUE_LARGO_MS = 450;
 
 export function AppSidebar({
   conversationItems,
@@ -101,6 +130,51 @@ export function AppSidebar({
   const conversationListScrollRef = React.useRef<HTMLDivElement | null>(null);
   const router = useRouter();
   const [filterMenuOpen, setFilterMenuOpen] = React.useState(false);
+  const [modoDelFiltro, setModoDelFiltro] = React.useState<ModoDelFiltro>({ tipo: "filtrar" });
+  const abrirFiltro = React.useCallback((modo: ModoDelFiltro = { tipo: "filtrar" }) => {
+    setModoDelFiltro(modo);
+    setFilterMenuOpen(true);
+  }, []);
+
+  /*
+    LAS LISTAS, como en WhatsApp (Alex, 04-10-2026): filtros con nombre que quedan como pestañas
+    arriba de los chats, se deslizan de lado, y manteniendolas presionadas se editan, se mueven o se
+    borran. A diferencia de WhatsApp no se arman a mano: son filtros, se actualizan solas.
+    Son de cada persona (las guarda /api/cliente/chats/filtros-guardados).
+  */
+  const [listas, setListas] = React.useState<ListaDeChats[]>([]);
+  const [menuDeLista, setMenuDeLista] = React.useState<ListaDeChats | null>(null);
+  const toqueLargo = React.useRef<{ temporizador: number | null; disparo: boolean }>({ temporizador: null, disparo: false });
+  React.useEffect(() => {
+    let vigente = true;
+    void fetch("/api/cliente/chats/filtros-guardados", { credentials: "same-origin" })
+      .then((respuesta) => respuesta.json())
+      .then((datos: { ok?: boolean; filtros?: ListaDeChats[] }) => {
+        if (vigente && datos.ok && Array.isArray(datos.filtros)) setListas(datos.filtros);
+      })
+      .catch(() => {
+        // Sin listas la bandeja igual funciona.
+      });
+    return () => {
+      vigente = false;
+    };
+  }, []);
+
+  // Los nombres y colores de las etiquetas, para mostrar como chapita la que este filtrada.
+  const [etiquetasDelNegocio, setEtiquetasDelNegocio] = React.useState<EtiquetaItem[]>([]);
+  const hayEtiquetasFiltradas = filtros.etiquetas.length > 0;
+  React.useEffect(() => {
+    if (!hayEtiquetasFiltradas) return;
+    let vigente = true;
+    void pedirEtiquetas()
+      .then((resultado) => {
+        if (vigente) setEtiquetasDelNegocio(resultado.items ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      vigente = false;
+    };
+  }, [hayEtiquetasFiltradas]);
 
   /**
    * Los dos filtros se aplican JUNTOS, en un solo viaje.
@@ -156,24 +230,117 @@ export function AppSidebar({
    * campo. La conexion y la busqueda de ahora se conservan —uno guarda una forma de mirar, no el
    * canal en el que estaba parado ese dia.
    */
+  /*
+    La lista que se esta mirando: la que dice lo mismo que la direccion de ahora. Se pinta apenas se
+    toca, sin esperar al servidor (la pantalla de Chats tarda en volver), igual que Todas/Mias.
+  */
+  const vistaActual = firmaDeLaVista(queryDeFiltro(assignedFilter, statusFilter, filtros));
+  const [vistaPedida, setVistaPedida] = React.useState<{ firma: string; desde: string } | null>(null);
+  const firmaMostrada = vistaPedida && vistaPedida.desde === vistaActual ? vistaPedida.firma : vistaActual;
+  const listaActiva = listas.find((lista) => firmaDeLaVista(lista.query) === firmaMostrada) ?? null;
+
   const aplicarGuardado = React.useCallback(
     (query: string) => {
       setFilterMenuOpen(false);
+      setVistaPedida({ firma: firmaDeLaVista(query), desde: vistaActual });
       const params = new URLSearchParams(query);
       if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
       if (searchQuery.trim()) params.set("q", searchQuery.trim());
       const qs = params.toString();
       router.push(qs ? `${searchAction}?${qs}` : searchAction, { scroll: false });
     },
-    [router, searchAction, selectedConnectionKey, searchQuery],
+    [router, searchAction, selectedConnectionKey, searchQuery, vistaActual],
   );
+
+  const guardarLista = React.useCallback(
+    async (datos: { id?: string; nombre: string; query: string }): Promise<string | null> => {
+      try {
+        const respuesta = await fetch("/api/cliente/chats/filtros-guardados", {
+          method: datos.id ? "PUT" : "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(datos),
+        });
+        const resultado = (await respuesta.json()) as { ok?: boolean; error?: string; filtros?: ListaDeChats[] };
+        if (!resultado.ok) return resultado.error || "No se pudo guardar la lista";
+        setListas(resultado.filtros ?? []);
+        aplicarGuardado(datos.query);
+        return null;
+      } catch {
+        return "No se pudo guardar la lista";
+      }
+    },
+    [aplicarGuardado],
+  );
+
+  const borrarLista = async (lista: ListaDeChats) => {
+    setMenuDeLista(null);
+    setListas((actuales) => actuales.filter((otra) => otra.id !== lista.id));
+    if (listaActiva?.id === lista.id) aplicarFiltros("all", "open", SIN_FILTROS);
+    await fetch(`/api/cliente/chats/filtros-guardados?id=${encodeURIComponent(lista.id)}`, {
+      method: "DELETE",
+      credentials: "same-origin",
+    }).catch(() => null);
+  };
+
+  const moverLista = async (lista: ListaDeChats, hacia: -1 | 1) => {
+    const indice = listas.findIndex((otra) => otra.id === lista.id);
+    const destino = indice + hacia;
+    if (indice < 0 || destino < 0 || destino >= listas.length) return;
+    const nuevas = [...listas];
+    [nuevas[indice], nuevas[destino]] = [nuevas[destino], nuevas[indice]];
+    setListas(nuevas);
+    setMenuDeLista(null);
+    await fetch("/api/cliente/chats/filtros-guardados", {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orden: nuevas.map((otra) => otra.id) }),
+    }).catch(() => null);
+  };
+
+  const soltarToqueLargo = () => {
+    if (toqueLargo.current.temporizador) window.clearTimeout(toqueLargo.current.temporizador);
+    toqueLargo.current.temporizador = null;
+  };
+
+  /** Tocar abre la lista; mantener presionado (o clic derecho) abre su menu. */
+  const toquesDeLista = (lista: ListaDeChats) => ({
+    onPointerDown: (evento: React.PointerEvent) => {
+      if (evento.button !== 0) return;
+      toqueLargo.current.disparo = false;
+      soltarToqueLargo();
+      toqueLargo.current.temporizador = window.setTimeout(() => {
+        toqueLargo.current.disparo = true;
+        toqueLargo.current.temporizador = null;
+        navigator.vibrate?.(15);
+        setMenuDeLista(lista);
+      }, TOQUE_LARGO_MS);
+    },
+    onPointerUp: soltarToqueLargo,
+    onPointerLeave: soltarToqueLargo,
+    // Deslizar la fila de lado no es mantener presionado.
+    onPointerCancel: soltarToqueLargo,
+    onContextMenu: (evento: React.MouseEvent) => {
+      evento.preventDefault();
+      setMenuDeLista(lista);
+    },
+    onClick: () => {
+      if (toqueLargo.current.disparo) {
+        toqueLargo.current.disparo = false;
+        return;
+      }
+      aplicarGuardado(lista.query);
+    },
+  });
 
   // El + se marca cuando NO estas en la vista por defecto: abiertas y sin filtro de asignacion.
   const filtersActive =
     statusFilter !== "open" ||
     (isManager && assignedFilter !== "all") ||
     filtros.etapas.length > 0 ||
-    filtros.sinResponder;
+    filtros.sinResponder ||
+    filtros.etiquetas.length > 0;
 
   return (
     <aside
@@ -193,7 +360,11 @@ export function AppSidebar({
             en el modal, con sus conteos.
           */}
           <div className="flex items-center gap-2">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+            {/*
+              Una sola fila que se desliza de lado, como las listas de WhatsApp (Alex, 04-10-2026),
+              sin barra de scroll a la vista.
+            */}
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {/*
                 "Todas" y "Mias" a la vista, sin abrir el modal. La que esta activa va en azul de
                 la marca; la otra en contorno, para que se lea cual estas mirando.
@@ -205,13 +376,16 @@ export function AppSidebar({
                 "Sin asignar" sigue solo en el modal: es una vista de reparto, no del dia a dia.
               */}
               {(isManager ? PASTILLAS_A_LA_VISTA : (["mine"] as const)).map((valor) => {
-                const activa = filtroMostrado === valor;
+                // Con una lista abierta, la pintada es la lista; volver a Todas/Mias la cierra.
+                const activa = !listaActiva && filtroMostrado === valor;
                 const tab = ASSIGNED_FILTER_TABS.find((item) => item.value === valor);
                 return (
                   <button
                     key={valor}
                     type="button"
-                    onClick={() => aplicarFiltros(valor, statusFilter)}
+                    onClick={() =>
+                      listaActiva ? aplicarFiltros(valor, "open", SIN_FILTROS) : aplicarFiltros(valor, statusFilter)
+                    }
                     className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
                       activa
                         ? "border-transparent bg-primary text-primary-foreground"
@@ -228,6 +402,49 @@ export function AppSidebar({
                 );
               })}
 
+              {/*
+                Las listas de esta persona. La abierta va en azul y con su numero (el de los demas
+                costaria una consulta por lista en cada recarga). Mantener presionada o clic derecho:
+                editar, mover o borrar.
+              */}
+              {listas.map((lista) => {
+                const activa = listaActiva?.id === lista.id;
+                const asignadaDeLaLista = new URLSearchParams(lista.query).get("assigned") || "all";
+                const cuenta =
+                  activa && assignedCounts && (asignadaDeLaLista === "all" || asignadaDeLaLista === "mine" || asignadaDeLaLista === "unassigned")
+                    ? assignedCounts[asignadaDeLaLista]
+                    : null;
+                return (
+                  <button
+                    key={lista.id}
+                    type="button"
+                    {...toquesDeLista(lista)}
+                    title={`${lista.nombre} (mantén presionado para editar)`}
+                    className={`inline-flex shrink-0 select-none items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition [-webkit-touch-callout:none] ${
+                      activa
+                        ? "border-transparent bg-primary text-primary-foreground"
+                        : "border-border text-foreground/80 hover:bg-muted"
+                    }`}
+                  >
+                    {lista.nombre}
+                    {cuenta != null ? <span className="text-[11px] font-semibold leading-none">{cuenta}</span> : null}
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => abrirFiltro({ tipo: "nueva" })}
+                aria-label="Nueva lista"
+                title="Nueva lista"
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-border text-foreground/80 transition hover:bg-muted"
+              >
+                <Plus className="size-4" />
+              </button>
+
+              {/* Lo filtrado a mano (sin lista) se ve como chapitas; con una lista abierta, la lista ya lo dice. */}
+              {!listaActiva ? (
+              <>
               {/* El estado solo aparece cuando NO es el de siempre (Abiertas): si no, seria una
                   pastilla que dice lo mismo todos los dias y no informa nada. */}
               {/*
@@ -240,7 +457,7 @@ export function AppSidebar({
               {statusFilter !== "open" ? (
                 <ChapaDeFiltro
                   className="border-border text-muted-foreground"
-                  alAbrir={() => setFilterMenuOpen(true)}
+                  alAbrir={() => abrirFiltro()}
                   alQuitar={() => aplicarFiltros(assignedFilter, "open")}
                   tituloQuitar="Volver a solo abiertas"
                 >
@@ -260,7 +477,7 @@ export function AppSidebar({
                   <ChapaDeFiltro
                     key={etapa}
                     className={`${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
-                    alAbrir={() => setFilterMenuOpen(true)}
+                    alAbrir={() => abrirFiltro()}
                     alQuitar={() =>
                       aplicarFiltros(assignedFilter, statusFilter, {
                         ...filtros,
@@ -277,19 +494,42 @@ export function AppSidebar({
               {filtros.sinResponder ? (
                 <ChapaDeFiltro
                   className="border-primary bg-primary/10 text-primary"
-                  alAbrir={() => setFilterMenuOpen(true)}
+                  alAbrir={() => abrirFiltro()}
                   alQuitar={() => aplicarFiltros(assignedFilter, statusFilter, { ...filtros, sinResponder: false })}
                   tituloQuitar="Quitar el filtro Sin responder"
                 >
                   Sin responder
                 </ChapaDeFiltro>
               ) : null}
+
+              {filtros.etiquetas.map((id) => {
+                const etiqueta = etiquetasDelNegocio.find((item) => item.id === id);
+                return (
+                  <ChapaDeFiltro
+                    key={id}
+                    className="border-transparent uppercase tracking-wide"
+                    estilo={etiqueta ? getTagBadgeColors(etiqueta.color) : undefined}
+                    alAbrir={() => abrirFiltro()}
+                    alQuitar={() =>
+                      aplicarFiltros(assignedFilter, statusFilter, {
+                        ...filtros,
+                        etiquetas: filtros.etiquetas.filter((valor) => valor !== id),
+                      })
+                    }
+                    tituloQuitar={`Quitar la etiqueta ${etiqueta?.name ?? ""}`}
+                  >
+                    {etiqueta?.name ?? "Etiqueta"}
+                  </ChapaDeFiltro>
+                );
+              })}
+              </>
+              ) : null}
             </div>
 
             <div className="shrink-0">
               <button
                 type="button"
-                onClick={() => setFilterMenuOpen(true)}
+                onClick={() => abrirFiltro()}
                 aria-label="Cambiar filtro"
                 aria-expanded={filterMenuOpen}
                 aria-haspopup="dialog"
@@ -346,14 +586,65 @@ export function AppSidebar({
       <FiltrosDeBandejaModal
         abierto={filterMenuOpen}
         alCerrar={() => setFilterMenuOpen(false)}
+        modo={modoDelFiltro}
         isManager={isManager}
         assignedFilter={assignedFilter}
         statusFilter={statusFilter}
         filtros={filtros}
         assignedCounts={assignedCounts}
         alAplicar={aplicarFiltros}
-        alAplicarGuardado={aplicarGuardado}
+        alGuardarLista={guardarLista}
       />
+
+      {/* Lo que aparece al mantener presionada una lista, como en WhatsApp. */}
+      <Dialog open={menuDeLista !== null} onOpenChange={(abierto) => !abierto && setMenuDeLista(null)}>
+        <DialogContent showCloseButton={false} className="gap-0 p-1.5 sm:max-w-xs">
+          <DialogHeader className="px-3 pb-2 pt-2.5">
+            <DialogTitle className="truncate text-[15px] font-semibold">{menuDeLista?.nombre}</DialogTitle>
+            <DialogDescription className="sr-only">Opciones de la lista</DialogDescription>
+          </DialogHeader>
+          {menuDeLista ? (
+            <div className="flex flex-col">
+              {[
+                {
+                  icono: <Pencil className="size-4" />,
+                  texto: "Editar",
+                  alTocar: () => {
+                    const lista = menuDeLista;
+                    setMenuDeLista(null);
+                    abrirFiltro({ tipo: "editar", lista });
+                  },
+                },
+                ...(listas.findIndex((otra) => otra.id === menuDeLista.id) > 0
+                  ? [{ icono: <ChevronLeft className="size-4" />, texto: "Mover a la izquierda", alTocar: () => void moverLista(menuDeLista, -1) }]
+                  : []),
+                ...(listas.findIndex((otra) => otra.id === menuDeLista.id) < listas.length - 1
+                  ? [{ icono: <ChevronRight className="size-4" />, texto: "Mover a la derecha", alTocar: () => void moverLista(menuDeLista, 1) }]
+                  : []),
+              ].map((opcion) => (
+                <button
+                  key={opcion.texto}
+                  type="button"
+                  onClick={opcion.alTocar}
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2.5 text-left text-[14px] font-medium text-foreground transition hover:bg-muted"
+                >
+                  <span className="text-foreground/80">{opcion.icono}</span>
+                  {opcion.texto}
+                </button>
+              ))}
+              <div className="-mx-1.5 my-1 h-px bg-border" />
+              <button
+                type="button"
+                onClick={() => void borrarLista(menuDeLista)}
+                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2.5 text-left text-[14px] font-medium text-rose-600 transition hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
+              >
+                <Trash2 className="size-4" />
+                Eliminar
+              </button>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </aside>
   );
 }

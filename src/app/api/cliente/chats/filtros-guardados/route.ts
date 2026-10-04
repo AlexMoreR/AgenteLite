@@ -80,13 +80,13 @@ export async function POST(request: Request) {
   const query = typeof cuerpo?.query === "string" ? cuerpo.query.trim() : "";
 
   if (!nombre) {
-    return NextResponse.json({ ok: false, error: "Ponele un nombre" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Ponle un nombre" }, { status: 400 });
   }
 
   const guardados = await leerGuardados(session.user.id);
   if (guardados.length >= MAXIMO) {
     return NextResponse.json(
-      { ok: false, error: `Ya tenes ${MAXIMO} filtros guardados. Borra alguno para agregar otro.` },
+      { ok: false, error: `Ya tienes ${MAXIMO} listas. Borra alguna para agregar otra.` },
       { status: 400 },
     );
   }
@@ -117,5 +117,59 @@ export async function DELETE(request: Request) {
   const actualizados = guardados.filter((filtro) => filtro.id !== id);
   await guardar(session.user.id, actualizados);
 
+  return NextResponse.json({ ok: true, filtros: actualizados });
+}
+
+/**
+ * Editar una lista: nombre y/o filtro (Alex, 04-10-2026: las listas como en WhatsApp, que se
+ * mantienen presionadas para administrarlas). Conserva su lugar en la fila.
+ */
+export async function PUT(request: Request) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
+  }
+
+  const cuerpo = (await request.json().catch(() => null)) as
+    | { id?: unknown; nombre?: unknown; query?: unknown }
+    | null;
+  const id = typeof cuerpo?.id === "string" ? cuerpo.id.trim() : "";
+  const nombre = typeof cuerpo?.nombre === "string" ? cuerpo.nombre.trim().slice(0, LARGO_DEL_NOMBRE) : "";
+  const query = typeof cuerpo?.query === "string" ? cuerpo.query.trim() : null;
+  if (!id || !nombre) {
+    return NextResponse.json({ ok: false, error: "Ponle un nombre" }, { status: 400 });
+  }
+
+  const guardados = await leerGuardados(session.user.id);
+  if (!guardados.some((filtro) => filtro.id === id)) {
+    return NextResponse.json({ ok: false, error: "Esa lista ya no existe" }, { status: 404 });
+  }
+  if (guardados.some((filtro) => filtro.id !== id && filtro.nombre.toLowerCase() === nombre.toLowerCase())) {
+    return NextResponse.json({ ok: false, error: "Ya tienes otra lista con ese nombre" }, { status: 400 });
+  }
+
+  const actualizados = guardados.map((filtro) =>
+    filtro.id === id ? { ...filtro, nombre, query: query ?? filtro.query } : filtro,
+  );
+  await guardar(session.user.id, actualizados);
+  return NextResponse.json({ ok: true, filtros: actualizados });
+}
+
+/** Reordenar: llega la lista de ids en el orden nuevo. Lo que no venga queda al final, tal cual. */
+export async function PATCH(request: Request) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
+  }
+
+  const cuerpo = (await request.json().catch(() => null)) as { orden?: unknown } | null;
+  const orden = Array.isArray(cuerpo?.orden) ? cuerpo.orden.filter((id): id is string => typeof id === "string") : [];
+
+  const guardados = await leerGuardados(session.user.id);
+  const porId = new Map(guardados.map((filtro) => [filtro.id, filtro]));
+  const primero = orden.map((id) => porId.get(id)).filter((filtro): filtro is FiltroGuardado => Boolean(filtro));
+  const resto = guardados.filter((filtro) => !orden.includes(filtro.id));
+  const actualizados = [...primero, ...resto];
+  await guardar(session.user.id, actualizados);
   return NextResponse.json({ ok: true, filtros: actualizados });
 }

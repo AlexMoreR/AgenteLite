@@ -27,12 +27,17 @@ export type FiltrosDeBandeja = {
   /** Vacio = todas las etapas. */
   etapas: EtapaCrm[];
   sinResponder: boolean;
+  /**
+   * Ids de etiquetas: entra el chat cuyo contacto tenga CUALQUIERA de ellas (Alex, 04-10-2026: "no
+   * puedo filtrar por etiqueta"). Vacio = sin filtro de etiqueta.
+   */
+  etiquetas: string[];
 };
 
-export const SIN_FILTROS: FiltrosDeBandeja = { etapas: [], sinResponder: false };
+export const SIN_FILTROS: FiltrosDeBandeja = { etapas: [], sinResponder: false, etiquetas: [] };
 
 export function hayFiltrosPuestos(filtros: FiltrosDeBandeja): boolean {
-  return filtros.etapas.length > 0 || filtros.sinResponder;
+  return filtros.etapas.length > 0 || filtros.sinResponder || filtros.etiquetas.length > 0;
 }
 
 /**
@@ -49,10 +54,17 @@ export function leerFiltrosDeBandeja(
     .map((valor) => valor.trim().toUpperCase())
     .filter((valor): valor is EtapaCrm => (ETAPAS_CRM as readonly string[]).includes(valor));
 
+  // Ids de etiqueta: solo letras, numeros y guiones, para que nada raro llegue a la consulta.
+  const etiquetas = (leer("tag") ?? "")
+    .split(",")
+    .map((valor) => valor.trim())
+    .filter((valor) => /^[A-Za-z0-9_-]{1,64}$/.test(valor));
+
   return {
     // Sin duplicados: "stage=NUEVO,NUEVO" no tiene por que multiplicar la condicion.
     etapas: Array.from(new Set(etapasCrudas)),
     sinResponder: (leer("pending") ?? "") === "1",
+    etiquetas: Array.from(new Set(etiquetas)).slice(0, 20),
   };
 }
 
@@ -64,6 +76,9 @@ export function paramsDeFiltros(filtros: FiltrosDeBandeja): Array<[string, strin
   }
   if (filtros.sinResponder) {
     pares.push(["pending", "1"]);
+  }
+  if (filtros.etiquetas.length > 0) {
+    pares.push(["tag", filtros.etiquetas.join(",")]);
   }
   return pares;
 }
