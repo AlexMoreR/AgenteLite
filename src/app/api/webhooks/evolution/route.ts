@@ -3060,6 +3060,8 @@ export async function POST(request: NextRequest) {
             productId: productoId,
             stage: paso,
             channelId: channel.id,
+            // Solo dia 1 en adelante: los de 15 min y 1 h ya los manda el libro del V3.
+            desdeMinutos: 24 * 60,
           });
           console.log("[EVOLUTION] v3_seguimientos_del_paso", { conversationId: conversation.id, paso, agendados });
         },

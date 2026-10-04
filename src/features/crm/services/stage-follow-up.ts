@@ -27,6 +27,15 @@ export async function agendarSeguimientoDeEtapa(input: {
   productId: string;
   stage: string;
   channelId: string | null;
+  /**
+   * Solo los seguimientos que esperan al menos esto (en minutos).
+   *
+   * El Agente V3 ya manda sus propios recordatorios de 15 min y 1 h desde el libro; si ademas se
+   * agendaran los del embudo de esos mismos plazos, la clienta recibiria dos casi iguales. Lo
+   * destapo un chat real el 03-10-2026 (se cancelo solo porque ella contesto antes). El V3 pide
+   * desde 1 dia: el del dia 1 y el del dia 3, que nadie mas cubre.
+   */
+  desdeMinutos?: number;
 }): Promise<{ agendados: number }> {
   try {
     const etapa = await prisma.productFunnelStage.findFirst({
@@ -44,9 +53,12 @@ export async function agendarSeguimientoDeEtapa(input: {
     });
 
     // Un seguimiento sale con su texto o con su flujo; sin ninguno de los dos no hay nada que mandar.
+    const MINUTOS_POR_UNIDAD: Record<string, number> = { MINUTES: 1, HOURS: 60, DAYS: 1440 };
     const seguimientos = (etapa?.followUps ?? []).filter(
       (seguimiento) =>
-        seguimiento.timeValue > 0 && ((seguimiento.content ?? "").trim() || (seguimiento.flowId ?? "").trim()),
+        seguimiento.timeValue > 0 &&
+        ((seguimiento.content ?? "").trim() || (seguimiento.flowId ?? "").trim()) &&
+        seguimiento.timeValue * (MINUTOS_POR_UNIDAD[String(seguimiento.timeType)] ?? 1) >= (input.desdeMinutos ?? 0),
     );
     if (seguimientos.length === 0) {
       return { agendados: 0 };
