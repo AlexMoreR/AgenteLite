@@ -125,7 +125,7 @@ function Segmentos<T extends string>({
             type="button"
             onClick={() => alElegir(opcion.value)}
             aria-pressed={elegida}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition ${
+            className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1.5 text-[13px] font-medium transition ${
               elegida ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
             }`}
           >

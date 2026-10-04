@@ -393,7 +393,7 @@ export function AppSidebar({
                     }`}
                   >
                     {tab?.label ?? "Todas"}
-                    {assignedCounts ? (
+                    {assignedCounts && !listaActiva ? (
                       <span className="text-[11px] font-semibold leading-none">
                         {assignedCounts[valor]}
                       </span>
