@@ -44,6 +44,9 @@ import {
 */
 const LARGOS: CampoDeFicha[] = ["products"];
 
+/** Clientes cuyo chat ya se leyo solo en esta sesion (la precarga va una vez por cliente). */
+const yaSeBuscoEnEstaSesion = new Set<string>();
+
 export function FichaDeCotizacion({
   contactId,
   conversationId,
@@ -76,8 +79,33 @@ export function FichaDeCotizacion({
         if (!vigente) {
           return;
         }
-        setFicha(respuesta.datos?.ficha ?? fichaVacia());
+        const guardada = respuesta.datos?.ficha ?? fichaVacia();
+        setFicha(guardada);
         setOrigenes(respuesta.datos?.origenes ?? {});
+
+        /*
+          PRECARGA: con la ficha vacia, la app lee el chat sola y PROPONE lo que encuentra
+          (Alex, 04-10-2026). No guarda nada: igual hay que tocar "Usar" y "Guardar", porque una
+          direccion mal leida es un mueble en la casa equivocada. Una vez por cliente y por sesion,
+          para no pagar la lectura cada vez que se abre la pestaña.
+        */
+        const vacia = CAMPOS_DE_FICHA.every((campo) => !guardada[campo.clave].trim());
+        if (vacia && !yaSeBuscoEnEstaSesion.has(contactId)) {
+          yaSeBuscoEnEstaSesion.add(contactId);
+          setBuscando(true);
+          buscarDatosEnElChatAction({ contactId, conversationId })
+            .then((encontrado) => {
+              if (vigente && !encontrado.error) {
+                setSugerencias(encontrado.sugerencias ?? {});
+              }
+            })
+            .catch(() => undefined)
+            .finally(() => {
+              if (vigente) {
+                setBuscando(false);
+              }
+            });
+        }
       })
       .finally(() => {
         if (vigente) {
@@ -86,7 +114,10 @@ export function FichaDeCotizacion({
       });
     return () => {
       vigente = false;
+      setBuscando(false);
     };
+    // conversationId acompaña al contacto: no hace falta volver a leer si solo cambia el chat.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contactId]);
 
   const escribir = useCallback((campo: CampoDeFicha, valor: string) => {
@@ -214,7 +245,7 @@ export function FichaDeCotizacion({
       setOrigenes(copiaAlAbrir.current.origenes);
       copiaAlAbrir.current = null;
     }
-    setSugerencias({});
+    // Las propuestas sin revisar se quedan: "Cancelar" no es "No" a lo que encontro el chat.
     setAviso(null);
     setEditando(false);
   };
@@ -272,6 +303,23 @@ export function FichaDeCotizacion({
             <DatoDeLaFicha etiqueta="Dirección" valor={ficha.address} />
             <DatoDeLaFicha etiqueta="Productos" valor={ficha.products} varias />
           </dl>
+        ) : buscando ? (
+          <p className="mt-3 flex items-center gap-2 rounded-xl border border-dashed border-border px-3 py-3 text-[13px] text-muted-foreground">
+            <LoaderCircle className="size-3.5 animate-spin" />
+            Buscando sus datos en el chat…
+          </p>
+        ) : cuantasSugerencias > 0 ? (
+          <button
+            type="button"
+            onClick={abrirEditor}
+            className="mt-3 flex w-full items-center gap-2 rounded-xl border border-primary/40 bg-primary/5 px-3 py-3 text-left text-[13px] text-foreground transition-colors hover:bg-primary/10"
+          >
+            <Sparkles className="size-4 shrink-0 text-primary" />
+            <span className="min-w-0 flex-1">
+              Encontré {cuantasSugerencias === 1 ? "1 dato" : `${cuantasSugerencias} datos`} en el chat.
+            </span>
+            <span className="font-medium text-primary">Revisar</span>
+          </button>
         ) : (
           <button
             type="button"
