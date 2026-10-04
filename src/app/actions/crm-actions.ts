@@ -1,5 +1,6 @@
 "use server";
 
+import { avisoSiNoSePuedeDescartar } from "@/features/crm/services/candado-descarte-sin-respuesta";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
@@ -95,6 +96,18 @@ export async function updateCrmStageAction(input: {
   const lostReason = parsed.data.status === "PERDIDO" ? parsed.data.lostReason ?? null : null;
   if (motivoOtroSinDetalle(lostReason)) {
     return { error: "Escribe cuál fue la razón de «Otro»." };
+  }
+
+  /*
+    Candado (Alex, 03-10-2026): con cotizacion, "Sin respuesta" solo con 3 intentos sin respuesta
+    y 30 dias desde su ultimo mensaje. Va aca porque TODAS las pantallas (kanban, tabla, chat,
+    llamadas) pasan por esta accion. Ver candado-descarte-sin-respuesta.ts.
+  */
+  if (parsed.data.status === "PERDIDO") {
+    const aviso = await avisoSiNoSePuedeDescartar({ contactId: contact.id, lostReason });
+    if (aviso) {
+      return { error: aviso };
+    }
   }
 
   // wonAt solo aplica a GANADO: la fecha real de la venta. Si no viene, hoy. Al mover el lead a

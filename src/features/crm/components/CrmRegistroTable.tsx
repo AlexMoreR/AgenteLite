@@ -282,7 +282,7 @@ export function CrmRegistroTable({
       setEditableRecords((current) =>
         current.map((record) => (record.id === recordId ? { ...record, status: previousRecord.status } : record)),
       );
-      toast.error(result.error);
+      toast.error(result.error, { duration: 10000 });
     }
   };
 

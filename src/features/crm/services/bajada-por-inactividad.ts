@@ -26,10 +26,10 @@ export const INTENTOS_SIN_RESPUESTA = 3;
 export const DIAS_DESDE_SU_ULTIMO_MENSAJE = 5;
 
 /** Un mensaje de asesora a menos de esto del anterior es el mismo intento. */
-const MISMO_INTENTO = "1 hour";
+export const MISMO_INTENTO = "1 hour";
 
 /** Resultados de llamada que SÍ son una respuesta del cliente. */
-const LLAMADAS_CONTESTADAS = ["interesada", "lo_piensa", "no_interesada", "sin_definir", "ganado", "perdido"];
+export const LLAMADAS_CONTESTADAS = ["interesada", "lo_piensa", "no_interesada", "sin_definir", "ganado", "perdido"];
 
 /** Tope por corrida: si algo sale mal, que salga mal de a poco. */
 const TOPE_POR_CORRIDA = 200;

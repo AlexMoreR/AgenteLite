@@ -201,7 +201,7 @@ export function RegisterCallDialog({
         wonQuoteRef: ganaLaVenta ? cotizacion : undefined,
       });
       if ("error" in res) {
-        toast.error(res.error);
+        toast.error(res.error, { duration: 10000 });
         return;
       }
       toast.success(selected.pendingAttemptId ? "Llamada clasificada" : "Llamada registrada");

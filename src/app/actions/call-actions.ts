@@ -1,5 +1,6 @@
 "use server";
 
+import { avisoSiNoSePuedeDescartar } from "@/features/crm/services/candado-descarte-sin-respuesta";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
@@ -461,6 +462,15 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
   });
   if (!contact) {
     return { error: "Contacto no encontrado" };
+  }
+
+  // El candado de "Sin respuesta" con cotizacion se pregunta ANTES de anotar la llamada: si no,
+  // quedaba la llamada como "perdido" y el lead sin pasar a Perdido (igual que con Ganado).
+  if (isLost) {
+    const aviso = await avisoSiNoSePuedeDescartar({ contactId: contact.id, lostReason });
+    if (aviso) {
+      return { error: aviso };
+    }
   }
 
   const now = new Date();

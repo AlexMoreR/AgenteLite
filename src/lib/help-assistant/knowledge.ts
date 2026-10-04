@@ -290,6 +290,9 @@ Las etapas son: --- (sin etapa todavía; antes se llamaba "Nuevo"), Frio, Tibio,
 3. Elige la nueva etapa (---, Frio, Tibio, Caliente, Ganado o Descartado). Se guarda automáticamente.
 En cada fila, el botón de tres puntos ofrece "Copiar detalle", "Ir a chats" y "Marcar seguimiento".
 
+### Por qué no me deja descartar por "Sin respuesta"
+Si el cliente tiene una cotización (número COT de Gestión, se le envió la cotización, se le pidieron los "Datos de Cotización" o se le mandó un PDF de cotización o factura), "Sin respuesta" solo se permite con 3 intentos de contacto sin respuesta y 30 días desde su último mensaje. El aviso dice cuántos intentos y días lleva. Si se perdió por otro motivo (compró a la competencia, sin presupuesto, fuera de cobertura), elige ese motivo: esos siempre se permiten. Un catálogo enviado no cuenta como cotización.
+
 ### Ocultar un contacto del CRM
 Se hace desde "Contactos" (ver sección Contactos): abre el contacto → "Acciones del contacto" → "Ocultar del CRM" (o "Mostrar en CRM").
 

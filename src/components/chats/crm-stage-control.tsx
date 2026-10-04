@@ -122,7 +122,7 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
           setError(result.error);
           // Antes el error solo quedaba en el `title` del boton y nadie lo veia: la etapa volvia
           // atras sin explicacion.
-          toast.error(result.error);
+          toast.error(result.error, { duration: 10000 });
           return;
         }
         router.refresh();

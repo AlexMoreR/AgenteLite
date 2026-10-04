@@ -475,7 +475,7 @@ export function CrmKanbanBoard({
 
     if ("error" in result) {
       setLocalColumns(previousColumns);
-      toast.error(result.error);
+      toast.error(result.error, { duration: 10000 });
     }
   };
 
@@ -555,7 +555,7 @@ export function CrmKanbanBoard({
 
     if ("error" in result) {
       setLocalColumns(previousColumns);
-      toast.error(result.error);
+      toast.error(result.error, { duration: 10000 });
     }
   };
 
