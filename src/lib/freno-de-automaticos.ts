@@ -17,8 +17,9 @@ import { prisma } from "@/lib/prisma";
  * Dos frenos:
  *  - `no_leido`: el último mensaje nuestro no está leído. Un audio escuchado también cuenta como
  *    leído: WhatsApp lo informa con el mismo recibo y se guarda igual.
- *  - `dos_sin_respuesta`: ya salieron 2 automáticos seguidos sin que el cliente conteste. El
- *    tercero no sale aunque los haya leído: si leyó dos y no contestó, un tercero es insistir.
+ *  - `dos_sin_respuesta`: ya salieron 2 automáticos seguidos HOY sin que el cliente conteste. El
+ *    tercero del día no sale aunque los haya leído: si leyó dos y no contestó, un tercero es
+ *    insistir. Al día siguiente el tope se reinicia (Alex, 03-10-2026).
  *
  * Costo conocido: hay clientes con la confirmación de lectura apagada en WhatsApp, y sus mensajes
  * nunca pasan a "leído" aunque los lean (medido el 02-10-2026: 1 de cada 4 chats que responden).
@@ -91,7 +92,12 @@ export async function revisarFrenoDeAutomatico(input: {
 }
 
 /** La decisión, aparte de la consulta, para poder probarla con filas armadas a mano. */
-export function decidirFreno(filasDeLaMasNueva: Fila[]): FrenoDeAutomatico {
+/** "2026-10-03": el día calendario en Colombia de ese instante. */
+function diaEnColombia(fecha: Date) {
+  return new Date(fecha).toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
+}
+
+export function decidirFreno(filasDeLaMasNueva: Fila[], ahora: Date = new Date()): FrenoDeAutomatico {
   const ultimo = filasDeLaMasNueva[0];
   // Sin mensajes, o el último lo escribió el cliente: no hay nada nuestro sin leer.
   if (!ultimo || ultimo.direction === "INBOUND") {
@@ -103,8 +109,15 @@ export function decidirFreno(filasDeLaMasNueva: Fila[]): FrenoDeAutomatico {
     return { enviar: false, motivo: "no_leido" };
   }
 
-  // Automáticos que salieron desde lo último que escribió el cliente, contando como uno solo
-  // los textos que salieron juntos.
+  /*
+    Automáticos que salieron desde lo último que escribió el cliente, contando como uno solo los
+    textos que salieron juntos, y SOLO los de hoy (día de Colombia).
+
+    El tope de 2 se reinicia cada día (Alex, 03-10-2026). Sin eso, los dos seguimientos del mismo
+    día (15 min y 1 h) dejaban frenados para siempre los del embudo del día 1 y del día 3: en un
+    chat callado nunca salía el video del combo armado.
+  */
+  const hoy = diaEnColombia(ahora);
   let envios = 0;
   let anterior: Date | null = null;
   for (const fila of filasDeLaMasNueva) {
@@ -112,6 +125,9 @@ export function decidirFreno(filasDeLaMasNueva: Fila[]): FrenoDeAutomatico {
       break;
     }
     if (!fila.origen || !(ORIGENES_AUTOMATICOS as readonly string[]).includes(fila.origen)) {
+      continue;
+    }
+    if (diaEnColombia(fila.createdAt) !== hoy) {
       continue;
     }
     if (!anterior || anterior.getTime() - fila.createdAt.getTime() > MISMO_ENVIO_MS) {

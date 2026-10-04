@@ -47,20 +47,34 @@ const REGLAS = `REGLAS DE LA RESPUESTA (todas obligatorias):
 
 const REGLAS_DEL_FLUJO = `FLUJOS: si mandar uno de estos flujos sirve más que un texto, elígelo (por ejemplo: duda de calidad o de confianza, o pide verlo armado o en uso → el video del producto armado; pide el catálogo → el catálogo). Nunca uno que ya se envió en este chat. Si eliges un flujo, el texto lo presenta como algo que le estás enviando ahora mismo ("Te comparto el video del combo armado"), sin preguntarle si lo quiere y sin describir lo que trae; la pregunta del final va sobre otra cosa que avance la venta. Si ninguno sirve más que un texto, no elijas ninguno.`;
 
-const FORMATO = `Responde SOLO un JSON: {"texto": "<el mensaje>", "flujo_id": "<id del flujo o null>"}`;
+const FORMATO = `Responde SOLO un JSON: {"texto": "<el mensaje>", "flujo_id": "<id del flujo o null>", "falta_dato": <true si el mensaje dice que vas a confirmar un dato que no tienes (envío a una ciudad, tiempos, medidas, algo que no está en los datos); si no, false>}`;
 
 export type Linea = { de: "cliente" | "negocio"; texto: string; en: Date };
 
 export type FlujoSugerido = { id: string; titulo: string };
 
 export type SugerenciaGenerada =
-  | { texto: string; productoId: string | null; flujo: FlujoSugerido | null }
+  | {
+      texto: string;
+      productoId: string | null;
+      flujo: FlujoSugerido | null;
+      /** El texto dice que se va a confirmar un dato que no esta en los datos: hay que avisar a una asesora. */
+      faltaDato: boolean;
+      /** Reglas que siguieron sin cumplirse despues de las correcciones (vacio = todo bien). */
+      problemas: string[];
+    }
   | { error: string };
 
 export async function generarSugerenciaDeRespuesta(input: {
   workspaceId: string;
   fuente: "agent" | "official";
   conversationId: string;
+  /** Lo que la regla del libro pide decir ("responder con IA"), si viene de una regla. */
+  guia?: string | null;
+  /** Descripcion automatica de una foto que acaba de mandar la clienta. */
+  foto?: string | null;
+  /** El agente no propone flujos: solo la estrella, donde una persona decide si mandarlos. */
+  conFlujos?: boolean;
 }): Promise<SugerenciaGenerada> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
@@ -93,13 +107,21 @@ export async function generarSugerenciaDeRespuesta(input: {
     producto,
     lineas: chat.lineas,
     enviado: resumirLoEnviado(chat.archivosEnviados, flujos),
-    flujos,
+    flujos: input.conFlujos === false ? [] : flujos,
     ahora: new Date(),
+    guia: input.guia ?? null,
+    foto: input.foto ?? null,
   });
   if (!resultado) {
     return { error: "No se pudo generar la sugerencia. Inténtalo de nuevo." };
   }
-  return { texto: resultado.texto, productoId: producto?.id ?? null, flujo: resultado.flujo };
+  return {
+    texto: resultado.texto,
+    productoId: producto?.id ?? null,
+    flujo: resultado.flujo,
+    faltaDato: resultado.faltaDato,
+    problemas: resultado.problemas,
+  };
 }
 
 export type ProductoParaSugerir = {
@@ -127,7 +149,9 @@ export async function redactarSugerencia(input: {
   enviado: LoEnviado;
   flujos: FlujoParaSugerir[];
   ahora: Date;
-}): Promise<{ texto: string; flujo: FlujoSugerido | null } | null> {
+  guia?: string | null;
+  foto?: string | null;
+}): Promise<{ texto: string; flujo: FlujoSugerido | null; faltaDato: boolean; problemas: string[] } | null> {
   const { apiKey, comoHablamos, producto, lineas, enviado } = input;
   const flujosDisponibles = input.flujos.filter((flujo) => !enviado.flujosEnviados.has(flujo.id));
 
@@ -154,8 +178,19 @@ export async function redactarSugerencia(input: {
     `Conversación (de la más vieja a la más nueva, con hace cuánto se escribió cada mensaje):\n${conversacion}`,
     `Ya se le envió en este chat: ${enviado.resumen || "nada aparte de texto"}.`,
     situacion(lineas, input.ahora),
+    /*
+      La foto va como CONTEXTO, nunca como palabras de la clienta: la descripcion que hace la IA de
+      una foto llego a elegir el producto equivocado cuando se la trato como si ella la hubiera
+      escrito (ver la memoria "la foto del cliente elegia el producto").
+    */
+    input.foto
+      ? `La clienta acaba de enviar una foto. Descripción automática (puede equivocarse; no la tomes como si ella hubiera pedido ese producto): ${input.foto.slice(0, 600)}`
+      : "",
+    input.guia ? `Indicación para esta respuesta: ${input.guia}` : "",
     "Escribe la próxima respuesta de la vendedora.",
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   let respuesta = await pedirAlModelo(apiKey, sistema, [{ role: "user", content: pedido }]);
   if (!respuesta) {
@@ -193,11 +228,17 @@ export async function redactarSugerencia(input: {
     if (!corregida) break;
     respuesta = corregida;
     const nuevo = leerRespuesta(corregida, flujosDisponibles);
-    borrador = { texto: nuevo.texto || borrador.texto, flujo: nuevo.flujo ?? borrador.flujo };
+    borrador = {
+      texto: nuevo.texto || borrador.texto,
+      flujo: nuevo.flujo ?? borrador.flujo,
+      faltaDato: nuevo.texto ? nuevo.faltaDato : borrador.faltaDato,
+    };
   }
 
   const texto = ultimosArreglos(borrador.texto);
-  return texto ? { texto, flujo: borrador.flujo } : null;
+  if (!texto) return null;
+  // Se vuelve a revisar el texto final: quien lo va a ENVIAR solo (el agente) no manda si quedo algo.
+  return { texto, flujo: borrador.flujo, faltaDato: borrador.faltaDato, problemas: revisar(texto) };
 }
 
 async function leerChat(input: { workspaceId: string; fuente: "agent" | "official"; conversationId: string }) {
@@ -396,21 +437,29 @@ async function pedirAlModelo(apiKey: string, sistema: string, mensajes: MensajeD
 }
 
 /** El JSON del modelo: el texto con los arreglos seguros, y el flujo solo si existe y no se envio. */
-function leerRespuesta(crudo: string, flujos: FlujoParaSugerir[]): { texto: string; flujo: FlujoSugerido | null } {
+function leerRespuesta(
+  crudo: string,
+  flujos: FlujoParaSugerir[],
+): { texto: string; flujo: FlujoSugerido | null; faltaDato: boolean } {
   let texto = "";
   let flujoId: unknown = null;
+  let faltaDato = false;
   try {
-    const datos = JSON.parse(crudo) as { texto?: unknown; flujo_id?: unknown };
+    const datos = JSON.parse(crudo) as { texto?: unknown; flujo_id?: unknown; falta_dato?: unknown };
     texto = typeof datos.texto === "string" ? datos.texto : "";
     flujoId = datos.flujo_id;
+    faltaDato = datos.falta_dato === true;
   } catch {
     // Si no vino JSON, el texto entero es el mensaje.
     texto = crudo;
   }
   const flujo = typeof flujoId === "string" ? flujos.find((candidato) => candidato.id === flujoId) : undefined;
+  const limpio = arreglosSeguros(texto.replace(/^["“]|["”]$/g, ""));
   return {
-    texto: arreglosSeguros(texto.replace(/^["“]|["”]$/g, "")),
+    texto: limpio,
     flujo: flujo ? { id: flujo.id, titulo: flujo.titulo } : null,
+    // Si el texto dice "te confirmo", falta un dato aunque el modelo no lo haya marcado.
+    faltaDato: faltaDato || /te (lo |la |los |las )?confirm|confirmarte|lo confirmo|verifico|te averiguo/i.test(limpio),
   };
 }
 

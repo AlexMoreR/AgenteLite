@@ -42,6 +42,7 @@ import {
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { prisma } from "@/lib/prisma";
 import { avisarAsesorPorWhatsApp } from "@/features/agente-v3/servicios/avisos";
+import { responderConElRedactor } from "@/features/agente-v3/servicios/redactor";
 import { sendChatPushToWorkspace } from "@/lib/web-push";
 import { quienesNoSeEnteran } from "@/lib/quien-se-entera-del-mensaje";
 import {
@@ -2673,7 +2674,15 @@ export async function POST(request: NextRequest) {
     Si el libro esta vacio o ninguna regla encaja, `atendido` vuelve false y el mensaje sigue su
     camino normal: nunca deja a un cliente sin respuesta por estar probando.
   */
-  const canalUsaV3 = !fromMe && !isCallEvent && Boolean(messageText?.trim()) && canalTieneV3;
+  /*
+    Audios y fotos tambien (Alex, 03-10-2026). El V3 solo miraba mensajes con texto: desde que tomo
+    las lineas de venta, los audios y fotos de clientas nuevas quedaban esperando a una asesora,
+    porque el que los entendia era el V2. Abajo se transcribe el audio y se describe la foto.
+  */
+  const llegoAudioOFoto =
+    (messageType === "AUDIO" || messageType === "IMAGE") && Boolean(resolvedCurrentMediaUrl);
+  const canalUsaV3 =
+    !fromMe && !isCallEvent && (Boolean(messageText?.trim()) || llegoAudioOFoto) && canalTieneV3;
 
   /*
     Un chat pausado el V3 NO lo contesta. Punto.
@@ -2797,11 +2806,54 @@ export async function POST(request: NextRequest) {
       tanda es el que contesta, los anteriores se van juntando, y el que no gano la tanda se
       calla. Asi los dos agentes se comportan igual y hay un solo mecanismo que mantener.
     */
+    /*
+      El audio se pasa a texto ACA, antes de juntar la tanda: lo que dijo entra a las reglas igual que
+      si lo hubiera escrito. Y queda guardado en el mensaje, asi el chat muestra la transcripcion sin
+      esperar al reloj del servidor.
+
+      La foto se describe, pero NO entra como texto de la clienta: las reglas por frase engancharian
+      palabras de la descripcion ("camilla", "silla") como si ella las hubiera dicho. Va aparte, como
+      contexto para el redactor.
+    */
+    let textoParaElV3 = (messageText ?? "").trim();
+    let fotoParaElV3: string | null = null;
+    if (messageType === "AUDIO" && resolvedCurrentMediaUrl) {
+      const transcripcion = await transcribeAudioForAgent({ audioUrl: resolvedCurrentMediaUrl }).catch(() => null);
+      if (transcripcion?.trim()) {
+        textoParaElV3 = transcripcion.trim();
+        await prisma.message
+          .updateMany({
+            where: { conversationId: conversation.id, externalId: inboundExternalId, transcripcion: null },
+            data: { transcripcion: textoParaElV3, transcritoEn: new Date() },
+          })
+          .catch(() => {});
+      }
+      console.log("[EVOLUTION] v3_audio", { conversationId: conversation.id, transcrito: Boolean(transcripcion) });
+    }
+    if (messageType === "IMAGE" && resolvedCurrentMediaUrl) {
+      fotoParaElV3 = await analyzeImageForAgent({ imageUrl: resolvedCurrentMediaUrl }).catch(() => null);
+      console.log("[EVOLUTION] v3_foto", { conversationId: conversation.id, descrita: Boolean(fotoParaElV3) });
+    }
+    // Un audio que no se pudo escuchar y una foto que no se pudo ver: que conteste una persona.
+    if (!textoParaElV3 && !fotoParaElV3) {
+      await avisarAsesorPorWhatsApp({
+        workspaceId: channel.workspaceId,
+        conversationId: conversation.id,
+        motivo:
+          messageType === "AUDIO"
+            ? "La clienta mandó un audio que el agente no pudo escuchar"
+            : "La clienta mandó una foto que el agente no pudo ver",
+        cliente: contact.name?.trim() || phoneNumber,
+        telefonoDelCliente: phoneNumber,
+      }).catch(() => 0);
+      return NextResponse.json({ ok: true, message: "V3: audio o foto sin entender, se aviso a una asesora" });
+    }
+
     const ESPERA_V3_MS = 10_000;
     const tanda = await appendConversationBuffer({
       conversationId: conversation.id,
       bufferedMessage: {
-        content: (messageText ?? "").trim(),
+        content: textoParaElV3,
         type: messageType,
         createdAt: new Date().toISOString(),
       },
@@ -2871,10 +2923,65 @@ export async function POST(request: NextRequest) {
       select: { content: true, direction: true, type: true },
     });
 
+    /*
+      Lo que usan las herramientas del V3 y el redactor, en un solo lugar: mandar un texto, pedir
+      una asesora (nota en el chat + WhatsApp a quien le toca) y el candado de no repetir.
+    */
+    const enviarTextoDelV3 = (texto: string) =>
+      sendAndPersistEvolutionFlowStepResilient({
+        step: { kind: "text", content: texto },
+        workspaceId: channel.workspaceId,
+        conversationId: conversation.id,
+        channelId: channel.id,
+        contactId: contact.id,
+        agentId: channel.agentId ?? undefined,
+        instanceName: instancia,
+        phoneNumber,
+      });
+    const avisarAsesorDelV3 = async (motivo: string) => {
+      await recordConversationActivity({
+        workspaceId: channel.workspaceId,
+        conversationId: conversation.id,
+        channelId: channel.id,
+        contactId: contact.id,
+        kind: "note",
+        text: `El agente pide un asesor: ${motivo}`,
+      }).catch(() => {});
+      await avisarAsesorPorWhatsApp({
+        workspaceId: channel.workspaceId,
+        conversationId: conversation.id,
+        motivo,
+        cliente: contact.name?.trim() || phoneNumber,
+        telefonoDelCliente: phoneNumber,
+      });
+    };
+    /*
+      El candado de "no repetir". La ventana es de un DIA, no de toda la conversacion: una charla que
+      se retoma la semana siguiente no puede dejar al agente mudo.
+    */
+    const yaLoDijimosEnElChat = async (texto: string) => {
+      const limpio = texto.trim();
+      if (!limpio) {
+        return false;
+      }
+      const veces = await prisma.message
+        .count({
+          where: {
+            conversationId: conversation.id,
+            direction: "OUTBOUND",
+            content: limpio,
+            createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) },
+          },
+        })
+        .catch(() => 0);
+      return veces > 0;
+    };
+
     const resultado = await atenderConAgenteV3({
       workspaceId: channel.workspaceId,
       conversationId: conversation.id,
-      mensaje: textoDeLaTanda || (messageText ?? ""),
+      mensaje: textoDeLaTanda || textoParaElV3,
+      foto: fotoParaElV3,
       /*
         A QUE mensaje le respondio, cuando uso "responder" de WhatsApp.
 
@@ -2908,32 +3015,7 @@ export async function POST(request: NextRequest) {
             instanceName: instancia,
             phoneNumber,
           }),
-        avisarAsesor: async (motivo) => {
-          await recordConversationActivity({
-            workspaceId: channel.workspaceId,
-            conversationId: conversation.id,
-            channelId: channel.id,
-            contactId: contact.id,
-            kind: "note",
-            text: `El agente pide un asesor: ${motivo}`,
-          }).catch(() => {});
-
-          /*
-            El aviso va por WHATSAPP, no por push del navegador.
-
-            El push dependia de que cada persona le hubiera dado permiso al navegador, y si no lo
-            dio -que es lo normal- el aviso no le llegaba a nadie y el lead se enfriaba esperando.
-            Alex pidio volver al mecanismo del V2 (25-09-2026): un mensaje a los numeros del
-            equipo, y cada uno recibe SOLO los chats que le tocan.
-          */
-          await avisarAsesorPorWhatsApp({
-            workspaceId: channel.workspaceId,
-            conversationId: conversation.id,
-            motivo,
-            cliente: contact.name?.trim() || phoneNumber,
-            telefonoDelCliente: phoneNumber,
-          });
-        },
+        avisarAsesor: avisarAsesorDelV3,
         cambiarEtapa: async (etapa) => {
           await cambiarEtapaDesdeV3({
             workspaceId: channel.workspaceId,
@@ -2946,9 +3028,40 @@ export async function POST(request: NextRequest) {
         pausarIa: async () => {
           await setConversationAutomationPaused({ conversationId: conversation.id, paused: true }).catch(() => {});
         },
+        // "Responder con IA" del libro: el redactor de la estrella, con la guia de la regla.
         responderConIa: async (guia) => {
-          // Todavia no: la IA redactora llega despues. Se anota para no fingir que contesto.
-          console.log("[EVOLUTION] v3_responder_con_ia_pendiente", { conversationId: conversation.id, guia });
+          const porque = await responderConElRedactor({
+            workspaceId: channel.workspaceId,
+            conversationId: conversation.id,
+            guia,
+            foto: fotoParaElV3,
+            enviarTexto: enviarTextoDelV3,
+            avisarAsesor: avisarAsesorDelV3,
+            yaLoDijimos: yaLoDijimosEnElChat,
+          });
+          console.log("[EVOLUTION] v3_responder_con_ia", { conversationId: conversation.id, porque });
+        },
+        // Ninguna regla aplica: tambien el redactor, en vez de dejar el mensaje sin respuesta.
+        responderSinRegla: async ({ foto }) =>
+          responderConElRedactor({
+            workspaceId: channel.workspaceId,
+            conversationId: conversation.id,
+            foto,
+            enviarTexto: enviarTextoDelV3,
+            avisarAsesor: avisarAsesorDelV3,
+            yaLoDijimos: yaLoDijimosEnElChat,
+          }),
+        // Entro a un paso del embudo: los seguimientos de ese paso (dia 1, dia 3...), como hacia el V2.
+        alEntrarAlPaso: async (productoId, paso) => {
+          if (channel.purpose === "ADMIN") return;
+          const { agendados } = await agendarSeguimientoDeEtapa({
+            workspaceId: channel.workspaceId,
+            contactId: contact.id,
+            productId: productoId,
+            stage: paso,
+            channelId: channel.id,
+          });
+          console.log("[EVOLUTION] v3_seguimientos_del_paso", { conversationId: conversation.id, paso, agendados });
         },
         /*
           El candado de "no repetir". La ventana es de un DIA, no de toda la conversacion.
@@ -2958,23 +3071,7 @@ export async function POST(request: NextRequest) {
           nuevo. Un dia cubre el caso real -dos mensajes seguidos, o la misma tarde- sin prohibir
           una frase para siempre.
         */
-        yaLoDijimos: async (texto) => {
-          const limpio = texto.trim();
-          if (!limpio) {
-            return false;
-          }
-          const veces = await prisma.message
-            .count({
-              where: {
-                conversationId: conversation.id,
-                direction: "OUTBOUND",
-                content: limpio,
-                createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) },
-              },
-            })
-            .catch(() => 0);
-          return veces > 0;
-        },
+        yaLoDijimos: yaLoDijimosEnElChat,
       },
     }).catch((error) => {
       console.error("[EVOLUTION] v3_error", {

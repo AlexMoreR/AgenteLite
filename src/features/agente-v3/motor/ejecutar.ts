@@ -55,6 +55,18 @@ export type Herramientas = {
    * pura. Quien no la implemente puede devolver false: se comporta como antes.
    */
   yaLoDijimos: (texto: string) => Promise<boolean>;
+  /**
+   * La charla entró a un paso del embudo de un producto: programar los seguimientos que alguien
+   * escribió para ESE paso (día 1, día 3...). Antes lo hacía solo el V2; desde que el V3 atiende
+   * no salía ninguno (Alex, 03-10-2026). Opcional: quien no lo implemente no programa nada.
+   */
+  alEntrarAlPaso?: (productoId: string, paso: string) => Promise<void>;
+  /**
+   * Ninguna regla del libro aplica: que conteste el redactor de la estrella, con sus candados (no
+   * inventar, nunca mayorista, avisar a una asesora si falta un dato). Devuelve el porqué, o null si
+   * no pudo hacerse cargo. Opcional: sin esto el mensaje sigue su camino de siempre.
+   */
+  responderSinRegla?: (contexto: { foto: string | null }) => Promise<string | null>;
 };
 
 export type ResultadoV3 = {
@@ -75,6 +87,11 @@ export async function atenderConAgenteV3(input: {
   /** A qué mensaje nuestro le respondió, si usó "responder" de WhatsApp. */
   citado?: string;
   incluirApiOficial?: boolean;
+  /**
+   * Lo que muestra la foto que acaba de mandar, descrito por la IA. NO se mezcla con `mensaje`: las
+   * reglas por frase engancharían palabras de la descripción como si ella las hubiera escrito.
+   */
+  foto?: string | null;
   herramientas: Herramientas;
 }): Promise<ResultadoV3> {
   /*
@@ -111,6 +128,7 @@ async function evaluar(input: {
   historial?: Array<{ de: "cliente" | "negocio"; texto: string }>;
   citado?: string;
   incluirApiOficial?: boolean;
+  foto?: string | null;
   herramientas: Herramientas;
 }): Promise<ResultadoV3> {
   const libroCompleto = await leerLibro(input.workspaceId);
@@ -158,6 +176,20 @@ async function evaluar(input: {
     };
   }
 
+  /*
+    Una foto SIN texto: no hay palabras para las reglas. Si se evaluaran igual, la "red del paso"
+    (las reglas que contestan cualquier cosa) respondería algo genérico a una foto que pregunta por
+    algo concreto. La contesta el redactor, mirando la foto como contexto.
+  */
+  if (!input.mensaje.trim() && input.foto) {
+    const porque = await input.herramientas.responderSinRegla?.({ foto: input.foto });
+    if (porque) {
+      await guardarEstado(input.conversationId, siguienteEstado(estado, []));
+      return { atendido: true, regla: "Redactor (foto)", porque, acciones: 1 };
+    }
+    return { atendido: false, regla: null, porque: "Llegó una foto sin texto y no hubo redactor.", acciones: 0 };
+  }
+
   const libro =
     inactivos.size === 0
       ? libroCompleto
@@ -193,6 +225,14 @@ async function evaluar(input: {
     await guardarEstado(input.conversationId, siguienteEstado(estado, []));
     if (delCatalogo) {
       return { atendido: true, regla: "Catálogo de Gestión", porque: delCatalogo, acciones: 1 };
+    }
+    /*
+      Ni regla ni catálogo: contesta el redactor (Alex, 03-10-2026), con los candados de la estrella.
+      Antes el mensaje quedaba sin respuesta hasta que entrara una asesora.
+    */
+    const delRedactor = await input.herramientas.responderSinRegla?.({ foto: input.foto ?? null });
+    if (delRedactor) {
+      return { atendido: true, regla: "Redactor", porque: delRedactor, acciones: 1 };
     }
     return { atendido: false, regla: null, porque: decision.porque, acciones: 0 };
   }
@@ -248,7 +288,22 @@ async function evaluar(input: {
     );
   }
 
-  await guardarEstado(input.conversationId, siguienteEstado(estado, acciones));
+  const nuevoEstado = siguienteEstado(estado, acciones);
+  await guardarEstado(input.conversationId, nuevoEstado);
+
+  /*
+    Entró a un paso nuevo del embudo (o cambió de producto): se programan los seguimientos de ese
+    paso. Solo al CAMBIAR, no en cada mensaje: si no, cada respuesta reprogramaría lo mismo.
+  */
+  if (
+    nuevoEstado.productoActivo &&
+    nuevoEstado.pasoActual &&
+    (nuevoEstado.pasoActual !== estado.pasoActual || nuevoEstado.productoActivo !== estado.productoActivo)
+  ) {
+    await input.herramientas
+      .alEntrarAlPaso?.(nuevoEstado.productoActivo, nuevoEstado.pasoActual)
+      .catch((error) => console.error("[agente-v3] seguimientos del paso", error instanceof Error ? error.message : error));
+  }
 
   const porque = !seCallo
     ? decision.porque

@@ -4,6 +4,8 @@ import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { sendAndPersistEvolutionFlowStepResilient } from "@/lib/evolution-envio";
 import { prisma } from "@/lib/prisma";
 import { avisarAsesorPorWhatsApp } from "./avisos";
+import { responderConElRedactor } from "./redactor";
+import { agendarSeguimientoDeEtapa } from "@/features/crm/services/stage-follow-up";
 
 import { atenderConAgenteV3 } from "../motor/ejecutar";
 
@@ -38,6 +40,7 @@ export async function retomarConversacionV3(input: {
           agentId: true,
           evolutionInstanceName: true,
           metadata: true,
+          purpose: true,
         },
       },
     },
@@ -86,6 +89,55 @@ export async function retomarConversacionV3(input: {
   const instancia = channel.evolutionInstanceName;
   const telefono = contact.phoneNumber;
 
+  const enviarTexto = (contenido: string) =>
+    sendAndPersistEvolutionFlowStepResilient({
+      step: { kind: "text", content: contenido },
+      workspaceId: channel.workspaceId,
+      conversationId: conversation.id,
+      channelId: channel.id,
+      contactId: contact.id,
+      agentId: channel.agentId ?? undefined,
+      instanceName: instancia,
+      phoneNumber: telefono,
+    });
+  const avisarAsesor = async (motivo: string) => {
+    await recordConversationActivity({
+      workspaceId: channel.workspaceId,
+      conversationId: conversation.id,
+      channelId: channel.id,
+      contactId: contact.id,
+      kind: "note",
+      text: `El agente pide un asesor: ${motivo}`,
+    }).catch(() => {});
+
+    await avisarAsesorPorWhatsApp({
+      workspaceId: channel.workspaceId,
+      conversationId: conversation.id,
+      motivo,
+      cliente: contact.name?.trim() || telefono,
+      telefonoDelCliente: telefono,
+    });
+  };
+  // Mismo candado que en el webhook: al retomar la charla es MÁS probable repetirse, porque se
+  // vuelve sobre el último mensaje del cliente, que puede ser el mismo que ya se contestó.
+  const yaLoDijimos = async (contenido: string) => {
+    const limpio = contenido.trim();
+    if (!limpio) {
+      return false;
+    }
+    const veces = await prisma.message
+      .count({
+        where: {
+          conversationId: conversation.id,
+          direction: "OUTBOUND",
+          content: limpio,
+          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) },
+        },
+      })
+      .catch(() => 0);
+    return veces > 0;
+  };
+
   const resultado = await atenderConAgenteV3({
     workspaceId: channel.workspaceId,
     conversationId: conversation.id,
@@ -110,24 +162,7 @@ export async function retomarConversacionV3(input: {
           instanceName: instancia,
           phoneNumber: telefono,
         }),
-      avisarAsesor: async (motivo) => {
-        await recordConversationActivity({
-          workspaceId: channel.workspaceId,
-          conversationId: conversation.id,
-          channelId: channel.id,
-          contactId: contact.id,
-          kind: "note",
-          text: `El agente pide un asesor: ${motivo}`,
-        }).catch(() => {});
-
-        await avisarAsesorPorWhatsApp({
-          workspaceId: channel.workspaceId,
-          conversationId: conversation.id,
-          motivo,
-          cliente: contact.name?.trim() || telefono,
-          telefonoDelCliente: telefono,
-        });
-      },
+      avisarAsesor,
       cambiarEtapa: async (etapa) => {
         await moverEtapaDesdeAgente({
           workspaceId: channel.workspaceId,
@@ -140,28 +175,38 @@ export async function retomarConversacionV3(input: {
       pausarIa: async () => {
         await setConversationAutomationPaused({ conversationId: conversation.id, paused: true }).catch(() => {});
       },
+      // El redactor de la estrella, con sus candados: igual que en el webhook.
       responderConIa: async (guia) => {
-        console.log("[retomar] v3_responder_con_ia_pendiente", { conversationId: conversation.id, guia });
+        const porque = await responderConElRedactor({
+          workspaceId: channel.workspaceId,
+          conversationId: conversation.id,
+          guia,
+          enviarTexto: enviarTexto,
+          avisarAsesor: avisarAsesor,
+          yaLoDijimos: yaLoDijimos,
+        });
+        console.log("[retomar] v3_responder_con_ia", { conversationId: conversation.id, porque });
       },
-      // Mismo candado que en el webhook: al retomar la charla es MÁS probable repetirse, porque se
-      // vuelve sobre el último mensaje del cliente, que puede ser el mismo que ya se contestó.
-      yaLoDijimos: async (texto) => {
-        const limpio = texto.trim();
-        if (!limpio) {
-          return false;
-        }
-        const veces = await prisma.message
-          .count({
-            where: {
-              conversationId: conversation.id,
-              direction: "OUTBOUND",
-              content: limpio,
-              createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) },
-            },
-          })
-          .catch(() => 0);
-        return veces > 0;
+      responderSinRegla: async ({ foto }) =>
+        responderConElRedactor({
+          workspaceId: channel.workspaceId,
+          conversationId: conversation.id,
+          foto,
+          enviarTexto: enviarTexto,
+          avisarAsesor: avisarAsesor,
+          yaLoDijimos: yaLoDijimos,
+        }),
+      alEntrarAlPaso: async (productoId, paso) => {
+        if (channel.purpose === "ADMIN") return;
+        await agendarSeguimientoDeEtapa({
+          workspaceId: channel.workspaceId,
+          contactId: contact.id,
+          productId: productoId,
+          stage: paso,
+          channelId: channel.id,
+        });
       },
+      yaLoDijimos,
     },
   }).catch((error) => {
     console.error("[retomar] v3_error", {
