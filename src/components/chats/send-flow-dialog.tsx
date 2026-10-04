@@ -65,31 +65,8 @@ export function SendFlowDialog({
      * servidor, asi que la pantalla no tiene por que quedarse mirando: se cierra al toque y el
      * aviso de abajo cuenta como termino.
      */
-    const aviso = toast.loading(`Enviando "${flujo.title}"…`);
     onClose();
-
-    void sendFlowToChatAction({ source, conversationId, flowId: flujo.id, agentId })
-      .then((resultado) => {
-        if (!resultado.ok) {
-          toast.error(resultado.error, { id: aviso });
-          return;
-        }
-
-        if (resultado.fallidos > 0 || resultado.omitidos > 0) {
-          // Nunca decir "listo" a medias: si un paso no salio, la asesora tiene que saberlo para
-          // mandarlo a mano. En WhatsApp lo ya enviado no se puede deshacer.
-          const partes = [`Se enviaron ${resultado.enviados}`];
-          if (resultado.fallidos > 0) partes.push(`${resultado.fallidos} fallaron`);
-          if (resultado.omitidos > 0) partes.push(`${resultado.omitidos} sin enviar (audio)`);
-          toast.warning(partes.join(" · "), { id: aviso, duration: 10000 });
-          return;
-        }
-
-        toast.success(`"${flujo.title}" enviado`, { id: aviso });
-      })
-      .catch(() => {
-        toast.error("No se pudo enviar el flujo.", { id: aviso });
-      });
+    enviarFlujoAlChat({ source, conversationId, flowId: flujo.id, titulo: flujo.title, agentId });
   };
 
   return (
@@ -137,4 +114,41 @@ export function SendFlowDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/**
+ * Manda un flujo al chat con el aviso de abajo (enviando / enviado / cuantos fallaron). Lo usan este
+ * dialogo y el boton "Enviar flujo" que propone la estrella, asi los dos se comportan igual.
+ */
+export function enviarFlujoAlChat(input: {
+  source: "agent" | "official";
+  conversationId: string;
+  flowId: string;
+  titulo: string;
+  agentId?: string;
+}) {
+  const aviso = toast.loading(`Enviando "${input.titulo}"…`);
+
+  void sendFlowToChatAction({ source: input.source, conversationId: input.conversationId, flowId: input.flowId, agentId: input.agentId })
+    .then((resultado) => {
+      if (!resultado.ok) {
+        toast.error(resultado.error, { id: aviso });
+        return;
+      }
+
+      if (resultado.fallidos > 0 || resultado.omitidos > 0) {
+        // Nunca decir "listo" a medias: si un paso no salio, la asesora tiene que saberlo para
+        // mandarlo a mano. En WhatsApp lo ya enviado no se puede deshacer.
+        const partes = [`Se enviaron ${resultado.enviados}`];
+        if (resultado.fallidos > 0) partes.push(`${resultado.fallidos} fallaron`);
+        if (resultado.omitidos > 0) partes.push(`${resultado.omitidos} sin enviar (audio)`);
+        toast.warning(partes.join(" · "), { id: aviso, duration: 10000 });
+        return;
+      }
+
+      toast.success(`"${input.titulo}" enviado`, { id: aviso });
+    })
+    .catch(() => {
+      toast.error("No se pudo enviar el flujo.", { id: aviso });
+    });
 }

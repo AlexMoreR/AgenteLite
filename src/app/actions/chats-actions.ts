@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { sendManualAgentReplyAction, type SendChatReplyResult } from "@/app/actions/agent-actions";
-import { generarSugerenciaDeRespuesta, registrarEnvioDeSugerencia } from "@/lib/sugerencia-de-respuesta";
+import { generarSugerenciaDeRespuesta, registrarEnvioDeSugerencia, registrarFlujoDeSugerencia } from "@/lib/sugerencia-de-respuesta";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { after } from "next/server";
 
@@ -1304,7 +1304,12 @@ export async function getEtiquetasAction(): Promise<{ items?: EtiquetaItem[]; er
 export async function generateSuggestedReplyAction(
   conversationId: string,
   source: "agent" | "official" = "agent",
-): Promise<{ suggestion?: string; sugerenciaId?: string; error?: string }> {
+): Promise<{
+  suggestion?: string;
+  sugerenciaId?: string;
+  flujo?: { id: string; titulo: string } | null;
+  error?: string;
+}> {
   const session = await auth();
   if (!session?.user?.id) return { error: "No autorizado" };
 
@@ -1334,6 +1339,7 @@ export async function generateSuggestedReplyAction(
         conversationId: trimmedId,
         productoId: resultado.productoId,
         texto: resultado.texto,
+        flujoId: resultado.flujo?.id ?? null,
       },
       select: { id: true },
     })
@@ -1342,7 +1348,16 @@ export async function generateSuggestedReplyAction(
       return null;
     });
 
-  return { suggestion: resultado.texto, sugerenciaId: registro?.id };
+  return { suggestion: resultado.texto, sugerenciaId: registro?.id, flujo: resultado.flujo };
+}
+
+/** La vendedora toco "Enviar flujo" en una sugerencia: se anota para medir cuanto se usa. */
+export async function marcarFlujoDeSugerenciaAction(sugerenciaId: string): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !sugerenciaId) return;
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return;
+  await registrarFlujoDeSugerencia({ sugerenciaId, userId: session.user.id, workspaceId: membership.workspace.id });
 }
 
 const createEtiquetaSchema = z.object({

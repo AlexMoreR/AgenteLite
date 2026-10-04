@@ -2,42 +2,59 @@ import { prisma } from "@/lib/prisma";
 import type { ActiveProductContext } from "@/lib/agent-product-flow";
 import { esNotaInternaDelAgente } from "@/lib/notas-internas-del-agente";
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
+import { flujosParaSugerir, mismaDireccion, type FlujoParaSugerir } from "@/lib/flujos-para-sugerir";
 
 /**
  * La estrella ✨ del cuadro de mensajes: le redacta a la vendedora una respuesta para ESTE chat.
  *
- * Nunca envia nada: el texto se escribe en la caja y ella lo edita, lo manda o lo borra.
+ * Nunca envia nada: el texto se escribe en la caja y ella lo edita, lo manda o lo borra. Si un
+ * flujo sirve mas que un texto (duda de calidad -> el video del combo armado), lo propone como un
+ * boton aparte, que tambien hay que tocar.
  *
- * Antes la estrella le pasaba al modelo el prompt entero del agente V2 (todos los embudos pegados)
- * y solo andaba en chats con agente: en Ventas 2 decia "no tiene un agente asignado" (Alex,
- * 03-10-2026). Ahora usa lo mismo que el agente V3 -el texto "Como hablamos" del libro, que es la
- * fuente de las formas de pago y los datos fijos-, el producto activo con su descripcion para el
- * agente y los ultimos mensajes, y las reglas de venta de Alex se COMPRUEBAN en el texto que sale,
- * no solo se piden.
+ * Que lee (Alex, 03-10-2026):
+ *  - Los ultimos 20 mensajes, con el texto de las notas de voz (el reloj del servidor transcribe
+ *    las de la clienta y las nuestras al minuto de llegar).
+ *  - Hace cuanto escribio la clienta y quien escribio ultimo: no es lo mismo contestarle a alguien
+ *    que escribio hace 2 minutos que a alguien callada hace 3 dias.
+ *  - Que fotos, videos, documentos y flujos ya se le enviaron, para no repetirlos.
+ *  - El producto activo con su descripcion para el agente, y el texto "Como hablamos" del libro del
+ *    V3 (fuente de las formas de pago y los datos fijos).
+ *
+ * Las reglas de Alex se COMPRUEBAN en el texto que sale -largo, una sola pregunta, nada inventado,
+ * nada repetido- y si algo no cumple se le devuelve al modelo con el detalle.
  */
 
 const MODELO = "gpt-4.1-mini";
 const PLAZO_MS = 25_000;
 const MENSAJES_DE_CONTEXTO = 20;
+/** "Unas 35 palabras": con esto de margen se acepta; mas, se pide recortar. */
+const PALABRAS_MAXIMAS = 42;
 
 const PESOS = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
 
 const REGLAS = `REGLAS DE LA RESPUESTA (todas obligatorias):
-- Español de Colombia. Tutea al cliente (tú, nunca vos ni usted). Frases cortas. Máximo 3 párrafos, separados por una línea en blanco.
-- Si hablas de precio, envío o forma de pago, van siempre por escrito y claros, con el valor exacto.
-- Cuando el tema sea precio o pago, ofrece LAS DOS formas de pago tal como están en los datos del negocio: anticipo (50% para fabricar y 50% antes del despacho, con envío gratis a ciudades principales) o contraentrega (paga por adelantado solo el envío y el resto al recibir).
-- Nunca escribas la palabra "pero": usa "sin embargo".
-- Nunca escribas "¿sigues interesada?" ni "¿sigues interesado?" ni "cuando puedas me avisas".
-- Termina SIEMPRE con una pregunta que haga avanzar la venta (ciudad, cuándo lo necesita, forma de pago, color, si lo apartamos...).
-- No inventes precios, medidas, materiales ni tiempos de entrega. Usa solo lo que está en los datos de abajo. Si falta un dato, di que lo confirmas en vez de inventarlo. El valor del envío a una ciudad y los tiempos de fabricación o entrega NO están en los datos: nunca los des con número, di que se los confirmas.
+- Máximo 2 frases cortas, unas 35 palabras en total. Un solo bloque, sin saltos de línea ni párrafos.
+- UNA sola pregunta, al final, que haga avanzar la venta. Nunca dos preguntas.
+- Responde a lo ÚLTIMO que escribió la clienta. No repitas lo que ya se le dijo en la conversación (precio, fotos, garantía, formas de pago): si ya lo sabe, avanza.
+- La garantía y la fabricación personalizada SOLO si la clienta pregunta por calidad, materiales o confianza.
+- Español de Colombia. Tutea (tú, nunca vos ni usted).
+- Si hablas de precio, envío o pago, con el valor exacto. Si es la primera vez que se habla de pago, menciona las dos formas (anticipo 50% con envío gratis a ciudades principales, o contraentrega pagando solo el envío antes) en una sola frase.
+- Nunca escribas la palabra "pero" (usa "sin embargo"), ni "¿sigues interesada?", ni "cuando puedas me avisas".
+- No inventes precios, medidas, materiales ni tiempos. El valor del envío a una ciudad y los tiempos de fabricación o entrega NO están en los datos: di que se los confirmas.
 - Nunca ofrezcas ni menciones precio al por mayor ni descuentos.
-- Negrita de WhatsApp con UN solo asterisco (*así*), nunca doble.
-- No repitas un saludo si la conversación ya empezó, y no firmes el mensaje.
-- Devuelve SOLO el texto del mensaje, sin comillas ni explicaciones.`;
+- Negrita de WhatsApp con UN solo asterisco (*así*), nunca doble. Sin saludo si la conversación ya empezó, y sin firma.`;
 
-export type Linea = { de: "cliente" | "negocio"; texto: string };
+const REGLAS_DEL_FLUJO = `FLUJOS: si mandar uno de estos flujos sirve más que un texto, elígelo (por ejemplo: duda de calidad o de confianza, o pide verlo armado o en uso → el video del producto armado; pide el catálogo → el catálogo). Nunca uno que ya se envió en este chat. Si eliges un flujo, el texto lo presenta como algo que le estás enviando ahora mismo ("Te comparto el video del combo armado"), sin preguntarle si lo quiere y sin describir lo que trae; la pregunta del final va sobre otra cosa que avance la venta. Si ninguno sirve más que un texto, no elijas ninguno.`;
 
-export type SugerenciaGenerada = { texto: string; productoId: string | null } | { error: string };
+const FORMATO = `Responde SOLO un JSON: {"texto": "<el mensaje>", "flujo_id": "<id del flujo o null>"}`;
+
+export type Linea = { de: "cliente" | "negocio"; texto: string; en: Date };
+
+export type FlujoSugerido = { id: string; titulo: string };
+
+export type SugerenciaGenerada =
+  | { texto: string; productoId: string | null; flujo: FlujoSugerido | null }
+  | { error: string };
 
 export async function generarSugerenciaDeRespuesta(input: {
   workspaceId: string;
@@ -57,18 +74,31 @@ export async function generarSugerenciaDeRespuesta(input: {
     return { error: "Todavía no hay mensajes para sugerir una respuesta" };
   }
 
-  const producto = await leerProducto(input.workspaceId, chat.productoId);
-  const libro = await leerLibro(input.workspaceId).catch(() => null);
-  const texto = await redactarSugerencia({
+  const [producto, libro, todosLosFlujos] = await Promise.all([
+    leerProducto(input.workspaceId, chat.productoId),
+    leerLibro(input.workspaceId).catch(() => null),
+    flujosParaSugerir(input.workspaceId),
+  ]);
+
+  // Solo los flujos del canal de ESTE chat: un flujo de otra linea no se puede mandar desde aca.
+  const origenDelChat = input.fuente === "official" ? "official-api:" : `evolution:${chat.channelId ?? ""}`;
+  const flujos = todosLosFlujos.filter((flujo) =>
+    input.fuente === "official" ? flujo.origen.startsWith(origenDelChat) : flujo.origen === origenDelChat,
+  );
+
+  const resultado = await redactarSugerencia({
     apiKey,
     comoHablamos: libro?.comoHablamos?.trim() || "",
     producto,
     lineas: chat.lineas,
+    enviado: resumirLoEnviado(chat.archivosEnviados, flujos),
+    flujos,
+    ahora: new Date(),
   });
-  if (!texto) {
+  if (!resultado) {
     return { error: "No se pudo generar la sugerencia. Inténtalo de nuevo." };
   }
-  return { texto, productoId: producto?.id ?? null };
+  return { texto: resultado.texto, productoId: producto?.id ?? null, flujo: resultado.flujo };
 }
 
 export type ProductoParaSugerir = {
@@ -80,36 +110,57 @@ export type ProductoParaSugerir = {
   precioMayorista: number | null;
 };
 
-/** La redaccion pura, sin base: prompt, comprobacion de reglas, un reintento y los arreglos finales. */
+export type LoEnviado = {
+  /** "3 fotos, 1 video, documentos: COMBO DE CAMILLAS.pdf". */
+  resumen: string;
+  /** Ids de flujos que ya llegaron a este chat. */
+  flujosEnviados: Set<string>;
+};
+
+/** La redaccion pura, sin base: prompt, comprobacion de reglas, hasta dos correcciones y arreglos finales. */
 export async function redactarSugerencia(input: {
   apiKey: string;
   comoHablamos: string;
   producto: ProductoParaSugerir | null;
   lineas: Linea[];
-}): Promise<string | null> {
-  const { apiKey, comoHablamos, producto } = input;
+  enviado: LoEnviado;
+  flujos: FlujoParaSugerir[];
+  ahora: Date;
+}): Promise<{ texto: string; flujo: FlujoSugerido | null } | null> {
+  const { apiKey, comoHablamos, producto, lineas, enviado } = input;
+  const flujosDisponibles = input.flujos.filter((flujo) => !enviado.flujosEnviados.has(flujo.id));
+
   const sistema = [
-    "Eres una vendedora experta de Magilus que le escribe por WhatsApp a un cliente. Redactas la PRÓXIMA respuesta de la vendedora en esta conversación.",
+    "Eres una vendedora experta de Magilus que le escribe por WhatsApp a una clienta. Redactas la PRÓXIMA respuesta de la vendedora en esta conversación.",
     REGLAS,
     comoHablamos ? `DATOS DEL NEGOCIO Y FORMA DE HABLAR (fuente de verdad: precios, pagos, envíos, materiales):\n${comoHablamos}` : "",
     producto
       ? `PRODUCTO DEL QUE SE ESTÁ HABLANDO:\n*${producto.nombre}*${producto.codigo ? ` (${producto.codigo})` : ""}\nPrecio: ${producto.precio}\n${producto.descripcion ? `Descripción para el agente:\n${producto.descripcion}` : "Sin descripción: no inventes características."}`
-      : "No hay un producto identificado en esta conversación: si el cliente pregunta por uno, pregunta cuál o confírmalo, sin inventar precios.",
+      : "No hay un producto identificado en esta conversación: si la clienta pregunta por uno, pregunta cuál, sin inventar precios.",
+    flujosDisponibles.length > 0
+      ? `${REGLAS_DEL_FLUJO}\nFlujos disponibles (id | nombre | para qué):\n${flujosDisponibles.map((flujo) => `- ${flujo.id} | ${flujo.titulo}${flujo.paraQue ? ` | ${flujo.paraQue}` : ""}`).join("\n")}`
+      : "",
+    FORMATO,
   ]
     .filter(Boolean)
     .join("\n\n");
 
-  const conversacion = input.lineas
-    .map((linea) => `${linea.de === "cliente" ? "Cliente" : "Vendedora"}: ${linea.texto}`)
+  const conversacion = lineas
+    .map((linea) => `[${haceCuanto(linea.en, input.ahora)}] ${linea.de === "cliente" ? "Clienta" : "Vendedora"}: ${linea.texto}`)
     .join("\n");
 
-  const pedido = `Conversación (de la más vieja a la más nueva):\n${conversacion}\n\nEscribe la próxima respuesta de la vendedora.`;
+  const pedido = [
+    `Conversación (de la más vieja a la más nueva, con hace cuánto se escribió cada mensaje):\n${conversacion}`,
+    `Ya se le envió en este chat: ${enviado.resumen || "nada aparte de texto"}.`,
+    situacion(lineas, input.ahora),
+    "Escribe la próxima respuesta de la vendedora.",
+  ].join("\n\n");
 
-  let texto = await pedirAlModelo(apiKey, sistema, [{ role: "user", content: pedido }]);
-  if (!texto) {
+  let respuesta = await pedirAlModelo(apiKey, sistema, [{ role: "user", content: pedido }]);
+  if (!respuesta) {
     return null;
   }
-  texto = arreglosSeguros(texto);
+  let borrador = leerRespuesta(respuesta, flujosDisponibles);
 
   /*
     Las reglas se COMPRUEBAN: si algo no cumple, se le devuelve al modelo con el detalle, hasta dos
@@ -117,25 +168,35 @@ export async function redactarSugerencia(input: {
     no este ahi es inventado (probando salio "envio aproximado de $120.000" y "7 a 10 dias habiles").
   */
   const contexto = [sistema, conversacion].join("\n");
-  const revisar = (borrador: string) =>
-    problemasDeLaSugerencia(borrador, { precioMayorista: producto?.precioMayorista ?? null, contexto });
+  const ultimoDeLaClienta = [...lineas].reverse().find((linea) => linea.de === "cliente")?.texto ?? "";
+  const nuestros = lineas.filter((linea) => linea.de === "negocio").map((linea) => linea.texto).join("\n");
+  const revisar = (texto: string) =>
+    problemasDeLaSugerencia(texto, {
+      precioMayorista: producto?.precioMayorista ?? null,
+      contexto,
+      ultimoDeLaClienta,
+      yaDijimos: nuestros,
+    });
+
   for (let intento = 0; intento < 2; intento += 1) {
-    const problemas = revisar(texto);
+    const problemas = revisar(borrador.texto);
     if (problemas.length === 0) break;
-    const corregido = await pedirAlModelo(apiKey, sistema, [
+    const corregida = await pedirAlModelo(apiKey, sistema, [
       { role: "user", content: pedido },
-      { role: "assistant", content: texto },
+      { role: "assistant", content: respuesta },
       {
         role: "user",
-        content: `Esa respuesta no cumple estas reglas:\n${problemas.map((p) => `- ${p}`).join("\n")}\n\nReescríbela cumpliéndolas todas. Devuelve solo el mensaje.`,
+        content: `Ese mensaje no cumple estas reglas:\n${problemas.map((p) => `- ${p}`).join("\n")}\n\nReescríbelo cumpliéndolas todas. ${FORMATO}`,
       },
     ]);
-    if (!corregido) break;
-    texto = arreglosSeguros(corregido);
+    if (!corregida) break;
+    respuesta = corregida;
+    const nuevo = leerRespuesta(corregida, flujosDisponibles);
+    borrador = { texto: nuevo.texto || borrador.texto, flujo: nuevo.flujo ?? borrador.flujo };
   }
 
-  // Lo que el modelo no corrigio, se corrige a mano (sin inventar nada).
-  return ultimosArreglos(texto);
+  const texto = ultimosArreglos(borrador.texto);
+  return texto ? { texto, flujo: borrador.flujo } : null;
 }
 
 async function leerChat(input: { workspaceId: string; fuente: "agent" | "official"; conversationId: string }) {
@@ -147,14 +208,21 @@ async function leerChat(input: { workspaceId: string; fuente: "agent" | "officia
         messages: {
           orderBy: { createdAt: "desc" },
           take: MENSAJES_DE_CONTEXTO,
-          select: { direction: true, type: true, content: true },
+          select: { direction: true, type: true, content: true, createdAt: true },
         },
       },
     });
     if (!chat) return null;
+    const enviados = await prisma.officialApiMessage.findMany({
+      where: { conversationId: input.conversationId, direction: "OUTBOUND", mediaUrl: { not: null } },
+      select: { type: true, mediaUrl: true, content: true },
+      take: 300,
+    });
     return {
       productoId: idDelProducto(chat.activeProductContext),
+      channelId: null as string | null,
       lineas: aLineas(chat.messages.map((m) => ({ ...m, transcripcion: null }))),
+      archivosEnviados: enviados,
     };
   }
 
@@ -162,16 +230,27 @@ async function leerChat(input: { workspaceId: string; fuente: "agent" | "officia
     where: { id: input.conversationId, workspaceId: input.workspaceId },
     select: {
       activeProductContext: true,
+      channelId: true,
       messages: {
         where: { deletedAt: null },
         orderBy: { createdAt: "desc" },
         take: MENSAJES_DE_CONTEXTO,
-        select: { direction: true, type: true, content: true, transcripcion: true },
+        select: { direction: true, type: true, content: true, transcripcion: true, createdAt: true },
       },
     },
   });
   if (!chat) return null;
-  return { productoId: idDelProducto(chat.activeProductContext), lineas: aLineas(chat.messages) };
+  const enviados = await prisma.message.findMany({
+    where: { conversationId: input.conversationId, direction: "OUTBOUND", mediaUrl: { not: null }, deletedAt: null },
+    select: { type: true, mediaUrl: true, content: true },
+    take: 300,
+  });
+  return {
+    productoId: idDelProducto(chat.activeProductContext),
+    channelId: chat.channelId,
+    lineas: aLineas(chat.messages),
+    archivosEnviados: enviados,
+  };
 }
 
 function idDelProducto(contexto: unknown) {
@@ -181,7 +260,7 @@ function idDelProducto(contexto: unknown) {
 
 /** Los mensajes, en orden, como los leeria una persona. Sin avisos del sistema ni notas internas. */
 function aLineas(
-  mensajes: Array<{ direction: string; type: string; content: string | null; transcripcion: string | null }>,
+  mensajes: Array<{ direction: string; type: string; content: string | null; transcripcion: string | null; createdAt: Date }>,
 ): Linea[] {
   return [...mensajes]
     .reverse()
@@ -190,7 +269,9 @@ function aLineas(
       const contenido = m.content?.trim() || "";
       const texto =
         m.type === "AUDIO"
-          ? `[nota de voz${m.transcripcion ? `: ${m.transcripcion.trim()}` : ""}]`
+          ? m.transcripcion?.trim()
+            ? `[nota de voz] ${m.transcripcion.trim()}`
+            : "[nota de voz sin transcribir todavía]"
           : m.type === "IMAGE"
             ? `[foto]${contenido ? ` ${contenido}` : ""}`
             : m.type === "VIDEO"
@@ -198,12 +279,74 @@ function aLineas(
               : m.type === "DOCUMENT"
                 ? `[documento]${contenido ? ` ${contenido}` : ""}`
                 : contenido;
-      return { de: m.direction === "INBOUND" ? ("cliente" as const) : ("negocio" as const), texto: texto.slice(0, 800) };
+      return {
+        de: m.direction === "INBOUND" ? ("cliente" as const) : ("negocio" as const),
+        texto: texto.slice(0, 800),
+        en: m.createdAt,
+      };
     })
     .filter((linea) => linea.texto);
 }
 
-async function leerProducto(workspaceId: string, productoId: string | null) {
+function resumirLoEnviado(
+  archivos: Array<{ type: string; mediaUrl: string | null; content: string | null }>,
+  flujos: FlujoParaSugerir[],
+): LoEnviado {
+  const flujosEnviados = new Set<string>();
+  for (const flujo of flujos) {
+    if (flujo.archivos.some((url) => archivos.some((archivo) => archivo.mediaUrl && mismaDireccion(archivo.mediaUrl, url)))) {
+      flujosEnviados.add(flujo.id);
+    }
+  }
+  const cuantos = (tipo: string) => archivos.filter((archivo) => archivo.type === tipo).length;
+  const documentos = [
+    ...new Set(
+      archivos
+        .filter((archivo) => archivo.type === "DOCUMENT" && archivo.content?.trim())
+        .map((archivo) => archivo.content!.trim().slice(0, 60)),
+    ),
+  ].slice(0, 8);
+  const partes = [
+    cuantos("IMAGE") ? `${cuantos("IMAGE")} fotos` : "",
+    cuantos("VIDEO") ? `${cuantos("VIDEO")} videos` : "",
+    documentos.length ? `documentos: ${documentos.join(", ")}` : "",
+    flujosEnviados.size
+      ? `flujos: ${flujos.filter((flujo) => flujosEnviados.has(flujo.id)).map((flujo) => `"${flujo.titulo}"`).join(", ")}`
+      : "",
+  ].filter(Boolean);
+  return { resumen: partes.join("; "), flujosEnviados };
+}
+
+function haceCuanto(fecha: Date, ahora: Date) {
+  const minutos = Math.max(0, Math.round((ahora.getTime() - new Date(fecha).getTime()) / 60_000));
+  if (minutos < 60) return `hace ${minutos} min`;
+  const horas = Math.round(minutos / 60);
+  if (horas < 24) return `hace ${horas} h`;
+  const dias = Math.round(horas / 24);
+  return `hace ${dias} ${dias === 1 ? "día" : "días"}`;
+}
+
+/**
+ * La situacion en una linea, para que el modelo no tenga que deducirla: no es lo mismo contestarle a
+ * quien acaba de escribir que retomar a quien lleva dias callada.
+ */
+function situacion(lineas: Linea[], ahora: Date) {
+  const ultima = lineas[lineas.length - 1];
+  const ultimoDeLaClienta = [...lineas].reverse().find((linea) => linea.de === "cliente");
+  if (!ultima) return "";
+  if (ultima.de === "cliente") {
+    return `SITUACIÓN: la clienta escribió lo último, ${haceCuanto(ultima.en, ahora)}. Respóndele a eso directamente.`;
+  }
+  const horasCallada = ultimoDeLaClienta
+    ? (ahora.getTime() - new Date(ultimoDeLaClienta.en).getTime()) / 3_600_000
+    : Number.POSITIVE_INFINITY;
+  if (horasCallada >= 24) {
+    return `SITUACIÓN: la clienta no escribe desde ${ultimoDeLaClienta ? haceCuanto(ultimoDeLaClienta.en, ahora) : "el comienzo"} y lo último lo escribimos nosotros. Sugiere un seguimiento corto que aporte algo NUEVO (un dato, un flujo que no se le haya enviado, una pregunta distinta), sin repetir lo ya dicho y sin reclamarle que no contestó.`;
+  }
+  return `SITUACIÓN: lo último lo escribimos nosotros ${haceCuanto(ultima.en, ahora)} y la clienta escribió ${ultimoDeLaClienta ? haceCuanto(ultimoDeLaClienta.en, ahora) : "antes"}. Si falta algo por contestarle, hazlo; si no, una pregunta corta que avance.`;
+}
+
+async function leerProducto(workspaceId: string, productoId: string | null): Promise<ProductoParaSugerir | null> {
   if (!productoId) return null;
   const producto = await prisma.product
     .findFirst({
@@ -235,6 +378,7 @@ async function pedirAlModelo(apiKey: string, sistema: string, mensajes: MensajeD
       body: JSON.stringify({
         model: MODELO,
         temperature: 0.4,
+        response_format: { type: "json_object" },
         messages: [{ role: "system", content: sistema }, ...mensajes],
       }),
     });
@@ -243,41 +387,86 @@ async function pedirAlModelo(apiKey: string, sistema: string, mensajes: MensajeD
       return null;
     }
     const datos = (await respuesta.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    const texto = datos.choices?.[0]?.message?.content?.trim();
-    return texto ? texto.replace(/^["“]|["”]$/g, "").trim() : null;
+    return datos.choices?.[0]?.message?.content?.trim() || null;
   } catch (error) {
     console.warn("[sugerencia] fallo la llamada", error instanceof Error ? error.message : String(error));
     return null;
   }
 }
 
-/** Arreglos que no cambian el sentido: negrita doble a simple y espacios de mas. */
+/** El JSON del modelo: el texto con los arreglos seguros, y el flujo solo si existe y no se envio. */
+function leerRespuesta(crudo: string, flujos: FlujoParaSugerir[]): { texto: string; flujo: FlujoSugerido | null } {
+  let texto = "";
+  let flujoId: unknown = null;
+  try {
+    const datos = JSON.parse(crudo) as { texto?: unknown; flujo_id?: unknown };
+    texto = typeof datos.texto === "string" ? datos.texto : "";
+    flujoId = datos.flujo_id;
+  } catch {
+    // Si no vino JSON, el texto entero es el mensaje.
+    texto = crudo;
+  }
+  const flujo = typeof flujoId === "string" ? flujos.find((candidato) => candidato.id === flujoId) : undefined;
+  return {
+    texto: arreglosSeguros(texto.replace(/^["“]|["”]$/g, "")),
+    flujo: flujo ? { id: flujo.id, titulo: flujo.titulo } : null,
+  };
+}
+
+/** Arreglos que no cambian el sentido: negrita doble a simple, y todo en un solo bloque. */
 function arreglosSeguros(texto: string) {
   return texto
     .replace(/\*\*(.+?)\*\*/g, "*$1*")
-    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\s*\n+\s*/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
     .trim();
 }
 
 const TERMINA_EN_PREGUNTA = /\?[\s\p{Extended_Pictographic}‍️]*$/u;
+const PREGUNTA_POR_PRECIO = /precio|cu[aá]nto|valor|vale|cuesta|cost/i;
+const PREGUNTA_POR_CALIDAD = /calidad|garant|confi|material|dura|resist|segur|estafa|real|fabric|buen[ao]s?\b|aguanta|soporta/i;
 
 export function problemasDeLaSugerencia(
   texto: string,
-  datos: { precioMayorista: number | null; contexto: string },
+  datos: { precioMayorista: number | null; contexto: string; ultimoDeLaClienta: string; yaDijimos: string },
 ) {
   const { precioMayorista } = datos;
   const problemas: string[] = [];
   problemas.push(...datosInventados(texto, datos.contexto));
+
+  const palabras = texto.split(/\s+/).filter(Boolean).length;
+  if (palabras > PALABRAS_MAXIMAS) problemas.push(`Tiene ${palabras} palabras: máximo unas 35, en 2 frases cortas.`);
+  if (frases(texto) > 2) problemas.push("Tiene más de 2 frases.");
+  const preguntas = (texto.match(/\?/g) ?? []).length;
+  if (preguntas > 1) problemas.push("Hace más de una pregunta: deja solo una, al final.");
+  if (!TERMINA_EN_PREGUNTA.test(texto)) problemas.push("No termina con una pregunta que avance la venta.");
+
   if (/\bpero\b/i.test(texto)) problemas.push('Usa la palabra "pero": cámbiala por "sin embargo".');
   if (/sigues interesad[ao]/i.test(texto)) problemas.push('Dice "¿sigues interesada?": está prohibido.');
   if (/cuando puedas me avisas/i.test(texto)) problemas.push('Dice "cuando puedas me avisas": está prohibido.');
-  if (parrafos(texto).length > 3) problemas.push("Tiene más de 3 párrafos.");
-  if (!TERMINA_EN_PREGUNTA.test(texto)) problemas.push("No termina con una pregunta que avance la venta.");
   if (/mayoris|al por mayor|por mayor/i.test(texto)) problemas.push("Menciona el precio al por mayor: está prohibido.");
   if (precioMayorista && mencionaElValor(texto, precioMayorista)) problemas.push("Incluye el precio mayorista: está prohibido.");
   if (/descuento/i.test(texto)) problemas.push("Menciona descuentos: no se ofrecen.");
   if (/\bvos\b|\bpodés\b|\btenés\b|\bquerés\b/i.test(texto)) problemas.push("Usa voseo: tutea (tú).");
+
+  // Nada de repetir: un precio que ya se dijo, salvo que la clienta lo este preguntando ahora.
+  if (!PREGUNTA_POR_PRECIO.test(datos.ultimoDeLaClienta)) {
+    const repetidos = montos(texto).filter((monto) => montos(datos.yaDijimos).includes(monto));
+    if (repetidos.length > 0) problemas.push("Repite un precio que ya se le dijo: no lo repitas, avanza.");
+  }
+  if (/garant|personaliz/i.test(texto) && !PREGUNTA_POR_CALIDAD.test(datos.ultimoDeLaClienta)) {
+    problemas.push("Habla de garantía o fabricación personalizada sin que la clienta preguntara por calidad o confianza: quítalo.");
+  }
   return problemas;
+}
+
+/** Frases: lo que termina en . ! o ? seguido de espacio o del final (un $989.000 no corta). */
+function frases(texto: string) {
+  return (texto.match(/[.!?…]+(?=\s|$)/g) ?? []).length || 1;
+}
+
+function montos(fuente: string) {
+  return [...fuente.matchAll(/\$\s?(\d{1,3}(?:[.,]\d{3})+|\d{4,})/g)].map((m) => Number(m[1].replace(/[.,]/g, "")));
 }
 
 /**
@@ -286,8 +475,6 @@ export function problemasDeLaSugerencia(
  */
 function datosInventados(texto: string, contexto: string) {
   const problemas: string[] = [];
-  const montos = (fuente: string) =>
-    [...fuente.matchAll(/\$\s?(\d{1,3}(?:[.,]\d{3})+|\d{4,})/g)].map((m) => Number(m[1].replace(/[.,]/g, "")));
   const conocidos = new Set<number>();
   for (const monto of montos(contexto)) {
     conocidos.add(monto);
@@ -317,34 +504,24 @@ function datosInventados(texto: string, contexto: string) {
   return problemas;
 }
 
-function parrafos(texto: string) {
-  return texto.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-}
-
 function mencionaElValor(texto: string, valor: number) {
   const soloDigitos = texto.replace(/[.\s,$]/g, "");
   return soloDigitos.includes(String(Math.round(valor)));
 }
 
 /**
- * La ultima red: lo que el modelo no corrigio en el segundo intento se arregla sin inventar.
- * "pero" -> "sin embargo", fuera las frases prohibidas, y los parrafos de mas se juntan en el tercero.
+ * La ultima red: lo que el modelo no corrigio en los reintentos se arregla sin inventar.
+ * "pero" -> "sin embargo" y fuera las frases prohibidas.
  */
 function ultimosArreglos(texto: string) {
-  let limpio = texto
+  return texto
     .replace(/,\s*pero\s+/gi, "; sin embargo, ")
-    .replace(/(^|[.!?¡¿]\s+|\n)pero\s+/gi, (_, antes: string) => `${antes}Sin embargo, `)
+    .replace(/(^|[.!?¡¿]\s+)pero\s+/gi, (_, antes: string) => `${antes}Sin embargo, `)
     .replace(/\bpero\b/gi, "sin embargo")
     .replace(/¿?\s*sigues interesad[ao]\s*\??/gi, "")
     .replace(/cuando puedas me avisas[.!]?/gi, "")
-    .replace(/[ \t]{2,}/g, " ");
-  const bloques = parrafos(limpio);
-  if (bloques.length > 3) {
-    limpio = [...bloques.slice(0, 2), bloques.slice(2).join(" ")].join("\n\n");
-  } else {
-    limpio = bloques.join("\n\n");
-  }
-  return limpio.trim();
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
 }
 
 /**
@@ -377,5 +554,17 @@ export async function registrarEnvioDeSugerencia(input: {
     });
   } catch (error) {
     console.warn("[sugerencia] no se pudo registrar el envio", error instanceof Error ? error.message : String(error));
+  }
+}
+
+/** Marca que la vendedora toco "Enviar flujo" de una sugerencia. Mismas protecciones que el envio. */
+export async function registrarFlujoDeSugerencia(input: { sugerenciaId: string; userId: string; workspaceId: string }) {
+  try {
+    await prisma.sugerenciaDeRespuesta.updateMany({
+      where: { id: input.sugerenciaId, userId: input.userId, workspaceId: input.workspaceId, flujoEnviadoEn: null },
+      data: { flujoEnviadoEn: new Date() },
+    });
+  } catch (error) {
+    console.warn("[sugerencia] no se pudo registrar el flujo", error instanceof Error ? error.message : String(error));
   }
 }

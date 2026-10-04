@@ -67,7 +67,12 @@ function pedirDetalleDeContacto(contactId: string): Promise<DetalleDeContacto> {
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { hayVersionNueva } from "@/components/app-version-guard";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
-import { getContactDetailsAction, generateSuggestedReplyAction, refreshContactAvatarNowAction } from "@/app/actions/chats-actions";
+import {
+  getContactDetailsAction,
+  generateSuggestedReplyAction,
+  marcarFlujoDeSugerenciaAction,
+  refreshContactAvatarNowAction,
+} from "@/app/actions/chats-actions";
 import { sendChatLocationReplyAction } from "@/app/actions/agent-actions";
 import { clearPendingConversationSelection } from "@/components/chats/chat-selection-store";
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
@@ -76,7 +81,7 @@ import { MediaLibraryDialog } from "@/components/chats/media-library-dialog";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
 import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
 import { ForwardMessageDialog } from "@/components/chats/forward-message-dialog";
-import { SendFlowDialog } from "@/components/chats/send-flow-dialog";
+import { SendFlowDialog, enviarFlujoAlChat } from "@/components/chats/send-flow-dialog";
 import { InternalNoteDialog } from "@/components/chats/internal-note-dialog";
 import { FollowUpDialog } from "@/components/chats/follow-up-dialog";
 import { MediaPreviewDialog } from "@/components/chats/media-preview-dialog";
@@ -298,6 +303,16 @@ export const ConversationPanel = memo(function ConversationPanel({
     cambiar de chat.
   */
   const sugerenciaEnLaCaja = useRef<{ id: string; chat: string } | null>(null);
+  /*
+    El flujo que la estrella propone junto al texto ("Enviar flujo: Video combo armado"). Es un
+    boton: nunca se envia solo. Se ve solo en el chat donde se pidio.
+  */
+  const [flujoSugerido, setFlujoSugerido] = useState<{
+    id: string;
+    titulo: string;
+    sugerenciaId: string | null;
+    chat: string;
+  } | null>(null);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState("");
   const [pestanaChat, setPestanaChat] = useState<"mensajes" | "cotizaciones">("mensajes");
   /*
@@ -1156,6 +1171,11 @@ export const ConversationPanel = memo(function ConversationPanel({
       sugerenciaEnLaCaja.current = result.sugerenciaId
         ? { id: result.sugerenciaId, chat: selectedConversationId ?? "" }
         : null;
+      setFlujoSugerido(
+        result.flujo
+          ? { ...result.flujo, sugerenciaId: result.sugerenciaId ?? null, chat: selectedConversationId ?? "" }
+          : null,
+      );
 
       const textarea = composerTextAreaRef.current;
       if (textarea) {
@@ -1837,6 +1857,43 @@ export const ConversationPanel = memo(function ConversationPanel({
                         onClick={onCancelReply}
                         aria-label="Cancelar respuesta"
                         className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background hover:text-foreground"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {/* El flujo que propone la estrella: un boton, nunca se manda solo. */}
+                  {flujoSugerido && mediaConfig && flujoSugerido.chat === (selectedConversationId ?? "") && !isSuggestingReply ? (
+                    <div className="mb-1.5 flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Lo mismo que usa "Enviar flujos" del menu +: asi se comportan igual.
+                          if (!mediaConfig) return;
+                          enviarFlujoAlChat({
+                            source: mediaConfig.source === "official" ? "official" : "agent",
+                            conversationId: mediaConfig.conversationId,
+                            flowId: flujoSugerido.id,
+                            titulo: flujoSugerido.titulo,
+                            agentId: mediaConfig.agentId ?? undefined,
+                          });
+                          if (flujoSugerido.sugerenciaId) {
+                            void marcarFlujoDeSugerenciaAction(flujoSugerido.sugerenciaId);
+                          }
+                          setFlujoSugerido(null);
+                        }}
+                        className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-[var(--primary)]/40 bg-[var(--primary)]/10 px-3 py-1.5 text-[13px] font-medium text-[var(--primary)] transition hover:bg-[var(--primary)]/15"
+                      >
+                        <Workflow className="size-4 shrink-0" />
+                        <span className="truncate">Enviar flujo: {flujoSugerido.titulo}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFlujoSugerido(null)}
+                        aria-label="Descartar el flujo sugerido"
+                        title="Descartar"
+                        className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
                       >
                         <X className="size-4" />
                       </button>

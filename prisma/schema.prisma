@@ -643,6 +643,9 @@ model SugerenciaDeRespuesta {
   enviadaEn      DateTime?
   textoEnviado   String?
   editada        Boolean?
+  /// Flujo que la estrella propuso junto al texto (boton "Enviar flujo"), y cuando se envio.
+  flujoId        String?
+  flujoEnviadoEn DateTime?
 
   @@index([workspaceId, userId, creadaEn])
   @@index([conversationId])
