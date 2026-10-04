@@ -300,8 +300,17 @@ export function FiltrosDeBandejaModal({
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
           {conNombre ? (
             <Seccion titulo="Nombre de la lista">
+              {/*
+                Sin autocompletar: sin esto Android abria sobre el teclado la barra de contraseñas,
+                tarjetas y direcciones (Alex, 04-10-2026). Y sin abrir el teclado solo al entrar.
+              */}
               <input
-                autoFocus={tipo === "nueva"}
+                name="nombre-de-la-lista"
+                autoComplete="off"
+                autoCorrect="off"
+                data-form-type="other"
+                data-lpignore="true"
+                enterKeyHint="done"
                 value={nombre}
                 maxLength={40}
                 onChange={(evento) => setNombre(evento.target.value)}
@@ -380,6 +389,9 @@ export function FiltrosDeBandejaModal({
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                     <input
+                      name="buscar-etiqueta"
+                      autoComplete="off"
+                      data-form-type="other"
                       value={busquedaEtiqueta}
                       onChange={(evento) => setBusquedaEtiqueta(evento.target.value)}
                       placeholder="Buscar etiqueta"
