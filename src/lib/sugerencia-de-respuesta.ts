@@ -3,7 +3,7 @@ import type { ActiveProductContext } from "@/lib/agent-product-flow";
 import { esNotaInternaDelAgente } from "@/lib/notas-internas-del-agente";
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { flujosParaSugerir, mismaDireccion, type FlujoParaSugerir } from "@/lib/flujos-para-sugerir";
-import { frasesProhibidas, limpiarFrasesProhibidas } from "@/lib/reglas-de-redaccion";
+import { frasesProhibidas, limpiarFrasesProhibidas, terminaEnPregunta } from "@/lib/reglas-de-redaccion";
 
 /**
  * La estrella ✨ del cuadro de mensajes: le redacta a la vendedora una respuesta para ESTE chat.
@@ -423,7 +423,6 @@ function arreglosSeguros(texto: string) {
     .trim();
 }
 
-const TERMINA_EN_PREGUNTA = /\?[\s\p{Extended_Pictographic}‍️]*$/u;
 const PREGUNTA_POR_PRECIO = /precio|cu[aá]nto|valor|vale|cuesta|cost/i;
 const PREGUNTA_POR_CALIDAD = /calidad|garant|confi|material|dura|resist|segur|estafa|real|fabric|buen[ao]s?\b|aguanta|soporta/i;
 
@@ -440,7 +439,7 @@ export function problemasDeLaSugerencia(
   if (frases(texto) > 2) problemas.push("Tiene más de 2 frases.");
   const preguntas = (texto.match(/\?/g) ?? []).length;
   if (preguntas > 1) problemas.push("Hace más de una pregunta: deja solo una, al final.");
-  if (!TERMINA_EN_PREGUNTA.test(texto)) problemas.push("No termina con una pregunta que avance la venta.");
+  if (!terminaEnPregunta(texto)) problemas.push("No termina con una pregunta que avance la venta.");
 
   // Las frases prohibidas son las mismas para todo lo que se le escribe a una clienta.
   problemas.push(...frasesProhibidas(texto).map((motivo) => `El mensaje ${motivo}: corrígelo.`));

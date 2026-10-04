@@ -14,7 +14,23 @@
 /** "Unas 35 palabras": con este margen se acepta. */
 export const PALABRAS_MAXIMAS_DE_SEGUIMIENTO = 42;
 
-const TERMINA_EN_PREGUNTA = /\?[\s\p{Extended_Pictographic}‍️]*$/u;
+/**
+ * Termina con una pregunta. Despues del "?" puede venir un emoji o el cierre de una negrita de
+ * WhatsApp ("¿te comparto *fotos*?*"): eso sigue siendo terminar con pregunta.
+ */
+export function terminaEnPregunta(texto: string) {
+  return /\?[\s*_~\p{Extended_Pictographic}‍️]*$/u.test(texto.trim());
+}
+
+/**
+ * Toda respuesta del agente termina con una pregunta que avance la venta (Alex, 03-10-2026):
+ * "respondió bien lo del material, pero terminó sin pregunta". Junto con las frases prohibidas.
+ */
+export function problemasDeRespuesta(texto: string): string[] {
+  const problemas = frasesProhibidas(texto);
+  if (!terminaEnPregunta(texto)) problemas.push("no termina con una pregunta que avance la venta");
+  return problemas;
+}
 
 /** Lo que nunca se le escribe a una clienta, con el motivo en palabras de negocio. */
 export function frasesProhibidas(texto: string): string[] {
@@ -36,7 +52,7 @@ export function problemasDeSeguimiento(texto: string): string[] {
   if (palabras > PALABRAS_MAXIMAS_DE_SEGUIMIENTO) problemas.push(`es largo (${palabras} palabras; unas 35 como máximo)`);
   const preguntas = (texto.match(/\?/g) ?? []).length;
   if (preguntas > 1) problemas.push("hace más de una pregunta");
-  if (!TERMINA_EN_PREGUNTA.test(texto)) problemas.push("no termina con una pregunta");
+  if (!terminaEnPregunta(texto)) problemas.push("no termina con una pregunta");
   return problemas;
 }
 

@@ -18,7 +18,7 @@
  *    lo pide.
  */
 
-import { frasesProhibidas, problemasDeSeguimiento } from "@/lib/reglas-de-redaccion";
+import { frasesProhibidas, problemasDeRespuesta, problemasDeSeguimiento } from "@/lib/reglas-de-redaccion";
 
 export const PASOS_DEL_EMBUDO = [
   { paso: "PRESENTACION", nombre: "Bienvenida" },
@@ -205,13 +205,25 @@ export function revisarLibro(libro: LibroDeReglas): string[] {
       ("si no contesta en X minutos") es corto, con una sola pregunta y al final.
     */
     const esSeguimiento = regla.cuando.tipo === "sin_respuesta";
-    for (const accion of regla.entonces) {
-      if (accion.tipo !== "mensaje" || !accion.texto?.trim()) continue;
-      const fallas = esSeguimiento ? problemasDeSeguimiento(accion.texto) : frasesProhibidas(accion.texto);
+    const mensajes = regla.entonces.filter(
+      (accion): accion is { tipo: "mensaje"; texto: string } => accion.tipo === "mensaje" && Boolean(accion.texto?.trim()),
+    );
+    mensajes.forEach((accion, indice) => {
+      /*
+        Toda respuesta termina con una pregunta que avance la venta (Alex, 03-10-2026). Se mira el
+        ULTIMO mensaje de la regla, que es lo ultimo que lee la clienta; los anteriores solo tienen
+        que cumplir las frases prohibidas.
+      */
+      const esElUltimo = indice === mensajes.length - 1;
+      const fallas = esSeguimiento
+        ? problemasDeSeguimiento(accion.texto)
+        : esElUltimo
+          ? problemasDeRespuesta(accion.texto)
+          : frasesProhibidas(accion.texto);
       if (fallas.length > 0) {
         problemas.push(`"${regla.nombre}": el mensaje ${fallas.join(", ")}.`);
       }
-    }
+    });
   }
 
   // Cada seguimiento tiene que traer algo nuevo: dos con el mismo texto se repiten en el chat.
