@@ -51,7 +51,7 @@ import {
   type AdminModuleKey,
 } from "@/lib/admin-modules"
 
-const moduleIconMap: Record<AdminModuleKey, React.ComponentType<{ className?: string }>> = {
+const moduleIconMap: Record<AdminModuleKey, React.ComponentType> = {
   config_users: Users,
   config_business: BriefcaseBusiness,
   config_permissions: UserCog,
@@ -76,32 +76,6 @@ const moduleIconMap: Record<AdminModuleKey, React.ComponentType<{ className?: st
   diagramas: Share2,
   client_official_api: MessageSquare,
   client_team: Users,
-}
-
-// Cada seccion con su color: con todos los iconos negros el menu se veia apagado (Alex, 04-10-2026).
-const moduleColorMap: Partial<Record<AdminModuleKey, string>> = {
-  config_users: "text-sky-600",
-  config_business: "text-slate-600",
-  config_permissions: "text-amber-600",
-  config_whatsapp: "text-emerald-600",
-  products: "text-amber-600",
-  categories: "text-amber-600",
-  suppliers: "text-stone-600",
-  quotes: "text-indigo-600",
-  contacts: "text-sky-600",
-  flows: "text-blue-600",
-  seguimientos: "text-rose-600",
-  campanas: "text-fuchsia-600",
-  marketing_ia: "text-pink-600",
-  finanzas: "text-emerald-600",
-  connection: "text-teal-600",
-  agents: "text-violet-600",
-  agents_v2: "text-purple-600",
-  products_v2: "text-amber-600",
-  llamadas: "text-green-600",
-  diagramas: "text-cyan-600",
-  client_official_api: "text-emerald-600",
-  client_team: "text-sky-600",
 }
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
@@ -172,7 +146,7 @@ export function AppSidebar({
                 return (
                   <SidebarMenuItem key={module.key}>
                     <SidebarMenuButton render={<Link href={module.path} />} isActive={isActive}>
-                      <Icon className={moduleColorMap[module.key]} />
+                      <Icon />
                       <span>{module.label}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -190,7 +164,7 @@ export function AppSidebar({
                     render={<Link href="/cliente/mi-tablero" />}
                     isActive={pathname.startsWith("/cliente/mi-tablero")}
                   >
-                    <Home className="text-blue-600" />
+                    <Home />
                     <span>Inicio</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -234,7 +208,7 @@ export function AppSidebar({
                     render={<Link href="/cliente/automatizaciones" />}
                     isActive={pathname.startsWith("/cliente/automatizaciones")}
                   >
-                    <Workflow className="text-orange-600" />
+                    <Workflow />
                     <span>Automatizaciones</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -244,7 +218,7 @@ export function AppSidebar({
                     render={<Link href="/cliente/agente-v3" />}
                     isActive={pathname.startsWith("/cliente/agente-v3")}
                   >
-                    <BookOpen className="text-indigo-600" />
+                    <BookOpen />
                     <span>Agente V3</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -254,7 +228,7 @@ export function AppSidebar({
                     render={<Link href="/cliente/claude" />}
                     isActive={pathname.startsWith("/cliente/claude")}
                   >
-                    <Plug className="text-[#d97757]" />
+                    <Plug />
                     <span>Claude</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -267,7 +241,7 @@ export function AppSidebar({
                     render={<Link href={contactsModule.path} />}
                     isActive={pathname === contactsModule.path || pathname.startsWith(`${contactsModule.path}/`)}
                   >
-                    {ContactsIcon ? <ContactsIcon className={moduleColorMap[contactsModule.key]} /> : null}
+                    {ContactsIcon ? <ContactsIcon /> : null}
                     <span>{contactsModule.label}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -281,7 +255,7 @@ export function AppSidebar({
                 return (
                   <SidebarMenuItem key={module.key}>
                     <SidebarMenuButton render={<Link href={module.path} />} isActive={isActive}>
-                      <Icon className={moduleColorMap[module.key]} />
+                      <Icon />
                       <span>{module.label}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

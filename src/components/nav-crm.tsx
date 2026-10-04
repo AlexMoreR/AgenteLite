@@ -53,7 +53,7 @@ export function NavCrm({
       <Collapsible open={open} onOpenChange={setManualOpen} render={<SidebarMenuItem />}>
         <div>
           <CollapsibleTrigger render={<SidebarMenuButton isActive={isCrmRoute} />}>
-            <ChartNoAxesCombined className="text-violet-600" />
+            <ChartNoAxesCombined />
             <span>CRM</span>
           </CollapsibleTrigger>
           <CollapsibleTrigger render={<SidebarMenuAction />}>
