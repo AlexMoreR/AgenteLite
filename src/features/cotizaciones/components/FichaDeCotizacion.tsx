@@ -76,8 +76,8 @@ export function FichaDeCotizacion({
   // La ficha se ve como tarjeta y se edita en un modal. Al abrirlo se guarda una copia: si se
   // cierra sin guardar, la tarjeta vuelve a lo guardado y no a lo que quedo a medias.
   const [editando, setEditando] = useState(false);
-  // Datos que la precarga trajo del chat y nadie guardo todavia.
-  const [sinGuardar, setSinGuardar] = useState(false);
+  // La precarga acaba de llenar la ficha con lo que encontro en el chat.
+  const [tomadosDelChat, setTomadosDelChat] = useState(false);
   const copiaAlAbrir = useRef<{ ficha: FichaDeCotizacion; origenes: Origenes } | null>(null);
 
   // Al cambiar de chat hay que soltar lo del anterior: sin esto quedaban a la vista las
@@ -85,7 +85,7 @@ export function FichaDeCotizacion({
   useEffect(() => {
     let vigente = true;
     setCargando(true);
-    setSinGuardar(false);
+    setTomadosDelChat(false);
     setSugerencias({});
     setAviso(null);
     leerFichaDeCotizacionAction(contactId)
@@ -112,8 +112,12 @@ export function FichaDeCotizacion({
               if (!vigente || encontrado.error) {
                 return;
               }
-              // Lo hallado se ve YA en la tarjeta (Alex: "que aparezcan los datos y revisar es el
-              // lapiz"), pero queda marcado como sin guardar hasta que alguien toque Guardar.
+              /*
+                Lo hallado se GUARDA de una (Alex, 04-10-2026: "los datos no quedan guardados,
+                tarda en cargarse; si toca editarlo se edita y listo"). Leer el chat tarda unos
+                15 s; guardado, la proxima vez la tarjeta sale al instante. Cada dato conserva la
+                frase de la clienta como origen, y lo que este mal se corrige con el lapiz.
+              */
               const hallados = Object.entries(encontrado.sugerencias ?? {}) as [
                 CampoDeFicha,
                 NonNullable<Sugerencias[CampoDeFicha]>,
@@ -121,19 +125,26 @@ export function FichaDeCotizacion({
               if (!hallados.length) {
                 return;
               }
-              setFicha((actual) => {
-                const siguiente = { ...actual };
-                for (const [campo, dato] of hallados) siguiente[campo] = dato.valor;
-                return siguiente;
-              });
-              setOrigenes((actual) => {
-                const siguiente = { ...actual };
-                for (const [campo, dato] of hallados) {
-                  siguiente[campo] = { origen: "chat", frase: dato.frase, fecha: dato.fecha };
-                }
-                return siguiente;
-              });
-              setSinGuardar(true);
+              const nuevaFicha: FichaDeCotizacion = { ...guardada };
+              const nuevosOrigenes: Origenes = { ...(respuesta.datos?.origenes ?? {}) };
+              for (const [campo, dato] of hallados) {
+                nuevaFicha[campo] = dato.valor;
+                nuevosOrigenes[campo] = { origen: "chat", frase: dato.frase, fecha: dato.fecha };
+              }
+              setFicha(nuevaFicha);
+              setOrigenes(nuevosOrigenes);
+              setTomadosDelChat(true);
+              guardarFichaDeCotizacionAction({ contactId, ficha: nuevaFicha, origenes: nuevosOrigenes })
+                .then((guardado) => {
+                  if (vigente && guardado.error) {
+                    setAviso(`No se pudieron guardar: ${guardado.error}`);
+                  }
+                })
+                .catch(() => {
+                  if (vigente) {
+                    setAviso("No se pudieron guardar los datos del chat. Guárdalos con el lápiz.");
+                  }
+                });
             })
             .catch(() => undefined)
             .finally(() => {
@@ -223,7 +234,7 @@ export function FichaDeCotizacion({
       }
       copiaAlAbrir.current = null;
       setSugerencias({});
-      setSinGuardar(false);
+      setTomadosDelChat(false);
       setEditando(false);
     } catch {
       setAviso("No se pudo guardar.");
@@ -354,10 +365,10 @@ export function FichaDeCotizacion({
           </button>
         )}
 
-        {sinGuardar ? (
+        {tomadosDelChat ? (
           <p className="mt-3 flex items-center gap-1.5 text-xs text-primary">
             <Sparkles className="size-3.5 shrink-0" />
-            Tomados del chat, sin guardar. Revísalos con el lápiz.
+            Tomados del chat y guardados. Si algo está mal, corrígelo con el lápiz.
           </p>
         ) : null}
 

@@ -111,9 +111,9 @@ Debajo del buscador hay pestañas:
 ### Datos para cotizar (pestaña "Cotizaciones")
 Dentro de un chat, arriba, hay dos pestañas: "Mensajes" y "Cotizaciones". En "Cotizaciones" hay una tarjeta con los datos del cliente: nombre, NIT/Cédula, correo, ciudad y departamento, dirección y productos.
 1. Para cambiarlos toca el lápiz de la esquina: se abre una ventana con todas las casillas para escribirlas a mano.
-2. Si la ficha está vacía, la app lee el chat sola al abrir la pestaña y pone en la tarjeta los datos que encuentre, con la nota "Tomados del chat, sin guardar". Revísalos con el lápiz y toca "Guardar". En la ventana también está "Buscar datos en el chat" para volver a leerlo cuando quieras.
+2. Si la ficha está vacía, la app lee el chat sola al abrir la pestaña (tarda unos segundos), pone en la tarjeta los datos que encuentre y los GUARDA. La próxima vez salen al instante. Si algo está mal, corrígelo con el lápiz. En la ventana también está "Buscar datos en el chat" para volver a leerlo cuando quieras.
 3. Cada propuesta muestra la frase textual del cliente. Si está bien, toca "Usar"; si no, toca "No". Si hay varias, aparece "Usar los 3" para aceptarlas todas.
-4. Nada se guarda solo: al terminar toca "Guardar". Si cierras con "Cancelar", queda como estaba.
+4. Lo que cambies en la ventana se guarda al tocar "Guardar". Si cierras con "Cancelar", queda como estaba.
 5. El ícono de copiar, junto al lápiz, copia todos los datos para pegarlos donde los necesites.
 La Ciudad y la Dirección son las mismas de la ficha de contacto: si las cambias acá, cambian allá.
 Si no encuentra algo, la casilla queda vacía y la escribes a mano.
