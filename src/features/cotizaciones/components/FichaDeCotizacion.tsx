@@ -65,6 +65,8 @@ export function FichaDeCotizacion({
   // La ficha se ve como tarjeta y se edita en un modal. Al abrirlo se guarda una copia: si se
   // cierra sin guardar, la tarjeta vuelve a lo guardado y no a lo que quedo a medias.
   const [editando, setEditando] = useState(false);
+  // Datos que la precarga trajo del chat y nadie guardo todavia.
+  const [sinGuardar, setSinGuardar] = useState(false);
   const copiaAlAbrir = useRef<{ ficha: FichaDeCotizacion; origenes: Origenes } | null>(null);
 
   // Al cambiar de chat hay que soltar lo del anterior: sin esto quedaban a la vista las
@@ -72,6 +74,7 @@ export function FichaDeCotizacion({
   useEffect(() => {
     let vigente = true;
     setCargando(true);
+    setSinGuardar(false);
     setSugerencias({});
     setAviso(null);
     leerFichaDeCotizacionAction(contactId)
@@ -95,9 +98,31 @@ export function FichaDeCotizacion({
           setBuscando(true);
           buscarDatosEnElChatAction({ contactId, conversationId })
             .then((encontrado) => {
-              if (vigente && !encontrado.error) {
-                setSugerencias(encontrado.sugerencias ?? {});
+              if (!vigente || encontrado.error) {
+                return;
               }
+              // Lo hallado se ve YA en la tarjeta (Alex: "que aparezcan los datos y revisar es el
+              // lapiz"), pero queda marcado como sin guardar hasta que alguien toque Guardar.
+              const hallados = Object.entries(encontrado.sugerencias ?? {}) as [
+                CampoDeFicha,
+                NonNullable<Sugerencias[CampoDeFicha]>,
+              ][];
+              if (!hallados.length) {
+                return;
+              }
+              setFicha((actual) => {
+                const siguiente = { ...actual };
+                for (const [campo, dato] of hallados) siguiente[campo] = dato.valor;
+                return siguiente;
+              });
+              setOrigenes((actual) => {
+                const siguiente = { ...actual };
+                for (const [campo, dato] of hallados) {
+                  siguiente[campo] = { origen: "chat", frase: dato.frase, fecha: dato.fecha };
+                }
+                return siguiente;
+              });
+              setSinGuardar(true);
             })
             .catch(() => undefined)
             .finally(() => {
@@ -187,6 +212,7 @@ export function FichaDeCotizacion({
       }
       copiaAlAbrir.current = null;
       setSugerencias({});
+      setSinGuardar(false);
       setEditando(false);
     } catch {
       setAviso("No se pudo guardar.");
@@ -308,18 +334,6 @@ export function FichaDeCotizacion({
             <LoaderCircle className="size-3.5 animate-spin" />
             Buscando sus datos en el chat…
           </p>
-        ) : cuantasSugerencias > 0 ? (
-          <button
-            type="button"
-            onClick={abrirEditor}
-            className="mt-3 flex w-full items-center gap-2 rounded-xl border border-primary/40 bg-primary/5 px-3 py-3 text-left text-[13px] text-foreground transition-colors hover:bg-primary/10"
-          >
-            <Sparkles className="size-4 shrink-0 text-primary" />
-            <span className="min-w-0 flex-1">
-              Encontré {cuantasSugerencias === 1 ? "1 dato" : `${cuantasSugerencias} datos`} en el chat.
-            </span>
-            <span className="font-medium text-primary">Revisar</span>
-          </button>
         ) : (
           <button
             type="button"
@@ -329,6 +343,13 @@ export function FichaDeCotizacion({
             Aún no hay datos para cotizar. Toca para agregarlos o buscarlos en el chat.
           </button>
         )}
+
+        {sinGuardar ? (
+          <p className="mt-3 flex items-center gap-1.5 text-xs text-primary">
+            <Sparkles className="size-3.5 shrink-0" />
+            Tomados del chat, sin guardar. Revísalos con el lápiz.
+          </p>
+        ) : null}
 
         {aviso && !editando ? <p className="mt-2 text-xs text-muted-foreground">{aviso}</p> : null}
       </section>
