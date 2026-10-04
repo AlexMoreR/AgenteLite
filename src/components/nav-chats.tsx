@@ -64,7 +64,7 @@ export function NavChats({
             render={<Link href="/cliente/chats" />}
             isActive={isChatsRoute && !currentConnectionKey}
           >
-            <MessageSquareText />
+            <MessageSquareText className="text-emerald-600" />
             <span>Chats</span>
           </SidebarMenuButton>
           <CollapsibleTrigger render={<SidebarMenuAction />}>
