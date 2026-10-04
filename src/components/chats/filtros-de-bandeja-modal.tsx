@@ -290,14 +290,14 @@ export function FiltrosDeBandejaModal({
     <Dialog open={abierto} onOpenChange={(valor) => !valor && alCerrar()}>
       <DialogContent
         showCloseButton
-        className="max-h-[calc(var(--app-viewport-height,100dvh)-2rem)] gap-0 overflow-y-auto p-0 max-sm:top-4 max-sm:translate-y-0 sm:max-w-md"
+        className="inset-0 top-0 left-0 flex h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ring-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[85vh] sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:ring-1"
       >
         <DialogHeader className="border-b border-border px-5 py-4">
           <DialogTitle className="text-[16px] font-semibold">{titulo}</DialogTitle>
           <DialogDescription className="text-[12.5px] text-muted-foreground">{resumen}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 px-5 py-4">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
           {conNombre ? (
             <Seccion titulo="Nombre de la lista">
               <input
@@ -315,9 +315,6 @@ export function FiltrosDeBandejaModal({
                 // 16px en el celular: por debajo de eso el iPhone hace zoom al tocar el campo.
                 className="h-10 w-full rounded-lg border border-border bg-background px-3 text-[16px] font-medium text-foreground outline-none transition focus:border-primary md:text-[14px]"
               />
-              <p className="text-[12px] text-muted-foreground">
-                Queda como una pestaña arriba de los chats y se actualiza sola.
-              </p>
             </Seccion>
           ) : null}
 
@@ -423,7 +420,7 @@ export function FiltrosDeBandejaModal({
           {error ? <p className="text-[12.5px] font-medium text-red-600">{error}</p> : null}
         </div>
 
-        <div className="sticky bottom-0 flex items-center gap-2 border-t border-border bg-background px-5 py-3">
+        <div className="flex shrink-0 items-center gap-2 border-t border-border bg-background px-5 py-3">
           {tipo === "filtrar" ? (
             <>
               <button
