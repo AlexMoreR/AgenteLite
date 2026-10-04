@@ -1,9 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { LockKeyhole, MessageSquareMore, Settings, Users } from "lucide-react";
+import { ChevronRight, LockKeyhole, MessageSquareMore, Settings, Users, type LucideIcon } from "lucide-react";
 import { auth } from "@/auth";
-import { Card } from "@/components/ui/card";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
+
+type Apartado = {
+  href: string;
+  titulo: string;
+  descripcion: string;
+  icono: LucideIcon;
+  color: string;
+};
 
 export default async function AdminConfiguracionPage() {
   const session = await auth();
@@ -13,79 +20,64 @@ export default async function AdminConfiguracionPage() {
 
   const moduleAccess = await getAdminModuleAccess(session.user.id, session.user.role);
 
+  const apartados: Apartado[] = [
+    moduleAccess.config_users && {
+      href: "/admin/configuracion/usuarios",
+      titulo: "Usuarios",
+      descripcion: "Crea cuentas y administra roles y accesos.",
+      icono: Users,
+      color: "bg-sky-500",
+    },
+    moduleAccess.config_business && {
+      href: "/admin/configuracion/negocio",
+      titulo: "Negocio",
+      descripcion: "Moneda, color principal y preferencias generales.",
+      icono: Settings,
+      color: "bg-slate-500",
+    },
+    moduleAccess.config_permissions && {
+      href: "/admin/configuracion/permisos",
+      titulo: "Control de módulos",
+      descripcion: "Oculta y restringe módulos por usuario.",
+      icono: LockKeyhole,
+      color: "bg-amber-500",
+    },
+    moduleAccess.config_whatsapp && {
+      href: "/admin/configuracion/whatsapp",
+      titulo: "WhatsApp",
+      descripcion: "Conexión global de WhatsApp para toda la aplicación.",
+      icono: MessageSquareMore,
+      color: "bg-emerald-500",
+    },
+  ].filter(Boolean) as Apartado[];
+
   return (
-    <section className="w-full space-y-6">
-      <div className="grid gap-4 lg:grid-cols-2">
-        {moduleAccess.config_users ? (
-          <Link href="/admin/configuracion/usuarios" className="group">
-            <Card className="h-full space-y-3 border border-[var(--line)] transition hover:border-[var(--primary)] hover:shadow-lg">
-              <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-                <Users className="h-5 w-5" />
-              </div>
-              <div className="space-y-1">
-                <h2 className="text-base font-semibold text-slate-900">Usuarios</h2>
-                <p className="text-sm text-slate-600">
-                  Crea cuentas y administra roles y accesos.
-                </p>
-              </div>
-            </Card>
-          </Link>
-        ) : null}
-
-        {moduleAccess.config_business ? (
-          <Link href="/admin/configuracion/negocio" className="group">
-            <Card className="h-full space-y-3 border border-[var(--line)] transition hover:border-[var(--primary)] hover:shadow-lg">
-              <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-                <Settings className="h-5 w-5" />
-              </div>
-              <div className="space-y-1">
-                <h2 className="text-base font-semibold text-slate-900">Configuracion negocio</h2>
-                <p className="text-sm text-slate-600">
-                  Ajusta moneda activa, color primario y preferencias generales.
-                </p>
-              </div>
-            </Card>
-          </Link>
-        ) : null}
-
-        {moduleAccess.config_permissions ? (
-          <Link href="/admin/configuracion/permisos" className="group">
-            <Card className="h-full space-y-3 border border-[var(--line)] transition hover:border-[var(--primary)] hover:shadow-lg">
-              <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-                <LockKeyhole className="h-5 w-5" />
-              </div>
-              <div className="space-y-1">
-                <h2 className="text-base font-semibold text-slate-900">Control de modulos</h2>
-                <p className="text-sm text-slate-600">
-                  Oculta y restringe modulos administrativos por usuario.
-                </p>
-              </div>
-            </Card>
-          </Link>
-        ) : null}
-
-        {moduleAccess.config_whatsapp ? (
-          <Link href="/admin/configuracion/whatsapp" className="group">
-            <Card className="h-full space-y-3 border border-[var(--line)] transition hover:border-[var(--primary)] hover:shadow-lg">
-              <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-                <MessageSquareMore className="h-5 w-5" />
-              </div>
-              <div className="space-y-1">
-                <h2 className="text-base font-semibold text-slate-900">Configuracion WhatsApp</h2>
-                <p className="text-sm text-slate-600">
-                  Define la conexion global con Evolution API para toda la aplicacion.
-                </p>
-              </div>
-            </Card>
-          </Link>
-        ) : null}
-      </div>
-
-      {!moduleAccess.config_users && !moduleAccess.config_business && !moduleAccess.config_permissions && !moduleAccess.config_whatsapp ? (
-        <Card className="text-sm text-slate-600">
-          No tienes apartados habilitados dentro de configuracion.
-        </Card>
-      ) : null}
+    <section className="mx-auto w-full max-w-2xl p-4 md:p-6">
+      {apartados.length ? (
+        <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
+          {apartados.map(({ href, titulo, descripcion, icono: Icono, color }) => (
+            <li key={href}>
+              <Link
+                href={href}
+                className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/60 active:bg-muted"
+              >
+                <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white ${color}`}>
+                  <Icono className="h-[18px] w-[18px]" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[15px] font-semibold leading-5 text-foreground">{titulo}</span>
+                  <span className="mt-0.5 block text-[13px] leading-5 text-muted-foreground">{descripcion}</span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="rounded-2xl border border-border bg-card p-4 text-sm text-muted-foreground">
+          No tienes apartados habilitados dentro de configuración.
+        </p>
+      )}
     </section>
   );
 }
