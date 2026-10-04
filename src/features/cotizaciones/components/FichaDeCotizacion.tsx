@@ -309,10 +309,7 @@ export function FichaDeCotizacion({
       <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
         <div className="flex items-start gap-1">
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Datos de la clienta
-            </p>
-            <p className="mt-0.5 truncate text-base font-semibold text-foreground">
+            <p className="truncate text-base font-semibold text-foreground">
               {ficha.fullName.trim() || "Sin nombre"}
             </p>
             {ficha.document.trim() ? (
@@ -345,7 +342,7 @@ export function FichaDeCotizacion({
         </div>
 
         {hayDatos ? (
-          <dl className="mt-3 grid gap-2.5 border-t border-border pt-3 text-sm">
+          <dl className="mt-2.5 grid gap-1 border-t border-border pt-2.5 text-sm">
             <DatoDeLaFicha etiqueta="Correo" valor={ficha.email} icono={Mail} />
             <DatoDeLaFicha etiqueta="Ciudad" valor={lugar} icono={MapPin} />
             <DatoDeLaFicha etiqueta="Dirección" valor={ficha.address} icono={House} />
