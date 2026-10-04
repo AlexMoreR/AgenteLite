@@ -253,6 +253,40 @@ async function transcribirUno(pendiente: Pendiente, apiKey: string, yaHechos: Ma
   }
 }
 
+/**
+ * Transcribe UN audio en el momento, para que el Agente V3 lo conteste como si fuera texto.
+ *
+ * Usa la misma lectura que el reloj (el archivo ya guardado en /uploads, o nuestro proxy) y no la
+ * direccion de WhatsApp: el 03-10-2026 el V3 intento leerlo de ahi, no pudo, y la clienta que dijo
+ * "¡Todos!" por audio se quedo sin respuesta mientras el reloj lo transcribia bien un minuto despues.
+ * Nunca lanza: si no se pudo, devuelve null.
+ */
+export async function transcribirAudioAhora(mediaUrl: string): Promise<string | null> {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey || !mediaUrl.trim()) return null;
+  try {
+    const audio = await leerAudio(mediaUrl);
+    if (!audio) return null;
+    const texto = await pasarATexto(audio, apiKey);
+    return texto.trim() || null;
+  } catch (error) {
+    console.warn("[transcripcion] al momento fallo", error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}
+
+/**
+ * Los bytes de un archivo del chat (foto, audio...), leidos igual que los audios: del disco si esta
+ * en /uploads, si no por nuestro proxy. Para que el V3 vea las fotos sin depender de WhatsApp.
+ */
+export async function leerArchivoDelChat(mediaUrl: string): Promise<{ bytes: Buffer; extension: string } | null> {
+  try {
+    return await leerAudio(mediaUrl);
+  } catch {
+    return null;
+  }
+}
+
 export async function transcribirAudiosPendientes(): Promise<Record<string, number> | null> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {

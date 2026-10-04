@@ -43,6 +43,7 @@ import { recordConversationActivity } from "@/lib/conversation-activity";
 import { prisma } from "@/lib/prisma";
 import { avisarAsesorPorWhatsApp } from "@/features/agente-v3/servicios/avisos";
 import { responderConElRedactor } from "@/features/agente-v3/servicios/redactor";
+import { leerFotoParaElV3, transcribirAudioParaElV3 } from "@/features/agente-v3/servicios/medios";
 import { sendChatPushToWorkspace } from "@/lib/web-push";
 import { quienesNoSeEnteran } from "@/lib/quien-se-entera-del-mensaje";
 import {
@@ -2679,10 +2680,9 @@ export async function POST(request: NextRequest) {
     las lineas de venta, los audios y fotos de clientas nuevas quedaban esperando a una asesora,
     porque el que los entendia era el V2. Abajo se transcribe el audio y se describe la foto.
   */
-  const llegoAudioOFoto =
-    (messageType === "AUDIO" || messageType === "IMAGE") && Boolean(resolvedCurrentMediaUrl);
+  const llegoAudioFotoOVideo = messageType === "AUDIO" || messageType === "IMAGE" || messageType === "VIDEO";
   const canalUsaV3 =
-    !fromMe && !isCallEvent && (Boolean(messageText?.trim()) || llegoAudioOFoto) && canalTieneV3;
+    !fromMe && !isCallEvent && (Boolean(messageText?.trim()) || llegoAudioFotoOVideo) && canalTieneV3;
 
   /*
     Un chat pausado el V3 NO lo contesta. Punto.
@@ -2817,36 +2817,96 @@ export async function POST(request: NextRequest) {
     */
     let textoParaElV3 = (messageText ?? "").trim();
     let fotoParaElV3: string | null = null;
-    if (messageType === "AUDIO" && resolvedCurrentMediaUrl) {
-      const transcripcion = await transcribeAudioForAgent({ audioUrl: resolvedCurrentMediaUrl }).catch(() => null);
-      if (transcripcion?.trim()) {
-        textoParaElV3 = transcripcion.trim();
+
+    // Lo que no responde el agente lo toma una persona: nota en el chat + aviso por WhatsApp.
+    const pasarAUnaAsesora = async (motivo: string) => {
+      await recordConversationActivity({
+        workspaceId: channel.workspaceId,
+        conversationId: conversation.id,
+        channelId: channel.id,
+        contactId: contact.id,
+        kind: "note",
+        text: `El agente pide un asesor: ${motivo}`,
+      }).catch(() => {});
+      await avisarAsesorPorWhatsApp({
+        workspaceId: channel.workspaceId,
+        conversationId: conversation.id,
+        motivo,
+        cliente: contact.name?.trim() || phoneNumber,
+        telefonoDelCliente: phoneNumber,
+      }).catch(() => 0);
+    };
+
+    /*
+      El archivo se lee de NUESTRO servidor, como lo hace el reloj de transcripciones: el mensaje ya
+      quedo guardado con su copia en /uploads. Leerlo de la direccion de WhatsApp fallo con el primer
+      audio de prueba ("¡Todos!", 03-10-2026) y la clienta se quedo sin respuesta.
+    */
+    const archivoGuardado =
+      messageType === "AUDIO" || messageType === "IMAGE"
+        ? ((
+            await prisma.message
+              .findFirst({
+                where: { conversationId: conversation.id, externalId: inboundExternalId },
+                select: { mediaUrl: true },
+              })
+              .catch(() => null)
+          )?.mediaUrl ?? resolvedCurrentMediaUrl)
+        : null;
+
+    // Video: el agente no lo mira. Avisa de una a una asesora y no contesta.
+    if (messageType === "VIDEO") {
+      await pasarAUnaAsesora("La clienta mandó un video: el agente no responde videos");
+      console.log("[EVOLUTION] v3_video", { conversationId: conversation.id });
+      return NextResponse.json({ ok: true, message: "V3: llego un video, se aviso a una asesora" });
+    }
+
+    // Audio: se transcribe y se contesta igual que si lo hubiera escrito.
+    if (messageType === "AUDIO") {
+      const transcripcion = await transcribirAudioParaElV3(archivoGuardado);
+      if (transcripcion) {
+        textoParaElV3 = transcripcion;
         await prisma.message
           .updateMany({
-            where: { conversationId: conversation.id, externalId: inboundExternalId, transcripcion: null },
-            data: { transcripcion: textoParaElV3, transcritoEn: new Date() },
+            where: { conversationId: conversation.id, externalId: inboundExternalId },
+            data: { transcripcion, transcritoEn: new Date() },
           })
           .catch(() => {});
       }
       console.log("[EVOLUTION] v3_audio", { conversationId: conversation.id, transcrito: Boolean(transcripcion) });
+      if (!textoParaElV3) {
+        await pasarAUnaAsesora("La clienta mandó un audio que el agente no pudo escuchar");
+        return NextResponse.json({ ok: true, message: "V3: audio sin entender, se aviso a una asesora" });
+      }
     }
-    if (messageType === "IMAGE" && resolvedCurrentMediaUrl) {
-      fotoParaElV3 = await analyzeImageForAgent({ imageUrl: resolvedCurrentMediaUrl }).catch(() => null);
-      console.log("[EVOLUTION] v3_foto", { conversationId: conversation.id, descrita: Boolean(fotoParaElV3) });
-    }
-    // Un audio que no se pudo escuchar y una foto que no se pudo ver: que conteste una persona.
-    if (!textoParaElV3 && !fotoParaElV3) {
-      await avisarAsesorPorWhatsApp({
-        workspaceId: channel.workspaceId,
+
+    /*
+      Foto: si es de mobiliario de salon, el agente la contesta; si es otra cosa (un comprobante de
+      pago, un documento, una foto del local, algo que no se entiende) no responde y avisa.
+
+      La descripcion NO entra como texto de la clienta: las reglas por frase engancharian palabras
+      de la descripcion ("camilla", "silla") como si ella las hubiera dicho. Va aparte, como contexto
+      para el redactor; lo que ella escribio junto a la foto si va a las reglas.
+    */
+    if (messageType === "IMAGE") {
+      const foto = await leerFotoParaElV3(archivoGuardado);
+      console.log("[EVOLUTION] v3_foto", {
         conversationId: conversation.id,
-        motivo:
-          messageType === "AUDIO"
-            ? "La clienta mandó un audio que el agente no pudo escuchar"
-            : "La clienta mandó una foto que el agente no pudo ver",
-        cliente: contact.name?.trim() || phoneNumber,
-        telefonoDelCliente: phoneNumber,
-      }).catch(() => 0);
-      return NextResponse.json({ ok: true, message: "V3: audio o foto sin entender, se aviso a una asesora" });
+        vista: Boolean(foto),
+        esMobiliario: foto?.esMobiliario ?? null,
+        descripcion: foto?.descripcion ?? null,
+      });
+      if (!foto) {
+        await pasarAUnaAsesora("La clienta mandó una foto que el agente no pudo ver");
+        return NextResponse.json({ ok: true, message: "V3: foto sin ver, se aviso a una asesora" });
+      }
+      if (!foto.esMobiliario) {
+        await pasarAUnaAsesora(
+          `La clienta mandó una foto que no es de mobiliario${foto.descripcion ? ` (${foto.descripcion})` : ""}: la revisa una persona`,
+        );
+        return NextResponse.json({ ok: true, message: "V3: foto que no es de mobiliario, se aviso a una asesora" });
+      }
+      fotoParaElV3 = foto.descripcion || "una foto de mobiliario para salón";
     }
 
     const ESPERA_V3_MS = 10_000;
