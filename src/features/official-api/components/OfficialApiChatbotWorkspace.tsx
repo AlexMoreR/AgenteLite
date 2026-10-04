@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type 
 import {
   BrainCircuit,
   Bot,
-  Route,
   X,
   Clock3,
   Copy,
@@ -2630,17 +2629,14 @@ export function OfficialApiChatbotWorkspace({
               {selectedScenario ? (
                 <div className="relative h-full w-full overflow-hidden bg-transparent">
                   <div className="pointer-events-none absolute left-4 top-4 z-20 flex items-center gap-2">
-                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
-                      <Route className="h-3.5 w-3.5 text-sky-600" />
-                      {selectedScenario?.title ?? "Flujo"}
-                    </span>
-                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                    {/* El nombre ya sale en el encabezado; aca solo los conteos, sin palabra. */}
+                    <span title="Bloques" className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs font-medium tabular-nums text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
                       <Bot className="h-3.5 w-3.5 text-violet-600" />
-                      {nodes.length} bloques
+                      {nodes.length}
                     </span>
-                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                    <span title="Conexiones" className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs font-medium tabular-nums text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
                       <Split className="h-3.5 w-3.5 text-blue-600" />
-                      {renderEdges.length} conexiones
+                      {renderEdges.length}
                     </span>
                   </div>
                   <div className="pointer-events-auto absolute right-4 top-4 z-20">
