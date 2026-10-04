@@ -283,7 +283,7 @@ export function FichaDeCotizacion({
     .join(", ");
 
   return (
-    <div className="h-full overflow-y-auto px-3 py-3 md:px-5">
+    <div className="h-full space-y-3 overflow-y-auto px-3 py-3 md:px-5">
       <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
         <div className="flex items-start gap-1">
           <div className="min-w-0 flex-1">
@@ -327,7 +327,6 @@ export function FichaDeCotizacion({
             <DatoDeLaFicha etiqueta="Correo" valor={ficha.email} />
             <DatoDeLaFicha etiqueta="Ciudad" valor={lugar} />
             <DatoDeLaFicha etiqueta="Dirección" valor={ficha.address} />
-            <DatoDeLaFicha etiqueta="Productos" valor={ficha.products} varias />
           </dl>
         ) : buscando ? (
           <p className="mt-3 flex items-center gap-2 rounded-xl border border-dashed border-border px-3 py-3 text-[13px] text-muted-foreground">
@@ -353,6 +352,34 @@ export function FichaDeCotizacion({
 
         {aviso && !editando ? <p className="mt-2 text-xs text-muted-foreground">{aviso}</p> : null}
       </section>
+
+      {/* El pedido va aparte: es lo que se cotiza, no un dato de la clienta. */}
+      {hayDatos ? (
+        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <div className="flex items-start gap-1">
+            <p className="min-w-0 flex-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Productos
+            </p>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={abrirEditor}
+              aria-label="Editar productos"
+              className="-mt-1 size-8 shrink-0"
+            >
+              <Pencil className="size-4" />
+            </Button>
+          </div>
+          <p
+            className={`mt-1 whitespace-pre-line text-sm ${
+              ficha.products.trim() ? "text-foreground" : "text-muted-foreground"
+            }`}
+          >
+            {ficha.products.trim() || "Aún no se sabe qué va a pedir."}
+          </p>
+        </section>
+      ) : null}
 
       <Dialog open={editando} onOpenChange={cerrarEditor}>
         <DialogContent className="gap-3 sm:max-w-md">
