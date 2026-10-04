@@ -1,7 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, ClipboardCopy, LoaderCircle, Pencil, Sparkles, X } from "lucide-react";
+import {
+  Check,
+  ClipboardCopy,
+  House,
+  LoaderCircle,
+  Mail,
+  MapPin,
+  Pencil,
+  Sparkles,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -324,9 +335,9 @@ export function FichaDeCotizacion({
 
         {hayDatos ? (
           <dl className="mt-3 grid gap-2.5 border-t border-border pt-3 text-sm">
-            <DatoDeLaFicha etiqueta="Correo" valor={ficha.email} />
-            <DatoDeLaFicha etiqueta="Ciudad" valor={lugar} />
-            <DatoDeLaFicha etiqueta="Dirección" valor={ficha.address} />
+            <DatoDeLaFicha etiqueta="Correo" valor={ficha.email} icono={Mail} />
+            <DatoDeLaFicha etiqueta="Ciudad" valor={lugar} icono={MapPin} />
+            <DatoDeLaFicha etiqueta="Dirección" valor={ficha.address} icono={House} />
           </dl>
         ) : buscando ? (
           <p className="mt-3 flex items-center gap-2 rounded-xl border border-dashed border-border px-3 py-3 text-[13px] text-muted-foreground">
@@ -503,24 +514,24 @@ export function FichaDeCotizacion({
   );
 }
 
+/** Un renglon de la tarjeta: el icono dice que dato es y la etiqueta queda para lectores de pantalla. */
 function DatoDeLaFicha({
   etiqueta,
   valor,
-  varias = false,
+  icono: Icono,
 }: {
   etiqueta: string;
   valor: string;
-  varias?: boolean;
+  icono: LucideIcon;
 }) {
   const limpio = valor.trim();
   return (
-    <div className="grid grid-cols-[5.5rem_1fr] gap-2">
-      <dt className="text-muted-foreground">{etiqueta}</dt>
-      <dd
-        className={`min-w-0 ${limpio ? "text-foreground" : "text-muted-foreground"} ${
-          varias ? "whitespace-pre-line" : "truncate"
-        }`}
-      >
+    <div className="flex items-start gap-2.5" title={etiqueta}>
+      <dt className="pt-0.5 text-muted-foreground">
+        <Icono className="size-4" aria-hidden />
+        <span className="sr-only">{etiqueta}</span>
+      </dt>
+      <dd className={`min-w-0 flex-1 break-words ${limpio ? "text-foreground" : "text-muted-foreground"}`}>
         {limpio || "—"}
       </dd>
     </div>
