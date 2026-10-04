@@ -11,7 +11,7 @@ export default function Cargando() {
   return (
     <CrmLoadingState
       titulo="Cargando tus flujos"
-      detalle="Estamos trayendo lo que tenés armado."
+      detalle="Estamos trayendo lo que tienes armado."
     />
   );
 }
