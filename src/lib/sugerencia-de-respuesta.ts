@@ -3,6 +3,7 @@ import type { ActiveProductContext } from "@/lib/agent-product-flow";
 import { esNotaInternaDelAgente } from "@/lib/notas-internas-del-agente";
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { flujosParaSugerir, mismaDireccion, type FlujoParaSugerir } from "@/lib/flujos-para-sugerir";
+import { frasesProhibidas, limpiarFrasesProhibidas } from "@/lib/reglas-de-redaccion";
 
 /**
  * La estrella ✨ del cuadro de mensajes: le redacta a la vendedora una respuesta para ESTE chat.
@@ -441,13 +442,11 @@ export function problemasDeLaSugerencia(
   if (preguntas > 1) problemas.push("Hace más de una pregunta: deja solo una, al final.");
   if (!TERMINA_EN_PREGUNTA.test(texto)) problemas.push("No termina con una pregunta que avance la venta.");
 
-  if (/\bpero\b/i.test(texto)) problemas.push('Usa la palabra "pero": cámbiala por "sin embargo".');
-  if (/sigues interesad[ao]/i.test(texto)) problemas.push('Dice "¿sigues interesada?": está prohibido.');
-  if (/cuando puedas me avisas/i.test(texto)) problemas.push('Dice "cuando puedas me avisas": está prohibido.');
+  // Las frases prohibidas son las mismas para todo lo que se le escribe a una clienta.
+  problemas.push(...frasesProhibidas(texto).map((motivo) => `El mensaje ${motivo}: corrígelo.`));
   if (/mayoris|al por mayor|por mayor/i.test(texto)) problemas.push("Menciona el precio al por mayor: está prohibido.");
   if (precioMayorista && mencionaElValor(texto, precioMayorista)) problemas.push("Incluye el precio mayorista: está prohibido.");
   if (/descuento/i.test(texto)) problemas.push("Menciona descuentos: no se ofrecen.");
-  if (/\bvos\b|\bpodés\b|\btenés\b|\bquerés\b/i.test(texto)) problemas.push("Usa voseo: tutea (tú).");
 
   // Nada de repetir: un precio que ya se dijo, salvo que la clienta lo este preguntando ahora.
   if (!PREGUNTA_POR_PRECIO.test(datos.ultimoDeLaClienta)) {
@@ -514,14 +513,7 @@ function mencionaElValor(texto: string, valor: number) {
  * "pero" -> "sin embargo" y fuera las frases prohibidas.
  */
 function ultimosArreglos(texto: string) {
-  return texto
-    .replace(/,\s*pero\s+/gi, "; sin embargo, ")
-    .replace(/(^|[.!?¡¿]\s+)pero\s+/gi, (_, antes: string) => `${antes}Sin embargo, `)
-    .replace(/\bpero\b/gi, "sin embargo")
-    .replace(/¿?\s*sigues interesad[ao]\s*\??/gi, "")
-    .replace(/cuando puedas me avisas[.!]?/gi, "")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
+  return limpiarFrasesProhibidas(texto);
 }
 
 /**

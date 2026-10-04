@@ -18,6 +18,8 @@
  *    lo pide.
  */
 
+import { frasesProhibidas, problemasDeSeguimiento } from "@/lib/reglas-de-redaccion";
+
 export const PASOS_DEL_EMBUDO = [
   { paso: "PRESENTACION", nombre: "Bienvenida" },
   { paso: "IDENTIFICACION", nombre: "Identificación" },
@@ -195,6 +197,37 @@ export function revisarLibro(libro: LibroDeReglas): string[] {
     }
     if (regla.cuando.tipo === "intencion" && regla.cuando.descripcion.trim().length < 15) {
       problemas.push(`"${regla.nombre}" describe la intención en muy pocas palabras: va a disparar de más.`);
+    }
+
+    /*
+      Las reglas de redaccion de Alex (03-10-2026), las mismas que cumple la estrella: nada de
+      "pero", "¿sigues interesada?" ni "usted" en lo que se le manda a la clienta. Y un seguimiento
+      ("si no contesta en X minutos") es corto, con una sola pregunta y al final.
+    */
+    const esSeguimiento = regla.cuando.tipo === "sin_respuesta";
+    for (const accion of regla.entonces) {
+      if (accion.tipo !== "mensaje" || !accion.texto?.trim()) continue;
+      const fallas = esSeguimiento ? problemasDeSeguimiento(accion.texto) : frasesProhibidas(accion.texto);
+      if (fallas.length > 0) {
+        problemas.push(`"${regla.nombre}": el mensaje ${fallas.join(", ")}.`);
+      }
+    }
+  }
+
+  // Cada seguimiento tiene que traer algo nuevo: dos con el mismo texto se repiten en el chat.
+  const textosDeSeguimiento = new Map<string, string>();
+  for (const regla of libro.reglas) {
+    if (regla.cuando.tipo !== "sin_respuesta" || !regla.activa) continue;
+    for (const accion of regla.entonces) {
+      if (accion.tipo !== "mensaje") continue;
+      const clave = normalizar(accion.texto ?? "");
+      if (!clave) continue;
+      const otra = textosDeSeguimiento.get(clave);
+      if (otra) {
+        problemas.push(`"${regla.nombre}" repite el mismo texto que "${otra}": cada seguimiento tiene que traer algo nuevo.`);
+      } else {
+        textosDeSeguimiento.set(clave, regla.nombre);
+      }
     }
   }
 

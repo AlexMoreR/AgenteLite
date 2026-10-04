@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
+import { limpiarFrasesProhibidas } from "@/lib/reglas-de-redaccion";
 
 import { cumpleLasCondiciones } from "../motor/decidir";
 import { guardarEstado, leerEstado } from "../motor/estado";
@@ -143,9 +144,10 @@ export async function ejecutarSeguimientosV3(
         continue;
       }
 
+      // La ultima red: aunque el libro traiga un "pero" o un "¿sigues interesada?", no sale.
       const textos = toca.regla.entonces
         .filter((accion): accion is { tipo: "mensaje"; texto: string } => accion.tipo === "mensaje")
-        .map((accion) => accion.texto.trim())
+        .map((accion) => limpiarFrasesProhibidas(accion.texto.trim()))
         .filter(Boolean);
       if (textos.length === 0) {
         continue;
