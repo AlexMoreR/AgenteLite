@@ -30,7 +30,38 @@ export function isWhatsAppCdnMediaSourceUrl(value: string) {
   }
 }
 
+/*
+  Un archivo NUESTRO con la direccion completa (`https://app.aizenbot.com/uploads/...`).
+
+  Las fotos y videos de los flujos se guardan asi, y por no empezar con "/uploads/" pasaban por el
+  proxy, que responde sin cache: la oficina bajo la misma foto 48 veces y un video de 5,5 MB 16
+  veces en una mañana, 73 MB en 15 minutos (05-10-2026). Directo, el navegador lo guarda para
+  siempre (los nombres son unicos, ver next.config).
+*/
+const HOSTS_PROPIOS = new Set(["app.aizenbot.com"]);
+
+function rutaPropiaDeUploads(url: string): string | null {
+  if (!/^https?:\/\//i.test(url)) {
+    return null;
+  }
+  try {
+    const destino = new URL(url);
+    const esPropio =
+      HOSTS_PROPIOS.has(destino.hostname.toLowerCase()) ||
+      (typeof window !== "undefined" && destino.host === window.location.host);
+    return esPropio && destino.pathname.startsWith("/uploads/") ? `${destino.pathname}${destino.search}` : null;
+  } catch {
+    return null;
+  }
+}
+
 export function toProxiedMediaUrl(url: string, fileName?: string | null) {
+  // Los documentos siguen por el proxy: ahi viaja su nombre para la descarga, y solo se bajan al tocarlos.
+  const propia = fileName?.trim() ? null : rutaPropiaDeUploads(url);
+  if (propia) {
+    return propia;
+  }
+
   if (
     url.startsWith("data:") ||
     url.startsWith("blob:") ||
