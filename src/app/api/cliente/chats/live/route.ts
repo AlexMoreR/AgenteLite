@@ -326,10 +326,20 @@ export async function GET(request: Request) {
     });
   }
 
+  /*
+    La linea NO viaja al navegador.
+
+    `...conversation` arrastraba `channel.metadata` entero: la clave del gateway de WhatsApp, el
+    token de la instancia y los flujos completos (26 de los 40 KB de cada apertura). El navegador no
+    lo usa -le alcanza con `channelId`- y cualquier asesora podia leer las claves con las
+    herramientas del navegador (medido el 05-10-2026).
+  */
+  const { channel, ...conversacionSinLinea } = conversation;
+
   return NextResponse.json({
     ok: true,
     conversation: {
-      ...conversation,
+      ...conversacionSinLinea,
       /*
         El contacto se reescribe entero, no solo las etiquetas.
 
@@ -362,8 +372,8 @@ export async function GET(request: Request) {
       // ademas de por el render del servidor: abrir un chat con clic no recarga la pagina, asi que
       // lo que solo arma el servidor en la carga inicial no existe en el uso real.
       cierrePendiente: tieneCierrePendiente(conversation.contact.metadata),
-      channelId: conversation.channel?.id ?? null,
-      canImportHistory: Boolean(conversation.channel?.evolutionInstanceName),
+      channelId: channel?.id ?? null,
+      canImportHistory: Boolean(channel?.evolutionInstanceName),
       /*
         QUIEN TIENE EL CHAT. Se cargaba y no se devolvia.
 

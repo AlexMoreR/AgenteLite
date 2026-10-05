@@ -27,12 +27,24 @@ export function PushSubscriptionManager({ enabled = true }: { enabled?: boolean 
     // (el endpoint puede haber cambiado o no estar aún guardado en el servidor).
     void subscribeToPush();
 
-    // Tras un gesto: pide permiso (obligatorio en móviles) y suscribe al concederse.
+    /*
+      Tras un gesto: pide permiso (obligatorio en moviles) y suscribe al concederse.
+
+      Solo si el permiso todavia no se decidio, y una sola vez. Antes corria con CADA clic y CADA
+      tecla aunque el permiso ya estuviera dado, y cada vez eran dos peticiones al servidor: eso
+      trababa la app entera (ver push-subscription-client).
+    */
     const handleGesture = () => {
-      if (Notification.permission === "denied") {
+      if (Notification.permission !== "default") {
+        quitarGesto();
         return;
       }
+      quitarGesto();
       void requestPermissionAndSubscribe();
+    };
+    const quitarGesto = () => {
+      window.removeEventListener("pointerdown", handleGesture);
+      window.removeEventListener("keydown", handleGesture);
     };
 
     /*
@@ -68,8 +80,7 @@ export function PushSubscriptionManager({ enabled = true }: { enabled?: boolean 
     return () => {
       document.removeEventListener("visibilitychange", limpiarAvisos);
       window.removeEventListener("focus", limpiarAvisos);
-      window.removeEventListener("pointerdown", handleGesture);
-      window.removeEventListener("keydown", handleGesture);
+      quitarGesto();
     };
   }, [enabled]);
 

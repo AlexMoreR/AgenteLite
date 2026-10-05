@@ -70,6 +70,17 @@ const nextConfig: NextConfig = {
           { key: "Cache-Control", value: "private, max-age=31536000, immutable" },
         ],
       },
+      /*
+        El sonido de aviso se servia con `max-age=0`: cada mensaje entrante lo volvia a pedir al
+        mismo proceso que atiende los chats (455 veces en un minuto desde un equipo, 05-10-2026).
+        Un dia de cache: si se cambia el sonido, llega a todos al dia siguiente.
+      */
+      {
+        source: "/sounds/:archivo*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" },
+        ],
+      },
       {
         source: "/icon",
         headers: [

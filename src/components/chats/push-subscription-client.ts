@@ -30,11 +30,41 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return outputArray;
 }
 
+/*
+  UNA vez por sesion, no en cada tecla.
+
+  Esto corria con cada clic y cada tecla de cualquier pantalla: dos peticiones al servidor por
+  tecla (la llave publica y el guardado). Medido el 05-10-2026: 3.900 registros en una mañana desde
+  la oficina, y como cada uno ocupa una de las 10 conexiones a la base, el servidor entero se
+  trababa en rafagas -abrir un chat llego a tardar 20 s-.
+
+  La direccion de la suscripcion casi nunca cambia. Se guarda en el servidor la primera vez de
+  cada sesion del navegador, y despues solo si cambia.
+*/
+const CLAVE_YA_GUARDADA = "push:direccion-guardada";
+
+function direccionYaGuardada(): string | null {
+  try {
+    return sessionStorage.getItem(CLAVE_YA_GUARDADA);
+  } catch {
+    return null;
+  }
+}
+
+function anotarDireccionGuardada(direccion: string) {
+  try {
+    sessionStorage.setItem(CLAVE_YA_GUARDADA, direccion);
+  } catch {
+    // Sin almacenamiento solo se pierde el atajo: se vuelve a guardar en la proxima sesion.
+  }
+}
+
 /**
  * Crea/renueva la suscripción push del dispositivo y la guarda en el servidor.
  * Asume que el permiso YA está concedido (Notification.permission === "granted").
+ * Con `forzar` se guarda aunque ya se haya guardado en esta sesion (el interruptor de Ajustes).
  */
-export async function subscribeToPush(): Promise<PushActionResult> {
+export async function subscribeToPush(opciones: { forzar?: boolean } = {}): Promise<PushActionResult> {
   if (!isPushSupported()) {
     return { ok: false, reason: "unsupported" };
   }
@@ -44,6 +74,11 @@ export async function subscribeToPush(): Promise<PushActionResult> {
 
   try {
     const registration = await navigator.serviceWorker.ready;
+
+    const existente = await registration.pushManager.getSubscription();
+    if (existente && !opciones.forzar && direccionYaGuardada() === existente.endpoint) {
+      return { ok: true };
+    }
 
     const keyResponse = await fetch("/api/push/public-key", {
       credentials: "same-origin",
@@ -56,7 +91,7 @@ export async function subscribeToPush(): Promise<PushActionResult> {
       return { ok: false, reason: "not-configured" };
     }
 
-    let subscription = await registration.pushManager.getSubscription();
+    let subscription = existente;
     if (!subscription) {
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
@@ -75,6 +110,9 @@ export async function subscribeToPush(): Promise<PushActionResult> {
       return { ok: false, reason: "server" };
     }
 
+    if (json.endpoint) {
+      anotarDireccionGuardada(json.endpoint);
+    }
     return { ok: true };
   } catch {
     return { ok: false, reason: "error" };
@@ -103,7 +141,8 @@ export async function requestPermissionAndSubscribe(): Promise<PushActionResult>
     return { ok: false, reason: permission === "denied" ? "denied" : "dismissed" };
   }
 
-  return subscribeToPush();
+  // Lo pidio la persona (el interruptor, el aviso o el primer permiso): se guarda siempre.
+  return subscribeToPush({ forzar: true });
 }
 
 /** Elimina la suscripción de este dispositivo (local y en el servidor). */
@@ -125,6 +164,11 @@ export async function unsubscribeFromPush(): Promise<void> {
       body: JSON.stringify({ endpoint: json.endpoint }),
     }).catch(() => undefined);
     await subscription.unsubscribe().catch(() => undefined);
+    try {
+      sessionStorage.removeItem(CLAVE_YA_GUARDADA);
+    } catch {
+      // nada que limpiar
+    }
   } catch {
     // best-effort
   }

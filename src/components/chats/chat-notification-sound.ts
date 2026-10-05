@@ -66,6 +66,29 @@ const SOUND_FILES: Partial<Record<NotificationSoundId, string>> = {
   // (ver SOUND_PATTERNS) para que nunca queden en silencio.
 };
 
+/*
+  UN reproductor por archivo, no uno por mensaje.
+
+  Cada mensaje entrante creaba un `new Audio()`, y cada uno volvia a pedir el mp3 al servidor (se
+  servia sin cache). Medido el 05-10-2026: un solo equipo lo pidio 455 veces en un minuto; esas
+  peticiones se apilaban hasta tardar 145 s y trababan la app entera. Reusado, el archivo se baja
+  una vez y queda en memoria.
+*/
+const reproductores = new Map<string, HTMLAudioElement>();
+const PAUSA_ENTRE_SONIDOS_MS = 1500;
+let ultimoSonido = 0;
+
+function reproductorDe(url: string): HTMLAudioElement {
+  let audio = reproductores.get(url);
+  if (!audio) {
+    audio = new Audio(url);
+    audio.preload = "auto";
+    audio.volume = 0.85;
+    reproductores.set(url, audio);
+  }
+  return audio;
+}
+
 // Tonos generados de respaldo (solo se usan si un sonido NO tiene archivo asociado).
 const SOUND_PATTERNS: Partial<Record<NotificationSoundId, Tone[]>> = {
   // Ding-dong descendente suave.
@@ -111,8 +134,15 @@ export function playNotificationSound(soundId: NotificationSoundId, ctx: AudioCo
   const fileUrl = SOUND_FILES[soundId];
   if (fileUrl && typeof Audio !== "undefined") {
     try {
-      const audio = new Audio(fileUrl);
-      audio.volume = 0.85;
+      // Una rafaga de mensajes suena UNA vez, como WhatsApp.
+      const ahora = Date.now();
+      if (ahora - ultimoSonido < PAUSA_ENTRE_SONIDOS_MS) {
+        return true;
+      }
+      ultimoSonido = ahora;
+
+      const audio = reproductorDe(fileUrl);
+      audio.currentTime = 0;
       void audio.play().catch(() => {});
       return true;
     } catch {
