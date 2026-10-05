@@ -409,6 +409,9 @@ const ConversationListItem = memo(function ConversationListItem({
 const ESTIMATED_ROW_HEIGHT = 96;
 const VIRTUALIZATION_THRESHOLD = 36;
 const OVERSCAN_ROWS = 6;
+// Cuantos chats de arriba de la lista se precargan (ver el efecto de precarga).
+const CHATS_A_PRECARGAR = 5;
+
 export function ConversationList({
   conversations: conversacionesPorFecha,
   selectedConversationId,
@@ -528,6 +531,40 @@ export function ConversationList({
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
+
+  /*
+    PRECARGA de los primeros chats de la lista (Alex, 05-10-2026).
+
+    Los que estan arriba son los que se van a abrir: se traen de a uno, cuando el navegador esta
+    libre, y quedan en la cache para que se vean al instante al tocarlos. Es la misma precarga que
+    ya se hacia al pasar el mouse, que NO abre el chat ni marca leidos. Va de a uno para no
+    competir con lo que la asesora esta haciendo: la conexion de la oficina es lo que mas se nota.
+  */
+  const clavesDeArriba = conversations
+    .slice(0, CHATS_A_PRECARGAR)
+    .map((conversation) => conversation.id)
+    .join("|");
+  useEffect(() => {
+    if (!clavesDeArriba) {
+      return;
+    }
+    let cancelado = false;
+    const cuandoEsteLibre = (tarea: () => void) =>
+      typeof window.requestIdleCallback === "function"
+        ? window.requestIdleCallback(tarea, { timeout: 4000 })
+        : window.setTimeout(tarea, 1500);
+    cuandoEsteLibre(async () => {
+      for (const clave of clavesDeArriba.split("|")) {
+        if (cancelado) {
+          return;
+        }
+        await warmConversationCache(clave);
+      }
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [clavesDeArriba]);
 
   // Atras/adelante del navegador. Como abrir un chat usa history.pushState (sin navegacion),
   // Next no re-renderiza el server component al volver: escuchamos popstate y reconstruimos la

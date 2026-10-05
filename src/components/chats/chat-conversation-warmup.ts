@@ -45,10 +45,15 @@ export function warmConversationCache(chatKey: string) {
   if (!normalizedChatKey || readConversationFromCache(normalizedChatKey) || inflightWarmups.has(normalizedChatKey)) {
     return inflightWarmups.get(normalizedChatKey) ?? Promise.resolve();
   }
+  // Los chats oficiales se marcan leidos dentro de su cargador: precargarlos borraria el contador.
+  if (normalizedChatKey.startsWith("official:")) {
+    return Promise.resolve();
+  }
 
   const warmup: Promise<void> = (async () => {
     try {
-      const response = await fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(normalizedChatKey)}`, {
+      // `precarga=1`: trae el chat sin abrirlo (no marca leidos). Ver la ruta /live.
+      const response = await fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(normalizedChatKey)}&precarga=1`, {
         credentials: "same-origin",
         cache: "no-store",
       });

@@ -13,7 +13,8 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
 
 const INITIAL_MESSAGE_BATCH_SIZE = 10;
-const HISTORY_MESSAGE_BATCH_SIZE = 10;
+// Al subir se traen 30: con 10 habia que esperar una vuelta al servidor cada pocos mensajes.
+const HISTORY_MESSAGE_BATCH_SIZE = 30;
 // Presupuesto de tiempo para resolver el medio de un mensaje DENTRO de la respuesta. Si
 // Evolution tarda más, devolvemos el mensaje sin el medio (placeholder) para que el chat
 // aparezca rápido, y terminamos de resolver/persistir en segundo plano (`after`) para que
@@ -103,6 +104,14 @@ export async function GET(request: Request) {
   const chatKey = requestUrl.searchParams.get("chatKey")?.trim() || "";
   const beforeMessageId = requestUrl.searchParams.get("beforeMessageId")?.trim() || "";
   const batchSizeParam = requestUrl.searchParams.get("batchSize")?.trim() || "";
+  /*
+    PRECARGA: traer el chat sin "abrirlo".
+
+    La lista lo pide antes de que la asesora toque (al pasar el mouse, y los primeros de la lista)
+    para que se vea al instante. Eso NO es abrirlo: no marca leidos -si no, el contador de no leidos
+    se borraba con solo pasar el mouse- ni suscribe la presencia ni refresca la foto.
+  */
+  const esPrecarga = requestUrl.searchParams.get("precarga") === "1";
   const parsed = parseChatKey(chatKey);
 
   if (!parsed) {
@@ -195,7 +204,7 @@ export async function GET(request: Request) {
   // /cliente/chats, pero abrir un chat ya no navega alli, asi que el marcado vive aca: este
   // endpoint es el que se llama al abrir. Solo en la carga INICIAL (sin beforeMessageId):
   // paginar historial hacia arriba no debe marcar nada. Diferido con after() para no bloquear.
-  if (!beforeMessageId) {
+  if (!beforeMessageId && !esPrecarga) {
     const conversationIdForRead = parsed.conversationId;
     const workspaceIdForRead = membership.workspace.id;
     after(async () => {
@@ -226,7 +235,7 @@ export async function GET(request: Request) {
 
     Va en segundo plano y solo al ABRIR el chat: paginar hacia arriba no tiene por que resuscribir.
   */
-  if (instanceName && !beforeMessageId) {
+  if (instanceName && !beforeMessageId && !esPrecarga) {
     const conexionPresencia = readGatewayConnection(conversation.channel?.metadata ?? null);
     const telefonoPresencia = conversation.contact?.phoneNumber?.trim();
     if (conexionPresencia?.kind === WAHA_GATEWAY_KIND && telefonoPresencia) {
@@ -318,7 +327,7 @@ export async function GET(request: Request) {
 
   // Al abrir la conversación, refresca la foto de perfil de ESTE contacto (sin esperar el
   // turno del refresco en segundo plano), para que la foto aparezca pronto en el CRM.
-  if (instanceName && conversation.contact.phoneNumber) {
+  if (instanceName && conversation.contact.phoneNumber && !esPrecarga) {
     scheduleSingleContactAvatarRefresh({
       contactId: conversation.contact.id,
       phoneNumber: conversation.contact.phoneNumber,

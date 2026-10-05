@@ -1646,7 +1646,7 @@ export function SharedInbox({
 
     try {
       const response = await fetch(
-        `/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}&beforeMessageId=${encodeURIComponent(loadMoreCursor)}&batchSize=10`,
+        `/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}&beforeMessageId=${encodeURIComponent(loadMoreCursor)}&batchSize=30`,
         {
           credentials: "same-origin",
           cache: "no-store",
