@@ -137,6 +137,8 @@ export async function GET(request: Request) {
       workspaceId: membership.workspace.id,
       conversationId: parsed.conversationId,
       includeSelectedConversation: true,
+      // La precarga no abre el chat: no marca leidos.
+      marcarLeidosComo: esPrecarga ? undefined : session.user.id,
     });
 
     const detalle = data.selectedConversation;
@@ -204,9 +206,12 @@ export async function GET(request: Request) {
   // /cliente/chats, pero abrir un chat ya no navega alli, asi que el marcado vive aca: este
   // endpoint es el que se llama al abrir. Solo en la carga INICIAL (sin beforeMessageId):
   // paginar historial hacia arriba no debe marcar nada. Diferido con after() para no bloquear.
+  // Solo si el chat no tiene asesora o es de quien lo abre: si una admin entra a revisar el chat
+  // de otra, el verde no se le puede borrar a la asesora.
   if (!beforeMessageId && !esPrecarga) {
     const conversationIdForRead = parsed.conversationId;
     const workspaceIdForRead = membership.workspace.id;
+    const lectorId = session.user.id;
     after(async () => {
       try {
         await prisma.message.updateMany({
@@ -215,6 +220,7 @@ export async function GET(request: Request) {
             conversationId: conversationIdForRead,
             direction: "INBOUND",
             readAt: null,
+            conversation: { OR: [{ assignedToUserId: null }, { assignedToUserId: lectorId }] },
           },
           data: { readAt: new Date() },
         });

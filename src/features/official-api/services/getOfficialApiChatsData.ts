@@ -216,6 +216,11 @@ export async function getOfficialApiChatsData(input: {
   currentUserId?: string;
   /** Etapa del embudo y "sin responder", los mismos que se aplican al canal viejo. */
   filtros?: FiltrosDeBandeja;
+  /**
+   * Quien ABRE el chat seleccionado. Sus entrantes se marcan leidos solo si el chat no tiene
+   * asesora o es de esta persona. Sin esto no se marca nada (precarga, vista previa del admin).
+   */
+  marcarLeidosComo?: string;
 }): Promise<OfficialApiChatsData> {
   try {
     return await loadOfficialApiChatsData(input);
@@ -242,6 +247,7 @@ async function loadOfficialApiChatsData(input: {
   /** Quien esta mirando la bandeja. Hace falta para resolver "Mias". */
   currentUserId?: string;
   filtros?: FiltrosDeBandeja;
+  marcarLeidosComo?: string;
 }): Promise<OfficialApiChatsData> {
   const INITIAL_MESSAGE_LIMIT = 20;
   const config = await getOfficialApiConfigByWorkspaceId(input.workspaceId);
@@ -422,20 +428,30 @@ async function loadOfficialApiChatsData(input: {
     // viejo. Sin esto el globo verde se quedaba pegado: la asesora entraba, leia, y el chat
     // seguia figurando con mensajes sin ver hasta que respondia.
     // Diferido con after() para no demorar la apertura; si falla, se reintenta al reabrir.
-    after(async () => {
-      try {
-        await prisma.$executeRaw`
-          UPDATE "OfficialApiMessage"
-          SET "readAt" = CURRENT_TIMESTAMP
-          WHERE "conversationId" = ${conversationId}
-            AND "configId" = ${activeConfig.id}
-            AND "direction" = 'INBOUND'
-            AND "readAt" IS NULL
-        `;
-      } catch (error) {
-        console.error("[OFFICIAL_API] mark_read_failed", { conversationId, error });
-      }
-    });
+    // Si el chat es de OTRA asesora no se marca: cuando una admin entraba a revisarlo, el verde
+    // se le borraba tambien a la asesora y ella no se enteraba de que el cliente habia escrito.
+    const lectorId = input.marcarLeidosComo;
+    if (lectorId) {
+      after(async () => {
+        try {
+          await prisma.$executeRaw`
+            UPDATE "OfficialApiMessage"
+            SET "readAt" = CURRENT_TIMESTAMP
+            WHERE "conversationId" = ${conversationId}
+              AND "configId" = ${activeConfig.id}
+              AND "direction" = 'INBOUND'
+              AND "readAt" IS NULL
+              AND EXISTS (
+                SELECT 1 FROM "OfficialApiConversation" oc
+                WHERE oc."id" = ${conversationId}
+                  AND (oc."assignedToUserId" IS NULL OR oc."assignedToUserId" = ${lectorId})
+              )
+          `;
+        } catch (error) {
+          console.error("[OFFICIAL_API] mark_read_failed", { conversationId, error });
+        }
+      });
+    }
 
     // AUTO-RECUPERACIÓN de archivos viejos. Los mensajes que entraron antes de que existiera la
     // descarga quedaron sin archivo (una burbuja "Foto" cargando para siempre), pero el

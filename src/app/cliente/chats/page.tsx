@@ -522,6 +522,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       // Y los nuevos (etapa del embudo, sin responder), por lo mismo.
       filtros,
       currentUserId: access.userId,
+      marcarLeidosComo: access.userId,
     }),
   ]);
 
@@ -675,6 +676,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             conversationId: selectedAgentConversationIdForRead,
             direction: "INBOUND",
             readAt: null,
+            // Solo si el chat no tiene asesora o es de quien lo abre (ver /api/cliente/chats/live).
+            conversation: { OR: [{ assignedToUserId: null }, { assignedToUserId: access.userId }] },
           },
           data: { readAt: new Date() },
         });

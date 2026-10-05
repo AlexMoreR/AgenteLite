@@ -255,6 +255,10 @@ la IA pausada no lo contesta el agente.
   cliente, sin teléfono).
 - **Los clientes con el visto apagado no reciben automáticos**: sus mensajes nunca pasan a "leído", así
   que el freno los detiene siempre (1 de cada 4 chats que responden, medido el 02-10-2026).
+- **Lo leído no es por persona**: cada mensaje entrante tiene una sola marca de leído para todo el
+  equipo. Por eso, abrir un chat asignado a otra asesora (una admin revisándolo) no lo marca como
+  leído: si lo hiciera, el verde se le borraría también a ella. Los chats sin asignar y los propios sí
+  se marcan al abrirlos.
 
 ## Advertencias de operación
 
