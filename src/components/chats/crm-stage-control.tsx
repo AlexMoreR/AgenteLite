@@ -350,6 +350,16 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
         ? createPortal(
         <div
           ref={menuRef}
+          /*
+            Los clics del panel NO salen del panel.
+
+            El panel se dibuja en otra parte de la pagina (portal), pero para React sigue estando
+            DENTRO de la fila de la lista, que es un enlace al chat y corta los clics con
+            preventDefault. El clic en "Descartar" (motivo Otro) o "Marcar Ganado" subia hasta ahi
+            y el preventDefault cancelaba el envio del formulario: el boton no hacia nada (Alex,
+            05-10-2026). Cortandolo aca, el formulario se envia y el chat no se abre.
+          */
+          onClick={(evento) => evento.stopPropagation()}
           style={{
             ...(posicion.top === undefined ? {} : { top: posicion.top }),
             ...(posicion.bottom === undefined ? {} : { bottom: posicion.bottom }),
