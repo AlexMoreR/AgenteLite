@@ -2119,7 +2119,10 @@ export async function POST(request: NextRequest) {
          * esta a salvo en disco. Si el guardado falla, no se toca nada: el base64 sigue siendo
          * el ultimo respaldo para recuperar ese archivo.
          *
-         * Las dos rutas conocidas: evogo guarda en "Message", Evolution API en "message".
+         * Las rutas conocidas: evogo guarda en "Message", Evolution API en "message", y WAHA en
+         * `data.base64` -lo pone ahi nuestro webhook de WAHA para que este codigo lo guarde-. Esa
+         * tercera faltaba: con WAHA el archivo entero quedaba en la base, ~62 KB promedio por
+         * mensaje, y abrir un chat traia hasta 600 KB de la base (medido el 05-10-2026).
          * Borrar una ruta que no existe no hace nada.
          */
         await prisma.message.update({
@@ -2137,7 +2140,7 @@ export async function POST(request: NextRequest) {
         try {
           await prisma.$executeRaw`
             UPDATE "Message"
-            SET "rawPayload" = ("rawPayload" #- '{evolution,data,Message,base64}') #- '{evolution,data,message,base64}'
+            SET "rawPayload" = (("rawPayload" #- '{evolution,data,Message,base64}') #- '{evolution,data,message,base64}') #- '{evolution,data,base64}'
             WHERE "channelId" = ${channel.id}
               AND "externalId" = ${inboundExternalId}
           `;

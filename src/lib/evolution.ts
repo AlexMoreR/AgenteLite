@@ -1242,6 +1242,20 @@ export async function resolveEvolutionMessageMediaUrl(input: {
     }
   }
 
+  /*
+    Los demas archivos NUESTROS (notas de voz grabadas en el CRM, fotos y videos de los flujos) se
+    guardan con la direccion completa o en otras carpetas, y no entraban al atajo de arriba: cada
+    apertura del chat decodificaba el base64 del payload y volvia a guardar el archivo, o salia a
+    pedirlo a WhatsApp. Ya estan en nuestro disco y el navegador los pide directo.
+  */
+  const urlGuardada = input.mediaUrl?.trim() || "";
+  if (
+    (urlGuardada.startsWith("/uploads/") && !urlGuardada.startsWith("/uploads/chat-media/")) ||
+    /^https:\/\/app\.aizenbot\.com\/uploads\//i.test(urlGuardada)
+  ) {
+    return urlGuardada;
+  }
+
   const payloadMessageId = input.rawPayload ? extractEvolutionMessageIdFromPayload(input.rawPayload) : null;
   const resolvedMessageId = payloadMessageId || input.messageId?.trim() || null;
   // evogo descarga la media con el mensaje COMPLETO (waE2E.Message), no con el id: lo sacamos
