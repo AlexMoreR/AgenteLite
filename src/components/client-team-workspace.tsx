@@ -88,6 +88,8 @@ type EmployeeRow = {
   lineas: LineaDeLaPersona[];
   /** Días y horas en que le caen leads automáticos. */
   horario: HorarioSemanal;
+  /** WhatsApp donde le llegan los avisos de sus chats. Vacío = no recibe. */
+  whatsappDeAvisos: string;
   invitedAtLabel: string;
   acceptedAtLabel: string;
 };
@@ -318,6 +320,9 @@ function EditarPersonaDialog({
   const [modules, setModules] = React.useState<ClientAssignableModuleKey[]>(employee.modules);
   const [lineas, setLineas] = React.useState<LineaDeLaPersona[]>(employee.lineas);
   const [horario, setHorario] = React.useState<HorarioSemanal>(employee.horario);
+  const [whatsappDeAvisos, setWhatsappDeAvisos] = React.useState(
+    employee.whatsappDeAvisos ? `+${employee.whatsappDeAvisos}` : "",
+  );
   const [guardando, startTransition] = React.useTransition();
 
   const guardar = () =>
@@ -328,6 +333,7 @@ function EditarPersonaDialog({
         modulos: modules,
         lineas: lineas.map((linea) => ({ channelId: linea.channelId, estado: linea.estado })),
         horario,
+        whatsappDeAvisos,
       });
       if ("error" in resultado) {
         toast.error(resultado.error);
@@ -387,6 +393,31 @@ function EditarPersonaDialog({
                 ))}
               </div>
             )}
+          </section>
+
+          <section className="space-y-2">
+            <label
+              htmlFor={`avisos-${employee.id}`}
+              className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+            >
+              WhatsApp para avisos
+            </label>
+            <Input
+              id={`avisos-${employee.id}`}
+              type="tel"
+              inputMode="tel"
+              autoComplete="off"
+              value={whatsappDeAvisos}
+              onChange={(evento) => setWhatsappDeAvisos(evento.target.value)}
+              placeholder="+57 300 123 4567"
+              className="text-[16px] md:text-sm"
+            />
+            <p className="text-xs leading-snug text-muted-foreground">
+              {esAdmin
+                ? "Le llega un WhatsApp cuando cualquier chat necesita atención."
+                : "Le llega un WhatsApp cuando uno de SUS chats necesita atención."}{" "}
+              Sale por la misma línea del chat (Ventas 1, Ventas 2 o Admin). Vacío = no recibe avisos.
+            </p>
           </section>
 
           <section className="space-y-2">

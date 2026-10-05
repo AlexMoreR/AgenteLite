@@ -8,6 +8,7 @@ import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 import { horarioSiempre, leerHorariosDeReparto } from "@/lib/horario-de-reparto";
 import { leerSupervisoras } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
+import { leerConfigDeAvisos, numeroDeAvisosDe } from "@/features/agente-v3/servicios/avisos";
 
 export const metadata: Metadata = {
   robots: {
@@ -38,7 +39,7 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
 
   // Muestra empleados (AGENT/EMPLEADO) Y administradores (ADMIN) del negocio. El dueno
   // (OWNER) no se lista aqui: es el titular de la cuenta, no un miembro gestionable.
-  const [employees, canales, supervisoras, horarios] = await Promise.all([
+  const [employees, canales, supervisoras, horarios, configDeAvisos] = await Promise.all([
     prisma.workspaceMember.findMany({
       where: {
         workspaceId: access.workspaceId,
@@ -71,6 +72,7 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
     }),
     leerSupervisoras(access.workspaceId),
     leerHorariosDeReparto(access.workspaceId),
+    leerConfigDeAvisos(access.workspaceId).catch(() => null),
   ]);
 
   /*
@@ -118,6 +120,7 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
             modules: sanitizeClientModuleAccess(employee.moduleAccess),
             lineas: lineasDe(employee.user.id),
             horario: horarios[employee.user.id] ?? horarioSiempre(),
+            whatsappDeAvisos: numeroDeAvisosDe(configDeAvisos, employee.user.id),
             invitedAtLabel: `Invitado: ${formatDate(employee.invitedAt)}`,
             acceptedAtLabel: employee.acceptedAt ? `Aceptado: ${formatDate(employee.acceptedAt)}` : "Sin aceptar",
           };

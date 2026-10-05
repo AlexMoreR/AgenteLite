@@ -12,9 +12,8 @@ import { prisma } from "@/lib/prisma";
  * Cada número recibe SOLO lo suyo: el de una asesora, los chats que tiene asignados; el de un
  * administrador, todos. Así nadie vive con el teléfono sonando por conversaciones que no atiende.
  *
- * Sale por la línea que diga la configuración —la de Admin, no la de ventas— a propósito: si
- * WhatsApp llegara a restringir algo por el volumen de avisos, que sea la línea administrativa y
- * no la que está vendiendo.
+ * Sale por la MISMA línea del chat (Ventas 1, Ventas 2, Admin), desde el 05-10-2026 a pedido de
+ * Alex. Antes salía siempre por Admin. Los números de cada persona se editan en Mi empresa → Equipo.
  */
 
 const CLAVE = "agente-v3:avisos:";
@@ -30,7 +29,29 @@ export type DestinoDeAviso = {
    * Id del usuario cuyos chats le interesan. `null` = administrador: recibe todos.
    */
   soloDe: string | null;
+  /** De quien es el numero, cuando se cargo desde Mi empresa → Equipo (sirve para editarlo). */
+  userId?: string;
 };
+
+/**
+ * Un numero de WhatsApp como lo escribe la gente ("+58 416-9102943", "300 265 6414") a solo
+ * digitos con codigo de pais. Diez digitos que empiezan en 3 son un celular de Colombia: se les
+ * pone el 57. Devuelve null si no parece un numero.
+ */
+export function normalizarNumeroDeAviso(valor: string): string | null {
+  const digitos = valor.replace(/\D/g, "");
+  if (digitos.length === 10 && digitos.startsWith("3")) {
+    return `57${digitos}`;
+  }
+  return digitos.length >= 11 && digitos.length <= 15 ? digitos : null;
+}
+
+/** El numero de avisos de una persona del equipo, si lo tiene. */
+export function numeroDeAvisosDe(config: ConfigDeAvisos | null, userId: string): string {
+  return (
+    config?.destinos.find((destino) => destino.userId === userId || destino.soloDe === userId)?.numero ?? ""
+  );
+}
 
 export type ConfigDeAvisos = {
   /** Canal por el que salen los avisos. Vacío = no se manda nada. */
@@ -58,6 +79,7 @@ export async function leerConfigDeAvisos(workspaceId: string): Promise<ConfigDeA
           numero: destino.numero.replace(/\D/g, ""),
           nombre: destino.nombre,
           soloDe: typeof destino.soloDe === "string" ? destino.soloDe : null,
+          ...(typeof destino.userId === "string" ? { userId: destino.userId } : {}),
         }))
         .filter((destino) => destino.numero.length >= 10),
     };
@@ -70,6 +92,34 @@ export async function guardarConfigDeAvisos(workspaceId: string, config: ConfigD
   const key = `${CLAVE}${workspaceId}`;
   const value = JSON.stringify(config);
   await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+  numerosDelEquipoCache.delete(workspaceId);
+}
+
+/*
+  ¿Este telefono es de alguien del equipo (esta en la lista de avisos)?
+
+  Desde el 05-10-2026 el aviso sale por la MISMA linea del chat (Ventas 1, Ventas 2...), no por
+  Admin. Eso deja el chat con la asesora dentro de una linea de ventas, donde atiende el agente: si
+  ella contestaba "ok" al aviso, el agente le respondia como a una clienta. El webhook pregunta esto
+  para no atender ni repartir esos chats. Se cachea un minuto: se consulta en cada mensaje entrante.
+*/
+const numerosDelEquipoCache = new Map<string, { numeros: Set<string>; vence: number }>();
+
+export async function esNumeroDelEquipo(workspaceId: string, telefono: string | null | undefined): Promise<boolean> {
+  const limpio = (telefono ?? "").replace(/\D/g, "");
+  if (limpio.length < 10) {
+    return false;
+  }
+  let guardado = numerosDelEquipoCache.get(workspaceId);
+  if (!guardado || guardado.vence < Date.now()) {
+    const config = await leerConfigDeAvisos(workspaceId).catch(() => null);
+    guardado = {
+      numeros: new Set((config?.destinos ?? []).map((destino) => destino.numero)),
+      vence: Date.now() + 60_000,
+    };
+    numerosDelEquipoCache.set(workspaceId, guardado);
+  }
+  return guardado.numeros.has(limpio);
 }
 
 /**
@@ -87,15 +137,6 @@ export async function avisarAsesorPorWhatsApp(input: {
   try {
     const config = await leerConfigDeAvisos(input.workspaceId);
     if (!config?.activo || config.destinos.length === 0) {
-      return 0;
-    }
-
-    const canal = await prisma.whatsAppChannel.findFirst({
-      where: { id: config.canalId, workspaceId: input.workspaceId },
-      select: { evolutionInstanceName: true },
-    });
-    if (!canal?.evolutionInstanceName) {
-      console.warn("[avisos] el canal configurado no sirve para enviar", { canalId: config.canalId });
       return 0;
     }
 
@@ -121,6 +162,27 @@ export async function avisarAsesorPorWhatsApp(input: {
         where: { id: input.conversationId },
         select: { assignedToUserId: true, channelId: true, numero: true },
       });
+    }
+
+    /*
+      Sale por la MISMA linea del chat (Alex, 05-10-2026): un chat de Ventas 1 avisa desde Ventas
+      1, uno de Admin desde Admin. Asi la asesora ve de que numero viene el cliente. La linea de la
+      configuracion queda solo de respaldo, si la del chat no puede enviar.
+    */
+    const lineasPosibles = [conversacion?.channelId, config.canalId].filter(
+      (id): id is string => Boolean(id),
+    );
+    const lineas = await prisma.whatsAppChannel.findMany({
+      where: { id: { in: lineasPosibles }, workspaceId: input.workspaceId },
+      select: { id: true, evolutionInstanceName: true },
+    });
+    const canal =
+      lineas.find((linea) => linea.id === conversacion?.channelId && linea.evolutionInstanceName) ??
+      lineas.find((linea) => linea.id === config.canalId && linea.evolutionInstanceName) ??
+      null;
+    if (!canal?.evolutionInstanceName) {
+      console.warn("[avisos] ninguna linea sirve para enviar", { lineasPosibles });
+      return 0;
     }
 
     /*

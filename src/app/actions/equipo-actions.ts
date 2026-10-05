@@ -9,6 +9,11 @@ import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 import { guardarHorarioDeReparto, normalizarHorario } from "@/lib/horario-de-reparto";
 import { guardarSupervisoras, leerSupervisoras } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
+import {
+  guardarConfigDeAvisos,
+  leerConfigDeAvisos,
+  normalizarNumeroDeAviso,
+} from "@/features/agente-v3/servicios/avisos";
 
 export type EstadoEnLaLinea = "no" | "recibe" | "pausa" | "monitorea";
 
@@ -26,15 +31,27 @@ export async function guardarPersonaDelEquipoAction(input: {
   lineas: Array<{ channelId: string; estado: EstadoEnLaLinea }>;
   /** Días y horas en que le caen leads automáticos. Sin esto, no se toca lo guardado. */
   horario?: unknown;
+  /**
+   * WhatsApp donde le llegan los avisos ("necesita atención"). Vacío = no recibe avisos. Sin el
+   * campo, no se toca lo guardado.
+   */
+  whatsappDeAvisos?: string;
 }): Promise<{ ok: true } | { error: string }> {
   const access = await requireClientWorkspaceAccess("client_team", { ownerOnly: true });
 
   const miembro = await prisma.workspaceMember.findFirst({
     where: { id: typeof input.memberId === "string" ? input.memberId : "", workspaceId: access.workspaceId },
-    select: { id: true, userId: true, role: true, user: { select: { role: true } } },
+    select: { id: true, userId: true, role: true, user: { select: { role: true, name: true, email: true } } },
   });
   if (!miembro) {
     return { error: "Esa persona no es del equipo" };
+  }
+
+  // El numero se valida antes de escribir nada, como el resto.
+  const textoDelNumero = typeof input.whatsappDeAvisos === "string" ? input.whatsappDeAvisos.trim() : null;
+  const numeroDeAvisos = textoDelNumero ? normalizarNumeroDeAviso(textoDelNumero) : null;
+  if (textoDelNumero && !numeroDeAvisos) {
+    return { error: "El WhatsApp para avisos no parece un número. Escríbelo con el código del país, por ejemplo +57 300 123 4567." };
   }
   // A un administrador no se le recortan pantallas ni se le pone rol: ya tiene todo. Solo sus lineas.
   const esEmpleada = miembro.role === "AGENT" && miembro.user.role === "EMPLEADO";
@@ -129,6 +146,35 @@ export async function guardarPersonaDelEquipoAction(input: {
 
   if (input.horario !== undefined) {
     await guardarHorarioDeReparto(access.workspaceId, miembro.userId, normalizarHorario(input.horario));
+  }
+
+  /*
+    El WhatsApp de avisos de esta persona (Alex, 05-10-2026: "en Equipo, en las asesoras, el numero
+    de WhatsApp para notificar"). Vive en la misma lista que usan los avisos del agente: una asesora
+    recibe solo los chats que tiene asignados; un administrador, todos.
+  */
+  if (textoDelNumero !== null) {
+    const actual = await leerConfigDeAvisos(access.workspaceId);
+    const sinEsta = (actual?.destinos ?? []).filter(
+      (destino) => destino.userId !== miembro.userId && destino.soloDe !== miembro.userId,
+    );
+    const destinos = numeroDeAvisos
+      ? [
+          ...sinEsta,
+          {
+            numero: numeroDeAvisos,
+            nombre: miembro.user.name?.trim() || miembro.user.email || undefined,
+            soloDe: miembro.role === "ADMIN" ? null : miembro.userId,
+            userId: miembro.userId,
+          },
+        ]
+      : sinEsta;
+    await guardarConfigDeAvisos(access.workspaceId, {
+      // La linea de la config queda solo de respaldo: el aviso sale por la del chat.
+      canalId: actual?.canalId ?? canales[0]?.id ?? "",
+      activo: actual?.activo ?? true,
+      destinos,
+    });
   }
 
   revalidatePath("/cliente/equipo");

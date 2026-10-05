@@ -174,6 +174,13 @@ Abre el panel del contacto (toca la foto en la cabecera) y busca "Agente asignad
 - Si eres colaborador: "Tomar este chat" para asignártela, o "Soltar chat" para dejarla libre.
 - Si eres administrador: elige "Sin asignar" o el nombre de la persona (tu nombre aparece con "(tú)").
 
+### WhatsApp para avisos de una persona
+Solo el dueño. En Mi empresa → Equipo, abre el menú de la persona, toca "Editar" y escribe su número en "WhatsApp para avisos" (con código de país, por ejemplo +57 300 123 4567). Toca "Guardar".
+- A una asesora le llega un WhatsApp cuando uno de SUS chats necesita atención; a un administrador, el de cualquier chat.
+- El aviso sale por la misma línea del chat: si el chat es de Ventas 1, lo manda Ventas 1.
+- Si la asesora contesta el aviso, el agente no le responde: sabe que es del equipo.
+- Para que deje de recibir avisos, borra el número y guarda.
+
 ### Horario de leads automáticos de una persona
 Solo el dueño. En Mi empresa → Equipo, abre el menú de la persona y toca "Editar". En "Horario de leads automáticos" elige para cada día: "Todo el día", "Solo en un horario" (pones desde y hasta, hora de Colombia) o "No recibe". Toca "Guardar".
 - Fuera de su horario no le entran leads automáticos en ninguna línea; los recibe el resto del equipo.

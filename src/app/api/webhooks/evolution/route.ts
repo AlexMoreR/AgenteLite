@@ -41,7 +41,7 @@ import {
 } from "@/lib/evolution-envio";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { prisma } from "@/lib/prisma";
-import { avisarAsesorPorWhatsApp } from "@/features/agente-v3/servicios/avisos";
+import { avisarAsesorPorWhatsApp, esNumeroDelEquipo } from "@/features/agente-v3/servicios/avisos";
 import { responderConElRedactor } from "@/features/agente-v3/servicios/redactor";
 import { leerFotoParaElV3, transcribirAudioParaElV3 } from "@/features/agente-v3/servicios/medios";
 import { sendChatPushToWorkspace } from "@/lib/web-push";
@@ -2684,8 +2684,24 @@ export async function POST(request: NextRequest) {
     porque el que los entendia era el V2. Abajo se transcribe el audio y se describe la foto.
   */
   const llegoAudioFotoOVideo = messageType === "AUDIO" || messageType === "IMAGE" || messageType === "VIDEO";
+  /*
+    Una persona del EQUIPO no es una clienta.
+
+    Los avisos a las asesoras salen por la misma linea del chat (ver avisos.ts), asi que su
+    respuesta -"ok", "ya lo tomo"- entra por una linea de ventas. El agente no le contesta, y el chat
+    queda pausado para cualquier automatico (seguimientos, V2).
+  */
+  const escribeAlguienDelEquipo =
+    !fromMe && canalTieneV3 && (await esNumeroDelEquipo(channel.workspaceId, phoneNumber).catch(() => false));
+  if (escribeAlguienDelEquipo && conversation.id) {
+    await setConversationAutomationPaused({ conversationId: conversation.id, paused: true }).catch(() => undefined);
+  }
   const canalUsaV3 =
-    !fromMe && !isCallEvent && (Boolean(messageText?.trim()) || llegoAudioFotoOVideo) && canalTieneV3;
+    !fromMe &&
+    !isCallEvent &&
+    !escribeAlguienDelEquipo &&
+    (Boolean(messageText?.trim()) || llegoAudioFotoOVideo) &&
+    canalTieneV3;
 
   /*
     Un chat pausado el V3 NO lo contesta. Punto.
