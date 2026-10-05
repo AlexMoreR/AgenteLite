@@ -422,6 +422,9 @@ async function loadOfficialApiChatsData(input: {
     // viejo. Sin esto el globo verde se quedaba pegado: la asesora entraba, leia, y el chat
     // seguia figurando con mensajes sin ver hasta que respondia.
     // Diferido con after() para no demorar la apertura; si falla, se reintenta al reabrir.
+    // Solo la dueña del chat lo marca leido (ver /api/cliente/chats/live). Sin saber quien mira
+    // -no deberia pasar- se marca como antes.
+    const quienMira = input.currentUserId ?? null;
     after(async () => {
       try {
         await prisma.$executeRaw`
@@ -431,6 +434,14 @@ async function loadOfficialApiChatsData(input: {
             AND "configId" = ${activeConfig.id}
             AND "direction" = 'INBOUND'
             AND "readAt" IS NULL
+            AND (
+              ${quienMira}::text IS NULL
+              OR EXISTS (
+                SELECT 1 FROM "OfficialApiConversation" oc
+                WHERE oc."id" = ${conversationId}
+                  AND (oc."assignedToUserId" IS NULL OR oc."assignedToUserId" = ${quienMira})
+              )
+            )
         `;
       } catch (error) {
         console.error("[OFFICIAL_API] mark_read_failed", { conversationId, error });

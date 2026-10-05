@@ -137,6 +137,8 @@ export async function GET(request: Request) {
       workspaceId: membership.workspace.id,
       conversationId: parsed.conversationId,
       includeSelectedConversation: true,
+      // Para que solo la dueña del chat lo marque leido.
+      currentUserId: session.user.id,
     });
 
     const detalle = data.selectedConversation;
@@ -207,6 +209,7 @@ export async function GET(request: Request) {
   if (!beforeMessageId && !esPrecarga) {
     const conversationIdForRead = parsed.conversationId;
     const workspaceIdForRead = membership.workspace.id;
+    const quienMira = session.user.id;
     after(async () => {
       try {
         await prisma.message.updateMany({
@@ -215,6 +218,14 @@ export async function GET(request: Request) {
             conversationId: conversationIdForRead,
             direction: "INBOUND",
             readAt: null,
+            /*
+              Solo la DUEÑA del chat lo marca leido (Alex, 05-10-2026).
+
+              El leido es uno solo para todo el equipo: si un administrador tenia abierto el chat de
+              Genesis, cada mensaje se marcaba leido al instante y a ella el globo verde le aparecia y
+              se le borraba sin haberlo visto. Un chat sin dueña lo marca cualquiera, como siempre.
+            */
+            conversation: { OR: [{ assignedToUserId: null }, { assignedToUserId: quienMira }] },
           },
           data: { readAt: new Date() },
         });

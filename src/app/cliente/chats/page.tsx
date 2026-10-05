@@ -675,6 +675,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             conversationId: selectedAgentConversationIdForRead,
             direction: "INBOUND",
             readAt: null,
+            // Solo la dueña del chat lo marca leido (ver /api/cliente/chats/live).
+            conversation: { OR: [{ assignedToUserId: null }, { assignedToUserId: access.userId }] },
           },
           data: { readAt: new Date() },
         });
