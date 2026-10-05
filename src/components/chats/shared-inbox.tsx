@@ -425,8 +425,26 @@ export function SharedInbox({
   // (fetch directo, cache: no-store) y hace upsert. Evita depender del RSC cacheado en
   // navegación: una conversación nueva que llegó mientras no estabas en esta vista aparece
   // de una, sin recargar la página. Es un fetch único por cambio de deps (no un polling).
+  const primeraListaRef = useRef(true);
   useEffect(() => {
     let cancelled = false;
+
+    /*
+      Recien cargada la pagina, la lista YA vino del servidor: no se pide de nuevo.
+
+      Se pedia dos veces seguidas -el servidor la arma para pintar la pagina y apenas montaba se
+      volvia a pedir igual-: 250 de las 571 listas de una hora (05-10-2026). Pesa sobre todo despues
+      de un despliegue, cuando todas las pestañas recargan a la vez. Solo se salta la PRIMERA vez y
+      solo si la pagina se cargo hace menos de 15 s (recargar o entrar desde afuera): al volver con
+      el boton de atras, o al cambiar filtros o linea, se pide como siempre.
+    */
+    const esLaPrimera = primeraListaRef.current;
+    primeraListaRef.current = false;
+    if (esLaPrimera && typeof performance !== "undefined" && performance.now() < 15_000) {
+      return () => {
+        cancelled = true;
+      };
+    }
 
     (async () => {
       try {
