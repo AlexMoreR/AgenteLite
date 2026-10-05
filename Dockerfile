@@ -22,6 +22,9 @@ RUN --mount=type=cache,target=/app/.next/cache npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
+# ffmpeg convierte cada audio del chat a un formato que suene en todos los navegadores
+# (ver src/lib/audio-para-escuchar.ts). Si faltara, los audios se guardan tal cual llegan.
+RUN apk add --no-cache ffmpeg
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV PRISMA_AUTO_RESOLVE_FAILED_OFFICIAL_API_MIGRATION=false

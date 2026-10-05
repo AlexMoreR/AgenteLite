@@ -156,7 +156,18 @@ export function AudioMessageCard({
     }
     if (audio.paused) {
       audio.playbackRate = velocidad;
-      void audio.play();
+      /*
+        Si el primer play falla, se recarga el archivo y se intenta una vez mas.
+
+        El error se tragaba en silencio y el boton "no hacia nada" (Alex, 05-10-2026). Pasa cuando el
+        navegador solo habia bajado la cabecera y el pedido se corto, o con los audios viejos que se
+        guardaron en un formato que ese navegador no conoce.
+      */
+      void audio.play().catch(() => {
+        audio.load();
+        audio.playbackRate = velocidad;
+        void audio.play().catch(() => undefined);
+      });
     } else {
       audio.pause();
     }

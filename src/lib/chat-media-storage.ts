@@ -2,6 +2,7 @@ import { mkdir, writeFile, access } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { EXTENSION_PARA_ESCUCHAR, convertirAudioParaEscuchar } from "@/lib/audio-para-escuchar";
 
 // Carpeta servida por Next desde /public; reutiliza el mismo mecanismo de
 // almacenamiento que la subida manual de medios (src/app/api/cliente/chats/upload-media).
@@ -147,10 +148,29 @@ export async function persistChatMediaFromDataUrl(input: {
 
   const ext = extensionForMime(parsed.mimeType, input.mediaType);
   const hash = createHash("sha256").update(parsed.buffer).digest("hex");
+  const uploadDir = path.join(process.cwd(), ...CHAT_MEDIA_DIR_SEGMENTS);
+
+  /*
+    Los audios se guardan en un formato que suene en todos los navegadores (ver
+    audio-para-escuchar). El nombre sigue saliendo del hash del ORIGINAL, asi que un reintento del
+    webhook encuentra la copia ya convertida y no vuelve a convertir.
+  */
+  if (input.mediaType === "AUDIO") {
+    const nombreConvertido = `${hash}${EXTENSION_PARA_ESCUCHAR}`;
+    const rutaConvertida = path.join(uploadDir, nombreConvertido);
+    if (await fileExists(rutaConvertida)) {
+      return `${CHAT_MEDIA_PUBLIC_PREFIX}${nombreConvertido}`;
+    }
+    const convertido = await convertirAudioParaEscuchar(parsed.buffer, ext);
+    if (convertido) {
+      await mkdir(uploadDir, { recursive: true });
+      await writeFile(rutaConvertida, convertido);
+      return `${CHAT_MEDIA_PUBLIC_PREFIX}${nombreConvertido}`;
+    }
+  }
+
   const fileName = `${hash}${ext}`;
   const publicUrl = `${CHAT_MEDIA_PUBLIC_PREFIX}${fileName}`;
-
-  const uploadDir = path.join(process.cwd(), ...CHAT_MEDIA_DIR_SEGMENTS);
   const filePath = path.join(uploadDir, fileName);
 
   // Idempotencia: si el binario ya existe (mismo hash), no reescribir.

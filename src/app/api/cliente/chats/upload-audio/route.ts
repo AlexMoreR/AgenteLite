@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { EXTENSION_PARA_ESCUCHAR, convertirAudioParaEscuchar } from "@/lib/audio-para-escuchar";
 
 const MAX_FILE_SIZE_BYTES = 16 * 1024 * 1024;
 const ALLOWED_AUDIO_MIME_TYPES = new Set([
@@ -89,10 +90,13 @@ export async function POST(request: Request) {
   const uploadDir = path.join(process.cwd(), "public", "uploads", "chat-audio");
   await mkdir(uploadDir, { recursive: true });
 
-  const ext = getAudioExtension(baseMimeType);
+  const original = Buffer.from(await file.arrayBuffer());
+  // Una copia que suene en cualquier navegador (ver audio-para-escuchar). Si no se puede, el original.
+  const convertido = await convertirAudioParaEscuchar(original, getAudioExtension(baseMimeType));
+  const ext = convertido ? EXTENSION_PARA_ESCUCHAR : getAudioExtension(baseMimeType);
+  const bytes = convertido ?? original;
   const fileName = `${Date.now()}-${randomUUID()}${ext}`;
   const filePath = path.join(uploadDir, fileName);
-  const bytes = Buffer.from(await file.arrayBuffer());
   await writeFile(filePath, bytes);
 
   const relativeUrl = `/uploads/chat-audio/${fileName}`;
