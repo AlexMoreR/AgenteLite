@@ -112,7 +112,18 @@ import { BotonDeMapaDeCaminos } from "./boton-mapa-de-caminos";
 // El panel de envio se baja recien cuando se abre la ficha del contacto: no pesa en la carga del chat.
 const PanelDeEnvio = dynamic(() => import("./panel-de-envio").then((modulo) => modulo.PanelDeEnvio), {
   ssr: false,
-  loading: () => <p className="text-xs text-muted-foreground">Cargando…</p>,
+  // Si el archivo no baja (ChunkLoadError tras un despliegue) no se queda en "Cargando…" para siempre.
+  loading: ({ error }) =>
+    error ? (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span>No se pudo cargar el panel</span>
+        <Button type="button" variant="outline" size="sm" onClick={() => window.location.reload()}>
+          Reintentar
+        </Button>
+      </div>
+    ) : (
+      <p className="text-xs text-muted-foreground">Cargando…</p>
+    ),
 });
 
 const CHAT_MESSAGES_BACKGROUND_BASE_STYLE = {
@@ -1294,10 +1305,7 @@ export const ConversationPanel = memo(function ConversationPanel({
         ) : null}
       </div>
 
-      <div className="mt-5 space-y-3">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Etiquetas
-        </h4>
+      <div className="mt-5">
         <ChatTagsControl
           contactId={renderedConversation.contactId}
           conversationId={renderedConversation.id}
@@ -2681,10 +2689,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                 </div>
               </div>
 
-              <div className="mt-5 space-y-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Etiquetas
-                </h4>
+              <div className="mt-5">
                 <ChatTagsControl
                   contactId={renderedConversation.contactId}
                   conversationId={renderedConversation.id}
