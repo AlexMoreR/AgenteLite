@@ -564,6 +564,8 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isContactPanelOpen, setIsContactPanelOpen] = useState(false);
   const isMobile = useIsMobile();
   const [contactCity, setContactCity] = useState("");
+  // Chat en el que la asesora abrio "Calcular envio" (null = ninguno; otro chat = cerrado).
+  const [envioAbiertoEn, setEnvioAbiertoEn] = useState<string | null>(null);
   // Etiquetas REALES del contacto para el panel. renderedConversation.tags viene del detalle
   // (loader + /live), que NO incluye tags → al abrir un chat con clic el panel salía vacío
   // aunque la lista sí mostraba "Lead". Las traemos de getContactDetailsAction (ContactTag real)
@@ -1221,13 +1223,29 @@ export const ConversationPanel = memo(function ConversationPanel({
     descarta la cache del contacto para que la proxima lectura traiga la nueva.
   */
   const contactoDelEnvio = renderedConversation?.contactId || null;
+  // El panel se monta solo cuando la asesora lo pide, y por chat: al cambiar de chat vuelve al botón.
+  // Asi no consulta Gestion en cada cambio de chat ni retrasa el envio de mensajes (server actions en serie).
+  const chatDelEnvio = selectedConversationId || null;
+  const envioAbierto = Boolean(chatDelEnvio) && envioAbiertoEn === chatDelEnvio;
   const panelDeEnvio = contactoDelEnvio ? (
     <div className="mt-5 space-y-3">
       <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Envío
       </h4>
+      {!envioAbierto ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="w-full"
+          onClick={() => setEnvioAbiertoEn(chatDelEnvio)}
+          disabled={!chatDelEnvio}
+        >
+          Calcular envío
+        </Button>
+      ) : (
       <PanelDeEnvio
-        key={contactoDelEnvio}
+        key={`${chatDelEnvio}|${contactoDelEnvio}`}
         contactId={contactoDelEnvio}
         chatKey={selectedConversationId || null}
         contactCity={contactCity}
@@ -1238,6 +1256,7 @@ export const ConversationPanel = memo(function ConversationPanel({
           cacheDeContactos.delete(contactoDelEnvio);
         }}
       />
+      )}
     </div>
   ) : null;
 

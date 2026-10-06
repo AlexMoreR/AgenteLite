@@ -140,7 +140,7 @@ export async function buscarUbicaciones(
     const respuesta = await fetch(url, {
       headers: { Authorization: `Bearer ${base.llave}`, Accept: "application/json" },
       cache: "no-store",
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(3_000),
     });
     if (!respuesta.ok) {
       console.warn("[envios-gestion] busqueda fallida", { workspaceId, status: respuesta.status });

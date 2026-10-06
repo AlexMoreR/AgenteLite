@@ -31,7 +31,8 @@ import { cn } from "@/lib/utils";
  * deje de escribir, y si Gestión no responde se dice sin romper el chat.
  */
 
-const ESPERA_MS = 300;
+const ESPERA_MS = 400;
+const MINIMO_LETRAS = 3;
 const formatoPesos = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 });
 
 const INSIGNIA: Record<EstadoDeEnvio, { texto: string; clase: string }> = {
@@ -109,10 +110,10 @@ function InsigniaDeEnvio({ estado }: { estado: EstadoDeEnvio }) {
   return <Badge className={cn("h-5", INSIGNIA[estado].clase)}>{INSIGNIA[estado].texto}</Badge>;
 }
 
-/** Busca con espera de 300 ms; devuelve la última respuesta que corresponde a la clave actual. */
+/** Busca con espera de 400 ms; devuelve la última respuesta que corresponde a la clave actual. */
 function useBusquedaDiferida(q: string, producto: string | null, soloCiudades: boolean) {
   const texto = q.trim();
-  const clave = texto.length >= 2 ? `${texto.toLowerCase()}|${producto ?? ""}` : "";
+  const clave = texto.length >= MINIMO_LETRAS ? `${texto.toLowerCase()}|${producto ?? ""}` : "";
   const [busqueda, setBusqueda] = useState<Busqueda | null>(null);
 
   useEffect(() => {
@@ -165,6 +166,8 @@ export function PanelDeEnvio({
   const [productos, setProductos] = useState<ProductoParaEnvio[] | null>(null);
   const [productoCodigo, setProductoCodigo] = useState<string>("");
   const [query, setQuery] = useState("");
+  // Lo que de verdad se busca: solo cambia cuando la asesora escribe, presiona Enter o la lupa.
+  const [consulta, setConsulta] = useState("");
   const [semillaUsada, setSemillaUsada] = useState(false);
   const [elegido, setElegido] = useState<{ ubicacion: UbicacionDeGestion; producto: ProductoDeEnvio | null } | null>(
     null,
@@ -176,8 +179,8 @@ export function PanelDeEnvio({
   const [guardandoNueva, setGuardandoNueva] = useState(false);
   const ultimoGuardado = useRef<string>("");
 
-  // La ciudad que ya tiene la ficha arranca la búsqueda (una sola vez: después manda la asesora).
-  // Se ajusta durante el render porque la ciudad llega después de montar.
+  // La ciudad que ya tiene la ficha solo pre-llena el cuadro (una sola vez): no dispara la búsqueda.
+  // Se ajusta durante el render porque la ciudad puede llegar después de montar.
   if (!semillaUsada && contactCity.trim()) {
     setSemillaUsada(true);
     setQuery(contactCity.split(",")[0]?.trim() ?? "");
@@ -203,7 +206,7 @@ export function PanelDeEnvio({
 
   // Se espera a tener los productos para no consultar dos veces (sin producto y con el de defecto).
   const principal = useBusquedaDiferida(
-    elegido || agregando || productos === null ? "" : query,
+    elegido || agregando || productos === null ? "" : consulta,
     productoCodigo || null,
     false,
   );
@@ -263,6 +266,7 @@ export function PanelDeEnvio({
     // El total depende del producto: se vuelve a la lista para pedirlo de nuevo.
     if (elegido) {
       setQuery(elegido.ubicacion.nombre);
+      setConsulta(elegido.ubicacion.nombre);
       setElegido(null);
     }
   };
@@ -365,6 +369,7 @@ export function PanelDeEnvio({
               type="button"
               onClick={() => {
                 setQuery(elegido.ubicacion.nombre);
+                setConsulta(elegido.ubicacion.nombre);
                 setElegido(null);
               }}
               aria-label="Buscar otra ubicación"
@@ -462,12 +467,27 @@ export function PanelDeEnvio({
       ) : (
         <>
           <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <button
+              type="button"
+              onClick={() => setConsulta(query)}
+              aria-label="Buscar"
+              title="Buscar"
+              className="absolute top-1/2 left-1.5 z-10 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:text-foreground"
+            >
+              <Search className="h-3.5 w-3.5" />
+            </button>
             <Input
               value={query}
               onChange={(event) => {
                 setSemillaUsada(true);
                 setQuery(event.target.value);
+                setConsulta(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  setConsulta(query);
+                }
               }}
               placeholder="Ciudad, barrio o corregimiento"
               className="pl-8"
