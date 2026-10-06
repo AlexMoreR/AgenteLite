@@ -1822,11 +1822,29 @@ export function SharedInbox({
     [scheduleConversationRefreshAfterSend],
   );
 
+  /*
+    Anti doble envio: mientras un texto de un chat va en camino, ese chat no acepta otro submit.
+    Si el envio tardaba, la asesora volvia a darle enviar y el cliente recibia el mismo texto varias
+    veces. El ref corta al instante (doble clic); el estado deshabilita el boton.
+  */
+  const textoEnCursoRef = useRef<Set<string>>(new Set());
+  const [chatsConTextoEnCurso, setChatsConTextoEnCurso] = useState<string[]>([]);
+
   const handleComposerDraft = useCallback(
-    (message: string, formData: FormData) => {
+    (message: string, formData: FormData): boolean => {
       if (!renderedConversation || !composer) {
-        return;
+        return false;
       }
+      const chatDelEnvio = selectedConversationId;
+      if (textoEnCursoRef.current.has(chatDelEnvio)) {
+        return false;
+      }
+      textoEnCursoRef.current.add(chatDelEnvio);
+      setChatsConTextoEnCurso((actual) => [...actual, chatDelEnvio]);
+      const liberar = () => {
+        textoEnCursoRef.current.delete(chatDelEnvio);
+        setChatsConTextoEnCurso((actual) => actual.filter((chat) => chat !== chatDelEnvio));
+      };
 
       const now = new Date();
       const optimisticId = `optimistic:${renderedConversation.id}:${Date.now()}`;
@@ -1899,7 +1917,9 @@ export function SharedInbox({
       // Envio sin navegacion: la accion valida internamente y devuelve un resultado.
       void Promise.resolve(composer.action(formData))
         .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
-        .catch(() => finalizeOptimisticSend(optimisticId, null));
+        .catch(() => finalizeOptimisticSend(optimisticId, null))
+        .finally(liberar);
+      return true;
     },
     [renderedConversation, selectedConversationId, composer, finalizeOptimisticSend, replyTarget],
   );
@@ -2730,6 +2750,7 @@ export function SharedInbox({
         onEditContact={handleOpenEditContact}
         isManager={isManager}
         onComposerDraft={handleComposerDraft}
+        enviandoTexto={chatsConTextoEnCurso.includes(selectedConversationId)}
         onRetryFailedMessage={handleRetryFailedMessage}
         onReplyToMessage={handleReplyToMessage}
         onDeleteMessage={handleDeleteMessage}

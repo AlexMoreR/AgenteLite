@@ -155,7 +155,10 @@ type ConversationPanelProps = {
   onEditContact: () => void;
   /** Dueño/admin: solo ellos pueden sumar el chat al mapa de caminos (cada uno cuesta IA). */
   isManager?: boolean;
-  onComposerDraft: (message: string, formData: FormData) => void;
+  /** Devuelve false si no se acepto (ya hay un texto en camino en ese chat): el cuadro no se limpia. */
+  onComposerDraft: (message: string, formData: FormData) => boolean;
+  /** Hay un texto en camino en este chat: el boton y el Enter no envian otro. */
+  enviandoTexto?: boolean;
   onRetryFailedMessage?: () => void;
   onReplyToMessage?: (message: SharedInboxMessageItem) => void;
   onDeleteMessage?: (message: SharedInboxMessageItem) => void;
@@ -246,6 +249,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   onEditContact,
   isManager = false,
   onComposerDraft,
+  enviandoTexto = false,
   onRetryFailedMessage,
   onReplyToMessage,
   onDeleteMessage,
@@ -1870,7 +1874,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                     const formData = new FormData(form);
                     const message = String(formData.get("message") || "").trim();
 
-                    if (!message || !renderedConversation) {
+                    if (!message || !renderedConversation || enviandoTexto) {
                       return;
                     }
 
@@ -1893,7 +1897,10 @@ export const ConversationPanel = memo(function ConversationPanel({
 
                     // El handler externo crea la burbuja optimista y envia sin
                     // navegacion (la accion valida internamente y devuelve resultado).
-                    onComposerDraft(message, formData);
+                    // Si ya hay un texto en camino en este chat no se acepta: el cuadro queda como esta.
+                    if (!onComposerDraft(message, formData)) {
+                      return;
+                    }
                     setComposerHasText(false);
                     setDesdeRespuestaRapida(false);
                     form.reset();
@@ -2362,7 +2369,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                               return;
                             }
                             event.preventDefault();
-                            if (event.currentTarget.value.trim()) {
+                            if (event.currentTarget.value.trim() && !enviandoTexto) {
                               event.currentTarget.form?.requestSubmit();
                             }
                           }}
@@ -2411,7 +2418,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                           )}
                         </Button>
                         {composerHasText || !audioConfig ? (
-                          <ComposerSendButton />
+                          <ComposerSendButton enviando={enviandoTexto} />
                         ) : (
                           <Button
                             type="button"

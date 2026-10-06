@@ -16,8 +16,10 @@ import {
   type ComposerEmojiTab,
 } from "./chat-inbox-emojis";
 
-export function ComposerSendButton() {
-  const { pending } = useFormStatus();
+export function ComposerSendButton({ enviando = false }: { enviando?: boolean } = {}) {
+  const { pending: pendienteDelFormulario } = useFormStatus();
+  // `enviando`: hay un texto en camino en este chat (anti doble envio, ver shared-inbox).
+  const pending = pendienteDelFormulario || enviando;
 
   return (
     <Button

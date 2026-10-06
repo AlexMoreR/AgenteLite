@@ -2621,6 +2621,25 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     return { ok: false, error: "No se encontro el canal o contacto" };
   }
 
+  /*
+    Anti doble envio: si el envio tarda, la asesora vuelve a darle enviar y el cliente recibia el
+    mismo texto varias veces. Si este mismo usuario ya mando este mismo texto a este chat hace menos
+    de 15 s, no se reenvia: se responde ok y el cliente quita la burbuja repetida.
+  */
+  const repetido = await prisma.message.findFirst({
+    where: {
+      conversationId: conversation.id,
+      direction: "OUTBOUND",
+      content: parsed.data.message,
+      createdAt: { gte: new Date(Date.now() - 15_000) },
+      rawPayload: { path: ["enviadoPorUserId"], equals: session.user.id },
+    },
+    select: { id: true },
+  });
+  if (repetido) {
+    return { ok: true, suppressOptimistic: true };
+  }
+
   const quickResponseFlow = await resolveEvolutionQuickResponseFlow({
     workspaceId: membership.workspace.id,
     channelId: conversation.channel.id,
