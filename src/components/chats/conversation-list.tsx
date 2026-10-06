@@ -625,7 +625,9 @@ export function ConversationList({
         setScrollTop((current) => (current === nextScrollTop ? current : nextScrollTop));
 
         const distFromBottom = scrollContainer.scrollHeight - nextScrollTop - scrollContainer.clientHeight;
-        const nearBottom = distFromBottom <= 240;
+        // Dos pantallas de anticipacion: la pagina siguiente se pide mucho antes de llegar al
+        // fondo, y al bajar ya esta cargada (antes eran 240 px, y se veia el spinner).
+        const nearBottom = distFromBottom <= Math.max(240, scrollContainer.clientHeight * 2);
         if (nearBottom) {
           debugConversationList("near bottom", {
             distFromBottom,
@@ -712,7 +714,8 @@ export function ConversationList({
       },
       {
         root: container,
-        rootMargin: "160px 0px 160px 0px",
+        // Abajo, dos pantallas de anticipacion (el % es sobre el alto del contenedor).
+        rootMargin: "160px 0px 200% 0px",
         threshold: 0,
       },
     );

@@ -373,10 +373,32 @@ export function SharedInbox({
       return;
     }
 
+    /*
+      Cada 60 s (antes 15 s) y en pausa mientras la pestaña no se ve: son consultas pesadas y los
+      numeros solo cambian cuando entra algo. Para eso, un mensaje entrante pide los numeros 2 s
+      despues (uno solo por rafaga). Resolver o reabrir los pide en el acto (pedidoDeConteos).
+    */
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let porEventoId: ReturnType<typeof setTimeout> | undefined;
+    let pendienteAlVolver = false;
+
+    const programarSiguiente = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (!cancelled) {
+        timeoutId = setTimeout(fetchCounts, 60_000);
+      }
+    };
 
     const fetchCounts = async () => {
+      if (cancelled) {
+        return;
+      }
+      if (document.hidden) {
+        // Se retoma al volver a la pestaña (alCambiarVisibilidad).
+        pendienteAlVolver = true;
+        return;
+      }
       try {
         const params = new URLSearchParams();
         if (searchQuery.trim()) params.set("q", searchQuery.trim());
@@ -404,17 +426,45 @@ export function SharedInbox({
       } catch {
         // Ignoramos errores de red: se reintenta en el siguiente intervalo.
       } finally {
-        if (!cancelled) {
-          timeoutId = setTimeout(fetchCounts, 15000);
-        }
+        programarSiguiente();
       }
     };
 
-    fetchCounts();
+    const alCambiarVisibilidad = () => {
+      if (!document.hidden && pendienteAlVolver) {
+        pendienteAlVolver = false;
+        void fetchCounts();
+      }
+    };
+
+    const alLlegarMensaje = (event: Event) => {
+      if (event.type === "official-realtime-poke") {
+        const tipo = (event as CustomEvent<{ type?: string | null } | null>).detail?.type;
+        if (tipo !== "waha-incoming") {
+          return;
+        }
+      }
+      if (porEventoId) {
+        return;
+      }
+      porEventoId = setTimeout(() => {
+        porEventoId = undefined;
+        void fetchCounts();
+      }, 2_000);
+    };
+
+    void fetchCounts();
+    document.addEventListener("visibilitychange", alCambiarVisibilidad);
+    window.addEventListener("chat-incoming-message", alLlegarMensaje);
+    window.addEventListener("official-realtime-poke", alLlegarMensaje);
 
     return () => {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
+      if (porEventoId) clearTimeout(porEventoId);
+      document.removeEventListener("visibilitychange", alCambiarVisibilidad);
+      window.removeEventListener("chat-incoming-message", alLlegarMensaje);
+      window.removeEventListener("official-realtime-poke", alLlegarMensaje);
     };
   }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosNuevos, pedidoDeConteos]);
 
@@ -1121,13 +1171,15 @@ export function SharedInbox({
     }
   }, [selectedConversationKey]);
 
+  /*
+    Un solo refresco de respaldo despues de enviar, a los 1,5 s (antes eran tres: 0,7 / 1,8 / 3,6 s,
+    cada uno con /live + /summary). El mensaje real llega igual por el altavoz; esto solo cubre un
+    aviso perdido.
+  */
   const scheduleConversationRefreshAfterSend = useCallback(() => {
-    const retryDelays = [700, 1800, 3600];
-    for (const delay of retryDelays) {
-      window.setTimeout(() => {
-        void refreshSelectedConversationFromServer();
-      }, delay);
-    }
+    window.setTimeout(() => {
+      void refreshSelectedConversationFromServer();
+    }, 1500);
   }, [refreshSelectedConversationFromServer]);
 
   // Mientras hay busqueda activa, los resultados se CONGELAN: el realtime no debe mutar la
@@ -1217,20 +1269,31 @@ export function SharedInbox({
          - Entraba con la asesora vacia ("---") aunque tuviera dueña, y un chat que ya estaba en la
            lista se quedaba con la asesora vieja cuando lo asignaban.
 
-        Por eso, cada aviso pide la lista de nuevo al servidor -una sola vez aunque lleguen varios
-        mensajes seguidos-, que devuelve la fila completa y aplica todos los filtros. Un chat que no
-        estaba entra por ahi, no a ciegas; el que ya estaba se sigue moviendo arriba en el acto y la
-        recarga le corrige lo que haya cambiado.
-      */
-      if (esperaDelPedidoDeListaRef.current) {
-        clearTimeout(esperaDelPedidoDeListaRef.current);
-      }
-      esperaDelPedidoDeListaRef.current = setTimeout(() => {
-        esperaDelPedidoDeListaRef.current = null;
-        setPedidoDeLista((actual) => actual + 1);
-      }, 800);
+        Por eso, un aviso de un chat que NO esta en la lista pide la lista de nuevo al servidor -una
+        sola vez aunque lleguen varios seguidos-, que devuelve la fila completa y aplica todos los
+        filtros: entra por ahi, no a ciegas.
 
-      if (!findConversationItemBySnapshotId(conversationItemsRef.current, snapshot.id)) {
+        El que YA estaba se mueve arriba en el acto con lo que trae el aviso, y no pide la lista
+        entera (plan "Chats instantaneo", fase 1): cada mensaje, cada visto y cada envio propio
+        pedian /list completo. Lo que el aviso no trae (dueña, etapa) lo corrigen la ficha del chat
+        y el refresco de respaldo de la pagina.
+
+        Los avisos locales (detail.local: la fila optimista de un envio propio) nunca piden la lista:
+        no traen nada que el servidor sepa y la bandeja no tenga.
+      */
+      const yaEstaEnLaLista = Boolean(findConversationItemBySnapshotId(conversationItemsRef.current, snapshot.id));
+      const esAvisoLocal = (customEvent.detail as { local?: boolean } | undefined)?.local === true;
+      if (!yaEstaEnLaLista && !esAvisoLocal) {
+        if (esperaDelPedidoDeListaRef.current) {
+          clearTimeout(esperaDelPedidoDeListaRef.current);
+        }
+        esperaDelPedidoDeListaRef.current = setTimeout(() => {
+          esperaDelPedidoDeListaRef.current = null;
+          setPedidoDeLista((actual) => actual + 1);
+        }, 800);
+      }
+
+      if (!yaEstaEnLaLista) {
         return;
       }
       // Medicion: mensaje entrante (aviso del altavoz) hasta pintado en la fila de la lista.
@@ -1935,6 +1998,8 @@ export function SharedInbox({
         new CustomEvent("chat-list-update", {
           detail: {
             conversation: optimisticListSnapshot,
+            // Fila optimista armada aca: no debe pedir /list al servidor (ver handleListUpdate).
+            local: true,
           },
         }),
       );
