@@ -80,6 +80,7 @@ import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { MediaLibraryDialog } from "@/components/chats/media-library-dialog";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
+import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
 import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
 import { ForwardMessageDialog } from "@/components/chats/forward-message-dialog";
 import { SendFlowDialog, enviarFlujoAlChat } from "@/components/chats/send-flow-dialog";
@@ -579,12 +580,15 @@ export const ConversationPanel = memo(function ConversationPanel({
   const panelContactId = renderedConversation?.contactId ?? null;
 
   // Al entrar a un chat se piden los datos del contacto, aunque el panel este cerrado: asi abrirlo
-  // es instantaneo. Es una consulta chica y se guarda en cache por contacto.
+  // es instantaneo. Es una consulta chica y se guarda en cache por contacto. Va cuando el navegador
+  // queda libre: las server actions van en fila y no debe tapar un envio hecho apenas se abre.
   useEffect(() => {
     if (!panelContactId) {
       return;
     }
-    void pedirDetalleDeContacto(panelContactId);
+    return cuandoEsteLibre(() => {
+      void pedirDetalleDeContacto(panelContactId);
+    });
   }, [panelContactId]);
 
   useEffect(() => {

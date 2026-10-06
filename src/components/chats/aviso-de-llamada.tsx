@@ -5,6 +5,7 @@ import { Phone, PhoneMissed } from "lucide-react";
 
 import { ultimaLlamadaDelContactoAction, type UltimaLlamada } from "@/app/actions/call-actions";
 import { RegisterCallDialog } from "@/features/llamadas/components/RegisterCallDialog";
+import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
 
 const HORA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit" });
 const DIA = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" });
@@ -51,9 +52,9 @@ export function AvisoDeLlamada({
       .catch(() => undefined);
   }, [contactId]);
 
-  React.useEffect(() => {
-    cargar();
-  }, [cargar]);
+  // Al abrir el chat va cuando el navegador queda libre: las server actions van en fila y esta
+  // lectura no debe tapar un envio hecho apenas se abre.
+  React.useEffect(() => cuandoEsteLibre(cargar), [cargar]);
 
   React.useEffect(() => {
     const alAviso = (evento: Event) => {
