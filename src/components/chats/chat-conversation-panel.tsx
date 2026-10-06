@@ -2693,7 +2693,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                 />
               </div>
 
-              {panelDeEnvio}
+              {/* En celular el aside queda montado (solo oculto por CSS) junto a la hoja: sin esta
+                  condicion habria dos paneles de envio consultando Gestion a la vez. */}
+              {isMobile ? null : panelDeEnvio}
 
               {contactPanelActions ? (
                 <div className="mt-5 space-y-3">
