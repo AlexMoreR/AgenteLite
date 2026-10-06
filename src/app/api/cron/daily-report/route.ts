@@ -12,12 +12,16 @@ export const dynamic = "force-dynamic";
   Vale CUALQUIERA de los secretos configurados.
 
   Antes se tomaba solo el primero configurado (DAILY_REPORT_CRON_SECRET) y la primera cabecera que
-  viniera: si el reloj mandaba el otro secreto (FOLLOW_CRON_SECRET) o en otra cabecera, respondia
+  viniera: si el reloj mandaba otro secreto (FOLLOW_CRON_SECRET) o en otra cabecera, respondia
   401 y el informe no salia. Ahora se acepta cualquiera de la lista, sin vacios, en cualquiera de
   las cabeceras de siempre.
 */
 function resolveCronSecrets() {
-  return [process.env.DAILY_REPORT_CRON_SECRET, process.env.FOLLOW_CRON_SECRET]
+  return [
+    process.env.DAILY_REPORT_CRON_SECRET,
+    process.env.FOLLOW_CRON_SECRET,
+    process.env.EVOLUTION_WEBHOOK_SECRET,
+  ]
     .map((value) => stripBearer(value?.trim() ?? ""))
     .filter((value) => value.length > 0);
 }
