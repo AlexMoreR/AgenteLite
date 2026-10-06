@@ -836,46 +836,58 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       return { ok: false, error: result.error };
     }
 
-    // Va la ficha del CRM, NO el id de la tabla oficial: ContactTag apunta a Contact, asi que
-    // con el id oficial la consulta reventaba por clave foranea en CADA respuesta enviada por
-    // este canal. El error se tragaba, pero el efecto era real: las etiquetas de ciclo de vida
-    // ("Lead", etc.) nunca se ponian en los chats del canal oficial.
-    // Puede faltar en chats viejos, anteriores al puente: en ese caso no hay nada que
-    // sincronizar y se saltea en vez de fallar.
-    try {
-      if (conversation.crmContactId) {
-        await syncLeadLifecycleForContact({
-          workspaceId: membership.workspace.id,
-          contactId: conversation.crmContactId,
-          hasHistory: true,
-        });
+    /*
+      El mensaje ya salio y se guardo: el "ok" vuelve ahora y lo secundario va en after()
+      (plan "Chats instantaneo", fase 1). Antes la asesora esperaba etiquetas, toma del chat,
+      registro de la sugerencia y un revalidatePath que rearmaba la pantalla de Chats entera
+      dentro de la misma respuesta. Ese revalidate ya no hace falta: el webhook de Meta avisa
+      por el altavoz con el primer estado del mensaje ("sent") y la bandeja se refresca sola.
+    */
+    const workspaceIdDelEnvio = membership.workspace.id;
+    const userIdDelEnvio = session.user.id;
+    const crmContactIdDelEnvio = conversation.crmContactId;
+    const conversationIdDelEnvio = parsed.data.conversationId;
+    const sugerenciaIdDelEnvio = parsed.data.sugerenciaId;
+    const mensajeDelEnvio = parsed.data.message;
+    after(async () => {
+      // Va la ficha del CRM, NO el id de la tabla oficial: ContactTag apunta a Contact, asi que
+      // con el id oficial la consulta reventaba por clave foranea en CADA respuesta enviada por
+      // este canal. El error se tragaba, pero el efecto era real: las etiquetas de ciclo de vida
+      // ("Lead", etc.) nunca se ponian en los chats del canal oficial.
+      // Puede faltar en chats viejos, anteriores al puente: en ese caso no hay nada que
+      // sincronizar y se saltea en vez de fallar.
+      try {
+        if (crmContactIdDelEnvio) {
+          await syncLeadLifecycleForContact({
+            workspaceId: workspaceIdDelEnvio,
+            contactId: crmContactIdDelEnvio,
+            hasHistory: true,
+          });
+        }
+      } catch (error) {
+        console.error("[sendUnifiedChatReplyAction] No se pudo sincronizar tags del contacto oficial", error);
       }
-    } catch (error) {
-      console.error("[sendUnifiedChatReplyAction] No se pudo sincronizar tags del contacto oficial", error);
-    }
 
-    // Quien contesta se queda con el lead si no tenia dueño (ver conversation-claim).
-    await claimConversationIfUnassigned({
-      source: "official",
-      conversationId: parsed.data.conversationId,
-      workspaceId: membership.workspace.id,
-    });
-
-    if (parsed.data.sugerenciaId) {
-      await registrarEnvioDeSugerencia({
-        sugerenciaId: parsed.data.sugerenciaId,
-        userId: session.user.id,
-        workspaceId: membership.workspace.id,
-        mensaje: parsed.data.message,
+      // Quien contesta se queda con el lead si no tenia dueño (ver conversation-claim).
+      await claimConversationIfUnassigned({
+        source: "official",
+        conversationId: conversationIdDelEnvio,
+        workspaceId: workspaceIdDelEnvio,
       });
-    }
 
-    revalidatePath("/cliente/chats");
-    revalidatePath("/cliente/api-oficial");
-    revalidatePath("/cliente/api-oficial/chats");
-    if (safeReturnTo) {
-      revalidatePath(safeReturnTo);
-    }
+      if (sugerenciaIdDelEnvio) {
+        try {
+          await registrarEnvioDeSugerencia({
+            sugerenciaId: sugerenciaIdDelEnvio,
+            userId: userIdDelEnvio,
+            workspaceId: workspaceIdDelEnvio,
+            mensaje: mensajeDelEnvio,
+          });
+        } catch (error) {
+          console.error("[sendUnifiedChatReplyAction] No se pudo registrar el envio de la sugerencia", error);
+        }
+      }
+    });
 
     return { ok: true };
   }
@@ -899,25 +911,36 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
   const resultado = await sendManualAgentReplyAction(nextData);
 
   // Quien contesta se queda con el lead si no tenia dueño (ver conversation-claim). Va DESPUES
-  // del envio: si el mensaje no salio, la asesora no se quedo con nada.
+  // del envio: si el mensaje no salio, la asesora no se quedo con nada. Y va en after(): el
+  // mensaje ya salio, la asesora no tiene por que esperar esto para ver su "ok".
   if (resultado.ok) {
-    const userId = (await auth())?.user?.id ?? "";
-    const membership = await getPrimaryWorkspaceForUser(userId);
-    if (membership?.workspace.id) {
-      await claimConversationIfUnassigned({
-        source: "agent",
-        conversationId: parsed.data.conversationId,
-        workspaceId: membership.workspace.id,
-      });
-      if (parsed.data.sugerenciaId && userId) {
-        await registrarEnvioDeSugerencia({
-          sugerenciaId: parsed.data.sugerenciaId,
-          userId,
+    const conversationIdDelEnvio = parsed.data.conversationId;
+    const sugerenciaIdDelEnvio = parsed.data.sugerenciaId;
+    const mensajeDelEnvio = parsed.data.message;
+    after(async () => {
+      try {
+        const userId = (await auth())?.user?.id ?? "";
+        const membership = await getPrimaryWorkspaceForUser(userId);
+        if (!membership?.workspace.id) {
+          return;
+        }
+        await claimConversationIfUnassigned({
+          source: "agent",
+          conversationId: conversationIdDelEnvio,
           workspaceId: membership.workspace.id,
-          mensaje: parsed.data.message,
         });
+        if (sugerenciaIdDelEnvio && userId) {
+          await registrarEnvioDeSugerencia({
+            sugerenciaId: sugerenciaIdDelEnvio,
+            userId,
+            workspaceId: membership.workspace.id,
+            mensaje: mensajeDelEnvio,
+          });
+        }
+      } catch (error) {
+        console.error("[sendUnifiedChatReplyAction] post-envio fallo (mensaje ya enviado)", error);
       }
-    }
+    });
   }
 
   return resultado;
@@ -1941,7 +1964,7 @@ export async function updateConversationStatusAction(input: {
     }
     await setOfficialApiConversationStatus({ conversationId: officialConversation.id, status: input.status });
     await avisarCambioDeEstado(membership.workspace.id, officialConversation.id, "official", input.status);
-    revalidatePath("/cliente/chats");
+    // Sin revalidatePath: ver la rama del canal viejo, abajo.
     return {};
   }
 
@@ -1977,10 +2000,14 @@ export async function updateConversationStatusAction(input: {
   });
   await avisarCambioDeEstado(membership.workspace.id, conversation.id, "agent", input.status);
 
-  revalidatePath("/cliente/chats");
-  if (conversation.agentId) {
-    revalidatePath(`/cliente/agentes/${conversation.agentId}/chats`);
-  }
+  /*
+    Sin revalidatePath (plan "Chats instantaneo", fase 1). Quien llama (boton Resolver y menu de
+    la fila) avisa CHAT_STATUS_CHANGED_EVENT, que saca o devuelve la fila en el acto, y despues
+    hace su propio router.refresh/replace. El revalidate rearmaba la pantalla de Chats entera DENTRO
+    de esta respuesta: la pantalla se pedia dos veces por cada resolver. Al resto del equipo le
+    llega por el altavoz (avisarCambioDeEstado). /cliente/agentes/<id>/chats es solo una
+    redireccion a /cliente/chats.
+  */
 
   return {};
 }

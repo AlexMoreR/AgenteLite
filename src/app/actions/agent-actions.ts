@@ -4,6 +4,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { generateUniqueAgentSlug } from "@/lib/agent";
@@ -43,7 +44,6 @@ import {
   sendEvolutionImageMessage,
   sendEvolutionLocationMessage,
   sendEvolutionMediaUrl,
-  sendEvolutionPresence,
   sendEvolutionTextMessage,
   sendEvolutionTextMessageWithReconnect,
   sendEvolutionVideoMessage,
@@ -2664,19 +2664,15 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
   const messageAgentId = parsed.data.agentId ?? null;
   envioMarca("flujoRapido");
 
-  if (!quickResponseFlow) {
-    try {
-      await sendEvolutionPresence({
-        instanceName: conversation.channel.evolutionInstanceName,
-        phoneNumber: conversation.contact.phoneNumber,
-        presence: "composing",
-        delay: 900,
-      });
-    } catch {
-      // Si falla el indicador de escritura, igual enviamos el mensaje manual.
-    }
-    envioMarca("escribiendo");
-  }
+  /*
+    Sin "escribiendo..." antes del envio manual (plan "Chats instantaneo", fase 1).
+
+    Aca se esperaba un "escribiendo" de 900 ms (mas sus viajes a WAHA) ANTES de mandar cada
+    mensaje de la asesora: 1 a 1,5 s por mensaje sin que el cliente ganara nada, porque lo
+    escribio una persona. Lo unico util de ese paso era el visto, y el envio de WAHA ya marca el
+    chat como leido justo antes de mandar (`enviarTextoWaha` -> `marcarChatLeidoAntesDeResponder`),
+    asi que repetirlo seria un viaje de mas a WhatsApp.
+  */
 
   if (quickResponseFlow) {
     const now = new Date();
@@ -3005,29 +3001,41 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
   // Los pasos siguientes (etiquetas de lead, lastMessageAt, pausar IA) son
   // secundarios y NO deben poder marcar "No se envio" si fallan. Por eso van en
   // try/catch best-effort: si revientan, se loguean pero el resultado sigue ok.
+  //
+  // Lo unico que se espera es UNA escritura: lastMessageAt + pausar la IA. La pausa queda
+  // sincrona a proposito: si fuera en after(), un mensaje del cliente que entre en ese hueco
+  // podria hacer contestar al bot encima de la asesora. Va en el mismo UPDATE que lastMessageAt
+  // (mismas columnas que escribe setConversationAutomationPaused), asi no cuesta un viaje extra.
   try {
-    await syncLeadLifecycleForContact({
-      workspaceId: membership.workspace.id,
-      contactId: conversation.contact.id,
-      hasHistory: true,
-    });
-
+    const ahora = new Date();
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
-        lastMessageAt: new Date(),
+        lastMessageAt: ahora,
         status: "OPEN",
+        automationPaused: true,
+        automationPausedAt: ahora,
       },
-    });
-
-    await setConversationAutomationPaused({
-      conversationId: conversation.id,
-      paused: true,
     });
   } catch (error) {
     console.error("[sendManualAgentReplyAction] post-envio fallo (mensaje ya enviado)", error);
   }
   envioMarca("postEnvio");
+
+  // Las etiquetas de ciclo de vida no las espera la asesora: van despues de responder.
+  const workspaceIdDelEnvio = membership.workspace.id;
+  const contactIdDelEnvio = conversation.contact.id;
+  after(async () => {
+    try {
+      await syncLeadLifecycleForContact({
+        workspaceId: workspaceIdDelEnvio,
+        contactId: contactIdDelEnvio,
+        hasHistory: true,
+      });
+    } catch (error) {
+      console.error("[sendManualAgentReplyAction] etiquetas post-envio fallaron (mensaje ya enviado)", error);
+    }
+  });
   envioLog("ok");
 
   // Exito: sin redirect ni revalidatePath (eso forzaba un refetch del RSC que se
