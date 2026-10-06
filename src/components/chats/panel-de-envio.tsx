@@ -95,9 +95,9 @@ export function textoDeEnvio(input: {
   const pesos = total !== null ? formatoPesos.format(total) : "";
   switch (estado) {
     case "GRATIS":
-      return `¡Perfecto! A *${lugar}* el envío es *gratis* 🚚 Tu *${producto}* queda en *$${pesos}* en total, con garantía de 1 año. ¿De qué *color* lo quieres?`;
+      return `¡Perfecto! A *${lugar}* el envío es *gratis* separando con el *50%* 🚚 Tu *${producto}* queda en *$${pesos}* en total, con garantía de 1 año. ¿De qué *color* lo quieres?`;
     case "ADICIONAL":
-      return `¡Claro que llegamos a *${lugar}*! 🚚 Tu *${producto}* queda en *$${pesos}* en total, con envío incluido. ¿De qué *color* lo quieres?`;
+      return `¡Claro que llegamos a *${lugar}*! 🚚 Separando con el *50%*, tu *${producto}* queda en *$${pesos}* en total, con envío incluido. ¿De qué *color* lo quieres?`;
     case "COTIZAR":
       return `¡Sí llegamos a *${lugar}*! 🚚 Déjame cotizarte el envío y en un momento te doy el *total exacto*. Mientras tanto, ¿de qué *color* lo quieres?`;
     case "NO_LLEGA":
@@ -388,6 +388,12 @@ export function PanelDeEnvio({
           <p className="whitespace-pre-wrap rounded-md bg-muted/60 px-2.5 py-2 text-[13px] leading-snug text-foreground">
             {texto}
           </p>
+          {/* Decision de Alex: el envio gratis aplica solo separando con el 50%. Nota para la asesora, no va en el texto. */}
+          {elegido.ubicacion.envio !== "NO_LLEGA" ? (
+            <p className="text-xs text-muted-foreground">
+              Si pide contraentrega: paga por adelantado el flete real (cotízalo con Ingrid) y el producto al recibir.
+            </p>
+          ) : null}
           <div className="flex gap-2">
             <Button type="button" size="sm" className="flex-1 gap-1.5" onClick={insertar} disabled={!puedeEscribir}>
               <SendHorizonal className="h-3.5 w-3.5" />
