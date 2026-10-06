@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import {
@@ -7,27 +8,52 @@ import {
 
 export const dynamic = "force-dynamic";
 
-function resolveCronSecret() {
-  return (
-    process.env.DAILY_REPORT_CRON_SECRET?.trim() ||
-    process.env.FOLLOW_CRON_SECRET?.trim() ||
-    process.env.EVOLUTION_WEBHOOK_SECRET?.trim() ||
-    ""
-  );
+/*
+  Vale CUALQUIERA de los secretos configurados.
+
+  Antes se tomaba solo el primero configurado (DAILY_REPORT_CRON_SECRET) y la primera cabecera que
+  viniera: si el reloj mandaba el otro secreto (FOLLOW_CRON_SECRET) o en otra cabecera, respondia
+  401 y el informe no salia. Ahora se acepta cualquiera de la lista, sin vacios, en cualquiera de
+  las cabeceras de siempre.
+*/
+function resolveCronSecrets() {
+  return [process.env.DAILY_REPORT_CRON_SECRET, process.env.FOLLOW_CRON_SECRET]
+    .map((value) => stripBearer(value?.trim() ?? ""))
+    .filter((value) => value.length > 0);
 }
 
-function readIncomingSecret(request: Request) {
-  return (
-    request.headers.get("x-daily-report-secret") ||
-    request.headers.get("x-follow-cron-secret") ||
-    request.headers.get("x-webhook-secret") ||
-    request.headers.get("authorization") ||
-    ""
-  ).trim();
+/** Todas las cabeceras que hoy se aceptan, no solo la primera que venga. */
+function readIncomingSecrets(request: Request) {
+  return [
+    request.headers.get("x-daily-report-secret"),
+    request.headers.get("x-follow-cron-secret"),
+    request.headers.get("x-webhook-secret"),
+    request.headers.get("authorization"),
+  ]
+    .map((value) => stripBearer(value?.trim() ?? ""))
+    .filter((value) => value.length > 0);
 }
 
 function stripBearer(value: string) {
   return value.startsWith("Bearer ") ? value.slice("Bearer ".length).trim() : value;
+}
+
+/** Comparacion en tiempo constante: se comparan los sha256, que siempre miden lo mismo. */
+function sameSecret(a: string, b: string) {
+  const hashA = createHash("sha256").update(a).digest();
+  const hashB = createHash("sha256").update(b).digest();
+  return timingSafeEqual(hashA, hashB);
+}
+
+function isAuthorized(expected: string[], received: string[]) {
+  let ok = false;
+  for (const secret of expected) {
+    for (const candidate of received) {
+      // Sin cortar al primer acierto: el tiempo no dice cual coincidio.
+      if (sameSecret(secret, candidate)) ok = true;
+    }
+  }
+  return ok;
 }
 
 /** Hora y minuto actuales en America/Bogota (UTC-5, sin DST). */
@@ -37,11 +63,11 @@ function nowInBogota() {
 }
 
 async function handleCron(request: Request) {
-  const expectedSecret = resolveCronSecret();
-  const receivedSecret = readIncomingSecret(request);
+  const expectedSecrets = resolveCronSecrets();
+  const receivedSecrets = readIncomingSecrets(request);
 
-  if (expectedSecret) {
-    if (!receivedSecret || stripBearer(receivedSecret) !== stripBearer(expectedSecret)) {
+  if (expectedSecrets.length > 0) {
+    if (receivedSecrets.length === 0 || !isAuthorized(expectedSecrets, receivedSecrets)) {
       return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
     }
   } else if (process.env.NODE_ENV === "production") {

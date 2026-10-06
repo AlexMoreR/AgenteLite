@@ -56,7 +56,7 @@ propio catálogo (la hermana de Alex va a vender plantas y artículos de vivero 
 
 ## Módulos
 
-- `chats`: la bandeja de WhatsApp. Une los chats de las líneas por Evolution/WAHA y los de la API oficial; reparto, filtros, ficha del contacto, transcripción de audios, descarga en PDF o con audios.
+- `chats`: la bandeja de WhatsApp. Une los chats de las líneas por Evolution/WAHA y los de la API oficial; reparto, filtros, ficha del contacto, transcripción de audios, descarga en PDF o con audios. En la ficha del contacto está el **panel de envío** (desde el 06-10-2026): la asesora busca la ciudad, barrio o corregimiento y Gestión dice si el envío es Gratis, Adicional, Se cotiza o No llegamos, con UN SOLO TOTAL para el producto elegido (por defecto el producto activo del chat o el Combo Camillas CMB05); el texto se inserta en el cuadro (no se envía solo) o se copia. Si la ubicación no existe se agrega en Gestión (queda "Se cotiza" hasta que la revisen). Consulta `/api/transporte/ubicaciones` de Gestión con la misma conexión y llave de la sincronización del catálogo (`lib/envios-gestion.ts`); si Gestión no responde, dice "No se pudo consultar Gestión" y el chat sigue igual.
 - `crm`: el embudo de leads. Kanban por etapa, Registro, Informe del dueño, Mi día de cada asesora y el tablero del equipo.
 - `mi-tablero`: tablero personal de la asesora (sus números del día).
 - `llamadas`: registro de intentos de llamada por lead, con resultado, motivo de pérdida, grabación y transcripción.
@@ -91,7 +91,7 @@ propio catálogo (la hermana de Alex va a vender plantas y artículos de vivero 
 - `AgentKnowledgeProduct`: qué productos conoce cada agente y su guion por etapa.
 - `AgentCopilotMessage`: la conversación con el copiloto que ayuda a configurar un agente.
 - `WhatsAppChannel`: una línea de WhatsApp. `purpose` SALES o ADMIN; en `metadata` el gateway, las colaboradoras, quién está en pausa o monitoreando y si usa el Agente V3.
-- `Contact`: el lead / cliente. Etapa del CRM (`crmStage`), motivo de pérdida, fecha real de venta (`wonAt`) y si está oculto del CRM (`excludedFromCrm`).
+- `Contact`: el lead / cliente. Etapa del CRM (`crmStage`), motivo de pérdida, fecha real de venta (`wonAt`) y si está oculto del CRM (`excludedFromCrm`). En `metadata` van `city` y `address` de la ficha y, desde el panel de envío, `envio` = `{ gestionId, estado (GRATIS/ADICIONAL/COTIZAR/NO_LLEGA), lugar, consultadoEn, porUserId }`: lo último que se le consultó en Gestión para ese cliente (sin migración).
 - `Conversation`: un chat de un contacto en una línea. Asesora asignada, estado, IA pausada, producto activo.
 - `Message`: cada mensaje del chat (entrante, saliente o nota del sistema), con su medio y, si es audio, su transcripción.
 - `Tag`: una etiqueta del negocio.
@@ -227,7 +227,7 @@ la IA pausada no lo contesta el agente.
 - `transcripcion_de_audios`: pasa a texto cada nota de voz (Whisper) y la deja debajo del audio.
 - `purga_de_webhooks`: borra el archivo de webhooks viejo para no llenar el disco.
 - `sincronizacion_gestion`: trae el catálogo de Gestión (magilus.com) una vez al día a las 3 a. m. y con el botón "Sincronizar con Gestión". Gestión manda nombre, código, precios, categoría e imágenes (las que no cargan se descartan); la descripción de venta, el embudo, los seguimientos y los flujos son del CRM y no se tocan. Un producto oculto o borrado en Gestión queda inactivo, nunca se borra. No corre hasta que se apruebe el emparejamiento de los productos que ya existían.
-- `informe_diario`: a las 11:59 p. m. (hora de Colombia) arma el informe del día y lo manda por WhatsApp.
+- `informe_diario`: a las 11:59 p. m. (hora de Colombia) arma el informe del día y lo manda por WhatsApp. El reloj se autentica con cualquiera de `DAILY_REPORT_CRON_SECRET` o `FOLLOW_CRON_SECRET` (en `x-daily-report-secret`, `x-follow-cron-secret`, `x-webhook-secret` o `Authorization: Bearer`), comparado en tiempo constante. Hasta el 06-10-2026 solo valía el primero configurado y el informe podía responder 401 y no salir.
 
 ## Qué no existe hoy
 

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -107,6 +108,12 @@ import { ComposerEmojiPicker, ComposerSendButton } from "./chat-composer";
 import { AvisoDeCierre } from "./aviso-de-cierre";
 import { AvisoDeLlamada } from "./aviso-de-llamada";
 import { BotonDeMapaDeCaminos } from "./boton-mapa-de-caminos";
+
+// El panel de envio se baja recien cuando se abre la ficha del contacto: no pesa en la carga del chat.
+const PanelDeEnvio = dynamic(() => import("./panel-de-envio").then((modulo) => modulo.PanelDeEnvio), {
+  ssr: false,
+  loading: () => <p className="text-xs text-muted-foreground">Cargando…</p>,
+});
 
 const CHAT_MESSAGES_BACKGROUND_BASE_STYLE = {
   // Token por defecto de shadcn: blanco con una tonalidad un poco mas oscura.
@@ -1197,6 +1204,32 @@ export const ConversationPanel = memo(function ConversationPanel({
     }
   }, [renderedConversation?.id, mediaConfig?.conversationId, audioConfig?.conversationId, isSuggestingReply, autoResizeComposer, selectedConversationId]);
 
+  /*
+    Envio a la ubicacion del cliente, consultado en Gestion (ver panel-de-envio.tsx). Va en las dos
+    fichas (celular y escritorio). Al guardar la ubicacion se actualiza la ciudad de la ficha y se
+    descarta la cache del contacto para que la proxima lectura traiga la nueva.
+  */
+  const contactoDelEnvio = renderedConversation?.contactId || null;
+  const panelDeEnvio = contactoDelEnvio ? (
+    <div className="mt-5 space-y-3">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Envío
+      </h4>
+      <PanelDeEnvio
+        key={contactoDelEnvio}
+        contactId={contactoDelEnvio}
+        chatKey={selectedConversationId || null}
+        contactCity={contactCity}
+        puedeEscribir={Boolean(composer)}
+        onInsertar={insertQuickReply}
+        onCiudadGuardada={(city) => {
+          setContactCity(city);
+          cacheDeContactos.delete(contactoDelEnvio);
+        }}
+      />
+    </div>
+  ) : null;
+
   const contactPanelContent = renderedConversation ? (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
       <div className="flex items-center gap-3">
@@ -1272,6 +1305,8 @@ export const ConversationPanel = memo(function ConversationPanel({
           canDelete={canDeleteTags}
         />
       </div>
+
+      {panelDeEnvio}
 
       {contactPanelActions ? (
         <div className="mt-5 space-y-3">
@@ -2657,6 +2692,8 @@ export const ConversationPanel = memo(function ConversationPanel({
                   canDelete={canDeleteTags}
                 />
               </div>
+
+              {panelDeEnvio}
 
               {contactPanelActions ? (
                 <div className="mt-5 space-y-3">
