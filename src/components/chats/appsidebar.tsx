@@ -21,6 +21,7 @@ import {
   type FiltrosDeBandeja,
 } from "@/features/chats/domain/filtros-de-bandeja";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
+import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 
 type AppSidebarProps = {
   conversationItems: SharedInboxConversationItem[];
@@ -198,8 +199,19 @@ export function AppSidebar({
   const [pedido, setPedido] = React.useState<{ para: AssignedFilter; desde: AssignedFilter } | null>(null);
   const filtroMostrado = pedido && pedido.desde === assignedFilter ? pedido.para : assignedFilter;
 
+  // Medicion: el filtro del servidor ya es el pedido, o sea la lista nueva llego y se pinta.
+  React.useEffect(() => {
+    terminarMedicionAlPintar(`pestana:${assignedFilter}`, "cambiar_pestana", {
+      filtro: assignedFilter.startsWith("user:") ? "asesora" : assignedFilter,
+    });
+  }, [assignedFilter]);
+
   const aplicarFiltros = React.useCallback(
     (asignacion: AssignedFilter, estado: StatusFilter, nuevos: FiltrosDeBandeja = filtros) => {
+      // Medicion: toque en Todas/Mias -> lista pintada con el filtro nuevo (efecto de abajo).
+      if (asignacion !== assignedFilter) {
+        iniciarMedicion(`pestana:${asignacion}`);
+      }
       setPedido({ para: asignacion, desde: assignedFilter });
       setFilterMenuOpen(false);
       const params = new URLSearchParams();

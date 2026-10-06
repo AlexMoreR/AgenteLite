@@ -17,6 +17,7 @@ import { isSnoozed } from "@/lib/lead-snooze";
 import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
+import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
 
 type UnifiedConversation = {
   key: string;
@@ -593,7 +594,9 @@ async function getAgentConversationList(input: {
   };
 }
 
-export async function GET(request: Request) {
+export const GET = conServerTiming(manejarGet);
+
+async function manejarGet(request: Request, t: MedidorServerTiming) {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
@@ -608,6 +611,7 @@ export async function GET(request: Request) {
   if (!membership?.workspace.id) {
     return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
   }
+  t.marca("auth");
 
   const requestUrl = new URL(request.url);
   const searchQuery = requestUrl.searchParams.get("q")?.trim() || "";
@@ -682,7 +686,7 @@ export async function GET(request: Request) {
     userId: session.user.id,
     esJefe,
   });
-
+  t.marca("permisos");
 
   const data = await getAgentConversationList({
     workspaceId: membership.workspace.id,
@@ -702,6 +706,7 @@ export async function GET(request: Request) {
     offset,
     limit,
   });
+  t.marca("lista");
 
   return NextResponse.json({
     ok: true,

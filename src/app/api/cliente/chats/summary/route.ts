@@ -6,6 +6,7 @@ import {
 } from "@/lib/chat-conversation-summary";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
 
 function extractConversationIdFromChatKey(chatKey: string): string | null {
   const prefix = "agent:";
@@ -14,7 +15,9 @@ function extractConversationIdFromChatKey(chatKey: string): string | null {
   return id || null;
 }
 
-export async function GET(request: Request) {
+export const GET = conServerTiming(manejarGet);
+
+async function manejarGet(request: Request, t: MedidorServerTiming) {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
@@ -29,6 +32,7 @@ export async function GET(request: Request) {
   if (!membership?.workspace.id) {
     return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
   }
+  t.marca("auth");
 
   const requestUrl = new URL(request.url);
   const chatKey = requestUrl.searchParams.get("chatKey")?.trim() || "";
@@ -64,6 +68,7 @@ export async function GET(request: Request) {
       assignedToUserId,
     });
   }
+  t.marca("resumen");
 
   if (!conversation) {
     return NextResponse.json({ ok: false, error: "Conversacion no encontrada" });

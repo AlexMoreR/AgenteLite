@@ -69,6 +69,7 @@ import { inicializarFijados, useChatsFijados } from "./chats-fijados-store";
 import { inicializarPermisosDeLaBandeja } from "./permisos-de-la-bandeja-store";
 import type { CrmStage } from "@/features/crm/types";
 import { resolveCallTarget } from "@/lib/whatsapp-lid";
+import { iniciarMedicion, terminarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 
 const CONVERSATION_LIST_LOAD_BATCH_SIZE = 10;
 // Logs de depuración de la lista desactivados (ensuciaban la consola en desarrollo).
@@ -1147,6 +1148,10 @@ export function SharedInbox({
       if (!snapshot || !conversationIdMatchesKey(effectiveSelectedKey, snapshot.id)) {
         return;
       }
+      // Medicion: mensaje entrante (aviso del altavoz) hasta pintado en el chat abierto.
+      terminarMedicionAlPintar(`entrante:${extractConversationIdFromKey(snapshot.id)}`, "entrante_pintado", {
+        chatAbierto: true,
+      });
 
       setLiveConversation((current) => {
         // Si current pertenece a una conversación diferente (liveConversation nunca se
@@ -1228,6 +1233,10 @@ export function SharedInbox({
       if (!findConversationItemBySnapshotId(conversationItemsRef.current, snapshot.id)) {
         return;
       }
+      // Medicion: mensaje entrante (aviso del altavoz) hasta pintado en la fila de la lista.
+      terminarMedicionAlPintar(`entrante:${extractConversationIdFromKey(snapshot.id)}`, "entrante_pintado", {
+        chatAbierto: false,
+      });
 
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
@@ -1567,6 +1576,23 @@ export function SharedInbox({
     return matchesSelection(computed) ? computed : null;
   }, [computedRenderedConversation, selectedConversationKey]);
 
+  // Medicion: toque en la fila (conversation-list) hasta que se pintan los mensajes del chat.
+  // "cache" = salio de la cache del navegador; "servidor" = hubo que esperar a /live.
+  useEffect(() => {
+    if (
+      !selectedConversationKey ||
+      !renderedConversation ||
+      renderedConversation.isPreview ||
+      renderedConversation.messages.length === 0 ||
+      !conversationIdMatchesKey(selectedConversationKey, renderedConversation.id)
+    ) {
+      return;
+    }
+    terminarMedicionAlPintar(`abrir:${selectedConversationKey}`, "abrir_chat", {
+      origen: effectiveLiveConversation ? "servidor" : "cache",
+    });
+  }, [effectiveLiveConversation, renderedConversation, selectedConversationKey]);
+
   // Cuando el chat abierto ya tiene su contenido real, reiniciamos el estado de scroll/historial
   // y soltamos el preview optimista.
   //
@@ -1799,6 +1825,10 @@ export function SharedInbox({
   // - ok (o void) -> dejar la burbuja; el sync en tiempo real la reemplaza por el real
   const finalizeOptimisticSend = useCallback(
     (optimisticId: string, result: { ok?: boolean; suppressOptimistic?: boolean; error?: string } | null) => {
+      terminarMedicion(`envio:${optimisticId}`, "enviar_ok", {
+        ok: Boolean(result && result.ok !== false),
+        suprimido: Boolean(result?.suppressOptimistic),
+      });
       setOptimisticOutgoingMessage((current) => {
         if (!current || current.id !== optimisticId) {
           return current;
@@ -1848,6 +1878,9 @@ export function SharedInbox({
 
       const now = new Date();
       const optimisticId = `optimistic:${renderedConversation.id}:${Date.now()}`;
+      // Medicion: enviar -> burbuja pintada y enviar -> ok del servidor.
+      iniciarMedicion(`burbuja:${optimisticId}`);
+      iniciarMedicion(`envio:${optimisticId}`);
       const optimisticListSnapshot = {
         id: renderedConversation.id,
         label: renderedConversation.label,
@@ -1886,6 +1919,7 @@ export function SharedInbox({
           : { optimistic: true },
         isOptimistic: true,
       });
+      terminarMedicionAlPintar(`burbuja:${optimisticId}`, "enviar_burbuja");
       window.requestAnimationFrame(() => {
         const container = messagesScrollRef.current;
         if (!container) {

@@ -14,6 +14,7 @@ import { ContactAvatar } from "./contact-avatar";
 import { warmConversationCache } from "./chat-conversation-warmup";
 import { clearPendingConversationSelection, setPendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
+import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 import type { SharedInboxConversationItem } from "./shared-inbox";
@@ -499,6 +500,8 @@ export function ConversationList({
   }, []);
 
   const handleSelect = useCallback((conversation: SharedInboxConversationItem) => {
+    // Medicion: toque en la fila -> mensajes pintados (lo cierra shared-inbox).
+    iniciarMedicion(`abrir:${conversation.id}`);
     // handlePreviewSelect ya dejo el chat elegido en el store, que es la fuente unica de verdad
     // de "que chat esta abierto": con eso alcanza para que la bandeja lo abra.
     handlePreviewSelect(conversation);
@@ -531,6 +534,15 @@ export function ConversationList({
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
+
+  // Medicion: cerca del final -> la pagina siguiente ya pintada (la lista crecio).
+  const largoAnteriorRef = useRef(conversations.length);
+  useEffect(() => {
+    if (conversations.length > largoAnteriorRef.current) {
+      terminarMedicionAlPintar("pagina", "pagina_siguiente", { filas: conversations.length });
+    }
+    largoAnteriorRef.current = conversations.length;
+  }, [conversations.length]);
 
   /*
     PRECARGA de los primeros chats de la lista (Alex, 05-10-2026).
@@ -633,6 +645,7 @@ export function ConversationList({
             count: conversations.length,
             distFromBottom,
           });
+          iniciarMedicion("pagina");
           loadMoreInFlightRef.current = true;
           void Promise.resolve(onLoadMoreConversations()).finally(() => {
             loadMoreInFlightRef.current = false;
@@ -690,6 +703,7 @@ export function ConversationList({
             count: conversations.length,
             isIntersecting: entry.isIntersecting,
           });
+          iniciarMedicion("pagina");
           loadMoreInFlightRef.current = true;
           void Promise.resolve(onLoadMoreConversations()).finally(() => {
             loadMoreInFlightRef.current = false;

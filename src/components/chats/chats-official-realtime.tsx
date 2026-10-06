@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
+import { iniciarMedicion } from "@/lib/metricas-chats";
 
 /**
  * Escucha el altavoz (realtime-server.js) y avisa a la app que hubo un cambio en la API
@@ -123,6 +124,11 @@ export function ChatsOfficialRealtime({
           que "algo cambio" pero no si fue un mensaje del cliente o el eco de uno nuestro, y
           sonaria tambien al mandar.
         */
+        // Medicion: mensaje entrante -> pintado (lo cierra shared-inbox al actualizar fila o chat).
+        if (payload.type === "waha-incoming" && typeof payload.conversationId === "string") {
+          iniciarMedicion(`entrante:${payload.conversationId}`);
+        }
+
         const noSeEnteran = payload.data?.noSeEnteran;
         const quienMira = userIdRef.current;
         const noSeEntera =

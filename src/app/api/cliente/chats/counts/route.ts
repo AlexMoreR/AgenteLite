@@ -14,6 +14,7 @@ import {
   whereDeEtapas,
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
+import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
 
 export const dynamic = "force-dynamic";
 
@@ -176,7 +177,9 @@ async function countOfficialConversations(input: {
   });
 }
 
-export async function GET(request: Request) {
+export const GET = conServerTiming(manejarGet);
+
+async function manejarGet(request: Request, t: MedidorServerTiming) {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
@@ -191,6 +194,7 @@ export async function GET(request: Request) {
   if (!membership?.workspace.id) {
     return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
   }
+  t.marca("auth");
 
   const requestUrl = new URL(request.url);
   const searchQuery = requestUrl.searchParams.get("q")?.trim() || "";
@@ -259,6 +263,7 @@ export async function GET(request: Request) {
         })
       : null,
   });
+  t.marca("filtros");
 
   const [officialMine, officialUnassigned, officialAll] = await Promise.all([
     countOfficialConversations({
@@ -289,6 +294,7 @@ export async function GET(request: Request) {
       filtros,
     }),
   ]);
+  t.marca("oficial");
 
   /*
     La monitora ve "Todas" y "Sin asignar" de SUS lineas (Alex, 30-09-2026): los numeros de las

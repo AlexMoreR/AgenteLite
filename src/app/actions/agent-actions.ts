@@ -2558,11 +2558,24 @@ export type SendChatReplyResult =
   | { ok: false; error: string };
 
 export async function sendManualAgentReplyAction(formData: FormData): Promise<SendChatReplyResult> {
+  // Medicion (fase 0 de "Chats instantaneo"): ms acumulados desde el inicio en cada paso.
+  // Solo se loguea; no cambia nada del envio.
+  const envioT0 = performance.now();
+  const envioPasos: Record<string, number> = {};
+  const envioMarca = (paso: string) => {
+    envioPasos[paso] = Math.round(performance.now() - envioT0);
+  };
+  const envioLog = (resultado: string) => {
+    envioMarca("total");
+    console.log(`[envio-timing] ${JSON.stringify({ resultado, pasos: envioPasos })}`);
+  };
+
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
   await requireClientWorkspaceAccess("chats");
+  envioMarca("sesion");
 
   const parsed = sendManualAgentReplySchema.safeParse({
     agentId: formData.get("agentId"),
@@ -2594,6 +2607,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
   if (await estaEnModoMonitoreo({ workspaceId: membership.workspace.id, userId: session.user.id })) {
     return { ok: false, error: AVISO_MODO_MONITOREO };
   }
+  envioMarca("negocio");
 
   const conversation = await prisma.conversation.findFirst({
     where: {
@@ -2636,7 +2650,9 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     },
     select: { id: true },
   });
+  envioMarca("conversacion");
   if (repetido) {
+    envioLog("repetido");
     return { ok: true, suppressOptimistic: true };
   }
 
@@ -2646,6 +2662,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     manualMessage: parsed.data.message,
   });
   const messageAgentId = parsed.data.agentId ?? null;
+  envioMarca("flujoRapido");
 
   if (!quickResponseFlow) {
     try {
@@ -2658,6 +2675,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     } catch {
       // Si falla el indicador de escritura, igual enviamos el mensaje manual.
     }
+    envioMarca("escribiendo");
   }
 
   if (quickResponseFlow) {
@@ -2837,6 +2855,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     } catch (error) {
       console.error("[sendManualAgentReplyAction] post-envio flujo fallo (pasos ya enviados)", error);
     }
+    envioLog("flujoRapido");
 
     // Flujo disparado: los pasos del flujo ya se enviaron y apareceran por realtime.
     // Quitamos la burbuja optimista del texto escrito (no se envia tal cual al cliente).
@@ -2918,6 +2937,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
   } catch {
     // best-effort: si no se puede detectar el @lid, se envía al número normal
   }
+  envioMarca("citaYDestino");
 
   let outbound: Awaited<ReturnType<typeof sendEvolutionTextMessage>>;
   try {
@@ -2949,11 +2969,14 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
       error: detail,
       stack: error instanceof Error ? error.stack : undefined,
     });
+    envioMarca("whatsapp");
+    envioLog("error");
     return {
       ok: false,
       error: detail ? `No se pudo enviar el mensaje: ${detail}` : "No se pudo enviar el mensaje",
     };
   }
+  envioMarca("whatsapp");
 
   await prisma.message.create({
     data: {
@@ -2976,6 +2999,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
       } as never,
     },
   });
+  envioMarca("guardado");
 
   // El mensaje YA se envio a WhatsApp y se guardo en BD: el envio fue exitoso.
   // Los pasos siguientes (etiquetas de lead, lastMessageAt, pausar IA) son
@@ -3003,6 +3027,8 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
   } catch (error) {
     console.error("[sendManualAgentReplyAction] post-envio fallo (mensaje ya enviado)", error);
   }
+  envioMarca("postEnvio");
+  envioLog("ok");
 
   // Exito: sin redirect ni revalidatePath (eso forzaba un refetch del RSC que se
   // sentia como recarga). El inbox muestra la burbuja optimista al instante y el

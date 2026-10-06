@@ -11,6 +11,7 @@ import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
+import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
 
 const INITIAL_MESSAGE_BATCH_SIZE = 10;
 // Al subir se traen 30: con 10 habia que esperar una vuelta al servidor cada pocos mensajes.
@@ -72,7 +73,9 @@ function parseChatKey(input: string) {
   };
 }
 
-export async function GET(request: Request) {
+export const GET = conServerTiming(manejarGet);
+
+async function manejarGet(request: Request, t: MedidorServerTiming) {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
@@ -99,6 +102,7 @@ export async function GET(request: Request) {
     workspaceId: membership.workspace.id,
     userId: session.user.id,
   });
+  t.marca("auth");
 
   const requestUrl = new URL(request.url);
   const chatKey = requestUrl.searchParams.get("chatKey")?.trim() || "";
@@ -140,6 +144,7 @@ export async function GET(request: Request) {
       // Para que solo la dueña del chat lo marque leido.
       currentUserId: session.user.id,
     });
+    t.marca("oficial");
 
     const detalle = data.selectedConversation;
     if (!detalle) {
@@ -197,6 +202,8 @@ export async function GET(request: Request) {
       ? Number.parseInt(batchSizeParam, 10)
       : (beforeMessageId ? HISTORY_MESSAGE_BATCH_SIZE : INITIAL_MESSAGE_BATCH_SIZE),
   });
+
+  t.marca("mensajes");
 
   if (!conversation) {
     return NextResponse.json({ ok: false, error: "Conversacion no encontrada" }, { status: 404 });
@@ -324,6 +331,7 @@ export async function GET(request: Request) {
       return { ...base, mediaUrl: message.mediaUrl };
     }),
   );
+  t.marca("medios");
 
   if (mediaUrlDbUpdates.length > 0 || backgroundMediaTasks.length > 0) {
     after(async () => {
