@@ -3363,7 +3363,9 @@ export async function sendChatMediaReplyAction(input: {
   let fileSize = 0;
   let mediaPathname = "";
   try {
-    mediaPathname = new URL(parsed.data.mediaUrl).pathname;
+    // Los medios recibidos se guardan con ruta relativa (/uploads/chat-media/...): sin base,
+    // new URL() lanzaba y reenviar fallaba con "No se pudo leer el archivo".
+    mediaPathname = new URL(parsed.data.mediaUrl, "http://local").pathname;
     const filePath = path.join(process.cwd(), "public", mediaPathname);
     fileSize = (await stat(filePath)).size;
     if (fileSize <= MAX_BASE64_FALLBACK_BYTES) {
