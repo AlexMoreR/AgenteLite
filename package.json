@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:commercial-stage": "node scripts/check-commercial-stage.mjs",
+    "test:origen-ventas": "node scripts/check-origen-ventas.mjs",
     "db:seed": "node prisma/seed.js"
   },
   "prisma": {

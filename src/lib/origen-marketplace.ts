@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import type { OrigenMarketplace } from "@/lib/origen-de-venta";
 
 /*
   ORIGEN MARKETPLACE: cuantos clientes de Facebook Marketplace llegan a WhatsApp y cuantos compran.
@@ -21,19 +22,10 @@ const TAG_SLUG = "marketplace";
 const TAG_NOMBRE = "Marketplace";
 const TAG_COLOR = "#1877f2";
 
-const REF_RE = /\bref\s*:?\s*(MK-[A-Z0-9]{3,10})\b/i;
-const VENGO_RE = /vengo\s+de(l)?\s+marketplace/i;
-
-export type OrigenMarketplace = { cuenta: string | null };
-
-/** Lee el texto entrante. Devuelve null si no es el mensaje pre-llenado de Marketplace. */
-export function detectarOrigenMarketplace(texto: string | null | undefined): OrigenMarketplace | null {
-  const t = String(texto ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "");
-  if (!t.trim()) return null;
-  const ref = t.match(REF_RE);
-  if (!ref && !VENGO_RE.test(t)) return null;
-  return { cuenta: ref ? ref[1].toUpperCase() : null };
-}
+// La detección vive en origen-de-venta.ts (pura, con pruebas). Desde el 07-10-2026 también
+// reconoce "facebook.com/marketplace/item/<ID>", el texto que Facebook pone solo cuando el
+// comprador escribe desde una publicación, sin ref MK: se guarda el itemId.
+export { detectarOrigenMarketplace, type OrigenMarketplace } from "@/lib/origen-de-venta";
 
 async function asegurarEtiqueta(workspaceId: string) {
   const existente = await prisma.tag.findFirst({
@@ -105,6 +97,7 @@ export async function registrarOrigenMarketplace(input: {
           origen: {
             canal: "marketplace",
             cuenta: input.origen.cuenta,
+            ...(input.origen.itemId ? { itemId: input.origen.itemId } : {}),
             fecha: new Date().toISOString(),
             channelId: input.channelId,
           },
@@ -120,7 +113,11 @@ export async function registrarOrigenMarketplace(input: {
       });
     }
 
-    console.log("[ORIGEN] marketplace", { contactId: input.contactId, cuenta: input.origen.cuenta });
+    console.log("[ORIGEN] marketplace", {
+      contactId: input.contactId,
+      cuenta: input.origen.cuenta,
+      itemId: input.origen.itemId ?? null,
+    });
   } catch (error) {
     console.warn("[ORIGEN] marketplace_failed", {
       contactId: input.contactId,

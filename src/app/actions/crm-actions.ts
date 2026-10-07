@@ -2,6 +2,8 @@
 
 import { avisoSiNoSePuedeDescartar } from "@/features/crm/services/candado-descarte-sin-respuesta";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { avisarOrigenAGestion } from "@/lib/origen-de-venta-crm";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -164,6 +166,16 @@ export async function updateCrmStageAction(input: {
           ? `${actorName} cambió la etapa a "${stageLabel}" (cotización ${wonQuoteRef})`
           : `${actorName} cambió la etapa a "${stageLabel}"`,
     });
+  }
+
+  /*
+    Origen de la venta (Alex, 07-10-2026): con la cotización ganada, se le avisa a Gestión de dónde
+    vino el cliente (la línea del chat + anuncio/cuenta MK si hay). Va en after(): es una llamada
+    de red que no puede demorar ni hacer fallar el cambio de etapa. Ver origen-de-venta-crm.ts.
+  */
+  if (parsed.data.status === "GANADO" && wonQuoteRef) {
+    const aviso = { workspaceId: membership.workspace.id, contactId: contact.id, quoteCode: wonQuoteRef };
+    after(() => avisarOrigenAGestion(aviso).then(() => undefined));
   }
 
   revalidatePath("/cliente/crm");

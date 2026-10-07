@@ -33,6 +33,9 @@ import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { normalizeMetaAppSecret } from "@/lib/official-api-graph";
 import { downloadOfficialApiMedia } from "@/lib/official-api-media";
 import { ensureCrmContactForOfficialApi } from "@/lib/official-api-crm-bridge";
+import { registrarOrigenAnuncio } from "@/lib/origen-anuncio";
+import { detectarOrigenMarketplace, leerReferralOficial, type AnuncioDelLead } from "@/lib/origen-de-venta";
+import { registrarOrigenMarketplace } from "@/lib/origen-marketplace";
 import { syncOfficialApiCrmStage } from "@/lib/official-api-crm-stage";
 import { getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
@@ -112,6 +115,16 @@ type MetaWebhookPayload = {
           order?: { catalog_id?: string; product_items?: Array<{ quantity?: number; item_price?: number }> };
           system?: { body?: string; wa_id?: string };
           errors?: Array<{ code?: number; title?: string; message?: string }>;
+          // Click-to-WhatsApp: el anuncio del que vino el lead (solo en el primer mensaje).
+          referral?: {
+            source_url?: string;
+            source_id?: string;
+            source_type?: string;
+            headline?: string;
+            body?: string;
+            media_type?: string;
+            ctwa_clid?: string;
+          };
         }>;
         // Coexistencia: mensajes que la asesora manda desde la app de WhatsApp Business
         // (no via nuestra API). Meta los "refleja" con este campo para que el CRM se entere.
@@ -188,6 +201,8 @@ type ExtractedInboundMessage = {
   // Tipo con el que se guarda el archivo. Los stickers se guardan como IMAGE porque el enum de
   // la API oficial no tiene STICKER, pero el archivo igual se baja y se ve.
   mediaKind: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "STICKER" | null;
+  // Anuncio de Meta del que vino (Click-to-WhatsApp), si Meta mandó `referral`.
+  anuncio: AnuncioDelLead | null;
 };
 
 async function findConfigByVerifyToken(verifyToken: string) {
@@ -577,6 +592,7 @@ function extractInboundMessages(payload: MetaWebhookPayload): ExtractedInboundMe
           rawPayload: payload,
           mediaId: attachment?.id?.trim() || null,
           mediaKind,
+          anuncio: leerReferralOficial(message.referral),
         } satisfies ExtractedInboundMessage;
       })
       .filter((message): message is ExtractedInboundMessage => Boolean(message));
@@ -703,6 +719,41 @@ async function syncInboundMessages(
             WHERE "id" = ${officialContactId}
           `
           .catch(() => 0);
+
+        /*
+          ORIGEN DEL LEAD por la API oficial (07-10-2026). Antes este webhook no leia `referral` ni
+          detectaba Marketplace: un lead que entraba por aca perdia su origen. Se guarda igual que
+          en Evolution/WAHA. En after(): no demora la respuesta a Meta, y las dos funciones se
+          tragan sus errores.
+        */
+        const anuncio = message.anuncio;
+        if (anuncio) {
+          after(() => registrarOrigenAnuncio({ contactId: crmContactId, anuncio, fuente: "OFFICIAL_API" }));
+        }
+        const origenMarketplace = detectarOrigenMarketplace(message.content);
+        if (origenMarketplace) {
+          const configDelCanal = configId;
+          const workspaceDelCanal = workspaceId;
+          after(async () => {
+            // Solo el PRIMER mensaje del cliente por esta linea cuenta como origen. El after() corre
+            // cuando este mensaje ya quedo guardado, asi que "primero" = 1 entrante.
+            const previos = await prisma.officialApiMessage
+              .count({ where: { configId: configDelCanal, contactId: officialContactId, direction: "INBOUND" } })
+              .catch(() => 1);
+            if (previos > 1) return;
+            const canal = await prisma.whatsAppChannel
+              .findFirst({ where: { workspaceId: workspaceDelCanal, provider: "OFFICIAL_API" }, select: { id: true } })
+              .catch(() => null);
+            await registrarOrigenMarketplace({
+              workspaceId: workspaceDelCanal,
+              contactId: crmContactId,
+              channelId: canal?.id ?? configDelCanal,
+              origen: origenMarketplace,
+              // false: ademas mira que no tenga historial previo por las lineas de Evolution.
+              contactoRecienCreado: false,
+            });
+          });
+        }
       }
     }
 
