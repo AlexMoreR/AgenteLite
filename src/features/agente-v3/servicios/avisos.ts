@@ -1,5 +1,5 @@
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
-import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
+import { autoAssignConversationToCollaborator, avisarAsignacionPorPush } from "@/lib/reparto-de-leads";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -134,6 +134,9 @@ export async function avisarAsesorPorWhatsApp(input: {
   cliente: string;
   telefonoDelCliente: string;
 }): Promise<number> {
+  // A quién se le repartió el chat en ESTE aviso, y si le llegó su WhatsApp (ver el `finally`).
+  let asignadaAhoraA: string | null = null;
+  let llegoALaAsesora = false;
   try {
     const config = await leerConfigDeAvisos(input.workspaceId);
     if (!config?.activo || config.destinos.length === 0) {
@@ -153,11 +156,17 @@ export async function avisarAsesorPorWhatsApp(input: {
     });
 
     if (conversacion && !conversacion.assignedToUserId && conversacion.channelId) {
-      await autoAssignConversationToCollaborator({
+      /*
+        Sin push del reparto: este aviso ya le manda WhatsApp a la asesora. Si ese WhatsApp no le
+        llega (no tiene número cargado, la línea no envía, antirrepetición), el `finally` de abajo
+        le manda el push "Nuevo chat asignado" para que no se entere horas después.
+      */
+      asignadaAhoraA = await autoAssignConversationToCollaborator({
         conversationId: input.conversationId,
         channelId: conversacion.channelId,
         workspaceId: input.workspaceId,
-      }).catch(() => {});
+        avisarPorPush: false,
+      }).catch(() => null);
       conversacion = await prisma.conversation.findUnique({
         where: { id: input.conversationId },
         select: { assignedToUserId: true, channelId: true, numero: true },
@@ -257,6 +266,9 @@ export async function avisarAsesorPorWhatsApp(input: {
           text: destino.soloDe === null ? textoParaAdministrador : textoParaAsesora,
         });
         enviados += 1;
+        if (destino.soloDe !== null && destino.soloDe === asignadaAhoraA) {
+          llegoALaAsesora = true;
+        }
       } catch (error) {
         console.warn("[avisos] no se pudo avisar", {
           numero: destino.numero,
@@ -279,5 +291,10 @@ export async function avisarAsesorPorWhatsApp(input: {
       error: error instanceof Error ? error.message : String(error),
     });
     return 0;
+  } finally {
+    // El chat se le acaba de repartir y su WhatsApp no le llegó: que se entere por push.
+    if (asignadaAhoraA && !llegoALaAsesora) {
+      void avisarAsignacionPorPush({ conversationId: input.conversationId, userId: asignadaAhoraA });
+    }
   }
 }

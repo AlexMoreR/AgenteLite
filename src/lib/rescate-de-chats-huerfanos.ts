@@ -69,12 +69,15 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
     }
 
     try {
-      await autoAssignConversationToCollaborator({
+      // Cuenta solo lo repartido de verdad: null = nadie en turno, o ya lo tomó alguien.
+      const elegida = await autoAssignConversationToCollaborator({
         conversationId: conversacion.id,
         channelId: conversacion.channelId,
         workspaceId: conversacion.workspaceId,
       });
-      repartidos += 1;
+      if (elegida) {
+        repartidos += 1;
+      }
     } catch (error) {
       console.error("[rescate] no se pudo repartir el chat", {
         conversationId: conversacion.id,

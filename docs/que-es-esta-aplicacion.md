@@ -191,6 +191,11 @@ la IA pausada no lo contesta el agente.
   algo del agente o de un flujo (desde el 02-10-2026), cuando el agente pide un asesor, o por el
   rescate de chats huérfanos; si viene de un anuncio con regla de campaña, va a quien diga la regla. El
   reparto nunca le quita un chat a quien ya lo tiene. Solo en líneas de ventas (`purpose = SALES`).
+  Desde el 06-10-2026 **el reparto avisa al asignar**: la asesora que recibe el chat recibe un push
+  "Nuevo chat asignado" (nombre o teléfono del cliente y su último mensaje) que abre ese chat. Solo le
+  llega si activó las notificaciones en ese aparato. Cuando el reparto lo dispara el agente al pedir
+  asesor, ella ya recibe el WhatsApp del aviso y el push solo sale si ese WhatsApp no le llegó. El
+  mismo chat no repite el push en 2 minutos (`src/lib/reparto-de-leads.ts`).
 - **Ganado exige cotización**: nadie puede marcar GANADO sin el número de la cotización de Gestión
   (`COT-00123`), desde ninguna pantalla; se guarda en `Contact.wonQuoteRef` junto a `wonAt`. Ningún
   agente ni automatismo pone GANADO o PERDIDO.
@@ -218,8 +223,8 @@ la IA pausada no lo contesta el agente.
 - `seguimientos_v3`: las reglas "sin respuesta" del Agente V3: le escriben al cliente callado a los 15 minutos o a la hora, según el paso en que va.
 - `aviso_cliente_esperando`: si un cliente escribió y lleva 15 minutos sin respuesta, se le avisa a la asesora (no le escribe al cliente).
 - `rescate_de_mensajes_v3`: vuelve a pasarle al motor un mensaje que nunca miró (por una caída o un despliegue), solo en chats sin asesora ni pausa.
-- `rescate_de_chats_huerfanos`: reparte un chat que lleva media hora con el cliente esperando y sin nadie a cargo.
-- `reparto_por_turno`: en las líneas de ventas, cuando la clienta contesta CON CONTENIDO (no solo saludo, emoji, "ok" o "gracias") a algo del agente o de un flujo y el chat no tiene asesora, se reparte por la rueda de la línea. Asignar no pausa al agente: sigue hasta que la asesora escribe.
+- `rescate_de_chats_huerfanos`: reparte un chat que lleva media hora con el cliente esperando y sin nadie a cargo, y la asesora que lo recibe recibe el push "Nuevo chat asignado". Cuenta como repartido solo lo que de verdad se asignó.
+- `reparto_por_turno`: en las líneas de ventas, cuando la clienta contesta CON CONTENIDO (no solo saludo, emoji, "ok" o "gracias") a algo del agente o de un flujo y el chat no tiene asesora, se reparte por la rueda de la línea y la asesora recibe el push "Nuevo chat asignado". Asignar no pausa al agente: sigue hasta que la asesora escribe.
 - `enfriamiento_por_llamadas`: un lead en Caliente baja a Tibio con la regla del Playbook: 3 intentos nuestros sin respuesta (mensajes de asesora o llamadas), 5 días desde su último mensaje y cero respuesta. Nunca si tiene cotización o próximo contacto agendado. Vuelve a Caliente si contesta.
 - `temperatura`: un lead en Tibio baja a Frío con la misma regla del Playbook (ver `enfriamiento_por_llamadas`); nunca si tiene cotización. Vuelve a Tibio si contesta. Hasta el 03-10-2026 bajaba con "2 días sin escribir".
 - `descarte_automatico`: lleva a Descartado a los leads con 30 días sin respuesta y 3 insistencias nuestras. Se corrió una vez y se apagó; hoy no aparece en pantalla.
