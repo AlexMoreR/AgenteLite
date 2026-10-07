@@ -54,6 +54,18 @@ propio catálogo (la hermana de Alex va a vender plantas y artículos de vivero 
   `ghcr.io/alexmorer/agentelite:latest`; con el CI en verde se despliega solo. La versión que corre se ve
   en `https://app.aizenbot.com/api/version`.
 
+## Pruebas E2E
+
+- Playwright (`e2e/`, config en `e2e/playwright.config.ts`), Chromium emulando un Pixel 7, 1 trabajador.
+- Recorrido de **solo lectura** de una asesora: entrar, lista de chats, abrir un chat, ficha del cliente,
+  abrir el panel de envío (sin buscar ni crear ubicaciones) y cerrar sesión. No envía nada.
+- Corre cada noche a las 3:00 a. m. (Colombia) contra `https://app.aizenbot.com` con el workflow
+  `.github/workflows/e2e.yml` (también a mano con "Run workflow"); nunca en push, no despliega.
+- Usa la cuenta de una asesora de un negocio de prueba sin WhatsApp conectado, por los secretos
+  `E2E_EMAIL` y `E2E_PASSWORD`. Si faltan, las pruebas se saltan sin fallar.
+- Resultado: artefacto `e2e-results` con `tiempos.json` (tiempo de cada paso) y el reporte HTML.
+- Local: `E2E_EMAIL=... E2E_PASSWORD=... npm run test:e2e` (antes `npx playwright install chromium`).
+
 ## Módulos
 
 - `chats`: la bandeja de WhatsApp. Une los chats de las líneas por Evolution/WAHA y los de la API oficial; reparto, filtros, ficha del contacto, transcripción de audios, descarga en PDF o con audios. En la ficha del contacto está el **panel de envío** (desde el 06-10-2026): la asesora busca la ciudad, barrio o corregimiento y Gestión dice si el envío es Gratis, Adicional, Se cotiza o No llegamos, con UN SOLO TOTAL para el producto elegido (por defecto el producto activo del chat o el Combo Camillas CMB05); el texto se inserta en el cuadro (no se envía solo) o se copia. Si la ubicación no existe se agrega en Gestión (queda "Se cotiza" hasta que la revisen). Consulta `/api/transporte/ubicaciones` de Gestión con la misma conexión y llave de la sincronización del catálogo (`lib/envios-gestion.ts`); si Gestión no responde, dice "No se pudo consultar Gestión" y el chat sigue igual.
@@ -263,7 +275,8 @@ la IA pausada no lo contesta el agente.
   Bajarle el rol a alguien se nota del todo cuando vuelve a entrar (`/admin` sí lo verifica en la base).
 - **"Hacer administrador" da el admin de la plataforma** (`User.role = ADMIN`, abre `/admin`), no solo
   el del negocio.
-- **No hay suite de pruebas automáticas**: el chequeo es `tsc`, `eslint` y el build.
+- **Casi no hay pruebas automáticas**: el chequeo es `tsc`, `eslint` y el build, más el recorrido E2E de
+  solo lectura (ver "Pruebas E2E").
 - **El PDF de una conversación no muestra emojis** (fuentes estándar sin emoji) ni reproduce audios; para
   eso está la descarga con audios (HTML).
 - **El embudo en tres niveles** (SalesFunnel, CategoryPlaybook, ProductSpec) tiene tablas pero no está

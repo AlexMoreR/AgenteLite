@@ -11,6 +11,7 @@
     "test:origen-ventas": "node scripts/check-origen-ventas.mjs",
     "test:contraentrega": "node scripts/check-contraentrega.mjs",
     "test:firma-del-chat": "node scripts/check-firma-del-chat.mjs",
+    "test:e2e": "playwright test -c e2e",
     "db:seed": "node prisma/seed.js"
   },
   "prisma": {
@@ -60,6 +61,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
