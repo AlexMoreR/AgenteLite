@@ -374,13 +374,13 @@ export function SharedInbox({
     }
 
     /*
-      Cada 60 s (antes 15 s) y en pausa mientras la pestaña no se ve: son consultas pesadas y los
-      numeros solo cambian cuando entra algo. Para eso, un mensaje entrante pide los numeros 2 s
-      despues (uno solo por rafaga). Resolver o reabrir los pide en el acto (pedidoDeConteos).
+      Cada 60 s (antes 15 s) y en pausa mientras la pestaña no se ve: son consultas pesadas.
+      Un mensaje entrante NO pide los numeros (antes cada asesora conectada pedia /counts 2 s
+      despues de cada rafaga); se actualizan en el siguiente ciclo de 60 s. Resolver o reabrir
+      los pide en el acto (pedidoDeConteos).
     */
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    let porEventoId: ReturnType<typeof setTimeout> | undefined;
     let pendienteAlVolver = false;
 
     const programarSiguiente = () => {
@@ -437,34 +437,13 @@ export function SharedInbox({
       }
     };
 
-    const alLlegarMensaje = (event: Event) => {
-      if (event.type === "official-realtime-poke") {
-        const tipo = (event as CustomEvent<{ type?: string | null } | null>).detail?.type;
-        if (tipo !== "waha-incoming") {
-          return;
-        }
-      }
-      if (porEventoId) {
-        return;
-      }
-      porEventoId = setTimeout(() => {
-        porEventoId = undefined;
-        void fetchCounts();
-      }, 2_000);
-    };
-
     void fetchCounts();
     document.addEventListener("visibilitychange", alCambiarVisibilidad);
-    window.addEventListener("chat-incoming-message", alLlegarMensaje);
-    window.addEventListener("official-realtime-poke", alLlegarMensaje);
 
     return () => {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
-      if (porEventoId) clearTimeout(porEventoId);
       document.removeEventListener("visibilitychange", alCambiarVisibilidad);
-      window.removeEventListener("chat-incoming-message", alLlegarMensaje);
-      window.removeEventListener("official-realtime-poke", alLlegarMensaje);
     };
   }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosNuevos, pedidoDeConteos]);
 
