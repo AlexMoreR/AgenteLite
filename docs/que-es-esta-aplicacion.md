@@ -213,6 +213,20 @@ la IA pausada no lo contesta el agente.
 - **Freno de automáticos**: ningún mensaje automático (seguimientos del V3, programados, reactivación, campañas)
   sale si el último mensaje nuestro no está leído, ni un tercero seguido sin respuesta del cliente. Las
   respuestas a lo que escribe el cliente no pasan por el freno.
+- **Origen Marketplace** (desde el 06-10-2026): la extensión NETMAGI (repo `messenger-basic`) atiende a
+  los compradores de Facebook Marketplace y, cuando les pasa el WhatsApp (3046481994, línea "Ventas 2"),
+  agrega un enlace wa.me con el texto pre-llenado "Hola, vengo de Marketplace 🛒 (ref MK-XXXXX)".
+  MK-XXXXX es un hash corto de la cuenta de Facebook que lo atendió (no es su id ni su nombre). Si ese
+  texto ("vengo de Marketplace" o "ref MK-") llega como PRIMER mensaje de un contacto, el webhook de
+  Evolution/WAHA (en un `after()`, sin demorar al agente) le pone la etiqueta **Marketplace** (la crea
+  si no existe), guarda `Contact.metadata.origen = { canal: "marketplace", cuenta: "MK-XXXXX", fecha,
+  channelId }` y, si no tenía, `metadata.crmOrigin = "marketplace"` (el CRM lo muestra en el origen
+  MARKETPLACE). No re-escribe un origen ya guardado (`src/lib/origen-marketplace.ts`). Para medir:
+  contactos con la etiqueta → cuántos llegaron; de esos, `crmStage = GANADO` → cuántos compraron. Para
+  saber a qué cuenta corresponde un MK-XXXXX: en el CRM de NETMAGI, los eventos `whatsapp` llevan
+  `detalle.ref` con el mismo código y la cuenta que los mandó. Al V3 ese texto le llega como un saludo
+  normal (sale la Bienvenida, probado el 06-10-2026). Si el cliente borra el texto pre-llenado o
+  escribe al número a mano, no se detecta.
 - **Roles**: asesora (sus chats), supervisora (ve "Todas" pero solo de sus líneas, asigna, ve tableros y
   automatizaciones; se guarda en `AppSetting equipo:supervisoras:<workspace>`), administradora y dueño.
   La monitora mira sin poder escribir.

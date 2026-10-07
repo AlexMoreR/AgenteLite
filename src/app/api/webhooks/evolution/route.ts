@@ -100,6 +100,7 @@ import {
 import { buildProductPlaybookPrompt, getProductPlaybook } from "@/lib/product-playbook";
 import { reconocerProductoDelLead } from "@/lib/product-auto-tag";
 import { recordContactMatch } from "@/lib/contact-matches";
+import { detectarOrigenMarketplace, registrarOrigenMarketplace } from "@/lib/origen-marketplace";
 import { leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { filtrarPorHorario } from "@/lib/horario-de-reparto";
 import { repartirSiElTurnoLoAmerita } from "@/lib/reparto-por-turno";
@@ -1631,6 +1632,22 @@ export async function POST(request: NextRequest) {
         });
       }
     });
+  }
+
+  // Origen MARKETPLACE: el comprador llego por el enlace wa.me de la extension NETMAGI, con el
+  // texto pre-llenado "Hola, vengo de Marketplace 🛒 (ref MK-XXXXX)". Si es su PRIMER mensaje, se
+  // etiqueta "Marketplace" y se guarda metadata.origen. En after(): no demora la respuesta ni el
+  // agente, y registrarOrigenMarketplace se traga sus propios errores. Ver src/lib/origen-marketplace.ts.
+  const origenMarketplace = !fromMe && !isCallEvent ? detectarOrigenMarketplace(messageText) : null;
+  if (origenMarketplace) {
+    const datosOrigen = {
+      workspaceId: channel.workspaceId,
+      contactId: contact.id,
+      channelId: channel.id,
+      origen: origenMarketplace,
+      contactoRecienCreado: !existingContact,
+    };
+    after(() => registrarOrigenMarketplace(datosOrigen));
   }
 
   let existingConversation = callFallbackConversation
