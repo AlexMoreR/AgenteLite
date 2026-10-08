@@ -25,6 +25,7 @@ import { updateCrmStageAction } from "@/app/actions/crm-actions";
 import { AVISO_FALTA_COTIZACION, normalizarCotizacion } from "@/features/crm/domain/cotizacion-de-gestion";
 import { transcribirYResumirLlamada, type SugerenciaDeLlamada } from "@/lib/llamada-transcripcion";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
+import { leerUltimaLlamada, type UltimaLlamada } from "@/lib/ultima-llamada";
 
 const CALL_RESULT_VALUES = CALL_RESULTS.map((result) => result.value) as [string, ...string[]];
 
@@ -52,16 +53,7 @@ const registerCallSchema = z.object({
 
 export type RegisterCallInput = z.infer<typeof registerCallSchema>;
 
-export type UltimaLlamada = {
-  id: string;
-  etiqueta: string;
-  /** Se hablo pero nadie dijo todavia como quedo: el aviso ofrece clasificarla. */
-  pendiente: boolean;
-  noContesto: boolean;
-  resumen: string | null;
-  calledAt: string;
-  intento: number;
-};
+export type { UltimaLlamada };
 
 /**
  * La ultima llamada de un contacto, para el aviso de arriba del chat (pedido de Alex, 14-sep-2026):
@@ -81,24 +73,8 @@ export async function ultimaLlamadaDelContactoAction(contactId: string): Promise
     return null;
   }
 
-  const intento = await prisma.callAttempt.findFirst({
-    where: { workspaceId: access.workspaceId, contactId: contactId.trim() },
-    orderBy: { calledAt: "desc" },
-    select: { id: true, result: true, summary: true, calledAt: true, attemptNumber: true },
-  });
-  if (!intento) {
-    return null;
-  }
-
-  return {
-    id: intento.id,
-    etiqueta: getCallResultLabel(intento.result) ?? intento.result,
-    pendiente: isPendingCallResult(intento.result),
-    noContesto: intento.result === "no_contesto",
-    resumen: intento.summary?.trim() || null,
-    calledAt: intento.calledAt.toISOString(),
-    intento: intento.attemptNumber,
-  };
+  // Misma lectura que viaja dentro de /api/cliente/chats/live al abrir el chat.
+  return leerUltimaLlamada(access.workspaceId, contactId.trim());
 }
 
 /**

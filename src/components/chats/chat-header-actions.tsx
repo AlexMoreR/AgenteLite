@@ -1,6 +1,7 @@
 "use client";
 
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
+import { Skeleton } from "@/components/ui/skeleton";
 import { CrmStageControl } from "./crm-stage-control";
 import { ResolveChatControl } from "./resolve-chat-control";
 import { SnoozeChatControl } from "./snooze-chat-control";
@@ -80,6 +81,27 @@ export function ChatHeaderActions({
         <BotonLlamar telefono={telefono} nombre={nombreContacto} avatarUrl={avatarUrl} channelId={channelId} />
       </div>
     </>
+  );
+}
+
+/**
+ * La barra en silueta, mientras llegan los datos del chat (la fila de la lista no los traia).
+ *
+ * Mismas piezas y mismo alto que BarraDeAccionesDelChat (etapa, agente, asignar y, al final,
+ * resolver/posponer), para que al llegar los datos reales la barra no salte ni empuje los mensajes.
+ */
+export function BarraDeAccionesEnSilueta() {
+  return (
+    <div className="contents" aria-hidden="true">
+      <Skeleton className="h-5 w-14 rounded-full" />
+      <Skeleton className="h-[1.15rem] w-8 rounded-full" />
+      <span className="mx-0.5 h-5 w-px bg-border" />
+      <Skeleton className="size-8 rounded-lg" />
+      <div className="order-last flex items-center gap-1.5">
+        <span className="mx-0.5 h-5 w-px bg-border" />
+        <Skeleton className="h-8 w-11 rounded-lg" />
+      </div>
+    </div>
   );
 }
 

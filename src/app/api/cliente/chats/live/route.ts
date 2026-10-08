@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
+import { leerUltimaLlamada } from "@/lib/ultima-llamada";
 
 const INITIAL_MESSAGE_BATCH_SIZE = 10;
 // Al subir se traen 30: con 10 habia que esperar una vuelta al servidor cada pocos mensajes.
@@ -269,6 +270,27 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       );
     }
   }
+  /*
+    La ultima llamada viaja CON los mensajes, solo al ABRIR el chat.
+
+    Antes el aviso "Llamada saliente · ¿Cómo quedó?" la pedia aparte con una server action
+    (sesion + acceso + esta misma consulta) que esperaba a que el navegador quedara libre y en
+    fila detras de las otras: llegaba 1-3 s despues y empujaba los mensajes hacia abajo. Aca es
+    una sola consulta, en paralelo con los medios, y entra en el mismo cuadro que los mensajes.
+
+    Solo la pide quien ABRE el chat (`conLlamada=1`): los refrescos en vivo, la precarga, el
+    menu del contacto, paginar hacia arriba y el refresco de medios no la piden, asi ninguno de
+    ellos suma una consulta. Sin el modulo de Llamadas no hay aviso (null), igual que la action.
+  */
+  const incluirLlamada =
+    !beforeMessageId &&
+    !esPrecarga &&
+    requestUrl.searchParams.get("conLlamada") === "1" &&
+    canAccessClientModule(access, "llamadas");
+  const ultimaLlamadaPromesa = incluirLlamada
+    ? leerUltimaLlamada(membership.workspace.id, conversation.contact.id).catch(() => undefined)
+    : Promise.resolve(undefined);
+
   // Saneos de BD (mediaUrl → ruta persistida) y resoluciones lentas que se terminan
   // después de responder, para que la próxima apertura del chat sea instantánea.
   const mediaUrlDbUpdates: Array<{ id: string; mediaUrl: string }> = [];
@@ -332,6 +354,12 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     }),
   );
   t.marca("medios");
+  const ultimaLlamada = await ultimaLlamadaPromesa;
+  /*
+    Quedaron medios resolviendose en segundo plano. Solo en ese caso el navegador vuelve a pedir
+    el chat a los 2,5 s para recogerlos; antes lo hacia SIEMPRE, en cada apertura.
+  */
+  const mediosPendientes = backgroundMediaTasks.length > 0;
 
   if (mediaUrlDbUpdates.length > 0 || backgroundMediaTasks.length > 0) {
     after(async () => {
@@ -411,7 +439,11 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
         se volvia a pedir la lista entera. Ahora viaja en cada refresco del chat abierto.
       */
       assignedTo: conversation.assignedTo ?? null,
+      // undefined = no se pidio (sin conLlamada=1): el JSON no la lleva y el navegador conserva la
+      // que ya tenia.
+      ...(ultimaLlamada !== undefined ? { ultimaLlamada } : {}),
       messages,
     },
+    mediosPendientes,
   });
 }

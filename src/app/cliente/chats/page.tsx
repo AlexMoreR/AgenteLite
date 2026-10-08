@@ -72,6 +72,10 @@ type UnifiedConversation = {
   crmStage?: string | null;
   incomingCount?: number | null;
   assignedToName?: string | null;
+  // Para la barra del chat al tocar la fila (ver SharedInboxConversationItem). Misma consulta.
+  assignedToUserId?: string | null;
+  automationPaused?: boolean | null;
+  status?: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED" | null;
   // El nombre de la linea (Ventas 1, Admin...). Lo traia solo la recarga de /list, asi que la
   // lista abria sin linea y "al rato aparecia" (Alex, 02-10-2026).
   channelName?: string | null;
@@ -812,6 +816,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       avatarUrl,
       crmStage: conversation.contact.crmStage ?? null,
       assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
+      assignedToUserId: conversation.assignedToUserId ?? null,
+      automationPaused: conversation.automationPaused,
+      status: conversation.status ?? null,
       // El chat abierto se marca como leído (vía after()); su badge va a 0 de inmediato.
       incomingCount:
         conversation.id === selectedAgentConversationIdForRead
@@ -1306,6 +1313,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           incomingCount: item.incomingCount ?? 0,
           avatarUrl: item.avatarUrl ?? null,
           assignedToName: item.assignedToName ?? null,
+          // Barra del chat al instante al tocar la fila (solo las filas del canal propio los traen).
+          ...(item.source === "agent"
+            ? {
+                assignedToUserId: item.assignedToUserId ?? null,
+                automationPaused: item.automationPaused ?? false,
+                status: item.status ?? null,
+              }
+            : {}),
           channelName: item.channelName ?? null,
           lastMessage: item.lastMessage,
           lastMessageType: item.lastMessageType ?? null,

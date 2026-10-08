@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { UltimaLlamada } from "@/lib/ultima-llamada";
 
 export type SharedInboxConversationItemLike = Partial<Omit<SharedInboxConversationItem, "lastMessageAt">> & {
   id?: string;
@@ -28,6 +29,13 @@ export type SharedInboxConversationItem = {
   incomingCount?: number | null;
   avatarUrl?: string | null;
   assignedToName?: string | null;
+  /**
+   * Id de quien tiene el chat (null = sin asignar; undefined = la fila no lo trae). Junto con
+   * `automationPaused`, `crmStage` y `status` alcanza para dibujar la barra del chat al tocar la
+   * fila, sin esperar a /live. Salen de la misma consulta de la lista: 0 consultas mas.
+   */
+  assignedToUserId?: string | null;
+  automationPaused?: boolean | null;
   // Etapa del CRM del contacto, para mostrar el badge de etapa en la fila de la lista.
   crmStage?: string | null;
   // Abierta o resuelta: el menu de la fila necesita saberlo para ofrecer "Resolver" o "Reabrir".
@@ -94,6 +102,11 @@ export type SharedInboxSelectedConversation = {
   hasMoreMessages?: boolean;
   cacheKey?: string | null;
   isPreview?: boolean;
+  /**
+   * La ultima llamada con el contacto, para el aviso de arriba de los mensajes. La trae /live al
+   * abrir el chat (conLlamada=1). undefined = no llego por ahi y el aviso la pide por su cuenta.
+   */
+  ultimaLlamada?: UltimaLlamada | null;
 };
 
 export type OptimisticDraftMessage = SharedInboxMessageItem & {

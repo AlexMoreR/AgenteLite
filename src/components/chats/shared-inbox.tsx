@@ -62,7 +62,7 @@ import {
   updateConversationItemByContact,
 } from "./chat-inbox-conversation-utils";
 import { ConversationPanel } from "./chat-conversation-panel";
-import { BarraDeAccionesDelChat, ChatHeaderActions } from "./chat-header-actions";
+import { BarraDeAccionesDelChat, BarraDeAccionesEnSilueta, ChatHeaderActions } from "./chat-header-actions";
 import { MenuDelContacto } from "./menu-del-contacto";
 import { AssignChatControl } from "./assign-chat-control";
 import { inicializarFijados, useChatsFijados } from "./chats-fijados-store";
@@ -1402,98 +1402,23 @@ export function SharedInbox({
     return () => window.removeEventListener("chat-tags-updated", handleTagsUpdate as EventListener);
   }, []);
 
-  useEffect(() => {
-    const normalizedSelectedConversationId = selectedConversationKey;
+  /*
+    Segundo /live a los 2,5 s, SOLO cuando hace falta.
 
-    if (!normalizedSelectedConversationId.startsWith("agent:")) {
-      return;
-    }
-
-    if (currentSelectedConversationHasContentRef.current) {
-      return;
-    }
-
-    if (selectedConversationDetailInFlightRef.current === normalizedSelectedConversationId) {
-      return;
-    }
-
-    selectedConversationDetailInFlightRef.current = normalizedSelectedConversationId;
-
-    const controller = new AbortController();
-    let cancelled = false;
-
-    async function loadSelectedConversationDetail() {
-      try {
-        const response = await fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(normalizedSelectedConversationId)}`, {
-          credentials: "same-origin",
-          cache: "no-store",
-          signal: controller.signal,
-        });
-
-        if (!response.ok || cancelled) {
-          return;
-        }
-
-        const payload = (await response.json().catch(() => null)) as
-          | { ok?: boolean; conversation?: unknown }
-          | null;
-
-        if (!payload?.ok || !payload.conversation || cancelled) {
-          return;
-        }
-
-        const snapshot = normalizeLiveConversationSnapshot(payload.conversation);
-        if (!snapshot || cancelled) {
-          return;
-        }
-
-        setLiveConversation((current) => {
-          // Base = solo una conversación cuyo id coincide con el snapshot; si no, `null` (limpio).
-          // Antes caía en la conversación anterior y le mergeaba el snapshot nuevo → cruce.
-          const base = current && conversationIdMatchesKey(current.id, snapshot.id)
-            ? current
-            : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
-                ? selectedConversationRef.current
-                : null);
-          return mergeConversationSnapshotIfChanged(base, snapshot);
-        });
-      } catch {
-        // Intentional no-op: si falla, la vista cacheada/preview sigue siendo usable.
-      } finally {
-        if (selectedConversationDetailInFlightRef.current === normalizedSelectedConversationId) {
-          selectedConversationDetailInFlightRef.current = null;
-        }
-      }
-    }
-
-    void loadSelectedConversationDetail();
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-    // Dependemos solo de la clave efectiva (selectedConversationKey), no de
-    // pendingConversation.chatKey y selectedConversationId por separado. Si dependiera de
-    // ambos, cuando router.push actualiza selectedConversationId para "alcanzar" la
-    // selección pendiente, el efecto se re-ejecutaría con la MISMA clave efectiva: el
-    // cleanup abortaría el fetch en curso y la nueva corrida saldría por el guard de
-    // in-flight, dejando el historial sin cargar hasta un segundo click.
-  }, [selectedConversationKey]);
-
-  useEffect(() => {
-    const normalizedSelectedConversationId = selectedConversationKey;
-
-    if (!normalizedSelectedConversationId.startsWith("agent:")) {
-      return;
-    }
-
+    Su unico fin es recoger los medios que el primero dejo resolviendose en segundo plano. Antes
+    salia SIEMPRE, en cada apertura (otras ~6-8 consultas, y a veces reacomodaba la pantalla).
+    Ahora sale si el primero dijo `mediosPendientes`, si fallo, o si no hubo primero (el chat vino
+    pintado por el servidor en la carga de la pagina), que es lo que pasaba antes en ese caso.
+    No pide la llamada: ya llego con el primero.
+  */
+  const programarSegundoLive = useCallback((chatKey: string) => {
     if (selectedConversationDetailFollowUpTimerRef.current !== null) {
       window.clearTimeout(selectedConversationDetailFollowUpTimerRef.current);
     }
 
     selectedConversationDetailFollowUpTimerRef.current = window.setTimeout(() => {
       selectedConversationDetailFollowUpTimerRef.current = null;
-      void fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(normalizedSelectedConversationId)}`, {
+      void fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}`, {
         credentials: "same-origin",
         cache: "no-store",
       })
@@ -1521,14 +1446,110 @@ export function SharedInbox({
         })
         .catch(() => null);
     }, 2500);
+  }, []);
 
-    return () => {
+  useEffect(() => {
+    const normalizedSelectedConversationId = selectedConversationKey;
+
+    if (!normalizedSelectedConversationId.startsWith("agent:")) {
+      return;
+    }
+
+    const cancelarSegundoLive = () => {
       if (selectedConversationDetailFollowUpTimerRef.current !== null) {
         window.clearTimeout(selectedConversationDetailFollowUpTimerRef.current);
         selectedConversationDetailFollowUpTimerRef.current = null;
       }
     };
-  }, [selectedConversationKey]);
+
+    if (currentSelectedConversationHasContentRef.current) {
+      // Sin primer /live (lo pinto el servidor): queda el refresco de siempre a los 2,5 s.
+      programarSegundoLive(normalizedSelectedConversationId);
+      return cancelarSegundoLive;
+    }
+
+    if (selectedConversationDetailInFlightRef.current === normalizedSelectedConversationId) {
+      // Ya habia uno en camino para este chat (no lo controla esta corrida): queda el refresco de
+      // siempre para no perder la carga.
+      programarSegundoLive(normalizedSelectedConversationId);
+      return cancelarSegundoLive;
+    }
+
+    selectedConversationDetailInFlightRef.current = normalizedSelectedConversationId;
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    async function loadSelectedConversationDetail() {
+      let necesitaSegundo = true;
+      try {
+        // conLlamada=1: la ultima llamada viaja en esta misma respuesta (ver live/route.ts).
+        const response = await fetch(
+          `/api/cliente/chats/live?chatKey=${encodeURIComponent(normalizedSelectedConversationId)}&conLlamada=1`,
+          {
+            credentials: "same-origin",
+            cache: "no-store",
+            signal: controller.signal,
+          },
+        );
+
+        if (!response.ok || cancelled) {
+          return;
+        }
+
+        const payload = (await response.json().catch(() => null)) as
+          | { ok?: boolean; conversation?: unknown; mediosPendientes?: boolean }
+          | null;
+
+        if (!payload?.ok || !payload.conversation || cancelled) {
+          return;
+        }
+
+        const snapshot = normalizeLiveConversationSnapshot(payload.conversation);
+        if (!snapshot || cancelled) {
+          return;
+        }
+
+        necesitaSegundo = Boolean(payload.mediosPendientes);
+
+        setLiveConversation((current) => {
+          // Base = solo una conversación cuyo id coincide con el snapshot; si no, `null` (limpio).
+          // Antes caía en la conversación anterior y le mergeaba el snapshot nuevo → cruce.
+          const base = current && conversationIdMatchesKey(current.id, snapshot.id)
+            ? current
+            : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
+                ? selectedConversationRef.current
+                : null);
+          return mergeConversationSnapshotIfChanged(base, snapshot);
+        });
+      } catch {
+        // Intentional no-op: si falla, la vista cacheada/preview sigue siendo usable.
+      } finally {
+        if (selectedConversationDetailInFlightRef.current === normalizedSelectedConversationId) {
+          selectedConversationDetailInFlightRef.current = null;
+        }
+        // Fallo o quedaron medios pendientes: un solo reintento a los 2,5 s, como antes.
+        if (!cancelled && necesitaSegundo) {
+          programarSegundoLive(normalizedSelectedConversationId);
+        }
+      }
+    }
+
+    void loadSelectedConversationDetail();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      cancelarSegundoLive();
+    };
+    // Dependemos solo de la clave efectiva (selectedConversationKey), no de
+    // pendingConversation.chatKey y selectedConversationId por separado. Si dependiera de
+    // ambos, cuando router.push actualiza selectedConversationId para "alcanzar" la
+    // selección pendiente, el efecto se re-ejecutaría con la MISMA clave efectiva: el
+    // cleanup abortaría el fetch en curso y la nueva corrida saldría por el guard de
+    // in-flight, dejando el historial sin cargar hasta un segundo click.
+    // (programarSegundoLive es estable: no vuelve a correr el efecto.)
+  }, [selectedConversationKey, programarSegundoLive]);
 
   const effectiveLiveConversation =
     liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id) ? liveConversation : null;
@@ -2150,33 +2171,87 @@ export function SharedInbox({
     );
   }, [renderedConversation, selectedConversationKey]);
 
+  /*
+    La fila de la lista del chat abierto. Ya trae etapa, asignada, agente y estado (misma consulta
+    de la lista): con eso la barra se dibuja AL TOCAR, sin esperar a /live, que despues la corrige
+    si algo cambio. 0 pedidos mas.
+  */
+  const filaDelChatAbierto = useMemo(
+    () =>
+      selectedConversationKey.startsWith("agent:")
+        ? conversationItems.find((item) => item.id === selectedConversationKey) ?? null
+        : null,
+    [conversationItems, selectedConversationKey],
+  );
+
   // La barra de abajo de la cabecera angosta, con los mismos datos frescos que la cabecera.
-  const clientHeaderBar = useMemo(() => {
+  // Mientras llega /live se arma con la fila; si a la fila le falta algo, siluetas del mismo alto.
+  const { clientHeaderBar, barraAnticipada } = useMemo(() => {
     const conversation = renderedConversation;
-    if (
-      !conversation ||
-      conversation.isPreview ||
-      !selectedConversationKey.startsWith("agent:") ||
-      !conversation.contactId ||
-      !conversation.crmStage
-    ) {
-      return null;
+    if (!conversation || !selectedConversationKey.startsWith("agent:")) {
+      return { clientHeaderBar: null, barraAnticipada: false };
     }
 
-    return (
-      <BarraDeAccionesDelChat
-        key={`header-bar:${conversation.id}:${conversation.status ?? "OPEN"}`}
-        contactId={conversation.contactId}
-        stage={conversation.crmStage as CrmStage}
-        conversationId={conversation.id}
-        automationPaused={Boolean(conversation.automationPaused)}
-        status={conversation.status ?? "OPEN"}
-        returnTo={typeof window === "undefined" ? "" : window.location.pathname + window.location.search}
-        toggleAutomationAction={toggleConversationAutomationAction}
-        assignee={conversation.assignedTo ? { ...conversation.assignedTo, email: conversation.assignedTo.email ?? "" } : null}
-      />
-    );
-  }, [renderedConversation, selectedConversationKey]);
+    const conversationId = extractConversationIdFromKey(selectedConversationKey);
+    const returnTo = typeof window === "undefined" ? "" : window.location.pathname + window.location.search;
+    const datosDeLive = !conversation.isPreview && conversation.contactId && conversation.crmStage;
+
+    if (datosDeLive) {
+      return {
+        barraAnticipada: false,
+        clientHeaderBar: (
+          <BarraDeAccionesDelChat
+            key={`header-bar:${conversationId}:${conversation.status ?? "OPEN"}`}
+            contactId={conversation.contactId ?? null}
+            stage={conversation.crmStage as CrmStage}
+            conversationId={conversation.id}
+            automationPaused={Boolean(conversation.automationPaused)}
+            status={conversation.status ?? "OPEN"}
+            returnTo={returnTo}
+            toggleAutomationAction={toggleConversationAutomationAction}
+            assignee={conversation.assignedTo ? { ...conversation.assignedTo, email: conversation.assignedTo.email ?? "" } : null}
+          />
+        ),
+      };
+    }
+
+    // Ya asentado pero sin ficha del CRM: igual que antes, sin barra propia.
+    if (!conversation.isPreview && conversation.contactId) {
+      return { clientHeaderBar: null, barraAnticipada: false };
+    }
+
+    const fila = filaDelChatAbierto;
+    const filaCompleta =
+      fila?.contactId &&
+      fila.crmStage &&
+      fila.assignedToUserId !== undefined &&
+      fila.automationPaused !== undefined &&
+      fila.automationPaused !== null;
+
+    return {
+      barraAnticipada: true,
+      clientHeaderBar: filaCompleta ? (
+        <BarraDeAccionesDelChat
+          // Misma clave que la de /live: al llegar no se vuelve a montar, solo cambian los datos.
+          key={`header-bar:${conversationId}:${fila.status ?? "OPEN"}`}
+          contactId={fila.contactId ?? null}
+          stage={fila.crmStage as CrmStage}
+          conversationId={conversationId}
+          automationPaused={Boolean(fila.automationPaused)}
+          status={fila.status ?? "OPEN"}
+          returnTo={returnTo}
+          toggleAutomationAction={toggleConversationAutomationAction}
+          assignee={
+            fila.assignedToUserId
+              ? { id: fila.assignedToUserId, name: fila.assignedToName ?? null, email: "" }
+              : null
+          }
+        />
+      ) : (
+        <BarraDeAccionesEnSilueta />
+      ),
+    };
+  }, [filaDelChatAbierto, renderedConversation, selectedConversationKey]);
 
   /*
     Botones de la ficha del contacto (copiar la conversacion, traer el historial) armados en el CLIENTE.
@@ -2832,6 +2907,7 @@ export function SharedInbox({
         composer={effectiveComposer}
         composerHiddenFields={composerHiddenFields}
         hasSettledConversation={hasSettledConversation}
+        barraAnticipada={barraAnticipada}
         isLoadingOlderMessages={isLoadingOlderMessages}
         loadMoreSentinelRef={loadMoreSentinelRef}
         messageScrollBehavior={messageScrollBehavior}

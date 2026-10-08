@@ -40,6 +40,7 @@ type UnifiedConversation = {
   avatarUrl?: string | null;
   assignedToUserId?: string | null;
   assignedToName?: string | null;
+  automationPaused?: boolean | null;
   incomingCount?: number | null;
   lastMessage: string | null;
   // Solo tipos: la base ya podia devolver CONTACTS; ahora el tipo lo dice (igual que la pagina).
@@ -290,6 +291,8 @@ async function getAgentConversationList(input: {
       channelId: true,
       // Abierta o resuelta: el menu de cada fila ofrece "Resolver" o "Reabrir" segun esto.
       status: true,
+      // Para dibujar la barra del chat al tocar la fila, sin esperar a /live (misma consulta).
+      automationPaused: true,
       assignedToUserId: true,
       assignedTo: { select: { name: true, email: true } },
       activeProductContext: true,
@@ -508,6 +511,7 @@ async function getAgentConversationList(input: {
         : conversation.contact.phoneNumber,
       crmStage: conversation.contact.crmStage ?? null,
       status: conversation.status ?? null,
+      automationPaused: conversation.automationPaused,
       tags,
       avatarUrl: conversation.contact.avatarUrl ?? null,
       incomingCount: agentIncomingCountById.get(conversation.id) ?? 0,

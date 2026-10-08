@@ -89,6 +89,7 @@ import { FollowUpDialog } from "@/components/chats/follow-up-dialog";
 import { MediaPreviewDialog } from "@/components/chats/media-preview-dialog";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -144,6 +145,11 @@ type ConversationPanelProps = {
   composer: SharedInboxProps["composer"];
   composerHiddenFields: Array<{ name: string; value: string }>;
   hasSettledConversation: boolean;
+  /**
+   * La barra de abajo se dibuja YA, antes de que el chat este asentado: con los datos de la fila
+   * de la lista o, si faltan, en silueta del mismo alto. Asi no aparece "al rato" ni empuja.
+   */
+  barraAnticipada?: boolean;
   isLoadingOlderMessages: boolean;
   loadMoreSentinelRef: RefObject<HTMLDivElement | null>;
   messageScrollBehavior: "bottom" | "preserve";
@@ -239,6 +245,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   composer,
   composerHiddenFields,
   hasSettledConversation,
+  barraAnticipada = false,
   isLoadingOlderMessages,
   loadMoreSentinelRef,
   messageScrollBehavior,
@@ -1598,6 +1605,25 @@ export const ConversationPanel = memo(function ConversationPanel({
                     </button>
                   ) : null}
                 </div>
+              ) : !hasSettledConversation && barraAnticipada && headerBar ? (
+                /*
+                  Mientras llega el chat: el lugar de "Llamar" en silueta y el boton de la barra ya
+                  funcionando, con el mismo ancho que tendran. Solo con la cabecera angosta, que es
+                  donde vive la barra; los botones del chat anterior no se muestran.
+                */
+                <div className="flex shrink-0 items-center justify-end gap-2 @min-[520px]/chathdr:hidden">
+                  <Skeleton aria-hidden="true" className="size-8 rounded-full" />
+                  <button
+                    type="button"
+                    onClick={alternarBarra}
+                    aria-expanded={barraVisible}
+                    aria-label={barraVisible ? "Ocultar la barra de acciones" : "Mostrar la barra de acciones"}
+                    title={barraVisible ? "Ocultar acciones" : "Mostrar acciones"}
+                    className="-ml-1 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted"
+                  >
+                    <ChevronDown className={`size-5 transition-transform ${barraVisible ? "rotate-180" : ""}`} />
+                  </button>
+                </div>
               ) : null}
             </div>
             )}
@@ -1608,9 +1634,17 @@ export const ConversationPanel = memo(function ConversationPanel({
             no entra y antes vivia escondida en tres puntos. Con la cabecera ancha todo esto ya
             esta arriba, en linea.
           */}
-          {hasSettledConversation && seleccionados.length === 0 && barraVisible && (headerBar || mediaConfig) ? (
+          {(hasSettledConversation || barraAnticipada) && seleccionados.length === 0 && barraVisible && (headerBar || mediaConfig) ? (
             <div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-card px-3 py-1.5 @min-[520px]/chathdr:hidden">
               {headerBar}
+              {!mediaConfig && barraAnticipada ? (
+                // Nota, seguimiento y etiquetas, en silueta hasta que el chat este cargado.
+                <div className="ml-auto flex items-center gap-1.5" aria-hidden="true">
+                  <Skeleton className="size-8 rounded-lg" />
+                  <Skeleton className="size-8 rounded-lg" />
+                  <Skeleton className="size-8 rounded-lg" />
+                </div>
+              ) : null}
               {mediaConfig ? (
                 <div className="ml-auto flex items-center gap-1.5">
                   <button
@@ -1715,6 +1749,8 @@ export const ConversationPanel = memo(function ConversationPanel({
                 contactId={renderedConversation.contactId}
                 conversationId={selectedConversationId ?? null}
                 nombre={renderedConversation.label}
+                // Llega con los mensajes (/live): sin server action aparte ni salto.
+                inicial={renderedConversation.ultimaLlamada}
               />
             ) : null}
             <div className="relative min-h-0 flex-1">

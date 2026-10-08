@@ -245,6 +245,11 @@ export function buildConversationItemFromSnapshot(
       snapshot.assignedTo !== undefined
         ? snapshot.assignedTo?.name?.trim() || snapshot.assignedTo?.email || null
         : existing?.assignedToName ?? null,
+    // Lo que usa la barra del chat al tocar la fila: fresco del chat abierto, o el que ya tenia.
+    assignedToUserId:
+      snapshot.assignedTo !== undefined ? snapshot.assignedTo?.id ?? null : existing?.assignedToUserId,
+    automationPaused: snapshot.automationPaused ?? existing?.automationPaused,
+    status: snapshot.status ?? existing?.status ?? null,
     // Esta funcion solo actualiza la conversacion abierta: el usuario la esta viendo,
     // asi que no hay mensajes sin leer.
     incomingCount: 0,
@@ -292,6 +297,10 @@ export function buildConversationItemFromListSnapshot(
     // "Tibio") y, si no, se conserva la del existing en vez de perder la pastillita de la fila.
     crmStage: snapshot.crmStage ?? existing?.crmStage ?? null,
     assignedToName: snapshot.assignedToName ?? existing?.assignedToName ?? null,
+    assignedToUserId:
+      snapshot.assignedToUserId !== undefined ? snapshot.assignedToUserId : existing?.assignedToUserId,
+    automationPaused: snapshot.automationPaused ?? existing?.automationPaused,
+    status: snapshot.status ?? existing?.status ?? null,
     incomingCount: snapshot.incomingCount ?? existing?.incomingCount ?? 0,
     avatarUrl: snapshot.avatarUrl ?? existing?.avatarUrl ?? null,
     lastMessage: lastMessage || (isMediaPreviewType ? null : existing?.lastMessage ?? null),
@@ -436,6 +445,9 @@ export function areConversationListItemsEqual(
     left.secondaryLabel === right.secondaryLabel &&
     left.avatarUrl === right.avatarUrl &&
     left.assignedToName === right.assignedToName &&
+    // Los de la barra del chat: si no, quedaba el valor viejo para dibujarla al tocar la fila.
+    (left.assignedToUserId ?? null) === (right.assignedToUserId ?? null) &&
+    (left.automationPaused ?? null) === (right.automationPaused ?? null) &&
     // La linea y el estado tambien: si no, la fila que llegaba sin linea se quedaba asi aunque la
     // recarga la trajera, y la linea "aparecia al rato" o nunca (Alex, 02-10-2026).
     (left.channelName ?? null) === (right.channelName ?? null) &&
@@ -475,6 +487,27 @@ export function areMessageItemsEqual(
   );
 }
 
+function sonLaMismaLlamada(
+  left: SharedInboxSelectedConversation["ultimaLlamada"],
+  right: SharedInboxSelectedConversation["ultimaLlamada"],
+) {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.id === right.id &&
+    left.etiqueta === right.etiqueta &&
+    left.pendiente === right.pendiente &&
+    left.noContesto === right.noContesto &&
+    left.resumen === right.resumen &&
+    left.calledAt === right.calledAt &&
+    left.intento === right.intento
+  );
+}
+
 export function areSelectedConversationsEqual(
   left: SharedInboxSelectedConversation,
   right: SharedInboxSelectedConversation,
@@ -504,6 +537,9 @@ export function areSelectedConversationsEqual(
     (left.assignedTo?.id ?? null) === (right.assignedTo?.id ?? null) &&
     (left.assignedTo?.name ?? null) === (right.assignedTo?.name ?? null) &&
     Boolean(left.canImportHistory) === Boolean(right.canImportHistory) &&
+    // La ultima llamada llega con /live: sin esto, si los mensajes eran los mismos de la cache, la
+    // respuesta se descartaba por "igual" y el aviso no aparecia.
+    sonLaMismaLlamada(left.ultimaLlamada, right.ultimaLlamada) &&
     left.loadMoreHref === right.loadMoreHref &&
     left.loadMoreCursor === right.loadMoreCursor &&
     left.hasMoreMessages === right.hasMoreMessages &&

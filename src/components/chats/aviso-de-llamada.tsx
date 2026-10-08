@@ -3,7 +3,8 @@
 import * as React from "react";
 import { Phone, PhoneMissed } from "lucide-react";
 
-import { ultimaLlamadaDelContactoAction, type UltimaLlamada } from "@/app/actions/call-actions";
+import { ultimaLlamadaDelContactoAction } from "@/app/actions/call-actions";
+import type { UltimaLlamada } from "@/lib/ultima-llamada";
 import { RegisterCallDialog } from "@/features/llamadas/components/RegisterCallDialog";
 import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
 
@@ -38,13 +39,21 @@ export function AvisoDeLlamada({
   contactId,
   conversationId,
   nombre,
+  inicial,
 }: {
   contactId: string;
   conversationId: string | null;
   nombre: string;
+  /**
+   * La ultima llamada que trajo /live junto con los mensajes. Si viene (aunque sea null = "no hubo
+   * llamadas"), se muestra tal cual y NO se pide nada. undefined = no llego por ahi (chat pintado
+   * por el servidor, API oficial): se pide como antes, cuando el navegador quede libre.
+   */
+  inicial?: UltimaLlamada | null;
 }) {
-  const [llamada, setLlamada] = React.useState<UltimaLlamada | null>(null);
+  const [llamada, setLlamada] = React.useState<UltimaLlamada | null>(inicial ?? null);
   const [abierto, setAbierto] = React.useState(false);
+  const tieneInicial = inicial !== undefined;
 
   const cargar = React.useCallback(() => {
     ultimaLlamadaDelContactoAction(contactId)
@@ -52,9 +61,16 @@ export function AvisoDeLlamada({
       .catch(() => undefined);
   }, [contactId]);
 
-  // Al abrir el chat va cuando el navegador queda libre: las server actions van en fila y esta
-  // lectura no debe tapar un envio hecho apenas se abre.
-  React.useEffect(() => cuandoEsteLibre(cargar), [cargar]);
+  // Lo que trae /live manda: al llegar (o al refrescarse) reemplaza lo que hubiera.
+  React.useEffect(() => {
+    if (inicial !== undefined) {
+      setLlamada(inicial);
+    }
+  }, [inicial]);
+
+  // Sin dato de /live: va cuando el navegador queda libre, porque las server actions van en fila
+  // y esta lectura no debe tapar un envio hecho apenas se abre.
+  React.useEffect(() => (tieneInicial ? undefined : cuandoEsteLibre(cargar)), [cargar, tieneInicial]);
 
   React.useEffect(() => {
     const alAviso = (evento: Event) => {
