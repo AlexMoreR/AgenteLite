@@ -3053,13 +3053,98 @@ const sendChatAudioReplySchema = z.object({
   returnTo: z.string().optional(),
 });
 
-export async function sendChatAudioReplyAction(input: {
+/*
+  Notas de voz que se estan enviando (o se enviaron hace poco), por URL del audio.
+
+  El compositor reintenta solo si la llamada no dio respuesta (la señal se corto, la app no
+  contesto). Pero puede que el primer intento SI haya llegado y siga en camino a WhatsApp -medido:
+  hasta 8,7 s-. Cada audio subido tiene una URL unica, asi que el reintento con la misma URL se
+  engancha al envio que ya esta en curso en vez de mandarlo de nuevo. Si ya termino, ademas se mira
+  en la base (enviarNotaDeVoz): si el mensaje con esa URL ya existe, no se vuelve a mandar.
+*/
+const NOTAS_DE_VOZ_EN_CURSO = new Map<string, { promesa: Promise<{ ok: true } | { error: string }>; at: number }>();
+const VIDA_NOTA_DE_VOZ_EN_CURSO_MS = 10 * 60_000;
+
+type SendChatAudioReplyInput = {
   source: string;
   conversationId: string;
   agentId?: string;
   audioUrl: string;
   returnTo: string;
-}): Promise<{ ok: true } | { error: string }> {
+};
+
+/*
+  Una linea JSON por intento con prefijo [nota-de-voz]: resultado, tiempo y el detalle del error.
+  Sin telefonos ni contenido, solo ids internos. Junto con la de la subida (upload-audio) dice en
+  que tramo se cayo: si no hay linea de envio, la llamada ni llego.
+*/
+export async function sendChatAudioReplyAction(
+  input: SendChatAudioReplyInput,
+): Promise<{ ok: true } | { error: string }> {
+  const inicio = Date.now();
+  const clave = typeof input?.audioUrl === "string" ? input.audioUrl : "";
+  const registrar = (resultado: string, error: string | null, extra: Record<string, unknown> = {}) => {
+    const linea = JSON.stringify({
+      paso: "envio",
+      resultado,
+      ms: Date.now() - inicio,
+      canal: input?.source === "official" ? "official" : "evolution",
+      conversationId: input?.conversationId ?? null,
+      archivo: clave ? clave.split("/").pop() : null,
+      error,
+      ...extra,
+    });
+    if (resultado === "ok" || resultado === "repetido") {
+      console.info(`[nota-de-voz] ${linea}`);
+    } else {
+      console.error(`[nota-de-voz] ${linea}`);
+    }
+  };
+
+  const ahora = Date.now();
+  for (const [url, entrada] of NOTAS_DE_VOZ_EN_CURSO) {
+    if (ahora - entrada.at > VIDA_NOTA_DE_VOZ_EN_CURSO_MS) {
+      NOTAS_DE_VOZ_EN_CURSO.delete(url);
+    }
+  }
+
+  const enCurso = clave ? NOTAS_DE_VOZ_EN_CURSO.get(clave) : undefined;
+  if (enCurso) {
+    const resultado = await enCurso.promesa.catch(() => ({ error: "fallo el intento anterior" }));
+    // Si el primero fallo, este reintento si vale: se manda de nuevo.
+    if ("ok" in resultado) {
+      registrar("repetido", null, { motivo: "mismo audio en curso o ya enviado" });
+      return resultado;
+    }
+  }
+
+  const promesa = enviarNotaDeVoz(input);
+  if (clave) {
+    NOTAS_DE_VOZ_EN_CURSO.set(clave, { promesa, at: Date.now() });
+  }
+  try {
+    const resultado = await promesa;
+    if ("ok" in resultado) {
+      registrar(resultado.repetido ? "repetido" : "ok", null, resultado.repetido ? { motivo: "ya estaba en la base" } : {});
+      return { ok: true };
+    }
+    if (clave) {
+      NOTAS_DE_VOZ_EN_CURSO.delete(clave);
+    }
+    registrar("error", resultado.error);
+    return resultado;
+  } catch (error) {
+    if (clave) {
+      NOTAS_DE_VOZ_EN_CURSO.delete(clave);
+    }
+    registrar("excepcion", error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+async function enviarNotaDeVoz(
+  input: SendChatAudioReplyInput,
+): Promise<{ ok: true; repetido?: boolean } | { error: string }> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
@@ -3086,13 +3171,36 @@ export async function sendChatAudioReplyAction(input: {
     return { error: AVISO_MODO_MONITOREO };
   }
 
+  // Reintento del mismo audio que ya salio (la respuesta se perdio en el camino): no se repite.
+  // Cada subida tiene una URL unica, asi que la URL identifica a ESA nota de voz.
   if (parsed.data.source === "official") {
+    const yaEnviada = await prisma.officialApiMessage.findFirst({
+      where: { conversationId: parsed.data.conversationId, direction: "OUTBOUND", mediaUrl: parsed.data.audioUrl, createdAt: { gte: new Date(Date.now() - 86_400_000) } },
+      select: { id: true },
+    });
+    if (yaEnviada) {
+      return { ok: true, repetido: true };
+    }
     return sendOfficialApiChatFile({
       workspaceId: membership.workspace.id,
       conversationId: parsed.data.conversationId,
       mediaUrl: parsed.data.audioUrl,
       kind: "AUDIO",
     });
+  }
+
+  const yaEnviada = await prisma.message.findFirst({
+    where: {
+      workspaceId: membership.workspace.id,
+      conversationId: parsed.data.conversationId,
+      direction: "OUTBOUND",
+      mediaUrl: parsed.data.audioUrl,
+      createdAt: { gte: new Date(Date.now() - 86_400_000) },
+    },
+    select: { id: true },
+  });
+  if (yaEnviada) {
+    return { ok: true, repetido: true };
   }
 
   const conversation = await prisma.conversation.findFirst({

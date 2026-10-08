@@ -56,11 +56,59 @@ function getAudioExtension(mimeType: string) {
   return ".webm";
 }
 
+type RegistroDeSubida = { bytes: number | null; mime: string | null; userId: string | null };
+
+/*
+  Una linea por intento de subida, con prefijo [nota-de-voz] (08-10-2026: las notas de voz fallaban
+  en el celular y este tramo no dejaba rastro). Sin datos personales: resultado, tamaño, formato,
+  tiempo y el error. Si la linea NO aparece, el pedido ni llego a la app (señal o la app caida).
+*/
 export async function POST(request: Request) {
+  const inicio = Date.now();
+  const registro: RegistroDeSubida = { bytes: null, mime: null, userId: null };
+  try {
+    const respuesta = await subirAudio(request, registro);
+    let error: string | null = null;
+    if (!respuesta.ok) {
+      error = ((await respuesta.clone().json().catch(() => null)) as { error?: string } | null)?.error ?? null;
+    }
+    console.info(
+      `[nota-de-voz] ${JSON.stringify({
+        paso: "subida",
+        resultado: respuesta.ok ? "ok" : "error",
+        status: respuesta.status,
+        bytes: registro.bytes,
+        mime: registro.mime,
+        ms: Date.now() - inicio,
+        userId: registro.userId,
+        error,
+      })}`,
+    );
+    return respuesta;
+  } catch (error) {
+    console.error(
+      `[nota-de-voz] ${JSON.stringify({
+        paso: "subida",
+        resultado: "excepcion",
+        status: 500,
+        bytes: registro.bytes,
+        mime: registro.mime,
+        ms: Date.now() - inicio,
+        userId: registro.userId,
+        error: error instanceof Error ? error.message : String(error),
+      })}`,
+    );
+    throw error;
+  }
+}
+
+async function subirAudio(request: Request, registro: RegistroDeSubida) {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
+
+  registro.userId = session.user.id;
 
   const access = await getClientWorkspaceAccessForUser(session.user.id);
   if (!access || !canAccessClientModule(access, "chats")) {
@@ -79,6 +127,8 @@ export async function POST(request: Request) {
   }
 
   const baseMimeType = file.type.split(";")[0].trim().toLowerCase();
+  registro.bytes = file.size;
+  registro.mime = baseMimeType || null;
   if (!ALLOWED_AUDIO_MIME_TYPES.has(baseMimeType)) {
     return NextResponse.json({ ok: false, error: `Formato de audio no permitido (${file.type || "desconocido"}).` }, { status: 400 });
   }

@@ -81,6 +81,13 @@ import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { MediaLibraryDialog } from "@/components/chats/media-library-dialog";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
 import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
+import {
+  MENSAJE_SIN_CONEXION_ENVIO,
+  TIEMPO_LIMITE_SUBIDA_MS,
+  clasificarEnvio,
+  clasificarSubida,
+  conUnReintento,
+} from "@/lib/nota-de-voz-reintento";
 import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
 import { ForwardMessageDialog } from "@/components/chats/forward-message-dialog";
 import { SendFlowDialog, enviarFlujoAlChat } from "@/components/chats/send-flow-dialog";
@@ -510,6 +517,22 @@ export const ConversationPanel = memo(function ConversationPanel({
   // Nivel del microfono de las ultimas lecturas (0 a 1), para dibujar la onda mientras se graba.
   const [ondaEnVivo, setOndaEnVivo] = useState<number[]>([]);
   const [isSendingAudio, setIsSendingAudio] = useState(false);
+  /*
+    La nota de voz que no salio, para reintentarla sin volver a grabar (08-10-2026: en el celular
+    se quedaba "pensando", salia el aviso y el audio se perdia).
+
+    Se guarda el audio mismo y, si la subida ya habia funcionado, su URL: el reintento entonces
+    solo repite el envio. Tambien el chat al que iba, para no mandarlo a otro si ella cambio.
+  */
+  const [notasDeVozFallidas, setNotasDeVozFallidas] = useState<Array<{
+    id: string;
+    blob: Blob;
+    mimeType: string;
+    duracionMs: number;
+    url: string | null;
+    motivo: string;
+    destino: NonNullable<NonNullable<typeof composer>["audio"]>;
+  }>>([]);
 
   // Trae la foto de perfil del contacto abierto AL INSTANTE (acción manual del usuario).
   const handleRefreshAvatar = useCallback(async () => {
@@ -834,30 +857,83 @@ export const ConversationPanel = memo(function ConversationPanel({
     }
   }, []);
 
+  /*
+    Sube y envia una nota de voz. Si algo falla, el audio NO se pierde: queda en `notaDeVozFallida`
+    con su boton de reintentar (ver nota-de-voz-reintento.ts para que se reintenta solo y que no).
+
+    `reintento` llega desde ese boton: trae el chat original y, si ya se habia subido, la URL, asi
+    que solo se repite el envio. Para no mandarla dos veces, el servidor reconoce la misma URL.
+  */
   const uploadAndSendAudio = useCallback(
-    async (blob: Blob, mimeType: string) => {
-      if (!audioConfig) {
+    async (
+      blob: Blob,
+      mimeType: string,
+      duracionMs: number,
+      reintento?: { id: string; url: string | null; destino: NonNullable<typeof audioConfig> },
+    ) => {
+      const destino = reintento?.destino ?? audioConfig;
+      if (!destino) {
         return;
       }
 
       setIsSendingAudio(true);
+      const id = reintento?.id ?? `nota-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      if (reintento) {
+        setNotasDeVozFallidas((prev) => prev.filter((nota) => nota.id !== id));
+      }
       let optimisticId: string | null = null;
+      let url: string | null = reintento?.url ?? null;
+      const quitarBurbuja = () => {
+        if (optimisticId) {
+          const failedId = optimisticId;
+          setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== failedId));
+        }
+      };
+      const fallo = (motivo: string) => {
+        quitarBurbuja();
+        toast.error(motivo);
+        setNotasDeVozFallidas((prev) => [
+          ...prev.filter((nota) => nota.id !== id),
+          { id, blob, mimeType, duracionMs, url, motivo, destino },
+        ]);
+      };
+
       try {
         // El mime de MediaRecorder suele venir como "audio/webm;codecs=opus"; usamos el tipo base.
         const baseMime = mimeType.split(";")[0].trim() || "audio/webm";
         const ext = baseMime.includes("ogg") || baseMime.includes("opus") ? "ogg" : baseMime.includes("mp4") ? "mp4" : "webm";
         const file = new File([blob], `nota-de-voz-${Date.now()}.${ext}`, { type: baseMime });
-        const formData = new FormData();
-        formData.append("file", file);
 
-        const response = await fetch(audioConfig.uploadPath, { method: "POST", body: formData });
-        const data = (await response.json().catch(() => null)) as { url?: string; error?: string } | null;
-        if (!response.ok || !data?.url) {
-          toast.error(data?.error || "No se pudo subir la nota de voz.");
-          return;
+        if (!url) {
+          const subida = await conUnReintento(async () => {
+            // Con tiempo limite: sin esto, con mala señal se quedaba "pensando" para siempre.
+            const control = new AbortController();
+            let vencio = false;
+            const temporizador = setTimeout(() => {
+              vencio = true;
+              control.abort();
+            }, TIEMPO_LIMITE_SUBIDA_MS);
+            try {
+              const formData = new FormData();
+              formData.append("file", file);
+              const response = await fetch(destino.uploadPath, { method: "POST", body: formData, signal: control.signal });
+              const data = (await response.json().catch(() => null)) as { url?: string; error?: string } | null;
+              return clasificarSubida({ status: response.status, url: data?.url, error: data?.error });
+            } catch {
+              return clasificarSubida({ status: null, vencio });
+            } finally {
+              clearTimeout(temporizador);
+            }
+          });
+          if (!subida.ok) {
+            fallo(subida.falla.mensaje);
+            return;
+          }
+          url = subida.valor;
         }
+        const audioUrl = url;
 
-        optimisticId = `optimistic-media:${data.url}`;
+        optimisticId = `optimistic-media:${audioUrl}`;
         const optimisticMessage: SharedInboxMessageItem = {
           id: optimisticId,
           content: null,
@@ -866,7 +942,7 @@ export const ConversationPanel = memo(function ConversationPanel({
           authorType: "bot",
           outboundStatusLabel: null,
           type: "AUDIO",
-          mediaUrl: data.url,
+          mediaUrl: audioUrl,
           rawPayload: {
             source: "manual",
             fileName: file.name,
@@ -877,29 +953,29 @@ export const ConversationPanel = memo(function ConversationPanel({
         setOptimisticMediaMessages((prev) => [...prev, optimisticMessage]);
         window.requestAnimationFrame(() => onScrollToBottom());
 
-        const result = await audioConfig.sendAction({
-          source: audioConfig.source,
-          conversationId: audioConfig.conversationId,
-          agentId: audioConfig.agentId,
-          audioUrl: data.url,
-          returnTo: audioConfig.returnTo,
+        // Solo se reintenta si la llamada no dio respuesta; un `{ error }` del servidor no se repite.
+        const envio = await conUnReintento(async () => {
+          try {
+            const result = await destino.sendAction({
+              source: destino.source,
+              conversationId: destino.conversationId,
+              agentId: destino.agentId,
+              audioUrl,
+              returnTo: destino.returnTo,
+            });
+            return clasificarEnvio({ resultado: result });
+          } catch {
+            return clasificarEnvio({ excepcion: true });
+          }
         });
 
-        if (result && "ok" in result && result.ok) {
+        if (envio.ok) {
           composerRouter.refresh();
         } else {
-          if (optimisticId) {
-            const failedId = optimisticId;
-            setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== failedId));
-          }
-          toast.error((result && "error" in result && result.error) || "No se pudo enviar la nota de voz.");
+          fallo(envio.falla.mensaje);
         }
       } catch {
-        if (optimisticId) {
-          const failedId = optimisticId;
-          setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== failedId));
-        }
-        toast.error("No se pudo enviar la nota de voz.");
+        fallo(MENSAJE_SIN_CONEXION_ENVIO);
       } finally {
         setIsSendingAudio(false);
       }
@@ -1000,7 +1076,7 @@ export const ConversationPanel = memo(function ConversationPanel({
           return;
         }
 
-        void uploadAndSendAudio(grabado, mimeType);
+        void uploadAndSendAudio(grabado, mimeType, duroMs);
       };
 
       recorder.start();
@@ -2596,6 +2672,45 @@ export const ConversationPanel = memo(function ConversationPanel({
             </button>
           </div>
         ) : null}
+
+        {/* La nota de voz que no salio: se queda aca, con su audio, hasta reintentar o descartar. */}
+        {notasDeVozFallidas
+          .filter((nota) => nota.destino.conversationId === audioConfig?.conversationId)
+          .map((nota) => (
+          <div
+            key={nota.id}
+            className="mx-3 mb-2 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/40"
+          >
+            <Mic className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="min-w-0 flex-1 text-[12px] leading-4 text-amber-900 dark:text-amber-200">
+              Nota de voz{" "}
+              {nota.duracionMs >= 1000 ? `(${Math.round(nota.duracionMs / 1000)} s) ` : ""}
+              no se envió. {nota.motivo}
+            </span>
+            <button
+              type="button"
+              disabled={isSendingAudio}
+              onClick={() => {
+                void uploadAndSendAudio(nota.blob, nota.mimeType, nota.duracionMs, {
+                  id: nota.id,
+                  url: nota.url,
+                  destino: nota.destino,
+                });
+              }}
+              className="shrink-0 rounded-lg bg-amber-600 px-2.5 py-1 text-[12px] font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+            >
+              Reintentar
+            </button>
+            <button
+              type="button"
+              disabled={isSendingAudio}
+              onClick={() => setNotasDeVozFallidas((prev) => prev.filter((otra) => otra.id !== nota.id))}
+              className="shrink-0 rounded-lg px-1.5 py-1 text-[12px] text-amber-800 transition hover:bg-amber-100 disabled:opacity-60 dark:text-amber-300"
+            >
+              Descartar
+            </button>
+          </div>
+          ))}
 
         {pendingMediaFiles.length > 0 ? (
           <MediaPreviewDialog
