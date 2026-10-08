@@ -129,6 +129,39 @@ export async function filtrarEnLinea(workspaceId: string, userIds: string[], aho
 }
 
 /**
+ * Las que PUEDEN recibir un lead por turno: todas las de la lista MENOS las que se pausaron a mano
+ * (Mi empresa → su interruptor "Pausada"). A diferencia de `filtrarEnLinea`, NO mira el latido ni
+ * la visibilidad: tener el CRM abierto (o no) ya no decide el reparto (Alex, 08-10-2026: "dejarlo
+ * como antes" — en iPhone la app en segundo plano dejaba de latir y a las 2 h el sistema la auto-
+ * pausaba sola, así que dejaba de recibir aunque estuviera trabajando). La regla de madrugada
+ * (noche + tope de 7 a 8) sigue usando `filtrarEnLinea`; el reparto de día usa esta.
+ *
+ * Quien nunca tiene fila de presencia cuenta como disponible: nunca se pausó a mano. Una sola
+ * consulta. Conserva el orden de `userIds`.
+ */
+export async function filtrarSinPausaManual(
+  workspaceId: string,
+  userIds: string[],
+  ahora = new Date(),
+): Promise<Set<string>> {
+  if (userIds.length === 0) {
+    return new Set();
+  }
+  const filas = await prisma.presenciaEnLinea.findMany({
+    where: { workspaceId, userId: { in: userIds }, pausaManualEn: { not: null } },
+    select: { userId: true, pausaManualEn: true },
+  });
+  const pausadasAMano = new Set(
+    filas
+      .filter((fila) =>
+        pausaManualVigente({ ultimoLatido: ahora, enLineaDesde: null, pausaManualEn: fila.pausaManualEn }, ahora),
+      )
+      .map((fila) => fila.userId),
+  );
+  return new Set(userIds.filter((userId) => !pausadasAMano.has(userId)));
+}
+
+/**
  * Periodos en línea por persona que tocan [desde, hasta), incluido el tramo que sigue abierto
  * (medido hasta su último latido + margen, aunque para el reparto siga en línea hasta 2 h).
  */

@@ -318,4 +318,84 @@ prueba("a las 8:00 sin nadie en linea: lo que queda de la madrugada va a Ingrid 
   assert.equal(d.porRespaldo, true);
 });
 
+/* El reparto de DÍA ya no exige "en línea" (Alex, 08-10-2026): la rueda del día usa
+   `disponiblesParaTurno` (todas menos pausa a mano), aunque nadie tenga la app abierta. La
+   madrugada (noche + tope de 7 a 8) sigue mirando `disponibles` (en línea). */
+
+prueba("día, nadie en línea: igual se reparte por la rueda a todas (no cae todo en el respaldo)", () => {
+  const d = decidirReparto({
+    ...base,
+    disponibles: new Set(),
+    disponiblesParaTurno: new Set(rueda),
+    ahora: bog("10:00"),
+    deMadrugada: false,
+  });
+  assert.deepEqual(d, { tipo: "asignar", userId: INGRID, porRespaldo: false, deMadrugada: false, mueveLaRueda: true });
+});
+
+prueba("día: la rueda avanza entre todas aunque ninguna esté en línea", () => {
+  let ultima = null;
+  const salidas = [];
+  for (let i = 0; i < 4; i += 1) {
+    const d = decidirReparto({
+      ...base,
+      ultimaAsignada: ultima,
+      disponibles: new Set(),
+      disponiblesParaTurno: new Set(rueda),
+      ahora: bog("10:00"),
+      deMadrugada: false,
+    });
+    assert.equal(d.tipo, "asignar");
+    assert.equal(d.porRespaldo, false);
+    salidas.push(d.userId);
+    ultima = d.userId;
+  }
+  assert.deepEqual(salidas, [INGRID, MARIA, STHEFF, INGRID]);
+});
+
+prueba("día: la pausada a mano SÍ se salta (no está en disponiblesParaTurno)", () => {
+  const d = decidirReparto({
+    ...base,
+    ultimaAsignada: INGRID,
+    disponibles: new Set(),
+    disponiblesParaTurno: new Set([INGRID, STHEFF]), // MARIA pausada a mano
+    ahora: bog("10:00"),
+    deMadrugada: false,
+  });
+  assert.equal(d.userId, STHEFF);
+});
+
+prueba("día, todas pausadas a mano: va al respaldo (Ingrid)", () => {
+  const d = decidirReparto({
+    ...base,
+    disponibles: new Set(),
+    disponiblesParaTurno: new Set(),
+    ahora: bog("10:00"),
+    deMadrugada: false,
+  });
+  assert.deepEqual(d, { tipo: "asignar", userId: INGRID, porRespaldo: true, deMadrugada: false, mueveLaRueda: false });
+});
+
+prueba("madrugada intacta: de noche se espera aunque haya elegibles para el turno (nadie dormida)", () => {
+  const d = decidirReparto({
+    ...base,
+    disponibles: new Set(), // nadie en línea de noche
+    disponiblesParaTurno: new Set(rueda),
+    ahora: bog("03:00"),
+    deMadrugada: false,
+  });
+  assert.deepEqual(d, { tipo: "esperar" });
+});
+
+prueba("tope 7 a 8 intacto: usa en línea, no disponiblesParaTurno (espera si nadie abrió aún)", () => {
+  const d = decidirReparto({
+    ...base,
+    disponibles: new Set(), // nadie abrió el CRM todavía
+    disponiblesParaTurno: new Set(rueda),
+    ahora: bog("07:30"),
+    deMadrugada: true,
+  });
+  assert.deepEqual(d, { tipo: "esperar" });
+});
+
 console.log(`\n${pruebas} pruebas ok`);

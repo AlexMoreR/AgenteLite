@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { calcularReparto } from "@/lib/channel-collaborators";
 import { recordConversationActivity } from "@/lib/conversation-activity";
-import { filtrarEnLinea, leerAsesoraDeRespaldo } from "@/lib/en-linea";
+import { filtrarEnLinea, filtrarSinPausaManual, leerAsesoraDeRespaldo } from "@/lib/en-linea";
 import { decidirReparto, madrugadaConTope, respaldoAtiende, ventanaDeMadrugada } from "@/lib/en-linea-reglas";
 import { filtrarPorHorario } from "@/lib/horario-de-reparto";
 import { prisma } from "@/lib/prisma";
@@ -76,15 +76,24 @@ export async function autoAssignConversationToCollaborator(args: {
   }
 
   /*
-    Quien está fuera de su horario de reparto (Mi empresa -> Equipo) se salta en esta vuelta, y
-    también quien no está "Recibiendo clientes" (no tiene la app abierta, o se puso en Pausa; ver
-    en-linea-reglas.ts). Si no queda nadie, el cliente va a la asesora de respaldo, con aviso.
+    Quien está fuera de su horario de reparto (Mi empresa -> Equipo) se salta en esta vuelta.
+
+    El reparto de DÍA ya no exige tener el CRM abierto / estar "en línea" (Alex, 08-10-2026:
+    "dejarlo como antes"): la rueda del día va entre todas las elegibles menos las pausadas a mano
+    (`disponiblesParaTurno`). El motivo: en iPhone, con la app en segundo plano el latido dejaba de
+    salir y a las 2 h el sistema la auto-pausaba sola, así que dejaba de recibir aunque estuviera
+    trabajando.
+
+    `disponibles` (en línea, con latido reciente) se sigue calculando porque la regla de MADRUGADA
+    lo usa tal cual: de noche no se le encaja un lead a nadie dormida, y en el tope de 7 a 8 se
+    reparte a quien ya abrió. Si no queda nadie elegible, el cliente va a la de respaldo, con aviso.
   */
   const enHorario = await filtrarPorHorario(args.workspaceId, validIds);
   const ventana = ventanaDeMadrugada(ahora);
   const conTope = madrugadaConTope(ahora);
-  const [disponibles, respaldo, marcadaDeMadrugada] = await Promise.all([
+  const [disponibles, disponiblesParaTurno, respaldo, marcadaDeMadrugada] = await Promise.all([
     filtrarEnLinea(args.workspaceId, enHorario, ahora),
+    filtrarSinPausaManual(args.workspaceId, enHorario, ahora),
     leerAsesoraDeRespaldo(args.workspaceId),
     // Solo entre las 7 y las 8 importa si el chat viene de la noche (lo pide cualquier camino:
     // el rescate de huérfanos, el turno, el agente). El resto del día no se consulta.
@@ -98,6 +107,7 @@ export async function autoAssignConversationToCollaborator(args: {
   const decision = decidirReparto({
     rueda: validIds,
     disponibles,
+    disponiblesParaTurno,
     ultimaAsignada: lastId,
     respaldo,
     ahora,

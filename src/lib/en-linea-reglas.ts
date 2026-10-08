@@ -205,10 +205,19 @@ export type DecisionDeReparto =
 /**
  * A quién va un chat, con la hora: la franja del respaldo y los chats de madrugada.
  * `recibidasDeMadrugada`: cuántos chats de madrugada recibió hoy cada una (para el tope).
+ *
+ * `disponibles` es "quién está EN LÍNEA" (con el CRM abierto o latido reciente); lo usa la regla de
+ * madrugada: de noche, para no asignarle a nadie dormida, y en el tope de 7 a 8.
+ *
+ * `disponiblesParaTurno` (opcional) es quién puede recibir por la RUEDA DE DÍA: todas las elegibles
+ * menos las pausadas a mano, estén o no con la app abierta (Alex, 08-10-2026: el reparto ya no
+ * exige "en línea"). Si no se pasa, se usa `disponibles` (comportamiento de antes, para las pruebas
+ * de las reglas). La madrugada no la mira: esos caminos siguen con `disponibles`.
  */
 export function decidirReparto(input: {
   rueda: string[];
   disponibles: Set<string>;
+  disponiblesParaTurno?: Set<string>;
   ultimaAsignada: string | null;
   respaldo: string | null;
   ahora: Date;
@@ -216,6 +225,7 @@ export function decidirReparto(input: {
   recibidasDeMadrugada?: Map<string, number>;
 }): DecisionDeReparto {
   const { rueda, disponibles, ahora } = input;
+  const paraTurno = input.disponiblesParaTurno ?? disponibles;
 
   if (!respaldoAtiende(ahora)) {
     // De noche: si alguien está en línea recibe por la rueda; si no, sin dueña hasta la mañana.
@@ -240,7 +250,8 @@ export function decidirReparto(input: {
     return { tipo: "asignar", userId, porRespaldo: false, deMadrugada: true, mueveLaRueda: false };
   }
 
-  const elegida = elegirAsesora(input);
+  // Reparto de día: por la rueda entre TODAS las elegibles (tengan o no la app abierta).
+  const elegida = elegirAsesora({ ...input, disponibles: paraTurno });
   if (!elegida) {
     return { tipo: "nadie" };
   }
