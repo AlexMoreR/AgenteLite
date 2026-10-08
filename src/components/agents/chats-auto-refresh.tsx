@@ -38,6 +38,9 @@ function hydrateConversationSnapshot(value: unknown) {
 */
 const AVISOS_CON_CONVERSACION = new Set(["waha-ack", "waha-incoming", "waha-update", "llamada"]);
 
+/** Los avisos de un mismo chat que caen en este rato salen en un solo pedido de su fila. */
+const VENTANA_POR_CHAT_MS = 3000;
+
 function hydrateConversationListSnapshot(value: unknown) {
   if (!value || typeof value !== "object") return null;
   const snapshot = value as { id?: unknown; lastMessageAt?: string | Date | null };
@@ -247,6 +250,25 @@ export function ChatsAutoRefresh({
     const pendientes = new Set<string>();
     let juntarTimer: number | undefined;
     let lastRefreshAt = 0;
+    /*
+      Rafagas por chat: el primer aviso trae la fila al instante (250 ms, como antes) y los que
+      llegan despues -el "entregado", el "leido", el eco- se juntan en UN pedido al cerrar la
+      ventana de 3 s. La fila termina igual (el ultimo pedido sale despues del ultimo aviso); solo
+      el chulo del acuse puede tardar hasta 3 s mas en cambiar de color.
+    */
+    const ventanas = new Map<string, number>();
+    const enEspera = new Set<string>();
+    /*
+      Chats que el altavoz marco como ajenos (no estan en la bandeja de esta asesora). Sus acuses y
+      ecos tampoco se piden: el resumen contestaria "no encontrada" despues de gastar 4 consultas.
+      Se olvida a los 10 min o en cuanto un mensaje de ese chat llega sin la marca (por ejemplo,
+      si se lo asignaron). El chat ABIERTO nunca se salta.
+    */
+    const ajenos = new Map<string, number>();
+    const OLVIDAR_AJENO_MS = 10 * 60 * 1000;
+    // Con la pestaña oculta no se pide nada: se anotan y se piden una vez al volver.
+    const alVolver = new Set<string>();
+    const MAXIMO_FILAS_AL_VOLVER = 20;
 
     const traerConversacion = async (conversationId: string) => {
       const chatKey = `agent:${conversationId}`;
@@ -267,25 +289,100 @@ export function ChatsAutoRefresh({
       }
     };
 
-    const handlePoke = (event: Event) => {
-      const detail = (event as CustomEvent<{ type?: string | null; conversationId?: string | null } | null>)
-        .detail;
-      const conversationId = detail?.conversationId?.trim() || "";
+    const esElAbierto = (conversationId: string) =>
+      selectedConversationKeyRef.current?.trim() === `agent:${conversationId}`;
 
-      if (conversationId && AVISOS_CON_CONVERSACION.has(detail?.type ?? "")) {
-        pendientes.add(conversationId);
-        // Se juntan los avisos de un mismo instante: un mensaje trae su "entregado" y su "leido"
-        // casi pegados, y no tiene sentido pedir la misma fila dos veces.
-        if (juntarTimer === undefined) {
-          juntarTimer = window.setTimeout(() => {
-            juntarTimer = undefined;
-            const ids = Array.from(pendientes);
-            pendientes.clear();
-            for (const id of ids) {
-              void traerConversacion(id);
-            }
-          }, 250);
+    const pedirFila = (conversationId: string) => {
+      // Abre la ventana de este chat: lo que llegue en los proximos 3 s sale en un solo pedido.
+      const ventana = window.setTimeout(() => {
+        const otraVez = enEspera.delete(conversationId);
+        ventanas.delete(conversationId);
+        if (otraVez) {
+          avisoDeChat(conversationId);
         }
+      }, VENTANA_POR_CHAT_MS);
+      ventanas.set(conversationId, ventana);
+
+      pendientes.add(conversationId);
+      // Se juntan los avisos de un mismo instante de distintos chats en una sola vuelta.
+      if (juntarTimer === undefined) {
+        juntarTimer = window.setTimeout(() => {
+          juntarTimer = undefined;
+          const ids = Array.from(pendientes);
+          pendientes.clear();
+          for (const id of ids) {
+            void traerConversacion(id);
+          }
+        }, 250);
+      }
+    };
+
+    function avisoDeChat(conversationId: string) {
+      if (document.visibilityState !== "visible") {
+        alVolver.add(conversationId);
+        return;
+      }
+      // El pedido de esta fila todavia no salio: ya va a traer lo de este aviso.
+      if (pendientes.has(conversationId)) {
+        return;
+      }
+      if (ventanas.has(conversationId)) {
+        enEspera.add(conversationId);
+        return;
+      }
+      pedirFila(conversationId);
+    }
+
+    const alCambiarVisibilidad = () => {
+      if (document.visibilityState !== "visible" || alVolver.size === 0) {
+        return;
+      }
+      const ids = Array.from(alVolver);
+      alVolver.clear();
+      /*
+        Muchos chats cambiaron mientras no se miraba: una sola recarga de la pantalla sale mas
+        barata que un resumen por cada uno (y trae la lista ya ordenada).
+      */
+      if (ids.length > MAXIMO_FILAS_AL_VOLVER) {
+        lastRefreshAt = Date.now();
+        startTransition(() => {
+          router.refresh();
+        });
+        return;
+      }
+      for (const id of ids) {
+        avisoDeChat(id);
+      }
+    };
+    document.addEventListener("visibilitychange", alCambiarVisibilidad);
+
+    const handlePoke = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ type?: string | null; conversationId?: string | null; chatAjeno?: boolean } | null>
+      ).detail;
+      const conversationId = detail?.conversationId?.trim() || "";
+      const tipo = detail?.type ?? "";
+
+      if (conversationId && AVISOS_CON_CONVERSACION.has(tipo)) {
+        if (!esElAbierto(conversationId)) {
+          const ahora = Date.now();
+          if (tipo === "waha-incoming") {
+            if (detail?.chatAjeno === true) {
+              ajenos.set(conversationId, ahora);
+              return;
+            }
+            ajenos.delete(conversationId);
+          } else {
+            const marcadoEl = ajenos.get(conversationId);
+            if (marcadoEl !== undefined) {
+              if (ahora - marcadoEl < OLVIDAR_AJENO_MS) {
+                return;
+              }
+              ajenos.delete(conversationId);
+            }
+          }
+        }
+        avisoDeChat(conversationId);
         return;
       }
 
@@ -308,6 +405,10 @@ export function ChatsAutoRefresh({
       if (juntarTimer !== undefined) {
         window.clearTimeout(juntarTimer);
       }
+      for (const ventana of ventanas.values()) {
+        window.clearTimeout(ventana);
+      }
+      document.removeEventListener("visibilitychange", alCambiarVisibilidad);
       window.removeEventListener("official-realtime-poke", handlePoke);
     };
   }, [enabled, router, startTransition]);

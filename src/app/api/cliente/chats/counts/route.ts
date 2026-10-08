@@ -177,7 +177,7 @@ async function countOfficialConversations(input: {
   });
 }
 
-export const GET = conServerTiming(manejarGet);
+export const GET = conServerTiming(manejarGet, { log: "chats/counts" });
 
 async function manejarGet(request: Request, t: MedidorServerTiming) {
   const session = await auth();

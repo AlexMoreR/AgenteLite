@@ -18,6 +18,12 @@ import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from 
 import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
+import {
+  sqlPayloadDeMensajes,
+  sqlUltimoMensajeDeChats,
+  type FilaUltimoMensaje,
+  type MessageTypeDeFila,
+} from "@/lib/ultimo-mensaje-de-chats";
 
 type UnifiedConversation = {
   key: string;
@@ -36,7 +42,8 @@ type UnifiedConversation = {
   assignedToName?: string | null;
   incomingCount?: number | null;
   lastMessage: string | null;
-  lastMessageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+  // Solo tipos: la base ya podia devolver CONTACTS; ahora el tipo lo dice (igual que la pagina).
+  lastMessageType?: MessageTypeDeFila | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
   lastMessageStatus?: string | null;
   lastMessageAt?: Date | null;
@@ -338,45 +345,20 @@ async function getAgentConversationList(input: {
   // WhatsApp (JSON grande): traerlo de las 40 filas eran ~776 KB y 1150ms por pagina; sin el son
   // ~6 KB y 177ms. Solo se usa como FALLBACK (texto del preview si content esta vacio, nombre de
   // WhatsApp si el contacto no tiene nombre guardado), asi que se pide aparte solo para esas pocas.
+  //
+  // LATERAL ... LIMIT 1 por chat (ver lib/ultimo-mensaje-de-chats): antes este DISTINCT ON abria el
+  // rawPayload de TODOS los mensajes de los 40 chats para evaluar el filtro de 'source'.
+  // Los mensajes de sistema no se muestran como vista previa de la fila (una nota de "cambio la
+  // etapa" taparia el ultimo mensaje del cliente), con UNA excepcion: las llamadas.
   const latestAgentMessageRowsPromise = activeAgentConversationIds.length
-      ? prisma.$queryRaw<Array<{
-          conversationId: string;
-          content: string | null;
-          direction: "INBOUND" | "OUTBOUND";
-          createdAt: Date;
-          deletedAt: Date | null;
-          type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
-          status: string | null;
-        }>>`
-        SELECT DISTINCT ON (m."conversationId")
-          m."conversationId" AS "conversationId",
-          m."content" AS "content",
-          m."direction" AS "direction",
-          m."createdAt" AS "createdAt",
-          m."deletedAt" AS "deletedAt",
-          m."type" AS "type",
-          -- El acuse del ULTIMO mensaje, para dibujar el chulo en la fila de la lista.
-          m."status" AS "status"
-        FROM "Message" m
-        WHERE m."workspaceId" = ${input.workspaceId}
-          AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
-          AND m."isStatusBroadcast" = false
-          AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
-          -- Los mensajes de sistema no se muestran como vista previa de la fila (una nota de
-          -- "cambio la etapa" taparia el ultimo mensaje del cliente), con UNA excepcion: las
-          -- llamadas. Esas si son actividad con la persona y en WhatsApp la fila las muestra.
-          AND (m."type" IS DISTINCT FROM 'SYSTEM' OR (m."rawPayload"->>'source') = 'llamada')
-        ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
-      `
-    : Promise.resolve([] as Array<{
-        conversationId: string;
-        content: string | null;
-        direction: "INBOUND" | "OUTBOUND";
-        createdAt: Date;
-        deletedAt: Date | null;
-        type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
-        status: string | null;
-      }>);
+    ? prisma.$queryRaw<FilaUltimoMensaje[]>(
+        sqlUltimoMensajeDeChats({
+          workspaceId: input.workspaceId,
+          conversationIds: activeAgentConversationIds,
+          ocultarSistemaSalvoLlamadas: true,
+        }),
+      )
+    : Promise.resolve([] as FilaUltimoMensaje[]);
 
   const agentIncomingCountRowsPromise = activeAgentConversationIds.length
     ? prisma.$queryRaw<Array<{
@@ -440,31 +422,21 @@ async function getAgentConversationList(input: {
   const contactNameByConversationId = new Map(
     activeAgentConversations.map((conversation) => [conversation.id, conversation.contact.name?.trim() ?? ""]),
   );
-  const conversationIdsNeedingPayload = latestAgentMessageRows
+  // Por el id del mensaje ya elegido arriba: antes se repetia el mismo barrido de todos los
+  // mensajes de esos chats solo para volver a encontrar el ultimo.
+  const messageIdsNeedingPayload = latestAgentMessageRows
     .filter(
       (row) =>
         !row.content?.trim() || !(contactNameByConversationId.get(row.conversationId) ?? ""),
     )
-    .map((row) => row.conversationId);
+    .map((row) => row.messageId);
 
   const payloadByConversationId = new Map<string, unknown>();
-  if (conversationIdsNeedingPayload.length > 0) {
+  if (messageIdsNeedingPayload.length > 0) {
     try {
-      const payloadRows = await prisma.$queryRaw<Array<{ conversationId: string; rawPayload: unknown }>>`
-        SELECT DISTINCT ON (m."conversationId")
-          m."conversationId" AS "conversationId",
-          m."rawPayload" AS "rawPayload"
-        FROM "Message" m
-        WHERE m."workspaceId" = ${input.workspaceId}
-          AND m."conversationId" IN (${Prisma.join(conversationIdsNeedingPayload)})
-          AND m."isStatusBroadcast" = false
-          AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
-          -- Los mensajes de sistema no se muestran como vista previa de la fila (una nota de
-          -- "cambio la etapa" taparia el ultimo mensaje del cliente), con UNA excepcion: las
-          -- llamadas. Esas si son actividad con la persona y en WhatsApp la fila las muestra.
-          AND (m."type" IS DISTINCT FROM 'SYSTEM' OR (m."rawPayload"->>'source') = 'llamada')
-        ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
-      `;
+      const payloadRows = await prisma.$queryRaw<Array<{ conversationId: string; rawPayload: unknown }>>(
+        sqlPayloadDeMensajes({ workspaceId: input.workspaceId, messageIds: messageIdsNeedingPayload }),
+      );
       for (const row of payloadRows) {
         payloadByConversationId.set(row.conversationId, row.rawPayload);
       }
@@ -594,7 +566,7 @@ async function getAgentConversationList(input: {
   };
 }
 
-export const GET = conServerTiming(manejarGet);
+export const GET = conServerTiming(manejarGet, { log: "chats/list" });
 
 async function manejarGet(request: Request, t: MedidorServerTiming) {
   const session = await auth();

@@ -24,6 +24,11 @@ import { getOfficialApiChatsData } from "@/features/official-api/services/getOff
 import { readGatewayConnection } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
+import {
+  sqlPayloadDeMensajes,
+  sqlUltimoMensajeDeChats,
+  type FilaUltimoMensaje,
+} from "@/lib/ultimo-mensaje-de-chats";
 import { Prisma } from "@prisma/client";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -585,41 +590,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   // Ver la misma optimizacion en /api/cliente/chats/list: NO traer rawPayload (payload completo de
   // WhatsApp, ~776 KB para 40 filas). Solo se usa de fallback (texto del preview / nombre de
   // WhatsApp); se pide aparte para las pocas filas que lo necesitan.
+  // LATERAL ... LIMIT 1 por chat (ver lib/ultimo-mensaje-de-chats). Esta pagina nunca filtro los
+  // mensajes de sistema en la vista previa: se mantiene igual.
   const latestAgentMessageRowsPromise = activeAgentConversationIds.length
-      ? prisma.$queryRaw<Array<{
-          conversationId: string;
-          content: string | null;
-          direction: "INBOUND" | "OUTBOUND";
-          createdAt: Date;
-          deletedAt: Date | null;
-          type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "CONTACTS" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
-          status: string | null;
-        }>>`
-        SELECT DISTINCT ON (m."conversationId")
-          m."conversationId" AS "conversationId",
-          m."content" AS "content",
-          m."direction" AS "direction",
-          m."createdAt" AS "createdAt",
-          m."deletedAt" AS "deletedAt",
-          m."type" AS "type",
-          -- El acuse del ULTIMO mensaje, para dibujar el chulo en la fila de la lista.
-          m."status" AS "status"
-        FROM "Message" m
-        WHERE m."workspaceId" = ${membership.workspace.id}
-          AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
-          AND m."isStatusBroadcast" = false
-          AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
-        ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
-      `
-    : Promise.resolve([] as Array<{
-        conversationId: string;
-        content: string | null;
-        direction: "INBOUND" | "OUTBOUND";
-        createdAt: Date;
-        deletedAt: Date | null;
-        type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "CONTACTS" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
-        status: string | null;
-      }>);
+    ? prisma.$queryRaw<FilaUltimoMensaje[]>(
+        sqlUltimoMensajeDeChats({
+          workspaceId: membership.workspace.id,
+          conversationIds: activeAgentConversationIds,
+          ocultarSistemaSalvoLlamadas: false,
+        }),
+      )
+    : Promise.resolve([] as FilaUltimoMensaje[]);
   if (autoTagNewLeads && contactIds.length > 0) {
     after(async () => {
       try {
@@ -755,23 +736,16 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const contactNameByConversationIdSsr = new Map(
     agentConversations.map((conversation) => [conversation.id, conversation.contact.name?.trim() ?? ""]),
   );
-  const conversationIdsNeedingPayloadSsr = latestAgentMessageRows
+  // Por el id del mensaje ya elegido: sin repetir el barrido de todos los mensajes de esos chats.
+  const messageIdsNeedingPayloadSsr = latestAgentMessageRows
     .filter((row) => !row.content?.trim() || !(contactNameByConversationIdSsr.get(row.conversationId) ?? ""))
-    .map((row) => row.conversationId);
+    .map((row) => row.messageId);
   const payloadByConversationIdSsr = new Map<string, unknown>();
-  if (conversationIdsNeedingPayloadSsr.length > 0) {
+  if (messageIdsNeedingPayloadSsr.length > 0) {
     try {
-      const payloadRows = await prisma.$queryRaw<Array<{ conversationId: string; rawPayload: unknown }>>`
-        SELECT DISTINCT ON (m."conversationId")
-          m."conversationId" AS "conversationId",
-          m."rawPayload" AS "rawPayload"
-        FROM "Message" m
-        WHERE m."workspaceId" = ${membership.workspace.id}
-          AND m."conversationId" IN (${Prisma.join(conversationIdsNeedingPayloadSsr)})
-          AND m."isStatusBroadcast" = false
-          AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
-        ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
-      `;
+      const payloadRows = await prisma.$queryRaw<Array<{ conversationId: string; rawPayload: unknown }>>(
+        sqlPayloadDeMensajes({ workspaceId: membership.workspace.id, messageIds: messageIdsNeedingPayloadSsr }),
+      );
       for (const row of payloadRows) {
         payloadByConversationIdSsr.set(row.conversationId, row.rawPayload);
       }

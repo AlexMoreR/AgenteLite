@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 
 import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
 import { iniciarMedicion } from "@/lib/metricas-chats";
+import { avisoAjenoCoincideConSuLista } from "@/lib/vista-de-la-bandeja";
 
 /**
  * Escucha el altavoz (realtime-server.js) y avisa a la app que hubo un cambio en la API
@@ -152,6 +153,13 @@ export function ChatsOfficialRealtime({
               type: typeof payload.type === "string" ? payload.type : null,
               conversationId:
                 typeof payload.conversationId === "string" ? payload.conversationId : null,
+              /*
+                El mensaje es de un chat que NO esta en la bandeja de quien mira (misma regla que la
+                lista, ver quien-se-entera-del-mensaje). Con esto la campanita y la fila no piden
+                nada al servidor por chats ajenos: la respuesta seria la misma de antes. Solo para
+                quien ve "Mias": a jefes y supervisoras nunca se les marca (ver vista-de-la-bandeja).
+              */
+              chatAjeno: noSeEntera && avisoAjenoCoincideConSuLista(),
             },
           }),
         );

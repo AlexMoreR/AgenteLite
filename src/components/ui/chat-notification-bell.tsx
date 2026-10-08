@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Bell } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { recordarVistaDeLaBandeja } from "@/lib/vista-de-la-bandeja";
 
 /**
  * Cada cuanto la campanita pregunta si hay mensajes sin leer.
@@ -20,6 +21,9 @@ import { cn } from "@/lib/utils";
  */
 const POLL_INTERVAL_MS = 60000;
 
+/** Los avisos del altavoz que caen en este rato se cuentan con UN solo pedido de la lista. */
+const VENTANA_DE_RAFAGA_MS = 3000;
+
 type NotificationConversation = {
   key?: string;
   incomingCount?: number | null;
@@ -31,6 +35,7 @@ type AvisoDeChat = { cuenta: number; cuando: number };
 
 type ConversationListResponse = {
   ok?: boolean;
+  isManager?: boolean;
   conversations?: NotificationConversation[];
 };
 
@@ -138,6 +143,7 @@ export function ChatNotificationBell({ className }: { className?: string }) {
         }
 
         const payload = (await response.json().catch(() => null)) as ConversationListResponse | null;
+        recordarVistaDeLaBandeja(payload?.isManager);
         if (!cancelled && payload?.ok && Array.isArray(payload.conversations)) {
           const ahora = Date.now();
           const cuentas: Record<string, AvisoDeChat> = {};
@@ -202,13 +208,41 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       mensaje YA estaba en la bandeja: se veia la fila nueva y la campana seguia apagada, que es
       peor que no tenerla. El intervalo queda de red de seguridad por si el socket esta caido.
     */
+    /*
+      Un solo pedido por rafaga, y nada por chats ajenos ni con la pestaña oculta.
+
+      Antes cada aviso -de CUALQUIER chat del negocio, en TODAS las pestañas- pedia la lista de 40,
+      que es la consulta mas cara. Ahora:
+       - Un mensaje de un chat que no esta en la bandeja de quien mira (`chatAjeno`, misma regla que
+         la lista) no cambia su numero: no se pide nada.
+       - Los avisos que caen juntos se cuentan una vez: el primero agenda UN pedido a los 3 s y los
+         que llegan en ese rato ya quedan cubiertos por el.
+       - Con la pestaña oculta no se pide nada: al volver a mirarla se pide una vez (arriba).
+      El sonido y la animacion siguen saliendo al instante (`chat-incoming-message`).
+    */
+    let rafagaTimer: ReturnType<typeof setTimeout> | undefined;
     const alLlegarAlgo = (evento: Event) => {
+      const detalle = (evento as CustomEvent<{ type?: string | null; chatAjeno?: boolean } | null>).detail;
+      const tipo = detalle?.type;
       // Un visto, o el eco de un mensaje nuestro, no cambian cuantos hay sin leer.
-      const tipo = (evento as CustomEvent<{ type?: string | null } | null>).detail?.type;
       if (tipo === "waha-ack" || tipo === "waha-update") {
         return;
       }
-      void poll();
+      if (detalle?.chatAjeno === true) {
+        return;
+      }
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      if (rafagaTimer !== undefined) {
+        return;
+      }
+      rafagaTimer = setTimeout(() => {
+        rafagaTimer = undefined;
+        if (!cancelled && document.visibilityState === "visible") {
+          void poll();
+        }
+      }, VENTANA_DE_RAFAGA_MS);
     };
     window.addEventListener("official-realtime-poke", alLlegarAlgo);
 
@@ -252,6 +286,7 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       window.removeEventListener("chat-conversation-read", alLeerUnChat);
       window.removeEventListener("notificaciones-vistas", alMirarLasNotificaciones);
       if (timeoutId) clearTimeout(timeoutId);
+      if (rafagaTimer !== undefined) clearTimeout(rafagaTimer);
     };
   }, []);
 
