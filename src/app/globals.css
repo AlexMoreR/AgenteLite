@@ -871,3 +871,30 @@ body {
     background-color: color-mix(in srgb, var(--primary) 18%, transparent);
   }
 }
+
+/*
+  La burbuja propia recien enviada entra deslizandose desde abajo con un fundido corto, como en
+  WhatsApp. Solo la optimista (la que se crea al tocar Enviar): los mensajes que ya estaban, los que
+  llegan al cargar el chat o al subir el historial, no se animan. Sin movimiento si la persona lo
+  desactivo en su telefono o computador.
+*/
+@keyframes burbujaEnviada {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.burbuja-enviada {
+  animation: burbujaEnviada 200ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .burbuja-enviada {
+    animation: none;
+  }
+}

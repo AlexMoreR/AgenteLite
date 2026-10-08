@@ -1181,6 +1181,10 @@ export const MessageBubble = memo(function MessageBubble({
         data-wa-id={idWhatsApp ?? undefined}
         className={`flex ${outbound ? "justify-end" : "justify-start"} ${
           seleccionado ? "-mx-2 rounded-md bg-[var(--primary)]/12 px-2 py-0.5" : ""
+        } ${
+          // Recien enviada (optimista): entra desde abajo con un fundido corto (globals.css). La
+          // real que la reemplaza ya no se anima, y los mensajes viejos tampoco.
+          outbound && message.id.startsWith("optimistic") ? "burbuja-enviada" : ""
         }`}
         onClick={(evento) => {
           /*
