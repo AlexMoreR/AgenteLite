@@ -43,7 +43,15 @@ const REGLAS = `REGLAS DE LA RESPUESTA (todas obligatorias):
 - Nunca escribas la palabra "pero" (usa "sin embargo"), ni "¿sigues interesada?", ni "cuando puedas me avisas".
 - No inventes precios, medidas, materiales ni tiempos. El valor del envío a una ciudad y los tiempos de fabricación o entrega NO están en los datos: di que se los confirmas.
 - Nunca ofrezcas ni menciones precio al por mayor ni descuentos.
-- Negrita de WhatsApp con UN solo asterisco (*así*), nunca doble. Sin saludo si la conversación ya empezó, y sin firma.`;
+- Negrita de WhatsApp con UN solo asterisco (*así*), nunca doble. Sin saludo si la conversación ya empezó, y sin firma.
+- Una [foto] de la clienta NO es una elección: no la tomes como el color ni la versión del producto del que se viene hablando salvo que ella lo diga con palabras.`;
+
+/*
+  Caso del 08-10-2026: la clienta venia por el combo, mando la captura de OTRA silla (rosada) y el
+  redactor contesto "ese color rosa queda muy bien en el combo". Una foto puede ser otro producto.
+*/
+const FOTO_DE_LA_CLIENTA =
+  "Esa foto puede ser de OTRO producto distinto al de la conversación (por ejemplo una captura de Instagram). No la interpretes como el color ni como la elección del producto del que se viene hablando salvo que ella lo diga con palabras. Si no está claro qué producto es o pregunta su precio, no lo supongas: dile que una asesora le confirma esa referencia (falta_dato true).";
 
 const REGLAS_DEL_FLUJO = `FLUJOS: si mandar uno de estos flujos sirve más que un texto, elígelo (por ejemplo: duda de calidad o de confianza, o pide verlo armado o en uso → el video del producto armado; pide el catálogo → el catálogo). Nunca uno que ya se envió en este chat. Si eliges un flujo, el texto lo presenta como algo que le estás enviando ahora mismo ("Te comparto el video del combo armado"), sin preguntarle si lo quiere y sin describir lo que trae; la pregunta del final va sobre otra cosa que avance la venta. Si ninguno sirve más que un texto, no elijas ninguno.`;
 
@@ -184,7 +192,7 @@ export async function redactarSugerencia(input: {
       escrito (ver la memoria "la foto del cliente elegia el producto").
     */
     input.foto
-      ? `La clienta acaba de enviar una foto. Descripción automática (puede equivocarse; no la tomes como si ella hubiera pedido ese producto): ${input.foto.slice(0, 600)}`
+      ? `La clienta acaba de enviar una foto. Descripción automática (puede equivocarse; no la tomes como si ella hubiera pedido ese producto): ${input.foto.slice(0, 600)}\n${FOTO_DE_LA_CLIENTA}`
       : "",
     input.guia ? `Indicación para esta respuesta: ${input.guia}` : "",
     "Escribe la próxima respuesta de la vendedora.",

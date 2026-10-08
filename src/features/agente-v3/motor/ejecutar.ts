@@ -14,6 +14,7 @@ import {
 import { anotarDecision } from "../servicios/decisiones";
 import { clasificarIntenciones } from "./clasificar";
 import { decidir, siguienteEstado } from "./decidir";
+import { fotoDelClienteReciente, type MensajeReciente } from "./foto-y-precio";
 import { guardarEstado, leerEstado } from "./estado";
 import type { Accion, ReglaV3 as Regla } from "../domain/reglas";
 
@@ -92,6 +93,12 @@ export async function atenderConAgenteV3(input: {
    * reglas por frase engancharían palabras de la descripción como si ella las hubiera escrito.
    */
   foto?: string | null;
+  /**
+   * Los últimos mensajes del chat CON su tipo y su hora, del más viejo al más nuevo (incluido el
+   * que se está contestando). El historial de texto no alcanza: una foto sin texto no aparece ahí,
+   * y es justo lo que hace falta para saber que "¿qué valor tiene así?" pregunta por la foto.
+   */
+  recientes?: MensajeReciente[];
   herramientas: Herramientas;
 }): Promise<ResultadoV3> {
   /*
@@ -129,6 +136,7 @@ async function evaluar(input: {
   citado?: string;
   incluirApiOficial?: boolean;
   foto?: string | null;
+  recientes?: MensajeReciente[];
   herramientas: Herramientas;
 }): Promise<ResultadoV3> {
   const libroCompleto = await leerLibro(input.workspaceId);
@@ -205,14 +213,29 @@ async function evaluar(input: {
     por intenciones que el estado ya descartó. En una charla dentro del embudo suelen quedar una o
     dos candidatas, no las veinte del libro.
   */
+  /*
+    ¿La clienta mandó una foto hace poco? Una foto con texto en ESTE mensaje cuenta, y también una
+    de sus 2 últimos mensajes (10 min). Solo las de ella: las fotos del combo que mandamos nosotros
+    no son una pregunta por otra referencia.
+  */
+  const fotoReciente = fotoDelClienteReciente(input.recientes);
+  const fotoDelCliente =
+    fotoReciente || input.foto
+      ? {
+          pie: fotoReciente?.pie ?? (input.foto ? input.mensaje.trim() || null : null),
+          descripcion: input.foto ?? null,
+        }
+      : null;
+
   const intencionesReconocidas = await clasificarIntenciones({
     mensaje: input.mensaje,
     reglas: libro.reglas,
     historial: input.historial,
     citado: input.citado,
+    fotoDelCliente,
   });
 
-  const decision = decidir({ libro, mensaje: input.mensaje, estado, intencionesReconocidas });
+  const decision = decidir({ libro, mensaje: input.mensaje, estado, intencionesReconocidas, fotoDelCliente });
   const acciones = [...decision.saludo, ...decision.acciones];
 
   if (acciones.length === 0) {

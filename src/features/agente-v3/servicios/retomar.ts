@@ -70,7 +70,7 @@ export async function retomarConversacionV3(input: {
     where: { conversationId: conversation.id, type: { not: "SYSTEM" } },
     orderBy: { createdAt: "desc" },
     take: 10,
-    select: { direction: true, content: true },
+    select: { direction: true, content: true, type: true, createdAt: true },
   });
 
   const ultimo = ultimos[0];
@@ -118,6 +118,9 @@ export async function retomarConversacionV3(input: {
       telefonoDelCliente: telefono,
     });
   };
+  const pausarIa = async () => {
+    await setConversationAutomationPaused({ conversationId: conversation.id, paused: true }).catch(() => {});
+  };
   // Mismo candado que en el webhook: al retomar la charla es MÁS probable repetirse, porque se
   // vuelve sobre el último mensaje del cliente, que puede ser el mismo que ya se contestó.
   const yaLoDijimos = async (contenido: string) => {
@@ -150,6 +153,16 @@ export async function retomarConversacionV3(input: {
         de: mensaje.direction === "INBOUND" ? ("cliente" as const) : ("negocio" as const),
         texto: (mensaje.content ?? "").slice(0, 300),
       })),
+    // Con tipo y hora: una foto de la clienta sin texto no está en el historial y cambia qué pregunta.
+    recientes: ultimos
+      .slice()
+      .reverse()
+      .map((mensaje) => ({
+        de: mensaje.direction === "INBOUND" ? ("cliente" as const) : ("negocio" as const),
+        tipo: mensaje.type,
+        texto: mensaje.content,
+        cuando: mensaje.createdAt,
+      })),
     herramientas: {
       enviarPaso: (paso) =>
         sendAndPersistEvolutionFlowStepResilient({
@@ -172,9 +185,7 @@ export async function retomarConversacionV3(input: {
           etapa,
         }).catch(() => {});
       },
-      pausarIa: async () => {
-        await setConversationAutomationPaused({ conversationId: conversation.id, paused: true }).catch(() => {});
-      },
+      pausarIa,
       // El redactor de la estrella, con sus candados: igual que en el webhook.
       responderConIa: async (guia) => {
         const porque = await responderConElRedactor({
@@ -184,6 +195,7 @@ export async function retomarConversacionV3(input: {
           enviarTexto: enviarTexto,
           avisarAsesor: avisarAsesor,
           yaLoDijimos: yaLoDijimos,
+          pausarIa,
         });
         console.log("[retomar] v3_responder_con_ia", { conversationId: conversation.id, porque });
       },
@@ -195,6 +207,7 @@ export async function retomarConversacionV3(input: {
           enviarTexto: enviarTexto,
           avisarAsesor: avisarAsesor,
           yaLoDijimos: yaLoDijimos,
+          pausarIa,
         }),
       alEntrarAlPaso: async (productoId, paso) => {
         if (channel.purpose === "ADMIN") return;

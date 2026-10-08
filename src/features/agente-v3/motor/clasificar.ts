@@ -1,4 +1,5 @@
 import type { ReglaV3 } from "../domain/reglas";
+import type { FotoDelCliente } from "./foto-y-precio";
 
 /**
  * Qué intenciones reconoce la IA en un mensaje.
@@ -29,6 +30,12 @@ export async function clasificarIntenciones(input: {
    * nadie pidió. Ya pasó una vez con las descripciones de las fotos.
    */
   citado?: string;
+  /**
+   * La clienta mandó una FOTO hace poco (sus mensajes de imagen no siempre traen texto, así que
+   * sin esto el historial ni siquiera muestra que la hubo). Un "¿qué valor tiene así?" justo
+   * después pregunta por lo de la foto, no por el producto del que se venía hablando.
+   */
+  fotoDelCliente?: FotoDelCliente | null;
 }): Promise<string[]> {
   const candidatas = input.reglas.filter((regla) => regla.activa && regla.cuando.tipo === "intencion");
   if (candidatas.length === 0) {
@@ -80,6 +87,17 @@ ${contexto || "(no hay)"}
               (input.citado
                 ? `El cliente esta RESPONDIENDO a este mensaje nuestro:
 "${input.citado.slice(0, 300)}"
+
+`
+                : "") +
+              (input.fotoDelCliente
+                ? `IMPORTANTE: el cliente envio una FOTO o captura de un producto hace pocos minutos${
+                    input.fotoDelCliente.pie ? ` con el texto "${input.fotoDelCliente.pie.slice(0, 200)}"` : " (sin texto)"
+                  }${
+                    input.fotoDelCliente.descripcion
+                      ? `. Descripcion automatica de la foto (puede equivocarse): ${input.fotoDelCliente.descripcion.slice(0, 300)}`
+                      : ""
+                  }. Si ahora pregunta precio o valor, o dice "asi", "esta" o "la tienen", se refiere al producto de la foto, no al producto del que se venia hablando.
 
 `
                 : "") +

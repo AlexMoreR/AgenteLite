@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 
 import { decidir, siguienteEstado, type EstadoDeLaCharla } from "../motor/decidir";
+import { fotoDelClienteReciente } from "../motor/foto-y-precio";
 import type { LibroDeReglas } from "../domain/reglas";
 
 /**
@@ -87,9 +88,12 @@ export async function simularConversacion(input: {
   for (let i = 0; i < mensajes.length && turnos.length < tope; i += 1) {
     const mensaje = mensajes[i];
     // Los del sistema ("El agente movió la etapa a...") no son cosas que el cliente dijo.
-    if (mensaje.direction !== "INBOUND" || mensaje.type === "SYSTEM" || !mensaje.content?.trim()) {
+    // Las FOTOS de la clienta sí cuentan aunque no traigan texto: cambian qué pregunta lo que sigue.
+    const esFoto = mensaje.type === "IMAGE";
+    if (mensaje.direction !== "INBOUND" || mensaje.type === "SYSTEM" || (!mensaje.content?.trim() && !esFoto)) {
       continue;
     }
+    const texto = mensaje.content?.trim() ?? "";
 
     // Lo que el V2 contestó: todo lo saliente hasta el próximo mensaje del cliente.
     const respuestas: string[] = [];
@@ -103,9 +107,37 @@ export async function simularConversacion(input: {
       }
     }
 
-    const decision = decidir({ libro: input.libro, mensaje: mensaje.content, estado });
+    /*
+      Una foto SIN texto la contesta el redactor (IA), que el simulador no llama: se muestra el turno
+      para que se vea que hubo una foto, sin inventar lo que habría dicho.
+    */
+    if (esFoto && !texto) {
+      turnos.push({
+        cliente: "[foto]",
+        cuando: mensaje.createdAt.toISOString(),
+        v2Contesto: respuestas.slice(0, 4),
+        v3Haria: ["Contesta el redactor (IA) mirando la foto; si falta un dato avisa a una asesora y pausa la IA"],
+        porque: "Llegó una foto sin texto: no hay palabras para las reglas, la contesta el redactor.",
+        necesitaIa: true,
+      });
+      estado = siguienteEstado(estado, []);
+      continue;
+    }
+
+    // La foto reciente de la clienta (la de este mensaje o una de sus 2 últimos, en 10 min).
+    const fotoDelCliente = fotoDelClienteReciente(
+      mensajes.slice(0, i + 1).map((m) => ({
+        de: m.direction === "INBOUND" ? ("cliente" as const) : ("negocio" as const),
+        tipo: m.type,
+        texto: m.content,
+        cuando: m.createdAt,
+      })),
+      mensaje.createdAt,
+    );
+
+    const decision = decidir({ libro: input.libro, mensaje: texto, estado, fotoDelCliente });
     turnos.push({
-      cliente: mensaje.content.trim().slice(0, 200),
+      cliente: (esFoto ? `[foto] ${texto}` : texto).slice(0, 200),
       cuando: mensaje.createdAt.toISOString(),
       v2Contesto: respuestas.slice(0, 4),
       v3Haria: [...decision.saludo, ...decision.acciones].map((accion) =>

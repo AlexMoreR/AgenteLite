@@ -23,7 +23,20 @@ export async function responderConElRedactor(input: {
   enviarTexto: (texto: string) => Promise<boolean>;
   avisarAsesor: (motivo: string) => Promise<void>;
   yaLoDijimos: (texto: string) => Promise<boolean>;
+  /**
+   * Pausar la IA en esta conversación, igual que la acción `pausar_ia` del libro.
+   *
+   * Cuando el redactor le pasa la charla a una asesora porque falta un dato, el agente se calla
+   * hasta que ella conteste (caso del 08-10-2026: avisó "falta un dato" y en el mensaje siguiente
+   * contestó él solo el precio equivocado). Se despausa como siempre: a mano desde el chat.
+   */
+  pausarIa?: () => Promise<void>;
 }): Promise<string> {
+  const pasarAUnaAsesora = async (motivo: string) => {
+    await input.avisarAsesor(motivo);
+    await input.pausarIa?.().catch(() => {});
+  };
+
   const resultado = await generarSugerenciaDeRespuesta({
     workspaceId: input.workspaceId,
     fuente: "agent",
@@ -40,9 +53,9 @@ export async function responderConElRedactor(input: {
   }
 
   if (resultado.problemas.length > 0) {
-    await input.avisarAsesor("El agente no pudo responder sin inventar un dato: que conteste una persona");
+    await pasarAUnaAsesora("El agente no pudo responder sin inventar un dato: que conteste una persona");
     console.warn("[agente-v3] redactor sin enviar", { conversationId: input.conversationId, problemas: resultado.problemas });
-    return `El redactor no envió nada porque su texto no cumplía: ${resultado.problemas.join("; ")}. Se avisó a una asesora.`;
+    return `El redactor no envió nada porque su texto no cumplía: ${resultado.problemas.join("; ")}. Se avisó a una asesora y se pausó la IA.`;
   }
 
   if (await input.yaLoDijimos(resultado.texto)) {
@@ -57,8 +70,8 @@ export async function responderConElRedactor(input: {
   }
 
   if (resultado.faltaDato) {
-    await input.avisarAsesor("La clienta preguntó un dato que no está en el libro y el agente le dijo que se lo confirmamos");
-    return "Respondió el redactor y, como faltaba un dato, avisó a una asesora para confirmarlo.";
+    await pasarAUnaAsesora("La clienta preguntó un dato que no está en el libro y el agente le dijo que se lo confirmamos");
+    return "Respondió el redactor y, como faltaba un dato, avisó a una asesora para confirmarlo y pausó la IA.";
   }
   return "Respondió el redactor: ninguna regla del libro aplicaba.";
 }

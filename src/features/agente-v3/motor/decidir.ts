@@ -6,6 +6,12 @@ import {
   type PasoDelEmbudo,
   type ReglaV3,
 } from "../domain/reglas";
+import {
+  REGLA_FOTO_Y_PRECIO_POR_DEFECTO,
+  esReglaDeFotoYPrecio,
+  preguntaPorLaFoto,
+  type FotoDelCliente,
+} from "./foto-y-precio";
 
 /**
  * EL MOTOR: dado un mensaje y el estado de la conversación, elige UNA regla.
@@ -160,6 +166,11 @@ export function decidir(input: {
   estado: EstadoDeLaCharla;
   /** Ids de las reglas de intención que la IA reconoció en este mensaje. */
   intencionesReconocidas?: string[];
+  /**
+   * La clienta mandó una foto hace poco (ver `fotoDelClienteReciente`). Solo cuentan las fotos
+   * que mandó ELLA, no las que le enviamos nosotros.
+   */
+  fotoDelCliente?: FotoDelCliente | null;
 }): Decision {
   const intenciones = input.intencionesReconocidas ?? [];
 
@@ -187,6 +198,25 @@ export function decidir(input: {
     .filter(({ regla }) => regla.activa)
     .filter(({ regla }) => cumpleLasCondiciones(regla, input.estado))
     .filter(({ regla }) => seDispara(regla, input.mensaje, input.estado, intenciones));
+
+  /*
+    FOTO + PRECIO, antes que las frases (caso del 08-10-2026, ver foto-y-precio.ts).
+
+    Si la clienta acaba de mandar la foto de un producto y pregunta "¿qué valor tiene así?", las
+    reglas genéricas de precio NO aplican: contestarían el precio del producto activo por una
+    referencia que puede ser otra. Gana la regla de intención "foto + precio" del libro si está
+    activa y cumple sus condiciones; si el libro no la tiene, el motor avisa, pausa y no da precio.
+  */
+  const fotoYPrecio = decidirFotoYPrecio({
+    ...input,
+    intenciones,
+    esDelSaludo,
+    saludo,
+    candidatas: candidatas.map(({ regla }) => regla),
+  });
+  if (fotoYPrecio) {
+    return fotoYPrecio;
+  }
 
   if (candidatas.length === 0) {
     return {
@@ -239,6 +269,51 @@ export function decidir(input: {
       ? `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}. Y como pasó al paso ${despues.pasoActual}, sigue con "${reglaDelPaso.nombre}".`
       : `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}.`,
     tambienEncajaban: ordenadas.slice(1).map(({ regla }) => ({ id: regla.id, nombre: regla.nombre })),
+  };
+}
+
+/**
+ * El desvío de "foto + precio". Devuelve null si no aplica (la clienta no está preguntando por la
+ * foto), y entonces el motor sigue con el desempate de siempre.
+ */
+function decidirFotoYPrecio(input: {
+  libro: LibroDeReglas;
+  mensaje: string;
+  estado: EstadoDeLaCharla;
+  fotoDelCliente?: FotoDelCliente | null;
+  intenciones: string[];
+  esDelSaludo: Set<string>;
+  saludo: Accion[];
+  candidatas: ReglaV3[];
+}): Decision | null {
+  if (!input.fotoDelCliente) return null;
+
+  const reglasDeFoto = input.libro.reglas.filter(
+    (regla) =>
+      regla.activa &&
+      !input.esDelSaludo.has(regla.id) &&
+      esReglaDeFotoYPrecio(regla) &&
+      cumpleLasCondiciones(regla, input.estado),
+  );
+  // Pregunta por la foto si lo dice con palabras ("valor", "así", "esta"...) o si la IA reconoció
+  // la intención de foto + precio sabiendo que hubo una foto.
+  const laIaLaReconocio = reglasDeFoto.some((regla) => input.intenciones.includes(regla.id));
+  if (!preguntaPorLaFoto(input.mensaje) && !laIaLaReconocio) return null;
+
+  const delLibro = reglasDeFoto.find((regla) => input.intenciones.includes(regla.id)) ?? reglasDeFoto[0];
+  const ganadora = delLibro ?? REGLA_FOTO_Y_PRECIO_POR_DEFECTO;
+  const pie = input.fotoDelCliente.pie ? ` (con el texto "${input.fotoDelCliente.pie.slice(0, 80)}")` : "";
+
+  return {
+    regla: ganadora,
+    saludo: input.saludo,
+    acciones: ganadora.entonces,
+    porque: delLibro
+      ? `Ganó "${ganadora.nombre}" porque la clienta mandó una foto${pie} y ahora pregunta por ella: no se aplican las reglas genéricas de precio.`
+      : `La clienta mandó una foto${pie} y ahora pregunta por ella; el libro no tiene una regla activa de "foto + precio", así que el agente no dio ningún precio, avisó a una asesora y pausó la IA.`,
+    tambienEncajaban: input.candidatas
+      .filter((regla) => regla.id !== ganadora.id)
+      .map((regla) => ({ id: regla.id, nombre: regla.nombre })),
   };
 }
 

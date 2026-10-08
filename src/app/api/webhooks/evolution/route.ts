@@ -3019,7 +3019,7 @@ export async function POST(request: NextRequest) {
       where: { conversationId: conversation.id },
       orderBy: { createdAt: "desc" },
       take: 8,
-      select: { content: true, direction: true, type: true },
+      select: { content: true, direction: true, type: true, createdAt: true },
     });
 
     /*
@@ -3053,6 +3053,10 @@ export async function POST(request: NextRequest) {
         cliente: contact.name?.trim() || phoneNumber,
         telefonoDelCliente: phoneNumber,
       });
+    };
+    // Pausar la IA en este chat: la accion `pausar_ia` del libro y el redactor cuando pasa a una asesora.
+    const pausarIaDelV3 = async () => {
+      await setConversationAutomationPaused({ conversationId: conversation.id, paused: true }).catch(() => {});
     };
     /*
       El candado de "no repetir". La ventana es de un DIA, no de toda la conversacion: una charla que
@@ -3100,6 +3104,19 @@ export async function POST(request: NextRequest) {
           de: mensaje.direction === "INBOUND" ? ("cliente" as const) : ("negocio" as const),
           texto: (mensaje.content ?? "").slice(0, 300),
         })),
+      /*
+        Con tipo y hora, incluidas las fotos SIN texto (que el historial descarta): "¿que valor tiene
+        asi?" justo despues de una foto de la clienta pregunta por la foto (caso del 08-10-2026).
+      */
+      recientes: ultimos
+        .filter((mensaje) => mensaje.type !== "SYSTEM")
+        .reverse()
+        .map((mensaje) => ({
+          de: mensaje.direction === "INBOUND" ? ("cliente" as const) : ("negocio" as const),
+          tipo: mensaje.type,
+          texto: mensaje.content,
+          cuando: mensaje.createdAt,
+        })),
       herramientas: {
         enviarPaso: (paso) =>
           sendAndPersistEvolutionFlowStepResilient({
@@ -3124,9 +3141,7 @@ export async function POST(request: NextRequest) {
             etapa,
           }).catch(() => {});
         },
-        pausarIa: async () => {
-          await setConversationAutomationPaused({ conversationId: conversation.id, paused: true }).catch(() => {});
-        },
+        pausarIa: pausarIaDelV3,
         // "Responder con IA" del libro: el redactor de la estrella, con la guia de la regla.
         responderConIa: async (guia) => {
           const porque = await responderConElRedactor({
@@ -3137,6 +3152,7 @@ export async function POST(request: NextRequest) {
             enviarTexto: enviarTextoDelV3,
             avisarAsesor: avisarAsesorDelV3,
             yaLoDijimos: yaLoDijimosEnElChat,
+            pausarIa: pausarIaDelV3,
           });
           console.log("[EVOLUTION] v3_responder_con_ia", { conversationId: conversation.id, porque });
         },
@@ -3149,6 +3165,7 @@ export async function POST(request: NextRequest) {
             enviarTexto: enviarTextoDelV3,
             avisarAsesor: avisarAsesorDelV3,
             yaLoDijimos: yaLoDijimosEnElChat,
+            pausarIa: pausarIaDelV3,
           }),
         // Entro a un paso del embudo: los seguimientos de ese paso (dia 1, dia 3...), como hacia el V2.
         alEntrarAlPaso: async (productoId, paso) => {
