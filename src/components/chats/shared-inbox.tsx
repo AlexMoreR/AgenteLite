@@ -20,7 +20,11 @@ import {
 } from "./chat-selection-store";
 import { deleteChatMessageAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
 import { AppSidebar } from "./appsidebar";
-import type { EtapaCrm } from "@/features/chats/domain/filtros-de-bandeja";
+import {
+  leerFiltrosDeBandeja,
+  paramsDeFiltros,
+  type EtapaCrm,
+} from "@/features/chats/domain/filtros-de-bandeja";
 import type {
   SharedInboxConversationItem,
   SharedInboxMessageItem,
@@ -31,6 +35,9 @@ import type {
   ConversationTagsUpdateDetail,
   SharedInboxProps,
   ChatStatusChangedDetail,
+  SharedInboxConversationItemLike,
+  AssignedFilter,
+  StatusFilter,
 } from "./chat-inbox-types";
 import { CHAT_SNOOZED_EVENT, CHAT_STATUS_CHANGED_EVENT, type ChatSnoozedDetail } from "./chat-inbox-types";
 
@@ -82,6 +89,58 @@ function debugConversationList(...args: unknown[]) {
   }
 
   console.log("[SharedInbox][list]", ...args);
+}
+
+/** Pestaña y estado que dice la URL, con las mismas reglas que page.tsx y /list. */
+function vistaDeLaUrl(
+  params: { get: (clave: string) => string | null },
+  puedeVerEquipo: boolean,
+): { assignedFilter: AssignedFilter; statusFilter: StatusFilter } {
+  const asignada = params.get("assigned")?.trim() ?? "";
+  const estado = params.get("status")?.trim() ?? "";
+  const assignedFilter: AssignedFilter = !puedeVerEquipo
+    ? "mine"
+    : asignada === "mine" || asignada === "unassigned" || /^user:[a-z0-9]+(,[a-z0-9]+)*$/i.test(asignada)
+      ? (asignada as AssignedFilter)
+      : "all";
+  const statusFilter: StatusFilter = estado === "all" || estado === "resolved" ? estado : "open";
+  return { assignedFilter, statusFilter };
+}
+
+function claveDeVista(q: string, conexion: string, asignada: string, estado: string, filtros: string) {
+  return [q.trim(), conexion.trim(), asignada, estado, filtros].join("::");
+}
+
+/*
+  LAS ULTIMAS LISTAS, en memoria (maximo 5, una por vista).
+
+  Volver a un filtro que se miro hace menos de 30 s no pide nada: se muestra la guardada. Entre 30
+  y 60 s se muestra la guardada y se pide UNA vez para refrescarla (el mismo pedido de siempre, no
+  uno de mas). Mas de 60 s: se descarta. Cualquier aviso de la lista (mensaje entrante o propio,
+  resolver, posponer) las borra todas: solo el servidor sabe si un chat sigue en un filtro.
+*/
+type ListaGuardada = {
+  items: SharedInboxConversationItem[];
+  hasMore: boolean;
+  offset: number;
+  at: number;
+};
+const LISTA_FRESCA_MS = 30_000;
+const LISTA_VIGENTE_MS = 60_000;
+const listasRecientes = new Map<string, ListaGuardada>();
+
+function guardarListaReciente(clave: string, lista: ListaGuardada) {
+  listasRecientes.delete(clave);
+  listasRecientes.set(clave, lista);
+  while (listasRecientes.size > 5) {
+    const masVieja = listasRecientes.keys().next().value;
+    if (masVieja === undefined) break;
+    listasRecientes.delete(masVieja);
+  }
+}
+
+function olvidarListasRecientes() {
+  listasRecientes.clear();
 }
 
 function buildPendingConversationPreview(
@@ -166,8 +225,11 @@ export function SharedInbox({
   // abriera al hacer click y si al recargar).
   searchQuery,
   selectedConnectionKey = "",
-  assignedFilter = "all",
-  statusFilter = "open",
+  // Lo que el SERVIDOR uso para armar `conversations`. La vista que se ve sale de la URL del
+  // navegador (abajo): cambiar de filtro ya no navega.
+  assignedFilter: assignedFilterDelServidor = "all",
+  statusFilter: statusFilterDelServidor = "open",
+  filtrosDelServidor = "",
   isManager = false,
   veTodoElEquipo = false,
   chatsFijados,
@@ -196,7 +258,7 @@ export function SharedInbox({
 }: SharedInboxProps) {
   const [conversationItems, setConversationItems] = useState<SharedInboxConversationItem[]>(() =>
     normalizeConversationItems(conversations, (item) =>
-      buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
+      buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilterDelServidor, statusFilterDelServidor),
     ),
   );
   const [hasMoreConversationItems, setHasMoreConversationItems] = useState(
@@ -228,6 +290,65 @@ export function SharedInbox({
     },
     [etapasEnLaUrl, sinResponderEnLaUrl, etiquetasEnLaUrl],
   );
+
+  /*
+    LA VISTA (pestaña + estado + filtros) SALE DE LA URL DEL NAVEGADOR.
+
+    Cambiar de filtro ya no navega: la bandeja pide solo /list y cambia la URL con pushState, que
+    Next sincroniza con useSearchParams sin pedir nada (igual que abrir un chat). Atras/adelante
+    tambien: la URL vuelve y la vista con ella. Las reglas son las MISMAS que las del servidor
+    (page.tsx): quien no ve al equipo queda siempre en "Mias".
+  */
+  const { assignedFilter, statusFilter } = vistaDeLaUrl(parametrosDeLaUrl, isManager || veTodoElEquipo);
+  const paresDeFiltros = useMemo(
+    () => paramsDeFiltros(leerFiltrosDeBandeja((clave) => parametrosDeLaUrl.get(clave))),
+    [parametrosDeLaUrl],
+  );
+  const vistaKey = claveDeVista(
+    searchQuery,
+    selectedConnectionKey,
+    assignedFilter,
+    statusFilter,
+    paresDeFiltros.map(([clave, valor]) => `${clave}=${valor}`).join("&"),
+  );
+  const vistaDelServidorKey = claveDeVista(
+    searchQuery,
+    selectedConnectionKey,
+    assignedFilterDelServidor,
+    statusFilterDelServidor,
+    filtrosDelServidor,
+  );
+  // El enlace de cada fila lleva la vista de AHORA (con los filtros nuevos tambien).
+  const hrefDeFila = useCallback(
+    (item: SharedInboxConversationItemLike, q: string = searchQuery) =>
+      buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, q, item, assignedFilter, statusFilter, paresDeFiltros),
+    [searchAction, selectedConnectionKey, searchQuery, assignedFilter, statusFilter, paresDeFiltros],
+  );
+  /*
+    "Volver a la lista" lleva a la vista de AHORA. El `backHref` del servidor se arma con los filtros
+    con los que cargo la pagina: cambiado el filtro en el navegador, volver desde un chat devolvia
+    la bandeja al filtro viejo.
+  */
+  const backHrefDelServidor = backHref;
+  const backHrefActual = useMemo(() => {
+    const params = new URLSearchParams(parametrosDeLaUrl.toString());
+    if (!params.toString()) {
+      return backHrefDelServidor;
+    }
+    for (const clave of ["chatKey", "messagePage", "ok", "error", "scroll"]) params.delete(clave);
+    const qs = params.toString();
+    return qs ? `${searchAction}?${qs}` : searchAction;
+  }, [backHrefDelServidor, parametrosDeLaUrl, searchAction]);
+  // La lista que se ve es de otra vista y esta llegando la nueva: atenuada y con siluetas.
+  const [vistaEnCurso, setVistaEnCurso] = useState(false);
+  // Sube cada vez que la lista se reemplaza por un cambio de vista (ver ConversationList).
+  const [versionDeVista, setVersionDeVista] = useState(0);
+  // Red de contencion: la lista nunca queda atenuada para siempre (sin pedir nada).
+  useEffect(() => {
+    if (!vistaEnCurso) return;
+    const temporizador = window.setTimeout(() => setVistaEnCurso(false), 10_000);
+    return () => window.clearTimeout(temporizador);
+  }, [vistaEnCurso]);
 
   const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number } | null>(null);
   // Se sube cada vez que alguien resuelve o reabre: vuelve a pedir los numeros de las pestañas en
@@ -300,7 +421,8 @@ export function SharedInbox({
   // para que esos chats aparezcan aunque el texto buscado no esté en los campos visibles.
   const [searchMatchIds, setSearchMatchIds] = useState<ReadonlySet<string> | null>(null);
   const searchAugmentAbortRef = useRef<AbortController | null>(null);
-  const listQueryKeyRef = useRef(`${searchQuery.trim()}::${selectedConnectionKey.trim()}::${assignedFilter}`);
+  // Arranca distinta a proposito: la primera corrida del efecto de `conversations` arma la lista.
+  const listQueryKeyRef = useRef(`${searchQuery.trim()}::${selectedConnectionKey.trim()}::${assignedFilterDelServidor}`);
 
   useEffect(() => {
     if (searchInputRef.current && document.activeElement === searchInputRef.current) {
@@ -452,6 +574,59 @@ export function SharedInbox({
     conversationItemsRef.current = conversationItems;
   }, [conversationItems]);
 
+  // La vista cuyos chats estan HOY en conversationItems, y la ultima que mando el servidor.
+  const vistaCargadaRef = useRef(vistaDelServidorKey);
+  const vistaDelServidorRef = useRef(vistaDelServidorKey);
+  const hasMoreConversationItemsRef = useRef(hasMoreConversationItems);
+  hasMoreConversationItemsRef.current = hasMoreConversationItems;
+
+  // Cualquier aviso de la lista deja viejas las listas guardadas de OTRAS vistas: solo el servidor
+  // sabe si ese chat entra o sale de cada filtro (ver listasRecientes).
+  useEffect(() => {
+    const olvidar = () => olvidarListasRecientes();
+    window.addEventListener("chat-list-update", olvidar);
+    window.addEventListener(CHAT_STATUS_CHANGED_EVENT, olvidar);
+    window.addEventListener(CHAT_SNOOZED_EVENT, olvidar);
+    return () => {
+      window.removeEventListener("chat-list-update", olvidar);
+      window.removeEventListener(CHAT_STATUS_CHANGED_EVENT, olvidar);
+      window.removeEventListener(CHAT_SNOOZED_EVENT, olvidar);
+    };
+  }, []);
+
+  /*
+    Tocar una pestaña, un filtro o una lista guardada (ver AppSidebar).
+
+    Antes era router.push: el servidor rehacia la pantalla entera y la bandeja se volvia a montar
+    (4 a 9 pedidos, ~40-75 consultas, 2-4 s en el celular sin aviso). Ahora, en el mismo toque, la
+    lista se atenua con siluetas y la URL cambia sin navegar; el efecto de abajo trae la lista.
+  */
+  const alCambiarVista = useCallback(
+    (href: string) => {
+      const destino = new URL(href, window.location.href);
+      const { assignedFilter: asignadaDestino, statusFilter: estadoDestino } = vistaDeLaUrl(
+        destino.searchParams,
+        isManager || veTodoElEquipo,
+      );
+      // La linea y la busqueda no cambian con un filtro: se comparan con las mismas de vistaKey.
+      const claveDestino = claveDeVista(
+        searchQuery,
+        selectedConnectionKey,
+        asignadaDestino,
+        estadoDestino,
+        paramsDeFiltros(leerFiltrosDeBandeja((clave) => destino.searchParams.get(clave)))
+          .map(([clave, valor]) => `${clave}=${valor}`)
+          .join("&"),
+      );
+      if (claveDestino === vistaKey) {
+        return;
+      }
+      setVistaEnCurso(true);
+      window.history.pushState(null, "", `${destino.pathname}${destino.search}`);
+    },
+    [isManager, veTodoElEquipo, vistaKey, searchQuery, selectedConnectionKey],
+  );
+
   // Al montar / cambiar de conexión o filtros, refresca la lista base desde el servidor
   // (fetch directo, cache: no-store) y hace upsert. Evita depender del RSC cacheado en
   // navegación: una conversación nueva que llegó mientras no estabas en esta vista aparece
@@ -459,6 +634,123 @@ export function SharedInbox({
   const primeraListaRef = useRef(true);
   useEffect(() => {
     let cancelled = false;
+
+    // La pagina volvio a armarse en el servidor con ESTA vista (recarga, router.refresh): la
+    // lista ya llego por ahi (la pone el efecto que sigue a `conversations`). No se pide de nuevo.
+    const servidorCambio = vistaDelServidorRef.current !== vistaDelServidorKey;
+    vistaDelServidorRef.current = vistaDelServidorKey;
+    if (servidorCambio && vistaDelServidorKey === vistaKey) {
+      vistaCargadaRef.current = vistaKey;
+      setVistaEnCurso(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const armarParams = () => {
+      const params = new URLSearchParams();
+      if (searchQuery.trim()) params.set("q", searchQuery.trim());
+      if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
+      // Siempre se manda: la ruta lee la ausencia como "mine", asi que omitirlo
+      // estando en "Todas" hacia que el refresco de la lista la pasara sola a "Mias".
+      params.set("assigned", assignedFilter);
+      if (statusFilter !== "open") params.set("status", statusFilter);
+      ponerFiltrosNuevos(params);
+      return params;
+    };
+
+    /*
+      CAMBIO DE VISTA: la lista se REEMPLAZA (la de antes solo agregaba y nunca quitaba).
+
+      Un solo pedido, /list con los chats de la API oficial (incluirOficial=1), y nada mas: ni
+      conteos (no dependen de la pestaña), ni la lista repetida, ni filtros guardados (la bandeja
+      no se vuelve a montar), ni precarga. Si la vista se miro hace poco, sale de la memoria.
+    */
+    if (vistaCargadaRef.current !== vistaKey) {
+      const anterior = vistaCargadaRef.current;
+      guardarListaReciente(anterior, {
+        items: conversationItemsRef.current,
+        hasMore: hasMoreConversationItemsRef.current,
+        offset: conversationOffsetRef.current,
+        at: Date.now(),
+      });
+
+      const medir = (deMemoria: boolean) =>
+        terminarMedicionAlPintar(`pestana:${assignedFilter}`, "cambiar_pestana", {
+          filtro: assignedFilter.startsWith("user:") ? "asesora" : assignedFilter,
+          memoria: deMemoria,
+        });
+      const poner = (lista: Omit<ListaGuardada, "at">) => {
+        vistaCargadaRef.current = vistaKey;
+        conversationOffsetRef.current = lista.offset;
+        setHasMoreConversationItems(lista.hasMore);
+        setConversationItems(lista.items);
+        setVersionDeVista((actual) => actual + 1);
+        setVistaEnCurso(false);
+      };
+
+      const guardada = listasRecientes.get(vistaKey);
+      const edad = guardada ? Date.now() - guardada.at : Number.POSITIVE_INFINITY;
+      if (guardada && edad < LISTA_VIGENTE_MS) {
+        poner(guardada);
+        medir(true);
+        if (edad < LISTA_FRESCA_MS) {
+          // 0 pedidos.
+          return () => {
+            cancelled = true;
+          };
+        }
+      } else {
+        setVistaEnCurso(true);
+      }
+
+      (async () => {
+        try {
+          const params = armarParams();
+          params.set("limit", String(Math.min(40, Math.max(1, initialConversationBatchSize))));
+          params.set("incluirOficial", "1");
+          const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
+            credentials: "same-origin",
+            cache: "no-store",
+          });
+          const payload = response.ok
+            ? ((await response.json().catch(() => null)) as
+                | { ok?: boolean; conversations?: SharedInboxConversationItem[]; hasMore?: boolean; nextOffset?: number }
+                | null)
+            : null;
+          if (cancelled) {
+            return;
+          }
+          if (!payload?.ok || !Array.isArray(payload.conversations)) {
+            throw new Error("lista");
+          }
+          const items = sortConversationItems(
+            normalizeConversationItems(payload.conversations, (item) => hrefDeFila(item)),
+          );
+          const lista = {
+            items,
+            hasMore: Boolean(payload.hasMore),
+            offset: typeof payload.nextOffset === "number" ? payload.nextOffset : items.length,
+          };
+          poner(lista);
+          guardarListaReciente(vistaKey, { ...lista, at: Date.now() });
+          if (!guardada || edad >= LISTA_VIGENTE_MS) {
+            medir(false);
+          }
+        } catch {
+          if (cancelled) {
+            return;
+          }
+          // Sin la lista nueva no se deja la vieja bajo la pastilla nueva: se arma como antes.
+          setVistaEnCurso(false);
+          router.refresh();
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }
 
     /*
       Recien cargada la pagina, la lista YA vino del servidor: no se pide de nuevo.
@@ -479,14 +771,7 @@ export function SharedInbox({
 
     (async () => {
       try {
-        const params = new URLSearchParams();
-        if (searchQuery.trim()) params.set("q", searchQuery.trim());
-        if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
-        // Siempre se manda: la ruta lee la ausencia como "mine", asi que omitirlo
-        // estando en "Todas" hacia que el refresco de la lista la pasara sola a "Mias".
-        params.set("assigned", assignedFilter);
-        if (statusFilter !== "open") params.set("status", statusFilter);
-        ponerFiltrosNuevos(params);
+        const params = armarParams();
 
         const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
           credentials: "same-origin",
@@ -503,9 +788,7 @@ export function SharedInbox({
           return;
         }
 
-        const fresh = normalizeConversationItems(payload.conversations, (item) =>
-          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
-        );
+        const fresh = normalizeConversationItems(payload.conversations, (item) => hrefDeFila(item));
 
         setConversationItems((current) => {
           let next = current;
@@ -523,7 +806,9 @@ export function SharedInbox({
     return () => {
       cancelled = true;
     };
-  }, [conversationListApiPath, searchAction, searchQuery, selectedConnectionKey, assignedFilter, statusFilter, ponerFiltrosNuevos, pedidoDeLista]);
+    // Las demas entradas (filtros, hrefDeFila) cambian siempre JUNTO con vistaKey.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationListApiPath, vistaKey, vistaDelServidorKey, pedidoDeLista]);
 
   /*
     LOS CHATS FIJADOS (ver lib/chats-fijados).
@@ -584,7 +869,7 @@ export function SharedInbox({
           return;
         }
         const filas = normalizeConversationItems(datos.conversations, (item) =>
-          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
+          hrefDeFila(item),
         );
         setConversationItems((current) => {
           let next = current;
@@ -601,7 +886,7 @@ export function SharedInbox({
     return () => {
       cancelado = true;
     };
-  }, [fijadosEnVivo, assignedFilter, statusFilter, selectedConnectionKey, searchQuery, ponerFiltrosNuevos, conversationListApiPath, searchAction]);
+  }, [fijadosEnVivo, assignedFilter, statusFilter, selectedConnectionKey, searchQuery, ponerFiltrosNuevos, conversationListApiPath, searchAction, hrefDeFila]);
 
   // Búsqueda aumentativa: trae del servidor los chats que coinciden por contenido de
   // mensaje o que están más allá de lo ya cargado, y los AGREGA (nunca quita) a la lista.
@@ -651,7 +936,7 @@ export function SharedInbox({
         }
 
         const normalized = normalizeConversationItems(payload.conversations, (item) =>
-          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, q, item, assignedFilter, statusFilter),
+          hrefDeFila(item, q),
         );
 
         setConversationItems((current) => {
@@ -668,7 +953,7 @@ export function SharedInbox({
         }
       }
     },
-    [conversationListApiPath, searchAction, selectedConnectionKey, assignedFilter, statusFilter, ponerFiltrosNuevos],
+    [conversationListApiPath, selectedConnectionKey, assignedFilter, statusFilter, ponerFiltrosNuevos, hrefDeFila],
   );
 
   // Si la URL tiene `q` (p.ej. se buscó y luego se abrió un chat: el href del chat arrastra el `q`),
@@ -831,7 +1116,7 @@ export function SharedInbox({
       }
 
       const normalizedPayloadConversations = normalizeConversationItems(payload.conversations, (item) =>
-        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
+        hrefDeFila(item),
       );
       debugConversationList("loadMore payload", {
         offset,
@@ -879,11 +1164,12 @@ export function SharedInbox({
       setIsLoadingMoreConversationItems(false);
     }
   }, [
+    hrefDeFila,
     conversationItems.length,
     conversationListApiPath,
     hasMoreConversationItems,
     isLoadingMoreConversationItems,
-    searchAction,
+
     searchQuery,
     selectedConnectionKey,
     assignedFilter,
@@ -934,7 +1220,11 @@ export function SharedInbox({
   }, [selectedConversation]);
 
   useEffect(() => {
-    const nextListQueryKey = `${searchQuery.trim()}::${selectedConnectionKey.trim()}::${assignedFilter}::${statusFilter}`;
+    // Solo cuando el SERVIDOR manda otra lista (recarga, router.refresh, otra linea). Cambiar de
+    // filtro en el navegador no pasa por aca: lo hace el efecto de la vista, con /list.
+    const nextListQueryKey = vistaDelServidorKey;
+    const assignedFilter = assignedFilterDelServidor;
+    const statusFilter = statusFilterDelServidor;
     const queryChanged = listQueryKeyRef.current !== nextListQueryKey;
     listQueryKeyRef.current = nextListQueryKey;
 
@@ -994,7 +1284,7 @@ export function SharedInbox({
 
       return sorted;
     });
-  }, [conversations, initialConversationBatchSize, initialConversationOffset, initialHasMoreConversations, searchAction, searchQuery, selectedConnectionKey, assignedFilter, statusFilter]);
+  }, [conversations, initialConversationBatchSize, initialConversationOffset, initialHasMoreConversations, searchAction, searchQuery, selectedConnectionKey, assignedFilterDelServidor, statusFilterDelServidor, vistaDelServidorKey]);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
@@ -1082,18 +1372,11 @@ export function SharedInbox({
         ? item.id
         : `${item.source === "official" ? "official" : "agent"}:${item.id}`;
       const withKey = chatKey === item.id ? item : { ...item, id: chatKey };
-      const href = buildConversationItemHrefFromParams(
-        searchAction,
-        selectedConnectionKey,
-        searchQuery,
-        withKey,
-        assignedFilter,
-        statusFilter,
-      );
+      const href = hrefDeFila(withKey);
 
       return href === withKey.href ? withKey : { ...withKey, href };
     },
-    [searchAction, selectedConnectionKey, searchQuery, assignedFilter, statusFilter],
+    [hrefDeFila],
   );
 
   const refreshSelectedConversationFromServer = useCallback(async () => {
@@ -2890,6 +3173,9 @@ export function SharedInbox({
         mobileConversationActive={mobileConversationActive}
         emptyListTitle={emptyListTitle}
         emptyListDescription={emptyListDescription}
+        alCambiarVista={alCambiarVista}
+        listaAtenuada={vistaEnCurso}
+        versionDeVista={versionDeVista}
       />
 
       <ConversationPanel
@@ -2903,7 +3189,7 @@ export function SharedInbox({
         key={mobileConversationActive ? (selectedConversationKey || "selected") : "empty"}
         canDeleteTags={isManager}
         chatSignature={chatSignature}
-        backHref={backHref}
+        backHref={backHrefActual}
         composer={effectiveComposer}
         composerHiddenFields={composerHiddenFields}
         hasSettledConversation={hasSettledConversation}

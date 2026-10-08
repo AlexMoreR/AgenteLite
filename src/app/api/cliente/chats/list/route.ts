@@ -18,6 +18,7 @@ import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from 
 import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
+import { getOfficialApiChatsData } from "@/features/official-api/services/getOfficialApiChatsData";
 import {
   sqlPayloadDeMensajes,
   sqlUltimoMensajeDeChats,
@@ -558,8 +559,19 @@ async function getAgentConversationList(input: {
   }, []);
   scheduleContactAvatarRefresh(avatarTargets);
 
+  // Los chats de la API oficial entran solo si la conexion elegida los admite (sin conexion, o la
+  // linea oficial): igual que la pantalla (shouldIncludeOfficialRows en page.tsx).
+  const canalElegido = input.selectedConnectionKey.startsWith("channel:")
+    ? channelsById.get(input.selectedConnectionKey.slice("channel:".length)) ?? null
+    : null;
+  const admiteOficial = !input.selectedConnectionKey.startsWith("channel:") || canalElegido?.provider === "OFFICIAL_API";
+  const nombreLineaOficial =
+    channels.find((channel) => channel.provider === "OFFICIAL_API")?.name?.trim() || null;
+
   return {
     conversations: page,
+    admiteOficial,
+    nombreLineaOficial,
     hasMore: hasMoreConversationRows,
     // Por donde sigue la proxima pagina: filas leidas de la base, NO chats devueltos. Si se
     // cuentan los devueltos, cada pospuesto corre el offset hacia atras y la pagina siguiente
@@ -664,6 +676,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   });
   t.marca("permisos");
 
+  const filtros = leerFiltrosDeBandeja((clave) => requestUrl.searchParams.get(clave));
   const data = await getAgentConversationList({
     workspaceId: membership.workspace.id,
     searchQuery,
@@ -674,7 +687,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     }),
     assignedFilter,
     statusFilter,
-    filtros: leerFiltrosDeBandeja((clave) => requestUrl.searchParams.get(clave)),
+    filtros,
     currentUserId: session.user.id,
     visibleChannelIds,
     monitoredChannelIds,
@@ -684,10 +697,78 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   });
   t.marca("lista");
 
+  /*
+    `incluirOficial=1`: la lista COMPLETA de un filtro, con los chats de la API oficial.
+
+    La pide la bandeja al cambiar de pestaña o de filtro, que antes rehacia la pantalla entera solo
+    para eso. Sin esto, al filtrar desaparecian los chats de la linea oficial (la pantalla si los
+    trae). Solo en la primera pagina: el scroll infinito y los refrescos siguen sin ellos, como
+    siempre. Mismos filtros y mismas reglas que page.tsx.
+  */
+  const { admiteOficial, nombreLineaOficial, ...datosDeLista } = data;
+  if (requestUrl.searchParams.get("incluirOficial") === "1" && offset === 0 && soloIds.length === 0 && admiteOficial) {
+    const oficial = await getOfficialApiChatsData({
+      workspaceId: membership.workspace.id,
+      q: searchQuery || undefined,
+      // Solo la lista: sin abrir (ni marcar leido) ningun chat.
+      includeSelectedConversation: false,
+      statusFilter,
+      assignedFilter: assignedFilter as Parameters<typeof getOfficialApiChatsData>[0]["assignedFilter"],
+      filtros,
+      currentUserId: session.user.id,
+    });
+    t.marca("oficial");
+    const tapar = monitoredChannelIds.length > 0;
+    const filasOficiales = oficial.conversations.map((conversation) => {
+      const titulo =
+        conversation.contact.name?.trim() || conversation.contact.phoneNumber?.trim() || conversation.contact.waId;
+      const telefono = conversation.contact.phoneNumber?.trim() || conversation.contact.waId;
+      return {
+        key: `official:${conversation.id}`,
+        source: "official" as const,
+        conversationId: conversation.id,
+        label: tapar ? enmascararSiEsTelefono(titulo) : titulo,
+        secondaryLabel: tapar ? enmascararTelefono(telefono) : telefono,
+        contactId: conversation.contact.crmContactId ?? undefined,
+        tags: [],
+        avatarUrl: null,
+        crmStage: conversation.contact.crmStage ?? null,
+        incomingCount: conversation.incomingCount ?? 0,
+        assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
+        channelName: nombreLineaOficial,
+        channelType: "whatsapp_official" as const,
+        lastMessage: conversation.lastMessage?.content ?? null,
+        lastMessageType: conversation.lastMessage?.type ?? null,
+        lastMessageDirection: conversation.lastMessage?.direction ?? null,
+        lastMessageAt: conversation.lastMessage?.createdAt ?? null,
+      };
+    });
+    const q = searchQuery.toLowerCase();
+    const conversaciones = dedupeAndSortConversationListRows([
+      ...datosDeLista.conversations,
+      ...filasOficiales,
+    ] as Array<(typeof datosDeLista.conversations)[number] | (typeof filasOficiales)[number]>).filter(
+      (item) =>
+        !q ||
+        item.label.toLowerCase().includes(q) ||
+        item.secondaryLabel.toLowerCase().includes(q) ||
+        (item.lastMessage || "").toLowerCase().includes(q),
+    );
+
+    return NextResponse.json({
+      ok: true,
+      assignedFilter,
+      isManager,
+      ...datosDeLista,
+      conversations: conversaciones,
+      total: conversaciones.length,
+    });
+  }
+
   return NextResponse.json({
     ok: true,
     assignedFilter,
     isManager,
-    ...data,
+    ...datosDeLista,
   });
 }

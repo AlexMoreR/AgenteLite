@@ -115,6 +115,8 @@ export function buildConversationItemHrefFromParams(
   conversation: SharedInboxConversationItemLike,
   assignedFilter: AssignedFilter = "mine",
   statusFilter: StatusFilter = "open",
+  /** Etapa, sin responder y etiquetas (paramsDeFiltros): sin ellos, abrir el chat los borraba de la URL. */
+  filtrosExtra: Array<[string, string]> = [],
 ) {
   const chatKey =
     (typeof conversation.id === "string" && conversation.id.trim()) ||
@@ -144,6 +146,7 @@ export function buildConversationItemHrefFromParams(
   */
   if (assignedFilter !== "all") params.set("assigned", assignedFilter);
   if (statusFilter !== "open") params.set("status", statusFilter);
+  for (const [clave, valor] of filtrosExtra) params.set(clave, valor);
   const qs = params.toString();
   return qs ? `${searchAction}?${qs}` : searchAction;
 }

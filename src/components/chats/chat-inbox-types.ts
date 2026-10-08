@@ -176,6 +176,11 @@ export type SharedInboxProps = {
   selectedConnectionKey?: string;
   assignedFilter?: AssignedFilter;
   statusFilter?: StatusFilter;
+  /**
+   * Los filtros nuevos con los que el SERVIDOR armo `conversations` (paramsDeFiltros unidos con
+   * "&"). Junto con assignedFilter/statusFilter dicen de que vista es la lista que vino del servidor.
+   */
+  filtrosDelServidor?: string;
   isManager?: boolean;
   /**
    * Pestañas y filtros de jefe (Todas, Sin asignar, Por asesora) SIN serlo: es la monitora. Solo

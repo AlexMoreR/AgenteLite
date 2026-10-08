@@ -1274,9 +1274,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           "Descartado" ponia la chapita pero la lista seguia con los chats de antes: la bandeja solo
           agrega y actualiza, nunca quita, asi que nada sacaba a los que no eran descartados.
         */
-        key={`${assignedFilter}|${statusFilter}|${selectedConnectionKey}|${paramsDeFiltros(filtros)
+        /*
+          Solo la linea en la clave. Pestaña, estado y filtros YA NO vuelven a montar la bandeja:
+          cambiar de filtro no navega (la bandeja pide /list y cambia la URL), y si el servidor
+          vuelve a armar la pagina con otra vista, la bandeja reemplaza la lista sola
+          (filtrosDelServidor + assignedFilter + statusFilter). Montarla de nuevo eran 3-8 pedidos
+          mas por toque (conteos, la lista repetida, filtros guardados, precargas).
+        */
+        key={selectedConnectionKey}
+        filtrosDelServidor={paramsDeFiltros(filtros)
           .map(([clave, valor]) => `${clave}=${valor}`)
-          .join("&")}`}
+          .join("&")}
         searchAction="/cliente/chats"
         selectedConversationId={selectedUnified?.key ?? ""}
         mobileConversationActive={Boolean(selectedChatKeyParam)}

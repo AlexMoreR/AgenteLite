@@ -420,7 +420,10 @@ export function ConversationList({
   hasMoreConversations = false,
   isLoadingMoreConversations = false,
   onLoadMoreConversations,
+  versionDeVista = 0,
 }: {
+  /** Sube cuando la lista se reemplaza por un cambio de filtro: esa vez no se precarga nada. */
+  versionDeVista?: number;
   conversations: SharedInboxConversationItem[];
   selectedConversationId: string;
   scrollContainerRef?: RefObject<HTMLDivElement | null>;
@@ -556,7 +559,18 @@ export function ConversationList({
     .slice(0, CHATS_A_PRECARGAR)
     .map((conversation) => conversation.id)
     .join("|");
+  /*
+    Cambiar de pestaña o filtro NO precarga (Alex, 07-10-2026: no subir la carga). Antes cada
+    toque traia hasta 5 chats mas que quiza nadie abre. Sigue la precarga al cargar la pantalla y
+    cuando entra un chat nuevo arriba por tiempo real.
+  */
+  // Si la lista se monta ya despues de un cambio de filtro (venia de una vista vacia), tampoco.
+  const versionPrecargadaRef = useRef(versionDeVista > 0 ? -1 : 0);
   useEffect(() => {
+    if (versionPrecargadaRef.current !== versionDeVista) {
+      versionPrecargadaRef.current = versionDeVista;
+      return;
+    }
     if (!clavesDeArriba) {
       return;
     }
@@ -576,7 +590,7 @@ export function ConversationList({
     return () => {
       cancelado = true;
     };
-  }, [clavesDeArriba]);
+  }, [clavesDeArriba, versionDeVista]);
 
   // Atras/adelante del navegador. Como abrir un chat usa history.pushState (sin navegacion),
   // Next no re-renderiza el server component al volver: escuchamos popstate y reconstruimos la

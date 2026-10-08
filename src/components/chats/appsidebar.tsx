@@ -13,6 +13,7 @@ import {
 } from "./filtros-de-bandeja-modal";
 import { pedirEtiquetas } from "./chat-tags-control";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getTagBadgeColors } from "@/lib/tag-badge";
 import type { EtiquetaItem } from "@/app/actions/chats-actions";
 import {
@@ -40,7 +41,18 @@ type AppSidebarProps = {
   mobileConversationActive?: boolean;
   emptyListTitle: string;
   emptyListDescription: string;
+  /**
+   * Cambiar de pestaña o filtro SIN navegar: la bandeja pide solo la lista y actualiza la URL.
+   * Sin esto se cae al router.push de antes (la pantalla entera).
+   */
+  alCambiarVista?: (href: string) => void;
+  /** La lista que se ve es la del filtro anterior: va atenuada y con siluetas encima. */
+  listaAtenuada?: boolean;
+  /** Sube cada vez que la lista se reemplaza por un cambio de filtro (ver ConversationList). */
+  versionDeVista?: number;
 };
+
+const FILAS_EN_SILUETA = 6;
 
 const ASSIGNED_FILTER_TABS: Array<{ value: AssignedFilter; label: string; managerOnly?: boolean }> = [
   { value: "mine", label: "Mías" },
@@ -127,6 +139,9 @@ export function AppSidebar({
   mobileConversationActive = false,
   emptyListTitle,
   emptyListDescription,
+  alCambiarVista,
+  listaAtenuada = false,
+  versionDeVista = 0,
 }: AppSidebarProps) {
   const conversationListScrollRef = React.useRef<HTMLDivElement | null>(null);
   const router = useRouter();
@@ -199,12 +214,32 @@ export function AppSidebar({
   const [pedido, setPedido] = React.useState<{ para: AssignedFilter; desde: AssignedFilter } | null>(null);
   const filtroMostrado = pedido && pedido.desde === assignedFilter ? pedido.para : assignedFilter;
 
-  // Medicion: el filtro del servidor ya es el pedido, o sea la lista nueva llego y se pinta.
+  // Medicion: el filtro del servidor ya es el pedido, o sea la lista nueva llego y se pinta. Con
+  // alCambiarVista la cierra la bandeja, cuando la lista nueva queda puesta (aca seria 0 ms).
   React.useEffect(() => {
+    if (alCambiarVista) return;
     terminarMedicionAlPintar(`pestana:${assignedFilter}`, "cambiar_pestana", {
       filtro: assignedFilter.startsWith("user:") ? "asesora" : assignedFilter,
     });
-  }, [assignedFilter]);
+  }, [assignedFilter, alCambiarVista]);
+
+  /*
+    Ir a una vista (pestaña, estado, filtros o lista guardada).
+
+    Antes era router.push: el servidor rehacia la pantalla de Chats entera (4 a 9 pedidos, ~40-75
+    consultas, 2-4 s en el celular sin ningun aviso). Ahora la bandeja pide solo la lista y cambia
+    la URL sin navegar (ver alCambiarVista en shared-inbox).
+  */
+  const irA = React.useCallback(
+    (href: string) => {
+      if (alCambiarVista) {
+        alCambiarVista(href);
+        return;
+      }
+      router.push(href, { scroll: false });
+    },
+    [alCambiarVista, router],
+  );
 
   const aplicarFiltros = React.useCallback(
     (asignacion: AssignedFilter, estado: StatusFilter, nuevos: FiltrosDeBandeja = filtros) => {
@@ -230,9 +265,9 @@ export function AppSidebar({
         params.set(clave, valor);
       }
       const qs = params.toString();
-      router.push(qs ? `${searchAction}?${qs}` : searchAction, { scroll: false });
+      irA(qs ? `${searchAction}?${qs}` : searchAction);
     },
-    [assignedFilter, router, searchAction, selectedConnectionKey, searchQuery, filtros],
+    [assignedFilter, irA, searchAction, selectedConnectionKey, searchQuery, filtros],
   );
 
   /**
@@ -259,9 +294,9 @@ export function AppSidebar({
       if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
       if (searchQuery.trim()) params.set("q", searchQuery.trim());
       const qs = params.toString();
-      router.push(qs ? `${searchAction}?${qs}` : searchAction, { scroll: false });
+      irA(qs ? `${searchAction}?${qs}` : searchAction);
     },
-    [router, searchAction, selectedConnectionKey, searchQuery, vistaActual],
+    [irA, searchAction, selectedConnectionKey, searchQuery, vistaActual],
   );
 
   const guardarLista = React.useCallback(
@@ -566,9 +601,40 @@ export function AppSidebar({
 
         </div>
 
+        <div className="relative flex min-h-0 flex-1 flex-col">
+        {/*
+          Al tocar una pestaña o un filtro, EN EL MISMO TOQUE: la lista vieja se atenua (sin clics)
+          y encima van siluetas de filas, como en la carga de la pantalla. Antes la lista de "Todas"
+          seguia igual bajo la pastilla "Mias" durante segundos y parecia que no habia pasado nada.
+        */}
+        {listaAtenuada ? (
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-card"
+            aria-busy="true"
+            aria-label="Cargando la lista"
+          >
+            {Array.from({ length: FILAS_EN_SILUETA }, (_, indice) => (
+              <div key={indice} className="grid grid-cols-[68px_minmax(0,1fr)] items-start gap-2 border-b border-border px-3 py-3">
+                <div className="flex justify-center">
+                  <Skeleton className="size-12 rounded-full" />
+                </div>
+                <div className="flex min-w-0 flex-col gap-2 pt-1">
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-3.5 w-2/5" />
+                    <Skeleton className="ml-auto h-3 w-10" />
+                  </div>
+                  <Skeleton className="h-3 w-4/5" />
+                  <Skeleton className="h-3 w-1/3" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <div
           ref={conversationListScrollRef}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-border [-webkit-overflow-scrolling:touch]"
+          className={`min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-border transition-opacity duration-150 [-webkit-overflow-scrolling:touch] ${
+            listaAtenuada ? "pointer-events-none opacity-40" : ""
+          }`}
         >
           {conversationItems.length > 0 ? (
             <ConversationList
@@ -578,6 +644,7 @@ export function AppSidebar({
               hasMoreConversations={hasMoreConversationItems}
               isLoadingMoreConversations={isLoadingMoreConversationItems}
               onLoadMoreConversations={onLoadMoreConversationItems}
+              versionDeVista={versionDeVista}
             />
           ) : (
             <div className="px-5 py-12 text-center">
@@ -592,6 +659,7 @@ export function AppSidebar({
               </div>
             </div>
           )}
+        </div>
         </div>
       </div>
 
