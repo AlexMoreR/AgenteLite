@@ -11,6 +11,7 @@ import {
   listarProductosParaEnvioAction,
   type ProductoParaEnvio,
 } from "@/app/actions/envio-actions";
+import { opcionAnticipo, opcionContraentrega, pesos } from "@/lib/contraentrega";
 import type { EstadoDeEnvio, ProductoDeEnvio, UbicacionDeGestion } from "@/lib/envios-gestion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,8 +23,9 @@ import { cn } from "@/lib/utils";
  * PANEL DE ENVÍO en la ficha del contacto.
  *
  * La asesora escribe la ciudad (o barrio, vereda, corregimiento) y Gestión dice si el envío es
- * gratis, adicional, se cotiza o no llegamos, con UN SOLO TOTAL para el producto elegido. El texto
- * queda listo para insertar en el chat (no se envía solo) o copiar. Lo elegido se guarda en la
+ * gratis, adicional, se cotiza o no llegamos. Debajo salen las DOS formas de pago, cada una con su
+ * total y un solo mensaje listo para insertar (no se envía solo) o copiar: "50 % anticipo" y
+ * "Contraentrega" (solo combo de camilla; ver `lib/contraentrega.ts`). Lo elegido se guarda en la
  * ficha (`metadata.city` y `metadata.envio`). Si la ubicación no existe, se agrega en Gestión y
  * queda "Se cotiza" hasta que la revisen.
  *
@@ -33,7 +35,6 @@ import { cn } from "@/lib/utils";
 
 const ESPERA_MS = 400;
 const MINIMO_LETRAS = 3;
-const formatoPesos = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 });
 
 const INSIGNIA: Record<EstadoDeEnvio, { texto: string; clase: string }> = {
   GRATIS: {
@@ -81,29 +82,74 @@ function totalDe(ubicacion: UbicacionDeGestion, producto: ProductoDeEnvio | null
   return null;
 }
 
-export function textoDeEnvio(input: {
-  estado: EstadoDeEnvio;
-  lugar: string;
-  producto: string | null;
-  total: number | null;
-}): string {
-  const { lugar, producto, total } = input;
-  // Sin total no se inventa un precio: se ofrece cotizar.
-  const estado =
-    (input.estado === "GRATIS" || input.estado === "ADICIONAL") && (total === null || !producto)
-      ? "COTIZAR"
-      : input.estado;
-  const pesos = total !== null ? formatoPesos.format(total) : "";
-  switch (estado) {
-    case "GRATIS":
-      return `¡Perfecto! A *${lugar}* el envío es *gratis* separando con el *50%* 🚚 Tu *${producto}* queda en *$${pesos}* en total, con garantía de 1 año. ¿De qué *color* lo quieres?`;
-    case "ADICIONAL":
-      return `¡Claro que llegamos a *${lugar}*! 🚚 Separando con el *50%*, tu *${producto}* queda en *$${pesos}* en total, con envío incluido. ¿De qué *color* lo quieres?`;
-    case "COTIZAR":
-      return `¡Sí llegamos a *${lugar}*! 🚚 Déjame cotizarte el envío y en un momento te doy el *total exacto*. Mientras tanto, ¿de qué *color* lo quieres?`;
-    case "NO_LLEGA":
-      return `Por ahora no tenemos envío a *${lugar}* 🙏 ¿Tienes una ciudad cercana donde lo podamos entregar?`;
-  }
+/** Una forma de pago: título, cifras, el mensaje listo (UN solo mensaje con el total) y sus botones. */
+function OpcionDePago({
+  titulo,
+  cifras,
+  nota,
+  texto,
+  puedeEscribir,
+  onInsertar,
+}: {
+  titulo: string;
+  cifras: Array<{ etiqueta: string; valor: string }>;
+  nota?: string | null;
+  texto: string | null;
+  puedeEscribir: boolean;
+  onInsertar: (texto: string) => void;
+}) {
+  const copiar = () => {
+    if (!texto) return;
+    void navigator.clipboard
+      ?.writeText(texto)
+      .then(() => toast.success("Copiado"))
+      .catch(() => toast.error("No se pudo copiar"));
+  };
+  return (
+    <div className="space-y-1.5 rounded-md border border-border p-2">
+      <p className="text-xs font-semibold text-foreground">{titulo}</p>
+      {cifras.length > 0 ? (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs">
+          {cifras.map((cifra) => (
+            <div key={cifra.etiqueta} className="contents">
+              <dt className="text-muted-foreground">{cifra.etiqueta}</dt>
+              <dd className="text-right font-medium text-foreground tabular-nums">{cifra.valor}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {nota ? <p className="text-xs text-muted-foreground">{nota}</p> : null}
+      {texto ? (
+        <>
+          <p className="whitespace-pre-wrap rounded-md bg-muted/60 px-2.5 py-2 text-[13px] leading-snug text-foreground">
+            {texto}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              className="flex-1 gap-1.5"
+              onClick={() => {
+                if (!puedeEscribir) {
+                  toast.error("No hay cuadro de mensaje en este chat");
+                  return;
+                }
+                onInsertar(texto);
+              }}
+              disabled={!puedeEscribir}
+            >
+              <SendHorizonal className="h-3.5 w-3.5" />
+              Insertar
+            </Button>
+            <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={copiar}>
+              <Copy className="h-3.5 w-3.5" />
+              Copiar
+            </Button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
 }
 
 function InsigniaDeEnvio({ estado }: { estado: EstadoDeEnvio }) {
@@ -217,18 +263,38 @@ export function PanelDeEnvio({
     return productos?.find((producto) => producto.codigo === productoCodigo)?.nombre ?? null;
   }, [elegido, productos, productoCodigo]);
 
-  const texto = elegido
-    ? textoDeEnvio({
+  // Las dos formas de pago (ver lib/contraentrega.ts): 50 % anticipo y, solo combo de camilla, contraentrega.
+  const anticipo = elegido
+    ? opcionAnticipo({
         estado: elegido.ubicacion.envio,
         lugar: lugarDe(elegido.ubicacion),
         producto: nombreDelProducto,
         total: totalDe(elegido.ubicacion, elegido.producto),
+        precio: elegido.producto && elegido.producto.precio > 0 ? elegido.producto.precio : null,
       })
-    : "";
+    : null;
+  const contraentrega = elegido
+    ? opcionContraentrega({
+        ubicacion: elegido.ubicacion,
+        lugar: lugarDe(elegido.ubicacion),
+        producto:
+          elegido.producto && nombreDelProducto
+            ? {
+                nombre: nombreDelProducto,
+                precio: elegido.producto.precio,
+                codigo: elegido.producto.codigo || productoCodigo,
+                categoria:
+                  productos?.find((producto) => producto.codigo.toUpperCase() === productoCodigo.toUpperCase())
+                    ?.categoria ?? null,
+              }
+            : null,
+        anticipoConEnvioGratis: anticipo?.estado === "TOTAL" && anticipo.envioGratis,
+      })
+    : null;
   const sinTotal =
     elegido &&
     (elegido.ubicacion.envio === "GRATIS" || elegido.ubicacion.envio === "ADICIONAL") &&
-    (totalDe(elegido.ubicacion, elegido.producto) === null || !nombreDelProducto);
+    anticipo?.estado !== "TOTAL";
 
   const guardarEnContacto = (ubicacion: UbicacionDeGestion) => {
     if (!contactId) return;
@@ -319,23 +385,6 @@ export function PanelDeEnvio({
     }
   };
 
-  const insertar = () => {
-    if (!texto) return;
-    if (!puedeEscribir) {
-      toast.error("No hay cuadro de mensaje en este chat");
-      return;
-    }
-    onInsertar(texto);
-  };
-
-  const copiar = () => {
-    if (!texto) return;
-    void navigator.clipboard
-      ?.writeText(texto)
-      .then(() => toast.success("Copiado"))
-      .catch(() => toast.error("No se pudo copiar"));
-  };
-
   return (
     <div className="space-y-2">
       {productos && productos.length > 0 ? (
@@ -390,25 +439,73 @@ export function PanelDeEnvio({
               Sin total para este producto: el texto ofrece cotizar. Elige un producto para ver el total.
             </p>
           ) : null}
-          <p className="whitespace-pre-wrap rounded-md bg-muted/60 px-2.5 py-2 text-[13px] leading-snug text-foreground">
-            {texto}
-          </p>
-          {/* Decision de Alex: el envio gratis aplica solo separando con el 50%. Nota para la asesora, no va en el texto. */}
-          {elegido.ubicacion.envio !== "NO_LLEGA" ? (
-            <p className="text-xs text-muted-foreground">
-              Si pide contraentrega: paga por adelantado el flete real (cotízalo con Ingrid) y el producto al recibir.
-            </p>
+          {anticipo ? (
+            <OpcionDePago
+              titulo="50 % anticipo"
+              cifras={
+                anticipo.estado === "TOTAL"
+                  ? [
+                      { etiqueta: "Total", valor: pesos(anticipo.total) },
+                      { etiqueta: "Para separar (50 %)", valor: pesos(anticipo.separar) },
+                      {
+                        etiqueta: "Envío",
+                        valor: anticipo.envioGratis
+                          ? "Gratis"
+                          : anticipo.envio > 0
+                            ? `${pesos(anticipo.envio)} incluido`
+                            : "Incluido",
+                      },
+                    ]
+                  : []
+              }
+              nota={
+                anticipo.estado === "COTIZAR"
+                  ? "Envío por cotizar: el mensaje ofrece cotizar."
+                  : anticipo.estado === "TOTAL"
+                    ? "El otro 50 % se paga al terminar la fabricación, antes del envío."
+                    : null
+              }
+              texto={anticipo.texto}
+              puedeEscribir={puedeEscribir}
+              onInsertar={onInsertar}
+            />
           ) : null}
-          <div className="flex gap-2">
-            <Button type="button" size="sm" className="flex-1 gap-1.5" onClick={insertar} disabled={!puedeEscribir}>
-              <SendHorizonal className="h-3.5 w-3.5" />
-              Insertar en el chat
-            </Button>
-            <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={copiar}>
-              <Copy className="h-3.5 w-3.5" />
-              Copiar
-            </Button>
-          </div>
+          {contraentrega && elegido.ubicacion.envio !== "NO_LLEGA" ? (
+            contraentrega.estado === "NO_APLICA" ? (
+              <OpcionDePago
+                titulo="Contraentrega"
+                cifras={[]}
+                nota={contraentrega.motivo}
+                texto={null}
+                puedeEscribir={puedeEscribir}
+                onInsertar={onInsertar}
+              />
+            ) : (
+              <OpcionDePago
+                titulo="Contraentrega"
+                cifras={
+                  contraentrega.estado === "TOTAL"
+                    ? [
+                        { etiqueta: "Envío (por adelantado)", valor: pesos(contraentrega.envio) },
+                        { etiqueta: "Combo (al recibir)", valor: pesos(contraentrega.producto) },
+                        { etiqueta: "Total", valor: pesos(contraentrega.total) },
+                      ]
+                    : [
+                        { etiqueta: "Envío (por adelantado)", valor: "Se cotiza con Ingrid" },
+                        { etiqueta: "Combo (al recibir)", valor: pesos(contraentrega.producto) },
+                      ]
+                }
+                nota={
+                  contraentrega.estado === "TOTAL"
+                    ? `Pagas el envío por adelantado ${pesos(contraentrega.envio)} y el combo ${pesos(contraentrega.producto)} al recibir.`
+                    : "Esta ciudad no es de envío gratis: el envío se cotiza con Ingrid."
+                }
+                texto={contraentrega.texto}
+                puedeEscribir={puedeEscribir}
+                onInsertar={onInsertar}
+              />
+            )
+          ) : null}
         </div>
       ) : agregando ? (
         <div className="space-y-2 rounded-lg border border-border p-2.5">

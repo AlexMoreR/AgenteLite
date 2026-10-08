@@ -36,7 +36,8 @@ async function sesionDelChat(): Promise<{ error: string } | { userId: string; wo
   return { userId: session.user.id, workspaceId: membership.workspace.id };
 }
 
-export type ProductoParaEnvio = { codigo: string; nombre: string };
+/** `categoria` (la de Gestión, sincronizada) decide si hay contraentrega: solo combo de camilla. */
+export type ProductoParaEnvio = { codigo: string; nombre: string; categoria: string | null };
 
 /**
  * Los productos activos con código (el código es el de Gestión: lo pone la sincronización) y cuál
@@ -50,12 +51,17 @@ export async function listarProductosParaEnvioAction(
 
   const productos = await prisma.product.findMany({
     where: { workspaceId: sesion.workspaceId, activo: true, code: { not: null } },
-    select: { id: true, code: true, name: true },
+    select: { id: true, code: true, name: true, category: { select: { name: true } } },
     orderBy: { name: "asc" },
   });
   const lista = productos
     .filter((producto) => producto.code?.trim())
-    .map((producto) => ({ id: producto.id, codigo: producto.code!.trim(), nombre: producto.name }));
+    .map((producto) => ({
+      id: producto.id,
+      codigo: producto.code!.trim(),
+      nombre: producto.name,
+      categoria: producto.category?.name ?? null,
+    }));
 
   let porDefecto: string | null = null;
   const contexto = await leerProductoActivo(sesion.workspaceId, chatKey);
@@ -72,7 +78,7 @@ export async function listarProductosParaEnvioAction(
       null;
   }
 
-  return { productos: lista.map(({ codigo, nombre }) => ({ codigo, nombre })), porDefecto };
+  return { productos: lista.map(({ codigo, nombre, categoria }) => ({ codigo, nombre, categoria })), porDefecto };
 }
 
 async function leerProductoActivo(
