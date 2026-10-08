@@ -103,6 +103,7 @@ import { recordContactMatch } from "@/lib/contact-matches";
 import { detectarOrigenMarketplace, registrarOrigenMarketplace } from "@/lib/origen-marketplace";
 import { leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { filtrarPorHorario } from "@/lib/horario-de-reparto";
+import { filtrarEnLinea } from "@/lib/en-linea";
 import { repartirSiElTurnoLoAmerita } from "@/lib/reparto-por-turno";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
@@ -712,8 +713,10 @@ async function assignAdLeadByCampaign(args: {
     ...leerPausadosDeReparto(channel?.metadata),
     ...leerMonitores(channel?.metadata),
   ]);
-  // Y el horario de reparto: fuera de su horario, la regla de campaña tampoco le da leads.
-  const disponibles = new Set(
+  // Y el horario de reparto: fuera de su horario, la regla de campaña tampoco le da leads. Ni a
+  // quien no está "Recibiendo clientes" (ver en-linea-reglas.ts).
+  const disponibles = await filtrarEnLinea(
+    args.workspaceId,
     await filtrarPorHorario(
       args.workspaceId,
       miembrosActivos.map((miembro) => miembro.userId).filter((userId) => !fueraDelReparto.has(userId)),

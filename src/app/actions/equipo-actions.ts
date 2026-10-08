@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
+import { guardarAsesoraDeRespaldo } from "@/lib/en-linea";
 import { guardarHorarioDeReparto, normalizarHorario } from "@/lib/horario-de-reparto";
 import { guardarSupervisoras, leerSupervisoras } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
@@ -16,6 +17,27 @@ import {
 } from "@/features/agente-v3/servicios/avisos";
 
 export type EstadoEnLaLinea = "no" | "recibe" | "pausa" | "monitorea";
+
+/**
+ * La asesora de respaldo: a quién le llega el cliente nuevo cuando nadie está "Recibiendo
+ * clientes" (Alex, 08-10-2026: "A Ingrid, con aviso"). Vacío = nadie: el cliente queda sin dueña,
+ * como antes. Solo el dueño o un administrador.
+ */
+export async function guardarAsesoraDeRespaldoAction(formData: FormData): Promise<void> {
+  const access = await requireClientWorkspaceAccess("client_team", { ownerOnly: true });
+  const pedido = String(formData.get("respaldo") ?? "").trim();
+  if (pedido) {
+    const miembro = await prisma.workspaceMember.findFirst({
+      where: { workspaceId: access.workspaceId, userId: pedido, isActive: true },
+      select: { userId: true },
+    });
+    if (!miembro) {
+      return;
+    }
+  }
+  await guardarAsesoraDeRespaldo(access.workspaceId, pedido || null);
+  revalidatePath("/cliente/equipo/actividad");
+}
 
 /**
  * Guarda TODO lo de una persona del equipo en un solo paso: su rol, que pantallas ve y que hace en

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { getVisibleChannelIds } from "@/lib/channel-visibility";
+import { calcularReparto } from "@/lib/channel-collaborators";
 import type { CSSProperties } from "react";
 import { cookies } from "next/headers";
 import Script from "next/script";
@@ -183,7 +184,7 @@ export default async function RootLayout({
           esJefe: primaryWorkspace.role === "OWNER" || primaryWorkspace.role === "ADMIN",
         })
       : null;
-  const chatSidebarItems = primaryWorkspace?.workspace.id
+  const canalesDelMenu = primaryWorkspace?.workspace.id
     ? await prisma.whatsAppChannel.findMany({
         where: {
           workspaceId: primaryWorkspace.workspace.id,
@@ -198,24 +199,36 @@ export default async function RootLayout({
           name: true,
           provider: true,
           phoneNumber: true,
+          purpose: true,
+          metadata: true,
           agent: {
             select: {
               name: true,
             },
           },
         },
-      }).then((channels) =>
-        channels.map((channel) => ({
-          title: channel.name,
-          url: `/cliente/chats?connection=${encodeURIComponent(`channel:${channel.id}`)}`,
-          helper:
-            channel.phoneNumber?.trim() ||
-            channel.agent?.name ||
-            (channel.provider === "OFFICIAL_API" ? "WhatsApp API oficial" : "WhatsApp"),
-          kind: (channel.provider === "OFFICIAL_API" ? "official" : "evolution") as "official" | "evolution",
-        })),
-      )
+      })
     : [];
+  /*
+    El interruptor "Recibiendo clientes" sale solo a quien entra en el reparto de alguna línea de
+    ventas (colaboradora, sin pausa de un jefe y sin ser solo monitora). Sale de la misma consulta
+    del menú: no agrega ninguna.
+  */
+  const participaDelReparto = Boolean(
+    session?.user?.id &&
+      canalesDelMenu.some(
+        (canal) => canal.purpose === "SALES" && calcularReparto(canal.metadata).includes(session.user.id as string),
+      ),
+  );
+  const chatSidebarItems = canalesDelMenu.map((channel) => ({
+    title: channel.name,
+    url: `/cliente/chats?connection=${encodeURIComponent(`channel:${channel.id}`)}`,
+    helper:
+      channel.phoneNumber?.trim() ||
+      channel.agent?.name ||
+      (channel.provider === "OFFICIAL_API" ? "WhatsApp API oficial" : "WhatsApp"),
+    kind: (channel.provider === "OFFICIAL_API" ? "official" : "evolution") as "official" | "evolution",
+  }));
   const workspaceAccess = clientWorkspace?.workspace.id
     ? await enforceWorkspacePlanAccess(clientWorkspace.workspace.id)
     : null;
@@ -290,6 +303,7 @@ export default async function RootLayout({
             chatRealtimeUserId={session?.user?.id ?? null}
             /* El Tablero del equipo (CRM) es de jefes y supervisoras: ver permisos-del-equipo.ts. */
             puedeSupervisarElEquipo={clientAccess ? await puedeSupervisar(clientAccess) : false}
+            participaDelReparto={participaDelReparto}
           >
             {children}
           </AppShell>

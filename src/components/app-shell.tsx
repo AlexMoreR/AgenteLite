@@ -23,6 +23,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { BuscadorGlobal } from "@/components/buscador-global";
 import { AppVersionGuard } from "@/components/app-version-guard";
 import { LatidoDeActividad } from "@/components/latido-de-actividad";
+import { RecibiendoClientesToggle } from "@/components/recibiendo-clientes-toggle";
 import { MobileKeyboardViewport } from "@/components/mobile-keyboard-viewport";
 import { ChatNotificationBell } from "@/components/ui/chat-notification-bell";
 import { ChatsOfficialRealtime } from "@/components/chats/chats-official-realtime";
@@ -69,6 +70,8 @@ type AppShellProps = {
   chatRealtimeUserId?: string | null;
   /** Dueño, administrador o supervisora: le aparece el Tablero del equipo en CRM. */
   puedeSupervisarElEquipo?: boolean;
+  /** Entra en el reparto de alguna línea de ventas: le sale el interruptor "Recibiendo clientes". */
+  participaDelReparto?: boolean;
 };
 
 const breadcrumbLabels: Record<string, string> = {
@@ -206,6 +209,7 @@ export function AppShell({
   chatRealtimeWorkspaceId = null,
   chatRealtimeUserId = null,
   puedeSupervisarElEquipo = false,
+  participaDelReparto = false,
 }: AppShellProps) {
   const { data } = useSession();
   const pathname = usePathname();
@@ -330,6 +334,7 @@ export function AppShell({
                 <AppBreadcrumb pathname={pathname} />
               )}
               <div className="ml-auto flex items-center gap-0.5">
+                {participaDelReparto && pathname.startsWith("/cliente") ? <RecibiendoClientesToggle /> : null}
                 <BuscadorGlobal />
                 <ChatNotificationBell />
                 {/*

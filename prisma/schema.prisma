@@ -651,6 +651,33 @@ model SugerenciaDeRespuesta {
   @@index([conversationId])
 }
 
+/// "Recibiendo clientes": si la asesora esta en linea para el reparto (ver src/lib/en-linea.ts).
+/// Una fila por persona y negocio. La toca el latido de la app (solo con la app visible).
+/// Sin relaciones a proposito: es un estado liviano, no tiene por que impedir borrar nada.
+model PresenciaEnLinea {
+  workspaceId   String
+  userId        String
+  /// El ultimo latido de la app. Sin latido en 7 min = ya no recibe.
+  ultimoLatido  DateTime
+  /// Desde cuando esta recibiendo sin cortes. null = no esta recibiendo.
+  enLineaDesde  DateTime?
+  /// Cuando se puso en Pausa a mano. Vale hasta que se active o hasta el dia siguiente.
+  pausaManualEn DateTime?
+
+  @@id([workspaceId, userId])
+}
+
+/// Cada periodo cerrado en que una asesora estuvo "Recibiendo clientes" (para las horas por dia).
+model PeriodoEnLinea {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  inicio      DateTime
+  fin         DateTime
+
+  @@index([workspaceId, fin])
+}
+
 model OfficialApiMessage {
   id                String                      @id @default(cuid())
   configId          String

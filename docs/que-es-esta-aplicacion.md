@@ -120,6 +120,8 @@ propio catálogo (la hermana de Alex va a vender plantas y artículos de vivero 
 - `WebPushSubscription`: un navegador o celular suscrito a las notificaciones push.
 - `MediaLibraryItem`: la biblioteca de archivos (fotos, PDFs, audios) para mandar desde el chat.
 - `SugerenciaDeRespuesta`: cada sugerencia de la estrella del cuadro de mensajes (texto que la IA le redacta a la vendedora, nunca se envía sola). Guarda quién la pidió, si la envió y si la editó antes: sirve para medir cuánto la usa cada vendedora.
+- `PresenciaEnLinea`: si cada asesora está "Recibiendo clientes" (último latido de la app, desde cuándo está en línea y si se pausó a mano). Una fila por persona y negocio.
+- `PeriodoEnLinea`: cada periodo cerrado en que una asesora estuvo recibiendo clientes; de ahí salen las horas por día y por semana en Mi empresa → Actividad.
 - `Diagram`: un lienzo de diagrama libre.
 - `AppSetting`: clave-valor para configuración y estado sin migrar la base (libro y estado del Agente V3, supervisoras, banderas de automatizaciones, etc.).
 - `WebhookEventLog`: archivo de los eventos que llegan por webhook (se purga solo por antigüedad).
@@ -208,6 +210,12 @@ la IA pausada no lo contesta el agente.
   llega si activó las notificaciones en ese aparato. Cuando el reparto lo dispara el agente al pedir
   asesor, ella ya recibe el WhatsApp del aviso y el push solo sale si ese WhatsApp no le llegó. El
   mismo chat no repite el push en 2 minutos (`src/lib/reparto-de-leads.ts`).
+  Desde el 08-10-2026 **solo reciben las asesoras "en línea"**: con el CRM abierto quedan "🟢 Recibiendo
+  clientes" solas; sin latido de la app en 7 minutos (la cerró o la dejó en segundo plano) salen del
+  reparto, y pueden ponerse en Pausa a mano desde la barra superior (vale hasta que la quiten o hasta el
+  día siguiente). Si nadie está recibiendo, el cliente va a la **asesora de respaldo** (Mi empresa →
+  Actividad), con push a ella y a los administradores (a ellos, uno cada 30 min). El respaldo no mueve la
+  rueda del turno. La pausa de reparto de Equipo sigue mandando por encima (`src/lib/en-linea-reglas.ts`).
 - **Ganado exige cotización**: nadie puede marcar GANADO sin el número de la cotización de Gestión
   (`COT-00123`), desde ninguna pantalla; se guarda en `Contact.wonQuoteRef` junto a `wonAt`. Ningún
   agente ni automatismo pone GANADO o PERDIDO.

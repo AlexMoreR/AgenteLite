@@ -2,6 +2,8 @@ import { Prisma } from "@prisma/client";
 
 import { calcularReparto } from "@/lib/channel-collaborators";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import { filtrarEnLinea, leerAsesoraDeRespaldo } from "@/lib/en-linea";
+import { elegirAsesora } from "@/lib/en-linea-reglas";
 import { filtrarPorHorario } from "@/lib/horario-de-reparto";
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/web-push";
@@ -69,22 +71,25 @@ export async function autoAssignConversationToCollaborator(args: {
     return null;
   }
 
-  // Quien está fuera de su horario de reparto (Mi empresa -> Equipo) se salta en esta vuelta.
-  const enHorario = new Set(await filtrarPorHorario(args.workspaceId, validIds));
-  if (enHorario.size === 0) {
-    return null;
-  }
+  /*
+    Quien está fuera de su horario de reparto (Mi empresa -> Equipo) se salta en esta vuelta, y
+    también quien no está "Recibiendo clientes" (no tiene la app abierta, o se puso en Pausa; ver
+    en-linea-reglas.ts). Si no queda nadie, el cliente va a la asesora de respaldo, con aviso.
+  */
+  const enHorario = await filtrarPorHorario(args.workspaceId, validIds);
+  const [disponibles, respaldo] = await Promise.all([
+    filtrarEnLinea(args.workspaceId, enHorario),
+    leerAsesoraDeRespaldo(args.workspaceId),
+  ]);
 
   // Siguiente colaborador tras el último asignado (round-robin cíclico). La rueda sigue siendo la
   // lista completa: saltar a alguien por horario no le cambia el lugar a nadie en el turno.
   const lastId = typeof metadata.lastAutoAssignedUserId === "string" ? metadata.lastAutoAssignedUserId : null;
-  const lastIndex = lastId ? validIds.indexOf(lastId) : -1;
-  const nextUserId = Array.from({ length: validIds.length }, (_, paso) => validIds[(lastIndex + 1 + paso) % validIds.length]).find(
-    (userId) => enHorario.has(userId),
-  );
-  if (!nextUserId) {
+  const elegida = elegirAsesora({ rueda: validIds, disponibles, ultimaAsignada: lastId, respaldo });
+  if (!elegida) {
     return null;
   }
+  const nextUserId = elegida.userId;
 
   /*
     Solo si SIGUE sin dueña. Con el reparto por turno esto corre en cada mensaje de la clienta, y
@@ -98,10 +103,13 @@ export async function autoAssignConversationToCollaborator(args: {
   if (asignada.count === 0) {
     return null;
   }
-  await prisma.whatsAppChannel.update({
-    where: { id: args.channelId },
-    data: { metadata: { ...metadata, lastAutoAssignedUserId: nextUserId } as Prisma.InputJsonValue },
-  });
+  // El respaldo no mueve la rueda: cuando vuelvan a estar en línea, el turno sigue donde iba.
+  if (!elegida.porRespaldo) {
+    await prisma.whatsAppChannel.update({
+      where: { id: args.channelId },
+      data: { metadata: { ...metadata, lastAutoAssignedUserId: nextUserId } as Prisma.InputJsonValue },
+    });
+  }
 
   // Registro de actividad: "<Nombre> auto-asignado a esta conversación".
   const assignee = await prisma.user.findUnique({
@@ -115,7 +123,9 @@ export async function autoAssignConversationToCollaborator(args: {
     channelId: args.channelId,
     kind: "assigned",
     assigneeUserId: nextUserId,
-    text: `${assigneeName} auto-asignado a esta conversación`,
+    text: elegida.porRespaldo
+      ? `${assigneeName} asignado como respaldo (nadie estaba recibiendo clientes)`
+      : `${assigneeName} auto-asignado a esta conversación`,
   });
 
   // Aviso al celular de la asesora. Sin await: un push lento o caído no frena el reparto.
@@ -123,9 +133,59 @@ export async function autoAssignConversationToCollaborator(args: {
     void avisarAsignacionPorPush({
       conversationId: args.conversationId,
       userId: nextUserId,
+      porRespaldo: elegida.porRespaldo,
     });
   }
+  // Por respaldo, los jefes también se enteran: nadie del equipo está en línea.
+  if (elegida.porRespaldo) {
+    void avisarJefesDelRespaldo({ workspaceId: args.workspaceId, respaldoId: nextUserId, nombre: assigneeName });
+  }
   return nextUserId;
+}
+
+/*
+  AVISO A LOS JEFES: "nadie está recibiendo clientes" (Alex, 08-10-2026: "A Ingrid, con aviso").
+
+  Uno cada 30 minutos por negocio, no uno por cliente: con nadie en línea de noche, cada lead
+  sonaría en el celular del dueño. Es por proceso, como el antirrepetición de abajo.
+*/
+const ESPERA_ENTRE_AVISOS_DE_RESPALDO_MS = 30 * 60_000;
+const ultimoAvisoDeRespaldo = new Map<string, number>();
+
+async function avisarJefesDelRespaldo(input: { workspaceId: string; respaldoId: string; nombre: string }): Promise<void> {
+  try {
+    const ahora = Date.now();
+    const ultimo = ultimoAvisoDeRespaldo.get(input.workspaceId);
+    if (ultimo && ahora - ultimo < ESPERA_ENTRE_AVISOS_DE_RESPALDO_MS) {
+      return;
+    }
+    ultimoAvisoDeRespaldo.set(input.workspaceId, ahora);
+    const jefes = await prisma.workspaceMember.findMany({
+      where: { workspaceId: input.workspaceId, isActive: true, role: { in: ["OWNER", "ADMIN"] } },
+      select: { userId: true },
+    });
+    await Promise.all(
+      jefes
+        .filter((jefe) => jefe.userId !== input.respaldoId)
+        .map((jefe) =>
+          sendPushToUser({
+            userId: jefe.userId,
+            payload: {
+              title: "Nadie está recibiendo clientes",
+              body: `Los clientes nuevos le están llegando a ${input.nombre} (respaldo).`,
+              tag: `respaldo:${input.workspaceId}`,
+              url: "/cliente/equipo/actividad",
+            },
+          }),
+        ),
+    );
+    console.log("[reparto] aviso de respaldo a jefes", { workspaceId: input.workspaceId, jefes: jefes.length });
+  } catch (error) {
+    console.warn("[reparto] no se pudo avisar el respaldo a los jefes", {
+      workspaceId: input.workspaceId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /*
@@ -166,7 +226,12 @@ function vistaPrevia(mensaje: { type: string; content: string | null; transcripc
  * Manda el push "Nuevo chat asignado" a la asesora que recibió el chat. Nunca lanza.
  * Lo usa el reparto y, cuando el WhatsApp del agente V3 no le llegó a ella, `avisos.ts`.
  */
-export async function avisarAsignacionPorPush(input: { conversationId: string; userId: string }): Promise<void> {
+export async function avisarAsignacionPorPush(input: {
+  conversationId: string;
+  userId: string;
+  /** Le llegó porque nadie estaba recibiendo clientes: el aviso se lo dice. */
+  porRespaldo?: boolean;
+}): Promise<void> {
   try {
     const ahora = Date.now();
     const clave = `${input.conversationId}:${input.userId}`;
@@ -202,7 +267,7 @@ export async function avisarAsignacionPorPush(input: { conversationId: string; u
     const entregados = await sendPushToUser({
       userId: input.userId,
       payload: {
-        title: "Nuevo chat asignado",
+        title: input.porRespaldo ? "Nuevo chat (respaldo: nadie en línea)" : "Nuevo chat asignado",
         body: `${quien}: ${vistaPrevia(ultimoDelCliente)}`,
         // Tag propio: con `chat:<id>` lo reemplazaría el aviso del próximo mensaje.
         tag: `asignado:${input.conversationId}`,

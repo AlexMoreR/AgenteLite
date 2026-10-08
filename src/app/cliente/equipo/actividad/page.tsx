@@ -1,7 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { guardarAsesoraDeRespaldoAction } from "@/app/actions/equipo-actions";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { filtrarEnLinea, leerAsesoraDeRespaldo, periodosEnLinea } from "@/lib/en-linea";
+import { formatoDeHoras, minutosEnRango } from "@/lib/en-linea-reglas";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { leerActividadDelEquipo } from "@/lib/actividad-del-equipo";
@@ -71,14 +76,24 @@ export default async function ActividadDelEquipoPage({ searchParams }: PageProps
   const personaPedida = typeof params.persona === "string" ? params.persona : "";
   const { desde, hasta } = rangoDelDia(dia);
 
-  const [miembros, resumen, latidos] = await Promise.all([
+  // "Recibiendo clientes": horas del día elegido y de los 7 días que terminan ese día.
+  const desdeLaSemana = new Date(desde.getTime() - 6 * 24 * 3_600_000);
+  const [miembros, resumen, latidos, periodos, respaldo] = await Promise.all([
     prisma.workspaceMember.findMany({
       where: { workspaceId: access.workspaceId, isActive: true },
       select: { userId: true, user: { select: { name: true, email: true } } },
     }),
     resumenDelEquipo({ workspaceId: access.workspaceId, desde, hasta }),
     leerActividadDelEquipo(access.workspaceId),
+    periodosEnLinea(access.workspaceId, desdeLaSemana, hasta),
+    leerAsesoraDeRespaldo(access.workspaceId),
   ]);
+  const ahora = new Date();
+  const enLineaAhora = await filtrarEnLinea(
+    access.workspaceId,
+    miembros.map((miembro) => miembro.userId),
+    ahora,
+  );
 
   const personas = miembros
     .map((miembro) => ({
@@ -138,6 +153,8 @@ export default async function ActividadDelEquipoPage({ searchParams }: PageProps
               <TableRow>
                 <TableHead>Persona</TableHead>
                 <TableHead>Última vez</TableHead>
+                <TableHead className="text-right">Recibiendo</TableHead>
+                <TableHead className="text-right">7 días</TableHead>
                 <TableHead className="text-right">Respuestas</TableHead>
                 <TableHead className="text-right">Asignó</TableHead>
                 <TableHead className="text-right">Etapas</TableHead>
@@ -170,6 +187,15 @@ export default async function ActividadDelEquipoPage({ searchParams }: PageProps
                         <span>Sin registro todavía</span>
                       )}
                     </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      <span className="inline-flex items-center gap-1">
+                        {enLineaAhora.has(item.id) ? <span title="Recibiendo clientes ahora">🟢</span> : null}
+                        {formatoDeHoras(minutosEnRango(periodos.get(item.id) ?? [], desde, hasta))}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {formatoDeHoras(minutosEnRango(periodos.get(item.id) ?? [], desdeLaSemana, hasta))}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{fila?.respuestas ?? 0}</TableCell>
                     <TableCell className="text-right tabular-nums">{fila?.asignaciones ?? 0}</TableCell>
                     <TableCell className="text-right tabular-nums">{fila?.etapas ?? 0}</TableCell>
@@ -179,6 +205,32 @@ export default async function ActividadDelEquipoPage({ searchParams }: PageProps
               })}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Asesora de respaldo</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Cada asesora recibe clientes nuevos mientras tiene la app abierta (🟢 Recibiendo clientes). Si nadie
+            está recibiendo, el cliente nuevo le llega a esta persona, con aviso a ella y a los administradores.
+            Tiene que trabajar la línea y no estar en pausa de reparto.
+          </p>
+          <form action={guardarAsesoraDeRespaldoAction} className="flex flex-wrap items-center gap-2">
+            <NativeSelect name="respaldo" defaultValue={respaldo ?? ""} aria-label="Asesora de respaldo">
+              <NativeSelectOption value="">Nadie (el cliente queda sin asignar)</NativeSelectOption>
+              {personas.map((item) => (
+                <NativeSelectOption key={item.id} value={item.id}>
+                  {item.nombre}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+            <Button type="submit" size="sm">
+              Guardar
+            </Button>
+          </form>
         </CardContent>
       </Card>
 
