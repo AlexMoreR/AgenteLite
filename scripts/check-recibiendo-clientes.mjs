@@ -1,5 +1,5 @@
 // Pruebas de src/lib/en-linea-reglas.ts ("Recibiendo clientes", Alex 08-10-2026): reparto solo a
-// quien esta en linea, respaldo cuando nadie lo esta, pausa sola al salir de la app, pausa a mano.
+// quien esta en linea, respaldo cuando nadie lo esta, en linea hasta pausar (o 2 h sin abrir), pausa a mano.
 // Correr: npm run test:recibiendo-clientes
 import fs from "node:fs";
 import path from "node:path";
@@ -22,7 +22,9 @@ new Function("exports", "require", "module", "__filename", "__dirname", transpil
   path.dirname(sourcePath),
 );
 const {
-  VENCE_EL_LATIDO_MS,
+  PAUSA_SOLA_SIN_ABRIR_MS,
+  MARGEN_DE_MEDICION_MS,
+  finMedido,
   alLatir,
   alPausarAMano,
   alActivarAMano,
@@ -31,6 +33,10 @@ const {
   elegirAsesora,
   minutosEnRango,
   formatoDeHoras,
+  decidirReparto,
+  respaldoAtiende,
+  ventanaDeMadrugada,
+  TOPE_DE_MADRUGADA_POR_ASESORA,
 } = mod.exports;
 
 let pruebas = 0;
@@ -109,30 +115,64 @@ prueba("con la app visible (latido cada 4 min) sigue recibiendo y no corta el pe
   assert.equal(p.enLineaDesde.getTime(), t0.getTime());
 });
 
-prueba("salir de la app: a los 5 min sigue recibiendo (foto, llamada); a los 7 min sin latido, pausada sola", () => {
-  // Al esconder la app sale un ultimo latido.
+prueba("salir de la app: a los 10 min sigue recibiendo (antes se pausaba a los 7)", () => {
+  // Al esconder la app ya no se manda nada.
   const p = alLatir(null, t0).presencia;
   assert.equal(estaRecibiendo(p, mas(5)), true);
-  assert.equal(estaRecibiendo(p, mas(7)), true);
-  assert.equal(estaRecibiendo(p, mas(7.1)), false);
-  assert.equal(VENCE_EL_LATIDO_MS, 7 * MIN);
+  assert.equal(estaRecibiendo(p, mas(10)), true);
+  assert.equal(PAUSA_SOLA_SIN_ABRIR_MS, 120 * MIN);
+  assert.equal(MARGEN_DE_MEDICION_MS, 6 * MIN);
 });
 
-prueba("volver despues de vencido: recibe de nuevo y el periodo anterior se cierra al vencer", () => {
+prueba("celular bloqueado 1 h: sigue en linea y le sigue llegando el reparto", () => {
   const p = alLatir(null, t0).presencia;
-  const vuelta = mas(40);
+  assert.equal(estaRecibiendo(p, mas(60)), true);
+  const disponibles = new Set([INGRID].filter(() => estaRecibiendo(p, mas(60))));
+  assert.deepEqual(elegirAsesora({ rueda, disponibles, ultimaAsignada: INGRID, respaldo: MARIA }), {
+    userId: INGRID,
+    porRespaldo: false,
+  });
+});
+
+prueba("celular bloqueado 1 h: las horas medidas paran en ultimo latido + 6 min, no cuentan la hora", () => {
+  const p = alLatir(null, t0).presencia;
+  // Mientras sigue bloqueado (lo que ve Actividad): tramo abierto hasta las 10:06.
+  assert.equal(finMedido(p, mas(60)).getTime(), mas(6).getTime());
+  // Al desbloquear y abrir el CRM: nunca dejo de estar en linea, pero el tramo se corta.
+  const { presencia, cerrar } = alLatir(p, mas(60));
+  assert.equal(estaRecibiendo(presencia, mas(60)), true);
+  assert.equal(cerrar.inicio.getTime(), t0.getTime());
+  assert.equal(cerrar.fin.getTime(), mas(6).getTime());
+  assert.equal(presencia.enLineaDesde.getTime(), mas(60).getTime());
+});
+
+prueba("2 h sin abrir sigue en linea; 2 h 1 min sin abrir: pausada sola (y va al respaldo)", () => {
+  const p = alLatir(null, t0).presencia;
+  assert.equal(estaRecibiendo(p, mas(120)), true);
+  assert.equal(estaRecibiendo(p, mas(121)), false);
+  assert.equal(pausaManualVigente(p, mas(121)), false);
+  const disponibles = new Set([INGRID].filter(() => estaRecibiendo(p, mas(121))));
+  assert.deepEqual(elegirAsesora({ rueda, disponibles, ultimaAsignada: null, respaldo: MARIA }), {
+    userId: MARIA,
+    porRespaldo: true,
+  });
+});
+
+prueba("volver despues de pausarse sola: recibe de nuevo y el periodo anterior se cerro en latido + margen", () => {
+  const p = alLatir(null, t0).presencia;
+  const vuelta = mas(180);
   const { presencia, cerrar } = alLatir(p, vuelta);
   assert.equal(estaRecibiendo(presencia, vuelta), true);
   assert.equal(presencia.enLineaDesde.getTime(), vuelta.getTime());
   assert.equal(cerrar.inicio.getTime(), t0.getTime());
-  assert.equal(cerrar.fin.getTime(), mas(7).getTime());
+  assert.equal(cerrar.fin.getTime(), mas(6).getTime());
 });
 
 prueba("pausa a mano: no recibe aunque la app siga abierta, y cierra el periodo en ese instante", () => {
   const p = alLatir(alLatir(null, t0).presencia, mas(28)).presencia;
   const { presencia, cerrar } = alPausarAMano(p, mas(30));
   assert.equal(estaRecibiendo(presencia, mas(30)), false);
-  // El latido de las 10:28 llego despues de 28 min sin latir: abrio un periodo nuevo.
+  // El latido de las 10:28 llego despues de 28 min sin latir (mas que el margen): abrio un tramo nuevo.
   assert.equal(cerrar.inicio.getTime(), mas(28).getTime());
   assert.equal(cerrar.fin.getTime(), mas(30).getTime());
   // Sigue latiendo con la app abierta (almuerzo con la app abierta): sigue pausada.
@@ -178,6 +218,104 @@ prueba("horas recibiendo: se recortan al dia y se suman", () => {
   assert.equal(formatoDeHoras(45), "45 min");
   assert.equal(formatoDeHoras(120), "2 h");
   assert.equal(formatoDeHoras(0), "—");
+});
+
+/* La madrugada: respaldo de 7 a. m. a 11 p. m.; de noche sin nadie, sin duena hasta la manana. */
+
+// Hora de Bogota del 9 de octubre (UTC-5).
+const bog = (hhmm) => new Date(`2026-10-09T${hhmm}:00.000-05:00`);
+const base = { rueda, ultimaAsignada: null, respaldo: INGRID };
+
+prueba("franja del respaldo: 7:00 a 22:59 si, 23:00 a 6:59 no; la noche va de 23:00 a 7:00", () => {
+  assert.equal(respaldoAtiende(bog("06:59")), false);
+  assert.equal(respaldoAtiende(bog("07:00")), true);
+  assert.equal(respaldoAtiende(bog("22:59")), true);
+  assert.equal(respaldoAtiende(bog("23:00")), false);
+  const deDia = ventanaDeMadrugada(bog("07:30"));
+  assert.equal(deDia.desde.toISOString(), new Date("2026-10-08T23:00:00.000-05:00").toISOString());
+  assert.equal(deDia.hasta.toISOString(), bog("07:00").toISOString());
+  assert.deepEqual(ventanaDeMadrugada(bog("03:00")), deDia);
+  const estaNoche = ventanaDeMadrugada(bog("23:30"));
+  assert.equal(estaNoche.desde.toISOString(), bog("23:00").toISOString());
+});
+
+prueba("lead a las 3:00 sin nadie en linea: queda sin duena (ni al respaldo, ni aviso)", () => {
+  const d = decidirReparto({ ...base, disponibles: new Set(), ahora: bog("03:00"), deMadrugada: false });
+  assert.deepEqual(d, { tipo: "esperar" });
+});
+
+prueba("lead a las 3:00 con alguien en linea: se le asigna normal", () => {
+  const d = decidirReparto({ ...base, disponibles: new Set([MARIA]), ahora: bog("03:00"), deMadrugada: false });
+  assert.equal(d.tipo, "asignar");
+  assert.equal(d.userId, MARIA);
+  assert.equal(d.porRespaldo, false);
+});
+
+prueba("a las 7:05 una asesora abre el CRM: se le asigna el chat de la madrugada (sin mover la rueda)", () => {
+  const d = decidirReparto({ ...base, disponibles: new Set([MARIA]), ahora: bog("07:05"), deMadrugada: true });
+  assert.deepEqual(d, { tipo: "asignar", userId: MARIA, porRespaldo: false, deMadrugada: true, mueveLaRueda: false });
+});
+
+prueba("chat de madrugada a las 7:30 sin nadie en linea: espera (no va al respaldo antes de las 8)", () => {
+  const d = decidirReparto({ ...base, disponibles: new Set(), ahora: bog("07:30"), deMadrugada: true });
+  assert.deepEqual(d, { tipo: "esperar" });
+});
+
+prueba("lead nuevo a las 7:00 sin nadie en linea: va a Ingrid (respaldo)", () => {
+  const d = decidirReparto({ ...base, disponibles: new Set(), ahora: bog("07:00"), deMadrugada: false });
+  assert.deepEqual(d, { tipo: "asignar", userId: INGRID, porRespaldo: true, deMadrugada: false, mueveLaRueda: false });
+});
+
+/** Reparte una lista de chats de madrugada (mas antiguos primero) como lo hace el reloj. */
+function repartirMadrugada(pendientes, disponibles, ahora, recibidas, ultima = null) {
+  const quedan = [];
+  let ultimaAsignada = ultima;
+  for (const chat of pendientes) {
+    const d = decidirReparto({ rueda, ultimaAsignada, respaldo: INGRID, disponibles, ahora, deMadrugada: true, recibidasDeMadrugada: recibidas });
+    if (d.tipo !== "asignar") {
+      quedan.push(chat);
+      continue;
+    }
+    recibidas.set(d.userId, (recibidas.get(d.userId) ?? 0) + 1);
+    if (d.mueveLaRueda) ultimaAsignada = d.userId;
+    chat.duena = d.userId;
+  }
+  return quedan;
+}
+
+prueba("6 leads de madrugada: A abre 7:05 y recibe 3 (los mas antiguos); B abre 7:20 y recibe 3", () => {
+  assert.equal(TOPE_DE_MADRUGADA_POR_ASESORA, 3);
+  const chats = [1, 2, 3, 4, 5, 6].map((n) => ({ n, duena: null }));
+  const recibidas = new Map();
+  const quedan = repartirMadrugada(chats, new Set([MARIA]), bog("07:05"), recibidas);
+  assert.deepEqual(chats.filter((c) => c.duena === MARIA).map((c) => c.n), [1, 2, 3]);
+  assert.equal(quedan.length, 3);
+  const quedan2 = repartirMadrugada(quedan, new Set([MARIA, STHEFF]), bog("07:20"), recibidas);
+  assert.deepEqual(chats.filter((c) => c.duena === STHEFF).map((c) => c.n), [4, 5, 6]);
+  assert.equal(quedan2.length, 0);
+});
+
+prueba("en rueda: si A y B ya estan en linea a las 7:05, se alternan (nadie se lleva todo)", () => {
+  const chats = [1, 2, 3, 4].map((n) => ({ n, duena: null }));
+  repartirMadrugada(chats, new Set([MARIA, STHEFF]), bog("07:05"), new Map());
+  assert.deepEqual(chats.map((c) => c.duena), [MARIA, STHEFF, MARIA, STHEFF]);
+});
+
+prueba("solo A en linea: 3 a las 7:05, y a las 8:00 recibe el resto", () => {
+  const chats = [1, 2, 3, 4, 5, 6].map((n) => ({ n, duena: null }));
+  const recibidas = new Map();
+  const quedan = repartirMadrugada(chats, new Set([MARIA]), bog("07:05"), recibidas);
+  assert.equal(quedan.length, 3);
+  const quedan2 = repartirMadrugada(quedan, new Set([MARIA]), bog("08:00"), recibidas, INGRID);
+  assert.equal(quedan2.length, 0);
+  assert.ok(chats.every((c) => c.duena === MARIA));
+});
+
+prueba("a las 8:00 sin nadie en linea: lo que queda de la madrugada va a Ingrid (respaldo)", () => {
+  const d = decidirReparto({ ...base, disponibles: new Set(), ahora: bog("08:00"), deMadrugada: true });
+  assert.equal(d.tipo, "asignar");
+  assert.equal(d.userId, INGRID);
+  assert.equal(d.porRespaldo, true);
 });
 
 console.log(`\n${pruebas} pruebas ok`);

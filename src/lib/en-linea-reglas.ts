@@ -3,23 +3,35 @@
  *
  * Idea de Alex (08-10-2026): sin horario fijo, cada asesora decide cuándo trabaja.
  *  - Abre el CRM (o vuelve a la app) → queda "Recibiendo clientes" sola.
- *  - Sale de la app o la cierra → deja de recibir cuando pasan 7 min sin latido. El latido sale
- *    cada 4 min SOLO con la app visible, y uno más al esconderla, así que mirar una foto o
- *    contestar una llamada (menos de 5 min) no la saca del reparto.
+ *  - Alex, 08-10-2026 (celular): "en línea hasta que pause". Esconder la app, bloquear el celular o
+ *    cambiar de app NO la saca: sigue recibiendo (las notificaciones le llegan igual). Solo sale
+ *    sola si pasan PAUSA_SOLA_SIN_ABRIR_MS (2 h) sin ningún latido, es decir, sin abrir el CRM.
+ *    El latido sigue saliendo solo con la app visible (cada 4 min): no hay pedidos en segundo plano.
  *  - Puede ponerse en Pausa a mano (almuerzo). Esa pausa se respeta hasta que ella la quite o
  *    hasta el día siguiente: al abrir la app otro día vuelve a recibir sola.
  *  - Si nadie está recibiendo, el cliente nuevo va a la asesora de respaldo (Ingrid), con aviso.
+ *
+ * Horas "recibiendo" (Mi empresa → Actividad): se mide hasta el último latido + MARGEN_DE_MEDICION_MS,
+ * no las 2 h de espera. Si vuelve a latir después de ese margen (tuvo el celular bloqueado), el
+ * tramo medido se cierra en último latido + margen y empieza otro: para el reparto nunca dejó de
+ * estar en línea, pero el rato con la app escondida no suma horas.
  *
  * Esto es aparte de la pausa de reparto de Mi empresa → Equipo, que pone un jefe (vacaciones) y
  * manda por encima de todo: quien está pausada ahí no recibe aunque esté en línea.
  */
 
-/** Sin latido en este rato, ya no recibe. Más que los 4 min entre latidos, con 5 min de margen. */
-export const VENCE_EL_LATIDO_MS = 7 * 60_000;
+/** Sin ningún latido (sin abrir el CRM) en este rato, se pausa sola. El ajuste: cambiarlo solo acá. */
+export const PAUSA_SOLA_SIN_ABRIR_MS = 2 * 60 * 60_000;
+
+/**
+ * Para medir horas: después del último latido se cuenta este rato y nada más. Los latidos salen
+ * cada 4 min con la app visible, así que con 6 min el uso seguido no se corta en tramos.
+ */
+export const MARGEN_DE_MEDICION_MS = 6 * 60_000;
 
 export type Presencia = {
   ultimoLatido: Date;
-  /** Desde cuándo recibe sin cortes. null = no está recibiendo. */
+  /** Desde cuándo va el tramo medido actual. null = no está recibiendo. */
   enLineaDesde: Date | null;
   /** Cuándo se puso en Pausa a mano. */
   pausaManualEn: Date | null;
@@ -43,24 +55,26 @@ export function estaRecibiendo(presencia: Presencia | null, ahora: Date): boolea
   if (!presencia || !presencia.enLineaDesde || pausaManualVigente(presencia, ahora)) {
     return false;
   }
-  return ahora.getTime() - presencia.ultimoLatido.getTime() <= VENCE_EL_LATIDO_MS;
+  return ahora.getTime() - presencia.ultimoLatido.getTime() <= PAUSA_SOLA_SIN_ABRIR_MS;
 }
 
-/** Hasta cuándo contó como "recibiendo" un periodo que se cortó por falta de latido. */
-export function finPorVencimiento(presencia: Presencia, ahora: Date): Date {
-  return new Date(Math.min(presencia.ultimoLatido.getTime() + VENCE_EL_LATIDO_MS, ahora.getTime()));
+/** Hasta cuándo se miden horas de un tramo: último latido + margen corto (o ahora, si es antes). */
+export function finMedido(presencia: Presencia, ahora: Date): Date {
+  return new Date(Math.min(presencia.ultimoLatido.getTime() + MARGEN_DE_MEDICION_MS, ahora.getTime()));
 }
 
 function periodoQueQuedoAbierto(presencia: Presencia | null, ahora: Date): PeriodoCerrado | null {
   if (!presencia?.enLineaDesde) {
     return null;
   }
-  return { inicio: presencia.enLineaDesde, fin: finPorVencimiento(presencia, ahora) };
+  return { inicio: presencia.enLineaDesde, fin: finMedido(presencia, ahora) };
 }
 
 /**
- * Llega un latido (la app está visible). Si no está en pausa a mano, queda recibiendo; si venía de
- * un periodo vencido, ese periodo se cierra y empieza otro.
+ * Llega un latido (la app está visible). Si no está en pausa a mano, queda recibiendo. Si el latido
+ * anterior fue hace menos que el margen, el tramo medido sigue; si no (volvió después de tener el
+ * celular bloqueado, o después de pausarse sola), ese tramo se cierra en último latido + margen y
+ * empieza otro ahora.
  */
 export function alLatir(
   presencia: Presencia | null,
@@ -69,7 +83,11 @@ export function alLatir(
   if (presencia && pausaManualVigente(presencia, ahora)) {
     return { presencia: { ...presencia, ultimoLatido: ahora, enLineaDesde: null }, cerrar: periodoQueQuedoAbierto(presencia, ahora) };
   }
-  if (presencia && estaRecibiendo(presencia, ahora)) {
+  if (
+    presencia &&
+    estaRecibiendo(presencia, ahora) &&
+    ahora.getTime() - presencia.ultimoLatido.getTime() <= MARGEN_DE_MEDICION_MS
+  ) {
     return { presencia: { ...presencia, ultimoLatido: ahora }, cerrar: null };
   }
   return {
@@ -78,14 +96,12 @@ export function alLatir(
   };
 }
 
-/** Ella toca "Pausada". Se cierra el periodo en este instante. */
+/** Ella toca "Pausada". Se cierra el tramo medido (en este instante si latió hace poco). */
 export function alPausarAMano(
   presencia: Presencia | null,
   ahora: Date,
 ): { presencia: Presencia; cerrar: PeriodoCerrado | null } {
-  const cerrar = presencia?.enLineaDesde
-    ? { inicio: presencia.enLineaDesde, fin: estaRecibiendo(presencia, ahora) ? ahora : finPorVencimiento(presencia, ahora) }
-    : null;
+  const cerrar = periodoQueQuedoAbierto(presencia, ahora);
   return {
     presencia: { ultimoLatido: presencia?.ultimoLatido ?? ahora, enLineaDesde: null, pausaManualEn: ahora },
     cerrar,
@@ -126,6 +142,114 @@ export function elegirAsesora(input: {
     return { userId: input.respaldo, porRespaldo: true };
   }
   return null;
+}
+
+/*
+  LA MADRUGADA (Alex, 08-10-2026): "bot responde y se asigna en la mañana"; respaldo de 7 a. m. a
+  11 p. m.; los chats de la noche se reparten en rueda a medida que se conectan, con tope.
+
+  - El respaldo (y su push, y el aviso a los jefes) solo funciona dentro de la FRANJA DEL RESPALDO.
+  - Fuera de la franja, si nadie está en línea, el chat queda SIN dueña (el bot sigue contestando)
+    y se marca "de madrugada".
+  - Desde la hora de fin de la noche (7:00), los chats de madrugada van a las que estén en línea,
+    al que tenga menos (en el orden de la rueda), hasta TOPE_DE_MADRUGADA_POR_ASESORA cada una,
+    sin respaldo. Más antiguos primero. No mueven la rueda del día.
+  - Desde REPARTO_LIBRE_DE_MADRUGADA_HORA (8:00), lo que quede se reparte por la rueda normal
+    entre las que estén en línea y, si no hay nadie, al respaldo.
+  Un cliente NUEVO a las 7:00 con nadie en línea va al respaldo como de día.
+
+  Los ajustes están acá, junto con las reglas del respaldo. Horas de Bogotá.
+*/
+export const FRANJA_DEL_RESPALDO = { desdeHora: 7, hastaHora: 23 };
+export const TOPE_DE_MADRUGADA_POR_ASESORA = 3;
+export const REPARTO_LIBRE_DE_MADRUGADA_HORA = 8;
+
+const HORA_MS = 60 * 60_000;
+
+/** Minuto del día en Bogotá (0 a 1439). */
+export function minutoDelDiaEnBogota(fecha: Date): number {
+  const enBogota = new Date(fecha.getTime() - DESFASE_BOGOTA_MS);
+  return enBogota.getUTCHours() * 60 + enBogota.getUTCMinutes();
+}
+
+/** ¿El respaldo atiende a esta hora? */
+export function respaldoAtiende(ahora: Date): boolean {
+  const minuto = minutoDelDiaEnBogota(ahora);
+  return minuto >= FRANJA_DEL_RESPALDO.desdeHora * 60 && minuto < FRANJA_DEL_RESPALDO.hastaHora * 60;
+}
+
+/** ¿Los chats de madrugada todavía se reparten con tope (entre las 7:00 y las 8:00)? */
+export function madrugadaConTope(ahora: Date): boolean {
+  return respaldoAtiende(ahora) && minutoDelDiaEnBogota(ahora) < REPARTO_LIBRE_DE_MADRUGADA_HORA * 60;
+}
+
+/**
+ * La noche en curso o, de día, la última que terminó: de las 23:00 a las 7:00 de Bogotá.
+ */
+export function ventanaDeMadrugada(ahora: Date): { desde: Date; hasta: Date } {
+  const medianoche = Date.parse(`${diaEnBogota(ahora)}T00:00:00.000Z`) + DESFASE_BOGOTA_MS;
+  const duracion = (24 - FRANJA_DEL_RESPALDO.hastaHora + FRANJA_DEL_RESPALDO.desdeHora) * HORA_MS;
+  const inicio =
+    minutoDelDiaEnBogota(ahora) >= FRANJA_DEL_RESPALDO.hastaHora * 60
+      ? medianoche + FRANJA_DEL_RESPALDO.hastaHora * HORA_MS
+      : medianoche + (FRANJA_DEL_RESPALDO.hastaHora - 24) * HORA_MS;
+  return { desde: new Date(inicio), hasta: new Date(inicio + duracion) };
+}
+
+export type DecisionDeReparto =
+  | { tipo: "asignar"; userId: string; porRespaldo: boolean; deMadrugada: boolean; mueveLaRueda: boolean }
+  /** Nadie ahora: queda sin dueña y se reparte después (madrugada). */
+  | { tipo: "esperar" }
+  | { tipo: "nadie" };
+
+/**
+ * A quién va un chat, con la hora: la franja del respaldo y los chats de madrugada.
+ * `recibidasDeMadrugada`: cuántos chats de madrugada recibió hoy cada una (para el tope).
+ */
+export function decidirReparto(input: {
+  rueda: string[];
+  disponibles: Set<string>;
+  ultimaAsignada: string | null;
+  respaldo: string | null;
+  ahora: Date;
+  deMadrugada: boolean;
+  recibidasDeMadrugada?: Map<string, number>;
+}): DecisionDeReparto {
+  const { rueda, disponibles, ahora } = input;
+
+  if (!respaldoAtiende(ahora)) {
+    // De noche: si alguien está en línea recibe por la rueda; si no, sin dueña hasta la mañana.
+    const elegida = elegirAsesora({ ...input, respaldo: null });
+    return elegida
+      ? { tipo: "asignar", ...elegida, deMadrugada: false, mueveLaRueda: true }
+      : { tipo: "esperar" };
+  }
+
+  if (input.deMadrugada && madrugadaConTope(ahora)) {
+    const recibidas = input.recibidasDeMadrugada ?? new Map<string, number>();
+    const elegibles = rueda.filter(
+      (userId) => disponibles.has(userId) && (recibidas.get(userId) ?? 0) < TOPE_DE_MADRUGADA_POR_ASESORA,
+    );
+    if (elegibles.length === 0) {
+      return { tipo: "esperar" };
+    }
+    // En rueda: la que menos lleva; si empatan, en el orden de la rueda.
+    const userId = elegibles.reduce((mejor, candidata) =>
+      (recibidas.get(candidata) ?? 0) < (recibidas.get(mejor) ?? 0) ? candidata : mejor,
+    );
+    return { tipo: "asignar", userId, porRespaldo: false, deMadrugada: true, mueveLaRueda: false };
+  }
+
+  const elegida = elegirAsesora(input);
+  if (!elegida) {
+    return { tipo: "nadie" };
+  }
+  return {
+    tipo: "asignar",
+    ...elegida,
+    deMadrugada: input.deMadrugada,
+    mueveLaRueda: !elegida.porRespaldo,
+  };
 }
 
 /** Minutos de una lista de periodos que caen dentro de [desde, hasta). */

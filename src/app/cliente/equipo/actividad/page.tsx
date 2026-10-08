@@ -214,9 +214,11 @@ export default async function ActividadDelEquipoPage({ searchParams }: PageProps
         </CardHeader>
         <CardContent className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            Cada asesora recibe clientes nuevos mientras tiene la app abierta (🟢 Recibiendo clientes). Si nadie
+            Cada asesora recibe clientes nuevos desde que abre la app (🟢 Recibiendo clientes) hasta que se pausa o
+            pasan 2 horas sin abrirla. Si nadie
             está recibiendo, el cliente nuevo le llega a esta persona, con aviso a ella y a los administradores.
-            Tiene que trabajar la línea y no estar en pausa de reparto.
+            Tiene que trabajar la línea y no estar en pausa de reparto. El respaldo funciona de 7 a. m. a 11 p. m.;
+            de madrugada el bot atiende y esos chats se reparten desde las 7 a las que se van conectando.
           </p>
           <form action={guardarAsesoraDeRespaldoAction} className="flex flex-wrap items-center gap-2">
             <NativeSelect name="respaldo" defaultValue={respaldo ?? ""} aria-label="Asesora de respaldo">

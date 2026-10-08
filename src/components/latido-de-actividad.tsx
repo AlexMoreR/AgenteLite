@@ -18,16 +18,12 @@ import { guardarEstadoEnLineaCliente, type EstadoEnLineaCliente } from "@/compon
  * saber. Al volver a mirarla late de una.
  *
  * El mismo latido mantiene a la asesora "Recibiendo clientes" (ver src/lib/en-linea-reglas.ts):
- * abrir la app la pone en línea y, sin latido en 7 min, sale sola del reparto. Por eso late una
- * vez más al ESCONDER la app (si el último fue hace más de 2 min): así el margen para mirar una
- * foto o contestar una llamada es de al menos 5 min, y no depende de cuándo cayó el último.
+ * abrir la app la pone en línea y sigue así aunque esconda la app o bloquee el celular; solo sale
+ * sola si pasan 2 h sin ningún latido. Por eso al esconder la app no se manda nada: no hacen
+ * falta pedidos en segundo plano.
  */
 
 const CADA_CUANTO_MS = 4 * 60_000;
-/** Al esconder la app solo se late si el último latido fue hace más que esto. */
-const LATIDO_AL_SALIR_SI_PASARON_MS = 2 * 60_000;
-
-let ultimoLatidoEn = 0;
 
 export function LatidoDeActividad() {
   const pathname = usePathname();
@@ -48,7 +44,6 @@ export function LatidoDeActividad() {
       */
       const abierto = pathname.startsWith("/cliente/chats") ? getPendingConversationSelection() : null;
       const etiqueta = abierto?.label?.trim() || null;
-      ultimoLatidoEn = Date.now();
 
       void fetch("/api/cliente/actividad/latido", {
         method: "POST",
@@ -77,8 +72,6 @@ export function LatidoDeActividad() {
     const alCambiarVisibilidad = () => {
       if (document.visibilityState === "visible") {
         latir();
-      } else if (vivo && Date.now() - ultimoLatidoEn > LATIDO_AL_SALIR_SI_PASARON_MS) {
-        enviar();
       }
     };
     document.addEventListener("visibilitychange", alCambiarVisibilidad);

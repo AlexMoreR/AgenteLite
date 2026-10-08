@@ -4,14 +4,13 @@ import {
   alLatir,
   alPausarAMano,
   estaRecibiendo,
-  finPorVencimiento,
+  finMedido,
+  MARGEN_DE_MEDICION_MS,
+  PAUSA_SOLA_SIN_ABRIR_MS,
   pausaManualVigente,
-  VENCE_EL_LATIDO_MS,
   type PeriodoCerrado,
   type Presencia,
 } from "@/lib/en-linea-reglas";
-
-export { VENCE_EL_LATIDO_MS } from "@/lib/en-linea-reglas";
 
 /**
  * "RECIBIENDO CLIENTES" contra la base. Las reglas están en `en-linea-reglas.ts`.
@@ -70,13 +69,15 @@ function estadoDe(presencia: Presencia | null, ahora: Date): EstadoEnLinea {
 /** El latido de la app. Nunca lanza: si falla, devuelve null y el latido sigue como siempre. */
 export async function latirEnLinea(clave: Clave, ahora = new Date()): Promise<EstadoEnLinea | null> {
   try {
-    // Camino normal: ya estaba recibiendo y sin pausa. Un UPDATE por clave primaria.
+    // Camino normal: ya estaba recibiendo, sin pausa y latió hace poco (el tramo medido sigue).
+    // Un UPDATE por clave primaria. Si volvió tras tener el celular bloqueado, va por la transición
+    // para cerrar el tramo medido (ver alLatir).
     const seguido = await prisma.presenciaEnLinea.updateMany({
       where: {
         ...clave,
         pausaManualEn: null,
         enLineaDesde: { not: null },
-        ultimoLatido: { gte: new Date(ahora.getTime() - VENCE_EL_LATIDO_MS) },
+        ultimoLatido: { gte: new Date(ahora.getTime() - MARGEN_DE_MEDICION_MS) },
       },
       data: { ultimoLatido: ahora },
     });
@@ -120,7 +121,7 @@ export async function filtrarEnLinea(workspaceId: string, userIds: string[], aho
       workspaceId,
       userId: { in: userIds },
       enLineaDesde: { not: null },
-      ultimoLatido: { gte: new Date(ahora.getTime() - VENCE_EL_LATIDO_MS) },
+      ultimoLatido: { gte: new Date(ahora.getTime() - PAUSA_SOLA_SIN_ABRIR_MS) },
     },
     select: { userId: true, ultimoLatido: true, enLineaDesde: true, pausaManualEn: true },
   });
@@ -128,8 +129,8 @@ export async function filtrarEnLinea(workspaceId: string, userIds: string[], aho
 }
 
 /**
- * Periodos en línea por persona que tocan [desde, hasta), incluido el que sigue abierto (o el que
- * se venció y todavía no se cerró porque no volvió a latir).
+ * Periodos en línea por persona que tocan [desde, hasta), incluido el tramo que sigue abierto
+ * (medido hasta su último latido + margen, aunque para el reparto siga en línea hasta 2 h).
  */
 export async function periodosEnLinea(
   workspaceId: string,
@@ -158,7 +159,7 @@ export async function periodosEnLinea(
     if (fila.enLineaDesde) {
       sumar(fila.userId, {
         inicio: fila.enLineaDesde,
-        fin: estaRecibiendo(fila, ahora) ? ahora : finPorVencimiento(fila, ahora),
+        fin: finMedido(fila, ahora),
       });
     }
   }

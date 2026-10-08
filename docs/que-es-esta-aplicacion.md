@@ -211,11 +211,18 @@ la IA pausada no lo contesta el agente.
   asesor, ella ya recibe el WhatsApp del aviso y el push solo sale si ese WhatsApp no le llegó. El
   mismo chat no repite el push en 2 minutos (`src/lib/reparto-de-leads.ts`).
   Desde el 08-10-2026 **solo reciben las asesoras "en línea"**: con el CRM abierto quedan "🟢 Recibiendo
-  clientes" solas; sin latido de la app en 7 minutos (la cerró o la dejó en segundo plano) salen del
-  reparto, y pueden ponerse en Pausa a mano desde la barra superior (vale hasta que la quiten o hasta el
+  clientes" solas y siguen así aunque escondan la app o bloqueen el celular; solo salen solas del
+  reparto si pasan 2 horas sin abrir el CRM (`PAUSA_SOLA_SIN_ABRIR_MS`). Las horas "recibiendo" se
+  miden hasta el último latido + 6 min, no las 2 h de espera. Pueden ponerse en Pausa a mano desde la barra superior (vale hasta que la quiten o hasta el
   día siguiente). Si nadie está recibiendo, el cliente va a la **asesora de respaldo** (Mi empresa →
   Actividad), con push a ella y a los administradores (a ellos, uno cada 30 min). El respaldo no mueve la
   rueda del turno. La pausa de reparto de Equipo sigue mandando por encima (`src/lib/en-linea-reglas.ts`).
+  El respaldo (y sus avisos) solo funciona de **7 a. m. a 11 p. m.** (`FRANJA_DEL_RESPALDO`). De noche,
+  sin nadie en línea, el bot atiende y el chat queda sin dueña con una nota "de madrugada"; desde las
+  7:00 esos chats se reparten (más antiguos primero, a la que menos lleva) a las que van quedando en
+  línea, con tope de 3 por asesora (`TOPE_DE_MADRUGADA_POR_ASESORA`); desde las 8:00
+  (`REPARTO_LIBRE_DE_MADRUGADA_HORA`) lo que quede va por la rueda normal o al respaldo
+  (`src/lib/reparto-de-madrugada.ts`, en el reloj de cron/follows).
 - **Ganado exige cotización**: nadie puede marcar GANADO sin el número de la cotización de Gestión
   (`COT-00123`), desde ninguna pantalla; se guarda en `Contact.wonQuoteRef` junto a `wonAt`. Ningún
   agente ni automatismo pone GANADO o PERDIDO.

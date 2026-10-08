@@ -9,6 +9,7 @@ import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimien
 import { avisarClientesEsperando } from "@/features/agente-v3/servicios/cliente-esperando";
 import { rescatarMensajesSinDecidir } from "@/features/agente-v3/servicios/rescate-de-mensajes";
 import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
+import { repartirChatsDeMadrugada } from "@/lib/reparto-de-madrugada";
 import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
 import { sincronizarSiTocaHoy } from "@/lib/sincronizacion-gestion";
 
@@ -110,6 +111,18 @@ async function handleCron(request: Request) {
     rescatados = await rescatarChatsHuerfanos();
   } catch (error) {
     console.error("[cron/follows] rescate de huerfanos error", error);
+  }
+
+  /*
+    Los chats que llegaron de madrugada sin nadie en línea: se reparten desde las 7:00 a las que
+    se van conectando (con tope), y desde las 8:00 por la rueda o al respaldo. Fuera de la franja
+    del respaldo no hace nada. Ver src/lib/reparto-de-madrugada.ts. Best-effort.
+  */
+  let deMadrugada: { repartidos: number; pendientes: number } | null = null;
+  try {
+    deMadrugada = await repartirChatsDeMadrugada();
+  } catch (error) {
+    console.error("[cron/follows] reparto de madrugada error", error);
   }
 
   // Enfriamiento de leads (Playbook: 3 intentos + 5 días + cero respuesta → Tibio). Va colgado
@@ -215,6 +228,7 @@ async function handleCron(request: Request) {
     descartados,
     mensajesRescatados,
     rescatados,
+    deMadrugada,
   });
 }
 

@@ -1,3 +1,4 @@
+import { ventanaDeMadrugada } from "@/lib/en-linea-reglas";
 import { prisma } from "@/lib/prisma";
 import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
 
@@ -39,7 +40,7 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
         gte: new Date(ahora.getTime() - VENTANA_MAXIMA_HORAS * 3_600_000),
       },
     },
-    select: { id: true, channelId: true, workspaceId: true },
+    select: { id: true, channelId: true, workspaceId: true, lastMessageAt: true },
     orderBy: { lastMessageAt: "desc" },
     take: CUANTOS_POR_VUELTA * 3,
   });
@@ -69,11 +70,23 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
     }
 
     try {
-      // Cuenta solo lo repartido de verdad: null = nadie en turno, o ya lo tomó alguien.
+      /*
+        Cuenta solo lo repartido de verdad: null = nadie en turno, o ya lo tomó alguien.
+
+        La madrugada (Alex, 08-10-2026): de noche, sin nadie en línea, NO se reparte (ni al
+        respaldo): queda marcado para la mañana. Si el cliente escribió de noche, se reparte como
+        chat de madrugada (con tope de 7 a 8, ver en-linea-reglas.ts), no al respaldo a las 7:00.
+      */
+      const noche = ventanaDeMadrugada(ahora);
+      const escribioDeNoche = Boolean(
+        conversacion.lastMessageAt && conversacion.lastMessageAt >= noche.desde && conversacion.lastMessageAt < noche.hasta,
+      );
       const elegida = await autoAssignConversationToCollaborator({
         conversationId: conversacion.id,
         channelId: conversacion.channelId,
         workspaceId: conversacion.workspaceId,
+        ahora,
+        ...(escribioDeNoche ? { deMadrugada: true } : {}),
       });
       if (elegida) {
         repartidos += 1;

@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { calcularReparto } from "@/lib/channel-collaborators";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { filtrarEnLinea, leerAsesoraDeRespaldo } from "@/lib/en-linea";
-import { elegirAsesora } from "@/lib/en-linea-reglas";
+import { decidirReparto, madrugadaConTope, respaldoAtiende, ventanaDeMadrugada } from "@/lib/en-linea-reglas";
 import { filtrarPorHorario } from "@/lib/horario-de-reparto";
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/web-push";
@@ -30,7 +30,11 @@ export async function autoAssignConversationToCollaborator(args: {
    * manda WhatsApp a la asesora y solo cae al push si ese WhatsApp no le llegó.
    */
   avisarPorPush?: boolean;
+  /** true = es un chat que quedó sin dueña de madrugada (lo pasa el reparto de la mañana). */
+  deMadrugada?: boolean;
+  ahora?: Date;
 }): Promise<string | null> {
+  const ahora = args.ahora ?? new Date();
   const [conversation, channel] = await Promise.all([
     prisma.conversation.findUnique({
       where: { id: args.conversationId },
@@ -77,18 +81,41 @@ export async function autoAssignConversationToCollaborator(args: {
     en-linea-reglas.ts). Si no queda nadie, el cliente va a la asesora de respaldo, con aviso.
   */
   const enHorario = await filtrarPorHorario(args.workspaceId, validIds);
-  const [disponibles, respaldo] = await Promise.all([
-    filtrarEnLinea(args.workspaceId, enHorario),
+  const ventana = ventanaDeMadrugada(ahora);
+  const conTope = madrugadaConTope(ahora);
+  const [disponibles, respaldo, marcadaDeMadrugada] = await Promise.all([
+    filtrarEnLinea(args.workspaceId, enHorario, ahora),
     leerAsesoraDeRespaldo(args.workspaceId),
+    // Solo entre las 7 y las 8 importa si el chat viene de la noche (lo pide cualquier camino:
+    // el rescate de huérfanos, el turno, el agente). El resto del día no se consulta.
+    !args.deMadrugada && conTope ? tieneMarcaDeMadrugada(args.conversationId, ventana) : Promise.resolve(false),
   ]);
+  const deMadrugada = Boolean(args.deMadrugada) || marcadaDeMadrugada;
 
   // Siguiente colaborador tras el último asignado (round-robin cíclico). La rueda sigue siendo la
   // lista completa: saltar a alguien por horario no le cambia el lugar a nadie en el turno.
   const lastId = typeof metadata.lastAutoAssignedUserId === "string" ? metadata.lastAutoAssignedUserId : null;
-  const elegida = elegirAsesora({ rueda: validIds, disponibles, ultimaAsignada: lastId, respaldo });
-  if (!elegida) {
+  const decision = decidirReparto({
+    rueda: validIds,
+    disponibles,
+    ultimaAsignada: lastId,
+    respaldo,
+    ahora,
+    deMadrugada,
+    recibidasDeMadrugada:
+      deMadrugada && conTope ? await contarRecibidasDeMadrugada(args.workspaceId, ventana) : undefined,
+  });
+  if (decision.tipo === "esperar") {
+    // De noche y sin nadie: el bot sigue contestando y el chat se reparte en la mañana.
+    if (!respaldoAtiende(ahora)) {
+      await marcarEsperaDeMadrugada({ ...args, ventana });
+    }
     return null;
   }
+  if (decision.tipo === "nadie") {
+    return null;
+  }
+  const elegida = decision;
   const nextUserId = elegida.userId;
 
   /*
@@ -103,8 +130,9 @@ export async function autoAssignConversationToCollaborator(args: {
   if (asignada.count === 0) {
     return null;
   }
-  // El respaldo no mueve la rueda: cuando vuelvan a estar en línea, el turno sigue donde iba.
-  if (!elegida.porRespaldo) {
+  // El respaldo no mueve la rueda: cuando vuelvan a estar en línea, el turno sigue donde iba. Los
+  // chats de madrugada con tope (7 a 8) tampoco: se reparten aparte, a la que menos lleva.
+  if (elegida.mueveLaRueda) {
     await prisma.whatsAppChannel.update({
       where: { id: args.channelId },
       data: { metadata: { ...metadata, lastAutoAssignedUserId: nextUserId } as Prisma.InputJsonValue },
@@ -123,9 +151,12 @@ export async function autoAssignConversationToCollaborator(args: {
     channelId: args.channelId,
     kind: "assigned",
     assigneeUserId: nextUserId,
+    ...(elegida.deMadrugada ? { origen: ORIGEN_REPARTO_DE_MADRUGADA } : {}),
     text: elegida.porRespaldo
       ? `${assigneeName} asignado como respaldo (nadie estaba recibiendo clientes)`
-      : `${assigneeName} auto-asignado a esta conversación`,
+      : elegida.deMadrugada
+        ? `${assigneeName} auto-asignado (chat que llegó de madrugada)`
+        : `${assigneeName} auto-asignado a esta conversación`,
   });
 
   // Aviso al celular de la asesora. Sin await: un push lento o caído no frena el reparto.
@@ -141,6 +172,111 @@ export async function autoAssignConversationToCollaborator(args: {
     void avisarJefesDelRespaldo({ workspaceId: args.workspaceId, respaldoId: nextUserId, nombre: assigneeName });
   }
   return nextUserId;
+}
+
+/*
+  LA MARCA DE MADRUGADA. Va como nota del sistema en el chat (como el resto de la actividad), así
+  no hace falta migrar la base: "llegó de noche y nadie estaba en línea". El reparto de la mañana
+  busca estas notas. Ver en-linea-reglas.ts.
+*/
+export const ORIGEN_ESPERA_DE_MADRUGADA = "espera-de-madrugada";
+export const ORIGEN_REPARTO_DE_MADRUGADA = "reparto-de-madrugada";
+
+type Ventana = { desde: Date; hasta: Date };
+
+async function tieneMarcaDeMadrugada(conversationId: string, ventana: Ventana): Promise<boolean> {
+  const marca = await prisma.message.findFirst({
+    where: {
+      conversationId,
+      type: "SYSTEM",
+      createdAt: { gte: ventana.desde, lt: ventana.hasta },
+      rawPayload: { path: ["origen"], equals: ORIGEN_ESPERA_DE_MADRUGADA },
+    },
+    select: { id: true },
+  });
+  return Boolean(marca);
+}
+
+/** Una sola marca por chat y por noche, aunque la clienta escriba diez veces. */
+async function marcarEsperaDeMadrugada(input: {
+  conversationId: string;
+  channelId: string;
+  workspaceId: string;
+  ventana: Ventana;
+}): Promise<void> {
+  try {
+    if (await tieneMarcaDeMadrugada(input.conversationId, input.ventana)) {
+      return;
+    }
+    await recordConversationActivity({
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      channelId: input.channelId,
+      kind: "note",
+      origen: ORIGEN_ESPERA_DE_MADRUGADA,
+      text: "Llegó de madrugada y nadie estaba en línea: el bot lo atiende y se asigna en la mañana.",
+    });
+  } catch (error) {
+    console.warn("[reparto] no se pudo marcar el chat de madrugada", {
+      conversationId: input.conversationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/** Cuántos chats de madrugada recibió cada una desde que terminó la noche (para el tope). */
+async function contarRecibidasDeMadrugada(workspaceId: string, ventana: Ventana): Promise<Map<string, number>> {
+  const filas = await prisma.message.findMany({
+    where: {
+      workspaceId,
+      type: "SYSTEM",
+      createdAt: { gte: ventana.hasta },
+      rawPayload: { path: ["origen"], equals: ORIGEN_REPARTO_DE_MADRUGADA },
+    },
+    select: { rawPayload: true },
+  });
+  const cuentas = new Map<string, number>();
+  for (const fila of filas) {
+    const payload = fila.rawPayload as { assigneeUserId?: unknown } | null;
+    if (typeof payload?.assigneeUserId === "string") {
+      cuentas.set(payload.assigneeUserId, (cuentas.get(payload.assigneeUserId) ?? 0) + 1);
+    }
+  }
+  return cuentas;
+}
+
+/** Los chats que quedaron sin dueña en la noche, más antiguos primero. */
+export async function chatsDeMadrugadaPendientes(
+  workspaceId: string,
+  ventana: Ventana,
+): Promise<{ id: string; channelId: string }[]> {
+  const marcas = await prisma.message.findMany({
+    where: {
+      workspaceId,
+      type: "SYSTEM",
+      createdAt: { gte: ventana.desde, lt: ventana.hasta },
+      rawPayload: { path: ["origen"], equals: ORIGEN_ESPERA_DE_MADRUGADA },
+    },
+    orderBy: { createdAt: "asc" },
+    select: { conversationId: true },
+  });
+  if (marcas.length === 0) {
+    return [];
+  }
+  const sinDuena = await prisma.conversation.findMany({
+    where: {
+      id: { in: marcas.map((marca) => marca.conversationId) },
+      assignedToUserId: null,
+      status: { notIn: ["CLOSED", "ARCHIVED"] },
+      channelId: { not: null },
+    },
+    select: { id: true, channelId: true },
+  });
+  const porId = new Map(sinDuena.map((chat) => [chat.id, chat.channelId as string]));
+  return marcas
+    .map((marca) => marca.conversationId)
+    .filter((id, i, todos) => porId.has(id) && todos.indexOf(id) === i)
+    .map((id) => ({ id, channelId: porId.get(id) as string }));
 }
 
 /*

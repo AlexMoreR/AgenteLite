@@ -657,9 +657,9 @@ model SugerenciaDeRespuesta {
 model PresenciaEnLinea {
   workspaceId   String
   userId        String
-  /// El ultimo latido de la app. Sin latido en 7 min = ya no recibe.
+  /// El ultimo latido de la app. Sin latido en 2 h = se pausa sola (ver en-linea-reglas.ts).
   ultimoLatido  DateTime
-  /// Desde cuando esta recibiendo sin cortes. null = no esta recibiendo.
+  /// Desde cuando va el tramo medido actual (horas). null = no esta recibiendo.
   enLineaDesde  DateTime?
   /// Cuando se puso en Pausa a mano. Vale hasta que se active o hasta el dia siguiente.
   pausaManualEn DateTime?
