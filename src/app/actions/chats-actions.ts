@@ -8,6 +8,7 @@ import { sendManualAgentReplyAction, type SendChatReplyResult } from "@/app/acti
 import { generarSugerenciaDeRespuesta, registrarEnvioDeSugerencia, registrarFlujoDeSugerencia } from "@/lib/sugerencia-de-respuesta";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { after } from "next/server";
+import { aplicarFirmaDelChat } from "@/lib/firma-del-chat";
 
 import { retomarConversacionV3 } from "@/features/agente-v3/servicios/retomar";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
@@ -720,23 +721,10 @@ async function prependUserChatSignature(message: string): Promise<string> {
       select: { chatSignature: true },
     });
 
-    const signature = user?.chatSignature?.trim();
-    if (!signature) {
-      return message;
-    }
-
-    // La firma va ARRIBA, como encabezado de quien escribe, y el mensaje debajo:
-    //   👩‍💻 *Ingrid Sánchez*
-    //   Hola
-    // Asi el cliente ve de entrada con quien habla, sin tener que llegar al final.
-    const body = message.replace(/^\s+/, "");
-
-    // Si ya empieza con la firma (la escribio a mano, o esta reenviando algo firmado), no duplicar.
-    if (body.startsWith(signature)) {
-      return message;
-    }
-
-    return `${signature}\n${body}`;
+    // La firma va ARRIBA, como encabezado de quien escribe, y el mensaje debajo. La regla es la
+    // misma que usa el navegador para la burbuja optimista (src/lib/firma-del-chat.ts), asi la
+    // burbuja sale ya firmada y no "salta" cuando llega el mensaje real.
+    return aplicarFirmaDelChat(message, user?.chatSignature);
   } catch {
     return message;
   }

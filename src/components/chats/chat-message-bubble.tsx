@@ -9,6 +9,7 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
+  Clock3,
   Copy,
   Facebook,
   Download,
@@ -1077,6 +1078,11 @@ export const MessageBubble = memo(function MessageBubble({
             {!showInlineMediaTimestamp ? <span>{formatChatTime(message.createdAt)}</span> : null}
             {isPendingMedia ? (
               <LoaderCircle className="ml-0.5 h-3 w-3 shrink-0 animate-spin" aria-label="Enviando" />
+            ) : null}
+            {outbound && !message.outboundStatusLabel && message.id.startsWith("optimistic:") ? (
+              // Burbuja optimista: reloj tenue del mismo ancho que el ✓ que trae la real, como
+              // WhatsApp. Sin esto la hora se corria al llegar el mensaje guardado.
+              <Clock3 className="ml-1 h-3 w-3 shrink-0 opacity-60" aria-label="Enviando" />
             ) : null}
             {outbound && message.outboundStatusLabel ? (
               // Acuses tipo WhatsApp. La API oficial sí avisa cuando el cliente RECIBIÓ y cuando

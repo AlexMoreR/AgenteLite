@@ -10,6 +10,7 @@
     "test:commercial-stage": "node scripts/check-commercial-stage.mjs",
     "test:origen-ventas": "node scripts/check-origen-ventas.mjs",
     "test:contraentrega": "node scripts/check-contraentrega.mjs",
+    "test:firma-del-chat": "node scripts/check-firma-del-chat.mjs",
     "db:seed": "node prisma/seed.js"
   },
   "prisma": {

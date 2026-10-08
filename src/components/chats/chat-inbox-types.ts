@@ -99,6 +99,13 @@ export type SharedInboxSelectedConversation = {
 export type OptimisticDraftMessage = SharedInboxMessageItem & {
   conversationId: string;
   isOptimistic: true;
+  /**
+   * Texto tal como lo escribio la persona, SIN firma. `content` puede llevar la firma arriba
+   * (para que la burbuja se vea igual que la real); la conciliacion con el mensaje guardado se
+   * hace contra este texto ("el real termina con esto"), asi no se duplica aunque la firma haya
+   * cambiado en otra pestaña.
+   */
+  matchContent?: string;
 };
 
 export type ComposerReplyTarget = {

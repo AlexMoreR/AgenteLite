@@ -70,6 +70,7 @@ import { inicializarPermisosDeLaBandeja } from "./permisos-de-la-bandeja-store";
 import type { CrmStage } from "@/features/crm/types";
 import { resolveCallTarget } from "@/lib/whatsapp-lid";
 import { iniciarMedicion, terminarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
+import { aplicarFirmaDelChat } from "@/lib/firma-del-chat";
 
 const CONVERSATION_LIST_LOAD_BATCH_SIZE = 10;
 // Logs de depuración de la lista desactivados (ensuciaban la consola en desarrollo).
@@ -1787,7 +1788,9 @@ export function SharedInbox({
   // esto el endsWith fallaba por un salto de linea y el mensaje se veia DUPLICADO hasta
   // recargar (la burbuja optimista no se reemplazaba por la real).
   const normalizeForOutgoingMatch = (value: string) => value.replace(/\s+/g, " ").trim();
-  const optimisticOutgoingContent = normalizeForOutgoingMatch(optimisticOutgoingMessage?.content ?? "");
+  const optimisticOutgoingContent = normalizeForOutgoingMatch(
+    optimisticOutgoingMessage?.matchContent ?? optimisticOutgoingMessage?.content ?? "",
+  );
   const persistedMatchesOptimisticContent = (persisted: string | null | undefined) => {
     if (!optimisticOutgoingContent) {
       return false;
@@ -1920,6 +1923,11 @@ export function SharedInbox({
 
       const now = new Date();
       const optimisticId = `optimistic:${renderedConversation.id}:${Date.now()}`;
+      // Misma regla de firma que el servidor (src/lib/firma-del-chat.ts): la burbuja y la fila
+      // salen ya firmadas y no "saltan" cuando llega el mensaje real. La conciliacion se sigue
+      // haciendo con `message` (sin firma), ver persistedMatchesOptimisticContent.
+      const mensajeVisible =
+        formData.get("skipSignature") === "1" ? message : aplicarFirmaDelChat(message, chatSignature);
       // Medicion: enviar -> burbuja pintada y enviar -> ok del servidor.
       iniciarMedicion(`burbuja:${optimisticId}`);
       iniciarMedicion(`envio:${optimisticId}`);
@@ -1930,7 +1938,7 @@ export function SharedInbox({
         tags: renderedConversation.tags ?? [],
         avatarUrl: renderedConversation.avatarUrl ?? null,
         incomingCount: 0,
-        lastMessage: message,
+        lastMessage: mensajeVisible,
         lastMessageType: "TEXT" as const,
         lastMessageDirection: "OUTBOUND" as const,
         lastMessageAt: now,
@@ -1942,7 +1950,8 @@ export function SharedInbox({
       setOptimisticOutgoingMessage({
         id: optimisticId,
         conversationId: renderedConversation.id,
-        content: message,
+        content: mensajeVisible,
+        matchContent: message,
         direction: "OUTBOUND",
         createdAt: now,
         authorType: "user",
@@ -1999,7 +2008,7 @@ export function SharedInbox({
         .finally(liberar);
       return true;
     },
-    [renderedConversation, selectedConversationId, composer, finalizeOptimisticSend, replyTarget],
+    [renderedConversation, selectedConversationId, composer, finalizeOptimisticSend, replyTarget, chatSignature],
   );
 
   const handleReplyToMessage = useCallback((target: SharedInboxMessageItem) => {
@@ -2280,7 +2289,9 @@ export function SharedInbox({
   const handleRetryFailedMessage = useCallback(() => {
     const composerValue = composerRef.current;
     const failed = optimisticOutgoingMessageRef.current;
-    const text = failed?.content?.trim();
+    // Se reenvia el texto SIN firma (la pone el servidor). Si la burbuja salio sin firma
+    // (respuesta rapida o firma apagada), el reintento tambien va sin firma.
+    const text = (failed?.matchContent ?? failed?.content)?.trim();
     if (!composerValue || !failed || !text) {
       return;
     }
@@ -2289,6 +2300,9 @@ export function SharedInbox({
     formData.set("message", text);
     for (const field of composerHiddenFieldsRef.current) {
       formData.set(field.name, field.value);
+    }
+    if (failed.matchContent !== undefined && failed.content === failed.matchContent) {
+      formData.set("skipSignature", "1");
     }
 
     // Reintento: vuelve a verse como mensaje enviado (sin etiqueta de error) y se
