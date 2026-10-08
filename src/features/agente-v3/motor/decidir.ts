@@ -9,6 +9,7 @@ import {
 import {
   REGLA_FOTO_Y_PRECIO_POR_DEFECTO,
   esReglaDeFotoYPrecio,
+  pasaAUnaAsesora,
   preguntaPorLaFoto,
   type FotoDelCliente,
 } from "./foto-y-precio";
@@ -300,7 +301,10 @@ function decidirFotoYPrecio(input: {
   const laIaLaReconocio = reglasDeFoto.some((regla) => input.intenciones.includes(regla.id));
   if (!preguntaPorLaFoto(input.mensaje) && !laIaLaReconocio) return null;
 
-  const delLibro = reglasDeFoto.find((regla) => input.intenciones.includes(regla.id)) ?? reglasDeFoto[0];
+  // Si hay varias: primero la que reconoció la IA, después la que pasa a una asesora, después el orden del libro.
+  const puntaje = (regla: ReglaV3) =>
+    (input.intenciones.includes(regla.id) ? 2 : 0) + (pasaAUnaAsesora(regla) ? 1 : 0);
+  const delLibro = [...reglasDeFoto].sort((a, b) => puntaje(b) - puntaje(a))[0];
   const ganadora = delLibro ?? REGLA_FOTO_Y_PRECIO_POR_DEFECTO;
   const pie = input.fotoDelCliente.pie ? ` (con el texto "${input.fotoDelCliente.pie.slice(0, 80)}")` : "";
 

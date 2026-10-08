@@ -110,7 +110,7 @@ const reglaPrecioGenerica = {
 };
 const reglaFotoYPrecio = {
   id: "regla-69aa8115-9a20-4642-a69d-7b1ffe188e54",
-  nombre: "Manda foto de un producto y pregunta el precio",
+  nombre: "Manda foto o captura de un producto y pregunta el precio: no es el combo, pasar a la asesora",
   cuando: {
     tipo: "intencion",
     descripcion: "Manda foto o captura de un producto y pregunta el precio o cuánto vale",
@@ -330,9 +330,73 @@ for (const [mensaje, dispara] of [
   });
 }
 
-await prueba("se reconoce la regla de intención de 'foto + precio' del libro por su descripción", () => {
+await prueba("se reconoce la regla de intención de 'foto + precio' del libro por su NOMBRE", () => {
   assert.equal(fotoYPrecio.esReglaDeFotoYPrecio(reglaFotoYPrecio), true);
   assert.equal(fotoYPrecio.esReglaDeFotoYPrecio(reglaPrecioGenerica), false);
+});
+
+// --- Caso de producción del 08-10-2026: la regla de compra se tomó como la de foto + precio --------
+const PARA_FINALIZAR = "¡Perfecto! Con esos datos te ayudamos *para finalizar tu compra*. ¿Te confirmo el pedido?";
+const reglaDatosParaComprar = {
+  id: "regla-577c67ec-prueba",
+  nombre: "Dio los datos para comprar: cierra una persona",
+  cuando: {
+    tipo: "intencion",
+    descripcion:
+      "La clienta manda sus datos para comprar (nombre, cédula, dirección, ciudad). NO cuenta si pregunta el precio, pide fotos o pregunta por el envío.",
+  },
+  entonces: [
+    { tipo: "mensaje", texto: PARA_FINALIZAR },
+    { tipo: "cambiar_etapa_crm", etapa: "Caliente" },
+    { tipo: "avisar_asesor", motivo: "Dio los datos para comprar" },
+  ],
+  activa: true,
+};
+
+await prueba("producción: libro con 'Dio los datos para comprar' + la de foto → gana la de foto", async () => {
+  mundo.intenciones = [];
+  const r = await atender({
+    libro: libroCon(reglaPrecioGenerica, reglaDatosParaComprar, reglaFotoYPrecio),
+    mensaje: "Qué valor tiene así",
+    recientes: [fotoDeLaClienta(1), textoDe("cliente", "Qué valor tiene así")],
+  });
+  assert.equal(r.resultado.regla, reglaFotoYPrecio.nombre);
+  assert.ok(!r.enviados.includes(PARA_FINALIZAR), "nunca el mensaje de compra");
+  assert.ok(!r.enviados.includes(PRECIO_DEL_COMBO));
+  assert.equal(r.pausas, 1);
+});
+
+await prueba("producción: libro SOLO con 'Dio los datos para comprar' → comportamiento por defecto, nunca la de compra", async () => {
+  mundo.intenciones = [];
+  const r = await atender({
+    libro: libroCon(reglaPrecioGenerica, reglaDatosParaComprar),
+    mensaje: "Qué valor tiene así",
+    recientes: [fotoDeLaClienta(1), textoDe("cliente", "Qué valor tiene así")],
+  });
+  assert.equal(r.resultado.regla, fotoYPrecio.REGLA_FOTO_Y_PRECIO_POR_DEFECTO.nombre);
+  assert.deepEqual(r.enviados, [fotoYPrecio.TEXTO_FOTO_Y_PRECIO]);
+  assert.deepEqual(r.avisos, [fotoYPrecio.MOTIVO_FOTO_Y_PRECIO]);
+  assert.equal(r.pausas, 1);
+});
+
+await prueba("'Dio los datos para comprar' NO es la de foto + precio aunque su descripción diga precio y fotos", () => {
+  assert.equal(fotoYPrecio.esReglaDeFotoYPrecio(reglaDatosParaComprar), false);
+});
+
+await prueba("se excluye una regla de foto + precio que mueve a una etapa de cierre", () => {
+  const conCierre = { ...reglaFotoYPrecio, id: "x", entonces: [{ tipo: "cambiar_etapa_crm", etapa: "Caliente" }] };
+  assert.equal(fotoYPrecio.esReglaDeFotoYPrecio(conCierre), false);
+});
+
+await prueba("varias reglas de foto + precio: gana la que pasa a una asesora", () => {
+  const otra = { ...reglaFotoYPrecio, id: "otra", nombre: "Foto con precio: responder", entonces: [{ tipo: "mensaje", texto: "otra" }] };
+  const d = decidir({
+    libro: libroCon(otra, reglaFotoYPrecio),
+    mensaje: "Qué valor tiene así",
+    estado: estadoCombo(),
+    fotoDelCliente: { pie: null },
+  });
+  assert.equal(d.regla.id, reglaFotoYPrecio.id);
 });
 
 // --- (d) el redactor pide asesora → la IA queda pausada ------------------------------------------

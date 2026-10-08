@@ -106,14 +106,34 @@ export function preguntaPorLaFoto(mensaje: string): boolean {
   return [...PALABRAS_DE_PRECIO, ...FRASES_QUE_SENALAN_LA_FOTO].some((frase) => texto.includes(` ${frase} `));
 }
 
+/*
+  Etapas de cierre: una regla que mueve ahí es de COMPRA, nunca la de "foto + precio".
+*/
+const ETAPA_DE_CIERRE = /caliente|cierre|cerrad|ganad|venta|vendid|pagad|compra/;
+
 /**
  * ¿Es ésta la regla de intención del libro para "manda foto de un producto y pregunta el precio"?
- * Se reconoce por su descripción: habla de foto/captura/imagen y de precio/valor.
+ *
+ * Se reconoce SOLO por su NOMBRE: que nombre una foto/captura/imagen Y el precio/valor. Por la
+ * descripción no: en producción (08-10-2026) la regla "Dio los datos para comprar: cierra una
+ * persona" decía en su descripción "NO cuenta si pregunta el precio, pide fotos…" y se tomó como
+ * la de foto + precio, así que a la clienta le llegó "para finalizar tu compra" y la etapa Caliente.
+ * Por lo mismo se descartan las reglas de compra o cierre, aunque su nombre encaje.
  */
 export function esReglaDeFotoYPrecio(regla: ReglaV3): boolean {
   if (regla.cuando.tipo !== "intencion") return false;
-  const descripcion = ` ${normalizar(regla.cuando.descripcion)} `;
-  const hablaDeFoto = /\s(foto|fotos|captura|capturas|imagen|imagenes|pantallazo)\s/.test(descripcion);
-  const hablaDePrecio = /\s(precio|precios|valor|cuanto|vale|cuesta)\s/.test(descripcion);
-  return hablaDeFoto && hablaDePrecio;
+  const nombre = normalizar(regla.nombre);
+  const nombraLaFoto = ["foto", "captura", "imagen"].some((palabra) => nombre.includes(palabra));
+  const nombraElPrecio = ["precio", "valor"].some((palabra) => nombre.includes(palabra));
+  if (!nombraLaFoto || !nombraElPrecio) return false;
+  if (nombre.includes("datos para comprar") || nombre.includes("cierra")) return false;
+  const llevaAlCierre = regla.entonces.some(
+    (accion) => accion.tipo === "cambiar_etapa_crm" && ETAPA_DE_CIERRE.test(normalizar(accion.etapa ?? "")),
+  );
+  return !llevaAlCierre;
+}
+
+/** Entre varias reglas de "foto + precio", primero la que pasa a una asesora. */
+export function pasaAUnaAsesora(regla: ReglaV3): boolean {
+  return normalizar(regla.nombre).includes("asesor");
 }
