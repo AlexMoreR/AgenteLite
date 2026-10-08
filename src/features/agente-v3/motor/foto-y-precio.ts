@@ -81,28 +81,29 @@ export function fotoDelClienteReciente(
 
 /*
   Lo que dice la clienta cuando pregunta por la foto: el precio ("valor", "cuánto") o la señala
-  ("así", "esta", "y esta", "la tienen"). Se compara por palabra entera, sin tildes, para que "asi"
-  no enganche dentro de "clasico".
+  con una frase COMPLETA ("y esta", "la tienen"). "esta", "este" o "así" sueltas NO cuentan:
+  "¿cómo está?" o "hola, está disponible?" no preguntan por la foto. Se compara por palabra
+  entera, sin tildes, para que "vale" no enganche dentro de "equivale".
 */
-const PALABRAS_DE_LA_FOTO = [
-  "valor",
-  "precio",
-  "cuanto",
-  "vale",
-  "cuesta",
-  "costo",
-  "asi",
-  "esta",
-  "este",
+const PALABRAS_DE_PRECIO = ["valor", "precio", "cuanto", "vale", "cuesta", "costo"];
+const FRASES_QUE_SENALAN_LA_FOTO = [
   "y esta",
+  "y este",
+  "esta silla",
+  "este modelo",
+  "esta referencia",
   "la tienen",
   "lo tienen",
+  "la tienen asi",
+  "asi la tienen",
+  "de esta",
+  "de este",
 ];
 
 export function preguntaPorLaFoto(mensaje: string): boolean {
   const texto = ` ${normalizar(mensaje)} `;
   if (!texto.trim()) return false;
-  return PALABRAS_DE_LA_FOTO.some((palabra) => texto.includes(` ${palabra} `));
+  return [...PALABRAS_DE_PRECIO, ...FRASES_QUE_SENALAN_LA_FOTO].some((frase) => texto.includes(` ${frase} `));
 }
 
 /**

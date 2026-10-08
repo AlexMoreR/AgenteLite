@@ -293,6 +293,43 @@ await prueba("las palabras se comparan enteras: 'clasico' no es 'asi'", () => {
   assert.equal(fotoYPrecio.preguntaPorLaFoto("la tienen?"), true);
 });
 
+await prueba("'esta', 'este' y 'así' sueltas no disparan; precio o frase completa sí", () => {
+  assert.equal(fotoYPrecio.preguntaPorLaFoto("¿cómo está?"), false);
+  assert.equal(fotoYPrecio.preguntaPorLaFoto("hola, está disponible?"), false);
+  assert.equal(fotoYPrecio.preguntaPorLaFoto("me gusta así"), false);
+  assert.equal(fotoYPrecio.preguntaPorLaFoto("y esta?"), true);
+  assert.equal(fotoYPrecio.preguntaPorLaFoto("Qué valor tiene así"), true);
+  assert.equal(fotoYPrecio.preguntaPorLaFoto("así la tienen?"), true);
+});
+
+for (const [mensaje, dispara] of [
+  ["¿cómo está?", false],
+  ["hola, está disponible?", false],
+  ["y esta?", true],
+  ["Qué valor tiene así", true],
+]) {
+  await prueba(`tras una foto de la clienta, "${mensaje}" ${dispara ? "SÍ" : "NO"} desvía a foto + precio`, async () => {
+    mundo.intenciones = [];
+    const r = await atender({
+      libro: libroCon(reglaPrecioGenerica),
+      mensaje,
+      recientes: [fotoDeLaClienta(1), textoDe("cliente", mensaje)],
+    });
+    if (dispara) {
+      assert.deepEqual(r.enviados, [fotoYPrecio.TEXTO_FOTO_Y_PRECIO]);
+      assert.deepEqual(r.avisos, [fotoYPrecio.MOTIVO_FOTO_Y_PRECIO]);
+      assert.equal(r.pausas, 1);
+    } else {
+      // Flujo normal: ninguna regla aplica, contesta el redactor sin pausar ni avisar.
+      assert.ok(!r.enviados.includes(fotoYPrecio.TEXTO_FOTO_Y_PRECIO));
+      assert.equal(r.pausas, 0);
+      assert.deepEqual(r.avisos, []);
+      assert.equal(r.redactor, 1);
+      assert.equal(r.resultado.regla, "Redactor");
+    }
+  });
+}
+
 await prueba("se reconoce la regla de intención de 'foto + precio' del libro por su descripción", () => {
   assert.equal(fotoYPrecio.esReglaDeFotoYPrecio(reglaFotoYPrecio), true);
   assert.equal(fotoYPrecio.esReglaDeFotoYPrecio(reglaPrecioGenerica), false);
