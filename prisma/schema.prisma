@@ -1752,3 +1752,60 @@ model ConversationFunnelState {
   /// El indice que hace barata la pregunta de arriba.
   @@index([workspaceId, stepId, enteredAt])
 }
+
+/// COACH DE VENTAS: un informe por negocio y dia (hora de Bogota). Lo genera el reloj a las 23:30
+/// o el boton "Generar ahora" del dueño. Ver src/features/coach.
+/// Sin claves foraneas al negocio a proposito: es un registro del coach, no tiene por que impedir
+/// borrar nada.
+model CoachInforme {
+  id              String         @id @default(cuid())
+  workspaceId     String
+  /// Medianoche UTC del dia local, como DailyReport.reportDate.
+  fecha           DateTime
+  /// EN_CURSO | LISTO | ERROR. Texto y no enum: sumar un estado no deberia migrar la base.
+  estado          String         @default("EN_CURSO")
+  /// reloj | manual
+  origen          String         @default("reloj")
+  /// Con que politica se juzgo (POLITICA_COACH.version).
+  versionPolitica String
+  modelo          String?
+  /// Resumen del equipo para el dueño (ResumenDelEquipo en src/features/coach/tipos.ts).
+  resumenEquipo   Json?
+  chatsLeidos     Int            @default(0)
+  llamadasIA      Int            @default(0)
+  tokensEntrada   Int            @default(0)
+  tokensSalida    Int            @default(0)
+  costoUsd        Decimal        @default(0) @db.Decimal(10, 4)
+  error           String?
+  iniciadoEn      DateTime       @default(now())
+  terminadoEn     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  asesoras        CoachAsesora[]
+
+  @@unique([workspaceId, fecha])
+  @@index([workspaceId, createdAt])
+}
+
+/// La parte de UNA asesora en el informe del coach: aciertos, errores, puntaje y pendientes para
+/// el dia siguiente. Cada asesora ve solo su fila.
+model CoachAsesora {
+  id          String       @id @default(cuid())
+  informeId   String
+  workspaceId String
+  userId      String
+  nombre      String
+  chats       Int          @default(0)
+  /// Promedio ponderado de la rubrica, sin "Resultado". Null = no hubo nada que calificar.
+  puntaje     Decimal?     @db.Decimal(4, 1)
+  puntajes    Json?
+  aciertos    Json
+  errores     Json
+  pendientes  Json
+  resumen     Json?
+  createdAt   DateTime     @default(now())
+  informe     CoachInforme @relation(fields: [informeId], references: [id], onDelete: Cascade)
+
+  @@unique([informeId, userId])
+  @@index([workspaceId, userId, createdAt])
+}

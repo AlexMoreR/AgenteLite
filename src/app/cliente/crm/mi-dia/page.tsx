@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { PendientesDelCoach } from "@/features/coach/components/PendientesDelCoach";
+import { leerPendientesDelCoach } from "@/features/coach/servicios/leer-coach";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getVisibleChannelIds } from "@/lib/channel-visibility";
 import { getMiDiaData } from "@/features/crm/services/getMiDiaData";
@@ -43,7 +46,7 @@ export default async function ClienteCrmMiDiaPage() {
   const quien = veLlamadas
     ? await prisma.user.findUnique({ where: { id: access.userId }, select: { name: true, email: true } })
     : null;
-  const [data, vendedora, resumen] = await Promise.all([
+  const [data, vendedora, resumen, coach] = await Promise.all([
     getMiDiaData({
       workspaceId: access.workspaceId,
       userId: access.userId,
@@ -61,14 +64,35 @@ export default async function ClienteCrmMiDiaPage() {
           advisorName: quien?.name?.trim() || quien?.email || "Asesora",
         })
       : Promise.resolve(null),
+    // "Lo que te dejó el Coach": sus pendientes del último informe (solo lectura, solo los suyos).
+    leerPendientesDelCoach(access.workspaceId, access.userId).catch(() => null),
   ]);
   const marcadorUrl = buildWaCallsDialerUrl("");
+  const bloqueDelCoach =
+    coach && coach.pendientes.length ? (
+      <details open className="rounded-xl border border-border bg-card px-4 py-3">
+        <summary className="cursor-pointer text-sm font-medium text-foreground">
+          Lo que te dejó el Coach ({coach.pendientes.length})
+        </summary>
+        <div className="space-y-2 pt-3">
+          <PendientesDelCoach pendientes={coach.pendientes} max={5} />
+          <Link href={`/cliente/equipo/coach?dia=${coach.dia}`} className="text-xs font-medium text-primary hover:underline">
+            Ver mi informe del {coach.dia}
+          </Link>
+        </div>
+      </details>
+    ) : null;
 
   return (
     <MiDiaView
       data={data}
       llamadasUrgentes={
-        vendedora ? <LlamadasDeMiDia vendedora={vendedora} marcadorUrl={marcadorUrl} momento="urgente" /> : null
+        bloqueDelCoach || vendedora ? (
+          <>
+            {bloqueDelCoach}
+            {vendedora ? <LlamadasDeMiDia vendedora={vendedora} marcadorUrl={marcadorUrl} momento="urgente" /> : null}
+          </>
+        ) : null
       }
       llamadasDespues={
         <>

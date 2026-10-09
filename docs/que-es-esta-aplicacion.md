@@ -83,7 +83,7 @@ propio catálogo (la hermana de Alex va a vender plantas y artículos de vivero 
 - `automatizaciones`: acciones masivas de jefes (asignar leads en cantidad). El descarte automático tiene código pero no aparece en pantalla.
 - `conexion`: las líneas de WhatsApp: crear, QR, gateway, colaboradoras de cada línea, si alimenta o no el CRM.
 - `api-oficial`: configuración de la API oficial de Meta (Ventas 2).
-- `equipo`: el equipo del negocio: rol (asesora, supervisora, administradora), líneas, pantallas y horario de reparto.
+- `equipo`: el equipo del negocio: rol (asesora, supervisora, administradora), líneas, pantallas y horario de reparto. Adentro, `/cliente/equipo/coach` es el Coach de ventas: el informe de cada noche (el jefe ve al equipo; cada asesora solo lo suyo) y el botón "Generar ahora" del dueño.
 - `negocio`: datos del negocio y la pestaña del Reporte diario.
 - `notificaciones`: preferencias de avisos.
 - `finanzas`: ingresos y egresos con un asistente de IA y sincronización con Google Sheets.
@@ -117,6 +117,8 @@ propio catálogo (la hermana de Alex va a vender plantas y artículos de vivero 
 - `Campaign`: un envío masivo por tandas.
 - `CampaignRecipient`: cada destinatario de una campaña y si ya se le envió.
 - `DailyReport`: el informe diario del negocio (números del día, resumen de IA y link público).
+- `CoachInforme`: el informe del coach de ventas de un día (uno por negocio y día): resumen del equipo, versión de la política con que se juzgó, tokens y costo estimado de la IA.
+- `CoachAsesora`: la parte de cada asesora en el informe del coach: puntaje por eje de la rúbrica (sin "Resultado"), aciertos, errores y pendientes para el día siguiente con el mensaje sugerido. Cada asesora ve solo la suya.
 - `WebPushSubscription`: un navegador o celular suscrito a las notificaciones push.
 - `MediaLibraryItem`: la biblioteca de archivos (fotos, PDFs, audios) para mandar desde el chat.
 - `SugerenciaDeRespuesta`: cada sugerencia de la estrella del cuadro de mensajes (texto que la IA le redacta a la vendedora, nunca se envía sola). Guarda quién la pidió, si la envió y si la editó antes: sirve para medir cuánto la usa cada vendedora.
@@ -274,6 +276,7 @@ la IA pausada no lo contesta el agente.
 - `purga_de_webhooks`: borra el archivo de webhooks viejo para no llenar el disco.
 - `sincronizacion_gestion`: trae el catálogo de Gestión (magilus.com) una vez al día a las 3 a. m. y con el botón "Sincronizar con Gestión". Gestión manda nombre, código, precios, categoría e imágenes (las que no cargan se descartan); la descripción de venta, el embudo, los seguimientos y los flujos son del CRM y no se tocan. Un producto oculto o borrado en Gestión queda inactivo, nunca se borra. No corre hasta que se apruebe el emparejamiento de los productos que ya existían.
 - `informe_diario`: a las 11:59 p. m. (hora de Colombia) arma el informe del día y lo manda por WhatsApp. El reloj se autentica con cualquiera de `DAILY_REPORT_CRON_SECRET` o `FOLLOW_CRON_SECRET` (en `x-daily-report-secret`, `x-follow-cron-secret`, `x-webhook-secret` o `Authorization: Bearer`), comparado en tiempo constante. Hasta el 06-10-2026 solo valía el primero configurado y el informe podía responder 401 y no salir.
+- `coach_de_ventas`: entre las 11:30 y las 11:58 p. m. (hora de Colombia), con el mismo reloj del informe diario, lee los chats del día de las líneas de ventas y deja por asesora aciertos, errores (sin respuesta, demoras de más de 15 min en horario L-V 8-18 y S 9-14, promesas sin cumplir, envío cobrado donde es gratis, contraentrega, descartes antes de 72 h), puntaje y pendientes para el día siguiente con el mensaje sugerido. Un informe por negocio y día. Solo corre en los negocios que lo prendieron en la pantalla del coach. Usa OpenAI (`gpt-4.1-mini`, o `COACH_MODEL`), sin teléfonos completos. Nunca escribe a clientes ni toca el bot. Las reglas están en `src/features/coach/politica.ts`.
 
 ## Qué no existe hoy
 

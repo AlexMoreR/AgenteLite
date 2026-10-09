@@ -11,6 +11,7 @@ import {
   Cable,
   Blocks,
   FileText,
+  GraduationCap,
   Home,
   KanbanSquare,
   Megaphone,
@@ -195,6 +196,20 @@ export function AppSidebar({
                 isCrmRoute={pathname.startsWith("/cliente/crm")}
                 puedeSupervisar={puedeSupervisarElEquipo}
               />
+            ) : null}
+            {/* El coach de ventas: el jefe ve al equipo; cada asesora, solo lo suyo. */}
+            {adminModuleAccess.crm ? (
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    render={<Link href="/cliente/equipo/coach" />}
+                    isActive={pathname.startsWith("/cliente/equipo/coach")}
+                  >
+                    <GraduationCap />
+                    <span>Coach</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
             ) : null}
             {/*
               Automatizaciones va SOLA, fuera del CRM: es administrativa (mover leads en cantidad) y no

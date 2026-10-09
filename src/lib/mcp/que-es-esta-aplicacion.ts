@@ -347,6 +347,20 @@ async function bandera(clave: string) {
   return fila?.value ?? null;
 }
 
+/** El coach de ventas: si corre solo cada noche y de cuando es el ultimo informe. */
+async function estadoDelCoach(workspaceId: string) {
+  const [bandera, ultimo] = await Promise.all([
+    prisma.appSetting.findUnique({ where: { key: `coach:activo:${workspaceId}` }, select: { value: true } }),
+    prisma.coachInforme.findFirst({
+      where: { workspaceId, estado: "LISTO" },
+      orderBy: { fecha: "desc" },
+      select: { fecha: true },
+    }),
+  ]);
+  const cuando = ultimo ? `; ultimo informe del ${ultimo.fecha.toISOString().slice(0, 10)}` : "; sin informes";
+  return `${bandera?.value === "1" ? "activa: cada noche a las 11:30 p. m." : "apagada (solo con Generar ahora)"}${cuando}`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -398,6 +412,7 @@ async function automatizaciones(
     informe_diario: ultimoInforme
       ? `activa: ultimo informe del ${ultimoInforme.reportDate.toISOString().slice(0, 10)}`
       : "sin informes generados",
+    coach_de_ventas: await estadoDelCoach(workspaceId).catch(() => "no se pudo leer"),
   };
 
   return {

@@ -1,6 +1,8 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
+import { enVentanaDelReloj } from "@/features/coach/reglas";
+import { generarCoachDeNegociosActivos } from "@/features/coach/servicios/generar-coach";
 import {
   generateDailyReportsForEnabledWorkspaces,
   parseBogotaDate,
@@ -85,6 +87,24 @@ async function handleCron(request: Request) {
   const force = url.searchParams.get("force") === "1";
   const dateParam = url.searchParams.get("date");
   const date = dateParam ? parseBogotaDate(dateParam) ?? undefined : undefined;
+
+  /*
+    El COACH DE VENTAS usa este mismo reloj (no hace falta otro contenedor): entre las 23:30 y las
+    23:58 de Bogota, cada pasada pide el coach del dia para los negocios que lo tienen prendido.
+    Solo la primera genera: las demas ven el informe EN_CURSO o LISTO y no hacen nada
+    (@@unique negocio + dia). Corre despues de responder, para no dejar al reloj esperando.
+  */
+  if (!force && enVentanaDelReloj(new Date())) {
+    after(async () => {
+      try {
+        const resultados = await generarCoachDeNegociosActivos();
+        const generados = resultados.filter((r) => r.decision === "generar" || r.decision === "error");
+        if (generados.length) console.log("[COACH] reloj", generados);
+      } catch (error) {
+        console.error("[COACH] reloj_fallo", error);
+      }
+    });
+  }
 
   // Solo dispara automáticamente en la ventana de las 23:59 (Bogota). El sidecar
   // poll cada 60s; la idempotencia (@@unique workspace+día) evita duplicados.
