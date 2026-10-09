@@ -2,11 +2,18 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { scheduleContactAvatarRefresh, type ContactAvatarTarget } from "@/lib/contact-avatar-refresh";
 import { extractEvolutionMessageText, extractEvolutionPushName } from "@/lib/evolution-webhook";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
+import { canalesDelNegocio } from "@/lib/canales-del-negocio";
+import {
+  ORDEN_DE_BANDEJA,
+  cortarPagina,
+  leerCursor,
+  whereDespuesDelCursor,
+  type PosicionEnBandeja,
+} from "@/lib/cursor-de-bandeja";
 import {
   idsSinResponder,
   leerFiltrosDeBandeja,
@@ -158,6 +165,8 @@ async function getAgentConversationList(input: {
   /** Solo estas conversaciones (los chats fijados que no vinieron en la primera pagina). */
   soloIds?: string[];
   offset: number;
+  /** Si viene, la pagina arranca despues de esta fila y `offset` no se usa (ver cursor-de-bandeja). */
+  cursor: PosicionEnBandeja | null;
   limit: number;
 }) {
   const normalizedSearchQuery = input.searchQuery.trim();
@@ -218,6 +227,7 @@ async function getAgentConversationList(input: {
         : {},
       assignedWhere,
       statusWhere,
+      input.cursor ? whereDespuesDelCursor(input.cursor) : {},
       normalizedSearchQuery
         ? {
             OR: [
@@ -253,24 +263,11 @@ async function getAgentConversationList(input: {
     ],
   };
 
-  const channels = await prisma.whatsAppChannel.findMany({
-    where: {
-      workspaceId: input.workspaceId,
-      ...(input.visibleChannelIds ? { id: { in: input.visibleChannelIds } } : {}),
-    },
-    select: {
-      id: true,
-      name: true,
-      provider: true,
-      evolutionInstanceName: true,
-      agent: {
-        select: {
-          id: true,
-        },
-      },
-    },
-    orderBy: { createdAt: "asc" },
-  });
+  // De la cache de canales (la misma que ya leyeron los permisos): antes era otra consulta mas.
+  // Mismo filtro y mismo orden (por fecha de creacion) que la consulta de antes.
+  const channels = (await canalesDelNegocio(input.workspaceId)).filter(
+    (channel) => !input.visibleChannelIds || input.visibleChannelIds.includes(channel.id),
+  );
 
   const channelsById = new Map(channels.map((channel) => [channel.id, channel]));
   const evolutionInstanceNames = Array.from(
@@ -283,11 +280,16 @@ async function getAgentConversationList(input: {
 
   const activeAgentConversationsRaw = await prisma.conversation.findMany({
     where: conversationWhere,
-    orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
-    skip: input.offset,
+    // El orden de siempre + el id como desempate, para que el cursor sea estable.
+    orderBy: ORDEN_DE_BANDEJA,
+    // Con cursor no hay OFFSET: el where ya arranca despues de la ultima fila leida.
+    skip: input.cursor ? 0 : input.offset,
     take: input.limit + 1,
     select: {
       id: true,
+      // Para armar el cursor de la pagina siguiente (no se devuelven a la pantalla).
+      lastMessageAt: true,
+      updatedAt: true,
       agentId: true,
       channelId: true,
       // Abierta o resuelta: el menu de cada fila ofrece "Resolver" o "Reabrir" segun esto.
@@ -318,8 +320,11 @@ async function getAgentConversationList(input: {
    * entera: con un solo lead pospuesto en el lote, el filtro dejaba 39 de 40 y "hay mas" daba
    * falso, asi que el scroll no cargaba nunca mas nada aunque quedaran mil chats abajo.
    */
-  const consumedConversationRows = activeAgentConversationsRaw.slice(0, input.limit);
-  const hasMoreConversationRows = activeAgentConversationsRaw.length > input.limit;
+  const {
+    consumidas: consumedConversationRows,
+    hayMas: hasMoreConversationRows,
+    nextCursor,
+  } = cortarPagina(activeAgentConversationsRaw, input.limit);
 
   /**
    * Un lead pospuesto no aparece en la bandeja hasta que se cumpla el plazo, o hasta que el
@@ -491,7 +496,7 @@ async function getAgentConversationList(input: {
       key: `agent:${conversation.id}`,
       source: "agent",
       conversationId: conversation.id,
-      agentId: conversation.agentId || linkedChannel?.agent?.id || undefined,
+      agentId: conversation.agentId || linkedChannel?.agentId || undefined,
       contactId: conversation.contact.id,
       channelId: conversation.channelId || undefined,
       // El nombre de la linea (Ventas 1, Ventas 2...): con "Todas" mezclando canales, sin esto
@@ -577,6 +582,9 @@ async function getAgentConversationList(input: {
     // cuentan los devueltos, cada pospuesto corre el offset hacia atras y la pagina siguiente
     // repite filas que el cliente ya tiene; al deduplicarlas la lista no crece y se traba igual.
     nextOffset: input.offset + consumedConversationRows.length,
+    // La pantalla nueva pagina con esto; la vieja (pestañas abiertas durante el despliegue) sigue
+    // con nextOffset. Se arma con la ultima fila LEIDA, igual que nextOffset.
+    nextCursor,
     total: page.length,
     evolutionInstanceNames,
   };
@@ -590,15 +598,19 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
 
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  // Una sola lectura de acceso por pedido, y de la cache del proceso (45 s, se vacia sola al
+  // cambiar usuarios, miembros o negocios: ver cache-de-permisos.ts).
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "chats")) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 403 });
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership?.workspace.id) {
-    return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
-  }
+  /*
+    Antes aca se volvia a leer la membresia con getPrimaryWorkspaceForUser: la MISMA que ya trae
+    `access` (la primera activa por fecha de alta), mas los conteos de agentes, canales y TODAS
+    las conversaciones del negocio, que esta ruta no usa. Eran 2-5 consultas mas por pedido.
+  */
+  const membership = { role: access.membershipRole, workspace: { id: access.workspaceId } };
   t.marca("auth");
 
   const requestUrl = new URL(request.url);
@@ -615,6 +627,9 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     .filter((id) => /^[a-z0-9]+$/i.test(id))
     .slice(0, 3);
   const offset = soloIds.length > 0 ? 0 : Math.max(0, Number.parseInt(requestUrl.searchParams.get("offset") || "0", 10) || 0);
+  // `cursor` (pantalla nueva) gana sobre `offset`; si no vino o no se entiende, se pagina por offset
+  // como siempre. Los fijados (`ids`) no paginan.
+  const cursor = soloIds.length > 0 ? null : leerCursor(requestUrl.searchParams.get("cursor"));
   const limit = Math.max(1, Math.min(40, Number.parseInt(requestUrl.searchParams.get("limit") || "20", 10) || 20));
 
   // Jefe (dueño/admin) ve todas las lineas. La supervisora ve "Todas" pero solo de SUS lineas.
@@ -693,6 +708,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     monitoredChannelIds,
     ...(soloIds.length > 0 ? { soloIds } : {}),
     offset,
+    cursor,
     limit,
   });
   t.marca("lista");

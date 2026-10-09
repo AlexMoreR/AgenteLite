@@ -123,6 +123,7 @@ type ListaGuardada = {
   items: SharedInboxConversationItem[];
   hasMore: boolean;
   offset: number;
+  cursor: string | null;
   at: number;
 };
 const LISTA_FRESCA_MS = 30_000;
@@ -271,6 +272,10 @@ export function SharedInbox({
   // deduplicarlos la lista no crece: para el scroll es exactamente igual que si no hubiera nada
   // mas, y deja de cargar.
   const conversationOffsetRef = useRef(initialConversationOffset ?? conversations.length);
+  // El cursor de la pagina siguiente (ver lib/cursor-de-bandeja). Si el servidor lo manda se pagina
+  // con el; si no (la primera pagina armada por la pantalla, o un servidor viejo durante un
+  // despliegue), se sigue con el offset de arriba, que se mantiene siempre al dia.
+  const conversationCursorRef = useRef<string | null>(null);
   /**
    * Los filtros nuevos (etapa del embudo, sin responder), leidos de la direccion.
    *
@@ -672,6 +677,7 @@ export function SharedInbox({
         items: conversationItemsRef.current,
         hasMore: hasMoreConversationItemsRef.current,
         offset: conversationOffsetRef.current,
+        cursor: conversationCursorRef.current,
         at: Date.now(),
       });
 
@@ -683,6 +689,7 @@ export function SharedInbox({
       const poner = (lista: Omit<ListaGuardada, "at">) => {
         vistaCargadaRef.current = vistaKey;
         conversationOffsetRef.current = lista.offset;
+        conversationCursorRef.current = lista.cursor;
         setHasMoreConversationItems(lista.hasMore);
         setConversationItems(lista.items);
         setVersionDeVista((actual) => actual + 1);
@@ -715,7 +722,13 @@ export function SharedInbox({
           });
           const payload = response.ok
             ? ((await response.json().catch(() => null)) as
-                | { ok?: boolean; conversations?: SharedInboxConversationItem[]; hasMore?: boolean; nextOffset?: number }
+                | {
+                    ok?: boolean;
+                    conversations?: SharedInboxConversationItem[];
+                    hasMore?: boolean;
+                    nextOffset?: number;
+                    nextCursor?: string | null;
+                  }
                 | null)
             : null;
           if (cancelled) {
@@ -731,6 +744,7 @@ export function SharedInbox({
             items,
             hasMore: Boolean(payload.hasMore),
             offset: typeof payload.nextOffset === "number" ? payload.nextOffset : items.length,
+            cursor: typeof payload.nextCursor === "string" && payload.nextCursor ? payload.nextCursor : null,
           };
           poner(lista);
           guardarListaReciente(vistaKey, { ...lista, at: Date.now() });
@@ -1067,6 +1081,12 @@ export function SharedInbox({
     try {
       const params = new URLSearchParams();
       params.set("offset", String(offset));
+      // Si hay cursor el servidor lo usa y no recorre las filas de antes; el offset va igual, para
+      // un servidor que todavia no entiende el cursor.
+      const cursor = conversationCursorRef.current;
+      if (cursor) {
+        params.set("cursor", cursor);
+      }
       params.set("limit", String(CONVERSATION_LIST_LOAD_BATCH_SIZE));
 
       if (searchQuery.trim()) {
@@ -1104,6 +1124,7 @@ export function SharedInbox({
             conversations?: SharedInboxConversationItem[];
             hasMore?: boolean;
             nextOffset?: number;
+            nextCursor?: string | null;
           }
         | null;
 
@@ -1151,6 +1172,9 @@ export function SharedInbox({
         typeof payload.nextOffset === "number" && payload.nextOffset > offset
           ? payload.nextOffset
           : offset + CONVERSATION_LIST_LOAD_BATCH_SIZE;
+      // Sin cursor en la respuesta (servidor viejo) se vuelve al offset: nunca un cursor viejo.
+      conversationCursorRef.current =
+        typeof payload.nextCursor === "string" && payload.nextCursor ? payload.nextCursor : null;
       setHasMoreConversationItems(Boolean(payload.hasMore));
       debugConversationList("loadMore applied", {
         offset,
@@ -1232,6 +1256,8 @@ export function SharedInbox({
       // Otro filtro es otra lista: la paginacion arranca de cero, si no la segunda pagina se pide
       // desde donde iba la lista anterior y se saltea la mitad de los chats del filtro nuevo.
       conversationOffsetRef.current = initialConversationOffset ?? conversations.length;
+      // La primera pagina la armo la pantalla y no trae cursor: la siguiente va por offset.
+      conversationCursorRef.current = null;
       setHasMoreConversationItems(initialHasMoreConversations ?? conversations.length >= initialConversationBatchSize);
       setConversationItems(
         normalizeConversationItems(conversations, (item) =>

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { leerColaboradores } from "@/lib/channel-collaborators";
+import { canalesDelNegocio } from "@/lib/canales-del-negocio";
 
 /**
  * Que canales puede VER cada persona.
@@ -55,6 +55,12 @@ export async function resolverConexionElegida(input: {
     return "";
   }
 
+  // De la cache de canales (ver canales-del-negocio.ts). Solo si no esta ahi se pregunta a la base:
+  // un canal recien creado por fuera de este proceso todavia no figura en la cache.
+  const canales = await canalesDelNegocio(input.workspaceId);
+  if (canales.some((canal) => canal.id === channelId)) {
+    return clave;
+  }
   const canal = await prisma.whatsAppChannel.findFirst({
     where: { id: channelId, workspaceId: input.workspaceId },
     select: { id: true },
@@ -71,15 +77,10 @@ export async function getVisibleChannelIds(input: {
     return null;
   }
 
-  const canales = await prisma.whatsAppChannel.findMany({
-    where: { workspaceId: input.workspaceId },
-    select: { id: true, metadata: true },
-  });
+  // De la cache de canales: se vacia sola con cualquier cambio de colaboradoras (cache-de-permisos.ts).
+  const canales = await canalesDelNegocio(input.workspaceId);
 
   return canales
-    .filter((canal) => {
-      const colaboradores = leerColaboradores(canal.metadata);
-      return colaboradores.length === 0 || colaboradores.includes(input.userId);
-    })
+    .filter((canal) => canal.colaboradores.length === 0 || canal.colaboradores.includes(input.userId))
     .map((canal) => canal.id);
 }

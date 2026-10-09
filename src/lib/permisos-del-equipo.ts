@@ -1,5 +1,6 @@
 import { cache } from "react";
 
+import { cacheDeSupervisoras } from "@/lib/cache-de-permisos";
 import { prisma } from "@/lib/prisma";
 
 /*
@@ -19,7 +20,17 @@ import { prisma } from "@/lib/prisma";
 
 const clave = (workspaceId: string) => `equipo:supervisoras:${workspaceId}`;
 
+/*
+  Con cache del proceso (45 s, ver cache-de-permisos.ts): la bandeja lo preguntaba en cada pedido.
+  `guardarSupervisoras` escribe por Prisma, y esa escritura la vacia sola (prisma.ts). Se devuelve
+  una copia para que nadie toque la lista guardada.
+*/
 export const leerSupervisoras = cache(async (workspaceId: string): Promise<string[]> => {
+  const lista = await cacheDeSupervisoras.obtener(workspaceId, () => leerSupervisorasDeLaBase(workspaceId));
+  return [...lista];
+});
+
+async function leerSupervisorasDeLaBase(workspaceId: string): Promise<string[]> {
   const fila = await prisma.appSetting.findUnique({ where: { key: clave(workspaceId) } });
   if (!fila) {
     return [];
@@ -30,7 +41,7 @@ export const leerSupervisoras = cache(async (workspaceId: string): Promise<strin
   } catch {
     return [];
   }
-});
+}
 
 export async function guardarSupervisoras(workspaceId: string, userIds: string[]) {
   const valor = JSON.stringify(Array.from(new Set(userIds)));
@@ -39,6 +50,8 @@ export async function guardarSupervisoras(workspaceId: string, userIds: string[]
     create: { key: clave(workspaceId), value: valor },
     update: { value: valor },
   });
+  // prisma.ts ya la invalida al escribir; se repite aca para que no dependa solo de eso.
+  cacheDeSupervisoras.invalidar(workspaceId);
 }
 
 export async function esSupervisora(workspaceId: string, userId: string) {

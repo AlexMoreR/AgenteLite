@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import type { Role, WorkspaceMemberRole } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { cacheDeAcceso } from "@/lib/cache-de-permisos";
 import {
   clientAssignableModuleKeys,
   sanitizeClientModuleAccess,
@@ -88,6 +89,21 @@ export async function getClientWorkspaceAccessForUser(userId: string): Promise<C
     isOwner,
     isEmployee: user.role === "EMPLEADO",
   };
+}
+
+/**
+ * Lo mismo que `getClientWorkspaceAccessForUser`, con la cache del proceso (45 s).
+ *
+ * Para las rutas de Chats que se piden varias veces por minuto (list, counts, live, summary). Las
+ * pantallas siguen con la version sin cache. Se vacia sola con cualquier escritura de usuarios,
+ * miembros o negocios (ver cache-de-permisos.ts).
+ *
+ * Trae tambien lo que antes se volvia a leer con `getPrimaryWorkspaceForUser`: es la MISMA
+ * membresia (la primera activa por fecha de alta), asi que `workspaceId` y `membershipRole` son
+ * los mismos que daba `membership.workspace.id` y `membership.role`.
+ */
+export function getClientWorkspaceAccessForUserCached(userId: string): Promise<ClientWorkspaceAccess | null> {
+  return cacheDeAcceso.obtener(userId, () => getClientWorkspaceAccessForUser(userId));
 }
 
 export async function requireClientWorkspaceAccess(

@@ -1,5 +1,4 @@
-import { prisma } from "@/lib/prisma";
-import { leerMonitores } from "@/lib/channel-collaborators";
+import { canalesDelNegocio } from "@/lib/canales-del-negocio";
 
 /**
  * Modo monitoreo: mirar sin poder tocar.
@@ -65,14 +64,10 @@ export async function canalesQueMonitorea(input: {
   workspaceId: string;
   userId: string;
 }): Promise<string[]> {
-  const canales = await prisma.whatsAppChannel.findMany({
-    where: { workspaceId: input.workspaceId },
-    select: { id: true, metadata: true },
-  });
+  // De la cache de canales: se vacia sola con cualquier cambio de monitoras (cache-de-permisos.ts).
+  const canales = await canalesDelNegocio(input.workspaceId);
 
-  return canales
-    .filter((canal) => leerMonitores(canal.metadata).includes(input.userId))
-    .map((canal) => canal.id);
+  return canales.filter((canal) => canal.monitores.includes(input.userId)).map((canal) => canal.id);
 }
 
 /**

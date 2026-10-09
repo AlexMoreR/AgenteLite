@@ -14,6 +14,7 @@
     "test:recibiendo-clientes": "node scripts/check-recibiendo-clientes.mjs",
     "test:nota-de-voz": "node scripts/check-nota-de-voz.mjs",
     "test:agente-v3-foto": "node scripts/check-agente-v3-foto.mjs",
+    "test:velocidad-bandeja": "node scripts/check-velocidad-bandeja.mjs",
     "test:e2e": "playwright test -c e2e",
     "db:seed": "node prisma/seed.js"
   },

@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 import { canalesQueMonitorea } from "@/lib/modo-monitoreo";
@@ -185,15 +184,19 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
 
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  // Una sola lectura de acceso por pedido, y de la cache del proceso (45 s, se vacia sola al
+  // cambiar usuarios, miembros o negocios: ver cache-de-permisos.ts).
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "chats")) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 403 });
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership?.workspace.id) {
-    return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
-  }
+  /*
+    Antes aca se volvia a leer la membresia con getPrimaryWorkspaceForUser: la MISMA que ya trae
+    `access` (la primera activa por fecha de alta), mas los conteos de agentes, canales y TODAS
+    las conversaciones del negocio, que esta ruta no usa. Eran 2-5 consultas mas por pedido.
+  */
+  const membership = { role: access.membershipRole, workspace: { id: access.workspaceId } };
   t.marca("auth");
 
   const requestUrl = new URL(request.url);

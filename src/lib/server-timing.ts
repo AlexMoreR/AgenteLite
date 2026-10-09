@@ -8,7 +8,13 @@
  *   [timing] {"ruta":"chats/list","status":200,"ms":182.4,"pasos":{"auth":20.1,...}}
  * La cabecera solo la ve quien tiene el navegador abierto; esta linea deja comparar antes y
  * despues de un cambio en Portainer (buscar "[timing]"). No toca la base ni la respuesta.
+ *
+ * La misma linea trae (desde el 08-10-2026, ver medicion-de-pedido.ts):
+ *   "poolEspera": pedidos esperando conexion del pool al EMPEZAR este (cola de conexiones).
+ *   "consultas":  consultas SQL que mando este pedido a Postgres.
  */
+import { esperaDelPool, medirPedido } from "@/lib/medicion-de-pedido";
+
 export type MedidorServerTiming = {
   /** Cierra el paso que venia corriendo con este nombre (ms desde la marca anterior). */
   marca: (nombre: string) => void;
@@ -30,12 +36,16 @@ export function conServerTiming(
       },
     };
 
+    const poolEspera = esperaDelPool();
+    const { contador, resultado } = medirPedido(() => manejador(request, t));
+    const extra = () => ({ poolEspera, consultas: contador.consultas });
+
     let respuesta: Response;
     try {
-      respuesta = await manejador(request, t);
+      respuesta = await resultado;
     } catch (error) {
       if (opciones.log) {
-        escribirLinea(opciones.log, 500, performance.now() - inicio, pasos);
+        escribirLinea(opciones.log, 500, performance.now() - inicio, pasos, extra());
       }
       throw error;
     }
@@ -50,13 +60,19 @@ export function conServerTiming(
       // Cabeceras inmutables (no deberia pasar con NextResponse): se omite la medicion.
     }
     if (opciones.log) {
-      escribirLinea(opciones.log, respuesta.status, total, pasos.slice(0, -1));
+      escribirLinea(opciones.log, respuesta.status, total, pasos.slice(0, -1), extra());
     }
     return respuesta;
   };
 }
 
-function escribirLinea(ruta: string, status: number, ms: number, pasos: Array<[string, number]>) {
+function escribirLinea(
+  ruta: string,
+  status: number,
+  ms: number,
+  pasos: Array<[string, number]>,
+  extra: { poolEspera: number | null; consultas: number },
+) {
   try {
     console.log(
       `[timing] ${JSON.stringify({
@@ -64,6 +80,8 @@ function escribirLinea(ruta: string, status: number, ms: number, pasos: Array<[s
         status,
         ms: Math.round(ms * 10) / 10,
         pasos: Object.fromEntries(pasos.map(([nombre, duracion]) => [nombre, Math.round(duracion * 10) / 10])),
+        poolEspera: extra.poolEspera,
+        consultas: extra.consultas,
       })}`,
     );
   } catch {
