@@ -1,4 +1,4 @@
-const CACHE_NAME = "agente-lite-v8";
+const CACHE_NAME = "agente-lite-v9";
 const APP_SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -40,6 +40,18 @@ self.addEventListener("fetch", (event) => {
   // UI congelada (el polling recibía la primera respuesta cacheada y el realtime "no
   // aparecía" hasta recargar). Dejamos que estas peticiones vayan directo a la red.
   if (url.pathname.startsWith("/api/")) {
+    return;
+  }
+
+  /*
+    Los archivos de los chats (audios, fotos, videos) van directo, sin pasar por aqui.
+
+    El reproductor pide los audios por pedazos (Range) y al pasar por el Service Worker se quedaban
+    en 0:00 sin sonar (Alex, 08-10-2026, notas de voz en el celular). Ademas aqui se intentaba
+    guardar en el cache cada respuesta parcial (206), que el cache no acepta. Los nombres son
+    unicos, asi que el navegador ya los guarda solo con su cache normal.
+  */
+  if (url.pathname.startsWith("/uploads/") || request.destination === "audio" || request.destination === "video" || request.headers.has("range")) {
     return;
   }
 
