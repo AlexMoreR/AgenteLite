@@ -22,7 +22,7 @@ export type EjeDeRubrica = "V" | "N" | "A" | "S" | "C";
 
 export const POLITICA_COACH = {
   /** Se guarda en cada informe. Subirla cada vez que cambie una regla de abajo. */
-  version: "2026-10-09 tabla-envios-v1 + 8-oct-noche + contraentrega suspendida",
+  version: "2026-10-10 tabla-envios-v1 + 8-oct-noche + contraentrega suspendida + habilidad-v1",
 
   /** Colombia no cambia de hora: desfase fijo. */
   desfaseBogotaMin: -5 * 60,
@@ -152,8 +152,80 @@ export const POLITICA_COACH = {
     maxTurnosDelDia: 60,
   },
 
-  /** El reloj: a partir de esta hora de Bogota (y hasta las 23:58) se genera el coach del dia. */
-  reloj: { hora: 23, minuto: 30 },
+  /**
+   * El reloj: a partir de esta hora de Bogota (y hasta las 23:58) se genera el coach del dia.
+   * maxIntentosPorDia: el reloj no reintenta un ERROR mas de esto (cada intento paga IA).
+   * minutosColgado: un EN_CURSO de mas de esto se da por caido (reinicio del servidor).
+   */
+  reloj: { hora: 23, minuto: 30, maxIntentosPorDia: 2, minutosColgado: 30 },
+
+  /**
+   * LA HABILIDAD DEL DIA DE CADA ASESORA (habilidad-v1, 10-oct-2026). La elige el CODIGO, no la IA.
+   *
+   * Por que: hasta el 9-oct la "una cosa a mejorar" la escribia la IA en cada lote de 8 chats y
+   * otra llamada la resumia sin ver los conteos; el prompt dedica casi todas sus reglas a envio y
+   * contraentrega y le prohibe repetir demoras y sin respuesta como errores. Resultado: las tres
+   * asesoras recibieron "no ofrezcas contraentrega / cotiza el envio" con metricas muy distintas.
+   *
+   * FORMULA (todo con los errores de ELLA en el dia; los del equipo se apartan, ver abajo):
+   *
+   *   puntaje(error)    = peso[tipo]
+   *                       + extraDemoraLarga        (solo demoras de mas de demoraLargaMin)
+   *                     x multiplicadorTemperatura[temperatura del chat]   (cliente caliente pesa mas)
+   *                     x confianza[medido | ia]   (demora, sin respuesta y descarte se miden con
+   *                                                 reloj; lo demas lo lee la IA y se equivoca mas)
+   *   etapaCritica      = la etapa de venta con mas puntaje sumado (antes del precio, despues del
+   *                       precio, despues de cotizar, seguimiento)
+   *   impacto(habilidad)= suma de puntaje(error) de sus tipos
+   *                     + puntosPorPuntoDeEje x max(0, ejeMinimo - el eje mas bajo de la habilidad)
+   *                     + bonoEtapaCritica x (puntaje de sus errores que caen en la etapa critica)
+   *   habilidad         = la de mayor impacto con al menos 1 error propio (empate: orden del catalogo)
+   *
+   * PROBLEMA DEL EQUIPO: un tipo de error es del equipo si (a) esta en un cambio de politica vigente
+   * ese dia (`cambiosDePolitica`) o (b) lo tienen TODAS las asesoras del dia (2 o mas) y parejo
+   * (el que mas tiene no pasa de maxDispersionEquipo veces al que menos). Se muestra UNA vez en el
+   * resumen del equipo y no entra al impacto individual, salvo que en una asesora su habilidad con
+   * esos errores supere factorDominante veces a la mejor habilidad sin ellos.
+   * La contraentrega de los chats respetados (pago.contraentregasRespetadas) no cuenta como error.
+   */
+  habilidad: {
+    version: "habilidad-v1 2026-10-10",
+    peso: {
+      sin_respuesta: 5,
+      descarte_prematuro: 4,
+      sin_cotizacion: 3,
+      promesa_sin_cumplir: 3,
+      sin_total_claro: 2.5,
+      demora: 2,
+      cobro_envio_gratis: 2,
+      contraentrega: 2,
+      dato_errado: 1.5,
+      otro: 0,
+    } as Record<string, number>,
+    demoraLargaMin: 60,
+    extraDemoraLarga: 1,
+    multiplicadorTemperatura: { caliente: 1.5, tibio: 1.2, frio: 1, cerrado: 1, no_perseguir: 0.5 } as Record<string, number>,
+    confianza: { medido: 1, ia: 0.75 },
+    ejeMinimo: 7,
+    puntosPorPuntoDeEje: 1,
+    bonoEtapaCritica: 0.1,
+    factorDominante: 1.5,
+    maxDispersionEquipo: 2,
+    /** Metas del dia siguiente: los conteos se bajan a la mitad; lo que no tiene excusa, a 0. */
+    metaMitad: 0.5,
+    /**
+     * Cambios de politica o del sistema: en estos dias ese tipo de error es del equipo (todas
+     * venian de la regla vieja), no de una asesora.
+     */
+    cambiosDePolitica: [
+      {
+        desde: "2026-10-08",
+        hasta: "2026-10-16",
+        tipos: ["contraentrega"],
+        texto: "La contraentrega se suspendió el 9-oct (desde el 8-oct en la noche nadie ofrece nuevas).",
+      },
+    ] as Array<{ desde: string; hasta: string; tipos: string[]; texto: string }>,
+  },
 } as const;
 
 export type PoliticaCoach = typeof POLITICA_COACH;

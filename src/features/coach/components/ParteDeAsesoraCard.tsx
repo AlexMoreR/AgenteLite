@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import type { ParteDeAsesora } from "../servicios/leer-coach";
 import type { ErrorDelCoach } from "../tipos";
+import { HabilidadDelDia } from "./HabilidadDelDia";
 import { PendientesDelCoach } from "./PendientesDelCoach";
 
 const EJES: Array<{ clave: "V" | "N" | "A" | "S" | "C"; nombre: string }> = [
@@ -74,22 +75,17 @@ export function ParteDeAsesoraCard({ parte }: { parte: ParteDeAsesora }) {
           </p>
         ) : null}
 
-        {parte.resumen?.loQueHizoBien || parte.resumen?.unaCosaAMejorar ? (
-          <div className="space-y-1.5 text-sm">
-            {parte.resumen.loQueHizoBien ? (
-              <p>
-                <span className="font-medium">✅ Lo que hizo bien: </span>
-                {parte.resumen.loQueHizoBien}
-              </p>
-            ) : null}
-            {parte.resumen.unaCosaAMejorar ? (
-              <p>
-                <span className="font-medium">🎯 Una cosa a mejorar: </span>
-                {parte.resumen.unaCosaAMejorar}
-              </p>
-            ) : null}
-            {parte.resumen.ejemplo ? <p className="text-muted-foreground">Ejemplo: {parte.resumen.ejemplo}</p> : null}
-          </div>
+        {parte.resumen?.loQueHizoBien ? (
+          <p className="text-sm">
+            <span className="font-medium">✅ Lo que hizo bien: </span>
+            {parte.resumen.loQueHizoBien}
+          </p>
+        ) : null}
+
+        {parte.resumen?.habilidad ? (
+          <HabilidadDelDia habilidad={parte.resumen.habilidad} />
+        ) : parte.resumen?.habilidad === null ? (
+          <p className="text-sm text-muted-foreground">🎯 Sin habilidad prioritaria: no hubo errores medidos ese día.</p>
         ) : null}
 
         {parte.aciertos.length ? (

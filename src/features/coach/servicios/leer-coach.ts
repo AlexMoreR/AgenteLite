@@ -1,9 +1,11 @@
 import { prisma } from "@/lib/prisma";
 
-import { rangoDelDia } from "../reglas";
+import { elegirHabilidades } from "../habilidad";
+import { informeColgado, rangoDelDia } from "../reglas";
 import type {
   AciertoDelCoach,
   ErrorDelCoach,
+  HabilidadDelDia,
   PendienteDelCoach,
   PuntajesDelCoach,
   ResumenDeAsesoraGuardado,
@@ -26,6 +28,8 @@ export type InformeDelCoach = {
   id: string;
   dia: string;
   estado: string;
+  /** EN_CURSO de hace mas de 30 min: el servidor se reinicio y ya no esta corriendo. */
+  colgado: boolean;
   origen: string;
   versionPolitica: string;
   modelo: string | null;
@@ -70,6 +74,34 @@ function aParte(fila: {
 }
 
 /**
+ * Informes de antes de habilidad-v1 (hasta el 9-oct) no traen la habilidad del dia: se calcula al
+ * leer con el mismo codigo (puro, sin IA) y los errores ya guardados de TODAS las asesoras (para
+ * saber que es del equipo). No escribe nada en la base.
+ */
+function completarHabilidades(partes: ParteDeAsesora[], dia: string) {
+  const faltan = partes.some((p) => p.resumen && p.resumen.habilidad === undefined);
+  const { porAsesora, problemasDelEquipo } = elegirHabilidades(
+    partes.map((p) => ({
+      userId: p.userId,
+      nombre: p.nombre,
+      errores: p.errores,
+      puntajes: p.puntajes,
+      pendientes: p.pendientes,
+      metricas: p.resumen?.metricas ?? null,
+    })),
+    dia,
+  );
+  if (faltan) {
+    for (const parte of partes) {
+      if (parte.resumen && parte.resumen.habilidad === undefined) {
+        parte.resumen = { ...parte.resumen, habilidad: porAsesora.get(parte.userId) ?? null };
+      }
+    }
+  }
+  return problemasDelEquipo;
+}
+
+/**
  * El informe de un dia. Con `soloUserId`, trae SOLO la parte de esa asesora y sin el resumen del
  * equipo: lo que ve una asesora no incluye a las demas (ni su puntaje ni sus errores).
  */
@@ -81,18 +113,19 @@ export async function leerInformeDelCoach(
   const { clave } = rangoDelDia(dia);
   const informe = await prisma.coachInforme.findUnique({
     where: { workspaceId_fecha: { workspaceId, fecha: clave } },
-    include: {
-      asesoras: {
-        where: opciones.soloUserId ? { userId: opciones.soloUserId } : undefined,
-        orderBy: { nombre: "asc" },
-      },
-    },
+    // Todas las asesoras: la habilidad de un informe viejo se calcula con las demas (equipo);
+    // con `soloUserId` se filtra abajo y la asesora no recibe las otras partes.
+    include: { asesoras: { orderBy: { nombre: "asc" } } },
   });
   if (!informe) return null;
+  const todas = informe.asesoras.map(aParte);
+  const problemas = informe.estado === "LISTO" ? completarHabilidades(todas, dia) : [];
+  const resumenEquipo = (informe.resumenEquipo as ResumenDelEquipo | null) ?? null;
   return {
     id: informe.id,
     dia,
     estado: informe.estado,
+    colgado: informeColgado(informe),
     origen: informe.origen,
     versionPolitica: informe.versionPolitica,
     modelo: informe.modelo,
@@ -104,12 +137,19 @@ export async function leerInformeDelCoach(
     error: informe.error,
     iniciadoEn: informe.iniciadoEn,
     terminadoEn: informe.terminadoEn,
-    resumenEquipo: opciones.soloUserId ? null : ((informe.resumenEquipo as ResumenDelEquipo | null) ?? null),
-    asesoras: informe.asesoras.map(aParte),
+    resumenEquipo:
+      opciones.soloUserId || !resumenEquipo
+        ? null
+        : { ...resumenEquipo, problemasDelEquipo: resumenEquipo.problemasDelEquipo ?? problemas },
+    asesoras: opciones.soloUserId ? todas.filter((p) => p.userId === opciones.soloUserId) : todas,
   };
 }
 
-/** Para "Mi día": los pendientes que le dejo el coach del ultimo informe listo (de los ultimos 3 dias). */
+/**
+ * Para "Mi día": los pendientes y la habilidad que le dejo el coach del ultimo informe listo (de
+ * los ultimos 3 dias). Solo lo suyo: las demas partes se leen solo para calcular la habilidad de
+ * un informe viejo y no salen de aca.
+ */
 export async function leerPendientesDelCoach(workspaceId: string, userId: string) {
   const fila = await prisma.coachAsesora.findFirst({
     where: {
@@ -118,11 +158,17 @@ export async function leerPendientesDelCoach(workspaceId: string, userId: string
       informe: { estado: "LISTO", fecha: { gte: new Date(Date.now() - 3 * 24 * 3_600_000) } },
     },
     orderBy: { informe: { fecha: "desc" } },
-    select: { pendientes: true, informe: { select: { fecha: true } } },
+    select: { pendientes: true, resumen: true, informeId: true, informe: { select: { fecha: true } } },
   });
   if (!fila) return null;
-  return {
-    dia: fila.informe.fecha.toISOString().slice(0, 10),
-    pendientes: lista<PendienteDelCoach>(fila.pendientes),
-  };
+  const dia = fila.informe.fecha.toISOString().slice(0, 10);
+  const resumen = (fila.resumen as ResumenDeAsesoraGuardado | null) ?? null;
+  let habilidad: HabilidadDelDia | null = resumen?.habilidad ?? null;
+  if (resumen && resumen.habilidad === undefined) {
+    const filas = await prisma.coachAsesora.findMany({ where: { informeId: fila.informeId } });
+    const todas = filas.map(aParte);
+    completarHabilidades(todas, dia);
+    habilidad = todas.find((p) => p.userId === userId)?.resumen?.habilidad ?? null;
+  }
+  return { dia, pendientes: lista<PendienteDelCoach>(fila.pendientes), habilidad };
 }

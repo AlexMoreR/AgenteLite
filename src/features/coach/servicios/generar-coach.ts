@@ -2,6 +2,15 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 
+import {
+  armarPromptDeHabilidad,
+  contraentregaSoloNegada,
+  elegirHabilidades,
+  esContraentregaRespetada,
+  etapaDelTipo,
+  redaccionValida,
+  unaCosaAMejorarDe,
+} from "../habilidad";
 import { POLITICA_COACH } from "../politica";
 import {
   apellidosDe,
@@ -13,6 +22,7 @@ import {
   ejeVelocidad,
   esDescartePrematuro,
   esNotaDeDescarte,
+  etapaDeVentaEn,
   huboCotizacion,
   limpiarDatosPersonales,
   mencionaContraentrega,
@@ -37,6 +47,8 @@ import {
 import type {
   AciertoDelCoach,
   ErrorDelCoach,
+  EtapaDeVenta,
+  HabilidadDelDia,
   PendienteDelCoach,
   PuntajesDelCoach,
   ResumenDeAsesoraGuardado,
@@ -110,7 +122,13 @@ type ChatMedido = ChatDelDia & {
   esperas: ReturnType<typeof detectarEsperas>;
   cotizacion: boolean;
   hechos: string[];
-  erroresDuros: Array<{ userId: string; tipo: "sin_respuesta" | "demora" | "descarte_prematuro"; detalle: string }>;
+  erroresDuros: Array<{
+    userId: string;
+    tipo: "sin_respuesta" | "demora" | "descarte_prematuro";
+    detalle: string;
+    etapa: EtapaDeVenta;
+    minutos: number | null;
+  }>;
 };
 
 type ErrorDuroConChat = ChatMedido["erroresDuros"][number] & { chat: ChatMedido };
@@ -409,16 +427,32 @@ function medirChat(chat: ChatDelDia, asesoras: Set<string>, desde: Date, corte: 
   } else {
     if (esperas.primeraRespuestaMin !== null) hechos.push(`primera respuesta humana: ${esperas.primeraRespuestaMin} min laborales`);
     for (const evento of esperas.eventos) {
+      // Si la espera empezo al inicio de la ventana, el cliente venia esperando de antes (de ayer).
+      const deAntes = evento.desde.getTime() <= responsableDesde.getTime();
       const hora = HORA_BOGOTA.format(evento.desde);
+      const desdeTexto = deAntes ? "desde antes de abrir (venía de ayer)" : `desde las ${hora}`;
+      const etapa = etapaDeVentaEn(chat.mensajes, evento.desde);
       if (evento.tipo === "demora") {
-        hechos.push(`demora de ${evento.minutos} min laborales (desde ${hora})`);
+        hechos.push(`demora de ${evento.minutos} min laborales (${deAntes ? "venía de ayer" : `desde ${hora}`})`);
         if (asesoraId) {
-          erroresDuros.push({ userId: asesoraId, tipo: "demora", detalle: `El cliente esperó ${evento.minutos} min en horario (desde las ${hora}).` });
+          erroresDuros.push({
+            userId: asesoraId,
+            tipo: "demora",
+            detalle: `El cliente esperó ${evento.minutos} min en horario (${desdeTexto}).`,
+            etapa,
+            minutos: evento.minutos,
+          });
         }
       } else {
-        hechos.push(`el cliente quedó SIN RESPUESTA humana desde ${hora} (${evento.minutos} min laborales)`);
+        hechos.push(`el cliente quedó SIN RESPUESTA humana ${deAntes ? "desde ayer" : `desde ${hora}`} (${evento.minutos} min laborales)`);
         if (asesoraId) {
-          erroresDuros.push({ userId: asesoraId, tipo: "sin_respuesta", detalle: `El cliente escribió a las ${hora} y nadie le respondió (${evento.minutos} min en horario).` });
+          erroresDuros.push({
+            userId: asesoraId,
+            tipo: "sin_respuesta",
+            detalle: `El cliente escribió ${deAntes ? "antes de abrir (venía de ayer)" : `a las ${hora}`} y nadie le respondió (${evento.minutos} min en horario).`,
+            etapa,
+            minutos: evento.minutos,
+          });
         }
       }
     }
@@ -430,8 +464,14 @@ function medirChat(chat: ChatDelDia, asesoras: Set<string>, desde: Date, corte: 
   }
   hechos.push(cotizacion ? "se detectó una cotización enviada hoy" : "no se detectó cotización enviada hoy");
   if (chat.ganadoHoy) hechos.push("GANADO hoy (venta cerrada hoy: seguimiento no aplica)");
-  if (delDia.some((m) => m.autor === "asesora" && mencionaContraentrega(m.texto))) {
-    hechos.push("la asesora escribió la palabra 'contraentrega' (revisa si la ofreció)");
+  if (esContraentregaRespetada(ultimos4(chat.telefono))) {
+    hechos.push("chat con contraentrega YA prometida antes de la suspensión: se respeta, no es error");
+  } else if (delDia.some((m) => m.autor === "asesora" && mencionaContraentrega(m.texto))) {
+    hechos.push(
+      contraentregaSoloNegada(delDia)
+        ? "la asesora mencionó la contraentrega solo para decir que no se maneja (no es error)"
+        : "la asesora escribió la palabra 'contraentrega' (revisa si la ofreció)",
+    );
   }
 
   // Descartes antes de 72 h: cuentan para quien descarto, aunque el chat fuera de otra.
@@ -444,6 +484,8 @@ function medirChat(chat: ChatDelDia, asesoras: Set<string>, desde: Date, corte: 
         userId: mensaje.nota.actorUserId,
         tipo: "descarte_prematuro",
         detalle: `Se descartó ${horas < 1 ? "a menos de 1 h" : `a las ${horas} h`} del último mensaje del cliente (mínimo ${POLITICA_COACH.horasMinimasParaDescartar} h).`,
+        etapa: "seguimiento",
+        minutos: null,
       });
       hechos.push("se descartó antes de 72 h desde el último mensaje del cliente");
     }
@@ -484,10 +526,16 @@ async function analizarAsesora(input: {
   desde: Date;
   nombres: Record<string, string>;
   contadores: Contadores;
-}): Promise<{ analisis: Map<string, AnalisisDeChat>; resumen: ResumenDeAsesora | null; iaUsada: boolean }> {
+}): Promise<{
+  analisis: Map<string, AnalisisDeChat>;
+  resumen: ResumenDeAsesora | null;
+  iaUsada: boolean;
+  transcripciones: Map<string, string>;
+}> {
   const analisis = new Map<string, AnalisisDeChat>();
+  const transcripciones = new Map<string, string>();
   if (!process.env.OPENAI_API_KEY?.trim() || !input.chats.length) {
-    return { analisis, resumen: null, iaUsada: false };
+    return { analisis, resumen: null, iaUsada: false, transcripciones };
   }
   const fichas: FichaParaIA[] = input.chats.map((chat) => ({
     ref: chat.ref,
@@ -502,6 +550,8 @@ async function analizarAsesora(input: {
       ocultar: apellidosDe(chat.nombre),
     }),
   }));
+
+  for (const ficha of fichas) transcripciones.set(ficha.ref, ficha.transcripcion);
 
   const lotes: FichaParaIA[][] = [];
   for (let i = 0; i < fichas.length; i += POLITICA_COACH.ia.chatsPorLote) {
@@ -523,24 +573,56 @@ async function analizarAsesora(input: {
 
   let resumen = resumenes[0] ?? null;
   if (resumenes.length > 1) {
-    // Varios lotes: una llamada corta junta los resumenes parciales en uno.
+    // Varios lotes: una llamada corta junta lo que hizo bien. Lo que tiene que mejorar NO lo elige
+    // la IA: lo elige el codigo con los conteos (habilidad.ts). Antes esta llamada lo elegia sin
+    // ver ningun conteo y salia lo mismo para todas (contraentrega/envio, 9-oct).
     try {
       const respuesta = await llamarIA(
-        'Eres el coach de ventas de Magilus. Recibes resúmenes parciales del día de una asesora y devuelves SOLO un JSON {"loQueHizoBien":"...","unaCosaAMejorar":"...","ejemplo":"..."} con UNA sola cosa a mejorar (la más importante) y un ejemplo real con su chat. Español, frases cortas, tono que enseña y no castiga.',
-        JSON.stringify(resumenes),
-        400,
+        'Eres el coach de ventas de Magilus. Recibes frases parciales con lo que una asesora hizo bien hoy y devuelves SOLO un JSON {"loQueHizoBien":"..."}: 1 o 2 frases con lo mejor, concreto. Español de Colombia, tono que enseña.',
+        JSON.stringify(resumenes.map((r) => r.loQueHizoBien).filter(Boolean)),
+        200,
         input.contadores,
       );
       const datos = JSON.parse(respuesta.contenido ?? "{}") as Record<string, unknown>;
-      const t = (v: unknown) => (typeof v === "string" ? limpiarDatosPersonales(v).slice(0, 400) : "");
-      if (datos.loQueHizoBien || datos.unaCosaAMejorar) {
-        resumen = { loQueHizoBien: t(datos.loQueHizoBien), unaCosaAMejorar: t(datos.unaCosaAMejorar), ejemplo: t(datos.ejemplo) };
+      if (typeof datos.loQueHizoBien === "string" && datos.loQueHizoBien.trim()) {
+        resumen = { loQueHizoBien: limpiarDatosPersonales(datos.loQueHizoBien).slice(0, 400), unaCosaAMejorar: "", ejemplo: "" };
       }
     } catch (error) {
       console.error("[COACH] resumen_fallido", input.nombre, error instanceof Error ? error.message : error);
     }
   }
-  return { analisis, resumen, iaUsada: true };
+  return { analisis, resumen, iaUsada: true, transcripciones };
+}
+
+/**
+ * La IA redacta (c) que hacer diferente y (d) el mensaje modelo de la habilidad que YA eligio el
+ * codigo, con los chats de la evidencia. Si no hay IA o lo que devuelve no respeta la politica,
+ * queda la plantilla.
+ */
+async function redactarHabilidad(input: {
+  asesora: string;
+  habilidad: HabilidadDelDia;
+  transcripciones: Map<string, string>;
+  contadores: Contadores;
+}): Promise<HabilidadDelDia> {
+  if (!process.env.OPENAI_API_KEY?.trim()) return input.habilidad;
+  const chats = input.habilidad.evidencia
+    .map((e) => ({ ref: e.ref, transcripcion: (input.transcripciones.get(e.ref) ?? "").slice(-3000) }))
+    .filter((c) => c.transcripcion);
+  try {
+    const { sistema, usuario } = armarPromptDeHabilidad({ asesora: input.asesora, habilidad: input.habilidad, chats });
+    const respuesta = await llamarIA(sistema, usuario, 350, input.contadores);
+    const redaccion = redaccionValida(respuesta.contenido);
+    return redaccion ? { ...input.habilidad, ...redaccion, redactadoPor: "ia" } : input.habilidad;
+  } catch (error) {
+    console.error("[COACH] redaccion_fallida", input.asesora, error instanceof Error ? error.message : error);
+    return input.habilidad;
+  }
+}
+
+/** La temperatura de un chat: la que leyo la IA o, si no hay, la de la etapa del CRM. */
+function temperaturaDe(chat: ChatMedido, lectura: AnalisisDeChat | undefined) {
+  return lectura?.temperatura ?? (chat.crmStage === "NEGOCIACION" ? "caliente" : chat.crmStage === "PROPUESTA" ? "tibio" : "frio");
 }
 
 function armarParteDeAsesora(input: {
@@ -548,6 +630,7 @@ function armarParteDeAsesora(input: {
   erroresDuros: ErrorDuroConChat[];
   analisis: Map<string, AnalisisDeChat>;
   resumen: ResumenDeAsesora | null;
+  desde: Date;
 }) {
   const juzgados = input.chats.filter((chat) => !chat.quieto);
   const porChat: PuntajesDelCoach["porChat"] = [];
@@ -557,7 +640,14 @@ function armarParteDeAsesora(input: {
   const pendientes: PendienteDelCoach[] = [];
 
   for (const error of input.erroresDuros) {
-    errores.push({ ...refDe(error.chat), tipo: error.tipo, detalle: error.detalle });
+    errores.push({
+      ...refDe(error.chat),
+      tipo: error.tipo,
+      detalle: error.detalle,
+      etapa: error.etapa,
+      minutos: error.minutos,
+      temperatura: temperaturaDe(error.chat, input.analisis.get(error.chat.ref)),
+    });
   }
 
   for (const chat of input.chats) {
@@ -576,15 +666,24 @@ function armarParteDeAsesora(input: {
       listaDeEjes.push(ejes);
       porChat.push({ ref: chat.ref, ejes, puntaje: puntajePonderado(ejes) });
       for (const texto of lectura?.aciertos ?? []) aciertos.push({ ...refDe(chat), texto });
+      const delDia = chat.mensajes.filter((m) => m.en >= input.desde);
       for (const error of lectura?.errores ?? []) {
         // Los de reloj ya estan medidos; la IA no los repite.
         if (error.tipo === "sin_respuesta" || error.tipo === "demora") continue;
-        errores.push({ ...refDe(chat), tipo: error.tipo, detalle: error.detalle });
+        // Contraentrega que NO es error: chat respetado, o la asesora solo dijo que no se maneja.
+        if (error.tipo === "contraentrega" && (esContraentregaRespetada(chat.ultimos4) || contraentregaSoloNegada(delDia))) continue;
+        errores.push({
+          ...refDe(chat),
+          tipo: error.tipo,
+          detalle: error.detalle,
+          etapa: etapaDelTipo(error.tipo),
+          minutos: null,
+          temperatura: temperaturaDe(chat, lectura),
+        });
       }
     }
 
-    const temperatura =
-      lectura?.temperatura ?? (chat.crmStage === "NEGOCIACION" ? "caliente" : chat.crmStage === "PROPUESTA" ? "tibio" : "frio");
+    const temperatura = temperaturaDe(chat, lectura);
     const vale = !chat.ganadoHoy && temperatura !== "cerrado" && temperatura !== "no_perseguir";
     if (vale && (sinRespuesta || temperatura === "caliente" || temperatura === "tibio")) {
       pendientes.push({
@@ -651,6 +750,7 @@ async function resumirEquipo(input: {
           "Eres el coach de ventas de Magilus. Recibes las cifras del día del equipo de ventas y la lista de fallas del sistema/bot detectadas en los chats.",
           'Devuelve SOLO un JSON {"resumen":"...","fallas":[{"texto":"...","ref":"#123 o null"}]}.',
           "resumen: 3 o 4 frases para el dueño: cómo fue el día, por qué no se cerró más y qué atacar mañana. Separa lo que es error de las asesoras de lo que es falla del sistema o del bot.",
+          "Lo que viene en cifras.problemasDelEquipo es del equipo o de un cambio de política del día: nómbralo una sola vez y no se lo atribuyas a ninguna asesora.",
           "fallas: agrupa las fallas repetidas en una sola línea (di cuántas veces), máximo 10, la más grave primero.",
         ].join("\n"),
         JSON.stringify({ cifras: input.base, fallas: input.fallas.slice(0, 60) }),
@@ -686,13 +786,58 @@ async function resumirEquipo(input: {
    La corrida
 ------------------------------------------------------------------------------------------------ */
 
-async function tomarTurno(workspaceId: string, clave: Date, force: boolean, origen: string): Promise<ResultadoDelCoach> {
+/** Intentos del dia (sin migracion: un AppSetting por negocio y dia). */
+const CLAVE_INTENTOS = (workspaceId: string, dia: string) => `coach:intentos:${workspaceId}:${dia}`;
+
+async function intentosDelDia(workspaceId: string, dia: string) {
+  const fila = await prisma.appSetting.findUnique({ where: { key: CLAVE_INTENTOS(workspaceId, dia) } });
+  const n = Number(fila?.value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+async function sumarIntento(workspaceId: string, dia: string) {
+  const n = (await intentosDelDia(workspaceId, dia)) + 1;
+  await prisma.appSetting.upsert({
+    where: { key: CLAVE_INTENTOS(workspaceId, dia) },
+    create: { key: CLAVE_INTENTOS(workspaceId, dia), value: String(n) },
+    update: { value: String(n) },
+  });
+}
+
+/**
+ * Un EN_CURSO de mas de 30 min ya no esta corriendo (el servidor se reinicio a mitad): se marca
+ * ERROR para que la pantalla no diga "Generando…" para siempre y el dueño pueda rehacerlo. Lo
+ * llama el reloj en cada pasada (es un UPDATE sobre una tabla chica).
+ */
+export async function marcarCorridasColgadas(ahora = new Date()) {
+  const limite = new Date(ahora.getTime() - POLITICA_COACH.reloj.minutosColgado * 60_000);
+  const { count } = await prisma.coachInforme.updateMany({
+    where: { estado: "EN_CURSO", iniciadoEn: { lt: limite } },
+    data: {
+      estado: "ERROR",
+      error: "Se interrumpió a mitad (el servidor se reinició). Toca «Generar ahora» para rehacerlo.",
+      terminadoEn: ahora,
+    },
+  });
+  if (count) console.warn("[COACH] corridas_colgadas_marcadas", count);
+  return count;
+}
+
+async function tomarTurno(
+  workspaceId: string,
+  dia: string,
+  clave: Date,
+  force: boolean,
+  origen: string,
+): Promise<ResultadoDelCoach> {
   const existente = await prisma.coachInforme.findUnique({
     where: { workspaceId_fecha: { workspaceId, fecha: clave } },
     select: { id: true, estado: true, iniciadoEn: true },
   });
-  const decision = decidirCorrida(existente, { force });
+  const intentos = force ? 0 : await intentosDelDia(workspaceId, dia);
+  const decision = decidirCorrida(existente, { force, intentos });
   if (decision !== "generar") return { decision, informeId: existente?.id };
+  await sumarIntento(workspaceId, dia);
 
   const ahora = new Date();
   if (existente) {
@@ -724,7 +869,7 @@ export async function generarCoachDelDia(
   opciones: { force?: boolean; origen?: "reloj" | "manual" } = {},
 ): Promise<ResultadoDelCoach> {
   const { clave, desde, hasta } = rangoDelDia(dia);
-  const turno = await tomarTurno(workspaceId, clave, Boolean(opciones.force), opciones.origen ?? "reloj");
+  const turno = await tomarTurno(workspaceId, dia, clave, Boolean(opciones.force), opciones.origen ?? "reloj");
   if (turno.decision !== "generar" || !turno.informeId) return turno;
   const informeId = turno.informeId;
   const contadores: Contadores = { llamadas: 0, entrada: 0, salida: 0 };
@@ -774,9 +919,10 @@ export async function generarCoachDelDia(
     const todasLasLecturas = new Map<string, AnalisisDeChat>();
     const erroresPorAsesora: ResumenDelEquipo["erroresDeAsesoras"] = [];
     let iaDisponible = false;
+    const partes: Array<{ userId: string; parte: ReturnType<typeof armarParteDeAsesora>; transcripciones: Map<string, string> }> = [];
     for (const userId of new Set([...porAsesora.keys(), ...erroresDurosPorAsesora.keys()])) {
       const suyos = porAsesora.get(userId) ?? [];
-      const { analisis, resumen, iaUsada } = await analizarAsesora({
+      const { analisis, resumen, iaUsada, transcripciones } = await analizarAsesora({
         nombre: nombresCortos[userId] ?? "Asesora",
         dia,
         chats: suyos,
@@ -791,10 +937,36 @@ export async function generarCoachDelDia(
         erroresDuros: erroresDurosPorAsesora.get(userId) ?? [],
         analisis,
         resumen,
+        desde,
       });
       const porTipo: Record<string, number> = {};
       for (const error of parte.errores) porTipo[error.tipo] = (porTipo[error.tipo] ?? 0) + 1;
       erroresPorAsesora.push({ userId, nombre: nombres[userId] ?? "Asesora", total: parte.errores.length, porTipo });
+      partes.push({ userId, parte, transcripciones });
+    }
+
+    // La habilidad del dia: la elige el CODIGO con los errores de cada una (politica.ts, habilidad);
+    // lo que es del equipo sale una sola vez en el resumen. La IA solo redacta la elegida.
+    const { porAsesora: habilidades, problemasDelEquipo } = elegirHabilidades(
+      partes.map(({ userId, parte }) => ({
+        userId,
+        nombre: nombres[userId] ?? "Asesora",
+        errores: parte.errores,
+        puntajes: parte.puntajes,
+        pendientes: parte.pendientes,
+        metricas: parte.resumen.metricas,
+      })),
+      dia,
+    );
+
+    for (const { userId, parte, transcripciones } of partes) {
+      const elegida = habilidades.get(userId) ?? null;
+      const habilidad = elegida
+        ? await redactarHabilidad({ asesora: nombresCortos[userId] ?? "Asesora", habilidad: elegida, transcripciones, contadores })
+        : null;
+      parte.resumen.habilidad = habilidad;
+      parte.resumen.unaCosaAMejorar = unaCosaAMejorarDe(habilidad);
+      parte.resumen.ejemplo = habilidad?.ejemplo ?? "";
 
       await prisma.coachAsesora.create({
         data: {
@@ -857,6 +1029,7 @@ export async function generarCoachDelDia(
         ventas,
         motivos: [...motivos].map(([motivo, casos]) => ({ motivo, casos })).sort((a, b) => b.casos - a.casos),
         erroresDeAsesoras: erroresPorAsesora.sort((a, b) => b.total - a.total),
+        problemasDelEquipo,
       },
       fallas,
       contadores,
@@ -928,6 +1101,7 @@ export async function generarCoachDeNegociosActivos(ahora = new Date()) {
     select: { key: true },
   });
   const dia = diaEnBogota(ahora);
+  await marcarCorridasColgadas(ahora).catch((error) => console.error("[COACH] colgadas_fallo", error));
   const resultados: Array<{ workspaceId: string } & ResultadoDelCoach> = [];
   for (const fila of filas) {
     const workspaceId = fila.key.slice("coach:activo:".length);

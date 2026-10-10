@@ -52,13 +52,13 @@ services:
       - |
         while true; do
           SECRET="$$FOLLOW_CRON_SECRET"
-          if [ -z "$SECRET" ]; then
+          if [ -z "$$SECRET" ]; then
             SECRET="$$EVOLUTION_WEBHOOK_SECRET"
           fi
-          if [ -n "$SECRET" ]; then
+          if [ -n "$$SECRET" ]; then
             echo "[follow-cron] calling /api/cron/follows with secret"
             curl -sS -X POST \
-              -H "x-follow-cron-secret: $SECRET" \
+              -H "x-follow-cron-secret: $$SECRET" \
               -o /tmp/follow-cron.body \
               -w "[follow-cron] http_status=%{http_code}\n" \
               https://app.aizenbot.com/api/cron/follows || true
@@ -98,13 +98,13 @@ services:
       - |
         while true; do
           SECRET="$$DAILY_REPORT_CRON_SECRET"
-          if [ -z "$SECRET" ]; then
+          if [ -z "$$SECRET" ]; then
             SECRET="$$FOLLOW_CRON_SECRET"
           fi
-          if [ -n "$SECRET" ]; then
+          if [ -n "$$SECRET" ]; then
             echo "[daily-report-cron] calling /api/cron/daily-report with secret"
             curl -sS -X POST \
-              -H "x-daily-report-secret: $SECRET" \
+              -H "x-daily-report-secret: $$SECRET" \
               -o /tmp/daily-report.body \
               -w "[daily-report-cron] http_status=%{http_code}\n" \
               https://app.aizenbot.com/api/cron/daily-report || true

@@ -44,6 +44,25 @@ export function ResumenDelEquipoCard({ informe }: { informe: InformeDelCoach }) 
           ))}
         </div>
 
+        {r.problemasDelEquipo?.length ? (
+          <div className="space-y-1.5 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+            <h3 className="text-sm font-medium">Problema del equipo</h3>
+            <p className="text-xs text-muted-foreground">
+              Se muestra una sola vez y no cuenta como la habilidad de ninguna asesora.
+            </p>
+            <ul className="space-y-1.5 text-sm">
+              {r.problemasDelEquipo.map((p) => (
+                <li key={p.tipo}>
+                  <span className="font-medium">{p.nombre}</span> ({p.total}:{" "}
+                  {p.porAsesora.map((a) => `${a.nombre.split(" ")[0]} ${a.casos}`).join(", ")})
+                  <div className="text-muted-foreground">{p.porque}</div>
+                  <div>{p.queHacer}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         {r.motivos.length ? (
           <div className="space-y-1">
             <h3 className="text-sm font-medium">Por qué no se cerró</h3>

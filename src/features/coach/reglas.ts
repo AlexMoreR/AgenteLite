@@ -413,6 +413,22 @@ export function mencionaContraentrega(texto: string): boolean {
   return /contra\s*-?\s*entrega/i.test(texto);
 }
 
+const RE_PRECIO = /\$\s?\d|\b\d{1,3}(\.\d{3})+\b/;
+
+/**
+ * En que etapa de la venta estaba el chat en un instante: ya se le mando cotizacion, ya se le dio
+ * un precio (asesora o bot) o todavia no. Lo usa la habilidad del dia para saber donde se pierde.
+ */
+export function etapaDeVentaEn(
+  mensajes: MensajeCoach[],
+  instante: Date,
+): "antes_del_precio" | "despues_del_precio" | "despues_de_cotizar" {
+  const antes = mensajes.filter((m) => m.en.getTime() <= instante.getTime());
+  if (huboCotizacion(antes)) return "despues_de_cotizar";
+  if (antes.some((m) => (m.autor === "asesora" || m.autor === "bot") && RE_PRECIO.test(m.texto))) return "despues_del_precio";
+  return "antes_del_precio";
+}
+
 /**
  * Descartar (pasar a Perdido) a un cliente que escribio hace menos de 72 h es prematuro: en la
  * Fase A, 4 de 10 perdidas eran descartes de minutos u horas (Mocoa, Cali con visita agendada).
@@ -490,28 +506,39 @@ export function costoUsd(
   return Math.round(((tokensEntrada * precio.entrada + tokensSalida * precio.salida) / 1_000_000) * 10_000) / 10_000;
 }
 
-export type DecisionDeCorrida = "generar" | "omitir_listo" | "omitir_en_curso";
+export type DecisionDeCorrida = "generar" | "omitir_listo" | "omitir_en_curso" | "omitir_sin_intentos";
 
 /**
  * Un informe por negocio y dia. El reloj pasa cada minuto entre 23:30 y 23:58: solo la primera
  * pasada genera; las demas ven el informe y no hacen nada. Un informe EN_CURSO de hace mas de
  * `minutosDeBloqueo` se da por caido (el servidor se reinicio) y se vuelve a generar.
+ * Un ERROR (o un EN_CURSO caido) el reloj lo reintenta, pero no mas de `maxIntentos` veces por dia:
+ * cada intento paga IA (antes se reintentaba cada minuto).
  * "Generar ahora" (force) rehace un informe LISTO o con ERROR, pero nunca pisa uno que esta corriendo.
  */
 export function decidirCorrida(
   existente: { estado: string; iniciadoEn: Date } | null,
-  opciones: { force?: boolean; ahora?: Date; minutosDeBloqueo?: number } = {},
+  opciones: { force?: boolean; ahora?: Date; minutosDeBloqueo?: number; intentos?: number; maxIntentos?: number } = {},
 ): DecisionDeCorrida {
-  if (!existente) return "generar";
+  const maxIntentos = opciones.maxIntentos ?? POLITICA_COACH.reloj.maxIntentosPorDia;
+  if (!existente) return !opciones.force && (opciones.intentos ?? 0) >= maxIntentos ? "omitir_sin_intentos" : "generar";
   const ahora = opciones.ahora ?? new Date();
-  const bloqueo = (opciones.minutosDeBloqueo ?? 30) * MS_MIN;
-  if (existente.estado === "EN_CURSO" && ahora.getTime() - existente.iniciadoEn.getTime() < bloqueo) {
+  if (existente.estado === "EN_CURSO" && !informeColgado(existente, ahora, opciones.minutosDeBloqueo)) {
     return "omitir_en_curso";
   }
   if (opciones.force) return "generar";
   if (existente.estado === "LISTO") return "omitir_listo";
-  // ERROR o EN_CURSO viejo: el reloj lo reintenta.
+  if ((opciones.intentos ?? 0) >= maxIntentos) return "omitir_sin_intentos";
   return "generar";
+}
+
+/** Un EN_CURSO que lleva mas de `minutos` ya no esta corriendo: el servidor se reinicio a mitad. */
+export function informeColgado(
+  informe: { estado: string; iniciadoEn: Date },
+  ahora: Date = new Date(),
+  minutos: number = POLITICA_COACH.reloj.minutosColgado,
+): boolean {
+  return informe.estado === "EN_CURSO" && ahora.getTime() - informe.iniciadoEn.getTime() >= minutos * MS_MIN;
 }
 
 /** ¿Esta el reloj en la ventana del coach? (23:30 a 23:58, hora de Bogota). */
@@ -668,7 +695,8 @@ export function armarPromptDelLote(input: {
     "- fallasDelSistema: frases cortas de errores del bot, plantillas o reglas que faltan (lista vacía si no hay).",
     "- En los chats marcados SOLO_PENDIENTE no hay mensajes de hoy: devuelve ejes en null, errores y aciertos vacíos, y llena temperatura, porque y siguienteMensaje.",
     "",
-    'Forma exacta: {"chats":[{"ref":"#123","ejes":{"N":7,"A":5,"S":null,"C":6},"aciertos":["..."],"errores":[{"tipo":"...","detalle":"..."}],"fallasDelSistema":["..."],"temperatura":"tibio","motivoNoCierre":"envio","porque":"...","siguienteMensaje":"..."}],"resumen":{"loQueHizoBien":"...","unaCosaAMejorar":"...","ejemplo":"chat #123: qué pasó y qué habría sido mejor"}}',
+    "- resumen.loQueHizoBien: 1 frase con lo mejor que hizo ESTA asesora en estos chats. Lo que tiene que mejorar NO lo eliges tú: lo calcula el sistema con los conteos.",
+    'Forma exacta: {"chats":[{"ref":"#123","ejes":{"N":7,"A":5,"S":null,"C":6},"aciertos":["..."],"errores":[{"tipo":"...","detalle":"..."}],"fallasDelSistema":["..."],"temperatura":"tibio","motivoNoCierre":"envio","porque":"...","siguienteMensaje":"..."}],"resumen":{"loQueHizoBien":"..."}}',
     "Un objeto por cada chat recibido, con su mismo ref. Español, frases cortas.",
   ].join("\n");
 

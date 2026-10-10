@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { HabilidadDelDia } from "@/features/coach/components/HabilidadDelDia";
 import { PendientesDelCoach } from "@/features/coach/components/PendientesDelCoach";
 import { leerPendientesDelCoach } from "@/features/coach/servicios/leer-coach";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -68,14 +69,18 @@ export default async function ClienteCrmMiDiaPage() {
     leerPendientesDelCoach(access.workspaceId, access.userId).catch(() => null),
   ]);
   const marcadorUrl = buildWaCallsDialerUrl("");
+  // Solo lo suyo: su habilidad del día con la meta, y sus pendientes.
   const bloqueDelCoach =
-    coach && coach.pendientes.length ? (
+    coach && (coach.pendientes.length || coach.habilidad) ? (
       <details open className="rounded-xl border border-border bg-card px-4 py-3">
         <summary className="cursor-pointer text-sm font-medium text-foreground">
-          Lo que te dejó el Coach ({coach.pendientes.length})
+          Lo que te dejó el Coach
+          {coach.habilidad ? ` · ${coach.habilidad.nombre}` : ""}
+          {coach.pendientes.length ? ` · ${coach.pendientes.length} pendientes` : ""}
         </summary>
         <div className="space-y-2 pt-3">
-          <PendientesDelCoach pendientes={coach.pendientes} max={5} />
+          {coach.habilidad ? <HabilidadDelDia habilidad={coach.habilidad} compacta /> : null}
+          {coach.pendientes.length ? <PendientesDelCoach pendientes={coach.pendientes} max={5} /> : null}
           <Link href={`/cliente/equipo/coach?dia=${coach.dia}`} className="text-xs font-medium text-primary hover:underline">
             Ver mi informe del {coach.dia}
           </Link>

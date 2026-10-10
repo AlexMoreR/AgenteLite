@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { after, NextResponse } from "next/server";
 
 import { enVentanaDelReloj } from "@/features/coach/reglas";
-import { generarCoachDeNegociosActivos } from "@/features/coach/servicios/generar-coach";
+import { generarCoachDeNegociosActivos, marcarCorridasColgadas } from "@/features/coach/servicios/generar-coach";
 import {
   generateDailyReportsForEnabledWorkspaces,
   parseBogotaDate,
@@ -103,6 +103,12 @@ async function handleCron(request: Request) {
       } catch (error) {
         console.error("[COACH] reloj_fallo", error);
       }
+    });
+  } else if (!force) {
+    // Fuera de la ventana: un informe que quedo EN_CURSO por un reinicio se marca ERROR (no queda
+    // "Generando…" para siempre). Dentro de la ventana lo hace generarCoachDeNegociosActivos.
+    after(async () => {
+      await marcarCorridasColgadas().catch((error) => console.error("[COACH] colgadas_fallo", error));
     });
   }
 

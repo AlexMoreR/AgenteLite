@@ -122,7 +122,12 @@ export default async function CoachDeVentasPage({ searchParams }: PageProps) {
         </Card>
       ) : null}
 
-      {generando || informe?.estado === "EN_CURSO" ? (
+      {informe?.colgado ? (
+        <p className="rounded-lg border border-destructive/40 px-3 py-2 text-sm text-destructive">
+          El informe del {dia} quedó a medias (el servidor se reinició mientras se generaba).
+          {esDueno ? " Toca «Generar ahora» para rehacerlo." : " Pídele al dueño que lo vuelva a generar."}
+        </p>
+      ) : generando || informe?.estado === "EN_CURSO" ? (
         <p className="rounded-lg border border-border bg-muted px-3 py-2 text-sm">
           Generando el informe del {dia}. Tarda uno o dos minutos:{" "}
           <Link href={enlace(dia)} className="font-medium underline">
