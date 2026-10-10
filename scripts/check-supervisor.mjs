@@ -375,4 +375,67 @@ prueba("agruparCambios: tres versiones en 30 s se ven como un solo cambio", () =
   assert.equal(g[0].anterior, 178);
 });
 
+/* ------------------------------------------------------------------ chats de la alerta (pantalla) */
+
+const chatsAlerta = cargar("src/features/supervisor/dominio/chats-de-la-alerta.ts");
+
+prueba("chats de la alerta: nombre, teléfono tapado, frase, espera, asesora y enlace a la conversación", () => {
+  const ahora = new Date("2026-10-10T15:00:00Z");
+  const hallazgos = atencion.detectarAtencion(
+    [
+      { conversationId: "cvAAA111", asesoraId: "u1", asesoraNombre: "Ingrid", etapa: "NEGOCIACION", ultimoClienteEn: new Date(ahora.getTime() - 40 * M), ultimaRespuestaHumanaEn: null, textosPendientes: ["¿Cómo hago para separarlo?"] },
+      { conversationId: "cmBBB222", asesoraId: "u1", asesoraNombre: "Ingrid", etapa: "NEGOCIACION", ultimoClienteEn: new Date(ahora.getTime() - 20 * M), ultimaRespuestaHumanaEn: null, textosPendientes: ["hola"] },
+    ],
+    ahora,
+  );
+  const datosPorChat = new Map([
+    ["cvAAA111", { conversationId: "cvAAA111", nombre: "Marta Gómez", telefono: "+57 300 123 4567", asesoraNombre: "Ingrid", ultimoClienteEn: new Date(ahora.getTime() - 40 * M), ultimaRespuestaHumanaEn: null, ultimoTextoCliente: "¿Cómo hago para separarlo?" }],
+    ["cmBBB222", { conversationId: "cmBBB222", nombre: "573009998877", telefono: "573009998877", asesoraNombre: null, ultimoClienteEn: new Date(ahora.getTime() - 20 * M), ultimaRespuestaHumanaEn: null, ultimoTextoCliente: "hola" }],
+  ]);
+  const filas = chatsAlerta.filasDeLaAlerta({ hallazgos, datosPorChat, ahora });
+  assert.equal(filas.length, 2);
+  const [a, b] = filas;
+  assert.equal(a.conversationId, "cvAAA111");
+  assert.equal(a.nombre, "Marta Gómez");
+  assert.equal(a.telefono, "•••• 4567");
+  assert.equal(a.asesora, "Ingrid");
+  assert.match(a.frase, /separarlo/);
+  assert.match(a.esperando, /min laborales$/);
+  assert.equal(a.href, "/cliente/chats?chatKey=agent%3AcvAAA111&assigned=all");
+  // Sin nombre (o con el número como nombre) = "Cliente sin nombre"; sin frase en la alerta = su último mensaje.
+  assert.equal(b.nombre, "Cliente sin nombre");
+  assert.equal(b.telefono, "•••• 8877");
+  assert.equal(b.asesora, null);
+  assert.ok(!JSON.stringify(filas).includes("1234567") && !JSON.stringify(filas).includes("9998877"), "el teléfono completo no sale");
+  // El texto largo de la alerta ya no muestra el id como dato principal.
+  const texto = alertas.textoDeLaAlerta(alertas.consolidar({ abiertos: [], hallazgos, ahora, cambios: [], familiasEvaluadas: [] }).incidentes[0], ahora);
+  assert.ok(texto.includes("cvAAA111"));
+  const limpio = chatsAlerta.textoSinIds(texto, filas);
+  assert.ok(!limpio.includes("cvAAA111") && !limpio.includes("cmBBB222"));
+  assert.ok(limpio.includes("Marta Gómez (•••• 4567)"));
+});
+
+prueba("chats de la alerta: chat no encontrado no rompe y no da enlace; espera calculada si la alerta no la trae", () => {
+  const ahora = new Date("2026-10-10T15:00:00Z");
+  const hallazgo = { clave: "EMBUDO:x", familia: "EMBUDO", severidad: "IMPORTANTE", titulo: "t", que: "q", desde: ahora, producto: null, leadsAfectados: 2, evidencia: { chats: ["cvBorrado", "cvVivo", "cvVivo"], reglas: [], versiones: [] }, metrica: "", esperado: "", observado: "", hechos: [], hipotesis: [], causaPosible: "", impacto: "", recomendacion: "", queCambiar: "", riesgo: "", comoMedir: "", tocaProduccion: false };
+  const datosPorChat = new Map([
+    ["cvVivo", { conversationId: "cvVivo", nombre: "  ", telefono: "12", asesoraNombre: "María", ultimoClienteEn: new Date(ahora.getTime() - 3 * H), ultimaRespuestaHumanaEn: new Date(ahora.getTime() - 4 * H), ultimoTextoCliente: "x".repeat(300) }],
+  ]);
+  const filas = chatsAlerta.filasDeLaAlerta({ hallazgos: [hallazgo], datosPorChat, ahora });
+  assert.equal(filas.length, 2, "sin repetir");
+  assert.deepEqual(
+    { nombre: filas[0].nombre, encontrado: filas[0].encontrado, href: filas[0].href, telefono: filas[0].telefono },
+    { nombre: "Chat no encontrado", encontrado: false, href: null, telefono: "" },
+  );
+  assert.equal(filas[1].nombre, "Cliente sin nombre");
+  assert.equal(filas[1].telefono, "", "con menos de 4 dígitos no se muestra nada");
+  assert.equal(filas[1].esperando, "3 h");
+  assert.ok(filas[1].frase.length <= 120 && filas[1].frase.endsWith("…"));
+  assert.equal(chatsAlerta.textoSinIds("chats cvBorrado, cvVivo", filas), "chats (chat no encontrado), Cliente sin nombre");
+  // Ya respondió una persona después del último mensaje del cliente: no está esperando.
+  const respondido = chatsAlerta.filaDelChat({ conversationId: "cvVivo", hallazgos: [hallazgo], ahora, datos: { ...datosPorChat.get("cvVivo"), ultimaRespuestaHumanaEn: new Date(ahora.getTime() - H) } });
+  assert.equal(respondido.esperando, null);
+  assert.equal(chatsAlerta.idsDeChatsDeLaAlerta([{ ...hallazgo, evidencia: { chats: Array.from({ length: 30 }, (_, i) => `c${i}`), reglas: [], versiones: [] } }]).length, chatsAlerta.MAX_CHATS_POR_ALERTA);
+});
+
 console.log(`\n${pruebas} pruebas del Supervisor OK`);

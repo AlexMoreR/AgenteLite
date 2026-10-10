@@ -3,11 +3,20 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  MAX_CHATS_POR_ALERTA,
+  enlaceAlChat,
+  filasDeLaAlerta,
+  idsDeChatsDeLaAlerta,
+  textoSinIds,
+  type FilaDeChatDeAlerta,
+} from "@/features/supervisor/dominio/chats-de-la-alerta";
 import { ETIQUETA_DE_SEVERIDAD, type Severidad } from "@/features/supervisor/dominio/tipos";
 import { escenariosDelCombo } from "@/features/supervisor/dominio/escenarios";
 import { correrGuardian } from "@/features/supervisor/dominio/guardian";
 import { diffDelLibro } from "@/features/supervisor/dominio/libro-diff";
 import { leerAlertasRecientes } from "@/features/supervisor/servicios/almacen-alertas";
+import { leerDatosDeChats } from "@/features/supervisor/servicios/chats-de-alertas";
 import { supervisorActivo } from "@/features/supervisor/servicios/config";
 import { leerFlujosDelLibro, leerLineaDelLibro } from "@/features/supervisor/servicios/datos";
 import { idsDelComboEnElLibro } from "@/features/supervisor/servicios/vueltas";
@@ -25,6 +34,34 @@ const COLOR: Record<Severidad, string> = {
 
 function hora(fecha: Date): string {
   return fecha.toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "short", timeStyle: "short" });
+}
+
+/** Un chat afectado: quién es, qué dijo, cuánto espera y el botón para abrirlo. El id va de tooltip. */
+function ChatAfectado({ fila }: { fila: FilaDeChatDeAlerta }) {
+  return (
+    <li className="flex flex-wrap items-start justify-between gap-2 rounded-md border border-border bg-background/60 px-3 py-2">
+      <div className="min-w-0 flex-1 space-y-0.5" title={`ID interno: ${fila.conversationId}`}>
+        <p className="text-sm">
+          <span className={fila.encontrado ? "font-medium text-foreground" : "font-medium text-muted-foreground"}>{fila.nombre}</span>
+          {fila.telefono ? <span className="text-muted-foreground"> · {fila.telefono}</span> : null}
+          {fila.esperando ? <span className="text-muted-foreground"> · esperando {fila.esperando}</span> : null}
+        </p>
+        {fila.frase ? <p className="text-xs text-foreground/80">«{fila.frase}»</p> : null}
+        <p className="text-xs text-muted-foreground">
+          {fila.encontrado ? (fila.asesora ? `Asesora: ${fila.asesora}` : "Sin asesora asignada") : null}
+          <span className="ml-1 text-[10px] opacity-60">ID {fila.conversationId}</span>
+        </p>
+      </div>
+      {fila.href ? (
+        <Link
+          href={fila.href}
+          className="shrink-0 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition hover:bg-muted"
+        >
+          Abrir chat
+        </Link>
+      ) : null}
+    </li>
+  );
 }
 
 /**
@@ -56,6 +93,18 @@ export default async function SupervisorPage() {
       })
     : null;
   const diff = anterior ? diffDelLibro(anterior, linea.actual) : null;
+
+  // Los chats de todas las alertas se resuelven en UNA consulta, solo dentro de este negocio.
+  const idsDeChats = (alertas ?? []).flatMap((alerta) => idsDeChatsDeLaAlerta(alerta.hallazgos, Number.POSITIVE_INFINITY));
+  const datosPorChat = await leerDatosDeChats(workspaceId, idsDeChats).catch(() => null);
+  const ahora = new Date();
+  const chatsDe = (hallazgos: NonNullable<typeof alertas>[number]["hallazgos"]): FilaDeChatDeAlerta[] => {
+    const filas = filasDeLaAlerta({ hallazgos, datosPorChat: datosPorChat ?? new Map(), ahora, max: Number.POSITIVE_INFINITY });
+    // Si la consulta falló no se sabe si el chat existe: se deja el enlace en vez de decir "no encontrado".
+    return datosPorChat
+      ? filas
+      : filas.map((fila) => ({ ...fila, nombre: "Datos del chat no disponibles", href: enlaceAlChat(fila.conversationId) }));
+  };
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-5">
@@ -111,18 +160,35 @@ export default async function SupervisorPage() {
           ) : alertas.length === 0 ? (
             <p className="text-sm text-muted-foreground">Sin alertas.</p>
           ) : (
-            alertas.map((alerta) => (
-              <details key={alerta.id} className={`rounded-md border px-3 py-2 ${COLOR[alerta.severidad]}`}>
-                <summary className="cursor-pointer text-sm">
-                  <span className="font-semibold">[{ETIQUETA_DE_SEVERIDAD[alerta.severidad]}]</span> {alerta.titulo}
-                  <span className="text-muted-foreground">
-                    {" "}
-                    · desde {hora(alerta.desde)} · {alerta.estado === "ABIERTA" ? "abierta" : `resuelta ${alerta.resueltaEn ? hora(alerta.resueltaEn) : ""}`}
-                  </span>
-                </summary>
-                <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-foreground">{alerta.texto}</pre>
-              </details>
-            ))
+            alertas.map((alerta) => {
+              const chats = chatsDe(alerta.hallazgos);
+              const visibles = chats.slice(0, MAX_CHATS_POR_ALERTA);
+              return (
+                <details key={alerta.id} className={`rounded-md border px-3 py-2 ${COLOR[alerta.severidad]}`}>
+                  <summary className="cursor-pointer text-sm">
+                    <span className="font-semibold">[{ETIQUETA_DE_SEVERIDAD[alerta.severidad]}]</span> {alerta.titulo}
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · desde {hora(alerta.desde)} · {alerta.estado === "ABIERTA" ? "abierta" : `resuelta ${alerta.resueltaEn ? hora(alerta.resueltaEn) : ""}`}
+                      {chats.length ? ` · ${chats.length} chat(s)` : ""}
+                    </span>
+                  </summary>
+                  {visibles.length ? (
+                    <div className="mt-2 space-y-1.5">
+                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                        Chats afectados{chats.length > visibles.length ? ` (primeros ${visibles.length} de ${chats.length})` : ""}
+                      </p>
+                      <ul className="space-y-1.5">
+                        {visibles.map((fila) => (
+                          <ChatAfectado key={fila.conversationId} fila={fila} />
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-foreground">{datosPorChat ? textoSinIds(alerta.texto, chats) : alerta.texto}</pre>
+                </details>
+              );
+            })
           )}
         </CardContent>
       </Card>
