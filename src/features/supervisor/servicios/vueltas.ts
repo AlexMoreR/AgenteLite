@@ -12,7 +12,10 @@ import type { CambioDelLibro } from "../dominio/tipos";
 import { guardarIncidentes, leerIncidentesAbiertos } from "./almacen-alertas";
 import { avisarAlDueno } from "./avisar";
 import { claveLibroVisto, negociosConSupervisor } from "./config";
-import { leerChatsAbiertos, leerFichasRecientes, leerFlujosDelLibro, leerLineaDelLibro, nombresDeAsesoras } from "./datos";
+import { chatsExcluidosDeAtencion, leerChatsAbiertos, leerFichasRecientes, leerFlujosDelLibro, leerLineaDelLibro, nombresDeAsesoras } from "./datos";
+import { purgarChatsExcluidos } from "../dominio/exclusiones";
+import { hallazgosDeTareasSinDuena } from "../dominio/tareas-sin-duena";
+import { leerTareasSinDuena } from "@/features/seguimiento-inteligente/servicios/tareas";
 
 /**
  * LAS VUELTAS DEL SUPERVISOR (las llama el reloj de /api/cron/follows).
@@ -89,8 +92,17 @@ async function vigilarElLibro(workspaceId: string, ahora: Date): Promise<number>
 
 async function chequearAtencion(workspaceId: string, ahora: Date): Promise<number> {
   const chats = await leerChatsAbiertos({ workspaceId, ahora });
-  const hallazgos = detectarAtencion(chats, ahora);
-  const abiertos = (await leerIncidentesAbiertos(workspaceId)).filter((inc) => inc.familia === "ATENCION");
+  const tareasSinDuena = await leerTareasSinDuena(workspaceId, ahora).catch(() => []);
+  const hallazgos = [...detectarAtencion(chats, ahora), ...hallazgosDeTareasSinDuena(tareasSinDuena, ahora)];
+  const abiertosCrudos = (await leerIncidentesAbiertos(workspaceId)).filter((inc) => inc.familia === "ATENCION");
+  // Los chats que ya no son tarea (PERDIDO/GANADO, exterior, dormidos, ya respondidos) salen de las
+  // alertas abiertas, y la alerta que queda vacía se cierra (exclusiones.ts).
+  const excluidos = await chatsExcluidosDeAtencion(
+    workspaceId,
+    abiertosCrudos.flatMap((inc) => inc.hallazgos.flatMap((h) => h.evidencia.chats)),
+    ahora,
+  ).catch(() => new Set<string>());
+  const { incidentes: abiertos } = purgarChatsExcluidos(abiertosCrudos, excluidos, ahora);
   const resultado = consolidar({ abiertos, hallazgos, ahora, cambios: [], familiasEvaluadas: ["ATENCION"] });
   await guardarIncidentes(workspaceId, resultado.incidentes, ahora);
   await avisarAlDueno({ workspaceId, avisos: resultado.avisar });

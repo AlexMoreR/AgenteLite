@@ -1,3 +1,4 @@
+import { leerMarcaExterior } from "@/features/seguimiento-inteligente/dominio/exterior";
 import { prisma } from "@/lib/prisma";
 
 import { leerUltimaDecision } from "./decisiones";
@@ -108,7 +109,7 @@ export async function rescatarMensajesSinDecidir(
           gte: new Date(ahora.getTime() - VENTANA_MAXIMA_MINUTOS * 60_000),
         },
       },
-      select: { id: true },
+      select: { id: true, contact: { select: { metadata: true } } },
       orderBy: { lastMessageAt: "desc" },
       take: CUANTOS_POR_VUELTA * 5,
     });
@@ -116,6 +117,10 @@ export async function rescatarMensajesSinDecidir(
     for (const conversacion of conversaciones) {
       if (rescatados >= CUANTOS_POR_VUELTA) {
         break;
+      }
+      // Fuera de Colombia (seguimiento inteligente): ya se le contestó una vez; el motor no lo retoma.
+      if (leerMarcaExterior(conversacion.contact?.metadata)) {
+        continue;
       }
       revisados += 1;
 

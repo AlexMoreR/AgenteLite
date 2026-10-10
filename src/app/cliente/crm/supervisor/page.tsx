@@ -20,6 +20,9 @@ import { leerDatosDeChats } from "@/features/supervisor/servicios/chats-de-alert
 import { supervisorActivo } from "@/features/supervisor/servicios/config";
 import { leerFlujosDelLibro, leerLineaDelLibro } from "@/features/supervisor/servicios/datos";
 import { idsDelComboEnElLibro } from "@/features/supervisor/servicios/vueltas";
+import { TareasDeSeguimiento } from "@/features/seguimiento-inteligente/components/TareasDeSeguimiento";
+import { leerConfigSeguimiento } from "@/features/seguimiento-inteligente/servicios/config";
+import { leerTareasParaSupervisor, resumenDelMotor } from "@/features/seguimiento-inteligente/servicios/tareas";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 
@@ -36,10 +39,20 @@ function hora(fecha: Date): string {
   return fecha.toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "short", timeStyle: "short" });
 }
 
-/** Un chat afectado: quién es, qué dijo, cuánto espera y el botón para abrirlo. El id va de tooltip. */
-function ChatAfectado({ fila }: { fila: FilaDeChatDeAlerta }) {
+/**
+ * Un chat afectado: quién es, qué dijo, cuánto espera y el botón para abrirlo. El id va de tooltip.
+ * En las alertas de ATENCIÓN es una tarea (tarjeta); en los incidentes del bot o del embudo es solo
+ * un EJEMPLO del incidente (línea simple, sin estilo de pendiente).
+ */
+function ChatAfectado({ fila, ejemplo = false }: { fila: FilaDeChatDeAlerta; ejemplo?: boolean }) {
   return (
-    <li className="flex flex-wrap items-start justify-between gap-2 rounded-md border border-border bg-background/60 px-3 py-2">
+    <li
+      className={
+        ejemplo
+          ? "flex flex-wrap items-start justify-between gap-2 px-1 py-1"
+          : "flex flex-wrap items-start justify-between gap-2 rounded-md border border-border bg-background/60 px-3 py-2"
+      }
+    >
       <div className="min-w-0 flex-1 space-y-0.5" title={`ID interno: ${fila.conversationId}`}>
         <p className="text-sm">
           <span className={fila.encontrado ? "font-medium text-foreground" : "font-medium text-muted-foreground"}>{fila.nombre}</span>
@@ -106,6 +119,57 @@ export default async function SupervisorPage() {
       : filas.map((fila) => ({ ...fila, nombre: "Datos del chat no disponibles", href: enlaceAlChat(fila.conversationId) }));
   };
 
+  /*
+    Las alertas de ATENCIÓN son tareas (chats pendientes, con estilo de pendiente). Las del bot, del
+    embudo y de los cambios del libro son incidentes o métricas: sus chats son EJEMPLOS del
+    incidente, no pendientes de nadie (Alexander, 10-10-2026).
+  */
+  type Alerta = NonNullable<typeof alertas>[number];
+  const operativas = (alertas ?? []).filter((alerta) => alerta.familia === "ATENCION");
+  const incidentes = (alertas ?? []).filter((alerta) => alerta.familia !== "ATENCION");
+  const tarjeta = (alerta: Alerta, esIncidente: boolean) => {
+    const chats = chatsDe(alerta.hallazgos);
+    const visibles = chats.slice(0, MAX_CHATS_POR_ALERTA);
+    return (
+      <details key={alerta.id} className={`rounded-md border px-3 py-2 ${COLOR[alerta.severidad]}`}>
+        <summary className="cursor-pointer text-sm">
+          <span className="font-semibold">[{ETIQUETA_DE_SEVERIDAD[alerta.severidad]}]</span> {alerta.titulo}
+          <span className="text-muted-foreground">
+            {" "}
+            · desde {hora(alerta.desde)} · {alerta.estado === "ABIERTA" ? "abierta" : `resuelta ${alerta.resueltaEn ? hora(alerta.resueltaEn) : ""}`}
+            {chats.length ? ` · ${chats.length} ${esIncidente ? "ejemplo(s)" : "chat(s)"}` : ""}
+          </span>
+        </summary>
+        {visibles.length ? (
+          <div className="mt-2 space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              {esIncidente ? "Ejemplos del incidente" : "Chats pendientes"}
+              {chats.length > visibles.length ? ` (primeros ${visibles.length} de ${chats.length})` : ""}
+            </p>
+            <ul className={esIncidente ? "divide-y divide-border/60" : "space-y-1.5"}>
+              {visibles.map((fila) => (
+                <ChatAfectado key={fila.conversationId} fila={fila} ejemplo={esIncidente} />
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-foreground">{datosPorChat ? textoSinIds(alerta.texto, chats) : alerta.texto}</pre>
+      </details>
+    );
+  };
+
+  // Seguimiento inteligente: solo si está prendido (en sombra o activo).
+  const configSeguimiento = await leerConfigSeguimiento(workspaceId);
+  const seguimiento =
+    configSeguimiento.motor.modo !== "apagado"
+      ? {
+          modo: configSeguimiento.motor.modo,
+          dias: configSeguimiento.cadencia.dias,
+          tareas: await leerTareasParaSupervisor(workspaceId, ahora).catch(() => []),
+          resumen: await resumenDelMotor(workspaceId, ahora).catch(() => []),
+        }
+      : null;
+
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-5">
       <div className="space-y-1">
@@ -150,48 +214,51 @@ export default async function SupervisorPage() {
         </CardContent>
       </Card>
 
-      <Card size="sm">
-        <CardHeader>
-          <CardTitle>Alertas (abiertas y de los últimos 14 días)</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {alertas === null ? (
+      {seguimiento ? (
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle>Seguimiento inteligente · tareas de hoy</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p className="text-muted-foreground">
+              Lo que el motor deja para una persona (Tibio, Caliente, cotización, fecha cercana y la cadencia de los días{" "}
+              {seguimiento.dias.join(", ")}). Motor en modo <strong>{seguimiento.modo}</strong>
+              {seguimiento.modo === "sombra" ? ": solo muestra lo que haría, no le aparece a las asesoras." : "."}
+              {seguimiento.resumen.length
+                ? ` Últimas 24 h: ${seguimiento.resumen.map((r) => `${r.accion.replace(/_/g, " ")} ${r.total}`).join(" · ")}.`
+                : ""}
+            </p>
+            <TareasDeSeguimiento tareas={seguimiento.tareas} ahora={ahora} mostrarAsesora />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {alertas === null ? (
+        <Card size="sm">
+          <CardContent>
             <p className="text-sm text-muted-foreground">Todavía no existe la tabla de alertas (falta la migración).</p>
-          ) : alertas.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Sin alertas.</p>
-          ) : (
-            alertas.map((alerta) => {
-              const chats = chatsDe(alerta.hallazgos);
-              const visibles = chats.slice(0, MAX_CHATS_POR_ALERTA);
-              return (
-                <details key={alerta.id} className={`rounded-md border px-3 py-2 ${COLOR[alerta.severidad]}`}>
-                  <summary className="cursor-pointer text-sm">
-                    <span className="font-semibold">[{ETIQUETA_DE_SEVERIDAD[alerta.severidad]}]</span> {alerta.titulo}
-                    <span className="text-muted-foreground">
-                      {" "}
-                      · desde {hora(alerta.desde)} · {alerta.estado === "ABIERTA" ? "abierta" : `resuelta ${alerta.resueltaEn ? hora(alerta.resueltaEn) : ""}`}
-                      {chats.length ? ` · ${chats.length} chat(s)` : ""}
-                    </span>
-                  </summary>
-                  {visibles.length ? (
-                    <div className="mt-2 space-y-1.5">
-                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                        Chats afectados{chats.length > visibles.length ? ` (primeros ${visibles.length} de ${chats.length})` : ""}
-                      </p>
-                      <ul className="space-y-1.5">
-                        {visibles.map((fila) => (
-                          <ChatAfectado key={fila.conversationId} fila={fila} />
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                  <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-foreground">{datosPorChat ? textoSinIds(alerta.texto, chats) : alerta.texto}</pre>
-                </details>
-              );
-            })
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <Card size="sm">
+            <CardHeader>
+              <CardTitle>Atención: tareas del equipo (abiertas y de los últimos 14 días)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {operativas.length === 0 ? <p className="text-sm text-muted-foreground">Sin alertas de atención.</p> : operativas.map((alerta) => tarjeta(alerta, false))}
+            </CardContent>
+          </Card>
+          <Card size="sm">
+            <CardHeader>
+              <CardTitle>Incidentes del bot y del embudo</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {incidentes.length === 0 ? <p className="text-sm text-muted-foreground">Sin incidentes.</p> : incidentes.map((alerta) => tarjeta(alerta, true))}
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

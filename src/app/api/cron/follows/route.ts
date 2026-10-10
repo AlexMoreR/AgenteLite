@@ -13,6 +13,7 @@ import { repartirChatsDeMadrugada } from "@/lib/reparto-de-madrugada";
 import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
 import { sincronizarSiTocaHoy } from "@/lib/sincronizacion-gestion";
 import { vueltaDeCadaHora, vueltaDeCincoMinutos } from "@/features/supervisor/servicios/vueltas";
+import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente/servicios/motor";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -234,6 +235,20 @@ async function handleCron(request: Request) {
       }
     });
   }
+  /*
+    SEGUIMIENTO INTELIGENTE (ver src/features/seguimiento-inteligente). APAGADO por defecto: sin
+    `seguimiento-inteligente:config:<negocio>` es UNA consulta a AppSetting y sale. En cada vuelta y
+    en segundo plano: revisa de a 60 leads a los que les toca (caída por silencio, tareas que
+    vencen, mensaje útil, cadencia y descarte).
+  */
+  after(async () => {
+    try {
+      await barrerSeguimientoInteligente();
+    } catch (error) {
+      console.error("[cron/follows] seguimiento inteligente error", error);
+    }
+  });
+
   if (minuto === 23) {
     after(async () => {
       try {

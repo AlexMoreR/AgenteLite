@@ -83,7 +83,8 @@ async function contextoDeLaCharla(base: BaseDelEvento): Promise<ContextoDelLead 
 function comoFoto(fila: Record<string, unknown> | null): FotoDelLead | null {
   if (!fila) return null;
   const foto = fila as unknown as FotoDelLead;
-  return { ...foto, senales: Array.isArray(fila.senales) ? (fila.senales as FotoDelLead["senales"]) : null };
+  const accionDatos = fila.accionDatos && typeof fila.accionDatos === "object" && !Array.isArray(fila.accionDatos) ? (fila.accionDatos as Record<string, unknown>) : null;
+  return { ...foto, accionDatos, senales: Array.isArray(fila.senales) ? (fila.senales as FotoDelLead["senales"]) : null };
 }
 
 function datosDeLaFoto(foto: FotoDelLead) {
@@ -115,6 +116,19 @@ function datosDeLaFoto(foto: FotoDelLead) {
     cotizacionEn: foto.cotizacionEn,
     anticipoEn: foto.anticipoEn,
     ventaEn: foto.ventaEn,
+    // F2 (seguimiento inteligente). `undefined` = no se toca la columna.
+    productoInteres: foto.productoInteres,
+    temperaturaEn: foto.temperaturaEn,
+    accion: foto.accion,
+    accionDatos:
+      foto.accionDatos === undefined ? undefined : foto.accionDatos ? (foto.accionDatos as Prisma.InputJsonValue) : Prisma.DbNull,
+    accionEn: foto.accionEn,
+    tareaPrioridad: foto.tareaPrioridad,
+    tareaVence: foto.tareaVence,
+    mensajesUtiles: foto.mensajesUtiles,
+    exterior: foto.exterior,
+    dormidoHasta: foto.dormidoHasta,
+    fechaCompra: foto.fechaCompra,
   };
 }
 

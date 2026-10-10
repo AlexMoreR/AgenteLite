@@ -9,6 +9,7 @@ import {
   revisarAntiBloqueo,
 } from "@/lib/anti-bloqueo/servicio";
 import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
+import { revisarConvivencia } from "@/features/seguimiento-inteligente/servicios/convivencia";
 import { limpiarFrasesProhibidas } from "@/lib/reglas-de-redaccion";
 
 import { cumpleLasCondiciones } from "../motor/decidir";
@@ -204,6 +205,26 @@ export async function ejecutarSeguimientosV3(
         apagado por defecto. Lo que se corre (horario, espaciado) no se marca como enviado: se
         vuelve a mirar en las vueltas siguientes y sale cuando corresponda.
       */
+      /*
+        Seguimiento inteligente (apagado por defecto): con el motor ACTIVO, este recordatorio no sale
+        si el lead tiene tarea humana, está caliente o dormido, es de fuera de Colombia, o es un Frío
+        al que el motor le manda su mensaje útil en vez del genérico. Ver
+        features/seguimiento-inteligente/servicios/convivencia.ts.
+      */
+      const convivencia = await revisarConvivencia({
+        workspaceId: canal.workspaceId,
+        conversationId: conversacion.id,
+        contactId: conversacion.contactId,
+        channelId: canal.id,
+        motor: "v3",
+        reglaId: toca.regla.id,
+      });
+      if (convivencia) {
+        frenados += 1;
+        anotar(convivencia);
+        continue;
+      }
+
       const revision = await revisarAntiBloqueo({
         workspaceId: canal.workspaceId,
         conversationId: conversacion.id,

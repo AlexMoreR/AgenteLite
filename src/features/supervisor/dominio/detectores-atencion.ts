@@ -7,6 +7,7 @@
  */
 
 import { detectarSenales } from "../../embudo/dominio/senales";
+import { motivoDeExclusion } from "./exclusiones";
 import { horaBogota, diaSemanaBogota } from "./linea-base";
 import type { Hallazgo } from "./tipos";
 
@@ -26,6 +27,14 @@ export type ChatAbierto = {
   textosPendientes: string[];
   /** El chat tiene la IA pausada (lo atiende una persona). */
   pausado?: boolean;
+  /* Para las exclusiones (ver exclusiones.ts). */
+  telefono?: string | null;
+  esLid?: boolean;
+  telefonoDescubierto?: string | null;
+  metadata?: unknown;
+  dormidoHasta?: Date | null;
+  /** Los últimos textos del cliente (no solo los pendientes): si nombra Colombia no es "del exterior". */
+  textosDelCliente?: string[];
 };
 
 export type HorarioLaboral = { desde: number; hasta: number; dias: number[] };
@@ -116,8 +125,13 @@ function hallazgoBase(parcial: Partial<Hallazgo> & Pick<Hallazgo, "clave" | "sev
  */
 export function detectarAtencion(chats: ChatAbierto[], ahora: Date, horario = HORARIO_POR_DEFECTO): Hallazgo[] {
   const salida: Hallazgo[] = [];
+  // Fuera: PERDIDO/GANADO, fuera de Colombia, dormidos por fecha futura y los que ya respondió una
+  // persona (exclusiones.ts). "ya_respondio" coincide con "no está esperando", que ya se exigía.
   const estados = chats
-    .filter((c) => c.etapa !== "GANADO" && c.etapa !== "PERDIDO")
+    .filter((c) => {
+      const motivo = motivoDeExclusion({ ...c, textos: [...(c.textosDelCliente ?? []), ...c.textosPendientes] }, ahora);
+      return motivo === null || motivo === "ya_respondio";
+    })
     .map((c) => estadoDeEspera(c, ahora, horario));
   const u = UMBRALES_ATENCION;
 

@@ -30,6 +30,7 @@ import {
   marcarEnvioAutomatico,
   revisarAntiBloqueo,
 } from "@/lib/anti-bloqueo/servicio";
+import { PREFIJO_FOLLOW_INTELIGENTE, revisarConvivencia } from "@/features/seguimiento-inteligente/servicios/convivencia";
 
 export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
 export type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
@@ -1676,11 +1677,17 @@ async function revisarAntiBloqueoDelFollow(
   }
 
   // 3, 1 y 5: dueño, tope y espaciado (el horario ya se miró).
+  /*
+    Un toque de la cadencia del seguimiento inteligente ("Inteligente: … · dia_3") sale justamente
+    DESPUÉS de que la asesora escribió y el cliente se calló: "un solo dueño" no lo frena (lo decidió
+    el motor por la asesora), pero el tope y el resto de las medidas sí.
+  */
+  const esToqueDeCadencia = (follow.name ?? "").startsWith(PREFIJO_FOLLOW_INTELIGENTE) && (follow.name ?? "").includes("· dia_");
   const resultado = await revisarAntiBloqueo({
     workspaceId: follow.workspaceId,
     contactId: follow.contactId,
     channelId: follow.channelId,
-    medidas: { dueno: esAutomatico, tope: esAutomatico },
+    medidas: { dueno: esAutomatico && !esToqueDeCadencia, tope: esAutomatico },
     ahora,
   });
   return resultado.enviar ? null : resultado;
@@ -1719,7 +1726,24 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
   const clase = clasificarFollow({ name: follow.name, followRuleId: follow.followRuleId });
   let antiBloqueo: Awaited<ReturnType<typeof revisarAntiBloqueoDelFollow>> = null;
   try {
-    antiBloqueo = await revisarAntiBloqueoDelFollow(follow, clase);
+    /*
+      Seguimiento inteligente (apagado por defecto): con el motor ACTIVO, un automático genérico no
+      sale encima de una tarea humana, un lead caliente o dormido, ni a un cliente de fuera de
+      Colombia; a un Frío que maneja el motor se le reemplaza por el mensaje útil. Ver
+      features/seguimiento-inteligente/servicios/convivencia.ts.
+    */
+    if (clase === "automatico") {
+      const motivo = await revisarConvivencia({
+        workspaceId: follow.workspaceId,
+        contactId: follow.contactId,
+        channelId: follow.channelId,
+        motor: "follow",
+        reglaId: follow.followRuleId,
+        nombre: follow.name,
+      });
+      if (motivo) antiBloqueo = { motivo, reprogramarPara: null, conversationId: null };
+    }
+    antiBloqueo ??= await revisarAntiBloqueoDelFollow(follow, clase);
   } catch (error) {
     console.error("[follows] fallo la revision anti-bloqueo; se sigue como antes", {
       followId: follow.id,

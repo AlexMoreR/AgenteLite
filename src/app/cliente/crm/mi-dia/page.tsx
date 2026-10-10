@@ -3,6 +3,8 @@ import Link from "next/link";
 import { HabilidadDelDia } from "@/features/coach/components/HabilidadDelDia";
 import { PendientesDelCoach } from "@/features/coach/components/PendientesDelCoach";
 import { leerPendientesDelCoach } from "@/features/coach/servicios/leer-coach";
+import { TareasDeSeguimiento } from "@/features/seguimiento-inteligente/components/TareasDeSeguimiento";
+import { leerTareasDeAsesora } from "@/features/seguimiento-inteligente/servicios/tareas";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getVisibleChannelIds } from "@/lib/channel-visibility";
 import { getMiDiaData } from "@/features/crm/services/getMiDiaData";
@@ -47,7 +49,7 @@ export default async function ClienteCrmMiDiaPage() {
   const quien = veLlamadas
     ? await prisma.user.findUnique({ where: { id: access.userId }, select: { name: true, email: true } })
     : null;
-  const [data, vendedora, resumen, coach] = await Promise.all([
+  const [data, vendedora, resumen, coach, tareasDeSeguimiento] = await Promise.all([
     getMiDiaData({
       workspaceId: access.workspaceId,
       userId: access.userId,
@@ -67,7 +69,19 @@ export default async function ClienteCrmMiDiaPage() {
       : Promise.resolve(null),
     // "Lo que te dejó el Coach": sus pendientes del último informe (solo lectura, solo los suyos).
     leerPendientesDelCoach(access.workspaceId, access.userId).catch(() => null),
+    // Seguimiento inteligente: sus tareas de hoy (solo con el motor en modo activo).
+    leerTareasDeAsesora(access.workspaceId, access.userId).catch(() => []),
   ]);
+  const bloqueDeSeguimiento = tareasDeSeguimiento.length ? (
+    <details open className="rounded-xl border border-border bg-card px-4 py-3">
+      <summary className="cursor-pointer text-sm font-medium text-foreground">
+        Seguimientos para hoy ({tareasDeSeguimiento.length})
+      </summary>
+      <div className="pt-3">
+        <TareasDeSeguimiento tareas={tareasDeSeguimiento} />
+      </div>
+    </details>
+  ) : null;
   const marcadorUrl = buildWaCallsDialerUrl("");
   // Solo lo suyo: su habilidad del día con la meta, y sus pendientes.
   const bloqueDelCoach =
@@ -92,8 +106,9 @@ export default async function ClienteCrmMiDiaPage() {
     <MiDiaView
       data={data}
       llamadasUrgentes={
-        bloqueDelCoach || vendedora ? (
+        bloqueDeSeguimiento || bloqueDelCoach || vendedora ? (
           <>
+            {bloqueDeSeguimiento}
             {bloqueDelCoach}
             {vendedora ? <LlamadasDeMiDia vendedora={vendedora} marcadorUrl={marcadorUrl} momento="urgente" /> : null}
           </>

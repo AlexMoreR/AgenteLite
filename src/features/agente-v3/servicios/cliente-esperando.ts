@@ -1,3 +1,4 @@
+import { leerMarcaExterior } from "@/features/seguimiento-inteligente/dominio/exterior";
 import { prisma } from "@/lib/prisma";
 
 import { avisarAsesorPorWhatsApp } from "./avisos";
@@ -97,7 +98,7 @@ export async function avisarClientesEsperando(ahora = new Date()): Promise<{ avi
       select: {
         id: true,
         contactId: true,
-        contact: { select: { phoneNumber: true, name: true, crmStage: true } },
+        contact: { select: { phoneNumber: true, name: true, crmStage: true, metadata: true } },
       },
       orderBy: { lastMessageAt: "desc" },
       take: CUANTOS_POR_VUELTA * 4,
@@ -110,6 +111,10 @@ export async function avisarClientesEsperando(ahora = new Date()): Promise<{ avi
 
       const telefono = conversacion.contact?.phoneNumber?.trim();
       if (!telefono) {
+        continue;
+      }
+      // Fuera de Colombia (seguimiento inteligente): no se le avisa a ninguna asesora.
+      if (leerMarcaExterior(conversacion.contact?.metadata)) {
         continue;
       }
 

@@ -1,3 +1,4 @@
+import { leerMarcaExterior } from "@/features/seguimiento-inteligente/dominio/exterior";
 import { ventanaDeMadrugada } from "@/lib/en-linea-reglas";
 import { prisma } from "@/lib/prisma";
 import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
@@ -40,7 +41,7 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
         gte: new Date(ahora.getTime() - VENTANA_MAXIMA_HORAS * 3_600_000),
       },
     },
-    select: { id: true, channelId: true, workspaceId: true, lastMessageAt: true },
+    select: { id: true, channelId: true, workspaceId: true, lastMessageAt: true, contact: { select: { metadata: true } } },
     orderBy: { lastMessageAt: "desc" },
     take: CUANTOS_POR_VUELTA * 3,
   });
@@ -51,6 +52,10 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
   for (const conversacion of candidatas) {
     if (repartidos >= CUANTOS_POR_VUELTA) {
       break;
+    }
+    // Fuera de Colombia (seguimiento inteligente): no se le pasa a ninguna asesora.
+    if (leerMarcaExterior(conversacion.contact?.metadata)) {
+      continue;
     }
     revisados += 1;
 

@@ -155,7 +155,12 @@ export type MotivoAntiBloqueo =
   | "etapa_cerrada"
   | "seguimiento_apagado"
   | "texto_cambiado"
-  | "espaciado";
+  | "espaciado"
+  /* Seguimiento inteligente (features/seguimiento-inteligente/servicios/convivencia.ts). */
+  | "fuera_de_colombia"
+  | "inteligente_tarea_humana"
+  | "inteligente_no_insistir"
+  | "inteligente_reemplazado";
 
 /** Los que solo CORREN el envío (se reprograma); el resto lo cancela. */
 export const MOTIVOS_QUE_REPROGRAMAN: readonly MotivoAntiBloqueo[] = ["fuera_de_horario", "espaciado"];
@@ -382,7 +387,8 @@ export function clasificarFollow(follow: { name: string | null; followRuleId: st
   if (nombre.startsWith("Campaña:")) return "campana";
   if (nombre === NOMBRE_FOLLOW_REACTIVACION) return "reactivacion";
   if (follow.followRuleId) return "automatico";
-  if (/^(Etapa |Sin responder)/.test(nombre)) return "automatico";
+  // "Inteligente: …" = el mensaje útil del seguimiento inteligente: automático, con todas las medidas.
+  if (/^(Etapa |Sin responder|Inteligente: )/.test(nombre)) return "automatico";
   return "humano";
 }
 

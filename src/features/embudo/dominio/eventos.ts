@@ -31,6 +31,14 @@ export const TIPOS_DE_EVENTO = [
   "ANTICIPO",
   "VENTA",
   "INCUMPLIMIENTO",
+  /** F2 seguimiento inteligente: lo que el motor decidió (o habría decidido, en sombra). */
+  "SIGUIENTE_ACCION",
+  /** F2: se agendó un mensaje útil del producto. */
+  "MENSAJE_UTIL",
+  /** F2: teléfono fuera de Colombia (se excluye de métricas y seguimientos). */
+  "EXTERIOR",
+  /** F2: descarte por la cadencia (3 toques sin respuesta), hecho o "habría descartado" en sombra. */
+  "DESCARTE_CADENCIA",
 ] as const;
 
 export type TipoDeEvento = (typeof TIPOS_DE_EVENTO)[number];
@@ -244,6 +252,18 @@ export type FotoDelLead = {
   cotizacionEn: Date | null;
   anticipoEn: Date | null;
   ventaEn: Date | null;
+  /* F2 (seguimiento inteligente). Opcionales: el relleno histórico de F1 no los conoce. */
+  productoInteres?: string | null;
+  temperaturaEn?: Date | null;
+  accion?: string | null;
+  accionDatos?: Record<string, unknown> | null;
+  accionEn?: Date | null;
+  tareaPrioridad?: string | null;
+  tareaVence?: Date | null;
+  mensajesUtiles?: number;
+  exterior?: boolean;
+  dormidoHasta?: Date | null;
+  fechaCompra?: Date | null;
 };
 
 export type ContextoDelLead = {
@@ -365,11 +385,44 @@ export function aplicarEvento(anterior: FotoDelLead | null, evento: EventoDelEmb
           lista.push({ tipo, fragmento: texto(datos.fragmento) ?? "", en: cuando.toISOString() });
         }
         lead.senales = lista;
-        lead.puntaje = puntajeSombra(lista.map((senal) => senal.tipo));
-        lead.motivo = motivoDelPuntaje(lista, lead.puntaje);
+        // Con la calificación F2 prendida, el puntaje y el motivo son los de F2 (con caída por
+        // silencio y señales extra): la señal suelta ya no los pisa.
+        if (!lead.temperaturaEn) {
+          lead.puntaje = puntajeSombra(lista.map((senal) => senal.tipo));
+          lead.motivo = motivoDelPuntaje(lista, lead.puntaje);
+        }
       }
       break;
     }
+    case "TEMPERATURA": {
+      const temperatura = texto(datos.temperatura);
+      if (temperatura) lead.temperatura = temperatura;
+      if (typeof datos.puntaje === "number") lead.puntaje = datos.puntaje;
+      lead.motivo = texto(datos.motivo) ?? lead.motivo;
+      if ("productoInteres" in datos) lead.productoInteres = texto(datos.productoInteres);
+      lead.temperaturaEn = cuando;
+      break;
+    }
+    case "SIGUIENTE_ACCION": {
+      lead.accion = texto(datos.accion);
+      lead.accionDatos = datos;
+      lead.accionEn = cuando;
+      lead.tareaPrioridad = lead.accion === "tarea_asesora" ? texto(datos.prioridad) : null;
+      const vence = texto(datos.vence);
+      lead.tareaVence = lead.accion === "tarea_asesora" && vence ? new Date(vence) : null;
+      const dormido = texto(datos.dormidoHasta);
+      lead.dormidoHasta = lead.accion === "dormido" && dormido ? new Date(dormido) : null;
+      const compra = texto(datos.fechaCompra);
+      if (compra) lead.fechaCompra = new Date(compra);
+      break;
+    }
+    case "MENSAJE_UTIL":
+      lead.mensajesUtiles = (lead.mensajesUtiles ?? 0) + 1;
+      lead.ultimoBotEn = masTarde(lead.ultimoBotEn, cuando);
+      break;
+    case "EXTERIOR":
+      lead.exterior = true;
+      break;
     case "ESCALADO":
       if (lead.transferencia !== "ASIGNADA") lead.transferencia = "ESCALADO";
       break;

@@ -438,4 +438,87 @@ prueba("chats de la alerta: chat no encontrado no rompe y no da enlace; espera c
   assert.equal(chatsAlerta.idsDeChatsDeLaAlerta([{ ...hallazgo, evidencia: { chats: Array.from({ length: 30 }, (_, i) => `c${i}`), reglas: [], versiones: [] } }]).length, chatsAlerta.MAX_CHATS_POR_ALERTA);
 });
 
+/* ------------------------------------------------------------------ exclusiones (10-oct) */
+
+const exclusiones = cargar("src/features/supervisor/dominio/exclusiones.ts");
+const tareasSinDuena = cargar("src/features/supervisor/dominio/tareas-sin-duena.ts");
+
+prueba("exclusiones: un chat PERDIDO y uno +55 (cv9b8466) no generan alertas de atención", () => {
+  const ahora = new Date(LUNES_10AM);
+  const base = { asesoraId: null, ultimoClienteEn: new Date(LUNES_10AM - 40 * M), ultimaRespuestaHumanaEn: null, textosPendientes: ["Valor da cadeira de manicure?"] };
+  const perdido = { ...base, conversationId: "cvPerdido", etapa: "PERDIDO", telefono: "573001234567" };
+  const brasil = { ...base, conversationId: "cv9b8466b04a55168797bdd5d9", etapa: "NUEVO", telefono: "554599887766" };
+  const marcado = { ...base, conversationId: "cvMarcado", etapa: "NUEVO", telefono: "248211554433221", metadata: { fueraDeColombia: { en: "2026-10-10" } } };
+  assert.equal(atencion.detectarAtencion([perdido, brasil, marcado], ahora).length, 0);
+  // Un LID sin teléfono real no se decide: SÍ alerta (puede ser de Colombia).
+  const lid = { ...base, conversationId: "cvLid", etapa: "NUEVO", telefono: "248211554433221", esLid: true };
+  const colombia = { ...base, conversationId: "cvCo", etapa: "NUEVO", telefono: "573001234567" };
+  const h = atencion.detectarAtencion([lid, colombia, perdido, brasil], ahora);
+  const sinDuena = h.find((x) => x.clave === "ATENCION:senal-sin-duena");
+  assert.deepEqual([...sinDuena.evidencia.chats].sort(), ["cvCo", "cvLid"]);
+  // Número extranjero de un cliente EN Colombia ("+1 … Pereira risaralda"): sí es tarea.
+  const venezolano = { ...base, conversationId: "cvVe", etapa: "NUEVO", telefono: "584141234567", textosPendientes: ["cuánto vale el envío"], textosDelCliente: ["Estoy en Cúcuta"] };
+  assert.ok(atencion.detectarAtencion([venezolano], ahora).some((x) => x.evidencia.chats.includes("cvVe")));
+  // Caliente esperando y oportunidad a retomar tampoco cuentan a un PERDIDO ni a un +55.
+  const caliente = { ...brasil, asesoraId: "u1", etapa: "NEGOCIACION", textosPendientes: ["cómo hago para separar"] };
+  const viejo = { ...perdido, asesoraId: "u1", ultimoClienteEn: new Date(LUNES_10AM - 30 * H), textosPendientes: ["a qué cuenta consigno"] };
+  assert.equal(atencion.detectarAtencion([caliente, viejo], ahora).length, 0);
+});
+
+prueba("exclusiones: dormido por fecha futura y 'ya respondió' no son tarea; despierta si vuelve a escribir", () => {
+  const ahora = new Date(LUNES_10AM);
+  const dormido = { etapa: "NUEVO", telefono: "573001234567", dormidoHasta: new Date(LUNES_10AM + 30 * 24 * H), ultimoClienteEn: new Date(LUNES_10AM - 3 * 24 * H), ultimaRespuestaHumanaEn: new Date(LUNES_10AM - 3 * 24 * H + 4 * M) };
+  assert.equal(exclusiones.motivoDeExclusion(dormido, ahora), "dormido");
+  // Al volver a escribir, el motor le borra `dormidoHasta`: vuelve a ser tarea.
+  assert.equal(exclusiones.motivoDeExclusion({ ...dormido, dormidoHasta: null, ultimoClienteEn: new Date(LUNES_10AM - 20 * M) }, ahora), null);
+  assert.equal(exclusiones.motivoDeExclusion({ ...dormido, dormidoHasta: new Date(LUNES_10AM - H) }, ahora), "ya_respondio");
+  assert.equal(exclusiones.motivoDeExclusion({ etapa: "NUEVO", telefono: "573001234567", ultimoClienteEn: new Date(LUNES_10AM - 2 * H), ultimaRespuestaHumanaEn: new Date(LUNES_10AM - H) }, ahora), "ya_respondio");
+  assert.equal(exclusiones.motivoDeExclusion({ etapa: "GANADO" }, ahora), "etapa_cerrada");
+  const chatDormido = { conversationId: "cvDormido", asesoraId: "u1", ...dormido, ultimaRespuestaHumanaEn: null, textosPendientes: ["Finales de noviembre tal vez, cómo separo"] };
+  assert.equal(atencion.detectarAtencion([chatDormido], ahora).length, 0);
+});
+
+prueba("exclusiones: al recalcular, los chats excluidos salen de la alerta abierta y la vacía se cierra", () => {
+  const ahora = new Date(LUNES_10AM);
+  const h1 = hallazgo("ATENCION:senal-sin-duena", "IMPORTANTE", new Date(LUNES_10AM - H), {
+    familia: "ATENCION",
+    evidencia: { chats: ["cv9b8466b04a55168797bdd5d9", "cvCo"], reglas: [], versiones: [] },
+    hechos: ['Chat cv9b8466b04a55168797bdd5d9: 40 min, "Valor da cadeira".', 'Chat cvCo: 30 min, "envío".'],
+    leadsAfectados: 2,
+  });
+  const inc = (clave, hallazgos) => ({ clave, familia: "ATENCION", severidad: "IMPORTANTE", titulo: clave, producto: null, primeraVezEn: ahora, ultimaVezEn: ahora, desde: ahora, vecesVista: 1, estado: "ABIERTA", resueltaEn: null, notificadaEn: null, severidadNotificada: null, hallazgos });
+  const soloBrasil = hallazgo("ATENCION:oportunidades-a-retomar", "OBSERVACION", ahora, { familia: "ATENCION", evidencia: { chats: ["cv9b8466b04a55168797bdd5d9"], reglas: [], versiones: [] } });
+  const bot = { ...inc("INC:libro-v182:combo-camilla", [hallazgo("BOT:rafaga_inicial:combo-camilla", "CRITICO", ahora, { evidencia: { chats: ["cv9b8466b04a55168797bdd5d9"], reglas: [], versiones: [] } })]), familia: "BOT" };
+  const r = exclusiones.purgarChatsExcluidos([inc("ATENCION:senal-sin-duena", [h1]), inc("ATENCION:oportunidades-a-retomar", [soloBrasil]), bot], new Set(["cv9b8466b04a55168797bdd5d9"]), ahora);
+  assert.equal(r.cambiados, 2);
+  const [quedan, cerrada, incidente] = r.incidentes;
+  assert.deepEqual(quedan.hallazgos[0].evidencia.chats, ["cvCo"]);
+  assert.equal(quedan.hallazgos[0].leadsAfectados, 1);
+  assert.equal(quedan.hallazgos[0].hechos.length, 1);
+  assert.equal(quedan.estado, "ABIERTA");
+  assert.equal(cerrada.estado, "RESUELTA");
+  assert.equal(cerrada.hallazgos[0].evidencia.chats.length, 0);
+  // Los incidentes del bot o del embudo no se tocan: sus chats son ejemplos.
+  assert.equal(incidente, bot);
+  // Y consolidar no la reabre si el detector ya no la produce.
+  const c = alertas.consolidar({ abiertos: r.incidentes, hallazgos: [], ahora, cambios: [], familiasEvaluadas: ["ATENCION"] });
+  assert.equal(c.incidentes.find((i) => i.clave === "ATENCION:oportunidades-a-retomar").estado, "RESUELTA");
+});
+
+prueba("tareas del seguimiento sin dueña: un hallazgo de atención con las A primero (no reasigna)", () => {
+  const ahora = new Date(LUNES_10AM);
+  const h = tareasSinDuena.hallazgosDeTareasSinDuena(
+    [
+      { conversationId: "b1", prioridad: "B", vence: new Date(LUNES_10AM - H), motivo: "tibio_sin_asesora", nombre: "x" },
+      { conversationId: "a1", prioridad: "A", vence: new Date(LUNES_10AM - 10 * M), motivo: "caliente_sin_asesora", nombre: "y" },
+    ],
+    ahora,
+  );
+  assert.equal(h.length, 1);
+  assert.equal(h[0].severidad, "IMPORTANTE");
+  assert.deepEqual(h[0].evidencia.chats, ["a1", "b1"]);
+  assert.equal(h[0].tocaProduccion, false);
+  assert.equal(tareasSinDuena.hallazgosDeTareasSinDuena([], ahora).length, 0);
+});
+
 console.log(`\n${pruebas} pruebas del Supervisor OK`);

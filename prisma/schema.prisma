@@ -1875,12 +1875,35 @@ model EmbudoLead {
   anticipoEn                DateTime?
   ventaEn                   DateTime?
   revisadoEn                DateTime?
+  /// F2 (seguimiento inteligente): el producto que le interesa ("combo-camilla", "butacos-manicure"...).
+  productoInteres           String?
+  /// Cuando se calculo la temperatura por ultima vez (null = F2 nunca la calculo).
+  temperaturaEn             DateTime?
+  /// Siguiente accion del motor: no_insistir | mensaje_util_producto | tarea_asesora | excluir_exterior | esperar | dormido | descartar
+  accion                    String?
+  /// Detalle de la accion (motivo, modo sombra/activo, mensaje sugerido, toque de la cadencia...).
+  accionDatos               Json?
+  accionEn                  DateTime?
+  /// A | B | C cuando la accion es una tarea para la asesora.
+  tareaPrioridad            String?
+  tareaVence                DateTime?
+  /// Mensajes utiles automaticos agendados antes de que escriba una asesora.
+  mensajesUtiles            Int       @default(0)
+  /// Telefono fuera de Colombia: no se le vende ni se mide.
+  exterior                  Boolean   @default(false)
+  /// Cuando el barrido del motor lo vuelve a mirar.
+  revisarEn                 DateTime?
+  /// Dijo una fecha futura de compra: sin automaticos ni alertas hasta esta fecha.
+  dormidoHasta              DateTime?
+  fechaCompra               DateTime?
   version                   Int       @default(0)
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 
   @@index([workspaceId, entradaEn])
   @@index([workspaceId, transferencia, temperatura])
+  @@index([workspaceId, revisarEn])
+  @@index([workspaceId, accion, tareaVence])
 }
 
 /// SUPERVISOR (fase 1: leer, analizar, alertar y recomendar). Una fila = un INCIDENTE que se

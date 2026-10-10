@@ -45,6 +45,7 @@ export async function leerEmbudo(input: {
     AND l."entradaEn" >= ${inicio} AND l."entradaEn" < ${fin}
     ${producto ? Prisma.sql`AND l."productoEntrada" = ${producto}` : Prisma.empty}
     ${input.incluirMezcla ? Prisma.empty : Prisma.sql`AND l."mezcla" = false`}
+    AND l."exterior" = false
   `;
 
   const conteosPorEtapa = ETAPAS_DEL_PANEL.map(

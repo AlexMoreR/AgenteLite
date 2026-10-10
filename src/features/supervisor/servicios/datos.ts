@@ -5,8 +5,10 @@ import type { LibroDeReglas } from "@/features/agente-v3/domain/reglas";
 import { leerConfigEmbudo } from "@/features/embudo/servicios/config";
 import { getFlowReply } from "@/lib/agent-product-flow";
 import { prisma } from "@/lib/prisma";
+import { isMarkedAsLid, readDiscoveredPhone } from "@/lib/whatsapp-lid";
 
 import type { ChatAbierto } from "../dominio/detectores-atencion";
+import { motivoDeExclusion } from "../dominio/exclusiones";
 import type { FlujoConocido } from "../dominio/guardian";
 import { fichaDelLead, type FichaDelLead, type MensajeDelSupervisor } from "../dominio/lead";
 import type { CambioDelLibro } from "../dominio/tipos";
@@ -109,7 +111,82 @@ type FilaDeChat = {
   ultimoClienteEn: Date | null;
   ultimaRespuestaHumanaEn: Date | null;
   textos: string[] | null;
+  textosCliente: string[] | null;
+  telefono: string | null;
+  metadata: unknown;
+  dormidoHasta: Date | null;
 };
+
+/** Lo de las exclusiones (exterior, LID, dormido) desde las columnas de la fila. */
+function datosDeExclusion(fila: { telefono: string | null; metadata: unknown; dormidoHasta: Date | null }) {
+  return {
+    telefono: fila.telefono,
+    metadata: fila.metadata,
+    esLid: isMarkedAsLid(fila.metadata),
+    telefonoDescubierto: readDiscoveredPhone(fila.metadata),
+    dormidoHasta: fila.dormidoHasta ? new Date(fila.dormidoHasta) : null,
+  };
+}
+
+type FilaDeExclusion = {
+  conversationId: string;
+  etapa: string | null;
+  telefono: string | null;
+  metadata: unknown;
+  dormidoHasta: Date | null;
+  ultimoClienteEn: Date | null;
+  ultimaRespuestaHumanaEn: Date | null;
+  textosCliente: string[] | null;
+};
+
+/** Los últimos 20 textos del cliente (para no tratar como "del exterior" a quien nombra una ciudad de Colombia). */
+const LATERAL_TEXTOS_DEL_CLIENTE = Prisma.sql`
+      LEFT JOIN LATERAL (
+        SELECT array_agg(left(coalesce(nullif(u20."transcripcion", ''), u20."content", ''), 200)) AS "textosCliente" FROM (
+          SELECT m."transcripcion", m."content" FROM "Message" m
+           WHERE m."conversationId" = c."id" AND m."direction" = 'INBOUND' AND m."type"::text <> 'SYSTEM'
+           ORDER BY m."createdAt" DESC LIMIT 20) u20) todos ON true`;
+
+/**
+ * Los chats (de las alertas de atención abiertas) que ya no son tarea: PERDIDO/GANADO, fuera de
+ * Colombia, dormidos o ya respondidos por una persona. UNA consulta, solo dentro del negocio.
+ */
+export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[], ahora: Date): Promise<Set<string>> {
+  const unicos = [...new Set(ids)].filter(Boolean);
+  if (unicos.length === 0) return new Set();
+  const filas = await prisma.$queryRaw<FilaDeExclusion[]>(Prisma.sql`
+    SELECT c."id" AS "conversationId", ct."crmStage"::text AS "etapa", ct."phoneNumber" AS "telefono", ct."metadata",
+           l."dormidoHasta", cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", todos."textosCliente"
+      FROM "Conversation" c
+      JOIN "Contact" ct ON ct."id" = c."contactId"
+      LEFT JOIN "EmbudoLead" l ON l."conversationId" = c."id"
+      LEFT JOIN LATERAL (
+        SELECT m."createdAt" FROM "Message" m
+         WHERE m."conversationId" = c."id" AND m."direction" = 'INBOUND' AND m."type"::text <> 'SYSTEM'
+         ORDER BY m."createdAt" DESC LIMIT 1) cli ON true
+      LEFT JOIN LATERAL (
+        SELECT m."createdAt" FROM "Message" m
+         WHERE m."conversationId" = c."id" AND m."direction" = 'OUTBOUND' AND m."type"::text <> 'SYSTEM'
+           AND m."rawPayload"->>'source' IN ('manual', 'instance')
+         ORDER BY m."createdAt" DESC LIMIT 1) hum ON true
+      ${LATERAL_TEXTOS_DEL_CLIENTE}
+     WHERE c."workspaceId" = ${workspaceId} AND c."id" IN (${Prisma.join(unicos)})`);
+  const excluidos = new Set<string>();
+  for (const fila of filas) {
+    const motivo = motivoDeExclusion(
+      {
+        etapa: fila.etapa,
+        ...datosDeExclusion(fila),
+        ultimoClienteEn: fila.ultimoClienteEn ? new Date(fila.ultimoClienteEn) : null,
+        ultimaRespuestaHumanaEn: fila.ultimaRespuestaHumanaEn ? new Date(fila.ultimaRespuestaHumanaEn) : null,
+        textos: fila.textosCliente ?? [],
+      },
+      ahora,
+    );
+    if (motivo) excluidos.add(fila.conversationId);
+  }
+  return excluidos;
+}
 
 /**
  * Los chats abiertos de las líneas del V3 con movimiento en 72 h, con lo que hace falta para el
@@ -123,10 +200,12 @@ export async function leerChatsAbiertos(input: { workspaceId: string; ahora: Dat
   const filas = await prisma.$queryRaw<FilaDeChat[]>(Prisma.sql`
     SELECT c."id" AS "conversationId", c."assignedToUserId" AS "asesoraId", u."name" AS "asesoraNombre",
            ct."crmStage"::text AS "etapa", c."automationPaused" AS "pausado",
-           cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", txt."textos"
+           cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", txt."textos",
+           ct."phoneNumber" AS "telefono", ct."metadata", l."dormidoHasta", todos."textosCliente"
       FROM "Conversation" c
       JOIN "Contact" ct ON ct."id" = c."contactId"
       LEFT JOIN "User" u ON u."id" = c."assignedToUserId"
+      LEFT JOIN "EmbudoLead" l ON l."conversationId" = c."id"
       LEFT JOIN LATERAL (
         SELECT m."createdAt" FROM "Message" m
          WHERE m."conversationId" = c."id" AND m."direction" = 'INBOUND' AND m."type"::text <> 'SYSTEM'
@@ -143,6 +222,7 @@ export async function leerChatsAbiertos(input: { workspaceId: string; ahora: Dat
            WHERE m."conversationId" = c."id" AND m."direction" = 'INBOUND' AND m."type"::text <> 'SYSTEM'
              AND (hum."createdAt" IS NULL OR m."createdAt" > hum."createdAt")
            ORDER BY m."createdAt" DESC LIMIT 5) t) txt ON true
+      ${LATERAL_TEXTOS_DEL_CLIENTE}
      WHERE c."channelId" IN (${Prisma.join(lineas)})
        AND c."status" = 'OPEN'
        AND c."lastMessageAt" >= ${desde}`);
@@ -155,6 +235,8 @@ export async function leerChatsAbiertos(input: { workspaceId: string; ahora: Dat
     ultimoClienteEn: fila.ultimoClienteEn ? new Date(fila.ultimoClienteEn) : null,
     ultimaRespuestaHumanaEn: fila.ultimaRespuestaHumanaEn ? new Date(fila.ultimaRespuestaHumanaEn) : null,
     textosPendientes: fila.textos ?? [],
+    textosDelCliente: fila.textosCliente ?? [],
+    ...datosDeExclusion(fila),
   }));
 }
 

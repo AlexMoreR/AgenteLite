@@ -111,6 +111,12 @@ import { leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborator
 import { filtrarPorHorario } from "@/lib/horario-de-reparto";
 import { filtrarEnLinea } from "@/lib/en-linea";
 import { repartirSiElTurnoLoAmerita } from "@/lib/reparto-por-turno";
+import {
+  marcarRespuestaExteriorEnviada,
+  revisarExteriorEnWebhook,
+  type DecisionExterior,
+} from "@/features/seguimiento-inteligente/servicios/exterior";
+import { revisarLeadAlEscribir } from "@/features/seguimiento-inteligente/servicios/motor";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
 import {
@@ -2084,6 +2090,43 @@ export async function POST(request: NextRequest) {
   }
 
   /*
+    Seguimiento inteligente (src/features/seguimiento-inteligente), APAGADO por defecto:
+    - fuera de Colombia (interruptor `exterior`): se marca el contacto y no se reparte; mas abajo
+      el V3 le contesta UNA vez y no sigue.
+    - el motor recalcula la temperatura y la siguiente accion del lead en segundo plano.
+    Con todo apagado es una lectura de configuracion en memoria y nada cambia.
+  */
+  let exteriorDelSeguimiento: DecisionExterior = { excluir: false, responder: false, texto: "" };
+  if (
+    conversation.id &&
+    !fromMe &&
+    !isCallEvent &&
+    !messageWasEdited &&
+    !messageWasDeleted &&
+    !isEvolutionStatusBroadcastPayload(payload)
+  ) {
+    const lineaConV3 =
+      channel.metadata !== null &&
+      typeof channel.metadata === "object" &&
+      !Array.isArray(channel.metadata) &&
+      (channel.metadata as Record<string, unknown>).agenteV3 === true;
+    if (lineaConV3) {
+      exteriorDelSeguimiento = await revisarExteriorEnWebhook({
+        workspaceId: channel.workspaceId,
+        contactId: contact.id,
+        conversationId: conversation.id,
+        channelId: channel.id,
+        telefono: phoneNumber,
+        esLidSinResolver: Boolean(lidEntrante) && phoneNumber === lidEntrante,
+        texto: messageText ?? null,
+      });
+    }
+    if (!exteriorDelSeguimiento.excluir) {
+      revisarLeadAlEscribir({ workspaceId: channel.workspaceId, conversationId: conversation.id });
+    }
+  }
+
+  /*
     Reparto por turno (Alex, 02-10-2026): si la clienta contesto CON CONTENIDO a algo del agente o
     de un flujo y el chat no tiene asesora, se reparte. Va despues de guardar el mensaje -es parte
     del turno que se mira- y en segundo plano: el webhook no espera al reparto. Ver
@@ -2094,7 +2137,9 @@ export async function POST(request: NextRequest) {
     !isCallEvent &&
     !messageWasEdited &&
     !messageWasDeleted &&
-    !isEvolutionStatusBroadcastPayload(payload)
+    !isEvolutionStatusBroadcastPayload(payload) &&
+    // Un cliente de fuera de Colombia no se le pasa a ninguna asesora.
+    !exteriorDelSeguimiento.excluir
   ) {
     const conversacionDelReparto = conversation.id;
     after(async () => {
@@ -2778,6 +2823,35 @@ export async function POST(request: NextRequest) {
     a contestar un chat que ya tomo una persona. Si la linea ademas tiene agente V2, el mensaje
     sigue su camino y el V2 respeta la misma pausa por su cuenta.
   */
+  /*
+    Fuera de Colombia (seguimiento inteligente, interruptor `exterior`): una sola respuesta amable y
+    nada mas: ni producto, ni asesora, ni el acuse de pausa, ni seguimientos.
+  */
+  if (canalUsaV3 && exteriorDelSeguimiento.excluir && channel.evolutionInstanceName) {
+    if (exteriorDelSeguimiento.responder) {
+      try {
+        await sendAndPersistEvolutionFlowStepResilient({
+          step: { kind: "text", content: exteriorDelSeguimiento.texto },
+          workspaceId: channel.workspaceId,
+          conversationId: conversation.id,
+          channelId: channel.id,
+          contactId: contact.id,
+          agentId: channel.agentId ?? undefined,
+          instanceName: channel.evolutionInstanceName,
+          phoneNumber,
+        });
+        await marcarRespuestaExteriorEnviada(contact.id);
+      } catch (error) {
+        console.warn("[EVOLUTION] no se pudo responder al cliente de fuera de Colombia", {
+          conversationId: conversation.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    console.log("[EVOLUTION] v3_fuera_de_colombia", { conversationId: conversation.id, respondio: exteriorDelSeguimiento.responder });
+    return NextResponse.json({ ok: true, message: "V3: cliente fuera de Colombia (solo vendemos en Colombia)" });
+  }
+
   const v3Pausado = canalUsaV3
     ? await getConversationAutomationPaused({
         conversationId: conversation.id,

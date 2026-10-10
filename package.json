@@ -21,6 +21,7 @@
     "test:fallas-crm": "node scripts/check-fallas-crm.mjs",
     "embudo:backfill": "node scripts/embudo-backfill.mjs",
     "test:supervisor": "node scripts/check-supervisor.mjs",
+    "test:seguimiento-inteligente": "node scripts/check-seguimiento-inteligente.mjs",
     "supervisor:guardian": "node scripts/supervisor-guardian.mjs",
     "supervisor:simular": "node scripts/supervisor-simulacion.mjs",
     "test:e2e": "playwright test -c e2e",
