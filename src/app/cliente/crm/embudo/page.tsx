@@ -20,8 +20,11 @@ import {
 } from "@/features/embudo/dominio/panel";
 import { etiquetaDeSenal, grupoDeSenal } from "@/features/embudo/dominio/senales";
 import { leerEmbudo, productosDelEmbudo, type LecturaDelEmbudo } from "@/features/embudo/servicios/leer-embudo";
+import { DESDE_POR_DEFECTO, leerEstadoDelRelleno, lineasParaElRelleno } from "@/features/embudo/servicios/relleno";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
+
+import { HistoriaDelEmbudo } from "./historia";
 
 export const metadata: Metadata = { robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -73,11 +76,16 @@ export default async function EmbudoPage({ searchParams }: PageProps) {
     if (esDiaValido(d2) && esDiaValido(h2) && d2 <= h2) comparado = { desde: d2, hasta: h2 };
   }
 
+  // La sección "Historia" (relleno histórico) es solo del dueño: mismo criterio que `ownerOnly`.
+  const esDueno = access.isOwner || access.role === "ADMIN";
   const base = { workspaceId: access.workspaceId, producto, incluirMezcla };
-  const [actual, anterior, productos] = await Promise.all([
+  const [actual, anterior, productos, historia] = await Promise.all([
     leerEmbudo({ ...base, periodo: { desde, hasta } }),
     comparado ? leerEmbudo({ ...base, periodo: comparado }) : Promise.resolve(null),
     productosDelEmbudo(access.workspaceId).catch(() => [{ clave: CLAVE_COMBO, nombre: "Combo de Camilla" }]),
+    esDueno
+      ? Promise.all([lineasParaElRelleno(access.workspaceId), leerEstadoDelRelleno(access.workspaceId)]).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const filas = filasDelEmbudo(actual.conteos);
@@ -139,7 +147,7 @@ export default async function EmbudoPage({ searchParams }: PageProps) {
       {actual.conteos.total === 0 ? (
         <p className="rounded-lg border border-border bg-muted px-3 py-2 text-sm">
           Todavía no hay leads registrados en este período. El registro empieza a llenarse con los mensajes nuevos;
-          para ver semanas pasadas hay que correr el relleno histórico (scripts/embudo-backfill.mjs).
+          para ver semanas pasadas, el dueño puede reconstruirlas en la sección «Historia» (abajo).
         </p>
       ) : null}
 
@@ -176,6 +184,16 @@ export default async function EmbudoPage({ searchParams }: PageProps) {
           <TarjetaDeSenales titulo={`Señales (${anterior.periodo.desde} a ${anterior.periodo.hasta})`} lectura={anterior} />
         ) : null}
       </div>
+
+      {historia ? (
+        <HistoriaDelEmbudo
+          lineas={historia[0].lineas}
+          lineaPorDefecto={historia[0].porDefecto}
+          desdePorDefecto={DESDE_POR_DEFECTO <= hoy ? DESDE_POR_DEFECTO : hoy}
+          hoy={hoy}
+          estadoInicial={historia[1]}
+        />
+      ) : null}
 
       <p className="text-xs text-muted-foreground">
         <Link href="/cliente/crm/tablero" className="underline">

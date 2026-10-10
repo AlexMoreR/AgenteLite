@@ -2,7 +2,7 @@
  * LOS EVENTOS DEL EMBUDO y cómo cambian la foto de cada lead (Embudo F1).
  *
  * Todo esto es código puro —sin base, sin Next—: lo usan el registro en vivo
- * (servicios/eventos.ts), el relleno histórico (scripts/embudo-backfill.mjs) y las pruebas
+ * (servicios/eventos.ts), el relleno histórico (dominio/relleno.ts) y las pruebas
  * (scripts/check-embudo.mjs). Así el pasado y el presente se cuentan con la MISMA regla.
  */
 
