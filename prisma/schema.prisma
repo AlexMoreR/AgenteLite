@@ -1809,3 +1809,76 @@ model CoachAsesora {
   @@unique([informeId, userId])
   @@index([workspaceId, userId, createdAt])
 }
+
+/// EMBUDO (F1, medir sin cambiar nada): cada cosa que le pasa a un lead queda como una fila que no
+/// se edita. La escriben el motor V3, los relojes, el reparto, las asesoras y el relleno historico.
+/// Sin claves foraneas a proposito: es un registro de medicion y no puede impedir borrar nada ni
+/// hacer fallar una escritura del CRM. Ver src/features/embudo.
+model EmbudoEvento {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  conversationId String
+  contactId      String?
+  channelId      String?
+  /// Producto del lead en ese momento: "combo-camilla" o el id del producto del V3.
+  producto       String?
+  /// PRESENTACION | IDENTIFICACION | PRODUCTO | OBJECIONES | CIERRE
+  paso           String?
+  /// ENTRADA, BIENVENIDA_ENVIADA, CLIENTE_RESPONDIO, PASO_ENTRA, SENAL, TURNO_V3... (texto, no enum)
+  tipo           String
+  reglaId        String?
+  reglaNombre    String?
+  libroVersion   Int?
+  /// motor | reloj | asesora | gestion | backfill | webhook
+  origen         String
+  datos          Json?
+  /// Para no repetir un evento que solo pasa una vez (ENTRADA:<chat>, BIENVENIDA:<chat>...).
+  claveUnica     String?  @unique
+  createdAt      DateTime @default(now())
+
+  @@index([workspaceId, tipo, createdAt])
+  @@index([conversationId, createdAt])
+}
+
+/// EMBUDO: la foto actual de cada lead (una fila por conversacion). Se recalcula con cada evento.
+model EmbudoLead {
+  conversationId            String    @id
+  contactId                 String
+  workspaceId               String
+  channelId                 String
+  productoEntrada           String?
+  productoActual            String?
+  /// Cambio a otro producto despues de entrar: queda fuera del panel por defecto.
+  mezcla                    Boolean   @default(false)
+  anuncioId                 String?
+  anuncioTitulo             String?
+  anuncioRed                String?
+  entradaEn                 DateTime
+  libroVersionEntrada       Int?
+  pasoActual                String?
+  pasoMaximo                String?
+  /// F2. En F1 queda en null.
+  temperatura               String?
+  /// Puntaje "en sombra" de las senales: se guarda, no decide nada en F1.
+  puntaje                   Int?
+  motivo                    String?
+  senales                   Json?
+  /// NO | ESCALADO | ASIGNADA
+  transferencia             String    @default("NO")
+  asignadaA                 String?
+  asignadaEn                DateTime?
+  primeraRespuestaAsesoraEn DateTime?
+  ultimoClienteEn           DateTime?
+  ultimoBotEn               DateTime?
+  cotizacionRef             String?
+  cotizacionEn              DateTime?
+  anticipoEn                DateTime?
+  ventaEn                   DateTime?
+  revisadoEn                DateTime?
+  version                   Int       @default(0)
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  @@index([workspaceId, entradaEn])
+  @@index([workspaceId, transferencia, temperatura])
+}

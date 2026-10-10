@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { revisarFrenoDeAutomatico, type MotivoDeFreno } from "@/lib/freno-de-automaticos";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { getFlowReply, type FlowStep } from "@/lib/agent-product-flow";
+import { registrarSeguimientoEnviado } from "@/features/embudo/servicios/eventos";
 
 export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
 export type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
@@ -1601,6 +1602,19 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
 
   const executionError = buildExecutionErrorSummary(actionErrors);
   await finalizeFollowExecution(follow.id, actions, executionError);
+  // Embudo F1: solo mide (en segundo plano, no lanza). Cuenta si salió al menos una acción.
+  const salieron = actions.filter((action) => action.status === "EXECUTED").length;
+  if (salieron > 0) {
+    registrarSeguimientoEnviado({
+      workspaceId: follow.workspaceId,
+      contactId: follow.contactId,
+      channelId: follow.channelId,
+      motor: "follow",
+      reglaId: follow.followRuleId,
+      reglaNombre: follow.name,
+      datos: { followId: follow.id, acciones: salieron },
+    });
+  }
   return { ok: true as const, executionError };
 }
 

@@ -16,6 +16,8 @@
     "test:agente-v3-foto": "node scripts/check-agente-v3-foto.mjs",
     "test:velocidad-bandeja": "node scripts/check-velocidad-bandeja.mjs",
     "test:coach": "node scripts/check-coach.mjs",
+    "test:embudo": "node scripts/check-embudo.mjs",
+    "embudo:backfill": "node scripts/embudo-backfill.mjs",
     "test:e2e": "playwright test -c e2e",
     "db:seed": "node prisma/seed.js"
   },

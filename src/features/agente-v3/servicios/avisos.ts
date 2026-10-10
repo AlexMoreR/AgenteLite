@@ -1,3 +1,4 @@
+import { registrarEscalado } from "@/features/embudo/servicios/eventos";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { autoAssignConversationToCollaborator, avisarAsignacionPorPush } from "@/lib/reparto-de-leads";
 import { prisma } from "@/lib/prisma";
@@ -137,6 +138,8 @@ export async function avisarAsesorPorWhatsApp(input: {
   // A quién se le repartió el chat en ESTE aviso, y si le llegó su WhatsApp (ver el `finally`).
   let asignadaAhoraA: string | null = null;
   let llegoALaAsesora = false;
+  // Embudo F1: queda anotado que se pidió una asesora (en segundo plano; no cambia nada de abajo).
+  registrarEscalado({ workspaceId: input.workspaceId, conversationId: input.conversationId, motivo: input.motivo });
   try {
     const config = await leerConfigDeAvisos(input.workspaceId);
     if (!config?.activo || config.destinos.length === 0) {

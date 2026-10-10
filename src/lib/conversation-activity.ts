@@ -1,3 +1,4 @@
+import { registrarDesdeActividad } from "@/features/embudo/servicios/eventos";
 import { prisma } from "@/lib/prisma";
 
 // Tipos de evento de actividad que se registran en la línea de tiempo del chat
@@ -73,6 +74,13 @@ export async function recordConversationActivity(input: {
         } as never,
       },
     });
+    /*
+      Embudo F1: toda asignación y todo cambio de etapa pasan por acá, así que acá se miden
+      (ASIGNADA, ETAPA_CRM). Va en segundo plano y no lanza: no cambia nada de la acción.
+    */
+    if (input.kind === "assigned" || input.kind === "stage_changed") {
+      registrarDesdeActividad({ ...input, text });
+    }
   } catch {
     // El registro de actividad nunca debe romper la acción principal.
   }

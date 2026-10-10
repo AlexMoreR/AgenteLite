@@ -4,6 +4,7 @@ import { avisoSiNoSePuedeDescartar } from "@/features/crm/services/candado-desca
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { avisarOrigenAGestion } from "@/lib/origen-de-venta-crm";
+import { registrarVenta } from "@/features/embudo/servicios/eventos";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -176,6 +177,18 @@ export async function updateCrmStageAction(input: {
   if (parsed.data.status === "GANADO" && wonQuoteRef) {
     const aviso = { workspaceId: membership.workspace.id, contactId: contact.id, quoteCode: wonQuoteRef };
     after(() => avisarOrigenAGestion(aviso).then(() => undefined));
+    // Embudo F1: la venta queda medida en su chat (en segundo plano; no cambia el cambio de etapa).
+    if (recentConversation) {
+      registrarVenta({
+        workspaceId: membership.workspace.id,
+        conversationId: recentConversation.id,
+        contactId: contact.id,
+        channelId: recentConversation.channelId,
+        cotizacion: wonQuoteRef,
+        ventaEn: wonAt,
+        actorUserId: session.user.id,
+      });
+    }
   }
 
   revalidatePath("/cliente/crm");

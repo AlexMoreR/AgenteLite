@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { registrarAsesoraRespondio } from "@/features/embudo/servicios/eventos";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { prisma } from "@/lib/prisma";
 
@@ -26,6 +27,20 @@ export async function claimConversationIfUnassigned(input: {
     const userId = session?.user?.id;
     if (!userId) {
       return;
+    }
+
+    /*
+      Embudo F1: la primera respuesta de una persona en el chat (ASESORA_RESPONDIO). Se llama
+      también al abrir un lead desde Mi día, por eso el registro mira la base y solo cuenta si ya
+      hay un mensaje manual. En segundo plano y sin lanzar: no cambia nada de lo de abajo.
+    */
+    if (input.source === "agent") {
+      registrarAsesoraRespondio({
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        userId,
+        via: "crm",
+      });
     }
 
     if (input.source === "official") {

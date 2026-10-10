@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { avisarAsesorPorWhatsApp } from "./avisos";
 import { responderConElRedactor } from "./redactor";
 import { agendarSeguimientoDeEtapa } from "@/features/crm/services/stage-follow-up";
+import { registrarTurnoV3 } from "@/features/embudo/servicios/eventos";
 
 import { atenderConAgenteV3 } from "../motor/ejecutar";
 
@@ -222,6 +223,18 @@ export async function retomarConversacionV3(input: {
         });
       },
       yaLoDijimos,
+      // Embudo F1: solo mide, en segundo plano.
+      registrarTraza: (traza, { atendido }) =>
+        registrarTurnoV3({
+          workspaceId: channel.workspaceId,
+          conversationId: conversation.id,
+          contactId: contact.id,
+          channelId: channel.id,
+          traza,
+          atendido,
+          mensajeCliente: texto,
+          tipoMensaje: ultimo.type,
+        }),
     },
   }).catch((error) => {
     console.error("[retomar] v3_error", {

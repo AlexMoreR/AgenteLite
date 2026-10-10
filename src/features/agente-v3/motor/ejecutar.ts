@@ -68,6 +68,39 @@ export type Herramientas = {
    * no pudo hacerse cargo. Opcional: sin esto el mensaje sigue su camino de siempre.
    */
   responderSinRegla?: (contexto: { foto: string | null }) => Promise<string | null>;
+  /**
+   * MEDIR (Embudo F1): se llama una vez al terminar el turno con la traza de lo que pasó. Solo
+   * mira: no puede cambiar ninguna decisión. Quien lo implemente tiene que volver al instante
+   * (agendar el registro en segundo plano) y no lanzar; igual se llama dentro de un try.
+   * Opcional: sin esto no se registra nada.
+   */
+  registrarTraza?: (traza: TrazaV3, resultado: { atendido: boolean; regla: string | null }) => void;
+};
+
+/**
+ * Lo que pasó en un turno, para el embudo (F1). No interviene en ninguna decisión: se va llenando
+ * mientras el motor decide, y se entrega al final.
+ */
+export type TrazaV3 = {
+  libroVersion: number | null;
+  /** Estado de la charla antes del turno (null si el motor salió antes de leerlo). */
+  antes: { pasoActual: string | null; producto: string | null; esPrimerMensaje: boolean } | null;
+  /** Estado después (null = no cambió o el motor salió antes de guardarlo). */
+  despues: { pasoActual: string | null; producto: string | null } | null;
+  /** Ids de las reglas de intención que reconoció la IA. */
+  intenciones: string[];
+  /** Tipos de las acciones que decidió el motor (saludo incluido), antes del filtro de no repetir. */
+  tiposDeAccion: string[];
+  /** Salió el saludo del primer mensaje. */
+  conSaludo: boolean;
+  /** Se ejecutó al menos un flujo (catálogo, fotos...). */
+  envioFlujo: boolean;
+  /** Pasos que salieron por enviarPaso en este turno (los del redactor se cuentan aparte). */
+  mensajesEnviados: number;
+  reglaId: string | null;
+  reglaNombre: string | null;
+  /** Cuándo empezó el turno (ISO). */
+  cuando: string;
 };
 
 export type ResultadoV3 = {
@@ -76,6 +109,8 @@ export type ResultadoV3 = {
   regla: string | null;
   porque: string;
   acciones: number;
+  /** Para el embudo (F1). No cambia nada de lo de arriba. */
+  traza?: TrazaV3;
 };
 
 export async function atenderConAgenteV3(input: {
@@ -109,7 +144,34 @@ export async function atenderConAgenteV3(input: {
     final, quedaria tapado por una decision que nunca lo miro.
   */
   const inicio = new Date();
-  const resultado = await evaluar(input);
+  /*
+    La traza del embudo (F1) se llena mientras el motor decide y se entrega al final. El único
+    cambio en el camino del motor es contar los pasos que salen por enviarPaso: el envoltorio
+    llama al original, espera lo mismo y devuelve lo mismo.
+  */
+  const traza: TrazaV3 = {
+    libroVersion: null,
+    antes: null,
+    despues: null,
+    intenciones: [],
+    tiposDeAccion: [],
+    conSaludo: false,
+    envioFlujo: false,
+    mensajesEnviados: 0,
+    reglaId: null,
+    reglaNombre: null,
+    cuando: inicio.toISOString(),
+  };
+  const enviarPasoOriginal = input.herramientas.enviarPaso;
+  const herramientasContadas: Herramientas = {
+    ...input.herramientas,
+    enviarPaso: async (paso) => {
+      const salio = await enviarPasoOriginal(paso);
+      if (salio !== false) traza.mensajesEnviados += 1;
+      return salio;
+    },
+  };
+  const resultado = await evaluar({ ...input, herramientas: herramientasContadas }, traza);
 
   /*
     Queda huella de TODA vuelta, haya respondido o no.
@@ -125,26 +187,42 @@ export async function atenderConAgenteV3(input: {
     regla: resultado.regla,
   });
 
-  return resultado;
+  // Embudo F1: solo se entrega la traza. Cualquier falla de quien la recibe se traga acá.
+  try {
+    input.herramientas.registrarTraza?.(traza, { atendido: resultado.atendido, regla: resultado.regla });
+  } catch (error) {
+    console.error("[agente-v3] registrarTraza", error instanceof Error ? error.message : error);
+  }
+
+  return { ...resultado, traza };
 }
 
-async function evaluar(input: {
-  workspaceId: string;
-  conversationId: string;
-  mensaje: string;
-  historial?: Array<{ de: "cliente" | "negocio"; texto: string }>;
-  citado?: string;
-  incluirApiOficial?: boolean;
-  foto?: string | null;
-  recientes?: MensajeReciente[];
-  herramientas: Herramientas;
-}): Promise<ResultadoV3> {
+async function evaluar(
+  input: {
+    workspaceId: string;
+    conversationId: string;
+    mensaje: string;
+    historial?: Array<{ de: "cliente" | "negocio"; texto: string }>;
+    citado?: string;
+    incluirApiOficial?: boolean;
+    foto?: string | null;
+    recientes?: MensajeReciente[];
+    herramientas: Herramientas;
+  },
+  traza: TrazaV3,
+): Promise<ResultadoV3> {
   const libroCompleto = await leerLibro(input.workspaceId);
+  traza.libroVersion = typeof libroCompleto.version === "number" ? libroCompleto.version : null;
   if (libroCompleto.reglas.length === 0) {
     return { atendido: false, regla: null, porque: "El libro de reglas está vacío.", acciones: 0 };
   }
 
   const estado = await leerEstado(input.conversationId);
+  traza.antes = {
+    pasoActual: estado.pasoActual,
+    producto: estado.productoActivo,
+    esPrimerMensaje: estado.esPrimerMensaje,
+  };
 
   /*
     Un producto INACTIVO (oculto o borrado en Gestión) no se ofrece, aunque tenga reglas (Alex,
@@ -169,6 +247,8 @@ async function evaluar(input: {
     lista de precios al detal a quien pidió seis sillas.
   */
   if (pidePorMayor(input.mensaje)) {
+    traza.reglaNombre = "Compra por cantidad";
+    traza.tiposDeAccion = ["mensaje", "avisar_asesor"];
     const yaSeLeDijo = await input.herramientas.yaLoDijimos(RESPUESTA_POR_MAYOR);
     if (!yaSeLeDijo) {
       await input.herramientas.enviarPaso({ kind: "text", content: RESPUESTA_POR_MAYOR });
@@ -237,6 +317,11 @@ async function evaluar(input: {
 
   const decision = decidir({ libro, mensaje: input.mensaje, estado, intencionesReconocidas, fotoDelCliente });
   const acciones = [...decision.saludo, ...decision.acciones];
+  traza.intenciones = [...intencionesReconocidas];
+  traza.tiposDeAccion = acciones.map((accion) => accion.tipo);
+  traza.conSaludo = decision.saludo.length > 0;
+  traza.reglaId = decision.regla?.id ?? null;
+  traza.reglaNombre = decision.regla?.nombre ?? (decision.saludo.length ? "Saludo" : null);
 
   if (acciones.length === 0) {
     // Ninguna regla aplica: si la clienta nombró un producto del catálogo, se le responde con él.
@@ -313,6 +398,8 @@ async function evaluar(input: {
 
   const nuevoEstado = siguienteEstado(estado, acciones);
   await guardarEstado(input.conversationId, nuevoEstado);
+  traza.envioFlujo = filtradas.some((accion) => accion.tipo === "flujo");
+  traza.despues = { pasoActual: nuevoEstado.pasoActual, producto: nuevoEstado.productoActivo };
 
   /*
     Entró a un paso nuevo del embudo (o cambió de producto): se programan los seguimientos de ese

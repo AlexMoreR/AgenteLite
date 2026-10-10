@@ -1,3 +1,4 @@
+import { registrarSeguimientoEnviado } from "@/features/embudo/servicios/eventos";
 import { prisma } from "@/lib/prisma";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
@@ -204,6 +205,19 @@ export async function ejecutarSeguimientosV3(
         });
         enviados += 1;
         enviadosEnLaLinea += 1;
+        // Embudo F1: solo mide (en segundo plano, no lanza).
+        registrarSeguimientoEnviado({
+          workspaceId: canal.workspaceId,
+          conversationId: conversacion.id,
+          contactId: conversacion.contactId,
+          channelId: canal.id,
+          motor: "v3",
+          paso: estado.pasoActual,
+          productoV3: estado.productoActivo,
+          reglaId: toca.regla.id,
+          reglaNombre: toca.regla.nombre,
+          datos: { minutos: toca.minutos, mensajes: textos.length },
+        });
       } catch (error) {
         console.error("[agente-v3] no se pudo enviar el seguimiento", {
           conversationId: conversacion.id,

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, Gauge, KanbanSquare, Sun, type LucideIcon } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, Filter, Gauge, KanbanSquare, Sun, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -18,7 +18,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "guiones";
+type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "guiones";
 
 const crmViews: Array<{
   title: string;
@@ -32,6 +32,8 @@ const crmViews: Array<{
   { title: "Informe", view: "informe", icon: ChartNoAxesCombined },
   // Solo para quien supervisa: es como viene CADA asesora, no el trabajo de una.
   { title: "Tablero", view: "tablero", icon: Gauge, soloJefes: true },
+  // El embudo del Combo (F1): de la entrada del anuncio al anticipo. También solo para quien supervisa.
+  { title: "Embudo", view: "embudo", icon: Filter, soloJefes: true },
   { title: "Guiones", view: "guiones", icon: BookOpen },
 ];
 

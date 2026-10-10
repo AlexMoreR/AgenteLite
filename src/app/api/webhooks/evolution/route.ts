@@ -32,6 +32,12 @@ import {
 } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { atenderConAgenteV3 } from "@/features/agente-v3/motor/ejecutar";
+import {
+  registrarAsesoraRespondio,
+  registrarEntradaSiEsNueva,
+  registrarSenalesDelMensaje,
+  registrarTurnoV3,
+} from "@/features/embudo/servicios/eventos";
 import { guardarEstado, leerEstado } from "@/features/agente-v3/motor/estado";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import {
@@ -2041,6 +2047,43 @@ export async function POST(request: NextRequest) {
   }
 
   /*
+    Embudo F1 (solo mide, en segundo plano): ENTRADA si este es el primer mensaje de la clienta en
+    el chat, y ASESORA_RESPONDIO la primera vez que alguien le escribe desde su celular. No cambia
+    nada de lo que sigue; si el registro falla, se anota en el log y ya.
+  */
+  if (conversation.id && !isCallEvent && !messageWasEdited && !messageWasDeleted && !isEvolutionStatusBroadcastPayload(payload)) {
+    if (!fromMe) {
+      registrarEntradaSiEsNueva({
+        workspaceId: channel.workspaceId,
+        conversationId: conversation.id,
+        contactId: contact.id,
+        channelId: channel.id,
+        externalId: inboundExternalId ?? null,
+        primerMensaje: messageText ?? null,
+        anuncio: adLeadOrigin
+          ? { titulo: adLeadOrigin.title, red: adLeadOrigin.sourceApp, id: adLeadOrigin.sourceId }
+          : null,
+      });
+      registrarSenalesDelMensaje({
+        workspaceId: channel.workspaceId,
+        conversationId: conversation.id,
+        contactId: contact.id,
+        channelId: channel.id,
+        externalId: inboundExternalId ?? null,
+        texto: messageText ?? null,
+      });
+    } else if (!enviadoPorNosotros) {
+      registrarAsesoraRespondio({
+        workspaceId: channel.workspaceId,
+        conversationId: conversation.id,
+        contactId: contact.id,
+        channelId: channel.id,
+        via: "celular",
+      });
+    }
+  }
+
+  /*
     Reparto por turno (Alex, 02-10-2026): si la clienta contesto CON CONTENIDO a algo del agente o
     de un flujo y el chat no tiene asesora, se reparte. Va despues de guardar el mensaje -es parte
     del turno que se mira- y en segundo plano: el webhook no espera al reparto. Ver
@@ -3190,6 +3233,18 @@ export async function POST(request: NextRequest) {
           una frase para siempre.
         */
         yaLoDijimos: yaLoDijimosEnElChat,
+        // Embudo F1: solo mide. Agenda el registro en segundo plano y vuelve al instante.
+        registrarTraza: (traza, { atendido }) =>
+          registrarTurnoV3({
+            workspaceId: channel.workspaceId,
+            conversationId: conversation.id,
+            contactId: contact.id,
+            channelId: channel.id,
+            traza,
+            atendido,
+            mensajeCliente: textoDeLaTanda || textoParaElV3,
+            tipoMensaje: messageType,
+          }),
       },
     }).catch((error) => {
       console.error("[EVOLUTION] v3_error", {
