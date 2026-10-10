@@ -18,6 +18,7 @@
     "test:coach": "node scripts/check-coach.mjs",
     "test:embudo": "node scripts/check-embudo.mjs",
     "test:anti-bloqueo": "node scripts/check-anti-bloqueo.mjs",
+    "test:fallas-crm": "node scripts/check-fallas-crm.mjs",
     "embudo:backfill": "node scripts/embudo-backfill.mjs",
     "test:e2e": "playwright test -c e2e",
     "db:seed": "node prisma/seed.js"

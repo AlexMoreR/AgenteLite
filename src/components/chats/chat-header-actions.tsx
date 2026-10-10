@@ -1,6 +1,6 @@
 "use client";
 
-import { FormActionSwitch } from "@/components/ui/form-action-switch";
+import { InterruptorDeIA } from "./interruptor-ia";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CrmStageControl } from "./crm-stage-control";
 import { ResolveChatControl } from "./resolve-chat-control";
@@ -20,8 +20,9 @@ type ChatHeaderActionsProps = {
   conversationId: string;
   automationPaused: boolean;
   status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
-  returnTo: string;
-  toggleAutomationAction: (formData: FormData) => void | Promise<void>;
+  /** Ya no se usan (el interruptor de la IA no navega): quedan opcionales por compatibilidad. */
+  returnTo?: string;
+  toggleAutomationAction?: (formData: FormData) => void | Promise<void>;
   source?: "agent" | "official";
 };
 
@@ -41,16 +42,8 @@ export function ChatHeaderActions({
   conversationId,
   automationPaused,
   status,
-  returnTo,
-  toggleAutomationAction,
   source = "agent",
 }: ChatHeaderActionsProps) {
-  const switchHiddenFields = [
-    { name: "conversationId", value: conversationId },
-    { name: "returnTo", value: returnTo },
-  ];
-  const switchAriaLabel = automationPaused ? "Reactivar IA" : "Pausar IA";
-
   return (
     <>
       {/* Variante EN LÍNEA — solo visible cuando la cabecera es ancha (≥520px de contenedor). */}
@@ -58,12 +51,7 @@ export function ChatHeaderActions({
         {/* Llamar va primero: es la accion que se toma leyendo la conversacion, no al cerrarla. */}
         <BotonLlamar telefono={telefono} nombre={nombreContacto} avatarUrl={avatarUrl} channelId={channelId} />
         {contactId ? <CrmStageControl contactId={contactId} stage={stage} /> : null}
-        <FormActionSwitch
-          action={toggleAutomationAction}
-          checked={!automationPaused}
-          ariaLabel={switchAriaLabel}
-          hiddenFields={switchHiddenFields}
-        />
+        <InterruptorDeIA conversationId={conversationId} automationPaused={automationPaused} source={source} />
         <ResolveChatControl conversationId={conversationId} status={status} source={source} />
         {/* Las dos salidas del chat: resolver es "esto se termino", posponer es "sigue, pero
             no hoy". Por eso van pegados. */}
@@ -121,8 +109,6 @@ export function BarraDeAccionesDelChat({
   conversationId,
   automationPaused,
   status,
-  returnTo,
-  toggleAutomationAction,
   source = "agent",
   assignee,
 }: Pick<
@@ -146,17 +132,8 @@ export function BarraDeAccionesDelChat({
   return (
     <div className="contents">
       {contactId ? <CrmStageControl contactId={contactId} stage={stage} variant="chip" /> : null}
-      <span title={automationPaused ? "Agente apagado en este chat" : "Agente encendido en este chat"} className="inline-flex">
-        <FormActionSwitch
-          action={toggleAutomationAction}
-          checked={!automationPaused}
-          ariaLabel={automationPaused ? "Reactivar IA" : "Pausar IA"}
-          hiddenFields={[
-            { name: "conversationId", value: conversationId },
-            { name: "returnTo", value: returnTo },
-          ]}
-        />
-      </span>
+      {/* Con la etiqueta "IA" a la vista: en el celular el interruptor solo no se entendia. */}
+      <InterruptorDeIA conversationId={conversationId} automationPaused={automationPaused} source={source} conEtiqueta />
       <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
       <AssignChatControl conversationId={conversationId} assignee={assignee} source={source} compacto />
       <div className="order-last flex items-center gap-1.5">

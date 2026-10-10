@@ -11,6 +11,12 @@ import { dentroDelHorario, NOMBRE_FOLLOW_REACTIVACION, reprogramarFueraDeHorario
 import { anotarFrenado, leerConfigAntiBloqueo } from "@/lib/anti-bloqueo/servicio";
 import { after } from "next/server";
 import { aplicarFirmaDelChat } from "@/lib/firma-del-chat";
+import {
+  decidirCambioDePausa,
+  leerPausaPedida,
+  verificarDestinoDelEnvio,
+  type RespuestaInterruptorIA,
+} from "@/lib/chat-envio-seguro";
 
 import { retomarConversacionV3 } from "@/features/agente-v3/servicios/retomar";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
@@ -695,6 +701,9 @@ const sendUnifiedChatReplySchema = z.object({
   skipSignature: z.string().trim().nullish(),
   // Id del registro de la estrella cuando el texto salio de una sugerencia (para medir su uso).
   sugerenciaId: z.string().trim().max(64).nullish(),
+  // El chat que la asesora tiene A LA VISTA al tocar enviar (lo pone el navegador). Si no coincide
+  // con conversationId, el texto NO sale: iba para otro cliente (ver chat-envio-seguro).
+  chatEsperado: z.string().trim().max(200).nullish(),
 });
 
 const toggleConversationAutomationSchema = z.object({
@@ -744,11 +753,25 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     quotedMessageId: formData.get("quotedMessageId"),
     quotedContent: formData.get("quotedContent"),
     quotedDirection: formData.get("quotedDirection"),
+    chatEsperado: formData.get("chatEsperado"),
   });
 
   // Errores como resultado (sin redirect) para mostrarlos en la burbuja sin recarga.
   if (!parsed.success) {
     return { ok: false, error: "No se pudo enviar el mensaje" };
+  }
+
+  // Nunca al chat equivocado: el destino tiene que ser el chat que la asesora esta viendo.
+  const destino = verificarDestinoDelEnvio({
+    conversationId: parsed.data.conversationId,
+    chatEsperado: parsed.data.chatEsperado,
+  });
+  if (!destino.ok) {
+    console.warn("[sendUnifiedChatReplyAction] envio frenado: el chat no coincide", {
+      conversationId: parsed.data.conversationId,
+      chatEsperado: parsed.data.chatEsperado,
+    });
+    return { ok: false, error: destino.error };
   }
 
   const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
@@ -1073,11 +1096,75 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
     redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}error=Conversacion+no+encontrada`);
   }
 
+  // Si el formulario dice que estado quiere ("pausar" = 1/0) se FIJA ese; si no (formulario viejo),
+  // se invierte como antes.
+  const { pausada: nextPaused } = await aplicarPausaDeIAEnChat({
+    conversation,
+    workspaceId: membership.workspace.id,
+    pedido: leerPausaPedida(formData.get("pausar")),
+  });
+
+  revalidatePath("/cliente/chats");
+  if (conversation.agentId) {
+    revalidatePath(`/cliente/agentes/${conversation.agentId}/chats`);
+  }
+
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "/cliente/chats");
+  redirect(
+    `${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=${
+      nextPaused ? "IA+pausada+en+este+chat" : "IA+reactivada+en+este+chat"
+    }`,
+  );
+}
+
+type ChatParaPausa = {
+  id: string;
+  agentId: string | null;
+  contact: { id: string; phoneNumber: string | null } | null;
+  channel: { id: string; evolutionInstanceName: string | null } | null;
+  agent: { trainingConfig: Prisma.JsonValue } | null;
+};
+
+async function buscarChatParaPausa(conversationId: string, workspaceId: string): Promise<ChatParaPausa | null> {
+  return prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId },
+    select: {
+      id: true,
+      agentId: true,
+      contact: { select: { id: true, phoneNumber: true } },
+      channel: { select: { id: true, evolutionInstanceName: true } },
+      agent: { select: { trainingConfig: true } },
+    },
+  });
+}
+
+/**
+ * Pone la IA del chat en el estado pedido y devuelve el estado REAL que quedo en la base.
+ *
+ * Antes el interruptor siempre INVERTIA lo que hubiera en la base: con la pantalla vieja o con un
+ * doble toque, la IA quedaba al reves de lo que veia la asesora (seguia respondiendo cuando ella
+ * creia haberla pausado). Ahora se fija lo elegido y pedir dos veces lo mismo no cambia nada.
+ * El mensaje de reactivacion y el "retomar" del agente salen SOLO al pasar de pausada a activa,
+ * igual que antes al prenderla.
+ */
+async function aplicarPausaDeIAEnChat(input: {
+  conversation: ChatParaPausa;
+  workspaceId: string;
+  /** true = pausar, false = reanudar, null = invertir (formulario viejo). */
+  pedido: boolean | null;
+}): Promise<{ pausada: boolean; cambio: boolean }> {
+  const { conversation } = input;
+  const membership = { workspace: { id: input.workspaceId } };
   const currentPaused = await getConversationAutomationPaused({
     conversationId: conversation.id,
-    workspaceId: membership.workspace.id,
+    workspaceId: input.workspaceId,
   });
-  const nextPaused = !currentPaused;
+  const decision = decidirCambioDePausa(currentPaused, input.pedido ?? !currentPaused);
+  const nextPaused = decision.pausada;
+
+  if (!decision.cambio) {
+    return { pausada: currentPaused, cambio: false };
+  }
 
   await setConversationAutomationPaused({
     conversationId: conversation.id,
@@ -1218,17 +1305,84 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
     });
   }
 
-  revalidatePath("/cliente/chats");
-  if (conversation.agentId) {
-    revalidatePath(`/cliente/agentes/${conversation.agentId}/chats`);
-  }
+  return { pausada: nextPaused, cambio: true };
+}
 
-  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "/cliente/chats");
-  redirect(
-    `${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=${
-      nextPaused ? "IA+pausada+en+este+chat" : "IA+reactivada+en+este+chat"
-    }`,
-  );
+const fijarPausaDeIASchema = z.object({
+  conversationId: z.string().trim().min(1),
+  source: z.enum(["agent", "official"]).default("agent"),
+});
+
+/**
+ * Interruptor de la IA del chat abierto (pausar / reanudar). A diferencia de
+ * toggleConversationAutomationAction, NO redirige: devuelve el estado real que quedo en la base
+ * para que el interruptor muestre la verdad, y un error legible si fallo (el interruptor vuelve
+ * a como estaba y avisa).
+ */
+export async function fijarPausaDeIAEnChatAction(formData: FormData): Promise<RespuestaInterruptorIA> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+      return { ok: false, error: "No autorizado" };
+    }
+    await requireClientWorkspaceAccess("chats");
+
+    const parsed = fijarPausaDeIASchema.safeParse({
+      conversationId: formData.get("conversationId"),
+      source: formData.get("source") || undefined,
+    });
+    const pedido = leerPausaPedida(formData.get("pausar"));
+    if (!parsed.success || pedido === null) {
+      return { ok: false, error: "Datos inválidos" };
+    }
+
+    const membership = await getPrimaryWorkspaceForUser(session.user.id);
+    if (!membership) {
+      return { ok: false, error: "Negocio no encontrado" };
+    }
+
+    if (parsed.data.source === "official") {
+      const conversation = await findOfficialApiConversationInWorkspace(parsed.data.conversationId, membership.workspace.id);
+      if (!conversation) {
+        return { ok: false, error: "Chat no encontrado" };
+      }
+      const actual = await getOfficialApiConversationAutomationPaused(conversation.id);
+      if (actual !== pedido) {
+        await setOfficialApiConversationAutomationPaused({ conversationId: conversation.id, paused: pedido });
+      }
+      // Se lee de nuevo: lo que se devuelve es lo que REALMENTE quedo.
+      const pausada = await getOfficialApiConversationAutomationPaused(conversation.id);
+      revalidatePath("/cliente/chats");
+      return { ok: true, pausada };
+    }
+
+    const conversation = await buscarChatParaPausa(parsed.data.conversationId, membership.workspace.id);
+    if (!conversation) {
+      return { ok: false, error: "Chat no encontrado" };
+    }
+
+    await aplicarPausaDeIAEnChat({ conversation, workspaceId: membership.workspace.id, pedido });
+    // Lectura ESTRICTA de lo que quedo (getConversationAutomationPaused devuelve "activa" si la
+    // consulta falla, y setConversationAutomationPaused no avisa si el UPDATE fallo): si algo
+    // salio mal, la asesora tiene que saberlo.
+    const despues = await prisma.conversation.findFirst({
+      where: { id: conversation.id, workspaceId: membership.workspace.id },
+      select: { automationPaused: true },
+    });
+    if (!despues) {
+      return { ok: false, error: "Chat no encontrado" };
+    }
+    const pausada = despues.automationPaused;
+
+    revalidatePath("/cliente/chats");
+    if (conversation.agentId) {
+      revalidatePath(`/cliente/agentes/${conversation.agentId}/chats`);
+    }
+    return { ok: true, pausada };
+  } catch (error) {
+    console.error("[fijarPausaDeIAEnChatAction] no se pudo cambiar la IA", error);
+    return { ok: false, error: "Sin conexión con el servidor" };
+  }
 }
 
 // Verifica que una conversacion oficial pertenece al workspace (via su config).

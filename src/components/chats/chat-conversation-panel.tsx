@@ -26,6 +26,7 @@ import {
   Pause,
   Pencil,
   Plus,
+  RotateCcw,
   SendHorizonal,
   Smile,
   Sparkles,
@@ -67,6 +68,7 @@ function pedirDetalleDeContacto(contactId: string): Promise<DetalleDeContacto> {
 }
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { hayVersionNueva } from "@/components/app-version-guard";
+import { ACCEPT_DOCUMENTOS_CHAT, revisarArchivoAntesDeSubir } from "@/lib/chat-envio-seguro";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import {
   getContactDetailsAction,
@@ -173,7 +175,13 @@ type ConversationPanelProps = {
   onComposerDraft: (message: string, formData: FormData) => boolean;
   /** Hay un texto en camino en este chat: el boton y el Enter no envian otro. */
   enviandoTexto?: boolean;
-  onRetryFailedMessage?: () => void;
+  /** El chat abierto todavia no cargo: Enviar queda apagado (el texto nunca sale al chat anterior). */
+  envioBloqueado?: boolean;
+  /** "error" = el chat no cargo (fallo o paso el limite): se muestra el aviso con Reintentar. */
+  estadoCarga?: "listo" | "cargando" | "error";
+  onReintentarCarga?: () => void;
+  /** Reintentar un texto que no salio (la burbuja dice cual). */
+  onRetryFailedMessage?: (message: SharedInboxMessageItem) => void;
   onReplyToMessage?: (message: SharedInboxMessageItem) => void;
   onDeleteMessage?: (message: SharedInboxMessageItem) => void;
   replyTarget?: ComposerReplyTarget | null;
@@ -265,6 +273,9 @@ export const ConversationPanel = memo(function ConversationPanel({
   isManager = false,
   onComposerDraft,
   enviandoTexto = false,
+  envioBloqueado = false,
+  estadoCarga = "listo",
+  onReintentarCarga,
   onRetryFailedMessage,
   onReplyToMessage,
   onDeleteMessage,
@@ -702,6 +713,21 @@ export const ConversationPanel = memo(function ConversationPanel({
     async (file: File, caption?: string): Promise<string | null> => {
       if (!mediaConfig) {
         return "No se pudo preparar el envio.";
+      }
+
+      // Formato y peso ANTES de subir: Excel/Word, HEIC del iPhone, archivos de mas de 100 MB y
+      // videos pesados se avisan al instante y con un texto claro, no tras minutos de subida.
+      const revision = revisarArchivoAntesDeSubir(file);
+      if (!revision.ok) {
+        toast.error(revision.motivo, { duration: 10000 });
+        return revision.motivo;
+      }
+      if (revision.aviso) {
+        toast.warning(revision.aviso, { duration: 10000 });
+      }
+      // Si el telefono no dijo el tipo (Android con .xlsx o .csv), va el deducido por la extension.
+      if (revision.mime !== file.type) {
+        file = new File([file], file.name, { type: revision.mime, lastModified: file.lastModified });
       }
 
       const trimmedCaption = caption?.trim() || "";
@@ -1835,7 +1861,28 @@ export const ConversationPanel = memo(function ConversationPanel({
                 className="chat-messages-scroll h-full overflow-y-auto overscroll-contain bg-transparent px-2.5 py-2.5 pb-3 [-webkit-overflow-scrolling:touch] md:px-5 md:py-5 md:pb-5"
               >
                 <div className="flex min-h-full flex-col justify-end">
-                  {renderedConversation?.isPreview ? (
+                  {renderedConversation?.isPreview && estadoCarga === "error" ? (
+                    // Antes la ruedita giraba sin fin si /live fallaba: ahora se dice y se puede reintentar.
+                    <div className="flex justify-center pb-2.5 pt-1" role="alert">
+                      <div className="flex max-w-xs flex-col items-center gap-2 rounded-2xl border border-amber-500/40 bg-card px-4 py-3 text-center text-[13px] text-foreground shadow-sm">
+                        <span className="inline-flex items-center gap-1.5 font-semibold text-amber-700 dark:text-amber-300">
+                          <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          No se pudo abrir el chat
+                        </span>
+                        <span className="text-muted-foreground">Revisa la conexión. Mientras no cargue, no se puede enviar.</span>
+                        {onReintentarCarga ? (
+                          <button
+                            type="button"
+                            onClick={onReintentarCarga}
+                            className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-[var(--primary)] px-4 font-semibold text-[var(--primary-foreground)] transition hover:opacity-90"
+                          >
+                            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                            Reintentar
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : renderedConversation?.isPreview ? (
                     <div
                       className="flex justify-center pb-2.5 pt-1"
                       role="status"
@@ -1991,6 +2038,11 @@ export const ConversationPanel = memo(function ConversationPanel({
                     const message = String(formData.get("message") || "").trim();
 
                     if (!message || !renderedConversation || enviandoTexto) {
+                      return;
+                    }
+                    // El chat todavia carga: no se envia y el texto se queda en el cuadro.
+                    if (envioBloqueado) {
+                      toast.info("Espera a que cargue el chat para enviar.");
                       return;
                     }
 
@@ -2201,7 +2253,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                                 rechaza los ejecutables, y descubrirlo recien al enviar deja el
                                 archivo subido y el mensaje en rojo.
                               */
-                              accept="application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.zip,.rar"
+                              accept={ACCEPT_DOCUMENTOS_CHAT}
                               multiple
                               className="hidden"
                               onChange={(event) => {
@@ -2534,7 +2586,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                           )}
                         </Button>
                         {composerHasText || !audioConfig ? (
-                          <ComposerSendButton enviando={enviandoTexto} />
+                          <ComposerSendButton enviando={enviandoTexto} bloqueado={envioBloqueado} />
                         ) : (
                           <Button
                             type="button"

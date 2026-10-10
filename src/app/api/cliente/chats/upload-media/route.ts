@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { TIPOS_PERMITIDOS_CHAT } from "@/lib/chat-envio-seguro";
 
 // 100 MB es el tope de WhatsApp para documentos: por encima de eso no lo recibe ni el cliente,
 // asi que no tiene sentido aceptarlo. Estaba en 25 y un catalogo en PDF lo pasa sin esfuerzo.
@@ -14,17 +15,8 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 // sin pasar a escritura por partes es pedirle al servidor que se caiga con el archivo mas grande.
 const MAX_FILE_SIZE_MB = 100;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-const ALLOWED_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "video/mp4",
-  "video/webm",
-  "video/quicktime",
-  "application/pdf",
-]);
+// Misma lista que la subida por pedazos (antes cada camino tenia la suya).
+const ALLOWED_MIME_TYPES = new Set<string>(TIPOS_PERMITIDOS_CHAT);
 
 function getBaseUrl(request: Request) {
   const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();

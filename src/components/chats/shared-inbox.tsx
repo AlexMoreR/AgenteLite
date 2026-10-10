@@ -12,7 +12,6 @@ import {
 } from "@/components/chats/chat-history-cache";
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import {
-  clearPendingConversationSelection,
   resetConversationSelection,
   useOpenChatKey,
   usePendingConversationSelection,
@@ -78,6 +77,15 @@ import type { CrmStage } from "@/features/crm/types";
 import { resolveCallTarget } from "@/lib/whatsapp-lid";
 import { iniciarMedicion, terminarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 import { aplicarFirmaDelChat } from "@/lib/firma-del-chat";
+import {
+  agregarFallido,
+  estadoCargaDelChat,
+  fallidosDelChat,
+  LIMITE_CARGA_CHAT_MS,
+  quitarFallido,
+  resolverDestinoDelEnvio,
+  textoCoincideConGuardado,
+} from "@/lib/chat-envio-seguro";
 
 const CONVERSATION_LIST_LOAD_BATCH_SIZE = 10;
 // Logs de depuración de la lista desactivados (ensuciaban la consola en desarrollo).
@@ -192,6 +200,17 @@ function buildPendingConversationPreview(
  * ejecutara. Al arreglar esa comparacion se activo este camino y rompio el envio en produccion.
  * Por eso ahora recibe el id ya resuelto del chat cargado en vez de derivarlo de la clave.
  */
+/** Los campos de texto de un formulario de envio, para poder repetirlo tal cual (Reintentar). */
+function camposDelFormulario(formData: FormData): Array<[string, string]> {
+  const campos: Array<[string, string]> = [];
+  formData.forEach((valor, nombre) => {
+    if (typeof valor === "string") {
+      campos.push([nombre, valor]);
+    }
+  });
+  return campos;
+}
+
 function buildComposerHiddenFields(
   baseFields: Array<{ name: string; value: string }>,
   selectedConversation: { conversationId: string; source: "agent" | "official"; agentId: string | null } | null,
@@ -380,6 +399,19 @@ export function SharedInbox({
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [liveConversation, setLiveConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
+  /*
+    Textos que NO salieron, de todos los chats. Antes habia un solo espacio (el optimista): el
+    siguiente mensaje borraba la burbuja fallida con su "Reintentar" y el texto se perdia (el
+    cuadro ya se habia vaciado). Viven aca y no en el panel, que se rearma al cambiar de chat.
+  */
+  const [mensajesFallidos, setMensajesFallidos] = useState<OptimisticDraftMessage[]>([]);
+  const mensajesFallidosRef = useRef(mensajesFallidos);
+  mensajesFallidosRef.current = mensajesFallidos;
+  /** Envios de texto en camino, por id optimista: el resultado se resuelve contra ESTE registro. */
+  const enviosEnCursoRef = useRef<Map<string, OptimisticDraftMessage>>(new Map());
+  /* Carga del chat abierto: fallo /live, o cuando empezo a cargar (para el limite de espera). */
+  const [falloCargaDelChat, setFalloCargaDelChat] = useState<string | null>(null);
+  const [reintentoCargaDelChat, setReintentoCargaDelChat] = useState(0);
   const [replyTarget, setReplyTarget] = useState<ComposerReplyTarget | null>(null);
   const [deletedMessageIds, setDeletedMessageIds] = useState<ReadonlySet<string>>(() => new Set());
   const [editContactOpen, setEditContactOpen] = useState(false);
@@ -1791,6 +1823,7 @@ export function SharedInbox({
 
     async function loadSelectedConversationDetail() {
       let necesitaSegundo = true;
+      let cargo = false;
       try {
         // conLlamada=1: la ultima llamada viaja en esta misma respuesta (ver live/route.ts).
         const response = await fetch(
@@ -1820,6 +1853,7 @@ export function SharedInbox({
         }
 
         necesitaSegundo = Boolean(payload.mediosPendientes);
+        cargo = true;
 
         setLiveConversation((current) => {
           // Base = solo una conversación cuyo id coincide con el snapshot; si no, `null` (limpio).
@@ -1832,10 +1866,16 @@ export function SharedInbox({
           return mergeConversationSnapshotIfChanged(base, snapshot);
         });
       } catch {
-        // Intentional no-op: si falla, la vista cacheada/preview sigue siendo usable.
+        // Si falla, la vista cacheada/preview sigue siendo usable; abajo se marca el fallo.
       } finally {
         if (selectedConversationDetailInFlightRef.current === normalizedSelectedConversationId) {
           selectedConversationDetailInFlightRef.current = null;
+        }
+        // Antes un fallo aca era silencioso y, si no habia cache, la ruedita giraba sin fin. Ahora
+        // se marca y el panel muestra "No se pudo abrir el chat" con Reintentar (si el chat sigue
+        // en vista previa; si ya tenia contenido, no se molesta a nadie).
+        if (!cancelled) {
+          setFalloCargaDelChat(cargo ? null : normalizedSelectedConversationId);
         }
         // Fallo o quedaron medios pendientes: un solo reintento a los 2,5 s, como antes.
         if (!cancelled && necesitaSegundo) {
@@ -1858,7 +1898,8 @@ export function SharedInbox({
     // cleanup abortaría el fetch en curso y la nueva corrida saldría por el guard de
     // in-flight, dejando el historial sin cargar hasta un segundo click.
     // (programarSegundoLive es estable: no vuelve a correr el efecto.)
-  }, [selectedConversationKey, programarSegundoLive]);
+    // reintentoCargaDelChat solo cambia cuando la asesora toca "Reintentar" en un chat que no cargo.
+  }, [selectedConversationKey, programarSegundoLive, reintentoCargaDelChat]);
 
   const effectiveLiveConversation =
     liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id) ? liveConversation : null;
@@ -1994,35 +2035,30 @@ export function SharedInbox({
   // "Historial" quedaria girando indefinidamente y confunde al empleado. Tras un tiempo
   // prudente sin resolver, limpiamos la seleccion para volver al estado vacio en vez de
   // dejar el spinner colgado.
+  //
+  // 10-10-2026: antes, a los 10 s cerraba el chat EN SILENCIO (el chat desaparecia y la asesora no
+  // sabia por que) y, si habia cache de la fila, ni eso: la ruedita giraba sin fin. Ahora, pasado
+  // el limite, se marca el fallo y el panel muestra "No se pudo abrir el chat · Reintentar". El
+  // chat no se cierra solo: la asesora decide si reintenta o vuelve a la lista.
   useEffect(() => {
-    if (!pendingConversation?.id) {
+    if (!selectedConversationKey || hasLoadedSelectedConversationContent) {
       return;
     }
 
-    // Se quita el `pendingConversation.id === selectedConversationId` (significaba "la navegacion
-    // alcanzo, ya esta"): sin navegacion daria siempre verdadero y la red nunca actuaria. Lo que
-    // de verdad indica que la seleccion se resolvio es que el contenido cargo.
-    if (hasLoadedSelectedConversationContent) {
-      return;
-    }
-
-    if (pendingConversation.hasCache || cachedConversationForCurrentSelection) {
-      return;
-    }
-
+    const chatQueCarga = selectedConversationKey;
     const timer = window.setTimeout(() => {
-      clearPendingConversationSelection();
-      setOptimisticConversation(null);
-    }, 10000);
+      setFalloCargaDelChat(chatQueCarga);
+    }, LIMITE_CARGA_CHAT_MS);
 
     return () => window.clearTimeout(timer);
-  }, [
-    cachedConversationForCurrentSelection,
-    hasLoadedSelectedConversationContent,
-    pendingConversation?.hasCache,
-    pendingConversation?.id,
-    selectedConversationId,
-  ]);
+  }, [hasLoadedSelectedConversationContent, reintentoCargaDelChat, selectedConversationKey]);
+
+  const reintentarCargaDelChat = useCallback(() => {
+    setFalloCargaDelChat(null);
+    // Si el pedido anterior quedo colgado, no debe frenar el nuevo (ver el guard de in-flight).
+    selectedConversationDetailInFlightRef.current = null;
+    setReintentoCargaDelChat((actual) => actual + 1);
+  }, []);
 
   useEffect(() => {
     if (!renderedConversation || renderedConversation.isPreview) {
@@ -2148,17 +2184,39 @@ export function SharedInbox({
           Math.abs(message.createdAt.getTime() - optimisticOutgoingMessage.createdAt.getTime()) < 120_000,
         ),
     );
-  const baseRenderedMessages = useMemo(
-    () =>
-      renderedConversation &&
+  /*
+    Los "No se envió" de este chat, al final. Si el mismo texto ya aparece guardado despues (la
+    asesora lo mando de nuevo a mano), la burbuja fallida se oculta: ya salio.
+  */
+  const fallidosVisibles = useMemo(() => {
+    if (!renderedConversation || renderedConversation.isPreview) {
+      return [];
+    }
+    return fallidosDelChat(mensajesFallidos, renderedConversation.id).filter(
+      (fallido) =>
+        !renderedConversation.messages.some(
+          (message) =>
+            message.direction === "OUTBOUND" &&
+            message.createdAt.getTime() >= fallido.createdAt.getTime() - 5_000 &&
+            textoCoincideConGuardado(message.content, fallido.matchContent ?? fallido.content),
+        ),
+    );
+  }, [mensajesFallidos, renderedConversation]);
+  const baseRenderedMessages = useMemo(() => {
+    const guardados = renderedConversation?.messages ?? [];
+    // Lo que no salio va en su hora entre lo guardado (sort estable); al final el texto en camino.
+    const base =
+      fallidosVisibles.length > 0
+        ? [...guardados, ...fallidosVisibles].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        : guardados;
+    return renderedConversation &&
       optimisticOutgoingMessage &&
       renderedConversation.id === optimisticOutgoingMessage.conversationId &&
       !optimisticDraftMatchesLatestMessage &&
       !optimisticDraftHasPersistedMatch
-        ? [...renderedConversation.messages, optimisticOutgoingMessage]
-        : renderedConversation?.messages ?? [],
-    [optimisticDraftHasPersistedMatch, optimisticDraftMatchesLatestMessage, optimisticOutgoingMessage, renderedConversation],
-  );
+      ? [...base, optimisticOutgoingMessage]
+      : base;
+  }, [fallidosVisibles, optimisticDraftHasPersistedMatch, optimisticDraftMatchesLatestMessage, optimisticOutgoingMessage, renderedConversation]);
   // Aplica borrados optimistas: marca como eliminado al instante mientras el
   // servidor confirma (si falla, se revierte el id en deletedMessageIds).
   const renderedMessages = useMemo(
@@ -2204,21 +2262,25 @@ export function SharedInbox({
         ok: Boolean(result && result.ok !== false),
         suprimido: Boolean(result?.suppressOptimistic),
       });
-      setOptimisticOutgoingMessage((current) => {
-        if (!current || current.id !== optimisticId) {
-          return current;
+      // Se resuelve contra el registro del envio y NO contra el espacio optimista: si la asesora ya
+      // mando otro texto (en otro chat), el espacio es de ese otro y antes la falla se perdia.
+      const enviado = enviosEnCursoRef.current.get(optimisticId) ?? null;
+      enviosEnCursoRef.current.delete(optimisticId);
+
+      if (!result || result.ok === false) {
+        const errorMessage = result?.error?.trim() || "No se pudo enviar el mensaje";
+        console.error("[SharedInbox] send failed", { optimisticId, error: errorMessage });
+        toast.error(errorMessage);
+        if (enviado) {
+          // Queda guardado como "No se envió" con Reintentar y Copiar; el siguiente mensaje ya no lo borra.
+          setMensajesFallidos((lista) =>
+            agregarFallido(lista, { ...enviado, outboundStatusLabel: "error", errorDetail: errorMessage }),
+          );
         }
-        if (!result || result.ok === false) {
-          const errorMessage = result?.error?.trim() || "No se pudo enviar el mensaje";
-          console.error("[SharedInbox] send failed", { optimisticId, error: errorMessage });
-          toast.error(errorMessage);
-          return { ...current, outboundStatusLabel: "error" };
-        }
-        if (result.suppressOptimistic) {
-          return null;
-        }
-        return current;
-      });
+        setOptimisticOutgoingMessage((current) => (current && current.id === optimisticId ? null : current));
+      } else if (result.suppressOptimistic) {
+        setOptimisticOutgoingMessage((current) => (current && current.id === optimisticId ? null : current));
+      }
 
       if (result?.ok && !result.suppressOptimistic) {
         scheduleConversationRefreshAfterSend();
@@ -2240,6 +2302,26 @@ export function SharedInbox({
       if (!renderedConversation || !composer) {
         return false;
       }
+      /*
+        Nunca al chat equivocado. Mientras el chat abierto es la vista previa de la lista, los
+        campos ocultos del formulario siguen apuntando al chat con el que cargo la pagina: escribir
+        rapido apenas abierto un chat le mandaba el texto AL CLIENTE ANTERIOR. Ahora solo se envia
+        si el chat cargado en pantalla es el abierto, y el destino se fija aca (no se confia en los
+        campos ocultos). El texto se queda en el cuadro.
+      */
+      const destino = resolverDestinoDelEnvio({
+        chatAbiertoKey: selectedConversationKey,
+        chatCargado: renderedConversation,
+      });
+      if (!destino.ok) {
+        toast.info(destino.mensaje);
+        return false;
+      }
+      formData.set("conversationId", destino.conversationId);
+      formData.set("source", selectedConversationKey.startsWith("official:") ? "official" : "agent");
+      // El servidor verifica que el destino sea este chat (ver verificarDestinoDelEnvio).
+      formData.set("chatEsperado", destino.chatEsperado);
+
       const chatDelEnvio = selectedConversationId;
       if (textoEnCursoRef.current.has(chatDelEnvio)) {
         return false;
@@ -2277,7 +2359,7 @@ export function SharedInbox({
 
       // La burbuja aparece al instante y se ve como un mensaje ya enviado
       // (sin etiqueta "enviando" ni atenuado). Si falla, se marca "error" despues.
-      setOptimisticOutgoingMessage({
+      const burbuja: OptimisticDraftMessage = {
         id: optimisticId,
         conversationId: renderedConversation.id,
         content: mensajeVisible,
@@ -2299,7 +2381,8 @@ export function SharedInbox({
             }
           : { optimistic: true },
         isOptimistic: true,
-      });
+      };
+      setOptimisticOutgoingMessage(burbuja);
       terminarMedicionAlPintar(`burbuja:${optimisticId}`, "enviar_burbuja");
       window.requestAnimationFrame(() => {
         const container = messagesScrollRef.current;
@@ -2331,6 +2414,12 @@ export function SharedInbox({
         setReplyTarget(null);
       }
 
+      // Registro del envio: si falla, de aca sale la burbuja "No se envió" y su Reintentar.
+      enviosEnCursoRef.current.set(optimisticId, {
+        ...burbuja,
+        envio: { chatKey: chatDelEnvio, campos: camposDelFormulario(formData) },
+      });
+
       // Envio sin navegacion: la accion valida internamente y devuelve un resultado.
       void Promise.resolve(composer.action(formData))
         .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
@@ -2338,7 +2427,7 @@ export function SharedInbox({
         .finally(liberar);
       return true;
     },
-    [renderedConversation, selectedConversationId, composer, finalizeOptimisticSend, replyTarget, chatSignature],
+    [renderedConversation, selectedConversationId, selectedConversationKey, composer, finalizeOptimisticSend, replyTarget, chatSignature],
   );
 
   const handleReplyToMessage = useCallback((target: SharedInboxMessageItem) => {
@@ -2667,12 +2756,10 @@ export function SharedInbox({
   composerRef.current = composer;
   const composerHiddenFieldsRef = useRef(composerHiddenFields);
   composerHiddenFieldsRef.current = composerHiddenFields;
-  const optimisticOutgoingMessageRef = useRef(optimisticOutgoingMessage);
-  optimisticOutgoingMessageRef.current = optimisticOutgoingMessage;
 
-  const handleRetryFailedMessage = useCallback(() => {
+  const handleRetryFailedMessage = useCallback((target: SharedInboxMessageItem) => {
     const composerValue = composerRef.current;
-    const failed = optimisticOutgoingMessageRef.current;
+    const failed = mensajesFallidosRef.current.find((item) => item.id === target.id) ?? null;
     // Se reenvia el texto SIN firma (la pone el servidor). Si la burbuja salio sin firma
     // (respuesta rapida o firma apagada), el reintento tambien va sin firma.
     const text = (failed?.matchContent ?? failed?.content)?.trim();
@@ -2680,28 +2767,58 @@ export function SharedInbox({
       return;
     }
 
-    const formData = new FormData();
-    formData.set("message", text);
-    for (const field of composerHiddenFieldsRef.current) {
-      formData.set(field.name, field.value);
-    }
-    if (failed.matchContent !== undefined && failed.content === failed.matchContent) {
-      formData.set("skipSignature", "1");
+    // Mismo candado anti doble envio que el cuadro de texto: antes el reintento no lo usaba y un
+    // doble toque mandaba el texto dos veces.
+    const chatDelEnvio = failed.envio?.chatKey ?? `agent:${failed.conversationId}`;
+    if (textoEnCursoRef.current.has(chatDelEnvio)) {
+      toast.info("Espera a que salga el mensaje anterior.");
+      return;
     }
 
-    // Reintento: vuelve a verse como mensaje enviado (sin etiqueta de error) y se
-    // valida internamente; si vuelve a fallar, se marca "error" de nuevo.
+    // Se repite el envio TAL CUAL (mismo chat, misma firma, misma cita), no con los campos del
+    // chat que este abierto ahora.
+    const formData = new FormData();
+    if (failed.envio) {
+      for (const [nombre, valor] of failed.envio.campos) {
+        formData.set(nombre, valor);
+      }
+    } else {
+      for (const field of composerHiddenFieldsRef.current) {
+        formData.set(field.name, field.value);
+      }
+      formData.set("conversationId", failed.conversationId);
+      formData.set("chatEsperado", failed.conversationId);
+      if (failed.matchContent !== undefined && failed.content === failed.matchContent) {
+        formData.set("skipSignature", "1");
+      }
+    }
+    formData.set("message", text);
+
+    textoEnCursoRef.current.add(chatDelEnvio);
+    setChatsConTextoEnCurso((actual) => [...actual, chatDelEnvio]);
+    const liberar = () => {
+      textoEnCursoRef.current.delete(chatDelEnvio);
+      setChatsConTextoEnCurso((actual) => actual.filter((chat) => chat !== chatDelEnvio));
+    };
+
+    // Reintento: sale de la lista de fallidos y vuelve a verse como texto en camino; si vuelve a
+    // fallar, regresa a "No se envió" con su texto.
     const optimisticId = `optimistic:${failed.conversationId}:${Date.now()}`;
-    setOptimisticOutgoingMessage({
+    const burbuja: OptimisticDraftMessage = {
       ...failed,
       id: optimisticId,
       outboundStatusLabel: null,
+      errorDetail: null,
       createdAt: new Date(),
-    });
+    };
+    setMensajesFallidos((lista) => quitarFallido(lista, failed.id));
+    setOptimisticOutgoingMessage(burbuja);
+    enviosEnCursoRef.current.set(optimisticId, burbuja);
 
     void Promise.resolve(composerValue.action(formData))
       .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
-      .catch(() => finalizeOptimisticSend(optimisticId, null));
+      .catch(() => finalizeOptimisticSend(optimisticId, null))
+      .finally(liberar);
   }, [finalizeOptimisticSend]);
   // Identidad estable de la conversación: normalizamos el id (el preview viene como
   // "agent:<id>" y el cargado como "<id>"), si no, split(":")[0] daría "agent" para todos
@@ -3231,6 +3348,14 @@ export function SharedInbox({
         isManager={isManager}
         onComposerDraft={handleComposerDraft}
         enviandoTexto={chatsConTextoEnCurso.includes(selectedConversationId)}
+        // Enviar queda apagado hasta que el chat abierto este cargado (nunca al chat anterior).
+        envioBloqueado={!hasSettledConversation}
+        estadoCarga={estadoCargaDelChat({
+          esVistaPrevia: Boolean(renderedConversation?.isPreview),
+          fallo: falloCargaDelChat === selectedConversationKey,
+          msDesdeQueAbrio: 0,
+        })}
+        onReintentarCarga={reintentarCargaDelChat}
         onRetryFailedMessage={handleRetryFailedMessage}
         onReplyToMessage={handleReplyToMessage}
         onDeleteMessage={handleDeleteMessage}
@@ -3243,7 +3368,9 @@ export function SharedInbox({
         selectedConversationTags={selectedConversationTags}
         emptySelectionTitle={emptySelectionTitle}
         emptySelectionDescription={emptySelectionDescription}
-        headerActions={clientHeaderActions ?? headerActions}
+        // El del servidor solo si es de ESTE chat: si no, el interruptor de la IA apuntaria al
+        // chat con el que cargo la pagina.
+        headerActions={clientHeaderActions ?? (selectedConversationMatchesCurrentKey ? headerActions : null)}
         headerBadge={headerBadge}
         // Igual que la ficha: la del servidor solo si es de ESTE chat (Ventas 2 usa siempre esa).
         headerBar={clientHeaderBar ?? (selectedConversationMatchesCurrentKey ? headerBar : null)}

@@ -119,6 +119,12 @@ export type OptimisticDraftMessage = SharedInboxMessageItem & {
    * cambiado en otra pestaña.
    */
   matchContent?: string;
+  /**
+   * Con que se mando: la clave del chat (para el candado anti doble envio) y los campos del
+   * formulario tal cual. "Reintentar" los reusa: vuelve al MISMO chat, aunque la asesora haya
+   * cambiado de chat entre medio.
+   */
+  envio?: { chatKey: string; campos: Array<[string, string]> };
 };
 
 export type ComposerReplyTarget = {

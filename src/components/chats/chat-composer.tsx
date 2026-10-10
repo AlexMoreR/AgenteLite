@@ -16,19 +16,24 @@ import {
   type ComposerEmojiTab,
 } from "./chat-inbox-emojis";
 
-export function ComposerSendButton({ enviando = false }: { enviando?: boolean } = {}) {
+export function ComposerSendButton({
+  enviando = false,
+  bloqueado = false,
+}: { enviando?: boolean; bloqueado?: boolean } = {}) {
   const { pending: pendienteDelFormulario } = useFormStatus();
   // `enviando`: hay un texto en camino en este chat (anti doble envio, ver shared-inbox).
   const pending = pendienteDelFormulario || enviando;
+  // `bloqueado`: el chat abierto todavia no cargo; enviar ahora podia mandarlo al chat anterior.
 
   return (
     <Button
       type="submit"
       variant="ghost"
       size="icon"
-      disabled={pending}
+      disabled={pending || bloqueado}
       className="inline-flex size-[34px] shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-muted-foreground/20 disabled:cursor-not-allowed disabled:opacity-70 md:size-8"
-      aria-label={pending ? "Enviando mensaje" : "Enviar mensaje"}
+      aria-label={pending ? "Enviando mensaje" : bloqueado ? "Espera a que cargue el chat" : "Enviar mensaje"}
+      title={bloqueado ? "Espera a que cargue el chat" : undefined}
     >
       <SendHorizonal className={`size-6 ${pending ? "animate-pulse" : ""}`} />
     </Button>

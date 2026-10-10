@@ -1,4 +1,5 @@
 import path from "node:path";
+import { TIPOS_PERMITIDOS_CHAT } from "@/lib/chat-envio-seguro";
 
 /**
  * Reglas de subida de archivos del chat, en un solo lugar.
@@ -13,17 +14,8 @@ import path from "node:path";
 export const MAX_FILE_SIZE_MB = 100;
 export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
-export const ALLOWED_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "video/mp4",
-  "video/webm",
-  "video/quicktime",
-  "application/pdf",
-]);
+// La lista vive en chat-envio-seguro (la usa tambien el navegador para avisar ANTES de subir).
+export const ALLOWED_MIME_TYPES = new Set<string>(TIPOS_PERMITIDOS_CHAT);
 
 export function getExtensionForMime(mimeType: string, originalName: string) {
   const fromName = path.extname(originalName).toLowerCase();

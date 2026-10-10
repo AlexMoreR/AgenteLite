@@ -328,7 +328,11 @@ export function ConversationRowMenu({
         }}
       >
         <PopoverTrigger
-          className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          /*
+            Se ve de 28 px pero en el celular se toca en 40 px (el before: agranda el area sin mover
+            la fila). Con 28 px, errar por poco abria el chat en vez del menu.
+          */
+          className="relative inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition before:absolute before:-inset-1.5 before:rounded-full before:content-[''] hover:bg-muted hover:text-foreground md:before:hidden"
           aria-label="Acciones de la conversación"
           title="Acciones"
           disabled={isPending}

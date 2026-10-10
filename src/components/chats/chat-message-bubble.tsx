@@ -791,7 +791,8 @@ export const MessageBubble = memo(function MessageBubble({
 }: {
   message: SharedInboxMessageItem;
   previousMessage: SharedInboxMessageItem | undefined;
-  onRetry?: () => void;
+  /** Reintentar un texto que no salio: recibe la burbuja (puede haber varias fallidas). */
+  onRetry?: (message: SharedInboxMessageItem) => void;
   onReply?: (message: SharedInboxMessageItem) => void;
   onForward?: (message: SharedInboxMessageItem) => void;
   onDelete?: (message: SharedInboxMessageItem) => void;
@@ -1109,18 +1110,40 @@ export const MessageBubble = memo(function MessageBubble({
               ) : message.outboundStatusLabel === "entregado" ? (
                 <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
               ) : message.outboundStatusLabel === "error" ? (
-                <span className="ml-1 inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-300">
+                /*
+                  Texto que no salio (10-10-2026): queda a la vista con el motivo (en el celular el
+                  title= no se ve), Reintentar y Copiar. El texto nunca se pierde.
+                */
+                <span className="ml-1 inline-flex flex-wrap items-center gap-1 font-medium text-amber-700 dark:text-amber-300">
                   <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
                   No se envió
                   {onRetry ? (
                     <button
                       type="button"
-                      onClick={onRetry}
-                      className="ml-0.5 inline-flex cursor-pointer items-center gap-0.5 rounded-full bg-amber-600/15 px-1.5 py-0.5 font-semibold text-amber-800 transition hover:bg-amber-600/25 dark:bg-amber-300/20 dark:text-amber-200 dark:hover:bg-amber-300/30"
+                      onClick={() => onRetry(message)}
+                      className="ml-0.5 inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-full bg-amber-600/15 px-2.5 py-1 font-semibold text-amber-800 transition hover:bg-amber-600/25 dark:bg-amber-300/20 dark:text-amber-200 dark:hover:bg-amber-300/30"
                     >
-                      <RotateCcw className="h-2.5 w-2.5" />
+                      <RotateCcw className="h-3 w-3" />
                       Reintentar
                     </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      // Sin la firma: lo que la asesora escribio, para pegarlo donde quiera.
+                      copyMessageText({
+                        ...message,
+                        content:
+                          (message as SharedInboxMessageItem & { matchContent?: string }).matchContent ?? message.content,
+                      })
+                    }
+                    className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-full bg-amber-600/10 px-2.5 py-1 font-semibold text-amber-800 transition hover:bg-amber-600/20 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
+                  >
+                    <Copy className="h-3 w-3" />
+                    Copiar
+                  </button>
+                  {message.errorDetail?.trim() ? (
+                    <span className="basis-full text-[11px] font-normal">{message.errorDetail.trim()}</span>
                   ) : null}
                 </span>
               ) : /^[A-Z_]+$/.test(message.outboundStatusLabel) ? (
