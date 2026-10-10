@@ -1,3 +1,5 @@
+import { rutaDelAvisoDelBot } from "@/features/avisos-gravedad/dominio/reglas";
+import { anotarAvisoDelBot, leerConfigGravedad, pushAAlexander } from "@/features/avisos-gravedad/servicios/enrutador";
 import { registrarEscalado } from "@/features/embudo/servicios/eventos";
 import { decidirViaDeAvisos } from "@/lib/anti-bloqueo/reglas";
 import { leerConfigAntiBloqueo } from "@/lib/anti-bloqueo/servicio";
@@ -201,9 +203,61 @@ export async function avisarAsesorPorWhatsApp(input: {
       despertarle el teléfono a una asesora por un lead que no es suyo.
     */
     const duenoDelChat = conversacion?.assignedToUserId ?? null;
-    const destinos = config.destinos.filter(
-      (destino) => destino.soloDe === null || (duenoDelChat !== null && destino.soloDe === duenoDelChat),
-    );
+
+    /*
+      AVISOS POR GRAVEDAD (Alex, 10-10-2026): con el interruptor `avisos:gravedad:<ws>` encendido, el
+      "Necesita atención" es trabajo OPERATIVO de la asesora del chat: el administrador ya no lo
+      recibe por WhatsApp. Si el chat quedó sin dueña (nadie disponible) es IMPORTANTE: push del CRM
+      a Alexander, sin WhatsApp. Si escala (caliente > 1 h, asignado > 2 h, "ya pagué"), lo levanta
+      el Supervisor como CRÍTICO. Apagado = lo de siempre.
+    */
+    const gravedad = await leerConfigGravedad(input.workspaceId).catch(() => null);
+    const ruta = gravedad?.activo ? rutaDelAvisoDelBot({ duenoDelChat, destinos: config.destinos }) : null;
+    const destinos = ruta
+      ? ruta.destinosWhatsApp
+      : config.destinos.filter(
+          (destino) => destino.soloDe === null || (duenoDelChat !== null && destino.soloDe === duenoDelChat),
+        );
+    const claveDelUltimo = `agente-v3:ultimo-aviso:${input.conversationId}`;
+
+    if (ruta && gravedad && destinos.length === 0) {
+      // Sin WhatsApp: push a la asesora (no tiene número) o a Alexander (nadie disponible).
+      const filaPrevia = await prisma.appSetting.findUnique({ where: { key: claveDelUltimo } });
+      const previo = filaPrevia?.value ? Date.parse(filaPrevia.value) : 0;
+      if (previo && Date.now() - previo < ESPERA_ENTRE_AVISOS_MS) {
+        return 0;
+      }
+      const payload = {
+        title: ruta.pushAlexander ? "Chat sin asesora disponible" : "🔔 Necesita atención",
+        body: `${input.cliente}: ${input.motivo}`.slice(0, 180),
+        tag: `atencion:${input.conversationId}`,
+        url: `/cliente/chats?chatKey=agent:${input.conversationId}&assigned=all`,
+      };
+      let entregados = 0;
+      if (ruta.pushAlexander) {
+        entregados = await pushAAlexander(input.workspaceId, gravedad, payload);
+      } else if (ruta.pushAsesora) {
+        entregados = await sendPushToUser({ userId: ruta.pushAsesora, payload }).catch(() => 0);
+        if (entregados > 0 && ruta.pushAsesora === asignadaAhoraA) {
+          llegoALaAsesora = true;
+        }
+      }
+      if (entregados > 0) {
+        const ahora = new Date().toISOString();
+        await prisma.appSetting
+          .upsert({ where: { key: claveDelUltimo }, create: { key: claveDelUltimo, value: ahora }, update: { value: ahora } })
+          .catch(() => {});
+      }
+      void anotarAvisoDelBot({
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        gravedad: ruta.gravedad,
+        titulo: `${ruta.pushAlexander ? "Sin asesora disponible" : "Necesita atención"}: ${input.motivo}`,
+        canales: entregados > 0 ? [ruta.pushAlexander ? "alexander_push" : "asesora_push"] : [],
+      });
+      return entregados > 0 ? 1 : 0;
+    }
+
     if (destinos.length === 0) {
       return 0;
     }
@@ -230,7 +284,6 @@ export async function avisarAsesorPorWhatsApp(input: {
       Va en su propia fila y no en el estado del agente a propósito: el estado lo reescribe el
       motor al terminar el turno, y pisaría esta marca sin enterarse.
     */
-    const claveDelUltimo = `agente-v3:ultimo-aviso:${input.conversationId}`;
     const filaDelUltimo = await prisma.appSetting.findUnique({ where: { key: claveDelUltimo } });
     const ultimo = filaDelUltimo?.value ? Date.parse(filaDelUltimo.value) : 0;
     if (ultimo && Date.now() - ultimo < ESPERA_ENTRE_AVISOS_MS) {
@@ -330,6 +383,16 @@ export async function avisarAsesorPorWhatsApp(input: {
       await prisma.appSetting
         .upsert({ where: { key: claveDelUltimo }, create: { key: claveDelUltimo, value: ahora }, update: { value: ahora } })
         .catch(() => {});
+    }
+
+    if (ruta) {
+      void anotarAvisoDelBot({
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        gravedad: ruta.gravedad,
+        titulo: `Necesita atención: ${input.motivo}`,
+        canales: enviados > 0 ? [via.tipo === "push" ? "asesora_push" : "asesora_whatsapp"] : [],
+      });
     }
 
     return enviados;

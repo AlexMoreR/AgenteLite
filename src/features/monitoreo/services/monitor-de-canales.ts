@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getEvolutionConnectionState } from "@/lib/evolution";
 import { sendPushToUser } from "@/lib/web-push";
 import { sendAvisoDeCanalEmail } from "@/lib/mailer";
+import { avisarLineaCaidaPorWhatsApp, olvidarLineaCaida } from "@/features/avisos-gravedad/servicios/enrutador";
 
 /**
  * Vigila que las lineas de WhatsApp esten realmente vivas, y avisa cuando no.
@@ -214,6 +215,7 @@ export async function revisarCanales(): Promise<ResumenDeRevision> {
           cuerpo: `La linea ${canal.name}${canal.phoneNumber ? ` (${canal.phoneNumber})` : ""} volvio a funcionar.`,
         });
         resumen.recuperados.push(canal.name);
+        void olvidarLineaCaida(canal.workspaceId, canal.id);
       }
       if (monitor.caidoDesde || monitor.avisadoEn || canal.status !== "CONNECTED") {
         await guardarMonitor(canal.id, canal.metadata, { caidoDesde: null, avisadoEn: null }, "CONNECTED");
@@ -244,6 +246,17 @@ export async function revisarCanales(): Promise<ResumenDeRevision> {
         cuerpo: `La linea ${canal.name}${canal.phoneNumber ? ` (${canal.phoneNumber})` : ""} lleva ${hace(caidoDesde)} sin conexion. ${queHacer}`,
       });
       resumen.avisos += 1;
+      /*
+        Avisos por gravedad (10-10-2026): una linea caida es CRITICA. Con el interruptor
+        `avisos:gravedad:<ws>` encendido, ademas un WhatsApp a Alexander por la linea INTERNA, si la
+        caida no es justamente esa (si lo es, queda el push y el correo de arriba).
+      */
+      void avisarLineaCaidaPorWhatsApp({
+        workspaceId: canal.workspaceId,
+        canalId: canal.id,
+        titulo: `${canal.name} esta caida`,
+        cuerpo: `Lleva ${hace(caidoDesde)} sin conexion. ${queHacer}`,
+      });
     }
 
     await guardarMonitor(

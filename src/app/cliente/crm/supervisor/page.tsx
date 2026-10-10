@@ -23,6 +23,8 @@ import { idsDelComboEnElLibro } from "@/features/supervisor/servicios/vueltas";
 import { TareasDeSeguimiento } from "@/features/seguimiento-inteligente/components/TareasDeSeguimiento";
 import { leerConfigSeguimiento } from "@/features/seguimiento-inteligente/servicios/config";
 import { leerTareasParaSupervisor, resumenDelMotor } from "@/features/seguimiento-inteligente/servicios/tareas";
+import { bloqueDelCierreDelDia, fechaBogota } from "@/features/avisos-gravedad/dominio/reglas";
+import { leerConfigGravedad, leerResumenDelDia } from "@/features/avisos-gravedad/servicios/enrutador";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 
@@ -93,6 +95,11 @@ export default async function SupervisorPage() {
     leerAlertasRecientes(workspaceId).catch(() => null),
     leerLineaDelLibro(workspaceId),
   ]);
+
+  const configAvisos = await leerConfigGravedad(workspaceId).catch(() => null);
+  const avisos = {
+    resumen: configAvisos?.activo ? await leerResumenDelDia(workspaceId, fechaBogota(new Date())) : null,
+  };
 
   const ids = idsDelComboEnElLibro(linea.actual);
   const anterior = linea.libros.get(linea.actual.version - 1) ?? null;
@@ -187,6 +194,21 @@ export default async function SupervisorPage() {
           </p>
         ) : null}
       </div>
+
+      {avisos.resumen ? (
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle>Avisos por gravedad · hoy</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p className="text-muted-foreground">
+              Críticos: push + WhatsApp a Alexander. Importantes: push. Operativos: solo a la asesora. Observaciones: solo
+              este resumen.
+            </p>
+            <pre className="whitespace-pre-wrap text-xs leading-relaxed text-foreground">{bloqueDelCierreDelDia(avisos.resumen)}</pre>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card size="sm">
         <CardHeader>

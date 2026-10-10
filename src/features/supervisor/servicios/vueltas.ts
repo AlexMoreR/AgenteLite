@@ -11,6 +11,8 @@ import { correrGuardian } from "../dominio/guardian";
 import { diffDelLibro } from "../dominio/libro-diff";
 import type { CambioDelLibro } from "../dominio/tipos";
 import { guardarIncidentes, leerIncidentesAbiertos } from "./almacen-alertas";
+import { detectarPagoSinRespuesta } from "@/features/avisos-gravedad/dominio/reglas";
+import { leerConfigGravedad } from "@/features/avisos-gravedad/servicios/enrutador";
 import { avisarAlDueno } from "./avisar";
 import { claveLibroVisto, negociosConSupervisor } from "./config";
 import { chatsExcluidosDeAtencion, leerChatsAbiertos, leerFichasRecientes, leerFlujosDelLibro, leerLineaDelLibro, nombresDeAsesoras } from "./datos";
@@ -89,7 +91,7 @@ async function vigilarElLibro(workspaceId: string, ahora: Date): Promise<number>
     versiones: { arreglos, inicios },
   });
   await guardarIncidentes(workspaceId, resultado.incidentes, ahora);
-  await avisarAlDueno({ workspaceId, avisos: resultado.avisar });
+  await avisarAlDueno({ workspaceId, avisos: resultado.avisar, incidentes: resultado.incidentes, ahora });
   await guardarMarca();
   return hallazgos.length;
 }
@@ -97,7 +99,13 @@ async function vigilarElLibro(workspaceId: string, ahora: Date): Promise<number>
 async function chequearAtencion(workspaceId: string, ahora: Date): Promise<number> {
   const chats = await leerChatsAbiertos({ workspaceId, ahora });
   const tareasSinDuena = await leerTareasSinDuena(workspaceId, ahora).catch(() => []);
-  const hallazgos = [...detectarAtencion(chats, ahora), ...hallazgosDeTareasSinDuena(tareasSinDuena, ahora)];
+  // Avisos por gravedad: con el interruptor, también "ya pagué" / comprobante sin respuesta (CRÍTICO).
+  const gravedad = await leerConfigGravedad(workspaceId).catch(() => null);
+  const hallazgos = [
+    ...detectarAtencion(chats, ahora),
+    ...hallazgosDeTareasSinDuena(tareasSinDuena, ahora),
+    ...(gravedad?.activo ? detectarPagoSinRespuesta(chats, ahora, gravedad.pagoSinRespuestaMin) : []),
+  ];
   const abiertosCrudos = (await leerIncidentesAbiertos(workspaceId)).filter((inc) => inc.familia === "ATENCION");
   // Los chats que ya no son tarea (PERDIDO/GANADO, exterior, dormidos, ya respondidos) salen de las
   // alertas abiertas, y la alerta que queda vacía se cierra (exclusiones.ts).
@@ -109,7 +117,7 @@ async function chequearAtencion(workspaceId: string, ahora: Date): Promise<numbe
   const { incidentes: abiertos } = purgarChatsExcluidos(abiertosCrudos, excluidos, ahora);
   const resultado = consolidar({ abiertos, hallazgos, ahora, cambios: [], familiasEvaluadas: ["ATENCION"] });
   await guardarIncidentes(workspaceId, resultado.incidentes, ahora);
-  await avisarAlDueno({ workspaceId, avisos: resultado.avisar });
+  await avisarAlDueno({ workspaceId, avisos: resultado.avisar, incidentes: resultado.incidentes, ahora });
   return hallazgos.length;
 }
 
@@ -195,7 +203,7 @@ export async function vueltaDeCadaHora(ahora = new Date()): Promise<{ negocios: 
           versiones: { arreglos, inicios, confirmaciones, entradaDe: (id) => entradas.get(id) ?? null },
         });
         await guardarIncidentes(workspaceId, resultado.incidentes, ahora);
-        await avisarAlDueno({ workspaceId, avisos: resultado.avisar });
+        await avisarAlDueno({ workspaceId, avisos: resultado.avisar, incidentes: resultado.incidentes, ahora });
         total += hallazgos.length;
       } catch (error) {
         console.error("[supervisor] hora", workspaceId, error instanceof Error ? error.message : error);

@@ -1,3 +1,4 @@
+import { enrutarAlertasDelSupervisor, leerConfigGravedad } from "@/features/avisos-gravedad/servicios/enrutador";
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/web-push";
 
@@ -9,11 +10,32 @@ import { textoDelAviso, type Incidente } from "../dominio/alertas";
  *
  * El `tag` es la clave del incidente: si llega otra actualización, reemplaza a la anterior en el
  * teléfono en vez de apilarse.
+ *
+ * AVISOS POR GRAVEDAD (10-10-2026): con el interruptor `avisos:gravedad:<workspaceId>` encendido,
+ * cada alerta sale por el canal de su gravedad (asesora / push a Alexander / push + WhatsApp a
+ * Alexander / resumen). Apagado = exactamente lo de antes (ver features/avisos-gravedad).
  */
 export async function avisarAlDueno(input: {
   workspaceId: string;
   avisos: Array<{ incidente: Incidente; motivo: "nuevo" | "sube" | "recordatorio" }>;
+  /** Los incidentes de la vuelta: con el enrutador por gravedad se reevalúan los de atención abiertos. */
+  incidentes?: Incidente[];
+  ahora?: Date;
 }): Promise<number> {
+  const gravedad = await leerConfigGravedad(input.workspaceId).catch(() => null);
+  if (gravedad?.activo) {
+    const resultado = await enrutarAlertasDelSupervisor({
+      workspaceId: input.workspaceId,
+      config: gravedad,
+      avisos: input.avisos,
+      incidentes: input.incidentes,
+      ahora: input.ahora ?? new Date(),
+    }).catch((error) => {
+      console.error("[supervisor] enrutador de avisos", error instanceof Error ? error.message : error);
+      return { enviados: 0 };
+    });
+    return resultado.enviados;
+  }
   if (input.avisos.length === 0) return 0;
   const jefes = await prisma.workspaceMember.findMany({
     where: { workspaceId: input.workspaceId, isActive: true, role: { in: ["OWNER", "ADMIN"] } },
