@@ -56,6 +56,16 @@ export function TareasDeSeguimiento({ tareas, ahora = new Date(), mostrarAsesora
                   {tarea.vence ? ` · ${vencida ? "venció" : "vence"} ${hora(tarea.vence)}` : ""}
                   {mostrarAsesora ? ` · ${tarea.asesoraNombre ?? "sin asesora"}` : ""}
                 </p>
+                {tarea.topeEstado === "redistribuida" ? (
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                    Pasada por tope de {tarea.deNombre ?? "otra asesora"}
+                    {mostrarAsesora && tarea.paraNombre ? ` a ${tarea.paraNombre}` : ""} (el chat sigue siendo de {tarea.deNombre ?? "ella"})
+                  </p>
+                ) : tarea.topeEstado === "pospuesta" ? (
+                  <p className="text-xs text-muted-foreground">
+                    Pospuesta por tope{tarea.pospuestaHasta ? ` hasta ${hora(tarea.pospuestaHasta)}` : ""}: nadie tenía cupo hoy
+                  </p>
+                ) : null}
               </div>
               <Link
                 href={enlaceAlChat(tarea.conversationId)}

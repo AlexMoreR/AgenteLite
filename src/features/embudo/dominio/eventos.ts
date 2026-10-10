@@ -39,6 +39,8 @@ export const TIPOS_DE_EVENTO = [
   "EXTERIOR",
   /** F2: descarte por la cadencia (3 toques sin respuesta), hecho o "habría descartado" en sombra. */
   "DESCARTE_CADENCIA",
+  /** F2: una tarea pasada a otra asesora o pospuesta por el tope diario. Solo registro. */
+  "TAREA_REPARTIDA",
 ] as const;
 
 export type TipoDeEvento = (typeof TIPOS_DE_EVENTO)[number];

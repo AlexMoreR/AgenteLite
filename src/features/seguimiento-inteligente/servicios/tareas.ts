@@ -24,6 +24,12 @@ export type TareaDeSeguimiento = {
   asesoraNombre: string | null;
   modo: string;
   toque: string | null;
+  /** Tope diario: "propia" | "redistribuida" | "pospuesta" | "sin_duena" (null = todavía sin plan). */
+  topeEstado: string | null;
+  /** Para quién quedó la tarea por el tope y de quién era (si se pasó). */
+  paraNombre: string | null;
+  deNombre: string | null;
+  pospuestaHasta: Date | null;
 };
 
 type Fila = {
@@ -37,10 +43,13 @@ type Fila = {
   productoInteres: string | null;
   asesoraId: string | null;
   asesoraNombre: string | null;
+  paraNombre: string | null;
+  deNombre: string | null;
 };
 
 function aTarea(fila: Fila): TareaDeSeguimiento {
   const datos = fila.accionDatos ?? {};
+  const tope = (datos.tope && typeof datos.tope === "object" ? datos.tope : {}) as Record<string, unknown>;
   const telefono = (fila.telefono ?? "").replace(/\D/g, "");
   return {
     conversationId: fila.conversationId,
@@ -56,6 +65,10 @@ function aTarea(fila: Fila): TareaDeSeguimiento {
     asesoraNombre: fila.asesoraNombre,
     modo: typeof datos.modo === "string" ? datos.modo : "sombra",
     toque: typeof datos.toque === "string" ? datos.toque : null,
+    topeEstado: typeof tope.estado === "string" ? tope.estado : null,
+    paraNombre: fila.paraNombre,
+    deNombre: fila.deNombre,
+    pospuestaHasta: typeof tope.pospuestaHasta === "string" ? new Date(tope.pospuestaHasta) : null,
   };
 }
 
@@ -65,22 +78,38 @@ async function leerTareas(input: {
   asesoraId?: string | null;
   sinDuena?: boolean;
   soloActivas?: boolean;
+  ocultarPospuestas?: boolean;
   limite?: number;
 }): Promise<TareaDeSeguimiento[]> {
   const filas = await prisma.$queryRaw<Fila[]>(Prisma.sql`
     SELECT l."conversationId", ct."name" AS "nombre", ct."phoneNumber" AS "telefono", l."tareaPrioridad", l."tareaVence",
-           l."accionDatos", l."temperatura", l."productoInteres", c."assignedToUserId" AS "asesoraId", u."name" AS "asesoraNombre"
+           l."accionDatos", l."temperatura", l."productoInteres", c."assignedToUserId" AS "asesoraId", u."name" AS "asesoraNombre",
+           para."name" AS "paraNombre", de."name" AS "deNombre"
       FROM "EmbudoLead" l
       JOIN "Conversation" c ON c."id" = l."conversationId"
       JOIN "Contact" ct ON ct."id" = c."contactId"
       LEFT JOIN "User" u ON u."id" = c."assignedToUserId"
+      LEFT JOIN "User" para ON para."id" = l."accionDatos"->'tope'->>'para'
+      LEFT JOIN "User" de ON de."id" = l."accionDatos"->'tope'->>'de'
      WHERE l."workspaceId" = ${input.workspaceId}
        AND l."accion" = 'tarea_asesora'
        AND l."exterior" = false
        AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
        AND (l."tareaVence" IS NULL OR l."tareaVence" <= ${input.hasta})
        ${input.soloActivas ? Prisma.sql`AND l."accionDatos"->>'modo' = 'activo'` : Prisma.empty}
-       ${input.asesoraId ? Prisma.sql`AND c."assignedToUserId" = ${input.asesoraId}` : Prisma.empty}
+       ${
+         input.asesoraId
+           ? /*
+               Tope diario: la tarea es de quien dice el plan (la dueña o a quien se le pasó). Sin
+               plan todavía, de la dueña del chat. Las pospuestas no aparecen hasta su día.
+             */
+             Prisma.sql`AND (
+               (l."accionDatos"->'tope' IS NULL AND c."assignedToUserId" = ${input.asesoraId})
+               OR (l."accionDatos"->'tope'->>'para' = ${input.asesoraId} AND l."accionDatos"->'tope'->>'estado' IN ('propia', 'redistribuida'))
+             )`
+           : Prisma.empty
+       }
+       ${input.ocultarPospuestas ? Prisma.sql`AND COALESCE(l."accionDatos"->'tope'->>'estado', '') <> 'pospuesta'` : Prisma.empty}
        ${input.sinDuena ? Prisma.sql`AND c."assignedToUserId" IS NULL` : Prisma.empty}
        AND NOT EXISTS (
          SELECT 1 FROM "Message" m
@@ -95,7 +124,7 @@ async function leerTareas(input: {
 /** Las de una asesora para hoy (vencidas o que vencen antes de terminar el día), solo modo activo. */
 export async function leerTareasDeAsesora(workspaceId: string, asesoraId: string, ahora = new Date()): Promise<TareaDeSeguimiento[]> {
   const finDelDia = new Date(ahora.getTime() + 12 * 3_600_000);
-  return leerTareas({ workspaceId, hasta: finDelDia, asesoraId, soloActivas: true, limite: 30 });
+  return leerTareas({ workspaceId, hasta: finDelDia, asesoraId, soloActivas: true, ocultarPospuestas: true, limite: 30 });
 }
 
 /** Las vencidas sin dueña (modo activo): el Supervisor las marca para asignar (NO reasigna). */

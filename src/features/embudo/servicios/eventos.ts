@@ -37,7 +37,7 @@ type BaseDelEvento = {
 };
 
 /** Eventos que solo quedan en EmbudoEvento: no tocan EmbudoLead. */
-const SOLO_REGISTRO = new Set<string>(["SEGUIMIENTO_FRENADO"]);
+const SOLO_REGISTRO = new Set<string>(["SEGUIMIENTO_FRENADO", "TAREA_REPARTIDA"]);
 
 function anotarError(donde: string, error: unknown, extra: Record<string, unknown> = {}) {
   console.warn(`[embudo] ${donde}`, { ...extra, error: error instanceof Error ? error.message : String(error) });

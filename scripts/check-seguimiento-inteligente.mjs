@@ -39,6 +39,7 @@ const pr = cargar(`${D}/producto.ts`);
 const ff = cargar(`${D}/fecha-futura.ts`);
 const te = cargar(`${D}/temperatura.ts`);
 const mo = cargar(`${D}/motor.ts`);
+const tp = cargar(`${D}/tope.ts`);
 const cf = cargar(`${D}/config.ts`);
 const cv = (() => {
   // convivencia.ts importa prisma: se prueba solo su regla pura, cargando el archivo con dobles.
@@ -396,6 +397,70 @@ prueba("config: sin fila o con JSON roto, TODO apagado; valores por defecto pedi
   assert.equal(cf.leerConfigDeTexto(JSON.stringify({ motor: { modo: "loco" } })).motor.modo, "apagado");
   assert.deepEqual(cf.leerConfigDeTexto(JSON.stringify({ cadencia: { dias: [7, 3, "x", 3] } })).cadencia.dias, [3, 7]);
   assert.doesNotMatch(d.exterior.texto, /contra ?entrega|gratis/i);
+});
+
+prueba("tope: 15 por asesora; A antes que B, caliente y antigua primero; excedente a quien tenga cupo", () => {
+  const ahora = new Date("2026-10-08T15:00:00Z"); // 10:00 Bogotá
+  const tarea = (i, prioridad, temperatura, minutosAtras, duena = "ingrid", elegibles = ["ingrid", "maria", "genesis"]) => ({
+    conversationId: `c${String(i).padStart(3, "0")}`,
+    prioridad,
+    temperatura,
+    vence: new Date(ahora.getTime() - minutosAtras * MIN),
+    duena,
+    elegibles,
+  });
+  // 20 de Ingrid: 5 A y 15 B. Tope 15 → se queda las 5 A + 10 B (las más calientes/antiguas); 5 B pasan.
+  const tareas = [
+    ...Array.from({ length: 15 }, (_, i) => tarea(i, "B", i < 5 ? "TIBIO" : "FRIO", 100 + i)),
+    ...Array.from({ length: 5 }, (_, i) => tarea(100 + i, "A", "CALIENTE", 10 + i)),
+  ];
+  const planes = tp.planearTareas({ tareas, tope: 15, ahora });
+  const deIngrid = planes.filter((p) => p.para === "ingrid" && p.estado === "propia").map((p) => p.conversationId);
+  assert.equal(deIngrid.length, 15);
+  for (let i = 100; i < 105; i += 1) assert.ok(deIngrid.includes(`c${i}`), "las A se quedan con su dueña");
+  for (let i = 0; i < 5; i += 1) assert.ok(deIngrid.includes(`c00${i}`), "las B tibias antes que las frías");
+  const pasadas = planes.filter((p) => p.estado === "redistribuida");
+  assert.equal(pasadas.length, 5);
+  assert.ok(pasadas.every((p) => p.de === "ingrid" && ["maria", "genesis"].includes(p.para)));
+  // Se reparten a la de menos carga: 3 y 2.
+  const porAsesora = pasadas.reduce((a, p) => ((a[p.para] = (a[p.para] ?? 0) + 1), a), {});
+  assert.deepEqual(Object.values(porAsesora).sort(), [2, 3]);
+  assert.equal(tp.ordenarTareas(tareas)[0].prioridad, "A");
+});
+
+prueba("tope: sin cupo en nadie → pospuesta a mañana 8:00 (no se pierde); lo planeado hoy no se mueve", () => {
+  const ahora = new Date("2026-10-08T15:00:00Z");
+  const t = (i, duena, elegibles, plan = null) => ({ conversationId: `p${i}`, prioridad: "B", temperatura: "TIBIO", vence: new Date(ahora.getTime() - i * MIN), duena, elegibles, plan });
+  // María llena con 2 ya planeadas hoy (tope 2); Ingrid llena; Génesis fuera de horario (no elegible).
+  const hoy = tp.diaBogota(ahora);
+  const tareas = [
+    t(1, "maria", ["maria"], { dia: hoy, para: "maria", estado: "propia" }),
+    t(2, "maria", ["maria"], { dia: hoy, para: "maria", estado: "propia" }),
+    t(3, "ingrid", ["ingrid", "maria"], { dia: hoy, para: "ingrid", estado: "propia" }),
+    t(4, "ingrid", ["ingrid", "maria"], { dia: hoy, para: "ingrid", estado: "propia" }),
+    t(5, "ingrid", ["ingrid", "maria"]),
+    t(6, null, ["ingrid", "maria"]),
+  ];
+  const planes = tp.planearTareas({ tareas, tope: 2, ahora });
+  assert.equal(planes.length, 2, "solo se planean las nuevas");
+  const p5 = planes.find((p) => p.conversationId === "p5");
+  assert.equal(p5.estado, "pospuesta");
+  assert.equal(p5.pospuestaHasta, "2026-10-09T13:00:00.000Z");
+  assert.equal(planes.find((p) => p.conversationId === "p6").estado, "sin_duena");
+  // Mañana: la pospuesta vuelve a entrar con su antigüedad y, con cupo nuevo, es de su dueña.
+  const manana = new Date("2026-10-09T13:05:00Z");
+  const otra = tp.planearTareas({ tareas: [{ ...t(5, "ingrid", ["ingrid", "maria"]), plan: { dia: hoy, ...p5 } }], tope: 2, ahora: manana });
+  assert.deepEqual([otra[0].estado, otra[0].para, otra[0].dia], ["propia", "ingrid", "2026-10-09"]);
+  // Antes de las 8:00 de mañana sigue quieta.
+  assert.equal(tp.planearTareas({ tareas: [{ ...t(5, "ingrid", ["ingrid"]), plan: { dia: hoy, ...p5 } }], tope: 2, ahora: new Date("2026-10-09T12:00:00Z") }).length, 0);
+  // Tope 0 = sin tope.
+  assert.ok(tp.planearTareas({ tareas: Array.from({ length: 40 }, (_, i) => t(100 + i, "ingrid", ["ingrid"])), tope: 0, ahora }).every((p) => p.estado === "propia"));
+});
+
+prueba("config: tope de tareas por defecto 15", () => {
+  assert.equal(cf.CONFIG_POR_DEFECTO.tareas.maxPorAsesoraDia, 15);
+  assert.equal(cf.leerConfigDeTexto(null).tareas.maxPorAsesoraDia, 15);
+  assert.equal(cf.leerConfigDeTexto(JSON.stringify({ tareas: { maxPorAsesoraDia: 10 } })).tareas.maxPorAsesoraDia, 10);
 });
 
 console.log(`\n${pruebas} pruebas OK`);

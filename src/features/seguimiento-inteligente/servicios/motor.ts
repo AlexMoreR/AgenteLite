@@ -14,6 +14,7 @@ import { textoPermitido } from "../dominio/producto";
 import { PREFIJO_FOLLOW_INTELIGENTE } from "./convivencia";
 import { leerConfigSeguimiento, negociosConSeguimiento } from "./config";
 import { leerFicha, type FichaConContexto } from "./ficha";
+import { aplicarTopeDeTareas } from "./tope";
 
 /**
  * EL MOTOR EN VIVO del seguimiento inteligente.
@@ -269,6 +270,8 @@ export async function barrerSeguimientoInteligente(ahora = new Date()): Promise<
         await revisarLead(lead.conversationId, { ahora });
         revisados += 1;
       }
+      // Tope de tareas por asesora al día (reparte el excedente o lo pospone; nunca se pierde).
+      await aplicarTopeDeTareas(workspaceId, config, ahora);
     }
     return { negocios: negocios.length, revisados };
   } catch (error) {

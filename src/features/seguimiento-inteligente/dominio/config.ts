@@ -57,6 +57,11 @@ export type ConfigSeguimientoInteligente = {
     /** Una cotización cuenta como "abierta" (no se descarta) durante estos días. */
     diasVigente: number;
   };
+  /** Tope de tareas por asesora (Alexander, 10-10-2026: máximo 15 al día). */
+  tareas: {
+    /** Máximo de tareas nuevas por asesora en un día (Bogotá). 0 = sin tope. */
+    maxPorAsesoraDia: number;
+  };
   fechaFutura: {
     /** Días antes de la fecha dicha para la tarea de retomar. */
     diasAntes: number;
@@ -96,6 +101,7 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
   },
   cadencia: { dias: [3, 4, 7], descarte: "apagado", horasDeGracia: 24, maxAutomaticos: 2 },
   cotizacion: { horas: [24, 72], diasVigente: 30 },
+  tareas: { maxPorAsesoraDia: 15 },
   fechaFutura: { diasAntes: 7 },
   convivencia: { reemplazarGenericosEnFrios: true, reglasV3: [], followsDeEtapa: true },
   exterior: { activo: false, texto: TEXTO_EXTERIOR_POR_DEFECTO },
@@ -204,6 +210,7 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
       horas: listaDeNumeros(cot.horas, d.cotizacion.horas, 30 * 24),
       diasVigente: numero(cot.diasVigente, d.cotizacion.diasVigente, 1, 365),
     },
+    tareas: { maxPorAsesoraDia: Math.round(numero(objeto(crudo.tareas).maxPorAsesoraDia, d.tareas.maxPorAsesoraDia, 0, 500)) },
     fechaFutura: { diasAntes: numero(fut.diasAntes, d.fechaFutura.diasAntes, 0, 60) },
     convivencia: {
       reemplazarGenericosEnFrios: bandera(con.reemplazarGenericosEnFrios, d.convivencia.reemplazarGenericosEnFrios),
