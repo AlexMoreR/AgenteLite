@@ -14,6 +14,7 @@
  */
 
 import { ESPERANDO_AUTORIZACION, ETIQUETA_DE_SEVERIDAD, ORDEN_DE_SEVERIDAD, severidadMayor, type CambioDelLibro, type Familia, type Hallazgo, type Severidad } from "./tipos";
+import { acotarChats, esHallazgoDeArreglo, hallazgoDelArreglo, versionDelIncidente, type ContextoDeVersiones } from "./version-del-incidente";
 
 const MIN = 60_000;
 const HORA = 60 * MIN;
@@ -36,6 +37,8 @@ export type Incidente = {
   notificadaEn: Date | null;
   severidadNotificada: Severidad | null;
   hallazgos: Hallazgo[];
+  /** Se cambió en esta vuelta sin "verse" (estado del arreglo, ejemplos acotados): hay que guardarlo. */
+  cambiadoEn?: Date | null;
 };
 
 export type OpcionesDeAlertas = {
@@ -80,13 +83,77 @@ function severidadDelIncidente(hallazgos: Hallazgo[]): Severidad {
   let s: Severidad = "OBSERVACION";
   for (const h of hallazgos) s = severidadMayor(s, h.severidad);
   const claves = hallazgos.map((h) => h.clave);
-  const cambioDeRegla = claves.some((c) => c.startsWith("BOT:regla-primer-mensaje"));
+  // Un cambio de regla que es el ARREGLO de otro incidente (cambioEsperadoPor) no escala nada.
+  const cambioDeRegla = hallazgos.some((h) => h.clave.startsWith("BOT:regla-primer-mensaje") && !h.valores?.cambioEsperadoPor);
   const comportamiento = claves.some((c) => c.startsWith("BOT:rafaga_inicial") || c.startsWith("BOT:precio_o_fotos"));
   const caida =
     claves.some((c) => c.startsWith("EMBUDO:respondio_2h:")) ||
     hallazgos.some((h) => h.clave.startsWith("CAMBIO:post-cambio") && h.severidad !== "OBSERVACION");
   if (cambioDeRegla && (comportamiento || caida)) s = "CRITICO";
   return s;
+}
+
+const MENOR: Record<Severidad, number> = ORDEN_DE_SEVERIDAD;
+
+function severidadMenor(a: Severidad, b: Severidad): Severidad {
+  return MENOR[a] <= MENOR[b] ? a : b;
+}
+
+/**
+ * Un incidente del libro ("INC:libro-vN:…") acotado a su versión (version-del-incidente.ts): solo
+ * ejemplos de leads que entraron con el defecto y, si ya se arregló, su estado ("arreglado,
+ * esperando confirmación" / "resuelto, confirmado con datos") con la severidad bajada.
+ */
+function aplicarVersion(input: {
+  clave: string;
+  hallazgos: Hallazgo[];
+  /** Los hallazgos que tenía guardados (para conservar sus ejemplos). */
+  previos: Hallazgo[];
+  /** Claves de los hallazgos que llegaron en esta vuelta. */
+  nuevos: Set<string>;
+  versiones: ContextoDeVersiones;
+}): { hallazgos: Hallazgo[]; tope: Severidad | null; prefijo: string | null; resuelto: boolean } {
+  const version = versionDelIncidente(input.clave);
+  if (version === null) return { hallazgos: input.hallazgos, tope: null, prefijo: null, resuelto: false };
+  const arreglo = input.versiones.arreglos.get(input.clave) ?? null;
+  const desde = input.versiones.inicios?.get(input.clave) ?? null;
+  const previoDe = new Map(input.previos.map((h) => [h.clave, h]));
+  const delDefecto = input.hallazgos
+    .filter((h) => !esHallazgoDeArreglo(h))
+    .map((h) => {
+      const chats = acotarChats({
+        chats: input.nuevos.has(h.clave) ? h.evidencia.chats : [],
+        previos: previoDe.get(h.clave)?.evidencia.chats ?? (input.nuevos.has(h.clave) ? [] : h.evidencia.chats),
+        desde,
+        arreglo,
+        entradaDe: input.versiones.entradaDe,
+      });
+      return { ...h, evidencia: { ...h.evidencia, chats } };
+    });
+  if (!arreglo) return { hallazgos: delDefecto, tope: null, prefijo: null, resuelto: false };
+  // Un hallazgo que empezó después del arreglo ya no es parte de este incidente.
+  const antesDelArreglo = delDefecto.filter((h) => h.desde.getTime() < arreglo.en.getTime());
+  delDefecto.length = 0;
+  delDefecto.push(...antesDelArreglo);
+  const confirmacion = input.versiones.confirmaciones?.get(input.clave) ?? null;
+  const anterior = input.previos.find(esHallazgoDeArreglo);
+  // Sin datos nuevos en esta vuelta (la de 5 min no mira datos), se conserva lo que ya se sabía.
+  const delArreglo =
+    !confirmacion && anterior && anterior.valores?.arregladoPor === arreglo.version
+      ? anterior
+      : hallazgoDelArreglo({ version, producto: delDefecto[0]?.producto ?? anterior?.producto ?? null, arreglo, confirmacion });
+  const estado = (delArreglo.valores?.confirmacion as string | undefined) ?? "sin_datos";
+  return {
+    hallazgos: [delArreglo, ...delDefecto],
+    tope: estado === "sigue_mal" ? "IMPORTANTE" : "OBSERVACION",
+    prefijo:
+      estado === "recuperada"
+        ? `Resuelto, confirmado con datos (v${arreglo.version})`
+        : estado === "sigue_mal"
+          ? `Arreglado en la v${arreglo.version}, pero los datos siguen mal`
+          : `Arreglado en la v${arreglo.version}, esperando confirmación`,
+    resuelto: estado === "recuperada",
+  };
 }
 
 export function consolidar(input: {
@@ -97,8 +164,12 @@ export function consolidar(input: {
   /** Familias que se evaluaron en esta vuelta: solo esas se pueden cerrar por "no se vio". */
   familiasEvaluadas: Familia[];
   opciones?: OpcionesDeAlertas;
+  /** Arreglos y entradas de los leads, para acotar los incidentes del libro a su versión. */
+  versiones?: ContextoDeVersiones;
 }): { incidentes: Incidente[]; avisar: Array<{ incidente: Incidente; motivo: "nuevo" | "sube" | "recordatorio" }> } {
   const op = input.opciones ?? OPCIONES_POR_DEFECTO;
+  const versiones = input.versiones;
+  const arregloDe = (clave: string) => versiones?.arreglos.get(clave) ?? null;
   const porClave = new Map<string, Hallazgo[]>();
   /*
     Pertenencia "pegajosa": si un hallazgo ya está en un incidente ABIERTO, sigue ahí. Sin esto,
@@ -111,7 +182,14 @@ export function consolidar(input: {
     for (const h of inc.hallazgos) dondeEsta.set(h.clave, inc.clave);
   }
   for (const h of input.hallazgos) {
-    const clave = dondeEsta.get(h.clave) ?? claveDeIncidente(h, input.cambios);
+    let clave = dondeEsta.get(h.clave) ?? claveDeIncidente(h, input.cambios);
+    // Lo que empezó DESPUÉS del arreglo de un incidente no es de ese incidente (no se pega a él):
+    // va al cambio del libro que le toque, o queda solo.
+    const arreglo = arregloDe(clave);
+    if (arreglo && h.desde.getTime() >= arreglo.en.getTime()) {
+      const otra = claveDeIncidente(h, input.cambios.filter((c) => c.en.getTime() >= arreglo.en.getTime()));
+      clave = otra === clave || arregloDe(otra) ? h.clave : otra;
+    }
     porClave.set(clave, [...(porClave.get(clave) ?? []), h]);
   }
 
@@ -125,15 +203,35 @@ export function consolidar(input: {
     const mezcla = new Map<string, Hallazgo>();
     for (const h of previo?.estado === "ABIERTA" ? previo.hallazgos : []) mezcla.set(h.clave, h);
     for (const h of nuevos) mezcla.set(h.clave, h);
-    const hallazgos = [...mezcla.values()];
-    const severidad = severidadDelIncidente(hallazgos);
+    let hallazgos = [...mezcla.values()];
+    let severidad = severidadDelIncidente(hallazgos);
+    let titulo = tituloDelIncidente(clave, hallazgos);
+    let resuelto = false;
+    if (versiones) {
+      const acotado = aplicarVersion({
+        clave,
+        hallazgos,
+        previos: previo?.estado === "ABIERTA" ? previo.hallazgos : [],
+        nuevos: new Set(nuevos.map((h) => h.clave)),
+        versiones,
+      });
+      const delDefecto = acotado.hallazgos.filter((h) => !esHallazgoDeArreglo(h));
+      hallazgos = acotado.hallazgos;
+      if (delDefecto.length) {
+        severidad = severidadDelIncidente(delDefecto);
+        titulo = tituloDelIncidente(clave, delDefecto);
+      }
+      if (acotado.tope) severidad = severidadMenor(severidad, acotado.tope);
+      if (acotado.prefijo) titulo = `${acotado.prefijo}: ${titulo}`;
+      resuelto = acotado.resuelto;
+    }
     const desde = hallazgos.map((h) => h.desde).sort((a, b) => a.getTime() - b.getTime())[0];
     const abierto = previo && previo.estado === "ABIERTA";
     const inc: Incidente = {
       clave,
       familia: hallazgos.some((h) => h.familia === "BOT") ? "BOT" : hallazgos[0].familia,
       severidad,
-      titulo: tituloDelIncidente(clave, hallazgos),
+      titulo,
       producto: hallazgos[0].producto,
       primeraVezEn: abierto ? previo.primeraVezEn : input.ahora,
       ultimaVezEn: input.ahora,
@@ -150,7 +248,11 @@ export function consolidar(input: {
     const umbral: Severidad = clave.startsWith("EMBUDO:") ? "CRITICO" : op.avisarDesde;
     const alcanza = ORDEN_DE_SEVERIDAD[severidad] >= ORDEN_DE_SEVERIDAD[umbral];
     let motivo: "nuevo" | "sube" | "recordatorio" | null = null;
-    if (alcanza && !inc.notificadaEn) motivo = "nuevo";
+    if (resuelto) {
+      // "Resuelto, confirmado con datos": se cierra ya y no se avisa.
+      inc.estado = "RESUELTA";
+      inc.resueltaEn = input.ahora;
+    } else if (alcanza && !inc.notificadaEn) motivo = "nuevo";
     else if (alcanza && inc.severidadNotificada && ORDEN_DE_SEVERIDAD[severidad] > ORDEN_DE_SEVERIDAD[inc.severidadNotificada]) motivo = "sube";
     else if (severidad === "CRITICO" && inc.notificadaEn && input.ahora.getTime() - inc.notificadaEn.getTime() >= op.recordatorioCriticoMin * MIN) motivo = "recordatorio";
     if (motivo) {
@@ -161,10 +263,43 @@ export function consolidar(input: {
     resultado.set(clave, inc);
   }
 
+  // Los incidentes del libro que no se vieron en esta vuelta también se acotan a su versión: así
+  // pasan a "arreglado, esperando confirmación" (o se cierran con datos) apenas se sabe el arreglo.
+  if (versiones) {
+    for (const inc of resultado.values()) {
+      if (inc.estado !== "ABIERTA" || porClave.has(inc.clave) || versionDelIncidente(inc.clave) === null) continue;
+      const acotado = aplicarVersion({ clave: inc.clave, hallazgos: inc.hallazgos, previos: inc.hallazgos, nuevos: new Set(), versiones });
+      const delDefecto = acotado.hallazgos.filter((h) => !esHallazgoDeArreglo(h));
+      let severidad = delDefecto.length ? severidadDelIncidente(delDefecto) : inc.severidad;
+      if (acotado.tope) severidad = severidadMenor(severidad, acotado.tope);
+      const base = delDefecto.length ? tituloDelIncidente(inc.clave, delDefecto) : inc.titulo;
+      const titulo = acotado.prefijo ? `${acotado.prefijo}: ${base}` : base;
+      const cambio =
+        severidad !== inc.severidad ||
+        titulo !== inc.titulo ||
+        acotado.resuelto ||
+        JSON.stringify(acotado.hallazgos.map((h) => [h.clave, h.evidencia.chats, h.titulo])) !== JSON.stringify(inc.hallazgos.map((h) => [h.clave, h.evidencia.chats, h.titulo]));
+      if (!cambio) continue;
+      inc.hallazgos = acotado.hallazgos;
+      inc.severidad = severidad;
+      inc.titulo = titulo;
+      inc.cambiadoEn = input.ahora;
+      if (acotado.resuelto) {
+        inc.estado = "RESUELTA";
+        inc.resueltaEn = input.ahora;
+      }
+    }
+  }
+
   // Cierre automático de lo que dejó de verse (solo familias evaluadas en esta vuelta).
   for (const inc of resultado.values()) {
     if (inc.estado !== "ABIERTA" || porClave.has(inc.clave)) continue;
-    const familias = new Set(inc.hallazgos.map((h) => h.familia));
+    // Arreglado en el libro: se cierra con DATOS (confirmación), no porque los detectores callen.
+    // Si en 7 días no junta la muestra mínima, vuelve a la regla de siempre.
+    const arreglo = arregloDe(inc.clave);
+    if (arreglo && input.ahora.getTime() - arreglo.en.getTime() < 7 * 24 * HORA) continue;
+    const familias = new Set(inc.hallazgos.filter((h) => !esHallazgoDeArreglo(h)).map((h) => h.familia));
+    if (!familias.size) familias.add(inc.familia);
     if (![...familias].some((f) => input.familiasEvaluadas.includes(f))) continue;
     const espera = Math.max(...[...familias].map((f) => op.cerrarTrasMin[f]));
     if (input.ahora.getTime() - inc.ultimaVezEn.getTime() >= espera * MIN) {

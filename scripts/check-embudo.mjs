@@ -75,7 +75,9 @@ prueba("frases reales: cada una da la señal esperada", () => {
     ["Manejan contraentrega?", ["forma_pago"]],
     ["Buenas, qué precio tiene el combo?", ["precio"]],
     ["Cuánto vale la silla?", ["precio"]],
-    ["Me mandas fotos del combo porfa", ["fotos_video"]],
+    // Fotos DE un producto concreto (recalibración del 10-oct): ya no es el "fotos" suelto.
+    ["Me mandas fotos del combo porfa", ["fotos_producto"]],
+    ["Me mandas fotos porfa", ["fotos_video"]],
     ["Solo estoy mirando, gracias", ["solo_mirando"]],
     ["Uy está muy caro", ["muy_caro"]],
     ["No me interesa, gracias", ["no_interesa"]],
@@ -85,6 +87,44 @@ prueba("frases reales: cada una da la señal esperada", () => {
   for (const [frase, esperado] of casos) {
     assert.deepEqual(tipos(frase), [...esperado].sort(), `"${frase}"`);
   }
+});
+
+prueba("recalibración 10-oct: uso del producto, fotos de un producto concreto y servicio (casos reales)", () => {
+  // cv16c1a0: "Sirve para pestañas?" + "Fotos" → antes Frío (1).
+  assert.deepEqual(tipos("Sirve para pestañas?"), ["pregunta_uso"]);
+  assert.deepEqual(tipos("Fotos"), ["fotos_video"]);
+  // cv3639b6: "Videos del lavacabezas" → antes Frío.
+  assert.deepEqual(tipos("Videos del lavacabezas"), ["fotos_producto"]);
+  // Más frases reales de Ventas 1 (23-sep a 10-oct).
+  assert.deepEqual(tipos("Algo de Cejas sirve ?"), ["pregunta_uso"]);
+  assert.deepEqual(tipos("me sirve para masajes?"), ["pregunta_uso"]);
+  assert.deepEqual(tipos("Para qué sirve la escalera?"), ["pregunta_uso"]);
+  assert.deepEqual(tipos("Tienes fotos ? De las camillas"), ["fotos_producto"]);
+  assert.deepEqual(tipos("lavacabeza informacio por me puede enviar foto"), ["fotos_producto"]);
+  assert.deepEqual(tipos("Por favor catalogo de camilla fija"), ["fotos_producto"]);
+  assert.deepEqual(tipos("Me puedes enviar catálogo"), ["fotos_video"]);
+  // Servicio (identificación): con ñ, "uñas" no es "unas".
+  assert.deepEqual(tipos("Uñas y pestañas"), ["dijo_servicio"]);
+  assert.deepEqual(tipos("Masajes"), ["dijo_servicio"]);
+  assert.deepEqual(tipos("soy manicurista"), ["dijo_servicio"]);
+  assert.deepEqual(tipos("Me mandas unas fotos"), ["fotos_video"]);
+  // "me sirve" como sí sigue siendo aceptar; como pregunta, no.
+  assert.ok(tipos("Listo, me sirve").includes("acepta_precio"));
+  assert.ok(!tipos("me sirve para pestañas?").includes("acepta_precio"));
+  // Fríos genuinos: el texto del anuncio, "ok", "gracias".
+  assert.deepEqual(tipos("Hola, me interesa el COMBO de estética (camilla, escalera, silla y auxiliar)"), []);
+  assert.deepEqual(tipos("ok"), []);
+  assert.deepEqual(tipos("gracias"), []);
+  // Pesos: uso / fotos de producto = media (+2); servicio = débil (+1); servicio + pedir información = Tibio.
+  assert.equal(s.puntajeSombra(["pregunta_uso", "fotos_video"]), 3);
+  assert.equal(s.puntajeSombra(["dijo_servicio"]), 1);
+  assert.equal(s.puntajeSombra(["dijo_servicio", "fotos_video"]), 3);
+  assert.equal(s.puntajeSombra(["dijo_servicio", "precio"]), 3);
+  assert.equal(s.puntajeSombra(["fotos_video"]), 1);
+  assert.equal(s.pisoTibio(["dijo_servicio", "fotos_video", "no_interesa"]), false);
+  // Para el Supervisor, "dijo su servicio" no es señal de compra.
+  assert.equal(s.esSenalDeCompra({ tipo: "dijo_servicio", grupo: "debil" }), false);
+  assert.equal(s.esSenalDeCompra({ tipo: "fotos_video", grupo: "debil" }), true);
 });
 
 prueba("lo que NO es señal: saludos, cortesía, 'vale' como ok, 'aparte'", () => {

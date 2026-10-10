@@ -115,6 +115,10 @@ type FilaDeChat = {
   telefono: string | null;
   metadata: unknown;
   dormidoHasta: Date | null;
+  asignadaEn: Date | null;
+  asignadaA: string | null;
+  temperatura: string | null;
+  nombreCliente: string | null;
 };
 
 /** Lo de las exclusiones (exterior, LID, dormido) desde las columnas de la fila. */
@@ -201,11 +205,17 @@ export async function leerChatsAbiertos(input: { workspaceId: string; ahora: Dat
     SELECT c."id" AS "conversationId", c."assignedToUserId" AS "asesoraId", u."name" AS "asesoraNombre",
            ct."crmStage"::text AS "etapa", c."automationPaused" AS "pausado",
            cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", txt."textos",
-           ct."phoneNumber" AS "telefono", ct."metadata", l."dormidoHasta", todos."textosCliente"
+           ct."phoneNumber" AS "telefono", ct."metadata", l."dormidoHasta", todos."textosCliente",
+           asg."createdAt" AS "asignadaEn", asg."asignadaA", l."temperatura", ct."name" AS "nombreCliente"
       FROM "Conversation" c
       JOIN "Contact" ct ON ct."id" = c."contactId"
       LEFT JOIN "User" u ON u."id" = c."assignedToUserId"
       LEFT JOIN "EmbudoLead" l ON l."conversationId" = c."id"
+      LEFT JOIN LATERAL (
+        SELECT m."createdAt", m."rawPayload"->>'assigneeUserId' AS "asignadaA" FROM "Message" m
+         WHERE c."assignedToUserId" IS NOT NULL AND m."conversationId" = c."id" AND m."type"::text = 'SYSTEM'
+           AND m."rawPayload"->>'kind' = 'assigned'
+         ORDER BY m."createdAt" DESC LIMIT 1) asg ON true
       LEFT JOIN LATERAL (
         SELECT m."createdAt" FROM "Message" m
          WHERE m."conversationId" = c."id" AND m."direction" = 'INBOUND' AND m."type"::text <> 'SYSTEM'
@@ -237,6 +247,10 @@ export async function leerChatsAbiertos(input: { workspaceId: string; ahora: Dat
     textosPendientes: fila.textos ?? [],
     textosDelCliente: fila.textosCliente ?? [],
     ...datosDeExclusion(fila),
+    // Solo cuenta la asignación a la asesora ACTUAL (si la nota es de otra, no se sabe desde cuándo).
+    asignadaEn: fila.asignadaEn && (!fila.asignadaA || fila.asignadaA === fila.asesoraId) ? new Date(fila.asignadaEn) : null,
+    temperatura: fila.temperatura,
+    nombreCliente: fila.nombreCliente,
   }));
 }
 

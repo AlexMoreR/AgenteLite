@@ -6,7 +6,11 @@
  * persona (o el Director, en otra fase).
  */
 
-import { detectarSenales } from "../../embudo/dominio/senales";
+import { minutosLaborales as minutosLaboralesDelEquipo } from "../../coach/reglas";
+import { detectarSenales, esSenalDeCompra } from "../../embudo/dominio/senales";
+import { mensajePorSenales } from "../../seguimiento-inteligente/dominio/mensajes";
+import { familiaDelTexto, nombreDeFamilia } from "../../seguimiento-inteligente/dominio/producto";
+import { calificar, type Calificacion } from "../../seguimiento-inteligente/dominio/temperatura";
 import { motivoDeExclusion } from "./exclusiones";
 import { horaBogota, diaSemanaBogota } from "./linea-base";
 import type { Hallazgo } from "./tipos";
@@ -35,6 +39,12 @@ export type ChatAbierto = {
   dormidoHasta?: Date | null;
   /** Los últimos textos del cliente (no solo los pendientes): si nombra Colombia no es "del exterior". */
   textosDelCliente?: string[];
+  /** Cuándo se le asignó el chat a la asesora actual (nota "auto-asignado"), si se sabe. */
+  asignadaEn?: Date | null;
+  /** Temperatura guardada por el seguimiento inteligente (EmbudoLead.temperatura), si hay. */
+  temperatura?: string | null;
+  /** Nombre del contacto (para el mensaje sugerido). */
+  nombreCliente?: string | null;
 };
 
 export type HorarioLaboral = { desde: number; hasta: number; dias: number[] };
@@ -75,7 +85,7 @@ export function estadoDeEspera(chat: ChatAbierto, ahora: Date, horario = HORARIO
     (!chat.ultimaRespuestaHumanaEn || (chat.ultimoClienteEn as Date).getTime() > chat.ultimaRespuestaHumanaEn.getTime());
   const senales = chat.textosPendientes.flatMap((t) => detectarSenales(t).map((s) => ({ ...s, texto: t })));
   const fuerte = senales.find((s) => s.grupo === "fuerte");
-  const cualquiera = senales.find((s) => s.grupo !== "negativa");
+  const cualquiera = senales.find(esSenalDeCompra);
   return {
     chat,
     esperando,
@@ -95,6 +105,10 @@ export const UMBRALES_ATENCION = {
   saturadaDesde: 4,
   retomarDesdeH: 24,
   retomarHastaH: 72,
+  /** Lead interesado asignado sin ningún mensaje humano: IMPORTANTE desde estos minutos laborales… */
+  asignadoSinRespuestaMin: 30,
+  /** …y CRÍTICO pasado este tope si está Caliente. */
+  asignadoSinRespuestaCriticoMin: 120,
 };
 
 function hallazgoBase(parcial: Partial<Hallazgo> & Pick<Hallazgo, "clave" | "severidad" | "titulo" | "que" | "desde">): Hallazgo {
@@ -218,6 +232,116 @@ export function detectarAtencion(chats: ChatAbierto[], ahora: Date, horario = HO
         hechos: retomar.slice(0, 5).map((e) => `Chat ${e.chat.conversationId}: callado hace ${Math.round(e.minutos / 60)} h, dijo "${e.frase ?? ""}".`),
         recomendacion: "Incluirlos en el Plan del día de la asesora con un mensaje para retomar (la asesora escribe; el sistema no envía nada).",
         comoMedir: "Que cada uno tenga respuesta humana en 24 h.",
+      }),
+    );
+  }
+
+  // A5: lead interesado asignado a una asesora y sin NINGÚN mensaje humano desde la asignación.
+  salida.push(...detectarAsignadoSinRespuesta(chats, ahora, new Set(urgentes.map((e) => e.chat.conversationId))));
+  return salida;
+}
+
+/** Señales que, aunque solas den Frío, ya son interés suficiente para que una persona escriba. */
+const INTERES_DIRECTO = new Set(["pregunta_uso", "fotos_producto", "precio", "precio_producto"]);
+
+export type InteresDelLead = {
+  interesado: boolean;
+  caliente: boolean;
+  /** "Caliente", "Tibio" o "con interés" (precio, fotos de un producto…). */
+  nivel: string;
+  frase: string | null;
+  calificacion: Calificacion;
+};
+
+/** ¿El lead mostró interés? Temperatura del seguimiento inteligente, etapa del CRM o sus textos. */
+export function interesDelLead(chat: ChatAbierto, ahora: Date): InteresDelLead {
+  const textos = [...(chat.textosDelCliente ?? []), ...chat.textosPendientes].filter((t) => t && t.trim());
+  const unicos = [...new Set(textos)];
+  const en = chat.ultimoClienteEn ?? ahora;
+  const familia = unicos.map((t) => familiaDelTexto(t)).find(Boolean) ?? null;
+  const calificacion = calificar({ mensajes: unicos.map((texto) => ({ texto, en })), ahora: en, productoInteres: familia, etapaCrm: chat.etapa });
+  const base = calificacion.temperaturaBase;
+  const guardada = chat.temperatura ?? null;
+  const caliente = guardada === "CALIENTE" || chat.etapa === "NEGOCIACION" || base === "CALIENTE";
+  const tibio = guardada === "TIBIO" || base === "TIBIO";
+  const directa = calificacion.senales.find((s) => INTERES_DIRECTO.has(s.tipo));
+  const principal = [...calificacion.senales].filter((s) => s.grupo !== "negativa").sort((a, b) => b.peso - a.peso)[0];
+  return {
+    interesado: !calificacion.noInteresa && (caliente || tibio || Boolean(directa)),
+    caliente: caliente && !calificacion.noInteresa,
+    nivel: caliente ? "Caliente" : tibio ? "Tibio" : "con interés",
+    frase: (principal ?? directa)?.fragmento ?? null,
+    calificacion,
+  };
+}
+
+/**
+ * "LEAD INTERESADO ASIGNADO SIN RESPUESTA HUMANA" (pedido de Alexander, caso cv16c1a0 del 10-oct:
+ * "Sirve para pestañas?" + "Fotos", auto-asignado a Ingrid a las 10:22, el bot mandó fotos y precio y
+ * dos seguimientos, y ninguna persona escribió en 3 h).
+ *
+ * Sale cuando: el chat tiene asesora, el lead mostró interés, y NADIE del equipo escribió (CRM o
+ * celular) desde la asignación por más de 30 min LABORALES (L–V 8–18, S 9–14, el horario del Coach).
+ * IMPORTANTE desde 30 min; CRÍTICO pasadas 2 h si está Caliente. No sale para PERDIDO/GANADO, fuera
+ * de Colombia, dormidos, ni si la asesora ya escribió. Los que ya están en "caliente esperando" no se
+ * repiten aquí. Agrupa por asesora (un incidente por asesora) y trae el mensaje sugerido.
+ */
+export function detectarAsignadoSinRespuesta(chats: ChatAbierto[], ahora: Date, yaAvisados: Set<string> = new Set()): Hallazgo[] {
+  const u = UMBRALES_ATENCION;
+  type Fila = { chat: ChatAbierto; minutos: number; interes: InteresDelLead; sugerido: string };
+  const filas: Fila[] = [];
+  for (const chat of chats) {
+    if (!chat.asesoraId || !chat.asignadaEn || yaAvisados.has(chat.conversationId)) continue;
+    // Solo asignaciones de las últimas 24 h: lo más viejo ya es "oportunidad a retomar" o tarea del
+    // seguimiento inteligente (la simulación del 10-oct mostró chats de 1–2 días tapando los de hoy).
+    if (ahora.getTime() - chat.asignadaEn.getTime() > u.retomarDesdeH * 60 * MIN) continue;
+    const motivo = motivoDeExclusion({ ...chat, textos: [...(chat.textosDelCliente ?? []), ...chat.textosPendientes] }, ahora);
+    if (motivo === "etapa_cerrada" || motivo === "fuera_de_colombia" || motivo === "dormido") continue;
+    // Cualquier mensaje humano desde la asignación (aunque el cliente haya vuelto a escribir) = ya escribió.
+    if (chat.ultimaRespuestaHumanaEn && chat.ultimaRespuestaHumanaEn.getTime() >= chat.asignadaEn.getTime()) continue;
+    const minutos = minutosLaboralesDelEquipo(chat.asignadaEn, ahora);
+    if (minutos < u.asignadoSinRespuestaMin) continue;
+    const interes = interesDelLead(chat, ahora);
+    if (!interes.interesado) continue;
+    const textos = [...(chat.textosDelCliente ?? []), ...chat.textosPendientes];
+    const familia = textos.map((t) => familiaDelTexto(t)).find(Boolean) ?? null;
+    const sugerido = mensajePorSenales({ nombre: chat.nombreCliente ?? null, producto: nombreDeFamilia(familia), senales: interes.calificacion.senales });
+    filas.push({ chat, minutos, interes, sugerido });
+  }
+  const porAsesora = new Map<string, Fila[]>();
+  for (const f of filas) porAsesora.set(f.chat.asesoraId as string, [...(porAsesora.get(f.chat.asesoraId as string) ?? []), f]);
+  const salida: Hallazgo[] = [];
+  for (const [asesora, lista] of porAsesora) {
+    const orden = [...lista].sort((a, b) => Number(b.interes.caliente) - Number(a.interes.caliente) || b.minutos - a.minutos);
+    const critico = orden.some((f) => f.interes.caliente && f.minutos > u.asignadoSinRespuestaCriticoMin);
+    const peor = [...lista].sort((a, b) => b.minutos - a.minutos)[0];
+    const nombre = peor.chat.asesoraNombre ?? asesora;
+    salida.push(
+      hallazgoBase({
+        clave: `ATENCION:asignado-sin-respuesta:${asesora}`,
+        severidad: critico ? "CRITICO" : "IMPORTANTE",
+        titulo: `${lista.length} lead(s) interesado(s) asignado(s) a ${nombre} sin respuesta humana`,
+        que: `El más antiguo lleva ${peor.minutos} min laborales desde que se le asignó y nadie del equipo le ha escrito${peor.interes.frase ? ` ("${peor.interes.frase}")` : ""}. El bot no reemplaza a la asesora.`,
+        desde: peor.chat.asignadaEn as Date,
+        asesoraId: asesora,
+        leadsAfectados: lista.length,
+        evidencia: { chats: orden.slice(0, 10).map((f) => f.chat.conversationId), reglas: [], versiones: [] },
+        metrica: "Minutos laborales desde la asignación sin ningún mensaje humano (lead con interés)",
+        esperado: `< ${u.asignadoSinRespuestaMin} min`,
+        observado: orden.slice(0, 5).map((f) => `${f.minutos} min`).join(", "),
+        hechos: [
+          // Una línea por cada chat de la evidencia: la tarjeta lee de aquí los minutos y la frase.
+          ...orden
+            .slice(0, 10)
+            .map((f) => `Chat ${f.chat.conversationId}: ${f.minutos} min laborales desde la asignación sin mensaje humano, ${f.interes.nivel}${f.interes.frase ? `, dijo "${f.interes.frase}"` : ""}.`),
+          ...orden.slice(0, 3).map((f) => `Mensaje sugerido para el chat ${f.chat.conversationId}: ${f.sugerido}`),
+        ],
+        hipotesis: [],
+        causaPosible: "La asesora no vio la asignación o está atendiendo otros chats; el bot contestó y el chat no quedó como pendiente.",
+        impacto: "Un lead que pregunta por su servicio o pide fotos de un producto y no recibe a una persona en la primera hora casi nunca compra.",
+        recomendacion: `Que ${nombre} le escriba ya a cada uno, empezando por ${critico ? "los calientes" : "el más antiguo"}. Mensaje sugerido: ${orden[0].sugerido}`,
+        comoMedir: "Primer mensaje humano en menos de 30 min laborales desde la asignación.",
+        valores: { minutosMaximo: peor.minutos, calientes: lista.filter((f) => f.interes.caliente).length },
       }),
     );
   }

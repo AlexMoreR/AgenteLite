@@ -67,8 +67,27 @@ const POR_SENAL: Array<{ tipos: string[]; texto: (c: ContextoDelMensaje) => stri
     texto: (c) => `${hola(c.nombre)} ${el(c.producto)} tiene garantía de [tiempo] y lo fabricamos nosotros en Cali 💪 ¿Te lo dejo separado?`,
   },
   {
+    tipos: ["pregunta_uso"],
+    texto: (c) => {
+      const fragmento = c.senales.find((s) => s.tipo === "pregunta_uso")?.fragmento ?? "";
+      const servicio = /\b(?:para|pa)\s+([\p{L}]{3,20})/iu.exec(fragmento)?.[1]?.toLowerCase() ?? null;
+      const para = servicio && !/^(que|qué|q)$/.test(servicio) ? `*${servicio}*` : "[su servicio]";
+      return `${hola(c.nombre)} ¡Claro que sí! ${el(c.producto)} te sirve para ${para} 😊 Te explico cómo lo usarías y te confirmo precio y envío. ¿Para qué ciudad sería?`;
+    },
+  },
+  {
+    tipos: ["fotos_producto"],
+    texto: (c) =>
+      `${hola(c.nombre)} Te comparto las fotos y el video de ${el(c.producto)} 📸 ¿Cuál te gustó más? Así te confirmo precio, colores y el envío a tu ciudad.`,
+  },
+  {
     tipos: ["precio_producto", "precio"],
     texto: (c) => `${hola(c.nombre)} ${el(c.producto)} está en [precio] 😊 ¿Para qué ciudad sería, así te confirmo el envío?`,
+  },
+  {
+    tipos: ["fotos_video", "dijo_servicio"],
+    texto: (c) =>
+      `${hola(c.nombre)} ¿Pudiste ver las fotos de ${el(c.producto)}? 😊 Para lo que vas a hacer te queda perfecto. ¿Para qué ciudad sería, así te confirmo precio y envío?`,
   },
 ];
 

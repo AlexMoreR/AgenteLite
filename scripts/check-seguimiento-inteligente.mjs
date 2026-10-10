@@ -457,6 +457,70 @@ prueba("tope: sin cupo en nadie → pospuesta a mañana 8:00 (no se pierde); lo 
   assert.ok(tp.planearTareas({ tareas: Array.from({ length: 40 }, (_, i) => t(100 + i, "ingrid", ["ingrid"])), tope: 0, ahora }).every((p) => p.estado === "propia"));
 });
 
+prueba("F2 recalibrado (10-oct): casos reales que quedaban Fríos pasan a Tibio; los Fríos genuinos siguen Fríos", () => {
+  const ahora = mas(2 * H);
+  const cal = (textos, productoInteres = "combo-camilla") =>
+    te.calificar({ mensajes: textos.map((texto, i) => ({ texto, en: mas(i * MIN) })), ahora, productoInteres });
+  // cv16c1a0: antes "Frío (1): pidió fotos o video ('Fotos')".
+  const pestanas = cal([ANUNCIO, "Sirve para pestañas?", "Fotos"]);
+  assert.equal(pestanas.temperaturaBase, "TIBIO");
+  assert.match(pestanas.motivo, /sirve para su servicio \('Sirve para pestañas\?'\)/);
+  // cv3639b6: antes Frío → mensaje_util_producto.
+  const lavacabezas = cal(["Videos del lavacabezas"], "lavacabezas");
+  assert.equal(lavacabezas.temperaturaBase, "TIBIO");
+  assert.match(lavacabezas.motivo, /producto concreto/);
+  // Respondió la pregunta de servicios y pidió información.
+  assert.equal(cal([ANUNCIO, "Uñas", "Fotos"]).temperaturaBase, "TIBIO");
+  assert.equal(cal([ANUNCIO, "Masajes y faciales", "cuánto vale"]).temperaturaBase, "TIBIO");
+  assert.equal(cal(["Por favor catálogo de camilla fija"], "camillas").temperaturaBase, "TIBIO");
+  // Fríos genuinos.
+  assert.equal(cal([ANUNCIO]).temperaturaBase, "FRIO");
+  assert.equal(cal([ANUNCIO, "ok"]).temperaturaBase, "FRIO");
+  assert.equal(cal([ANUNCIO, "gracias"]).temperaturaBase, "FRIO");
+  assert.equal(cal([ANUNCIO, "Fotos"]).temperaturaBase, "FRIO");
+  assert.equal(cal([ANUNCIO, "Masajes"]).temperaturaBase, "FRIO");
+  assert.equal(cal([ANUNCIO, "Uñas", "Fotos", "no me interesa"]).temperaturaBase, "FRIO");
+});
+
+prueba("motor: los casos reales Tibios son TAREA de la asesora asignada, no mensaje automático", () => {
+  // cv16c1a0 (10-oct): ANUNCIO 10:21, "Sirve para pestañas?" 10:22, auto-asignado a Ingrid, "Fotos",
+  // el bot manda fotos y precio, seguimientos del V3 a los 17 y 78 min, ninguna persona escribe.
+  const pestanas = ficha({
+    asignadaA: "ingrid",
+    mensajes: [
+      IN(0, ANUNCIO),
+      BOT(0.25, "Bienvenid@ a Magilus"),
+      BOT(0.26, "¿Qué servicios vas a ofrecer en tu espacio?"),
+      IN(0.7, "Sirve para pestañas?"),
+      BOT(0.95, "¡Perfecto! Nuestra camilla soporta hasta 200 kg"),
+      IN(1.2, "Fotos"),
+      BOT(1.5, "Ya te comparto las fotos, el precio el 989.000"),
+      BOT(2.1, "¿En qué color lo quieres?"),
+      AUTO(17.6, "Para apartar tu combo solo me falta el color"),
+      AUTO(78.6, "¿En qué ciudad lo recibirías?", null),
+    ],
+  });
+  const antes = mo.evaluarLead(pestanas, CONFIG, mas(20 * MIN)).decision;
+  assert.equal(antes.accion, "esperar");
+  assert.equal(antes.supresion, "siempre");
+  const ev = mo.evaluarLead(pestanas, CONFIG, mas(3 * H));
+  assert.equal(ev.calificacion.temperaturaBase, "TIBIO");
+  assert.equal(ev.decision.accion, "tarea_asesora");
+  assert.equal(ev.decision.prioridad, "B");
+  assert.equal(ev.decision.supresion, "siempre");
+  assert.match(ev.decision.mensajeSugerido, /pestañas/);
+  assert.doesNotMatch(ev.decision.mensajeSugerido, /contra ?entrega|gratis/i);
+  // cv3639b6: "Videos del lavacabezas" → antes mensaje_util_producto; ahora tarea.
+  const lavacabezas = ficha({ familiaDelBot: null, mensajes: [IN(0, "Videos del lavacabezas"), BOT(0.5, "Catálogo de lavacabezas")] });
+  const ev2 = mo.evaluarLead(lavacabezas, CONFIG, mas(2 * H));
+  assert.equal(ev2.familia, "lavacabezas");
+  assert.equal(ev2.decision.accion, "tarea_asesora");
+  assert.equal(ev2.decision.mensajeUtil, null);
+  // Un "Fotos" suelto sin servicio sigue Frío y recibe su mensaje útil (no gasta tiempo humano).
+  const fotos = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "¿Qué servicios vas a ofrecer?"), IN(1, "Fotos"), BOT(1.3, "Te comparto las fotos")] });
+  assert.equal(mo.evaluarLead(fotos, CONFIG, mas(2 * H)).decision.accion, "mensaje_util_producto");
+});
+
 prueba("config: tope de tareas por defecto 15", () => {
   assert.equal(cf.CONFIG_POR_DEFECTO.tareas.maxPorAsesoraDia, 15);
   assert.equal(cf.leerConfigDeTexto(null).tareas.maxPorAsesoraDia, 15);

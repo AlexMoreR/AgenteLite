@@ -16,7 +16,7 @@
 
 import type { MensajeDelRelleno } from "../../embudo/dominio/relleno";
 import { productoDeEntrada, type ConfigEmbudo, CONFIG_EMBUDO_POR_DEFECTO } from "../../embudo/dominio/combo";
-import { detectarSenales } from "../../embudo/dominio/senales";
+import { detectarSenales, esSenalDeCompra } from "../../embudo/dominio/senales";
 import { mensajeConContenido } from "../../../lib/turno-con-contenido";
 
 export type MensajeDelSupervisor = Pick<
@@ -258,7 +258,7 @@ export function fichaDelLead(
   const conSenal = mensajes.filter(esDelCliente).filter((m) => {
     if (!dentro(m, VENTANAS.senal)) return false;
     if (m === primero && textoDelAnuncio) return false;
-    return detectarSenales(m.transcripcion || m.content || "").some((s) => s.grupo !== "negativa");
+    return detectarSenales(m.transcripcion || m.content || "").some(esSenalDeCompra);
   });
   const primeraSenal = conSenal[0] ?? null;
   const senalFuerte = conSenal.some((m) => detectarSenales(m.transcripcion || m.content || "").some((s) => s.grupo === "fuerte"));

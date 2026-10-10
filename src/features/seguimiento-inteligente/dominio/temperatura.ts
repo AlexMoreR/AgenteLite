@@ -18,6 +18,7 @@ import {
   UMBRAL_TIBIO,
   detectarSenales,
   normalizarConservando,
+  pisoTibio,
   temperaturaDelPuntaje,
   type Temperatura,
 } from "../../embudo/dominio/senales";
@@ -135,6 +136,9 @@ export function calificar(input: {
   // Una pregunta concreta (envío, colores, medidas, fabricación, garantía, forma de pago, precio de
   // un producto identificado) ya es TIBIO, aunque sea la única señal (pedido de Alexander).
   if (senales.some((s) => s.grupo === "media") && !porTipo.has("solo_mirando")) base = Math.max(base, UMBRAL_TIBIO);
+  // Recalibración del 10-oct (casos cv16c1a0 "Sirve para pestañas?" + "Fotos" y cv3639b6 "Videos
+  // del lavacabezas"): dijo su servicio o preguntó si sirve para él, y además pide información.
+  if (pisoTibio(porTipo.keys())) base = Math.max(base, UMBRAL_TIBIO);
   if (noInteresa) base = 0;
   base = Math.max(0, base);
 

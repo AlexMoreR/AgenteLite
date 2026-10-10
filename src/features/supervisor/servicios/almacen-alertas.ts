@@ -79,7 +79,8 @@ export async function guardarIncidentes(workspaceId: string, incidentes: Inciden
     const tocado =
       inc.ultimaVezEn.getTime() === ahora.getTime() ||
       inc.resueltaEn?.getTime() === ahora.getTime() ||
-      inc.notificadaEn?.getTime() === ahora.getTime();
+      inc.notificadaEn?.getTime() === ahora.getTime() ||
+      inc.cambiadoEn?.getTime() === ahora.getTime();
     if (!tocado) continue;
     const abierta = `${workspaceId}:${inc.clave}`;
     const datos = {

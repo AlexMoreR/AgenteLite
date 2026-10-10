@@ -1,6 +1,7 @@
 import { CLAVE_COMBO } from "@/features/embudo/dominio/combo";
-import type { LibroDeReglas } from "@/features/agente-v3/domain/reglas";
 import { prisma } from "@/lib/prisma";
+
+import { idsDelComboEnElLibro } from "../dominio/ids-del-combo";
 
 import { consolidar } from "../dominio/alertas";
 import { agruparCambios, analizarHora, hallazgoDelCambioDelLibro, hallazgosDeArreglo } from "../dominio/analisis";
@@ -14,6 +15,13 @@ import { avisarAlDueno } from "./avisar";
 import { claveLibroVisto, negociosConSupervisor } from "./config";
 import { chatsExcluidosDeAtencion, leerChatsAbiertos, leerFichasRecientes, leerFlujosDelLibro, leerLineaDelLibro, nombresDeAsesoras } from "./datos";
 import { purgarChatsExcluidos } from "../dominio/exclusiones";
+import {
+  arreglosDeLosIncidentes,
+  confirmarArreglo,
+  marcarCambiosDelArreglo,
+  versionDelIncidente,
+  type Confirmacion,
+} from "../dominio/version-del-incidente";
 import { hallazgosDeTareasSinDuena } from "../dominio/tareas-sin-duena";
 import { leerTareasSinDuena } from "@/features/seguimiento-inteligente/servicios/tareas";
 
@@ -32,20 +40,7 @@ import { leerTareasSinDuena } from "@/features/seguimiento-inteligente/servicios
 let corriendo5 = false;
 let corriendoHora = false;
 
-/** El producto del combo y su flujo de fotos, sacados del libro (para los escenarios dorados). */
-export function idsDelComboEnElLibro(libro: LibroDeReglas): { productoComboId: string | null; flujoFotosCombo: string | null } {
-  const conteo = new Map<string, number>();
-  let flujoFotosCombo: string | null = null;
-  for (const regla of libro.reglas) {
-    const producto = regla.soloSi?.productoActivo;
-    if (producto && producto !== "ninguno" && producto !== "cualquiera") conteo.set(producto, (conteo.get(producto) ?? 0) + 1);
-    for (const accion of regla.entonces) {
-      if (accion.tipo === "flujo" && /foto.*combo|combo.*foto/i.test(accion.titulo ?? "")) flujoFotosCombo ??= accion.flujoId;
-    }
-  }
-  const productoComboId = [...conteo.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-  return { productoComboId, flujoFotosCombo };
-}
+export { idsDelComboEnElLibro };
 
 async function vigilarElLibro(workspaceId: string, ahora: Date): Promise<number> {
   const linea = await leerLineaDelLibro(workspaceId);
@@ -83,7 +78,16 @@ async function vigilarElLibro(workspaceId: string, ahora: Date): Promise<number>
     ...(diff ? [hallazgoDelCambioDelLibro({ cambio, diff, informe, producto: CLAVE_COMBO })] : []),
     ...hallazgosDeArreglo({ abiertos, cambio, informe }),
   ];
-  const resultado = consolidar({ abiertos, hallazgos, ahora, cambios: agruparCambios(linea.cambios), familiasEvaluadas: [] });
+  // Si la versión nueva arregla un incidente abierto, pasa ya a "arreglado, esperando confirmación".
+  const { arreglos, inicios } = arreglosDeLosIncidentes({ abiertos, libros: linea.libros, cambios: linea.cambios, escenarios, flujos });
+  const resultado = consolidar({
+    abiertos,
+    hallazgos,
+    ahora,
+    cambios: agruparCambios(linea.cambios),
+    familiasEvaluadas: [],
+    versiones: { arreglos, inicios },
+  });
   await guardarIncidentes(workspaceId, resultado.incidentes, ahora);
   await avisarAlDueno({ workspaceId, avisos: resultado.avisar });
   await guardarMarca();
@@ -145,13 +149,51 @@ export async function vueltaDeCadaHora(ahora = new Date()): Promise<{ negocios: 
       try {
         const linea = await leerLineaDelLibro(workspaceId);
         const cambios = agruparCambios(linea.cambios);
+        const abiertos = (await leerIncidentesAbiertos(workspaceId)).filter((inc) => inc.familia !== "ATENCION");
+        // Los incidentes del libro ya arreglados (Change Guardian sobre el historial): se acotan a su
+        // versión y se confirman con los leads de después del arreglo (version-del-incidente.ts).
+        const ids = idsDelComboEnElLibro(linea.actual);
+        const escenarios = ids.productoComboId ? escenariosDelCombo({ productoComboId: ids.productoComboId, flujoFotosCombo: ids.flujoFotosCombo }) : [];
+        const flujos = escenarios.length ? await leerFlujosDelLibro(workspaceId, linea.actual).catch(() => ({})) : {};
+        const { arreglos, inicios } = arreglosDeLosIncidentes({ abiertos, libros: linea.libros, cambios: linea.cambios, escenarios, flujos });
+        // Para comparar contra los 14 días ANTES del defecto hace falta leer desde ahí (máx. 30 días).
+        const masViejo = Math.min(ahora.getTime(), ...[...arreglos.keys()].map((clave) => inicios.get(clave)?.getTime() ?? ahora.getTime()));
+        const dias = Math.min(30, Math.max(16, Math.ceil((ahora.getTime() - masViejo) / 86_400_000) + 15));
         const [fichas, nombres] = await Promise.all([
-          leerFichasRecientes({ workspaceId, ahora, versionEn: linea.versionEn }),
+          leerFichasRecientes({ workspaceId, ahora, versionEn: linea.versionEn, dias }),
           nombresDeAsesoras(workspaceId),
         ]);
-        const hallazgos = analizarHora({ fichas, ahora, cambios, productos: [{ clave: CLAVE_COMBO, nombre: "Combo de Camilla" }], nombresDeAsesoras: nombres });
-        const abiertos = (await leerIncidentesAbiertos(workspaceId)).filter((inc) => inc.familia !== "ATENCION");
-        const resultado = consolidar({ abiertos, hallazgos, ahora, cambios, familiasEvaluadas: ["BOT", "EMBUDO", "CAMBIO"] });
+        const entradas = new Map(fichas.map((f) => [f.conversationId, f.entradaEn]));
+        const confirmaciones = new Map<string, Confirmacion>();
+        for (const [clave, arreglo] of arreglos) {
+          const inc = abiertos.find((i) => i.clave === clave);
+          if (!inc) continue;
+          const producto = inc.producto ?? CLAVE_COMBO;
+          confirmaciones.set(
+            clave,
+            confirmarArreglo({ hallazgos: inc.hallazgos, arreglo, inicioDelDefecto: inicios.get(clave) ?? inc.desde, fichas, ahora, filtro: (f) => f.producto === producto }),
+          );
+        }
+        const crudos = analizarHora({
+          fichas: dias > 16 ? fichas.filter((f) => ahora.getTime() - f.entradaEn.getTime() <= 16 * 86_400_000) : fichas,
+          ahora,
+          cambios,
+          productos: [{ clave: CLAVE_COMBO, nombre: "Combo de Camilla" }],
+          nombresDeAsesoras: nombres,
+        });
+        const hallazgos = marcarCambiosDelArreglo({
+          hallazgos: crudos,
+          arreglos: [...arreglos.entries()].map(([clave, arreglo]) => ({ version: versionDelIncidente(clave) as number, arreglo })),
+          libros: linea.libros,
+        });
+        const resultado = consolidar({
+          abiertos,
+          hallazgos,
+          ahora,
+          cambios,
+          familiasEvaluadas: ["BOT", "EMBUDO", "CAMBIO"],
+          versiones: { arreglos, inicios, confirmaciones, entradaDe: (id) => entradas.get(id) ?? null },
+        });
         await guardarIncidentes(workspaceId, resultado.incidentes, ahora);
         await avisarAlDueno({ workspaceId, avisos: resultado.avisar });
         total += hallazgos.length;

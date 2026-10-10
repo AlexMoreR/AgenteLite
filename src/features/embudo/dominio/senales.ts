@@ -29,9 +29,12 @@ export type TipoDeSenal =
   | "color_medidas"
   | "garantia"
   | "forma_pago"
+  | "pregunta_uso"
+  | "fotos_producto"
   // débiles
   | "precio"
   | "fotos_video"
+  | "dijo_servicio"
   // negativas
   | "solo_mirando"
   | "muy_caro"
@@ -54,9 +57,30 @@ type Definicion = {
   patrones: RegExp[];
   /** Si va precedida de "no", no cuenta ("no lo quiero" no es aceptar el precio). */
   negable?: boolean;
+  /**
+   * Los patrones se aplican sobre el texto que CONSERVA la ñ ("uñas" no es "unas"). Sirve para los
+   * servicios: "Uñas y pestañas" es un servicio, "me mandas unas fotos" no.
+   */
+  conEnie?: boolean;
 };
 
 const DIAS = "(lunes|martes|miercoles|jueves|viernes|sabado|domingo)";
+
+/*
+  Productos CONCRETOS (para "fotos / video / catálogo DE un producto"). Un "fotos" suelto no dice qué
+  quiere ver; "videos del lavacabezas" o "fotos de la silla" sí (casos reales del 10-oct-2026).
+*/
+const PRODUCTO_CONCRETO =
+  "(sillas?|silletas?|sillon(es)?|camillas?|lava ?cabezas?|butacos?|mesas?|poltronas?|tocador(es)?|combos?|carritos?|espejos?|sofas?|escaleras?|escalerillas?|auxiliar(es)?|recepcion|divan(es)?|lavapies)";
+const PIDE_IMAGEN = "(fotos?|foticos?|videos?|imagen(es)?|catalogos?)";
+
+/*
+  Servicios que ofrece la clienta (identificación). Van SIN tildes pero CON ñ (ver `conEnie`).
+*/
+const SERVICIO =
+  "(pestañas|uñas|manicure|manicura|pedicure|pedicura|masajes?|faciales|facial|corporales|depilacion(es)?|depilar|cejas|maquillaje|micropigmentacion|microblading|lifting|extensiones|spa|peluqueria|barberia|cortes?|tintes?|keratina|cosmetologia|limpiezas?( facial(es)?)?|drenajes?( linfaticos?)?|reductores?|podologia|tatuajes?|lash(es)?|estetica( facial| corporal)?|tratamientos?( faciales| corporales)?|belleza|nails?|laminado|cepillados?|blower|semipermanente|acrilicas?|esmaltado)";
+const OFICIO =
+  "(manicurista|esteticista|cosmetologa|cosmetologo|cosmiatra|peluquer[oa]|estilista|barber[oa]|masajista|lashista|cejista|depiladora|podologa|fisioterapeuta|maquilladora|micropigmentadora|tatuador[a]?)";
 
 /*
   Los patrones se aplican sobre el texto en minúsculas y SIN tildes (ñ -> n): "mañana" se busca
@@ -97,7 +121,8 @@ const DEFINICIONES: Definicion[] = [
     etiqueta: "aceptó el precio",
     negable: true,
     patrones: [
-      /\b(me sirve|me conviene|me interesa (comprar|llevar)(lo|la)?)\b/,
+      // "me sirve para pestañas?" / "me sirve?" es una PREGUNTA de uso (pregunta_uso), no un sí.
+      /\b(me sirve(?!\s*(para|pa)\b|\s*\?)|me conviene|me interesa (comprar|llevar)(lo|la)?)\b/,
       /\b(lo|la|los|las) quiero\b/,
       /\bme (lo|la|los|las) llevo\b/,
       /\b(lo|la|los|las) compro\b/,
@@ -210,6 +235,31 @@ const DEFINICIONES: Definicion[] = [
       /\b(cuotas|a credito|credito|addi|sistecredito|contraentrega|contra entrega|pago al recibir|con tarjeta|en efectivo)\b/,
     ],
   },
+  {
+    // Caso real cv16c1a0 (10-oct): "Sirve para pestañas?" quedó Frío. Preguntar si el producto
+    // sirve para SU servicio es una pregunta concreta, como el envío o el color.
+    tipo: "pregunta_uso",
+    grupo: "media",
+    peso: 2,
+    etiqueta: "preguntó si sirve para su servicio",
+    patrones: [
+      /\b(sirve|sirven|serviria|servirian|servira|funciona|funcionan|funcionaria|aplica|se puede usar|se pueden usar|puedo usar(la|lo|las|los)?|se usa|se utiliza|es apt[oa]|son apt[oa]s|es apropiad[oa]|es recomendad[oa]|es ideal|esta hech[oa]) (para|pa)\b/,
+      /\bpara (que|q) (sirve|sirven|es|son|se usa|se utiliza|seria)\b/,
+      /\b(sirve|sirven|serviria|funciona)\s*\?/,
+    ],
+  },
+  {
+    // Caso real cv3639b6 (10-oct): "Videos del lavacabezas" quedó Frío. Pedir fotos, video o el
+    // catálogo DE UN PRODUCTO CONCRETO es interés por ese producto (un "fotos" suelto no: ver abajo).
+    tipo: "fotos_producto",
+    grupo: "media",
+    peso: 2,
+    etiqueta: "pidió fotos o video de un producto concreto",
+    patrones: [
+      new RegExp(`\\b${PIDE_IMAGEN}\\b[^.!\\n]{0,35}?\\b${PRODUCTO_CONCRETO}\\b`),
+      new RegExp(`\\b${PRODUCTO_CONCRETO}\\b[^.!\\n]{0,35}?\\b${PIDE_IMAGEN}\\b`),
+    ],
+  },
 
   // ---------------------------------------------------------------- débiles (+1)
   {
@@ -230,6 +280,26 @@ const DEFINICIONES: Definicion[] = [
     peso: 1,
     etiqueta: "pidió fotos o video",
     patrones: [/\b(foto|fotos|fotico|foticos|video|videos|imagen|imagenes|catalogo)\b/],
+  },
+  {
+    // Contesta la pregunta de identificación ("¿Qué servicios vas a ofrecer?"): solo no alcanza para
+    // Tibio, pero sumado a un pedido de información sí (ver pisoTibio).
+    tipo: "dijo_servicio",
+    grupo: "debil",
+    peso: 1,
+    etiqueta: "dijo su servicio",
+    conEnie: true,
+    patrones: [
+      // Mensaje que SOLO nombra servicios: "Uñas y pestañas", "Masajes y faciales", "Para masajes".
+      new RegExp(
+        `^(?=[^\\n]{1,80}$)\\W*(yo |nosotros )?(hago|hacemos|ofrezco|ofrecemos|ofrecere|voy a (ofrecer|hacer|trabajar)( con)?|trabajo( con| en)?|seria para|es para|para|servicios? de|solo|mas que todo|principalmente)?\\W*(${SERVICIO}(\\W+(y|e|o|de|para|con|tambien|todo|etc|mas|en general))*\\W*)+$`,
+      ),
+      new RegExp(`\\b(soy|somos) (un[oa]? )?${OFICIO}\\b`),
+      new RegExp(
+        `\\b(hago|hacemos|ofrezco|ofrecemos|ofrecere|ofrecer|voy a hacer|voy a trabajar|trabajo|trabajamos|me dedico a|nos dedicamos a|realizo|realizamos|atiendo|es para|seria para|lo necesito para|la necesito para|para hacer|para mis|para mi servicio de)\\b[^.?!\\n]{0,25}?\\b${SERVICIO}\\b`,
+      ),
+      /\btengo (un|una|mi) (spa|peluqueria|salon|barberia|centro de estetica|consultorio|gabinete|estudio|negocio de)\b/,
+    ],
   },
 
   // ---------------------------------------------------------------- negativas
@@ -267,15 +337,32 @@ const POR_TIPO = new Map(DEFINICIONES.map((definicion) => [definicion.tipo, defi
  * Minúsculas y sin tildes, CONSERVANDO la longitud (una letra por una letra), para poder recortar
  * el fragmento del texto original con las mismas posiciones.
  */
-export function normalizarConservando(texto: string): string {
+export function normalizarConservando(texto: string, conservarEnie = false): string {
   let salida = "";
   for (const letra of texto) {
+    if (conservarEnie && (letra === "ñ" || letra === "Ñ")) {
+      salida += "ñ";
+      continue;
+    }
     const base = letra.normalize("NFD").toLowerCase();
     const primera = base.length ? base[0] : letra;
     // Un emoji ocupa dos unidades: se conserva tal cual para no correr las posiciones.
     salida += letra.length === 1 ? primera : letra;
   }
   return salida;
+}
+
+/**
+ * PISO DE TIBIO por combinación (recalibración del 10-oct-2026 con los casos reales): quien dijo su
+ * servicio (o preguntó si sirve para él) y además pide información —fotos, video, catálogo, precio—
+ * ya es Tibio aunque cada señal sola sea débil ("Uñas" + "Fotos").
+ */
+export function pisoTibio(tipos: Iterable<TipoDeSenal | string>): boolean {
+  const unicos = new Set<string>(tipos);
+  if (unicos.has("no_interesa") || unicos.has("solo_mirando")) return false;
+  const servicio = unicos.has("dijo_servicio") || unicos.has("pregunta_uso");
+  const pideInfo = ["fotos_video", "fotos_producto", "precio", "precio_producto"].some((t) => unicos.has(t));
+  return servicio && pideInfo;
 }
 
 function recortar(original: string, inicio: number, fin: number): string {
@@ -300,10 +387,12 @@ export function detectarSenales(texto: string | null | undefined): Senal[] {
   if (!original.trim()) {
     return [];
   }
-  const normalizado = normalizarConservando(original);
+  const sinEnie = normalizarConservando(original);
+  const conEnie = normalizarConservando(original, true);
   const senales: Senal[] = [];
 
   for (const definicion of DEFINICIONES) {
+    const normalizado = definicion.conEnie ? conEnie : sinEnie;
     for (const patron of definicion.patrones) {
       const global = new RegExp(patron.source, "g");
       let encontrado: RegExpExecArray | null = null;
@@ -333,6 +422,8 @@ export function detectarSenales(texto: string | null | undefined): Senal[] {
   if (tipos.has("no_interesa")) {
     return senales.filter((senal) => senal.grupo === "negativa" || senal.tipo === "precio" || senal.tipo === "fotos_video");
   }
+  // "Videos del lavacabezas" ya es "fotos de un producto concreto": no se cuenta además como "fotos".
+  if (tipos.has("fotos_producto")) return senales.filter((senal) => senal.tipo !== "fotos_video");
   return senales;
 }
 
@@ -359,6 +450,7 @@ export function puntajeSombra(tipos: Iterable<TipoDeSenal>): number {
   if (hayFuerte) {
     suma = Math.max(suma, 6);
   }
+  if (pisoTibio(unicos)) suma = Math.max(suma, UMBRAL_TIBIO);
   return Math.max(0, suma);
 }
 
@@ -389,6 +481,14 @@ export function motivoDelPuntaje(senales: Array<Pick<Senal, "tipo" | "fragmento"
   const temperatura = temperaturaDelPuntaje(puntaje);
   const nombre = temperatura === "CALIENTE" ? "Caliente" : temperatura === "TIBIO" ? "Tibio" : "Frío";
   return principales.length ? `${nombre}: ${principales.join(" + ")}` : nombre;
+}
+
+/**
+ * ¿Cuenta como SEÑAL DE COMPRA para el Supervisor (indicadores y alertas)? "Dijo su servicio" es
+ * identificación, no compra: suma en la calificación pero no dispara alertas solo.
+ */
+export function esSenalDeCompra(senal: Pick<Senal, "tipo" | "grupo">): boolean {
+  return senal.grupo !== "negativa" && senal.tipo !== "dijo_servicio";
 }
 
 export function etiquetaDeSenal(tipo: string): string {

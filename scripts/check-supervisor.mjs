@@ -521,4 +521,239 @@ prueba("tareas del seguimiento sin dueña: un hallazgo de atención con las A pr
   assert.equal(tareasSinDuena.hallazgosDeTareasSinDuena([], ahora).length, 0);
 });
 
+/* ------------------------------------------------------------------ incidente acotado a su versión (10-oct) */
+
+const ver = cargar("src/features/supervisor/dominio/version-del-incidente.ts");
+
+prueba("arreglo: el Guardian sobre el historial dice qué versión arregló la v182 (la primera que pasa los críticos)", () => {
+  const libros = new Map([
+    [182, libroMalo],
+    [185, { ...libroMalo, version: 185 }],
+    [191, libroArreglado],
+    [195, { ...libroArreglado, version: 195 }],
+  ]);
+  const crudos = [
+    { version: 185, anterior: 182, en: new Date(CAMBIO + 30 * H), autor: null, resumen: null },
+    { version: 191, anterior: 185, en: new Date(CAMBIO + 70 * H), autor: null, resumen: null },
+    { version: 195, anterior: 191, en: new Date(CAMBIO + 71 * H), autor: null, resumen: null },
+  ];
+  const a = ver.buscarArreglo({ version: 182, libros, cambios: crudos, escenarios, flujos });
+  assert.equal(a.version, 191);
+  assert.equal(a.en.getTime(), CAMBIO + 70 * H);
+  assert.ok(a.escenarios.includes("anuncio-exacto"));
+  // La v185 tiene el MISMO defecto: su arreglo también es la 191.
+  assert.equal(ver.buscarArreglo({ version: 185, libros, cambios: crudos, escenarios, flujos }).version, 191);
+  // Un libro que no fallaba nada no tiene "arreglo"; un libro fuera del historial, tampoco.
+  assert.equal(ver.buscarArreglo({ version: 191, libros, cambios: crudos, escenarios, flujos }), null);
+  assert.equal(ver.buscarArreglo({ version: 170, libros, cambios: crudos, escenarios, flujos }), null);
+  // Lo que dejó el Guardian en vivo (arregladoPor) manda.
+  assert.equal(ver.buscarArreglo({ version: 182, libros: new Map(), cambios: crudos, escenarios: [], arregladoPor: 191 }).version, 191);
+  assert.equal(ver.versionDelIncidente("INC:libro-v182:combo-camilla"), 182);
+  assert.equal(ver.versionDelIncidente("ATENCION:senal-sin-duena"), null);
+});
+
+const ARREGLO = { version: 191, en: new Date(CAMBIO + 70 * H), escenarios: ["anuncio-exacto"] };
+const CLAVE_182 = "INC:libro-v182:combo-camilla";
+/** El incidente real del 10-oct: CRÍTICO, con un ejemplo de después del arreglo y una regla pegada. */
+function incidente182(ahora) {
+  const rafaga = hallazgo("BOT:rafaga_inicial:combo-camilla", "IMPORTANTE", new Date(CAMBIO), { evidencia: { chats: ["antes1", "antes2", "despues1"], reglas: [], versiones: [182] } });
+  const regla = hallazgo("BOT:regla-primer-mensaje:combo-camilla", "IMPORTANTE", new Date(CAMBIO + 80 * H), {
+    evidencia: { chats: ["cv16c1a0", "despues1"], reglas: ["Llega del anuncio (texto exacto)", "Pide el combo de camillas"], versiones: [210] },
+  });
+  // Primero la regla del 7-oct; después (pegajosa) la versión del 10-oct con la regla de la v210.
+  const primero = alertas.consolidar({ abiertos: [], hallazgos: [rafaga, { ...regla, desde: new Date(CAMBIO + 10 * M) }], ahora: new Date(CAMBIO + H), cambios, familiasEvaluadas: ["BOT"] }).incidentes;
+  return alertas.consolidar({ abiertos: primero, hallazgos: [rafaga, regla], ahora, cambios, familiasEvaluadas: ["BOT"] }).incidentes;
+}
+const entradas = new Map([
+  ["antes1", new Date(CAMBIO + 2 * H)],
+  ["antes2", new Date(CAMBIO + 40 * H)],
+  ["despues1", new Date(CAMBIO + 75 * H)],
+  ["cv16c1a0", new Date(CAMBIO + 82 * H)],
+  ["viejo", new Date(CAMBIO - 2 * H)],
+]);
+const entradaDe = (id) => entradas.get(id) ?? null;
+
+prueba("incidente v182 arreglado: sin ejemplos de después del arreglo, OBSERVACIÓN, 'esperando confirmación', sin aviso", () => {
+  const ahora = new Date(CAMBIO + 84 * H);
+  const abiertos = incidente182(new Date(CAMBIO + 83 * H));
+  assert.equal(abiertos[0].severidad, "CRITICO"); // así estaba en producción
+  const r = alertas.consolidar({
+    abiertos,
+    hallazgos: [
+      hallazgo("BOT:rafaga_inicial:combo-camilla", "IMPORTANTE", new Date(CAMBIO), { evidencia: { chats: ["antes1", "despues1", "viejo"], reglas: [], versiones: [182] } }),
+      hallazgo("BOT:regla-primer-mensaje:combo-camilla", "IMPORTANTE", new Date(CAMBIO + 80 * H), { evidencia: { chats: ["cv16c1a0"], reglas: ["Llega del anuncio (texto exacto)"], versiones: [210] } }),
+    ],
+    ahora,
+    cambios: [...cambios, { version: 210, anterior: 209, en: new Date(CAMBIO + 80 * H), autor: null, resumen: null }],
+    familiasEvaluadas: ["BOT"],
+    versiones: { arreglos: new Map([[CLAVE_182, ARREGLO]]), inicios: new Map([[CLAVE_182, new Date(CAMBIO)]]), entradaDe },
+  });
+  const inc = r.incidentes.find((i) => i.clave === CLAVE_182);
+  assert.equal(inc.severidad, "OBSERVACION");
+  assert.match(inc.titulo, /^Arreglado en la v191, esperando confirmación/);
+  const chats = inc.hallazgos.flatMap((h) => h.evidencia.chats);
+  assert.ok(chats.includes("antes1") && chats.includes("antes2"));
+  assert.ok(!chats.includes("despues1"), "un lead de después del arreglo no es ejemplo");
+  assert.ok(!chats.includes("cv16c1a0"), "el caso real del 10-oct no es ejemplo del incidente del 7-oct");
+  assert.ok(!chats.includes("viejo"), "un lead de antes de la v182 tampoco");
+  assert.ok(!inc.hallazgos.some((h) => h.clave.startsWith("BOT:regla-primer-mensaje")), "la regla de la v210 ya no se pega al incidente arreglado");
+  assert.ok(inc.hallazgos.some((h) => h.clave === "CAMBIO:arreglo:v182"));
+  assert.ok(!r.avisar.some((a) => a.incidente.clave === CLAVE_182));
+  // La regla nueva quedó en su propio incidente (el de la v210), no en el de la v182.
+  assert.ok(r.incidentes.some((i) => i.clave === "INC:libro-v210:combo-camilla"));
+  assert.match(alertas.textoDeLaAlerta(inc, ahora), /esperando confirmación con datos/);
+});
+
+prueba("incidente v182 arreglado: con datos suficientes y recuperados se CIERRA; si siguen mal, IMPORTANTE (no CRÍTICO)", () => {
+  const ahora = new Date(CAMBIO + 120 * H);
+  const abiertos = incidente182(new Date(CAMBIO + 83 * H));
+  const inicioDefecto = new Date(CAMBIO);
+  // 40 leads sanos después del arreglo vs los 14 días sanos de antes del defecto.
+  const sanosDespues = [];
+  for (let i = 0; i < 40; i++) sanosDespues.push(lead.fichaDelLead(`ok${i}`, chatSano(ARREGLO.en.getTime() + 10 * M + i * 30 * M, i % 10 < 7)));
+  const ok = ver.confirmarArreglo({ hallazgos: abiertos[0].hallazgos, arreglo: ARREGLO, inicioDelDefecto: inicioDefecto, fichas: [...sanos, ...sanosDespues], ahora, filtro });
+  assert.equal(ok.estado, "recuperada");
+  const r = alertas.consolidar({
+    abiertos,
+    hallazgos: [],
+    ahora,
+    cambios,
+    familiasEvaluadas: ["BOT"],
+    versiones: { arreglos: new Map([[CLAVE_182, ARREGLO]]), inicios: new Map([[CLAVE_182, inicioDefecto]]), confirmaciones: new Map([[CLAVE_182, ok]]), entradaDe },
+  });
+  const cerrado = r.incidentes.find((i) => i.clave === CLAVE_182);
+  assert.equal(cerrado.estado, "RESUELTA");
+  assert.match(cerrado.titulo, /^Resuelto, confirmado con datos/);
+  assert.equal(r.avisar.length, 0);
+  // Pocos leads después del arreglo: sin datos (queda esperando).
+  const pocos = ver.confirmarArreglo({ hallazgos: abiertos[0].hallazgos, arreglo: ARREGLO, inicioDelDefecto: inicioDefecto, fichas: [...sanos, ...sanosDespues.slice(0, 4)], ahora, filtro });
+  assert.equal(pocos.estado, "sin_datos");
+  // Después del arreglo siguen las ráfagas: sigue mal → IMPORTANTE, no CRÍTICO.
+  const malos = [];
+  for (let i = 0; i < 20; i++) malos.push(lead.fichaDelLead(`mal${i}`, chatDelIncidente(ARREGLO.en.getTime() + 10 * M + i * 30 * M)));
+  const mal = ver.confirmarArreglo({ hallazgos: abiertos[0].hallazgos, arreglo: ARREGLO, inicioDelDefecto: inicioDefecto, fichas: [...sanos, ...malos], ahora, filtro });
+  assert.equal(mal.estado, "sigue_mal");
+  const r2 = alertas.consolidar({
+    abiertos,
+    hallazgos: [],
+    ahora,
+    cambios,
+    familiasEvaluadas: ["BOT"],
+    versiones: { arreglos: new Map([[CLAVE_182, ARREGLO]]), confirmaciones: new Map([[CLAVE_182, mal]]), entradaDe },
+  });
+  const sigue = r2.incidentes.find((i) => i.clave === CLAVE_182);
+  assert.equal(sigue.estado, "ABIERTA");
+  assert.equal(sigue.severidad, "IMPORTANTE");
+  assert.equal(sigue.cambiadoEn.getTime(), ahora.getTime());
+});
+
+prueba("sin arreglo conocido: el incidente igual solo muestra leads que entraron desde su versión", () => {
+  const ahora = new Date(CAMBIO + 10 * H);
+  const r = alertas.consolidar({
+    abiertos: [],
+    hallazgos: [hallazgo("BOT:rafaga_inicial:combo-camilla", "IMPORTANTE", new Date(CAMBIO), { evidencia: { chats: ["viejo", "antes1"], reglas: [], versiones: [182] } })],
+    ahora,
+    cambios,
+    familiasEvaluadas: ["BOT"],
+    versiones: { arreglos: new Map(), inicios: new Map([[CLAVE_182, new Date(CAMBIO)]]), entradaDe },
+  });
+  assert.deepEqual(r.incidentes[0].evidencia ?? r.incidentes[0].hallazgos[0].evidencia.chats, ["antes1"]);
+  assert.equal(r.incidentes[0].severidad, "IMPORTANTE");
+});
+
+prueba("la regla que puso el arreglo ganando el primer mensaje es un cambio ESPERADO (OBSERVACIÓN, no escala)", () => {
+  const h = hallazgo("BOT:regla-primer-mensaje:combo-camilla", "IMPORTANTE", new Date(CAMBIO + 80 * H), {
+    evidencia: { chats: ["cv16c1a0"], reglas: ["Llega del anuncio (texto exacto)", "Pide el combo de camillas"], versiones: [210] },
+  });
+  const [marcado] = ver.marcarCambiosDelArreglo({ hallazgos: [h], arreglos: [{ version: 182, arreglo: ARREGLO }], libros: new Map([[182, libroMalo], [191, libroArreglado]]) });
+  assert.equal(marcado.severidad, "OBSERVACION");
+  assert.equal(marcado.tocaProduccion, false);
+  assert.match(marcado.titulo, /Cambio esperado/);
+  const r = alertas.consolidar({
+    abiertos: [],
+    hallazgos: [marcado, hallazgo("BOT:rafaga_inicial:combo-camilla", "IMPORTANTE", new Date(CAMBIO + 80 * H))],
+    ahora: new Date(CAMBIO + 81 * H),
+    cambios: [{ version: 210, anterior: 209, en: new Date(CAMBIO + 80 * H), autor: null, resumen: null }],
+    familiasEvaluadas: ["BOT"],
+  });
+  assert.notEqual(r.incidentes[0].severidad, "CRITICO");
+  // Una regla que ya estaba en la versión con el defecto no es "del arreglo".
+  const otra = { ...h, evidencia: { ...h.evidencia, reglas: ["Nombra las piezas del combo"] } };
+  assert.equal(ver.marcarCambiosDelArreglo({ hallazgos: [otra], arreglos: [{ version: 182, arreglo: ARREGLO }], libros: new Map([[182, libroMalo], [191, libroArreglado]]) })[0].severidad, "IMPORTANTE");
+});
+
+/* ------------------------------------------------------------------ atención: asignado sin respuesta humana (10-oct) */
+
+// Sábado 10-oct-2026: 10:22 Bogotá = 15:22 UTC.
+const ASIGNADA = Date.parse("2026-10-10T15:22:17Z");
+function chatAsignado(parcial = {}) {
+  return {
+    conversationId: "cv16c1a0254d5cb14719d5cbb7",
+    asesoraId: "ingrid",
+    asesoraNombre: "Ingrid Sanchez",
+    etapa: "NUEVO",
+    pausado: false,
+    ultimoClienteEn: new Date(Date.parse("2026-10-10T15:22:48Z")),
+    ultimaRespuestaHumanaEn: null,
+    textosPendientes: [lead.TEXTO_DEL_ANUNCIO_COMBO, "Sirve para pestañas?", "Fotos"],
+    textosDelCliente: ["Fotos", "Sirve para pestañas?", lead.TEXTO_DEL_ANUNCIO_COMBO],
+    telefono: "573001234567",
+    asignadaEn: new Date(ASIGNADA),
+    temperatura: "FRIO",
+    nombreCliente: "Laura",
+    ...parcial,
+  };
+}
+
+prueba("atención: caso cv16c1a0 (asignado a Ingrid, 'Sirve para pestañas?' + 'Fotos', sin humano) → alerta con mensaje sugerido", () => {
+  // 10:50: aún no pasan 30 min laborales (el sábado abre a las 9).
+  assert.equal(atencion.detectarAsignadoSinRespuesta([chatAsignado()], new Date(ASIGNADA + 28 * M)).length, 0);
+  const ahora = new Date(ASIGNADA + 3 * H); // 13:22, 3 h sin nadie
+  const [h] = atencion.detectarAtencion([chatAsignado()], ahora).filter((x) => x.clave.startsWith("ATENCION:asignado-sin-respuesta"));
+  assert.ok(h);
+  assert.equal(h.clave, "ATENCION:asignado-sin-respuesta:ingrid");
+  assert.equal(h.severidad, "IMPORTANTE");
+  assert.match(h.titulo, /1 lead\(s\) interesado\(s\) asignado\(s\) a Ingrid Sanchez sin respuesta humana/);
+  assert.deepEqual(h.evidencia.chats, ["cv16c1a0254d5cb14719d5cbb7"]);
+  assert.ok(h.hechos[0].startsWith("Chat cv16c1a0254d5cb14719d5cbb7: 180 min laborales"));
+  assert.match(h.hechos[0], /Tibio/);
+  assert.match(h.recomendacion, /Mensaje sugerido: .*pestañas/);
+  assert.doesNotMatch(h.recomendacion, /contra ?entrega|gratis/i);
+  // La tarjeta del chat lee los minutos y la frase de la alerta.
+  const chatsAlerta = cargar("src/features/supervisor/dominio/chats-de-la-alerta.ts");
+  const dice = chatsAlerta.loQueDiceLaAlerta([h], "cv16c1a0254d5cb14719d5cbb7");
+  assert.equal(dice.esperando, "180 min laborales");
+  assert.ok(dice.frase);
+});
+
+prueba("atención asignado sin respuesta: CRÍTICO > 2 h si es Caliente; no sale si la asesora escribió, PERDIDO, exterior, dormido o sin interés", () => {
+  const ahora = new Date(ASIGNADA + 3 * H);
+  const solo = (chats) => atencion.detectarAsignadoSinRespuesta(chats, ahora);
+  const caliente = chatAsignado({ conversationId: "cvCal", temperatura: "CALIENTE" });
+  assert.equal(solo([caliente])[0].severidad, "CRITICO");
+  assert.equal(atencion.detectarAsignadoSinRespuesta([caliente], new Date(ASIGNADA + 90 * M))[0].severidad, "IMPORTANTE");
+  // La asesora escribió después de la asignación (aunque el cliente volvió a escribir): no sale.
+  assert.equal(solo([chatAsignado({ ultimaRespuestaHumanaEn: new Date(ASIGNADA + 5 * M), ultimoClienteEn: new Date(ASIGNADA + 10 * M) })]).length, 0);
+  assert.equal(solo([chatAsignado({ etapa: "PERDIDO" })]).length, 0);
+  assert.equal(solo([chatAsignado({ etapa: "GANADO" })]).length, 0);
+  assert.equal(solo([chatAsignado({ telefono: "554599887766" })]).length, 0);
+  assert.equal(solo([chatAsignado({ dormidoHasta: new Date(ASIGNADA + 30 * 24 * H) })]).length, 0);
+  // Sin interés (solo el anuncio y "ok"): no sale.
+  assert.equal(solo([chatAsignado({ textosPendientes: [lead.TEXTO_DEL_ANUNCIO_COMBO, "ok"], textosDelCliente: ["ok", lead.TEXTO_DEL_ANUNCIO_COMBO] })]).length, 0);
+  // Sin asesora o sin nota de asignación: no es de este detector.
+  assert.equal(solo([chatAsignado({ asesoraId: null })]).length, 0);
+  assert.equal(solo([chatAsignado({ asignadaEn: null })]).length, 0);
+  // Fuera de horario no corre el reloj: asignado el sábado 13:50 → el lunes 8:10 lleva 20 min laborales.
+  const sabado = Date.parse("2026-10-10T18:50:00Z");
+  assert.equal(atencion.detectarAsignadoSinRespuesta([chatAsignado({ asignadaEn: new Date(sabado) })], new Date(Date.parse("2026-10-12T13:10:00Z"))).length, 0);
+  // Precio solo (con el producto del anuncio) ya es interés; "Videos del lavacabezas" también.
+  assert.equal(solo([chatAsignado({ textosPendientes: ["cuánto vale"], textosDelCliente: ["cuánto vale", lead.TEXTO_DEL_ANUNCIO_COMBO] })]).length, 1);
+  assert.equal(solo([chatAsignado({ textosPendientes: ["Videos del lavacabezas"], textosDelCliente: ["Videos del lavacabezas"] })]).length, 1);
+  // Un chat que ya está en "caliente esperando" no se repite en esta alerta.
+  const urgente = chatAsignado({ conversationId: "cvUrg", etapa: "NEGOCIACION", textosPendientes: ["cómo hago para separarlo"] });
+  const todas = atencion.detectarAtencion([urgente], ahora);
+  assert.ok(todas.some((x) => x.clave.startsWith("ATENCION:caliente-esperando")));
+  assert.ok(!todas.some((x) => x.clave.startsWith("ATENCION:asignado-sin-respuesta")));
+});
+
 console.log(`\n${pruebas} pruebas del Supervisor OK`);

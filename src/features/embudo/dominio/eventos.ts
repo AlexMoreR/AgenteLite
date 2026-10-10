@@ -10,6 +10,14 @@ import { mensajeConContenido } from "../../../lib/turno-con-contenido";
 import { hayMezcla } from "./combo";
 import { detectarSenales, motivoDelPuntaje, puntajeSombra, type Senal, type TipoDeSenal } from "./senales";
 
+/**
+ * Las señales que se guardan como evento SENAL: las de compra y las negativas. "Dijo su servicio" es
+ * identificación (ya la cuenta CLIENTE_RESPONDIO): no infla "leads con señal" del panel.
+ */
+function senalesDelEmbudo(texto: string | null | undefined): Senal[] {
+  return detectarSenales(texto).filter((senal) => senal.tipo !== "dijo_servicio");
+}
+
 export const TIPOS_DE_EVENTO = [
   "ENTRADA",
   "BIENVENIDA_ENVIADA",
@@ -190,7 +198,7 @@ export function eventosDelTurno(input: {
     });
   }
 
-  for (const senal of input.incluirSenales === false ? [] : detectarSenales(input.mensajeCliente)) {
+  for (const senal of input.incluirSenales === false ? [] : senalesDelEmbudo(input.mensajeCliente)) {
     eventos.push({
       ...comun,
       tipo: "SENAL",
@@ -471,7 +479,7 @@ export function eventosDeSenales(input: {
   idDelMensaje?: string | null;
   cuando: Date;
 }): EventoDelEmbudo[] {
-  return detectarSenales(input.texto).map((senal: Senal) => ({
+  return senalesDelEmbudo(input.texto).map((senal: Senal) => ({
     tipo: "SENAL" as const,
     origen: input.origen,
     paso: input.paso,
