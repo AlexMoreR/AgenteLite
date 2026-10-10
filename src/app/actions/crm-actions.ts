@@ -12,7 +12,10 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { AVISO_MODO_MONITOREO, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
-import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
+import {
+  cancelarAutomaticosPendientesDelContacto,
+  createFollowsFromRulesForSource,
+} from "@/features/seguimientos/services/follows";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { buildSnoozeMetadata } from "@/lib/lead-snooze";
@@ -136,6 +139,19 @@ export async function updateCrmStageAction(input: {
         "updatedAt" = NOW()
     WHERE "id" = ${contact.id}
   `;
+
+  /*
+    Anti-bloqueo, un solo dueño (apagado por defecto): un lead que se descarta o se gana no recibe
+    más automáticos. Se cancela lo pendiente ANTES de agendar las reglas de la etapa nueva. Con la
+    medida prendida, una regla "si pasa a PERDIDO, escribile…" tampoco saldría (la frena el motor).
+  */
+  if (parsed.data.status === "PERDIDO" || parsed.data.status === "GANADO") {
+    await cancelarAutomaticosPendientesDelContacto({
+      workspaceId: membership.workspace.id,
+      contactId: contact.id,
+      motivo: "etapa_cerrada",
+    });
+  }
 
   await createFollowsFromRulesForSource({
     workspaceId: membership.workspace.id,

@@ -37,8 +37,38 @@ export async function setConversationAutomationPaused(input: {
         "updatedAt" = CURRENT_TIMESTAMP
       WHERE "id" = ${input.conversationId}
     `;
+    if (input.paused) {
+      // Sin esperar: pausar está en el camino del webhook y no puede demorarse por esto.
+      void cancelarAutomaticosAlPausar(input.conversationId);
+    }
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Anti-bloqueo, un solo dueño (apagado por defecto): al pausar el chat -la asesora lo toma- se
+ * cancelan los seguimientos AUTOMÁTICOS pendientes del contacto. Los que agendó ella no se tocan.
+ * Import dinámico: el motor de seguimientos arrastra media app y esto lo usa casi todo. Nunca lanza.
+ */
+async function cancelarAutomaticosAlPausar(conversationId: string) {
+  try {
+    const charla = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { workspaceId: true, contactId: true },
+    });
+    if (!charla) return;
+    const { cancelarAutomaticosPendientesDelContacto } = await import("@/features/seguimientos/services/follows");
+    await cancelarAutomaticosPendientesDelContacto({
+      workspaceId: charla.workspaceId,
+      contactId: charla.contactId,
+      motivo: "chat_pausado",
+    });
+  } catch (error) {
+    console.warn("[conversation-automation] no se pudieron cancelar los automaticos al pausar", {
+      conversationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }

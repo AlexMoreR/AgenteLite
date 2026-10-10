@@ -6,7 +6,9 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { sendManualAgentReplyAction, type SendChatReplyResult } from "@/app/actions/agent-actions";
 import { generarSugerenciaDeRespuesta, registrarEnvioDeSugerencia, registrarFlujoDeSugerencia } from "@/lib/sugerencia-de-respuesta";
-import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
+import { createFollow, createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
+import { dentroDelHorario, NOMBRE_FOLLOW_REACTIVACION, reprogramarFueraDeHorario } from "@/lib/anti-bloqueo/reglas";
+import { anotarFrenado, leerConfigAntiBloqueo } from "@/lib/anti-bloqueo/servicio";
 import { after } from "next/server";
 import { aplicarFirmaDelChat } from "@/lib/firma-del-chat";
 
@@ -1096,10 +1098,54 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
     !nextPaused && reactivationMessage
       ? await revisarFrenoDeAutomatico({ conversationId: conversation.id })
       : { enviar: true as const };
+
+  /*
+    Anti-bloqueo, horario (apagado por defecto): fuera del horario el mensaje de reactivación no
+    sale ya; se agenda como seguimiento para la siguiente apertura (con desfase al azar). La IA se
+    reactiva igual, ahora.
+  */
+  const antiBloqueo = await leerConfigAntiBloqueo(membership.workspace.id);
+  const reactivacionFueraDeHorario =
+    antiBloqueo.horario.activo && !dentroDelHorario(new Date(), antiBloqueo.horario);
   if (
     !nextPaused &&
     reactivationMessage &&
     frenoDeReactivacion.enviar &&
+    reactivacionFueraDeHorario &&
+    conversation.contact?.id
+  ) {
+    const para = reprogramarFueraDeHorario(new Date(), antiBloqueo.horario);
+    await createFollow({
+      workspaceId: membership.workspace.id,
+      contactId: conversation.contact.id,
+      name: NOMBRE_FOLLOW_REACTIVACION,
+      channelId: conversation.channel?.id ?? null,
+      timeType: "MINUTES",
+      timeValue: 1,
+      messageType: "TEXT",
+      content: reactivationMessage,
+      executeAt: para,
+      cancelOnActivity: true,
+    }).catch((error) => {
+      console.error("[chats] no se pudo agendar la reactivacion fuera de horario", error);
+    });
+    anotarFrenado({
+      workspaceId: membership.workspace.id,
+      conversationId: conversation.id,
+      contactId: conversation.contact.id,
+      channelId: conversation.channel?.id ?? null,
+      motor: "follow",
+      motivo: "fuera_de_horario",
+      claveUnica: `reactivacion:${conversation.id}:${para.toISOString()}`,
+      reprogramadoPara: para,
+      datos: { reactivacion: true },
+    });
+  }
+  if (
+    !nextPaused &&
+    reactivationMessage &&
+    frenoDeReactivacion.enviar &&
+    !reactivacionFueraDeHorario &&
     conversation.channel?.evolutionInstanceName &&
     conversation.contact?.phoneNumber
   ) {

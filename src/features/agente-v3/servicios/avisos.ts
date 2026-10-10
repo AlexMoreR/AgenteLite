@@ -1,5 +1,8 @@
 import { registrarEscalado } from "@/features/embudo/servicios/eventos";
+import { decidirViaDeAvisos } from "@/lib/anti-bloqueo/reglas";
+import { leerConfigAntiBloqueo } from "@/lib/anti-bloqueo/servicio";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
+import { sendPushToUser } from "@/lib/web-push";
 import { autoAssignConversationToCollaborator, avisarAsignacionPorPush } from "@/lib/reparto-de-leads";
 import { prisma } from "@/lib/prisma";
 
@@ -180,22 +183,17 @@ export async function avisarAsesorPorWhatsApp(input: {
       Sale por la MISMA linea del chat (Alex, 05-10-2026): un chat de Ventas 1 avisa desde Ventas
       1, uno de Admin desde Admin. Asi la asesora ve de que numero viene el cliente. La linea de la
       configuracion queda solo de respaldo, si la del chat no puede enviar.
+
+      Anti-bloqueo (10-10-2026): esos avisos -513 en una semana, casi iguales y con numeros de
+      clientes- salen por la linea de VENTAS, que es la que WhatsApp bloquea. Queda un interruptor
+      (`avisos.via` en antibloqueo:config): "linea_del_chat" (lo de hoy, por defecto),
+      "linea_interna" (solo por una linea del equipo) o "push" (notificacion del CRM, sin WhatsApp).
     */
-    const lineasPosibles = [conversacion?.channelId, config.canalId].filter(
-      (id): id is string => Boolean(id),
-    );
-    const lineas = await prisma.whatsAppChannel.findMany({
-      where: { id: { in: lineasPosibles }, workspaceId: input.workspaceId },
-      select: { id: true, evolutionInstanceName: true },
+    const via = decidirViaDeAvisos({
+      avisos: (await leerConfigAntiBloqueo(input.workspaceId)).avisos,
+      canalDelChat: conversacion?.channelId ?? null,
+      canalDeLaConfig: config.canalId || null,
     });
-    const canal =
-      lineas.find((linea) => linea.id === conversacion?.channelId && linea.evolutionInstanceName) ??
-      lineas.find((linea) => linea.id === config.canalId && linea.evolutionInstanceName) ??
-      null;
-    if (!canal?.evolutionInstanceName) {
-      console.warn("[avisos] ninguna linea sirve para enviar", { lineasPosibles });
-      return 0;
-    }
 
     /*
       El aviso va SOLO a quien le toca: la asesora que tiene ese chat, y los administradores.
@@ -208,6 +206,22 @@ export async function avisarAsesorPorWhatsApp(input: {
     );
     if (destinos.length === 0) {
       return 0;
+    }
+
+    let canal: { id: string; evolutionInstanceName: string | null } | null = null;
+    if (via.tipo === "whatsapp") {
+      const lineas = await prisma.whatsAppChannel.findMany({
+        where: { id: { in: via.canales }, workspaceId: input.workspaceId },
+        select: { id: true, evolutionInstanceName: true },
+      });
+      canal =
+        via.canales
+          .map((id) => lineas.find((linea) => linea.id === id && linea.evolutionInstanceName))
+          .find(Boolean) ?? null;
+      if (!canal?.evolutionInstanceName) {
+        console.warn("[avisos] ninguna linea sirve para enviar", { lineasPosibles: via.canales });
+        return 0;
+      }
     }
 
     /*
@@ -263,6 +277,37 @@ export async function avisarAsesorPorWhatsApp(input: {
     let enviados = 0;
     for (const destino of destinos) {
       try {
+        if (via.tipo === "push") {
+          // Sin WhatsApp: notificación del CRM a la persona (la del número, o la asesora del chat).
+          const userId = destino.userId ?? destino.soloDe;
+          if (!userId) {
+            continue;
+          }
+          const dispositivos = await sendPushToUser({
+            userId,
+            payload: {
+              title: "🔔 Necesita atención",
+              body: [
+                `${input.cliente}: ${input.motivo}`,
+                destino.soloDe === null ? `Asignado a: ${nombreDeLaAsesora ?? "nadie todavía"}` : null,
+              ]
+                .filter(Boolean)
+                .join("\n"),
+              tag: `atencion:${input.conversationId}`,
+              url: `/cliente/chats?chatKey=agent:${input.conversationId}&assigned=all`,
+            },
+          });
+          if (dispositivos > 0) {
+            enviados += 1;
+            if (userId === asignadaAhoraA) {
+              llegoALaAsesora = true;
+            }
+          }
+          continue;
+        }
+        if (!canal?.evolutionInstanceName) {
+          continue;
+        }
         await sendEvolutionTextMessageWithReconnect({
           instanceName: canal.evolutionInstanceName,
           phoneNumber: destino.numero,

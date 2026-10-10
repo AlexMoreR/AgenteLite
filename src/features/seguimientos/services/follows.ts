@@ -12,6 +12,24 @@ import { revisarFrenoDeAutomatico, type MotivoDeFreno } from "@/lib/freno-de-aut
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { getFlowReply, type FlowStep } from "@/lib/agent-product-flow";
 import { registrarSeguimientoEnviado } from "@/features/embudo/servicios/eventos";
+import { parseAgentTrainingConfig } from "@/lib/agent-training";
+import {
+  clasificarFollow,
+  decidirTextoVigente,
+  dentroDelHorario,
+  firmaDeAccion,
+  reprogramarFueraDeHorario,
+  firmasDe,
+  MOTIVOS_QUE_REPROGRAMAN,
+  type ClaseDeFollow,
+  type MotivoAntiBloqueo,
+} from "@/lib/anti-bloqueo/reglas";
+import {
+  anotarFrenado,
+  leerConfigAntiBloqueo,
+  marcarEnvioAutomatico,
+  revisarAntiBloqueo,
+} from "@/lib/anti-bloqueo/servicio";
 
 export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
 export type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
@@ -1490,7 +1508,185 @@ async function enviarFlujoDelSeguimiento(input: {
   }
 }
 
-async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeFreno) {
+/**
+ * Corre un seguimiento a otra hora sin cancelarlo (anti-bloqueo: fuera de horario o espaciado).
+ * Suelta el candado para que lo tome la vuelta del cron que corresponda.
+ */
+async function reprogramarFollow(follow: ClaimedFollowRow, fecha: Date) {
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE public."Follow"
+    SET
+      "executeAt" = ${fecha},
+      "lockedAt" = NULL,
+      "lockedBy" = NULL,
+      "updatedAt" = ${new Date()}
+    WHERE "id" = ${follow.id} AND "status" = 'PENDING'
+  `);
+}
+
+type DefinicionVigente = Parameters<typeof decidirTextoVigente>[0]["vigente"];
+
+/**
+ * Lo que HOY dice la definición de la que salió este seguimiento (anti-bloqueo, medida 4).
+ *
+ * El Follow guarda el texto del momento en que se agendó; si después alguien apagó o cambió ese
+ * seguimiento, lo agendado sale igual con el texto viejo (pasó el 9-oct: el de 3 días "inactivo"
+ * siguió saliendo con la contraentrega). Se compara contra:
+ *  - la regla (FollowRule), si vino de una;
+ *  - los seguimientos ACTIVOS de las etapas del embudo del negocio ("Etapa …");
+ *  - la escalera "si no contesta" del agente de la línea ("Sin responder …").
+ * "no_aplica" = no se sabe de dónde salió: no se toca.
+ */
+async function definicionVigenteDelFollow(follow: ClaimedFollowRow): Promise<DefinicionVigente | "no_aplica"> {
+  if (follow.followRuleId) {
+    const regla = (await listFollowRulesByWorkspace(follow.workspaceId)).find((fila) => fila.id === follow.followRuleId);
+    if (!regla || !regla.isActive) {
+      return null;
+    }
+    return {
+      tipo: "regla",
+      firmas: firmasDe(
+        buildPersistedFollowActions({
+          actions: regla.actions.length ? (regla.actions as FollowActionInput[]) : null,
+          messageType: regla.messageType,
+          content: regla.content,
+          mediaUrl: regla.mediaUrl,
+        }),
+      ),
+    };
+  }
+
+  const nombre = (follow.name ?? "").trim();
+  if (nombre.startsWith("Etapa ")) {
+    const vigentes = await prisma.productStageFollowUp.findMany({
+      where: { isActive: true, stage: { playbook: { workspaceId: follow.workspaceId } } },
+      select: { content: true, flowId: true, messageType: true, mediaUrl: true },
+    });
+    // Los de etapa se agendan siempre como TEXTO (con el flujo en la acción si lo tienen).
+    return {
+      tipo: "conjunto",
+      firmas: new Set(
+        vigentes.map((fila) =>
+          firmaDeAccion({ messageType: "TEXT", content: fila.content, flowId: fila.flowId }),
+        ),
+      ),
+    };
+  }
+
+  if (nombre.startsWith("Sin responder")) {
+    if (!follow.channelId) return "no_aplica";
+    const linea = await prisma.whatsAppChannel.findUnique({
+      where: { id: follow.channelId },
+      select: { agent: { select: { trainingConfig: true } } },
+    });
+    const config = linea?.agent ? parseAgentTrainingConfig(linea.agent.trainingConfig) : null;
+    if (!config) return "no_aplica";
+    const textos = [
+      ...config.noReplyFollowUps.map((escalon) => escalon.content),
+      ...config.flowNoReplyFollowUps.flatMap((fila) => fila.followUps.map((escalon) => escalon.content)),
+    ];
+    return { tipo: "conjunto", firmas: new Set(textos.map((content) => firmaDeAccion({ messageType: "TEXT", content }))) };
+  }
+
+  return "no_aplica";
+}
+
+/**
+ * Cancela los seguimientos AUTOMÁTICOS pendientes de un contacto (anti-bloqueo, un solo dueño):
+ * al pausar el chat, al pasarlo a PERDIDO o GANADO. No toca los que agendó una asesora ni las
+ * campañas. No hace nada si la medida está apagada.
+ */
+export async function cancelarAutomaticosPendientesDelContacto(input: {
+  workspaceId: string;
+  contactId: string;
+  motivo: MotivoAntiBloqueo;
+}): Promise<{ cancelados: number }> {
+  try {
+    const config = await leerConfigAntiBloqueo(input.workspaceId);
+    if (!config.unDueno.activo) {
+      return { cancelados: 0 };
+    }
+    const pendientes = (
+      await listFollowsByContact({ workspaceId: input.workspaceId, contactId: input.contactId, limit: 100 })
+    ).filter(
+      (follow) =>
+        follow.status === "PENDING" &&
+        clasificarFollow({ name: follow.name, followRuleId: follow.followRuleId }) === "automatico",
+    );
+    for (const follow of pendientes) {
+      await cancelarFollowFrenado(
+        {
+          ...(follow as unknown as ClaimedFollowRow),
+          actions: follow.actions as unknown as Prisma.JsonValue,
+        },
+        input.motivo,
+      );
+      anotarFrenado({
+        workspaceId: input.workspaceId,
+        contactId: input.contactId,
+        channelId: follow.channelId,
+        motor: "follow",
+        motivo: input.motivo,
+        claveUnica: `follow:${follow.id}:${input.motivo}`,
+        reglaId: follow.followRuleId,
+        reglaNombre: follow.name,
+        datos: { followId: follow.id, alCancelar: true },
+      });
+    }
+    return { cancelados: pendientes.length };
+  } catch (error) {
+    console.error("[follows] no se pudieron cancelar los automaticos del contacto", {
+      contactId: input.contactId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { cancelados: 0 };
+  }
+}
+
+/**
+ * Las medidas anti-bloqueo de un seguimiento, antes de enviarlo. Devuelve null si puede salir.
+ * Cada clase de seguimiento tiene las suyas (ver clasificarFollow).
+ */
+async function revisarAntiBloqueoDelFollow(
+  follow: ClaimedFollowRow,
+  clase: ClaseDeFollow,
+): Promise<{ motivo: MotivoAntiBloqueo; reprogramarPara: Date | null; conversationId: string | null } | null> {
+  const config = await leerConfigAntiBloqueo(follow.workspaceId);
+  const esAutomatico = clase === "automatico";
+
+  // Horario primero: lo de la noche se corre a la mañana y recién ahí se mira lo demás.
+  const ahora = new Date();
+  if (config.horario.activo && !dentroDelHorario(ahora, config.horario)) {
+    return {
+      motivo: "fuera_de_horario",
+      reprogramarPara: reprogramarFueraDeHorario(ahora, config.horario),
+      conversationId: null,
+    };
+  }
+
+  // 4. Texto vigente (solo los automáticos: los de una asesora o una campaña no tienen "definición").
+  if (config.textoVigente.activo && esAutomatico) {
+    const vigente = await definicionVigenteDelFollow(follow);
+    if (vigente !== "no_aplica") {
+      const motivo = decidirTextoVigente({ agendado: firmasDe(resolveFollowExecutionActions(follow)), vigente });
+      if (motivo) {
+        return { motivo, reprogramarPara: null, conversationId: null };
+      }
+    }
+  }
+
+  // 3, 1 y 5: dueño, tope y espaciado (el horario ya se miró).
+  const resultado = await revisarAntiBloqueo({
+    workspaceId: follow.workspaceId,
+    contactId: follow.contactId,
+    channelId: follow.channelId,
+    medidas: { dueno: esAutomatico, tope: esAutomatico },
+    ahora,
+  });
+  return resultado.enviar ? null : resultado;
+}
+
+async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeFreno | MotivoAntiBloqueo) {
   const now = new Date();
   const hasActionsColumn = await hasFollowActionsColumn("Follow");
   const actions = buildCancelledFollowActions({
@@ -1515,16 +1711,70 @@ async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeF
 }
 
 async function executeFollowRecord(follow: ClaimedFollowRow) {
+  /*
+    Anti-bloqueo (ver lib/anti-bloqueo): horario, texto vigente, un solo dueño, tope total y
+    espaciado. Cada medida tiene su interruptor y vienen apagadas: así, esto no cambia nada hasta
+    que Alex las prenda. Si la revisión falla (base caída), se sigue como antes.
+  */
+  const clase = clasificarFollow({ name: follow.name, followRuleId: follow.followRuleId });
+  let antiBloqueo: Awaited<ReturnType<typeof revisarAntiBloqueoDelFollow>> = null;
+  try {
+    antiBloqueo = await revisarAntiBloqueoDelFollow(follow, clase);
+  } catch (error) {
+    console.error("[follows] fallo la revision anti-bloqueo; se sigue como antes", {
+      followId: follow.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  if (antiBloqueo) {
+    const reprogramarPara =
+      MOTIVOS_QUE_REPROGRAMAN.includes(antiBloqueo.motivo) && antiBloqueo.reprogramarPara
+        ? antiBloqueo.reprogramarPara
+        : null;
+    if (reprogramarPara) {
+      await reprogramarFollow(follow, reprogramarPara);
+    } else {
+      await cancelarFollowFrenado(follow, antiBloqueo.motivo);
+    }
+    anotarFrenado({
+      workspaceId: follow.workspaceId,
+      conversationId: antiBloqueo.conversationId,
+      contactId: follow.contactId,
+      channelId: follow.channelId,
+      motor: "follow",
+      motivo: antiBloqueo.motivo,
+      claveUnica: `follow:${follow.id}:${antiBloqueo.motivo}`,
+      reglaId: follow.followRuleId,
+      reglaNombre: follow.name,
+      reprogramadoPara: reprogramarPara,
+      datos: { followId: follow.id, clase },
+    });
+    return { ok: true as const, executionError: null, frenado: antiBloqueo.motivo };
+  }
+
   // Nada automatico a quien no leyo lo anterior, ni un tercero seguido sin respuesta.
   const freno = await revisarFrenoDeAutomatico({ contactId: follow.contactId, channelId: follow.channelId });
   if (!freno.enviar) {
     await cancelarFollowFrenado(follow, freno.motivo);
+    // Se mide tambien el freno de siempre: es la linea de base del antes/despues.
+    anotarFrenado({
+      workspaceId: follow.workspaceId,
+      contactId: follow.contactId,
+      channelId: follow.channelId,
+      motor: "follow",
+      motivo: freno.motivo,
+      claveUnica: `follow:${follow.id}:${freno.motivo}`,
+      reglaId: follow.followRuleId,
+      reglaNombre: follow.name,
+      datos: { followId: follow.id, clase },
+    });
     return { ok: true as const, executionError: null, frenado: freno.motivo };
   }
 
   const actions = resolveFollowExecutionActions(follow);
   const workerId = follow.lockedBy || randomUUID();
   const actionErrors: Array<{ order: number; message: string }> = [];
+  let lineaUsada: string | null = follow.channelId;
 
   for (const action of actions) {
     if (action.status !== "PENDING") {
@@ -1561,6 +1811,7 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
         content: action.content,
         mediaUrl: action.mediaUrl,
       });
+      lineaUsada = sendResult.channel.id;
 
       // El mensaje ya se envió a WhatsApp; persistirlo en la conversación es lo que lo
       // hace visible en la vista de chats. Si esta escritura falla NO marcamos la acción
@@ -1605,6 +1856,8 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
   // Embudo F1: solo mide (en segundo plano, no lanza). Cuenta si salió al menos una acción.
   const salieron = actions.filter((action) => action.status === "EXECUTED").length;
   if (salieron > 0) {
+    // Espaciado: el próximo automático de esta línea espera (solo si la medida está prendida).
+    await marcarEnvioAutomatico({ workspaceId: follow.workspaceId, lineaId: lineaUsada });
     registrarSeguimientoEnviado({
       workspaceId: follow.workspaceId,
       contactId: follow.contactId,
@@ -1612,7 +1865,7 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
       motor: "follow",
       reglaId: follow.followRuleId,
       reglaNombre: follow.name,
-      datos: { followId: follow.id, acciones: salieron },
+      datos: { followId: follow.id, acciones: salieron, clase },
     });
   }
   return { ok: true as const, executionError };

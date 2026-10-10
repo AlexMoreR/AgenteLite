@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { createFollow } from "@/features/seguimientos/services/follows";
+import { dentroDelHorario } from "@/lib/anti-bloqueo/reglas";
+import { leerConfigAntiBloqueo } from "@/lib/anti-bloqueo/servicio";
 import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
 import type { CrmStage } from "@/features/crm/types";
 
@@ -204,6 +206,16 @@ export async function procesarTandasDeCampanas(): Promise<{ enviados: number; fr
     try {
       const esperaMs = Math.max(1, campana.intervalMinutes) * 60_000;
       if (campana.lastBatchAt && ahora.getTime() - campana.lastBatchAt.getTime() < esperaMs) {
+        continue;
+      }
+
+      /*
+        Anti-bloqueo, horario (apagado por defecto): fuera del horario la tanda no se arma. Los
+        destinatarios siguen PENDIENTES y salen en la primera vuelta dentro del horario; no se
+        pierde ninguno. El espaciado entre mensajes lo pone el motor de seguimientos.
+      */
+      const antiBloqueo = await leerConfigAntiBloqueo(campana.workspaceId);
+      if (antiBloqueo.horario.activo && !dentroDelHorario(ahora, antiBloqueo.horario)) {
         continue;
       }
 

@@ -1,6 +1,13 @@
 import { registrarSeguimientoEnviado } from "@/features/embudo/servicios/eventos";
 import { prisma } from "@/lib/prisma";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
+import { dentroDelHorario, inicioDeVentanaHabil } from "@/lib/anti-bloqueo/reglas";
+import {
+  anotarFrenado,
+  leerConfigAntiBloqueo,
+  marcarEnvioAutomatico,
+  revisarAntiBloqueo,
+} from "@/lib/anti-bloqueo/servicio";
 import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
 import { limpiarFrasesProhibidas } from "@/lib/reglas-de-redaccion";
 
@@ -32,6 +39,10 @@ import { leerLibro } from "./almacen";
   cambió el 22-sep-2026, sabiendo el riesgo -un cliente que escribe a las 2am recibe recordatorio
   a las 2:15-: prefiere no perder ninguna respuesta. Es decisión suya, no un descuido: si algún
   día se ve mal en los chats, se vuelve a poner una franja acá, en un solo sitio.
+
+  Actualización 10-10-2026: la franja quedó lista en el anti-bloqueo (lib/anti-bloqueo), APAGADA
+  hasta que Alex la prenda. Con ella prendida, lo que vence de noche no se pierde: sale a la
+  mañana siguiente, repartido en la primera media hora (ver esperaDeHorarioV3).
 */
 
 /**
@@ -83,6 +94,17 @@ export async function ejecutarSeguimientosV3(
       continue;
     }
 
+    /*
+      Anti-bloqueo con horario prendido: fuera del horario no sale nada, y solo se mira cada 10
+      minutos para dejar anotado qué quedó esperando (la métrica), no cada minuto. La ventana de
+      3 horas no cuenta la noche: lo que se calló a última hora sale a la mañana.
+    */
+    const antiBloqueo = await leerConfigAntiBloqueo(canal.workspaceId);
+    const conHorario = antiBloqueo.horario.activo ? antiBloqueo.horario : null;
+    if (conHorario && !dentroDelHorario(ahora, conHorario) && ahora.getMinutes() % 10 !== 0) {
+      continue;
+    }
+
     const elMasCorto = reglas[reglas.length - 1].minutos;
     const conversaciones = await prisma.conversation.findMany({
       where: {
@@ -90,7 +112,7 @@ export async function ejecutarSeguimientosV3(
         automationPaused: false,
         lastMessageAt: {
           lte: new Date(ahora.getTime() - elMasCorto * 60_000),
-          gte: new Date(ahora.getTime() - VENTANA_MAXIMA_HORAS * 3_600_000),
+          gte: inicioDeVentanaHabil(ahora, VENTANA_MAXIMA_HORAS, conHorario),
         },
       },
       select: { id: true, lastMessageAt: true, contactId: true, contact: { select: { phoneNumber: true } } },
@@ -159,9 +181,54 @@ export async function ejecutarSeguimientosV3(
         lib/freno-de-automaticos). No se marca como enviado: si lo lee dentro de la ventana, el
         recordatorio todavía puede salir en una vuelta siguiente.
       */
+      // Para la métrica: el mismo recordatorio, frenado por lo mismo en el mismo silencio, cuenta una vez.
+      const claveDelSilencio = `v3:${conversacion.id}:${toca.minutos}:${ultimo.createdAt.toISOString()}`;
+      const anotar = (motivo: string, reprogramadoPara: Date | null = null) =>
+        anotarFrenado({
+          workspaceId: canal.workspaceId,
+          conversationId: conversacion.id,
+          contactId: conversacion.contactId,
+          channelId: canal.id,
+          motor: "v3",
+          motivo,
+          claveUnica: `${claveDelSilencio}:${motivo}`,
+          reglaId: toca.regla.id,
+          reglaNombre: toca.regla.nombre,
+          paso: estado.pasoActual,
+          reprogramadoPara,
+          datos: { minutos: toca.minutos },
+        });
+
+      /*
+        Anti-bloqueo (lib/anti-bloqueo): horario, un solo dueño, tope total y espaciado. Todo
+        apagado por defecto. Lo que se corre (horario, espaciado) no se marca como enviado: se
+        vuelve a mirar en las vueltas siguientes y sale cuando corresponda.
+      */
+      const revision = await revisarAntiBloqueo({
+        workspaceId: canal.workspaceId,
+        conversationId: conversacion.id,
+        contactId: conversacion.contactId,
+        channelId: canal.id,
+        medidas: { dueno: true, tope: true },
+        silencioDesde: ultimo.createdAt,
+        ahora,
+      }).catch((error) => {
+        console.error("[agente-v3] fallo la revision anti-bloqueo; se sigue como antes", {
+          conversationId: conversacion.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return { enviar: true as const, conversationId: conversacion.id };
+      });
+      if (!revision.enviar) {
+        frenados += 1;
+        anotar(revision.motivo, revision.reprogramarPara);
+        continue;
+      }
+
       const freno = await revisarFrenoDeAutomatico({ conversationId: conversacion.id });
       if (!freno.enviar) {
         frenados += 1;
+        anotar(freno.motivo);
         continue;
       }
 
@@ -205,6 +272,8 @@ export async function ejecutarSeguimientosV3(
         });
         enviados += 1;
         enviadosEnLaLinea += 1;
+        // Espaciado: el próximo automático de esta línea espera (solo con la medida prendida).
+        await marcarEnvioAutomatico({ workspaceId: canal.workspaceId, lineaId: canal.id, ahora });
         // Embudo F1: solo mide (en segundo plano, no lanza).
         registrarSeguimientoEnviado({
           workspaceId: canal.workspaceId,

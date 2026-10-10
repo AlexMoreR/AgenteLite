@@ -36,6 +36,9 @@ type BaseDelEvento = {
   channelId?: string | null;
 };
 
+/** Eventos que solo quedan en EmbudoEvento: no tocan EmbudoLead. */
+const SOLO_REGISTRO = new Set<string>(["SEGUIMIENTO_FRENADO"]);
+
 function anotarError(donde: string, error: unknown, extra: Record<string, unknown> = {}) {
   console.warn(`[embudo] ${donde}`, { ...extra, error: error instanceof Error ? error.message : String(error) });
 }
@@ -187,8 +190,10 @@ export async function registrarEventos(base: BaseDelEvento, eventos: EventoDelEm
       });
       if (count > 0) nuevos.push(evento);
     }
-    if (nuevos.length) {
-      await actualizarLead(contexto, nuevos);
+    // Los que solo se registran (un frenado) no cambian la foto del lead: ni la crean.
+    const paraLaFoto = nuevos.filter((evento) => !SOLO_REGISTRO.has(evento.tipo));
+    if (paraLaFoto.length) {
+      await actualizarLead(contexto, paraLaFoto);
     }
     return nuevos.length;
   } catch (error) {
@@ -514,6 +519,69 @@ export function registrarSeguimientoEnviado(input: {
           reglaId: input.reglaId ?? null,
           reglaNombre: input.reglaNombre ?? null,
           datos: { motor: input.motor, ...(input.datos ?? {}) },
+        },
+      ],
+    );
+  });
+}
+
+/**
+ * SEGUIMIENTO_FRENADO: un automático que no salió (cancelado) o que se corrió (reprogramado), con
+ * el motivo: el freno de siempre (no_leido, dos_sin_respuesta) o el anti-bloqueo (tope, horario,
+ * dueño, apagado, espaciado). Es lo que permite medir el antes y el después.
+ *
+ * Una sola vez por `claveUnica` (el reloj del V3 vuelve a mirar el mismo chat cada minuto). Solo
+ * se registra: no toca la foto del lead. Respeta el interruptor del embudo y nunca lanza.
+ */
+export function registrarSeguimientoFrenado(input: {
+  workspaceId: string;
+  conversationId?: string | null;
+  contactId: string;
+  channelId?: string | null;
+  motor: "v3" | "follow";
+  motivo: string;
+  claveUnica: string;
+  reglaId?: string | null;
+  reglaNombre?: string | null;
+  paso?: string | null;
+  reprogramadoPara?: Date | null;
+  datos?: Record<string, unknown>;
+}): void {
+  enSegundoPlano(async () => {
+    if (!(await embudoActivo(input.workspaceId))) return;
+    let conversationId = input.conversationId ?? null;
+    if (!conversationId) {
+      const charla = await prisma.conversation.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          contactId: input.contactId,
+          ...(input.channelId ? { channelId: input.channelId } : {}),
+        },
+        orderBy: { lastMessageAt: "desc" },
+        select: { id: true },
+      });
+      conversationId = charla?.id ?? null;
+    }
+    if (!conversationId) return;
+    await registrarEventos(
+      { workspaceId: input.workspaceId, conversationId, contactId: input.contactId, channelId: input.channelId },
+      [
+        {
+          tipo: "SEGUIMIENTO_FRENADO",
+          origen: "reloj",
+          // Sin paso ni producto a propósito: es un registro, no un avance del lead.
+          paso: null,
+          producto: null,
+          reglaId: input.reglaId ?? null,
+          reglaNombre: input.reglaNombre ?? null,
+          claveUnica: `FRENADO:${input.claveUnica}`.slice(0, 400),
+          datos: {
+            motor: input.motor,
+            motivo: input.motivo,
+            pasoDelLead: input.paso ?? null,
+            reprogramadoPara: input.reprogramadoPara?.toISOString() ?? null,
+            ...(input.datos ?? {}),
+          },
         },
       ],
     );

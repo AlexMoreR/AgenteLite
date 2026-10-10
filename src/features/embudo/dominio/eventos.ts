@@ -20,6 +20,8 @@ export const TIPOS_DE_EVENTO = [
   "SENAL",
   "TURNO_V3",
   "SEGUIMIENTO_ENVIADO",
+  /** Un automático que NO salió (o se corrió) por el anti-bloqueo o el freno. No toca la foto del lead. */
+  "SEGUIMIENTO_FRENADO",
   "TEMPERATURA",
   "ETAPA_CRM",
   "ESCALADO",
