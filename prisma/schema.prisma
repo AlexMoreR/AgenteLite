@@ -1882,3 +1882,40 @@ model EmbudoLead {
   @@index([workspaceId, entradaEn])
   @@index([workspaceId, transferencia, temperatura])
 }
+
+/// SUPERVISOR (fase 1: leer, analizar, alertar y recomendar). Una fila = un INCIDENTE que se
+/// actualiza en cada vuelta (no un aviso por vuelta). Sin claves foraneas, como el embudo: es un
+/// registro de vigilancia y no puede impedir borrar nada. Ver src/features/supervisor.
+model SupervisorAlerta {
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  /// Clave del incidente: "INC:libro-v182:combo-camilla", "ATENCION:caliente-esperando:<asesora>"...
+  clave               String
+  /// Mientras esta ABIERTA vale "<workspaceId>:<clave>"; al resolverse queda en null. Asi hay un solo
+  /// incidente abierto por clave y los resueltos quedan de historial.
+  claveAbierta        String?   @unique
+  /// BOT | EMBUDO | ATENCION | CAMBIO (texto, no enum)
+  familia             String
+  /// CRITICO | IMPORTANTE | OBSERVACION
+  severidad           String
+  /// ABIERTA | RESUELTA
+  estado              String    @default("ABIERTA")
+  titulo              String
+  producto            String?
+  desde               DateTime
+  primeraVezEn        DateTime
+  ultimaVezEn         DateTime
+  vecesVista          Int       @default(1)
+  /// Los hallazgos del incidente (Hallazgo[] en src/features/supervisor/dominio/tipos.ts).
+  hallazgos           Json
+  /// El texto completo, como lo lee el dueno.
+  texto               String
+  notificadaEn        DateTime?
+  severidadNotificada String?
+  resueltaEn          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([workspaceId, estado, ultimaVezEn])
+  @@index([workspaceId, createdAt])
+}

@@ -100,7 +100,10 @@ export default async function EmbudoPage({ searchParams }: PageProps) {
         <h1 className="text-lg font-semibold text-foreground">Embudo: {nombreProducto}</h1>
         <p className="text-sm text-muted-foreground">
           Cada lead cuenta en el día en que entró. Los de menos de 72 h (30 días para cotización y anticipo) están
-          madurando y no entran en los porcentajes. Solo mide: no cambia nada del bot ni del reparto.
+          madurando y no entran en los porcentajes. Solo mide: no cambia nada del bot ni del reparto.{" "}
+          <Link href="/cliente/crm/supervisor" className="underline">
+            Supervisor
+          </Link>
         </p>
       </div>
 

@@ -12,6 +12,7 @@ import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
 import { repartirChatsDeMadrugada } from "@/lib/reparto-de-madrugada";
 import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
 import { sincronizarSiTocaHoy } from "@/lib/sincronizacion-gestion";
+import { vueltaDeCadaHora, vueltaDeCincoMinutos } from "@/features/supervisor/servicios/vueltas";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -212,6 +213,33 @@ async function handleCron(request: Request) {
         await sincronizarSiTocaHoy();
       } catch (error) {
         console.error("[cron/follows] sincronizacion con Gestion error", error);
+      }
+    });
+  }
+
+  /*
+    SUPERVISOR (solo lee, analiza, alerta y recomienda; ver src/features/supervisor). APAGADO por
+    defecto: sin `supervisor:activo:<negocio>` = "true" cada vuelta hace UNA consulta por clave a
+    AppSetting y sale. En segundo plano (`after`) para no demorar los envíos de esta vuelta.
+    - Cada 5 min (minuto 3, 8, 13...): cambio del libro + Change Guardian, y chequeo de atención.
+    - Cada hora (minuto 23): análisis agregado contra la línea base.
+  */
+  const minuto = new Date().getMinutes();
+  if (minuto % 5 === 3) {
+    after(async () => {
+      try {
+        await vueltaDeCincoMinutos();
+      } catch (error) {
+        console.error("[cron/follows] supervisor 5 min error", error);
+      }
+    });
+  }
+  if (minuto === 23) {
+    after(async () => {
+      try {
+        await vueltaDeCadaHora();
+      } catch (error) {
+        console.error("[cron/follows] supervisor hora error", error);
       }
     });
   }
