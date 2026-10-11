@@ -114,6 +114,7 @@ import type {
 import { FichaDeCotizacion } from "@/features/cotizaciones/components/FichaDeCotizacion";
 import { CHAT_COMPOSER_RECENT_KEY, type ComposerEmojiTab } from "./chat-inbox-emojis";
 import { MessageBubble } from "./chat-message-bubble";
+import { ChatFloatingDateBadge } from "./chat-floating-date-badge";
 import { esNotaInternaDelAgente } from "@/lib/notas-internas-del-agente";
 import { ComposerEmojiPicker, ComposerSendButton } from "./chat-composer";
 import { AvisoDeCierre } from "./aviso-de-cierre";
@@ -1991,6 +1992,8 @@ export const ConversationPanel = memo(function ConversationPanel({
                   </div>
                 </div>
               </div>
+              {/* El dia del mensaje de arriba mientras se hace scroll, como en WhatsApp. */}
+              <ChatFloatingDateBadge scrollRef={messagesScrollRef} />
               {/*
                 Bajar al ultimo mensaje, como en WhatsApp. Aparece apenas se sube lo suficiente
                 como para perder de vista el final —antes solo salia si habian llegado mensajes,

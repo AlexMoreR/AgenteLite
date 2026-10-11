@@ -1160,6 +1160,9 @@ export const MessageBubble = memo(function MessageBubble({
   return (
     <div
       className="space-y-2.5 md:space-y-3"
+      // La fecha flotante (ChatFloatingDateBadge) lee de aca el dia del mensaje que queda arriba.
+      // `new Date` por si algun cache lo dejo como texto: aca un error tumbaria el chat entero.
+      data-chat-ts={new Date(message.createdAt).getTime()}
     >
       {showDateDivider ? (
         <div className="flex justify-center">
