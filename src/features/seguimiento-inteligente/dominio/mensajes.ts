@@ -112,6 +112,14 @@ export function mensajeDeCotizacion(c: ContextoDelMensaje, horas: number): strin
     : `${hola(c.nombre)} Te escribo por la cotización${ref} (*${total}*). ¿Qué te faltaría para decidirte? Si quieres la ajustamos a lo que necesitas 🙌`;
 }
 
+/** La asesora pidió los datos y el cliente no los mandó (2 h / 24 h / 72 h). Sin precios. */
+export function mensajeDeFormulario(c: ContextoDelMensaje & { color?: string | null }, horas: number): string {
+  const enColor = c.color ? ` en color *${c.color}*` : "";
+  if (horas <= 2) return `${hola(c.nombre)} ¿Te ayudo a completar los datos? Así te separo ${el(c.producto)}${enColor} 😊`;
+  if (horas <= 24) return `${hola(c.nombre)} ¿Pudiste ver los datos que te pedí? Si quieres me los mandas por aquí de a poquito y te dejo ${el(c.producto)}${enColor} separado 🙌`;
+  return `${hola(c.nombre)} Te escribo por ${el(c.producto)}${enColor} 😊 ¿Te ayudo a terminar los datos o prefieres que te llame?`;
+}
+
 export function mensajeDeFechaFutura(c: ContextoDelMensaje): string {
   return `${hola(c.nombre)} Hace unas semanas me dijiste que para *${c.fechaComo ?? "esta fecha"}* ibas a necesitar ${el(c.producto)} 😊 ¿Te lo separamos con el *50 %* para tenerlo a tiempo?`;
 }

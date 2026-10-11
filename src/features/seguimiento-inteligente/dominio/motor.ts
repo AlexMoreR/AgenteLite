@@ -22,6 +22,8 @@
  *  - TIBIO (pregunta concreta) → tarea para la asesora con el mensaje sugerido (prioridad B).
  *  - CALIENTE → una persona en < 15 min: tarea A y NINGÚN automático encima.
  *  - COTIZACIÓN → tarea humana a las 24 h y 72 h con el mensaje listo.
+ *  - PEDIDO DE DATOS (formulario de la asesora) sin respuesta → tarea a las 2 h, 24 h y 72 h en
+ *    horario laboral (11-10-2026, interruptor `formulario.activo`); después, lo de siempre.
  *  - FECHA FUTURA → dormido; tarea X días antes de la fecha.
  *  - Después de la asesora: toques en los días 3, 4 y 7; Frío = mensaje útil, resto = tarea. Tras
  *    el último sin respuesta (sin fecha futura ni cotización vigente) → descartar.
@@ -31,7 +33,8 @@ import { dentroDelHorario, esMensajeHumano, reprogramarFueraDeHorario } from "..
 import type { ConfigSeguimientoInteligente } from "./config";
 import { detectarFechaFutura, type FechaFutura } from "./fecha-futura";
 import { mencionaColombia, type Pais } from "./exterior";
-import { mensajeDeCadencia, mensajeDeCotizacion, mensajeDeFechaFutura, mensajePorSenales, type ContextoDelMensaje } from "./mensajes";
+import { colorDelCliente, esPedidoDeDatos, siguienteHoraLaboral } from "./formulario";
+import { mensajeDeCadencia, mensajeDeCotizacion, mensajeDeFechaFutura, mensajeDeFormulario, mensajePorSenales, type ContextoDelMensaje } from "./mensajes";
 import { familiaDelTexto, mensajeUtilPara, nombreDeFamilia, type MensajeUtil } from "./producto";
 import { calificar, type Calificacion, type Temperatura } from "./temperatura";
 
@@ -311,9 +314,61 @@ function decidir(c: Contexto): Decision {
     return base("esperar", "el_bot_responde", { supresion: "reemplazo", revisarEn: siguienteRevision(ahora, 15) });
   }
 
+  const clienteUltimo: MensajeCrudo = ultimoCliente;
   const humanosDespues = mensajes.filter((m) => esHumano(m, c.inicio) && m.en.getTime() > inicioCadencia.getTime());
   const salidosDespues = (desde: Date) => mensajes.filter((m) => m.direccion === "OUT" && (esHumano(m, c.inicio) || esAutomatico(m)) && m.en.getTime() >= desde.getTime());
 
+  // 5b. La asesora pidió los datos (formulario) y el cliente no responde: tareas a las 2 h, 24 h y
+  //     72 h en horario laboral. Con el interruptor apagado no se mira y todo queda como antes.
+  if (config.formulario.activo && config.formulario.horas.length) {
+    // El PRIMER pedido después del último mensaje del cliente: los toques ("¿te ayudo a completar
+    // los datos?") también piden datos y no deben reiniciar los escalones.
+    const pedido = mensajes.find((m) => esHumano(m, c.inicio) && m.en.getTime() > ultimoCliente.en.getTime() && esPedidoDeDatos(m.texto)) ?? null;
+    if (pedido) {
+      const horario = { desde: config.formulario.desdeHora, hasta: config.formulario.hastaHora, dias: config.formulario.dias };
+      const horas = config.formulario.horas;
+      let pendiente: { horas: number; vence: Date; ultimo: boolean } | null = null;
+      let proxima: { horas: number; vence: Date } | null = null;
+      // Un "quedo atenta" justo después del formulario no cuenta como toque: desde 1 h después.
+      let usadoHasta = pedido.en.getTime() + HORA;
+      let anterior: { horas: number; vence: Date } | null = null;
+      for (const [i, h] of horas.entries()) {
+        let vence = siguienteHoraLaboral(new Date(pedido.en.getTime() + h * HORA), horario);
+        // Fuera de horario dos escalones pueden caer en la misma apertura (sábado 4:47 p. m.: 2 h y
+        // 24 h = lunes 8:00): el siguiente se corre para que haya un toque por vez.
+        if (anterior && vence.getTime() < anterior.vence.getTime() + 12 * HORA) {
+          vence = siguienteHoraLaboral(new Date(anterior.vence.getTime() + (h - anterior.horas) * HORA), horario);
+        }
+        anterior = { horas: h, vence };
+        if (ahora.getTime() < vence.getTime()) {
+          proxima = { horas: h, vence };
+          break;
+        }
+        // Hecho: una persona le escribió cerca del escalón (cada mensaje cuenta para un solo escalón;
+        // los de las 3 h siguientes son la misma tanda).
+        const desde = Math.max(usadoHasta, pedido.en.getTime() + (h - 2) * HORA);
+        const toque = mensajes.find((m) => esHumano(m, c.inicio) && m.en.getTime() >= desde) ?? null;
+        if (toque) usadoHasta = toque.en.getTime() + 3 * HORA;
+        pendiente = toque ? null : { horas: h, vence, ultimo: i === horas.length - 1 };
+      }
+      // El último escalón sin hacer se ofrece 24 h; después sigue la lógica de siempre.
+      const vigente = pendiente && !(pendiente.ultimo && ahora.getTime() >= pendiente.vence.getTime() + 24 * HORA);
+      if (pendiente && vigente) {
+        const mensaje = mensajeDeFormulario({ ...contextoDelMensaje, color: colorDelCliente(c.delCliente.map(textoDelCliente)) }, pendiente.horas);
+        return tarea(temperatura === "CALIENTE" ? "A" : "B", "formulario_sin_respuesta", mensaje, pendiente.vence, `formulario_${pendiente.horas}h`);
+      }
+      // Mientras corren sus escalones, mandan ellos: el formulario suele leerse como "cotización"
+      // ("Datos de Cotización") y su tarea de 24 h quedaría encima de la de 2 h.
+      if (proxima) {
+        return base("esperar", "formulario_esperando_escalon", { revisarEn: proxima.vence, toque: `formulario_${proxima.horas}h` });
+      }
+    }
+  }
+  return resto();
+
+  // Pasos 6 a 8 (lo de siempre). En una función para que el pedido de datos pueda consultarlos.
+  function resto(): Decision {
+  const ultimoCliente = clienteUltimo;
   // 6. Cotización vigente sin respuesta: tareas a las 24 h y 72 h.
   const cot = c.cotizacion.en;
   const cotizacionVigente = Boolean(cot && cot.getTime() >= ultimoCliente.en.getTime() && ahora.getTime() - cot.getTime() < config.cotizacion.diasVigente * DIA);
@@ -353,6 +408,7 @@ function decidir(c: Contexto): Decision {
     return base("no_insistir", "fuera_de_la_ventana", { revisarEn: siguienteRevision(ahora, 7 * 24 * 60) });
   }
   return mensajeUtilAFrio(c, base, ultimoOut, "frio_leyo_sin_responder", ficha.mensajesUtiles >= config.motor.maxMensajesUtiles);
+  }
 }
 
 function mensajeUtilAFrio(

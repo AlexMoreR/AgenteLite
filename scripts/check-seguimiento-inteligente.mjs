@@ -554,4 +554,188 @@ prueba("config: tope de tareas por defecto 15", () => {
   assert.equal(cf.leerConfigDeTexto(JSON.stringify({ tareas: { maxPorAsesoraDia: 10 } })).tareas.maxPorAsesoraDia, 10);
 });
 
+/* ---------------------------------------------------------------------------------------------- */
+/* Pedido de datos de la asesora (formulario) sin respuesta: 2 h / 24 h / 72 h (Alexander, 11-10-2026). */
+
+const fm = cargar(`${D}/formulario.ts`);
+const FORMULARIO =
+  "Para continuar con el proceso de cotización formal por favor completa estos datos,\nDatos de Cotización ✨\n\n🌟 Nombre y Apellido:\n✍️ NIT / C.C:\n📧 Correo Electrónico:\n📞 Teléfono:\n🏠 Dirección:\n🏙️ Ciudad y Barrio:\n📍 Departamento:\n     Color:";
+const EN = (iso, direccion, texto, origen) => ({ direccion, tipo: texto ? "TEXT" : "AUDIO", texto, en: new Date(iso), leidoEn: new Date(iso), estado: "READ", origen });
+/** cv3a2aa2b2f953c5543ccca57e (sábado 10-oct): Caliente, eligió lila, preguntó precio; Ingrid manda el formulario a las 4:47 p. m. */
+const casoLila = (extra = []) =>
+  ficha({
+    inicioDeLaCharla: new Date("2026-10-10T18:30:00Z"),
+    asignadaA: "ingrid",
+    pausado: true,
+    mensajes: [
+      EN("2026-10-10T18:37:47Z", "IN", "Lila", "webhook"),
+      EN("2026-10-10T18:37:53Z", "OUT", "¿En qué color lo quieres?😊", null),
+      EN("2026-10-10T18:38:59Z", "IN", "Hay color lila?", "webhook"),
+      EN("2026-10-10T21:31:00Z", "OUT", "", "manual"),
+      EN("2026-10-10T21:32:53Z", "IN", "Carrito lila", "webhook"),
+      EN("2026-10-10T21:34:11Z", "OUT", "👩‍💻*Ingrid Sánchez*\nok reina listo cuentame en que ciudad te encuentras?", "manual"),
+      EN("2026-10-10T21:35:24Z", "IN", "Tauramena, Casanare", "webhook"),
+      EN("2026-10-10T21:37:01Z", "IN", "La camilla se dobla?", "webhook"),
+      EN("2026-10-10T21:40:21Z", "OUT", "", "manual"),
+      EN("2026-10-10T21:42:23Z", "IN", "Fija", "webhook"),
+      EN("2026-10-10T21:44:54Z", "IN", "Entonces como sería el precio de la camilla fija?", "webhook"),
+      EN("2026-10-10T21:45:07Z", "IN", "Color lila, que no sea morado", "webhook"),
+      EN("2026-10-10T21:47:00Z", "OUT", "", "manual"),
+      EN("2026-10-10T21:47:57Z", "OUT", FORMULARIO, "manual"),
+      ...extra,
+    ],
+  });
+const SIN_FORMULARIO = cf.leerConfigDeTexto(
+  JSON.stringify({ calificacion: { activo: true }, motor: { modo: "activo" }, cadencia: { descarte: "activo" }, exterior: { activo: true }, formulario: { activo: false } }),
+);
+
+prueba("formulario: detecta el pedido de datos (formulario y frases) y no confunde nuestros datos de pago", () => {
+  assert.equal(fm.esPedidoDeDatos(FORMULARIO), true);
+  assert.equal(fm.esPedidoDeDatos("Nombre completo, cédula, dirección y ciudad por favor"), true);
+  assert.equal(fm.esPedidoDeDatos("Listo reina, me regalas tus datos para la cotización?"), true);
+  assert.equal(fm.esPedidoDeDatos("Me compartes por favor tus datos para separar"), true);
+  assert.equal(fm.esPedidoDeDatos("Necesito los datos para el envío"), true);
+  assert.equal(fm.esPedidoDeDatos("Por favor llena el formulario y te separo"), true);
+  // Lo que NO es pedir datos.
+  assert.equal(fm.esPedidoDeDatos("¡Hola! Te paso los datos"), false);
+  assert.equal(fm.esPedidoDeDatos("Te paso los datos para consignar: Bancolombia ahorros"), false);
+  assert.equal(fm.esPedidoDeDatos("¿En qué ciudad te encuentras?"), false);
+  assert.equal(fm.esPedidoDeDatos("Te envío la cotización COT-00123 por $1.250.000"), false);
+  assert.equal(fm.esPedidoDeDatos(""), false);
+  // Casos reales de la simulación: nuestra dirección y los datos de una guía ya llenos no son pedidos.
+  assert.equal(fm.esPedidoDeDatos("Dirección carrera 27 #72 x25 barrio omar Torrijos Cali Valle Celular 3046481994"), false);
+  assert.equal(fm.esPedidoDeDatos("Cliente EMPRESA SAS\nCC/NIT: 900407222\nTeléfono: 3176131958\nDestino Ciudad: BOGOTA\nDirección: Cra 5 # 10-20"), false);
+  assert.equal(fm.esPedidoDeDatos("*Datos de Cotización* ✨\n🌟 Nombre y Apellido:\n✍️ NIT / C.C:\n📞 Teléfono:\n🏠 Dirección:"), true);
+  assert.equal(fm.esPedidoDeDatos("Nombre:\nCédula:\nCiudad:\nDirección:"), true);
+  assert.equal(fm.esPedidoDeDatos("Me confirma por favor los datos para realizar la cotización"), true);
+  // Color elegido: "Color lila, que no sea morado" = lila.
+  assert.equal(fm.colorDelCliente(["Hola", "Color lila, que no sea morado"]), "lila");
+  assert.equal(fm.colorDelCliente(["en negro", "ok"]), "negro");
+  assert.equal(fm.colorDelCliente(["hola"]), null);
+});
+
+prueba("formulario: horario laboral = el del Supervisor (L–S 8–18 Bogotá); fuera → siguiente apertura", () => {
+  const h = { desde: 8, hasta: 18, dias: [1, 2, 3, 4, 5, 6] };
+  // Miércoles 13:00 Bogotá: dentro.
+  assert.equal(fm.siguienteHoraLaboral(new Date("2026-10-07T18:00:00Z"), h).toISOString(), "2026-10-07T18:00:00.000Z");
+  // Miércoles 19:00 Bogotá → jueves 8:00.
+  assert.equal(fm.siguienteHoraLaboral(new Date("2026-10-08T00:00:00Z"), h).toISOString(), "2026-10-08T13:00:00.000Z");
+  // Sábado 18:47 → lunes 8:00 (el domingo no se trabaja).
+  assert.equal(fm.siguienteHoraLaboral(new Date("2026-10-10T23:47:57Z"), h).toISOString(), "2026-10-12T13:00:00.000Z");
+  // Madrugada del martes 6:00 → martes 8:00.
+  assert.equal(fm.siguienteHoraLaboral(new Date("2026-10-13T11:00:00Z"), h).toISOString(), "2026-10-13T13:00:00.000Z");
+});
+
+prueba("formulario: sin respuesta → tarea a las 2 h laborales (dentro del horario), A si es Caliente", () => {
+  // Miércoles 11:00 Bogotá: el cliente elige color; 11:10 la asesora manda el formulario.
+  const f = ficha({ asignadaA: "ingrid", mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(4, "En negro"), IN(5, "cuánto vale?"), ASESORA(10, FORMULARIO)] });
+  const antes = mo.evaluarLead(f, CONFIG, mas(70 * MIN)).decision;
+  assert.equal(antes.accion, "esperar");
+  assert.equal(antes.motivo, "formulario_esperando_escalon");
+  assert.equal(antes.revisarEn.getTime(), mas(130 * MIN).getTime());
+  assert.equal(antes.supresion, "siempre");
+  const d = mo.evaluarLead(f, CONFIG, mas(131 * MIN)).decision;
+  assert.equal(d.accion, "tarea_asesora");
+  assert.equal(d.motivo, "formulario_sin_respuesta");
+  assert.equal(d.toque, "formulario_2h");
+  assert.equal(d.prioridad, "A");
+  assert.equal(d.vence.getTime(), mas(130 * MIN).getTime());
+  assert.match(d.mensajeSugerido, /Te ayudo a completar los datos/);
+  assert.match(d.mensajeSugerido, /color \*negro\*/);
+  assert.doesNotMatch(d.mensajeSugerido, /\$|\d{3}\.\d{3}|contra ?entrega|gratis/i);
+  // Tibio → B.
+  const tibio = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(5, "¿hacen envíos a Pereira?"), ASESORA(10, "Me regalas tus datos para la cotización?")] });
+  const dt = mo.evaluarLead(tibio, CONFIG, mas(131 * MIN)).decision;
+  assert.equal(dt.motivo, "formulario_sin_respuesta");
+  assert.equal(dt.prioridad, "B");
+});
+
+prueba("formulario: caso real cv3a2aa2 (sábado 4:47 p. m.) → tarea el lunes 8:00, no 24 h de silencio", () => {
+  const f = casoLila();
+  // Antes del cambio: "esperar / cotizacion_esperando_escalon" hasta el domingo 4:47 p. m.
+  const hoy = mo.evaluarLead(f, SIN_FORMULARIO, new Date("2026-10-10T22:00:00Z")).decision;
+  assert.equal(hoy.motivo, "cotizacion_esperando_escalon");
+  assert.equal(hoy.revisarEn.toISOString(), "2026-10-11T21:47:57.000Z");
+  // Ahora: 4:47 p. m. + 2 h = 6:47 p. m. (cerrado) → lunes 8:00 Bogotá.
+  const ev = mo.evaluarLead(f, CONFIG, new Date("2026-10-10T22:00:00Z"));
+  assert.equal(ev.decision.motivo, "formulario_esperando_escalon");
+  assert.equal(ev.decision.revisarEn.toISOString(), "2026-10-12T13:00:00.000Z");
+  const lunes = mo.evaluarLead(f, CONFIG, new Date("2026-10-12T13:01:00Z")).decision;
+  assert.equal(lunes.accion, "tarea_asesora");
+  assert.equal(lunes.toque, "formulario_2h");
+  assert.equal(lunes.prioridad, "A");
+  assert.equal(lunes.vence.toISOString(), "2026-10-12T13:00:00.000Z");
+  assert.match(lunes.mensajeSugerido, /color \*lila\*/);
+  // La de 24 h (domingo 4:47 p. m. → también lunes 8:00) se corre: un toque por vez, martes 8:00.
+  const hecha = casoLila([EN("2026-10-12T13:05:00Z", "OUT", "¿Te ayudo a completar los datos?", "manual")]);
+  const espera = mo.evaluarLead(hecha, CONFIG, new Date("2026-10-12T15:00:00Z")).decision;
+  assert.equal(espera.motivo, "formulario_esperando_escalon");
+  assert.equal(espera.toque, "formulario_24h");
+  assert.equal(espera.revisarEn.toISOString(), "2026-10-13T13:00:00.000Z");
+});
+
+prueba("formulario: si el cliente responde se cancela; 24 h y 72 h; después sigue la cadencia de siempre", () => {
+  const f = ficha({ asignadaA: "ingrid", mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(4, "En negro"), IN(5, "cuánto vale?"), ASESORA(10, FORMULARIO)] });
+  // Responde (aunque sea a medias): ya no hay tareas de formulario.
+  const responde = { ...f, mensajes: [...f.mensajes, IN(60, "Laura Gómez, Cali")] };
+  for (const t of [mas(131 * MIN), mas(25 * H), mas(73 * H)]) assert.notEqual(mo.evaluarLead(responde, CONFIG, t).decision.motivo, "formulario_sin_respuesta");
+  // Hizo la de 2 h: espera la de 24 h (jueves 11:10, dentro del horario).
+  const con2 = { ...f, mensajes: [...f.mensajes, ASESORA(135, "¿Te ayudo a completar los datos?")] };
+  const espera24 = mo.evaluarLead(con2, CONFIG, mas(5 * H)).decision;
+  assert.equal(espera24.motivo, "formulario_esperando_escalon");
+  assert.equal(espera24.toque, "formulario_24h");
+  assert.equal(espera24.revisarEn.getTime(), mas(10 * MIN + 24 * H).getTime());
+  const d24 = mo.evaluarLead(con2, CONFIG, mas(10 * MIN + 24 * H + MIN)).decision;
+  assert.equal(d24.accion, "tarea_asesora");
+  assert.equal(d24.toque, "formulario_24h");
+  // Hizo la de 24 h: la de 72 h (sábado 11:10, dentro del horario).
+  const con24 = { ...con2, mensajes: [...con2.mensajes, ASESORA(10 + 24 * 60 + 20, "¿Pudiste ver los datos?")] };
+  const d72 = mo.evaluarLead(con24, CONFIG, mas(10 * MIN + 72 * H + MIN)).decision;
+  assert.equal(d72.toque, "formulario_72h");
+  assert.match(d72.mensajeSugerido, /prefieres que te llame/);
+  // Hizo la de 72 h: sigue la lógica de siempre (cadencia, próximo toque el día 4).
+  const con72 = { ...con24, mensajes: [...con24.mensajes, ASESORA(10 + 72 * 60 + 30, "¿Te ayudo?")] };
+  const despues = mo.evaluarLead(con72, CONFIG, mas(10 * MIN + 72 * H + 2 * H)).decision;
+  assert.notEqual(despues.motivo, "formulario_sin_respuesta");
+  assert.notEqual(despues.motivo, "formulario_esperando_escalon");
+  assert.equal(mo.evaluarLead(con72, CONFIG, mas(10 * MIN + 4 * DIA + H)).decision.toque, "dia_4");
+  // Atrasada: si no hizo la de 2 h y ya pasó la de 24 h, queda UNA tarea (la de 24 h).
+  assert.equal(mo.evaluarLead(f, CONFIG, mas(10 * MIN + 24 * H + MIN)).decision.toque, "formulario_24h");
+  // Un "quedo atenta" a los 5 min del formulario NO cuenta como el toque de 2 h.
+  const atenta = { ...f, mensajes: [...f.mensajes, ASESORA(15, "Quedo atenta 😊")] };
+  assert.equal(mo.evaluarLead(atenta, CONFIG, mas(131 * MIN)).decision.toque, "formulario_2h");
+});
+
+prueba("formulario: con el interruptor APAGADO todo queda exactamente como antes", () => {
+  assert.equal(cf.CONFIG_POR_DEFECTO.formulario.activo, true);
+  assert.deepEqual(cf.CONFIG_POR_DEFECTO.formulario.horas, [2, 24, 72]);
+  assert.equal(cf.leerConfigDeTexto(null).formulario.activo, true);
+  assert.equal(SIN_FORMULARIO.formulario.activo, false);
+  const f = ficha({ asignadaA: "ingrid", mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(4, "En negro"), IN(5, "cuánto vale?"), ASESORA(10, FORMULARIO)] });
+  const caso = casoLila();
+  // La decisión apagada es la misma que daría el motor sin el paso nuevo (motivos de antes).
+  for (const [ficha_, t] of [[f, mas(131 * MIN)], [f, mas(25 * H)], [f, mas(73 * H)], [caso, new Date("2026-10-12T13:01:00Z")], [caso, new Date("2026-10-11T22:00:00Z")]]) {
+    const d = mo.evaluarLead(ficha_, SIN_FORMULARIO, t).decision;
+    assert.ok(!d.motivo.startsWith("formulario_"), d.motivo);
+  }
+  assert.equal(mo.evaluarLead(caso, SIN_FORMULARIO, new Date("2026-10-11T22:00:00Z")).decision.toque, "cotizacion_24h");
+  // Con el motor apagado no hay nada (el interruptor del formulario solo actúa con el motor prendido).
+  assert.equal(cf.algoPrendido(cf.leerConfigDeTexto(JSON.stringify({ formulario: { activo: true } }))), false);
+});
+
+prueba("formulario: sus tareas pasan por el mismo tope de 15 por asesora", () => {
+  const ahora = new Date("2026-10-12T15:00:00Z");
+  // 12 del motor de siempre + 6 de formulario (A, Caliente) para Ingrid, sin nadie más con cupo.
+  const tareas = [
+    ...Array.from({ length: 12 }, (_, i) => ({ conversationId: `s${i}`, prioridad: "B", temperatura: "TIBIO", vence: new Date(ahora.getTime() - (100 + i) * MIN), duena: "ingrid", elegibles: ["ingrid"] })),
+    ...Array.from({ length: 6 }, (_, i) => ({ conversationId: `f${i}`, prioridad: "A", temperatura: "CALIENTE", vence: new Date(ahora.getTime() - (10 + i) * MIN), duena: "ingrid", elegibles: ["ingrid"] })),
+  ];
+  const planes = tp.planearTareas({ tareas, tope: cf.CONFIG_POR_DEFECTO.tareas.maxPorAsesoraDia, ahora });
+  const propias = planes.filter((p) => p.estado === "propia");
+  assert.equal(propias.length, 15);
+  // Las de formulario (A) entran todas; 3 B se posponen a mañana (no se pierden).
+  for (let i = 0; i < 6; i += 1) assert.ok(propias.some((p) => p.conversationId === `f${i}`));
+  assert.equal(planes.filter((p) => p.estado === "pospuesta").length, 3);
+});
+
 console.log(`\n${pruebas} pruebas OK`);

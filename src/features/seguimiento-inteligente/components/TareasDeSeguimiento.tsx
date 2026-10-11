@@ -17,6 +17,7 @@ const MOTIVOS: Record<string, string> = {
   caliente_sin_asesora: "Caliente: nadie le ha escrito",
   tibio_sin_asesora: "Pregunta concreta: escríbele tú",
   cotizacion_sin_respuesta: "Cotización sin respuesta",
+  formulario_sin_respuesta: "Le pediste los datos y no los ha mandado",
   fecha_futura_cerca: "Se acerca la fecha que dijo",
   cadencia_sin_respuesta: "Seguimiento después de tu mensaje",
   cadencia_tope_de_automaticos: "Seguimiento después de tu mensaje",

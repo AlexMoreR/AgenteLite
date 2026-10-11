@@ -9,6 +9,8 @@
  *  - motor.modo: "apagado" | "sombra" (solo registra lo que HARÍA) | "activo" (ejecuta).
  *  - cadencia.descarte: "apagado" | "sombra" | "activo" (descartar tras los toques sin respuesta).
  *  - exterior.activo: atender una vez y excluir a los teléfonos de fuera de Colombia.
+ *  - formulario.activo (PRENDIDO por defecto, solo actúa con el motor en sombra/activo): tareas a
+ *    las 2 h / 24 h / 72 h cuando la asesora pidió los datos y el cliente no responde.
  */
 
 import { RECURSOS_POR_DEFECTO, type Recurso } from "./producto";
@@ -63,6 +65,21 @@ export type ConfigSeguimientoInteligente = {
     /** Una cotización cuenta como "abierta" (no se descarta) durante estos días. */
     diasVigente: number;
   };
+  /**
+   * La asesora pidió los datos (formulario para cotizar / separar) y el cliente no responde
+   * (Alexander, 11-10-2026): tareas a las 2 h, 24 h y 72 h en horario laboral; después sigue la
+   * lógica de siempre. PRENDIDO por defecto; con `activo: false` todo queda exactamente como antes.
+   */
+  formulario: {
+    activo: boolean;
+    /** Horas después del pedido de datos para cada tarea. */
+    horas: number[];
+    /** Horario laboral (Bogotá) para correr la tarea que cae fuera: el mismo del Supervisor. */
+    desdeHora: number;
+    hastaHora: number;
+    /** Días hábiles (0 = domingo … 6 = sábado). */
+    dias: number[];
+  };
   /** Tope de tareas por asesora (Alexander, 10-10-2026: máximo 15 al día). */
   tareas: {
     /** Máximo de tareas nuevas por asesora en un día (Bogotá). 0 = sin tope. */
@@ -108,6 +125,7 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
   },
   cadencia: { dias: [3, 4, 7], descarte: "apagado", horasDeGracia: 24, maxAutomaticos: 2 },
   cotizacion: { horas: [24, 72], diasVigente: 30 },
+  formulario: { activo: true, horas: [2, 24, 72], desdeHora: 8, hastaHora: 18, dias: [1, 2, 3, 4, 5, 6] },
   tareas: { maxPorAsesoraDia: 15 },
   fechaFutura: { diasAntes: 7 },
   convivencia: { reemplazarGenericosEnFrios: true, reglasV3: [], followsDeEtapa: true },
@@ -186,6 +204,13 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
   const fut = objeto(crudo.fechaFutura);
   const con = objeto(crudo.convivencia);
   const ext = objeto(crudo.exterior);
+  const frm = objeto(crudo.formulario);
+  const frmDesde = numero(frm.desdeHora, d.formulario.desdeHora, 0, 23);
+  let frmHasta = numero(frm.hastaHora, d.formulario.hastaHora, 1, 24);
+  if (frmHasta <= frmDesde) frmHasta = Math.min(24, frmDesde + 1);
+  const frmDias = Array.isArray(frm.dias)
+    ? [...new Set(frm.dias.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x >= 0 && x <= 6))].sort((a, b) => a - b)
+    : d.formulario.dias;
   const desdeHora = numero(mot.desdeHora, d.motor.desdeHora, 0, 23);
   let hastaHora = numero(mot.hastaHora, d.motor.hastaHora, 1, 24);
   if (hastaHora <= desdeHora) hastaHora = Math.min(24, desdeHora + 1);
@@ -217,6 +242,13 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
     cotizacion: {
       horas: listaDeNumeros(cot.horas, d.cotizacion.horas, 30 * 24),
       diasVigente: numero(cot.diasVigente, d.cotizacion.diasVigente, 1, 365),
+    },
+    formulario: {
+      activo: bandera(frm.activo, d.formulario.activo),
+      horas: listaDeNumeros(frm.horas, d.formulario.horas, 30 * 24),
+      desdeHora: frmDesde,
+      hastaHora: frmHasta,
+      dias: frmDias.length ? frmDias : d.formulario.dias,
     },
     tareas: { maxPorAsesoraDia: Math.round(numero(objeto(crudo.tareas).maxPorAsesoraDia, d.tareas.maxPorAsesoraDia, 0, 500)) },
     fechaFutura: { diasAntes: numero(fut.diasAntes, d.fechaFutura.diasAntes, 0, 60) },

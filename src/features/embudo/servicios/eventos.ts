@@ -289,7 +289,21 @@ export function registrarSenalesDelMensaje(input: BaseDelEvento & {
   cuando?: Date;
 }): void {
   registrarEnSegundoPlano(input, async () => {
-    if (!input.texto?.trim() || !(await embudoActivo(input.workspaceId))) return [];
+    if (!(await embudoActivo(input.workspaceId))) return [];
+    /*
+      Último mensaje del cliente, SIEMPRE (con o sin texto, con el bot atendiendo o en pausa). Antes
+      solo lo movían los turnos del bot: cuando la asesora tomaba el chat, `ultimoClienteEn` se
+      quedaba congelado (caso cv3a2aa2: 18:39 aunque la clienta escribió hasta las 21:45). Sube la
+      `version` para que una foto leída antes no lo pise con el valor viejo.
+    */
+    const cuando = input.cuando ?? new Date();
+    await prisma.embudoLead
+      .updateMany({
+        where: { conversationId: input.conversationId, OR: [{ ultimoClienteEn: null }, { ultimoClienteEn: { lt: cuando } }] },
+        data: { ultimoClienteEn: cuando, version: { increment: 1 } },
+      })
+      .catch((error) => anotarError("no se pudo mover ultimoClienteEn", error, { conversationId: input.conversationId }));
+    if (!input.texto?.trim()) return [];
     const lead = await prisma.embudoLead.findUnique({
       where: { conversationId: input.conversationId },
       select: { pasoActual: true, productoActual: true },
