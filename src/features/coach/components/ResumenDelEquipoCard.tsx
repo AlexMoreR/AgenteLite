@@ -15,8 +15,12 @@ const MOTIVO: Record<string, string> = {
   vendida: "Vendida",
 };
 
-/** Solo para quien supervisa: cifras del dia, motivos y la separacion asesoras / sistema. */
-export function ResumenDelEquipoCard({ informe }: { informe: InformeDelCoach }) {
+/**
+ * Solo para quien supervisa: cifras del dia, motivos y la separacion asesoras / sistema.
+ * `ocultarOperativo`: en "Acciones de hoy" las fallas del sistema y el problema del equipo ya salen
+ * en el panel del Supervisor; aca no se repiten.
+ */
+export function ResumenDelEquipoCard({ informe, ocultarOperativo = false }: { informe: InformeDelCoach; ocultarOperativo?: boolean }) {
   const r = informe.resumenEquipo;
   if (!r) return null;
   const cifras: Array<[string, number]> = [
@@ -44,7 +48,7 @@ export function ResumenDelEquipoCard({ informe }: { informe: InformeDelCoach }) 
           ))}
         </div>
 
-        {r.problemasDelEquipo?.length ? (
+        {!ocultarOperativo && r.problemasDelEquipo?.length ? (
           <div className="space-y-1.5 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
             <h3 className="text-sm font-medium">Problema del equipo</h3>
             <p className="text-xs text-muted-foreground">
@@ -101,7 +105,7 @@ export function ResumenDelEquipoCard({ informe }: { informe: InformeDelCoach }) 
               <p className="text-sm text-muted-foreground">Ninguno.</p>
             )}
           </div>
-          <div className="space-y-1">
+          <div className={`space-y-1 ${ocultarOperativo ? "hidden" : ""}`}>
             <h3 className="text-sm font-medium">Fallas del sistema o del bot</h3>
             {r.fallasDelSistema.length ? (
               <ul className="list-disc space-y-1 pl-4 text-sm">

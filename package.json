@@ -16,6 +16,7 @@
     "test:agente-v3-foto": "node scripts/check-agente-v3-foto.mjs",
     "test:velocidad-bandeja": "node scripts/check-velocidad-bandeja.mjs",
     "test:coach": "node scripts/check-coach.mjs",
+    "test:coach-acciones": "node scripts/check-coach-acciones.mjs",
     "test:embudo": "node scripts/check-embudo.mjs",
     "test:anti-bloqueo": "node scripts/check-anti-bloqueo.mjs",
     "test:fallas-crm": "node scripts/check-fallas-crm.mjs",
