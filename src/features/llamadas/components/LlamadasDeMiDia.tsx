@@ -102,8 +102,11 @@ function LeadCard({ lead, mode, onRegister, puedeMarcarEnLaApp }: { lead: Llamad
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
-        {/* Sin telefono no se ofrece "Llamar": se cae a WhatsApp, que es lo unico que anda. */}
-        {mode === "whatsapp" || !telLink ? (
+        {/*
+          Sin telefono no se ofrece "Llamar": se cae a WhatsApp, que es lo unico que anda.
+          Con una llamada sin clasificar solo va "¿Cómo quedó?": el icono de llamar sobraba (pedido de Alex, 11-oct-2026).
+        */}
+        {lead.pendingAttemptId ? null : mode === "whatsapp" || !telLink ? (
           <Button
             variant="outline"
             size="icon"
