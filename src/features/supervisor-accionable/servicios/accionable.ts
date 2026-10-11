@@ -17,7 +17,13 @@ import type { Hallazgo } from "@/features/supervisor/dominio/tipos";
 import {
   ESTADOS_ACTIVOS,
   DOMINIO,
+  accionDeTarea,
   avanzar,
+  avisoDeTareasSinDuena,
+  estadoTareasVacio,
+  textoDeTareasSinDuena,
+  type EstadoTareasSinDuena,
+  type TareaParaSupervisora,
   candidatasDeLaVuelta,
   estadoVacio,
   esperandoFueraDeHorario,
@@ -60,6 +66,7 @@ import {
 export const claveConfigAccionable = (workspaceId: string) => `supervisor:accionable:${workspaceId}`;
 export const claveEstadoAccionable = (workspaceId: string) => `supervisor:accionable:estado:${workspaceId}`;
 export const claveAtendidas = (workspaceId: string) => `supervisor:accionable:atendidas:${workspaceId}`;
+export const claveTareasSinDuena = (workspaceId: string) => `supervisor:accionable:tareas:${workspaceId}`;
 
 const cacheConfig = new Map<string, { config: ConfigAccionable; vence: number }>();
 
@@ -243,6 +250,54 @@ export async function gestionarAcciones(input: {
   }
 }
 
+async function leerEstadoTareas(workspaceId: string): Promise<EstadoTareasSinDuena> {
+  const leido = await leerJson<EstadoTareasSinDuena>(claveTareasSinDuena(workspaceId), estadoTareasVacio);
+  return {
+    tareas: Array.isArray(leido.tareas) ? leido.tareas : [],
+    avisadas: Array.isArray(leido.avisadas) ? leido.avisadas : [],
+    avisadoEn: typeof leido.avisadoEn === "string" ? leido.avisadoEn : null,
+  };
+}
+
+/**
+ * Tareas de seguimiento sin asesora → a la supervisora (con el accionable encendido; avisar.ts las
+ * saca del camino de Alexander). Push + Mi día siempre; WhatsApp solo en horario o en su ventana.
+ * Un aviso agrupado por vuelta y nunca dos veces la misma tarea. Nunca lanza.
+ */
+export async function avisarTareasSinDuena(input: {
+  workspaceId: string;
+  tareas: TareaParaSupervisora[];
+  ahora: Date;
+  config: ConfigAccionable;
+}): Promise<number> {
+  const { workspaceId, ahora, config } = input;
+  try {
+    const [previo, supervisora] = await Promise.all([leerEstadoTareas(workspaceId), supervisoraDelNegocio(workspaceId, config)]);
+    const { estado, aviso } = avisoDeTareasSinDuena({ tareas: input.tareas, previo, ahora, config, supervisora });
+    await guardarJson(claveTareasSinDuena(workspaceId), estado);
+    if (!aviso || !supervisora) return 0;
+    const tareas = estado.tareas.filter((t) => aviso.tareas.includes(t.conversationId));
+    let enviados = await sendPushToUser({
+      userId: aviso.supervisoraId,
+      payload: {
+        title: `📥 ${tareas.length === 1 ? "Tarea sin asesora" : `${tareas.length} tareas sin asesora`}`.slice(0, 60),
+        body: `${tareas.map((t) => t.cliente).slice(0, 4).join(", ")}: asígnalas o atiéndelas.`.slice(0, 180),
+        tag: `accionable:tareas:${aviso.supervisoraId}`,
+        url: "/cliente/crm/mi-dia",
+      },
+    }).catch(() => 0);
+    if (aviso.whatsapp && config.asesoraWhatsApp) {
+      const { numeros } = await datosDeLosChats(workspaceId, aviso.tareas);
+      const enlaces = tareas.map((t) => (numeros.get(t.conversationId) ? `${DOMINIO}/c/${numeros.get(t.conversationId)}` : `${DOMINIO}/cliente/chats?chatKey=${encodeURIComponent(`agent:${t.conversationId}`)}&assigned=all`));
+      if (await whatsAppAlEquipo(workspaceId, aviso.supervisoraId, textoDeTareasSinDuena({ tareas, enlaces, supervisora: supervisora.nombre }))) enviados += 1;
+    }
+    return enviados;
+  } catch (error) {
+    console.error("[supervisor-accionable] tareas sin dueña", workspaceId, error instanceof Error ? error.message : error);
+    return 0;
+  }
+}
+
 /** El WhatsApp de un incidente CRÍTICO (bot / embudo / sistema) con el formato completo. */
 export function textoCriticoDeIncidente(inc: Incidente): string {
   return textoWhatsAppDeLaTarjeta(tarjetaDeIncidente(inc));
@@ -291,8 +346,11 @@ export async function leerPedidosDelSupervisor(workspaceId: string, userId: stri
   const config = await leerConfigAccionable(workspaceId).catch(() => null);
   if (!config?.activo) return null;
   const estado = await leerEstadoAccionable(workspaceId);
-  const esSupervisora = (await supervisoraDelNegocio(workspaceId, config))?.id === userId;
-  return Object.values(estado.acciones)
+  const supervisora = await supervisoraDelNegocio(workspaceId, config);
+  const esSupervisora = supervisora?.id === userId;
+  // La supervisora ve también las tareas de seguimiento sin asesora vigentes.
+  const tareas = esSupervisora && supervisora ? (await leerEstadoTareas(workspaceId)).tareas.map((t) => accionDeTarea(t, supervisora, new Date())) : [];
+  const deChats = Object.values(estado.acciones)
     .filter(
       (a) =>
         (a.estado === "AVISADA" || a.estado === "SEGUNDO_AVISO") &&
@@ -300,4 +358,6 @@ export async function leerPedidosDelSupervisor(workspaceId: string, userId: stri
         (a.responsableId === userId || (esSupervisora && a.estado === "SEGUNDO_AVISO")),
     )
     .sort((a, b) => Date.parse(a.venceEn ?? a.detectadaEn) - Date.parse(b.venceEn ?? b.detectadaEn));
+  const yaEstan = new Set(deChats.map((a) => a.conversationId));
+  return [...deChats, ...tareas.filter((t) => !yaEstan.has(t.conversationId))];
 }

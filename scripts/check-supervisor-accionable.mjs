@@ -775,4 +775,65 @@ await prueba("servicio fuera de horario: push + WhatsApp (línea interna) a Ingr
   assert.equal(panel.prioridades.visibles.length, 0);
 });
 
+/* ------------------------------------------------------------------ tareas de seguimiento sin asesora → Ingrid */
+
+const TAREAS = "ATENCION:tareas-sin-duena";
+const tarea = (id, extra = {}) => ({ conversationId: id, nombre: "Paola Ruiz", telefonoFinal: "…4567", prioridad: "A", motivo: "cotizacion_sin_respuesta", mensajeSugerido: null, ...extra });
+
+await prueba("tareas sin dueña · accionable APAGADO = igual que hoy: push a Alexander", async () => {
+  reiniciar();
+  await avisar.avisarAlDueno({ workspaceId: WS, avisos: [{ incidente: incidente(TAREAS, "IMPORTANTE"), motivo: "nuevo" }], incidentes: [], ahora: T0 });
+  assert.deepEqual(enviados.push.map((p) => [p.userId, p.tag]), [["alex", `supervisor:${TAREAS}`]]);
+  assert.equal(r.avisoDeTareasSinDuena({ tareas: [tarea("t1")], previo: r.estadoTareasVacio(), ahora: T0, config: r.CONFIG_ACCIONABLE_POR_DEFECTO, supervisora: INGRID }).aviso, null);
+});
+
+await prueba("tareas sin dueña · accionable ENCENDIDO: 0 a Alexander (camino de hoy y avisos por gravedad)", async () => {
+  reiniciar();
+  settings.set("supervisor:accionable:ws1", JSON.stringify({ activo: true, supervisoraId: "ingrid" }));
+  servicio.olvidarConfigAccionable();
+  await avisar.avisarAlDueno({ workspaceId: WS, avisos: [{ incidente: incidente(TAREAS, "IMPORTANTE"), motivo: "nuevo" }], incidentes: [incidente(TAREAS, "IMPORTANTE")], ahora: T0 });
+  assert.equal(enviados.push.length + enviados.whatsapp.length, 0);
+  settings.set("avisos:gravedad:ws1", JSON.stringify({ activo: true }));
+  enrutador.olvidarConfigGravedad();
+  await avisar.avisarAlDueno({ workspaceId: WS, avisos: [{ incidente: incidente(TAREAS, "IMPORTANTE"), motivo: "nuevo" }], incidentes: [incidente(TAREAS, "IMPORTANTE")], ahora: T0 });
+  assert.ok(!enviados.push.some((p) => p.userId === "alex"), "nada a Alexander con avisos por gravedad");
+  assert.equal(enviados.whatsapp.length, 0);
+});
+
+await prueba("tareas sin dueña · aviso a Ingrid: push + WhatsApp en horario, agrupado, sin repetir el mismo set; Mi día las muestra", async () => {
+  reiniciar();
+  settings.set("agente-v3:avisos:ws1", JSON.stringify({ canalId: "linea-admin", destinos: [{ numero: "573000002277", soloDe: null }, { numero: "573000003333", soloDe: "ingrid", userId: "ingrid" }] }));
+  settings.set("supervisor:accionable:ws1", JSON.stringify({ activo: true, supervisoraId: "ingrid" }));
+  servicio.olvidarConfigAccionable();
+  const config = await servicio.leerConfigAccionable(WS);
+  await servicio.avisarTareasSinDuena({ workspaceId: WS, tareas: [tarea("t1"), tarea("t2", { nombre: "573001112233", telefonoFinal: "2233" })], ahora: T0, config });
+  assert.deepEqual(enviados.push.map((p) => p.userId), ["ingrid"], "un solo push, a Ingrid");
+  assert.deepEqual(enviados.whatsapp.map((w) => w.phoneNumber), ["573000003333"], "un solo WhatsApp agrupado, a Ingrid");
+  assert.match(enviados.whatsapp[0].text, /2 tareas sin asesora/);
+  assert.match(enviados.whatsapp[0].text, /•••• 2233/);
+  assert.ok(!enviados.whatsapp[0].text.includes("573001112233"), "nunca el teléfono completo");
+  const pedidos = await servicio.leerPedidosDelSupervisor(WS, "ingrid");
+  assert.deepEqual(pedidos.map((p) => p.id).sort(), ["tarea:t1", "tarea:t2"]);
+  assert.equal((await servicio.leerPedidosDelSupervisor(WS, "maria")).length, 0);
+  enviados.push.length = 0;
+  enviados.whatsapp.length = 0;
+  await servicio.avisarTareasSinDuena({ workspaceId: WS, tareas: [tarea("t1"), tarea("t2")], ahora: mas(T0, 5), config });
+  assert.equal(enviados.push.length + enviados.whatsapp.length, 0, "el mismo set no se repite");
+  await servicio.avisarTareasSinDuena({ workspaceId: WS, tareas: [tarea("t1"), tarea("t2"), tarea("t3")], ahora: mas(T0, 10), config });
+  assert.equal(enviados.push.length, 1);
+  assert.equal(enviados.whatsapp.length, 1);
+  assert.match(enviados.whatsapp[0].text, /tarea sin asesora/, "solo la nueva");
+  // Madrugada (fuera de la ventana): push y Mi día, sin WhatsApp.
+  enviados.push.length = 0;
+  enviados.whatsapp.length = 0;
+  await servicio.avisarTareasSinDuena({ workspaceId: WS, tareas: [tarea("t4")], ahora: MADRUGADA, config });
+  assert.deepEqual(enviados.push.map((p) => p.userId), ["ingrid"]);
+  assert.equal(enviados.whatsapp.length, 0, "de madrugada no hay WhatsApp");
+  // Dentro de la ventana fuera de horario (domingo 15:00, con fueraDeHorario) sí hay WhatsApp.
+  const conVentana = { ...config, fueraDeHorario: r.leerFueraDeHorario({ activo: true }) };
+  const v = r.avisoDeTareasSinDuena({ tareas: [tarea("t5")], previo: r.estadoTareasVacio(), ahora: DOMINGO, config: conVentana, supervisora: INGRID });
+  assert.equal(v.aviso.whatsapp, true);
+  assert.equal(r.avisoDeTareasSinDuena({ tareas: [tarea("t5")], previo: r.estadoTareasVacio(), ahora: DOMINGO, config, supervisora: INGRID }).aviso.whatsapp, false, "domingo sin ventana: sin WhatsApp");
+});
+
 console.log(`\n${pruebas} pruebas OK`);

@@ -13,7 +13,7 @@ import type { CambioDelLibro } from "../dominio/tipos";
 import { guardarIncidentes, leerIncidentesAbiertos } from "./almacen-alertas";
 import { CONFIG_GRAVEDAD_POR_DEFECTO, detectarPagoSinRespuesta } from "@/features/avisos-gravedad/dominio/reglas";
 import { leerConfigGravedad } from "@/features/avisos-gravedad/servicios/enrutador";
-import { gestionarAcciones, leerConfigAccionable } from "@/features/supervisor-accionable/servicios/accionable";
+import { avisarTareasSinDuena, gestionarAcciones, leerConfigAccionable } from "@/features/supervisor-accionable/servicios/accionable";
 import { avisarAlDueno } from "./avisar";
 import { claveLibroVisto, negociosConSupervisor } from "./config";
 import { chatsExcluidosDeAtencion, leerChatsAbiertos, leerFichasRecientes, leerFlujosDelLibro, leerLineaDelLibro, nombresDeAsesoras } from "./datos";
@@ -125,6 +125,8 @@ async function chequearAtencion(workspaceId: string, ahora: Date): Promise<numbe
   await avisarAlDueno({ workspaceId, avisos: resultado.avisar, incidentes: resultado.incidentes, ahora });
   if (accionable?.activo) {
     await gestionarAcciones({ workspaceId, hallazgos, chats, ahora, config: accionable });
+    // Las tareas de seguimiento sin asesora van a la supervisora (no a Alexander).
+    await avisarTareasSinDuena({ workspaceId, tareas: tareasSinDuena, ahora, config: accionable });
   }
   return hallazgos.length;
 }

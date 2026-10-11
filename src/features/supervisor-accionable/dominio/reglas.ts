@@ -1388,3 +1388,122 @@ export function metricasDelDia(estado: EstadoAccionable, ahora: Date): MetricasD
     porAsesora: [...porNombre.values()].sort((a, b) => b.avisadas - a.avisadas),
   };
 }
+
+/* ------------------------------------------------------------------------------------------------
+   6. TAREAS DE SEGUIMIENTO SIN ASESORA → A LA SUPERVISORA (11-10-2026)
+   Con el accionable encendido, "ATENCION:tareas-sin-duena" NO va a Alexander: es un aviso
+   operativo para la supervisora (push + su Mi día; WhatsApp solo en horario o dentro de la ventana
+   `fueraDeHorario`). Un aviso agrupado por vuelta como máximo y nunca dos veces la misma tarea.
+------------------------------------------------------------------------------------------------ */
+
+export const CLAVE_TAREAS_SIN_DUENA = "ATENCION:tareas-sin-duena";
+
+/** Con el accionable encendido, esta alerta no va a Alexander: la recibe la supervisora. */
+export function vaALaSupervisora(clave: string): boolean {
+  return clave.startsWith(CLAVE_TAREAS_SIN_DUENA);
+}
+
+export type TareaParaSupervisora = {
+  conversationId: string;
+  nombre: string;
+  telefonoFinal?: string | null;
+  prioridad: string;
+  motivo: string;
+  mensajeSugerido?: string | null;
+};
+
+/** Lo que se recuerda: las tareas vigentes y las que ya se le avisaron (AppSetting `supervisor:accionable:tareas:<ws>`). */
+export type EstadoTareasSinDuena = { tareas: Array<TareaParaSupervisora & { cliente: string }>; avisadas: string[]; avisadoEn: string | null };
+
+export function estadoTareasVacio(): EstadoTareasSinDuena {
+  return { tareas: [], avisadas: [], avisadoEn: null };
+}
+
+function clienteDeLaTarea(t: TareaParaSupervisora): string {
+  const fin = (t.telefonoFinal ?? "").replace(/\D/g, "").slice(-4);
+  return nombreVisible(t.nombre) ?? (fin ? `•••• ${fin}` : "Cliente sin nombre");
+}
+
+/**
+ * Una vuelta. Devuelve el estado nuevo y, si hay tareas que nunca se le avisaron, UN aviso agrupado
+ * (con o sin WhatsApp según el horario / la ventana). Apagado o sin supervisora: nada.
+ */
+export function avisoDeTareasSinDuena(input: {
+  tareas: TareaParaSupervisora[];
+  previo: EstadoTareasSinDuena;
+  ahora: Date;
+  config: ConfigAccionable;
+  supervisora: Persona | null;
+}): { estado: EstadoTareasSinDuena; aviso: { supervisoraId: string; tareas: string[]; whatsapp: boolean } | null } {
+  const { ahora, config, supervisora } = input;
+  const vigentes = input.tareas.map((t) => ({ ...t, cliente: clienteDeLaTarea(t) }));
+  const ids = new Set(vigentes.map((t) => t.conversationId));
+  // Solo se recuerdan las avisadas que siguen vigentes (si una sale y vuelve, es otra tarea).
+  const avisadas = input.previo.avisadas.filter((id) => ids.has(id));
+  if (!config.activo || !supervisora || !vigentes.length) {
+    return { estado: { tareas: config.activo ? vigentes : [], avisadas, avisadoEn: input.previo.avisadoEn }, aviso: null };
+  }
+  const nuevas = vigentes.filter((t) => !avisadas.includes(t.conversationId)).map((t) => t.conversationId);
+  if (!nuevas.length) return { estado: { tareas: vigentes, avisadas, avisadoEn: input.previo.avisadoEn }, aviso: null };
+  const whatsapp = enHorario(ahora) || enVentanaFueraDeHorario(ahora, config.fueraDeHorario);
+  return {
+    estado: { tareas: vigentes, avisadas: [...avisadas, ...nuevas], avisadoEn: ahora.toISOString() },
+    aviso: { supervisoraId: supervisora.id, tareas: nuevas, whatsapp },
+  };
+}
+
+/** Para Mi día de la supervisora (bloque "Te pidió el Supervisor"): una tarjeta por tarea, sin plazo. */
+export function accionDeTarea(t: TareaParaSupervisora & { cliente: string }, supervisora: Persona, ahora: Date): Accion {
+  const iso = ahora.toISOString();
+  return {
+    id: `tarea:${t.conversationId}`,
+    tipo: "sin_duena",
+    conversationId: t.conversationId,
+    claveAlerta: CLAVE_TAREAS_SIN_DUENA,
+    responsableId: supervisora.id,
+    responsableNombre: supervisora.nombre,
+    responsableEsSupervisora: true,
+    cliente: t.cliente,
+    telefono: "",
+    numero: null,
+    frase: null,
+    motivo: `Tarea de seguimiento sin asesora (prioridad ${t.prioridad}, ${t.motivo.replace(/_/g, " ")}): asígnala o atiéndela`,
+    mensajeSugerido: t.mensajeSugerido ?? null,
+    riesgo: "INTERES",
+    esperandoDesde: iso,
+    plazoMin: 0,
+    estado: "AVISADA",
+    detectadaEn: iso,
+    avisadaEn: iso,
+    venceEn: null,
+    segundoAvisoEn: null,
+    segundoAvisoA: null,
+    escaladaEn: null,
+    gravedadEscalada: null,
+    motivoEscalada: null,
+    resueltaEn: null,
+    resueltaPor: null,
+    resueltaPorNombre: null,
+    minutosHastaResolver: null,
+    atendidaEn: null,
+    atendidaPor: null,
+    incumplida: false,
+    vistoEn: iso,
+  };
+}
+
+export function textoDeTareasSinDuena(input: { tareas: Array<{ cliente: string; prioridad: string; motivo: string }>; enlaces: string[]; supervisora: string }): string {
+  const nombre = primerNombre(input.supervisora);
+  const n = input.tareas.length;
+  const lineas = [
+    `📥 *Supervisor · ${n === 1 ? "tarea sin asesora" : `${n} tareas sin asesora`}*${nombre ? ` · ${nombre}` : ""}`,
+    `El seguimiento dejó ${n === 1 ? "una tarea" : "tareas"} en chats que no tienen asesora: asígnalas o atiéndelas.`,
+    "",
+  ];
+  input.tareas.slice(0, 5).forEach((t, i) => {
+    lineas.push(`${n > 1 ? `${i + 1}) ` : ""}*${t.cliente}* · prioridad ${t.prioridad} · ${t.motivo.replace(/_/g, " ")}`);
+    if (input.enlaces[i]) lineas.push(input.enlaces[i]);
+  });
+  if (n > 5) lineas.push(`…y ${n - 5} más en tu Mi día.`);
+  return lineas.join("\n").trim();
+}

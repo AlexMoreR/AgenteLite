@@ -1,5 +1,5 @@
 import { enrutarAlertasDelSupervisor, leerConfigGravedad } from "@/features/avisos-gravedad/servicios/enrutador";
-import { manejaElAccionable } from "@/features/supervisor-accionable/dominio/reglas";
+import { manejaElAccionable, vaALaSupervisora } from "@/features/supervisor-accionable/dominio/reglas";
 import { leerConfigAccionable, textoCriticoDeIncidente } from "@/features/supervisor-accionable/servicios/accionable";
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/web-push";
@@ -32,8 +32,10 @@ export async function avisarAlDueno(input: {
   */
   const accionable = await leerConfigAccionable(input.workspaceId).catch(() => null);
   const filtrar = Boolean(accionable?.activo);
-  const avisosPropios = filtrar ? input.avisos.filter((aviso) => !manejaElAccionable(aviso.incidente.clave)) : input.avisos;
-  const incidentesPropios = filtrar ? input.incidentes?.filter((inc) => !manejaElAccionable(inc.clave)) : input.incidentes;
+  // Las tareas de seguimiento sin asesora tampoco: van a la supervisora (avisarTareasSinDuena).
+  const sale = (clave: string) => manejaElAccionable(clave) || vaALaSupervisora(clave);
+  const avisosPropios = filtrar ? input.avisos.filter((aviso) => !sale(aviso.incidente.clave)) : input.avisos;
+  const incidentesPropios = filtrar ? input.incidentes?.filter((inc) => !sale(inc.clave)) : input.incidentes;
   input = { ...input, avisos: avisosPropios, incidentes: incidentesPropios };
 
   const gravedad = await leerConfigGravedad(input.workspaceId).catch(() => null);

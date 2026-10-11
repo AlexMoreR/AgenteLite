@@ -243,7 +243,11 @@ export function PedidosDelSupervisor({ acciones }: { acciones: Accion[] }) {
             {a.mensajeSugerido ? <p className="text-xs">Responde: “{a.mensajeSugerido}”</p> : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className={`text-xs font-semibold ${a.estado === "SEGUNDO_AVISO" ? "text-red-600" : "text-amber-600"}`}>
-                {a.estado === "SEGUNDO_AVISO" ? `Plazo vencido (${horaBogota(a.venceEn)}) · responde YA` : `Plazo: antes de las ${horaBogota(a.venceEn)}`}
+                {a.estado === "SEGUNDO_AVISO"
+                  ? `Plazo vencido (${horaBogota(a.venceEn)}) · responde YA`
+                  : a.venceEn
+                    ? `Plazo: antes de las ${horaBogota(a.venceEn)}`
+                    : "Asígnala a una asesora o atiéndela"}
               </p>
               {a.conversationId ? (
                 <Link
