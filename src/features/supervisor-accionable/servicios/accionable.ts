@@ -20,6 +20,7 @@ import {
   avanzar,
   candidatasDeLaVuelta,
   estadoVacio,
+  esperandoFueraDeHorario,
   idDeIncidente,
   leerConfigAccionableDeTexto,
   metricasDelDia,
@@ -34,6 +35,7 @@ import {
   type Accion,
   type Atendidas,
   type ConfigAccionable,
+  type EsperandoFueraDeHorario,
   type EstadoAccionable,
   type Evento,
   type ExtrasDelChat,
@@ -171,12 +173,13 @@ async function ejecutar(workspaceId: string, estado: EstadoAccionable, eventos: 
         const acciones = evento.accionIds.map((id) => estado.acciones[id]).filter(Boolean);
         if (!acciones.length) continue;
         const segundo = evento.tipo === "segundo_aviso";
-        const { title, body } = pushParaLaAsesora(acciones, segundo);
+        const nocturno = Boolean(evento.fueraDeHorario);
+        const { title, body } = pushParaLaAsesora(acciones, segundo, nocturno);
         const url = acciones.length === 1 && acciones[0].conversationId ? `/cliente/chats?chatKey=agent:${acciones[0].conversationId}&assigned=all` : "/cliente/crm/mi-dia";
         enviados += await sendPushToUser({ userId: evento.responsableId, payload: { title, body, tag: `accionable:${evento.responsableId}`, url } }).catch(() => 0);
         if (config.asesoraWhatsApp) {
           const enlaces = new Map(acciones.map((a) => [a.id, enlaceAbsoluto(a)]));
-          if (await whatsAppAlEquipo(workspaceId, evento.responsableId, textoParaLaAsesora({ acciones, enlaces, ahora, segundo }))) enviados += 1;
+          if (await whatsAppAlEquipo(workspaceId, evento.responsableId, textoParaLaAsesora({ acciones, enlaces, ahora, segundo, fueraDeHorario: nocturno }))) enviados += 1;
         }
         if (evento.tipo === "segundo_aviso" && evento.supervisoraId) {
           const aviso = pushParaLaSupervisora(acciones);
@@ -225,9 +228,10 @@ export async function gestionarAcciones(input: {
       leerAtendidas(workspaceId),
       supervisoraDelNegocio(workspaceId, config),
     ]);
-    const idsDeChats = input.hallazgos.flatMap((h) => h.evidencia.chats);
+    // Fuera de horario también los chats que no salen en las alertas (los calientes que ve el accionable).
+    const idsDeChats = [...input.hallazgos.flatMap((h) => h.evidencia.chats), ...(config.fueraDeHorario?.activo ? input.chats.map((c) => c.conversationId) : [])];
     const { numeros, extras } = await datosDeLosChats(workspaceId, idsDeChats);
-    const candidatas = candidatasDeLaVuelta({ hallazgos: input.hallazgos, chats: input.chats, ahora, supervisora, extras });
+    const candidatas = candidatasDeLaVuelta({ hallazgos: input.hallazgos, chats: input.chats, ahora, supervisora, extras, config });
     const { estado, eventos } = avanzar({ estado: previo, candidatas, chats: input.chats, atendidas, ahora, config, supervisora, numeros });
     // Se guarda ANTES de mandar: si un envío se cuelga, la próxima vuelta no repite el aviso.
     await guardarJson(claveEstadoAccionable(workspaceId), estado);
@@ -253,14 +257,24 @@ export type PanelAccionable = {
   /** Lo que está en manos de las asesoras (abiertas y cerradas de las últimas 24 h), sin patrones. */
   enManos: Accion[];
   metricas: ReturnType<typeof metricasDelDia>;
+  /** Fuera de horario: clientes calientes / con pregunta de precio esperando respuesta humana. */
+  esperando: EsperandoFueraDeHorario[];
 };
 
 /**
  * La pantalla del Supervisor: Prioridades de Alexander (máx. 3, solo escaladas reales y críticos
  * del bot/embudo/sistema sin atender) + lo que está en manos de las asesoras + métricas del día.
  */
-export async function leerPanelAccionable(workspaceId: string, incidentesAbiertos: Incidente[], ahora = new Date()): Promise<PanelAccionable> {
+export async function leerPanelAccionable(
+  workspaceId: string,
+  incidentesAbiertos: Incidente[],
+  ahora = new Date(),
+  /** Los chats abiertos (solo hacen falta fuera de horario, para "clientes esperando fuera de horario"). */
+  chats: ChatAbierto[] = [],
+): Promise<PanelAccionable> {
   const [config, estado, atendidas] = await Promise.all([leerConfigAccionable(workspaceId), leerEstadoAccionable(workspaceId), leerAtendidas(workspaceId)]);
+  const supervisora = chats.length ? await supervisoraDelNegocio(workspaceId, config).catch(() => null) : null;
+  const esperando = chats.length ? esperandoFueraDeHorario({ chats, ahora, config, supervisora }) : [];
   const escaladas = Object.values(estado.acciones).filter((a) => a.estado === "ESCALADA" && !atendidas[a.id]);
   const criticos = incidentesAbiertos.filter(
     (inc) => inc.estado === "ABIERTA" && inc.familia !== "ATENCION" && inc.severidad === "CRITICO" && !atendidas[idDeIncidente(inc)],
@@ -269,7 +283,7 @@ export async function leerPanelAccionable(workspaceId: string, incidentesAbierto
   const enManos = Object.values(estado.acciones)
     .filter((a) => a.tipo !== "patron_dia" && a.tipo !== "patron_semana")
     .sort((a, b) => Number(ESTADOS_ACTIVOS.includes(b.estado)) - Number(ESTADOS_ACTIVOS.includes(a.estado)) || Date.parse(b.detectadaEn) - Date.parse(a.detectadaEn));
-  return { prioridades: prioridadesDeAlexander(tarjetas, config.maxPrioridades), enManos, metricas: metricasDelDia(estado, ahora) };
+  return { prioridades: prioridadesDeAlexander(tarjetas, config.maxPrioridades), enManos, metricas: metricasDelDia(estado, ahora), esperando };
 }
 
 /** Mi Día: lo que el Supervisor le pidió a esta persona (y, si es la supervisora, lo que pasó a segundo aviso). */

@@ -18,7 +18,8 @@ import { diffDelLibro } from "@/features/supervisor/dominio/libro-diff";
 import { leerAlertasRecientes } from "@/features/supervisor/servicios/almacen-alertas";
 import { leerDatosDeChats } from "@/features/supervisor/servicios/chats-de-alertas";
 import { supervisorActivo } from "@/features/supervisor/servicios/config";
-import { leerFlujosDelLibro, leerLineaDelLibro } from "@/features/supervisor/servicios/datos";
+import { enHorario } from "@/features/supervisor/dominio/detectores-atencion";
+import { leerChatsAbiertos, leerFlujosDelLibro, leerLineaDelLibro } from "@/features/supervisor/servicios/datos";
 import { idsDelComboEnElLibro } from "@/features/supervisor/servicios/vueltas";
 import { TareasDeSeguimiento } from "@/features/seguimiento-inteligente/components/TareasDeSeguimiento";
 import { leerConfigSeguimiento } from "@/features/seguimiento-inteligente/servicios/config";
@@ -100,8 +101,12 @@ export default async function SupervisorPage() {
 
   // Supervisor accionable: Prioridades de Alexander + lo que está en manos de las asesoras.
   const configAccionable = await leerConfigAccionable(workspaceId).catch(() => null);
+  // Fuera de horario: los chats abiertos para "N clientes esperando fuera de horario" (de día no hace falta).
+  const ahora = new Date();
+  const chatsFueraDeHorario =
+    configAccionable?.activo && !enHorario(ahora) ? await leerChatsAbiertos({ workspaceId, ahora }).catch(() => []) : [];
   const panelAccionable = configAccionable?.activo
-    ? await leerPanelAccionable(workspaceId, (alertas ?? []).filter((alerta) => alerta.estado === "ABIERTA")).catch(() => null)
+    ? await leerPanelAccionable(workspaceId, (alertas ?? []).filter((alerta) => alerta.estado === "ABIERTA"), ahora, chatsFueraDeHorario).catch(() => null)
     : null;
 
   const configAvisos = await leerConfigGravedad(workspaceId).catch(() => null);
@@ -125,7 +130,6 @@ export default async function SupervisorPage() {
   // Los chats de todas las alertas se resuelven en UNA consulta, solo dentro de este negocio.
   const idsDeChats = (alertas ?? []).flatMap((alerta) => idsDeChatsDeLaAlerta(alerta.hallazgos, Number.POSITIVE_INFINITY));
   const datosPorChat = await leerDatosDeChats(workspaceId, idsDeChats).catch(() => null);
-  const ahora = new Date();
   const chatsDe = (hallazgos: NonNullable<typeof alertas>[number]["hallazgos"]): FilaDeChatDeAlerta[] => {
     const filas = filasDeLaAlerta({ hallazgos, datosPorChat: datosPorChat ?? new Map(), ahora, max: Number.POSITIVE_INFINITY });
     // Si la consulta falló no se sabe si el chat existe: se deja el enlace en vez de decir "no encontrado".

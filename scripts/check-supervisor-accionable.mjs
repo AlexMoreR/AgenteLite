@@ -538,4 +538,241 @@ await prueba("servicio: Mi Día muestra a la asesora sus pedidos (y nada con el 
   assert.equal((await servicio.leerPedidosDelSupervisor(WS, "genesis")).length, 0);
 });
 
+/* ------------------------------------------------------------------ fuera de horario → Ingrid (11-10-2026) */
+
+const det = cargar("src/features/supervisor/dominio/detectores-atencion.ts", mocks);
+// Domingo 11-oct-2026 15:00 Bogotá = 20:00 UTC. Sábado 10-oct 19:00 = 00:00 UTC del 11.
+const DOMINGO = new Date("2026-10-11T20:00:00Z");
+const SABADO_19 = new Date("2026-10-11T00:00:00Z");
+const MADRUGADA = new Date("2026-10-11T07:00:00Z"); // domingo 02:00
+const LUNES_8 = new Date("2026-10-12T13:00:00Z");
+const NOCHE_CFG = { ...CONFIG, fueraDeHorario: r.leerFueraDeHorario({ activo: true }) };
+const enNoche = (estado, opciones) => vueltaNoche(estado, opciones);
+function vueltaNoche(estado, { chats, hallazgos = [], ahora, supervisora = INGRID, config = NOCHE_CFG }) {
+  const candidatas = r.candidatasDeLaVuelta({ hallazgos, chats, ahora, supervisora, config });
+  return r.avanzar({ estado, candidatas, chats, atendidas: {}, ahora, config, supervisora });
+}
+const mariaDomingo = (extra = {}) => maria({ ultimoClienteEn: mas(DOMINGO, -30), asignadaEn: mas(DOMINGO, -300), ...extra });
+
+await prueba("fuera de horario · config: sin la clave = null (lo de hoy); con {activo:true} = ventana 18–21 L–S y domingo 9–19, plazo 30", () => {
+  assert.equal(r.leerConfigAccionableDeTexto('{"activo":true}').fueraDeHorario, null);
+  assert.equal(r.leerConfigAccionableDeTexto('{"activo":true,"fueraDeHorario":"si"}').fueraDeHorario, null);
+  const f = r.leerConfigAccionableDeTexto('{"activo":true,"fueraDeHorario":{"activo":true}}').fueraDeHorario;
+  assert.deepEqual(f, { activo: true, desde: 18, hasta: 21, domingo: true, domingoDesde: 9, domingoHasta: 19, plazoMin: 30, esperaMin: 15 });
+  assert.equal(r.leerConfigAccionableDeTexto('{"fueraDeHorario":{"activo":"no"}}').fueraDeHorario.activo, false);
+  const v = (fecha) => r.enVentanaFueraDeHorario(fecha, f);
+  assert.equal(v(SABADO_19), true, "sábado 19:00");
+  assert.equal(v(mas(SABADO_19, 180)), false, "sábado 22:00");
+  assert.equal(v(MADRUGADA), false, "domingo 02:00");
+  assert.equal(v(DOMINGO), true, "domingo 15:00");
+  assert.equal(v(mas(DOMINGO, 240)), false, "domingo 19:00");
+  assert.equal(v(T0), false, "en horario no es 'fuera de horario'");
+  assert.equal(v(mas(LUNES_8, -60)), false, "lunes 07:00 (fuera de la ventana)");
+  assert.equal(r.enVentanaFueraDeHorario(DOMINGO, { ...f, activo: false }), false);
+  assert.equal(r.enVentanaFueraDeHorario(DOMINGO, { ...f, domingo: false }), false);
+  assert.equal(r.enVentanaFueraDeHorario(new Date("2026-10-13T04:00:00Z"), { ...f, desde: 22, hasta: 2 }), true, "ventana que cruza la medianoche (lunes 23:00)");
+});
+
+await prueba("fuera de horario · SIN la clave nueva = igual que hoy: domingo con caliente → nada", () => {
+  const res = vuelta(r.estadoVacio(), { chats: [mariaDomingo()], hallazgos: [hallazgo(CALIENTE, ["c1"])], ahora: DOMINGO });
+  assert.equal(res.eventos.length, 0);
+  assert.equal(res.estado.acciones.c1, undefined);
+  // Con la clave pero "activo": false, también igual que hoy.
+  const apagada = { ...CONFIG, fueraDeHorario: { ...NOCHE_CFG.fueraDeHorario, activo: false } };
+  assert.equal(enNoche(r.estadoVacio(), { chats: [mariaDomingo()], ahora: DOMINGO, config: apagada }).eventos.length, 0);
+});
+
+let estadoDomingo;
+await prueba("fuera de horario · caliente el domingo (sin alerta del detector) → aviso a INGRID, nada a Alexander; nunca el teléfono completo", () => {
+  const res = enNoche(r.estadoVacio(), { chats: [mariaDomingo()], ahora: DOMINGO });
+  assert.deepEqual(res.eventos.map((e) => [e.tipo, e.responsableId, e.fueraDeHorario]), [["avisar", "ingrid", true]]);
+  assert.ok(!res.eventos.some((e) => e.tipo === "escalar"), "no se escala a Alexander");
+  const a = res.estado.acciones.c1;
+  assert.equal(a.responsableId, "ingrid");
+  assert.equal(a.fueraDeHorario, true);
+  assert.equal(a.duenaNombre, "Maria Bautista");
+  assert.equal(a.plazoMin, 30);
+  assert.equal(r.horaBogota(a.venceEn), "15:30", "plazo de RELOJ: 30 min");
+  const texto = r.textoParaLaAsesora({ acciones: [a], enlaces: new Map([["c1", "https://app.aizenbot.com/c/1000"]]), ahora: DOMINGO, fueraDeHorario: true });
+  for (const parte of ["fuera de horario", "Laura Gómez", "•••• 4567", "Chat de Maria Bautista", "espera 30 min", "Responde: \"", "Plazo: antes de las 15:30", "app.aizenbot.com/c/1000"]) {
+    assert.ok(texto.includes(parte), `el aviso trae "${parte}"`);
+  }
+  assert.ok(!texto.includes("3001234567"), "nunca el teléfono completo");
+  const push = r.pushParaLaAsesora([a], false, true);
+  assert.match(push.title, /Fuera de horario/);
+  assert.ok(!push.body.includes("3001234567"));
+  estadoDomingo = res.estado;
+});
+
+await prueba("fuera de horario · Ingrid no actúa → segundo aviso a ella a los 30 min; después queda pendiente (nunca escala)", () => {
+  let res = enNoche(estadoDomingo, { chats: [mariaDomingo()], ahora: mas(DOMINGO, 20) });
+  assert.equal(res.eventos.length, 0, "dentro del plazo: nada");
+  res = enNoche(res.estado, { chats: [mariaDomingo()], ahora: mas(DOMINGO, 30) });
+  assert.deepEqual(res.eventos.map((e) => [e.tipo, e.responsableId, e.supervisoraId, e.fueraDeHorario]), [["segundo_aviso", "ingrid", null, true]]);
+  assert.equal(res.estado.acciones.c1.estado, "SEGUNDO_AVISO");
+  assert.equal(res.estado.acciones.c1.incumplida, false, "fuera de horario no cuenta para el patrón");
+  const texto = r.textoParaLaAsesora({ acciones: [res.estado.acciones.c1], enlaces: new Map(), ahora: mas(DOMINGO, 30), segundo: true, fueraDeHorario: true });
+  assert.match(texto, /a las 8 a\. m\. pasa a su asesora/);
+  for (const min of [60, 120, 600]) {
+    res = enNoche(res.estado, { chats: [mariaDomingo()], hallazgos: [hallazgo(CALIENTE, ["c1"])], ahora: mas(DOMINGO, min) });
+    assert.equal(res.eventos.length, 0, `a los ${min} min: nada (ni a Alexander)`);
+  }
+  estadoDomingo = res.estado;
+});
+
+await prueba("fuera de horario · a las 8 a. m. pasa a la asesora DUEÑA con el flujo normal (plazo 15 laboral → segundo aviso → escala)", () => {
+  const c = mariaDomingo();
+  let res = enNoche(estadoDomingo, { chats: [c], ahora: LUNES_8 });
+  assert.deepEqual(res.eventos.map((e) => [e.tipo, e.responsableId, Boolean(e.fueraDeHorario)]), [["avisar", "maria", false]]);
+  const a = res.estado.acciones.c1;
+  assert.equal(a.fueraDeHorario, false);
+  assert.equal(a.responsableId, "maria");
+  assert.equal(a.plazoMin, 15);
+  assert.equal(r.horaBogota(a.venceEn), "08:15");
+  assert.ok(a.nocturnaEn, "queda la marca de que la tuvo Ingrid de noche");
+  res = enNoche(res.estado, { chats: [c], ahora: mas(LUNES_8, 15) });
+  assert.deepEqual(res.eventos.map((e) => [e.tipo, e.supervisoraId]), [["segundo_aviso", "ingrid"]]);
+  res = enNoche(res.estado, { chats: [c], ahora: mas(LUNES_8, 25) });
+  assert.deepEqual(res.eventos.map((e) => e.tipo), ["escalar"], "la escalación normal sigue en horario");
+});
+
+await prueba("fuera de horario · si alguien responde de noche → RESUELTA_ABAJO; a las 8 a. m. no se le avisa a nadie", () => {
+  const respondido = mariaDomingo({ ultimaRespuestaHumanaEn: mas(DOMINGO, 12) });
+  let res = enNoche(r.estadoVacio(), { chats: [mariaDomingo()], ahora: DOMINGO });
+  res = enNoche(res.estado, { chats: [respondido], ahora: mas(DOMINGO, 15) });
+  assert.deepEqual(res.eventos.map((e) => e.tipo), ["resuelta_abajo"]);
+  assert.equal(res.estado.acciones.c1.minutosHastaResolver, 12);
+  res = enNoche(res.estado, { chats: [respondido], ahora: LUNES_8 });
+  assert.equal(res.eventos.length, 0);
+});
+
+await prueba("fuera de horario · madrugada (fuera de la ventana) → nada; al abrir la ventana (domingo 9:00) sí, a Ingrid", () => {
+  const c = maria({ ultimoClienteEn: mas(MADRUGADA, -60) }); // escribió a la 01:00
+  let res = enNoche(r.estadoVacio(), { chats: [c], hallazgos: [hallazgo(CALIENTE, ["c1"])], ahora: MADRUGADA });
+  assert.equal(res.eventos.length, 0, "a las 02:00 no se le escribe a Ingrid");
+  assert.equal(res.estado.acciones.c1, undefined);
+  res = enNoche(res.estado, { chats: [c], ahora: mas(MADRUGADA, 6 * 60) }); // 08:00 domingo: aún cerrada
+  assert.equal(res.eventos.length, 0);
+  res = enNoche(res.estado, { chats: [c], ahora: mas(MADRUGADA, 7 * 60) }); // 09:00 domingo
+  assert.deepEqual(res.eventos.map((e) => [e.tipo, e.responsableId]), [["avisar", "ingrid"]]);
+  // Lunes 22:30 → nada hasta el martes 8 a. m.; a las 8:15 el detector (laboral) lo ve y va a la asesora.
+  const lunes2230 = new Date("2026-10-13T03:30:00Z");
+  const c2 = maria({ conversationId: "c2", ultimoClienteEn: mas(lunes2230, -20) });
+  let n = enNoche(r.estadoVacio(), { chats: [c2], ahora: lunes2230 });
+  assert.equal(n.eventos.length, 0);
+  const martes815 = new Date("2026-10-13T13:15:00Z");
+  n = enNoche(n.estado, { chats: [c2], hallazgos: [hallazgo(CALIENTE, ["c2"])], ahora: martes815 });
+  assert.deepEqual(n.eventos.map((e) => [e.tipo, e.responsableId, Boolean(e.fueraDeHorario)]), [["avisar", "maria", false]]);
+});
+
+await prueba("fuera de horario · asignado y sin dueña siguen como hoy (esperan a la mañana); pago igual que hoy", () => {
+  const libre = chat({ asesoraId: null, asesoraNombre: null, ultimoClienteEn: mas(DOMINGO, -30) });
+  const sin = enNoche(r.estadoVacio(), { chats: [libre], hallazgos: [hallazgo("ATENCION:caliente-esperando:sin-duena", ["c1"])], ahora: DOMINGO });
+  assert.equal(sin.eventos.length, 0, "sin dueña: nada de noche");
+  const tibio = mariaDomingo({ etapa: "NUEVO", textosPendientes: ["precio"], textosDelCliente: ["precio"] });
+  const asig = enNoche(r.estadoVacio(), { chats: [tibio], hallazgos: [hallazgo("ATENCION:asignado-sin-respuesta:maria", ["c1"])], ahora: DOMINGO });
+  assert.equal(asig.eventos.length, 0, "asignado tibio: nada de noche");
+  const pago = enNoche(r.estadoVacio(), { chats: [mariaDomingo({ textosPendientes: ["ya pagué"] })], hallazgos: [hallazgo("ATENCION:pago-sin-respuesta:maria", ["c1"])], ahora: DOMINGO });
+  assert.deepEqual(pago.eventos.map((e) => [e.tipo, e.responsableId, Boolean(e.fueraDeHorario)]), [["avisar", "maria", false]], "'ya pagué' sigue su camino de hoy");
+});
+
+await prueba("fuera de horario · chat de la propia Ingrid → igual se le avisa a ella ('Chat tuyo')", () => {
+  const propio = chat({ ultimoClienteEn: mas(DOMINGO, -30) });
+  const res = enNoche(r.estadoVacio(), { chats: [propio], ahora: DOMINGO });
+  assert.deepEqual(res.eventos.map((e) => [e.tipo, e.responsableId]), [["avisar", "ingrid"]]);
+  assert.equal(res.estado.acciones.c1.duenaNombre, null);
+  assert.match(r.textoParaLaAsesora({ acciones: [res.estado.acciones.c1], enlaces: new Map(), ahora: DOMINGO, fueraDeHorario: true }), /Chat tuyo/);
+});
+
+await prueba("fuera de horario · sin spam: varios chats = UN aviso agrupado; máx. 1 aviso por chat por noche (+ el segundo)", () => {
+  const chats = ["c1", "c2", "c3"].map((id) => mariaDomingo({ conversationId: id }));
+  let res = enNoche(r.estadoVacio(), { chats, ahora: DOMINGO });
+  assert.equal(res.eventos.length, 1);
+  assert.equal(res.eventos[0].accionIds.length, 3);
+  // c1: Ingrid responde, el cliente vuelve a escribir esa misma noche → no hay un aviso nuevo.
+  const respondido = mariaDomingo({ ultimaRespuestaHumanaEn: mas(DOMINGO, 10) });
+  res = enNoche(res.estado, { chats: [respondido, chats[1], chats[2]], ahora: mas(DOMINGO, 15) });
+  const otraVez = mariaDomingo({ ultimaRespuestaHumanaEn: mas(DOMINGO, 10), ultimoClienteEn: mas(DOMINGO, 20) });
+  res = enNoche(res.estado, { chats: [otraVez, chats[1], chats[2]], ahora: mas(DOMINGO, 40) });
+  assert.ok(!res.eventos.some((e) => e.tipo === "avisar" && e.accionIds.includes("c1")), "c1 no se re-avisa la misma noche");
+  // Con 3 chats en la misma vuelta el segundo aviso también va agrupado.
+  const seg = res.eventos.filter((e) => e.tipo === "segundo_aviso");
+  assert.equal(seg.length, 1);
+  assert.deepEqual(seg[0].accionIds.sort(), ["c2", "c3"]);
+});
+
+await prueba("fuera de horario · lo que la asesora dejó abierto a las 17:50 lo toma Ingrid a las 18:05", () => {
+  const sabado1750 = new Date("2026-10-10T22:50:00Z");
+  const c = maria({ ultimoClienteEn: mas(sabado1750, -20) });
+  let res = enNoche(r.estadoVacio(), { chats: [c], hallazgos: [hallazgo(CALIENTE, ["c1"])], ahora: sabado1750 });
+  assert.deepEqual(res.eventos.map((e) => e.responsableId), ["maria"]);
+  res = enNoche(res.estado, { chats: [c], ahora: mas(sabado1750, 15) });
+  assert.deepEqual(res.eventos.map((e) => [e.tipo, e.responsableId, e.fueraDeHorario]), [["avisar", "ingrid", true]]);
+  assert.equal(res.estado.acciones.c1.duenaNombre, "Maria Bautista");
+});
+
+/* ------------------------------------------------------------------ despedidas / auto-respuestas no son "esperando" */
+
+await prueba("cierres: despedidas, gracias, emojis, sin texto y auto-respuestas NO cuentan como 'caliente esperando'", () => {
+  for (const t of ["Feliz noche", "muchas gracias!!", "Mil gracias, bendiciones 🙏", "👍🙏", "", "  ", "ok gracias", "Gracias igualmente, buenas noches",
+    "Gracias por tu mensaje. En este momento no podemos responder", "Gracias por comunicarte con Salón Bella, te responderemos lo antes posible", "jajaja gracias", "Chao, que esté bien", "Hola buenas noches, listo dale muchas gracias", "."]) {
+    assert.equal(det.esCierreOAutoRespuesta(t), true, `"${t}" es un cierre`);
+  }
+  for (const t of ["Muchas gracias, ¿y cuánto vale el envío?", "sí", "listo", "perfecto, ¿cómo pago?", "gracias, quiero separar el combo", "ok", "cuánto cuesta la camilla", "buenas noches, info del combo", "Hola buenas noches", "Ok linda está bien"]) {
+    assert.equal(det.esCierreOAutoRespuesta(t), false, `"${t}" NO es un cierre`);
+  }
+  const base = { ...maria(), ultimoClienteEn: mas(T0, -40) };
+  const conCierre = { ...base, conversationId: "x1", textosPendientes: ["cómo hago para separar el combo", "muchas gracias, feliz noche"] };
+  const sinCierre = { ...base, conversationId: "x2" };
+  const h = det.detectarAtencion([conCierre, sinCierre], T0).find((x) => x.clave.startsWith("ATENCION:caliente-esperando:"));
+  assert.deepEqual(h.evidencia.chats, ["x2"], "el 'feliz noche' sale de los calientes esperando");
+  // Fuera de horario tampoco se le avisa a Ingrid por un "gracias".
+  const noche = enNoche(r.estadoVacio(), { chats: [mariaDomingo({ textosPendientes: ["separar el combo", "Gracias por tu mensaje. En este momento no podemos responder"] })], ahora: DOMINGO });
+  assert.equal(noche.eventos.length, 0);
+});
+
+await prueba("pantalla fuera de horario: N clientes esperando (caliente y precio), quién los atiende; cierres fuera; en horario vacío", () => {
+  const chats = [
+    mariaDomingo(),
+    chat({ conversationId: "c2", asesoraId: null, asesoraNombre: null, etapa: "NUEVO", textosPendientes: ["cuánto cuesta la camilla?"], textosDelCliente: ["cuánto cuesta la camilla?"], ultimoClienteEn: mas(DOMINGO, -90), telefono: "573009998877", nombreCliente: null }),
+    mariaDomingo({ conversationId: "c3", textosPendientes: ["separar", "feliz noche"] }),
+  ];
+  const lista = r.esperandoFueraDeHorario({ chats, ahora: DOMINGO, config: NOCHE_CFG, supervisora: INGRID });
+  assert.deepEqual(lista.map((e) => [e.conversationId, e.nivel]), [["c1", "caliente"], ["c2", "precio"]]);
+  assert.equal(lista[0].quien, "Lo atiende Ingrid ahora");
+  assert.equal(lista[0].asesora, "Maria Bautista");
+  assert.equal(lista[1].asesora, "sin asesora");
+  assert.equal(lista[1].cliente, "•••• 8877");
+  assert.match(lista[1].quien, /8 a\. m\./);
+  assert.equal(lista[0].minutos, 30);
+  assert.ok(!JSON.stringify(lista).includes("3009998877"), "nunca el teléfono completo");
+  const sinClave = r.esperandoFueraDeHorario({ chats, ahora: DOMINGO, config: CONFIG, supervisora: INGRID });
+  assert.equal(sinClave[0].quien, "Se avisa a las 8 a. m. a Maria Bautista");
+  assert.equal(r.esperandoFueraDeHorario({ chats, ahora: T0, config: NOCHE_CFG, supervisora: INGRID }).length, 0);
+});
+
+await prueba("servicio fuera de horario: push + WhatsApp (línea interna) a Ingrid; Alexander no recibe nada; Mi Día de Ingrid lo muestra", async () => {
+  reiniciar();
+  settings.set("agente-v3:avisos:ws1", JSON.stringify({ canalId: "linea-admin", destinos: [{ numero: "573000002277", soloDe: null }, { numero: "573000003333", soloDe: "ingrid", userId: "ingrid" }] }));
+  settings.set("supervisor:accionable:ws1", JSON.stringify({ activo: true, supervisoraId: "ingrid", fueraDeHorario: { activo: true } }));
+  servicio.olvidarConfigAccionable();
+  const config = await servicio.leerConfigAccionable(WS);
+  await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats: [mariaDomingo()], ahora: DOMINGO, config });
+  assert.deepEqual(enviados.push.map((p) => p.userId), ["ingrid"]);
+  assert.match(enviados.push[0].title, /Fuera de horario/);
+  assert.deepEqual(enviados.whatsapp.map((w) => w.phoneNumber), ["573000003333"]);
+  assert.match(enviados.whatsapp[0].text, /fuera de horario/);
+  assert.match(enviados.whatsapp[0].text, /app\.aizenbot\.com\/c\/1000/);
+  assert.ok(!enviados.whatsapp[0].text.includes("3001234567"));
+  const pedidos = await servicio.leerPedidosDelSupervisor(WS, "ingrid");
+  assert.equal(pedidos.length, 1);
+  enviados.push.length = 0;
+  enviados.whatsapp.length = 0;
+  for (const min of [30, 60, 120]) await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats: [mariaDomingo()], ahora: mas(DOMINGO, min), config });
+  assert.deepEqual(enviados.push.map((p) => p.userId), ["ingrid"], "solo el segundo aviso, a Ingrid; nada a Alexander");
+  const panel = await servicio.leerPanelAccionable(WS, [], mas(DOMINGO, 121), [mariaDomingo()]);
+  assert.equal(panel.esperando.length, 1);
+  assert.equal(panel.prioridades.visibles.length, 0);
+});
+
 console.log(`\n${pruebas} pruebas OK`);

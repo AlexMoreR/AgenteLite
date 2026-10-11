@@ -24,12 +24,22 @@
  * supervisora). Los incidentes críticos del bot/embudo/sistema siguen yendo directo (enrutador de
  * avisos por gravedad) y aparecen en sus Prioridades.
  *
+ * FUERA DE HORARIO (11-10-2026, sub-clave `fueraDeHorario`; sin ella = lo de hoy): fuera de L–S 8–18,
+ * un chat CALIENTE de una asesora sin respuesta humana (≥ esperaMin de reloj) lo toma la supervisora
+ * (supervisoraId): aviso agrupado a ella dentro de su ventana (def. L–S 18–21, domingo 9–19), plazo de
+ * reloj (def. 30 min) → segundo aviso a ella → queda pendiente, NUNCA escala a Alexander. Máx. 1 aviso
+ * por chat por noche (+ el segundo). A las 8 a. m. pasa a la asesora dueña con el flujo normal.
+ * Asignado / sin dueña / "ya pagué" siguen como hoy.
+ *
  * Interruptor `supervisor:accionable:<workspaceId>` (APAGADO por defecto = exactamente lo de hoy).
  * Pruebas: scripts/check-supervisor-accionable.mjs.
  */
 
 import { ultimos4 } from "../../coach/reglas";
+import { detectarSenales } from "../../embudo/dominio/senales";
 import { estadoDeEspera, enHorario, interesDelLead, type ChatAbierto } from "../../supervisor/dominio/detectores-atencion";
+import { motivoDeExclusion } from "../../supervisor/dominio/exclusiones";
+import { diaSemanaBogota, horaBogota as horaDelDiaBogota } from "../../supervisor/dominio/linea-base";
 import { mensajePorSenales } from "../../seguimiento-inteligente/dominio/mensajes";
 import { familiaDelTexto, nombreDeFamilia } from "../../seguimiento-inteligente/dominio/producto";
 import { ORDEN_DE_SEVERIDAD, type Hallazgo, type Severidad } from "../../supervisor/dominio/tipos";
@@ -134,6 +144,12 @@ export type Accion = {
   /** Para los patrones: cuántos plazos vencidos. */
   conteo?: number;
   vistoEn: string;
+  /** Abierta FUERA DE HORARIO: la tiene la supervisora (plazo de reloj, sin escalar); a las 8 a. m. pasa a la dueña. */
+  fueraDeHorario?: boolean;
+  /** Cuándo la tomó la supervisora fuera de horario (queda aunque a las 8 a. m. pase a la dueña). */
+  nocturnaEn?: string | null;
+  /** La asesora dueña del chat cuando la tomó la supervisora fuera de horario (null = la propia supervisora). */
+  duenaNombre?: string | null;
 };
 
 /** Lo que queda de una acción cerrada (para medir y para el patrón semanal). */
@@ -149,6 +165,8 @@ export type AccionCerrada = {
   minutosHastaResolver: number | null;
   incumplida: boolean;
   escalada: boolean;
+  /** La tomó la supervisora fuera de horario (cuándo). */
+  nocturnaEn?: string;
 };
 
 export type EstadoAccionable = {
@@ -181,6 +199,44 @@ export type ConfigAccionable = {
   asesoraWhatsApp: boolean;
   /** La supervisora para los chats sin dueña y la segunda oportunidad. Vacío = la primera de Equipo. */
   supervisoraId: string | null;
+  /**
+   * FUERA DE HORARIO (11-10-2026): un chat CALIENTE de una asesora sin respuesta humana fuera de
+   * L–S 8–18 "lo atiende la supervisora" (supervisoraId = Ingrid). null (clave ausente) = lo de hoy:
+   * de noche y domingo no se abre nada salvo "ya pagué".
+   */
+  fueraDeHorario: ConfigFueraDeHorario | null;
+};
+
+/**
+ * Ventana en la que SÍ se le escribe a la supervisora fuera de horario (hora Bogotá, `hasta` exclusiva).
+ * Fuera de la ventana (madrugada) no se le escribe: lo nuevo espera a que abra la ventana o a las 8 a. m.
+ * Valor recomendado para prenderlo:
+ *   "fueraDeHorario": {"activo": true, "desde": 18, "hasta": 21, "domingo": true, "domingoDesde": 9, "domingoHasta": 19, "plazoMin": 30, "esperaMin": 15}
+ */
+export type ConfigFueraDeHorario = {
+  activo: boolean;
+  /** Lunes a sábado: desde / hasta (p. ej. 18–21). Si desde > hasta, cruza la medianoche. */
+  desde: number;
+  hasta: number;
+  /** ¿También el domingo? (ventana propia). */
+  domingo: boolean;
+  domingoDesde: number;
+  domingoHasta: number;
+  /** Minutos de RELOJ que tiene la supervisora antes del segundo aviso. */
+  plazoMin: number;
+  /** Minutos de reloj que debe llevar esperando el cliente para avisar (como los 15 min laborales de día). */
+  esperaMin: number;
+};
+
+export const FUERA_DE_HORARIO_POR_DEFECTO: ConfigFueraDeHorario = {
+  activo: true,
+  desde: 18,
+  hasta: 21,
+  domingo: true,
+  domingoDesde: 9,
+  domingoHasta: 19,
+  plazoMin: 30,
+  esperaMin: 15,
 };
 
 export const CONFIG_ACCIONABLE_POR_DEFECTO: ConfigAccionable = {
@@ -192,7 +248,43 @@ export const CONFIG_ACCIONABLE_POR_DEFECTO: ConfigAccionable = {
   maxPrioridades: 3,
   asesoraWhatsApp: true,
   supervisoraId: null,
+  fueraDeHorario: null,
 };
+
+/** La sub-config "fueraDeHorario". Ausente o no-objeto = null (lo de hoy). "activo" debe ser true explícito. */
+export function leerFueraDeHorario(valor: unknown): ConfigFueraDeHorario | null {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return null;
+  const crudo = valor as Record<string, unknown>;
+  const d = FUERA_DE_HORARIO_POR_DEFECTO;
+  return {
+    activo: crudo.activo === true || crudo.activo === "true",
+    desde: entero(crudo.desde, d.desde, 0, 24),
+    hasta: entero(crudo.hasta, d.hasta, 0, 24),
+    domingo: !(crudo.domingo === false || crudo.domingo === "false"),
+    domingoDesde: entero(crudo.domingoDesde, d.domingoDesde, 0, 24),
+    domingoHasta: entero(crudo.domingoHasta, d.domingoHasta, 0, 24),
+    plazoMin: entero(crudo.plazoMin, d.plazoMin, 10, 180),
+    esperaMin: entero(crudo.esperaMin, d.esperaMin, 5, 120),
+  };
+}
+
+function entreHoras(hora: number, desde: number, hasta: number): boolean {
+  if (desde === hasta) return false;
+  return desde < hasta ? hora >= desde && hora < hasta : hora >= desde || hora < hasta;
+}
+
+/** ¿Es fuera del horario laboral Y dentro de la ventana en la que se le escribe a la supervisora? */
+export function enVentanaFueraDeHorario(ahora: Date, f: ConfigFueraDeHorario | null | undefined): boolean {
+  if (!f?.activo || enHorario(ahora)) return false;
+  const hora = horaDelDiaBogota(ahora);
+  if (diaSemanaBogota(ahora) === 0) return f.domingo && entreHoras(hora, f.domingoDesde, f.domingoHasta);
+  return entreHoras(hora, f.desde, f.hasta);
+}
+
+/** ¿No hubo ningún minuto laboral entre `desde` y `hasta`? (= "la misma noche / el mismo domingo"). */
+function mismaNoche(desde: Date, hasta: Date): boolean {
+  return venceEn("caliente", desde, 1).getTime() > hasta.getTime();
+}
 
 function objeto(valor: unknown): Record<string, unknown> {
   return valor && typeof valor === "object" && !Array.isArray(valor) ? (valor as Record<string, unknown>) : {};
@@ -229,6 +321,7 @@ export function leerConfigAccionableDeTexto(crudoTexto: string | null | undefine
     maxPrioridades: entero(crudo.maxPrioridades, d.maxPrioridades, 1, 3),
     asesoraWhatsApp: !(crudo.asesoraWhatsApp === false || crudo.asesoraWhatsApp === "false"),
     supervisoraId: supervisora,
+    fueraDeHorario: leerFueraDeHorario(crudo.fueraDeHorario),
   };
 }
 
@@ -307,13 +400,14 @@ function primerNombre(nombre: string | null | undefined): string | null {
   return visible ? visible.split(/\s+/)[0] : null;
 }
 
-function sugeridoDelHallazgo(h: Hallazgo, conversationId: string): string | null {
+function sugeridoDelHallazgo(h: Hallazgo | null, conversationId: string): string | null {
+  if (!h) return null;
   const prefijo = `Mensaje sugerido para el chat ${conversationId}: `;
   const linea = (h.hechos ?? []).find((x) => x.startsWith(prefijo));
   return linea ? linea.slice(prefijo.length).trim() || null : null;
 }
 
-function mensajeSugerido(tipo: TipoDeAccion, chat: ChatAbierto, h: Hallazgo, ahora: Date): string {
+function mensajeSugerido(tipo: TipoDeAccion, chat: ChatAbierto, h: Hallazgo | null, ahora: Date): string {
   if (tipo === "pago") {
     const nombre = primerNombre(chat.nombreCliente);
     return `Hola${nombre ? ` ${nombre}` : ""}, ¡gracias! Ya vi tu mensaje del pago. Lo verifico ya mismo y te confirmo en unos minutos el siguiente paso. 🙌`;
@@ -353,6 +447,88 @@ function riesgoDe(tipo: TipoDeAccion, chat: ChatAbierto, extras: ExtrasDelChat |
   return "INTERES";
 }
 
+function minutosDeEspera(chat: ChatAbierto, ahora: Date): number {
+  return chat.ultimoClienteEn ? Math.floor((ahora.getTime() - chat.ultimoClienteEn.getTime()) / MIN) : 0;
+}
+
+function excluidoDeAtencion(chat: ChatAbierto, ahora: Date): boolean {
+  const motivo = motivoDeExclusion({ ...chat, textos: [...(chat.textosDelCliente ?? []), ...chat.textosPendientes] }, ahora);
+  return motivo !== null && motivo !== "ya_respondio";
+}
+
+/**
+ * Fuera de horario: chats CALIENTES (etapa Caliente o señal fuerte) de una asesora, esperando
+ * respuesta humana hace `esperaMin`–24 h de RELOJ (el detector de día cuenta solo minutos laborales
+ * y de noche no los ve). Sin dueña no entra (sigue como hoy). Un cierre ("feliz noche") no cuenta.
+ */
+export function calientesFueraDeHorario(chats: ChatAbierto[], ahora: Date, esperaMin: number): ChatAbierto[] {
+  return chats.filter((chat) => {
+    if (!chat.asesoraId || excluidoDeAtencion(chat, ahora)) return false;
+    const e = estadoDeEspera(chat, ahora);
+    const minutos = minutosDeEspera(chat, ahora);
+    return e.esperando && !e.cierre && (e.caliente || e.senalFuerte) && minutos >= esperaMin && minutos <= 24 * 60;
+  });
+}
+
+/** Un cliente esperando fuera de horario (pantalla del Supervisor). Nunca el teléfono completo. */
+export type EsperandoFueraDeHorario = {
+  conversationId: string;
+  cliente: string;
+  asesora: string;
+  nivel: "caliente" | "precio";
+  minutos: number;
+  ultimoMensaje: string | null;
+  /** "Lo atiende Ingrid ahora" / "Se avisa a las 8 a. m. a Maria". */
+  quien: string;
+  ahoraSupervisora: boolean;
+};
+
+/**
+ * Pantalla del Supervisor fuera de horario: los CALIENTES y los tibios que preguntaron PRECIO
+ * esperando respuesta humana (≤ 24 h), para que no diga "nada pendiente" cuando hay clientes
+ * esperando. En horario devuelve [] (eso lo cubre el flujo normal).
+ */
+export function esperandoFueraDeHorario(input: {
+  chats: ChatAbierto[];
+  ahora: Date;
+  config: ConfigAccionable;
+  supervisora: Persona | null;
+}): EsperandoFueraDeHorario[] {
+  const { ahora, config } = input;
+  if (enHorario(ahora)) return [];
+  const ventana = enVentanaFueraDeHorario(ahora, config.fueraDeHorario);
+  const nocheActiva = Boolean(config.fueraDeHorario?.activo && input.supervisora);
+  const sup = primerNombre(input.supervisora?.nombre) ?? "la supervisora";
+  const salida: EsperandoFueraDeHorario[] = [];
+  for (const chat of input.chats) {
+    if (excluidoDeAtencion(chat, ahora)) continue;
+    const e = estadoDeEspera(chat, ahora);
+    const minutos = minutosDeEspera(chat, ahora);
+    if (!e.esperando || e.cierre || minutos > 24 * 60) continue;
+    const caliente = e.caliente || e.senalFuerte;
+    const precio = chat.textosPendientes.some((t) => detectarSenales(t).some((s) => s.tipo === "precio"));
+    if (!caliente && !precio) continue;
+    const asesora = chat.asesoraNombre?.trim() || (chat.asesoraId ? "la asesora" : "sin asesora");
+    const deIngrid = nocheActiva && caliente && Boolean(chat.asesoraId);
+    const quien = deIngrid
+      ? ventana
+        ? `Lo atiende ${sup} ahora`
+        : `Se le avisa a ${sup} al abrir su ventana o a ${chat.asesoraId ? asesora : "la supervisora"} a las 8 a. m.`
+      : `Se avisa a las 8 a. m. a ${chat.asesoraId ? asesora : "la supervisora"}`;
+    salida.push({
+      conversationId: chat.conversationId,
+      cliente: nombreDelCliente(chat),
+      asesora,
+      nivel: caliente ? "caliente" : "precio",
+      minutos,
+      ultimoMensaje: recortar(chat.textosPendientes.at(-1), 80),
+      quien,
+      ahoraSupervisora: deIngrid && ventana,
+    });
+  }
+  return salida.sort((a, b) => Number(b.nivel === "caliente") - Number(a.nivel === "caliente") || b.minutos - a.minutos);
+}
+
 /**
  * Las candidatas de esta vuelta: un chat = una candidata (si sale en dos alertas, la más grave).
  * Responsable = la asesora del chat; sin dueña → la supervisora; sin supervisora → nadie (escala).
@@ -363,9 +539,32 @@ export function candidatasDeLaVuelta(input: {
   ahora: Date;
   supervisora: Persona | null;
   extras?: Map<string, ExtrasDelChat>;
+  /** Con `fueraDeHorario` activo y fuera de horario, suma los calientes que el detector (que solo cuenta minutos laborales) no ve. */
+  config?: ConfigAccionable;
 }): Candidata[] {
   const porId = new Map(input.chats.map((c) => [c.conversationId, c]));
   const salida = new Map<string, Candidata>();
+  const fuera = input.config?.fueraDeHorario;
+  if (fuera?.activo && !enHorario(input.ahora)) {
+    for (const chat of calientesFueraDeHorario(input.chats, input.ahora, fuera.esperaMin)) {
+      const { motivo, frase, desde } = motivoDe("caliente", chat, input.ahora);
+      salida.set(chat.conversationId, {
+        tipo: "caliente",
+        conversationId: chat.conversationId,
+        claveAlerta: `ATENCION:caliente-fuera-de-horario:${chat.asesoraId}`,
+        responsableId: chat.asesoraId,
+        responsableNombre: chat.asesoraNombre?.trim() || "la asesora",
+        responsableEsSupervisora: false,
+        cliente: nombreDelCliente(chat),
+        telefono: telefonoTapado(chat.telefono),
+        frase,
+        motivo,
+        mensajeSugerido: mensajeSugerido("caliente", chat, null, input.ahora),
+        riesgo: riesgoDe("caliente", chat, input.extras?.get(chat.conversationId), input.ahora),
+        esperandoDesde: desde,
+      });
+    }
+  }
   for (const h of input.hallazgos) {
     const tipo = tipoDeLaClave(h.clave);
     if (!tipo) continue;
@@ -440,8 +639,8 @@ export function horaBogota(fecha: Date | string | null | undefined): string {
 ------------------------------------------------------------------------------------------------ */
 
 export type Evento =
-  | { tipo: "avisar"; responsableId: string; accionIds: string[] }
-  | { tipo: "segundo_aviso"; responsableId: string; supervisoraId: string | null; accionIds: string[] }
+  | { tipo: "avisar"; responsableId: string; accionIds: string[]; fueraDeHorario?: boolean }
+  | { tipo: "segundo_aviso"; responsableId: string; supervisoraId: string | null; accionIds: string[]; fueraDeHorario?: boolean }
   | { tipo: "escalar"; accionId: string; gravedad: GravedadDeEscalada }
   | { tipo: "resuelta_abajo"; accionId: string }
   | { tipo: "resuelta_tras_escalar"; accionId: string };
@@ -472,6 +671,7 @@ function cerrada(a: Accion, en: Date): AccionCerrada {
     minutosHastaResolver: a.minutosHastaResolver,
     incumplida: a.incumplida,
     escalada: Boolean(a.escaladaEn),
+    ...(a.nocturnaEn ? { nocturnaEn: a.nocturnaEn } : {}),
   };
 }
 
@@ -547,7 +747,14 @@ export function avanzar(input: {
   const chats = new Map(input.chats.map((c) => [c.conversationId, c]));
   const avisos = new Map<string, string[]>();
   const segundos = new Map<string, string[]>();
+  // Fuera de horario (a la supervisora): agrupados aparte para que el texto diga "fuera de horario".
+  const avisosNoche = new Map<string, string[]>();
+  const segundosNoche = new Map<string, string[]>();
   const anotarAviso = (mapa: Map<string, string[]>, responsable: string, id: string) => mapa.set(responsable, [...(mapa.get(responsable) ?? []), id]);
+  const horario = enHorario(ahora);
+  const fuera = config.fueraDeHorario;
+  // Se le escribe a la supervisora solo con el interruptor, con supervisora y dentro de su ventana.
+  const ventanaNoche = Boolean(input.supervisora) && enVentanaFueraDeHorario(ahora, fuera);
 
   // 1. Lo que Alexander marcó como atendido en la pantalla.
   for (const a of Object.values(acciones)) {
@@ -590,6 +797,42 @@ export function avanzar(input: {
       continue;
     }
     if (a.estado === "ESCALADA") continue;
+    if (a.fueraDeHorario) {
+      if (horario) {
+        // 8 a. m.: pasa a la asesora dueña con el flujo normal (plazo laboral, segundo aviso, escalada).
+        a.fueraDeHorario = false;
+        const espera = estadoDeEspera(chat, ahora);
+        if (!espera.esperando || espera.cierre) {
+          a.estado = "YA_NO_APLICA";
+          continue;
+        }
+        const duena: Persona | null = chat.asesoraId ? { id: chat.asesoraId, nombre: chat.asesoraNombre?.trim() || "la asesora" } : input.supervisora;
+        if (!duena) {
+          escalar(a, ahora, "No hay asesora ni supervisora a quién avisar.", eventos);
+          continue;
+        }
+        a.responsableId = duena.id;
+        a.responsableNombre = duena.nombre;
+        a.responsableEsSupervisora = !chat.asesoraId;
+        a.plazoMin = a.tipo in config.plazos ? config.plazos[a.tipo as TipoDeAccion] : a.plazoMin;
+        a.estado = "AVISADA";
+        a.avisadaEn = iso;
+        a.segundoAvisoEn = null;
+        a.segundoAvisoA = null;
+        a.venceEn = venceEn(a.tipo, ahora, a.plazoMin).toISOString();
+        anotarAviso(avisos, duena.id, a.id);
+        continue;
+      }
+      // De noche: plazo de RELOJ; el segundo aviso (a la misma supervisora) solo dentro de su ventana;
+      // nunca escala a Alexander. Después del segundo queda pendiente hasta las 8 a. m.
+      if (a.estado === "AVISADA" && ventanaNoche && a.responsableId && a.venceEn && Date.parse(a.venceEn) <= ahora.getTime()) {
+        a.estado = "SEGUNDO_AVISO";
+        a.segundoAvisoEn = iso;
+        a.segundoAvisoA = null;
+        anotarAviso(segundosNoche, a.responsableId, a.id);
+      }
+      continue;
+    }
     // Se reasignó a otra asesora: se le avisa a ella y su plazo empieza de cero.
     if (chat.asesoraId && a.responsableId !== chat.asesoraId) {
       a.responsableId = chat.asesoraId;
@@ -627,10 +870,57 @@ export function avanzar(input: {
   }
 
   // 3. Las candidatas nuevas (o más graves). Fuera del horario laboral no se abre nada nuevo (la
-  //    asesora no está y el detector lo vuelve a ver a las 8:00), salvo un pago.
-  const horario = enHorario(ahora);
+  //    asesora no está y el detector lo vuelve a ver a las 8:00), salvo un pago. Con `fueraDeHorario`,
+  //    un CALIENTE de una asesora lo toma la supervisora (dentro de su ventana).
   for (const c of input.candidatas) {
     const previa = acciones[c.conversationId];
+    if (!horario && ventanaNoche && c.tipo === "caliente" && c.responsableId && fuera && input.supervisora) {
+      const sup = input.supervisora;
+      const tomar = (a: Accion) => {
+        a.duenaNombre = a.responsableId === sup.id || c.responsableId === sup.id ? null : c.responsableNombre;
+        a.responsableId = sup.id;
+        a.responsableNombre = sup.nombre;
+        a.responsableEsSupervisora = false;
+        a.fueraDeHorario = true;
+        a.nocturnaEn = iso;
+        a.plazoMin = fuera.plazoMin;
+        a.estado = "AVISADA";
+        a.avisadaEn = iso;
+        a.venceEn = new Date(ahora.getTime() + fuera.plazoMin * MIN).toISOString();
+        a.segundoAvisoEn = null;
+        a.segundoAvisoA = null;
+        anotarAviso(avisosNoche, sup.id, a.id);
+      };
+      if (previa && ESTADOS_ACTIVOS.includes(previa.estado)) {
+        previa.vistoEn = iso;
+        previa.frase = c.frase ?? previa.frase;
+        // Ya la tiene la supervisora, está escalada o es un pago: sigue su camino.
+        if (previa.fueraDeHorario || previa.estado === "ESCALADA" || previa.tipo === "pago") continue;
+        // Una acción de la tarde (o un asignado que se calentó) que la asesora dejó al irse: la toma la supervisora.
+        previa.tipo = "caliente";
+        previa.claveAlerta = c.claveAlerta;
+        previa.motivo = c.motivo;
+        previa.riesgo = c.riesgo;
+        previa.mensajeSugerido = c.mensajeSugerido;
+        tomar(previa);
+        continue;
+      }
+      // Máximo un aviso por chat por noche (+ el segundo): si ya lo tuvo esta noche, no se repite.
+      const yaEstaNoche = [previa?.nocturnaEn, ...historial.filter((h) => h.id === c.conversationId).map((h) => h.nocturnaEn)].some(
+        (en) => en && mismaNoche(new Date(en), ahora),
+      );
+      if (yaEstaNoche) continue;
+      if (previa) {
+        const fin = Date.parse(previa.resueltaEn ?? previa.atendidaEn ?? previa.vistoEn);
+        if (c.esperandoDesde.getTime() <= fin) continue;
+        historial.push(cerrada(previa, ahora));
+      }
+      const numeroNoche = input.numeros?.get(c.conversationId) ?? previa?.numero ?? null;
+      const nueva = nuevaAccion(c, ahora, config, numeroNoche);
+      acciones[nueva.id] = nueva;
+      tomar(nueva);
+      continue;
+    }
     if (!horario && c.tipo !== "pago" && !(previa && ESTADOS_ACTIVOS.includes(previa.estado))) continue;
     const numero = input.numeros?.get(c.conversationId) ?? previa?.numero ?? null;
     if (previa && ESTADOS_ACTIVOS.includes(previa.estado)) {
@@ -645,6 +935,13 @@ export function avanzar(input: {
       previa.riesgo = c.riesgo;
       previa.mensajeSugerido = c.mensajeSugerido;
       previa.plazoMin = config.plazos[c.tipo];
+      if (previa.fueraDeHorario) {
+        // La tenía la supervisora de noche y ahora es un pago: vuelve a la asesora (el pago va como hoy).
+        previa.fueraDeHorario = false;
+        previa.responsableId = c.responsableId;
+        previa.responsableNombre = c.responsableNombre;
+        previa.responsableEsSupervisora = c.responsableEsSupervisora;
+      }
       if (previa.estado === "ESCALADA") continue;
       previa.estado = "AVISADA";
       previa.avisadaEn = iso;
@@ -673,6 +970,8 @@ export function avanzar(input: {
     const supervisora = input.supervisora && input.supervisora.id !== responsableId ? input.supervisora.id : null;
     eventos.push({ tipo: "segundo_aviso", responsableId, supervisoraId: supervisora, accionIds });
   }
+  for (const [responsableId, accionIds] of avisosNoche) eventos.push({ tipo: "avisar", responsableId, accionIds, fueraDeHorario: true });
+  for (const [responsableId, accionIds] of segundosNoche) eventos.push({ tipo: "segundo_aviso", responsableId, supervisoraId: null, accionIds, fueraDeHorario: true });
 
   // 4. Repetición: la misma asesora deja vencer varios plazos → patrón para Alexander.
   const hoy = fechaBogota(ahora);
@@ -784,18 +1083,26 @@ export function textoParaLaAsesora(input: {
   enlaces: Map<string, string>;
   ahora: Date;
   segundo?: boolean;
+  /** Aviso a la supervisora fuera de horario. */
+  fueraDeHorario?: boolean;
 }): string {
   const { acciones, ahora } = input;
   const primero = acciones[0];
   const nombre = primerNombre(primero?.responsableNombre) ?? "";
-  const encabezado = input.segundo
-    ? `⏰ *Segundo aviso del Supervisor*${nombre ? ` · ${nombre}` : ""}\nSe venció el plazo y ${acciones.length === 1 ? "este cliente sigue" : "estos clientes siguen"} sin respuesta. Si no puedes, avísale a tu supervisora.`
-    : `📋 *Supervisor · tarea para ti*${nombre ? ` · ${nombre}` : ""}`;
+  const varios = acciones.length > 1;
+  const encabezado = input.fueraDeHorario
+    ? input.segundo
+      ? `⏰ *Segundo aviso · fuera de horario*${nombre ? ` · ${nombre}` : ""}\n${varios ? "Estos clientes calientes siguen" : "Este cliente caliente sigue"} sin respuesta. Si no puedes, queda pendiente y a las 8 a. m. pasa a su asesora.`
+      : `🌙 *Supervisor · fuera de horario*${nombre ? ` · ${nombre}` : ""}\n${varios ? "Clientes calientes esperan" : "Un cliente caliente espera"} respuesta y la asesora ya no está: te ${varios ? "tocan" : "toca"} a ti.`
+    : input.segundo
+      ? `⏰ *Segundo aviso del Supervisor*${nombre ? ` · ${nombre}` : ""}\nSe venció el plazo y ${acciones.length === 1 ? "este cliente sigue" : "estos clientes siguen"} sin respuesta. Si no puedes, avísale a tu supervisora.`
+      : `📋 *Supervisor · tarea para ti*${nombre ? ` · ${nombre}` : ""}`;
   const lineas = [encabezado, ""];
   acciones.slice(0, 5).forEach((a, i) => {
     const vence = input.segundo ? null : a.venceEn;
     lineas.push(`${acciones.length > 1 ? `${i + 1}) ` : ""}${ICONO_DEL_TIPO[a.tipo]} *${a.cliente}*${a.telefono && a.cliente !== a.telefono ? ` (${a.telefono})` : ""}`);
     lineas.push(`${a.motivo} · espera ${duracion(minutosDesde(a.esperandoDesde, ahora))}`);
+    if (input.fueraDeHorario) lineas.push(a.duenaNombre ? `Chat de ${a.duenaNombre}` : "Chat tuyo");
     if (a.frase) lineas.push(`Dijo: «${a.frase}»`);
     if (a.mensajeSugerido) lineas.push(`Responde: "${a.mensajeSugerido.slice(0, 280)}"`);
     lineas.push(`⏱️ Plazo: ${vence ? `antes de las ${horaBogota(vence)}` : "YA"}`);
@@ -807,9 +1114,10 @@ export function textoParaLaAsesora(input: {
   return lineas.join("\n").trim();
 }
 
-export function pushParaLaAsesora(acciones: Accion[], segundo = false): { title: string; body: string } {
+export function pushParaLaAsesora(acciones: Accion[], segundo = false, fueraDeHorario = false): { title: string; body: string } {
   const a = acciones[0];
-  const title = (segundo ? "⏰ Segundo aviso: responde ya" : acciones.length > 1 ? `${acciones.length} clientes te esperan` : `${ICONO_DEL_TIPO[a.tipo]} ${a.cliente} te espera`).slice(0, 60);
+  const prefijo = fueraDeHorario ? "🌙 Fuera de horario: " : "";
+  const title = (prefijo + (segundo ? "⏰ Segundo aviso: responde ya" : acciones.length > 1 ? `${acciones.length} clientes te esperan` : `${ICONO_DEL_TIPO[a.tipo]} ${a.cliente} te espera`)).slice(0, 60);
   const plazo = segundo ? "Plazo vencido." : a.venceEn ? `Plazo: ${horaBogota(a.venceEn)}.` : "";
   const body = (acciones.length > 1 ? `${acciones.map((x) => x.cliente).slice(0, 4).join(", ")}. ${plazo}` : `${a.motivo}. ${plazo}${a.mensajeSugerido ? ` Sugerido: ${a.mensajeSugerido}` : ""}`).slice(0, 180);
   return { title, body };

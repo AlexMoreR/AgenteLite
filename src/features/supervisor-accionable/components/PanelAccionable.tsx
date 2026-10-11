@@ -3,7 +3,16 @@ import Link from "next/link";
 import { marcarPrioridadAtendidaAction } from "@/app/actions/supervisor-accionable-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-import { ETIQUETA_DE_ESTADO, ETIQUETA_DE_GRAVEDAD, enlaceAlChat, horaBogota, type Accion, type Tarjeta } from "../dominio/reglas";
+import {
+  ETIQUETA_DE_ESTADO,
+  ETIQUETA_DE_GRAVEDAD,
+  duracion,
+  enlaceAlChat,
+  horaBogota,
+  type Accion,
+  type EsperandoFueraDeHorario,
+  type Tarjeta,
+} from "../dominio/reglas";
 import type { PanelAccionable } from "../servicios/accionable";
 
 const COLOR_DE_GRAVEDAD: Record<Tarjeta["gravedad"], string> = {
@@ -89,8 +98,51 @@ function detalleDelEstado(a: Accion): string {
  * "Prioridades de Alexander" (máx. 3, solo escaladas reales y críticos del bot/embudo/sistema) y,
  * debajo, lo que está en manos de las asesoras con su estado.
  */
+/** "N clientes esperando fuera de horario · los atiende Ingrid ahora / se avisan a las 8 a. m." */
+function resumenFueraDeHorario(esperando: EsperandoFueraDeHorario[]): string {
+  const conSupervisora = esperando.filter((e) => e.ahoraSupervisora).length;
+  const resto = esperando.length - conSupervisora;
+  const partes = [
+    conSupervisora ? `${conSupervisora} ${conSupervisora === 1 ? "lo atiende" : "los atiende"} ${/^Lo atiende (.+) ahora$/.exec(esperando.find((e) => e.ahoraSupervisora)?.quien ?? "")?.[1] ?? "la supervisora"} ahora` : null,
+    resto ? `${resto} se ${resto === 1 ? "avisa" : "avisan"} a las 8 a. m.` : null,
+  ].filter(Boolean);
+  return `${esperando.length} ${esperando.length === 1 ? "cliente esperando" : "clientes esperando"} fuera de horario · ${partes.join(" · ")}`;
+}
+
+function ListaFueraDeHorario({ esperando }: { esperando: EsperandoFueraDeHorario[] }) {
+  return (
+    <div className="space-y-1.5 rounded-md border border-amber-500/50 bg-amber-500/5 px-3 py-2">
+      <p className="text-sm font-semibold text-foreground">🌙 {resumenFueraDeHorario(esperando)}</p>
+      <ul className="space-y-1.5">
+        {esperando.slice(0, 20).map((e) => (
+          <li key={e.conversationId} className="flex flex-wrap items-start justify-between gap-2 rounded-md border border-border bg-background/60 px-3 py-2">
+            <div className="min-w-0 flex-1 space-y-0.5">
+              <p>
+                <span className="font-medium">{e.cliente}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {e.nivel === "caliente" ? "Caliente" : "Preguntó precio"} · {e.asesora} · espera {duracion(e.minutos)}
+                </span>
+              </p>
+              {e.ultimoMensaje ? <p className="text-xs text-foreground/80">«{e.ultimoMensaje}»</p> : null}
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{e.quien}</p>
+            </div>
+            <Link
+              href={enlaceAlChat(e.conversationId)}
+              className="shrink-0 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition hover:bg-muted"
+            >
+              Abrir chat
+            </Link>
+          </li>
+        ))}
+      </ul>
+      {esperando.length > 20 ? <p className="text-xs text-muted-foreground">…y {esperando.length - 20} más.</p> : null}
+    </div>
+  );
+}
+
 export function PanelAccionableView({ panel }: { panel: PanelAccionable }) {
-  const { prioridades, enManos, metricas } = panel;
+  const { prioridades, enManos, metricas, esperando } = panel;
   const activas = enManos.filter((a) => a.estado === "AVISADA" || a.estado === "SEGUNDO_AVISO");
   const cerradas = enManos.filter((a) => !(a.estado === "AVISADA" || a.estado === "SEGUNDO_AVISO"));
   return (
@@ -100,7 +152,11 @@ export function PanelAccionableView({ panel }: { panel: PanelAccionable }) {
           <CardTitle>Prioridades de Alexander</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {prioridades.visibles.length === 0 ? (
+          {prioridades.visibles.length === 0 && esperando.length ? (
+            <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+              Nada escalado a ti, pero no está todo al día: {resumenFueraDeHorario(esperando)}. La lista está abajo.
+            </p>
+          ) : prioridades.visibles.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Nada escalado. Lo que está pasando lo tienen las asesoras (abajo) y el Supervisor lo está verificando.
             </p>
@@ -136,7 +192,8 @@ export function PanelAccionableView({ panel }: { panel: PanelAccionable }) {
               ? ` · ${metricas.porAsesora.map((p) => `${p.nombre}: ${p.resueltas}/${p.avisadas} resueltos, ${p.incumplidas} plazos vencidos`).join(" · ")}`
               : ""}
           </p>
-          {activas.length === 0 ? <p className="text-muted-foreground">Ningún aviso pendiente.</p> : null}
+          {esperando.length ? <ListaFueraDeHorario esperando={esperando} /> : null}
+          {activas.length === 0 && !esperando.length ? <p className="text-muted-foreground">Ningún aviso pendiente.</p> : null}
           <ul className="space-y-1.5">
             {[...activas, ...cerradas.slice(0, 15)].map((a) => (
               <li key={`${a.id}:${a.detectadaEn}`} className="flex flex-wrap items-start justify-between gap-2 rounded-md border border-border bg-background/60 px-3 py-2">

@@ -68,9 +68,81 @@ export function minutosLaborales(desde: Date, hasta: Date, horario: HorarioLabor
   return Math.round(total);
 }
 
+/* ------------------------------------------------------------------------------------------------
+   CIERRES Y AUTO-RESPUESTAS (pedido de Alexander, 11-10-2026): a las 4:32 p. m. había 8 "calientes
+   esperando" y 5 eran un "feliz noche", un "muchas gracias", solo emojis o la auto-respuesta del
+   negocio del cliente. Si el ÚLTIMO mensaje del cliente es eso, el chat NO cuenta como "esperando"
+   para las alertas de caliente / señal sin dueña / retomar (sí sigue contando para "ya pagué").
+
+   Se excluye el último mensaje si (tras quitar tildes, mayúsculas y signos):
+   1. Está vacío o es solo emojis / signos / números sueltos ("👍🙏", "!!", "", un sticker o foto sin texto).
+   2. Es una auto-respuesta: "gracias por tu/su mensaje", "en este momento no podemos/estamos",
+      "te/le responderemos", "responderemos lo antes posible / a la brevedad", "mensaje automático",
+      "fuera de (nuestro) horario", "no estamos disponibles", "pronto te/le atenderemos".
+   3. Es una despedida / agradecimiento CORTO (≤ 12 palabras): todas sus palabras son de cierre
+      (gracias, feliz noche, bendiciones, chao, igualmente, saludos, hasta mañana, que esté bien…)
+      más relleno (muchas, mil, muy, ok, listo, vale, dale, perfecto, de, para, usted…) y trae AL
+      MENOS una palabra de cierre. "Muchas gracias, ¿y el envío?" NO es cierre (trae "envio");
+      "listo", "ok", "está bien" o "sí" solos tampoco (pueden ser un sí a la compra); "buenas
+      noches" solo tampoco (es un saludo de alguien que recién escribe; "feliz noche" sí es cierre).
+------------------------------------------------------------------------------------------------ */
+
+const AUTO_RESPUESTA: RegExp[] = [
+  /\bgracias por (tu|su|comunicarte|comunicarse|escribirnos|contactarnos)\b/,
+  /\ben (este|estos) momentos? no (podemos|estamos|nos encontramos|es posible)\b/,
+  /\b(te|le|les) (responderemos|contestaremos|atenderemos)\b/,
+  /\bresponderemos (lo (antes|mas pronto) posible|a la brevedad|pronto|en breve)\b/,
+  /\bmensaje automatico\b/,
+  /\bfuera (de|del) (nuestro )?horario\b/,
+  /\bno estamos disponibles\b/,
+];
+
+/** Palabras que por sí solas cierran la conversación. */
+const PALABRAS_DE_CIERRE = new Set([
+  "gracias", "graciass", "grax", "feliz", "chao", "chau", "adios", "bendiciones", "bendecida", "bendecido",
+  "bendiga", "igualmente", "saludos", "amable", "amables", "descanse", "descansa", "descansen",
+]);
+
+/** Relleno que acompaña a un cierre (no cambia que sea un cierre). Sin "si": un "sí" puede ser un sí a la compra. */
+const RELLENO_DE_CIERRE = new Set([
+  "muchas", "muchisimas", "mil", "muy", "ok", "okey", "okay", "oki", "okis", "vale", "listo", "dale", "perfecto", "bueno", "buenas",
+  "buena", "buen", "hola", "noche", "noches", "tarde", "tardes", "dia", "dias", "hasta", "luego", "pronto", "manana", "que", "este", "esten", "estes", "bien",
+  "tenga", "tengan", "tengas", "linda", "lindo", "excelente", "super", "de", "a", "ti", "usted", "ustedes", "ud", "uds", "para",
+  "por", "todo", "y", "el", "la", "lo", "le", "les", "dios", "con", "gusto", "nada", "senora", "senor", "senorita", "amiga", "amigo",
+  "mi", "reina", "querida", "estamos", "hablando", "hablamos", "quedo", "atenta", "atento", "pendiente", "entendido", "claro",
+]);
+
+function normalizarTexto(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+/** ¿Este mensaje del cliente cierra la conversación (despedida, gracias, emojis, auto-respuesta, sin texto)? */
+export function esCierreOAutoRespuesta(texto: string | null | undefined): boolean {
+  const limpio = normalizarTexto(texto ?? "");
+  if (!/\p{L}/u.test(limpio)) return true;
+  if (AUTO_RESPUESTA.some((re) => re.test(limpio))) return true;
+  const palabras = limpio.split(" ").filter(Boolean);
+  if (palabras.length > 12) return false;
+  const conCierre = palabras.some((p) => PALABRAS_DE_CIERRE.has(p));
+  return conCierre && palabras.every((p) => PALABRAS_DE_CIERRE.has(p) || RELLENO_DE_CIERRE.has(p) || /^j[aej]+$/.test(p));
+}
+
+/** El último mensaje pendiente del cliente es un cierre (sin textos pendientes = no se sabe = no). */
+export function ultimoEsCierre(chat: Pick<ChatAbierto, "textosPendientes">): boolean {
+  if (!chat.textosPendientes.length) return false;
+  return esCierreOAutoRespuesta(chat.textosPendientes.at(-1));
+}
+
 export type EstadoDeEspera = {
   chat: ChatAbierto;
   esperando: boolean;
+  /** El último mensaje del cliente es una despedida / gracias / emojis / auto-respuesta / sin texto. */
+  cierre: boolean;
   minutos: number;
   minutosLaborales: number;
   senalFuerte: boolean;
@@ -89,6 +161,7 @@ export function estadoDeEspera(chat: ChatAbierto, ahora: Date, horario = HORARIO
   return {
     chat,
     esperando,
+    cierre: esperando && ultimoEsCierre(chat),
     minutos: esperando ? Math.floor((ahora.getTime() - (chat.ultimoClienteEn as Date).getTime()) / MIN) : 0,
     minutosLaborales: esperando ? minutosLaborales(chat.ultimoClienteEn as Date, ahora, horario) : 0,
     senalFuerte: Boolean(fuerte),
@@ -151,7 +224,7 @@ export function detectarAtencion(chats: ChatAbierto[], ahora: Date, horario = HO
 
   // A1 / A3: calientes o con señal fuerte esperando, por asesora (solo cuenta el tiempo laboral).
   const urgentes = estados.filter(
-    (e) => e.esperando && (e.caliente || e.senalFuerte) && e.minutosLaborales >= u.esperaImportante && e.minutos <= u.retomarDesdeH * 60,
+    (e) => e.esperando && !e.cierre && (e.caliente || e.senalFuerte) && e.minutosLaborales >= u.esperaImportante && e.minutos <= u.retomarDesdeH * 60,
   );
   const porAsesora = new Map<string, EstadoDeEspera[]>();
   for (const e of urgentes) {
@@ -190,7 +263,7 @@ export function detectarAtencion(chats: ChatAbierto[], ahora: Date, horario = HO
   }
 
   // A2: con señal y sin dueña.
-  const sinDuena = estados.filter((e) => e.esperando && e.senal && !e.chat.asesoraId && e.minutos >= u.sinDuenaMin && e.minutos <= u.retomarDesdeH * 60);
+  const sinDuena = estados.filter((e) => e.esperando && !e.cierre && e.senal && !e.chat.asesoraId && e.minutos >= u.sinDuenaMin && e.minutos <= u.retomarDesdeH * 60);
   if (sinDuena.length) {
     const peor = [...sinDuena].sort((a, b) => b.minutos - a.minutos)[0];
     salida.push(
@@ -214,7 +287,7 @@ export function detectarAtencion(chats: ChatAbierto[], ahora: Date, horario = HO
 
   // A4: oportunidades a retomar (señal fuerte, callado hace 24–72 h, nadie le respondió después).
   const retomar = estados.filter(
-    (e) => e.esperando && e.senalFuerte && e.minutos >= u.retomarDesdeH * 60 && e.minutos <= u.retomarHastaH * 60,
+    (e) => e.esperando && !e.cierre && e.senalFuerte && e.minutos >= u.retomarDesdeH * 60 && e.minutos <= u.retomarHastaH * 60,
   );
   if (retomar.length) {
     salida.push(
