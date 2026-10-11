@@ -35,6 +35,8 @@ export type SenalCalificada = {
   grupo: "fuerte" | "media" | "debil" | "negativa";
   fragmento: string;
   en: Date;
+  /** Solo "eligio_color": el color, si la elección es CLARA (ver `colorElegido`). Sin él, no se afirma "excelente elección". */
+  valor?: string;
 };
 
 export type Calificacion = {
@@ -67,6 +69,28 @@ export function eligioColor(texto: string): string | null {
   if (normal.length > 60 || PREGUNTA_DE_COLOR.test(normal)) return null;
   const m = COLORES.exec(normal);
   return m ? texto.slice(Math.max(0, m.index - 15), m.index + m[0].length + 15).trim() : null;
+}
+
+/** Verbos o giros de elección ("quiero", "me gusta", "prefiero", "me lo separas"…). */
+const ELIGE = /\b(quiero|quisiera|me gusta|me gusto|me encanta|me encanto|prefiero|escojo|elijo|me quedo con|me lo|me la|separ\w*|apart\w*|seria|lo necesito|la necesito|para mi)\b/;
+
+/**
+ * El COLOR que el cliente ELIGIÓ, solo si la elección es clara (11-10-2026, pedido de Alexander:
+ * el sugerido decía "¡Excelente elección! … en ese color" sin que el cliente hubiera elegido nada):
+ *  - el mensaje es casi solo el color ("Rosado", "en blanco porfa", "la negra"; ≤ 4 palabras), o
+ *  - el color va con "en / color / de color / el / la" delante ("color crema", "el negro"), o
+ *  - hay un verbo de elección ("quiero", "me gusta", "prefiero", "me lo separas"…).
+ * "Tengo una camilla blanca" o "¿la tienen en negro?" no son elección. Devuelve el color tal cual se normalizó.
+ */
+export function colorElegido(texto: string): string | null {
+  if (!eligioColor(texto)) return null;
+  const normal = normalizarConservando(texto).replace(/[^\p{L}\p{N} ]+/gu, " ").replace(/\s+/g, " ").trim();
+  const m = COLORES.exec(normal);
+  if (!m) return null;
+  const color = m[0];
+  const palabras = normal.split(" ").filter(Boolean);
+  const conArticulo = new RegExp(`\\b(en|color|de color|el|la|los|las)( (combo|camilla|silla|butaco|mesa|poltrona))? ${color}\\b`).test(normal);
+  return palabras.length <= 4 || conArticulo || ELIGE.test(normal) ? color : null;
 }
 
 const UNIDADES =
@@ -109,7 +133,10 @@ export function calificar(input: {
       anotar({ tipo: senal.tipo, etiqueta: def?.etiqueta ?? senal.tipo, peso: senal.peso, grupo: senal.grupo, fragmento: senal.fragmento, en: mensaje.en });
     }
     const color = eligioColor(texto);
-    if (color) anotar({ tipo: "eligio_color", ...EXTRAS.eligio_color, fragmento: color, en: mensaje.en });
+    if (color) {
+      const valor = colorElegido(texto);
+      anotar({ tipo: "eligio_color", ...EXTRAS.eligio_color, fragmento: color, en: mensaje.en, ...(valor ? { valor } : {}) });
+    }
     const unidades = variasUnidades(texto);
     if (unidades) anotar({ tipo: "varias_unidades", ...EXTRAS.varias_unidades, fragmento: unidades, en: mensaje.en });
     const precio = senales.find((s) => s.tipo === "precio");

@@ -9,7 +9,7 @@
 import { minutosLaborales as minutosLaboralesDelEquipo } from "../../coach/reglas";
 import { detectarSenales, esSenalDeCompra } from "../../embudo/dominio/senales";
 import { mensajePorSenales } from "../../seguimiento-inteligente/dominio/mensajes";
-import { familiaDelTexto, nombreDeFamilia } from "../../seguimiento-inteligente/dominio/producto";
+import { familiaDelTexto, nombreEnSingular, productoDelChat } from "../../seguimiento-inteligente/dominio/producto";
 import { calificar, type Calificacion } from "../../seguimiento-inteligente/dominio/temperatura";
 import { motivoDeExclusion } from "./exclusiones";
 import { horaBogota, diaSemanaBogota } from "./linea-base";
@@ -76,6 +76,7 @@ export function minutosLaborales(desde: Date, hasta: Date, horario: HorarioLabor
 
    Se excluye el último mensaje si (tras quitar tildes, mayúsculas y signos):
    1. Está vacío o es solo emojis / signos / números sueltos ("👍🙏", "!!", "", un sticker o foto sin texto).
+      Un "?" / "??" suelto NO (11-10-2026): es el cliente insistiendo.
    2. Es una auto-respuesta: "gracias por tu/su mensaje", "en este momento no podemos/estamos",
       "te/le responderemos", "responderemos lo antes posible / a la brevedad", "mensaje automático",
       "fuera de (nuestro) horario", "no estamos disponibles", "pronto te/le atenderemos".
@@ -121,11 +122,52 @@ function normalizarTexto(texto: string): string {
     .trim();
 }
 
+/* ------------------------------------------------------------------------------------------------
+   4. AGRADECIMIENTO / CIERRE DE CUALQUIER LARGO (falla real del domingo 11-10-2026: a Ingrid le
+      llegó "Segundo aviso · fuera de horario" por «Ah, bueno, visto, muy bien, muchas gracias.» y
+      por «Pero igual muchas gracias, hay que saber dar buenas respuestas»; la asesora ya había dado
+      la información y el cliente no esperaba nada). Es cierre, SIN importar el largo, si:
+        a) trae un AGRADECIMIENTO o DESPEDIDA: una palabra de cierre (gracias, feliz noche,
+           bendiciones, chao, igualmente…) o la frase "hay que saber…"; los acuses "muy bien",
+           "vale", "listo", "visto", "perfecto", "ok", "bueno", "dale" acompañan pero NO bastan
+           solos ("listo" solo sigue sin ser cierre: puede ser un sí a la compra);
+        b) NO trae PREGUNTA: ni "?" / "¿" ni palabras interrogativas (cuánto, cuándo, dónde, cómo,
+           cuál, qué precio / valor / color, tienen, tiene, hay —salvo "hay que"—, manejan,
+           venden, me regala / pasa / manda / envía, información, info);
+        c) NO trae SEÑAL DE COMPRA: ninguna señal del detector del embudo (separar, anticipo, ya
+           pagué, envío, color, precio, fotos…) ni las palabras quiero, me interesa, separ-,
+           apart-, pag-, consign-, datos, cuenta, envío / mandar a…, un color.
+      "Ya pagué" nunca es cierre (señal de compra) y el aviso de pago no usa esta regla.
+------------------------------------------------------------------------------------------------ */
+
+/** Agradecimiento / despedida que, sin pregunta ni señal de compra, cierra aunque el mensaje sea largo. */
+const AGRADECE_O_CIERRA = /\b(gracias|graciass|grax|bendiciones|bendiga|chao|chau|adios|igualmente|feliz (noche|dia|tarde|fin de semana)|hay que saber)\b/;
+
+/** Pregunta: signos o palabras interrogativas (sin tildes). "hay que" no cuenta como "¿hay…?". */
+const PREGUNTA =
+  /\b(cuanto|cuanta|cuantos|cuantas|cuando|donde|como|cual|cuales|que (precio|valor|costo|color|colores|medida|medidas|tiempo|dias)|tienen|tiene|tendra|tendran|hay(?! que)|manejan|venden|me (regala|regalas|regalan|pasa|pasas|pasan|manda|mandas|mandan|envia|envias|envian)|informacion|info)\b/;
+
+/** Señal de compra por palabras (además del detector del embudo). */
+const SENAL_DE_COMPRA =
+  /\b(quiero|quisiera|me interesa|separ\w*|apart\w*|pag\w*|consign\w*|transfer\w*|abon\w*|datos|cuenta|nequi|daviplata|envi\w* a|mand\w* a|negr[oa]s?|blanc[oa]s?|rosad[oa]s?|rosa|beige|gris|dorad[oa]s?|nude|azul|roj[oa]|vinotinto|cafe|marfil|crema|platead[oa]|verde|morado|lila|fucsia)\b/;
+
+/** ¿Es un agradecimiento / cierre de cualquier largo, sin pregunta ni señal de compra? (regla 4) */
+export function esAgradecimientoSinPendiente(texto: string | null | undefined): boolean {
+  const original = texto ?? "";
+  if (/[?¿]/.test(original)) return false;
+  const limpio = normalizarTexto(original);
+  if (!AGRADECE_O_CIERRA.test(limpio)) return false;
+  if (PREGUNTA.test(limpio) || SENAL_DE_COMPRA.test(limpio)) return false;
+  return !detectarSenales(original).some(esSenalDeCompra);
+}
+
 /** ¿Este mensaje del cliente cierra la conversación (despedida, gracias, emojis, auto-respuesta, sin texto)? */
 export function esCierreOAutoRespuesta(texto: string | null | undefined): boolean {
   const limpio = normalizarTexto(texto ?? "");
-  if (!/\p{L}/u.test(limpio)) return true;
+  // Un "?" o "??" suelto es el cliente insistiendo: espera respuesta (11-10-2026).
+  if (!/\p{L}/u.test(limpio)) return !/[?¿]/.test(texto ?? "");
   if (AUTO_RESPUESTA.some((re) => re.test(limpio))) return true;
+  if (esAgradecimientoSinPendiente(texto)) return true;
   const palabras = limpio.split(" ").filter(Boolean);
   if (palabras.length > 12) return false;
   const conCierre = palabras.some((p) => PALABRAS_DE_CIERRE.has(p));
@@ -361,6 +403,27 @@ export function interesDelLead(chat: ChatAbierto, ahora: Date): InteresDelLead {
 }
 
 /**
+ * EL MENSAJE SUGERIDO para un cliente que espera (Supervisor de día, fuera de horario y accionable).
+ * Criterio (11-10-2026): nunca afirmar algo que el cliente no dijo.
+ *  - Se responde a lo que dijo DESDE la última respuesta (pendientes); si ahí no hay señal, a toda la charla.
+ *  - Producto = `productoDelChat` (si pidió "solo la camilla", es la camilla, no el combo; si no, el más reciente).
+ *  - "¡Excelente elección! … en color X" solo con color elegido de verdad y producto claro.
+ *  - Sin señal útil → neutro: "¡Hola! ¿Te quedó alguna duda? Con gusto te ayudo 😊".
+ */
+export function sugeridoParaElChat(chat: ChatAbierto, ahora: Date, nombre: string | null): string {
+  const delCliente = chat.textosDelCliente ?? [];
+  const producto = nombreEnSingular(productoDelChat(chat.textosPendientes, delCliente));
+  const en = chat.ultimoClienteEn ?? ahora;
+  const pendientes = chat.textosPendientes.filter((t) => t && t.trim());
+  const { senales: dePendientes } = calificar({ mensajes: pendientes.map((texto) => ({ texto, en })), ahora: en, productoInteres: null, etapaCrm: null });
+  const util = dePendientes.some(
+    (s) => s.grupo !== "negativa" && s.tipo !== "dijo_servicio" && (s.tipo !== "eligio_color" || Boolean(s.valor && producto)),
+  );
+  const senales = util ? dePendientes : interesDelLead(chat, ahora).calificacion.senales;
+  return mensajePorSenales({ nombre, producto, senales, esperando: true });
+}
+
+/**
  * "LEAD INTERESADO ASIGNADO SIN RESPUESTA HUMANA" (pedido de Alexander, caso cv16c1a0 del 10-oct:
  * "Sirve para pestañas?" + "Fotos", auto-asignado a Ingrid a las 10:22, el bot mandó fotos y precio y
  * dos seguimientos, y ninguna persona escribió en 3 h).
@@ -386,11 +449,11 @@ export function detectarAsignadoSinRespuesta(chats: ChatAbierto[], ahora: Date, 
     if (chat.ultimaRespuestaHumanaEn && chat.ultimaRespuestaHumanaEn.getTime() >= chat.asignadaEn.getTime()) continue;
     const minutos = minutosLaboralesDelEquipo(chat.asignadaEn, ahora);
     if (minutos < u.asignadoSinRespuestaMin) continue;
+    // El último mensaje del cliente es un cierre ("muchas gracias", "feliz noche"…): no espera nada.
+    if (ultimoEsCierre(chat)) continue;
     const interes = interesDelLead(chat, ahora);
     if (!interes.interesado) continue;
-    const textos = [...(chat.textosDelCliente ?? []), ...chat.textosPendientes];
-    const familia = textos.map((t) => familiaDelTexto(t)).find(Boolean) ?? null;
-    const sugerido = mensajePorSenales({ nombre: chat.nombreCliente ?? null, producto: nombreDeFamilia(familia), senales: interes.calificacion.senales });
+    const sugerido = sugeridoParaElChat(chat, ahora, chat.nombreCliente ?? null);
     filas.push({ chat, minutos, interes, sugerido });
   }
   const porAsesora = new Map<string, Fila[]>();

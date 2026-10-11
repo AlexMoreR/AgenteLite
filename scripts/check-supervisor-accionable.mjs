@@ -867,4 +867,83 @@ await prueba("caliente: temperatura CALIENTE sin etapa → caliente; NEGOCIACION
   assert.equal(enNoche(r.estadoVacio(), { chats: [mariaDomingo({ etapa: null, temperatura: "TIBIO", ...sinSenal })], ahora: DOMINGO }).eventos.length, 0);
 });
 
+/* ------------------------------------------------------------------ falla real del domingo 11-oct: cierres largos, sugerido y plazo */
+
+const REAL_8462 = "Ah, bueno, visto, muy bien, muchas gracias.";
+const REAL_5903 = "Pero igual muchas gracias, hay que saber dar buenas respuestas";
+
+await prueba("cierres largos (11-oct): los 2 textos reales NO esperan; con pregunta o señal de compra SÍ; 'Listo' solo igual que antes", () => {
+  for (const t of [REAL_8462, REAL_5903, "Bueno muchas gracias, voy a revisar con mi esposo y le aviso", "Vale, perfecto gracias, que Dios la bendiga mucho", "dale gracias", "bueno gracias", "Ok gracias", "Perfecto gracias"]) {
+    assert.equal(det.esCierreOAutoRespuesta(t), true, `"${t}" es un cierre`);
+  }
+  for (const t of ["gracias, ¿y cuánto vale el envío?", "gracias y cuanto vale el envio", "ok gracias, me lo separas en crema", "Gracias, ya pagué", "gracias, mañana le consigno", "?", "??",
+    "Muchas gracias, tienen la camilla en negro", "gracias, me regalas la información del combo", "gracias, hay disponible para entrega", "gracias, quiero el combo", "Listo", "listo", "ok", "Muy bien", "visto"]) {
+    assert.equal(det.esCierreOAutoRespuesta(t), false, `"${t}" NO es un cierre`);
+  }
+  assert.equal(det.esAgradecimientoSinPendiente("Gracias, ya pagué"), false, "'ya pagué' nunca es cierre");
+  // Detector de día: caliente esperando, asignado sin respuesta y sin dueña.
+  const base = maria({ ultimoClienteEn: mas(T0, -40), etapa: "NEGOCIACION" });
+  const c8462 = { ...base, conversationId: "r1", textosPendientes: [REAL_8462] };
+  const c5903 = { ...base, conversationId: "r2", textosPendientes: ["No hablo de eso", REAL_5903] };
+  const pregunta = { ...base, conversationId: "r3", textosPendientes: ["gracias, ¿y cuánto vale el envío?"] };
+  const separa = { ...base, conversationId: "r4", textosPendientes: ["ok gracias, me lo separas en crema"] };
+  const h = det.detectarAtencion([c8462, c5903, pregunta, separa], T0).find((x) => x.clave === "ATENCION:caliente-esperando:maria");
+  assert.deepEqual([...h.evidencia.chats].sort(), ["r3", "r4"]);
+  const asignado = (id, textos) => ({ ...maria({ conversationId: id, etapa: "NUEVO", temperatura: "CALIENTE", asignadaEn: mas(T0, -90), ultimoClienteEn: mas(T0, -80) }), textosPendientes: textos, textosDelCliente: ["me interesa el combo, cuánto vale?", ...textos] });
+  const a = det.detectarAsignadoSinRespuesta([asignado("s1", [REAL_8462]), asignado("s2", ["gracias, ¿y cuánto vale el envío?"])], T0);
+  assert.deepEqual(a.flatMap((x) => x.evidencia.chats), ["s2"], "asignado sin respuesta: el cierre no sale");
+  const libre = (id, textos) => ({ ...chat({ conversationId: id, asesoraId: null, asesoraNombre: null, ultimoClienteEn: mas(T0, -40) }), textosPendientes: textos });
+  const sd = det.detectarAtencion([libre("l1", ["separar el combo", REAL_5903]), libre("l2", ["ok gracias, quiero separar el combo en crema"])], T0).find((x) => x.clave === "ATENCION:senal-sin-duena");
+  assert.deepEqual(sd.evidencia.chats, ["l2"], "sin dueña: el cierre no sale");
+  // Fuera de horario (domingo 6:15 p. m.): ni 8462 ni 5903; el que pregunta sí.
+  const domingo1815 = new Date("2026-10-11T23:15:00Z");
+  const noche = (id, textos, extra = {}) => ({ ...chat({ conversationId: id, etapa: "NUEVO", temperatura: "CALIENTE", ultimoClienteEn: mas(domingo1815, -20 * 60) }), textosPendientes: textos, ...extra });
+  const res = enNoche(r.estadoVacio(), { chats: [noche("n1", [REAL_8462]), noche("n2", ["No hablo de eso", REAL_5903]), noche("n3", ["gracias, ¿y cuánto vale el envío?"])], ahora: domingo1815 });
+  assert.deepEqual(res.eventos.flatMap((e) => e.accionIds), ["n3"]);
+});
+
+await prueba("sugerido (11-oct): sin color elegido → neutro; 'solo la camilla' + color → camilla (no combo); nunca 'en ese color'", () => {
+  const sug = (pendientes, delCliente = []) => det.sugeridoParaElChat({ ...chat(), textosPendientes: pendientes, textosDelCliente: delCliente }, T0, null);
+  // Sin color ni otra señal → neutro.
+  assert.equal(sug(["hola"], ["Hola, me interesa el COMBO de estética (camilla, escalera, silla y auxiliar)", "hola"]), "¡Hola! ¿Te quedó alguna duda? Con gusto te ayudo 😊");
+  // Nombra un color sin elegirlo ("tengo una camilla blanca") → no "Excelente elección".
+  assert.doesNotMatch(sug(["tengo una camilla blanca vieja"]), /Excelente elección/);
+  // Caso 5903: pidió SOLO la camilla y eligió crema → camilla, no combo.
+  const t5903 = ["Hola, me interesa el COMBO de estética (camilla, escalera, silla y auxiliar)", "Solo camilla", "Color crema", "Solo la camilla"];
+  const s = sug(["Color crema"], t5903);
+  assert.match(s, /Excelente elección/);
+  assert.match(s, /\*camilla\* en color \*crema\*/);
+  assert.doesNotMatch(s, /[Cc]ombo|ese color|camillas/);
+  // Combo con color elegido ("Rosado") → combo en rosado.
+  const combo = sug(["Rosado"], ["Rosado", "Hola, me interesa el COMBO de estética (camilla, escalera, silla y auxiliar)"]);
+  assert.match(combo, /\*Combo de Camilla\* en color \*rosado\*/);
+  // Color elegido pero sin producto claro → no "Excelente elección".
+  assert.doesNotMatch(sug(["Rosado"], ["Rosado"]), /Excelente elección/);
+  // Pidió fotos (esperando) → se le ofrecen las fotos, no "¿pudiste ver las fotos?".
+  assert.match(sug(["Puedes enviarme foto"], ["Puedes enviarme foto", "Hola, me interesa el COMBO de estética (camilla, escalera, silla y auxiliar)"]), /Te comparto las fotos de tu \*Combo de Camilla\*/);
+  // El accionable usa el mismo criterio.
+  const c = chat({ conversationId: "z1", etapa: "NEGOCIACION", textosPendientes: ["hola"], textosDelCliente: ["Hola, me interesa el COMBO de estética (camilla, escalera, silla y auxiliar)", "hola"], nombreCliente: null });
+  const cand = r.candidatasDeLaVuelta({ hallazgos: [hallazgo("ATENCION:caliente-esperando:ingrid", ["z1"])], chats: [c], ahora: T0, supervisora: INGRID });
+  assert.equal(cand[0].mensajeSugerido, "¡Hola! ¿Te quedó alguna duda? Con gusto te ayudo 😊");
+});
+
+await prueba("plazo (11-oct): nunca 'Plazo: YA'; segundo aviso fuera de horario = antes de las HH:MM (plazoMin de reloj); de día = segunda oportunidad", () => {
+  // Fuera de horario: aviso 22:48 UTC (17:48), segundo aviso 23:18 UTC (18:18) → plazo 18:48.
+  let res = enNoche(r.estadoVacio(), { chats: [mariaDomingo()], ahora: DOMINGO });
+  res = enNoche(res.estado, { chats: [mariaDomingo()], ahora: mas(DOMINGO, 30) });
+  const a = res.estado.acciones.c1;
+  const texto = r.textoParaLaAsesora({ acciones: [a], enlaces: new Map(), ahora: mas(DOMINGO, 30), segundo: true, fueraDeHorario: true });
+  assert.ok(!/Plazo: YA/.test(texto), "sin 'Plazo: YA'");
+  assert.match(texto, /⏱️ Plazo: antes de las 16:00/, "segundo aviso 15:30 + 30 min de reloj");
+  assert.match(r.pushParaLaAsesora([a], true, true, mas(DOMINGO, 30)).body, /Plazo: antes de las 16:00/);
+  // De día: segundo aviso 10:15 + 10 min laborales = 10:25 (cuando se escala).
+  let dia = vuelta(r.estadoVacio(), { chats: [chat()], hallazgos: [hallazgo("ATENCION:caliente-esperando:ingrid", ["c1"])], ahora: T0 });
+  dia = vuelta(dia.estado, { chats: [chat()], ahora: mas(T0, 15) });
+  const d = dia.estado.acciones.c1;
+  assert.equal(d.estado, "SEGUNDO_AVISO");
+  assert.match(r.textoParaLaAsesora({ acciones: [d], enlaces: new Map(), ahora: mas(T0, 15), segundo: true, segundaOportunidadMin: 10 }), /⏱️ Plazo: antes de las 10:25/);
+  // Sin con qué calcular → "en los próximos N min" (N = plazoMin).
+  assert.equal(r.textoDelPlazo({ ...d, venceEn: mas(T0, -5).toISOString(), plazoMin: 30 }, T0), "en los próximos 30 min");
+});
+
 console.log(`\n${pruebas} pruebas OK`);

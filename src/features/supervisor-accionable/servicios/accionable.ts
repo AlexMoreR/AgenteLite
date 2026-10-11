@@ -181,12 +181,12 @@ async function ejecutar(workspaceId: string, estado: EstadoAccionable, eventos: 
         if (!acciones.length) continue;
         const segundo = evento.tipo === "segundo_aviso";
         const nocturno = Boolean(evento.fueraDeHorario);
-        const { title, body } = pushParaLaAsesora(acciones, segundo, nocturno);
+        const { title, body } = pushParaLaAsesora(acciones, segundo, nocturno, ahora, config.segundaOportunidadMin);
         const url = acciones.length === 1 && acciones[0].conversationId ? `/cliente/chats?chatKey=agent:${acciones[0].conversationId}&assigned=all` : "/cliente/crm/mi-dia";
         enviados += await sendPushToUser({ userId: evento.responsableId, payload: { title, body, tag: `accionable:${evento.responsableId}`, url } }).catch(() => 0);
         if (config.asesoraWhatsApp) {
           const enlaces = new Map(acciones.map((a) => [a.id, enlaceAbsoluto(a)]));
-          if (await whatsAppAlEquipo(workspaceId, evento.responsableId, textoParaLaAsesora({ acciones, enlaces, ahora, segundo, fueraDeHorario: nocturno }))) enviados += 1;
+          if (await whatsAppAlEquipo(workspaceId, evento.responsableId, textoParaLaAsesora({ acciones, enlaces, ahora, segundo, fueraDeHorario: nocturno, segundaOportunidadMin: config.segundaOportunidadMin }))) enviados += 1;
         }
         if (evento.tipo === "segundo_aviso" && evento.supervisoraId) {
           const aviso = pushParaLaSupervisora(acciones);

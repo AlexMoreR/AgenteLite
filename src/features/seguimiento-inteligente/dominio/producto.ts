@@ -78,6 +78,54 @@ export function familiaDelTexto(texto: string | null | undefined): string | null
   return null;
 }
 
+/**
+ * "Solo la camilla", "la camilla sola", "sin el combo", "no el combo" (caso real •••• 5903 del
+ * 11-oct: pidió SOLO la camilla y el sugerido le hablaba del combo). Sobre el texto normalizado.
+ */
+const SOLO_CAMILLA = [
+  /\b(solo|solamente|unicamente|nada mas|na mas)( la| una| el)? camill/,
+  /\bcamill\w* (sola|solita|solamente|nada mas|sin (el )?combo)\b/,
+  /\b(sin|no) (el |un |lo del )?combo\b/,
+];
+
+/**
+ * El producto del chat para el MENSAJE SUGERIDO (no cambia `familiaDelTexto`, que usa el motor):
+ *  1. Si en algún texto pidió SOLO la camilla → "camillas" (nunca el combo).
+ *  2. Si no, la familia del texto más RECIENTE que nombra una: primero los pendientes (del más
+ *     nuevo al más viejo) y después los demás textos del cliente (vienen del más nuevo al más viejo).
+ */
+export function productoDelChat(pendientes: string[], delCliente: string[] = []): string | null {
+  const todos = [...pendientes, ...delCliente];
+  if (todos.some((t) => SOLO_CAMILLA.some((re) => re.test(normalizarConservando(t ?? "").replace(/\s+/g, " "))))) return "camillas";
+  for (const texto of [...pendientes].reverse()) {
+    const familia = familiaDelTexto(texto);
+    if (familia) return familia;
+  }
+  for (const texto of delCliente) {
+    const familia = familiaDelTexto(texto);
+    if (familia) return familia;
+  }
+  return null;
+}
+
+/** Cómo se nombra UN producto de la familia en un mensaje ("tu *camilla*", no "tu *camillas*"). */
+const EN_SINGULAR: Record<string, string> = {
+  "combo-camilla": "Combo de Camilla",
+  "mesa-manicure": "mesa de manicure",
+  "butacos-manicure": "butaco de manicure",
+  poltronas: "poltrona",
+  lavacabezas: "lavacabezas",
+  "sillas-peluqueria": "silla de peluquería",
+  auxiliares: "auxiliar de peluquería",
+  camillas: "camilla",
+  tocador: "tocador",
+  "sofa-recepcion": "sofá de recepción",
+};
+
+export function nombreEnSingular(clave: string | null | undefined): string | null {
+  return clave ? EN_SINGULAR[clave] ?? nombreDeFamilia(clave) : null;
+}
+
 /** El video del combo armado (el mismo del flujo "Video combo armado", sin su texto de contraentrega). */
 export const VIDEO_COMBO_ARMADO =
   "https://app.aizenbot.com/uploads/chatbot-flows/1790998704867-WhatsApp_Video_2026-10-02_at_103757_PM.mp4";

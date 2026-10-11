@@ -37,11 +37,9 @@
 
 import { ultimos4 } from "../../coach/reglas";
 import { detectarSenales } from "../../embudo/dominio/senales";
-import { estadoDeEspera, enHorario, interesDelLead, type ChatAbierto } from "../../supervisor/dominio/detectores-atencion";
+import { estadoDeEspera, enHorario, interesDelLead, sugeridoParaElChat, type ChatAbierto } from "../../supervisor/dominio/detectores-atencion";
 import { motivoDeExclusion } from "../../supervisor/dominio/exclusiones";
 import { diaSemanaBogota, horaBogota as horaDelDiaBogota } from "../../supervisor/dominio/linea-base";
-import { mensajePorSenales } from "../../seguimiento-inteligente/dominio/mensajes";
-import { familiaDelTexto, nombreDeFamilia } from "../../seguimiento-inteligente/dominio/producto";
 import { ORDEN_DE_SEVERIDAD, type Hallazgo, type Severidad } from "../../supervisor/dominio/tipos";
 
 const MIN = 60_000;
@@ -414,10 +412,8 @@ function mensajeSugerido(tipo: TipoDeAccion, chat: ChatAbierto, h: Hallazgo | nu
   }
   const delDetector = sugeridoDelHallazgo(h, chat.conversationId);
   if (delDetector) return delDetector;
-  const interes = interesDelLead(chat, ahora);
-  const textos = [...(chat.textosDelCliente ?? []), ...chat.textosPendientes];
-  const familia = textos.map((t) => familiaDelTexto(t)).find(Boolean) ?? null;
-  return mensajePorSenales({ nombre: primerNombre(chat.nombreCliente), producto: nombreDeFamilia(familia), senales: interes.calificacion.senales });
+  // Mismo criterio que el detector: producto real del chat, color solo si lo eligió; si no, neutro.
+  return sugeridoParaElChat(chat, ahora, primerNombre(chat.nombreCliente));
 }
 
 function motivoDe(tipo: TipoDeAccion, chat: ChatAbierto, ahora: Date): { motivo: string; frase: string | null; desde: Date } {
@@ -894,6 +890,8 @@ export function avanzar(input: {
       if (previa && ESTADOS_ACTIVOS.includes(previa.estado)) {
         previa.vistoEn = iso;
         previa.frase = c.frase ?? previa.frase;
+        // El sugerido sigue a lo último que dijo el cliente (el segundo aviso no repite uno viejo).
+        if (previa.tipo === c.tipo) previa.mensajeSugerido = c.mensajeSugerido ?? previa.mensajeSugerido;
         // Ya la tiene la supervisora, está escalada o es un pago: sigue su camino.
         if (previa.fueraDeHorario || previa.estado === "ESCALADA" || previa.tipo === "pago") continue;
         // Una acción de la tarde (o un asignado que se calentó) que la asesora dejó al irse: la toma la supervisora.
@@ -926,6 +924,8 @@ export function avanzar(input: {
     if (previa && ESTADOS_ACTIVOS.includes(previa.estado)) {
       previa.vistoEn = iso;
       previa.frase = c.frase ?? previa.frase;
+      // El sugerido sigue a lo último que dijo el cliente (el segundo aviso no repite uno viejo).
+      if (previa.tipo === c.tipo) previa.mensajeSugerido = c.mensajeSugerido ?? previa.mensajeSugerido;
       const sube = previa.tipo in FUERZA_DEL_TIPO && FUERZA_DEL_TIPO[c.tipo] > FUERZA_DEL_TIPO[previa.tipo as TipoDeAccion];
       if (!sube) continue;
       // Empeoró (p. ej. ahora dice "ya pagué"): tipo, riesgo y plazo nuevos, y aviso nuevo.
@@ -1075,6 +1075,28 @@ export function duracion(minutos: number): string {
 }
 
 /**
+ * Hasta cuándo tiene la responsable (11-10-2026: el segundo aviso decía "Plazo: YA", que no dice nada).
+ *  - Primer aviso: el `venceEn` de la acción.
+ *  - Segundo aviso fuera de horario: el plazo de reloj de la supervisora (`plazoMin`) desde el segundo aviso.
+ *  - Segundo aviso de día: la segunda oportunidad (minutos laborales) desde el segundo aviso; es
+ *    cuando se escala a Alexander.
+ * Siempre "antes de las HH:MM"; si no hay con qué calcularla, "en los próximos N min" (N = plazoMin).
+ */
+export function finDelPlazo(a: Accion, ahora: Date, opciones: { segundo?: boolean; fueraDeHorario?: boolean; segundaOportunidadMin?: number } = {}): Date | null {
+  if (!opciones.segundo) return a.venceEn ? new Date(a.venceEn) : a.plazoMin > 0 ? new Date(ahora.getTime() + a.plazoMin * MIN) : null;
+  const desde = a.segundoAvisoEn ? new Date(a.segundoAvisoEn) : ahora;
+  if (opciones.fueraDeHorario || a.fueraDeHorario) return a.plazoMin > 0 ? new Date(desde.getTime() + a.plazoMin * MIN) : null;
+  const segunda = opciones.segundaOportunidadMin ?? CONFIG_ACCIONABLE_POR_DEFECTO.segundaOportunidadMin;
+  return segunda > 0 ? venceEn(a.tipo, desde, segunda) : null;
+}
+
+export function textoDelPlazo(a: Accion, ahora: Date, opciones: { segundo?: boolean; fueraDeHorario?: boolean; segundaOportunidadMin?: number } = {}): string {
+  const fin = finDelPlazo(a, ahora, opciones);
+  if (fin && fin.getTime() > ahora.getTime()) return `antes de las ${horaBogota(fin)}`;
+  return `en los próximos ${a.plazoMin > 0 ? a.plazoMin : 15} min`;
+}
+
+/**
  * El WhatsApp a la asesora: cliente exacto, motivo, cuánto espera, qué hacer (mensaje sugerido),
  * enlace y PLAZO. Varios chats de la misma vuelta van en un solo mensaje (máx. 5 detallados).
  */
@@ -1085,6 +1107,8 @@ export function textoParaLaAsesora(input: {
   segundo?: boolean;
   /** Aviso a la supervisora fuera de horario. */
   fueraDeHorario?: boolean;
+  /** Minutos laborales de la segunda oportunidad (config.segundaOportunidadMin), para el plazo del segundo aviso de día. */
+  segundaOportunidadMin?: number;
 }): string {
   const { acciones, ahora } = input;
   const primero = acciones[0];
@@ -1099,13 +1123,12 @@ export function textoParaLaAsesora(input: {
       : `📋 *Supervisor · tarea para ti*${nombre ? ` · ${nombre}` : ""}`;
   const lineas = [encabezado, ""];
   acciones.slice(0, 5).forEach((a, i) => {
-    const vence = input.segundo ? null : a.venceEn;
     lineas.push(`${acciones.length > 1 ? `${i + 1}) ` : ""}${ICONO_DEL_TIPO[a.tipo]} *${a.cliente}*${a.telefono && a.cliente !== a.telefono ? ` (${a.telefono})` : ""}`);
     lineas.push(`${a.motivo} · espera ${duracion(minutosDesde(a.esperandoDesde, ahora))}`);
     if (input.fueraDeHorario) lineas.push(a.duenaNombre ? `Chat de ${a.duenaNombre}` : "Chat tuyo");
     if (a.frase) lineas.push(`Dijo: «${a.frase}»`);
     if (a.mensajeSugerido) lineas.push(`Responde: "${a.mensajeSugerido.slice(0, 280)}"`);
-    lineas.push(`⏱️ Plazo: ${vence ? `antes de las ${horaBogota(vence)}` : "YA"}`);
+    lineas.push(`⏱️ Plazo: ${textoDelPlazo(a, ahora, { segundo: input.segundo, fueraDeHorario: input.fueraDeHorario, segundaOportunidadMin: input.segundaOportunidadMin })}`);
     const enlace = input.enlaces.get(a.id);
     if (enlace) lineas.push(enlace);
     lineas.push("");
@@ -1114,11 +1137,17 @@ export function textoParaLaAsesora(input: {
   return lineas.join("\n").trim();
 }
 
-export function pushParaLaAsesora(acciones: Accion[], segundo = false, fueraDeHorario = false): { title: string; body: string } {
+export function pushParaLaAsesora(
+  acciones: Accion[],
+  segundo = false,
+  fueraDeHorario = false,
+  ahora: Date = new Date(),
+  segundaOportunidadMin?: number,
+): { title: string; body: string } {
   const a = acciones[0];
   const prefijo = fueraDeHorario ? "🌙 Fuera de horario: " : "";
   const title = (prefijo + (segundo ? "⏰ Segundo aviso: responde ya" : acciones.length > 1 ? `${acciones.length} clientes te esperan` : `${ICONO_DEL_TIPO[a.tipo]} ${a.cliente} te espera`)).slice(0, 60);
-  const plazo = segundo ? "Plazo vencido." : a.venceEn ? `Plazo: ${horaBogota(a.venceEn)}.` : "";
+  const plazo = `Plazo: ${textoDelPlazo(a, ahora, { segundo, fueraDeHorario, segundaOportunidadMin })}.`;
   const body = (acciones.length > 1 ? `${acciones.map((x) => x.cliente).slice(0, 4).join(", ")}. ${plazo}` : `${a.motivo}. ${plazo}${a.mensajeSugerido ? ` Sugerido: ${a.mensajeSugerido}` : ""}`).slice(0, 180);
   return { title, body };
 }

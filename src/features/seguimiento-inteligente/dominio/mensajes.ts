@@ -14,7 +14,17 @@ export type ContextoDelMensaje = {
   senales: SenalCalificada[];
   cotizacion?: { ref: string | null; total: string | null } | null;
   fechaComo?: string | null;
+  /**
+   * El cliente está ESPERANDO respuesta (Supervisor): se le responde lo que pidió. Con fotos pedidas
+   * se le ofrecen las fotos (no "¿pudiste ver las fotos?", que afirma que ya se le mandaron).
+   */
+  esperando?: boolean;
 };
+
+/** El mensaje neutro cuando no hay una señal clara (nunca afirma algo que el cliente no dijo). */
+export function mensajeNeutro(nombre: string | null): string {
+  return `${hola(nombre)} ¿Te quedó alguna duda? Con gusto te ayudo 😊`;
+}
 
 function hola(nombre: string | null): string {
   const limpio = (nombre ?? "").trim().split(/\s+/)[0] ?? "";
@@ -39,8 +49,12 @@ const POR_SENAL: Array<{ tipos: string[]; texto: (c: ContextoDelMensaje) => stri
     texto: (c) => `${hola(c.nombre)} Ya tengo tus datos ✍️ Te confirmo el total de ${el(c.producto)} con el envío a tu ciudad: [total]. ¿Lo dejamos separado hoy con el 50 %?`,
   },
   {
+    // Solo con color elegido de verdad (senal.valor) Y producto claro: ver `utilizable`.
     tipos: ["eligio_color"],
-    texto: (c) => `${hola(c.nombre)} ¡Excelente elección! 😍 Para apartar ${el(c.producto)} en ese color es con el *50 %*. ¿Te envío los datos para consignar?`,
+    texto: (c) => {
+      const color = c.senales.find((s) => s.tipo === "eligio_color")?.valor;
+      return `${hola(c.nombre)} ¡Excelente elección! 😍 Para apartar ${el(c.producto)} en color *${color}* es con el *50 %*. ¿Te envío los datos para consignar?`;
+    },
   },
   {
     tipos: ["varias_unidades"],
@@ -56,7 +70,8 @@ const POR_SENAL: Array<{ tipos: string[]; texto: (c: ContextoDelMensaje) => stri
   },
   {
     tipos: ["color_medidas"],
-    texto: (c) => `${hola(c.nombre)} ${c.producto ? `El ${c.producto}` : "Viene"} en [colores / medidas]. ¿Cuál te gusta más para tu espacio?`,
+    // Sin artículo ("El camillas" / "El camilla" salían mal).
+    texto: (c) => `${hola(c.nombre)} ${c.producto ? `*${c.producto[0].toUpperCase()}${c.producto.slice(1)}* viene` : "Viene"} en [colores / medidas]. ¿Cuál te gusta más para tu espacio?`,
   },
   {
     tipos: ["tiempo_fabricacion"],
@@ -85,23 +100,41 @@ const POR_SENAL: Array<{ tipos: string[]; texto: (c: ContextoDelMensaje) => stri
     texto: (c) => `${hola(c.nombre)} ${el(c.producto)} está en [precio] 😊 ¿Para qué ciudad sería, así te confirmo el envío?`,
   },
   {
+    // Sin "Para lo que vas a hacer te queda perfecto" (afirmaba algo que nadie confirmó).
     tipos: ["fotos_video", "dijo_servicio"],
     texto: (c) =>
-      `${hola(c.nombre)} ¿Pudiste ver las fotos de ${el(c.producto)}? 😊 Para lo que vas a hacer te queda perfecto. ¿Para qué ciudad sería, así te confirmo precio y envío?`,
+      c.esperando && c.senales.some((s) => s.tipo === "fotos_video")
+        ? `${hola(c.nombre)} Te comparto las fotos${c.producto ? ` de ${el(c.producto)}` : ""} 📸 ¿Cuál te gustó más? Así te confirmo precio, colores y el envío a tu ciudad.`
+        : `${hola(c.nombre)} ¿Pudiste ver las fotos${c.producto ? ` de ${el(c.producto)}` : ""}? 😊 ¿Para qué ciudad sería, así te confirmo precio y envío?`,
   },
 ];
 
+/**
+ * ¿La señal sirve para armar el mensaje? "Eligió color" solo si el color es una elección clara
+ * (`valor`) Y el producto está claro: si no, "¡Excelente elección! … en ese color" afirmaría algo
+ * que el cliente no dijo (caso real •••• 8462 / •••• 5903 del 11-oct).
+ */
+function utilizable(s: SenalCalificada, producto: string | null): boolean {
+  if (s.grupo === "negativa") return false;
+  if (s.tipo === "eligio_color") return Boolean(s.valor && producto);
+  return true;
+}
+
 /** La señal que manda en el mensaje: la de mayor peso; entre iguales, la más reciente. */
-export function senalPrincipal(senales: SenalCalificada[]): SenalCalificada | null {
-  const utiles = senales.filter((s) => s.grupo !== "negativa");
+export function senalPrincipal(senales: SenalCalificada[], producto: string | null = null, exigirColorClaro = false): SenalCalificada | null {
+  const utiles = senales.filter((s) => (exigirColorClaro ? utilizable(s, producto) : s.grupo !== "negativa"));
   return [...utiles].sort((a, b) => b.peso - a.peso || b.en.getTime() - a.en.getTime())[0] ?? null;
 }
 
+/**
+ * El mensaje según la señal principal. Sin señal útil → mensaje NEUTRO ("¿Te quedó alguna duda?"),
+ * que no da por hecho producto, color ni que ya se le mandó información.
+ */
 export function mensajePorSenales(c: ContextoDelMensaje): string {
-  const principal = senalPrincipal(c.senales);
+  const principal = senalPrincipal(c.senales, c.producto, true);
   const plantilla = principal ? POR_SENAL.find((p) => p.tipos.includes(principal.tipo)) : null;
   if (plantilla) return plantilla.texto(c);
-  return `${hola(c.nombre)} ¿Pudiste ver la información de ${el(c.producto)}? 😊 Cuéntame qué te gustaría saber y te ayudo a dejarlo listo.`;
+  return mensajeNeutro(c.nombre);
 }
 
 export function mensajeDeCotizacion(c: ContextoDelMensaje, horas: number): string {

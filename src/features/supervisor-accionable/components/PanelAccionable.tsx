@@ -9,6 +9,7 @@ import {
   duracion,
   enlaceAlChat,
   horaBogota,
+  textoDelPlazo,
   type Accion,
   type EsperandoFueraDeHorario,
   type Tarjeta,
@@ -244,7 +245,7 @@ export function PedidosDelSupervisor({ acciones }: { acciones: Accion[] }) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className={`text-xs font-semibold ${a.estado === "SEGUNDO_AVISO" ? "text-red-600" : "text-amber-600"}`}>
                 {a.estado === "SEGUNDO_AVISO"
-                  ? `Plazo vencido (${horaBogota(a.venceEn)}) · responde YA`
+                  ? `Plazo vencido (${horaBogota(a.venceEn)}) · responde ${textoDelPlazo(a, new Date(), { segundo: true, fueraDeHorario: Boolean(a.fueraDeHorario) })}`
                   : a.venceEn
                     ? `Plazo: antes de las ${horaBogota(a.venceEn)}`
                     : "Asígnala a una asesora o atiéndela"}

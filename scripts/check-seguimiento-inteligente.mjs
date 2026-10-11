@@ -738,4 +738,18 @@ prueba("formulario: sus tareas pasan por el mismo tope de 15 por asesora", () =>
   assert.equal(planes.filter((p) => p.estado === "pospuesta").length, 3);
 });
 
+prueba("color elegido / producto del chat (11-oct): solo elecciones claras; 'solo la camilla' no es combo", () => {
+  for (const [texto, color] of [["Rosado", "rosado"], ["Color crema", "crema"], ["en negro porfa", "negro"], ["quiero la camilla en blanco", "blanco"], ["la negra", "negra"]]) {
+    assert.equal(te.colorElegido(texto), color, texto);
+  }
+  for (const texto of ["tengo una camilla blanca vieja", "¿la tienen en negro?", "qué colores hay", "Ah, bueno, visto, muy bien, muchas gracias."]) {
+    assert.equal(te.colorElegido(texto), null, texto);
+  }
+  const combo = "Hola, me interesa el COMBO de estética (camilla, escalera, silla y auxiliar)";
+  assert.equal(pr.productoDelChat(["Solo la camilla"], [combo]), "camillas");
+  assert.equal(pr.productoDelChat(["hola"], ["camilla sola", combo]), "camillas");
+  assert.equal(pr.productoDelChat(["Rosado"], [combo]), "combo-camilla");
+  assert.equal(pr.nombreEnSingular("camillas"), "camilla");
+});
+
 console.log(`\n${pruebas} pruebas OK`);
