@@ -1,4 +1,6 @@
 import { enrutarAlertasDelSupervisor, leerConfigGravedad } from "@/features/avisos-gravedad/servicios/enrutador";
+import { manejaElAccionable } from "@/features/supervisor-accionable/dominio/reglas";
+import { leerConfigAccionable, textoCriticoDeIncidente } from "@/features/supervisor-accionable/servicios/accionable";
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/web-push";
 
@@ -22,6 +24,18 @@ export async function avisarAlDueno(input: {
   incidentes?: Incidente[];
   ahora?: Date;
 }): Promise<number> {
+  /*
+    SUPERVISOR ACCIONABLE (11-10-2026): con su interruptor, las alertas de atención de un chat
+    (caliente, asignado sin respuesta, "ya pagué", sin dueña) NO salen por aquí: las maneja
+    supervisor-accionable (aviso a la asesora → verificación → escala a Alexander solo si hace falta).
+    Todo lo demás sigue exactamente igual. Apagado = sin filtro.
+  */
+  const accionable = await leerConfigAccionable(input.workspaceId).catch(() => null);
+  const filtrar = Boolean(accionable?.activo);
+  const avisosPropios = filtrar ? input.avisos.filter((aviso) => !manejaElAccionable(aviso.incidente.clave)) : input.avisos;
+  const incidentesPropios = filtrar ? input.incidentes?.filter((inc) => !manejaElAccionable(inc.clave)) : input.incidentes;
+  input = { ...input, avisos: avisosPropios, incidentes: incidentesPropios };
+
   const gravedad = await leerConfigGravedad(input.workspaceId).catch(() => null);
   if (gravedad?.activo) {
     const resultado = await enrutarAlertasDelSupervisor({
@@ -30,6 +44,7 @@ export async function avisarAlDueno(input: {
       avisos: input.avisos,
       incidentes: input.incidentes,
       ahora: input.ahora ?? new Date(),
+      textoCritico: filtrar ? (inc) => textoCriticoDeIncidente(inc) : undefined,
     }).catch((error) => {
       console.error("[supervisor] enrutador de avisos", error instanceof Error ? error.message : error);
       return { enviados: 0 };

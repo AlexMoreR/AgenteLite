@@ -5,6 +5,8 @@ import { PendientesDelCoach } from "@/features/coach/components/PendientesDelCoa
 import { leerPendientesDelCoach } from "@/features/coach/servicios/leer-coach";
 import { TareasDeSeguimiento } from "@/features/seguimiento-inteligente/components/TareasDeSeguimiento";
 import { leerTareasDeAsesora } from "@/features/seguimiento-inteligente/servicios/tareas";
+import { PedidosDelSupervisor } from "@/features/supervisor-accionable/components/PanelAccionable";
+import { leerPedidosDelSupervisor } from "@/features/supervisor-accionable/servicios/accionable";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getVisibleChannelIds } from "@/lib/channel-visibility";
 import { getMiDiaData } from "@/features/crm/services/getMiDiaData";
@@ -49,7 +51,7 @@ export default async function ClienteCrmMiDiaPage() {
   const quien = veLlamadas
     ? await prisma.user.findUnique({ where: { id: access.userId }, select: { name: true, email: true } })
     : null;
-  const [data, vendedora, resumen, coach, tareasDeSeguimiento] = await Promise.all([
+  const [data, vendedora, resumen, coach, tareasDeSeguimiento, pedidosDelSupervisor] = await Promise.all([
     getMiDiaData({
       workspaceId: access.workspaceId,
       userId: access.userId,
@@ -71,7 +73,10 @@ export default async function ClienteCrmMiDiaPage() {
     leerPendientesDelCoach(access.workspaceId, access.userId).catch(() => null),
     // Seguimiento inteligente: sus tareas de hoy (solo con el motor en modo activo).
     leerTareasDeAsesora(access.workspaceId, access.userId).catch(() => []),
+    // Supervisor accionable: lo que le pidió el Supervisor, con plazo (null con el interruptor apagado).
+    leerPedidosDelSupervisor(access.workspaceId, access.userId).catch(() => null),
   ]);
+  const bloqueDelSupervisor = pedidosDelSupervisor?.length ? <PedidosDelSupervisor acciones={pedidosDelSupervisor} /> : null;
   const bloqueDeSeguimiento = tareasDeSeguimiento.length ? (
     <details open className="rounded-xl border border-border bg-card px-4 py-3">
       <summary className="cursor-pointer text-sm font-medium text-foreground">
@@ -106,8 +111,9 @@ export default async function ClienteCrmMiDiaPage() {
     <MiDiaView
       data={data}
       llamadasUrgentes={
-        bloqueDeSeguimiento || bloqueDelCoach || vendedora ? (
+        bloqueDelSupervisor || bloqueDeSeguimiento || bloqueDelCoach || vendedora ? (
           <>
+            {bloqueDelSupervisor}
             {bloqueDeSeguimiento}
             {bloqueDelCoach}
             {vendedora ? <LlamadasDeMiDia vendedora={vendedora} marcadorUrl={marcadorUrl} momento="urgente" /> : null}

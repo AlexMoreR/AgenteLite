@@ -23,6 +23,7 @@
     "test:supervisor": "node scripts/check-supervisor.mjs",
     "test:seguimiento-inteligente": "node scripts/check-seguimiento-inteligente.mjs",
     "test:avisos-gravedad": "node scripts/check-avisos-gravedad.mjs",
+    "test:supervisor-accionable": "node scripts/check-supervisor-accionable.mjs",
     "supervisor:guardian": "node scripts/supervisor-guardian.mjs",
     "supervisor:simular": "node scripts/supervisor-simulacion.mjs",
     "test:e2e": "playwright test -c e2e",

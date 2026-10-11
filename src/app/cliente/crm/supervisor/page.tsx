@@ -25,6 +25,8 @@ import { leerConfigSeguimiento } from "@/features/seguimiento-inteligente/servic
 import { leerTareasParaSupervisor, resumenDelMotor } from "@/features/seguimiento-inteligente/servicios/tareas";
 import { bloqueDelCierreDelDia, fechaBogota } from "@/features/avisos-gravedad/dominio/reglas";
 import { leerConfigGravedad, leerResumenDelDia } from "@/features/avisos-gravedad/servicios/enrutador";
+import { PanelAccionableView } from "@/features/supervisor-accionable/components/PanelAccionable";
+import { leerConfigAccionable, leerPanelAccionable } from "@/features/supervisor-accionable/servicios/accionable";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 
@@ -95,6 +97,12 @@ export default async function SupervisorPage() {
     leerAlertasRecientes(workspaceId).catch(() => null),
     leerLineaDelLibro(workspaceId),
   ]);
+
+  // Supervisor accionable: Prioridades de Alexander + lo que está en manos de las asesoras.
+  const configAccionable = await leerConfigAccionable(workspaceId).catch(() => null);
+  const panelAccionable = configAccionable?.activo
+    ? await leerPanelAccionable(workspaceId, (alertas ?? []).filter((alerta) => alerta.estado === "ABIERTA")).catch(() => null)
+    : null;
 
   const configAvisos = await leerConfigGravedad(workspaceId).catch(() => null);
   const avisos = {
@@ -194,6 +202,8 @@ export default async function SupervisorPage() {
           </p>
         ) : null}
       </div>
+
+      {panelAccionable ? <PanelAccionableView panel={panelAccionable} /> : null}
 
       {avisos.resumen ? (
         <Card size="sm">

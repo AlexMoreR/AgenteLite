@@ -73,7 +73,7 @@ export async function idsDeAlexander(workspaceId: string, config: ConfigGravedad
   return jefes.map((jefe) => jefe.userId);
 }
 
-type ConfigDeAvisosCruda = { canalId?: string; destinos?: Array<{ numero?: string; soloDe?: string | null }> };
+type ConfigDeAvisosCruda = { canalId?: string; destinos?: Array<{ numero?: string; soloDe?: string | null; userId?: string }> };
 
 async function leerAvisosCrudos(workspaceId: string): Promise<ConfigDeAvisosCruda> {
   const fila = await prisma.appSetting.findUnique({ where: { key: `agente-v3:avisos:${workspaceId}` } }).catch(() => null);
@@ -98,6 +98,22 @@ export async function destinoWhatsAppCritico(
   const administrador = (avisos.destinos ?? []).find((d) => d.soloDe === null || d.soloDe === undefined);
   const numero = config.whatsapp.numero ?? (administrador?.numero ?? "").replace(/\D/g, "");
   if (!numero || numero.length < 10 || !numerosDelEquipo.has(numero)) return null;
+  const linea = await lineaInterna(workspaceId, config, avisos);
+  if (!linea) return null;
+  return { numero, canalId: linea.canalId, instancia: linea.instancia };
+}
+
+/**
+ * La línea INTERNA del equipo (nunca una de ventas): la de la config de gravedad, la interna del
+ * anti-bloqueo o la de la config de avisos (hoy, Admin). La usa también el Supervisor accionable
+ * para el WhatsApp a la asesora.
+ */
+export async function lineaInterna(
+  workspaceId: string,
+  config: ConfigGravedad,
+  avisosLeidos?: ConfigDeAvisosCruda,
+): Promise<{ canalId: string; instancia: string } | null> {
+  const avisos = avisosLeidos ?? (await leerAvisosCrudos(workspaceId));
   const antiBloqueo = await leerConfigAntiBloqueo(workspaceId).catch(() => null);
   const canalId = config.whatsapp.canalId ?? antiBloqueo?.avisos.canalInternoId ?? avisos.canalId ?? null;
   if (!canalId) return null;
@@ -105,7 +121,15 @@ export async function destinoWhatsAppCritico(
     .findFirst({ where: { id: canalId, workspaceId }, select: { id: true, evolutionInstanceName: true } })
     .catch(() => null);
   if (!linea?.evolutionInstanceName) return null;
-  return { numero, canalId: linea.id, instancia: linea.evolutionInstanceName };
+  return { canalId: linea.id, instancia: linea.evolutionInstanceName };
+}
+
+/** El número de avisos de una persona del equipo (Mi empresa → Equipo), si lo tiene. */
+export async function numeroDeAvisosDeLaPersona(workspaceId: string, userId: string): Promise<string | null> {
+  const avisos = await leerAvisosCrudos(workspaceId);
+  const destino = (avisos.destinos ?? []).find((d) => d.userId === userId || d.soloDe === userId);
+  const numero = (destino?.numero ?? "").replace(/\D/g, "");
+  return numero.length >= 10 ? numero : null;
 }
 
 export async function pushAAlexander(
@@ -248,6 +272,11 @@ export async function enrutarAlertasDelSupervisor(input: {
   /** Los incidentes de la vuelta (para reevaluar los de atención abiertos). */
   incidentes?: Incidente[];
   ahora: Date;
+  /**
+   * Supervisor accionable encendido: el WhatsApp de un CRÍTICO sale con el formato completo
+   * (qué pasó · responsable · por qué te toca · tu acción · enlace). Sin esto, el texto de siempre.
+   */
+  textoCritico?: (inc: Incidente, motivo: string, enlace: string) => string;
 }): Promise<{ enviados: number; porCanal: Record<Canal, number> }> {
   const { workspaceId, config, ahora } = input;
   const porCanal: Record<Canal, number> = { asesora_whatsapp: 0, asesora_push: 0, alexander_push: 0, alexander_whatsapp: 0, resumen: 0 };
@@ -303,7 +332,8 @@ export async function enrutarAlertasDelSupervisor(input: {
 
     if (canales.includes("alexander_whatsapp") && decidirWhatsApp({ marca, leads, ahora, enfriamientoMin: config.enfriamientoMin })) {
       const enlace = await enlaceDelIncidente(workspaceId, inc);
-      const ok = await whatsAppAAlexander({ workspaceId, config, texto: textoWhatsAppCritico(inc, motivo, enlace) });
+      const texto = input.textoCritico ? input.textoCritico(inc, motivo, enlace) : textoWhatsAppCritico(inc, motivo, enlace);
+      const ok = await whatsAppAAlexander({ workspaceId, config, texto });
       if (ok) {
         salieron.push("alexander_whatsapp");
         enviados += 1;

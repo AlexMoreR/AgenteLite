@@ -11,8 +11,9 @@ import { correrGuardian } from "../dominio/guardian";
 import { diffDelLibro } from "../dominio/libro-diff";
 import type { CambioDelLibro } from "../dominio/tipos";
 import { guardarIncidentes, leerIncidentesAbiertos } from "./almacen-alertas";
-import { detectarPagoSinRespuesta } from "@/features/avisos-gravedad/dominio/reglas";
+import { CONFIG_GRAVEDAD_POR_DEFECTO, detectarPagoSinRespuesta } from "@/features/avisos-gravedad/dominio/reglas";
 import { leerConfigGravedad } from "@/features/avisos-gravedad/servicios/enrutador";
+import { gestionarAcciones, leerConfigAccionable } from "@/features/supervisor-accionable/servicios/accionable";
 import { avisarAlDueno } from "./avisar";
 import { claveLibroVisto, negociosConSupervisor } from "./config";
 import { chatsExcluidosDeAtencion, leerChatsAbiertos, leerFichasRecientes, leerFlujosDelLibro, leerLineaDelLibro, nombresDeAsesoras } from "./datos";
@@ -101,10 +102,13 @@ async function chequearAtencion(workspaceId: string, ahora: Date): Promise<numbe
   const tareasSinDuena = await leerTareasSinDuena(workspaceId, ahora).catch(() => []);
   // Avisos por gravedad: con el interruptor, también "ya pagué" / comprobante sin respuesta (CRÍTICO).
   const gravedad = await leerConfigGravedad(workspaceId).catch(() => null);
+  // Supervisor accionable: también necesita el detector de "ya pagué" (es su caso más urgente).
+  const accionable = await leerConfigAccionable(workspaceId).catch(() => null);
+  const conPago = Boolean(gravedad?.activo || accionable?.activo);
   const hallazgos = [
     ...detectarAtencion(chats, ahora),
     ...hallazgosDeTareasSinDuena(tareasSinDuena, ahora),
-    ...(gravedad?.activo ? detectarPagoSinRespuesta(chats, ahora, gravedad.pagoSinRespuestaMin) : []),
+    ...(conPago ? detectarPagoSinRespuesta(chats, ahora, gravedad?.pagoSinRespuestaMin ?? CONFIG_GRAVEDAD_POR_DEFECTO.pagoSinRespuestaMin) : []),
   ];
   const abiertosCrudos = (await leerIncidentesAbiertos(workspaceId)).filter((inc) => inc.familia === "ATENCION");
   // Los chats que ya no son tarea (PERDIDO/GANADO, exterior, dormidos, ya respondidos) salen de las
@@ -117,7 +121,11 @@ async function chequearAtencion(workspaceId: string, ahora: Date): Promise<numbe
   const { incidentes: abiertos } = purgarChatsExcluidos(abiertosCrudos, excluidos, ahora);
   const resultado = consolidar({ abiertos, hallazgos, ahora, cambios: [], familiasEvaluadas: ["ATENCION"] });
   await guardarIncidentes(workspaceId, resultado.incidentes, ahora);
+  // Con el accionable, avisarAlDueno deja fuera las alertas de chat: las maneja gestionarAcciones.
   await avisarAlDueno({ workspaceId, avisos: resultado.avisar, incidentes: resultado.incidentes, ahora });
+  if (accionable?.activo) {
+    await gestionarAcciones({ workspaceId, hallazgos, chats, ahora, config: accionable });
+  }
   return hallazgos.length;
 }
 
