@@ -39,6 +39,12 @@ export type ConfigSeguimientoInteligente = {
     /** Plazo de la tarea cuando el cliente está esperando: A (caliente) y B (tibio), en minutos. */
     minutosTareaA: number;
     minutosTareaB: number;
+    /**
+     * Si es true, "no leyó nuestro último mensaje" = no insistir y los toques de la cadencia se
+     * saltan. APAGADO desde el 11-10-2026 (Alexander). No se lee de este JSON: lo pone
+     * servicios/config.ts desde el interruptor `noLeido.activo` del anti-bloqueo (uno solo para todo).
+     */
+    respetarNoLeido: boolean;
   };
   /** Después de que la asesora escribió y el cliente no responde. */
   cadencia: {
@@ -98,6 +104,7 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
     diasDeSeguimiento: 10,
     minutosTareaA: 15,
     minutosTareaB: 30,
+    respetarNoLeido: false,
   },
   cadencia: { dias: [3, 4, 7], descarte: "apagado", horasDeGracia: 24, maxAutomaticos: 2 },
   cotizacion: { horas: [24, 72], diasVigente: 30 },
@@ -199,6 +206,7 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
       diasDeSeguimiento: numero(mot.diasDeSeguimiento, d.motor.diasDeSeguimiento, 1, 60),
       minutosTareaA: numero(mot.minutosTareaA, d.motor.minutosTareaA, 1, 24 * 60),
       minutosTareaB: numero(mot.minutosTareaB, d.motor.minutosTareaB, 1, 24 * 60),
+      respetarNoLeido: d.motor.respetarNoLeido,
     },
     cadencia: {
       dias: listaDeNumeros(cad.dias, d.cadencia.dias, 60),

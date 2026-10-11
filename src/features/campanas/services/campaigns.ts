@@ -80,6 +80,7 @@ function buildAudienceWhere(workspaceId: string, filtro: CampaignAudienceFilter)
  * medio alguien pudo dejar de escribir hace 30 dias o dejar sin leer lo ultimo que le mandamos.
  */
 async function motivoParaNoMandar(input: {
+  workspaceId: string;
   contactId: string;
   channelId: string | null;
   ahora: Date;
@@ -91,7 +92,11 @@ async function motivoParaNoMandar(input: {
   if (!reciente) {
     return MOTIVO_DEL_FRENO.sin_mensajes_recientes;
   }
-  const freno = await revisarFrenoDeAutomatico({ contactId: input.contactId, channelId: input.channelId });
+  const freno = await revisarFrenoDeAutomatico({
+    workspaceId: input.workspaceId,
+    contactId: input.contactId,
+    channelId: input.channelId,
+  });
   return freno.enviar ? null : MOTIVO_DEL_FRENO[freno.motivo];
 }
 
@@ -240,6 +245,7 @@ export async function procesarTandasDeCampanas(): Promise<{ enviados: number; fr
       for (const destinatario of tanda) {
         try {
           const motivo = await motivoParaNoMandar({
+            workspaceId: campana.workspaceId,
             contactId: destinatario.contactId,
             channelId: campana.channelId,
             ahora,

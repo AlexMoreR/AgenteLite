@@ -61,6 +61,14 @@ export type ConfigAntiBloqueo = {
     /** Línea interna (id de WhatsAppChannel) para `linea_interna`. Vacío = la de la config de avisos. */
     canalInternoId: string | null;
   };
+  /**
+   * 7. Freno "no leído" (chulitos grises): no mandar automáticos a quien no leyó nuestro último
+   * mensaje. Alexander lo APAGÓ el 11-10-2026: el que no lee recibe los mismos seguimientos que
+   * todos (con el tope de 2 sin respuesta, horario, espaciado, etc.). Se vuelve a prender con
+   * `{"noLeido":{"activo":true}}` sin tocar código. Aplica al freno de automáticos
+   * (lib/freno-de-automaticos) y al motor del seguimiento inteligente.
+   */
+  noLeido: { activo: boolean };
 };
 
 export const CONFIG_POR_DEFECTO: ConfigAntiBloqueo = {
@@ -70,6 +78,7 @@ export const CONFIG_POR_DEFECTO: ConfigAntiBloqueo = {
   textoVigente: { activo: false },
   espaciado: { activo: false, minSegundos: 20, maxSegundos: 90, porMinuto: 3 },
   avisos: { via: "linea_del_chat", canalInternoId: null },
+  noLeido: { activo: false },
 };
 
 function entero(valor: unknown, porDefecto: number, minimo: number, maximo: number): number {
@@ -138,6 +147,7 @@ export function leerConfigAntiBloqueoDeTexto(texto: string | null | undefined): 
       porMinuto: entero(espaciado.porMinuto, d.espaciado.porMinuto, 1, 60),
     },
     avisos: { via, canalInternoId },
+    noLeido: { activo: bandera(objeto(crudo.noLeido).activo, d.noLeido.activo) },
   };
 }
 

@@ -16,6 +16,8 @@
  *
  * Las reglas (pedido de Alexander, 10-10-2026):
  *  - NO LEYÓ nuestro último mensaje → no insistir. Si vuelve a leer o escribir, se reactiva.
+ *    APAGADO el 11-10-2026 (Alexander): el que no lee sigue igual que todos. Vuelve con el
+ *    interruptor `noLeido.activo` del anti-bloqueo (config.motor.respetarNoLeido).
  *  - LEYÓ y no respondió (FRÍO) → máximo 1 mensaje útil del producto que preguntó, 8–20 h.
  *  - TIBIO (pregunta concreta) → tarea para la asesora con el mensaje sugerido (prioridad B).
  *  - CALIENTE → una persona en < 15 min: tarea A y NINGÚN automático encima.
@@ -365,7 +367,8 @@ function mensajeUtilAFrio(
   const reemplazo: Partial<Decision> = { supresion: toque ? "siempre" : "reemplazo", toque };
   if (ficha.pausado && !toque) return base("no_insistir", "chat_pausado", { ...reemplazo, revisarEn: new Date(ahora.getTime() + 6 * HORA) });
   if (!ultimoOut) return base("no_insistir", "sin_mensaje_nuestro", reemplazo);
-  if (!ultimoOut.leidoEn && ultimoOut.estado !== "READ") {
+  // Solo con el interruptor del anti-bloqueo prendido (apagado desde el 11-10-2026).
+  if (config.motor.respetarNoLeido && !ultimoOut.leidoEn && ultimoOut.estado !== "READ") {
     return base("no_insistir", "no_leyo", { ...reemplazo, revisarEn: new Date(ahora.getTime() + 2 * HORA) });
   }
   if (topeAlcanzado) return base("no_insistir", "ya_se_mando_el_mensaje_util", { ...reemplazo, revisarEn: new Date(ahora.getTime() + 24 * HORA) });
@@ -437,9 +440,10 @@ function cadencia(
     }
     const desde = new Date(vence.getTime() - 2 * HORA);
     const hecho = mensajes.some((m) => m.direccion === "OUT" && m.en.getTime() >= desde.getTime() && (esHumano(m, c.inicio) || esAutomatico(m)));
-    // Si lo último nuestro antes del toque no se leyó, el toque se salta (no se le insiste a quien no lee).
+    // Con el interruptor `noLeido` prendido: si lo último nuestro antes del toque no se leyó, el
+    // toque se salta. Apagado (desde el 11-10-2026), el que no lee sigue la cadencia normal.
     const anterior = [...mensajes].reverse().find((m) => m.direccion === "OUT" && m.en.getTime() < vence.getTime()) ?? null;
-    const noLeyo = Boolean(anterior && !anterior.leidoEn && anterior.estado !== "READ");
+    const noLeyo = config.motor.respetarNoLeido && Boolean(anterior && !anterior.leidoEn && anterior.estado !== "READ");
     // A un Frío que ya recibió el tope de automáticos en este silencio tampoco se le insiste: el
     // anti-bloqueo lo frenaría, y no vale una tarea humana. Cuenta como hecho para el descarte.
     const topeFrio = frio && (sinMensajeUtil || automaticosHasta(vence.getTime()) >= config.cadencia.maxAutomaticos);

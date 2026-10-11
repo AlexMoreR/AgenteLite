@@ -97,7 +97,7 @@ export const HERRAMIENTAS_MCP_ESCRITURA = [
     name: "crear_seguimiento_del_paso",
     title: "Crear un 'si no contesta' en un paso",
     description:
-      "Agrega un seguimiento al paso de un embudo: cuanto esperar desde que el lead entro a ese paso y que mandarle si no contesta: un TEXTO o un FLUJO entero (sus textos, fotos y videos en orden). Se cancela solo si el cliente escribe antes, y no sale si el cliente no leyo nuestro ultimo mensaje o ya tiene 2 automaticos sin contestar.",
+      "Agrega un seguimiento al paso de un embudo: cuanto esperar desde que el lead entro a ese paso y que mandarle si no contesta: un TEXTO o un FLUJO entero (sus textos, fotos y videos en orden). Se cancela solo si el cliente escribe antes, y no sale si el cliente ya tiene 2 automaticos sin contestar.",
     inputSchema: {
       type: "object",
       properties: {

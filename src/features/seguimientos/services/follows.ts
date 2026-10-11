@@ -1776,8 +1776,12 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
     return { ok: true as const, executionError: null, frenado: antiBloqueo.motivo };
   }
 
-  // Nada automatico a quien no leyo lo anterior, ni un tercero seguido sin respuesta.
-  const freno = await revisarFrenoDeAutomatico({ contactId: follow.contactId, channelId: follow.channelId });
+  // Ni un tercero seguido sin respuesta (el freno "no leido" solo si su interruptor esta prendido).
+  const freno = await revisarFrenoDeAutomatico({
+    workspaceId: follow.workspaceId,
+    contactId: follow.contactId,
+    channelId: follow.channelId,
+  });
   if (!freno.enviar) {
     await cancelarFollowFrenado(follow, freno.motivo);
     // Se mide tambien el freno de siempre: es la linea de base del antes/despues.

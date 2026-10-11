@@ -218,13 +218,40 @@ prueba("motor: FRÍO que LEYÓ y no respondió → 1 mensaje útil del combo (vi
   assert.ok(noche.programarPara.getTime() <= new Date("2026-10-08T13:30:00Z").getTime());
 });
 
-prueba("motor: NO LEYÓ → no insistir (y se reactiva si lee)", () => {
+prueba("motor: NO LEYÓ → recibe igual que todos (freno no leído APAGADO por defecto, 11-10-2026)", () => {
+  assert.equal(CONFIG.motor.respetarNoLeido, false);
   const f = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "Bienvenid@", null)] });
   const d = mo.evaluarLead(f, CONFIG, mas(3 * H)).decision;
+  assert.equal(d.accion, "mensaje_util_producto");
+  assert.notEqual(d.motivo, "no_leyo");
+  // Ni el JSON del seguimiento inteligente lo prende: solo el interruptor del anti-bloqueo.
+  assert.equal(cf.leerConfigDeTexto(JSON.stringify({ motor: { respetarNoLeido: true } })).motor.respetarNoLeido, false);
+});
+
+prueba("motor: con el interruptor noLeido PRENDIDO vuelve el 'no leyó → no insistir'", () => {
+  const conFreno = { ...CONFIG, motor: { ...CONFIG.motor, respetarNoLeido: true } };
+  const f = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "Bienvenid@", null)] });
+  const d = mo.evaluarLead(f, conFreno, mas(3 * H)).decision;
   assert.equal(d.accion, "no_insistir");
   assert.equal(d.motivo, "no_leyo");
   const leido = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "Bienvenid@", 200)] });
-  assert.equal(mo.evaluarLead(leido, CONFIG, mas(4 * H)).decision.accion, "mensaje_util_producto");
+  assert.equal(mo.evaluarLead(leido, conFreno, mas(4 * H)).decision.accion, "mensaje_util_producto");
+});
+
+prueba("motor: cadencia — el toque del día 3 NO se salta si no leyó (salvo interruptor prendido)", () => {
+  // La asesora escribió y el cliente no leyó: con el freno apagado, el toque sale como tarea.
+  const f = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(5, "¿hacen envíos a Cali?"), ASESORA(10, "Hola, sí enviamos a Cali", null)] });
+  const t3 = mas(10 * MIN + 3 * DIA + H);
+  const d3 = mo.evaluarLead(f, CONFIG, t3).decision;
+  assert.equal(d3.accion, "tarea_asesora");
+  assert.equal(d3.toque, "dia_3");
+  const conFreno = { ...CONFIG, motor: { ...CONFIG.motor, respetarNoLeido: true } };
+  assert.notEqual(mo.evaluarLead(f, conFreno, t3).decision.accion, "tarea_asesora");
+  // Frío que no leyó: el toque es el mensaje útil, pero el tope de 2 automáticos sigue mandando.
+  const frio = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), ASESORA(10, "Hola, soy María", null)] });
+  assert.equal(mo.evaluarLead(frio, CONFIG, t3).decision.accion, "mensaje_util_producto");
+  const tope = { ...frio, mensajes: [...frio.mensajes, AUTO(10 + 3 * 24 * 60 + 70, "a", null), AUTO(10 + 4 * 24 * 60 + 70, "b", null)] };
+  assert.equal(mo.evaluarLead(tope, CONFIG, mas(10 * MIN + 7 * DIA + H)).decision.motivo, "gracia_antes_de_descartar");
 });
 
 prueba("motor: el producto que PREGUNTÓ manda (butacos, no el combo)", () => {

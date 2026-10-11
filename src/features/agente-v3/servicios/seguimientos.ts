@@ -178,8 +178,8 @@ export async function ejecutarSeguimientosV3(
       }
 
       /*
-        Nada automático a quien no leyó lo anterior, ni un tercero seguido sin respuesta (ver
-        lib/freno-de-automaticos). No se marca como enviado: si lo lee dentro de la ventana, el
+        Ni un tercero seguido sin respuesta (ver lib/freno-de-automaticos; el freno "no leído" solo
+        con su interruptor prendido, apagado desde el 11-10-2026). No se marca como enviado: el
         recordatorio todavía puede salir en una vuelta siguiente.
       */
       // Para la métrica: el mismo recordatorio, frenado por lo mismo en el mismo silencio, cuenta una vez.
@@ -246,7 +246,7 @@ export async function ejecutarSeguimientosV3(
         continue;
       }
 
-      const freno = await revisarFrenoDeAutomatico({ conversationId: conversacion.id });
+      const freno = await revisarFrenoDeAutomatico({ workspaceId: canal.workspaceId, conversationId: conversacion.id });
       if (!freno.enviar) {
         frenados += 1;
         anotar(freno.motivo);

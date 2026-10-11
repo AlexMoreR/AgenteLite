@@ -1,3 +1,4 @@
+import { leerConfigAntiBloqueo } from "@/lib/anti-bloqueo/servicio";
 import { prisma } from "@/lib/prisma";
 
 import { algoPrendido, leerConfigDeTexto, type ConfigSeguimientoInteligente } from "../dominio/config";
@@ -23,6 +24,10 @@ export async function leerConfigSeguimiento(workspaceId: string): Promise<Config
   } catch {
     valor = leerConfigDeTexto(null);
   }
+  // "No leyó → no insistir" sigue el MISMO interruptor que el freno de automáticos (anti-bloqueo
+  // `noLeido.activo`, apagado por defecto desde el 11-10-2026).
+  const antiBloqueo = await leerConfigAntiBloqueo(workspaceId);
+  valor = { ...valor, motor: { ...valor.motor, respetarNoLeido: antiBloqueo.noLeido.activo } };
   configs.set(workspaceId, { valor, vence: Date.now() + MEMORIA_MS });
   return valor;
 }

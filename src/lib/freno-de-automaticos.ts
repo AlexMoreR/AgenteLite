@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 
+import { leerConfigAntiBloqueo } from "@/lib/anti-bloqueo/servicio";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -25,6 +26,11 @@ import { prisma } from "@/lib/prisma";
  * nunca pasan a "leído" aunque los lean (medido el 02-10-2026: 1 de cada 4 chats que responden).
  * A ellos ya no les sale ningún automático. Se aceptó así: es preferible no escribirle a quien no
  * sabemos si leyó a arriesgar la línea.
+ *
+ * CAMBIO (Alex, 11-10-2026): el freno `no_leido` queda APAGADO por defecto. El que no lee recibe
+ * los mismos seguimientos que todos; lo cuidan `dos_sin_respuesta`, el tope total, el horario y el
+ * espaciado del anti-bloqueo. Se vuelve a prender sin código con el interruptor `noLeido.activo`
+ * de AppSetting `antibloqueo:config:<workspaceId>` (ver lib/anti-bloqueo/reglas.ts).
  */
 
 /** Los `rawPayload.source` de los mensajes que salieron solos, sin que nadie los escribiera. */
@@ -63,6 +69,8 @@ type Fila = {
  * todas, si no hay línea).
  */
 export async function revisarFrenoDeAutomatico(input: {
+  /** Para leer el interruptor `noLeido` del anti-bloqueo. */
+  workspaceId: string;
   conversationId?: string | null;
   contactId?: string | null;
   channelId?: string | null;
@@ -88,24 +96,30 @@ export async function revisarFrenoDeAutomatico(input: {
     LIMIT ${MENSAJES_A_MIRAR}
   `);
 
-  return decidirFreno(filas);
+  const config = await leerConfigAntiBloqueo(input.workspaceId);
+  return decidirFreno(filas, new Date(), { frenarNoLeido: config.noLeido.activo });
 }
 
-/** La decisión, aparte de la consulta, para poder probarla con filas armadas a mano. */
 /** "2026-10-03": el día calendario en Colombia de ese instante. */
 function diaEnColombia(fecha: Date) {
   return new Date(fecha).toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 }
 
-export function decidirFreno(filasDeLaMasNueva: Fila[], ahora: Date = new Date()): FrenoDeAutomatico {
+/** La decisión, aparte de la consulta, para poder probarla con filas armadas a mano. */
+export function decidirFreno(
+  filasDeLaMasNueva: Fila[],
+  ahora: Date = new Date(),
+  opciones: { frenarNoLeido: boolean } = { frenarNoLeido: false },
+): FrenoDeAutomatico {
   const ultimo = filasDeLaMasNueva[0];
-  // Sin mensajes, o el último lo escribió el cliente: no hay nada nuestro sin leer.
+  // Sin mensajes, o el último lo escribió el cliente: no hay nada nuestro sin responder.
   if (!ultimo || ultimo.direction === "INBOUND") {
     return { enviar: true };
   }
 
+  // Solo con el interruptor prendido (apagado desde el 11-10-2026).
   const leido = ultimo.status === "READ" || ultimo.readAt !== null;
-  if (!leido) {
+  if (opciones.frenarNoLeido && !leido) {
     return { enviar: false, motivo: "no_leido" };
   }
 

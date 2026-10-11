@@ -361,4 +361,87 @@ prueba("avisos: línea interna → nunca la línea de ventas; push → sin Whats
   );
 });
 
+/* ------------------------------------------------------------------------------------------------
+   7. Freno de automáticos (lib/freno-de-automaticos): "no leído" APAGADO por defecto (11-10-2026)
+------------------------------------------------------------------------------------------------ */
+
+const fr = (() => {
+  // freno-de-automaticos.ts importa prisma y el servicio: se prueba solo decidirFreno, con dobles.
+  const absoluto = path.resolve("src/lib/freno-de-automaticos.ts");
+  const salida = ts.transpileModule(fs.readFileSync(absoluto, "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  });
+  const mod = { exports: {} };
+  const dobles = {
+    "@prisma/client": { Prisma: {} },
+    "@/lib/prisma": { prisma: {} },
+    "@/lib/anti-bloqueo/servicio": { leerConfigAntiBloqueo: async () => r.CONFIG_POR_DEFECTO },
+  };
+  new Function("exports", "require", "module", salida.outputText)(mod.exports, (p) => dobles[p] ?? requireNativo(p), mod);
+  return mod.exports;
+})();
+
+const fila = (direction, hhmm, { leido = false, origen = null } = {}) => ({
+  direction,
+  status: leido ? "READ" : "DELIVERED",
+  readAt: leido ? bog(hhmm) : null,
+  createdAt: bog(hhmm),
+  origen,
+});
+
+prueba("config: noLeido apagado por defecto; se prende con {noLeido:{activo:true}}", () => {
+  for (const texto of [null, "", "no es json", "{}"]) {
+    assert.equal(r.leerConfigAntiBloqueoDeTexto(texto).noLeido.activo, false);
+  }
+  assert.equal(r.leerConfigAntiBloqueoDeTexto(JSON.stringify({ noLeido: { activo: true } })).noLeido.activo, true);
+  assert.equal(r.leerConfigAntiBloqueoDeTexto(JSON.stringify({ noLeido: { activo: "false" } })).noLeido.activo, false);
+});
+
+prueba("freno: lead que NO LEYÓ nuestro último mensaje ahora SÍ recibe (interruptor apagado)", () => {
+  const filas = [fila("OUTBOUND", "10:00"), fila("INBOUND", "09:55", { leido: true })];
+  assert.deepEqual(fr.decidirFreno(filas, bog("11:00")), { enviar: true });
+  assert.deepEqual(fr.decidirFreno(filas, bog("11:00"), { frenarNoLeido: false }), { enviar: true });
+  // Con un automático sin leer (1 de 2) también sale el segundo.
+  const conUno = [fila("OUTBOUND", "10:30", { origen: "follow" }), ...filas];
+  assert.deepEqual(fr.decidirFreno(conUno, bog("11:00")), { enviar: true });
+});
+
+prueba("freno: con el interruptor PRENDIDO vuelve el freno 'no_leido'", () => {
+  const filas = [fila("OUTBOUND", "10:00"), fila("INBOUND", "09:55", { leido: true })];
+  assert.deepEqual(fr.decidirFreno(filas, bog("11:00"), { frenarNoLeido: true }), { enviar: false, motivo: "no_leido" });
+  const leidas = [fila("OUTBOUND", "10:00", { leido: true }), fila("INBOUND", "09:55", { leido: true })];
+  assert.deepEqual(fr.decidirFreno(leidas, bog("11:00"), { frenarNoLeido: true }), { enviar: true });
+});
+
+prueba("freno: lead que no lee con 2 automáticos sin respuesta sigue FRENADO (dos_sin_respuesta)", () => {
+  const filas = [
+    fila("OUTBOUND", "10:30", { origen: "agente-v3-seguimiento" }),
+    fila("OUTBOUND", "09:15", { origen: "follow" }),
+    fila("OUTBOUND", "09:00"),
+    fila("INBOUND", "08:55", { leido: true }),
+  ];
+  assert.deepEqual(fr.decidirFreno(filas, bog("11:00")), { enviar: false, motivo: "dos_sin_respuesta" });
+  // Si contesta, se reinicia.
+  assert.deepEqual(fr.decidirFreno([fila("INBOUND", "10:45"), ...filas], bog("11:00")), { enviar: true });
+});
+
+prueba("freno + tope total: el que no lee recibe como máximo 2 automáticos sin respuesta", () => {
+  const h = {
+    primerEntrante: bog("08:00", 1),
+    ultimoEntrante: bog("08:00", 1),
+    entrantesDespuesDelAnuncio: 0,
+    automaticos: [bog("09:00", 1), bog("10:00", 2)],
+  };
+  assert.equal(r.decidirTope(h, { sinRespuesta: 2, porSilencio: 2 }), "tope_sin_respuesta");
+  assert.equal(r.decidirTope({ ...h, automaticos: [bog("09:00", 1)] }, { sinRespuesta: 2, porSilencio: 2 }), null);
+});
+
+prueba("horario: fuera de 8–20 un automático sigue sin salir (se reprograma), lea o no lea", () => {
+  const horario = { desdeHora: 8, hastaHora: 20, desfaseMaxMinutos: 30 };
+  assert.equal(r.dentroDelHorario(bog("21:30"), horario), false);
+  assert.equal(r.dentroDelHorario(bog("07:59"), horario), false);
+  assert.equal(r.dentroDelHorario(bog("10:00"), horario), true);
+  assert.ok(r.MOTIVOS_QUE_REPROGRAMAN.includes("fuera_de_horario"));
+});
+
 console.log(`\n${pruebas} pruebas, todas bien.`);

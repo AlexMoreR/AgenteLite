@@ -1183,7 +1183,7 @@ async function aplicarPausaDeIAEnChat(input: {
   // automaticos (no leido / dos seguidos sin respuesta). La IA se reactiva igual.
   const frenoDeReactivacion =
     !nextPaused && reactivationMessage
-      ? await revisarFrenoDeAutomatico({ conversationId: conversation.id })
+      ? await revisarFrenoDeAutomatico({ workspaceId: input.workspaceId, conversationId: conversation.id })
       : { enviar: true as const };
 
   /*
