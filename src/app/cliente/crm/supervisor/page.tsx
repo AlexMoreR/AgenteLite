@@ -191,21 +191,12 @@ export default async function SupervisorPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-5">
-      <div className="space-y-1">
-        <h1 className="text-lg font-semibold text-foreground">Supervisor</h1>
-        <p className="text-sm text-muted-foreground">
-          Vigila el bot, el embudo y la atención contra su línea base y avisa. No cambia nada: cada alerta trae su
-          recomendación y, si toca producción, espera la autorización del dueño.{" "}
-          <Link href="/cliente/crm/embudo" className="underline">
-            Ver el embudo
-          </Link>
+      {/* Sin título ni párrafo (pedido de Alex, 11-oct-2026): lo primero son sus prioridades. */}
+      {!activo ? (
+        <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+          Apagado. Se prende con el ajuste <code>supervisor:activo:{workspaceId}</code> = <code>true</code>.
         </p>
-        {!activo ? (
-          <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-            Apagado. Se prende con el ajuste <code>supervisor:activo:{workspaceId}</code> = <code>true</code>.
-          </p>
-        ) : null}
-      </div>
+      ) : null}
 
       {panelAccionable ? <PanelAccionableView panel={panelAccionable} /> : null}
 
