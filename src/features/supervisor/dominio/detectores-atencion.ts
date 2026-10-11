@@ -166,9 +166,21 @@ export function estadoDeEspera(chat: ChatAbierto, ahora: Date, horario = HORARIO
     minutosLaborales: esperando ? minutosLaborales(chat.ultimoClienteEn as Date, ahora, horario) : 0,
     senalFuerte: Boolean(fuerte),
     senal: Boolean(cualquiera),
-    caliente: chat.etapa === "NEGOCIACION",
+    caliente: esCaliente(chat, senales.some((s) => s.grupo === "negativa")),
     frase: (fuerte ?? cualquiera)?.fragmento ?? null,
   };
+}
+
+/**
+ * ¿El chat es CALIENTE? (11-10-2026) Etapa del CRM "Caliente" (NEGOCIACION, puesta a mano) O
+ * temperatura CALIENTE del seguimiento inteligente (EmbudoLead.temperatura). Antes solo contaba la
+ * etapa y los chats calientes del embudo con etapa vacía no se veían. Si lo que el cliente dijo
+ * desde la última respuesta es una negativa ("no me interesa", "muy caro", "solo mirando"), la
+ * temperatura guardada no basta (la etapa puesta a mano sí, como hoy).
+ */
+export function esCaliente(chat: Pick<ChatAbierto, "etapa" | "temperatura">, negativaPendiente = false): boolean {
+  if (chat.etapa === "NEGOCIACION") return true;
+  return (chat.temperatura ?? "").toUpperCase() === "CALIENTE" && !negativaPendiente;
 }
 
 export const UMBRALES_ATENCION = {
@@ -250,7 +262,7 @@ export function detectarAtencion(chats: ChatAbierto[], ahora: Date, horario = HO
         metrica: "Minutos laborales sin respuesta humana con señal fuerte o etapa Caliente",
         esperado: `< ${u.esperaImportante} min`,
         observado: orden.slice(0, 5).map((e) => `${e.minutosLaborales} min`).join(", "),
-        hechos: orden.slice(0, 5).map((e) => `Chat ${e.chat.conversationId}: ${e.minutosLaborales} min laborales${e.caliente ? ", etapa Caliente" : ""}${e.frase ? `, dijo "${e.frase}"` : ""}.`),
+        hechos: orden.slice(0, 5).map((e) => `Chat ${e.chat.conversationId}: ${e.minutosLaborales} min laborales${e.caliente ? (e.chat.etapa === "NEGOCIACION" ? ", etapa Caliente" : ", Caliente en el embudo") : ""}${e.frase ? `, dijo "${e.frase}"` : ""}.`),
         hipotesis: saturada ? ["La asesora tiene más chats calientes de los que puede atender a tiempo."] : [],
         causaPosible: saturada ? "Carga alta de la asesora." : "Respuesta humana lenta.",
         impacto: "Un cliente con intención fuerte que espera más de 15 min se enfría; con más de 1 h, la venta suele perderse.",

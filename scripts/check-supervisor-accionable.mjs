@@ -836,4 +836,35 @@ await prueba("tareas sin dueña · aviso a Ingrid: push + WhatsApp en horario, a
   assert.equal(r.avisoDeTareasSinDuena({ tareas: [tarea("t5")], previo: r.estadoTareasVacio(), ahora: DOMINGO, config, supervisora: INGRID }).aviso.whatsapp, false, "domingo sin ventana: sin WhatsApp");
 });
 
+/* ------------------------------------------------------------------ caliente = etapa NEGOCIACION o temperatura CALIENTE del embudo */
+
+await prueba("caliente: temperatura CALIENTE sin etapa → caliente; NEGOCIACION sin temperatura → caliente; TIBIO sin etapa → no", () => {
+  const sinSenal = { textosPendientes: ["¿No tiene créditos?"], textosDelCliente: ["hola", "¿No tiene créditos?"] };
+  const temp = maria({ etapa: null, temperatura: "CALIENTE", ...sinSenal });
+  const etapa = maria({ etapa: "NEGOCIACION", temperatura: null, ...sinSenal });
+  const tibio = maria({ etapa: null, temperatura: "TIBIO", ...sinSenal });
+  assert.equal(det.estadoDeEspera(temp, T0).caliente, true);
+  assert.equal(det.estadoDeEspera(etapa, T0).caliente, true);
+  assert.equal(det.estadoDeEspera(tibio, T0).caliente, false);
+  assert.equal(det.estadoDeEspera(tibio, T0).senalFuerte, false, "el texto de prueba no trae señal fuerte");
+  // Una negativa pendiente le gana a la temperatura guardada (la etapa a mano sigue mandando).
+  assert.equal(det.estadoDeEspera({ ...temp, textosPendientes: ["no me interesa, gracias"] }, T0).caliente, false);
+  assert.equal(det.estadoDeEspera({ ...etapa, textosPendientes: ["no me interesa"] }, T0).caliente, true);
+  // Detector de día: el CALIENTE del embudo con etapa vacía ahora sale en "caliente esperando".
+  const chats = [
+    { ...temp, conversationId: "e1" },
+    { ...etapa, conversationId: "e2" },
+    { ...tibio, conversationId: "e3" },
+    { ...temp, conversationId: "e4", textosPendientes: ["¿No tiene créditos?", "Muchas gracias, feliz noche"] },
+    { ...temp, conversationId: "e5", etapa: "PERDIDO" },
+  ];
+  const h = det.detectarAtencion(chats, T0).find((x) => x.clave === "ATENCION:caliente-esperando:maria");
+  assert.deepEqual([...h.evidencia.chats].sort(), ["e1", "e2"], "tibio, despedida y perdido no");
+  assert.ok(h.hechos.some((x) => x.includes("Caliente en el embudo")));
+  // Fuera de horario: también lo toma Ingrid.
+  const noche = enNoche(r.estadoVacio(), { chats: [mariaDomingo({ etapa: null, temperatura: "CALIENTE", ...sinSenal })], ahora: DOMINGO });
+  assert.deepEqual(noche.eventos.map((e) => [e.tipo, e.responsableId]), [["avisar", "ingrid"]]);
+  assert.equal(enNoche(r.estadoVacio(), { chats: [mariaDomingo({ etapa: null, temperatura: "TIBIO", ...sinSenal })], ahora: DOMINGO }).eventos.length, 0);
+});
+
 console.log(`\n${pruebas} pruebas OK`);
