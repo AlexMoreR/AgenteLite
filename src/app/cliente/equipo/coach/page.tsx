@@ -108,29 +108,27 @@ export default async function CoachDeVentasPage({ searchParams }: PageProps) {
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 px-4 py-5">
-      <div className="space-y-1">
-        <h1 className="text-lg font-semibold text-foreground">Coach de ventas</h1>
-        <p className="text-sm text-muted-foreground">
-          {supervisa
-            ? "Una acción por asesora para hoy, con la cifra, la meta y la evidencia debajo."
-            : "Tu acción de hoy, con la cifra, la meta y tus chats de evidencia. Solo la ves tú."}
-        </p>
-      </div>
-
-      <nav aria-label="Día del informe" className="flex flex-wrap items-center gap-2">
-        <Link href={enlace(moverDia(dia, -1))} className={`${chip} bg-muted text-muted-foreground hover:text-foreground`}>
+      {/* Sin título ni subtítulo: la barra de días es lo primero, en una sola línea (también en el celular). */}
+      <nav aria-label="Día del informe" className="flex flex-nowrap items-center gap-1.5">
+        <Link
+          href={enlace(moverDia(dia, -1))}
+          className={`${chip} shrink-0 whitespace-nowrap bg-muted !px-3 text-muted-foreground hover:text-foreground`}
+        >
           ‹ {diaCorto(moverDia(dia, -1))}
         </Link>
-        <form method="get" action="/cliente/equipo/coach" className="flex items-center gap-1.5">
-          <Input type="date" name="dia" defaultValue={dia} max={hoy} className="h-11 w-40" aria-label="Día" />
+        <form method="get" action="/cliente/equipo/coach" className="flex min-w-0 flex-1 items-center gap-1.5">
+          <Input type="date" name="dia" defaultValue={dia} max={hoy} className="h-11 min-w-0 flex-1 sm:w-40 sm:flex-none" aria-label="Día" />
           {asesoraPedida ? <input type="hidden" name="asesora" value={asesoraPedida} /> : null}
           {vistaClasica ? <input type="hidden" name="vista" value="clasica" /> : null}
-          <Button type="submit" variant="outline" className="h-11">
+          <Button type="submit" variant="outline" className="h-11 shrink-0 px-3">
             Ver
           </Button>
         </form>
         {dia < hoy ? (
-          <Link href={enlace(diaSiguiente)} className={`${chip} bg-muted text-muted-foreground hover:text-foreground`}>
+          <Link
+            href={enlace(diaSiguiente)}
+            className={`${chip} shrink-0 whitespace-nowrap bg-muted !px-3 text-muted-foreground hover:text-foreground`}
+          >
             {diaCorto(diaSiguiente)} ›
           </Link>
         ) : null}
