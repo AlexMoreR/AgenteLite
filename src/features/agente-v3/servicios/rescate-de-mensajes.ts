@@ -27,7 +27,10 @@ import { retomarConversacionV3 } from "./retomar";
  *    desde el reparto por turno (02-10-2026) un chat recibe asesora mientras el bot sigue
  *    contestando, y Alex pidió que el agente no cambie hasta que ella escriba.
  * 3. Queda nota en el chat de cada mensaje rescatado, para poder auditarlo después.
- * 4. Detrás de una bandera que se apaga desde la pantalla del Agente V3.
+ * 4. SIEMPRE ACTIVO (Alex, 11-10-2026). Antes estaba detrás de un interruptor en la pantalla del
+ *    Agente V3 (bandera `agente-v3:rescate:<workspaceId>` en AppSetting). Se quitó: es una
+ *    protección del sistema, no un ajuste del administrador. Si esa fila quedó en la base con
+ *    "off", se IGNORA a propósito. Para frenarlo en una emergencia hay que desplegar.
  */
 
 /**
@@ -50,8 +53,6 @@ const VENTANA_MAXIMA_MINUTOS = 30;
 /** Por vuelta. Si algo sale mal, que salga mal de a poco. */
 const CUANTOS_POR_VUELTA = 3;
 
-const CLAVE_BANDERA = "agente-v3:rescate:";
-
 /**
  * Un intento por mensaje, pase lo que pase.
  *
@@ -64,18 +65,6 @@ const CLAVE_BANDERA = "agente-v3:rescate:";
  */
 const CLAVE_INTENTO = "agente-v3:rescate-intentado:";
 
-/** Encendido salvo que se apague a mano. La bandera existe para poder frenarlo sin desplegar. */
-export async function rescateEncendido(workspaceId: string): Promise<boolean> {
-  const fila = await prisma.appSetting.findUnique({ where: { key: `${CLAVE_BANDERA}${workspaceId}` } });
-  return fila?.value !== "off";
-}
-
-export async function guardarBanderaDeRescate(workspaceId: string, encendido: boolean): Promise<void> {
-  const key = `${CLAVE_BANDERA}${workspaceId}`;
-  const value = encendido ? "on" : "off";
-  await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
-}
-
 export async function rescatarMensajesSinDecidir(
   ahora = new Date(),
 ): Promise<{ rescatados: number; revisados: number }> {
@@ -87,17 +76,8 @@ export async function rescatarMensajesSinDecidir(
   let rescatados = 0;
   let revisados = 0;
 
-  // Se pregunta una vez por workspace y no por conversación: son dos o tres canales, no mil.
-  const banderaPorWorkspace = new Map<string, boolean>();
-
+  // Sin interruptor: corre en todas las líneas con Agente V3 (condición 4).
   for (const canal of canales) {
-    if (!banderaPorWorkspace.has(canal.workspaceId)) {
-      banderaPorWorkspace.set(canal.workspaceId, await rescateEncendido(canal.workspaceId));
-    }
-    if (!banderaPorWorkspace.get(canal.workspaceId)) {
-      continue;
-    }
-
     const conversaciones = await prisma.conversation.findMany({
       where: {
         channelId: canal.id,

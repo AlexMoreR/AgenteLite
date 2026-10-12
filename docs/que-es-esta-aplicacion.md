@@ -268,7 +268,7 @@ la IA pausada no lo contesta el agente.
 - `seguimientos_programados`: el reloj manda los seguimientos agendados (Follow) cuando les toca.
 - `seguimientos_v3`: las reglas "sin respuesta" del Agente V3: le escriben al cliente callado a los 15 minutos o a la hora, según el paso en que va.
 - `aviso_cliente_esperando`: si un cliente escribió y lleva 15 minutos sin respuesta, se le avisa a la asesora (no le escribe al cliente).
-- `rescate_de_mensajes_v3`: vuelve a pasarle al motor un mensaje que nunca miró (por una caída o un despliegue), solo en chats sin asesora ni pausa.
+- `rescate_de_mensajes_v3`: vuelve a pasarle al motor un mensaje que nunca miró (por una caída o un despliegue), solo en chats sin asesora ni pausa. Siempre activo: no tiene interruptor (desde el 11-10-2026).
 - `rescate_de_chats_huerfanos`: reparte un chat que lleva media hora con el cliente esperando y sin nadie a cargo, y la asesora que lo recibe recibe el push "Nuevo chat asignado". Cuenta como repartido solo lo que de verdad se asignó.
 - `reparto_por_turno`: en las líneas de ventas, cuando la clienta contesta CON CONTENIDO (no solo saludo, emoji, "ok" o "gracias") a algo del agente o de un flujo y el chat no tiene asesora, se reparte por la rueda de la línea y la asesora recibe el push "Nuevo chat asignado". Asignar no pausa al agente: sigue hasta que la asesora escribe.
 - `enfriamiento_por_llamadas`: un lead en Caliente baja a Tibio con la regla del Playbook: 3 intentos nuestros sin respuesta (mensajes de asesora o llamadas), 5 días desde su último mensaje y cero respuesta. Nunca si tiene cotización o próximo contacto agendado. Vuelve a Caliente si contesta.

@@ -366,7 +366,7 @@ async function automatizaciones(
   descritas: Map<string, string>,
   v3: { reglasSinRespuesta: number; hayLineasConV3: boolean },
 ) {
-  const [reglasProgramadas, campanasEnCurso, ultimoInforme, rescate, descarte, transcripcionApagada] =
+  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, transcripcionApagada] =
     await Promise.all([
       prisma.followRule.count({ where: { workspaceId, isActive: true } }),
       prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
@@ -375,7 +375,6 @@ async function automatizaciones(
         orderBy: { reportDate: "desc" },
         select: { reportDate: true },
       }),
-      bandera(`agente-v3:rescate:${workspaceId}`),
       bandera(`crm:descarte-automatico:${workspaceId}`),
       bandera("transcripcion-de-audios:apagada"),
     ]);
@@ -390,7 +389,8 @@ async function automatizaciones(
           ? "apagada: no hay reglas \"sin respuesta\" prendidas en el libro"
           : "no aplica: ninguna linea usa el Agente V3",
     aviso_cliente_esperando: v3.hayLineasConV3 ? sinInterruptor : "no aplica: ninguna linea usa el Agente V3",
-    rescate_de_mensajes_v3: rescate === "off" ? "apagada (agente-v3:rescate = off)" : "activa",
+    // Sin interruptor desde el 11-10-2026: la bandera agente-v3:rescate se ignora aunque diga off.
+    rescate_de_mensajes_v3: v3.hayLineasConV3 ? sinInterruptor : "no aplica: ninguna linea usa el Agente V3",
     rescate_de_chats_huerfanos: sinInterruptor,
     // Corre en cada mensaje de la clienta (webhook), no en el reloj. Se gobierna desde Equipo
     // (pausa de reparto y horario por vendedora), no con una bandera.
