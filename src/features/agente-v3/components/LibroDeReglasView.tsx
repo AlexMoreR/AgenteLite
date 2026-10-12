@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, CircleDot, MessageSquare, Sparkles, TriangleAlert } from "lucide-react";
 
+import { EncabezadoLibroDeReglas } from "./EncabezadoLibroDeReglas";
 import { pesoDeLaRegla, type Accion, type LibroDeReglas, type ReglaV3 } from "../domain/reglas";
 
 /**
@@ -16,14 +17,6 @@ import { pesoDeLaRegla, type Accion, type LibroDeReglas, type ReglaV3 } from "..
  * Se refresca sola cada pocos segundos: la idea es tenerla abierta al lado del chat y ver aparecer
  * cada regla mientras se dicta.
  */
-
-const CUANDO = new Intl.DateTimeFormat("es-CO", {
-  timeZone: "America/Bogota",
-  day: "numeric",
-  month: "short",
-  hour: "numeric",
-  minute: "2-digit",
-});
 
 function comoSeLeeElDisparador(regla: ReglaV3): string {
   switch (regla.cuando.tipo) {
@@ -125,17 +118,7 @@ export function LibroDeReglasView({ libro, problemas }: { libro: LibroDeReglas; 
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5 px-4 py-5">
-      <div className="space-y-1">
-        <h1 className="text-lg font-semibold text-foreground">Agente V3 · Libro de reglas</h1>
-        <p className="text-sm text-muted-foreground">
-          Esto es lo que el agente hace, en orden de quién manda primero. Se escribe hablando con Claude;
-          acá se mira. <b>Atiende a todos los clientes</b> de las líneas donde está prendido; los cambios
-          se pueden probar antes en el simulador.
-        </p>
-        <p className="text-[12px] text-muted-foreground">
-          Versión {libro.version} · {libro.actualizadoEl.startsWith("1970") ? "sin cambios todavía" : `última edición ${CUANDO.format(new Date(libro.actualizadoEl))}`}
-        </p>
-      </div>
+      <EncabezadoLibroDeReglas version={libro.version} actualizadoEl={libro.actualizadoEl} />
 
       <section className="space-y-2 rounded-2xl border border-border bg-card p-4">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
