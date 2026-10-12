@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
-import { SALUDOS_DEL_V3_DE_RESPALDO, turnoMereceAsesora } from "@/lib/turno-con-contenido";
+import { SALUDOS_DEL_V3_DE_RESPALDO, turnoMereceAsesora, type MensajeDelTurno } from "@/lib/turno-con-contenido";
+import { leerConfigReparto } from "@/lib/reparto-config";
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 
 /**
@@ -22,6 +23,12 @@ import { leerLibro } from "@/features/agente-v3/servicios/almacen";
  *  - No corre en la línea administrativa: solo en las de ventas (`purpose = SALES`).
  *  - No cambia al agente: asignar no lo pausa. Sigue contestando hasta que la asesora escribe
  *    (escribir, desde el CRM o desde el celular, es lo que pausa la IA).
+ *
+ * Con el interruptor `reparto:config:<workspaceId>` = {"exigirPrecioOFotos": true} (Alex,
+ * 12-10-2026) además el bot o un flujo tiene que haberle mandado antes precio o fotos (ver
+ * `botYaMandoPrecioOFotos` en turno-con-contenido.ts). Sin la fila, todo como antes. Los otros
+ * caminos que asignan (aviso del agente, rescate de huérfanos, madrugada, recuperación 72 h) no
+ * miran este interruptor.
  */
 
 /** El libro cambia poco: se lee como mucho cada 5 minutos, no en cada mensaje. */
@@ -58,6 +65,9 @@ async function saludosDelV3(workspaceId: string): Promise<string[]> {
 /** Cuántos mensajes hacia atrás se miran para encontrar el turno y nuestra última respuesta. */
 const MENSAJES_A_MIRAR = 30;
 
+/** Con `exigirPrecioOFotos` se mira más atrás: el precio o las fotos pueden ser de hace rato. */
+const MENSAJES_A_MIRAR_CON_PRECIO = 200;
+
 export async function repartirSiElTurnoLoAmerita(input: {
   conversationId: string;
   channelId: string;
@@ -77,14 +87,39 @@ export async function repartirSiElTurnoLoAmerita(input: {
     return { asignada: false };
   }
 
-  const mensajes = await prisma.message.findMany({
-    where: { conversationId: input.conversationId, type: { not: "SYSTEM" }, deletedAt: null },
-    orderBy: { createdAt: "desc" },
-    take: MENSAJES_A_MIRAR,
-    select: { direction: true, type: true, content: true },
-  });
+  const config = await leerConfigReparto(input.workspaceId);
 
-  if (!turnoMereceAsesora(mensajes, await saludosDelV3(input.workspaceId))) {
+  let mensajes: MensajeDelTurno[];
+  if (config.exigirPrecioOFotos) {
+    /*
+      Para saber si el bot ya mandó precio o fotos hace falta quién mandó cada mensaje
+      (`rawPayload.source`) y mirar más atrás: el precio puede estar a decenas de mensajes. Se lee
+      solo esa llave del JSON, no el payload entero.
+    */
+    mensajes = await prisma.$queryRaw<MensajeDelTurno[]>`
+      SELECT "direction"::text AS "direction", "type"::text AS "type", "content",
+             "rawPayload"->>'source' AS "origen"
+      FROM "Message"
+      WHERE "conversationId" = ${input.conversationId}
+        AND "type" <> 'SYSTEM'
+        AND "deletedAt" IS NULL
+      ORDER BY "createdAt" DESC
+      LIMIT ${MENSAJES_A_MIRAR_CON_PRECIO}
+    `;
+  } else {
+    mensajes = await prisma.message.findMany({
+      where: { conversationId: input.conversationId, type: { not: "SYSTEM" }, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      take: MENSAJES_A_MIRAR,
+      select: { direction: true, type: true, content: true },
+    });
+  }
+
+  if (
+    !turnoMereceAsesora(mensajes, await saludosDelV3(input.workspaceId), {
+      exigirPrecioOFotos: config.exigirPrecioOFotos,
+    })
+  ) {
     return { asignada: false };
   }
 

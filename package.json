@@ -28,6 +28,7 @@
     "test:rescate-mensajes": "node scripts/check-rescate-mensajes.mjs",
     "test:turno": "node scripts/check-turno.mjs",
     "test:recuperacion-72h": "node scripts/check-recuperacion-72h.mjs",
+    "test:reparto-turno": "node scripts/check-reparto-turno.mjs",
     "supervisor:guardian": "node scripts/supervisor-guardian.mjs",
     "supervisor:simular": "node scripts/supervisor-simulacion.mjs",
     "test:e2e": "playwright test -c e2e",
