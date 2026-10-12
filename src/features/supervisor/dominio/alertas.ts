@@ -67,7 +67,11 @@ export function claveDeIncidente(h: Hallazgo, cambios: CambioDelLibro[]): string
   return cambio ? `INC:libro-v${cambio.version}:${h.producto ?? "todos"}` : h.clave;
 }
 
-function tituloDelIncidente(clave: string, hallazgos: Hallazgo[]): string {
+/** El hallazgo que deja la revalidación (revalidacion.ts) no cuenta para el título ni la severidad. */
+const esDeRevalidacion = (h: Hallazgo) => h.clave.startsWith("REVALIDACION:");
+
+function tituloDelIncidente(clave: string, todos: Hallazgo[]): string {
+  const hallazgos = todos.some(esDeRevalidacion) && !todos.every(esDeRevalidacion) ? todos.filter((h) => !esDeRevalidacion(h)) : todos;
   const m = clave.match(/^INC:libro-v(\d+):(.+)$/);
   const principal = [...hallazgos].sort((a, b) => ORDEN_DE_SEVERIDAD[b.severidad] - ORDEN_DE_SEVERIDAD[a.severidad])[0];
   if (m && hallazgos.length > 1) return `Después del cambio del libro V3 a la versión ${m[1]} (${m[2]}): ${principal.titulo.toLowerCase()} y ${hallazgos.length - 1} problema(s) más`;
@@ -79,7 +83,8 @@ function tituloDelIncidente(clave: string, hallazgos: Hallazgo[]): string {
  * Escalamiento por combinación: un cambio de regla del primer mensaje JUNTO con ráfagas, precio
  * antes de identificar o caída de respuesta es CRÍTICO aunque cada pieza sola sea IMPORTANTE.
  */
-function severidadDelIncidente(hallazgos: Hallazgo[]): Severidad {
+export function severidadDelIncidente(todos: Hallazgo[]): Severidad {
+  const hallazgos = todos.filter((h) => !esDeRevalidacion(h));
   let s: Severidad = "OBSERVACION";
   for (const h of hallazgos) s = severidadMayor(s, h.severidad);
   const claves = hallazgos.map((h) => h.clave);
@@ -326,7 +331,10 @@ export function textoDeLaAlerta(inc: Incidente, ahora: Date = inc.ultimaVezEn): 
   const lineas: string[] = [];
   lineas.push(`[${ETIQUETA_DE_SEVERIDAD[inc.severidad]}] ${inc.titulo}`);
   lineas.push(`Desde: ${hora(inc.desde)} (Bogotá) · detectado ${hora(inc.primeraVezEn)} · hace ${minutos(inc.desde, ahora)} · visto ${inc.vecesVista} vez/veces · estado ${inc.estado}`);
-  const orden = [...inc.hallazgos].sort((a, b) => ORDEN_DE_SEVERIDAD[b.severidad] - ORDEN_DE_SEVERIDAD[a.severidad]);
+  // La revalidación (si la hay) va primero: es lo que dice si el incidente sigue hoy.
+  const orden = [...inc.hallazgos].sort(
+    (a, b) => Number(esDeRevalidacion(b)) - Number(esDeRevalidacion(a)) || ORDEN_DE_SEVERIDAD[b.severidad] - ORDEN_DE_SEVERIDAD[a.severidad],
+  );
   orden.forEach((h, i) => {
     lineas.push("");
     lineas.push(`${i + 1}. ${h.titulo} [${ETIQUETA_DE_SEVERIDAD[h.severidad]}]`);

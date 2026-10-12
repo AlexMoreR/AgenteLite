@@ -946,4 +946,72 @@ await prueba("plazo (11-oct): nunca 'Plazo: YA'; segundo aviso fuera de horario 
   assert.equal(r.textoDelPlazo({ ...d, venceEn: mas(T0, -5).toISOString(), plazoMin: 30 }, T0), "en los próximos 30 min");
 });
 
+/* ------------------------------------------------------------------ revalidación de incidentes viejos (11-oct) */
+
+const reval = cargar("src/features/supervisor/dominio/revalidacion.ts", mocks);
+
+await prueba("Prioridades + revalidación: el revalidado RESUELTO y el PENDIENTE salen; el que SIGUE entra con evidencia y decisión", async () => {
+  reiniciar();
+  settings.set("supervisor:accionable:ws1", JSON.stringify({ activo: true }));
+  servicio.olvidarConfigAccionable();
+  const ahora = mas(T0, 60);
+  const viejo = (clave) => ({
+    clave,
+    familia: "BOT",
+    severidad: "CRITICO",
+    titulo: `Después del cambio del libro V3 (${clave})`,
+    producto: "combo-camilla",
+    primeraVezEn: mas(T0, -3 * 24 * 60),
+    ultimaVezEn: mas(T0, -60),
+    desde: mas(T0, -4 * 24 * 60),
+    vecesVista: 40,
+    estado: "ABIERTA",
+    resueltaEn: null,
+    notificadaEn: mas(T0, -30),
+    severidadNotificada: "CRITICO",
+    hallazgos: [hallazgo("BOT:rafaga_inicial:combo-camilla", ["c9"], { severidad: "IMPORTANTE", tocaProduccion: true, queCambiar: "La regla del primer turno (libro V3)", recomendacion: "Corregir la regla en el simulador" })],
+  });
+  const incidentes = [viejo("INC:libro-v182:combo-camilla"), viejo("INC:libro-v187:combo-camilla"), viejo("INC:libro-v188:combo-camilla")];
+  const antes = await servicio.leerPanelAccionable(WS, incidentes, ahora);
+  assert.equal(antes.prioridades.visibles.length, 3, "hoy: los tres viejos son CRÍTICOS en Prioridades");
+  const decision = { "INC:libro-v182:combo-camilla": "RESUELTA", "INC:libro-v187:combo-camilla": "PENDIENTE", "INC:libro-v188:combo-camilla": "SIGUE" };
+  const revalidacion = (inc) => ({
+    clave: inc.clave,
+    decision: decision[inc.clave],
+    en: ahora,
+    versionDelIncidente: Number(/v(\d+)/.exec(inc.clave)[1]),
+    versionActual: 222,
+    versionDesde: 212,
+    desde: mas(T0, -2 * 24 * 60),
+    leads: 59,
+    porVersion: { v212: 21, v213: 37, v216: 1 },
+    metricas: [{ indicador: "rafaga_inicial", principal: true, actual: { exitos: 30, total: 51 }, reciente: { exitos: 0, total: 0 }, base: null, delIncidente: null, veredicto: decision[inc.clave] === "SIGUE" ? "sigue" : "ya_no", linea: "línea", chats: ["c9"] }],
+    guardian: { corrido: false, fallaHoy: false, lineas: [], regla: null },
+    hechos: ["evidencia"],
+    afectados: decision[inc.clave] === "SIGUE" ? { n: 30, total: 51, indicador: "rafaga_inicial" } : { n: 0, total: 59, indicador: null },
+    chats: decision[inc.clave] === "SIGUE" ? ["c9"] : [],
+  });
+  const r2 = reval.aplicarRevalidaciones({
+    incidentes,
+    avisar: [],
+    abiertasAntes: new Set(incidentes.map((i) => i.clave)),
+    versionActual: 222,
+    ahora,
+    inicioDe: (inc) => inc.desde,
+    revalidar: revalidacion,
+  });
+  const abiertos = r2.incidentes.filter((i) => i.estado === "ABIERTA");
+  const despues = await servicio.leerPanelAccionable(WS, abiertos, ahora);
+  assert.equal(despues.prioridades.visibles.length, 1);
+  const t = despues.prioridades.visibles[0];
+  assert.match(t.quePaso, /^Sigue con la versión 222 \(revalidado\)/);
+  assert.match(t.quePaso, /Afectados hoy: 30 de 51 leads/);
+  assert.match(t.riesgo, /30 de 51 leads/);
+  assert.match(t.solucion, /Corregir la regla/);
+  assert.match(t.accionDeAlexander, /^Autoriza o descarta: La regla del primer turno/);
+  assert.equal(r2.incidentes.find((i) => i.clave.includes("v182")).estado, "RESUELTA");
+  assert.equal(r2.incidentes.find((i) => i.clave.includes("v187")).severidad, "IMPORTANTE");
+  assert.equal(enviados.push.length + enviados.whatsapp.length, 0, "revalidar no manda nada por sí solo");
+});
+
 console.log(`\n${pruebas} pruebas OK`);

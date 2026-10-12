@@ -756,4 +756,196 @@ prueba("atención asignado sin respuesta: CRÍTICO > 2 h si es Caliente; no sale
   assert.ok(!todas.some((x) => x.clave.startsWith("ATENCION:asignado-sin-respuesta")));
 });
 
+/* ------------------------------------------------------------------ revalidación de incidentes viejos (11-oct) */
+
+const reval = cargar("src/features/supervisor/dominio/revalidacion.ts");
+
+// Línea de tiempo tipo producción: v182 (defecto, 7-oct) ya salió del historial; el historial guarda
+// desde la v212. El libro actual es la v222. Datos tipo del 11-oct: v212 21 leads, v213 37, v216 1.
+const R212 = CAMBIO + 100 * H;
+const cambiosR = [
+  { version: 212, anterior: 211, en: new Date(R212), autor: null, resumen: null },
+  { version: 213, anterior: 212, en: new Date(R212 + 12 * H), autor: null, resumen: null },
+  { version: 216, anterior: 215, en: new Date(R212 + 40 * H), autor: null, resumen: null },
+  { version: 222, anterior: 221, en: new Date(R212 + 41 * H), autor: null, resumen: null },
+];
+const librosR = new Map([212, 213, 216, 222].map((v) => [v, { ...libroArreglado, version: v }]));
+const versionEnR = (t) => {
+  let v = 182;
+  for (const c of cambiosR) if (c.en.getTime() <= t.getTime()) v = c.version;
+  return v;
+};
+const AHORA_R = new Date(R212 + 44 * H);
+let nR = 0;
+/** n leads que entran desde `desde` cada `cada` ms, sanos (responde 7 de 10) o con el defecto. */
+function leadsR({ n, desde, cada = 30 * M, malo = false }) {
+  const lista = [];
+  for (let i = 0; i < n; i++) {
+    nR += 1;
+    const t = desde + i * cada;
+    const f = lead.fichaDelLead(`r${nR}`, malo ? chatDelIncidente(t) : chatSano(t, i % 10 < 7), { versionEn: versionEnR });
+    if (f) lista.push(f);
+  }
+  return lista;
+}
+/** Los 59 leads de los últimos días: 21 con la v212, 37 con la v213 y 1 con la v216; ninguna ráfaga. */
+const actualesSanos = [
+  ...leadsR({ n: 21, desde: R212 + 10 * M }),
+  ...leadsR({ n: 37, desde: R212 + 12 * H + 10 * M, cada: 40 * M }),
+  ...leadsR({ n: 1, desde: R212 + 40 * H + 10 * M }),
+];
+const sanosR = sanos.map((f) => ({ ...f, libroVersion: 178 }));
+
+/** El incidente v182 como estaba en producción el 11-oct: CRÍTICO, ráfaga 59/70 guardada y la regla de la v210 pegada. */
+function incidente182Real() {
+  const [inc] = incidente182(new Date(CAMBIO + 83 * H));
+  inc.hallazgos = inc.hallazgos.map((h) =>
+    h.clave.startsWith("BOT:rafaga_inicial")
+      ? { ...h, observado: "84,3 % (59/70)", esperado: "12,7 % (127/998, 14 días)", evidencia: { ...h.evidencia, reglas: ["Nombra las piezas del combo"] } }
+      : h,
+  );
+  // Se ve cada hora (la regla del primer mensaje se le pega): no se cierra solo por "dejó de verse".
+  inc.ultimaVezEn = new Date(AHORA_R.getTime() - H);
+  return inc;
+}
+
+function vueltaR({ abiertos, hallazgos = [], fichas, ahora = AHORA_R }) {
+  const limpios = reval.quitarRevalidacion(abiertos);
+  const r = alertas.consolidar({ abiertos: limpios, hallazgos, ahora, cambios: [...cambios, ...cambiosR], familiasEvaluadas: ["BOT", "EMBUDO", "CAMBIO"] });
+  const inicioDe = (inc) => (inc.clave === CLAVE_182 ? new Date(CAMBIO) : inc.desde);
+  return reval.aplicarRevalidaciones({
+    incidentes: r.incidentes,
+    avisar: r.avisar,
+    abiertasAntes: new Set(limpios.filter((i) => i.estado === "ABIERTA").map((i) => i.clave)),
+    versionActual: 222,
+    ahora,
+    inicioDe,
+    severidadDelDefecto: alertas.severidadDelIncidente,
+    revalidar: (inc) =>
+      reval.revalidarIncidente({
+        incidente: inc,
+        fichas,
+        ahora,
+        versionActual: 222,
+        libros: librosR,
+        cambios: cambiosR,
+        escenarios,
+        flujos,
+        inicioDelDefecto: inicioDe(inc),
+        filtro,
+      }),
+  });
+}
+
+prueba("revalidación: el interruptor (sin fila = prendido; 'false' = apagado) y a quién aplica", () => {
+  assert.equal(reval.interpretarRevalidacion(null), true);
+  assert.equal(reval.interpretarRevalidacion("true"), true);
+  assert.equal(reval.interpretarRevalidacion("false"), false);
+  assert.equal(reval.interpretarRevalidacion(" Apagado "), false);
+  const inc = incidente182Real();
+  const base = { incidente: inc, versionActual: 222, inicio: new Date(CAMBIO), ahora: AHORA_R };
+  assert.equal(reval.aplicaRevalidacion(base), true);
+  assert.equal(reval.aplicaRevalidacion({ ...base, versionActual: 182 }), false, "la versión actual no se revalida");
+  assert.equal(reval.aplicaRevalidacion({ ...base, ahora: new Date(CAMBIO + 10 * H) }), false, "un defecto de < 24 h lo juzgan los detectores");
+  assert.equal(reval.aplicaRevalidacion({ ...base, incidente: { ...inc, severidad: "OBSERVACION" } }), false, "una observación no se escala");
+  assert.equal(reval.aplicaRevalidacion({ ...base, incidente: { ...inc, clave: "EMBUDO:respondio_2h:combo-camilla" } }), false);
+  assert.equal(reval.proporcionDelTexto("84,3 % (59/70)").total, 70);
+});
+
+prueba("revalidación caso v182 (datos tipo del 11-oct): ya no ocurre → RESUELTA con evidencia, fuera de Prioridades y sin aviso", () => {
+  const inc = incidente182Real();
+  assert.equal(inc.severidad, "CRITICO");
+  inc.notificadaEn = new Date(CAMBIO + 60 * H); // ya se avisó hace > 12 h: hoy saldría el recordatorio
+  const r = vueltaR({ abiertos: [inc], fichas: [...sanosR, ...actualesSanos] });
+  const cerrado = r.incidentes.find((i) => i.clave === CLAVE_182);
+  assert.equal(r.revalidaciones[0].decision, "RESUELTA");
+  assert.equal(cerrado.estado, "RESUELTA");
+  assert.equal(cerrado.resueltaEn.getTime(), AHORA_R.getTime());
+  assert.equal(cerrado.severidad, "OBSERVACION");
+  assert.match(cerrado.titulo, /^Revalidado: ya no ocurre con la versión 222: /);
+  assert.equal(r.avisar.length, 0, "no avisa (ni el recordatorio del CRÍTICO)");
+  // Fuera de Prioridades: el panel solo toma incidentes ABIERTOS y CRÍTICOS.
+  assert.ok(!(cerrado.estado === "ABIERTA" && cerrado.severidad === "CRITICO"));
+  // La evidencia queda en la alerta (historial).
+  const h = cerrado.hallazgos[0];
+  assert.equal(h.clave, `REVALIDACION:${CLAVE_182}`);
+  assert.equal(h.valores.decision, "RESUELTA");
+  assert.equal(h.valores.leads, 59);
+  const texto = alertas.textoDeLaAlerta(cerrado, AHORA_R);
+  assert.match(texto, /v212 21, v213 37, v216 1/);
+  assert.match(texto, /Leads con más de 3 mensajes del bot en los primeros 5 min: 0 % \(0\/59\) con la versión ≥ 212 vs 84,3 % \(59\/70\) cuando se abrió el incidente/);
+  assert.match(texto, /Texto exacto del anuncio: gana "Llega del anuncio \(texto exacto\)"/);
+  assert.match(texto, /"Nombra las piezas del combo", la regla de los ejemplos del incidente, ya no gana el texto del anuncio/);
+  assert.match(texto, /→ ya no ocurre/);
+  // Los hallazgos del defecto (con sus ejemplos) se conservan.
+  assert.ok(cerrado.hallazgos.some((x) => x.clave === "BOT:rafaga_inicial:combo-camilla"));
+});
+
+prueba("revalidación: no reabre con los datos viejos y sí con datos NUEVOS de la versión actual", () => {
+  const inc = incidente182Real();
+  const primera = vueltaR({ abiertos: [inc], fichas: [...sanosR, ...actualesSanos] });
+  const abiertos = primera.incidentes.filter((i) => i.estado === "ABIERTA");
+  assert.equal(abiertos.length, 0);
+  // Una hora después el detector post-cambio vuelve a sacar el hallazgo de la v182 (datos viejos).
+  const viejo = hallazgo("CAMBIO:post-cambio:v182:combo-camilla", "IMPORTANTE", new Date(CAMBIO), { evidencia: { chats: [], reglas: [], versiones: [182] } });
+  const otra = vueltaR({ abiertos, hallazgos: [viejo], fichas: [...sanosR, ...actualesSanos], ahora: new Date(AHORA_R.getTime() + H) });
+  assert.ok(!otra.incidentes.some((i) => i.clave === CLAVE_182), "no se vuelve a crear");
+  assert.equal(otra.avisar.length, 0);
+  // Pero si el síntoma está en leads NUEVOS con la versión actual, se abre y se avisa.
+  const nuevosMalos = leadsR({ n: 15, desde: R212 + 41 * H + 5 * M, cada: 8 * M, malo: true });
+  const reabre = vueltaR({ abiertos, hallazgos: [viejo], fichas: [...sanosR, ...actualesSanos, ...nuevosMalos], ahora: new Date(AHORA_R.getTime() + H) });
+  const inc2 = reabre.incidentes.find((i) => i.clave === CLAVE_182);
+  assert.ok(inc2 && inc2.estado === "ABIERTA");
+  assert.equal(reabre.revalidaciones[0].decision, "SIGUE");
+  assert.ok(reabre.avisar.some((a) => a.incidente.clave === CLAVE_182));
+});
+
+prueba("revalidación: si SIGUE se escala con evidencia actual, afectados hoy, riesgo, solución, decisión y enlace", () => {
+  const inc = incidente182Real();
+  inc.notificadaEn = new Date(CAMBIO + 60 * H);
+  inc.severidadNotificada = "CRITICO";
+  const malos = leadsR({ n: 30, desde: R212 + 12 * H + 10 * M, cada: 50 * M, malo: true });
+  const r = vueltaR({ abiertos: [inc], fichas: [...sanosR, ...actualesSanos.slice(0, 21), ...malos] });
+  const sigue = r.incidentes.find((i) => i.clave === CLAVE_182);
+  assert.equal(r.revalidaciones[0].decision, "SIGUE");
+  assert.equal(sigue.estado, "ABIERTA");
+  assert.equal(sigue.severidad, "CRITICO");
+  assert.match(sigue.titulo, /^Sigue con la versión 222 \(revalidado\): /);
+  const h = sigue.hallazgos[0];
+  assert.equal(h.clave, `REVALIDACION:${CLAVE_182}`);
+  assert.equal(h.severidad, "CRITICO", "la revalidación es lo principal de la tarjeta");
+  assert.match(h.que, /SIGUE con la versión actual 222/);
+  assert.match(h.que, /Afectados hoy: 30 de 51 leads/);
+  assert.match(h.impacto, /30 de 51 leads/);
+  assert.ok(h.recomendacion.length > 10);
+  assert.ok(h.hechos.some((x) => /^Decisión que necesita Alexander: /.test(x)));
+  assert.ok(h.hechos.some((x) => /^Enlace: \/cliente\/crm\/supervisor · chat de ejemplo: \/cliente\/chats\?chatKey=/.test(x)));
+  assert.equal(h.evidencia.chats.length > 0, true);
+  assert.equal(h.tocaProduccion, true);
+  assert.deepEqual(r.avisar.map((a) => a.motivo), ["recordatorio"], "política de siempre: recordatorio de CRÍTICO a las 12 h");
+});
+
+prueba("revalidación: muestra insuficiente → pendiente, sin CRÍTICO y sin aviso; se puede volver atrás (interruptor apagado)", () => {
+  const inc = incidente182Real();
+  inc.notificadaEn = new Date(CAMBIO + 60 * H);
+  const r = vueltaR({ abiertos: [inc], fichas: [...sanosR, ...actualesSanos.slice(0, 8)] });
+  const p = r.incidentes.find((i) => i.clave === CLAVE_182);
+  assert.equal(r.revalidaciones[0].decision, "PENDIENTE");
+  assert.equal(p.estado, "ABIERTA");
+  assert.equal(p.severidad, "IMPORTANTE");
+  assert.match(p.titulo, /^Pendiente de revalidar con la versión 222 \(falta muestra\): /);
+  assert.equal(r.avisar.length, 0);
+  assert.match(p.hallazgos[0].que, /Todavía no hay muestra suficiente/);
+  // Apagado: quitarRevalidacion deja el incidente exactamente como estaba antes de revalidar.
+  const [antes] = reval.quitarRevalidacion([p]);
+  assert.equal(antes.severidad, "CRITICO");
+  assert.equal(antes.titulo, incidente182Real().titulo);
+  assert.ok(!antes.hallazgos.some(reval.esHallazgoDeRevalidacion));
+  // Y sin hallazgos de revalidación no cambia nada (apagado = hoy).
+  const hoy = incidente182Real();
+  assert.equal(reval.quitarRevalidacion([hoy])[0], hoy);
+  // El hallazgo de la revalidación no cuenta para la severidad del incidente.
+  assert.equal(alertas.severidadDelIncidente([p.hallazgos[0]]), "OBSERVACION");
+});
+
 console.log(`\n${pruebas} pruebas del Supervisor OK`);

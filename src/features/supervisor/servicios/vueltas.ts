@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 
 import { idsDelComboEnElLibro } from "../dominio/ids-del-combo";
 
-import { consolidar } from "../dominio/alertas";
+import { consolidar, severidadDelIncidente } from "../dominio/alertas";
+import { aplicaRevalidacion, aplicarRevalidaciones, quitarRevalidacion, revalidarIncidente } from "../dominio/revalidacion";
 import { agruparCambios, analizarHora, hallazgoDelCambioDelLibro, hallazgosDeArreglo } from "../dominio/analisis";
 import { detectarAtencion } from "../dominio/detectores-atencion";
 import { escenariosDelCombo } from "../dominio/escenarios";
@@ -15,7 +16,7 @@ import { CONFIG_GRAVEDAD_POR_DEFECTO, detectarPagoSinRespuesta } from "@/feature
 import { leerConfigGravedad } from "@/features/avisos-gravedad/servicios/enrutador";
 import { avisarTareasSinDuena, gestionarAcciones, leerConfigAccionable } from "@/features/supervisor-accionable/servicios/accionable";
 import { avisarAlDueno } from "./avisar";
-import { claveLibroVisto, negociosConSupervisor } from "./config";
+import { claveLibroVisto, negociosConSupervisor, revalidacionActiva } from "./config";
 import { chatsExcluidosDeAtencion, leerChatsAbiertos, leerFichasRecientes, leerFlujosDelLibro, leerLineaDelLibro, nombresDeAsesoras } from "./datos";
 import { purgarChatsExcluidos } from "../dominio/exclusiones";
 import {
@@ -167,15 +168,29 @@ export async function vueltaDeCadaHora(ahora = new Date()): Promise<{ negocios: 
       try {
         const linea = await leerLineaDelLibro(workspaceId);
         const cambios = agruparCambios(linea.cambios);
-        const abiertos = (await leerIncidentesAbiertos(workspaceId)).filter((inc) => inc.familia !== "ATENCION");
+        // Revalidación de incidentes viejos (dominio/revalidacion.ts). Apagada = exactamente lo de antes.
+        const revalidar = await revalidacionActiva(workspaceId);
+        // El hallazgo de la revalidación de la vuelta anterior sale antes de consolidar: se decide de nuevo.
+        const abiertos = quitarRevalidacion((await leerIncidentesAbiertos(workspaceId)).filter((inc) => inc.familia !== "ATENCION"));
         // Los incidentes del libro ya arreglados (Change Guardian sobre el historial): se acotan a su
         // versión y se confirman con los leads de después del arreglo (version-del-incidente.ts).
         const ids = idsDelComboEnElLibro(linea.actual);
         const escenarios = ids.productoComboId ? escenariosDelCombo({ productoComboId: ids.productoComboId, flujoFotosCombo: ids.flujoFotosCombo }) : [];
         const flujos = escenarios.length ? await leerFlujosDelLibro(workspaceId, linea.actual).catch(() => ({})) : {};
         const { arreglos, inicios } = arreglosDeLosIncidentes({ abiertos, libros: linea.libros, cambios: linea.cambios, escenarios, flujos });
+        const inicioDe = (inc: { clave: string; desde: Date }) => {
+          const version = versionDelIncidente(inc.clave);
+          return inicios.get(inc.clave) ?? linea.cambios.find((c) => c.version === version)?.en ?? inc.desde;
+        };
+        const revalidables = revalidar
+          ? abiertos.filter((inc) => aplicaRevalidacion({ incidente: inc, versionActual: linea.actual.version, inicio: inicioDe(inc), ahora }))
+          : [];
         // Para comparar contra los 14 días ANTES del defecto hace falta leer desde ahí (máx. 30 días).
-        const masViejo = Math.min(ahora.getTime(), ...[...arreglos.keys()].map((clave) => inicios.get(clave)?.getTime() ?? ahora.getTime()));
+        const masViejo = Math.min(
+          ahora.getTime(),
+          ...[...arreglos.keys()].map((clave) => inicios.get(clave)?.getTime() ?? ahora.getTime()),
+          ...revalidables.map((inc) => inicioDe(inc).getTime()),
+        );
         const dias = Math.min(30, Math.max(16, Math.ceil((ahora.getTime() - masViejo) / 86_400_000) + 15));
         const [fichas, nombres] = await Promise.all([
           leerFichasRecientes({ workspaceId, ahora, versionEn: linea.versionEn, dias }),
@@ -204,7 +219,7 @@ export async function vueltaDeCadaHora(ahora = new Date()): Promise<{ negocios: 
           arreglos: [...arreglos.entries()].map(([clave, arreglo]) => ({ version: versionDelIncidente(clave) as number, arreglo })),
           libros: linea.libros,
         });
-        const resultado = consolidar({
+        const consolidado = consolidar({
           abiertos,
           hallazgos,
           ahora,
@@ -212,6 +227,37 @@ export async function vueltaDeCadaHora(ahora = new Date()): Promise<{ negocios: 
           familiasEvaluadas: ["BOT", "EMBUDO", "CAMBIO"],
           versiones: { arreglos, inicios, confirmaciones, entradaDe: (id) => entradas.get(id) ?? null },
         });
+        /*
+          Antes de mantener o escalar un incidente técnico viejo, comprobar si SIGUE con la versión
+          actual del libro (leads nuevos + simulador). Si ya no ocurre se cierra con la evidencia; si
+          falta muestra queda pendiente (no CRÍTICO, sin aviso); si sigue, se escala con datos de hoy.
+        */
+        const resultado = revalidar
+          ? aplicarRevalidaciones({
+              incidentes: consolidado.incidentes,
+              avisar: consolidado.avisar,
+              abiertasAntes: new Set(abiertos.map((inc) => inc.clave)),
+              versionActual: linea.actual.version,
+              ahora,
+              inicioDe,
+              severidadDelDefecto: severidadDelIncidente,
+              revalidar: (inc) =>
+                revalidarIncidente({
+                  incidente: inc,
+                  fichas,
+                  ahora,
+                  versionActual: linea.actual.version,
+                  libroActual: linea.actual,
+                  libros: linea.libros,
+                  cambios: linea.cambios,
+                  escenarios,
+                  flujos,
+                  arreglo: arreglos.get(inc.clave) ?? null,
+                  inicioDelDefecto: inicioDe(inc),
+                  filtro: (f) => f.producto === (inc.producto ?? CLAVE_COMBO),
+                }),
+            })
+          : consolidado;
         await guardarIncidentes(workspaceId, resultado.incidentes, ahora);
         await avisarAlDueno({ workspaceId, avisos: resultado.avisar, incidentes: resultado.incidentes, ahora });
         total += hallazgos.length;
