@@ -6,7 +6,9 @@ import { idsDelComboEnElLibro } from "../dominio/ids-del-combo";
 import { consolidar, severidadDelIncidente } from "../dominio/alertas";
 import { aplicaRevalidacion, aplicarRevalidaciones, quitarRevalidacion, revalidarIncidente } from "../dominio/revalidacion";
 import { agruparCambios, analizarHora, hallazgoDelCambioDelLibro, hallazgosDeArreglo } from "../dominio/analisis";
-import { detectarAtencion } from "../dominio/detectores-atencion";
+import { detectarAtencion, esTurnoDelCliente } from "../dominio/detectores-atencion";
+import { leerConfigTurno } from "@/lib/turno-config";
+import { CONFIG_TURNO_APAGADO } from "@/lib/turno-de-la-conversacion";
 import { escenariosDelCombo } from "../dominio/escenarios";
 import { correrGuardian } from "../dominio/guardian";
 import { diffDelLibro } from "../dominio/libro-diff";
@@ -26,7 +28,7 @@ import {
   versionDelIncidente,
   type Confirmacion,
 } from "../dominio/version-del-incidente";
-import { hallazgosDeTareasSinDuena } from "../dominio/tareas-sin-duena";
+import { hallazgosDeTareasSinDuena, tareasSinDuenaConTurno } from "../dominio/tareas-sin-duena";
 import { leerTareasSinDuena } from "@/features/seguimiento-inteligente/servicios/tareas";
 
 /**
@@ -99,15 +101,20 @@ async function vigilarElLibro(workspaceId: string, ahora: Date): Promise<number>
 }
 
 async function chequearAtencion(workspaceId: string, ahora: Date): Promise<number> {
-  const chats = await leerChatsAbiertos({ workspaceId, ahora });
-  const tareasSinDuena = await leerTareasSinDuena(workspaceId, ahora).catch(() => []);
+  // Turno de la conversación (lib/turno-de-la-conversacion.ts). Apagado = exactamente lo de antes.
+  const turno = await leerConfigTurno(workspaceId).catch(() => CONFIG_TURNO_APAGADO);
+  const chats = await leerChatsAbiertos({ workspaceId, ahora, conTurno: turno.activo });
+  const todasSinDuena = await leerTareasSinDuena(workspaceId, ahora).catch(() => []);
+  // Con el turno: las tareas sin dueña de chats donde esperamos al cliente no van a la supervisora
+  // (salvo formulario / cotización / fecha cercana / caliente).
+  const tareasSinDuena = turno.activo ? tareasSinDuenaConTurno(todasSinDuena, chats) : todasSinDuena;
   // Avisos por gravedad: con el interruptor, también "ya pagué" / comprobante sin respuesta (CRÍTICO).
   const gravedad = await leerConfigGravedad(workspaceId).catch(() => null);
   // Supervisor accionable: también necesita el detector de "ya pagué" (es su caso más urgente).
   const accionable = await leerConfigAccionable(workspaceId).catch(() => null);
   const conPago = Boolean(gravedad?.activo || accionable?.activo);
   const hallazgos = [
-    ...detectarAtencion(chats, ahora),
+    ...detectarAtencion(chats, ahora, undefined, { asignadoIgnoraTurno: turno.asignadoSinRespuesta === "siempre" }),
     ...hallazgosDeTareasSinDuena(tareasSinDuena, ahora),
     ...(conPago ? detectarPagoSinRespuesta(chats, ahora, gravedad?.pagoSinRespuestaMin ?? CONFIG_GRAVEDAD_POR_DEFECTO.pagoSinRespuestaMin) : []),
   ];
@@ -119,13 +126,17 @@ async function chequearAtencion(workspaceId: string, ahora: Date): Promise<numbe
     abiertosCrudos.flatMap((inc) => inc.hallazgos.flatMap((h) => h.evidencia.chats)),
     ahora,
   ).catch(() => new Set<string>());
+  // Con el turno: los chats donde ya respondimos y esperamos al cliente también salen de las alertas abiertas.
+  if (turno.activo && turno.asignadoSinRespuesta === "turno") {
+    for (const chat of chats) if (esTurnoDelCliente(chat)) excluidos.add(chat.conversationId);
+  }
   const { incidentes: abiertos } = purgarChatsExcluidos(abiertosCrudos, excluidos, ahora);
   const resultado = consolidar({ abiertos, hallazgos, ahora, cambios: [], familiasEvaluadas: ["ATENCION"] });
   await guardarIncidentes(workspaceId, resultado.incidentes, ahora);
   // Con el accionable, avisarAlDueno deja fuera las alertas de chat: las maneja gestionarAcciones.
   await avisarAlDueno({ workspaceId, avisos: resultado.avisar, incidentes: resultado.incidentes, ahora });
   if (accionable?.activo) {
-    await gestionarAcciones({ workspaceId, hallazgos, chats, ahora, config: accionable });
+    await gestionarAcciones({ workspaceId, hallazgos, chats, ahora, config: accionable, asignadoIgnoraTurno: turno.asignadoSinRespuesta === "siempre" });
     // Las tareas de seguimiento sin asesora van a la supervisora (no a Alexander).
     await avisarTareasSinDuena({ workspaceId, tareas: tareasSinDuena, ahora, config: accionable });
   }

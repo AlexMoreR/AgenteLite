@@ -104,6 +104,15 @@ export type ConfigSeguimientoInteligente = {
   };
   /** Recursos de mensaje útil por familia (se mezclan con los de por defecto). */
   recursos: Record<string, Recurso>;
+  /**
+   * TURNO DE LA CONVERSACIÓN (lib/turno-de-la-conversacion.ts). No se lee de este JSON: lo pone
+   * servicios/config.ts desde `turno:config:<ws>`. Apagado = todo como antes.
+   *  - activo: si el bot ya respondió (sin pedir asesora, sin señal fuerte) y esperamos al cliente,
+   *    un TIBIO o FRÍO no es tarea ni frena / reemplaza los automáticos (V3 / Follow) ni el descarte.
+   *  - cadenciaSinTarea: los toques de los días 3/4/7 a un TIBIO o FRÍO que la asesora ya atendió
+   *    tampoco son tarea (se dan por hechos: siguen los automáticos y el descarte).
+   */
+  turno: { activo: boolean; cadenciaSinTarea: boolean };
 };
 
 export const TEXTO_EXTERIOR_POR_DEFECTO =
@@ -131,6 +140,7 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
   convivencia: { reemplazarGenericosEnFrios: true, reglasV3: [], followsDeEtapa: true },
   exterior: { activo: false, texto: TEXTO_EXTERIOR_POR_DEFECTO },
   recursos: RECURSOS_POR_DEFECTO,
+  turno: { activo: false, cadenciaSinTarea: true },
 };
 
 function objeto(valor: unknown): Record<string, unknown> {
@@ -259,6 +269,7 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
     },
     exterior: { activo: bandera(ext.activo, d.exterior.activo), texto: textoExterior },
     recursos: recursos(crudo.recursos),
+    turno: { ...d.turno },
   };
 }
 

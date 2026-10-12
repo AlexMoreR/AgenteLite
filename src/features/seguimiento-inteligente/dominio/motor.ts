@@ -37,6 +37,7 @@ import { colorDelCliente, esPedidoDeDatos, siguienteHoraLaboral } from "./formul
 import { mensajeDeCadencia, mensajeDeCotizacion, mensajeDeFechaFutura, mensajeDeFormulario, mensajePorSenales, type ContextoDelMensaje } from "./mensajes";
 import { familiaDelTexto, mensajeUtilPara, nombreDeFamilia, type MensajeUtil } from "./producto";
 import { calificar, type Calificacion, type Temperatura } from "./temperatura";
+import { turnoDeLaConversacion, type TurnoDeLaConversacion } from "../../../lib/turno-de-la-conversacion";
 
 const MIN = 60_000;
 const HORA = 60 * MIN;
@@ -73,6 +74,11 @@ export type FichaDelLead = {
   mensajesUtiles: number;
   /** Del más viejo al más nuevo, sin notas del sistema. */
   mensajes: MensajeCrudo[];
+  /**
+   * Notas del sistema recientes (tipo SYSTEM: "El agente pide un asesor…", llamadas), solo con el
+   * interruptor del turno. Se usan ÚNICAMENTE para saber de quién es el turno.
+   */
+  notas?: MensajeCrudo[];
 };
 
 export type Accion =
@@ -401,14 +407,34 @@ function decidir(c: Contexto): Decision {
   if (temperatura === "CALIENTE") {
     return tarea("A", "caliente_sin_asesora", mensajePorSenales(contextoDelMensaje), new Date(ultimoCliente.en.getTime() + config.motor.minutosTareaA * MIN));
   }
+  // TURNO DE LA CONVERSACIÓN (interruptor `turno:config`): el bot ya respondió sin pedir asesora y
+  // sin señal fuerte → esperamos al cliente. Un TIBIO no es tarea y un FRÍO no recibe el mensaje útil:
+  // NO se frenan ni se reemplazan los automáticos (V3 15/60 min, Follow, 24/72 h) ni el descarte.
+  const turnoDelCliente = Boolean(config.turno?.activo) && turnoDelLead(c).de === "CLIENTE";
   if (temperatura === "TIBIO") {
+    if (turnoDelCliente) {
+      return base("esperar", "turno_del_cliente", { supresion: "ninguna", revisarEn: siguienteRevision(ahora, 6 * 60) });
+    }
     return tarea("B", "tibio_sin_asesora", mensajePorSenales(contextoDelMensaje), new Date(ultimoCliente.en.getTime() + config.motor.minutosTareaB * MIN));
   }
   if (ahora.getTime() - ultimoCliente.en.getTime() > config.motor.diasDeSeguimiento * DIA) {
     return base("no_insistir", "fuera_de_la_ventana", { revisarEn: siguienteRevision(ahora, 7 * 24 * 60) });
   }
+  if (turnoDelCliente) {
+    return base("esperar", "turno_del_cliente", { supresion: "ninguna", revisarEn: siguienteRevision(ahora, 6 * 60) });
+  }
   return mensajeUtilAFrio(c, base, ultimoOut, "frio_leyo_sin_responder", ficha.mensajesUtiles >= config.motor.maxMensajesUtiles);
   }
+}
+
+/** De quién es el turno en el chat del lead (lib/turno-de-la-conversacion.ts). */
+export function turnoDelLead(c: Pick<Contexto, "ficha" | "mensajes" | "inicio" | "calificacion">): TurnoDeLaConversacion {
+  const eventos = [...c.mensajes, ...(c.ficha.notas ?? [])].map((m) => ({ direccion: m.direccion, tipo: m.tipo, origen: m.origen, texto: m.texto, en: m.en }));
+  return turnoDeLaConversacion(eventos, {
+    caliente: c.calificacion.temperaturaBase === "CALIENTE" || c.ficha.etapaCrm === "NEGOCIACION",
+    asignada: Boolean(c.ficha.asignadaA),
+    tuvoContactoHumano: c.mensajes.some((m) => esHumano(m, c.inicio)),
+  });
 }
 
 function mensajeUtilAFrio(
@@ -466,6 +492,11 @@ function cadencia(
   const inicioDeLaCadencia = h.humanosDespues[0].en;
   const dias = config.cadencia.dias;
   const frio = h.temperatura === "FRIO" && !h.cotizacionVigente;
+  // TURNO (interruptor `turno:config` + `cadenciaSinTarea`): la asesora ya respondió y el
+  // cliente calló → turno del cliente. Un TIBIO o FRÍO sin cotización no recibe toques del motor
+  // (ni tarea ni mensaje útil): se dan por hechos, los automáticos de siempre NO se frenan y, al
+  // final, el descarte. Caliente y cotización siguen igual.
+  const tibioSinTarea = Boolean(config.turno?.activo && config.turno.cadenciaSinTarea && h.temperatura !== "CALIENTE" && !h.cotizacionVigente);
   // Envíos automáticos desde el último mensaje del cliente hasta `hasta` (los del mismo minuto = uno).
   const desdeElCliente = c.delCliente.at(-1)?.en.getTime() ?? 0;
   const automaticosHasta = (hasta: number) => {
@@ -503,7 +534,7 @@ function cadencia(
     // A un Frío que ya recibió el tope de automáticos en este silencio tampoco se le insiste: el
     // anti-bloqueo lo frenaría, y no vale una tarea humana. Cuenta como hecho para el descarte.
     const topeFrio = frio && (sinMensajeUtil || automaticosHasta(vence.getTime()) >= config.cadencia.maxAutomaticos);
-    pendiente = hecho || noLeyo || topeFrio ? null : { dia, vence, ultimo: i === dias.length - 1 };
+    pendiente = hecho || noLeyo || topeFrio || tibioSinTarea ? null : { dia, vence, ultimo: i === dias.length - 1 };
   }
   if (pendiente) {
     const toque = `dia_${pendiente.dia}`;
@@ -523,12 +554,16 @@ function cadencia(
     );
   }
   if (proximo) {
-    return h.base("esperar", "cadencia_proximo_toque", { revisarEn: proximo, toque: `dia_${dias.find((d) => inicioDeLaCadencia.getTime() + d * DIA === proximo.getTime()) ?? ""}` });
+    return h.base("esperar", tibioSinTarea ? "turno_del_cliente_cadencia" : "cadencia_proximo_toque", {
+      revisarEn: proximo,
+      toque: `dia_${dias.find((d) => inicioDeLaCadencia.getTime() + d * DIA === proximo.getTime()) ?? ""}`,
+      ...(tibioSinTarea ? { supresion: "ninguna" as const } : {}),
+    });
   }
   // Pasaron todos los toques sin respuesta.
   const ultimo = new Date(inicioDeLaCadencia.getTime() + dias[dias.length - 1] * DIA);
   const descartarDesde = new Date(ultimo.getTime() + config.cadencia.horasDeGracia * HORA);
   if (h.cotizacionVigente) return h.base("no_insistir", "cotizacion_vigente_no_se_descarta", { revisarEn: new Date(ahora.getTime() + 24 * HORA) });
-  if (ahora.getTime() < descartarDesde.getTime()) return h.base("esperar", "gracia_antes_de_descartar", { revisarEn: descartarDesde });
+  if (ahora.getTime() < descartarDesde.getTime()) return h.base("esperar", "gracia_antes_de_descartar", { revisarEn: descartarDesde, ...(tibioSinTarea ? { supresion: "ninguna" as const } : {}) });
   return h.base("descartar", "sin_respuesta_tras_3_seguimientos", { revisarEn: new Date(ahora.getTime() + 24 * HORA) });
 }

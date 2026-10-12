@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 
 import { leerMarcaExterior } from "../dominio/exterior";
+import type { ConfigSeguimientoInteligente } from "../dominio/config";
+import { evaluarLead } from "../dominio/motor";
 import { leerConfigSeguimiento } from "./config";
 
 /**
@@ -49,6 +51,21 @@ export function decidirConvivencia(input: {
   return null;
 }
 
+/** La decisión del motor en este instante (sin efectos). Null si no se pudo leer (se usa la guardada). */
+async function decisionEnVivo(conversationId: string, config: ConfigSeguimientoInteligente): Promise<{ accion: string; supresion: string } | null> {
+  try {
+    // Import dinámico: ficha.ts lee el estado del agente V3, que a su vez importa esta convivencia.
+    const { leerFicha, leerNotasDelTurno } = await import("./ficha");
+    const ctx = await leerFicha(conversationId);
+    if (!ctx) return null;
+    ctx.ficha.notas = await leerNotasDelTurno(conversationId).catch(() => []);
+    const { decision } = evaluarLead(ctx.ficha, config, new Date());
+    return { accion: decision.accion, supresion: decision.supresion };
+  } catch {
+    return null;
+  }
+}
+
 /** ¿Se frena este seguimiento genérico? Null = sale como siempre. Nunca lanza (ante error, null). */
 export async function revisarConvivencia(input: {
   workspaceId: string;
@@ -81,12 +98,19 @@ export async function revisarConvivencia(input: {
     const datos = (lead?.accionDatos ?? null) as { supresion?: unknown; modo?: unknown } | null;
     // Solo cuenta una decisión tomada en modo activo (una de sombra no frena nada).
     const activa = datos?.modo === "activo";
+    // TURNO DE LA CONVERSACIÓN (interruptor `turno:config`): la decisión guardada puede ser de ANTES
+    // de que el bot respondiera (se toma cuando llega el mensaje del cliente: "tibio esperando" →
+    // frena todo). Con el turno prendido se vuelve a decidir AHORA, con los mensajes y notas de
+    // este momento (sin efectos: no guarda ni manda nada). Si es turno del cliente, el motor dice
+    // "esperar / ninguna" y el automático sale; las excepciones (caliente, formulario, cotización,
+    // fecha cercana, "ya pagué") siguen frenando como hoy.
+    const enVivo = config.turno?.activo && motorActivo && activa && conversationId ? await decisionEnVivo(conversationId, config) : null;
     return decidirConvivencia({
       motorActivo: motorActivo && activa,
       exteriorActivo: config.exterior.activo,
       esExterior: Boolean(lead?.exterior) || Boolean(leerMarcaExterior(contacto?.metadata)),
-      accion: lead?.accion ?? null,
-      supresion: typeof datos?.supresion === "string" ? datos.supresion : null,
+      accion: enVivo ? enVivo.accion : (lead?.accion ?? null),
+      supresion: enVivo ? enVivo.supresion : typeof datos?.supresion === "string" ? datos.supresion : null,
       motor: input.motor,
       reglaId: input.reglaId,
       nombre: input.nombre,

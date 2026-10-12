@@ -14,6 +14,7 @@ import { calificar, type Calificacion } from "../../seguimiento-inteligente/domi
 import { motivoDeExclusion } from "./exclusiones";
 import { horaBogota, diaSemanaBogota } from "./linea-base";
 import type { Hallazgo } from "./tipos";
+import type { TurnoDeLaConversacion } from "../../../lib/turno-de-la-conversacion";
 
 const MIN = 60_000;
 
@@ -45,6 +46,12 @@ export type ChatAbierto = {
   temperatura?: string | null;
   /** Nombre del contacto (para el mensaje sugerido). */
   nombreCliente?: string | null;
+  /**
+   * De quién es el turno (lib/turno-de-la-conversacion.ts). Solo viene con el interruptor
+   * `turno:config` prendido; sin él (undefined) todo es exactamente como antes. Con turno del
+   * CLIENTE el chat NO está "esperando": ni alertas, ni avisos, ni tareas.
+   */
+  turno?: TurnoDeLaConversacion | null;
 };
 
 export type HorarioLaboral = { desde: number; hasta: number; dias: number[] };
@@ -180,6 +187,11 @@ export function ultimoEsCierre(chat: Pick<ChatAbierto, "textosPendientes">): boo
   return esCierreOAutoRespuesta(chat.textosPendientes.at(-1));
 }
 
+/** Con el interruptor del turno prendido, ¿esperamos al cliente? (sin dato del turno = no se sabe = no) */
+export function esTurnoDelCliente(chat: Pick<ChatAbierto, "turno">): boolean {
+  return chat.turno?.de === "CLIENTE";
+}
+
 export type EstadoDeEspera = {
   chat: ChatAbierto;
   esperando: boolean;
@@ -196,7 +208,9 @@ export type EstadoDeEspera = {
 export function estadoDeEspera(chat: ChatAbierto, ahora: Date, horario = HORARIO_POR_DEFECTO): EstadoDeEspera {
   const esperando =
     Boolean(chat.ultimoClienteEn) &&
-    (!chat.ultimaRespuestaHumanaEn || (chat.ultimoClienteEn as Date).getTime() > chat.ultimaRespuestaHumanaEn.getTime());
+    (!chat.ultimaRespuestaHumanaEn || (chat.ultimoClienteEn as Date).getTime() > chat.ultimaRespuestaHumanaEn.getTime()) &&
+    // Con el interruptor del turno: si el bot (o una persona) ya respondió y esperamos al cliente, no espera.
+    !esTurnoDelCliente(chat);
   const senales = chat.textosPendientes.flatMap((t) => detectarSenales(t).map((s) => ({ ...s, texto: t })));
   const fuerte = senales.find((s) => s.grupo === "fuerte");
   const cualquiera = senales.find(esSenalDeCompra);
@@ -264,7 +278,13 @@ function hallazgoBase(parcial: Partial<Hallazgo> & Pick<Hallazgo, "clave" | "sev
  * El chequeo de atención. Agrupa por asesora para no mandar un aviso por chat: un incidente =
  * "N chats calientes esperando a Fulana", que se actualiza en cada vuelta.
  */
-export function detectarAtencion(chats: ChatAbierto[], ahora: Date, horario = HORARIO_POR_DEFECTO): Hallazgo[] {
+export function detectarAtencion(
+  chats: ChatAbierto[],
+  ahora: Date,
+  horario = HORARIO_POR_DEFECTO,
+  /** `asignadoIgnoraTurno`: "asignado sin respuesta" sale aunque sea turno del cliente (como antes del turno). */
+  opciones: { asignadoIgnoraTurno?: boolean } = {},
+): Hallazgo[] {
   const salida: Hallazgo[] = [];
   // Fuera: PERDIDO/GANADO, fuera de Colombia, dormidos por fecha futura y los que ya respondió una
   // persona (exclusiones.ts). "ya_respondio" coincide con "no está esperando", que ya se exigía.
@@ -364,7 +384,7 @@ export function detectarAtencion(chats: ChatAbierto[], ahora: Date, horario = HO
   }
 
   // A5: lead interesado asignado a una asesora y sin NINGÚN mensaje humano desde la asignación.
-  salida.push(...detectarAsignadoSinRespuesta(chats, ahora, new Set(urgentes.map((e) => e.chat.conversationId))));
+  salida.push(...detectarAsignadoSinRespuesta(chats, ahora, new Set(urgentes.map((e) => e.chat.conversationId)), opciones));
   return salida;
 }
 
@@ -434,12 +454,19 @@ export function sugeridoParaElChat(chat: ChatAbierto, ahora: Date, nombre: strin
  * de Colombia, dormidos, ni si la asesora ya escribió. Los que ya están en "caliente esperando" no se
  * repiten aquí. Agrupa por asesora (un incidente por asesora) y trae el mensaje sugerido.
  */
-export function detectarAsignadoSinRespuesta(chats: ChatAbierto[], ahora: Date, yaAvisados: Set<string> = new Set()): Hallazgo[] {
+export function detectarAsignadoSinRespuesta(
+  chats: ChatAbierto[],
+  ahora: Date,
+  yaAvisados: Set<string> = new Set(),
+  opciones: { asignadoIgnoraTurno?: boolean } = {},
+): Hallazgo[] {
   const u = UMBRALES_ATENCION;
   type Fila = { chat: ChatAbierto; minutos: number; interes: InteresDelLead; sugerido: string };
   const filas: Fila[] = [];
   for (const chat of chats) {
     if (!chat.asesoraId || !chat.asignadaEn || yaAvisados.has(chat.conversationId)) continue;
+    // Turno del cliente (el bot contestó sin pedir asesora y no es un caliente sin humano): no es tarea.
+    if (!opciones.asignadoIgnoraTurno && esTurnoDelCliente(chat)) continue;
     // Solo asignaciones de las últimas 24 h: lo más viejo ya es "oportunidad a retomar" o tarea del
     // seguimiento inteligente (la simulación del 10-oct mostró chats de 1–2 días tapando los de hoy).
     if (ahora.getTime() - chat.asignadaEn.getTime() > u.retomarDesdeH * 60 * MIN) continue;

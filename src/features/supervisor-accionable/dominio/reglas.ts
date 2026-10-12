@@ -37,7 +37,7 @@
 
 import { ultimos4 } from "../../coach/reglas";
 import { detectarSenales } from "../../embudo/dominio/senales";
-import { estadoDeEspera, enHorario, interesDelLead, sugeridoParaElChat, type ChatAbierto } from "../../supervisor/dominio/detectores-atencion";
+import { estadoDeEspera, enHorario, esTurnoDelCliente, interesDelLead, sugeridoParaElChat, type ChatAbierto } from "../../supervisor/dominio/detectores-atencion";
 import { motivoDeExclusion } from "../../supervisor/dominio/exclusiones";
 import { diaSemanaBogota, horaBogota as horaDelDiaBogota } from "../../supervisor/dominio/linea-base";
 import { ORDEN_DE_SEVERIDAD, type Hallazgo, type Severidad } from "../../supervisor/dominio/tipos";
@@ -736,6 +736,8 @@ export function avanzar(input: {
   supervisora: Persona | null;
   /** Número corto de cada chat (/c/<numero>). */
   numeros?: Map<string, number>;
+  /** Turno con `asignadoSinRespuesta: "siempre"`: un "asignado" abierto no se cierra por turno del cliente. */
+  asignadoIgnoraTurno?: boolean;
 }): { estado: EstadoAccionable; eventos: Evento[] } {
   const { ahora, config } = input;
   const iso = ahora.toISOString();
@@ -791,6 +793,13 @@ export function avanzar(input: {
     }
     if (!chat || chat.etapa === "GANADO" || chat.etapa === "PERDIDO") {
       // Cerrado, ganado o perdido: ya no es tarea de nadie (no cuenta ni como resuelta ni como escalada).
+      a.estado = "YA_NO_APLICA";
+      continue;
+    }
+    // Turno de la conversación (solo con su interruptor: sin él `chat.turno` no viene): el bot ya
+    // respondió sin pedir asesora y esperamos al cliente → ya no es tarea de nadie (lo lleva la
+    // cadencia automática). Un pago nunca se cierra así (su señal siempre es turno de Magilus).
+    if (esTurnoDelCliente(chat) && a.tipo !== "pago" && !(a.tipo === "asignado" && input.asignadoIgnoraTurno)) {
       a.estado = "YA_NO_APLICA";
       continue;
     }

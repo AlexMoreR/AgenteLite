@@ -6,6 +6,9 @@
  * con las de prioridad A primero.
  */
 
+import { tareaSigueConTurnoDelCliente } from "../../../lib/turno-de-la-conversacion";
+
+import type { ChatAbierto } from "./detectores-atencion";
 import type { Hallazgo } from "./tipos";
 
 export type TareaSinDuena = {
@@ -46,4 +49,19 @@ export function hallazgosDeTareasSinDuena(tareas: TareaSinDuena[], ahora: Date):
       tocaProduccion: false,
     },
   ];
+}
+
+/**
+ * TURNO DE LA CONVERSACIÓN (interruptor `turno:config`): una tarea sin dueña de un chat donde ya
+ * respondimos y esperamos al cliente NO se le avisa a la supervisora (la maneja la cadencia
+ * automática), salvo las excepciones aprobadas (formulario, cotización, fecha cercana, caliente).
+ * Los chats que no están en `chats` (sin turno calculado) quedan como antes.
+ */
+export function tareasSinDuenaConTurno<T extends TareaSinDuena>(tareas: T[], chats: Array<Pick<ChatAbierto, "conversationId" | "turno">>): T[] {
+  const turnos = new Map(chats.map((c) => [c.conversationId, c.turno]));
+  return tareas.filter((t) => {
+    const turno = turnos.get(t.conversationId);
+    if (turno?.de !== "CLIENTE") return true;
+    return tareaSigueConTurnoDelCliente(t.motivo, t.prioridad);
+  });
 }

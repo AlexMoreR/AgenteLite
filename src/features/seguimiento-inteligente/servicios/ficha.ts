@@ -133,3 +133,24 @@ export async function leerFicha(conversationId: string): Promise<FichaConContext
     },
   };
 }
+
+/**
+ * Las notas del sistema recientes de un chat (para el TURNO de la conversación: "El agente pide un
+ * asesor…", llamadas). Solo se leen con el interruptor `turno:config` prendido.
+ */
+export async function leerNotasDelTurno(conversationId: string): Promise<MensajeCrudo[]> {
+  const filas = await prisma.message.findMany({
+    where: { conversationId, type: "SYSTEM", deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    take: 30,
+    select: { direction: true, type: true, content: true, createdAt: true, rawPayload: true },
+  });
+  return filas.reverse().map((m) => ({
+    direccion: m.direction === "INBOUND" ? "IN" : "OUT",
+    tipo: m.type,
+    texto: m.content,
+    en: m.createdAt,
+    leidoEn: null,
+    origen: ((m.rawPayload as { source?: unknown } | null)?.source as string | undefined) ?? null,
+  }));
+}

@@ -227,6 +227,8 @@ export async function gestionarAcciones(input: {
   chats: ChatAbierto[];
   ahora: Date;
   config: ConfigAccionable;
+  /** Turno con `asignadoSinRespuesta: "siempre"` (ver lib/turno-de-la-conversacion.ts). */
+  asignadoIgnoraTurno?: boolean;
 }): Promise<{ eventos: Evento[]; enviados: number }> {
   const { workspaceId, ahora, config } = input;
   try {
@@ -239,7 +241,7 @@ export async function gestionarAcciones(input: {
     const idsDeChats = [...input.hallazgos.flatMap((h) => h.evidencia.chats), ...(config.fueraDeHorario?.activo ? input.chats.map((c) => c.conversationId) : [])];
     const { numeros, extras } = await datosDeLosChats(workspaceId, idsDeChats);
     const candidatas = candidatasDeLaVuelta({ hallazgos: input.hallazgos, chats: input.chats, ahora, supervisora, extras, config });
-    const { estado, eventos } = avanzar({ estado: previo, candidatas, chats: input.chats, atendidas, ahora, config, supervisora, numeros });
+    const { estado, eventos } = avanzar({ estado: previo, candidatas, chats: input.chats, atendidas, ahora, config, supervisora, numeros, asignadoIgnoraTurno: input.asignadoIgnoraTurno });
     // Se guarda ANTES de mandar: si un envío se cuelga, la próxima vuelta no repite el aviso.
     await guardarJson(claveEstadoAccionable(workspaceId), estado);
     const enviados = await ejecutar(workspaceId, estado, eventos, config, ahora);

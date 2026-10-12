@@ -1,5 +1,6 @@
 import { leerConfigAntiBloqueo } from "@/lib/anti-bloqueo/servicio";
 import { prisma } from "@/lib/prisma";
+import { leerConfigTurno } from "@/lib/turno-config";
 
 import { algoPrendido, leerConfigDeTexto, type ConfigSeguimientoInteligente } from "../dominio/config";
 
@@ -28,6 +29,9 @@ export async function leerConfigSeguimiento(workspaceId: string): Promise<Config
   // `noLeido.activo`, apagado por defecto desde el 11-10-2026).
   const antiBloqueo = await leerConfigAntiBloqueo(workspaceId);
   valor = { ...valor, motor: { ...valor.motor, respetarNoLeido: antiBloqueo.noLeido.activo } };
+  // El turno de la conversación tiene su propio interruptor (`turno:config:<ws>`), compartido con el Supervisor.
+  const turno = await leerConfigTurno(workspaceId).catch(() => null);
+  valor = { ...valor, turno: { activo: Boolean(turno?.activo), cadenciaSinTarea: turno?.cadenciaSinTarea ?? true } };
   configs.set(workspaceId, { valor, vence: Date.now() + MEMORIA_MS });
   return valor;
 }

@@ -13,7 +13,7 @@ import { evaluarLead, type Decision, type Evaluacion } from "../dominio/motor";
 import { textoPermitido } from "../dominio/producto";
 import { PREFIJO_FOLLOW_INTELIGENTE } from "./convivencia";
 import { leerConfigSeguimiento, negociosConSeguimiento } from "./config";
-import { leerFicha, type FichaConContexto } from "./ficha";
+import { leerFicha, leerNotasDelTurno, type FichaConContexto } from "./ficha";
 import { aplicarTopeDeTareas } from "./tope";
 
 /**
@@ -155,6 +155,8 @@ export async function revisarLead(conversationId: string, opciones: { ahora?: Da
     const config = await leerConfigSeguimiento(ctx.workspaceId);
     if (!algoPrendido(config)) return null;
     const ahora = opciones.ahora ?? new Date();
+    // Turno de la conversación: las notas del bot ("pide un asesor…") deciden si el turno es nuestro.
+    if (config.turno?.activo) ctx.ficha.notas = await leerNotasDelTurno(conversationId).catch(() => []);
     const evaluacion = evaluarLead(ctx.ficha, config, ahora);
     const { calificacion, decision } = evaluacion;
     const eventos: EventoDelEmbudo[] = [];

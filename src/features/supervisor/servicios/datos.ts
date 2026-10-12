@@ -7,7 +7,9 @@ import { getFlowReply } from "@/lib/agent-product-flow";
 import { prisma } from "@/lib/prisma";
 import { isMarkedAsLid, readDiscoveredPhone } from "@/lib/whatsapp-lid";
 
-import type { ChatAbierto } from "../dominio/detectores-atencion";
+import { turnoDeLaConversacion, type EventoDelChat, type TurnoDeLaConversacion } from "@/lib/turno-de-la-conversacion";
+
+import { esCaliente, type ChatAbierto } from "../dominio/detectores-atencion";
 import { motivoDeExclusion } from "../dominio/exclusiones";
 import type { FlujoConocido } from "../dominio/guardian";
 import { fichaDelLead, type FichaDelLead, type MensajeDelSupervisor } from "../dominio/lead";
@@ -119,7 +121,40 @@ type FilaDeChat = {
   asignadaA: string | null;
   temperatura: string | null;
   nombreCliente: string | null;
+  /** Solo con el turno prendido: los últimos 40 mensajes y notas (JSON). */
+  eventos?: Array<{ d: string; t: string; o: string | null; x: string | null; en: string }> | null;
 };
+
+/** Un timestamp de Postgres "sin zona" dentro de un JSON es UTC. */
+function fechaUtc(texto: string): Date {
+  return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(texto) ? texto : `${texto}Z`);
+}
+
+/** Los últimos 40 mensajes y notas de cada chat, para el turno (solo con el interruptor). */
+const LATERAL_EVENTOS_DEL_TURNO = Prisma.sql`
+      LEFT JOIN LATERAL (
+        SELECT json_agg(json_build_object('d', e."d", 't', e."t", 'o', e."o", 'x', e."x", 'en', e."createdAt") ORDER BY e."createdAt") AS "eventos" FROM (
+          SELECT m."direction"::text AS "d", m."type"::text AS "t", m."rawPayload"->>'source' AS "o",
+                 left(coalesce(nullif(m."transcripcion", ''), m."content", ''), 400) AS "x", m."createdAt"
+            FROM "Message" m
+           WHERE m."conversationId" = c."id"
+           ORDER BY m."createdAt" DESC LIMIT 40) e) ev ON true`;
+
+/** El turno de un chat a partir de su fila (lib/turno-de-la-conversacion.ts). */
+export function turnoDeLaFila(fila: Pick<FilaDeChat, "eventos" | "etapa" | "temperatura" | "asesoraId" | "ultimaRespuestaHumanaEn" | "textos">): TurnoDeLaConversacion {
+  const eventos: EventoDelChat[] = (fila.eventos ?? []).map((e) => ({
+    direccion: e.d === "INBOUND" ? "IN" : "OUT",
+    tipo: e.t,
+    origen: e.o,
+    texto: e.x,
+    en: fechaUtc(e.en),
+  }));
+  return turnoDeLaConversacion(eventos, {
+    caliente: esCaliente({ etapa: fila.etapa, temperatura: fila.temperatura }),
+    asignada: Boolean(fila.asesoraId),
+    tuvoContactoHumano: Boolean(fila.ultimaRespuestaHumanaEn),
+  });
+}
 
 /** Lo de las exclusiones (exterior, LID, dormido) desde las columnas de la fila. */
 function datosDeExclusion(fila: { telefono: string | null; metadata: unknown; dormidoHasta: Date | null }) {
@@ -197,7 +232,12 @@ export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[
  * chequeo de atención: último mensaje del cliente, última respuesta humana y los textos del
  * cliente desde entonces. UNA consulta (con LATERAL por chat sobre el índice conversationId+fecha).
  */
-export async function leerChatsAbiertos(input: { workspaceId: string; ahora: Date }): Promise<ChatAbierto[]> {
+export async function leerChatsAbiertos(input: {
+  workspaceId: string;
+  ahora: Date;
+  /** Interruptor `turno:config`: lee los últimos mensajes y notas y calcula de quién es el turno. */
+  conTurno?: boolean;
+}): Promise<ChatAbierto[]> {
   const lineas = await lineasDelV3(input.workspaceId);
   if (lineas.length === 0) return [];
   const desde = new Date(input.ahora.getTime() - 3 * DIA);
@@ -207,6 +247,7 @@ export async function leerChatsAbiertos(input: { workspaceId: string; ahora: Dat
            cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", txt."textos",
            ct."phoneNumber" AS "telefono", ct."metadata", l."dormidoHasta", todos."textosCliente",
            asg."createdAt" AS "asignadaEn", asg."asignadaA", l."temperatura", ct."name" AS "nombreCliente"
+           ${input.conTurno ? Prisma.sql`, ev."eventos"` : Prisma.empty}
       FROM "Conversation" c
       JOIN "Contact" ct ON ct."id" = c."contactId"
       LEFT JOIN "User" u ON u."id" = c."assignedToUserId"
@@ -233,6 +274,7 @@ export async function leerChatsAbiertos(input: { workspaceId: string; ahora: Dat
              AND (hum."createdAt" IS NULL OR m."createdAt" > hum."createdAt")
            ORDER BY m."createdAt" DESC LIMIT 5) t) txt ON true
       ${LATERAL_TEXTOS_DEL_CLIENTE}
+      ${input.conTurno ? LATERAL_EVENTOS_DEL_TURNO : Prisma.empty}
      WHERE c."channelId" IN (${Prisma.join(lineas)})
        AND c."status" = 'OPEN'
        AND c."lastMessageAt" >= ${desde}`);
@@ -251,6 +293,7 @@ export async function leerChatsAbiertos(input: { workspaceId: string; ahora: Dat
     asignadaEn: fila.asignadaEn && (!fila.asignadaA || fila.asignadaA === fila.asesoraId) ? new Date(fila.asignadaEn) : null,
     temperatura: fila.temperatura,
     nombreCliente: fila.nombreCliente,
+    ...(input.conTurno ? { turno: turnoDeLaFila(fila) } : {}),
   }));
 }
 

@@ -20,6 +20,7 @@ import { leerDatosDeChats } from "@/features/supervisor/servicios/chats-de-alert
 import { supervisorActivo } from "@/features/supervisor/servicios/config";
 import { enHorario } from "@/features/supervisor/dominio/detectores-atencion";
 import { leerChatsAbiertos, leerFlujosDelLibro, leerLineaDelLibro } from "@/features/supervisor/servicios/datos";
+import { leerConfigTurno } from "@/lib/turno-config";
 import { idsDelComboEnElLibro } from "@/features/supervisor/servicios/vueltas";
 import { TareasDeSeguimiento } from "@/features/seguimiento-inteligente/components/TareasDeSeguimiento";
 import { leerConfigSeguimiento } from "@/features/seguimiento-inteligente/servicios/config";
@@ -108,7 +109,9 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
   // Fuera de horario: los chats abiertos para "N clientes esperando fuera de horario" (de día no hace falta).
   const ahora = new Date();
   const chatsFueraDeHorario =
-    configAccionable?.activo && !enHorario(ahora) ? await leerChatsAbiertos({ workspaceId, ahora }).catch(() => []) : [];
+    configAccionable?.activo && !enHorario(ahora)
+      ? await leerChatsAbiertos({ workspaceId, ahora, conTurno: (await leerConfigTurno(workspaceId).catch(() => null))?.activo }).catch(() => [])
+      : [];
   const panelAccionable = configAccionable?.activo
     ? await leerPanelAccionable(workspaceId, (alertas ?? []).filter((alerta) => alerta.estado === "ABIERTA"), ahora, chatsFueraDeHorario).catch(() => null)
     : null;
