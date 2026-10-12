@@ -328,7 +328,11 @@ export function detectarPagoSinRespuesta(chats: ChatAbierto[], ahora: Date, espe
   const filas: Fila[] = [];
   for (const chat of chats) {
     if (!chat.ultimoClienteEn) continue;
-    const esperando = !chat.ultimaRespuestaHumanaEn || chat.ultimoClienteEn.getTime() > chat.ultimaRespuestaHumanaEn.getTime();
+    // Con el turno calculado (lib/turno-del-chat.ts) manda el turno; un "ya pagué" es intención
+    // fuerte, así que sigue siendo turno de Magilus hasta que una persona responda.
+    const esperando = chat.turno
+      ? chat.turno.de === "MAGILUS"
+      : !chat.ultimaRespuestaHumanaEn || chat.ultimoClienteEn.getTime() > chat.ultimaRespuestaHumanaEn.getTime();
     if (!esperando) continue;
     const motivo = motivoDeExclusion({ ...chat, textos: [...(chat.textosDelCliente ?? []), ...chat.textosPendientes] }, ahora);
     if (motivo !== null && motivo !== "ya_respondio") continue;

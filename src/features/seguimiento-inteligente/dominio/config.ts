@@ -58,6 +58,13 @@ export type ConfigSeguimientoInteligente = {
     horasDeGracia: number;
     /** Automáticos por silencio (igual que el tope del anti-bloqueo): pasado esto, el toque de un Frío es tarea. */
     maxAutomaticos: number;
+    /**
+     * TURNO DEL CLIENTE (12-10-2026, Alexander): cuando Magilus ya respondió y quedó esperando al
+     * cliente no hay tareas humanas; solo la cadencia automática de seguimiento durante estas horas
+     * y después el descarte (con su interruptor `descarte`). 72 h = la política del Coach
+     * (horasMinimasParaDescartar). Una cotización vigente nunca se descarta.
+     */
+    horasTurnoDelCliente: number;
   };
   cotizacion: {
     /** Horas después de la cotización para la tarea humana. */
@@ -123,7 +130,7 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
     minutosTareaB: 30,
     respetarNoLeido: false,
   },
-  cadencia: { dias: [3, 4, 7], descarte: "apagado", horasDeGracia: 24, maxAutomaticos: 2 },
+  cadencia: { dias: [3, 4, 7], descarte: "apagado", horasDeGracia: 24, maxAutomaticos: 2, horasTurnoDelCliente: 72 },
   cotizacion: { horas: [24, 72], diasVigente: 30 },
   formulario: { activo: true, horas: [2, 24, 72], desdeHora: 8, hastaHora: 18, dias: [1, 2, 3, 4, 5, 6] },
   tareas: { maxPorAsesoraDia: 15 },
@@ -238,6 +245,7 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
       descarte: modo(cad.descarte),
       horasDeGracia: numero(cad.horasDeGracia, d.cadencia.horasDeGracia, 0, 30 * 24),
       maxAutomaticos: Math.round(numero(cad.maxAutomaticos, d.cadencia.maxAutomaticos, 0, 10)),
+      horasTurnoDelCliente: numero(cad.horasTurnoDelCliente, d.cadencia.horasTurnoDelCliente, 24, 30 * 24),
     },
     cotizacion: {
       horas: listaDeNumeros(cot.horas, d.cotizacion.horas, 30 * 24),

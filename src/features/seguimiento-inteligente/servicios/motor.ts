@@ -116,7 +116,7 @@ export const MOTIVO_DESCARTE_CADENCIA = "sin_respuesta";
  * nota que el descarte automático del CRM (sin autor, a la vista). Respeta el candado de la
  * cotización y no pisa un GANADO/PERDIDO. No le escribe nada al cliente.
  */
-async function descartarPorCadencia(ctx: FichaConContexto, dias: number[]): Promise<boolean> {
+async function descartarPorCadencia(ctx: FichaConContexto, horas: number): Promise<boolean> {
   const aviso = await avisoSiNoSePuedeDescartar({ contactId: ctx.contactId, lostReason: MOTIVO_DESCARTE_CADENCIA }).catch(
     (error) => `no se pudo revisar el candado: ${error instanceof Error ? error.message : String(error)}`,
   );
@@ -138,7 +138,7 @@ async function descartarPorCadencia(ctx: FichaConContexto, dias: number[]): Prom
     kind: "stage_changed",
     actorUserId: null,
     origen: "seguimiento-inteligente",
-    text: `Descartado automáticamente: sin respuesta tras 3 seguimientos (días ${dias.join(", ")} después de la asesora). Motivo: Sin respuesta.`,
+    text: `Descartado automáticamente: sin respuesta ${horas} h después de la última respuesta de Magilus (con los seguimientos automáticos de siempre). Motivo: Sin respuesta.`,
   }).catch((error) => anotarError("no se pudo dejar la nota del descarte", error));
   await cancelarAutomaticosPendientesDelContacto({ workspaceId: ctx.workspaceId, contactId: ctx.contactId, motivo: "etapa_cerrada" });
   return true;
@@ -207,7 +207,7 @@ export async function revisarLead(conversationId: string, opciones: { ahora?: Da
     }
     if (decision.accion === "descartar" && modo !== "apagado") {
       if (modo === "activo") {
-        const hecho = await descartarPorCadencia(ctx, config.cadencia.dias).catch((error) => {
+        const hecho = await descartarPorCadencia(ctx, config.cadencia.horasTurnoDelCliente).catch((error) => {
           anotarError("no se pudo descartar", error, { conversationId });
           return false;
         });
@@ -254,7 +254,7 @@ export async function barrerSeguimientoInteligente(ahora = new Date()): Promise<
     let revisados = 0;
     for (const workspaceId of negocios) {
       const config = await leerConfigSeguimiento(workspaceId);
-      const ventanaDias = Math.max(config.motor.diasDeSeguimiento, Math.max(...config.cadencia.dias) + config.cadencia.horasDeGracia / 24 + 3, config.cotizacion.diasVigente);
+      const ventanaDias = Math.max(config.motor.diasDeSeguimiento, config.cadencia.horasTurnoDelCliente / 24 + 3, config.cotizacion.diasVigente);
       const leads = await prisma.embudoLead.findMany({
         where: {
           workspaceId,

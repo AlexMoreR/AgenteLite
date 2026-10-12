@@ -5,6 +5,7 @@ import type { LibroDeReglas } from "@/features/agente-v3/domain/reglas";
 import { leerConfigEmbudo } from "@/features/embudo/servicios/config";
 import { getFlowReply } from "@/lib/agent-product-flow";
 import { prisma } from "@/lib/prisma";
+import { turnoDelChat, type MensajeDelTurno, type TurnoDelChat } from "@/lib/turno-del-chat";
 import { isMarkedAsLid, readDiscoveredPhone } from "@/lib/whatsapp-lid";
 
 import type { ChatAbierto } from "../dominio/detectores-atencion";
@@ -102,6 +103,59 @@ export async function leerFichasRecientes(input: {
   return fichas;
 }
 
+type FilaDelTurno = {
+  conversationId: string;
+  direction: string;
+  type: string;
+  texto: string | null;
+  createdAt: Date;
+  source: string | null;
+  inicio: Date | null;
+};
+
+/** Mensajes que se miran por chat para decidir el turno (los últimos: alcanza para el pase y la señal fuerte). */
+const MENSAJES_PARA_EL_TURNO = 40;
+
+/**
+ * De quién es el turno en cada chat (lib/turno-del-chat.ts, la misma definición del seguimiento
+ * inteligente). UNA consulta con los últimos mensajes de cada chat, notas del sistema incluidas
+ * (el bot deja ahí "El agente pide un asesor…").
+ */
+export async function leerTurnos(ids: string[], ahora: Date): Promise<Map<string, TurnoDelChat>> {
+  const unicos = [...new Set(ids)].filter(Boolean);
+  const salida = new Map<string, TurnoDelChat>();
+  if (unicos.length === 0) return salida;
+  const filas = await prisma.$queryRaw<FilaDelTurno[]>(Prisma.sql`
+    SELECT ch."id" AS "conversationId", u."direction", u."type", u."texto", u."createdAt", u."source", ini."inicio"
+      FROM unnest(ARRAY[${Prisma.join(unicos)}]::text[]) AS ch("id")
+      CROSS JOIN LATERAL (
+        SELECT m."direction"::text AS "direction", m."type"::text AS "type",
+               left(coalesce(nullif(m."transcripcion", ''), m."content"), 400) AS "texto", m."createdAt",
+               m."rawPayload"->>'source' AS "source"
+          FROM "Message" m
+         WHERE m."conversationId" = ch."id" AND m."deletedAt" IS NULL AND m."createdAt" <= ${ahora}
+         ORDER BY m."createdAt" DESC LIMIT ${MENSAJES_PARA_EL_TURNO}) u
+      LEFT JOIN LATERAL (
+        SELECT m."createdAt" AS "inicio" FROM "Message" m
+         WHERE m."conversationId" = ch."id" AND m."direction" = 'INBOUND' AND m."type"::text <> 'SYSTEM'
+         ORDER BY m."createdAt" ASC LIMIT 1) ini ON true
+     ORDER BY ch."id", u."createdAt"`);
+  const porChat = new Map<string, { inicio: Date | null; mensajes: MensajeDelTurno[] }>();
+  for (const fila of filas) {
+    const chat = porChat.get(fila.conversationId) ?? { inicio: fila.inicio ? new Date(fila.inicio) : null, mensajes: [] };
+    chat.mensajes.push({
+      direccion: fila.direction === "INBOUND" ? "IN" : "OUT",
+      tipo: fila.type,
+      texto: fila.texto,
+      en: new Date(fila.createdAt),
+      origen: fila.source,
+    });
+    porChat.set(fila.conversationId, chat);
+  }
+  for (const [id, chat] of porChat) salida.set(id, turnoDelChat(chat.mensajes, { ahora, inicioDeLaCharla: chat.inicio }));
+  return salida;
+}
+
 type FilaDeChat = {
   conversationId: string;
   asesoraId: string | null;
@@ -175,11 +229,13 @@ export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[
          ORDER BY m."createdAt" DESC LIMIT 1) hum ON true
       ${LATERAL_TEXTOS_DEL_CLIENTE}
      WHERE c."workspaceId" = ${workspaceId} AND c."id" IN (${Prisma.join(unicos)})`);
+  const turnos = await leerTurnos(filas.map((fila) => fila.conversationId), ahora);
   const excluidos = new Set<string>();
   for (const fila of filas) {
     const motivo = motivoDeExclusion(
       {
         etapa: fila.etapa,
+        turno: turnos.get(fila.conversationId) ?? null,
         ...datosDeExclusion(fila),
         ultimoClienteEn: fila.ultimoClienteEn ? new Date(fila.ultimoClienteEn) : null,
         ultimaRespuestaHumanaEn: fila.ultimaRespuestaHumanaEn ? new Date(fila.ultimaRespuestaHumanaEn) : null,
@@ -236,8 +292,10 @@ export async function leerChatsAbiertos(input: { workspaceId: string; ahora: Dat
      WHERE c."channelId" IN (${Prisma.join(lineas)})
        AND c."status" = 'OPEN'
        AND c."lastMessageAt" >= ${desde}`);
+  const turnos = await leerTurnos(filas.map((fila) => fila.conversationId), input.ahora);
   return filas.map((fila) => ({
     conversationId: fila.conversationId,
+    turno: turnos.get(fila.conversationId) ?? null,
     asesoraId: fila.asesoraId,
     asesoraNombre: fila.asesoraNombre,
     etapa: fila.etapa,

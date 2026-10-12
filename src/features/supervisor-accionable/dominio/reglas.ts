@@ -444,7 +444,9 @@ function riesgoDe(tipo: TipoDeAccion, chat: ChatAbierto, extras: ExtrasDelChat |
 }
 
 function minutosDeEspera(chat: ChatAbierto, ahora: Date): number {
-  return chat.ultimoClienteEn ? Math.floor((ahora.getTime() - chat.ultimoClienteEn.getTime()) / MIN) : 0;
+  // Con el turno calculado, desde que le toca a Magilus (lib/turno-del-chat.ts).
+  const desde = chat.turno?.desde ?? chat.ultimoClienteEn;
+  return desde ? Math.floor((ahora.getTime() - desde.getTime()) / MIN) : 0;
 }
 
 function excluidoDeAtencion(chat: ChatAbierto, ahora: Date): boolean {
@@ -789,6 +791,12 @@ export function avanzar(input: {
     }
     if (!chat || chat.etapa === "GANADO" || chat.etapa === "PERDIDO") {
       // Cerrado, ganado o perdido: ya no es tarea de nadie (no cuenta ni como resuelta ni como escalada).
+      a.estado = "YA_NO_APLICA";
+      continue;
+    }
+    if (chat.turno && chat.turno.de !== "MAGILUS") {
+      // Ya no le toca a Magilus (el bot contestó bien y quedó esperando al cliente, o el cliente se
+      // despidió): ni segundo aviso ni escalada (12-10-2026).
       a.estado = "YA_NO_APLICA";
       continue;
     }

@@ -238,20 +238,28 @@ prueba("motor: con el interruptor noLeido PRENDIDO vuelve el 'no leyó → no in
   assert.equal(mo.evaluarLead(leido, conFreno, mas(4 * H)).decision.accion, "mensaje_util_producto");
 });
 
-prueba("motor: cadencia — el toque del día 3 NO se salta si no leyó (salvo interruptor prendido)", () => {
-  // La asesora escribió y el cliente no leyó: con el freno apagado, el toque sale como tarea.
+prueba("motor: TURNO DEL CLIENTE tras la asesora — sin tareas, automáticos libres, descarte a las 72 h", () => {
+  // La asesora contestó y el cliente no responde: es su turno. Ni tarea del día 3 ni aviso, lea o no.
   const f = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(5, "¿hacen envíos a Cali?"), ASESORA(10, "Hola, sí enviamos a Cali", null)] });
-  const t3 = mas(10 * MIN + 3 * DIA + H);
-  const d3 = mo.evaluarLead(f, CONFIG, t3).decision;
-  assert.equal(d3.accion, "tarea_asesora");
-  assert.equal(d3.toque, "dia_3");
+  const d1 = mo.evaluarLead(f, CONFIG, mas(10 * MIN + DIA)).decision;
+  assert.equal(d1.accion, "esperar");
+  assert.equal(d1.motivo, "turno_del_cliente");
+  assert.equal(d1.supresion, "ninguna", "los seguimientos automáticos de siempre siguen");
+  assert.equal(d1.revisarEn.getTime(), mas(10 * MIN + 72 * H).getTime());
   const conFreno = { ...CONFIG, motor: { ...CONFIG.motor, respetarNoLeido: true } };
-  assert.notEqual(mo.evaluarLead(f, conFreno, t3).decision.accion, "tarea_asesora");
-  // Frío que no leyó: el toque es el mensaje útil, pero el tope de 2 automáticos sigue mandando.
-  const frio = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), ASESORA(10, "Hola, soy María", null)] });
-  assert.equal(mo.evaluarLead(frio, CONFIG, t3).decision.accion, "mensaje_util_producto");
-  const tope = { ...frio, mensajes: [...frio.mensajes, AUTO(10 + 3 * 24 * 60 + 70, "a", null), AUTO(10 + 4 * 24 * 60 + 70, "b", null)] };
-  assert.equal(mo.evaluarLead(tope, CONFIG, mas(10 * MIN + 7 * DIA + H)).decision.motivo, "gracia_antes_de_descartar");
+  for (const config of [CONFIG, conFreno]) {
+    for (const t of [mas(10 * MIN + 2 * H), mas(10 * MIN + DIA), mas(10 * MIN + 71 * H)]) {
+      assert.notEqual(mo.evaluarLead(f, config, t).decision.accion, "tarea_asesora");
+    }
+  }
+  // Los automáticos no reinician el reloj del descarte: cuenta desde la asesora.
+  const conAuto = { ...f, mensajes: [...f.mensajes, AUTO(10 + 24 * 60, "¿Pudiste verlo?"), AUTO(10 + 48 * 60, "¿Te ayudo?")] };
+  const desc = mo.evaluarLead(conAuto, CONFIG, mas(10 * MIN + 72 * H + MIN)).decision;
+  assert.equal(desc.accion, "descartar");
+  assert.equal(desc.motivo, "turno_del_cliente_sin_respuesta");
+  // Si escribe otra vez, vuelve a ser turno de Magilus.
+  const vuelve = { ...f, mensajes: [...f.mensajes, IN(10 + 60 * 60, "¿y cuánto vale el envío?")] };
+  assert.equal(mo.evaluarLead(vuelve, CONFIG, mas(10 * MIN + 60 * H + 40 * MIN)).decision.accion, "tarea_asesora");
 });
 
 prueba("motor: el producto que PREGUNTÓ manda (butacos, no el combo)", () => {
@@ -262,8 +270,9 @@ prueba("motor: el producto que PREGUNTÓ manda (butacos, no el combo)", () => {
   assert.match(ev.decision.mensajeUtil.acciones[0].flowId, /fmhd0$/);
 });
 
-prueba("motor: TIBIO → tarea B para la asesora con mensaje sugerido (no automático)", () => {
-  const f = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(5, "¿hacen envíos a Pereira?"), BOT(5.2, "Sí, enviamos")] });
+prueba("motor: TIBIO esperando sin respuesta → tarea B; si el bot ya contestó, es turno del cliente", () => {
+  // Nadie le contestó (bot pausado): tarea B a los 30 min.
+  const f = ficha({ pausado: true, mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(5, "¿hacen envíos a Pereira?")] });
   // Antes del plazo (30 min) es "esperar" sin automáticos: si la asesora contesta, no hace falta tarea.
   const antes = mo.evaluarLead(f, CONFIG, mas(20 * MIN)).decision;
   assert.equal(antes.accion, "esperar");
@@ -275,6 +284,12 @@ prueba("motor: TIBIO → tarea B para la asesora con mensaje sugerido (no autom�
   assert.match(d.mensajeSugerido, /envío/);
   assert.doesNotMatch(d.mensajeSugerido, /contra ?entrega|gratis/i);
   assert.match(d.mensajeSugerido, /Hola, Laura/);
+  // El bot le contestó bien y quedó esperando: turno del cliente, sin tarea (12-10-2026).
+  const contestada = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(5, "¿hacen envíos a Pereira?"), BOT(5.2, "Sí, enviamos. ¿En qué color lo quieres?")] });
+  const dc = mo.evaluarLead(contestada, CONFIG, mas(40 * MIN)).decision;
+  assert.equal(dc.accion, "esperar");
+  assert.equal(dc.motivo, "turno_del_cliente");
+  assert.equal(dc.supresion, "ninguna");
 });
 
 prueba("motor: CALIENTE → tarea A en 15 min y ningún automático encima", () => {
@@ -288,28 +303,28 @@ prueba("motor: CALIENTE → tarea A en 15 min y ningún automático encima", () 
   assert.equal(d.prioridad, "A");
   assert.equal(d.vence.getTime(), mas(18 * MIN).getTime());
   assert.equal(d.supresion, "siempre");
-  // Si la asesora contesta antes, no hay tarea: pasa a la cadencia (próximo toque el día 3).
+  // Si la asesora contesta antes, no hay tarea: es turno del cliente.
   const contestada = { ...f, mensajes: [...f.mensajes, ASESORA(10, "¡Hola! Te paso los datos")] };
-  assert.equal(mo.evaluarLead(contestada, CONFIG, mas(19 * MIN)).decision.motivo, "cadencia_proximo_toque");
+  assert.equal(mo.evaluarLead(contestada, CONFIG, mas(19 * MIN)).decision.motivo, "turno_del_cliente");
+  // Si solo le contestó el bot, sigue siendo de Magilus (intención fuerte sin persona): tarea A.
+  const soloBot = { ...f, mensajes: [...f.mensajes, BOT(3.2, "¡Claro! Se separa con el 50 %. ¿En qué ciudad estás?")] };
+  const db = mo.evaluarLead(soloBot, CONFIG, mas(19 * MIN)).decision;
+  assert.equal(db.accion, "tarea_asesora");
+  assert.equal(db.prioridad, "A");
+  assert.equal(db.motivo, "intencion_fuerte_sin_persona");
   assert.match(d.mensajeSugerido, /50 %/);
 });
 
-prueba("motor: COTIZACIÓN → tareas A a las 24 h y 72 h con total y pregunta de cierre", () => {
+prueba("motor: COTIZACIÓN enviada y sin respuesta = turno del cliente: sin tareas y nunca se descarta", () => {
   const f = ficha({ mensajes: [IN(0, ANUNCIO), ASESORA(10, "Te envío la cotización COT-00123 por $1.250.000")] });
-  const antes = mo.evaluarLead(f, CONFIG, mas(5 * H)).decision;
-  assert.equal(antes.accion, "esperar");
-  assert.equal(antes.supresion, "siempre");
-  const d = mo.evaluarLead(f, CONFIG, mas(10 * MIN + 25 * H)).decision;
-  assert.equal(d.accion, "tarea_asesora");
-  assert.equal(d.toque, "cotizacion_24h");
-  assert.match(d.mensajeSugerido, /COT-00123/);
-  assert.match(d.mensajeSugerido, /\$1\.250\.000/);
-  const hecha = { ...f, mensajes: [...f.mensajes, ASESORA(10 + 26 * 60, "¿Pudiste revisarla?")] };
-  const d72 = mo.evaluarLead(hecha, CONFIG, mas(10 * MIN + 73 * H)).decision;
-  assert.equal(d72.toque, "cotizacion_72h");
-  // Con la cotización vigente no se descarta aunque pasen los toques.
-  const todo = { ...hecha, mensajes: [...hecha.mensajes, ASESORA(10 + 74 * 60, "?"), ASESORA(10 + 4 * 24 * 60, "?"), ASESORA(10 + 7 * 24 * 60, "?")] };
-  assert.notEqual(mo.evaluarLead(todo, CONFIG, mas(10 * DIA)).decision.accion, "descartar");
+  for (const t of [mas(5 * H), mas(10 * MIN + 25 * H), mas(10 * MIN + 73 * H), mas(10 * DIA)]) {
+    const d = mo.evaluarLead(f, CONFIG, t).decision;
+    assert.equal(d.accion, "esperar");
+    assert.equal(d.motivo, "turno_del_cliente_cotizacion_vigente");
+    assert.equal(d.supresion, "ninguna");
+  }
+  // Pasada la vigencia (30 días) sí se descarta.
+  assert.equal(mo.evaluarLead(f, CONFIG, mas(31 * DIA)).decision.accion, "descartar");
 });
 
 prueba("motor: FECHA FUTURA → dormido, tarea 7 días antes, se despierta si escribe", () => {
@@ -337,45 +352,29 @@ prueba("motor: FECHA FUTURA → dormido, tarea 7 días antes, se despierta si es
   assert.notEqual(mo.evaluarLead(escribe, CONFIG, new Date("2026-10-20T15:05:00Z")).decision.accion, "dormido");
 });
 
-prueba("motor: CADENCIA después de la asesora (días 3, 4 y 7) y DESCARTE tras el último", () => {
-  const f = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(5, "¿hacen envíos a Cali?"), ASESORA(10, "Hola, sí enviamos a Cali")] });
-  const t = (dias, horas = 0) => mas(10 * MIN + dias * DIA + horas * H);
-  assert.equal(mo.evaluarLead(f, CONFIG, t(1)).decision.motivo, "cadencia_proximo_toque");
-  const d3 = mo.evaluarLead(f, CONFIG, t(3, 1)).decision;
-  assert.equal(d3.accion, "tarea_asesora");
-  assert.equal(d3.toque, "dia_3");
-  assert.equal(d3.prioridad, "B");
-  const con3 = { ...f, mensajes: [...f.mensajes, ASESORA(10 + 3 * 24 * 60 + 90, "¿Pudiste verlo?")] };
-  assert.equal(mo.evaluarLead(con3, CONFIG, t(3, 5)).decision.accion, "esperar");
-  assert.equal(mo.evaluarLead(con3, CONFIG, t(4, 1)).decision.toque, "dia_4");
-  const con4 = { ...con3, mensajes: [...con3.mensajes, ASESORA(10 + 4 * 24 * 60 + 60, "?")] };
-  const d7 = mo.evaluarLead(con4, CONFIG, t(7, 1)).decision;
-  assert.equal(d7.toque, "dia_7");
-  assert.match(d7.mensajeSugerido, /No quiero insistirte/);
-  const con7 = { ...con4, mensajes: [...con4.mensajes, ASESORA(10 + 7 * 24 * 60 + 60, "?")] };
-  assert.equal(mo.evaluarLead(con7, CONFIG, t(7, 12)).decision.motivo, "gracia_antes_de_descartar");
-  const desc = mo.evaluarLead(con7, CONFIG, t(8, 2)).decision;
-  assert.equal(desc.accion, "descartar");
-  assert.equal(desc.motivo, "sin_respuesta_tras_3_seguimientos");
-  // Toque atrasado: si no hizo el del día 3 y ya es día 4, queda UNA tarea (la del 4), no dos.
-  assert.equal(mo.evaluarLead(f, CONFIG, t(4, 2)).decision.toque, "dia_4");
+prueba("motor: el bot PASÓ el chat a una persona → turno de Magilus (tarea) hasta que una persona escriba", () => {
+  // Con la frase del bot.
+  const frase = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(5, "Ya tengo camilla, me falta la silla"), BOT(5.3, "¡Perfecto! 🛒 En un momento una asesora te escribe para confirmarte el envío y finalizar tu compra.")] });
+  const d = mo.evaluarLead(frase, CONFIG, mas(40 * MIN)).decision;
+  assert.equal(d.accion, "tarea_asesora");
+  assert.equal(d.motivo, "bot_paso_a_asesora");
+  // Con la nota del sistema "El agente pide un asesor…" (aunque el texto del bot no lo diga).
+  const nota = ficha({ notasDelBot: [{ en: mas(5.3 * MIN), texto: "El agente pide un asesor: el cliente pide una persona" }], mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(5, "quiero hablar con alguien"), BOT(5.3, "Claro 😊")] });
+  assert.equal(mo.evaluarLead(nota, CONFIG, mas(40 * MIN)).decision.motivo, "bot_paso_a_asesora");
+  // Cuando la persona escribe, pasa a turno del cliente.
+  const atendida = { ...frase, mensajes: [...frase.mensajes, ASESORA(20, "Hola, soy Ingrid. ¿A qué ciudad te la enviamos?")] };
+  assert.equal(mo.evaluarLead(atendida, CONFIG, mas(40 * MIN)).decision.motivo, "turno_del_cliente");
 });
 
-prueba("motor: cadencia de un FRÍO = mensaje útil automático (respeta el tope de automáticos)", () => {
+prueba("motor: FRÍO después de la asesora = turno del cliente: sin tareas ni mensaje útil, descarte a las 72 h", () => {
   const f = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), ASESORA(10, "Hola, soy María")] });
-  const d = mo.evaluarLead(f, CONFIG, mas(10 * MIN + 3 * DIA + H)).decision;
-  assert.equal(d.accion, "mensaje_util_producto");
-  assert.equal(d.toque, "dia_3");
-  // Con 2 automáticos ya enviados en este silencio, el 3.er toque de un Frío se salta (el
-  // anti-bloqueo lo frenaría y no vale una tarea humana) y, tras la gracia, se descarta.
-  const tope = { ...f, mensajes: [...f.mensajes, AUTO(10 + 3 * 24 * 60 + 70, "a"), AUTO(10 + 4 * 24 * 60 + 70, "b")] };
-  const d7 = mo.evaluarLead(tope, CONFIG, mas(10 * MIN + 7 * DIA + H)).decision;
-  assert.equal(d7.accion, "esperar");
-  assert.equal(d7.motivo, "gracia_antes_de_descartar");
-  assert.equal(mo.evaluarLead(tope, CONFIG, mas(10 * MIN + 8 * DIA + H)).decision.accion, "descartar");
-  // Un Frío sin mensaje útil para su producto (tocador): los toques se saltan, sin tareas.
-  const tocador = ficha({ familiaDelBot: null, mensajes: [IN(0, "info del tocador"), BOT(0.2, "hola"), ASESORA(10, "Hola")] });
-  assert.notEqual(mo.evaluarLead(tocador, CONFIG, mas(10 * MIN + 3 * DIA + H)).decision.accion, "tarea_asesora");
+  const d = mo.evaluarLead(f, CONFIG, mas(10 * MIN + 2 * DIA)).decision;
+  assert.equal(d.accion, "esperar");
+  assert.equal(d.motivo, "turno_del_cliente");
+  assert.equal(mo.evaluarLead(f, CONFIG, mas(10 * MIN + 3 * DIA + H)).decision.accion, "descartar");
+  // Con el descarte apagado, la decisión es la misma; el servicio solo la registra (no descarta).
+  const sinDescarte = { ...CONFIG, cadencia: { ...CONFIG.cadencia, descarte: "apagado" } };
+  assert.equal(mo.evaluarLead(f, sinDescarte, mas(10 * MIN + 3 * DIA + H)).decision.accion, "descartar");
 });
 
 prueba("motor: fuera de Colombia, PERDIDO y 'no me interesa'", () => {
@@ -416,6 +415,9 @@ prueba("config: sin fila o con JSON roto, TODO apagado; valores por defecto pedi
   }
   const d = cf.CONFIG_POR_DEFECTO;
   assert.deepEqual(d.cadencia.dias, [3, 4, 7]);
+  assert.equal(d.cadencia.horasTurnoDelCliente, 72);
+  assert.equal(cf.leerConfigDeTexto(JSON.stringify({ cadencia: { horasTurnoDelCliente: 96 } })).cadencia.horasTurnoDelCliente, 96);
+  assert.equal(cf.leerConfigDeTexto(JSON.stringify({ cadencia: { horasTurnoDelCliente: 2 } })).cadencia.horasTurnoDelCliente, 24);
   assert.equal(d.fechaFutura.diasAntes, 7);
   assert.deepEqual(d.cotizacion.horas, [24, 72]);
   assert.equal(d.motor.desdeHora, 8);
@@ -509,9 +511,11 @@ prueba("F2 recalibrado (10-oct): casos reales que quedaban Fríos pasan a Tibio;
   assert.equal(cal([ANUNCIO, "Uñas", "Fotos", "no me interesa"]).temperaturaBase, "FRIO");
 });
 
-prueba("motor: los casos reales Tibios son TAREA de la asesora asignada, no mensaje automático", () => {
+prueba("motor: caso real cv16c1a0 — el bot contestó (fotos y precio) y quedó esperando: turno del cliente, sin tarea", () => {
   // cv16c1a0 (10-oct): ANUNCIO 10:21, "Sirve para pestañas?" 10:22, auto-asignado a Ingrid, "Fotos",
   // el bot manda fotos y precio, seguimientos del V3 a los 17 y 78 min, ninguna persona escribe.
+  // Hasta el 11-10 esto era tarea; desde el 12-10 (Alexander) "sin asesora" o "sin persona" solo
+  // no es un problema: el bot respondió bien y espera al cliente.
   const pestanas = ficha({
     asignadaA: "ingrid",
     mensajes: [
@@ -527,22 +531,18 @@ prueba("motor: los casos reales Tibios son TAREA de la asesora asignada, no mens
       AUTO(78.6, "¿En qué ciudad lo recibirías?", null),
     ],
   });
-  const antes = mo.evaluarLead(pestanas, CONFIG, mas(20 * MIN)).decision;
-  assert.equal(antes.accion, "esperar");
-  assert.equal(antes.supresion, "siempre");
   const ev = mo.evaluarLead(pestanas, CONFIG, mas(3 * H));
   assert.equal(ev.calificacion.temperaturaBase, "TIBIO");
-  assert.equal(ev.decision.accion, "tarea_asesora");
-  assert.equal(ev.decision.prioridad, "B");
-  assert.equal(ev.decision.supresion, "siempre");
-  assert.match(ev.decision.mensajeSugerido, /pestañas/);
-  assert.doesNotMatch(ev.decision.mensajeSugerido, /contra ?entrega|gratis/i);
-  // cv3639b6: "Videos del lavacabezas" → antes mensaje_util_producto; ahora tarea.
-  const lavacabezas = ficha({ familiaDelBot: null, mensajes: [IN(0, "Videos del lavacabezas"), BOT(0.5, "Catálogo de lavacabezas")] });
-  const ev2 = mo.evaluarLead(lavacabezas, CONFIG, mas(2 * H));
-  assert.equal(ev2.familia, "lavacabezas");
-  assert.equal(ev2.decision.accion, "tarea_asesora");
-  assert.equal(ev2.decision.mensajeUtil, null);
+  assert.equal(ev.decision.accion, "esperar");
+  assert.equal(ev.decision.motivo, "turno_del_cliente");
+  assert.equal(ev.decision.supresion, "ninguna");
+  // El descarte cuenta desde el último mensaje del bot (2.1 min), no desde los automáticos.
+  assert.equal(ev.decision.revisarEn.getTime(), mas(2.1 * MIN + 72 * H).getTime());
+  // Si en cambio dice "lo quiero, ¿cómo lo separo?" y solo le contesta el bot: tarea A.
+  const fuerte = { ...pestanas, mensajes: [...pestanas.mensajes, IN(90, "Lo quiero, ¿cómo hago para separarlo?"), BOT(90.3, "Se separa con el 50 %")] };
+  const df = mo.evaluarLead(fuerte, CONFIG, mas(2 * H)).decision;
+  assert.equal(df.accion, "tarea_asesora");
+  assert.equal(df.prioridad, "A");
   // Un "Fotos" suelto sin servicio sigue Frío y recibe su mensaje útil (no gasta tiempo humano).
   const fotos = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "¿Qué servicios vas a ofrecer?"), IN(1, "Fotos"), BOT(1.3, "Te comparto las fotos")] });
   assert.equal(mo.evaluarLead(fotos, CONFIG, mas(2 * H)).decision.accion, "mensaje_util_producto");
@@ -626,100 +626,30 @@ prueba("formulario: horario laboral = el del Supervisor (L–S 8–18 Bogotá); 
   assert.equal(fm.siguienteHoraLaboral(new Date("2026-10-13T11:00:00Z"), h).toISOString(), "2026-10-13T13:00:00.000Z");
 });
 
-prueba("formulario: sin respuesta → tarea a las 2 h laborales (dentro del horario), A si es Caliente", () => {
-  // Miércoles 11:00 Bogotá: el cliente elige color; 11:10 la asesora manda el formulario.
+prueba("formulario: la asesora pidió los datos y el cliente no responde = turno del cliente, sin tareas", () => {
   const f = ficha({ asignadaA: "ingrid", mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(4, "En negro"), IN(5, "cuánto vale?"), ASESORA(10, FORMULARIO)] });
-  const antes = mo.evaluarLead(f, CONFIG, mas(70 * MIN)).decision;
-  assert.equal(antes.accion, "esperar");
-  assert.equal(antes.motivo, "formulario_esperando_escalon");
-  assert.equal(antes.revisarEn.getTime(), mas(130 * MIN).getTime());
-  assert.equal(antes.supresion, "siempre");
-  const d = mo.evaluarLead(f, CONFIG, mas(131 * MIN)).decision;
-  assert.equal(d.accion, "tarea_asesora");
-  assert.equal(d.motivo, "formulario_sin_respuesta");
-  assert.equal(d.toque, "formulario_2h");
-  assert.equal(d.prioridad, "A");
-  assert.equal(d.vence.getTime(), mas(130 * MIN).getTime());
-  assert.match(d.mensajeSugerido, /Te ayudo a completar los datos/);
-  assert.match(d.mensajeSugerido, /color \*negro\*/);
-  assert.doesNotMatch(d.mensajeSugerido, /\$|\d{3}\.\d{3}|contra ?entrega|gratis/i);
-  // Tibio → B.
-  const tibio = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(5, "¿hacen envíos a Pereira?"), ASESORA(10, "Me regalas tus datos para la cotización?")] });
-  const dt = mo.evaluarLead(tibio, CONFIG, mas(131 * MIN)).decision;
-  assert.equal(dt.motivo, "formulario_sin_respuesta");
-  assert.equal(dt.prioridad, "B");
-});
-
-prueba("formulario: caso real cv3a2aa2 (sábado 4:47 p. m.) → tarea el lunes 8:00, no 24 h de silencio", () => {
-  const f = casoLila();
-  // Antes del cambio: "esperar / cotizacion_esperando_escalon" hasta el domingo 4:47 p. m.
-  const hoy = mo.evaluarLead(f, SIN_FORMULARIO, new Date("2026-10-10T22:00:00Z")).decision;
-  assert.equal(hoy.motivo, "cotizacion_esperando_escalon");
-  assert.equal(hoy.revisarEn.toISOString(), "2026-10-11T21:47:57.000Z");
-  // Ahora: 4:47 p. m. + 2 h = 6:47 p. m. (cerrado) → lunes 8:00 Bogotá.
-  const ev = mo.evaluarLead(f, CONFIG, new Date("2026-10-10T22:00:00Z"));
-  assert.equal(ev.decision.motivo, "formulario_esperando_escalon");
-  assert.equal(ev.decision.revisarEn.toISOString(), "2026-10-12T13:00:00.000Z");
-  const lunes = mo.evaluarLead(f, CONFIG, new Date("2026-10-12T13:01:00Z")).decision;
-  assert.equal(lunes.accion, "tarea_asesora");
-  assert.equal(lunes.toque, "formulario_2h");
-  assert.equal(lunes.prioridad, "A");
-  assert.equal(lunes.vence.toISOString(), "2026-10-12T13:00:00.000Z");
-  assert.match(lunes.mensajeSugerido, /color \*lila\*/);
-  // La de 24 h (domingo 4:47 p. m. → también lunes 8:00) se corre: un toque por vez, martes 8:00.
-  const hecha = casoLila([EN("2026-10-12T13:05:00Z", "OUT", "¿Te ayudo a completar los datos?", "manual")]);
-  const espera = mo.evaluarLead(hecha, CONFIG, new Date("2026-10-12T15:00:00Z")).decision;
-  assert.equal(espera.motivo, "formulario_esperando_escalon");
-  assert.equal(espera.toque, "formulario_24h");
-  assert.equal(espera.revisarEn.toISOString(), "2026-10-13T13:00:00.000Z");
-});
-
-prueba("formulario: si el cliente responde se cancela; 24 h y 72 h; después sigue la cadencia de siempre", () => {
-  const f = ficha({ asignadaA: "ingrid", mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(4, "En negro"), IN(5, "cuánto vale?"), ASESORA(10, FORMULARIO)] });
-  // Responde (aunque sea a medias): ya no hay tareas de formulario.
+  for (const t of [mas(70 * MIN), mas(131 * MIN), mas(25 * H), mas(71 * H)]) {
+    const d = mo.evaluarLead(f, CONFIG, t).decision;
+    assert.equal(d.accion, "esperar");
+    // "Datos de Cotización" cuenta como cotización enviada: vigente, no se descarta.
+    assert.equal(d.motivo, "turno_del_cliente_cotizacion_vigente");
+  }
+  assert.notEqual(mo.evaluarLead(f, CONFIG, mas(10 * MIN + 72 * H + MIN)).decision.accion, "descartar");
+  // Caso real cv3a2aa2 (sábado 4:47 p. m.): tampoco hay tarea el lunes.
+  const lunes = mo.evaluarLead(casoLila(), CONFIG, new Date("2026-10-12T13:01:00Z")).decision;
+  assert.notEqual(lunes.accion, "tarea_asesora");
+  assert.match(lunes.motivo, /^turno_del_cliente/);
+  // Si responde, vuelve a ser de Magilus.
   const responde = { ...f, mensajes: [...f.mensajes, IN(60, "Laura Gómez, Cali")] };
-  for (const t of [mas(131 * MIN), mas(25 * H), mas(73 * H)]) assert.notEqual(mo.evaluarLead(responde, CONFIG, t).decision.motivo, "formulario_sin_respuesta");
-  // Hizo la de 2 h: espera la de 24 h (jueves 11:10, dentro del horario).
-  const con2 = { ...f, mensajes: [...f.mensajes, ASESORA(135, "¿Te ayudo a completar los datos?")] };
-  const espera24 = mo.evaluarLead(con2, CONFIG, mas(5 * H)).decision;
-  assert.equal(espera24.motivo, "formulario_esperando_escalon");
-  assert.equal(espera24.toque, "formulario_24h");
-  assert.equal(espera24.revisarEn.getTime(), mas(10 * MIN + 24 * H).getTime());
-  const d24 = mo.evaluarLead(con2, CONFIG, mas(10 * MIN + 24 * H + MIN)).decision;
-  assert.equal(d24.accion, "tarea_asesora");
-  assert.equal(d24.toque, "formulario_24h");
-  // Hizo la de 24 h: la de 72 h (sábado 11:10, dentro del horario).
-  const con24 = { ...con2, mensajes: [...con2.mensajes, ASESORA(10 + 24 * 60 + 20, "¿Pudiste ver los datos?")] };
-  const d72 = mo.evaluarLead(con24, CONFIG, mas(10 * MIN + 72 * H + MIN)).decision;
-  assert.equal(d72.toque, "formulario_72h");
-  assert.match(d72.mensajeSugerido, /prefieres que te llame/);
-  // Hizo la de 72 h: sigue la lógica de siempre (cadencia, próximo toque el día 4).
-  const con72 = { ...con24, mensajes: [...con24.mensajes, ASESORA(10 + 72 * 60 + 30, "¿Te ayudo?")] };
-  const despues = mo.evaluarLead(con72, CONFIG, mas(10 * MIN + 72 * H + 2 * H)).decision;
-  assert.notEqual(despues.motivo, "formulario_sin_respuesta");
-  assert.notEqual(despues.motivo, "formulario_esperando_escalon");
-  assert.equal(mo.evaluarLead(con72, CONFIG, mas(10 * MIN + 4 * DIA + H)).decision.toque, "dia_4");
-  // Atrasada: si no hizo la de 2 h y ya pasó la de 24 h, queda UNA tarea (la de 24 h).
-  assert.equal(mo.evaluarLead(f, CONFIG, mas(10 * MIN + 24 * H + MIN)).decision.toque, "formulario_24h");
-  // Un "quedo atenta" a los 5 min del formulario NO cuenta como el toque de 2 h.
-  const atenta = { ...f, mensajes: [...f.mensajes, ASESORA(15, "Quedo atenta 😊")] };
-  assert.equal(mo.evaluarLead(atenta, CONFIG, mas(131 * MIN)).decision.toque, "formulario_2h");
+  assert.equal(mo.evaluarLead(responde, CONFIG, mas(100 * MIN)).decision.accion, "tarea_asesora");
 });
 
-prueba("formulario: con el interruptor APAGADO todo queda exactamente como antes", () => {
+prueba("formulario: el interruptor sigue leyéndose (sin efecto en el turno del cliente)", () => {
   assert.equal(cf.CONFIG_POR_DEFECTO.formulario.activo, true);
   assert.deepEqual(cf.CONFIG_POR_DEFECTO.formulario.horas, [2, 24, 72]);
-  assert.equal(cf.leerConfigDeTexto(null).formulario.activo, true);
   assert.equal(SIN_FORMULARIO.formulario.activo, false);
-  const f = ficha({ asignadaA: "ingrid", mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), IN(4, "En negro"), IN(5, "cuánto vale?"), ASESORA(10, FORMULARIO)] });
   const caso = casoLila();
-  // La decisión apagada es la misma que daría el motor sin el paso nuevo (motivos de antes).
-  for (const [ficha_, t] of [[f, mas(131 * MIN)], [f, mas(25 * H)], [f, mas(73 * H)], [caso, new Date("2026-10-12T13:01:00Z")], [caso, new Date("2026-10-11T22:00:00Z")]]) {
-    const d = mo.evaluarLead(ficha_, SIN_FORMULARIO, t).decision;
-    assert.ok(!d.motivo.startsWith("formulario_"), d.motivo);
-  }
-  assert.equal(mo.evaluarLead(caso, SIN_FORMULARIO, new Date("2026-10-11T22:00:00Z")).decision.toque, "cotizacion_24h");
-  // Con el motor apagado no hay nada (el interruptor del formulario solo actúa con el motor prendido).
+  for (const config of [CONFIG, SIN_FORMULARIO]) assert.match(mo.evaluarLead(caso, config, new Date("2026-10-11T22:00:00Z")).decision.motivo, /^turno_del_cliente/);
   assert.equal(cf.algoPrendido(cf.leerConfigDeTexto(JSON.stringify({ formulario: { activo: true } }))), false);
 });
 

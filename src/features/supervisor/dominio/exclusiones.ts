@@ -8,13 +8,16 @@
  *  - cliente fuera de Colombia: marcado por el seguimiento inteligente o, sin marca, teléfono con
  *    indicativo distinto de 57 (un LID sin teléfono real NO se decide);
  *  - lead dormido por una fecha futura de compra ("finales de noviembre");
- *  - la asesora ya respondió después del último mensaje del cliente.
+ *  - Magilus ya respondió: con el turno calculado (lib/turno-del-chat.ts), que el turno sea del
+ *    cliente (el bot o la asesora contestó y quedó esperando su respuesta); sin él, que una persona
+ *    haya respondido después del último mensaje del cliente.
  *
  * Si una alerta ABIERTA tiene chats que pasan a estar excluidos, al recalcular salen de la alerta, y
  * la alerta se cierra si queda vacía (ver purgarChatsExcluidos).
  */
 
 import { esDelExterior } from "../../seguimiento-inteligente/dominio/exterior";
+import type { TurnoDelChat } from "../../../lib/turno-del-chat";
 import type { Incidente } from "./alertas";
 
 export type MotivoDeExclusion = "etapa_cerrada" | "fuera_de_colombia" | "dormido" | "ya_respondio";
@@ -30,6 +33,8 @@ export type DatosDeExclusion = {
   ultimaRespuestaHumanaEn?: Date | null;
   /** Lo que escribió el cliente: si nombra un lugar de Colombia no se excluye por el teléfono. */
   textos?: Array<string | null | undefined>;
+  /** De quién es el turno; si viene, decide "ya_respondio" (turno del cliente o de nadie). */
+  turno?: Pick<TurnoDelChat, "de"> | null;
 };
 
 export function motivoDeExclusion(d: DatosDeExclusion, ahora: Date): MotivoDeExclusion | null {
@@ -39,6 +44,7 @@ export function motivoDeExclusion(d: DatosDeExclusion, ahora: Date): MotivoDeExc
   }
   // El motor del seguimiento inteligente borra `dormidoHasta` apenas el cliente vuelve a escribir.
   if (d.dormidoHasta && d.dormidoHasta.getTime() > ahora.getTime()) return "dormido";
+  if (d.turno) return d.turno.de === "MAGILUS" ? null : "ya_respondio";
   if (d.ultimaRespuestaHumanaEn && (!d.ultimoClienteEn || d.ultimaRespuestaHumanaEn.getTime() >= d.ultimoClienteEn.getTime())) {
     return "ya_respondio";
   }

@@ -11,6 +11,7 @@ import { detectarSenales, esSenalDeCompra } from "../../embudo/dominio/senales";
 import { mensajePorSenales } from "../../seguimiento-inteligente/dominio/mensajes";
 import { familiaDelTexto, nombreEnSingular, productoDelChat } from "../../seguimiento-inteligente/dominio/producto";
 import { calificar, type Calificacion } from "../../seguimiento-inteligente/dominio/temperatura";
+import { esAgradecimientoSinPendiente, esCierreOAutoRespuesta, esTurnoDeMagilus, type TurnoDelChat } from "../../../lib/turno-del-chat";
 import { motivoDeExclusion } from "./exclusiones";
 import { horaBogota, diaSemanaBogota } from "./linea-base";
 import type { Hallazgo } from "./tipos";
@@ -45,6 +46,12 @@ export type ChatAbierto = {
   temperatura?: string | null;
   /** Nombre del contacto (para el mensaje sugerido). */
   nombreCliente?: string | null;
+  /**
+   * De quién es el turno (lib/turno-del-chat.ts), calculado con los mensajes del chat. Si viene,
+   * manda: el chat solo cuenta como "esperando" cuando le toca a Magilus. Sin él (pruebas viejas)
+   * se usa la regla anterior: el cliente escribió después de la última respuesta humana.
+   */
+  turno?: TurnoDelChat | null;
 };
 
 export type HorarioLaboral = { desde: number; hasta: number; dias: number[] };
@@ -68,111 +75,12 @@ export function minutosLaborales(desde: Date, hasta: Date, horario: HorarioLabor
   return Math.round(total);
 }
 
-/* ------------------------------------------------------------------------------------------------
-   CIERRES Y AUTO-RESPUESTAS (pedido de Alexander, 11-10-2026): a las 4:32 p. m. había 8 "calientes
-   esperando" y 5 eran un "feliz noche", un "muchas gracias", solo emojis o la auto-respuesta del
-   negocio del cliente. Si el ÚLTIMO mensaje del cliente es eso, el chat NO cuenta como "esperando"
-   para las alertas de caliente / señal sin dueña / retomar (sí sigue contando para "ya pagué").
-
-   Se excluye el último mensaje si (tras quitar tildes, mayúsculas y signos):
-   1. Está vacío o es solo emojis / signos / números sueltos ("👍🙏", "!!", "", un sticker o foto sin texto).
-      Un "?" / "??" suelto NO (11-10-2026): es el cliente insistiendo.
-   2. Es una auto-respuesta: "gracias por tu/su mensaje", "en este momento no podemos/estamos",
-      "te/le responderemos", "responderemos lo antes posible / a la brevedad", "mensaje automático",
-      "fuera de (nuestro) horario", "no estamos disponibles", "pronto te/le atenderemos".
-   3. Es una despedida / agradecimiento CORTO (≤ 12 palabras): todas sus palabras son de cierre
-      (gracias, feliz noche, bendiciones, chao, igualmente, saludos, hasta mañana, que esté bien…)
-      más relleno (muchas, mil, muy, ok, listo, vale, dale, perfecto, de, para, usted…) y trae AL
-      MENOS una palabra de cierre. "Muchas gracias, ¿y el envío?" NO es cierre (trae "envio");
-      "listo", "ok", "está bien" o "sí" solos tampoco (pueden ser un sí a la compra); "buenas
-      noches" solo tampoco (es un saludo de alguien que recién escribe; "feliz noche" sí es cierre).
------------------------------------------------------------------------------------------------- */
-
-const AUTO_RESPUESTA: RegExp[] = [
-  /\bgracias por (tu|su|comunicarte|comunicarse|escribirnos|contactarnos)\b/,
-  /\ben (este|estos) momentos? no (podemos|estamos|nos encontramos|es posible)\b/,
-  /\b(te|le|les) (responderemos|contestaremos|atenderemos)\b/,
-  /\bresponderemos (lo (antes|mas pronto) posible|a la brevedad|pronto|en breve)\b/,
-  /\bmensaje automatico\b/,
-  /\bfuera (de|del) (nuestro )?horario\b/,
-  /\bno estamos disponibles\b/,
-];
-
-/** Palabras que por sí solas cierran la conversación. */
-const PALABRAS_DE_CIERRE = new Set([
-  "gracias", "graciass", "grax", "feliz", "chao", "chau", "adios", "bendiciones", "bendecida", "bendecido",
-  "bendiga", "igualmente", "saludos", "amable", "amables", "descanse", "descansa", "descansen",
-]);
-
-/** Relleno que acompaña a un cierre (no cambia que sea un cierre). Sin "si": un "sí" puede ser un sí a la compra. */
-const RELLENO_DE_CIERRE = new Set([
-  "muchas", "muchisimas", "mil", "muy", "ok", "okey", "okay", "oki", "okis", "vale", "listo", "dale", "perfecto", "bueno", "buenas",
-  "buena", "buen", "hola", "noche", "noches", "tarde", "tardes", "dia", "dias", "hasta", "luego", "pronto", "manana", "que", "este", "esten", "estes", "bien",
-  "tenga", "tengan", "tengas", "linda", "lindo", "excelente", "super", "de", "a", "ti", "usted", "ustedes", "ud", "uds", "para",
-  "por", "todo", "y", "el", "la", "lo", "le", "les", "dios", "con", "gusto", "nada", "senora", "senor", "senorita", "amiga", "amigo",
-  "mi", "reina", "querida", "estamos", "hablando", "hablamos", "quedo", "atenta", "atento", "pendiente", "entendido", "claro",
-]);
-
-function normalizarTexto(texto: string): string {
-  return texto
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-}
-
-/* ------------------------------------------------------------------------------------------------
-   4. AGRADECIMIENTO / CIERRE DE CUALQUIER LARGO (falla real del domingo 11-10-2026: a Ingrid le
-      llegó "Segundo aviso · fuera de horario" por «Ah, bueno, visto, muy bien, muchas gracias.» y
-      por «Pero igual muchas gracias, hay que saber dar buenas respuestas»; la asesora ya había dado
-      la información y el cliente no esperaba nada). Es cierre, SIN importar el largo, si:
-        a) trae un AGRADECIMIENTO o DESPEDIDA: una palabra de cierre (gracias, feliz noche,
-           bendiciones, chao, igualmente…) o la frase "hay que saber…"; los acuses "muy bien",
-           "vale", "listo", "visto", "perfecto", "ok", "bueno", "dale" acompañan pero NO bastan
-           solos ("listo" solo sigue sin ser cierre: puede ser un sí a la compra);
-        b) NO trae PREGUNTA: ni "?" / "¿" ni palabras interrogativas (cuánto, cuándo, dónde, cómo,
-           cuál, qué precio / valor / color, tienen, tiene, hay —salvo "hay que"—, manejan,
-           venden, me regala / pasa / manda / envía, información, info);
-        c) NO trae SEÑAL DE COMPRA: ninguna señal del detector del embudo (separar, anticipo, ya
-           pagué, envío, color, precio, fotos…) ni las palabras quiero, me interesa, separ-,
-           apart-, pag-, consign-, datos, cuenta, envío / mandar a…, un color.
-      "Ya pagué" nunca es cierre (señal de compra) y el aviso de pago no usa esta regla.
------------------------------------------------------------------------------------------------- */
-
-/** Agradecimiento / despedida que, sin pregunta ni señal de compra, cierra aunque el mensaje sea largo. */
-const AGRADECE_O_CIERRA = /\b(gracias|graciass|grax|bendiciones|bendiga|chao|chau|adios|igualmente|feliz (noche|dia|tarde|fin de semana)|hay que saber)\b/;
-
-/** Pregunta: signos o palabras interrogativas (sin tildes). "hay que" no cuenta como "¿hay…?". */
-const PREGUNTA =
-  /\b(cuanto|cuanta|cuantos|cuantas|cuando|donde|como|cual|cuales|que (precio|valor|costo|color|colores|medida|medidas|tiempo|dias)|tienen|tiene|tendra|tendran|hay(?! que)|manejan|venden|me (regala|regalas|regalan|pasa|pasas|pasan|manda|mandas|mandan|envia|envias|envian)|informacion|info)\b/;
-
-/** Señal de compra por palabras (además del detector del embudo). */
-const SENAL_DE_COMPRA =
-  /\b(quiero|quisiera|me interesa|separ\w*|apart\w*|pag\w*|consign\w*|transfer\w*|abon\w*|datos|cuenta|nequi|daviplata|envi\w* a|mand\w* a|negr[oa]s?|blanc[oa]s?|rosad[oa]s?|rosa|beige|gris|dorad[oa]s?|nude|azul|roj[oa]|vinotinto|cafe|marfil|crema|platead[oa]|verde|morado|lila|fucsia)\b/;
-
-/** ¿Es un agradecimiento / cierre de cualquier largo, sin pregunta ni señal de compra? (regla 4) */
-export function esAgradecimientoSinPendiente(texto: string | null | undefined): boolean {
-  const original = texto ?? "";
-  if (/[?¿]/.test(original)) return false;
-  const limpio = normalizarTexto(original);
-  if (!AGRADECE_O_CIERRA.test(limpio)) return false;
-  if (PREGUNTA.test(limpio) || SENAL_DE_COMPRA.test(limpio)) return false;
-  return !detectarSenales(original).some(esSenalDeCompra);
-}
-
-/** ¿Este mensaje del cliente cierra la conversación (despedida, gracias, emojis, auto-respuesta, sin texto)? */
-export function esCierreOAutoRespuesta(texto: string | null | undefined): boolean {
-  const limpio = normalizarTexto(texto ?? "");
-  // Un "?" o "??" suelto es el cliente insistiendo: espera respuesta (11-10-2026).
-  if (!/\p{L}/u.test(limpio)) return !/[?¿]/.test(texto ?? "");
-  if (AUTO_RESPUESTA.some((re) => re.test(limpio))) return true;
-  if (esAgradecimientoSinPendiente(texto)) return true;
-  const palabras = limpio.split(" ").filter(Boolean);
-  if (palabras.length > 12) return false;
-  const conCierre = palabras.some((p) => PALABRAS_DE_CIERRE.has(p));
-  return conCierre && palabras.every((p) => PALABRAS_DE_CIERRE.has(p) || RELLENO_DE_CIERRE.has(p) || /^j[aej]+$/.test(p));
-}
+/*
+  CIERRES Y AUTO-RESPUESTAS: las reglas viven en lib/turno-del-chat.ts (una sola definición del
+  turno para el Supervisor, el accionable y el seguimiento inteligente, 12-10-2026). Se re-exportan
+  aquí para no romper a quien ya las importa desde el Supervisor.
+*/
+export { esAgradecimientoSinPendiente, esCierreOAutoRespuesta };
 
 /** El último mensaje pendiente del cliente es un cierre (sin textos pendientes = no se sabe = no). */
 export function ultimoEsCierre(chat: Pick<ChatAbierto, "textosPendientes">): boolean {
@@ -194,18 +102,23 @@ export type EstadoDeEspera = {
 };
 
 export function estadoDeEspera(chat: ChatAbierto, ahora: Date, horario = HORARIO_POR_DEFECTO): EstadoDeEspera {
-  const esperando =
-    Boolean(chat.ultimoClienteEn) &&
-    (!chat.ultimaRespuestaHumanaEn || (chat.ultimoClienteEn as Date).getTime() > chat.ultimaRespuestaHumanaEn.getTime());
+  // Con el turno calculado: espera solo si le toca a Magilus, y desde cuándo le toca (el cierre ya
+  // lo descartó el turno). Sin él, la regla de antes.
+  const conTurno = chat.turno !== undefined && chat.turno !== null;
+  const esperando = conTurno
+    ? esTurnoDeMagilus(chat.turno)
+    : Boolean(chat.ultimoClienteEn) &&
+      (!chat.ultimaRespuestaHumanaEn || (chat.ultimoClienteEn as Date).getTime() > chat.ultimaRespuestaHumanaEn.getTime());
+  const desde = (conTurno ? chat.turno?.desde : null) ?? chat.ultimoClienteEn;
   const senales = chat.textosPendientes.flatMap((t) => detectarSenales(t).map((s) => ({ ...s, texto: t })));
   const fuerte = senales.find((s) => s.grupo === "fuerte");
   const cualquiera = senales.find(esSenalDeCompra);
   return {
     chat,
-    esperando,
-    cierre: esperando && ultimoEsCierre(chat),
-    minutos: esperando ? Math.floor((ahora.getTime() - (chat.ultimoClienteEn as Date).getTime()) / MIN) : 0,
-    minutosLaborales: esperando ? minutosLaborales(chat.ultimoClienteEn as Date, ahora, horario) : 0,
+    esperando: esperando && Boolean(desde),
+    cierre: esperando && !conTurno && ultimoEsCierre(chat),
+    minutos: esperando && desde ? Math.floor((ahora.getTime() - desde.getTime()) / MIN) : 0,
+    minutosLaborales: esperando && desde ? minutosLaborales(desde, ahora, horario) : 0,
     senalFuerte: Boolean(fuerte),
     senal: Boolean(cualquiera),
     caliente: esCaliente(chat, senales.some((s) => s.grupo === "negativa")),
@@ -445,6 +358,9 @@ export function detectarAsignadoSinRespuesta(chats: ChatAbierto[], ahora: Date, 
     if (ahora.getTime() - chat.asignadaEn.getTime() > u.retomarDesdeH * 60 * MIN) continue;
     const motivo = motivoDeExclusion({ ...chat, textos: [...(chat.textosDelCliente ?? []), ...chat.textosPendientes] }, ahora);
     if (motivo === "etapa_cerrada" || motivo === "fuera_de_colombia" || motivo === "dormido") continue;
+    // Turno del cliente (el bot o la asesora contestó y quedó esperando): no es un problema aunque
+    // ninguna persona haya escrito desde la asignación (12-10-2026).
+    if (chat.turno && !esTurnoDeMagilus(chat.turno)) continue;
     // Cualquier mensaje humano desde la asignación (aunque el cliente haya vuelto a escribir) = ya escribió.
     if (chat.ultimaRespuestaHumanaEn && chat.ultimaRespuestaHumanaEn.getTime() >= chat.asignadaEn.getTime()) continue;
     const minutos = minutosLaboralesDelEquipo(chat.asignadaEn, ahora);

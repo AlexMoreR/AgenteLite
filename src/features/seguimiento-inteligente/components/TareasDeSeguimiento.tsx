@@ -14,6 +14,8 @@ const MOTIVOS: Record<string, string> = {
   caliente_esperando: "Caliente esperando respuesta",
   tibio_esperando: "Preguntó algo concreto y espera",
   esperando_con_bot_pausado: "Espera respuesta (bot en pausa)",
+  bot_paso_a_asesora: "El bot lo pasó a una asesora",
+  intencion_fuerte_sin_persona: "Quiere comprar: escríbele tú",
   caliente_sin_asesora: "Caliente: nadie le ha escrito",
   tibio_sin_asesora: "Pregunta concreta: escríbele tú",
   cotizacion_sin_respuesta: "Cotización sin respuesta",

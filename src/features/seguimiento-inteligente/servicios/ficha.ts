@@ -52,7 +52,7 @@ export async function leerFicha(conversationId: string): Promise<FichaConContext
   });
   if (!charla) return null;
 
-  const [filas, estado, lead] = await Promise.all([
+  const [filas, estado, lead, notas] = await Promise.all([
     prisma.message.findMany({
       where: { conversationId, type: { not: "SYSTEM" }, deletedAt: null },
       orderBy: { createdAt: "desc" },
@@ -77,6 +77,24 @@ export async function leerFicha(conversationId: string): Promise<FichaConContext
         },
       })
       .catch(() => null),
+    // Las notas del bot que cuentan para el turno (lib/turno-del-chat.ts): pasó el chat a una
+    // persona, o ganó la "red" de un paso porque no entendió al cliente.
+    prisma.message
+      .findMany({
+        where: {
+          conversationId,
+          type: "SYSTEM",
+          deletedAt: null,
+          OR: [
+            { content: { startsWith: "El agente pide un asesor" } },
+            { AND: [{ content: { startsWith: "Agente V3: Gan" } }, { content: { contains: "no se entendi" } }] },
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: { createdAt: true, content: true },
+      })
+      .catch(() => []),
   ]);
 
   const mensajes: MensajeCrudo[] = filas.reverse().map((m) => ({
@@ -130,6 +148,7 @@ export async function leerFicha(conversationId: string): Promise<FichaConContext
       cotizacion: { en: lead?.cotizacionEn ?? null, ref: lead?.cotizacionRef ?? null, total: null },
       mensajesUtiles: lead?.mensajesUtiles ?? 0,
       mensajes,
+      notasDelBot: notas.map((n) => ({ en: n.createdAt, texto: n.content ?? "" })).reverse(),
     },
   };
 }

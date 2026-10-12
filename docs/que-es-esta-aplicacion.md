@@ -259,6 +259,16 @@ la IA pausada no lo contesta el agente.
   `detalle.ref` con el mismo código y la cuenta que los mandó. Al V3 ese texto le llega como un saludo
   normal (sale la Bienvenida, probado el 06-10-2026). Si el cliente borra el texto pre-llenado o
   escribe al número a mano, no se detecta.
+- **Turno del chat** (desde el 12-10-2026, `src/lib/turno-del-chat.ts`): una sola definición para el
+  Supervisor, el Supervisor accionable y el seguimiento inteligente. Es turno de **Magilus** si el
+  cliente escribió algo (que no sea una despedida, un "gracias", emojis o una auto-respuesta) y nadie
+  —ni el bot ni una persona— le contestó; si el bot pasó el chat a una persona ("El agente pide un
+  asesor", "una asesora te escribe") y ninguna persona escribió después; o si hubo intención fuerte de
+  compra (separar, anticipo, "ya pagué", acepta el precio, pide cotización, da dirección o fecha) sin
+  ninguna persona después. Si no, es turno del **cliente**: no hay avisos del Supervisor ni tareas
+  humanas, solo los seguimientos automáticos de siempre y, pasadas 72 h sin respuesta
+  (`cadencia.horasTurnoDelCliente`), el descarte con su interruptor (nunca con una cotización vigente).
+  "Sin asesora" por sí solo no es un problema.
 - **Roles**: asesora (sus chats), supervisora (ve "Todas" pero solo de sus líneas, asigna, ve tableros y
   automatizaciones; se guarda en `AppSetting equipo:supervisoras:<workspace>`), administradora y dueño.
   La monitora mira sin poder escribir.
