@@ -98,7 +98,7 @@ async function buscarCharla(input: {
 }
 
 /** Lo que hace falta para el tope: primer y último mensaje del cliente, y los automáticos. */
-async function historialParaTope(conversationId: string): Promise<HistorialParaTope> {
+async function historialParaTope(conversationId: string, conPersona = false): Promise<HistorialParaTope> {
   const [resumen] = await prisma.$queryRaw<
     Array<{ primero: Date | null; ultimo: Date | null; despues: number | bigint | null }>
   >(Prisma.sql`
@@ -124,11 +124,22 @@ async function historialParaTope(conversationId: string): Promise<HistorialParaT
     ORDER BY m."createdAt" DESC
     LIMIT 200
   `);
+  // Solo con `contarDesdeLaPersona`: el último mensaje de una persona (CRM o celular).
+  const persona = conPersona
+    ? await prisma.$queryRaw<Array<{ en: Date | null }>>(Prisma.sql`
+        SELECT MAX(m."createdAt") AS "en"
+        FROM public."Message" m
+        WHERE m."conversationId" = ${conversationId}
+          AND m."direction" = 'OUTBOUND' AND m."type" <> 'SYSTEM' AND m."deletedAt" IS NULL
+          AND m."rawPayload"->>'source' IN ('manual', 'instance')
+      `)
+    : [];
   return {
     primerEntrante: resumen?.primero ?? null,
     ultimoEntrante: resumen?.ultimo ?? null,
     entrantesDespuesDelAnuncio: Number(resumen?.despues ?? 0),
     automaticos: automaticos.map((fila) => fila.createdAt),
+    ultimoHumano: persona[0]?.en ?? null,
   };
 }
 
@@ -219,7 +230,11 @@ export async function revisarAntiBloqueo(input: {
   conversationId?: string | null;
   contactId?: string | null;
   channelId?: string | null;
-  medidas: { dueno: boolean; tope: boolean };
+  /**
+   * `etapa`: con `dueno` en false, igual se frena si la etapa está cerrada (los toques que salen a
+   * propósito con el chat en manos de la asesora: "Tras asesora: …").
+   */
+  medidas: { dueno: boolean; tope: boolean; etapa?: boolean };
   /** Solo el reloj del V3: desde cuándo está callado el chat (para la espera de la apertura). */
   silencioDesde?: Date | null;
   ahora?: Date;
@@ -255,7 +270,8 @@ export async function revisarAntiBloqueo(input: {
     }
   }
 
-  const necesitaCharla = (config.unDueno.activo && input.medidas.dueno) || (config.topeTotal.activo && input.medidas.tope);
+  const soloEtapa = config.unDueno.activo && !input.medidas.dueno && Boolean(input.medidas.etapa);
+  const necesitaCharla = (config.unDueno.activo && input.medidas.dueno) || soloEtapa || (config.topeTotal.activo && input.medidas.tope);
   const charla = necesitaCharla ? await buscarCharla({ ...input }) : null;
   const conversationId = charla?.id ?? input.conversationId ?? null;
 
@@ -269,10 +285,13 @@ export async function revisarAntiBloqueo(input: {
     });
     if (motivo) return { enviar: false, motivo, reprogramarPara: null, conversationId };
   }
+  if (soloEtapa && charla && charla.crmStage && ["PERDIDO", "GANADO"].includes(charla.crmStage)) {
+    return { enviar: false, motivo: "etapa_cerrada", reprogramarPara: null, conversationId };
+  }
 
   // 1. Tope total.
   if (config.topeTotal.activo && input.medidas.tope && charla) {
-    const motivo = decidirTope(await historialParaTope(charla.id), config.topeTotal);
+    const motivo = decidirTope(await historialParaTope(charla.id, config.topeTotal.contarDesdeLaPersona), config.topeTotal);
     if (motivo) return { enviar: false, motivo, reprogramarPara: null, conversationId };
   }
 

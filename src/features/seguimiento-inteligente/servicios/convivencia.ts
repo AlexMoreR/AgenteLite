@@ -30,6 +30,8 @@ export function decidirConvivencia(input: {
   esExterior: boolean;
   accion: string | null;
   supresion: string | null;
+  /** Motivo de la decisión: la Recuperación 72 h nunca frena un genérico. */
+  motivo?: string | null;
   motor: "v3" | "follow";
   reglaId?: string | null;
   nombre?: string | null;
@@ -38,6 +40,7 @@ export function decidirConvivencia(input: {
   if ((input.nombre ?? "").startsWith(PREFIJO_FOLLOW_INTELIGENTE)) return null;
   if (input.exteriorActivo && input.esExterior) return "fuera_de_colombia";
   if (!input.motorActivo || !input.accion) return null;
+  if (input.motivo === "recuperacion_72h") return null;
   if (input.supresion === "siempre" || input.accion === "tarea_asesora" || input.accion === "dormido" || input.accion === "descartar") {
     return input.accion === "no_insistir" ? "inteligente_no_insistir" : "inteligente_tarea_humana";
   }
@@ -52,7 +55,7 @@ export function decidirConvivencia(input: {
 }
 
 /** La decisión del motor en este instante (sin efectos). Null si no se pudo leer (se usa la guardada). */
-async function decisionEnVivo(conversationId: string, config: ConfigSeguimientoInteligente): Promise<{ accion: string; supresion: string } | null> {
+async function decisionEnVivo(conversationId: string, config: ConfigSeguimientoInteligente): Promise<{ accion: string; supresion: string; motivo: string } | null> {
   try {
     // Import dinámico: ficha.ts lee el estado del agente V3, que a su vez importa esta convivencia.
     const { leerFicha, leerNotasDelTurno } = await import("./ficha");
@@ -60,7 +63,7 @@ async function decisionEnVivo(conversationId: string, config: ConfigSeguimientoI
     if (!ctx) return null;
     ctx.ficha.notas = await leerNotasDelTurno(conversationId).catch(() => []);
     const { decision } = evaluarLead(ctx.ficha, config, new Date());
-    return { accion: decision.accion, supresion: decision.supresion };
+    return { accion: decision.accion, supresion: decision.supresion, motivo: decision.motivo };
   } catch {
     return null;
   }
@@ -95,7 +98,7 @@ export async function revisarConvivencia(input: {
       conversationId ? prisma.embudoLead.findUnique({ where: { conversationId }, select: { accion: true, accionDatos: true, exterior: true } }) : null,
       config.exterior.activo ? prisma.contact.findUnique({ where: { id: input.contactId }, select: { metadata: true } }) : null,
     ]);
-    const datos = (lead?.accionDatos ?? null) as { supresion?: unknown; modo?: unknown } | null;
+    const datos = (lead?.accionDatos ?? null) as { supresion?: unknown; modo?: unknown; motivo?: unknown } | null;
     // Solo cuenta una decisión tomada en modo activo (una de sombra no frena nada).
     const activa = datos?.modo === "activo";
     // TURNO DE LA CONVERSACIÓN (interruptor `turno:config`): la decisión guardada puede ser de ANTES
@@ -111,6 +114,7 @@ export async function revisarConvivencia(input: {
       esExterior: Boolean(lead?.exterior) || Boolean(leerMarcaExterior(contacto?.metadata)),
       accion: enVivo ? enVivo.accion : (lead?.accion ?? null),
       supresion: enVivo ? enVivo.supresion : typeof datos?.supresion === "string" ? datos.supresion : null,
+      motivo: enVivo ? enVivo.motivo : typeof datos?.motivo === "string" ? datos.motivo : null,
       motor: input.motor,
       reglaId: input.reglaId,
       nombre: input.nombre,

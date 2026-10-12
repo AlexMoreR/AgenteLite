@@ -97,7 +97,7 @@ export async function revisarFrenoDeAutomatico(input: {
   `);
 
   const config = await leerConfigAntiBloqueo(input.workspaceId);
-  return decidirFreno(filas, new Date(), { frenarNoLeido: config.noLeido.activo });
+  return decidirFreno(filas, new Date(), { frenarNoLeido: config.noLeido.activo, contarDesdeLaPersona: config.topeTotal.contarDesdeLaPersona });
 }
 
 /** "2026-10-03": el día calendario en Colombia de ese instante. */
@@ -109,7 +109,7 @@ function diaEnColombia(fecha: Date) {
 export function decidirFreno(
   filasDeLaMasNueva: Fila[],
   ahora: Date = new Date(),
-  opciones: { frenarNoLeido: boolean } = { frenarNoLeido: false },
+  opciones: { frenarNoLeido: boolean; contarDesdeLaPersona?: boolean } = { frenarNoLeido: false },
 ): FrenoDeAutomatico {
   const ultimo = filasDeLaMasNueva[0];
   // Sin mensajes, o el último lo escribió el cliente: no hay nada nuestro sin responder.
@@ -136,6 +136,10 @@ export function decidirFreno(
   let anterior: Date | null = null;
   for (const fila of filasDeLaMasNueva) {
     if (fila.direction === "INBOUND") {
+      break;
+    }
+    // Con `contarDesdeLaPersona` (anti-bloqueo): lo de antes de que escribiera la asesora no cuenta.
+    if (opciones.contarDesdeLaPersona && (fila.origen === "manual" || fila.origen === "instance")) {
       break;
     }
     if (!fila.origen || !(ORIGENES_AUTOMATICOS as readonly string[]).includes(fila.origen)) {

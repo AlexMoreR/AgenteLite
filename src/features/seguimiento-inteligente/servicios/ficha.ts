@@ -1,6 +1,7 @@
 import { leerEstado } from "@/features/agente-v3/motor/estado";
 import { CLAVE_COMBO } from "@/features/embudo/dominio/combo";
 import { prisma } from "@/lib/prisma";
+import { isSnoozed } from "@/lib/lead-snooze";
 import { isMarkedAsLid, readDiscoveredPhone } from "@/lib/whatsapp-lid";
 
 import { leerMarcaExterior, paisDelTelefono } from "../dominio/exterior";
@@ -46,6 +47,7 @@ export async function leerFicha(conversationId: string): Promise<FichaConContext
       contactId: true,
       assignedToUserId: true,
       automationPaused: true,
+      automationPausedAt: true,
       startedAt: true,
       contact: { select: { name: true, phoneNumber: true, metadata: true, crmStage: true } },
     },
@@ -74,6 +76,8 @@ export async function leerFicha(conversationId: string): Promise<FichaConContext
           accionDatos: true,
           mensajesUtiles: true,
           exterior: true,
+          pasoMaximo: true,
+          anticipoEn: true,
         },
       })
       .catch(() => null),
@@ -130,6 +134,11 @@ export async function leerFicha(conversationId: string): Promise<FichaConContext
       cotizacion: { en: lead?.cotizacionEn ?? null, ref: lead?.cotizacionRef ?? null, total: null },
       mensajesUtiles: lead?.mensajesUtiles ?? 0,
       mensajes,
+      pausadoEn: charla.automationPausedAt ?? null,
+      pasoMaximo: lead?.pasoMaximo ?? null,
+      anticipoEn: lead?.anticipoEn ?? null,
+      historialCompleto: filas.length < MENSAJES_A_MIRAR,
+      pospuesto: isSnoozed(metadata),
     },
   };
 }

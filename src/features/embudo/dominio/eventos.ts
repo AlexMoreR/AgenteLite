@@ -49,6 +49,10 @@ export const TIPOS_DE_EVENTO = [
   "DESCARTE_CADENCIA",
   /** F2: una tarea pasada a otra asesora o pospuesta por el tope diario. Solo registro. */
   "TAREA_REPARTIDA",
+  /** Recuperación 72 h: cada fase (llamar, audio, espera, aprobación, descarte, recuperado), en sombra o activo. Solo registro. */
+  "RECUPERACION_72H",
+  /** Automático después de la asesora: agendado (activo) o "habría salido" (sombra). Solo registro. */
+  "SEGUIMIENTO_TRAS_ASESORA",
 ] as const;
 
 export type TipoDeEvento = (typeof TIPOS_DE_EVENTO)[number];

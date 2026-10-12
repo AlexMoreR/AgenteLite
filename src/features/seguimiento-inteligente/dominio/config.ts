@@ -11,6 +11,9 @@
  *  - exterior.activo: atender una vez y excluir a los teléfonos de fuera de Colombia.
  *  - formulario.activo (PRENDIDO por defecto, solo actúa con el motor en sombra/activo): tareas a
  *    las 2 h / 24 h / 72 h cuando la asesora pidió los datos y el cliente no responde.
+ *  - trasAsesora.modo: "apagado" | "sombra" | "activo" (automáticos de 1 h y día siguiente después
+ *    de que escribe la asesora, con la IA pausada; Alexander 12-10-2026).
+ *  - recuperacion72h.modo: "apagado" | "sombra" | "activo" (último intento humano a las 72 h).
  */
 
 import { RECURSOS_POR_DEFECTO, type Recurso } from "./producto";
@@ -113,6 +116,48 @@ export type ConfigSeguimientoInteligente = {
    *    tampoco son tarea (se dan por hechos: siguen los automáticos y el descarte).
    */
   turno: { activo: boolean; cadenciaSinTarea: boolean };
+  /**
+   * AUTOMÁTICOS DESPUÉS DE LA ASESORA (Alexander, 12-10-2026: "sí siguen"). Con el chat pausado
+   * porque escribió una persona y el cliente callado, salen los toques de `horas` (1 h y al día
+   * siguiente) como seguimiento automático (pasan por el anti-bloqueo y el freno de siempre). La IA
+   * sigue pausada: no le contesta al cliente. "apagado" = exactamente como antes (no sale nada).
+   */
+  trasAsesora: {
+    modo: ModoDelMotor;
+    /** Horas desde el último mensaje de la persona para cada toque. */
+    horas: number[];
+    /** Un toque vencido hace más de esto ya no sale (sale el siguiente, o nada). */
+    horasDeGracia: number;
+    /** Texto de cada toque (en el orden de `horas`). {nombre} = "¡Hola, Ana!" o "¡Hola!". */
+    textos: string[];
+    /**
+     * Máximo de toques agendados por día (Bogotá) en el negocio. 0 = sin tope. Freno de seguridad:
+     * el 5-oct las asesoras escribieron a 190 chats en un día y al otro saldrían ~360 automáticos.
+     */
+    maxPorDia: number;
+  };
+  /**
+   * RECUPERACIÓN 72 HORAS (propuesta del 12-10-2026): a las 72 h sin respuesta, último intento
+   * humano (llamada → audio → 24 h) antes de "Descartado — Sin respuesta". Independiente de
+   * `motor.modo` (como `cadencia.descarte`).
+   */
+  recuperacion72h: {
+    modo: ModoDelMotor;
+    horas: number;
+    horasTrasAudio: number;
+    /** Solo los que escribieron algo más que el texto del anuncio. */
+    soloConversaron: boolean;
+    /** Sin llamada registrada el audio no cuenta (decisión pendiente: por defecto se exige). */
+    exigirLlamada: boolean;
+    /** No entran los que llevan más de esto callados (al prender no se barre todo el historial). */
+    diasMaximos: number;
+    /** Horario laboral (Bogotá): las tareas aparecen y los descartes se hacen solo dentro. */
+    desdeHora: number;
+    hastaHora: number;
+    dias: number[];
+    /** Quién aprueba el descarte de intención fuerte. null = la supervisora del Supervisor accionable. */
+    aprobadorId: string | null;
+  };
 };
 
 export const TEXTO_EXTERIOR_POR_DEFECTO =
@@ -132,7 +177,8 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
     minutosTareaB: 30,
     respetarNoLeido: false,
   },
-  cadencia: { dias: [3, 4, 7], descarte: "apagado", horasDeGracia: 24, maxAutomaticos: 2 },
+  // maxAutomaticos sigue al tope del anti-bloqueo (Alexander, 12-10-2026: de 2 a 3).
+  cadencia: { dias: [3, 4, 7], descarte: "apagado", horasDeGracia: 24, maxAutomaticos: 3 },
   cotizacion: { horas: [24, 72], diasVigente: 30 },
   formulario: { activo: true, horas: [2, 24, 72], desdeHora: 8, hastaHora: 18, dias: [1, 2, 3, 4, 5, 6] },
   tareas: { maxPorAsesoraDia: 15 },
@@ -141,6 +187,28 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
   exterior: { activo: false, texto: TEXTO_EXTERIOR_POR_DEFECTO },
   recursos: RECURSOS_POR_DEFECTO,
   turno: { activo: false, cadenciaSinTarea: true },
+  trasAsesora: {
+    modo: "apagado",
+    horas: [1, 24],
+    horasDeGracia: 6,
+    maxPorDia: 80,
+    textos: [
+      "{nombre} ¿Pudiste ver lo que te envié? 😊 Si te queda alguna duda, aquí estoy para ayudarte.",
+      "{nombre} Te escribo para saber si pudiste revisar la información 😊 ¿Te ayudo con el envío a tu ciudad o con la forma de pago?",
+    ],
+  },
+  recuperacion72h: {
+    modo: "apagado",
+    horas: 72,
+    horasTrasAudio: 24,
+    soloConversaron: true,
+    exigirLlamada: true,
+    diasMaximos: 7,
+    desdeHora: 8,
+    hastaHora: 18,
+    dias: [1, 2, 3, 4, 5, 6],
+    aprobadorId: null,
+  },
 };
 
 function objeto(valor: unknown): Record<string, unknown> {
@@ -215,6 +283,16 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
   const con = objeto(crudo.convivencia);
   const ext = objeto(crudo.exterior);
   const frm = objeto(crudo.formulario);
+  const tra = objeto(crudo.trasAsesora);
+  const rec = objeto(crudo.recuperacion72h);
+  const recDesde = numero(rec.desdeHora, d.recuperacion72h.desdeHora, 0, 23);
+  let recHasta = numero(rec.hastaHora, d.recuperacion72h.hastaHora, 1, 24);
+  if (recHasta <= recDesde) recHasta = Math.min(24, recDesde + 1);
+  const recDias = Array.isArray(rec.dias)
+    ? [...new Set(rec.dias.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x >= 0 && x <= 6))].sort((a, b) => a - b)
+    : d.recuperacion72h.dias;
+  const traHoras = listaDeNumeros(tra.horas, d.trasAsesora.horas, 7 * 24);
+  const traTextos = Array.isArray(tra.textos) ? tra.textos.filter((x): x is string => typeof x === "string" && x.trim().length > 0) : [];
   const frmDesde = numero(frm.desdeHora, d.formulario.desdeHora, 0, 23);
   let frmHasta = numero(frm.hastaHora, d.formulario.hastaHora, 1, 24);
   if (frmHasta <= frmDesde) frmHasta = Math.min(24, frmDesde + 1);
@@ -270,10 +348,37 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
     exterior: { activo: bandera(ext.activo, d.exterior.activo), texto: textoExterior },
     recursos: recursos(crudo.recursos),
     turno: { ...d.turno },
+    trasAsesora: {
+      modo: modo(tra.modo),
+      horas: traHoras,
+      horasDeGracia: numero(tra.horasDeGracia, d.trasAsesora.horasDeGracia, 0, 7 * 24),
+      maxPorDia: Math.round(numero(tra.maxPorDia, d.trasAsesora.maxPorDia, 0, 5000)),
+      // Un texto por toque: lo que falte se completa con los de por defecto (o el último).
+      textos: traHoras.map((_, i) => traTextos[i] ?? d.trasAsesora.textos[i] ?? d.trasAsesora.textos[d.trasAsesora.textos.length - 1]),
+    },
+    recuperacion72h: {
+      modo: modo(rec.modo),
+      horas: numero(rec.horas, d.recuperacion72h.horas, 1, 30 * 24),
+      horasTrasAudio: numero(rec.horasTrasAudio, d.recuperacion72h.horasTrasAudio, 1, 30 * 24),
+      soloConversaron: bandera(rec.soloConversaron, d.recuperacion72h.soloConversaron),
+      exigirLlamada: bandera(rec.exigirLlamada, d.recuperacion72h.exigirLlamada),
+      diasMaximos: numero(rec.diasMaximos, d.recuperacion72h.diasMaximos, 1, 60),
+      desdeHora: recDesde,
+      hastaHora: recHasta,
+      dias: recDias.length ? recDias : d.recuperacion72h.dias,
+      aprobadorId: typeof rec.aprobadorId === "string" && rec.aprobadorId.trim() ? rec.aprobadorId.trim() : null,
+    },
   };
 }
 
 /** ¿Hay algo prendido? (para salir rápido en el reloj y en el webhook). */
 export function algoPrendido(config: ConfigSeguimientoInteligente): boolean {
-  return config.calificacion.activo || config.motor.modo !== "apagado" || config.exterior.activo || config.cadencia.descarte !== "apagado";
+  return (
+    config.calificacion.activo ||
+    config.motor.modo !== "apagado" ||
+    config.exterior.activo ||
+    config.cadencia.descarte !== "apagado" ||
+    (config.trasAsesora?.modo ?? "apagado") !== "apagado" ||
+    (config.recuperacion72h?.modo ?? "apagado") !== "apagado"
+  );
 }

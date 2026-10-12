@@ -51,7 +51,8 @@ function planGuardado(datos: Record<string, unknown> | null): TareaParaElTope["p
 export async function aplicarTopeDeTareas(workspaceId: string, config: ConfigSeguimientoInteligente, ahora = new Date()): Promise<{ planeadas: number; redistribuidas: number; pospuestas: number }> {
   const vacio = { planeadas: 0, redistribuidas: 0, pospuestas: 0 };
   try {
-    if (config.motor.modo === "apagado") return vacio;
+    // La Recuperación 72 h activa también reparte sus tareas aunque el motor esté apagado.
+    if (config.motor.modo === "apagado" && config.recuperacion72h?.modo !== "activo") return vacio;
     const finDelDia = new Date(ahora.getTime() + 24 * 3_600_000);
     const filas = await prisma.$queryRaw<Fila[]>(Prisma.sql`
       SELECT l."conversationId", l."workspaceId", l."contactId", c."channelId", l."tareaPrioridad", l."tareaVence", l."temperatura",
@@ -65,11 +66,12 @@ export async function aplicarTopeDeTareas(workspaceId: string, config: ConfigSeg
          AND l."exterior" = false
          AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
          AND (l."tareaVence" IS NULL OR l."tareaVence" <= ${finDelDia})
-         AND NOT EXISTS (
+         -- La de la Recuperación no se da por hecha con un mensaje: su evidencia es la llamada y el audio.
+         AND (l."accionDatos"->>'motivo' = 'recuperacion_72h' OR NOT EXISTS (
            SELECT 1 FROM "Message" m
             WHERE m."conversationId" = l."conversationId" AND m."direction" = 'OUTBOUND'
               AND m."rawPayload"->>'source' IN ('manual', 'instance')
-              AND m."createdAt" > COALESCE(l."accionEn", l."updatedAt"))
+              AND m."createdAt" > COALESCE(l."accionEn", l."updatedAt")))
        LIMIT 500`);
     if (!filas.length) return vacio;
 
@@ -85,9 +87,15 @@ export async function aplicarTopeDeTareas(workspaceId: string, config: ConfigSeg
       duena: fila.duena,
       elegibles: elegiblesDe(fila.metadataDeLaLinea),
       plan: planGuardado(fila.accionDatos),
+      rueda: fila.accionDatos?.motivo === "recuperacion_72h",
     }));
-    const planes = planearTareas({ tareas, tope: config.tareas.maxPorAsesoraDia, ahora });
+    // Las de sombra no le gastan el cupo a las activas (y al revés): se planean por separado.
     const porId = new Map(filas.map((fila) => [fila.conversationId, fila]));
+    const esActiva = (t: TareaParaElTope) => porId.get(t.conversationId)?.accionDatos?.modo === "activo";
+    const planes = [
+      ...planearTareas({ tareas: tareas.filter(esActiva), tope: config.tareas.maxPorAsesoraDia, ahora }),
+      ...planearTareas({ tareas: tareas.filter((t) => !esActiva(t)), tope: config.tareas.maxPorAsesoraDia, ahora }),
+    ];
     let redistribuidas = 0;
     let pospuestas = 0;
     for (const plan of planes) {

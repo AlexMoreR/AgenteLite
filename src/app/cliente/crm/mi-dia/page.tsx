@@ -5,6 +5,14 @@ import { PendientesDelCoach } from "@/features/coach/components/PendientesDelCoa
 import { leerPendientesDelCoach } from "@/features/coach/servicios/leer-coach";
 import { TareasDeSeguimiento } from "@/features/seguimiento-inteligente/components/TareasDeSeguimiento";
 import { leerTareasDeAsesora } from "@/features/seguimiento-inteligente/servicios/tareas";
+import { AprobacionesDeRecuperacion, RecuperacionDeMiDia } from "@/features/seguimiento-inteligente/components/RecuperacionDeMiDia";
+import { leerConfigSeguimiento } from "@/features/seguimiento-inteligente/servicios/config";
+import {
+  aprobadorDeRecuperacion,
+  comoVista,
+  leerAprobacionesPendientes,
+  leerRecuperacionesDeAsesora,
+} from "@/features/seguimiento-inteligente/servicios/recuperacion";
 import { PedidosDelSupervisor } from "@/features/supervisor-accionable/components/PanelAccionable";
 import { leerPedidosDelSupervisor } from "@/features/supervisor-accionable/servicios/accionable";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -76,6 +84,38 @@ export default async function ClienteCrmMiDiaPage() {
     // Supervisor accionable: lo que le pidió el Supervisor, con plazo (null con el interruptor apagado).
     leerPedidosDelSupervisor(access.workspaceId, access.userId).catch(() => null),
   ]);
+  /*
+    Recuperación 72 h (solo en modo ACTIVO): sus últimos intentos (Llamar → Audio → Espera 24 h) y,
+    si ella es quien aprueba, los descartes de intención fuerte que esperan su decisión.
+  */
+  const configSeguimiento = await leerConfigSeguimiento(access.workspaceId).catch(() => null);
+  const recuperacionActiva = configSeguimiento?.recuperacion72h.modo === "activo";
+  const [recuperaciones, aprobadora, yo] =
+    recuperacionActiva && configSeguimiento
+      ? await Promise.all([
+          leerRecuperacionesDeAsesora(access.workspaceId, access.userId).catch(() => ({ tareas: [], enEspera: [] })),
+          aprobadorDeRecuperacion(access.workspaceId, configSeguimiento).catch(() => null),
+          prisma.user.findUnique({ where: { id: access.userId }, select: { name: true } }),
+        ])
+      : [null, null, null];
+  const aprobaciones = aprobadora && aprobadora === access.userId ? await leerAprobacionesPendientes(access.workspaceId).catch(() => []) : [];
+  const bloqueDeRecuperacion =
+    recuperaciones && (recuperaciones.tareas.length || recuperaciones.enEspera.length) ? (
+      <RecuperacionDeMiDia
+        tareas={recuperaciones.tareas.map(comoVista)}
+        enEspera={recuperaciones.enEspera.map(comoVista)}
+        nombreAsesora={yo?.name?.trim().split(" ")[0] || "[tu nombre]"}
+        puedeMarcar={Boolean(buildWaCallsDialerUrl(""))}
+      />
+    ) : null;
+  const bloqueDeAprobaciones = aprobaciones.length ? (
+    <details open className="rounded-xl border border-border bg-card px-4 py-3">
+      <summary className="cursor-pointer text-sm font-medium text-foreground">Recuperación 72 h · aprobar descartes ({aprobaciones.length})</summary>
+      <div className="pt-3">
+        <AprobacionesDeRecuperacion pendientes={aprobaciones.map(comoVista)} />
+      </div>
+    </details>
+  ) : null;
   const bloqueDelSupervisor = pedidosDelSupervisor?.length ? <PedidosDelSupervisor acciones={pedidosDelSupervisor} /> : null;
   const bloqueDeSeguimiento = tareasDeSeguimiento.length ? (
     <details open className="rounded-xl border border-border bg-card px-4 py-3">
@@ -111,9 +151,11 @@ export default async function ClienteCrmMiDiaPage() {
     <MiDiaView
       data={data}
       llamadasUrgentes={
-        bloqueDelSupervisor || bloqueDeSeguimiento || bloqueDelCoach || vendedora ? (
+        bloqueDelSupervisor || bloqueDeAprobaciones || bloqueDeRecuperacion || bloqueDeSeguimiento || bloqueDelCoach || vendedora ? (
           <>
             {bloqueDelSupervisor}
+            {bloqueDeAprobaciones}
+            {bloqueDeRecuperacion}
             {bloqueDeSeguimiento}
             {bloqueDelCoach}
             {vendedora ? <LlamadasDeMiDia vendedora={vendedora} marcadorUrl={marcadorUrl} momento="urgente" /> : null}

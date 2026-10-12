@@ -79,6 +79,8 @@ async function leerTareas(input: {
   sinDuena?: boolean;
   soloActivas?: boolean;
   ocultarPospuestas?: boolean;
+  /** Mi día muestra la Recuperación 72 h en su propio bloque (con los pasos). */
+  sinRecuperacion?: boolean;
   limite?: number;
 }): Promise<TareaDeSeguimiento[]> {
   const filas = await prisma.$queryRaw<Fila[]>(Prisma.sql`
@@ -111,11 +113,13 @@ async function leerTareas(input: {
        }
        ${input.ocultarPospuestas ? Prisma.sql`AND COALESCE(l."accionDatos"->'tope'->>'estado', '') <> 'pospuesta'` : Prisma.empty}
        ${input.sinDuena ? Prisma.sql`AND c."assignedToUserId" IS NULL` : Prisma.empty}
-       AND NOT EXISTS (
+       ${input.sinRecuperacion ? Prisma.sql`AND COALESCE(l."accionDatos"->>'motivo', '') <> 'recuperacion_72h'` : Prisma.empty}
+       -- La de la Recuperación no se da por hecha con un mensaje: su evidencia es la llamada y el audio.
+       AND (l."accionDatos"->>'motivo' = 'recuperacion_72h' OR NOT EXISTS (
          SELECT 1 FROM "Message" m
           WHERE m."conversationId" = l."conversationId" AND m."direction" = 'OUTBOUND'
             AND m."rawPayload"->>'source' IN ('manual', 'instance')
-            AND m."createdAt" > COALESCE(l."accionEn", l."updatedAt"))
+            AND m."createdAt" > COALESCE(l."accionEn", l."updatedAt")))
      ORDER BY l."tareaPrioridad" ASC, l."tareaVence" ASC NULLS LAST
      LIMIT ${input.limite ?? 50}`);
   return filas.map(aTarea);
@@ -124,7 +128,7 @@ async function leerTareas(input: {
 /** Las de una asesora para hoy (vencidas o que vencen antes de terminar el día), solo modo activo. */
 export async function leerTareasDeAsesora(workspaceId: string, asesoraId: string, ahora = new Date()): Promise<TareaDeSeguimiento[]> {
   const finDelDia = new Date(ahora.getTime() + 12 * 3_600_000);
-  return leerTareas({ workspaceId, hasta: finDelDia, asesoraId, soloActivas: true, ocultarPospuestas: true, limite: 30 });
+  return leerTareas({ workspaceId, hasta: finDelDia, asesoraId, soloActivas: true, ocultarPospuestas: true, sinRecuperacion: true, limite: 30 });
 }
 
 /** Las vencidas sin dueña (modo activo): el Supervisor las marca para asignar (NO reasigna). */

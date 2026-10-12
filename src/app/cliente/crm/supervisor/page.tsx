@@ -25,6 +25,8 @@ import { idsDelComboEnElLibro } from "@/features/supervisor/servicios/vueltas";
 import { TareasDeSeguimiento } from "@/features/seguimiento-inteligente/components/TareasDeSeguimiento";
 import { leerConfigSeguimiento } from "@/features/seguimiento-inteligente/servicios/config";
 import { leerTareasParaSupervisor, resumenDelMotor } from "@/features/seguimiento-inteligente/servicios/tareas";
+import { ResumenDeRecuperacion } from "@/features/seguimiento-inteligente/components/ResumenDeRecuperacion";
+import { resumenDeRecuperacion } from "@/features/seguimiento-inteligente/servicios/recuperacion";
 import { bloqueDelCierreDelDia, fechaBogota } from "@/features/avisos-gravedad/dominio/reglas";
 import { leerConfigGravedad, leerResumenDelDia } from "@/features/avisos-gravedad/servicios/enrutador";
 import { PanelAccionableView } from "@/features/supervisor-accionable/components/PanelAccionable";
@@ -205,6 +207,11 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
           resumen: await resumenDelMotor(workspaceId, ahora).catch(() => []),
         }
       : null;
+  // Recuperación 72 h: solo si está prendida (sombra o activo).
+  const recuperacion =
+    configSeguimiento.recuperacion72h.modo !== "apagado"
+      ? await resumenDeRecuperacion(workspaceId, configSeguimiento.recuperacion72h.modo, ahora).catch(() => null)
+      : null;
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-5">
@@ -257,6 +264,17 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
           )}
         </CardContent>
       </Card>
+
+      {recuperacion ? (
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle>Recuperación 72 h</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResumenDeRecuperacion resumen={recuperacion} />
+          </CardContent>
+        </Card>
+      ) : null}
 
       {seguimiento ? (
         <Card size="sm">

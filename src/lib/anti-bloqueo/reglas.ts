@@ -32,6 +32,12 @@ export type ConfigAntiBloqueo = {
     sinRespuesta: number;
     /** A quien sí respondió: máximo esto por cada silencio (desde su último mensaje). */
     porSilencio: number;
+    /**
+     * Si es true, el silencio (y el total de quien solo mandó el anuncio) se cuenta desde el último
+     * mensaje del cliente O de una persona (asesora), lo que sea más nuevo: lo que salió antes de que
+     * la asesora escribiera no le gasta el cupo a los automáticos de después. Apagado = como antes.
+     */
+    contarDesdeLaPersona: boolean;
   };
   /** 2. Horario de envío (hora de Bogotá). Lo de afuera se reprograma a la siguiente apertura. */
   horario: {
@@ -72,7 +78,8 @@ export type ConfigAntiBloqueo = {
 };
 
 export const CONFIG_POR_DEFECTO: ConfigAntiBloqueo = {
-  topeTotal: { activo: false, sinRespuesta: 2, porSilencio: 2 },
+  // Alexander, 12-10-2026: el tope de automáticos a quien no responde sube de 2 a 3.
+  topeTotal: { activo: false, sinRespuesta: 3, porSilencio: 3, contarDesdeLaPersona: false },
   horario: { activo: false, desdeHora: 8, hastaHora: 20, desfaseMaxMinutos: 30 },
   unDueno: { activo: false },
   textoVigente: { activo: false },
@@ -131,6 +138,7 @@ export function leerConfigAntiBloqueoDeTexto(texto: string | null | undefined): 
       activo: bandera(tope.activo, d.topeTotal.activo),
       sinRespuesta: entero(tope.sinRespuesta, d.topeTotal.sinRespuesta, 0, 50),
       porSilencio: entero(tope.porSilencio, d.topeTotal.porSilencio, 0, 50),
+      contarDesdeLaPersona: bandera(tope.contarDesdeLaPersona, d.topeTotal.contarDesdeLaPersona),
     },
     horario: {
       activo: bandera(horario.activo, d.horario.activo),
@@ -297,6 +305,8 @@ export type HistorialParaTope = {
   entrantesDespuesDelAnuncio: number;
   /** Fechas de los automáticos que salieron en la charla (seguimientos, campañas, reactivación). */
   automaticos: Date[];
+  /** El último mensaje de una persona (asesora: CRM o celular). Solo con `contarDesdeLaPersona`. */
+  ultimoHumano?: Date | null;
 };
 
 /** Cuántos ENVÍOS hay en esas fechas, juntando los mensajes que salieron en el mismo minuto. */
@@ -324,12 +334,14 @@ export function soloMandoElAnuncio(historial: HistorialParaTope): boolean {
  */
 export function decidirTope(
   historial: HistorialParaTope,
-  tope: Pick<ConfigAntiBloqueo["topeTotal"], "sinRespuesta" | "porSilencio">,
+  tope: Pick<ConfigAntiBloqueo["topeTotal"], "sinRespuesta" | "porSilencio"> & { contarDesdeLaPersona?: boolean },
 ): "tope_sin_respuesta" | "tope_por_silencio" | null {
+  const persona = tope.contarDesdeLaPersona && historial.ultimoHumano ? historial.ultimoHumano.getTime() : 0;
   if (soloMandoElAnuncio(historial)) {
-    return contarEnvios(historial.automaticos) >= tope.sinRespuesta ? "tope_sin_respuesta" : null;
+    const contados = persona ? historial.automaticos.filter((fecha) => fecha.getTime() > persona) : historial.automaticos;
+    return contarEnvios(contados) >= tope.sinRespuesta ? "tope_sin_respuesta" : null;
   }
-  const desde = historial.ultimoEntrante?.getTime() ?? 0;
+  const desde = Math.max(historial.ultimoEntrante?.getTime() ?? 0, persona);
   const delSilencio = historial.automaticos.filter((fecha) => fecha.getTime() > desde);
   return contarEnvios(delSilencio) >= tope.porSilencio ? "tope_por_silencio" : null;
 }
@@ -398,7 +410,8 @@ export function clasificarFollow(follow: { name: string | null; followRuleId: st
   if (nombre === NOMBRE_FOLLOW_REACTIVACION) return "reactivacion";
   if (follow.followRuleId) return "automatico";
   // "Inteligente: …" = el mensaje útil del seguimiento inteligente: automático, con todas las medidas.
-  if (/^(Etapa |Sin responder|Inteligente: )/.test(nombre)) return "automatico";
+  // "Tras asesora: …" = el toque de 1 h / día siguiente después de que escribió la asesora (12-10-2026).
+  if (/^(Etapa |Sin responder|Inteligente: |Tras asesora: )/.test(nombre)) return "automatico";
   return "humano";
 }
 

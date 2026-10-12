@@ -251,7 +251,11 @@ prueba("motor: cadencia — el toque del día 3 NO se salta si no leyó (salvo i
   const frio = ficha({ mensajes: [IN(0, ANUNCIO), BOT(0.2, "fotos"), ASESORA(10, "Hola, soy María", null)] });
   assert.equal(mo.evaluarLead(frio, CONFIG, t3).decision.accion, "mensaje_util_producto");
   const tope = { ...frio, mensajes: [...frio.mensajes, AUTO(10 + 3 * 24 * 60 + 70, "a", null), AUTO(10 + 4 * 24 * 60 + 70, "b", null)] };
-  assert.equal(mo.evaluarLead(tope, CONFIG, mas(10 * MIN + 7 * DIA + H)).decision.motivo, "gracia_antes_de_descartar");
+  // Con el tope de antes (2) el toque del día 7 ya no sale; con el de hoy (3, Alexander 12-10-2026) sí.
+  const tope2 = { ...CONFIG, cadencia: { ...CONFIG.cadencia, maxAutomaticos: 2 } };
+  assert.equal(mo.evaluarLead(tope, tope2, mas(10 * MIN + 7 * DIA + H)).decision.motivo, "gracia_antes_de_descartar");
+  assert.equal(CONFIG.cadencia.maxAutomaticos, 3);
+  assert.equal(mo.evaluarLead(tope, CONFIG, mas(10 * MIN + 7 * DIA + H)).decision.motivo, "cadencia_frio");
 });
 
 prueba("motor: el producto que PREGUNTÓ manda (butacos, no el combo)", () => {
@@ -368,11 +372,14 @@ prueba("motor: cadencia de un FRÍO = mensaje útil automático (respeta el tope
   assert.equal(d.toque, "dia_3");
   // Con 2 automáticos ya enviados en este silencio, el 3.er toque de un Frío se salta (el
   // anti-bloqueo lo frenaría y no vale una tarea humana) y, tras la gracia, se descarta.
+  // (Con el tope de 2 de antes; desde el 12-10-2026 el tope es 3 y el del día 7 todavía sale.)
+  const tope2 = { ...CONFIG, cadencia: { ...CONFIG.cadencia, maxAutomaticos: 2 } };
   const tope = { ...f, mensajes: [...f.mensajes, AUTO(10 + 3 * 24 * 60 + 70, "a"), AUTO(10 + 4 * 24 * 60 + 70, "b")] };
-  const d7 = mo.evaluarLead(tope, CONFIG, mas(10 * MIN + 7 * DIA + H)).decision;
+  const d7 = mo.evaluarLead(tope, tope2, mas(10 * MIN + 7 * DIA + H)).decision;
   assert.equal(d7.accion, "esperar");
   assert.equal(d7.motivo, "gracia_antes_de_descartar");
-  assert.equal(mo.evaluarLead(tope, CONFIG, mas(10 * MIN + 8 * DIA + H)).decision.accion, "descartar");
+  assert.equal(mo.evaluarLead(tope, tope2, mas(10 * MIN + 8 * DIA + H)).decision.accion, "descartar");
+  assert.equal(mo.evaluarLead(tope, CONFIG, mas(10 * MIN + 7 * DIA + H)).decision.accion, "mensaje_util_producto");
   // Un Frío sin mensaje útil para su producto (tocador): los toques se saltan, sin tareas.
   const tocador = ficha({ familiaDelBot: null, mensajes: [IN(0, "info del tocador"), BOT(0.2, "hola"), ASESORA(10, "Hola")] });
   assert.notEqual(mo.evaluarLead(tocador, CONFIG, mas(10 * MIN + 3 * DIA + H)).decision.accion, "tarea_asesora");

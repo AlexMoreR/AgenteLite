@@ -21,6 +21,7 @@ const MOTIVOS: Record<string, string> = {
   fecha_futura_cerca: "Se acerca la fecha que dijo",
   cadencia_sin_respuesta: "Seguimiento después de tu mensaje",
   cadencia_tope_de_automaticos: "Seguimiento después de tu mensaje",
+  recuperacion_72h: "Recuperación 72 h · último intento",
 };
 
 const COLOR: Record<string, string> = {

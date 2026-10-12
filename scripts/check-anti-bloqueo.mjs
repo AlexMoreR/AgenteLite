@@ -71,7 +71,8 @@ prueba("config: sin fila, vacía o rota → TODO apagado y avisos por la línea 
     assert.equal(c.avisos.via, "linea_del_chat");
   }
   const d = r.leerConfigAntiBloqueoDeTexto(null);
-  assert.deepEqual([d.topeTotal.sinRespuesta, d.topeTotal.porSilencio], [2, 2]);
+  // Alexander, 12-10-2026: el tope sube de 2 a 3. Contar desde la persona: apagado (como antes).
+  assert.deepEqual([d.topeTotal.sinRespuesta, d.topeTotal.porSilencio, d.topeTotal.contarDesdeLaPersona], [3, 3, false]);
   assert.deepEqual([d.horario.desdeHora, d.horario.hastaHora, d.horario.desfaseMaxMinutos], [8, 20, 30]);
   assert.deepEqual([d.espaciado.minSegundos, d.espaciado.maxSegundos, d.espaciado.porMinuto], [20, 90, 3]);
 });

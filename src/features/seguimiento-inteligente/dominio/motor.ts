@@ -38,6 +38,15 @@ import { mensajeDeCadencia, mensajeDeCotizacion, mensajeDeFechaFutura, mensajeDe
 import { familiaDelTexto, mensajeUtilPara, nombreDeFamilia, type MensajeUtil } from "./producto";
 import { calificar, type Calificacion, type Temperatura } from "./temperatura";
 import { turnoDeLaConversacion, type TurnoDeLaConversacion } from "../../../lib/turno-de-la-conversacion";
+import {
+  MOTIVO_RECUPERACION,
+  conversoElCliente,
+  evaluarRecuperacion,
+  intencionFuerte,
+  type EstadoDeRecuperacion,
+  type LlamadaDelLead,
+  type ResultadoDeRecuperacion,
+} from "./recuperacion";
 
 const MIN = 60_000;
 const HORA = 60 * MIN;
@@ -79,6 +88,19 @@ export type FichaDelLead = {
    * interruptor del turno. Se usan ÚNICAMENTE para saber de quién es el turno.
    */
   notas?: MensajeCrudo[];
+  /* Recuperación 72 h y automáticos tras la asesora (opcionales: sin ellos, todo como antes). */
+  /** Llamadas registradas (CallAttempt): fecha y resultado. */
+  llamadas?: LlamadaDelLead[];
+  /** Conversation.automationPausedAt. */
+  pausadoEn?: Date | null;
+  pasoMaximo?: string | null;
+  anticipoEn?: Date | null;
+  /** false si `mensajes` está recortado (charla larga). */
+  historialCompleto?: boolean;
+  /** Pospuesto por la asesora (snooze). */
+  pospuesto?: boolean;
+  /** Recuperaciones cerradas a mano (entradaEn ISO a minuto): no vuelven a descartar. */
+  recuperacionesCerradas?: string[];
 };
 
 export type Accion =
@@ -119,12 +141,16 @@ export type Decision = {
   toque: string | null;
   /** Para no registrar dos veces la misma decisión. */
   clave: string;
+  /** Recuperación 72 h: fechas y evidencia del último intento (se guarda en accionDatos.recuperacion). */
+  recuperacion?: Record<string, unknown> | null;
 };
 
 export type Evaluacion = {
   calificacion: Calificacion;
   familia: string | null;
   decision: Decision;
+  /** Recuperación 72 h evaluada aparte (null con su interruptor apagado). La usa la sombra. */
+  recuperacion: ResultadoDeRecuperacion | null;
 };
 
 function esHumano(m: MensajeCrudo, inicio: Date | null): boolean {
@@ -191,8 +217,80 @@ export function evaluarLead(ficha: FichaDelLead, config: ConfigSeguimientoInteli
     caidaPorDia: config.calificacion.caidaPorDia,
     precioConProductoEsTibio: config.calificacion.precioConProductoEsTibio,
   });
-  const decision = decidir({ ficha, mensajes, inicio, delCliente, familia, cotizacion, calificacion, config, ahora });
-  return { calificacion, familia, decision };
+  const recuperacion = recuperacionDelLead({ ficha, mensajes, inicio, delCliente, familia, cotizacion, calificacion, config, ahora });
+  const decision = decidir({ ficha, mensajes, inicio, delCliente, familia, cotizacion, calificacion, config, ahora, recuperacion });
+  return { calificacion, familia, decision, recuperacion };
+}
+
+/** ¿Está dormido por una fecha futura que todavía no llega? (lo mismo que el paso 4 del motor) */
+function dormidoPorFecha(c: Pick<Contexto, "mensajes" | "delCliente" | "config" | "ahora">): boolean {
+  const ultimoCliente = c.delCliente.at(-1) ?? null;
+  if (!ultimoCliente) return false;
+  const ultimoOut = [...c.mensajes].reverse().find((m) => m.direccion === "OUT") ?? null;
+  if (!ultimoOut || ultimoCliente.en.getTime() > ultimoOut.en.getTime()) return false;
+  const anterior = [...c.mensajes].reverse().find((m) => m.direccion === "OUT" && m.en.getTime() < ultimoCliente.en.getTime()) ?? null;
+  const tanda = c.delCliente.filter((m) => !anterior || m.en.getTime() > anterior.en.getTime());
+  for (const m of [...tanda].reverse()) {
+    const fecha = detectarFechaFutura(textoDelCliente(m), m.en);
+    if (fecha) return c.ahora.getTime() < fecha.fecha.getTime() - c.config.fechaFutura.diasAntes * DIA;
+  }
+  return false;
+}
+
+/** La Recuperación 72 h de este lead (null con el interruptor apagado). */
+function recuperacionDelLead(c: Omit<Contexto, "recuperacion">): ResultadoDeRecuperacion | null {
+  const config = c.config.recuperacion72h;
+  if (!config || config.modo === "apagado") return null;
+  const ultimoCliente = c.delCliente.at(-1) ?? null;
+  const cot = c.cotizacion.en;
+  const cotizacionVigente = Boolean(
+    cot && ultimoCliente && cot.getTime() >= ultimoCliente.en.getTime() && c.ahora.getTime() - cot.getTime() < c.config.cotizacion.diasVigente * DIA,
+  );
+  const nombraColombia = c.delCliente.some((m) => mencionaColombia(m.texto));
+  return evaluarRecuperacion({
+    mensajes: c.mensajes,
+    llamadas: c.ficha.llamadas ?? [],
+    inicio: c.inicio,
+    historialCompleto: c.ficha.historialCompleto ?? true,
+    etapaCrm: c.ficha.etapaCrm,
+    exterior: Boolean(c.config.exterior.activo && !nombraColombia && (c.ficha.marcaExterior || c.ficha.pais === "EXTERIOR")),
+    noInteresa: c.calificacion.noInteresa && c.calificacion.temperatura === "FRIO",
+    dormido: dormidoPorFecha(c),
+    cotizacionVigente,
+    intencion: intencionFuerte({
+      senales: c.calificacion.senales,
+      temperaturaBase: c.calificacion.temperaturaBase,
+      etapaCrm: c.ficha.etapaCrm,
+      cotizacionEn: c.cotizacion.en,
+      anticipoEn: c.ficha.anticipoEn ?? null,
+      pasoMaximo: c.ficha.pasoMaximo ?? null,
+      mensajes: c.mensajes,
+      inicio: c.inicio,
+    }),
+    nombre: c.ficha.nombre,
+    producto: nombreDeFamilia(c.familia),
+    cotizacionTotal: c.cotizacion.total,
+    cerradasAMano: c.ficha.recuperacionesCerradas ?? [],
+    config,
+    ahora: c.ahora,
+  });
+}
+
+/** Los datos de la recuperación que van a accionDatos.recuperacion (fechas en ISO). */
+export function datosDeRecuperacion(estado: EstadoDeRecuperacion): Record<string, unknown> {
+  const iso = (d: Date | null) => (d ? d.toISOString() : null);
+  return {
+    fase: estado.fase,
+    silencioDesde: iso(estado.silencioDesde),
+    entradaEn: iso(estado.entradaEn),
+    llamadaEn: iso(estado.llamadaEn),
+    segundaLlamadaEn: iso(estado.segundaLlamadaEn),
+    audioEn: iso(estado.audioEn),
+    plazoEn: iso(estado.plazoEn),
+    venceTarea: iso(estado.venceTarea),
+    fuerte: estado.fuerte,
+    motivoFuerte: estado.motivoFuerte,
+  };
 }
 
 type Contexto = {
@@ -205,6 +303,7 @@ type Contexto = {
   calificacion: Calificacion;
   config: ConfigSeguimientoInteligente;
   ahora: Date;
+  recuperacion: ResultadoDeRecuperacion | null;
 };
 
 function decidir(c: Contexto): Decision {
@@ -398,6 +497,12 @@ function decidir(c: Contexto): Decision {
     }
   }
 
+  // 6b. RECUPERACIÓN 72 HORAS (interruptor propio `recuperacion72h.modo`). Solo en ACTIVO toma la
+  //     decisión del lead; en sombra se evalúa aparte (evaluarLead → recuperacion) y no cambia nada.
+  if (config.recuperacion72h?.modo === "activo" && c.recuperacion?.tipo === "dentro") {
+    return decisionDeRecuperacion(c.recuperacion.estado, base, ahora);
+  }
+
   // 7. La asesora ya escribió después del cliente: cadencia de toques (días 3, 4 y 7).
   if (humanosDespues.length) {
     return cadencia(c, { tarea, base, contextoDelMensaje, humanosDespues, temperatura, cotizacionVigente, fechaFutura, ultimoOut });
@@ -425,6 +530,42 @@ function decidir(c: Contexto): Decision {
   }
   return mensajeUtilAFrio(c, base, ultimoOut, "frio_leyo_sin_responder", ficha.mensajesUtiles >= config.motor.maxMensajesUtiles);
   }
+}
+
+/**
+ * La decisión del motor para un lead en Recuperación 72 h (modo activo). Nunca frena los
+ * automáticos de siempre (`supresion: "ninguna"`). Antes de la hora de la tarea (de noche, domingo)
+ * es "esperar" con la hora; vencida, es la tarea de la fase.
+ */
+function decisionDeRecuperacion(
+  estado: EstadoDeRecuperacion,
+  base: (accion: Accion, motivo: string, extra?: Partial<Decision>) => Decision,
+  ahora: Date,
+): Decision {
+  const comun: Partial<Decision> = {
+    prioridad: estado.prioridad,
+    supresion: "ninguna",
+    toque: estado.fase,
+    revisarEn: estado.revisarEn,
+    recuperacion: datosDeRecuperacion(estado),
+  };
+  let d: Decision;
+  if (estado.fase === "llamar" || estado.fase === "audio" || estado.fase === "llamar_2") {
+    const vence = estado.venceTarea ?? ahora;
+    d =
+      vence.getTime() > ahora.getTime()
+        ? base("esperar", MOTIVO_RECUPERACION, { ...comun, vence, revisarEn: vence })
+        : base("tarea_asesora", MOTIVO_RECUPERACION, { ...comun, vence, mensajeSugerido: estado.mensajeSugerido });
+  } else if (estado.fase === "espera") {
+    d = base("esperar", MOTIVO_RECUPERACION, { ...comun, vence: estado.plazoEn });
+  } else if (estado.fase === "aprobacion") {
+    d = base("esperar", MOTIVO_RECUPERACION, { ...comun, mensajeSugerido: estado.mensajeSugerido });
+  } else {
+    d = base("descartar", MOTIVO_RECUPERACION, comun);
+  }
+  // Una recuperación por silencio: la clave lleva la entrada (otro silencio = otra recuperación).
+  d.clave = `${d.clave}|${estado.entradaEn.toISOString().slice(0, 16)}`;
+  return d;
 }
 
 /** De quién es el turno en el chat del lead (lib/turno-de-la-conversacion.ts). */
@@ -565,5 +706,10 @@ function cadencia(
   const descartarDesde = new Date(ultimo.getTime() + config.cadencia.horasDeGracia * HORA);
   if (h.cotizacionVigente) return h.base("no_insistir", "cotizacion_vigente_no_se_descarta", { revisarEn: new Date(ahora.getTime() + 24 * HORA) });
   if (ahora.getTime() < descartarDesde.getTime()) return h.base("esperar", "gracia_antes_de_descartar", { revisarEn: descartarDesde, ...(tibioSinTarea ? { supresion: "ninguna" as const } : {}) });
+  // Con la Recuperación 72 h ACTIVA, ningún descarte por silencio sin el último intento humano: la
+  // cadencia vieja no descarta por su cuenta a quien conversó (lo hace la recuperación).
+  if (config.recuperacion72h?.modo === "activo" && conversoElCliente(mensajes, c.ficha.historialCompleto ?? true)) {
+    return h.base("no_insistir", "el_descarte_lo_hace_la_recuperacion", { revisarEn: new Date(ahora.getTime() + 24 * HORA) });
+  }
   return h.base("descartar", "sin_respuesta_tras_3_seguimientos", { revisarEn: new Date(ahora.getTime() + 24 * HORA) });
 }

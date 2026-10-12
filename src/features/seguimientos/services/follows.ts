@@ -31,6 +31,7 @@ import {
   revisarAntiBloqueo,
 } from "@/lib/anti-bloqueo/servicio";
 import { PREFIJO_FOLLOW_INTELIGENTE, revisarConvivencia } from "@/features/seguimiento-inteligente/servicios/convivencia";
+import { PREFIJO_FOLLOW_TRAS_ASESORA } from "@/features/seguimiento-inteligente/dominio/tras-asesora";
 
 export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
 export type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
@@ -1683,11 +1684,32 @@ async function revisarAntiBloqueoDelFollow(
     el motor por la asesora), pero el tope y el resto de las medidas sí.
   */
   const esToqueDeCadencia = (follow.name ?? "").startsWith(PREFIJO_FOLLOW_INTELIGENTE) && (follow.name ?? "").includes("· dia_");
+  /*
+    "Tras asesora: …" (12-10-2026): sale a propósito con el chat pausado porque escribió la asesora.
+    Tampoco lo frena "un solo dueño" (sí la etapa cerrada, el tope y el resto). Si la asesora volvió a
+    escribir después de que se agendó, ya no sale: su mensaje es más nuevo que el recordatorio.
+  */
+  const esTrasAsesora = (follow.name ?? "").startsWith(PREFIJO_FOLLOW_TRAS_ASESORA);
+  if (esTrasAsesora) {
+    const humanosDespues = await prisma.message
+      .count({
+        where: {
+          workspaceId: follow.workspaceId,
+          contactId: follow.contactId,
+          ...(follow.channelId ? { channelId: follow.channelId } : {}),
+          direction: "OUTBOUND",
+          createdAt: { gt: follow.createdAt },
+          OR: [{ rawPayload: { path: ["source"], equals: "manual" } }, { rawPayload: { path: ["source"], equals: "instance" } }],
+        },
+      })
+      .catch(() => 0);
+    if (humanosDespues > 0) return { motivo: "asesora_escribio", reprogramarPara: null, conversationId: null };
+  }
   const resultado = await revisarAntiBloqueo({
     workspaceId: follow.workspaceId,
     contactId: follow.contactId,
     channelId: follow.channelId,
-    medidas: { dueno: esAutomatico && !esToqueDeCadencia, tope: esAutomatico },
+    medidas: { dueno: esAutomatico && !esToqueDeCadencia && !esTrasAsesora, tope: esAutomatico, etapa: esTrasAsesora },
     ahora,
   });
   return resultado.enviar ? null : resultado;

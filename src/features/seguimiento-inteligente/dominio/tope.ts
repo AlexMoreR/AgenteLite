@@ -27,6 +27,11 @@ export type TareaParaElTope = {
   duena: string | null;
   /** Asesoras que pueden recibir esta tarea si la dueña está llena (reparto de la línea, horario). */
   elegibles: string[];
+  /**
+   * Recuperación 72 h (Alexander, 12-10-2026): el excedente se REPARTE CON LA RUEDA (la siguiente
+   * elegible con cupo en el orden del reparto, después de la dueña), no a la de menos carga.
+   */
+  rueda?: boolean;
   /** El plan que ya tiene, si lo tiene. */
   plan?: { dia: string; para: string | null; estado: EstadoDelTope; pospuestaHasta?: string | null } | null;
 };
@@ -54,6 +59,17 @@ export function mananaALas8(fecha: Date): Date {
   const local = fecha.getTime() + DESFASE_BOGOTA_MS;
   const medianoche = local - (((local % DIA_MS) + DIA_MS) % DIA_MS) - DESFASE_BOGOTA_MS;
   return new Date(medianoche + DIA_MS + 8 * 3_600_000);
+}
+
+/** La siguiente de la rueda (orden del reparto, cíclico) después de `despues` que cumpla `sirve`. */
+export function siguienteDeLaRueda(rueda: string[], despues: string | null, sirve: (asesora: string) => boolean): string | undefined {
+  if (!rueda.length) return undefined;
+  const desde = despues ? rueda.indexOf(despues) : -1;
+  for (let paso = 1; paso <= rueda.length; paso += 1) {
+    const asesora = rueda[(desde + paso + rueda.length) % rueda.length];
+    if (sirve(asesora)) return asesora;
+  }
+  return undefined;
 }
 
 const ORDEN_PRIORIDAD: Record<string, number> = { A: 0, B: 1, C: 2 };
@@ -93,6 +109,7 @@ export function planearTareas(input: { tareas: TareaParaElTope[]; tope: number; 
   const sinTope = input.tope <= 0;
   const conCupo = (asesora: string) => sinTope || (carga.get(asesora) ?? 0) < input.tope;
   const salida: PlanDeTarea[] = [];
+  let ultimaDeLaRueda: string | null = null;
   for (const tarea of ordenarTareas(pendientes)) {
     const base = { conversationId: tarea.conversationId, dia: hoy, de: tarea.duena, pospuestaHasta: null };
     if (!tarea.duena) {
@@ -104,9 +121,12 @@ export function planearTareas(input: { tareas: TareaParaElTope[]; tope: number; 
       salida.push({ ...base, para: tarea.duena, estado: "propia" });
       continue;
     }
-    const otra = tarea.elegibles
-      .filter((asesora) => asesora !== tarea.duena && conCupo(asesora))
-      .sort((a, b) => (carga.get(a) ?? 0) - (carga.get(b) ?? 0))[0];
+    const otra: string | undefined = tarea.rueda
+      ? siguienteDeLaRueda(tarea.elegibles, ultimaDeLaRueda ?? tarea.duena, (asesora) => asesora !== tarea.duena && conCupo(asesora))
+      : tarea.elegibles
+          .filter((asesora) => asesora !== tarea.duena && conCupo(asesora))
+          .sort((a, b) => (carga.get(a) ?? 0) - (carga.get(b) ?? 0))[0];
+    if (otra && tarea.rueda) ultimaDeLaRueda = otra;
     if (otra) {
       sumar(otra);
       salida.push({ ...base, para: otra, estado: "redistribuida" });
