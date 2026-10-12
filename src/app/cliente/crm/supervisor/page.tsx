@@ -27,6 +27,7 @@ import { leerTareasParaSupervisor, resumenDelMotor } from "@/features/seguimient
 import { bloqueDelCierreDelDia, fechaBogota } from "@/features/avisos-gravedad/dominio/reglas";
 import { leerConfigGravedad, leerResumenDelDia } from "@/features/avisos-gravedad/servicios/enrutador";
 import { PanelAccionableView } from "@/features/supervisor-accionable/components/PanelAccionable";
+import { anclaDeAlerta } from "@/features/supervisor-accionable/dominio/reglas";
 import { leerConfigAccionable, leerPanelAccionable } from "@/features/supervisor-accionable/servicios/accionable";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
@@ -86,7 +87,10 @@ function ChatAfectado({ fila, ejemplo = false }: { fila: FilaDeChatDeAlerta; eje
  * SUPERVISOR (fase 1): las alertas abiertas y recientes, y el Change Guardian del libro V3 actual.
  * Solo lectura: esta pantalla no cambia nada del bot, del reparto ni de los chats.
  */
-export default async function SupervisorPage() {
+export default async function SupervisorPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  // ?alerta=<clave> (botón "Ver el incidente" de Prioridades de Alexander): esa alerta llega abierta y a la vista.
+  const pedida = (await searchParams).alerta;
+  const alertaPedida = typeof pedida === "string" ? pedida : null;
   const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
   if (!(await puedeSupervisar(access))) {
     redirect("/cliente/crm/mi-dia");
@@ -146,11 +150,21 @@ export default async function SupervisorPage() {
   type Alerta = NonNullable<typeof alertas>[number];
   const operativas = (alertas ?? []).filter((alerta) => alerta.familia === "ATENCION");
   const incidentes = (alertas ?? []).filter((alerta) => alerta.familia !== "ATENCION");
+  const anclasUsadas = new Set<string>();
   const tarjeta = (alerta: Alerta, esIncidente: boolean) => {
     const chats = chatsDe(alerta.hallazgos);
     const visibles = chats.slice(0, MAX_CHATS_POR_ALERTA);
+    // El ancla va en la primera fila de cada clave (la abierta va primero): nunca dos ids iguales.
+    const ancla = anclaDeAlerta(alerta.clave);
+    const conAncla = !anclasUsadas.has(ancla);
+    anclasUsadas.add(ancla);
     return (
-      <details key={alerta.id} className={`rounded-md border px-3 py-2 ${COLOR[alerta.severidad]}`}>
+      <details
+        key={alerta.id}
+        id={conAncla ? ancla : undefined}
+        open={conAncla && alertaPedida === alerta.clave ? true : undefined}
+        className={`scroll-mt-20 rounded-md border px-3 py-2 ${COLOR[alerta.severidad]}`}
+      >
         <summary className="cursor-pointer text-sm">
           <span className="font-semibold">[{ETIQUETA_DE_SEVERIDAD[alerta.severidad]}]</span> {alerta.titulo}
           <span className="text-muted-foreground">

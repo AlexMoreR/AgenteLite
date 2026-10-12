@@ -1014,4 +1014,71 @@ await prueba("Prioridades + revalidación: el revalidado RESUELTO y el PENDIENTE
   assert.equal(enviados.push.length + enviados.whatsapp.length, 0, "revalidar no manda nada por sí solo");
 });
 
+/* ------------------------------------------------------------------ botones de las prioridades (12-oct-2026) */
+
+await prueba("tarjeta de patrón: trae sus chats (enlace al chat, teléfono tapado) y su enlace es un ancla, no la misma página", async () => {
+  const ids = ["c1", "c2", "c3"];
+  // c3 sin nombre: se muestra "•••• 4567", nunca el número completo.
+  const chats = ids.map((id) => maria({ conversationId: id, ...(id === "c3" ? { nombreCliente: null } : {}) }));
+  let res = vuelta(r.estadoVacio(), { chats, hallazgos: [hallazgo(CALIENTE, ids)], ahora: T0 });
+  res = vuelta(res.estado, { chats, ahora: mas(T0, 15) });
+  const p = Object.values(res.estado.acciones).find((a) => a.tipo === "patron_dia");
+  assert.deepEqual([...p.idsDeChats].sort(), ids, "el patrón guarda los chats que lo dispararon");
+  // c1 respondido después: queda RESUELTA; los otros siguen sin respuesta.
+  res = vuelta(res.estado, { chats: chats.map((c) => (c.conversationId === "c1" ? { ...c, ultimaRespuestaHumanaEn: mas(T0, 18) } : c)), ahora: mas(T0, 20) });
+  const t = r.tarjetaDeAccion(res.estado.acciones[p.id], mas(T0, 25), res.estado);
+  assert.equal(t.chats.length, 3);
+  for (const c of t.chats) assert.equal(c.enlace, r.enlaceAlChat(c.conversationId));
+  assert.equal(t.chats[2].situacion, "RESUELTA", "los que siguen sin respuesta van primero");
+  assert.match(t.chats[2].estado, /^Resuelta 10:18 por Maria Bautista/);
+  assert.equal(t.chats.filter((c) => c.situacion === "SIN_RESPUESTA").length, 2);
+  assert.ok(t.chats.every((c) => c.plazo && /^Plazo vencido \d{1,2}:\d{2}$/.test(c.plazo)), "cada chat dice a qué hora venció el plazo");
+  assert.ok(t.chats.some((c) => c.cliente === "•••• 4567"));
+  assert.ok(!JSON.stringify(t).includes("3001234567"), "nunca el teléfono completo");
+  assert.equal(t.enlace, `/cliente/crm/supervisor#${r.anclaDePrioridad(p.id)}`);
+  assert.match(r.anclaDePrioridad(p.id), /^prioridad-[A-Za-z0-9_-]+$/);
+  // Patrones viejos (sin idsDeChats): se arman con los incumplidos de la misma asesora ese día.
+  const viejo = { ...res.estado.acciones[p.id] };
+  delete viejo.idsDeChats;
+  assert.deepEqual(r.chatsDelPatron(viejo, res.estado, mas(T0, 25)).map((c) => c.conversationId).sort(), ids);
+  // Sin estado (el push / WhatsApp) no trae chats, pero el enlace igual es el ancla.
+  assert.equal(r.tarjetaDeAccion(res.estado.acciones[p.id], mas(T0, 25)).chats, undefined);
+});
+
+await prueba("tarjeta de incidente: lleva a la alerta concreta (?alerta=<clave>#alerta-…) y ningún enlace del panel es la misma página", async () => {
+  const inc = {
+    clave: "INC:libro-v187:combo-camilla",
+    familia: "BOT",
+    severidad: "CRITICO",
+    estado: "ABIERTA",
+    titulo: "Libro V3 v187: ráfaga inicial",
+    primeraVezEn: T0,
+    hallazgos: [hallazgo("BOT:rafaga_inicial:combo", [], { severidad: "CRITICO", leadsAfectados: 12 })],
+  };
+  const t = r.tarjetaDeIncidente(inc);
+  assert.equal(t.claveAlerta, inc.clave);
+  assert.equal(t.enlace, `/cliente/crm/supervisor?alerta=${encodeURIComponent(inc.clave)}#alerta-INC-libro-v187-combo-camilla`);
+  assert.equal(r.anclaDeAlerta(inc.clave), "alerta-INC-libro-v187-combo-camilla");
+  assert.ok(r.textoWhatsAppDeLaTarjeta(t).includes(`https://app.aizenbot.com/cliente/crm/supervisor?alerta=`));
+
+  // El panel completo: patrón escalado + incidente crítico.
+  settings.clear();
+  servicio.olvidarConfigAccionable();
+  settings.set("supervisor:accionable:ws1", JSON.stringify({ activo: true }));
+  const ids = ["c1", "c2", "c3"];
+  const chats = ids.map((id) => maria({ conversationId: id }));
+  let res = vuelta(r.estadoVacio(), { chats, hallazgos: [hallazgo(CALIENTE, ids)], ahora: T0 });
+  res = vuelta(res.estado, { chats, ahora: mas(T0, 15) });
+  settings.set(servicio.claveEstadoAccionable(WS), JSON.stringify(res.estado));
+  const panel = await servicio.leerPanelAccionable(WS, [inc], mas(T0, 20));
+  const tarjetas = [...panel.prioridades.visibles, ...panel.prioridades.resto];
+  assert.ok(tarjetas.some((x) => x.chats?.length === 3), "la tarjeta de patrón del panel trae sus 3 chats");
+  assert.ok(tarjetas.some((x) => x.claveAlerta === inc.clave));
+  const enlaces = tarjetas.flatMap((x) => [x.enlace, ...(x.chats ?? []).map((c) => c.enlace)]);
+  assert.ok(enlaces.length >= 5);
+  for (const e of enlaces) assert.notEqual(e, "/cliente/crm/supervisor", `enlace a la misma página sin ancla: ${e}`);
+  settings.clear();
+  servicio.olvidarConfigAccionable();
+});
+
 console.log(`\n${pruebas} pruebas OK`);

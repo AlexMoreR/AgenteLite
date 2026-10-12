@@ -334,7 +334,7 @@ export async function leerPanelAccionable(
   const criticos = incidentesAbiertos.filter(
     (inc) => inc.estado === "ABIERTA" && inc.familia !== "ATENCION" && inc.severidad === "CRITICO" && !atendidas[idDeIncidente(inc)],
   );
-  const tarjetas = [...escaladas.map((a) => tarjetaDeAccion(a, ahora)), ...criticos.map((inc) => tarjetaDeIncidente(inc))];
+  const tarjetas = [...escaladas.map((a) => tarjetaDeAccion(a, ahora, estado)),...criticos.map((inc) => tarjetaDeIncidente(inc))];
   const enManos = Object.values(estado.acciones)
     .filter((a) => a.tipo !== "patron_dia" && a.tipo !== "patron_semana")
     .sort((a, b) => Number(ESTADOS_ACTIVOS.includes(b.estado)) - Number(ESTADOS_ACTIVOS.includes(a.estado)) || Date.parse(b.detectadaEn) - Date.parse(a.detectadaEn));

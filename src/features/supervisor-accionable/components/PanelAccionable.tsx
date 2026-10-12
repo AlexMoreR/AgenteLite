@@ -6,11 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ETIQUETA_DE_ESTADO,
   ETIQUETA_DE_GRAVEDAD,
+  anclaDePrioridad,
   duracion,
   enlaceAlChat,
   horaBogota,
   textoDelPlazo,
   type Accion,
+  type ChatDelPatron,
   type EsperandoFueraDeHorario,
   type Tarjeta,
 } from "../dominio/reglas";
@@ -41,9 +43,52 @@ function Fila({ titulo, valor }: { titulo: string; valor: string }) {
   );
 }
 
+/** Botón táctil (≥ 44 px de alto) para el celular. */
+const BOTON = "inline-flex min-h-11 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold transition hover:bg-muted";
+
+const COLOR_DE_SITUACION: Record<ChatDelPatron["situacion"], string> = {
+  SIN_RESPUESTA: "text-red-600",
+  RESUELTA: "text-emerald-600",
+  CERRADA: "text-muted-foreground",
+};
+
+/** Patrón de repetición: los chats que lo armaron, desplegables, cada uno con su "Abrir chat". */
+function ChatsDelPatron({ chats }: { chats: ChatDelPatron[] }) {
+  const sinRespuesta = chats.filter((c) => c.situacion === "SIN_RESPUESTA").length;
+  return (
+    <details className="group rounded-md border border-border bg-background/60">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3 text-sm font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+        <span>
+          Ver los {chats.length} chats
+          {sinRespuesta ? <span className="font-medium text-red-600"> · {sinRespuesta} sin respuesta</span> : null}
+        </span>
+        <span aria-hidden className="text-muted-foreground transition group-open:rotate-180">
+          ▾
+        </span>
+      </summary>
+      <ul className="space-y-1.5 border-t border-border px-2 py-2">
+        {chats.map((c) => (
+          <li key={c.conversationId} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2">
+            <div className="min-w-0 flex-1 space-y-0.5">
+              <p className="text-sm font-medium text-foreground">{c.cliente}</p>
+              {c.plazo || c.espera ? (
+                <p className="text-xs text-muted-foreground">{[c.plazo, c.espera].filter(Boolean).join(" · ")}</p>
+              ) : null}
+              <p className={`text-xs font-semibold ${COLOR_DE_SITUACION[c.situacion]}`}>{c.estado}</p>
+            </div>
+            <Link href={c.enlace} className={`${BOTON} shrink-0 bg-card text-foreground`}>
+              Abrir chat
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 function TarjetaDePrioridad({ tarjeta }: { tarjeta: Tarjeta }) {
   return (
-    <li className={`space-y-1.5 rounded-md border px-3 py-2 ${COLOR_DE_GRAVEDAD[tarjeta.gravedad]}`}>
+    <li id={anclaDePrioridad(tarjeta.id)} className={`scroll-mt-20 space-y-1.5 rounded-md border px-3 py-2 ${COLOR_DE_GRAVEDAD[tarjeta.gravedad]}`}>
       <p className="text-sm font-semibold">
         [{ETIQUETA_DE_GRAVEDAD[tarjeta.gravedad]}] {tarjeta.quePaso}
       </p>
@@ -54,19 +99,24 @@ function TarjetaDePrioridad({ tarjeta }: { tarjeta: Tarjeta }) {
       <Fila titulo="Riesgo" valor={tarjeta.riesgo} />
       <Fila titulo="Solución recomendada" valor={tarjeta.solucion} />
       <p className="text-sm font-semibold text-foreground">Tu acción: {tarjeta.accionDeAlexander}</p>
+      {tarjeta.chats?.length ? <ChatsDelPatron chats={tarjeta.chats} /> : null}
+      {!tarjeta.conversationId && !tarjeta.claveAlerta && tarjeta.chats && !tarjeta.chats.length ? (
+        <p className="text-xs text-muted-foreground">Los chats de este patrón ya salieron del registro (más de 8 días).</p>
+      ) : null}
       <div className="flex flex-wrap gap-2 pt-1">
-        <Link
-          href={tarjeta.enlace}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted"
-        >
-          {tarjeta.conversationId ? "Abrir chat" : "Ver en el Supervisor"}
-        </Link>
+        {tarjeta.conversationId ? (
+          <Link href={tarjeta.enlace} className={`${BOTON} bg-card text-foreground`}>
+            Abrir chat
+          </Link>
+        ) : tarjeta.claveAlerta ? (
+          // Enlace normal (no Link): carga la página con ?alerta= para que el servidor la deje abierta y el navegador baje al ancla.
+          <a href={tarjeta.enlace} className={`${BOTON} bg-card text-foreground`}>
+            Ver el incidente
+          </a>
+        ) : null}
         <form action={marcarPrioridadAtendidaAction}>
           <input type="hidden" name="id" value={tarjeta.id} />
-          <button
-            type="submit"
-            className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-muted"
-          >
+          <button type="submit" className={`${BOTON} bg-background font-medium text-muted-foreground`}>
             Marcar resuelto / atendido
           </button>
         </form>
@@ -130,7 +180,7 @@ function ListaFueraDeHorario({ esperando }: { esperando: EsperandoFueraDeHorario
             </div>
             <Link
               href={enlaceAlChat(e.conversationId)}
-              className="shrink-0 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition hover:bg-muted"
+              className={`${BOTON} shrink-0 bg-card text-foreground`}
             >
               Abrir chat
             </Link>
@@ -142,12 +192,20 @@ function ListaFueraDeHorario({ esperando }: { esperando: EsperandoFueraDeHorario
   );
 }
 
+/**
+ * Al llegar con #ancla (push de una prioridad, "Ver el incidente"): abre los desplegables que la
+ * contienen (p. ej. "N escaladas más") y la deja a la vista. Script en línea: corre en la carga
+ * completa de la página, que es como llegan el push y el enlace del incidente.
+ */
+const SCRIPT_ABRIR_ANCLA = `(function(){function a(){var h=location.hash.slice(1);if(!h)return;var e=document.getElementById(decodeURIComponent(h));if(!e)return;for(var p=e;p;p=p.parentElement){if(p.tagName==="DETAILS")p.open=true;}e.scrollIntoView({block:"start"});}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",a);else a();window.addEventListener("hashchange",a);})();`;
+
 export function PanelAccionableView({ panel }: { panel: PanelAccionable }) {
   const { prioridades, enManos, metricas, esperando } = panel;
   const activas = enManos.filter((a) => a.estado === "AVISADA" || a.estado === "SEGUNDO_AVISO");
   const cerradas = enManos.filter((a) => !(a.estado === "AVISADA" || a.estado === "SEGUNDO_AVISO"));
   return (
     <>
+      <script dangerouslySetInnerHTML={{ __html: SCRIPT_ABRIR_ANCLA }} />
       <Card size="sm">
         <CardHeader>
           <CardTitle>Prioridades de Alexander</CardTitle>
@@ -210,7 +268,7 @@ export function PanelAccionableView({ panel }: { panel: PanelAccionable }) {
                 {a.conversationId ? (
                   <Link
                     href={enlaceAlChat(a.conversationId)}
-                    className="shrink-0 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition hover:bg-muted"
+                    className={`${BOTON} shrink-0 bg-card text-foreground`}
                   >
                     Abrir chat
                   </Link>

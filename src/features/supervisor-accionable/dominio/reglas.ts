@@ -141,6 +141,8 @@ export type Accion = {
   incumplida: boolean;
   /** Para los patrones: cuántos plazos vencidos. */
   conteo?: number;
+  /** Para los patrones: los chats (conversationId) con plazo vencido que lo dispararon. */
+  idsDeChats?: string[];
   vistoEn: string;
   /** Abierta FUERA DE HORARIO: la tiene la supervisora (plazo de reloj, sin escalar); a las 8 a. m. pasa a la dueña. */
   fueraDeHorario?: boolean;
@@ -985,12 +987,14 @@ export function avanzar(input: {
     const nombre = lista[0].responsableNombre;
     const delDia = new Set(lista.filter((a) => fechaBogota(new Date(a.detectadaEn)) === hoy).map((a) => a.id)).size;
     const deLaSemana = new Set(lista.filter((a) => ahora.getTime() - Date.parse(a.detectadaEn) < 7 * DIA).map((a) => a.id)).size;
-    const patrones: Array<{ tipo: "patron_dia" | "patron_semana"; id: string; conteo: number; umbral: number }> = [];
-    if (delDia >= config.repeticionDia) patrones.push({ tipo: "patron_dia", id: `patron:dia:${responsableId}:${hoy}`, conteo: delDia, umbral: config.repeticionDia });
+    const idsDelDia = [...new Set(lista.filter((a) => fechaBogota(new Date(a.detectadaEn)) === hoy).map((a) => a.id))];
+    const idsDeLaSemana = [...new Set(lista.filter((a) => ahora.getTime() - Date.parse(a.detectadaEn) < 7 * DIA).map((a) => a.id))];
+    const patrones: Array<{ tipo: "patron_dia" | "patron_semana"; id: string; conteo: number; umbral: number; idsDeChats: string[] }> = [];
+    if (delDia >= config.repeticionDia) patrones.push({ tipo: "patron_dia", id: `patron:dia:${responsableId}:${hoy}`, conteo: delDia, umbral: config.repeticionDia, idsDeChats: idsDelDia });
     // La semana: una tarjeta cada 7 días como máximo.
     const semanaPrevia = Object.values(acciones).find((a) => a.tipo === "patron_semana" && a.responsableId === responsableId && ahora.getTime() - Date.parse(a.detectadaEn) < 7 * DIA)
       ?? historial.find((a) => a.tipo === "patron_semana" && a.responsableId === responsableId && ahora.getTime() - Date.parse(a.detectadaEn) < 7 * DIA);
-    if (deLaSemana >= config.repeticionSemana && !semanaPrevia) patrones.push({ tipo: "patron_semana", id: `patron:semana:${responsableId}:${hoy}`, conteo: deLaSemana, umbral: config.repeticionSemana });
+    if (deLaSemana >= config.repeticionSemana && !semanaPrevia) patrones.push({ tipo: "patron_semana", id: `patron:semana:${responsableId}:${hoy}`, conteo: deLaSemana, umbral: config.repeticionSemana, idsDeChats: idsDeLaSemana });
     for (const p of patrones) {
       if (acciones[p.id] || historial.some((h) => h.id === p.id)) continue;
       const periodo = p.tipo === "patron_dia" ? "hoy" : "en los últimos 7 días";
@@ -1028,6 +1032,7 @@ export function avanzar(input: {
         atendidaPor: null,
         incumplida: false,
         conteo: p.conteo,
+        idsDeChats: p.idsDeChats,
         vistoEn: iso,
       };
       acciones[p.id] = patron;
@@ -1184,12 +1189,120 @@ export type Tarjeta = {
   enlaceCorto: string | null;
   desde: string;
   conversationId: string | null;
+  /** Patrón de repetición: cada chat con plazo vencido que lo armó (el panel los despliega). */
+  chats?: ChatDelPatron[];
+  /** Incidente del bot / embudo / sistema: la clave de su alerta (el botón lleva a esa alerta). */
+  claveAlerta?: string | null;
+};
+
+/** Un chat de una tarjeta de patrón, listo para pintar. Nunca lleva el teléfono completo. */
+export type ChatDelPatron = {
+  conversationId: string;
+  /** "Laura Gómez" o "•••• 4567". */
+  cliente: string;
+  /** "Esperó 1 h 20 min" / "Espera hace 45 min" / "" si no se sabe. */
+  espera: string;
+  /** "Plazo vencido 10:27" o null si no se sabe. */
+  plazo: string | null;
+  situacion: "RESUELTA" | "SIN_RESPUESTA" | "CERRADA";
+  /** "Resuelta 10:40 por Ingrid" / "Sigue sin respuesta" / "Ya no aplica". */
+  estado: string;
+  enlace: string;
 };
 
 export const DOMINIO = "https://app.aizenbot.com";
+export const RUTA_DEL_SUPERVISOR = "/cliente/crm/supervisor";
 
 export function enlaceAlChat(conversationId: string): string {
   return `/cliente/chats?chatKey=${encodeURIComponent(`agent:${conversationId}`)}&assigned=all`;
+}
+
+/** Un id de HTML seguro a partir de cualquier clave ("patron:dia:x:2026-10-12" → "patron-dia-x-2026-10-12"). */
+function idSeguro(texto: string): string {
+  return texto.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120) || "x";
+}
+
+/** El ancla de una tarjeta de "Prioridades de Alexander" en la pantalla del Supervisor. */
+export function anclaDePrioridad(id: string): string {
+  return `prioridad-${idSeguro(id)}`;
+}
+
+/** El ancla de una alerta (por su clave) en la lista de incidentes / atención del Supervisor. */
+export function anclaDeAlerta(clave: string): string {
+  return `alerta-${idSeguro(clave)}`;
+}
+
+/** Lleva a la alerta concreta: `?alerta=<clave>` la abre en el servidor y `#alerta-…` la deja a la vista. */
+export function enlaceAAlerta(clave: string): string {
+  return `${RUTA_DEL_SUPERVISOR}?alerta=${encodeURIComponent(clave)}#${anclaDeAlerta(clave)}`;
+}
+
+/** El cliente visible: el nombre guardado; si parece un teléfono, solo los 4 últimos. */
+function clienteSeguro(cliente: string | null | undefined, telefono?: string | null): string {
+  const texto = (cliente ?? "").trim();
+  if (texto && !(!/\p{L}/u.test(texto) && texto.replace(/\D/g, "").length >= 5)) return texto.slice(0, 40);
+  return telefonoTapado(texto || telefono) || "Cliente sin nombre";
+}
+
+/**
+ * Los chats de una tarjeta de patrón (los que dejó vencer la asesora): los guardados al crearla o,
+ * en los patrones viejos, los incumplidos de la misma asesora en el mismo periodo. Primero los que
+ * siguen sin respuesta.
+ */
+export function chatsDelPatron(patron: Accion, estado: EstadoAccionable, ahora: Date): ChatDelPatron[] {
+  const esPatron = patron.tipo === "patron_dia" || patron.tipo === "patron_semana";
+  if (!esPatron) return [];
+  const creado = Date.parse(patron.detectadaEn);
+  const enElPeriodo = (detectadaEn: string) => {
+    const t = Date.parse(detectadaEn);
+    if (patron.tipo === "patron_dia") return fechaBogota(new Date(t)) === fechaBogota(new Date(creado));
+    return t > creado - 7 * DIA && t <= creado + DIA;
+  };
+  const esDelPatron = (a: { tipo: TipoDeTarjeta; responsableId: string | null; incumplida: boolean; detectadaEn: string }) =>
+    a.tipo !== "patron_dia" && a.tipo !== "patron_semana" && a.incumplida && a.responsableId === patron.responsableId && enElPeriodo(a.detectadaEn);
+  const ids = patron.idsDeChats?.length
+    ? [...new Set(patron.idsDeChats)]
+    : [...new Set([...Object.values(estado.acciones).filter(esDelPatron).map((a) => a.id), ...estado.historial.filter(esDelPatron).map((a) => a.id)])];
+  const filas: ChatDelPatron[] = [];
+  for (const id of ids) {
+    const a = estado.acciones[id];
+    if (a) {
+      const conversationId = a.conversationId ?? id;
+      const resuelta = a.estado === "RESUELTA_ABAJO" || a.estado === "RESUELTA_TRAS_ESCALAR";
+      const abierta = ESTADOS_ACTIVOS.includes(a.estado);
+      const fin = resuelta && a.resueltaEn ? new Date(a.resueltaEn) : abierta ? ahora : null;
+      const espera = fin ? `${abierta ? "Espera hace" : "Esperó"} ${duracion(minutosDesde(a.esperandoDesde, fin))}` : "";
+      filas.push({
+        conversationId,
+        cliente: clienteSeguro(a.cliente, a.telefono),
+        espera,
+        plazo: a.venceEn ? `Plazo vencido ${horaBogota(a.venceEn)}` : null,
+        situacion: resuelta ? "RESUELTA" : abierta ? "SIN_RESPUESTA" : "CERRADA",
+        estado: resuelta
+          ? `Resuelta ${horaBogota(a.resueltaEn)}${a.resueltaPorNombre ? ` por ${a.resueltaPorNombre}` : ""}`
+          : abierta
+            ? "Sigue sin respuesta"
+            : a.estado === "ATENDIDA_POR_ALEXANDER"
+              ? `Atendida por Alexander ${horaBogota(a.atendidaEn)}`
+              : "Ya no aplica (chat cerrado, ganado o perdido)",
+        enlace: enlaceAlChat(conversationId),
+      });
+      continue;
+    }
+    const h = estado.historial.find((x) => x.id === id);
+    const resuelta = h?.estado === "RESUELTA_ABAJO" || h?.estado === "RESUELTA_TRAS_ESCALAR";
+    filas.push({
+      conversationId: id,
+      cliente: "Chat ya cerrado",
+      espera: h?.minutosHastaResolver !== null && h?.minutosHastaResolver !== undefined ? `Respondida ${duracion(h.minutosHastaResolver)} después del aviso` : "",
+      plazo: null,
+      situacion: resuelta ? "RESUELTA" : "CERRADA",
+      estado: h ? ETIQUETA_DE_ESTADO[h.estado] : "Sin datos",
+      enlace: enlaceAlChat(id),
+    });
+  }
+  const orden = { SIN_RESPUESTA: 0, RESUELTA: 1, CERRADA: 2 } as const;
+  return filas.sort((x, y) => orden[x.situacion] - orden[y.situacion]);
 }
 
 const RIESGO_CON_COTIZACION = "Tiene cotización o anticipo registrado: es una venta con monto a punto de cerrarse o de perderse.";
@@ -1203,7 +1316,8 @@ const RIESGO_DEL_TIPO: Record<TipoDeTarjeta, string> = {
   patron_semana: "Respuesta lenta repetida en la semana: es un problema de carga o de compromiso, no un descuido.",
 };
 
-export function tarjetaDeAccion(a: Accion, ahora: Date): Tarjeta {
+/** `estado` (opcional): con él, la tarjeta de un patrón trae sus chats para desplegarlos. */
+export function tarjetaDeAccion(a: Accion, ahora: Date, estado?: EstadoAccionable): Tarjeta {
   const esPatron = a.tipo === "patron_dia" || a.tipo === "patron_semana";
   const espera = duracion(minutosDesde(a.esperandoDesde, ahora));
   const intentos = esPatron
@@ -1240,7 +1354,8 @@ export function tarjetaDeAccion(a: Accion, ahora: Date): Tarjeta {
       solucion = "Revisar la carga y la disponibilidad de la asesora; si está saturada, bajarle el reparto.";
       accion = `Habla hoy 5 min con ${a.responsableNombre}: qué le impidió responder y si hay que bajarle la carga del reparto.`;
   }
-  const enlace = a.conversationId ? enlaceAlChat(a.conversationId) : "/cliente/crm/supervisor";
+  // Sin chat (patrón): a la tarjeta misma en la pantalla del Supervisor, nunca a la página "a secas".
+  const enlace = a.conversationId ? enlaceAlChat(a.conversationId) : `${RUTA_DEL_SUPERVISOR}#${anclaDePrioridad(a.id)}`;
   return {
     id: a.id,
     gravedad: a.gravedadEscalada ?? "IMPORTANTE",
@@ -1257,6 +1372,7 @@ export function tarjetaDeAccion(a: Accion, ahora: Date): Tarjeta {
     enlaceCorto: a.numero ? `/c/${a.numero}` : null,
     desde: a.escaladaEn ?? a.detectadaEn,
     conversationId: a.conversationId,
+    ...(esPatron && estado ? { chats: chatsDelPatron(a, estado, ahora) } : {}),
   };
 }
 
@@ -1294,10 +1410,11 @@ export function tarjetaDeIncidente(inc: IncidenteParaTarjeta): Tarjeta {
     accionDeAlexander: principal?.queCambiar && !/^Nada en el sistema/.test(principal.queCambiar)
       ? `Autoriza o descarta: ${principal.queCambiar}`
       : "Abre el incidente, decide si se autoriza el cambio recomendado y márcalo atendido.",
-    enlace: "/cliente/crm/supervisor",
+    enlace: enlaceAAlerta(inc.clave),
     enlaceCorto: null,
     desde: inc.primeraVezEn.toISOString(),
     conversationId: null,
+    claveAlerta: inc.clave,
   };
 }
 
