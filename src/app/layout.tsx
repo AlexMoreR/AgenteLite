@@ -303,6 +303,15 @@ export default async function RootLayout({
             chatRealtimeUserId={session?.user?.id ?? null}
             /* El Tablero del equipo (CRM) es de jefes y supervisoras: ver permisos-del-equipo.ts. */
             puedeSupervisarElEquipo={clientAccess ? await puedeSupervisar(clientAccess) : false}
+            /* El Supervisor en el menú: solo dueño o administrador (Alex, 13-10-2026). */
+            esJefeDelNegocio={
+              clientAccess
+                ? clientAccess.isOwner ||
+                  clientAccess.role === "ADMIN" ||
+                  clientAccess.membershipRole === "OWNER" ||
+                  clientAccess.membershipRole === "ADMIN"
+                : false
+            }
             participaDelReparto={participaDelReparto}
           >
             {children}
