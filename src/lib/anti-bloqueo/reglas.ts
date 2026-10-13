@@ -178,7 +178,10 @@ export type MotivoAntiBloqueo =
   | "fuera_de_colombia"
   | "inteligente_tarea_humana"
   | "inteligente_no_insistir"
-  | "inteligente_reemplazado";
+  | "inteligente_reemplazado"
+  /* "Etapa … · día siguiente" al enviar (features/seguimiento-inteligente/dominio/dia-siguiente.ts). */
+  | "chat_del_equipo"
+  | "tras_asesora";
 
 /** Los que solo CORREN el envío (se reprograma); el resto lo cancela. */
 export const MOTIVOS_QUE_REPROGRAMAN: readonly MotivoAntiBloqueo[] = ["fuera_de_horario", "espaciado"];

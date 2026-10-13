@@ -18,6 +18,9 @@
  *  - trasAsesora.modo: "apagado" | "sombra" | "activo" (automáticos de 1 h y día siguiente después
  *    de que escribe la asesora, con la IA pausada; Alexander 12-10-2026).
  *  - recuperacion72h.modo: "apagado" | "sombra" | "activo" (último intento humano a las 72 h).
+ *  - diaSiguiente.rearmar: true | false (Alexander, 13-10-2026). El seguimiento de "día siguiente"
+ *    del paso del Playbook se vuelve a armar en cada silencio, contando desde nuestra última
+ *    respuesta (ver dominio/dia-siguiente.ts). false = como antes: solo al entrar al paso.
  */
 
 import { RECURSOS_POR_DEFECTO, type Recurso } from "./producto";
@@ -179,6 +182,17 @@ export type ConfigSeguimientoInteligente = {
     /** Quién aprueba el descarte de intención fuerte. null = la supervisora del Supervisor accionable. */
     aprobadorId: string | null;
   };
+  /**
+   * DÍA SIGUIENTE QUE SE RE-ARMA (Alexander, 13-10-2026; regla en dominio/dia-siguiente.ts). Con
+   * `rearmar`, cada vez que respondemos y el cliente se calla queda UN Follow
+   * "Etapa <paso> · día siguiente" del paso de ese momento, para 24 h después de nuestra respuesta.
+   * Apagado = exactamente como antes (el del paso sale solo al entrar al paso).
+   */
+  diaSiguiente: {
+    rearmar: boolean;
+    /** Minutos callado después de nuestra respuesta antes de armarlo (deja terminar la tanda del bot). */
+    minutosDeCalma: number;
+  };
 };
 
 export const TEXTO_EXTERIOR_POR_DEFECTO =
@@ -231,6 +245,7 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
     dias: [1, 2, 3, 4, 5, 6],
     aprobadorId: null,
   },
+  diaSiguiente: { rearmar: false, minutosDeCalma: 3 },
 };
 
 function objeto(valor: unknown): Record<string, unknown> {
@@ -307,6 +322,7 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
   const frm = objeto(crudo.formulario);
   const tra = objeto(crudo.trasAsesora);
   const rec = objeto(crudo.recuperacion72h);
+  const dsg = objeto(crudo.diaSiguiente);
   const recDesde = numero(rec.desdeHora, d.recuperacion72h.desdeHora, 0, 23);
   let recHasta = numero(rec.hastaHora, d.recuperacion72h.hastaHora, 1, 24);
   if (recHasta <= recDesde) recHasta = Math.min(24, recDesde + 1);
@@ -392,6 +408,10 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
       hastaHora: recHasta,
       dias: recDias.length ? recDias : d.recuperacion72h.dias,
       aprobadorId: typeof rec.aprobadorId === "string" && rec.aprobadorId.trim() ? rec.aprobadorId.trim() : null,
+    },
+    diaSiguiente: {
+      rearmar: bandera(dsg.rearmar, d.diaSiguiente.rearmar),
+      minutosDeCalma: numero(dsg.minutosDeCalma, d.diaSiguiente.minutosDeCalma, 0, 120),
     },
   };
 }

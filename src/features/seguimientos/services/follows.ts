@@ -32,6 +32,7 @@ import {
 } from "@/lib/anti-bloqueo/servicio";
 import { PREFIJO_FOLLOW_INTELIGENTE, revisarConvivencia } from "@/features/seguimiento-inteligente/servicios/convivencia";
 import { PREFIJO_FOLLOW_TRAS_ASESORA } from "@/features/seguimiento-inteligente/dominio/tras-asesora";
+import { revisarDiaSiguienteAlEnviar } from "@/features/seguimiento-inteligente/servicios/dia-siguiente-al-enviar";
 
 export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
 export type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
@@ -1754,7 +1755,14 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
       Colombia; a un Frío que maneja el motor se le reemplaza por el mensaje útil. Ver
       features/seguimiento-inteligente/servicios/convivencia.ts.
     */
-    if (clase === "automatico") {
+    /*
+      "Etapa <paso> · día siguiente" (re-armado en cada silencio, 13-10-2026): además de todo lo de
+      abajo, no sale con el interruptor apagado, el chat pausado, la etapa cerrada, un chat que el
+      V3 nunca atendió o si después se agendó un "Tras asesora". Ver seguimiento-inteligente/dominio/dia-siguiente.ts.
+    */
+    const frenoDiaSiguiente = await revisarDiaSiguienteAlEnviar(follow);
+    if (frenoDiaSiguiente) antiBloqueo = { motivo: frenoDiaSiguiente, reprogramarPara: null, conversationId: null };
+    if (!antiBloqueo && clase === "automatico") {
       const motivo = await revisarConvivencia({
         workspaceId: follow.workspaceId,
         contactId: follow.contactId,

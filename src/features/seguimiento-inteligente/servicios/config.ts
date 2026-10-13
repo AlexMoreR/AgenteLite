@@ -47,7 +47,10 @@ export async function negociosConSeguimiento(): Promise<string[]> {
   const salida: string[] = [];
   for (const fila of filas) {
     const workspaceId = fila.key.slice(PREFIJO_CONFIG.length);
-    if (workspaceId && algoPrendido(await leerConfigSeguimiento(workspaceId))) salida.push(workspaceId);
+    if (!workspaceId) continue;
+    const config = await leerConfigSeguimiento(workspaceId);
+    // El "día siguiente" que se re-arma tiene su propio interruptor (no prende el motor).
+    if (algoPrendido(config) || config.diaSiguiente.rearmar) salida.push(workspaceId);
   }
   return salida;
 }

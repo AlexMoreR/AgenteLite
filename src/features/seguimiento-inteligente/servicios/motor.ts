@@ -18,6 +18,7 @@ import { leerConfigSeguimiento, negociosConSeguimiento } from "./config";
 import { leerFicha, leerNotasDelTurno, type FichaConContexto } from "./ficha";
 import { descartarPorRecuperacion, recuperacionesCerradasAMano } from "./recuperacion";
 import { aplicarTopeDeTareas } from "./tope";
+import { barrerDiaSiguiente } from "./dia-siguiente";
 import { barrerTrasAsesora } from "./tras-asesora";
 
 /**
@@ -378,6 +379,8 @@ export async function barrerSeguimientoInteligente(ahora = new Date()): Promise<
       revisados += await barrerRecuperacion(workspaceId, config, ahora);
       // Automáticos después de la asesora (cada 5 minutos).
       await barrerTrasAsesora(workspaceId, config, ahora);
+      // "Día siguiente" del paso que se re-arma en cada silencio (diaSiguiente.rearmar; cada minuto).
+      await barrerDiaSiguiente(workspaceId, config, ahora);
       // Tope de tareas por asesora al día (reparte el excedente o lo pospone; nunca se pierde).
       await aplicarTopeDeTareas(workspaceId, config, ahora);
     }

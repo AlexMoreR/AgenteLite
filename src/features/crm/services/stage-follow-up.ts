@@ -15,6 +15,10 @@ import { PRODUCT_FUNNEL_STAGES } from "@/lib/product-funnel-stages";
  * lo agarran a la vez, y sobre todo la CANCELACION: el webhook ya llama a
  * cancelPendingFollowsByContact en cada mensaje entrante, o sea que si el cliente contesta antes,
  * el seguimiento no sale. Ese es todo el sentido de "si no contesta".
+ *
+ * Con `diaSiguiente.rearmar` (seguimiento-inteligente:config) el de DÍA 1 además se vuelve a armar
+ * en cada silencio, contando desde nuestra última respuesta: ver
+ * features/seguimiento-inteligente/dominio/dia-siguiente.ts. Lo de acá (al entrar al paso) no cambia.
  */
 
 const ETIQUETA_POR_ETAPA = new Map(
