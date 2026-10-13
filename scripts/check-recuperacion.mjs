@@ -6,6 +6,8 @@ import assert from "node:assert/strict";
 import { cargar } from "./supervisor-cargar.mjs";
 
 const sm = cargar("src/features/recuperacion/dominio/semana.ts");
+const li = cargar("src/features/recuperacion/dominio/listas.ts");
+const es = cargar("src/features/recuperacion/dominio/en-seguimiento.ts");
 const re = cargar("src/features/seguimiento-inteligente/dominio/reactivacion.ts");
 const cf = cargar("src/features/seguimiento-inteligente/dominio/config.ts");
 
@@ -191,6 +193,154 @@ prueba("reactivación: separa la lista (32 de 201 quedan para reactivar)", () =>
   const { siguen, paraReactivar } = re.separarParaReactivar(tareas, ahora, 7);
   assert.equal(paraReactivar.length, 32);
   assert.equal(siguen.length, 169);
+});
+
+/* ================================================================================================
+   VISTA "LEADS": LA LISTA DE CADA NÚMERO
+================================================================================================ */
+
+// Un lote variado: con y sin seguimiento, recuperados, callados, tardíos, compras, varios tipos.
+function loteVariado() {
+  const clases = ["bot", "dia_siguiente", "inteligente", "tras_asesora", "campana", "otro"];
+  const leads = [];
+  let semilla = 7;
+  const azar = () => ((semilla = (semilla * 48271) % 2147483647) / 2147483647);
+  for (let i = 0; i < 400; i += 1) {
+    const eventos = [IN(0)];
+    const n = Math.floor(azar() * 4);
+    let t = H;
+    for (let k = 0; k < n; k += 1) {
+      eventos.push(SEG(t, clases[Math.floor(azar() * clases.length)]));
+      if (azar() < 0.25) eventos.push(IN(t + azar() * 100 * H));
+      t += azar() * 48 * H + MIN;
+    }
+    const extra = { ganado: azar() < 0.1 };
+    if (azar() < 0.1) extra.ultimoClienteEn = en(13.9 * DIA); // escribió hace poco (fuera de la ventana)
+    if (azar() < 0.05) extra.ultimoClienteEn = null;
+    leads.push(lead(eventos, extra));
+  }
+  return leads;
+}
+
+prueba("leads: cada lista tiene exactamente los leads que cuenta su número en Semana", () => {
+  const ahora = en(14 * DIA);
+  for (const leads of [loteVariado(), [lead([IN(0)]), lead([IN(0), SEG(H), IN(2 * H)], { ganado: true }), lead([IN(0), SEG(H)])], []]) {
+    const s = sm.resumirSemana(leads, ahora);
+    const cuenta = (g) => li.leadsDelGrupo(leads, g, ahora).length;
+    assert.equal(cuenta("llegaron"), s.llegaron);
+    assert.equal(cuenta("seguimiento"), s.conSeguimiento);
+    assert.equal(cuenta("recuperados"), s.recuperados);
+    assert.equal(cuenta("callados72"), s.calladosMas72);
+    assert.equal(cuenta("compraron"), s.compraron);
+    assert.equal(cuenta("compraron_recuperados"), s.compraronRecuperados);
+    for (const tipo of s.tipos) {
+      const lista = li.leadsDelGrupo(leads, `tipo:${tipo.clase}`, ahora);
+      assert.ok(lista.length > 0 && lista.length <= tipo.enviados);
+      // Los envíos de los leads de la lista son los de la fila del tipo.
+      assert.deepEqual(li.enviosDelTipo(lista.map((x) => x.lead), tipo.clase), { enviados: tipo.enviados, contestaron: tipo.contestaron });
+    }
+  }
+});
+
+prueba("leads: la razón de cada uno", () => {
+  const ahora = en(14 * DIA);
+  assert.equal(li.razonDelLead(lead([IN(0), SEG(H), IN(2 * H)]), "recuperados", ahora), "Contestó al recordatorio del bot en 1 h");
+  assert.equal(
+    li.razonDelLead(lead([IN(0), SEG(H, "dia_siguiente"), IN(H + 30 * H)]), "recuperados", ahora),
+    "Contestó al seguimiento del día siguiente en 30 h",
+  );
+  assert.equal(
+    li.razonDelLead(lead([IN(0), SEG(H), SEG(DIA, "dia_siguiente"), SEG(3 * DIA, "inteligente")]), "callados72", ahora),
+    "3 seguimientos sin respuesta · callado hace 14 días",
+  );
+  assert.equal(li.razonDelLead(lead([IN(0)]), "llegaron", ahora), "Sin seguimiento automático");
+  assert.equal(li.razonDelLead(lead([IN(0), SEG(H), IN(2 * H)], { ganado: true }), "compraron", ahora), "Compró · contestó al recordatorio del bot en 1 h");
+  assert.equal(li.razonDelLead(lead([IN(0), SEG(H, "inteligente"), IN(3 * H)]), "tipo:inteligente", ahora), "Contestó en menos de 24 h");
+  assert.equal(li.razonDelLead(lead([IN(0), SEG(H, "bot"), SEG(2 * H, "bot")]), "tipo:bot", ahora), "2 envíos, no contestó ninguno en 24 h");
+});
+
+prueba("leads: orden (callados: el más callado primero; tipo: los que contestaron primero)", () => {
+  const ahora = en(14 * DIA);
+  const viejo = lead([IN(0), SEG(H)], { conversationId: "viejo", ultimoClienteEn: en(0) });
+  const menos = lead([IN(0), SEG(H)], { conversationId: "menos", ultimoClienteEn: en(5 * DIA) });
+  assert.deepEqual(li.leadsDelGrupo([menos, viejo], "callados72", ahora).map((x) => x.lead.conversationId), ["viejo", "menos"]);
+  const no = lead([IN(0), SEG(H, "bot")], { conversationId: "no" });
+  const si = lead([IN(0), SEG(H, "bot"), IN(2 * H)], { conversationId: "si", ultimoClienteEn: en(2 * H) });
+  assert.deepEqual(li.leadsDelGrupo([no, si], "tipo:bot", ahora).map((x) => x.lead.conversationId), ["si", "no"]);
+});
+
+prueba("leads: URL (grupo, semana por defecto, asesora, ver más)", () => {
+  assert.equal(li.grupoPedido("callados72"), "callados72");
+  assert.equal(li.grupoPedido("tipo:dia_siguiente"), "tipo:dia_siguiente");
+  assert.equal(li.grupoPedido("tipo:nada"), "llegaron");
+  assert.equal(li.grupoPedido("vencidas"), "vencidas");
+  assert.equal(li.grupoPedido(undefined), "llegaron");
+  assert.equal(li.hrefDeRecuperacion({ semana: "2026-10-06" }, "2026-10-06"), "/cliente/crm/recuperacion");
+  assert.equal(
+    li.hrefDeRecuperacion({ semana: "2026-09-29", vista: "leads", grupo: "tipo:bot" }, "2026-10-06"),
+    "/cliente/crm/recuperacion?vista=leads&grupo=tipo%3Abot&semana=2026-09-29",
+  );
+  assert.equal(
+    li.hrefDeRecuperacion({ semana: "2026-10-06", vista: "leads", grupo: "vencidas", asesora: "Ingrid", ver: 400 }, "2026-10-06"),
+    "/cliente/crm/recuperacion?vista=leads&grupo=vencidas&asesora=Ingrid&ver=400",
+  );
+  assert.equal(li.cuantosVer(""), 200);
+  assert.equal(li.cuantosVer("400"), 400);
+  assert.equal(li.cuantosVer("99999"), 2000);
+  assert.equal(li.cuantosVer("-5"), 200);
+});
+
+prueba("tareas vencidas: llamadas 72 h, por asesora y vencimiento", () => {
+  const ahora = new Date("2026-10-13T15:00:00Z");
+  const t = (id, asesora, motivo, horasVencida) => ({
+    conversationId: id,
+    asesora,
+    motivo,
+    vence: horasVencida === null ? null : new Date(ahora.getTime() - horasVencida * H),
+  });
+  const tareas = [
+    t("a", "Ingrid", "recuperacion_72h", 5),
+    t("b", "María", "formulario_sin_respuesta", 50),
+    t("c", "Ingrid", "cotizacion_sin_respuesta", 72),
+    t("d", null, "recuperacion_72h", -3),
+    t("e", "Ingrid", "recuperacion_72h", null),
+  ];
+  assert.equal(li.tareasDelGrupo(tareas, "vencidas").length, 5);
+  assert.deepEqual(li.tareasDelGrupo(tareas, "llamadas72").map((x) => x.conversationId), ["a", "d", "e"]);
+  assert.deepEqual(li.tareasPorAsesora(tareas), [
+    { asesora: "Ingrid", tareas: 3 },
+    { asesora: "María", tareas: 1 },
+    { asesora: "Sin asesora", tareas: 1 },
+  ]);
+  assert.deepEqual(li.ordenarTareas(tareas, null).map((x) => x.conversationId), ["e", "c", "a", "b", "d"]);
+  assert.deepEqual(li.ordenarTareas(tareas, "María").map((x) => x.conversationId), ["b"]);
+  assert.equal(li.textoDeVencimiento(new Date(ahora.getTime() - 72 * H), ahora), "Vencida hace 3 días");
+  assert.equal(li.textoDeVencimiento(new Date(ahora.getTime() + 5 * H), ahora), "Vence en 5 h");
+  assert.equal(li.textoDeVencimiento(null, ahora), "Sin fecha");
+});
+
+prueba("en seguimiento ahora: 1 / 2 / 3 o más, programados, y cada lista = su número", () => {
+  const ahora = new Date("2026-10-13T15:00:00Z");
+  const l = (id, sinRespuesta, horas, programado = false) => ({
+    conversationId: id,
+    sinRespuesta,
+    ultimoSeguimientoEn: new Date(ahora.getTime() - horas * H),
+    programado,
+    ultimoClienteEn: null,
+    ficha: {},
+  });
+  const leads = [l("a", 1, 2, true), l("b", 2, 30), l("c", 2, 5, true), l("d", 3, 1), l("e", 7, 60), l("f", 0, 1)];
+  const r = es.resumirEnSeguimiento(leads);
+  assert.deepEqual(r, { total: 5, uno: 1, dos: 2, tresOMas: 2, programados: 2 });
+  assert.equal(es.leadsEnSeguimiento(leads, "en_seguimiento").length, r.total);
+  assert.equal(es.leadsEnSeguimiento(leads, "en_seguimiento_1").length, r.uno);
+  assert.equal(es.leadsEnSeguimiento(leads, "en_seguimiento_2").length, r.dos);
+  assert.equal(es.leadsEnSeguimiento(leads, "en_seguimiento_3").length, r.tresOMas);
+  assert.deepEqual(es.leadsEnSeguimiento(leads, "en_seguimiento_2").map((x) => x.conversationId), ["c", "b"]);
+  assert.equal(es.razonEnSeguimiento(leads[0], ahora), "1 seguimiento sin respuesta · el último hace 2 h · el próximo ya está programado");
+  assert.equal(es.razonEnSeguimiento(leads[4], ahora), "7 seguimientos sin respuesta · el último hace 60 h");
+  assert.equal(li.grupoPedido("en_seguimiento_3"), "en_seguimiento_3");
+  assert.equal(li.nombreDeGrupo("en_seguimiento"), "En seguimiento ahora");
 });
 
 console.log(`\n${pruebas} pruebas OK`);

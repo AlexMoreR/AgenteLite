@@ -55,8 +55,21 @@ export function claseDeSeguimiento(origen: string | null | undefined, nombreDelF
 
 export type EventoDelLead = { tipo: "IN"; en: Date } | { tipo: "SEG"; clase: ClaseDeSeguimiento; en: Date };
 
+/** Lo que muestra la lista "Leads" de cada chat (no entra en los números). */
+export type FichaDelLead = {
+  nombre: string | null;
+  telefono4: string | null;
+  linea: string | null;
+  asesora: string | null;
+  producto: string | null;
+  etapa: string | null;
+  /** El último mensaje del cliente, recortado. */
+  ultimoTexto: string | null;
+};
+
 export type LeadDeRecuperacion = {
   conversationId: string;
+  ficha?: FichaDelLead;
   ganado: boolean;
   /** El último mensaje del cliente (de toda la charla, no solo de la ventana leída). */
   ultimoClienteEn: Date | null;
@@ -121,6 +134,16 @@ export function porcentaje(parte: number, base: number): number | null {
   return base > 0 ? Math.round((parte / base) * 100) : null;
 }
 
+export type EstadoDelLead = { recibio: boolean; recuperado: boolean; callado72: boolean };
+
+/** Dónde cae el lead en "¿Qué pasó con los leads?". Lo usan los números y las listas. */
+export function estadoDelLead(lead: LeadDeRecuperacion, ahora: Date): EstadoDelLead {
+  const recibio = lead.eventos.some((e) => e.tipo === "SEG");
+  const recuperado = recibio && fueRecuperado(lead.eventos);
+  const callado = !lead.ultimoClienteEn || ahora.getTime() - lead.ultimoClienteEn.getTime() > VENTANA_RECUPERADO_MS;
+  return { recibio, recuperado, callado72: recibio && !recuperado && callado };
+}
+
 export function resumirSemana(leads: ReadonlyArray<LeadDeRecuperacion>, ahora: Date): SemanaDeRecuperacion {
   let conSeguimiento = 0;
   let recuperados = 0;
@@ -129,12 +152,10 @@ export function resumirSemana(leads: ReadonlyArray<LeadDeRecuperacion>, ahora: D
   let compraronRecuperados = 0;
   const porClase = new Map<ClaseDeSeguimiento, { enviados: number; contestaron: number }>();
   for (const lead of leads) {
-    const recibio = lead.eventos.some((e) => e.tipo === "SEG");
-    const recuperado = recibio && fueRecuperado(lead.eventos);
+    const { recibio, recuperado, callado72 } = estadoDelLead(lead, ahora);
     if (recibio) conSeguimiento += 1;
     if (recuperado) recuperados += 1;
-    const callado = !lead.ultimoClienteEn || ahora.getTime() - lead.ultimoClienteEn.getTime() > VENTANA_RECUPERADO_MS;
-    if (recibio && !recuperado && callado) calladosMas72 += 1;
+    if (callado72) calladosMas72 += 1;
     if (lead.ganado) {
       compraron += 1;
       if (recuperado) compraronRecuperados += 1;
