@@ -17,6 +17,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getTagBadgeColors } from "@/lib/tag-badge";
 import type { EtiquetaItem } from "@/app/actions/chats-actions";
 import {
+  firmaDeLaVista,
+  listaQueSeEstaMirando,
   paramsDeFiltros,
   SIN_FILTROS,
   type FiltrosDeBandeja,
@@ -104,19 +106,6 @@ function ChapaDeFiltro({
       </button>
     </span>
   );
-}
-
-/**
- * Una vista como texto comparable: sin la conexion, la busqueda ni el chat abierto, y con los
- * parametros ordenados. Dos direcciones que muestran lo mismo dan la misma firma.
- */
-function firmaDeLaVista(query: string) {
-  const params = new URLSearchParams(query);
-  for (const clave of ["connection", "q", "chatKey"]) params.delete(clave);
-  return [...params.entries()]
-    .map(([clave, valor]) => `${clave}=${valor.split(",").sort().join(",")}`)
-    .sort()
-    .join("&");
 }
 
 /** Cuanto hay que mantener presionada una lista para que aparezca su menu. */
@@ -241,6 +230,9 @@ export function AppSidebar({
     [alCambiarVista, router],
   );
 
+  // La lista guardada que se acaba de tocar (ver vistaActual, mas abajo).
+  const [vistaPedida, setVistaPedida] = React.useState<{ firma: string; desde: string } | null>(null);
+
   const aplicarFiltros = React.useCallback(
     (asignacion: AssignedFilter, estado: StatusFilter, nuevos: FiltrosDeBandeja = filtros) => {
       // Medicion: toque en Todas/Mias -> lista pintada con el filtro nuevo (efecto de abajo).
@@ -248,6 +240,12 @@ export function AppSidebar({
         iniciarMedicion(`pestana:${asignacion}`);
       }
       setPedido({ para: asignacion, desde: assignedFilter });
+      /*
+        Tocar Todas/Mias o aplicar un filtro suelta la lista que se habia tocado. Si no, cuando la
+        lista y la pestaña muestran lo mismo, la vista de ahora no cambia y la lista quedaba pegada
+        en azul para siempre (13-10-2026).
+      */
+      setVistaPedida(null);
       setFilterMenuOpen(false);
       const params = new URLSearchParams();
       if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
@@ -282,9 +280,8 @@ export function AppSidebar({
     toca, sin esperar al servidor (la pantalla de Chats tarda en volver), igual que Todas/Mias.
   */
   const vistaActual = firmaDeLaVista(queryDeFiltro(assignedFilter, statusFilter, filtros));
-  const [vistaPedida, setVistaPedida] = React.useState<{ firma: string; desde: string } | null>(null);
   const firmaMostrada = vistaPedida && vistaPedida.desde === vistaActual ? vistaPedida.firma : vistaActual;
-  const listaActiva = listas.find((lista) => firmaDeLaVista(lista.query) === firmaMostrada) ?? null;
+  const listaActiva = listaQueSeEstaMirando(listas, firmaMostrada);
 
   const aplicarGuardado = React.useCallback(
     (query: string) => {

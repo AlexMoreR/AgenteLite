@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { esListaSinFiltro } from "@/features/chats/domain/filtros-de-bandeja";
 
 /**
  * Los filtros que cada quien se guarda en la bandeja.
@@ -18,6 +19,9 @@ import { prisma } from "@/lib/prisma";
 export const dynamic = "force-dynamic";
 
 type FiltroGuardado = { id: string; nombre: string; query: string };
+
+/** Una lista sin ningun filtro es "Todas" con otro nombre: no se guarda (paso con "Maria", 13-10-2026). */
+const SIN_FILTRO = "Marca al menos una asesora, etapa, etiqueta o estado: así la lista sería igual a Todas";
 
 /** Cuantos se le dejan guardar. Pasado eso deja de ser un atajo y es otra lista para buscar. */
 const MAXIMO = 12;
@@ -82,6 +86,9 @@ export async function POST(request: Request) {
   if (!nombre) {
     return NextResponse.json({ ok: false, error: "Ponle un nombre" }, { status: 400 });
   }
+  if (esListaSinFiltro(query)) {
+    return NextResponse.json({ ok: false, error: SIN_FILTRO }, { status: 400 });
+  }
 
   const guardados = await leerGuardados(session.user.id);
   if (guardados.length >= MAXIMO) {
@@ -138,6 +145,10 @@ export async function PUT(request: Request) {
   const query = typeof cuerpo?.query === "string" ? cuerpo.query.trim() : null;
   if (!id || !nombre) {
     return NextResponse.json({ ok: false, error: "Ponle un nombre" }, { status: 400 });
+  }
+
+  if (query !== null && esListaSinFiltro(query)) {
+    return NextResponse.json({ ok: false, error: SIN_FILTRO }, { status: 400 });
   }
 
   const guardados = await leerGuardados(session.user.id);

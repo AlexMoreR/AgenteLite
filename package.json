@@ -33,6 +33,7 @@
     "test:reparto-turno": "node scripts/check-reparto-turno.mjs",
     "test:dia-siguiente": "node scripts/check-dia-siguiente.mjs",
     "test:aviso-pausa": "node scripts/check-aviso-pausa.mjs",
+    "test:listas-bandeja": "node scripts/check-listas-bandeja.mjs",
     "supervisor:guardian": "node scripts/supervisor-guardian.mjs",
     "supervisor:simular": "node scripts/supervisor-simulacion.mjs",
     "test:e2e": "playwright test -c e2e",

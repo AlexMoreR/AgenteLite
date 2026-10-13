@@ -85,3 +85,37 @@ export function paramsDeFiltros(filtros: FiltrosDeBandeja): Array<[string, strin
 
 /** Hasta donde se mira hacia atras al buscar lo que quedo sin responder. */
 export const DIAS_DE_SIN_RESPONDER = 60;
+
+/**
+ * Una vista como texto comparable: sin la conexion, la busqueda ni el chat abierto, y con los
+ * parametros ordenados. Dos direcciones que muestran lo mismo dan la misma firma.
+ */
+export function firmaDeLaVista(query: string): string {
+  const params = new URLSearchParams(query);
+  for (const clave of ["connection", "q", "chatKey"]) params.delete(clave);
+  return [...params.entries()]
+    .map(([clave, valor]) => `${clave}=${valor.split(",").sort().join(",")}`)
+    .sort()
+    .join("&");
+}
+
+/**
+ * Una lista que no filtra nada: su firma es la de la vista por defecto (Todas, abiertas, sin
+ * filtros). Mostraria exactamente lo mismo que la pastilla "Todas".
+ */
+export function esListaSinFiltro(query: string): boolean {
+  return firmaDeLaVista(query) === "";
+}
+
+/**
+ * La lista que se esta mirando: la que dice lo mismo que la vista de ahora.
+ *
+ * Una lista SIN filtro nunca cuenta como abierta (13-10-2026). Alex guardo "Maria" sin marcar a
+ * Maria (query vacia): como su firma era la de "Todas", la bandeja la daba por abierta cada vez que
+ * estaba en Todas —"Maria" en azul con el total, 1648— y tocar "Todas" no la soltaba nunca: volvia
+ * a la misma direccion y la lista seguia coincidiendo.
+ */
+export function listaQueSeEstaMirando<T extends { query: string }>(listas: readonly T[], firma: string): T | null {
+  if (firma === "") return null;
+  return listas.find((lista) => firmaDeLaVista(lista.query) === firma) ?? null;
+}

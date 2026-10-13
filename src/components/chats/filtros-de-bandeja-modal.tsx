@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { CRM_STAGE_META, CRM_STAGE_ORDER } from "@/features/crm/domain/crm-config";
 import {
+  esListaSinFiltro,
   leerFiltrosDeBandeja,
   paramsDeFiltros,
   type EtapaCrm,
@@ -266,12 +267,18 @@ export function FiltrosDeBandejaModal({
       setError("Ponle un nombre a la lista");
       return;
     }
+    const query = queryDeFiltro(asignacion, estado, filtrosElegidos);
+    // Sin nada marcado la lista seria "Todas" con otro nombre (paso con "Maria", 13-10-2026).
+    if (esListaSinFiltro(query)) {
+      setError("Marca al menos una asesora, etapa, etiqueta o estado: así la lista sería igual a Todas");
+      return;
+    }
     setGuardando(true);
     setError("");
     const fallo = await alGuardarLista({
       id: listaQueSeEdita?.id,
       nombre: limpio,
-      query: queryDeFiltro(asignacion, estado, filtrosElegidos),
+      query,
     });
     setGuardando(false);
     if (fallo) setError(fallo);
