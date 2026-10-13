@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { contactoDesdePrisma, llamadaPideResultado, SELECCION_PIDE_RESULTADO } from "@/lib/llamada-pide-resultado";
 import { resolveCallablePhone } from "@/lib/whatsapp-lid";
 import {
   CALL_RESULT_PENDING,
@@ -178,19 +179,21 @@ export async function getLlamadasVendedoraData(
      * la conversación de hace media hora sin registrar, que es exactamente lo que este módulo
      * vino a resolver.
      */
-    const pendientes = await prisma.callAttempt.findMany({
+    const pendientesTodas = await prisma.callAttempt.findMany({
       where: {
         workspaceId,
         result: CALL_RESULT_PENDING,
         contact: {
           excludedFromCrm: false,
+          // GANADO ya se descarta aca; las etiquetas PROVEEDOR / EQUIPO, abajo (sin tildes ni mayusculas).
+          crmStage: { not: "GANADO" },
           conversations: {
             some: { OR: [{ assignedToUserId: userId }, { assignedToUserId: null }] },
           },
         },
       },
       orderBy: { calledAt: "desc" },
-      take: 20,
+      take: 40,
       select: {
         id: true,
         summary: true,
@@ -203,13 +206,17 @@ export async function getLlamadasVendedoraData(
             name: true,
             phoneNumber: true,
             avatarUrl: true,
-            crmStage: true,
             metadata: true,
+            ...SELECCION_PIDE_RESULTADO,
             conversations: { select: { id: true }, orderBy: { lastMessageAt: "desc" }, take: 1 },
           },
         },
       },
     });
+    // Proveedor, equipo o cliente que ya compro: nadie tiene que decir como quedo (llamada-pide-resultado.ts).
+    const pendientes = pendientesTodas
+      .filter((intento) => llamadaPideResultado(contactoDesdePrisma(intento.contact)))
+      .slice(0, 20);
     // Una tarjeta por cliente: la llamada mas reciente (vienen de la mas nueva a la mas vieja). Al
     // clasificarla se cierran tambien las anteriores que quedaron pendientes (registerCallAttemptAction).
     const unaPorCliente = pendientes.filter(

@@ -35,6 +35,7 @@
     "test:tras-asesora-cierre": "node scripts/check-tras-asesora-cierre.mjs",
     "test:aviso-pausa": "node scripts/check-aviso-pausa.mjs",
     "test:listas-bandeja": "node scripts/check-listas-bandeja.mjs",
+    "test:como-quedo": "node scripts/check-como-quedo.mjs",
     "supervisor:guardian": "node scripts/supervisor-guardian.mjs",
     "supervisor:simular": "node scripts/supervisor-simulacion.mjs",
     "test:e2e": "playwright test -c e2e",

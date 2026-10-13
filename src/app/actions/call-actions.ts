@@ -26,6 +26,20 @@ import { AVISO_FALTA_COTIZACION, normalizarCotizacion } from "@/features/crm/dom
 import { transcribirYResumirLlamada, type SugerenciaDeLlamada } from "@/lib/llamada-transcripcion";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 import { leerUltimaLlamada, type UltimaLlamada } from "@/lib/ultima-llamada";
+import { contactoDesdePrisma, llamadaPideResultado, SELECCION_PIDE_RESULTADO } from "@/lib/llamada-pide-resultado";
+
+/** Llamada sin clasificar que hay que pedirle a la asesora (no a proveedor, equipo ni GANADO). */
+function llamadaPendiente(result: string, contacto: Parameters<typeof contactoDesdePrisma>[0]) {
+  return isPendingCallResult(result) && llamadaPideResultado(contactoDesdePrisma(contacto));
+}
+
+/** "Sin registrar" no dice nada si nadie la tiene que clasificar. */
+function etiquetaDeResultado(result: string, contacto: Parameters<typeof contactoDesdePrisma>[0]) {
+  if (isPendingCallResult(result) && !llamadaPendiente(result, contacto)) {
+    return "No hace falta clasificarla";
+  }
+  return getCallResultLabel(result) ?? result;
+}
 
 const CALL_RESULT_VALUES = CALL_RESULTS.map((result) => result.value) as [string, ...string[]];
 
@@ -156,7 +170,7 @@ export async function detalleDeLlamadaAction(messageId: string): Promise<{ detal
     lostReason: true,
     recordingUrl: true,
     calledBy: { select: { name: true, email: true } },
-    contact: { select: { name: true, phoneNumber: true } },
+    contact: { select: { name: true, phoneNumber: true, ...SELECCION_PIDE_RESULTADO } },
   } as const;
 
   let intento = null;
@@ -213,8 +227,8 @@ export async function detalleDeLlamadaAction(messageId: string): Promise<{ detal
       calledAt: intento.calledAt.toISOString(),
       asesora: intento.calledBy?.name?.trim() || intento.calledBy?.email || null,
       intento: intento.attemptNumber,
-      resultado: getCallResultLabel(intento.result) ?? intento.result,
-      pendiente: isPendingCallResult(intento.result),
+      resultado: etiquetaDeResultado(intento.result, intento.contact),
+      pendiente: llamadaPendiente(intento.result, intento.contact),
       resumen: esAutomatico ? null : resumen,
       como: esAutomatico ? resumen : null,
       proximoContacto: intento.nextContactAt ? intento.nextContactAt.toISOString() : null,
@@ -297,6 +311,7 @@ export async function llamadasDelEquipoAction(input: {
         select: {
           name: true,
           phoneNumber: true,
+          ...SELECCION_PIDE_RESULTADO,
           conversations: {
             where: { workspaceId: access.workspaceId },
             orderBy: { lastMessageAt: "desc" },
@@ -335,8 +350,8 @@ export async function llamadasDelEquipoAction(input: {
       cliente: intento.contact.name?.trim() || intento.contact.phoneNumber,
       telefono: intento.contact.phoneNumber,
       conversationId: intento.contact.conversations[0]?.id ?? null,
-      resultado: getCallResultLabel(intento.result) ?? intento.result,
-      pendiente: isPendingCallResult(intento.result),
+      resultado: etiquetaDeResultado(intento.result, intento.contact),
+      pendiente: llamadaPendiente(intento.result, intento.contact),
       resumen: intento.summary?.trim() || null,
       resumenIa: resumenIaDe(intento.id),
       grabacion: intento.recordingUrl,

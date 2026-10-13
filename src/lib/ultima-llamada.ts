@@ -1,4 +1,5 @@
 import { getCallResultLabel, isPendingCallResult } from "@/features/crm/domain/crm-config";
+import { contactoDesdePrisma, llamadaPideResultado, SELECCION_PIDE_RESULTADO } from "@/lib/llamada-pide-resultado";
 import { prisma } from "@/lib/prisma";
 
 export type UltimaLlamada = {
@@ -26,9 +27,24 @@ export async function leerUltimaLlamada(workspaceId: string, contactId: string):
   const intento = await prisma.callAttempt.findFirst({
     where: { workspaceId, contactId },
     orderBy: { calledAt: "desc" },
-    select: { id: true, result: true, summary: true, calledAt: true, attemptNumber: true },
+    select: {
+      id: true,
+      result: true,
+      summary: true,
+      calledAt: true,
+      attemptNumber: true,
+      contact: { select: SELECCION_PIDE_RESULTADO },
+    },
   });
   if (!intento) {
+    return null;
+  }
+
+  /*
+    Proveedor, equipo o cliente que ya compro (llamada-pide-resultado.ts): la llamada sin clasificar
+    no se le pide a nadie, asi que no hay aviso "falta decir como quedo" ni boton "¿Cómo quedó?".
+  */
+  if (isPendingCallResult(intento.result) && !llamadaPideResultado(contactoDesdePrisma(intento.contact))) {
     return null;
   }
 
