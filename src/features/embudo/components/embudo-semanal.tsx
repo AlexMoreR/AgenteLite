@@ -96,14 +96,14 @@ export function EmbudoSemanalVista(props: EmbudoSemanalVistaProps) {
             )}
           </nav>
         </div>
-        <nav aria-label="Familia de producto" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5 [scrollbar-width:none] md:flex-wrap">
+        <nav aria-label="Familia de producto" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-0.5 [scrollbar-width:none] md:flex-wrap">
           {props.familias.map((familia) => (
             <Link
               key={familia.clave}
               href={familia.href}
               aria-current={familia.activa ? "page" : undefined}
               className={cn(
-                "flex min-h-11 flex-none items-center rounded-full px-3.5 text-sm font-semibold whitespace-nowrap",
+                "flex min-h-8 flex-none items-center rounded-full px-3 text-xs font-medium whitespace-nowrap",
                 familia.activa
                   ? "bg-foreground text-background"
                   : "bg-muted text-foreground hover:bg-muted/70",
