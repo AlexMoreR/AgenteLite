@@ -432,7 +432,7 @@ export function AutomatizacionesWorkspace({
         <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editor?.id ? "Editar automatización" : "Nueva automatización"}</DialogTitle>
-            <DialogDescription>Si se cumplen las condiciones, se hacen las acciones.</DialogDescription>
+            <DialogDescription className="sr-only">Si se cumplen las condiciones, se hacen las acciones.</DialogDescription>
           </DialogHeader>
           {editor ? <EditorDeAutomatizacion borrador={editor} catalogos={catalogos} onCambio={setEditor} /> : null}
           <DialogFooter>
