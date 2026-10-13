@@ -237,13 +237,13 @@ export function AutomatizacionesWorkspace({
           </p>
         </div>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {automatizaciones.map((automatizacion, indice) => {
             const conteo = conteos[indice] ?? { total: 0, tomaria: 0, noLoVeria: 0 };
             const estado = envios[automatizacion.id.slice(0, 6)];
             const ultima = automatizacion.historial[0];
             return (
-              <div key={automatizacion.id} className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4">
+              <div key={automatizacion.id} className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 text-[13px]">
                 <div className="flex items-start justify-between gap-2">
                   <p className="min-w-0 text-sm font-semibold text-foreground">{automatizacion.nombre}</p>
                   <div className="flex shrink-0 items-center gap-1">
