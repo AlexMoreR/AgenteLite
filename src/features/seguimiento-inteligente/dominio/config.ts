@@ -17,6 +17,9 @@
  *    las 2 h / 24 h / 72 h cuando la asesora pidió los datos y el cliente no responde.
  *  - trasAsesora.modo: "apagado" | "sombra" | "activo" (automáticos de 1 h y día siguiente después
  *    de que escribe la asesora, con la IA pausada; Alexander 12-10-2026).
+ *    · trasAsesora.respetarCierre (PRENDIDO; 13-10-2026): no sale si la charla terminó en cierre.
+ *    · trasAsesora.compromisoATarea (PRENDIDO; 13-10-2026): no sale si el cliente dejó un
+ *      compromiso con momento; en su lugar, tarea para la asesora a esa hora (excepción "compromiso").
  *  - recuperacion72h.modo: "apagado" | "sombra" | "activo" (último intento humano a las 72 h).
  *  - diaSiguiente.rearmar: true | false (Alexander, 13-10-2026). El seguimiento de "día siguiente"
  *    del paso del Playbook se vuelve a armar en cada silencio, contando desde nuestra última
@@ -28,13 +31,17 @@ import { RECURSOS_POR_DEFECTO, type Recurso } from "./producto";
 export type ModoDelMotor = "apagado" | "sombra" | "activo";
 
 /** Lo que el motor puede ejecutar estando en sombra (`motor.excepcionesActivas`). */
-export type ExcepcionDelMotor = "formulario" | "cotizacion";
-export const EXCEPCIONES_DEL_MOTOR: ExcepcionDelMotor[] = ["formulario", "cotizacion"];
+export type ExcepcionDelMotor = "formulario" | "cotizacion" | "compromiso";
+export const EXCEPCIONES_DEL_MOTOR: ExcepcionDelMotor[] = ["formulario", "cotizacion", "compromiso"];
+
+/** El motivo de la tarea por un compromiso del cliente (dominio/compromiso.ts). */
+export const MOTIVO_COMPROMISO = "compromiso_pendiente";
 
 /** Los motivos de decisión (dominio/motor.ts) que pertenecen a cada excepción. */
 export const MOTIVOS_DE_EXCEPCION: Record<ExcepcionDelMotor, string[]> = {
   formulario: ["formulario_sin_respuesta", "formulario_esperando_escalon"],
   cotizacion: ["cotizacion_sin_respuesta", "cotizacion_esperando_escalon"],
+  compromiso: [MOTIVO_COMPROMISO],
 };
 
 export type ConfigSeguimientoInteligente = {
@@ -159,6 +166,22 @@ export type ConfigSeguimientoInteligente = {
      * el 5-oct las asesoras escribieron a 190 chats en un día y al otro saldrían ~360 automáticos.
      */
     maxPorDia: number;
+    /**
+     * CIERRE (Alexander, 13-10-2026, chat •••• 6626). El toque NO sale si la charla terminó en
+     * cierre: lo último del cliente es un agradecimiento / despedida sin pregunta ni señal de compra
+     * ("Mil gracias") y la asesora solo respondió con cortesía ("Gracias a ti", "Con gusto", "A la
+     * orden", "Feliz día"). false = como antes.
+     */
+    respetarCierre: boolean;
+    /**
+     * COMPROMISO A TAREA (Alexander, 13-10-2026). Si el cliente dejó un compromiso con momento ("en
+     * la tarde te envío la transferencia", "mañana te confirmo", "el lunes", "a fin de mes"…) el
+     * toque NO sale y el motor crea una tarea para la asesora a esa hora (motivo
+     * `compromiso_pendiente`, ver dominio/compromiso.ts). Con el motor en sombra actúa como una
+     * excepción ("compromiso") mientras `modo` esté en activo; con `modo` en sombra solo se anota.
+     * false = como antes.
+     */
+    compromisoATarea: boolean;
   };
   /**
    * RECUPERACIÓN 72 HORAS (propuesta del 12-10-2026): a las 72 h sin respuesta, último intento
@@ -228,6 +251,8 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
     horas: [1, 24],
     horasDeGracia: 6,
     maxPorDia: 80,
+    respetarCierre: true,
+    compromisoATarea: true,
     textos: [
       "{nombre} ¿Pudiste ver lo que te envié? 😊 Si te queda alguna duda, aquí estoy para ayudarte.",
       "{nombre} Te escribo para saber si pudiste revisar la información 😊 ¿Te ayudo con el envío a tu ciudad o con la forma de pago?",
@@ -394,6 +419,8 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
       horas: traHoras,
       horasDeGracia: numero(tra.horasDeGracia, d.trasAsesora.horasDeGracia, 0, 7 * 24),
       maxPorDia: Math.round(numero(tra.maxPorDia, d.trasAsesora.maxPorDia, 0, 5000)),
+      respetarCierre: bandera(tra.respetarCierre, d.trasAsesora.respetarCierre),
+      compromisoATarea: bandera(tra.compromisoATarea, d.trasAsesora.compromisoATarea),
       // Un texto por toque: lo que falte se completa con los de por defecto (o el último).
       textos: traHoras.map((_, i) => traTextos[i] ?? d.trasAsesora.textos[i] ?? d.trasAsesora.textos[d.trasAsesora.textos.length - 1]),
     },
@@ -418,7 +445,17 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
 
 /** Las excepciones que de verdad actúan: solo con el motor en sombra (en activo ya actúa todo). */
 export function excepcionesQueActuan(config: ConfigSeguimientoInteligente): ExcepcionDelMotor[] {
-  return config.motor.modo === "sombra" ? (config.motor.excepcionesActivas ?? []) : [];
+  if (config.motor.modo !== "sombra") return [];
+  const lista = [...(config.motor.excepcionesActivas ?? [])];
+  // El compromiso reemplaza al toque de "tras asesora": actúa con su interruptor y con ese toque en
+  // activo, sin tener que tocar `motor.excepcionesActivas` (13-10-2026).
+  if (config.trasAsesora?.compromisoATarea && config.trasAsesora.modo === "activo" && !lista.includes("compromiso")) lista.push("compromiso");
+  return lista;
+}
+
+/** ¿El motor busca compromisos del cliente? (interruptor `trasAsesora.compromisoATarea` con el toque prendido) */
+export function compromisoPrendido(config: ConfigSeguimientoInteligente): boolean {
+  return Boolean(config.trasAsesora?.compromisoATarea) && (config.trasAsesora?.modo ?? "apagado") !== "apagado";
 }
 
 /** ¿Este motivo de decisión es de una excepción que actúa (formulario / cotización)? */

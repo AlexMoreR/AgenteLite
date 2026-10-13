@@ -15,6 +15,9 @@ import { motivoDeExclusion } from "./exclusiones";
 import { horaBogota, diaSemanaBogota } from "./linea-base";
 import type { Hallazgo } from "./tipos";
 import type { TurnoDeLaConversacion } from "../../../lib/turno-de-la-conversacion";
+import { esAgradecimientoSinPendiente, normalizarParaCierre } from "../../../lib/cierre-de-conversacion";
+
+export { esAgradecimientoSinPendiente };
 
 const MIN = 60_000;
 
@@ -120,14 +123,7 @@ const RELLENO_DE_CIERRE = new Set([
   "mi", "reina", "querida", "estamos", "hablando", "hablamos", "quedo", "atenta", "atento", "pendiente", "entendido", "claro",
 ]);
 
-function normalizarTexto(texto: string): string {
-  return texto
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-}
+const normalizarTexto = normalizarParaCierre;
 
 /* ------------------------------------------------------------------------------------------------
    4. AGRADECIMIENTO / CIERRE DE CUALQUIER LARGO (falla real del domingo 11-10-2026: a Ingrid le
@@ -147,26 +143,8 @@ function normalizarTexto(texto: string): string {
       "Ya pagué" nunca es cierre (señal de compra) y el aviso de pago no usa esta regla.
 ------------------------------------------------------------------------------------------------ */
 
-/** Agradecimiento / despedida que, sin pregunta ni señal de compra, cierra aunque el mensaje sea largo. */
-const AGRADECE_O_CIERRA = /\b(gracias|graciass|grax|bendiciones|bendiga|chao|chau|adios|igualmente|feliz (noche|dia|tarde|fin de semana)|hay que saber)\b/;
-
-/** Pregunta: signos o palabras interrogativas (sin tildes). "hay que" no cuenta como "¿hay…?". */
-const PREGUNTA =
-  /\b(cuanto|cuanta|cuantos|cuantas|cuando|donde|como|cual|cuales|que (precio|valor|costo|color|colores|medida|medidas|tiempo|dias)|tienen|tiene|tendra|tendran|hay(?! que)|manejan|venden|me (regala|regalas|regalan|pasa|pasas|pasan|manda|mandas|mandan|envia|envias|envian)|informacion|info)\b/;
-
-/** Señal de compra por palabras (además del detector del embudo). */
-const SENAL_DE_COMPRA =
-  /\b(quiero|quisiera|me interesa|separ\w*|apart\w*|pag\w*|consign\w*|transfer\w*|abon\w*|datos|cuenta|nequi|daviplata|envi\w* a|mand\w* a|negr[oa]s?|blanc[oa]s?|rosad[oa]s?|rosa|beige|gris|dorad[oa]s?|nude|azul|roj[oa]|vinotinto|cafe|marfil|crema|platead[oa]|verde|morado|lila|fucsia)\b/;
-
-/** ¿Es un agradecimiento / cierre de cualquier largo, sin pregunta ni señal de compra? (regla 4) */
-export function esAgradecimientoSinPendiente(texto: string | null | undefined): boolean {
-  const original = texto ?? "";
-  if (/[?¿]/.test(original)) return false;
-  const limpio = normalizarTexto(original);
-  if (!AGRADECE_O_CIERRA.test(limpio)) return false;
-  if (PREGUNTA.test(limpio) || SENAL_DE_COMPRA.test(limpio)) return false;
-  return !detectarSenales(original).some(esSenalDeCompra);
-}
+// La regla 4 (esAgradecimientoSinPendiente) vive en lib/cierre-de-conversacion.ts: la usan también
+// los automáticos tras la asesora.
 
 /** ¿Este mensaje del cliente cierra la conversación (despedida, gracias, emojis, auto-respuesta, sin texto)? */
 export function esCierreOAutoRespuesta(texto: string | null | undefined): boolean {

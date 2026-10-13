@@ -80,6 +80,7 @@ export async function barrerTrasAsesora(workspaceId: string, config: ConfigSegui
         pospuesto: Boolean(ctx.ficha.pospuesto),
         caliente: calificacion.temperaturaBase === "CALIENTE" || ctx.ficha.etapaCrm === "NEGOCIACION",
         config: ta,
+        horario: { desde: config.formulario.desdeHora, hasta: config.formulario.hastaHora, dias: config.formulario.dias },
         ahora,
       });
       if (!resultado.sale) {

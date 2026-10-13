@@ -24,13 +24,17 @@
  *  - COTIZACIÓN → tarea humana a las 24 h y 72 h con el mensaje listo.
  *  - PEDIDO DE DATOS (formulario de la asesora) sin respuesta → tarea a las 2 h, 24 h y 72 h en
  *    horario laboral (11-10-2026, interruptor `formulario.activo`); después, lo de siempre.
+ *  - COMPROMISO del cliente con momento ("en la tarde te envío la transferencia", "mañana te
+ *    confirmo") ya respondido por una persona → tarea a esa hora en horario laboral (13-10-2026,
+ *    interruptor `trasAsesora.compromisoATarea`, ver dominio/compromiso.ts); después, lo de siempre.
  *  - FECHA FUTURA → dormido; tarea X días antes de la fecha.
  *  - Después de la asesora: toques en los días 3, 4 y 7; Frío = mensaje útil, resto = tarea. Tras
  *    el último sin respuesta (sin fecha futura ni cotización vigente) → descartar.
  */
 
 import { dentroDelHorario, esMensajeHumano, reprogramarFueraDeHorario } from "../../../lib/anti-bloqueo/reglas";
-import { esExcepcionQueActua, type ConfigSeguimientoInteligente, type ModoDelMotor } from "./config";
+import { MOTIVO_COMPROMISO, compromisoPrendido, esExcepcionQueActua, type ConfigSeguimientoInteligente, type ModoDelMotor } from "./config";
+import { detectarCompromiso, mensajeDeCompromiso } from "./compromiso";
 import { detectarFechaFutura, type FechaFutura } from "./fecha-futura";
 import { mencionaColombia, type Pais } from "./exterior";
 import { colorDelCliente, esPedidoDeDatos, siguienteHoraLaboral } from "./formulario";
@@ -143,6 +147,8 @@ export type Decision = {
   clave: string;
   /** Recuperación 72 h: fechas y evidencia del último intento (se guarda en accionDatos.recuperacion). */
   recuperacion?: Record<string, unknown> | null;
+  /** Texto de la tarea para la asesora (compromiso: "Recordarle lo que quedó: «…»"). */
+  detalle?: string | null;
 };
 
 export type Evaluacion = {
@@ -481,6 +487,26 @@ function decidir(c: Contexto): Decision {
       // ("Datos de Cotización") y su tarea de 24 h quedaría encima de la de 2 h.
       if (proxima) {
         return base("esperar", "formulario_esperando_escalon", { revisarEn: proxima.vence, toque: `formulario_${proxima.horas}h` });
+      }
+    }
+  }
+
+  // 5c. COMPROMISO del cliente con momento (Alexander, 13-10-2026): "en la tarde te envío la
+  //     transferencia" → tarea para la asesora a esa hora (horario laboral), A si habla de pago. Se
+  //     da por hecha si una persona le escribe cerca de la hora (desde 2 h antes y al menos 1 h
+  //     después de lo dicho). Se ofrece 24 h; después sigue lo de siempre. Si el cliente escribe
+  //     otra cosa, deja de ser lo último y se cae sola.
+  if (compromisoPrendido(config)) {
+    const horario = { desde: config.formulario.desdeHora, hasta: config.formulario.hastaHora, dias: config.formulario.dias };
+    const compromiso = detectarCompromiso({ mensajes, horario });
+    if (compromiso) {
+      const desde = Math.max(compromiso.vence.getTime() - 2 * HORA, compromiso.dichoEn.getTime() + HORA);
+      const hecha = mensajes.some((m) => esHumano(m, c.inicio) && m.en.getTime() >= desde);
+      const vencida = ahora.getTime() >= compromiso.vence.getTime() + 24 * HORA;
+      if (!hecha && !vencida) {
+        const decision = tarea(compromiso.pago ? "A" : "B", MOTIVO_COMPROMISO, mensajeDeCompromiso(compromiso, ficha.nombre), compromiso.vence, compromiso.como);
+        decision.detalle = `Recordarle lo que quedó: «${compromiso.frase}»`;
+        return decision;
       }
     }
   }

@@ -263,6 +263,8 @@ export const MOTIVOS_DE_TAREA_QUE_SIGUEN = [
   "caliente_sin_asesora",
   // Recuperación 72 h: el último intento humano antes de descartar (12-10-2026).
   "recuperacion_72h",
+  // Compromiso del cliente con momento ("en la tarde te envío la transferencia", 13-10-2026).
+  "compromiso_pendiente",
 ];
 
 /** ¿Esta tarea del seguimiento sigue aunque sea turno del cliente? (excepciones aprobadas) */

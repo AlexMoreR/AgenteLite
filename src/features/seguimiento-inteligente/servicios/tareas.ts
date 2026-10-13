@@ -18,6 +18,8 @@ export type TareaDeSeguimiento = {
   vence: Date | null;
   motivo: string;
   mensajeSugerido: string | null;
+  /** Texto propio de la tarea (compromiso: "Recordarle lo que quedó: «…»"). */
+  detalle: string | null;
   temperatura: string | null;
   producto: string | null;
   asesoraId: string | null;
@@ -59,6 +61,7 @@ function aTarea(fila: Fila): TareaDeSeguimiento {
     vence: fila.tareaVence ? new Date(fila.tareaVence) : null,
     motivo: typeof datos.motivo === "string" ? datos.motivo : "",
     mensajeSugerido: typeof datos.mensajeSugerido === "string" ? datos.mensajeSugerido : null,
+    detalle: typeof datos.detalle === "string" ? datos.detalle : null,
     temperatura: fila.temperatura,
     producto: fila.productoInteres,
     asesoraId: fila.asesoraId,

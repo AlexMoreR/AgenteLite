@@ -22,6 +22,7 @@ const MOTIVOS: Record<string, string> = {
   cadencia_sin_respuesta: "Seguimiento después de tu mensaje",
   cadencia_tope_de_automaticos: "Seguimiento después de tu mensaje",
   recuperacion_72h: "Recuperación 72 h · último intento",
+  compromiso_pendiente: "Quedó en algo para esta hora",
 };
 
 const COLOR: Record<string, string> = {
@@ -58,6 +59,7 @@ export function TareasDeSeguimiento({ tareas, ahora = new Date(), mostrarAsesora
                   {tarea.vence ? ` · ${vencida ? "venció" : "vence"} ${hora(tarea.vence)}` : ""}
                   {mostrarAsesora ? ` · ${tarea.asesoraNombre ?? "sin asesora"}` : ""}
                 </p>
+                {tarea.detalle ? <p className="text-xs text-foreground">{tarea.detalle}</p> : null}
                 {tarea.topeEstado === "redistribuida" ? (
                   <p className="text-xs text-amber-700 dark:text-amber-300">
                     Pasada por tope de {tarea.deNombre ?? "otra asesora"}

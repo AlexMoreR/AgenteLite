@@ -15,11 +15,21 @@
  *  - lo último de la persona no promete algo ("ya te envío…", "déjame confirmar…", "te llamo"):
  *    ahí el turno es nuestro y un "¿pudiste ver…?" la contradice;
  *  - etapa abierta, no dijo que no le interesa, no dio una fecha futura, no está pospuesto;
- *  - un toque por silencio de la persona; si se pasaron varios, solo el más avanzado.
+ *  - un toque por silencio de la persona; si se pasaron varios, solo el más avanzado;
+ *  - CIERRE (`respetarCierre`, 13-10-2026, chat •••• 6626): no sale si lo último del cliente es un
+ *    agradecimiento / despedida sin pregunta ni señal de compra ("Mil gracias") y la persona solo
+ *    respondió con cortesía ("Gracias a ti", "Con gusto", "A la orden", "Feliz día");
+ *  - COMPROMISO (`compromisoATarea`, 13-10-2026): no sale si el cliente dejó un compromiso con
+ *    momento ("En la tarde… te enviaria la transferencia"): en su lugar el motor del seguimiento
+ *    inteligente crea la tarea para la asesora a esa hora (dominio/compromiso.ts, motivo
+ *    `compromiso_pendiente`).
  * El resto (horario, tope, espaciado, exterior, freno) lo pone el motor de seguimientos al enviar.
  */
 
 import { esMensajeHumano } from "../../../lib/anti-bloqueo/reglas";
+import { esAgradecimientoSinPendiente, esCortesiaDeCierre } from "../../../lib/cierre-de-conversacion";
+import { detectarCompromiso, esAcuseDelCliente } from "./compromiso";
+import type { Horario } from "./formulario";
 import { turnoDeLaConversacion } from "../../../lib/turno-de-la-conversacion";
 import type { ConfigSeguimientoInteligente } from "./config";
 import type { MensajeCrudo } from "./motor";
@@ -73,6 +83,34 @@ function primerNombre(nombre: string | null): string {
   return limpio && /^[\p{L}]{2,20}$/u.test(limpio) ? `¡Hola, ${limpio[0].toUpperCase()}${limpio.slice(1).toLowerCase()}!` : "¡Hola!";
 }
 
+/** Horario laboral por defecto para la hora del compromiso (el del Supervisor: L–S 8–18). */
+const HORARIO_LABORAL: Horario = { desde: 8, hasta: 18, dias: [1, 2, 3, 4, 5, 6] };
+
+/**
+ * ¿La charla terminó en CIERRE? La última tanda del cliente solo agradece / acusa recibo (con al
+ * menos un agradecimiento o despedida sin pregunta ni señal de compra) y lo que la persona escribió
+ * después son cortesías sin pregunta ("Gracias a ti", "Con gusto", "A la orden", "Feliz día").
+ * Si la persona mandó algo más (fotos, un audio, una pregunta, información), no es cierre.
+ */
+export function terminoEnCierre<T extends Pick<MensajeCrudo, "direccion" | "tipo" | "texto">>(mensajes: T[], esPersona: (m: T) => boolean): boolean {
+  const lista = mensajes.filter((m) => m.tipo !== "SYSTEM");
+  let i = lista.length - 1;
+  const despues: typeof lista = [];
+  while (i >= 0 && lista[i].direccion === "OUT") {
+    despues.unshift(lista[i]);
+    i -= 1;
+  }
+  const tanda: typeof lista = [];
+  while (i >= 0 && lista[i].direccion === "IN") {
+    tanda.unshift(lista[i]);
+    i -= 1;
+  }
+  if (!tanda.length) return false;
+  if (!tanda.every(esAcuseDelCliente) || !tanda.some((m) => esAgradecimientoSinPendiente(m.texto))) return false;
+  const deLaPersona = despues.filter(esPersona);
+  return deLaPersona.length > 0 && deLaPersona.every((m) => (m.tipo === "TEXT" || m.tipo === "STICKER" || m.tipo === "REACTION") && (m.tipo !== "TEXT" || esCortesiaDeCierre(m.texto)));
+}
+
 export function textoDelToque(plantilla: string, nombre: string | null): string {
   return plantilla.replace(/\{nombre\}/g, primerNombre(nombre)).replace(/\s+/g, " ").trim();
 }
@@ -100,6 +138,8 @@ export function decidirTrasAsesora(input: {
   pospuesto: boolean;
   caliente: boolean;
   config: ConfigSeguimientoInteligente["trasAsesora"];
+  /** Horario laboral para la hora del compromiso (por defecto L–S 8–18). */
+  horario?: Horario;
   ahora: Date;
 }): DecisionTrasAsesora {
   const { config, ahora } = input;
@@ -130,6 +170,10 @@ export function decidirTrasAsesora(input: {
   // La tanda de la persona (lo último que escribió) no puede dejar una promesa sin cumplir.
   const tanda = mensajes.filter((m) => esHumano(m) && m.en.getTime() > ultimoCliente.en.getTime());
   if (promesaPendiente(tanda)) return no("asesora_prometio");
+  // El cliente dejó un compromiso con momento: en vez del toque, tarea a esa hora (la crea el motor).
+  if (config.compromisoATarea && detectarCompromiso({ mensajes, horario: input.horario ?? HORARIO_LABORAL })) return no("compromiso_a_tarea");
+  // La charla terminó en cierre ("Mil gracias" → "Gracias a ti"): no hay nada que "ver".
+  if (config.respetarCierre && terminoEnCierre(mensajes, esHumano)) return no("cierre");
 
   // Envíos automáticos desde la persona (los del mismo minuto = uno).
   let enviados = 0;

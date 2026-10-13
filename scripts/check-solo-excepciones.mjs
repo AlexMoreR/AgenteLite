@@ -57,7 +57,8 @@ function ficha(parcial = {}) {
 }
 
 /** Lo que hay hoy en producción (sombra) + las excepciones; y las dos referencias. */
-const BASE = { calificacion: { activo: true }, exterior: { activo: true }, trasAsesora: { modo: "activo" }, recuperacion72h: { modo: "activo" } };
+// El compromiso del cliente (13-10-2026) se prueba en check-tras-asesora-cierre.mjs: acá, apagado.
+const BASE = { calificacion: { activo: true }, exterior: { activo: true }, trasAsesora: { modo: "activo", compromisoATarea: false }, recuperacion72h: { modo: "activo" } };
 const EXCEPCIONES = cf.leerConfigDeTexto(JSON.stringify({ ...BASE, motor: { modo: "sombra", excepcionesActivas: ["formulario", "cotizacion"] } }));
 const SOMBRA = cf.leerConfigDeTexto(JSON.stringify({ ...BASE, motor: { modo: "sombra" } }));
 const ACTIVO = cf.leerConfigDeTexto(JSON.stringify({ ...BASE, motor: { modo: "activo" } }));
@@ -75,6 +76,11 @@ prueba("config: excepcionesActivas se lee filtrada; por defecto vacía; solo act
   assert.deepEqual(cf.leerConfigDeTexto('{"motor":{"modo":"sombra","excepcionesActivas":"formulario"}}').motor.excepcionesActivas, []);
   assert.deepEqual(cf.excepcionesQueActuan(EXCEPCIONES), ["formulario", "cotizacion"]);
   assert.deepEqual(cf.excepcionesQueActuan(SOMBRA), []);
+  // Con `trasAsesora.compromisoATarea` (por defecto) y los toques en activo, el compromiso también actúa.
+  const conCompromiso = cf.leerConfigDeTexto(JSON.stringify({ ...BASE, trasAsesora: { modo: "activo" }, motor: { modo: "sombra", excepcionesActivas: ["formulario", "cotizacion"] } }));
+  assert.deepEqual(cf.excepcionesQueActuan(conCompromiso), ["formulario", "cotizacion", "compromiso"]);
+  assert.equal(cf.esExcepcionQueActua("compromiso_pendiente", conCompromiso), true);
+  assert.equal(cf.esExcepcionQueActua("compromiso_pendiente", EXCEPCIONES), false);
   // En activo ya actúa todo; en apagado nada: las excepciones no cambian nada.
   assert.deepEqual(cf.excepcionesQueActuan(cf.leerConfigDeTexto('{"motor":{"modo":"activo","excepcionesActivas":["formulario"]}}')), []);
   assert.deepEqual(cf.excepcionesQueActuan(cf.leerConfigDeTexto('{"motor":{"modo":"apagado","excepcionesActivas":["formulario"]}}')), []);

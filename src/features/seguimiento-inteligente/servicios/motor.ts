@@ -38,7 +38,8 @@ function anotarError(donde: string, error: unknown, extra: Record<string, unknow
 }
 
 // La Recuperación 72 h, el exterior y el descarte tienen su propio interruptor; con
-// `motor.excepcionesActivas` el formulario y la cotización actúan aunque el motor esté en sombra.
+// `motor.excepcionesActivas` el formulario y la cotización actúan aunque el motor esté en sombra (y el
+// compromiso del cliente, con `trasAsesora.compromisoATarea` y el toque tras la asesora en activo).
 const modoDe = modoDeLaDecision;
 
 function datosDeLaDecision(decision: Decision, evaluacion: Evaluacion, modo: string): Record<string, unknown> {
@@ -58,6 +59,7 @@ function datosDeLaDecision(decision: Decision, evaluacion: Evaluacion, modo: str
     fechaFragmento: decision.fechaCompra?.fragmento ?? null,
     toque: decision.toque,
     ...(decision.recuperacion ? { recuperacion: decision.recuperacion } : {}),
+    ...(decision.detalle ? { detalle: decision.detalle } : {}),
     temperatura: evaluacion.calificacion.temperatura,
     temperaturaBase: evaluacion.calificacion.temperaturaBase,
     producto: evaluacion.familia,
