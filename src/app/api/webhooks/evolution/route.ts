@@ -38,7 +38,13 @@ import {
   registrarSenalesDelMensaje,
   registrarTurnoV3,
 } from "@/features/embudo/servicios/eventos";
-import { guardarEstado, leerEstado } from "@/features/agente-v3/motor/estado";
+import { claveDeEstado, leerEstado, serializarEstado } from "@/features/agente-v3/motor/estado";
+import {
+  enviarAvisoDePausaUnaVez,
+  FUENTES_DE_ASESORA,
+  sqlLiberarAvisoDePausa,
+  sqlReclamarAvisoDePausa,
+} from "@/features/agente-v3/motor/aviso-pausa";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import {
   persistEvolutionMessage,
@@ -2896,49 +2902,65 @@ export async function POST(request: NextRequest) {
           hablando con una asesora- porque el unico freno era una ventana de 3 minutos y habian
           pasado tres (Alex, 25-09-2026: "si ya respondio Ingrid por que sigue escribiendo la IA").
         */
+        /*
+          Cuenta tambien lo que la asesora escribe desde el CELULAR (`source: instance`), no solo desde
+          el CRM: si ella ya esta hablando por WhatsApp, el acuse sobra igual (13-10-2026).
+        */
         const UNA_PERSONA_ADENTRO_MS = 6 * 3_600_000;
-        const personaAtendiendo = await prisma.message.count({
-          where: {
-            conversationId: conversation.id,
-            direction: "OUTBOUND",
-            rawPayload: { path: ["source"], equals: "manual" },
-            createdAt: { gt: new Date(Date.now() - UNA_PERSONA_ADENTRO_MS) },
-          },
-        });
-        if (personaAtendiendo > 0) {
-          return;
-        }
-
-        // Y tampoco se habla encima de algo que se acaba de decir, sea de quien sea.
         const SILENCIO_MINIMO_MS = 3 * 60_000;
-        const respuestaReciente = await prisma.message.count({
-          where: {
-            conversationId: conversation.id,
-            direction: "OUTBOUND",
-            type: { not: "SYSTEM" },
-            createdAt: { gt: new Date(Date.now() - SILENCIO_MINIMO_MS) },
+        const clavePausa = claveDeEstado(conversation.id);
+        let valorSiNoHayFila = "";
+        /*
+          Una sola vez por pausa aunque lleguen varios mensajes juntos: la marca se reclama de forma
+          atomica ANTES de enviar (ver aviso-pausa.ts). Dos webhooks casi simultaneos mandaron el acuse
+          dos veces (13-10-2026, 10:36). Si el envio falla, la marca se suelta.
+        */
+        await enviarAvisoDePausaUnaVez({
+          personaAtendiendo: async () =>
+            (await prisma.message.count({
+              where: {
+                conversationId: conversation.id,
+                direction: "OUTBOUND",
+                OR: FUENTES_DE_ASESORA.map((fuente) => ({ rawPayload: { path: ["source"], equals: fuente } })),
+                createdAt: { gt: new Date(Date.now() - UNA_PERSONA_ADENTRO_MS) },
+              },
+            })) > 0,
+          // Y tampoco se habla encima de algo que se acaba de decir, sea de quien sea.
+          respuestaReciente: async () =>
+            (await prisma.message.count({
+              where: {
+                conversationId: conversation.id,
+                direction: "OUTBOUND",
+                type: { not: "SYSTEM" },
+                createdAt: { gt: new Date(Date.now() - SILENCIO_MINIMO_MS) },
+              },
+            })) > 0,
+          avisoYaEnviado: async () => {
+            const estadoPausa = await leerEstado(conversation.id);
+            valorSiNoHayFila = serializarEstado({ ...estadoPausa, avisoDePausaEnviado: true });
+            return estadoPausa.avisoDePausaEnviado === true;
           },
+          reclamar: async () => {
+            const filas = await prisma.$queryRaw<Array<{ insertado: boolean }>>(
+              sqlReclamarAvisoDePausa(clavePausa, valorSiNoHayFila),
+            );
+            return filas[0] ? { insertado: filas[0].insertado === true } : null;
+          },
+          liberar: async (reclamo) => {
+            await prisma.$executeRaw(sqlLiberarAvisoDePausa(clavePausa, { ...reclamo, valor: valorSiNoHayFila }));
+          },
+          enviar: () =>
+            sendAndPersistEvolutionFlowStepResilient({
+              step: { kind: "text", content: "En un momento una de nuestras asesoras te contacta 🙌" },
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
+              channelId: channel.id,
+              contactId: contact.id,
+              agentId: channel.agentId ?? undefined,
+              instanceName: instanciaPausa,
+              phoneNumber,
+            }),
         });
-        if (respuestaReciente > 0) {
-          return;
-        }
-
-        const estadoPausa = await leerEstado(conversation.id);
-        if (estadoPausa.avisoDePausaEnviado) {
-          return;
-        }
-
-        await sendAndPersistEvolutionFlowStepResilient({
-          step: { kind: "text", content: "En un momento una de nuestras asesoras te contacta 🙌" },
-          workspaceId: channel.workspaceId,
-          conversationId: conversation.id,
-          channelId: channel.id,
-          contactId: contact.id,
-          agentId: channel.agentId ?? undefined,
-          instanceName: instanciaPausa,
-          phoneNumber,
-        });
-        await guardarEstado(conversation.id, { ...estadoPausa, avisoDePausaEnviado: true });
       } catch (error) {
         console.warn("[EVOLUTION] v3_aviso_pausa_fallo", {
           conversationId: conversation.id,

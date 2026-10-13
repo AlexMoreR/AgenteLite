@@ -15,6 +15,11 @@ import type { EstadoDeLaCharla } from "./decidir";
 
 const CLAVE = "agente-v3:estado:";
 
+/** Llave de la fila de estado de una conversación en AppSetting. */
+export function claveDeEstado(conversationId: string): string {
+  return `${CLAVE}${conversationId}`;
+}
+
 /**
  * ¿El V3 atendió alguna vez esta conversación? (tiene su fila de estado)
  *
@@ -75,8 +80,9 @@ export async function leerEstado(conversationId: string): Promise<EstadoDeLaChar
   }
 }
 
-export async function guardarEstado(conversationId: string, estado: EstadoDeLaCharla): Promise<void> {
-  const value = JSON.stringify({
+/** El JSON exacto que se guarda en la fila de estado. */
+export function serializarEstado(estado: EstadoDeLaCharla): string {
+  return JSON.stringify({
     productoActivo: estado.productoActivo,
     pasoActual: estado.pasoActual,
     // Se recortan: una charla larga no necesita recordar cincuenta envíos, y la fila no crece sola.
@@ -85,6 +91,10 @@ export async function guardarEstado(conversationId: string, estado: EstadoDeLaCh
     seguimientosEnviados: estado.seguimientosEnviados ?? [],
     avisoDePausaEnviado: estado.avisoDePausaEnviado === true,
   });
+}
+
+export async function guardarEstado(conversationId: string, estado: EstadoDeLaCharla): Promise<void> {
+  const value = serializarEstado(estado);
   await prisma.appSetting.upsert({
     where: { key: `${CLAVE}${conversationId}` },
     create: { key: `${CLAVE}${conversationId}`, value },
