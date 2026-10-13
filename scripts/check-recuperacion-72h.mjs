@@ -234,7 +234,8 @@ prueba("A: el Follow 'Tras asesora: …' es AUTOMÁTICO (tope, horario, espaciad
   }
   // La regla de envío: el anti-bloqueo no lo frena por "un solo dueño" pero sí por etapa cerrada.
   const follows = fs.readFileSync(path.join(RAIZ, "src/features/seguimientos/services/follows.ts"), "utf8");
-  assert.match(follows, /dueno: esAutomatico && !esToqueDeCadencia && !esTrasAsesora, tope: esAutomatico, etapa: esTrasAsesora/);
+  // 13-10-2026: los envíos de una automatización también llevan tope (check-automatizaciones.mjs).
+  assert.match(follows, /dueno: esAutomatico && !esToqueDeCadencia && !esTrasAsesora, tope: esAutomatico \|\| esAutomatizacion, etapa: esTrasAsesora/);
   assert.match(follows, /asesora_escribio/);
 });
 

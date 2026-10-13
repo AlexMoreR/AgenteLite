@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 
 import { AutomatizacionesWorkspace } from "@/features/automatizaciones/components/AutomatizacionesWorkspace";
-import { contarLeads, leerAutomatizaciones } from "@/features/automatizaciones/servicio";
+import { contarLeads, estadoDeEnvios, leerAutomatizaciones } from "@/features/automatizaciones/servicio";
+import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
@@ -28,7 +29,7 @@ export default async function ClienteAutomatizacionesPage() {
     );
   }
 
-  const [automatizaciones, miembros, canales] = await Promise.all([
+  const [automatizaciones, miembros, canales, etiquetas, flujos, envios] = await Promise.all([
     leerAutomatizaciones(access.workspaceId),
     prisma.workspaceMember.findMany({
       where: { workspaceId: access.workspaceId, isActive: true },
@@ -39,10 +40,20 @@ export default async function ClienteAutomatizacionesPage() {
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true },
     }),
+    prisma.tag.findMany({
+      where: { workspaceId: access.workspaceId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    // Los mismos flujos que puede mandar un seguimiento (líneas Evolution).
+    getCreatedFlowItems({ workspaceId: access.workspaceId, includeOfficialApi: false }).catch(() => []),
+    estadoDeEnvios(access.workspaceId).catch(() => new Map()),
   ]);
 
   const conteos = await Promise.all(
-    automatizaciones.map((automatizacion) => contarLeads(access.workspaceId, automatizacion)),
+    automatizaciones.map((automatizacion) =>
+      contarLeads(access.workspaceId, automatizacion).catch(() => ({ total: 0, tomaria: 0, noLoVeria: 0 })),
+    ),
   );
 
   /*
@@ -74,6 +85,11 @@ export default async function ClienteAutomatizacionesPage() {
         }))
         .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))}
       canales={canales.map((canal) => ({ id: canal.id, nombre: canal.name }))}
+      etiquetas={etiquetas.map((etiqueta) => ({ id: etiqueta.id, nombre: etiqueta.name }))}
+      flujos={flujos
+        .map((flujo) => ({ id: flujo.id, nombre: flujo.title?.trim() || "Flujo sin nombre" }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))}
+      envios={Object.fromEntries(envios)}
     />
   );
 }

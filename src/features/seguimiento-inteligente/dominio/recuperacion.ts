@@ -313,3 +313,56 @@ export function cortoUnSilencioLargo(mensajes: MensajeCrudo[], horas: number): b
   const respuesta = ordenados[i + 1];
   return respuesta.en.getTime() - primeraDelSilencio.en.getTime() >= horas * HORA;
 }
+
+/* ------------------------------------------------------------------------------------------------
+   CIERRE POR UNA AUTOMATIZACIÓN (13-10-2026)
+------------------------------------------------------------------------------------------------ */
+
+/** Fase del evento RECUPERACION_72H cuando la tarea la atendió una automatización (no vuelve a abrir esa entrada). */
+export const FASE_ATENDIDA_POR_AUTOMATIZACION = "automatizacion";
+
+/**
+ * Una automatización le ENVIÓ algo (flujo / texto) a un lead con la tarea de la Recuperación 72 h:
+ * la tarea queda hecha y sale de las listas de llamadas (Mi día, tope, alarma de Recuperación).
+ *
+ * Devuelve los dos eventos a registrar, o null si el lead no tiene esa tarea pendiente:
+ *  - RECUPERACION_72H fase "automatizacion" (con la entrada): `recuperacionesCerradasAMano` la lee y
+ *    el motor ya no vuelve a abrir ESA recuperación ("cerrada_a_mano");
+ *  - SIGUIENTE_ACCION "esperar" (toque "automatizacion"): la foto del lead deja de ser tarea al
+ *    instante, sin esperar al reloj. Conserva el motivo para que el motor, en su próxima vuelta,
+ *    registre su decisión nueva (`salioDeRecuperacion`).
+ * Si el cliente contesta después, su mensaje abre un silencio nuevo: el flujo normal sigue solo.
+ */
+export function eventosDeCierrePorAutomatizacion(input: {
+  conversationId: string;
+  accion: string | null;
+  accionDatos: Record<string, unknown> | null;
+  automatizacion: string;
+  ahora: Date;
+}): Array<{ tipo: "RECUPERACION_72H" | "SIGUIENTE_ACCION"; claveUnica?: string; datos: Record<string, unknown> }> | null {
+  const datos = input.accionDatos ?? {};
+  if (input.accion !== "tarea_asesora" || datos.motivo !== MOTIVO_RECUPERACION) return null;
+  const rec = (datos.recuperacion && typeof datos.recuperacion === "object" ? datos.recuperacion : {}) as Record<string, unknown>;
+  const entrada = typeof rec.entradaEn === "string" ? rec.entradaEn.slice(0, 16) : input.ahora.toISOString().slice(0, 16);
+  const modo = typeof datos.modo === "string" ? datos.modo : "activo";
+  return [
+    {
+      tipo: "RECUPERACION_72H",
+      claveUnica: `REC:${modo}:${input.conversationId}:${entrada}:${FASE_ATENDIDA_POR_AUTOMATIZACION}`,
+      datos: { ...rec, modo, fase: FASE_ATENDIDA_POR_AUTOMATIZACION, desdeFase: datos.toque ?? null, automatizacion: input.automatizacion },
+    },
+    {
+      tipo: "SIGUIENTE_ACCION",
+      datos: {
+        ...datos,
+        accion: "esperar",
+        toque: FASE_ATENDIDA_POR_AUTOMATIZACION,
+        prioridad: null,
+        vence: null,
+        clave: `automatizacion:${entrada}`,
+        detalle: `Atendida por la automatización «${input.automatizacion}»`,
+        atendidaEn: input.ahora.toISOString(),
+      },
+    },
+  ];
+}

@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { resolveCallablePhone } from "@/lib/whatsapp-lid";
 
 import type { ConfigSeguimientoInteligente } from "../dominio/config";
-import { MOTIVO_RECUPERACION } from "../dominio/recuperacion";
+import { FASE_ATENDIDA_POR_AUTOMATIZACION, MOTIVO_RECUPERACION, eventosDeCierrePorAutomatizacion } from "../dominio/recuperacion";
 import { nombreDeFamilia } from "../dominio/producto";
 import { leerConfigSeguimiento } from "./config";
 import { corteDeLaConfig, filtroSinReactivar } from "./reactivacion";
@@ -219,9 +219,65 @@ export async function recuperacionesCerradasAMano(conversationId: string): Promi
   });
   return filas
     .map((f) => (f.datos ?? {}) as Record<string, unknown>)
-    .filter((d) => d.fase === "deshecho" || d.fase === "mantener")
+    // "automatizacion": la atendió una automatización que le envió algo (cerrarRecuperacionPorAutomatizacion).
+    .filter((d) => d.fase === "deshecho" || d.fase === "mantener" || d.fase === FASE_ATENDIDA_POR_AUTOMATIZACION)
     .map((d) => (typeof d.entradaEn === "string" ? d.entradaEn.slice(0, 16) : ""))
     .filter(Boolean);
+}
+
+/**
+ * Una AUTOMATIZACIÓN le acaba de enviar un flujo o un texto a este contacto: si tenía pendiente la
+ * tarea de la Recuperación 72 h, queda hecha (sale de Mi día, del tope y de las listas de
+ * Recuperación) con una nota en el chat. Lo llama el motor de seguimientos DESPUÉS de que el envío
+ * salió (un envío frenado por el anti-bloqueo no cierra nada). Nunca lanza.
+ */
+export async function cerrarRecuperacionPorAutomatizacion(input: {
+  workspaceId: string;
+  contactId: string;
+  channelId: string | null;
+  automatizacion: string;
+  ahora?: Date;
+}): Promise<boolean> {
+  const ahora = input.ahora ?? new Date();
+  try {
+    const conversacion = await prisma.conversation.findFirst({
+      where: { workspaceId: input.workspaceId, contactId: input.contactId, ...(input.channelId ? { channelId: input.channelId } : {}) },
+      orderBy: { lastMessageAt: { sort: "desc", nulls: "last" } },
+      select: { id: true, channelId: true },
+    });
+    if (!conversacion) return false;
+    const lead = await prisma.embudoLead.findFirst({
+      where: { conversationId: conversacion.id, workspaceId: input.workspaceId },
+      select: { accion: true, accionDatos: true },
+    });
+    const eventos = lead
+      ? eventosDeCierrePorAutomatizacion({
+          conversationId: conversacion.id,
+          accion: lead.accion,
+          accionDatos: (lead.accionDatos ?? null) as Record<string, unknown> | null,
+          automatizacion: input.automatizacion,
+          ahora,
+        })
+      : null;
+    if (!eventos) return false;
+    await registrarEventos(
+      { workspaceId: input.workspaceId, conversationId: conversacion.id, contactId: input.contactId, channelId: conversacion.channelId },
+      eventos.map((e) => ({ tipo: e.tipo, origen: "motor" as const, claveUnica: e.claveUnica ?? null, createdAt: ahora, datos: e.datos })),
+    );
+    await recordConversationActivity({
+      workspaceId: input.workspaceId,
+      conversationId: conversacion.id,
+      channelId: conversacion.channelId,
+      contactId: input.contactId,
+      kind: "note",
+      origen: "automatizacion",
+      text: `Recuperación 72 h: atendida por la automatización «${input.automatizacion}» (se le envió el mensaje). Sale de la lista de llamadas; si el cliente responde, sigue el flujo normal.`,
+    }).catch(() => undefined);
+    return true;
+  } catch (error) {
+    anotarError("no se pudo cerrar la recuperacion por la automatizacion", error, { contactId: input.contactId });
+    return false;
+  }
 }
 
 /* ------------------------------------------------------------------------------------------------

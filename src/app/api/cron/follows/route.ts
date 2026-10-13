@@ -14,6 +14,7 @@ import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
 import { sincronizarSiTocaHoy } from "@/lib/sincronizacion-gestion";
 import { vueltaDeCadaHora, vueltaDeCincoMinutos } from "@/features/supervisor/servicios/vueltas";
 import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente/servicios/motor";
+import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/servicio";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -246,6 +247,20 @@ async function handleCron(request: Request) {
       await barrerSeguimientoInteligente();
     } catch (error) {
       console.error("[cron/follows] seguimiento inteligente error", error);
+    }
+  });
+
+  /*
+    AUTOMATIZACIONES con el interruptor "Automática" (ver src/features/automatizaciones). Cada vuelta
+    mira las guardadas; cada una corre si pasaron 30 min desde la anterior, solo con los leads que
+    todavía no procesó. Sus envíos quedan agendados como seguimientos (anti-bloqueo de siempre).
+    Sin automáticas prendidas son un par de lecturas de AppSetting. En segundo plano.
+  */
+  after(async () => {
+    try {
+      await correrAutomatizacionesDelReloj();
+    } catch (error) {
+      console.error("[cron/follows] automatizaciones error", error);
     }
   });
 

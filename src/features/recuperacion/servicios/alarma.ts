@@ -56,6 +56,29 @@ function desdeTareasVencidas(workspaceId: string, finDelDia: Date, corte: Date |
             AND m."createdAt" > COALESCE(l."accionEn", l."updatedAt")))`;
 }
 
+/**
+ * "Recuperación vencida" para las AUTOMATIZACIONES: el chat (alias `c` = Conversation) tiene una
+ * tarea de la alarma de hoy con motivo `recuperacion_72h`. Mismo criterio que `desdeTareasVencidas`
+ * (no exterior, etapa abierta, vence en 24 h o antes, sin las que van a reactivación).
+ */
+export async function condicionRecuperacionVencida(workspaceId: string, ahora = new Date()): Promise<Prisma.Sql> {
+  const config = await leerConfigSeguimiento(workspaceId);
+  const finDelDia = new Date(ahora.getTime() + 24 * 3_600_000);
+  const corte = corteDeLaConfig(config, ahora);
+  return Prisma.sql`EXISTS (
+      SELECT 1
+        FROM "EmbudoLead" l
+        JOIN "Contact" ct ON ct."id" = c."contactId"
+       WHERE l."conversationId" = c."id"
+         AND l."workspaceId" = ${workspaceId}
+         AND l."accion" = 'tarea_asesora'
+         AND l."exterior" = false
+         AND l."accionDatos"->>'motivo' = 'recuperacion_72h'
+         AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
+         AND (l."tareaVence" IS NULL OR l."tareaVence" <= ${finDelDia})
+         ${filtroSinReactivar(corte)})`;
+}
+
 export function leerAlarmaDeHoy(workspaceId: string): Promise<AlarmaDeHoy | null> {
   return cache.obtener(workspaceId, () => cargar(workspaceId));
 }

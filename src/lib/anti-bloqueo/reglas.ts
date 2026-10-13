@@ -394,11 +394,15 @@ export function decidirDueno(estado: EstadoDelDueno): "chat_pausado" | "etapa_ce
 ------------------------------------------------------------------------------------------------ */
 
 /** Qué clase de Follow es: decide qué medidas le tocan. */
-export type ClaseDeFollow = "automatico" | "campana" | "reactivacion" | "humano";
+export type ClaseDeFollow = "automatico" | "campana" | "reactivacion" | "humano" | "automatizacion";
 
 export const NOMBRE_FOLLOW_REACTIVACION = "Mensaje de reactivación";
 
 /**
+ * - automatizacion: un envío de una automatización ("Automatización: …", 13-10-2026). Horario,
+ *   espaciado y TOPE total; nunca a Ganado / Descartado / oculto del CRM; no sale si una persona le
+ *   escribió al cliente después de agendado. No lo frena "un solo dueño": sale a propósito sobre
+ *   chats que ya tienen asesora (la Recuperación 72 h).
  * - campana: lo arma una campaña ("Campaña: …"). Horario y espaciado, no dueño ni tope (la campaña
  *   la decidió una persona y tiene su propio freno).
  * - reactivacion: el mensaje de reactivación corrido por el horario.
@@ -410,6 +414,7 @@ export const NOMBRE_FOLLOW_REACTIVACION = "Mensaje de reactivación";
 export function clasificarFollow(follow: { name: string | null; followRuleId: string | null }): ClaseDeFollow {
   const nombre = (follow.name ?? "").trim();
   if (nombre.startsWith("Campaña:")) return "campana";
+  if (nombre.startsWith("Automatización:")) return "automatizacion";
   if (nombre === NOMBRE_FOLLOW_REACTIVACION) return "reactivacion";
   if (follow.followRuleId) return "automatico";
   // "Inteligente: …" = el mensaje útil del seguimiento inteligente: automático, con todas las medidas.

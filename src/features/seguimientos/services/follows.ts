@@ -1691,7 +1691,21 @@ async function revisarAntiBloqueoDelFollow(
     escribir después de que se agendó, ya no sale: su mensaje es más nuevo que el recordatorio.
   */
   const esTrasAsesora = (follow.name ?? "").startsWith(PREFIJO_FOLLOW_TRAS_ASESORA);
-  if (esTrasAsesora) {
+  /*
+    "Automatización: …" (13-10-2026): nunca a Ganado / Descartado / oculto del CRM (aunque "un solo
+    dueño" esté apagado), y tampoco si una persona le escribió después de agendado (ya lo atendió).
+    Tope total sí; "un solo dueño" no (sale a propósito sobre chats con asesora).
+  */
+  const esAutomatizacion = clase === "automatizacion";
+  if (esAutomatizacion) {
+    const contacto = await prisma.contact
+      .findUnique({ where: { id: follow.contactId }, select: { crmStage: true, excludedFromCrm: true } })
+      .catch(() => null);
+    if (!contacto || contacto.excludedFromCrm || contacto.crmStage === "GANADO" || contacto.crmStage === "PERDIDO") {
+      return { motivo: "etapa_cerrada", reprogramarPara: null, conversationId: null };
+    }
+  }
+  if (esTrasAsesora || esAutomatizacion) {
     const humanosDespues = await prisma.message
       .count({
         where: {
@@ -1710,7 +1724,7 @@ async function revisarAntiBloqueoDelFollow(
     workspaceId: follow.workspaceId,
     contactId: follow.contactId,
     channelId: follow.channelId,
-    medidas: { dueno: esAutomatico && !esToqueDeCadencia && !esTrasAsesora, tope: esAutomatico, etapa: esTrasAsesora },
+    medidas: { dueno: esAutomatico && !esToqueDeCadencia && !esTrasAsesora, tope: esAutomatico || esAutomatizacion, etapa: esTrasAsesora },
     ahora,
   });
   return resultado.enviar ? null : resultado;
@@ -1925,6 +1939,24 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
       reglaNombre: follow.name,
       datos: { followId: follow.id, acciones: salieron, clase },
     });
+    /*
+      Un envío de una AUTOMATIZACIÓN que salió: si el lead tenía vencida la tarea de la Recuperación
+      72 h, queda hecha (sale de las listas de llamadas). Import dinámico: recuperacion.ts importa
+      este archivo. No lanza.
+    */
+    if (clase === "automatizacion") {
+      const nombre = (follow.name ?? "").replace(/^Automatización:\s*/, "").replace(/\s*#[A-Za-z0-9-]+$/, "");
+      await import("@/features/seguimiento-inteligente/servicios/recuperacion")
+        .then(({ cerrarRecuperacionPorAutomatizacion }) =>
+          cerrarRecuperacionPorAutomatizacion({
+            workspaceId: follow.workspaceId,
+            contactId: follow.contactId,
+            channelId: follow.channelId,
+            automatizacion: nombre || "automatización",
+          }),
+        )
+        .catch(() => false);
+    }
   }
   return { ok: true as const, executionError };
 }

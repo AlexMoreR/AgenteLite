@@ -5,130 +5,135 @@ import { revalidatePath } from "next/cache";
 
 import { auth } from "@/auth";
 import {
-  contarLeads,
-  ejecutarAsignacion,
+  correrAutomatizacion,
+  detenerEnvios,
   guardarAutomatizaciones,
   leerAutomatizaciones,
+  validarReferencias,
+  vistaPrevia,
+  type Conteo,
+  type LeadDeLaVistaPrevia,
 } from "@/features/automatizaciones/servicio";
 import {
+  criteriosDelBorrador,
   limpiarAutomatizacion,
-  type AutomatizacionDeAsignacion,
+  problemaDelBorrador,
+  type Automatizacion,
   type BorradorDeAutomatizacion,
 } from "@/features/automatizaciones/tipos";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
-import { prisma } from "@/lib/prisma";
 
 const RUTA = "/cliente/automatizaciones";
 
 /**
- * Solo el dueno o un administrador del negocio. Mover leads de una asesora a otra en cantidad es
- * una decision de jefe; las asesoras siguen pudiendo pasar SUS chats uno por uno desde Chats.
+ * Solo el dueño, administradores y supervisoras. Mover o escribirle a leads en cantidad es una
+ * decisión de jefe; las asesoras siguen haciendo lo suyo chat por chat desde Chats.
  */
 async function accesoDeJefe() {
   const access = await requireClientWorkspaceAccess();
-  // Dueño, administradores y supervisoras (ver permisos-del-equipo.ts).
   return (await puedeSupervisar(access)) ? access : null;
 }
 
-async function validarReferencias(workspaceId: string, borrador: { asignarA: string; canalId: string | null; dueno: string }) {
-  const [destino, canal, duenoActual] = await Promise.all([
-    prisma.workspaceMember.findFirst({
-      where: { workspaceId, userId: borrador.asignarA, isActive: true },
-      select: { user: { select: { name: true, email: true } } },
-    }),
-    borrador.canalId
-      ? prisma.whatsAppChannel.findFirst({ where: { id: borrador.canalId, workspaceId }, select: { id: true } })
-      : Promise.resolve({ id: "" }),
-    borrador.dueno.startsWith("de:")
-      ? prisma.workspaceMember.findFirst({
-          where: { workspaceId, userId: borrador.dueno.slice(3) },
-          select: { userId: true },
-        })
-      : Promise.resolve({ userId: "" }),
-  ]);
-  if (!destino) return { error: "La persona a quien asignar no es del equipo" };
-  if (!canal) return { error: "Ese canal no es de este negocio" };
-  if (!duenoActual) return { error: "La persona de \"dueño actual\" no es del equipo" };
-  return { destinoNombre: destino.user?.name?.trim() || destino.user?.email || "un colaborador" };
-}
+const SIN_PERMISO = { error: "Solo el dueño o un administrador" } as const;
 
-export async function contarAutomatizacionAction(borrador: BorradorDeAutomatizacion) {
+export type RespuestaDeVistaPrevia = { error: string } | { conteo: Conteo; leads: LeadDeLaVistaPrevia[] };
+
+/** Cuántos y cuáles leads tomaría (la guardada por id, o el borrador del editor). */
+export async function vistaPreviaAction(entrada: { id?: string; borrador?: BorradorDeAutomatizacion }): Promise<RespuestaDeVistaPrevia> {
   const access = await accesoDeJefe();
-  if (!access) return { error: "Solo el dueño o un administrador" };
-  const limpia = limpiarAutomatizacion(borrador);
-  if (!limpia) return { total: 0, tomaria: 0, noLoVeria: 0 };
-  return contarLeads(access.workspaceId, limpia);
+  if (!access) return SIN_PERMISO;
+  if (entrada.id) {
+    const guardada = (await leerAutomatizaciones(access.workspaceId)).find((a) => a.id === entrada.id);
+    if (!guardada) return { error: "Esa automatización ya no existe" };
+    return vistaPrevia(access.workspaceId, guardada);
+  }
+  // Borrador: se cuenta con lo que tenga (sin nombre o sin acciones también).
+  if (!entrada.borrador) return { error: "Nada para contar" };
+  return vistaPrevia(access.workspaceId, { ...criteriosDelBorrador(entrada.borrador), id: entrada.borrador.id }, 20);
 }
 
 export async function guardarAutomatizacionAction(borrador: BorradorDeAutomatizacion) {
   const access = await accesoDeJefe();
-  if (!access) return { error: "Solo el dueño o un administrador" };
+  if (!access) return SIN_PERMISO;
 
+  const problema = problemaDelBorrador(borrador);
+  if (problema) return { error: problema };
   const limpia = limpiarAutomatizacion(borrador);
-  if (!limpia) return { error: "Falta el nombre o a quién asignar" };
+  if (!limpia) return { error: "Falta el nombre o una acción" };
   const referencias = await validarReferencias(access.workspaceId, limpia);
   if ("error" in referencias) return { error: referencias.error };
 
   const lista = await leerAutomatizaciones(access.workspaceId);
   const existente = borrador.id ? lista.find((item) => item.id === borrador.id) : undefined;
-  const guardada: AutomatizacionDeAsignacion = {
+  const guardada: Automatizacion = {
     ...limpia,
     id: existente?.id ?? randomUUID(),
-    ultimaEjecucion: existente?.ultimaEjecucion ?? null,
+    historial: existente?.historial ?? [],
+    ultimaAutomaticaEn: existente?.ultimaAutomaticaEn ?? null,
   };
-  const siguiente = existente
-    ? lista.map((item) => (item.id === guardada.id ? guardada : item))
-    : [...lista, guardada];
+  const siguiente = existente ? lista.map((item) => (item.id === guardada.id ? guardada : item)) : [...lista, guardada];
 
   await guardarAutomatizaciones(access.workspaceId, siguiente);
   revalidatePath(RUTA);
   return { ok: true as const };
 }
 
-export async function borrarAutomatizacionAction(id: string) {
+/** Prende / apaga "Automática" sin abrir el editor. */
+export async function cambiarAutomaticaAction(id: string, automatica: boolean) {
   const access = await accesoDeJefe();
-  if (!access) return { error: "Solo el dueño o un administrador" };
+  if (!access) return SIN_PERMISO;
   const lista = await leerAutomatizaciones(access.workspaceId);
+  if (!lista.some((a) => a.id === id)) return { error: "Esa automatización ya no existe" };
   await guardarAutomatizaciones(
     access.workspaceId,
-    lista.filter((item) => item.id !== id),
+    lista.map((a) => (a.id === id ? { ...a, automatica } : a)),
   );
   revalidatePath(RUTA);
   return { ok: true as const };
 }
 
-export async function ejecutarAutomatizacionAction(id: string) {
+export async function borrarAutomatizacionAction(id: string) {
   const access = await accesoDeJefe();
-  if (!access) return { error: "Solo el dueño o un administrador" };
-
+  if (!access) return SIN_PERMISO;
   const lista = await leerAutomatizaciones(access.workspaceId);
-  const automatizacion = lista.find((item) => item.id === id);
-  if (!automatizacion) return { error: "Esa automatización ya no existe" };
-
-  // Se revalida al ejecutar, no solo al guardar: la persona pudo irse del equipo desde entonces.
-  const referencias = await validarReferencias(access.workspaceId, automatizacion);
-  if ("error" in referencias) return { error: referencias.error };
-
-  const session = await auth();
-  const quien = session?.user?.name?.trim() || "Un administrador";
-
-  const asignados = await ejecutarAsignacion({
-    workspaceId: access.workspaceId,
-    criterios: automatizacion,
-    textoDeLaNota: `${quien} asignó a ${referencias.destinoNombre} (automatización «${automatizacion.nombre}»)`,
-  });
-
   await guardarAutomatizaciones(
     access.workspaceId,
-    lista.map((item) =>
-      item.id === id
-        ? { ...item, ultimaEjecucion: { fecha: new Date().toISOString(), asignados, por: quien } }
-        : item,
-    ),
+    lista.filter((item) => item.id !== id),
   );
+  // Lo que dejó agendado no sale sin su automatización.
+  await detenerEnvios(access.workspaceId, id);
+  revalidatePath(RUTA);
+  return { ok: true as const };
+}
+
+export async function detenerEnviosAction(id: string) {
+  const access = await accesoDeJefe();
+  if (!access) return SIN_PERMISO;
+  const detenidos = await detenerEnvios(access.workspaceId, id);
+  revalidatePath(RUTA);
+  return { ok: true as const, detenidos };
+}
+
+export async function ejecutarAutomatizacionAction(id: string) {
+  const access = await accesoDeJefe();
+  if (!access) return SIN_PERMISO;
+
+  const automatizacion = (await leerAutomatizaciones(access.workspaceId)).find((item) => item.id === id);
+  if (!automatizacion) return { error: "Esa automatización ya no existe" };
+
+  const session = await auth();
+  const quien = { id: session?.user?.id ?? null, nombre: session?.user?.name?.trim() || "Un administrador" };
+  const respuesta = await correrAutomatizacion({ workspaceId: access.workspaceId, automatizacion, quien, origen: "manual" });
 
   revalidatePath(RUTA);
   revalidatePath("/cliente/chats");
-  return { ok: true as const, asignados, destinoNombre: referencias.destinoNombre };
+  if ("error" in respuesta) return { error: respuesta.error };
+  return {
+    ok: true as const,
+    leads: respuesta.resultado.leads,
+    envios: respuesta.resultado.envios,
+    errores: respuesta.resultado.errores.length,
+    ultimaTandaEn: respuesta.resultado.ultimaTandaEn?.toISOString() ?? null,
+  };
 }
