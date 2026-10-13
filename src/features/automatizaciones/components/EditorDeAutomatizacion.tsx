@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { SelectorMultiple, SelectorUnico, type OpcionDeSelector } from "./SelectorConBusqueda";
 import {
   CAMPOS_DE_CONDICION,
   ETAPAS,
@@ -34,23 +35,10 @@ export type Catalogos = { miembros: Opcion[]; canales: Opcion[]; etiquetas: Opci
 
 const MOTIVOS_DE_PERDIDA = CRM_LOST_REASONS.filter((motivo) => motivo.value !== "otro");
 
-function Chip({ activo, onClick, children }: { activo: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full border px-2.5 py-1 text-[12px] font-medium transition ${
-        activo ? "border-[var(--primary)] bg-[var(--primary)]/10 text-foreground" : "border-border text-muted-foreground hover:bg-muted"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function alternar<T>(lista: T[], valor: T): T[] {
-  return lista.includes(valor) ? lista.filter((v) => v !== valor) : [...lista, valor];
-}
+const aOpciones = (lista: Opcion[]): OpcionDeSelector[] => lista.map((opcion) => ({ value: opcion.id, label: opcion.nombre }));
+const OPCIONES_DE_ETAPA: OpcionDeSelector[] = ETAPAS.map((etapa) => ({ value: etapa, label: getCrmStageMeta(etapa).label }));
+const OPCIONES_DE_ETAPA_DESTINO: OpcionDeSelector[] = ETAPAS_DESTINO.map((etapa) => ({ value: etapa, label: getCrmStageMeta(etapa).label }));
+const OPCIONES_DE_MOTIVO: OpcionDeSelector[] = MOTIVOS_DE_PERDIDA.map((motivo) => ({ value: motivo.value, label: motivo.label }));
 
 /* ------------------------------------------------------------------------------------------------
    UNA CONDICIÓN: campo ▾ | operador ▾ | valor | ×
@@ -68,38 +56,30 @@ function FilaDeCondicion({
   onQuitar: () => void;
 }) {
   const operadores = OPERADORES[condicion.campo];
-  const conValores = (opciones: Opcion[], valores: string[], cambiar: (v: string[]) => void) => (
-    <div className="flex flex-wrap gap-1.5">
-      {opciones.length === 0 ? <span className="text-[12px] text-muted-foreground">No hay opciones</span> : null}
-      {opciones.map((opcion) => (
-        <Chip key={opcion.id} activo={valores.includes(opcion.id)} onClick={() => cambiar(alternar(valores, opcion.id))}>
-          {opcion.nombre}
-        </Chip>
-      ))}
-    </div>
-  );
+  const campo = CAMPOS_DE_CONDICION.find((c) => c.campo === condicion.campo)?.etiqueta ?? "Valores";
+  const multiple = (opciones: OpcionDeSelector[]) =>
+    "valores" in condicion ? (
+      <SelectorMultiple
+        etiqueta={campo}
+        opciones={opciones}
+        valores={condicion.valores}
+        alCambiar={(valores) => onCambio({ ...condicion, valores } as Condicion)}
+      />
+    ) : null;
 
   let valor: React.ReactNode = null;
   switch (condicion.campo) {
     case "etapa":
-      valor = (
-        <div className="flex flex-wrap gap-1.5">
-          {ETAPAS.map((etapa) => (
-            <Chip key={etapa} activo={condicion.valores.includes(etapa)} onClick={() => onCambio({ ...condicion, valores: alternar(condicion.valores, etapa) })}>
-              {getCrmStageMeta(etapa).label}
-            </Chip>
-          ))}
-        </div>
-      );
+      valor = multiple(OPCIONES_DE_ETAPA);
       break;
     case "asignado":
-      valor = conValores([{ id: SIN_ASIGNAR, nombre: "Sin asignar" }, ...catalogos.miembros], condicion.valores, (valores) => onCambio({ ...condicion, valores }));
+      valor = multiple([{ value: SIN_ASIGNAR, label: "Sin asignar" }, ...aOpciones(catalogos.miembros)]);
       break;
     case "etiquetas":
-      valor = conValores(catalogos.etiquetas, condicion.valores, (valores) => onCambio({ ...condicion, valores }));
+      valor = multiple(aOpciones(catalogos.etiquetas));
       break;
     case "canal":
-      valor = conValores(catalogos.canales, condicion.valores, (valores) => onCambio({ ...condicion, valores }));
+      valor = multiple(aOpciones(catalogos.canales));
       break;
     case "dias_sin_responder":
     case "dias_sin_mensajes":
@@ -109,7 +89,8 @@ function FilaDeCondicion({
             type="number"
             min={1}
             inputMode="numeric"
-            className="w-20"
+            aria-label="Días"
+            className="h-8 w-20"
             value={condicion.dias || ""}
             onChange={(evento) => onCambio({ ...condicion, dias: Number(evento.target.value) || 0 })}
           />
@@ -118,40 +99,44 @@ function FilaDeCondicion({
       );
       break;
     case "recuperacion_vencida":
-      valor = <span className="text-[12px] text-muted-foreground">Tarea de llamada 72 h vencida (la de la alarma)</span>;
+      valor = <span className="flex min-h-8 items-center text-[12px] text-muted-foreground">Tarea de llamada 72 h vencida (la de la alarma)</span>;
       break;
   }
 
+  /*
+    Una sola fila: campo ▾ | operador ▾ | valor | ×. En el celular el valor baja a una segunda
+    línea a lo ancho (campo + operador + × arriba), pero sigue siendo la misma caja con buscador.
+  */
   return (
-    <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-2.5">
-      <div className="flex items-center gap-2">
-        <NativeSelect
-          className="min-w-0 flex-1"
-          value={condicion.campo}
-          onChange={(evento) => onCambio(condicionVacia(evento.target.value as CampoDeCondicion))}
-        >
-          {CAMPOS_DE_CONDICION.map((campo) => (
-            <NativeSelectOption key={campo.campo} value={campo.campo}>
-              {campo.etiqueta}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-        <NativeSelect
-          className="w-28 shrink-0"
-          value={condicion.operador}
-          onChange={(evento) => onCambio({ ...condicion, operador: evento.target.value } as Condicion)}
-        >
-          {operadores.map((op) => (
-            <NativeSelectOption key={op.valor} value={op.valor}>
-              {op.etiqueta}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-        <Button variant="ghost" size="icon-sm" aria-label="Quitar condición" onClick={onQuitar}>
-          <X className="size-4" />
-        </Button>
-      </div>
-      {valor}
+    <div className="flex flex-wrap items-start gap-2 rounded-xl border border-border bg-muted/30 p-2.5">
+      <NativeSelect
+        aria-label="Campo"
+        className="min-w-0 flex-1 sm:w-40 sm:flex-none"
+        value={condicion.campo}
+        onChange={(evento) => onCambio(condicionVacia(evento.target.value as CampoDeCondicion))}
+      >
+        {CAMPOS_DE_CONDICION.map((c) => (
+          <NativeSelectOption key={c.campo} value={c.campo}>
+            {c.etiqueta}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+      <NativeSelect
+        aria-label="Operador"
+        className="w-28 shrink-0"
+        value={condicion.operador}
+        onChange={(evento) => onCambio({ ...condicion, operador: evento.target.value } as Condicion)}
+      >
+        {operadores.map((op) => (
+          <NativeSelectOption key={op.valor} value={op.valor}>
+            {op.etiqueta}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+      <div className="order-last min-w-0 basis-full sm:order-none sm:basis-0 sm:flex-1">{valor}</div>
+      <Button variant="ghost" size="icon-sm" aria-label="Quitar condición" onClick={onQuitar}>
+        <X className="size-4" />
+      </Button>
     </div>
   );
 }
@@ -176,17 +161,12 @@ function FilaDeAccion({
   onQuitar: () => void;
 }) {
   const elegir = (opciones: Opcion[], valor: string, cambiar: (id: string) => void, vacio: string) => (
-    <NativeSelect value={valor} onChange={(evento) => cambiar(evento.target.value)}>
-      <NativeSelectOption value="">{vacio}</NativeSelectOption>
-      {opciones.map((opcion) => (
-        <NativeSelectOption key={opcion.id} value={opcion.id}>
-          {opcion.nombre}
-        </NativeSelectOption>
-      ))}
-    </NativeSelect>
+    <SelectorUnico etiqueta={vacio} placeholder={vacio} opciones={aOpciones(opciones)} valor={valor} alCambiar={cambiar} />
   );
 
   let valor: React.ReactNode = null;
+  // Un texto largo va siempre abajo, a lo ancho; lo demás va en la misma fila (en el celular, abajo).
+  let aLoAncho = false;
   switch (accion.tipo) {
     case "asignar":
       valor = elegir(catalogos.miembros, accion.usuarioId, (usuarioId) => onCambio({ ...accion, usuarioId }), "Elige una persona");
@@ -202,7 +182,8 @@ function FilaDeAccion({
             type="number"
             min={1}
             inputMode="numeric"
-            className="w-20"
+            aria-label="Días"
+            className="h-8 w-20"
             value={accion.dias ?? ""}
             onChange={(evento) => onCambio({ ...accion, dias: Number(evento.target.value) || null, hasta: null })}
           />
@@ -220,6 +201,7 @@ function FilaDeAccion({
       break;
     case "enviar_texto":
     case "nota":
+      aLoAncho = true;
       valor = (
         <Textarea
           rows={3}
@@ -232,28 +214,27 @@ function FilaDeAccion({
       break;
     case "cambiar_etapa":
       valor = (
-        <div className="space-y-2">
-          <NativeSelect
-            value={accion.etapa}
-            onChange={(evento) => {
-              const etapa = evento.target.value as Etapa;
+        <div className="flex flex-wrap gap-2">
+          <SelectorUnico
+            etiqueta="Etapa"
+            placeholder="Elige una etapa"
+            className="min-w-40 flex-1"
+            opciones={OPCIONES_DE_ETAPA_DESTINO}
+            valor={accion.etapa}
+            alCambiar={(nueva) => {
+              const etapa = nueva as Etapa;
               onCambio({ ...accion, etapa, motivoPerdida: etapa === "PERDIDO" ? accion.motivoPerdida ?? "sin_respuesta" : null });
             }}
-          >
-            {ETAPAS_DESTINO.map((etapa) => (
-              <NativeSelectOption key={etapa} value={etapa}>
-                {getCrmStageMeta(etapa).label}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
+          />
           {accion.etapa === "PERDIDO" ? (
-            <NativeSelect value={accion.motivoPerdida ?? ""} onChange={(evento) => onCambio({ ...accion, motivoPerdida: evento.target.value || null })}>
-              {MOTIVOS_DE_PERDIDA.map((motivo) => (
-                <NativeSelectOption key={motivo.value} value={motivo.value}>
-                  Motivo: {motivo.label}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
+            <SelectorUnico
+              etiqueta="Motivo de pérdida"
+              placeholder="Motivo"
+              className="min-w-40 flex-1"
+              opciones={OPCIONES_DE_MOTIVO}
+              valor={accion.motivoPerdida ?? ""}
+              alCambiar={(motivoPerdida) => onCambio({ ...accion, motivoPerdida: motivoPerdida || null })}
+            />
           ) : null}
         </div>
       );
@@ -265,22 +246,26 @@ function FilaDeAccion({
   }
 
   return (
-    <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-2.5">
-      <div className="flex items-center gap-2">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground">
-          {numero}
-        </span>
-        <NativeSelect
-          className="min-w-0 flex-1"
-          value={accion.tipo}
-          onChange={(evento) => onCambio(accionVacia(evento.target.value as TipoDeAccion))}
-        >
-          {TIPOS_DE_ACCION.map((tipo) => (
-            <NativeSelectOption key={tipo.tipo} value={tipo.tipo}>
-              {tipo.etiqueta}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+    <div className="flex flex-wrap items-start gap-2 rounded-xl border border-border bg-muted/30 p-2.5">
+      <span className="mt-1.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground">
+        {numero}
+      </span>
+      <NativeSelect
+        aria-label="Acción"
+        className={valor && !aLoAncho ? "min-w-0 flex-1 sm:w-48 sm:flex-none" : "min-w-0 flex-1"}
+        value={accion.tipo}
+        onChange={(evento) => onCambio(accionVacia(evento.target.value as TipoDeAccion))}
+      >
+        {TIPOS_DE_ACCION.map((tipo) => (
+          <NativeSelectOption key={tipo.tipo} value={tipo.tipo}>
+            {tipo.etiqueta}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+      {valor ? (
+        <div className={aLoAncho ? "order-last min-w-0 basis-full" : "order-last min-w-0 basis-full sm:order-none sm:basis-0 sm:flex-1"}>{valor}</div>
+      ) : null}
+      <div className="flex shrink-0 items-center">
         {onSubir ? (
           <Button variant="ghost" size="icon-sm" aria-label="Subir" onClick={onSubir}>
             <ArrowUp className="size-4" />
@@ -290,7 +275,6 @@ function FilaDeAccion({
           <X className="size-4" />
         </Button>
       </div>
-      {valor}
     </div>
   );
 }
