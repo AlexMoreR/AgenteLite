@@ -20,7 +20,6 @@ import {
   Package,
   PhoneCall,
   BookOpen,
-  Plug,
   Share2,
   Tags,
   Truck,
@@ -251,16 +250,7 @@ export function AppSidebar({
                     <span>Agente V3</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-                {/* Conectar Claude por MCP: mismo criterio, es de jefe (la clave ve todo el negocio). */}
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    render={<Link href="/cliente/claude" />}
-                    isActive={pathname.startsWith("/cliente/claude")}
-                  >
-                    <Plug />
-                    <span>Claude</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                {/* Conectar Claude por MCP ahora es una pestaña de Negocio (/cliente/negocio/claude). */}
               </SidebarMenu>
             ) : null}
             {contactsModule ? (

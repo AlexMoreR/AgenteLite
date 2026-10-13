@@ -8,7 +8,7 @@ import { publicarAgenteV2 } from "@/app/actions/agent-v2-actions";
 import { crearClaveMcp, revocarClaveMcp } from "@/lib/mcp/claves";
 import { deshacerCambioMcp } from "@/lib/mcp/cambios";
 
-const RUTA = "/cliente/claude";
+const RUTA = "/cliente/negocio/claude";
 
 /** Conectar Claude al negocio es decision del dueño o de un administrador. */
 async function accesoDeJefe() {
