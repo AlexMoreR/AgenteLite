@@ -803,6 +803,12 @@ export function avanzar(input: {
       a.estado = "YA_NO_APLICA";
       continue;
     }
+    // El cliente solo acusa recibo de algo ya acordado ("Sí señora, está bien" tras el cierre o su
+    // compromiso de pago, 13-10-2026): ya no es tarea, aunque estuviera escalada. Un pago nunca.
+    if (a.tipo !== "pago" && estadoDeEspera(chat, ahora).acuse) {
+      a.estado = "YA_NO_APLICA";
+      continue;
+    }
     if (a.estado === "ESCALADA") continue;
     if (a.fueraDeHorario) {
       if (horario) {

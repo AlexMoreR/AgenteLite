@@ -6,7 +6,7 @@ import { idsDelComboEnElLibro } from "../dominio/ids-del-combo";
 import { consolidar, severidadDelIncidente } from "../dominio/alertas";
 import { aplicaRevalidacion, aplicarRevalidaciones, quitarRevalidacion, revalidarIncidente } from "../dominio/revalidacion";
 import { agruparCambios, analizarHora, hallazgoDelCambioDelLibro, hallazgosDeArreglo } from "../dominio/analisis";
-import { detectarAtencion, esTurnoDelCliente } from "../dominio/detectores-atencion";
+import { detectarAtencion, esTurnoDelCliente, estadoDeEspera } from "../dominio/detectores-atencion";
 import { leerConfigTurno } from "@/lib/turno-config";
 import { CONFIG_TURNO_APAGADO } from "@/lib/turno-de-la-conversacion";
 import { escenariosDelCombo } from "../dominio/escenarios";
@@ -20,7 +20,7 @@ import { avisarTareasSinDuena, gestionarAcciones, leerConfigAccionable } from "@
 import { avisarAlDueno } from "./avisar";
 import { claveLibroVisto, negociosConSupervisor, revalidacionActiva } from "./config";
 import { chatsExcluidosDeAtencion, leerChatsAbiertos, leerFichasRecientes, leerFlujosDelLibro, leerLineaDelLibro, nombresDeAsesoras } from "./datos";
-import { purgarChatsExcluidos } from "../dominio/exclusiones";
+import { purgarAcusesConAcuerdo, purgarChatsExcluidos } from "../dominio/exclusiones";
 import {
   arreglosDeLosIncidentes,
   confirmarArreglo,
@@ -130,7 +130,10 @@ async function chequearAtencion(workspaceId: string, ahora: Date): Promise<numbe
   if (turno.activo && turno.asignadoSinRespuesta === "turno") {
     for (const chat of chats) if (esTurnoDelCliente(chat)) excluidos.add(chat.conversationId);
   }
-  const { incidentes: abiertos } = purgarChatsExcluidos(abiertosCrudos, excluidos, ahora);
+  const { incidentes: purgados } = purgarChatsExcluidos(abiertosCrudos, excluidos, ahora);
+  // El cliente solo acusa recibo de algo ya acordado: sale de las alertas abiertas (menos las de pago).
+  const conAcuse = new Set(chats.filter((chat) => estadoDeEspera(chat, ahora).acuse).map((chat) => chat.conversationId));
+  const { incidentes: abiertos } = purgarAcusesConAcuerdo(purgados, conAcuse, ahora);
   const resultado = consolidar({ abiertos, hallazgos, ahora, cambios: [], familiasEvaluadas: ["ATENCION"] });
   await guardarIncidentes(workspaceId, resultado.incidentes, ahora);
   // Con el accionable, avisarAlDueno deja fuera las alertas de chat: las maneja gestionarAcciones.

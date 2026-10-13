@@ -1081,4 +1081,156 @@ await prueba("tarjeta de incidente: lleva a la alerta concreta (?alerta=<clave>#
   servicio.olvidarConfigAccionable();
 });
 
+/* ------------------------------------------------------------------ solo acusa recibo de un acuerdo (13-10-2026) */
+
+const acuse = cargar("src/features/supervisor/dominio/acuse-con-acuerdo.ts", mocks);
+const exclusionesAcuse = cargar("src/features/supervisor/dominio/exclusiones.ts", mocks);
+// Martes 13-oct-2026, horas de Bogotá (UTC-5).
+const bog = (hhmm) => new Date(`2026-10-13T${String(Number(hhmm.slice(0, 2)) + 5).padStart(2, "0")}:${hhmm.slice(3)}:00Z`);
+const ev = (direccion, hhmm, texto, extra = {}) => ({ direccion, tipo: "TEXT", origen: direccion === "OUT" ? "manual" : null, texto, en: bog(hhmm), ...extra });
+const DATOS_COTIZACION = "Datos de Cotización\nNombre: Danna\nCiudad: Bogotá\nDirección: Calle 10 # 5-20\nProducto: combo camilla";
+/** La charla real (13-oct, Ventas 1, etapa Caliente, asesora María), sin teléfonos. */
+const CHARLA_REAL = [
+  ev("IN", "11:30", DATOS_COTIZACION),
+  ev("OUT", "11:38", null, { tipo: "AUDIO" }),
+  ev("IN", "11:42", "Si señora esta correcto"),
+  ev("IN", "11:46", "En la tarde"),
+  ev("IN", "11:46", "ella se llama Danna"),
+  ev("IN", "11:46", "apenas ella esta alla"),
+  ev("IN", "11:46", "te enviaria la transferencia"),
+  ev("IN", "11:46", "es el 50%"),
+  ev("IN", "11:46", "cierto"),
+  ev("OUT", "11:47", null, { tipo: "AUDIO" }),
+  ev("IN", "11:48", "Mil gracias"),
+  ev("OUT", "11:49", "Gracias a ti"),
+  ev("OUT", "12:57", "¡Hola! ¿Pudiste ver lo que te envié? 😊 Si tienes alguna duda, aquí estoy.", { origen: "follow" }),
+  ev("IN", "13:20", "Si señora está bien"),
+];
+const AHORA_REAL = bog("15:20");
+function chatReal(extra = {}, mensajes = CHARLA_REAL) {
+  const delCliente = mensajes.filter((m) => m.direccion === "IN");
+  const ultimaHumana = [...mensajes].reverse().find((m) => m.direccion === "OUT" && m.origen === "manual");
+  return maria({
+    conversationId: "real",
+    etapa: "NEGOCIACION",
+    nombreCliente: "Danna",
+    asignadaEn: null,
+    ultimoClienteEn: delCliente.at(-1).en,
+    ultimaRespuestaHumanaEn: ultimaHumana.en,
+    textosPendientes: delCliente.filter((m) => m.en > ultimaHumana.en).map((m) => m.texto ?? ""),
+    textosDelCliente: delCliente.map((m) => m.texto ?? ""),
+    mensajes,
+    ...extra,
+  });
+}
+const conPendiente = (...textos) => [...CHARLA_REAL.slice(0, -1), ...textos.map((t) => ev("IN", "13:20", t))];
+
+await prueba("acuse real (13-oct): «Si señora está bien» tras datos + compromiso de pago + cierre → NO es caliente esperando, ni aviso ni escalada", () => {
+  const sin = chatReal({ mensajes: undefined });
+  // Sin los mensajes del chat (como antes): el detector lo tomaba como caliente esperando 2 h.
+  assert.ok(det.detectarAtencion([sin], AHORA_REAL).some((h) => h.clave === "ATENCION:caliente-esperando:maria"), "reproduce la falla sin mensajes");
+  const real = chatReal();
+  const e = det.estadoDeEspera(real, AHORA_REAL);
+  assert.equal(e.esperando, true);
+  assert.equal(e.cierre, true);
+  assert.ok(e.acuse, "solo acusa recibo de un acuerdo");
+  assert.equal(e.acuse.tipo, "compromiso");
+  assert.ok(!det.detectarAtencion([real], AHORA_REAL).some((h) => h.evidencia.chats.includes("real")), "ningún hallazgo con el chat");
+  assert.deepEqual(r.calientesFueraDeHorario([real], AHORA_REAL, 15), []);
+  const res = vuelta(r.estadoVacio(), { chats: [real], hallazgos: det.detectarAtencion([real], AHORA_REAL), ahora: AHORA_REAL });
+  assert.deepEqual(res.eventos, []);
+  assert.deepEqual(Object.keys(res.estado.acciones), []);
+});
+
+await prueba("acuse: el mensaje sugerido no pide cotización / ciudad y cantidad a quien ya dio sus datos y prometió pagar", () => {
+  for (const chat of [chatReal(), chatReal({ mensajes: undefined })]) {
+    const s = det.sugeridoParaElChat(chat, AHORA_REAL, "Danna");
+    assert.ok(!/cotizaci[oó]n|ciudad y la cantidad/i.test(s), `sugerido incoherente: ${s}`);
+  }
+  assert.match(det.sugeridoParaElChat(chatReal(), AHORA_REAL, "Danna"), /la transferencia que me ibas a enviar en la tarde/);
+  // Solo con los textos del cliente (sin mensajes): retoma los datos ya enviados.
+  const soloDatos = chatReal({ mensajes: undefined, textosDelCliente: [DATOS_COTIZACION, "Si señora esta correcto"] });
+  assert.match(det.sugeridoParaElChat(soloDatos, AHORA_REAL, "Danna"), /Ya tengo tus datos del pedido/);
+  // Sin acuerdo, el que pide cotización sigue recibiendo la plantilla de cotización.
+  const pide = maria({ textosPendientes: ["me puedes enviar la cotización"], textosDelCliente: ["me puedes enviar la cotización"] });
+  assert.match(det.sugeridoParaElChat(pide, T0, "Laura"), /Te preparo la cotización/);
+});
+
+await prueba("acuse: SIGUE siendo tarea si el acuse trae pregunta o señal de compra nueva, o contesta una pregunta de la asesora", () => {
+  const sigue = (mensajes, motivo) => {
+    const chat = chatReal({}, mensajes);
+    const e = det.estadoDeEspera(chat, AHORA_REAL);
+    assert.equal(e.acuse, null, motivo);
+    assert.equal(e.cierre, false, motivo);
+    assert.ok(det.detectarAtencion([chat], AHORA_REAL).some((h) => h.clave === "ATENCION:caliente-esperando:maria"), motivo);
+  };
+  sigue(conPendiente("ok, y el envío cuánto?"), "pregunta por el envío");
+  sigue(conPendiente("ok y el envio cuanto sale"), "pregunta sin signo");
+  sigue(conPendiente("de una"), "aceptar es señal de compra");
+  sigue(conPendiente("listo", "quiero también la silla"), "pide algo nuevo");
+  // La asesora preguntó y el cliente dice "sí": es una respuesta, no un acuse.
+  const pregunta = [...CHARLA_REAL.slice(0, 11), ev("OUT", "11:49", "¿Te separo también el lavacabezas?"), ev("IN", "13:20", "Si señora")];
+  sigue(pregunta, "sí a una pregunta de la asesora");
+  // Sin persona en el chat no hay acuerdo con nadie.
+  const soloBot = [ev("IN", "11:30", DATOS_COTIZACION), ev("OUT", "11:31", "Gracias, ya te atiende una asesora", { origen: null }), ev("IN", "13:20", "ok")];
+  assert.equal(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: soloBot }), null);
+});
+
+await prueba("acuse: cierre solo, y acuse que contesta a un seguimiento automático, tampoco son tarea", () => {
+  const cierre = [
+    ev("IN", "10:00", "Cuánto vale la camilla?"),
+    ev("OUT", "10:05", "Vale $890.000 con envío incluido"),
+    ev("IN", "10:10", "Muchas gracias"),
+    ev("OUT", "10:11", "Con gusto"),
+    ev("IN", "10:30", "👍"),
+  ];
+  assert.equal(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: cierre })?.tipo, "cierre");
+  const automatico = [
+    ev("IN", "10:00", "Me mandas fotos del lavacabezas"),
+    ev("OUT", "10:05", "Claro, aquí están las fotos 😊"),
+    ev("OUT", "11:05", "¡Hola! ¿Pudiste ver lo que te envié? 😊", { origen: "follow" }),
+    ev("IN", "11:30", "Si"),
+  ];
+  assert.equal(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: automatico })?.tipo, "seguimiento_automatico");
+  // La asesora había preguntado: el "sí" al automático no basta (puede ser un sí a la compra).
+  const pregunto = [automatico[0], ev("OUT", "10:05", "Aquí están las fotos. ¿Te lo separo?"), ...automatico.slice(2)];
+  assert.equal(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: pregunto }), null);
+  // Sticker después del cierre también es acuse.
+  const sticker = [...CHARLA_REAL.slice(0, -1), ev("IN", "13:20", null, { tipo: "STICKER" })];
+  assert.ok(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: sticker }));
+});
+
+await prueba("acuse: una acción abierta (aunque ESCALADA) se cierra como YA_NO_APLICA en la siguiente vuelta; un PAGO no", () => {
+  const sin = chatReal({ mensajes: undefined });
+  const h = det.detectarAtencion([sin], AHORA_REAL);
+  let res = vuelta(r.estadoVacio(), { chats: [sin], hallazgos: h, ahora: AHORA_REAL });
+  res = vuelta(res.estado, { chats: [sin], hallazgos: h, ahora: mas(AHORA_REAL, 15) });
+  res = vuelta(res.estado, { chats: [sin], ahora: mas(AHORA_REAL, 25) });
+  assert.equal(res.estado.acciones.real.estado, "ESCALADA");
+  res = vuelta(res.estado, { chats: [chatReal()], ahora: mas(AHORA_REAL, 30) });
+  assert.equal(res.estado.acciones.real.estado, "YA_NO_APLICA");
+  assert.deepEqual(res.eventos, []);
+  // Pago: nunca se cierra por acuse.
+  const pago = vuelta(r.estadoVacio(), { chats: [sin], hallazgos: [hallazgo("ATENCION:pago-sin-respuesta:maria", ["real"])], ahora: AHORA_REAL });
+  assert.equal(pago.estado.acciones.real.tipo, "pago");
+  const despues = vuelta(pago.estado, { chats: [chatReal()], ahora: mas(AHORA_REAL, 5) });
+  assert.equal(despues.estado.acciones.real.estado, "AVISADA");
+});
+
+await prueba("acuse: la alerta de atención abierta suelta el chat y se cierra RESUELTA si queda vacía; la de pago no se toca", () => {
+  const inc = (clave, chats) => ({ clave, familia: "ATENCION", severidad: "IMPORTANTE", estado: "ABIERTA", titulo: clave, primeraVezEn: T0, hallazgos: [hallazgo(clave, chats)] });
+  const abiertos = [
+    inc("ATENCION:caliente-esperando:maria", ["real"]),
+    inc("ATENCION:caliente-esperando:ingrid", ["real", "otro"]),
+    inc("ATENCION:pago-sin-respuesta:maria", ["real"]),
+  ];
+  const { incidentes, cambiados } = exclusionesAcuse.purgarAcusesConAcuerdo(abiertos, new Set(["real"]), AHORA_REAL);
+  assert.equal(cambiados, 2);
+  assert.equal(incidentes[0].estado, "RESUELTA");
+  assert.equal(incidentes[1].estado, "ABIERTA");
+  assert.deepEqual(incidentes[1].hallazgos[0].evidencia.chats, ["otro"]);
+  assert.deepEqual(incidentes[2], abiertos[2]);
+});
+
+
 console.log(`\n${pruebas} pruebas OK`);

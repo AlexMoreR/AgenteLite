@@ -14,7 +14,9 @@ import { calificar, type Calificacion } from "../../seguimiento-inteligente/domi
 import { motivoDeExclusion } from "./exclusiones";
 import { horaBogota, diaSemanaBogota } from "./linea-base";
 import type { Hallazgo } from "./tipos";
-import type { TurnoDeLaConversacion } from "../../../lib/turno-de-la-conversacion";
+import type { EventoDelChat, TurnoDeLaConversacion } from "../../../lib/turno-de-la-conversacion";
+import { acuerdoDeCompra, mensajeDelAcuerdo, soloAcusaReciboDeUnAcuerdo, type AcuerdoPrevio } from "./acuse-con-acuerdo";
+import { senalPrincipal } from "../../seguimiento-inteligente/dominio/mensajes";
 import { esAgradecimientoSinPendiente, normalizarParaCierre } from "../../../lib/cierre-de-conversacion";
 
 export { esAgradecimientoSinPendiente };
@@ -55,6 +57,11 @@ export type ChatAbierto = {
    * CLIENTE el chat NO está "esperando": ni alertas, ni avisos, ni tareas.
    */
   turno?: TurnoDeLaConversacion | null;
+  /**
+   * Los últimos mensajes y notas del chat (los mismos 40 del turno). Con ellos se sabe si el cliente
+   * solo acusa recibo de algo ya acordado (acuse-con-acuerdo.ts); sin ellos, todo como antes.
+   */
+  mensajes?: EventoDelChat[] | null;
 };
 
 export type HorarioLaboral = { desde: number; hasta: number; dias: number[] };
@@ -173,8 +180,13 @@ export function esTurnoDelCliente(chat: Pick<ChatAbierto, "turno">): boolean {
 export type EstadoDeEspera = {
   chat: ChatAbierto;
   esperando: boolean;
-  /** El último mensaje del cliente es una despedida / gracias / emojis / auto-respuesta / sin texto. */
+  /**
+   * El último mensaje del cliente es una despedida / gracias / emojis / auto-respuesta / sin texto, o
+   * solo acusa recibo de algo ya acordado (ver `acuse`).
+   */
   cierre: boolean;
+  /** El cliente solo acusa recibo ("Sí señora, está bien") de un acuerdo previo (13-10-2026). */
+  acuse: AcuerdoPrevio | null;
   minutos: number;
   minutosLaborales: number;
   senalFuerte: boolean;
@@ -192,10 +204,12 @@ export function estadoDeEspera(chat: ChatAbierto, ahora: Date, horario = HORARIO
   const senales = chat.textosPendientes.flatMap((t) => detectarSenales(t).map((s) => ({ ...s, texto: t })));
   const fuerte = senales.find((s) => s.grupo === "fuerte");
   const cualquiera = senales.find(esSenalDeCompra);
+  const acuse = esperando ? soloAcusaReciboDeUnAcuerdo(chat, horario) : null;
   return {
     chat,
     esperando,
-    cierre: esperando && ultimoEsCierre(chat),
+    cierre: esperando && (ultimoEsCierre(chat) || Boolean(acuse)),
+    acuse,
     minutos: esperando ? Math.floor((ahora.getTime() - (chat.ultimoClienteEn as Date).getTime()) / MIN) : 0,
     minutosLaborales: esperando ? minutosLaborales(chat.ultimoClienteEn as Date, ahora, horario) : 0,
     senalFuerte: Boolean(fuerte),
@@ -407,6 +421,9 @@ export function interesDelLead(chat: ChatAbierto, ahora: Date): InteresDelLead {
  *  - Producto = `productoDelChat` (si pidió "solo la camilla", es la camilla, no el combo; si no, el más reciente).
  *  - "¡Excelente elección! … en color X" solo con color elegido de verdad y producto claro.
  *  - Sin señal útil → neutro: "¡Hola! ¿Te quedó alguna duda? Con gusto te ayudo 😊".
+ *  - Ya hay acuerdo de compra (mandó sus datos, prometió el pago, compromiso con momento): nunca
+ *    "Te preparo la cotización… ¿Me confirmas la ciudad y la cantidad?"; se retoma lo acordado
+ *    (13-10-2026). Si lo pendiente trae otra señal útil (envío, color…), se responde a esa.
  */
 export function sugeridoParaElChat(chat: ChatAbierto, ahora: Date, nombre: string | null): string {
   const delCliente = chat.textosDelCliente ?? [];
@@ -418,6 +435,11 @@ export function sugeridoParaElChat(chat: ChatAbierto, ahora: Date, nombre: strin
     (s) => s.grupo !== "negativa" && s.tipo !== "dijo_servicio" && (s.tipo !== "eligio_color" || Boolean(s.valor && producto)),
   );
   const senales = util ? dePendientes : interesDelLead(chat, ahora).calificacion.senales;
+  if (!util || senalPrincipal(senales, producto, true)?.tipo === "pide_cotizacion") {
+    const acuerdo = acuerdoDeCompra(chat);
+    const retomar = acuerdo ? mensajeDelAcuerdo(acuerdo, nombre) : null;
+    if (retomar) return retomar;
+  }
   return mensajePorSenales({ nombre, producto, senales, esperando: true });
 }
 
@@ -456,6 +478,8 @@ export function detectarAsignadoSinRespuesta(
     if (minutos < u.asignadoSinRespuestaMin) continue;
     // El último mensaje del cliente es un cierre ("muchas gracias", "feliz noche"…): no espera nada.
     if (ultimoEsCierre(chat)) continue;
+    // Solo acusa recibo de algo ya acordado ("Mil gracias" → "Gracias a ti" → "Sí señora, está bien").
+    if (soloAcusaReciboDeUnAcuerdo(chat, HORARIO_POR_DEFECTO)) continue;
     const interes = interesDelLead(chat, ahora);
     if (!interes.interesado) continue;
     const sugerido = sugeridoParaElChat(chat, ahora, chat.nombreCliente ?? null);

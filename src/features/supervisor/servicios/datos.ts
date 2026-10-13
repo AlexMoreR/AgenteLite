@@ -121,7 +121,7 @@ type FilaDeChat = {
   asignadaA: string | null;
   temperatura: string | null;
   nombreCliente: string | null;
-  /** Solo con el turno prendido: los últimos 40 mensajes y notas (JSON). */
+  /** Los últimos 40 mensajes y notas (JSON): turno y "solo acusa recibo de un acuerdo". */
   eventos?: Array<{ d: string; t: string; o: string | null; x: string | null; en: string }> | null;
 };
 
@@ -130,7 +130,7 @@ function fechaUtc(texto: string): Date {
   return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(texto) ? texto : `${texto}Z`);
 }
 
-/** Los últimos 40 mensajes y notas de cada chat, para el turno (solo con el interruptor). */
+/** Los últimos 40 mensajes y notas de cada chat: turno (con su interruptor) y acuse con acuerdo (siempre). */
 const LATERAL_EVENTOS_DEL_TURNO = Prisma.sql`
       LEFT JOIN LATERAL (
         SELECT json_agg(json_build_object('d', e."d", 't', e."t", 'o', e."o", 'x', e."x", 'en', e."createdAt") ORDER BY e."createdAt") AS "eventos" FROM (
@@ -140,16 +140,20 @@ const LATERAL_EVENTOS_DEL_TURNO = Prisma.sql`
            WHERE m."conversationId" = c."id"
            ORDER BY m."createdAt" DESC LIMIT 40) e) ev ON true`;
 
-/** El turno de un chat a partir de su fila (lib/turno-de-la-conversacion.ts). */
-export function turnoDeLaFila(fila: Pick<FilaDeChat, "eventos" | "etapa" | "temperatura" | "asesoraId" | "ultimaRespuestaHumanaEn" | "textos">): TurnoDeLaConversacion {
-  const eventos: EventoDelChat[] = (fila.eventos ?? []).map((e) => ({
+/** Los mensajes y notas de la fila, como eventos del chat. */
+function eventosDeLaFila(fila: Pick<FilaDeChat, "eventos">): EventoDelChat[] {
+  return (fila.eventos ?? []).map((e) => ({
     direccion: e.d === "INBOUND" ? "IN" : "OUT",
     tipo: e.t,
     origen: e.o,
     texto: e.x,
     en: fechaUtc(e.en),
   }));
-  return turnoDeLaConversacion(eventos, {
+}
+
+/** El turno de un chat a partir de su fila (lib/turno-de-la-conversacion.ts). */
+export function turnoDeLaFila(fila: Pick<FilaDeChat, "eventos" | "etapa" | "temperatura" | "asesoraId" | "ultimaRespuestaHumanaEn" | "textos">): TurnoDeLaConversacion {
+  return turnoDeLaConversacion(eventosDeLaFila(fila), {
     caliente: esCaliente({ etapa: fila.etapa, temperatura: fila.temperatura }),
     asignada: Boolean(fila.asesoraId),
     tuvoContactoHumano: Boolean(fila.ultimaRespuestaHumanaEn),
@@ -246,8 +250,8 @@ export async function leerChatsAbiertos(input: {
            ct."crmStage"::text AS "etapa", c."automationPaused" AS "pausado",
            cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", txt."textos",
            ct."phoneNumber" AS "telefono", ct."metadata", l."dormidoHasta", todos."textosCliente",
-           asg."createdAt" AS "asignadaEn", asg."asignadaA", l."temperatura", ct."name" AS "nombreCliente"
-           ${input.conTurno ? Prisma.sql`, ev."eventos"` : Prisma.empty}
+           asg."createdAt" AS "asignadaEn", asg."asignadaA", l."temperatura", ct."name" AS "nombreCliente",
+           ev."eventos"
       FROM "Conversation" c
       JOIN "Contact" ct ON ct."id" = c."contactId"
       LEFT JOIN "User" u ON u."id" = c."assignedToUserId"
@@ -274,7 +278,7 @@ export async function leerChatsAbiertos(input: {
              AND (hum."createdAt" IS NULL OR m."createdAt" > hum."createdAt")
            ORDER BY m."createdAt" DESC LIMIT 5) t) txt ON true
       ${LATERAL_TEXTOS_DEL_CLIENTE}
-      ${input.conTurno ? LATERAL_EVENTOS_DEL_TURNO : Prisma.empty}
+      ${LATERAL_EVENTOS_DEL_TURNO}
      WHERE c."channelId" IN (${Prisma.join(lineas)})
        AND c."status" = 'OPEN'
        AND c."lastMessageAt" >= ${desde}`);
@@ -293,6 +297,7 @@ export async function leerChatsAbiertos(input: {
     asignadaEn: fila.asignadaEn && (!fila.asignadaA || fila.asignadaA === fila.asesoraId) ? new Date(fila.asignadaEn) : null,
     temperatura: fila.temperatura,
     nombreCliente: fila.nombreCliente,
+    mensajes: eventosDeLaFila(fila),
     ...(input.conTurno ? { turno: turnoDeLaFila(fila) } : {}),
   }));
 }

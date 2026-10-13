@@ -52,6 +52,19 @@ function lineaDeChat(texto: string, excluidos: Set<string>): boolean {
 }
 
 /**
+ * Chats donde el cliente solo acusa recibo de algo ya acordado (acuse-con-acuerdo.ts, 13-10-2026):
+ * salen de las alertas de atención abiertas (caliente, señal sin dueña, asignado…) y la que queda
+ * vacía se cierra como RESUELTA en la siguiente vuelta. Las de "ya pagué" / comprobante no se tocan.
+ */
+export function purgarAcusesConAcuerdo(abiertos: Incidente[], conAcuse: Set<string>, ahora: Date): { incidentes: Incidente[]; cambiados: number } {
+  if (conAcuse.size === 0) return { incidentes: abiertos, cambiados: 0 };
+  const esPago = (inc: Incidente) => inc.clave.startsWith("ATENCION:pago-sin-respuesta");
+  const { incidentes, cambiados } = purgarChatsExcluidos(abiertos.filter((inc) => !esPago(inc)), conAcuse, ahora);
+  const purgados = new Map(incidentes.map((inc) => [inc.clave, inc]));
+  return { incidentes: abiertos.map((inc) => (esPago(inc) ? inc : (purgados.get(inc.clave) ?? inc))), cambiados };
+}
+
+/**
  * Saca de las alertas de ATENCIÓN abiertas los chats excluidos. Un hallazgo que queda sin chats se
  * quita; una alerta que queda sin hallazgos se CIERRA ya (no espera los 15 min de "dejó de verse").
  * Las alertas de bot, embudo y cambio no se tocan: sus chats son ejemplos del incidente.
