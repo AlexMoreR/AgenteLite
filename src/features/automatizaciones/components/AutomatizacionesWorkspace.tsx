@@ -339,7 +339,7 @@ export function AutomatizacionesWorkspace({
 
       {/* Vista previa: cuántos y cuáles, con su chat. */}
       <Dialog open={Boolean(previa)} onOpenChange={(abierto) => (!abierto ? setPrevia(null) : undefined)}>
-        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-lg overflow-y-auto">
+        <DialogContent className="h-[100dvh] max-h-[100dvh] w-screen max-w-none rounded-none ring-0 sm:h-auto sm:max-h-[90dvh] sm:w-full sm:max-w-3xl sm:rounded-xl sm:ring-1 overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Vista previa · {previa?.automatizacion.nombre}</DialogTitle>
             <DialogDescription>
@@ -429,7 +429,7 @@ export function AutomatizacionesWorkspace({
 
       {/* Editor */}
       <Dialog open={Boolean(editor)} onOpenChange={(abierto) => (!abierto ? setEditor(null) : undefined)}>
-        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-lg overflow-y-auto">
+        <DialogContent className="h-[100dvh] max-h-[100dvh] w-screen max-w-none rounded-none ring-0 sm:h-auto sm:max-h-[90dvh] sm:w-full sm:max-w-3xl sm:rounded-xl sm:ring-1 overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editor?.id ? "Editar automatización" : "Nueva automatización"}</DialogTitle>
             <DialogDescription className="sr-only">Si se cumplen las condiciones, se hacen las acciones.</DialogDescription>
