@@ -7,6 +7,10 @@
  * Interruptores (todos apagados por defecto):
  *  - calificacion.activo: calcula temperatura FRÍO/TIBIO/CALIENTE con motivo y producto ("en sombra").
  *  - motor.modo: "apagado" | "sombra" (solo registra lo que HARÍA) | "activo" (ejecuta).
+ *  - motor.excepcionesActivas (solo con motor.modo = "sombra"; Alexander 13-10-2026): con
+ *    ["formulario", "cotizacion"] el motor ACTÚA solo en el pedido de datos sin respuesta y en la
+ *    cotización sin respuesta (tareas en Mi día, prioridad, tope y reparto). Todo lo demás sigue en
+ *    sombra y NUNCA frena, reemplaza ni suprime los automáticos. Vacío = la sombra de siempre.
  *  - cadencia.descarte: "apagado" | "sombra" | "activo" (descartar tras los toques sin respuesta).
  *  - exterior.activo: atender una vez y excluir a los teléfonos de fuera de Colombia.
  *  - formulario.activo (PRENDIDO por defecto, solo actúa con el motor en sombra/activo): tareas a
@@ -20,6 +24,16 @@ import { RECURSOS_POR_DEFECTO, type Recurso } from "./producto";
 
 export type ModoDelMotor = "apagado" | "sombra" | "activo";
 
+/** Lo que el motor puede ejecutar estando en sombra (`motor.excepcionesActivas`). */
+export type ExcepcionDelMotor = "formulario" | "cotizacion";
+export const EXCEPCIONES_DEL_MOTOR: ExcepcionDelMotor[] = ["formulario", "cotizacion"];
+
+/** Los motivos de decisión (dominio/motor.ts) que pertenecen a cada excepción. */
+export const MOTIVOS_DE_EXCEPCION: Record<ExcepcionDelMotor, string[]> = {
+  formulario: ["formulario_sin_respuesta", "formulario_esperando_escalon"],
+  cotizacion: ["cotizacion_sin_respuesta", "cotizacion_esperando_escalon"],
+};
+
 export type ConfigSeguimientoInteligente = {
   calificacion: {
     activo: boolean;
@@ -30,6 +44,13 @@ export type ConfigSeguimientoInteligente = {
   };
   motor: {
     modo: ModoDelMotor;
+    /**
+     * SOLO EXCEPCIONES (Alexander, 13-10-2026: "prender el inteligente solo para formulario y
+     * cotización"). Con `modo: "sombra"`, las decisiones de estas reglas se EJECUTAN como en activo
+     * (tarea en Mi día, prioridad, tope y reparto) y el resto sigue en sombra. Con "activo" o
+     * "apagado" no cambia nada. Vacío (por defecto) = la sombra de siempre.
+     */
+    excepcionesActivas: ExcepcionDelMotor[];
     /** Minutos de silencio (después de que LEYÓ) antes del mensaje útil a un Frío. */
     minutosParaMensajeUtil: number;
     /** Pasado esto desde nuestro último mensaje, ya no se le manda el mensaje útil. */
@@ -167,6 +188,7 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
   calificacion: { activo: false, caidaPorDia: 1, precioConProductoEsTibio: true },
   motor: {
     modo: "apagado",
+    excepcionesActivas: [],
     minutosParaMensajeUtil: 60,
     horasMaximasMensajeUtil: 48,
     maxMensajesUtiles: 1,
@@ -311,6 +333,9 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
     },
     motor: {
       modo: modo(mot.modo),
+      excepcionesActivas: Array.isArray(mot.excepcionesActivas)
+        ? EXCEPCIONES_DEL_MOTOR.filter((e) => (mot.excepcionesActivas as unknown[]).includes(e))
+        : d.motor.excepcionesActivas,
       minutosParaMensajeUtil: numero(mot.minutosParaMensajeUtil, d.motor.minutosParaMensajeUtil, 5, 7 * 24 * 60),
       horasMaximasMensajeUtil: numero(mot.horasMaximasMensajeUtil, d.motor.horasMaximasMensajeUtil, 1, 30 * 24),
       maxMensajesUtiles: Math.round(numero(mot.maxMensajesUtiles, d.motor.maxMensajesUtiles, 0, 3)),
@@ -369,6 +394,17 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
       aprobadorId: typeof rec.aprobadorId === "string" && rec.aprobadorId.trim() ? rec.aprobadorId.trim() : null,
     },
   };
+}
+
+/** Las excepciones que de verdad actúan: solo con el motor en sombra (en activo ya actúa todo). */
+export function excepcionesQueActuan(config: ConfigSeguimientoInteligente): ExcepcionDelMotor[] {
+  return config.motor.modo === "sombra" ? (config.motor.excepcionesActivas ?? []) : [];
+}
+
+/** ¿Este motivo de decisión es de una excepción que actúa (formulario / cotización)? */
+export function esExcepcionQueActua(motivo: string | null | undefined, config: ConfigSeguimientoInteligente): boolean {
+  if (!motivo) return false;
+  return excepcionesQueActuan(config).some((e) => MOTIVOS_DE_EXCEPCION[e].includes(motivo));
 }
 
 /** ¿Hay algo prendido? (para salir rápido en el reloj y en el webhook). */

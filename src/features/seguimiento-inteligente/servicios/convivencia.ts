@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 
 import { leerMarcaExterior } from "../dominio/exterior";
-import type { ConfigSeguimientoInteligente } from "../dominio/config";
+import { esExcepcionQueActua, excepcionesQueActuan, type ConfigSeguimientoInteligente } from "../dominio/config";
 import { evaluarLead } from "../dominio/motor";
 import { leerConfigSeguimiento } from "./config";
 
@@ -15,6 +15,13 @@ import { leerConfigSeguimiento } from "./config";
  *    dice (`reemplazarGenericosEnFrios`, reglas del V3 elegidas y/o seguimientos de etapa);
  *  - teléfono fuera de Colombia (interruptor `exterior`) → nada (motivo `fuera_de_colombia`).
  * Los mensajes que agenda el propio motor (nombre "Inteligente: …") nunca se frenan acá.
+ *
+ * SOLO EXCEPCIONES (motor en sombra + `motor.excepcionesActivas`, Alexander 13-10-2026): devuelve
+ * null para TODOS los leads (como la sombra), salvo cuando el lead tiene de verdad una TAREA HUMANA
+ * ACTIVA de formulario o cotización: la decisión guardada es `tarea_asesora` en activo de esas reglas
+ * Y, decidida otra vez en este instante (mensajes de ahora), lo sigue siendo. Mientras el escalón no
+ * vence ("esperar") o si una persona ya escribió, el automático sale como siempre. Nunca reemplaza
+ * (no hay mensaje útil) ni frena por Caliente / Tibio / dormido / cadencia / descarte / recuperación.
  *
  * Con todo apagado devuelve null en una lectura de configuración en memoria: no cambia nada.
  */
@@ -36,11 +43,18 @@ export function decidirConvivencia(input: {
   reglaId?: string | null;
   nombre?: string | null;
   convivencia: { reemplazarGenericosEnFrios: boolean; reglasV3: string[]; followsDeEtapa: boolean };
+  /** Motor en sombra con excepciones (formulario / cotización): solo frena su tarea humana activa. */
+  soloExcepciones?: boolean;
+  /** El motivo de la decisión es de una excepción que actúa. */
+  esExcepcion?: boolean;
 }): MotivoDeConvivencia | null {
   if ((input.nombre ?? "").startsWith(PREFIJO_FOLLOW_INTELIGENTE)) return null;
   if (input.exteriorActivo && input.esExterior) return "fuera_de_colombia";
   if (!input.motorActivo || !input.accion) return null;
   if (input.motivo === "recuperacion_72h") return null;
+  if (input.soloExcepciones) {
+    return input.esExcepcion && input.accion === "tarea_asesora" ? "inteligente_tarea_humana" : null;
+  }
   if (input.supresion === "siempre" || input.accion === "tarea_asesora" || input.accion === "dormido" || input.accion === "descartar") {
     return input.accion === "no_insistir" ? "inteligente_no_insistir" : "inteligente_tarea_humana";
   }
@@ -83,7 +97,8 @@ export async function revisarConvivencia(input: {
     if ((input.nombre ?? "").startsWith(PREFIJO_FOLLOW_INTELIGENTE)) return null;
     const config = await leerConfigSeguimiento(input.workspaceId);
     const motorActivo = config.motor.modo === "activo";
-    if (!motorActivo && !config.exterior.activo) return null;
+    const soloExcepciones = !motorActivo && excepcionesQueActuan(config).length > 0;
+    if (!motorActivo && !soloExcepciones && !config.exterior.activo) return null;
     const conversationId =
       input.conversationId ??
       (
@@ -107,14 +122,22 @@ export async function revisarConvivencia(input: {
     // este momento (sin efectos: no guarda ni manda nada). Si es turno del cliente, el motor dice
     // "esperar / ninguna" y el automático sale; las excepciones (caliente, formulario, cotización,
     // fecha cercana, "ya pagué") siguen frenando como hoy.
-    const enVivo = config.turno?.activo && motorActivo && activa && conversationId ? await decisionEnVivo(conversationId, config) : null;
+    // SOLO EXCEPCIONES: únicamente si lo guardado es una tarea activa de formulario / cotización se
+    // vuelve a decidir AHORA (si ya no lo es, el automático sale). Para el resto ni se lee la ficha.
+    const guardadaEsTareaDeExcepcion =
+      soloExcepciones && activa && lead?.accion === "tarea_asesora" && esExcepcionQueActua(typeof datos?.motivo === "string" ? datos.motivo : null, config);
+    const enVivo =
+      conversationId && ((config.turno?.activo && motorActivo && activa) || guardadaEsTareaDeExcepcion) ? await decisionEnVivo(conversationId, config) : null;
+    const motivo = enVivo ? enVivo.motivo : typeof datos?.motivo === "string" ? datos.motivo : null;
     return decidirConvivencia({
-      motorActivo: motorActivo && activa,
+      motorActivo: (motorActivo || soloExcepciones) && activa,
+      soloExcepciones,
+      esExcepcion: esExcepcionQueActua(motivo, config),
       exteriorActivo: config.exterior.activo,
       esExterior: Boolean(lead?.exterior) || Boolean(leerMarcaExterior(contacto?.metadata)),
       accion: enVivo ? enVivo.accion : (lead?.accion ?? null),
       supresion: enVivo ? enVivo.supresion : typeof datos?.supresion === "string" ? datos.supresion : null,
-      motivo: enVivo ? enVivo.motivo : typeof datos?.motivo === "string" ? datos.motivo : null,
+      motivo,
       motor: input.motor,
       reglaId: input.reglaId,
       nombre: input.nombre,

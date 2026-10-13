@@ -9,8 +9,8 @@ import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { prisma } from "@/lib/prisma";
 
-import { algoPrendido, type ConfigSeguimientoInteligente } from "../dominio/config";
-import { datosDeRecuperacion, evaluarLead, type Decision, type Evaluacion } from "../dominio/motor";
+import { algoPrendido, esExcepcionQueActua, type ConfigSeguimientoInteligente } from "../dominio/config";
+import { datosDeRecuperacion, evaluarLead, modoDeLaDecision, type Decision, type Evaluacion } from "../dominio/motor";
 import { MOTIVO_RECUPERACION, cortoUnSilencioLargo } from "../dominio/recuperacion";
 import { textoPermitido } from "../dominio/producto";
 import { PREFIJO_FOLLOW_INTELIGENTE } from "./convivencia";
@@ -36,13 +36,9 @@ function anotarError(donde: string, error: unknown, extra: Record<string, unknow
   console.warn(`[seguimiento-inteligente] ${donde}`, { ...extra, error: error instanceof Error ? error.message : String(error) });
 }
 
-function modoDe(decision: Decision, config: ConfigSeguimientoInteligente): "sombra" | "activo" | "apagado" {
-  // La Recuperación 72 h tiene su propio interruptor (solo llega acá en activo).
-  if (decision.motivo === MOTIVO_RECUPERACION) return config.recuperacion72h.modo;
-  if (decision.accion === "excluir_exterior") return config.exterior.activo ? "activo" : "apagado";
-  if (decision.accion === "descartar") return config.cadencia.descarte;
-  return config.motor.modo;
-}
+// La Recuperación 72 h, el exterior y el descarte tienen su propio interruptor; con
+// `motor.excepcionesActivas` el formulario y la cotización actúan aunque el motor esté en sombra.
+const modoDe = modoDeLaDecision;
 
 function datosDeLaDecision(decision: Decision, evaluacion: Evaluacion, modo: string): Record<string, unknown> {
   return {
@@ -222,7 +218,10 @@ export async function revisarLead(conversationId: string, opciones: { ahora?: Da
     }
 
     // RECUPERACIÓN 72 H: cada fase queda anotada una vez (en sombra, lo que HARÍA).
-    const rec = evaluacion.recuperacion;
+    // Formulario / cotización con SOLO EXCEPCIONES: manda su tarea (2 h / 24 h / 72 h o 24 h / 72 h);
+    // la Recuperación no lo anota como "dentro" para no contarlo dos veces. Cuando sus escalones
+    // terminan, la decisión vuelve a ser la de siempre y la Recuperación lo toma si corresponde.
+    const rec = esExcepcionQueActua(decision.motivo, config) && evaluacion.recuperacion?.tipo === "dentro" ? null : evaluacion.recuperacion;
     if (modoRec !== "apagado" && rec) {
       const base = { modo: modoRec, asesora: ctx.ficha.asignadaA };
       if (rec.tipo === "dentro") {

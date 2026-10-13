@@ -48,7 +48,7 @@ const cv = (() => {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   });
   const mod = { exports: {} };
-  const dobles = { "@/lib/prisma": { prisma: {} }, "./config": { leerConfigSeguimiento: async () => cf.CONFIG_POR_DEFECTO }, "../dominio/exterior": ex, "../dominio/motor": mo };
+  const dobles = { "@/lib/prisma": { prisma: {} }, "./config": { leerConfigSeguimiento: async () => cf.CONFIG_POR_DEFECTO }, "../dominio/config": cf, "../dominio/exterior": ex, "../dominio/motor": mo };
   new Function("exports", "require", "module", salida.outputText)(mod.exports, (p) => dobles[p] ?? requireNativo(p), mod);
   return mod.exports;
 })();

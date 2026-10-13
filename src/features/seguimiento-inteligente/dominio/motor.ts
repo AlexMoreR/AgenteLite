@@ -30,7 +30,7 @@
  */
 
 import { dentroDelHorario, esMensajeHumano, reprogramarFueraDeHorario } from "../../../lib/anti-bloqueo/reglas";
-import type { ConfigSeguimientoInteligente } from "./config";
+import { esExcepcionQueActua, type ConfigSeguimientoInteligente, type ModoDelMotor } from "./config";
 import { detectarFechaFutura, type FechaFutura } from "./fecha-futura";
 import { mencionaColombia, type Pais } from "./exterior";
 import { colorDelCliente, esPedidoDeDatos, siguienteHoraLaboral } from "./formulario";
@@ -220,6 +220,21 @@ export function evaluarLead(ficha: FichaDelLead, config: ConfigSeguimientoInteli
   const recuperacion = recuperacionDelLead({ ficha, mensajes, inicio, delCliente, familia, cotizacion, calificacion, config, ahora });
   const decision = decidir({ ficha, mensajes, inicio, delCliente, familia, cotizacion, calificacion, config, ahora, recuperacion });
   return { calificacion, familia, decision, recuperacion };
+}
+
+/**
+ * Con qué modo se anota (y se ejecuta) una decisión. Cada cosa tiene su interruptor:
+ *  - Recuperación 72 h → `recuperacion72h.modo`; exterior → `exterior.activo`; descarte → `cadencia.descarte`.
+ *  - SOLO EXCEPCIONES (`motor.excepcionesActivas` con el motor en sombra): las decisiones de
+ *    formulario y cotización van en "activo" (tarea en Mi día, tope, reparto); el resto, "sombra".
+ *  - Lo demás → `motor.modo`.
+ */
+export function modoDeLaDecision(decision: Pick<Decision, "accion" | "motivo">, config: ConfigSeguimientoInteligente): ModoDelMotor {
+  if (decision.motivo === MOTIVO_RECUPERACION) return config.recuperacion72h.modo;
+  if (decision.accion === "excluir_exterior") return config.exterior.activo ? "activo" : "apagado";
+  if (decision.accion === "descartar") return config.cadencia.descarte;
+  if (esExcepcionQueActua(decision.motivo, config)) return "activo";
+  return config.motor.modo;
 }
 
 /** ¿Está dormido por una fecha futura que todavía no llega? (lo mismo que el paso 4 del motor) */
