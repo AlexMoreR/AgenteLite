@@ -15,6 +15,17 @@ import type { EstadoDeLaCharla } from "./decidir";
 
 const CLAVE = "agente-v3:estado:";
 
+/**
+ * ¿El V3 atendió alguna vez esta conversación? (tiene su fila de estado)
+ *
+ * El motor la guarda en cada mensaje que atiende. Un chat sin fila nunca pasó por el V3: el aviso del
+ * Supervisor a una asesora, un chat que abrió una persona. Ahí no van los recordatorios del libro.
+ */
+export async function elV3AtendioLaCharla(conversationId: string): Promise<boolean> {
+  const fila = await prisma.appSetting.findUnique({ where: { key: `${CLAVE}${conversationId}` }, select: { key: true } });
+  return Boolean(fila);
+}
+
 export async function leerEstado(conversationId: string): Promise<EstadoDeLaCharla> {
   const vacio: EstadoDeLaCharla = {
     productoActivo: null,

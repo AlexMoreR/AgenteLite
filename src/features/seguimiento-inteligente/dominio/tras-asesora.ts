@@ -42,6 +42,32 @@ export function asesoraPrometio(texto: string | null | undefined): boolean {
   return PROMESA.test(texto ?? "");
 }
 
+/** Lo que manda una persona que ya ENTREGA algo (fotos, catálogo, audio, ubicación). */
+const TIPOS_QUE_ENTREGAN = ["IMAGE", "VIDEO", "DOCUMENT", "AUDIO", "LOCATION"];
+
+/**
+ * ¿Quedó una promesa SIN cumplir en la tanda de la persona?
+ *
+ * La promesa solo deja el turno de nuestro lado si después no llegó lo prometido. Caso real (12-oct,
+ * 13 chats): la respuesta rápida "Ya te comparto las *fotos*, el precio el *989.000*" va seguida de
+ * las fotos, el video y "¿En qué color lo quieres?"; el cliente se calla y, como la tanda tenía un
+ * "ya te comparto", no salía ningún toque. Se cumple si después de la promesa la persona mandó un
+ * adjunto, una pregunta o un texto de verdad (no otra promesa ni un "un momento").
+ */
+export function promesaPendiente(tanda: Array<Pick<MensajeCrudo, "tipo" | "texto">>): boolean {
+  let pendiente = false;
+  for (const m of tanda) {
+    if (asesoraPrometio(m.texto)) {
+      pendiente = true;
+      continue;
+    }
+    if (!pendiente) continue;
+    const texto = (m.texto ?? "").trim();
+    if (TIPOS_QUE_ENTREGAN.includes(m.tipo) || texto.includes("?") || texto.length >= 25) pendiente = false;
+  }
+  return pendiente;
+}
+
 function primerNombre(nombre: string | null): string {
   const limpio = (nombre ?? "").trim().split(/\s+/)[0] ?? "";
   return limpio && /^[\p{L}]{2,20}$/u.test(limpio) ? `¡Hola, ${limpio[0].toUpperCase()}${limpio.slice(1).toLowerCase()}!` : "¡Hola!";
@@ -101,9 +127,9 @@ export function decidirTrasAsesora(input: {
   const eventos = [...mensajes, ...(input.notas ?? [])].map((m) => ({ direccion: m.direccion, tipo: m.tipo, origen: m.origen, texto: m.texto, en: m.en }));
   const turno = turnoDeLaConversacion(eventos, { caliente: input.caliente, asignada: true, tuvoContactoHumano: true });
   if (turno.de !== "CLIENTE") return no(`turno_de_magilus_${turno.motivo}`);
-  // La tanda de la persona (lo último que escribió) no puede prometer algo.
+  // La tanda de la persona (lo último que escribió) no puede dejar una promesa sin cumplir.
   const tanda = mensajes.filter((m) => esHumano(m) && m.en.getTime() > ultimoCliente.en.getTime());
-  if (tanda.some((m) => asesoraPrometio(m.texto))) return no("asesora_prometio");
+  if (promesaPendiente(tanda)) return no("asesora_prometio");
 
   // Envíos automáticos desde la persona (los del mismo minuto = uno).
   let enviados = 0;

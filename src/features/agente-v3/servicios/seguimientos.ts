@@ -13,7 +13,7 @@ import { revisarConvivencia } from "@/features/seguimiento-inteligente/servicios
 import { limpiarFrasesProhibidas } from "@/lib/reglas-de-redaccion";
 
 import { cumpleLasCondiciones } from "../motor/decidir";
-import { guardarEstado, leerEstado } from "../motor/estado";
+import { elV3AtendioLaCharla, guardarEstado, leerEstado } from "../motor/estado";
 import { leerLibro } from "./almacen";
 
 /**
@@ -145,6 +145,16 @@ export async function ejecutarSeguimientosV3(
         select: { direction: true, createdAt: true },
       });
       if (!ultimo || ultimo.direction !== "OUTBOUND") {
+        continue;
+      }
+
+      /*
+        Solo los chats que atendió el V3. Con los recordatorios genéricos del libro (sin paso ni
+        producto, desde el 12-10-2026 20:10) cualquier chat callado cumplía las condiciones, también
+        el de una asesora que recibe los avisos del Supervisor por la línea: quedaron reprogramados
+        para salir a las 8:09 y 8:20 del 13-oct ("¿cuál referencia del catálogo te gustó?" a Maria).
+      */
+      if (!(await elV3AtendioLaCharla(conversacion.id))) {
         continue;
       }
 
@@ -285,8 +295,13 @@ export async function ejecutarSeguimientosV3(
           Lo que salio queda igual de rastreable en `seguimientosEnviados` y en el log.
         */
 
-        // Los vencidos quedan marcados aunque haya salido solo el último: no se persigue hacia atrás.
-        const marcados = reglas.filter((fila) => fila.minutos <= minutosCallado).map((fila) => fila.minutos);
+        /*
+          Los vencidos quedan marcados aunque haya salido solo el último: no se persigue hacia atrás.
+          Solo los del paso (hasta el que salió): antes se marcaban los de TODAS las reglas, y una de
+          60 min de otro paso dejaba marcado el "60" de este. Caso 12-oct •••• 5474: salió el de 15
+          a los 104 min y el de 1 h ya no salió nunca.
+        */
+        const marcados = delPaso.filter((fila) => fila.minutos <= toca.minutos).map((fila) => fila.minutos);
         await guardarEstado(conversacion.id, {
           ...estado,
           seguimientosEnviados: [...new Set([...yaSalieron, ...marcados])],

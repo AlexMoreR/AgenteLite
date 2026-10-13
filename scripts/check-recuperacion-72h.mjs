@@ -185,6 +185,29 @@ prueba("A: la asesora prometió algo ('ya te envío…', 'déjame confirmar') �
   assert.equal(ta.asesoraPrometio("¡Hola! Sí enviamos a Cali 😊 ¿Te comparto fotos?"), false);
 });
 
+prueba("A: promesa CUMPLIDA (12-oct, 13 chats): 'Ya te comparto las fotos…' + fotos + '¿En qué color?' → sí sale", () => {
+  const FOTO = (min) => ({ ...ASESORA(min, null), tipo: "IMAGE" });
+  const DOC = (min) => ({ ...ASESORA(min, null), tipo: "DOCUMENT" });
+  const base = CHARLA_A.slice(0, 3);
+  // La respuesta rápida de siempre, seguida de las fotos y la pregunta del color.
+  const fotos = [...base, ASESORA(11, "Ya te comparto las *fotos*, el precio el *989.000*"), FOTO(11.1), FOTO(11.2), ASESORA(12, "¿En qué color lo quieres?😊")];
+  assert.equal(ta.decidirTrasAsesora(entradaA({ mensajes: fotos })).sale, true);
+  // "Ok ya te comparto" + los catálogos en PDF.
+  const catalogo = [...base, ASESORA(11, "Ok ya te comparto"), DOC(11.5), DOC(12)];
+  assert.equal(ta.decidirTrasAsesora(entradaA({ mensajes: catalogo })).sale, true);
+  // Sin entregar nada después (solo la promesa, o la promesa y "un momento"): sigue siendo nuestro turno.
+  assert.equal(ta.decidirTrasAsesora(entradaA({ mensajes: [...base, ASESORA(12, "Ya te comparto las *fotos*, el precio el *989.000*")] })).motivo, "asesora_prometio");
+  assert.equal(ta.decidirTrasAsesora(entradaA({ mensajes: [...base, ASESORA(11, "Déjame confirmar el envío"), ASESORA(12, "un momento 🙏")] })).motivo, "asesora_prometio");
+  // Lo entregó y DESPUÉS volvió a prometer: manda la última promesa.
+  assert.equal(ta.promesaPendiente([{ tipo: "TEXT", texto: "Ya te comparto" }, { tipo: "IMAGE", texto: null }, { tipo: "TEXT", texto: "Te confirmo mañana el envío" }]), true);
+});
+
+prueba("Reloj V3: solo chats que atendió el V3 y marca solo los recordatorios del paso", () => {
+  const reloj = fs.readFileSync(path.join(RAIZ, "src/features/agente-v3/servicios/seguimientos.ts"), "utf8");
+  assert.match(reloj, /if \(!\(await elV3AtendioLaCharla\(conversacion\.id\)\)\)/);
+  assert.match(reloj, /const marcados = delPaso\.filter\(\(fila\) => fila\.minutos <= toca\.minutos\)/);
+});
+
 prueba("A: interruptor apagado, IA activa, etapa cerrada, no le interesa, dormido, pospuesto o el cliente escribió → nada", () => {
   const apagado = cf.leerConfigDeTexto(null).trasAsesora;
   assert.equal(apagado.modo, "apagado");
