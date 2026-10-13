@@ -15,7 +15,35 @@ import * as React from "react";
  * Ademas, al abrirse el teclado iOS empuja la pagina hacia arriba y deja media conversacion
  * fuera de cuadro. Como en el chat el cuerpo no scrollea, se lo devuelve a su lugar y se
  * mantiene la conversacion pegada al ultimo mensaje, como WhatsApp.
+ *
+ * Lista cortada en iPhone (Alex, 12-10-2026): la bandeja mostraba 5 chats y debajo un gris.
+ * La variable se quedaba pegada en la altura "con teclado": iOS hace zoom al tocar un campo y no
+ * lo quita (visualViewport.height baja con el zoom) y en la app instalada a veces no avisa
+ * cuando se cierra el teclado. Por eso ahora:
+ * - se mide sin zoom (height * scale);
+ * - la variable SOLO existe mientras hay un campo de texto enfocado (teclado posible); sin
+ *   campo enfocado se quita y todo vuelve a 100dvh;
+ * - se re-mide al salir del campo, al volver a la app y al cambiar de tamaño.
  */
+
+function hayCampoDeTextoEnfocado(): boolean {
+  const activo = document.activeElement;
+  if (!(activo instanceof HTMLElement)) {
+    return false;
+  }
+  if (activo.isContentEditable) {
+    return true;
+  }
+  if (activo instanceof HTMLTextAreaElement) {
+    return !activo.readOnly && !activo.disabled;
+  }
+  if (activo instanceof HTMLInputElement) {
+    const sinTeclado = ["button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit"];
+    return !sinTeclado.includes(activo.type) && !activo.readOnly && !activo.disabled;
+  }
+  return false;
+}
+
 export function MobileKeyboardViewport() {
   React.useEffect(() => {
     const viewport = window.visualViewport;
@@ -24,10 +52,20 @@ export function MobileKeyboardViewport() {
     }
 
     const raiz = document.documentElement;
-    let altoPrevio = viewport.height;
+    const altoSinZoom = () => Math.round(viewport.height * (viewport.scale || 1));
+    let altoPrevio = altoSinZoom();
+    let temporizador: number | null = null;
 
     const aplicar = () => {
-      const alto = Math.round(viewport.height);
+      const alto = altoSinZoom();
+
+      if (!hayCampoDeTextoEnfocado()) {
+        // Sin campo enfocado no hay teclado: nunca dejar una altura vieja pegada.
+        raiz.style.removeProperty("--app-viewport-height");
+        altoPrevio = alto;
+        return;
+      }
+
       raiz.style.setProperty("--app-viewport-height", `${alto}px`);
 
       // Solo en el chat: es la unica pantalla que no scrollea el cuerpo, asi que reacomodarla
@@ -55,13 +93,48 @@ export function MobileKeyboardViewport() {
       altoPrevio = alto;
     };
 
+    // El teclado tarda en abrir/cerrar: se mide de nuevo cuando termino la animacion.
+    const aplicarEnUnRato = () => {
+      if (temporizador !== null) {
+        window.clearTimeout(temporizador);
+      }
+      temporizador = window.setTimeout(() => {
+        temporizador = null;
+        aplicar();
+      }, 300);
+    };
+
+    const alCambiarFoco = () => {
+      aplicar();
+      aplicarEnUnRato();
+    };
+
+    const alVolverALaApp = () => {
+      if (document.visibilityState === "visible") {
+        alCambiarFoco();
+      }
+    };
+
     aplicar();
     viewport.addEventListener("resize", aplicar);
     viewport.addEventListener("scroll", aplicar);
+    window.addEventListener("resize", aplicarEnUnRato);
+    document.addEventListener("focusin", alCambiarFoco);
+    document.addEventListener("focusout", alCambiarFoco);
+    window.addEventListener("pageshow", alCambiarFoco);
+    document.addEventListener("visibilitychange", alVolverALaApp);
 
     return () => {
+      if (temporizador !== null) {
+        window.clearTimeout(temporizador);
+      }
       viewport.removeEventListener("resize", aplicar);
       viewport.removeEventListener("scroll", aplicar);
+      window.removeEventListener("resize", aplicarEnUnRato);
+      document.removeEventListener("focusin", alCambiarFoco);
+      document.removeEventListener("focusout", alCambiarFoco);
+      window.removeEventListener("pageshow", alCambiarFoco);
+      document.removeEventListener("visibilitychange", alVolverALaApp);
       raiz.style.removeProperty("--app-viewport-height");
     };
   }, []);
