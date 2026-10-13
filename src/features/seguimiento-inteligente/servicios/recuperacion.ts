@@ -10,6 +10,8 @@ import { resolveCallablePhone } from "@/lib/whatsapp-lid";
 import type { ConfigSeguimientoInteligente } from "../dominio/config";
 import { MOTIVO_RECUPERACION } from "../dominio/recuperacion";
 import { nombreDeFamilia } from "../dominio/producto";
+import { leerConfigSeguimiento } from "./config";
+import { corteDeLaConfig, filtroSinReactivar } from "./reactivacion";
 
 /**
  * RECUPERACIÓN 72 HORAS: lo que necesita la base (la regla está en dominio/recuperacion.ts).
@@ -305,6 +307,9 @@ function aRecuperacion(fila: FilaRec): RecuperacionDelLead {
 }
 
 async function leerRecuperaciones(input: { workspaceId: string; asesoraId?: string; fases?: string[]; limite?: number }): Promise<RecuperacionDelLead[]> {
+  // "Llamar solo las de 7 días o menos": las tareas con el cliente callado hace más van a reactivación.
+  const config = await leerConfigSeguimiento(input.workspaceId).catch(() => null);
+  const corte = config ? corteDeLaConfig(config) : null;
   const filas = await prisma.$queryRaw<FilaRec[]>(Prisma.sql`
     SELECT l."conversationId", c."contactId", c."channelId", ct."name" AS "nombre", ct."phoneNumber" AS "telefono", ct."metadata",
            l."accion", l."tareaPrioridad", l."tareaVence", l."accionDatos", l."productoInteres",
@@ -318,6 +323,7 @@ async function leerRecuperaciones(input: { workspaceId: string; asesoraId?: stri
        AND l."accionDatos"->>'motivo' = ${MOTIVO_RECUPERACION}
        AND l."accionDatos"->>'modo' = 'activo'
        AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
+       ${filtroSinReactivar(corte)}
        ${input.fases?.length ? Prisma.sql`AND l."accionDatos"->>'toque' IN (${Prisma.join(input.fases)})` : Prisma.empty}
        ${
          input.asesoraId

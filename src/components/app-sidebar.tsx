@@ -93,6 +93,8 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
   puedeSupervisarElEquipo?: boolean
   /** Dueño o administrador: le aparece el Supervisor dentro de CRM. */
   esJefeDelNegocio?: boolean
+  /** Dueño, administrador o la supervisora del Supervisor accionable: le aparece Recuperación. */
+  veRecuperacion?: boolean
   chatSidebarItems?: Array<{
     title: string
     url: string
@@ -108,6 +110,7 @@ export function AppSidebar({
   currentConnectionKey = "",
   puedeSupervisarElEquipo = false,
   esJefeDelNegocio = false,
+  veRecuperacion = false,
   chatSidebarItems = [],
   ...props
 }: AppSidebarProps) {
@@ -192,6 +195,8 @@ export function AppSidebar({
                       ? "supervisor"
                     : pathname.startsWith("/cliente/crm/embudo")
                       ? "embudo"
+                    : pathname.startsWith("/cliente/crm/recuperacion")
+                      ? "recuperacion"
                     : pathname.startsWith("/cliente/crm/kanban")
                       ? "kanban"
                       : pathname.startsWith("/cliente/crm/registro")
@@ -203,6 +208,7 @@ export function AppSidebar({
                 isCrmRoute={pathname.startsWith("/cliente/crm")}
                 puedeSupervisar={puedeSupervisarElEquipo}
                 esJefe={esJefeDelNegocio}
+                veRecuperacion={veRecuperacion}
               />
             ) : null}
             {/* El coach de ventas: el jefe ve al equipo; cada asesora, solo lo suyo. */}

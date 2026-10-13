@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, Filter, Gauge, KanbanSquare, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, Filter, Gauge, KanbanSquare, LifeBuoy, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -18,7 +18,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "supervisor" | "guiones";
+type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "recuperacion" | "supervisor" | "guiones";
 
 const crmViews: Array<{
   title: string;
@@ -27,6 +27,8 @@ const crmViews: Array<{
   soloJefes?: boolean;
   /** Solo dueño o administrador (no supervisoras). */
   soloDueno?: boolean;
+  /** Dueño, administrador o la supervisora del Supervisor accionable. */
+  soloRecuperacion?: boolean;
 }> = [
   { title: "Mi día", view: "mi-dia", icon: Sun },
   { title: "Registro", view: "registro", icon: FileText },
@@ -36,6 +38,8 @@ const crmViews: Array<{
   { title: "Tablero", view: "tablero", icon: Gauge, soloJefes: true },
   // El embudo del Combo (F1): de la entrada del anuncio al anticipo. También solo para quien supervisa.
   { title: "Embudo", view: "embudo", icon: Filter, soloJefes: true },
+  // Recuperación de leads (13-10-2026): dueño / administrador y la supervisora del accionable.
+  { title: "Recuperación", view: "recuperacion", icon: LifeBuoy, soloRecuperacion: true },
   // El Supervisor: solo dueño o administrador (Alex, 13-10-2026). Las supervisoras siguen
   // entrando por los avisos (la página no cambia sus permisos).
   { title: "Supervisor", view: "supervisor", icon: ShieldCheck, soloDueno: true },
@@ -47,6 +51,7 @@ export function NavCrm({
   isCrmRoute,
   puedeSupervisar = false,
   esJefe = false,
+  veRecuperacion = false,
 }: {
   currentView: CrmView;
   isCrmRoute: boolean;
@@ -54,6 +59,8 @@ export function NavCrm({
   puedeSupervisar?: boolean;
   /** Dueño o administrador del negocio: ve también el Supervisor. */
   esJefe?: boolean;
+  /** Dueño, administrador o la supervisora del Supervisor accionable: ve Recuperación. */
+  veRecuperacion?: boolean;
 }) {
   const [manualOpen, setManualOpen] = useState(false);
   const open = manualOpen || isCrmRoute;
@@ -74,7 +81,10 @@ export function NavCrm({
         <CollapsibleContent>
           <SidebarMenuSub>
             {crmViews
-              .filter((item) => (!item.soloJefes || puedeSupervisar) && (!item.soloDueno || esJefe))
+              .filter(
+                (item) =>
+                  (!item.soloJefes || puedeSupervisar) && (!item.soloDueno || esJefe) && (!item.soloRecuperacion || veRecuperacion),
+              )
               .map((item) => (
               <SidebarMenuSubItem key={item.view}>
                 {/* Sin `prefetch`: eran seis vistas del CRM pedidas enteras desde cualquier pantalla. */}

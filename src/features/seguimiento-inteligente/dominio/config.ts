@@ -21,6 +21,8 @@
  *    · trasAsesora.compromisoATarea (PRENDIDO; 13-10-2026): no sale si el cliente dejó un
  *      compromiso con momento; en su lugar, tarea para la asesora a esa hora (excepción "compromiso").
  *  - recuperacion72h.modo: "apagado" | "sombra" | "activo" (último intento humano a las 72 h).
+ *    · recuperacion72h.vencerTrasDias (7; 13-10-2026): la tarea cuyo cliente lleva más de esos días
+ *      sin escribir sale de las listas y queda para reactivación. 0 = como antes.
  *  - diaSiguiente.rearmar: true | false (Alexander, 13-10-2026). El seguimiento de "día siguiente"
  *    del paso del Playbook se vuelve a armar en cada silencio, contando desde nuestra última
  *    respuesta (ver dominio/dia-siguiente.ts). false = como antes: solo al entrar al paso.
@@ -204,6 +206,14 @@ export type ConfigSeguimientoInteligente = {
     dias: number[];
     /** Quién aprueba el descarte de intención fuerte. null = la supervisora del Supervisor accionable. */
     aprobadorId: string | null;
+    /**
+     * "Llamar solo las de 7 días o menos" (Alexander, 13-10-2026). La tarea de la Recuperación cuyo
+     * cliente escribió por última vez hace más de estos días sale de las listas de las asesoras (Mi
+     * día, tope, Supervisor) y de la alarma, y queda marcada `accionDatos.paraReactivar` para una
+     * futura campaña de reactivación (no se crea ni se envía nada). 0 = apagado (como antes).
+     * Regla pura en dominio/reactivacion.ts.
+     */
+    vencerTrasDias: number;
   };
   /**
    * DÍA SIGUIENTE QUE SE RE-ARMA (Alexander, 13-10-2026; regla en dominio/dia-siguiente.ts). Con
@@ -269,6 +279,7 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
     hastaHora: 18,
     dias: [1, 2, 3, 4, 5, 6],
     aprobadorId: null,
+    vencerTrasDias: 7,
   },
   diaSiguiente: { rearmar: false, minutosDeCalma: 3 },
 };
@@ -435,6 +446,7 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
       hastaHora: recHasta,
       dias: recDias.length ? recDias : d.recuperacion72h.dias,
       aprobadorId: typeof rec.aprobadorId === "string" && rec.aprobadorId.trim() ? rec.aprobadorId.trim() : null,
+      vencerTrasDias: Math.round(numero(rec.vencerTrasDias, d.recuperacion72h.vencerTrasDias, 0, 60)),
     },
     diaSiguiente: {
       rearmar: bandera(dsg.rearmar, d.diaSiguiente.rearmar),

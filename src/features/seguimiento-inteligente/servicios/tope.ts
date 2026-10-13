@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 
 import type { ConfigSeguimientoInteligente } from "../dominio/config";
 import { diaBogota, planearTareas, type EstadoDelTope, type TareaParaElTope } from "../dominio/tope";
+import { corteDeLaConfig, filtroSinReactivar } from "./reactivacion";
 
 /**
  * EL TOPE DE TAREAS EN VIVO (máximo `tareas.maxPorAsesoraDia` por asesora al día; por defecto 15).
@@ -66,6 +67,8 @@ export async function aplicarTopeDeTareas(workspaceId: string, config: ConfigSeg
          AND l."exterior" = false
          AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
          AND (l."tareaVence" IS NULL OR l."tareaVence" <= ${finDelDia})
+         -- "Llamar solo las de 7 días o menos": la Recuperación con el cliente callado hace más va a reactivación.
+         ${filtroSinReactivar(corteDeLaConfig(config, ahora))}
          -- La de la Recuperación no se da por hecha con un mensaje: su evidencia es la llamada y el audio.
          AND (l."accionDatos"->>'motivo' = 'recuperacion_72h' OR NOT EXISTS (
            SELECT 1 FROM "Message" m

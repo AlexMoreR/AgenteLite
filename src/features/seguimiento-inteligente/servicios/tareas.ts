@@ -2,6 +2,9 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 
+import { leerConfigSeguimiento } from "./config";
+import { corteDeLaConfig, filtroSinReactivar } from "./reactivacion";
+
 /**
  * LAS TAREAS DEL SEGUIMIENTO INTELIGENTE, para Mi día (las de cada asesora) y el Supervisor (las
  * que no tienen dueña y el resumen). Solo lectura.
@@ -86,6 +89,9 @@ async function leerTareas(input: {
   sinRecuperacion?: boolean;
   limite?: number;
 }): Promise<TareaDeSeguimiento[]> {
+  // "Llamar solo las de 7 días o menos" (config en memoria: no va a la base en cada pedido).
+  const config = await leerConfigSeguimiento(input.workspaceId).catch(() => null);
+  const corte = config ? corteDeLaConfig(config) : null;
   const filas = await prisma.$queryRaw<Fila[]>(Prisma.sql`
     SELECT l."conversationId", ct."name" AS "nombre", ct."phoneNumber" AS "telefono", l."tareaPrioridad", l."tareaVence",
            l."accionDatos", l."temperatura", l."productoInteres", c."assignedToUserId" AS "asesoraId", u."name" AS "asesoraNombre",
@@ -116,7 +122,7 @@ async function leerTareas(input: {
        }
        ${input.ocultarPospuestas ? Prisma.sql`AND COALESCE(l."accionDatos"->'tope'->>'estado', '') <> 'pospuesta'` : Prisma.empty}
        ${input.sinDuena ? Prisma.sql`AND c."assignedToUserId" IS NULL` : Prisma.empty}
-       ${input.sinRecuperacion ? Prisma.sql`AND COALESCE(l."accionDatos"->>'motivo', '') <> 'recuperacion_72h'` : Prisma.empty}
+       ${input.sinRecuperacion ? Prisma.sql`AND COALESCE(l."accionDatos"->>'motivo', '') <> 'recuperacion_72h'` : filtroSinReactivar(corte)}
        -- La de la Recuperación no se da por hecha con un mensaje: su evidencia es la llamada y el audio.
        AND (l."accionDatos"->>'motivo' = 'recuperacion_72h' OR NOT EXISTS (
          SELECT 1 FROM "Message" m

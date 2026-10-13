@@ -17,6 +17,7 @@ import { PREFIJO_FOLLOW_INTELIGENTE } from "./convivencia";
 import { leerConfigSeguimiento, negociosConSeguimiento } from "./config";
 import { leerFicha, leerNotasDelTurno, type FichaConContexto } from "./ficha";
 import { descartarPorRecuperacion, recuperacionesCerradasAMano } from "./recuperacion";
+import { marcarParaReactivar } from "./reactivacion";
 import { aplicarTopeDeTareas } from "./tope";
 import { barrerDiaSiguiente } from "./dia-siguiente";
 import { barrerTrasAsesora } from "./tras-asesora";
@@ -383,6 +384,9 @@ export async function barrerSeguimientoInteligente(ahora = new Date()): Promise<
       await barrerTrasAsesora(workspaceId, config, ahora);
       // "Día siguiente" del paso que se re-arma en cada silencio (diaSiguiente.rearmar; cada minuto).
       await barrerDiaSiguiente(workspaceId, config, ahora);
+      // "Llamar solo las de 7 días o menos": marca para reactivación las de la Recuperación con el
+      // cliente callado hace más (cada 5 minutos; el tope y las listas ya no las cuentan).
+      await marcarParaReactivar(workspaceId, config, ahora);
       // Tope de tareas por asesora al día (reparte el excedente o lo pospone; nunca se pierde).
       await aplicarTopeDeTareas(workspaceId, config, ahora);
     }

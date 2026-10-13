@@ -26,6 +26,7 @@ import {
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
+import { puedeVerRecuperacion } from "@/features/recuperacion/servicios/permiso";
 import "./globals.css";
 import "@xyflow/react/dist/style.css";
 import "react-toastify/dist/ReactToastify.css";
@@ -312,6 +313,8 @@ export default async function RootLayout({
                   clientAccess.membershipRole === "ADMIN"
                 : false
             }
+            /* Recuperación de leads: dueño, administrador o la supervisora del Supervisor accionable. */
+            veRecuperacion={clientAccess ? await puedeVerRecuperacion(clientAccess).catch(() => false) : false}
             participaDelReparto={participaDelReparto}
           >
             {children}

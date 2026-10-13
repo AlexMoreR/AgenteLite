@@ -29,6 +29,7 @@
     "test:rescate-mensajes": "node scripts/check-rescate-mensajes.mjs",
     "test:turno": "node scripts/check-turno.mjs",
     "test:recuperacion-72h": "node scripts/check-recuperacion-72h.mjs",
+    "test:recuperacion": "node scripts/check-recuperacion.mjs",
     "test:solo-excepciones": "node scripts/check-solo-excepciones.mjs",
     "test:reparto-turno": "node scripts/check-reparto-turno.mjs",
     "test:dia-siguiente": "node scripts/check-dia-siguiente.mjs",
