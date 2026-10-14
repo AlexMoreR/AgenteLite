@@ -384,12 +384,12 @@ async function leerRecuperaciones(input: { workspaceId: string; asesoraId?: stri
        ${
          input.asesoraId
            ? /*
-               La tarea es de quien dice el plan del tope (la dueña o a quien se le pasó); lo que no es
-               tarea (espera, antes de hora) y no tiene plan, de la dueña del chat.
+               Solo los chats de la asesora (Alexander, 14-10-2026): el tope ya no pasa tareas a otra,
+               y un plan viejo "redistribuida" vuelve a la dueña.
              */
              Prisma.sql`AND (
                (l."accionDatos"->'tope' IS NULL AND c."assignedToUserId" = ${input.asesoraId})
-               OR (l."accionDatos"->'tope'->>'para' = ${input.asesoraId} AND l."accionDatos"->'tope'->>'estado' IN ('propia', 'redistribuida'))
+               OR (c."assignedToUserId" = ${input.asesoraId} AND l."accionDatos"->'tope'->>'estado' IN ('propia', 'redistribuida'))
              )`
            : Prisma.empty
        }

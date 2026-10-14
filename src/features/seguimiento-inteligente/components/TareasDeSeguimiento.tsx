@@ -48,14 +48,14 @@ export function TareasDeSeguimiento({ tareas, ahora = new Date(), mostrarAsesora
                   {mostrarAsesora ? ` · ${tarea.asesoraNombre ?? "sin asesora"}` : ""}
                 </p>
                 {tarea.detalle ? <p className="text-xs text-foreground">{tarea.detalle}</p> : null}
-                {tarea.topeEstado === "redistribuida" ? (
+                {mostrarAsesora && tarea.topeEstado === "redistribuida" ? (
                   <p className="text-xs text-amber-700 dark:text-amber-300">
                     Pasada por tope de {tarea.deNombre ?? "otra asesora"}
                     {mostrarAsesora && tarea.paraNombre ? ` a ${tarea.paraNombre}` : ""} (el chat sigue siendo de {tarea.deNombre ?? "ella"})
                   </p>
                 ) : tarea.topeEstado === "pospuesta" ? (
                   <p className="text-xs text-muted-foreground">
-                    Pospuesta por tope{tarea.pospuestaHasta ? ` hasta ${hora(tarea.pospuestaHasta)}` : ""}: nadie tenía cupo hoy
+                    Pospuesta por tope{tarea.pospuestaHasta ? ` hasta ${hora(tarea.pospuestaHasta)}` : ""}: ya tenías el cupo del día lleno
                   </p>
                 ) : null}
               </div>

@@ -8,10 +8,10 @@
  *  1. Orden: prioridad (A, luego B, luego C), después la más caliente (Caliente, Tibio, Frío) y,
  *     entre iguales, la más antigua (la que venció primero).
  *  2. Si la dueña del chat tiene cupo, es suya.
- *  3. Si no, pasa a otra asesora ELEGIBLE con cupo (en el reparto de esa línea, sin pausa ni
- *     monitoreo y dentro de su horario), la de menos carga.
- *  4. Si nadie tiene cupo, queda "pospuesta por tope" para el día siguiente a las 8:00. Nunca se
- *     pierde: al otro día vuelve a entrar al reparto con su prioridad y su antigüedad.
+ *  3. Si no, queda "pospuesta por tope" para el día siguiente a las 8:00, CON LA MISMA DUEÑA.
+ *     Nunca se pierde: al otro día vuelve a entrar con su prioridad y su antigüedad.
+ *     (Alexander, 14-10-2026: ya no se pasa a otra asesora; en Mi día cada una ve solo sus chats.
+ *     `elegibles` y `rueda` quedan en el tipo pero ya no se usan para repartir.)
  *  - Lo ya planeado hoy no se mueve (la asesora no ve tareas que aparecen y desaparecen).
  *  - Las tareas sin dueña no cuentan para ningún tope: siguen siendo alerta del Supervisor.
  */
@@ -109,7 +109,6 @@ export function planearTareas(input: { tareas: TareaParaElTope[]; tope: number; 
   const sinTope = input.tope <= 0;
   const conCupo = (asesora: string) => sinTope || (carga.get(asesora) ?? 0) < input.tope;
   const salida: PlanDeTarea[] = [];
-  let ultimaDeLaRueda: string | null = null;
   for (const tarea of ordenarTareas(pendientes)) {
     const base = { conversationId: tarea.conversationId, dia: hoy, de: tarea.duena, pospuestaHasta: null };
     if (!tarea.duena) {
@@ -121,17 +120,8 @@ export function planearTareas(input: { tareas: TareaParaElTope[]; tope: number; 
       salida.push({ ...base, para: tarea.duena, estado: "propia" });
       continue;
     }
-    const otra: string | undefined = tarea.rueda
-      ? siguienteDeLaRueda(tarea.elegibles, ultimaDeLaRueda ?? tarea.duena, (asesora) => asesora !== tarea.duena && conCupo(asesora))
-      : tarea.elegibles
-          .filter((asesora) => asesora !== tarea.duena && conCupo(asesora))
-          .sort((a, b) => (carga.get(a) ?? 0) - (carga.get(b) ?? 0))[0];
-    if (otra && tarea.rueda) ultimaDeLaRueda = otra;
-    if (otra) {
-      sumar(otra);
-      salida.push({ ...base, para: otra, estado: "redistribuida" });
-      continue;
-    }
+    // Alexander (14-10-2026): en Mi día cada asesora ve solo SUS chats. El excedente sobre el tope
+    // ya no se pasa a otra asesora: se queda con la dueña, pospuesto para mañana a las 8:00.
     salida.push({ ...base, para: tarea.duena, estado: "pospuesta", pospuestaHasta: mananaALas8(input.ahora).toISOString() });
   }
   return salida;

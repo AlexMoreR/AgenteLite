@@ -105,7 +105,6 @@ function TarjetaDeRecuperacion({ r, nombreAsesora, puedeMarcar, alRegistrar }: {
             {r.fuerte ? ` · intención fuerte${r.motivoFuerte ? ` (${r.motivoFuerte})` : ""}` : ""}
             {r.vence ? ` · desde ${hora(r.vence)}` : ""}
           </p>
-          {r.topeEstado === "redistribuida" && r.deNombre ? <p className="text-xs text-amber-700 dark:text-amber-300">Pasada de {r.deNombre} por tope (el chat sigue siendo suyo)</p> : null}
         </div>
       </div>
       <Pasos fase={r.fase} />

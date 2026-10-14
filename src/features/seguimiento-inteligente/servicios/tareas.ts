@@ -111,12 +111,12 @@ async function leerTareas(input: {
        ${
          input.asesoraId
            ? /*
-               Tope diario: la tarea es de quien dice el plan (la dueña o a quien se le pasó). Sin
-               plan todavía, de la dueña del chat. Las pospuestas no aparecen hasta su día.
+               Mi día: solo los chats de la asesora (Alexander, 14-10-2026), aunque un plan viejo del
+               tope la haya pasado a otra. Las pospuestas no aparecen hasta su día.
              */
              Prisma.sql`AND (
                (l."accionDatos"->'tope' IS NULL AND c."assignedToUserId" = ${input.asesoraId})
-               OR (l."accionDatos"->'tope'->>'para' = ${input.asesoraId} AND l."accionDatos"->'tope'->>'estado' IN ('propia', 'redistribuida'))
+               OR (c."assignedToUserId" = ${input.asesoraId} AND l."accionDatos"->'tope'->>'estado' IN ('propia', 'redistribuida'))
              )`
            : Prisma.empty
        }
