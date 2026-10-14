@@ -2844,7 +2844,7 @@ export const ConversationPanel = memo(function ConversationPanel({
         </Dialog>
 
         {isContactPanelOpen ? (
-          <aside className="hidden w-72 shrink-0 flex-col border-l border-border bg-card md:flex lg:w-80">
+          <aside className="hidden w-80 shrink-0 flex-col border-l border-border bg-card md:flex xl:w-96">
             <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
               <h3 className="text-sm font-semibold text-foreground">Contacto</h3>
               <div className="flex items-center gap-1">

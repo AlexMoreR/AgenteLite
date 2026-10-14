@@ -153,7 +153,7 @@ function OpcionDePago({
 }
 
 function InsigniaDeEnvio({ estado }: { estado: EstadoDeEnvio }) {
-  return <Badge className={cn("h-5", INSIGNIA[estado].clase)}>{INSIGNIA[estado].texto}</Badge>;
+  return <Badge className={cn("h-5 shrink-0 whitespace-nowrap", INSIGNIA[estado].clase)}>{INSIGNIA[estado].texto}</Badge>;
 }
 
 /** Busca con espera de 400 ms; devuelve la última respuesta que corresponde a la clave actual. */
@@ -638,7 +638,7 @@ function ListaDeUbicaciones({
     return <p className="text-xs text-muted-foreground">{vacio}</p>;
   }
   return (
-    <ul className="max-h-64 divide-y divide-border overflow-y-auto rounded-lg border border-border">
+    <ul className="max-h-80 divide-y divide-border overflow-x-hidden overflow-y-auto rounded-lg border border-border">
       {busqueda.resultados.map((ubicacion) => (
         <li key={`${ubicacion.tipo}:${ubicacion.id}`}>
           <button
@@ -647,8 +647,8 @@ function ListaDeUbicaciones({
             className="flex w-full items-center gap-2 px-2.5 py-2 text-left transition hover:bg-muted"
           >
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm text-foreground">{lugarDe(ubicacion)}</span>
-              <span className="block truncate text-xs text-muted-foreground">
+              <span className="block text-sm leading-snug break-words text-foreground">{lugarDe(ubicacion)}</span>
+              <span className="block text-xs leading-snug break-words text-muted-foreground">
                 {ubicacion.departamento}
                 {ubicacion.pendienteRevision ? " · pendiente de revisar" : ""}
               </span>
