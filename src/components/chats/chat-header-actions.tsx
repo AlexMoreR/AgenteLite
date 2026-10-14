@@ -8,6 +8,7 @@ import { SnoozeChatControl } from "./snooze-chat-control";
 import type { CrmStage } from "@/features/crm/types";
 import { BotonLlamar } from "@/features/llamadas/components/BotonLlamar";
 import { AssignChatControl } from "./assign-chat-control";
+import { BotonMapaDelLead } from "@/features/mapa-del-lead/components/BotonMapaDelLead";
 
 type ChatHeaderActionsProps = {
   contactId: string | null;
@@ -58,6 +59,8 @@ export function ChatHeaderActions({
         {contactId ? (
           <SnoozeChatControl contactId={contactId} conversationId={conversationId} source={source} />
         ) : null}
+        {/* Mapa del lead: la foto 360° del cliente, solo lectura. Sin ficha del CRM no hay mapa. */}
+        {contactId ? <BotonMapaDelLead chatKey={`${source}:${conversationId}`} /> : null}
       </div>
 
       {/* Variante ANGOSTA (celular, o ficha del contacto abierta): arriba queda solo "Llamar", que
@@ -136,6 +139,7 @@ export function BarraDeAccionesDelChat({
       <InterruptorDeIA conversationId={conversationId} automationPaused={automationPaused} source={source} conEtiqueta />
       <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
       <AssignChatControl conversationId={conversationId} assignee={assignee} source={source} compacto />
+      {contactId ? <BotonMapaDelLead chatKey={`${source}:${conversationId}`} compacto /> : null}
       <div className="order-last flex items-center gap-1.5">
         <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
         {/* Resolver y Posponer en UN boton con menu. Sin ficha del CRM no se puede posponer:

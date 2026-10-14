@@ -31,6 +31,7 @@
     "test:turno": "node scripts/check-turno.mjs",
     "test:recuperacion-72h": "node scripts/check-recuperacion-72h.mjs",
     "test:recuperacion": "node scripts/check-recuperacion.mjs",
+    "test:mapa-lead": "node scripts/check-mapa-lead.mjs",
     "test:automatizaciones": "node scripts/check-automatizaciones.mjs",
     "test:solo-excepciones": "node scripts/check-solo-excepciones.mjs",
     "test:reparto-turno": "node scripts/check-reparto-turno.mjs",

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Network } from "lucide-react";
 
 import { hrefDelChat, telefonoEnmascarado } from "@/features/embudo/dominio/semanal";
 import { nombreDelMotivo } from "@/features/seguimiento-inteligente/dominio/motivos-de-tarea";
@@ -153,6 +154,14 @@ function Fila({ item, ahora, esTarea }: { item: ItemDeLista; ahora: Date; esTare
           <span className="truncate text-[15px] font-bold text-foreground">{quien}</span>
           {datos.length ? <span className="text-[13px] text-muted-foreground">{datos.join(" · ")}</span> : null}
         </div>
+        <Link
+          href={`/cliente/mapa-del-lead?chatKey=${encodeURIComponent(`agent:${item.conversationId}`)}`}
+          aria-label={`Mapa del lead de ${quien}`}
+          title="Mapa del lead"
+          className="flex size-11 flex-none items-center justify-center rounded-full border border-border bg-background text-foreground hover:bg-muted"
+        >
+          <Network className="size-4 text-[#7c3aed]" />
+        </Link>
         <Link
           href={hrefDelChat(item.conversationId)}
           aria-label={`Abrir chat de ${quien}`}
