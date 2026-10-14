@@ -2779,7 +2779,7 @@ export const ConversationPanel = memo(function ConversationPanel({
           />
         ) : null}
         <Sheet open={isContactPanelOpen && isMobile} onOpenChange={setIsContactPanelOpen}>
-          <SheetContent side="right" className="w-[min(92vw,24rem)] border-l border-border bg-card p-0 md:hidden" showCloseButton={false}>
+          <SheetContent side="right" className="w-full border-l border-border bg-card p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-md md:hidden" showCloseButton={false}>
             <SheetHeader className="border-b border-border px-4 py-3 text-left">
               <div className="flex items-center justify-between gap-3">
                 <div>
