@@ -491,14 +491,14 @@ export function PanelDeEnvio({
                         { etiqueta: "Total", valor: pesos(contraentrega.total) },
                       ]
                     : [
-                        { etiqueta: "Envío (por adelantado)", valor: "Se cotiza con Ingrid" },
+                        { etiqueta: "Envío (por adelantado)", valor: "Por confirmar con Ingrid" },
                         { etiqueta: "Combo (al recibir)", valor: pesos(contraentrega.producto) },
                       ]
                 }
                 nota={
                   contraentrega.estado === "TOTAL"
                     ? `Pagas el envío por adelantado ${pesos(contraentrega.envio)} y el combo ${pesos(contraentrega.producto)} al recibir.`
-                    : "Esta ciudad no es de envío gratis: el envío se cotiza con Ingrid."
+                    : "Para empezar la contraentrega el cliente paga el envío por adelantado (costo adicional). El valor lo confirma Ingrid caso a caso."
                 }
                 texto={contraentrega.texto}
                 puedeEscribir={puedeEscribir}

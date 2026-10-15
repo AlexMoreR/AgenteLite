@@ -7,26 +7,12 @@ import type { EstadoDeEnvio } from "@/lib/envios-gestion";
  * del 7-oct"):
  * - Envío GRATIS a las ciudades de envío gratis SOLO pagando 50 % de anticipo + 50 % al terminar la
  *   fabricación (antes del envío).
- * - Contraentrega SOLO para el COMBO DE CAMILLA. El envío se paga por adelantado y el combo al
- *   recibir: Bogotá $100.000; Cali, Medellín y todas las demás ciudades de envío gratis $150.000
- *   fijo; ciudades que no son de envío gratis: se cotiza con Ingrid.
+ * - Contraentrega SOLO para el COMBO DE CAMILLA. El cliente paga por adelantado el envío (costo
+ *   adicional) y el combo al recibir. Decisión del 14-oct: el valor del envío NO es fijo (antes
+ *   $100.000 Bogotá / $150.000 resto); la asesora lo confirma con Ingrid caso a caso.
  *
- * Gestión no expone estos valores: viven aquí, en un solo lugar. Si Alex los cambia, se cambian en
- * `ENVIO_CONTRAENTREGA`. Es lógica pura (sin red ni base): la prueba es `npm run test:contraentrega`.
+ * Lógica pura (sin red ni base): la prueba es `npm run test:contraentrega`.
  */
-
-export const ENVIO_CONTRAENTREGA = {
-  bogota: 100_000,
-  ciudadGratis: 150_000,
-} as const;
-
-/** Ciudades que la política nombra con su valor, por si Gestión aún no las marca como GRATIS. */
-const CIUDADES_CON_VALOR: ReadonlyArray<{ claves: string[]; valor: number }> = [
-  { claves: ["bogota", "bogota d.c.", "bogota, d.c.", "bogota dc"], valor: ENVIO_CONTRAENTREGA.bogota },
-  { claves: ["cali", "santiago de cali"], valor: ENVIO_CONTRAENTREGA.ciudadGratis },
-  { claves: ["medellin"], valor: ENVIO_CONTRAENTREGA.ciudadGratis },
-];
-
 const formatoPesos = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 });
 export function pesos(valor: number): string {
   return `$${formatoPesos.format(valor)}`;
@@ -56,14 +42,12 @@ export type UbicacionParaPago = {
   envio: EstadoDeEnvio;
 };
 
-/** Valor del envío en contraentrega, o null si se cotiza con Ingrid. */
+/**
+ * Valor del envío en contraentrega. Siempre null: desde el 14-oct no hay valor fijo, se confirma
+ * con Ingrid caso a caso (el envío puede salir más caro según el destino).
+ */
 export function envioContraentrega(ubicacion: UbicacionParaPago): number | null {
-  if (ubicacion.envio === "NO_LLEGA") return null;
-  const ciudad = normalizar(ubicacion.ciudad || ubicacion.nombre);
-  const nombrada = CIUDADES_CON_VALOR.find((fila) => fila.claves.includes(ciudad));
-  // Una ciudad nombrada vale siempre; su corregimiento solo si Gestión no lo saca de la cobertura.
-  if (nombrada && (ubicacion.tipo === "ciudad" || ubicacion.envio === "GRATIS")) return nombrada.valor;
-  if (ubicacion.envio === "GRATIS") return ENVIO_CONTRAENTREGA.ciudadGratis;
+  void ubicacion;
   return null;
 }
 
@@ -144,7 +128,8 @@ export function opcionContraentrega(input: {
       producto: producto.precio,
       texto:
         `¡Sí! Con contraentrega pagas solo el envío por adelantado y tu *${producto.nombre}* (*${pesos(producto.precio)}*) ` +
-        `lo pagas al recibirlo. El envío a *${lugar}* te lo cotizo y en un momento te doy el *total exacto*.`,
+        `lo pagas al recibirlo. El envío a *${lugar}* es un costo adicional: te lo confirmo en un momento y te doy el *total exacto*.` +
+        otraOpcion,
     };
   }
   const total = producto.precio + envio;

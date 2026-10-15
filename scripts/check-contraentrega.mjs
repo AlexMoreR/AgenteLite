@@ -20,7 +20,7 @@ new Function("exports", "require", "module", "__filename", "__dirname", transpil
   sourcePath,
   path.dirname(sourcePath),
 );
-const { ENVIO_CONTRAENTREGA, esComboDeCamilla, envioContraentrega, opcionAnticipo, opcionContraentrega, pesos } =
+const { esComboDeCamilla, envioContraentrega, opcionAnticipo, opcionContraentrega, pesos } =
   mod.exports;
 
 let pruebas = 0;
@@ -35,8 +35,6 @@ const silla = { nombre: "SILLA NEUMATICA", precio: 300000, codigo: "SIL01", cate
 const ciudad = (nombre, envio) => ({ tipo: "ciudad", nombre, ciudad: nombre, envio });
 
 prueba("valores de la política", () => {
-  assert.equal(ENVIO_CONTRAENTREGA.bogota, 100000);
-  assert.equal(ENVIO_CONTRAENTREGA.ciudadGratis, 150000);
   assert.equal(pesos(1139000), "$1.139.000");
 });
 
@@ -49,44 +47,26 @@ prueba("combo de camilla por categoría o, sin categoría, por código CMB", () 
   assert.equal(esComboDeCamilla(null), false);
 });
 
-prueba("envío en contraentrega: Bogotá 100.000, ciudades gratis 150.000, resto se cotiza", () => {
-  assert.equal(envioContraentrega(ciudad("Bogotá, D.C.", "GRATIS")), 100000);
-  assert.equal(envioContraentrega(ciudad("Bogotá, D.C.", "COTIZAR")), 100000);
-  assert.equal(envioContraentrega(ciudad("Santiago de Cali", "GRATIS")), 150000);
-  assert.equal(envioContraentrega(ciudad("Medellín", "COTIZAR")), 150000);
-  assert.equal(envioContraentrega(ciudad("Bucaramanga", "GRATIS")), 150000);
-  assert.equal(envioContraentrega(ciudad("Pasto", "ADICIONAL")), null);
-  assert.equal(envioContraentrega(ciudad("Morroa", "COTIZAR")), null);
-  assert.equal(envioContraentrega(ciudad("Leticia", "NO_LLEGA")), null);
-  // Corregimiento de Bogotá: vale Bogotá solo si Gestión lo tiene como gratis.
-  assert.equal(envioContraentrega({ tipo: "corregimiento", nombre: "Usme", ciudad: "Bogotá, D.C.", envio: "GRATIS" }), 100000);
-  assert.equal(envioContraentrega({ tipo: "corregimiento", nombre: "Sumapaz", ciudad: "Bogotá, D.C.", envio: "COTIZAR" }), null);
-  // Sabanas de Cali (Morroa) NO es Cali.
-  assert.equal(envioContraentrega({ tipo: "corregimiento", nombre: "Sabanas de Cali", ciudad: "Morroa", envio: "COTIZAR" }), null);
+prueba("envío en contraentrega: nunca valor fijo, siempre se confirma con Ingrid (14-oct)", () => {
+  for (const [nombre, envio] of [["Bogotá, D.C.", "GRATIS"], ["Santiago de Cali", "GRATIS"], ["Medellín", "COTIZAR"], ["Pasto", "ADICIONAL"], ["Leticia", "NO_LLEGA"]]) {
+    assert.equal(envioContraentrega(ciudad(nombre, envio)), null);
+  }
 });
 
-prueba("contraentrega del combo en Bogotá: un solo mensaje con el total", () => {
-  const r = opcionContraentrega({ ubicacion: ciudad("Bogotá, D.C.", "GRATIS"), lugar: "Bogotá, D.C.", producto: combo, anticipoConEnvioGratis: true });
-  assert.equal(r.estado, "TOTAL");
-  assert.equal(r.envio, 100000);
-  assert.equal(r.total, 1089000);
-  assert.match(r.texto, /\$100\.000/);
-  assert.match(r.texto, /\$989\.000/);
-  assert.match(r.texto, /Total: \*\$1\.089\.000\*/);
-  assert.match(r.texto, /envío te sale \*gratis\*/);
-});
-
-prueba("contraentrega del combo en Cali: 150.000 + combo", () => {
+prueba("contraentrega del combo en Cali: envío por confirmar, combo al recibir, ofrece el 50 %", () => {
   const r = opcionContraentrega({ ubicacion: ciudad("Santiago de Cali", "GRATIS"), lugar: "Santiago de Cali", producto: combo, anticipoConEnvioGratis: true });
-  assert.equal(r.estado, "TOTAL");
-  assert.equal(r.total, 1139000);
+  assert.equal(r.estado, "COTIZAR");
+  assert.equal(r.producto, 989000);
+  assert.doesNotMatch(r.texto, /150\.000|100\.000/);
+  assert.match(r.texto, /costo adicional/);
+  assert.match(r.texto, /\*50%\*/);
 });
 
 prueba("contraentrega en ciudad no gratis: se cotiza con Ingrid, sin inventar cifra", () => {
   const r = opcionContraentrega({ ubicacion: ciudad("Pasto", "ADICIONAL"), lugar: "Pasto", producto: combo, anticipoConEnvioGratis: false });
   assert.equal(r.estado, "COTIZAR");
   assert.doesNotMatch(r.texto, /150\.000|100\.000/);
-  assert.match(r.texto, /te lo cotizo/);
+  assert.match(r.texto, /te lo confirmo/);
 });
 
 prueba("otros productos no tienen contraentrega", () => {
