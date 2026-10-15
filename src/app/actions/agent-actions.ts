@@ -49,6 +49,7 @@ import {
   sendEvolutionVideoMessage,
 } from "@/lib/evolution";
 import { getPublicBaseUrl } from "@/lib/app-url";
+import { claveDeNotaDeVoz, urlAbsolutaParaEnviar } from "@/lib/reenviar-mensaje";
 import { parseWorkspaceBusinessConfig } from "@/lib/workspace-business-config";
 import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import {
@@ -3061,6 +3062,9 @@ const sendChatAudioReplySchema = z.object({
   hasta 8,7 s-. Cada audio subido tiene una URL unica, asi que el reintento con la misma URL se
   engancha al envio que ya esta en curso en vez de mandarlo de nuevo. Si ya termino, ademas se mira
   en la base (enviarNotaDeVoz): si el mensaje con esa URL ya existe, no se vuelve a mandar.
+
+  La clave es CHAT + URL (claveDeNotaDeVoz): al REENVIAR un audio, la misma URL va a varios chats
+  y con solo la URL el segundo se tomaba como repeticion del primero y no salia.
 */
 const NOTAS_DE_VOZ_EN_CURSO = new Map<string, { promesa: Promise<{ ok: true } | { error: string }>; at: number }>();
 const VIDA_NOTA_DE_VOZ_EN_CURSO_MS = 10 * 60_000;
@@ -3082,7 +3086,8 @@ export async function sendChatAudioReplyAction(
   input: SendChatAudioReplyInput,
 ): Promise<{ ok: true } | { error: string }> {
   const inicio = Date.now();
-  const clave = typeof input?.audioUrl === "string" ? input.audioUrl : "";
+  const clave = claveDeNotaDeVoz(input?.conversationId, input?.audioUrl);
+  const audioUrl = typeof input?.audioUrl === "string" ? input.audioUrl : "";
   const registrar = (resultado: string, error: string | null, extra: Record<string, unknown> = {}) => {
     const linea = JSON.stringify({
       paso: "envio",
@@ -3090,7 +3095,7 @@ export async function sendChatAudioReplyAction(
       ms: Date.now() - inicio,
       canal: input?.source === "official" ? "official" : "evolution",
       conversationId: input?.conversationId ?? null,
-      archivo: clave ? clave.split("/").pop() : null,
+      archivo: audioUrl ? audioUrl.split("/").pop() : null,
       error,
       ...extra,
     });
@@ -3102,9 +3107,9 @@ export async function sendChatAudioReplyAction(
   };
 
   const ahora = Date.now();
-  for (const [url, entrada] of NOTAS_DE_VOZ_EN_CURSO) {
+  for (const [claveVieja, entrada] of NOTAS_DE_VOZ_EN_CURSO) {
     if (ahora - entrada.at > VIDA_NOTA_DE_VOZ_EN_CURSO_MS) {
-      NOTAS_DE_VOZ_EN_CURSO.delete(url);
+      NOTAS_DE_VOZ_EN_CURSO.delete(claveVieja);
     }
   }
 
@@ -3228,7 +3233,10 @@ async function enviarNotaDeVoz(
     outbound = await sendEvolutionAudioMessage({
       instanceName: conversation.channel.evolutionInstanceName,
       phoneNumber: conversation.contact.phoneNumber,
-      audioUrl: parsed.data.audioUrl,
+      // El gateway descarga el audio: necesita la direccion absoluta. Un audio REENVIADO puede
+      // venir con la ruta relativa; en la base se guarda tal cual llego (asi lo encuentra el
+      // control de repetidos de arriba).
+      audioUrl: urlAbsolutaParaEnviar(parsed.data.audioUrl, getPublicBaseUrl()),
       delayMs: 0,
     });
   } catch (audioSendError) {

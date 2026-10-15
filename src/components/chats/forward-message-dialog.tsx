@@ -4,7 +4,7 @@ import * as React from "react";
 import { Loader2, Search, Send } from "lucide-react";
 import { toast } from "sonner";
 
-import { sendChatMediaReplyAction } from "@/app/actions/agent-actions";
+import { sendChatAudioReplyAction, sendChatMediaReplyAction } from "@/app/actions/agent-actions";
 import { sendUnifiedChatReplyAction } from "@/app/actions/chats-actions";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import type { SharedInboxMessageItem } from "@/components/chats/chat-inbox-types";
 import { getDocumentMetaFromMessage } from "@/components/chats/chat-inbox-media";
+import { comoSeReenvia, esArchivoDeNuestroServidor, type TipoConArchivo } from "@/lib/reenviar-mensaje";
 
 /**
  * Reenviar un mensaje a otro chat.
@@ -33,31 +34,13 @@ type ChatDestino = {
   source?: string;
 };
 
-const TIPOS_CON_ARCHIVO = ["IMAGE", "VIDEO", "DOCUMENT"] as const;
-
-function esReenviableComoArchivo(tipo?: string | null): tipo is (typeof TIPOS_CON_ARCHIVO)[number] {
-  return TIPOS_CON_ARCHIVO.includes((tipo ?? "") as (typeof TIPOS_CON_ARCHIVO)[number]);
+function esReenviableComoArchivo(tipo?: string | null): tipo is TipoConArchivo {
+  return comoSeReenvia(tipo) === "archivo";
 }
 
-/**
- * ¿El archivo vive en NUESTRO servidor?
- *
- * Se mira la RUTA, no el texto completo: los mensajes guardan la direccion absoluta
- * ("https://app.aizenbot.com/uploads/chat-media/...") y comparar el principio contra "/uploads/"
- * no coincidia NUNCA. Resultado: reenviar cualquier foto o PDF avisaba "todavia se esta
- * guardando" y no mandaba nada, siempre.
- */
-function esArchivoDeNuestroServidor(mediaUrl?: string | null): boolean {
-  const direccion = mediaUrl?.trim();
-  if (!direccion) {
-    return false;
-  }
-  try {
-    const ruta = direccion.startsWith("/") ? direccion : new URL(direccion).pathname;
-    return ruta.startsWith("/uploads/");
-  } catch {
-    return false;
-  }
+// Audio (nota de voz o archivo de audio): va por el mismo camino que la nota grabada en el CRM.
+function esReenviableComoAudio(tipo?: string | null): boolean {
+  return comoSeReenvia(tipo) === "audio";
 }
 
 export function ForwardMessageDialog({
@@ -155,13 +138,33 @@ export function ForwardMessageDialog({
        */
       const archivoPropio = esArchivoDeNuestroServidor(message.mediaUrl);
 
-      if (esReenviableComoArchivo(message.type) && message.mediaUrl && !archivoPropio) {
+      const esAudio = esReenviableComoAudio(message.type);
+
+      if (
+        (esReenviableComoArchivo(message.type) && message.mediaUrl && !archivoPropio) ||
+        // Un audio sin archivo propio (o sin archivo todavia) no se puede mandar como audio; y
+        // mandar su transcripcion como texto no es reenviarlo.
+        (esAudio && !archivoPropio)
+      ) {
         toast.error("Ese archivo todavía se está guardando. Abrí el chat y probá de nuevo en un momento.");
         setEnviandoA(null);
         return;
       }
 
-      if (esReenviableComoArchivo(message.type) && message.mediaUrl) {
+      if (esAudio && message.mediaUrl) {
+        /*
+          Mismo camino que la nota de voz grabada en el CRM: sirve para los dos canales (Evolution /
+          WAHA y API oficial) y no hace falta convertir nada aca -WAHA la pasa a nota de voz solo
+          (`convert: true`) y Meta descarga el archivo tal cual-. El control de repetidos de esa
+          accion va por chat + audio, asi que el mismo audio puede ir a varios chats.
+        */
+        resultado = await sendChatAudioReplyAction({
+          source: fuente === "official" ? "official" : "agent",
+          conversationId,
+          audioUrl: message.mediaUrl,
+          returnTo: "",
+        });
+      } else if (esReenviableComoArchivo(message.type) && message.mediaUrl) {
         const meta = getDocumentMetaFromMessage(message);
         resultado = await sendChatMediaReplyAction({
           source: fuente === "official" ? "official" : "agent",
@@ -203,6 +206,7 @@ export function ForwardMessageDialog({
 
   const resumen = React.useMemo(() => {
     if (!message) return "";
+    if (esReenviableComoAudio(message.type)) return "Audio";
     if (esReenviableComoArchivo(message.type) && message.mediaUrl) {
       return getDocumentMetaFromMessage(message).fileName;
     }
