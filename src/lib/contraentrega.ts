@@ -10,6 +10,10 @@ import type { EstadoDeEnvio } from "@/lib/envios-gestion";
  * - Contraentrega SOLO para el COMBO DE CAMILLA. El cliente paga por adelantado el envío (costo
  *   adicional) y el combo al recibir. Decisión del 14-oct: el valor del envío NO es fijo (antes
  *   $100.000 Bogotá / $150.000 resto); la asesora lo confirma con Ingrid caso a caso.
+ * - Decisión del 14-oct (2): el dueño o un administrador puede GUARDAR el valor del envío de
+ *   contraentrega de una ubicación (ciudad o corregimiento) desde el mismo panel; queda para todas
+ *   las asesoras. Sin valor guardado sigue "Por confirmar con Ingrid". Se guarda en AppSetting (ver
+ *   `lib/envio-contraentrega-guardado.ts`).
  *
  * Lógica pura (sin red ni base): la prueba es `npm run test:contraentrega`.
  */
@@ -42,13 +46,87 @@ export type UbicacionParaPago = {
   envio: EstadoDeEnvio;
 };
 
+/** Tope de un envío de contraentrega: más que esto es casi seguro un error de digitación. */
+export const ENVIO_CONTRAENTREGA_MAXIMO = 2_000_000;
+
+/** Lo que se guarda por ubicación (una fila de AppSetting por ubicación). */
+export type EnvioContraentregaGuardado = {
+  valor: number;
+  nombre: string;
+  actualizadoPor: string;
+  fecha: string;
+};
+
+/** Clave de AppSetting del valor de una ubicación. El tipo va en la clave: ciudad y corregimiento son tablas distintas en Gestión. */
+export function claveEnvioContraentrega(workspaceId: string, tipo: "ciudad" | "corregimiento", ubicacionId: string): string {
+  return `envio:contraentrega:${workspaceId}:${tipo}:${ubicacionId}`;
+}
+
 /**
- * Valor del envío en contraentrega. Siempre null: desde el 14-oct no hay valor fijo, se confirma
- * con Ingrid caso a caso (el envío puede salir más caro según el destino).
+ * Valida lo que escribe el admin: entero en COP, > 0 y < 2.000.000. Acepta "150000", "150.000",
+ * "$150.000" o "150,000" (puntos y comas son separadores de miles; no hay centavos).
  */
-export function envioContraentrega(ubicacion: UbicacionParaPago): number | null {
-  void ubicacion;
-  return null;
+export function validarEnvioContraentrega(
+  entrada: unknown,
+): { ok: true; valor: number } | { ok: false; error: string } {
+  let valor: number;
+  if (typeof entrada === "number") {
+    valor = entrada;
+  } else if (typeof entrada === "string") {
+    const limpio = entrada.replace(/[$\s.,]/g, "");
+    if (!/^\d+$/.test(limpio)) return { ok: false, error: "Escribe solo el valor en pesos, sin centavos" };
+    valor = Number(limpio);
+  } else {
+    return { ok: false, error: "Escribe el valor del envío" };
+  }
+  if (!Number.isSafeInteger(valor)) return { ok: false, error: "El valor tiene que ser un número entero en pesos" };
+  if (valor <= 0) return { ok: false, error: "El valor tiene que ser mayor que cero" };
+  if (valor >= ENVIO_CONTRAENTREGA_MAXIMO) {
+    return { ok: false, error: `El valor tiene que ser menor que ${pesos(ENVIO_CONTRAENTREGA_MAXIMO)}` };
+  }
+  return { ok: true, valor };
+}
+
+/** Lee la fila guardada; si está dañada o el valor no es válido, como si no hubiera nada. */
+export function leerEnvioContraentregaGuardado(texto: string | null | undefined): EnvioContraentregaGuardado | null {
+  if (!texto) return null;
+  try {
+    const dato = JSON.parse(texto) as Partial<EnvioContraentregaGuardado> | null;
+    if (!dato || typeof dato !== "object") return null;
+    const validado = validarEnvioContraentrega(dato.valor);
+    if (!validado.ok || typeof dato.valor !== "number") return null;
+    return {
+      valor: validado.valor,
+      nombre: typeof dato.nombre === "string" ? dato.nombre : "",
+      actualizadoPor: typeof dato.actualizadoPor === "string" ? dato.actualizadoPor : "",
+      fecha: typeof dato.fecha === "string" ? dato.fecha : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Solo el dueño o un administrador (del negocio o de la plataforma) edita el valor. Las asesoras y
+ * las supervisoras solo lo ven.
+ */
+export function puedeEditarEnvioContraentrega(access: {
+  isOwner: boolean;
+  role: string;
+  membershipRole: string;
+}): boolean {
+  return access.isOwner || access.role === "ADMIN" || access.membershipRole === "OWNER" || access.membershipRole === "ADMIN";
+}
+
+/**
+ * Valor del envío en contraentrega: el guardado por el admin para ESA ubicación, o null ("Por
+ * confirmar con Ingrid"). No hay valor fijo por defecto (14-oct): nunca se inventa.
+ */
+export function envioContraentrega(ubicacion: UbicacionParaPago, guardado: number | null = null): number | null {
+  if (ubicacion.envio === "NO_LLEGA") return null;
+  if (guardado === null) return null;
+  const validado = validarEnvioContraentrega(guardado);
+  return validado.ok ? validado.valor : null;
 }
 
 export type OpcionAnticipo =
@@ -104,13 +182,15 @@ export function opcionAnticipo(input: {
 
 /**
  * Opción "Contraentrega": solo combo de camilla. Envío por adelantado + combo al recibir, con el
- * total escrito. Si la ciudad no es de envío gratis, el envío se cotiza con Ingrid.
+ * total escrito, si el admin guardó el valor del envío de esa ubicación; si no, se confirma con Ingrid.
  */
 export function opcionContraentrega(input: {
   ubicacion: UbicacionParaPago;
   lugar: string;
   producto: { nombre: string; precio: number; codigo?: string | null; categoria?: string | null } | null;
   anticipoConEnvioGratis: boolean;
+  /** Valor guardado por el admin para esta ubicación (o null si no hay). */
+  envioGuardado?: number | null;
 }): OpcionContraentrega {
   const { ubicacion, lugar, producto, anticipoConEnvioGratis } = input;
   if (!producto) return { estado: "NO_APLICA", motivo: "Elige un producto para ver la contraentrega" };
@@ -121,7 +201,7 @@ export function opcionContraentrega(input: {
   const otraOpcion = anticipoConEnvioGratis
     ? " Si prefieres, también puedes separarlo con el *50%* y así el envío te sale *gratis*. ¿Cuál te queda mejor?"
     : " ¿Te queda bien así?";
-  const envio = envioContraentrega(ubicacion);
+  const envio = envioContraentrega(ubicacion, input.envioGuardado ?? null);
   if (envio === null) {
     return {
       estado: "COTIZAR",

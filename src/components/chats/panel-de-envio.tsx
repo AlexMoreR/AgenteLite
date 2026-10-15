@@ -1,17 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Copy, LoaderCircle, MapPin, Plus, Search, SendHorizonal, X } from "lucide-react";
+import { Copy, LoaderCircle, MapPin, Plus, Search, SendHorizonal, Trash2, X } from "lucide-react";
 
 import {
   agregarUbicacionAction,
+  borrarEnvioContraentregaAction,
   buscarUbicacionAction,
+  guardarEnvioContraentregaAction,
+  leerEnvioContraentregaAction,
   guardarUbicacionEnContactoAction,
   listarProductosParaEnvioAction,
   type ProductoParaEnvio,
 } from "@/app/actions/envio-actions";
-import { opcionAnticipo, opcionContraentrega, pesos } from "@/lib/contraentrega";
+import { opcionAnticipo, opcionContraentrega, pesos, type EnvioContraentregaGuardado } from "@/lib/contraentrega";
 import type { EstadoDeEnvio, ProductoDeEnvio, UbicacionDeGestion } from "@/lib/envios-gestion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +29,8 @@ import { cn } from "@/lib/utils";
  * gratis, adicional, se cotiza o no llegamos. Debajo salen las DOS formas de pago, cada una con su
  * total y un solo mensaje listo para insertar (no se envía solo) o copiar: "50 % anticipo" y
  * "Contraentrega" (solo combo de camilla; ver `lib/contraentrega.ts`). Lo elegido se guarda en la
- * ficha (`metadata.city` y `metadata.envio`). Si la ubicación no existe, se agrega en Gestión y
+ * ficha (`metadata.city` y `metadata.envio`). El valor del envío de contraentrega de cada ubicación
+ * lo guarda el dueño o un administrador ahí mismo, en la tarjeta "Contraentrega", y lo ven todas. Si la ubicación no existe, se agrega en Gestión y
  * queda "Se cotiza" hasta que la revisen.
  *
  * Todo es diferido: nada se pide hasta que se abre la ficha, la búsqueda espera 300 ms a que se
@@ -90,10 +94,12 @@ function OpcionDePago({
   texto,
   puedeEscribir,
   onInsertar,
+  extra,
 }: {
   titulo: string;
   cifras: Array<{ etiqueta: string; valor: string }>;
   nota?: string | null;
+  extra?: ReactNode;
   texto: string | null;
   puedeEscribir: boolean;
   onInsertar: (texto: string) => void;
@@ -119,6 +125,7 @@ function OpcionDePago({
         </dl>
       ) : null}
       {nota ? <p className="text-xs text-muted-foreground">{nota}</p> : null}
+      {extra}
       {texto ? (
         <>
           <p className="whitespace-pre-wrap rounded-md bg-muted/60 px-2.5 py-2 text-[13px] leading-snug text-foreground">
@@ -148,6 +155,120 @@ function OpcionDePago({
           </div>
         </>
       ) : null}
+    </div>
+  );
+}
+
+type EnvioContraentregaLeido = {
+  clave: string;
+  guardado: EnvioContraentregaGuardado | null;
+  puedeEditar: boolean;
+};
+
+function fechaCorta(iso: string) {
+  const fecha = new Date(iso);
+  if (Number.isNaN(fecha.getTime())) return "";
+  return fecha.toLocaleDateString("es-CO", { day: "numeric", month: "short", timeZone: "America/Bogota" });
+}
+
+/**
+ * Solo dueño o admin: escribir, guardar o borrar el envío de contraentrega de ESTA ubicación. Queda
+ * para todas las asesoras. El servidor vuelve a validar el rol y el valor.
+ */
+function EditorEnvioContraentrega({
+  ubicacion,
+  nombre,
+  guardado,
+  onCambio,
+}: {
+  ubicacion: UbicacionDeGestion;
+  nombre: string;
+  guardado: EnvioContraentregaGuardado | null;
+  onCambio: (guardado: EnvioContraentregaGuardado | null) => void;
+}) {
+  const [valor, setValor] = useState(guardado ? String(guardado.valor) : "");
+  const [ocupado, setOcupado] = useState(false);
+
+  const guardar = async () => {
+    setOcupado(true);
+    try {
+      const resultado = await guardarEnvioContraentregaAction({ tipo: ubicacion.tipo, id: ubicacion.id, nombre, valor });
+      if ("error" in resultado) {
+        toast.error(resultado.error);
+        return;
+      }
+      setValor(String(resultado.guardado.valor));
+      onCambio(resultado.guardado);
+      toast.success("Envío de contraentrega guardado para todas");
+    } catch {
+      toast.error("No se pudo guardar");
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  const borrar = async () => {
+    setOcupado(true);
+    try {
+      const resultado = await borrarEnvioContraentregaAction({ tipo: ubicacion.tipo, id: ubicacion.id });
+      if ("error" in resultado) {
+        toast.error(resultado.error);
+        return;
+      }
+      setValor("");
+      onCambio(null);
+      toast.success("Valor borrado: vuelve a \"Por confirmar con Ingrid\"");
+    } catch {
+      toast.error("No se pudo borrar");
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  return (
+    <div className="space-y-1 rounded-md bg-muted/40 p-2">
+      <p className="text-xs font-medium text-foreground">Envío de contraentrega a {nombre} (solo admin)</p>
+      <div className="flex gap-1.5">
+        <Input
+          value={valor}
+          onChange={(event) => setValor(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              if (!ocupado) void guardar();
+            }
+          }}
+          inputMode="numeric"
+          placeholder="Valor en pesos, ej. 150000"
+          aria-label="Valor del envío de contraentrega"
+          className="h-8"
+          disabled={ocupado}
+        />
+        <Button type="button" size="sm" onClick={() => void guardar()} disabled={ocupado || !valor.trim()}>
+          {ocupado ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}
+          Guardar
+        </Button>
+        {guardado ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void borrar()}
+            disabled={ocupado}
+            aria-label="Borrar valor"
+            title="Borrar valor"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        ) : null}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        {guardado
+          ? `Guardado${guardado.actualizadoPor ? ` por ${guardado.actualizadoPor}` : ""}${
+              guardado.fecha ? ` el ${fechaCorta(guardado.fecha)}` : ""
+            }. Lo ven todas las asesoras.`
+          : "Sin valor: las asesoras ven \"Por confirmar con Ingrid\"."}
+      </p>
     </div>
   );
 }
@@ -224,6 +345,29 @@ export function PanelDeEnvio({
   const [ciudadElegida, setCiudadElegida] = useState<UbicacionDeGestion | null>(null);
   const [guardandoNueva, setGuardandoNueva] = useState(false);
   const ultimoGuardado = useRef<string>("");
+  const [envioCE, setEnvioCE] = useState<EnvioContraentregaLeido | null>(null);
+
+  // El envío de contraentrega guardado para la ubicación elegida (y si quien mira puede editarlo).
+  const claveCE = elegido ? `${elegido.ubicacion.tipo}:${elegido.ubicacion.id}` : "";
+  useEffect(() => {
+    if (!elegido) return;
+    let cancelado = false;
+    const clave = `${elegido.ubicacion.tipo}:${elegido.ubicacion.id}`;
+    leerEnvioContraentregaAction({ tipo: elegido.ubicacion.tipo, id: elegido.ubicacion.id })
+      .catch(() => ({ error: "No se pudo leer" }) as const)
+      .then((resultado) => {
+        if (cancelado) return;
+        setEnvioCE(
+          "error" in resultado
+            ? { clave, guardado: null, puedeEditar: false }
+            : { clave, guardado: resultado.guardado, puedeEditar: resultado.puedeEditar },
+        );
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [elegido]);
+  const envioCEVigente = envioCE && envioCE.clave === claveCE ? envioCE : null;
 
   // La ciudad que ya tiene la ficha solo pre-llena el cuadro (una sola vez): no dispara la búsqueda.
   // Se ajusta durante el render porque la ciudad puede llegar después de montar.
@@ -289,6 +433,7 @@ export function PanelDeEnvio({
               }
             : null,
         anticipoConEnvioGratis: anticipo?.estado === "TOTAL" && anticipo.envioGratis,
+        envioGuardado: envioCEVigente?.guardado?.valor ?? null,
       })
     : null;
   const sinTotal =
@@ -499,6 +644,17 @@ export function PanelDeEnvio({
                   contraentrega.estado === "TOTAL"
                     ? `Pagas el envío por adelantado ${pesos(contraentrega.envio)} y el combo ${pesos(contraentrega.producto)} al recibir.`
                     : "Para empezar la contraentrega el cliente paga el envío por adelantado (costo adicional). El valor lo confirma Ingrid caso a caso."
+                }
+                extra={
+                  envioCEVigente?.puedeEditar ? (
+                    <EditorEnvioContraentrega
+                      key={claveCE}
+                      ubicacion={elegido.ubicacion}
+                      nombre={lugarDe(elegido.ubicacion)}
+                      guardado={envioCEVigente.guardado}
+                      onCambio={(guardado) => setEnvioCE({ clave: claveCE, guardado, puedeEditar: true })}
+                    />
+                  ) : null
                 }
                 texto={contraentrega.texto}
                 puedeEscribir={puedeEscribir}

@@ -20,8 +20,17 @@ new Function("exports", "require", "module", "__filename", "__dirname", transpil
   sourcePath,
   path.dirname(sourcePath),
 );
-const { esComboDeCamilla, envioContraentrega, opcionAnticipo, opcionContraentrega, pesos } =
-  mod.exports;
+const {
+  esComboDeCamilla,
+  envioContraentrega,
+  opcionAnticipo,
+  opcionContraentrega,
+  pesos,
+  validarEnvioContraentrega,
+  leerEnvioContraentregaGuardado,
+  puedeEditarEnvioContraentrega,
+  claveEnvioContraentrega,
+} = mod.exports;
 
 let pruebas = 0;
 function prueba(nombre, fn) {
@@ -47,7 +56,7 @@ prueba("combo de camilla por categoría o, sin categoría, por código CMB", () 
   assert.equal(esComboDeCamilla(null), false);
 });
 
-prueba("envío en contraentrega: nunca valor fijo, siempre se confirma con Ingrid (14-oct)", () => {
+prueba("envío en contraentrega sin valor guardado: nunca valor fijo, se confirma con Ingrid (14-oct)", () => {
   for (const [nombre, envio] of [["Bogotá, D.C.", "GRATIS"], ["Santiago de Cali", "GRATIS"], ["Medellín", "COTIZAR"], ["Pasto", "ADICIONAL"], ["Leticia", "NO_LLEGA"]]) {
     assert.equal(envioContraentrega(ciudad(nombre, envio)), null);
   }
@@ -67,6 +76,62 @@ prueba("contraentrega en ciudad no gratis: se cotiza con Ingrid, sin inventar ci
   assert.equal(r.estado, "COTIZAR");
   assert.doesNotMatch(r.texto, /150\.000|100\.000/);
   assert.match(r.texto, /te lo confirmo/);
+});
+
+prueba("envío guardado por el admin: se usa para esa ubicación; NO_LLEGA o inválido no cuentan", () => {
+  assert.equal(envioContraentrega(ciudad("Pasto", "ADICIONAL"), 180000), 180000);
+  assert.equal(envioContraentrega(ciudad("Pasto", "ADICIONAL"), null), null);
+  assert.equal(envioContraentrega(ciudad("Leticia", "NO_LLEGA"), 180000), null);
+  assert.equal(envioContraentrega(ciudad("Pasto", "ADICIONAL"), 0), null);
+  assert.equal(envioContraentrega(ciudad("Pasto", "ADICIONAL"), 2000000), null);
+});
+
+prueba("contraentrega con valor guardado: envío por adelantado + combo al recibir + total", () => {
+  const r = opcionContraentrega({ ubicacion: ciudad("Pasto", "ADICIONAL"), lugar: "Pasto", producto: combo, anticipoConEnvioGratis: false, envioGuardado: 180000 });
+  assert.equal(r.estado, "TOTAL");
+  assert.equal(r.envio, 180000);
+  assert.equal(r.producto, 989000);
+  assert.equal(r.total, 1169000);
+  assert.match(r.texto, /\*\$180\.000\*/);
+  assert.match(r.texto, /Total: \*\$1\.169\.000\*/);
+  const cali = opcionContraentrega({ ubicacion: ciudad("Santiago de Cali", "GRATIS"), lugar: "Santiago de Cali", producto: combo, anticipoConEnvioGratis: true, envioGuardado: 120000 });
+  assert.equal(cali.estado, "TOTAL");
+  assert.match(cali.texto, /\*50%\*/);
+  const silla = opcionContraentrega({ ubicacion: ciudad("Pasto", "ADICIONAL"), lugar: "Pasto", producto: { nombre: "SILLA", precio: 300000, codigo: "SIL01", categoria: "SILLAS" }, anticipoConEnvioGratis: false, envioGuardado: 180000 });
+  assert.equal(silla.estado, "NO_APLICA");
+});
+
+prueba("validación del valor: entero COP > 0 y < 2.000.000, acepta puntos, comas y $", () => {
+  assert.deepEqual(validarEnvioContraentrega("150000"), { ok: true, valor: 150000 });
+  assert.deepEqual(validarEnvioContraentrega("$150.000"), { ok: true, valor: 150000 });
+  assert.deepEqual(validarEnvioContraentrega("150,000"), { ok: true, valor: 150000 });
+  assert.deepEqual(validarEnvioContraentrega(99000), { ok: true, valor: 99000 });
+  assert.deepEqual(validarEnvioContraentrega(1999999), { ok: true, valor: 1999999 });
+  for (const malo of ["", "abc", "-5000", "0", 0, -1, 1.5, 2000000, "2.000.000", "15e4", null, undefined, {}]) {
+    assert.equal(validarEnvioContraentrega(malo).ok, false, `debería rechazar ${JSON.stringify(malo)}`);
+  }
+});
+
+prueba("lectura de lo guardado: JSON dañado o valor inválido = sin valor", () => {
+  const ok = leerEnvioContraentregaGuardado(JSON.stringify({ valor: 150000, nombre: "Pasto", actualizadoPor: "Alex", fecha: "2026-10-15T00:00:00.000Z" }));
+  assert.deepEqual(ok, { valor: 150000, nombre: "Pasto", actualizadoPor: "Alex", fecha: "2026-10-15T00:00:00.000Z" });
+  assert.equal(leerEnvioContraentregaGuardado(null), null);
+  assert.equal(leerEnvioContraentregaGuardado("{roto"), null);
+  assert.equal(leerEnvioContraentregaGuardado(JSON.stringify({ valor: "150000" })), null);
+  assert.equal(leerEnvioContraentregaGuardado(JSON.stringify({ valor: 5000000 })), null);
+});
+
+prueba("quién edita: dueño o administrador; asesora y supervisora no", () => {
+  assert.equal(puedeEditarEnvioContraentrega({ isOwner: true, role: "CLIENTE", membershipRole: "OWNER" }), true);
+  assert.equal(puedeEditarEnvioContraentrega({ isOwner: false, role: "ADMIN", membershipRole: "AGENT" }), true);
+  assert.equal(puedeEditarEnvioContraentrega({ isOwner: false, role: "EMPLEADO", membershipRole: "ADMIN" }), true);
+  assert.equal(puedeEditarEnvioContraentrega({ isOwner: false, role: "EMPLEADO", membershipRole: "AGENT" }), false);
+  assert.equal(puedeEditarEnvioContraentrega({ isOwner: false, role: "CLIENTE", membershipRole: "VIEWER" }), false);
+});
+
+prueba("clave por negocio, tipo e id de Gestión", () => {
+  assert.equal(claveEnvioContraentrega("ws1", "ciudad", "abc"), "envio:contraentrega:ws1:ciudad:abc");
+  assert.notEqual(claveEnvioContraentrega("ws1", "ciudad", "abc"), claveEnvioContraentrega("ws1", "corregimiento", "abc"));
 });
 
 prueba("otros productos no tienen contraentrega", () => {

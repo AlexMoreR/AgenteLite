@@ -6,6 +6,16 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
+  puedeEditarEnvioContraentrega,
+  validarEnvioContraentrega,
+  type EnvioContraentregaGuardado,
+} from "@/lib/contraentrega";
+import {
+  borrarEnvioContraentrega,
+  guardarEnvioContraentrega,
+  leerEnvioContraentrega,
+} from "@/lib/envio-contraentrega-guardado";
+import {
   agregarUbicacion,
   buscarUbicaciones,
   type ResultadoDeAgregar,
@@ -194,4 +204,83 @@ export async function guardarUbicacionEnContactoAction(
   });
 
   return { ok: true, city };
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Valor del envío de contraentrega por ubicación (14-oct). Lo leen todas; lo escribe y lo borra
+   solo el dueño o un administrador. Ver `lib/envio-contraentrega-guardado.ts`.
+--------------------------------------------------------------------------------------------- */
+
+const ubicacionSchema = z.object({
+  tipo: z.enum(["ciudad", "corregimiento"]),
+  id: z.string().trim().min(1).max(100),
+});
+
+async function accesoParaContraentrega(): Promise<
+  | { error: string }
+  | { workspaceId: string; userId: string; puedeEditar: boolean }
+> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  const access = await requireClientWorkspaceAccess("chats");
+  return { workspaceId: access.workspaceId, userId: access.userId, puedeEditar: puedeEditarEnvioContraentrega(access) };
+}
+
+export async function leerEnvioContraentregaAction(
+  input: z.input<typeof ubicacionSchema>,
+): Promise<{ error: string } | { guardado: EnvioContraentregaGuardado | null; puedeEditar: boolean }> {
+  const sesion = await accesoParaContraentrega();
+  if ("error" in sesion) return sesion;
+  const parsed = ubicacionSchema.safeParse(input);
+  if (!parsed.success) return { error: "Datos invalidos" };
+  const guardado = await leerEnvioContraentrega(sesion.workspaceId, parsed.data);
+  return { guardado, puedeEditar: sesion.puedeEditar };
+}
+
+const guardarContraentregaSchema = ubicacionSchema.extend({
+  nombre: z.string().trim().min(1).max(160),
+  valor: z.union([z.string().max(20), z.number()]),
+});
+
+export async function guardarEnvioContraentregaAction(
+  input: z.input<typeof guardarContraentregaSchema>,
+): Promise<{ error: string } | { guardado: EnvioContraentregaGuardado }> {
+  const sesion = await accesoParaContraentrega();
+  if ("error" in sesion) return sesion;
+  if (!sesion.puedeEditar) return { error: "Solo el dueño o un administrador puede cambiar este valor" };
+  const parsed = guardarContraentregaSchema.safeParse(input);
+  if (!parsed.success) return { error: "Datos invalidos" };
+  const validado = validarEnvioContraentrega(parsed.data.valor);
+  if (!validado.ok) return { error: validado.error };
+
+  const usuario = await prisma.user.findUnique({
+    where: { id: sesion.userId },
+    select: { name: true, email: true },
+  });
+  const guardado: EnvioContraentregaGuardado = {
+    valor: validado.valor,
+    nombre: parsed.data.nombre,
+    actualizadoPor: usuario?.name?.trim() || usuario?.email || sesion.userId,
+    fecha: new Date().toISOString(),
+  };
+  await guardarEnvioContraentrega(
+    sesion.workspaceId,
+    { tipo: parsed.data.tipo, id: parsed.data.id },
+    guardado,
+  );
+  return { guardado };
+}
+
+export async function borrarEnvioContraentregaAction(
+  input: z.input<typeof ubicacionSchema>,
+): Promise<{ error: string } | { ok: true }> {
+  const sesion = await accesoParaContraentrega();
+  if ("error" in sesion) return sesion;
+  if (!sesion.puedeEditar) return { error: "Solo el dueño o un administrador puede cambiar este valor" };
+  const parsed = ubicacionSchema.safeParse(input);
+  if (!parsed.success) return { error: "Datos invalidos" };
+  await borrarEnvioContraentrega(sesion.workspaceId, parsed.data);
+  return { ok: true };
 }
