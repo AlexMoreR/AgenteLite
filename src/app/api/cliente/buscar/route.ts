@@ -52,6 +52,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, resultados: [] });
   }
 
+  // Número de celular escrito como sea: "+57 316 993-2225", "316 9932225"… se busca por sus dígitos,
+  // con y sin el 57 del país.
+  const digitos = q.replace(/D/g, "");
+  const digitosSinPais = digitos.length > 10 && digitos.startsWith("57") ? digitos.slice(2) : digitos;
+  const porTelefono = digitos.length >= 4
+    ? [...new Set([q, digitos, digitosSinPais])].map((d) => ({ phoneNumber: { contains: d } }))
+    : [{ phoneNumber: { contains: q, mode: "insensitive" as const } }];
+
   const esJefe = membership.role === "OWNER" || membership.role === "ADMIN";
   /*
     El buscador tapa los telefonos igual que la bandeja.
@@ -86,7 +94,7 @@ export async function GET(request: Request) {
               {
                 OR: [
                   { contact: { name: { contains: q, mode: "insensitive" } } },
-                  { contact: { phoneNumber: { contains: q, mode: "insensitive" } } },
+                  ...porTelefono.map((p) => ({ contact: p })),
                   { messages: { some: { content: { contains: q, mode: "insensitive" } } } },
                 ],
               },
@@ -109,7 +117,7 @@ export async function GET(request: Request) {
             workspaceId,
             OR: [
               { name: { contains: q, mode: "insensitive" } },
-              { phoneNumber: { contains: q, mode: "insensitive" } },
+              ...porTelefono,
             ],
           },
           orderBy: { updatedAt: "desc" },

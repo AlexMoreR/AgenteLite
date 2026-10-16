@@ -17,6 +17,7 @@ import { readConversationFromCache } from "./chat-history-cache";
 import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
+import { horaDeLista } from "@/lib/hora-de-lista";
 import type { SharedInboxConversationItem } from "./shared-inbox";
 
 // Logs de depuración desactivados (ensuciaban la consola en desarrollo).
@@ -30,16 +31,9 @@ function debugConversationList(...args: unknown[]) {
   console.log("[ConversationList]", ...args);
 }
 
-// Instancia única compartida por todos los items — new Intl.DateTimeFormat() es costoso
-// y no debería crearse dentro del render de cada fila en cada actualización.
-const conversationTimeFormatter = new Intl.DateTimeFormat("es-CO", {
-  hour: "2-digit",
-  minute: "2-digit",
-  timeZone: "America/Bogota",
-});
-
+// Hoy: la hora · ayer: "Ayer" · esta semana: el día · más atrás: dd/mm/aaaa (como WhatsApp).
 function formatConversationTime(value: Date) {
-  return conversationTimeFormatter.format(value).replace(/\u00a0/g, " ");
+  return horaDeLista(value);
 }
 
 function renderChannelBadgeIcon(channelType?: SharedInboxConversationItem["channelType"]) {
