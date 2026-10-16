@@ -29,7 +29,7 @@ export function InterruptorDeIA({
   conversationId: string;
   automationPaused: boolean;
   source?: "agent" | "official";
-  /** Muestra "IA" al lado (en el celular el interruptor solo no se entendia). */
+  /** Muestra "IA" dentro de la bolita del interruptor (en el celular el interruptor solo no se entendia). */
   conEtiqueta?: boolean;
   className?: string;
 }) {
@@ -88,13 +88,9 @@ export function InterruptorDeIA({
       className={cn("inline-flex min-h-10 cursor-pointer items-center gap-1.5 px-1", guardando && "opacity-70", className)}
       title={pausada ? "IA pausada en este chat" : "IA activa en este chat"}
     >
-      {conEtiqueta ? (
-        <span className="text-[12px] font-semibold text-muted-foreground" aria-hidden="true">
-          IA
-        </span>
-      ) : null}
       <Switch
         checked={!pausada}
+        thumbLabel={conEtiqueta ? "IA" : undefined}
         disabled={guardando}
         onCheckedChange={(activa) => void cambiar(activa)}
         aria-label={pausada ? "Reactivar IA" : "Pausar IA"}
