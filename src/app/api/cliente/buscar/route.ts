@@ -8,6 +8,7 @@ import {
 } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { getVisibleChannelIds } from "@/lib/channel-visibility";
+import { esLaSupervisora } from "@/features/recuperacion/servicios/permiso";
 import { getCrmStageLabel } from "@/features/crm/domain/crm-config";
 
 /**
@@ -61,6 +62,8 @@ export async function GET(request: Request) {
     : [{ phoneNumber: { contains: q, mode: "insensitive" as const } }];
 
   const esJefe = membership.role === "OWNER" || membership.role === "ADMIN";
+  // La supervisora (Ingrid) busca en los chats de todas las asesoras, igual que la jefa (Alex, 15-10-2026).
+  const veTodosLosChats = esJefe || (await esLaSupervisora(workspaceId, session.user.id));
   /*
     El buscador tapa los telefonos igual que la bandeja.
 
@@ -89,7 +92,7 @@ export async function GET(request: Request) {
             ...(canalesVisibles ? { channelId: { in: canalesVisibles } } : {}),
             // Una asesora que no es jefa solo ve lo suyo y lo que no tiene dueño, igual que en la
             // bandeja: el buscador no puede ser la puerta de atras a los chats de otra.
-            ...(esJefe ? {} : { OR: [{ assignedToUserId: session.user.id }, { assignedToUserId: null }] }),
+            ...(veTodosLosChats ? {} : { OR: [{ assignedToUserId: session.user.id }, { assignedToUserId: null }] }),
             AND: [
               {
                 OR: [

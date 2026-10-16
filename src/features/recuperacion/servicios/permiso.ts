@@ -28,6 +28,11 @@ async function supervisoraDelAccionable(workspaceId: string): Promise<string | n
   });
 }
 
+/** La supervisora configurada en el Supervisor accionable (hoy Ingrid). */
+export async function esLaSupervisora(workspaceId: string, userId: string): Promise<boolean> {
+  return (await supervisoraDelAccionable(workspaceId)) === userId;
+}
+
 export async function puedeVerRecuperacion(access: {
   workspaceId: string;
   userId: string;
