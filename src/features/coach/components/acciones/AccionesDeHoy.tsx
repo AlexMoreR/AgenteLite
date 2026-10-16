@@ -1,4 +1,4 @@
-import { diaCorto, type AccionesDeHoy as Acciones } from "../../dominio/acciones-de-hoy";
+import { type AccionesDeHoy as Acciones } from "../../dominio/acciones-de-hoy";
 import { TarjetaDeAccionCoach, type AccionDeEstado } from "./TarjetaDeAccionCoach";
 
 /**
@@ -23,10 +23,6 @@ export function AccionesDeHoy({
         <h2 id="titulo-acciones" className="text-base font-semibold text-foreground">
           Acciones de hoy
         </h2>
-        <p className="text-xs text-muted-foreground">
-          Para el {diaCorto(acciones.diaDeAccion)}, con lo que pasó en los chats del {diaCorto(acciones.dia)}. Cada tarjeta: una
-          sola cosa que entrenar, la cifra y la meta. La evidencia está debajo.
-        </p>
       </div>
       {acciones.tarjetas.length ? (
         <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 xl:grid-cols-3">
