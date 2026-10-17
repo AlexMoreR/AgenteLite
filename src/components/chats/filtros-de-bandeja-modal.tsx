@@ -3,11 +3,8 @@
 import * as React from "react";
 import { Loader2 } from "lucide-react";
 
-import { pedirMiembros } from "@/components/chats/assign-chat-control";
 import { nombresDeLosCatalogos, useCatalogosDeFiltro } from "@/components/chats/catalogos-de-filtro";
 import { EditorDeCondicionesDeBandeja } from "@/components/chats/condiciones-de-bandeja";
-import { MultiSelect } from "@/components/ui/multi-select";
-import type { AssignableMember } from "@/app/actions/chats-actions";
 
 import {
   Dialog,
@@ -18,12 +15,15 @@ import {
 } from "@/components/ui/dialog";
 import {
   SIN_FILTROS,
-  condicionCompleta,
   esListaSinFiltro,
+  filasDelModal,
   leerFiltrosDeBandeja,
   paramsDeFiltros,
+  separarFilasDelModal,
   textoDeCondicion,
-  type CondicionDeBandeja,
+  textoDelEstado,
+  type AsignacionSimple,
+  type CondicionDelFiltro,
   type FiltrosDeBandeja,
 } from "@/features/chats/domain/filtros-de-bandeja";
 import type { AssignedFilter, StatusFilter } from "./shared-inbox";
@@ -37,20 +37,6 @@ export type ListaDeChats = { id: string; nombre: string; query: string };
  *  - editar: mantener presionada una lista -> Editar.
  */
 export type ModoDelFiltro = { tipo: "filtrar" } | { tipo: "nueva" } | { tipo: "editar"; lista: ListaDeChats };
-
-/*
-  VARIAS asesoras en un solo filtro: `user:id1,id2`.
-
-  Empezo siendo de a una (`user:<id>`) y Alex pidio poder mirar varias juntas (30-09-2026). Se
-  mantiene el mismo prefijo para que los filtros guardados de a una sigan sirviendo tal cual.
-*/
-function asesorasDelFiltro(asignacion: AssignedFilter): string[] {
-  return asignacion.startsWith("user:") ? asignacion.slice("user:".length).split(",").filter(Boolean) : [];
-}
-
-function filtroDeAsesoras(ids: string[]): AssignedFilter {
-  return ids.length > 0 ? (`user:${ids.join(",")}` as AssignedFilter) : "all";
-}
 
 /** Lo que dice una lista guardada, campo por campo (es una direccion). */
 function leerLista(query: string) {
@@ -90,12 +76,6 @@ const OPCIONES_DE_ASIGNACION: Array<{ value: "all" | "mine" | "unassigned"; labe
   { value: "unassigned", label: "Sin asignar" },
 ];
 
-const OPCIONES_DE_ESTADO: Array<{ value: StatusFilter; label: string }> = [
-  { value: "open", label: "Abiertas" },
-  { value: "resolved", label: "Resueltas" },
-  { value: "all", label: "Todas" },
-];
-
 function Seccion({ titulo, ayuda, children }: { titulo: string; ayuda?: string; children: React.ReactNode }) {
   return (
     <section className="space-y-2">
@@ -108,7 +88,7 @@ function Seccion({ titulo, ayuda, children }: { titulo: string; ayuda?: string; 
   );
 }
 
-/** Botones de una sola fila (Asignacion, Estado): se ve todo junto y se toca sin desplegar nada. */
+/** Botones de una sola fila (Asignacion): se ve todo junto y se toca sin desplegar nada. */
 function Segmentos<T extends string>({
   opciones,
   valor,
@@ -169,15 +149,19 @@ export function FiltrosDeBandejaModal({
   // Todo se elige primero y se aplica con el boton: cada cambio suelto seria un viaje al servidor
   // y una lista que se sacude debajo del modal mientras uno todavia esta decidiendo.
   const [tipo, setTipo] = React.useState<ModoDelFiltro["tipo"]>(modo.tipo);
-  const [asignacion, setAsignacion] = React.useState<AssignedFilter>(assignedFilter);
-  const [estado, setEstado] = React.useState<StatusFilter>(statusFilter);
+  /*
+    Arriba solo Todas / Mias / Sin asignar. El Estado y "Por asesora" son filas de Condiciones
+    desde el 17-10-2026 (ver filasDelModal): una lista vieja con `assigned=user:…` o `status=…`
+    se abre con esas filas y, al aplicarla, da lo mismo que antes.
+  */
+  const inicial = filasDelModal(assignedFilter, statusFilter, filtros);
+  const [asignacion, setAsignacion] = React.useState<AsignacionSimple>(inicial.asignacion);
   // Las condiciones (campo · operador · valor), como en Automatizaciones. Ver condiciones-de-bandeja.
-  const [condiciones, setCondiciones] = React.useState<CondicionDeBandeja[]>(filtros.condiciones);
+  const [condiciones, setCondiciones] = React.useState<CondicionDelFiltro[]>(inicial.filas);
   const [nombre, setNombre] = React.useState("");
   const [guardando, setGuardando] = React.useState(false);
   const [error, setError] = React.useState("");
 
-  const [equipo, setEquipo] = React.useState<AssignableMember[]>([]);
   const catalogos = useCatalogosDeFiltro(abierto, isManager);
 
   const listaQueSeEdita = modo.tipo === "editar" ? modo.lista : null;
@@ -190,64 +174,39 @@ export function FiltrosDeBandejaModal({
       return;
     }
     setTipo(modo.tipo);
-    if (listaQueSeEdita) {
-      const lista = leerLista(listaQueSeEdita.query);
-      setAsignacion(lista.asignacion);
-      setEstado(lista.estado);
-      setCondiciones(lista.filtros.condiciones);
-      setNombre(listaQueSeEdita.nombre);
-    } else {
-      setAsignacion(assignedFilter);
-      setEstado(statusFilter);
-      setCondiciones(filtros.condiciones);
-      setNombre("");
-    }
+    const lista = listaQueSeEdita ? leerLista(listaQueSeEdita.query) : null;
+    // "Por asesora" es solo de jefes (a una asesora el servidor le impone "Mias"): solo a ellos
+    // les pasa a la condicion Asesora.
+    const soloDeJefes = (valor: AssignedFilter) => (!isManager && valor.startsWith("user:") ? "all" : valor);
+    const puesto = lista
+      ? filasDelModal(soloDeJefes(lista.asignacion), lista.estado, lista.filtros)
+      : filasDelModal(soloDeJefes(assignedFilter), statusFilter, filtros);
+    setAsignacion(puesto.asignacion);
+    setCondiciones(puesto.filas);
+    setNombre(listaQueSeEdita?.nombre ?? "");
     setError("");
-
-    let vigente = true;
-    if (isManager) {
-      void pedirMiembros().then((resultado) => {
-        if (vigente && resultado.members) setEquipo(resultado.members);
-      });
-    }
-    return () => {
-      vigente = false;
-    };
     // firmaDeLoPuesto resume todo lo que importa de las props: abrir con otra lista reinicia.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [abierto, firmaDeLoPuesto, isManager]);
 
-  // Una fila a medio llenar no filtra ni se guarda.
-  const filtrosElegidos: FiltrosDeBandeja = { condiciones: condiciones.filter(condicionCompleta) };
+  // Lo que viaja: asignacion, estado (`status=`) y las condiciones completas (una fila a medio
+  // llenar no filtra ni se guarda).
+  const elegido = separarFilasDelModal(asignacion, condiciones);
 
   /*
     Lo elegido, en una linea. Sin esto hay que recorrer el modal entero para saber que quedo
     puesto, que es justo lo que uno quiere ver de un vistazo al abrirlo.
   */
   const resumen = React.useMemo(() => {
-    const partes: string[] = [];
-    if (asignacion === "mine") partes.push("Mías");
-    else if (asignacion === "unassigned") partes.push("Sin asignar");
-    else if (asignacion.startsWith("user:")) {
-      const ids = asesorasDelFiltro(asignacion);
-      partes.push(
-        ids.length > 2
-          ? `${ids.length} asesoras`
-          : ids
-              .map((id) => {
-                const quien = equipo.find((miembro) => miembro.id === id);
-                return quien ? quien.name?.trim() || quien.email : "Una asesora";
-              })
-              .join(" y "),
-      );
-    } else partes.push("Todas");
-    partes.push(estado === "open" ? "abiertas" : estado === "resolved" ? "resueltas" : "abiertas y resueltas");
+    const { estado, filtros: elegidos } = separarFilasDelModal(asignacion, condiciones);
+    const partes: string[] = [asignacion === "mine" ? "Mías" : asignacion === "unassigned" ? "Sin asignar" : "Todas"];
+    partes.push(textoDelEstado(estado));
     // Cada condición en corto: "sin PROVEEDOR", "1–15 oct", "Propuesta"…
     const nombres = nombresDeLosCatalogos(catalogos);
     const ahora = new Date();
-    for (const condicion of condiciones.filter(condicionCompleta)) partes.push(textoDeCondicion(condicion, nombres, ahora));
+    for (const condicion of elegidos.condiciones) partes.push(textoDeCondicion(condicion, nombres, ahora));
     return partes.join(" · ");
-  }, [asignacion, estado, condiciones, catalogos, equipo]);
+  }, [asignacion, condiciones, catalogos]);
 
   const guardarLista = async () => {
     const limpio = nombre.trim();
@@ -255,10 +214,10 @@ export function FiltrosDeBandejaModal({
       setError("Ponle un nombre a la lista");
       return;
     }
-    const query = queryDeFiltro(asignacion, estado, filtrosElegidos);
+    const query = queryDeFiltro(elegido.asignacion, elegido.estado, elegido.filtros);
     // Sin nada marcado la lista seria "Todas" con otro nombre (paso con "Maria", 13-10-2026).
     if (esListaSinFiltro(query)) {
-      setError("Pon al menos una condición, una asesora o un estado: así la lista sería igual a Todas");
+      setError("Pon al menos una condición o elige Mías / Sin asignar: así la lista sería igual a Todas");
       return;
     }
     setGuardando(true);
@@ -276,7 +235,6 @@ export function FiltrosDeBandejaModal({
     ...opcion,
     cuenta: assignedCounts ? assignedCounts[opcion.value] : null,
   }));
-  const asignacionSimple = (["all", "mine", "unassigned"] as const).find((valor) => valor === asignacion) ?? null;
   const conNombre = tipo === "nueva" || tipo === "editar";
   const titulo = tipo === "nueva" ? "Nueva lista" : tipo === "editar" ? "Editar lista" : "Filtrar conversaciones";
 
@@ -323,27 +281,9 @@ export function FiltrosDeBandejaModal({
 
           {isManager ? (
             <Seccion titulo="Asignación">
-              <Segmentos opciones={opcionesDeAsignacion} valor={asignacionSimple} alElegir={setAsignacion} />
-              {/*
-                La bandeja de UNA o varias asesoras. Solo para jefes: es como se revisa si alguien
-                esta atendiendo bien, sin abrir chat por chat (Alex, 25-09-2026).
-              */}
-              {equipo.length > 0 ? (
-                <MultiSelect
-                  opciones={equipo.map((miembro) => ({ value: miembro.id, label: miembro.name?.trim() || miembro.email }))}
-                  valor={asesorasDelFiltro(asignacion)}
-                  // Marcar asesoras reemplaza a Todas/Mias/Sin asignar. Sin ninguna, vuelve a "Todas".
-                  alCambiar={(ids) => setAsignacion(filtroDeAsesoras(ids))}
-                  placeholder="Por asesora: todas"
-                  plural="asesoras"
-                />
-              ) : null}
+              <Segmentos opciones={opcionesDeAsignacion} valor={asignacion} alElegir={setAsignacion} />
             </Seccion>
           ) : null}
-
-          <Seccion titulo="Estado">
-            <Segmentos opciones={OPCIONES_DE_ESTADO} valor={estado} alElegir={setEstado} />
-          </Seccion>
 
           <EditorDeCondicionesDeBandeja
             condiciones={condiciones}
@@ -378,7 +318,7 @@ export function FiltrosDeBandejaModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => alAplicar(asignacion, estado, filtrosElegidos)}
+                  onClick={() => alAplicar(elegido.asignacion, elegido.estado, elegido.filtros)}
                   className="rounded-lg bg-primary px-5 py-2 text-[13px] font-semibold text-primary-foreground transition hover:opacity-90"
                 >
                   Aplicar

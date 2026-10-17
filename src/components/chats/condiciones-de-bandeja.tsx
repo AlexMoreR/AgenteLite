@@ -7,16 +7,18 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { SelectorMultiple, type OpcionDeSelector } from "@/features/automatizaciones/components/SelectorConBusqueda";
 import {
-  CAMPOS_DE_BANDEJA,
+  CAMPOS_DEL_FILTRO,
   ETAPAS_CRM,
   MAX_CONDICIONES,
-  OPERADORES_DE_BANDEJA,
+  OPCIONES_DE_ESTADO,
+  OPERADORES_DEL_FILTRO,
   SIN_ASIGNAR,
-  condicionVaciaDeBandeja,
+  condicionVaciaDelFiltro,
   diasDeLaFecha,
-  type CampoDeBandeja,
   type CampoDeFecha,
-  type CondicionDeBandeja,
+  type CampoDelFiltro,
+  type CondicionDelFiltro,
+  type EstadoDeBandeja,
 } from "@/features/chats/domain/filtros-de-bandeja";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 
@@ -26,6 +28,9 @@ import type { CatalogosDeFiltro } from "./catalogos-de-filtro";
   Las condiciones del filtro de la bandeja, con la MISMA fila que el editor de Automatizaciones
   (Alex, 16-10-2026): campo ▾ | operador ▾ | valor | ×. En el celular el valor baja a una segunda
   línea a lo ancho. Las cajas con buscador son las de Automatizaciones (SelectorConBusqueda).
+
+  Estado (abiertas / resueltas / todas) es una fila más desde el 17-10-2026: antes eran botones
+  arriba del modal. Se elige uno solo y hay a lo sumo una fila Estado.
 */
 
 const OPCIONES_DE_ETAPA: OpcionDeSelector[] = ETAPAS_CRM.map((etapa) => ({ value: etapa, label: CRM_STAGE_META[etapa]?.label ?? etapa }));
@@ -51,29 +56,48 @@ function FilaDeCondicion({
   condicion,
   catalogos,
   conEquipo,
+  otraFilaDeEstado,
   onCambio,
   onQuitar,
 }: {
-  condicion: CondicionDeBandeja;
+  condicion: CondicionDelFiltro;
   catalogos: CatalogosDeFiltro;
   conEquipo: boolean;
-  onCambio: (c: CondicionDeBandeja) => void;
+  /** Ya hay OTRA fila Estado: esta no lo ofrece (dos estados juntos no tienen sentido). */
+  otraFilaDeEstado: boolean;
+  onCambio: (c: CondicionDelFiltro) => void;
   onQuitar: () => void;
 }) {
-  const operadores = OPERADORES_DE_BANDEJA[condicion.campo];
-  const nombreDelCampo = CAMPOS_DE_BANDEJA.find((c) => c.campo === condicion.campo)?.etiqueta ?? "Valores";
+  const operadores = OPERADORES_DEL_FILTRO[condicion.campo];
+  const nombreDelCampo = CAMPOS_DEL_FILTRO.find((c) => c.campo === condicion.campo)?.etiqueta ?? "Valores";
   const multiple = (opciones: OpcionDeSelector[]) =>
     "valores" in condicion ? (
       <SelectorMultiple
         etiqueta={nombreDelCampo}
         opciones={opciones}
         valores={condicion.valores}
-        alCambiar={(valores) => onCambio({ ...condicion, valores } as CondicionDeBandeja)}
+        alCambiar={(valores) => onCambio({ ...condicion, valores } as CondicionDelFiltro)}
       />
     ) : null;
 
   let valor: React.ReactNode = null;
   switch (condicion.campo) {
+    case "estado":
+      valor = (
+        <NativeSelect
+          aria-label="Estado"
+          className="w-full sm:w-40"
+          value={condicion.valor}
+          onChange={(evento) => onCambio({ ...condicion, valor: evento.target.value as EstadoDeBandeja })}
+        >
+          {OPCIONES_DE_ESTADO.map((opcion) => (
+            <NativeSelectOption key={opcion.valor} value={opcion.valor}>
+              {opcion.etiqueta}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      );
+      break;
     case "etapa":
       valor = multiple(OPCIONES_DE_ETAPA);
       break;
@@ -143,7 +167,12 @@ function FilaDeCondicion({
   }
 
   // Sin equipo (la asesora no ve a las demás) la condición Asesora no se ofrece.
-  const campos = CAMPOS_DE_BANDEJA.filter((c) => conEquipo || c.campo !== "asesora" || condicion.campo === "asesora");
+  // Y Estado no se ofrece si ya hay otra fila Estado.
+  const campos = CAMPOS_DEL_FILTRO.filter(
+    (c) =>
+      c.campo === condicion.campo ||
+      ((conEquipo || c.campo !== "asesora") && !(otraFilaDeEstado && c.campo === "estado")),
+  );
 
   return (
     <div className="flex flex-wrap items-start gap-2 rounded-xl border border-border bg-muted/30 p-2.5">
@@ -151,7 +180,7 @@ function FilaDeCondicion({
         aria-label="Campo"
         className="min-w-0 flex-1 sm:w-40 sm:flex-none"
         value={condicion.campo}
-        onChange={(evento) => onCambio(condicionVaciaDeBandeja(evento.target.value as CampoDeBandeja))}
+        onChange={(evento) => onCambio(condicionVaciaDelFiltro(evento.target.value as CampoDelFiltro))}
       >
         {campos.map((c) => (
           <NativeSelectOption key={c.campo} value={c.campo}>
@@ -177,7 +206,7 @@ function FilaDeCondicion({
             );
             return;
           }
-          onCambio({ ...condicion, operador } as CondicionDeBandeja);
+          onCambio({ ...condicion, operador } as CondicionDelFiltro);
         }}
       >
         {operadores.map((op) => (
@@ -200,10 +229,10 @@ export function EditorDeCondicionesDeBandeja({
   conEquipo,
   onCambio,
 }: {
-  condiciones: CondicionDeBandeja[];
+  condiciones: CondicionDelFiltro[];
   catalogos: CatalogosDeFiltro;
   conEquipo: boolean;
-  onCambio: (condiciones: CondicionDeBandeja[]) => void;
+  onCambio: (condiciones: CondicionDelFiltro[]) => void;
 }) {
   return (
     <section className="space-y-2">
@@ -217,12 +246,13 @@ export function EditorDeCondicionesDeBandeja({
           condicion={condicion}
           catalogos={catalogos}
           conEquipo={conEquipo}
+          otraFilaDeEstado={condiciones.some((x, j) => j !== i && x.campo === "estado")}
           onCambio={(c) => onCambio(condiciones.map((x, j) => (j === i ? c : x)))}
           onQuitar={() => onCambio(condiciones.filter((_, j) => j !== i))}
         />
       ))}
       {condiciones.length < MAX_CONDICIONES ? (
-        <Button variant="outline" size="sm" onClick={() => onCambio([...condiciones, condicionVaciaDeBandeja("etiquetas")])}>
+        <Button variant="outline" size="sm" onClick={() => onCambio([...condiciones, condicionVaciaDelFiltro("etiquetas")])}>
           <Plus className="size-4" /> Añadir condición
         </Button>
       ) : null}

@@ -198,4 +198,102 @@ prueba("el resumen en corto", () => {
   assert.equal(t({ campo: "dias_sin_responder", operador: "al_menos", dias: 3 }), "callado 3+ días");
 });
 
+/* ---------- Estado y "Por asesora" como filas del modal (17-10-2026) ---------- */
+
+// Lo que hace el modal con una direccion: leerla, pasarla a filas y volverla a armar (queryDeFiltro).
+function porElModal(query, tocar = (x) => x) {
+  const p = new URLSearchParams(query);
+  const estadoCrudo = p.get("status");
+  const estado = estadoCrudo === "resolved" || estadoCrudo === "all" ? estadoCrudo : "open";
+  const filtros = m.leerFiltrosDeBandeja((clave) => p.get(clave));
+  const modal = tocar(m.filasDelModal(p.get("assigned") || "all", estado, filtros));
+  const vuelta = m.separarFilasDelModal(modal.asignacion, modal.filas);
+  const salida = new URLSearchParams();
+  if (vuelta.asignacion !== "all") salida.set("assigned", vuelta.asignacion);
+  if (vuelta.estado !== "open") salida.set("status", vuelta.estado);
+  for (const [clave, valor] of m.paramsDeFiltros(vuelta.filtros)) salida.set(clave, valor);
+  return { modal, vuelta, query: decodeURIComponent(salida.toString()) };
+}
+
+prueba("sin fila Estado = Abiertas (lo de siempre), y no viaja status", () => {
+  const { modal, vuelta, query } = porElModal("");
+  assert.deepEqual(modal, { asignacion: "all", filas: [] });
+  assert.equal(vuelta.estado, "open");
+  assert.equal(query, "");
+});
+
+prueba("compat: status=resolved / all entra como la fila Estado y sale igual", () => {
+  const r = porElModal("status=resolved&c=etiquetas%3Ano_tiene%3Aprov");
+  assert.deepEqual(r.modal.filas, [
+    { campo: "estado", operador: "es", valor: "resolved" },
+    { campo: "etiquetas", operador: "no_tiene", valores: ["prov"] },
+  ]);
+  assert.equal(r.query, "status=resolved&c=etiquetas:no_tiene:prov");
+  assert.equal(porElModal("status=all").query, "status=all");
+  // Una fila Estado "Abiertas" puesta a mano no agrega nada a la direccion.
+  const abiertas = porElModal("", (x) => ({ ...x, filas: [m.condicionVaciaDelFiltro("estado")] }));
+  assert.equal(abiertas.query, "");
+});
+
+prueba("compat: assigned=user:a,b entra como la condicion Asesora es a, b (Todas arriba)", () => {
+  const r = porElModal("assigned=user:u1,u2&status=resolved");
+  assert.equal(r.modal.asignacion, "all");
+  assert.deepEqual(r.modal.filas, [
+    { campo: "estado", operador: "es", valor: "resolved" },
+    { campo: "asesora", operador: "es", valores: ["u1", "u2"] },
+  ]);
+  assert.equal(r.query, "status=resolved&c=asesora:es:u1,u2");
+  // Mias / Sin asignar siguen siendo los atajos de arriba.
+  assert.equal(porElModal("assigned=mine").query, "assigned=mine");
+  assert.deepEqual(porElModal("assigned=unassigned").modal, { asignacion: "unassigned", filas: [] });
+});
+
+prueba("si ya habia una condicion Asesora, se reusa (quedan las que estaban en las dos)", () => {
+  const r = porElModal(`assigned=user:u1,u2&c=${encodeURIComponent("asesora:es:u2,u3,sin_asignar")}`);
+  assert.deepEqual(r.modal.filas, [{ campo: "asesora", operador: "es", valores: ["u2"] }]);
+  // Sin ninguna en comun: dos filas (sigue sin traer nada, como antes).
+  const sinComun = porElModal(`assigned=user:u1&c=${encodeURIComponent("asesora:es:u3")}`);
+  assert.equal(sinComun.modal.filas.length, 2);
+  // Un "no es" no se toca: se agrega la fila "es".
+  const noEs = porElModal(`assigned=user:u1&c=${encodeURIComponent("asesora:no_es:u3")}`);
+  assert.deepEqual(noEs.modal.filas, [
+    { campo: "asesora", operador: "no_es", valores: ["u3"] },
+    { campo: "asesora", operador: "es", valores: ["u1"] },
+  ]);
+});
+
+prueba("ids raros en assigned=user: no entran a la condicion", () => {
+  assert.deepEqual(porElModal("assigned=user:u1,x'or").modal.filas, [{ campo: "asesora", operador: "es", valores: ["u1"] }]);
+});
+
+prueba("la fila Estado nunca viaja en c= y una fila a medio llenar tampoco", () => {
+  const r = m.separarFilasDelModal("mine", [
+    { campo: "estado", operador: "es", valor: "all" },
+    { campo: "etiquetas", operador: "tiene", valores: [] },
+    { campo: "sin_responder", operador: "si" },
+  ]);
+  assert.deepEqual(r, { asignacion: "mine", estado: "all", filtros: { condiciones: [{ campo: "sin_responder", operador: "si" }] } });
+  // Y `c=estado:…` en la direccion no se entiende (el estado es `status=`).
+  assert.deepEqual(leer(`c=${encodeURIComponent("estado:es:resolved")}`).condiciones, []);
+});
+
+prueba("el resumen sigue leyendo 'Todas · abiertas · sin PROVEEDOR'", () => {
+  const nombres = { etapa: (e) => e, etiqueta: (id) => ({ prov: "PROVEEDOR" })[id] ?? null, asesora: () => null, canal: () => null };
+  const resumen = (asignacion, filas) => {
+    const { estado, filtros } = m.separarFilasDelModal(asignacion, filas);
+    const partes = [asignacion === "mine" ? "Mías" : asignacion === "unassigned" ? "Sin asignar" : "Todas", m.textoDelEstado(estado)];
+    for (const c of filtros.condiciones) partes.push(m.textoDeCondicion(c, nombres, AHORA));
+    return partes.join(" · ");
+  };
+  assert.equal(resumen("all", [{ campo: "etiquetas", operador: "no_tiene", valores: ["prov"] }]), "Todas · abiertas · sin PROVEEDOR");
+  assert.equal(resumen("mine", [{ campo: "estado", operador: "es", valor: "all" }]), "Mías · abiertas y resueltas");
+});
+
+prueba("los campos del modal: Estado primero, con Abiertas / Resueltas / Todas", () => {
+  assert.equal(m.CAMPOS_DEL_FILTRO[0].campo, "estado");
+  assert.deepEqual(m.OPCIONES_DE_ESTADO.map((o) => o.etiqueta), ["Abiertas", "Resueltas", "Todas"]);
+  assert.deepEqual(m.OPERADORES_DEL_FILTRO.estado.map((o) => o.valor), ["es"]);
+  assert.ok(m.CAMPOS_DEL_FILTRO.some((c) => c.campo === "asesora"));
+});
+
 console.log(`\n${pruebas} pruebas ok`);

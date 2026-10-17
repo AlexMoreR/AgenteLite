@@ -2,8 +2,9 @@
  * Los filtros de la bandeja: que son y como se leen.
  *
  * Desde el 16-10-2026 son CONDICIONES, como en el editor de Automatizaciones (Alex): cada una es
- * [campo] [operador] [valor] y se cumplen TODAS (Y). Arriba del modal siguen los dos atajos de
- * siempre (asignacion y estado), que viajan aparte (`assigned`, `status`).
+ * [campo] [operador] [valor] y se cumplen TODAS (Y). Arriba del modal queda solo la asignacion
+ * (Todas/Mias/Sin asignar); el estado es una fila mas del modal (17-10-2026) pero viaja aparte
+ * (`status`), igual que la asignacion (`assigned`). Ver "EL MODAL" mas abajo.
  *
  * La lista de Chats se arma con CUATRO consultas que no se conocen entre si: la de la pantalla, la
  * del canal oficial, la del scroll infinito y la de los contadores. Un filtro aplicado en una sola
@@ -160,6 +161,95 @@ export function condicionCompleta(c: CondicionDeBandeja): boolean {
     case "dias_sin_responder":
       return c.dias > 0;
   }
+}
+
+/* ------------------------------------------------------------------------------------------------
+   EL MODAL: ESTADO Y ASESORA COMO CONDICIONES (Alex, 17-10-2026)
+
+   El modal ya no tiene el selector de Estado ni el "Por asesora: todas" arriba: los dos son filas
+   mas de Condiciones. Arriba queda solo la Asignacion (Todas / Mias / Sin asignar).
+
+   En la DIRECCION no cambia nada para el estado: sigue viajando como `status=` (lo leen la
+   pantalla, /list, /counts y el canal oficial, y asi las listas guardadas siguen dando lo mismo).
+   La fila Estado existe solo en el modal. Sin fila Estado = Abiertas, como siempre.
+
+   "Por asesora" (`assigned=user:id1,id2`) entra como la condicion Asesora "es id1, id2" y se
+   guarda como condicion (`c=asesora:es:…`): da lo mismo, `in (ids)` en las dos.
+------------------------------------------------------------------------------------------------ */
+
+export type EstadoDeBandeja = "open" | "resolved" | "all";
+
+/** La fila Estado del modal. No viaja en `c=`: es el `status=` de siempre. */
+export type CondicionDeEstado = { campo: "estado"; operador: "es"; valor: EstadoDeBandeja };
+
+/** Una fila del modal: una condicion de la bandeja o la fila Estado. */
+export type CondicionDelFiltro = CondicionDeBandeja | CondicionDeEstado;
+export type CampoDelFiltro = CondicionDelFiltro["campo"];
+export type AsignacionSimple = "all" | "mine" | "unassigned";
+
+export const OPCIONES_DE_ESTADO: ReadonlyArray<{ valor: EstadoDeBandeja; etiqueta: string }> = [
+  { valor: "open", etiqueta: "Abiertas" },
+  { valor: "resolved", etiqueta: "Resueltas" },
+  { valor: "all", etiqueta: "Todas" },
+];
+
+/** Los campos que ofrece el modal: Estado primero, despues los de siempre. */
+export const CAMPOS_DEL_FILTRO: ReadonlyArray<{ campo: CampoDelFiltro; etiqueta: string }> = [
+  { campo: "estado", etiqueta: "Estado" },
+  ...CAMPOS_DE_BANDEJA,
+];
+
+export const OPERADORES_DEL_FILTRO: Record<CampoDelFiltro, ReadonlyArray<{ valor: string; etiqueta: string }>> = {
+  ...OPERADORES_DE_BANDEJA,
+  estado: [{ valor: "es", etiqueta: "es" }],
+};
+
+export function condicionVaciaDelFiltro(campo: CampoDelFiltro): CondicionDelFiltro {
+  return campo === "estado" ? { campo, operador: "es", valor: "open" } : condicionVaciaDeBandeja(campo);
+}
+
+export function textoDelEstado(estado: EstadoDeBandeja): string {
+  return estado === "open" ? "abiertas" : estado === "resolved" ? "resueltas" : "abiertas y resueltas";
+}
+
+/**
+ * Lo puesto (asignacion, estado, condiciones) como lo muestra el modal: la Asignacion queda en
+ * Todas/Mias/Sin asignar y el estado y "Por asesora" pasan a ser filas.
+ *
+ * Si ya habia una condicion "Asesora es …", se reusa: las dos se cumplian juntas (Y), asi que la
+ * fila queda con las que estan en las dos. Solo si no tienen ninguna en comun quedan dos filas
+ * (la lista seguiria vacia, como antes).
+ */
+export function filasDelModal(
+  asignacion: string,
+  estado: EstadoDeBandeja,
+  filtros: FiltrosDeBandeja,
+): { asignacion: AsignacionSimple; filas: CondicionDelFiltro[] } {
+  const filas: CondicionDelFiltro[] = [];
+  if (estado !== "open") filas.push({ campo: "estado", operador: "es", valor: estado });
+  const condiciones = [...filtros.condiciones];
+
+  const asesoras = asignacion.startsWith("user:") ? ids(asignacion.slice("user:".length)) : [];
+  if (asesoras.length) {
+    const i = condiciones.findIndex((c) => c.campo === "asesora" && c.operador === "es");
+    const existente = i >= 0 ? (condiciones[i] as Extract<CondicionDeBandeja, { campo: "asesora" }>) : null;
+    const comunes = existente ? existente.valores.filter((v) => asesoras.includes(v)) : [];
+    if (existente && comunes.length) condiciones[i] = { ...existente, valores: comunes };
+    else condiciones.push({ campo: "asesora", operador: "es", valores: asesoras });
+  }
+  filas.push(...condiciones);
+
+  return { asignacion: asignacion === "mine" || asignacion === "unassigned" ? asignacion : "all", filas };
+}
+
+/** Lo elegido en el modal, de vuelta a lo que viaja: asignacion, `status=` y las condiciones completas. */
+export function separarFilasDelModal(
+  asignacion: AsignacionSimple,
+  filas: readonly CondicionDelFiltro[],
+): { asignacion: AsignacionSimple; estado: EstadoDeBandeja; filtros: FiltrosDeBandeja } {
+  const fila = filas.find((c): c is CondicionDeEstado => c.campo === "estado");
+  const condiciones = filas.filter((c): c is CondicionDeBandeja => c.campo !== "estado" && condicionCompleta(c));
+  return { asignacion, estado: fila?.valor ?? "open", filtros: { condiciones } };
 }
 
 /* ------------------------------------------------------------------------------------------------
