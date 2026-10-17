@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { elV3AtendioLaCharla, leerEstado } from "@/features/agente-v3/motor/estado";
 import { createFollow } from "@/features/seguimientos/services/follows";
 import { PRODUCT_FUNNEL_STAGES } from "@/lib/product-funnel-stages";
+import { SQL_CHAT_ABIERTO } from "@/lib/chat-resuelto-sql";
 import { prisma } from "@/lib/prisma";
 
 import type { ConfigSeguimientoInteligente } from "../dominio/config";
@@ -86,6 +87,7 @@ export async function barrerDiaSiguiente(
          AND (w."metadata"->>'agenteV3') = 'true'
          AND w."purpose" <> 'ADMIN'
          AND (ct."crmStage" IS NULL OR ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO'))
+         ${SQL_CHAT_ABIERTO}
          AND c."lastMessageAt" >= ${new Date(ahora.getTime() - VENTANA_HORAS * 3_600_000)}
          AND c."lastMessageAt" <= ${new Date(ahora.getTime() - calma * 60_000)}
          AND (SELECT m."direction" FROM "Message" m

@@ -1,3 +1,4 @@
+import { WHERE_CHAT_ABIERTO } from "@/lib/chat-resuelto-sql";
 import { prisma } from "@/lib/prisma";
 import { extractEvolutionMessageText } from "@/lib/evolution-webhook";
 import type { CrmStage } from "../types";
@@ -106,6 +107,11 @@ async function computeMiDiaData(input: {
       workspaceId: input.workspaceId,
       contact: { crmStage: { in: PIPELINE_STAGES } },
       lastMessageAt: { lte: minAge, gte: maxAge },
+      /*
+        Un chat RESUELTO no es trabajo de hoy (ver lib/chat-resuelto). Si la asesora le agendo una
+        llamada, esa SI entra (abajo): es un compromiso suyo, como un seguimiento que agendo a mano.
+      */
+      ...WHERE_CHAT_ABIERTO,
       /**
        * SU dia, no el de la empresa.
        *

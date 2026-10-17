@@ -51,6 +51,7 @@ import {
 } from "@/lib/official-api-config";
 import { sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
 import { AD_CAMPAIGN_ROUTING_METADATA_KEY } from "@/lib/ad-campaign-routing";
+import { alCambiarEstadoDelChat } from "@/lib/al-resolver-chat";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { Prisma } from "@prisma/client";
@@ -2152,13 +2153,36 @@ export async function updateConversationStatusAction(input: {
     }
     await setOfficialApiConversationStatus({ conversationId: officialConversation.id, status: input.status });
     await avisarCambioDeEstado(membership.workspace.id, officialConversation.id, "official", input.status);
+    /*
+      Resuelto en la línea oficial: los automáticos pendientes de su ficha del CRM también se
+      cancelan (ver lib/chat-resuelto). El motor de tareas no mira esta tabla: no hay tarea que cerrar.
+    */
+    if (input.status === "CLOSED") {
+      const fichas = await prisma.$queryRaw<Array<{ crmContactId: string | null }>>`
+        SELECT ct."crmContactId"
+        FROM "OfficialApiConversation" c
+        JOIN "OfficialApiContact" ct ON ct."id" = c."contactId"
+        WHERE c."id" = ${officialConversation.id}
+        LIMIT 1
+      `.catch(() => []);
+      const crmContactId = fichas[0]?.crmContactId ?? null;
+      if (crmContactId) {
+        alCambiarEstadoDelChat({
+          workspaceId: membership.workspace.id,
+          conversationId: null,
+          contactId: crmContactId,
+          anterior: "OPEN",
+          nuevo: "CLOSED",
+        });
+      }
+    }
     // Sin revalidatePath: ver la rama del canal viejo, abajo.
     return {};
   }
 
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId: membership.workspace.id },
-    select: { id: true, agentId: true, channelId: true, contactId: true },
+    select: { id: true, agentId: true, channelId: true, contactId: true, status: true },
   });
 
   if (!conversation) {
@@ -2187,6 +2211,14 @@ export async function updateConversationStatusAction(input: {
       : `${actorName} reabrió`,
   });
   await avisarCambioDeEstado(membership.workspace.id, conversation.id, "agent", input.status);
+  // Resuelto = fuera del CRM de trabajo: tareas y automáticos (en segundo plano; ver lib/al-resolver-chat).
+  alCambiarEstadoDelChat({
+    workspaceId: membership.workspace.id,
+    conversationId: conversation.id,
+    contactId: conversation.contactId,
+    anterior: conversation.status,
+    nuevo: input.status,
+  });
 
   /*
     Sin revalidatePath (plan "Chats instantaneo", fase 1). Quien llama (boton Resolver y menu de

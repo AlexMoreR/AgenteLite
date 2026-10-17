@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 
+import { SQL_CHAT_ABIERTO } from "@/lib/chat-resuelto-sql";
 import { prisma } from "@/lib/prisma";
 
 import { leerConfigSeguimiento } from "./config";
@@ -106,6 +107,7 @@ async function leerTareas(input: {
        AND l."accion" = 'tarea_asesora'
        AND l."exterior" = false
        AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
+       ${SQL_CHAT_ABIERTO}
        AND (l."tareaVence" IS NULL OR l."tareaVence" <= ${input.hasta})
        ${input.soloActivas ? Prisma.sql`AND l."accionDatos"->>'modo' = 'activo'` : Prisma.empty}
        ${

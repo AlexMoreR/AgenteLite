@@ -7,10 +7,11 @@ import { cancelarAutomaticosPendientesDelContacto, createFollow } from "@/featur
 import { getFlowReply } from "@/lib/agent-product-flow";
 import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import { SQL_CHAT_ABIERTO } from "@/lib/chat-resuelto-sql";
 import { prisma } from "@/lib/prisma";
 
 import { algoPrendido, esExcepcionQueActua, type ConfigSeguimientoInteligente } from "../dominio/config";
-import { datosDeRecuperacion, evaluarLead, modoDeLaDecision, type Decision, type Evaluacion } from "../dominio/motor";
+import { MOTIVO_CHAT_RESUELTO, datosDeRecuperacion, evaluarLead, modoDeLaDecision, type Decision, type Evaluacion } from "../dominio/motor";
 import { MOTIVO_RECUPERACION, cortoUnSilencioLargo } from "../dominio/recuperacion";
 import { textoPermitido } from "../dominio/producto";
 import { PREFIJO_FOLLOW_INTELIGENTE } from "./convivencia";
@@ -208,8 +209,12 @@ export async function revisarLead(conversationId: string, opciones: { ahora?: Da
     // de hoy para que la tarea desaparezca de Mi día aunque el motor esté apagado.
     const anterior = ctx.lead?.accionDatos ?? null;
     const salioDeRecuperacion = anterior?.motivo === MOTIVO_RECUPERACION && anterior?.modo === "activo" && decision.motivo !== MOTIVO_RECUPERACION;
+    // Chat resuelto con una tarea ACTIVA guardada (formulario, cotización, recuperación…): se anota
+    // "no insistir" aunque el motor esté apagado, para que la tarea se cierre (ver lib/chat-resuelto).
+    const salioPorResuelto = decision.motivo === MOTIVO_CHAT_RESUELTO && anterior?.accion === "tarea_asesora" && anterior?.modo === "activo";
     const registrarDecision =
-      !soloRecuperacion && (modo !== "apagado" || (config.motor.modo !== "apagado" && decision.accion === "descartar") || salioDeRecuperacion);
+      !soloRecuperacion &&
+      (modo !== "apagado" || (config.motor.modo !== "apagado" && decision.accion === "descartar") || salioDeRecuperacion || salioPorResuelto);
     const modoAnotado = modo === "apagado" ? config.motor.modo : modo;
     // Nueva si cambió la decisión o el modo (al pasar de sombra a activo se vuelve a registrar y ejecutar).
     const decisionNueva =
@@ -432,6 +437,7 @@ export async function barrerRecuperacion(workspaceId: string, config: ConfigSegu
           JOIN "WhatsAppChannel" w ON w."id" = c."channelId"
          WHERE c."workspaceId" = ${workspaceId}
            AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
+           ${SQL_CHAT_ABIERTO}
            AND (w."metadata"->>'agenteV3') = 'true'
            AND c."lastMessageAt" >= ${desde}
       )

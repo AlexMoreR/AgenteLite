@@ -181,7 +181,9 @@ export type MotivoAntiBloqueo =
   | "inteligente_reemplazado"
   /* "Etapa … · día siguiente" al enviar (features/seguimiento-inteligente/dominio/dia-siguiente.ts). */
   | "chat_del_equipo"
-  | "tras_asesora";
+  | "tras_asesora"
+  /* La asesora resolvió el chat (lib/chat-resuelto.ts): se cancelan los automáticos. */
+  | "chat_resuelto";
 
 /** Los que solo CORREN el envío (se reprograma); el resto lo cancela. */
 export const MOTIVOS_QUE_REPROGRAMAN: readonly MotivoAntiBloqueo[] = ["fuera_de_horario", "espaciado"];

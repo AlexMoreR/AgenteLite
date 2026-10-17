@@ -153,6 +153,7 @@ import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowIte
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { persistEvolutionHistorySync, syncEvolutionMessagesSince } from "@/lib/evolution-chat-sync";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
+import { reabreAlLlegar } from "@/lib/chat-resuelto";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
   const state = rawState?.toLowerCase() ?? "";
@@ -1713,11 +1714,22 @@ export async function POST(request: NextRequest) {
         commercialContext: null,
       };
 
-  if (!messageWasEdited && existingConversation && !["OPEN", "PENDING"].includes(existingConversation.status)) {
+  /*
+    Un chat RESUELTO se reabre solo cuando el CLIENTE vuelve a escribir (ver lib/chat-resuelto).
+    Antes lo reabria cualquier cosa que entrara por aca, tambien el eco de lo que mandamos nosotros
+    o un automatico: la asesora lo resolvia y a los segundos volvia a la bandeja. Un mensaje que ya
+    estaba guardado (`existingMessage`: un reenvio, un borrado) tampoco es "volvio a escribir".
+  */
+  if (
+    existingConversation &&
+    !existingMessage &&
+    reabreAlLlegar({ direccion: direction, editado: messageWasEdited, borrado: messageWasDeleted }, existingConversation.status)
+  ) {
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
         status: "OPEN",
+        closedAt: null,
         lastMessageAt: new Date(),
       },
     });
@@ -2053,7 +2065,8 @@ export async function POST(request: NextRequest) {
       where: { id: conversation.id },
       data: {
         lastMessageAt: new Date(),
-        status: "OPEN",
+        // Solo lo del cliente lo deja abierto: lo nuestro no reabre un chat resuelto (ver arriba).
+        ...(direction === "INBOUND" ? { status: "OPEN" as const, closedAt: null } : {}),
       },
     });
   }

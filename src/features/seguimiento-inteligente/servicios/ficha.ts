@@ -1,5 +1,6 @@
 import { leerEstado } from "@/features/agente-v3/motor/estado";
 import { CLAVE_COMBO } from "@/features/embudo/dominio/combo";
+import { estaResuelto } from "@/lib/chat-resuelto";
 import { prisma } from "@/lib/prisma";
 import { isSnoozed } from "@/lib/lead-snooze";
 import { isMarkedAsLid, readDiscoveredPhone } from "@/lib/whatsapp-lid";
@@ -49,6 +50,7 @@ export async function leerFicha(conversationId: string): Promise<FichaConContext
       automationPaused: true,
       automationPausedAt: true,
       startedAt: true,
+      status: true,
       contact: { select: { name: true, phoneNumber: true, metadata: true, crmStage: true } },
     },
   });
@@ -125,6 +127,7 @@ export async function leerFicha(conversationId: string): Promise<FichaConContext
       nombre: charla.contact?.name ?? null,
       etapaCrm: charla.contact?.crmStage ?? null,
       pausado: Boolean(charla.automationPaused),
+      resuelto: estaResuelto(charla.status),
       asignadaA: charla.assignedToUserId,
       pais: pais.pais,
       marcaExterior: Boolean(leerMarcaExterior(metadata)) || Boolean(lead?.exterior),

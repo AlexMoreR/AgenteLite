@@ -4,6 +4,7 @@ import { avisoSiNoSePuedeDescartar } from "@/features/crm/services/candado-desca
 import { registrarEventos } from "@/features/embudo/servicios/eventos";
 import { cancelarAutomaticosPendientesDelContacto } from "@/features/seguimientos/services/follows";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import { SQL_CHAT_ABIERTO } from "@/lib/chat-resuelto-sql";
 import { prisma } from "@/lib/prisma";
 import { resolveCallablePhone } from "@/lib/whatsapp-lid";
 
@@ -379,6 +380,7 @@ async function leerRecuperaciones(input: { workspaceId: string; asesoraId?: stri
        AND l."accionDatos"->>'motivo' = ${MOTIVO_RECUPERACION}
        AND l."accionDatos"->>'modo' = 'activo'
        AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
+       ${SQL_CHAT_ABIERTO}
        ${filtroSinReactivar(corte)}
        ${input.fases?.length ? Prisma.sql`AND l."accionDatos"->>'toque' IN (${Prisma.join(input.fases)})` : Prisma.empty}
        ${

@@ -4,6 +4,7 @@ import { leerHistorialDelLibro, leerLibro } from "@/features/agente-v3/servicios
 import type { LibroDeReglas } from "@/features/agente-v3/domain/reglas";
 import { leerConfigEmbudo } from "@/features/embudo/servicios/config";
 import { getFlowReply } from "@/lib/agent-product-flow";
+import { estaResuelto } from "@/lib/chat-resuelto";
 import { prisma } from "@/lib/prisma";
 import { isMarkedAsLid, readDiscoveredPhone } from "@/lib/whatsapp-lid";
 
@@ -180,6 +181,7 @@ type FilaDeExclusion = {
   ultimoClienteEn: Date | null;
   ultimaRespuestaHumanaEn: Date | null;
   textosCliente: string[] | null;
+  estado: string | null;
 };
 
 /** Los últimos 20 textos del cliente (para no tratar como "del exterior" a quien nombra una ciudad de Colombia). */
@@ -191,7 +193,7 @@ const LATERAL_TEXTOS_DEL_CLIENTE = Prisma.sql`
            ORDER BY m."createdAt" DESC LIMIT 20) u20) todos ON true`;
 
 /**
- * Los chats (de las alertas de atención abiertas) que ya no son tarea: PERDIDO/GANADO, fuera de
+ * Los chats (de las alertas de atención abiertas) que ya no son tarea: PERDIDO/GANADO, resueltos, fuera de
  * Colombia, dormidos o ya respondidos por una persona. UNA consulta, solo dentro del negocio.
  */
 export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[], ahora: Date): Promise<Set<string>> {
@@ -199,7 +201,8 @@ export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[
   if (unicos.length === 0) return new Set();
   const filas = await prisma.$queryRaw<FilaDeExclusion[]>(Prisma.sql`
     SELECT c."id" AS "conversationId", ct."crmStage"::text AS "etapa", ct."phoneNumber" AS "telefono", ct."metadata",
-           l."dormidoHasta", cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", todos."textosCliente"
+           l."dormidoHasta", cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", todos."textosCliente",
+           c."status"::text AS "estado"
       FROM "Conversation" c
       JOIN "Contact" ct ON ct."id" = c."contactId"
       LEFT JOIN "EmbudoLead" l ON l."conversationId" = c."id"
@@ -219,6 +222,7 @@ export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[
     const motivo = motivoDeExclusion(
       {
         etapa: fila.etapa,
+        resuelto: estaResuelto(fila.estado),
         ...datosDeExclusion(fila),
         ultimoClienteEn: fila.ultimoClienteEn ? new Date(fila.ultimoClienteEn) : null,
         ultimaRespuestaHumanaEn: fila.ultimaRespuestaHumanaEn ? new Date(fila.ultimaRespuestaHumanaEn) : null,

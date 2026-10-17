@@ -9,6 +9,7 @@ import {
   createFollowsFromRulesForSource,
 } from "@/features/seguimientos/services/follows";
 import { getFlowReply } from "@/lib/agent-product-flow";
+import { alCambiarEstadoDelChat } from "@/lib/al-resolver-chat";
 import { leerConfigAntiBloqueo } from "@/lib/anti-bloqueo/servicio";
 import { leerColaboradores } from "@/lib/channel-collaborators";
 import { recordConversationActivity } from "@/lib/conversation-activity";
@@ -466,6 +467,14 @@ function puertosDe(input: {
           await prisma.conversation.update({
             where: { id: foto.conversationId },
             data: { status, closedAt: status === "CLOSED" ? new Date() : null },
+          });
+          // Igual que el botón: resuelto = fuera de tareas y automáticos (ver lib/al-resolver-chat).
+          alCambiarEstadoDelChat({
+            workspaceId,
+            conversationId: foto.conversationId,
+            contactId: foto.contactId,
+            anterior: foto.abierta ? "OPEN" : "CLOSED",
+            nuevo: status,
           });
           await actividad(foto, status === "CLOSED" ? "resolved" : "reopened", `${quien.nombre} ${status === "CLOSED" ? "resolvió" : "reabrió"} (${etiqueta})`);
           await notifyRealtimeUpdate({

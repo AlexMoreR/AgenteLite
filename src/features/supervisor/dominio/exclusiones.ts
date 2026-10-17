@@ -5,6 +5,7 @@
  * PERDIDO (cv9b8466b04a55168797bdd5d9, 10-oct). Las alertas de atención son TAREAS: no pueden
  * hacerle perder tiempo con chats que ya no se trabajan. Quedan fuera:
  *  - etapa PERDIDO o GANADO;
+ *  - chat RESUELTO por la asesora (16-10-2026, ver lib/chat-resuelto): sale del CRM de trabajo;
  *  - cliente fuera de Colombia: marcado por el seguimiento inteligente o, sin marca, teléfono con
  *    indicativo distinto de 57 (un LID sin teléfono real NO se decide);
  *  - lead dormido por una fecha futura de compra ("finales de noviembre");
@@ -17,10 +18,12 @@
 import { esDelExterior } from "../../seguimiento-inteligente/dominio/exterior";
 import type { Incidente } from "./alertas";
 
-export type MotivoDeExclusion = "etapa_cerrada" | "fuera_de_colombia" | "dormido" | "ya_respondio";
+export type MotivoDeExclusion = "etapa_cerrada" | "resuelto" | "fuera_de_colombia" | "dormido" | "ya_respondio";
 
 export type DatosDeExclusion = {
   etapa: string | null;
+  /** Conversation.status CLOSED/ARCHIVED. Opcional: sin él, todo como antes. */
+  resuelto?: boolean;
   telefono?: string | null;
   esLid?: boolean;
   telefonoDescubierto?: string | null;
@@ -34,6 +37,7 @@ export type DatosDeExclusion = {
 
 export function motivoDeExclusion(d: DatosDeExclusion, ahora: Date): MotivoDeExclusion | null {
   if (d.etapa === "PERDIDO" || d.etapa === "GANADO") return "etapa_cerrada";
+  if (d.resuelto) return "resuelto";
   if (esDelExterior({ metadata: d.metadata, telefono: d.telefono, esLid: d.esLid, telefonoDescubierto: d.telefonoDescubierto, textos: d.textos })) {
     return "fuera_de_colombia";
   }

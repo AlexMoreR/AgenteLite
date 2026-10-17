@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { CacheConTtl } from "@/lib/cache-en-memoria";
+import { SQL_CHAT_ABIERTO } from "@/lib/chat-resuelto-sql";
 import { prisma } from "@/lib/prisma";
 
 import { DIAS_DE_CHATS_ACTIVOS, VENTANA_EN_SEGUIMIENTO_MS, type LeadEnSeguimiento } from "../dominio/en-seguimiento";
@@ -54,6 +55,7 @@ async function cargar(workspaceId: string): Promise<LeadEnSeguimiento[]> {
       JOIN "Contact" ct ON ct."id" = c."contactId"
       WHERE w."workspaceId" = ${workspaceId} AND w."purpose" = 'SALES'
         AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
+        ${SQL_CHAT_ABIERTO}
     ),
     seg AS MATERIALIZED (
       SELECT ch.*, ui."en" AS "ultimoIn", ui."texto", ui."tipo", s."n", s."ultimo"

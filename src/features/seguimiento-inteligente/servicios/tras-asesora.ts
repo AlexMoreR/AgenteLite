@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { registrarEventos } from "@/features/embudo/servicios/eventos";
 import { createFollow } from "@/features/seguimientos/services/follows";
+import { SQL_CHAT_ABIERTO } from "@/lib/chat-resuelto-sql";
 import { prisma } from "@/lib/prisma";
 
 import type { ConfigSeguimientoInteligente } from "../dominio/config";
@@ -49,6 +50,7 @@ export async function barrerTrasAsesora(workspaceId: string, config: ConfigSegui
          AND c."automationPaused" = true
          AND (w."metadata"->>'agenteV3') = 'true'
          AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
+         ${SQL_CHAT_ABIERTO}
          AND c."lastMessageAt" >= ${new Date(ahora.getTime() - horasMaximas * 3_600_000)}
          AND c."lastMessageAt" <= ${new Date(ahora.getTime() - Math.min(...ta.horas) * 3_600_000 + 60_000)}
          AND (SELECT m."direction" FROM "Message" m

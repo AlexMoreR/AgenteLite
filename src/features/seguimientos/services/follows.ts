@@ -8,6 +8,7 @@ import {
   sendEvolutionVideoMessage,
 } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
+import { esAutomaticoPendiente, estaResuelto } from "@/lib/chat-resuelto";
 import { revisarFrenoDeAutomatico, type MotivoDeFreno } from "@/lib/freno-de-automaticos";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { getFlowReply, type FlowStep } from "@/lib/agent-product-flow";
@@ -1598,23 +1599,30 @@ async function definicionVigenteDelFollow(follow: ClaimedFollowRow): Promise<Def
  * Cancela los seguimientos AUTOMÁTICOS pendientes de un contacto (anti-bloqueo, un solo dueño):
  * al pausar el chat, al pasarlo a PERDIDO o GANADO. No toca los que agendó una asesora ni las
  * campañas. No hace nada si la medida está apagada.
+ *
+ * `aunqueEsteApagado`: al RESOLVER el chat se cancelan siempre (decisión de Alex, 16-10-2026: el
+ * chat resuelto sale del CRM de trabajo), con la misma regla de qué es automático.
  */
 export async function cancelarAutomaticosPendientesDelContacto(input: {
   workspaceId: string;
   contactId: string;
   motivo: MotivoAntiBloqueo;
+  aunqueEsteApagado?: boolean;
 }): Promise<{ cancelados: number }> {
   try {
-    const config = await leerConfigAntiBloqueo(input.workspaceId);
-    if (!config.unDueno.activo) {
-      return { cancelados: 0 };
+    if (!input.aunqueEsteApagado) {
+      const config = await leerConfigAntiBloqueo(input.workspaceId);
+      if (!config.unDueno.activo) {
+        return { cancelados: 0 };
+      }
     }
     const pendientes = (
       await listFollowsByContact({ workspaceId: input.workspaceId, contactId: input.contactId, limit: 100 })
-    ).filter(
-      (follow) =>
-        follow.status === "PENDING" &&
-        clasificarFollow({ name: follow.name, followRuleId: follow.followRuleId }) === "automatico",
+    ).filter((follow) =>
+      esAutomaticoPendiente({
+        status: follow.status,
+        clase: clasificarFollow({ name: follow.name, followRuleId: follow.followRuleId }),
+      }),
     );
     for (const follow of pendientes) {
       await cancelarFollowFrenado(
@@ -1656,6 +1664,24 @@ async function revisarAntiBloqueoDelFollow(
 ): Promise<{ motivo: MotivoAntiBloqueo; reprogramarPara: Date | null; conversationId: string | null } | null> {
   const config = await leerConfigAntiBloqueo(follow.workspaceId);
   const esAutomatico = clase === "automatico";
+
+  /*
+    Chat RESUELTO (Alex, 16-10-2026): un automático no le escribe a un chat que la asesora dio por
+    terminado, aunque se haya agendado después de resolverlo. Siempre, sin interruptor. Los que
+    agendó una persona sí salen. Si el cliente vuelve a escribir, el chat se reabre y sale normal.
+  */
+  if (esAutomatico) {
+    const charla = await prisma.conversation
+      .findFirst({
+        where: { workspaceId: follow.workspaceId, contactId: follow.contactId, ...(follow.channelId ? { channelId: follow.channelId } : {}) },
+        orderBy: { lastMessageAt: "desc" },
+        select: { id: true, status: true },
+      })
+      .catch(() => null);
+    if (charla && estaResuelto(charla.status)) {
+      return { motivo: "chat_resuelto", reprogramarPara: null, conversationId: charla.id };
+    }
+  }
 
   // Horario primero: lo de la noche se corre a la mañana y recién ahí se mira lo demás.
   const ahora = new Date();

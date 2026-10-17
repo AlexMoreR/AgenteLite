@@ -41,6 +41,7 @@
     "test:aviso-pausa": "node scripts/check-aviso-pausa.mjs",
     "test:listas-bandeja": "node scripts/check-listas-bandeja.mjs",
     "test:como-quedo": "node scripts/check-como-quedo.mjs",
+    "test:resuelto": "node scripts/check-resuelto.mjs",
     "supervisor:guardian": "node scripts/supervisor-guardian.mjs",
     "supervisor:simular": "node scripts/supervisor-simulacion.mjs",
     "test:e2e": "playwright test -c e2e",

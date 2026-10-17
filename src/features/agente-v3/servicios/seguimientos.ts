@@ -1,4 +1,5 @@
 import { registrarSeguimientoEnviado } from "@/features/embudo/servicios/eventos";
+import { WHERE_CHAT_ABIERTO } from "@/lib/chat-resuelto-sql";
 import { prisma } from "@/lib/prisma";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { dentroDelHorario, inicioDeVentanaHabil } from "@/lib/anti-bloqueo/reglas";
@@ -111,6 +112,8 @@ export async function ejecutarSeguimientosV3(
       where: {
         channelId: canal.id,
         automationPaused: false,
+        // Un chat RESUELTO no recibe recordatorios del bot (ver lib/chat-resuelto).
+        ...WHERE_CHAT_ABIERTO,
         lastMessageAt: {
           lte: new Date(ahora.getTime() - elMasCorto * 60_000),
           gte: inicioDeVentanaHabil(ahora, VENTANA_MAXIMA_HORAS, conHorario),

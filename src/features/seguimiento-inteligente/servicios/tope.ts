@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { registrarEventos } from "@/features/embudo/servicios/eventos";
 import { calcularReparto } from "@/lib/channel-collaborators";
 import { leerHorariosDeReparto, recibeEnEsteMomento } from "@/lib/horario-de-reparto";
+import { SQL_CHAT_ABIERTO } from "@/lib/chat-resuelto-sql";
 import { prisma } from "@/lib/prisma";
 
 import type { ConfigSeguimientoInteligente } from "../dominio/config";
@@ -66,6 +67,7 @@ export async function aplicarTopeDeTareas(workspaceId: string, config: ConfigSeg
          AND l."accion" = 'tarea_asesora'
          AND l."exterior" = false
          AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
+         ${SQL_CHAT_ABIERTO}
          AND (l."tareaVence" IS NULL OR l."tareaVence" <= ${finDelDia})
          -- "Llamar solo las de 7 días o menos": la Recuperación con el cliente callado hace más va a reactivación.
          ${filtroSinReactivar(corteDeLaConfig(config, ahora))}

@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { leerConfigSeguimiento } from "@/features/seguimiento-inteligente/servicios/config";
 import { corteDeLaConfig, filtroSinReactivar } from "@/features/seguimiento-inteligente/servicios/reactivacion";
 import { CacheConTtl } from "@/lib/cache-en-memoria";
+import { SQL_CHAT_ABIERTO } from "@/lib/chat-resuelto-sql";
 import { prisma } from "@/lib/prisma";
 
 import type { TareaVencida } from "../dominio/listas";
@@ -47,6 +48,7 @@ function desdeTareasVencidas(workspaceId: string, finDelDia: Date, corte: Date |
        AND l."accion" = 'tarea_asesora'
        AND l."exterior" = false
        AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
+       ${SQL_CHAT_ABIERTO}
        AND (l."tareaVence" IS NULL OR l."tareaVence" <= ${finDelDia})
        ${filtroSinReactivar(corte)}
        AND (l."accionDatos"->>'motivo' = 'recuperacion_72h' OR NOT EXISTS (
@@ -75,6 +77,7 @@ export async function condicionRecuperacionVencida(workspaceId: string, ahora = 
          AND l."exterior" = false
          AND l."accionDatos"->>'motivo' = 'recuperacion_72h'
          AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
+         ${SQL_CHAT_ABIERTO}
          AND (l."tareaVence" IS NULL OR l."tareaVence" <= ${finDelDia})
          ${filtroSinReactivar(corte)})`;
 }

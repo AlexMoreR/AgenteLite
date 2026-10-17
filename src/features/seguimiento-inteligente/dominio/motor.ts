@@ -59,6 +59,9 @@ const DIA = 24 * HORA;
 /** Los `rawPayload.source` de lo que sale solo (igual que lib/freno-de-automaticos). */
 export const ORIGENES_AUTOMATICOS = ["agente-v3-seguimiento", "agente-v3-seguimiento-ia", "follow", "automation_reactivation"];
 
+/** Motivo de la decisión cuando la asesora resolvió el chat (ver FichaDelLead.resuelto). */
+export const MOTIVO_CHAT_RESUELTO = "chat_resuelto";
+
 export type MensajeCrudo = {
   direccion: "IN" | "OUT";
   tipo: string;
@@ -76,6 +79,12 @@ export type FichaDelLead = {
   nombre: string | null;
   etapaCrm: string | null;
   pausado: boolean;
+  /**
+   * La asesora resolvió el chat (Conversation.status CLOSED/ARCHIVED, ver lib/chat-resuelto): sale
+   * del CRM de trabajo, sin tareas ni automáticos, hasta que el cliente vuelva a escribir.
+   * Opcional: sin él, todo como antes.
+   */
+  resuelto?: boolean;
   asignadaA: string | null;
   pais: Pais;
   marcaExterior: boolean;
@@ -262,6 +271,8 @@ function dormidoPorFecha(c: Pick<Contexto, "mensajes" | "delCliente" | "config" 
 function recuperacionDelLead(c: Omit<Contexto, "recuperacion">): ResultadoDeRecuperacion | null {
   const config = c.config.recuperacion72h;
   if (!config || config.modo === "apagado") return null;
+  // Chat resuelto: no entra (ni avanza) en la Recuperación mientras siga resuelto.
+  if (c.ficha.resuelto) return null;
   const ultimoCliente = c.delCliente.at(-1) ?? null;
   const cot = c.cotizacion.en;
   const cotizacionVigente = Boolean(
@@ -382,6 +393,10 @@ function decidir(c: Contexto): Decision {
   // 2. Etapa cerrada.
   if (ficha.etapaCrm === "GANADO" || ficha.etapaCrm === "PERDIDO") {
     return base("no_insistir", "etapa_cerrada", { revisarEn: siguienteRevision(ahora, 24 * 60) });
+  }
+  // 2b. Chat resuelto: ni tarea ni automáticos (la etapa no cambia). Se reabre cuando el cliente escribe.
+  if (ficha.resuelto) {
+    return base("no_insistir", MOTIVO_CHAT_RESUELTO, { revisarEn: siguienteRevision(ahora, 24 * 60) });
   }
   // 3. Dijo que no.
   if (calificacion.noInteresa && calificacion.temperatura === "FRIO") {

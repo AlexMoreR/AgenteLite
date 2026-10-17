@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { saleDelKanban } from "@/lib/chat-resuelto";
 import { prisma } from "@/lib/prisma";
 import { getContactTags } from "@/lib/chat-conversation-summary";
 import { enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
@@ -384,19 +385,29 @@ export async function getCrmKanbanData({
           id: true,
           lastMessageAt: true,
           updatedAt: true,
+          status: true,
         },
       },
     },
   });
 
-  const transcripts = await buildContactTranscripts(rawContacts);
+  /*
+    Chat RESUELTO = fuera del Kanban de trabajo (ver lib/chat-resuelto). Solo sale de las columnas
+    de trabajo (Nuevo … Negociación): Ganado y Descartado son el resultado del lead y se quedan.
+    El estado es el del chat más reciente del contacto, el mismo que abre la tarjeta.
+  */
+  const deTrabajo = rawContacts.filter(
+    (contact) => !saleDelKanban({ etapa: contact.crmStage, estadoDelChat: contact.conversations[0]?.status ?? null }),
+  );
+
+  const transcripts = await buildContactTranscripts(deTrabajo);
   // Solo para los que NO tienen chat del canal viejo: son los unicos que pueden necesitarlo.
   const chatsOficiales = await getOfficialChatKeysByCrmContact(
     workspaceId,
-    rawContacts.filter((contact) => !contact.conversations[0]?.id).map((contact) => contact.id),
+    deTrabajo.filter((contact) => !contact.conversations[0]?.id).map((contact) => contact.id),
   );
 
-  const records: CrmRecord[] = rawContacts.map((contact) => ({
+  const records: CrmRecord[] = deTrabajo.map((contact) => ({
     id: contact.id,
     number: enmascararTelefonos ? enmascararTelefono(contact.phoneNumber) : contact.phoneNumber,
     avatarUrl: contact.avatarUrl,
