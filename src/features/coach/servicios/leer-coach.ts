@@ -53,7 +53,7 @@ function lista<T>(valor: unknown): T[] {
   return Array.isArray(valor) ? (valor as T[]) : [];
 }
 
-function aParte(fila: {
+export function aParte(fila: {
   userId: string;
   nombre: string;
   chats: number;
@@ -82,7 +82,7 @@ function aParte(fila: {
  * leer con el mismo codigo (puro, sin IA) y los errores ya guardados de TODAS las asesoras (para
  * saber que es del equipo). No escribe nada en la base.
  */
-function completarHabilidades(partes: ParteDeAsesora[], dia: string) {
+export function completarHabilidades(partes: ParteDeAsesora[], dia: string) {
   const faltan = partes.some((p) => p.resumen && p.resumen.habilidad === undefined);
   const { porAsesora, problemasDelEquipo } = elegirHabilidades(
     partes.map((p) => ({

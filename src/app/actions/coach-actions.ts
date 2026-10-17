@@ -29,8 +29,8 @@ export async function generarCoachAhoraAction(formData: FormData): Promise<void>
     }
   });
 
-  revalidatePath("/cliente/equipo/coach");
-  redirect(`/cliente/equipo/coach?dia=${dia}&generando=1`);
+  revalidatePath("/cliente/equipo/coach", "layout");
+  redirect(`/cliente/equipo/coach/informe?dia=${dia}&generando=1`);
 }
 
 /**
@@ -46,7 +46,7 @@ export async function marcarAccionDelCoachAction(formData: FormData): Promise<vo
   const supervisa = await puedeSupervisar(access);
   if (!supervisa && userId !== access.userId) return;
   await guardarEstadoDeAccion({ workspaceId: access.workspaceId, dia, userId, estado, por: access.userId });
-  revalidatePath("/cliente/equipo/coach");
+  revalidatePath("/cliente/equipo/coach", "layout");
 }
 
 /** Prende o apaga la corrida de cada noche (23:30). Solo el dueño o un administrador. */
@@ -55,6 +55,6 @@ export async function guardarCoachNocturnoAction(formData: FormData): Promise<vo
   const activo = String(formData.get("activo") ?? "") === "1";
   await guardarCoachNocturno(access.workspaceId, activo);
   const pedido = String(formData.get("dia") ?? "").trim();
-  revalidatePath("/cliente/equipo/coach");
-  redirect(`/cliente/equipo/coach${esDiaValido(pedido) ? `?dia=${pedido}` : ""}`);
+  revalidatePath("/cliente/equipo/coach", "layout");
+  redirect(`/cliente/equipo/coach/informe${esDiaValido(pedido) ? `?dia=${pedido}` : ""}`);
 }

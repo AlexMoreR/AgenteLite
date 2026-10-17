@@ -20,6 +20,7 @@
     "test:coach": "node scripts/check-coach.mjs",
     "test:coach-acciones": "node scripts/check-coach-acciones.mjs",
     "test:coach-resueltos": "node scripts/check-coach-resueltos.mjs",
+    "test:coach-linea": "node scripts/check-coach-linea.mjs",
     "test:embudo": "node scripts/check-embudo.mjs",
     "test:embudo-semanal": "node scripts/check-embudo-semanal.mjs",
     "test:anti-bloqueo": "node scripts/check-anti-bloqueo.mjs",

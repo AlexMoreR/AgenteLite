@@ -140,7 +140,7 @@ export default async function ClienteCrmMiDiaPage() {
         <div className="space-y-2 pt-3">
           {coach.habilidad ? <HabilidadDelDia habilidad={coach.habilidad} cierres={coach.cierres} compacta /> : null}
           {coach.pendientes.length ? <PendientesDelCoach pendientes={coach.pendientes} max={5} /> : null}
-          <Link href={`/cliente/equipo/coach?dia=${coach.dia}`} className="text-xs font-medium text-primary hover:underline">
+          <Link href={`/cliente/equipo/coach/asesora/${encodeURIComponent(access.userId)}?dia=${coach.dia}`} className="text-xs font-medium text-primary hover:underline">
             Ver mi informe del {coach.dia}
           </Link>
         </div>
