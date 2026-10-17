@@ -3,8 +3,10 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+import { cierreDe, type CierresPorNumero } from "../dominio/chats-cerrados";
 import type { ParteDeAsesora } from "../servicios/leer-coach";
 import type { ErrorDelCoach } from "../tipos";
+import { EtiquetaDeCierre } from "./acciones/piezas";
 import { HabilidadDelDia } from "./HabilidadDelDia";
 import { PendientesDelCoach } from "./PendientesDelCoach";
 
@@ -29,14 +31,19 @@ const TIPO_DE_ERROR: Record<string, string> = {
   otro: "Otro",
 };
 
-function ChatLink({ item }: { item: Pick<ErrorDelCoach, "ref" | "numero" | "ultimos4" | "nombre"> }) {
+function ChatLink({ item, cierres }: { item: Pick<ErrorDelCoach, "ref" | "numero" | "ultimos4" | "nombre">; cierres?: CierresPorNumero }) {
   const texto = `${item.ref} · ${item.ultimos4}${item.nombre ? ` · ${item.nombre}` : ""}`;
-  return item.numero ? (
-    <Link href={`/c/${item.numero}`} className="font-medium text-foreground hover:underline">
-      {texto}
-    </Link>
-  ) : (
-    <span className="font-medium text-foreground">{texto}</span>
+  return (
+    <>
+      {item.numero ? (
+        <Link href={`/c/${item.numero}`} className="font-medium text-foreground hover:underline">
+          {texto}
+        </Link>
+      ) : (
+        <span className="font-medium text-foreground">{texto}</span>
+      )}{" "}
+      <EtiquetaDeCierre cierre={cierreDe(item.numero, cierres)} />
+    </>
   );
 }
 
@@ -83,7 +90,7 @@ export function ParteDeAsesoraCard({ parte }: { parte: ParteDeAsesora }) {
         ) : null}
 
         {parte.resumen?.habilidad ? (
-          <HabilidadDelDia habilidad={parte.resumen.habilidad} />
+          <HabilidadDelDia habilidad={parte.resumen.habilidad} cierres={parte.cierres} />
         ) : parte.resumen?.habilidad === null ? (
           <p className="text-sm text-muted-foreground">🎯 Sin habilidad prioritaria: no hubo errores medidos ese día.</p>
         ) : null}
@@ -94,7 +101,7 @@ export function ParteDeAsesoraCard({ parte }: { parte: ParteDeAsesora }) {
             <ul className="space-y-1 text-sm">
               {parte.aciertos.map((acierto, i) => (
                 <li key={`${acierto.ref}-${i}`}>
-                  <ChatLink item={acierto} />: {acierto.texto}
+                  <ChatLink item={acierto} cierres={parte.cierres} />: {acierto.texto}
                 </li>
               ))}
             </ul>
@@ -110,7 +117,7 @@ export function ParteDeAsesoraCard({ parte }: { parte: ParteDeAsesora }) {
                   <Badge variant="outline" className="text-[10px]">
                     {TIPO_DE_ERROR[error.tipo] ?? error.tipo}
                   </Badge>
-                  <ChatLink item={error} />
+                  <ChatLink item={error} cierres={parte.cierres} />
                   <span className="text-muted-foreground">{error.detalle}</span>
                 </li>
               ))}
@@ -120,10 +127,13 @@ export function ParteDeAsesoraCard({ parte }: { parte: ParteDeAsesora }) {
           )}
         </div>
 
-        <div className="space-y-1.5">
-          <h3 className="text-sm font-medium">Pendientes para mañana ({parte.pendientes.length})</h3>
-          <PendientesDelCoach pendientes={parte.pendientes} />
-        </div>
+        {/* Sin los chats que ya se cerraron (leer-coach.ts). Con 0 no se muestra la seccion. */}
+        {parte.pendientes.length ? (
+          <div className="space-y-1.5">
+            <h3 className="text-sm font-medium">Pendientes para mañana ({parte.pendientes.length})</h3>
+            <PendientesDelCoach pendientes={parte.pendientes} />
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import type { EnlaceDeChat, EstadoDeAccion } from "../../dominio/acciones-de-hoy";
+import { ETIQUETA_DE_CIERRE, type CierreDeChat } from "../../dominio/chats-cerrados";
 
 /**
  * Piezas chicas de "Acciones de hoy": desplegable, enlace "Abrir chat", chip de estado. Sin estado
@@ -69,6 +70,7 @@ export function FilaDeChat({
         <span className="text-sm font-medium tabular-nums text-foreground">{chat.etiqueta}</span>
         {chat.nombreCliente ? <span className="text-xs text-muted-foreground">· {chat.nombreCliente}</span> : null}
         {etiquetas}
+        <EtiquetaDeCierre cierre={chat.cierre} />
       </div>
       {texto ? <p className="text-sm text-muted-foreground">{texto}</p> : null}
       {extra}
@@ -87,6 +89,16 @@ export function Etiqueta({ children, tono = "neutro" }: { children: ReactNode; t
           ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300"
           : "bg-muted text-muted-foreground";
   return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${color}`}>{children}</span>;
+}
+
+/** "Resuelto" / "Descartado" / "Ganado": el chat se cerro despues del informe (apagada, no alarma). */
+export function EtiquetaDeCierre({ cierre }: { cierre?: CierreDeChat | null }) {
+  if (!cierre) return null;
+  return (
+    <span data-testid="cierre" data-cierre={cierre}>
+      <Etiqueta>{ETIQUETA_DE_CIERRE[cierre]}</Etiqueta>
+    </span>
+  );
 }
 
 export const NOMBRE_DEL_ESTADO: Record<EstadoDeAccion, string> = {

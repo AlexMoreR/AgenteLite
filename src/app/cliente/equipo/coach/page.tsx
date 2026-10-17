@@ -69,8 +69,11 @@ export default async function CoachDeVentasPage({ searchParams }: PageProps) {
   const [informe, nocturno, siguiente] = await Promise.all([
     leerInformeDelCoach(access.workspaceId, dia, opcionesDeLectura),
     esDueno ? coachNocturnoActivo(access.workspaceId) : Promise.resolve(false),
-    // Para el "cumplido" automatico: la misma metrica en el informe del dia siguiente.
-    diaSiguiente <= hoy ? leerInformeDelCoach(access.workspaceId, diaSiguiente, opcionesDeLectura).catch(() => null) : Promise.resolve(null),
+    // Para el "cumplido" automatico: la misma metrica en el informe del dia siguiente, tal cual se
+    // guardo (sin quitar chats cerrados: la meta se mide con lo que vio el Coach esa noche).
+    diaSiguiente <= hoy
+      ? leerInformeDelCoach(access.workspaceId, diaSiguiente, { ...opcionesDeLectura, quitarCerrados: false }).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const asesoraPedida = supervisa && typeof params.asesora === "string" ? params.asesora : "";

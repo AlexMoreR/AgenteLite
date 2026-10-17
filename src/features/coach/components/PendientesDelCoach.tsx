@@ -18,9 +18,8 @@ const TEMPERATURA: Record<PendienteDelCoach["temperatura"], { etiqueta: string; 
  */
 export function PendientesDelCoach({ pendientes, max }: { pendientes: PendienteDelCoach[]; max?: number }) {
   const lista = typeof max === "number" ? pendientes.slice(0, max) : pendientes;
-  if (!lista.length) {
-    return <p className="text-sm text-muted-foreground">Sin pendientes: no quedaron clientes calientes ni tibios.</p>;
-  }
+  // Sin pendientes (o todos ya cerrados: ver dominio/chats-cerrados.ts) no se muestra nada.
+  if (!lista.length) return null;
   return (
     <ul className="space-y-2">
       {lista.map((pendiente) => {

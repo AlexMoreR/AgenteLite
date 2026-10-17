@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
+import { armarCierres, cierresDe, numerosDeLaParte, sinChatsCerrados, type CierresPorNumero } from "../dominio/chats-cerrados";
 import { elegirHabilidades } from "../habilidad";
 import { informeColgado, rangoDelDia } from "../reglas";
 import type {
@@ -20,8 +21,11 @@ export type ParteDeAsesora = {
   puntajes: PuntajesDelCoach | null;
   aciertos: AciertoDelCoach[];
   errores: ErrorDelCoach[];
+  /** Sin los chats que ya se resolvieron, descartaron o ganaron (ver dominio/chats-cerrados.ts). */
   pendientes: PendienteDelCoach[];
   resumen: ResumenDeAsesoraGuardado | null;
+  /** Los chats de esta parte que HOY estan cerrados: para la etiqueta en la evidencia. */
+  cierres?: CierresPorNumero;
 };
 
 export type InformeDelCoach = {
@@ -102,13 +106,58 @@ function completarHabilidades(partes: ParteDeAsesora[], dia: string) {
 }
 
 /**
+ * Como estan HOY los chats que cita el informe: resueltos (CLOSED / ARCHIVED) o con la etapa
+ * Perdido / Ganado. Una consulta por tabla con todos los numeros (sin N+1); el numero es un solo
+ * contador para Conversation y OfficialApiConversation.
+ */
+export async function leerCierresDeChats(workspaceId: string, numeros: number[]): Promise<CierresPorNumero> {
+  const unicos = [...new Set(numeros.filter((n) => Number.isSafeInteger(n) && n > 0))];
+  if (!unicos.length) return {};
+  const [viejos, oficiales] = await Promise.all([
+    prisma.conversation.findMany({
+      where: { workspaceId, numero: { in: unicos } },
+      select: { numero: true, status: true, contact: { select: { crmStage: true } } },
+    }),
+    prisma.officialApiConversation.findMany({
+      where: { numero: { in: unicos }, config: { workspaceId } },
+      select: { numero: true, status: true, contact: { select: { crmContactId: true } } },
+    }),
+  ]);
+  const idsCrm = [...new Set(oficiales.map((c) => c.contact.crmContactId).filter((id): id is string => Boolean(id)))];
+  const fichas = idsCrm.length
+    ? await prisma.contact.findMany({ where: { workspaceId, id: { in: idsCrm } }, select: { id: true, crmStage: true } })
+    : [];
+  const etapaDe = new Map<string, string>(fichas.map((f) => [f.id, f.crmStage]));
+  return armarCierres([
+    ...viejos.map((c) => ({ numero: c.numero, estado: c.status, crmStage: c.contact?.crmStage ?? null })),
+    ...oficiales.map((c) => ({
+      numero: c.numero,
+      estado: c.status,
+      crmStage: c.contact.crmContactId ? (etapaDe.get(c.contact.crmContactId) ?? null) : null,
+    })),
+  ]);
+}
+
+/** Quita de los pendientes los chats cerrados y deja en la parte sus cierres (para las etiquetas). */
+function aplicarCierres(parte: ParteDeAsesora, cierres: CierresPorNumero): ParteDeAsesora {
+  return { ...parte, pendientes: sinChatsCerrados(parte.pendientes, cierres), cierres: cierresDe(numerosDeLaParte(parte), cierres) };
+}
+
+/**
  * El informe de un dia. Con `soloUserId`, trae SOLO la parte de esa asesora y sin el resumen del
  * equipo: lo que ve una asesora no incluye a las demas (ni su puntaje ni sus errores).
  */
 export async function leerInformeDelCoach(
   workspaceId: string,
   dia: string,
-  opciones: { soloUserId?: string } = {},
+  opciones: {
+    soloUserId?: string;
+    /**
+     * false = el informe tal cual se guardo (para medir la meta con el informe del dia siguiente).
+     * Por defecto se quitan de los pendientes los chats que hoy ya estan cerrados.
+     */
+    quitarCerrados?: boolean;
+  } = {},
 ): Promise<InformeDelCoach | null> {
   const { clave } = rangoDelDia(dia);
   const informe = await prisma.coachInforme.findUnique({
@@ -121,6 +170,12 @@ export async function leerInformeDelCoach(
   const todas = informe.asesoras.map(aParte);
   const problemas = informe.estado === "LISTO" ? completarHabilidades(todas, dia) : [];
   const resumenEquipo = (informe.resumenEquipo as ResumenDelEquipo | null) ?? null;
+  // Despues de calcular la habilidad (que usa los pendientes guardados): solo cambia lo que se muestra.
+  const visibles = opciones.soloUserId ? todas.filter((p) => p.userId === opciones.soloUserId) : todas;
+  const cierres =
+    opciones.quitarCerrados === false || informe.estado !== "LISTO"
+      ? null
+      : await leerCierresDeChats(workspaceId, visibles.flatMap(numerosDeLaParte)).catch(() => null);
   return {
     id: informe.id,
     dia,
@@ -141,7 +196,7 @@ export async function leerInformeDelCoach(
       opciones.soloUserId || !resumenEquipo
         ? null
         : { ...resumenEquipo, problemasDelEquipo: resumenEquipo.problemasDelEquipo ?? problemas },
-    asesoras: opciones.soloUserId ? todas.filter((p) => p.userId === opciones.soloUserId) : todas,
+    asesoras: cierres ? visibles.map((p) => aplicarCierres(p, cierres)) : visibles,
   };
 }
 
@@ -170,5 +225,9 @@ export async function leerPendientesDelCoach(workspaceId: string, userId: string
     completarHabilidades(todas, dia);
     habilidad = todas.find((p) => p.userId === userId)?.resumen?.habilidad ?? null;
   }
-  return { dia, pendientes: lista<PendienteDelCoach>(fila.pendientes), habilidad };
+  const pendientes = lista<PendienteDelCoach>(fila.pendientes);
+  // Una sola lectura con los pendientes y la evidencia: lo cerrado sale de la lista y se etiqueta.
+  const numeros = numerosDeLaParte({ errores: [], pendientes, resumen: { habilidad } });
+  const cierres: CierresPorNumero = await leerCierresDeChats(workspaceId, numeros).catch(() => ({}));
+  return { dia, pendientes: sinChatsCerrados(pendientes, cierres), habilidad, cierres };
 }

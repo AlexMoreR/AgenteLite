@@ -1,14 +1,25 @@
 import Link from "next/link";
 
+import { cierreDe, type CierresPorNumero } from "../dominio/chats-cerrados";
 import { NOMBRE_DE_ETAPA } from "../habilidad";
 import type { HabilidadDelDia as Habilidad } from "../tipos";
+import { EtiquetaDeCierre } from "./acciones/piezas";
 
 /**
  * La habilidad del dia de UNA asesora (habilidad-v1): que entrenar, con la evidencia de sus chats,
  * que hacer diferente, un mensaje modelo y la meta de mañana. La eligio el codigo con sus conteos
  * (politica.ts, `habilidad`), no la IA.
  */
-export function HabilidadDelDia({ habilidad, compacta = false }: { habilidad: Habilidad; compacta?: boolean }) {
+export function HabilidadDelDia({
+  habilidad,
+  compacta = false,
+  cierres,
+}: {
+  habilidad: Habilidad;
+  compacta?: boolean;
+  /** Chats que ya se cerraron despues del informe: la evidencia se queda, con su etiqueta. */
+  cierres?: CierresPorNumero;
+}) {
   return (
     <div className="space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm">
       <p className="font-medium">
@@ -33,6 +44,12 @@ export function HabilidadDelDia({ habilidad, compacta = false }: { habilidad: Ha
                     {e.ref} · {e.ultimos4}
                   </span>
                 )}
+                {cierreDe(e.numero, cierres) ? (
+                  <>
+                    {" "}
+                    <EtiquetaDeCierre cierre={cierreDe(e.numero, cierres)} />
+                  </>
+                ) : null}
                 : <span className="text-muted-foreground">{e.texto}</span>
               </li>
             ))}

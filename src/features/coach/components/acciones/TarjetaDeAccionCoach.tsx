@@ -267,8 +267,9 @@ export function TarjetaDeAccionCoach({
             </Desplegable>
           ) : null}
 
-          <Desplegable titulo={`Pendientes para hoy (${t.pendientes.length})`}>
-            {t.pendientes.length ? (
+          {/* Sin los chats que ya se cerraron (leer-coach.ts). Con 0 no se muestra la seccion. */}
+          {t.pendientes.length ? (
+            <Desplegable titulo={`Pendientes para hoy (${t.pendientes.length})`}>
               <ul className="space-y-2">
                 {t.pendientes.map((p, i) => (
                   <FilaDeChat
@@ -293,10 +294,8 @@ export function TarjetaDeAccionCoach({
                   />
                 ))}
               </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">Sin pendientes: no quedaron clientes calientes ni tibios.</p>
-            )}
-          </Desplegable>
+            </Desplegable>
+          ) : null}
         </Desplegable>
       </div>
 

@@ -20,6 +20,7 @@
  *    los errores / pendientes cuyo texto cae en las REGLAS_OPERATIVAS de abajo (documentadas).
  */
 
+import { cierreDe, type CierreDeChat, type CierresPorNumero } from "./chats-cerrados";
 import { NOMBRE_DE_ETAPA, NOMBRE_DEL_TIPO, definicionDe, erroresQueCuentan } from "../habilidad";
 import { POLITICA_COACH } from "../politica";
 import { limpiarDatosPersonales } from "../reglas";
@@ -50,6 +51,8 @@ export type ParteParaTarjeta = {
   errores: ErrorDelCoach[];
   pendientes: PendienteDelCoach[];
   resumen: ResumenDeAsesoraGuardado | null;
+  /** Chats de la parte que HOY ya estan cerrados (leer-coach.ts): etiqueta en evidencia y errores. */
+  cierres?: CierresPorNumero;
 };
 
 export type InformeParaTarjetas = {
@@ -70,6 +73,8 @@ export type EnlaceDeChat = {
   /** /cliente/chats?chatKey=agent%3A<id>&assigned=all, o /c/<numero> si no se pudo traducir. */
   href: string | null;
   nombreCliente: string;
+  /** El chat ya se resolvio, descarto o gano (despues del informe). Solo si esta cerrado. */
+  cierre?: CierreDeChat;
 };
 
 export type Clasificacion = { operativo: boolean; regla: string | null; dudoso: boolean };
@@ -187,13 +192,19 @@ export function hrefDeChat(numero: number | null | undefined, conversacionPorNum
   return `/c/${numero}`;
 }
 
-export function enlaceDeChat(ref: Pick<ChatRef, "ref" | "numero" | "ultimos4" | "nombre">, mapa: Record<number, string> = {}): EnlaceDeChat {
+export function enlaceDeChat(
+  ref: Pick<ChatRef, "ref" | "numero" | "ultimos4" | "nombre">,
+  mapa: Record<number, string> = {},
+  cierres?: CierresPorNumero,
+): EnlaceDeChat {
   const telefono = telefonoEnmascarado(ref.ultimos4);
+  const cierre = cierreDe(ref.numero, cierres);
   return {
     ref: ref.ref,
     etiqueta: telefono === "••••" ? ref.ref : `${ref.ref} · ${telefono}`,
     href: hrefDeChat(ref.numero, mapa),
     nombreCliente: limpiarDatosPersonales(ref.nombre ?? "").trim(),
+    ...(cierre ? { cierre } : {}),
   };
 }
 
@@ -356,7 +367,7 @@ function armarTarjeta(
   const faltantes: string[] = [];
   const h = parte.resumen?.habilidad ?? null;
   const def = h ? definicionDe(h.clave) : null;
-  const enlace = (r: ChatRef) => enlaceDeChat(r, ctx.mapa);
+  const enlace = (r: ChatRef) => enlaceDeChat(r, ctx.mapa, parte.cierres);
 
   const errores: ErrorEnTarjeta[] = parte.errores.map((e) => {
     const texto = limpio(e.detalle);
