@@ -11,16 +11,17 @@ import {
   type ListaDeChats,
   type ModoDelFiltro,
 } from "./filtros-de-bandeja-modal";
-import { pedirEtiquetas } from "./chat-tags-control";
+import { nombresDeLosCatalogos, useCatalogosDeFiltro } from "./catalogos-de-filtro";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getTagBadgeColors } from "@/lib/tag-badge";
-import type { EtiquetaItem } from "@/app/actions/chats-actions";
 import {
   firmaDeLaVista,
+  hayFiltrosPuestos,
   listaQueSeEstaMirando,
   paramsDeFiltros,
   SIN_FILTROS,
+  textoDeCondicion,
   type FiltrosDeBandeja,
 } from "@/features/chats/domain/filtros-de-bandeja";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
@@ -165,21 +166,9 @@ export function AppSidebar({
     };
   }, []);
 
-  // Los nombres y colores de las etiquetas, para mostrar como chapita la que este filtrada.
-  const [etiquetasDelNegocio, setEtiquetasDelNegocio] = React.useState<EtiquetaItem[]>([]);
-  const hayEtiquetasFiltradas = filtros.etiquetas.length > 0;
-  React.useEffect(() => {
-    if (!hayEtiquetasFiltradas) return;
-    let vigente = true;
-    void pedirEtiquetas()
-      .then((resultado) => {
-        if (vigente) setEtiquetasDelNegocio(resultado.items ?? []);
-      })
-      .catch(() => {});
-    return () => {
-      vigente = false;
-    };
-  }, [hayEtiquetasFiltradas]);
+  // Los nombres (etiquetas, equipo, lineas) para las chapitas de las condiciones puestas.
+  const catalogosDeFiltro = useCatalogosDeFiltro(hayFiltrosPuestos(filtros), isManager);
+  const nombresDeFiltro = nombresDeLosCatalogos(catalogosDeFiltro);
 
   /**
    * Los dos filtros se aplican JUNTOS, en un solo viaje.
@@ -382,9 +371,7 @@ export function AppSidebar({
   const filtersActive =
     statusFilter !== "open" ||
     (isManager && assignedFilter !== "all") ||
-    filtros.etapas.length > 0 ||
-    filtros.sinResponder ||
-    filtros.etiquetas.length > 0;
+    hayFiltrosPuestos(filtros);
 
   return (
     <aside
@@ -515,54 +502,37 @@ export function AppSidebar({
                 Un filtro puesto que no se nota es la peor version de esto: la asesora ve pocos
                 chats, no entiende por que, y termina pensando que se perdieron conversaciones.
               */}
-              {filtros.etapas.map((etapa) => {
-                const meta = CRM_STAGE_META[etapa];
+              {filtros.condiciones.map((condicion, indice) => {
+                // Una etapa o una etiqueta sola se ve con sus colores; "no tiene" / "no es", en rojo.
+                const negada = condicion.operador === "no_es" || condicion.operador === "no_tiene";
+                const etapaSola = condicion.campo === "etapa" && condicion.valores.length === 1 && !negada ? CRM_STAGE_META[condicion.valores[0]] : null;
+                const etiquetaSola =
+                  condicion.campo === "etiquetas" && condicion.valores.length === 1 && !negada
+                    ? catalogosDeFiltro.etiquetas.find((item) => item.id === condicion.valores[0])
+                    : null;
+                const texto = textoDeCondicion(condicion, nombresDeFiltro, new Date());
                 return (
                   <ChapaDeFiltro
-                    key={etapa}
-                    className={`${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
+                    key={`${indice}-${texto}`}
+                    className={
+                      etapaSola
+                        ? `${etapaSola.borderClassName} ${etapaSola.backgroundClassName} ${etapaSola.accentClassName}`
+                        : etiquetaSola
+                          ? "border-transparent uppercase tracking-wide"
+                          : negada
+                            ? "border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+                            : "border-primary bg-primary/10 text-primary"
+                    }
+                    estilo={etiquetaSola ? getTagBadgeColors(etiquetaSola.color) : undefined}
                     alAbrir={() => abrirFiltro()}
                     alQuitar={() =>
                       aplicarFiltros(assignedFilter, statusFilter, {
-                        ...filtros,
-                        etapas: filtros.etapas.filter((valor) => valor !== etapa),
+                        condiciones: filtros.condiciones.filter((_, j) => j !== indice),
                       })
                     }
-                    tituloQuitar={`Quitar el filtro ${meta.label}`}
+                    tituloQuitar={`Quitar el filtro ${texto}`}
                   >
-                    {meta.label}
-                  </ChapaDeFiltro>
-                );
-              })}
-
-              {filtros.sinResponder ? (
-                <ChapaDeFiltro
-                  className="border-primary bg-primary/10 text-primary"
-                  alAbrir={() => abrirFiltro()}
-                  alQuitar={() => aplicarFiltros(assignedFilter, statusFilter, { ...filtros, sinResponder: false })}
-                  tituloQuitar="Quitar el filtro Sin responder"
-                >
-                  Sin responder
-                </ChapaDeFiltro>
-              ) : null}
-
-              {filtros.etiquetas.map((id) => {
-                const etiqueta = etiquetasDelNegocio.find((item) => item.id === id);
-                return (
-                  <ChapaDeFiltro
-                    key={id}
-                    className="border-transparent uppercase tracking-wide"
-                    estilo={etiqueta ? getTagBadgeColors(etiqueta.color) : undefined}
-                    alAbrir={() => abrirFiltro()}
-                    alQuitar={() =>
-                      aplicarFiltros(assignedFilter, statusFilter, {
-                        ...filtros,
-                        etiquetas: filtros.etiquetas.filter((valor) => valor !== id),
-                      })
-                    }
-                    tituloQuitar={`Quitar la etiqueta ${etiqueta?.name ?? ""}`}
-                  >
-                    {etiqueta?.name ?? "Etiqueta"}
+                    {etiquetaSola ? etiquetaSola.name : texto}
                   </ChapaDeFiltro>
                 );
               })}

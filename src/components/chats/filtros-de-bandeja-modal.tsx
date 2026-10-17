@@ -1,12 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { Check, Loader2, Search } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { pedirMiembros } from "@/components/chats/assign-chat-control";
-import { etiquetasQueCoinciden, pedirEtiquetas } from "@/components/chats/chat-tags-control";
+import { nombresDeLosCatalogos, useCatalogosDeFiltro } from "@/components/chats/catalogos-de-filtro";
+import { EditorDeCondicionesDeBandeja } from "@/components/chats/condiciones-de-bandeja";
 import { MultiSelect } from "@/components/ui/multi-select";
-import type { AssignableMember, EtiquetaItem } from "@/app/actions/chats-actions";
+import type { AssignableMember } from "@/app/actions/chats-actions";
 
 import {
   Dialog,
@@ -15,15 +16,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { CRM_STAGE_META, CRM_STAGE_ORDER } from "@/features/crm/domain/crm-config";
 import {
+  SIN_FILTROS,
+  condicionCompleta,
   esListaSinFiltro,
   leerFiltrosDeBandeja,
   paramsDeFiltros,
-  type EtapaCrm,
+  textoDeCondicion,
+  type CondicionDeBandeja,
   type FiltrosDeBandeja,
 } from "@/features/chats/domain/filtros-de-bandeja";
-import { getTagBadgeColors } from "@/lib/tag-badge";
 import type { AssignedFilter, StatusFilter } from "./shared-inbox";
 
 export type ListaDeChats = { id: string; nombre: string; query: string };
@@ -169,15 +171,14 @@ export function FiltrosDeBandejaModal({
   const [tipo, setTipo] = React.useState<ModoDelFiltro["tipo"]>(modo.tipo);
   const [asignacion, setAsignacion] = React.useState<AssignedFilter>(assignedFilter);
   const [estado, setEstado] = React.useState<StatusFilter>(statusFilter);
-  const [etapas, setEtapas] = React.useState<EtapaCrm[]>(filtros.etapas);
-  const [etiquetasElegidas, setEtiquetasElegidas] = React.useState<string[]>(filtros.etiquetas);
+  // Las condiciones (campo · operador · valor), como en Automatizaciones. Ver condiciones-de-bandeja.
+  const [condiciones, setCondiciones] = React.useState<CondicionDeBandeja[]>(filtros.condiciones);
   const [nombre, setNombre] = React.useState("");
   const [guardando, setGuardando] = React.useState(false);
   const [error, setError] = React.useState("");
 
   const [equipo, setEquipo] = React.useState<AssignableMember[]>([]);
-  const [etiquetas, setEtiquetas] = React.useState<EtiquetaItem[] | null>(null);
-  const [busquedaEtiqueta, setBusquedaEtiqueta] = React.useState("");
+  const catalogos = useCatalogosDeFiltro(abierto, isManager);
 
   const listaQueSeEdita = modo.tipo === "editar" ? modo.lista : null;
   const firmaDeLoPuesto = `${assignedFilter}|${statusFilter}|${paramsDeFiltros(filtros).join(";")}|${modo.tipo}|${listaQueSeEdita?.id ?? ""}`;
@@ -193,17 +194,14 @@ export function FiltrosDeBandejaModal({
       const lista = leerLista(listaQueSeEdita.query);
       setAsignacion(lista.asignacion);
       setEstado(lista.estado);
-      setEtapas(lista.filtros.etapas);
-      setEtiquetasElegidas(lista.filtros.etiquetas);
+      setCondiciones(lista.filtros.condiciones);
       setNombre(listaQueSeEdita.nombre);
     } else {
       setAsignacion(assignedFilter);
       setEstado(statusFilter);
-      setEtapas(filtros.etapas);
-      setEtiquetasElegidas(filtros.etiquetas);
+      setCondiciones(filtros.condiciones);
       setNombre("");
     }
-    setBusquedaEtiqueta("");
     setError("");
 
     let vigente = true;
@@ -212,13 +210,6 @@ export function FiltrosDeBandejaModal({
         if (vigente && resultado.members) setEquipo(resultado.members);
       });
     }
-    void pedirEtiquetas()
-      .then((resultado) => {
-        if (vigente) setEtiquetas(resultado.items ?? []);
-      })
-      .catch(() => {
-        if (vigente) setEtiquetas([]);
-      });
     return () => {
       vigente = false;
     };
@@ -226,7 +217,8 @@ export function FiltrosDeBandejaModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [abierto, firmaDeLoPuesto, isManager]);
 
-  const filtrosElegidos: FiltrosDeBandeja = { etapas, sinResponder: false, etiquetas: etiquetasElegidas };
+  // Una fila a medio llenar no filtra ni se guarda.
+  const filtrosElegidos: FiltrosDeBandeja = { condiciones: condiciones.filter(condicionCompleta) };
 
   /*
     Lo elegido, en una linea. Sin esto hay que recorrer el modal entero para saber que quedo
@@ -250,16 +242,12 @@ export function FiltrosDeBandejaModal({
       );
     } else partes.push("Todas");
     partes.push(estado === "open" ? "abiertas" : estado === "resolved" ? "resueltas" : "abiertas y resueltas");
-    if (etapas.length > 0) partes.push(etapas.length === 1 ? CRM_STAGE_META[etapas[0]].label : `${etapas.length} etapas`);
-    if (etiquetasElegidas.length > 0) {
-      const primera = etiquetas?.find((etiqueta) => etiqueta.id === etiquetasElegidas[0]);
-      partes.push(etiquetasElegidas.length === 1 && primera ? primera.name : `${etiquetasElegidas.length} etiquetas`);
-    }
+    // Cada condición en corto: "sin PROVEEDOR", "1–15 oct", "Propuesta"…
+    const nombres = nombresDeLosCatalogos(catalogos);
+    const ahora = new Date();
+    for (const condicion of condiciones.filter(condicionCompleta)) partes.push(textoDeCondicion(condicion, nombres, ahora));
     return partes.join(" · ");
-  }, [asignacion, estado, etapas, etiquetasElegidas, etiquetas, equipo]);
-
-  const alternar = <T,>(lista: T[], valor: T) =>
-    lista.includes(valor) ? lista.filter((otro) => otro !== valor) : [...lista, valor];
+  }, [asignacion, estado, condiciones, catalogos, equipo]);
 
   const guardarLista = async () => {
     const limpio = nombre.trim();
@@ -270,7 +258,7 @@ export function FiltrosDeBandejaModal({
     const query = queryDeFiltro(asignacion, estado, filtrosElegidos);
     // Sin nada marcado la lista seria "Todas" con otro nombre (paso con "Maria", 13-10-2026).
     if (esListaSinFiltro(query)) {
-      setError("Marca al menos una asesora, etapa, etiqueta o estado: así la lista sería igual a Todas");
+      setError("Pon al menos una condición, una asesora o un estado: así la lista sería igual a Todas");
       return;
     }
     setGuardando(true);
@@ -289,7 +277,6 @@ export function FiltrosDeBandejaModal({
     cuenta: assignedCounts ? assignedCounts[opcion.value] : null,
   }));
   const asignacionSimple = (["all", "mine", "unassigned"] as const).find((valor) => valor === asignacion) ?? null;
-  const etiquetasVisibles = etiquetas ? etiquetasQueCoinciden(etiquetas, busquedaEtiqueta) : [];
   const conNombre = tipo === "nueva" || tipo === "editar";
   const titulo = tipo === "nueva" ? "Nueva lista" : tipo === "editar" ? "Editar lista" : "Filtrar conversaciones";
 
@@ -297,7 +284,7 @@ export function FiltrosDeBandejaModal({
     <Dialog open={abierto} onOpenChange={(valor) => !valor && alCerrar()}>
       <DialogContent
         showCloseButton
-        className="inset-0 top-0 left-0 flex h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ring-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[85vh] sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:ring-1"
+        className="inset-0 top-0 left-0 flex h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ring-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[85vh] sm:max-w-xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:ring-1"
       >
         <DialogHeader className="border-b border-border px-5 py-4">
           <DialogTitle className="text-[16px] font-semibold">{titulo}</DialogTitle>
@@ -358,83 +345,12 @@ export function FiltrosDeBandejaModal({
             <Segmentos opciones={OPCIONES_DE_ESTADO} valor={estado} alElegir={setEstado} />
           </Seccion>
 
-          {/* Siempre con su color, como en la lista de chats: se elige por color, sin leer. */}
-          <Seccion titulo="Etapa" ayuda={etapas.length > 0 ? `${etapas.length} elegida${etapas.length === 1 ? "" : "s"}` : undefined}>
-            <div className="flex flex-wrap gap-1.5">
-              {CRM_STAGE_ORDER.map((etapa) => {
-                const meta = CRM_STAGE_META[etapa];
-                const elegida = etapas.includes(etapa as EtapaCrm);
-                return (
-                  <button
-                    key={etapa}
-                    type="button"
-                    onClick={() => setEtapas((actuales) => alternar(actuales, etapa as EtapaCrm))}
-                    aria-pressed={elegida}
-                    className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[13px] font-medium transition ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName} ${
-                      elegida ? "ring-2 ring-current ring-offset-1 ring-offset-background" : "opacity-70 hover:opacity-100"
-                    }`}
-                  >
-                    {elegida ? <Check className="size-3.5" strokeWidth={3} /> : null}
-                    {meta.label}
-                  </button>
-                );
-              })}
-            </div>
-          </Seccion>
-
-          <Seccion
-            titulo="Etiquetas"
-            ayuda={etiquetasElegidas.length > 0 ? "Tiene alguna de las marcadas" : undefined}
-          >
-            {etiquetas === null ? (
-              <p className="text-[12.5px] text-muted-foreground">Cargando…</p>
-            ) : etiquetas.length === 0 ? (
-              <p className="text-[12.5px] text-muted-foreground">Todavía no hay etiquetas.</p>
-            ) : (
-              <>
-                {etiquetas.length > 8 ? (
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      name="buscar-etiqueta"
-                      autoComplete="off"
-                      data-form-type="other"
-                      value={busquedaEtiqueta}
-                      onChange={(evento) => setBusquedaEtiqueta(evento.target.value)}
-                      placeholder="Buscar etiqueta"
-                      aria-label="Buscar etiqueta"
-                      className="h-9 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-[16px] text-foreground outline-none transition focus:border-primary md:text-[13px]"
-                    />
-                  </div>
-                ) : null}
-                <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
-                  {etiquetasVisibles.length === 0 ? (
-                    <p className="text-[12.5px] text-muted-foreground">Ninguna etiqueta con ese nombre.</p>
-                  ) : (
-                    etiquetasVisibles.map((etiqueta) => {
-                      const elegida = etiquetasElegidas.includes(etiqueta.id);
-                      const colores = getTagBadgeColors(etiqueta.color);
-                      return (
-                        <button
-                          key={etiqueta.id}
-                          type="button"
-                          onClick={() => setEtiquetasElegidas((actuales) => alternar(actuales, etiqueta.id))}
-                          aria-pressed={elegida}
-                          style={colores}
-                          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide transition ${
-                            elegida ? "ring-2 ring-current ring-offset-1 ring-offset-background" : "opacity-70 hover:opacity-100"
-                          }`}
-                        >
-                          {elegida ? <Check className="size-3.5" strokeWidth={3} /> : null}
-                          {etiqueta.name}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </>
-            )}
-          </Seccion>
+          <EditorDeCondicionesDeBandeja
+            condiciones={condiciones}
+            catalogos={catalogos}
+            conEquipo={isManager}
+            onCambio={setCondiciones}
+          />
 
           {error ? <p className="text-[12.5px] font-medium text-red-600">{error}</p> : null}
         </div>
@@ -444,7 +360,7 @@ export function FiltrosDeBandejaModal({
             <>
               <button
                 type="button"
-                onClick={() => alAplicar("all", "open", { etapas: [], sinResponder: false, etiquetas: [] })}
+                onClick={() => alAplicar("all", "open", SIN_FILTROS)}
                 className="rounded-lg px-2.5 py-2 text-[13px] font-medium text-muted-foreground transition hover:text-foreground"
               >
                 Limpiar
@@ -462,8 +378,6 @@ export function FiltrosDeBandejaModal({
                 </button>
                 <button
                   type="button"
-                  // "Sin responder" se quito del modal (Alex, 30-09-2026): aplicar lo apaga, para que
-                  // no quede puesto algo que ya no se ve ni se puede sacar.
                   onClick={() => alAplicar(asignacion, estado, filtrosElegidos)}
                   className="rounded-lg bg-primary px-5 py-2 text-[13px] font-semibold text-primary-foreground transition hover:opacity-90"
                 >

@@ -5,7 +5,10 @@ import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from
 import { downloadOfficialApiMedia, extractMediaRefFromRawPayload } from "@/lib/official-api-media";
 import type { OfficialApiChatsData } from "@/features/official-api/types/official-api";
 import {
+  SIN_ASIGNAR,
   SIN_FILTROS,
+  condicionCompleta,
+  limitesDeLaFecha,
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
 
@@ -112,58 +115,104 @@ function inferOfficialApiMessageType(rawPayload: unknown, mediaUrl: string | nul
  *
  * Las condiciones usan el alias `c` para la conversacion: quien las inserte tiene que llamarla asi.
  */
-export function fragmentosDeFiltrosOficiales(filtros: FiltrosDeBandeja): {
+export async function fragmentosDeFiltrosOficiales(
+  filtros: FiltrosDeBandeja,
+  workspaceId: string,
+  ahora = new Date(),
+): Promise<{
   etapa: Prisma.Sql;
   sinResponder: Prisma.Sql;
-} {
+}> {
+  const DIA_MS = 86_400_000;
+  // La ficha del CRM del contacto oficial (etapa y etiquetas viven ahi).
+  const enLaFicha = (condicion: Prisma.Sql) => Prisma.sql`EXISTS (
+      SELECT 1
+      FROM "OfficialApiContact" ficha
+      INNER JOIN "Contact" crmf ON crmf."id" = ficha."crmContactId"
+      WHERE ficha."id" = c."contactId" AND ${condicion}
+    )`;
+  const ultimoDelCliente = Prisma.sql`(SELECT MAX(entrante."createdAt") FROM "OfficialApiMessage" entrante
+      WHERE entrante."conversationId" = c."id" AND entrante."direction" = 'INBOUND')`;
   /*
-    La etapa y las etiquetas viven en la ficha del CRM del contacto. Van en el mismo fragmento
-    (`etapa`) a proposito: asi las tres consultas que ya lo insertan filtran por etiqueta sin tener
-    que tocarlas una por una, que es como se separan con el tiempo.
+    Las notas de actividad se guardan como salientes de tipo SYSTEM: no son una respuesta, y sin
+    excluirlas cualquier chat con una nota figuraria como ya contestado. Aca si se puede preguntar
+    de la forma evidente: el canal oficial tiene decenas de conversaciones, no miles.
   */
-  const etapa =
-    filtros.etapas.length > 0
-      ? Prisma.sql`AND EXISTS (
-          SELECT 1
-          FROM "OfficialApiContact" ficha
-          INNER JOIN "Contact" crmf ON crmf."id" = ficha."crmContactId"
-          WHERE ficha."id" = c."contactId"
-            AND crmf."crmStage"::text IN (${Prisma.join(filtros.etapas)})
-        )`
-      : Prisma.empty;
-  const etiqueta =
-    (filtros.etiquetas ?? []).length > 0
-      ? Prisma.sql`AND EXISTS (
+  const quedoSinResponder = Prisma.sql`${ultimoDelCliente} > COALESCE((
+      SELECT MAX(saliente."createdAt") FROM "OfficialApiMessage" saliente
+      WHERE saliente."conversationId" = c."id"
+        AND saliente."direction" = 'OUTBOUND'
+        AND saliente."type"::text <> 'SYSTEM'
+    ), TIMESTAMP '1970-01-01')`;
+
+  const condiciones = filtros.condiciones.filter(condicionCompleta);
+  // La linea oficial como WhatsAppChannel: solo se busca si hay una condicion "Línea".
+  const lineasOficiales = condiciones.some((cond) => cond.campo === "canal")
+    ? (
+        await prisma.whatsAppChannel
+          .findMany({ where: { workspaceId, provider: "OFFICIAL_API" }, select: { id: true } })
+          .catch(() => [])
+      ).map((linea) => linea.id)
+    : [];
+
+  const partes: Prisma.Sql[] = [];
+  let sinResponder: Prisma.Sql = Prisma.empty;
+  for (const cond of condiciones) {
+    switch (cond.campo) {
+      case "etapa": {
+        const dentro = enLaFicha(Prisma.sql`crmf."crmStage"::text IN (${Prisma.join(cond.valores)})`);
+        partes.push(cond.operador === "es" ? Prisma.sql`AND ${dentro}` : Prisma.sql`AND NOT ${dentro}`);
+        break;
+      }
+      case "etiquetas": {
+        const alguna = Prisma.sql`EXISTS (
           SELECT 1
           FROM "OfficialApiContact" fichaTag
           INNER JOIN "ContactTag" ct ON ct."contactId" = fichaTag."crmContactId"
           WHERE fichaTag."id" = c."contactId"
-            AND ct."tagId" IN (${Prisma.join(filtros.etiquetas)})
-        )`
-      : Prisma.empty;
+            AND ct."tagId" IN (${Prisma.join(cond.valores)})
+        )`;
+        partes.push(cond.operador === "tiene" ? Prisma.sql`AND ${alguna}` : Prisma.sql`AND NOT ${alguna}`);
+        break;
+      }
+      case "asesora": {
+        const ids = cond.valores.filter((v) => v !== SIN_ASIGNAR);
+        const opciones: Prisma.Sql[] = [];
+        if (ids.length) opciones.push(Prisma.sql`COALESCE(c."assignedToUserId", '') IN (${Prisma.join(ids)})`);
+        if (cond.valores.includes(SIN_ASIGNAR)) opciones.push(Prisma.sql`c."assignedToUserId" IS NULL`);
+        const dentro = Prisma.sql`(${Prisma.join(opciones, " OR ")})`;
+        partes.push(cond.operador === "es" ? Prisma.sql`AND ${dentro}` : Prisma.sql`AND NOT ${dentro}`);
+        break;
+      }
+      case "canal": {
+        // Todos los chats de esta tabla son de la linea oficial.
+        const esLaOficial = cond.valores.some((id) => lineasOficiales.includes(id));
+        if (cond.operador === "es" ? !esLaOficial : esLaOficial) partes.push(Prisma.sql`AND false`);
+        break;
+      }
+      case "fecha": {
+        // Mismo criterio que whereDeFiltros (y el mismo truco para usar el indice de lastMessageAt).
+        const { desde, antesDe } = limitesDeLaFecha(cond, ahora);
+        const columna = cond.sobre === "llego" ? Prisma.sql`c."createdAt"` : Prisma.sql`c."lastMessageAt"`;
+        if (desde) partes.push(Prisma.sql`AND ${columna} >= ${desde}`);
+        if (antesDe) partes.push(Prisma.sql`AND ${columna} < ${antesDe}`);
+        if (desde && cond.sobre === "llego") partes.push(Prisma.sql`AND c."lastMessageAt" >= ${desde}`);
+        break;
+      }
+      case "sin_responder":
+        sinResponder =
+          cond.operador === "si" ? Prisma.sql`AND ${quedoSinResponder}` : Prisma.sql`AND NOT COALESCE(${quedoSinResponder}, false)`;
+        break;
+      case "dias_sin_responder":
+        partes.push(Prisma.sql`AND ${ultimoDelCliente} <= ${new Date(ahora.getTime() - cond.dias * DIA_MS)}`);
+        break;
+    }
+  }
 
   return {
-    etapa: Prisma.sql`${etapa} ${etiqueta}`,
-
-    /*
-      Aca si se puede preguntar de la forma evidente: el canal oficial tiene decenas de
-      conversaciones, no miles. En el canal viejo la misma pregunta tardaba 108 segundos y hubo que
-      escribirla de otra forma (ver filtros-de-bandeja).
-
-      Las notas de actividad se guardan como salientes de tipo SYSTEM: no son una respuesta, y sin
-      excluirlas cualquier chat con una nota figuraria como ya contestado.
-    */
-    sinResponder: filtros.sinResponder
-      ? Prisma.sql`AND (
-          SELECT MAX(entrante."createdAt") FROM "OfficialApiMessage" entrante
-          WHERE entrante."conversationId" = c."id" AND entrante."direction" = 'INBOUND'
-        ) > COALESCE((
-          SELECT MAX(saliente."createdAt") FROM "OfficialApiMessage" saliente
-          WHERE saliente."conversationId" = c."id"
-            AND saliente."direction" = 'OUTBOUND'
-            AND saliente."type"::text <> 'SYSTEM'
-        ), TIMESTAMP '1970-01-01')`
-      : Prisma.empty,
+    // "etapa" por historia: son TODAS las condiciones menos "Sin responder", que va aparte.
+    etapa: partes.length ? Prisma.join(partes, " ") : Prisma.empty,
+    sinResponder,
   };
 }
 
@@ -326,7 +375,7 @@ async function loadOfficialApiChatsData(input: {
    */
   const filtros = input.filtros ?? SIN_FILTROS;
   const { etapa: officialStageFilter, sinResponder: officialPendingFilter } =
-    fragmentosDeFiltrosOficiales(filtros);
+    await fragmentosDeFiltrosOficiales(filtros, input.workspaceId);
 
   type OfficialConversationDetailRow = {
     conversationId: string;

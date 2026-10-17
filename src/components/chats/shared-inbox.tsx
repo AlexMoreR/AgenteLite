@@ -22,7 +22,6 @@ import { AppSidebar } from "./appsidebar";
 import {
   leerFiltrosDeBandeja,
   paramsDeFiltros,
-  type EtapaCrm,
 } from "@/features/chats/domain/filtros-de-bandeja";
 import type {
   SharedInboxConversationItem,
@@ -303,16 +302,21 @@ export function SharedInbox({
    * llenar de todo: es exactamente lo que paso con el estado y con la asignacion.
    */
   const parametrosDeLaUrl = useSearchParams();
-  const etapasEnLaUrl = parametrosDeLaUrl.get("stage") ?? "";
-  const sinResponderEnLaUrl = parametrosDeLaUrl.get("pending") === "1";
-  const etiquetasEnLaUrl = parametrosDeLaUrl.get("tag") ?? "";
+  /*
+    Las condiciones del filtro se leen de la URL con el MISMO lector del servidor (también las
+    listas viejas con stage= / tag= / pending=) y viajan ya normalizadas en `c=`.
+  */
+  const firmaDeCondicionesEnLaUrl = ["stage", "tag", "pending", "c"].map((clave) => parametrosDeLaUrl.get(clave) ?? "").join("|");
+  const filtrosDeLaUrl = useMemo(
+    () => leerFiltrosDeBandeja((clave) => parametrosDeLaUrl.get(clave)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- la firma resume lo que se lee
+    [firmaDeCondicionesEnLaUrl],
+  );
   const ponerFiltrosNuevos = useCallback(
     (params: URLSearchParams) => {
-      if (etapasEnLaUrl) params.set("stage", etapasEnLaUrl);
-      if (sinResponderEnLaUrl) params.set("pending", "1");
-      if (etiquetasEnLaUrl) params.set("tag", etiquetasEnLaUrl);
+      for (const [clave, valor] of paramsDeFiltros(filtrosDeLaUrl)) params.set(clave, valor);
     },
-    [etapasEnLaUrl, sinResponderEnLaUrl, etiquetasEnLaUrl],
+    [filtrosDeLaUrl],
   );
 
   /*
@@ -3305,11 +3309,7 @@ export function SharedInbox({
         statusFilter={statusFilter}
         assignedCounts={assignedCounts}
         isManager={isManager || veTodoElEquipo}
-        filtros={{
-          etapas: etapasEnLaUrl ? (etapasEnLaUrl.split(",") as EtapaCrm[]) : [],
-          sinResponder: sinResponderEnLaUrl,
-          etiquetas: etiquetasEnLaUrl ? etiquetasEnLaUrl.split(",").filter(Boolean) : [],
-        }}
+        filtros={filtrosDeLaUrl}
         hasMoreConversationItems={hasMoreConversationItems}
         isLoadingMoreConversationItems={isLoadingMoreConversationItems}
         onLoadMoreConversationItems={loadMoreConversationItems}

@@ -39,7 +39,8 @@ import {
   idsSinResponder,
   leerFiltrosDeBandeja,
   paramsDeFiltros,
-  whereDeEtapas,
+  necesitaIdsSinResponder,
+  whereDeFiltros,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
 import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
@@ -386,7 +387,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
    * Se pide una vez y entra como una lista de ids: es lo mismo que mira el contador y lo que
    * devuelve el scroll infinito, asi que los tres coinciden.
    */
-  const conversacionesSinResponder = filtros.sinResponder
+  const conversacionesSinResponder = necesitaIdsSinResponder(filtros)
     ? await idsSinResponder({
         workspaceId: membership.workspace.id,
         visibleChannelIds: canalesVisibles,
@@ -399,10 +400,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const conversationWhere: Prisma.ConversationWhereInput = {
     workspaceId: membership.workspace.id,
     AND: [
-      whereDeEtapas(filtros),
+      // Las condiciones del filtro (todas: Y). Ver features/chats/services/filtros-de-bandeja.
+      whereDeFiltros(filtros, conversacionesSinResponder),
       // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
       { contact: { bloqueadoEn: null } },
-      conversacionesSinResponder ? { id: { in: conversacionesSinResponder } } : {},
       canalesVisibles ? { channelId: { in: canalesVisibles } } : {},
       conexionElegida.startsWith("channel:")
         ? { channelId: conexionElegida.slice("channel:".length) }

@@ -10,7 +10,9 @@ import { fragmentosDeFiltrosOficiales } from "@/features/official-api/services/g
 import {
   idsSinResponder,
   leerFiltrosDeBandeja,
-  whereDeEtapas,
+  hayFiltrosPuestos,
+  necesitaIdsSinResponder,
+  whereDeFiltros,
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
@@ -50,10 +52,9 @@ function buildBaseWhere(input: {
       buildStatusWhere(input.statusFilter),
       // El numero de la pastilla tiene que contar LO MISMO que muestra la lista: si no, la asesora
       // filtra, ve 20 chats y al lado un "Todas 1956" que no le dice nada de lo que esta mirando.
-      whereDeEtapas(input.filtros),
+      whereDeFiltros(input.filtros, input.sinResponder),
       // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
       { contact: { bloqueadoEn: null } },
-      input.sinResponder ? { id: { in: input.sinResponder } } : {},
       input.snoozedContactIds.length ? { contactId: { notIn: input.snoozedContactIds } } : {},
       input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {},
       input.selectedConnectionKey.startsWith("channel:")
@@ -123,8 +124,8 @@ async function countOfficialConversations(input: {
    * relacion declarada, asi que Prisma no puede llegar hasta ella. Se usan los MISMOS fragmentos
    * que arma la lista: si el contador se escribiera aparte, terminarian diciendo cosas distintas.
    */
-  if (input.filtros.etapas.length > 0 || input.filtros.sinResponder) {
-    const { etapa, sinResponder } = fragmentosDeFiltrosOficiales(input.filtros);
+  if (hayFiltrosPuestos(input.filtros)) {
+    const { etapa, sinResponder } = await fragmentosDeFiltrosOficiales(input.filtros, input.workspaceId);
     const estado =
       input.statusFilter === "resolved"
         ? Prisma.sql`AND c."status"::text IN ('CLOSED', 'ARCHIVED')`
@@ -256,7 +257,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     snoozedContactIds: snoozedRows.map((fila) => fila.id),
     visibleChannelIds,
     filtros,
-    sinResponder: filtros.sinResponder
+    sinResponder: necesitaIdsSinResponder(filtros)
       ? await idsSinResponder({
           workspaceId: membership.workspace.id,
           visibleChannelIds,

@@ -52,6 +52,7 @@ import {
 import { sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
 import { AD_CAMPAIGN_ROUTING_METADATA_KEY } from "@/lib/ad-campaign-routing";
 import { alCambiarEstadoDelChat } from "@/lib/al-resolver-chat";
+import { getVisibleChannelIds } from "@/lib/channel-visibility";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { Prisma } from "@prisma/client";
@@ -1506,6 +1507,28 @@ export async function getEtiquetasAction(): Promise<{ items?: EtiquetaItem[]; er
   });
 
   return { items: tags };
+}
+
+/**
+ * Las lineas que esta persona puede ver, para la condicion "Línea" del filtro de la bandeja.
+ * Mismas reglas que la bandeja (ver channel-visibility): quien no es jefa ve solo las suyas.
+ */
+export async function getCanalesParaFiltroAction(): Promise<{ items?: Array<{ id: string; nombre: string }>; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "No autorizado" };
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+  const visibles = await getVisibleChannelIds({
+    workspaceId: membership.workspace.id,
+    userId: session.user.id,
+    esJefe: membership.role === "OWNER" || membership.role === "ADMIN",
+  });
+  const canales = await prisma.whatsAppChannel.findMany({
+    where: { workspaceId: membership.workspace.id, ...(visibles ? { id: { in: visibles } } : {}) },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  return { items: canales.map((canal) => ({ id: canal.id, nombre: canal.name })) };
 }
 
 /**

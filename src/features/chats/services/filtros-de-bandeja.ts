@@ -4,8 +4,11 @@ import { prisma } from "@/lib/prisma";
 
 import {
   DIAS_DE_SIN_RESPONDER,
+  SIN_ASIGNAR,
+  condicionCompleta,
+  limitesDeLaFecha,
+  type CondicionDeBandeja,
   type FiltrosDeBandeja,
-  type EtapaCrm,
 } from "../domain/filtros-de-bandeja";
 
 /**
@@ -17,21 +20,91 @@ import {
 
 export * from "../domain/filtros-de-bandeja";
 
+const DIA_MS = 86_400_000;
+
+/** ¿Hace falta pedir la lista de "sin responder"? (la condicion Sin responder, si o no) */
+export function necesitaIdsSinResponder(filtros: FiltrosDeBandeja): boolean {
+  return filtros.condiciones.some((c) => c.campo === "sin_responder");
+}
+
+/** Los mensajes del CLIENTE que cuentan (sin notas del sistema ni borrados). */
+const DEL_CLIENTE: Prisma.MessageWhereInput = { direction: "INBOUND", type: { not: "SYSTEM" }, deletedAt: null };
+
+function unaCondicion(
+  c: CondicionDeBandeja,
+  sinResponder: string[] | null,
+  ahora: Date,
+): Prisma.ConversationWhereInput {
+  switch (c.campo) {
+    /*
+      La etapa y las etiquetas viven en la ficha del contacto. Cada condicion va en su propio
+      elemento del AND: dos "tiene" son "tiene esta Y tiene esta otra", no se pisan.
+    */
+    case "etapa":
+      return { contact: { crmStage: c.operador === "es" ? { in: c.valores } : { notIn: c.valores } } };
+    case "etiquetas": {
+      // Indexado: ContactTag tiene la llave (contactId, tagId).
+      const filtro = { tagId: { in: c.valores } };
+      return { contact: { ContactTag: c.operador === "tiene" ? { some: filtro } : { none: filtro } } };
+    }
+    case "asesora": {
+      const ids = c.valores.filter((v) => v !== SIN_ASIGNAR);
+      const sinAsignar = c.valores.includes(SIN_ASIGNAR);
+      if (c.operador === "es") {
+        const partes: Prisma.ConversationWhereInput[] = [];
+        if (ids.length) partes.push({ assignedToUserId: { in: ids } });
+        if (sinAsignar) partes.push({ assignedToUserId: null });
+        return partes.length === 1 ? partes[0] : { OR: partes };
+      }
+      // "No es María": entran también los sin asignar (un NOT IN de SQL los dejaría afuera).
+      const partes: Prisma.ConversationWhereInput[] = [];
+      if (ids.length) partes.push({ OR: [{ assignedToUserId: null }, { assignedToUserId: { notIn: ids } }] });
+      if (sinAsignar) partes.push({ assignedToUserId: { not: null } });
+      return partes.length === 1 ? partes[0] : { AND: partes };
+    }
+    case "canal":
+      return c.operador === "es"
+        ? { channelId: { in: c.valores } }
+        : { OR: [{ channelId: null }, { channelId: { notIn: c.valores } }] };
+    case "fecha": {
+      /*
+        Sobre columnas de la conversacion con indice (workspaceId, lastMessageAt). Para "Llegó"
+        (createdAt) se agrega ademas `lastMessageAt >= desde` —un chat que llego despues de "desde"
+        tiene su ultimo mensaje despues—: no cambia el resultado y deja usar ese mismo indice.
+      */
+      const { desde, antesDe } = limitesDeLaFecha(c, ahora);
+      const rango: Prisma.DateTimeFilter = { ...(desde ? { gte: desde } : {}), ...(antesDe ? { lt: antesDe } : {}) };
+      if (c.sobre === "llego") return { createdAt: rango, ...(desde ? { lastMessageAt: { gte: desde } } : {}) };
+      return { lastMessageAt: rango };
+    }
+    case "sin_responder": {
+      const ids = sinResponder ?? [];
+      return c.operador === "si" ? { id: { in: ids } } : ids.length ? { id: { notIn: ids } } : {};
+    }
+    case "dias_sin_responder": {
+      // El cliente escribio alguna vez y nada suyo desde hace N dias (indice Message[conversationId, createdAt]).
+      const corte = new Date(ahora.getTime() - c.dias * DIA_MS);
+      return {
+        AND: [
+          { messages: { some: DEL_CLIENTE } },
+          { messages: { none: { ...DEL_CLIENTE, createdAt: { gt: corte } } } },
+        ],
+      };
+    }
+  }
+}
+
 /**
- * La etapa y las etiquetas viven en la ficha del contacto, no en la conversacion.
- *
- * Las dos van en el MISMO `contact`: dos objetos `contact` sueltos se pisarian y se perderia uno.
- * Con etiquetas entra el chat cuyo contacto tenga cualquiera de las elegidas.
+ * Las condiciones como WHERE de Prisma (todas: Y). `sinResponder`: los ids de idsSinResponder, si
+ * hay una condicion "Sin responder" (ver necesitaIdsSinResponder).
  */
-export function whereDeEtapas(filtros: FiltrosDeBandeja): Prisma.ConversationWhereInput {
-  const contacto: Prisma.ContactWhereInput = {};
-  if (filtros.etapas.length > 0) {
-    contacto.crmStage = { in: filtros.etapas as EtapaCrm[] };
-  }
-  if (filtros.etiquetas.length > 0) {
-    contacto.ContactTag = { some: { tagId: { in: filtros.etiquetas } } };
-  }
-  return Object.keys(contacto).length > 0 ? { contact: contacto } : {};
+export function whereDeFiltros(
+  filtros: FiltrosDeBandeja,
+  sinResponder: string[] | null = null,
+  ahora = new Date(),
+): Prisma.ConversationWhereInput {
+  const partes = filtros.condiciones.filter(condicionCompleta).map((c) => unaCondicion(c, sinResponder, ahora));
+  return partes.length ? { AND: partes } : {};
 }
 
 /** La respuesta se reusa un minuto: la bandeja se recarga sola y esta consulta no es barata. */

@@ -17,7 +17,8 @@ import {
 import {
   idsSinResponder,
   leerFiltrosDeBandeja,
-  whereDeEtapas,
+  necesitaIdsSinResponder,
+  whereDeFiltros,
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
@@ -202,7 +203,7 @@ async function getAgentConversationList(input: {
    * instante y a los segundos volveria a llenarse de todo. Ya paso con el estado: resolver un chat
    * no servia de nada porque esta ruta lo devolvia de nuevo.
    */
-  const sinResponder = input.filtros.sinResponder
+  const sinResponder = necesitaIdsSinResponder(input.filtros)
     ? await idsSinResponder({
         workspaceId: input.workspaceId,
         visibleChannelIds: input.visibleChannelIds,
@@ -215,10 +216,9 @@ async function getAgentConversationList(input: {
   const conversationWhere: Prisma.ConversationWhereInput = {
     workspaceId: input.workspaceId,
     AND: [
-      whereDeEtapas(input.filtros),
+      whereDeFiltros(input.filtros, sinResponder),
       // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
       { contact: { bloqueadoEn: null } },
-      sinResponder ? { id: { in: sinResponder } } : {},
       // Con los mismos filtros que el resto: un fijado que no cumple el filtro puesto no aparece.
       input.soloIds ? { id: { in: input.soloIds } } : {},
       input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {},
