@@ -85,8 +85,8 @@ export default async function CoachPage({ searchParams }: PageProps) {
   const destino = { base: "/cliente/equipo/coach", actuales };
 
   return (
+    <div className="mx-auto w-full max-w-6xl space-y-4 px-4 py-5">
       <h1 className="sr-only">Coach</h1>
-      <h1 className="text-lg font-semibold">Coach</h1>
 
       <FiltroDeRango {...destino} rango={rango} opciones={["7d", "semana", "mes"]} hoy={hoy} />
 
