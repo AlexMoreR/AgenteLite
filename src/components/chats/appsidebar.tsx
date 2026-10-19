@@ -86,7 +86,7 @@ function BuscadorDeChats({
   alCambiarFoco: (enfocado: boolean) => void;
 }) {
   return (
-    <div className="flex h-9 items-center gap-2 rounded-full bg-muted px-3 text-muted-foreground focus-within:ring-2 focus-within:ring-primary/30">
+    <div className="flex h-9 items-center gap-2 rounded-full bg-muted px-3 text-muted-foreground focus-within:ring-1 focus-within:ring-inset focus-within:ring-primary/40">
       <Search className="size-4 shrink-0" aria-hidden="true" />
       <input
         ref={refInput}
@@ -515,7 +515,7 @@ export function AppSidebar({
               aria-hidden={buscadorEscondido || undefined}
             >
               <div className="min-h-0 overflow-hidden">
-                <div className="pb-2">
+                <div className="px-0.5 pb-2 pt-0.5">
                   <BuscadorDeChats
                     valor={busqueda}
                     alCambiar={alBuscar}
