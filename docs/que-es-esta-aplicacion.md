@@ -308,6 +308,10 @@ la IA pausada no lo contesta el agente.
   cliente, sin teléfono).
 - **Los clientes con el visto apagado no reciben automáticos**: sus mensajes nunca pasan a "leído", así
   que el freno los detiene siempre (1 de cada 4 chats que responden, medido el 02-10-2026).
+- **El buscador de chats no busca en todos los mensajes**: la caja "Buscar chats" de la bandeja (y la
+  `q` de `/api/cliente/chats/list` y `/counts`) busca nombre y número siempre, pero en el texto de los
+  mensajes solo con 4 letras o más y solo en los de los últimos 90 días (`lib/busqueda-de-chats.ts`). No
+  hay índice de texto (`pg_trgm`) en `Message`; buscar en todo sería recorrer la tabla en cada pedido.
 
 ## Advertencias de operación
 

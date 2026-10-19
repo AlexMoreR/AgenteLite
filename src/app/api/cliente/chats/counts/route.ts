@@ -16,6 +16,7 @@ import {
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
+import { whereDeBusquedaDeChats, whereDeBusquedaDeChatsOficiales } from "@/lib/busqueda-de-chats";
 
 export const dynamic = "force-dynamic";
 
@@ -60,15 +61,8 @@ function buildBaseWhere(input: {
       input.selectedConnectionKey.startsWith("channel:")
         ? { channelId: input.selectedConnectionKey.slice("channel:".length) }
         : {},
-      normalizedSearchQuery
-        ? {
-            OR: [
-              { contact: { name: { contains: normalizedSearchQuery, mode: "insensitive" } } },
-              { contact: { phoneNumber: { contains: normalizedSearchQuery, mode: "insensitive" } } },
-              { messages: { some: { content: { contains: normalizedSearchQuery, mode: "insensitive" } } } },
-            ],
-          }
-        : {},
+      // La misma busqueda que la lista (ver lib/busqueda-de-chats).
+      whereDeBusquedaDeChats(normalizedSearchQuery),
     ],
   };
 }
@@ -164,15 +158,7 @@ async function countOfficialConversations(input: {
         : input.assignedTo === "unassigned"
           ? { assignedToUserId: null }
           : {}),
-      ...(normalizedSearchQuery
-        ? {
-            OR: [
-              { contact: { name: { contains: normalizedSearchQuery, mode: "insensitive" } } },
-              { contact: { waId: { contains: normalizedSearchQuery, mode: "insensitive" } } },
-              { messages: { some: { content: { contains: normalizedSearchQuery, mode: "insensitive" } } } },
-            ],
-          }
-        : {}),
+      ...whereDeBusquedaDeChatsOficiales(normalizedSearchQuery),
     },
   });
 }

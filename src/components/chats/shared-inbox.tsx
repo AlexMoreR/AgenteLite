@@ -48,6 +48,7 @@ export type {
   StatusFilter,
 } from "./chat-inbox-types";
 import { normalizeChatSearchText, getMediaPreviewLabel } from "./chat-inbox-format";
+import { cifrasDeLaBusqueda } from "@/lib/busqueda-de-chats";
 import {
   normalizeLiveConversationSnapshot,
   normalizeLiveConversationListSnapshot,
@@ -89,6 +90,9 @@ import {
 const CONVERSATION_LIST_LOAD_BATCH_SIZE = 10;
 // Logs de depuración de la lista desactivados (ensuciaban la consola en desarrollo).
 const CHAT_LIST_DEBUG = false;
+// Buscador de chats: pausa al escribir antes de ir al servidor, y letras minimas para ir.
+const ESPERA_DEL_BUSCADOR_MS = 350;
+const LETRAS_PARA_IR_AL_SERVIDOR = 2;
 
 function debugConversationList(...args: unknown[]) {
   if (!CHAT_LIST_DEBUG) {
@@ -1018,20 +1022,53 @@ export function SharedInbox({
     router.replace(`${url.pathname}${url.search}${url.hash}`);
   }, [router]);
 
+  /*
+    El filtro local corre con cada letra; al servidor se va una vez por pausa (350 ms) y solo con 2
+    letras o mas: con una sola letra casi todo coincide y el pedido no agrega nada que no este ya.
+  */
   const handleSearchChange = useCallback(
     (value: string) => {
       setSearchInputValue(value);
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
       // Se vació el buscador (borrando a mano): restaurar la lista completa quitando `q` de la URL.
       if (!value.trim()) {
         clearSearchUrlParam();
       }
+      if (value.trim().length < LETRAS_PARA_IR_AL_SERVIDOR) {
+        // Corta el pedido que estaba en camino y suelta los resultados de la busqueda anterior.
+        void runSearchAugmentation("");
+        return;
+      }
       searchDebounceRef.current = setTimeout(() => {
+        searchDebounceRef.current = null;
         void runSearchAugmentation(value);
-      }, 250);
+      }, ESPERA_DEL_BUSCADOR_MS);
     },
     [runSearchAugmentation, clearSearchUrlParam],
   );
+
+  /*
+    Cambiar Todas/Mias/asesora, un filtro o la linea con texto puesto: los resultados del servidor
+    eran los de la vista anterior. Se vuelve a buscar UNA vez, cuando la lista nueva ya esta puesta
+    (versionDeVista sube recien ahi): si se buscara antes, la lista nueva pisaria lo encontrado.
+  */
+  const busquedaVigenteRef = useRef({ texto: searchInputValue, buscar: runSearchAugmentation });
+  // Va antes que el efecto de abajo: en el mismo render corre primero y le deja lo de ahora.
+  useEffect(() => {
+    busquedaVigenteRef.current = { texto: searchInputValue, buscar: runSearchAugmentation };
+  }, [searchInputValue, runSearchAugmentation]);
+  const versionDeVistaBuscadaRef = useRef(versionDeVista);
+  useEffect(() => {
+    if (versionDeVistaBuscadaRef.current === versionDeVista) return;
+    versionDeVistaBuscadaRef.current = versionDeVista;
+    const { texto, buscar } = busquedaVigenteRef.current;
+    if (texto.trim().length < LETRAS_PARA_IR_AL_SERVIDOR) return;
+    // Si quedaba una pausa del teclado en curso, esta busqueda la reemplaza.
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = null;
+    void buscar(texto);
+  }, [versionDeVista]);
 
   const handleSearchClear = useCallback(() => {
     setSearchInputValue("");
@@ -1081,6 +1118,9 @@ export function SharedInbox({
       return porEstado;
     }
 
+    // "300 123 4567" tambien encuentra el numero guardado sin espacios (igual que el servidor).
+    const cifras = cifrasDeLaBusqueda(searchInputValue);
+
     return porEstado.filter((item) => {
       if (searchMatchIds?.has(item.id)) {
         return true;
@@ -1089,7 +1129,9 @@ export function SharedInbox({
       return (
         normalizeChatSearchText(item.label).includes(normalizedQuery) ||
         normalizeChatSearchText(item.secondaryLabel).includes(normalizedQuery) ||
-        normalizeChatSearchText(item.lastMessage ?? "").includes(normalizedQuery)
+        normalizeChatSearchText(item.lastMessage ?? "").includes(normalizedQuery) ||
+        (cifras !== null &&
+          (item.secondaryLabel.replace(/\D/g, "").includes(cifras) || item.label.replace(/\D/g, "").includes(cifras)))
       );
     });
   }, [conversationItems, resueltasAca, searchInputValue, searchMatchIds, statusFilter]);
@@ -3305,6 +3347,10 @@ export function SharedInbox({
         searchAction={searchAction}
         selectedConnectionKey={selectedConnectionKey}
         searchQuery={searchQuery}
+        busqueda={searchInputValue}
+        alBuscar={handleSearchChange}
+        alBorrarBusqueda={handleSearchClear}
+        refBuscador={searchInputRef}
         assignedFilter={assignedFilter}
         statusFilter={statusFilter}
         assignedCounts={assignedCounts}

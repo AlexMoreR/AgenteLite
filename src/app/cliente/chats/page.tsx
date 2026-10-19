@@ -43,6 +43,7 @@ import {
   whereDeFiltros,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
+import { whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
 import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
 import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
 
@@ -410,38 +411,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         : {},
       assignedWhere,
       statusWhere,
-      searchQuery
-        ? {
-            OR: [
-              {
-                contact: {
-                  name: {
-                    contains: searchQuery,
-                    mode: "insensitive",
-                  },
-                },
-              },
-              {
-                contact: {
-                  phoneNumber: {
-                    contains: searchQuery,
-                    mode: "insensitive",
-                  },
-                },
-              },
-              {
-                messages: {
-                  some: {
-                    content: {
-                      contains: searchQuery,
-                      mode: "insensitive",
-                    },
-                  },
-                },
-              },
-            ],
-          }
-        : {},
+      // La misma busqueda que /api/cliente/chats/list (ver lib/busqueda-de-chats).
+      whereDeBusquedaDeChats(searchQuery),
     ],
   };
 
@@ -899,8 +870,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       ...(shouldIncludeOfficialRows ? officialRows : []),
     ]),
   )
+      // La base ya filtro por `q` (nombre, numero y mensajes, igual que /list): volver a filtrar por
+      // lo visible solo hace falta en monitoreo, donde el numero va tapado.
       .filter((item) => {
-        if (!searchQuery) return true;
+        if (!searchQuery || !modoMonitoreo) return true;
       const q = searchQuery.toLowerCase();
       return (
         item.label.toLowerCase().includes(q) ||

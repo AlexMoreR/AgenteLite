@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, MessageSquareText, Pencil, Plus, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, MessageSquareText, Pencil, Plus, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { type AssignedFilter, type StatusFilter, type SharedInboxConversationItem } from "./shared-inbox";
 import {
@@ -53,7 +53,75 @@ type AppSidebarProps = {
   listaAtenuada?: boolean;
   /** Sube cada vez que la lista se reemplaza por un cambio de filtro (ver ConversationList). */
   versionDeVista?: number;
+  /** El texto de la caja "Buscar chats" (solo chats; la lupa del encabezado es la busqueda general). */
+  busqueda?: string;
+  alBuscar?: (valor: string) => void;
+  alBorrarBusqueda?: () => void;
+  refBuscador?: React.RefObject<HTMLInputElement | null>;
 };
+
+// En el celular la caja se esconde al bajar la lista y vuelve al subir, como en WhatsApp.
+const MOVIL = "(max-width: 767px)";
+const BAJADA_PARA_ESCONDER_PX = 8;
+const ARRIBA_DEL_TODO_PX = 48;
+
+/**
+ * La caja "Buscar chats", arriba de las pastillas.
+ *
+ * Filtra al instante lo que ya esta cargado (nombre, numero y ultimo mensaje) y, tras una pausa,
+ * pide al servidor los que no estan cargados o coinciden por un mensaje (ver shared-inbox). Esc
+ * borra. El texto va a 16 px en el celular: con menos, iOS hace zoom al tocar la caja.
+ */
+function BuscadorDeChats({
+  valor,
+  alCambiar,
+  alBorrar,
+  refInput,
+  alCambiarFoco,
+}: {
+  valor: string;
+  alCambiar: (valor: string) => void;
+  alBorrar: () => void;
+  refInput?: React.RefObject<HTMLInputElement | null>;
+  alCambiarFoco: (enfocado: boolean) => void;
+}) {
+  return (
+    <div className="flex h-9 items-center gap-2 rounded-full bg-muted px-3 text-muted-foreground focus-within:ring-2 focus-within:ring-primary/30">
+      <Search className="size-4 shrink-0" aria-hidden="true" />
+      <input
+        ref={refInput}
+        type="search"
+        value={valor}
+        onChange={(evento) => alCambiar(evento.target.value)}
+        onKeyDown={(evento) => {
+          if (evento.key === "Escape" && valor) {
+            evento.preventDefault();
+            alBorrar();
+          }
+        }}
+        onFocus={() => alCambiarFoco(true)}
+        onBlur={() => alCambiarFoco(false)}
+        placeholder="Buscar chats"
+        aria-label="Buscar chats"
+        enterKeyHint="search"
+        autoComplete="off"
+        spellCheck={false}
+        className="min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground md:text-sm [&::-webkit-search-cancel-button]:hidden"
+      />
+      {valor ? (
+        <button
+          type="button"
+          onClick={alBorrar}
+          aria-label="Borrar búsqueda"
+          title="Borrar búsqueda"
+          className="-mr-1 inline-flex size-6 shrink-0 items-center justify-center rounded-full transition hover:bg-black/10 hover:text-foreground dark:hover:bg-white/15"
+        >
+          <X className="size-3.5" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 const FILAS_EN_SILUETA = 6;
 
@@ -132,8 +200,60 @@ export function AppSidebar({
   alCambiarVista,
   listaAtenuada = false,
   versionDeVista = 0,
+  busqueda = "",
+  alBuscar,
+  alBorrarBusqueda,
+  refBuscador,
 }: AppSidebarProps) {
   const conversationListScrollRef = React.useRef<HTMLDivElement | null>(null);
+
+  /*
+    Esconder la caja al bajar (solo celular). Se mira el scroll con un listener pasivo y un
+    requestAnimationFrame para no trabar el desplazamiento, y el estado solo cambia cuando la caja
+    cambia de verdad. Nunca se esconde con la caja enfocada: el teclado cambia el alto de la
+    pantalla y la caja se iria de debajo del dedo.
+  */
+  const [buscadorEscondido, setBuscadorEscondido] = React.useState(false);
+  const buscadorEnfocadoRef = React.useRef(false);
+  React.useEffect(() => {
+    const lista = conversationListScrollRef.current;
+    if (!lista || typeof window === "undefined" || !window.matchMedia) return;
+    const movil = window.matchMedia(MOVIL);
+    let ultimoScroll = lista.scrollTop;
+    let cuadro: number | null = null;
+
+    const revisar = () => {
+      cuadro = null;
+      const actual = lista.scrollTop;
+      const delta = actual - ultimoScroll;
+      ultimoScroll = actual;
+      if (!movil.matches || buscadorEnfocadoRef.current || actual < ARRIBA_DEL_TODO_PX) {
+        setBuscadorEscondido(false);
+      } else if (delta > BAJADA_PARA_ESCONDER_PX) {
+        setBuscadorEscondido(true);
+      } else if (delta < 0) {
+        setBuscadorEscondido(false);
+      }
+    };
+    const alDesplazar = () => {
+      if (cuadro === null) cuadro = window.requestAnimationFrame(revisar);
+    };
+    const alCambiarPantalla = () => {
+      if (!movil.matches) setBuscadorEscondido(false);
+    };
+
+    lista.addEventListener("scroll", alDesplazar, { passive: true });
+    movil.addEventListener("change", alCambiarPantalla);
+    return () => {
+      lista.removeEventListener("scroll", alDesplazar);
+      movil.removeEventListener("change", alCambiarPantalla);
+      if (cuadro !== null) window.cancelAnimationFrame(cuadro);
+    };
+  }, []);
+  const alCambiarFocoDelBuscador = React.useCallback((enfocado: boolean) => {
+    buscadorEnfocadoRef.current = enfocado;
+    if (enfocado) setBuscadorEscondido(false);
+  }, []);
   const router = useRouter();
   const [filterMenuOpen, setFilterMenuOpen] = React.useState(false);
   const [modoDelFiltro, setModoDelFiltro] = React.useState<ModoDelFiltro>({ tipo: "filtrar" });
@@ -380,10 +500,35 @@ export function AppSidebar({
       <div className="flex min-h-0 w-full flex-col">
         <div className="relative z-30 shrink-0 border-b border-border bg-card px-3 py-2 backdrop-blur-sm md:px-3 md:py-2">
           {/*
-            Solo el filtro PUESTO, y un + para cambiarlo.
+            La caja "Buscar chats" volvio (19-10-2026): busca SOLO en la bandeja, con la pestaña y
+            los filtros puestos. La lupa del encabezado (Ctrl+K) sigue siendo la busqueda general,
+            que ademas cruza contactos y productos.
 
-            (La caja "Buscar chats..." tambien salio de aca: ahora se busca desde la lupa del
-            encabezado, con Ctrl+K, que ademas cruza contactos y productos.)
+            Al esconderse en el celular se cierra la fila de la grilla (0fr) en vez de quitarla: la
+            altura baja de a poco y la lista no pega un salto.
+          */}
+          {alBuscar && alBorrarBusqueda ? (
+            <div
+              className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out ${
+                buscadorEscondido ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+              }`}
+              aria-hidden={buscadorEscondido || undefined}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div className="pb-2">
+                  <BuscadorDeChats
+                    valor={busqueda}
+                    alCambiar={alBuscar}
+                    alBorrar={alBorrarBusqueda}
+                    refInput={refBuscador}
+                    alCambiarFoco={alCambiarFocoDelBuscador}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {/*
+            Solo el filtro PUESTO, y un + para cambiarlo.
 
             Antes estaban las tres pastillas siempre a la vista: en un celular no entraban y
             aparecia una barra de scroll horizontal sobre la lista, que es lo ultimo que uno espera

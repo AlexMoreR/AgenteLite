@@ -7,6 +7,7 @@ import { scheduleContactAvatarRefresh, type ContactAvatarTarget } from "@/lib/co
 import { extractEvolutionMessageText, extractEvolutionPushName } from "@/lib/evolution-webhook";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 import { canalesDelNegocio } from "@/lib/canales-del-negocio";
+import { whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
 import {
   ORDEN_DE_BANDEJA,
   cortarPagina,
@@ -79,6 +80,20 @@ function toActiveProductContextSummary(input: unknown): ActiveProductContextSumm
 
 function getAgentContactLabel(input: { name: string | null; phoneNumber: string }) {
   return input.name?.trim() || input.phoneNumber;
+}
+
+/** La busqueda solo sobre lo que se ve en la fila (nombre, numero tal como se muestra, ultimo mensaje). */
+function coincideConLoVisible(
+  item: { label: string; secondaryLabel: string; lastMessage?: string | null },
+  rawQ: string,
+) {
+  const q = rawQ.trim().toLowerCase();
+  return (
+    !q ||
+    item.label.toLowerCase().includes(q) ||
+    item.secondaryLabel.toLowerCase().includes(q) ||
+    (item.lastMessage || "").toLowerCase().includes(q)
+  );
 }
 
 function getConversationContextTags(input: ActiveProductContextSummary | null | undefined) {
@@ -228,38 +243,8 @@ async function getAgentConversationList(input: {
       assignedWhere,
       statusWhere,
       input.cursor ? whereDespuesDelCursor(input.cursor) : {},
-      normalizedSearchQuery
-        ? {
-            OR: [
-              {
-                contact: {
-                  name: {
-                    contains: normalizedSearchQuery,
-                    mode: "insensitive",
-                  },
-                },
-              },
-              {
-                contact: {
-                  phoneNumber: {
-                    contains: normalizedSearchQuery,
-                    mode: "insensitive",
-                  },
-                },
-              },
-              {
-                messages: {
-                  some: {
-                    content: {
-                      contains: normalizedSearchQuery,
-                      mode: "insensitive",
-                    },
-                  },
-                },
-              },
-            ],
-          }
-        : {},
+      // Nombre, numero (tambien con las cifras solas) y, con 4 letras o mas, mensajes de 90 dias.
+      whereDeBusquedaDeChats(normalizedSearchQuery),
     ],
   };
 
@@ -535,16 +520,14 @@ async function getAgentConversationList(input: {
     };
   });
 
+  /*
+    La base ya filtro por `q` (nombre, numero y mensajes). Volver a filtrar aca por lo que se ve en
+    la fila descartaba justo lo que la base encontro en un mensaje viejo o por las cifras de un
+    numero escrito con espacios. Solo quien monitorea pasa por este filtro: su numero va tapado y
+    no tiene que poder encontrar un chat escribiendo el telefono.
+  */
   const merged = dedupeAndSortConversationListRows(agentRows)
-    .filter((item) => {
-      if (!input.searchQuery) return true;
-      const q = input.searchQuery.toLowerCase();
-      return (
-        item.label.toLowerCase().includes(q) ||
-        item.secondaryLabel.toLowerCase().includes(q) ||
-        (item.lastMessage || "").toLowerCase().includes(q)
-      );
-    });
+    .filter((item) => !tapar || coincideConLoVisible(item, input.searchQuery));
 
   // Ya no hace falta cortar: consumedConversationRows trae como mucho `limit` filas, y de ahi
   // solo se pueden haber caido pospuestos.
@@ -759,16 +742,12 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
         lastMessageAt: conversation.lastMessage?.createdAt ?? null,
       };
     });
-    const q = searchQuery.toLowerCase();
+    // Las dos fuentes ya vienen filtradas por `q` (ver getAgentConversationList).
     const conversaciones = dedupeAndSortConversationListRows([
       ...datosDeLista.conversations,
       ...filasOficiales,
     ] as Array<(typeof datosDeLista.conversations)[number] | (typeof filasOficiales)[number]>).filter(
-      (item) =>
-        !q ||
-        item.label.toLowerCase().includes(q) ||
-        item.secondaryLabel.toLowerCase().includes(q) ||
-        (item.lastMessage || "").toLowerCase().includes(q),
+      (item) => !tapar || coincideConLoVisible(item, searchQuery),
     );
 
     return NextResponse.json({
