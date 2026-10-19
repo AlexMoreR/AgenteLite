@@ -28,6 +28,7 @@ const {
   leerRespuestaDeGestion,
   textoParaElCliente,
   juntarLineas,
+  correoDeLaAsesoraEnGestion,
 } = mod.exports;
 
 let pruebas = 0;
@@ -155,6 +156,16 @@ await prueba("respuesta de Gestion: creada, reutilizada, 422 y errores", () => {
   assert.equal(creada.tipo, "creada");
   assert.equal(creada.codigo, "COT-00200");
   assert.equal(creada.reutilizada, false);
+  assert.equal(creada.creadaPor, null);
+  const conCreador = leerRespuestaDeGestion(201, {
+    ok: true,
+    code: "COT-2",
+    total: 1,
+    shareUrl: "u",
+    createdBy: { email: "maria@magilus.com", name: "Maria Camila Ardila", fallback: false },
+  });
+  assert.deepEqual(conCreador.creadaPor, { email: "maria@magilus.com", nombre: "Maria Camila Ardila", fallback: false });
+  assert.equal(leerRespuestaDeGestion(201, { ok: true, code: "C", total: 1, shareUrl: "u", createdBy: { email: "a@b.co", name: "", fallback: true } }).creadaPor.fallback, true);
   assert.equal(leerRespuestaDeGestion(200, { ok: true, reused: true, code: "COT-1", total: "5", shareUrl: "u" }).reutilizada, true);
   const faltan = leerRespuestaDeGestion(422, { ok: false, missing: [{ campo: "document", mensaje: "Falta la cédula" }, { x: 1 }] });
   assert.deepEqual(faltan, { tipo: "faltan", faltantes: [{ campo: "document", mensaje: "Falta la cédula" }] });
@@ -168,6 +179,16 @@ await prueba("texto al cliente: primer nombre, codigo, total y enlace", () => {
   assert.match(texto, /^Ana, aquí está tu cotización COT-00200 por \$1\.800\.000:/);
   assert.match(texto, /https:\/\/magilus\.com\/cotizaciones\/t$/);
   assert.match(textoParaElCliente({ nombre: "", codigo: "C", total: 1, shareUrl: "u" }), /^Aquí/);
+});
+
+await prueba("cuenta de Gestion de la asesora: mapa fijo y si no, su correo", () => {
+  const mapa = JSON.stringify({ u1: " Maria.Camila@Magilus.com ", u2: "no-es-correo" });
+  assert.equal(correoDeLaAsesoraEnGestion(mapa, "u1", "maria@crm.com"), "maria.camila@magilus.com");
+  assert.equal(correoDeLaAsesoraEnGestion({ u1: "x@y.co" }, "u1", null), "x@y.co");
+  assert.equal(correoDeLaAsesoraEnGestion(mapa, "u2", "Propio@CRM.com"), "propio@crm.com");
+  assert.equal(correoDeLaAsesoraEnGestion(mapa, "u3", "propio@crm.com"), "propio@crm.com");
+  assert.equal(correoDeLaAsesoraEnGestion("{malo", "u1", "propio@crm.com"), "propio@crm.com");
+  assert.equal(correoDeLaAsesoraEnGestion(null, "u1", ""), null);
 });
 
 console.log(`\n${pruebas} pruebas ok`);

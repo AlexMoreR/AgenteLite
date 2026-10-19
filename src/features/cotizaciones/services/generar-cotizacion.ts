@@ -217,8 +217,46 @@ export function interpretarProductos(
   return { lineas: juntarLineas(lineas), sinReconocer };
 }
 
+/**
+ * Cuenta de Gestion de cada asesora (decision de Alex, 18-10-2026): los correos del CRM y de
+ * Gestion no coinciden, asi que va un mapa fijo en AppSetting gestion:asesoras:<workspaceId> =
+ * {"<crmUserId>": "<correo del usuario en Gestion>"}. Sin entrada (o mapa invalido) se usa el
+ * correo propio del usuario del CRM.
+ */
+export const CLAVE_ASESORAS_GESTION = "gestion:asesoras:";
+
+export function correoDeLaAsesoraEnGestion(mapaCrudo: unknown, crmUserId: string, correoPropio: string | null | undefined): string | null {
+  let mapa: unknown = mapaCrudo;
+  if (typeof mapaCrudo === "string") {
+    try {
+      mapa = JSON.parse(mapaCrudo);
+    } catch {
+      mapa = null;
+    }
+  }
+  if (mapa && typeof mapa === "object" && !Array.isArray(mapa)) {
+    const valor = (mapa as Record<string, unknown>)[crmUserId];
+    if (typeof valor === "string" && CORREO.test(valor.trim())) {
+      return valor.trim().toLowerCase();
+    }
+  }
+  const propio = (correoPropio ?? "").trim().toLowerCase();
+  return propio || null;
+}
+
+export type CreadaPor = { email: string; nombre: string | null; fallback: boolean };
+
 export type RespuestaDeGestion =
-  | { tipo: "creada"; reutilizada: boolean; quoteId: string; codigo: string; total: number; shareUrl: string; pdfUrl: string | null }
+  | {
+      tipo: "creada";
+      reutilizada: boolean;
+      quoteId: string;
+      codigo: string;
+      total: number;
+      shareUrl: string;
+      pdfUrl: string | null;
+      creadaPor: CreadaPor | null;
+    }
   | { tipo: "faltan"; faltantes: Faltante[] }
   | { tipo: "error"; mensaje: string };
 
@@ -246,10 +284,22 @@ export function leerRespuestaDeGestion(status: number, cuerpo: unknown): Respues
       total: typeof datos.total === "number" ? datos.total : Number(datos.total) || 0,
       shareUrl: datos.shareUrl,
       pdfUrl: typeof datos.pdfUrl === "string" ? datos.pdfUrl : null,
+      creadaPor: leerCreadaPor(datos.createdBy),
     };
   }
   if (status === 401) return { tipo: "error", mensaje: "Gestión rechazó la llave del CRM. Avísale al administrador." };
   return { tipo: "error", mensaje: `Gestión no pudo generar la cotización (error ${status}). Prueba de nuevo.` };
+}
+
+function leerCreadaPor(crudo: unknown): CreadaPor | null {
+  if (!crudo || typeof crudo !== "object") return null;
+  const registro = crudo as Record<string, unknown>;
+  if (typeof registro.email !== "string") return null;
+  return {
+    email: registro.email,
+    nombre: typeof registro.name === "string" && registro.name.trim() ? registro.name.trim() : null,
+    fallback: registro.fallback === true,
+  };
 }
 
 export function formatearPesos(valor: number): string {

@@ -23,7 +23,13 @@ import {
   type ProductoDelCatalogo,
 } from "../services/generar-cotizacion";
 
-type Generada = { codigo: string; total: number; shareUrl: string; reutilizada: boolean };
+type Generada = {
+  codigo: string;
+  total: number;
+  shareUrl: string;
+  reutilizada: boolean;
+  creadaPor: { email: string; nombre: string | null; fallback: boolean } | null;
+};
 
 /**
  * Pie de la pestaña Cotizaciones: productos + cantidad, lo que falta y "Generar cotización".
@@ -136,6 +142,7 @@ export function GenerarCotizacion({
           total: respuesta.total,
           shareUrl: respuesta.shareUrl,
           reutilizada: respuesta.reutilizada,
+          creadaPor: respuesta.creadaPor,
         });
         setEnviadaAlCliente(false);
         setMostrarFaltantes(false);
@@ -301,6 +308,17 @@ export function GenerarCotizacion({
             <Check className="size-4 text-emerald-600" />
             {generada.codigo} · {formatearPesos(generada.total)}
           </p>
+          {generada.creadaPor ? (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              A nombre de: {generada.creadaPor.nombre ?? generada.creadaPor.email}
+            </p>
+          ) : null}
+          {generada.creadaPor?.fallback ? (
+            <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400">
+              <TriangleAlert className="size-3.5 shrink-0" />
+              No se encontró la cuenta de la asesora en Gestión
+            </p>
+          ) : null}
           {generada.reutilizada ? (
             <p className="mt-0.5 text-[11px] text-muted-foreground">Ya estaba generada hace un momento: es la misma.</p>
           ) : null}

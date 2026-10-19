@@ -5,6 +5,9 @@ import { leerFichaDeCotizacionAction } from "@/app/actions/quote-data-actions";
 import { registrarCotizacion } from "@/features/embudo/servicios/eventos";
 import {
   armarPedidoDeCotizacion,
+  CLAVE_ASESORAS_GESTION,
+  correoDeLaAsesoraEnGestion,
+  type CreadaPor,
   leerRespuestaDeGestion,
   type Faltante,
   type LineaElegida,
@@ -68,6 +71,7 @@ export type ResultadoDeGenerar =
       total: number;
       shareUrl: string;
       pdfUrl: string | null;
+      creadaPor: CreadaPor | null;
     }
   | { ok: false; faltantes?: Faltante[]; error?: string };
 
@@ -100,13 +104,17 @@ export async function generarCotizacionEnGestionAction(input: {
     .slice(0, 50)
     .map((linea) => ({ productId: String(linea?.productId ?? ""), cantidad: Number(linea?.cantidad) }));
 
-  const [ficha, catalogo, origen] = await Promise.all([
+  const [ficha, catalogo, origen, mapaAsesoras] = await Promise.all([
     leerFichaDeCotizacionAction(contacto.id),
     prisma.product.findMany({
       where: { workspaceId: ctx.workspaceId, id: { in: lineas.map((linea) => linea.productId) } },
       select: { id: true, code: true, name: true, price: true, origen: true, activo: true },
     }),
     origenDelContacto(ctx.workspaceId, contacto.id, "cotizacion"),
+    // Cuenta de Gestion de la asesora (mapa fijo; si no esta, su propio correo).
+    prisma.appSetting
+      .findUnique({ where: { key: `${CLAVE_ASESORAS_GESTION}${ctx.workspaceId}` }, select: { value: true } })
+      .catch(() => null),
   ]);
   if (!ficha.datos) {
     return { ok: false, error: ficha.error ?? "No se pudo leer la ficha" };
@@ -124,7 +132,7 @@ export async function generarCotizacionEnGestionAction(input: {
       activo: fila.activo,
     })),
     telefono: origen.telefono,
-    asesoraEmail: ctx.user.email ?? null,
+    asesoraEmail: correoDeLaAsesoraEnGestion(mapaAsesoras?.value, ctx.user.id, ctx.user.email),
     origen: origen.origin,
     linea: origen.linea,
     conversationId: input.conversationId ?? null,
@@ -177,5 +185,6 @@ export async function generarCotizacionEnGestionAction(input: {
     total: respuesta.total,
     shareUrl: respuesta.shareUrl,
     pdfUrl: respuesta.pdfUrl,
+    creadaPor: respuesta.creadaPor,
   };
 }
