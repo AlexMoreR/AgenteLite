@@ -32,6 +32,7 @@ import {
   type FichaDeCotizacion,
   type Sugerencias,
 } from "../services/datos-de-cotizacion";
+import { GenerarCotizacion } from "./GenerarCotizacion";
 
 /**
  * Los datos que hacen falta para cotizarle a este cliente.
@@ -61,9 +62,12 @@ const yaSeBuscoEnEstaSesion = new Set<string>();
 export function FichaDeCotizacion({
   contactId,
   conversationId,
+  enviarAlChat,
 }: {
   contactId: string;
   conversationId?: string;
+  /** Manda un texto al chat abierto (camino normal del composer). Sin esto no hay "Enviar al cliente". */
+  enviarAlChat?: (texto: string) => boolean;
 }) {
   const [ficha, setFicha] = useState<FichaDeCotizacion>(fichaVacia);
   const [origenes, setOrigenes] = useState<Origenes>({});
@@ -399,6 +403,14 @@ export function FichaDeCotizacion({
           </p>
         </section>
       ) : null}
+
+      {/* Al final: crear la cotizacion en Gestion con lo de arriba (ya guardado). */}
+      <GenerarCotizacion
+        contactId={contactId}
+        conversationId={conversationId}
+        ficha={ficha}
+        enviarAlChat={enviarAlChat}
+      />
 
       <Dialog open={editando} onOpenChange={cerrarEditor}>
         <DialogContent className="gap-3 sm:max-w-md">

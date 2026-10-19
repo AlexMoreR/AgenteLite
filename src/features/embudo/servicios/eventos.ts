@@ -504,6 +504,21 @@ export function registrarVenta(input: BaseDelEvento & { cotizacion: string; vent
 }
 
 /**
+ * COTIZACION: la asesora generó la cotización en Gestión desde la ficha del chat. Llena
+ * EmbudoLead.cotizacionRef / cotizacionEn (la primera manda, ver dominio/eventos.ts).
+ */
+export function registrarCotizacion(input: BaseDelEvento & { cotizacion: string; actorUserId?: string | null }): void {
+  registrarEnSegundoPlano(input, async () => [
+    {
+      tipo: "COTIZACION",
+      origen: "asesora",
+      claveUnica: `COTIZACION:${input.conversationId}:${input.cotizacion}`,
+      datos: { cotizacion: input.cotizacion, actor: input.actorUserId ?? null, via: "gestion" },
+    },
+  ]);
+}
+
+/**
  * SEGUIMIENTO_ENVIADO: salió un recordatorio (reloj del V3 o motor de seguimientos).
  * Si no se sabe la charla, se busca la más reciente del contacto en esa línea.
  */

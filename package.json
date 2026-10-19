@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test:commercial-stage": "node scripts/check-commercial-stage.mjs",
     "test:origen-ventas": "node scripts/check-origen-ventas.mjs",
+    "test:generar-cotizacion": "node scripts/check-generar-cotizacion.mjs",
     "test:contraentrega": "node scripts/check-contraentrega.mjs",
     "test:firma-del-chat": "node scripts/check-firma-del-chat.mjs",
     "test:recibiendo-clientes": "node scripts/check-recibiendo-clientes.mjs",

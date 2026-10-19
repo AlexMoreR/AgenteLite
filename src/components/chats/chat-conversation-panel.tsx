@@ -364,6 +364,23 @@ export const ConversationPanel = memo(function ConversationPanel({
   } | null>(null);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState("");
   const [pestanaChat, setPestanaChat] = useState<"mensajes" | "cotizaciones">("mensajes");
+  // "Enviar al cliente" de la cotizacion: mismo camino que el composer (burbuja optimista, chat
+  // esperado, sin firma). Solo con un toque explicito de la asesora.
+  const enviarTextoAlChat = useCallback(
+    (texto: string): boolean => {
+      if (!composer || enviandoTexto || envioBloqueado || !texto.trim()) {
+        return false;
+      }
+      const formData = new FormData();
+      for (const field of composerHiddenFields) {
+        formData.append(field.name, field.value);
+      }
+      formData.set("message", texto);
+      formData.set("skipSignature", "1");
+      return onComposerDraft(texto, formData);
+    },
+    [composer, composerHiddenFields, enviandoTexto, envioBloqueado, onComposerDraft],
+  );
   /*
     La barra de primera accion se puede esconder con la flecha de arriba, para ganar alto de chat
     en el celular. Se recuerda en ese aparato: quien la esconde no quiere volver a hacerlo en cada
@@ -1820,6 +1837,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                     key={renderedConversation.contactId}
                     contactId={renderedConversation.contactId}
                     conversationId={selectedConversationId ?? undefined}
+                    enviarAlChat={composer ? enviarTextoAlChat : undefined}
                   />
                 ) : (
                   <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
