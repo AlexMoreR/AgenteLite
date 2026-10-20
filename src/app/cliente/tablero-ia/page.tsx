@@ -1,10 +1,18 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { personaPuedeAprobar } from "@/features/tableros-inteligentes/services/reglas";
 import { nivelDeLaTarjeta } from "@/features/tableros-inteligentes/services/niveles";
-import { contenidoDelTablero, listarTableros, personaQueAprueba, porAprobarDe } from "@/features/tableros-inteligentes/services/tableros";
+import {
+  RUTA_TABLEROS,
+  contenidoDelTablero,
+  listarTableros,
+  personaQueAprueba,
+  porAprobarDe,
+} from "@/features/tableros-inteligentes/services/tableros";
+import { InicioDeTableros } from "@/features/tableros-inteligentes/components/InicioDeTableros";
 import { TablerosInteligentesVista } from "@/features/tableros-inteligentes/components/TablerosInteligentesVista";
 
 export const metadata: Metadata = {
@@ -23,6 +31,8 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
 /*
   TABLERO IA: las ideas que arma Claude por el MCP, dibujadas como un mapa por niveles.
 
+  Sin parámetros: la página de inicio (el listado de tableros y, para el dueño o el ADMIN, la sección
+  Trabajador). Un link a un tablero o tarjeta que no existe vuelve a ella.
   ?tablero=<id> abre ese tablero; ?area=<tarjetaId> entra a esa tarjeta (ella al centro y sus hijas
   alrededor);
   ?tarjeta=<id> abre el tablero de esa tarjeta, en el nivel de su madre, con su ficha a la vista (es
@@ -39,6 +49,27 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
     listarTableros(access.workspaceId),
     personaQueAprueba(access.workspaceId, access.userId),
   ]);
+  // Crear y renombrar tableros y la sección Trabajador: el dueño o el ADMIN de la plataforma (nunca una asesora).
+  const puedeAdministrar = persona.esDueno || persona.esAdminPlataforma;
+
+  // Sin nada en el link: la página de inicio con el listado (el último que cambió va primero).
+  if (!pedidoTablero && !pedidaTarjeta && !pedidoNivel) {
+    return (
+      <InicioDeTableros
+        tableros={[...tableros]
+          .sort((a, b) => b.actualizadoEn.getTime() - a.actualizadoEn.getTime())
+          .map((tablero) => ({
+            id: tablero.id,
+            nombre: tablero.nombre,
+            porAprobar: porAprobarDe(tablero.porEstado),
+            tarjetas: tablero.tarjetas,
+            contadores: tablero.contadores,
+            actualizadoEn: tablero.actualizadoEn.toISOString(),
+          }))}
+        puedeAdministrar={puedeAdministrar}
+      />
+    );
+  }
 
   let tableroId = tableros.find((tablero) => tablero.id === pedidoTablero)?.id ?? null;
   let tarjetaInicial: string | null = null;
@@ -53,40 +84,32 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       if (pedidaTarjeta) tarjetaInicial = tarjeta.id;
     }
   }
-  // Sin pedido: el último que cambió, que es donde Claude está trabajando.
-  if (!tableroId && tableros.length) {
-    tableroId = [...tableros].sort((a, b) => b.actualizadoEn.getTime() - a.actualizadoEn.getTime())[0].id;
-  }
-
-  const elegido = tableros.find((tablero) => tablero.id === tableroId) ?? null;
-  const contenido = elegido ? await contenidoDelTablero(elegido.id) : null;
+  // Un link a un tablero (o tarjeta) que ya no existe vuelve al listado.
+  const elegido = tableros.find((tablero) => tablero.id === tableroId);
+  if (!elegido) redirect(RUTA_TABLEROS);
+  const contenido = await contenidoDelTablero(elegido.id);
   // El link a una tarjeta abre el nivel de su madre; si no, el nivel pedido (la vista lo valida).
   const nivelInicial =
-    contenido && tarjetaInicial && !pedidoNivel ? nivelDeLaTarjeta(contenido.tarjetas, tarjetaInicial) : pedidoNivel;
+    tarjetaInicial && !pedidoNivel ? nivelDeLaTarjeta(contenido.tarjetas, tarjetaInicial) : pedidoNivel;
 
   return (
     <TablerosInteligentesVista
-      key={elegido?.id ?? "vacio"}
+      key={elegido.id}
       tableros={tableros.map((tablero) => ({
         id: tablero.id,
         nombre: tablero.nombre,
         porAprobar: porAprobarDe(tablero.porEstado),
         tarjetas: tablero.tarjetas,
       }))}
-      tableroId={elegido?.id ?? null}
-      tableroNombre={elegido?.nombre ?? null}
-      inicial={
-        elegido && contenido
-          ? { actualizadoEn: elegido.actualizadoEn.toISOString(), ...contenido }
-          : null
-      }
+      tableroId={elegido.id}
+      tableroNombre={elegido.nombre}
+      inicial={{ actualizadoEn: elegido.actualizadoEn.toISOString(), ...contenido }}
       tarjetaInicial={tarjetaInicial}
       nivelInicial={nivelInicial}
       // Los botones de la tarea y el plan: dueño, ADMIN o aprobador (el alcance lo revisa el servidor).
       puedeAprobar={personaPuedeAprobar(access) || persona.esDueno || Boolean(persona.aprobador)}
       puedeEditarTipos={personaPuedeAprobar(access)}
-      // Panel Trabajador, renombrar y crear tableros: el dueño o el ADMIN de la plataforma (nunca una asesora).
-      puedeAdministrar={persona.esDueno || persona.esAdminPlataforma}
+      puedeAdministrar={puedeAdministrar}
       esDueno={persona.esDueno}
     />
   );

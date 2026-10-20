@@ -33,7 +33,7 @@ contra la base de producción salvo el ensayo que se deshace (ROLLBACK). Los com
 
 ## Configurar y arrancar (pasos para el dueño)
 
-1. **Crear la clave.** En el CRM, Tablero IA → ícono del robot (panel **Trabajador**, solo el dueño) →
+1. **Crear la clave.** En el CRM, Tablero IA (página de inicio, el listado de tableros) → sección **Trabajador** (solo el dueño o el ADMIN) →
    "Crear clave". Copiarla: se muestra una sola vez.
 2. **Configuración.** En `trabajador-tablero/` copiar `config.example.json` a `config.local.json`
    (no se sube a git) y completar:

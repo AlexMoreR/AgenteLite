@@ -1,12 +1,10 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, Loader2, Pencil, Plus } from "lucide-react";
+import { Check, ChevronDown, LayoutGrid, Loader2, Pencil, Plus } from "lucide-react";
 
 import { TituloDeLaBarra } from "@/components/breadcrumb-label-context";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,27 +13,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { crearTableroAction, renombrarTableroAction } from "@/app/actions/tableros-inteligentes-actions";
 import { cn } from "@/lib/utils";
-import { MAX_NOMBRE_TABLERO, problemaDelNombreDeTablero } from "../services/reglas";
 import type { TableroResumen } from "../services/tableros";
+import { DialogoDeTablero, linkDelTableroEnPantalla, RUTA_DEL_INICIO, type EdicionDeTablero } from "./DialogoDeTablero";
 
 /*
-  El título de la barra superior en Tablero IA: el NOMBRE del tablero abierto, que al tocarlo
-  abre la lista de todos los tableros del negocio (cuántas tarjetas tiene cada uno y cuántas esperan
-  aprobación). Se ve aunque haya uno solo, y la lista se vuelve a pedir cada vez que se abre: así
-  aparecen los tableros que Claude acaba de crear sin recargar.
+  El título de la barra superior en el diagrama de Tablero IA: el NOMBRE del tablero abierto, que al
+  tocarlo abre la lista de todos los tableros del negocio (cuántas tarjetas tiene cada uno y cuántas
+  esperan aprobación). Se ve aunque haya uno solo, y la lista se vuelve a pedir cada vez que se abre:
+  así aparecen los tableros que Claude acaba de crear sin recargar. Al final, "Todos los tableros"
+  vuelve a la página de inicio.
 
   El dueño (o el ADMIN de la plataforma) además ve el lápiz "Cambiar nombre" en cada tablero y
-  "+ Nuevo tablero": los dos abren el mismo diálogo (Enter guarda, Esc cancela). El servidor vuelve a
-  revisar el permiso y el nombre.
+  "+ Nuevo tablero": los dos abren el mismo diálogo (DialogoDeTablero, el mismo de la página de inicio).
 */
 
 type Props = { tableros: TableroResumen[]; tableroId: string | null; puedeAdministrar: boolean };
-
-/** Lo que edita el diálogo: un tablero que se renombra, o uno nuevo. */
-type Edicion = { modo: "renombrar"; id: string; nombre: string } | { modo: "crear" };
 
 const tarjetasEnTexto = (cuantas: number) => (cuantas === 1 ? "1 tarjeta" : `${cuantas} tarjetas`);
 
@@ -43,11 +36,7 @@ export function SelectorDeTablero({ tableros: iniciales, tableroId, puedeAdminis
   const router = useRouter();
   const [tableros, setTableros] = useState(iniciales);
   const [cargando, setCargando] = useState(false);
-  const [edicion, setEdicion] = useState<Edicion | null>(null);
-  const [nombre, setNombre] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [guardando, setGuardando] = useState(false);
-  const campo = useRef<HTMLInputElement>(null);
+  const [edicion, setEdicion] = useState<EdicionDeTablero | null>(null);
   // El menú se cierra en el mismo clic que abre el diálogo: así sabe que el foco no vuelve a la barra.
   const conDialogo = useRef(false);
 
@@ -70,62 +59,12 @@ export function SelectorDeTablero({ tableros: iniciales, tableroId, puedeAdminis
 
   const elegir = (id: string) => {
     if (id === tableroId) return;
-    router.push(`/cliente/tablero-ia?tablero=${encodeURIComponent(id)}`);
+    router.push(linkDelTableroEnPantalla(id));
   };
 
-  const abrirEdicion = (siguiente: Edicion) => {
+  const abrirEdicion = (siguiente: EdicionDeTablero) => {
     conDialogo.current = true;
     setEdicion(siguiente);
-    setNombre(siguiente.modo === "renombrar" ? siguiente.nombre : "");
-    setError(null);
-  };
-
-  const cerrarEdicion = () => {
-    if (guardando) return;
-    setEdicion(null);
-  };
-
-  const guardar = async (evento: FormEvent) => {
-    evento.preventDefault();
-    if (!edicion || guardando) return;
-    const limpio = nombre.trim();
-    const salvo = edicion.modo === "renombrar" ? edicion.id : null;
-    const problema = problemaDelNombreDeTablero(limpio, tableros, salvo);
-    if (problema) {
-      setError(problema);
-      return;
-    }
-    if (edicion.modo === "renombrar" && limpio === edicion.nombre) {
-      setEdicion(null);
-      return;
-    }
-    setGuardando(true);
-    setError(null);
-    try {
-      if (edicion.modo === "renombrar") {
-        const resultado = await renombrarTableroAction(edicion.id, limpio);
-        if (!resultado.ok) {
-          setError(resultado.error);
-          return;
-        }
-        setTableros((lista) => lista.map((tablero) => (tablero.id === edicion.id ? { ...tablero, nombre: limpio } : tablero)));
-        setEdicion(null);
-        // La ruta de arriba ("Tablero › …") lleva el nombre que manda el servidor.
-        router.refresh();
-      } else {
-        const resultado = await crearTableroAction(limpio);
-        if (!resultado.ok) {
-          setError(resultado.error);
-          return;
-        }
-        setEdicion(null);
-        router.push(`/cliente/tablero-ia?tablero=${encodeURIComponent(resultado.id)}`);
-      }
-    } catch {
-      setError("No se pudo guardar. Revisa la conexión e intenta de nuevo.");
-    } finally {
-      setGuardando(false);
-    }
   };
 
   return (
@@ -198,72 +137,35 @@ export function SelectorDeTablero({ tableros: iniciales, tableroId, puedeAdminis
               );
             })
           )}
+          <DropdownMenuSeparator />
           {puedeAdministrar ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => abrirEdicion({ modo: "crear" })} className="min-h-11 gap-2 md:min-h-10">
-                <Plus className="size-4 shrink-0" aria-hidden />
-                Nuevo tablero
-              </DropdownMenuItem>
-            </>
+            <DropdownMenuItem onClick={() => abrirEdicion({ modo: "crear" })} className="min-h-11 gap-2 md:min-h-10">
+              <Plus className="size-4 shrink-0" aria-hidden />
+              Nuevo tablero
+            </DropdownMenuItem>
           ) : null}
+          <DropdownMenuItem onClick={() => router.push(RUTA_DEL_INICIO)} className="min-h-11 gap-2 md:min-h-10">
+            <LayoutGrid className="size-4 shrink-0" aria-hidden />
+            Todos los tableros
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog
-        open={edicion !== null}
-        onOpenChange={(abrir) => {
-          if (!abrir) cerrarEdicion();
+      <DialogoDeTablero
+        edicion={edicion}
+        tableros={tableros}
+        alCerrar={() => setEdicion(null)}
+        alRenombrar={(id, nombre) => {
+          setTableros((lista) => lista.map((tablero) => (tablero.id === id ? { ...tablero, nombre } : tablero)));
+          setEdicion(null);
+          // La ruta de arriba ("Tablero › …") lleva el nombre que manda el servidor.
+          router.refresh();
         }}
-      >
-        <DialogContent initialFocus={campo}>
-          <form onSubmit={guardar} className="grid gap-4">
-            <DialogHeader>
-              <DialogTitle>{edicion?.modo === "crear" ? "Nuevo tablero" : "Cambiar nombre"}</DialogTitle>
-              <DialogDescription>
-                {edicion?.modo === "crear"
-                  ? "Nace con los tipos Área, Idea y Tarea."
-                  : "Las tarjetas no cambian: solo el nombre del tablero."}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-1.5">
-              <Input
-                ref={campo}
-                value={nombre}
-                onChange={(evento) => {
-                  setNombre(evento.target.value);
-                  setError(null);
-                }}
-                maxLength={MAX_NOMBRE_TABLERO}
-                placeholder="Ventas"
-                aria-label="Nombre del tablero"
-                aria-invalid={error ? true : undefined}
-                enterKeyHint="done"
-                autoComplete="off"
-                className="h-11 text-base md:h-9 md:text-sm"
-                disabled={guardando}
-              />
-              <div className="flex justify-between gap-2 text-xs">
-                <span className="text-destructive" role={error ? "alert" : undefined}>
-                  {error}
-                </span>
-                <span className="shrink-0 tabular-nums text-muted-foreground">
-                  {nombre.trim().length}/{MAX_NOMBRE_TABLERO}
-                </span>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" className="h-11 md:h-9" onClick={cerrarEdicion} disabled={guardando}>
-                Cancelar
-              </Button>
-              <Button type="submit" className="h-11 md:h-9" disabled={guardando}>
-                {guardando ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-                {edicion?.modo === "crear" ? "Crear" : "Guardar"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+        alCrear={(id) => {
+          setEdicion(null);
+          router.push(linkDelTableroEnPantalla(id));
+        }}
+      />
     </TituloDeLaBarra>
   );
 }

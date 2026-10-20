@@ -44,6 +44,7 @@ import {
   type PersonaQueAprueba,
   type ViaDeAprobacion,
 } from "./reglas-trabajador";
+import { contadoresDelConteo, type Contadores } from "./niveles";
 
 /*
   TABLERO IA (tableros inteligentes): la lógica compartida entre el MCP (Claude) y la pantalla (el dueño).
@@ -155,6 +156,9 @@ export type TableroResumen = {
   /** Todas las tarjetas vivas del tablero (también las carpetas, como Área). */
   tarjetas: number;
 };
+
+/** Un tablero en la página de inicio de Tablero IA: lo del selector, los contadores y la última actividad. */
+export type TableroDelInicio = TableroResumen & { contadores: Contadores; actualizadoEn: string };
 
 /** El numerito del selector: lo que espera una aprobación (la tarea, el plan o el sí final). */
 export function porAprobarDe(porEstado: Partial<Record<string, number>>) {
@@ -378,28 +382,40 @@ export async function listarTableros(workspaceId: string) {
   if (!tableros.length) {
     return [];
   }
-  const conteos = await prisma.tarjetaTablero.groupBy({
-    by: ["tableroId", "estado"],
-    // Las carpetas (tipos sin estados, como Área) no cuentan en los estados.
-    where: { tableroId: { in: tableros.map((tablero) => tablero.id) }, ...NO_BORRADA, tipo: { usaEstados: true } },
-    _count: { _all: true },
-  });
-  const todas = await prisma.tarjetaTablero.groupBy({
-    by: ["tableroId"],
-    where: { tableroId: { in: tableros.map((tablero) => tablero.id) }, ...NO_BORRADA },
-    _count: { _all: true },
-  });
+  const ids = tableros.map((tablero) => tablero.id);
+  const [conteos, todas, tipos] = await Promise.all([
+    prisma.tarjetaTablero.groupBy({
+      by: ["tableroId", "estado", "tipoId"],
+      // Las carpetas (tipos sin estados, como Área) no cuentan en los estados.
+      where: { tableroId: { in: ids }, ...NO_BORRADA, tipo: { usaEstados: true } },
+      _count: { _all: true },
+    }),
+    prisma.tarjetaTablero.groupBy({
+      by: ["tableroId"],
+      where: { tableroId: { in: ids }, ...NO_BORRADA },
+      _count: { _all: true },
+    }),
+    // Para los contadores: un POR_APROBAR solo "te toca" si su tipo pide aprobación.
+    prisma.tipoTarjeta.findMany({
+      where: { tableroId: { in: ids } },
+      select: { id: true, usaEstados: true, requiereAprobacion: true },
+    }),
+  ]);
   const tarjetasDe = new Map(todas.map((fila) => [fila.tableroId, fila._count._all]));
   return tableros.map((tablero) => {
     const porEstado: Partial<Record<EstadoTarjetaTablero, number>> = {};
     let total = 0;
-    for (const fila of conteos) {
-      if (fila.tableroId === tablero.id) {
-        porEstado[fila.estado] = fila._count._all;
-        total += fila._count._all;
-      }
+    const filas = conteos.filter((fila) => fila.tableroId === tablero.id);
+    for (const fila of filas) {
+      porEstado[fila.estado] = (porEstado[fila.estado] ?? 0) + fila._count._all;
+      total += fila._count._all;
     }
-    return { ...tablero, total, porEstado, tarjetas: tarjetasDe.get(tablero.id) ?? 0 };
+    // Los mismos contadores que los chips del diagrama en la raíz (página de inicio).
+    const contadores = contadoresDelConteo(
+      filas.map((fila) => ({ estado: fila.estado, tipoId: fila.tipoId, cantidad: fila._count._all })),
+      tipos,
+    );
+    return { ...tablero, total, porEstado, contadores, tarjetas: tarjetasDe.get(tablero.id) ?? 0 };
   });
 }
 

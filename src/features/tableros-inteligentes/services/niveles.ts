@@ -270,3 +270,20 @@ export function atenuadaPorGrupos(contadores: Contadores, activos: ReadonlySet<G
   if (total === 0) return false;
   return !GRUPOS_DE_CONTADOR.some((grupo) => activos.has(grupo) && contadores[grupo] > 0);
 }
+
+/**
+ * Los contadores de un tablero entero a partir de un conteo agrupado (estado y tipo, cuántas): los
+ * de la página de inicio, que no lee las tarjetas. Suman lo mismo que los chips en la raíz.
+ */
+export function contadoresDelConteo(
+  filas: readonly { estado: string; tipoId: string; cantidad: number }[],
+  tipos: readonly TipoDeContador[],
+): Contadores {
+  const porTipo = new Map(tipos.map((tipo) => [tipo.id, tipo]));
+  const total = contadoresEnCero();
+  for (const fila of filas) {
+    const grupo = grupoDeLaTarjeta(fila, porTipo);
+    if (grupo) total[grupo] += fila.cantidad;
+  }
+  return total;
+}

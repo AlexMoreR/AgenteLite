@@ -653,6 +653,21 @@ prueba("contadores: recursivos, sin borradas, sin carpetas; POR_APROBAR solo de 
   });
 });
 
+prueba("contadores del inicio: el conteo agrupado suma lo mismo que los chips en la raíz", () => {
+  const vivas = arbolConteo.filter((tarjeta) => !tarjeta.borradoEn);
+  const filas = [];
+  for (const tarjeta of vivas) {
+    const fila = filas.find((f) => f.estado === tarjeta.estado && f.tipoId === tarjeta.tipoId);
+    if (fila) fila.cantidad += 1;
+    else filas.push({ estado: tarjeta.estado, tipoId: tarjeta.tipoId, cantidad: 1 });
+  }
+  assert.deepEqual(
+    reglasNiveles.contadoresDelConteo(filas, tiposConteo),
+    reglasNiveles.contadoresDelNivel(arbolConteo, tiposConteo, null),
+  );
+  assert.deepEqual(reglasNiveles.contadoresDelConteo([], tiposConteo), { teToca: 0, enCurso: 0, siguen: 0, hecho: 0 });
+});
+
 prueba("filtro por grupos: atenúa la que no tiene nada en los grupos activos; 'sin tareas' nunca", () => {
   const activos = new Set(["teToca", "enCurso", "siguen"]);
   const cero = { teToca: 0, enCurso: 0, siguen: 0, hecho: 0 };

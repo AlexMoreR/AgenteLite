@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Controls, ReactFlow, applyNodeChanges, type NodeChange } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, Bot, Network, Shapes } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, ChevronRight, LayoutGrid, Shapes } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -28,7 +29,7 @@ import { FlechaFlotante, type FlechaDeTablero } from "./FlechaFlotante";
 import { MigasDelNivel } from "./MigasDelNivel";
 import { NodoTarjeta, type NodoDeTarjeta } from "./NodoTarjeta";
 import { PanelTipos } from "./PanelTipos";
-import { PanelTrabajador } from "./PanelTrabajador";
+import { RUTA_DEL_INICIO } from "./DialogoDeTablero";
 import { SelectorDeTablero } from "./SelectorDeTablero";
 
 /*
@@ -42,7 +43,8 @@ import { SelectorDeTablero } from "./SelectorDeTablero";
   ven. Cada etiqueta muestra sus contadores RECURSIVOS (ella + toda su descendencia): te toca, en
   curso, siguen. Tocar una tarjeta CON hijas entra a ella; tocar una SIN hijas abre su ficha;
   mantener presionada una con hijas, o tocar la del centro, abre su ficha sin entrar. Arriba, en UNA
-  fila baja: "←" (sube un nivel), la ruta ("Tablero › Magilus › Ventas") y el ícono de Tipos. El
+  fila baja: "←" (sube un nivel), "Tablero IA" (vuelve al listado de tableros, la página de inicio),
+  la ruta ("Tablero › Magilus › Ventas") y el ícono de Tipos. El
   nivel va en la URL (?area=<id>) con history.pushState: atrás del navegador vuelve al nivel anterior
   y los links funcionan sin pedirle nada al servidor. La unión con la madre es una línea fina gris
   del centro a cada hija con un punto que viaja (rojo si la hija tiene algo que "te toca"); las
@@ -70,16 +72,16 @@ const FILTROS_INICIALES: ReadonlySet<GrupoDeContador> = new Set<GrupoDeContador>
 
 type Props = {
   tableros: TableroResumen[];
-  tableroId: string | null;
-  tableroNombre: string | null;
-  inicial: ContenidoNuevo | null;
+  tableroId: string;
+  tableroNombre: string;
+  inicial: ContenidoNuevo;
   tarjetaInicial: string | null;
   nivelInicial: string | null;
   /** Puede apretar los botones de aprobar la tarea y el plan (el servidor revisa el alcance). */
   puedeAprobar: boolean;
   /** Puede tocar los tipos (dueño o ADMIN de la plataforma, como en la fase 1). */
   puedeEditarTipos: boolean;
-  /** Dueño o ADMIN de la plataforma: el panel Trabajador y crear o renombrar tableros. */
+  /** Dueño o ADMIN de la plataforma: crear o renombrar tableros (el Trabajador está en la página de inicio). */
   puedeAdministrar: boolean;
   /** Dueño del negocio: el sí final y quitar zonas protegidas. */
   esDueno: boolean;
@@ -193,7 +195,6 @@ export function TablerosInteligentesVista({
       : [],
   );
   const [panelTipos, setPanelTipos] = useState(false);
-  const [panelTrabajador, setPanelTrabajador] = useState(false);
 
   const tarjetas = useMemo(() => contenido?.tarjetas ?? [], [contenido]);
   const conexiones = useMemo<ConexionVista[]>(() => contenido?.conexiones ?? [], [contenido]);
@@ -333,26 +334,12 @@ export function TablerosInteligentesVista({
   const entrantes = abierta ? conexiones.filter((c) => c.destinoId === abierta).map((c) => c.origenId) : [];
   const salientes = abierta ? conexiones.filter((c) => c.origenId === abierta).map((c) => c.destinoId) : [];
 
-  if (!tableroId) {
-    return (
-      <div className="flex h-[calc(100dvh-3.5rem)] flex-col items-center justify-center gap-3 px-6 text-center">
-        <SelectorDeTablero tableros={tableros} tableroId={null} puedeAdministrar={puedeAdministrar} />
-        <Network className="size-10 text-muted-foreground" />
-        <h1 className="text-lg font-semibold">Todavía no hay tableros</h1>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          Pídele a Claude, por ejemplo: “Crea un tablero de Ventas y anota ahí las ideas que hablamos”. Las tarjetas
-          aparecen acá solas. Cuando lo cree, búscalo arriba, en el selector de tableros
-          {puedeAdministrar ? " (ahí también está «Nuevo tablero»)" : ""}.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="tablero-ia flex h-[calc(100dvh-3.5rem)] flex-col">
       <SelectorDeTablero tableros={tableros} tableroId={tableroId} puedeAdministrar={puedeAdministrar} />
-      {/* Arriba, en UNA fila baja: "←" (sube un nivel), la ruta y, a la derecha, el ícono de Tipos
-          (solo dueño/admin). En el celular todo botón mide al menos 40 px. */}
+      {/* Arriba, en UNA fila baja: "←" (sube un nivel), "Tablero IA" (el listado), la ruta y, a la
+          derecha, el ícono de Tipos (solo dueño/admin). En el celular todo botón mide al menos 40 px
+          y "Tablero IA" queda solo con su ícono. */}
       <div className="flex min-h-10 shrink-0 items-center gap-0.5 border-b border-border bg-card px-1 md:min-h-9 md:px-2">
         {nivel ? (
           <Button
@@ -366,19 +353,17 @@ export function TablerosInteligentesVista({
             <ArrowLeft />
           </Button>
         ) : null}
-        <MigasDelNivel tableroNombre={tableroNombre ?? "Tablero"} ruta={ruta} alIr={(id) => irANivel(id)} />
-        {puedeAdministrar ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-10 shrink-0 text-muted-foreground md:size-8"
-            onClick={() => setPanelTrabajador(true)}
-            aria-label="Trabajador"
-            title="Trabajador (clave y aprobadores)"
-          >
-            <Bot />
-          </Button>
-        ) : null}
+        <Link
+          href={RUTA_DEL_INICIO}
+          className="flex min-h-10 shrink-0 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground md:min-h-8 md:px-1.5"
+          aria-label="Tablero IA: todos los tableros"
+          title="Todos los tableros"
+        >
+          <LayoutGrid className="size-4 shrink-0" aria-hidden />
+          <span className="hidden sm:inline">Tablero IA</span>
+        </Link>
+        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        <MigasDelNivel tableroNombre={tableroNombre} ruta={ruta} alIr={(id) => irANivel(id)} />
         {puedeEditarTipos ? (
           <Button
             variant="ghost"
@@ -483,10 +468,6 @@ export function TablerosInteligentesVista({
         puedeEditar={puedeEditarTipos}
         alCambiar={refrescarYa}
       />
-
-      {puedeAdministrar ? (
-        <PanelTrabajador abierto={panelTrabajador} alCerrar={() => setPanelTrabajador(false)} lado={angosta ? "bottom" : "right"} />
-      ) : null}
     </div>
   );
 }
