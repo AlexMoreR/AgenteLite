@@ -69,7 +69,9 @@ import {
   - Dejar intacta una aprobación al editar: si edita una tarjeta APROBADA, vuelve a POR_APROBAR; si
     le cambia el tipo, queda POR_APROBAR o IDEA.
   - Quitarle la aprobación a un tipo, ni borrar tipos (solo el dueño en la pantalla).
-  - Borrar una tarjeta APROBADA o EN_CURSO.
+  - Borrar lo que tiene el trabajador en la mano (PLANEANDO, EN_CURSO, SUBIENDO), una tarjeta
+    APROBADA, PLAN_APROBADO o POR_REVISAR, o una con zona protegida. PLAN_LISTO y ERROR, solo por voz
+    del dueño (texto "sí, bórrala" y la cuenta de la clave es la dueña).
   - Deshacer una aprobación, ni dejar algo APROBADO deshaciendo.
 */
 
@@ -331,11 +333,20 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "borrar_tarjeta",
     title: "Borrar una tarjeta",
     description:
-      "Saca una tarjeta del tablero en un solo paso, con TODAS sus flechas (no hay que borrarlas aparte). Se puede deshacer con deshacer_cambio_tarjeta y vuelve con sus flechas. Sus hijas quedan sueltas hasta que se deshaga. No borra una tarjeta APROBADA ni EN_CURSO: eso lo decide el dueño." +
+      "Saca una tarjeta del tablero en un solo paso, con TODAS sus flechas (no hay que borrarlas aparte). Se puede deshacer con deshacer_cambio_tarjeta y vuelve con sus flechas. Sus hijas quedan sueltas hasta que se deshaga. " +
+      "Una tarjeta PLAN_LISTO o ERROR se borra SOLO si el dueño lo pidió en esta conversación: antes, léele el título y espera que diga 'sí, bórrala'; texto_confirmacion es lo que dijo, tal cual. La cuenta de la clave de Claude tiene que ser la dueña del negocio. Nunca borres por tu cuenta. " +
+      "No borra lo que tiene el trabajador en la mano (PLANEANDO, EN_CURSO, SUBIENDO), ni APROBADO, PLAN_APROBADO o POR_REVISAR, ni una tarjeta con zona protegida (esa, solo en la pantalla)." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
-      properties: { tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero)" } },
+      properties: {
+        tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero)" },
+        texto_confirmacion: {
+          type: "string",
+          description:
+            "Lo que dijo la persona para borrar, tal cual, por ejemplo 'sí, bórrala'. Obligatorio para PLAN_LISTO o ERROR; si viene en otra, queda anotado como borrado por voz. Mínimo 8 caracteres.",
+        },
+      },
       required: ["tarjeta_id"],
       additionalProperties: false,
     },
@@ -745,12 +756,14 @@ export async function ejecutarHerramientaMcpTableros(
     }
     case "borrar_tarjeta": {
       const tablero = await tableroDeLaTarjeta(contexto,args.tarjeta_id);
-      const resultado = await borrarTarjeta(contexto, args.tarjeta_id);
+      // Por voz: el servidor revisa el texto de la persona, la cuenta de la clave y el estado (reglas.ts).
+      const resultado = await borrarTarjeta(contexto, args.tarjeta_id, args.texto_confirmacion);
       return {
         ok: true,
         tablero: referencia(tablero),
         cambio_id: resultado.cambioId,
-        aviso: `Se borró "${resultado.titulo}" con ${resultado.flechas} flecha(s)${
+        ...(resultado.como ? { como: resultado.como } : {}),
+        aviso: `Se borró "${resultado.titulo}" (${resultado.estado}) con ${resultado.flechas} flecha(s)${
           resultado.hijas ? `; sus ${resultado.hijas} hija(s) quedan sueltas` : ""
         }. Para traerla de vuelta: deshacer_cambio_tarjeta con este cambio_id.`,
       };

@@ -38,10 +38,12 @@ import {
 import {
   esDuenoDelNegocio,
   esRepo,
+  motivoNoEsDueno,
   puedeAprobarMomento,
   puedeCambiarZonas,
   registroDeAprobacion,
   repoDeEntrada,
+  textoDeConfirmacionParaBorrar,
   unirZonas,
   zonasDeEntrada,
   type CuentaQueAprueba,
@@ -1582,19 +1584,47 @@ type FlechaGuardada = { id: string; origenId: string; destinoId: string };
  * Borrar una tarjeta (borrado suave): se marca borradoEn y se quitan TODAS sus flechas (salientes y
  * entrantes), que quedan guardadas en el historial para deshacerlo. Sus hijas no se tocan: se ven
  * sueltas hasta que se deshaga.
+ *
+ * Por voz (MCP con `textoConfirmacion`, lo que dijo la persona): PLAN_LISTO o ERROR se borran solo si
+ * la cuenta de la clave es la dueña del negocio (personaQueAprueba). El historial guarda quién, el
+ * texto exacto y la marca "borrado por voz por <nombre>"; con esa marca, deshacer la trae de vuelta.
  */
-export async function borrarTarjeta(contexto: ContextoTablero, tarjetaId: unknown) {
+export async function borrarTarjeta(contexto: ContextoTablero, tarjetaId: unknown, textoConfirmacion?: unknown) {
   const actual = await tarjetaDelNegocio(contexto, tarjetaId);
-  const veredicto = puedeBorrarTarjeta(contexto.origen, actual.estado);
+  const porVoz = contexto.origen === "MCP" && textoConfirmacion !== undefined && textoConfirmacion !== null;
+  const persona = porVoz ? await personaQueAprueba(contexto.workspaceId, contexto.userId) : null;
+  const confirmacion = persona
+    ? {
+        problemaDelTexto: textoDeConfirmacionParaBorrar(textoConfirmacion),
+        problemaDeLaCuenta: persona.cuenta ? motivoNoEsDueno(persona.cuenta, "voz") : null,
+      }
+    : undefined;
+  const veredicto = puedeBorrarTarjeta(contexto.origen, actual.estado, actual.zonaProtegida, confirmacion);
   if (veredicto) throw new Error(veredicto);
+  const registroDeVoz = persona
+    ? {
+        via: "voz",
+        quienNombre: persona.nombre,
+        userId: contexto.userId,
+        textoConfirmacion: String(textoConfirmacion).trim().slice(0, 500),
+        como: `borrado por voz por ${persona.nombre}`,
+      }
+    : {};
   return prisma.$transaction(async (tx) => {
     const flechas: FlechaGuardada[] = await tx.conexionTarjeta.findMany({
       where: { tableroId: actual.tableroId, OR: [{ origenId: actual.id }, { destinoId: actual.id }] },
       select: { id: true, origenId: true, destinoId: true },
     });
     const ahora = new Date();
+    // Condicionado al estado que se leyó (si el trabajador la tomó un instante antes, no se borra) y,
+    // desde Claude, a que siga sin zona protegida.
     const hecho = await tx.tarjetaTablero.updateMany({
-      where: { id: actual.id, estado: actual.estado, ...NO_BORRADA },
+      where: {
+        id: actual.id,
+        estado: actual.estado,
+        ...(contexto.origen === "PANTALLA" ? {} : { zonaProtegida: { isEmpty: true } }),
+        ...NO_BORRADA,
+      },
       data: { borradoEn: ahora },
     });
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
@@ -1606,10 +1636,17 @@ export async function borrarTarjeta(contexto: ContextoTablero, tarjetaId: unknow
       actual.id,
       "borrar",
       { estado: actual.estado, borradoEn: null, conexiones: flechas },
-      { borradoEn: ahora.toISOString() },
+      { borradoEn: ahora.toISOString(), ...registroDeVoz },
     );
     await tocarTablero(tx, actual.tableroId);
-    return { cambioId: cambio.id, titulo: actual.titulo, flechas: flechas.length, hijas };
+    return {
+      cambioId: cambio.id,
+      titulo: actual.titulo,
+      estado: actual.estado,
+      flechas: flechas.length,
+      hijas,
+      como: persona ? `borrado por voz por ${persona.nombre}` : null,
+    };
   });
 }
 

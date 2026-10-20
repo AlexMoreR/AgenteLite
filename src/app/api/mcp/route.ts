@@ -69,7 +69,9 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "otra Area). El Area es una carpeta: no tiene estado. Solo los tipos que piden " +
           "aprobacion (Tarea) pasan por POR_APROBAR. Claude nunca aprueba por su cuenta: deja la tarjeta POR_APROBAR y el dueno la aprueba " +
           "en la pantalla. Si se edita una tarjeta aprobada, vuelve a POR_APROBAR. borrar_tarjeta quita la tarjeta con sus " +
-          "flechas y se deshace con deshacer_cambio_tarjeta. " +
+          "flechas y se deshace con deshacer_cambio_tarjeta. Una tarjeta PLAN_LISTO o ERROR se borra solo si el dueno lo " +
+          "pidio: antes leerle el titulo y esperar que diga 'si, borrala'; texto_confirmacion es lo que dijo, tal cual. " +
+          "Nunca borrar por cuenta propia. No se borra lo que tiene el trabajador (PLANEANDO, EN_CURSO, SUBIENDO) ni lo de zona protegida. " +
           "TRABAJADOR (fase 2): una Tarea con repo (gestion o aizencrm) la ejecuta un PC aparte: escribe un plan (PLAN_LISTO), " +
           "el dueno lo aprueba, la construye y prueba en una rama (POR_REVISAR), el dueno da el si final y la sube (HECHO), o " +
           "queda ERROR con el motivo. Esos estados los pone solo el trabajador; ver_plan_y_resultado muestra el plan, el " +

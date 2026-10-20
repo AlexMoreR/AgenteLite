@@ -325,8 +325,9 @@ export function puedeDeshacer(
     return null;
   }
   if (cambio.accion === "borrar") {
-    // Vuelve con el estado que tenía, que nunca es uno aprobado (Claude no borra lo aprobado).
-    if (tieneAprobacion(estadoActual)) {
+    // Vuelve con el estado que tenía. Claude no borra lo aprobado, salvo PLAN_LISTO o ERROR por voz
+    // del dueño: esas vuelven tal cual (con su plan o su error).
+    if (tieneAprobacion(estadoActual) && !(seBorraPorVoz(estadoActual) && esBorradoPorVoz(cambio))) {
       return "Esa tarjeta estaba APROBADA: deshacer no devuelve una aprobación. Pídele al dueño que la revise.";
     }
     return null;
@@ -612,12 +613,65 @@ export function hijasQueQuedanMal(
 
 /* ───────────────────────────────────────────────────────────────────── borrar y links ── */
 
-/** ¿Se puede borrar la tarjeta? Claude no borra lo APROBADO, lo EN_CURSO ni nada que esté con el trabajador. */
-export function puedeBorrarTarjeta(origen: OrigenCambio, estado: EstadoTarjetaTablero): Veredicto {
-  if (origen !== "PANTALLA" && (tieneAprobacion(estado) || estado === "EN_CURSO")) {
+/**
+ * Lo que dejó el trabajador sin tenerla en la mano (plan listo o error): Claude las borra solo si el
+ * dueño lo pidió por voz. Al deshacer ese borrado vuelven con el mismo estado.
+ */
+export const ESTADOS_QUE_SE_BORRAN_POR_VOZ = ["PLAN_LISTO", "ERROR"] as const;
+
+export function seBorraPorVoz(estado: EstadoTarjetaTablero) {
+  return (ESTADOS_QUE_SE_BORRAN_POR_VOZ as readonly string[]).includes(estado);
+}
+
+/** Lo que dijo la persona al pedir el borrado por voz, ya revisado (reglas-trabajador.ts). */
+export type ConfirmacionDeBorrado = {
+  /** textoDeConfirmacionParaBorrar: null si dijo "sí, bórrala". */
+  problemaDelTexto: Veredicto;
+  /** motivoNoEsDueno (vía voz): null si la conexión es la del dueño del negocio. */
+  problemaDeLaCuenta: Veredicto;
+};
+
+/**
+ * ¿Se puede borrar la tarjeta? La pantalla borra todo. Claude (MCP):
+ *  - nunca una con zona protegida (esas, solo en la pantalla);
+ *  - PLAN_LISTO o ERROR, solo con la confirmación por voz del dueño ("sí, bórrala");
+ *  - nunca lo que tiene el trabajador en la mano (PLANEANDO, EN_CURSO, SUBIENDO) ni lo que está por
+ *    tomar o espera el sí final (APROBADO, PLAN_APROBADO, POR_REVISAR);
+ *  - lo demás sí. Si vino un texto de confirmación, tiene que decir "sí, bórrala".
+ */
+export function puedeBorrarTarjeta(
+  origen: OrigenCambio,
+  estado: EstadoTarjetaTablero,
+  zonaProtegida: readonly string[] = [],
+  confirmacion?: ConfirmacionDeBorrado,
+): Veredicto {
+  if (origen === "PANTALLA") return null;
+  if (zonaProtegida.length) {
+    return `La tarjeta toca una zona protegida (${zonaProtegida.join(", ")}): Claude no la borra. Se borra solo en la pantalla.`;
+  }
+  if (estado === "PLANEANDO" || estado === "EN_CURSO" || estado === "SUBIENDO") {
+    return `La tarjeta está ${estado}: el trabajador la tiene en la mano. Claude no la borra.`;
+  }
+  if (confirmacion?.problemaDelTexto) return confirmacion.problemaDelTexto;
+  if (seBorraPorVoz(estado)) {
+    if (!confirmacion) {
+      return `La tarjeta está ${estado}: Claude la borra solo si el dueño lo pidió. Léele el título, espera que diga "sí, bórrala" y manda eso en texto_confirmacion.`;
+    }
+    if (confirmacion.problemaDeLaCuenta) {
+      return `La tarjeta está ${estado}: por voz la borra solo el dueño del negocio. ${confirmacion.problemaDeLaCuenta}`;
+    }
+    return null;
+  }
+  if (tieneAprobacion(estado)) {
     return `La tarjeta está ${estado}: Claude no la borra. Pídele al dueño que decida qué hacer con ella.`;
   }
   return null;
+}
+
+/** ¿Este borrado fue por voz (borrar_tarjeta con texto_confirmacion)? Lo dice su `despues` en el historial. */
+export function esBorradoPorVoz(cambio: Pick<CambioParaDeshacer, "accion" | "despues">) {
+  const despues = cambio.despues as { via?: unknown } | null;
+  return cambio.accion === "borrar" && despues?.via === "voz";
 }
 
 /** Un link http(s), null para quitarlo ("" o null), undefined si no vino. */

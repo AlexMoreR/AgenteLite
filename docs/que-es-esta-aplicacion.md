@@ -376,8 +376,13 @@ la IA pausada no lo contesta el agente.
   el historial.
 - **Tablero IA: borrar.** No se borran tableros. `borrar_tarjeta` (MCP) es un borrado SUAVE (`borradoEn`):
   quita la tarjeta con todas sus flechas en un paso, guarda esas flechas en el historial y se deshace con
-  `deshacer_cambio_tarjeta` (vuelven las flechas cuya otra punta no está borrada). No borra tarjetas
-  APROBADAS ni EN_CURSO. Sus hijas se ven sueltas hasta que se deshaga. La pantalla no edita tarjetas: aprueba,
+  `deshacer_cambio_tarjeta` (vuelven las flechas cuya otra punta no está borrada). Por el MCP no borra lo
+  que tiene el trabajador en la mano (PLANEANDO, EN_CURSO, SUBIENDO), ni APROBADO, PLAN_APROBADO o
+  POR_REVISAR, ni ninguna tarjeta con zona protegida (esas, solo en la pantalla). PLAN_LISTO y ERROR se
+  borran solo por voz del dueño: `texto_confirmacion` con "sí" y una palabra de borrar ("sí, bórrala") y
+  la cuenta de la clave tiene que ser la dueña. El historial guarda quién, el texto exacto y "borrado por
+  voz por <nombre>"; con esa marca, deshacer la trae de vuelta con su estado, su plan y sus flechas (un
+  borrado de PLAN_LISTO o ERROR sin la marca no se deshace). Sus hijas se ven sueltas hasta que se deshaga. La pantalla no edita tarjetas: aprueba,
   administra los tipos y crea o renombra tableros. Renombrar un tablero (o cambiarle el dueño) no queda en
   ningún historial (el historial es por tarjeta) y no hay forma de deshacerlo salvo volver a renombrarlo.
 - **Tablero IA: no hay tableros compartidos.** Un tablero es de UNA persona (o de nadie): no se puede
@@ -420,7 +425,9 @@ la IA pausada no lo contesta el agente.
   (`Workspace.ownerId`), aunque sea ADMIN, o una CLIENTE con rol OWNER; siempre miembro activa. Ser ADMIN
   de la plataforma solo no da poder de dueño (en la pantalla sí aprueba la tarea y el plan, por voz no).
   Si falla, el error de `aprobar_tarjeta` dice con qué cuenta (nombre y correo) llegó la conexión y por
-  qué no es la dueña. Esta regla es solo del Tablero IA: `client-workspace-access.ts` no cambió.
+  qué no es la dueña. Esta regla es solo del Tablero IA: `client-workspace-access.ts` no cambió. Lo mismo
+  vale para borrar por voz una tarjeta PLAN_LISTO o ERROR con `borrar_tarjeta`: antes de borrar, Claude
+  le lee el título a la persona y espera el "sí, bórrala"; nunca borra por su cuenta.
 - **Tablero IA: el sí final despliega.** Aprobar "subir" hace que el trabajador empuje a `main`, y todo
   push a `main` de AizenCRM se despliega solo. El trabajador vuelve a correr la verificación y el ensayo de
   la migración antes de subir; si algo falla, no sube y queda ERROR.
