@@ -5,6 +5,7 @@ import {
   TIPOS_POR_DEFECTO,
   claveDeNombre,
   colorDeEntrada,
+  elegirMiembro,
   elegirTipo,
   esEstado,
   estadoAlCrear,
@@ -15,6 +16,7 @@ import {
   hijasQueQuedanMal,
   iconoDeEntrada,
   linkDeEntrada,
+  personaPuedeAprobar,
   puedeBorrarTarjeta,
   puedeBorrarTipo,
   puedeCambiarAprobacionDelTipo,
@@ -30,6 +32,7 @@ import {
   type AccionCambio,
   type EstadoTarjetaTablero,
   type MadresPermitidas,
+  type MiembroDelNegocio,
   type OrigenCambio,
 } from "./reglas";
 import {
@@ -72,7 +75,30 @@ import { contadoresDelConteo, type Contadores } from "./niveles";
   zona protegida y el candado del trabajador (trabajoIniciadoEn / trabajoVenceEn).
 */
 
-export type ContextoTablero = { workspaceId: string; userId: string; origen: OrigenCambio };
+/*
+  Tableros POR CUENTA (20-oct-2026): cada tablero tiene dueño (duenoUserId). Una persona ve los suyos;
+  el dueño del negocio y el ADMIN de la plataforma (personaPuedeAprobar) ven todos, y el MCP también
+  (su clave es del negocio). `soloDe` lleva el userId cuando la persona ve solo los suyos, o null.
+  El trabajador no pasa por acá: toma tarjetas de todos los tableros del negocio.
+*/
+export type Alcance = { workspaceId: string; soloDe: string | null };
+
+export type ContextoTablero = Alcance & { userId: string; origen: OrigenCambio };
+
+/** El alcance de una persona en la pantalla (el userId y el permiso salen de la sesión). */
+export function alcanceDe(acceso: { workspaceId: string; userId: string; isOwner: boolean; role: string }): Alcance {
+  return { workspaceId: acceso.workspaceId, soloDe: personaPuedeAprobar(acceso) ? null : acceso.userId };
+}
+
+/** Todo el negocio: el MCP y quien ya se sabe que ve todo. */
+export const todoElNegocio = (workspaceId: string): Alcance => ({ workspaceId, soloDe: null });
+
+/** El filtro de los tableros que alcanza: los del negocio y, si `soloDe`, solo los de esa persona. */
+function dondeTablero(alcance: Alcance): Prisma.TableroInteligenteWhereInput {
+  return alcance.soloDe
+    ? { workspaceId: alcance.workspaceId, duenoUserId: alcance.soloDe }
+    : { workspaceId: alcance.workspaceId };
+}
 
 export const LIMITE_TABLEROS = 50;
 export const LIMITE_TARJETAS = 300;
@@ -155,6 +181,9 @@ export type TableroResumen = {
   porAprobar: number;
   /** Todas las tarjetas vivas del tablero (también las carpetas, como Área). */
   tarjetas: number;
+  duenoUserId: string | null;
+  /** El nombre del dueño ("Emanuel Diaz"), o null si no tiene. */
+  duenoNombre: string | null;
 };
 
 /** Un tablero en la página de inicio de Tablero IA: lo del selector, los contadores y la última actividad. */
@@ -241,24 +270,33 @@ async function tocarTablero(tx: Tx, tableroId: string) {
   await tx.tableroInteligente.update({ where: { id: tableroId }, data: { actualizadoEn: new Date() } });
 }
 
-/** Un tablero de ESTE negocio, o error. */
-async function tableroDelNegocio(workspaceId: string, tableroId: unknown) {
+/** Un tablero de ESTE negocio que la persona alcanza, o error. */
+async function tableroDelNegocio(alcance: Alcance, tableroId: unknown) {
   const id = typeof tableroId === "string" ? tableroId.trim() : "";
   const tablero = id
-    ? await prisma.tableroInteligente.findFirst({ where: { id, workspaceId }, select: { id: true, nombre: true } })
+    ? await prisma.tableroInteligente.findFirst({ where: { id, ...dondeTablero(alcance) }, select: SELECT_REFERENCIA })
     : null;
   if (!tablero) {
     throw new Error("No existe ese tablero en este negocio. Ver listar_tableros para los ids.");
   }
-  return tablero;
+  return aReferencia(tablero);
 }
 
-/** Una tarjeta (no borrada) de ESTE negocio (por su tablero), o error. */
-async function tarjetaDelNegocio(workspaceId: string, tarjetaId: unknown, { incluirBorradas = false } = {}) {
+/** Lo que se dice de un tablero en cada respuesta del MCP: id, nombre y de quién es. */
+const SELECT_REFERENCIA = { id: true, nombre: true, dueno: { select: { name: true, email: true } } } as const;
+
+function aReferencia(fila: Prisma.TableroInteligenteGetPayload<{ select: typeof SELECT_REFERENCIA }>): TableroDeReferencia {
+  return { id: fila.id, nombre: fila.nombre, duenoNombre: fila.dueno ? nombreDePersona(fila.dueno) : null };
+}
+
+const nombreDePersona = (persona: { name: string | null; email: string }) => persona.name?.trim() || persona.email;
+
+/** Una tarjeta (no borrada) de ESTE negocio (por su tablero, que la persona alcanza), o error. */
+async function tarjetaDelNegocio(alcance: Alcance, tarjetaId: unknown, { incluirBorradas = false } = {}) {
   const id = typeof tarjetaId === "string" ? tarjetaId.trim() : "";
   const tarjeta = id
     ? await prisma.tarjetaTablero.findFirst({
-        where: { id, tablero: { workspaceId }, ...(incluirBorradas ? {} : NO_BORRADA) },
+        where: { id, tablero: dondeTablero(alcance), ...(incluirBorradas ? {} : NO_BORRADA) },
         select: { ...SELECT_TARJETA, tableroId: true, borradoEn: true },
       })
     : null;
@@ -373,12 +411,24 @@ async function revisarHijas(tarjetaId: string, tipoNuevoId: string, tipos: TipoV
 
 // ── Lectura ─────────────────────────────────────────────────────────────────────────────────
 
-export async function listarTableros(workspaceId: string) {
-  const tableros = await prisma.tableroInteligente.findMany({
-    where: { workspaceId },
+/** Los tableros que la persona alcanza, con su dueño y sus contadores. */
+export async function listarTableros(alcance: Alcance) {
+  const filas = await prisma.tableroInteligente.findMany({
+    where: dondeTablero(alcance),
     orderBy: { creadoEn: "asc" },
-    select: { id: true, nombre: true, creadoEn: true, actualizadoEn: true },
+    select: {
+      id: true,
+      nombre: true,
+      creadoEn: true,
+      actualizadoEn: true,
+      duenoUserId: true,
+      dueno: { select: { name: true, email: true } },
+    },
   });
+  const tableros = filas.map(({ dueno, ...tablero }) => ({
+    ...tablero,
+    duenoNombre: dueno ? nombreDePersona(dueno) : null,
+  }));
   if (!tableros.length) {
     return [];
   }
@@ -443,13 +493,13 @@ export async function contenidoDelTablero(tableroId: string) {
   };
 }
 
-export async function verTablero(workspaceId: string, tableroId: unknown) {
-  const tablero = await tableroDelNegocio(workspaceId, tableroId);
+export async function verTablero(alcance: Alcance, tableroId: unknown) {
+  const tablero = await tableroDelNegocio(alcance, tableroId);
   return { tablero, ...(await contenidoDelTablero(tablero.id)) };
 }
 
-export async function listarTipos(workspaceId: string, tableroId: unknown) {
-  const tablero = await tableroDelNegocio(workspaceId, tableroId);
+export async function listarTipos(alcance: Alcance, tableroId: unknown) {
+  const tablero = await tableroDelNegocio(alcance, tableroId);
   const [tipos, usos] = await Promise.all([
     tiposDelTablero(prisma, tablero.id),
     prisma.tarjetaTablero.groupBy({ by: ["tipoId"], where: { tableroId: tablero.id, ...NO_BORRADA }, _count: { _all: true } }),
@@ -459,53 +509,54 @@ export async function listarTipos(workspaceId: string, tableroId: unknown) {
 }
 
 /** Lo único que lee el refresco de 5 s: una fila por clave primaria. */
-export async function firmaDelTablero(workspaceId: string, tableroId: string) {
+export async function firmaDelTablero(alcance: Alcance, tableroId: string) {
   const fila = await prisma.tableroInteligente.findFirst({
-    where: { id: tableroId, workspaceId },
+    where: { id: tableroId, ...dondeTablero(alcance) },
     select: { actualizadoEn: true },
   });
   return fila?.actualizadoEn ?? null;
 }
 
-export type TableroDeReferencia = { id: string; nombre: string };
+export type TableroDeReferencia = { id: string; nombre: string; duenoNombre: string | null };
 
 /*
-  A qué tablero pertenece algo (para que el MCP diga el nombre del tablero en cada respuesta y Claude
-  no confunda dos tableros por voz). Incluyen las tarjetas borradas; null si no es de este negocio.
+  A qué tablero pertenece algo (para que el MCP diga el nombre del tablero y de quién es en cada
+  respuesta, y Claude no confunda dos tableros por voz). Incluyen las tarjetas borradas; null si no es
+  de este negocio (o la persona no lo alcanza).
 */
-export async function tableroDeLaTarjeta(workspaceId: string, tarjetaId: unknown): Promise<TableroDeReferencia | null> {
+export async function tableroDeLaTarjeta(alcance: Alcance, tarjetaId: unknown): Promise<TableroDeReferencia | null> {
   const id = typeof tarjetaId === "string" ? tarjetaId.trim() : "";
   if (!id) return null;
   const fila = await prisma.tarjetaTablero.findFirst({
-    where: { id, tablero: { workspaceId } },
-    select: { tablero: { select: { id: true, nombre: true } } },
+    where: { id, tablero: dondeTablero(alcance) },
+    select: { tablero: { select: SELECT_REFERENCIA } },
   });
-  return fila?.tablero ?? null;
+  return fila ? aReferencia(fila.tablero) : null;
 }
 
-export async function tableroDelTipo(workspaceId: string, tipoId: unknown): Promise<TableroDeReferencia | null> {
+export async function tableroDelTipo(alcance: Alcance, tipoId: unknown): Promise<TableroDeReferencia | null> {
   const id = typeof tipoId === "string" ? tipoId.trim() : "";
   if (!id) return null;
   const fila = await prisma.tipoTarjeta.findFirst({
-    where: { id, tablero: { workspaceId } },
-    select: { tablero: { select: { id: true, nombre: true } } },
+    where: { id, tablero: dondeTablero(alcance) },
+    select: { tablero: { select: SELECT_REFERENCIA } },
   });
-  return fila?.tablero ?? null;
+  return fila ? aReferencia(fila.tablero) : null;
 }
 
-export async function tableroDelCambio(workspaceId: string, cambioId: unknown): Promise<TableroDeReferencia | null> {
+export async function tableroDelCambio(alcance: Alcance, cambioId: unknown): Promise<TableroDeReferencia | null> {
   const id = typeof cambioId === "string" ? cambioId.trim() : "";
   if (!id) return null;
   const fila = await prisma.historialTarjeta.findFirst({
-    where: { id, tarjeta: { tablero: { workspaceId } } },
-    select: { tarjeta: { select: { tablero: { select: { id: true, nombre: true } } } } },
+    where: { id, tarjeta: { tablero: dondeTablero(alcance) } },
+    select: { tarjeta: { select: { tablero: { select: SELECT_REFERENCIA } } } },
   });
-  return fila?.tarjeta.tablero ?? null;
+  return fila ? aReferencia(fila.tarjeta.tablero) : null;
 }
 
 /** Incluye las borradas: así se encuentra el cambio "borrar" para deshacerlo. */
-export async function historialDeTarjeta(workspaceId: string, tarjetaId: unknown) {
-  const tarjeta = await tarjetaDelNegocio(workspaceId, tarjetaId, { incluirBorradas: true });
+export async function historialDeTarjeta(alcance: Alcance, tarjetaId: unknown) {
+  const tarjeta = await tarjetaDelNegocio(alcance, tarjetaId, { incluirBorradas: true });
   const filas = await prisma.historialTarjeta.findMany({
     where: { tarjetaId: tarjeta.id },
     orderBy: { creadoEn: "desc" },
@@ -568,8 +619,8 @@ function aprobacionesDelHistorial(
 }
 
 /** ver_plan_y_resultado (MCP) y la ficha: estado, repo, plan, resultado y quién aprobó qué y cuándo. */
-export async function planYResultado(workspaceId: string, tarjetaId: unknown) {
-  const { tarjeta, cambios } = await historialDeTarjeta(workspaceId, tarjetaId);
+export async function planYResultado(alcance: Alcance, tarjetaId: unknown) {
+  const { tarjeta, cambios } = await historialDeTarjeta(alcance, tarjetaId);
   return { tarjeta, aprobaciones: aprobacionesDelHistorial(cambios) };
 }
 
@@ -584,15 +635,15 @@ export type PendienteVista = TarjetaVista & {
 };
 
 /**
- * "Te toca a ti": lo que espera una decisión del dueño en TODOS los tableros del negocio. Las
- * POR_APROBAR (de tipos con aprobación), las del trabajador que esperan al dueño (PLAN_LISTO,
+ * "Te toca a ti": lo que espera una decisión del dueño en TODOS los tableros que la persona alcanza.
+ * Las POR_APROBAR (de tipos con aprobación), las del trabajador que esperan al dueño (PLAN_LISTO,
  * POR_REVISAR, ERROR) y las FALLIDO, de la más vieja a la más nueva.
  */
-export async function pendientesDelDueno(workspaceId: string): Promise<PendienteVista[]> {
+export async function pendientesDelDueno(alcance: Alcance): Promise<PendienteVista[]> {
   const filas = await prisma.tarjetaTablero.findMany({
     where: {
       ...NO_BORRADA,
-      tablero: { workspaceId },
+      tablero: dondeTablero(alcance),
       OR: [
         { estado: { in: ["POR_APROBAR", "PLAN_LISTO", "POR_REVISAR", "ERROR"] }, tipo: { requiereAprobacion: true, usaEstados: true } },
         { estado: "FALLIDO", tipo: { usaEstados: true } },
@@ -652,7 +703,33 @@ function nombreDeTablero(valor: unknown, existentes: { id: string; nombre: strin
   return String(valor).trim();
 }
 
-export async function crearTablero(contexto: ContextoTablero, nombre: unknown) {
+/** Quién puede ser dueño de un tablero: los miembros activos del negocio. */
+export async function miembrosDelNegocio(workspaceId: string): Promise<MiembroDelNegocio[]> {
+  const filas = await prisma.workspaceMember.findMany({
+    where: { workspaceId, isActive: true },
+    orderBy: { createdAt: "asc" },
+    select: { userId: true, user: { select: { name: true, email: true } } },
+  });
+  return filas.map((fila) => ({ userId: fila.userId, nombre: nombreDePersona(fila.user), email: fila.user.email }));
+}
+
+const SOLO_EL_DUENO_ELIGE = "De quién es un tablero lo elige solo el dueño del negocio.";
+
+/** El userId del dueño pedido (id, nombre o email de un miembro activo), o undefined si no vino. */
+async function duenoDeEntrada(contexto: ContextoTablero, pedido: unknown): Promise<string | undefined> {
+  if (pedido === undefined || pedido === null || (typeof pedido === "string" && !pedido.trim())) return undefined;
+  // Quien ve solo sus tableros no los regala ni toma los de otro.
+  if (contexto.soloDe) throw new Error(SOLO_EL_DUENO_ELIGE);
+  const elegido = elegirMiembro(await miembrosDelNegocio(contexto.workspaceId), pedido);
+  if ("error" in elegido) throw new Error(elegido.error);
+  return elegido.miembro.userId;
+}
+
+/**
+ * Crea un tablero. Es de quien lo crea, salvo que el dueño del negocio (o el ADMIN, o el MCP) elija
+ * otro dueño entre los miembros activos. El nombre no se repite en el negocio (aunque el otro no se vea).
+ */
+export async function crearTablero(contexto: ContextoTablero, nombre: unknown, dueno?: unknown) {
   const existentes = await prisma.tableroInteligente.findMany({
     where: { workspaceId: contexto.workspaceId },
     select: { id: true, nombre: true },
@@ -661,36 +738,50 @@ export async function crearTablero(contexto: ContextoTablero, nombre: unknown) {
   if (existentes.length >= LIMITE_TABLEROS) {
     throw new Error(`Este negocio ya tiene ${LIMITE_TABLEROS} tableros, que es el máximo.`);
   }
+  const duenoUserId = (await duenoDeEntrada(contexto, dueno)) ?? contexto.userId;
   return prisma.$transaction(async (tx) => {
     const tablero = await tx.tableroInteligente.create({
-      data: { workspaceId: contexto.workspaceId, nombre: limpio },
-      select: { id: true, nombre: true },
+      data: { workspaceId: contexto.workspaceId, nombre: limpio, duenoUserId },
+      select: SELECT_REFERENCIA,
     });
     await crearTiposPorDefecto(tx, tablero.id);
-    return tablero;
+    return aReferencia(tablero);
   });
 }
 
-/** Cambia el nombre de un tablero del negocio (mismas reglas que al crearlo). */
-export async function renombrarTablero(contexto: ContextoTablero, tableroId: unknown, nombre: unknown) {
-  const existentes = await prisma.tableroInteligente.findMany({
-    where: { workspaceId: contexto.workspaceId },
-    select: { id: true, nombre: true },
-  });
-  const actual = typeof tableroId === "string" ? existentes.find((tablero) => tablero.id === tableroId) : undefined;
+/**
+ * Cambia el nombre de un tablero que la persona alcanza (mismas reglas que al crearlo) y, si lo pide
+ * el dueño del negocio (o el ADMIN, o el MCP), también de quién es.
+ */
+export async function renombrarTablero(contexto: ContextoTablero, tableroId: unknown, nombre: unknown, dueno?: unknown) {
+  const id = typeof tableroId === "string" ? tableroId.trim() : "";
+  const [existentes, actual] = await Promise.all([
+    prisma.tableroInteligente.findMany({ where: { workspaceId: contexto.workspaceId }, select: { id: true, nombre: true } }),
+    id
+      ? prisma.tableroInteligente.findFirst({
+          where: { id, ...dondeTablero(contexto) },
+          select: { ...SELECT_REFERENCIA, duenoUserId: true },
+        })
+      : null,
+  ]);
   if (!actual) {
     throw new Error("Ese tablero no existe en este negocio (ver listar_tableros).");
   }
-  const limpio = nombreDeTablero(nombre, existentes, actual.id);
-  if (actual.nombre === limpio) {
-    return { id: actual.id, nombre: actual.nombre, antes: actual.nombre };
+  const limpio = nombre === undefined ? actual.nombre : nombreDeTablero(nombre, existentes, actual.id);
+  const duenoNuevo = await duenoDeEntrada(contexto, dueno);
+  const antes = aReferencia(actual);
+  const cambia: Prisma.TableroInteligenteUncheckedUpdateInput = {};
+  if (limpio !== actual.nombre) cambia.nombre = limpio;
+  if (duenoNuevo !== undefined && duenoNuevo !== actual.duenoUserId) cambia.duenoUserId = duenoNuevo;
+  if (!Object.keys(cambia).length) {
+    return { ...antes, antes: antes.nombre, duenoAntes: antes.duenoNombre };
   }
   const tablero = await prisma.tableroInteligente.update({
     where: { id: actual.id },
-    data: { nombre: limpio },
-    select: { id: true, nombre: true },
+    data: cambia,
+    select: SELECT_REFERENCIA,
   });
-  return { ...tablero, antes: actual.nombre };
+  return { ...aReferencia(tablero), antes: antes.nombre, duenoAntes: antes.duenoNombre };
 }
 
 // ── Escritura: tipos ────────────────────────────────────────────────────────────────────────
@@ -767,7 +858,7 @@ const YA_EXISTE_EL_TIPO = "Ya existe un tipo con ese nombre en este tablero.";
 const ESTADOS_EN_USO: EstadoTarjeta[] = [...ESTADOS_CON_APROBACION, "EN_CURSO"];
 
 export async function crearTipo(contexto: ContextoTablero, tableroId: unknown, datos: DatosTipo) {
-  const tablero = await tableroDelNegocio(contexto.workspaceId, tableroId);
+  const tablero = await tableroDelNegocio(contexto, tableroId);
   const tipos = await tiposDelTablero(prisma, tablero.id);
   if (tipos.length >= LIMITE_TIPOS) throw new Error(`El tablero ya tiene ${LIMITE_TIPOS} tipos, que es el máximo.`);
   const nombre = nombreDeTipo(datos.nombre ?? "", tipos, null)!;
@@ -801,12 +892,12 @@ export async function crearTipo(contexto: ContextoTablero, tableroId: unknown, d
   }
 }
 
-/** Un tipo de ESTE negocio, o error. */
-async function tipoDelNegocio(workspaceId: string, tipoId: unknown) {
+/** Un tipo de ESTE negocio (de un tablero que la persona alcanza), o error. */
+async function tipoDelNegocio(alcance: Alcance, tipoId: unknown) {
   const id = typeof tipoId === "string" ? tipoId.trim() : "";
   const tipo = id
     ? await prisma.tipoTarjeta.findFirst({
-        where: { id, tablero: { workspaceId } },
+        where: { id, tablero: dondeTablero(alcance) },
         select: { ...SELECT_TIPO, tableroId: true },
       })
     : null;
@@ -821,7 +912,7 @@ async function tipoDelNegocio(workspaceId: string, tipoId: unknown) {
  * está en uso.
  */
 export async function editarTipo(contexto: ContextoTablero, tipoId: unknown, datos: DatosTipo) {
-  const actual = await tipoDelNegocio(contexto.workspaceId, tipoId);
+  const actual = await tipoDelNegocio(contexto, tipoId);
   const tipos = await tiposDelTablero(prisma, actual.tableroId);
   const nombre = nombreDeTipo(datos.nombre, tipos, actual.id);
   const color = colorDeEntrada(datos.color);
@@ -936,7 +1027,7 @@ export async function editarTipo(contexto: ContextoTablero, tipoId: unknown, dat
 
 /** Borrar un tipo: solo la pantalla, y solo si ninguna tarjeta (ni borrada) lo usa. */
 export async function borrarTipo(contexto: ContextoTablero, tipoId: unknown) {
-  const actual = await tipoDelNegocio(contexto.workspaceId, tipoId);
+  const actual = await tipoDelNegocio(contexto, tipoId);
   const usos = await prisma.tarjetaTablero.count({ where: { tipoId: actual.id } });
   const veredicto = puedeBorrarTipo(contexto.origen, usos);
   if (veredicto) throw new Error(veredicto);
@@ -984,7 +1075,7 @@ export async function crearTarjeta(
     zonaProtegida?: unknown;
   },
 ) {
-  const tablero = await tableroDelNegocio(contexto.workspaceId, datos.tableroId);
+  const tablero = await tableroDelNegocio(contexto, datos.tableroId);
   const titulo = textoLimpio(datos.titulo, MAX_TITULO);
   if (!titulo) {
     throw new Error("Hace falta el título de la tarjeta.");
@@ -1111,7 +1202,7 @@ export async function editarTarjeta(
     zonaProtegida?: unknown;
   },
 ) {
-  const actual = await tarjetaDelNegocio(contexto.workspaceId, tarjetaId);
+  const actual = await tarjetaDelNegocio(contexto, tarjetaId);
   const enManos = puedeEditarTarjeta(actual.estado, Boolean(actual.repo));
   if (enManos) throw new Error(enManos);
 
@@ -1216,8 +1307,8 @@ export async function editarTarjeta(
 }
 
 export async function conectarTarjetas(contexto: ContextoTablero, origenId: unknown, destinoId: unknown) {
-  const origen = await tarjetaDelNegocio(contexto.workspaceId, origenId);
-  const destino = await tarjetaDelNegocio(contexto.workspaceId, destinoId);
+  const origen = await tarjetaDelNegocio(contexto, origenId);
+  const destino = await tarjetaDelNegocio(contexto, destinoId);
   if (origen.id === destino.id) {
     throw new Error("Una tarjeta no se conecta consigo misma.");
   }
@@ -1265,7 +1356,7 @@ export async function cambiarEstadoTarjeta(contexto: ContextoTablero, tarjetaId:
   if (!esEstado(estado)) {
     throw new Error("Estado desconocido. Van: IDEA, POR_APROBAR, EN_CURSO, HECHO o FALLIDO.");
   }
-  const actual = await tarjetaDelNegocio(contexto.workspaceId, tarjetaId);
+  const actual = await tarjetaDelNegocio(contexto, tarjetaId);
   const tipo = await reglasDelTipo(actual.tipoId);
   const veredicto = puedeCambiarEstado(actual.estado, estado, tipo.requiereAprobacion, tipo.usaEstados, Boolean(actual.repo));
   if (veredicto) {
@@ -1334,7 +1425,7 @@ const CAMBIO_MIENTRAS_MIRABAS = "La tarjeta cambió mientras la mirabas. Revísa
  * con su fila de historial (nombre, momento, vía y el texto exacto).
  */
 export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unknown, pedido: PedidoDeAprobar) {
-  const actual = await tarjetaDelNegocio(contexto.workspaceId, tarjetaId);
+  const actual = await tarjetaDelNegocio(contexto, tarjetaId);
   const [tipo, persona] = await Promise.all([
     reglasDelTipo(actual.tipoId),
     personaQueAprueba(contexto.workspaceId, contexto.userId),
@@ -1398,7 +1489,7 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
  */
 export async function cambiarZonasEnPantalla(contexto: ContextoTablero, tarjetaId: unknown, zonas: unknown) {
   if (contexto.origen !== "PANTALLA") throw new Error("Las zonas protegidas se quitan solo en la pantalla.");
-  const actual = await tarjetaDelNegocio(contexto.workspaceId, tarjetaId);
+  const actual = await tarjetaDelNegocio(contexto, tarjetaId);
   const enManos = puedeEditarTarjeta(actual.estado, Boolean(actual.repo));
   if (enManos) throw new Error(enManos);
   const final = zonasDeEntrada(zonas) ?? [];
@@ -1427,7 +1518,7 @@ type FlechaGuardada = { id: string; origenId: string; destinoId: string };
  * sueltas hasta que se deshaga.
  */
 export async function borrarTarjeta(contexto: ContextoTablero, tarjetaId: unknown) {
-  const actual = await tarjetaDelNegocio(contexto.workspaceId, tarjetaId);
+  const actual = await tarjetaDelNegocio(contexto, tarjetaId);
   const veredicto = puedeBorrarTarjeta(contexto.origen, actual.estado);
   if (veredicto) throw new Error(veredicto);
   return prisma.$transaction(async (tx) => {
@@ -1460,7 +1551,7 @@ export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId:
   const id = typeof cambioId === "string" ? cambioId.trim() : "";
   const cambio = id
     ? await prisma.historialTarjeta.findFirst({
-        where: { id, tarjeta: { tablero: { workspaceId: contexto.workspaceId } } },
+        where: { id, tarjeta: { tablero: dondeTablero(contexto) } },
         select: {
           id: true,
           tarjetaId: true,

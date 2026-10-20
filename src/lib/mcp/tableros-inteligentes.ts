@@ -132,7 +132,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "listar_tableros",
     title: "Ver los tableros de ideas",
     description:
-      "Muestra los tableros de ideas del negocio, con cuántas tarjetas hay en cada estado. Empezar por acá para tener los ids. Si no hay ninguno, crear uno con crear_tablero.",
+      "Muestra TODOS los tableros de ideas del negocio, de quién es cada uno (dueno) y cuántas tarjetas hay en cada estado. Cada tablero es de una persona: ella lo ve en su pantalla; el dueño del negocio ve todos. Empezar por acá para tener los ids. Si no hay ninguno, crear uno con crear_tablero.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: SOLO_LECTURA,
   },
@@ -140,10 +140,16 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "crear_tablero",
     title: "Crear un tablero de ideas",
     description:
-      "Crea un tablero nuevo, por ejemplo uno por tema ('Ventas', 'Producción', 'Marketing'). Nace con 3 tipos de tarjeta: Área (una carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea y la aprueba el dueño). Antes mirar listar_tableros para no repetir uno que ya existe. Antes de crearlo, decir en voz alta el nombre que va a tener.",
+      "Crea un tablero nuevo, por ejemplo uno por tema ('Ventas', 'Producción', 'Marketing'). Nace con 3 tipos de tarjeta: Área (una carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea y la aprueba el dueño). Antes mirar listar_tableros para no repetir uno que ya existe. Antes de crearlo, decir en voz alta el nombre que va a tener y de quién va a ser. Sin dueno, es de la persona de esta clave.",
     inputSchema: {
       type: "object",
-      properties: { nombre: { type: "string", description: "Nombre corto del tablero: 'Ventas'" } },
+      properties: {
+        nombre: { type: "string", description: "Nombre corto del tablero: 'Ventas'" },
+        dueno: {
+          type: "string",
+          description: "De quién es el tablero: el nombre ('Emanuel') o el email de una persona activa del negocio. Opcional.",
+        },
+      },
       required: ["nombre"],
       additionalProperties: false,
     },
@@ -153,13 +159,17 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "renombrar_tablero",
     title: "Cambiar el nombre de un tablero",
     description:
-      "Le cambia el nombre a un tablero del negocio (sus tarjetas, tipos y links no cambian). El nombre no puede ir vacío, tiene hasta 60 letras y no puede ser el de otro tablero del negocio (sin mirar mayúsculas). Los ids salen de listar_tableros." +
+      "Le cambia el nombre a un tablero del negocio (sus tarjetas, tipos y links no cambian) y, si se pide, de quién es (dueno). El nombre no puede ir vacío, tiene hasta 60 letras y no puede ser el de otro tablero del negocio (sin mirar mayúsculas). Para cambiar solo el dueño, mandar el mismo nombre. Los ids salen de listar_tableros." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
       properties: {
         tablero_id: { type: "string", description: "Id del tablero (ver listar_tableros)" },
         nombre: { type: "string", description: "El nombre nuevo: 'Ventas 2027'" },
+        dueno: {
+          type: "string",
+          description: "El dueño nuevo: nombre o email de una persona activa del negocio. Opcional.",
+        },
       },
       required: ["tablero_id", "nombre"],
       additionalProperties: false,
@@ -454,8 +464,11 @@ function queFalta(estado: string, conRepo: boolean, conZona: boolean): string {
   }
 }
 
-/** El campo `tablero` de cada respuesta: Claude repite este nombre (REGLA_DEL_TABLERO). */
-const referencia = (tablero: TableroDeReferencia | null) => (tablero ? { id: tablero.id, nombre: tablero.nombre } : null);
+const SIN_DUENO = "nadie (sin dueño)";
+
+/** El campo `tablero` de cada respuesta: Claude repite este nombre (REGLA_DEL_TABLERO) y sabe de quién es. */
+const referencia = (tablero: TableroDeReferencia | null) =>
+  tablero ? { id: tablero.id, nombre: tablero.nombre, dueno: tablero.duenoNombre ?? SIN_DUENO } : null;
 
 const datosDelTipo = (args: Argumentos) => ({
   nombre: args.nombre,
@@ -472,16 +485,18 @@ export async function ejecutarHerramientaMcpTableros(
   args: Argumentos,
   contextoMcp: Contexto,
 ): Promise<unknown> {
-  // Todo lo que entra por acá queda anotado como hecho por Claude.
-  const contexto: ContextoTablero = { ...contextoMcp, origen: "MCP" };
+  // Todo lo que entra por acá queda anotado como hecho por Claude. La clave es del negocio: ve TODOS los
+  // tableros (soloDe null), aunque los tableros sean por cuenta en la pantalla.
+  const contexto: ContextoTablero = { ...contextoMcp, soloDe: null, origen: "MCP" };
 
   switch (nombre) {
     case "listar_tableros": {
-      const tableros = await listarTableros(contexto.workspaceId);
+      const tableros = await listarTableros(contexto);
       return {
         tableros: tableros.map((tablero) => ({
           tablero_id: tablero.id,
           nombre: tablero.nombre,
+          dueno: tablero.duenoNombre ?? SIN_DUENO,
           tarjetas: tablero.total,
           por_estado: tablero.porEstado,
           ultimo_cambio: hora(tablero.actualizadoEn),
@@ -490,7 +505,9 @@ export async function ejecutarHerramientaMcpTableros(
         ...(tableros.length ? {} : { aviso: "Todavía no hay tableros. Crear uno con crear_tablero." }),
         ...(tableros.length > 1
           ? {
-              nota: `Hay ${tableros.length} tableros (${tableros.map((tablero) => tablero.nombre).join(", ")}): pregunta cuál antes de escribir.`,
+              nota: `Hay ${tableros.length} tableros (${tableros
+                .map((tablero) => `${tablero.nombre}, de ${tablero.duenoNombre ?? SIN_DUENO}`)
+                .join("; ")}): pregunta cuál antes de escribir.`,
             }
           : {}),
         estados: Object.entries(NOMBRE_DEL_ESTADO).map(([clave, texto]) => ({ clave, texto })),
@@ -499,31 +516,36 @@ export async function ejecutarHerramientaMcpTableros(
       };
     }
     case "crear_tablero": {
-      const tablero = await crearTablero(contexto, args.nombre);
+      const tablero = await crearTablero(contexto, args.nombre, args.dueno);
       return {
         ok: true,
         tablero: referencia(tablero),
         tablero_id: tablero.id,
         nombre: tablero.nombre,
+        dueno: tablero.duenoNombre ?? SIN_DUENO,
         aviso:
+          `Es de ${tablero.duenoNombre ?? SIN_DUENO}: esa persona lo ve en su pantalla (el dueño del negocio ve todos). ` +
           "Nació con los tipos Área (carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea; la aprueba el dueño). Ver listar_tipos.",
         link: linkDelTablero(tablero.id),
       };
     }
     case "renombrar_tablero": {
-      const tablero = await renombrarTablero(contexto, args.tablero_id, args.nombre);
+      const tablero = await renombrarTablero(contexto, args.tablero_id, args.nombre, args.dueno);
+      const igual = tablero.antes === tablero.nombre && tablero.duenoAntes === tablero.duenoNombre;
       return {
         ok: true,
         tablero: referencia(tablero),
         tablero_id: tablero.id,
         antes: tablero.antes,
         nombre: tablero.nombre,
-        ...(tablero.antes === tablero.nombre ? { aviso: "Ya se llamaba así: no cambió nada." } : {}),
+        dueno: tablero.duenoNombre ?? SIN_DUENO,
+        ...(tablero.duenoAntes !== tablero.duenoNombre ? { dueno_antes: tablero.duenoAntes ?? SIN_DUENO } : {}),
+        ...(igual ? { aviso: "Ya era así: no cambió nada." } : {}),
         link: linkDelTablero(tablero.id),
       };
     }
     case "ver_tablero": {
-      const { tablero, tarjetas, conexiones, tipos } = await verTablero(contexto.workspaceId, args.tablero_id);
+      const { tablero, tarjetas, conexiones, tipos } = await verTablero(contexto,args.tablero_id);
       const filtro = typeof args.estado === "string" ? args.estado : null;
       const titulo = new Map(tarjetas.map((tarjeta) => [tarjeta.id, tarjeta.titulo]));
       const tipoDe = new Map(tipos.map((tipo) => [tipo.id, tipo]));
@@ -584,7 +606,7 @@ export async function ejecutarHerramientaMcpTableros(
       };
     }
     case "listar_tipos": {
-      const { tablero, tipos } = await listarTipos(contexto.workspaceId, args.tablero_id);
+      const { tablero, tipos } = await listarTipos(contexto,args.tablero_id);
       const nombres = new Map(tipos.map((tipo) => [tipo.id, tipo.nombre]));
       return {
         tablero: referencia(tablero),
@@ -597,7 +619,7 @@ export async function ejecutarHerramientaMcpTableros(
     }
     case "crear_tipo": {
       const { tipo, tablero } = await crearTipo(contexto, args.tablero_id, datosDelTipo(args));
-      const { tipos } = await listarTipos(contexto.workspaceId, tablero.id);
+      const { tipos } = await listarTipos(contexto,tablero.id);
       return {
         ok: true,
         tablero: referencia(tablero),
@@ -606,7 +628,7 @@ export async function ejecutarHerramientaMcpTableros(
       };
     }
     case "editar_tipo": {
-      const tablero = await tableroDelTipo(contexto.workspaceId, args.tipo_id);
+      const tablero = await tableroDelTipo(contexto,args.tipo_id);
       const { tipo, volvieronAIdea } = await editarTipo(contexto, args.tipo_id, datosDelTipo(args));
       return {
         ok: true,
@@ -655,7 +677,7 @@ export async function ejecutarHerramientaMcpTableros(
       };
     }
     case "editar_tarjeta": {
-      const tablero = await tableroDeLaTarjeta(contexto.workspaceId, args.tarjeta_id);
+      const tablero = await tableroDeLaTarjeta(contexto,args.tarjeta_id);
       const resultado = await editarTarjeta(contexto, args.tarjeta_id, {
         titulo: args.titulo,
         detalle: args.detalle,
@@ -693,7 +715,7 @@ export async function ejecutarHerramientaMcpTableros(
       };
     }
     case "conectar_tarjetas": {
-      const tablero = await tableroDeLaTarjeta(contexto.workspaceId, args.origen_id);
+      const tablero = await tableroDeLaTarjeta(contexto,args.origen_id);
       const resultado = await conectarTarjetas(contexto, args.origen_id, args.destino_id);
       return {
         ok: true,
@@ -705,7 +727,7 @@ export async function ejecutarHerramientaMcpTableros(
     }
     case "cambiar_estado_tarjeta": {
       const tarjetaId = typeof args.tarjeta_id === "string" ? args.tarjeta_id : "";
-      const tablero = await tableroDeLaTarjeta(contexto.workspaceId, tarjetaId);
+      const tablero = await tableroDeLaTarjeta(contexto,tarjetaId);
       const resultado = await cambiarEstadoTarjeta(contexto, tarjetaId, args.estado);
       return {
         ok: true,
@@ -721,7 +743,7 @@ export async function ejecutarHerramientaMcpTableros(
       };
     }
     case "borrar_tarjeta": {
-      const tablero = await tableroDeLaTarjeta(contexto.workspaceId, args.tarjeta_id);
+      const tablero = await tableroDeLaTarjeta(contexto,args.tarjeta_id);
       const resultado = await borrarTarjeta(contexto, args.tarjeta_id);
       return {
         ok: true,
@@ -734,8 +756,8 @@ export async function ejecutarHerramientaMcpTableros(
     }
     case "ver_historial_tarjeta": {
       const [{ tarjeta, cambios, borrada }, tablero] = await Promise.all([
-        historialDeTarjeta(contexto.workspaceId, args.tarjeta_id),
-        tableroDeLaTarjeta(contexto.workspaceId, args.tarjeta_id),
+        historialDeTarjeta(contexto,args.tarjeta_id),
+        tableroDeLaTarjeta(contexto,args.tarjeta_id),
       ]);
       return {
         tablero: referencia(tablero),
@@ -764,14 +786,14 @@ export async function ejecutarHerramientaMcpTableros(
     }
     case "deshacer_cambio_tarjeta": {
       // Antes de deshacer: deshacer una creación saca la tarjeta y ya no se encontraría su tablero.
-      const tablero = await tableroDelCambio(contexto.workspaceId, args.cambio_id);
+      const tablero = await tableroDelCambio(contexto,args.cambio_id);
       const resultado = await deshacerCambioTarjeta(contexto, args.cambio_id);
       return { ok: true, tablero: referencia(tablero), ...("cambioId" in resultado ? { cambio_id: resultado.cambioId } : {}), aviso: resultado.aviso };
     }
     case "ver_plan_y_resultado": {
       const [{ tarjeta, aprobaciones }, tablero] = await Promise.all([
-        planYResultado(contexto.workspaceId, args.tarjeta_id),
-        tableroDeLaTarjeta(contexto.workspaceId, args.tarjeta_id),
+        planYResultado(contexto,args.tarjeta_id),
+        tableroDeLaTarjeta(contexto,args.tarjeta_id),
       ]);
       const resultado = tarjeta.resultado;
       return {
@@ -812,7 +834,7 @@ export async function ejecutarHerramientaMcpTableros(
     case "aprobar_tarjeta": {
       // La única puerta para aprobar desde Claude: el servidor revisa quién es (la clave), el estado,
       // el texto de la persona y la zona protegida (services/reglas-trabajador.ts).
-      const tablero = await tableroDeLaTarjeta(contexto.workspaceId, args.tarjeta_id);
+      const tablero = await tableroDeLaTarjeta(contexto,args.tarjeta_id);
       const resultado = await aprobarTarjeta(contexto, args.tarjeta_id, {
         momento: typeof args.momento === "string" ? args.momento : "",
         via: "voz",

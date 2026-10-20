@@ -81,7 +81,9 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "CUAL TABLERO (se habla por voz y hay varios, por ejemplo 'Magilus General' de Alexander y 'Desarrollo " +
           "Emanuel'): si el negocio tiene mas de un tablero y la persona no nombro cual, preguntarle antes de actuar. " +
           "Antes de escribir, decir en voz alta el nombre del tablero ('Lo anoto en Magilus General, listo?'). Nunca " +
-          "adivinar por el ultimo tablero usado. Cada respuesta del tablero trae `tablero` ({id, nombre}): repetir ese nombre.",
+          "adivinar por el ultimo tablero usado. Cada respuesta del tablero trae `tablero` ({id, nombre, dueno}): repetir ese nombre. " +
+          "Cada tablero es de una persona (dueno): ella lo ve en su pantalla y el dueno del negocio ve todos; crear_tablero " +
+          "acepta dueno (nombre o email de alguien del negocio) para crearlo a nombre de otra persona.",
       });
     }
     case "ping":

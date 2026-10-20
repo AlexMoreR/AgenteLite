@@ -34,7 +34,7 @@ const migraciones = fs
   .map((entrada) => entrada.name)
   .sort();
 assert.ok(migraciones.includes(NUEVA), `falta la migración ${NUEVA}`);
-assert.equal(migraciones.at(-1), NUEVA, "la migración nueva tiene que ser la última");
+// Ya no es la última (después vino la de tableros por cuenta, 20261020180000): se aplica hasta ella, en orden.
 
 const leer = (nombre) => fs.readFileSync(path.join(CARPETA, nombre, "migration.sql"), "utf8");
 

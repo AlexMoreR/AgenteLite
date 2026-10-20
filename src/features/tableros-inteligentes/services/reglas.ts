@@ -367,6 +367,39 @@ export function problemaDelNombreDeTablero(
   return igual ? `Ya existe un tablero "${igual.nombre}". Elige otro nombre.` : null;
 }
 
+/** Una persona que puede ser dueña de un tablero: un miembro activo del negocio. */
+export type MiembroDelNegocio = { userId: string; nombre: string; email: string };
+
+/**
+ * El miembro que se pidió como dueño de un tablero: por su id, su email o su nombre (sin tildes ni
+ * mayúsculas; si no hay uno igual, el único cuyo nombre lo contiene: "Emanuel" -> "Emanuel Diaz").
+ * Devuelve el miembro o el error para decirle a la persona.
+ */
+export function elegirMiembro(
+  miembros: MiembroDelNegocio[],
+  pedido: unknown,
+): { miembro: MiembroDelNegocio } | { error: string } {
+  const texto = typeof pedido === "string" ? pedido.trim() : "";
+  if (!texto) return { error: "Falta el dueño: el nombre o el email de una persona del negocio." };
+  const clave = claveDeNombre(texto);
+  const iguales = miembros.filter(
+    (miembro) =>
+      miembro.userId === texto || miembro.email.toLowerCase() === texto.toLowerCase() || claveDeNombre(miembro.nombre) === clave,
+  );
+  const candidatos = iguales.length ? iguales : miembros.filter((miembro) => claveDeNombre(miembro.nombre).includes(clave));
+  if (candidatos.length === 1) return { miembro: candidatos[0] };
+  if (!candidatos.length) {
+    return {
+      error: `"${texto}" no es una persona activa de este negocio. Pueden ser dueños: ${
+        miembros.map((miembro) => miembro.nombre).join(", ") || "nadie"
+      }.`,
+    };
+  }
+  return {
+    error: `Hay más de una persona así: ${candidatos.map((miembro) => `${miembro.nombre} (${miembro.email})`).join(", ")}. Usa el email.`,
+  };
+}
+
 /** Texto limpio, o undefined si no vino (o vino vacío cuando no se permite). */
 export function textoLimpio(valor: unknown, maximo: number): string | undefined {
   if (typeof valor !== "string") return undefined;

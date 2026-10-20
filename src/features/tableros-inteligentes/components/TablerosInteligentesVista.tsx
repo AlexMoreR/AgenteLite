@@ -31,6 +31,7 @@ import { NodoTarjeta, type NodoDeTarjeta } from "./NodoTarjeta";
 import { PanelTipos } from "./PanelTipos";
 import { RUTA_DEL_INICIO } from "./DialogoDeTablero";
 import { SelectorDeTablero } from "./SelectorDeTablero";
+import type { CuentasDeTableros } from "./DialogoDeTablero";
 
 /*
   La pantalla de Tablero IA, con el estilo del tablero "Tareas Magilus": el mapa POR NIVELES (como
@@ -81,8 +82,8 @@ type Props = {
   puedeAprobar: boolean;
   /** Puede tocar los tipos (dueño o ADMIN de la plataforma, como en la fase 1). */
   puedeEditarTipos: boolean;
-  /** Dueño o ADMIN de la plataforma: crear o renombrar tableros (el Trabajador está en la página de inicio). */
-  puedeAdministrar: boolean;
+  /** Tableros por cuenta: quién mira, si ve todos y a quién le puede dar uno (selector y diálogo de nombre). */
+  cuentas: CuentasDeTableros;
   /** Dueño del negocio: el sí final y quitar zonas protegidas. */
   esDueno: boolean;
 };
@@ -178,7 +179,7 @@ export function TablerosInteligentesVista({
   nivelInicial,
   puedeAprobar,
   puedeEditarTipos,
-  puedeAdministrar,
+  cuentas,
   esDueno,
 }: Props) {
   const angosta = useEsAngosta();
@@ -336,7 +337,7 @@ export function TablerosInteligentesVista({
 
   return (
     <div className="tablero-ia flex h-[calc(100dvh-3.5rem)] flex-col">
-      <SelectorDeTablero tableros={tableros} tableroId={tableroId} puedeAdministrar={puedeAdministrar} />
+      <SelectorDeTablero tableros={tableros} tableroId={tableroId} cuentas={cuentas} />
       {/* Arriba, en UNA fila baja: "←" (sube un nivel), "Tablero IA" (el listado), la ruta y, a la
           derecha, el ícono de Tipos (solo dueño/admin). En el celular todo botón mide al menos 40 px
           y "Tablero IA" queda solo con su ícono. */}

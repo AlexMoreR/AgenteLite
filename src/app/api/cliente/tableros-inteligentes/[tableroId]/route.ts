@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
-import { contenidoDelTablero, firmaDelTablero } from "@/features/tableros-inteligentes/services/tableros";
+import { alcanceDe, contenidoDelTablero, firmaDelTablero } from "@/features/tableros-inteligentes/services/tableros";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +31,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ tabl
   }
 
   const { tableroId } = await params;
-  const actualizadoEn = await firmaDelTablero(access.workspaceId, tableroId);
+  // Un tablero de otra persona (si no es el dueño ni el ADMIN) responde 404, como uno que no existe.
+  const actualizadoEn = await firmaDelTablero(alcanceDe(access), tableroId);
   if (!actualizadoEn) {
     return NextResponse.json({ ok: false }, { status: 404, headers: SIN_CACHE });
   }

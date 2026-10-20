@@ -15,24 +15,33 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { TableroResumen } from "../services/tableros";
-import { DialogoDeTablero, linkDelTableroEnPantalla, RUTA_DEL_INICIO, type EdicionDeTablero } from "./DialogoDeTablero";
+import {
+  DialogoDeTablero,
+  etiquetaDelDueno,
+  linkDelTableroEnPantalla,
+  puedeRenombrar,
+  RUTA_DEL_INICIO,
+  type CuentasDeTableros,
+  type EdicionDeTablero,
+} from "./DialogoDeTablero";
 
 /*
   El título de la barra superior en el diagrama de Tablero IA: el NOMBRE del tablero abierto, que al
-  tocarlo abre la lista de todos los tableros del negocio (cuántas tarjetas tiene cada uno y cuántas
+  tocarlo abre la lista de los tableros que la persona ve (cuántas tarjetas tiene cada uno y cuántas
   esperan aprobación). Se ve aunque haya uno solo, y la lista se vuelve a pedir cada vez que se abre:
   así aparecen los tableros que Claude acaba de crear sin recargar. Al final, "Todos los tableros"
   vuelve a la página de inicio.
 
-  El dueño (o el ADMIN de la plataforma) además ve el lápiz "Cambiar nombre" en cada tablero y
-  "+ Nuevo tablero": los dos abren el mismo diálogo (DialogoDeTablero, el mismo de la página de inicio).
+  Tableros por cuenta: cada persona ve los suyos y tiene el lápiz "Cambiar nombre" en ellos y
+  "+ Nuevo tablero"; el dueño (o el ADMIN de la plataforma) ve todos, con "de Emanuel Diaz" en los
+  ajenos, y el lápiz en todos. Los dos abren el mismo diálogo (DialogoDeTablero).
 */
 
-type Props = { tableros: TableroResumen[]; tableroId: string | null; puedeAdministrar: boolean };
+type Props = { tableros: TableroResumen[]; tableroId: string | null; cuentas: CuentasDeTableros };
 
 const tarjetasEnTexto = (cuantas: number) => (cuantas === 1 ? "1 tarjeta" : `${cuantas} tarjetas`);
 
-export function SelectorDeTablero({ tableros: iniciales, tableroId, puedeAdministrar }: Props) {
+export function SelectorDeTablero({ tableros: iniciales, tableroId, cuentas }: Props) {
   const router = useRouter();
   const [tableros, setTableros] = useState(iniciales);
   const [cargando, setCargando] = useState(false);
@@ -94,12 +103,11 @@ export function SelectorDeTablero({ tableros: iniciales, tableroId, puedeAdminis
             {cargando ? <Loader2 className="size-3.5 animate-spin" aria-label="Actualizando" /> : null}
           </DropdownMenuLabel>
           {tableros.length === 0 ? (
-            <p className="px-2 py-2 text-sm text-muted-foreground">
-              {puedeAdministrar ? "Todavía no hay tableros. Crea uno abajo o pídeselo a Claude." : "Todavía no hay tableros. Pídele a Claude que cree uno."}
-            </p>
+            <p className="px-2 py-2 text-sm text-muted-foreground">Todavía no hay tableros. Crea uno abajo o pídeselo a Claude.</p>
           ) : (
             tableros.map((tablero) => {
               const actual = tablero.id === tableroId;
+              const deQuien = etiquetaDelDueno(cuentas, tablero);
               return (
                 <div key={tablero.id} className="flex items-center gap-0.5">
                   <DropdownMenuItem
@@ -109,8 +117,9 @@ export function SelectorDeTablero({ tableros: iniciales, tableroId, puedeAdminis
                     <Check className={cn("size-4 shrink-0", actual ? "opacity-100" : "opacity-0")} aria-hidden />
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className="truncate">{tablero.nombre}</span>
-                      <span className="text-xs font-normal text-muted-foreground tabular-nums">
+                      <span className="truncate text-xs font-normal text-muted-foreground tabular-nums">
                         {tarjetasEnTexto(tablero.tarjetas)}
+                        {deQuien ? ` · ${deQuien}` : ""}
                       </span>
                     </span>
                     {tablero.porAprobar > 0 ? (
@@ -123,9 +132,17 @@ export function SelectorDeTablero({ tableros: iniciales, tableroId, puedeAdminis
                       </span>
                     ) : null}
                   </DropdownMenuItem>
-                  {puedeAdministrar ? (
+                  {puedeRenombrar(cuentas, tablero) ? (
                     <DropdownMenuItem
-                      onClick={() => abrirEdicion({ modo: "renombrar", id: tablero.id, nombre: tablero.nombre })}
+                      onClick={() =>
+                        abrirEdicion({
+                          modo: "renombrar",
+                          id: tablero.id,
+                          nombre: tablero.nombre,
+                          duenoUserId: tablero.duenoUserId,
+                          duenoNombre: tablero.duenoNombre,
+                        })
+                      }
                       className="size-11 shrink-0 justify-center text-muted-foreground md:size-10"
                       aria-label={`Cambiar nombre de ${tablero.nombre}`}
                       title="Cambiar nombre"
@@ -138,12 +155,10 @@ export function SelectorDeTablero({ tableros: iniciales, tableroId, puedeAdminis
             })
           )}
           <DropdownMenuSeparator />
-          {puedeAdministrar ? (
-            <DropdownMenuItem onClick={() => abrirEdicion({ modo: "crear" })} className="min-h-11 gap-2 md:min-h-10">
-              <Plus className="size-4 shrink-0" aria-hidden />
-              Nuevo tablero
-            </DropdownMenuItem>
-          ) : null}
+          <DropdownMenuItem onClick={() => abrirEdicion({ modo: "crear" })} className="min-h-11 gap-2 md:min-h-10">
+            <Plus className="size-4 shrink-0" aria-hidden />
+            Nuevo tablero
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => router.push(RUTA_DEL_INICIO)} className="min-h-11 gap-2 md:min-h-10">
             <LayoutGrid className="size-4 shrink-0" aria-hidden />
             Todos los tableros
@@ -154,9 +169,10 @@ export function SelectorDeTablero({ tableros: iniciales, tableroId, puedeAdminis
       <DialogoDeTablero
         edicion={edicion}
         tableros={tableros}
+        cuentas={cuentas}
         alCerrar={() => setEdicion(null)}
-        alRenombrar={(id, nombre) => {
-          setTableros((lista) => lista.map((tablero) => (tablero.id === id ? { ...tablero, nombre } : tablero)));
+        alRenombrar={(id, nombre, dueno) => {
+          setTableros((lista) => lista.map((tablero) => (tablero.id === id ? { ...tablero, nombre, ...dueno } : tablero)));
           setEdicion(null);
           // La ruta de arriba ("Tablero › …") lleva el nombre que manda el servidor.
           router.refresh();

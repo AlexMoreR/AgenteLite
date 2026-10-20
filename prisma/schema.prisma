@@ -37,6 +37,7 @@ model User {
   callAttempts          CallAttempt[]         @relation("CallAttemptCaller")
   diagrams              Diagram[]             @relation("DiagramCreatedBy")
   aprobadorTablero      AprobadorTablero[]
+  tablerosInteligentes  TableroInteligente[]  @relation("TableroDueno")
 }
 
 model EmailAuthToken {
@@ -1971,14 +1972,18 @@ model TableroInteligente {
   id            String             @id @default(cuid())
   workspaceId   String
   nombre        String
+  /// De quién es el tablero: esa persona lo ve; el dueño del negocio y el ADMIN de la plataforma ven todos. Null = de nadie (solo lo ven ellos).
+  duenoUserId   String?
   creadoEn      DateTime           @default(now())
   actualizadoEn DateTime           @default(now())
   workspace     Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  dueno         User?              @relation("TableroDueno", fields: [duenoUserId], references: [id], onDelete: SetNull)
   tarjetas      TarjetaTablero[]
   conexiones    ConexionTarjeta[]
   tipos         TipoTarjeta[]
 
   @@index([workspaceId, creadoEn])
+  @@index([workspaceId, duenoUserId])
 }
 
 /// Un tipo de tarjeta de un tablero (Área, Idea, Tarea...). Solo las de un tipo que requiereAprobacion pasan por POR_APROBAR y APROBADO; el MCP no puede quitarle la aprobación a un tipo.

@@ -3,6 +3,7 @@
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { personaPuedeAprobar } from "@/features/tableros-inteligentes/services/reglas";
 import {
+  alcanceDe,
   aprobarTarjeta,
   cambiarZonasEnPantalla,
   borrarTipo,
@@ -11,6 +12,7 @@ import {
   editarTipo,
   historialDeTarjeta,
   renombrarTablero,
+  type ContextoTablero,
 } from "@/features/tableros-inteligentes/services/tableros";
 import {
   agregarAprobador,
@@ -33,8 +35,12 @@ import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/servi
   Fase 2 (20-oct-2026): aprobar tiene tres momentos (la tarea, el plan y el sí final "subir a
   producción"); quién puede cada uno lo decide el servicio con reglas-trabajador.ts (el dueño todo, un
   aprobador según su alcance, el sí final SOLO el dueño). Quitar una zona protegida es solo del dueño.
-  El panel Trabajador (claves y aprobadores) y crear o renombrar tableros: el dueño o el ADMIN de la
-  plataforma (20-oct-2026), como los tipos; una asesora o una administradora del negocio, no.
+  El panel Trabajador (claves y aprobadores): el dueño o el ADMIN de la plataforma (20-oct-2026), como
+  los tipos; una asesora o una administradora del negocio, no.
+
+  Tableros POR CUENTA (20-oct-2026): cada persona ve, crea y renombra SUS tableros; el dueño o el
+  ADMIN ven todos y eligen de quién es cada uno. Todo lo de acá pasa por el alcance de la sesión
+  (alcanceDe), así que un id de un tablero ajeno responde "no existe".
 */
 
 type Resultado = { ok: true } | { ok: false; error: string };
@@ -50,13 +56,9 @@ export async function aprobarTarjetaAction(
   momento: MomentoDeAprobacion = "tarea",
   vistaEn?: string,
 ): Promise<Resultado> {
-  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  const contexto = await contextoDePantalla();
   try {
-    await aprobarTarjeta(
-      { workspaceId: access.workspaceId, userId: access.userId, origen: "PANTALLA" },
-      tarjetaId,
-      { momento, via: "pantalla", vistaEn },
-    );
+    await aprobarTarjeta(contexto, tarjetaId, { momento, via: "pantalla", vistaEn });
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo aprobar") };
@@ -65,41 +67,43 @@ export async function aprobarTarjetaAction(
 
 /** Cambiar las zonas protegidas de una tarjeta (quitarlas: solo el dueño; lo comprueba el servicio). */
 export async function cambiarZonasAction(tarjetaId: string, zonas: string[]): Promise<Resultado> {
-  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  const contexto = await contextoDePantalla();
   try {
-    await cambiarZonasEnPantalla({ workspaceId: access.workspaceId, userId: access.userId, origen: "PANTALLA" }, tarjetaId, zonas);
+    await cambiarZonasEnPantalla(contexto, tarjetaId, zonas);
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo cambiar la zona protegida") };
   }
 }
 
-/* ── Tableros (dueño o ADMIN de la plataforma) ─────────────────────────────────────────────── */
-
-const SOLO_EL_DUENO_TABLEROS = "Los tableros los crea y renombra solo el dueño del negocio.";
-
-async function accesoParaTableros() {
+/**
+ * La persona de la sesión con su alcance: el dueño o el ADMIN ven todos los tableros; los demás, solo
+ * los suyos (tableros por cuenta, 20-oct-2026). Un tablero ajeno responde "no existe".
+ */
+async function contextoDePantalla(): Promise<ContextoTablero> {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
-  if (!personaPuedeAprobar(access)) return null;
-  return { workspaceId: access.workspaceId, userId: access.userId, origen: "PANTALLA" as const };
+  return { ...alcanceDe(access), userId: access.userId, origen: "PANTALLA" };
 }
 
-export async function crearTableroAction(nombre: string): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  const contexto = await accesoParaTableros();
-  if (!contexto) return { ok: false, error: SOLO_EL_DUENO_TABLEROS };
+/* ── Tableros: cada uno crea y renombra los suyos; el dueño o el ADMIN, todos, y eligen el dueño ── */
+
+export async function crearTableroAction(
+  nombre: string,
+  duenoUserId?: string,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const contexto = await contextoDePantalla();
   try {
-    const tablero = await crearTablero(contexto, nombre);
+    const tablero = await crearTablero(contexto, nombre, duenoUserId);
     return { ok: true, id: tablero.id };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo crear el tablero") };
   }
 }
 
-export async function renombrarTableroAction(tableroId: string, nombre: string): Promise<Resultado> {
-  const contexto = await accesoParaTableros();
-  if (!contexto) return { ok: false, error: SOLO_EL_DUENO_TABLEROS };
+export async function renombrarTableroAction(tableroId: string, nombre: string, duenoUserId?: string): Promise<Resultado> {
+  const contexto = await contextoDePantalla();
   try {
-    await renombrarTablero(contexto, tableroId, nombre);
+    await renombrarTablero(contexto, tableroId, nombre, duenoUserId);
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo cambiar el nombre") };
@@ -210,7 +214,7 @@ export async function historialDeTarjetaAction(
 ): Promise<{ ok: true; cambios: CambioDeTarjetaVista[] } | { ok: false; error: string }> {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
   try {
-    const { cambios } = await historialDeTarjeta(access.workspaceId, tarjetaId);
+    const { cambios } = await historialDeTarjeta(alcanceDe(access), tarjetaId);
     return {
       ok: true,
       cambios: cambios.map((cambio) => ({
@@ -242,10 +246,10 @@ export type DatosTipoPantalla = {
   padres: string[];
 };
 
-async function accesoParaTipos() {
+async function accesoParaTipos(): Promise<ContextoTablero | null> {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
   if (!personaPuedeAprobar(access)) return null;
-  return { workspaceId: access.workspaceId, userId: access.userId, origen: "PANTALLA" as const };
+  return { ...alcanceDe(access), userId: access.userId, origen: "PANTALLA" };
 }
 
 const SOLO_EL_DUENO = "Los tipos los cambia solo el dueño del negocio.";

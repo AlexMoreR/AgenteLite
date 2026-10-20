@@ -1006,11 +1006,29 @@ prueba("nombre de tablero: no vacío, hasta 60 letras y sin repetir el de otro (
   assert.equal(reglas.problemaDelNombreDeTablero("Producción", existentes), null);
 });
 
-prueba("crear y renombrar tableros (y el panel Trabajador): dueño o ADMIN de la plataforma; una asesora no", () => {
+prueba("ver todos los tableros, elegir su dueño y el panel Trabajador: dueño o ADMIN de la plataforma; una asesora no", () => {
   assert.equal(reglas.personaPuedeAprobar({ isOwner: true, role: "CLIENTE" }), true);
   assert.equal(reglas.personaPuedeAprobar({ isOwner: false, role: "ADMIN" }), true);
   assert.equal(reglas.personaPuedeAprobar({ isOwner: false, role: "CLIENTE" }), false);
   assert.equal(reglas.personaPuedeAprobar({ isOwner: false, role: "EMPLEADO" }), false);
+});
+
+/* ------------------------------------------------------------ tableros por cuenta */
+
+prueba("el dueño de un tablero se elige por id, email o nombre (sin tildes ni mayúsculas)", () => {
+  const miembros = [
+    { userId: "u1", nombre: "Alexander Ruiz", email: "alex@magilus.co" },
+    { userId: "u2", nombre: "Emanuel Díaz", email: "emanuel@magilus.co" },
+    { userId: "u3", nombre: "Emanuela Gómez", email: "ela@magilus.co" },
+  ];
+  assert.equal(reglas.elegirMiembro(miembros, "u2").miembro.userId, "u2");
+  assert.equal(reglas.elegirMiembro(miembros, " EMANUEL@magilus.co ").miembro.userId, "u2");
+  assert.equal(reglas.elegirMiembro(miembros, "emanuel diaz").miembro.userId, "u2");
+  assert.equal(reglas.elegirMiembro(miembros, "alexander").miembro.userId, "u1", "parte del nombre, si es uno solo");
+  assert.match(reglas.elegirMiembro(miembros, "emanuel").error, /más de una persona/, "Emanuel y Emanuela: pide el email");
+  assert.match(reglas.elegirMiembro(miembros, "Pedro").error, /no es una persona activa/);
+  assert.match(reglas.elegirMiembro(miembros, "  ").error, /Falta el dueño/);
+  assert.match(reglas.elegirMiembro(miembros, 7).error, /Falta el dueño/);
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);

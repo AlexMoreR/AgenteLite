@@ -7,8 +7,10 @@ import { personaPuedeAprobar } from "@/features/tableros-inteligentes/services/r
 import { nivelDeLaTarjeta } from "@/features/tableros-inteligentes/services/niveles";
 import {
   RUTA_TABLEROS,
+  alcanceDe,
   contenidoDelTablero,
   listarTableros,
+  miembrosDelNegocio,
   personaQueAprueba,
   porAprobarDe,
 } from "@/features/tableros-inteligentes/services/tableros";
@@ -32,7 +34,8 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
   TABLERO IA: las ideas que arma Claude por el MCP, dibujadas como un mapa por niveles.
 
   Sin parámetros: la página de inicio (el listado de tableros y, para el dueño o el ADMIN, la sección
-  Trabajador). Un link a un tablero o tarjeta que no existe vuelve a ella.
+  Trabajador). Un link a un tablero o tarjeta que no existe, o de un tablero de otra persona, vuelve a
+  ella. Tableros por cuenta: cada persona ve los suyos; el dueño del negocio y el ADMIN, todos.
   ?tablero=<id> abre ese tablero; ?area=<tarjetaId> entra a esa tarjeta (ella al centro y sus hijas
   alrededor);
   ?tarjeta=<id> abre el tablero de esa tarjeta, en el nivel de su madre, con su ficha a la vista (es
@@ -45,12 +48,26 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
   const pedidaTarjeta = uno(parametros.tarjeta);
   const pedidoNivel = uno(parametros.area);
 
-  const [tableros, persona] = await Promise.all([
-    listarTableros(access.workspaceId),
+  // Tableros por cuenta: cada persona ve los suyos; el dueño o el ADMIN, todos (con el nombre del dueño).
+  const alcance = alcanceDe(access);
+  const [tableros, persona, miembros] = await Promise.all([
+    listarTableros(alcance),
     personaQueAprueba(access.workspaceId, access.userId),
+    // A quién se le puede dar un tablero (el diálogo de nombre del dueño o el ADMIN).
+    alcance.soloDe ? [] : miembrosDelNegocio(access.workspaceId),
   ]);
-  // Crear y renombrar tableros y la sección Trabajador: el dueño o el ADMIN de la plataforma (nunca una asesora).
+  // La sección Trabajador: el dueño o el ADMIN de la plataforma (nunca una asesora).
   const puedeAdministrar = persona.esDueno || persona.esAdminPlataforma;
+  // Crear y renombrar: cualquiera los suyos; el dueño o el ADMIN, todos, y eligen de quién es cada uno.
+  const resumen = (tablero: (typeof tableros)[number]) => ({
+    id: tablero.id,
+    nombre: tablero.nombre,
+    porAprobar: porAprobarDe(tablero.porEstado),
+    tarjetas: tablero.tarjetas,
+    duenoUserId: tablero.duenoUserId,
+    duenoNombre: tablero.duenoNombre,
+  });
+  const cuentas = { yo: access.userId, verTodos: alcance.soloDe === null, miembros };
 
   // Sin nada en el link: la página de inicio con el listado (el último que cambió va primero).
   if (!pedidoTablero && !pedidaTarjeta && !pedidoNivel) {
@@ -59,14 +76,12 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
         tableros={[...tableros]
           .sort((a, b) => b.actualizadoEn.getTime() - a.actualizadoEn.getTime())
           .map((tablero) => ({
-            id: tablero.id,
-            nombre: tablero.nombre,
-            porAprobar: porAprobarDe(tablero.porEstado),
-            tarjetas: tablero.tarjetas,
+            ...resumen(tablero),
             contadores: tablero.contadores,
             actualizadoEn: tablero.actualizadoEn.toISOString(),
           }))}
         puedeAdministrar={puedeAdministrar}
+        cuentas={cuentas}
       />
     );
   }
@@ -84,7 +99,8 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       if (pedidaTarjeta) tarjetaInicial = tarjeta.id;
     }
   }
-  // Un link a un tablero (o tarjeta) que ya no existe vuelve al listado.
+  // Un link a un tablero (o tarjeta) que ya no existe, o que es de otra persona, vuelve al listado:
+  // `tableros` ya trae solo los que esta persona ve.
   const elegido = tableros.find((tablero) => tablero.id === tableroId);
   if (!elegido) redirect(RUTA_TABLEROS);
   const contenido = await contenidoDelTablero(elegido.id);
@@ -95,12 +111,8 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
   return (
     <TablerosInteligentesVista
       key={elegido.id}
-      tableros={tableros.map((tablero) => ({
-        id: tablero.id,
-        nombre: tablero.nombre,
-        porAprobar: porAprobarDe(tablero.porEstado),
-        tarjetas: tablero.tarjetas,
-      }))}
+      tableros={tableros.map(resumen)}
+      cuentas={cuentas}
       tableroId={elegido.id}
       tableroNombre={elegido.nombre}
       inicial={{ actualizadoEn: elegido.actualizadoEn.toISOString(), ...contenido }}
@@ -109,7 +121,6 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       // Los botones de la tarea y el plan: dueño, ADMIN o aprobador (el alcance lo revisa el servidor).
       puedeAprobar={personaPuedeAprobar(access) || persona.esDueno || Boolean(persona.aprobador)}
       puedeEditarTipos={personaPuedeAprobar(access)}
-      puedeAdministrar={puedeAdministrar}
       esDueno={persona.esDueno}
     />
   );
