@@ -1,50 +1,71 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Background, Controls, ReactFlow, applyNodeChanges, type NodeChange } from "@xyflow/react";
+import { Controls, ReactFlow, applyNodeChanges, type NodeChange } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { ArrowLeft, Network, Shapes } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ESTADOS_TARJETA, NOMBRE_DEL_ESTADO, type EstadoTarjetaTablero } from "../services/reglas";
 import type { ConexionVista, TableroResumen, TarjetaVista, TipoVista } from "../services/tableros";
 import { disponerRadial, type Punto } from "../services/disposicion";
-import { contarHijas, gruposDelNivel, madresVisibles, migasDelNivel, tarjetasDelNivel } from "../services/niveles";
+import {
+  atenuadaPorGrupos,
+  contadoresDelNivel,
+  contadoresEnCero,
+  contadoresRecursivos,
+  contarHijas,
+  gruposDelNivel,
+  madresVisibles,
+  migasDelNivel,
+  tarjetasDelNivel,
+  type Contadores,
+  type GrupoDeContador,
+} from "../services/niveles";
 import { useRefrescoDelTablero, type ContenidoNuevo } from "../hooks/useRefrescoDelTablero";
-import { COLOR_DEL_ESTADO } from "./colores";
 import { FichaTarjeta } from "./FichaTarjeta";
 import { FlechaFlotante, type FlechaDeTablero } from "./FlechaFlotante";
-import { IconoDeTipo } from "./IconoDeTipo";
 import { MigasDelNivel } from "./MigasDelNivel";
 import { NodoTarjeta, type NodoDeTarjeta } from "./NodoTarjeta";
 import { PanelTipos } from "./PanelTipos";
 import { SelectorDeTablero } from "./SelectorDeTablero";
 
 /*
-  La pantalla de Tablero IA: el mapa POR NIVELES (como carpetas), los filtros por estado y por tipo,
-  el panel de Tipos (solo dueño/admin) y la ficha de cada tarjeta. Se actualiza sola
-  cada 5 s mientras la pestaña está a la vista.
+  La pantalla de Tablero IA, con el estilo del tablero "Tareas Magilus": el mapa POR NIVELES (como
+  carpetas) sobre un lienzo liso, los chips de grupo (Te toca / En curso / Sigue / Hecho), el panel
+  de Tipos (solo dueño/admin) y la ficha de cada tarjeta. Se actualiza sola cada 5 s mientras la
+  pestaña está a la vista. Sigue el tema del CRM (claro/oscuro, clase .dark).
 
   Niveles (services/niveles.ts): en la raíz, cada tarjeta sin madre ("Magilus") en el centro con sus
-  hijas directas (las áreas) ALREDEDOR (services/disposicion.ts, radial); las nietas no se ven.
-  Tocar una tarjeta CON hijas entra a ella (queda al centro con sus hijas alrededor); tocar una SIN
-  hijas abre su ficha; el botón "i" abre la ficha de una con hijas sin entrar. Arriba, en UNA fila
-  baja: "←" (sube un nivel), la ruta ("Tablero › Magilus › Ventas") para volver a cualquier nivel y
-  el ícono de Tipos. El nivel va
-  en la URL (?area=<id>) con history.pushState: atrás del navegador vuelve al nivel anterior y los
-  links funcionan sin pedirle nada al servidor. Se ven solo las flechas entre tarjetas visibles del
-  nivel; la unión con la madre es una línea del centro a cada hija (si ya hay una flecha entre las
-  dos, no se repite). Los filtros de estado aplican al nivel y no tocan las carpetas (tipos sin
-  estados, como Área).
+  hijas directas (las áreas) ALREDEDOR en un solo anillo (services/disposicion.ts); las nietas no se
+  ven. Cada etiqueta muestra sus contadores RECURSIVOS (ella + toda su descendencia): te toca, en
+  curso, siguen. Tocar una tarjeta CON hijas entra a ella; tocar una SIN hijas abre su ficha;
+  mantener presionada una con hijas, o tocar la del centro, abre su ficha sin entrar. Arriba, en UNA
+  fila baja: "←" (sube un nivel), la ruta ("Tablero › Magilus › Ventas") y el ícono de Tipos. El
+  nivel va en la URL (?area=<id>) con history.pushState: atrás del navegador vuelve al nivel anterior
+  y los links funcionan sin pedirle nada al servidor. La unión con la madre es una línea fina gris
+  del centro a cada hija con un punto que viaja (rojo si la hija tiene algo que "te toca"); las
+  flechas entre tarjetas visibles del nivel quedan como líneas punteadas tenues, sin punto.
+
+  Los chips cuentan lo del nivel (recursivo). Apagar un chip atenúa las hijas que no tienen nada en
+  los grupos encendidos; "Hecho" arranca apagado.
 
   En el celular: arrastrar y pellizcar mueven y acercan el mapa, tocar una tarjeta abre la ficha
-  desde abajo, y la ruta se desliza de lado.
+  desde abajo, y la ruta y los chips se deslizan de lado.
 */
 
 const TIPOS_DE_NODO = { tarjeta: NodoTarjeta };
 const TIPOS_DE_FLECHA = { flotante: FlechaFlotante };
-const COLOR_MADRE = "#a1a1aa";
+const ORIGEN_AL_CENTRO: [number, number] = [0.5, 0.5];
+
+/** Los chips: en el orden de la pantalla, con su color (variables de globals.css, .tablero-ia). */
+const CHIPS: { grupo: GrupoDeContador; nombre: string; color: string }[] = [
+  { grupo: "teToca", nombre: "Te toca", color: "var(--tia-rojo)" },
+  { grupo: "enCurso", nombre: "En curso", color: "var(--tia-verde)" },
+  { grupo: "siguen", nombre: "Sigue", color: "var(--tia-gris)" },
+  { grupo: "hecho", nombre: "Hecho", color: "var(--tia-gris)" },
+];
+const FILTROS_INICIALES: ReadonlySet<GrupoDeContador> = new Set<GrupoDeContador>(["teToca", "enCurso", "siguen"]);
 
 type Props = {
   tableros: TableroResumen[];
@@ -72,22 +93,24 @@ function useEsAngosta() {
   );
 }
 
-type Filtros = { estados: ReadonlySet<EstadoTarjetaTablero>; tipos: ReadonlySet<string> };
+/** Los grupos encendidos (chips). */
+type Filtros = ReadonlySet<GrupoDeContador>;
 
-/** Los tipos que son carpetas (sin estados, como Área). */
-type Carpetas = ReadonlySet<string>;
-
-/** ¿El filtro la atenúa? El de estado no toca las carpetas (no tienen estado). */
-const filtrada = (tarjeta: Pick<TarjetaVista, "estado" | "tipoId">, filtros: Filtros, carpetas: Carpetas) =>
-  (filtros.estados.size > 0 && !carpetas.has(tarjeta.tipoId) && !filtros.estados.has(tarjeta.estado)) ||
-  (filtros.tipos.size > 0 && !filtros.tipos.has(tarjeta.tipoId));
-
-const carpetasDe = (tipos: TipoVista[]): Carpetas => new Set(tipos.filter((tipo) => !tipo.usaEstados).map((tipo) => tipo.id));
+/** ¿El filtro la atenúa? Las del centro nunca; las demás si no tienen nada en los grupos encendidos. */
+const filtrada = (id: string, centros: ReadonlySet<string>, contadores: ReadonlyMap<string, Contadores>, filtros: Filtros) =>
+  !centros.has(id) && atenuadaPorGrupos(contadores.get(id) ?? contadoresEnCero(), filtros);
 
 /** El nivel que de verdad se muestra (uno que ya no existe = la raíz) y sus tarjetas. */
 function nivelVisible(tarjetas: TarjetaVista[], nivel: string | null) {
   return tarjetasDelNivel(tarjetas, nivel);
 }
+
+/** Las tarjetas del centro del nivel (la del nivel, o cada raíz en la entrada). */
+const centrosDelNivel = (tarjetas: TarjetaVista[], nivel: string | null) =>
+  new Set(gruposDelNivel(tarjetas, nivel).grupos.map((grupo) => grupo.centro));
+
+const contadoresDe = (contenido: Pick<ContenidoNuevo, "tarjetas" | "tipos">) =>
+  contadoresRecursivos(contenido.tarjetas, contenido.tipos);
 
 /**
  * Los nodos del nivel. `previas` son las posiciones que ya tenían en ESTE nivel (dibujadas o
@@ -103,31 +126,25 @@ function construirNodos(
   const { nivel, grupos } = gruposDelNivel(contenido.tarjetas, nivelPedido);
   const visibles = grupos.flatMap((grupo) => [grupo.centro, ...grupo.hijas]);
   const porId = new Map(contenido.tarjetas.map((tarjeta) => [tarjeta.id, tarjeta]));
-  const tipos = new Map(contenido.tipos.map((tipo) => [tipo.id, tipo]));
-  const carpetas = carpetasDe(contenido.tipos);
+  const centros = new Set(grupos.map((grupo) => grupo.centro));
+  const contadores = contadoresDe(contenido);
   const hijas = contarHijas(contenido.tarjetas);
   // Si el nivel pedido ya no existe (se borró) se muestra la raíz: las posiciones de antes no sirven.
   const posiciones = disponerRadial(grupos, nivel === nivelPedido ? previas : new Map());
   return visibles.map((id) => {
     const tarjeta = porId.get(id)!;
-    const tipo = tipos.get(tarjeta.tipoId);
     return {
       id,
       type: "tarjeta" as const,
+      // El centro de la etiqueta (el mapa usa nodeOrigin [0.5, 0.5]).
       position: posiciones.get(id) ?? { x: 0, y: 0 },
       data: {
         titulo: tarjeta.titulo,
-        area: tarjeta.area,
-        estado: tarjeta.estado,
-        tipoNombre: tipo?.nombre ?? "Tarjeta",
-        tipoColor: tipo?.color ?? "#71717a",
-        tipoIcono: tipo?.icono ?? null,
-        usaEstados: tipo?.usaEstados ?? true,
         hijas: hijas.get(id) ?? 0,
-        tieneLink: Boolean(tarjeta.link),
-        esNivel: id === nivel,
+        contadores: contadores.get(id) ?? contadoresEnCero(),
+        esNivel: centros.has(id),
         // Lo filtrado se atenúa en vez de desaparecer: así no se rompe el mapa.
-        atenuado: filtrada(tarjeta, filtros, carpetas),
+        atenuado: filtrada(id, centros, contadores, filtros),
         alAbrirFicha: () => alAbrirFicha(id),
       },
     };
@@ -157,11 +174,11 @@ export function TablerosInteligentesVista({
   const [nivel, setNivel] = useState<string | null>(() =>
     inicial ? nivelVisible(inicial.tarjetas, nivelInicial).nivel : null,
   );
-  const [filtros, setFiltros] = useState<Filtros>(() => ({ estados: new Set(), tipos: new Set() }));
+  const [filtros, setFiltros] = useState<Filtros>(FILTROS_INICIALES);
   const [abierta, setAbierta] = useState<string | null>(tarjetaInicial);
   const [nodos, setNodos] = useState<NodoDeTarjeta[]>(() =>
     inicial
-      ? construirNodos(inicial, nivelVisible(inicial.tarjetas, nivelInicial).nivel, { estados: new Set(), tipos: new Set() }, new Map(), setAbierta)
+      ? construirNodos(inicial, nivelVisible(inicial.tarjetas, nivelInicial).nivel, FILTROS_INICIALES, new Map(), setAbierta)
       : [],
   );
   const [panelTipos, setPanelTipos] = useState(false);
@@ -175,7 +192,12 @@ export function TablerosInteligentesVista({
   const { visibles } = useMemo(() => nivelVisible(tarjetas, nivel), [tarjetas, nivel]);
   const enNivel = useMemo(() => new Set(visibles), [visibles]);
   const ruta = useMemo(() => migasDelNivel(tarjetas, nivel), [tarjetas, nivel]);
-  const carpetas = useMemo(() => carpetasDe(tipos), [tipos]);
+  const contadores = useMemo(() => contadoresRecursivos(tarjetas, tipos), [tarjetas, tipos]);
+  const centros = useMemo(() => centrosDelNivel(tarjetas, nivel), [tarjetas, nivel]);
+  const conteoDelNivel = useMemo(
+    () => contadoresDelNivel(tarjetas, tipos, nivel, contadores),
+    [contadores, nivel, tarjetas, tipos],
+  );
 
   // Lo que necesitan los manejadores de "atrás" del navegador sin recrearse en cada render.
   const estadoRef = useRef({ contenido, filtros });
@@ -230,29 +252,14 @@ export function TablerosInteligentesVista({
     [enNivel, irANivel, madre],
   );
 
-  const cambiarFiltros = (siguiente: Filtros) => {
+  const alternarGrupo = (grupo: GrupoDeContador) => {
+    const siguiente = new Set(filtros);
+    if (siguiente.has(grupo)) siguiente.delete(grupo);
+    else siguiente.add(grupo);
     setFiltros(siguiente);
     setNodos((previos) =>
-      previos.map((nodo) => {
-        const tarjeta = tarjetas.find((una) => una.id === nodo.id);
-        return tarjeta ? { ...nodo, data: { ...nodo.data, atenuado: filtrada(tarjeta, siguiente, carpetas) } } : nodo;
-      }),
+      previos.map((nodo) => ({ ...nodo, data: { ...nodo.data, atenuado: filtrada(nodo.id, centros, contadores, siguiente) } })),
     );
-  };
-
-  const alternarEstado = (estado: EstadoTarjetaTablero | null) => {
-    const estados = new Set(filtros.estados);
-    if (estado === null) estados.clear();
-    else if (estados.has(estado)) estados.delete(estado);
-    else estados.add(estado);
-    cambiarFiltros({ ...filtros, estados });
-  };
-
-  const alternarTipo = (tipoId: string) => {
-    const deTipo = new Set(filtros.tipos);
-    if (deTipo.has(tipoId)) deTipo.delete(tipoId);
-    else deTipo.add(tipoId);
-    cambiarFiltros({ ...filtros, tipos: deTipo });
   };
 
   // Lo que el dueño arrastra se queda donde lo dejó mientras siga en este nivel (las posiciones
@@ -262,61 +269,46 @@ export function TablerosInteligentesVista({
   }, []);
 
   const aristas = useMemo<FlechaDeTablero[]>(() => {
-    const porId = new Map(tarjetas.map((tarjeta) => [tarjeta.id, tarjeta]));
-    const atenuadaPor = (id: string) => {
-      const tarjeta = porId.get(id);
-      return !tarjeta || filtrada(tarjeta, filtros, carpetas);
-    };
+    const atenuadaPor = (id: string) => filtrada(id, centros, contadores, filtros);
     const unidas = new Set(conexiones.flatMap((c) => [`${c.origenId}>${c.destinoId}`, `${c.destinoId}>${c.origenId}`]));
+    // Las flechas entre tarjetas del nivel: punteadas, tenues y sin punto (lo principal es la madre).
     const flechas: FlechaDeTablero[] = conexiones
       .filter((conexion) => enNivel.has(conexion.origenId) && enNivel.has(conexion.destinoId))
       .map((conexion) => {
         const atenuada = atenuadaPor(conexion.origenId) || atenuadaPor(conexion.destinoId);
-        const color = COLOR_DEL_ESTADO[porId.get(conexion.origenId)?.estado ?? "IDEA"].trazo;
         return {
           id: conexion.id,
           source: conexion.origenId,
           target: conexion.destinoId,
           type: "flotante" as const,
-          data: { color, atenuada, clase: "flecha" as const },
+          data: { color: "var(--tia-gris)", atenuada, clase: "flecha" as const, conPunto: false },
           selectable: false,
-          style: { stroke: color, strokeWidth: 1.5, opacity: atenuada ? 0.15 : 0.8 },
+          style: { stroke: "var(--tia-gris)", strokeWidth: 1, strokeDasharray: "3 4", opacity: atenuada ? 0.15 : 0.6 },
         };
       });
-    // La unión con la madre: del centro a cada hija (si ya hay una flecha entre las dos, no se repite).
+    // La unión con la madre: línea fina gris del centro a cada hija, con UN punto que viaja (rojo si
+    // la hija tiene algo que "te toca"). Si ya hay una flecha entre las dos, no se repite.
     const uniones: FlechaDeTablero[] = visibles
       .filter((id) => {
         const suMadre = madre.get(id);
         return suMadre && enNivel.has(suMadre) && !unidas.has(`${suMadre}>${id}`);
       })
       .map((id) => {
-        const atenuada = atenuadaPor(id) || atenuadaPor(madre.get(id)!);
+        const atenuada = atenuadaPor(id);
+        const teToca = (contadores.get(id)?.teToca ?? 0) > 0;
         return {
           id: `madre-${id}`,
           source: madre.get(id)!,
           target: id,
           type: "flotante" as const,
-          data: { color: COLOR_MADRE, atenuada, clase: "madre" as const },
+          data: { color: teToca ? "var(--tia-rojo)" : "var(--tia-gris)", atenuada, clase: "madre" as const },
           selectable: false,
-          style: { stroke: COLOR_MADRE, strokeWidth: 1.25, opacity: atenuada ? 0.15 : 0.7 },
+          style: { stroke: "var(--tia-linea)", strokeWidth: 1, opacity: atenuada ? 0.3 : 1 },
         };
       });
     return [...uniones, ...flechas];
-  }, [carpetas, conexiones, enNivel, filtros, madre, tarjetas, visibles]);
+  }, [centros, conexiones, contadores, enNivel, filtros, madre, visibles]);
 
-  const delNivel = useMemo(() => tarjetas.filter((tarjeta) => enNivel.has(tarjeta.id)), [tarjetas, enNivel]);
-  // Las carpetas (Área) no tienen estado: no cuentan en los filtros de estado.
-  const conEstado = useMemo(() => delNivel.filter((tarjeta) => !carpetas.has(tarjeta.tipoId)), [delNivel, carpetas]);
-  const conteoEstado = useMemo(() => {
-    const cuenta = new Map<EstadoTarjetaTablero, number>();
-    for (const tarjeta of conEstado) cuenta.set(tarjeta.estado, (cuenta.get(tarjeta.estado) ?? 0) + 1);
-    return cuenta;
-  }, [conEstado]);
-  const conteoTipo = useMemo(() => {
-    const cuenta = new Map<string, number>();
-    for (const tarjeta of delNivel) cuenta.set(tarjeta.tipoId, (cuenta.get(tarjeta.tipoId) ?? 0) + 1);
-    return cuenta;
-  }, [delNivel]);
   const usosDeTipo = useMemo(() => {
     const cuenta = new Map<string, number>();
     for (const tarjeta of tarjetas) cuenta.set(tarjeta.tipoId, (cuenta.get(tarjeta.tipoId) ?? 0) + 1);
@@ -341,10 +333,8 @@ export function TablerosInteligentesVista({
     );
   }
 
-  const conFiltros = filtros.estados.size > 0 || filtros.tipos.size > 0;
-
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
+    <div className="tablero-ia flex h-[calc(100dvh-3.5rem)] flex-col">
       <SelectorDeTablero tableros={tableros} tableroId={tableroId} />
       {/* Arriba, en UNA fila baja: "←" (sube un nivel), la ruta y, a la derecha, el ícono de Tipos
           (solo dueño/admin). En el celular todo botón mide al menos 40 px. */}
@@ -376,62 +366,35 @@ export function TablerosInteligentesVista({
         ) : null}
       </div>
 
-      {/* Filtros por estado y por tipo del nivel (se deslizan de lado en el celular). */}
+      {/* Chips de grupo del nivel (recursivos). Apagado = tachado y "○": sus hijas se atenúan.
+          Se deslizan de lado en el celular. */}
       <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-border bg-card px-3 py-2 [scrollbar-width:none]">
-        <button
-          type="button"
-          onClick={() => cambiarFiltros({ estados: new Set(), tipos: new Set() })}
-          className={cn(
-            "min-h-10 shrink-0 rounded-full border px-3 py-1 text-xs font-medium md:min-h-0",
-            !conFiltros ? "border-primary bg-primary text-primary-foreground" : "text-muted-foreground",
-          )}
-        >
-          Todas · {delNivel.length}
-        </button>
-        {ESTADOS_TARJETA.map((estado) => {
-          const activo = filtros.estados.has(estado);
-          const cuantas = conteoEstado.get(estado) ?? 0;
-          if (!cuantas && !activo) return null;
+        {CHIPS.map(({ grupo, nombre, color }) => {
+          const activo = filtros.has(grupo);
           return (
             <button
-              key={estado}
+              key={grupo}
               type="button"
-              onClick={() => alternarEstado(estado)}
+              onClick={() => alternarGrupo(grupo)}
               aria-pressed={activo}
+              title={activo ? `Ocultar "${nombre}"` : `Mostrar "${nombre}"`}
               className={cn(
-                "flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium md:min-h-0",
-                activo ? COLOR_DEL_ESTADO[estado].pastilla : "text-muted-foreground",
+                "flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium tabular-nums md:min-h-0",
+                activo ? "border-border bg-background text-foreground" : "border-dashed text-muted-foreground line-through",
               )}
             >
-              <span className={cn("size-2 rounded-full", COLOR_DEL_ESTADO[estado].punto)} aria-hidden />
-              {NOMBRE_DEL_ESTADO[estado]} · {cuantas}
-            </button>
-          );
-        })}
-        <span className="mx-1 w-px shrink-0 bg-border" aria-hidden />
-        {tipos.map((tipo) => {
-          const activo = filtros.tipos.has(tipo.id);
-          const cuantas = conteoTipo.get(tipo.id) ?? 0;
-          if (!cuantas && !activo) return null;
-          return (
-            <button
-              key={tipo.id}
-              type="button"
-              onClick={() => alternarTipo(tipo.id)}
-              aria-pressed={activo}
-              className={cn(
-                "flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium md:min-h-0",
-                activo ? "border-foreground/40 bg-muted text-foreground" : "text-muted-foreground",
-              )}
-            >
-              <IconoDeTipo icono={tipo.icono} color={tipo.color} className="size-3.5" />
-              {tipo.nombre} · {cuantas}
+              <span
+                className="size-2 shrink-0 rounded-full border"
+                style={{ borderColor: color, background: activo ? color : "transparent" }}
+                aria-hidden
+              />
+              {nombre} {conteoDelNivel[grupo]}
             </button>
           );
         })}
       </div>
 
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 bg-zinc-50 dark:bg-zinc-950">
         {tarjetas.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-muted-foreground">
             El tablero está vacío. Las ideas que anote Claude aparecen acá en unos segundos.
@@ -445,9 +408,12 @@ export function TablerosInteligentesVista({
             nodeTypes={TIPOS_DE_NODO}
             onNodesChange={alMoverNodos}
             onNodeClick={(_, nodo) => {
+              // Una hija con hijas entra; el centro o una sin hijas abre su ficha.
               if (nodo.data.hijas > 0 && !nodo.data.esNivel) irANivel(nodo.id);
               else setAbierta(nodo.id);
             }}
+            nodeOrigin={ORIGEN_AL_CENTRO}
+            className="chatbot-flow-canvas"
             nodesConnectable={false}
             edgesFocusable={false}
             deleteKeyCode={null}
@@ -457,7 +423,6 @@ export function TablerosInteligentesVista({
             maxZoom={2}
             proOptions={{ hideAttribution: true }}
           >
-            <Background gap={24} size={1} />
             <Controls showInteractive={false} position="bottom-right" />
           </ReactFlow>
         )}

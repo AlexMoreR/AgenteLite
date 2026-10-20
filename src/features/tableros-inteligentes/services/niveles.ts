@@ -157,3 +157,109 @@ export function agruparPorArea<T extends TarjetaDeNivel>(
   }
   return { areas, sueltas };
 }
+
+/*
+  CONTADORES del mapa (como el tablero "Tareas Magilus"): cada tarjeta cuenta ELLA MISMA y TODA su
+  descendencia no borrada, pero solo las tarjetas de tipos con estados (las carpetas, como Área, no
+  suman). Los grupos:
+  - teToca: lo que espera al dueño = POR_APROBAR (solo de tipos con aprobación) + FALLIDO.
+  - enCurso: EN_CURSO.
+  - siguen: abiertas que no dependen del dueño = IDEA + APROBADO (y POR_APROBAR de tipos sin aprobación).
+  - hecho: HECHO.
+*/
+export type Contadores = { teToca: number; enCurso: number; siguen: number; hecho: number };
+export type GrupoDeContador = keyof Contadores;
+export const GRUPOS_DE_CONTADOR: readonly GrupoDeContador[] = ["teToca", "enCurso", "siguen", "hecho"];
+
+export const contadoresEnCero = (): Contadores => ({ teToca: 0, enCurso: 0, siguen: 0, hecho: 0 });
+
+export type TarjetaConEstado = TarjetaDeNivel & { estado: string; tipoId: string };
+export type TipoDeContador = { id: string; usaEstados: boolean; requiereAprobacion: boolean };
+
+/** El grupo de UNA tarjeta por su propio estado (null = carpeta o tipo sin estados). */
+export function grupoDeLaTarjeta(
+  tarjeta: Pick<TarjetaConEstado, "estado" | "tipoId">,
+  tipos: ReadonlyMap<string, TipoDeContador>,
+): GrupoDeContador | null {
+  const tipo = tipos.get(tarjeta.tipoId);
+  if (tipo && !tipo.usaEstados) return null;
+  switch (tarjeta.estado) {
+    case "FALLIDO":
+      return "teToca";
+    case "POR_APROBAR":
+      // Sin tipo conocido se trata como que pide aprobación (lo más seguro: que el dueño lo vea).
+      return !tipo || tipo.requiereAprobacion ? "teToca" : "siguen";
+    case "EN_CURSO":
+      return "enCurso";
+    case "IDEA":
+    case "APROBADO":
+      return "siguen";
+    case "HECHO":
+      return "hecho";
+    default:
+      return null;
+  }
+}
+
+export const sumarContadores = (a: Contadores, b: Contadores): Contadores => ({
+  teToca: a.teToca + b.teToca,
+  enCurso: a.enCurso + b.enCurso,
+  siguen: a.siguen + b.siguen,
+  hecho: a.hecho + b.hecho,
+});
+
+/** Los contadores RECURSIVOS de cada tarjeta no borrada (ella + toda su descendencia). */
+export function contadoresRecursivos(
+  tarjetas: TarjetaConEstado[],
+  tipos: readonly TipoDeContador[],
+): Map<string, Contadores> {
+  const vivas = tarjetas.filter((tarjeta) => !tarjeta.borradoEn);
+  const madre = madresVisibles(vivas);
+  const porTipo = new Map(tipos.map((tipo) => [tipo.id, tipo]));
+  const hijas = new Map<string, string[]>();
+  for (const [id, suMadre] of madre) if (suMadre) hijas.set(suMadre, [...(hijas.get(suMadre) ?? []), id]);
+  const porId = new Map(vivas.map((tarjeta) => [tarjeta.id, tarjeta]));
+  const resultado = new Map<string, Contadores>();
+
+  const calcular = (id: string, camino: Set<string>): Contadores => {
+    const listo = resultado.get(id);
+    if (listo) return listo;
+    const propio = contadoresEnCero();
+    const grupo = grupoDeLaTarjeta(porId.get(id)!, porTipo);
+    if (grupo) propio[grupo] += 1;
+    // Un ciclo (no debería existir) no se recorre dos veces.
+    camino.add(id);
+    let total = propio;
+    for (const hija of hijas.get(id) ?? []) if (!camino.has(hija)) total = sumarContadores(total, calcular(hija, camino));
+    camino.delete(id);
+    resultado.set(id, total);
+    return total;
+  };
+  for (const tarjeta of vivas) calcular(tarjeta.id, new Set());
+  return resultado;
+}
+
+/** Los contadores de lo que se ve en un nivel: el del nivel, o la suma de todas las raíces. */
+export function contadoresDelNivel(
+  tarjetas: TarjetaConEstado[],
+  tipos: readonly TipoDeContador[],
+  nivelId: string | null,
+  recursivos: ReadonlyMap<string, Contadores> = contadoresRecursivos(tarjetas, tipos),
+): Contadores {
+  const { nivel, grupos } = gruposDelNivel(
+    tarjetas.filter((tarjeta) => !tarjeta.borradoEn),
+    nivelId,
+  );
+  if (nivel) return recursivos.get(nivel) ?? contadoresEnCero();
+  return grupos.reduce((suma, grupo) => sumarContadores(suma, recursivos.get(grupo.centro) ?? contadoresEnCero()), contadoresEnCero());
+}
+
+/**
+ * ¿El filtro de grupos atenúa esta tarjeta? Se ve si tiene algo en algún grupo activo. Una sin nada
+ * ("sin tareas") nunca se atenúa: no hay nada que esconder.
+ */
+export function atenuadaPorGrupos(contadores: Contadores, activos: ReadonlySet<GrupoDeContador>): boolean {
+  const total = GRUPOS_DE_CONTADOR.reduce((suma, grupo) => suma + contadores[grupo], 0);
+  if (total === 0) return false;
+  return !GRUPOS_DE_CONTADOR.some((grupo) => activos.has(grupo) && contadores[grupo] > 0);
+}

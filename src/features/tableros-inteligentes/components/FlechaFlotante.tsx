@@ -10,16 +10,17 @@ import { BaseEdge, getStraightPath, useInternalNode, type Edge, type EdgeProps, 
   de la de destino, por el lado que queda mirando a la otra (la recta entre los dos centros, cortada
   donde toca cada rectángulo). Así nunca da la vuelta por detrás de una tarjeta.
 
-  Encima de la línea van puntos que viajan del origen al destino (clase `tablero-ia-flujo` de
-  globals.css): es solo CSS (stroke-dashoffset), sin JS por cuadro, y con
-  `prefers-reduced-motion: reduce` se ocultan y queda la línea quieta. Las flechas atenuadas por el
-  filtro no llevan puntos.
+  Encima de la línea viaja UN solo punto del origen al destino (clase `tablero-ia-flujo` de
+  globals.css): es solo CSS (stroke-dashoffset sobre pathLength=100), sin JS por cuadro, y con
+  `prefers-reduced-motion: reduce` el punto queda quieto en la mitad de la línea. Las líneas
+  atenuadas por el filtro no llevan punto. Sin puntas de flecha.
 
   La misma recta sirve para la UNIÓN CON LA MADRE (`data.clase = "madre"`): del centro a cada hija,
-  gris y más fina, con sus puntos que viajan hacia la hija.
+  fina y gris; el punto es rojo si la hija tiene algo que "te toca" y gris si no.
 */
 
-export type DatosFlecha = { color: string; atenuada: boolean; clase?: "flecha" | "madre" };
+/** `color` puede ser un color o una variable CSS ("var(--tia-rojo)"): va por style, no como atributo. */
+export type DatosFlecha = { color: string; atenuada: boolean; clase?: "flecha" | "madre"; conPunto?: boolean };
 export type FlechaDeTablero = Edge<DatosFlecha, "flotante">;
 
 type Rect = { cx: number; cy: number; mitadAncho: number; mitadAlto: number };
@@ -47,7 +48,7 @@ function bordeHacia(desde: Rect, hacia: Rect) {
   return { x: desde.cx + dx * escala, y: desde.cy + dy * escala };
 }
 
-function FlechaFlotanteBase({ id, source, target, markerEnd, style, data }: EdgeProps<FlechaDeTablero>) {
+function FlechaFlotanteBase({ id, source, target, style, data }: EdgeProps<FlechaDeTablero>) {
   const origen = useInternalNode(source);
   const destino = useInternalNode(target);
   if (!origen || !destino) return null;
@@ -60,9 +61,9 @@ function FlechaFlotanteBase({ id, source, target, markerEnd, style, data }: Edge
 
   return (
     <>
-      <BaseEdge id={id} path={camino} markerEnd={markerEnd} style={style} />
-      {data && !data.atenuada ? (
-        <path d={camino} className="tablero-ia-flujo" stroke={data.color} fill="none" aria-hidden />
+      <BaseEdge id={id} path={camino} style={style} />
+      {data && !data.atenuada && data.conPunto !== false ? (
+        <path d={camino} pathLength={100} className="tablero-ia-flujo" style={{ stroke: data.color }} fill="none" aria-hidden />
       ) : null}
     </>
   );

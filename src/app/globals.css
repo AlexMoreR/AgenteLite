@@ -899,28 +899,44 @@ body {
   }
 }
 /*
-  Tablero IA: puntos que viajan por cada flecha, del origen al destino (FlechaFlotante.tsx).
-  Un solo <path> punteado por flecha y la animacion es de stroke-dashoffset: la hace el navegador,
-  sin JS por cuadro, para que el celular no sufra. El ciclo (16) es lo que suman guion + hueco.
-  Sin movimiento si la persona lo desactivo: se ocultan los puntos y queda la linea quieta.
+  Tablero IA (estilo "Tareas Magilus"): colores del mapa que siguen el tema del CRM (.dark).
+  Rojo = te toca, verde = en curso, gris = sigue/sin nada; la línea es gris fina.
+*/
+.tablero-ia {
+  --tia-rojo: #e11d48;
+  --tia-verde: #059669;
+  --tia-gris: #a1a1aa;
+  --tia-linea: #d4d4d8;
+}
+.dark .tablero-ia {
+  --tia-rojo: #fb7185;
+  --tia-verde: #34d399;
+  --tia-gris: #71717a;
+  --tia-linea: #3f3f46;
+}
+
+/*
+  Tablero IA: UN solo punto que viaja por cada línea, del origen al destino (FlechaFlotante.tsx).
+  El <path> lleva pathLength=100: un guion de casi 0 con punta redonda (el punto) y un hueco de 100,
+  y la animación es de stroke-dashoffset: la hace el navegador, sin JS por cuadro.
+  Sin movimiento si la persona lo desactivó: el punto queda quieto en la mitad de la línea.
 */
 @keyframes tableroIaFlujo {
   from { stroke-dashoffset: 0; }
-  to { stroke-dashoffset: -16; }
+  to { stroke-dashoffset: -100; }
 }
 
 .tablero-ia-flujo {
-  stroke-width: 3;
+  stroke-width: 4;
   stroke-linecap: round;
-  stroke-dasharray: 0.1 15.9;
-  opacity: 0.9;
+  stroke-dasharray: 0.001 99.999;
   pointer-events: none;
-  animation: tableroIaFlujo 0.8s linear infinite;
+  animation: tableroIaFlujo 2.6s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .tablero-ia-flujo {
     animation: none;
-    display: none;
+    stroke-dashoffset: -50;
   }
 }

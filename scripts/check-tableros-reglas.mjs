@@ -1,13 +1,13 @@
 // Pruebas del Tablero IA (src/features/tableros-inteligentes/services): quién aprueba,
 // qué estados puede poner Claude, qué pasa al editar algo aprobado, qué se puede deshacer, los
 // tipos de tarjeta (aprobación, cambio de tipo, madres permitidas y ciclos), borrar y deshacer con
-// flechas, los niveles del mapa y la disposición en árbol. No necesita base ni red.
+// flechas, los niveles del mapa, la disposición radial y los contadores. No necesita base ni red.
 // Correr: npm run test:tableros
 import assert from "node:assert/strict";
 import { cargar } from "./supervisor-cargar.mjs";
 
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas.ts");
-const { disponerRadial, sePisan, RADIO_INICIAL, ANCHO_TARJETA, ALTO_TARJETA } = cargar("src/features/tableros-inteligentes/services/disposicion.ts");
+const { disponerRadial, sePisan, RADIO_INICIAL, ANCHO_CENTRO, ALTO_CENTRO, ANCHO_TARJETA, MAX_PRIMER_ANILLO, SEPARACION, ALTO_TARJETA } = cargar("src/features/tableros-inteligentes/services/disposicion.ts");
 const reglasNiveles = cargar("src/features/tableros-inteligentes/services/niveles.ts");
 
 let pruebas = 0;
@@ -497,7 +497,8 @@ function sinSolapes(posiciones, nombre) {
   }
 }
 
-const centroDe = (p) => ({ x: p.x + ANCHO_TARJETA / 2, y: p.y + ALTO_TARJETA / 2 });
+// Las posiciones ya son el centro de cada etiqueta (nodeOrigin [0.5, 0.5]).
+const centroDe = (p) => p;
 
 prueba("radial: el centro en el medio y sus hijas alrededor, todas a la misma distancia si caben en un anillo", () => {
   const pos = disponerRadial([{ centro: "c", hijas: ["a", "b", "d", "e", "f"] }]);
@@ -562,6 +563,100 @@ prueba("radial: una tarjeta repetida en dos grupos se dibuja una sola vez", () =
   ]);
   assert.equal(pos.size, 4);
   sinSolapes(pos, "repetida");
+});
+
+prueba("radial: hasta 16 hijas van en UN solo anillo, ángulos iguales empezando arriba, sin tocar el centro", () => {
+  for (const cantidad of [1, 2, 5, 8, 12, 16]) {
+    const hijas = Array.from({ length: cantidad }, (_, i) => `h${i}`);
+    const pos = disponerRadial([{ centro: "c", hijas }]);
+    const c = pos.get("c");
+    const radios = hijas.map((h) => Math.hypot(pos.get(h).x - c.x, pos.get(h).y - c.y));
+    for (const r of radios) assert.ok(Math.abs(r - radios[0]) <= 2, `${cantidad}: un solo radio`);
+    // La primera arriba del centro.
+    assert.ok(Math.abs(pos.get("h0").x - c.x) <= 1 && pos.get("h0").y < c.y, `${cantidad}: empieza arriba`);
+    // Ángulos iguales.
+    const angulos = hijas.map((h) => Math.atan2(pos.get(h).y - c.y, pos.get(h).x - c.x));
+    for (let i = 1; i < cantidad; i += 1) {
+      const paso = (angulos[i] - angulos[i - 1] + 4 * Math.PI) % (2 * Math.PI);
+      assert.ok(Math.abs(paso - (2 * Math.PI) / cantidad) < 0.02, `${cantidad}: paso parejo`);
+    }
+    // Ninguna toca la etiqueta del centro (que es más grande).
+    for (const h of hijas) {
+      const q = pos.get(h);
+      const toca =
+        Math.abs(q.x - c.x) < (ANCHO_CENTRO + ANCHO_TARJETA) / 2 + SEPARACION &&
+        Math.abs(q.y - c.y) < (ALTO_CENTRO + ALTO_TARJETA) / 2 + SEPARACION;
+      assert.ok(!toca, `${cantidad}: ${h} toca el centro`);
+    }
+    sinSolapes(pos, `anillo de ${cantidad}`);
+  }
+  // El radio crece con la cantidad.
+  const radioCon = (n) => {
+    const pos = disponerRadial([{ centro: "c", hijas: Array.from({ length: n }, (_, i) => `h${i}`) }]);
+    return Math.hypot(pos.get("h0").x - pos.get("c").x, pos.get("h0").y - pos.get("c").y);
+  };
+  assert.ok(radioCon(16) > radioCon(8));
+});
+
+prueba("radial: más de 16 hijas = dos anillos, el de afuera intercalado y sin solapes", () => {
+  const cantidad = MAX_PRIMER_ANILLO + 4;
+  const hijas = Array.from({ length: cantidad }, (_, i) => `h${i}`);
+  const pos = disponerRadial([{ centro: "c", hijas }]);
+  const c = pos.get("c");
+  const radios = [...new Set(hijas.map((h) => Math.round(Math.hypot(pos.get(h).x - c.x, pos.get(h).y - c.y) / 5)))];
+  assert.equal(radios.length, 2, "dos radios");
+  sinSolapes(pos, "dos anillos");
+});
+
+/* ------------------------------------------------------------------ contadores */
+
+const tiposConteo = [
+  { id: "area", usaEstados: false, requiereAprobacion: false },
+  { id: "tarea", usaEstados: true, requiereAprobacion: true },
+  { id: "nota", usaEstados: true, requiereAprobacion: false },
+];
+const arbolConteo = [
+  { id: "mag", padreId: null, tipoId: "area", estado: "IDEA" },
+  { id: "ven", padreId: "mag", tipoId: "area", estado: "IDEA" },
+  { id: "mkt", padreId: "mag", tipoId: "area", estado: "IDEA" },
+  { id: "t1", padreId: "ven", tipoId: "tarea", estado: "POR_APROBAR" },
+  { id: "t2", padreId: "t1", tipoId: "tarea", estado: "FALLIDO" },
+  { id: "t3", padreId: "t1", tipoId: "tarea", estado: "EN_CURSO" },
+  { id: "t4", padreId: "ven", tipoId: "tarea", estado: "IDEA" },
+  { id: "t5", padreId: "ven", tipoId: "tarea", estado: "APROBADO" },
+  { id: "t6", padreId: "ven", tipoId: "tarea", estado: "HECHO" },
+  { id: "n1", padreId: "ven", tipoId: "nota", estado: "POR_APROBAR" },
+  { id: "x", padreId: "ven", tipoId: "tarea", estado: "FALLIDO", borradoEn: "2026-10-19T00:00:00Z" },
+  { id: "bajoX", padreId: "x", tipoId: "tarea", estado: "FALLIDO" },
+  { id: "suelta", padreId: null, tipoId: "tarea", estado: "HECHO" },
+];
+
+prueba("contadores: recursivos, sin borradas, sin carpetas; POR_APROBAR solo de tipos con aprobación", () => {
+  const c = reglasNiveles.contadoresRecursivos(arbolConteo, tiposConteo);
+  assert.deepEqual(c.get("t1"), { teToca: 2, enCurso: 1, siguen: 0, hecho: 0 });
+  // n1 es POR_APROBAR de un tipo sin aprobación: no le toca al dueño, sigue.
+  assert.deepEqual(c.get("ven"), { teToca: 2, enCurso: 1, siguen: 3, hecho: 1 });
+  assert.deepEqual(c.get("mag"), c.get("ven"));
+  assert.deepEqual(c.get("mkt"), { teToca: 0, enCurso: 0, siguen: 0, hecho: 0 });
+  assert.equal(c.get("x"), undefined, "borrada");
+  // bajoX cuelga de una borrada: queda suelta en la raíz y no suma a Ventas.
+  assert.deepEqual(c.get("bajoX"), { teToca: 1, enCurso: 0, siguen: 0, hecho: 0 });
+  assert.deepEqual(reglasNiveles.contadoresDelNivel(arbolConteo, tiposConteo, "ven"), c.get("ven"));
+  assert.deepEqual(reglasNiveles.contadoresDelNivel(arbolConteo, tiposConteo, null), {
+    teToca: 3,
+    enCurso: 1,
+    siguen: 3,
+    hecho: 2,
+  });
+});
+
+prueba("filtro por grupos: atenúa la que no tiene nada en los grupos activos; 'sin tareas' nunca", () => {
+  const activos = new Set(["teToca", "enCurso", "siguen"]);
+  const cero = { teToca: 0, enCurso: 0, siguen: 0, hecho: 0 };
+  assert.equal(reglasNiveles.atenuadaPorGrupos({ ...cero, hecho: 3 }, activos), true);
+  assert.equal(reglasNiveles.atenuadaPorGrupos({ ...cero, hecho: 3, siguen: 1 }, activos), false);
+  assert.equal(reglasNiveles.atenuadaPorGrupos(cero, activos), false);
+  assert.equal(reglasNiveles.atenuadaPorGrupos({ ...cero, hecho: 3 }, new Set([...activos, "hecho"])), false);
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);
