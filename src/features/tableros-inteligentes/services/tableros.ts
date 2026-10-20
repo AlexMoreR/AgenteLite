@@ -36,6 +36,7 @@ import {
   type OrigenCambio,
 } from "./reglas";
 import {
+  esDuenoDelNegocio,
   esRepo,
   puedeAprobarMomento,
   puedeCambiarZonas,
@@ -43,6 +44,7 @@ import {
   repoDeEntrada,
   unirZonas,
   zonasDeEntrada,
+  type CuentaQueAprueba,
   type MomentoDeAprobacion,
   type PersonaQueAprueba,
   type ViaDeAprobacion,
@@ -1376,31 +1378,45 @@ export async function cambiarEstadoTarjeta(contexto: ContextoTablero, tarjetaId:
 }
 
 /**
- * Quién es esta persona para las aprobaciones del Tablero IA de este negocio: dueño (la misma cuenta
- * que `isOwner` de client-workspace-access: CLIENTE y OWNER del negocio, o su ownerId), ADMIN de la
- * plataforma y su fila de AprobadorTablero. Se lee de la base: el userId sale de la sesión o de la
- * clave MCP, nunca de un argumento.
+ * Quién es esta persona para las aprobaciones del Tablero IA de este negocio: dueña (esDuenoDelNegocio:
+ * la cuenta dueña registrada del negocio, aunque sea ADMIN, o una CLIENTE con rol OWNER; siempre
+ * miembro activa), ADMIN de la plataforma y su fila de AprobadorTablero. Se lee de la base: el userId
+ * sale de la sesión o de la clave MCP (la cuenta que creó la clave), nunca de un argumento.
  */
 export async function personaQueAprueba(
   workspaceId: string,
   userId: string,
-): Promise<PersonaQueAprueba & { nombre: string }> {
+): Promise<PersonaQueAprueba & { nombre: string; correo: string | null }> {
   const [usuario, miembro, negocio, aprobador] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, role: true } }),
     prisma.workspaceMember.findFirst({ where: { workspaceId, userId, isActive: true }, select: { role: true } }),
-    prisma.workspace.findUnique({ where: { id: workspaceId }, select: { ownerId: true } }),
+    prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { ownerId: true, owner: { select: { name: true, email: true } } },
+    }),
     prisma.aprobadorTablero.findUnique({
       where: { workspaceId_userId: { workspaceId, userId } },
       select: { alcance: true, puedeSubir: true },
     }),
   ]);
-  const esAdminPlataforma = usuario?.role === "ADMIN";
-  const esDueno =
-    usuario?.role === "CLIENTE" && Boolean(miembro) && (miembro?.role === "OWNER" || negocio?.ownerId === userId);
+  const nombre = usuario?.name?.trim() || usuario?.email || "Alguien";
+  const cuenta: CuentaQueAprueba = {
+    nombre,
+    correo: usuario?.email ?? null,
+    tipoCuenta: usuario?.role ?? null,
+    miembroActivo: Boolean(miembro),
+    rolEnNegocio: miembro?.role ?? null,
+    esDuenaRegistrada: Boolean(negocio?.ownerId) && negocio?.ownerId === userId,
+    duena: negocio?.owner
+      ? { nombre: negocio.owner.name?.trim() || negocio.owner.email || "sin nombre", correo: negocio.owner.email ?? null }
+      : null,
+  };
   return {
-    nombre: usuario?.name?.trim() || usuario?.email || "Alguien",
-    esDueno,
-    esAdminPlataforma,
+    nombre,
+    correo: cuenta.correo,
+    esDueno: esDuenoDelNegocio(cuenta),
+    esAdminPlataforma: usuario?.role === "ADMIN",
+    cuenta,
     // Un aprobador que ya no es miembro activo del negocio no aprueba.
     aprobador: aprobador && miembro ? aprobador : null,
   };
@@ -1479,7 +1495,15 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
     }
     const cambio = await anotar(tx, contexto, actual.id, "aprobar", { estado: actual.estado }, registro);
     await tocarTablero(tx, actual.tableroId);
-    return { cambioId: cambio.id, titulo: actual.titulo, antes: actual.estado, ahora: veredicto.a, momento: veredicto.momento, quien: persona.nombre };
+    return {
+      cambioId: cambio.id,
+      titulo: actual.titulo,
+      antes: actual.estado,
+      ahora: veredicto.a,
+      momento: veredicto.momento,
+      quien: persona.nombre,
+      quienCorreo: persona.correo,
+    };
   });
 }
 

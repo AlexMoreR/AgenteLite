@@ -902,6 +902,79 @@ prueba("el sí final (subir) es SOLO del dueño, aunque el aprobador tenga puede
   }
 });
 
+const duenaMagilus = { nombre: "Magilus", correo: "gestionmagilus@gmail.com" };
+const cuenta = (extra) => ({
+  nombre: "Magilus",
+  correo: "gestionmagilus@gmail.com",
+  tipoCuenta: "CLIENTE",
+  miembroActivo: true,
+  rolEnNegocio: "ADMIN",
+  esDuenaRegistrada: true,
+  duena: duenaMagilus,
+  ...extra,
+});
+// Arma la persona como personaQueAprueba (tableros.ts), con la cuenta.
+const persona = (extra) => {
+  const c = cuenta(extra);
+  return { esDueno: trabajo.esDuenoDelNegocio(c), esAdminPlataforma: c.tipoCuenta === "ADMIN", aprobador: null, cuenta: c };
+};
+
+prueba("dueña del negocio: la registrada (CLIENTE o ADMIN) si es miembro activo; CLIENTE OWNER; ADMIN solo no", () => {
+  assert.equal(trabajo.esDuenoDelNegocio(cuenta({})), true, "CLIENTE dueña registrada");
+  assert.equal(trabajo.esDuenoDelNegocio(cuenta({ tipoCuenta: "ADMIN" })), true, "ADMIN dueña registrada");
+  assert.equal(trabajo.esDuenoDelNegocio(cuenta({ esDuenaRegistrada: false, rolEnNegocio: "OWNER" })), true, "CLIENTE OWNER");
+  assert.equal(trabajo.esDuenoDelNegocio(cuenta({ tipoCuenta: "ADMIN", esDuenaRegistrada: false, rolEnNegocio: "OWNER" })), false, "ADMIN OWNER no registrada");
+  assert.equal(trabajo.esDuenoDelNegocio(cuenta({ tipoCuenta: "ADMIN", esDuenaRegistrada: false })), false, "ADMIN cualquiera");
+  assert.equal(trabajo.esDuenoDelNegocio(cuenta({ esDuenaRegistrada: false })), false, "CLIENTE no dueña");
+  assert.equal(trabajo.esDuenoDelNegocio(cuenta({ tipoCuenta: "EMPLEADO" })), false, "EMPLEADO");
+  assert.equal(trabajo.esDuenoDelNegocio(cuenta({ miembroActivo: false, rolEnNegocio: null })), false, "registrada pero no miembro");
+  assert.equal(trabajo.esDuenoDelNegocio(cuenta({ tipoCuenta: "ADMIN", miembroActivo: false, rolEnNegocio: null })), false);
+});
+
+prueba("aprobar por voz: la dueña registrada con cuenta ADMIN aprueba la tarea, el plan y la subida", () => {
+  const magilus = persona({ tipoCuenta: "ADMIN" });
+  assert.equal(destino({ persona: magilus }), "APROBADO");
+  assert.equal(destino({ persona: magilus, momento: "plan", estado: "PLAN_LISTO", tienePlan: true }), "PLAN_APROBADO");
+  assert.equal(destino({ persona: magilus, momento: "subir", estado: "POR_REVISAR", resultadoPaso: true }), "SUBIENDO");
+  // Las reglas de siempre siguen: texto, "no apruebo", zona protegida solo en pantalla.
+  assert.match(destino({ persona: magilus, textoConfirmacion: "ok dale" }), /texto de confirmación/);
+  assert.match(destino({ persona: magilus, textoConfirmacion: "no apruebo, sí" }), /no apruebo/);
+  assert.match(destino({ persona: magilus, zonaProtegida: ["BOT_VENTAS"] }), /solo en la pantalla/);
+  assert.equal(destino({ persona: magilus, via: "pantalla", origen: "PANTALLA", zonaProtegida: ["META_ADS"], textoConfirmacion: undefined }), "APROBADO");
+  // Una CLIENTE dueña sigue aprobando como hoy.
+  assert.equal(destino({ persona: persona({ esDuenaRegistrada: false, rolEnNegocio: "OWNER" }), momento: "subir", estado: "POR_REVISAR", resultadoPaso: true }), "SUBIENDO");
+});
+
+prueba("aprobar por voz: un ADMIN que no es la dueña registrada no aprueba, y el error dice la cuenta y el motivo", () => {
+  const gcm = persona({ nombre: "GCM Projects", correo: "gcm@ejemplo.com", tipoCuenta: "ADMIN", esDuenaRegistrada: false });
+  const error = destino({ persona: gcm });
+  assert.match(error, /No puedes aprobar/);
+  assert.match(error, /La conexión llegó con la cuenta GCM Projects \(gcm@ejemplo\.com\)/);
+  assert.match(error, /es ADMIN de la plataforma, pero no es la cuenta dueña de este negocio/);
+  assert.match(error, /la dueña es Magilus, gestionmagilus@gmail\.com/);
+  assert.match(error, /Crea la clave de Claude entrando con la cuenta dueña/);
+  for (const momento of [{ momento: "plan", estado: "PLAN_LISTO", tienePlan: true }, { momento: "subir", estado: "POR_REVISAR", resultadoPaso: true }]) {
+    assert.match(destino({ persona: gcm, ...momento }), /GCM Projects \(gcm@ejemplo\.com\).*ADMIN de la plataforma/);
+  }
+  assert.match(destino({ persona: gcm, momento: "subir", estado: "POR_REVISAR", resultadoPaso: true }), /solo el dueño/);
+  // En la pantalla, el ADMIN sigue aprobando la tarea; la zona protegida y el sí final no, y dice por qué.
+  assert.equal(destino({ persona: gcm, via: "pantalla", origen: "PANTALLA" }), "APROBADO");
+  assert.match(destino({ persona: gcm, via: "pantalla", origen: "PANTALLA", zonaProtegida: ["LIBRO_V3"] }), /solo el dueño.*Entraste con la cuenta GCM Projects/);
+});
+
+prueba("aprobar por voz: sin ser miembro activo no es dueña aunque esté registrada; CLIENTE no dueña dice por qué", () => {
+  const inactiva = persona({ miembroActivo: false, rolEnNegocio: null });
+  assert.equal(inactiva.esDueno, false);
+  assert.match(destino({ persona: inactiva }), /registrada como dueña, pero no es miembro activo.*volver a activarla/);
+  const otra = persona({ nombre: "Otra", correo: "otra@ejemplo.com", esDuenaRegistrada: false, miembroActivo: false, rolEnNegocio: null });
+  assert.match(destino({ persona: otra }), /Otra \(otra@ejemplo\.com\): no es miembro activo de este negocio \(la dueña es Magilus/);
+  const cliente = persona({ nombre: "Asesora", correo: "a@ejemplo.com", esDuenaRegistrada: false });
+  assert.match(destino({ persona: cliente }), /Asesora \(a@ejemplo\.com\): es CLIENTE, pero no es dueña de este negocio/);
+  assert.match(destino({ persona: persona({ esDuenaRegistrada: false, duena: null }) }), /el negocio no tiene cuenta dueña registrada/);
+  // La dueña no tiene motivo.
+  assert.equal(trabajo.motivoNoEsDueno(cuenta({ tipoCuenta: "ADMIN" }), "voz"), null);
+});
+
 prueba("lo que queda en el historial de una aprobación: quién, momento, vía, texto y 'aprobado por voz'", () => {
   const registro = trabajo.registroDeAprobacion({
     estado: "APROBADO",

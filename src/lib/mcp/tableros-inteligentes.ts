@@ -387,7 +387,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     description:
       "Úsala SOLO si la persona lo dijo explícitamente en esta conversación. Antes, léele el título y qué se aprueba, y espera que diga 'sí, apruebo'. Nunca apruebes por tu cuenta. " +
       "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del trabajador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan) o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
-      "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con zona protegida no se aprueba acá: solo en la pantalla." +
+      "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con zona protegida no se aprueba acá: solo en la pantalla. " +
+      "Aprueba la cuenta que creó la clave de Claude (no la que mira la pantalla): tiene que ser la cuenta dueña de este negocio. Si no lo es, el error dice qué cuenta llegó y por qué." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -846,7 +847,7 @@ export async function ejecutarHerramientaMcpTableros(
         cambio_id: resultado.cambioId,
         antes: resultado.antes,
         ahora: resultado.ahora,
-        aviso: `Aprobado por voz (${resultado.quien}): ${NOMBRE_DEL_MOMENTO[resultado.momento]} de "${resultado.titulo}". Quedó ${resultado.ahora}${
+        aviso: `Aprobado por voz con la cuenta ${resultado.quien}${resultado.quienCorreo ? ` (${resultado.quienCorreo})` : ""}: ${NOMBRE_DEL_MOMENTO[resultado.momento]} de "${resultado.titulo}". Quedó ${resultado.ahora}${
           resultado.ahora === "SUBIENDO" ? ": el trabajador la sube a producción en el próximo minuto" : ""
         }. Una aprobación no se deshace.`,
         link: linkDeLaTarjeta(String(args.tarjeta_id ?? "")),

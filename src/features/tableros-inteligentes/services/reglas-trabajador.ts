@@ -229,14 +229,84 @@ export function textoDeConfirmacionValido(texto: unknown): Veredicto {
   return null;
 }
 
+/** Lo que se sabe de la cuenta que aprueba para decidir si es la dueña del negocio. */
+export type CuentaQueAprueba = {
+  nombre: string;
+  correo: string | null;
+  /** User.role: ADMIN (de la plataforma), EMPLEADO o CLIENTE. */
+  tipoCuenta: string | null;
+  /** Es miembro activo de este negocio. */
+  miembroActivo: boolean;
+  /** Su rol en el negocio (WorkspaceMember.role), si es miembro activo. */
+  rolEnNegocio: string | null;
+  /** Es la cuenta dueña registrada de este negocio (Workspace.ownerId). */
+  esDuenaRegistrada: boolean;
+  /** La dueña registrada del negocio, para decirla en el error. */
+  duena: { nombre: string; correo: string | null } | null;
+};
+
+/**
+ * ¿Esta cuenta es la dueña del negocio para el Tablero IA? Tiene que ser miembro activo y, además:
+ *  - la cuenta dueña registrada de ESE negocio (Workspace.ownerId), sea CLIENTE o ADMIN de la
+ *    plataforma (Alexander usa una cuenta ADMIN para su negocio); o
+ *  - una cuenta CLIENTE con rol OWNER en el negocio (la regla de siempre).
+ * Ser ADMIN de la plataforma por sí solo no da poder de dueño: un ADMIN que no es la dueña registrada
+ * de este negocio no lo es. Solo para el Tablero IA: client-workspace-access.ts no cambia.
+ */
+export function esDuenoDelNegocio(cuenta: CuentaQueAprueba): boolean {
+  if (!cuenta.miembroActivo) return false;
+  if (cuenta.esDuenaRegistrada && (cuenta.tipoCuenta === "CLIENTE" || cuenta.tipoCuenta === "ADMIN")) return true;
+  return cuenta.tipoCuenta === "CLIENTE" && cuenta.rolEnNegocio === "OWNER";
+}
+
+/**
+ * Por qué esta cuenta no cuenta como dueña del negocio, con su nombre y correo, y qué hacer. null si
+ * es la dueña. Por voz, la cuenta es la de la clave de Claude: la que la creó.
+ */
+export function motivoNoEsDueno(cuenta: CuentaQueAprueba, via: ViaDeAprobacion): string | null {
+  if (esDuenoDelNegocio(cuenta)) return null;
+  const quien = `${cuenta.nombre}${cuenta.correo ? ` (${cuenta.correo})` : ""}`;
+  const duena = cuenta.duena
+    ? `la dueña es ${cuenta.duena.nombre}${cuenta.duena.correo ? `, ${cuenta.duena.correo}` : ""}`
+    : "el negocio no tiene cuenta dueña registrada";
+  let motivo: string;
+  if (!cuenta.miembroActivo) {
+    motivo = cuenta.esDuenaRegistrada
+      ? "está registrada como dueña, pero no es miembro activo de este negocio"
+      : `no es miembro activo de este negocio (${duena})`;
+  } else if (cuenta.tipoCuenta === "ADMIN") {
+    motivo = `es ADMIN de la plataforma, pero no es la cuenta dueña de este negocio (${duena})`;
+  } else if (cuenta.tipoCuenta === "CLIENTE") {
+    motivo = `es CLIENTE, pero no es dueña de este negocio (${duena})`;
+  } else {
+    motivo = `es una cuenta ${cuenta.tipoCuenta ?? "sin tipo"}, no la dueña de este negocio (${duena})`;
+  }
+  if (via === "voz") {
+    const queHacer =
+      !cuenta.miembroActivo && cuenta.esDuenaRegistrada
+        ? "Hay que volver a activarla como miembro del negocio."
+        : "Crea la clave de Claude entrando con la cuenta dueña y cámbiala en Claude.";
+    return `La conexión llegó con la cuenta ${quien}: ${motivo}. ${queHacer}`;
+  }
+  return `Entraste con la cuenta ${quien}: ${motivo}.`;
+}
+
 export type PersonaQueAprueba = {
-  /** Dueño del negocio (OWNER). Aprueba todo implícitamente y es el único con el sí final. */
+  /** Dueña del negocio (esDuenoDelNegocio). Aprueba todo implícitamente y es la única con el sí final. */
   esDueno: boolean;
   /** ADMIN de la plataforma: como en la fase 1, aprueba la tarea y el plan en la pantalla. */
   esAdminPlataforma: boolean;
   /** Su fila en AprobadorTablero, si la tiene. */
   aprobador: { alcance: string; puedeSubir: boolean } | null;
+  /** La cuenta, para decir en el error con quién llegó y por qué no es la dueña. */
+  cuenta?: CuentaQueAprueba;
 };
+
+/** " " + el motivo de por qué no es la dueña, si se sabe la cuenta; "" si no. */
+function conLaCuenta(persona: PersonaQueAprueba, via: ViaDeAprobacion) {
+  const motivo = persona.cuenta ? motivoNoEsDueno(persona.cuenta, via) : null;
+  return motivo ? ` ${motivo}` : "";
+}
 
 export type PedidoDeAprobacion = {
   momento: unknown;
@@ -264,10 +334,10 @@ export function personaPuedeAprobarMomento(
 ): Veredicto {
   if (momento === "subir") {
     const puede = persona.esDueno || (!SI_FINAL_SOLO_DUENO && Boolean(persona.aprobador?.puedeSubir));
-    return puede ? null : "El sí final (subir a producción) lo da solo el dueño del negocio.";
+    return puede ? null : `El sí final (subir a producción) lo da solo el dueño del negocio.${conLaCuenta(persona, via)}`;
   }
   if (zonaProtegida.length && !persona.esDueno) {
-    return "Esta tarjeta toca una zona protegida: la aprueba solo el dueño, en la pantalla.";
+    return `Esta tarjeta toca una zona protegida: la aprueba solo el dueño, en la pantalla.${conLaCuenta(persona, via)}`;
   }
   if (persona.esDueno) return null;
   if (via === "pantalla" && persona.esAdminPlataforma) return null;
@@ -278,7 +348,7 @@ export function personaPuedeAprobarMomento(
       ? null
       : "Tu alcance es DESARROLLO: apruebas solo tarjetas con repo gestion o aizencrm.";
   }
-  return "No puedes aprobar en este tablero: aprueba el dueño del negocio o un aprobador que él agregue.";
+  return `No puedes aprobar en este tablero: aprueba el dueño del negocio o un aprobador que él agregue.${conLaCuenta(persona, via)}`;
 }
 
 /**
