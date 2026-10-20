@@ -29,6 +29,7 @@
     "embudo:backfill": "node scripts/embudo-backfill.mjs",
     "test:supervisor": "node scripts/check-supervisor.mjs",
     "test:tableros": "node scripts/check-tableros-reglas.mjs",
+    "test:tablero-tipos-migracion": "node scripts/check-tablero-tipos-migracion.mjs",
     "test:seguimiento-inteligente": "node scripts/check-seguimiento-inteligente.mjs",
     "test:avisos-gravedad": "node scripts/check-avisos-gravedad.mjs",
     "test:supervisor-accionable": "node scripts/check-supervisor-accionable.mjs",
@@ -99,6 +100,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.3.15",
     "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
