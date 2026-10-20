@@ -16,7 +16,7 @@ import {
 } from "./reglas";
 
 /*
-  TABLEROS INTELIGENTES: la lógica compartida entre el MCP (Claude) y la pantalla (el dueño).
+  TABLERO IA (tableros inteligentes): la lógica compartida entre el MCP (Claude) y la pantalla (el dueño).
 
   Tres cosas en cada escritura, en UNA transacción:
   1. la tarjeta (o la conexión),
@@ -41,7 +41,7 @@ const MAX_AREA = 60;
 const MAX_NOMBRE = 80;
 
 const URL_APP = "https://app.aizenbot.com";
-export const RUTA_TABLEROS = "/cliente/tableros-inteligentes";
+export const RUTA_TABLEROS = "/cliente/tablero-ia";
 
 export function linkDeLaTarjeta(tarjetaId: string) {
   return `${URL_APP}${RUTA_TABLEROS}?tarjeta=${encodeURIComponent(tarjetaId)}`;

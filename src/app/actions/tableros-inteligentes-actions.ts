@@ -5,7 +5,7 @@ import { personaPuedeAprobar } from "@/features/tableros-inteligentes/services/r
 import { aprobarTarjeta, historialDeTarjeta } from "@/features/tableros-inteligentes/services/tableros";
 
 /*
-  Tableros inteligentes: lo que hace la PANTALLA.
+  Tablero IA (tableros inteligentes): lo que hace la PANTALLA.
 
   En la fase 1 la pantalla solo aprueba y lee el historial; las ideas las arma Claude por el MCP.
   Aprobar lo puede el dueño del negocio o el ADMIN de la plataforma (decisión del dueño, 19-oct-2026),

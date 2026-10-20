@@ -7,6 +7,7 @@ import { contenidoDelTablero } from "@/features/tableros-inteligentes/services/t
 import { TablerosInteligentesVista } from "@/features/tableros-inteligentes/components/TablerosInteligentesVista";
 
 export const metadata: Metadata = {
+  title: "Tablero IA",
   robots: { index: false, follow: false },
 };
 
@@ -19,12 +20,12 @@ type PageProps = {
 const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? valor[0] : valor)?.trim() || null;
 
 /*
-  TABLEROS INTELIGENTES: las ideas que arma Claude por el MCP, dibujadas como un mapa.
+  TABLERO IA: las ideas que arma Claude por el MCP, dibujadas como un mapa.
 
   ?tablero=<id> abre ese tablero; ?tarjeta=<id> abre el tablero de esa tarjeta con su ficha a la
   vista (es el link que devuelve el MCP y el que usarán los avisos por WhatsApp de la fase 2).
 */
-export default async function TablerosInteligentesPage({ searchParams }: PageProps) {
+export default async function TableroIAPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
   const parametros = await searchParams;
   const pedidoTablero = uno(parametros.tablero);

@@ -1,5 +1,5 @@
 /*
-  REGLAS DE LOS TABLEROS INTELIGENTES (fase 1, 19-oct-2026).
+  REGLAS DEL TABLERO IA (tableros inteligentes; fase 1, 19-oct-2026).
 
   Funciones puras, sin base ni Next, para poder probarlas (scripts/check-tableros-reglas.mjs). El
   servicio (tableros.ts) las llama antes de escribir; el MCP y la pantalla pasan por el servicio.

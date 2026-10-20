@@ -26,7 +26,7 @@ import { FichaTarjeta } from "./FichaTarjeta";
 import { NodoTarjeta, type NodoDeTarjeta } from "./NodoTarjeta";
 
 /*
-  La pantalla de Tableros inteligentes: el mapa (estilo Obsidian) o la lista, el filtro por estado
+  La pantalla de Tablero IA: el mapa (estilo Obsidian) o la lista, el filtro por estado
   y la ficha de cada tarjeta. Se actualiza sola cada 5 s mientras la pestaña está a la vista.
 
   En el celular: arrastrar y pellizcar mueven y acercan el mapa, tocar una tarjeta abre la ficha
@@ -188,7 +188,7 @@ export function TablerosInteligentesVista({ tableros, tableroId, inicial, tarjet
               className="min-w-0 flex-1 sm:flex-none"
               value={tableroId}
               aria-label="Tablero"
-              onChange={(evento) => router.push(`/cliente/tableros-inteligentes?tablero=${encodeURIComponent(evento.target.value)}`)}
+              onChange={(evento) => router.push(`/cliente/tablero-ia?tablero=${encodeURIComponent(evento.target.value)}`)}
             >
               {tableros.map((tablero) => (
                 <NativeSelectOption key={tablero.id} value={tablero.id}>

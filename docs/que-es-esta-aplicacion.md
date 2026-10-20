@@ -89,7 +89,7 @@ propio catálogo (la hermana de Alex va a vender plantas y artículos de vivero 
 - `finanzas`: ingresos y egresos con un asistente de IA y sincronización con Google Sheets.
 - `marketing-ia`: generador de anuncios con IA.
 - `diagramas`: lienzos de diagramas libres (por ejemplo el mapa de caminos de los chats).
-- `tableros-inteligentes`: las ideas que arma Claude por el MCP hablando con el dueño, dibujadas como un mapa estilo Obsidian (tarjetas unidas por flechas, color por estado, filtro por estado, vista Lista para el celular). Un negocio puede tener varios tableros (uno por tema). Tocar una tarjeta abre su ficha con el detalle, sus flechas, el historial y el botón **Aprobar** (solo lo ven el dueño y el ADMIN de la plataforma, y solo en tarjetas POR_APROBAR). Se actualiza sola cada 5 s con la pestaña a la vista (`/api/cliente/tableros-inteligentes/<id>?desde=` solo lee `TableroInteligente.actualizadoEn`; nada con la pestaña oculta; 30 s de espera si falla). `?tablero=<id>` abre un tablero y `?tarjeta=<id>` abre la ficha de una tarjeta (es el link que devuelve el MCP). En el MCP: `listar_tableros`, `crear_tablero`, `ver_tablero`, `crear_tarjeta`, `editar_tarjeta`, `conectar_tarjetas`, `cambiar_estado_tarjeta`, `ver_historial_tarjeta` y `deshacer_cambio_tarjeta`. Código en `src/features/tableros-inteligentes` (reglas puras en `services/reglas.ts`, pruebas `npm run test:tableros`) y `src/lib/mcp/tableros-inteligentes.ts`. Es distinto de `diagramas`: no comparten código ni tablas.
+- `tablero-ia` (**Tablero IA**, antes "Tableros inteligentes"; pantalla `/cliente/tablero-ia`. La ruta vieja `/cliente/tableros-inteligentes` redirige (307, `redirects()` de `next.config.ts`) conservando `?tablero=` y `?tarjeta=`, así que los links viejos del MCP siguen sirviendo. La clave del módulo sigue siendo `tableros_inteligentes` porque está guardada en `WorkspaceMember.moduleAccess`; la API, las carpetas de código, las tablas y las herramientas del MCP tampoco cambiaron de nombre): las ideas que arma Claude por el MCP hablando con el dueño, dibujadas como un mapa estilo Obsidian (tarjetas unidas por flechas, color por estado, filtro por estado, vista Lista para el celular). Un negocio puede tener varios tableros (uno por tema). Tocar una tarjeta abre su ficha con el detalle, sus flechas, el historial y el botón **Aprobar** (solo lo ven el dueño y el ADMIN de la plataforma, y solo en tarjetas POR_APROBAR). Se actualiza sola cada 5 s con la pestaña a la vista (`/api/cliente/tableros-inteligentes/<id>?desde=` solo lee `TableroInteligente.actualizadoEn`; nada con la pestaña oculta; 30 s de espera si falla). `?tablero=<id>` abre un tablero y `?tarjeta=<id>` abre la ficha de una tarjeta (es el link que devuelve el MCP). En el MCP: `listar_tableros`, `crear_tablero`, `ver_tablero`, `crear_tarjeta`, `editar_tarjeta`, `conectar_tarjetas`, `cambiar_estado_tarjeta`, `ver_historial_tarjeta` y `deshacer_cambio_tarjeta`. Código en `src/features/tableros-inteligentes` (reglas puras en `services/reglas.ts`, pruebas `npm run test:tableros`) y `src/lib/mcp/tableros-inteligentes.ts`. Es distinto de `diagramas`: no comparten código ni tablas.
 - `claude`: las claves para conectar Claude al CRM por el MCP.
 - `onboarding`: el alta de un negocio nuevo.
 
@@ -268,7 +268,7 @@ la IA pausada no lo contesta el agente.
   automatizaciones; se guarda en `AppSetting equipo:supervisoras:<workspace>`), administradora y dueño.
   La monitora mira sin poder escribir.
 
-- **Tableros inteligentes — estados y quién aprueba**: IDEA (una idea suelta), POR_APROBAR (lista para que
+- **Tablero IA — estados y quién aprueba**: IDEA (una idea suelta), POR_APROBAR (lista para que
   el dueño la mire), APROBADO, EN_CURSO, HECHO y FALLIDO. Claude crea tarjetas como IDEA o POR_APROBAR y
   las mueve de estado, pero **nunca aprueba**: APROBADO solo lo pone el dueño del negocio (o el ADMIN de la
   plataforma) con el botón Aprobar, y solo desde POR_APROBAR (se valida en el servidor). Lo que no está
@@ -325,11 +325,11 @@ la IA pausada no lo contesta el agente.
   mensajes solo con 4 letras o más y solo en los de los últimos 90 días (`lib/busqueda-de-chats.ts`). No
   hay índice de texto (`pg_trgm`) en `Message`; buscar en todo sería recorrer la tabla en cada pedido.
 
-- **Tableros inteligentes, fase 2**: no hay todavía un trabajador que ejecute las tarjetas APROBADAS, ni
+- **Tablero IA, fase 2**: no hay todavía un trabajador que ejecute las tarjetas APROBADAS, ni
   avisos por WhatsApp de tarjetas por aprobar, ni aprobar respondiendo "sí". Está previsto: el origen
   TRABAJADOR en `HistorialTarjeta`, las transiciones APROBADO → EN_CURSO → HECHO/FALLIDO y el link
-  `/cliente/tableros-inteligentes?tarjeta=<id>`.
-- **Tableros inteligentes: no hay borrar** tableros ni tarjetas desde el MCP ni desde la pantalla. Lo más
+  `/cliente/tablero-ia?tarjeta=<id>`.
+- **Tablero IA: no hay borrar** tableros ni tarjetas desde el MCP ni desde la pantalla. Lo más
   cercano es `deshacer_cambio_tarjeta` sobre la creación, que saca una tarjeta recién creada sin otros
   cambios ni flechas. La pantalla tampoco edita tarjetas: solo aprueba.
 
@@ -354,7 +354,7 @@ la IA pausada no lo contesta el agente.
   webhook lo usa para no pausar la IA por un eco propio.
 - **Cada cambio de gateway se prueba primero en una línea de pruebas, y probando el ENVÍO**: una línea
   puede conectar y recibir y aun así no poder enviar.
-- **Tableros inteligentes: Claude nunca aprueba.** Ninguna herramienta del MCP pone APROBADO (ni el
+- **Tablero IA: Claude nunca aprueba.** Ninguna herramienta del MCP pone APROBADO (ni el
   `inputSchema` lo ofrece ni el servicio lo acepta), `deshacer_cambio_tarjeta` no deja ni quita un
   APROBADO y no deshace lo hecho en la pantalla. Cualquier clave MCP activa del negocio puede escribir
   tarjetas (no aprobarlas). Si Claude edita algo aprobado, vuelve a pedir aprobación.

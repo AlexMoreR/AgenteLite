@@ -7,7 +7,7 @@ import { contenidoDelTablero, firmaDelTablero } from "@/features/tableros-inteli
 export const dynamic = "force-dynamic";
 
 /*
-  EL REFRESCO DE 5 S de /cliente/tableros-inteligentes.
+  EL REFRESCO DE 5 S de /cliente/tablero-ia (Tablero IA).
 
   La pantalla pregunta "¿cambió algo desde <desde>?". Para contestar alcanza con UNA lectura por
   clave primaria (`TableroInteligente.actualizadoEn`, que cada escritura toca en su transacción):

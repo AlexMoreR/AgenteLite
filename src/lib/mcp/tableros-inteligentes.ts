@@ -15,10 +15,10 @@ import {
 import { ESTADOS_AL_CREAR, ESTADOS_SIN_APROBAR, ESTADOS_TARJETA, NOMBRE_DEL_ESTADO } from "@/features/tableros-inteligentes/services/reglas";
 
 /*
-  TABLEROS INTELIGENTES por el MCP (fase 1, 19-oct-2026).
+  TABLERO IA (tableros inteligentes) por el MCP (fase 1, 19-oct-2026).
 
   El dueño conversa con Claude y Claude anota las ideas en un tablero: tarjetas unidas con flechas.
-  El dueño las ve como un mapa en /cliente/tableros-inteligentes y las aprueba con un botón.
+  El dueño las ve como un mapa en /cliente/tablero-ia (pantalla "Tablero IA") y las aprueba con un botón.
 
   Lo que Claude NO puede hacer, por diseño:
   - Aprobar. No hay herramienta para eso, ningún inputSchema ofrece APROBADO y el servicio igual lo

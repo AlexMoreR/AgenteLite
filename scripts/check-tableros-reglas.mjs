@@ -1,4 +1,4 @@
-// Pruebas de los Tableros inteligentes (src/features/tableros-inteligentes/services): quién aprueba,
+// Pruebas del Tablero IA (src/features/tableros-inteligentes/services): quién aprueba,
 // qué estados puede poner Claude, qué pasa al editar algo aprobado, qué se puede deshacer y la
 // disposición del mapa. No necesita base ni red.
 // Correr: npm run test:tableros

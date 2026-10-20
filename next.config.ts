@@ -41,6 +41,18 @@ const nextConfig: NextConfig = {
     remotePatterns: [{ protocol: "https", hostname: "magilus.com", pathname: "/uploads/**" }],
   },
 
+  /*
+    "Tableros inteligentes" pasó a llamarse "Tablero IA" (19-oct-2026). Los links viejos (los que ya
+    devolvió el MCP, con ?tablero=<id> o ?tarjeta=<id>) siguen sirviendo: Next pasa la query tal
+    cual al destino. Temporal (307) a propósito, para no dejarlo grabado en los navegadores.
+  */
+  async redirects() {
+    return [
+      { source: "/cliente/tableros-inteligentes", destination: "/cliente/tablero-ia", permanent: false },
+      { source: "/cliente/tableros-inteligentes/:resto*", destination: "/cliente/tablero-ia/:resto*", permanent: false },
+    ];
+  },
+
   async headers() {
     return [
       /*
