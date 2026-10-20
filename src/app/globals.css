@@ -915,28 +915,7 @@ body {
   --tia-linea: #3f3f46;
 }
 
-/*
-  Tablero IA: UN solo punto que viaja por cada línea, del origen al destino (FlechaFlotante.tsx).
-  El <path> lleva pathLength=100: un guion de casi 0 con punta redonda (el punto) y un hueco de 100,
-  y la animación es de stroke-dashoffset: la hace el navegador, sin JS por cuadro.
-  Sin movimiento si la persona lo desactivó: el punto queda quieto en la mitad de la línea.
-*/
-@keyframes tableroIaFlujo {
-  from { stroke-dashoffset: 0; }
-  to { stroke-dashoffset: -100; }
-}
-
-.tablero-ia-flujo {
-  stroke-width: 4;
-  stroke-linecap: round;
-  stroke-dasharray: 0.001 99.999;
+/* Tablero IA: el punto que viaja por cada línea (<circle> con <animateMotion> en FlechaFlotante.tsx). */
+.tablero-ia-punto {
   pointer-events: none;
-  animation: tableroIaFlujo 2.6s linear infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tablero-ia-flujo {
-    animation: none;
-    stroke-dashoffset: -50;
-  }
 }

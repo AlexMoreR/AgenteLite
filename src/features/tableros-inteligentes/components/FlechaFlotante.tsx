@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useSyncExternalStore } from "react";
 import { BaseEdge, getStraightPath, useInternalNode, type Edge, type EdgeProps, type InternalNode } from "@xyflow/react";
 
 /*
@@ -10,9 +10,9 @@ import { BaseEdge, getStraightPath, useInternalNode, type Edge, type EdgeProps, 
   de la de destino, por el lado que queda mirando a la otra (la recta entre los dos centros, cortada
   donde toca cada rectángulo). Así nunca da la vuelta por detrás de una tarjeta.
 
-  Encima de la línea viaja UN solo punto del origen al destino (clase `tablero-ia-flujo` de
-  globals.css): es solo CSS (stroke-dashoffset sobre pathLength=100), sin JS por cuadro, y con
-  `prefers-reduced-motion: reduce` el punto queda quieto en la mitad de la línea. Las líneas
+  Encima de la línea viaja UN solo punto (un <circle> con <animateMotion>) del origen al destino:
+  lo anima el navegador, sin JS por cuadro, y con `prefers-reduced-motion: reduce` el punto queda
+  quieto en la mitad de la línea. Las líneas
   atenuadas por el filtro no llevan punto. Sin puntas de flecha.
 
   La misma recta sirve para la UNIÓN CON LA MADRE (`data.clase = "madre"`): del centro a cada hija,
@@ -48,9 +48,27 @@ function bordeHacia(desde: Rect, hacia: Rect) {
   return { x: desde.cx + dx * escala, y: desde.cy + dy * escala };
 }
 
+const CONSULTA_SIN_MOVIMIENTO = "(prefers-reduced-motion: reduce)";
+
+function suscribirSinMovimiento(avisar: () => void) {
+  const consulta = window.matchMedia(CONSULTA_SIN_MOVIMIENTO);
+  consulta.addEventListener("change", avisar);
+  return () => consulta.removeEventListener("change", avisar);
+}
+
+/** true si la persona pidió "reducir movimiento": el punto queda quieto en la mitad de la línea. */
+function useSinMovimiento() {
+  return useSyncExternalStore(
+    suscribirSinMovimiento,
+    () => window.matchMedia(CONSULTA_SIN_MOVIMIENTO).matches,
+    () => false,
+  );
+}
+
 function FlechaFlotanteBase({ id, source, target, style, data }: EdgeProps<FlechaDeTablero>) {
   const origen = useInternalNode(source);
   const destino = useInternalNode(target);
+  const sinMovimiento = useSinMovimiento();
   if (!origen || !destino) return null;
 
   const a = rectDe(origen);
@@ -63,7 +81,13 @@ function FlechaFlotanteBase({ id, source, target, style, data }: EdgeProps<Flech
     <>
       <BaseEdge id={id} path={camino} style={style} />
       {data && !data.atenuada && data.conPunto !== false ? (
-        <path d={camino} pathLength={100} className="tablero-ia-flujo" style={{ stroke: data.color }} fill="none" aria-hidden />
+        sinMovimiento ? (
+          <circle cx={(inicio.x + fin.x) / 2} cy={(inicio.y + fin.y) / 2} r={3.5} className="tablero-ia-punto" style={{ fill: data.color }} aria-hidden />
+        ) : (
+          <circle r={3.5} className="tablero-ia-punto" style={{ fill: data.color }} aria-hidden>
+            <animateMotion dur="2.6s" repeatCount="indefinite" path={camino} />
+          </circle>
+        )
       ) : null}
     </>
   );
