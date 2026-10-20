@@ -400,3 +400,11 @@ la IA pausada no lo contesta el agente.
 - **Tablero IA: el sí final despliega.** Aprobar "subir" hace que el trabajador empuje a `main`, y todo
   push a `main` de AizenCRM se despliega solo. El trabajador vuelve a correr la verificación y el ensayo de
   la migración antes de subir; si algo falla, no sube y queda ERROR.
+- **Tablero IA: no confundir tableros por voz.** Alexander ('Magilus General') y Emanuel ('Desarrollo
+  Emanuel') le hablan a Claude por voz y el tablero es por negocio, no por persona: nada impide escribir
+  en el tablero del otro. Por eso las instrucciones del MCP y la descripción de cada herramienta que
+  escribe (`REGLA_DEL_TABLERO` en `src/lib/mcp/tableros-inteligentes.ts`) le piden a Claude preguntar
+  cuál tablero si hay más de uno y no se nombró, decir el nombre en voz alta antes de escribir y no
+  adivinar por el último usado. Todas las respuestas del tablero traen `tablero` ({id, nombre}; las de
+  tarjeta lo sacan de la tarjeta) y `listar_tableros` trae una `nota` cuando hay más de uno. Es una
+  regla para Claude, no un permiso: el servidor no lo bloquea.

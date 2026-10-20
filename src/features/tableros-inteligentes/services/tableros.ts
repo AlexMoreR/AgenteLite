@@ -467,6 +467,42 @@ export async function firmaDelTablero(workspaceId: string, tableroId: string) {
   return fila?.actualizadoEn ?? null;
 }
 
+export type TableroDeReferencia = { id: string; nombre: string };
+
+/*
+  A qué tablero pertenece algo (para que el MCP diga el nombre del tablero en cada respuesta y Claude
+  no confunda dos tableros por voz). Incluyen las tarjetas borradas; null si no es de este negocio.
+*/
+export async function tableroDeLaTarjeta(workspaceId: string, tarjetaId: unknown): Promise<TableroDeReferencia | null> {
+  const id = typeof tarjetaId === "string" ? tarjetaId.trim() : "";
+  if (!id) return null;
+  const fila = await prisma.tarjetaTablero.findFirst({
+    where: { id, tablero: { workspaceId } },
+    select: { tablero: { select: { id: true, nombre: true } } },
+  });
+  return fila?.tablero ?? null;
+}
+
+export async function tableroDelTipo(workspaceId: string, tipoId: unknown): Promise<TableroDeReferencia | null> {
+  const id = typeof tipoId === "string" ? tipoId.trim() : "";
+  if (!id) return null;
+  const fila = await prisma.tipoTarjeta.findFirst({
+    where: { id, tablero: { workspaceId } },
+    select: { tablero: { select: { id: true, nombre: true } } },
+  });
+  return fila?.tablero ?? null;
+}
+
+export async function tableroDelCambio(workspaceId: string, cambioId: unknown): Promise<TableroDeReferencia | null> {
+  const id = typeof cambioId === "string" ? cambioId.trim() : "";
+  if (!id) return null;
+  const fila = await prisma.historialTarjeta.findFirst({
+    where: { id, tarjeta: { tablero: { workspaceId } } },
+    select: { tarjeta: { select: { tablero: { select: { id: true, nombre: true } } } } },
+  });
+  return fila?.tarjeta.tablero ?? null;
+}
+
 /** Incluye las borradas: así se encuentra el cambio "borrar" para deshacerlo. */
 export async function historialDeTarjeta(workspaceId: string, tarjetaId: unknown) {
   const tarjeta = await tarjetaDelNegocio(workspaceId, tarjetaId, { incluirBorradas: true });

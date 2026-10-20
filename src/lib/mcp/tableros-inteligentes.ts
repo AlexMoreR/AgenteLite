@@ -16,7 +16,11 @@ import {
   listarTipos,
   planYResultado,
   renombrarTablero,
+  tableroDeLaTarjeta,
+  tableroDelCambio,
+  tableroDelTipo,
   verTablero,
+  type TableroDeReferencia,
   type ContextoTablero,
   type TipoVista,
 } from "@/features/tableros-inteligentes/services/tableros";
@@ -76,6 +80,17 @@ const ESCRIBE = { readOnlyHint: false, destructiveHint: false, idempotentHint: f
 const BORRA = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } as const;
 const SOLO_LECTURA = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
 
+/*
+  Alexander y Emanuel le hablan a Claude por VOZ y cada uno tiene su tablero ('Magilus General' y
+  'Desarrollo Emanuel'): no se pueden confundir. Va en la descripción de cada herramienta que escribe
+  y en las instrucciones del servidor (src/app/api/mcp/route.ts). Cada respuesta trae `tablero`
+  ({id, nombre}) para que Claude repita el nombre correcto.
+*/
+export const REGLA_DEL_TABLERO =
+  " CUÁL TABLERO: si el negocio tiene más de un tablero y la persona no nombró cuál, preguntarle antes de actuar. " +
+  "Antes de escribir, decir en voz alta el nombre del tablero ('Lo anoto en Magilus General, ¿listo?'). " +
+  "Nunca adivinar por el último tablero usado. La respuesta trae `tablero` con su nombre: repetirlo.";
+
 const PROPIEDADES_DEL_TIPO = {
   nombre: { type: "string", description: "Nombre corto: 'Proyecto', 'Meta', 'Riesgo'" },
   color: { type: "string", description: "Color en hex, por ejemplo '#0ea5e9'. Opcional." },
@@ -125,7 +140,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "crear_tablero",
     title: "Crear un tablero de ideas",
     description:
-      "Crea un tablero nuevo, por ejemplo uno por tema ('Ventas', 'Producción', 'Marketing'). Nace con 3 tipos de tarjeta: Área (una carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea y la aprueba el dueño). Antes mirar listar_tableros para no repetir uno que ya existe.",
+      "Crea un tablero nuevo, por ejemplo uno por tema ('Ventas', 'Producción', 'Marketing'). Nace con 3 tipos de tarjeta: Área (una carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea y la aprueba el dueño). Antes mirar listar_tableros para no repetir uno que ya existe. Antes de crearlo, decir en voz alta el nombre que va a tener.",
     inputSchema: {
       type: "object",
       properties: { nombre: { type: "string", description: "Nombre corto del tablero: 'Ventas'" } },
@@ -138,7 +153,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "renombrar_tablero",
     title: "Cambiar el nombre de un tablero",
     description:
-      "Le cambia el nombre a un tablero del negocio (sus tarjetas, tipos y links no cambian). El nombre no puede ir vacío, tiene hasta 60 letras y no puede ser el de otro tablero del negocio (sin mirar mayúsculas). Los ids salen de listar_tableros.",
+      "Le cambia el nombre a un tablero del negocio (sus tarjetas, tipos y links no cambian). El nombre no puede ir vacío, tiene hasta 60 letras y no puede ser el de otro tablero del negocio (sin mirar mayúsculas). Los ids salen de listar_tableros." +
+      REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
       properties: {
@@ -183,7 +199,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "crear_tipo",
     title: "Crear un tipo de tarjeta",
     description:
-      "Crea un tipo de tarjeta nuevo en un tablero (por ejemplo 'Proyecto' que cuelga de un 'Área'). Si requiere_aprobacion es true, sus tarjetas pasan por POR_APROBAR y las aprueba el dueño.",
+      "Crea un tipo de tarjeta nuevo en un tablero (por ejemplo 'Proyecto' que cuelga de un 'Área'). Si requiere_aprobacion es true, sus tarjetas pasan por POR_APROBAR y las aprueba el dueño." +
+      REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
       properties: { tablero_id: { type: "string", description: "Id del tablero" }, ...PROPIEDADES_DEL_TIPO },
@@ -196,7 +213,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "editar_tipo",
     title: "Editar un tipo de tarjeta",
     description:
-      "Cambia el nombre, color, ícono, orden, de qué tipos puede colgar, si tiene estados, o le pone aprobación a un tipo. Se manda solo lo que cambia. NO puede quitarle la aprobación a un tipo (eso lo hace solo el dueño en la pantalla), ni quitarle los estados si alguna de sus tarjetas tiene un estado distinto de IDEA. No quita un 'padre' que alguna tarjeta está usando.",
+      "Cambia el nombre, color, ícono, orden, de qué tipos puede colgar, si tiene estados, o le pone aprobación a un tipo. Se manda solo lo que cambia. NO puede quitarle la aprobación a un tipo (eso lo hace solo el dueño en la pantalla), ni quitarle los estados si alguna de sus tarjetas tiene un estado distinto de IDEA. No quita un 'padre' que alguna tarjeta está usando." +
+      REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
       properties: { tipo_id: { type: "string", description: "Id del tipo (ver listar_tipos)" }, ...PROPIEDADES_DEL_TIPO },
@@ -209,7 +227,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "crear_tarjeta",
     title: "Agregar una tarjeta",
     description:
-      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea; un Área también dentro de otra Área). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el trabajador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente).",
+      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea; un Área también dentro de otra Área). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el trabajador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente)." +
+      REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
       properties: {
@@ -241,7 +260,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "editar_tarjeta",
     title: "Editar una tarjeta",
     description:
-      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo o la zona protegida de una tarjeta. Se manda solo lo que cambia. Si estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR. Mientras el trabajador la tiene (PLANEANDO, EN_CURSO, SUBIENDO) no se edita. Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla).",
+      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo o la zona protegida de una tarjeta. Se manda solo lo que cambia. Si estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR. Mientras el trabajador la tiene (PLANEANDO, EN_CURSO, SUBIENDO) no se edita. Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla)." +
+      REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
       properties: {
@@ -267,7 +287,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "conectar_tarjetas",
     title: "Unir dos tarjetas",
     description:
-      "Une dos tarjetas del mismo tablero con una flecha que sale de la primera y llega a la segunda (por ejemplo: 'esto lleva a esto' o 'esto depende de esto'). Para decir 'esto es parte de esto' se usa padre_id, no una flecha.",
+      "Une dos tarjetas del mismo tablero con una flecha que sale de la primera y llega a la segunda (por ejemplo: 'esto lleva a esto' o 'esto depende de esto'). Para decir 'esto es parte de esto' se usa padre_id, no una flecha." +
+      REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
       properties: {
@@ -283,7 +304,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "cambiar_estado_tarjeta",
     title: "Mover una tarjeta de estado",
     description:
-      "Mueve una tarjeta de estado. NO aprueba (para eso está aprobar_tarjeta, solo si la persona lo dice) y no pone ningún estado del trabajador (PLANEANDO, PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, SUBIENDO, ERROR). Para pedir aprobación, dejarla POR_APROBAR (solo tipos con aprobación). En tipos con aprobación y SIN repo, EN_CURSO solo sale de una APROBADA, y HECHO de una APROBADA o EN_CURSO; en tarjetas CON repo, EN_CURSO y HECHO los pone solo el trabajador, y mientras él la tiene no se mueve. FALLIDO (abandonarla) sale de algo aprobado o de lo que dejó el trabajador. Los tipos sin aprobación van libres entre IDEA, EN_CURSO, HECHO y FALLIDO. Las tarjetas de un tipo sin estados (Área) no tienen estado: se rechaza.",
+      "Mueve una tarjeta de estado. NO aprueba (para eso está aprobar_tarjeta, solo si la persona lo dice) y no pone ningún estado del trabajador (PLANEANDO, PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, SUBIENDO, ERROR). Para pedir aprobación, dejarla POR_APROBAR (solo tipos con aprobación). En tipos con aprobación y SIN repo, EN_CURSO solo sale de una APROBADA, y HECHO de una APROBADA o EN_CURSO; en tarjetas CON repo, EN_CURSO y HECHO los pone solo el trabajador, y mientras él la tiene no se mueve. FALLIDO (abandonarla) sale de algo aprobado o de lo que dejó el trabajador. Los tipos sin aprobación van libres entre IDEA, EN_CURSO, HECHO y FALLIDO. Las tarjetas de un tipo sin estados (Área) no tienen estado: se rechaza." +
+      REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
       properties: {
@@ -299,7 +321,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "borrar_tarjeta",
     title: "Borrar una tarjeta",
     description:
-      "Saca una tarjeta del tablero en un solo paso, con TODAS sus flechas (no hay que borrarlas aparte). Se puede deshacer con deshacer_cambio_tarjeta y vuelve con sus flechas. Sus hijas quedan sueltas hasta que se deshaga. No borra una tarjeta APROBADA ni EN_CURSO: eso lo decide el dueño.",
+      "Saca una tarjeta del tablero en un solo paso, con TODAS sus flechas (no hay que borrarlas aparte). Se puede deshacer con deshacer_cambio_tarjeta y vuelve con sus flechas. Sus hijas quedan sueltas hasta que se deshaga. No borra una tarjeta APROBADA ni EN_CURSO: eso lo decide el dueño." +
+      REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
       properties: { tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero)" } },
@@ -325,7 +348,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "deshacer_cambio_tarjeta",
     title: "Deshacer un cambio de una tarjeta",
     description:
-      "Deja la tarjeta como estaba antes de ese cambio (deshacer una creación la saca del tablero; deshacer un borrado la devuelve con sus flechas). No deshace lo que hizo el dueño en la pantalla, no quita ni devuelve una aprobación, y si después hubo otro cambio sobre lo mismo, avisa y no toca nada.",
+      "Deja la tarjeta como estaba antes de ese cambio (deshacer una creación la saca del tablero; deshacer un borrado la devuelve con sus flechas). No deshace lo que hizo el dueño en la pantalla, no quita ni devuelve una aprobación, y si después hubo otro cambio sobre lo mismo, avisa y no toca nada." +
+      REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
       properties: { cambio_id: { type: "string", description: "Id del cambio (ver ver_historial_tarjeta)" } },
@@ -353,7 +377,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     description:
       "Úsala SOLO si la persona lo dijo explícitamente en esta conversación. Antes, léele el título y qué se aprueba, y espera que diga 'sí, apruebo'. Nunca apruebes por tu cuenta. " +
       "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del trabajador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan) o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
-      "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con zona protegida no se aprueba acá: solo en la pantalla.",
+      "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con zona protegida no se aprueba acá: solo en la pantalla." +
+      REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
       properties: {
@@ -429,6 +454,9 @@ function queFalta(estado: string, conRepo: boolean, conZona: boolean): string {
   }
 }
 
+/** El campo `tablero` de cada respuesta: Claude repite este nombre (REGLA_DEL_TABLERO). */
+const referencia = (tablero: TableroDeReferencia | null) => (tablero ? { id: tablero.id, nombre: tablero.nombre } : null);
+
 const datosDelTipo = (args: Argumentos) => ({
   nombre: args.nombre,
   color: args.color,
@@ -460,6 +488,11 @@ export async function ejecutarHerramientaMcpTableros(
           link: linkDelTablero(tablero.id),
         })),
         ...(tableros.length ? {} : { aviso: "Todavía no hay tableros. Crear uno con crear_tablero." }),
+        ...(tableros.length > 1
+          ? {
+              nota: `Hay ${tableros.length} tableros (${tableros.map((tablero) => tablero.nombre).join(", ")}): pregunta cuál antes de escribir.`,
+            }
+          : {}),
         estados: Object.entries(NOMBRE_DEL_ESTADO).map(([clave, texto]) => ({ clave, texto })),
         quien_aprueba:
           "El dueño del negocio (o un aprobador que él agregó), en la pantalla o con aprobar_tarjeta cuando lo dice explícitamente; solo tarjetas de un tipo que pide aprobación. El sí final (subir a producción) lo da solo el dueño. Las de zona protegida, solo en la pantalla.",
@@ -469,6 +502,7 @@ export async function ejecutarHerramientaMcpTableros(
       const tablero = await crearTablero(contexto, args.nombre);
       return {
         ok: true,
+        tablero: referencia(tablero),
         tablero_id: tablero.id,
         nombre: tablero.nombre,
         aviso:
@@ -480,6 +514,7 @@ export async function ejecutarHerramientaMcpTableros(
       const tablero = await renombrarTablero(contexto, args.tablero_id, args.nombre);
       return {
         ok: true,
+        tablero: referencia(tablero),
         tablero_id: tablero.id,
         antes: tablero.antes,
         nombre: tablero.nombre,
@@ -501,6 +536,7 @@ export async function ejecutarHerramientaMcpTableros(
         : tarjetas;
       const ids = new Set(visibles.map((tarjeta) => tarjeta.id));
       return {
+        tablero: referencia(tablero),
         tablero_id: tablero.id,
         nombre: tablero.nombre,
         total_tarjetas: tarjetas.length,
@@ -551,6 +587,7 @@ export async function ejecutarHerramientaMcpTableros(
       const { tablero, tipos } = await listarTipos(contexto.workspaceId, args.tablero_id);
       const nombres = new Map(tipos.map((tipo) => [tipo.id, tipo.nombre]));
       return {
+        tablero: referencia(tablero),
         tablero_id: tablero.id,
         nombre: tablero.nombre,
         tipos: tipos.map((tipo) => ({ ...tipoParaClaude(tipo, nombres), tarjetas: tipo.tarjetas })),
@@ -563,14 +600,17 @@ export async function ejecutarHerramientaMcpTableros(
       const { tipos } = await listarTipos(contexto.workspaceId, tablero.id);
       return {
         ok: true,
+        tablero: referencia(tablero),
         ...tipoParaClaude(tipo, new Map(tipos.map((uno) => [uno.id, uno.nombre]))),
         link: linkDelTablero(tablero.id),
       };
     }
     case "editar_tipo": {
+      const tablero = await tableroDelTipo(contexto.workspaceId, args.tipo_id);
       const { tipo, volvieronAIdea } = await editarTipo(contexto, args.tipo_id, datosDelTipo(args));
       return {
         ok: true,
+        tablero: referencia(tablero),
         tipo_id: tipo.id,
         nombre: tipo.nombre,
         requiere_aprobacion: tipo.requiereAprobacion,
@@ -596,6 +636,7 @@ export async function ejecutarHerramientaMcpTableros(
       });
       return {
         ok: true,
+        tablero: referencia(resultado.tablero),
         tarjeta_id: resultado.tarjeta.id,
         tipo: resultado.tipo.nombre,
         padre_id: resultado.tarjeta.padreId,
@@ -614,6 +655,7 @@ export async function ejecutarHerramientaMcpTableros(
       };
     }
     case "editar_tarjeta": {
+      const tablero = await tableroDeLaTarjeta(contexto.workspaceId, args.tarjeta_id);
       const resultado = await editarTarjeta(contexto, args.tarjeta_id, {
         titulo: args.titulo,
         detalle: args.detalle,
@@ -638,6 +680,7 @@ export async function ejecutarHerramientaMcpTableros(
             : "Listo. Para volver atrás: deshacer_cambio_tarjeta.";
       return {
         ok: true,
+        tablero: referencia(tablero),
         tarjeta_id: resultado.tarjeta.id,
         tipo: resultado.tipo.nombre,
         padre_id: resultado.tarjeta.padreId,
@@ -650,9 +693,11 @@ export async function ejecutarHerramientaMcpTableros(
       };
     }
     case "conectar_tarjetas": {
+      const tablero = await tableroDeLaTarjeta(contexto.workspaceId, args.origen_id);
       const resultado = await conectarTarjetas(contexto, args.origen_id, args.destino_id);
       return {
         ok: true,
+        tablero: referencia(tablero),
         cambio_id: resultado.cambioId,
         aviso: `Flecha de "${resultado.origen}" a "${resultado.destino}".`,
         link: linkDeLaTarjeta(resultado.conexion.origenId),
@@ -660,9 +705,11 @@ export async function ejecutarHerramientaMcpTableros(
     }
     case "cambiar_estado_tarjeta": {
       const tarjetaId = typeof args.tarjeta_id === "string" ? args.tarjeta_id : "";
+      const tablero = await tableroDeLaTarjeta(contexto.workspaceId, tarjetaId);
       const resultado = await cambiarEstadoTarjeta(contexto, tarjetaId, args.estado);
       return {
         ok: true,
+        tablero: referencia(tablero),
         cambio_id: resultado.cambioId,
         antes: resultado.antes,
         ahora: resultado.ahora,
@@ -674,9 +721,11 @@ export async function ejecutarHerramientaMcpTableros(
       };
     }
     case "borrar_tarjeta": {
+      const tablero = await tableroDeLaTarjeta(contexto.workspaceId, args.tarjeta_id);
       const resultado = await borrarTarjeta(contexto, args.tarjeta_id);
       return {
         ok: true,
+        tablero: referencia(tablero),
         cambio_id: resultado.cambioId,
         aviso: `Se borró "${resultado.titulo}" con ${resultado.flechas} flecha(s)${
           resultado.hijas ? `; sus ${resultado.hijas} hija(s) quedan sueltas` : ""
@@ -684,8 +733,12 @@ export async function ejecutarHerramientaMcpTableros(
       };
     }
     case "ver_historial_tarjeta": {
-      const { tarjeta, cambios, borrada } = await historialDeTarjeta(contexto.workspaceId, args.tarjeta_id);
+      const [{ tarjeta, cambios, borrada }, tablero] = await Promise.all([
+        historialDeTarjeta(contexto.workspaceId, args.tarjeta_id),
+        tableroDeLaTarjeta(contexto.workspaceId, args.tarjeta_id),
+      ]);
       return {
+        tablero: referencia(tablero),
         tarjeta_id: tarjeta.id,
         titulo: tarjeta.titulo,
         estado: tarjeta.estado,
@@ -710,13 +763,19 @@ export async function ejecutarHerramientaMcpTableros(
       };
     }
     case "deshacer_cambio_tarjeta": {
+      // Antes de deshacer: deshacer una creación saca la tarjeta y ya no se encontraría su tablero.
+      const tablero = await tableroDelCambio(contexto.workspaceId, args.cambio_id);
       const resultado = await deshacerCambioTarjeta(contexto, args.cambio_id);
-      return { ok: true, ...("cambioId" in resultado ? { cambio_id: resultado.cambioId } : {}), aviso: resultado.aviso };
+      return { ok: true, tablero: referencia(tablero), ...("cambioId" in resultado ? { cambio_id: resultado.cambioId } : {}), aviso: resultado.aviso };
     }
     case "ver_plan_y_resultado": {
-      const { tarjeta, aprobaciones } = await planYResultado(contexto.workspaceId, args.tarjeta_id);
+      const [{ tarjeta, aprobaciones }, tablero] = await Promise.all([
+        planYResultado(contexto.workspaceId, args.tarjeta_id),
+        tableroDeLaTarjeta(contexto.workspaceId, args.tarjeta_id),
+      ]);
       const resultado = tarjeta.resultado;
       return {
+        tablero: referencia(tablero),
         tarjeta_id: tarjeta.id,
         titulo: tarjeta.titulo,
         estado: tarjeta.estado,
@@ -753,6 +812,7 @@ export async function ejecutarHerramientaMcpTableros(
     case "aprobar_tarjeta": {
       // La única puerta para aprobar desde Claude: el servidor revisa quién es (la clave), el estado,
       // el texto de la persona y la zona protegida (services/reglas-trabajador.ts).
+      const tablero = await tableroDeLaTarjeta(contexto.workspaceId, args.tarjeta_id);
       const resultado = await aprobarTarjeta(contexto, args.tarjeta_id, {
         momento: typeof args.momento === "string" ? args.momento : "",
         via: "voz",
@@ -760,6 +820,7 @@ export async function ejecutarHerramientaMcpTableros(
       });
       return {
         ok: true,
+        tablero: referencia(tablero),
         cambio_id: resultado.cambioId,
         antes: resultado.antes,
         ahora: resultado.ahora,

@@ -77,7 +77,11 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "explicitamente en esta conversacion: antes leerle el titulo y que se aprueba y esperar que diga 'si, apruebo'; " +
           "texto_confirmacion es lo que dijo, tal cual. Nunca aprobar por cuenta propia. El si final (subir) lo da solo el " +
           "dueno. Si toca Meta Ads, el bot de ventas o el libro V3, marcar zona_protegida: esas se aprueban solo en la " +
-          "pantalla (Claude puede poner la zona, no quitarla).",
+          "pantalla (Claude puede poner la zona, no quitarla). " +
+          "CUAL TABLERO (se habla por voz y hay varios, por ejemplo 'Magilus General' de Alexander y 'Desarrollo " +
+          "Emanuel'): si el negocio tiene mas de un tablero y la persona no nombro cual, preguntarle antes de actuar. " +
+          "Antes de escribir, decir en voz alta el nombre del tablero ('Lo anoto en Magilus General, listo?'). Nunca " +
+          "adivinar por el ultimo tablero usado. Cada respuesta del tablero trae `tablero` ({id, nombre}): repetir ese nombre.",
       });
     }
     case "ping":
