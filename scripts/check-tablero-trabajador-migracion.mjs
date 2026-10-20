@@ -1,0 +1,311 @@
+/**
+ * Prueba de la migración del trabajador del Tablero IA (fase 2)
+ * (prisma/migrations/20261020120000_tablero_trabajador) contra un Postgres embebido (PGlite), sin
+ * tocar ninguna base real:
+ *   npm run test:tablero-trabajador-migracion
+ *
+ * 1. Aplica TODAS las migraciones reales en orden sobre una base vacía, hasta la anterior a esta.
+ * 2. Inserta datos como los de hoy: un negocio, su dueño y una asesora, un tablero con sus tipos y
+ *    tarjetas en todos los estados de la fase 1, flechas e historial.
+ * 3. Aplica la migración nueva y comprueba: el enum tiene los 6 valores nuevos (y FALLIDO sigue), las
+ *    columnas nuevas con sus defaults, las dos tablas nuevas con sus restricciones, y nada perdido.
+ * 4. Revisa que la migración no USE los valores nuevos del enum (no se puede en la misma transacción).
+ * 5. La vuelve a aplicar (no debe fallar ni duplicar nada).
+ * 6. Corre las consultas reales del trabajador (services/sql-trabajador.ts): tomar es atómico, respeta
+ *    el candado del negocio, el repo, el tipo y la zona protegida, y las vencidas pasan a ERROR.
+ */
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { PGlite } from "@electric-sql/pglite";
+import { cargar } from "./supervisor-cargar.mjs";
+
+const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const CARPETA = path.join(RAIZ, "prisma", "migrations");
+const NUEVA = "20261020120000_tablero_trabajador";
+const NUEVOS = ["PLANEANDO", "PLAN_LISTO", "PLAN_APROBADO", "POR_REVISAR", "SUBIENDO", "ERROR"];
+
+const sql = cargar("src/features/tableros-inteligentes/services/sql-trabajador.ts");
+
+const migraciones = fs
+  .readdirSync(CARPETA, { withFileTypes: true })
+  .filter((entrada) => entrada.isDirectory())
+  .map((entrada) => entrada.name)
+  .sort();
+assert.ok(migraciones.includes(NUEVA), `falta la migración ${NUEVA}`);
+assert.equal(migraciones.at(-1), NUEVA, "la migración nueva tiene que ser la última");
+
+const leer = (nombre) => fs.readFileSync(path.join(CARPETA, nombre, "migration.sql"), "utf8");
+
+const db = new PGlite();
+let pruebas = 0;
+async function prueba(nombre, fn) {
+  await fn();
+  pruebas += 1;
+  console.log(`ok - ${nombre}`);
+}
+const filas = async (texto, valores = []) => (await db.query(texto, valores)).rows;
+
+for (const nombre of migraciones) {
+  if (nombre === NUEVA) break;
+  try {
+    await db.exec(leer(nombre));
+  } catch (fallo) {
+    throw new Error(`La migración ${nombre} falló en PGlite: ${fallo.message}`);
+  }
+}
+console.log(`aplicadas ${migraciones.length - 1} migraciones anteriores`);
+
+// ── Datos de antes de la migración ─────────────────────────────────────────────────────────
+await db.exec(`
+  INSERT INTO "User" ("id", "email", "password", "updatedAt") VALUES
+    ('u-dueno', 'dueno@x.co', 'x', now()), ('u-asesora', 'asesora@x.co', 'x', now());
+  INSERT INTO "Workspace" ("id", "name", "slug", "updatedAt", "ownerId") VALUES
+    ('ws1', 'Magilus', 'magilus', now(), 'u-dueno'), ('ws2', 'Otro', 'otro', now(), NULL);
+  INSERT INTO "TableroInteligente" ("id", "workspaceId", "nombre") VALUES
+    ('tab1', 'ws1', 'Ventas'), ('tab2', 'ws2', 'Otro negocio');
+  INSERT INTO "TipoTarjeta" ("id", "tableroId", "nombre", "requiereAprobacion", "usaEstados", "orden") VALUES
+    ('area', 'tab1', 'Área', false, false, 0),
+    ('idea', 'tab1', 'Idea', false, true, 1),
+    ('tarea', 'tab1', 'Tarea', true, true, 2),
+    ('tarea2', 'tab2', 'Tarea', true, true, 0);
+  INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId") VALUES
+    ('c1', 'tab1', 'Responder en 15 min', 'IDEA', 'u-dueno', now(), 'tarea'),
+    ('c2', 'tab1', 'Seguimiento a 24 h', 'POR_APROBAR', 'u-dueno', now(), 'tarea'),
+    ('c3', 'tab1', 'Guion de envío', 'APROBADO', 'u-dueno', now(), 'tarea'),
+    ('c4', 'tab1', 'Tabla de fletes', 'EN_CURSO', 'u-dueno', now(), 'tarea'),
+    ('c5', 'tab1', 'Moldes nuevos', 'HECHO', 'u-dueno', now(), 'tarea'),
+    ('c6', 'tab1', 'Proveedor de espuma', 'FALLIDO', 'u-dueno', now(), 'tarea'),
+    ('c7', 'tab1', 'Ventas', 'IDEA', 'u-dueno', now(), 'area');
+  INSERT INTO "ConexionTarjeta" ("id", "tableroId", "origenId", "destinoId") VALUES ('f1', 'tab1', 'c1', 'c2');
+  INSERT INTO "HistorialTarjeta" ("id", "tarjetaId", "quien", "origen", "accion", "despues") VALUES
+    ('h1', 'c3', 'u-dueno', 'PANTALLA', 'aprobar', '{"estado":"APROBADO"}');
+`);
+const antes = await filas(`SELECT "id", "estado", "titulo", "tipoId" FROM "TarjetaTablero" ORDER BY "id"`);
+
+await prueba("la migración no usa los valores nuevos del enum fuera de su ADD VALUE", async () => {
+  const texto = leer(NUEVA)
+    .split("\n")
+    .filter((linea) => !linea.trim().startsWith("--"))
+    .filter((linea) => !/ALTER TYPE "EstadoTarjeta" ADD VALUE IF NOT EXISTS/.test(linea))
+    .join("\n");
+  for (const valor of NUEVOS) assert.ok(!texto.includes(`'${valor}'`), `usa '${valor}' dentro de la migración`);
+  assert.match(leer(NUEVA), /^BEGIN;$/m);
+  assert.match(leer(NUEVA), /^COMMIT;$/m);
+});
+
+// ── La migración nueva ─────────────────────────────────────────────────────────────────────
+await db.exec(leer(NUEVA));
+
+await prueba("el enum tiene los 6 estados nuevos y conserva los 6 de antes (FALLIDO incluido), en orden", async () => {
+  const valores = (await filas(`SELECT unnest(enum_range(NULL::"EstadoTarjeta"))::text AS v`)).map((f) => f.v);
+  assert.deepEqual(valores, ["IDEA", "POR_APROBAR", "APROBADO", "EN_CURSO", "HECHO", "FALLIDO", ...NUEVOS]);
+});
+
+await prueba("las tarjetas de antes siguen iguales y reciben los defaults (sin repo, sin plan, sin zona, 0 intentos)", async () => {
+  const despues = await filas(`
+    SELECT "id", "estado", "titulo", "tipoId", "repo", "plan", "resultado", "zonaProtegida", "intentos",
+           "trabajoIniciadoEn", "trabajoVenceEn"
+    FROM "TarjetaTablero" ORDER BY "id"`);
+  assert.deepEqual(
+    despues.map((f) => [f.id, f.estado, f.titulo, f.tipoId]),
+    antes.map((f) => [f.id, f.estado, f.titulo, f.tipoId]),
+  );
+  for (const f of despues) {
+    assert.equal(f.repo, null);
+    assert.equal(f.plan, null);
+    assert.equal(f.resultado, null);
+    assert.deepEqual(f.zonaProtegida, []);
+    assert.equal(f.intentos, 0);
+    assert.equal(f.trabajoIniciadoEn, null);
+    assert.equal(f.trabajoVenceEn, null);
+  }
+  const [{ n }] = await filas(`SELECT count(*)::int AS n FROM "ConexionTarjeta"`);
+  const [{ h }] = await filas(`SELECT count(*)::int AS h FROM "HistorialTarjeta"`);
+  assert.equal(n, 1);
+  assert.equal(h, 1);
+});
+
+await prueba("columnas nuevas: tipos y nulos correctos", async () => {
+  const columnas = await filas(`
+    SELECT column_name, is_nullable, data_type, udt_name, column_default FROM information_schema.columns
+    WHERE table_name = 'TarjetaTablero'
+      AND column_name IN ('repo', 'plan', 'resultado', 'zonaProtegida', 'intentos', 'trabajoIniciadoEn', 'trabajoVenceEn')`);
+  const mapa = Object.fromEntries(columnas.map((c) => [c.column_name, c]));
+  assert.equal(Object.keys(mapa).length, 7);
+  assert.equal(mapa.repo.data_type, "text");
+  assert.equal(mapa.plan.data_type, "text");
+  assert.equal(mapa.resultado.data_type, "jsonb");
+  assert.equal(mapa.zonaProtegida.udt_name, "_text");
+  assert.equal(mapa.zonaProtegida.is_nullable, "NO");
+  assert.equal(mapa.intentos.is_nullable, "NO");
+  assert.equal(mapa.intentos.column_default, "0");
+  for (const c of ["repo", "plan", "resultado", "trabajoIniciadoEn", "trabajoVenceEn"]) assert.equal(mapa[c].is_nullable, "YES", c);
+  assert.match(mapa.trabajoVenceEn.data_type, /timestamp without time zone/);
+});
+
+await prueba("después de la migración los estados nuevos se pueden usar", async () => {
+  await db.exec(`UPDATE "TarjetaTablero" SET "estado" = 'PLAN_LISTO', "plan" = 'Paso 1' WHERE "id" = 'c1'`);
+  const [fila] = await filas(`SELECT "estado" FROM "TarjetaTablero" WHERE "id" = 'c1'`);
+  assert.equal(fila.estado, "PLAN_LISTO");
+  await db.exec(`UPDATE "TarjetaTablero" SET "estado" = 'IDEA', "plan" = NULL WHERE "id" = 'c1'`);
+});
+
+await prueba("AprobadorTablero: uno por persona y negocio, alcance TODO o DESARROLLO, puedeSubir false por defecto", async () => {
+  await db.exec(`INSERT INTO "AprobadorTablero" ("id", "workspaceId", "userId") VALUES ('a1', 'ws1', 'u-asesora')`);
+  const [fila] = await filas(`SELECT "alcance", "puedeSubir", "creadoEn" FROM "AprobadorTablero" WHERE "id" = 'a1'`);
+  assert.equal(fila.alcance, "DESARROLLO");
+  assert.equal(fila.puedeSubir, false);
+  assert.ok(fila.creadoEn);
+  await assert.rejects(
+    db.query(`INSERT INTO "AprobadorTablero" ("id", "workspaceId", "userId") VALUES ('a2', 'ws1', 'u-asesora')`),
+    /unique|duplicate/i,
+  );
+  await assert.rejects(
+    db.query(`INSERT INTO "AprobadorTablero" ("id", "workspaceId", "userId", "alcance") VALUES ('a3', 'ws2', 'u-asesora', 'JEFE')`),
+    /check/i,
+  );
+  await assert.rejects(
+    db.query(`INSERT INTO "AprobadorTablero" ("id", "workspaceId", "userId") VALUES ('a4', 'ws1', 'nadie')`),
+    /foreign key/i,
+  );
+});
+
+await prueba("ClaveTrabajador: huella única, sin uso ni revocación al nacer, y cae con el negocio", async () => {
+  await db.exec(`INSERT INTO "ClaveTrabajador" ("id", "workspaceId", "nombre", "hash") VALUES ('k1', 'ws1', 'aizen1', 'abc')`);
+  const [fila] = await filas(`SELECT "ultimoUsoEn", "revocadaEn", "creadoEn" FROM "ClaveTrabajador" WHERE "id" = 'k1'`);
+  assert.equal(fila.ultimoUsoEn, null);
+  assert.equal(fila.revocadaEn, null);
+  assert.ok(fila.creadoEn);
+  await assert.rejects(
+    db.query(`INSERT INTO "ClaveTrabajador" ("id", "workspaceId", "nombre", "hash") VALUES ('k2', 'ws2', 'otra', 'abc')`),
+    /unique|duplicate/i,
+  );
+  await db.exec(`INSERT INTO "ClaveTrabajador" ("id", "workspaceId", "nombre", "hash") VALUES ('k3', 'ws2', 'otra', 'def')`);
+});
+
+await prueba("aplicarla otra vez no falla ni duplica nada", async () => {
+  await db.exec(leer(NUEVA));
+  const valores = await filas(`SELECT unnest(enum_range(NULL::"EstadoTarjeta"))::text AS v`);
+  assert.equal(valores.length, 12);
+  const [{ a }] = await filas(`SELECT count(*)::int AS a FROM "AprobadorTablero"`);
+  const [{ k }] = await filas(`SELECT count(*)::int AS k FROM "ClaveTrabajador"`);
+  assert.equal(a, 1);
+  assert.equal(k, 2);
+});
+
+// ── Las consultas del trabajador ────────────────────────────────────────────────────────────
+const AHORA = "2026-10-20T15:00:00.000Z";
+const EN_5_MIN = "2026-10-20T15:05:00.000Z";
+const REPOS = ["gestion", "aizencrm"];
+const tomar = (ws = "ws1", ahora = AHORA, vence = EN_5_MIN) => filas(sql.SQL_TOMAR_UNA, [ws, ahora, REPOS, vence]);
+const hay = (ws = "ws1", ahora = AHORA) => filas(sql.SQL_HAY_UNA_TRABAJANDO, [ws, ahora]);
+
+await db.exec(`
+  UPDATE "TarjetaTablero" SET "repo" = 'aizencrm', "actualizadoEn" = '2026-10-20 10:00:00' WHERE "id" = 'c3';
+  INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "plan") VALUES
+    ('sin-repo', 'tab1', 'Llamar al proveedor', 'APROBADO', 'u-dueno', '2026-10-20 08:00:00', 'tarea', NULL, NULL),
+    ('otro-repo', 'tab1', 'Repo raro', 'APROBADO', 'u-dueno', '2026-10-20 08:00:00', 'tarea', 'netmagi', NULL),
+    ('idea-repo', 'tab1', 'Una idea', 'EN_CURSO', 'u-dueno', '2026-10-20 08:00:00', 'idea', 'aizencrm', NULL),
+    ('plan-ok', 'tab1', 'Con plan', 'PLAN_APROBADO', 'u-dueno', '2026-10-20 11:00:00', 'tarea', 'gestion', 'El plan'),
+    ('plan-sin', 'tab1', 'Sin plan', 'PLAN_APROBADO', 'u-dueno', '2026-10-20 07:00:00', 'tarea', 'gestion', NULL),
+    ('zona', 'tab1', 'Toca el bot', 'APROBADO', 'u-dueno', '2026-10-20 06:00:00', 'tarea', 'aizencrm', NULL),
+    ('borrada', 'tab1', 'Borrada', 'APROBADO', 'u-dueno', '2026-10-20 05:00:00', 'tarea', 'aizencrm', NULL),
+    ('ajena', 'tab2', 'De otro negocio', 'APROBADO', 'u-dueno', '2026-10-20 04:00:00', 'tarea2', 'aizencrm', NULL);
+  UPDATE "TarjetaTablero" SET "zonaProtegida" = ARRAY['BOT_VENTAS'] WHERE "id" = 'zona';
+  UPDATE "TarjetaTablero" SET "borradoEn" = '2026-10-20 05:30:00' WHERE "id" = 'borrada';
+  INSERT INTO "HistorialTarjeta" ("id", "tarjetaId", "quien", "origen", "accion", "despues", "creadoEn") VALUES
+    ('hz', 'zona', 'u-dueno', 'MCP', 'aprobar', '{"estado":"APROBADO","via":"voz"}', '2026-10-20 06:00:00');
+`);
+
+await prueba("el candado del negocio se puede pedir (advisory lock de la transacción)", async () => {
+  await db.query("BEGIN");
+  await db.query(sql.SQL_CANDADO_DEL_NEGOCIO, ["ws1"]);
+  await db.query("COMMIT");
+});
+
+await prueba("tomar: la más vieja con repo de la lista y tipo con aprobación; nada sin repo, de otro repo, Idea, borrada, ajena ni zona sin pantalla", async () => {
+  assert.deepEqual(await hay(), []);
+  const [primera] = await tomar();
+  // c3 (10:00, APROBADO) es más vieja que plan-ok (11:00); plan-sin no tiene plan; zona se aprobó por voz.
+  assert.deepEqual(primera, { id: "c3", tableroId: "tab1", antes: "APROBADO", estado: "PLANEANDO" });
+  // Se guarda en UTC sin zona (como Prisma), sin importar la zona de la sesión.
+  const [fila] = await filas(
+    `SELECT "intentos", "trabajoIniciadoEn"::text AS ini, "trabajoVenceEn"::text AS vence FROM "TarjetaTablero" WHERE "id" = 'c3'`,
+  );
+  assert.equal(fila.intentos, 1);
+  assert.equal(fila.ini, "2026-10-20 15:00:00");
+  assert.equal(fila.vence, "2026-10-20 15:05:00");
+  assert.deepEqual((await hay()).map((f) => f.id), ["c3"], "ahora hay candado");
+  // Con la tarjeta tomada, la que sigue es plan-ok (el servicio no llama tomar si hay candado, pero la consulta sola la ve).
+  const [segunda] = await tomar();
+  assert.deepEqual(segunda, { id: "plan-ok", tableroId: "tab1", antes: "PLAN_APROBADO", estado: "EN_CURSO" });
+  // Ya no queda nada que tomar en ws1 (sin repo, otro repo, Idea, sin plan, zona por voz, borrada).
+  assert.deepEqual(await tomar(), []);
+  const intactas = await filas(
+    `SELECT "id", "estado" FROM "TarjetaTablero" WHERE "id" IN ('sin-repo','otro-repo','idea-repo','plan-sin','zona','borrada','ajena') ORDER BY "id"`,
+  );
+  assert.deepEqual(
+    intactas.map((f) => [f.id, f.estado]),
+    [
+      ["ajena", "APROBADO"],
+      ["borrada", "APROBADO"],
+      ["idea-repo", "EN_CURSO"],
+      ["otro-repo", "APROBADO"],
+      ["plan-sin", "PLAN_APROBADO"],
+      ["sin-repo", "APROBADO"],
+      ["zona", "APROBADO"],
+    ],
+  );
+});
+
+await prueba("zona protegida: se toma solo si la última aprobación fue en la pantalla", async () => {
+  await db.exec(`INSERT INTO "HistorialTarjeta" ("id", "tarjetaId", "quien", "origen", "accion", "despues", "creadoEn") VALUES
+    ('hz2', 'zona', 'u-dueno', 'PANTALLA', 'aprobar', '{"estado":"APROBADO","via":"pantalla"}', '2026-10-20 06:30:00')`);
+  const [tomada] = await tomar();
+  assert.equal(tomada.id, "zona");
+  assert.equal(tomada.estado, "PLANEANDO");
+});
+
+await prueba("SUBIENDO pendiente (sin candado) se toma; con candado no", async () => {
+  await db.exec(`
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "trabajoVenceEn") VALUES
+      ('sube', 'tab1', 'Subir', 'SUBIENDO', 'u-dueno', '2026-10-20 01:00:00', 'tarea', 'gestion', NULL),
+      ('sube-ya', 'tab1', 'Ya subiendo', 'SUBIENDO', 'u-dueno', '2026-10-20 00:00:00', 'tarea', 'gestion', '2026-10-20 15:10:00')`);
+  const [tomada] = await tomar();
+  assert.deepEqual(tomada, { id: "sube", tableroId: "tab1", antes: "SUBIENDO", estado: "SUBIENDO" });
+  const [fila] = await filas(`SELECT "trabajoVenceEn" FROM "TarjetaTablero" WHERE "id" = 'sube'`);
+  assert.ok(fila.trabajoVenceEn);
+  assert.deepEqual(await tomar(), []);
+});
+
+await prueba("vencidas: las que pasaron su vencimiento quedan ERROR con motivo (y se conserva el resultado anterior)", async () => {
+  await db.exec(`UPDATE "TarjetaTablero" SET "resultado" = '{"rama":"tablero/x"}' WHERE "id" = 'plan-ok'`);
+  // A las 15:06 vencieron las tomadas a las 15:00 (vence 15:05); sube-ya vence 15:10.
+  const vencidas = await filas(sql.SQL_PASAR_VENCIDAS_A_ERROR, ["ws1", "2026-10-20T15:06:00.000Z", "Se pasó del tiempo", "2026-10-20T15:06:00.000Z"]);
+  assert.deepEqual(vencidas.map((f) => [f.id, f.antes]).sort(), [
+    ["c3", "PLANEANDO"],
+    ["plan-ok", "EN_CURSO"],
+    ["sube", "SUBIENDO"],
+    ["zona", "PLANEANDO"],
+  ]);
+  const [fila] = await filas(`SELECT "estado", "resultado", "trabajoVenceEn" FROM "TarjetaTablero" WHERE "id" = 'plan-ok'`);
+  assert.equal(fila.estado, "ERROR");
+  assert.equal(fila.trabajoVenceEn, null);
+  assert.equal(fila.resultado.rama, "tablero/x");
+  assert.deepEqual(fila.resultado.error, { motivo: "Se pasó del tiempo", en: "EN_CURSO", cuando: "2026-10-20T15:06:00.000Z" });
+  assert.deepEqual((await hay("ws1", "2026-10-20T15:06:00.000Z")).map((f) => f.id), ["sube-ya"]);
+  // La de otro negocio, idea-repo (EN_CURSO sin candado) y sube-ya no se tocaron.
+  const [idea] = await filas(`SELECT "estado" FROM "TarjetaTablero" WHERE "id" = 'idea-repo'`);
+  assert.equal(idea.estado, "EN_CURSO");
+});
+
+await prueba("tomar en otro negocio no ve las de este", async () => {
+  const [tomada] = await tomar("ws2");
+  assert.equal(tomada.id, "ajena");
+  assert.deepEqual(await tomar("ws2"), []);
+});
+
+await db.close();
+console.log(`\n${pruebas} pruebas, todas bien`);

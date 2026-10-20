@@ -36,6 +36,7 @@ model User {
   webPushSubscriptions  WebPushSubscription[]
   callAttempts          CallAttempt[]         @relation("CallAttemptCaller")
   diagrams              Diagram[]             @relation("DiagramCreatedBy")
+  aprobadorTablero      AprobadorTablero[]
 }
 
 model EmailAuthToken {
@@ -84,6 +85,8 @@ model Workspace {
   mediaLibrary          MediaLibraryItem[]
   diagrams              Diagram[]
   tablerosInteligentes  TableroInteligente[]
+  aprobadoresTablero    AprobadorTablero[]
+  clavesTrabajador      ClaveTrabajador[]
   messages              Message[]
   officialApiConfig     OfficialApiClientConfig?
   quickReplies          QuickReply[]
@@ -1944,8 +1947,10 @@ model SupervisorAlerta {
   @@index([workspaceId, createdAt])
 }
 
-/// Estado de una tarjeta de un Tablero inteligente. APROBADO solo lo pone el dueño (o el ADMIN de la
-/// plataforma) desde la pantalla, y solo desde POR_APROBAR. Claude por el MCP nunca aprueba.
+/// Estado de una tarjeta de un Tablero inteligente. Aprobar (APROBADO, PLAN_APROBADO, SUBIENDO) es su propia
+/// acción: el dueño (o un aprobador) en la pantalla, o por el MCP con aprobar_tarjeta y la confirmación
+/// explícita de la persona; nunca moviendo el estado. Fase 2 (trabajador): APROBADO -> PLANEANDO ->
+/// PLAN_LISTO -> PLAN_APROBADO -> EN_CURSO -> POR_REVISAR -> SUBIENDO -> HECHO, o ERROR. FALLIDO queda por compatibilidad.
 enum EstadoTarjeta {
   IDEA
   POR_APROBAR
@@ -1953,6 +1958,12 @@ enum EstadoTarjeta {
   EN_CURSO
   HECHO
   FALLIDO
+  PLANEANDO
+  PLAN_LISTO
+  PLAN_APROBADO
+  POR_REVISAR
+  SUBIENDO
+  ERROR
 }
 
 /// Tablero de ideas que arma Claude por el MCP y el dueño aprueba en /cliente/tableros-inteligentes. actualizadoEn se toca en cada cambio de sus tarjetas: el refresco de 5 s solo lee esa columna.
@@ -2029,6 +2040,19 @@ model TarjetaTablero {
   linkTexto     String?
   /// Borrado suave (borrar_tarjeta): se oculta en todas partes y se puede deshacer con su historial.
   borradoEn     DateTime?
+  /// Fase 2: en qué repositorio trabaja el trabajador ('gestion' | 'aizencrm'; lista fija en reglas-trabajador.ts). Sin repo, el trabajador no la toma.
+  repo              String?
+  /// El plan que escribió el trabajador (lenguaje sencillo), para que el dueño lo apruebe.
+  plan              String?
+  /// Lo que hizo el trabajador: {resumen, pruebas, paso, rama, linkRama, commit, migracion, subida?, error?}.
+  resultado         Json?
+  /// Zonas protegidas que toca (META_ADS | BOT_VENTAS | LIBRO_V3): se aprueba solo en la pantalla. El MCP puede ponerlas, no quitarlas.
+  zonaProtegida     String[]           @default([])
+  /// Cuántas veces la tomó el trabajador.
+  intentos          Int                @default(0)
+  /// Candado del trabajador: desde cuándo la tiene y hasta cuándo (cada latido lo corre, hasta el tope de la etapa).
+  trabajoIniciadoEn DateTime?
+  trabajoVenceEn    DateTime?
   tablero       TableroInteligente @relation(fields: [tableroId], references: [id], onDelete: Cascade)
   tipo          TipoTarjeta        @relation(fields: [tipoId], references: [id], onDelete: Restrict)
   padre         TarjetaTablero?    @relation("TarjetaMadre", fields: [padreId], references: [id], onDelete: SetNull)
@@ -2064,9 +2088,9 @@ model HistorialTarjeta {
   tarjetaId  String
   /// userId de quien hizo el cambio.
   quien      String
-  /// MCP | PANTALLA | TRABAJADOR (texto: sumar uno no migra la base; TRABAJADOR es de la fase 2)
+  /// MCP | PANTALLA | TRABAJADOR (texto: sumar uno no migra la base). Con TRABAJADOR, `quien` es "trabajador:<id de ClaveTrabajador>".
   origen     String
-  /// crear | editar | estado | conectar | aprobar | borrar | deshacer
+  /// crear | editar | estado | conectar | aprobar | borrar | deshacer. Un "aprobar" guarda en `despues`: momento (tarea|plan|subir), via (pantalla|voz), quienNombre, userId y textoConfirmacion.
   accion     String
   antes      Json?
   despues    Json?
@@ -2076,4 +2100,34 @@ model HistorialTarjeta {
   tarjeta    TarjetaTablero @relation(fields: [tarjetaId], references: [id], onDelete: Cascade)
 
   @@index([tarjetaId, creadoEn])
+}
+
+/// Quién más (además del dueño) aprueba tarjetas del Tablero IA. alcance TODO | DESARROLLO (solo tarjetas con repo gestion/aizencrm). El sí final (subir a producción) hoy es solo del dueño, aunque puedeSubir sea true (SI_FINAL_SOLO_DUENO en reglas-trabajador.ts).
+model AprobadorTablero {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String
+  /// TODO | DESARROLLO
+  alcance     String    @default("DESARROLLO")
+  puedeSubir  Boolean   @default(false)
+  creadoEn    DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+/// La clave del trabajador del Tablero IA (Bearer en /api/trabajador/tablero/*). Solo se guarda su huella sha256; se muestra una vez al crearla. Revocar = revocadaEn.
+model ClaveTrabajador {
+  id          String    @id @default(cuid())
+  workspaceId String
+  nombre      String
+  hash        String    @unique
+  creadoEn    DateTime  @default(now())
+  ultimoUsoEn DateTime?
+  revocadaEn  DateTime?
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
 }
