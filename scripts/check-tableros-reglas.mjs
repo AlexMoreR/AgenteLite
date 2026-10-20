@@ -1,12 +1,14 @@
 // Pruebas del Tablero IA (src/features/tableros-inteligentes/services): quién aprueba,
-// qué estados puede poner Claude, qué pasa al editar algo aprobado, qué se puede deshacer y la
-// disposición del mapa. No necesita base ni red.
+// qué estados puede poner Claude, qué pasa al editar algo aprobado, qué se puede deshacer, los
+// tipos de tarjeta (aprobación, cambio de tipo, madres permitidas y ciclos), borrar y deshacer con
+// flechas, los niveles del mapa y la disposición en árbol. No necesita base ni red.
 // Correr: npm run test:tableros
 import assert from "node:assert/strict";
 import { cargar } from "./supervisor-cargar.mjs";
 
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas.ts");
-const { disponer, sePisan } = cargar("src/features/tableros-inteligentes/services/disposicion.ts");
+const { disponerRadial, sePisan, RADIO_INICIAL } = cargar("src/features/tableros-inteligentes/services/disposicion.ts");
+const reglasNiveles = cargar("src/features/tableros-inteligentes/services/niveles.ts");
 
 let pruebas = 0;
 function prueba(nombre, fn) {
@@ -162,107 +164,404 @@ prueba("fecha: AAAA-MM-DD queda a mediodía de Colombia; vacío borra; basura fa
   assert.throws(() => reglas.fechaDeEntrada("mañana"));
 });
 
-/* ------------------------------------------------------------------ mapa */
+/* ------------------------------------------------------------------ tipos: aprobación */
 
-prueba("mapa: es determinista y no encima tarjetas", () => {
-  const ids = ["a", "b", "c", "d", "e"];
-  const aristas = [
-    { origenId: "a", destinoId: "b" },
-    { origenId: "b", destinoId: "c" },
+prueba("tipo sin aprobación: nunca POR_APROBAR ni APROBADO; va libre entre IDEA, EN_CURSO, HECHO, FALLIDO", () => {
+  assert.ok(reglas.estadoPermitidoParaTipo("POR_APROBAR", false));
+  assert.ok(reglas.estadoPermitidoParaTipo("APROBADO", false));
+  for (const estado of reglas.ESTADOS_SIN_APROBACION) assert.equal(reglas.estadoPermitidoParaTipo(estado, false), null);
+  for (const estado of reglas.ESTADOS_TARJETA) assert.equal(reglas.estadoPermitidoParaTipo(estado, true), null);
+  assert.ok(reglas.puedeCambiarEstado("IDEA", "POR_APROBAR", false));
+  assert.ok(reglas.puedeCambiarEstado("IDEA", "APROBADO", false));
+  assert.equal(reglas.puedeCambiarEstado("IDEA", "EN_CURSO", false), null);
+  assert.equal(reglas.puedeCambiarEstado("EN_CURSO", "HECHO", false), null);
+  assert.equal(reglas.puedeCambiarEstado("HECHO", "IDEA", false), null);
+  assert.ok(reglas.puedeCambiarEstado("IDEA", "IDEA", false), "mismo estado");
+});
+
+prueba("tipo con aprobación: las reglas de siempre (EN_CURSO solo sale de APROBADO)", () => {
+  assert.ok(reglas.puedeCambiarEstado("IDEA", "EN_CURSO", true));
+  assert.equal(reglas.puedeCambiarEstado("APROBADO", "EN_CURSO", true), null);
+  assert.equal(reglas.puedeCambiarEstado("IDEA", "POR_APROBAR", true), null);
+});
+
+prueba("aprobar: solo tarjetas de un tipo con aprobación, desde POR_APROBAR, nunca el MCP", () => {
+  assert.equal(reglas.puedeAprobar("PANTALLA", "POR_APROBAR", true), null);
+  assert.ok(reglas.puedeAprobar("PANTALLA", "POR_APROBAR", false));
+  assert.ok(reglas.puedeAprobar("MCP", "POR_APROBAR", true));
+});
+
+prueba("al crear: IDEA por defecto; POR_APROBAR solo si el tipo pide aprobación; APROBADO nunca", () => {
+  assert.equal(reglas.estadoAlCrear(undefined, false), "IDEA");
+  assert.equal(reglas.estadoAlCrear(undefined, true), "IDEA");
+  assert.equal(reglas.estadoAlCrear("POR_APROBAR", true), "POR_APROBAR");
+  assert.throws(() => reglas.estadoAlCrear("POR_APROBAR", false), /no pide aprobación/);
+  assert.throws(() => reglas.estadoAlCrear("APROBADO", true));
+  assert.throws(() => reglas.estadoAlCrear("EN_CURSO", false));
+});
+
+prueba("cambiar el tipo: con aprobación queda POR_APROBAR, sin aprobación queda IDEA (pierde la aprobación)", () => {
+  assert.equal(reglas.estadoTrasCambiarTipo(true), "POR_APROBAR");
+  assert.equal(reglas.estadoTrasCambiarTipo(false), "IDEA");
+});
+
+prueba("el MCP no le quita la aprobación a un tipo; el dueño sí, salvo con APROBADAS o EN_CURSO", () => {
+  assert.ok(reglas.puedeCambiarAprobacionDelTipo("MCP", true, false, 0));
+  assert.ok(reglas.puedeCambiarAprobacionDelTipo("TRABAJADOR", true, false, 0));
+  assert.equal(reglas.puedeCambiarAprobacionDelTipo("PANTALLA", true, false, 0), null);
+  assert.ok(reglas.puedeCambiarAprobacionDelTipo("PANTALLA", true, false, 2), "con aprobadas o en curso, ni el dueño");
+  // Ponerle aprobación sí puede cualquiera; no cambiar nada tampoco es problema.
+  assert.equal(reglas.puedeCambiarAprobacionDelTipo("MCP", false, true, 5), null);
+  assert.equal(reglas.puedeCambiarAprobacionDelTipo("MCP", true, true, 5), null);
+});
+
+prueba("borrar un tipo: solo en pantalla y sin tarjetas que lo usen", () => {
+  assert.ok(reglas.puedeBorrarTipo("MCP", 0));
+  assert.ok(reglas.puedeBorrarTipo("PANTALLA", 1));
+  assert.equal(reglas.puedeBorrarTipo("PANTALLA", 0), null);
+});
+
+prueba("tipos por defecto: Área (carpeta, dentro de Área), Idea <- Área, Tarea <- Idea; solo Tarea pide aprobación", () => {
+  assert.deepEqual(
+    reglas.TIPOS_POR_DEFECTO.map((t) => [t.nombre, t.requiereAprobacion, t.usaEstados, [...t.padres]]),
+    [
+      ["Área", false, false, ["Área"]],
+      ["Idea", false, true, ["Área"]],
+      ["Tarea", true, true, ["Idea"]],
+    ],
+  );
+  for (const tipo of reglas.TIPOS_POR_DEFECTO) assert.ok(reglas.esIconoDeTipo(tipo.icono));
+});
+
+prueba("tipo sin estados (Área): sin estado, no se aprueba, cambiar_estado se rechaza", () => {
+  assert.equal(reglas.estadoPermitidoParaTipo("IDEA", false, false), null, "IDEA interno");
+  for (const estado of ["POR_APROBAR", "APROBADO", "EN_CURSO", "HECHO", "FALLIDO"]) {
+    assert.ok(reglas.estadoPermitidoParaTipo(estado, false, false), estado);
+  }
+  for (const a of reglas.ESTADOS_SIN_APROBAR) assert.ok(reglas.puedeCambiarEstado("IDEA", a, false, false), a);
+  assert.ok(reglas.puedeAprobar("PANTALLA", "POR_APROBAR", true, false));
+  assert.equal(reglas.estadoAlCrear(undefined, false, false), "IDEA");
+  assert.equal(reglas.estadoAlCrear("IDEA", false, false), "IDEA");
+  assert.throws(() => reglas.estadoAlCrear("POR_APROBAR", false, false), /carpetas/);
+  assert.equal(reglas.estadoTrasCambiarTipo(false, false), "IDEA");
+  assert.equal(reglas.estadoTrasCambiarTipo(true, false), "IDEA");
+});
+
+prueba("quitarle los estados a un tipo: MCP solo si todo está IDEA; nadie con APROBADAS/EN_CURSO; nunca con aprobación", () => {
+  const nada = { aprobadasOEnCurso: 0, noIdea: 0 };
+  assert.equal(reglas.puedeCambiarEstadosDelTipo("MCP", true, false, nada, false), null);
+  assert.ok(reglas.puedeCambiarEstadosDelTipo("MCP", true, false, { aprobadasOEnCurso: 0, noIdea: 2 }, false));
+  assert.equal(reglas.puedeCambiarEstadosDelTipo("PANTALLA", true, false, { aprobadasOEnCurso: 0, noIdea: 2 }, false), null);
+  assert.ok(reglas.puedeCambiarEstadosDelTipo("PANTALLA", true, false, { aprobadasOEnCurso: 1, noIdea: 1 }, false));
+  assert.ok(reglas.puedeCambiarEstadosDelTipo("PANTALLA", true, false, nada, true), "sin estados no pide aprobación");
+  assert.equal(reglas.puedeCambiarEstadosDelTipo("MCP", false, true, nada, true), null, "darle estados siempre");
+});
+
+prueba("elegir tipo: por id o nombre (sin tildes ni mayúsculas); sin tipo = Idea, si no la primera sin aprobación", () => {
+  const tipos = [
+    { id: "t1", nombre: "Área", requiereAprobacion: false, orden: 0 },
+    { id: "t2", nombre: "Idea", requiereAprobacion: false, orden: 1 },
+    { id: "t3", nombre: "Tarea", requiereAprobacion: true, orden: 2 },
   ];
-  const uno = disponer(ids, aristas);
-  const dos = disponer(ids, aristas);
-  assert.deepEqual([...uno.entries()], [...dos.entries()]);
-  for (const x of ids) {
-    for (const y of ids) {
-      if (x >= y) continue;
-      const p = uno.get(x);
-      const q = uno.get(y);
-      assert.ok(Math.hypot(p.x - q.x, p.y - q.y) > 60, `${x}-${y} muy cerca`);
-    }
+  assert.equal(reglas.elegirTipo(tipos, undefined).id, "t2");
+  assert.equal(reglas.elegirTipo(tipos, "").id, "t2");
+  assert.equal(reglas.elegirTipo(tipos, "area").id, "t1");
+  assert.equal(reglas.elegirTipo(tipos, "AREA").id, "t1");
+  assert.equal(reglas.elegirTipo(tipos, "Área").id, "t1");
+  assert.equal(reglas.elegirTipo(tipos, " TAREA ").id, "t3");
+  assert.equal(reglas.elegirTipo(tipos, "t3").id, "t3");
+  assert.throws(() => reglas.elegirTipo(tipos, "Proyecto"), /No existe el tipo/);
+  const sinIdea = tipos.filter((t) => t.id !== "t2");
+  assert.equal(reglas.elegirTipo(sinIdea, undefined).id, "t1");
+  assert.throws(() => reglas.elegirTipo([tipos[2]], undefined), /ni otro sin aprobación/);
+});
+
+prueba("color, ícono y link: se validan", () => {
+  assert.equal(reglas.colorDeEntrada("#0EA5E9"), "#0ea5e9");
+  assert.equal(reglas.colorDeEntrada(undefined), undefined);
+  assert.throws(() => reglas.colorDeEntrada("azul"));
+  assert.equal(reglas.iconoDeEntrada("capas"), "capas");
+  assert.equal(reglas.iconoDeEntrada(""), null);
+  assert.throws(() => reglas.iconoDeEntrada("dinosaurio"));
+  assert.equal(reglas.linkDeEntrada("https://docs.google.com/x"), "https://docs.google.com/x");
+  assert.equal(reglas.linkDeEntrada("http://a.co"), "http://a.co");
+  assert.equal(reglas.linkDeEntrada(""), null);
+  assert.equal(reglas.linkDeEntrada(undefined), undefined);
+  assert.throws(() => reglas.linkDeEntrada("javascript:alert(1)"), /http/);
+  assert.throws(() => reglas.linkDeEntrada("ftp://a.co"), /http/);
+  assert.throws(() => reglas.linkDeEntrada("docs.google.com"), /no es un link/);
+  assert.equal(reglas.textoDelLink("https://www.drive.google.com/a", null), "drive.google.com");
+  assert.equal(reglas.textoDelLink("https://a.co", "Ver la hoja"), "Ver la hoja");
+});
+
+/* ------------------------------------------------------------------ tarjeta madre */
+
+const permitidas = new Map([
+  ["idea", new Set(["area"])],
+  ["tarea", new Set(["idea"])],
+  ["area", new Set(["area"])],
+]);
+const tj = (id, tipoId, tableroId = "T") => ({ id, tipoId, tableroId });
+
+prueba("madre: solo si el tipo de la madre está permitido para el tipo de la hija", () => {
+  const madres = new Map();
+  assert.equal(reglas.puedeColgar(tj("i1", "idea"), tj("a1", "area"), permitidas, madres), null);
+  assert.equal(reglas.puedeColgar(tj("t1", "tarea"), tj("i1", "idea"), permitidas, madres), null);
+  assert.ok(reglas.puedeColgar(tj("t1", "tarea"), tj("a1", "area"), permitidas, madres), "Tarea no cuelga de Área");
+  assert.ok(reglas.puedeColgar(tj("a1", "area"), tj("i1", "idea"), permitidas, madres), "Área no cuelga de Idea");
+  assert.equal(reglas.puedeColgar(tj("ven", "area"), tj("mag", "area"), permitidas, madres), null, "Área dentro de Área");
+  const nombres = new Map([["idea", "Idea"], ["area", "Área"], ["tarea", "Tarea"]]);
+  assert.match(reglas.puedeColgar(tj("t1", "tarea"), tj("a1", "area"), permitidas, madres, nombres), /Puede colgar de: Idea/);
+});
+
+prueba("madre: mismo tablero y nunca ella misma", () => {
+  assert.ok(reglas.puedeColgar(tj("i1", "idea"), tj("a1", "area", "OTRO"), permitidas, new Map()));
+  const todo = new Map([["x", new Set(["x"])]]);
+  assert.ok(reglas.puedeColgar(tj("a", "x"), tj("a", "x"), todo, new Map()));
+});
+
+prueba("madre: sin ciclos, ni directos ni largos", () => {
+  // Con un tipo que puede colgar de sí mismo (si algún día se permite), los ciclos se cortan igual.
+  const todo = new Map([["x", new Set(["x"])]]);
+  const madres = new Map([
+    ["a", null],
+    ["b", "a"],
+    ["c", "b"],
+  ]);
+  assert.equal(reglas.puedeColgar(tj("d", "x"), tj("c", "x"), todo, madres), null);
+  assert.match(reglas.puedeColgar(tj("a", "x"), tj("c", "x"), todo, madres), /ciclo/);
+  assert.match(reglas.puedeColgar(tj("b", "x"), tj("c", "x"), todo, madres), /ciclo/);
+  // Un ciclo viejo en los datos no cuelga la revisión (termina).
+  const roto = new Map([
+    ["p", "q"],
+    ["q", "p"],
+  ]);
+  assert.equal(reglas.puedeColgar(tj("z", "x"), tj("p", "x"), todo, roto), null);
+});
+
+prueba("cambiar el tipo de una tarjeta con hijas: se rechaza si alguna hija quedaría mal colgada", () => {
+  const hijas = [
+    { id: "t1", tipoId: "tarea", titulo: "Guion" },
+    { id: "t2", tipoId: "tarea", titulo: "Fletes" },
+  ];
+  assert.equal(reglas.hijasQueQuedanMal("idea", hijas, permitidas), null);
+  assert.match(reglas.hijasQueQuedanMal("area", hijas, permitidas), /2 hija\(s\).*"Guion"/);
+  assert.equal(reglas.hijasQueQuedanMal("area", [], permitidas), null);
+});
+
+/* ------------------------------------------------------------------ borrar y deshacer */
+
+prueba("borrar: Claude no borra lo APROBADO ni lo EN_CURSO; lo demás sí", () => {
+  assert.ok(reglas.puedeBorrarTarjeta("MCP", "APROBADO"));
+  assert.ok(reglas.puedeBorrarTarjeta("MCP", "EN_CURSO"));
+  for (const estado of ["IDEA", "POR_APROBAR", "HECHO", "FALLIDO"]) {
+    assert.equal(reglas.puedeBorrarTarjeta("MCP", estado), null, estado);
   }
 });
 
-prueba("mapa: las que ya tenían lugar no se mueven al llegar una nueva", () => {
-  const previas = new Map([
-    ["a", { x: 10, y: 20 }],
-    ["b", { x: 300, y: -40 }],
-  ]);
-  const nuevas = disponer(["a", "b", "c"], [{ origenId: "c", destinoId: "a" }], previas);
-  assert.deepEqual(nuevas.get("a"), { x: 10, y: 20 });
-  assert.deepEqual(nuevas.get("b"), { x: 300, y: -40 });
-  const c = nuevas.get("c");
-  assert.ok(Number.isFinite(c.x) && Number.isFinite(c.y));
-  // Nace cerca de la tarjeta con la que está conectada.
-  assert.ok(Math.hypot(c.x - 10, c.y - 20) < 700);
+prueba("deshacer un borrado: se puede, y vuelve con su estado (que nunca es APROBADO)", () => {
+  const borrar = cambio({
+    accion: "borrar",
+    antes: { estado: "IDEA", borradoEn: null, conexiones: [{ id: "f1", origenId: "c1", destinoId: "c2" }] },
+    despues: { borradoEn: T0.toISOString() },
+  });
+  assert.equal(reglas.puedeDeshacer(borrar, [], "IDEA"), null);
+  assert.equal(reglas.puedeDeshacer(borrar, [], "POR_APROBAR"), null);
+  assert.ok(reglas.puedeDeshacer(borrar, [], "APROBADO"));
+  assert.ok(reglas.puedeDeshacer({ ...borrar, deshechoEn: despues(5) }, [], "IDEA"), "dos veces no");
 });
+
+prueba("después de un borrado no se deshace nada anterior de esa tarjeta (primero el borrado)", () => {
+  const borrar = cambio({ id: "b1", accion: "borrar", creadoEn: despues(1000), antes: { estado: "IDEA" }, despues: {} });
+  assert.ok(reglas.puedeDeshacer(cambio(), [borrar], "IDEA"), "editar previo");
+  const flecha = cambio({ accion: "conectar", antes: null, despues: { conexionId: "x" } });
+  assert.ok(reglas.puedeDeshacer(flecha, [borrar], "IDEA"), "flecha previa");
+  // Con el borrado ya deshecho, sí.
+  const deshecho = { ...borrar, deshechoEn: despues(2000) };
+  assert.equal(reglas.puedeDeshacer(cambio(), [deshecho], "IDEA"), null);
+});
+
+prueba("deshacer un cambio de tipo: no devuelve un APROBADO ni lo quita", () => {
+  const deTareaAIdea = cambio({
+    antes: { tipoId: "tarea", estado: "APROBADO" },
+    despues: { tipoId: "idea", estado: "IDEA" },
+  });
+  assert.ok(reglas.puedeDeshacer(deTareaAIdea, [], "IDEA"), "volvería a APROBADO");
+  const deIdeaATarea = cambio({ antes: { tipoId: "idea", estado: "IDEA" }, despues: { tipoId: "tarea", estado: "POR_APROBAR" } });
+  assert.equal(reglas.puedeDeshacer(deIdeaATarea, [], "POR_APROBAR"), null);
+});
+
+/* ------------------------------------------------------------------ niveles */
+
+const arbol = [
+  { id: "mag", padreId: null, titulo: "Magilus" },
+  { id: "ven", padreId: "mag", titulo: "Ventas" },
+  { id: "mkt", padreId: "mag", titulo: "Marketing" },
+  { id: "i1", padreId: "ven", titulo: "Guion" },
+  { id: "t1", padreId: "i1", titulo: "Escribir guion" },
+  { id: "t2", padreId: "i1", titulo: "Probar guion", borradoEn: "2026-10-19T00:00:00Z" },
+  { id: "suelta", padreId: null, titulo: "Suelta" },
+  { id: "huerfana", padreId: "t2", titulo: "Cuelga de una borrada" },
+];
+
+prueba("conteo de hijas: sin las borradas, y una hija de una borrada no cuenta para nadie", () => {
+  const cuenta = reglasNiveles.contarHijas(arbol);
+  assert.equal(cuenta.get("mag"), 2);
+  assert.equal(cuenta.get("ven"), 1);
+  assert.equal(cuenta.get("i1"), 1, "t2 está borrada");
+  assert.equal(cuenta.get("t2"), undefined);
+  assert.equal(cuenta.get("t1"), undefined);
+});
+
+prueba("nivel raíz: tarjetas sin madre (y las de madre borrada) más sus hijas directas, nada más", () => {
+  const { nivel, visibles } = reglasNiveles.tarjetasDelNivel(arbol, null);
+  assert.equal(nivel, null);
+  assert.deepEqual(visibles.sort(), ["huerfana", "mag", "mkt", "suelta", "ven"].sort());
+});
+
+prueba("entrar a una tarjeta: ella y solo sus hijas directas; un nivel que no existe = raíz", () => {
+  assert.deepEqual(reglasNiveles.tarjetasDelNivel(arbol, "ven").visibles, ["ven", "i1"]);
+  assert.deepEqual(reglasNiveles.tarjetasDelNivel(arbol, "i1").visibles, ["i1", "t1"]);
+  assert.equal(reglasNiveles.tarjetasDelNivel(arbol, "t2").nivel, null, "borrada");
+  assert.equal(reglasNiveles.tarjetasDelNivel(arbol, "nada").nivel, null);
+});
+
+prueba("migas: de la raíz al nivel; y el link de una tarjeta abre el nivel de su madre", () => {
+  assert.deepEqual(
+    reglasNiveles.migasDelNivel(arbol, "i1").map((m) => m.titulo),
+    ["Magilus", "Ventas", "Guion"],
+  );
+  assert.deepEqual(reglasNiveles.migasDelNivel(arbol, null), []);
+  assert.equal(reglasNiveles.nivelDeLaTarjeta(arbol, "t1"), "i1");
+  assert.equal(reglasNiveles.nivelDeLaTarjeta(arbol, "mag"), null);
+  assert.equal(reglasNiveles.nivelDeLaTarjeta(arbol, "huerfana"), null, "madre borrada");
+});
+
+prueba("grupos radiales: raíz = cada tarjeta sin madre con sus hijas directas (las nietas no); nivel = ella y sus hijas", () => {
+  const raiz = reglasNiveles.gruposDelNivel(arbol, null);
+  assert.equal(raiz.nivel, null);
+  assert.deepEqual(raiz.grupos, [
+    { centro: "mag", hijas: ["ven", "mkt"] },
+    { centro: "suelta", hijas: [] },
+    { centro: "huerfana", hijas: [] },
+  ]);
+  assert.deepEqual(reglasNiveles.gruposDelNivel(arbol, "ven").grupos, [{ centro: "ven", hijas: ["i1"] }]);
+});
+
+const conTipo = [
+  { id: "mag", padreId: null, titulo: "Magilus", tipoId: "area" },
+  { id: "ven", padreId: "mag", titulo: "Ventas", tipoId: "area" },
+  { id: "mkt", padreId: "mag", titulo: "Marketing", tipoId: "area" },
+  { id: "i1", padreId: "ven", titulo: "Guion", tipoId: "idea" },
+  { id: "t1", padreId: "i1", titulo: "Escribir", tipoId: "tarea" },
+  { id: "i2", padreId: "mag", titulo: "Idea general", tipoId: "idea" },
+  { id: "borrada", padreId: "ven", titulo: "x", tipoId: "idea", borradoEn: "2026-10-19T00:00:00Z" },
+  { id: "s1", padreId: null, titulo: "Suelta", tipoId: "tarea" },
+];
+const esArea = (t) => t.tipoId === "area";
+
+prueba("lista por área: cada área con sus descendientes (con sangría), sueltas al final, sin borradas", () => {
+  const { areas, sueltas } = reglasNiveles.agruparPorArea(conTipo, esArea);
+  assert.deepEqual(
+    areas.map((g) => [g.ruta.join(" › "), g.tarjetas.map((f) => `${f.tarjeta.id}:${f.profundidad}`)]),
+    [
+      ["Magilus", ["i2:0"]],
+      ["Magilus › Ventas", ["i1:0", "t1:1"]],
+      ["Magilus › Marketing", []],
+    ],
+  );
+  assert.deepEqual(sueltas.map((f) => f.tarjeta.id), ["s1"]);
+});
+
+prueba("lista por área dentro de un nivel: solo lo que cuelga de ese nivel, con su área de encabezado", () => {
+  const enVentas = reglasNiveles.agruparPorArea(conTipo, esArea, "ven");
+  assert.deepEqual(enVentas.areas.map((g) => g.ruta.join(" › ")), ["Magilus › Ventas"]);
+  assert.deepEqual(enVentas.areas[0].tarjetas.map((f) => f.tarjeta.id), ["i1", "t1"]);
+  assert.deepEqual(enVentas.sueltas, []);
+  const enGuion = reglasNiveles.agruparPorArea(conTipo, esArea, "i1");
+  assert.deepEqual(enGuion.areas.map((g) => [g.area.id, g.ruta.join(" › ")]), [["ven", "Magilus › Ventas"]]);
+  assert.deepEqual(enGuion.areas[0].tarjetas.map((f) => f.tarjeta.id), ["i1", "t1"]);
+});
+
+/* ------------------------------------------------------------------ mapa radial */
 
 // Rectángulos de tarjeta (esquina arriba-izquierda) que se tocan, sin margen de aire.
 const encima = (p, q) => sePisan(p, q, 0);
-function sinSolapes(posiciones, revisar, nombre) {
+function sinSolapes(posiciones, nombre) {
+  // Todas contra todas, sin aire: ninguna encima de otra.
   const todas = [...posiciones.entries()];
-  for (const [x, p] of todas) {
-    if (!revisar.has(x)) continue;
-    for (const [y, q] of todas) {
-      if (x === y) continue;
-      assert.ok(!encima(p, q), `${nombre}: ${x} queda encima de ${y}`);
+  for (let i = 0; i < todas.length; i += 1) {
+    for (let j = i + 1; j < todas.length; j += 1) {
+      assert.ok(!encima(todas[i][1], todas[j][1]), `${nombre}: ${todas[i][0]} queda encima de ${todas[j][0]}`);
     }
   }
 }
 
-prueba("mapa: un tablero nuevo no tiene tarjetas encimadas (muchas tarjetas, varias formas)", () => {
-  for (const cantidad of [2, 7, 25, 60]) {
-    const ids = Array.from({ length: cantidad }, (_, i) => `t${String(i).padStart(2, "0")}`);
-    // Estrella (todas a la primera), cadena y sueltas: las tres juntan tarjetas de formas distintas.
-    const estrella = ids.slice(1).map((id) => ({ origenId: ids[0], destinoId: id }));
-    const cadena = ids.slice(1).map((id, i) => ({ origenId: ids[i], destinoId: id }));
-    for (const [forma, aristas] of [["estrella", estrella], ["cadena", cadena], ["sueltas", []]]) {
-      const pos = disponer(ids, aristas);
-      sinSolapes(pos, new Set(ids), `${forma} de ${cantidad}`);
-    }
+const centroDe = (p) => ({ x: p.x + 100, y: p.y + 66 });
+
+prueba("radial: el centro en el medio y sus hijas alrededor, todas a la misma distancia si caben en un anillo", () => {
+  const pos = disponerRadial([{ centro: "c", hijas: ["a", "b", "d", "e", "f"] }]);
+  const c = centroDe(pos.get("c"));
+  const distancias = ["a", "b", "d", "e", "f"].map((h) => {
+    const q = centroDe(pos.get(h));
+    return Math.hypot(q.x - c.x, q.y - c.y);
+  });
+  for (const d of distancias) assert.ok(Math.abs(d - RADIO_INICIAL) <= 2, `distancia ${d}`);
+  // Alrededor de verdad: hay hijas arriba, abajo, a la izquierda y a la derecha del centro.
+  const qs = ["a", "b", "d", "e", "f"].map((h) => centroDe(pos.get(h)));
+  assert.ok(qs.some((q) => q.y < c.y - 100) && qs.some((q) => q.y > c.y + 100));
+  assert.ok(qs.some((q) => q.x < c.x - 100) && qs.some((q) => q.x > c.x + 100));
+  sinSolapes(pos, "un anillo");
+});
+
+prueba("radial: determinista y sin solapes con muchas hijas, varios grupos y sueltas", () => {
+  for (const cantidad of [0, 1, 6, 7, 13, 40, 120]) {
+    const grupos = [
+      { centro: "raiz", hijas: Array.from({ length: cantidad }, (_, i) => `h${i}`) },
+      { centro: "otra", hijas: Array.from({ length: Math.ceil(cantidad / 3) }, (_, i) => `o${i}`) },
+      ...Array.from({ length: Math.ceil(cantidad / 4) }, (_, i) => ({ centro: `s${i}`, hijas: [] })),
+    ];
+    const uno = disponerRadial(grupos);
+    const dos = disponerRadial(grupos);
+    assert.deepEqual([...uno.entries()], [...dos.entries()]);
+    const total = grupos.reduce((n, g) => n + 1 + g.hijas.length, 0);
+    assert.equal(uno.size, total);
+    sinSolapes(uno, `radial de ${cantidad}`);
   }
 });
 
-prueba("mapa: una nueva que caería encima de una fija se corre a un hueco y la fija no se mueve", () => {
-  // Fijas en fila bien juntas: el resorte dejaría a la nueva justo sobre alguna.
-  const previas = new Map(Array.from({ length: 6 }, (_, i) => [`f${i}`, { x: i * 230, y: 0 }]));
-  const ids = [...previas.keys(), "n1", "n2", "n3"];
-  const aristas = [
-    { origenId: "f0", destinoId: "n1" },
-    { origenId: "n1", destinoId: "f5" },
-    { origenId: "f2", destinoId: "n2" },
-    { origenId: "f3", destinoId: "n2" },
-    { origenId: "n2", destinoId: "n3" },
-  ];
-  const pos = disponer(ids, aristas, previas);
-  for (const [id, p] of previas) assert.deepEqual(pos.get(id), p);
-  sinSolapes(pos, new Set(["n1", "n2", "n3"]), "nuevas junto a fijas");
+prueba("radial: las que ya tenían lugar no se mueven y las nuevas no caen encima", () => {
+  const grupos = [{ centro: "c", hijas: ["a", "b", "d"] }];
+  const antes = disponerRadial(grupos);
+  // El dueño arrastró "a" justo donde iría la próxima hija.
+  const previas = new Map(antes);
+  const masGrupos = [{ centro: "c", hijas: ["a", "b", "d", "n1", "n2", "n3", "n4", "n5"] }];
+  const lugarDeN1 = disponerRadial(masGrupos).get("n1");
+  previas.set("a", { ...lugarDeN1 });
+  const despues = disponerRadial(masGrupos, previas);
+  for (const [id, p] of previas) assert.deepEqual(despues.get(id), p, `${id} no se mueve`);
+  sinSolapes(despues, "con fijas");
 });
 
-prueba("mapa: agregar tarjetas de a una (como el refresco de 5 s) nunca las encima", () => {
+prueba("radial: agregar hijas de a una (como el refresco de 5 s) nunca las encima ni mueve las de antes", () => {
   let previas = new Map();
-  const ids = [];
-  const aristas = [];
+  const hijas = [];
   for (let i = 0; i < 30; i += 1) {
-    const id = `k${i}`;
-    ids.push(id);
-    if (i > 0) aristas.push({ origenId: ids[Math.floor(i / 3)], destinoId: id });
-    const pos = disponer(ids, aristas, previas);
+    hijas.push(`k${i}`);
+    const pos = disponerRadial([{ centro: "c", hijas: [...hijas] }], previas);
     for (const [viejo, p] of previas) assert.deepEqual(pos.get(viejo), p);
-    sinSolapes(pos, new Set([id]), `paso ${i}`);
+    sinSolapes(pos, `paso ${i}`);
     previas = pos;
   }
-  sinSolapes(previas, new Set(ids), "al final");
 });
 
-prueba("mapa: rodeada de fijas apretadas en grilla, la nueva igual encuentra hueco", () => {
-  const previas = new Map();
-  for (let fila = 0; fila < 8; fila += 1) {
-    for (let col = 0; col < 8; col += 1) previas.set(`g${fila}-${col}`, { x: col * 224, y: fila * 134 });
-  }
-  const ids = [...previas.keys(), "nueva"];
-  const pos = disponer(ids, [{ origenId: "g3-3", destinoId: "nueva" }], previas);
-  sinSolapes(pos, new Set(["nueva"]), "grilla llena");
+prueba("radial: una tarjeta repetida en dos grupos se dibuja una sola vez", () => {
+  const pos = disponerRadial([
+    { centro: "a", hijas: ["x"] },
+    { centro: "b", hijas: ["x", "y"] },
+  ]);
+  assert.equal(pos.size, 4);
+  sinSolapes(pos, "repetida");
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);

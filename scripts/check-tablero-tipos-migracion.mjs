@@ -71,19 +71,19 @@ const estadosAntes = await filas(`SELECT "id", "estado" FROM "TarjetaTablero" OR
 // ── La migración nueva ─────────────────────────────────────────────────────────────────────
 await db.exec(leer(NUEVA));
 
-await prueba("cada tablero tiene sus 3 tipos: Área, Idea, Tarea (solo Tarea pide aprobación)", async () => {
+await prueba("cada tablero tiene sus 3 tipos: Área (sin estados), Idea, Tarea (solo Tarea pide aprobación)", async () => {
   for (const tablero of ["tab1", "tab2"]) {
     const tipos = await filas(
-      `SELECT "nombre", "requiereAprobacion", "orden", "color", "icono", "id" FROM "TipoTarjeta"
+      `SELECT "nombre", "requiereAprobacion", "usaEstados", "orden", "color", "icono", "id" FROM "TipoTarjeta"
        WHERE "tableroId" = $1 ORDER BY "orden"`,
       [tablero],
     );
     assert.deepEqual(
-      tipos.map((t) => [t.nombre, t.requiereAprobacion, t.orden]),
+      tipos.map((t) => [t.nombre, t.requiereAprobacion, t.usaEstados, t.orden]),
       [
-        ["Área", false, 0],
-        ["Idea", false, 1],
-        ["Tarea", true, 2],
+        ["Área", false, false, 0],
+        ["Idea", false, true, 1],
+        ["Tarea", true, true, 2],
       ],
       tablero,
     );
@@ -97,20 +97,22 @@ await prueba("cada tablero tiene sus 3 tipos: Área, Idea, Tarea (solo Tarea pid
   assert.equal(n, 6);
 });
 
-await prueba("madres permitidas: Idea <- Área y Tarea <- Idea, sin mezclar tableros", async () => {
+await prueba("madres permitidas: Área <- Área, Idea <- Área y Tarea <- Idea, sin mezclar tableros", async () => {
   const pares = await filas(`
     SELECT h."tableroId" AS tablero, h."nombre" AS hija, m."nombre" AS madre, m."tableroId" AS tablero_madre
     FROM "TipoTarjetaPadre" p
     JOIN "TipoTarjeta" h ON h."id" = p."tipoId"
     JOIN "TipoTarjeta" m ON m."id" = p."tipoPadreId"
-    ORDER BY 1, 2`);
+    ORDER BY 1, 2, 3`);
   assert.deepEqual(
     pares.map((p) => [p.tablero, p.hija, p.madre]),
     [
       ["tab1", "Idea", "Área"],
       ["tab1", "Tarea", "Idea"],
+      ["tab1", "Área", "Área"],
       ["tab2", "Idea", "Área"],
       ["tab2", "Tarea", "Idea"],
+      ["tab2", "Área", "Área"],
     ],
   );
   for (const p of pares) assert.equal(p.tablero, p.tablero_madre);
@@ -151,6 +153,10 @@ await prueba("tipoId quedó NOT NULL; padreId, link, linkTexto y borradoEn acept
   const mapa = Object.fromEntries(columnas.map((c) => [c.column_name, c]));
   assert.equal(mapa.tipoId.is_nullable, "NO");
   for (const c of ["padreId", "link", "linkTexto", "borradoEn"]) assert.equal(mapa[c].is_nullable, "YES", c);
+  const [usa] = await filas(`SELECT is_nullable, column_default FROM information_schema.columns
+    WHERE table_name = 'TipoTarjeta' AND column_name = 'usaEstados'`);
+  assert.equal(usa.is_nullable, "NO");
+  assert.equal(usa.column_default, "true");
   assert.match(mapa.borradoEn.data_type, /timestamp/);
   await assert.rejects(
     db.query(`INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "creadoPor", "actualizadoEn")
@@ -164,16 +170,16 @@ await prueba("aplicarla otra vez no falla ni duplica nada", async () => {
   const [{ n }] = await filas(`SELECT count(*)::int AS n FROM "TipoTarjeta"`);
   const [{ p }] = await filas(`SELECT count(*)::int AS p FROM "TipoTarjetaPadre"`);
   assert.equal(n, 6);
-  assert.equal(p, 4);
+  assert.equal(p, 6);
 });
 
-await prueba("restricciones: tipo en uso no se borra, madre borrada deja la hija suelta, madre != hija", async () => {
+await prueba("restricciones: tipo en uso no se borra, madre borrada deja la hija suelta, sin pares repetidos", async () => {
   const [tarea] = await filas(`SELECT "id" FROM "TipoTarjeta" WHERE "tableroId" = 'tab1' AND "nombre" = 'Tarea'`);
   const [idea] = await filas(`SELECT "id" FROM "TipoTarjeta" WHERE "tableroId" = 'tab1' AND "nombre" = 'Idea'`);
   await assert.rejects(db.query(`DELETE FROM "TipoTarjeta" WHERE "id" = $1`, [tarea.id]), /foreign key|violates/i);
   await assert.rejects(
-    db.query(`INSERT INTO "TipoTarjetaPadre" ("tipoId", "tipoPadreId") VALUES ($1, $1)`, [idea.id]),
-    /check/i,
+    db.query(`INSERT INTO "TipoTarjetaPadre" ("tipoId", "tipoPadreId") SELECT "tipoId", "tipoPadreId" FROM "TipoTarjetaPadre" LIMIT 1`),
+    /unique|duplicate/i,
   );
   await assert.rejects(
     db.query(`INSERT INTO "TipoTarjeta" ("id", "tableroId", "nombre") VALUES ('dup', 'tab1', 'Idea')`),
@@ -188,11 +194,11 @@ await prueba("restricciones: tipo en uso no se borra, madre borrada deja la hija
   `);
   const [hija] = await filas(`SELECT "padreId" FROM "TarjetaTablero" WHERE "id" = 'hija'`);
   assert.equal(hija.padreId, null);
-  // Un tipo sin tarjetas sí se borra, y se lleva sus madres permitidas.
+  // Un tipo sin tarjetas sí se borra, y se lleva sus madres permitidas (Área <- Área e Idea <- Área).
   const [area] = await filas(`SELECT "id" FROM "TipoTarjeta" WHERE "tableroId" = 'tab2' AND "nombre" = 'Área'`);
   await db.query(`DELETE FROM "TipoTarjeta" WHERE "id" = $1`, [area.id]);
   const [{ p }] = await filas(`SELECT count(*)::int AS p FROM "TipoTarjetaPadre"`);
-  assert.equal(p, 3);
+  assert.equal(p, 4);
 });
 
 await prueba("borrar el tablero se lleva sus tipos y tarjetas (cascada)", async () => {

@@ -1980,6 +1980,8 @@ model TipoTarjeta {
   /// Clave de un ícono de la lista de la pantalla (ICONOS_DE_TIPO en reglas.ts).
   icono              String?
   requiereAprobacion Boolean            @default(false)
+  /// false = el tipo es una carpeta (Área): sus tarjetas no tienen estado (se guarda IDEA), no se aprueban ni cuentan en filtros ni en "Te toca a ti".
+  usaEstados         Boolean            @default(true)
   orden              Int                @default(0)
   creadoEn           DateTime           @default(now())
   actualizadoEn      DateTime           @default(now()) @updatedAt
@@ -1994,7 +1996,7 @@ model TipoTarjeta {
   @@index([tableroId, orden])
 }
 
-/// Qué tipo puede ser madre de cuál: una tarjeta de tipoId solo cuelga de una de tipoPadreId (CHECK: distintos).
+/// Qué tipo puede ser madre de cuál: una tarjeta de tipoId solo cuelga de una de tipoPadreId (puede ser el mismo tipo: Área dentro de Área).
 model TipoTarjetaPadre {
   tipoId      String
   tipoPadreId String
