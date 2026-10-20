@@ -23,17 +23,26 @@
 
 export type Punto = { x: number; y: number };
 
-/** Lo MÁS que ocupa una etiqueta hija (NodoTarjeta no pasa de estas medidas: 140 x 56 px). */
-export const ANCHO_TARJETA = 140;
-export const ALTO_TARJETA = 56;
-/** Lo más que ocupa la etiqueta del centro. */
-export const ANCHO_CENTRO = 200;
-export const ALTO_CENTRO = 88;
+/**
+ * Lo MÁS que ocupa una etiqueta hija (NodoTarjeta no pasa de estas medidas: 160 x 88 px): el título
+ * en hasta 3 líneas (text-xs) y dos líneas de contadores.
+ */
+export const ANCHO_TARJETA = 160;
+export const ALTO_TARJETA = 88;
+/** Lo más que ocupa la etiqueta del centro (título de hasta 3 líneas en text-sm y dos de contadores). */
+export const ANCHO_CENTRO = 220;
+export const ALTO_CENTRO = 112;
 /** Aire mínimo entre dos etiquetas. */
 export const SEPARACION = 20;
 
-/** Radio mínimo: una hija a la derecha del centro no toca la etiqueta del centro. */
-export const RADIO_INICIAL = Math.ceil((ANCHO_CENTRO + ANCHO_TARJETA) / 2 + SEPARACION + 10);
+/**
+ * Radio mínimo: una hija no toca la etiqueta del centro en NINGÚN ángulo (la diagonal de las dos
+ * medias etiquetas con aire). Con títulos de 3 líneas las etiquetas son altas: mirar solo el ancho
+ * dejaba que una hija en diagonal tocara el centro.
+ */
+export const RADIO_INICIAL = Math.ceil(
+  Math.hypot((ANCHO_CENTRO + ANCHO_TARJETA) / 2 + SEPARACION, (ALTO_CENTRO + ALTO_TARJETA) / 2 + SEPARACION),
+);
 /** Más de estas hijas: segundo anillo intercalado. */
 export const MAX_PRIMER_ANILLO = 16;
 /** Distancia mínima entre los centros de dos hijas vecinas (la diagonal de una etiqueta con aire). */
