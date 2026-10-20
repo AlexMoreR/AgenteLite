@@ -4,7 +4,6 @@ import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import {
   Background,
   Controls,
-  MarkerType,
   ReactFlow,
   applyNodeChanges,
   type NodeChange,
@@ -149,7 +148,6 @@ export function TablerosInteligentesVista({ tableros, tableroId, inicial, tarjet
         type: "flotante" as const,
         data: { color, atenuada },
         selectable: false,
-        markerEnd: { type: MarkerType.ArrowClosed, color, width: 18, height: 18 },
         style: { stroke: color, strokeWidth: 1.5, opacity: atenuada ? 0.15 : 0.8 },
       };
     });
