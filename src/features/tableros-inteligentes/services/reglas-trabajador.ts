@@ -1,0 +1,414 @@
+/*
+  REGLAS DEL TRABAJADOR Y DE LAS APROBACIONES del Tablero IA (fase 2, 20-oct-2026, spec aprobada por
+  Alexander).
+
+  Funciones puras, sin base ni Next (pruebas: npm run test:tableros). Las usan el servicio
+  (tableros.ts y trabajador.ts), el MCP y la pantalla.
+
+  El flujo de una tarjeta con repo (solo tipos con aprobación):
+    POR_APROBAR --(aprobar tarea)--> APROBADO --(el trabajador la toma)--> PLANEANDO --> PLAN_LISTO
+    --(aprobar plan)--> PLAN_APROBADO --(la toma)--> EN_CURSO --> POR_REVISAR --(sí final, solo el
+    dueño)--> SUBIENDO --(la toma)--> HECHO.   Si algo falla: ERROR con motivo.   Desde ERROR el dueño
+    reintenta: vuelve a APROBADO (planear de nuevo) o a PLAN_APROBADO (construir de nuevo con el plan).
+
+  Lo que no se negocia:
+  1. Las transiciones del trabajador (PLANEANDO, PLAN_LISTO, EN_CURSO, POR_REVISAR, SUBIENDO, HECHO,
+     ERROR) solo las hace el trabajador, con su clave (API /api/trabajador/tablero). Nadie las pone
+     moviendo el estado.
+  2. Aprobar es su propia acción con tres momentos: 'tarea', 'plan' y 'subir'. Cada aprobación deja en
+     el historial quién (nombre y userId), el momento, por dónde ('pantalla' o 'voz') y el texto de
+     confirmación.
+  3. Por el MCP (via 'voz') se aprueba solo si la persona lo dijo explícitamente: el texto tiene que
+     decir "sí" y "apruebo". Una tarjeta con zona protegida (Meta Ads, bot de ventas, libro V3) se
+     aprueba SOLO en la pantalla, y solo el dueño.
+  4. El sí final ('subir') lo da solo el DUEÑO del negocio (SI_FINAL_SOLO_DUENO), y solo si el
+     trabajador dijo que todo pasó (resultado.paso = true).
+  5. Un aprobador (AprobadorTablero) con alcance DESARROLLO aprueba la tarea y el plan solo de
+     tarjetas con repo de desarrollo (gestion, aizencrm); con alcance TODO, cualquiera.
+  6. La zona protegida se puede PONER desde el MCP (y la pone el trabajador si el cambio toca una de
+     esas rutas), pero quitarla lo hace solo el dueño en la pantalla.
+*/
+
+import { type EstadoTarjetaTablero, type OrigenCambio, type Veredicto, claveDeNombre } from "./reglas";
+
+/* ───────────────────────────────────────────────────────────────────── repos ── */
+
+/** Los repositorios en que trabaja el trabajador (lista fija: sumar uno es cambiar el código). */
+export const REPOS_DEL_TRABAJADOR = ["gestion", "aizencrm"] as const;
+export type RepoDelTrabajador = (typeof REPOS_DEL_TRABAJADOR)[number];
+
+export const NOMBRE_DEL_REPO: Record<RepoDelTrabajador, string> = {
+  gestion: "Gestión",
+  aizencrm: "AizenCRM",
+};
+
+/** Los repos "de desarrollo": los que puede aprobar un aprobador con alcance DESARROLLO. */
+export const REPOS_DE_DESARROLLO: readonly RepoDelTrabajador[] = ["gestion", "aizencrm"];
+
+export function esRepo(valor: unknown): valor is RepoDelTrabajador {
+  return typeof valor === "string" && (REPOS_DEL_TRABAJADOR as readonly string[]).includes(valor);
+}
+
+/** repo como lo mandan: clave de la lista, "" / null para quitarlo, undefined si no vino. */
+export function repoDeEntrada(valor: unknown): RepoDelTrabajador | null | undefined {
+  if (valor === undefined) return undefined;
+  if (valor === null || (typeof valor === "string" && valor.trim() === "")) return null;
+  const limpio = typeof valor === "string" ? claveDeNombre(valor) : valor;
+  if (!esRepo(limpio)) {
+    throw new Error(`Ese repo no existe. Van: ${REPOS_DEL_TRABAJADOR.join(", ")}.`);
+  }
+  return limpio;
+}
+
+/* ───────────────────────────────────────────────────────────────────── zonas protegidas ── */
+
+export const ZONAS_PROTEGIDAS = ["META_ADS", "BOT_VENTAS", "LIBRO_V3"] as const;
+export type ZonaProtegida = (typeof ZONAS_PROTEGIDAS)[number];
+
+export const NOMBRE_DE_LA_ZONA: Record<ZonaProtegida, string> = {
+  META_ADS: "Meta Ads",
+  BOT_VENTAS: "Bot de ventas",
+  LIBRO_V3: "Libro V3",
+};
+
+export function esZona(valor: unknown): valor is ZonaProtegida {
+  return typeof valor === "string" && (ZONAS_PROTEGIDAS as readonly string[]).includes(valor);
+}
+
+/** Lista de zonas (sin repetir, en el orden de la lista fija), [] para ninguna, undefined si no vino. */
+export function zonasDeEntrada(valor: unknown): ZonaProtegida[] | undefined {
+  if (valor === undefined) return undefined;
+  if (valor === null) return [];
+  const lista = Array.isArray(valor) ? valor : [valor];
+  const pedidas = new Set<string>();
+  for (const zona of lista) {
+    const limpia = typeof zona === "string" ? zona.trim().toUpperCase() : zona;
+    if (limpia === "") continue;
+    if (!esZona(limpia)) throw new Error(`Esa zona protegida no existe. Van: ${ZONAS_PROTEGIDAS.join(", ")}.`);
+    pedidas.add(limpia);
+  }
+  return ZONAS_PROTEGIDAS.filter((zona) => pedidas.has(zona));
+}
+
+/** Une dos listas de zonas (para el trabajador y el MCP, que solo pueden agregar). */
+export function unirZonas(a: readonly string[], b: readonly string[]): ZonaProtegida[] {
+  const todas = new Set([...a, ...b]);
+  return ZONAS_PROTEGIDAS.filter((zona) => todas.has(zona));
+}
+
+/**
+ * ¿Se puede pasar de `antes` a `despues`? Agregar siempre se puede; quitar, solo el dueño en la pantalla.
+ */
+export function puedeCambiarZonas(
+  origen: OrigenCambio,
+  antes: readonly string[],
+  despues: readonly string[],
+  esDueno: boolean,
+): Veredicto {
+  const quitadas = antes.filter((zona) => !despues.includes(zona));
+  if (!quitadas.length) return null;
+  if (origen !== "PANTALLA" || !esDueno) {
+    return `La zona protegida (${quitadas.join(", ")}) la quita solo el dueño en la pantalla. Se puede agregar, no quitar.`;
+  }
+  return null;
+}
+
+/* ───────────────────────────────────────────────────────────────────── tiempos y candado ── */
+
+export type EtapaDelTrabajador = "planear" | "construir" | "subir";
+
+/** Tope de cada etapa (minutos). Pasado el tope, la tarjeta pasa a ERROR ("se pasó del tiempo"). */
+export const MINUTOS_POR_ETAPA: Record<EtapaDelTrabajador, number> = { planear: 20, construir: 90, subir: 30 };
+
+/**
+ * Sin latido, el candado vence a los 5 minutos (así un trabajador que se apagó se nota pronto). Cada
+ * latido lo corre otros 5 minutos, nunca más allá del tope de la etapa.
+ */
+export const MINUTOS_DE_GRACIA_DEL_LATIDO = 5;
+
+/** Qué etapa empieza cuando el trabajador toma una tarjeta en ese estado, y a qué estado pasa. */
+export const AL_TOMAR: Partial<Record<EstadoTarjetaTablero, { etapa: EtapaDelTrabajador; a: EstadoTarjetaTablero }>> = {
+  APROBADO: { etapa: "planear", a: "PLANEANDO" },
+  PLAN_APROBADO: { etapa: "construir", a: "EN_CURSO" },
+  // SUBIENDO "pendiente" (sin trabajoVenceEn) = el dueño dio el sí final y nadie la tomó todavía.
+  SUBIENDO: { etapa: "subir", a: "SUBIENDO" },
+};
+
+export const ETAPA_DEL_ESTADO: Partial<Record<EstadoTarjetaTablero, EtapaDelTrabajador>> = {
+  PLANEANDO: "planear",
+  EN_CURSO: "construir",
+  SUBIENDO: "subir",
+};
+
+const MINUTO = 60_000;
+
+/** El vencimiento del candado: ahora + gracia, sin pasar del tope de la etapa contado desde que la tomó. */
+export function vencimientoDelCandado(etapa: EtapaDelTrabajador, iniciadoEn: Date, ahora: Date): Date {
+  const tope = iniciadoEn.getTime() + MINUTOS_POR_ETAPA[etapa] * MINUTO;
+  return new Date(Math.min(ahora.getTime() + MINUTOS_DE_GRACIA_DEL_LATIDO * MINUTO, tope));
+}
+
+export const MOTIVO_VENCIDA = "Se pasó del tiempo: el trabajador dejó de dar señales (sin latido) o la etapa superó su tope.";
+
+/* ───────────────────────────────────────────────────────────────────── transiciones del trabajador ── */
+
+export type AccionDelTrabajador = "latido" | "plan" | "resultado" | "subida" | "error";
+export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = ["latido", "plan", "resultado", "subida", "error"];
+
+/** Desde qué estados puede llamar el trabajador cada acción, y a cuál pasa (null = no cambia). */
+export const TRANSICIONES_DEL_TRABAJADOR: Record<
+  AccionDelTrabajador,
+  { desde: readonly EstadoTarjetaTablero[]; a: EstadoTarjetaTablero | null }
+> = {
+  latido: { desde: ["PLANEANDO", "EN_CURSO", "SUBIENDO"], a: null },
+  plan: { desde: ["PLANEANDO"], a: "PLAN_LISTO" },
+  resultado: { desde: ["EN_CURSO"], a: "POR_REVISAR" },
+  subida: { desde: ["SUBIENDO"], a: "HECHO" },
+  error: { desde: ["PLANEANDO", "EN_CURSO", "SUBIENDO"], a: "ERROR" },
+};
+
+/** ¿Puede el trabajador hacer `accion` con una tarjeta en `estado`? */
+export function puedeElTrabajador(accion: AccionDelTrabajador, estado: EstadoTarjetaTablero): Veredicto {
+  const regla = TRANSICIONES_DEL_TRABAJADOR[accion];
+  if (!regla) return "Esa acción del trabajador no existe.";
+  if (!regla.desde.includes(estado)) {
+    return `La tarjeta está ${estado}: "${accion}" solo vale desde ${regla.desde.join(" o ")}.`;
+  }
+  return null;
+}
+
+/* ───────────────────────────────────────────────────────────────────── aprobaciones ── */
+
+export const MOMENTOS_DE_APROBACION = ["tarea", "plan", "subir"] as const;
+export type MomentoDeAprobacion = (typeof MOMENTOS_DE_APROBACION)[number];
+
+export const NOMBRE_DEL_MOMENTO: Record<MomentoDeAprobacion, string> = {
+  tarea: "la tarea",
+  plan: "el plan",
+  subir: "subir a producción",
+};
+
+export type ViaDeAprobacion = "pantalla" | "voz";
+
+/**
+ * El sí final (subir a producción) lo da SOLO el dueño del negocio. Si algún día se quiere que un
+ * aprobador con `puedeSubir` también pueda, se cambia esto a false (y nada más).
+ */
+export const SI_FINAL_SOLO_DUENO = true;
+
+export function esMomento(valor: unknown): valor is MomentoDeAprobacion {
+  return typeof valor === "string" && (MOMENTOS_DE_APROBACION as readonly string[]).includes(valor);
+}
+
+/** Texto en minúsculas, sin tildes y con espacios simples, para comparar lo que dijo la persona. */
+function normalizar(texto: string) {
+  return texto
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * ¿El texto de confirmación dice de verdad "sí, apruebo"? Al menos 8 caracteres, con la palabra "sí"
+ * (o "si") y la palabra "apruebo", sin importar tildes ni mayúsculas. "No apruebo" no vale.
+ */
+export function textoDeConfirmacionValido(texto: unknown): Veredicto {
+  const COMO = 'Tiene que ser lo que dijo la persona, por ejemplo: "sí, apruebo".';
+  if (typeof texto !== "string" || texto.trim().length < 8) {
+    return `Falta el texto de confirmación (mínimo 8 caracteres). ${COMO}`;
+  }
+  const limpio = normalizar(texto);
+  if (!/(^|[^a-z])si([^a-z]|$)/.test(limpio) || !/(^|[^a-z])apruebo([^a-z]|$)/.test(limpio)) {
+    return `El texto de confirmación tiene que decir "sí" y "apruebo". ${COMO}`;
+  }
+  if (/(^|[^a-z])no (lo )?apruebo([^a-z]|$)/.test(limpio)) {
+    return 'El texto dice "no apruebo": no se aprueba.';
+  }
+  return null;
+}
+
+export type PersonaQueAprueba = {
+  /** Dueño del negocio (OWNER). Aprueba todo implícitamente y es el único con el sí final. */
+  esDueno: boolean;
+  /** ADMIN de la plataforma: como en la fase 1, aprueba la tarea y el plan en la pantalla. */
+  esAdminPlataforma: boolean;
+  /** Su fila en AprobadorTablero, si la tiene. */
+  aprobador: { alcance: string; puedeSubir: boolean } | null;
+};
+
+export type PedidoDeAprobacion = {
+  momento: unknown;
+  via: ViaDeAprobacion;
+  origen: OrigenCambio;
+  estado: EstadoTarjetaTablero;
+  requiereAprobacion: boolean;
+  usaEstados: boolean;
+  repo: string | null;
+  zonaProtegida: readonly string[];
+  tienePlan: boolean;
+  /** resultado.paso del trabajador (solo cuenta true). */
+  resultadoPaso: boolean;
+  textoConfirmacion?: unknown;
+  persona: PersonaQueAprueba;
+};
+
+/** ¿Esta persona puede aprobar este momento de esta tarjeta? (sin mirar el estado) */
+export function personaPuedeAprobarMomento(
+  persona: PersonaQueAprueba,
+  momento: MomentoDeAprobacion,
+  via: ViaDeAprobacion,
+  repo: string | null,
+  zonaProtegida: readonly string[],
+): Veredicto {
+  if (momento === "subir") {
+    const puede = persona.esDueno || (!SI_FINAL_SOLO_DUENO && Boolean(persona.aprobador?.puedeSubir));
+    return puede ? null : "El sí final (subir a producción) lo da solo el dueño del negocio.";
+  }
+  if (zonaProtegida.length && !persona.esDueno) {
+    return "Esta tarjeta toca una zona protegida: la aprueba solo el dueño, en la pantalla.";
+  }
+  if (persona.esDueno) return null;
+  if (via === "pantalla" && persona.esAdminPlataforma) return null;
+  const alcance = persona.aprobador?.alcance;
+  if (alcance === "TODO") return null;
+  if (alcance === "DESARROLLO") {
+    return repo && (REPOS_DE_DESARROLLO as readonly string[]).includes(repo)
+      ? null
+      : "Tu alcance es DESARROLLO: apruebas solo tarjetas con repo gestion o aizencrm.";
+  }
+  return "No puedes aprobar en este tablero: aprueba el dueño del negocio o un aprobador que él agregue.";
+}
+
+/**
+ * ¿A qué estado pasa la tarjeta al aprobar ese momento desde ese estado? Error si no corresponde.
+ *  - tarea: POR_APROBAR -> APROBADO; desde ERROR (reintentar) -> APROBADO, y el trabajador planea de nuevo.
+ *  - plan:  PLAN_LISTO -> PLAN_APROBADO; desde ERROR (reintentar con el mismo plan) -> PLAN_APROBADO.
+ *  - subir: POR_REVISAR con resultado.paso = true -> SUBIENDO (pendiente: lo toma el trabajador).
+ */
+export function destinoDeLaAprobacion(
+  momento: MomentoDeAprobacion,
+  estado: EstadoTarjetaTablero,
+  datos: { repo: string | null; tienePlan: boolean; resultadoPaso: boolean },
+): { a: EstadoTarjetaTablero } | { error: string } {
+  if (momento === "tarea") {
+    if (estado === "POR_APROBAR") return { a: "APROBADO" };
+    if (estado === "ERROR") return { a: "APROBADO" };
+    if (estado === "APROBADO") return { error: "La tarea ya está aprobada." };
+    return { error: `La tarea se aprueba cuando está POR_APROBAR (o se reintenta desde ERROR). Está ${estado}.` };
+  }
+  if (!datos.repo) {
+    return { error: "Esta tarjeta no tiene repo: no la ejecuta el trabajador, así que no tiene plan ni subida. Se aprueba la tarea." };
+  }
+  if (momento === "plan") {
+    if (estado !== "PLAN_LISTO" && estado !== "ERROR") {
+      return { error: `El plan se aprueba cuando está PLAN_LISTO (o se reintenta desde ERROR). Está ${estado}.` };
+    }
+    if (!datos.tienePlan) return { error: "La tarjeta no tiene plan todavía: no hay plan que aprobar." };
+    return { a: "PLAN_APROBADO" };
+  }
+  if (estado !== "POR_REVISAR") {
+    return { error: `Subir a producción se aprueba cuando está POR_REVISAR. Está ${estado}.` };
+  }
+  if (!datos.resultadoPaso) {
+    return { error: "El trabajador no dijo que todo pasó (resultado.paso no es sí): no se sube. Revisa el resultado." };
+  }
+  return { a: "SUBIENDO" };
+}
+
+/** La regla completa de una aprobación (la pantalla y aprobar_tarjeta del MCP). */
+export function puedeAprobarMomento(pedido: PedidoDeAprobacion): { a: EstadoTarjetaTablero; momento: MomentoDeAprobacion } | { error: string } {
+  if (!esMomento(pedido.momento)) {
+    return { error: `Momento desconocido. Van: ${MOMENTOS_DE_APROBACION.join(", ")}.` };
+  }
+  const momento = pedido.momento;
+  if (!pedido.requiereAprobacion || !pedido.usaEstados) {
+    return { error: "Ese tipo de tarjeta no pide aprobación: no hay nada que aprobar." };
+  }
+  if (pedido.origen === "TRABAJADOR") {
+    return { error: "El trabajador nunca aprueba." };
+  }
+  if ((pedido.origen === "MCP") !== (pedido.via === "voz")) {
+    return { error: "Por el MCP se aprueba solo con la confirmación de la persona (via voz); en la pantalla, con el botón." };
+  }
+  if (pedido.via === "voz") {
+    if (pedido.zonaProtegida.length) {
+      return {
+        error: `Esta tarjeta toca una zona protegida (${pedido.zonaProtegida.join(", ")}): se aprueba solo en la pantalla.`,
+      };
+    }
+    const texto = textoDeConfirmacionValido(pedido.textoConfirmacion);
+    if (texto) return { error: texto };
+  }
+  const quien = personaPuedeAprobarMomento(pedido.persona, momento, pedido.via, pedido.repo, pedido.zonaProtegida);
+  if (quien) return { error: quien };
+  const destino = destinoDeLaAprobacion(momento, pedido.estado, {
+    repo: pedido.repo,
+    tienePlan: pedido.tienePlan,
+    resultadoPaso: pedido.resultadoPaso,
+  });
+  if ("error" in destino) return destino;
+  return { a: destino.a, momento };
+}
+
+/** Lo que queda en `HistorialTarjeta.despues` de una aprobación. */
+export type RegistroDeAprobacion = {
+  estado: EstadoTarjetaTablero;
+  momento: MomentoDeAprobacion;
+  via: ViaDeAprobacion;
+  quienNombre: string;
+  userId: string;
+  textoConfirmacion: string | null;
+  /** "aprobado por voz" o "aprobado en pantalla". */
+  como: string;
+};
+
+export function registroDeAprobacion(datos: Omit<RegistroDeAprobacion, "como">): RegistroDeAprobacion {
+  return { ...datos, como: datos.via === "voz" ? "aprobado por voz" : "aprobado en pantalla" };
+}
+
+/* ───────────────────────────────────────────────────────────────────── el resultado ── */
+
+export type ResultadoDelTrabajador = {
+  resumen: string;
+  pruebas: string;
+  paso: boolean;
+  rama: string | null;
+  linkRama: string | null;
+  commit: string | null;
+  migracion: string | null;
+};
+
+const textoCorto = (valor: unknown, maximo: number) => (typeof valor === "string" ? valor.trim().slice(0, maximo) : "");
+const textoONull = (valor: unknown, maximo: number) => textoCorto(valor, maximo) || null;
+
+/** Lo que manda el trabajador en /resultado, limpio. Un link que no sea https no se guarda. */
+export function resultadoDeEntrada(valor: unknown): ResultadoDelTrabajador {
+  const datos = (valor && typeof valor === "object" ? valor : {}) as Record<string, unknown>;
+  const resumen = textoCorto(datos.resumen, 8000);
+  if (!resumen) throw new Error("Falta el resumen del resultado.");
+  const link = textoONull(datos.linkRama, 500);
+  return {
+    resumen,
+    pruebas: textoCorto(datos.pruebas, 8000),
+    paso: datos.paso === true,
+    rama: textoONull(datos.rama, 200),
+    linkRama: link && /^https:\/\//.test(link) ? link : null,
+    commit: textoONull(datos.commit, 80),
+    migracion: textoONull(datos.migracion, 300),
+  };
+}
+
+/** El plan como lo manda el trabajador: texto con saltos, no vacío, máximo 20.000 caracteres. */
+export function planDeEntrada(valor: unknown): string {
+  const plan = typeof valor === "string" ? valor.replace(/\r\n/g, "\n").trim().slice(0, 20_000) : "";
+  if (!plan) throw new Error("Falta el plan.");
+  return plan;
+}
+
+/** El motivo de un error del trabajador. */
+export function motivoDeEntrada(valor: unknown): string {
+  const motivo = typeof valor === "string" ? valor.trim().slice(0, 4000) : "";
+  return motivo || "El trabajador no dijo el motivo.";
+}

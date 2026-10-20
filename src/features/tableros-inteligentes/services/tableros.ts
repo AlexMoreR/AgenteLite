@@ -15,7 +15,6 @@ import {
   hijasQueQuedanMal,
   iconoDeEntrada,
   linkDeEntrada,
-  puedeAprobar,
   puedeBorrarTarjeta,
   puedeBorrarTipo,
   puedeCambiarAprobacionDelTipo,
@@ -23,12 +22,27 @@ import {
   puedeCambiarEstado,
   puedeColgar,
   puedeDeshacer,
+  puedeEditarTarjeta,
+  tieneAprobacion,
+  ESTADOS_CON_APROBACION,
   textoLimpio,
   type AccionCambio,
   type EstadoTarjetaTablero,
   type MadresPermitidas,
   type OrigenCambio,
 } from "./reglas";
+import {
+  esRepo,
+  puedeAprobarMomento,
+  puedeCambiarZonas,
+  registroDeAprobacion,
+  repoDeEntrada,
+  unirZonas,
+  zonasDeEntrada,
+  type MomentoDeAprobacion,
+  type PersonaQueAprueba,
+  type ViaDeAprobacion,
+} from "./reglas-trabajador";
 
 /*
   TABLERO IA (tableros inteligentes): la lógica compartida entre el MCP (Claude) y la pantalla (el dueño).
@@ -49,10 +63,11 @@ import {
   poder deshacerlo. TODA lectura de tarjetas filtra `borradoEn: null` (NO_BORRADA), salvo el
   historial y el deshacer.
 
-  Fase 2 (no implementada): el trabajador que ejecuta lo APROBADO llamará `cambiarEstadoTarjeta` con
-  origen TRABAJADOR (solo tarjetas de un tipo que requiere aprobación), y aprobar por WhatsApp
-  llamará `aprobarTarjeta` con su propia comprobación de dueño. El link de cada tarjeta ya existe:
-  `linkDeLaTarjeta`.
+  Fase 2 (20-oct-2026): el TRABAJADOR (services/trabajador.ts, con su clave) toma las tarjetas con repo
+  y las lleva por PLANEANDO -> PLAN_LISTO -> EN_CURSO -> POR_REVISAR -> SUBIENDO -> HECHO (o ERROR).
+  Aprobar (la tarea, el plan o el sí final) pasa SIEMPRE por `aprobarTarjeta` con su momento; quién
+  puede y desde qué estado lo dice reglas-trabajador.ts. Cada tarjeta lleva repo, plan, resultado,
+  zona protegida y el candado del trabajador (trabajoIniciadoEn / trabajoVenceEn).
 */
 
 export type ContextoTablero = { workspaceId: string; userId: string; origen: OrigenCambio };
@@ -95,6 +110,26 @@ export type TarjetaVista = {
   link: string | null;
   linkTexto: string | null;
   actualizadoEn: string;
+  /** Fase 2: en qué repo trabaja el trabajador (null = no la ejecuta el trabajador). */
+  repo: string | null;
+  plan: string | null;
+  resultado: ResultadoVista | null;
+  zonaProtegida: string[];
+  intentos: number;
+  trabajoVenceEn: string | null;
+};
+
+/** El resultado del trabajador como lo ve la pantalla (todo opcional: lo escribe el trabajador). */
+export type ResultadoVista = {
+  resumen?: string;
+  pruebas?: string;
+  paso?: boolean;
+  rama?: string | null;
+  linkRama?: string | null;
+  commit?: string | null;
+  migracion?: string | null;
+  subida?: { commit?: string | null; version?: string | null; cuando?: string };
+  error?: { motivo?: string; en?: string; cuando?: string };
 };
 
 export type ConexionVista = { id: string; origenId: string; destinoId: string };
@@ -115,6 +150,11 @@ export type TipoVista = {
 /** Lo que muestra el selector de tableros de la barra superior. */
 export type TableroResumen = { id: string; nombre: string; porAprobar: number };
 
+/** El numerito del selector: lo que espera una aprobación (la tarea, el plan o el sí final). */
+export function porAprobarDe(porEstado: Partial<Record<string, number>>) {
+  return (porEstado.POR_APROBAR ?? 0) + (porEstado.PLAN_LISTO ?? 0) + (porEstado.POR_REVISAR ?? 0);
+}
+
 const SELECT_TARJETA = {
   id: true,
   titulo: true,
@@ -128,6 +168,12 @@ const SELECT_TARJETA = {
   link: true,
   linkTexto: true,
   actualizadoEn: true,
+  repo: true,
+  plan: true,
+  resultado: true,
+  zonaProtegida: true,
+  intentos: true,
+  trabajoVenceEn: true,
 } as const;
 
 type FilaTarjeta = Prisma.TarjetaTableroGetPayload<{ select: typeof SELECT_TARJETA }>;
@@ -146,6 +192,14 @@ function aVista(fila: FilaTarjeta): TarjetaVista {
     link: fila.link,
     linkTexto: fila.linkTexto,
     actualizadoEn: fila.actualizadoEn.toISOString(),
+    repo: fila.repo,
+    plan: fila.plan,
+    resultado: fila.resultado && typeof fila.resultado === "object" && !Array.isArray(fila.resultado)
+      ? (fila.resultado as ResultadoVista)
+      : null,
+    zonaProtegida: fila.zonaProtegida,
+    intentos: fila.intentos,
+    trabajoVenceEn: fila.trabajoVenceEn ? fila.trabajoVenceEn.toISOString() : null,
   };
 }
 
@@ -394,16 +448,65 @@ export async function historialDeTarjeta(workspaceId: string, tarjetaId: unknown
     take: 100,
     select: { id: true, quien: true, origen: true, accion: true, antes: true, despues: true, deshechoEn: true, creadoEn: true },
   });
-  const ids = [...new Set(filas.map((fila) => fila.quien))];
-  const personas = ids.length
-    ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true } })
-    : [];
-  const nombre = new Map(personas.map((persona) => [persona.id, persona.name?.trim() || persona.email || "Alguien"]));
+  const nombre = await nombresDeQuien(filas.map((fila) => fila.quien));
   return {
     tarjeta: aVista(tarjeta),
     borrada: Boolean(tarjeta.borradoEn),
     cambios: filas.map((fila) => ({ ...fila, quienNombre: nombre.get(fila.quien) ?? "Alguien" })),
   };
+}
+
+/** Prefijo de `HistorialTarjeta.quien` cuando el cambio lo hizo el trabajador (sigue el id de su clave). */
+export const QUIEN_TRABAJADOR = "trabajador:";
+
+/** El nombre de cada `quien` del historial: una persona, o "Trabajador (<nombre de la clave>)". */
+async function nombresDeQuien(quienes: string[]) {
+  const unicos = [...new Set(quienes)];
+  const claves = unicos.filter((quien) => quien.startsWith(QUIEN_TRABAJADOR)).map((quien) => quien.slice(QUIEN_TRABAJADOR.length));
+  const ids = unicos.filter((quien) => !quien.startsWith(QUIEN_TRABAJADOR));
+  const [personas, trabajadores] = await Promise.all([
+    ids.length ? prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true } }) : [],
+    claves.length ? prisma.claveTrabajador.findMany({ where: { id: { in: claves } }, select: { id: true, nombre: true } }) : [],
+  ]);
+  return new Map([
+    ...personas.map((persona) => [persona.id, persona.name?.trim() || persona.email || "Alguien"] as const),
+    ...trabajadores.map((clave) => [`${QUIEN_TRABAJADOR}${clave.id}`, `Trabajador (${clave.nombre})`] as const),
+  ]);
+}
+
+/** Las aprobaciones de una tarjeta (del historial): quién aprobó qué, cuándo y por dónde. */
+export type AprobacionVista = {
+  momento: string;
+  via: string;
+  quien: string;
+  cuando: string;
+  textoConfirmacion: string | null;
+  estado: string | null;
+};
+
+function aprobacionesDelHistorial(
+  filas: { accion: string; despues: unknown; creadoEn: Date; quienNombre: string; deshechoEn: Date | null }[],
+): AprobacionVista[] {
+  return filas
+    .filter((fila) => fila.accion === "aprobar" && !fila.deshechoEn)
+    .map((fila) => {
+      const despues = (fila.despues ?? {}) as Record<string, unknown>;
+      return {
+        // Las de la fase 1 no tenían momento ni via: eran la tarea, en la pantalla.
+        momento: typeof despues.momento === "string" ? despues.momento : "tarea",
+        via: typeof despues.via === "string" ? despues.via : "pantalla",
+        quien: typeof despues.quienNombre === "string" ? despues.quienNombre : fila.quienNombre,
+        cuando: fila.creadoEn.toISOString(),
+        textoConfirmacion: typeof despues.textoConfirmacion === "string" ? despues.textoConfirmacion : null,
+        estado: typeof despues.estado === "string" ? despues.estado : null,
+      };
+    });
+}
+
+/** ver_plan_y_resultado (MCP) y la ficha: estado, repo, plan, resultado y quién aprobó qué y cuándo. */
+export async function planYResultado(workspaceId: string, tarjetaId: unknown) {
+  const { tarjeta, cambios } = await historialDeTarjeta(workspaceId, tarjetaId);
+  return { tarjeta, aprobaciones: aprobacionesDelHistorial(cambios) };
 }
 
 /** Una tarjeta que espera al dueño ("Te toca a ti"), de cualquier tablero del negocio. */
@@ -418,7 +521,8 @@ export type PendienteVista = TarjetaVista & {
 
 /**
  * "Te toca a ti": lo que espera una decisión del dueño en TODOS los tableros del negocio. Las
- * POR_APROBAR (de tipos con aprobación) y las FALLIDO, de la más vieja a la más nueva.
+ * POR_APROBAR (de tipos con aprobación), las del trabajador que esperan al dueño (PLAN_LISTO,
+ * POR_REVISAR, ERROR) y las FALLIDO, de la más vieja a la más nueva.
  */
 export async function pendientesDelDueno(workspaceId: string): Promise<PendienteVista[]> {
   const filas = await prisma.tarjetaTablero.findMany({
@@ -426,7 +530,7 @@ export async function pendientesDelDueno(workspaceId: string): Promise<Pendiente
       ...NO_BORRADA,
       tablero: { workspaceId },
       OR: [
-        { estado: "POR_APROBAR", tipo: { requiereAprobacion: true, usaEstados: true } },
+        { estado: { in: ["POR_APROBAR", "PLAN_LISTO", "POR_REVISAR", "ERROR"] }, tipo: { requiereAprobacion: true, usaEstados: true } },
         { estado: "FALLIDO", tipo: { usaEstados: true } },
       ],
     },
@@ -571,6 +675,9 @@ function booleanoDeEntrada(valor: unknown, campo: string): boolean | undefined {
 
 const YA_EXISTE_EL_TIPO = "Ya existe un tipo con ese nombre en este tablero.";
 
+/** "APROBADAS o EN_CURSO" para las reglas de los tipos: lo aprobado, lo EN_CURSO y todo lo del trabajador. */
+const ESTADOS_EN_USO: EstadoTarjeta[] = [...ESTADOS_CON_APROBACION, "EN_CURSO"];
+
 export async function crearTipo(contexto: ContextoTablero, tableroId: unknown, datos: DatosTipo) {
   const tablero = await tableroDelNegocio(contexto.workspaceId, tableroId);
   const tipos = await tiposDelTablero(prisma, tablero.id);
@@ -647,7 +754,7 @@ export async function editarTipo(contexto: ContextoTablero, tipoId: unknown, dat
   if (requiereAprobacion !== undefined && requiereAprobacion !== actual.requiereAprobacion) {
     const enUso = requiereAprobacion
       ? 0
-      : await prisma.tarjetaTablero.count({ where: { tipoId: actual.id, estado: { in: ["APROBADO", "EN_CURSO"] } } });
+      : await prisma.tarjetaTablero.count({ where: { tipoId: actual.id, estado: { in: ESTADOS_EN_USO } } });
     const veredicto = puedeCambiarAprobacionDelTipo(contexto.origen, actual.requiereAprobacion, requiereAprobacion, enUso);
     if (veredicto) throw new Error(veredicto);
     cambia.requiereAprobacion = requiereAprobacion;
@@ -657,7 +764,7 @@ export async function editarTipo(contexto: ContextoTablero, tipoId: unknown, dat
     const [aprobadasOEnCurso, noIdea] = usaEstados
       ? [0, 0]
       : await Promise.all([
-          prisma.tarjetaTablero.count({ where: { tipoId: actual.id, estado: { in: ["APROBADO", "EN_CURSO"] } } }),
+          prisma.tarjetaTablero.count({ where: { tipoId: actual.id, estado: { in: ESTADOS_EN_USO } } }),
           prisma.tarjetaTablero.count({ where: { tipoId: actual.id, estado: { not: "IDEA" } } }),
         ]);
     const veredicto = puedeCambiarEstadosDelTipo(
@@ -785,6 +892,8 @@ export async function crearTarjeta(
     padreId?: unknown;
     link?: unknown;
     linkTexto?: unknown;
+    repo?: unknown;
+    zonaProtegida?: unknown;
   },
 ) {
   const tablero = await tableroDelNegocio(contexto.workspaceId, datos.tableroId);
@@ -800,6 +909,9 @@ export async function crearTarjeta(
   const link = linkDeEntrada(datos.link) ?? null;
   const linkTexto = link ? (linkTextoDeEntrada(datos.linkTexto) ?? null) : null;
   const padreId = padreDeEntrada(datos.padreId) ?? null;
+  const repo = repoDeEntrada(datos.repo) ?? null;
+  const zonaProtegida = zonasDeEntrada(datos.zonaProtegida) ?? [];
+  if (repo) revisarRepoParaTipo(tipo);
   const conectarCon = Array.isArray(datos.conectarCon)
     ? [...new Set(datos.conectarCon.filter((id): id is string => typeof id === "string" && id.trim() !== ""))]
     : [];
@@ -835,6 +947,8 @@ export async function crearTarjeta(
         padreId,
         link,
         linkTexto,
+        repo,
+        zonaProtegida,
         creadoPor: contexto.userId,
       },
       select: SELECT_TARJETA,
@@ -850,6 +964,8 @@ export async function crearTarjeta(
       padreId: tarjeta.padreId,
       link: tarjeta.link,
       linkTexto: tarjeta.linkTexto,
+      repo: tarjeta.repo,
+      zonaProtegida: tarjeta.zonaProtegida,
     });
     // Cada flecha es su propio cambio: así se puede deshacer una sin tocar la tarjeta.
     for (const destinoId of conectarCon) {
@@ -862,6 +978,15 @@ export async function crearTarjeta(
     await tocarTablero(tx, tablero.id);
     return { tarjeta: aVista(tarjeta), cambioId: cambio.id, tablero, tipo };
   });
+}
+
+/** El trabajador ejecuta solo tarjetas de un tipo con aprobación (y con estados): solo esas llevan repo. */
+function revisarRepoParaTipo(tipo: { nombre: string; requiereAprobacion: boolean; usaEstados: boolean }) {
+  if (!tipo.requiereAprobacion || !tipo.usaEstados) {
+    throw new Error(
+      `Las tarjetas de tipo ${tipo.nombre} no pasan por aprobación: el trabajador no las ejecuta, así que no llevan repo. Usa un tipo con aprobación (como Tarea).`,
+    );
+  }
 }
 
 /** Cuando dos escrituras chocan (el dueño aprobó mientras Claude editaba), se avisa en vez de pisar. */
@@ -877,6 +1002,8 @@ type CamposEditables = {
   padreId?: string | null;
   link?: string | null;
   linkTexto?: string | null;
+  repo?: string | null;
+  zonaProtegida?: string[];
 };
 
 export async function editarTarjeta(
@@ -892,11 +1019,25 @@ export async function editarTarjeta(
     padreId?: unknown;
     link?: unknown;
     linkTexto?: unknown;
+    repo?: unknown;
+    zonaProtegida?: unknown;
   },
 ) {
   const actual = await tarjetaDelNegocio(contexto.workspaceId, tarjetaId);
+  const enManos = puedeEditarTarjeta(actual.estado, Boolean(actual.repo));
+  if (enManos) throw new Error(enManos);
 
   const nuevo: CamposEditables = {};
+  const repo = repoDeEntrada(cambios.repo);
+  if (repo !== undefined && repo !== actual.repo) nuevo.repo = repo;
+  // La zona protegida: Claude (y el trabajador) la pueden poner, no quitar. Quitarla es de la pantalla.
+  const zonas = zonasDeEntrada(cambios.zonaProtegida);
+  if (zonas !== undefined) {
+    const final = contexto.origen === "PANTALLA" ? zonas : unirZonas(actual.zonaProtegida, zonas);
+    const veredicto = puedeCambiarZonas(contexto.origen, actual.zonaProtegida, final, false);
+    if (veredicto) throw new Error(veredicto);
+    if (final.join(",") !== actual.zonaProtegida.join(",")) nuevo.zonaProtegida = final;
+  }
   if (cambios.titulo !== undefined) {
     const titulo = textoLimpio(cambios.titulo, MAX_TITULO);
     if (!titulo) throw new Error("El título no puede quedar vacío.");
@@ -949,6 +1090,8 @@ export async function editarTarjeta(
     }
   }
   if (nuevo.tipoId) await revisarHijas(actual.id, nuevo.tipoId, tipos);
+  const repoFinal = nuevo.repo !== undefined ? nuevo.repo : actual.repo;
+  if (repoFinal && (nuevo.repo !== undefined || nuevo.tipoId)) revisarRepoParaTipo(tipoFinal);
 
   const estado = nuevo.tipoId
     ? estadoTrasCambiarTipo(tipoFinal.requiereAprobacion, tipoFinal.usaEstados)
@@ -977,7 +1120,7 @@ export async function editarTarjeta(
       tarjeta: aVista(tarjeta),
       cambioId: cambio.id,
       volvioAPorAprobar: estado === "POR_APROBAR" && actual.estado !== "POR_APROBAR",
-      perdioAprobacion: actual.estado === "APROBADO" && estado !== "APROBADO",
+      perdioAprobacion: tieneAprobacion(actual.estado) && !tieneAprobacion(estado),
       cambioDeTipo: Boolean(nuevo.tipoId),
       tipo: tipoFinal,
     };
@@ -1036,13 +1179,14 @@ export async function cambiarEstadoTarjeta(contexto: ContextoTablero, tarjetaId:
   }
   const actual = await tarjetaDelNegocio(contexto.workspaceId, tarjetaId);
   const tipo = await reglasDelTipo(actual.tipoId);
-  const veredicto = puedeCambiarEstado(actual.estado, estado, tipo.requiereAprobacion, tipo.usaEstados);
+  const veredicto = puedeCambiarEstado(actual.estado, estado, tipo.requiereAprobacion, tipo.usaEstados, Boolean(actual.repo));
   if (veredicto) {
     throw new Error(veredicto);
   }
   return prisma.$transaction(async (tx) => {
     const hecho = await tx.tarjetaTablero.updateMany({
-      where: { id: actual.id, estado: actual.estado, tipoId: actual.tipoId, ...NO_BORRADA },
+      // Condicionado también al repo: si se lo pusieron un instante antes, valen las reglas del trabajador.
+      where: { id: actual.id, estado: actual.estado, tipoId: actual.tipoId, repo: actual.repo, ...NO_BORRADA },
       data: { estado },
     });
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
@@ -1053,41 +1197,136 @@ export async function cambiarEstadoTarjeta(contexto: ContextoTablero, tarjetaId:
 }
 
 /**
- * Aprobar. Quien llama ya comprobó que la persona puede aprobar (dueño o ADMIN de la plataforma);
- * acá se comprueba el estado (solo desde POR_APROBAR), el tipo (que pida aprobación) y que no venga
- * del MCP.
+ * Quién es esta persona para las aprobaciones del Tablero IA de este negocio: dueño (la misma cuenta
+ * que `isOwner` de client-workspace-access: CLIENTE y OWNER del negocio, o su ownerId), ADMIN de la
+ * plataforma y su fila de AprobadorTablero. Se lee de la base: el userId sale de la sesión o de la
+ * clave MCP, nunca de un argumento.
  */
-export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unknown, vistaEn?: string) {
+export async function personaQueAprueba(
+  workspaceId: string,
+  userId: string,
+): Promise<PersonaQueAprueba & { nombre: string }> {
+  const [usuario, miembro, negocio, aprobador] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, role: true } }),
+    prisma.workspaceMember.findFirst({ where: { workspaceId, userId, isActive: true }, select: { role: true } }),
+    prisma.workspace.findUnique({ where: { id: workspaceId }, select: { ownerId: true } }),
+    prisma.aprobadorTablero.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: { alcance: true, puedeSubir: true },
+    }),
+  ]);
+  const esAdminPlataforma = usuario?.role === "ADMIN";
+  const esDueno =
+    usuario?.role === "CLIENTE" && Boolean(miembro) && (miembro?.role === "OWNER" || negocio?.ownerId === userId);
+  return {
+    nombre: usuario?.name?.trim() || usuario?.email || "Alguien",
+    esDueno,
+    esAdminPlataforma,
+    // Un aprobador que ya no es miembro activo del negocio no aprueba.
+    aprobador: aprobador && miembro ? aprobador : null,
+  };
+}
+
+/** Cómo llega una aprobación: el momento, por dónde, el texto de la persona (voz) y lo que vio (pantalla). */
+export type PedidoDeAprobar = {
+  momento: MomentoDeAprobacion | string;
+  via: ViaDeAprobacion;
+  textoConfirmacion?: unknown;
+  /** El actualizadoEn de la tarjeta que tenía la pantalla: se aprueba lo que se leyó. */
+  vistaEn?: string;
+};
+
+const CAMBIO_MIENTRAS_MIRABAS = "La tarjeta cambió mientras la mirabas. Revísala de nuevo antes de aprobar.";
+
+/**
+ * Aprobar: la tarea (POR_APROBAR -> APROBADO), el plan (PLAN_LISTO -> PLAN_APROBADO), o el sí final
+ * (POR_REVISAR -> SUBIENDO, solo el dueño). Reintentar desde ERROR es aprobar la tarea o el plan otra
+ * vez. Quién puede, desde qué estado, por qué vía y con qué texto lo decide `puedeAprobarMomento`
+ * (reglas-trabajador.ts); acá se lee la persona de la base y se escribe condicionado a lo que había,
+ * con su fila de historial (nombre, momento, vía y el texto exacto).
+ */
+export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unknown, pedido: PedidoDeAprobar) {
   const actual = await tarjetaDelNegocio(contexto.workspaceId, tarjetaId);
-  const tipo = await reglasDelTipo(actual.tipoId);
-  const veredicto = puedeAprobar(contexto.origen, actual.estado, tipo.requiereAprobacion, tipo.usaEstados);
-  if (veredicto) {
-    throw new Error(veredicto);
+  const [tipo, persona] = await Promise.all([
+    reglasDelTipo(actual.tipoId),
+    personaQueAprueba(contexto.workspaceId, contexto.userId),
+  ]);
+  const resultado = (actual.resultado ?? {}) as { paso?: unknown };
+  const veredicto = puedeAprobarMomento({
+    momento: pedido.momento,
+    via: pedido.via,
+    origen: contexto.origen,
+    estado: actual.estado,
+    requiereAprobacion: tipo.requiereAprobacion,
+    usaEstados: tipo.usaEstados,
+    repo: actual.repo && esRepo(actual.repo) ? actual.repo : null,
+    zonaProtegida: actual.zonaProtegida,
+    tienePlan: Boolean(actual.plan?.trim()),
+    resultadoPaso: resultado.paso === true,
+    textoConfirmacion: pedido.textoConfirmacion,
+    persona,
+  });
+  if ("error" in veredicto) throw new Error(veredicto.error);
+  if (pedido.vistaEn && pedido.vistaEn !== actual.actualizadoEn.toISOString()) {
+    throw new Error(CAMBIO_MIENTRAS_MIRABAS);
   }
-  // vistaEn = el actualizadoEn de la tarjeta que tenía la pantalla: se aprueba lo que se leyó.
-  if (vistaEn && vistaEn !== actual.actualizadoEn.toISOString()) {
-    throw new Error("La tarjeta cambió mientras la mirabas. Revísala de nuevo antes de aprobar.");
-  }
+  const texto = typeof pedido.textoConfirmacion === "string" ? pedido.textoConfirmacion.trim().slice(0, 500) : null;
+  const registro = registroDeAprobacion({
+    estado: veredicto.a,
+    momento: veredicto.momento,
+    via: pedido.via,
+    quienNombre: persona.nombre,
+    userId: contexto.userId,
+    textoConfirmacion: texto || null,
+  });
   return prisma.$transaction(async (tx) => {
-    // Condicionado al estado y al tipo: si Claude la editó, la movió o le cambió el tipo un instante
-    // antes, no se aprueba algo que el dueño no vio.
+    // Condicionado al estado, al momento en que se leyó, al tipo y al repo: si Claude la editó o el
+    // trabajador la movió un instante antes, no se aprueba algo que la persona no vio.
     const hecho = await tx.tarjetaTablero.updateMany({
       where: {
         id: actual.id,
-        estado: "POR_APROBAR",
+        estado: actual.estado,
         actualizadoEn: actual.actualizadoEn,
         tipoId: actual.tipoId,
+        repo: actual.repo,
         tipo: { requiereAprobacion: true, usaEstados: true },
         ...NO_BORRADA,
       },
-      data: { estado: "APROBADO" },
+      // SUBIENDO queda "pendiente" (sin candado) hasta que el trabajador la tome; reintentar suelta el candado.
+      data: { estado: veredicto.a, trabajoVenceEn: null },
     });
     if (hecho.count !== 1) {
-      throw new Error("La tarjeta cambió mientras la mirabas. Revísala de nuevo antes de aprobar.");
+      throw new Error(CAMBIO_MIENTRAS_MIRABAS);
     }
-    const cambio = await anotar(tx, contexto, actual.id, "aprobar", { estado: actual.estado }, { estado: "APROBADO" });
+    const cambio = await anotar(tx, contexto, actual.id, "aprobar", { estado: actual.estado }, registro);
     await tocarTablero(tx, actual.tableroId);
-    return { cambioId: cambio.id, titulo: actual.titulo };
+    return { cambioId: cambio.id, titulo: actual.titulo, antes: actual.estado, ahora: veredicto.a, momento: veredicto.momento, quien: persona.nombre };
+  });
+}
+
+/**
+ * La pantalla cambia las zonas protegidas de una tarjeta. Agregar puede cualquiera que apruebe;
+ * QUITAR solo el dueño. No mientras el trabajador la tiene.
+ */
+export async function cambiarZonasEnPantalla(contexto: ContextoTablero, tarjetaId: unknown, zonas: unknown) {
+  if (contexto.origen !== "PANTALLA") throw new Error("Las zonas protegidas se quitan solo en la pantalla.");
+  const actual = await tarjetaDelNegocio(contexto.workspaceId, tarjetaId);
+  const enManos = puedeEditarTarjeta(actual.estado, Boolean(actual.repo));
+  if (enManos) throw new Error(enManos);
+  const final = zonasDeEntrada(zonas) ?? [];
+  const persona = await personaQueAprueba(contexto.workspaceId, contexto.userId);
+  const veredicto = puedeCambiarZonas("PANTALLA", actual.zonaProtegida, final, persona.esDueno);
+  if (veredicto) throw new Error(veredicto);
+  if (final.join(",") === actual.zonaProtegida.join(",")) throw new Error("No hay nada distinto para cambiar.");
+  return prisma.$transaction(async (tx) => {
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: { id: actual.id, estado: actual.estado, ...NO_BORRADA },
+      data: { zonaProtegida: final },
+    });
+    if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
+    const cambio = await anotar(tx, contexto, actual.id, "editar", { zonaProtegida: actual.zonaProtegida }, { zonaProtegida: final });
+    await tocarTablero(tx, actual.tableroId);
+    return { cambioId: cambio.id };
   });
 }
 
@@ -1293,11 +1532,26 @@ export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId:
     datos.padreId = padreRestaurado;
     ahora.padreId = tarjeta.padreId;
   }
+  if ("repo" in antes) {
+    datos.repo = typeof antes.repo === "string" ? antes.repo : null;
+    ahora.repo = tarjeta.repo;
+  }
+  if (Array.isArray(antes.zonaProtegida)) {
+    const vuelven = antes.zonaProtegida.filter((zona): zona is string => typeof zona === "string");
+    // Deshacer el agregado de una zona protegida sería QUITARLA: eso es solo del dueño en la pantalla.
+    if (tarjeta.zonaProtegida.some((zona) => !vuelven.includes(zona))) {
+      throw new Error("Deshacer eso quitaría una zona protegida, y eso lo hace solo el dueño en la pantalla.");
+    }
+    datos.zonaProtegida = vuelven;
+    ahora.zonaProtegida = tarjeta.zonaProtegida;
+  }
   const estadoRestaurado = esEstado(antes.estado) ? antes.estado : undefined;
   if (estadoRestaurado) {
     datos.estado = estadoRestaurado;
     ahora.estado = tarjeta.estado;
   }
+  const enManos = puedeEditarTarjeta(tarjeta.estado, Boolean(tarjeta.repo));
+  if (enManos) throw new Error(enManos);
 
   // Lo restaurado tiene que cumplir las reglas de hoy: tipo existente, estado válido para el tipo,
   // madre permitida y sin ciclos, hijas que sigan pudiendo colgar.

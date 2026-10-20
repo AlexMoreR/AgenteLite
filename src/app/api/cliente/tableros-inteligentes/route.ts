@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
-import { listarTableros, type TableroResumen } from "@/features/tableros-inteligentes/services/tableros";
+import { listarTableros, porAprobarDe, type TableroResumen } from "@/features/tableros-inteligentes/services/tableros";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,7 @@ export async function GET() {
   const tableros: TableroResumen[] = (await listarTableros(access.workspaceId)).map((tablero) => ({
     id: tablero.id,
     nombre: tablero.nombre,
-    porAprobar: tablero.porEstado.POR_APROBAR ?? 0,
+    porAprobar: porAprobarDe(tablero.porEstado),
   }));
   return NextResponse.json({ ok: true, tableros }, { headers: SIN_CACHE });
 }

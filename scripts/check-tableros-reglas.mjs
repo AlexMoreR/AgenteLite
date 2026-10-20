@@ -1,12 +1,15 @@
 // Pruebas del Tablero IA (src/features/tableros-inteligentes/services): quién aprueba,
 // qué estados puede poner Claude, qué pasa al editar algo aprobado, qué se puede deshacer, los
 // tipos de tarjeta (aprobación, cambio de tipo, madres permitidas y ciclos), borrar y deshacer con
-// flechas, los niveles del mapa, la disposición radial y los contadores. No necesita base ni red.
+// flechas, los niveles del mapa, la disposición radial y los contadores. Fase 2: las transiciones del
+// trabajador, aprobar_tarjeta (quién, momento, estado, texto, zona protegida), el sí final solo del
+// dueño, que el MCP no quita la zona protegida y los contadores nuevos. No necesita base ni red.
 // Correr: npm run test:tableros
 import assert from "node:assert/strict";
 import { cargar } from "./supervisor-cargar.mjs";
 
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas.ts");
+const trabajo = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
 const { disponerRadial, sePisan, RADIO_INICIAL, ANCHO_CENTRO, ALTO_CENTRO, ANCHO_TARJETA, MAX_PRIMER_ANILLO, SEPARACION, ALTO_TARJETA } = cargar("src/features/tableros-inteligentes/services/disposicion.ts");
 const reglasNiveles = cargar("src/features/tableros-inteligentes/services/niveles.ts");
 
@@ -657,6 +660,317 @@ prueba("filtro por grupos: atenúa la que no tiene nada en los grupos activos; '
   assert.equal(reglasNiveles.atenuadaPorGrupos({ ...cero, hecho: 3, siguen: 1 }, activos), false);
   assert.equal(reglasNiveles.atenuadaPorGrupos(cero, activos), false);
   assert.equal(reglasNiveles.atenuadaPorGrupos({ ...cero, hecho: 3 }, new Set([...activos, "hecho"])), false);
+});
+
+/* ================================================================== FASE 2: el trabajador */
+
+const FASE2 = ["PLANEANDO", "PLAN_LISTO", "PLAN_APROBADO", "POR_REVISAR", "SUBIENDO", "ERROR"];
+
+prueba("estados: los 6 nuevos existen, FALLIDO sigue, y Claude no tiene ninguno de los nuevos ni APROBADO", () => {
+  assert.deepEqual([...reglas.ESTADOS_TARJETA], ["IDEA", "POR_APROBAR", "APROBADO", "EN_CURSO", "HECHO", "FALLIDO", ...FASE2]);
+  assert.deepEqual([...reglas.ESTADOS_SIN_APROBAR], ["IDEA", "POR_APROBAR", "EN_CURSO", "HECHO", "FALLIDO"]);
+  for (const estado of reglas.ESTADOS_TARJETA) assert.ok(reglas.NOMBRE_DEL_ESTADO[estado], estado);
+});
+
+prueba("cambiar_estado nunca pone un estado del trabajador, ni APROBADO, desde ningún estado, con o sin repo", () => {
+  for (const de of reglas.ESTADOS_TARJETA) {
+    for (const a of [...FASE2, "APROBADO"]) {
+      for (const conRepo of [true, false]) {
+        assert.ok(reglas.puedeCambiarEstado(de, a, true, true, conRepo), `${de} -> ${a} (repo ${conRepo})`);
+        assert.ok(reglas.puedeCambiarEstado(de, a, false, true, conRepo), `${de} -> ${a} sin aprobación`);
+      }
+    }
+  }
+  assert.match(reglas.puedeCambiarEstado("PLAN_LISTO", "PLAN_APROBADO", true, true, true), /solo el trabajador/);
+});
+
+prueba("con repo, EN_CURSO y HECHO los pone solo el trabajador; sin repo sigue la fase 1 (a mano)", () => {
+  assert.ok(reglas.puedeCambiarEstado("APROBADO", "EN_CURSO", true, true, true));
+  assert.ok(reglas.puedeCambiarEstado("APROBADO", "HECHO", true, true, true));
+  assert.equal(reglas.puedeCambiarEstado("APROBADO", "EN_CURSO", true, true, false), null);
+  assert.equal(reglas.puedeCambiarEstado("EN_CURSO", "HECHO", true, true, false), null);
+  assert.equal(reglas.puedeCambiarEstado("EN_CURSO", "FALLIDO", true, true, false), null);
+});
+
+prueba("mientras el trabajador la tiene (PLANEANDO, EN_CURSO con repo, SUBIENDO) nadie le mueve el estado ni la edita", () => {
+  for (const de of ["PLANEANDO", "SUBIENDO"]) {
+    for (const a of reglas.ESTADOS_SIN_APROBAR) assert.ok(reglas.puedeCambiarEstado(de, a, true, true, true), `${de} -> ${a}`);
+    assert.ok(reglas.puedeEditarTarjeta(de, true), de);
+  }
+  for (const a of reglas.ESTADOS_SIN_APROBAR) assert.ok(reglas.puedeCambiarEstado("EN_CURSO", a, true, true, true), `EN_CURSO -> ${a}`);
+  assert.ok(reglas.puedeEditarTarjeta("EN_CURSO", true));
+  assert.equal(reglas.puedeEditarTarjeta("EN_CURSO", false), null, "EN_CURSO sin repo es a mano");
+  for (const estado of ["IDEA", "POR_APROBAR", "APROBADO", "PLAN_LISTO", "PLAN_APROBADO", "POR_REVISAR", "ERROR", "HECHO"]) {
+    assert.equal(reglas.puedeEditarTarjeta(estado, true), null, estado);
+  }
+});
+
+prueba("desde lo que dejó el trabajador, Claude puede abandonarla (FALLIDO) o volverla a pedir (POR_APROBAR / IDEA)", () => {
+  for (const de of ["PLAN_LISTO", "PLAN_APROBADO", "POR_REVISAR", "ERROR"]) {
+    assert.equal(reglas.puedeCambiarEstado(de, "FALLIDO", true, true, true), null, de);
+    assert.equal(reglas.puedeCambiarEstado(de, "POR_APROBAR", true, true, true), null, de);
+    assert.equal(reglas.puedeCambiarEstado(de, "IDEA", true, true, true), null, de);
+  }
+  assert.ok(reglas.puedeCambiarEstado("IDEA", "FALLIDO", true, true, true));
+  assert.ok(reglas.puedeCambiarEstado("POR_APROBAR", "FALLIDO", true, true, false));
+});
+
+prueba("tipo sin aprobación: ningún estado del trabajador le corresponde", () => {
+  for (const estado of FASE2) assert.ok(reglas.estadoPermitidoParaTipo(estado, false), estado);
+  for (const estado of FASE2) assert.equal(reglas.estadoPermitidoParaTipo(estado, true), null, estado);
+});
+
+prueba("editar algo aprobado o que dejó el trabajador lo devuelve a POR_APROBAR (Claude y trabajador; la pantalla no)", () => {
+  for (const estado of ["APROBADO", "PLAN_LISTO", "PLAN_APROBADO", "POR_REVISAR", "ERROR"]) {
+    assert.equal(reglas.estadoTrasEditar("MCP", estado), "POR_APROBAR", estado);
+    assert.equal(reglas.estadoTrasEditar("PANTALLA", estado), estado, estado);
+  }
+  assert.equal(reglas.estadoTrasEditar("MCP", "HECHO"), "HECHO");
+});
+
+prueba("borrar: Claude no borra nada aprobado ni nada del trabajador", () => {
+  for (const estado of ["APROBADO", "EN_CURSO", ...FASE2]) assert.ok(reglas.puedeBorrarTarjeta("MCP", estado), estado);
+  assert.equal(reglas.puedeBorrarTarjeta("PANTALLA", "ERROR"), null);
+});
+
+prueba("deshacer: lo del trabajador y cualquier aprobación (también por voz) no se deshacen; no deja ni quita estados aprobados", () => {
+  assert.match(reglas.puedeDeshacer(cambio({ origen: "TRABAJADOR", accion: "estado" }), [], "PLAN_LISTO"), /trabajador/);
+  assert.match(
+    reglas.puedeDeshacer(cambio({ origen: "MCP", accion: "aprobar", antes: { estado: "POR_REVISAR" } }), [], "SUBIENDO"),
+    /aprobación/,
+  );
+  for (const estado of FASE2) {
+    const editar = cambio({ antes: { titulo: "V", estado }, despues: { titulo: "N", estado: "POR_APROBAR" } });
+    assert.ok(reglas.puedeDeshacer(editar, [], "POR_APROBAR"), `dejaría ${estado}`);
+    const pedir = cambio({ accion: "estado", antes: { estado: "IDEA" }, despues: { estado: "POR_APROBAR" } });
+    assert.ok(reglas.puedeDeshacer(pedir, [], estado), `quitaría ${estado}`);
+    assert.ok(reglas.puedeDeshacer(cambio({ accion: "crear", antes: null, despues: {} }), [], estado), `crear con ${estado}`);
+  }
+  // Lo de siempre sigue: deshacer un editar sin estados aprobados de por medio.
+  assert.equal(reglas.puedeDeshacer(cambio(), [], "IDEA"), null);
+});
+
+prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
+  const esperado = {
+    latido: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
+    plan: ["PLANEANDO"],
+    resultado: ["EN_CURSO"],
+    subida: ["SUBIENDO"],
+    error: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
+  };
+  for (const [accion, validos] of Object.entries(esperado)) {
+    for (const estado of reglas.ESTADOS_TARJETA) {
+      const veredicto = trabajo.puedeElTrabajador(accion, estado);
+      assert.equal(veredicto === null, validos.includes(estado), `${accion} desde ${estado}`);
+    }
+  }
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR" },
+  );
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(trabajo.AL_TOMAR).map(([de, regla]) => [de, [regla.a, regla.etapa]])),
+    { APROBADO: ["PLANEANDO", "planear"], PLAN_APROBADO: ["EN_CURSO", "construir"], SUBIENDO: ["SUBIENDO", "subir"] },
+  );
+});
+
+prueba("candado: cada latido da 5 min más, nunca más allá del tope de la etapa (20 / 90 / 30 min)", () => {
+  assert.deepEqual({ ...trabajo.MINUTOS_POR_ETAPA }, { planear: 20, construir: 90, subir: 30 });
+  const inicio = new Date("2026-10-20T15:00:00Z");
+  const min = (n) => new Date(inicio.getTime() + n * 60_000);
+  assert.equal(trabajo.vencimientoDelCandado("construir", inicio, inicio).toISOString(), min(5).toISOString());
+  assert.equal(trabajo.vencimientoDelCandado("construir", inicio, min(40)).toISOString(), min(45).toISOString());
+  assert.equal(trabajo.vencimientoDelCandado("construir", inicio, min(88)).toISOString(), min(90).toISOString(), "tope");
+  assert.equal(trabajo.vencimientoDelCandado("planear", inicio, min(19)).toISOString(), min(20).toISOString(), "tope plan");
+  assert.equal(trabajo.vencimientoDelCandado("subir", inicio, min(29)).toISOString(), min(30).toISOString(), "tope subir");
+});
+
+prueba("texto de confirmación: ≥ 8 caracteres, con 'sí' y 'apruebo' (sin importar tildes ni mayúsculas); 'no apruebo' no", () => {
+  for (const bueno of ["sí, apruebo", "Si apruebo", "SÍ APRUEBO TODO", "sí, lo apruebo", "Apruebo, sí."]) {
+    assert.equal(trabajo.textoDeConfirmacionValido(bueno), null, bueno);
+  }
+  for (const malo of [undefined, "", "sí", "apruebo", "dale, apruebo", "sí, dale", "decisión apruebo", "si no apruebo", "sí,apruebx", 42]) {
+    assert.ok(trabajo.textoDeConfirmacionValido(malo), String(malo));
+  }
+});
+
+const dueno = { esDueno: true, esAdminPlataforma: false, aprobador: null };
+const nadie = { esDueno: false, esAdminPlataforma: false, aprobador: null };
+const admin = { esDueno: false, esAdminPlataforma: true, aprobador: null };
+const desarrollo = { esDueno: false, esAdminPlataforma: false, aprobador: { alcance: "DESARROLLO", puedeSubir: true } };
+const todo = { esDueno: false, esAdminPlataforma: false, aprobador: { alcance: "TODO", puedeSubir: true } };
+const pedido = (extra) => ({
+  momento: "tarea",
+  via: "voz",
+  origen: "MCP",
+  estado: "POR_APROBAR",
+  requiereAprobacion: true,
+  usaEstados: true,
+  repo: "aizencrm",
+  zonaProtegida: [],
+  tienePlan: false,
+  resultadoPaso: false,
+  textoConfirmacion: "sí, apruebo",
+  persona: dueno,
+  ...extra,
+});
+const aprobar = (extra) => trabajo.puedeAprobarMomento(pedido(extra));
+const destino = (extra) => {
+  const veredicto = aprobar(extra);
+  return "error" in veredicto ? `ERROR: ${veredicto.error}` : veredicto.a;
+};
+
+prueba("aprobar_tarjeta por voz: el dueño, con texto válido, desde el estado de cada momento", () => {
+  assert.equal(destino({}), "APROBADO");
+  assert.equal(destino({ momento: "plan", estado: "PLAN_LISTO", tienePlan: true }), "PLAN_APROBADO");
+  assert.equal(destino({ momento: "subir", estado: "POR_REVISAR", resultadoPaso: true }), "SUBIENDO");
+  // Reintentar desde ERROR.
+  assert.equal(destino({ estado: "ERROR" }), "APROBADO");
+  assert.equal(destino({ momento: "plan", estado: "ERROR", tienePlan: true }), "PLAN_APROBADO");
+});
+
+prueba("aprobar_tarjeta: el estado tiene que corresponder al momento", () => {
+  for (const estado of reglas.ESTADOS_TARJETA.filter((e) => e !== "POR_APROBAR" && e !== "ERROR")) {
+    assert.match(destino({ estado }), /^ERROR/, `tarea desde ${estado}`);
+  }
+  for (const estado of reglas.ESTADOS_TARJETA.filter((e) => e !== "PLAN_LISTO" && e !== "ERROR")) {
+    assert.match(destino({ momento: "plan", estado, tienePlan: true }), /^ERROR/, `plan desde ${estado}`);
+  }
+  for (const estado of reglas.ESTADOS_TARJETA.filter((e) => e !== "POR_REVISAR")) {
+    assert.match(destino({ momento: "subir", estado, resultadoPaso: true }), /^ERROR/, `subir desde ${estado}`);
+  }
+  assert.match(destino({ momento: "plan", estado: "PLAN_LISTO", tienePlan: false }), /no tiene plan/);
+  assert.match(destino({ momento: "subir", estado: "POR_REVISAR", resultadoPaso: false }), /paso/);
+  assert.match(destino({ momento: "plan", estado: "PLAN_LISTO", tienePlan: true, repo: null }), /no tiene repo/);
+  assert.match(destino({ momento: "jefe" }), /Momento desconocido/);
+  assert.match(destino({ requiereAprobacion: false }), /no pide aprobación/);
+  assert.match(destino({ usaEstados: false }), /no pide aprobación/);
+});
+
+prueba("aprobar_tarjeta: texto obligatorio y válido por voz; zona protegida = solo pantalla", () => {
+  assert.match(destino({ textoConfirmacion: undefined }), /texto de confirmación/);
+  assert.match(destino({ textoConfirmacion: "ok dale" }), /texto de confirmación/);
+  assert.match(destino({ textoConfirmacion: "no apruebo, sí" }), /no apruebo/);
+  assert.match(destino({ zonaProtegida: ["BOT_VENTAS"] }), /solo en la pantalla/);
+  // En la pantalla, la de zona protegida la aprueba el dueño (sin texto) y nadie más.
+  assert.equal(destino({ via: "pantalla", origen: "PANTALLA", zonaProtegida: ["LIBRO_V3"], textoConfirmacion: undefined }), "APROBADO");
+  assert.match(destino({ via: "pantalla", origen: "PANTALLA", zonaProtegida: ["META_ADS"], persona: todo }), /solo el dueño/);
+  assert.match(destino({ via: "pantalla", origen: "PANTALLA", zonaProtegida: ["META_ADS"], persona: admin }), /solo el dueño/);
+});
+
+prueba("aprobar_tarjeta: la vía tiene que ser la del origen; el trabajador nunca aprueba", () => {
+  assert.match(destino({ via: "pantalla", origen: "MCP" }), /via voz/);
+  assert.match(destino({ via: "voz", origen: "PANTALLA" }), /via voz/);
+  assert.match(destino({ origen: "TRABAJADOR" }), /nunca aprueba/);
+  assert.match(destino({ via: "pantalla", origen: "TRABAJADOR" }), /nunca aprueba/);
+});
+
+prueba("quién aprueba: dueño todo; DESARROLLO solo repos de desarrollo; TODO cualquiera; ADMIN solo en pantalla; nadie más", () => {
+  assert.equal(destino({ persona: desarrollo }), "APROBADO");
+  assert.equal(destino({ persona: desarrollo, repo: "gestion" }), "APROBADO");
+  assert.match(destino({ persona: desarrollo, repo: null }), /DESARROLLO/);
+  assert.equal(destino({ persona: todo, repo: null }), "APROBADO");
+  assert.match(destino({ persona: nadie }), /No puedes aprobar/);
+  assert.match(destino({ persona: admin }), /No puedes aprobar/, "ADMIN por voz no");
+  assert.equal(destino({ persona: admin, via: "pantalla", origen: "PANTALLA" }), "APROBADO");
+  assert.equal(destino({ persona: desarrollo, momento: "plan", estado: "PLAN_LISTO", tienePlan: true }), "PLAN_APROBADO");
+});
+
+prueba("el sí final (subir) es SOLO del dueño, aunque el aprobador tenga puedeSubir (SI_FINAL_SOLO_DUENO)", () => {
+  assert.equal(trabajo.SI_FINAL_SOLO_DUENO, true);
+  const subir = { momento: "subir", estado: "POR_REVISAR", resultadoPaso: true };
+  assert.equal(destino({ ...subir }), "SUBIENDO");
+  assert.equal(destino({ ...subir, via: "pantalla", origen: "PANTALLA" }), "SUBIENDO");
+  for (const persona of [todo, desarrollo, admin, nadie]) {
+    assert.match(destino({ ...subir, persona }), /solo el dueño/);
+    assert.match(destino({ ...subir, persona, via: "pantalla", origen: "PANTALLA" }), /solo el dueño/);
+  }
+});
+
+prueba("lo que queda en el historial de una aprobación: quién, momento, vía, texto y 'aprobado por voz'", () => {
+  const registro = trabajo.registroDeAprobacion({
+    estado: "APROBADO",
+    momento: "tarea",
+    via: "voz",
+    quienNombre: "Alexander",
+    userId: "u1",
+    textoConfirmacion: "sí, apruebo",
+  });
+  assert.deepEqual(registro, {
+    estado: "APROBADO",
+    momento: "tarea",
+    via: "voz",
+    quienNombre: "Alexander",
+    userId: "u1",
+    textoConfirmacion: "sí, apruebo",
+    como: "aprobado por voz",
+  });
+  assert.equal(trabajo.registroDeAprobacion({ ...registro, via: "pantalla" }).como, "aprobado en pantalla");
+});
+
+prueba("zona protegida: el MCP y el trabajador la ponen pero no la quitan; quitarla solo el dueño en la pantalla", () => {
+  assert.equal(trabajo.puedeCambiarZonas("MCP", [], ["BOT_VENTAS"], false), null);
+  assert.equal(trabajo.puedeCambiarZonas("MCP", ["BOT_VENTAS"], ["BOT_VENTAS", "LIBRO_V3"], true), null);
+  assert.match(trabajo.puedeCambiarZonas("MCP", ["BOT_VENTAS"], [], true), /solo el dueño/);
+  assert.match(trabajo.puedeCambiarZonas("TRABAJADOR", ["BOT_VENTAS"], [], true), /solo el dueño/);
+  assert.match(trabajo.puedeCambiarZonas("PANTALLA", ["META_ADS"], [], false), /solo el dueño/);
+  assert.equal(trabajo.puedeCambiarZonas("PANTALLA", ["META_ADS"], [], true), null);
+  assert.deepEqual(trabajo.unirZonas(["LIBRO_V3"], ["META_ADS", "LIBRO_V3"]), ["META_ADS", "LIBRO_V3"]);
+  assert.deepEqual(trabajo.zonasDeEntrada(["bot_ventas", " META_ADS ", "BOT_VENTAS"]), ["META_ADS", "BOT_VENTAS"]);
+  assert.deepEqual(trabajo.zonasDeEntrada(null), []);
+  assert.equal(trabajo.zonasDeEntrada(undefined), undefined);
+  assert.throws(() => trabajo.zonasDeEntrada(["WHATSAPP"]), /no existe/);
+});
+
+prueba("repo: solo de la lista fija (gestion, aizencrm); vacío lo quita", () => {
+  assert.deepEqual([...trabajo.REPOS_DEL_TRABAJADOR], ["gestion", "aizencrm"]);
+  assert.equal(trabajo.repoDeEntrada("AizenCRM"), "aizencrm");
+  assert.equal(trabajo.repoDeEntrada("Gestión"), "gestion");
+  assert.equal(trabajo.repoDeEntrada(""), null);
+  assert.equal(trabajo.repoDeEntrada(undefined), undefined);
+  assert.throws(() => trabajo.repoDeEntrada("netmagi"), /no existe/);
+});
+
+prueba("resultado del trabajador: resumen obligatorio, paso solo si es true, link solo https", () => {
+  const limpio = trabajo.resultadoDeEntrada({ resumen: " Listo ", paso: "true", linkRama: "http://x.co", rama: "tablero/a" });
+  assert.equal(limpio.resumen, "Listo");
+  assert.equal(limpio.paso, false);
+  assert.equal(limpio.linkRama, null);
+  assert.equal(trabajo.resultadoDeEntrada({ resumen: "x", paso: true, linkRama: "https://github.com/a/b/tree/c" }).linkRama, "https://github.com/a/b/tree/c");
+  assert.throws(() => trabajo.resultadoDeEntrada({ paso: true }), /resumen/);
+  assert.throws(() => trabajo.planDeEntrada("  "), /plan/);
+  assert.equal(trabajo.planDeEntrada("a\r\nb"), "a\nb");
+});
+
+prueba("contadores nuevos: te toca = POR_APROBAR + PLAN_LISTO + POR_REVISAR + ERROR + FALLIDO; en curso = PLANEANDO + PLAN_APROBADO + EN_CURSO + SUBIENDO; siguen = IDEA + APROBADO", () => {
+  const tipos = new Map([["tarea", { id: "tarea", usaEstados: true, requiereAprobacion: true }]]);
+  const grupo = (estado) => reglasNiveles.grupoDeLaTarjeta({ estado, tipoId: "tarea" }, tipos);
+  assert.deepEqual(
+    Object.fromEntries(reglas.ESTADOS_TARJETA.map((estado) => [estado, grupo(estado)])),
+    {
+      IDEA: "siguen",
+      POR_APROBAR: "teToca",
+      APROBADO: "siguen",
+      EN_CURSO: "enCurso",
+      HECHO: "hecho",
+      FALLIDO: "teToca",
+      PLANEANDO: "enCurso",
+      PLAN_LISTO: "teToca",
+      PLAN_APROBADO: "enCurso",
+      POR_REVISAR: "teToca",
+      SUBIENDO: "enCurso",
+      ERROR: "teToca",
+    },
+  );
+  const arbol = [
+    { id: "a", padreId: null, tipoId: "area", estado: "IDEA" },
+    ...FASE2.map((estado, i) => ({ id: `t${i}`, padreId: "a", tipoId: "tarea", estado })),
+  ];
+  const c = reglasNiveles.contadoresRecursivos(arbol, [
+    { id: "area", usaEstados: false, requiereAprobacion: false },
+    { id: "tarea", usaEstados: true, requiereAprobacion: true },
+  ]);
+  assert.deepEqual(c.get("a"), { teToca: 3, enCurso: 3, siguen: 0, hecho: 0 });
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);

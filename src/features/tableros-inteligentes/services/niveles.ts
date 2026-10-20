@@ -162,8 +162,9 @@ export function agruparPorArea<T extends TarjetaDeNivel>(
   CONTADORES del mapa (como el tablero "Tareas Magilus"): cada tarjeta cuenta ELLA MISMA y TODA su
   descendencia no borrada, pero solo las tarjetas de tipos con estados (las carpetas, como Área, no
   suman). Los grupos:
-  - teToca: lo que espera al dueño = POR_APROBAR (solo de tipos con aprobación) + FALLIDO.
-  - enCurso: EN_CURSO.
+  - teToca: lo que espera al dueño = POR_APROBAR (solo de tipos con aprobación) + PLAN_LISTO +
+    POR_REVISAR + ERROR + FALLIDO.
+  - enCurso: lo que está andando = PLANEANDO + PLAN_APROBADO + EN_CURSO + SUBIENDO.
   - siguen: abiertas que no dependen del dueño = IDEA + APROBADO (y POR_APROBAR de tipos sin aprobación).
   - hecho: HECHO.
 */
@@ -185,11 +186,17 @@ export function grupoDeLaTarjeta(
   if (tipo && !tipo.usaEstados) return null;
   switch (tarjeta.estado) {
     case "FALLIDO":
+    case "ERROR":
+    case "PLAN_LISTO":
+    case "POR_REVISAR":
       return "teToca";
     case "POR_APROBAR":
       // Sin tipo conocido se trata como que pide aprobación (lo más seguro: que el dueño lo vea).
       return !tipo || tipo.requiereAprobacion ? "teToca" : "siguen";
     case "EN_CURSO":
+    case "PLANEANDO":
+    case "PLAN_APROBADO":
+    case "SUBIENDO":
       return "enCurso";
     case "IDEA":
     case "APROBADO":
