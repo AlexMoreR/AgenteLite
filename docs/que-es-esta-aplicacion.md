@@ -412,6 +412,15 @@ la IA pausada no lo contesta el agente.
   corresponda, y rechaza las de zona protegida. El sí final (subir a producción) es solo del dueño.
   `deshacer_cambio_tarjeta` no deja ni quita una aprobación y no deshace una aprobación, lo hecho en la
   pantalla ni lo del trabajador. Si Claude edita algo aprobado, vuelve a pedir aprobación.
+- **Tablero IA: por voz aprueba la cuenta que creó la clave de Claude, no la que mira la pantalla.**
+  La clave MCP guarda el negocio y la cuenta de quien la creó, y esa cuenta firma todo lo que hace
+  Claude. Para aprobar por voz hay que crearla entrando con la cuenta DUEÑA del negocio (en Magilus:
+  "Magilus", gestionmagilus@gmail.com), no con la ADMIN de la plataforma (GCM Projects). Cuenta como
+  dueña (`esDuenoDelNegocio` en `reglas-trabajador.ts`): la cuenta dueña registrada del negocio
+  (`Workspace.ownerId`), aunque sea ADMIN, o una CLIENTE con rol OWNER; siempre miembro activa. Ser ADMIN
+  de la plataforma solo no da poder de dueño (en la pantalla sí aprueba la tarea y el plan, por voz no).
+  Si falla, el error de `aprobar_tarjeta` dice con qué cuenta (nombre y correo) llegó la conexión y por
+  qué no es la dueña. Esta regla es solo del Tablero IA: `client-workspace-access.ts` no cambió.
 - **Tablero IA: el sí final despliega.** Aprobar "subir" hace que el trabajador empuje a `main`, y todo
   push a `main` de AizenCRM se despliega solo. El trabajador vuelve a correr la verificación y el ensayo de
   la migración antes de subir; si algo falla, no sube y queda ERROR.
