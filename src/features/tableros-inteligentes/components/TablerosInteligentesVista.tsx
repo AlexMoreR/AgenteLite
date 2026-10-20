@@ -270,10 +270,12 @@ export function TablerosInteligentesVista({
 
   const aristas = useMemo<FlechaDeTablero[]>(() => {
     const atenuadaPor = (id: string) => filtrada(id, centros, contadores, filtros);
-    const unidas = new Set(conexiones.flatMap((c) => [`${c.origenId}>${c.destinoId}`, `${c.destinoId}>${c.origenId}`]));
+    const esMadreEHija = (a: string, b: string) => madre.get(a) === b || madre.get(b) === a;
     // Las flechas entre tarjetas del nivel: punteadas, tenues y sin punto (lo principal es la madre).
+    // Una flecha entre madre e hija no se dibuja: ya la representa la unión con la madre (con su punto).
     const flechas: FlechaDeTablero[] = conexiones
       .filter((conexion) => enNivel.has(conexion.origenId) && enNivel.has(conexion.destinoId))
+      .filter((conexion) => !esMadreEHija(conexion.origenId, conexion.destinoId))
       .map((conexion) => {
         const atenuada = atenuadaPor(conexion.origenId) || atenuadaPor(conexion.destinoId);
         return {
@@ -287,11 +289,11 @@ export function TablerosInteligentesVista({
         };
       });
     // La unión con la madre: línea fina gris del centro a cada hija, con UN punto que viaja (rojo si
-    // la hija tiene algo que "te toca"). Si ya hay una flecha entre las dos, no se repite.
+    // la hija tiene algo que "te toca").
     const uniones: FlechaDeTablero[] = visibles
       .filter((id) => {
         const suMadre = madre.get(id);
-        return suMadre && enNivel.has(suMadre) && !unidas.has(`${suMadre}>${id}`);
+        return suMadre && enNivel.has(suMadre);
       })
       .map((id) => {
         const atenuada = atenuadaPor(id);
