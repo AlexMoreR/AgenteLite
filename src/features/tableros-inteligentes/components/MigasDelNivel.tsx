@@ -51,6 +51,8 @@ export function MigasDelNivel({ tableroNombre, ruta, alIr }: Props) {
                 type="button"
                 onClick={() => alIr(paso.id)}
                 aria-current={ultimo ? "page" : undefined}
+                // Un paso largo se corta: entero al pasar el mouse.
+                title={paso.titulo || "Tarjeta"}
                 className={cn(
                   "flex max-w-[14rem] items-center gap-1 truncate rounded-md px-1.5 py-1 text-sm",
                   ultimo ? "font-semibold text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",

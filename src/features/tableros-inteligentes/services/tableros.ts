@@ -469,6 +469,47 @@ export async function listarTableros(alcance: Alcance) {
   });
 }
 
+/** Un tablero de listarTableros como lo muestran el inicio y el selector (también viaja en el refresco). */
+export function aTableroDelInicio(tablero: Awaited<ReturnType<typeof listarTableros>>[number]): TableroDelInicio {
+  return {
+    id: tablero.id,
+    nombre: tablero.nombre,
+    porAprobar: porAprobarDe(tablero.porEstado),
+    tarjetas: tablero.tarjetas,
+    duenoUserId: tablero.duenoUserId,
+    duenoNombre: tablero.duenoNombre,
+    contadores: tablero.contadores,
+    actualizadoEn: tablero.actualizadoEn.toISOString(),
+  };
+}
+
+/**
+ * La firma de la lista de tableros: la hora del último cambio y cuántos son. Cambia con cualquier
+ * escritura en un tablero (todas tocan su actualizadoEn), con uno nuevo y con uno que se va.
+ */
+function armarFirma(ultimoCambio: Date | null, cuantos: number) {
+  return `${ultimoCambio ? ultimoCambio.toISOString() : "-"}|${cuantos}`;
+}
+
+/** La firma de una lista ya leída (listarTableros): la que lleva la pantalla al cargarse. */
+export function firmaDeLaLista(tableros: { actualizadoEn: Date }[]) {
+  const ultimo = tableros.reduce<Date | null>(
+    (ultima, tablero) => (!ultima || tablero.actualizadoEn > ultima ? tablero.actualizadoEn : ultima),
+    null,
+  );
+  return armarFirma(ultimo, tableros.length);
+}
+
+/** Lo único que lee el refresco de 5 s de la lista cuando no cambió nada: un agregado indexado por negocio. */
+export async function firmaDeLosTableros(alcance: Alcance) {
+  const fila = await prisma.tableroInteligente.aggregate({
+    where: dondeTablero(alcance),
+    _max: { actualizadoEn: true },
+    _count: { _all: true },
+  });
+  return armarFirma(fila._max.actualizadoEn, fila._count._all);
+}
+
 /** Tarjetas (vivas), conexiones y tipos de un tablero que ya se sabe que es del negocio. */
 export async function contenidoDelTablero(tableroId: string) {
   const [tarjetas, conexiones, tipos] = await Promise.all([
@@ -778,7 +819,8 @@ export async function renombrarTablero(contexto: ContextoTablero, tableroId: unk
   }
   const tablero = await prisma.tableroInteligente.update({
     where: { id: actual.id },
-    data: cambia,
+    // La hora también: así el refresco de la lista (inicio y selector) ve el nombre o el dueño nuevo.
+    data: { ...cambia, actualizadoEn: new Date() },
     select: SELECT_REFERENCIA,
   });
   return { ...aReferencia(tablero), antes: antes.nombre, duenoAntes: antes.duenoNombre };

@@ -36,7 +36,7 @@ export function lineasDeContadores({ teToca, enCurso, siguen, hecho }: Contadore
 
 /**
  * Una tarjeta en el mapa como ETIQUETA de solo texto, al estilo del tablero "Tareas Magilus": el
- * nombre en negrita y debajo los contadores que no son cero. Borde fino ROJO si tiene algo que "te
+ * nombre en negrita (hasta 3 líneas; entero al pasar el mouse) y debajo los contadores que no son cero. Borde fino ROJO si tiene algo que "te
  * toca"; neutro si no. La del centro (el nivel actual) es más grande y va en contraste (clara en
  * oscuro, oscura en claro). Ancho según el texto, sin pasar de las medidas de services/disposicion.ts.
  * Mantener presionada una con hijas abre su ficha sin entrar.
@@ -88,6 +88,7 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
       onPointerUp={cancelar}
       onPointerLeave={cancelar}
       onPointerCancel={cancelar}
+      title={data.titulo}
       onContextMenu={(evento) => evento.preventDefault()}
       onClickCapture={(evento) => {
         if (!disparado.current) return;
@@ -97,7 +98,8 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
     >
       {/* Las líneas se dibujan solas: los puntos de conexión no se muestran ni se arrastran. */}
       <Handle type="target" position={Position.Top} className="!pointer-events-none !opacity-0" isConnectable={false} />
-      <p className={cn("max-w-full break-words font-semibold", centro ? "line-clamp-2 text-sm" : lineas.length > 1 ? "line-clamp-1" : "line-clamp-2", !centro && "text-xs")}>{data.titulo}</p>
+      {/* El título: hasta 3 líneas (con o sin contadores) y entero al pasar el mouse. */}
+      <p className={cn("line-clamp-3 max-w-full break-words font-semibold", centro ? "text-sm" : "text-xs")}>{data.titulo}</p>
       {lineas.map((linea) => (
         <p
           key={linea}

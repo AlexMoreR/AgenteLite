@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Network, Pencil, Plus } from "lucide-react";
@@ -17,12 +17,13 @@ import {
   type EdicionDeTablero,
 } from "./DialogoDeTablero";
 import { SeccionTrabajador } from "./SeccionTrabajador";
+import { useListaDeTableros } from "../hooks/useRefrescoDelTablero";
 
 /*
   La PÁGINA DE INICIO de Tablero IA (/cliente/tablero-ia sin ?tablero, ?tarjeta ni ?area): una
   tarjeta por tablero del negocio con su nombre, los mismos contadores que los chips del diagrama
   (te toca / en curso / siguen / hecho, de todo el tablero) y la última actividad. Tocarla abre el
-  diagrama. Tableros por cuenta: cada persona ve los suyos y los crea ("+ Nuevo tablero") y renombra
+  diagrama. Se actualiza sola cada 5 s con la pestaña a la vista (useListaDeTableros). Tableros por cuenta: cada persona ve los suyos y los crea ("+ Nuevo tablero") y renombra
   (el lápiz); el dueño o el ADMIN de la plataforma ven todos, con "de Emanuel Diaz" en los que no son
   suyos, eligen de quién es cada uno y, abajo, ven la sección Trabajador. Una columna en el celular;
   grilla en pantallas anchas.
@@ -48,15 +49,23 @@ const tarjetasEnTexto = (cuantas: number) => (cuantas === 1 ? "1 tarjeta" : `${c
 
 type Props = {
   tableros: TableroDelInicio[];
+  /** La firma de esa lista (firmaDeLaLista): el refresco de 5 s pregunta si cambió. */
+  firma: string;
   /** Dueño o ADMIN de la plataforma: la sección Trabajador. */
   puedeAdministrar: boolean;
   /** Tableros por cuenta: quién mira, si ve todos y a quién le puede dar uno. */
   cuentas: CuentasDeTableros;
 };
 
-export function InicioDeTableros({ tableros: iniciales, puedeAdministrar, cuentas }: Props) {
+export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar, cuentas }: Props) {
   const router = useRouter();
-  const [tableros, setTableros] = useState(iniciales);
+  // Se actualiza sola (tableros nuevos, contadores, nombres) mientras la pestaña está a la vista.
+  const { tableros: lista, setTableros } = useListaDeTableros(iniciales, firma);
+  // El último que cambió va primero.
+  const tableros = useMemo(
+    () => [...lista].sort((a, b) => Date.parse(b.actualizadoEn) - Date.parse(a.actualizadoEn)),
+    [lista],
+  );
   const [edicion, setEdicion] = useState<EdicionDeTablero | null>(null);
 
   return (
@@ -96,7 +105,9 @@ export function InicioDeTableros({ tableros: iniciales, puedeAdministrar, cuenta
                     className="flex h-full flex-col gap-3 rounded-xl border bg-card p-4 transition-colors hover:border-foreground/30 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <span className={conLapiz ? "min-w-0 pr-10" : "min-w-0"}>
-                      <span className="block truncate font-medium">{tablero.nombre}</span>
+                      <span className="block truncate font-medium" title={tablero.nombre}>
+                        {tablero.nombre}
+                      </span>
                       {deQuien ? <span className="block truncate text-xs text-muted-foreground">{deQuien}</span> : null}
                       <span className="block text-xs text-muted-foreground tabular-nums">
                         {tarjetasEnTexto(tablero.tarjetas)} · {CUANDO.format(new Date(tablero.actualizadoEn))}

@@ -8,7 +8,7 @@ import { ArrowLeft, ChevronRight, LayoutGrid, Shapes } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ConexionVista, TableroResumen, TarjetaVista, TipoVista } from "../services/tableros";
+import type { ConexionVista, TableroDelInicio, TableroResumen, TarjetaVista, TipoVista } from "../services/tableros";
 import { disponerRadial, type Punto } from "../services/disposicion";
 import {
   atenuadaPorGrupos,
@@ -23,7 +23,7 @@ import {
   type Contadores,
   type GrupoDeContador,
 } from "../services/niveles";
-import { useRefrescoDelTablero, type ContenidoNuevo } from "../hooks/useRefrescoDelTablero";
+import { useListaDeTableros, useRefrescoDelTablero, type ContenidoNuevo } from "../hooks/useRefrescoDelTablero";
 import { FichaTarjeta } from "./FichaTarjeta";
 import { FlechaFlotante, type FlechaDeTablero } from "./FlechaFlotante";
 import { MigasDelNivel } from "./MigasDelNivel";
@@ -72,7 +72,9 @@ const CHIPS: { grupo: GrupoDeContador; nombre: string; color: string }[] = [
 const FILTROS_INICIALES: ReadonlySet<GrupoDeContador> = new Set<GrupoDeContador>(["teToca", "enCurso", "siguen"]);
 
 type Props = {
-  tableros: TableroResumen[];
+  tableros: TableroDelInicio[];
+  /** La firma de esa lista (firmaDeLaLista): el selector se mantiene al día aunque esté cerrado. */
+  firmaDeTableros: string;
   tableroId: string;
   tableroNombre: string;
   inicial: ContenidoNuevo;
@@ -171,7 +173,8 @@ function urlDelNivel(tableroId: string, nivel: string | null) {
 }
 
 export function TablerosInteligentesVista({
-  tableros,
+  tableros: tablerosIniciales,
+  firmaDeTableros,
   tableroId,
   tableroNombre,
   inicial,
@@ -219,16 +222,29 @@ export function TablerosInteligentesVista({
     estadoRef.current = { contenido, filtros };
   }, [contenido, filtros]);
 
+  // Lo que cambia por fuera (Claude, el trabajador, otra pestaña) entra solo: se cambian los datos,
+  // no la página, así que el nivel, la ficha abierta, lo arrastrado y el zoom del mapa se quedan.
   const alCambiar = useCallback(
     (nuevo: ContenidoNuevo) => {
       setContenido(nuevo);
       // Mismo nivel: las que ya estaban (o el dueño arrastró) se quedan donde estaban.
       setNodos((previos) => construirNodos(nuevo, nivel, filtros, posicionesDe(previos), setAbierta));
+      // Si borraron la tarjeta de la ficha abierta, la ficha se cierra.
+      setAbierta((actual) => (actual && nuevo.tarjetas.some((tarjeta) => tarjeta.id === actual) ? actual : null));
     },
     [nivel, filtros],
   );
 
   const refrescarYa = useRefrescoDelTablero(tableroId, contenido?.actualizadoEn ?? null, alCambiar);
+
+  // La lista de tableros del selector, al día aunque esté cerrado (tableros nuevos, por aprobar, nombres).
+  const { tableros, setTableros, preguntarYa: refrescarTableros } = useListaDeTableros(tablerosIniciales, firmaDeTableros);
+  const nombreDelTablero = tableros.find((tablero) => tablero.id === tableroId)?.nombre ?? tableroNombre;
+  const alRenombrarTablero = useCallback(
+    (id: string, cambio: Partial<TableroResumen>) =>
+      setTableros((lista) => lista.map((tablero) => (tablero.id === id ? { ...tablero, ...cambio } : tablero))),
+    [setTableros],
+  );
 
   /** Cambiar de nivel (y la URL, para que atrás del navegador vuelva). */
   const irANivel = useCallback(
@@ -337,7 +353,13 @@ export function TablerosInteligentesVista({
 
   return (
     <div className="tablero-ia flex h-[calc(100dvh-3.5rem)] flex-col">
-      <SelectorDeTablero tableros={tableros} tableroId={tableroId} cuentas={cuentas} />
+      <SelectorDeTablero
+        tableros={tableros}
+        tableroId={tableroId}
+        cuentas={cuentas}
+        alAbrir={refrescarTableros}
+        alRenombrar={alRenombrarTablero}
+      />
       {/* Arriba, en UNA fila baja: "←" (sube un nivel), "Tablero IA" (el listado), la ruta y, a la
           derecha, el ícono de Tipos (solo dueño/admin). En el celular todo botón mide al menos 40 px
           y "Tablero IA" queda solo con su ícono. */}
@@ -364,7 +386,7 @@ export function TablerosInteligentesVista({
           <span className="hidden sm:inline">Tablero IA</span>
         </Link>
         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-        <MigasDelNivel tableroNombre={tableroNombre} ruta={ruta} alIr={(id) => irANivel(id)} />
+        <MigasDelNivel tableroNombre={nombreDelTablero}ruta={ruta} alIr={(id) => irANivel(id)} />
         {puedeEditarTipos ? (
           <Button
             variant="ghost"

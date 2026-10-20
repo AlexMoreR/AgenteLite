@@ -28,22 +28,31 @@ import {
 /*
   El título de la barra superior en el diagrama de Tablero IA: el NOMBRE del tablero abierto, que al
   tocarlo abre la lista de los tableros que la persona ve (cuántas tarjetas tiene cada uno y cuántas
-  esperan aprobación). Se ve aunque haya uno solo, y la lista se vuelve a pedir cada vez que se abre:
+  esperan aprobación). Se ve aunque haya uno solo. La lista la mantiene al día la pantalla
+  (useListaDeTableros, cada 5 s aunque el selector esté cerrado) y se vuelve a preguntar al abrirlo:
   así aparecen los tableros que Claude acaba de crear sin recargar. Al final, "Todos los tableros"
-  vuelve a la página de inicio.
+  vuelve a la página de inicio. Los nombres largos se leen enteros al pasar el mouse.
 
   Tableros por cuenta: cada persona ve los suyos y tiene el lápiz "Cambiar nombre" en ellos y
   "+ Nuevo tablero"; el dueño (o el ADMIN de la plataforma) ve todos, con "de Emanuel Diaz" en los
   ajenos, y el lápiz en todos. Los dos abren el mismo diálogo (DialogoDeTablero).
 */
 
-type Props = { tableros: TableroResumen[]; tableroId: string | null; cuentas: CuentasDeTableros };
+type Props = {
+  /** La lista al día (la refresca la pantalla). */
+  tableros: TableroResumen[];
+  tableroId: string | null;
+  cuentas: CuentasDeTableros;
+  /** Pregunta ya por la lista (al abrir el selector). */
+  alAbrir: () => Promise<void>;
+  /** Un tablero renombrado desde acá: se cambia en la lista sin esperar el refresco. */
+  alRenombrar: (id: string, cambio: Partial<TableroResumen>) => void;
+};
 
 const tarjetasEnTexto = (cuantas: number) => (cuantas === 1 ? "1 tarjeta" : `${cuantas} tarjetas`);
 
-export function SelectorDeTablero({ tableros: iniciales, tableroId, cuentas }: Props) {
+export function SelectorDeTablero({ tableros, tableroId, cuentas, alAbrir, alRenombrar }: Props) {
   const router = useRouter();
-  const [tableros, setTableros] = useState(iniciales);
   const [cargando, setCargando] = useState(false);
   const [edicion, setEdicion] = useState<EdicionDeTablero | null>(null);
   // El menú se cierra en el mismo clic que abre el diálogo: así sabe que el foco no vuelve a la barra.
@@ -54,13 +63,8 @@ export function SelectorDeTablero({ tableros: iniciales, tableroId, cuentas }: P
   const refrescar = async () => {
     setCargando(true);
     try {
-      const respuesta = await fetch("/api/cliente/tableros-inteligentes", { cache: "no-store" });
-      if (respuesta.ok) {
-        const cuerpo = (await respuesta.json()) as { ok: boolean; tableros?: TableroResumen[] };
-        if (cuerpo.ok && cuerpo.tableros) setTableros(cuerpo.tableros);
-      }
-    } catch {
-      // Sin red: se queda la lista que ya había.
+      // Sin red, o si ya había una pregunta en curso: se queda la lista que ya había.
+      await alAbrir();
     } finally {
       setCargando(false);
     }
@@ -89,7 +93,9 @@ export function SelectorDeTablero({ tableros: iniciales, tableroId, cuentas }: P
           aria-label="Cambiar de tablero"
           className="flex min-h-9 min-w-0 max-w-[60vw] items-center gap-1 rounded-md px-1.5 text-base font-medium text-foreground hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:max-w-md"
         >
-          <span className="truncate">{abierto?.nombre ?? "Tablero IA"}</span>
+          <span className="truncate" title={abierto?.nombre}>
+            {abierto?.nombre ?? "Tablero IA"}
+          </span>
           <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -116,7 +122,9 @@ export function SelectorDeTablero({ tableros: iniciales, tableroId, cuentas }: P
                   >
                     <Check className={cn("size-4 shrink-0", actual ? "opacity-100" : "opacity-0")} aria-hidden />
                     <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate">{tablero.nombre}</span>
+                      <span className="truncate" title={tablero.nombre}>
+                        {tablero.nombre}
+                      </span>
                       <span className="truncate text-xs font-normal text-muted-foreground tabular-nums">
                         {tarjetasEnTexto(tablero.tarjetas)}
                         {deQuien ? ` · ${deQuien}` : ""}
@@ -172,7 +180,7 @@ export function SelectorDeTablero({ tableros: iniciales, tableroId, cuentas }: P
         cuentas={cuentas}
         alCerrar={() => setEdicion(null)}
         alRenombrar={(id, nombre, dueno) => {
-          setTableros((lista) => lista.map((tablero) => (tablero.id === id ? { ...tablero, nombre, ...dueno } : tablero)));
+          alRenombrar(id, { nombre, ...dueno });
           setEdicion(null);
           // La ruta de arriba ("Tablero › …") lleva el nombre que manda el servidor.
           router.refresh();
