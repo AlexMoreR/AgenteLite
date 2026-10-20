@@ -5,6 +5,13 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+# Dos pushes seguidos a main corrian dos builds a la vez y el que terminaba ULTIMO quedaba en
+# produccion como :latest, aunque fuera el commit viejo (20-oct-2026: bc22ad5e quedo tapado por
+# c23715a9). Con esto un push nuevo cancela el build anterior y siempre gana el commit mas nuevo.
+concurrency:
+  group: docker-image-main
+  cancel-in-progress: true
+
 permissions:
   contents: read
   packages: write
