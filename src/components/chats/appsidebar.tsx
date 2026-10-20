@@ -259,16 +259,31 @@ export function AppSidebar({
       if (cuadro !== null) window.cancelAnimationFrame(cuadro);
     };
   }, []);
-  // Con la caja enfocada y vacia se muestran las busquedas recientes, como en WhatsApp.
-  const [buscadorEnfocado, setBuscadorEnfocado] = React.useState(false);
+  /*
+    Las busquedas recientes, como en WhatsApp: aparecen al tocar la caja (vacia) y se QUEDAN
+    aunque se cierre el teclado. Con "enfocada" a secas, en el celular se iban apenas bajaba el
+    teclado (Alex, 19-10-2026: "aparece pero se quita al rato"). Se van al abrir un chat, al
+    escribir o al tocar la lista.
+  */
+  const [recientesDesde, setRecientesDesde] = React.useState<{ chat: string } | null>(null);
   const chatsRecientes = useChatsRecientes();
-  const alCambiarFocoDelBuscador = React.useCallback((enfocado: boolean) => {
-    buscadorEnfocadoRef.current = enfocado;
-    setBuscadorEnfocado(enfocado);
-    if (enfocado) setBuscadorEscondido(false);
-  }, []);
+  const alCambiarFocoDelBuscador = React.useCallback(
+    (enfocado: boolean) => {
+      buscadorEnfocadoRef.current = enfocado;
+      if (enfocado) {
+        setBuscadorEscondido(false);
+        setRecientesDesde({ chat: selectedConversationId ?? "" });
+      }
+    },
+    [selectedConversationId],
+  );
   const verRecientes =
-    buscadorEnfocado && !busqueda.trim() && chatsRecientes.length > 0 && Boolean(alAbrirDesdeElBuscador);
+    recientesDesde !== null &&
+    // Abrir un chat (desde donde sea) las cierra.
+    recientesDesde.chat === (selectedConversationId ?? "") &&
+    !busqueda.trim() &&
+    chatsRecientes.length > 0 &&
+    Boolean(alAbrirDesdeElBuscador);
   const router = useRouter();
   const [filterMenuOpen, setFilterMenuOpen] = React.useState(false);
   const [modoDelFiltro, setModoDelFiltro] = React.useState<ModoDelFiltro>({ tipo: "filtrar" });
@@ -761,6 +776,8 @@ export function AppSidebar({
           <ChatsRecientes recientes={chatsRecientes} alAbrir={(chat) => alAbrirDesdeElBuscador(chat)} />
         ) : null}
         <div
+          // Tocar la lista cierra las busquedas recientes.
+          onPointerDown={recientesDesde ? () => setRecientesDesde(null) : undefined}
           ref={conversationListScrollRef}
           className={`min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-border transition-opacity duration-150 [-webkit-overflow-scrolling:touch] ${
             listaAtenuada ? "pointer-events-none opacity-40" : ""
@@ -771,7 +788,9 @@ export function AppSidebar({
               conversations={conversationItems}
               selectedConversationId={selectedConversationId}
               scrollContainerRef={conversationListScrollRef}
-              hasMoreConversations={hasMoreConversationItems}
+              // Buscando NO se cargan mas chats al bajar: los resultados ya vinieron enteros, y cada
+              // pagina nueva empujaba la seccion "Mensajes" para abajo (en el celular "se quitaba").
+              hasMoreConversations={busqueda.trim() ? false : hasMoreConversationItems}
               isLoadingMoreConversations={isLoadingMoreConversationItems}
               onLoadMoreConversations={onLoadMoreConversationItems}
               versionDeVista={versionDeVista}
