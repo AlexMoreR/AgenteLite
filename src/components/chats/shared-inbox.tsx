@@ -2823,6 +2823,9 @@ export function SharedInbox({
   /** Abre un chat desde el buscador (un mensaje encontrado o una busqueda reciente). */
   const abrirChatDesdeElBuscador = useCallback(
     (chat: { chatKey: string; nombre: string; telefono: string; avatarUrl: string | null }, messageId?: string) => {
+      // En Android el teclado podia quedar atado a la caja del buscador (que se esconde al abrir el
+      // chat) y lo que se escribia en el compositor no aparecia: se suelta el foco antes de abrir.
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       const href = hrefDeFila({ id: chat.chatKey, source: "agent" }, searchInputValue.trim());
       anotarChatReciente({ ...chat, href });
       if (messageId) {
