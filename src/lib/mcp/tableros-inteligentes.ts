@@ -15,6 +15,7 @@ import {
   listarTableros,
   listarTipos,
   planYResultado,
+  renombrarTablero,
   verTablero,
   type ContextoTablero,
   type TipoVista,
@@ -129,6 +130,22 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
       type: "object",
       properties: { nombre: { type: "string", description: "Nombre corto del tablero: 'Ventas'" } },
       required: ["nombre"],
+      additionalProperties: false,
+    },
+    annotations: ESCRIBE,
+  },
+  {
+    name: "renombrar_tablero",
+    title: "Cambiar el nombre de un tablero",
+    description:
+      "Le cambia el nombre a un tablero del negocio (sus tarjetas, tipos y links no cambian). El nombre no puede ir vacío, tiene hasta 60 letras y no puede ser el de otro tablero del negocio (sin mirar mayúsculas). Los ids salen de listar_tableros.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tablero_id: { type: "string", description: "Id del tablero (ver listar_tableros)" },
+        nombre: { type: "string", description: "El nombre nuevo: 'Ventas 2027'" },
+      },
+      required: ["tablero_id", "nombre"],
       additionalProperties: false,
     },
     annotations: ESCRIBE,
@@ -456,6 +473,17 @@ export async function ejecutarHerramientaMcpTableros(
         nombre: tablero.nombre,
         aviso:
           "Nació con los tipos Área (carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea; la aprueba el dueño). Ver listar_tipos.",
+        link: linkDelTablero(tablero.id),
+      };
+    }
+    case "renombrar_tablero": {
+      const tablero = await renombrarTablero(contexto, args.tablero_id, args.nombre);
+      return {
+        ok: true,
+        tablero_id: tablero.id,
+        antes: tablero.antes,
+        nombre: tablero.nombre,
+        ...(tablero.antes === tablero.nombre ? { aviso: "Ya se llamaba así: no cambió nada." } : {}),
         link: linkDelTablero(tablero.id),
       };
     }

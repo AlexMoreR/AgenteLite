@@ -79,7 +79,9 @@ type Props = {
   puedeAprobar: boolean;
   /** Puede tocar los tipos (dueño o ADMIN de la plataforma, como en la fase 1). */
   puedeEditarTipos: boolean;
-  /** Dueño del negocio: el sí final, quitar zonas protegidas y el panel Trabajador. */
+  /** Dueño o ADMIN de la plataforma: el panel Trabajador y crear o renombrar tableros. */
+  puedeAdministrar: boolean;
+  /** Dueño del negocio: el sí final y quitar zonas protegidas. */
   esDueno: boolean;
 };
 
@@ -174,6 +176,7 @@ export function TablerosInteligentesVista({
   nivelInicial,
   puedeAprobar,
   puedeEditarTipos,
+  puedeAdministrar,
   esDueno,
 }: Props) {
   const angosta = useEsAngosta();
@@ -333,12 +336,13 @@ export function TablerosInteligentesVista({
   if (!tableroId) {
     return (
       <div className="flex h-[calc(100dvh-3.5rem)] flex-col items-center justify-center gap-3 px-6 text-center">
-        <SelectorDeTablero tableros={tableros} tableroId={null} />
+        <SelectorDeTablero tableros={tableros} tableroId={null} puedeAdministrar={puedeAdministrar} />
         <Network className="size-10 text-muted-foreground" />
         <h1 className="text-lg font-semibold">Todavía no hay tableros</h1>
         <p className="max-w-sm text-sm text-muted-foreground">
           Pídele a Claude, por ejemplo: “Crea un tablero de Ventas y anota ahí las ideas que hablamos”. Las tarjetas
-          aparecen acá solas. Cuando lo cree, búscalo arriba, en el selector de tableros.
+          aparecen acá solas. Cuando lo cree, búscalo arriba, en el selector de tableros
+          {puedeAdministrar ? " (ahí también está «Nuevo tablero»)" : ""}.
         </p>
       </div>
     );
@@ -346,7 +350,7 @@ export function TablerosInteligentesVista({
 
   return (
     <div className="tablero-ia flex h-[calc(100dvh-3.5rem)] flex-col">
-      <SelectorDeTablero tableros={tableros} tableroId={tableroId} />
+      <SelectorDeTablero tableros={tableros} tableroId={tableroId} puedeAdministrar={puedeAdministrar} />
       {/* Arriba, en UNA fila baja: "←" (sube un nivel), la ruta y, a la derecha, el ícono de Tipos
           (solo dueño/admin). En el celular todo botón mide al menos 40 px. */}
       <div className="flex min-h-10 shrink-0 items-center gap-0.5 border-b border-border bg-card px-1 md:min-h-9 md:px-2">
@@ -363,7 +367,7 @@ export function TablerosInteligentesVista({
           </Button>
         ) : null}
         <MigasDelNivel tableroNombre={tableroNombre ?? "Tablero"} ruta={ruta} alIr={(id) => irANivel(id)} />
-        {esDueno ? (
+        {puedeAdministrar ? (
           <Button
             variant="ghost"
             size="icon"
@@ -480,7 +484,7 @@ export function TablerosInteligentesVista({
         alCambiar={refrescarYa}
       />
 
-      {esDueno ? (
+      {puedeAdministrar ? (
         <PanelTrabajador abierto={panelTrabajador} alCerrar={() => setPanelTrabajador(false)} lado={angosta ? "bottom" : "right"} />
       ) : null}
     </div>

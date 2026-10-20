@@ -973,4 +973,29 @@ prueba("contadores nuevos: te toca = POR_APROBAR + PLAN_LISTO + POR_REVISAR + ER
   assert.deepEqual(c.get("a"), { teToca: 3, enCurso: 3, siguen: 0, hecho: 0 });
 });
 
+/* ------------------------------------------------------- nombre del tablero */
+
+prueba("nombre de tablero: no vacío, hasta 60 letras y sin repetir el de otro (sin mirar mayúsculas)", () => {
+  const existentes = [
+    { id: "t1", nombre: "Prueba" },
+    { id: "t2", nombre: "Ventas" },
+  ];
+  assert.ok(reglas.problemaDelNombreDeTablero("", existentes));
+  assert.ok(reglas.problemaDelNombreDeTablero("   ", existentes));
+  assert.ok(reglas.problemaDelNombreDeTablero(undefined, existentes));
+  assert.equal(reglas.problemaDelNombreDeTablero("a".repeat(reglas.MAX_NOMBRE_TABLERO), existentes), null);
+  assert.ok(reglas.problemaDelNombreDeTablero("a".repeat(reglas.MAX_NOMBRE_TABLERO + 1), existentes));
+  assert.ok(reglas.problemaDelNombreDeTablero(" ventas ", existentes), "crear uno que ya existe");
+  assert.ok(reglas.problemaDelNombreDeTablero("VENTAS", existentes, "t1"), "renombrar con el nombre de otro");
+  assert.equal(reglas.problemaDelNombreDeTablero("PRUEBA", existentes, "t1"), null, "el propio, con otras mayúsculas");
+  assert.equal(reglas.problemaDelNombreDeTablero("Producción", existentes), null);
+});
+
+prueba("crear y renombrar tableros (y el panel Trabajador): dueño o ADMIN de la plataforma; una asesora no", () => {
+  assert.equal(reglas.personaPuedeAprobar({ isOwner: true, role: "CLIENTE" }), true);
+  assert.equal(reglas.personaPuedeAprobar({ isOwner: false, role: "ADMIN" }), true);
+  assert.equal(reglas.personaPuedeAprobar({ isOwner: false, role: "CLIENTE" }), false);
+  assert.equal(reglas.personaPuedeAprobar({ isOwner: false, role: "EMPLEADO" }), false);
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);

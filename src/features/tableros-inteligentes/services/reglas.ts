@@ -345,6 +345,28 @@ export function puedeDeshacer(
   return null;
 }
 
+/** El nombre de un tablero: lo que cabe en la barra superior del celular. */
+export const MAX_NOMBRE_TABLERO = 60;
+
+/**
+ * Qué tiene de malo el nombre de un tablero (vacío, muy largo o el de otro tablero del negocio, sin
+ * mirar mayúsculas), o null si sirve. `salvo` es el tablero que se renombra. Lo usan el servicio y la
+ * pantalla, así que dicen lo mismo.
+ */
+export function problemaDelNombreDeTablero(
+  nombre: unknown,
+  existentes: { id: string; nombre: string }[],
+  salvo?: string | null,
+): string | null {
+  const limpio = typeof nombre === "string" ? nombre.trim() : "";
+  if (!limpio) return "Hace falta el nombre del tablero.";
+  if (limpio.length > MAX_NOMBRE_TABLERO) {
+    return `El nombre del tablero puede tener hasta ${MAX_NOMBRE_TABLERO} letras (tiene ${limpio.length}).`;
+  }
+  const igual = existentes.find((tablero) => tablero.id !== salvo && tablero.nombre.toLowerCase() === limpio.toLowerCase());
+  return igual ? `Ya existe un tablero "${igual.nombre}". Elige otro nombre.` : null;
+}
+
 /** Texto limpio, o undefined si no vino (o vino vacío cuando no se permite). */
 export function textoLimpio(valor: unknown, maximo: number): string | undefined {
   if (typeof valor !== "string") return undefined;

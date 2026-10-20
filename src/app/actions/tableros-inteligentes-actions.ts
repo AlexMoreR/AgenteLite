@@ -6,9 +6,11 @@ import {
   aprobarTarjeta,
   cambiarZonasEnPantalla,
   borrarTipo,
+  crearTablero,
   crearTipo,
   editarTipo,
   historialDeTarjeta,
+  renombrarTablero,
 } from "@/features/tableros-inteligentes/services/tableros";
 import {
   agregarAprobador,
@@ -30,8 +32,9 @@ import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/servi
 
   Fase 2 (20-oct-2026): aprobar tiene tres momentos (la tarea, el plan y el sí final "subir a
   producción"); quién puede cada uno lo decide el servicio con reglas-trabajador.ts (el dueño todo, un
-  aprobador según su alcance, el sí final SOLO el dueño). El panel Trabajador (claves y aprobadores) y
-  quitar una zona protegida son solo del dueño.
+  aprobador según su alcance, el sí final SOLO el dueño). Quitar una zona protegida es solo del dueño.
+  El panel Trabajador (claves y aprobadores) y crear o renombrar tableros: el dueño o el ADMIN de la
+  plataforma (20-oct-2026), como los tipos; una asesora o una administradora del negocio, no.
 */
 
 type Resultado = { ok: true } | { ok: false; error: string };
@@ -71,7 +74,39 @@ export async function cambiarZonasAction(tarjetaId: string, zonas: string[]): Pr
   }
 }
 
-/* ── Panel Trabajador (solo el dueño) ──────────────────────────────────────────────────────── */
+/* ── Tableros (dueño o ADMIN de la plataforma) ─────────────────────────────────────────────── */
+
+const SOLO_EL_DUENO_TABLEROS = "Los tableros los crea y renombra solo el dueño del negocio.";
+
+async function accesoParaTableros() {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  if (!personaPuedeAprobar(access)) return null;
+  return { workspaceId: access.workspaceId, userId: access.userId, origen: "PANTALLA" as const };
+}
+
+export async function crearTableroAction(nombre: string): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const contexto = await accesoParaTableros();
+  if (!contexto) return { ok: false, error: SOLO_EL_DUENO_TABLEROS };
+  try {
+    const tablero = await crearTablero(contexto, nombre);
+    return { ok: true, id: tablero.id };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo crear el tablero") };
+  }
+}
+
+export async function renombrarTableroAction(tableroId: string, nombre: string): Promise<Resultado> {
+  const contexto = await accesoParaTableros();
+  if (!contexto) return { ok: false, error: SOLO_EL_DUENO_TABLEROS };
+  try {
+    await renombrarTablero(contexto, tableroId, nombre);
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo cambiar el nombre") };
+  }
+}
+
+/* ── Panel Trabajador (dueño o ADMIN de la plataforma) ─────────────────────────────────────── */
 
 export type PanelTrabajadorVista = {
   claves: { id: string; nombre: string; creadoEn: string; ultimoUsoEn: string | null; revocadaEn: string | null }[];
@@ -81,9 +116,10 @@ export type PanelTrabajadorVista = {
 
 const SOLO_EL_DUENO_TRABAJADOR = "El trabajador y los aprobadores los maneja solo el dueño del negocio.";
 
+/** El dueño o el ADMIN de la plataforma (personaPuedeAprobar). Una asesora, no. */
 async function accesoDelDueno() {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
-  return access.isOwner ? access : null;
+  return personaPuedeAprobar(access) ? access : null;
 }
 
 export async function panelTrabajadorAction(): Promise<{ ok: true; panel: PanelTrabajadorVista } | { ok: false; error: string }> {

@@ -25,6 +25,7 @@ import {
   puedeEditarTarjeta,
   tieneAprobacion,
   ESTADOS_CON_APROBACION,
+  problemaDelNombreDeTablero,
   textoLimpio,
   type AccionCambio,
   type EstadoTarjetaTablero,
@@ -78,7 +79,6 @@ export const LIMITE_TIPOS = 30;
 const MAX_TITULO = 200;
 const MAX_DETALLE = 5000;
 const MAX_AREA = 60;
-const MAX_NOMBRE = 80;
 const MAX_NOMBRE_TIPO = 40;
 const MAX_LINK_TEXTO = 80;
 
@@ -148,7 +148,13 @@ export type TipoVista = {
 };
 
 /** Lo que muestra el selector de tableros de la barra superior. */
-export type TableroResumen = { id: string; nombre: string; porAprobar: number };
+export type TableroResumen = {
+  id: string;
+  nombre: string;
+  porAprobar: number;
+  /** Todas las tarjetas vivas del tablero (también las carpetas, como Área). */
+  tarjetas: number;
+};
 
 /** El numerito del selector: lo que espera una aprobación (la tarea, el plan o el sí final). */
 export function porAprobarDe(porEstado: Partial<Record<string, number>>) {
@@ -378,6 +384,12 @@ export async function listarTableros(workspaceId: string) {
     where: { tableroId: { in: tableros.map((tablero) => tablero.id) }, ...NO_BORRADA, tipo: { usaEstados: true } },
     _count: { _all: true },
   });
+  const todas = await prisma.tarjetaTablero.groupBy({
+    by: ["tableroId"],
+    where: { tableroId: { in: tableros.map((tablero) => tablero.id) }, ...NO_BORRADA },
+    _count: { _all: true },
+  });
+  const tarjetasDe = new Map(todas.map((fila) => [fila.tableroId, fila._count._all]));
   return tableros.map((tablero) => {
     const porEstado: Partial<Record<EstadoTarjetaTablero, number>> = {};
     let total = 0;
@@ -387,7 +399,7 @@ export async function listarTableros(workspaceId: string) {
         total += fila._count._all;
       }
     }
-    return { ...tablero, total, porEstado };
+    return { ...tablero, total, porEstado, tarjetas: tarjetasDe.get(tablero.id) ?? 0 };
   });
 }
 
@@ -579,19 +591,21 @@ async function crearTiposPorDefecto(tx: Tx, tableroId: string) {
   if (padres.length) await tx.tipoTarjetaPadre.createMany({ data: padres });
 }
 
-export async function crearTablero(contexto: ContextoTablero, nombre: unknown) {
-  const limpio = textoLimpio(nombre, MAX_NOMBRE);
-  if (!limpio) {
-    throw new Error("Hace falta el nombre del tablero.");
+/** El nombre limpio, o un error si está vacío, es muy largo o ya es de otro tablero del negocio. */
+function nombreDeTablero(valor: unknown, existentes: { id: string; nombre: string }[], salvo?: string) {
+  const problema = problemaDelNombreDeTablero(valor, existentes, salvo);
+  if (problema) {
+    throw new Error(problema);
   }
+  return String(valor).trim();
+}
+
+export async function crearTablero(contexto: ContextoTablero, nombre: unknown) {
   const existentes = await prisma.tableroInteligente.findMany({
     where: { workspaceId: contexto.workspaceId },
     select: { id: true, nombre: true },
   });
-  const igual = existentes.find((tablero) => tablero.nombre.toLowerCase() === limpio.toLowerCase());
-  if (igual) {
-    throw new Error(`Ya existe un tablero "${igual.nombre}" (id ${igual.id}). Usa ese o elige otro nombre.`);
-  }
+  const limpio = nombreDeTablero(nombre, existentes);
   if (existentes.length >= LIMITE_TABLEROS) {
     throw new Error(`Este negocio ya tiene ${LIMITE_TABLEROS} tableros, que es el máximo.`);
   }
@@ -603,6 +617,28 @@ export async function crearTablero(contexto: ContextoTablero, nombre: unknown) {
     await crearTiposPorDefecto(tx, tablero.id);
     return tablero;
   });
+}
+
+/** Cambia el nombre de un tablero del negocio (mismas reglas que al crearlo). */
+export async function renombrarTablero(contexto: ContextoTablero, tableroId: unknown, nombre: unknown) {
+  const existentes = await prisma.tableroInteligente.findMany({
+    where: { workspaceId: contexto.workspaceId },
+    select: { id: true, nombre: true },
+  });
+  const actual = typeof tableroId === "string" ? existentes.find((tablero) => tablero.id === tableroId) : undefined;
+  if (!actual) {
+    throw new Error("Ese tablero no existe en este negocio (ver listar_tableros).");
+  }
+  const limpio = nombreDeTablero(nombre, existentes, actual.id);
+  if (actual.nombre === limpio) {
+    return { id: actual.id, nombre: actual.nombre, antes: actual.nombre };
+  }
+  const tablero = await prisma.tableroInteligente.update({
+    where: { id: actual.id },
+    data: { nombre: limpio },
+    select: { id: true, nombre: true },
+  });
+  return { ...tablero, antes: actual.nombre };
 }
 
 // ── Escritura: tipos ────────────────────────────────────────────────────────────────────────

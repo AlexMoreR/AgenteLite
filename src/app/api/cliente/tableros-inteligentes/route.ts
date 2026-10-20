@@ -28,6 +28,7 @@ export async function GET() {
     id: tablero.id,
     nombre: tablero.nombre,
     porAprobar: porAprobarDe(tablero.porEstado),
+    tarjetas: tablero.tarjetas,
   }));
   return NextResponse.json({ ok: true, tableros }, { headers: SIN_CACHE });
 }

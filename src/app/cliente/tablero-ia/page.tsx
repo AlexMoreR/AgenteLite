@@ -71,6 +71,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
         id: tablero.id,
         nombre: tablero.nombre,
         porAprobar: porAprobarDe(tablero.porEstado),
+        tarjetas: tablero.tarjetas,
       }))}
       tableroId={elegido?.id ?? null}
       tableroNombre={elegido?.nombre ?? null}
@@ -84,6 +85,8 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       // Los botones de la tarea y el plan: dueño, ADMIN o aprobador (el alcance lo revisa el servidor).
       puedeAprobar={personaPuedeAprobar(access) || persona.esDueno || Boolean(persona.aprobador)}
       puedeEditarTipos={personaPuedeAprobar(access)}
+      // Panel Trabajador, renombrar y crear tableros: el dueño o el ADMIN de la plataforma (nunca una asesora).
+      puedeAdministrar={persona.esDueno || persona.esAdminPlataforma}
       esDueno={persona.esDueno}
     />
   );
