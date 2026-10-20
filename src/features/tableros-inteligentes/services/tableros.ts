@@ -65,7 +65,8 @@ export type TarjetaVista = {
 
 export type ConexionVista = { id: string; origenId: string; destinoId: string };
 
-export type TableroResumen = { id: string; nombre: string };
+/** Lo que muestra el selector de tableros de la barra superior. */
+export type TableroResumen = { id: string; nombre: string; porAprobar: number };
 
 const SELECT_TARJETA = {
   id: true,

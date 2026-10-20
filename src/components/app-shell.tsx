@@ -14,7 +14,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { useBreadcrumbLabel } from "@/components/breadcrumb-label-context";
+import { RanuraDelTitulo, useBreadcrumbLabel } from "@/components/breadcrumb-label-context";
 import { ClientPlanBlockModal } from "@/components/client-plan-block-modal";
 import { ClientPlanWarningBar } from "@/components/client-plan-warning-bar";
 import { Navbar } from "@/components/navbar";
@@ -117,6 +117,7 @@ const breadcrumbLabels: Record<string, string> = {
   avanzado: "Avanzado",
   chats: "Chats",
   "mi-tablero": "Inicio",
+  "tablero-ia": "Tablero IA",
   chatbots: "Chatbots",
   conocimiento: "Conocimiento",
   acciones: "Acciones",
@@ -339,7 +340,7 @@ export function AppShell({
               {isChatWorkspacePath ? (
                 <span className="truncate text-base font-medium text-foreground">{chatHeaderTitle}</span>
               ) : (
-                <AppBreadcrumb pathname={pathname} />
+                <RanuraDelTitulo fallback={<AppBreadcrumb pathname={pathname} />} />
               )}
               <div className="ml-auto flex items-center gap-0.5">
                 {participaDelReparto && pathname.startsWith("/cliente") ? <RecibiendoClientesToggle /> : null}

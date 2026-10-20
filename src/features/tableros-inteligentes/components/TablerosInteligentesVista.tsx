@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
-import { useRouter } from "next/navigation";
 import {
   Background,
   Controls,
@@ -14,7 +13,6 @@ import "@xyflow/react/dist/style.css";
 import { List, Network } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 import { ESTADOS_TARJETA, NOMBRE_DEL_ESTADO, type EstadoTarjetaTablero } from "../services/reglas";
 import type { ConexionVista, TableroResumen, TarjetaVista } from "../services/tableros";
@@ -24,6 +22,7 @@ import { COLOR_DEL_ESTADO } from "./colores";
 import { FichaTarjeta } from "./FichaTarjeta";
 import { FlechaFlotante, type FlechaDeTablero } from "./FlechaFlotante";
 import { NodoTarjeta, type NodoDeTarjeta } from "./NodoTarjeta";
+import { SelectorDeTablero } from "./SelectorDeTablero";
 
 /*
   La pantalla de Tablero IA: el mapa (estilo Obsidian) o la lista, el filtro por estado
@@ -88,7 +87,6 @@ function construirNodos(
 const posicionesDe = (nodos: NodoDeTarjeta[]) => new Map(nodos.map((nodo) => [nodo.id, nodo.position]));
 
 export function TablerosInteligentesVista({ tableros, tableroId, inicial, tarjetaInicial, puedeAprobar }: Props) {
-  const router = useRouter();
   const angosta = useEsAngosta();
 
   const [contenido, setContenido] = useState<ContenidoNuevo | null>(inicial);
@@ -167,16 +165,15 @@ export function TablerosInteligentesVista({ tableros, tableroId, inicial, tarjet
   const entrantes = abierta ? conexiones.filter((c) => c.destinoId === abierta).map((c) => c.origenId) : [];
   const salientes = abierta ? conexiones.filter((c) => c.origenId === abierta).map((c) => c.destinoId) : [];
 
-  const porAprobar = conteo.get("POR_APROBAR") ?? 0;
-
   if (!tableroId) {
     return (
       <div className="flex h-[calc(100dvh-3.5rem)] flex-col items-center justify-center gap-3 px-6 text-center">
+        <SelectorDeTablero tableros={tableros} tableroId={null} />
         <Network className="size-10 text-muted-foreground" />
         <h1 className="text-lg font-semibold">Todavía no hay tableros</h1>
         <p className="max-w-sm text-sm text-muted-foreground">
           Pídele a Claude, por ejemplo: “Crea un tablero de Ventas y anota ahí las ideas que hablamos”. Las tarjetas
-          aparecen acá solas. Recarga la página cuando lo haya creado.
+          aparecen acá solas. Cuando lo cree, búscalo arriba, en el selector de tableros.
         </p>
       </div>
     );
@@ -184,51 +181,10 @@ export function TablerosInteligentesVista({ tableros, tableroId, inicial, tarjet
 
   return (
     <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
-      <div className="flex shrink-0 flex-col gap-2 border-b border-border bg-card px-3 py-2">
-        <div className="flex items-center gap-2">
-          {tableros.length > 1 ? (
-            <NativeSelect
-              className="min-w-0 flex-1 sm:flex-none"
-              value={tableroId}
-              aria-label="Tablero"
-              onChange={(evento) => router.push(`/cliente/tablero-ia?tablero=${encodeURIComponent(evento.target.value)}`)}
-            >
-              {tableros.map((tablero) => (
-                <NativeSelectOption key={tablero.id} value={tablero.id}>
-                  {tablero.nombre}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-          ) : (
-            <h1 className="min-w-0 flex-1 truncate text-base font-semibold sm:flex-none">
-              {tableros[0]?.nombre ?? "Tablero"}
-            </h1>
-          )}
-          {porAprobar && puedeAprobar ? (
-            <span className="hidden rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 sm:inline dark:bg-amber-900 dark:text-amber-100">
-              {porAprobar} por aprobar
-            </span>
-          ) : null}
-          <div className="ml-auto flex shrink-0 rounded-lg border p-0.5">
-            <Button
-              size="sm"
-              variant={vista === "mapa" ? "secondary" : "ghost"}
-              onClick={() => setVista("mapa")}
-              aria-pressed={vista === "mapa"}
-            >
-              <Network /> Mapa
-            </Button>
-            <Button
-              size="sm"
-              variant={vista === "lista" ? "secondary" : "ghost"}
-              onClick={() => setVista("lista")}
-              aria-pressed={vista === "lista"}
-            >
-              <List /> Lista
-            </Button>
-          </div>
-        </div>
-        <div className="-mx-3 flex gap-1.5 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none]">
+      <SelectorDeTablero tableros={tableros} tableroId={tableroId} />
+      {/* Filtros por estado (se deslizan de lado en el celular) y, a la derecha, Mapa / Lista. */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card py-2 pr-3">
+        <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5 pl-3 [scrollbar-width:none]">
           <button
             type="button"
             onClick={() => cambiarFiltro(null)}
@@ -257,6 +213,24 @@ export function TablerosInteligentesVista({ tableros, tableroId, inicial, tarjet
               </button>
             );
           })}
+        </div>
+        <div className="flex shrink-0 rounded-lg border p-0.5">
+          <Button
+            size="sm"
+            variant={vista === "mapa" ? "secondary" : "ghost"}
+            onClick={() => setVista("mapa")}
+            aria-pressed={vista === "mapa"}
+          >
+            <Network /> <span className="sr-only sm:not-sr-only">Mapa</span>
+          </Button>
+          <Button
+            size="sm"
+            variant={vista === "lista" ? "secondary" : "ghost"}
+            onClick={() => setVista("lista")}
+            aria-pressed={vista === "lista"}
+          >
+            <List /> <span className="sr-only sm:not-sr-only">Lista</span>
+          </Button>
         </div>
       </div>
 

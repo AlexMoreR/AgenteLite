@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { personaPuedeAprobar } from "@/features/tableros-inteligentes/services/reglas";
-import { contenidoDelTablero } from "@/features/tableros-inteligentes/services/tableros";
+import { contenidoDelTablero, listarTableros } from "@/features/tableros-inteligentes/services/tableros";
 import { TablerosInteligentesVista } from "@/features/tableros-inteligentes/components/TablerosInteligentesVista";
 
 export const metadata: Metadata = {
@@ -31,11 +31,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
   const pedidoTablero = uno(parametros.tablero);
   const pedidaTarjeta = uno(parametros.tarjeta);
 
-  const tableros = await prisma.tableroInteligente.findMany({
-    where: { workspaceId: access.workspaceId },
-    orderBy: { creadoEn: "asc" },
-    select: { id: true, nombre: true, actualizadoEn: true },
-  });
+  const tableros = await listarTableros(access.workspaceId);
 
   let tableroId = tableros.find((tablero) => tablero.id === pedidoTablero)?.id ?? null;
   let tarjetaInicial: string | null = null;
@@ -60,7 +56,11 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
   return (
     <TablerosInteligentesVista
       key={elegido?.id ?? "vacio"}
-      tableros={tableros.map((tablero) => ({ id: tablero.id, nombre: tablero.nombre }))}
+      tableros={tableros.map((tablero) => ({
+        id: tablero.id,
+        nombre: tablero.nombre,
+        porAprobar: tablero.porEstado.POR_APROBAR ?? 0,
+      }))}
       tableroId={elegido?.id ?? null}
       inicial={
         elegido && contenido
