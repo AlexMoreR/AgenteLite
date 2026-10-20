@@ -14,9 +14,12 @@ import { BaseEdge, getStraightPath, useInternalNode, type Edge, type EdgeProps, 
   globals.css): es solo CSS (stroke-dashoffset), sin JS por cuadro, y con
   `prefers-reduced-motion: reduce` se ocultan y queda la línea quieta. Las flechas atenuadas por el
   filtro no llevan puntos.
+
+  La misma recta sirve para la UNIÓN CON LA MADRE (`data.clase = "madre"`): del centro a cada hija,
+  gris y más fina, con sus puntos que viajan hacia la hija.
 */
 
-export type DatosFlecha = { color: string; atenuada: boolean };
+export type DatosFlecha = { color: string; atenuada: boolean; clase?: "flecha" | "madre" };
 export type FlechaDeTablero = Edge<DatosFlecha, "flotante">;
 
 type Rect = { cx: number; cy: number; mitadAncho: number; mitadAlto: number };

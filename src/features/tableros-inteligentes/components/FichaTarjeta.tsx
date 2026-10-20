@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { ArrowDownLeft, ArrowUpRight, Check, History, Loader2 } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Check, CornerLeftUp, ExternalLink, History, Layers, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -12,9 +12,10 @@ import {
   historialDeTarjetaAction,
   type CambioDeTarjetaVista,
 } from "@/app/actions/tableros-inteligentes-actions";
-import { NOMBRE_DEL_ESTADO, esEstado } from "../services/reglas";
-import type { TarjetaVista } from "../services/tableros";
+import { NOMBRE_DEL_ESTADO, esEstado, textoDelLink } from "../services/reglas";
+import type { TarjetaVista, TipoVista } from "../services/tableros";
 import { COLOR_DEL_ESTADO } from "./colores";
+import { IconoDeTipo } from "./IconoDeTipo";
 
 const CUANDO = new Intl.DateTimeFormat("es-CO", {
   timeZone: "America/Bogota",
@@ -31,12 +32,25 @@ const ACCION: Record<string, string> = {
   estado: "Cambió el estado",
   conectar: "Agregó una flecha",
   aprobar: "La aprobó",
+  borrar: "La borró",
   deshacer: "Deshizo un cambio",
 };
 
 const DESDE: Record<string, string> = { MCP: "Claude", PANTALLA: "pantalla", TRABAJADOR: "trabajador" };
 
-function resumenDelCambio(cambio: CambioDeTarjetaVista): string | null {
+const CAMPO: Record<string, string> = {
+  titulo: "título",
+  detalle: "detalle",
+  area: "área",
+  orden: "orden",
+  fecha: "fecha",
+  tipoId: "tipo",
+  padreId: "tarjeta madre",
+  link: "link",
+  linkTexto: "texto del link",
+};
+
+function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyMap<string, string>): string | null {
   const despues = (cambio.despues ?? {}) as Record<string, unknown>;
   const antes = (cambio.antes ?? {}) as Record<string, unknown>;
   if (cambio.accion === "estado" || cambio.accion === "aprobar") {
@@ -46,8 +60,16 @@ function resumenDelCambio(cambio: CambioDeTarjetaVista): string | null {
   }
   if (cambio.accion === "editar") {
     const campos = Object.keys(despues).filter((campo) => campo !== "estado");
-    const volvio = despues.estado === "POR_APROBAR" ? " (volvió a Por aprobar)" : "";
-    return campos.length ? `Cambió ${campos.join(", ")}${volvio}` : null;
+    const tipo =
+      typeof antes.tipoId === "string" && typeof despues.tipoId === "string"
+        ? ` (${nombreDelTipo.get(antes.tipoId) ?? "?"} → ${nombreDelTipo.get(despues.tipoId) ?? "?"})`
+        : "";
+    const estado = esEstado(despues.estado) ? ` y quedó ${NOMBRE_DEL_ESTADO[despues.estado]}` : "";
+    return campos.length ? `Cambió ${campos.map((campo) => CAMPO[campo] ?? campo).join(", ")}${tipo}${estado}` : null;
+  }
+  if (cambio.accion === "borrar") {
+    const flechas = Array.isArray(antes.conexiones) ? antes.conexiones.length : 0;
+    return flechas ? `Con ${flechas} flecha(s)` : null;
   }
   return null;
 }
@@ -55,6 +77,8 @@ function resumenDelCambio(cambio: CambioDeTarjetaVista): string | null {
 type Props = {
   tarjeta: TarjetaVista | null;
   tarjetas: TarjetaVista[];
+  tipos: ReadonlyMap<string, TipoVista>;
+  hijas: number;
   entrantes: string[];
   salientes: string[];
   abierta: boolean;
@@ -62,13 +86,16 @@ type Props = {
   puedeAprobar: boolean;
   alCerrar: () => void;
   alElegir: (tarjetaId: string) => void;
+  alEntrar: (tarjetaId: string) => void;
   alAprobar: () => void;
 };
 
-/** La ficha de una tarjeta: el detalle, sus flechas, el historial y el botón Aprobar. */
+/** La ficha de una tarjeta: tipo, detalle, link, de quién cuelga, sus flechas, el historial y Aprobar. */
 export function FichaTarjeta({
   tarjeta,
   tarjetas,
+  tipos,
+  hijas,
   entrantes,
   salientes,
   abierta,
@@ -76,6 +103,7 @@ export function FichaTarjeta({
   puedeAprobar,
   alCerrar,
   alElegir,
+  alEntrar,
   alAprobar,
 }: Props) {
   const [aprobando, empezarAprobar] = useTransition();
@@ -83,7 +111,12 @@ export function FichaTarjeta({
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
 
   const titulo = new Map(tarjetas.map((otra) => [otra.id, otra.titulo]));
+  const nombreDelTipo = new Map([...tipos.values()].map((tipo) => [tipo.id, tipo.nombre]));
   const historialDeEsta = tarjeta && historial?.tarjetaId === tarjeta.id ? historial.cambios : null;
+  const tipo = tarjeta ? tipos.get(tarjeta.tipoId) : undefined;
+  const usaEstados = tipo?.usaEstados ?? true;
+  const pideAprobacion = (tipo?.requiereAprobacion ?? true) && usaEstados;
+  const madre = tarjeta?.padreId && titulo.has(tarjeta.padreId) ? tarjeta.padreId : null;
 
   const aprobar = () => {
     if (!tarjeta) return;
@@ -94,11 +127,10 @@ export function FichaTarjeta({
       if (resultado.ok) {
         toast.success("Aprobada");
         setHistorial(null);
-        alAprobar();
       } else {
         toast.error(resultado.error);
-        alAprobar();
       }
+      alAprobar();
     });
   };
 
@@ -130,9 +162,17 @@ export function FichaTarjeta({
           <>
             <SheetHeader className="pb-2">
               <div className="flex flex-wrap items-center gap-1.5 pr-8">
-                <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", color.pastilla)}>
-                  {NOMBRE_DEL_ESTADO[tarjeta.estado]}
-                </span>
+                {tipo ? (
+                  <span className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium">
+                    <IconoDeTipo icono={tipo.icono} color={tipo.color} className="size-3.5" />
+                    {tipo.nombre}
+                  </span>
+                ) : null}
+                {usaEstados ? (
+                  <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", color.pastilla)}>
+                    {NOMBRE_DEL_ESTADO[tarjeta.estado]}
+                  </span>
+                ) : null}
                 {tarjeta.area ? (
                   <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">{tarjeta.area}</span>
                 ) : null}
@@ -151,16 +191,44 @@ export function FichaTarjeta({
                 <p className="text-sm text-muted-foreground">Sin detalle.</p>
               )}
 
-              {tarjeta.estado === "POR_APROBAR" && puedeAprobar ? (
+              {tarjeta.link ? (
+                <Button
+                  variant="outline"
+                  className="h-10 w-full justify-start"
+                  render={<a href={tarjeta.link} target="_blank" rel="noopener noreferrer" />}
+                >
+                  <ExternalLink />
+                  <span className="truncate">{textoDelLink(tarjeta.link, tarjeta.linkTexto)}</span>
+                </Button>
+              ) : null}
+
+              {tarjeta.estado === "POR_APROBAR" && pideAprobacion && puedeAprobar ? (
                 <Button className="h-11 w-full text-base" onClick={aprobar} disabled={aprobando}>
                   {aprobando ? <Loader2 className="animate-spin" /> : <Check />}
                   Aprobar
                 </Button>
               ) : null}
-              {tarjeta.estado === "POR_APROBAR" && !puedeAprobar ? (
+              {tarjeta.estado === "POR_APROBAR" && pideAprobacion && !puedeAprobar ? (
                 <p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
                   Espera la aprobación del dueño.
                 </p>
+              ) : null}
+
+              {madre || hijas > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {madre ? (
+                    <Button variant="outline" onClick={() => alElegir(madre)} className="h-10 max-w-full">
+                      <CornerLeftUp />
+                      <span className="truncate">Cuelga de {titulo.get(madre)}</span>
+                    </Button>
+                  ) : null}
+                  {hijas > 0 ? (
+                    <Button variant="outline" onClick={() => alEntrar(tarjeta.id)} className="h-10">
+                      <Layers />
+                      Ver sus {hijas === 1 ? "1 tarjeta" : `${hijas} tarjetas`}
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
 
               {salientes.length || entrantes.length ? (
@@ -197,7 +265,7 @@ export function FichaTarjeta({
                     <p className="text-xs font-medium text-muted-foreground">Historial</p>
                     <ol className="space-y-1.5">
                       {historialDeEsta.map((cambio) => {
-                        const resumen = resumenDelCambio(cambio);
+                        const resumen = resumenDelCambio(cambio, nombreDelTipo);
                         return (
                           <li
                             key={cambio.id}

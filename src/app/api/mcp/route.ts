@@ -61,11 +61,15 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "Aparte esta el AGENTE V3 (herramientas v3_*), que es el libro de reglas nuevo y todavia NO atiende " +
           "clientes: se escribe y se prueba en el simulador. Si el libro esta vacio, llamar v3_empezar y hacer " +
           "esas preguntas de a una; nunca inventar productos, precios ni textos del negocio. " +
-          "Tambien esta el TABLERO IA (pantalla /cliente/tablero-ia; herramientas listar_tableros, crear_tablero, ver_tablero, crear_tarjeta, " +
-          "editar_tarjeta, conectar_tarjetas, cambiar_estado_tarjeta, ver_historial_tarjeta, " +
-          "deshacer_cambio_tarjeta): ahi se anotan las ideas que salen de la conversacion con el dueno, como " +
-          "tarjetas unidas con flechas. Claude nunca aprueba: deja la tarjeta POR_APROBAR y el dueno la aprueba " +
-          "en la pantalla. Si se edita una tarjeta aprobada, vuelve a POR_APROBAR.",
+          "Tambien esta el TABLERO IA (pantalla /cliente/tablero-ia; herramientas listar_tableros, crear_tablero, ver_tablero, " +
+          "listar_tipos, crear_tipo, editar_tipo, crear_tarjeta, editar_tarjeta, conectar_tarjetas, cambiar_estado_tarjeta, " +
+          "borrar_tarjeta, ver_historial_tarjeta, deshacer_cambio_tarjeta): ahi se anotan las ideas que salen de la " +
+          "conversacion con el dueno, como tarjetas unidas con flechas. Cada tarjeta tiene un TIPO (por defecto Area, Idea " +
+          "y Tarea) y puede colgar de otra (padre_id) si el tipo lo permite: Area > Idea > Tarea (un Area tambien dentro de " +
+          "otra Area). El Area es una carpeta: no tiene estado. Solo los tipos que piden " +
+          "aprobacion (Tarea) pasan por POR_APROBAR. Claude nunca aprueba: deja la tarjeta POR_APROBAR y el dueno la aprueba " +
+          "en la pantalla. Si se edita una tarjeta aprobada, vuelve a POR_APROBAR. borrar_tarjeta quita la tarjeta con sus " +
+          "flechas y se deshace con deshacer_cambio_tarjeta.",
       });
     }
     case "ping":

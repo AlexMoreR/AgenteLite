@@ -2,16 +2,31 @@ import { Prisma, type EstadoTarjeta } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import {
-  ESTADOS_AL_CREAR,
+  TIPOS_POR_DEFECTO,
+  claveDeNombre,
+  colorDeEntrada,
+  elegirTipo,
   esEstado,
+  estadoAlCrear,
+  estadoPermitidoParaTipo,
+  estadoTrasCambiarTipo,
   estadoTrasEditar,
   fechaDeEntrada,
+  hijasQueQuedanMal,
+  iconoDeEntrada,
+  linkDeEntrada,
   puedeAprobar,
+  puedeBorrarTarjeta,
+  puedeBorrarTipo,
+  puedeCambiarAprobacionDelTipo,
+  puedeCambiarEstadosDelTipo,
   puedeCambiarEstado,
+  puedeColgar,
   puedeDeshacer,
   textoLimpio,
   type AccionCambio,
   type EstadoTarjetaTablero,
+  type MadresPermitidas,
   type OrigenCambio,
 } from "./reglas";
 
@@ -19,30 +34,43 @@ import {
   TABLERO IA (tableros inteligentes): la lógica compartida entre el MCP (Claude) y la pantalla (el dueño).
 
   Tres cosas en cada escritura, en UNA transacción:
-  1. la tarjeta (o la conexión),
+  1. la tarjeta (o la conexión, o el tipo),
   2. su fila en HistorialTarjeta (quién, cuándo, desde dónde, antes y después),
   3. `TableroInteligente.actualizadoEn`, que es lo único que lee el refresco de 5 s de la pantalla.
 
   El negocio sale SIEMPRE del contexto (la clave MCP o la sesión), nunca de un argumento: cada id que
   llega se busca dentro de ese negocio. Las reglas de qué se puede están en reglas.ts.
 
+  Tipos de tarjeta: cada tablero tiene los suyos (nace con Área, Idea y Tarea). Una tarjeta tiene un
+  tipo, puede colgar de una tarjeta madre (padreId) y puede llevar un link.
+
+  Borrado SUAVE: borrar_tarjeta marca `borradoEn` (el historial tiene ON DELETE CASCADE a la
+  tarjeta: un borrado físico lo perdería) y quita sus flechas guardándolas en el historial para
+  poder deshacerlo. TODA lectura de tarjetas filtra `borradoEn: null` (NO_BORRADA), salvo el
+  historial y el deshacer.
+
   Fase 2 (no implementada): el trabajador que ejecuta lo APROBADO llamará `cambiarEstadoTarjeta` con
-  origen TRABAJADOR, y aprobar por WhatsApp llamará `aprobarTarjeta` con su propia comprobación de
-  dueño. El link de cada tarjeta ya existe: `linkDeLaTarjeta`.
+  origen TRABAJADOR (solo tarjetas de un tipo que requiere aprobación), y aprobar por WhatsApp
+  llamará `aprobarTarjeta` con su propia comprobación de dueño. El link de cada tarjeta ya existe:
+  `linkDeLaTarjeta`.
 */
 
 export type ContextoTablero = { workspaceId: string; userId: string; origen: OrigenCambio };
 
 export const LIMITE_TABLEROS = 50;
 export const LIMITE_TARJETAS = 300;
+export const LIMITE_TIPOS = 30;
 const MAX_TITULO = 200;
 const MAX_DETALLE = 5000;
 const MAX_AREA = 60;
 const MAX_NOMBRE = 80;
+const MAX_NOMBRE_TIPO = 40;
+const MAX_LINK_TEXTO = 80;
 
 const URL_APP = "https://app.aizenbot.com";
 export const RUTA_TABLEROS = "/cliente/tablero-ia";
 
+/** Abre el tablero de la tarjeta, en el nivel de su madre, con su ficha a la vista. */
 export function linkDeLaTarjeta(tarjetaId: string) {
   return `${URL_APP}${RUTA_TABLEROS}?tarjeta=${encodeURIComponent(tarjetaId)}`;
 }
@@ -50,6 +78,8 @@ export function linkDeLaTarjeta(tarjetaId: string) {
 export function linkDelTablero(tableroId: string) {
   return `${URL_APP}${RUTA_TABLEROS}?tablero=${encodeURIComponent(tableroId)}`;
 }
+
+const NO_BORRADA = { borradoEn: null } as const;
 
 /** Lo que la pantalla necesita de cada tarjeta (también es lo que viaja en el refresco). */
 export type TarjetaVista = {
@@ -60,10 +90,27 @@ export type TarjetaVista = {
   estado: EstadoTarjetaTablero;
   orden: number;
   fecha: string | null;
+  tipoId: string;
+  padreId: string | null;
+  link: string | null;
+  linkTexto: string | null;
   actualizadoEn: string;
 };
 
 export type ConexionVista = { id: string; origenId: string; destinoId: string };
+
+/** Un tipo de tarjeta con sus madres permitidas (ids de tipo). */
+export type TipoVista = {
+  id: string;
+  nombre: string;
+  color: string;
+  icono: string | null;
+  requiereAprobacion: boolean;
+  /** false = carpeta (Área): sus tarjetas no tienen estado. */
+  usaEstados: boolean;
+  orden: number;
+  padres: string[];
+};
 
 /** Lo que muestra el selector de tableros de la barra superior. */
 export type TableroResumen = { id: string; nombre: string; porAprobar: number };
@@ -76,6 +123,10 @@ const SELECT_TARJETA = {
   estado: true,
   orden: true,
   fecha: true,
+  tipoId: true,
+  padreId: true,
+  link: true,
+  linkTexto: true,
   actualizadoEn: true,
 } as const;
 
@@ -90,11 +141,16 @@ function aVista(fila: FilaTarjeta): TarjetaVista {
     estado: fila.estado,
     orden: fila.orden,
     fecha: fila.fecha ? fila.fecha.toISOString() : null,
+    tipoId: fila.tipoId,
+    padreId: fila.padreId,
+    link: fila.link,
+    linkTexto: fila.linkTexto,
     actualizadoEn: fila.actualizadoEn.toISOString(),
   };
 }
 
 type Tx = Prisma.TransactionClient;
+type Db = Tx | typeof prisma;
 
 async function anotar(
   tx: Tx,
@@ -133,13 +189,13 @@ async function tableroDelNegocio(workspaceId: string, tableroId: unknown) {
   return tablero;
 }
 
-/** Una tarjeta de ESTE negocio (por su tablero), o error. */
-async function tarjetaDelNegocio(workspaceId: string, tarjetaId: unknown) {
+/** Una tarjeta (no borrada) de ESTE negocio (por su tablero), o error. */
+async function tarjetaDelNegocio(workspaceId: string, tarjetaId: unknown, { incluirBorradas = false } = {}) {
   const id = typeof tarjetaId === "string" ? tarjetaId.trim() : "";
   const tarjeta = id
     ? await prisma.tarjetaTablero.findFirst({
-        where: { id, tablero: { workspaceId } },
-        select: { ...SELECT_TARJETA, tableroId: true },
+        where: { id, tablero: { workspaceId }, ...(incluirBorradas ? {} : NO_BORRADA) },
+        select: { ...SELECT_TARJETA, tableroId: true, borradoEn: true },
       })
     : null;
   if (!tarjeta) {
@@ -150,6 +206,106 @@ async function tarjetaDelNegocio(workspaceId: string, tarjetaId: unknown) {
 
 /** Fecha en JSON del historial (ISO) para poder restaurarla. */
 const isoONull = (fecha: Date | null | undefined) => (fecha ? fecha.toISOString() : null);
+
+// ── Tipos: lectura y ayudas ─────────────────────────────────────────────────────────────────
+
+const SELECT_TIPO = {
+  id: true,
+  nombre: true,
+  color: true,
+  icono: true,
+  requiereAprobacion: true,
+  usaEstados: true,
+  orden: true,
+  padres: { select: { tipoPadreId: true } },
+} as const;
+
+type FilaTipo = Prisma.TipoTarjetaGetPayload<{ select: typeof SELECT_TIPO }>;
+
+function tipoAVista(fila: FilaTipo): TipoVista {
+  return {
+    id: fila.id,
+    nombre: fila.nombre,
+    color: fila.color,
+    icono: fila.icono,
+    requiereAprobacion: fila.requiereAprobacion,
+    usaEstados: fila.usaEstados,
+    orden: fila.orden,
+    padres: fila.padres.map((padre) => padre.tipoPadreId),
+  };
+}
+
+async function tiposDelTablero(db: Db, tableroId: string): Promise<TipoVista[]> {
+  const filas = await db.tipoTarjeta.findMany({
+    where: { tableroId },
+    orderBy: [{ orden: "asc" }, { creadoEn: "asc" }],
+    select: SELECT_TIPO,
+  });
+  return filas.map(tipoAVista);
+}
+
+function madresPermitidas(tipos: TipoVista[]): MadresPermitidas {
+  return new Map(tipos.map((tipo) => [tipo.id, new Set(tipo.padres)]));
+}
+
+const nombresDeTipos = (tipos: TipoVista[]) => new Map(tipos.map((tipo) => [tipo.id, tipo.nombre]));
+
+/** El padreId de cada tarjeta viva del tablero (para buscar ciclos). */
+async function madresDelTablero(tableroId: string) {
+  const filas = await prisma.tarjetaTablero.findMany({
+    where: { tableroId, ...NO_BORRADA },
+    select: { id: true, padreId: true },
+  });
+  return new Map(filas.map((fila) => [fila.id, fila.padreId]));
+}
+
+/** Una madre viva del mismo tablero, o error. */
+async function madreDelTablero(tableroId: string, padreId: string) {
+  const madre = await prisma.tarjetaTablero.findFirst({
+    where: { id: padreId, tableroId, ...NO_BORRADA },
+    select: { id: true, tipoId: true, tableroId: true, titulo: true },
+  });
+  if (!madre) {
+    throw new Error("No existe esa tarjeta madre en este tablero (o está borrada). Ver ver_tablero para los ids.");
+  }
+  return madre;
+}
+
+/** padre_id como lo manda Claude: id, o "" / null para quitarla. Undefined = no vino. */
+function padreDeEntrada(valor: unknown): string | null | undefined {
+  if (valor === undefined) return undefined;
+  if (valor === null) return null;
+  if (typeof valor !== "string") throw new Error("padre_id va como texto: el id de la tarjeta madre.");
+  return valor.trim() || null;
+}
+
+/** Revisa que `hija` (con su tipo final) pueda colgar de `padreId`. */
+async function revisarMadre(
+  hija: { id: string; tipoId: string; tableroId: string },
+  padreId: string,
+  tipos: TipoVista[],
+) {
+  const madre = await madreDelTablero(hija.tableroId, padreId);
+  const veredicto = puedeColgar(
+    hija,
+    madre,
+    madresPermitidas(tipos),
+    hija.id ? await madresDelTablero(hija.tableroId) : new Map(),
+    nombresDeTipos(tipos),
+  );
+  if (veredicto) throw new Error(veredicto);
+  return madre;
+}
+
+/** Revisa que las hijas vivas de la tarjeta sigan pudiendo colgar de ella con el tipo nuevo. */
+async function revisarHijas(tarjetaId: string, tipoNuevoId: string, tipos: TipoVista[]) {
+  const hijas = await prisma.tarjetaTablero.findMany({
+    where: { padreId: tarjetaId, ...NO_BORRADA },
+    select: { id: true, tipoId: true, titulo: true },
+  });
+  const veredicto = hijasQueQuedanMal(tipoNuevoId, hijas, madresPermitidas(tipos));
+  if (veredicto) throw new Error(veredicto);
+}
 
 // ── Lectura ─────────────────────────────────────────────────────────────────────────────────
 
@@ -164,7 +320,8 @@ export async function listarTableros(workspaceId: string) {
   }
   const conteos = await prisma.tarjetaTablero.groupBy({
     by: ["tableroId", "estado"],
-    where: { tableroId: { in: tableros.map((tablero) => tablero.id) } },
+    // Las carpetas (tipos sin estados, como Área) no cuentan en los estados.
+    where: { tableroId: { in: tableros.map((tablero) => tablero.id) }, ...NO_BORRADA, tipo: { usaEstados: true } },
     _count: { _all: true },
   });
   return tableros.map((tablero) => {
@@ -180,11 +337,11 @@ export async function listarTableros(workspaceId: string) {
   });
 }
 
-/** Tarjetas y conexiones de un tablero que ya se sabe que es del negocio. */
+/** Tarjetas (vivas), conexiones y tipos de un tablero que ya se sabe que es del negocio. */
 export async function contenidoDelTablero(tableroId: string) {
-  const [tarjetas, conexiones] = await Promise.all([
+  const [tarjetas, conexiones, tipos] = await Promise.all([
     prisma.tarjetaTablero.findMany({
-      where: { tableroId },
+      where: { tableroId, ...NO_BORRADA },
       orderBy: [{ orden: "asc" }, { creadoEn: "asc" }],
       select: SELECT_TARJETA,
     }),
@@ -193,13 +350,30 @@ export async function contenidoDelTablero(tableroId: string) {
       orderBy: { creadoEn: "asc" },
       select: { id: true, origenId: true, destinoId: true },
     }),
+    tiposDelTablero(prisma, tableroId),
   ]);
-  return { tarjetas: tarjetas.map(aVista), conexiones: conexiones as ConexionVista[] };
+  // Las flechas de una borrada se quitan al borrar; este filtro es por si acaso.
+  const vivas = new Set(tarjetas.map((tarjeta) => tarjeta.id));
+  return {
+    tarjetas: tarjetas.map(aVista),
+    conexiones: (conexiones as ConexionVista[]).filter((c) => vivas.has(c.origenId) && vivas.has(c.destinoId)),
+    tipos,
+  };
 }
 
 export async function verTablero(workspaceId: string, tableroId: unknown) {
   const tablero = await tableroDelNegocio(workspaceId, tableroId);
   return { tablero, ...(await contenidoDelTablero(tablero.id)) };
+}
+
+export async function listarTipos(workspaceId: string, tableroId: unknown) {
+  const tablero = await tableroDelNegocio(workspaceId, tableroId);
+  const [tipos, usos] = await Promise.all([
+    tiposDelTablero(prisma, tablero.id),
+    prisma.tarjetaTablero.groupBy({ by: ["tipoId"], where: { tableroId: tablero.id, ...NO_BORRADA }, _count: { _all: true } }),
+  ]);
+  const cuantas = new Map(usos.map((fila) => [fila.tipoId, fila._count._all]));
+  return { tablero, tipos: tipos.map((tipo) => ({ ...tipo, tarjetas: cuantas.get(tipo.id) ?? 0 })) };
 }
 
 /** Lo único que lee el refresco de 5 s: una fila por clave primaria. */
@@ -211,8 +385,9 @@ export async function firmaDelTablero(workspaceId: string, tableroId: string) {
   return fila?.actualizadoEn ?? null;
 }
 
+/** Incluye las borradas: así se encuentra el cambio "borrar" para deshacerlo. */
 export async function historialDeTarjeta(workspaceId: string, tarjetaId: unknown) {
-  const tarjeta = await tarjetaDelNegocio(workspaceId, tarjetaId);
+  const tarjeta = await tarjetaDelNegocio(workspaceId, tarjetaId, { incluirBorradas: true });
   const filas = await prisma.historialTarjeta.findMany({
     where: { tarjetaId: tarjeta.id },
     orderBy: { creadoEn: "desc" },
@@ -226,11 +401,79 @@ export async function historialDeTarjeta(workspaceId: string, tarjetaId: unknown
   const nombre = new Map(personas.map((persona) => [persona.id, persona.name?.trim() || persona.email || "Alguien"]));
   return {
     tarjeta: aVista(tarjeta),
+    borrada: Boolean(tarjeta.borradoEn),
     cambios: filas.map((fila) => ({ ...fila, quienNombre: nombre.get(fila.quien) ?? "Alguien" })),
   };
 }
 
-// ── Escritura ───────────────────────────────────────────────────────────────────────────────
+/** Una tarjeta que espera al dueño ("Te toca a ti"), de cualquier tablero del negocio. */
+export type PendienteVista = TarjetaVista & {
+  tableroId: string;
+  tableroNombre: string;
+  tipoNombre: string;
+  tipoColor: string;
+  tipoIcono: string | null;
+  requiereAprobacion: boolean;
+};
+
+/**
+ * "Te toca a ti": lo que espera una decisión del dueño en TODOS los tableros del negocio. Las
+ * POR_APROBAR (de tipos con aprobación) y las FALLIDO, de la más vieja a la más nueva.
+ */
+export async function pendientesDelDueno(workspaceId: string): Promise<PendienteVista[]> {
+  const filas = await prisma.tarjetaTablero.findMany({
+    where: {
+      ...NO_BORRADA,
+      tablero: { workspaceId },
+      OR: [
+        { estado: "POR_APROBAR", tipo: { requiereAprobacion: true, usaEstados: true } },
+        { estado: "FALLIDO", tipo: { usaEstados: true } },
+      ],
+    },
+    orderBy: [{ actualizadoEn: "asc" }],
+    take: 200,
+    select: {
+      ...SELECT_TARJETA,
+      tablero: { select: { id: true, nombre: true } },
+      tipo: { select: { nombre: true, color: true, icono: true, requiereAprobacion: true } },
+    },
+  });
+  return filas.map((fila) => ({
+    ...aVista(fila),
+    tableroId: fila.tablero.id,
+    tableroNombre: fila.tablero.nombre,
+    tipoNombre: fila.tipo.nombre,
+    tipoColor: fila.tipo.color,
+    tipoIcono: fila.tipo.icono,
+    requiereAprobacion: fila.tipo.requiereAprobacion,
+  }));
+}
+
+// ── Escritura: tableros ─────────────────────────────────────────────────────────────────────
+
+/** Los 3 tipos por defecto (Área, Idea, Tarea) y sus madres permitidas, dentro de una transacción. */
+async function crearTiposPorDefecto(tx: Tx, tableroId: string) {
+  const ids = new Map<string, string>();
+  for (const tipo of TIPOS_POR_DEFECTO) {
+    const creado = await tx.tipoTarjeta.create({
+      data: {
+        tableroId,
+        nombre: tipo.nombre,
+        color: tipo.color,
+        icono: tipo.icono,
+        requiereAprobacion: tipo.requiereAprobacion,
+        usaEstados: tipo.usaEstados,
+        orden: tipo.orden,
+      },
+      select: { id: true },
+    });
+    ids.set(tipo.nombre, creado.id);
+  }
+  const padres = TIPOS_POR_DEFECTO.flatMap((tipo) =>
+    tipo.padres.map((padre) => ({ tipoId: ids.get(tipo.nombre)!, tipoPadreId: ids.get(padre)! })),
+  );
+  if (padres.length) await tx.tipoTarjetaPadre.createMany({ data: padres });
+}
 
 export async function crearTablero(contexto: ContextoTablero, nombre: unknown) {
   const limpio = textoLimpio(nombre, MAX_NOMBRE);
@@ -248,10 +491,283 @@ export async function crearTablero(contexto: ContextoTablero, nombre: unknown) {
   if (existentes.length >= LIMITE_TABLEROS) {
     throw new Error(`Este negocio ya tiene ${LIMITE_TABLEROS} tableros, que es el máximo.`);
   }
-  return prisma.tableroInteligente.create({
-    data: { workspaceId: contexto.workspaceId, nombre: limpio },
-    select: { id: true, nombre: true },
+  return prisma.$transaction(async (tx) => {
+    const tablero = await tx.tableroInteligente.create({
+      data: { workspaceId: contexto.workspaceId, nombre: limpio },
+      select: { id: true, nombre: true },
+    });
+    await crearTiposPorDefecto(tx, tablero.id);
+    return tablero;
   });
+}
+
+// ── Escritura: tipos ────────────────────────────────────────────────────────────────────────
+
+type DatosTipo = {
+  nombre?: unknown;
+  color?: unknown;
+  icono?: unknown;
+  requiereAprobacion?: unknown;
+  usaEstados?: unknown;
+  orden?: unknown;
+  padres?: unknown;
+};
+
+/** Como elegirTipo, pero sin valor por defecto: vacío = error. */
+function elegirTipoExplicito(tipos: TipoVista[], pedido: unknown) {
+  if (typeof pedido !== "string" || !pedido.trim()) {
+    throw new Error("Falta el tipo: su nombre o su id (ver listar_tipos).");
+  }
+  return elegirTipo(tipos, pedido);
+}
+
+/** Marca del propio tipo en la lista de madres (un tipo puede colgar de sí mismo: Área dentro de Área). */
+const PROPIO = "__propio__";
+
+/**
+ * Ids de tipos madre a partir de nombres o ids del mismo tablero. El propio tipo (por su id o por su
+ * nombre, también el nombre nuevo) vuelve como PROPIO.
+ */
+function padresDeEntrada(
+  valor: unknown,
+  tipos: TipoVista[],
+  propio: { id: string | null; nombres: string[] },
+): string[] | undefined {
+  if (valor === undefined) return undefined;
+  if (valor === null) return [];
+  if (!Array.isArray(valor)) throw new Error('padres va como lista de nombres (o ids) de tipos: ["Área"].');
+  const claves = new Set(propio.nombres.map(claveDeNombre));
+  const ids = new Set<string>();
+  for (const pedido of valor) {
+    if (typeof pedido === "string" && (pedido.trim() === propio.id || claves.has(claveDeNombre(pedido)))) {
+      ids.add(PROPIO);
+      continue;
+    }
+    ids.add(elegirTipoExplicito(tipos, pedido).id);
+  }
+  return [...ids];
+}
+
+function nombreDeTipo(valor: unknown, tipos: TipoVista[], propioId: string | null): string | undefined {
+  if (valor === undefined) return undefined;
+  const limpio = textoLimpio(valor, MAX_NOMBRE_TIPO);
+  if (!limpio) throw new Error("El nombre del tipo no puede quedar vacío.");
+  const igual = tipos.find((tipo) => tipo.id !== propioId && claveDeNombre(tipo.nombre) === claveDeNombre(limpio));
+  if (igual) throw new Error(`Ya existe el tipo "${igual.nombre}" en este tablero.`);
+  return limpio;
+}
+
+function ordenDeEntrada(valor: unknown): number | undefined {
+  if (valor === undefined) return undefined;
+  if (typeof valor !== "number" || !Number.isFinite(valor)) throw new Error("El orden va como número.");
+  return Math.trunc(valor);
+}
+
+function booleanoDeEntrada(valor: unknown, campo: string): boolean | undefined {
+  if (valor === undefined) return undefined;
+  if (typeof valor !== "boolean") throw new Error(`${campo} va como true o false.`);
+  return valor;
+}
+
+const YA_EXISTE_EL_TIPO = "Ya existe un tipo con ese nombre en este tablero.";
+
+export async function crearTipo(contexto: ContextoTablero, tableroId: unknown, datos: DatosTipo) {
+  const tablero = await tableroDelNegocio(contexto.workspaceId, tableroId);
+  const tipos = await tiposDelTablero(prisma, tablero.id);
+  if (tipos.length >= LIMITE_TIPOS) throw new Error(`El tablero ya tiene ${LIMITE_TIPOS} tipos, que es el máximo.`);
+  const nombre = nombreDeTipo(datos.nombre ?? "", tipos, null)!;
+  const color = colorDeEntrada(datos.color) ?? "#71717a";
+  const icono = iconoDeEntrada(datos.icono) ?? null;
+  const requiereAprobacion = booleanoDeEntrada(datos.requiereAprobacion, "requiere_aprobacion") ?? false;
+  const usaEstados = booleanoDeEntrada(datos.usaEstados, "usa_estados") ?? true;
+  if (!usaEstados && requiereAprobacion) {
+    throw new Error("Un tipo sin estados (una carpeta, como Área) no puede pedir aprobación.");
+  }
+  const orden = ordenDeEntrada(datos.orden) ?? Math.max(-1, ...tipos.map((tipo) => tipo.orden)) + 1;
+  const padres = padresDeEntrada(datos.padres, tipos, { id: null, nombres: [nombre] }) ?? [];
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const creado = await tx.tipoTarjeta.create({
+        data: { tableroId: tablero.id, nombre, color, icono, requiereAprobacion, usaEstados, orden },
+        select: { id: true },
+      });
+      if (padres.length) {
+        await tx.tipoTarjetaPadre.createMany({
+          data: padres.map((id) => ({ tipoId: creado.id, tipoPadreId: id === PROPIO ? creado.id : id })),
+        });
+      }
+      await tocarTablero(tx, tablero.id);
+      const tipo = await tx.tipoTarjeta.findUniqueOrThrow({ where: { id: creado.id }, select: SELECT_TIPO });
+      return { tipo: tipoAVista(tipo), tablero };
+    });
+  } catch (fallo) {
+    if (fallo instanceof Prisma.PrismaClientKnownRequestError && fallo.code === "P2002") throw new Error(YA_EXISTE_EL_TIPO);
+    throw fallo;
+  }
+}
+
+/** Un tipo de ESTE negocio, o error. */
+async function tipoDelNegocio(workspaceId: string, tipoId: unknown) {
+  const id = typeof tipoId === "string" ? tipoId.trim() : "";
+  const tipo = id
+    ? await prisma.tipoTarjeta.findFirst({
+        where: { id, tablero: { workspaceId } },
+        select: { ...SELECT_TIPO, tableroId: true },
+      })
+    : null;
+  if (!tipo) throw new Error("No existe ese tipo en este negocio. Ver listar_tipos para los ids.");
+  return tipo;
+}
+
+/**
+ * Editar un tipo. Claude puede cambiar todo menos QUITARLE la aprobación (eso solo el dueño en la
+ * pantalla, y nunca con tarjetas APROBADAS o EN_CURSO). Si se la quita el dueño, las POR_APROBAR de
+ * ese tipo vuelven a IDEA (cada una con su fila de historial). No se quita una madre permitida que
+ * está en uso.
+ */
+export async function editarTipo(contexto: ContextoTablero, tipoId: unknown, datos: DatosTipo) {
+  const actual = await tipoDelNegocio(contexto.workspaceId, tipoId);
+  const tipos = await tiposDelTablero(prisma, actual.tableroId);
+  const nombre = nombreDeTipo(datos.nombre, tipos, actual.id);
+  const color = colorDeEntrada(datos.color);
+  const icono = iconoDeEntrada(datos.icono);
+  const orden = ordenDeEntrada(datos.orden);
+  const requiereAprobacion = booleanoDeEntrada(datos.requiereAprobacion, "requiere_aprobacion");
+  const usaEstados = booleanoDeEntrada(datos.usaEstados, "usa_estados");
+  const padres = padresDeEntrada(datos.padres, tipos, {
+    id: actual.id,
+    nombres: [actual.nombre, ...(nombre ? [nombre] : [])],
+  })?.map((id) => (id === PROPIO ? actual.id : id));
+
+  const cambia: Prisma.TipoTarjetaUpdateInput = {};
+  if (nombre !== undefined && nombre !== actual.nombre) cambia.nombre = nombre;
+  if (color !== undefined && color !== actual.color) cambia.color = color;
+  if (icono !== undefined && icono !== actual.icono) cambia.icono = icono;
+  if (orden !== undefined && orden !== actual.orden) cambia.orden = orden;
+  if (requiereAprobacion !== undefined && requiereAprobacion !== actual.requiereAprobacion) {
+    const enUso = requiereAprobacion
+      ? 0
+      : await prisma.tarjetaTablero.count({ where: { tipoId: actual.id, estado: { in: ["APROBADO", "EN_CURSO"] } } });
+    const veredicto = puedeCambiarAprobacionDelTipo(contexto.origen, actual.requiereAprobacion, requiereAprobacion, enUso);
+    if (veredicto) throw new Error(veredicto);
+    cambia.requiereAprobacion = requiereAprobacion;
+  }
+  const requiereFinal = (cambia.requiereAprobacion as boolean | undefined) ?? actual.requiereAprobacion;
+  if (usaEstados !== undefined && usaEstados !== actual.usaEstados) {
+    const [aprobadasOEnCurso, noIdea] = usaEstados
+      ? [0, 0]
+      : await Promise.all([
+          prisma.tarjetaTablero.count({ where: { tipoId: actual.id, estado: { in: ["APROBADO", "EN_CURSO"] } } }),
+          prisma.tarjetaTablero.count({ where: { tipoId: actual.id, estado: { not: "IDEA" } } }),
+        ]);
+    const veredicto = puedeCambiarEstadosDelTipo(
+      contexto.origen,
+      actual.usaEstados,
+      usaEstados,
+      { aprobadasOEnCurso, noIdea },
+      requiereFinal,
+    );
+    if (veredicto) throw new Error(veredicto);
+    cambia.usaEstados = usaEstados;
+  } else if (requiereFinal && !actual.usaEstados) {
+    throw new Error("Un tipo sin estados (una carpeta, como Área) no puede pedir aprobación. Primero dale estados (usa_estados).");
+  }
+  const antesPadres = new Set(actual.padres.map((padre) => padre.tipoPadreId));
+  const quitados = padres ? [...antesPadres].filter((id) => !padres.includes(id)) : [];
+  const agregados = padres ? padres.filter((id) => !antesPadres.has(id)) : [];
+  if (quitados.length) {
+    const colgadas = await prisma.tarjetaTablero.count({
+      where: { tipoId: actual.id, ...NO_BORRADA, padre: { tipoId: { in: quitados }, ...NO_BORRADA } },
+    });
+    if (colgadas) {
+      const nombres = nombresDeTipos(tipos);
+      throw new Error(
+        `Hay ${colgadas} tarjeta(s) de tipo ${actual.nombre} colgadas de una ${quitados
+          .map((id) => nombres.get(id) ?? id)
+          .join(" o ")}: primero muévelas o cámbiales el tipo.`,
+      );
+    }
+  }
+  if (!Object.keys(cambia).length && !quitados.length && !agregados.length) {
+    throw new Error("No hay nada distinto para cambiar.");
+  }
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      if (Object.keys(cambia).length) await tx.tipoTarjeta.update({ where: { id: actual.id }, data: cambia });
+      if (quitados.length) {
+        await tx.tipoTarjetaPadre.deleteMany({ where: { tipoId: actual.id, tipoPadreId: { in: quitados } } });
+      }
+      if (agregados.length) {
+        await tx.tipoTarjetaPadre.createMany({
+          data: agregados.map((tipoPadreId) => ({ tipoId: actual.id, tipoPadreId })),
+          skipDuplicates: true,
+        });
+      }
+      let volvieronAIdea = 0;
+      // Sin aprobación no hay POR_APROBAR; sin estados, todo queda IDEA (interno). Cada una con su historial.
+      const aIdea: EstadoTarjeta[] | null =
+        cambia.usaEstados === false
+          ? ["POR_APROBAR", "EN_CURSO", "HECHO", "FALLIDO"]
+          : cambia.requiereAprobacion === false
+            ? ["POR_APROBAR"]
+            : null;
+      if (aIdea) {
+        const motivo = cambia.usaEstados === false ? "el tipo ya no tiene estados" : "el tipo ya no pide aprobación";
+        const afectadas = await tx.tarjetaTablero.findMany({
+          where: { tipoId: actual.id, estado: { in: aIdea } },
+          select: { id: true, estado: true },
+        });
+        for (const tarjeta of afectadas) {
+          const hecho = await tx.tarjetaTablero.updateMany({
+            where: { id: tarjeta.id, estado: tarjeta.estado },
+            data: { estado: "IDEA" },
+          });
+          if (hecho.count === 1) {
+            await anotar(tx, contexto, tarjeta.id, "estado", { estado: tarjeta.estado }, { estado: "IDEA", motivo });
+            volvieronAIdea += 1;
+          }
+        }
+      }
+      await tocarTablero(tx, actual.tableroId);
+      const tipo = await tx.tipoTarjeta.findUniqueOrThrow({ where: { id: actual.id }, select: SELECT_TIPO });
+      return { tipo: tipoAVista(tipo), volvieronAIdea };
+    });
+  } catch (fallo) {
+    if (fallo instanceof Prisma.PrismaClientKnownRequestError && fallo.code === "P2002") throw new Error(YA_EXISTE_EL_TIPO);
+    throw fallo;
+  }
+}
+
+/** Borrar un tipo: solo la pantalla, y solo si ninguna tarjeta (ni borrada) lo usa. */
+export async function borrarTipo(contexto: ContextoTablero, tipoId: unknown) {
+  const actual = await tipoDelNegocio(contexto.workspaceId, tipoId);
+  const usos = await prisma.tarjetaTablero.count({ where: { tipoId: actual.id } });
+  const veredicto = puedeBorrarTipo(contexto.origen, usos);
+  if (veredicto) throw new Error(veredicto);
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await tx.tipoTarjeta.delete({ where: { id: actual.id } });
+      await tocarTablero(tx, actual.tableroId);
+      return { nombre: actual.nombre };
+    });
+  } catch (fallo) {
+    // Alguien creó una tarjeta de ese tipo justo ahora (la FK es RESTRICT).
+    if (fallo instanceof Prisma.PrismaClientKnownRequestError && (fallo.code === "P2003" || fallo.code === "P2014")) {
+      throw new Error("Ese tipo se empezó a usar mientras tanto: no se borró.");
+    }
+    throw fallo;
+  }
+}
+
+// ── Escritura: tarjetas ─────────────────────────────────────────────────────────────────────
+
+/** link_texto: texto, o "" / null para quitarlo. Undefined = no vino. */
+function linkTextoDeEntrada(valor: unknown): string | null | undefined {
+  if (valor === undefined) return undefined;
+  if (valor === null) return null;
+  if (typeof valor !== "string") throw new Error("link_texto va como texto.");
+  return textoLimpio(valor, MAX_LINK_TEXTO) ?? null;
 }
 
 export async function crearTarjeta(
@@ -265,6 +781,10 @@ export async function crearTarjeta(
     fecha?: unknown;
     orden?: unknown;
     conectarCon?: unknown;
+    tipo?: unknown;
+    padreId?: unknown;
+    link?: unknown;
+    linkTexto?: unknown;
   },
 ) {
   const tablero = await tableroDelNegocio(contexto.workspaceId, datos.tableroId);
@@ -272,25 +792,33 @@ export async function crearTarjeta(
   if (!titulo) {
     throw new Error("Hace falta el título de la tarjeta.");
   }
-  const estado = datos.estado === undefined ? "IDEA" : datos.estado;
-  if (!(ESTADOS_AL_CREAR as readonly unknown[]).includes(estado)) {
-    throw new Error("Una tarjeta nueva queda IDEA o POR_APROBAR. Aprobar lo hace solo el dueño en la pantalla.");
-  }
+  const tipos = await tiposDelTablero(prisma, tablero.id);
+  const tipo = elegirTipo(tipos, datos.tipo);
+  const estado = estadoAlCrear(datos.estado, tipo.requiereAprobacion, tipo.usaEstados);
   const fecha = fechaDeEntrada(datos.fecha) ?? null;
   const orden = typeof datos.orden === "number" && Number.isFinite(datos.orden) ? Math.trunc(datos.orden) : 0;
+  const link = linkDeEntrada(datos.link) ?? null;
+  const linkTexto = link ? (linkTextoDeEntrada(datos.linkTexto) ?? null) : null;
+  const padreId = padreDeEntrada(datos.padreId) ?? null;
   const conectarCon = Array.isArray(datos.conectarCon)
     ? [...new Set(datos.conectarCon.filter((id): id is string => typeof id === "string" && id.trim() !== ""))]
     : [];
 
-  const cuantas = await prisma.tarjetaTablero.count({ where: { tableroId: tablero.id } });
+  const cuantas = await prisma.tarjetaTablero.count({ where: { tableroId: tablero.id, ...NO_BORRADA } });
   if (cuantas >= LIMITE_TARJETAS) {
     throw new Error(`El tablero ya tiene ${LIMITE_TARJETAS} tarjetas, que es el máximo. Conviene crear otro tablero.`);
   }
   if (conectarCon.length) {
-    const delTablero = await prisma.tarjetaTablero.count({ where: { id: { in: conectarCon }, tableroId: tablero.id } });
+    const delTablero = await prisma.tarjetaTablero.count({
+      where: { id: { in: conectarCon }, tableroId: tablero.id, ...NO_BORRADA },
+    });
     if (delTablero !== conectarCon.length) {
-      throw new Error("Alguna tarjeta de conectar_con no es de este tablero. Ver ver_tablero para los ids.");
+      throw new Error("Alguna tarjeta de conectar_con no es de este tablero (o está borrada). Ver ver_tablero para los ids.");
     }
+  }
+  if (padreId) {
+    // Una tarjeta nueva no puede cerrar un ciclo: solo se revisa el tipo y el tablero.
+    await revisarMadre({ id: "", tipoId: tipo.id, tableroId: tablero.id }, padreId, tipos);
   }
 
   return prisma.$transaction(async (tx) => {
@@ -303,6 +831,10 @@ export async function crearTarjeta(
         estado: estado as EstadoTarjeta,
         orden,
         fecha,
+        tipoId: tipo.id,
+        padreId,
+        link,
+        linkTexto,
         creadoPor: contexto.userId,
       },
       select: SELECT_TARJETA,
@@ -314,6 +846,10 @@ export async function crearTarjeta(
       estado: tarjeta.estado,
       orden: tarjeta.orden,
       fecha: isoONull(tarjeta.fecha),
+      tipoId: tarjeta.tipoId,
+      padreId: tarjeta.padreId,
+      link: tarjeta.link,
+      linkTexto: tarjeta.linkTexto,
     });
     // Cada flecha es su propio cambio: así se puede deshacer una sin tocar la tarjeta.
     for (const destinoId of conectarCon) {
@@ -324,21 +860,43 @@ export async function crearTarjeta(
       await anotar(tx, contexto, tarjeta.id, "conectar", null, { conexionId: conexion.id, origenId: tarjeta.id, destinoId });
     }
     await tocarTablero(tx, tablero.id);
-    return { tarjeta: aVista(tarjeta), cambioId: cambio.id, tablero };
+    return { tarjeta: aVista(tarjeta), cambioId: cambio.id, tablero, tipo };
   });
 }
 
 /** Cuando dos escrituras chocan (el dueño aprobó mientras Claude editaba), se avisa en vez de pisar. */
 const CAMBIO_EN_EL_MEDIO = "La tarjeta cambió mientras tanto (quizás el dueño la aprobó). Vuelve a leerla e intenta de nuevo.";
 
+type CamposEditables = {
+  titulo?: string;
+  detalle?: string;
+  area?: string | null;
+  orden?: number;
+  fecha?: Date | null;
+  tipoId?: string;
+  padreId?: string | null;
+  link?: string | null;
+  linkTexto?: string | null;
+};
+
 export async function editarTarjeta(
   contexto: ContextoTablero,
   tarjetaId: unknown,
-  cambios: { titulo?: unknown; detalle?: unknown; area?: unknown; orden?: unknown; fecha?: unknown },
+  cambios: {
+    titulo?: unknown;
+    detalle?: unknown;
+    area?: unknown;
+    orden?: unknown;
+    fecha?: unknown;
+    tipo?: unknown;
+    padreId?: unknown;
+    link?: unknown;
+    linkTexto?: unknown;
+  },
 ) {
   const actual = await tarjetaDelNegocio(contexto.workspaceId, tarjetaId);
 
-  const nuevo: { titulo?: string; detalle?: string; area?: string | null; orden?: number; fecha?: Date | null } = {};
+  const nuevo: CamposEditables = {};
   if (cambios.titulo !== undefined) {
     const titulo = textoLimpio(cambios.titulo, MAX_TITULO);
     if (!titulo) throw new Error("El título no puede quedar vacío.");
@@ -361,14 +919,43 @@ export async function editarTarjeta(
     const fecha = fechaDeEntrada(cambios.fecha) ?? null;
     if (isoONull(fecha) !== isoONull(actual.fecha)) nuevo.fecha = fecha;
   }
+  const link = linkDeEntrada(cambios.link);
+  if (link !== undefined && link !== actual.link) nuevo.link = link;
+  const linkTexto = linkTextoDeEntrada(cambios.linkTexto);
+  if (linkTexto !== undefined && linkTexto !== actual.linkTexto) nuevo.linkTexto = linkTexto;
+  // Sin link no queda texto de link suelto.
+  if (nuevo.link === null && actual.linkTexto !== null && nuevo.linkTexto === undefined) nuevo.linkTexto = null;
+
+  const tipos = await tiposDelTablero(prisma, actual.tableroId);
+  if (cambios.tipo !== undefined) {
+    const tipo = elegirTipoExplicito(tipos, cambios.tipo);
+    if (tipo.id !== actual.tipoId) nuevo.tipoId = tipo.id;
+  }
+  const padreId = padreDeEntrada(cambios.padreId);
+  if (padreId !== undefined && padreId !== actual.padreId) nuevo.padreId = padreId;
   if (!Object.keys(nuevo).length) {
     throw new Error("No hay nada distinto para cambiar.");
   }
 
-  const estado = estadoTrasEditar(contexto.origen, actual.estado);
+  // Jerarquía: con el tipo y la madre como quedarían.
+  const tipoFinal = tipos.find((tipo) => tipo.id === (nuevo.tipoId ?? actual.tipoId));
+  if (!tipoFinal) throw new Error("El tipo de la tarjeta no existe en el tablero.");
+  const padreFinal = nuevo.padreId !== undefined ? nuevo.padreId : actual.padreId;
+  if (padreFinal && (nuevo.padreId !== undefined || nuevo.tipoId !== undefined)) {
+    const madreViva = await prisma.tarjetaTablero.count({ where: { id: padreFinal, ...NO_BORRADA } });
+    // Si solo cambia el tipo y la madre está borrada, la tarjeta ya se ve suelta: no se revisa.
+    if (madreViva || nuevo.padreId !== undefined) {
+      await revisarMadre({ id: actual.id, tipoId: tipoFinal.id, tableroId: actual.tableroId }, padreFinal, tipos);
+    }
+  }
+  if (nuevo.tipoId) await revisarHijas(actual.id, nuevo.tipoId, tipos);
+
+  const estado = nuevo.tipoId
+    ? estadoTrasCambiarTipo(tipoFinal.requiereAprobacion, tipoFinal.usaEstados)
+    : estadoTrasEditar(contexto.origen, actual.estado);
   const antes: Record<string, unknown> = {};
   const despues: Record<string, unknown> = {};
-  for (const campo of Object.keys(nuevo) as (keyof typeof nuevo)[]) {
+  for (const campo of Object.keys(nuevo) as (keyof CamposEditables)[]) {
     antes[campo] = campo === "fecha" ? isoONull(actual.fecha) : actual[campo];
     despues[campo] = campo === "fecha" ? isoONull(nuevo.fecha) : nuevo[campo];
   }
@@ -379,14 +966,21 @@ export async function editarTarjeta(
 
   return prisma.$transaction(async (tx) => {
     const hecho = await tx.tarjetaTablero.updateMany({
-      where: { id: actual.id, estado: actual.estado },
+      where: { id: actual.id, estado: actual.estado, ...NO_BORRADA },
       data: { ...nuevo, estado },
     });
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
     const cambio = await anotar(tx, contexto, actual.id, "editar", antes, despues);
     await tocarTablero(tx, actual.tableroId);
     const tarjeta = await tx.tarjetaTablero.findUniqueOrThrow({ where: { id: actual.id }, select: SELECT_TARJETA });
-    return { tarjeta: aVista(tarjeta), cambioId: cambio.id, volvioAPorAprobar: estado !== actual.estado };
+    return {
+      tarjeta: aVista(tarjeta),
+      cambioId: cambio.id,
+      volvioAPorAprobar: estado === "POR_APROBAR" && actual.estado !== "POR_APROBAR",
+      perdioAprobacion: actual.estado === "APROBADO" && estado !== "APROBADO",
+      cambioDeTipo: Boolean(nuevo.tipoId),
+      tipo: tipoFinal,
+    };
   });
 }
 
@@ -428,18 +1022,27 @@ export async function conectarTarjetas(contexto: ContextoTablero, origenId: unkn
   }
 }
 
+async function reglasDelTipo(tipoId: string) {
+  const tipo = await prisma.tipoTarjeta.findUnique({
+    where: { id: tipoId },
+    select: { requiereAprobacion: true, usaEstados: true },
+  });
+  return { requiereAprobacion: tipo?.requiereAprobacion ?? true, usaEstados: tipo?.usaEstados ?? true };
+}
+
 export async function cambiarEstadoTarjeta(contexto: ContextoTablero, tarjetaId: unknown, estado: unknown) {
   if (!esEstado(estado)) {
     throw new Error("Estado desconocido. Van: IDEA, POR_APROBAR, EN_CURSO, HECHO o FALLIDO.");
   }
   const actual = await tarjetaDelNegocio(contexto.workspaceId, tarjetaId);
-  const veredicto = puedeCambiarEstado(actual.estado, estado);
+  const tipo = await reglasDelTipo(actual.tipoId);
+  const veredicto = puedeCambiarEstado(actual.estado, estado, tipo.requiereAprobacion, tipo.usaEstados);
   if (veredicto) {
     throw new Error(veredicto);
   }
   return prisma.$transaction(async (tx) => {
     const hecho = await tx.tarjetaTablero.updateMany({
-      where: { id: actual.id, estado: actual.estado },
+      where: { id: actual.id, estado: actual.estado, tipoId: actual.tipoId, ...NO_BORRADA },
       data: { estado },
     });
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
@@ -451,11 +1054,13 @@ export async function cambiarEstadoTarjeta(contexto: ContextoTablero, tarjetaId:
 
 /**
  * Aprobar. Quien llama ya comprobó que la persona puede aprobar (dueño o ADMIN de la plataforma);
- * acá se comprueba el estado (solo desde POR_APROBAR) y que no venga del MCP.
+ * acá se comprueba el estado (solo desde POR_APROBAR), el tipo (que pida aprobación) y que no venga
+ * del MCP.
  */
 export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unknown, vistaEn?: string) {
   const actual = await tarjetaDelNegocio(contexto.workspaceId, tarjetaId);
-  const veredicto = puedeAprobar(contexto.origen, actual.estado);
+  const tipo = await reglasDelTipo(actual.tipoId);
+  const veredicto = puedeAprobar(contexto.origen, actual.estado, tipo.requiereAprobacion, tipo.usaEstados);
   if (veredicto) {
     throw new Error(veredicto);
   }
@@ -464,10 +1069,17 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
     throw new Error("La tarjeta cambió mientras la mirabas. Revísala de nuevo antes de aprobar.");
   }
   return prisma.$transaction(async (tx) => {
-    // Condicionado al estado: si Claude la editó o la movió un instante antes, no se aprueba algo
-    // que el dueño no vio.
+    // Condicionado al estado y al tipo: si Claude la editó, la movió o le cambió el tipo un instante
+    // antes, no se aprueba algo que el dueño no vio.
     const hecho = await tx.tarjetaTablero.updateMany({
-      where: { id: actual.id, estado: "POR_APROBAR", actualizadoEn: actual.actualizadoEn },
+      where: {
+        id: actual.id,
+        estado: "POR_APROBAR",
+        actualizadoEn: actual.actualizadoEn,
+        tipoId: actual.tipoId,
+        tipo: { requiereAprobacion: true, usaEstados: true },
+        ...NO_BORRADA,
+      },
       data: { estado: "APROBADO" },
     });
     if (hecho.count !== 1) {
@@ -476,6 +1088,44 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
     const cambio = await anotar(tx, contexto, actual.id, "aprobar", { estado: actual.estado }, { estado: "APROBADO" });
     await tocarTablero(tx, actual.tableroId);
     return { cambioId: cambio.id, titulo: actual.titulo };
+  });
+}
+
+/** Una flecha como queda guardada en el historial de un borrado. */
+type FlechaGuardada = { id: string; origenId: string; destinoId: string };
+
+/**
+ * Borrar una tarjeta (borrado suave): se marca borradoEn y se quitan TODAS sus flechas (salientes y
+ * entrantes), que quedan guardadas en el historial para deshacerlo. Sus hijas no se tocan: se ven
+ * sueltas hasta que se deshaga.
+ */
+export async function borrarTarjeta(contexto: ContextoTablero, tarjetaId: unknown) {
+  const actual = await tarjetaDelNegocio(contexto.workspaceId, tarjetaId);
+  const veredicto = puedeBorrarTarjeta(contexto.origen, actual.estado);
+  if (veredicto) throw new Error(veredicto);
+  return prisma.$transaction(async (tx) => {
+    const flechas: FlechaGuardada[] = await tx.conexionTarjeta.findMany({
+      where: { tableroId: actual.tableroId, OR: [{ origenId: actual.id }, { destinoId: actual.id }] },
+      select: { id: true, origenId: true, destinoId: true },
+    });
+    const ahora = new Date();
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: { id: actual.id, estado: actual.estado, ...NO_BORRADA },
+      data: { borradoEn: ahora },
+    });
+    if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
+    if (flechas.length) await tx.conexionTarjeta.deleteMany({ where: { id: { in: flechas.map((f) => f.id) } } });
+    const hijas = await tx.tarjetaTablero.count({ where: { padreId: actual.id, ...NO_BORRADA } });
+    const cambio = await anotar(
+      tx,
+      contexto,
+      actual.id,
+      "borrar",
+      { estado: actual.estado, borradoEn: null, conexiones: flechas },
+      { borradoEn: ahora.toISOString() },
+    );
+    await tocarTablero(tx, actual.tableroId);
+    return { cambioId: cambio.id, titulo: actual.titulo, flechas: flechas.length, hijas };
   });
 }
 
@@ -493,7 +1143,7 @@ export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId:
           despues: true,
           deshechoEn: true,
           creadoEn: true,
-          tarjeta: { select: { ...SELECT_TARJETA, tableroId: true } },
+          tarjeta: { select: { ...SELECT_TARJETA, tableroId: true, borradoEn: true } },
         },
       })
     : null;
@@ -509,18 +1159,77 @@ export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId:
   if (veredicto) {
     throw new Error(veredicto);
   }
+  if (tarjeta.borradoEn && cambio.accion !== "borrar") {
+    throw new Error("La tarjeta está borrada. Primero hay que deshacer el borrado (ver ver_historial_tarjeta).");
+  }
+
+  if (cambio.accion === "borrar") {
+    if (!tarjeta.borradoEn) throw new Error("La tarjeta no está borrada.");
+    const tipos = await tiposDelTablero(prisma, tarjeta.tableroId);
+    const tipo = tipos.find((uno) => uno.id === tarjeta.tipoId);
+    const estadoMalo = tipo ? estadoPermitidoParaTipo(tarjeta.estado, tipo.requiereAprobacion, tipo.usaEstados) : null;
+    if (estadoMalo) {
+      throw new Error(`No se puede devolver tal como estaba: ${estadoMalo} Pídele al dueño que lo revise.`);
+    }
+    const guardadas = ((cambio.antes ?? {}) as { conexiones?: FlechaGuardada[] }).conexiones ?? [];
+    const otraPunta = (f: FlechaGuardada) => (f.origenId === tarjeta.id ? f.destinoId : f.origenId);
+    const vivas = new Set(
+      (
+        await prisma.tarjetaTablero.findMany({
+          where: { id: { in: [...new Set(guardadas.map(otraPunta))] }, tableroId: tarjeta.tableroId, ...NO_BORRADA },
+          select: { id: true },
+        })
+      ).map((fila) => fila.id),
+    );
+    const volver = guardadas.filter((f) => vivas.has(otraPunta(f)));
+    return prisma.$transaction(async (tx) => {
+      const hecho = await tx.tarjetaTablero.updateMany({
+        where: { id: tarjeta.id, borradoEn: { not: null } },
+        data: { borradoEn: null },
+      });
+      if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
+      if (volver.length) {
+        // Con sus mismos ids: así el "conectar" del historial de la otra tarjeta sigue sirviendo.
+        await tx.conexionTarjeta.createMany({
+          data: volver.map((f) => ({ id: f.id, tableroId: tarjeta.tableroId, origenId: f.origenId, destinoId: f.destinoId })),
+          skipDuplicates: true,
+        });
+      }
+      await tx.historialTarjeta.update({ where: { id: cambio.id }, data: { deshechoEn: new Date() } });
+      const nuevo = await anotar(
+        tx,
+        contexto,
+        tarjeta.id,
+        "deshacer",
+        { borradoEn: isoONull(tarjeta.borradoEn), deshace: cambio.id },
+        { borradoEn: null, conexiones: volver },
+      );
+      await tocarTablero(tx, tarjeta.tableroId);
+      const perdidas = guardadas.length - volver.length;
+      return {
+        cambioId: nuevo.id,
+        aviso: `Listo: "${tarjeta.titulo}" volvió al tablero con ${volver.length} flecha(s)${
+          perdidas ? ` (${perdidas} no, porque la otra tarjeta está borrada)` : ""
+        }.`,
+      };
+    });
+  }
 
   if (cambio.accion === "crear") {
     // Una flecha que llega desde otra tarjeta queda en el historial de ESA tarjeta: se revisa aparte.
-    const conexiones = await prisma.conexionTarjeta.count({
-      where: { OR: [{ origenId: tarjeta.id }, { destinoId: tarjeta.id }] },
-    });
+    const [conexiones, hijas] = await Promise.all([
+      prisma.conexionTarjeta.count({ where: { OR: [{ origenId: tarjeta.id }, { destinoId: tarjeta.id }] } }),
+      prisma.tarjetaTablero.count({ where: { padreId: tarjeta.id, ...NO_BORRADA } }),
+    ]);
     if (conexiones) {
       throw new Error("La tarjeta tiene flechas. Primero hay que deshacer esas conexiones.");
     }
+    if (hijas) {
+      throw new Error(`La tarjeta tiene ${hijas} hija(s). Primero hay que moverlas o deshacerlas (o usar borrar_tarjeta).`);
+    }
     return prisma.$transaction(async (tx) => {
       // Se borra con su historial (no queda nada de una tarjeta que nunca debió existir).
-      const borrada = await tx.tarjetaTablero.deleteMany({ where: { id: tarjeta.id, estado: tarjeta.estado } });
+      const borrada = await tx.tarjetaTablero.deleteMany({ where: { id: tarjeta.id, estado: tarjeta.estado, ...NO_BORRADA } });
       if (borrada.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
       await tocarTablero(tx, tarjeta.tableroId);
       return { aviso: `Listo: la tarjeta "${tarjeta.titulo}" se sacó del tablero.` };
@@ -529,6 +1238,10 @@ export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId:
 
   if (cambio.accion === "conectar") {
     const datos = (cambio.despues ?? {}) as { conexionId?: string; origenId?: string; destinoId?: string };
+    const existe = await prisma.conexionTarjeta.count({ where: { id: datos.conexionId ?? "", tableroId: tarjeta.tableroId } });
+    if (!existe) {
+      throw new Error("Esa flecha ya no está (se borró una de las dos tarjetas). Si se deshace ese borrado, vuelve.");
+    }
     return prisma.$transaction(async (tx) => {
       await tx.conexionTarjeta.deleteMany({ where: { id: datos.conexionId ?? "", tableroId: tarjeta.tableroId } });
       await tx.historialTarjeta.update({ where: { id: cambio.id }, data: { deshechoEn: new Date() } });
@@ -540,7 +1253,7 @@ export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId:
 
   // editar | estado: se restaura el "antes" campo por campo.
   const antes = (cambio.antes ?? {}) as Record<string, unknown>;
-  const datos: Prisma.TarjetaTableroUpdateManyMutationInput = {};
+  const datos: Prisma.TarjetaTableroUncheckedUpdateManyInput = {};
   const ahora: Record<string, unknown> = { deshace: cambio.id };
   if (typeof antes.titulo === "string") {
     datos.titulo = antes.titulo;
@@ -562,14 +1275,61 @@ export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId:
     datos.fecha = typeof antes.fecha === "string" ? new Date(antes.fecha) : null;
     ahora.fecha = isoONull(tarjeta.fecha);
   }
-  if (esEstado(antes.estado)) {
-    datos.estado = antes.estado;
+  if ("link" in antes) {
+    datos.link = typeof antes.link === "string" ? antes.link : null;
+    ahora.link = tarjeta.link;
+  }
+  if ("linkTexto" in antes) {
+    datos.linkTexto = typeof antes.linkTexto === "string" ? antes.linkTexto : null;
+    ahora.linkTexto = tarjeta.linkTexto;
+  }
+  const tipoRestaurado = typeof antes.tipoId === "string" ? antes.tipoId : undefined;
+  if (tipoRestaurado) {
+    datos.tipoId = tipoRestaurado;
+    ahora.tipoId = tarjeta.tipoId;
+  }
+  const padreRestaurado = "padreId" in antes ? (typeof antes.padreId === "string" ? antes.padreId : null) : undefined;
+  if (padreRestaurado !== undefined) {
+    datos.padreId = padreRestaurado;
+    ahora.padreId = tarjeta.padreId;
+  }
+  const estadoRestaurado = esEstado(antes.estado) ? antes.estado : undefined;
+  if (estadoRestaurado) {
+    datos.estado = estadoRestaurado;
     ahora.estado = tarjeta.estado;
+  }
+
+  // Lo restaurado tiene que cumplir las reglas de hoy: tipo existente, estado válido para el tipo,
+  // madre permitida y sin ciclos, hijas que sigan pudiendo colgar.
+  if (tipoRestaurado || padreRestaurado !== undefined || estadoRestaurado) {
+    const tipos = await tiposDelTablero(prisma, tarjeta.tableroId);
+    const tipoFinal = tipos.find((tipo) => tipo.id === (tipoRestaurado ?? tarjeta.tipoId));
+    if (!tipoFinal) {
+      throw new Error("El tipo que tenía antes ya no existe en el tablero: no se puede deshacer. Edita la tarjeta a mano.");
+    }
+    const estadoMalo = estadoPermitidoParaTipo(
+      estadoRestaurado ?? tarjeta.estado,
+      tipoFinal.requiereAprobacion,
+      tipoFinal.usaEstados,
+    );
+    if (estadoMalo) throw new Error(`No se puede deshacer: ${estadoMalo}`);
+    const padreFinal = padreRestaurado !== undefined ? padreRestaurado : tarjeta.padreId;
+    if (padreFinal && (padreRestaurado !== undefined || tipoRestaurado)) {
+      const madreViva = await prisma.tarjetaTablero.count({ where: { id: padreFinal, ...NO_BORRADA } });
+      // Si la madre de antes está borrada, vuelve a apuntarle y se ve suelta (como sus hermanas).
+      if (madreViva) {
+        await revisarMadre({ id: tarjeta.id, tipoId: tipoFinal.id, tableroId: tarjeta.tableroId }, padreFinal, tipos);
+      }
+    }
+    if (tipoRestaurado && tipoRestaurado !== tarjeta.tipoId) await revisarHijas(tarjeta.id, tipoFinal.id, tipos);
   }
   const restaurado = { ...antes };
 
   return prisma.$transaction(async (tx) => {
-    const hecho = await tx.tarjetaTablero.updateMany({ where: { id: tarjeta.id, estado: tarjeta.estado }, data: datos });
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: { id: tarjeta.id, estado: tarjeta.estado, ...NO_BORRADA },
+      data: datos,
+    });
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
     await tx.historialTarjeta.update({ where: { id: cambio.id }, data: { deshechoEn: new Date() } });
     const nuevo = await anotar(tx, contexto, tarjeta.id, "deshacer", ahora, restaurado);

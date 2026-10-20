@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-import type { ConexionVista, TarjetaVista } from "../services/tableros";
+import type { ConexionVista, TarjetaVista, TipoVista } from "../services/tableros";
 
 /*
   Refresco del tablero cada 5 s, sin cargar el servidor:
@@ -15,7 +15,12 @@ import type { ConexionVista, TarjetaVista } from "../services/tableros";
 const CADA_MS = 5_000;
 const TRAS_ERROR_MS = 30_000;
 
-export type ContenidoNuevo = { actualizadoEn: string; tarjetas: TarjetaVista[]; conexiones: ConexionVista[] };
+export type ContenidoNuevo = {
+  actualizadoEn: string;
+  tarjetas: TarjetaVista[];
+  conexiones: ConexionVista[];
+  tipos: TipoVista[];
+};
 
 export function useRefrescoDelTablero(
   tableroId: string | null,
@@ -65,12 +70,13 @@ export function useRefrescoDelTablero(
         });
         if (!respuesta.ok) throw new Error(String(respuesta.status));
         const datos = (await respuesta.json()) as { cambio?: boolean } & Partial<ContenidoNuevo>;
-        if (!cancelado && datos.cambio && datos.actualizadoEn && datos.tarjetas && datos.conexiones) {
+        if (!cancelado && datos.cambio && datos.actualizadoEn && datos.tarjetas && datos.conexiones && datos.tipos) {
           desdeRef.current = datos.actualizadoEn;
           alCambiarRef.current({
             actualizadoEn: datos.actualizadoEn,
             tarjetas: datos.tarjetas,
             conexiones: datos.conexiones,
+            tipos: datos.tipos,
           });
         }
       } catch {

@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
   La pantalla pregunta "¿cambió algo desde <desde>?". Para contestar alcanza con UNA lectura por
   clave primaria (`TableroInteligente.actualizadoEn`, que cada escritura toca en su transacción):
   - si no cambió: `{cambio:false}` y nada más;
-  - si cambió: las tarjetas y las flechas del tablero (dos lecturas indexadas por tableroId).
+  - si cambió: las tarjetas (sin las borradas), las flechas y los tipos del tablero (tres lecturas
+    indexadas por tableroId).
 
   El permiso sale del JWT y de la caché de acceso de 45 s: no se lee la base para eso.
 */
