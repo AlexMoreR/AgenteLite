@@ -1,21 +1,18 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { ArrowDownLeft, ArrowUpRight, Check, CornerLeftUp, ExternalLink, History, Layers, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { ArrowDownLeft, ArrowUpRight, CornerLeftUp, ExternalLink, History, Layers, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import {
-  aprobarTarjetaAction,
-  historialDeTarjetaAction,
-  type CambioDeTarjetaVista,
-} from "@/app/actions/tableros-inteligentes-actions";
+import { historialDeTarjetaAction, type CambioDeTarjetaVista } from "@/app/actions/tableros-inteligentes-actions";
 import { NOMBRE_DEL_ESTADO, esEstado, textoDelLink } from "../services/reglas";
 import type { TarjetaVista, TipoVista } from "../services/tableros";
 import { COLOR_DEL_ESTADO } from "./colores";
 import { IconoDeTipo } from "./IconoDeTipo";
+import { TrabajoDeLaTarjeta } from "./TrabajoDeLaTarjeta";
 
 const CUANDO = new Intl.DateTimeFormat("es-CO", {
   timeZone: "America/Bogota",
@@ -38,6 +35,8 @@ const ACCION: Record<string, string> = {
 
 const DESDE: Record<string, string> = { MCP: "Claude", PANTALLA: "pantalla", TRABAJADOR: "trabajador" };
 
+const MOMENTO: Record<string, string> = { tarea: "la tarea", plan: "el plan", subir: "subir a producción" };
+
 const CAMPO: Record<string, string> = {
   titulo: "título",
   detalle: "detalle",
@@ -48,6 +47,8 @@ const CAMPO: Record<string, string> = {
   padreId: "tarjeta madre",
   link: "link",
   linkTexto: "texto del link",
+  repo: "repo",
+  zonaProtegida: "zona protegida",
 };
 
 function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyMap<string, string>): string | null {
@@ -56,7 +57,11 @@ function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyM
   if (cambio.accion === "estado" || cambio.accion === "aprobar") {
     const de = esEstado(antes.estado) ? NOMBRE_DEL_ESTADO[antes.estado] : "?";
     const a = esEstado(despues.estado) ? NOMBRE_DEL_ESTADO[despues.estado] : "?";
-    return `${de} → ${a}`;
+    // Una aprobación de la fase 2 dice qué se aprobó y por dónde; un error del trabajador, su motivo.
+    const como = typeof despues.como === "string" ? ` · ${despues.como}` : "";
+    const momento = typeof despues.momento === "string" ? ` (${MOMENTO[despues.momento] ?? despues.momento})` : "";
+    const motivo = typeof despues.motivo === "string" ? ` · ${despues.motivo}` : "";
+    return `${de} → ${a}${momento}${como}${motivo}`;
   }
   if (cambio.accion === "editar") {
     const campos = Object.keys(despues).filter((campo) => campo !== "estado");
@@ -84,13 +89,18 @@ type Props = {
   abierta: boolean;
   lado: "bottom" | "right";
   puedeAprobar: boolean;
+  /** Dueño del negocio: el sí final (subir a producción) y quitar zonas protegidas. */
+  esDueno: boolean;
   alCerrar: () => void;
   alElegir: (tarjetaId: string) => void;
   alEntrar: (tarjetaId: string) => void;
   alAprobar: () => void;
 };
 
-/** La ficha de una tarjeta: tipo, detalle, link, de quién cuelga, sus flechas, el historial y Aprobar. */
+/**
+ * La ficha de una tarjeta: tipo, detalle, link, el trabajo del trabajador (repo, zona protegida, plan,
+ * resultado y los botones de aprobar), de quién cuelga, sus flechas y el historial.
+ */
 export function FichaTarjeta({
   tarjeta,
   tarjetas,
@@ -101,12 +111,12 @@ export function FichaTarjeta({
   abierta,
   lado,
   puedeAprobar,
+  esDueno,
   alCerrar,
   alElegir,
   alEntrar,
   alAprobar,
 }: Props) {
-  const [aprobando, empezarAprobar] = useTransition();
   const [historial, setHistorial] = useState<{ tarjetaId: string; cambios: CambioDeTarjetaVista[] } | null>(null);
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
 
@@ -117,22 +127,6 @@ export function FichaTarjeta({
   const usaEstados = tipo?.usaEstados ?? true;
   const pideAprobacion = (tipo?.requiereAprobacion ?? true) && usaEstados;
   const madre = tarjeta?.padreId && titulo.has(tarjeta.padreId) ? tarjeta.padreId : null;
-
-  const aprobar = () => {
-    if (!tarjeta) return;
-    const id = tarjeta.id;
-    const vistaEn = tarjeta.actualizadoEn;
-    empezarAprobar(async () => {
-      const resultado = await aprobarTarjetaAction(id, vistaEn);
-      if (resultado.ok) {
-        toast.success("Aprobada");
-        setHistorial(null);
-      } else {
-        toast.error(resultado.error);
-      }
-      alAprobar();
-    });
-  };
 
   const verHistorial = async () => {
     if (!tarjeta) return;
@@ -202,17 +196,16 @@ export function FichaTarjeta({
                 </Button>
               ) : null}
 
-              {tarjeta.estado === "POR_APROBAR" && pideAprobacion && puedeAprobar ? (
-                <Button className="h-11 w-full text-base" onClick={aprobar} disabled={aprobando}>
-                  {aprobando ? <Loader2 className="animate-spin" /> : <Check />}
-                  Aprobar
-                </Button>
-              ) : null}
-              {tarjeta.estado === "POR_APROBAR" && pideAprobacion && !puedeAprobar ? (
-                <p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
-                  Espera la aprobación del dueño.
-                </p>
-              ) : null}
+              <TrabajoDeLaTarjeta
+                tarjeta={tarjeta}
+                pideAprobacion={pideAprobacion}
+                puedeAprobar={puedeAprobar}
+                esDueno={esDueno}
+                alCambiar={() => {
+                  setHistorial(null);
+                  alAprobar();
+                }}
+              />
 
               {madre || hijas > 0 ? (
                 <div className="flex flex-wrap gap-2">

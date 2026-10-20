@@ -1,4 +1,5 @@
 import {
+  aprobarTarjeta,
   borrarTarjeta,
   cambiarEstadoTarjeta,
   conectarTarjetas,
@@ -13,6 +14,7 @@ import {
   linkDelTablero,
   listarTableros,
   listarTipos,
+  planYResultado,
   verTablero,
   type ContextoTablero,
   type TipoVista,
@@ -25,6 +27,13 @@ import {
   NOMBRE_DEL_ESTADO,
 } from "@/features/tableros-inteligentes/services/reglas";
 import { contarHijas } from "@/features/tableros-inteligentes/services/niveles";
+import {
+  MOMENTOS_DE_APROBACION,
+  NOMBRE_DEL_MOMENTO,
+  REPOS_DEL_TRABAJADOR,
+  ZONAS_PROTEGIDAS,
+  esMomento,
+} from "@/features/tableros-inteligentes/services/reglas-trabajador";
 
 /*
   TABLERO IA (tableros inteligentes) por el MCP (fase 1, 19-oct-2026).
@@ -38,10 +47,20 @@ import { contarHijas } from "@/features/tableros-inteligentes/services/niveles";
   tarjetas no tienen estado (ver_tablero devuelve estado null). Una tarjeta puede colgar de una tarjeta madre (padre_id) si el tipo lo
   permite, y llevar un link.
 
+  Fase 2 (20-oct-2026): las tarjetas con `repo` (gestion, aizencrm) las ejecuta el TRABAJADOR (un PC
+  aparte): arma un plan, el dueño lo aprueba, lo construye en una rama, el dueño da el sí final y lo
+  sube. ver_plan_y_resultado muestra todo eso; aprobar_tarjeta aprueba la tarea, el plan o el sí final
+  SOLO cuando la persona lo dijo explícitamente en la conversación.
+
   Lo que Claude NO puede hacer, por diseño:
-  - Aprobar. No hay herramienta para eso, ningún inputSchema ofrece APROBADO y el servicio igual lo
-    rechaza (reglas.ts). `aprobarTarjeta` del servicio no se importa en este archivo.
-  - Ejecutar algo sin aprobar: EN_CURSO solo sale de APROBADO (en tipos que piden aprobación).
+  - Aprobar por su cuenta. La única puerta es aprobar_tarjeta: el servidor exige un texto de
+    confirmación de la persona ("sí, apruebo"), que el userId de la clave sea el dueño o un aprobador
+    con alcance, que el estado corresponda, y rechaza las tarjetas con zona protegida (esas, solo en la
+    pantalla). El sí final (subir) es solo del dueño. Ningún inputSchema de cambiar_estado_tarjeta
+    ofrece APROBADO ni los estados del trabajador.
+  - Ejecutar algo sin aprobar: EN_CURSO solo sale de APROBADO (en tipos que piden aprobación); en
+    tarjetas con repo, EN_CURSO, HECHO y los demás estados del trabajador los pone solo el trabajador.
+  - Quitar una zona protegida (solo ponerla).
   - Dejar intacta una aprobación al editar: si edita una tarjeta APROBADA, vuelve a POR_APROBAR; si
     le cambia el tipo, queda POR_APROBAR o IDEA.
   - Quitarle la aprobación a un tipo, ni borrar tipos (solo el dueño en la pantalla).
@@ -76,6 +95,20 @@ const PROPIEDADES_DEL_TIPO = {
       "De qué tipos puede colgar una tarjeta de este tipo (nombres o ids): ['Área']. Puede incluir el mismo tipo (Área dentro de Área). Lista vacía = de ninguno.",
   },
   orden: { type: "number", description: "Posición en la lista de tipos (menor = primero). Opcional." },
+} as const;
+
+const PROPIEDAD_REPO = {
+  type: "string",
+  enum: [...REPOS_DEL_TRABAJADOR],
+  description:
+    "Si es un cambio de código que hace el TRABAJADOR: en qué repositorio (gestion = ventas y cotizaciones; aizencrm = este CRM). Solo tipos con aprobación (Tarea). Sin repo, el trabajador no la toma. Opcional.",
+} as const;
+
+const PROPIEDAD_ZONA = {
+  type: "array",
+  items: { type: "string", enum: [...ZONAS_PROTEGIDAS] },
+  description:
+    "Zonas protegidas que toca: META_ADS (anuncios), BOT_VENTAS (el bot que atiende), LIBRO_V3 (el libro del agente V3). Una tarjeta con zona protegida se aprueba SOLO en la pantalla. Opcional.",
 } as const;
 
 export const HERRAMIENTAS_MCP_TABLEROS = [
@@ -159,7 +192,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "crear_tarjeta",
     title: "Agregar una tarjeta",
     description:
-      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea; un Área también dentro de otra Área). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Aprobarla lo hace solo el dueño en la pantalla.",
+      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea; un Área también dentro de otra Área). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el trabajador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente).",
     inputSchema: {
       type: "object",
       properties: {
@@ -174,6 +207,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
         orden: { type: "number", description: "Posición dentro de la lista (menor = primero). Opcional." },
         link: { type: "string", description: "Un link http(s) relacionado (un documento, una hoja). Opcional." },
         link_texto: { type: "string", description: "Lo que dice el botón del link. Opcional (si no, se ve el dominio)." },
+        repo: PROPIEDAD_REPO,
+        zona_protegida: PROPIEDAD_ZONA,
         conectar_con: {
           type: "array",
           items: { type: "string" },
@@ -189,7 +224,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "editar_tarjeta",
     title: "Editar una tarjeta",
     description:
-      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden o el link de una tarjeta. Se manda solo lo que cambia. Si estaba APROBADA, vuelve a POR_APROBAR. Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera.",
+      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo o la zona protegida de una tarjeta. Se manda solo lo que cambia. Si estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR. Mientras el trabajador la tiene (PLANEANDO, EN_CURSO, SUBIENDO) no se edita. Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla).",
     inputSchema: {
       type: "object",
       properties: {
@@ -203,6 +238,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
         orden: { type: "number" },
         link: { type: "string", description: "http(s)://..., o vacío para quitarlo" },
         link_texto: { type: "string", description: "Texto del botón del link, o vacío para mostrar el dominio" },
+        repo: { ...PROPIEDAD_REPO, enum: [...REPOS_DEL_TRABAJADOR, ""], description: `${PROPIEDAD_REPO.description} Vacío para quitarlo.` },
+        zona_protegida: { ...PROPIEDAD_ZONA, description: "Zonas protegidas que AGREGAR (las que ya tiene se quedan: quitarlas es solo del dueño en la pantalla)." },
       },
       required: ["tarjeta_id"],
       additionalProperties: false,
@@ -229,7 +266,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "cambiar_estado_tarjeta",
     title: "Mover una tarjeta de estado",
     description:
-      "Mueve una tarjeta de estado. NO puede aprobar: eso lo hace solo el dueño en la pantalla. Para pedir aprobación, dejarla POR_APROBAR (solo tipos con aprobación). En tipos con aprobación, EN_CURSO solo sale de una APROBADA, y HECHO o FALLIDO de una APROBADA o EN_CURSO. Los tipos sin aprobación van libres entre IDEA, EN_CURSO, HECHO y FALLIDO. Las tarjetas de un tipo sin estados (Área) no tienen estado: se rechaza.",
+      "Mueve una tarjeta de estado. NO aprueba (para eso está aprobar_tarjeta, solo si la persona lo dice) y no pone ningún estado del trabajador (PLANEANDO, PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, SUBIENDO, ERROR). Para pedir aprobación, dejarla POR_APROBAR (solo tipos con aprobación). En tipos con aprobación y SIN repo, EN_CURSO solo sale de una APROBADA, y HECHO de una APROBADA o EN_CURSO; en tarjetas CON repo, EN_CURSO y HECHO los pone solo el trabajador, y mientras él la tiene no se mueve. FALLIDO (abandonarla) sale de algo aprobado o de lo que dejó el trabajador. Los tipos sin aprobación van libres entre IDEA, EN_CURSO, HECHO y FALLIDO. Las tarjetas de un tipo sin estados (Área) no tienen estado: se rechaza.",
     inputSchema: {
       type: "object",
       properties: {
@@ -280,6 +317,41 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     },
     annotations: ESCRIBE,
   },
+  {
+    name: "ver_plan_y_resultado",
+    title: "Ver el plan y el resultado del trabajador",
+    description:
+      "Muestra en qué va una tarjeta que ejecuta el trabajador: estado, repo, zona protegida, el plan que escribió, el resultado (resumen, pruebas, si pasó, la rama con su link, commit, migración, la subida o el error con su motivo) y quién aprobó qué (la tarea, el plan, el sí final), cuándo y por dónde (pantalla o voz). Llamarla antes de aprobar_tarjeta para poder leerle a la persona lo que aprueba.",
+    inputSchema: {
+      type: "object",
+      properties: { tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero)" } },
+      required: ["tarjeta_id"],
+      additionalProperties: false,
+    },
+    annotations: SOLO_LECTURA,
+  },
+  {
+    name: "aprobar_tarjeta",
+    title: "Aprobar una tarjeta (solo si la persona lo dijo)",
+    description:
+      "Úsala SOLO si la persona lo dijo explícitamente en esta conversación. Antes, léele el título y qué se aprueba, y espera que diga 'sí, apruebo'. Nunca apruebes por tu cuenta. " +
+      "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del trabajador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan) o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
+      "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con zona protegida no se aprueba acá: solo en la pantalla.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero)" },
+        momento: { type: "string", enum: [...MOMENTOS_DE_APROBACION], description: "Qué se aprueba: tarea, plan o subir" },
+        texto_confirmacion: {
+          type: "string",
+          description: "Lo que dijo la persona para aprobar, tal cual, por ejemplo 'sí, apruebo'. Mínimo 8 caracteres.",
+        },
+      },
+      required: ["tarjeta_id", "momento", "texto_confirmacion"],
+      additionalProperties: false,
+    },
+    annotations: ESCRIBE,
+  },
 ] as const;
 
 const NOMBRES = new Set(HERRAMIENTAS_MCP_TABLEROS.map((herramienta) => herramienta.name));
@@ -309,6 +381,35 @@ function tipoParaClaude(tipo: TipoVista, nombres: Map<string, string>) {
     puede_colgar_de: tipo.padres.map((id) => nombres.get(id) ?? id),
     orden: tipo.orden,
   };
+}
+
+/** Lo que sigue para una tarjeta, en una frase (para que Claude se lo cuente a la persona). */
+function queFalta(estado: string, conRepo: boolean, conZona: boolean): string {
+  const dondeAprobar = conZona ? "en la pantalla (tiene zona protegida)" : "en la pantalla o diciéndolo aquí";
+  switch (estado) {
+    case "POR_APROBAR":
+      return `Espera que el dueño apruebe la tarea, ${dondeAprobar}.`;
+    case "APROBADO":
+      return conRepo ? "Aprobada: el trabajador la toma en el próximo minuto y arma el plan." : "Aprobada. Sin repo: no la ejecuta el trabajador.";
+    case "PLANEANDO":
+      return "El trabajador está escribiendo el plan.";
+    case "PLAN_LISTO":
+      return `El plan está listo: espera que el dueño lo apruebe, ${dondeAprobar}.`;
+    case "PLAN_APROBADO":
+      return "Plan aprobado: el trabajador la toma en el próximo minuto y la construye en una rama.";
+    case "EN_CURSO":
+      return conRepo ? "El trabajador la está construyendo y probando." : "En curso.";
+    case "POR_REVISAR":
+      return "Lista en su rama: espera el sí final del dueño para subir a producción.";
+    case "SUBIENDO":
+      return "El dueño dio el sí final: el trabajador la está subiendo a producción.";
+    case "HECHO":
+      return "Hecha.";
+    case "ERROR":
+      return "Falló (ver resultado.error). El dueño puede reintentar: aprobar la tarea de nuevo (planea otra vez) o el plan (construye otra vez).";
+    default:
+      return "Nada pendiente del trabajador.";
+  }
 }
 
 const datosDelTipo = (args: Argumentos) => ({
@@ -344,7 +445,7 @@ export async function ejecutarHerramientaMcpTableros(
         ...(tableros.length ? {} : { aviso: "Todavía no hay tableros. Crear uno con crear_tablero." }),
         estados: Object.entries(NOMBRE_DEL_ESTADO).map(([clave, texto]) => ({ clave, texto })),
         quien_aprueba:
-          "Solo el dueño del negocio (o el administrador de la plataforma), con el botón Aprobar de la pantalla, y solo tarjetas de un tipo que pide aprobación.",
+          "El dueño del negocio (o un aprobador que él agregó), en la pantalla o con aprobar_tarjeta cuando lo dice explícitamente; solo tarjetas de un tipo que pide aprobación. El sí final (subir a producción) lo da solo el dueño. Las de zona protegida, solo en la pantalla.",
       };
     }
     case "crear_tablero": {
@@ -401,6 +502,10 @@ export async function ejecutarHerramientaMcpTableros(
             fecha: dia(tarjeta.fecha),
             link: tarjeta.link,
             link_texto: tarjeta.linkTexto,
+            ...(tarjeta.repo
+              ? { repo: tarjeta.repo, tiene_plan: Boolean(tarjeta.plan), intentos: tarjeta.intentos }
+              : {}),
+            ...(tarjeta.zonaProtegida.length ? { zona_protegida: tarjeta.zonaProtegida } : {}),
           };
         }),
         conexiones: conexiones
@@ -458,6 +563,8 @@ export async function ejecutarHerramientaMcpTableros(
         padreId: args.padre_id,
         link: args.link,
         linkTexto: args.link_texto,
+        repo: args.repo,
+        zonaProtegida: args.zona_protegida,
       });
       return {
         ok: true,
@@ -465,6 +572,8 @@ export async function ejecutarHerramientaMcpTableros(
         tipo: resultado.tipo.nombre,
         padre_id: resultado.tarjeta.padreId,
         estado: resultado.tipo.usaEstados ? resultado.tarjeta.estado : null,
+        ...(resultado.tarjeta.repo ? { repo: resultado.tarjeta.repo } : {}),
+        ...(resultado.tarjeta.zonaProtegida.length ? { zona_protegida: resultado.tarjeta.zonaProtegida } : {}),
         cambio_id: resultado.cambioId,
         aviso: !resultado.tipo.usaEstados
           ? `Listo: es de tipo ${resultado.tipo.nombre}, una carpeta sin estado. Para ponerle cosas adentro, usar su tarjeta_id como padre_id.`
@@ -487,6 +596,8 @@ export async function ejecutarHerramientaMcpTableros(
         padreId: args.padre_id,
         link: args.link,
         linkTexto: args.link_texto,
+        repo: args.repo,
+        zonaProtegida: args.zona_protegida,
       });
       const aviso = resultado.cambioDeTipo
         ? `Ahora es de tipo ${resultado.tipo.nombre} y quedó ${resultado.tipo.usaEstados ? resultado.tarjeta.estado : "sin estado"}${
@@ -494,13 +605,17 @@ export async function ejecutarHerramientaMcpTableros(
           }.`
         : resultado.volvioAPorAprobar
           ? "Estaba APROBADA y cambió: volvió a POR_APROBAR. Hay que avisarle al dueño que la apruebe de nuevo."
-          : "Listo. Para volver atrás: deshacer_cambio_tarjeta.";
+          : resultado.perdioAprobacion
+            ? "Estaba aprobada y cambió: volvió a POR_APROBAR. Hay que avisarle al dueño que la apruebe de nuevo."
+            : "Listo. Para volver atrás: deshacer_cambio_tarjeta.";
       return {
         ok: true,
         tarjeta_id: resultado.tarjeta.id,
         tipo: resultado.tipo.nombre,
         padre_id: resultado.tarjeta.padreId,
         estado: resultado.tipo.usaEstados ? resultado.tarjeta.estado : null,
+        repo: resultado.tarjeta.repo,
+        zona_protegida: resultado.tarjeta.zonaProtegida,
         cambio_id: resultado.cambioId,
         aviso,
         link: linkDeLaTarjeta(resultado.tarjeta.id),
@@ -551,7 +666,14 @@ export async function ejecutarHerramientaMcpTableros(
           cambio_id: cambio.id,
           cuando: hora(cambio.creadoEn),
           quien: cambio.quienNombre,
-          desde: cambio.origen === "MCP" ? "Claude" : cambio.origen === "PANTALLA" ? "la pantalla" : cambio.origen,
+          desde:
+            cambio.origen === "MCP"
+              ? "Claude"
+              : cambio.origen === "PANTALLA"
+                ? "la pantalla"
+                : cambio.origen === "TRABAJADOR"
+                  ? "el trabajador"
+                  : cambio.origen,
           accion: cambio.accion,
           antes: cambio.antes,
           despues: cambio.despues,
@@ -562,6 +684,62 @@ export async function ejecutarHerramientaMcpTableros(
     case "deshacer_cambio_tarjeta": {
       const resultado = await deshacerCambioTarjeta(contexto, args.cambio_id);
       return { ok: true, ...("cambioId" in resultado ? { cambio_id: resultado.cambioId } : {}), aviso: resultado.aviso };
+    }
+    case "ver_plan_y_resultado": {
+      const { tarjeta, aprobaciones } = await planYResultado(contexto.workspaceId, args.tarjeta_id);
+      const resultado = tarjeta.resultado;
+      return {
+        tarjeta_id: tarjeta.id,
+        titulo: tarjeta.titulo,
+        estado: tarjeta.estado,
+        estado_texto: NOMBRE_DEL_ESTADO[tarjeta.estado],
+        repo: tarjeta.repo,
+        zona_protegida: tarjeta.zonaProtegida,
+        intentos: tarjeta.intentos,
+        plan: tarjeta.plan,
+        resultado: resultado
+          ? {
+              resumen: resultado.resumen ?? null,
+              pruebas: resultado.pruebas ?? null,
+              paso: resultado.paso === true,
+              rama: resultado.rama ?? null,
+              link_rama: resultado.linkRama ?? null,
+              commit: resultado.commit ?? null,
+              migracion: resultado.migracion ?? null,
+              ...(resultado.subida ? { subida: resultado.subida } : {}),
+              ...(resultado.error && tarjeta.estado === "ERROR" ? { error: resultado.error } : {}),
+            }
+          : null,
+        aprobaciones: aprobaciones.map((aprobacion) => ({
+          momento: aprobacion.momento,
+          que: esMomento(aprobacion.momento) ? NOMBRE_DEL_MOMENTO[aprobacion.momento] : aprobacion.momento,
+          quien: aprobacion.quien,
+          via: aprobacion.via,
+          cuando: hora(new Date(aprobacion.cuando)),
+          texto_confirmacion: aprobacion.textoConfirmacion,
+        })),
+        que_falta: queFalta(tarjeta.estado, Boolean(tarjeta.repo), tarjeta.zonaProtegida.length > 0),
+        link: linkDeLaTarjeta(tarjeta.id),
+      };
+    }
+    case "aprobar_tarjeta": {
+      // La única puerta para aprobar desde Claude: el servidor revisa quién es (la clave), el estado,
+      // el texto de la persona y la zona protegida (services/reglas-trabajador.ts).
+      const resultado = await aprobarTarjeta(contexto, args.tarjeta_id, {
+        momento: typeof args.momento === "string" ? args.momento : "",
+        via: "voz",
+        textoConfirmacion: args.texto_confirmacion,
+      });
+      return {
+        ok: true,
+        cambio_id: resultado.cambioId,
+        antes: resultado.antes,
+        ahora: resultado.ahora,
+        aviso: `Aprobado por voz (${resultado.quien}): ${NOMBRE_DEL_MOMENTO[resultado.momento]} de "${resultado.titulo}". Quedó ${resultado.ahora}${
+          resultado.ahora === "SUBIENDO" ? ": el trabajador la sube a producción en el próximo minuto" : ""
+        }. Una aprobación no se deshace.`,
+        link: linkDeLaTarjeta(String(args.tarjeta_id ?? "")),
+      };
     }
     default:
       throw new Error(`No existe la herramienta "${nombre}".`);

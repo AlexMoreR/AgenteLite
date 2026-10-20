@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Controls, ReactFlow, applyNodeChanges, type NodeChange } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, Network, Shapes } from "lucide-react";
+import { ArrowLeft, Bot, Network, Shapes } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -28,6 +28,7 @@ import { FlechaFlotante, type FlechaDeTablero } from "./FlechaFlotante";
 import { MigasDelNivel } from "./MigasDelNivel";
 import { NodoTarjeta, type NodoDeTarjeta } from "./NodoTarjeta";
 import { PanelTipos } from "./PanelTipos";
+import { PanelTrabajador } from "./PanelTrabajador";
 import { SelectorDeTablero } from "./SelectorDeTablero";
 
 /*
@@ -74,7 +75,12 @@ type Props = {
   inicial: ContenidoNuevo | null;
   tarjetaInicial: string | null;
   nivelInicial: string | null;
+  /** Puede apretar los botones de aprobar la tarea y el plan (el servidor revisa el alcance). */
   puedeAprobar: boolean;
+  /** Puede tocar los tipos (dueño o ADMIN de la plataforma, como en la fase 1). */
+  puedeEditarTipos: boolean;
+  /** Dueño del negocio: el sí final, quitar zonas protegidas y el panel Trabajador. */
+  esDueno: boolean;
 };
 
 const CONSULTA_ANGOSTA = "(max-width: 767px)";
@@ -167,6 +173,8 @@ export function TablerosInteligentesVista({
   tarjetaInicial,
   nivelInicial,
   puedeAprobar,
+  puedeEditarTipos,
+  esDueno,
 }: Props) {
   const angosta = useEsAngosta();
 
@@ -182,6 +190,7 @@ export function TablerosInteligentesVista({
       : [],
   );
   const [panelTipos, setPanelTipos] = useState(false);
+  const [panelTrabajador, setPanelTrabajador] = useState(false);
 
   const tarjetas = useMemo(() => contenido?.tarjetas ?? [], [contenido]);
   const conexiones = useMemo<ConexionVista[]>(() => contenido?.conexiones ?? [], [contenido]);
@@ -354,7 +363,19 @@ export function TablerosInteligentesVista({
           </Button>
         ) : null}
         <MigasDelNivel tableroNombre={tableroNombre ?? "Tablero"} ruta={ruta} alIr={(id) => irANivel(id)} />
-        {puedeAprobar ? (
+        {esDueno ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-10 shrink-0 text-muted-foreground md:size-8"
+            onClick={() => setPanelTrabajador(true)}
+            aria-label="Trabajador"
+            title="Trabajador (clave y aprobadores)"
+          >
+            <Bot />
+          </Button>
+        ) : null}
+        {puedeEditarTipos ? (
           <Button
             variant="ghost"
             size="icon"
@@ -441,6 +462,7 @@ export function TablerosInteligentesVista({
         abierta={abierta !== null}
         lado={angosta ? "bottom" : "right"}
         puedeAprobar={puedeAprobar}
+        esDueno={esDueno}
         alCerrar={() => setAbierta(null)}
         alElegir={mostrarTarjeta}
         alEntrar={(id) => irANivel(id)}
@@ -454,9 +476,13 @@ export function TablerosInteligentesVista({
         tableroId={tableroId}
         tipos={tipos}
         usos={usosDeTipo}
-        puedeEditar={puedeAprobar}
+        puedeEditar={puedeEditarTipos}
         alCambiar={refrescarYa}
       />
+
+      {esDueno ? (
+        <PanelTrabajador abierto={panelTrabajador} alCerrar={() => setPanelTrabajador(false)} lado={angosta ? "bottom" : "right"} />
+      ) : null}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { personaPuedeAprobar } from "@/features/tableros-inteligentes/services/reglas";
 import { nivelDeLaTarjeta } from "@/features/tableros-inteligentes/services/niveles";
-import { contenidoDelTablero, listarTableros } from "@/features/tableros-inteligentes/services/tableros";
+import { contenidoDelTablero, listarTableros, personaQueAprueba, porAprobarDe } from "@/features/tableros-inteligentes/services/tableros";
 import { TablerosInteligentesVista } from "@/features/tableros-inteligentes/components/TablerosInteligentesVista";
 
 export const metadata: Metadata = {
@@ -35,7 +35,10 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
   const pedidaTarjeta = uno(parametros.tarjeta);
   const pedidoNivel = uno(parametros.area);
 
-  const tableros = await listarTableros(access.workspaceId);
+  const [tableros, persona] = await Promise.all([
+    listarTableros(access.workspaceId),
+    personaQueAprueba(access.workspaceId, access.userId),
+  ]);
 
   let tableroId = tableros.find((tablero) => tablero.id === pedidoTablero)?.id ?? null;
   let tarjetaInicial: string | null = null;
@@ -67,7 +70,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       tableros={tableros.map((tablero) => ({
         id: tablero.id,
         nombre: tablero.nombre,
-        porAprobar: tablero.porEstado.POR_APROBAR ?? 0,
+        porAprobar: porAprobarDe(tablero.porEstado),
       }))}
       tableroId={elegido?.id ?? null}
       tableroNombre={elegido?.nombre ?? null}
@@ -78,7 +81,10 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       }
       tarjetaInicial={tarjetaInicial}
       nivelInicial={nivelInicial}
-      puedeAprobar={personaPuedeAprobar(access)}
+      // Los botones de la tarea y el plan: dueño, ADMIN o aprobador (el alcance lo revisa el servidor).
+      puedeAprobar={personaPuedeAprobar(access) || persona.esDueno || Boolean(persona.aprobador)}
+      puedeEditarTipos={personaPuedeAprobar(access)}
+      esDueno={persona.esDueno}
     />
   );
 }

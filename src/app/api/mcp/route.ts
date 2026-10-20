@@ -63,13 +63,21 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "esas preguntas de a una; nunca inventar productos, precios ni textos del negocio. " +
           "Tambien esta el TABLERO IA (pantalla /cliente/tablero-ia; herramientas listar_tableros, crear_tablero, ver_tablero, " +
           "listar_tipos, crear_tipo, editar_tipo, crear_tarjeta, editar_tarjeta, conectar_tarjetas, cambiar_estado_tarjeta, " +
-          "borrar_tarjeta, ver_historial_tarjeta, deshacer_cambio_tarjeta): ahi se anotan las ideas que salen de la " +
+          "borrar_tarjeta, ver_historial_tarjeta, deshacer_cambio_tarjeta, ver_plan_y_resultado, aprobar_tarjeta): ahi se anotan las ideas que salen de la " +
           "conversacion con el dueno, como tarjetas unidas con flechas. Cada tarjeta tiene un TIPO (por defecto Area, Idea " +
           "y Tarea) y puede colgar de otra (padre_id) si el tipo lo permite: Area > Idea > Tarea (un Area tambien dentro de " +
           "otra Area). El Area es una carpeta: no tiene estado. Solo los tipos que piden " +
-          "aprobacion (Tarea) pasan por POR_APROBAR. Claude nunca aprueba: deja la tarjeta POR_APROBAR y el dueno la aprueba " +
+          "aprobacion (Tarea) pasan por POR_APROBAR. Claude nunca aprueba por su cuenta: deja la tarjeta POR_APROBAR y el dueno la aprueba " +
           "en la pantalla. Si se edita una tarjeta aprobada, vuelve a POR_APROBAR. borrar_tarjeta quita la tarjeta con sus " +
-          "flechas y se deshace con deshacer_cambio_tarjeta.",
+          "flechas y se deshace con deshacer_cambio_tarjeta. " +
+          "TRABAJADOR (fase 2): una Tarea con repo (gestion o aizencrm) la ejecuta un PC aparte: escribe un plan (PLAN_LISTO), " +
+          "el dueno lo aprueba, la construye y prueba en una rama (POR_REVISAR), el dueno da el si final y la sube (HECHO), o " +
+          "queda ERROR con el motivo. Esos estados los pone solo el trabajador; ver_plan_y_resultado muestra el plan, el " +
+          "resultado y quien aprobo que. aprobar_tarjeta (momento tarea, plan o subir) se usa SOLO si la persona lo dijo " +
+          "explicitamente en esta conversacion: antes leerle el titulo y que se aprueba y esperar que diga 'si, apruebo'; " +
+          "texto_confirmacion es lo que dijo, tal cual. Nunca aprobar por cuenta propia. El si final (subir) lo da solo el " +
+          "dueno. Si toca Meta Ads, el bot de ventas o el libro V3, marcar zona_protegida: esas se aprueban solo en la " +
+          "pantalla (Claude puede poner la zona, no quitarla).",
       });
     }
     case "ping":
