@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { cargar } from "./supervisor-cargar.mjs";
 
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas.ts");
-const { disponerRadial, sePisan, RADIO_INICIAL } = cargar("src/features/tableros-inteligentes/services/disposicion.ts");
+const { disponerRadial, sePisan, RADIO_INICIAL, ANCHO_TARJETA, ALTO_TARJETA } = cargar("src/features/tableros-inteligentes/services/disposicion.ts");
 const reglasNiveles = cargar("src/features/tableros-inteligentes/services/niveles.ts");
 
 let pruebas = 0;
@@ -497,7 +497,7 @@ function sinSolapes(posiciones, nombre) {
   }
 }
 
-const centroDe = (p) => ({ x: p.x + 100, y: p.y + 66 });
+const centroDe = (p) => ({ x: p.x + ANCHO_TARJETA / 2, y: p.y + ALTO_TARJETA / 2 });
 
 prueba("radial: el centro en el medio y sus hijas alrededor, todas a la misma distancia si caben en un anillo", () => {
   const pos = disponerRadial([{ centro: "c", hijas: ["a", "b", "d", "e", "f"] }]);

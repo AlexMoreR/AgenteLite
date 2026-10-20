@@ -19,20 +19,20 @@
 
 export type Punto = { x: number; y: number };
 
-/** Lo que ocupa una tarjeta en el mapa (NodoTarjeta: 200 x 132 px). */
-export const ANCHO_TARJETA = 200;
-export const ALTO_TARJETA = 132;
+/** Lo que ocupa una tarjeta en el mapa (NodoTarjeta usa estas mismas medidas: 152 x 68 px). */
+export const ANCHO_TARJETA = 152;
+export const ALTO_TARJETA = 68;
 /** Aire mínimo entre dos tarjetas. */
-export const SEPARACION = 24;
+export const SEPARACION = 20;
 
 /** Radio del primer anillo y distancia entre anillos (centro a centro). */
-export const RADIO_INICIAL = 290;
-const PASO_ANILLO = 290;
+export const RADIO_INICIAL = 210;
+const PASO_ANILLO = 200;
 /** Largo de arco mínimo entre dos hijas vecinas de un mismo anillo. */
-const ARCO_MINIMO = 300;
+const ARCO_MINIMO = 220;
 /** Ancho máximo de una fila de grupos en la raíz. */
-const ANCHO_FILA = 2600;
-const AIRE_GRUPOS = 60;
+const ANCHO_FILA = 2000;
+const AIRE_GRUPOS = 48;
 
 /** true si dos tarjetas (esquina arriba-izquierda) se pisan o quedan a menos de `aire` px. */
 export function sePisan(p: Punto, q: Punto, aire = SEPARACION): boolean {

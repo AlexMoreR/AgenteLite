@@ -41,7 +41,7 @@ export function MigasDelNivel({ tableroNombre, ruta, alIr }: Props) {
           …
         </span>
       ) : null}
-      <div ref={caja} className="flex items-center gap-0.5 overflow-x-auto py-0.5 pl-3 [scrollbar-width:none]">
+      <div ref={caja} className="flex items-center gap-0.5 overflow-x-auto py-0.5 pl-1 [scrollbar-width:none]">
         {pasos.map((paso, i) => {
           const ultimo = i === pasos.length - 1;
           return (

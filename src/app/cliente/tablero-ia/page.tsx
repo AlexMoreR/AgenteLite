@@ -4,11 +4,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { personaPuedeAprobar } from "@/features/tableros-inteligentes/services/reglas";
 import { nivelDeLaTarjeta } from "@/features/tableros-inteligentes/services/niveles";
-import {
-  contenidoDelTablero,
-  listarTableros,
-  pendientesDelDueno,
-} from "@/features/tableros-inteligentes/services/tableros";
+import { contenidoDelTablero, listarTableros } from "@/features/tableros-inteligentes/services/tableros";
 import { TablerosInteligentesVista } from "@/features/tableros-inteligentes/components/TablerosInteligentesVista";
 
 export const metadata: Metadata = {
@@ -39,10 +35,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
   const pedidaTarjeta = uno(parametros.tarjeta);
   const pedidoNivel = uno(parametros.area);
 
-  const [tableros, pendientes] = await Promise.all([
-    listarTableros(access.workspaceId),
-    pendientesDelDueno(access.workspaceId),
-  ]);
+  const tableros = await listarTableros(access.workspaceId);
 
   let tableroId = tableros.find((tablero) => tablero.id === pedidoTablero)?.id ?? null;
   let tarjetaInicial: string | null = null;
@@ -85,7 +78,6 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       }
       tarjetaInicial={tarjetaInicial}
       nivelInicial={nivelInicial}
-      pendientesIniciales={pendientes}
       puedeAprobar={personaPuedeAprobar(access)}
     />
   );
