@@ -27,6 +27,9 @@
      tarjetas con repo de desarrollo (gestion, aizencrm); con alcance TODO, cualquiera.
   6. La zona protegida se puede PONER desde el MCP (y la pone el trabajador si el cambio toca una de
      esas rutas), pero quitarla lo hace solo el dueño en la pantalla.
+  7. Por el MCP, una tarjeta PLAN_LISTO o ERROR se borra solo si el dueño lo pidió por voz: texto con
+     "sí" y "borrar" (textoDeConfirmacionParaBorrar) y la cuenta de la clave es la dueña. Las que tiene
+     el trabajador en la mano y las de zona protegida no se borran (puedeBorrarTarjeta en reglas.ts).
 */
 
 import { type EstadoTarjetaTablero, type OrigenCambio, type Veredicto, claveDeNombre } from "./reglas";
@@ -225,6 +228,26 @@ export function textoDeConfirmacionValido(texto: unknown): Veredicto {
   }
   if (/(^|[^a-z])no (lo )?apruebo([^a-z]|$)/.test(limpio)) {
     return 'El texto dice "no apruebo": no se aprueba.';
+  }
+  return null;
+}
+
+/**
+ * ¿El texto de confirmación dice de verdad "sí, bórrala"? Al menos 8 caracteres, con la palabra "sí"
+ * (o "si") y una palabra de borrar ("borra", "bórrala", "bórralo", "elimínala"...), sin importar
+ * tildes ni mayúsculas. "No la borres" no vale. Lo usa borrar_tarjeta (borrado por voz).
+ */
+export function textoDeConfirmacionParaBorrar(texto: unknown): Veredicto {
+  const COMO = 'Tiene que ser lo que dijo la persona, por ejemplo: "sí, bórrala".';
+  if (typeof texto !== "string" || texto.trim().length < 8) {
+    return `Falta el texto de confirmación (mínimo 8 caracteres). ${COMO}`;
+  }
+  const limpio = normalizar(texto);
+  if (!/(^|[^a-z])si([^a-z]|$)/.test(limpio) || !/(^|[^a-z])(borr|elimin)[a-z]*/.test(limpio)) {
+    return `El texto de confirmación tiene que decir "sí" y "borrar" (bórrala, elimínala). ${COMO}`;
+  }
+  if (/(^|[^a-z])no (la |lo )?(borr|elimin)/.test(limpio)) {
+    return 'El texto dice "no la borres": no se borra.';
   }
   return null;
 }

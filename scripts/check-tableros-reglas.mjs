@@ -743,9 +743,72 @@ prueba("editar algo aprobado o que dejó el trabajador lo devuelve a POR_APROBAR
   assert.equal(reglas.estadoTrasEditar("MCP", "HECHO"), "HECHO");
 });
 
-prueba("borrar: Claude no borra nada aprobado ni nada del trabajador", () => {
+prueba("borrar: sin la confirmación del dueño, Claude no borra nada aprobado ni nada del trabajador", () => {
   for (const estado of ["APROBADO", "EN_CURSO", ...FASE2]) assert.ok(reglas.puedeBorrarTarjeta("MCP", estado), estado);
   assert.equal(reglas.puedeBorrarTarjeta("PANTALLA", "ERROR"), null);
+});
+
+const voz = (texto, cuentaOk = true) => ({
+  problemaDelTexto: trabajo.textoDeConfirmacionParaBorrar(texto),
+  problemaDeLaCuenta: cuentaOk ? null : "La conexión llegó con la cuenta Emanuel: no es la dueña.",
+});
+
+prueba("borrar por voz: PLAN_LISTO y ERROR se borran con el dueño y 'sí, bórrala'", () => {
+  for (const estado of ["PLAN_LISTO", "ERROR"]) {
+    assert.equal(reglas.puedeBorrarTarjeta("MCP", estado, [], voz("sí, bórrala")), null, estado);
+    assert.match(reglas.puedeBorrarTarjeta("MCP", estado), /sí, bórrala/, `${estado} sin texto`);
+    assert.ok(reglas.puedeBorrarTarjeta("MCP", estado, [], voz("no la borres, sí")), `${estado} no la borres`);
+    assert.ok(reglas.puedeBorrarTarjeta("MCP", estado, [], voz("sí, dale")), `${estado} sin borrar`);
+    assert.match(reglas.puedeBorrarTarjeta("MCP", estado, [], voz("sí, bórrala", false)), /dueño.*Emanuel/, `${estado} otra cuenta`);
+  }
+});
+
+prueba("borrar por voz: lo que tiene el trabajador, lo aprobado y lo de zona protegida siguen bloqueados", () => {
+  for (const estado of ["EN_CURSO", "PLANEANDO", "SUBIENDO", "APROBADO", "PLAN_APROBADO", "POR_REVISAR"]) {
+    assert.ok(reglas.puedeBorrarTarjeta("MCP", estado, [], voz("sí, bórrala")), estado);
+  }
+  for (const estado of ["PLAN_LISTO", "ERROR", "IDEA", "POR_APROBAR", "FALLIDO"]) {
+    assert.match(reglas.puedeBorrarTarjeta("MCP", estado, ["BOT_VENTAS"], voz("sí, bórrala")), /zona protegida/, estado);
+  }
+  // La pantalla sí.
+  assert.equal(reglas.puedeBorrarTarjeta("PANTALLA", "PLAN_LISTO", ["BOT_VENTAS"]), null);
+});
+
+prueba("borrar por voz: POR_APROBAR, FALLIDO, IDEA y HECHO se borran como siempre (con o sin texto)", () => {
+  for (const estado of ["POR_APROBAR", "FALLIDO", "IDEA", "HECHO"]) {
+    assert.equal(reglas.puedeBorrarTarjeta("MCP", estado), null, estado);
+    assert.equal(reglas.puedeBorrarTarjeta("MCP", estado, [], voz("sí, bórrala", false)), null, `${estado} con texto`);
+    assert.ok(reglas.puedeBorrarTarjeta("MCP", estado, [], voz("no la borres, sí")), `${estado} no la borres`);
+  }
+});
+
+prueba("texto para borrar: 'sí' y una palabra de borrar (sin tildes ni mayúsculas); 'no la borres' no", () => {
+  for (const bueno of ["sí, bórrala", "Si borralo", "SÍ, ELIMÍNALA", "sí, bórrala ya", "Bórrala, sí.", "si, borra esa"]) {
+    assert.equal(trabajo.textoDeConfirmacionParaBorrar(bueno), null, bueno);
+  }
+  for (const malo of [undefined, "", "sí", "bórrala", "dale, bórrala", "sí, dale", "si no la borres", "sí, no lo elimines", 42]) {
+    assert.ok(trabajo.textoDeConfirmacionParaBorrar(malo), String(malo));
+  }
+});
+
+prueba("deshacer un borrado por voz: vuelve PLAN_LISTO o ERROR; sin la marca, no", () => {
+  const porVoz = (estado) =>
+    cambio({
+      accion: "borrar",
+      antes: { estado, borradoEn: null, conexiones: [] },
+      despues: { borradoEn: T0.toISOString(), via: "voz", como: "borrado por voz por Alexander", textoConfirmacion: "sí, bórrala" },
+    });
+  for (const estado of ["PLAN_LISTO", "ERROR"]) {
+    assert.equal(reglas.puedeDeshacer(porVoz(estado), [], estado), null, estado);
+    const sinMarca = cambio({ accion: "borrar", antes: { estado, borradoEn: null }, despues: { borradoEn: T0.toISOString() } });
+    assert.ok(reglas.puedeDeshacer(sinMarca, [], estado), `${estado} sin marca`);
+    assert.ok(reglas.puedeDeshacer({ ...porVoz(estado), deshechoEn: despues(5) }, [], estado), `${estado} dos veces`);
+  }
+  // La marca no abre los demás estados aprobados.
+  for (const estado of ["APROBADO", "PLAN_APROBADO", "POR_REVISAR", "SUBIENDO"]) {
+    assert.ok(reglas.puedeDeshacer(porVoz(estado), [], estado), estado);
+  }
+  assert.equal(reglas.puedeDeshacer(porVoz("POR_APROBAR"), [], "POR_APROBAR"), null);
 });
 
 prueba("deshacer: lo del trabajador y cualquier aprobación (también por voz) no se deshacen; no deja ni quita estados aprobados", () => {
