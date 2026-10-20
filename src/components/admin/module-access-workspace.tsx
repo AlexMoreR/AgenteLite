@@ -26,6 +26,7 @@ import {
   Wallet,
   Workflow,
   PhoneCall,
+  Network,
   Share2,
   X,
 } from "lucide-react";
@@ -86,6 +87,7 @@ const moduleIconMap = {
   products_v2: Package,
   llamadas: PhoneCall,
   diagramas: Share2,
+  tableros_inteligentes: Network,
   client_official_api: MessageSquare,
   client_team: Users,
 } satisfies Record<AdminModuleKey, React.ComponentType<{ className?: string }>>;

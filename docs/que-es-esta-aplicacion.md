@@ -89,6 +89,7 @@ propio catálogo (la hermana de Alex va a vender plantas y artículos de vivero 
 - `finanzas`: ingresos y egresos con un asistente de IA y sincronización con Google Sheets.
 - `marketing-ia`: generador de anuncios con IA.
 - `diagramas`: lienzos de diagramas libres (por ejemplo el mapa de caminos de los chats).
+- `tableros-inteligentes`: las ideas que arma Claude por el MCP hablando con el dueño, dibujadas como un mapa estilo Obsidian (tarjetas unidas por flechas, color por estado, filtro por estado, vista Lista para el celular). Un negocio puede tener varios tableros (uno por tema). Tocar una tarjeta abre su ficha con el detalle, sus flechas, el historial y el botón **Aprobar** (solo lo ven el dueño y el ADMIN de la plataforma, y solo en tarjetas POR_APROBAR). Se actualiza sola cada 5 s con la pestaña a la vista (`/api/cliente/tableros-inteligentes/<id>?desde=` solo lee `TableroInteligente.actualizadoEn`; nada con la pestaña oculta; 30 s de espera si falla). `?tablero=<id>` abre un tablero y `?tarjeta=<id>` abre la ficha de una tarjeta (es el link que devuelve el MCP). En el MCP: `listar_tableros`, `crear_tablero`, `ver_tablero`, `crear_tarjeta`, `editar_tarjeta`, `conectar_tarjetas`, `cambiar_estado_tarjeta`, `ver_historial_tarjeta` y `deshacer_cambio_tarjeta`. Código en `src/features/tableros-inteligentes` (reglas puras en `services/reglas.ts`, pruebas `npm run test:tableros`) y `src/lib/mcp/tableros-inteligentes.ts`. Es distinto de `diagramas`: no comparten código ni tablas.
 - `claude`: las claves para conectar Claude al CRM por el MCP.
 - `onboarding`: el alta de un negocio nuevo.
 
@@ -128,6 +129,10 @@ propio catálogo (la hermana de Alex va a vender plantas y artículos de vivero 
 - `PresenciaEnLinea`: si cada asesora está "Recibiendo clientes" (último latido de la app, desde cuándo está en línea y si se pausó a mano). Una fila por persona y negocio.
 - `PeriodoEnLinea`: cada periodo cerrado en que una asesora estuvo recibiendo clientes; de ahí salen las horas por día y por semana en Mi empresa → Actividad.
 - `Diagram`: un lienzo de diagrama libre.
+- `TableroInteligente`: un tablero de ideas de un negocio (nombre). `actualizadoEn` se toca en cada cambio de sus tarjetas o flechas: es lo único que lee el refresco de la pantalla.
+- `TarjetaTablero`: una idea del tablero: título, detalle, área, estado (`EstadoTarjeta`: IDEA, POR_APROBAR, APROBADO, EN_CURSO, HECHO, FALLIDO), orden, fecha y quién la creó.
+- `ConexionTarjeta`: una flecha de una tarjeta a otra del mismo tablero (una sola por par y sentido; nunca de una tarjeta a sí misma).
+- `HistorialTarjeta`: cada cambio de una tarjeta: quién, cuándo, desde dónde (`origen` MCP, PANTALLA o TRABAJADOR, este último para la fase 2), la acción (crear, editar, estado, conectar, aprobar, deshacer), el antes y el después de los campos tocados (JSON) y si se deshizo. Sirve para ver el historial y para deshacer.
 - `AppSetting`: clave-valor para configuración y estado sin migrar la base (libro y estado del Agente V3, supervisoras, banderas de automatizaciones, etc.).
 - `WebhookEventLog`: archivo de los eventos que llegan por webhook (se purga solo por antigüedad).
 - `Product`: un producto del catálogo de un negocio.
@@ -263,6 +268,13 @@ la IA pausada no lo contesta el agente.
   automatizaciones; se guarda en `AppSetting equipo:supervisoras:<workspace>`), administradora y dueño.
   La monitora mira sin poder escribir.
 
+- **Tableros inteligentes — estados y quién aprueba**: IDEA (una idea suelta), POR_APROBAR (lista para que
+  el dueño la mire), APROBADO, EN_CURSO, HECHO y FALLIDO. Claude crea tarjetas como IDEA o POR_APROBAR y
+  las mueve de estado, pero **nunca aprueba**: APROBADO solo lo pone el dueño del negocio (o el ADMIN de la
+  plataforma) con el botón Aprobar, y solo desde POR_APROBAR (se valida en el servidor). Lo que no está
+  aprobado no se ejecuta: EN_CURSO solo sale de APROBADO, y HECHO o FALLIDO de APROBADO o EN_CURSO. Si Claude
+  edita una tarjeta APROBADA, vuelve a POR_APROBAR. Toda escritura deja una fila en `HistorialTarjeta`.
+
 ## Automatizaciones
 
 - `seguimientos_programados`: el reloj manda los seguimientos agendados (Follow) cuando les toca.
@@ -313,6 +325,14 @@ la IA pausada no lo contesta el agente.
   mensajes solo con 4 letras o más y solo en los de los últimos 90 días (`lib/busqueda-de-chats.ts`). No
   hay índice de texto (`pg_trgm`) en `Message`; buscar en todo sería recorrer la tabla en cada pedido.
 
+- **Tableros inteligentes, fase 2**: no hay todavía un trabajador que ejecute las tarjetas APROBADAS, ni
+  avisos por WhatsApp de tarjetas por aprobar, ni aprobar respondiendo "sí". Está previsto: el origen
+  TRABAJADOR en `HistorialTarjeta`, las transiciones APROBADO → EN_CURSO → HECHO/FALLIDO y el link
+  `/cliente/tableros-inteligentes?tarjeta=<id>`.
+- **Tableros inteligentes: no hay borrar** tableros ni tarjetas desde el MCP ni desde la pantalla. Lo más
+  cercano es `deshacer_cambio_tarjeta` sobre la creación, que saca una tarjeta recién creada sin otros
+  cambios ni flechas. La pantalla tampoco edita tarjetas: solo aprueba.
+
 ## Advertencias de operación
 
 - **Una migración que falla tumba la app**: el contenedor corre `prisma migrate deploy` antes de
@@ -334,3 +354,7 @@ la IA pausada no lo contesta el agente.
   webhook lo usa para no pausar la IA por un eco propio.
 - **Cada cambio de gateway se prueba primero en una línea de pruebas, y probando el ENVÍO**: una línea
   puede conectar y recibir y aun así no poder enviar.
+- **Tableros inteligentes: Claude nunca aprueba.** Ninguna herramienta del MCP pone APROBADO (ni el
+  `inputSchema` lo ofrece ni el servicio lo acepta), `deshacer_cambio_tarjeta` no deja ni quita un
+  APROBADO y no deshace lo hecho en la pantalla. Cualquier clave MCP activa del negocio puede escribir
+  tarjetas (no aprobarlas). Si Claude edita algo aprobado, vuelve a pedir aprobación.

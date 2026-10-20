@@ -154,6 +154,13 @@ export const adminModuleDefinitions = [
     group: "Cliente",
   },
   {
+    key: "tableros_inteligentes",
+    label: "Tableros inteligentes",
+    description: "Ideas que arma Claude contigo, como un mapa. El dueño las aprueba.",
+    path: "/cliente/tableros-inteligentes",
+    group: "Cliente",
+  },
+  {
     key: "client_official_api",
     label: "Api oficial (Cliente)",
     description: "Permite ver y operar el modulo Api oficial en el area cliente.",

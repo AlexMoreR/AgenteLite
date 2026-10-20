@@ -17,6 +17,7 @@ import {
   Megaphone,
   MessageSquare,
   MessageSquareMore,
+  Network,
   Package,
   PhoneCall,
   BookOpen,
@@ -74,6 +75,7 @@ const moduleIconMap: Record<AdminModuleKey, React.ComponentType> = {
   products_v2: Package,
   llamadas: PhoneCall,
   diagramas: Share2,
+  tableros_inteligentes: Network,
   client_official_api: MessageSquare,
   client_team: Users,
 }

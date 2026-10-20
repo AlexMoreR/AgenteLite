@@ -83,6 +83,7 @@ model Workspace {
   campaigns             Campaign[]
   mediaLibrary          MediaLibraryItem[]
   diagrams              Diagram[]
+  tablerosInteligentes  TableroInteligente[]
   messages              Message[]
   officialApiConfig     OfficialApiClientConfig?
   quickReplies          QuickReply[]
@@ -1941,4 +1942,87 @@ model SupervisorAlerta {
 
   @@index([workspaceId, estado, ultimaVezEn])
   @@index([workspaceId, createdAt])
+}
+
+/// Estado de una tarjeta de un Tablero inteligente. APROBADO solo lo pone el dueño (o el ADMIN de la
+/// plataforma) desde la pantalla, y solo desde POR_APROBAR. Claude por el MCP nunca aprueba.
+enum EstadoTarjeta {
+  IDEA
+  POR_APROBAR
+  APROBADO
+  EN_CURSO
+  HECHO
+  FALLIDO
+}
+
+/// Tablero de ideas que arma Claude por el MCP y el dueño aprueba en /cliente/tableros-inteligentes. actualizadoEn se toca en cada cambio de sus tarjetas: el refresco de 5 s solo lee esa columna.
+model TableroInteligente {
+  id            String             @id @default(cuid())
+  workspaceId   String
+  nombre        String
+  creadoEn      DateTime           @default(now())
+  actualizadoEn DateTime           @default(now())
+  workspace     Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tarjetas      TarjetaTablero[]
+  conexiones    ConexionTarjeta[]
+
+  @@index([workspaceId, creadoEn])
+}
+
+/// Una idea del tablero: título, detalle, área, estado y fecha. Toda escritura deja una fila en HistorialTarjeta.
+model TarjetaTablero {
+  id            String             @id @default(cuid())
+  tableroId     String
+  titulo        String
+  detalle       String             @default("")
+  area          String?
+  estado        EstadoTarjeta      @default(IDEA)
+  orden         Int                @default(0)
+  fecha         DateTime?
+  /// userId de quien la creó (el de la clave MCP o el de la sesión).
+  creadoPor     String
+  creadoEn      DateTime           @default(now())
+  actualizadoEn DateTime           @updatedAt
+  tablero       TableroInteligente @relation(fields: [tableroId], references: [id], onDelete: Cascade)
+  salientes     ConexionTarjeta[]  @relation("ConexionOrigen")
+  entrantes     ConexionTarjeta[]  @relation("ConexionDestino")
+  historial     HistorialTarjeta[]
+
+  @@index([tableroId, estado])
+}
+
+/// Una flecha entre dos tarjetas del mismo tablero (sale de origen y llega a destino). Una sola por par.
+model ConexionTarjeta {
+  id        String             @id @default(cuid())
+  tableroId String
+  origenId  String
+  destinoId String
+  creadoEn  DateTime           @default(now())
+  tablero   TableroInteligente @relation(fields: [tableroId], references: [id], onDelete: Cascade)
+  origen    TarjetaTablero     @relation("ConexionOrigen", fields: [origenId], references: [id], onDelete: Cascade)
+  destino   TarjetaTablero     @relation("ConexionDestino", fields: [destinoId], references: [id], onDelete: Cascade)
+
+  @@unique([origenId, destinoId])
+  @@index([tableroId])
+  @@index([destinoId])
+}
+
+/// Cada cambio de una tarjeta: quién, cuándo, desde dónde y qué había antes y después (JSON con los campos tocados). Sirve para el historial y para deshacer.
+model HistorialTarjeta {
+  id         String         @id @default(cuid())
+  tarjetaId  String
+  /// userId de quien hizo el cambio.
+  quien      String
+  /// MCP | PANTALLA | TRABAJADOR (texto: sumar uno no migra la base; TRABAJADOR es de la fase 2)
+  origen     String
+  /// crear | editar | estado | conectar | aprobar | deshacer
+  accion     String
+  antes      Json?
+  despues    Json?
+  /// Si se deshizo, cuándo.
+  deshechoEn DateTime?
+  creadoEn   DateTime       @default(now())
+  tarjeta    TarjetaTablero @relation(fields: [tarjetaId], references: [id], onDelete: Cascade)
+
+  @@index([tarjetaId, creadoEn])
 }

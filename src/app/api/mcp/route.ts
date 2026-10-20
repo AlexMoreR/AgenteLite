@@ -60,7 +60,12 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "ver_diagrama_del_agente) y decirle a la persona que se va a tocar. " +
           "Aparte esta el AGENTE V3 (herramientas v3_*), que es el libro de reglas nuevo y todavia NO atiende " +
           "clientes: se escribe y se prueba en el simulador. Si el libro esta vacio, llamar v3_empezar y hacer " +
-          "esas preguntas de a una; nunca inventar productos, precios ni textos del negocio.",
+          "esas preguntas de a una; nunca inventar productos, precios ni textos del negocio. " +
+          "Tambien estan los TABLEROS INTELIGENTES (listar_tableros, crear_tablero, ver_tablero, crear_tarjeta, " +
+          "editar_tarjeta, conectar_tarjetas, cambiar_estado_tarjeta, ver_historial_tarjeta, " +
+          "deshacer_cambio_tarjeta): ahi se anotan las ideas que salen de la conversacion con el dueno, como " +
+          "tarjetas unidas con flechas. Claude nunca aprueba: deja la tarjeta POR_APROBAR y el dueno la aprueba " +
+          "en la pantalla. Si se edita una tarjeta aprobada, vuelve a POR_APROBAR.",
       });
     }
     case "ping":
