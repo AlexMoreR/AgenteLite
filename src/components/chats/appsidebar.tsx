@@ -4,6 +4,9 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, MessageSquareText, Pencil, Plus, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
+import { ChatsRecientes, MensajesEncontradosLista, type ChatParaAbrir } from "./buscador-de-chats-secciones";
+import { useChatsRecientes } from "./busqueda-de-chats-store";
+import type { MensajeEncontrado } from "./chat-inbox-types";
 import { type AssignedFilter, type StatusFilter, type SharedInboxConversationItem } from "./shared-inbox";
 import {
   FiltrosDeBandejaModal,
@@ -58,6 +61,10 @@ type AppSidebarProps = {
   alBuscar?: (valor: string) => void;
   alBorrarBusqueda?: () => void;
   refBuscador?: React.RefObject<HTMLInputElement | null>;
+  /** Seccion "Mensajes" del buscador: los mensajes que contienen lo escrito. */
+  mensajesEncontrados?: MensajeEncontrado[];
+  /** Abrir un chat desde el buscador (reciente o mensaje encontrado, con el mensaje al que ir). */
+  alAbrirDesdeElBuscador?: (chat: ChatParaAbrir, messageId?: string) => void;
 };
 
 // En el celular la caja se esconde al bajar la lista y vuelve al subir, como en WhatsApp.
@@ -204,6 +211,8 @@ export function AppSidebar({
   alBuscar,
   alBorrarBusqueda,
   refBuscador,
+  mensajesEncontrados = [],
+  alAbrirDesdeElBuscador,
 }: AppSidebarProps) {
   const conversationListScrollRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -250,10 +259,16 @@ export function AppSidebar({
       if (cuadro !== null) window.cancelAnimationFrame(cuadro);
     };
   }, []);
+  // Con la caja enfocada y vacia se muestran las busquedas recientes, como en WhatsApp.
+  const [buscadorEnfocado, setBuscadorEnfocado] = React.useState(false);
+  const chatsRecientes = useChatsRecientes();
   const alCambiarFocoDelBuscador = React.useCallback((enfocado: boolean) => {
     buscadorEnfocadoRef.current = enfocado;
+    setBuscadorEnfocado(enfocado);
     if (enfocado) setBuscadorEscondido(false);
   }, []);
+  const verRecientes =
+    buscadorEnfocado && !busqueda.trim() && chatsRecientes.length > 0 && Boolean(alAbrirDesdeElBuscador);
   const router = useRouter();
   const [filterMenuOpen, setFilterMenuOpen] = React.useState(false);
   const [modoDelFiltro, setModoDelFiltro] = React.useState<ModoDelFiltro>({ tipo: "filtrar" });
@@ -742,6 +757,9 @@ export function AppSidebar({
             ))}
           </div>
         ) : null}
+        {verRecientes && alAbrirDesdeElBuscador ? (
+          <ChatsRecientes recientes={chatsRecientes} alAbrir={(chat) => alAbrirDesdeElBuscador(chat)} />
+        ) : null}
         <div
           ref={conversationListScrollRef}
           className={`min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-border transition-opacity duration-150 [-webkit-overflow-scrolling:touch] ${
@@ -758,7 +776,7 @@ export function AppSidebar({
               onLoadMoreConversations={onLoadMoreConversationItems}
               versionDeVista={versionDeVista}
             />
-          ) : (
+          ) : mensajesEncontrados.length > 0 ? null : (
             <div className="px-5 py-12 text-center">
               <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
                 <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
@@ -771,6 +789,13 @@ export function AppSidebar({
               </div>
             </div>
           )}
+          {mensajesEncontrados.length > 0 && alAbrirDesdeElBuscador ? (
+            <MensajesEncontradosLista
+              mensajes={mensajesEncontrados}
+              buscado={busqueda}
+              alAbrir={(chat, messageId) => alAbrirDesdeElBuscador(chat, messageId)}
+            />
+          ) : null}
         </div>
         </div>
       </div>

@@ -4,6 +4,13 @@ import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import {
+  anotarChatReciente,
+  pedirIrAlMensaje,
+  soltarMensajeAEnfocar,
+  useMensajeAEnfocar,
+} from "./busqueda-de-chats-store";
+import type { MensajeEncontrado } from "./chat-inbox-types";
 import { BadgeCheck, ChevronRight, MessageCircle, MessageSquareText } from "lucide-react";
 import {
   mergeConversationSnapshots,
@@ -13,6 +20,7 @@ import {
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import {
   resetConversationSelection,
+  setPendingConversationSelection,
   useOpenChatKey,
   usePendingConversationSelection,
   type PendingChatSelection,
@@ -93,6 +101,8 @@ const CHAT_LIST_DEBUG = false;
 // Buscador de chats: pausa al escribir antes de ir al servidor, y letras minimas para ir.
 const ESPERA_DEL_BUSCADOR_MS = 350;
 const LETRAS_PARA_IR_AL_SERVIDOR = 2;
+// La seccion "Mensajes" del buscador: con menos letras casi todo coincide (ver buscar-mensajes).
+const LETRAS_PARA_BUSCAR_MENSAJES = 3;
 
 function debugConversationList(...args: unknown[]) {
   if (!CHAT_LIST_DEBUG) {
@@ -2763,6 +2773,152 @@ export function SharedInbox({
       conversationIdMatchesKey(selectedConversationKey, renderedConversation.id),
   );
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
+
+  /*
+    EL BUSCADOR COMO EL DE WHATSAPP (Alex, 19-10-2026). Ver busqueda-de-chats-store.
+
+    "Mensajes": los mensajes que contienen lo escrito (con 3 letras o mas), debajo de los chats.
+    Tocar uno abre el chat EN ese mensaje: se pide la tanda grande que llega hasta el (`desde`) y el
+    efecto de abajo lleva la vista hasta el y lo resalta.
+  */
+  const [mensajesEncontrados, setMensajesEncontrados] = useState<{ q: string; mensajes: MensajeEncontrado[] }>({
+    q: "",
+    mensajes: [],
+  });
+  useEffect(() => {
+    const q = searchInputValue.trim();
+    if (q.length < LETRAS_PARA_BUSCAR_MENSAJES) {
+      return;
+    }
+    const controller = new AbortController();
+    const espera = window.setTimeout(async () => {
+      try {
+        const respuesta = await fetch(`/api/cliente/chats/buscar-mensajes?q=${encodeURIComponent(q)}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const datos = (await respuesta.json().catch(() => null)) as { ok?: boolean; mensajes?: MensajeEncontrado[] } | null;
+        if (datos?.ok && Array.isArray(datos.mensajes)) {
+          setMensajesEncontrados({ q, mensajes: datos.mensajes });
+        }
+      } catch {
+        // Abortado o sin red: queda la busqueda de chats.
+      }
+    }, ESPERA_DEL_BUSCADOR_MS);
+    return () => {
+      window.clearTimeout(espera);
+      controller.abort();
+    };
+  }, [searchInputValue]);
+  // Solo se muestran los de lo que esta escrito AHORA: los de una busqueda anterior no.
+  const mensajesDeLaBusqueda =
+    searchInputValue.trim().length >= LETRAS_PARA_BUSCAR_MENSAJES && mensajesEncontrados.q === searchInputValue.trim()
+      ? mensajesEncontrados.mensajes
+      : [];
+
+  /** Abre un chat desde el buscador (un mensaje encontrado o una busqueda reciente). */
+  const abrirChatDesdeElBuscador = useCallback(
+    (chat: { chatKey: string; nombre: string; telefono: string; avatarUrl: string | null }, messageId?: string) => {
+      const href = hrefDeFila({ id: chat.chatKey, source: "agent" }, searchInputValue.trim());
+      anotarChatReciente({ ...chat, href });
+      if (messageId) {
+        pedirIrAlMensaje(chat.chatKey, messageId);
+      }
+      setPendingConversationSelection({
+        id: chat.chatKey,
+        chatKey: chat.chatKey,
+        source: "agent",
+        label: chat.nombre,
+        secondaryLabel: chat.telefono,
+        avatarUrl: chat.avatarUrl,
+        hasCache: Boolean(readConversationFromCache(chat.chatKey, { ignoreFreshness: true })),
+      });
+      window.history.pushState(null, "", href);
+      if (!messageId) {
+        return;
+      }
+      // La tanda que llega hasta el mensaje. Se suma (no reemplaza) a lo que traiga la apertura normal.
+      void fetch(
+        `/api/cliente/chats/live?chatKey=${encodeURIComponent(chat.chatKey)}&desde=${encodeURIComponent(messageId)}&conLlamada=1`,
+        { credentials: "same-origin", cache: "no-store" },
+      )
+        .then((respuesta) => (respuesta.ok ? respuesta.json() : null))
+        .then((datos: { ok?: boolean; conversation?: unknown } | null) => {
+          const snapshot = datos?.ok ? normalizeLiveConversationSnapshot(datos.conversation) : null;
+          if (!snapshot) return;
+          setLiveConversation((current) =>
+            mergeConversationSnapshotIfChanged(
+              current && conversationIdMatchesKey(current.id, snapshot.id) ? current : null,
+              snapshot,
+            ),
+          );
+        })
+        .catch(() => undefined);
+    },
+    [hrefDeFila, searchInputValue],
+  );
+
+  // Un chat abierto desde la lista MIENTRAS se busca tambien queda en "recientes".
+  const ultimoAnotadoRef = useRef("");
+  useEffect(() => {
+    const clave = selectedConversationKey.trim();
+    if (!clave || !searchInputValue.trim() || ultimoAnotadoRef.current === clave) return;
+    const fila = displayedConversationItems.find((item) => item.id === clave);
+    if (!fila) return;
+    ultimoAnotadoRef.current = clave;
+    anotarChatReciente({
+      chatKey: clave,
+      nombre: fila.label ?? fila.secondaryLabel ?? clave,
+      telefono: fila.secondaryLabel ?? "",
+      avatarUrl: fila.avatarUrl ?? null,
+      href: fila.href || hrefDeFila(fila, searchInputValue.trim()),
+    });
+  }, [selectedConversationKey, searchInputValue, displayedConversationItems, hrefDeFila]);
+
+  /*
+    Llevar la vista al mensaje buscado y resaltarlo.
+
+    Al abrir, el chat se pega al fondo varias veces (al montar, a los 80 y 250 ms y cuando cargan las
+    fotos). Por eso no alcanza con un scroll: se lo vuelve a centrar un rato despues de encontrarlo.
+    Si a los ~6 s no aparecio (muy viejo: mas de 400 mensajes atras), se avisa y se suelta.
+  */
+  const mensajeAEnfocar = useMensajeAEnfocar();
+  useEffect(() => {
+    if (!mensajeAEnfocar || !conversationIdMatchesKey(selectedConversationKey, mensajeAEnfocar.chatKey)) {
+      return;
+    }
+    let vueltas = 0;
+    let encontradoEn = -1;
+    const reloj = window.setInterval(() => {
+      vueltas += 1;
+      const contenedor = messagesScrollRef.current;
+      const burbuja = contenedor?.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(mensajeAEnfocar.messageId)}"]`,
+      );
+      if (burbuja) {
+        // Que el scroll de arriba no dispare la carga de mensajes viejos mientras se acomoda.
+        suppressHistoryLoadUntilRef.current = Date.now() + 1500;
+        isNearBottomRef.current = false;
+        burbuja.scrollIntoView({ block: "center" });
+        if (encontradoEn < 0) {
+          encontradoEn = vueltas;
+          burbuja.classList.add("mensaje-citado-resaltado");
+          window.setTimeout(() => burbuja.classList.remove("mensaje-citado-resaltado"), 2500);
+        }
+      }
+      const yaSeAcomodo = encontradoEn >= 0 && vueltas - encontradoEn >= 8;
+      if (yaSeAcomodo || vueltas >= 40) {
+        window.clearInterval(reloj);
+        if (encontradoEn < 0) {
+          toast.info("Ese mensaje está muy atrás en la conversación. Sube para verlo.");
+        }
+        soltarMensajeAEnfocar();
+      }
+    }, 150);
+    return () => window.clearInterval(reloj);
+  }, [mensajeAEnfocar, selectedConversationKey]);
+
   const loadOlderMessagesRef = useRef(loadOlderMessages);
   loadOlderMessagesRef.current = loadOlderMessages;
   const canLoadOlderMessagesRef = useRef(canLoadOlderMessages);
@@ -3350,6 +3506,8 @@ export function SharedInbox({
         busqueda={searchInputValue}
         alBuscar={handleSearchChange}
         alBorrarBusqueda={handleSearchClear}
+        mensajesEncontrados={mensajesDeLaBusqueda}
+        alAbrirDesdeElBuscador={abrirChatDesdeElBuscador}
         refBuscador={searchInputRef}
         assignedFilter={assignedFilter}
         statusFilter={statusFilter}

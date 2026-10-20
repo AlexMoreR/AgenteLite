@@ -1205,6 +1205,8 @@ export const MessageBubble = memo(function MessageBubble({
 
       <div
         data-wa-id={idWhatsApp ?? undefined}
+        // El id del mensaje en la base: el buscador ("Mensajes") abre el chat y salta hasta aca.
+        data-message-id={message.id}
         className={`flex ${outbound ? "justify-end" : "justify-start"} ${
           seleccionado ? "-mx-2 rounded-md bg-[var(--primary)]/12 px-2 py-0.5" : ""
         } ${

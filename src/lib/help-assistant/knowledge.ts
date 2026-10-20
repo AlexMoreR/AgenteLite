@@ -93,9 +93,12 @@ Pantalla donde ves y respondes las conversaciones. La lista está a la izquierda
 3. En el celular, para volver a la lista toca la flecha de arriba a la izquierda ("Volver a chats").
 
 ### Buscar una conversación
-1. Arriba de la lista, escribe en la casilla "Buscar chats...".
-2. La lista se filtra sola (por nombre, número o texto del mensaje).
-3. Toca la X dentro de la casilla para borrar la búsqueda.
+Funciona como el buscador de WhatsApp:
+1. Toca la casilla "Buscar chats": arriba aparecen tus "Búsquedas recientes" (los últimos chats que abriste buscando). Toca una cara para abrir ese chat, o "Borrar todo".
+2. Escribe un nombre, un número o una palabra: la lista muestra los chats que coinciden.
+3. Más abajo, en "Mensajes", salen los mensajes que contienen esa palabra (también lo dicho en los audios), con el chat y la hora. Tócalo y el chat se abre justo en ese mensaje, resaltado.
+4. Solo aparecen los chats que tú puedes ver. Se buscan los mensajes de los últimos 90 días, con 3 letras o más.
+5. Toca la X dentro de la casilla para borrar la búsqueda.
 
 ### Filtrar la lista: Mías / Sin asignar / Todas
 Debajo del buscador hay pestañas:

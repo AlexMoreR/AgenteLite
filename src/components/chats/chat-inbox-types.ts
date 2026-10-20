@@ -298,3 +298,16 @@ export type ChatSnoozedDetail = {
   conversationId: string;
   source: "agent" | "official";
 };
+
+/** Un mensaje que coincide con lo buscado (seccion "Mensajes" del buscador, ver buscar-mensajes). */
+export type MensajeEncontrado = {
+  id: string;
+  chatKey: string;
+  nombre: string;
+  telefono: string;
+  avatarUrl: string | null;
+  fragmento: string;
+  esDeUnAudio: boolean;
+  deQuien: "cliente" | "nosotros";
+  createdAt: string;
+};

@@ -50,6 +50,9 @@ export type LoadedAgentConversationDetail = {
 
 const DEFAULT_MESSAGE_BATCH_SIZE = 10;
 const MAX_MESSAGE_BATCH_SIZE = 100;
+/** Ir a un mensaje del buscador: hasta cuantos mensajes se traen, y cuantos antes de el. */
+const TOPE_PARA_IR_A_UN_MENSAJE = 400;
+const MENSAJES_DE_CONTEXTO = 10;
 
 function clampBatchSize(value?: number) {
   if (!value || !Number.isFinite(value)) {
@@ -107,9 +110,34 @@ export async function loadAgentConversationDetail(input: {
   conversationId: string;
   beforeMessageId?: string | null;
   batchSize?: number;
+  /**
+   * Abrir el chat EN este mensaje (el buscador, seccion "Mensajes"). Se trae la pagina mas nueva,
+   * pero lo bastante grande para llegar hasta el: desde el mensaje hasta el ultimo, mas unos de
+   * contexto. Queda continua con lo nuevo, asi el tiempo real, la cache y "cargar anteriores"
+   * siguen igual. Si el mensaje esta muy atras (mas de TOPE_PARA_IR_A_UN_MENSAJE), se abre normal.
+   */
+  desdeMessageId?: string | null;
 }) {
-  const batchSize = clampBatchSize(input.batchSize);
   const beforeMessageId = isValidCursor(input.beforeMessageId) ? input.beforeMessageId!.trim() : null;
+  let batchSize = clampBatchSize(input.batchSize);
+  const desdeMessageId = !beforeMessageId && isValidCursor(input.desdeMessageId) ? input.desdeMessageId!.trim() : null;
+  if (desdeMessageId) {
+    const objetivo = await prisma.message.findFirst({
+      where: { id: desdeMessageId, conversationId: input.conversationId, workspaceId: input.workspaceId },
+      select: { createdAt: true },
+    });
+    if (objetivo) {
+      const desdeElHastaHoy = await prisma.message.count({
+        where: {
+          workspaceId: input.workspaceId,
+          conversationId: input.conversationId,
+          isStatusBroadcast: false,
+          createdAt: { gte: objetivo.createdAt },
+        },
+      });
+      batchSize = Math.max(batchSize, Math.min(desdeElHastaHoy + MENSAJES_DE_CONTEXTO, TOPE_PARA_IR_A_UN_MENSAJE));
+    }
+  }
 
   const [conversation, cursorMessage] = await Promise.all([
     prisma.conversation.findFirst({

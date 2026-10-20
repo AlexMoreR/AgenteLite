@@ -112,6 +112,8 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   const chatKey = requestUrl.searchParams.get("chatKey")?.trim() || "";
   const beforeMessageId = requestUrl.searchParams.get("beforeMessageId")?.trim() || "";
   const batchSizeParam = requestUrl.searchParams.get("batchSize")?.trim() || "";
+  // Abrir el chat en un mensaje del buscador (ver loadAgentConversationDetail).
+  const desdeMessageId = requestUrl.searchParams.get("desde")?.trim() || "";
   /*
     PRECARGA: traer el chat sin "abrirlo".
 
@@ -202,6 +204,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     workspaceId: membership.workspace.id,
     conversationId: parsed.conversationId,
     beforeMessageId: beforeMessageId || null,
+    desdeMessageId: desdeMessageId || null,
     batchSize: batchSizeParam
       ? Number.parseInt(batchSizeParam, 10)
       : (beforeMessageId ? HISTORY_MESSAGE_BATCH_SIZE : INITIAL_MESSAGE_BATCH_SIZE),
