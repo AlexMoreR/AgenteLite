@@ -1131,20 +1131,23 @@ export function SharedInbox({
     // "300 123 4567" tambien encuentra el numero guardado sin espacios (igual que el servidor).
     const cifras = cifrasDeLaBusqueda(searchInputValue);
 
-    return porEstado.filter((item) => {
-      if (searchMatchIds?.has(item.id)) {
-        return true;
-      }
+    /*
+      Como en WhatsApp: en "Chats" van los que coinciden por NOMBRE o NUMERO; los que tienen la
+      palabra adentro de un mensaje salen en la seccion "Mensajes", justo debajo (buscar-mensajes).
 
+      Antes tambien entraban aca los que coincidian por el texto de un mensaje, y con una palabra
+      comun -"Cali", que el agente dice en cada chat- la lista quedaba de decenas de chats y
+      "Mensajes" terminaba al fondo, tapado por el teclado (Alex, 20-10-2026).
+    */
+    return porEstado.filter((item) => {
       return (
         normalizeChatSearchText(item.label).includes(normalizedQuery) ||
         normalizeChatSearchText(item.secondaryLabel).includes(normalizedQuery) ||
-        normalizeChatSearchText(item.lastMessage ?? "").includes(normalizedQuery) ||
         (cifras !== null &&
           (item.secondaryLabel.replace(/\D/g, "").includes(cifras) || item.label.replace(/\D/g, "").includes(cifras)))
       );
     });
-  }, [conversationItems, resueltasAca, searchInputValue, searchMatchIds, statusFilter]);
+  }, [conversationItems, resueltasAca, searchInputValue, statusFilter]);
 
   const loadMoreConversationItems = useCallback(async () => {
     if (isLoadingMoreConversationItems || !hasMoreConversationItems) {
