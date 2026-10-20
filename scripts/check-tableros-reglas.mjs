@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { cargar } from "./supervisor-cargar.mjs";
 
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas.ts");
-const { disponer } = cargar("src/features/tableros-inteligentes/services/disposicion.ts");
+const { disponer, sePisan } = cargar("src/features/tableros-inteligentes/services/disposicion.ts");
 
 let pruebas = 0;
 function prueba(nombre, fn) {
@@ -195,6 +195,74 @@ prueba("mapa: las que ya tenían lugar no se mueven al llegar una nueva", () => 
   assert.ok(Number.isFinite(c.x) && Number.isFinite(c.y));
   // Nace cerca de la tarjeta con la que está conectada.
   assert.ok(Math.hypot(c.x - 10, c.y - 20) < 700);
+});
+
+// Rectángulos de tarjeta (esquina arriba-izquierda) que se tocan, sin margen de aire.
+const encima = (p, q) => sePisan(p, q, 0);
+function sinSolapes(posiciones, revisar, nombre) {
+  const todas = [...posiciones.entries()];
+  for (const [x, p] of todas) {
+    if (!revisar.has(x)) continue;
+    for (const [y, q] of todas) {
+      if (x === y) continue;
+      assert.ok(!encima(p, q), `${nombre}: ${x} queda encima de ${y}`);
+    }
+  }
+}
+
+prueba("mapa: un tablero nuevo no tiene tarjetas encimadas (muchas tarjetas, varias formas)", () => {
+  for (const cantidad of [2, 7, 25, 60]) {
+    const ids = Array.from({ length: cantidad }, (_, i) => `t${String(i).padStart(2, "0")}`);
+    // Estrella (todas a la primera), cadena y sueltas: las tres juntan tarjetas de formas distintas.
+    const estrella = ids.slice(1).map((id) => ({ origenId: ids[0], destinoId: id }));
+    const cadena = ids.slice(1).map((id, i) => ({ origenId: ids[i], destinoId: id }));
+    for (const [forma, aristas] of [["estrella", estrella], ["cadena", cadena], ["sueltas", []]]) {
+      const pos = disponer(ids, aristas);
+      sinSolapes(pos, new Set(ids), `${forma} de ${cantidad}`);
+    }
+  }
+});
+
+prueba("mapa: una nueva que caería encima de una fija se corre a un hueco y la fija no se mueve", () => {
+  // Fijas en fila bien juntas: el resorte dejaría a la nueva justo sobre alguna.
+  const previas = new Map(Array.from({ length: 6 }, (_, i) => [`f${i}`, { x: i * 230, y: 0 }]));
+  const ids = [...previas.keys(), "n1", "n2", "n3"];
+  const aristas = [
+    { origenId: "f0", destinoId: "n1" },
+    { origenId: "n1", destinoId: "f5" },
+    { origenId: "f2", destinoId: "n2" },
+    { origenId: "f3", destinoId: "n2" },
+    { origenId: "n2", destinoId: "n3" },
+  ];
+  const pos = disponer(ids, aristas, previas);
+  for (const [id, p] of previas) assert.deepEqual(pos.get(id), p);
+  sinSolapes(pos, new Set(["n1", "n2", "n3"]), "nuevas junto a fijas");
+});
+
+prueba("mapa: agregar tarjetas de a una (como el refresco de 5 s) nunca las encima", () => {
+  let previas = new Map();
+  const ids = [];
+  const aristas = [];
+  for (let i = 0; i < 30; i += 1) {
+    const id = `k${i}`;
+    ids.push(id);
+    if (i > 0) aristas.push({ origenId: ids[Math.floor(i / 3)], destinoId: id });
+    const pos = disponer(ids, aristas, previas);
+    for (const [viejo, p] of previas) assert.deepEqual(pos.get(viejo), p);
+    sinSolapes(pos, new Set([id]), `paso ${i}`);
+    previas = pos;
+  }
+  sinSolapes(previas, new Set(ids), "al final");
+});
+
+prueba("mapa: rodeada de fijas apretadas en grilla, la nueva igual encuentra hueco", () => {
+  const previas = new Map();
+  for (let fila = 0; fila < 8; fila += 1) {
+    for (let col = 0; col < 8; col += 1) previas.set(`g${fila}-${col}`, { x: col * 224, y: fila * 134 });
+  }
+  const ids = [...previas.keys(), "nueva"];
+  const pos = disponer(ids, [{ origenId: "g3-3", destinoId: "nueva" }], previas);
+  sinSolapes(pos, new Set(["nueva"]), "grilla llena");
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);

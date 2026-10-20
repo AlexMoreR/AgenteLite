@@ -8,6 +8,11 @@
   Lo que importa para el refresco de 5 s: las tarjetas que ya tenían lugar NO se mueven. Solo se
   acomodan las nuevas (empiezan al lado de una tarjeta conectada que ya estaba). Así el mapa no
   "salta" cada vez que Claude agrega algo.
+
+  Y ninguna tarjeta nueva queda ENCIMA de otra: después de la simulación, cada nueva que pise a
+  alguna (una que ya estaba o una nueva ya acomodada) se corre al hueco libre más cercano. Las que
+  ya tenían lugar no se tocan nunca, aunque entre ellas se pisen (eso lo decidió quien las arrastró).
+  La posición es la esquina de arriba a la izquierda, como en React Flow.
 */
 
 export type Punto = { x: number; y: number };
@@ -16,6 +21,56 @@ const ANGULO_DORADO = Math.PI * (3 - Math.sqrt(5));
 const DISTANCIA_RESORTE = 220;
 const REPULSION = 90_000;
 const VUELTAS = 220;
+
+/** Lo que ocupa una tarjeta en el mapa (NodoTarjeta: 200 px de ancho y hasta 3 renglones de título). */
+export const ANCHO_TARJETA = 200;
+export const ALTO_TARJETA = 110;
+/** Aire mínimo entre dos tarjetas. */
+export const SEPARACION = 24;
+
+const PASO_HUECO = 24;
+const ANILLOS_MAXIMOS = 120;
+
+/** true si dos tarjetas (esquina arriba-izquierda) se pisan o quedan a menos de `aire` px. */
+export function sePisan(p: Punto, q: Punto, aire = SEPARACION): boolean {
+  return Math.abs(p.x - q.x) < ANCHO_TARJETA + aire && Math.abs(p.y - q.y) < ALTO_TARJETA + aire;
+}
+
+/**
+ * El lugar libre más cercano a `deseado` que no pisa a ninguna de `ocupadas`. Busca en anillos
+ * cuadrados cada vez más grandes y, dentro de cada anillo, el punto más cercano (empates por orden
+ * fijo: determinista).
+ */
+function huecoLibre(deseado: Punto, ocupadas: Punto[]): Punto {
+  const libre = (p: Punto) => ocupadas.every((q) => !sePisan(p, q));
+  if (libre(deseado)) return deseado;
+  for (let anillo = 1; anillo <= ANILLOS_MAXIMOS; anillo += 1) {
+    const candidatos: Punto[] = [];
+    for (let i = -anillo; i <= anillo; i += 1) {
+      candidatos.push(
+        { x: deseado.x + i * PASO_HUECO, y: deseado.y - anillo * PASO_HUECO },
+        { x: deseado.x + i * PASO_HUECO, y: deseado.y + anillo * PASO_HUECO },
+      );
+      if (i !== -anillo && i !== anillo) {
+        candidatos.push(
+          { x: deseado.x - anillo * PASO_HUECO, y: deseado.y + i * PASO_HUECO },
+          { x: deseado.x + anillo * PASO_HUECO, y: deseado.y + i * PASO_HUECO },
+        );
+      }
+    }
+    candidatos.sort(
+      (a, b) =>
+        Math.hypot(a.x - deseado.x, a.y - deseado.y) - Math.hypot(b.x - deseado.x, b.y - deseado.y) ||
+        a.y - b.y ||
+        a.x - b.x,
+    );
+    const encontrado = candidatos.find(libre);
+    if (encontrado) return encontrado;
+  }
+  // Tablero enorme y apretado: debajo de todo, que seguro está libre.
+  const fondo = Math.max(...ocupadas.map((q) => q.y)) + ALTO_TARJETA + SEPARACION;
+  return { x: deseado.x, y: fondo };
+}
 
 export function disponer(
   ids: string[],
@@ -116,6 +171,14 @@ export function disponer(
   for (const p of posicion.values()) {
     p.x = Math.round(p.x);
     p.y = Math.round(p.y);
+  }
+
+  // Ninguna nueva encima de otra: se acomodan de a una, en el orden de `ids`.
+  const ocupadas = [...fijas].map((id) => posicion.get(id)!);
+  for (const id of moviles) {
+    const lugar = huecoLibre(posicion.get(id)!, ocupadas);
+    posicion.set(id, lugar);
+    ocupadas.push(lugar);
   }
   return posicion;
 }

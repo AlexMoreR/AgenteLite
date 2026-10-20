@@ -8,7 +8,6 @@ import {
   MarkerType,
   ReactFlow,
   applyNodeChanges,
-  type Edge,
   type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -23,6 +22,7 @@ import { disponer, type Punto } from "../services/disposicion";
 import { useRefrescoDelTablero, type ContenidoNuevo } from "../hooks/useRefrescoDelTablero";
 import { COLOR_DEL_ESTADO } from "./colores";
 import { FichaTarjeta } from "./FichaTarjeta";
+import { FlechaFlotante, type FlechaDeTablero } from "./FlechaFlotante";
 import { NodoTarjeta, type NodoDeTarjeta } from "./NodoTarjeta";
 
 /*
@@ -34,6 +34,7 @@ import { NodoTarjeta, type NodoDeTarjeta } from "./NodoTarjeta";
 */
 
 const TIPOS_DE_NODO = { tarjeta: NodoTarjeta };
+const TIPOS_DE_FLECHA = { flotante: FlechaFlotante };
 
 type Props = {
   tableros: TableroResumen[];
@@ -134,7 +135,7 @@ export function TablerosInteligentesVista({ tableros, tableroId, inicial, tarjet
     setNodos((previos) => applyNodeChanges(cambios, previos));
   }, []);
 
-  const aristas = useMemo<Edge[]>(() => {
+  const aristas = useMemo<FlechaDeTablero[]>(() => {
     const estadoDe = new Map(tarjetas.map((tarjeta) => [tarjeta.id, tarjeta.estado]));
     const visible = (id: string) => {
       const estado = estadoDe.get(id);
@@ -147,6 +148,8 @@ export function TablerosInteligentesVista({ tableros, tableroId, inicial, tarjet
         id: conexion.id,
         source: conexion.origenId,
         target: conexion.destinoId,
+        type: "flotante" as const,
+        data: { color, atenuada },
         selectable: false,
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 18, height: 18 },
         style: { stroke: color, strokeWidth: 1.5, opacity: atenuada ? 0.15 : 0.8 },
@@ -263,9 +266,10 @@ export function TablerosInteligentesVista({ tableros, tableroId, inicial, tarjet
             El tablero está vacío. Las ideas que anote Claude aparecen acá en unos segundos.
           </div>
         ) : vista === "mapa" ? (
-          <ReactFlow<NodoDeTarjeta, Edge>
+          <ReactFlow<NodoDeTarjeta, FlechaDeTablero>
             nodes={nodos}
             edges={aristas}
+            edgeTypes={TIPOS_DE_FLECHA}
             nodeTypes={TIPOS_DE_NODO}
             onNodesChange={alMoverNodos}
             onNodeClick={(_, nodo) => setAbierta(nodo.id)}

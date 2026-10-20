@@ -898,3 +898,29 @@ body {
     animation: none;
   }
 }
+/*
+  Tablero IA: puntos que viajan por cada flecha, del origen al destino (FlechaFlotante.tsx).
+  Un solo <path> punteado por flecha y la animacion es de stroke-dashoffset: la hace el navegador,
+  sin JS por cuadro, para que el celular no sufra. El ciclo (16) es lo que suman guion + hueco.
+  Sin movimiento si la persona lo desactivo: se ocultan los puntos y queda la linea quieta.
+*/
+@keyframes tableroIaFlujo {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -16; }
+}
+
+.tablero-ia-flujo {
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 15.9;
+  opacity: 0.9;
+  pointer-events: none;
+  animation: tableroIaFlujo 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tablero-ia-flujo {
+    animation: none;
+    display: none;
+  }
+}
