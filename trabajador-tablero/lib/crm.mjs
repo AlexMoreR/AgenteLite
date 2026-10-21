@@ -39,7 +39,11 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     plan: (id, plan) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/plan`, { plan }),
     resultado: (id, resultado) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/resultado`, resultado),
     subida: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/subida`, datos),
-    error: (id, motivo, zonaProtegida) =>
-      pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/error`, { motivo, ...(zonaProtegida?.length ? { zonaProtegida } : {}) }),
+    error: (id, motivo, zonaProtegida, reversion) =>
+      pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/error`, {
+        motivo,
+        ...(zonaProtegida?.length ? { zonaProtegida } : {}),
+        ...(reversion ? { reversion } : {}),
+      }),
   };
 }

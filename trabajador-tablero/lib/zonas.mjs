@@ -1,6 +1,7 @@
-// Zonas protegidas: qué rutas del repo son de Meta Ads, del bot de ventas o del libro V3 (globs en la
-// configuración de cada repo). Si el cambio toca una que el dueño no aprobó en la pantalla, la tarjeta
-// queda ERROR y marcada con esa zona.
+// Zonas protegidas: qué rutas del repo son de los chats, del bot de ventas (agentes y flujos), del libro
+// V3 o de Meta Ads (globs en la configuración de cada repo). Si el cambio toca alguna, la tarjeta se
+// construye y prueba igual pero NO sube sola: queda POR_REVISAR marcada con esa zona, esperando el sí
+// del dueño en la pantalla.
 
 /** Un glob simple a expresión regular: "**" = cualquier cosa (también "/"), "*" = sin "/", "?" = un carácter. */
 export function globARegex(glob) {

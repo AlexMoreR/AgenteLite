@@ -1,6 +1,7 @@
 // Git para el trabajador: worktrees temporales (nunca toca la copia de trabajo del repo), ramas
-// tablero/<id>-<slug> y el link de GitHub. El ÚNICO push a la rama base (main) está en `pushARamaBase`,
-// y solo lo llama la etapa de subir (después del sí final del dueño).
+// tablero/<id>-<slug> y el link de GitHub. Los ÚNICOS push a la rama base (main) están en `pushARamaBase`
+// y `revertirEnRamaBase`, y solo los llama la etapa de subir (sube sola si todo pasó, o con el sí final
+// del dueño si toca una zona protegida). Nunca con --force.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -99,7 +100,44 @@ export async function pushDeRama(cwd, remoto, rama) {
   await git(cwd, ["push", "--force", remoto, `HEAD:refs/heads/${rama}`]);
 }
 
-/** El push a la rama base (main): SOLO desde la etapa de subir, después del sí final. Sin --force. */
+/** El push a la rama base (main): SOLO desde la etapa de subir (sube sola o con el sí final). Sin --force. */
 export async function pushARamaBase(cwd, remoto, ramaBase) {
   await git(cwd, ["push", remoto, `HEAD:refs/heads/${ramaBase}`]);
+}
+
+const lineas = (texto) =>
+  texto
+    .split(/\r?\n/)
+    .map((linea) => linea.trim())
+    .filter(Boolean);
+
+/**
+ * Deshace en la rama base lo que subió la etapa de subir (los commits `antes..commit`) cuando el
+ * despliegue falló: `git revert` encima de lo último de la rama base y push SIN --force (si alguien
+ * subió algo mientras tanto, el revert va encima y no se pisa nada). Las carpetas de migración que
+ * agregó el commit se conservan: la migración ya pudo correr en la base (es aditiva) y Prisma tiene
+ * que seguir encontrándola. Reintenta el push hasta 3 veces si la rama base se movió. Devuelve el
+ * commit del revert; lanza ErrorDeGit si no pudo.
+ */
+export async function revertirEnRamaBase(cwd, { remoto, ramaBase, antes, commit, carpetaMigraciones, identidad }) {
+  let ultimo = "";
+  for (let intento = 1; intento <= 3; intento += 1) {
+    await git(cwd, ["fetch", remoto]);
+    await git(cwd, ["reset", "--hard", `${remoto}/${ramaBase}`]);
+    const revert = await git(cwd, ["revert", "--no-commit", `${antes}..${commit}`], { identidad, permitirFallo: true });
+    if (revert.codigo !== 0) {
+      await git(cwd, ["revert", "--abort"], { permitirFallo: true });
+      throw new ErrorDeGit(`git revert ${antes.slice(0, 10)}..${commit.slice(0, 10)} chocó: ${ultimasLineas(`${revert.errores}\n${revert.salida}`, 15)}`);
+    }
+    if (carpetaMigraciones) {
+      const agregadas = lineas((await git(cwd, ["diff", "--name-only", "--diff-filter=A", antes, commit, "--", carpetaMigraciones])).salida);
+      if (agregadas.length) await git(cwd, ["checkout", commit, "--", ...agregadas]);
+    }
+    const mensaje = [`revert: deshacer ${commit.slice(0, 10)} (el despliegue falló)`, "Lo deshizo solo el trabajador del Tablero IA. Las migraciones nuevas se conservan."];
+    await git(cwd, ["commit", "--allow-empty", "-m", mensaje[0], "-m", mensaje[1]], { identidad });
+    const push = await git(cwd, ["push", remoto, `HEAD:refs/heads/${ramaBase}`], { permitirFallo: true });
+    if (push.codigo === 0) return (await git(cwd, ["rev-parse", "HEAD"])).salida.trim();
+    ultimo = ultimasLineas(`${push.errores}\n${push.salida}`, 10);
+  }
+  throw new ErrorDeGit(`No se pudo empujar el revert a ${ramaBase} (3 intentos): ${ultimo}`);
 }

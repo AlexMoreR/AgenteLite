@@ -159,8 +159,16 @@ export type ResultadoVista = {
   linkRama?: string | null;
   commit?: string | null;
   migracion?: string | null;
-  subida?: { commit?: string | null; version?: string | null; cuando?: string };
-  error?: { motivo?: string; en?: string; cuando?: string };
+  /** El trabajador la quiso subir sola (subirSolo prendido). */
+  subeSolo?: boolean;
+  subida?: { commit?: string | null; version?: string | null; linkCommit?: string | null; cuando?: string };
+  error?: {
+    motivo?: string;
+    en?: string;
+    cuando?: string;
+    /** El despliegue falló después de subir: el trabajador hizo revert del commit en main. */
+    reversion?: { commit?: string | null; revert?: string | null; ok?: boolean };
+  };
 };
 
 export type ConexionVista = { id: string; origenId: string; destinoId: string };

@@ -36,11 +36,13 @@ export async function procesar({ crm, config, registro }, tarjeta, hacer) {
     if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este trabajador no sabe hacer (¿hay que actualizarlo?).`);
     const salida = await etapa(contexto, tarjeta);
     if (vencida) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se trabajaba.");
-    if (hacer === "planear") await crm.plan(tarjeta.id, salida.plan);
-    else if (hacer === "construir") await crm.resultado(tarjeta.id, salida);
-    else await crm.subida(tarjeta.id, { commit: salida.commit, version: salida.version });
-    registro.info(`listo "${tarjeta.titulo}" (${hacer})`);
-    return { ok: true };
+    let respuesta;
+    if (hacer === "planear") respuesta = await crm.plan(tarjeta.id, salida.plan);
+    else if (hacer === "construir") respuesta = await crm.resultado(tarjeta.id, salida);
+    else respuesta = await crm.subida(tarjeta.id, { commit: salida.commit, version: salida.version, linkCommit: salida.linkCommit });
+    registro.info(`listo "${tarjeta.titulo}" (${hacer})${respuesta?.estado ? `: quedó ${respuesta.estado}` : ""}`);
+    // estado = SUBIENDO: se construyó y sube sola; el que llama la toma enseguida, sin esperar el minuto.
+    return { ok: true, estado: respuesta?.estado ?? null };
   } catch (error) {
     const motivo = error instanceof Error ? error.message : String(error);
     if (vencida) {
@@ -49,7 +51,7 @@ export async function procesar({ crm, config, registro }, tarjeta, hacer) {
     }
     registro.error(`"${tarjeta.titulo}" (${hacer}) falló: ${motivo}`);
     try {
-      await crm.error(tarjeta.id, motivo, error?.zonas);
+      await crm.error(tarjeta.id, motivo, error?.zonas, error?.reversion);
     } catch (otro) {
       registro.error(`no se pudo avisar el error al CRM: ${otro.message}`);
     }

@@ -73,12 +73,15 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "pidio: antes leerle el titulo y esperar que diga 'si, borrala'; texto_confirmacion es lo que dijo, tal cual. " +
           "Nunca borrar por cuenta propia. No se borra lo que tiene el trabajador (PLANEANDO, EN_CURSO, SUBIENDO) ni lo de zona protegida. " +
           "TRABAJADOR (fase 2): una Tarea con repo (gestion o aizencrm) la ejecuta un PC aparte: escribe un plan (PLAN_LISTO), " +
-          "el dueno lo aprueba, la construye y prueba en una rama (POR_REVISAR), el dueno da el si final y la sube (HECHO), o " +
+          "el dueno lo aprueba, la construye y prueba en una rama y, si todo pasa, la sube sola a produccion (SUBIENDO -> HECHO, " +
+          "con el link del commit); si el despliegue falla, deshace el commit y queda ERROR. Si toca chats, agentes, el libro V3 " +
+          "o Meta Ads (zona protegida) no sube sola: queda POR_REVISAR esperando el si final del dueno. Si algo falla antes, " +
           "queda ERROR con el motivo. Esos estados los pone solo el trabajador; ver_plan_y_resultado muestra el plan, el " +
           "resultado y quien aprobo que. aprobar_tarjeta (momento tarea, plan o subir) se usa SOLO si la persona lo dijo " +
           "explicitamente en esta conversacion: antes leerle el titulo y que se aprueba y esperar que diga 'si, apruebo'; " +
           "texto_confirmacion es lo que dijo, tal cual. Nunca aprobar por cuenta propia. El si final (subir) lo da solo el " +
-          "dueno. Si toca Meta Ads, el bot de ventas o el libro V3, marcar zona_protegida: esas se aprueban solo en la " +
+          "dueno, y solo aplica a chats, agentes, zonas protegidas y tarjetas que ya estaban POR_REVISAR. " +
+          "Si toca Meta Ads, el bot de ventas, el libro V3 o los chats, marcar zona_protegida: esas se aprueban solo en la " +
           "pantalla (Claude puede poner la zona, no quitarla). " +
           "CUAL TABLERO (se habla por voz y hay varios, por ejemplo 'Magilus General' de Alexander y 'Desarrollo " +
           "Emanuel'): si el negocio tiene mas de un tablero y la persona no nombro cual, preguntarle antes de actuar. " +

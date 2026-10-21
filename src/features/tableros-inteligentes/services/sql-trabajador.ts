@@ -57,7 +57,8 @@ WHERE b."workspaceId" = $1
 LIMIT 1`;
 
 /**
- * Toma UNA tarjeta, la que más espera (actualizadoEn más viejo): APROBADO -> PLANEANDO, PLAN_APROBADO
+ * Toma UNA tarjeta: primero una SUBIENDO pendiente (la que se acaba de construir y sube sola no espera
+ * detrás de otras), y si no, la que más espera (actualizadoEn más viejo): APROBADO -> PLANEANDO, PLAN_APROBADO
  * -> EN_CURSO, SUBIENDO pendiente (sin candado) -> SUBIENDO con candado. Solo tipos con aprobación,
  * con repo de la lista ($3, text[]), sin borrar. Una con zona protegida solo si su última aprobación fue
  * en la pantalla. $4 = vencimiento del candado (ISO).
@@ -87,7 +88,7 @@ WITH elegida AS (
         LIMIT 1
       ) = 'pantalla'
     )
-  ORDER BY c."actualizadoEn" ASC, c."creadoEn" ASC
+  ORDER BY (c."estado" = 'SUBIENDO') DESC, c."actualizadoEn" ASC, c."creadoEn" ASC
   LIMIT 1
   FOR UPDATE OF c SKIP LOCKED
 )

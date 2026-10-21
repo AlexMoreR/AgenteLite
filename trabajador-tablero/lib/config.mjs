@@ -39,10 +39,10 @@ export const HERRAMIENTAS_PROHIBIDAS = [
 ];
 
 const TIEMPOS_POR_DEFECTO = {
-  // Un poco menos que el tope del CRM (20 / 90 / 30 min), para avisar el error antes de que venza.
+  // Un poco menos que el tope del CRM (20 / 90 / 45 min), para avisar el error antes de que venza.
   planMinutos: 19,
   construirMinutos: 88,
-  subirMinutos: 29,
+  subirMinutos: 44,
   latidoSegundos: 60,
   intervaloSegundos: 60,
   // Cada comando de verificación (tsc, build, pruebas) como mucho esto.
@@ -88,9 +88,17 @@ export function completarConfig(datos, base = process.cwd()) {
       errores.push(`repos.${clave}.ruta: la carpeta del repositorio en este PC.`);
       continue;
     }
+    const zonasProtegidas = repo.zonasProtegidas && typeof repo.zonasProtegidas === "object" ? repo.zonasProtegidas : {};
+    const subirSolo = repo.subirSolo === true;
+    // Un descuido en la configuración no puede hacer que un cambio de chats suba solo: en AizenCRM,
+    // subirSolo exige la zona CHATS con sus rutas.
+    if (subirSolo && clave === "aizencrm" && !(Array.isArray(zonasProtegidas.CHATS) && zonasProtegidas.CHATS.length)) {
+      errores.push(`repos.${clave}.subirSolo está prendido pero falta la zona CHATS en zonasProtegidas: no se prende sin ella.`);
+    }
     try {
       repos[clave] = {
         clave,
+        subirSolo,
         ruta: path.resolve(base, repo.ruta),
         ramaBase: typeof repo.ramaBase === "string" ? repo.ramaBase : "main",
         remoto: typeof repo.remoto === "string" ? repo.remoto : "origin",
@@ -101,7 +109,7 @@ export function completarConfig(datos, base = process.cwd()) {
         carpetaMigraciones: typeof repo.carpetaMigraciones === "string" ? repo.carpetaMigraciones.replace(/\\/g, "/") : null,
         ensayoPglite: comando(repo.ensayoPglite, `repos.${clave}.ensayoPglite`),
         ensayoProduccion: repo.ensayoProduccion?.tablaGuia ? { tablaGuia: String(repo.ensayoProduccion.tablaGuia) } : null,
-        zonasProtegidas: repo.zonasProtegidas && typeof repo.zonasProtegidas === "object" ? repo.zonasProtegidas : {},
+        zonasProtegidas,
         subida: {
           ciBuscar: comando(repo.subida?.ciBuscar, `repos.${clave}.subida.ciBuscar`),
           ciEsperar: comando(repo.subida?.ciEsperar, `repos.${clave}.subida.ciEsperar`),

@@ -5,9 +5,10 @@
 //   (usa TRANSICIONES_DEL_TRABAJADOR y AL_TOMAR de services/reglas-trabajador.ts);
 // - un repo git TEMPORAL de ensayo con su "GitHub" (un repo bare local: los push van ahí);
 // - `claude`, `ssh` y `gh` FALSOS (pruebas/*-falso.mjs) en vez de los de verdad.
-// Recorre PLANEANDO -> PLAN_LISTO -> EN_CURSO -> POR_REVISAR -> SUBIENDO -> HECHO y los casos de ERROR:
-// tiempo máximo, zona protegida, verificación (tsc) que falla, lint nuevo, conflicto al subir, Claude
-// que no cambia nada, y el vencimiento por latido.
+// Recorre PLANEANDO -> PLAN_LISTO -> EN_CURSO -> POR_REVISAR -> SUBIENDO -> HECHO, la zona protegida
+// (queda POR_REVISAR con la zona marcada aunque suba solo) y los casos de ERROR: tiempo máximo,
+// verificación (tsc) que falla, lint nuevo, conflicto al subir, Claude que no cambia nada, y el
+// vencimiento por latido.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -186,8 +187,12 @@ const servidor = http.createServer(async (pedido, respuesta) => {
   tarjeta.estado = reglas.TRANSICIONES_DEL_TRABAJADOR[accion].a;
   tarjeta.venceEn = null;
   if (accion === "plan") Object.assign(tarjeta, { plan: reglas.planDeEntrada(cuerpo.plan), resultado: null });
-  if (accion === "resultado") tarjeta.resultado = reglas.resultadoDeEntrada(cuerpo);
-  if (accion === "subida") tarjeta.resultado = { ...tarjeta.resultado, subida: { commit: cuerpo.commit, version: cuerpo.version } };
+  if (accion === "resultado") {
+    tarjeta.resultado = reglas.resultadoDeEntrada(cuerpo);
+    if (cuerpo.zonaProtegida) tarjeta.zonaProtegida = reglas.unirZonas(tarjeta.zonaProtegida, reglas.zonasDeEntrada(cuerpo.zonaProtegida));
+    tarjeta.estado = reglas.destinoDelResultado({ ...tarjeta.resultado, zonaProtegida: tarjeta.zonaProtegida });
+  }
+  if (accion === "subida") tarjeta.resultado = { ...tarjeta.resultado, subida: { commit: cuerpo.commit, version: cuerpo.version, linkCommit: cuerpo.linkCommit } };
   if (accion === "error") {
     tarjeta.resultado = { ...(tarjeta.resultado ?? {}), error: { motivo: reglas.motivoDeEntrada(cuerpo.motivo) } };
     if (cuerpo.zonaProtegida) tarjeta.zonaProtegida = reglas.unirZonas(tarjeta.zonaProtegida, reglas.zonasDeEntrada(cuerpo.zonaProtegida));
@@ -199,7 +204,7 @@ const PUERTO = servidor.address().port;
 
 const node = process.execPath;
 const falso = (nombre) => path.join(AQUI, nombre);
-const crearConfig = (tiempos = {}) =>
+const crearConfig = (tiempos = {}, delRepo = {}) =>
   completarConfig({
     urlCrm: `http://127.0.0.1:${PUERTO}`,
     claveTrabajador: CLAVE,
@@ -219,7 +224,7 @@ const crearConfig = (tiempos = {}) =>
         carpetaMigraciones: "prisma/migrations",
         ensayoPglite: [node, "ensayo.mjs"],
         ensayoProduccion: { tablaGuia: "TarjetaTablero" },
-        zonasProtegidas: { BOT_VENTAS: ["src/bot/**"], LIBRO_V3: ["src/agente-v3/**"], META_ADS: ["src/ads/**"] },
+        zonasProtegidas: { BOT_VENTAS: ["src/bot/**"], LIBRO_V3: ["src/agente-v3/**"], META_ADS: ["src/ads/**"], CHATS: ["src/chats/**"] },
         subida: {
           ciBuscar: [node, falso("gh-falso.mjs"), "buscar", "{commit}"],
           ciEsperar: [node, falso("gh-falso.mjs"), "esperar", "{run}"],
@@ -227,6 +232,7 @@ const crearConfig = (tiempos = {}) =>
           campoVersion: "version",
           versionMinutos: 1,
         },
+        ...delRepo,
       },
     },
   });
@@ -341,16 +347,17 @@ try {
     sinRestos();
   });
 
-  await prueba("ERROR por zona protegida: toca src/bot/, se marca BOT_VENTAS y no se empuja nada", async () => {
+  await prueba("zona protegida: toca src/bot/, se marca BOT_VENTAS y queda POR_REVISAR esperando el sí (no sube sola)", async () => {
     const id = nueva("Cambiar el saludo [zona]", "PLAN_APROBADO", { plan: "El plan" });
-    const ramasAntes = ramasDelRemoto();
-    const resultado = await vuelta();
-    assert.equal(resultado.ok, false);
+    const mainAhora = shaDe("main");
+    const resultado = await vuelta(crearConfig({}, { subirSolo: true }));
+    assert.equal(resultado.ok, true, resultado.motivo);
     const t = tarjetas.get(id);
-    assert.equal(t.estado, "ERROR");
-    assert.match(t.resultado.error.motivo, /Toca zona protegida, aprobar en pantalla: BOT_VENTAS \(src\/bot\/respuesta\.ts\)/);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.equal(t.resultado.subeSolo, false);
+    assert.match(t.resultado.resumen, /espera tu sí \(zona BOT_VENTAS \(src\/bot\/respuesta\.ts\)\)/);
     assert.deepEqual(t.zonaProtegida, ["BOT_VENTAS"]);
-    assert.deepEqual(ramasDelRemoto(), ramasAntes, "no se empujó la rama");
+    assert.equal(shaDe("main"), mainAhora, "no tocó main");
     sinRestos();
   });
 
@@ -367,7 +374,7 @@ try {
     const resultado = await vuelta();
     assert.equal(resultado.ok, false);
     assert.equal(tarjetas.get(id).estado, "ERROR");
-    assert.match(tarjetas.get(id).resultado.error.motivo, /Falló la verificación[\s\S]*error TS2322/);
+    assert.match(tarjetas.get(id).resultado.error.motivo, /No pasó la verificación\. No se subió nada\.\nDetalle técnico[\s\S]*error TS2322/);
     sinRestos();
   });
 

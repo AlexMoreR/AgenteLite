@@ -284,15 +284,34 @@ la IA pausada no lo contesta el agente.
   producción): pregunta cada minuto por HTTPS (`POST /api/trabajador/tablero/tomar`, con su clave) y la
   lleva por APROBADO → PLANEANDO (escribe un plan con `claude -p --permission-mode plan`) → PLAN_LISTO →
   (el dueño aprueba el plan) PLAN_APROBADO → EN_CURSO (lo construye en la rama `tablero/<id>-<slug>`, corre
-  tsc, lint, build y pruebas él mismo, revisa que no toque zonas protegidas, ensaya la migración en PGlite y
-  en producción dentro de BEGIN…ROLLBACK, y sube SOLO la rama) → POR_REVISAR → (el sí final, solo el dueño)
-  SUBIENDO (rebase, verifica de nuevo, push a main, espera el CI y comprueba `/api/version`) → HECHO; o
-  ERROR con el motivo. Esos estados los pone solo el trabajador (`cambiar_estado_tarjeta` no puede). Un
-  solo trabajo a la vez por negocio (candado con vencimiento: 5 min sin latido, tope 20/90/30 min por etapa;
+  tsc, lint, build y pruebas él mismo, marca las zonas protegidas que toca, ensaya la migración en PGlite y
+  en producción dentro de BEGIN…ROLLBACK, y sube SOLO la rama) → SUBIENDO (rebase; si main no cambió no
+  vuelve a compilar, si cambió verifica y ensaya de nuevo; push a main, espera el CI y comprueba
+  `/api/version`) → HECHO con el resumen, el commit y su link; o ERROR con el motivo en palabras sencillas
+  y el detalle técnico. Esos estados los pone solo el trabajador (`cambiar_estado_tarjeta` no puede). Un
+  solo trabajo a la vez por negocio (candado con vencimiento: 5 min sin latido, tope 20/90/45 min por etapa;
   vencida = ERROR "se pasó del tiempo"). Desde ERROR el dueño reintenta (vuelve a APROBADO o a
   PLAN_APROBADO). Aprueban: el dueño todo; un aprobador (`AprobadorTablero`) DESARROLLO la tarea y el plan
   de tarjetas con repo; el sí final solo el dueño. Una tarjeta con zona protegida (Meta Ads, bot de ventas,
-  libro V3) se aprueba solo en la pantalla y solo el dueño; Claude puede ponerle la zona, no quitarla.
+  libro V3, chats) se aprueba solo en la pantalla y solo el dueño; Claude puede ponerle la zona, no quitarla.
+- **Tablero IA — sube solo (21-oct-2026, decisión de Alexander)**: el flujo es Planear → Aprobar plan →
+  Hacer, y Hacer incluye subir a producción. Con `subirSolo` prendido en la configuración del trabajador
+  (por repo), una tarjeta que pasa todo y no toca una zona protegida pasa de EN_CURSO directo a SUBIENDO
+  (`destinoDelResultado` en `reglas-trabajador.ts`) y `/tomar` la elige antes que cualquier otra; ya no
+  pasa por POR_REVISAR. Las zonas protegidas son CHATS (envío y recepción de WhatsApp, Evolution API,
+  webhooks, la bandeja de las asesoras), BOT_VENTAS (bot de ventas, agentes V2/V3, flujos y sus
+  pantallas), LIBRO_V3 y META_ADS (también la pantalla de campañas); el trabajador las detecta por los
+  archivos que tocó (globs en su `config.local.json`). Si toca alguna, la construye y prueba igual pero
+  queda POR_REVISAR marcada con la zona hasta el "Sí, subir a producción" del dueño en la pantalla (antes
+  quedaba ERROR). El plan lo dice desde el principio: "Al terminar: sube solo a producción" o "Al
+  terminar: espera tu sí (toca chats / agentes / Meta Ads)". Si el despliegue falla después de subir (CI
+  que falla, `/api/version` que no muestra el commit o no contesta), el trabajador hace `git revert` en
+  main (sin forzar, conservando las carpetas de migración) y la deja ERROR "Se subió, no arrancó y se
+  deshizo"; si no puede, el motivo empieza con "URGENTE: no se pudo deshacer, revisar a mano". El
+  historial de la tarjeta guarda "construido, sube solo" o "construido, espera tu sí (zona X)", "subido a
+  main, commit X; en producción, versión X", o el error con la reversión (`resultado.error.reversion`).
+  Con `subirSolo` apagado todo sigue como antes (POR_REVISAR); en aizencrm el trabajador no arranca con
+  `subirSolo` prendido si le falta la zona CHATS.
   Contadores: "te toca" = POR_APROBAR + PLAN_LISTO + POR_REVISAR + ERROR + FALLIDO; "en curso" =
   PLANEANDO + PLAN_APROBADO + EN_CURSO + SUBIENDO; "siguen" = IDEA + APROBADO. En la pantalla, la ficha
   muestra repo, zona, plan y resultado con los botones Aprobar tarea / Aprobar plan / Sí, subir a
@@ -374,6 +393,12 @@ la IA pausada no lo contesta el agente.
   `aprobar_tarjeta`). Solo conoce los repos `gestion` y `aizencrm` (lista fija en el código). Las tarjetas
   sin repo siguen la fase 1 (APROBADO → EN_CURSO → HECHO a mano). Los latidos del trabajador no quedan en
   el historial.
+- **Tablero IA, sube solo: nadie mira el resultado antes de producción.** Lo frena que compile, pasen las
+  pruebas que ya existen, no haya lint nuevo y la migración se ensaye; un error de lógica que compile bien
+  llega igual. La lista de rutas de chats, agentes y Meta Ads es a mano (globs en `config.local.json` de
+  aizen1): un archivo nuevo de esas áreas que no calce con ninguna subiría solo. Deshacer (revert) no
+  deshace la base: lo que agregó una migración que ya corrió queda (es aditiva). No hay pruebas
+  automáticas nuevas del flujo de subir solo ni de la reversión.
 - **Tablero IA: borrar.** No se borran tableros. `borrar_tarjeta` (MCP) es un borrado SUAVE (`borradoEn`):
   quita la tarjeta con todas sus flechas en un paso, guarda esas flechas en el historial y se deshace con
   `deshacer_cambio_tarjeta` (vuelven las flechas cuya otra punta no está borrada). Por el MCP no borra lo
@@ -428,9 +453,17 @@ la IA pausada no lo contesta el agente.
   qué no es la dueña. Esta regla es solo del Tablero IA: `client-workspace-access.ts` no cambió. Lo mismo
   vale para borrar por voz una tarjeta PLAN_LISTO o ERROR con `borrar_tarjeta`: antes de borrar, Claude
   le lee el título a la persona y espera el "sí, bórrala"; nunca borra por su cuenta.
-- **Tablero IA: el sí final despliega.** Aprobar "subir" hace que el trabajador empuje a `main`, y todo
-  push a `main` de AizenCRM se despliega solo. El trabajador vuelve a correr la verificación y el ensayo de
-  la migración antes de subir; si algo falla, no sube y queda ERROR.
+- **Tablero IA: el trabajador sube solo a producción.** Desde el 21-oct-2026, con `subirSolo` prendido,
+  una tarjeta que pasa todo y no toca chats, agentes, el libro V3 ni Meta Ads se empuja a `main` sin el sí
+  final, y todo push a `main` de AizenCRM se despliega solo. Aprobar el plan es la última aprobación. El sí
+  final ("subir") queda para las de zona protegida y las que ya estaban POR_REVISAR; antes de subir el
+  trabajador verifica y ensaya de nuevo si `main` cambió; si algo falla, no sube y queda ERROR.
+- **Tablero IA: la reversión automática hace un commit en main.** Si el despliegue falla después de
+  subir, el trabajador empuja un `revert` a `main` (sin forzar), que también se despliega. No deshace la
+  base (una migración que ya corrió deja lo que agregó) y conserva la carpeta de la migración. Si la
+  tarjeta dice "URGENTE: no se pudo deshacer, revisar a mano", el commit roto sigue en `main`: revertirlo
+  a mano. Para actualizar aizen1 al flujo nuevo hay que traer el código, agregar `subirSolo` y la zona
+  CHATS en `config.local.json` (y `subirMinutos` 44) y reiniciar el trabajador.
 - **Tablero IA: no confundir tableros por voz.** Alexander ('Magilus General') y Emanuel ('Desarrollo
   Emanuel') le hablan a Claude por voz. En la pantalla cada uno ve sus tableros, pero la clave del MCP es
   del negocio y ve TODOS: por el MCP nada impide escribir en el tablero del otro. Por eso las

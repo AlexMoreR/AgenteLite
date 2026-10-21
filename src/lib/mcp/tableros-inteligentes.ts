@@ -56,6 +56,10 @@ import {
   aparte): arma un plan, el dueño lo aprueba, lo construye en una rama, el dueño da el sí final y lo
   sube. ver_plan_y_resultado muestra todo eso; aprobar_tarjeta aprueba la tarea, el plan o el sí final
   SOLO cuando la persona lo dijo explícitamente en la conversación.
+  Desde el 21-oct-2026 (Planear -> Aprobar plan -> Hacer): si todo pasa, el trabajador sube solo a
+  producción y la deja HECHO con el link del commit; si el despliegue falla, deshace el commit (revert)
+  y queda ERROR. El sí final ('subir') queda para las tarjetas que tocan chats, agentes, el libro V3 o
+  Meta Ads (zona protegida) y las que ya estaban POR_REVISAR.
 
   Lo que Claude NO puede hacer, por diseño:
   - Aprobar por su cuenta. La única puerta es aprobar_tarjeta: el servidor exige un texto de
@@ -126,7 +130,7 @@ const PROPIEDAD_ZONA = {
   type: "array",
   items: { type: "string", enum: [...ZONAS_PROTEGIDAS] },
   description:
-    "Zonas protegidas que toca: META_ADS (anuncios), BOT_VENTAS (el bot que atiende), LIBRO_V3 (el libro del agente V3). Una tarjeta con zona protegida se aprueba SOLO en la pantalla. Opcional.",
+    "Zonas protegidas que toca: META_ADS (anuncios y campañas), BOT_VENTAS (el bot que atiende, agentes V2/V3 y flujos), LIBRO_V3 (el libro del agente V3), CHATS (envío y recepción de WhatsApp, Evolution, webhooks, la bandeja de las asesoras). Una tarjeta con zona protegida se aprueba SOLO en la pantalla y no sube sola a producción: espera el sí final del dueño. Opcional.",
 } as const;
 
 export const HERRAMIENTAS_MCP_TABLEROS = [
@@ -383,7 +387,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "ver_plan_y_resultado",
     title: "Ver el plan y el resultado del trabajador",
     description:
-      "Muestra en qué va una tarjeta que ejecuta el trabajador: estado, repo, zona protegida, el plan que escribió, el resultado (resumen, pruebas, si pasó, la rama con su link, commit, migración, la subida o el error con su motivo) y quién aprobó qué (la tarea, el plan, el sí final), cuándo y por dónde (pantalla o voz). Llamarla antes de aprobar_tarjeta para poder leerle a la persona lo que aprueba.",
+      "Muestra en qué va una tarjeta que ejecuta el trabajador: estado, repo, zona protegida, el plan que escribió, el resultado (resumen, pruebas, si pasó, si sube sola, la rama con su link, commit, migración, la subida con el link del commit o el error con su motivo y la reversión si la hubo) y quién aprobó qué (la tarea, el plan, el sí final), cuándo y por dónde (pantalla o voz). Llamarla antes de aprobar_tarjeta para poder leerle a la persona lo que aprueba.",
     inputSchema: {
       type: "object",
       properties: { tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero)" } },
@@ -398,6 +402,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     description:
       "Úsala SOLO si la persona lo dijo explícitamente en esta conversación. Antes, léele el título y qué se aprueba, y espera que diga 'sí, apruebo'. Nunca apruebes por tu cuenta. " +
       "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del trabajador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan) o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
+      "'subir' solo aplica a las tarjetas que tocan chats, agentes o una zona protegida (Meta Ads, libro V3) y a las que ya estaban POR_REVISAR de antes: las demás las sube solo el trabajador cuando todo pasa (quedan HECHO con el link del commit, o ERROR si algo falla). " +
       "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con zona protegida no se aprueba acá: solo en la pantalla. " +
       "Aprueba la cuenta que creó la clave de Claude (no la que mira la pantalla): tiene que ser la cuenta dueña de este negocio. Si no lo es, el error dice qué cuenta llegó y por qué." +
       REGLA_DEL_TABLERO,
@@ -464,11 +469,13 @@ function queFalta(estado: string, conRepo: boolean, conZona: boolean): string {
     case "EN_CURSO":
       return conRepo ? "El trabajador la está construyendo y probando." : "En curso.";
     case "POR_REVISAR":
-      return "Lista en su rama: espera el sí final del dueño para subir a producción.";
+      return conZona
+        ? "Lista en su rama: toca una zona protegida (chats, agentes, libro V3 o Meta Ads), así que no sube sola. Espera el sí final del dueño, en la pantalla."
+        : "Lista en su rama: espera el sí final del dueño para subir a producción.";
     case "SUBIENDO":
-      return "El dueño dio el sí final: el trabajador la está subiendo a producción.";
+      return "El trabajador la está subiendo a producción (sube sola si pasó todo, o el dueño dio el sí final). Si el despliegue falla, la deshace y queda ERROR.";
     case "HECHO":
-      return "Hecha.";
+      return conRepo ? "Hecha: está en producción (ver resultado.subida, con el link del commit)." : "Hecha.";
     case "ERROR":
       return "Falló (ver resultado.error). El dueño puede reintentar: aprobar la tarea de nuevo (planea otra vez) o el plan (construye otra vez).";
     default:
@@ -825,6 +832,7 @@ export async function ejecutarHerramientaMcpTableros(
               resumen: resultado.resumen ?? null,
               pruebas: resultado.pruebas ?? null,
               paso: resultado.paso === true,
+              sube_sola: resultado.subeSolo === true,
               rama: resultado.rama ?? null,
               link_rama: resultado.linkRama ?? null,
               commit: resultado.commit ?? null,

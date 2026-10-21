@@ -29,7 +29,10 @@ import type { TarjetaVista } from "../services/tableros";
   la zona protegida, el plan, el resultado (resumen, pruebas, pasó sí/no, link de la rama, el error) y
   los botones según el estado y quién mira:
   - "Aprobar tarea" (POR_APROBAR) y "Aprobar plan" (PLAN_LISTO): quien puede aprobar.
-  - "Sí, subir a producción" (POR_REVISAR, con todo pasado): SOLO el dueño, con confirmación.
+  - "Sí, subir a producción" (POR_REVISAR, con todo pasado): SOLO el dueño, con confirmación. Desde el
+    21-oct-2026 lo normal es que suba sola (EN_CURSO -> SUBIENDO -> HECHO, con el link del commit);
+    POR_REVISAR queda para las que tocan una zona protegida (chats, agentes, libro V3, Meta Ads) y
+    acá se dice cuál.
   - "Reintentar" (ERROR): con el plan que ya tiene (si tiene) o planeando de nuevo.
   - Quitar una zona protegida: solo el dueño.
   Los botones son una ayuda: el servidor vuelve a revisar todo (reglas-trabajador.ts). Cada aprobación
@@ -138,7 +141,13 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
       {estado === "PLANEANDO" ? espera("El trabajador está escribiendo el plan…") : null}
       {estado === "PLAN_APROBADO" ? espera("Plan aprobado: el trabajador la toma en el próximo minuto y la construye.") : null}
       {estado === "EN_CURSO" && tarjeta.repo ? espera("El trabajador la está construyendo y probando en su rama…") : null}
-      {estado === "SUBIENDO" ? espera("Subiendo a producción: el trabajador espera el CI y comprueba la versión…") : null}
+      {estado === "SUBIENDO"
+        ? espera(
+            resultado?.subeSolo && !conZona
+              ? "Pasó todo y sube solo: el trabajador la sube a producción, espera el CI y comprueba la versión…"
+              : "Subiendo a producción: el trabajador espera el CI y comprueba la versión…",
+          )
+        : null}
 
       {estado === "PLAN_LISTO" ? (
         puedeEstaTarjeta ? (
@@ -151,6 +160,13 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
         )
       ) : null}
 
+      {estado === "POR_REVISAR" && resultado?.paso === true
+        ? espera(
+            conZona
+              ? `Espera tu sí porque toca ${tarjeta.zonaProtegida.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")}: no sube sola.`
+              : "Espera tu sí: el trabajador no la subió solo (todavía no sube solo en este repositorio, o es de antes).",
+          )
+        : null}
       {estado === "POR_REVISAR" ? (
         esDueno && resultado?.paso === true ? (
           <Button className={BOTON} onClick={() => setConfirmarSubida(true)} disabled={ocupado}>
@@ -222,7 +238,16 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
           ) : resultado.rama ? (
             <p className="text-xs text-muted-foreground">Rama: {resultado.rama}</p>
           ) : null}
-          {resultado.subida?.commit ? (
+          {resultado.subida?.commit && resultado.subida.linkCommit ? (
+            <Button
+              variant="outline"
+              className="h-10 w-full justify-start"
+              render={<a href={resultado.subida.linkCommit} target="_blank" rel="noopener noreferrer" />}
+            >
+              <ExternalLink />
+              <span className="truncate">En producción: commit {resultado.subida.commit.slice(0, 10)}</span>
+            </Button>
+          ) : resultado.subida?.commit ? (
             <p className="text-xs text-muted-foreground">Subida: commit {resultado.subida.commit.slice(0, 10)}</p>
           ) : null}
         </div>

@@ -852,15 +852,15 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   );
 });
 
-prueba("candado: cada latido da 5 min más, nunca más allá del tope de la etapa (20 / 90 / 30 min)", () => {
-  assert.deepEqual({ ...trabajo.MINUTOS_POR_ETAPA }, { planear: 20, construir: 90, subir: 30 });
+prueba("candado: cada latido da 5 min más, nunca más allá del tope de la etapa (20 / 90 / 45 min)", () => {
+  assert.deepEqual({ ...trabajo.MINUTOS_POR_ETAPA }, { planear: 20, construir: 90, subir: 45 });
   const inicio = new Date("2026-10-20T15:00:00Z");
   const min = (n) => new Date(inicio.getTime() + n * 60_000);
   assert.equal(trabajo.vencimientoDelCandado("construir", inicio, inicio).toISOString(), min(5).toISOString());
   assert.equal(trabajo.vencimientoDelCandado("construir", inicio, min(40)).toISOString(), min(45).toISOString());
   assert.equal(trabajo.vencimientoDelCandado("construir", inicio, min(88)).toISOString(), min(90).toISOString(), "tope");
   assert.equal(trabajo.vencimientoDelCandado("planear", inicio, min(19)).toISOString(), min(20).toISOString(), "tope plan");
-  assert.equal(trabajo.vencimientoDelCandado("subir", inicio, min(29)).toISOString(), min(30).toISOString(), "tope subir");
+  assert.equal(trabajo.vencimientoDelCandado("subir", inicio, min(44)).toISOString(), min(45).toISOString(), "tope subir");
 });
 
 prueba("texto de confirmación: ≥ 8 caracteres, con 'sí' y 'apruebo' (sin importar tildes ni mayúsculas); 'no apruebo' no", () => {

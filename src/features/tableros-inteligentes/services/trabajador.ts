@@ -7,12 +7,17 @@ import {
   ETAPA_DEL_ESTADO,
   MINUTOS_DE_GRACIA_DEL_LATIDO,
   MOTIVO_VENCIDA,
+  NOMBRE_DE_LA_ZONA,
   REPOS_DEL_TRABAJADOR,
   TRANSICIONES_DEL_TRABAJADOR,
+  destinoDelResultado,
+  esZona,
+  linkDeEntrada,
   motivoDeEntrada,
   planDeEntrada,
   puedeElTrabajador,
   resultadoDeEntrada,
+  reversionDeEntrada,
   unirZonas,
   vencimientoDelCandado,
   zonasDeEntrada,
@@ -33,8 +38,10 @@ import { QUIEN_TRABAJADOR, linkDeLaTarjeta } from "./tableros";
   - /tomar: primero pasa a ERROR las que se le vencieron (sin latido); después, si no tiene otra en
     las manos (el candado del negocio: ninguna PLANEANDO / EN_CURSO / SUBIENDO con trabajoVenceEn
     vigente), toma UNA (la que más espera) de forma atómica (sql-trabajador.ts).
-  - /:id/latido corre el vencimiento (de a 5 min, hasta el tope de la etapa: 20 / 90 / 30 min).
-  - /:id/plan, /resultado, /subida y /error la mueven de estado (reglas-trabajador.ts).
+    Una SUBIENDO pendiente va primero: la que acaba de construir y sube sola se toma enseguida.
+  - /:id/latido corre el vencimiento (de a 5 min, hasta el tope de la etapa: 20 / 90 / 45 min).
+  - /:id/plan, /resultado, /subida y /error la mueven de estado (reglas-trabajador.ts). /resultado
+    pasa a SUBIENDO (sube sola) o a POR_REVISAR (espera el sí final) según destinoDelResultado.
 
   Cada cambio deja su fila en HistorialTarjeta con origen TRABAJADOR (quien = "trabajador:<clave>")
   y toca TableroInteligente.actualizadoEn (el refresco de la pantalla). El latido no: no cambia nada
@@ -316,10 +323,20 @@ export async function accionDelTrabajador(
     return { ok: true, venceEn: venceEn.toISOString(), topeAlcanzado: venceEn.getTime() < ahora.getTime() + MINUTOS_DE_GRACIA_DEL_LATIDO * 60_000 };
   }
 
-  const a = TRANSICIONES_DEL_TRABAJADOR[accion].a as EstadoTarjetaTablero;
+  let a = TRANSICIONES_DEL_TRABAJADOR[accion].a as EstadoTarjetaTablero;
   const previo = resultadoComoObjeto(actual.resultado);
   const datos: Prisma.TarjetaTableroUpdateManyMutationInput = { estado: a, trabajoVenceEn: null };
   const despues: Record<string, unknown> = { estado: a };
+  // Las zonas protegidas que marca el trabajador (el cambio toca esas rutas): se suman, nunca se quitan.
+  const marcarZonas = () => {
+    const zonas = zonasDeEntrada(cuerpo.zonaProtegida);
+    const final = zonas?.length ? unirZonas(actual.zonaProtegida, zonas) : actual.zonaProtegida;
+    if (zonas?.length) {
+      datos.zonaProtegida = final;
+      despues.zonaProtegida = final;
+    }
+    return final;
+  };
 
   try {
     if (accion === "plan") {
@@ -330,30 +347,40 @@ export async function accionDelTrabajador(
       despues.plan = plan;
     } else if (accion === "resultado") {
       const resultado = resultadoDeEntrada(cuerpo);
+      const zonas = marcarZonas();
+      // Sube sola (SUBIENDO pendiente, la toma enseguida) o espera el sí final del dueño (POR_REVISAR).
+      a = destinoDelResultado({ paso: resultado.paso, subeSolo: resultado.subeSolo, zonaProtegida: zonas });
+      datos.estado = a;
+      despues.estado = a;
       datos.resultado = resultado as unknown as Prisma.InputJsonValue;
       despues.resultado = resultado;
+      despues.nota =
+        a === "SUBIENDO"
+          ? "construido, sube solo"
+          : zonas.length
+            ? `construido, espera tu sí (zona ${zonas.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")})`
+            : "construido, espera tu sí";
     } else if (accion === "subida") {
       const subida = {
         commit: typeof cuerpo.commit === "string" ? cuerpo.commit.trim().slice(0, 80) : null,
         version: typeof cuerpo.version === "string" ? cuerpo.version.trim().slice(0, 120) : null,
+        linkCommit: linkDeEntrada(cuerpo.linkCommit),
         cuando: ahora.toISOString(),
       };
       const { error: _errorViejo, ...sinError } = previo;
       void _errorViejo;
       datos.resultado = { ...sinError, subida } as Prisma.InputJsonValue;
       despues.subida = subida;
+      despues.nota = `subido a main, commit ${subida.commit?.slice(0, 10) ?? "?"}; en producción, versión ${subida.version?.slice(0, 10) ?? "?"}`;
     } else if (accion === "error") {
       const motivo = motivoDeEntrada(cuerpo.motivo);
-      const error = { motivo, en: estado, cuando: ahora.toISOString() };
+      const reversion = reversionDeEntrada(cuerpo.reversion);
+      const error = { motivo, en: estado, cuando: ahora.toISOString(), ...(reversion ? { reversion } : {}) };
       datos.resultado = { ...previo, error } as Prisma.InputJsonValue;
       despues.motivo = motivo;
+      if (reversion) despues.reversion = reversion;
       // Si el cambio toca una zona protegida, el trabajador la marca: se aprueba solo en la pantalla.
-      const zonas = zonasDeEntrada(cuerpo.zonaProtegida);
-      if (zonas?.length) {
-        const final = unirZonas(actual.zonaProtegida, zonas);
-        datos.zonaProtegida = final;
-        despues.zonaProtegida = final;
-      }
+      marcarZonas();
     }
   } catch (fallo) {
     if (fallo instanceof ErrorDelTrabajador) throw fallo;

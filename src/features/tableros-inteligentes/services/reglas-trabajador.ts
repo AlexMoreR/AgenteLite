@@ -7,9 +7,16 @@
 
   El flujo de una tarjeta con repo (solo tipos con aprobación):
     POR_APROBAR --(aprobar tarea)--> APROBADO --(el trabajador la toma)--> PLANEANDO --> PLAN_LISTO
-    --(aprobar plan)--> PLAN_APROBADO --(la toma)--> EN_CURSO --> POR_REVISAR --(sí final, solo el
-    dueño)--> SUBIENDO --(la toma)--> HECHO.   Si algo falla: ERROR con motivo.   Desde ERROR el dueño
-    reintenta: vuelve a APROBADO (planear de nuevo) o a PLAN_APROBADO (construir de nuevo con el plan).
+    --(aprobar plan)--> PLAN_APROBADO --(la toma)--> EN_CURSO --> SUBIENDO --(la toma enseguida)--> HECHO.
+    Si algo falla: ERROR con motivo.   Desde ERROR el dueño reintenta: vuelve a APROBADO (planear de nuevo)
+    o a PLAN_APROBADO (construir de nuevo con el plan).
+
+  Subir solo (21-oct-2026, decisión de Alexander: Planear -> Aprobar plan -> Hacer): EN_CURSO pasa
+  directo a SUBIENDO pendiente si todo pasó, el trabajador dice que sube solo (su interruptor
+  `subirSolo` del repo) y la tarjeta no tiene zona protegida (destinoDelResultado). Si toca chats,
+  agentes, el libro V3 o Meta Ads (o el interruptor está apagado), queda POR_REVISAR con la zona
+  marcada y espera el sí final del dueño (momento 'subir'), como antes. Si el despliegue falla después
+  de subir, el trabajador hace revert del commit en main y la deja ERROR.
 
   Lo que no se negocia:
   1. Las transiciones del trabajador (PLANEANDO, PLAN_LISTO, EN_CURSO, POR_REVISAR, SUBIENDO, HECHO,
@@ -19,10 +26,12 @@
      el historial quién (nombre y userId), el momento, por dónde ('pantalla' o 'voz') y el texto de
      confirmación.
   3. Por el MCP (via 'voz') se aprueba solo si la persona lo dijo explícitamente: el texto tiene que
-     decir "sí" y "apruebo". Una tarjeta con zona protegida (Meta Ads, bot de ventas, libro V3) se
+     decir "sí" y "apruebo". Una tarjeta con zona protegida (Meta Ads, bot de ventas, libro V3, chats) se
      aprueba SOLO en la pantalla, y solo el dueño.
   4. El sí final ('subir') lo da solo el DUEÑO del negocio (SI_FINAL_SOLO_DUENO), y solo si el
-     trabajador dijo que todo pasó (resultado.paso = true).
+     trabajador dijo que todo pasó (resultado.paso = true). Hoy solo hace falta para las tarjetas con
+     zona protegida (chats, agentes, libro V3, Meta Ads), las de un repo con `subirSolo` apagado y las
+     que ya estaban POR_REVISAR.
   5. Un aprobador (AprobadorTablero) con alcance DESARROLLO aprueba la tarea y el plan solo de
      tarjetas con repo de desarrollo (gestion, aizencrm); con alcance TODO, cualquiera.
   6. La zona protegida se puede PONER desde el MCP (y la pone el trabajador si el cambio toca una de
@@ -65,13 +74,15 @@ export function repoDeEntrada(valor: unknown): RepoDelTrabajador | null | undefi
 
 /* ───────────────────────────────────────────────────────────────────── zonas protegidas ── */
 
-export const ZONAS_PROTEGIDAS = ["META_ADS", "BOT_VENTAS", "LIBRO_V3"] as const;
+/** CHATS (21-oct-2026): envío y recepción de WhatsApp, Evolution API, webhooks y la bandeja de las asesoras. */
+export const ZONAS_PROTEGIDAS = ["META_ADS", "BOT_VENTAS", "LIBRO_V3", "CHATS"] as const;
 export type ZonaProtegida = (typeof ZONAS_PROTEGIDAS)[number];
 
 export const NOMBRE_DE_LA_ZONA: Record<ZonaProtegida, string> = {
   META_ADS: "Meta Ads",
   BOT_VENTAS: "Bot de ventas",
   LIBRO_V3: "Libro V3",
+  CHATS: "Chats",
 };
 
 export function esZona(valor: unknown): valor is ZonaProtegida {
@@ -120,8 +131,11 @@ export function puedeCambiarZonas(
 
 export type EtapaDelTrabajador = "planear" | "construir" | "subir";
 
-/** Tope de cada etapa (minutos). Pasado el tope, la tarjeta pasa a ERROR ("se pasó del tiempo"). */
-export const MINUTOS_POR_ETAPA: Record<EtapaDelTrabajador, number> = { planear: 20, construir: 90, subir: 30 };
+/**
+ * Tope de cada etapa (minutos). Pasado el tope, la tarjeta pasa a ERROR ("se pasó del tiempo"). Subir
+ * tiene 45: el CI de AizenCRM tarda hasta 20, la versión hasta 8, y tiene que alcanzar para deshacer.
+ */
+export const MINUTOS_POR_ETAPA: Record<EtapaDelTrabajador, number> = { planear: 20, construir: 90, subir: 45 };
 
 /**
  * Sin latido, el candado vence a los 5 minutos (así un trabajador que se apagó se nota pronto). Cada
@@ -133,7 +147,8 @@ export const MINUTOS_DE_GRACIA_DEL_LATIDO = 5;
 export const AL_TOMAR: Partial<Record<EstadoTarjetaTablero, { etapa: EtapaDelTrabajador; a: EstadoTarjetaTablero }>> = {
   APROBADO: { etapa: "planear", a: "PLANEANDO" },
   PLAN_APROBADO: { etapa: "construir", a: "EN_CURSO" },
-  // SUBIENDO "pendiente" (sin trabajoVenceEn) = el dueño dio el sí final y nadie la tomó todavía.
+  // SUBIENDO "pendiente" (sin trabajoVenceEn) = el dueño dio el sí final (o el trabajador la construyó y
+  // sube sola) y nadie la tomó todavía. /tomar la elige antes que cualquier otra.
   SUBIENDO: { etapa: "subir", a: "SUBIENDO" },
 };
 
@@ -158,7 +173,10 @@ export const MOTIVO_VENCIDA = "Se pasó del tiempo: el trabajador dejó de dar s
 export type AccionDelTrabajador = "latido" | "plan" | "resultado" | "subida" | "error";
 export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = ["latido", "plan", "resultado", "subida", "error"];
 
-/** Desde qué estados puede llamar el trabajador cada acción, y a cuál pasa (null = no cambia). */
+/**
+ * Desde qué estados puede llamar el trabajador cada acción, y a cuál pasa (null = no cambia). El
+ * "resultado" pasa a POR_REVISAR, o a SUBIENDO pendiente si sube sola (destinoDelResultado).
+ */
 export const TRANSICIONES_DEL_TRABAJADOR: Record<
   AccionDelTrabajador,
   { desde: readonly EstadoTarjetaTablero[]; a: EstadoTarjetaTablero | null }
@@ -178,6 +196,19 @@ export function puedeElTrabajador(accion: AccionDelTrabajador, estado: EstadoTar
     return `La tarjeta está ${estado}: "${accion}" solo vale desde ${regla.desde.join(" o ")}.`;
   }
   return null;
+}
+
+/**
+ * A qué estado pasa la tarjeta con el /resultado: SUBIENDO (pendiente: el trabajador la sube enseguida)
+ * solo si todo pasó, el trabajador dice que sube solo y la tarjeta no tiene zona protegida (ni la que
+ * ya tenía ni la que marcó el trabajador). Si no, POR_REVISAR: espera el sí final del dueño.
+ */
+export function destinoDelResultado(datos: {
+  paso: boolean;
+  subeSolo: boolean;
+  zonaProtegida: readonly string[];
+}): "SUBIENDO" | "POR_REVISAR" {
+  return datos.paso && datos.subeSolo && datos.zonaProtegida.length === 0 ? "SUBIENDO" : "POR_REVISAR";
 }
 
 /* ───────────────────────────────────────────────────────────────────── aprobaciones ── */
@@ -471,6 +502,10 @@ export type ResultadoDelTrabajador = {
   linkRama: string | null;
   commit: string | null;
   migracion: string | null;
+  /** El trabajador la quiere subir sola (su `subirSolo` está prendido). El CRM decide (destinoDelResultado). */
+  subeSolo: boolean;
+  /** El commit de main sobre el que construyó: si main no cambió, al subir no vuelve a compilar. */
+  base: string | null;
 };
 
 const textoCorto = (valor: unknown, maximo: number) => (typeof valor === "string" ? valor.trim().slice(0, maximo) : "");
@@ -490,7 +525,15 @@ export function resultadoDeEntrada(valor: unknown): ResultadoDelTrabajador {
     linkRama: link && /^https:\/\//.test(link) ? link : null,
     commit: textoONull(datos.commit, 80),
     migracion: textoONull(datos.migracion, 300),
+    subeSolo: datos.subeSolo === true,
+    base: textoONull(datos.base, 80),
   };
+}
+
+/** Un link https (el del commit en GitHub), o null. */
+export function linkDeEntrada(valor: unknown): string | null {
+  const link = textoONull(valor, 500);
+  return link && /^https:\/\//.test(link) ? link : null;
 }
 
 /** El plan como lo manda el trabajador: texto con saltos, no vacío, máximo 20.000 caracteres. */
@@ -498,6 +541,22 @@ export function planDeEntrada(valor: unknown): string {
   const plan = typeof valor === "string" ? valor.replace(/\r\n/g, "\n").trim().slice(0, 20_000) : "";
   if (!plan) throw new Error("Falta el plan.");
   return plan;
+}
+
+export type ReversionDelTrabajador = {
+  /** El commit que se subió y no arrancó. */
+  commit: string | null;
+  /** El commit del revert en main (null si no se pudo deshacer). */
+  revert: string | null;
+  /** true = se deshizo; false = no se pudo (URGENTE: revisar a mano). */
+  ok: boolean;
+};
+
+/** La reversión que manda el trabajador en /error cuando el despliegue falló después de subir, o null. */
+export function reversionDeEntrada(valor: unknown): ReversionDelTrabajador | null {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return null;
+  const datos = valor as Record<string, unknown>;
+  return { commit: textoONull(datos.commit, 80), revert: textoONull(datos.revert, 80), ok: datos.ok === true };
 }
 
 /** El motivo de un error del trabajador. */

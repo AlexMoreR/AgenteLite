@@ -10,9 +10,11 @@ export const dynamic = "force-dynamic";
   POST /api/trabajador/tablero/<tarjetaId>/<accion> — lo que el trabajador avisa de una tarjeta que tomó:
   - latido    {}                                  corre el vencimiento del candado (hasta el tope).
   - plan      { plan }                            PLANEANDO -> PLAN_LISTO.
-  - resultado { resumen, pruebas, paso, rama, linkRama, commit, migracion }   EN_CURSO -> POR_REVISAR.
-  - subida    { commit, version }                 SUBIENDO -> HECHO.
-  - error     { motivo, zonaProtegida? }          PLANEANDO | EN_CURSO | SUBIENDO -> ERROR.
+  - resultado { resumen, pruebas, paso, rama, linkRama, commit, migracion, subeSolo, base, zonaProtegida? }
+                EN_CURSO -> SUBIENDO pendiente (paso, subeSolo y sin zona protegida) o POR_REVISAR.
+  - subida    { commit, version, linkCommit }     SUBIENDO -> HECHO.
+  - error     { motivo, zonaProtegida?, reversion? }   PLANEANDO | EN_CURSO | SUBIENDO -> ERROR.
+              reversion = { commit, revert, ok }: el despliegue falló después de subir y se hizo revert.
   409 si la tarjeta no está en el estado de esa acción. Ver services/trabajador.ts.
 */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string; accion: string }> }) {

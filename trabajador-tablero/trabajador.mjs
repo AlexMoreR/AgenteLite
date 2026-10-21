@@ -43,14 +43,18 @@ for (const senal of ["SIGINT", "SIGTERM"]) {
 registro.info(`trabajador arrancó: CRM ${config.urlCrm}, repos ${Object.keys(config.repos).join(", ")}, carpeta ${config.carpetaTrabajo}`);
 
 do {
+  let enseguida = false;
   try {
     const vuelta = await unaVuelta({ crm, config, registro });
     if (!vuelta.hizo && unaSola) registro.info(`nada que hacer (${vuelta.motivo})`);
+    // Construida y sube sola (quedó SUBIENDO): la subida se toma ya, sin esperar el minuto.
+    enseguida = vuelta.hizo === "construir" && vuelta.estado === "SUBIENDO";
+    if (enseguida) registro.info("construida y sube sola: la subo enseguida");
   } catch (error) {
     // Sin red o el CRM caído: se reintenta en la próxima vuelta.
     registro.error(`vuelta fallida: ${error.message}`);
     if (error.status === 401) registro.error("la clave del trabajador es inválida o fue revocada: crea otra en el panel Trabajador.");
   }
   if (unaSola || parar) break;
-  await dormir(config.tiempos.intervaloSegundos * 1000);
+  if (!enseguida) await dormir(config.tiempos.intervaloSegundos * 1000);
 } while (!parar);

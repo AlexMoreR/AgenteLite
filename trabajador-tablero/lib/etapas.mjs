@@ -3,13 +3,16 @@
 //
 // - planear:   worktree desde origin/main; `claude -p --permission-mode plan` escribe el plan. -> /plan
 // - construir: worktree en la rama tablero/<id>-<slug> desde origin/main; Claude edita (acceptEdits y
-//              herramientas acotadas, sin push); el TRABAJADOR (no Claude) hace commit, revisa que no
-//              toque zonas protegidas, corre la verificación y las pruebas él mismo, compara el lint con
-//              el de main, ensaya la migración (PGlite + producción en BEGIN…ROLLBACK) y empuja SOLO la
-//              rama. -> /resultado
-// - subir:     (después del sí final del dueño) rebase de la rama sobre origin/main, verifica de nuevo,
-//              ensaya la migración de nuevo, push a main, espera el CI y comprueba la versión. -> /subida
-// Si algo falla se lanza ErrorDeEtapa con el motivo (y las zonas tocadas): el bucle llama /error.
+//              herramientas acotadas, sin push); el TRABAJADOR (no Claude) hace commit, marca las zonas
+//              protegidas que toca (chats, agentes, libro V3, Meta Ads), corre la verificación y las
+//              pruebas él mismo, compara el lint con el de main, ensaya la migración (PGlite + producción
+//              en BEGIN…ROLLBACK) y empuja SOLO la rama. -> /resultado, que dice si sube sola (subirSolo
+//              del repo y sin zonas: el CRM la pasa a SUBIENDO) o espera el sí del dueño (POR_REVISAR).
+// - subir:     rebase de la rama sobre origin/main; si main no cambió desde que se construyó no vuelve
+//              a compilar, si cambió verifica y ensaya de nuevo; push a main, espera el CI y comprueba
+//              la versión. Si el despliegue falla, revert del commit en main (sin --force). -> /subida
+// Si algo falla se lanza ErrorDeEtapa con el motivo en palabras sencillas y el detalle técnico debajo
+// (y la reversión, si la hubo): el bucle llama /error.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -24,6 +27,7 @@ import {
   pushARamaBase,
   pushDeRama,
   quitarWorktree,
+  revertirEnRamaBase,
   urlDelRemoto,
   webDeGithub,
 } from "./git.mjs";
@@ -31,9 +35,10 @@ import { comoTexto, correr, ultimasLineas } from "./procesos.mjs";
 import { zonasTocadas } from "./zonas.mjs";
 
 export class ErrorDeEtapa extends Error {
-  constructor(message, { zonas = [] } = {}) {
+  constructor(message, { zonas = [], reversion = null } = {}) {
     super(message);
     this.zonas = zonas;
+    this.reversion = reversion;
   }
 }
 
@@ -69,17 +74,32 @@ function configDelRepo(contexto, tarjeta) {
 
 const carpetaDe = (contexto, tarjeta, etapa) => path.join(contexto.config.carpetaTrabajo, "wt", `${idCorto(tarjeta.id)}-${etapa}`);
 
-/** Corre un comando de la etapa; si falla, ErrorDeEtapa con lo último que dijo. */
-async function paso(contexto, comando, { cwd, reloj, que, entrada }) {
+/**
+ * Corre un comando de la etapa; si falla, ErrorDeEtapa con `motivo` (en palabras sencillas, para el
+ * dueño) y debajo el detalle técnico (el comando y lo último que dijo).
+ */
+async function paso(contexto, comando, { cwd, reloj, que, motivo, entrada }) {
   const { config, senal } = contexto;
   const timeoutMs = Math.min(reloj.resta(), config.tiempos.comandoMinutos * MINUTO);
   const resultado = await correr(comando, { cwd, env: entornoSeguro(), senal, timeoutMs, entrada });
   if (resultado.cancelado) throw new ErrorDeEtapa(`Se canceló ${que}: la tarjeta venció en el CRM.`);
-  if (resultado.vencido) throw new ErrorDeEtapa(`${que} (${comoTexto(comando)}) se pasó del tiempo.`);
+  if (resultado.vencido) throw new ErrorDeEtapa(`${motivo ?? `Falló ${que}`}: se pasó del tiempo (${comoTexto(comando)}).`);
   if (resultado.codigo !== 0) {
-    throw new ErrorDeEtapa(`Falló ${que} (${comoTexto(comando)}):\n${ultimasLineas(`${resultado.errores}\n${resultado.salida}`, 30)}`);
+    throw new ErrorDeEtapa(
+      `${motivo ?? `Falló ${que}`}. No se subió nada.\nDetalle técnico (${comoTexto(comando)}):\n${ultimasLineas(`${resultado.errores}\n${resultado.salida}`, 30)}`,
+    );
   }
   return resultado;
+}
+
+/** Por qué falló un comando de verificación, en palabras sencillas. */
+function motivoDeVerificacion(comando, esPrueba) {
+  if (esPrueba) return "Fallaron las pruebas que ya existen";
+  const texto = comoTexto(comando);
+  if (/\btsc\b/.test(texto)) return "No compiló: el código tiene errores de tipos (TypeScript)";
+  if (/\bbuild\b/.test(texto)) return "No compiló: falló el build";
+  if (/prisma\s+generate/.test(texto)) return "No compiló: el esquema de la base (Prisma) tiene un error";
+  return "No pasó la verificación";
 }
 
 /** Correr Claude con el prompt por stdin. Devuelve lo que contestó. */
@@ -96,6 +116,8 @@ async function claude(contexto, argumentos, prompt, { cwd, timeoutMs, que }) {
   if (!texto) throw new ErrorDeEtapa(`Claude no contestó nada al ${que}.`);
   return texto;
 }
+
+const MOTIVO_ENSAYO = "El ensayo de la migración falló: la migración no corre bien en la base. No se subió nada.";
 
 const REGLAS_DE_ZONAS =
   "No toques Meta Ads (anuncios, campañas, píxel), el bot de ventas (el agente que atiende WhatsApp) ni el libro del agente V3.";
@@ -126,8 +148,25 @@ export function promptDelPlan(tarjeta, repo) {
       "6. Cómo se va a probar.",
     ].join("\n"),
     `Reglas: ${REGLAS_DE_ZONAS} Si la tarea lo requiere, dilo claro al principio del plan: "TOCA ZONA PROTEGIDA: <cuál y por qué>".`,
+    fraseAlTerminar(repo),
     "Contesta SOLO con el plan.",
   ].join("\n\n");
+}
+
+/** Lo que el plan tiene que decir al principio: si al terminar sube solo o espera el sí del dueño. */
+function fraseAlTerminar(repo) {
+  if (!repo.subirSolo) {
+    return 'Al principio del plan escribe esta frase: "Al terminar: espera tu sí" (en este repositorio el trabajador todavía no sube solo a producción).';
+  }
+  const rutas = Object.entries(repo.zonasProtegidas ?? {})
+    .map(([zona, globs]) => `${zona}: ${(globs ?? []).join(", ")}`)
+    .join("\n");
+  return [
+    "Al principio del plan escribe UNA de estas dos frases:",
+    '- "Al terminar: sube solo a producción" si el cambio NO toca ninguna de las rutas de abajo.',
+    '- "Al terminar: espera tu sí (toca chats / agentes / Meta Ads)" si toca alguna (di cuál). Esos cambios se construyen y prueban igual, pero no suben sin el sí del dueño.',
+    `Las rutas de chats, agentes, libro V3 y Meta Ads:\n${rutas || "(ninguna configurada)"}`,
+  ].join("\n");
 }
 
 export function promptDeConstruir(tarjeta, repo, rama) {
@@ -152,7 +191,7 @@ export function promptDeConstruir(tarjeta, repo, rama) {
 async function erroresDeLint(contexto, repo, cwd, reloj) {
   const timeoutMs = Math.min(reloj.resta(), contexto.config.tiempos.comandoMinutos * MINUTO);
   const resultado = await correr(repo.lint.comando, { cwd, env: entornoSeguro(), senal: contexto.senal, timeoutMs });
-  if (resultado.vencido || resultado.cancelado) throw new ErrorDeEtapa(`El lint (${comoTexto(repo.lint.comando)}) se pasó del tiempo.`);
+  if (resultado.vencido || resultado.cancelado) throw new ErrorDeEtapa(`El lint (${comoTexto(repo.lint.comando)}) se pasó del tiempo. No se subió nada.`);
   let datos;
   try {
     datos = JSON.parse(resultado.salida.slice(resultado.salida.indexOf("[")));
@@ -180,8 +219,9 @@ function erroresNuevos(base, despues) {
 /** Instalar + verificar + pruebas en el worktree. Devuelve el texto de "pruebas" para el resultado. */
 async function verificar(contexto, repo, cwd, reloj) {
   const lineas = [];
-  for (const comando of [...repo.verificar, ...repo.pruebas]) {
-    const resultado = await paso(contexto, comando, { cwd, reloj, que: "la verificación" });
+  const comandos = [...repo.verificar.map((comando) => [comando, false]), ...repo.pruebas.map((comando) => [comando, true])];
+  for (const [comando, esPrueba] of comandos) {
+    const resultado = await paso(contexto, comando, { cwd, reloj, que: "la verificación", motivo: motivoDeVerificacion(comando, esPrueba) });
     const cola = ultimasLineas(resultado.salida, 3);
     lineas.push(`✔ ${comoTexto(comando)}${cola ? `\n  ${cola.replace(/\n/g, "\n  ")}` : ""}`);
   }
@@ -219,7 +259,8 @@ export async function construir(contexto, tarjeta) {
   await git(repo.ruta, ["fetch", repo.remoto]);
   try {
     await crearWorktree(repo, carpeta, base, rama);
-    if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias" });
+    const baseSha = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
+    if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias" });
     // El lint de main, para que solo cuenten los errores NUEVOS.
     const lintBase = repo.lint ? await erroresDeLint(contexto, repo, carpeta, reloj) : null;
 
@@ -252,20 +293,17 @@ export async function construir(contexto, tarjeta) {
     if (!cambios.length) throw new ErrorDeEtapa("Claude no cambió ningún archivo.");
     const archivos = cambios.map((cambio) => cambio.archivo);
 
-    // Zonas protegidas: lo que toca y el dueño no aprobó en la pantalla.
+    // Zonas protegidas (chats, agentes, libro V3, Meta Ads): ya no es ERROR. Se construye y prueba igual,
+    // pero no sube sola: el CRM la deja POR_REVISAR con la zona marcada, esperando el sí del dueño.
     const tocadas = zonasTocadas(archivos, repo.zonasProtegidas);
-    const sinAprobar = Object.keys(tocadas).filter((zona) => !(tarjeta.zonasAprobadas ?? []).includes(zona));
-    if (sinAprobar.length) {
-      throw new ErrorDeEtapa(
-        `Toca zona protegida, aprobar en pantalla: ${sinAprobar.map((zona) => `${zona} (${tocadas[zona].slice(0, 5).join(", ")})`).join("; ")}.`,
-        { zonas: sinAprobar },
-      );
-    }
+    const zonas = Object.keys(tocadas);
+    const subeSolo = repo.subirSolo === true && zonas.length === 0 && !(tarjeta.zonasAprobadas ?? []).length;
+    const zonasTexto = zonas.map((zona) => `${zona} (${tocadas[zona].slice(0, 5).join(", ")}${tocadas[zona].length > 5 ? "…" : ""})`).join("; ");
 
     const pruebas = await verificar(contexto, repo, carpeta, reloj);
     if (lintBase) {
       const nuevos = erroresNuevos(lintBase, await erroresDeLint(contexto, repo, carpeta, reloj));
-      if (nuevos.length) throw new ErrorDeEtapa(`El lint tiene ${nuevos.length} error(es) nuevo(s):\n${nuevos.slice(0, 15).join("\n")}`);
+      if (nuevos.length) throw new ErrorDeEtapa(`El lint tiene ${nuevos.length} error(es) nuevo(s):\n${nuevos.slice(0, 15).join("\n")}\nNo se subió nada.`);
       pruebas.push("✔ lint sin errores nuevos");
     }
     const migraciones = migracionesNuevas(cambios, repo.carpetaMigraciones);
@@ -281,23 +319,32 @@ export async function construir(contexto, tarjeta) {
         timeoutMs: Math.min(reloj.resta(), config.tiempos.comandoMinutos * MINUTO),
       });
     } catch (error) {
-      throw new ErrorDeEtapa(error.message);
+      throw new ErrorDeEtapa(`${MOTIVO_ENSAYO}\nDetalle técnico: ${error.message}`);
     }
     if (migracion) pruebas.push(`✔ ensayo de la migración: ${migracion}`);
+    const alTerminar = subeSolo
+      ? "construido, sube solo"
+      : zonas.length
+        ? `construido, espera tu sí (zona ${zonasTexto})`
+        : "construido, espera tu sí (en este repositorio el trabajador todavía no sube solo)";
+    pruebas.push(`→ ${alTerminar}`);
 
     reloj.resta();
     await pushDeRama(carpeta, repo.remoto, rama);
     const commit = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
     const web = webDeGithub(await urlDelRemoto(repo));
-    registro.info(`rama ${rama} empujada (${commit.slice(0, 10)})`);
+    registro.info(`rama ${rama} empujada (${commit.slice(0, 10)}): ${alTerminar}`);
     return {
-      resumen: `${resumenDeClaude.slice(-4000)}\n\nArchivos (${archivos.length}): ${archivos.slice(0, 40).join(", ")}${archivos.length > 40 ? "…" : ""}`,
+      resumen: `${resumenDeClaude.slice(-4000)}\n\nArchivos (${archivos.length}): ${archivos.slice(0, 40).join(", ")}${archivos.length > 40 ? "…" : ""}\n\nAl terminar: ${alTerminar}.`,
       pruebas: pruebas.join("\n").slice(0, 7000),
       paso: true,
       rama,
       linkRama: web ? `${web}/compare/${repo.ramaBase}...${encodeURIComponent(rama).replace(/%2F/g, "/")}` : null,
       commit,
       migracion,
+      subeSolo,
+      base: baseSha,
+      ...(zonas.length ? { zonaProtegida: zonas } : {}),
     };
   } finally {
     await quitarWorktree(repo, carpeta, rama);
@@ -370,7 +417,10 @@ async function esperarVersion(contexto, repo, commit, reloj) {
   return { version: ultima, texto: `versión ${ultima.slice(0, 10)}: ok` };
 }
 
-/** SUBIENDO -> sube a main. Solo después del sí final del dueño. */
+/**
+ * SUBIENDO -> sube a main. Llega acá sola (construir pasó todo, subirSolo y sin zona protegida) o con
+ * el sí final del dueño (las de zona protegida y las que ya estaban POR_REVISAR).
+ */
 export async function subir(contexto, tarjeta) {
   const { config, registro } = contexto;
   const repo = configDelRepo(contexto, tarjeta);
@@ -384,28 +434,39 @@ export async function subir(contexto, tarjeta) {
   await git(repo.ruta, ["fetch", repo.remoto]);
   try {
     await crearWorktree(repo, carpeta, `${repo.remoto}/${rama}`, ramaLocal);
+    const antes = (await git(carpeta, ["rev-parse", base])).salida.trim();
+    const cabeza = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
+    // Si main sigue donde estaba al construir y la rama es la que se probó, ya está todo verificado.
+    const mainIgual = Boolean(tarjeta.resultado?.base) && tarjeta.resultado.base === antes && tarjeta.resultado?.commit === cabeza;
     const rebase = await git(carpeta, ["rebase", base], { identidad: config.git, permitirFallo: true });
     if (rebase.codigo !== 0) {
       await git(carpeta, ["rebase", "--abort"], { permitirFallo: true });
-      throw new ErrorDeEtapa(`La rama ${rama} choca con lo nuevo de ${repo.ramaBase} (conflicto en el rebase). Hay que reintentar (construir de nuevo).`);
+      throw new ErrorDeEtapa(
+        `Choca con lo nuevo de ${repo.ramaBase}: alguien cambió los mismos archivos mientras se construía (conflicto en el rebase de ${rama}). No se subió nada; hay que reintentar (construir de nuevo).`,
+      );
     }
-    if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias" });
-    const pruebas = await verificar(contexto, repo, carpeta, reloj);
-    const cambios = await archivosCambiados(carpeta, base);
-    const migraciones = migracionesNuevas(cambios, repo.carpetaMigraciones);
-    try {
-      const migracion = await ensayarMigraciones({
-        migraciones,
-        repo,
-        ssh: config.ssh,
-        cwd: carpeta,
-        env: entornoSeguro(),
-        senal: contexto.senal,
-        timeoutMs: Math.min(reloj.resta(), config.tiempos.comandoMinutos * MINUTO),
-      });
-      if (migracion) pruebas.push(`✔ ensayo de la migración: ${migracion}`);
-    } catch (error) {
-      throw new ErrorDeEtapa(error.message);
+    let pruebas;
+    if (mainIgual) {
+      pruebas = [`✔ ${repo.ramaBase} no cambió desde que se construyó: no se vuelve a compilar`];
+    } else {
+      if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias" });
+      pruebas = await verificar(contexto, repo, carpeta, reloj);
+      const cambios = await archivosCambiados(carpeta, base);
+      const migraciones = migracionesNuevas(cambios, repo.carpetaMigraciones);
+      try {
+        const migracion = await ensayarMigraciones({
+          migraciones,
+          repo,
+          ssh: config.ssh,
+          cwd: carpeta,
+          env: entornoSeguro(),
+          senal: contexto.senal,
+          timeoutMs: Math.min(reloj.resta(), config.tiempos.comandoMinutos * MINUTO),
+        });
+        if (migracion) pruebas.push(`✔ ensayo de la migración: ${migracion}`);
+      } catch (error) {
+        throw new ErrorDeEtapa(`${MOTIVO_ENSAYO}\nDetalle técnico: ${error.message}`);
+      }
     }
 
     reloj.resta();
@@ -413,14 +474,49 @@ export async function subir(contexto, tarjeta) {
     try {
       await pushARamaBase(carpeta, repo.remoto, repo.ramaBase);
     } catch (error) {
-      throw new ErrorDeEtapa(`No se pudo subir a ${repo.ramaBase} (¿cambió mientras tanto?): ${error.message}`);
+      throw new ErrorDeEtapa(`No se pudo subir a ${repo.ramaBase} (¿cambió mientras tanto?). No se subió nada.\nDetalle técnico: ${error.message}`);
     }
     registro.info(`subido a ${repo.ramaBase}: ${commit.slice(0, 10)} (${tarjeta.titulo})`);
-    const ci = await esperarCi(contexto, repo, commit, carpeta, reloj);
-    const { version, texto } = await esperarVersion(contexto, repo, commit, reloj);
-    registro.info(`${ci}; ${texto}`);
-    return { commit, version: version ?? commit, pruebas };
+    let version;
+    try {
+      const ci = await esperarCi(contexto, repo, commit, carpeta, reloj);
+      const comprobada = await esperarVersion(contexto, repo, commit, reloj);
+      version = comprobada.version;
+      registro.info(`${ci}; ${comprobada.texto}`);
+    } catch (error) {
+      // Se subió y no arrancó: se deshace lo subido para que producción vuelva a la versión anterior.
+      throw await deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo: error instanceof Error ? error.message : String(error) });
+    }
+    const web = webDeGithub(await urlDelRemoto(repo));
+    return { commit, version: version ?? commit, pruebas, linkCommit: web ? `${web}/commit/${commit}` : null };
   } finally {
     await quitarWorktree(repo, carpeta, ramaLocal);
+  }
+}
+
+/** Revert del commit en main después de un despliegue fallido. Devuelve el ErrorDeEtapa para la tarjeta. */
+async function deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo }) {
+  const { config, registro } = contexto;
+  registro.error(`el despliegue de ${commit.slice(0, 10)} falló; se deshace: ${motivo}`);
+  try {
+    const revert = await revertirEnRamaBase(carpeta, {
+      remoto: repo.remoto,
+      ramaBase: repo.ramaBase,
+      antes,
+      commit,
+      carpetaMigraciones: repo.carpetaMigraciones,
+      identidad: config.git,
+    });
+    registro.info(`deshecho: revert ${revert.slice(0, 10)} de ${commit.slice(0, 10)} en ${repo.ramaBase}`);
+    return new ErrorDeEtapa(
+      `Se subió, no arrancó y se deshizo; producción vuelve a la versión anterior.\nCommit deshecho: ${commit.slice(0, 10)} (revert ${revert.slice(0, 10)}).\nDetalle técnico: ${motivo}`,
+      { reversion: { commit, revert, ok: true } },
+    );
+  } catch (error) {
+    registro.error(`URGENTE: no se pudo deshacer ${commit}: ${error.message}`);
+    return new ErrorDeEtapa(
+      `URGENTE: no se pudo deshacer, revisar a mano. El commit ${commit} quedó en ${repo.ramaBase} y el despliegue falló.\nPor qué falló el despliegue: ${motivo}\nPor qué no se pudo deshacer: ${error.message}`,
+      { reversion: { commit, revert: null, ok: false } },
+    );
   }
 }
