@@ -356,7 +356,12 @@ const dormir = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
 /** Reemplaza {commit} y {run} en un comando de la configuración. */
 const conValores = (comando, valores) => comando.map((parte) => parte.replace(/\{(\w+)\}/g, (todo, clave) => valores[clave] ?? todo));
 
-/** Espera el CI del commit (si está configurado): busca la corrida y la mira hasta que termine. */
+/**
+ * Espera el CI del commit (si está configurado): busca la corrida y la mira hasta que termine.
+ * Solo lanza si el CI corrió y FALLÓ. Si no se pudo consultar GitHub (gh sin sesión, que pasa cuando el
+ * trabajador corre como tarea programada, o la corrida no aparece) devuelve el motivo y sigue: la prueba
+ * de verdad es que /api/version diga el commit nuevo (22-10-2026: por esto se deshizo un cambio bueno).
+ */
 async function esperarCi(contexto, repo, commit, cwd, reloj) {
   const { ciBuscar, ciEsperar, ciMinutos } = repo.subida;
   if (!ciBuscar || !ciEsperar) return "CI: no configurado";
@@ -365,9 +370,12 @@ async function esperarCi(contexto, repo, commit, cwd, reloj) {
   while (!corrida) {
     const resultado = await correr(conValores(ciBuscar, { commit }), { cwd, timeoutMs: 60_000, senal: contexto.senal });
     if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló la espera del CI: la tarjeta venció en el CRM.");
+    if (resultado.codigo !== 0 && /gh auth login|GH_TOKEN|authentication/i.test(resultado.errores)) {
+      return "CI: no se pudo consultar (gh sin sesión en este PC; poner GH_TOKEN)";
+    }
     corrida = resultado.codigo === 0 ? resultado.salida.trim().split(/\s+/)[0] ?? "" : "";
     if (corrida) break;
-    if (Date.now() > limite) throw new ErrorDeEtapa(`Subió a ${repo.ramaBase} pero no apareció la corrida del CI para ${commit.slice(0, 10)}.`);
+    if (Date.now() > limite) return `CI: no apareció la corrida de ${commit.slice(0, 10)} (se revisa la versión)`;
     await dormir(10_000);
   }
   const resultado = await correr(conValores(ciEsperar, { commit, run: corrida }), {
@@ -386,7 +394,17 @@ async function esperarCi(contexto, repo, commit, cwd, reloj) {
   return `CI ${corrida}: ok`;
 }
 
-/** Espera que la URL de versión diga el commit nuevo (= arrancó la versión nueva). */
+/** ¿`version` (lo que dice /api/version) es el commit subido o uno más nuevo que ya lo incluye? */
+async function versionIncluye(repo, version, commit) {
+  if (!version) return false;
+  if (version === commit || commit.startsWith(version) || version.startsWith(commit)) return true;
+  // Otro push llegó justo después y quedó en producción: si ese commit contiene el nuestro, también arrancó.
+  await git(repo.ruta, ["fetch", repo.remoto], { permitirFallo: true });
+  const ancestro = await git(repo.ruta, ["merge-base", "--is-ancestor", commit, version], { permitirFallo: true });
+  return ancestro.codigo === 0;
+}
+
+/** Espera que la URL de versión diga el commit nuevo, o uno posterior que lo incluya (= arrancó la versión nueva). */
 async function esperarVersion(contexto, repo, commit, reloj) {
   const { urlVersion, campoVersion, versionMinutos, urlArranque } = repo.subida;
   if (!urlVersion) return { version: null, texto: "versión: no configurada" };
@@ -397,7 +415,7 @@ async function esperarVersion(contexto, repo, commit, reloj) {
       const respuesta = await fetch(urlVersion, { headers: { "Cache-Control": "no-cache" }, signal: AbortSignal.timeout(15_000) });
       const datos = await respuesta.json();
       ultima = String(datos?.[campoVersion] ?? "");
-      if (ultima && (ultima === commit || commit.startsWith(ultima) || ultima.startsWith(commit))) break;
+      if (await versionIncluye(repo, ultima, commit)) break;
     } catch {
       // El servidor puede estar reiniciando: se vuelve a preguntar.
     }
