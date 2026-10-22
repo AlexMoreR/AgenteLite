@@ -6,9 +6,13 @@ import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { cn } from "@/lib/utils";
 import { ANCHO_CENTRO, ANCHO_TARJETA } from "../services/disposicion";
 import type { Contadores } from "../services/niveles";
+import { IconoDeTipo } from "./IconoDeTipo";
 
 export type DatosNodoTarjeta = {
   titulo: string;
+  /** El color y el ícono de su tipo (null si el tipo no llegó): el ícono al lado del título y una franja arriba. */
+  color: string | null;
+  icono: string | null;
   /** Cuántas hijas (no borradas) tiene: si tiene, tocarla entra a su nivel. */
   hijas: number;
   /** Ella y toda su descendencia (services/niveles.ts, contadoresRecursivos). */
@@ -40,6 +44,10 @@ export function lineasDeContadores({ teToca, enCurso, siguen, hecho }: Contadore
  * toca"; neutro si no. La del centro (el nivel actual) es más grande y va en contraste (clara en
  * oscuro, oscura en claro). Ancho según el texto, sin pasar de las medidas de services/disposicion.ts.
  * Mantener presionada una con hijas abre su ficha sin entrar.
+ *
+ * El tipo se ve en la tarjeta (Emanuel, 22-10-2026): su ícono en su color al lado del título y una
+ * franja fina de ese color arriba. Antes solo la ficha lo mostraba y en el mapa una "Asesora" no se
+ * distinguía de una "Tarea". El borde rojo de "te toca" no cambia.
  */
 function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
   const lineas = lineasDeContadores(data.contadores);
@@ -98,8 +106,20 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
     >
       {/* Las líneas se dibujan solas: los puntos de conexión no se muestran ni se arrastran. */}
       <Handle type="target" position={Position.Top} className="!pointer-events-none !opacity-0" isConnectable={false} />
+      {data.color && (
+        <span aria-hidden className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: data.color }} />
+      )}
       {/* El título: hasta 3 líneas (con o sin contadores) y entero al pasar el mouse. */}
-      <p className={cn("line-clamp-3 max-w-full break-words font-semibold", centro ? "text-sm" : "text-xs")}>{data.titulo}</p>
+      <div className="flex max-w-full items-center justify-center gap-1">
+        {(data.color || data.icono) && (
+          <IconoDeTipo
+            icono={data.icono}
+            color={data.color ?? undefined}
+            className={cn("shrink-0", centro ? "size-4" : "size-3.5")}
+          />
+        )}
+        <p className={cn("line-clamp-3 min-w-0 break-words font-semibold", centro ? "text-sm" : "text-xs")}>{data.titulo}</p>
+      </div>
       {lineas.map((linea) => (
         <p
           key={linea}

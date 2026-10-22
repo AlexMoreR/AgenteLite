@@ -56,7 +56,7 @@ export type {
   StatusFilter,
 } from "./chat-inbox-types";
 import { normalizeChatSearchText, getMediaPreviewLabel } from "./chat-inbox-format";
-import { cifrasDeLaBusqueda } from "@/lib/busqueda-de-chats";
+import { cifrasParaBuscar } from "@/lib/busqueda-de-chats";
 import {
   normalizeLiveConversationSnapshot,
   normalizeLiveConversationListSnapshot,
@@ -1107,8 +1107,16 @@ export function SharedInbox({
       el scroll infinito, el tiempo real) y alcanza con que uno se olvide para que vuelva el
       problema. Los items sin estado conocido se dejan pasar: no se puede decidir sobre lo que no
       se sabe.
+
+      Con algo escrito en el buscador el estado no filtra (Emanuel, 22-10-2026): el servidor ya trae
+      los cerrados y descartados que coinciden, y si se descartaran aca llegarian pero no se verian.
+      Al borrar la busqueda vuelve el filtro de siempre.
     */
+    const buscando = Boolean(searchInputValue.trim());
     const porEstado = conversationItems.filter((item) => {
+      if (buscando) {
+        return true;
+      }
       const resueltaAca = statusFilter === "open" ? resueltasAca.get(item.id) : undefined;
       if (resueltaAca !== undefined) {
         const ultimo = item.lastMessageAt ? new Date(item.lastMessageAt).getTime() : 0;
@@ -1128,8 +1136,9 @@ export function SharedInbox({
       return porEstado;
     }
 
-    // "300 123 4567" tambien encuentra el numero guardado sin espacios (igual que el servidor).
-    const cifras = cifrasDeLaBusqueda(searchInputValue);
+    // "300 123 4567" tambien encuentra el numero guardado sin espacios, y "57 301..." el guardado
+    // sin el 57 (igual que el servidor).
+    const variantesDeCifras = cifrasParaBuscar(searchInputValue);
 
     /*
       Como en WhatsApp: en "Chats" van los que coinciden por NOMBRE o NUMERO; los que tienen la
@@ -1143,8 +1152,10 @@ export function SharedInbox({
       return (
         normalizeChatSearchText(item.label).includes(normalizedQuery) ||
         normalizeChatSearchText(item.secondaryLabel).includes(normalizedQuery) ||
-        (cifras !== null &&
-          (item.secondaryLabel.replace(/\D/g, "").includes(cifras) || item.label.replace(/\D/g, "").includes(cifras)))
+        variantesDeCifras.some(
+          (cifras) =>
+            item.secondaryLabel.replace(/\D/g, "").includes(cifras) || item.label.replace(/\D/g, "").includes(cifras),
+        )
       );
     });
   }, [conversationItems, resueltasAca, searchInputValue, statusFilter]);

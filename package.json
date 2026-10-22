@@ -55,7 +55,8 @@
     "supervisor:simular": "node scripts/supervisor-simulacion.mjs",
     "test:e2e": "playwright test -c e2e",
     "db:seed": "node prisma/seed.js",
-    "test:hora-lista": "npx tsx scripts/check-hora-lista.ts"
+    "test:hora-lista": "npx tsx scripts/check-hora-lista.ts",
+    "test:busqueda-de-chats": "npx tsx scripts/check-busqueda-de-chats.ts"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
