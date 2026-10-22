@@ -43,7 +43,7 @@ import {
   whereDeFiltros,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
-import { estadoAlBuscar, whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
+import { whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
 import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
 import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
 
@@ -334,13 +334,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const statusParam = typeof params.status === "string" ? params.status.trim() : "";
   const statusFilter: "all" | "open" | "resolved" =
     statusParam === "all" || statusParam === "resolved" ? statusParam : "open";
-  // Con algo escrito en el buscador, el estado no filtra: se buscan tambien los cerrados. El filtro
-  // elegido (`statusFilter`) no cambia: al borrar la busqueda la bandeja vuelve a el.
-  const estadoDeLaConsulta = estadoAlBuscar(statusFilter, searchQuery);
   const statusWhere: Prisma.ConversationWhereInput =
-    estadoDeLaConsulta === "resolved"
+    statusFilter === "resolved"
       ? { status: { in: ["CLOSED", "ARCHIVED"] } }
-      : estadoDeLaConsulta === "all"
+      : statusFilter === "all"
         ? {}
         : { status: { in: ["OPEN", "PENDING"] } };
 
@@ -373,46 +370,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     userId: access.userId,
     esJefe: access.isOwner || access.role === "ADMIN",
   });
-
-  /*
-    ENLACE DIRECTO A UN CHAT: /cliente/chats?conversacion=<id> (Emanuel, 22-10-2026).
-
-    Para que Claude o el tablero pasen un link que abra justo esa conversacion, sin saber si es de
-    WhatsApp normal o de la API oficial (el `chatKey` lo pide). Se abre con el estado en "Todas"
-    para que se vea aunque este cerrada. Un id que no existe o de una linea que esta persona no ve
-    abre la bandeja normal, sin error.
-  */
-  const conversacionParam = typeof params.conversacion === "string" ? params.conversacion.trim() : "";
-  if (conversacionParam && !selectedChatKeyParam && /^[a-z0-9]+$/i.test(conversacionParam)) {
-    const [delCanalViejo, oficial] = await Promise.all([
-      prisma.conversation.findFirst({
-        where: {
-          id: conversacionParam,
-          workspaceId: membership.workspace.id,
-          ...(canalesVisibles ? { channelId: { in: canalesVisibles } } : {}),
-        },
-        select: { id: true },
-      }),
-      prisma.officialApiConversation.findFirst({
-        where: { id: conversacionParam, config: { workspaceId: membership.workspace.id } },
-        select: { id: true },
-      }),
-    ]);
-    // La linea oficial tambien es un canal: si esta persona no la ve, su chat no se abre.
-    const veLaOficial =
-      !canalesVisibles ||
-      (oficial
-        ? (await prisma.whatsAppChannel.count({
-            where: { id: { in: canalesVisibles }, provider: "OFFICIAL_API" },
-          })) > 0
-        : false);
-    const chatKey = delCanalViejo
-      ? `agent:${delCanalViejo.id}`
-      : oficial && veLaOficial
-        ? `official:${oficial.id}`
-        : "";
-    redirect(chatKey ? `/cliente/chats?chatKey=${encodeURIComponent(chatKey)}&status=all` : "/cliente/chats");
-  }
 
 
   /**
@@ -539,7 +496,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       q: searchQuery || undefined,
       includeSelectedConversation: true,
       // Respeta el filtro de la bandeja: resolver un chat oficial ahora lo saca de la lista.
-      statusFilter: estadoDeLaConsulta,
+      statusFilter,
       // Y el de asignacion. Sin esto los chats del canal oficial entraban en la lista con
       // CUALQUIER pestaña: se leia "Mias 1" y abajo salian los de Ingrid y los sin asignar.
       assignedFilter,
@@ -575,9 +532,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   // scroll, con miles de chats abajo que nunca se podian ver.
   const agentConversationsConsumidas = agentConversationsRaw.slice(0, conversationListTake);
   const hasMoreConversationItems = agentConversationsRaw.length > conversationListTake;
-  // Buscando, los pospuestos si aparecen (igual que en /api/cliente/chats/list).
   const agentConversationsBase = agentConversationsConsumidas.filter(
-    (conversation) => Boolean(searchQuery) || !isSnoozed(conversation.contact?.metadata),
+    (conversation) => !isSnoozed(conversation.contact?.metadata),
   );
   // Si el chat seleccionado (deep-link) no vino en el lote de la lista, lo agregamos para que el
   // panel lo abra. Va primero para que quede visible arriba al aterrizar desde Mi día.

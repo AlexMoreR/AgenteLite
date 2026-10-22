@@ -16,7 +16,7 @@ import {
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
-import { estadoAlBuscar, whereDeBusquedaDeChats, whereDeBusquedaDeChatsOficiales } from "@/lib/busqueda-de-chats";
+import { whereDeBusquedaDeChats, whereDeBusquedaDeChatsOficiales } from "@/lib/busqueda-de-chats";
 
 export const dynamic = "force-dynamic";
 
@@ -191,11 +191,8 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   const selectedConnectionKey = requestUrl.searchParams.get("connection")?.trim() || "";
   // Mismo default que la lista y la pantalla: solo abiertas.
   const requestedStatusRaw = requestUrl.searchParams.get("status")?.trim() || "";
-  // Con algo escrito en el buscador, el estado no filtra (igual que la lista).
-  const statusFilter: ChatsStatusFilter = estadoAlBuscar(
-    requestedStatusRaw === "all" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "open",
-    searchQuery,
-  );
+  const statusFilter: ChatsStatusFilter =
+    requestedStatusRaw === "all" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "open";
 
   /*
     Quien ve TODAS las conversaciones de sus lineas: dueño, administrador o supervisora.
@@ -243,8 +240,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     searchQuery,
     selectedConnectionKey: conexionElegida,
     statusFilter,
-    // Buscando, la lista muestra tambien los pospuestos: el numero tambien los cuenta.
-    snoozedContactIds: searchQuery ? [] : snoozedRows.map((fila) => fila.id),
+    snoozedContactIds: snoozedRows.map((fila) => fila.id),
     visibleChannelIds,
     filtros,
     sinResponder: necesitaIdsSinResponder(filtros)

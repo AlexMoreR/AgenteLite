@@ -18,37 +18,15 @@ export const LETRAS_PARA_BUSCAR_EN_MENSAJES = 4;
 export const DIAS_DE_MENSAJES_EN_LA_BUSQUEDA = 90;
 
 /**
- * Las cifras con las que se busca en el telefono, ademas de lo escrito tal cual.
- *
  * Un numero escrito como se lee ("300 123-4567", "+57 (300) 123 4567") no aparece tal cual en el
  * telefono guardado, que va sin espacios. Si lo escrito es solo un numero con separadores y tiene 4
  * cifras o mas, se busca tambien con las cifras solas. Con letras no: "Pedro 2024" no es un telefono.
- *
- * Y un numero colombiano puede haber quedado guardado sin el 57 ("3012175617"). Si se escribe con
- * el 57 delante ("573012175617", "+57 301 217 5617"), `contains` no lo encuentra: se busca tambien
- * con las 10 cifras sin el 57. Al reves no hace falta: "3012175617" ya esta dentro de "57301...".
  */
-export function cifrasParaBuscar(q: string): string[] {
+export function cifrasDeLaBusqueda(q: string): string | null {
   const texto = q.trim();
-  if (!/^[\d\s()+.-]+$/.test(texto)) return [];
+  if (!/^[\d\s()+.-]+$/.test(texto)) return null;
   const cifras = texto.replace(/\D/g, "");
-  if (cifras.length < 4) return [];
-  const variantes = new Set<string>();
-  if (cifras !== texto) variantes.add(cifras);
-  if (cifras.length === 12 && cifras.startsWith("57")) variantes.add(cifras.slice(2));
-  return [...variantes];
-}
-
-/**
- * Con algo escrito en el buscador, el estado NO filtra (Emanuel, 22-10-2026).
- *
- * "Todos" en la bandeja es el filtro de ASESORA; el de estado seguia en "Abiertos" sin que se
- * viera, asi que buscar el numero de un cliente con el chat cerrado o descartado no lo traia, y
- * se terminaba abriendo un chat repetido. Lo usan la pagina, la lista, los contadores, la linea
- * oficial y la pantalla: si uno se olvida, el chat cerrado llega pero no se muestra (o al reves).
- */
-export function estadoAlBuscar<T extends string>(statusFilter: T, q: string): T | "all" {
-  return q.trim() ? "all" : statusFilter;
+  return cifras.length >= 4 && cifras !== texto ? cifras : null;
 }
 
 function desdeCuandoBuscarMensajes(ahora: Date): Date {
@@ -68,11 +46,12 @@ function filtroDeMensajes(q: string, ahora: Date) {
 export function whereDeBusquedaDeChats(rawQ: string, ahora: Date = new Date()): Prisma.ConversationWhereInput {
   const q = rawQ.trim();
   if (!q) return {};
+  const cifras = cifrasDeLaBusqueda(q);
   return {
     OR: [
       { contact: { name: { contains: q, mode: "insensitive" } } },
       { contact: { phoneNumber: { contains: q, mode: "insensitive" } } },
-      ...cifrasParaBuscar(q).map((cifras) => ({ contact: { phoneNumber: { contains: cifras } } })),
+      ...(cifras ? [{ contact: { phoneNumber: { contains: cifras } } }] : []),
       ...(q.length >= LETRAS_PARA_BUSCAR_EN_MENSAJES ? [{ messages: filtroDeMensajes(q, ahora) }] : []),
     ],
   };
@@ -85,11 +64,12 @@ export function whereDeBusquedaDeChatsOficiales(
 ): Prisma.OfficialApiConversationWhereInput {
   const q = rawQ.trim();
   if (!q) return {};
+  const cifras = cifrasDeLaBusqueda(q);
   return {
     OR: [
       { contact: { name: { contains: q, mode: "insensitive" } } },
       { contact: { waId: { contains: q, mode: "insensitive" } } },
-      ...cifrasParaBuscar(q).map((cifras) => ({ contact: { waId: { contains: cifras } } })),
+      ...(cifras ? [{ contact: { waId: { contains: cifras } } }] : []),
       ...(q.length >= LETRAS_PARA_BUSCAR_EN_MENSAJES ? [{ messages: filtroDeMensajes(q, ahora) }] : []),
     ],
   };
