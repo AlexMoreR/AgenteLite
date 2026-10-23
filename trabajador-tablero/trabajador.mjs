@@ -57,10 +57,12 @@ for (const senal of ["SIGINT", "SIGTERM"]) {
   });
 }
 
-const { limites } = config;
+const { limites, motores } = config;
 registro.info(
   `trabajador arrancó: CRM ${config.urlCrm}, repos ${Object.keys(config.repos).join(", ")}, carpeta ${config.carpetaTrabajo}; ` +
-    `hasta ${config.maxParalelo} tarjetas al tiempo (no abre otra con CPU > ${limites.cpuPorciento} % o memoria > ${limites.memoriaPorciento} %)`,
+    `hasta ${config.maxParalelo} tarjetas al tiempo (no abre otra con CPU > ${limites.cpuPorciento} % o memoria > ${limites.memoriaPorciento} %); ` +
+    `motores: planear ${motores.planear}, construir ${motores.construir}, revisar ${motores.revisar ?? "ninguno"}` +
+    `${motores.respaldoClaude ? " (respaldo Claude)" : ""}; todo con Codex si Claude pasa el ${config.umbralClaude} % de uso`,
 );
 
 while (!parar) {

@@ -340,6 +340,21 @@ la IA pausada no lo contesta el agente.
   `crear_tablero` / `renombrar_tablero` aceptan `dueno` (nombre o email de un miembro activo; sin él,
   `crear_tablero` lo deja de la persona de la clave). El trabajador sigue tomando tarjetas de TODOS los
   tableros del negocio. Las reglas de aprobación y estados no cambiaron.
+- **Tablero IA — motores del trabajador y aviso por WhatsApp (23-oct-2026)**: el trabajador (aizen1) planea
+  y revisa con Claude Code y construye con Codex CLI (sesión de ChatGPT Plus), según `motores` de su
+  `config.local.json`. Codex solo escribe archivos en el worktree (`codex exec --sandbox workspace-write`,
+  nunca sin sandbox); commit, verificación y subida siguen siendo del trabajador. Si Codex se agota, la
+  tarjeta se suelta sin ERROR y no pasa a Claude (salvo `respaldoClaude`). Cada 10 min lee `claude -p
+  /usage`: con la sesión o la semana en 80 % o más, todos los pasos van con Codex y le avisa al dueño UNA vez
+  por cruce. El resultado de la tarjeta guarda `resultado.motor` (`{ plan, construir, revisar }` = claude |
+  codex; `resultadoDeEntrada` en `reglas-trabajador.ts`) y el plan termina con "Plan escrito con: …".
+  El aviso sale por **`POST /api/trabajador/aviso`** (misma clave Bearer del trabajador que
+  `/api/trabajador/tablero/*`; cuerpo `{ texto }` de hasta 500 caracteres; código en
+  `services/aviso-del-trabajador.ts`): un WhatsApp desde la línea del negocio llamada "Admin" (si no, la de
+  purpose ADMIN; conectada primero) con el envío de siempre (`sendEvolutionTextMessageWithReconnect`, que
+  también sabe WAHA), al número de la AppSetting **`trabajador:aviso-telefono:<workspaceId>`** (solo
+  dígitos, con indicativo). Sin número o sin línea Admin contesta 412; más de un aviso por minuto, 429. No
+  queda guardado en ningún chat.
 
 ## Automatizaciones
 
@@ -391,9 +406,10 @@ la IA pausada no lo contesta el agente.
   mensajes solo con 4 letras o más y solo en los de los últimos 90 días (`lib/busqueda-de-chats.ts`). No
   hay índice de texto (`pg_trgm`) en `Message`; buscar en todo sería recorrer la tabla en cada pedido.
 
-- **Tablero IA, trabajador**: corre en UN PC (aizen1) y solo si está prendido y con `claude` logueado; si
-  se apaga a mitad de algo, la tarjeta queda ERROR por vencimiento. No hay todavía avisos por WhatsApp de
-  tarjetas por aprobar, ni aprobar respondiendo "sí" por WhatsApp (sí en la conversación con Claude, con
+- **Tablero IA, trabajador**: corre en UN PC (aizen1) y solo si está prendido y con `claude` y `codex`
+  logueados; si se apaga a mitad de algo, la tarjeta queda ERROR por vencimiento. El único aviso por
+  WhatsApp es el del uso de Claude (`/api/trabajador/aviso`); su límite de 1 por minuto vive en la memoria
+  del proceso (se reinicia con el contenedor). No hay todavía avisos por WhatsApp de tarjetas por aprobar, ni aprobar respondiendo "sí" por WhatsApp (sí en la conversación con Claude, con
   `aprobar_tarjeta`). Solo conoce los repos `gestion` y `aizencrm` (lista fija en el código). Las tarjetas
   sin repo siguen la fase 1 (APROBADO → EN_CURSO → HECHO a mano). Los latidos del trabajador no quedan en
   el historial.

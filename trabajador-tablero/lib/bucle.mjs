@@ -2,7 +2,7 @@
 // cada una en su propia sesión de Claude Code, su worktree y su rama (etapas.mjs):
 //
 // - crearPlanificador: llena los cupos libres. Antes de tomar otra mira la CPU y la memoria (si pasan
-//   de config.limites no abre otra sesión), si Claude está en pausa por su límite de uso, y qué
+//   de config.limites no abre otra sesión), qué etapas tienen motor (ver abajo), y qué
 //   candidatas chocan con lo que ya corre (choques.mjs: misma zona o módulo del mismo repo, o dos
 //   subidas del mismo repo = la cola de subida): esas van en `excluir` a /tomar y esperan en fila.
 // - procesar: una etapa de una tarjeta con su latido cada minuto. Si el latido dice que la tarjeta ya
@@ -10,9 +10,16 @@
 //   etapa falla, avisa /error con el motivo; si Claude llegó a su límite de uso, la suelta SIN error
 //   (/soltar) y el planificador pausa.
 // - unaVuelta: tomar UNA y hacerla (--una-vez y las pruebas).
+//
+// Motores (23-oct-2026, motores.mjs): el estado de los motores es uno solo para todas las sesiones.
+// Si Codex o Claude llegan a su límite, ESE motor se pausa (Codex pausaLimiteCodexMinutos, Claude
+// pausaLimiteMinutos) y sus pasos esperan o pasan al otro según config.motores; las candidatas cuyo paso
+// no tiene motor van en `excluir`. Cada config.vigilarUsoMinutos se mira el uso de Claude: sobre
+// config.umbralClaude todos los pasos van con Codex y sale UN aviso por WhatsApp por cruce.
 import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.mjs";
-import { ErrorDeEtapa, construir, planear, subir } from "./etapas.mjs";
+import { ErrorDeEtapa, construir, entornoSeguro, planear, subir } from "./etapas.mjs";
 import { idCorto } from "./git.mjs";
+import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor } from "./motores.mjs";
 import { crearMedidor, faltanRecursos } from "./recursos.mjs";
 
 const ETAPAS = { planear, construir, subir };
@@ -27,9 +34,11 @@ export async function unaVuelta({ crm, config, registro }) {
   return { hizo: hacer, tarjetaId: tarjeta.id, ...resultado };
 }
 
-export async function procesar({ crm, config, registro }, tarjeta, hacer) {
+export async function procesar({ crm, config, registro, motores = crearEstadoDeMotores(config) }, tarjeta, hacer) {
   const control = new AbortController();
   let vencida = false;
+  // El latido que va en camino: se espera al terminar, para que no llegue al CRM después del resultado.
+  let latidoEnVuelo = null;
   const latir = async () => {
     try {
       await crm.latido(tarjeta.id);
@@ -41,8 +50,14 @@ export async function procesar({ crm, config, registro }, tarjeta, hacer) {
       }
     }
   };
-  const reloj = setInterval(() => void latir(), Math.max(1, config.tiempos.latidoSegundos) * 1000);
-  const contexto = { config, registro, senal: control.signal };
+  const reloj = setInterval(() => {
+    latidoEnVuelo = latir();
+  }, Math.max(1, config.tiempos.latidoSegundos) * 1000);
+  const pausar = (motor) => {
+    const hasta = motores.pausar(motor);
+    registro.aviso(`pausa: ${nombreDelMotor(motor)} llegó a su límite de uso; no lo uso hasta ${new Date(hasta).toISOString()}`);
+  };
+  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar };
   try {
     const etapa = ETAPAS[hacer];
     if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este trabajador no sabe hacer (¿hay que actualizarlo?).`);
@@ -52,7 +67,8 @@ export async function procesar({ crm, config, registro }, tarjeta, hacer) {
     if (hacer === "planear") respuesta = await crm.plan(tarjeta.id, salida.plan);
     else if (hacer === "construir") respuesta = await crm.resultado(tarjeta.id, salida);
     else respuesta = await crm.subida(tarjeta.id, { commit: salida.commit, version: salida.version, linkCommit: salida.linkCommit });
-    registro.info(`listo "${tarjeta.titulo}" (${hacer})${respuesta?.estado ? `: quedó ${respuesta.estado}` : ""}`);
+    const conMotor = hacer === "planear" ? `, motor: ${salida.motor}` : hacer === "construir" && salida.motor?.construir ? `, motor: ${salida.motor.construir}` : "";
+    registro.info(`listo "${tarjeta.titulo}" (${hacer}${conMotor})${respuesta?.estado ? `: quedó ${respuesta.estado}` : ""}`);
     // estado = SUBIENDO: se construyó y sube sola; el que llama la toma enseguida, sin esperar el minuto.
     return { ok: true, estado: respuesta?.estado ?? null };
   } catch (error) {
@@ -62,10 +78,12 @@ export async function procesar({ crm, config, registro }, tarjeta, hacer) {
       return { ok: false, motivo, vencida: true };
     }
     if (error?.limiteDeUso) {
-      // No es culpa de la tarjeta: vuelve a esperar su turno, sin ERROR.
-      registro.aviso(`"${tarjeta.titulo}" (${hacer}): Claude llegó a su límite de uso; la suelto sin error para reintentarla después`);
-      await soltar(crm, registro, tarjeta, `Claude llegó a su límite de uso: se reintenta después. ${motivo}`);
-      return { ok: false, motivo, limiteDeUso: true };
+      // No es culpa de la tarjeta: vuelve a esperar su turno, sin ERROR, y ese motor se pausa.
+      const quien = error.motor ? `${nombreDelMotor(error.motor)} llegó a su límite de uso` : "Ningún motor disponible";
+      registro.aviso(`"${tarjeta.titulo}" (${hacer}): ${quien}; la suelto sin error para reintentarla después`);
+      if (error.motor && !motores.pausadoHasta(error.motor)) pausar(error.motor);
+      await soltar(crm, registro, tarjeta, `${quien}: se reintenta después. ${motivo}`);
+      return { ok: false, motivo, limiteDeUso: true, motor: error.motor ?? null };
     }
     registro.error(`"${tarjeta.titulo}" (${hacer}) falló: ${motivo}`);
     try {
@@ -76,6 +94,7 @@ export async function procesar({ crm, config, registro }, tarjeta, hacer) {
     return { ok: false, motivo, zonas: error?.zonas ?? [] };
   } finally {
     clearInterval(reloj);
+    await latidoEnVuelo;
   }
 }
 
@@ -105,15 +124,22 @@ function registroDeLaSesion(registro, etiqueta) {
  *   esperar(ms)     duerme hasta ms, o menos si terminó una sesión (hay un cupo libre).
  *   esperarTodas()  espera que terminen las que corren (al salir).
  */
-export function crearPlanificador({ crm, config, registro, medidor = crearMedidor() }) {
+export function crearPlanificador({
+  crm,
+  config,
+  registro,
+  medidor = crearMedidor(),
+  motores = crearEstadoDeMotores(config),
+  vigilante = crearVigilanteDeUso({ config, registro, crm, estado: motores, entorno: entornoSeguro() }),
+}) {
   const max = config.maxParalelo;
   /** sesión (1..max) -> { tarjeta, hacer, huella, promesa } */
   const sesiones = new Map();
-  let pausaHasta = 0;
   let despertar = null;
   // Terminó una sesión mientras no se esperaba: la próxima espera no duerme.
   let cupoNuevo = false;
   let ultimoAviso = "";
+  let ultimoSinMotor = "";
 
   /** Para no llenar el log: el mismo aviso (fila, recursos, pausa) se escribe una vez. */
   const avisarUnaVez = (clave, mensaje) => {
@@ -141,16 +167,12 @@ export function crearPlanificador({ crm, config, registro, medidor = crearMedido
     const sesion = { tarjeta, hacer, huella };
     sesiones.set(n, sesion);
     contarCorriendo();
-    sesion.promesa = procesar({ crm, config, registro: suRegistro }, tarjeta, hacer)
+    sesion.promesa = procesar({ crm, config, registro: suRegistro, motores }, tarjeta, hacer)
       .catch((error) => {
         suRegistro.error(`la sesión se cayó: ${error?.message ?? error}`);
         return { ok: false };
       })
       .then((resultado) => {
-        if (resultado?.limiteDeUso) {
-          pausaHasta = Date.now() + config.tiempos.pausaLimiteMinutos * 60_000;
-          registro.aviso(`pausa: Claude llegó a su límite de uso; no abro sesiones nuevas hasta ${new Date(pausaHasta).toISOString()}`);
-        }
         if (resultado?.estado === "SUBIENDO") suRegistro.info("construida y sube sola: pasa a la cola de subida");
         return resultado;
       })
@@ -162,12 +184,23 @@ export function crearPlanificador({ crm, config, registro, medidor = crearMedido
       });
   }
 
+  /** Las etapas que hoy no tienen motor (Codex en pausa sin respaldo, los dos agotados…). */
+  function etapasSinMotor() {
+    return ["planear", "construir"].filter((hacer) => motorDeLaEtapa(motores, hacer) === null);
+  }
+
   async function llenar() {
+    await vigilante?.vigilar();
     while (sesiones.size < max) {
-      if (Date.now() < pausaHasta) {
-        avisarUnaVez(`pausa-${pausaHasta}`, `en pausa por el límite de uso de Claude hasta ${new Date(pausaHasta).toISOString()}`);
-        return;
-      }
+      const sinMotor = etapasSinMotor();
+      if (sinMotor.length) {
+        const pausas = ["claude", "codex"]
+          .filter((motor) => motores.pausadoHasta(motor))
+          .map((motor) => `${nombreDelMotor(motor)} hasta ${new Date(motores.pausadoHasta(motor)).toISOString()}`);
+        const clave = `${sinMotor.join(",")}-${pausas.join(",")}`;
+        if (clave !== ultimoSinMotor) registro.info(`sin motor para ${sinMotor.join(" ni ")} (en pausa: ${pausas.join(", ") || "ninguno"}): esas esperan`);
+        ultimoSinMotor = clave;
+      } else ultimoSinMotor = "";
       // La primera siempre se toma (una CPU ocupada por otra cosa no deja todo quieto).
       if (sesiones.size > 0) {
         const falta = faltanRecursos(medidor.medir(), config.limites);
@@ -178,9 +211,10 @@ export function crearPlanificador({ crm, config, registro, medidor = crearMedido
       }
       const corriendo = [...sesiones.values()].map((s) => s.huella);
       let excluir = [];
-      if (corriendo.length) {
+      if (corriendo.length || sinMotor.length) {
         const { candidatas = [] } = await crm.candidatas();
-        const chocan = candidatasQueChocan(candidatas, corriendo, config.repos);
+        const chocan = corriendo.length ? candidatasQueChocan(candidatas, corriendo, config.repos) : {};
+        for (const c of candidatas) if (!chocan[c.id] && sinMotor.includes(c.hacer)) chocan[c.id] = `(sin motor para ${c.hacer})`;
         excluir = Object.keys(chocan);
         if (candidatas.length && excluir.length === candidatas.length) {
           const enFila = candidatas.map((c) => `"${c.titulo}" ${chocan[c.id]}`);

@@ -3,6 +3,10 @@
   "claveTrabajador": "aizen_trab_PEGAR_AQUI_LA_CLAVE_DEL_PANEL_TRABAJADOR",
   "carpetaTrabajo": "D:/Proyectos/trabajador-tablero-trabajo",
   "comandoClaude": ["claude"],
+  "comandoCodex": ["codex"],
+  "motores": { "planear": "claude", "construir": "codex", "revisar": "claude", "respaldoClaude": false },
+  "pausaLimiteCodexMinutos": 30,
+  "umbralClaude": 80,
   "maxParalelo": 3,
   "limites": { "cpuPorciento": 85, "memoriaPorciento": 85 },
   "tiempos": {

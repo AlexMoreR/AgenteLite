@@ -7,6 +7,7 @@
 //   modo acceptEdits: [zona] edita src/bot/ (zona protegida), [tsc] rompe la verificación, [lint] deja un
 //                     error de lint nuevo, [migracion] agrega una migración, [conflicto] escribe un archivo
 //                     que después choca con main, [nada] no cambia nada; si no, escribe cambio-<algo>.txt.
+//   la revisión ("Eres el REVISOR"): no cambia nada. `-p /usage`: el uso del plan (CLAUDE_FALSO_USO).
 // Anota cada llamada (argumentos y carpeta) en el archivo de CLAUDE_FALSO_LOG.
 import fs from "node:fs";
 import path from "node:path";
@@ -22,6 +23,13 @@ if (process.env.CLAUDE_FALSO_LOG) {
 }
 const dormir = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
 
+// `claude -p /usage`: contesta lo que diga el archivo de CLAUDE_FALSO_USO (sin archivo, algo ilegible).
+if (argumentos.includes("/usage")) {
+  const archivo = process.env.CLAUDE_FALSO_USO;
+  console.log(archivo && fs.existsSync(archivo) ? fs.readFileSync(archivo, "utf8") : "Unknown command");
+  process.exit(0);
+}
+
 const modulo = (titulo.match(/\[mod:([a-z]+)\]/) ?? [])[1];
 if (titulo.includes("[limite]")) {
   console.log("Claude AI usage limit reached|1761210000");
@@ -32,6 +40,12 @@ if (modo === "plan") {
   if (titulo.includes("[lento]")) await dormir(10 * 60_000);
   await dormir(titulo.includes("[medio]") ? 6000 : 1500);
   console.log(`PLAN para "${titulo}"\n1. Qué se cambia: un archivo.\n2. Efecto: ninguno para clientes.\n3. Riesgos: bajos.\n4. Migración: no.\n5. Archivos: ${modulo ? `src/${modulo}/cambio.ts` : "cambio.txt"}\n6. Pruebas: verificar.mjs`);
+  process.exit(0);
+}
+
+// La revisión de lo que construyó Codex: no cambia nada.
+if (prompt.startsWith("Eres el REVISOR")) {
+  console.log("REVISIÓN: todo bien (claude).");
   process.exit(0);
 }
 

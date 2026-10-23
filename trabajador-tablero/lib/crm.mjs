@@ -43,6 +43,8 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     plan: (id, plan) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/plan`, { plan }),
     resultado: (id, resultado) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/resultado`, resultado),
     subida: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/subida`, datos),
+    /** WhatsApp al dueño desde la línea Admin (POST /api/trabajador/aviso): el aviso del uso de Claude. */
+    aviso: (texto) => pedir("/api/trabajador/aviso", { texto }),
     error: (id, motivo, zonaProtegida, reversion) =>
       pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/error`, {
         motivo,

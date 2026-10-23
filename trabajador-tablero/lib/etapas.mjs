@@ -13,6 +13,11 @@
 //              la versión. Si el despliegue falla, revert del commit en main (sin --force). -> /subida
 // Si algo falla se lanza ErrorDeEtapa con el motivo en palabras sencillas y el detalle técnico debajo
 // (y la reversión, si la hubo): el bucle llama /error.
+//
+// Motores (23-oct-2026): planear y construir los hace Claude Code o Codex CLI (correrMotor), según
+// config.motores y lo que decida el planificador (contexto.motorDe: uso de Claude, pausas por límite).
+// Lo que construye Codex lo revisa después otro paso (Claude por defecto). El motor solo escribe
+// archivos: commit, zonas, verificación, lint, ensayo y subida siguen siendo del trabajador.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -31,16 +36,19 @@ import {
   urlDelRemoto,
   webDeGithub,
 } from "./git.mjs";
+import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
 import { comoTexto, correr, ultimasLineas } from "./procesos.mjs";
 import { zonasTocadas } from "./zonas.mjs";
 
 export class ErrorDeEtapa extends Error {
-  constructor(message, { zonas = [], reversion = null, limiteDeUso = false } = {}) {
+  constructor(message, { zonas = [], reversion = null, limiteDeUso = false, motor = null } = {}) {
     super(message);
     this.zonas = zonas;
     this.reversion = reversion;
-    // Claude llegó al límite de uso del plan: no es ERROR de la tarjeta, se suelta y se reintenta después.
+    // Claude o Codex llegó al límite de uso del plan: no es ERROR de la tarjeta, se suelta y se reintenta
+    // después. `motor` dice cuál ("claude" | "codex"; null = ningún motor disponible ahora).
     this.limiteDeUso = limiteDeUso;
+    this.motor = motor;
   }
 }
 
@@ -120,16 +128,113 @@ async function claude(contexto, argumentos, prompt, { cwd, timeoutMs, que }) {
   if (resultado.vencido) throw new ErrorDeEtapa(`Claude tardó más de ${Math.round(timeoutMs / MINUTO)} min en ${que}: se cortó.`);
   const cola = ultimasLineas(`${resultado.errores}\n${resultado.salida}`, 20);
   if (resultado.codigo !== 0) {
-    throw new ErrorDeEtapa(`Claude falló al ${que} (código ${resultado.codigo}):\n${cola}`, { limiteDeUso: esLimiteDeUso(cola) });
+    throw new ErrorDeEtapa(`Claude falló al ${que} (código ${resultado.codigo}):\n${cola}`, { limiteDeUso: esLimiteDeUso(cola), motor: "claude" });
   }
   const texto = resultado.salida.trim();
   if (!texto) throw new ErrorDeEtapa(`Claude no contestó nada al ${que}.`);
   // A veces sale con código 0 y solo el aviso del límite (un texto corto, no un plan ni un resumen).
-  if (texto.length < 300 && esLimiteDeUso(texto)) throw new ErrorDeEtapa(`Claude llegó a su límite de uso al ${que}: ${texto}`, { limiteDeUso: true });
+  if (texto.length < 300 && esLimiteDeUso(texto)) {
+    throw new ErrorDeEtapa(`Claude llegó a su límite de uso al ${que}: ${texto}`, { limiteDeUso: true, motor: "claude" });
+  }
   return texto;
 }
 
-const MOTIVO_ENSAYO = "El ensayo de la migración falló: la migración no corre bien en la base. No se subió nada.";
+/**
+ * Correr Codex CLI (23-oct-2026) sin interacción:
+ *   codex exec --cd <worktree> --sandbox <read-only|workspace-write> --skip-git-repo-check --color never
+ *              --output-last-message <archivo> -
+ * El prompt va por stdin ("-"); la respuesta final la deja Codex en el archivo (fuera del worktree, para
+ * que no entre en el commit). Nunca --dangerously-bypass-approvals-and-sandbox: Codex solo escribe
+ * archivos dentro del worktree; el commit, las verificaciones y la subida los hace el trabajador.
+ */
+async function codex(contexto, prompt, { cwd, timeoutMs, que, sandbox }) {
+  const { config, senal } = contexto;
+  const respuesta = path.join(config.carpetaTrabajo, "codex", `${path.basename(cwd)}-${Date.now()}.txt`);
+  fs.mkdirSync(path.dirname(respuesta), { recursive: true });
+  const comando = [
+    ...config.comandoCodex,
+    "exec",
+    "--cd",
+    cwd,
+    "--sandbox",
+    sandbox,
+    "--skip-git-repo-check",
+    "--color",
+    "never",
+    "--output-last-message",
+    respuesta,
+    "-",
+  ];
+  try {
+    const resultado = await correr(comando, { cwd, entrada: prompt, timeoutMs, senal, env: entornoSeguro() });
+    if (resultado.cancelado) throw new ErrorDeEtapa(`Se canceló Codex (${que}): la tarjeta venció en el CRM.`);
+    if (resultado.vencido) throw new ErrorDeEtapa(`Codex tardó más de ${Math.round(timeoutMs / MINUTO)} min en ${que}: se cortó.`);
+    const cola = ultimasLineas(`${resultado.errores}\n${resultado.salida}`, 20);
+    if (resultado.codigo !== 0) {
+      throw new ErrorDeEtapa(`Codex falló al ${que} (código ${resultado.codigo}):\n${cola}`, { limiteDeUso: esLimiteDeCodex(cola), motor: "codex" });
+    }
+    const texto = (fs.existsSync(respuesta) ? fs.readFileSync(respuesta, "utf8") : resultado.salida).trim();
+    if (!texto) throw new ErrorDeEtapa(`Codex no contestó nada al ${que}.`);
+    if (texto.length < 300 && esLimiteDeCodex(texto)) {
+      throw new ErrorDeEtapa(`Codex llegó a su límite de uso al ${que}: ${texto}`, { limiteDeUso: true, motor: "codex" });
+    }
+    return texto;
+  } finally {
+    fs.rmSync(respuesta, { force: true });
+  }
+}
+
+/** Los argumentos de Claude para cada paso: planear en modo plan; construir y revisar con acceptEdits acotado. */
+function argumentosDeClaude(config, paso) {
+  if (paso === "planear") return ["-p", "--permission-mode", "plan", "--output-format", "text"];
+  return [
+    "-p",
+    "--permission-mode",
+    "acceptEdits",
+    "--output-format",
+    "text",
+    "--allowedTools",
+    ...config.herramientasPermitidas,
+    "--disallowedTools",
+    ...config.herramientasProhibidas,
+  ];
+}
+
+/**
+ * Correr un MOTOR ("claude" | "codex") para un paso ("planear" | "construir" | "revisar") en `cwd`.
+ * Planear solo lee (Claude en modo plan, Codex con --sandbox read-only); construir y revisar editan el
+ * worktree (Claude acceptEdits con herramientas acotadas, Codex --sandbox workspace-write).
+ */
+export async function correrMotor(contexto, motor, paso, prompt, { cwd, timeoutMs, que }) {
+  contexto.registro?.info?.(`${que}: motor: ${motor}`);
+  if (motor === "codex") return codex(contexto, prompt, { cwd, timeoutMs, que, sandbox: paso === "planear" ? "read-only" : "workspace-write" });
+  return claude(contexto, argumentosDeClaude(contexto.config, paso), prompt, { cwd, timeoutMs, que });
+}
+
+/** Qué motor hace `paso` ahora (lo decide el planificador con el uso de Claude y las pausas). */
+function motorDelPaso(contexto, paso) {
+  const motor = contexto.motorDe ? contexto.motorDe(paso) : paso === "revisar" ? contexto.config.motores.revisar : contexto.config.motores[paso];
+  if (!motor && paso !== "revisar") {
+    throw new ErrorDeEtapa(`Ningún motor disponible para ${paso} (Codex en pausa por su límite y sin respaldo de Claude): se reintenta después.`, {
+      limiteDeUso: true,
+      motor: null,
+    });
+  }
+  return motor ?? null;
+}
+
+/** La última línea del plan dice quién lo escribió: así el resultado sabe el motor del plan. */
+const MARCA_DEL_PLAN = /^Plan escrito con: (Claude Code|Codex)\s*$/im;
+const firmaDelPlan = (motor) => `Plan escrito con: ${motor === "codex" ? "Codex" : "Claude Code"}`;
+export function motorDelPlan(plan) {
+  const marca = String(plan ?? "").match(MARCA_DEL_PLAN);
+  return marca ? (marca[1] === "Codex" ? "codex" : "claude") : null;
+}
+
+/** La revisión no se come el tiempo de construir: como mucho esto. */
+const REVISAR_MAXIMO_MINUTOS = 20;
+
+const MOTIVO_ENSAYO ="El ensayo de la migración falló: la migración no corre bien en la base. No se subió nada.";
 
 const REGLAS_DE_ZONAS =
   "No toques Meta Ads (anuncios, campañas, píxel), el bot de ventas (el agente que atiende WhatsApp) ni el libro del agente V3.";
@@ -142,6 +247,13 @@ const SUBAGENTES_AL_CONSTRUIR = [
   "  · antes de editar, uno o más para investigar el código que toca el plan;",
   "  · uno para escribir o completar las pruebas del cambio;",
   "  · al terminar, uno que REVISE el cambio completo (git diff) buscando errores, casos que faltan y reglas rotas; arregla lo que encuentre antes de entregar.",
+].join("\n");
+/** Codex no tiene subagentes: lo mismo, hecho por él en orden. */
+const SIN_SUBAGENTES_AL_PLANEAR = "Antes de planear, investiga el código: dónde vive lo que hay que cambiar, las pruebas y los usos que se pueden romper.";
+const SIN_SUBAGENTES_AL_CONSTRUIR = [
+  "- Trabaja en este orden: primero investiga el código que toca el plan; después edita; escribe o completa las pruebas del cambio;",
+  "  al terminar, REVISA tu cambio completo (git diff y git status) buscando errores, casos que faltan y reglas rotas, y arréglalo antes de entregar.",
+  "- Si un comando necesita internet o la base y no puede correr acá, sigue: el trabajador corre tsc, build, lint y las pruebas después.",
 ].join("\n");
 
 function contextoDeLaTarjeta(tarjeta) {
@@ -156,9 +268,11 @@ function contextoDeLaTarjeta(tarjeta) {
     .join("\n\n");
 }
 
-export function promptDelPlan(tarjeta, repo) {
+export function promptDelPlan(tarjeta, repo, motor = "claude") {
   return [
-    `Eres el trabajador del Tablero IA de Magilus. Tienes que escribir un PLAN para esta tarea del repositorio "${repo.clave}". Estás en modo plan: NO cambies ningún archivo, solo lee el código y planea.`,
+    `Eres el trabajador del Tablero IA de Magilus. Tienes que escribir un PLAN para esta tarea del repositorio "${repo.clave}". ${
+      motor === "codex" ? "Estás en modo de solo lectura" : "Estás en modo plan"
+    }: NO cambies ningún archivo, solo lee el código y planea.`,
     contextoDeLaTarjeta(tarjeta),
     [
       "Escribe el plan en español sencillo, para el dueño del negocio (no es programador), con estas partes:",
@@ -170,7 +284,7 @@ export function promptDelPlan(tarjeta, repo) {
       "6. Cómo se va a probar.",
     ].join("\n"),
     `Reglas: ${REGLAS_DE_ZONAS} Si la tarea lo requiere, dilo claro al principio del plan: "TOCA ZONA PROTEGIDA: <cuál y por qué>".`,
-    SUBAGENTES_AL_PLANEAR,
+    motor === "codex" ? SIN_SUBAGENTES_AL_PLANEAR : SUBAGENTES_AL_PLANEAR,
     "En la parte 5 escribe cada archivo con su ruta completa desde la raíz del repo (por ejemplo src/features/coach/servicio.ts): el trabajador la usa para no construir a la vez dos tareas que tocan lo mismo.",
     fraseAlTerminar(repo),
     "Contesta SOLO con el plan.",
@@ -193,7 +307,7 @@ function fraseAlTerminar(repo) {
   ].join("\n");
 }
 
-export function promptDeConstruir(tarjeta, repo, rama) {
+export function promptDeConstruir(tarjeta, repo, rama, motor = "claude") {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   return [
     `Eres el trabajador del Tablero IA de Magilus. Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en un worktree aparte, en la rama ${rama}.`,
@@ -205,9 +319,29 @@ export function promptDeConstruir(tarjeta, repo, rama) {
       "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). NUNCA prisma migrate dev, migrate deploy, db push ni nada contra una base de datos.",
       `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
       "- Respeta el estilo del repo y escribe los comentarios en español.",
-      SUBAGENTES_AL_CONSTRUIR,
+      motor === "codex" ? SIN_SUBAGENTES_AL_CONSTRUIR : SUBAGENTES_AL_CONSTRUIR,
       "- Al final corre tsc, lint (sin errores nuevos), build y las pruebas que correspondan, y arregla lo que falle.",
       "- Termina con un RESUMEN corto en español sencillo: qué cambiaste, qué archivos y cómo lo probaste.",
+    ].join("\n"),
+  ].join("\n\n");
+}
+
+/** La revisión (23-oct-2026): otro motor (por defecto Claude) revisa y corrige lo que construyó Codex. */
+export function promptDeRevisar(tarjeta, repo, rama, quienConstruyo) {
+  return [
+    `Eres el REVISOR del trabajador del Tablero IA de Magilus, en el repositorio "${repo.clave}" (worktree aparte, rama ${rama}). ${
+      quienConstruyo === "codex" ? "Codex" : "Claude"
+    } acaba de implementar el plan aprobado; los cambios están sin commit.`,
+    contextoDeLaTarjeta(tarjeta),
+    `PLAN APROBADO:\n${tarjeta.plan}`,
+    [
+      "Qué hacer:",
+      "- Mira el cambio completo (git status y git diff, también los archivos nuevos) y compáralo con el plan.",
+      "- Busca errores, casos que faltan, pruebas que faltan y reglas rotas. Arréglalos tú mismo editando los archivos.",
+      "- No rehagas lo que está bien ni agregues cosas que el plan no pide.",
+      "- No hagas git push ni commit, no cambies de rama ni toques el remoto.",
+      `- ${REGLAS_DE_ZONAS}`,
+      "- Termina con una REVISIÓN corta en español sencillo: qué encontraste y qué arreglaste (o \"todo bien\").",
     ].join("\n"),
   ].join("\n\n");
 }
@@ -261,12 +395,13 @@ export async function planear(contexto, tarjeta) {
   await git(repo.ruta, ["fetch", repo.remoto]);
   try {
     await crearWorktree(repo, carpeta, `${repo.remoto}/${repo.ramaBase}`, null);
-    const plan = await claude(contexto, ["-p", "--permission-mode", "plan", "--output-format", "text"], promptDelPlan(tarjeta, repo), {
+    const motor = motorDelPaso(contexto, "planear");
+    const texto = await correrMotor(contexto, motor, "planear", promptDelPlan(tarjeta, repo, motor), {
       cwd: carpeta,
       timeoutMs: reloj.resta(),
       que: "escribir el plan",
     });
-    return { plan };
+    return { plan: `${texto.replace(MARCA_DEL_PLAN, "").trimEnd()}\n\n${firmaDelPlan(motor)}`, motor };
   } finally {
     await quitarWorktree(repo, carpeta);
   }
@@ -289,24 +424,55 @@ export async function construir(contexto, tarjeta) {
     // El lint de main, para que solo cuenten los errores NUEVOS.
     const lintBase = repo.lint ? await erroresDeLint(contexto, repo, carpeta, reloj) : null;
 
-    const resumenDeClaude = await claude(
-      contexto,
-      [
-        "-p",
-        "--permission-mode",
-        "acceptEdits",
-        "--output-format",
-        "text",
-        "--allowedTools",
-        ...config.herramientasPermitidas,
-        "--disallowedTools",
-        ...config.herramientasProhibidas,
-      ],
-      promptDeConstruir(tarjeta, repo, rama),
-      { cwd: carpeta, timeoutMs: reloj.resta(), que: "construir" },
-    );
+    let motor = motorDelPaso(contexto, "construir");
+    let resumenDelMotor;
+    try {
+      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor), {
+        cwd: carpeta,
+        timeoutMs: reloj.resta(),
+        que: "construir",
+      });
+    } catch (error) {
+      // Codex se agotó: se pausa. Pasa a Claude SOLO con motores.respaldoClaude (y si Claude está disponible).
+      if (!(error instanceof ErrorDeEtapa && error.limiteDeUso && error.motor === "codex")) throw error;
+      contexto.alLimite?.("codex");
+      const respaldo = config.motores.respaldoClaude ? motorDelPaso(contexto, "construir") : null;
+      if (respaldo !== "claude") throw error;
+      registro.aviso("Codex llegó a su límite de uso: construyo con Claude (respaldoClaude)");
+      // Lo que Codex alcanzó a escribir se descarta: Claude empieza limpio desde la base.
+      await git(carpeta, ["reset", "--hard", baseSha]);
+      await git(carpeta, ["clean", "-fd"]);
+      motor = "claude";
+      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor), {
+        cwd: carpeta,
+        timeoutMs: reloj.resta(),
+        que: "construir",
+      });
+    }
+    const motores = { ...(motorDelPlan(tarjeta.plan) ? { plan: motorDelPlan(tarjeta.plan) } : {}), construir: motor };
 
-    // El commit lo hace el trabajador (si Claude hizo alguno, queda debajo).
+    // Lo que construyó Codex lo revisa otro paso (Claude por defecto; Codex si Claude está alto). Claude ya
+    // se revisa con un subagente. Si la revisión falla, no se pierde lo construido: siguen las verificaciones.
+    let revision = null;
+    if (motor === "codex") {
+      const revisor = motorDelPaso(contexto, "revisar");
+      if (revisor) {
+        try {
+          revision = await correrMotor(contexto, revisor, "revisar", promptDeRevisar(tarjeta, repo, rama, motor), {
+            cwd: carpeta,
+            timeoutMs: Math.min(reloj.resta(), REVISAR_MAXIMO_MINUTOS * MINUTO),
+            que: "revisar",
+          });
+          motores.revisar = revisor;
+        } catch (error) {
+          if (contexto.senal?.aborted) throw error;
+          if (error instanceof ErrorDeEtapa && error.limiteDeUso && error.motor) contexto.alLimite?.(error.motor);
+          registro.aviso(`la revisión con ${revisor} no se pudo (sigo con las verificaciones): ${error.message.split("\n")[0]}`);
+        }
+      }
+    }
+
+    // El commit lo hace el trabajador (si el motor hizo alguno, queda debajo).
     await git(carpeta, ["add", "-A"]);
     const pendiente = await git(carpeta, ["diff", "--cached", "--quiet"], { permitirFallo: true });
     if (pendiente.codigo !== 0) {
@@ -315,7 +481,7 @@ export async function construir(contexto, tarjeta) {
       });
     }
     const cambios = await archivosCambiados(carpeta, base);
-    if (!cambios.length) throw new ErrorDeEtapa("Claude no cambió ningún archivo.");
+    if (!cambios.length) throw new ErrorDeEtapa(`${nombreDelMotor(motor)} no cambió ningún archivo.`);
     const archivos = cambios.map((cambio) => cambio.archivo);
 
     // Zonas protegidas (chats, agentes, libro V3, Meta Ads): ya no es ERROR. Se construye y prueba igual,
@@ -359,8 +525,20 @@ export async function construir(contexto, tarjeta) {
     const commit = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
     const web = webDeGithub(await urlDelRemoto(repo));
     registro.info(`rama ${rama} empujada (${commit.slice(0, 10)}): ${alTerminar}`);
+    const textoMotores = Object.entries(motores)
+      .map(([paso, cual]) => `${paso} ${cual}`)
+      .join(" · ");
     return {
-      resumen: `${resumenDeClaude.slice(-4000)}\n\nArchivos (${archivos.length}): ${archivos.slice(0, 40).join(", ")}${archivos.length > 40 ? "…" : ""}\n\nAl terminar: ${alTerminar}.`,
+      resumen: [
+        resumenDelMotor.slice(-3500),
+        revision ? `Revisión (${motores.revisar}): ${revision.slice(-800)}` : null,
+        `Archivos (${archivos.length}): ${archivos.slice(0, 40).join(", ")}${archivos.length > 40 ? "…" : ""}`,
+        `Motores: ${textoMotores}.`,
+        `Al terminar: ${alTerminar}.`,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      motor: motores,
       pruebas: pruebas.join("\n").slice(0, 7000),
       paso: true,
       rama,

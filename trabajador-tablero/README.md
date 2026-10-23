@@ -4,8 +4,8 @@ Es el programa que **ejecuta las tareas aprobadas** del Tablero IA (fase 2). Cor
 **aizen1** (siempre encendido), nunca en el servidor de producción. Cada minuto le pregunta al CRM,
 por HTTPS, si hay algo que hacer. No abre puertos ni necesita webhook.
 
-Usa el `claude` que ya está logueado en ese PC (la suscripción de Alexander) y solo trabaja tarjetas
-del negocio de su clave.
+Usa el `claude` que ya está logueado en ese PC (la suscripción de Alexander) para planear y revisar, y
+`codex` (la sesión de ChatGPT Plus) para construir (ver "Motores"). Solo trabaja tarjetas del negocio de su clave.
 
 ## Qué hace con una tarjeta
 
@@ -78,6 +78,63 @@ en **su propia sesión de Claude Code**, su worktree (`carpetaTrabajo/wt/<id>-<e
 - Del lado del CRM: `/tomar` recibe `{ maxParalelo, excluir }`, `/candidatas` dice qué tomaría y
   `/:id/soltar` devuelve una tarjeta sin error. Un trabajador viejo (sin cuerpo) sigue de a una.
 
+### Motores (Codex y Claude) (desde el 23-oct-2026)
+
+El trabajador usa dos "motores" de IA que ya están logueados en aizen1:
+
+- **Claude Code** (`claude`, la suscripción de Alexander): **planea** y **revisa**.
+- **Codex** (`codex`, la sesión de ChatGPT Plus): **construye**.
+
+Se elige en `config.local.json`:
+
+```json
+"motores": { "planear": "claude", "construir": "codex", "revisar": "claude", "respaldoClaude": false },
+"comandoCodex": ["codex"],
+"pausaLimiteCodexMinutos": 30
+```
+
+- **Cómo se llama a Codex.** En el worktree de la tarjeta, sin preguntar nada:
+  `codex exec --cd <worktree> --sandbox workspace-write --skip-git-repo-check --color never --output-last-message <archivo> -`
+  (el prompt va por la entrada; para planear con Codex, `--sandbox read-only`). Nunca con
+  `--dangerously-bypass-approvals-and-sandbox`. Corre con el mismo entorno seguro que Claude (sin base de datos).
+- **Codex solo escribe archivos.** El commit, las zonas protegidas, tsc / build / pruebas, el lint, el ensayo
+  de la migración y la subida los sigue haciendo el trabajador, igual que antes.
+- **La revisión.** Cuando construye Codex, después Claude (el motor de `revisar`) mira el cambio contra el plan
+  y arregla lo que encuentre. Si la revisión falla, no se pierde lo construido: siguen las verificaciones. Con
+  `"revisar": "ninguno"` no hay revisión aparte. Lo que construye Claude no pasa por otra revisión (Claude ya se
+  revisa con un subagente).
+- **Si Codex se agota** (el aviso de ChatGPT: "You've hit your usage limit… try again in…", 429, quota), la
+  tarjeta se **suelta sin ERROR** (vuelve a PLAN_APROBADO sin gastar el intento) y Codex no se usa por
+  `pausaLimiteCodexMinutos`. **No pasa a Claude**, salvo con `"respaldoClaude": true`: entonces Claude construye
+  desde cero en la misma rama.
+- **Qué motor hizo qué.** El log lo dice (`[s1 abcd1234] construir: motor: codex`), el plan termina con
+  "Plan escrito con: Claude Code" (o Codex) y el resultado de la tarjeta trae `motor`
+  (`{ plan, construir, revisar }`) y la línea "Motores: plan claude · construir codex · revisar claude".
+
+### Alerta de uso de Claude
+
+Cada 10 minutos (`vigilarUsoMinutos`) el trabajador corre `claude -p /usage` y lee algo así:
+
+```
+Current session: 36% used · resets Oct 23, 3:20pm (America/Bogota)
+Current week (all models): 6% used · resets Oct 30, 7am (America/Bogota)
+```
+
+- Si la sesión o la semana llegan a `umbralClaude` (80 % por defecto), **todos los pasos van con Codex**
+  (planear y revisar también) hasta que baje. El log dice, por ejemplo:
+  `Claude al 83 % (sesión): planear y revisar pasan a Codex hasta 3:20pm`.
+- Manda **un** WhatsApp al dueño por cada cruce (con el porcentaje y la hora de reinicio), desde la línea
+  Admin del CRM (`POST /api/trabajador/aviso`). Vuelve a avisar solo si bajó del umbral y volvió a subir, o si
+  empezó otro periodo. Lo que ya avisó queda en `<carpetaTrabajo>/estado-uso.json`.
+- Si no puede leer el uso, lo anota en el log, sigue como si estuviera bajo el umbral (no inventa números) y
+  manda **una** alerta "no pude leer el uso de Claude" por día.
+- Si Claude de verdad llega a su límite, la tarjeta se suelta sin error y Claude se pausa
+  `pausaLimiteMinutos`; mientras tanto sus pasos van con Codex.
+- **Para que llegue el WhatsApp**: guardar el número del dueño (solo dígitos, con indicativo, por ejemplo
+  `573001234567`) en la AppSetting `trabajador:aviso-telefono:<workspaceId>` del CRM, y tener una línea de
+  WhatsApp llamada "Admin" (o con purpose ADMIN) conectada. Sin número, el CRM contesta 412 y el trabajador
+  lo anota en el log.
+
 ### Actualizar aizen1 al flujo nuevo
 
 1. Traer el código nuevo (`git pull` en la copia del repo de donde corre el trabajador).
@@ -105,7 +162,8 @@ Mientras no se haga, sigue funcionando como antes (todo queda POR_REVISAR).
    - `subirSolo`: `true` para que las tarjetas que pasan todo y no tocan una zona suban solas a producción.
    - `subida`: cómo esperar el CI y comprobar la versión de cada repo.
 3. **Requisitos del PC.** Node 20+, `git` (con permiso de push a los repos), `gh` logueado (`gh auth status`),
-   `claude` logueado, y la llave ssh si se usa el ensayo en producción.
+   `claude` logueado, `codex` logueado con ChatGPT (`codex login status`), y la llave ssh si se usa el ensayo
+   en producción.
 4. **Probar a mano** (una sola vuelta):
 
    ```
@@ -133,10 +191,11 @@ Para cortarlo en seco: revocar la clave en el panel Trabajador (deja de entrar a
 npm run test:trabajador-tablero
 ```
 
-Usa un CRM falso (servidor local), un repo git temporal con su "remoto" local y `claude`, `ssh` y `gh`
-falsos (`pruebas/*-falso.mjs`). No toca la base ni GitHub. Recorre el flujo completo y los casos de
-ERROR (tiempo, tsc, lint nuevo, conflicto, Claude sin cambios, vencimiento por latido), y la zona
-protegida (queda POR_REVISAR con la zona marcada).
+Usa un CRM falso (servidor local), un repo git temporal con su "remoto" local y `claude`, `codex`, `ssh` y
+`gh` falsos (`pruebas/*-falso.mjs`). No toca la base ni GitHub. Recorre el flujo completo y los casos de
+ERROR (tiempo, tsc, lint nuevo, conflicto, Claude sin cambios, vencimiento por latido), la zona
+protegida (queda POR_REVISAR con la zona marcada), los motores (Codex construye y Claude revisa, Codex
+agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de Claude.
 
 ## Archivos
 
@@ -144,7 +203,9 @@ protegida (queda POR_REVISAR con la zona marcada).
 - `lib/bucle.mjs`: el planificador (varias a la vez) y una vuelta (tomar, la etapa con latido, avisar el resultado o el error).
 - `lib/choques.mjs`: qué tarjetas no pueden ir a la vez (zona, módulo, cola de subida).
 - `lib/recursos.mjs`: CPU y memoria del PC.
-- `lib/etapas.mjs`: planear, construir y subir.
+- `lib/etapas.mjs`: planear, construir (con su revisión) y subir; `correrMotor` corre Claude o Codex.
+- `lib/motores.mjs`: qué motor hace cada paso, el límite de Codex y la vigilancia del uso de Claude.
 - `lib/ensayo.mjs`: ensayo de migraciones (PGlite y producción en BEGIN…ROLLBACK por ssh).
 - `lib/git.mjs`, `lib/procesos.mjs`, `lib/zonas.mjs`, `lib/crm.mjs`, `lib/config.mjs`, `lib/registro.mjs`.
-- La API del lado del CRM: `src/app/api/trabajador/tablero/*` y `src/features/tableros-inteligentes/services/trabajador.ts`.
+- La API del lado del CRM: `src/app/api/trabajador/tablero/*` y `src/features/tableros-inteligentes/services/trabajador.ts`;
+  el aviso por WhatsApp, `src/app/api/trabajador/aviso` y `services/aviso-del-trabajador.ts`.

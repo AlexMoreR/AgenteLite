@@ -54,6 +54,15 @@ const TIEMPOS_POR_DEFECTO = {
   pausaLimiteMinutos: 30,
 };
 
+/** Los motores que se pueden usar en cada paso (23-oct-2026): Claude Code y Codex CLI (ChatGPT Plus). */
+export const MOTORES = ["claude", "codex"];
+
+/**
+ * Quién hace cada paso: Claude planea y revisa lo que construyó Codex; Codex construye; sin pasar a Claude
+ * si Codex se agota. `revisar` puede ser "ninguno" (no hay revisión aparte).
+ */
+const MOTORES_POR_DEFECTO = { planear: "claude", construir: "codex", revisar: "claude", respaldoClaude: false };
+
 /** Cuántas tarjetas a la vez como mucho (22-oct-2026). El CRM tampoco da más de 5. */
 const MAXIMO_EN_PARALELO = 5;
 
@@ -154,6 +163,23 @@ export function completarConfig(datos, base = process.cwd()) {
     }
   }
 
+  const motores = { ...MOTORES_POR_DEFECTO, ...(datos.motores ?? {}) };
+  for (const paso of ["planear", "construir"]) {
+    if (!MOTORES.includes(motores[paso])) errores.push(`motores.${paso}: "claude" o "codex".`);
+  }
+  if (![...MOTORES, "ninguno"].includes(motores.revisar)) errores.push('motores.revisar: "claude", "codex" o "ninguno".');
+  if (typeof motores.respaldoClaude !== "boolean") errores.push("motores.respaldoClaude: true o false.");
+  const pausaLimiteCodexMinutos = datos.pausaLimiteCodexMinutos === undefined ? 30 : Number(datos.pausaLimiteCodexMinutos);
+  if (!Number.isFinite(pausaLimiteCodexMinutos) || pausaLimiteCodexMinutos < 1) errores.push("pausaLimiteCodexMinutos: minutos, 1 o más.");
+  const umbralClaude = datos.umbralClaude === undefined ? 80 : Number(datos.umbralClaude);
+  if (!Number.isFinite(umbralClaude) || umbralClaude < 1 || umbralClaude > 100) errores.push("umbralClaude: un porcentaje de 1 a 100.");
+  let comandoCodex = ["codex"];
+  try {
+    comandoCodex = comando(datos.comandoCodex, "comandoCodex") ?? ["codex"];
+  } catch (error) {
+    errores.push(error.message);
+  }
+
   if (errores.length) throw new Error(`La configuración tiene problemas:\n- ${errores.join("\n- ")}`);
 
   return {
@@ -165,6 +191,17 @@ export function completarConfig(datos, base = process.cwd()) {
     maxParalelo,
     limites,
     comandoClaude: comando(datos.comandoClaude, "comandoClaude") ?? ["claude"],
+    comandoCodex,
+    motores: {
+      planear: motores.planear,
+      construir: motores.construir,
+      revisar: motores.revisar === "ninguno" ? null : motores.revisar,
+      respaldoClaude: motores.respaldoClaude,
+    },
+    pausaLimiteCodexMinutos,
+    umbralClaude,
+    // Cada cuánto se mira el uso del plan de Claude (`claude -p /usage`). 0 = no se mira.
+    vigilarUsoMinutos: datos.vigilarUsoMinutos === undefined ? 10 : Math.max(0, Number(datos.vigilarUsoMinutos) || 0),
     herramientasPermitidas: lista(datos.herramientasPermitidas).length ? datos.herramientasPermitidas : HERRAMIENTAS_PERMITIDAS,
     herramientasProhibidas: [...new Set([...HERRAMIENTAS_PROHIBIDAS, ...lista(datos.herramientasProhibidas)])],
     tiempos: { ...TIEMPOS_POR_DEFECTO, ...(datos.tiempos ?? {}) },

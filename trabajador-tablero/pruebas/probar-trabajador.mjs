@@ -25,6 +25,15 @@ import { crearCrm } from "../lib/crm.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, nombreDeRama, webDeGithub } from "../lib/git.mjs";
 import { esLimiteDeUso } from "../lib/etapas.mjs";
+import {
+  crearEstadoDeMotores,
+  decidirUso,
+  esLimiteDeCodex,
+  horaDelReinicio,
+  leerUsoDeClaude,
+  motorDeLaEtapa,
+  textoDelAviso,
+} from "../lib/motores.mjs";
 import { faltanRecursos } from "../lib/recursos.mjs";
 import { crearRegistro } from "../lib/registro.mjs";
 import { globARegex, zonasTocadas } from "../lib/zonas.mjs";
@@ -117,6 +126,83 @@ await prueba("límite de uso de Claude: se reconoce el aviso (y no cualquier tex
   assert.ok(!esLimiteDeUso("PLAN: agregar el botón de cobrar"));
 });
 
+const USO_REAL = [
+  "Current session: 36% used · resets Oct 23, 3:20pm (America/Bogota)",
+  "Current week (all models): 6% used · resets Oct 30, 7am (America/Bogota)",
+].join("\n");
+
+await prueba("uso de Claude: se lee el texto real de `claude -p /usage` (sesión y semana, porcentaje y reinicio)", async () => {
+  assert.deepEqual(leerUsoDeClaude(USO_REAL), {
+    sesion: { porcentaje: 36, reinicio: "Oct 23, 3:20pm (America/Bogota)" },
+    semana: { porcentaje: 6, reinicio: "Oct 30, 7am (America/Bogota)" },
+  });
+  assert.deepEqual(leerUsoDeClaude("Current session: 83% used · resets 3:20pm (America/Bogota)").sesion, { porcentaje: 83, reinicio: "3:20pm (America/Bogota)" });
+  assert.equal(leerUsoDeClaude("Unknown command"), null, "no se inventan números");
+  assert.equal(leerUsoDeClaude(""), null);
+  assert.equal(horaDelReinicio("Oct 23, 3:20pm (America/Bogota)"), "3:20pm");
+  assert.equal(horaDelReinicio("Oct 30, 7am (America/Bogota)"), "7am");
+});
+
+await prueba("uso de Claude: UN aviso por cada cruce del umbral (se repite solo si bajó o cambió el periodo); ilegible = bajo y una alerta por día", async () => {
+  const uso = (sesion, reinicio = "Oct 23, 3:20pm") => ({ sesion: { porcentaje: sesion, reinicio }, semana: { porcentaje: 6, reinicio: "Oct 30, 7am" } });
+  const primera = decidirUso(uso(83), {}, 80, "2026-10-23");
+  assert.deepEqual(primera.alto.map((a) => a.periodo), ["sesion"]);
+  assert.equal(primera.avisos.length, 1);
+  const segunda = decidirUso(uso(90), primera.estado, 80, "2026-10-23");
+  assert.equal(segunda.alto.length, 1, "sigue alto");
+  assert.equal(segunda.avisos.length, 0, "no se repite el aviso del mismo cruce");
+  assert.equal(decidirUso(uso(80, "Oct 23, 8:20pm"), segunda.estado, 80, "2026-10-23").avisos.length, 1, "otro periodo: avisa de nuevo");
+  const bajo = decidirUso(uso(40), segunda.estado, 80, "2026-10-23");
+  assert.equal(bajo.alto.length, 0);
+  assert.equal(decidirUso(uso(85), bajo.estado, 80, "2026-10-23").avisos.length, 1, "bajó y volvió a subir: avisa de nuevo");
+  const semana = decidirUso({ sesion: { porcentaje: 10, reinicio: "x" }, semana: { porcentaje: 81, reinicio: "Oct 30, 7am" } }, {}, 80, "2026-10-23");
+  assert.deepEqual(semana.avisos.map((a) => a.periodo), ["semana"]);
+  const ilegible = decidirUso(null, {}, 80, "2026-10-23");
+  assert.deepEqual([ilegible.alto, ilegible.alertaLectura], [[], true]);
+  assert.equal(decidirUso(null, ilegible.estado, 80, "2026-10-23").alertaLectura, false, "una sola vez por día");
+  assert.equal(decidirUso(null, ilegible.estado, 80, "2026-10-24").alertaLectura, true, "al otro día otra vez");
+  assert.match(textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "codex", revisar: "claude" } }), /sesión: 83 % usado, se reinicia Oct 23, 3:20pm[\s\S]*planear y revisar pasan a Codex/);
+});
+
+await prueba("límite de Codex: se reconoce el aviso de ChatGPT (y no cualquier texto)", async () => {
+  assert.ok(esLimiteDeCodex("ERROR: You've hit your usage limit. Upgrade to Pro, or try again in 2 hours."));
+  assert.ok(esLimiteDeCodex("stream error: 429 Too Many Requests"));
+  assert.ok(esLimiteDeCodex("Rate limit reached for the Plus plan"));
+  assert.ok(esLimiteDeCodex("You exceeded your current quota"));
+  assert.ok(!esLimiteDeCodex("RESUMEN: Codex hizo el cambio del botón"));
+});
+
+await prueba("motores: Claude planea y revisa, Codex construye; Claude alto -> todo Codex; Codex agotado -> espera (o Claude con respaldo)", async () => {
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
+  const config = completarConfig(base);
+  assert.deepEqual(config.motores, { planear: "claude", construir: "codex", revisar: "claude", respaldoClaude: false });
+  assert.deepEqual(config.comandoCodex, ["codex"]);
+  assert.equal(config.pausaLimiteCodexMinutos, 30);
+  assert.equal(config.umbralClaude, 80);
+  assert.equal(config.vigilarUsoMinutos, 10);
+  assert.equal(completarConfig({ ...base, motores: { revisar: "ninguno" } }).motores.revisar, null);
+  assert.throws(() => completarConfig({ ...base, motores: { construir: "gpt" } }), /motores\.construir/);
+  assert.throws(() => completarConfig({ ...base, motores: { respaldoClaude: "si" } }), /respaldoClaude/);
+  assert.throws(() => completarConfig({ ...base, umbralClaude: 150 }), /umbralClaude/);
+  assert.throws(() => completarConfig({ ...base, comandoCodex: "codex" }), /comandoCodex/);
+
+  let reloj = 1_000_000;
+  const estado = crearEstadoDeMotores(config, { ahora: () => reloj });
+  assert.deepEqual(["planear", "construir", "revisar"].map(estado.motorDe), ["claude", "codex", "claude"]);
+  estado.ponerClaudeAlto({ periodo: "sesion", porcentaje: 83, reinicio: "3:20pm" });
+  assert.deepEqual(["planear", "construir", "revisar"].map(estado.motorDe), ["codex", "codex", "codex"], "sobre el umbral todo va con Codex");
+  estado.ponerClaudeAlto(null);
+  estado.pausar("codex");
+  assert.equal(estado.motorDe("construir"), null, "Codex agotado y sin respaldo: espera, no pasa a Claude");
+  assert.equal(estado.motorDe("planear"), "claude");
+  assert.equal(motorDeLaEtapa(estado, "subir"), "ninguno", "subir no usa motor");
+  reloj += 31 * 60_000;
+  assert.equal(estado.motorDe("construir"), "codex", "pasada la pausa, vuelve Codex");
+  const conRespaldo = crearEstadoDeMotores(completarConfig({ ...base, motores: { respaldoClaude: true } }), { ahora: () => reloj });
+  conRespaldo.pausar("codex");
+  assert.equal(conRespaldo.motorDe("construir"), "claude", "con respaldoClaude pasa a Claude");
+});
+
 await prueba("choques: archivos y módulos del plan; misma zona o módulo del mismo repo, o dos subidas, esperan en fila", async () => {
   const plan = [
     "Al terminar: sube solo a producción",
@@ -174,8 +260,11 @@ await prueba("choques: archivos y módulos del plan; misma zona o módulo del mi
 const T = fs.mkdtempSync(path.join(os.tmpdir(), "trabajador-tablero-"));
 const REMOTO = path.join(T, "remoto.git");
 const REPO = path.join(T, "repo");
-const LOGS = { claude: path.join(T, "claude.log"), ssh: path.join(T, "ssh.log"), gh: path.join(T, "gh.log") };
+const LOGS = { claude: path.join(T, "claude.log"), codex: path.join(T, "codex.log"), ssh: path.join(T, "ssh.log"), gh: path.join(T, "gh.log") };
+const USO = path.join(T, "uso.txt");
 process.env.CLAUDE_FALSO_LOG = LOGS.claude;
+process.env.CODEX_FALSO_LOG = LOGS.codex;
+process.env.CLAUDE_FALSO_USO = USO;
 process.env.SSH_FALSO_LOG = LOGS.ssh;
 process.env.GH_FALSO_LOG = LOGS.gh;
 
@@ -273,6 +362,10 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     anotarALaVez();
     return contestar(200, { ok: true, tarjeta: paraElTrabajador(elegida), hacer: regla.etapa });
   }
+  if (pedido.url === "/api/trabajador/aviso") {
+    llamadas.push({ accion: "aviso", cuerpo });
+    return contestar(200, { ok: true, linea: "Admin" });
+  }
   if (pedido.url === "/api/trabajador/tablero/candidatas") {
     llamadas.push({ accion: "candidatas" });
     return contestar(200, {
@@ -316,12 +409,17 @@ const PUERTO = servidor.address().port;
 
 const node = process.execPath;
 const falso = (nombre) => path.join(AQUI, nombre);
-const crearConfig = (tiempos = {}, delRepo = {}) =>
+// Las pruebas de siempre construyen con Claude y no miran el uso; las de los motores lo cambian en `extra`.
+const crearConfig = (tiempos = {}, delRepo = {}, extra = {}) =>
   completarConfig({
     urlCrm: `http://127.0.0.1:${PUERTO}`,
     claveTrabajador: CLAVE,
     carpetaTrabajo: path.join(T, "trabajo"),
     comandoClaude: [node, falso("claude-falso.mjs")],
+    comandoCodex: [node, falso("codex-falso.mjs")],
+    motores: { planear: "claude", construir: "claude", revisar: "claude" },
+    vigilarUsoMinutos: 0,
+    ...extra,
     tiempos: { latidoSegundos: 1, planMinutos: 0.3, construirMinutos: 1, subirMinutos: 1, comandoMinutos: 1, ...tiempos },
     git: { nombre: "Trabajador de prueba", correo: "trabajador@x.co" },
     ssh: { comando: [node, falso("ssh-falso.mjs")], destino: "prueba@servidor-falso", psql: "psql -U postgres" },
@@ -606,7 +704,7 @@ try {
     planificador.parar();
   });
 
-  await prueba("límite de uso de Claude: la tarjeta se suelta SIN error (vuelve a APROBADO) y no abre sesiones nuevas", async () => {
+  await prueba("límite de uso de Claude: la tarjeta se suelta SIN error (vuelve a APROBADO); mientras Claude está en pausa, planea Codex", async () => {
     const id = nueva("Plan sin cupo [limite]", "APROBADO");
     const otra = nueva("Espera la pausa [mod:z]", "APROBADO");
     const planificador = planificar({ ...enParalelo, maxParalelo: 1, tiempos: { ...enParalelo.tiempos, pausaLimiteMinutos: 10 } });
@@ -615,12 +713,120 @@ try {
     const t = tarjetas.get(id);
     assert.equal(t.estado, "APROBADO");
     assert.equal(t.intentos, 0, "no gastó el intento");
-    assert.match(t.soltada, /límite de uso/);
+    assert.match(t.soltada, /Claude llegó a su límite de uso/);
     assert.ok(!llamadas.some((l) => l.accion === "error" && l.id === id), "no llamó /error");
-    const tomasAntes = llamadas.filter((l) => l.accion === "tomar").length;
+    const claudeAntes = leerLog(LOGS.claude).length;
     await planificador.llenar();
-    assert.equal(llamadas.filter((l) => l.accion === "tomar").length, tomasAntes, "en pausa no toma nada");
+    await planificador.esperarTodas();
+    assert.equal(tarjetas.get(id).estado, "PLAN_LISTO");
+    assert.match(tarjetas.get(id).plan, /\(Codex\)[\s\S]*Plan escrito con: Codex$/);
+    assert.equal(leerLog(LOGS.claude).length, claudeAntes, "en pausa no llama a Claude");
     for (const x of [id, otra]) tarjetas.get(x).estado = "HECHO";
+    planificador.parar();
+  });
+
+  /* ── Motores: Codex construye, Claude planea y revisa (23-oct-2026) ── */
+  const conCodex = (motores = {}, extra = {}) =>
+    crearConfig({}, {}, { motores: { planear: "claude", construir: "codex", revisar: "claude", ...motores }, ...extra });
+
+  await prueba("codex: construye con `codex exec` (sandbox workspace-write, sin bypass), Claude revisa y el resultado dice el motor", async () => {
+    const id = nueva("Cambio hecho por Codex", "PLAN_APROBADO", { plan: "El plan\n\nPlan escrito con: Claude Code" });
+    const mainAhora = shaDe("main");
+    const resultado = await vuelta(conCodex());
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.deepEqual(t.resultado.motor, { plan: "claude", construir: "codex", revisar: "claude" });
+    assert.match(t.resultado.resumen, /RESUMEN: Codex hizo "Cambio hecho por Codex"/);
+    assert.match(t.resultado.resumen, /Revisión \(claude\): REVISIÓN: todo bien \(claude\)/);
+    assert.match(t.resultado.resumen, /Motores: plan claude · construir codex · revisar claude\./);
+    assert.match(t.resultado.resumen, /cambio-codex-\d+\.txt/, "el commit lo hizo el trabajador con lo que escribió Codex");
+    assert.equal(t.resultado.commit, shaDe(t.resultado.rama));
+    assert.equal(shaDe("main"), mainAhora, "construir NUNCA toca main");
+    const [llamada] = leerLog(LOGS.codex).slice(-1);
+    assert.equal(llamada.argumentos[0], "exec");
+    assert.equal(llamada.sandbox, "workspace-write");
+    for (const opcion of ["--cd", "--skip-git-repo-check", "--output-last-message"]) assert.ok(llamada.argumentos.includes(opcion), opcion);
+    assert.equal(llamada.argumentos.at(-1), "-", "el prompt va por stdin");
+    assert.ok(!llamada.argumentos.some((a) => /dangerously|bypass/.test(a)));
+    const [revisor] = leerLog(LOGS.claude).slice(-1);
+    assert.equal(revisor.modo, "acceptEdits", "la revisión de Claude edita con herramientas acotadas");
+    const texto = fs.readFileSync(path.join(T, "trabajo", "logs", fs.readdirSync(path.join(T, "trabajo", "logs"))[0]), "utf8");
+    assert.match(texto, /construir: motor: codex/);
+    sinRestos();
+  });
+
+  await prueba("codex con límite: la tarjeta se suelta SIN error y NO pasa a Claude", async () => {
+    const id = nueva("Sin cupo en Codex [codex-limite]", "PLAN_APROBADO", { plan: "El plan" });
+    const claudeAntes = leerLog(LOGS.claude).length;
+    const resultado = await vuelta(conCodex());
+    assert.equal(resultado.limiteDeUso, true);
+    assert.equal(resultado.motor, "codex");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_APROBADO");
+    assert.equal(t.intentos, 0, "no gastó el intento");
+    assert.match(t.soltada, /Codex llegó a su límite de uso/);
+    assert.ok(!llamadas.some((l) => l.accion === "error" && l.id === id), "no llamó /error");
+    assert.equal(leerLog(LOGS.claude).length, claudeAntes, "no usó Claude");
+    t.estado = "HECHO";
+    sinRestos();
+  });
+
+  await prueba("codex con límite y respaldoClaude=true: construye Claude (desde la base limpia)", async () => {
+    const id = nueva("Codex agotado, respaldo [codex-limite]", "PLAN_APROBADO", { plan: "El plan" });
+    const resultado = await vuelta(conCodex({ respaldoClaude: true }));
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.equal(t.resultado.motor.construir, "claude");
+    assert.equal(t.resultado.motor.revisar, undefined, "lo de Claude no pasa por otra revisión");
+    assert.match(t.resultado.resumen, /RESUMEN: hice "Codex agotado/);
+    const [llamada] = leerLog(LOGS.claude).slice(-1);
+    assert.equal(llamada.modo, "acceptEdits");
+    sinRestos();
+  });
+
+  await prueba("uso de Claude >= 80 %: planear pasa a Codex, UN aviso por WhatsApp por cruce y estado-uso.json", async () => {
+    fs.writeFileSync(USO, "Current session: 83% used · resets Oct 23, 3:20pm (America/Bogota)\nCurrent week (all models): 6% used · resets Oct 30, 7am (America/Bogota)\n");
+    const avisos = () => llamadas.filter((l) => l.accion === "aviso");
+    const antes = avisos().length;
+    const id = nueva("Plan con Claude alto", "APROBADO");
+    // vigilarUsoMinutos chiquito: mira en cada llenar.
+    const planificador = planificar({ ...conCodex({}, { vigilarUsoMinutos: 0.0001 }), maxParalelo: 1 });
+    const claudeAntes = leerLog(LOGS.claude).filter((l) => !l.argumentos.includes("/usage")).length;
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_LISTO");
+    assert.match(t.plan, /Plan escrito con: Codex$/);
+    assert.equal(leerLog(LOGS.codex).at(-1).sandbox, "read-only", "Codex planea sin poder escribir");
+    assert.equal(leerLog(LOGS.claude).filter((l) => !l.argumentos.includes("/usage")).length, claudeAntes, "no planeó con Claude");
+    assert.ok(leerLog(LOGS.claude).some((l) => l.argumentos.join(" ").endsWith("-p /usage")), "leyó el uso con claude -p /usage");
+    assert.equal(avisos().length, antes + 1, "un aviso");
+    assert.match(avisos().at(-1).cuerpo.texto, /sesión: 83 % usado, se reinicia Oct 23, 3:20pm/);
+    const estadoUso = JSON.parse(fs.readFileSync(path.join(T, "trabajo", "estado-uso.json"), "utf8"));
+    assert.equal(estadoUso.avisado.sesion.reinicio, "Oct 23, 3:20pm (America/Bogota)");
+    await new Promise((r) => setTimeout(r, 20));
+    await planificador.llenar();
+    assert.equal(avisos().length, antes + 1, "el mismo cruce no avisa otra vez");
+    fs.writeFileSync(USO, "Current session: 30% used · resets Oct 23, 3:20pm (America/Bogota)\n");
+    await new Promise((r) => setTimeout(r, 20));
+    await planificador.llenar();
+    fs.writeFileSync(USO, "Current session: 85% used · resets Oct 23, 3:20pm (America/Bogota)\n");
+    await new Promise((r) => setTimeout(r, 20));
+    await planificador.llenar();
+    assert.equal(avisos().length, antes + 2, "bajó y volvió a subir: otro aviso");
+    const texto = fs.readFileSync(path.join(T, "trabajo", "logs", fs.readdirSync(path.join(T, "trabajo", "logs"))[0]), "utf8");
+    assert.match(texto, /Claude al 83 % \(sesión\): planear y revisar pasan a Codex hasta 3:20pm/);
+    // Uso ilegible: se trata como bajo y sale UNA alerta por día.
+    fs.rmSync(USO);
+    await new Promise((r) => setTimeout(r, 20));
+    await planificador.llenar();
+    await new Promise((r) => setTimeout(r, 20));
+    await planificador.llenar();
+    const alertas = avisos().filter((l) => /no pude leer el uso de Claude/.test(l.cuerpo.texto));
+    assert.equal(alertas.length, 1, "una sola alerta por día");
+    await planificador.esperarTodas();
     planificador.parar();
   });
 

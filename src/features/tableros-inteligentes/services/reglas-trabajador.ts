@@ -531,7 +531,22 @@ export type ResultadoDelTrabajador = {
   subeSolo: boolean;
   /** El commit de main sobre el que construyó: si main no cambió, al subir no vuelve a compilar. */
   base: string | null;
+  /** Qué motor hizo cada paso (23-oct-2026): { plan, construir, revisar } = "claude" | "codex". Solo si vino. */
+  motor?: MotoresDelResultado;
 };
+
+export type MotoresDelResultado = Partial<Record<"plan" | "construir" | "revisar", "claude" | "codex">>;
+
+/** Los motores que manda el trabajador, limpios: solo pasos y motores conocidos. */
+function motoresDeEntrada(valor: unknown): MotoresDelResultado | null {
+  if (!valor || typeof valor !== "object") return null;
+  const motores: MotoresDelResultado = {};
+  for (const paso of ["plan", "construir", "revisar"] as const) {
+    const motor = (valor as Record<string, unknown>)[paso];
+    if (motor === "claude" || motor === "codex") motores[paso] = motor;
+  }
+  return Object.keys(motores).length ? motores : null;
+}
 
 const textoCorto = (valor: unknown, maximo: number) => (typeof valor === "string" ? valor.trim().slice(0, maximo) : "");
 const textoONull = (valor: unknown, maximo: number) => textoCorto(valor, maximo) || null;
@@ -542,7 +557,9 @@ export function resultadoDeEntrada(valor: unknown): ResultadoDelTrabajador {
   const resumen = textoCorto(datos.resumen, 8000);
   if (!resumen) throw new Error("Falta el resumen del resultado.");
   const link = textoONull(datos.linkRama, 500);
+  const motor = motoresDeEntrada(datos.motor);
   return {
+    ...(motor ? { motor } : {}),
     resumen,
     pruebas: textoCorto(datos.pruebas, 8000),
     paso: datos.paso === true,

@@ -1104,6 +1104,13 @@ prueba("resultado del trabajador: resumen obligatorio, paso solo si es true, lin
   assert.equal(trabajo.planDeEntrada("a\r\nb"), "a\nb");
 });
 
+prueba("resultado del trabajador: el motor de cada paso (claude/codex) se guarda si vino, lo demás se ignora", () => {
+  const conMotor = trabajo.resultadoDeEntrada({ resumen: "x", motor: { plan: "claude", construir: "codex", revisar: "gpt", otro: "codex" } });
+  assert.deepEqual(conMotor.motor, { plan: "claude", construir: "codex" });
+  assert.equal("motor" in trabajo.resultadoDeEntrada({ resumen: "x" }), false);
+  assert.equal("motor" in trabajo.resultadoDeEntrada({ resumen: "x", motor: { construir: "otro" } }), false);
+});
+
 prueba("contadores nuevos: te toca = POR_APROBAR + PLAN_LISTO + POR_REVISAR + ERROR + FALLIDO; en curso = PLANEANDO + PLAN_APROBADO + EN_CURSO + SUBIENDO; siguen = IDEA + APROBADO", () => {
   const tipos = new Map([["tarea", { id: "tarea", usaEstados: true, requiereAprobacion: true }]]);
   const grupo = (estado) => reglasNiveles.grupoDeLaTarjeta({ estado, tipoId: "tarea" }, tipos);
