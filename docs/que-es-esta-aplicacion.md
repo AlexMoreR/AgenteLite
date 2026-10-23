@@ -347,6 +347,7 @@ la IA pausada no lo contesta el agente.
 - `reparto_por_turno`: en las líneas de ventas, cuando la clienta contesta CON CONTENIDO (no solo saludo, emoji, "ok" o "gracias") a algo del agente o de un flujo y el chat no tiene asesora, se reparte por la rueda de la línea y la asesora recibe el push "Nuevo chat asignado". Asignar no pausa al agente: sigue hasta que la asesora escribe.
 - `enfriamiento_por_llamadas`: un lead en Caliente baja a Tibio con la regla del Playbook: 3 intentos nuestros sin respuesta (mensajes de asesora o llamadas), 5 días desde su último mensaje y cero respuesta. Nunca si tiene cotización o próximo contacto agendado. Vuelve a Caliente si contesta.
 - `temperatura`: un lead en Tibio baja a Frío con la misma regla del Playbook (ver `enfriamiento_por_llamadas`); nunca si tiene cotización. Vuelve a Tibio si contesta. Hasta el 03-10-2026 bajaba con "2 días sin escribir".
+- `etapa_automatica`: mueve la etapa del lead en los momentos obvios de lo que hace la asesora (desde el 22-10-2026). Cuando un chat se le asigna a una asesora (reparto por turno, de madrugada, rescate de huérfanos, regla por campaña, al contestar un chat sin dueña o a mano) y el lead está en Nuevo, pasa a Frío. Cuando se crea una cotización en Gestión desde el chat, o la asesora inserta el mensaje del panel de envío con el total, pasa a Caliente. Usa los candados del bot: nunca pone Ganado ni Descartado, nunca baja de etapa, no toca un lead cerrado, "fuera del CRM" ni de la línea administrativa. Cada cambio deja la nota "Etapa movida por el sistema: …" en el chat y arranca los seguimientos de la etapa, igual que mover la tarjeta a mano. Vale en las dos líneas (canal viejo y API oficial). Viene prendida; se apaga con `crm:etapa-automatica:<negocio>` = `off` en AppSetting. Código: `src/lib/etapa-automatica-crm.ts`.
 - `descarte_automatico`: lleva a Descartado a los leads con 30 días sin respuesta y 3 insistencias nuestras. Se corrió una vez y se apagó; hoy no aparece en pantalla.
 - `campanas`: manda la siguiente tanda de cada campaña en curso.
 - `transcripcion_de_audios`: pasa a texto cada nota de voz (Whisper) y la deja debajo del audio.
@@ -436,6 +437,13 @@ la IA pausada no lo contesta el agente.
   webhook lo usa para no pausar la IA por un eco propio.
 - **Cada cambio de gateway se prueba primero en una línea de pruebas, y probando el ENVÍO**: una línea
   puede conectar y recibir y aun así no poder enviar.
+- **La etapa automática dispara los seguimientos de Frío y Caliente** (`etapa_automatica`, desde el
+  22-10-2026). Antes casi ningún lead llegaba solo a esas etapas; ahora llega cada lead asignado o
+  cotizado, así que las reglas de seguimiento por etapa (`CRM_STAGE`) de Frío y Caliente salen mucho más
+  seguido. Revisarlas antes de sumar reglas nuevas; si hace falta frenarlo, apagar con
+  `crm:etapa-automatica:<negocio>` = `off`. No salva del descarte automático: Frío sigue en su alcance.
+  Los leads que ya estaban en Nuevo no se movieron: aplica de ahí en adelante. Poner el panel de envío
+  con el total cuenta aunque después no se envíe, y una cotización hecha fuera del chat no mueve nada.
 - **Tablero IA: Claude nunca aprueba por su cuenta.** `cambiar_estado_tarjeta` no pone APROBADO ni
   ningún estado del trabajador. La única puerta es `aprobar_tarjeta`, que exige el texto de la persona
   ("sí" y "apruebo"), que el userId de la clave MCP sea el dueño o un aprobador con alcance, que el estado

@@ -39,11 +39,15 @@ function readStoredContext(value: unknown): CommercialConversationContext | null
  * una conversacion que aca no existe: se intentaba, fallaba y se descartaba en silencio, asi
  * que la etapa cambiaba sola y la asesora entraba al chat sin saber por que. Se guarda como
  * mensaje SYSTEM marcado como actividad, que es lo que el chat ya dibuja como chip centrado.
+ *
+ * `text` reemplaza la frase de siempre: la usa la etapa automática del CRM
+ * (etapa-automatica-crm.ts), que explica por qué se movió.
  */
-async function recordOfficialApiStageActivity(input: {
+export async function recordOfficialApiStageActivity(input: {
   configId: string;
   conversationId: string;
   stageLabel: string;
+  text?: string;
 }) {
   const now = new Date();
   await prisma.$executeRaw`
@@ -58,7 +62,7 @@ async function recordOfficialApiStageActivity(input: {
       'OUTBOUND'::"OfficialApiMessageDirection",
       'SYSTEM'::"OfficialApiMessageType",
       'SENT'::"OfficialApiMessageStatus",
-      ${`El agente movió la etapa a "${input.stageLabel}"`},
+      ${input.text ?? `El agente movió la etapa a "${input.stageLabel}"`},
       ${JSON.stringify({ source: "activity", kind: "stage_changed" })},
       ${now},
       ${now}

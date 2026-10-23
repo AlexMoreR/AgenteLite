@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
+import { CLAVE_ETAPA_AUTOMATICA } from "@/lib/etapa-automatica-crm";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -366,7 +367,7 @@ async function automatizaciones(
   descritas: Map<string, string>,
   v3: { reglasSinRespuesta: number; hayLineasConV3: boolean },
 ) {
-  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, transcripcionApagada] =
+  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, transcripcionApagada, etapaAutomatica] =
     await Promise.all([
       prisma.followRule.count({ where: { workspaceId, isActive: true } }),
       prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
@@ -377,6 +378,7 @@ async function automatizaciones(
       }),
       bandera(`crm:descarte-automatico:${workspaceId}`),
       bandera("transcripcion-de-audios:apagada"),
+      bandera(`${CLAVE_ETAPA_AUTOMATICA}${workspaceId}`),
     ]);
 
   const sinInterruptor = "activa (no tiene interruptor: corre siempre)";
@@ -401,6 +403,11 @@ async function automatizaciones(
         : "sin negocios conectados a Gestión",
     enfriamiento_por_llamadas: sinInterruptor,
     temperatura: sinInterruptor,
+    // Viene prendida: solo "off" la apaga (ver etapa-automatica-crm.ts).
+    etapa_automatica:
+      etapaAutomatica?.trim().toLowerCase() === "off"
+        ? `apagada (${CLAVE_ETAPA_AUTOMATICA}<negocio> = off)`
+        : "activa: asignar saca de Nuevo a Frío; cotizar o poner el total del envío pasa a Caliente",
     descarte_automatico: descarte === "on" ? "ACTIVA: mueve leads a Descartado" : "apagada",
     campanas: campanasEnCurso > 0 ? `activa: ${campanasEnCurso} en curso` : "sin campañas en curso",
     transcripcion_de_audios: !process.env.OPENAI_API_KEY?.trim()

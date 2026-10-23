@@ -41,6 +41,7 @@ import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
 import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
+import { moverEtapaAutomatica, nombreDeAsesora } from "@/lib/etapa-automatica-crm";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
   getOfficialApiConfigByWorkspaceId,
@@ -1913,6 +1914,14 @@ async function assignOfficialApiChat(input: {
     await setOfficialApiConversationStatus({ conversationId: conversation.id, status: "OPEN" });
     await avisarCambioDeEstado(input.workspaceId, conversation.id, "official", "OPEN");
   }
+  // El lead sale de NUEVO a Frío (ver etapa-automatica-crm.ts). Nunca lanza.
+  if (assignedTo) {
+    await moverEtapaAutomatica({
+      workspaceId: input.workspaceId,
+      chat: { source: "official", conversationId: conversation.id },
+      motivo: { tipo: "asignado", asesora: assignedTo.name?.trim() || (await nombreDeAsesora(assignedTo.id)) },
+    });
+  }
 
   revalidatePath("/cliente/chats");
   return { ok: true, assignedTo };
@@ -2049,6 +2058,13 @@ export async function assignChatAction(input: {
       text: `${actorName} reabrió`,
     });
     await avisarCambioDeEstado(membership.workspace.id, conversation.id, "agent", "OPEN");
+  }
+  if (assignedTo) {
+    await moverEtapaAutomatica({
+      workspaceId: membership.workspace.id,
+      chat: { source: "agent", conversationId: conversation.id },
+      motivo: { tipo: "asignado", asesora: assignedTo.name?.trim() || (await nombreDeAsesora(assignedTo.id)) },
+    });
   }
 
   revalidatePath("/cliente/chats");

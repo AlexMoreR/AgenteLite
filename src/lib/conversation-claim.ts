@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { registrarAsesoraRespondio } from "@/features/embudo/servicios/eventos";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import { moverEtapaAutomatica, nombreDeAsesora } from "@/lib/etapa-automatica-crm";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -51,6 +52,12 @@ export async function claimConversationIfUnassigned(input: {
       if (actualizadas.count === 0) {
         return;
       }
+      // El lead sale de NUEVO a Frío (ver etapa-automatica-crm.ts). Nunca lanza.
+      await moverEtapaAutomatica({
+        workspaceId: input.workspaceId,
+        chat: { source: "official", conversationId: input.conversationId },
+        motivo: { tipo: "asignado", asesora: await nombreDeAsesora(userId) },
+      });
     } else {
       const conversacion = await prisma.conversation.findFirst({
         where: { id: input.conversationId, workspaceId: input.workspaceId, assignedToUserId: null },
@@ -74,6 +81,7 @@ export async function claimConversationIfUnassigned(input: {
         where: { id: userId },
         select: { name: true, email: true },
       });
+      const nombre = quien?.name?.trim() || quien?.email || "Una asesora";
       await recordConversationActivity({
         workspaceId: input.workspaceId,
         conversationId: conversacion.id,
@@ -82,7 +90,12 @@ export async function claimConversationIfUnassigned(input: {
         kind: "assigned",
         actorUserId: userId,
         assigneeUserId: userId,
-        text: `${quien?.name?.trim() || quien?.email || "Una asesora"} tomó esta conversación al responder`,
+        text: `${nombre} tomó esta conversación al responder`,
+      });
+      await moverEtapaAutomatica({
+        workspaceId: input.workspaceId,
+        chat: { source: "agent", conversationId: conversacion.id },
+        motivo: { tipo: "asignado", asesora: nombre },
       });
     }
   } catch (error) {

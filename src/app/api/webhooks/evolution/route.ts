@@ -116,6 +116,7 @@ import { detectarOrigenMarketplace, registrarOrigenMarketplace } from "@/lib/ori
 import { leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { filtrarPorHorario } from "@/lib/horario-de-reparto";
 import { filtrarEnLinea } from "@/lib/en-linea";
+import { moverEtapaAutomatica } from "@/lib/etapa-automatica-crm";
 import { repartirSiElTurnoLoAmerita } from "@/lib/reparto-por-turno";
 import {
   marcarRespuestaExteriorEnviada,
@@ -792,6 +793,7 @@ async function assignAdLeadByCampaign(args: {
     // conversacion misma lo explica sin tener que revisar configuraciones.
     text: `${nombre} asignado por la campaña "${args.adTitle || "anuncio"}"`,
   });
+  await moverEtapaAutomatica({ workspaceId: args.workspaceId, chat: { source: "agent", conversationId: args.conversationId }, motivo: { tipo: "asignado", asesora: nombre } });
 
   console.log("[EVOLUTION] ad_campaign_assign", {
     conversationId: args.conversationId,

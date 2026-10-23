@@ -61,10 +61,93 @@ export type MiDiaLead = {
   esMio: boolean;
 };
 
+/** Un chat suyo que sigue sin etapa (NUEVO), para clasificarlo antes de terminar el día. */
+export type MiDiaSinEtapa = {
+  conversationId: string;
+  chatKey: string;
+  name: string;
+  avatarUrl: string | null;
+  lastMessageAt: string | null; // ISO
+  hoursSinceContact: number | null;
+};
+
 export type MiDiaData = {
   generatedAt: string;
   leads: MiDiaLead[];
+  /** Cuántos chats SUYOS (abiertos, de las dos líneas) siguen en NUEVO, y los primeros de la lista. */
+  sinEtapa?: { total: number; chats: MiDiaSinEtapa[] };
 };
+
+const MAX_SIN_ETAPA = 50;
+
+/**
+ * "Tienes 7 chats sin etapa": los chats asignados a ella, abiertos, cuyo lead sigue en NUEVO.
+ *
+ * El sistema ya los saca solo de NUEVO al asignarlos (ver lib/etapa-automatica-crm.ts); lo que
+ * queda acá es lo de antes y lo que se escapó. Solo los suyos: los sin dueño no son tarea de nadie
+ * todavía. Cuenta las dos líneas (el WhatsApp viejo y la API oficial).
+ */
+async function leerSinEtapa(input: {
+  workspaceId: string;
+  userId: string;
+  visibleChannelIds?: string[] | null;
+}): Promise<{ total: number; chats: MiDiaSinEtapa[] }> {
+  const where = {
+    workspaceId: input.workspaceId,
+    assignedToUserId: input.userId,
+    ...WHERE_CHAT_ABIERTO,
+    contact: { crmStage: "NUEVO" as CrmStage, excludedFromCrm: false },
+    ...(input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {}),
+  };
+  const [totalViejo, viejos, oficiales] = await Promise.all([
+    prisma.conversation.count({ where }),
+    prisma.conversation.findMany({
+      where,
+      orderBy: { lastMessageAt: "desc" },
+      take: MAX_SIN_ETAPA,
+      select: { id: true, lastMessageAt: true, contact: { select: { name: true, phoneNumber: true, avatarUrl: true } } },
+    }),
+    prisma.$queryRaw<
+      Array<{ id: string; lastMessageAt: Date | null; name: string | null; phoneNumber: string; avatarUrl: string | null }>
+    >`
+      SELECT c."id", c."lastMessageAt", k."name", k."phoneNumber", k."avatarUrl"
+      FROM "OfficialApiConversation" c
+      INNER JOIN "OfficialApiClientConfig" cfg ON cfg."id" = c."configId"
+      INNER JOIN "OfficialApiContact" oc ON oc."id" = c."contactId"
+      INNER JOIN "Contact" k ON k."id" = oc."crmContactId"
+      WHERE cfg."workspaceId" = ${input.workspaceId}
+        AND c."assignedToUserId" = ${input.userId}
+        AND c."status"::text IN ('OPEN', 'PENDING')
+        AND k."crmStage" = 'NUEVO'::"CrmStage"
+        AND k."excludedFromCrm" = false
+      ORDER BY c."lastMessageAt" DESC NULLS LAST
+    `,
+  ]);
+  const now = Date.now();
+  const horas = (fecha: Date | null) =>
+    fecha ? Math.max(0, Math.floor((now - fecha.getTime()) / (60 * 60 * 1000))) : null;
+  const chats: MiDiaSinEtapa[] = [
+    ...viejos.map((fila) => ({
+      conversationId: fila.id,
+      chatKey: `agent:${fila.id}`,
+      name: fila.contact.name?.trim() || fila.contact.phoneNumber,
+      avatarUrl: fila.contact.avatarUrl ?? null,
+      lastMessageAt: fila.lastMessageAt?.toISOString() ?? null,
+      hoursSinceContact: horas(fila.lastMessageAt),
+    })),
+    ...oficiales.map((fila) => ({
+      conversationId: fila.id,
+      chatKey: `official:${fila.id}`,
+      name: fila.name?.trim() || fila.phoneNumber,
+      avatarUrl: fila.avatarUrl ?? null,
+      lastMessageAt: fila.lastMessageAt?.toISOString() ?? null,
+      hoursSinceContact: horas(fila.lastMessageAt),
+    })),
+  ]
+    .sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""))
+    .slice(0, MAX_SIN_ETAPA);
+  return { total: totalViejo + oficiales.length, chats };
+}
 
 function previewFromMessage(content: string | null, rawPayload: unknown, type: string | null) {
   const text = content?.trim() || extractEvolutionMessageText(rawPayload) || "";
@@ -84,7 +167,15 @@ export async function getMiDiaData(input: {
   visibleChannelIds?: string[] | null;
 }): Promise<MiDiaData> {
   try {
-    return await computeMiDiaData(input);
+    // El aviso de "sin etapa" va aparte: si su consulta falla, la lista sale igual (sin el aviso).
+    const [data, sinEtapa] = await Promise.all([
+      computeMiDiaData(input),
+      leerSinEtapa(input).catch((error) => {
+        console.error("[mi-dia] fallo al contar los chats sin etapa:", error);
+        return undefined;
+      }),
+    ]);
+    return { ...data, sinEtapa };
   } catch (error) {
     // Una vista de trabajo no debe tumbar la pantalla si la consulta falla (timeout, etc.):
     // preferimos mostrar el estado vacio antes que un 500 en toda la seccion CRM.

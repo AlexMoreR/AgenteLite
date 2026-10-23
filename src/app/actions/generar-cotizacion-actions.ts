@@ -16,6 +16,7 @@ import {
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { crearCotizacionEnGestion } from "@/lib/cotizacion-en-gestion";
+import { moverEtapaAutomatica } from "@/lib/etapa-automatica-crm";
 import { origenDelContacto } from "@/lib/origen-de-venta-crm";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -175,6 +176,34 @@ export async function generarCotizacionEnGestionAction(input: {
       channelId: conversacion.channelId,
       cotizacion: respuesta.codigo,
       actorUserId: ctx.user.id,
+    });
+  }
+  /*
+    Cotizar desde el chat pasa el lead a Caliente (ver etapa-automatica-crm.ts). Para mandar una
+    cotización primero hay que crearla, así que este es el momento. Vale para las dos líneas.
+
+    Desde el chat llega la CLAVE ("agent:<id>" u "official:<id>"), no el id a secas. El chat tiene
+    que ser de este contacto: así nadie mueve la etapa de otro pasando un id a mano.
+  */
+  const claveDelChat = input.conversationId?.trim() ?? "";
+  const esOficial = claveDelChat.startsWith("official:");
+  const idDelChat = claveDelChat.replace(/^(agent|official):/, "");
+  const esDelContacto = !idDelChat
+    ? false
+    : esOficial
+      ? (await prisma.officialApiConversation
+          .count({
+            where: { id: idDelChat, config: { workspaceId: ctx.workspaceId }, contact: { crmContactId: contacto.id } },
+          })
+          .catch(() => 0)) > 0
+      : (await prisma.conversation
+          .count({ where: { id: idDelChat, workspaceId: ctx.workspaceId, contactId: contacto.id } })
+          .catch(() => 0)) > 0;
+  if (esDelContacto) {
+    await moverEtapaAutomatica({
+      workspaceId: ctx.workspaceId,
+      chat: { source: esOficial ? "official" : "agent", conversationId: idDelChat },
+      motivo: { tipo: "cotizacion", codigo: respuesta.codigo },
     });
   }
 

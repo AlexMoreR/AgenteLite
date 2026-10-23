@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
 import { MiDiaLeadDialog } from "./MiDiaLeadDialog";
-import { Clock, Flame, PhoneCall } from "lucide-react";
+import { Clock, Flame, PhoneCall, Tag } from "lucide-react";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { CRM_STAGE_META } from "../domain/crm-config";
 import type { CrmStage } from "../types";
@@ -88,6 +88,47 @@ export function MiDiaView({
           ) : null}
         </div>
       </div>
+
+      {/* Sus chats que siguen en NUEVO ("---"): sin etapa no se puede medir el embudo. Al tocar el
+          aviso se ven los chats, cada uno abre su conversación para ponerle la etapa. */}
+      {data.sinEtapa && data.sinEtapa.total > 0 ? (
+        <details className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 dark:border-amber-500/30 dark:bg-amber-500/10">
+          <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium text-amber-800 dark:text-amber-300">
+            <Tag className="h-4 w-4 shrink-0" />
+            Tienes {data.sinEtapa.total} {data.sinEtapa.total === 1 ? "chat sin etapa" : "chats sin etapa"} —
+            clasifícalos antes de terminar el día
+          </summary>
+          <ul className="space-y-1.5 pt-3">
+            {data.sinEtapa.chats.map((chat) => (
+              <li key={chat.chatKey}>
+                <Link
+                  href={`/cliente/chats?chatKey=${encodeURIComponent(chat.chatKey)}`}
+                  className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-2.5 py-1.5 transition hover:bg-muted/50"
+                >
+                  <ContactAvatar
+                    avatarUrl={chat.avatarUrl}
+                    label={chat.name}
+                    className="size-8 shrink-0 rounded-full"
+                    fallbackClassName="rounded-full bg-muted text-muted-foreground"
+                  />
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">{chat.name}</span>
+                  {chat.hoursSinceContact !== null ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      {formatSince(chat.hoursSinceContact)}
+                    </span>
+                  ) : null}
+                </Link>
+              </li>
+            ))}
+            {data.sinEtapa.total > data.sinEtapa.chats.length ? (
+              <li className="px-1 text-xs text-muted-foreground">
+                Y {data.sinEtapa.total - data.sinEtapa.chats.length} más: clasifica estos y aparecen los siguientes.
+              </li>
+            ) : null}
+          </ul>
+        </details>
+      ) : null}
 
       {llamadasUrgentes}
 

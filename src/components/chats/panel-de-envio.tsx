@@ -6,6 +6,7 @@ import { Copy, LoaderCircle, MapPin, Plus, Search, SendHorizonal, Trash2, X } fr
 
 import {
   agregarUbicacionAction,
+  avisarPanelDeEnvioConTotalAction,
   borrarEnvioContraentregaAction,
   buscarUbicacionAction,
   guardarEnvioContraentregaAction,
@@ -436,6 +437,20 @@ export function PanelDeEnvio({
         envioGuardado: envioCEVigente?.guardado?.valor ?? null,
       })
     : null;
+  /*
+    Insertar el mensaje CON EL TOTAL le avisa al sistema: el lead pasa a Caliente (ver
+    lib/etapa-automatica-crm.ts). Una vez por chat; en segundo plano y sin cortar nada si falla.
+  */
+  const avisadoEn = useRef<string>("");
+  const insertarConTotal = (texto: string) => {
+    onInsertar(texto);
+    if (!chatKey || avisadoEn.current === chatKey) return;
+    avisadoEn.current = chatKey;
+    void avisarPanelDeEnvioConTotalAction(chatKey).catch(() => {
+      avisadoEn.current = "";
+    });
+  };
+
   const sinTotal =
     elegido &&
     (elegido.ubicacion.envio === "GRATIS" || elegido.ubicacion.envio === "ADICIONAL") &&
@@ -612,7 +627,7 @@ export function PanelDeEnvio({
               }
               texto={anticipo.texto}
               puedeEscribir={puedeEscribir}
-              onInsertar={onInsertar}
+              onInsertar={anticipo.estado === "TOTAL" ? insertarConTotal : onInsertar}
             />
           ) : null}
           {contraentrega && elegido.ubicacion.envio !== "NO_LLEGA" ? (
@@ -658,7 +673,7 @@ export function PanelDeEnvio({
                 }
                 texto={contraentrega.texto}
                 puedeEscribir={puedeEscribir}
-                onInsertar={onInsertar}
+                onInsertar={contraentrega.estado === "TOTAL" ? insertarConTotal : onInsertar}
               />
             )
           ) : null}

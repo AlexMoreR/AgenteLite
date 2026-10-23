@@ -21,6 +21,7 @@ import {
   type ResultadoDeAgregar,
   type ResultadoDeBusqueda,
 } from "@/lib/envios-gestion";
+import { moverEtapaAutomatica } from "@/lib/etapa-automatica-crm";
 import { AVISO_MODO_MONITOREO, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -204,6 +205,30 @@ export async function guardarUbicacionEnContactoAction(
   });
 
   return { ok: true, city };
+}
+
+/**
+ * La asesora puso en el chat el mensaje del panel con el TOTAL: el lead pasa a Caliente (ver
+ * `lib/etapa-automatica-crm.ts`). Se cuenta al insertarlo, no al enviarlo: poner el total ya es
+ * intención real. Nunca devuelve error al panel: el texto ya quedó en el cuadro.
+ */
+export async function avisarPanelDeEnvioConTotalAction(chatKey: string): Promise<{ ok: boolean }> {
+  const sesion = await sesionDelChat();
+  if ("error" in sesion || typeof chatKey !== "string" || !chatKey.trim()) return { ok: false };
+  // La monitora mira, no mueve etapas.
+  if (await estaEnModoMonitoreo({ workspaceId: sesion.workspaceId, userId: sesion.userId })) {
+    return { ok: false };
+  }
+  const clave = chatKey.trim();
+  const movida = await moverEtapaAutomatica({
+    workspaceId: sesion.workspaceId,
+    chat: {
+      source: clave.startsWith("official:") ? "official" : "agent",
+      conversationId: clave.replace(/^(agent|official):/, ""),
+    },
+    motivo: { tipo: "panel-de-envio" },
+  });
+  return { ok: movida !== null };
 }
 
 /* ---------------------------------------------------------------------------------------------
