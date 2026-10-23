@@ -50,6 +50,10 @@ propio catálogo (la hermana de Alex va a vender plantas y artículos de vivero 
   Traefik. La app corre en el stack `aizenlite` (servicios `aizenbot_app`, `aizenbot_realtime` para el
   tiempo real, `aizenbot_files`, y dos relojes con curl: `follow_cron` cada minuto y
   `daily_report_cron`).
+- Respaldo: el servicio `aizenbot_respaldo` (misma imagen, `docker/respaldo/respaldo.sh`) copia la base
+  con `pg_dump` a las 2:00 a. m. de Colombia, la sube a Google Drive (`Respaldos/AizenCRM`, últimos 30
+  días) y avisa por correo si falla. aizen1 baja la copia a las 4:00 a. m. y guarda las últimas 30. Corre
+  por fuera de la app y no escribe en la base: la app no sabe si corrió (se ve en Drive). Ver el README.
 - Despliegue: cada push a `main` dispara el CI de GitHub ("Docker Image CI"), que construye la imagen
   `ghcr.io/alexmorer/agentelite:latest`; con el CI en verde se despliega solo. La versión que corre se ve
   en `https://app.aizenbot.com/api/version`.
@@ -422,6 +426,11 @@ la IA pausada no lo contesta el agente.
   mano, aditivas, y se ensayan en producción dentro de una transacción que se deshace antes de subir.
 - **No usar `prisma migrate dev`** contra la base: tiene drift y querría borrarla. El puerto 5432 está
   cerrado desde afuera; para leer la base se entra por SSH al servidor.
+- **Un respaldo nunca se restaura sobre producción**: siempre en una base de pruebas aparte
+  (`docker/respaldo/restaurar-prueba.sh` arma una desechable sin red y compara los conteos). Los pasos
+  están en el README, "Respaldo de la base". Las claves (token de Drive, conexión de solo lectura, correo)
+  están solo en las variables del servicio `aizenbot_respaldo` en Portainer y en `config.local.json` de
+  aizen1. Las copias tienen teléfonos y conversaciones de clientes: la carpeta de Drive no se comparte.
 - **Todo push a `main` se despliega solo** si el CI pasa. Para cambios que se quieren revisar antes, rama
   y pull request.
 - **El contenedor corre en UTC**: las fechas que se muestran tienen que fijar `timeZone:

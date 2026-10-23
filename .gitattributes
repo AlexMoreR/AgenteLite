@@ -1,0 +1,2 @@
+# Los guiones del respaldo corren en Linux (busybox): con CRLF fallan. Siempre LF, tambien en Windows.
+docker/respaldo/*.sh text eol=lf

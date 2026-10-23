@@ -1,0 +1,16 @@
+{
+  "rclone": "C:\\rclone\\rclone.exe",
+  "remoto": "drive",
+  "carpetaDrive": "Respaldos/AizenCRM",
+  "carpetaLocal": "D:\\Respaldos\\AizenCRM",
+  "guardar": 30,
+  "avisoA": "gestionmagilus@gmail.com",
+  "smtp": {
+    "host": "smtp.gmail.com",
+    "port": 587,
+    "nota": "Solo STARTTLS (587): Send-MailMessage no sirve con el puerto 465.",
+    "user": "correo-que-envia@ejemplo.com",
+    "pass": "CONTRASENA-DE-APLICACION",
+    "from": "correo-que-envia@ejemplo.com"
+  }
+}

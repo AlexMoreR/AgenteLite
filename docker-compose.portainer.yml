@@ -133,9 +133,41 @@ services:
       restart_policy:
         condition: on-failure
 
+  # Respaldo nocturno de la base a Google Drive (docker/respaldo/respaldo.sh, ver README). Misma imagen
+  # que la app: mira la hora cada minuto y a las 2:00 a. m. de Colombia copia la base (solo lee), la sube
+  # a Drive en Respaldos/AizenCRM y borra alli las de mas de 30 dias. Si falla, correo a RESPALDO_AVISO_A.
+  aizenbot_respaldo:
+    image: ghcr.io/alexmorer/agentelite:latest
+    volumes:
+      - aizenbot_respaldos:/respaldos
+    environment:
+      RESPALDO_DATABASE_URL: "${RESPALDO_DATABASE_URL}"
+      RESPALDO_AVISO_A: "${RESPALDO_AVISO_A}"
+      RCLONE_CONFIG_DRIVE_TYPE: "drive"
+      RCLONE_CONFIG_DRIVE_SCOPE: "drive.file"
+      RCLONE_CONFIG_DRIVE_TOKEN: "${RCLONE_CONFIG_DRIVE_TOKEN}"
+      SMTP_HOST: "${SMTP_HOST}"
+      SMTP_PORT: "${SMTP_PORT}"
+      SMTP_SECURE: "${SMTP_SECURE}"
+      SMTP_USER: "${SMTP_USER}"
+      SMTP_PASS: "${SMTP_PASS}"
+      SMTP_FROM: "${SMTP_FROM}"
+    command: ["sh", "./docker/respaldo/respaldo.sh", "reloj"]
+    networks:
+      - minha_rede
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
 networks:
   minha_rede:
     external: true
 
 volumes:
   aizenbot_uploads:
+  aizenbot_respaldos:

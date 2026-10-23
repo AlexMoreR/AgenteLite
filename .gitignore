@@ -50,3 +50,8 @@ next-env.d.ts
 
 # trabajador del Tablero IA: la configuración local tiene la clave del trabajador
 /trabajador-tablero/config.local.json
+
+# respaldo de la base en aizen1: la configuración local tiene la contraseña del correo; y nunca subir
+# una copia de la base (tiene datos de clientes)
+/docker/respaldo/aizen1/config.local.json
+*.dump

@@ -25,6 +25,16 @@ WORKDIR /app
 # ffmpeg convierte cada audio del chat a un formato que suene en todos los navegadores
 # (ver src/lib/audio-para-escuchar.ts). Si faltara, los audios se guardan tal cual llegan.
 RUN apk add --no-cache ffmpeg
+# Respaldo nocturno de la base (servicio aizenbot_respaldo, docker/respaldo/respaldo.sh): pg_dump y
+# pg_restore, rclone para subir a Google Drive y curl para el correo de aviso. pg_dump tiene que ser
+# de la misma version que el Postgres del servidor o mas nueva: se instala la mas nueva que haya
+# (un pg_dump nuevo sabe copiar bases de versiones anteriores). Se elige por lo que el repositorio de
+# Alpine ofrece, no por un error al instalar. Si no se puede instalar, falla la construccion y no se
+# despliega nada.
+RUN PG=postgresql17-client \
+  && if apk --no-cache search -x postgresql18-client | grep -q '^postgresql18-client'; then PG=postgresql18-client; fi \
+  && apk add --no-cache "$PG" rclone curl \
+  && pg_dump --version && rclone version && curl --version
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV PRISMA_AUTO_RESOLVE_FAILED_OFFICIAL_API_MIGRATION=false
@@ -44,6 +54,8 @@ COPY docker/entrypoint.sh ./docker/entrypoint.sh
 # Lo que el codigo no sabe del sistema (negocio, decisiones, lo que falta). Lo lee la herramienta
 # `que_es_esta_aplicacion` del MCP en tiempo real; sin esta linea solo saldria la parte en vivo.
 COPY docs/que-es-esta-aplicacion.md ./docs/que-es-esta-aplicacion.md
+# Solo los dos guiones: lo de aizen1 no hace falta en la imagen.
+COPY docker/respaldo/respaldo.sh docker/respaldo/restaurar-prueba.sh ./docker/respaldo/
 RUN chmod +x ./docker/entrypoint.sh
 
 EXPOSE 3000
