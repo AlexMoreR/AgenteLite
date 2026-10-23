@@ -24,10 +24,10 @@ redis:
   # Egress necesita Redis para recibir los pedidos de grabación.
   address: livekit_redis:6379
 turn:
-  # TURN integrado para redes difíciles: por TLS en turn.aizenbot.com:443 (Traefik termina el TLS y
+  # TURN integrado para redes difíciles: por TLS en turn.magilus.com:443 (Traefik termina el TLS y
   # pasa el TCP al 5349; por eso external_tls) y por UDP en el 3478.
   enabled: true
-  domain: turn.aizenbot.com
+  domain: turn.magilus.com
   tls_port: 5349
   udp_port: 3478
   external_tls: true

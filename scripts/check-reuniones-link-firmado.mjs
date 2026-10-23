@@ -160,6 +160,8 @@ prueba("crearPaseDeEntrada: dura 10 minutos, entra solo a su sala y sin roomAdmi
   assert.equal("roomRecord" in cuerpo.video, false);
   assert.equal("roomCreate" in cuerpo.video, false);
   assert.equal("roomList" in cuerpo.video, false);
+  // Solo voz: el pase solo deja publicar el micrófono (nada de cámara ni pantalla).
+  assert.deepEqual(cuerpo.video.canPublishSources, ["microphone"]);
   // Firmado con el secreto: se verifica con él y no con otro.
   assert.ok(verificarJwt(pase, CONFIG.apiSecret, AHORA));
   assert.equal(verificarJwt(pase, "otro", AHORA), null);
@@ -168,8 +170,8 @@ prueba("crearPaseDeEntrada: dura 10 minutos, entra solo a su sala y sin roomAdmi
 });
 
 prueba("urlDeLaApi: wss -> https, ws -> http y sin barra al final", () => {
-  assert.equal(urlDeLaApi("wss://video.aizenbot.com"), "https://video.aizenbot.com");
-  assert.equal(urlDeLaApi("WSS://video.aizenbot.com/"), "https://video.aizenbot.com");
+  assert.equal(urlDeLaApi("wss://video.magilus.com"), "https://video.magilus.com");
+  assert.equal(urlDeLaApi("WSS://video.magilus.com/"), "https://video.magilus.com");
   assert.equal(urlDeLaApi("ws://localhost:7880//"), "http://localhost:7880");
   assert.equal(urlDeLaApi("https://ya.es"), "https://ya.es");
 });

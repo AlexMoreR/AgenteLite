@@ -24,7 +24,7 @@ services:
       EVOLUTION_WEBHOOK_SECRET: "${EVOLUTION_WEBHOOK_SECRET}"
       PRISMA_AUTO_RESOLVE_FAILED_OFFICIAL_API_MIGRATION: "true"
       # Reuniones: el servidor de video. Si LiveKit se muda a otro VPS, solo cambian estas tres.
-      LIVEKIT_URL: "wss://video.aizenbot.com"
+      LIVEKIT_URL: "wss://video.magilus.com"
       LIVEKIT_API_KEY: "${LIVEKIT_API_KEY}"
       LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET}"
       REUNIONES_CARPETA: "/app/reuniones"
@@ -177,7 +177,7 @@ services:
   # claves. Si cambias una, cambia la otra.
   #
   # Antes de prenderlo, a mano en el VPS: abrir 7881/TCP, 3478/UDP y 50000-50200/UDP en el firewall, y
-  # crear los DNS video.aizenbot.com y turn.aizenbot.com apuntando a 31.220.82.79. Variables de Portainer:
+  # crear los DNS video.magilus.com y turn.magilus.com apuntando a 31.220.82.79. Variables de Portainer:
   # LIVEKIT_API_KEY y LIVEKIT_API_SECRET (el secreto, de 32 caracteres o más).
   livekit:
     image: livekit/livekit-server:v1.13.0
@@ -194,7 +194,7 @@ services:
           address: livekit_redis:6379
         turn:
           enabled: true
-          domain: turn.aizenbot.com
+          domain: turn.magilus.com
           tls_port: 5349
           udp_port: 3478
           external_tls: true
@@ -235,14 +235,14 @@ services:
       labels:
         - traefik.enable=true
         # Solo la señalización (wss) pasa por Traefik.
-        - traefik.http.routers.livekit.rule=Host(`video.aizenbot.com`)
+        - traefik.http.routers.livekit.rule=Host(`video.magilus.com`)
         - traefik.http.routers.livekit.entrypoints=websecure
         - traefik.http.routers.livekit.tls=true
         - traefik.http.routers.livekit.tls.certresolver=letsencryptresolver
         - traefik.http.routers.livekit.service=livekit
         - traefik.http.services.livekit.loadbalancer.server.port=7880
         # TURN por TLS en el 443: Traefik termina el TLS y pasa el TCP al 5349 de LiveKit.
-        - traefik.tcp.routers.livekit-turn.rule=HostSNI(`turn.aizenbot.com`)
+        - traefik.tcp.routers.livekit-turn.rule=HostSNI(`turn.magilus.com`)
         - traefik.tcp.routers.livekit-turn.entrypoints=websecure
         - traefik.tcp.routers.livekit-turn.tls=true
         - traefik.tcp.routers.livekit-turn.tls.certresolver=letsencryptresolver

@@ -7,11 +7,8 @@ import {
   MessageSquare,
   Mic,
   MicOff,
-  MonitorUp,
   PhoneOff,
   Send,
-  Video,
-  VideoOff,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -34,12 +31,11 @@ type Mensaje = { id: string; de: string; texto: string; mio: boolean };
 
 const TEMA_DEL_CHAT = "chat";
 
-/** Pega una pista de video o audio a su elemento mientras está en pantalla. */
-function MediaDePista({ pista, tipo, espejo }: { pista: PistaLK; tipo: "video" | "audio"; espejo?: boolean }) {
-  const video = useRef<HTMLVideoElement>(null);
+/** Pega una pista de audio a su elemento mientras está en la sala. */
+function AudioDePista({ pista }: { pista: PistaLK }) {
   const audio = useRef<HTMLAudioElement>(null);
   useEffect(() => {
-    const elemento = tipo === "video" ? video.current : audio.current;
+    const elemento = audio.current;
     if (!elemento) {
       return;
     }
@@ -47,15 +43,11 @@ function MediaDePista({ pista, tipo, espejo }: { pista: PistaLK; tipo: "video" |
     return () => {
       pista.detach(elemento);
     };
-  }, [pista, tipo]);
-  if (tipo === "audio") {
-    return <audio ref={audio} autoPlay />;
-  }
-  return <video ref={video} autoPlay playsInline muted className={cn("size-full object-contain", espejo && "-scale-x-100")} />;
+  }, [pista]);
+  return <audio ref={audio} autoPlay />;
 }
 
-function Cuadro({ participante, lk }: { participante: ParticipanteLK; lk: LivekitClient }) {
-  const camara = participante.getTrackPublication(lk.Track.Source.Camera);
+function Cuadro({ participante }: { participante: ParticipanteLK }) {
   const nombre = participante.name || participante.identity;
   return (
     <div
@@ -64,13 +56,9 @@ function Cuadro({ participante, lk }: { participante: ParticipanteLK; lk: Liveki
         participante.isSpeaking && "ring-2 ring-emerald-400",
       )}
     >
-      {camara?.track && !camara.isMuted ? (
-        <MediaDePista pista={camara.track} tipo="video" espejo={participante.isLocal} />
-      ) : (
-        <span className="flex size-14 items-center justify-center rounded-full bg-neutral-700 text-xl font-semibold text-white">
-          {nombre.slice(0, 1).toUpperCase()}
-        </span>
-      )}
+      <span className="flex size-14 items-center justify-center rounded-full bg-neutral-700 text-xl font-semibold text-white">
+        {nombre.slice(0, 1).toUpperCase()}
+      </span>
       <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
         {participante.isMicrophoneEnabled ? null : <MicOff className="size-3" />}
         {nombre}
@@ -81,7 +69,7 @@ function Cuadro({ participante, lk }: { participante: ParticipanteLK; lk: Liveki
 }
 
 /**
- * Adentro de la reunión: audio, video en vivo (no se graba), compartir pantalla y chat.
+ * Adentro de la reunión: solo voz (micrófono, silenciar, salir) y chat. Sin cámara, video ni pantalla.
  * Arriba, fijo, el aviso "● Se está grabando". Quien la creó, el dueño y los administradores ven
  * "Terminar reunión", que la cierra para todos.
  */
@@ -125,7 +113,7 @@ export function SalaDeReunion({
         if (cancelada) {
           return;
         }
-        room = new cliente.Room({ adaptiveStream: true, dynacast: true });
+        room = new cliente.Room();
         const E = cliente.RoomEvent;
         for (const evento of [
           E.ParticipantConnected,
@@ -203,24 +191,14 @@ export function SalaDeReunion({
 
   const local = room?.localParticipant;
 
-  const alternar = async (que: "mic" | "camara" | "pantalla") => {
+  const alternarMicrofono = async () => {
     if (!local) {
       return;
     }
     try {
-      if (que === "mic") {
-        await local.setMicrophoneEnabled(!local.isMicrophoneEnabled);
-      } else if (que === "camara") {
-        await local.setCameraEnabled(!local.isCameraEnabled);
-      } else {
-        await local.setScreenShareEnabled(!local.isScreenShareEnabled, { audio: false });
-      }
+      await local.setMicrophoneEnabled(!local.isMicrophoneEnabled);
     } catch {
-      toast.error(
-        que === "pantalla"
-          ? "No se pudo compartir la pantalla (en el celular muchos navegadores no lo permiten)."
-          : "No se pudo. Revisa el permiso del navegador.",
-      );
+      toast.error("No se pudo. Revisa el permiso del navegador.");
     }
     repintar();
   };
@@ -265,11 +243,6 @@ export function SalaDeReunion({
   }
 
   const participantes: ParticipanteLK[] = room && lk ? [room.localParticipant, ...Array.from(room.remoteParticipants.values())] : [];
-  const pantalla = lk
-    ? participantes
-        .map((participante) => ({ participante, publicacion: participante.getTrackPublication(lk.Track.Source.ScreenShare) }))
-        .find((uno) => uno.publicacion?.track && !uno.publicacion.isMuted)
-    : undefined;
   const audios = lk
     ? participantes
         .filter((participante) => !participante.isLocal)
@@ -300,22 +273,14 @@ export function SalaDeReunion({
             </div>
           ) : (
             <>
-              {pantalla?.publicacion?.track ? (
-                <div className="relative min-h-[40vh] flex-1 overflow-hidden rounded-lg bg-black">
-                  <MediaDePista pista={pantalla.publicacion.track} tipo="video" />
-                  <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-xs">
-                    Pantalla de {pantalla.participante.name || pantalla.participante.identity}
-                  </span>
-                </div>
-              ) : null}
               <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
                 {participantes.map((participante) => (
-                  <Cuadro key={participante.identity} participante={participante} lk={lk} />
+                  <Cuadro key={participante.identity} participante={participante} />
                 ))}
               </div>
             </>
           )}
-          {audios.map((publicacion) => (publicacion.track ? <MediaDePista key={publicacion.trackSid} pista={publicacion.track} tipo="audio" /> : null))}
+          {audios.map((publicacion) => (publicacion.track ? <AudioDePista key={publicacion.trackSid} pista={publicacion.track} /> : null))}
         </div>
 
         {chatAbierto ? (
@@ -349,31 +314,11 @@ export function SalaDeReunion({
         <Button
           size="icon-lg"
           variant={local?.isMicrophoneEnabled ? "secondary" : "destructive"}
-          onClick={() => void alternar("mic")}
+          onClick={() => void alternarMicrofono()}
           disabled={!local}
           aria-label="Micrófono"
         >
           {local?.isMicrophoneEnabled ? <Mic /> : <MicOff />}
-        </Button>
-        <Button
-          size="icon-lg"
-          variant={local?.isCameraEnabled ? "secondary" : "outline"}
-          onClick={() => void alternar("camara")}
-          disabled={!local}
-          aria-label="Cámara"
-          className={cn(!local?.isCameraEnabled && "text-foreground")}
-        >
-          {local?.isCameraEnabled ? <Video /> : <VideoOff />}
-        </Button>
-        <Button
-          size="icon-lg"
-          variant={local?.isScreenShareEnabled ? "default" : "outline"}
-          onClick={() => void alternar("pantalla")}
-          disabled={!local}
-          aria-label="Compartir pantalla"
-          className={cn(!local?.isScreenShareEnabled && "text-foreground")}
-        >
-          <MonitorUp />
         </Button>
         <Button
           size="icon-lg"

@@ -4,7 +4,7 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
   LIVEKIT, el servidor de video de las reuniones (autoalojado, Apache 2.0).
 
   Todo lo que el CRM le pide a LiveKit pasa por acá, con las tres variables del servicio:
-  - LIVEKIT_URL: la dirección wss que usa el navegador (wss://video.aizenbot.com);
+  - LIVEKIT_URL: la dirección wss que usa el navegador (wss://video.magilus.com);
   - LIVEKIT_API_KEY y LIVEKIT_API_SECRET: el par de claves. El secreto nunca sale del servidor.
   Si LiveKit se muda a otro VPS, solo cambian esas tres variables.
 
@@ -123,6 +123,8 @@ export function crearPaseDeEntrada(
         room: datos.sala,
         roomJoin: true,
         canPublish: true,
+        // Solo voz: nadie puede publicar cámara, video ni pantalla.
+        canPublishSources: ["microphone"],
         canSubscribe: true,
         canPublishData: true,
         canUpdateOwnMetadata: false,
