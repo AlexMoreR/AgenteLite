@@ -16,7 +16,11 @@ import {
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
-import { whereDeBusquedaDeChats, whereDeBusquedaDeChatsOficiales } from "@/lib/busqueda-de-chats";
+import {
+  estadoParaLaBusqueda,
+  whereDeBusquedaDeChats,
+  whereDeBusquedaDeChatsOficiales,
+} from "@/lib/busqueda-de-chats";
 
 export const dynamic = "force-dynamic";
 
@@ -191,8 +195,10 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   const selectedConnectionKey = requestUrl.searchParams.get("connection")?.trim() || "";
   // Mismo default que la lista y la pantalla: solo abiertas.
   const requestedStatusRaw = requestUrl.searchParams.get("status")?.trim() || "";
-  const statusFilter: ChatsStatusFilter =
+  const statusPedido: ChatsStatusFilter =
     requestedStatusRaw === "all" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "open";
+  // Buscando, el estado no filtra, igual que en la lista (ver busqueda-de-chats).
+  const statusFilter = estadoParaLaBusqueda(statusPedido, searchQuery);
 
   /*
     Quien ve TODAS las conversaciones de sus lineas: dueño, administrador o supervisora.
@@ -209,13 +215,16 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
    * Los contactos con el lead pospuesto, para descontarlos.
    *
    * Va con SQL directo porque la fecha vive dentro de metadata: como es un texto ISO, compararlo
-   * con el ahora funciona tal cual. Son pocos, asi que la lista de ids es corta.
+   * con el ahora funciona tal cual. Son pocos, asi que la lista de ids es corta. Buscando no se
+   * descuentan: la lista tambien los muestra.
    */
-  const snoozedRows = await prisma.$queryRaw<Array<{ id: string }>>`
-    SELECT "id" FROM "Contact"
-    WHERE "workspaceId" = ${membership.workspace.id}
-      AND ("metadata"->>'snoozedUntil') > ${new Date().toISOString()}
-  `;
+  const snoozedRows = searchQuery
+    ? []
+    : await prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "Contact"
+        WHERE "workspaceId" = ${membership.workspace.id}
+          AND ("metadata"->>'snoozedUntil') > ${new Date().toISOString()}
+      `;
 
   const visibleChannelIds = await getVisibleChannelIds({
     workspaceId: membership.workspace.id,

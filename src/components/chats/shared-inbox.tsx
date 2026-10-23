@@ -56,7 +56,7 @@ export type {
   StatusFilter,
 } from "./chat-inbox-types";
 import { normalizeChatSearchText, getMediaPreviewLabel } from "./chat-inbox-format";
-import { cifrasDeLaBusqueda } from "@/lib/busqueda-de-chats";
+import { numerosDeLaBusqueda } from "@/lib/busqueda-de-chats";
 import {
   normalizeLiveConversationSnapshot,
   normalizeLiveConversationListSnapshot,
@@ -476,6 +476,14 @@ export function SharedInbox({
   // para que esos chats aparezcan aunque el texto buscado no esté en los campos visibles.
   const [searchMatchIds, setSearchMatchIds] = useState<ReadonlySet<string> | null>(null);
   const searchAugmentAbortRef = useRef<AbortController | null>(null);
+  /*
+    Los chats que entraron a la lista SOLO porque se buscaron. Buscando aparecen tambien los
+    cerrados y los pospuestos; al borrar la busqueda se sacan: los cerrados ya los saca el filtro de
+    estado, pero los pospuestos no traen nada que los distinga y se quedaban hasta recargar.
+  */
+  const agregadosPorBusquedaRef = useRef<Set<string>>(new Set());
+  // El chat abierto, para no sacarlo con los de la busqueda (se llena mas abajo, donde se calcula).
+  const chatAbiertoRef = useRef(selectedConversationIdFromUrl);
   // Arranca distinta a proposito: la primera corrida del efecto de `conversations` arma la lista.
   const listQueryKeyRef = useRef(`${searchQuery.trim()}::${selectedConnectionKey.trim()}::${assignedFilterDelServidor}`);
 
@@ -964,6 +972,16 @@ export function SharedInbox({
       if (!q) {
         searchAugmentAbortRef.current = null;
         setSearchMatchIds(null);
+        const agregados = agregadosPorBusquedaRef.current;
+        if (agregados.size > 0) {
+          agregadosPorBusquedaRef.current = new Set();
+          // El chat abierto se queda: sacarlo de la lista dejaria el panel sin su fila.
+          setConversationItems((current) =>
+            current.filter(
+              (item) => !agregados.has(item.id) || conversationIdMatchesKey(chatAbiertoRef.current, item.id),
+            ),
+          );
+        }
         return;
       }
 
@@ -1006,6 +1024,7 @@ export function SharedInbox({
         setConversationItems((current) => {
           const currentIds = new Set(current.map((item) => item.id));
           const additions = normalized.filter((item) => item.id && !currentIds.has(item.id));
+          for (const item of additions) agregadosPorBusquedaRef.current.add(item.id);
           return additions.length === 0 ? current : sortConversationItems([...current, ...additions]);
         });
         setSearchMatchIds(new Set(normalized.map((item) => item.id)));
@@ -1083,12 +1102,11 @@ export function SharedInbox({
   const handleSearchClear = useCallback(() => {
     setSearchInputValue("");
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    searchAugmentAbortRef.current?.abort();
-    searchAugmentAbortRef.current = null;
-    setSearchMatchIds(null);
+    // Corta el pedido en camino y saca los chats que solo estaban por la busqueda.
+    void runSearchAugmentation("");
     clearSearchUrlParam();
     searchInputRef.current?.focus();
-  }, [clearSearchUrlParam]);
+  }, [clearSearchUrlParam, runSearchAugmentation]);
 
   // Lista que se muestra: filtrado LOCAL e instantáneo de los chats ya cargados por nombre,
   // teléfono o último mensaje (sin tildes/mayúsculas), más los que el servidor marcó como
@@ -1108,7 +1126,13 @@ export function SharedInbox({
       problema. Los items sin estado conocido se dejan pasar: no se puede decidir sobre lo que no
       se sabe.
     */
-    const porEstado = conversationItems.filter((item) => {
+    /*
+      Buscando, el estado no filtra: el servidor ya trae los cerrados y descartados que coinciden
+      (ver busqueda-de-chats), y si aca se siguieran sacando, el chat llegaria y no se veria. Al
+      borrar la busqueda vuelve el filtro de estado de siempre.
+    */
+    const hayBusqueda = searchInputValue.trim().length > 0;
+    const porEstado = hayBusqueda ? conversationItems : conversationItems.filter((item) => {
       const resueltaAca = statusFilter === "open" ? resueltasAca.get(item.id) : undefined;
       if (resueltaAca !== undefined) {
         const ultimo = item.lastMessageAt ? new Date(item.lastMessageAt).getTime() : 0;
@@ -1128,8 +1152,9 @@ export function SharedInbox({
       return porEstado;
     }
 
-    // "300 123 4567" tambien encuentra el numero guardado sin espacios (igual que el servidor).
-    const cifras = cifrasDeLaBusqueda(searchInputValue);
+    // "300 123 4567" tambien encuentra el numero guardado sin espacios, y "57 301..." el guardado
+    // sin el 57 (igual que el servidor).
+    const numeros = numerosDeLaBusqueda(searchInputValue);
 
     /*
       Como en WhatsApp: en "Chats" van los que coinciden por NOMBRE o NUMERO; los que tienen la
@@ -1143,8 +1168,10 @@ export function SharedInbox({
       return (
         normalizeChatSearchText(item.label).includes(normalizedQuery) ||
         normalizeChatSearchText(item.secondaryLabel).includes(normalizedQuery) ||
-        (cifras !== null &&
-          (item.secondaryLabel.replace(/\D/g, "").includes(cifras) || item.label.replace(/\D/g, "").includes(cifras)))
+        numeros.some(
+          (numero) =>
+            item.secondaryLabel.replace(/\D/g, "").includes(numero) || item.label.replace(/\D/g, "").includes(numero),
+        )
       );
     });
   }, [conversationItems, resueltasAca, searchInputValue, statusFilter]);
@@ -1303,6 +1330,9 @@ export function SharedInbox({
   // leyendolo crudo apuntarian al chat viejo; sombreandolo pasan todos a la fuente unica.
   const selectedConversationKey = useOpenChatKey(selectedConversationIdFromUrl);
   const selectedConversationId = selectedConversationKey;
+  useEffect(() => {
+    chatAbiertoRef.current = selectedConversationId;
+  }, [selectedConversationId]);
 
   /*
     Abrir un chat apaga su aviso en la campanita, en el acto.

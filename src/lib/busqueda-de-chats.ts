@@ -29,6 +29,34 @@ export function cifrasDeLaBusqueda(q: string): string | null {
   return cifras.length >= 4 && cifras !== texto ? cifras : null;
 }
 
+/**
+ * Las formas del numero que se buscan en el telefono guardado, ademas de lo escrito tal cual.
+ * Si lo escrito es un celular de Colombia con el 57 delante (12 cifras), se busca tambien sin el
+ * 57: hay telefonos guardados con las 10 cifras solas, y "573012175617" no esta dentro de
+ * "3012175617". Al reves no hace falta: "3012175617" ya esta dentro de "573012175617".
+ */
+export function numerosDeLaBusqueda(q: string): string[] {
+  const texto = q.trim();
+  if (!/^[\d\s()+.-]+$/.test(texto)) return [];
+  const cifras = texto.replace(/\D/g, "");
+  const numeros = new Set<string>();
+  if (cifras.length >= 4 && cifras !== texto) numeros.add(cifras);
+  if (cifras.length === 12 && cifras.startsWith("57")) numeros.add(cifras.slice(2));
+  return [...numeros];
+}
+
+export type FiltroDeEstado = "open" | "resolved" | "all";
+
+/**
+ * Con algo escrito en el buscador, el estado no filtra: se busca en abiertos, pendientes, cerrados
+ * y archivados. El filtro "Todos" de la bandeja es el de la asesora, no el del estado, y el estado
+ * se queda en "Abiertos" sin que se vea: sin esto, un chat cerrado o descartado no aparecia nunca al
+ * buscarlo por numero (22-10-2026). Sin busqueda, el estado queda como venia.
+ */
+export function estadoParaLaBusqueda<T extends FiltroDeEstado>(statusFilter: T, rawQ: string): T | "all" {
+  return rawQ.trim() ? "all" : statusFilter;
+}
+
 function desdeCuandoBuscarMensajes(ahora: Date): Date {
   return new Date(ahora.getTime() - DIAS_DE_MENSAJES_EN_LA_BUSQUEDA * 24 * 60 * 60 * 1000);
 }
@@ -46,12 +74,11 @@ function filtroDeMensajes(q: string, ahora: Date) {
 export function whereDeBusquedaDeChats(rawQ: string, ahora: Date = new Date()): Prisma.ConversationWhereInput {
   const q = rawQ.trim();
   if (!q) return {};
-  const cifras = cifrasDeLaBusqueda(q);
   return {
     OR: [
       { contact: { name: { contains: q, mode: "insensitive" } } },
       { contact: { phoneNumber: { contains: q, mode: "insensitive" } } },
-      ...(cifras ? [{ contact: { phoneNumber: { contains: cifras } } }] : []),
+      ...numerosDeLaBusqueda(q).map((numero) => ({ contact: { phoneNumber: { contains: numero } } })),
       ...(q.length >= LETRAS_PARA_BUSCAR_EN_MENSAJES ? [{ messages: filtroDeMensajes(q, ahora) }] : []),
     ],
   };
@@ -64,12 +91,11 @@ export function whereDeBusquedaDeChatsOficiales(
 ): Prisma.OfficialApiConversationWhereInput {
   const q = rawQ.trim();
   if (!q) return {};
-  const cifras = cifrasDeLaBusqueda(q);
   return {
     OR: [
       { contact: { name: { contains: q, mode: "insensitive" } } },
       { contact: { waId: { contains: q, mode: "insensitive" } } },
-      ...(cifras ? [{ contact: { waId: { contains: cifras } } }] : []),
+      ...numerosDeLaBusqueda(q).map((numero) => ({ contact: { waId: { contains: numero } } })),
       ...(q.length >= LETRAS_PARA_BUSCAR_EN_MENSAJES ? [{ messages: filtroDeMensajes(q, ahora) }] : []),
     ],
   };

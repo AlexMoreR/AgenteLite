@@ -142,10 +142,12 @@ function construirNodos(
   const centros = new Set(grupos.map((grupo) => grupo.centro));
   const contadores = contadoresDe(contenido);
   const hijas = contarHijas(contenido.tarjetas);
+  const tipoPorId = new Map(contenido.tipos.map((tipo) => [tipo.id, tipo]));
   // Si el nivel pedido ya no existe (se borró) se muestra la raíz: las posiciones de antes no sirven.
   const posiciones = disponerRadial(grupos, nivel === nivelPedido ? previas : new Map());
   return visibles.map((id) => {
     const tarjeta = porId.get(id)!;
+    const tipo = tipoPorId.get(tarjeta.tipoId);
     return {
       id,
       type: "tarjeta" as const,
@@ -153,6 +155,9 @@ function construirNodos(
       position: posiciones.get(id) ?? { x: 0, y: 0 },
       data: {
         titulo: tarjeta.titulo,
+        // El color y el ícono de su tipo, para que se vean en el mapa y no solo en la ficha.
+        tipoColor: tipo?.color ?? null,
+        tipoIcono: tipo?.icono ?? null,
         hijas: hijas.get(id) ?? 0,
         contadores: contadores.get(id) ?? contadoresEnCero(),
         esNivel: centros.has(id),

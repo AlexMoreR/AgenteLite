@@ -6,9 +6,13 @@ import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { cn } from "@/lib/utils";
 import { ANCHO_CENTRO, ANCHO_TARJETA } from "../services/disposicion";
 import type { Contadores } from "../services/niveles";
+import { IconoDeTipo } from "./IconoDeTipo";
 
 export type DatosNodoTarjeta = {
   titulo: string;
+  /** El color y el ícono de su tipo (Área, Idea, Tarea, Asesora o cualquiera que se cree). */
+  tipoColor: string | null;
+  tipoIcono: string | null;
   /** Cuántas hijas (no borradas) tiene: si tiene, tocarla entra a su nivel. */
   hijas: number;
   /** Ella y toda su descendencia (services/niveles.ts, contadoresRecursivos). */
@@ -39,7 +43,9 @@ export function lineasDeContadores({ teToca, enCurso, siguen, hecho }: Contadore
  * nombre en negrita (hasta 3 líneas; entero al pasar el mouse) y debajo los contadores que no son cero. Borde fino ROJO si tiene algo que "te
  * toca"; neutro si no. La del centro (el nivel actual) es más grande y va en contraste (clara en
  * oscuro, oscura en claro). Ancho según el texto, sin pasar de las medidas de services/disposicion.ts.
- * Mantener presionada una con hijas abre su ficha sin entrar.
+ * Al lado del título va el ícono de su tipo en su color, y una franja fina de ese color en el borde
+ * izquierdo: así se distingue una Asesora de una Tarea o una Idea de un vistazo (antes solo la ficha
+ * mostraba el tipo). Mantener presionada una con hijas abre su ficha sin entrar.
  */
 function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
   const lineas = lineasDeContadores(data.contadores);
@@ -98,8 +104,21 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
     >
       {/* Las líneas se dibujan solas: los puntos de conexión no se muestran ni se arrastran. */}
       <Handle type="target" position={Position.Top} className="!pointer-events-none !opacity-0" isConnectable={false} />
-      {/* El título: hasta 3 líneas (con o sin contadores) y entero al pasar el mouse. */}
-      <p className={cn("line-clamp-3 max-w-full break-words font-semibold", centro ? "text-sm" : "text-xs")}>{data.titulo}</p>
+      {/* La franja del color del tipo. */}
+      {data.tipoColor ? (
+        <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: data.tipoColor }} />
+      ) : null}
+      {/* El ícono del tipo y el título: hasta 3 líneas (con o sin contadores) y entero al pasar el mouse. */}
+      <div className="flex max-w-full items-start justify-center gap-1">
+        {data.tipoColor || data.tipoIcono ? (
+          <IconoDeTipo
+            icono={data.tipoIcono}
+            color={data.tipoColor ?? undefined}
+            className={cn("shrink-0", centro ? "mt-0.5 size-3.5" : "mt-px size-3")}
+          />
+        ) : null}
+        <p className={cn("line-clamp-3 min-w-0 break-words font-semibold", centro ? "text-sm" : "text-xs")}>{data.titulo}</p>
+      </div>
       {lineas.map((linea) => (
         <p
           key={linea}

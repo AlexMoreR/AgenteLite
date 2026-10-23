@@ -43,7 +43,7 @@ import {
   whereDeFiltros,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
-import { whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
+import { estadoParaLaBusqueda, whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
 import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
 import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
 
@@ -202,6 +202,43 @@ function parseChatKey(input: string): { source: "agent" | "official"; conversati
   return null;
 }
 
+/**
+ * El `chatKey` de una conversacion de este negocio que esta persona puede ver, o null.
+ *
+ * El id puede ser de WhatsApp normal (`agent:`) o de la API oficial (`official:`): las dos tablas
+ * comparten el formato de id, asi que se prueba primero una y despues la otra. Las lineas que no
+ * ve no se abren: la de WhatsApp normal por su canal, y la oficial si no ve la linea oficial.
+ */
+async function chatKeyDeLaConversacion(input: {
+  workspaceId: string;
+  conversationId: string;
+  canalesVisibles: string[] | null;
+}): Promise<string | null> {
+  const delCanalViejo = await prisma.conversation.findFirst({
+    where: {
+      id: input.conversationId,
+      workspaceId: input.workspaceId,
+      ...(input.canalesVisibles ? { channelId: { in: input.canalesVisibles } } : {}),
+    },
+    select: { id: true },
+  });
+  if (delCanalViejo) return `agent:${delCanalViejo.id}`;
+
+  const oficial = await prisma.officialApiConversation.findFirst({
+    where: { id: input.conversationId, config: { workspaceId: input.workspaceId } },
+    select: { id: true },
+  });
+  if (!oficial) return null;
+  if (input.canalesVisibles) {
+    const lineaOficialVisible = await prisma.whatsAppChannel.findFirst({
+      where: { workspaceId: input.workspaceId, provider: "OFFICIAL_API", id: { in: input.canalesVisibles } },
+      select: { id: true },
+    });
+    if (!lineaOficialVisible) return null;
+  }
+  return `official:${oficial.id}`;
+}
+
 function parsePositiveInteger(value: string | undefined, fallback = 1) {
   if (!value) {
     return fallback;
@@ -332,8 +369,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   // Filtro de estado de conversación. Por DEFECTO se ocultan las resueltas (solo abiertas):
   // las resueltas solo aparecen al elegir "Resueltas" o "Todas".
   const statusParam = typeof params.status === "string" ? params.status.trim() : "";
-  const statusFilter: "all" | "open" | "resolved" =
+  const statusPedido: "all" | "open" | "resolved" =
     statusParam === "all" || statusParam === "resolved" ? statusParam : "open";
+  // Buscando, el estado no filtra: el chat cerrado o descartado tambien aparece (ver busqueda-de-chats).
+  const statusFilter = estadoParaLaBusqueda(statusPedido, searchQuery);
   const statusWhere: Prisma.ConversationWhereInput =
     statusFilter === "resolved"
       ? { status: { in: ["CLOSED", "ARCHIVED"] } }
@@ -370,6 +409,38 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     userId: access.userId,
     esJefe: access.isOwner || access.role === "ADMIN",
   });
+
+  /**
+   * ENLACE DIRECTO A UN CHAT: `/cliente/chats?conversacion=<id>`.
+   *
+   * Es el que pasan Claude o el Tablero IA: con solo el id de la conversacion, sin saber si es de
+   * WhatsApp normal o de la API oficial. Se convierte en el `chatKey` de siempre y con el estado en
+   * "Todos", para que el chat se vea aunque este cerrado. Si el id no existe, o es de una linea que
+   * esta persona no ve, se abre la bandeja normal, sin error.
+   */
+  const conversacionParam = typeof params.conversacion === "string" ? params.conversacion.trim() : "";
+  if (conversacionParam) {
+    const destino = new URLSearchParams();
+    for (const [clave, valor] of Object.entries(params)) {
+      if (clave === "conversacion" || clave === "chatKey" || typeof valor !== "string") continue;
+      destino.set(clave, valor);
+    }
+    const chatKeyDelEnlace = /^[a-z0-9]+$/i.test(conversacionParam)
+      ? await chatKeyDeLaConversacion({
+          workspaceId: membership.workspace.id,
+          conversationId: conversacionParam,
+          canalesVisibles,
+        })
+      : null;
+    if (chatKeyDelEnlace) {
+      destino.set("chatKey", chatKeyDelEnlace);
+      destino.set("status", "all");
+      // La linea elegida puede ser otra que la del chat: se abre con todas las lineas.
+      destino.delete("connection");
+    }
+    const query = destino.toString();
+    redirect(query ? `/cliente/chats?${query}` : "/cliente/chats");
+  }
 
 
   /**
@@ -532,9 +603,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   // scroll, con miles de chats abajo que nunca se podian ver.
   const agentConversationsConsumidas = agentConversationsRaw.slice(0, conversationListTake);
   const hasMoreConversationItems = agentConversationsRaw.length > conversationListTake;
-  const agentConversationsBase = agentConversationsConsumidas.filter(
-    (conversation) => !isSnoozed(conversation.contact?.metadata),
-  );
+  // Buscando, los pospuestos si aparecen: quien escribe su numero lo esta buscando a el.
+  const agentConversationsBase = searchQuery
+    ? agentConversationsConsumidas
+    : agentConversationsConsumidas.filter((conversation) => !isSnoozed(conversation.contact?.metadata));
   // Si el chat seleccionado (deep-link) no vino en el lote de la lista, lo agregamos para que el
   // panel lo abra. Va primero para que quede visible arriba al aterrizar desde Mi día.
   const agentConversations =
@@ -981,7 +1053,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     selectedConnectionKey ||
     searchQuery ||
     assignedFilter !== "all" ||
-    statusFilter !== "open" ||
+    statusPedido !== "open" ||
     paramsDeFiltros(filtros).length > 0
       ? `?${new URLSearchParams([
           ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
@@ -989,7 +1061,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           // Se omite "all", que es el default REAL desde el 15-09-2026: omitir "mine" devolvia
           // la bandeja a "Todas" sola. Ver chat-inbox-conversation-utils, que tenia el mismo error.
           ...(assignedFilter !== "all" ? [["assigned", assignedFilter]] : []),
-          ...(statusFilter !== "open" ? [["status", statusFilter]] : []),
+          // El estado ELEGIDO, no el de la busqueda: al borrarla, la bandeja vuelve a su filtro.
+          ...(statusPedido !== "open" ? [["status", statusPedido]] : []),
           // Los filtros nuevos viajan igual que los viejos: sin esto, abrir un chat los borraba.
           ...paramsDeFiltros(filtros),
         ]).toString()}`
@@ -1001,7 +1074,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
         ...(searchQuery ? [["q", searchQuery]] : []),
         ...(assignedFilter !== "all" ? [["assigned", assignedFilter]] : []),
-        ...(statusFilter !== "open" ? [["status", statusFilter]] : []),
+        ...(statusPedido !== "open" ? [["status", statusPedido]] : []),
         ...paramsDeFiltros(filtros),
         ...(messagePage > 1 ? [["messagePage", String(messagePage)]] : []),
       ]).toString()}`
@@ -1264,7 +1337,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         mobileConversationActive={Boolean(selectedChatKeyParam)}
         selectedConnectionKey={selectedConnectionKey}
         assignedFilter={assignedFilter}
-        statusFilter={statusFilter}
+        // El elegido: la bandeja ya deja de filtrar por estado sola mientras hay busqueda.
+        statusFilter={statusPedido}
         isManager={isManager}
         // Quien monitorea tiene las pestañas y los filtros de un jefe, pero solo eso: no es jefe.
         veTodoElEquipo={modoMonitoreo}
@@ -1309,7 +1383,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           lastMessageDirection: item.lastMessageDirection,
           lastMessageStatus: item.lastMessageStatus,
           lastMessageAt: item.lastMessageAt,
-          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}${paramsDeFiltros(filtros)
+          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}${statusPedido !== "open" ? `&status=${statusPedido}` : ""}${paramsDeFiltros(filtros)
             .map(([clave, valor]) => `&${clave}=${encodeURIComponent(valor)}`)
             .join("")}`,
         }))}
