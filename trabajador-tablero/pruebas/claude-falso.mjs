@@ -1,7 +1,9 @@
 // Un `claude` FALSO para las pruebas del trabajador (config comandoClaude). Lee el prompt por stdin y
 // se porta según el título de la tarea (las marcas entre corchetes):
 //   modo plan:        escribe un plan. [lento] = no contesta nunca (para probar el tiempo máximo);
-//                     [medio] = tarda 6 s (para probar el vencimiento por latido).
+//                     [medio] = tarda 6 s (para probar el vencimiento por latido); [mod:x] = el plan
+//                     dice que toca src/x/cambio.ts (y al construir escribe en src/x/).
+//   en los dos modos: [limite] = sale con el aviso del límite de uso de Claude.
 //   modo acceptEdits: [zona] edita src/bot/ (zona protegida), [tsc] rompe la verificación, [lint] deja un
 //                     error de lint nuevo, [migracion] agrega una migración, [conflicto] escribe un archivo
 //                     que después choca con main, [nada] no cambia nada; si no, escribe cambio-<algo>.txt.
@@ -20,10 +22,16 @@ if (process.env.CLAUDE_FALSO_LOG) {
 }
 const dormir = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
 
+const modulo = (titulo.match(/\[mod:([a-z]+)\]/) ?? [])[1];
+if (titulo.includes("[limite]")) {
+  console.log("Claude AI usage limit reached|1761210000");
+  process.exit(1);
+}
+
 if (modo === "plan") {
   if (titulo.includes("[lento]")) await dormir(10 * 60_000);
   await dormir(titulo.includes("[medio]") ? 6000 : 1500);
-  console.log(`PLAN para "${titulo}"\n1. Qué se cambia: un archivo.\n2. Efecto: ninguno para clientes.\n3. Riesgos: bajos.\n4. Migración: no.\n5. Archivos: cambio.txt\n6. Pruebas: verificar.mjs`);
+  console.log(`PLAN para "${titulo}"\n1. Qué se cambia: un archivo.\n2. Efecto: ninguno para clientes.\n3. Riesgos: bajos.\n4. Migración: no.\n5. Archivos: ${modulo ? `src/${modulo}/cambio.ts` : "cambio.txt"}\n6. Pruebas: verificar.mjs`);
   process.exit(0);
 }
 
@@ -40,5 +48,8 @@ else if (titulo.includes("[migracion]")) {
     'BEGIN;\nCREATE TABLE IF NOT EXISTS "Nueva" ("id" TEXT NOT NULL);\nCOMMIT;\n',
   );
 } else if (titulo.includes("[conflicto]")) escribir("conflicto.txt", "lo de la rama\n");
-else if (!titulo.includes("[nada]")) escribir(`cambio-${Date.now()}.txt`, `${titulo}\n`);
+else if (modulo) {
+  await dormir(1500); // para que dos construcciones se crucen en el tiempo
+  escribir(`src/${modulo}/cambio-${Date.now()}-${process.pid}.ts`, `// ${titulo}\n`);
+} else if (!titulo.includes("[nada]")) escribir(`cambio-${Date.now()}.txt`, `${titulo}\n`);
 console.log(`RESUMEN: hice "${titulo}".`);

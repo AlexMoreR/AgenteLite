@@ -35,11 +35,20 @@ import { comoTexto, correr, ultimasLineas } from "./procesos.mjs";
 import { zonasTocadas } from "./zonas.mjs";
 
 export class ErrorDeEtapa extends Error {
-  constructor(message, { zonas = [], reversion = null } = {}) {
+  constructor(message, { zonas = [], reversion = null, limiteDeUso = false } = {}) {
     super(message);
     this.zonas = zonas;
     this.reversion = reversion;
+    // Claude llegó al límite de uso del plan: no es ERROR de la tarjeta, se suelta y se reintenta después.
+    this.limiteDeUso = limiteDeUso;
   }
+}
+
+/** Lo que dice `claude -p` cuando la suscripción llegó a su límite de uso ("Claude AI usage limit reached|…"). */
+const LIMITE_DE_USO = /usage limit|limit reached|hit your (usage )?limit|rate[ _-]?limit|overloaded_error|out of (extra )?usage|límite de uso/i;
+
+export function esLimiteDeUso(texto) {
+  return LIMITE_DE_USO.test(String(texto ?? ""));
 }
 
 const MINUTO = 60_000;
@@ -109,11 +118,14 @@ async function claude(contexto, argumentos, prompt, { cwd, timeoutMs, que }) {
   const resultado = await correr(comando, { cwd, entrada: prompt, timeoutMs, senal, env: entornoSeguro() });
   if (resultado.cancelado) throw new ErrorDeEtapa(`Se canceló Claude (${que}): la tarjeta venció en el CRM.`);
   if (resultado.vencido) throw new ErrorDeEtapa(`Claude tardó más de ${Math.round(timeoutMs / MINUTO)} min en ${que}: se cortó.`);
+  const cola = ultimasLineas(`${resultado.errores}\n${resultado.salida}`, 20);
   if (resultado.codigo !== 0) {
-    throw new ErrorDeEtapa(`Claude falló al ${que} (código ${resultado.codigo}):\n${ultimasLineas(`${resultado.errores}\n${resultado.salida}`, 20)}`);
+    throw new ErrorDeEtapa(`Claude falló al ${que} (código ${resultado.codigo}):\n${cola}`, { limiteDeUso: esLimiteDeUso(cola) });
   }
   const texto = resultado.salida.trim();
   if (!texto) throw new ErrorDeEtapa(`Claude no contestó nada al ${que}.`);
+  // A veces sale con código 0 y solo el aviso del límite (un texto corto, no un plan ni un resumen).
+  if (texto.length < 300 && esLimiteDeUso(texto)) throw new ErrorDeEtapa(`Claude llegó a su límite de uso al ${que}: ${texto}`, { limiteDeUso: true });
   return texto;
 }
 
@@ -121,6 +133,16 @@ const MOTIVO_ENSAYO = "El ensayo de la migración falló: la migración no corre
 
 const REGLAS_DE_ZONAS =
   "No toques Meta Ads (anuncios, campañas, píxel), el bot de ventas (el agente que atiende WhatsApp) ni el libro del agente V3.";
+
+/** Subagentes (22-oct-2026): más rápido y mejor revisado. Los subagentes siguen las mismas reglas. */
+const SUBAGENTES_AL_PLANEAR =
+  "Usa subagentes (herramienta Agent) para investigar el código en paralelo: por ejemplo uno que encuentre dónde vive lo que hay que cambiar y otro que busque las pruebas y los usos que se pueden romper. Ellos tampoco cambian archivos.";
+const SUBAGENTES_AL_CONSTRUIR = [
+  "- Usa subagentes (herramienta Agent), con las mismas reglas de acá:",
+  "  · antes de editar, uno o más para investigar el código que toca el plan;",
+  "  · uno para escribir o completar las pruebas del cambio;",
+  "  · al terminar, uno que REVISE el cambio completo (git diff) buscando errores, casos que faltan y reglas rotas; arregla lo que encuentre antes de entregar.",
+].join("\n");
 
 function contextoDeLaTarjeta(tarjeta) {
   const error = tarjeta.resultado?.error?.motivo;
@@ -148,6 +170,8 @@ export function promptDelPlan(tarjeta, repo) {
       "6. Cómo se va a probar.",
     ].join("\n"),
     `Reglas: ${REGLAS_DE_ZONAS} Si la tarea lo requiere, dilo claro al principio del plan: "TOCA ZONA PROTEGIDA: <cuál y por qué>".`,
+    SUBAGENTES_AL_PLANEAR,
+    "En la parte 5 escribe cada archivo con su ruta completa desde la raíz del repo (por ejemplo src/features/coach/servicio.ts): el trabajador la usa para no construir a la vez dos tareas que tocan lo mismo.",
     fraseAlTerminar(repo),
     "Contesta SOLO con el plan.",
   ].join("\n\n");
@@ -181,6 +205,7 @@ export function promptDeConstruir(tarjeta, repo, rama) {
       "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). NUNCA prisma migrate dev, migrate deploy, db push ni nada contra una base de datos.",
       `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
       "- Respeta el estilo del repo y escribe los comentarios en español.",
+      SUBAGENTES_AL_CONSTRUIR,
       "- Al final corre tsc, lint (sin errores nuevos), build y las pruebas que correspondan, y arregla lo que falle.",
       "- Termina con un RESUMEN corto en español sencillo: qué cambiaste, qué archivos y cómo lo probaste.",
     ].join("\n"),

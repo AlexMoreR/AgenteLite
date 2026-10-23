@@ -835,6 +835,7 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
     resultado: ["EN_CURSO"],
     subida: ["SUBIENDO"],
     error: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
+    soltar: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
   };
   for (const [accion, validos] of Object.entries(esperado)) {
     for (const estado of reglas.ESTADOS_TARJETA) {
@@ -844,12 +845,22 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
-    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR" },
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null },
   );
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.AL_TOMAR).map(([de, regla]) => [de, [regla.a, regla.etapa]])),
     { APROBADO: ["PLANEANDO", "planear"], PLAN_APROBADO: ["EN_CURSO", "construir"], SUBIENDO: ["SUBIENDO", "subir"] },
   );
+});
+
+prueba("tomar en paralelo: maxParalelo 1 si no viene (trabajador viejo), tope 5; excluir solo ids de texto", () => {
+  assert.deepEqual(trabajo.opcionesDeTomar({}), { maxParalelo: 1, excluir: [] });
+  assert.deepEqual(trabajo.opcionesDeTomar({ maxParalelo: 3, excluir: ["a", "", 7, null, "b"] }), { maxParalelo: 3, excluir: ["a", "b"] });
+  assert.equal(trabajo.opcionesDeTomar({ maxParalelo: 99 }).maxParalelo, 5);
+  assert.equal(trabajo.opcionesDeTomar({ maxParalelo: 0 }).maxParalelo, 1);
+  assert.equal(trabajo.opcionesDeTomar({ maxParalelo: "2" }).maxParalelo, 2);
+  assert.equal(trabajo.opcionesDeTomar({ maxParalelo: "x" }).maxParalelo, 1);
+  assert.equal(trabajo.opcionesDeTomar({ excluir: "a" }).excluir.length, 0);
 });
 
 prueba("candado: cada latido da 5 min más, nunca más allá del tope de la etapa (20 / 90 / 45 min)", () => {

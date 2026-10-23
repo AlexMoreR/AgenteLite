@@ -15,6 +15,9 @@ export const dynamic = "force-dynamic";
   - subida    { commit, version, linkCommit }     SUBIENDO -> HECHO.
   - error     { motivo, zonaProtegida?, reversion? }   PLANEANDO | EN_CURSO | SUBIENDO -> ERROR.
               reversion = { commit, revert, ok }: el despliegue falló después de subir y se hizo revert.
+  - soltar    { motivo }                          PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO ->
+              SUBIENDO pendiente, sin ERROR ni contar el intento (Claude llegó a su límite de uso, o
+              choca con otra que corre).
   409 si la tarjeta no está en el estado de esa acción. Ver services/trabajador.ts.
 */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string; accion: string }> }) {

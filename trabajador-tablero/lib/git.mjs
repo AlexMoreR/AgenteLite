@@ -9,10 +9,23 @@ import { correr, ultimasLineas } from "./procesos.mjs";
 
 export class ErrorDeGit extends Error {}
 
+/*
+  Con varias tarjetas a la vez (22-oct-2026), dos sesiones podrían correr git al mismo tiempo sobre el
+  mismo repo (fetch, worktree add/remove, push) y chocar con los candados de git ("cannot lock ref",
+  index.lock). Los comandos git del trabajador van de a uno: son cortos, lo largo (Claude, el build,
+  las pruebas) sí corre en paralelo.
+*/
+let fila = Promise.resolve();
+function deAUno(tarea) {
+  const turno = fila.then(tarea, tarea);
+  fila = turno.catch(() => undefined);
+  return turno;
+}
+
 /** git con identidad del trabajador; lanza si falla (con las últimas líneas de la salida). */
 export async function git(cwd, argumentos, { identidad, timeoutMs = 10 * 60_000, permitirFallo = false, entrada } = {}) {
   const id = identidad ? ["-c", `user.name=${identidad.nombre}`, "-c", `user.email=${identidad.correo}`] : [];
-  const resultado = await correr(["git", ...id, ...argumentos], { cwd, timeoutMs, entrada });
+  const resultado = await deAUno(() => correr(["git", ...id, ...argumentos], { cwd, timeoutMs, entrada }));
   if (resultado.codigo !== 0 && !permitirFallo) {
     throw new ErrorDeGit(
       `git ${argumentos.join(" ")} falló${resultado.vencido ? " (se pasó del tiempo)" : ""}: ${ultimasLineas(`${resultado.errores}\n${resultado.salida}`, 15)}`,

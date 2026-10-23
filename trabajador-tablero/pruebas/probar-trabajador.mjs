@@ -18,11 +18,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
-import { unaVuelta } from "../lib/bucle.mjs";
+import { crearPlanificador, unaVuelta } from "../lib/bucle.mjs";
+import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
 import { crearCrm } from "../lib/crm.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, nombreDeRama, webDeGithub } from "../lib/git.mjs";
+import { esLimiteDeUso } from "../lib/etapas.mjs";
+import { faltanRecursos } from "../lib/recursos.mjs";
 import { crearRegistro } from "../lib/registro.mjs";
 import { globARegex, zonasTocadas } from "../lib/zonas.mjs";
 
@@ -85,6 +88,85 @@ await prueba("configuración: exige https, la clave y un repo; agrega las herram
   assert.ok(!config.herramientasPermitidas.some((h) => /push|migrate|db push/.test(h)));
 });
 
+await prueba("configuración: maxParalelo 2 si no viene (de 1 a 5), límites de CPU y memoria, subagentes permitidos", async () => {
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
+  const config = completarConfig(base);
+  assert.equal(config.maxParalelo, 2);
+  assert.deepEqual(config.limites, { cpuPorciento: 85, memoriaPorciento: 85 });
+  assert.equal(config.tiempos.pausaLimiteMinutos, 30);
+  assert.ok(config.herramientasPermitidas.includes("Agent"));
+  assert.equal(completarConfig({ ...base, maxParalelo: 3, limites: { cpuPorciento: 70 } }).maxParalelo, 3);
+  assert.equal(completarConfig({ ...base, limites: { cpuPorciento: 70 } }).limites.cpuPorciento, 70);
+  assert.throws(() => completarConfig({ ...base, maxParalelo: 9 }), /maxParalelo/);
+  assert.throws(() => completarConfig({ ...base, maxParalelo: 0 }), /maxParalelo/);
+  assert.throws(() => completarConfig({ ...base, limites: { memoriaPorciento: 500 } }), /memoriaPorciento/);
+});
+
+await prueba("recursos: no abre otra sesión si la CPU o la memoria pasan del límite", async () => {
+  const limites = { cpuPorciento: 85, memoriaPorciento: 80 };
+  assert.equal(faltanRecursos({ cpu: 50, memoria: 60 }, limites), null);
+  assert.match(faltanRecursos({ cpu: 92, memoria: 60 }, limites), /CPU 92 %/);
+  assert.match(faltanRecursos({ cpu: 10, memoria: 81 }, limites), /memoria 81 %/);
+});
+
+await prueba("límite de uso de Claude: se reconoce el aviso (y no cualquier texto)", async () => {
+  assert.ok(esLimiteDeUso("Claude AI usage limit reached|1761210000"));
+  assert.ok(esLimiteDeUso("You've hit your limit · resets 9pm"));
+  assert.ok(!esLimiteDeUso("PLAN: agregar el botón de cobrar"));
+});
+
+await prueba("choques: archivos y módulos del plan; misma zona o módulo del mismo repo, o dos subidas, esperan en fila", async () => {
+  const plan = [
+    "Al terminar: sube solo a producción",
+    "1. Qué se cambia: el coach (src/features/otra/cosa.ts va en la parte 5, no acá).",
+    "**5. Archivos que se tocan:**",
+    "- `src/features/coach/servicios/generar-coach.ts` (nuevo).",
+    "- src/app/api/trabajador/tablero/[id]/[accion]/route.ts",
+    "- prisma/schema.prisma y package.json",
+    "Ver https://github.com/AlexMoreR/AgenteLite/blob/main/README.md y PLANEANDO/EN_CURSO.",
+    "6. Cómo se va a probar: npm run test:tableros y scripts/check-tableros-reglas.mjs",
+  ].join("\n");
+  assert.deepEqual(archivosDelPlan(plan).sort(), [
+    "package.json",
+    "prisma/schema.prisma",
+    "src/app/api/trabajador/tablero/[id]/[accion]/route.ts",
+    "src/features/coach/servicios/generar-coach.ts",
+  ]);
+  assert.equal(moduloDe("src/features/coach/servicios/generar-coach.ts"), "features/coach");
+  assert.equal(moduloDe("src/app/api/trabajador/tablero/[id]/[accion]/route.ts"), "app/api/trabajador/tablero");
+  assert.equal(moduloDe("src/app/(panel)/cliente/chats/page.tsx"), "app/cliente/chats");
+  assert.equal(moduloDe("src/lib/agent.ts"), "lib/agent");
+  assert.equal(moduloDe("prisma/migrations/2026_x/migration.sql"), "prisma");
+  assert.equal(moduloDe("package-lock.json"), "package");
+
+  const repos = { aizencrm: { zonasProtegidas: { CHATS: ["src/chats/**"] } }, gestion: { zonasProtegidas: {} } };
+  const h = (id, repo, hacer, planDe, zonaProtegida = []) => huellaDeTarjeta({ id, titulo: id, repo, plan: planDe, zonaProtegida }, hacer, repos[repo]);
+  const coach = h("a", "aizencrm", "construir", "Archivos: src/features/coach/a.ts");
+  const coach2 = h("b", "aizencrm", "construir", "Archivos: src/features/coach/b.ts");
+  const ventas = h("c", "aizencrm", "construir", "Archivos: src/features/ventas/a.ts");
+  const chats1 = h("d", "aizencrm", "construir", "Archivos: src/chats/uno.ts");
+  const chats2 = h("e", "aizencrm", "construir", "Archivos: src/otra/cosa.ts", ["CHATS"]);
+  const sinArchivos = h("f", "aizencrm", "construir", "Cambiar el color del botón.");
+  const otroRepo = h("g", "gestion", "construir", "Archivos: src/features/coach/a.ts");
+  assert.match(motivoDeChoque(coach, coach2), /módulo features\/coach/);
+  assert.equal(motivoDeChoque(coach, ventas), null, "módulos distintos van a la vez");
+  assert.match(motivoDeChoque(chats1, chats2), /zona CHATS/);
+  assert.match(motivoDeChoque(coach, sinArchivos), /no dice qué archivos/);
+  assert.equal(motivoDeChoque(coach, otroRepo), null, "repos distintos nunca chocan");
+  assert.equal(motivoDeChoque(coach, h("p", "aizencrm", "planear", "Archivos: src/features/coach/a.ts")), null, "planear solo lee");
+  assert.match(motivoDeChoque(h("s1", "aizencrm", "subir", "src/x/a.ts"), h("s2", "aizencrm", "subir", "src/y/b.ts")), /de a una/);
+  assert.equal(motivoDeChoque(h("s1", "aizencrm", "subir", "src/x/a.ts"), h("s3", "gestion", "subir", "src/x/a.ts")), null);
+  const chocan = candidatasQueChocan(
+    [
+      { id: "b", titulo: "b", repo: "aizencrm", hacer: "construir", plan: "src/features/coach/b.ts", zonaProtegida: [] },
+      { id: "c", titulo: "c", repo: "aizencrm", hacer: "construir", plan: "src/features/ventas/a.ts", zonaProtegida: [] },
+    ],
+    [coach],
+    repos,
+  );
+  assert.deepEqual(Object.keys(chocan), ["b"]);
+});
+
 /* ─────────────────────────────────────────────────────────── el escenario ── */
 
 const T = fs.mkdtempSync(path.join(os.tmpdir(), "trabajador-tablero-"));
@@ -142,11 +224,28 @@ const CLAVE = "aizen_trab_prueba";
 const tarjetas = new Map();
 const llamadas = [];
 const latidoVencido = new Set();
+/** Cuántas tuvo el trabajador a la vez (con candado), por etapa: { construir: 2, subir: 1, ... }. */
+const aLaVez = {};
+const trabajando = () => [...tarjetas.values()].filter((t) => ["PLANEANDO", "EN_CURSO", "SUBIENDO"].includes(t.estado) && t.venceEn && t.venceEn > Date.now());
+const anotarALaVez = () => {
+  const ahora = trabajando();
+  aLaVez.total = Math.max(aLaVez.total ?? 0, ahora.length);
+  for (const estado of ["PLANEANDO", "EN_CURSO", "SUBIENDO"]) {
+    aLaVez[estado] = Math.max(aLaVez[estado] ?? 0, ahora.filter((t) => t.estado === estado).length);
+  }
+};
 let siguienteId = 1;
 const nueva = (titulo, estado, extra = {}) => {
   const id = `tarjeta${String(siguienteId++).padStart(4, "0")}`;
   tarjetas.set(id, { id, titulo, detalle: "", tablero: "Pruebas", estado, repo: "aizencrm", plan: null, resultado: null, zonaProtegida: [], intentos: 0, venceEn: null, ...extra });
   return id;
+};
+/** Como SQL_CANDIDATAS: primero las SUBIENDO pendientes, después en el orden en que se crearon. */
+const candidatasDelFalso = () => {
+  const lista = [...tarjetas.values()].filter(
+    (t) => t.estado === "APROBADO" || (t.estado === "PLAN_APROBADO" && t.plan) || (t.estado === "SUBIENDO" && !t.venceEn),
+  );
+  return [...lista.filter((t) => t.estado === "SUBIENDO"), ...lista.filter((t) => t.estado !== "SUBIENDO")];
 };
 const paraElTrabajador = (t) => ({ ...t, zonasAprobadas: t.zonaProtegida, link: `https://crm.falso/cliente/tablero-ia?tarjeta=${t.id}` });
 
@@ -162,16 +261,22 @@ const servidor = http.createServer(async (pedido, respuesta) => {
   const cuerpo = texto ? JSON.parse(texto) : {};
   const ahora = Date.now();
   if (pedido.url === "/api/trabajador/tablero/tomar") {
-    llamadas.push({ accion: "tomar" });
-    const ocupada = [...tarjetas.values()].find((t) => ["PLANEANDO", "EN_CURSO", "SUBIENDO"].includes(t.estado) && t.venceEn && t.venceEn > ahora);
-    if (ocupada) return contestar(200, { ok: true, tarjeta: null, motivo: "ocupado" });
-    const elegida = [...tarjetas.values()].find(
-      (t) => t.estado === "APROBADO" || (t.estado === "PLAN_APROBADO" && t.plan) || (t.estado === "SUBIENDO" && !t.venceEn),
-    );
+    llamadas.push({ accion: "tomar", cuerpo });
+    const { maxParalelo, excluir } = reglas.opcionesDeTomar(cuerpo);
+    if (trabajando().length >= maxParalelo) return contestar(200, { ok: true, tarjeta: null, motivo: "ocupado" });
+    const elegida = candidatasDelFalso().find((t) => !excluir.includes(t.id));
     if (!elegida) return contestar(200, { ok: true, tarjeta: null, motivo: "nada" });
     const regla = reglas.AL_TOMAR[elegida.estado];
     Object.assign(elegida, { estado: regla.a, venceEn: ahora + 5 * 60_000, intentos: elegida.intentos + 1 });
+    anotarALaVez();
     return contestar(200, { ok: true, tarjeta: paraElTrabajador(elegida), hacer: regla.etapa });
+  }
+  if (pedido.url === "/api/trabajador/tablero/candidatas") {
+    llamadas.push({ accion: "candidatas" });
+    return contestar(200, {
+      ok: true,
+      candidatas: candidatasDelFalso().map((t) => ({ ...t, hacer: reglas.AL_TOMAR[t.estado].etapa })),
+    });
   }
   const [, id, accion] = pedido.url.match(/^\/api\/trabajador\/tablero\/([^/]+)\/([a-z]+)$/) ?? [];
   const tarjeta = tarjetas.get(id);
@@ -183,6 +288,11 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     if (latidoVencido.has(id)) return contestar(409, { ok: false, error: "El candado de esta tarjeta ya venció" });
     tarjeta.venceEn = ahora + 5 * 60_000;
     return contestar(200, { ok: true });
+  }
+  if (accion === "soltar") {
+    tarjeta.estado = { PLANEANDO: "APROBADO", EN_CURSO: "PLAN_APROBADO", SUBIENDO: "SUBIENDO" }[tarjeta.estado];
+    Object.assign(tarjeta, { venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1), soltada: cuerpo.motivo });
+    return contestar(200, { ok: true, estado: tarjeta.estado });
   }
   tarjeta.estado = reglas.TRANSICIONES_DEL_TRABAJADOR[accion].a;
   tarjeta.venceEn = null;
@@ -431,6 +541,93 @@ try {
     assert.ok(!llamadas.some((l) => l.accion === "error" && l.id === id), "no llamó /error");
     assert.equal(tarjetas.get(id).estado, "PLANEANDO");
     sinRestos();
+  });
+
+  /* ── En paralelo (22-oct-2026) ── */
+  const sinMedir = { medir: () => ({ cpu: 0, memoria: 0 }), parar: () => undefined };
+  const planificar = (otraConfig, medidor = sinMedir) => crearPlanificador({ crm, config: otraConfig, registro, medidor });
+  /** Corre el bucle del trabajador (llenar + esperar) hasta que se cumpla `listo`. */
+  async function correrHasta(planificador, listo, ms = 60_000) {
+    const limite = Date.now() + ms;
+    while (!listo()) {
+      if (Date.now() > limite) throw new Error("no terminó a tiempo");
+      await planificador.llenar();
+      await planificador.esperar(300);
+    }
+    await planificador.esperarTodas();
+  }
+  const enParalelo = crearConfig({}, { subirSolo: true });
+  const reiniciarALaVez = () => {
+    for (const clave of Object.keys(aLaVez)) delete aLaVez[clave];
+  };
+
+  await prueba("paralelo: dos del mismo repo en módulos distintos se planean y construyen a la vez, y suben a main de a una", async () => {
+    for (const t of tarjetas.values()) if (!["HECHO", "ERROR", "POR_REVISAR", "PLAN_LISTO"].includes(t.estado)) t.estado = "HECHO";
+    reiniciarALaVez();
+    const mainAntes = shaDe("main");
+    const a = nueva("Cambio en ventas [mod:ventas]", "APROBADO");
+    const b = nueva("Cambio en coach [mod:coach]", "APROBADO");
+    const planificador = planificar({ ...enParalelo, maxParalelo: 3 });
+    await correrHasta(planificador, () => [a, b].every((id) => tarjetas.get(id).estado === "PLAN_LISTO"));
+    assert.equal(aLaVez.PLANEANDO, 2, "los dos planes a la vez");
+    for (const id of [a, b]) tarjetas.get(id).estado = "PLAN_APROBADO"; // el dueño aprobó los planes
+    await correrHasta(planificador, () => [a, b].every((id) => tarjetas.get(id).estado === "HECHO"), 120_000);
+    assert.equal(aLaVez.EN_CURSO, 2, "construyó las dos a la vez");
+    assert.equal(aLaVez.SUBIENDO, 1, "la cola de subida: de a una");
+    const enMain = g(REPO, "log", "--format=%s", `${mainAntes}..origin/main`);
+    assert.match(enMain, /Cambio en ventas/);
+    assert.match(enMain, /Cambio en coach/);
+    sinRestos();
+    planificador.parar();
+  });
+
+  await prueba("paralelo: dos que tocan el mismo módulo NO se construyen a la vez (la segunda espera en fila)", async () => {
+    reiniciarALaVez();
+    const plan = "PLAN\n5. Archivos: src/coach/cambio.ts";
+    const a = nueva("Coach uno [mod:coach]", "PLAN_APROBADO", { plan });
+    const b = nueva("Coach dos [mod:coach]", "PLAN_APROBADO", { plan });
+    const planificador = planificar({ ...enParalelo, maxParalelo: 3 });
+    await correrHasta(planificador, () => [a, b].every((id) => tarjetas.get(id).estado === "HECHO"), 120_000);
+    assert.equal(aLaVez.EN_CURSO, 1, "una construye y la otra espera");
+    assert.equal(aLaVez.total, 1);
+    sinRestos();
+    planificador.parar();
+  });
+
+  await prueba("paralelo: con la CPU sobre el límite no abre otra sesión (la que corre sigue)", async () => {
+    reiniciarALaVez();
+    const a = nueva("Plan uno [mod:x]", "APROBADO");
+    const b = nueva("Plan dos [mod:y]", "APROBADO");
+    const planificador = planificar({ ...enParalelo, maxParalelo: 3 }, { medir: () => ({ cpu: 99, memoria: 10 }), parar: () => undefined });
+    await correrHasta(planificador, () => [a, b].every((id) => tarjetas.get(id).estado === "PLAN_LISTO"));
+    assert.equal(aLaVez.total, 1, "de a una mientras la CPU está alta");
+    planificador.parar();
+  });
+
+  await prueba("límite de uso de Claude: la tarjeta se suelta SIN error (vuelve a APROBADO) y no abre sesiones nuevas", async () => {
+    const id = nueva("Plan sin cupo [limite]", "APROBADO");
+    const otra = nueva("Espera la pausa [mod:z]", "APROBADO");
+    const planificador = planificar({ ...enParalelo, maxParalelo: 1, tiempos: { ...enParalelo.tiempos, pausaLimiteMinutos: 10 } });
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "APROBADO");
+    assert.equal(t.intentos, 0, "no gastó el intento");
+    assert.match(t.soltada, /límite de uso/);
+    assert.ok(!llamadas.some((l) => l.accion === "error" && l.id === id), "no llamó /error");
+    const tomasAntes = llamadas.filter((l) => l.accion === "tomar").length;
+    await planificador.llenar();
+    assert.equal(llamadas.filter((l) => l.accion === "tomar").length, tomasAntes, "en pausa no toma nada");
+    for (const x of [id, otra]) tarjetas.get(x).estado = "HECHO";
+    planificador.parar();
+  });
+
+  await prueba("el log dice qué tarjeta corre en cada sesión y cuántas corren al tiempo", async () => {
+    const archivos = fs.readdirSync(path.join(T, "trabajo", "logs"));
+    const texto = fs.readFileSync(path.join(T, "trabajo", "logs", archivos[0]), "utf8");
+    assert.match(texto, /\[s1 [A-Za-z0-9]{8}\] tomé "/);
+    assert.match(texto, /\[s2 [A-Za-z0-9]{8}\] tomé "/);
+    assert.match(texto, /corriendo 2\/3 tarjetas al tiempo: s1 "/);
   });
 
   await prueba("el registro se escribe por día en carpetaTrabajo/logs y nunca muestra la clave", async () => {

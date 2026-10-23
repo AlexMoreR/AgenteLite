@@ -199,8 +199,9 @@ await prueba("aplicarla otra vez no falla ni duplica nada", async () => {
 const AHORA = "2026-10-20T15:00:00.000Z";
 const EN_5_MIN = "2026-10-20T15:05:00.000Z";
 const REPOS = ["gestion", "aizencrm"];
-const tomar = (ws = "ws1", ahora = AHORA, vence = EN_5_MIN) => filas(sql.SQL_TOMAR_UNA, [ws, ahora, REPOS, vence]);
-const hay = (ws = "ws1", ahora = AHORA) => filas(sql.SQL_HAY_UNA_TRABAJANDO, [ws, ahora]);
+const tomar = (ws = "ws1", ahora = AHORA, vence = EN_5_MIN, excluir = []) => filas(sql.SQL_TOMAR_UNA, [ws, ahora, REPOS, vence, excluir]);
+const hay = (ws = "ws1", ahora = AHORA) => filas(sql.SQL_TRABAJANDO, [ws, ahora]);
+const candidatas = (ws = "ws1") => filas(sql.SQL_CANDIDATAS, [ws, REPOS]);
 
 await db.exec(`
   UPDATE "TarjetaTablero" SET "repo" = 'aizencrm', "actualizadoEn" = '2026-10-20 10:00:00' WHERE "id" = 'c3';
@@ -225,6 +226,26 @@ await prueba("el candado del negocio se puede pedir (advisory lock de la transac
   await db.query("COMMIT");
 });
 
+await prueba("candidatas: las mismas que tomaría y en el mismo orden, sin tomarlas; excluir salta las que chocan", async () => {
+  const lista = await candidatas();
+  assert.deepEqual(
+    lista.map((f) => [f.id, f.estado, f.repo]),
+    [
+      ["c3", "APROBADO", "aizencrm"],
+      ["plan-ok", "PLAN_APROBADO", "gestion"],
+    ],
+  );
+  assert.equal(lista[1].plan, "El plan");
+  assert.deepEqual(lista[0].zonaProtegida, []);
+  assert.deepEqual(await hay(), [], "mirar no toma nada");
+  await db.query("BEGIN");
+  const [saltada] = await tomar("ws1", AHORA, EN_5_MIN, ["c3"]);
+  assert.equal(saltada.id, "plan-ok", "con c3 excluida toma la que sigue");
+  assert.deepEqual(await tomar("ws1", AHORA, EN_5_MIN, ["c3"]), [], "y c3 no se toma mientras esté excluida");
+  await db.query("ROLLBACK");
+  assert.deepEqual(await hay(), []);
+});
+
 await prueba("tomar: la más vieja con repo de la lista y tipo con aprobación; nada sin repo, de otro repo, Idea, borrada, ajena ni zona sin pantalla", async () => {
   assert.deepEqual(await hay(), []);
   const [primera] = await tomar();
@@ -238,6 +259,7 @@ await prueba("tomar: la más vieja con repo de la lista y tipo con aprobación; 
   assert.equal(fila.ini, "2026-10-20 15:00:00");
   assert.equal(fila.vence, "2026-10-20 15:05:00");
   assert.deepEqual((await hay()).map((f) => f.id), ["c3"], "ahora hay candado");
+  assert.deepEqual((await candidatas()).map((f) => f.id), ["plan-ok"], "la tomada ya no es candidata");
   // Con la tarjeta tomada, la que sigue es plan-ok (el servicio no llama tomar si hay candado, pero la consulta sola la ve).
   const [segunda] = await tomar();
   assert.deepEqual(segunda, { id: "plan-ok", tableroId: "tab1", antes: "PLAN_APROBADO", estado: "EN_CURSO" });

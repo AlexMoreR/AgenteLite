@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { esEstado, type EstadoTarjetaTablero } from "./reglas";
 import {
+  AL_TOMAR,
   ETAPA_DEL_ESTADO,
   MINUTOS_DE_GRACIA_DEL_LATIDO,
   MOTIVO_VENCIDA,
@@ -13,6 +14,7 @@ import {
   destinoDelResultado,
   esZona,
   linkDeEntrada,
+  opcionesDeTomar,
   motivoDeEntrada,
   planDeEntrada,
   puedeElTrabajador,
@@ -23,8 +25,9 @@ import {
   zonasDeEntrada,
   type AccionDelTrabajador,
   type EtapaDelTrabajador,
+  type PedidoDeTomar,
 } from "./reglas-trabajador";
-import { SQL_CANDADO_DEL_NEGOCIO, SQL_HAY_UNA_TRABAJANDO, SQL_PASAR_VENCIDAS_A_ERROR, SQL_TOMAR_UNA } from "./sql-trabajador";
+import { SQL_CANDADO_DEL_NEGOCIO, SQL_CANDIDATAS, SQL_PASAR_VENCIDAS_A_ERROR, SQL_TOMAR_UNA, SQL_TRABAJANDO } from "./sql-trabajador";
 import { QUIEN_TRABAJADOR, linkDeLaTarjeta } from "./tableros";
 
 /*
@@ -35,10 +38,15 @@ import { QUIEN_TRABAJADOR, linkDeLaTarjeta } from "./tableros";
   Entra con una CLAVE DE TRABAJADOR (Bearer aizen_trab_...) que define el negocio: solo ve y mueve
   tarjetas de ese negocio. De la clave se guarda solo la huella sha256; se muestra una vez al crearla.
 
-  - /tomar: primero pasa a ERROR las que se le vencieron (sin latido); después, si no tiene otra en
-    las manos (el candado del negocio: ninguna PLANEANDO / EN_CURSO / SUBIENDO con trabajoVenceEn
-    vigente), toma UNA (la que más espera) de forma atómica (sql-trabajador.ts).
+  - /tomar: primero pasa a ERROR las que se le vencieron (sin latido); después, si tiene en las manos
+    menos de `maxParalelo` (PLANEANDO / EN_CURSO / SUBIENDO con trabajoVenceEn vigente; 1 si no lo
+    manda, como antes del 22-oct-2026), toma UNA (la que más espera, salvo las de `excluir`) de forma
+    atómica, con el candado del negocio (sql-trabajador.ts).
     Una SUBIENDO pendiente va primero: la que acaba de construir y sube sola se toma enseguida.
+  - /candidatas: las que tomaría, sin tomarlas. El trabajador las mira para no juntar en paralelo dos
+    del mismo repo que tocan la misma zona o módulo, ni dos subidas del mismo repo (van en `excluir`).
+  - /:id/soltar la devuelve sin ERROR ni contar el intento (Claude llegó a su límite de uso, o choca con
+    otra que corre): PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente.
   - /:id/latido corre el vencimiento (de a 5 min, hasta el tope de la etapa: 20 / 90 / 45 min).
   - /:id/plan, /resultado, /subida y /error la mueven de estado (reglas-trabajador.ts). /resultado
     pasa a SUBIENDO (sube sola) o a POR_REVISAR (espera el sí final) según destinoDelResultado.
@@ -235,10 +243,12 @@ function paraElTrabajador(fila: FilaParaTrabajar) {
 export type TarjetaParaTrabajar = ReturnType<typeof paraElTrabajador>;
 
 /**
- * POST /tomar. Devuelve `{ tarjeta: null, motivo }` si no hay nada (u otra está en curso), o la tarjeta
- * con `hacer` = planear | construir | subir. Todo en UNA transacción con el candado del negocio.
+ * POST /tomar. Devuelve `{ tarjeta: null, motivo }` si no hay nada (o ya tiene `maxParalelo` en las
+ * manos: "ocupado"), o la tarjeta con `hacer` = planear | construir | subir. Todo en UNA transacción
+ * con el candado del negocio.
  */
-export async function tomarTarjeta(contexto: ContextoTrabajador, ahora = new Date()) {
+export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoDeTomar = {}, ahora = new Date()) {
+  const { maxParalelo, excluir } = opcionesDeTomar(pedido);
   const iso = ahora.toISOString();
   const vence = new Date(ahora.getTime() + MINUTOS_DE_GRACIA_DEL_LATIDO * 60_000).toISOString();
   return prisma.$transaction(async (tx) => {
@@ -257,9 +267,9 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, ahora = new Dat
     await tocarTableros(tx, vencidas.map((fila) => fila.tableroId), ahora);
     const avisos = { vencidas: vencidas.map((fila) => fila.id) };
 
-    const ocupada = await tx.$queryRawUnsafe<{ id: string }[]>(SQL_HAY_UNA_TRABAJANDO, contexto.workspaceId, iso);
-    if (ocupada.length) {
-      return { tarjeta: null, motivo: "ocupado" as const, enCurso: ocupada[0].id, ...avisos };
+    const enCurso = (await tx.$queryRawUnsafe<{ id: string }[]>(SQL_TRABAJANDO, contexto.workspaceId, iso)).map((fila) => fila.id);
+    if (enCurso.length >= maxParalelo) {
+      return { tarjeta: null, motivo: "ocupado" as const, enCurso: enCurso[0], enLasManos: enCurso, ...avisos };
     }
 
     const [tomada] = await tx.$queryRawUnsafe<{ id: string; tableroId: string; antes: string; estado: string }[]>(
@@ -268,6 +278,7 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, ahora = new Dat
       iso,
       [...REPOS_DEL_TRABAJADOR],
       vence,
+      excluir,
     );
     if (!tomada) return { tarjeta: null, motivo: "nada" as const, ...avisos };
 
@@ -277,6 +288,19 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, ahora = new Dat
     const hacer = esEstado(tomada.estado) ? ETAPA_DEL_ESTADO[tomada.estado] : undefined;
     return { tarjeta: paraElTrabajador(fila), hacer: hacer as EtapaDelTrabajador, ...avisos };
   });
+}
+
+/** POST /candidatas: las que /tomar podría tomar, sin tomarlas (con su repo, zonas y plan). */
+export async function candidatasDelTrabajador(contexto: ContextoTrabajador) {
+  const filas = await prisma.$queryRawUnsafe<
+    { id: string; titulo: string; estado: string; repo: string; zonaProtegida: string[]; plan: string | null }[]
+  >(SQL_CANDIDATAS, contexto.workspaceId, [...REPOS_DEL_TRABAJADOR]);
+  return {
+    candidatas: filas.map((fila) => ({
+      ...fila,
+      hacer: esEstado(fila.estado) ? (AL_TOMAR[fila.estado]?.etapa ?? null) : null,
+    })),
+  };
 }
 
 /** Una tarjeta de ESTE negocio, o 404. */
@@ -321,6 +345,23 @@ export async function accionDelTrabajador(
     });
     if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
     return { ok: true, venceEn: venceEn.toISOString(), topeAlcanzado: venceEn.getTime() < ahora.getTime() + MINUTOS_DE_GRACIA_DEL_LATIDO * 60_000 };
+  }
+
+  if (accion === "soltar") {
+    // Claude llegó a su límite de uso o choca con otra que corre: vuelve a esperar su turno, sin ERROR y
+    // sin gastar el intento (una SUBIENDO queda pendiente, como recién aprobada).
+    const vuelve: EstadoTarjetaTablero = estado === "PLANEANDO" ? "APROBADO" : estado === "EN_CURSO" ? "PLAN_APROBADO" : "SUBIENDO";
+    const motivo = motivoDeEntrada(cuerpo.motivo ?? "El trabajador la soltó para reintentarla después.");
+    return prisma.$transaction(async (tx) => {
+      const hecho = await tx.tarjetaTablero.updateMany({
+        where: { id: actual.id, estado: actual.estado, borradoEn: null },
+        data: { estado: vuelve, trabajoVenceEn: null, intentos: Math.max(0, actual.intentos - 1) },
+      });
+      if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+      await anotarTrabajador(tx, contexto, actual.id, { estado }, { estado: vuelve, nota: `soltada sin error: ${motivo}` });
+      await tocarTableros(tx, [actual.tableroId], ahora);
+      return { ok: true, estado: vuelve, link: linkDeLaTarjeta(actual.id) };
+    });
   }
 
   let a = TRANSICIONES_DEL_TRABAJADOR[accion].a as EstadoTarjetaTablero;

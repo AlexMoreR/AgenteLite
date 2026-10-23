@@ -10,7 +10,7 @@ del negocio de su clave.
 ## Qué hace con una tarjeta
 
 Solo toma tarjetas de un tipo **con aprobación** (como Tarea) que tengan **repo** (`gestion` o
-`aizencrm`). Una a la vez.
+`aizencrm`). Varias a la vez (ver "En paralelo").
 
 | La tarjeta está | El trabajador | Queda |
 |---|---|---|
@@ -53,6 +53,30 @@ Lo que **nunca** hace: push a main de un cambio que no pasó todo, ni de uno que
 protegida sin el sí final del dueño; push con `--force` a main; `prisma migrate dev` / `db push`; nada
 contra la base de producción salvo el ensayo que se deshace (ROLLBACK). Los comandos corren con
 `DATABASE_URL` apuntando a nada.
+
+### En paralelo (desde el 22-oct-2026)
+
+Trabaja hasta `maxParalelo` tarjetas a la vez (config.local.json; 2 si no se pone, máximo 5), cada una
+en **su propia sesión de Claude Code**, su worktree (`carpetaTrabajo/wt/<id>-<etapa>`) y su rama.
+
+- **No junta dos que se pisan.** Dos tarjetas del mismo repo que tocan la misma **zona protegida** o el
+  mismo **módulo** (`src/features/<x>`, `src/app/<…>`, `src/lib/<x>`, `prisma`, `package.json`…, según
+  la parte "5. Archivos que se tocan" del plan) no se construyen a la vez: la segunda **espera en fila**.
+  Si el plan no dice archivos, también espera (no se sabe qué toca). Planear nunca choca (solo lee).
+  Repos distintos nunca chocan.
+- **Cola de subida.** A main de cada repo se sube de a una: rebase sobre lo último de main y, si main
+  cambió, compila, prueba y ensaya otra vez antes del push. Si choca, la tarjeta queda ERROR con el
+  motivo y main no cambia.
+- **Cuida el PC.** Si la CPU (promedio del último minuto) o la memoria pasan de `limites`
+  (`cpuPorciento`, `memoriaPorciento`, 85 % por defecto), no abre otra sesión; las que corren siguen.
+- **Límite de uso de Claude.** Si la suscripción llega a su límite, la tarjeta se **suelta sin ERROR**
+  (vuelve a APROBADO o PLAN_APROBADO, sin gastar el intento) y no abre sesiones por `pausaLimiteMinutos` (30).
+- **Subagentes.** Las instrucciones le piden a Claude usar subagentes para investigar el código,
+  escribir las pruebas y revisar el cambio antes de entregarlo.
+- **El log** antepone la sesión y la tarjeta a cada línea (`[s2 abcd1234] …`) y cada vez que empieza o
+  termina una escribe `corriendo N/M tarjetas al tiempo: s1 "…" (construir, aizencrm); s2 …`.
+- Del lado del CRM: `/tomar` recibe `{ maxParalelo, excluir }`, `/candidatas` dice qué tomaría y
+  `/:id/soltar` devuelve una tarjeta sin error. Un trabajador viejo (sin cuerpo) sigue de a una.
 
 ### Actualizar aizen1 al flujo nuevo
 
@@ -117,7 +141,9 @@ protegida (queda POR_REVISAR con la zona marcada).
 ## Archivos
 
 - `trabajador.mjs`: el bucle.
-- `lib/bucle.mjs`: una vuelta (tomar, la etapa con latido, avisar el resultado o el error).
+- `lib/bucle.mjs`: el planificador (varias a la vez) y una vuelta (tomar, la etapa con latido, avisar el resultado o el error).
+- `lib/choques.mjs`: qué tarjetas no pueden ir a la vez (zona, módulo, cola de subida).
+- `lib/recursos.mjs`: CPU y memoria del PC.
 - `lib/etapas.mjs`: planear, construir y subir.
 - `lib/ensayo.mjs`: ensayo de migraciones (PGlite y producción en BEGIN…ROLLBACK por ssh).
 - `lib/git.mjs`, `lib/procesos.mjs`, `lib/zonas.mjs`, `lib/crm.mjs`, `lib/config.mjs`, `lib/registro.mjs`.

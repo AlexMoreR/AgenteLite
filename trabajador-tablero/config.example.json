@@ -3,13 +3,16 @@
   "claveTrabajador": "aizen_trab_PEGAR_AQUI_LA_CLAVE_DEL_PANEL_TRABAJADOR",
   "carpetaTrabajo": "D:/Proyectos/trabajador-tablero-trabajo",
   "comandoClaude": ["claude"],
+  "maxParalelo": 3,
+  "limites": { "cpuPorciento": 85, "memoriaPorciento": 85 },
   "tiempos": {
     "intervaloSegundos": 60,
     "latidoSegundos": 60,
     "planMinutos": 19,
     "construirMinutos": 88,
     "subirMinutos": 44,
-    "comandoMinutos": 30
+    "comandoMinutos": 30,
+    "pausaLimiteMinutos": 30
   },
   "git": { "nombre": "Trabajador Tablero IA", "correo": "gestionmagilus@gmail.com" },
   "ssh": {

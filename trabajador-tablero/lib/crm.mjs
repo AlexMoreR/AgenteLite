@@ -1,5 +1,6 @@
 // El cliente HTTP del CRM: lo único que el trabajador habla con el servidor (solo HTTPS saliente).
-// POST /api/trabajador/tablero/tomar y /api/trabajador/tablero/<id>/<accion>, con la clave en Bearer.
+// POST /api/trabajador/tablero/tomar, /candidatas y /api/trabajador/tablero/<id>/<accion>, con la clave
+// en Bearer.
 
 export class ErrorDelCrm extends Error {
   constructor(message, status) {
@@ -34,7 +35,10 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
   }
 
   return {
-    tomar: () => pedir("/api/trabajador/tablero/tomar"),
+    /** { maxParalelo, excluir }: cuántas puede tener a la vez y cuáles no quiere ahora (chocan). */
+    tomar: (opciones) => pedir("/api/trabajador/tablero/tomar", opciones),
+    candidatas: () => pedir("/api/trabajador/tablero/candidatas"),
+    soltar: (id, motivo) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/soltar`, { motivo }),
     latido: (id) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/latido`),
     plan: (id, plan) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/plan`, { plan }),
     resultado: (id, resultado) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/resultado`, resultado),

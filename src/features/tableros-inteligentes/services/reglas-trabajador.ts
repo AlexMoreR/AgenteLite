@@ -170,8 +170,28 @@ export const MOTIVO_VENCIDA = "Se pasó del tiempo: el trabajador dejó de dar s
 
 /* ───────────────────────────────────────────────────────────────────── transiciones del trabajador ── */
 
-export type AccionDelTrabajador = "latido" | "plan" | "resultado" | "subida" | "error";
-export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = ["latido", "plan", "resultado", "subida", "error"];
+/**
+ * Lo que manda el trabajador a /tomar (22-oct-2026): `maxParalelo` = cuántas puede tener a la vez (1 si
+ * no viene: un trabajador viejo sigue de a una) y `excluir` = ids que no quiere ahora (chocan con lo que
+ * ya tiene corriendo).
+ */
+/** Cuántas tarjetas a la vez puede tener el trabajador (lo manda él; tope duro 5). */
+export const MAXIMO_EN_PARALELO = 5;
+
+export type PedidoDeTomar = { maxParalelo?: unknown; excluir?: unknown };
+
+export function opcionesDeTomar(pedido: PedidoDeTomar) {
+  const numero = Math.floor(Number(pedido.maxParalelo));
+  const maxParalelo = Number.isFinite(numero) && numero >= 1 ? Math.min(numero, MAXIMO_EN_PARALELO) : 1;
+  const excluir = Array.isArray(pedido.excluir)
+    ? pedido.excluir.filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 64).slice(0, 200)
+    : [];
+  return { maxParalelo, excluir };
+}
+
+
+export type AccionDelTrabajador = "latido" | "plan" | "resultado" | "subida" | "error" | "soltar";
+export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = ["latido", "plan", "resultado", "subida", "error", "soltar"];
 
 /**
  * Desde qué estados puede llamar el trabajador cada acción, y a cuál pasa (null = no cambia). El
@@ -186,6 +206,11 @@ export const TRANSICIONES_DEL_TRABAJADOR: Record<
   resultado: { desde: ["EN_CURSO"], a: "POR_REVISAR" },
   subida: { desde: ["SUBIENDO"], a: "HECHO" },
   error: { desde: ["PLANEANDO", "EN_CURSO", "SUBIENDO"], a: "ERROR" },
+  // Soltar (22-oct-2026): la tarjeta vuelve a esperar su turno sin ERROR y sin gastar el intento, porque
+  // Claude llegó a su límite de uso o porque choca con otra que ya corre (misma zona o módulo, o la cola
+  // de subida). PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente (a =
+  // null: depende de dónde estaba). Una SUBIENDO se suelta solo antes de empezar, nunca después del push.
+  soltar: { desde: ["PLANEANDO", "EN_CURSO", "SUBIENDO"], a: null },
 };
 
 /** ¿Puede el trabajador hacer `accion` con una tarjeta en `estado`? */

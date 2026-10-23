@@ -1,6 +1,6 @@
 /*
   LAS CONSULTAS DEL TRABAJADOR (Tablero IA, fase 2), en SQL a mano: tomar una tarjeta tiene que ser
-  atómico (dos /tomar al mismo tiempo no pueden llevarse dos tarjetas del mismo negocio, ni la misma).
+  atómico (dos /tomar al mismo tiempo no se llevan la misma tarjeta ni pasan del máximo en paralelo).
 
   Están acá, como texto, para que el servicio (trabajador.ts) y la prueba con PGlite
   (scripts/check-tablero-trabajador-migracion.mjs) corran EXACTAMENTE las mismas.
@@ -9,7 +9,7 @@
   como ISO ("...Z") y se convierten con `::timestamptz AT TIME ZONE 'UTC'`, que da la hora UTC sin
   depender de la zona de la sesión.
 
-  Parámetros de todas: $1 = workspaceId, $2 = ahora (ISO).
+  Parámetros (salvo SQL_CANDIDATAS): $1 = workspaceId, $2 = ahora (ISO).
 */
 
 const AHORA = `($2::timestamptz AT TIME ZONE 'UTC')`;
@@ -56,23 +56,27 @@ WHERE b."workspaceId" = $1
   AND c."trabajoVenceEn" > ${AHORA}
 LIMIT 1`;
 
+/** Las que el trabajador tiene en las manos en este negocio (con el candado vigente). */
+export const SQL_TRABAJANDO = `
+SELECT c."id"
+FROM "TarjetaTablero" c
+JOIN "TableroInteligente" b ON b."id" = c."tableroId"
+WHERE b."workspaceId" = $1
+  AND c."borradoEn" IS NULL
+  AND c."estado" IN ('PLANEANDO', 'EN_CURSO', 'SUBIENDO')
+  AND c."trabajoVenceEn" > ${AHORA}
+ORDER BY c."trabajoIniciadoEn" ASC`;
+
 /**
- * Toma UNA tarjeta: primero una SUBIENDO pendiente (la que se acaba de construir y sube sola no espera
- * detrás de otras), y si no, la que más espera (actualizadoEn más viejo): APROBADO -> PLANEANDO, PLAN_APROBADO
- * -> EN_CURSO, SUBIENDO pendiente (sin candado) -> SUBIENDO con candado. Solo tipos con aprobación,
- * con repo de la lista ($3, text[]), sin borrar. Una con zona protegida solo si su última aprobación fue
- * en la pantalla. $4 = vencimiento del candado (ISO).
+ * Qué se puede tomar: solo tipos con aprobación, con repo de la lista (`repos`, el parámetro text[]),
+ * sin borrar, en APROBADO, PLAN_APROBADO (con plan) o SUBIENDO pendiente (sin candado). Una con zona
+ * protegida solo si su última aprobación fue en la pantalla.
  */
-export const SQL_TOMAR_UNA = `
-WITH elegida AS (
-  SELECT c."id", c."estado"::text AS "antes"
-  FROM "TarjetaTablero" c
-  JOIN "TableroInteligente" b ON b."id" = c."tableroId"
-  JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
+const wherePara = (repos: string) => `
   WHERE b."workspaceId" = $1
     AND c."borradoEn" IS NULL
     AND k."requiereAprobacion" AND k."usaEstados"
-    AND c."repo" = ANY($3::text[])
+    AND c."repo" = ANY(${repos}::text[])
     AND (
       c."estado" = 'APROBADO'
       OR (c."estado" = 'PLAN_APROBADO' AND c."plan" IS NOT NULL)
@@ -87,8 +91,40 @@ WITH elegida AS (
         ORDER BY h."creadoEn" DESC
         LIMIT 1
       ) = 'pantalla'
-    )
-  ORDER BY (c."estado" = 'SUBIENDO') DESC, c."actualizadoEn" ASC, c."creadoEn" ASC
+    )`;
+
+/** Primero una SUBIENDO pendiente (la que sube sola no espera detrás de otras); después la que más espera. */
+const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, c."actualizadoEn" ASC, c."creadoEn" ASC`;
+
+/**
+ * Las que podría tomar, SIN tomarlas, en el orden en que las tomaría. El trabajador las mira para no
+ * juntar en paralelo dos del mismo repo que tocan la misma zona o el mismo módulo, ni dos subidas del
+ * mismo repo: esas las manda en `excluir` a /tomar y esperan en fila.
+ * Parámetros: $1 = workspaceId, $2 = repos (text[]).
+ */
+export const SQL_CANDIDATAS = `
+SELECT c."id", c."titulo", c."estado"::text AS "estado", c."repo", c."zonaProtegida", c."plan"
+FROM "TarjetaTablero" c
+JOIN "TableroInteligente" b ON b."id" = c."tableroId"
+JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
+${wherePara("$2")}
+${ORDEN_PARA_TOMAR}
+LIMIT 50`;
+
+/**
+ * Toma UNA tarjeta (la primera de SQL_CANDIDATAS que no esté en $5): APROBADO -> PLANEANDO,
+ * PLAN_APROBADO -> EN_CURSO, SUBIENDO pendiente (sin candado) -> SUBIENDO con candado.
+ * $3 = repos (text[]), $4 = vencimiento del candado (ISO), $5 = ids que NO se toman (text[]).
+ */
+export const SQL_TOMAR_UNA = `
+WITH elegida AS (
+  SELECT c."id", c."estado"::text AS "antes"
+  FROM "TarjetaTablero" c
+  JOIN "TableroInteligente" b ON b."id" = c."tableroId"
+  JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
+  ${wherePara("$3")}
+    AND NOT (c."id" = ANY($5::text[]))
+  ${ORDEN_PARA_TOMAR}
   LIMIT 1
   FOR UPDATE OF c SKIP LOCKED
 )

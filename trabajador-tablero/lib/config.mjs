@@ -21,6 +21,9 @@ export const HERRAMIENTAS_PERMITIDAS = [
   "Bash(git diff:*)",
   "Bash(git log:*)",
   "Bash(git show:*)",
+  // Subagentes (22-oct-2026): para investigar el código, escribir pruebas y revisar el cambio.
+  "Agent",
+  "Task",
 ];
 
 /** Lo que Claude NUNCA puede usar, aunque se cuele en la lista de arriba. */
@@ -47,7 +50,15 @@ const TIEMPOS_POR_DEFECTO = {
   intervaloSegundos: 60,
   // Cada comando de verificación (tsc, build, pruebas) como mucho esto.
   comandoMinutos: 30,
+  // Si Claude llega a su límite de uso, la tarjeta se suelta sin ERROR y no se abren sesiones por esto.
+  pausaLimiteMinutos: 30,
 };
+
+/** Cuántas tarjetas a la vez como mucho (22-oct-2026). El CRM tampoco da más de 5. */
+const MAXIMO_EN_PARALELO = 5;
+
+/** Si la CPU (promedio del último minuto) o la memoria pasan de esto, no se abre otra sesión. */
+const LIMITES_POR_DEFECTO = { cpuPorciento: 85, memoriaPorciento: 85 };
 
 export function leerConfig(ruta) {
   if (!fs.existsSync(ruta)) {
@@ -131,6 +142,18 @@ export function completarConfig(datos, base = process.cwd()) {
       ? { comando: comando(datos.ssh.comando, "ssh.comando") ?? ["ssh"], destino: datos.ssh.destino, psql: datos.ssh.psql }
       : null;
 
+  const maxParalelo = datos.maxParalelo === undefined ? 2 : Math.floor(Number(datos.maxParalelo));
+  if (!Number.isFinite(maxParalelo) || maxParalelo < 1 || maxParalelo > MAXIMO_EN_PARALELO) {
+    errores.push(`maxParalelo: cuántas tarjetas a la vez, de 1 a ${MAXIMO_EN_PARALELO}.`);
+  }
+  const limites = { ...LIMITES_POR_DEFECTO, ...(datos.limites ?? {}) };
+  for (const campo of ["cpuPorciento", "memoriaPorciento"]) {
+    limites[campo] = Number(limites[campo]);
+    if (!Number.isFinite(limites[campo]) || limites[campo] < 10 || limites[campo] > 100) {
+      errores.push(`limites.${campo}: un porcentaje de 10 a 100.`);
+    }
+  }
+
   if (errores.length) throw new Error(`La configuración tiene problemas:\n- ${errores.join("\n- ")}`);
 
   return {
@@ -139,6 +162,8 @@ export function completarConfig(datos, base = process.cwd()) {
     carpetaTrabajo,
     repos,
     ssh,
+    maxParalelo,
+    limites,
     comandoClaude: comando(datos.comandoClaude, "comandoClaude") ?? ["claude"],
     herramientasPermitidas: lista(datos.herramientasPermitidas).length ? datos.herramientasPermitidas : HERRAMIENTAS_PERMITIDAS,
     herramientasProhibidas: [...new Set([...HERRAMIENTAS_PROHIBIDAS, ...lista(datos.herramientasProhibidas)])],
