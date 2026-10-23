@@ -1,5 +1,6 @@
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { HERRAMIENTAS_MCP_V3, ejecutarHerramientaMcpV3, esHerramientaV3 } from "@/lib/mcp/agente-v3";
+import { HERRAMIENTAS_MCP_AVISOS, ejecutarHerramientaMcpAvisos, esHerramientaDeAvisos } from "@/lib/mcp/avisos-y-reasignaciones";
 import {
   HERRAMIENTAS_MCP_PRODUCTOS,
   ejecutarHerramientaMcpProductos,
@@ -985,11 +986,15 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_MCP_V3,
   ...HERRAMIENTAS_MCP_PRODUCTOS,
   ...HERRAMIENTAS_MCP_TABLEROS,
+  ...HERRAMIENTAS_MCP_AVISOS,
 ];
 
 export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, contexto: Contexto) {
   if (esHerramientaDeLaAplicacion(nombre)) {
     return ejecutarHerramientaMcpAplicacion(nombre, args, contexto);
+  }
+  if (esHerramientaDeAvisos(nombre)) {
+    return ejecutarHerramientaMcpAvisos(nombre, args, contexto);
   }
   if (esHerramientaDeProductos(nombre)) {
     return ejecutarHerramientaMcpProductos(nombre, args, contexto);

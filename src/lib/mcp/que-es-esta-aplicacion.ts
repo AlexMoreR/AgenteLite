@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
+import { claveConfigReasignacion, leerConfigReasignacionDeTexto } from "@/features/supervisor-reasignacion/dominio/reglas";
 import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { leerUltimoEnvio } from "@/features/tableros-inteligentes/services/resumen-diario";
@@ -393,6 +394,17 @@ async function estadoDelResumenDiario(workspaceId: string) {
   return `activa: último resumen del ${ultimo.dia}, ${ultimo.enviado ? "WhatsApp enviado" : `WhatsApp NO salió (${ultimo.motivo ?? "sin motivo"})`}`;
 }
 
+/** Los avisos por WhatsApp y la reasignación del Supervisor: sus dos interruptores y sus tiempos. */
+async function estadoDeAvisosYReasignacion(workspaceId: string) {
+  const config = leerConfigReasignacionDeTexto(await bandera(claveConfigReasignacion(workspaceId)));
+  if (!config.avisosActivos && !config.reasignacionActiva) return "apagada (los dos interruptores, en la pantalla del Supervisor)";
+  const partes = [
+    config.avisosActivos ? `avisos a los ${config.avisoMin} min y Caliente a las ${config.calienteHoras} h` : "avisos apagados",
+    config.reasignacionActiva ? `reasigna a los ${config.reasignarMin} min` : "reasignacion apagada",
+  ];
+  return `activa: ${partes.join("; ")}; horario ${config.horario.desde}-${config.horario.hasta} h, dias ${config.horario.dias.join(",")}`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -448,6 +460,7 @@ async function automatizaciones(
     reuniones_transcripcion: await estadoDeLasReuniones(workspaceId).catch(() => "no se pudo leer"),
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(workspaceId).catch(() => "no se pudo leer"),
+    supervisor_avisos_y_reasignacion: await estadoDeAvisosYReasignacion(workspaceId).catch(() => "no se pudo leer"),
   };
 
   return {
