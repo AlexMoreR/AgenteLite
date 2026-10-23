@@ -161,7 +161,8 @@ await prueba("uso de Claude: UN aviso por cada cruce del umbral (se repite solo 
   assert.deepEqual([ilegible.alto, ilegible.alertaLectura], [[], true]);
   assert.equal(decidirUso(null, ilegible.estado, 80, "2026-10-23").alertaLectura, false, "una sola vez por día");
   assert.equal(decidirUso(null, ilegible.estado, 80, "2026-10-24").alertaLectura, true, "al otro día otra vez");
-  assert.match(textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "codex", revisar: "claude" } }), /sesión: 83 % usado, se reinicia Oct 23, 3:20pm[\s\S]*planear y revisar pasan a Codex/);
+  assert.match(textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "codex", revisar: "claude", respaldoCodex: true } }), /sesión: 83 % usado, se reinicia Oct 23, 3:20pm[\s\S]*planear y revisar pasan a Codex/);
+  assert.match(textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "claude", revisar: "claude", respaldoCodex: false } }), /sigue con Claude/);
 });
 
 await prueba("límite de Codex: se reconoce el aviso de ChatGPT (y no cualquier texto)", async () => {
@@ -172,10 +173,18 @@ await prueba("límite de Codex: se reconoce el aviso de ChatGPT (y no cualquier 
   assert.ok(!esLimiteDeCodex("RESUMEN: Codex hizo el cambio del botón"));
 });
 
-await prueba("motores: Claude planea y revisa, Codex construye; Claude alto -> todo Codex; Codex agotado -> espera (o Claude con respaldo)", async () => {
+await prueba("motores: por defecto todo Claude (Opus planea, Sonnet construye y revisa); con Codex: Claude alto -> Codex solo con respaldoCodex; Codex agotado -> espera (o Claude con respaldo)", async () => {
   const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
-  const config = completarConfig(base);
-  assert.deepEqual(config.motores, { planear: "claude", construir: "codex", revisar: "claude", respaldoClaude: false });
+  const porDefecto = completarConfig(base);
+  assert.deepEqual(porDefecto.motores, { planear: "claude", construir: "claude", revisar: "claude", respaldoClaude: false, respaldoCodex: false });
+  assert.deepEqual(porDefecto.modelos, { planear: "opus", construir: "sonnet", revisar: "sonnet", subagentes: "sonnet" });
+  assert.throws(() => completarConfig({ ...base, modelos: { planear: "opus 5" } }), /modelos\.planear/);
+  const sinRespaldo = crearEstadoDeMotores(porDefecto);
+  sinRespaldo.ponerClaudeAlto({ periodo: "sesion", porcentaje: 83, reinicio: "3:20pm" });
+  assert.deepEqual(["planear", "construir", "revisar"].map(sinRespaldo.motorDe), ["claude", "claude", "claude"], "sin respaldoCodex, sobre el umbral sigue Claude (solo se avisa)");
+  sinRespaldo.pausar("claude");
+  assert.equal(sinRespaldo.motorDe("construir"), null, "Claude agotado y sin respaldo: espera, no pasa a Codex");
+  const config = completarConfig({ ...base, motores: { construir: "codex", respaldoCodex: true } });
   assert.deepEqual(config.comandoCodex, ["codex"]);
   assert.equal(config.pausaLimiteCodexMinutos, 30);
   assert.equal(config.umbralClaude, 80);
@@ -704,10 +713,15 @@ try {
     planificador.parar();
   });
 
-  await prueba("límite de uso de Claude: la tarjeta se suelta SIN error (vuelve a APROBADO); mientras Claude está en pausa, planea Codex", async () => {
+  await prueba("límite de uso de Claude: la tarjeta se suelta SIN error (vuelve a APROBADO); con respaldoCodex, mientras Claude está en pausa, planea Codex", async () => {
     const id = nueva("Plan sin cupo [limite]", "APROBADO");
     const otra = nueva("Espera la pausa [mod:z]", "APROBADO");
-    const planificador = planificar({ ...enParalelo, maxParalelo: 1, tiempos: { ...enParalelo.tiempos, pausaLimiteMinutos: 10 } });
+    const planificador = planificar({
+      ...enParalelo,
+      maxParalelo: 1,
+      motores: { ...enParalelo.motores, respaldoCodex: true },
+      tiempos: { ...enParalelo.tiempos, pausaLimiteMinutos: 10 },
+    });
     await planificador.llenar();
     await planificador.esperarTodas();
     const t = tarjetas.get(id);
@@ -792,7 +806,7 @@ try {
     const antes = avisos().length;
     const id = nueva("Plan con Claude alto", "APROBADO");
     // vigilarUsoMinutos chiquito: mira en cada llenar.
-    const planificador = planificar({ ...conCodex({}, { vigilarUsoMinutos: 0.0001 }), maxParalelo: 1 });
+    const planificador = planificar({ ...conCodex({ respaldoCodex: true }, { vigilarUsoMinutos: 0.0001 }), maxParalelo: 1 });
     const claudeAntes = leerLog(LOGS.claude).filter((l) => !l.argumentos.includes("/usage")).length;
     await planificador.llenar();
     await planificador.esperarTodas();

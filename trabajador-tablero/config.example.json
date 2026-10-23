@@ -2,13 +2,26 @@
   "urlCrm": "https://app.aizenbot.com",
   "claveTrabajador": "aizen_trab_PEGAR_AQUI_LA_CLAVE_DEL_PANEL_TRABAJADOR",
   "carpetaTrabajo": "D:/Proyectos/trabajador-tablero-trabajo",
-  "comandoClaude": ["claude"],
-  "comandoCodex": ["codex"],
-  "motores": { "planear": "claude", "construir": "codex", "revisar": "claude", "respaldoClaude": false },
+  "comandoClaude": [
+    "claude"
+  ],
+  "comandoCodex": [
+    "codex"
+  ],
+  "motores": {
+    "planear": "claude",
+    "construir": "claude",
+    "revisar": "claude",
+    "respaldoClaude": false,
+    "respaldoCodex": false
+  },
   "pausaLimiteCodexMinutos": 30,
   "umbralClaude": 80,
   "maxParalelo": 3,
-  "limites": { "cpuPorciento": 85, "memoriaPorciento": 85 },
+  "limites": {
+    "cpuPorciento": 85,
+    "memoriaPorciento": 85
+  },
   "tiempos": {
     "intervaloSegundos": 60,
     "latidoSegundos": 60,
@@ -18,9 +31,16 @@
     "comandoMinutos": 30,
     "pausaLimiteMinutos": 30
   },
-  "git": { "nombre": "Trabajador Tablero IA", "correo": "gestionmagilus@gmail.com" },
+  "git": {
+    "nombre": "Trabajador Tablero IA",
+    "correo": "gestionmagilus@gmail.com"
+  },
   "ssh": {
-    "comando": ["ssh", "-o", "BatchMode=yes"],
+    "comando": [
+      "ssh",
+      "-o",
+      "BatchMode=yes"
+    ],
     "destino": "USUARIO@SERVIDOR",
     "psql": "docker exec -i CONTENEDOR_POSTGRES psql -U postgres"
   },
@@ -29,20 +49,57 @@
       "ruta": "D:/Proyectos/AgenteLite",
       "ramaBase": "main",
       "remoto": "origin",
-      "instalar": ["npm", "ci"],
+      "instalar": [
+        "npm",
+        "ci"
+      ],
       "verificar": [
-        ["npx", "prisma", "generate"],
-        ["npx", "tsc", "--noEmit"],
-        ["npm", "run", "build"]
+        [
+          "npx",
+          "prisma",
+          "generate"
+        ],
+        [
+          "npx",
+          "tsc",
+          "--noEmit"
+        ],
+        [
+          "npm",
+          "run",
+          "build"
+        ]
       ],
       "pruebas": [
-        ["npm", "run", "test:tableros"],
-        ["npm", "run", "test:trabajador-tablero"]
+        [
+          "npm",
+          "run",
+          "test:tableros"
+        ],
+        [
+          "npm",
+          "run",
+          "test:trabajador-tablero"
+        ]
       ],
-      "lint": { "comando": ["npx", "eslint", "-f", "json", "."] },
+      "lint": {
+        "comando": [
+          "npx",
+          "eslint",
+          "-f",
+          "json",
+          "."
+        ]
+      },
       "carpetaMigraciones": "prisma/migrations",
-      "ensayoPglite": ["npm", "run", "test:migraciones-pglite"],
-      "ensayoProduccion": { "tablaGuia": "WhatsAppChannel" },
+      "ensayoPglite": [
+        "npm",
+        "run",
+        "test:migraciones-pglite"
+      ],
+      "ensayoProduccion": {
+        "tablaGuia": "WhatsAppChannel"
+      },
       "subirSolo": true,
       "zonasProtegidas": {
         "CHATS": [
@@ -113,7 +170,11 @@
           "src/app/actions/diagram-actions.ts",
           "src/app/actions/flow-send-actions.ts"
         ],
-        "LIBRO_V3": ["src/features/agente-v3/**", "src/lib/mcp/agente-v3.ts", "src/app/cliente/agente-v3/**"],
+        "LIBRO_V3": [
+          "src/features/agente-v3/**",
+          "src/lib/mcp/agente-v3.ts",
+          "src/app/cliente/agente-v3/**"
+        ],
         "META_ADS": [
           "src/features/ads-generator/**",
           "src/lib/ad-*.ts",
@@ -130,8 +191,28 @@
         ]
       },
       "subida": {
-        "ciBuscar": ["gh", "run", "list", "--repo", "AlexMoreR/AgenteLite", "--commit", "{commit}", "--json", "databaseId", "--jq", ".[0].databaseId"],
-        "ciEsperar": ["gh", "run", "watch", "{run}", "--repo", "AlexMoreR/AgenteLite", "--exit-status"],
+        "ciBuscar": [
+          "gh",
+          "run",
+          "list",
+          "--repo",
+          "AlexMoreR/AgenteLite",
+          "--commit",
+          "{commit}",
+          "--json",
+          "databaseId",
+          "--jq",
+          ".[0].databaseId"
+        ],
+        "ciEsperar": [
+          "gh",
+          "run",
+          "watch",
+          "{run}",
+          "--repo",
+          "AlexMoreR/AgenteLite",
+          "--exit-status"
+        ],
         "ciMinutos": 20,
         "urlVersion": "https://app.aizenbot.com/api/version",
         "campoVersion": "version",
@@ -143,23 +224,79 @@
       "ruta": "D:/Proyectos/Gestion",
       "ramaBase": "main",
       "remoto": "origin",
-      "instalar": ["npm", "ci"],
-      "verificar": [
-        ["npx", "prisma", "generate"],
-        ["npx", "tsc", "--noEmit"],
-        ["npm", "run", "build"]
+      "instalar": [
+        "npm",
+        "ci"
       ],
-      "pruebas": [["npm", "test"]],
-      "lint": { "comando": ["npx", "eslint", "-f", "json", "."] },
+      "verificar": [
+        [
+          "npx",
+          "prisma",
+          "generate"
+        ],
+        [
+          "npx",
+          "tsc",
+          "--noEmit"
+        ],
+        [
+          "npm",
+          "run",
+          "build"
+        ]
+      ],
+      "pruebas": [
+        [
+          "npm",
+          "test"
+        ]
+      ],
+      "lint": {
+        "comando": [
+          "npx",
+          "eslint",
+          "-f",
+          "json",
+          "."
+        ]
+      },
       "carpetaMigraciones": "prisma/migrations",
-      "ensayoProduccion": { "tablaGuia": "SalePayment" },
+      "ensayoProduccion": {
+        "tablaGuia": "SalePayment"
+      },
       "subirSolo": true,
       "zonasProtegidas": {},
       "subida": {
-        "ciBuscar": ["gh", "run", "list", "--repo", "AlexMoreR/Gestion", "--commit", "{commit}", "--json", "databaseId", "--jq", ".[0].databaseId"],
-        "ciEsperar": ["gh", "run", "watch", "{run}", "--repo", "AlexMoreR/Gestion", "--exit-status"],
+        "ciBuscar": [
+          "gh",
+          "run",
+          "list",
+          "--repo",
+          "AlexMoreR/Gestion",
+          "--commit",
+          "{commit}",
+          "--json",
+          "databaseId",
+          "--jq",
+          ".[0].databaseId"
+        ],
+        "ciEsperar": [
+          "gh",
+          "run",
+          "watch",
+          "{run}",
+          "--repo",
+          "AlexMoreR/Gestion",
+          "--exit-status"
+        ],
         "ciMinutos": 20
       }
     }
+  },
+  "modelos": {
+    "planear": "opus",
+    "construir": "sonnet",
+    "revisar": "sonnet",
+    "subagentes": "sonnet"
   }
 }

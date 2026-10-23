@@ -123,7 +123,9 @@ function motivoDeVerificacion(comando, esPrueba) {
 async function claude(contexto, argumentos, prompt, { cwd, timeoutMs, que }) {
   const { config, senal } = contexto;
   const comando = [...config.comandoClaude, ...argumentos];
-  const resultado = await correr(comando, { cwd, entrada: prompt, timeoutMs, senal, env: entornoSeguro() });
+  // Los subagentes que lance esta sesión usan el modelo de config.modelos.subagentes (Sonnet), no Opus.
+  const env = { ...entornoSeguro(), CLAUDE_CODE_SUBAGENT_MODEL: config.modelos?.subagentes ?? "sonnet" };
+  const resultado = await correr(comando, { cwd, entrada: prompt, timeoutMs, senal, env });
   if (resultado.cancelado) throw new ErrorDeEtapa(`Se canceló Claude (${que}): la tarjeta venció en el CRM.`);
   if (resultado.vencido) throw new ErrorDeEtapa(`Claude tardó más de ${Math.round(timeoutMs / MINUTO)} min en ${que}: se cortó.`);
   const cola = ultimasLineas(`${resultado.errores}\n${resultado.salida}`, 20);
@@ -186,9 +188,11 @@ async function codex(contexto, prompt, { cwd, timeoutMs, que, sandbox }) {
 
 /** Los argumentos de Claude para cada paso: planear en modo plan; construir y revisar con acceptEdits acotado. */
 function argumentosDeClaude(config, paso) {
-  if (paso === "planear") return ["-p", "--permission-mode", "plan", "--output-format", "text"];
+  const modelo = ["--model", config.modelos?.[paso] ?? (paso === "planear" ? "opus" : "sonnet")];
+  if (paso === "planear") return ["-p", ...modelo, "--permission-mode", "plan", "--output-format", "text"];
   return [
     "-p",
+    ...modelo,
     "--permission-mode",
     "acceptEdits",
     "--output-format",

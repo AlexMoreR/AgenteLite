@@ -31,13 +31,16 @@ export const nombreDelMotor = (motor) => NOMBRE[motor] ?? motor;
 export function crearEstadoDeMotores(config, { ahora = () => Date.now() } = {}) {
   const pausaHasta = { claude: 0, codex: 0 };
   let claudeAlto = null;
-  const disponible = (motor) => ahora() >= pausaHasta[motor] && !(motor === "claude" && claudeAlto);
+  // Claude sobre el umbral solo deja de usarse si hay a dónde pasar (respaldoCodex); si no, sigue con Claude
+  // y el vigilante solo avisa por WhatsApp.
+  const disponible = (motor) =>
+    ahora() >= pausaHasta[motor] && !(motor === "claude" && claudeAlto && config.motores.respaldoCodex);
   return {
     motorDe(paso) {
       const elegido = paso === "revisar" ? config.motores.revisar : config.motores[paso];
       if (!elegido) return null;
       if (disponible(elegido)) return elegido;
-      if (elegido === "claude") return disponible("codex") ? "codex" : null;
+      if (elegido === "claude") return config.motores.respaldoCodex && disponible("codex") ? "codex" : null;
       // Codex agotado: a Claude solo si se pidió el respaldo (y Claude está disponible).
       return config.motores.respaldoClaude && disponible("claude") ? "claude" : null;
     },
@@ -153,7 +156,9 @@ export function textoDelAviso(avisos, config) {
   return [
     `⚠️ Trabajador del Tablero IA: el plan de Claude pasó el ${config.umbralClaude} %.`,
     ...lineas,
-    `Mientras esté arriba, ${pasosDeClaude(config)} a Codex.`,
+    config.motores.respaldoCodex
+      ? `Mientras esté arriba, ${pasosDeClaude(config)} a Codex.`
+      : "El trabajador sigue con Claude; si se agota, las tarjetas esperan al reinicio.",
   ]
     .join("\n")
     .slice(0, 500);
@@ -229,7 +234,9 @@ export function crearVigilanteDeUso({ config, registro, crm, estado, entorno, le
     if (clave !== altoAntes) {
       if (alto) {
         registro.aviso(
-          `Claude al ${alto.porcentaje} % (${NOMBRE_DEL_PERIODO[alto.periodo]}): ${pasosDeClaude(config)} a Codex hasta ${horaDelReinicio(alto.reinicio)}`,
+          config.motores.respaldoCodex
+            ? `Claude al ${alto.porcentaje} % (${NOMBRE_DEL_PERIODO[alto.periodo]}): ${pasosDeClaude(config)} a Codex hasta ${horaDelReinicio(alto.reinicio)}`
+            : `Claude al ${alto.porcentaje} % (${NOMBRE_DEL_PERIODO[alto.periodo]}): sigo con Claude (sin respaldo a Codex); se reinicia ${horaDelReinicio(alto.reinicio)}`,
         );
       } else if (altoAntes) {
         registro.info(`Claude volvió bajo el ${config.umbralClaude} %: ${pasosDeClaude(config, { verbo: "vuelve" })} a Claude`);

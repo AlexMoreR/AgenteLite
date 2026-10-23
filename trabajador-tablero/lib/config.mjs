@@ -61,7 +61,13 @@ export const MOTORES = ["claude", "codex"];
  * Quién hace cada paso: Claude planea y revisa lo que construyó Codex; Codex construye; sin pasar a Claude
  * si Codex se agota. `revisar` puede ser "ninguno" (no hay revisión aparte).
  */
-const MOTORES_POR_DEFECTO = { planear: "claude", construir: "codex", revisar: "claude", respaldoClaude: false };
+// 23-10-2026: Alexander ya no tiene ChatGPT Plus. Por defecto todo con Claude; Codex queda listo para
+// activarlo poniendo "construir": "codex". respaldoCodex: si Claude pasa el umbral o se agota, ¿sus pasos
+// pasan a Codex? Apagado: sobre el umbral solo se avisa, y si Claude se agota la tarjeta espera.
+const MOTORES_POR_DEFECTO = { planear: "claude", construir: "claude", revisar: "claude", respaldoClaude: false, respaldoCodex: false };
+
+/** Modelo de Claude por paso (--model) y para los subagentes (CLAUDE_CODE_SUBAGENT_MODEL). Opus solo planea. */
+const MODELOS_POR_DEFECTO = { planear: "opus", construir: "sonnet", revisar: "sonnet", subagentes: "sonnet" };
 
 /** Cuántas tarjetas a la vez como mucho (22-oct-2026). El CRM tampoco da más de 5. */
 const MAXIMO_EN_PARALELO = 5;
@@ -169,6 +175,11 @@ export function completarConfig(datos, base = process.cwd()) {
   }
   if (![...MOTORES, "ninguno"].includes(motores.revisar)) errores.push('motores.revisar: "claude", "codex" o "ninguno".');
   if (typeof motores.respaldoClaude !== "boolean") errores.push("motores.respaldoClaude: true o false.");
+  if (typeof motores.respaldoCodex !== "boolean") errores.push("motores.respaldoCodex: true o false.");
+  const modelos = { ...MODELOS_POR_DEFECTO, ...(datos.modelos ?? {}) };
+  for (const paso of Object.keys(MODELOS_POR_DEFECTO)) {
+    if (typeof modelos[paso] !== "string" || !/^[\w.:-]+$/.test(modelos[paso])) errores.push(`modelos.${paso}: un nombre de modelo ("opus", "sonnet" o el id completo).`);
+  }
   const pausaLimiteCodexMinutos = datos.pausaLimiteCodexMinutos === undefined ? 30 : Number(datos.pausaLimiteCodexMinutos);
   if (!Number.isFinite(pausaLimiteCodexMinutos) || pausaLimiteCodexMinutos < 1) errores.push("pausaLimiteCodexMinutos: minutos, 1 o más.");
   const umbralClaude = datos.umbralClaude === undefined ? 80 : Number(datos.umbralClaude);
@@ -197,7 +208,9 @@ export function completarConfig(datos, base = process.cwd()) {
       construir: motores.construir,
       revisar: motores.revisar === "ninguno" ? null : motores.revisar,
       respaldoClaude: motores.respaldoClaude,
+      respaldoCodex: motores.respaldoCodex,
     },
+    modelos: { planear: modelos.planear, construir: modelos.construir, revisar: modelos.revisar, subagentes: modelos.subagentes },
     pausaLimiteCodexMinutos,
     umbralClaude,
     // Cada cuánto se mira el uso del plan de Claude (`claude -p /usage`). 0 = no se mira.

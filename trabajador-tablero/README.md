@@ -82,16 +82,30 @@ en **su propia sesión de Claude Code**, su worktree (`carpetaTrabajo/wt/<id>-<e
 
 El trabajador usa dos "motores" de IA que ya están logueados en aizen1:
 
-- **Claude Code** (`claude`, la suscripción de Alexander): **planea** y **revisa**.
-- **Codex** (`codex`, la sesión de ChatGPT Plus): **construye**.
+**Hoy (23-oct-2026) todo lo hace Claude Code**: Alexander ya no tiene ChatGPT Plus. Codex queda listo para
+activarlo con `"construir": "codex"` cuando vuelva a haber cuenta.
+
+Para ahorrar límite, cada paso usa un modelo distinto (`modelos`, se pasa a `claude --model`; los subagentes
+toman `CLAUDE_CODE_SUBAGENT_MODEL`):
+
+| Paso | Modelo |
+|---|---|
+| Planear | Opus |
+| Construir | Sonnet |
+| Revisar | Sonnet |
+| Subagentes | Sonnet |
 
 Se elige en `config.local.json`:
 
 ```json
-"motores": { "planear": "claude", "construir": "codex", "revisar": "claude", "respaldoClaude": false },
+"motores": { "planear": "claude", "construir": "claude", "revisar": "claude", "respaldoClaude": false, "respaldoCodex": false },
+"modelos": { "planear": "opus", "construir": "sonnet", "revisar": "sonnet", "subagentes": "sonnet" },
 "comandoCodex": ["codex"],
 "pausaLimiteCodexMinutos": 30
 ```
+
+- `respaldoCodex: false` (por defecto): si Claude pasa el umbral, **solo se avisa** y se sigue con Claude; si se
+  agota, las tarjetas esperan al reinicio. Con `true`, los pasos de Claude pasan a Codex mientras tanto.
 
 - **Cómo se llama a Codex.** En el worktree de la tarjeta, sin preguntar nada:
   `codex exec --cd <worktree> --sandbox workspace-write --skip-git-repo-check --color never --output-last-message <archivo> -`
@@ -120,9 +134,9 @@ Current session: 36% used · resets Oct 23, 3:20pm (America/Bogota)
 Current week (all models): 6% used · resets Oct 30, 7am (America/Bogota)
 ```
 
-- Si la sesión o la semana llegan a `umbralClaude` (80 % por defecto), **todos los pasos van con Codex**
-  (planear y revisar también) hasta que baje. El log dice, por ejemplo:
-  `Claude al 83 % (sesión): planear y revisar pasan a Codex hasta 3:20pm`.
+- Si la sesión o la semana llegan a `umbralClaude` (80 % por defecto): con `respaldoCodex: true`, **todos los
+  pasos van con Codex** hasta que baje (`Claude al 83 % (sesión): planear y revisar pasan a Codex hasta 3:20pm`);
+  con `respaldoCodex: false` (hoy) se sigue con Claude y solo se avisa.
 - Manda **un** WhatsApp al dueño por cada cruce (con el porcentaje y la hora de reinicio), desde la línea
   Admin del CRM (`POST /api/trabajador/aviso`). Vuelve a avisar solo si bajó del umbral y volvió a subir, o si
   empezó otro periodo. Lo que ya avisó queda en `<carpetaTrabajo>/estado-uso.json`.
