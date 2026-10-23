@@ -57,6 +57,10 @@ COPY docs/que-es-esta-aplicacion.md ./docs/que-es-esta-aplicacion.md
 # Solo los dos guiones: lo de aizen1 no hace falta en la imagen.
 COPY docker/respaldo/respaldo.sh docker/respaldo/restaurar-prueba.sh ./docker/respaldo/
 RUN chmod +x ./docker/entrypoint.sh
+# Carpeta de los audios de las Reuniones (volumen privado aizenbot_reuniones; Egress la ve como /out).
+# Nunca dentro de public/: no se sirve sola, se escucha con un link firmado de 1 hora. La crea el
+# mismo usuario que corre el CRM (root, la imagen no tiene USER); Egress escribe con ese usuario.
+RUN mkdir -p /app/reuniones
 
 EXPOSE 3000
 

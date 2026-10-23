@@ -3,6 +3,8 @@ services:
     image: ghcr.io/alexmorer/agentelite:latest
     volumes:
       - aizenbot_uploads:/app/public/uploads
+      # Audios de las Reuniones: privado (fuera de public/), lo comparte con livekit_egress.
+      - aizenbot_reuniones:/app/reuniones
     environment:
       NODE_ENV: "production"
       BACKEND_ENV: "https://app.aizenbot.com"
@@ -21,6 +23,12 @@ services:
       FOLLOW_CRON_SECRET: "${FOLLOW_CRON_SECRET}"
       EVOLUTION_WEBHOOK_SECRET: "${EVOLUTION_WEBHOOK_SECRET}"
       PRISMA_AUTO_RESOLVE_FAILED_OFFICIAL_API_MIGRATION: "true"
+      # Reuniones: el servidor de video. Si LiveKit se muda a otro VPS, solo cambian estas tres.
+      LIVEKIT_URL: "wss://video.aizenbot.com"
+      LIVEKIT_API_KEY: "${LIVEKIT_API_KEY}"
+      LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET}"
+      REUNIONES_CARPETA: "/app/reuniones"
+      LIVEKIT_EGRESS_CARPETA: "/out"
     networks:
       - minha_rede
     deploy:
@@ -164,6 +172,124 @@ services:
       restart_policy:
         condition: on-failure
 
+  # ── Reuniones: LiveKit (video), Egress (graba solo el audio de cada persona) y Redis ──────────────
+  # La configuración se lee mejor en docker/livekit/*.yaml; acá va copiada para que Portainer ponga las
+  # claves. Si cambias una, cambia la otra.
+  #
+  # Antes de prenderlo, a mano en el VPS: abrir 7881/TCP, 3478/UDP y 50000-50200/UDP en el firewall, y
+  # crear los DNS video.aizenbot.com y turn.aizenbot.com apuntando a 31.220.82.79. Variables de Portainer:
+  # LIVEKIT_API_KEY y LIVEKIT_API_SECRET (el secreto, de 32 caracteres o más).
+  livekit:
+    image: livekit/livekit-server:v1.13.0
+    # livekit-server lee la configuración de LIVEKIT_CONFIG y las claves de LIVEKIT_KEYS.
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          udp_port: 50000
+          use_external_ip: true
+        redis:
+          address: livekit_redis:6379
+        turn:
+          enabled: true
+          domain: turn.aizenbot.com
+          tls_port: 5349
+          udp_port: 3478
+          external_tls: true
+        room:
+          empty_timeout: 600
+          departure_timeout: 600
+          max_participants: 12
+        webhook:
+          api_key: ${LIVEKIT_API_KEY}
+          urls:
+            - https://app.aizenbot.com/api/reuniones/livekit
+        logging:
+          level: info
+    # El audio y el video van DIRECTO al servidor (no por Traefik): en Swarm, mode: host.
+    ports:
+      - target: 7881
+        published: 7881
+        protocol: tcp
+        mode: host
+      - target: 3478
+        published: 3478
+        protocol: udp
+        mode: host
+      - target: 50000
+        published: 50000
+        protocol: udp
+        mode: host
+    networks:
+      - minha_rede
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      labels:
+        - traefik.enable=true
+        # Solo la señalización (wss) pasa por Traefik.
+        - traefik.http.routers.livekit.rule=Host(`video.aizenbot.com`)
+        - traefik.http.routers.livekit.entrypoints=websecure
+        - traefik.http.routers.livekit.tls=true
+        - traefik.http.routers.livekit.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.livekit.service=livekit
+        - traefik.http.services.livekit.loadbalancer.server.port=7880
+        # TURN por TLS en el 443: Traefik termina el TLS y pasa el TCP al 5349 de LiveKit.
+        - traefik.tcp.routers.livekit-turn.rule=HostSNI(`turn.aizenbot.com`)
+        - traefik.tcp.routers.livekit-turn.entrypoints=websecure
+        - traefik.tcp.routers.livekit-turn.tls=true
+        - traefik.tcp.routers.livekit-turn.tls.certresolver=letsencryptresolver
+        - traefik.tcp.routers.livekit-turn.service=livekit-turn
+        - traefik.tcp.services.livekit-turn.loadbalancer.server.port=5349
+
+  livekit_egress:
+    image: livekit/egress:v1.15.0
+    # Mismo usuario que el CRM (root: la imagen del CRM no tiene USER), así los dos leen y escriben el volumen.
+    user: "0:0"
+    volumes:
+      - aizenbot_reuniones:/out
+    environment:
+      EGRESS_CONFIG_BODY: |
+        api_key: ${LIVEKIT_API_KEY}
+        api_secret: ${LIVEKIT_API_SECRET}
+        ws_url: ws://livekit:7880
+        redis:
+          address: livekit_redis:6379
+        health_port: 8080
+        log_level: info
+    networks:
+      - minha_rede
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
+  livekit_redis:
+    image: redis:7-alpine
+    # Solo coordina LiveKit con Egress: no guarda nada que haga falta conservar.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      - minha_rede
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
 networks:
   minha_rede:
     external: true
@@ -171,3 +297,4 @@ networks:
 volumes:
   aizenbot_uploads:
   aizenbot_respaldos:
+  aizenbot_reuniones:

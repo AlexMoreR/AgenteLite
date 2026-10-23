@@ -8,3 +8,4 @@ README.md
 .env
 .env.*
 !.env.example
+reuniones

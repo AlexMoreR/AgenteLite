@@ -15,6 +15,7 @@ import { sincronizarSiTocaHoy } from "@/lib/sincronizacion-gestion";
 import { vueltaDeCadaHora, vueltaDeCincoMinutos } from "@/features/supervisor/servicios/vueltas";
 import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente/servicios/motor";
 import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/servicio";
+import { procesarColaDeReuniones } from "@/features/reuniones/servicios/cola-de-reuniones";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -179,6 +180,15 @@ async function handleCron(request: Request) {
       await transcribirAudiosPendientes();
     } catch (error) {
       console.error("[cron/follows] transcripcion de audios error", error);
+    }
+  });
+
+  // Reuniones: transcripción y acta, una a la vez (ver cola-de-reuniones). También después de responder.
+  after(async () => {
+    try {
+      await procesarColaDeReuniones();
+    } catch (error) {
+      console.error("[cron/follows] cola de reuniones error", error);
     }
   });
 

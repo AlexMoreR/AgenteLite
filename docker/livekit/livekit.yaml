@@ -1,0 +1,45 @@
+# LiveKit (servidor de video de las Reuniones), v1.13.0. Apache 2.0.
+#
+# En producción esta configuración va DENTRO de docker-compose.portainer.yml (variable LIVEKIT_CONFIG del
+# servicio `livekit`), para que Portainer ponga la clave: si cambias algo acá, cámbialo allá también.
+# Este archivo sirve para leerla con calma y para probar en local:
+#
+#   docker run --rm -p 7880:7880 -p 7881:7881 -p 50000:50000/udp \
+#     -v ./docker/livekit/livekit.yaml:/etc/livekit.yaml \
+#     -e LIVEKIT_KEYS="devkey: secret-de-prueba-de-32-caracteres!!" \
+#     livekit/livekit-server:v1.13.0 --config /etc/livekit.yaml --dev
+#
+# Las claves NUNCA van acá: LIVEKIT_KEYS="<LIVEKIT_API_KEY>: <LIVEKIT_API_SECRET>".
+
+port: 7880
+rtc:
+  # TCP de respaldo (redes que cortan el UDP).
+  tcp_port: 7881
+  # Todo el UDP del audio y el video por UN puerto (mux). Las reuniones son de 2 a 6 personas: alcanza
+  # de sobra, y en Swarm (mode: host) se publica un solo puerto. El firewall deja 50000-50200/UDP.
+  udp_port: 50000
+  # El VPS tiene IP pública: LiveKit la averigua y la anuncia a los navegadores.
+  use_external_ip: true
+redis:
+  # Egress necesita Redis para recibir los pedidos de grabación.
+  address: livekit_redis:6379
+turn:
+  # TURN integrado para redes difíciles: por TLS en turn.aizenbot.com:443 (Traefik termina el TLS y
+  # pasa el TCP al 5349; por eso external_tls) y por UDP en el 3478.
+  enabled: true
+  domain: turn.aizenbot.com
+  tls_port: 5349
+  udp_port: 3478
+  external_tls: true
+room:
+  # La sala espera 10 minutos vacía antes de cerrarse (también si alguien se cae y vuelve).
+  empty_timeout: 600
+  departure_timeout: 600
+  max_participants: 12
+webhook:
+  # Los avisos van firmados con esta clave (su secreto) al CRM.
+  api_key: CLAVE_DE_LIVEKIT
+  urls:
+    - https://app.aizenbot.com/api/reuniones/livekit
+logging:
+  level: info

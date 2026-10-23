@@ -274,6 +274,14 @@ export function AppShell({
   const showClientPlanAlert = Boolean(isClientPlanRole && pathname.startsWith("/cliente") && clientPlanAlert);
   const showClientPlanBlock = Boolean(isClientPlanRole && pathname.startsWith("/cliente") && clientPlanBlock?.isExpired);
 
+  /*
+    La sala de una reunión (/reunion/<código>) va sola, a pantalla completa: la abren invitados sin
+    cuenta desde el celular, y ni la barra de la tienda ni el menú del CRM tienen nada que hacer ahí.
+  */
+  if (firstSegment === "reunion") {
+    return <main className="min-h-dvh w-full">{children}</main>;
+  }
+
   if (showTopMenu) {
     return (
       <>

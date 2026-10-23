@@ -16,6 +16,7 @@ export const clientAssignableModuleKeys = [
   "llamadas",
   "diagramas",
   "tableros_inteligentes",
+  "reuniones",
   "client_official_api",
 ] as const satisfies readonly AdminModuleKey[];
 

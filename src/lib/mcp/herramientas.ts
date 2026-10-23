@@ -26,6 +26,11 @@ import {
   esHerramientaDelSupervisor,
 } from "@/lib/mcp/supervisor";
 import {
+  HERRAMIENTAS_MCP_REUNIONES,
+  ejecutarHerramientaMcpReuniones,
+  esHerramientaDeReuniones,
+} from "@/lib/mcp/reuniones";
+import {
   HERRAMIENTAS_MCP_TABLEROS,
   ejecutarHerramientaMcpTableros,
   esHerramientaDeTableros,
@@ -974,6 +979,7 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_MCP_APLICACION,
   ...HERRAMIENTAS_DE_LECTURA,
   ...HERRAMIENTAS_MCP_SUPERVISOR,
+  ...HERRAMIENTAS_MCP_REUNIONES,
   ...HERRAMIENTAS_MCP_ESCRITURA,
   ...HERRAMIENTAS_MCP_DIAGRAMA,
   ...HERRAMIENTAS_MCP_V3,
@@ -990,6 +996,9 @@ export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, c
   }
   if (esHerramientaDelSupervisor(nombre)) {
     return ejecutarHerramientaMcpSupervisor(nombre, args, contexto);
+  }
+  if (esHerramientaDeReuniones(nombre)) {
+    return ejecutarHerramientaMcpReuniones(nombre, args, contexto);
   }
   if (esHerramientaDeEscritura(nombre)) {
     return ejecutarHerramientaMcpEscritura(nombre, args, contexto);

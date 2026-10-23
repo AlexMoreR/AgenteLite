@@ -55,3 +55,6 @@ next-env.d.ts
 # una copia de la base (tiene datos de clientes)
 /docker/respaldo/aizen1/config.local.json
 *.dump
+
+# audios de las Reuniones en desarrollo (en producción viven en el volumen aizenbot_reuniones)
+/reuniones/

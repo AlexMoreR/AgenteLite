@@ -361,6 +361,16 @@ async function estadoDelCoach(workspaceId: string) {
   return `${bandera?.value === "1" ? "activa: cada noche a las 11:30 p. m." : "apagada (solo con Generar ahora)"}${cuando}`;
 }
 
+/** La cola de las reuniones: si tiene clave de OpenAI y cuántas esperan o fallaron en este negocio. */
+async function estadoDeLasReuniones(workspaceId: string) {
+  const [enCola, conError] = await Promise.all([
+    prisma.reunion.count({ where: { workspaceId, estado: { in: ["EN_COLA", "TRANSCRIBIENDO", "HACIENDO_ACTA"] } } }),
+    prisma.reunion.count({ where: { workspaceId, estado: "ERROR" } }),
+  ]);
+  const cola = `${enCola} en cola${conError ? `, ${conError} en Error` : ""}`;
+  return process.env.OPENAI_API_KEY?.trim() ? `activa: ${cola}` : `en pausa: falta la clave de OpenAI (${cola})`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -413,6 +423,7 @@ async function automatizaciones(
       ? `activa: ultimo informe del ${ultimoInforme.reportDate.toISOString().slice(0, 10)}`
       : "sin informes generados",
     coach_de_ventas: await estadoDelCoach(workspaceId).catch(() => "no se pudo leer"),
+    reuniones_transcripcion: await estadoDeLasReuniones(workspaceId).catch(() => "no se pudo leer"),
   };
 
   return {

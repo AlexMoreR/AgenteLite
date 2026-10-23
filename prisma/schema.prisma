@@ -38,6 +38,7 @@ model User {
   diagrams              Diagram[]             @relation("DiagramCreatedBy")
   aprobadorTablero      AprobadorTablero[]
   tablerosInteligentes  TableroInteligente[]  @relation("TableroDueno")
+  reunionesCreadas      Reunion[]             @relation("ReunionCreadaPor")
 }
 
 model EmailAuthToken {
@@ -88,6 +89,7 @@ model Workspace {
   tablerosInteligentes  TableroInteligente[]
   aprobadoresTablero    AprobadorTablero[]
   clavesTrabajador      ClaveTrabajador[]
+  reuniones             Reunion[]
   messages              Message[]
   officialApiConfig     OfficialApiClientConfig?
   quickReplies          QuickReply[]
@@ -2135,4 +2137,97 @@ model ClaveTrabajador {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
+}
+
+/// En qué va una reunión. ESPERANDO: creada, todavía no entra nadie (el link sigue sirviendo). EN_VIVO: la sala está abierta. EN_COLA: terminó y espera la transcripción. LISTA: tiene transcripción y acta. ERROR: falló 3 veces (ver motivoError).
+enum EstadoReunion {
+  ESPERANDO
+  EN_VIVO
+  EN_COLA
+  TRANSCRIBIENDO
+  HACIENDO_ACTA
+  LISTA
+  ERROR
+}
+
+/// Una reunión del módulo Reuniones (/cliente/reuniones): videollamada propia en LiveKit (origen VIVO) o un audio subido a mano (origen SUBIDA). Se graba el audio de cada persona por separado (ReunionPista), se pasa a texto con OpenAI y queda un acta.
+model Reunion {
+  id                 String                @id @default(cuid())
+  workspaceId        String
+  creadaPorId        String?
+  titulo             String
+  /// Lo que va en el link público /reunion/<codigo>: largo y aleatorio, no se puede adivinar.
+  codigo             String                @unique
+  /// Nombre de la sala en LiveKit.
+  sala               String                @unique
+  /// VIVO | SUBIDA
+  origen             String                @default("VIVO")
+  estado             EstadoReunion         @default(ESPERANDO)
+  /// Aviso que no es error (p. ej. "Falta la clave de OpenAI"): la reunión sigue en cola.
+  aviso              String?
+  motivoError        String?
+  /// Intentos fallidos de la cola (a los 3 pasa a ERROR).
+  intentos           Int                   @default(0)
+  empezoEn           DateTime?
+  /// Cuándo se cerró la sala (o cuándo se subió el audio).
+  terminoEn          DateTime?
+  /// Las frases unidas por hora: [{ inicioMs, finMs, nombre, texto }].
+  transcripcion      Json?
+  /// La transcripción en texto plano, para buscar.
+  textoTranscripcion String?
+  /// { resumen, decisiones[], tareas[{ tarea, responsable, fecha }], mejorasEnVentas[], mejorasDelDueno[] }
+  acta               Json?
+  /// El acta en texto plano, para buscar.
+  textoActa          String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  workspace          Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creadaPor          User?                 @relation("ReunionCreadaPor", fields: [creadaPorId], references: [id], onDelete: SetNull)
+  participantes      ReunionParticipante[]
+  pistas             ReunionPista[]
+
+  @@index([workspaceId, createdAt])
+  @@index([estado])
+}
+
+/// Quién entró a una reunión. identidad es la de LiveKit (u_<userId> con sesión, i_<azar> invitado); si alguien se cae y vuelve, es la misma fila.
+model ReunionParticipante {
+  id        String         @id @default(cuid())
+  reunionId String
+  identidad String
+  nombre    String
+  /// Si entró con sesión del CRM.
+  userId    String?
+  entroEn   DateTime       @default(now())
+  salioEn   DateTime?
+  reunion   Reunion        @relation(fields: [reunionId], references: [id], onDelete: Cascade)
+  pistas    ReunionPista[]
+
+  @@unique([reunionId, identidad])
+}
+
+/// Un archivo de audio de una reunión: una pista por persona y por cada vez que publica el micrófono (grabada por LiveKit Egress), o el audio subido a mano (sin participante). Los archivos viven en el volumen privado de reuniones, nunca en /uploads.
+model ReunionPista {
+  id             String               @id @default(cuid())
+  reunionId      String
+  participanteId String?
+  /// El id de la grabación en LiveKit Egress (null en un audio subido).
+  egressId       String?              @unique
+  trackSid       String?
+  /// Ruta relativa dentro de la carpeta de reuniones.
+  archivo        String?
+  empiezaEn      DateTime?
+  terminaEn      DateTime?
+  bytes          Int?
+  /// Frases de esta pista: [{ inicioMs, finMs, texto }] (inicioMs desde empiezaEn).
+  transcripcion  Json?
+  /// GRABANDO | LISTA | TRANSCRITA | ERROR
+  estado         String               @default("GRABANDO")
+  createdAt      DateTime             @default(now())
+  reunion        Reunion              @relation(fields: [reunionId], references: [id], onDelete: Cascade)
+  participante   ReunionParticipante? @relation(fields: [participanteId], references: [id], onDelete: SetNull)
+
+  /// Una pista de LiveKit se graba una sola vez, aunque el aviso llegue repetido.
+  @@unique([reunionId, trackSid])
+  @@index([reunionId])
 }

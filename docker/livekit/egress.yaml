@@ -1,0 +1,20 @@
+# LiveKit Egress (graba las Reuniones), v1.15.0. Apache 2.0.
+#
+# En producción esta configuración va DENTRO de docker-compose.portainer.yml (variable
+# EGRESS_CONFIG_BODY del servicio `livekit_egress`), para que Portainer ponga la clave: si cambias algo
+# acá, cámbialo allá también.
+#
+# Solo se usa la grabación de UNA pista (Track egress): el audio de cada persona tal cual llega (opus en
+# .ogg), sin Chrome. Es muy liviana. El video compuesto (Room composite, con Chrome) NO se usa: come de 2 a
+# 6 núcleos.
+#
+# Los archivos quedan en /out, que es el volumen privado aizenbot_reuniones (en el CRM, /app/reuniones).
+# El CRM pide cada grabación con la ruta completa (/out/<sala>/<pista>-<hora>.ogg).
+
+api_key: CLAVE_DE_LIVEKIT
+api_secret: SECRETO_DE_LIVEKIT
+ws_url: ws://livekit:7880
+redis:
+  address: livekit_redis:6379
+health_port: 8080
+log_level: info

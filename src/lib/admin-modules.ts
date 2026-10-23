@@ -161,6 +161,13 @@ export const adminModuleDefinitions = [
     group: "Cliente",
   },
   {
+    key: "reuniones",
+    label: "Reuniones",
+    description: "Videollamadas propias que se graban, se pasan a texto y dejan un acta.",
+    path: "/cliente/reuniones",
+    group: "Cliente",
+  },
+  {
     key: "client_official_api",
     label: "Api oficial (Cliente)",
     description: "Permite ver y operar el modulo Api oficial en el area cliente.",

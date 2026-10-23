@@ -28,6 +28,7 @@ import {
   PhoneCall,
   Network,
   Share2,
+  Video,
   X,
 } from "lucide-react";
 import { adminUpdateUserModuleAccessAction } from "@/app/actions/auth-actions";
@@ -88,6 +89,7 @@ const moduleIconMap = {
   llamadas: PhoneCall,
   diagramas: Share2,
   tableros_inteligentes: Network,
+  reuniones: Video,
   client_official_api: MessageSquare,
   client_team: Users,
 } satisfies Record<AdminModuleKey, React.ComponentType<{ className?: string }>>;

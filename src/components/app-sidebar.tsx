@@ -27,6 +27,7 @@ import {
   UserCog,
   Users,
   Users2,
+  Video,
   Wallet,
   Workflow,
 } from "lucide-react"
@@ -76,6 +77,7 @@ const moduleIconMap: Record<AdminModuleKey, React.ComponentType> = {
   llamadas: PhoneCall,
   diagramas: Share2,
   tableros_inteligentes: Network,
+  reuniones: Video,
   client_official_api: MessageSquare,
   client_team: Users,
 }
