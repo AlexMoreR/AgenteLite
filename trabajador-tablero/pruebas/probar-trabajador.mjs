@@ -112,6 +112,8 @@ await prueba("recursos: no abre otra sesión si la CPU o la memoria pasan del l�
 await prueba("límite de uso de Claude: se reconoce el aviso (y no cualquier texto)", async () => {
   assert.ok(esLimiteDeUso("Claude AI usage limit reached|1761210000"));
   assert.ok(esLimiteDeUso("You've hit your limit · resets 9pm"));
+  assert.ok(esLimiteDeUso("You've hit your session limit · resets 1:20am (America/Bogota)"));
+  assert.ok(esLimiteDeUso("You've hit your weekly limit · resets Mon 9am"));
   assert.ok(!esLimiteDeUso("PLAN: agregar el botón de cobrar"));
 });
 

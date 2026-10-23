@@ -44,8 +44,8 @@ export class ErrorDeEtapa extends Error {
   }
 }
 
-/** Lo que dice `claude -p` cuando la suscripción llegó a su límite de uso ("Claude AI usage limit reached|…"). */
-const LIMITE_DE_USO = /usage limit|limit reached|hit your (usage )?limit|rate[ _-]?limit|overloaded_error|out of (extra )?usage|límite de uso/i;
+/** Lo que dice `claude -p` cuando la suscripción llegó a su límite de uso ("Claude AI usage limit reached|…", "You've hit your session limit · resets 1:20am": 23-10-2026 este no lo reconocía y marcó 3 tarjetas en ERROR). */
+const LIMITE_DE_USO = /usage limit|limit reached|hit your (?:\w+ )?limit|session limit|weekly limit|limit · resets|rate[ _-]?limit|overloaded_error|out of (extra )?usage|límite de uso/i;
 
 export function esLimiteDeUso(texto) {
   return LIMITE_DE_USO.test(String(texto ?? ""));
