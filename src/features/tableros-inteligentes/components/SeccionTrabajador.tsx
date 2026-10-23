@@ -17,12 +17,12 @@ import {
 } from "@/app/actions/tableros-inteligentes-actions";
 
 /*
-  Sección "Trabajador" de la página de inicio de Tablero IA (solo el dueño o el ADMIN de la
-  plataforma): la clave con que el trabajador (el PC "aizen1") entra a la API, y quién más aprueba
+  Sección "Coordinador" de la página de inicio de Tablero IA (solo el dueño o el ADMIN de la
+  plataforma): la clave con que el Coordinador (el PC "aizen1") entra a la API, y quién más aprueba
   tarjetas. Antes era un panel lateral que se abría con el robot de la barra del diagrama.
   - Crear clave: se muestra UNA vez (se guarda solo su huella). Va en trabajador-tablero/config.local.json.
-  - Revocar: el trabajador deja de entrar al instante.
-  - Último uso: la última vez que el trabajador preguntó (pregunta cada minuto: si es viejo, está apagado).
+  - Revocar: el Coordinador deja de entrar al instante.
+  - Último uso: la última vez que el Coordinador preguntó (pregunta cada minuto: si es viejo, está apagado).
   - Aprobadores: miembros del negocio con alcance DESARROLLO (aprueban la tarea y el plan de tarjetas
     con repo gestion/aizencrm) o TODO. El sí final (subir a producción) es siempre del dueño. Si la
     persona todavía no tiene usuario en el negocio, se agrega cuando lo tenga.
@@ -86,7 +86,7 @@ export function SeccionTrabajador() {
       <div>
         <h2 id="titulo-trabajador" className="flex items-center gap-2 text-base font-semibold">
           <Bot className="size-5 text-muted-foreground" aria-hidden />
-          Trabajador
+          Coordinador
         </h2>
         <p className="text-sm text-muted-foreground">
           El PC que ejecuta las tareas aprobadas con repo: escribe el plan, lo construye en una rama y, con tu sí final, lo sube.
@@ -97,7 +97,7 @@ export function SeccionTrabajador() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2 rounded-xl border bg-card p-4">
-          <p className="text-sm font-medium">Clave del trabajador</p>
+          <p className="text-sm font-medium">Clave del Coordinador</p>
           {claveNueva ? (
             <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950">
               <p className="font-medium">Cópiala ahora: no se vuelve a mostrar.</p>

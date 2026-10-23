@@ -1,4 +1,4 @@
-// El bucle del trabajador. Desde el 22-oct-2026 trabaja VARIAS tarjetas a la vez (config.maxParalelo),
+// El bucle del Coordinador. Desde el 22-oct-2026 trabaja VARIAS tarjetas a la vez (config.maxParalelo),
 // cada una en su propia sesión de Claude Code, su worktree y su rama (etapas.mjs):
 //
 // - crearPlanificador: llena los cupos libres. Antes de tomar otra mira la CPU y la memoria (si pasan
@@ -19,6 +19,7 @@
 import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.mjs";
 import { ErrorDeEtapa, construir, entornoSeguro, planear, subir } from "./etapas.mjs";
 import { idCorto } from "./git.mjs";
+import { nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor } from "./motores.mjs";
 import { crearMedidor, faltanRecursos } from "./recursos.mjs";
 
@@ -60,14 +61,19 @@ export async function procesar({ crm, config, registro, motores = crearEstadoDeM
   const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar };
   try {
     const etapa = ETAPAS[hacer];
-    if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este trabajador no sabe hacer (¿hay que actualizarlo?).`);
+    if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este Coordinador no sabe hacer (¿hay que actualizarlo?).`);
     const salida = await etapa(contexto, tarjeta);
     if (vencida) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se trabajaba.");
     let respuesta;
     if (hacer === "planear") respuesta = await crm.plan(tarjeta.id, salida.plan);
     else if (hacer === "construir") respuesta = await crm.resultado(tarjeta.id, salida);
     else respuesta = await crm.subida(tarjeta.id, { commit: salida.commit, version: salida.version, linkCommit: salida.linkCommit });
-    const conMotor = hacer === "planear" ? `, motor: ${salida.motor}` : hacer === "construir" && salida.motor?.construir ? `, motor: ${salida.motor.construir}` : "";
+    const conMotor =
+      hacer === "planear"
+        ? `, motor: ${salida.motor}${salida.modelo ? ` (${nombreDelModelo(salida.modelo)})` : ""}`
+        : hacer === "construir" && salida.motor?.construir
+          ? `, motor: ${salida.motor.construir}${salida.modelo?.construir ? ` (${nombreDelModelo(salida.modelo.construir)})` : ""}`
+          : "";
     registro.info(`listo "${tarjeta.titulo}" (${hacer}${conMotor})${respuesta?.estado ? `: quedó ${respuesta.estado}` : ""}`);
     // estado = SUBIENDO: se construyó y sube sola; el que llama la toma enseguida, sin esperar el minuto.
     return { ok: true, estado: respuesta?.estado ?? null };

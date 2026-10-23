@@ -33,7 +33,7 @@ import { QUIEN_TRABAJADOR, linkDeLaTarjeta } from "./tableros";
 /*
   EL TRABAJADOR del Tablero IA (fase 2, 20-oct-2026): lo que hace la API /api/trabajador/tablero/*.
 
-  El trabajador es un PC aparte ("aizen1", siempre encendido) que pregunta cada minuto por HTTPS si
+  El Coordinador es un PC aparte ("aizen1", siempre encendido) que pregunta cada minuto por HTTPS si
   hay algo que hacer: sin webhook ni puertos abiertos, y NADA corre en el servidor de producción.
   Entra con una CLAVE DE TRABAJADOR (Bearer aizen_trab_...) que define el negocio: solo ve y mueve
   tarjetas de ese negocio. De la clave se guarda solo la huella sha256; se muestra una vez al crearla.
@@ -43,7 +43,7 @@ import { QUIEN_TRABAJADOR, linkDeLaTarjeta } from "./tableros";
     manda, como antes del 22-oct-2026), toma UNA (la que más espera, salvo las de `excluir`) de forma
     atómica, con el candado del negocio (sql-trabajador.ts).
     Una SUBIENDO pendiente va primero: la que acaba de construir y sube sola se toma enseguida.
-  - /candidatas: las que tomaría, sin tomarlas. El trabajador las mira para no juntar en paralelo dos
+  - /candidatas: las que tomaría, sin tomarlas. El Coordinador las mira para no juntar en paralelo dos
     del mismo repo que tocan la misma zona o módulo, ni dos subidas del mismo repo (van en `excluir`).
   - /:id/soltar la devuelve sin ERROR ni contar el intento (Claude llegó a su límite de uso, o choca con
     otra que corre): PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente.
@@ -60,7 +60,7 @@ const PREFIJO_CLAVE = "aizen_trab_";
 
 const huella = (clave: string) => createHash("sha256").update(clave).digest("hex");
 
-/** Un error con su código HTTP, para que la ruta conteste bien al trabajador. */
+/** Un error con su código HTTP, para que la ruta conteste bien al Coordinador. */
 export class ErrorDelTrabajador extends Error {
   constructor(
     message: string,
@@ -171,7 +171,7 @@ export async function quitarAprobador(workspaceId: string, id: unknown) {
   if (hecho.count !== 1) throw new Error("No existe ese aprobador.");
 }
 
-// ── La API del trabajador ──────────────────────────────────────────────────────────────────
+// ── La API del Coordinador ──────────────────────────────────────────────────────────────────
 
 type Tx = Prisma.TransactionClient;
 
@@ -201,7 +201,7 @@ async function tocarTableros(tx: Tx, tableroIds: string[], ahora: Date) {
   if (ids.length) await tx.tableroInteligente.updateMany({ where: { id: { in: ids } }, data: { actualizadoEn: ahora } });
 }
 
-/** Lo que el trabajador necesita de la tarjeta para hacer su etapa. */
+/** Lo que el Coordinador necesita de la tarjeta para hacer su etapa. */
 const SELECT_PARA_TRABAJAR = {
   id: true,
   tableroId: true,
@@ -317,7 +317,7 @@ const resultadoComoObjeto = (valor: unknown) =>
   valor && typeof valor === "object" && !Array.isArray(valor) ? (valor as Record<string, unknown>) : {};
 
 /**
- * POST /:id/<accion>. `cuerpo` es el JSON que mandó el trabajador. Cada acción mueve la tarjeta solo
+ * POST /:id/<accion>. `cuerpo` es el JSON que mandó el Coordinador. Cada acción mueve la tarjeta solo
  * desde su estado (si no, 409) y condicionada a ese estado (dos llamadas a la vez no pisan nada).
  */
 export async function accionDelTrabajador(
@@ -351,7 +351,7 @@ export async function accionDelTrabajador(
     // Claude llegó a su límite de uso o choca con otra que corre: vuelve a esperar su turno, sin ERROR y
     // sin gastar el intento (una SUBIENDO queda pendiente, como recién aprobada).
     const vuelve: EstadoTarjetaTablero = estado === "PLANEANDO" ? "APROBADO" : estado === "EN_CURSO" ? "PLAN_APROBADO" : "SUBIENDO";
-    const motivo = motivoDeEntrada(cuerpo.motivo ?? "El trabajador la soltó para reintentarla después.");
+    const motivo = motivoDeEntrada(cuerpo.motivo ?? "El Coordinador la soltó para reintentarla después.");
     return prisma.$transaction(async (tx) => {
       const hecho = await tx.tarjetaTablero.updateMany({
         where: { id: actual.id, estado: actual.estado, borradoEn: null },
@@ -368,7 +368,7 @@ export async function accionDelTrabajador(
   const previo = resultadoComoObjeto(actual.resultado);
   const datos: Prisma.TarjetaTableroUpdateManyMutationInput = { estado: a, trabajoVenceEn: null };
   const despues: Record<string, unknown> = { estado: a };
-  // Las zonas protegidas que marca el trabajador (el cambio toca esas rutas): se suman, nunca se quitan.
+  // Las zonas protegidas que marca el Coordinador (el cambio toca esas rutas): se suman, nunca se quitan.
   const marcarZonas = () => {
     const zonas = zonasDeEntrada(cuerpo.zonaProtegida);
     const final = zonas?.length ? unirZonas(actual.zonaProtegida, zonas) : actual.zonaProtegida;
@@ -420,7 +420,7 @@ export async function accionDelTrabajador(
       datos.resultado = { ...previo, error } as Prisma.InputJsonValue;
       despues.motivo = motivo;
       if (reversion) despues.reversion = reversion;
-      // Si el cambio toca una zona protegida, el trabajador la marca: se aprueba solo en la pantalla.
+      // Si el cambio toca una zona protegida, el Coordinador la marca: se aprueba solo en la pantalla.
       marcarZonas();
     }
   } catch (fallo) {

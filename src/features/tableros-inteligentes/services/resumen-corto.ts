@@ -4,12 +4,12 @@
 
   Función pura, sin base ni Next (pruebas: npm run test:tableros). Sale de las primeras líneas útiles de
   resultado.resumen, o del plan (sección "Qué se cambia"), o del detalle de la tarjeta, sin markdown y
-  sin frases de relleno del trabajador ("Espero a que terminen los subagentes"). Máximo ~300 caracteres.
+  sin frases de relleno del Coordinador ("Espero a que terminen los subagentes"). Máximo ~300 caracteres.
 */
 
 export const MAXIMO_DEL_RESUMEN_CORTO = 300;
 
-/** Frases de relleno del trabajador que no dicen qué hace el cambio. */
+/** Frases de relleno del Coordinador que no dicen qué hace el cambio. */
 const RELLENO = [
   /\b(espero|esperando|esperé)\b.*\b(subagentes?|agentes?|terminen|termine)\b/i,
   /\b(ahora|voy a|vamos a|procedo a|a continuaci[oó]n)\b.*\b(revisar|verificar|correr|ejecutar|lanzar|esperar)\b/i,
@@ -95,14 +95,14 @@ function juntar(lineas: string[], maximo: number): { texto: string; cortado: boo
 
 export type ResumenCorto = {
   texto: string;
-  /** De dónde salió: lo que hizo el trabajador, el plan, o el detalle de la tarjeta. */
+  /** De dónde salió: lo que hizo el Coordinador, el plan, o el detalle de la tarjeta. */
   fuente: "resultado" | "plan" | "detalle";
   /** Quedó texto afuera (el completo está en "Ver detalles"). */
   cortado: boolean;
 };
 
 /**
- * El resumen corto de una tarjeta: primero lo que hizo el trabajador (resultado.resumen), si no, la
+ * El resumen corto de una tarjeta: primero lo que hizo el Coordinador (resultado.resumen), si no, la
  * sección "Qué se cambia" del plan (o sus primeras líneas), si no, el detalle de la tarjeta. null si no
  * hay nada útil que decir.
  */

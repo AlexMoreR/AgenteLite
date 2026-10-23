@@ -35,7 +35,7 @@ const crm = crearCrm(config);
 const avisarFallo = (error) => {
   // Sin red o el CRM caído: se reintenta en la próxima vuelta.
   registro.error(`vuelta fallida: ${error.message}`);
-  if (error.status === 401) registro.error("la clave del trabajador es inválida o fue revocada: crea otra en el panel Trabajador.");
+  if (error.status === 401) registro.error("la clave del Coordinador es inválida o fue revocada: crea otra en el panel Coordinador.");
 };
 
 if (unaSola) {
@@ -59,7 +59,7 @@ for (const senal of ["SIGINT", "SIGTERM"]) {
 
 const { limites, motores } = config;
 registro.info(
-  `trabajador arrancó: CRM ${config.urlCrm}, repos ${Object.keys(config.repos).join(", ")}, carpeta ${config.carpetaTrabajo}; ` +
+  `Coordinador arrancó: CRM ${config.urlCrm}, repos ${Object.keys(config.repos).join(", ")}, carpeta ${config.carpetaTrabajo}; ` +
     `hasta ${config.maxParalelo} tarjetas al tiempo (no abre otra con CPU > ${limites.cpuPorciento} % o memoria > ${limites.memoriaPorciento} %); ` +
     `motores: planear ${motores.planear}, construir ${motores.construir}, revisar ${motores.revisar ?? "ninguno"}` +
     `${motores.respaldoClaude ? " (respaldo Claude)" : ""}; todo con Codex si Claude pasa el ${config.umbralClaude} % de uso`,
@@ -77,4 +77,4 @@ while (!parar) {
 }
 await planificador.esperarTodas();
 planificador.parar();
-registro.info("trabajador detenido");
+registro.info("Coordinador detenido");

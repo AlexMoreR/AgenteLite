@@ -6,21 +6,21 @@
   (tableros.ts y trabajador.ts), el MCP y la pantalla.
 
   El flujo de una tarjeta con repo (solo tipos con aprobación):
-    POR_APROBAR --(aprobar tarea)--> APROBADO --(el trabajador la toma)--> PLANEANDO --> PLAN_LISTO
+    POR_APROBAR --(aprobar tarea)--> APROBADO --(el Coordinador la toma)--> PLANEANDO --> PLAN_LISTO
     --(aprobar plan)--> PLAN_APROBADO --(la toma)--> EN_CURSO --> SUBIENDO --(la toma enseguida)--> HECHO.
     Si algo falla: ERROR con motivo.   Desde ERROR el dueño reintenta: vuelve a APROBADO (planear de nuevo)
     o a PLAN_APROBADO (construir de nuevo con el plan).
 
   Subir solo (21-oct-2026, decisión de Alexander: Planear -> Aprobar plan -> Hacer): EN_CURSO pasa
-  directo a SUBIENDO pendiente si todo pasó, el trabajador dice que sube solo (su interruptor
+  directo a SUBIENDO pendiente si todo pasó, el Coordinador dice que sube solo (su interruptor
   `subirSolo` del repo) y la tarjeta no tiene zona protegida (destinoDelResultado). Si toca chats,
   agentes, el libro V3 o Meta Ads (o el interruptor está apagado), queda POR_REVISAR con la zona
   marcada y espera el sí final del dueño (momento 'subir'), como antes. Si el despliegue falla después
-  de subir, el trabajador hace revert del commit en main y la deja ERROR.
+  de subir, el Coordinador hace revert del commit en main y la deja ERROR.
 
   Lo que no se negocia:
-  1. Las transiciones del trabajador (PLANEANDO, PLAN_LISTO, EN_CURSO, POR_REVISAR, SUBIENDO, HECHO,
-     ERROR) solo las hace el trabajador, con su clave (API /api/trabajador/tablero). Nadie las pone
+  1. Las transiciones del Coordinador (PLANEANDO, PLAN_LISTO, EN_CURSO, POR_REVISAR, SUBIENDO, HECHO,
+     ERROR) solo las hace el Coordinador, con su clave (API /api/trabajador/tablero). Nadie las pone
      moviendo el estado.
   2. Aprobar es su propia acción con tres momentos: 'tarea', 'plan' y 'subir'. Cada aprobación deja en
      el historial quién (nombre y userId), el momento, por dónde ('pantalla' o 'voz') y el texto de
@@ -29,23 +29,24 @@
      decir "sí" y "apruebo". Una tarjeta con zona protegida (Meta Ads, bot de ventas, libro V3, chats) se
      aprueba SOLO en la pantalla, y solo el dueño.
   4. El sí final ('subir') lo da solo el DUEÑO del negocio (SI_FINAL_SOLO_DUENO), y solo si el
-     trabajador dijo que todo pasó (resultado.paso = true). Hoy solo hace falta para las tarjetas con
+     Coordinador dijo que todo pasó (resultado.paso = true). Hoy solo hace falta para las tarjetas con
      zona protegida (chats, agentes, libro V3, Meta Ads), las de un repo con `subirSolo` apagado y las
      que ya estaban POR_REVISAR.
   5. Un aprobador (AprobadorTablero) con alcance DESARROLLO aprueba la tarea y el plan solo de
      tarjetas con repo de desarrollo (gestion, aizencrm); con alcance TODO, cualquiera.
-  6. La zona protegida se puede PONER desde el MCP (y la pone el trabajador si el cambio toca una de
+  6. La zona protegida se puede PONER desde el MCP (y la pone el Coordinador si el cambio toca una de
      esas rutas), pero quitarla lo hace solo el dueño en la pantalla.
   7. Por el MCP, una tarjeta PLAN_LISTO o ERROR se borra solo si el dueño lo pidió por voz: texto con
      "sí" y "borrar" (textoDeConfirmacionParaBorrar) y la cuenta de la clave es la dueña. Las que tiene
-     el trabajador en la mano y las de zona protegida no se borran (puedeBorrarTarjeta en reglas.ts).
+     el Coordinador en la mano y las de zona protegida no se borran (puedeBorrarTarjeta en reglas.ts).
 */
 
 import { type EstadoTarjetaTablero, type OrigenCambio, type Veredicto, claveDeNombre } from "./reglas";
+import { type ModelosDelResultado, modelosDeEntrada } from "./modelos-del-coordinador";
 
 /* ───────────────────────────────────────────────────────────────────── repos ── */
 
-/** Los repositorios en que trabaja el trabajador (lista fija: sumar uno es cambiar el código). */
+/** Los repositorios en que trabaja el Coordinador (lista fija: sumar uno es cambiar el código). */
 export const REPOS_DEL_TRABAJADOR = ["gestion", "aizencrm"] as const;
 export type RepoDelTrabajador = (typeof REPOS_DEL_TRABAJADOR)[number];
 
@@ -104,7 +105,7 @@ export function zonasDeEntrada(valor: unknown): ZonaProtegida[] | undefined {
   return ZONAS_PROTEGIDAS.filter((zona) => pedidas.has(zona));
 }
 
-/** Une dos listas de zonas (para el trabajador y el MCP, que solo pueden agregar). */
+/** Une dos listas de zonas (para el Coordinador y el MCP, que solo pueden agregar). */
 export function unirZonas(a: readonly string[], b: readonly string[]): ZonaProtegida[] {
   const todas = new Set([...a, ...b]);
   return ZONAS_PROTEGIDAS.filter((zona) => todas.has(zona));
@@ -138,16 +139,16 @@ export type EtapaDelTrabajador = "planear" | "construir" | "subir";
 export const MINUTOS_POR_ETAPA: Record<EtapaDelTrabajador, number> = { planear: 20, construir: 90, subir: 45 };
 
 /**
- * Sin latido, el candado vence a los 5 minutos (así un trabajador que se apagó se nota pronto). Cada
+ * Sin latido, el candado vence a los 5 minutos (así un Coordinador que se apagó se nota pronto). Cada
  * latido lo corre otros 5 minutos, nunca más allá del tope de la etapa.
  */
 export const MINUTOS_DE_GRACIA_DEL_LATIDO = 5;
 
-/** Qué etapa empieza cuando el trabajador toma una tarjeta en ese estado, y a qué estado pasa. */
+/** Qué etapa empieza cuando el Coordinador toma una tarjeta en ese estado, y a qué estado pasa. */
 export const AL_TOMAR: Partial<Record<EstadoTarjetaTablero, { etapa: EtapaDelTrabajador; a: EstadoTarjetaTablero }>> = {
   APROBADO: { etapa: "planear", a: "PLANEANDO" },
   PLAN_APROBADO: { etapa: "construir", a: "EN_CURSO" },
-  // SUBIENDO "pendiente" (sin trabajoVenceEn) = el dueño dio el sí final (o el trabajador la construyó y
+  // SUBIENDO "pendiente" (sin trabajoVenceEn) = el dueño dio el sí final (o el Coordinador la construyó y
   // sube sola) y nadie la tomó todavía. /tomar la elige antes que cualquier otra.
   SUBIENDO: { etapa: "subir", a: "SUBIENDO" },
 };
@@ -166,16 +167,16 @@ export function vencimientoDelCandado(etapa: EtapaDelTrabajador, iniciadoEn: Dat
   return new Date(Math.min(ahora.getTime() + MINUTOS_DE_GRACIA_DEL_LATIDO * MINUTO, tope));
 }
 
-export const MOTIVO_VENCIDA = "Se pasó del tiempo: el trabajador dejó de dar señales (sin latido) o la etapa superó su tope.";
+export const MOTIVO_VENCIDA = "Se pasó del tiempo: el Coordinador dejó de dar señales (sin latido) o la etapa superó su tope.";
 
-/* ───────────────────────────────────────────────────────────────────── transiciones del trabajador ── */
+/* ───────────────────────────────────────────────────────────────────── transiciones del Coordinador ── */
 
 /**
- * Lo que manda el trabajador a /tomar (22-oct-2026): `maxParalelo` = cuántas puede tener a la vez (1 si
- * no viene: un trabajador viejo sigue de a una) y `excluir` = ids que no quiere ahora (chocan con lo que
+ * Lo que manda el Coordinador a /tomar (22-oct-2026): `maxParalelo` = cuántas puede tener a la vez (1 si
+ * no viene: un Coordinador viejo sigue de a una) y `excluir` = ids que no quiere ahora (chocan con lo que
  * ya tiene corriendo).
  */
-/** Cuántas tarjetas a la vez puede tener el trabajador (lo manda él; tope duro 5). */
+/** Cuántas tarjetas a la vez puede tener el Coordinador (lo manda él; tope duro 5). */
 export const MAXIMO_EN_PARALELO = 5;
 
 export type PedidoDeTomar = { maxParalelo?: unknown; excluir?: unknown };
@@ -194,7 +195,7 @@ export type AccionDelTrabajador = "latido" | "plan" | "resultado" | "subida" | "
 export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = ["latido", "plan", "resultado", "subida", "error", "soltar"];
 
 /**
- * Desde qué estados puede llamar el trabajador cada acción, y a cuál pasa (null = no cambia). El
+ * Desde qué estados puede llamar el Coordinador cada acción, y a cuál pasa (null = no cambia). El
  * "resultado" pasa a POR_REVISAR, o a SUBIENDO pendiente si sube sola (destinoDelResultado).
  */
 export const TRANSICIONES_DEL_TRABAJADOR: Record<
@@ -213,10 +214,10 @@ export const TRANSICIONES_DEL_TRABAJADOR: Record<
   soltar: { desde: ["PLANEANDO", "EN_CURSO", "SUBIENDO"], a: null },
 };
 
-/** ¿Puede el trabajador hacer `accion` con una tarjeta en `estado`? */
+/** ¿Puede el Coordinador hacer `accion` con una tarjeta en `estado`? */
 export function puedeElTrabajador(accion: AccionDelTrabajador, estado: EstadoTarjetaTablero): Veredicto {
   const regla = TRANSICIONES_DEL_TRABAJADOR[accion];
-  if (!regla) return "Esa acción del trabajador no existe.";
+  if (!regla) return "Esa acción del Coordinador no existe.";
   if (!regla.desde.includes(estado)) {
     return `La tarjeta está ${estado}: "${accion}" solo vale desde ${regla.desde.join(" o ")}.`;
   }
@@ -224,9 +225,9 @@ export function puedeElTrabajador(accion: AccionDelTrabajador, estado: EstadoTar
 }
 
 /**
- * A qué estado pasa la tarjeta con el /resultado: SUBIENDO (pendiente: el trabajador la sube enseguida)
- * solo si todo pasó, el trabajador dice que sube solo y la tarjeta no tiene zona protegida (ni la que
- * ya tenía ni la que marcó el trabajador). Si no, POR_REVISAR: espera el sí final del dueño.
+ * A qué estado pasa la tarjeta con el /resultado: SUBIENDO (pendiente: el Coordinador la sube enseguida)
+ * solo si todo pasó, el Coordinador dice que sube solo y la tarjeta no tiene zona protegida (ni la que
+ * ya tenía ni la que marcó el Coordinador). Si no, POR_REVISAR: espera el sí final del dueño.
  */
 export function destinoDelResultado(datos: {
   paso: boolean;
@@ -397,7 +398,7 @@ export type PedidoDeAprobacion = {
   repo: string | null;
   zonaProtegida: readonly string[];
   tienePlan: boolean;
-  /** resultado.paso del trabajador (solo cuenta true). */
+  /** resultado.paso del Coordinador (solo cuenta true). */
   resultadoPaso: boolean;
   textoConfirmacion?: unknown;
   persona: PersonaQueAprueba;
@@ -432,9 +433,9 @@ export function personaPuedeAprobarMomento(
 
 /**
  * ¿A qué estado pasa la tarjeta al aprobar ese momento desde ese estado? Error si no corresponde.
- *  - tarea: POR_APROBAR -> APROBADO; desde ERROR (reintentar) -> APROBADO, y el trabajador planea de nuevo.
+ *  - tarea: POR_APROBAR -> APROBADO; desde ERROR (reintentar) -> APROBADO, y el Coordinador planea de nuevo.
  *  - plan:  PLAN_LISTO -> PLAN_APROBADO; desde ERROR (reintentar con el mismo plan) -> PLAN_APROBADO.
- *  - subir: POR_REVISAR con resultado.paso = true -> SUBIENDO (pendiente: lo toma el trabajador).
+ *  - subir: POR_REVISAR con resultado.paso = true -> SUBIENDO (pendiente: lo toma el Coordinador).
  */
 export function destinoDeLaAprobacion(
   momento: MomentoDeAprobacion,
@@ -448,7 +449,7 @@ export function destinoDeLaAprobacion(
     return { error: `La tarea se aprueba cuando está POR_APROBAR (o se reintenta desde ERROR). Está ${estado}.` };
   }
   if (!datos.repo) {
-    return { error: "Esta tarjeta no tiene repo: no la ejecuta el trabajador, así que no tiene plan ni subida. Se aprueba la tarea." };
+    return { error: "Esta tarjeta no tiene repo: no la ejecuta el Coordinador, así que no tiene plan ni subida. Se aprueba la tarea." };
   }
   if (momento === "plan") {
     if (estado !== "PLAN_LISTO" && estado !== "ERROR") {
@@ -461,7 +462,7 @@ export function destinoDeLaAprobacion(
     return { error: `Subir a producción se aprueba cuando está POR_REVISAR. Está ${estado}.` };
   }
   if (!datos.resultadoPaso) {
-    return { error: "El trabajador no dijo que todo pasó (resultado.paso no es sí): no se sube. Revisa el resultado." };
+    return { error: "El Coordinador no dijo que todo pasó (resultado.paso no es sí): no se sube. Revisa el resultado." };
   }
   return { a: "SUBIENDO" };
 }
@@ -476,7 +477,7 @@ export function puedeAprobarMomento(pedido: PedidoDeAprobacion): { a: EstadoTarj
     return { error: "Ese tipo de tarjeta no pide aprobación: no hay nada que aprobar." };
   }
   if (pedido.origen === "TRABAJADOR") {
-    return { error: "El trabajador nunca aprueba." };
+    return { error: "El Coordinador nunca aprueba." };
   }
   if ((pedido.origen === "MCP") !== (pedido.via === "voz")) {
     return { error: "Por el MCP se aprueba solo con la confirmación de la persona (via voz); en la pantalla, con el botón." };
@@ -527,17 +528,19 @@ export type ResultadoDelTrabajador = {
   linkRama: string | null;
   commit: string | null;
   migracion: string | null;
-  /** El trabajador la quiere subir sola (su `subirSolo` está prendido). El CRM decide (destinoDelResultado). */
+  /** El Coordinador la quiere subir sola (su `subirSolo` está prendido). El CRM decide (destinoDelResultado). */
   subeSolo: boolean;
   /** El commit de main sobre el que construyó: si main no cambió, al subir no vuelve a compilar. */
   base: string | null;
   /** Qué motor hizo cada paso (23-oct-2026): { plan, construir, revisar } = "claude" | "codex". Solo si vino. */
   motor?: MotoresDelResultado;
+  /** Qué modelo (Opus, Sonnet...) hizo cada paso. Lo elige el Coordinador con reglas fijas. Solo si vino. */
+  modelo?: ModelosDelResultado;
 };
 
 export type MotoresDelResultado = Partial<Record<"plan" | "construir" | "revisar", "claude" | "codex">>;
 
-/** Los motores que manda el trabajador, limpios: solo pasos y motores conocidos. */
+/** Los motores que manda el Coordinador, limpios: solo pasos y motores conocidos. */
 function motoresDeEntrada(valor: unknown): MotoresDelResultado | null {
   if (!valor || typeof valor !== "object") return null;
   const motores: MotoresDelResultado = {};
@@ -551,15 +554,17 @@ function motoresDeEntrada(valor: unknown): MotoresDelResultado | null {
 const textoCorto = (valor: unknown, maximo: number) => (typeof valor === "string" ? valor.trim().slice(0, maximo) : "");
 const textoONull = (valor: unknown, maximo: number) => textoCorto(valor, maximo) || null;
 
-/** Lo que manda el trabajador en /resultado, limpio. Un link que no sea https no se guarda. */
+/** Lo que manda el Coordinador en /resultado, limpio. Un link que no sea https no se guarda. */
 export function resultadoDeEntrada(valor: unknown): ResultadoDelTrabajador {
   const datos = (valor && typeof valor === "object" ? valor : {}) as Record<string, unknown>;
   const resumen = textoCorto(datos.resumen, 8000);
   if (!resumen) throw new Error("Falta el resumen del resultado.");
   const link = textoONull(datos.linkRama, 500);
   const motor = motoresDeEntrada(datos.motor);
+  const modelo = modelosDeEntrada(datos.modelo);
   return {
     ...(motor ? { motor } : {}),
+    ...(modelo ? { modelo } : {}),
     resumen,
     pruebas: textoCorto(datos.pruebas, 8000),
     paso: datos.paso === true,
@@ -594,15 +599,15 @@ export type ReversionDelTrabajador = {
   ok: boolean;
 };
 
-/** La reversión que manda el trabajador en /error cuando el despliegue falló después de subir, o null. */
+/** La reversión que manda el Coordinador en /error cuando el despliegue falló después de subir, o null. */
 export function reversionDeEntrada(valor: unknown): ReversionDelTrabajador | null {
   if (!valor || typeof valor !== "object" || Array.isArray(valor)) return null;
   const datos = valor as Record<string, unknown>;
   return { commit: textoONull(datos.commit, 80), revert: textoONull(datos.revert, 80), ok: datos.ok === true };
 }
 
-/** El motivo de un error del trabajador. */
+/** El motivo de un error del Coordinador. */
 export function motivoDeEntrada(valor: unknown): string {
   const motivo = typeof valor === "string" ? valor.trim().slice(0, 4000) : "";
-  return motivo || "El trabajador no dijo el motivo.";
+  return motivo || "El Coordinador no dijo el motivo.";
 }

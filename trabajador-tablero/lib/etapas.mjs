@@ -3,7 +3,7 @@
 //
 // - planear:   worktree desde origin/main; `claude -p --permission-mode plan` escribe el plan. -> /plan
 // - construir: worktree en la rama tablero/<id>-<slug> desde origin/main; Claude edita (acceptEdits y
-//              herramientas acotadas, sin push); el TRABAJADOR (no Claude) hace commit, marca las zonas
+//              herramientas acotadas, sin push); el Coordinador (no Claude) hace commit, marca las zonas
 //              protegidas que toca (chats, agentes, libro V3, Meta Ads), corre la verificación y las
 //              pruebas él mismo, compara el lint con el de main, ensaya la migración (PGlite + producción
 //              en BEGIN…ROLLBACK) y empuja SOLO la rama. -> /resultado, que dice si sube sola (subirSolo
@@ -17,7 +17,7 @@
 // Motores (23-oct-2026): planear y construir los hace Claude Code o Codex CLI (correrMotor), según
 // config.motores y lo que decida el planificador (contexto.motorDe: uso de Claude, pausas por límite).
 // Lo que construye Codex lo revisa después otro paso (Claude por defecto). El motor solo escribe
-// archivos: commit, zonas, verificación, lint, ensayo y subida siguen siendo del trabajador.
+// archivos: commit, zonas, verificación, lint, ensayo y subida siguen siendo del Coordinador.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -36,6 +36,7 @@ import {
   urlDelRemoto,
   webDeGithub,
 } from "./git.mjs";
+import { dificultadDeLaTarea, modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
 import { comoTexto, correr, ultimasLineas } from "./procesos.mjs";
 import { zonasTocadas } from "./zonas.mjs";
@@ -147,7 +148,7 @@ async function claude(contexto, argumentos, prompt, { cwd, timeoutMs, que }) {
  *              --output-last-message <archivo> -
  * El prompt va por stdin ("-"); la respuesta final la deja Codex en el archivo (fuera del worktree, para
  * que no entre en el commit). Nunca --dangerously-bypass-approvals-and-sandbox: Codex solo escribe
- * archivos dentro del worktree; el commit, las verificaciones y la subida los hace el trabajador.
+ * archivos dentro del worktree; el commit, las verificaciones y la subida los hace el Coordinador.
  */
 async function codex(contexto, prompt, { cwd, timeoutMs, que, sandbox }) {
   const { config, senal } = contexto;
@@ -187,8 +188,8 @@ async function codex(contexto, prompt, { cwd, timeoutMs, que, sandbox }) {
 }
 
 /** Los argumentos de Claude para cada paso: planear en modo plan; construir y revisar con acceptEdits acotado. */
-function argumentosDeClaude(config, paso) {
-  const modelo = ["--model", config.modelos?.[paso] ?? (paso === "planear" ? "opus" : "sonnet")];
+function argumentosDeClaude(config, paso, tarjeta, modeloElegido) {
+  const modelo = ["--model", modeloElegido ?? modeloDelPaso(config, paso, tarjeta)];
   if (paso === "planear") return ["-p", ...modelo, "--permission-mode", "plan", "--output-format", "text"];
   return [
     "-p",
@@ -209,10 +210,10 @@ function argumentosDeClaude(config, paso) {
  * Planear solo lee (Claude en modo plan, Codex con --sandbox read-only); construir y revisar editan el
  * worktree (Claude acceptEdits con herramientas acotadas, Codex --sandbox workspace-write).
  */
-export async function correrMotor(contexto, motor, paso, prompt, { cwd, timeoutMs, que }) {
-  contexto.registro?.info?.(`${que}: motor: ${motor}`);
+export async function correrMotor(contexto, motor, paso, prompt, { cwd, timeoutMs, que, tarjeta, modelo }) {
+  contexto.registro?.info?.(`${que}: motor: ${motor}${motor === "claude" ? `, modelo: ${nombreDelModelo(modelo ?? modeloDelPaso(contexto.config, paso, tarjeta))}` : ""}`);
   if (motor === "codex") return codex(contexto, prompt, { cwd, timeoutMs, que, sandbox: paso === "planear" ? "read-only" : "workspace-write" });
-  return claude(contexto, argumentosDeClaude(contexto.config, paso), prompt, { cwd, timeoutMs, que });
+  return claude(contexto, argumentosDeClaude(contexto.config, paso, tarjeta, modelo), prompt, { cwd, timeoutMs, que });
 }
 
 /** Qué motor hace `paso` ahora (lo decide el planificador con el uso de Claude y las pausas). */
@@ -228,8 +229,13 @@ function motorDelPaso(contexto, paso) {
 }
 
 /** La última línea del plan dice quién lo escribió: así el resultado sabe el motor del plan. */
-const MARCA_DEL_PLAN = /^Plan escrito con: (Claude Code|Codex)\s*$/im;
-const firmaDelPlan = (motor) => `Plan escrito con: ${motor === "codex" ? "Codex" : "Claude Code"}`;
+// Con modelo: "Plan escrito con: Claude Code (Opus)". Sin modelo (planes viejos o Codex): como antes.
+const MARCA_DEL_PLAN = /^Plan escrito con: (Claude Code|Codex)(?: \(([^)\n]+)\))?\s*$/im;
+const firmaDelPlan = (motor, modelo) => `Plan escrito con: ${motor === "codex" ? "Codex" : `Claude Code${modelo ? ` (${nombreDelModelo(modelo)})` : ""}`}`;
+/** El modelo con que se escribió el plan ("Opus", "Sonnet"...), o null. */
+export function modeloDelPlan(plan) {
+  return String(plan ?? "").match(MARCA_DEL_PLAN)?.[2]?.trim() || null;
+}
 export function motorDelPlan(plan) {
   const marca = String(plan ?? "").match(MARCA_DEL_PLAN);
   return marca ? (marca[1] === "Codex" ? "codex" : "claude") : null;
@@ -257,7 +263,7 @@ const SIN_SUBAGENTES_AL_PLANEAR = "Antes de planear, investiga el código: dónd
 const SIN_SUBAGENTES_AL_CONSTRUIR = [
   "- Trabaja en este orden: primero investiga el código que toca el plan; después edita; escribe o completa las pruebas del cambio;",
   "  al terminar, REVISA tu cambio completo (git diff y git status) buscando errores, casos que faltan y reglas rotas, y arréglalo antes de entregar.",
-  "- Si un comando necesita internet o la base y no puede correr acá, sigue: el trabajador corre tsc, build, lint y las pruebas después.",
+  "- Si un comando necesita internet o la base y no puede correr acá, sigue: el Coordinador corre tsc, build, lint y las pruebas después.",
 ].join("\n");
 
 function contextoDeLaTarjeta(tarjeta) {
@@ -274,7 +280,7 @@ function contextoDeLaTarjeta(tarjeta) {
 
 export function promptDelPlan(tarjeta, repo, motor = "claude") {
   return [
-    `Eres el trabajador del Tablero IA de Magilus. Tienes que escribir un PLAN para esta tarea del repositorio "${repo.clave}". ${
+    `Eres el Coordinador del Tablero IA de Magilus. Tienes que escribir un PLAN para esta tarea del repositorio "${repo.clave}". ${
       motor === "codex" ? "Estás en modo de solo lectura" : "Estás en modo plan"
     }: NO cambies ningún archivo, solo lee el código y planea.`,
     contextoDeLaTarjeta(tarjeta),
@@ -289,7 +295,7 @@ export function promptDelPlan(tarjeta, repo, motor = "claude") {
     ].join("\n"),
     `Reglas: ${REGLAS_DE_ZONAS} Si la tarea lo requiere, dilo claro al principio del plan: "TOCA ZONA PROTEGIDA: <cuál y por qué>".`,
     motor === "codex" ? SIN_SUBAGENTES_AL_PLANEAR : SUBAGENTES_AL_PLANEAR,
-    "En la parte 5 escribe cada archivo con su ruta completa desde la raíz del repo (por ejemplo src/features/coach/servicio.ts): el trabajador la usa para no construir a la vez dos tareas que tocan lo mismo.",
+    "En la parte 5 escribe cada archivo con su ruta completa desde la raíz del repo (por ejemplo src/features/coach/servicio.ts): el Coordinador la usa para no construir a la vez dos tareas que tocan lo mismo.",
     fraseAlTerminar(repo),
     "Contesta SOLO con el plan.",
   ].join("\n\n");
@@ -298,7 +304,7 @@ export function promptDelPlan(tarjeta, repo, motor = "claude") {
 /** Lo que el plan tiene que decir al principio: si al terminar sube solo o espera el sí del dueño. */
 function fraseAlTerminar(repo) {
   if (!repo.subirSolo) {
-    return 'Al principio del plan escribe esta frase: "Al terminar: espera tu sí" (en este repositorio el trabajador todavía no sube solo a producción).';
+    return 'Al principio del plan escribe esta frase: "Al terminar: espera tu sí" (en este repositorio el Coordinador todavía no sube solo a producción).';
   }
   const rutas = Object.entries(repo.zonasProtegidas ?? {})
     .map(([zona, globs]) => `${zona}: ${(globs ?? []).join(", ")}`)
@@ -314,12 +320,12 @@ function fraseAlTerminar(repo) {
 export function promptDeConstruir(tarjeta, repo, rama, motor = "claude") {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   return [
-    `Eres el trabajador del Tablero IA de Magilus. Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en un worktree aparte, en la rama ${rama}.`,
+    `Eres el Coordinador del Tablero IA de Magilus. Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en un worktree aparte, en la rama ${rama}.`,
     contextoDeLaTarjeta(tarjeta),
     `PLAN APROBADO:\n${tarjeta.plan}`,
     [
       "Reglas:",
-      "- No hagas git push ni commit, no cambies de rama ni toques el remoto: el trabajador hace el commit y sube la rama él mismo.",
+      "- No hagas git push ni commit, no cambies de rama ni toques el remoto: el Coordinador hace el commit y sube la rama él mismo.",
       "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). NUNCA prisma migrate dev, migrate deploy, db push ni nada contra una base de datos.",
       `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
       "- Respeta el estilo del repo y escribe los comentarios en español.",
@@ -333,7 +339,7 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude") {
 /** La revisión (23-oct-2026): otro motor (por defecto Claude) revisa y corrige lo que construyó Codex. */
 export function promptDeRevisar(tarjeta, repo, rama, quienConstruyo) {
   return [
-    `Eres el REVISOR del trabajador del Tablero IA de Magilus, en el repositorio "${repo.clave}" (worktree aparte, rama ${rama}). ${
+    `Eres el REVISOR del Coordinador del Tablero IA de Magilus, en el repositorio "${repo.clave}" (worktree aparte, rama ${rama}). ${
       quienConstruyo === "codex" ? "Codex" : "Claude"
     } acaba de implementar el plan aprobado; los cambios están sin commit.`,
     contextoDeLaTarjeta(tarjeta),
@@ -400,12 +406,20 @@ export async function planear(contexto, tarjeta) {
   try {
     await crearWorktree(repo, carpeta, `${repo.remoto}/${repo.ramaBase}`, null);
     const motor = motorDelPaso(contexto, "planear");
+    // El modelo lo decide el código, con reglas fijas (modelos.mjs), no una IA.
+    const dificultad = dificultadDeLaTarea(tarjeta);
+    const modelo = motor === "claude" ? modeloDelPaso(contexto.config, "planear", tarjeta) : null;
+    if (modelo) {
+      contexto.registro?.info?.(`plan: ${dificultad.dificil ? `tarea difícil (${dificultad.motivos.join("; ")})` : "tarea sencilla"} -> ${nombreDelModelo(modelo)}`);
+    }
     const texto = await correrMotor(contexto, motor, "planear", promptDelPlan(tarjeta, repo, motor), {
       cwd: carpeta,
       timeoutMs: reloj.resta(),
       que: "escribir el plan",
+      tarjeta,
+      modelo,
     });
-    return { plan: `${texto.replace(MARCA_DEL_PLAN, "").trimEnd()}\n\n${firmaDelPlan(motor)}`, motor };
+    return { plan: `${texto.replace(MARCA_DEL_PLAN, "").trimEnd()}\n\n${firmaDelPlan(motor, modelo)}`, motor, modelo };
   } finally {
     await quitarWorktree(repo, carpeta);
   }
@@ -435,6 +449,7 @@ export async function construir(contexto, tarjeta) {
         cwd: carpeta,
         timeoutMs: reloj.resta(),
         que: "construir",
+        tarjeta,
       });
     } catch (error) {
       // Codex se agotó: se pausa. Pasa a Claude SOLO con motores.respaldoClaude (y si Claude está disponible).
@@ -451,9 +466,15 @@ export async function construir(contexto, tarjeta) {
         cwd: carpeta,
         timeoutMs: reloj.resta(),
         que: "construir",
+        tarjeta,
       });
     }
     const motores = { ...(motorDelPlan(tarjeta.plan) ? { plan: motorDelPlan(tarjeta.plan) } : {}), construir: motor };
+    // Qué modelo hizo cada paso (para mostrarlo en la tarjeta). Codex no tiene modelo que elijamos acá.
+    const modelos = {
+      ...(modeloDelPlan(tarjeta.plan) ? { plan: modeloDelPlan(tarjeta.plan) } : {}),
+      ...(motor === "claude" ? { construir: modeloDelPaso(config, "construir", tarjeta), subagentes: modeloDelPaso(config, "subagentes", tarjeta) } : {}),
+    };
 
     // Lo que construyó Codex lo revisa otro paso (Claude por defecto; Codex si Claude está alto). Claude ya
     // se revisa con un subagente. Si la revisión falla, no se pierde lo construido: siguen las verificaciones.
@@ -466,8 +487,10 @@ export async function construir(contexto, tarjeta) {
             cwd: carpeta,
             timeoutMs: Math.min(reloj.resta(), REVISAR_MAXIMO_MINUTOS * MINUTO),
             que: "revisar",
+            tarjeta,
           });
           motores.revisar = revisor;
+          if (revisor === "claude") modelos.revisar = modeloDelPaso(config, "revisar", tarjeta);
         } catch (error) {
           if (contexto.senal?.aborted) throw error;
           if (error instanceof ErrorDeEtapa && error.limiteDeUso && error.motor) contexto.alLimite?.(error.motor);
@@ -476,7 +499,7 @@ export async function construir(contexto, tarjeta) {
       }
     }
 
-    // El commit lo hace el trabajador (si el motor hizo alguno, queda debajo).
+    // El commit lo hace el Coordinador (si el motor hizo alguno, queda debajo).
     await git(carpeta, ["add", "-A"]);
     const pendiente = await git(carpeta, ["diff", "--cached", "--quiet"], { permitirFallo: true });
     if (pendiente.codigo !== 0) {
@@ -521,7 +544,7 @@ export async function construir(contexto, tarjeta) {
       ? "construido, sube solo"
       : zonas.length
         ? `construido, espera tu sí (zona ${zonasTexto})`
-        : "construido, espera tu sí (en este repositorio el trabajador todavía no sube solo)";
+        : "construido, espera tu sí (en este repositorio el Coordinador todavía no sube solo)";
     pruebas.push(`→ ${alTerminar}`);
 
     reloj.resta();
@@ -530,7 +553,7 @@ export async function construir(contexto, tarjeta) {
     const web = webDeGithub(await urlDelRemoto(repo));
     registro.info(`rama ${rama} empujada (${commit.slice(0, 10)}): ${alTerminar}`);
     const textoMotores = Object.entries(motores)
-      .map(([paso, cual]) => `${paso} ${cual}`)
+      .map(([paso, cual]) => `${paso} ${cual}${modelos[paso] ? ` (${nombreDelModelo(modelos[paso])})` : ""}`)
       .join(" · ");
     return {
       resumen: [
@@ -543,6 +566,7 @@ export async function construir(contexto, tarjeta) {
         .filter(Boolean)
         .join("\n\n"),
       motor: motores,
+      modelo: modelos,
       pruebas: pruebas.join("\n").slice(0, 7000),
       paso: true,
       rama,
@@ -566,7 +590,7 @@ const conValores = (comando, valores) => comando.map((parte) => parte.replace(/\
 /**
  * Espera el CI del commit (si está configurado): busca la corrida y la mira hasta que termine.
  * Solo lanza si el CI corrió y FALLÓ. Si no se pudo consultar GitHub (gh sin sesión, que pasa cuando el
- * trabajador corre como tarea programada, o la corrida no aparece) devuelve el motivo y sigue: la prueba
+ * Coordinador corre como tarea programada, o la corrida no aparece) devuelve el motivo y sigue: la prueba
  * de verdad es que /api/version diga el commit nuevo (22-10-2026: por esto se deshizo un cambio bueno).
  */
 async function esperarCi(contexto, repo, commit, cwd, reloj) {
@@ -651,7 +675,7 @@ export async function subir(contexto, tarjeta) {
   const repo = configDelRepo(contexto, tarjeta);
   const reloj = relojDeEtapa(config.tiempos.subirMinutos, "subir");
   const rama = tarjeta.resultado?.rama;
-  if (!esRamaDelTrabajador(rama)) throw new ErrorDeEtapa(`La tarjeta no tiene una rama del trabajador para subir (rama: ${rama ?? "ninguna"}).`);
+  if (!esRamaDelTrabajador(rama)) throw new ErrorDeEtapa(`La tarjeta no tiene una rama del Coordinador para subir (rama: ${rama ?? "ninguna"}).`);
   if (tarjeta.resultado?.paso !== true) throw new ErrorDeEtapa("El resultado no dice que todo pasó: no se sube.");
   const base = `${repo.remoto}/${repo.ramaBase}`;
   const carpeta = carpetaDe(contexto, tarjeta, "subir");

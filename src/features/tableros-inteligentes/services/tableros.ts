@@ -72,18 +72,18 @@ import { contadoresDelConteo, type Contadores } from "./niveles";
   poder deshacerlo. TODA lectura de tarjetas filtra `borradoEn: null` (NO_BORRADA), salvo el
   historial y el deshacer.
 
-  Fase 2 (20-oct-2026): el TRABAJADOR (services/trabajador.ts, con su clave) toma las tarjetas con repo
+  Fase 2 (20-oct-2026): el Coordinador (services/trabajador.ts, con su clave) toma las tarjetas con repo
   y las lleva por PLANEANDO -> PLAN_LISTO -> EN_CURSO -> POR_REVISAR -> SUBIENDO -> HECHO (o ERROR).
   Aprobar (la tarea, el plan o el sí final) pasa SIEMPRE por `aprobarTarjeta` con su momento; quién
   puede y desde qué estado lo dice reglas-trabajador.ts. Cada tarjeta lleva repo, plan, resultado,
-  zona protegida y el candado del trabajador (trabajoIniciadoEn / trabajoVenceEn).
+  zona protegida y el candado del Coordinador (trabajoIniciadoEn / trabajoVenceEn).
 */
 
 /*
   Tableros POR CUENTA (20-oct-2026): cada tablero tiene dueño (duenoUserId). Una persona ve los suyos;
   el dueño del negocio y el ADMIN de la plataforma (personaPuedeAprobar) ven todos, y el MCP también
   (su clave es del negocio). `soloDe` lleva el userId cuando la persona ve solo los suyos, o null.
-  El trabajador no pasa por acá: toma tarjetas de todos los tableros del negocio.
+  El Coordinador no pasa por acá: toma tarjetas de todos los tableros del negocio.
 */
 export type Alcance = { workspaceId: string; soloDe: string | null };
 
@@ -141,7 +141,7 @@ export type TarjetaVista = {
   link: string | null;
   linkTexto: string | null;
   actualizadoEn: string;
-  /** Fase 2: en qué repo trabaja el trabajador (null = no la ejecuta el trabajador). */
+  /** Fase 2: en qué repo trabaja el Coordinador (null = no la ejecuta el Coordinador). */
   repo: string | null;
   plan: string | null;
   resultado: ResultadoVista | null;
@@ -150,7 +150,7 @@ export type TarjetaVista = {
   trabajoVenceEn: string | null;
 };
 
-/** El resultado del trabajador como lo ve la pantalla (todo opcional: lo escribe el trabajador). */
+/** El resultado del Coordinador como lo ve la pantalla (todo opcional: lo escribe el Coordinador). */
 export type ResultadoVista = {
   resumen?: string;
   pruebas?: string;
@@ -159,14 +159,16 @@ export type ResultadoVista = {
   linkRama?: string | null;
   commit?: string | null;
   migracion?: string | null;
-  /** El trabajador la quiso subir sola (subirSolo prendido). */
+  /** El Coordinador la quiso subir sola (subirSolo prendido). */
   subeSolo?: boolean;
+  /** Qué modelo hizo cada paso (plan, construir, revisar, subagentes). */
+  modelo?: Partial<Record<"plan" | "construir" | "revisar" | "subagentes", string>>;
   subida?: { commit?: string | null; version?: string | null; linkCommit?: string | null; cuando?: string };
   error?: {
     motivo?: string;
     en?: string;
     cuando?: string;
-    /** El despliegue falló después de subir: el trabajador hizo revert del commit en main. */
+    /** El despliegue falló después de subir: el Coordinador hizo revert del commit en main. */
     reversion?: { commit?: string | null; revert?: string | null; ok?: boolean };
   };
 };
@@ -624,10 +626,10 @@ export async function historialDeTarjeta(alcance: Alcance, tarjetaId: unknown) {
   };
 }
 
-/** Prefijo de `HistorialTarjeta.quien` cuando el cambio lo hizo el trabajador (sigue el id de su clave). */
+/** Prefijo de `HistorialTarjeta.quien` cuando el cambio lo hizo el Coordinador (sigue el id de su clave). */
 export const QUIEN_TRABAJADOR = "trabajador:";
 
-/** El nombre de cada `quien` del historial: una persona, o "Trabajador (<nombre de la clave>)". */
+/** El nombre de cada `quien` del historial: una persona, o "Coordinador (<nombre de la clave>)". */
 async function nombresDeQuien(quienes: string[]) {
   const unicos = [...new Set(quienes)];
   const claves = unicos.filter((quien) => quien.startsWith(QUIEN_TRABAJADOR)).map((quien) => quien.slice(QUIEN_TRABAJADOR.length));
@@ -638,7 +640,7 @@ async function nombresDeQuien(quienes: string[]) {
   ]);
   return new Map([
     ...personas.map((persona) => [persona.id, persona.name?.trim() || persona.email || "Alguien"] as const),
-    ...trabajadores.map((clave) => [`${QUIEN_TRABAJADOR}${clave.id}`, `Trabajador (${clave.nombre})`] as const),
+    ...trabajadores.map((clave) => [`${QUIEN_TRABAJADOR}${clave.id}`, `Coordinador (${clave.nombre})`] as const),
   ]);
 }
 
@@ -689,7 +691,7 @@ export type PendienteVista = TarjetaVista & {
 
 /**
  * "Te toca a ti": lo que espera una decisión del dueño en TODOS los tableros que la persona alcanza.
- * Las POR_APROBAR (de tipos con aprobación), las del trabajador que esperan al dueño (PLAN_LISTO,
+ * Las POR_APROBAR (de tipos con aprobación), las del Coordinador que esperan al dueño (PLAN_LISTO,
  * POR_REVISAR, ERROR) y las FALLIDO, de la más vieja a la más nueva.
  */
 export async function pendientesDelDueno(alcance: Alcance): Promise<PendienteVista[]> {
@@ -908,7 +910,7 @@ function booleanoDeEntrada(valor: unknown, campo: string): boolean | undefined {
 
 const YA_EXISTE_EL_TIPO = "Ya existe un tipo con ese nombre en este tablero.";
 
-/** "APROBADAS o EN_CURSO" para las reglas de los tipos: lo aprobado, lo EN_CURSO y todo lo del trabajador. */
+/** "APROBADAS o EN_CURSO" para las reglas de los tipos: lo aprobado, lo EN_CURSO y todo lo del Coordinador. */
 const ESTADOS_EN_USO: EstadoTarjeta[] = [...ESTADOS_CON_APROBACION, "EN_CURSO"];
 
 export async function crearTipo(contexto: ContextoTablero, tableroId: unknown, datos: DatosTipo) {
@@ -1213,11 +1215,11 @@ export async function crearTarjeta(
   });
 }
 
-/** El trabajador ejecuta solo tarjetas de un tipo con aprobación (y con estados): solo esas llevan repo. */
+/** El Coordinador ejecuta solo tarjetas de un tipo con aprobación (y con estados): solo esas llevan repo. */
 function revisarRepoParaTipo(tipo: { nombre: string; requiereAprobacion: boolean; usaEstados: boolean }) {
   if (!tipo.requiereAprobacion || !tipo.usaEstados) {
     throw new Error(
-      `Las tarjetas de tipo ${tipo.nombre} no pasan por aprobación: el trabajador no las ejecuta, así que no llevan repo. Usa un tipo con aprobación (como Tarea).`,
+      `Las tarjetas de tipo ${tipo.nombre} no pasan por aprobación: el Coordinador no las ejecuta, así que no llevan repo. Usa un tipo con aprobación (como Tarea).`,
     );
   }
 }
@@ -1263,7 +1265,7 @@ export async function editarTarjeta(
   const nuevo: CamposEditables = {};
   const repo = repoDeEntrada(cambios.repo);
   if (repo !== undefined && repo !== actual.repo) nuevo.repo = repo;
-  // La zona protegida: Claude (y el trabajador) la pueden poner, no quitar. Quitarla es de la pantalla.
+  // La zona protegida: Claude (y el Coordinador) la pueden poner, no quitar. Quitarla es de la pantalla.
   const zonas = zonasDeEntrada(cambios.zonaProtegida);
   if (zonas !== undefined) {
     const final = contexto.origen === "PANTALLA" ? zonas : unirZonas(actual.zonaProtegida, zonas);
@@ -1418,7 +1420,7 @@ export async function cambiarEstadoTarjeta(contexto: ContextoTablero, tarjetaId:
   }
   return prisma.$transaction(async (tx) => {
     const hecho = await tx.tarjetaTablero.updateMany({
-      // Condicionado también al repo: si se lo pusieron un instante antes, valen las reglas del trabajador.
+      // Condicionado también al repo: si se lo pusieron un instante antes, valen las reglas del Coordinador.
       where: { id: actual.id, estado: actual.estado, tipoId: actual.tipoId, repo: actual.repo, ...NO_BORRADA },
       data: { estado },
     });
@@ -1528,7 +1530,7 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
   });
   return prisma.$transaction(async (tx) => {
     // Condicionado al estado, al momento en que se leyó, al tipo y al repo: si Claude la editó o el
-    // trabajador la movió un instante antes, no se aprueba algo que la persona no vio.
+    // Coordinador la movió un instante antes, no se aprueba algo que la persona no vio.
     const hecho = await tx.tarjetaTablero.updateMany({
       where: {
         id: actual.id,
@@ -1539,7 +1541,7 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
         tipo: { requiereAprobacion: true, usaEstados: true },
         ...NO_BORRADA,
       },
-      // SUBIENDO queda "pendiente" (sin candado) hasta que el trabajador la tome; reintentar suelta el candado.
+      // SUBIENDO queda "pendiente" (sin candado) hasta que el Coordinador la tome; reintentar suelta el candado.
       data: { estado: veredicto.a, trabajoVenceEn: null },
     });
     if (hecho.count !== 1) {
@@ -1561,7 +1563,7 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
 
 /**
  * La pantalla cambia las zonas protegidas de una tarjeta. Agregar puede cualquiera que apruebe;
- * QUITAR solo el dueño. No mientras el trabajador la tiene.
+ * QUITAR solo el dueño. No mientras el Coordinador la tiene.
  */
 export async function cambiarZonasEnPantalla(contexto: ContextoTablero, tarjetaId: unknown, zonas: unknown) {
   if (contexto.origen !== "PANTALLA") throw new Error("Las zonas protegidas se quitan solo en la pantalla.");
@@ -1624,7 +1626,7 @@ export async function borrarTarjeta(contexto: ContextoTablero, tarjetaId: unknow
       select: { id: true, origenId: true, destinoId: true },
     });
     const ahora = new Date();
-    // Condicionado al estado que se leyó (si el trabajador la tomó un instante antes, no se borra) y,
+    // Condicionado al estado que se leyó (si el Coordinador la tomó un instante antes, no se borra) y,
     // desde Claude, a que siga sin zona protegida.
     const hecho = await tx.tarjetaTablero.updateMany({
       where: {

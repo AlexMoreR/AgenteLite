@@ -3,6 +3,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { MODELOS_POR_DEFECTO } from "./modelos.mjs";
+
 /** Lo que Claude puede usar al CONSTRUIR (acceptEdits): editar dentro del worktree y correr pruebas. */
 export const HERRAMIENTAS_PERMITIDAS = [
   "Read",
@@ -66,8 +68,7 @@ export const MOTORES = ["claude", "codex"];
 // pasan a Codex? Apagado: sobre el umbral solo se avisa, y si Claude se agota la tarjeta espera.
 const MOTORES_POR_DEFECTO = { planear: "claude", construir: "claude", revisar: "claude", respaldoClaude: false, respaldoCodex: false };
 
-/** Modelo de Claude por paso (--model) y para los subagentes (CLAUDE_CODE_SUBAGENT_MODEL). Opus solo planea. */
-const MODELOS_POR_DEFECTO = { planear: "opus", construir: "sonnet", revisar: "sonnet", subagentes: "sonnet" };
+// Los modelos por paso y las reglas de "tarea difícil" están en modelos.mjs (MODELOS_POR_DEFECTO).
 
 /** Cuántas tarjetas a la vez como mucho (22-oct-2026). El CRM tampoco da más de 5. */
 const MAXIMO_EN_PARALELO = 5;
@@ -105,7 +106,7 @@ export function completarConfig(datos, base = process.cwd()) {
     errores.push("urlCrm tiene que ser https (salvo localhost, para pruebas).");
   }
   const claveTrabajador = typeof datos.claveTrabajador === "string" ? datos.claveTrabajador.trim() : "";
-  if (!claveTrabajador.startsWith("aizen_trab_")) errores.push("claveTrabajador: la clave que se crea en el panel Trabajador (aizen_trab_...).");
+  if (!claveTrabajador.startsWith("aizen_trab_")) errores.push("claveTrabajador: la clave que se crea en el panel Coordinador (aizen_trab_...).");
   const carpetaTrabajo = path.resolve(base, typeof datos.carpetaTrabajo === "string" ? datos.carpetaTrabajo : "../../trabajador-tablero-trabajo");
 
   const repos = {};
@@ -210,7 +211,7 @@ export function completarConfig(datos, base = process.cwd()) {
       respaldoClaude: motores.respaldoClaude,
       respaldoCodex: motores.respaldoCodex,
     },
-    modelos: { planear: modelos.planear, construir: modelos.construir, revisar: modelos.revisar, subagentes: modelos.subagentes },
+    modelos: Object.fromEntries(Object.keys(MODELOS_POR_DEFECTO).map((paso) => [paso, modelos[paso]])),
     pausaLimiteCodexMinutos,
     umbralClaude,
     // Cada cuánto se mira el uso del plan de Claude (`claude -p /usage`). 0 = no se mira.
@@ -219,7 +220,7 @@ export function completarConfig(datos, base = process.cwd()) {
     herramientasProhibidas: [...new Set([...HERRAMIENTAS_PROHIBIDAS, ...lista(datos.herramientasProhibidas)])],
     tiempos: { ...TIEMPOS_POR_DEFECTO, ...(datos.tiempos ?? {}) },
     git: {
-      nombre: typeof datos.git?.nombre === "string" ? datos.git.nombre : "Trabajador Tablero IA",
+      nombre: typeof datos.git?.nombre === "string" ? datos.git.nombre : "Coordinador Tablero IA",
       correo: typeof datos.git?.correo === "string" ? datos.git.correo : "gestionmagilus@gmail.com",
     },
   };

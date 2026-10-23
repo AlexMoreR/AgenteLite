@@ -7,10 +7,10 @@ import {
 } from "@/features/tableros-inteligentes/services/trabajador";
 
 /*
-  Lo común de la API del TRABAJADOR del Tablero IA (/api/trabajador/tablero/*).
+  Lo común de la API del Coordinador del Tablero IA (/api/trabajador/tablero/*).
 
-  Acceso: `Authorization: Bearer aizen_trab_...` (la clave del trabajador, que se crea en la pantalla
-  del Tablero IA, panel Trabajador). La clave define el negocio. Sin sesión ni cookies: la usa un PC
+  Acceso: `Authorization: Bearer aizen_trab_...` (la clave del Coordinador, que se crea en la pantalla
+  del Tablero IA, panel Coordinador). La clave define el negocio. Sin sesión ni cookies: la usa un PC
   aparte que pregunta cada minuto (solo HTTPS saliente desde ese PC). No pasa por el middleware (que
   no corre en /api).
 */
@@ -24,7 +24,7 @@ export async function contextoDelPedido(request: Request): Promise<ContextoTraba
 }
 
 export const sinClave = () =>
-  NextResponse.json({ ok: false, error: "Clave de trabajador inválida o revocada." }, { status: 401, headers: SIN_CACHE });
+  NextResponse.json({ ok: false, error: "Clave de Coordinador inválida o revocada." }, { status: 401, headers: SIN_CACHE });
 
 /** Un error de la acción, con su código (409 = el estado no corresponde; 400 = datos; 404 = no existe). */
 export function respuestaDeError(fallo: unknown) {

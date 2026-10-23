@@ -177,7 +177,7 @@ await prueba("motores: por defecto todo Claude (Opus planea, Sonnet construye y 
   const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
   const porDefecto = completarConfig(base);
   assert.deepEqual(porDefecto.motores, { planear: "claude", construir: "claude", revisar: "claude", respaldoClaude: false, respaldoCodex: false });
-  assert.deepEqual(porDefecto.modelos, { planear: "opus", construir: "sonnet", revisar: "sonnet", subagentes: "sonnet" });
+  assert.deepEqual(porDefecto.modelos, { planear: "opus", planearSencillo: "sonnet", construir: "sonnet", revisar: "sonnet", subagentes: "sonnet", leer: "haiku" });
   assert.throws(() => completarConfig({ ...base, modelos: { planear: "opus 5" } }), /modelos\.planear/);
   const sinRespaldo = crearEstadoDeMotores(porDefecto);
   sinRespaldo.ponerClaudeAlto({ periodo: "sesion", porcentaje: 83, reinicio: "3:20pm" });
@@ -494,6 +494,9 @@ try {
     const [llamada] = leerLog(LOGS.claude).slice(-1);
     assert.equal(llamada.modo, "plan");
     assert.ok(llamada.argumentos.includes("-p"));
+    // El título dice "migracion": toca la base, es difícil -> Opus, y la firma del plan lo dice.
+    assert.equal(llamada.argumentos[llamada.argumentos.indexOf("--model") + 1], "opus");
+    assert.match(t.plan, /Plan escrito con: Claude Code \(Opus\)\s*$/);
     assert.equal(shaDe("main"), mainAntes, "planear no toca main");
     sinRestos();
   });
@@ -520,6 +523,8 @@ try {
     // Claude con acceptEdits, herramientas acotadas y sin push.
     const [llamada] = leerLog(LOGS.claude).slice(-1);
     assert.equal(llamada.modo, "acceptEdits");
+    assert.equal(llamada.argumentos[llamada.argumentos.indexOf("--model") + 1], "sonnet", "construir siempre con Sonnet");
+    assert.deepEqual(t.resultado.modelo, { plan: "Opus", construir: "sonnet", subagentes: "sonnet" }, "la tarjeta guarda qué modelo hizo cada paso");
     const prohibidas = llamada.argumentos.slice(llamada.argumentos.indexOf("--disallowedTools") + 1);
     assert.ok(prohibidas.includes("Bash(git push:*)"));
     assert.ok(prohibidas.includes("Bash(npx prisma migrate:*)"));
@@ -753,7 +758,8 @@ try {
     assert.deepEqual(t.resultado.motor, { plan: "claude", construir: "codex", revisar: "claude" });
     assert.match(t.resultado.resumen, /RESUMEN: Codex hizo "Cambio hecho por Codex"/);
     assert.match(t.resultado.resumen, /Revisión \(claude\): REVISIÓN: todo bien \(claude\)/);
-    assert.match(t.resultado.resumen, /Motores: plan claude · construir codex · revisar claude\./);
+    assert.match(t.resultado.resumen, /Motores: plan claude · construir codex · revisar claude \(Sonnet\)\./);
+    assert.deepEqual(t.resultado.modelo, { revisar: "sonnet" }, "con Codex solo se anota el modelo de Claude (la revisión)");
     assert.match(t.resultado.resumen, /cambio-codex-\d+\.txt/, "el commit lo hizo el trabajador con lo que escribió Codex");
     assert.equal(t.resultado.commit, shaDe(t.resultado.rama));
     assert.equal(shaDe("main"), mainAhora, "construir NUNCA toca main");
@@ -815,7 +821,7 @@ try {
     assert.match(t.plan, /Plan escrito con: Codex$/);
     assert.equal(leerLog(LOGS.codex).at(-1).sandbox, "read-only", "Codex planea sin poder escribir");
     assert.equal(leerLog(LOGS.claude).filter((l) => !l.argumentos.includes("/usage")).length, claudeAntes, "no planeó con Claude");
-    assert.ok(leerLog(LOGS.claude).some((l) => l.argumentos.join(" ").endsWith("-p /usage")), "leyó el uso con claude -p /usage");
+    assert.ok(leerLog(LOGS.claude).some((l) => l.argumentos.join(" ").endsWith("-p --model haiku /usage")), "leyó el uso con claude -p /usage");
     assert.equal(avisos().length, antes + 1, "un aviso");
     assert.match(avisos().at(-1).cuerpo.texto, /sesión: 83 % usado, se reinicia Oct 23, 3:20pm/);
     const estadoUso = JSON.parse(fs.readFileSync(path.join(T, "trabajo", "estado-uso.json"), "utf8"));

@@ -20,7 +20,7 @@
      Claude puede crear y editar tipos, pero NO quitarles la aprobación (eso solo el dueño en la
      pantalla), y nadie se la quita a un tipo con tarjetas APROBADAS o EN_CURSO.
   5b. TIPOS SIN ESTADOS (`usaEstados` = false, como Área): son carpetas. Sus tarjetas no tienen
-     estado (en la base queda IDEA, que nunca se muestra), no se aprueban, el trabajador nunca las
+     estado (en la base queda IDEA, que nunca se muestra), no se aprueban, el Coordinador nunca las
      toma, cambiar_estado_tarjeta las rechaza y no cuentan en filtros, contadores ni "Te toca a ti".
      Un tipo sin estados tampoco pide aprobación.
   6. TARJETA MADRE: una tarjeta cuelga de otra del mismo tablero solo si el tipo de la madre está
@@ -29,9 +29,9 @@
      EN_CURSO.
 
   8. FASE 2 (20-oct-2026): EL TRABAJADOR. Las tarjetas de un tipo con aprobación y con `repo` las
-     ejecuta el trabajador (un PC aparte): APROBADO -> PLANEANDO -> PLAN_LISTO -> (aprobar plan)
+     ejecuta el Coordinador (un PC aparte): APROBADO -> PLANEANDO -> PLAN_LISTO -> (aprobar plan)
      PLAN_APROBADO -> EN_CURSO -> POR_REVISAR -> (sí final del dueño) SUBIENDO -> HECHO, o ERROR con
-     motivo. Esas transiciones solo las hace el trabajador con su clave (services/trabajador.ts);
+     motivo. Esas transiciones solo las hace el Coordinador con su clave (services/trabajador.ts);
      cambiar_estado_tarjeta del MCP no pone ninguno de esos estados, ni APROBADO ni PLAN_APROBADO.
      Aprobar (la tarea, el plan, el sí final) es SIEMPRE su propia acción, con sus reglas en
      reglas-trabajador.ts: desde la pantalla, o por el MCP con aprobar_tarjeta y la confirmación
@@ -55,17 +55,17 @@ export const ESTADOS_TARJETA = [
 ] as const;
 export type EstadoTarjetaTablero = (typeof ESTADOS_TARJETA)[number];
 
-/** Los que agregó la fase 2: solo existen en tarjetas que ejecuta el trabajador. */
+/** Los que agregó la fase 2: solo existen en tarjetas que ejecuta el Coordinador. */
 export const ESTADOS_DE_LA_FASE_2 = ["PLANEANDO", "PLAN_LISTO", "PLAN_APROBADO", "POR_REVISAR", "SUBIENDO", "ERROR"] as const;
 
-/** Los que el trabajador tiene "en las manos" (con candado): nadie más los toca mientras tanto. */
+/** Los que el Coordinador tiene "en las manos" (con candado): nadie más los toca mientras tanto. */
 export const ESTADOS_TRABAJANDO = ["PLANEANDO", "EN_CURSO", "SUBIENDO"] as const;
 
 const esDeLaFase2 = (estado: EstadoTarjetaTablero) => (ESTADOS_DE_LA_FASE_2 as readonly string[]).includes(estado);
 
 /**
  * Los que Claude puede poner con cambiar_estado_tarjeta: IDEA, POR_APROBAR, EN_CURSO, HECHO y FALLIDO.
- * Nunca APROBADO ni ninguno de la fase 2 (esos los pone la aprobación o el trabajador).
+ * Nunca APROBADO ni ninguno de la fase 2 (esos los pone la aprobación o el Coordinador).
  */
 export const ESTADOS_SIN_APROBAR = ESTADOS_TARJETA.filter(
   (estado): estado is "IDEA" | "POR_APROBAR" | "EN_CURSO" | "HECHO" | "FALLIDO" =>
@@ -117,16 +117,16 @@ export function estadoPermitidoParaTipo(
 ): Veredicto {
   if (!usaEstados) return estado === "IDEA" ? null : SIN_ESTADOS;
   if (!requiereAprobacion && (estado === "POR_APROBAR" || estado === "APROBADO" || esDeLaFase2(estado))) {
-    return "Ese tipo de tarjeta no pide aprobación: no pasa por POR_APROBAR ni APROBADO (ni por el trabajador). Van IDEA, EN_CURSO, HECHO o FALLIDO.";
+    return "Ese tipo de tarjeta no pide aprobación: no pasa por POR_APROBAR ni APROBADO (ni por el Coordinador). Van IDEA, EN_CURSO, HECHO o FALLIDO.";
   }
   return null;
 }
 
-/** Lo que se dice cuando alguien que no es el trabajador quiere poner un estado del trabajador. */
+/** Lo que se dice cuando alguien que no es el Coordinador quiere poner un estado del Coordinador. */
 export const SOLO_EL_TRABAJADOR =
-  "Ese estado lo pone solo el trabajador (PLANEANDO, PLAN_LISTO, EN_CURSO, POR_REVISAR, SUBIENDO, HECHO, ERROR en tarjetas con repo). Aprobar la tarea o el plan es aprobar_tarjeta.";
+  "Ese estado lo pone solo el Coordinador (PLANEANDO, PLAN_LISTO, EN_CURSO, POR_REVISAR, SUBIENDO, HECHO, ERROR en tarjetas con repo). Aprobar la tarea o el plan es aprobar_tarjeta.";
 
-/** ¿El trabajador tiene la tarjeta en las manos (PLANEANDO, EN_CURSO o SUBIENDO)? */
+/** ¿El Coordinador tiene la tarjeta en las manos (PLANEANDO, EN_CURSO o SUBIENDO)? */
 export function estaTrabajando(estado: EstadoTarjetaTablero) {
   return (ESTADOS_TRABAJANDO as readonly string[]).includes(estado);
 }
@@ -140,7 +140,7 @@ export function puedeCambiarEstado(
   a: EstadoTarjetaTablero,
   requiereAprobacion = true,
   usaEstados = true,
-  /** true si la tarjeta tiene repo (la ejecuta el trabajador). */
+  /** true si la tarjeta tiene repo (la ejecuta el Coordinador). */
   conRepo = false,
 ): Veredicto {
   if (!usaEstados) return SIN_ESTADOS;
@@ -154,7 +154,7 @@ export function puedeCambiarEstado(
   }
   // EN_CURSO de una tarjeta sin repo es el de la fase 1 (a mano): ese sí se mueve.
   if (estaTrabajando(de) && (conRepo || de !== "EN_CURSO")) {
-    return `El trabajador tiene esta tarjeta en este momento (${de}): no se le cambia el estado hasta que termine o falle.`;
+    return `El Coordinador tiene esta tarjeta en este momento (${de}): no se le cambia el estado hasta que termine o falle.`;
   }
   if (de === a) {
     return `La tarjeta ya está en ${a}.`;
@@ -170,7 +170,7 @@ export function puedeCambiarEstado(
   }
   // FALLIDO = se abandona: de algo aprobado (también de lo que dejó el trabajador: plan listo, por revisar, error).
   if (a === "FALLIDO" && de !== "APROBADO" && de !== "EN_CURSO" && !esDeLaFase2(de)) {
-    return "Solo se marca FALLIDO algo que estaba APROBADO, EN_CURSO o en manos del trabajador. Primero hay que dejarla POR_APROBAR y que el dueño la apruebe.";
+    return "Solo se marca FALLIDO algo que estaba APROBADO, EN_CURSO o en manos del Coordinador. Primero hay que dejarla POR_APROBAR y que el dueño la apruebe.";
   }
   return null;
 }
@@ -203,7 +203,7 @@ export function puedeAprobar(
 }
 
 /**
- * Los estados que vienen de una aprobación (la tarea, el plan o el sí final) o del trabajador. Deshacer
+ * Los estados que vienen de una aprobación (la tarea, el plan o el sí final) o del Coordinador. Deshacer
  * nunca deja ni quita uno de estos, y editar algo en uno de ellos le hace perder la aprobación.
  */
 export const ESTADOS_CON_APROBACION = ["APROBADO", ...ESTADOS_DE_LA_FASE_2] as const;
@@ -221,10 +221,10 @@ export function estadoTrasEditar(origen: OrigenCambio, estado: EstadoTarjetaTabl
   return origen !== "PANTALLA" && tieneAprobacion(estado) && !estaTrabajando(estado) ? "POR_APROBAR" : estado;
 }
 
-/** ¿Se puede editar? No mientras el trabajador la tiene (PLANEANDO, EN_CURSO con repo, SUBIENDO). */
+/** ¿Se puede editar? No mientras el Coordinador la tiene (PLANEANDO, EN_CURSO con repo, SUBIENDO). */
 export function puedeEditarTarjeta(estado: EstadoTarjetaTablero, conRepo: boolean): Veredicto {
   if (estaTrabajando(estado) && (conRepo || estado !== "EN_CURSO")) {
-    return `El trabajador tiene esta tarjeta en este momento (${estado}): no se edita hasta que termine o falle.`;
+    return `El Coordinador tiene esta tarjeta en este momento (${estado}): no se edita hasta que termine o falle.`;
   }
   return null;
 }
@@ -301,7 +301,7 @@ export function puedeDeshacer(
     return "Ese cambio lo hizo el dueño en la pantalla (por ejemplo, una aprobación): no se deshace desde acá.";
   }
   if (cambio.origen === "TRABAJADOR") {
-    return "Ese cambio lo hizo el trabajador (su plan, su resultado o un error): no se deshace desde acá.";
+    return "Ese cambio lo hizo el Coordinador (su plan, su resultado o un error): no se deshace desde acá.";
   }
 
   const toca = loQueToca(cambio);
@@ -317,7 +317,7 @@ export function puedeDeshacer(
     return "Después hubo otro cambio sobre lo mismo. Hay que deshacer primero el más nuevo (ver ver_historial_tarjeta).";
   }
 
-  // "APROBADA" acá es cualquier estado que vino de una aprobación o del trabajador (ESTADOS_CON_APROBACION).
+  // "APROBADA" acá es cualquier estado que vino de una aprobación o del Coordinador (ESTADOS_CON_APROBACION).
   if (cambio.accion === "crear") {
     if (tieneAprobacion(estadoActual)) {
       return `La tarjeta está ${estadoActual} (aprobada): no se borra deshaciendo.`;
@@ -614,7 +614,7 @@ export function hijasQueQuedanMal(
 /* ───────────────────────────────────────────────────────────────────── borrar y links ── */
 
 /**
- * Lo que dejó el trabajador sin tenerla en la mano (plan listo o error): Claude las borra solo si el
+ * Lo que dejó el Coordinador sin tenerla en la mano (plan listo o error): Claude las borra solo si el
  * dueño lo pidió por voz. Al deshacer ese borrado vuelven con el mismo estado.
  */
 export const ESTADOS_QUE_SE_BORRAN_POR_VOZ = ["PLAN_LISTO", "ERROR"] as const;
@@ -635,7 +635,7 @@ export type ConfirmacionDeBorrado = {
  * ¿Se puede borrar la tarjeta? La pantalla borra todo. Claude (MCP):
  *  - nunca una con zona protegida (esas, solo en la pantalla);
  *  - PLAN_LISTO o ERROR, solo con la confirmación por voz del dueño ("sí, bórrala");
- *  - nunca lo que tiene el trabajador en la mano (PLANEANDO, EN_CURSO, SUBIENDO) ni lo que está por
+ *  - nunca lo que tiene el Coordinador en la mano (PLANEANDO, EN_CURSO, SUBIENDO) ni lo que está por
  *    tomar o espera el sí final (APROBADO, PLAN_APROBADO, POR_REVISAR);
  *  - lo demás sí. Si vino un texto de confirmación, tiene que decir "sí, bórrala".
  */
@@ -650,7 +650,7 @@ export function puedeBorrarTarjeta(
     return `La tarjeta toca una zona protegida (${zonaProtegida.join(", ")}): Claude no la borra. Se borra solo en la pantalla.`;
   }
   if (estado === "PLANEANDO" || estado === "EN_CURSO" || estado === "SUBIENDO") {
-    return `La tarjeta está ${estado}: el trabajador la tiene en la mano. Claude no la borra.`;
+    return `La tarjeta está ${estado}: el Coordinador la tiene en la mano. Claude no la borra.`;
   }
   if (confirmacion?.problemaDelTexto) return confirmacion.problemaDelTexto;
   if (seBorraPorVoz(estado)) {

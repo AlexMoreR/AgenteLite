@@ -85,21 +85,32 @@ El trabajador usa dos "motores" de IA que ya están logueados en aizen1:
 **Hoy (23-oct-2026) todo lo hace Claude Code**: Alexander ya no tiene ChatGPT Plus. Codex queda listo para
 activarlo con `"construir": "codex"` cuando vuelva a haber cuenta.
 
-Para ahorrar límite, cada paso usa un modelo distinto (`modelos`, se pasa a `claude --model`; los subagentes
-toman `CLAUDE_CODE_SUBAGENT_MODEL`):
+Para ahorrar límite, el Coordinador elige el modelo de cada paso con **reglas fijas en código** (`lib/modelos.mjs`;
+ninguna IA decide). `modelos` en la config da el nombre de cada uno; se pasa a `claude --model` y los subagentes
+toman `CLAUDE_CODE_SUBAGENT_MODEL`:
 
-| Paso | Modelo |
-|---|---|
-| Planear | Opus |
-| Construir | Sonnet |
-| Revisar | Sonnet |
-| Subagentes | Sonnet |
+| Paso | Modelo | Config |
+|---|---|---|
+| Planear, tarea difícil | Opus | `planear` |
+| Planear, tarea sencilla | Sonnet | `planearSencillo` |
+| Construir | Sonnet | `construir` |
+| Revisar | Sonnet | `revisar` |
+| Subagentes | Sonnet | `subagentes` |
+| Leer / resumir (hoy: `claude -p /usage`) | Haiku | `leer` |
+
+**Tarea difícil** = basta UNA de estas: es un reintento (`intentos` > 1); trae la marca `#dificil`, `[dificil]` o
+`[opus]` en el título o el detalle; toca la base (nombra `prisma/` o migraciones, o dice migración / prisma /
+esquema); toca 3 módulos o más (por las rutas que nombra) o los dos repos; el detalle pasa de 1200 caracteres;
+o dice arquitectura, refactor, rediseño, reescribir, seguridad, autenticación o concurrencia.
+
+Cada tarjeta muestra qué modelo usó cada paso ("Planeado con Opus · Construido con Sonnet"): el plan lleva la firma
+`Plan escrito con: Claude Code (Opus)` y el resultado trae `modelo` (guardado en el JSON `resultado`, sin migración).
 
 Se elige en `config.local.json`:
 
 ```json
 "motores": { "planear": "claude", "construir": "claude", "revisar": "claude", "respaldoClaude": false, "respaldoCodex": false },
-"modelos": { "planear": "opus", "construir": "sonnet", "revisar": "sonnet", "subagentes": "sonnet" },
+"modelos": { "planear": "opus", "planearSencillo": "sonnet", "construir": "sonnet", "revisar": "sonnet", "subagentes": "sonnet", "leer": "haiku" },
 "comandoCodex": ["codex"],
 "pausaLimiteCodexMinutos": 30
 ```

@@ -52,11 +52,11 @@ import {
   tarjetas no tienen estado (ver_tablero devuelve estado null). Una tarjeta puede colgar de una tarjeta madre (padre_id) si el tipo lo
   permite, y llevar un link.
 
-  Fase 2 (20-oct-2026): las tarjetas con `repo` (gestion, aizencrm) las ejecuta el TRABAJADOR (un PC
+  Fase 2 (20-oct-2026): las tarjetas con `repo` (gestion, aizencrm) las ejecuta el Coordinador (un PC
   aparte): arma un plan, el dueño lo aprueba, lo construye en una rama, el dueño da el sí final y lo
   sube. ver_plan_y_resultado muestra todo eso; aprobar_tarjeta aprueba la tarea, el plan o el sí final
   SOLO cuando la persona lo dijo explícitamente en la conversación.
-  Desde el 21-oct-2026 (Planear -> Aprobar plan -> Hacer): si todo pasa, el trabajador sube solo a
+  Desde el 21-oct-2026 (Planear -> Aprobar plan -> Hacer): si todo pasa, el Coordinador sube solo a
   producción y la deja HECHO con el link del commit; si el despliegue falla, deshace el commit (revert)
   y queda ERROR. El sí final ('subir') queda para las tarjetas que tocan chats, agentes, el libro V3 o
   Meta Ads (zona protegida) y las que ya estaban POR_REVISAR.
@@ -66,14 +66,14 @@ import {
     confirmación de la persona ("sí, apruebo"), que el userId de la clave sea el dueño o un aprobador
     con alcance, que el estado corresponda, y rechaza las tarjetas con zona protegida (esas, solo en la
     pantalla). El sí final (subir) es solo del dueño. Ningún inputSchema de cambiar_estado_tarjeta
-    ofrece APROBADO ni los estados del trabajador.
+    ofrece APROBADO ni los estados del Coordinador.
   - Ejecutar algo sin aprobar: EN_CURSO solo sale de APROBADO (en tipos que piden aprobación); en
-    tarjetas con repo, EN_CURSO, HECHO y los demás estados del trabajador los pone solo el trabajador.
+    tarjetas con repo, EN_CURSO, HECHO y los demás estados del Coordinador los pone solo el Coordinador.
   - Quitar una zona protegida (solo ponerla).
   - Dejar intacta una aprobación al editar: si edita una tarjeta APROBADA, vuelve a POR_APROBAR; si
     le cambia el tipo, queda POR_APROBAR o IDEA.
   - Quitarle la aprobación a un tipo, ni borrar tipos (solo el dueño en la pantalla).
-  - Borrar lo que tiene el trabajador en la mano (PLANEANDO, EN_CURSO, SUBIENDO), una tarjeta
+  - Borrar lo que tiene el Coordinador en la mano (PLANEANDO, EN_CURSO, SUBIENDO), una tarjeta
     APROBADA, PLAN_APROBADO o POR_REVISAR, o una con zona protegida. PLAN_LISTO y ERROR, solo por voz
     del dueño (texto "sí, bórrala" y la cuenta de la clave es la dueña).
   - Deshacer una aprobación, ni dejar algo APROBADO deshaciendo.
@@ -123,7 +123,7 @@ const PROPIEDAD_REPO = {
   type: "string",
   enum: [...REPOS_DEL_TRABAJADOR],
   description:
-    "Si es un cambio de código que hace el TRABAJADOR: en qué repositorio (gestion = ventas y cotizaciones; aizencrm = este CRM). Solo tipos con aprobación (Tarea). Sin repo, el trabajador no la toma. Opcional.",
+    "Si es un cambio de código que hace el Coordinador: en qué repositorio (gestion = ventas y cotizaciones; aizencrm = este CRM). Solo tipos con aprobación (Tarea). Sin repo, el Coordinador no la toma. Opcional.",
 } as const;
 
 const PROPIEDAD_ZONA = {
@@ -243,7 +243,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "crear_tarjeta",
     title: "Agregar una tarjeta",
     description:
-      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea; un Área también dentro de otra Área). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el trabajador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente)." +
+      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea; un Área también dentro de otra Área). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el Coordinador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente)." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -276,7 +276,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "editar_tarjeta",
     title: "Editar una tarjeta",
     description:
-      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo o la zona protegida de una tarjeta. Se manda solo lo que cambia. Si estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR. Mientras el trabajador la tiene (PLANEANDO, EN_CURSO, SUBIENDO) no se edita. Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla)." +
+      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo o la zona protegida de una tarjeta. Se manda solo lo que cambia. Si estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR. Mientras el Coordinador la tiene (PLANEANDO, EN_CURSO, SUBIENDO) no se edita. Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla)." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -320,7 +320,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "cambiar_estado_tarjeta",
     title: "Mover una tarjeta de estado",
     description:
-      "Mueve una tarjeta de estado. NO aprueba (para eso está aprobar_tarjeta, solo si la persona lo dice) y no pone ningún estado del trabajador (PLANEANDO, PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, SUBIENDO, ERROR). Para pedir aprobación, dejarla POR_APROBAR (solo tipos con aprobación). En tipos con aprobación y SIN repo, EN_CURSO solo sale de una APROBADA, y HECHO de una APROBADA o EN_CURSO; en tarjetas CON repo, EN_CURSO y HECHO los pone solo el trabajador, y mientras él la tiene no se mueve. FALLIDO (abandonarla) sale de algo aprobado o de lo que dejó el trabajador. Los tipos sin aprobación van libres entre IDEA, EN_CURSO, HECHO y FALLIDO. Las tarjetas de un tipo sin estados (Área) no tienen estado: se rechaza." +
+      "Mueve una tarjeta de estado. NO aprueba (para eso está aprobar_tarjeta, solo si la persona lo dice) y no pone ningún estado del Coordinador (PLANEANDO, PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, SUBIENDO, ERROR). Para pedir aprobación, dejarla POR_APROBAR (solo tipos con aprobación). En tipos con aprobación y SIN repo, EN_CURSO solo sale de una APROBADA, y HECHO de una APROBADA o EN_CURSO; en tarjetas CON repo, EN_CURSO y HECHO los pone solo el Coordinador, y mientras él la tiene no se mueve. FALLIDO (abandonarla) sale de algo aprobado o de lo que dejó el Coordinador. Los tipos sin aprobación van libres entre IDEA, EN_CURSO, HECHO y FALLIDO. Las tarjetas de un tipo sin estados (Área) no tienen estado: se rechaza." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -339,7 +339,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     description:
       "Saca una tarjeta del tablero en un solo paso, con TODAS sus flechas (no hay que borrarlas aparte). Se puede deshacer con deshacer_cambio_tarjeta y vuelve con sus flechas. Sus hijas quedan sueltas hasta que se deshaga. " +
       "Una tarjeta PLAN_LISTO o ERROR se borra SOLO si el dueño lo pidió en esta conversación: antes, léele el título y espera que diga 'sí, bórrala'; texto_confirmacion es lo que dijo, tal cual. La cuenta de la clave de Claude tiene que ser la dueña del negocio. Nunca borres por tu cuenta. " +
-      "No borra lo que tiene el trabajador en la mano (PLANEANDO, EN_CURSO, SUBIENDO), ni APROBADO, PLAN_APROBADO o POR_REVISAR, ni una tarjeta con zona protegida (esa, solo en la pantalla)." +
+      "No borra lo que tiene el Coordinador en la mano (PLANEANDO, EN_CURSO, SUBIENDO), ni APROBADO, PLAN_APROBADO o POR_REVISAR, ni una tarjeta con zona protegida (esa, solo en la pantalla)." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -385,7 +385,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
   },
   {
     name: "ver_plan_y_resultado",
-    title: "Ver el plan y el resultado del trabajador",
+    title: "Ver el plan y el resultado del Coordinador",
     description:
       "Muestra en qué va una tarjeta que ejecuta el trabajador: estado, repo, zona protegida, el plan que escribió, el resultado (resumen, pruebas, si pasó, si sube sola, la rama con su link, commit, migración, la subida con el link del commit o el error con su motivo y la reversión si la hubo) y quién aprobó qué (la tarea, el plan, el sí final), cuándo y por dónde (pantalla o voz). Llamarla antes de aprobar_tarjeta para poder leerle a la persona lo que aprueba.",
     inputSchema: {
@@ -401,8 +401,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     title: "Aprobar una tarjeta (solo si la persona lo dijo)",
     description:
       "Úsala SOLO si la persona lo dijo explícitamente en esta conversación. Antes, léele el título y qué se aprueba, y espera que diga 'sí, apruebo'. Nunca apruebes por tu cuenta. " +
-      "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del trabajador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan) o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
-      "'subir' solo aplica a las tarjetas que tocan chats, agentes o una zona protegida (Meta Ads, libro V3) y a las que ya estaban POR_REVISAR de antes: las demás las sube solo el trabajador cuando todo pasa (quedan HECHO con el link del commit, o ERROR si algo falla). " +
+      "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del Coordinador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan) o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
+      "'subir' solo aplica a las tarjetas que tocan chats, agentes o una zona protegida (Meta Ads, libro V3) y a las que ya estaban POR_REVISAR de antes: las demás las sube solo el Coordinador cuando todo pasa (quedan HECHO con el link del commit, o ERROR si algo falla). " +
       "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con zona protegida no se aprueba acá: solo en la pantalla. " +
       "Aprueba la cuenta que creó la clave de Claude (no la que mira la pantalla): tiene que ser la cuenta dueña de este negocio. Si no lo es, el error dice qué cuenta llegó y por qué." +
       REGLA_DEL_TABLERO,
@@ -459,27 +459,27 @@ function queFalta(estado: string, conRepo: boolean, conZona: boolean): string {
     case "POR_APROBAR":
       return `Espera que el dueño apruebe la tarea, ${dondeAprobar}.`;
     case "APROBADO":
-      return conRepo ? "Aprobada: el trabajador la toma en el próximo minuto y arma el plan." : "Aprobada. Sin repo: no la ejecuta el trabajador.";
+      return conRepo ? "Aprobada: el Coordinador la toma en el próximo minuto y arma el plan." : "Aprobada. Sin repo: no la ejecuta el Coordinador.";
     case "PLANEANDO":
-      return "El trabajador está escribiendo el plan.";
+      return "El Coordinador está escribiendo el plan.";
     case "PLAN_LISTO":
       return `El plan está listo: espera que el dueño lo apruebe, ${dondeAprobar}.`;
     case "PLAN_APROBADO":
-      return "Plan aprobado: el trabajador la toma en el próximo minuto y la construye en una rama.";
+      return "Plan aprobado: el Coordinador la toma en el próximo minuto y la construye en una rama.";
     case "EN_CURSO":
-      return conRepo ? "El trabajador la está construyendo y probando." : "En curso.";
+      return conRepo ? "El Coordinador la está construyendo y probando." : "En curso.";
     case "POR_REVISAR":
       return conZona
         ? "Lista en su rama: toca una zona protegida (chats, agentes, libro V3 o Meta Ads), así que no sube sola. Espera el sí final del dueño, en la pantalla."
         : "Lista en su rama: espera el sí final del dueño para subir a producción.";
     case "SUBIENDO":
-      return "El trabajador la está subiendo a producción (sube sola si pasó todo, o el dueño dio el sí final). Si el despliegue falla, la deshace y queda ERROR.";
+      return "El Coordinador la está subiendo a producción (sube sola si pasó todo, o el dueño dio el sí final). Si el despliegue falla, la deshace y queda ERROR.";
     case "HECHO":
       return conRepo ? "Hecha: está en producción (ver resultado.subida, con el link del commit)." : "Hecha.";
     case "ERROR":
       return "Falló (ver resultado.error). El dueño puede reintentar: aprobar la tarea de nuevo (planea otra vez) o el plan (construye otra vez).";
     default:
-      return "Nada pendiente del trabajador.";
+      return "Nada pendiente del Coordinador.";
   }
 }
 
@@ -796,7 +796,7 @@ export async function ejecutarHerramientaMcpTableros(
               : cambio.origen === "PANTALLA"
                 ? "la pantalla"
                 : cambio.origen === "TRABAJADOR"
-                  ? "el trabajador"
+                  ? "el Coordinador"
                   : cambio.origen,
           accion: cambio.accion,
           antes: cambio.antes,
@@ -869,7 +869,7 @@ export async function ejecutarHerramientaMcpTableros(
         antes: resultado.antes,
         ahora: resultado.ahora,
         aviso: `Aprobado por voz con la cuenta ${resultado.quien}${resultado.quienCorreo ? ` (${resultado.quienCorreo})` : ""}: ${NOMBRE_DEL_MOMENTO[resultado.momento]} de "${resultado.titulo}". Quedó ${resultado.ahora}${
-          resultado.ahora === "SUBIENDO" ? ": el trabajador la sube a producción en el próximo minuto" : ""
+          resultado.ahora === "SUBIENDO" ? ": el Coordinador la sube a producción en el próximo minuto" : ""
         }. Una aprobación no se deshace.`,
         link: linkDeLaTarjeta(String(args.tarjeta_id ?? "")),
       };

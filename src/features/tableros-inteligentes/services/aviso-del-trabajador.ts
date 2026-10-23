@@ -66,7 +66,7 @@ export async function enviarAvisoDelTrabajador(contexto: ContextoTrabajador, cue
   const numero = telefonoDeAviso(fila?.value);
   if (!numero) {
     throw new ErrorDelTrabajador(
-      `No hay número para los avisos del trabajador: guardarlo en la AppSetting "${claveTelefonoDeAviso(contexto.workspaceId)}" (solo dígitos, con indicativo, p. ej. 573001234567).`,
+      `No hay número para los avisos del Coordinador: guardarlo en la AppSetting "${claveTelefonoDeAviso(contexto.workspaceId)}" (solo dígitos, con indicativo, p. ej. 573001234567).`,
       412,
     );
   }

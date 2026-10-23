@@ -35,7 +35,7 @@ import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/servi
   Fase 2 (20-oct-2026): aprobar tiene tres momentos (la tarea, el plan y el sí final "subir a
   producción"); quién puede cada uno lo decide el servicio con reglas-trabajador.ts (el dueño todo, un
   aprobador según su alcance, el sí final SOLO el dueño). Quitar una zona protegida es solo del dueño.
-  El panel Trabajador (claves y aprobadores): el dueño o el ADMIN de la plataforma (20-oct-2026), como
+  El panel Coordinador (claves y aprobadores): el dueño o el ADMIN de la plataforma (20-oct-2026), como
   los tipos; una asesora o una administradora del negocio, no.
 
   Tableros POR CUENTA (20-oct-2026): cada persona ve, crea y renombra SUS tableros; el dueño o el
@@ -110,7 +110,7 @@ export async function renombrarTableroAction(tableroId: string, nombre: string, 
   }
 }
 
-/* ── Panel Trabajador (dueño o ADMIN de la plataforma) ─────────────────────────────────────── */
+/* ── Panel Coordinador (dueño o ADMIN de la plataforma) ─────────────────────────────────────── */
 
 export type PanelTrabajadorVista = {
   claves: { id: string; nombre: string; creadoEn: string; ultimoUsoEn: string | null; revocadaEn: string | null }[];
@@ -118,7 +118,7 @@ export type PanelTrabajadorVista = {
   candidatos: { userId: string; nombre: string }[];
 };
 
-const SOLO_EL_DUENO_TRABAJADOR = "El trabajador y los aprobadores los maneja solo el dueño del negocio.";
+const SOLO_EL_DUENO_TRABAJADOR = "El Coordinador y los aprobadores los maneja solo el dueño del negocio.";
 
 /** El dueño o el ADMIN de la plataforma (personaPuedeAprobar). Una asesora, no. */
 async function accesoDelDueno() {
@@ -149,11 +149,11 @@ export async function panelTrabajadorAction(): Promise<{ ok: true; panel: PanelT
       },
     };
   } catch (fallo) {
-    return { ok: false, error: mensaje(fallo, "No se pudo leer el panel del trabajador") };
+    return { ok: false, error: mensaje(fallo, "No se pudo leer el panel del Coordinador") };
   }
 }
 
-/** Crea la clave del trabajador y la devuelve UNA vez (después solo queda su huella). */
+/** Crea la clave del Coordinador y la devuelve UNA vez (después solo queda su huella). */
 export async function crearClaveTrabajadorAction(nombre: string): Promise<{ ok: true; clave: string } | { ok: false; error: string }> {
   const access = await accesoDelDueno();
   if (!access) return { ok: false, error: SOLO_EL_DUENO_TRABAJADOR };

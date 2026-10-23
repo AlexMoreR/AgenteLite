@@ -33,7 +33,7 @@ const ACCION: Record<string, string> = {
   deshacer: "Deshizo un cambio",
 };
 
-const DESDE: Record<string, string> = { MCP: "Claude", PANTALLA: "pantalla", TRABAJADOR: "trabajador" };
+const DESDE: Record<string, string> = { MCP: "Claude", PANTALLA: "pantalla", TRABAJADOR: "Coordinador" };
 
 const MOMENTO: Record<string, string> = { tarea: "la tarea", plan: "el plan", subir: "subir a producción" };
 
@@ -57,7 +57,7 @@ function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyM
   if (cambio.accion === "estado" || cambio.accion === "aprobar") {
     const de = esEstado(antes.estado) ? NOMBRE_DEL_ESTADO[antes.estado] : "?";
     const a = esEstado(despues.estado) ? NOMBRE_DEL_ESTADO[despues.estado] : "?";
-    // Una aprobación de la fase 2 dice qué se aprobó y por dónde; un error del trabajador, su motivo.
+    // Una aprobación de la fase 2 dice qué se aprobó y por dónde; un error del Coordinador, su motivo.
     const como = typeof despues.como === "string" ? ` · ${despues.como}` : "";
     const momento = typeof despues.momento === "string" ? ` (${MOMENTO[despues.momento] ?? despues.momento})` : "";
     const motivo = typeof despues.motivo === "string" ? ` · ${despues.motivo}` : "";

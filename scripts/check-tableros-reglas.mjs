@@ -696,7 +696,7 @@ prueba("cambiar_estado nunca pone un estado del trabajador, ni APROBADO, desde n
       }
     }
   }
-  assert.match(reglas.puedeCambiarEstado("PLAN_LISTO", "PLAN_APROBADO", true, true, true), /solo el trabajador/);
+  assert.match(reglas.puedeCambiarEstado("PLAN_LISTO", "PLAN_APROBADO", true, true, true), /solo el Coordinador/);
 });
 
 prueba("con repo, EN_CURSO y HECHO los pone solo el trabajador; sin repo sigue la fase 1 (a mano)", () => {
@@ -812,7 +812,7 @@ prueba("deshacer un borrado por voz: vuelve PLAN_LISTO o ERROR; sin la marca, no
 });
 
 prueba("deshacer: lo del trabajador y cualquier aprobación (también por voz) no se deshacen; no deja ni quita estados aprobados", () => {
-  assert.match(reglas.puedeDeshacer(cambio({ origen: "TRABAJADOR", accion: "estado" }), [], "PLAN_LISTO"), /trabajador/);
+  assert.match(reglas.puedeDeshacer(cambio({ origen: "TRABAJADOR", accion: "estado" }), [], "PLAN_LISTO"), /Coordinador/);
   assert.match(
     reglas.puedeDeshacer(cambio({ origen: "MCP", accion: "aprobar", antes: { estado: "POR_REVISAR" } }), [], "SUBIENDO"),
     /aprobación/,

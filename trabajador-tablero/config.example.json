@@ -295,8 +295,10 @@
   },
   "modelos": {
     "planear": "opus",
+    "planearSencillo": "sonnet",
     "construir": "sonnet",
     "revisar": "sonnet",
-    "subagentes": "sonnet"
+    "subagentes": "sonnet",
+    "leer": "haiku"
   }
 }

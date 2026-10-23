@@ -13,11 +13,12 @@ import {
   esZona,
   type MomentoDeAprobacion,
 } from "../services/reglas-trabajador";
+import { textoDeModelos } from "../services/modelos-del-coordinador";
 import { resumenCorto } from "../services/resumen-corto";
 import type { TarjetaVista } from "../services/tableros";
 
 /*
-  La parte de la ficha del Tablero IA que es del TRABAJADOR (fase 2) y de las aprobaciones, en dos
+  La parte de la ficha del Tablero IA que es del Coordinador (fase 2) y de las aprobaciones, en dos
   piezas (23-oct-2026, pedido de Alexander: la ficha tenía demasiado texto técnico):
   - TrabajoDeLaTarjeta (arriba): el repo, la zona protegida, un RESUMEN CORTO en lenguaje sencillo
     (services/resumen-corto.ts), el error si falló y el botón que toca según el estado.
@@ -88,6 +89,7 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
   const estado = tarjeta.estado;
   const repo = tarjeta.repo && esRepo(tarjeta.repo) ? NOMBRE_DEL_REPO[tarjeta.repo] : tarjeta.repo;
   const resumen = resumenCorto({ resultadoResumen: resultado?.resumen, plan: tarjeta.plan, detalle: tarjeta.detalle });
+  const modelosTexto = textoDeModelos(tarjeta.plan, resultado?.modelo);
   const espera = (texto: string) => (
     <p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">{texto}</p>
   );
@@ -126,6 +128,8 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
         </div>
       ) : null}
 
+      {modelosTexto ? <p className="text-xs text-muted-foreground">{modelosTexto}</p> : null}
+
       {resumen ? (
         <div className="space-y-1">
           <p className="text-xs font-medium text-muted-foreground">
@@ -149,15 +153,15 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
         )
       ) : null}
 
-      {estado === "APROBADO" && tarjeta.repo ? espera("Aprobada: el trabajador la toma en el próximo minuto y escribe el plan.") : null}
-      {estado === "PLANEANDO" ? espera("El trabajador está escribiendo el plan…") : null}
-      {estado === "PLAN_APROBADO" ? espera("Plan aprobado: el trabajador la toma en el próximo minuto y la construye.") : null}
-      {estado === "EN_CURSO" && tarjeta.repo ? espera("El trabajador la está construyendo y probando en su rama…") : null}
+      {estado === "APROBADO" && tarjeta.repo ? espera("Aprobada: el Coordinador la toma en el próximo minuto y escribe el plan.") : null}
+      {estado === "PLANEANDO" ? espera("El Coordinador está escribiendo el plan…") : null}
+      {estado === "PLAN_APROBADO" ? espera("Plan aprobado: el Coordinador la toma en el próximo minuto y la construye.") : null}
+      {estado === "EN_CURSO" && tarjeta.repo ? espera("El Coordinador la está construyendo y probando en su rama…") : null}
       {estado === "SUBIENDO"
         ? espera(
             resultado?.subeSolo && !conZona
-              ? "Pasó todo y sube solo: el trabajador la sube a producción, espera el CI y comprueba la versión…"
-              : "Subiendo a producción: el trabajador espera el CI y comprueba la versión…",
+              ? "Pasó todo y sube solo: el Coordinador la sube a producción, espera el CI y comprueba la versión…"
+              : "Subiendo a producción: el Coordinador espera el CI y comprueba la versión…",
           )
         : null}
 
@@ -176,12 +180,12 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
         ? espera(
             conZona
               ? `Espera tu sí porque toca ${tarjeta.zonaProtegida.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")}: no sube sola.`
-              : "Espera tu sí: el trabajador no la subió solo (todavía no sube solo en este repositorio, o es de antes).",
+              : "Espera tu sí: el Coordinador no la subió solo (todavía no sube solo en este repositorio, o es de antes).",
           )
         : null}
       {estado === "POR_REVISAR" ? (
         resultado?.paso !== true ? (
-          espera("El trabajador no dijo que todo pasó: no se puede subir. Revisa el resultado en “Ver detalles”.")
+          espera("El Coordinador no dijo que todo pasó: no se puede subir. Revisa el resultado en “Ver detalles”.")
         ) : !esDueno ? (
           espera("Lista en su rama: el sí final lo da solo el dueño.")
         ) : confirmarSubida ? (
@@ -268,7 +272,7 @@ export function DetallesTecnicos({
 
         {tarjeta.plan ? (
           <div className="space-y-1">
-            <p className="text-xs font-medium text-muted-foreground">Plan del trabajador</p>
+            <p className="text-xs font-medium text-muted-foreground">Plan del Coordinador</p>
             <p className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-lg border px-3 py-2 text-sm leading-relaxed">{tarjeta.plan}</p>
           </div>
         ) : null}

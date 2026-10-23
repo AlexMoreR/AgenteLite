@@ -71,12 +71,12 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "en la pantalla. Si se edita una tarjeta aprobada, vuelve a POR_APROBAR. borrar_tarjeta quita la tarjeta con sus " +
           "flechas y se deshace con deshacer_cambio_tarjeta. Una tarjeta PLAN_LISTO o ERROR se borra solo si el dueno lo " +
           "pidio: antes leerle el titulo y esperar que diga 'si, borrala'; texto_confirmacion es lo que dijo, tal cual. " +
-          "Nunca borrar por cuenta propia. No se borra lo que tiene el trabajador (PLANEANDO, EN_CURSO, SUBIENDO) ni lo de zona protegida. " +
+          "Nunca borrar por cuenta propia. No se borra lo que tiene el Coordinador (PLANEANDO, EN_CURSO, SUBIENDO) ni lo de zona protegida. " +
           "TRABAJADOR (fase 2): una Tarea con repo (gestion o aizencrm) la ejecuta un PC aparte: escribe un plan (PLAN_LISTO), " +
           "el dueno lo aprueba, la construye y prueba en una rama y, si todo pasa, la sube sola a produccion (SUBIENDO -> HECHO, " +
           "con el link del commit); si el despliegue falla, deshace el commit y queda ERROR. Si toca chats, agentes, el libro V3 " +
           "o Meta Ads (zona protegida) no sube sola: queda POR_REVISAR esperando el si final del dueno. Si algo falla antes, " +
-          "queda ERROR con el motivo. Esos estados los pone solo el trabajador; ver_plan_y_resultado muestra el plan, el " +
+          "queda ERROR con el motivo. Esos estados los pone solo el Coordinador; ver_plan_y_resultado muestra el plan, el " +
           "resultado y quien aprobo que. aprobar_tarjeta (momento tarea, plan o subir) se usa SOLO si la persona lo dijo " +
           "explicitamente en esta conversacion: antes leerle el titulo y que se aprueba y esperar que diga 'si, apruebo'; " +
           "texto_confirmacion es lo que dijo, tal cual. Nunca aprobar por cuenta propia. El si final (subir) lo da solo el " +

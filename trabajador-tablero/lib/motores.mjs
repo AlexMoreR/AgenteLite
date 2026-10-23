@@ -1,4 +1,4 @@
-// Los MOTORES del trabajador (23-oct-2026): Claude Code (la suscripción de Alexander) y Codex CLI (la
+// Los MOTORES del Coordinador (23-oct-2026): Claude Code (la suscripción de Alexander) y Codex CLI (la
 // sesión de ChatGPT Plus). Por defecto Claude planea y revisa, Codex construye (config.motores).
 //
 // - motorDe(paso): quién hace planear / construir / revisar AHORA. Si Claude está sobre el umbral de uso
@@ -7,6 +7,7 @@
 // - leerUsoDeClaude(texto): lo que dice `claude -p /usage`, en números.
 // - decidirUso(...): qué avisar por WhatsApp (uno por cada cruce del umbral) y qué guardar.
 // - crearVigilanteDeUso(...): cada config.vigilarUsoMinutos lee el uso, avisa y prende/apaga "Claude alto".
+import { modeloDelPaso } from "./modelos.mjs";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -154,19 +155,19 @@ function pasosDeClaude(config, { verbo = "pasa" } = {}) {
 export function textoDelAviso(avisos, config) {
   const lineas = avisos.map((a) => `• ${NOMBRE_DEL_PERIODO[a.periodo]}: ${a.porcentaje} % usado, se reinicia ${a.reinicio || "(sin hora)"}`);
   return [
-    `⚠️ Trabajador del Tablero IA: el plan de Claude pasó el ${config.umbralClaude} %.`,
+    `⚠️ Coordinador del Tablero IA: el plan de Claude pasó el ${config.umbralClaude} %.`,
     ...lineas,
     config.motores.respaldoCodex
       ? `Mientras esté arriba, ${pasosDeClaude(config)} a Codex.`
-      : "El trabajador sigue con Claude; si se agota, las tarjetas esperan al reinicio.",
+      : "El Coordinador sigue con Claude; si se agota, las tarjetas esperan al reinicio.",
   ]
     .join("\n")
     .slice(0, 500);
 }
 
-/** Leer el uso: [...comandoClaude, "-p", "/usage"], sin entrada, 60 s. Devuelve el texto o null. */
+/** Leer el uso: [...comandoClaude, "-p", "--model", <leer: Haiku>, "/usage"], sin entrada, 60 s. Devuelve el texto o null. */
 async function leerUsoConClaude(config, entorno) {
-  const resultado = await correr([...config.comandoClaude, "-p", "/usage"], {
+  const resultado = await correr([...config.comandoClaude, "-p", "--model", modeloDelPaso(config, "leer"), "/usage"], {
     cwd: config.carpetaTrabajo,
     entrada: "",
     timeoutMs: 60_000,
@@ -219,7 +220,7 @@ export function crearVigilanteDeUso({ config, registro, crm, estado, entorno, le
     const decision = decidirUso(uso, guardado, config.umbralClaude);
     const aGuardar = { ...decision.estado };
 
-    if (decision.alertaLectura && !(await avisar("⚠️ Trabajador del Tablero IA: no pude leer el uso de Claude (claude -p /usage). Sigo como si estuviera bajo el umbral."))) {
+    if (decision.alertaLectura && !(await avisar("⚠️ Coordinador del Tablero IA: no pude leer el uso de Claude (claude -p /usage). Sigo como si estuviera bajo el umbral."))) {
       aGuardar.alertaLectura = guardado.alertaLectura ?? null;
     }
     if (decision.avisos.length && !(await avisar(textoDelAviso(decision.avisos, config)))) {

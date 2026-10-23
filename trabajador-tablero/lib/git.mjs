@@ -12,7 +12,7 @@ export class ErrorDeGit extends Error {}
 /*
   Con varias tarjetas a la vez (22-oct-2026), dos sesiones podrían correr git al mismo tiempo sobre el
   mismo repo (fetch, worktree add/remove, push) y chocar con los candados de git ("cannot lock ref",
-  index.lock). Los comandos git del trabajador van de a uno: son cortos, lo largo (Claude, el build,
+  index.lock). Los comandos git del Coordinador van de a uno: son cortos, lo largo (Claude, el build,
   las pruebas) sí corre en paralelo.
 */
 let fila = Promise.resolve();
@@ -22,7 +22,7 @@ function deAUno(tarea) {
   return turno;
 }
 
-/** git con identidad del trabajador; lanza si falla (con las últimas líneas de la salida). */
+/** git con identidad del Coordinador; lanza si falla (con las últimas líneas de la salida). */
 export async function git(cwd, argumentos, { identidad, timeoutMs = 10 * 60_000, permitirFallo = false, entrada } = {}) {
   const id = identidad ? ["-c", `user.name=${identidad.nombre}`, "-c", `user.email=${identidad.correo}`] : [];
   const resultado = await deAUno(() => correr(["git", ...id, ...argumentos], { cwd, timeoutMs, entrada }));
@@ -54,7 +54,7 @@ export function nombreDeRama(tarjeta) {
   return `tablero/${idCorto(tarjeta.id)}-${slug(tarjeta.titulo)}`;
 }
 
-/** Una rama del trabajador SIEMPRE empieza con "tablero/" (así nunca se empuja otra cosa con --force). */
+/** Una rama del Coordinador SIEMPRE empieza con "tablero/" (así nunca se empuja otra cosa con --force). */
 export function esRamaDelTrabajador(rama) {
   return typeof rama === "string" && /^tablero\/[A-Za-z0-9._/-]+$/.test(rama) && !rama.includes("..");
 }
@@ -107,9 +107,9 @@ export async function archivosCambiados(cwd, base) {
     });
 }
 
-/** Empuja SOLO una rama del trabajador (tablero/...). Con --force: cada intento la rehace desde main. */
+/** Empuja SOLO una rama del Coordinador (tablero/...). Con --force: cada intento la rehace desde main. */
 export async function pushDeRama(cwd, remoto, rama) {
-  if (!esRamaDelTrabajador(rama)) throw new ErrorDeGit(`"${rama}" no es una rama del trabajador (tablero/...): no se empuja.`);
+  if (!esRamaDelTrabajador(rama)) throw new ErrorDeGit(`"${rama}" no es una rama del Coordinador (tablero/...): no se empuja.`);
   await git(cwd, ["push", "--force", remoto, `HEAD:refs/heads/${rama}`]);
 }
 
@@ -146,7 +146,7 @@ export async function revertirEnRamaBase(cwd, { remoto, ramaBase, antes, commit,
       const agregadas = lineas((await git(cwd, ["diff", "--name-only", "--diff-filter=A", antes, commit, "--", carpetaMigraciones])).salida);
       if (agregadas.length) await git(cwd, ["checkout", commit, "--", ...agregadas]);
     }
-    const mensaje = [`revert: deshacer ${commit.slice(0, 10)} (el despliegue falló)`, "Lo deshizo solo el trabajador del Tablero IA. Las migraciones nuevas se conservan."];
+    const mensaje = [`revert: deshacer ${commit.slice(0, 10)} (el despliegue falló)`, "Lo deshizo solo el Coordinador del Tablero IA. Las migraciones nuevas se conservan."];
     await git(cwd, ["commit", "--allow-empty", "-m", mensaje[0], "-m", mensaje[1]], { identidad });
     const push = await git(cwd, ["push", remoto, `HEAD:refs/heads/${ramaBase}`], { permitirFallo: true });
     if (push.codigo === 0) return (await git(cwd, ["rev-parse", "HEAD"])).salida.trim();
