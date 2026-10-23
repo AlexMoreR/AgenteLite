@@ -1,19 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Check, ExternalLink, GitBranch, Loader2, RotateCcw, Rocket, ShieldAlert, X } from "lucide-react";
+import { useState, useTransition, type ReactNode } from "react";
+import { Check, ChevronRight, ExternalLink, GitBranch, Loader2, RotateCcw, Rocket, ShieldAlert, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { aprobarTarjetaAction, cambiarZonasAction } from "@/app/actions/tableros-inteligentes-actions";
 import {
   NOMBRE_DE_LA_ZONA,
@@ -22,17 +13,25 @@ import {
   esZona,
   type MomentoDeAprobacion,
 } from "../services/reglas-trabajador";
+import { resumenCorto } from "../services/resumen-corto";
 import type { TarjetaVista } from "../services/tableros";
 
 /*
-  La parte de la ficha del Tablero IA que es del TRABAJADOR (fase 2) y de las aprobaciones: el repo,
-  la zona protegida, el plan, el resultado (resumen, pruebas, pasó sí/no, link de la rama, el error) y
-  los botones según el estado y quién mira:
+  La parte de la ficha del Tablero IA que es del TRABAJADOR (fase 2) y de las aprobaciones, en dos
+  piezas (23-oct-2026, pedido de Alexander: la ficha tenía demasiado texto técnico):
+  - TrabajoDeLaTarjeta (arriba): el repo, la zona protegida, un RESUMEN CORTO en lenguaje sencillo
+    (services/resumen-corto.ts), el error si falló y el botón que toca según el estado.
+  - DetallesTecnicos (abajo): el acordeón cerrado "Ver detalles" con el detalle completo, el plan, el
+    resumen completo, los archivos tocados, el log de pruebas, la rama, el commit, la migración y lo que
+    le pase la ficha (el historial de aprobaciones).
+  Los botones según el estado y quién mira:
   - "Aprobar tarea" (POR_APROBAR) y "Aprobar plan" (PLAN_LISTO): quien puede aprobar.
-  - "Sí, subir a producción" (POR_REVISAR, con todo pasado): SOLO el dueño, con confirmación. Desde el
-    21-oct-2026 lo normal es que suba sola (EN_CURSO -> SUBIENDO -> HECHO, con el link del commit);
-    POR_REVISAR queda para las que tocan una zona protegida (chats, agentes, libro V3, Meta Ads) y
-    acá se dice cuál.
+  - "Sí, subir" (POR_REVISAR, con todo pasado): SOLO el dueño (SI_FINAL_SOLO_DUENO: el servidor rechaza a
+    cualquier otro, ADMIN de plataforma incluido). Grande, arriba y con confirmación en la misma pantalla
+    ("Se sube a producción. ¿Seguro?"), sin window.confirm. Con zona protegida también sale: la
+    aprobación en pantalla es justo lo que esas zonas exigen. Desde el 21-oct-2026 lo normal es que suba
+    sola (EN_CURSO -> SUBIENDO -> HECHO, con el link del commit); POR_REVISAR queda para las que tocan
+    una zona protegida (chats, agentes, libro V3, Meta Ads) y acá se dice cuál.
   - "Reintentar" (ERROR): con el plan que ya tiene (si tiene) o planeando de nuevo.
   - Quitar una zona protegida: solo el dueño.
   Los botones son una ayuda: el servidor vuelve a revisar todo (reglas-trabajador.ts). Cada aprobación
@@ -51,6 +50,7 @@ type Props = {
 };
 
 const BOTON = "h-11 w-full text-base";
+const BOTON_GRANDE = "h-14 w-full text-lg font-semibold";
 
 export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDueno, alCambiar }: Props) {
   const [ocupado, empezar] = useTransition();
@@ -87,6 +87,7 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
 
   const estado = tarjeta.estado;
   const repo = tarjeta.repo && esRepo(tarjeta.repo) ? NOMBRE_DEL_REPO[tarjeta.repo] : tarjeta.repo;
+  const resumen = resumenCorto({ resultadoResumen: resultado?.resumen, plan: tarjeta.plan, detalle: tarjeta.detalle });
   const espera = (texto: string) => (
     <p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">{texto}</p>
   );
@@ -124,6 +125,17 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
           ))}
         </div>
       ) : null}
+
+      {resumen ? (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">
+            {resumen.fuente === "resultado" ? "Qué hizo" : resumen.fuente === "plan" ? "Qué se cambia" : "De qué se trata"}
+            {resultado && estado !== "ERROR" ? ` · ${resultado.paso ? "pasó todo" : "NO pasó"}` : ""}
+          </p>
+          <p className="text-base leading-relaxed">{resumen.texto}</p>
+        </div>
+      ) : null}
+
       {conZona ? espera("Toca una zona protegida: se aprueba solo en esta pantalla, y solo el dueño.") : null}
 
       {estado === "POR_APROBAR" ? (
@@ -168,15 +180,28 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
           )
         : null}
       {estado === "POR_REVISAR" ? (
-        esDueno && resultado?.paso === true ? (
-          <Button className={BOTON} onClick={() => setConfirmarSubida(true)} disabled={ocupado}>
-            <Rocket />
-            Sí, subir a producción
-          </Button>
-        ) : resultado?.paso !== true ? (
-          espera("El trabajador no dijo que todo pasó: no se puede subir. Revisa el resultado.")
-        ) : (
+        resultado?.paso !== true ? (
+          espera("El trabajador no dijo que todo pasó: no se puede subir. Revisa el resultado en “Ver detalles”.")
+        ) : !esDueno ? (
           espera("Lista en su rama: el sí final lo da solo el dueño.")
+        ) : confirmarSubida ? (
+          <div role="alertdialog" aria-label="Confirmar la subida a producción" className="space-y-3 rounded-lg border-2 border-primary p-3">
+            <p className="text-base font-medium">Se sube a producción. ¿Seguro?</p>
+            <div className="flex gap-2">
+              <Button variant="outline" className="h-12 flex-1 text-base" onClick={() => setConfirmarSubida(false)} disabled={ocupado}>
+                Cancelar
+              </Button>
+              <Button className="h-12 flex-1 text-base" onClick={() => aprobar("subir", "Sí final: se sube a producción")} disabled={ocupado}>
+                {ocupado ? <Loader2 className="animate-spin" /> : <Rocket />}
+                Confirmar
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button className={BOTON_GRANDE} onClick={() => setConfirmarSubida(true)} disabled={ocupado}>
+            <Rocket className="size-5" />
+            Sí, subir
+          </Button>
         )
       ) : null}
 
@@ -202,75 +227,104 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
       {estado === "ERROR" && resultado?.error?.motivo ? (
         <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-700 dark:bg-red-950 dark:text-red-100">
           <p className="text-xs font-medium">Falló{resultado.error.en ? ` (en ${resultado.error.en})` : ""}</p>
-          <p className="mt-0.5 whitespace-pre-wrap">{resultado.error.motivo}</p>
+          <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap">{resultado.error.motivo}</p>
         </div>
       ) : null}
-
-      {tarjeta.plan ? (
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">Plan del trabajador</p>
-          <p className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-lg border px-3 py-2 text-sm leading-relaxed">{tarjeta.plan}</p>
-        </div>
-      ) : null}
-
-      {resultado?.resumen ? (
-        <div className="space-y-1.5">
-          <p className="text-xs font-medium text-muted-foreground">
-            Resultado · {resultado.paso ? "pasó todo" : "NO pasó"}
-            {tarjeta.intentos > 1 ? ` · intento ${tarjeta.intentos}` : ""}
-          </p>
-          <p className="whitespace-pre-wrap rounded-lg border px-3 py-2 text-sm leading-relaxed">{resultado.resumen}</p>
-          {resultado.pruebas ? (
-            <p className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-muted/40 px-3 py-2 font-mono text-xs">
-              {resultado.pruebas}
-            </p>
-          ) : null}
-          {resultado.migracion ? <p className="text-xs text-muted-foreground">Migración: {resultado.migracion}</p> : null}
-          {resultado.linkRama ? (
-            <Button
-              variant="outline"
-              className="h-10 w-full justify-start"
-              render={<a href={resultado.linkRama} target="_blank" rel="noopener noreferrer" />}
-            >
-              <ExternalLink />
-              <span className="truncate">Ver la rama {resultado.rama ?? ""}</span>
-            </Button>
-          ) : resultado.rama ? (
-            <p className="text-xs text-muted-foreground">Rama: {resultado.rama}</p>
-          ) : null}
-          {resultado.subida?.commit && resultado.subida.linkCommit ? (
-            <Button
-              variant="outline"
-              className="h-10 w-full justify-start"
-              render={<a href={resultado.subida.linkCommit} target="_blank" rel="noopener noreferrer" />}
-            >
-              <ExternalLink />
-              <span className="truncate">En producción: commit {resultado.subida.commit.slice(0, 10)}</span>
-            </Button>
-          ) : resultado.subida?.commit ? (
-            <p className="text-xs text-muted-foreground">Subida: commit {resultado.subida.commit.slice(0, 10)}</p>
-          ) : null}
-        </div>
-      ) : null}
-
-      <Dialog open={confirmarSubida} onOpenChange={setConfirmarSubida}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>¿Subir a producción?</DialogTitle>
-            <DialogDescription>
-              “{tarjeta.titulo}” se sube a main{repo ? ` de ${repo}` : ""} y se despliega solo. El trabajador vuelve a probar
-              todo antes de subir y, si algo falla, no sube y queda en Error.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>Cancelar</DialogClose>
-            <Button onClick={() => aprobar("subir", "Sí final: se sube a producción")} disabled={ocupado}>
-              {ocupado ? <Loader2 className="animate-spin" /> : <Rocket />}
-              Sí, subir
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
+  );
+}
+
+/**
+ * El acordeón "Ver detalles" (cerrado por defecto) con todo lo técnico de la tarjeta. `children` va al
+ * final (la ficha le pasa el historial). Si la tarjeta no pide aprobación solo muestra `children`.
+ */
+export function DetallesTecnicos({
+  tarjeta,
+  pideAprobacion,
+  children,
+}: {
+  tarjeta: TarjetaVista;
+  pideAprobacion: boolean;
+  children?: ReactNode;
+}) {
+  const resultado = tarjeta.resultado;
+  const detalle = tarjeta.detalle?.trim();
+  const hay = Boolean(detalle || tarjeta.plan || resultado || tarjeta.resultado?.error?.motivo || children);
+  if (!pideAprobacion || !hay) return <>{children}</>;
+
+  return (
+    <details className="group rounded-lg border">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="size-4 shrink-0 transition-transform group-open:rotate-90" aria-hidden />
+        Ver detalles
+      </summary>
+      <div className="space-y-4 border-t px-3 py-3 [overflow-wrap:anywhere]">
+        {detalle ? (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Detalle de la tarjeta</p>
+            <p className="max-h-80 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">{detalle}</p>
+          </div>
+        ) : null}
+
+        {tarjeta.plan ? (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Plan del trabajador</p>
+            <p className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-lg border px-3 py-2 text-sm leading-relaxed">{tarjeta.plan}</p>
+          </div>
+        ) : null}
+
+        {resultado?.resumen ? (
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground">
+              Resultado · {resultado.paso ? "pasó todo" : "NO pasó"}
+              {tarjeta.intentos > 1 ? ` · intento ${tarjeta.intentos}` : ""}
+            </p>
+            <p className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-lg border px-3 py-2 text-sm leading-relaxed">{resultado.resumen}</p>
+            {resultado.pruebas ? (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Pruebas</p>
+                <p className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-muted/40 px-3 py-2 font-mono text-xs">
+                  {resultado.pruebas}
+                </p>
+              </div>
+            ) : null}
+            {resultado.migracion ? <p className="text-xs text-muted-foreground">Migración: {resultado.migracion}</p> : null}
+            {resultado.linkRama ? (
+              <Button
+                variant="outline"
+                className="h-10 w-full justify-start"
+                render={<a href={resultado.linkRama} target="_blank" rel="noopener noreferrer" />}
+              >
+                <ExternalLink />
+                <span className="truncate">Ver la rama {resultado.rama ?? ""}</span>
+              </Button>
+            ) : resultado.rama ? (
+              <p className="text-xs text-muted-foreground">Rama: {resultado.rama}</p>
+            ) : null}
+            {resultado.subida?.commit && resultado.subida.linkCommit ? (
+              <Button
+                variant="outline"
+                className="h-10 w-full justify-start"
+                render={<a href={resultado.subida.linkCommit} target="_blank" rel="noopener noreferrer" />}
+              >
+                <ExternalLink />
+                <span className="truncate">En producción: commit {resultado.subida.commit.slice(0, 10)}</span>
+              </Button>
+            ) : resultado.subida?.commit ? (
+              <p className="text-xs text-muted-foreground">Subida: commit {resultado.subida.commit.slice(0, 10)}</p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {resultado?.error?.motivo ? (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Error completo{resultado.error.en ? ` (en ${resultado.error.en})` : ""}</p>
+            <p className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border px-3 py-2 text-sm">{resultado.error.motivo}</p>
+          </div>
+        ) : null}
+
+        {children}
+      </div>
+    </details>
   );
 }

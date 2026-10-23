@@ -317,9 +317,18 @@ la IA pausada no lo contesta el agente.
   Con `subirSolo` apagado todo sigue como antes (POR_REVISAR); en aizencrm el trabajador no arranca con
   `subirSolo` prendido si le falta la zona CHATS.
   Contadores: "te toca" = POR_APROBAR + PLAN_LISTO + POR_REVISAR + ERROR + FALLIDO; "en curso" =
-  PLANEANDO + PLAN_APROBADO + EN_CURSO + SUBIENDO; "siguen" = IDEA + APROBADO. En la pantalla, la ficha
-  muestra repo, zona, plan y resultado con los botones Aprobar tarea / Aprobar plan / Sí, subir a
-  producción / Reintentar, y el dueño (o el ADMIN de la plataforma, desde el 20-oct-2026) tiene el panel
+  PLANEANDO + PLAN_APROBADO + EN_CURSO + SUBIENDO; "siguen" = IDEA + APROBADO. En la pantalla (desde el
+  23-oct-2026), la ficha de una tarjeta con aprobación muestra ARRIBA solo el repo, la zona, un **resumen
+  corto** (hasta ~300 caracteres, en lenguaje sencillo: sale de las primeras líneas útiles de
+  `resultado.resumen`, o de la sección "Qué se cambia" del plan, o del detalle; sin markdown ni frases de
+  relleno; `services/resumen-corto.ts`) y el botón que toca: Aprobar tarea / Aprobar plan / **Sí, subir**
+  (grande, solo el dueño, con confirmación en la misma pantalla "Se sube a producción. ¿Seguro?"; sale
+  también con zona protegida y solo si el trabajador dijo que todo pasó) / Reintentar. Todo lo técnico
+  (detalle completo, plan, resumen completo, pruebas, rama, commit, migración, error completo e
+  historial) va en el acordeón cerrado **Ver detalles**. Ojo: un ADMIN de la plataforma que no es la
+  cuenta dueña registrada del negocio NO ve "Sí, subir" (el servidor se lo rechazaría: el sí final es solo
+  del dueño). La vista Lista / "Te toca a ti" ya no existe en la pantalla (el mapa la reemplazó; "Te toca"
+  es un chip del mapa y el endpoint `pendientes` sigue, sin uso en la pantalla). El dueño (o el ADMIN de la plataforma, desde el 20-oct-2026) tiene el panel
   Trabajador (la sección de la página de inicio de Tablero IA: clave y aprobadores); sus server actions piden lo mismo
   (`personaPuedeAprobar`), así que una asesora no lo ve ni lo puede llamar.
   Solo las tarjetas de un **tipo que pide aprobación** (Tarea) pasan por POR_APROBAR y APROBADO; las de un tipo

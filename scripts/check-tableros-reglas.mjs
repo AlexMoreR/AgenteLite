@@ -1185,4 +1185,40 @@ prueba("el dueño de un tablero se elige por id, email o nombre (sin tildes ni m
   assert.match(reglas.elegirMiembro(miembros, 7).error, /Falta el dueño/);
 });
 
+/* ------------------------------------------------------------ resumen corto de la ficha */
+
+const { resumenCorto, sinMarkdown, seccionQueSeCambia } = cargar("src/features/tableros-inteligentes/services/resumen-corto.ts");
+
+prueba("el resumen corto limpia el markdown y quita el relleno del trabajador", () => {
+  const r = resumenCorto({
+    resultadoResumen:
+      "## Resumen\nEspero a que terminen los subagentes.\n**Listo**: ahora el botón *Sí, subir* sale arriba de la ficha.\n- Se acortó el texto técnico.",
+  });
+  assert.equal(r.fuente, "resultado");
+  assert.ok(!/[#*`]/.test(r.texto), r.texto);
+  assert.ok(!/subagentes/i.test(r.texto), r.texto);
+  assert.match(r.texto, /botón Sí, subir sale arriba/);
+});
+
+prueba("el resumen corto no pasa de ~300 caracteres y avisa que cortó", () => {
+  const largo = Array.from({ length: 40 }, (_, i) => `Línea número ${i} que explica algo del cambio.`).join("\n");
+  const r = resumenCorto({ resultadoResumen: largo });
+  assert.ok(r.texto.length <= 300, String(r.texto.length));
+  assert.equal(r.cortado, true);
+  const unaLineaGigante = resumenCorto({ detalle: "palabra ".repeat(200) });
+  assert.ok(unaLineaGigante.texto.length <= 301);
+  assert.ok(unaLineaGigante.texto.endsWith("…"));
+});
+
+prueba("sin resultado usa 'Qué se cambia' del plan; sin plan, el detalle; sin nada, null", () => {
+  const plan = "# Plan\n## Contexto\nTexto de contexto largo que no va.\n## Qué se cambia\n- Botón grande para subir.\n- Ficha más corta.\n## Pruebas\nCorrer todo.";
+  assert.equal(seccionQueSeCambia(plan).includes("Contexto"), false);
+  const r = resumenCorto({ resultadoResumen: "", plan, detalle: "otro" });
+  assert.equal(r.fuente, "plan");
+  assert.equal(r.texto, "Botón grande para subir. Ficha más corta.");
+  assert.equal(resumenCorto({ plan: null, detalle: "Cambiar el color del botón principal." }).fuente, "detalle");
+  assert.equal(resumenCorto({ resultadoResumen: "Listo.\n---\n", plan: "", detalle: "" }), null);
+  assert.equal(sinMarkdown("1. **Hola** [link](http://x.co) `código`"), "Hola link código");
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);

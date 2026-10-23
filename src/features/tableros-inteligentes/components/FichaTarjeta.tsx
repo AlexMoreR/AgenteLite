@@ -12,7 +12,7 @@ import { NOMBRE_DEL_ESTADO, esEstado, textoDelLink } from "../services/reglas";
 import type { TarjetaVista, TipoVista } from "../services/tableros";
 import { COLOR_DEL_ESTADO } from "./colores";
 import { IconoDeTipo } from "./IconoDeTipo";
-import { TrabajoDeLaTarjeta } from "./TrabajoDeLaTarjeta";
+import { DetallesTecnicos, TrabajoDeLaTarjeta } from "./TrabajoDeLaTarjeta";
 
 const CUANDO = new Intl.DateTimeFormat("es-CO", {
   timeZone: "America/Bogota",
@@ -98,8 +98,9 @@ type Props = {
 };
 
 /**
- * La ficha de una tarjeta: tipo, detalle, link, el trabajo del trabajador (repo, zona protegida, plan,
- * resultado y los botones de aprobar), de quién cuelga, sus flechas y el historial.
+ * La ficha de una tarjeta: tipo, link, el resumen corto y el botón que toca (repo, zona protegida,
+ * Aprobar tarea / Aprobar plan / Sí, subir / Reintentar), de quién cuelga, sus flechas y, en el acordeón
+ * cerrado "Ver detalles", lo técnico (detalle, plan, resultado, pruebas, rama, commit) y el historial.
  */
 export function FichaTarjeta({
   tarjeta,
@@ -179,7 +180,9 @@ export function FichaTarjeta({
             </SheetHeader>
 
             <div className="space-y-4 px-4 pb-6">
-              {tarjeta.detalle ? (
+              {/* Las tarjetas con aprobación muestran arriba el resumen corto (TrabajoDeLaTarjeta) y su detalle
+                  completo va en "Ver detalles"; las demás (áreas, ideas) muestran el detalle tal cual. */}
+              {pideAprobacion ? null : tarjeta.detalle ? (
                 <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{tarjeta.detalle}</p>
               ) : (
                 <p className="text-sm text-muted-foreground">Sin detalle.</p>
@@ -252,6 +255,7 @@ export function FichaTarjeta({
                 </div>
               ) : null}
 
+              <DetallesTecnicos tarjeta={tarjeta} pideAprobacion={pideAprobacion}>
               <div className="space-y-2">
                 {historialDeEsta ? (
                   <>
@@ -285,6 +289,7 @@ export function FichaTarjeta({
                   </Button>
                 )}
               </div>
+              </DetallesTecnicos>
             </div>
           </>
         ) : (
