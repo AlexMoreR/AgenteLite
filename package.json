@@ -37,6 +37,7 @@
     "test:seguimiento-inteligente": "node scripts/check-seguimiento-inteligente.mjs",
     "test:avisos-gravedad": "node scripts/check-avisos-gravedad.mjs",
     "test:supervisor-accionable": "node scripts/check-supervisor-accionable.mjs",
+    "test:mcp-supervisor": "node scripts/check-mcp-supervisor.mjs",
     "test:rescate-mensajes": "node scripts/check-rescate-mensajes.mjs",
     "test:turno": "node scripts/check-turno.mjs",
     "test:recuperacion-72h": "node scripts/check-recuperacion-72h.mjs",
