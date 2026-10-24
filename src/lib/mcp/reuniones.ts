@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 import { NOMBRE_DEL_ESTADO } from "@/features/reuniones/estados";
+import { nombresDeUsuariosPara } from "@/features/reuniones/servicios/nombres-de-usuarios";
+import { personasDeLaReunion } from "@/features/reuniones/servicios/nombres-de-participantes";
 import { buscarReuniones } from "@/features/reuniones/servicios/buscar-reuniones";
 
 /*
@@ -114,7 +116,7 @@ async function verReunion(args: Argumentos, contexto: Contexto) {
       textoTranscripcion: true,
       acta: true,
       creadaPor: { select: { name: true, email: true } },
-      participantes: { orderBy: { entroEn: "asc" }, select: { nombre: true, entroEn: true, salioEn: true } },
+      participantes: { orderBy: { entroEn: "asc" }, select: { nombre: true, identidad: true, userId: true, entroEn: true, salioEn: true } },
     },
   });
   if (!reunion) {
@@ -129,8 +131,8 @@ async function verReunion(args: Argumentos, contexto: Contexto) {
     empezo_en: fecha(reunion.empezoEn),
     termino_en: fecha(reunion.terminoEn),
     creada_por: reunion.creadaPor?.name?.trim() || reunion.creadaPor?.email || null,
-    participantes: reunion.participantes.map((participante) => ({
-      nombre: participante.nombre,
+    participantes: personasDeLaReunion(reunion.participantes, await nombresDeUsuariosPara(reunion.participantes)).map((participante) => ({
+      nombre: participante.nombreVisible,
       entro_en: fecha(participante.entroEn),
       salio_en: fecha(participante.salioEn),
     })),

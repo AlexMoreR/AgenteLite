@@ -4,7 +4,7 @@
 # servicio `livekit`), para que Portainer ponga la clave: si cambias algo acá, cámbialo allá también.
 # Este archivo sirve para leerla con calma y para probar en local:
 #
-#   docker run --rm -p 7880:7880 -p 7881:7881 -p 50000:50000/udp \
+#   docker run --rm -p 7880:7880 -p 7881:7881 -p 50100:50100/udp \
 #     -v ./docker/livekit/livekit.yaml:/etc/livekit.yaml \
 #     -e LIVEKIT_KEYS="devkey: secret-de-prueba-de-32-caracteres!!" \
 #     livekit/livekit-server:v1.13.0 --config /etc/livekit.yaml --dev
@@ -16,8 +16,8 @@ rtc:
   # TCP de respaldo (redes que cortan el UDP).
   tcp_port: 7881
   # Todo el UDP del audio y el video por UN puerto (mux). Las reuniones son de 2 a 6 personas: alcanza
-  # de sobra, y en Swarm (mode: host) se publica un solo puerto. El firewall deja 50000-50200/UDP.
-  udp_port: 50000
+  # de sobra, y en Swarm (mode: host) se publica un solo puerto. El firewall deja 50100-50200/UDP (el 50000 lo usa otro programa del VPS, wacalls).
+  udp_port: 50100
   # El VPS tiene IP pública: LiveKit la averigua y la anuncia a los navegadores.
   use_external_ip: true
 redis:

@@ -52,7 +52,7 @@ export async function buscarReuniones(workspaceId: string, texto?: string | null
       terminoEn: true,
       acta: true,
       creadaPor: { select: { name: true, email: true } },
-      _count: { select: { participantes: true } },
+      _count: { select: { participantes: { where: { NOT: { identidad: { startsWith: "EG_" } } } } } },
     },
   });
   return filas.map((fila) => ({

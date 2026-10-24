@@ -1,4 +1,6 @@
-import { mkdir } from "node:fs/promises";
+import { chmod, mkdir } from "node:fs/promises";
+
+import { esDeEgress, nombreParaGuardar } from "./nombres-de-participantes";
 
 import { prisma } from "@/lib/prisma";
 import { userIdDeIdentidad } from "@/features/reuniones/estados";
@@ -98,7 +100,13 @@ async function registrarParticipante(reunionId: string, participante: Participan
   if (!identidad) {
     return null;
   }
-  const nombre = participante.name?.trim().slice(0, 80) || identidad;
+  // El grabador de Egress (EG_...) no es una persona: no se registra.
+  if (esDeEgress(identidad)) {
+    return null;
+  }
+  const userId = userIdDeIdentidad(identidad);
+  const delUsuario = userId ? await prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }).catch(() => null) : null;
+  const nombre = nombreParaGuardar(participante.name, identidad, delUsuario?.name || delUsuario?.email);
   return prisma.reunionParticipante.upsert({
     where: { reunionId_identidad: { reunionId, identidad } },
     create: { reunionId, identidad, nombre, userId: userIdDeIdentidad(identidad) },
@@ -117,7 +125,7 @@ export async function revisarSiTermino(reunionId: string) {
     select: {
       estado: true,
       terminoEn: true,
-      _count: { select: { participantes: true } },
+      _count: { select: { participantes: { where: { NOT: { identidad: { startsWith: "EG_" } } } } } },
       pistas: { select: { estado: true } },
     },
   });
@@ -173,7 +181,10 @@ async function empezarGrabacion(config: ConfigLivekit, reunion: { id: string; sa
 
   try {
     // Egress no siempre crea la carpeta de la sala: la deja lista el CRM (es el mismo volumen).
-    await mkdir(rutaDeArchivo(reunion.sala), { recursive: true }).catch(() => {});
+    // 0o775: Egress corre como otro usuario (uid 1001, grupo 0) y necesita escribir; el umask recorta el modo, por eso el chmod.
+    const carpeta = rutaDeArchivo(reunion.sala);
+    await mkdir(carpeta, { recursive: true, mode: 0o775 }).catch(() => {});
+    await chmod(carpeta, 0o775).catch(() => {});
     const egressId = await grabarPista(config, { sala: reunion.sala, trackSid, archivo });
     await prisma.reunionPista.update({ where: { id: pistaId }, data: { egressId } });
   } catch (error) {

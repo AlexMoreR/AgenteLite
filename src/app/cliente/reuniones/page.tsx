@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Reuniones: videollamadas propias (LiveKit) que se graban por persona, se pasan a texto y dejan
- * un acta. También entra acá un audio de una reunión hecha por fuera ("Subir audio").
+ * un acta.
  */
 export default async function ClienteReunionesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const access = await requireClientWorkspaceAccess("reuniones");

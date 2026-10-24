@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { EstadoReunion } from "@prisma/client";
-import { Copy, Loader2, MessageCircle, Plus, Search, Upload, Video } from "lucide-react";
+import { Copy, Loader2, MessageCircle, Plus, Search, Video } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -27,8 +27,6 @@ export type ReunionDeLaPantalla = {
   resumen: string | null;
 };
 
-const EXTENSIONES = ".m4a,.mp3,.wav,.ogg,.webm,audio/*";
-const TOPE_BYTES = 500 * 1024 * 1024;
 
 /** El color de cada estado: rojo en vivo y en error, gris lo que espera, normal lo que está listo. */
 export function EtiquetaDeEstado({ estado }: { estado: EstadoReunion }) {
@@ -90,9 +88,7 @@ export function ReunionesWorkspace({
   const [titulo, setTitulo] = useState("");
   const [texto, setTexto] = useState(buscado);
   const [creando, startCrear] = useTransition();
-  const [subiendo, setSubiendo] = useState<number | null>(null);
   const [nueva, setNueva] = useState<{ codigo: string; titulo: string } | null>(null);
-  const archivo = useRef<HTMLInputElement>(null);
 
   // Mientras algo está en vivo o en la cola, la lista se pone al día sola.
   const hayEnCurso = reuniones.some((reunion) => ESTADOS_EN_CURSO.includes(reunion.estado));
@@ -127,53 +123,11 @@ export function ReunionesWorkspace({
     router.push(q ? `/cliente/reuniones?q=${encodeURIComponent(q)}` : "/cliente/reuniones");
   };
 
-  /* El audio va como cuerpo del pedido y no como formulario: así el servidor lo escribe al disco por partes. */
-  const subir = (elegido: File | undefined) => {
-    if (!elegido) {
-      return;
-    }
-    if (elegido.size > TOPE_BYTES) {
-      toast.error("El audio pasa de 500 MB.");
-      return;
-    }
-    const pedido = new XMLHttpRequest();
-    const parametros = new URLSearchParams({ archivo: elegido.name, titulo: titulo.trim() });
-    pedido.open("POST", `/api/reuniones/subir?${parametros.toString()}`);
-    pedido.upload.onprogress = (evento) => {
-      if (evento.lengthComputable) {
-        setSubiendo(Math.round((evento.loaded / evento.total) * 100));
-      }
-    };
-    pedido.onload = () => {
-      setSubiendo(null);
-      let respuesta: { ok?: boolean; id?: string; error?: string } = {};
-      try {
-        respuesta = JSON.parse(pedido.responseText);
-      } catch {
-        // Sin JSON: se muestra el error genérico.
-      }
-      if (pedido.status >= 400 || !respuesta.ok) {
-        toast.error(respuesta.error ?? "No se pudo subir el audio.");
-        return;
-      }
-      toast.success("Audio subido: entra a la cola para pasarlo a texto.");
-      setTitulo("");
-      router.refresh();
-    };
-    pedido.onerror = () => {
-      setSubiendo(null);
-      toast.error("Se cortó la subida. Intenta de nuevo.");
-    };
-    setSubiendo(0);
-    pedido.send(elegido);
-  };
-
   return (
     <section className="mx-auto w-full max-w-3xl space-y-4 px-4 py-5">
       {!videoListo ? (
         <p className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-          La videollamada todavía no está configurada en el servidor (faltan las variables LIVEKIT_*). Mientras tanto se
-          puede subir el audio de una reunión hecha por fuera.
+          La videollamada todavía no está configurada en el servidor (faltan las variables LIVEKIT_*).
         </p>
       ) : null}
       {!hayClaveDeOpenAI ? (
@@ -195,20 +149,6 @@ export function ReunionesWorkspace({
             {creando ? <Loader2 className="animate-spin" /> : <Plus />}
             Nueva reunión
           </Button>
-          <Button variant="outline" onClick={() => archivo.current?.click()} disabled={subiendo !== null} className="flex-1 sm:flex-none">
-            {subiendo !== null ? <Loader2 className="animate-spin" /> : <Upload />}
-            {subiendo !== null ? `Subiendo ${subiendo} %` : "Subir audio"}
-          </Button>
-          <input
-            ref={archivo}
-            type="file"
-            accept={EXTENSIONES}
-            className="hidden"
-            onChange={(evento) => {
-              subir(evento.target.files?.[0]);
-              evento.target.value = "";
-            }}
-          />
         </div>
       </div>
 

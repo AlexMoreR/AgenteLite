@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { nombresDeUsuariosPara } from "@/features/reuniones/servicios/nombres-de-usuarios";
+import { nombreVisible, pareceIdentidad, personasDeLaReunion } from "@/features/reuniones/servicios/nombres-de-participantes";
 
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
@@ -35,16 +37,21 @@ export default async function ClienteReunionPage({ params }: { params: Promise<{
       transcripcion: true,
       acta: true,
       creadaPor: { select: { name: true, email: true } },
-      participantes: { orderBy: { entroEn: "asc" }, select: { id: true, nombre: true, entroEn: true, salioEn: true } },
+      participantes: { orderBy: { entroEn: "asc" }, select: { id: true, nombre: true, identidad: true, userId: true, entroEn: true, salioEn: true } },
       pistas: {
         orderBy: { empiezaEn: "asc" },
-        select: { id: true, estado: true, empiezaEn: true, terminaEn: true, participante: { select: { nombre: true } } },
+        select: { id: true, estado: true, empiezaEn: true, terminaEn: true, participante: { select: { nombre: true, identidad: true, userId: true } } },
       },
     },
   });
   if (!reunion) {
     notFound();
   }
+
+  // Nombres, nunca identidades (u_..., EG_...): los registros viejos se completan con el nombre del usuario.
+  const nombres = await nombresDeUsuariosPara([...reunion.participantes, ...reunion.pistas.flatMap((pista) => (pista.participante ? [pista.participante] : []))]);
+  const personas = personasDeLaReunion(reunion.participantes, nombres);
+  const visiblePorNombre = new Map(personas.flatMap((p) => [[p.nombre, p.nombreVisible], [p.identidad, p.nombreVisible]] as const));
 
   // Los audios se escuchan solo con un link firmado que vence en 1 hora.
   const secreto = secretoDeLosLinks();
@@ -63,20 +70,20 @@ export default async function ClienteReunionPage({ params }: { params: Promise<{
         empezoEn: reunion.empezoEn?.toISOString() ?? null,
         terminoEn: reunion.terminoEn?.toISOString() ?? null,
         creadaPor: reunion.creadaPor?.name?.trim() || reunion.creadaPor?.email || null,
-        participantes: reunion.participantes.map((participante) => ({
+        participantes: personas.map((participante) => ({
           id: participante.id,
-          nombre: participante.nombre,
+          nombre: participante.nombreVisible,
           entroEn: participante.entroEn.toISOString(),
           salioEn: participante.salioEn?.toISOString() ?? null,
         })),
         pistas: reunion.pistas.map((pista) => ({
           id: pista.id,
-          nombre: pista.participante?.nombre ?? (reunion.origen === "SUBIDA" ? "Audio subido" : "Sin nombre"),
+          nombre: (pista.participante ? nombreVisible(pista.participante, nombres) : null) ?? (reunion.origen === "SUBIDA" ? "Audio subido" : "Sin nombre"),
           estado: pista.estado,
           empiezaEn: pista.empiezaEn?.toISOString() ?? null,
           link: secreto && (pista.estado === "LISTA" || pista.estado === "TRANSCRITA") ? linkFirmado(pista.id, secreto) : null,
         })),
-        frases: Array.isArray(reunion.transcripcion) ? (reunion.transcripcion as unknown as FraseDeReunion[]) : [],
+        frases: Array.isArray(reunion.transcripcion) ? (reunion.transcripcion as unknown as FraseDeReunion[]).map((frase) => ({ ...frase, nombre: visiblePorNombre.get(frase.nombre) ?? (pareceIdentidad(frase.nombre) ? "Participante" : frase.nombre) })) : [],
         acta: reunion.acta ? normalizarActa(reunion.acta) : null,
       }}
     />

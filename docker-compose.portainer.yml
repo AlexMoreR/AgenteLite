@@ -176,7 +176,7 @@ services:
   # La configuración se lee mejor en docker/livekit/*.yaml; acá va copiada para que Portainer ponga las
   # claves. Si cambias una, cambia la otra.
   #
-  # Antes de prenderlo, a mano en el VPS: abrir 7881/TCP, 3478/UDP y 50000-50200/UDP en el firewall, y
+  # Antes de prenderlo, a mano en el VPS: abrir 7881/TCP, 3478/UDP y 50100-50200/UDP en el firewall, y
   # crear los DNS video.magilus.com y turn.magilus.com apuntando a 31.220.82.79. Variables de Portainer:
   # LIVEKIT_API_KEY y LIVEKIT_API_SECRET (el secreto, de 32 caracteres o más).
   livekit:
@@ -188,7 +188,7 @@ services:
         port: 7880
         rtc:
           tcp_port: 7881
-          udp_port: 50000
+          udp_port: 50100
           use_external_ip: true
         redis:
           address: livekit_redis:6379
@@ -218,8 +218,8 @@ services:
         published: 3478
         protocol: udp
         mode: host
-      - target: 50000
-        published: 50000
+      - target: 50100
+        published: 50100
         protocol: udp
         mode: host
     networks:
@@ -251,8 +251,8 @@ services:
 
   livekit_egress:
     image: livekit/egress:v1.15.0
-    # Mismo usuario que el CRM (root: la imagen del CRM no tiene USER), así los dos leen y escriben el volumen.
-    user: "0:0"
+    # Corre como su usuario egress (uid 1001, grupo 0), NO como root (con root, pulseaudio no arranca y el
+    # contenedor sale sin log). La carpeta del volumen debe ser escribible por el grupo (775 + ACL por defecto g::rwx en el VPS).
     volumes:
       - aizenbot_reuniones:/out
     environment:

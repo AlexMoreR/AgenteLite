@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
   LA SALA PÚBLICA DE UNA REUNIÓN: /reunion/<código largo al azar>.
 
   Se entra desde el celular o el PC sin instalar nada. El invitado escribe su nombre; quien tiene
-  sesión en el CRM entra con el suyo. Antes de entrar se ve el aviso de que se graba.
+  sesión en el CRM entra con el suyo.
 */
 export default async function ReunionPublicaPage({ params }: { params: Promise<{ codigo: string }> }) {
   const { codigo } = await params;

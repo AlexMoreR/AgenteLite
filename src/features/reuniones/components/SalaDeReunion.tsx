@@ -70,7 +70,7 @@ function Cuadro({ participante }: { participante: ParticipanteLK }) {
 
 /**
  * Adentro de la reunión: solo voz (micrófono, silenciar, salir) y chat. Sin cámara, video ni pantalla.
- * Arriba, fijo, el aviso "● Se está grabando". Quien la creó, el dueño y los administradores ven
+ * Quien la creó, el dueño y los administradores ven
  * "Terminar reunión", que la cierra para todos.
  */
 export function SalaDeReunion({
@@ -253,10 +253,8 @@ export function SalaDeReunion({
 
   return (
     <div className="flex h-dvh flex-col bg-neutral-950 text-white">
-      {/* Fijo arriba: todos saben que se graba. */}
-      <div className="flex shrink-0 items-center gap-2 bg-red-700 px-3 py-1.5 text-sm font-medium">
-        <span className="animate-pulse">●</span> Se está grabando
-        <span className="ml-2 min-w-0 flex-1 truncate text-right text-xs font-normal text-white/80">{titulo}</span>
+      <div className="flex shrink-0 items-center bg-neutral-900 px-3 py-1.5">
+        <span className="min-w-0 flex-1 truncate text-sm text-white/80">{titulo}</span>
       </div>
       {reconectando ? <div className="shrink-0 bg-amber-600 px-3 py-1 text-xs">Reconectando…</div> : null}
       {sinAudio && room ? (

@@ -20,6 +20,10 @@ const { hayQuePartir, argumentosParaPartir, rutaDeArchivo, relativaDesdeEgress, 
 const { normalizarActa, actaEnTexto } = cargar("src/features/reuniones/servicios/hacer-acta.ts", mocks);
 const { fechaDeNanos, esMicrofono, archivoDeEgress } = cargar("src/features/reuniones/servicios/avisos-de-livekit.ts", mocks);
 
+const { slugDeTitulo, slugLibre } = cargar("src/features/reuniones/servicios/slug-de-reunion.ts", mocks);
+
+const { esDeEgress, nombreParaGuardar, nombreVisible, personasDeLaReunion, userIdsPorBuscar } = cargar("src/features/reuniones/servicios/nombres-de-participantes.ts", mocks);
+
 let casos = 0;
 const prueba = (nombre, fn) => {
   fn();
@@ -322,6 +326,53 @@ prueba("archivoDeEgress lee fileResults y, si no hay, file", () => {
   assert.equal(archivoDeEgress({}), null);
   assert.equal(archivoDeEgress({ fileResults: [{ size: 5 }] }), null);
   assert.equal(archivoDeEgress({ file: { filename: "x.ogg", size: 9_999_999_999 } }).bytes, 2_147_483_647);
+});
+
+// ── slug del link ────────────────────────────────────────────────────────────────────────────
+prueba("slug: tildes, ñ, signos, mayúsculas y bordes", () => {
+  assert.equal(slugDeTitulo("Reunión de ventas"), "reunion-de-ventas");
+  assert.equal(slugDeTitulo("  ¡Año nuevo: Niños y Peñas!!  "), "ano-nuevo-ninos-y-penas");
+  assert.equal(slugDeTitulo("Reunión 24/10/2026, 12:06 a. m."), "reunion-24-10-2026-12-06-a-m");
+  assert.equal(slugDeTitulo("a --- b"), "a-b");
+});
+prueba("slug: máximo 60 caracteres, sin guion al final, y vacío cae en 'reunion'", () => {
+  const largo = slugDeTitulo("palabra ".repeat(30));
+  assert.ok(largo.length <= 60 && !largo.endsWith("-"));
+  assert.equal(slugDeTitulo("¿¿??"), "reunion");
+  assert.equal(slugDeTitulo(""), "reunion");
+});
+{
+  const usados = new Set(["reunion-de-ventas", "reunion-de-ventas-2"]);
+  const existe = async (c) => usados.has(c);
+  assert.equal(await slugLibre("Reunión de ventas", existe), "reunion-de-ventas-3");
+  assert.equal(await slugLibre("Otra", existe), "otra");
+  casos += 1;
+  console.log("ok - slug: repetido agrega -2, -3 hasta ser único");
+}
+
+// ── nombres de las personas (nunca u_..., i_... ni EG_...) ──────────────────────────────────
+prueba("al guardar: el nombre del pase; si viene vacío o es una identidad, el del usuario o uno genérico", () => {
+  assert.equal(nombreParaGuardar("  Ingrid  ", "u_abcdefghijk"), "Ingrid");
+  assert.equal(nombreParaGuardar("", "u_abcdefghijk", "María López"), "María López");
+  assert.equal(nombreParaGuardar("u_abcdefghijk", "u_abcdefghijk", "María López"), "María López");
+  assert.equal(nombreParaGuardar(undefined, "i_abcdefghijkl"), "Invitado");
+  assert.equal(nombreParaGuardar("u_abcdefghijk", "u_abcdefghijk"), "Usuario");
+});
+prueba("detalle: registro viejo con u_<id> usa el nombre del usuario; EG_ no cuenta como persona", () => {
+  const filas = [
+    { identidad: "u_abcdefghijk", nombre: "u_abcdefghijk" },
+    { identidad: "u_zzzzzzzzzzz", nombre: "Alexander", userId: "zzzzzzzzzzz" },
+    { identidad: "i_abcdefghijklmn", nombre: "Camila" },
+    { identidad: "EG_Ab12Cd34", nombre: "EG_Ab12Cd34" },
+    { identidad: "EG_Zz99", nombre: "EG_Zz99" },
+  ];
+  assert.deepEqual(userIdsPorBuscar(filas), ["abcdefghijk"]);
+  const personas = personasDeLaReunion(filas, new Map([["abcdefghijk", "Ingrid"]]));
+  assert.deepEqual(personas.map((p) => p.nombreVisible), ["Ingrid", "Alexander", "Camila"]);
+  assert.equal(esDeEgress("EG_Ab12Cd34"), true);
+  assert.equal(esDeEgress("u_abcdefghijk"), false);
+  assert.equal(nombreVisible({ identidad: "u_nadie123456", nombre: "u_nadie123456" }, new Map()), "Usuario");
+  assert.ok(personas.every((p) => !/^(u_|EG_)/.test(p.nombreVisible)));
 });
 
 console.log(`\n${casos} pruebas de reuniones (unir pistas y partes puras) OK`);

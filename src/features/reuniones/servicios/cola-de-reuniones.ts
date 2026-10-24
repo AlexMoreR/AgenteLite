@@ -4,6 +4,8 @@ import type { EstadoReunion, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { revisarSiTermino } from "@/features/reuniones/servicios/avisos-de-livekit";
+import { nombresDeUsuariosPara } from "@/features/reuniones/servicios/nombres-de-usuarios";
+import { nombreVisible } from "@/features/reuniones/servicios/nombres-de-participantes";
 import { rutaDeArchivo } from "@/features/reuniones/servicios/archivos-de-reuniones";
 import { actaEnTexto, hacerActa } from "@/features/reuniones/servicios/hacer-acta";
 import { leerConfigLivekit, salaAbierta } from "@/features/reuniones/servicios/livekit";
@@ -134,7 +136,7 @@ async function procesarReunion(reunionId: string, apiKey: string) {
       pistas: {
         where: { estado: { in: ["LISTA", "TRANSCRITA"] } },
         orderBy: { empiezaEn: "asc" },
-        select: { id: true, archivo: true, estado: true, empiezaEn: true, transcripcion: true, participante: { select: { nombre: true } } },
+        select: { id: true, archivo: true, estado: true, empiezaEn: true, transcripcion: true, participante: { select: { nombre: true, identidad: true, userId: true } } },
       },
     },
   });
@@ -142,6 +144,7 @@ async function procesarReunion(reunionId: string, apiKey: string) {
     throw new SinAudio();
   }
 
+  const nombres = await nombresDeUsuariosPara(reunion.pistas.flatMap((pista) => (pista.participante ? [pista.participante] : [])));
   const pistas: Array<{ nombre: string; empiezaEn: Date | null; frases: Frase[] }> = [];
   for (const pista of reunion.pistas) {
     let frases = pista.estado === "TRANSCRITA" && Array.isArray(pista.transcripcion) ? (pista.transcripcion as Frase[]) : null;
@@ -162,7 +165,7 @@ async function procesarReunion(reunionId: string, apiKey: string) {
       await prisma.reunion.update({ where: { id: reunionId }, data: { updatedAt: new Date() } });
     }
     // En un audio subido no se separa quién habló.
-    pistas.push({ nombre: pista.participante?.nombre ?? "Audio", empiezaEn: pista.empiezaEn, frases });
+    pistas.push({ nombre: pista.participante ? nombreVisible(pista.participante, nombres) : "Audio", empiezaEn: pista.empiezaEn, frases });
   }
 
   const frases = unirPistas(pistas, reunion.empezoEn);

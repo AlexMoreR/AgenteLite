@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CircleDot, Loader2, Video } from "lucide-react";
+import { Loader2, Video } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,11 +92,6 @@ export function EntradaALaReunion({ codigo, titulo, nombreConSesion }: { codigo:
           <Video className="mx-auto size-7 text-primary" />
           <h1 className="text-lg font-semibold">{titulo}</h1>
         </div>
-
-        <p className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          <CircleDot className="mt-0.5 size-4 shrink-0" />
-          Esta reunión se graba y se pasa a texto.
-        </p>
 
         {nombreConSesion ? (
           <p className="text-center text-sm text-muted-foreground">

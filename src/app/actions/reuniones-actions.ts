@@ -8,6 +8,7 @@ import { auth } from "@/auth";
 import { getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { revisarSiTermino } from "@/features/reuniones/servicios/avisos-de-livekit";
+import { slugLibre } from "@/features/reuniones/servicios/slug-de-reunion";
 import { cerrarSala, leerConfigLivekit } from "@/features/reuniones/servicios/livekit";
 import { puedeTerminarLaReunion, puedeVerReuniones } from "@/features/reuniones/servicios/permisos";
 
@@ -28,13 +29,15 @@ export async function crearReunionAction(titulo?: string): Promise<{ id?: string
   }
   const limpio = titulo?.replace(/\s+/g, " ").trim().slice(0, 120);
   const ahora = new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Bogota" }).format(new Date());
+  const tituloFinal = limpio || `Reunión ${ahora}`;
+  const codigo = await slugLibre(tituloFinal, async (c) => (await prisma.reunion.count({ where: { codigo: c } })) > 0);
   const reunion = await prisma.reunion.create({
     data: {
       workspaceId: access.workspaceId,
       creadaPorId: access.userId,
-      titulo: limpio || `Reunión ${ahora}`,
-      // 24 caracteres al azar: el link no se puede adivinar.
-      codigo: randomBytes(18).toString("base64url"),
+      titulo: tituloFinal,
+      // El link sale del título (reunion-de-ventas, -2, -3 si ya existe); los viejos, al azar, siguen valiendo.
+      codigo,
       sala: `reunion_${randomBytes(9).toString("hex")}`,
     },
     select: { id: true, codigo: true },
