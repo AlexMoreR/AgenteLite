@@ -24,6 +24,8 @@ const { slugDeTitulo, slugLibre } = cargar("src/features/reuniones/servicios/slu
 
 const { esDeEgress, nombreParaGuardar, nombreVisible, personasDeLaReunion, userIdsPorBuscar } = cargar("src/features/reuniones/servicios/nombres-de-participantes.ts", mocks);
 
+const { sePuedeBorrarPorEstado, puedeBorrarLaReunionDe } = cargar("src/features/reuniones/servicios/borrar-reunion.ts", mocks);
+
 let casos = 0;
 const prueba = (nombre, fn) => {
   fn();
@@ -373,6 +375,22 @@ prueba("detalle: registro viejo con u_<id> usa el nombre del usuario; EG_ no cue
   assert.equal(esDeEgress("u_abcdefghijk"), false);
   assert.equal(nombreVisible({ identidad: "u_nadie123456", nombre: "u_nadie123456" }, new Map()), "Usuario");
   assert.ok(personas.every((p) => !/^(u_|EG_)/.test(p.nombreVisible)));
+});
+
+prueba("borrar: solo Esperando y Error se pueden borrar", () => {
+  for (const e of ["ESPERANDO", "ERROR"]) assert.equal(sePuedeBorrarPorEstado(e), true);
+  for (const e of ["EN_VIVO", "EN_COLA", "TRANSCRIBIENDO", "HACIENDO_ACTA", "LISTA"]) assert.equal(sePuedeBorrarPorEstado(e), false);
+});
+
+prueba("borrar: quién puede (creador, dueño o admin) y en qué estado", () => {
+  const otro = { userId: "u2", esDuenoOAdmin: false };
+  const admin = { userId: "u3", esDuenoOAdmin: true };
+  assert.equal(puedeBorrarLaReunionDe({ userId: "u1", esDuenoOAdmin: false }, { estado: "ESPERANDO", creadaPorId: "u1" }), true);
+  assert.equal(puedeBorrarLaReunionDe(otro, { estado: "ERROR", creadaPorId: "u1" }), false);
+  assert.equal(puedeBorrarLaReunionDe(otro, { estado: "ERROR", creadaPorId: null }), false);
+  assert.equal(puedeBorrarLaReunionDe(admin, { estado: "ERROR", creadaPorId: "u1" }), true);
+  assert.equal(puedeBorrarLaReunionDe(admin, { estado: "LISTA", creadaPorId: "u1" }), false);
+  assert.equal(puedeBorrarLaReunionDe({ userId: "u1", esDuenoOAdmin: false }, { estado: "EN_VIVO", creadaPorId: "u1" }), false);
 });
 
 console.log(`\n${casos} pruebas de reuniones (unir pistas y partes puras) OK`);

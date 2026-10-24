@@ -12,7 +12,7 @@ import { reintentarReunionAction } from "@/app/actions/reuniones-actions";
 import { ESTADOS_EN_CURSO, ESTADOS_PARA_ENTRAR } from "@/features/reuniones/estados";
 import type { Acta } from "@/features/reuniones/servicios/hacer-acta";
 import type { FraseDeReunion } from "@/features/reuniones/servicios/unir-pistas";
-import { CompartirLink, EtiquetaDeEstado, formatearFecha } from "@/features/reuniones/components/ReunionesWorkspace";
+import { BotonBorrar, CompartirLink, EtiquetaDeEstado, formatearFecha } from "@/features/reuniones/components/ReunionesWorkspace";
 
 type Detalle = {
   id: string;
@@ -30,6 +30,7 @@ type Detalle = {
   pistas: Array<{ id: string; nombre: string; estado: string; empiezaEn: string | null; link: string | null }>;
   frases: FraseDeReunion[];
   acta: Acta | null;
+  puedeBorrar: boolean;
 };
 
 const ESTADO_DE_LA_PISTA: Record<string, string> = {
@@ -116,6 +117,8 @@ export function DetalleDeReunion({ reunion }: { reunion: Detalle }) {
       {reunion.origen === "VIVO" && ESTADOS_PARA_ENTRAR.includes(reunion.estado) ? (
         <CompartirLink codigo={reunion.codigo} titulo={reunion.titulo} />
       ) : null}
+
+      {reunion.puedeBorrar ? <BotonBorrar reunionId={reunion.id} despues={() => router.push("/cliente/reuniones")} /> : null}
 
       {reunion.estado === "ERROR" ? (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">

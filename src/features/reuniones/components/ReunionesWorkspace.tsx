@@ -4,13 +4,13 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { EstadoReunion } from "@prisma/client";
-import { Copy, Loader2, MessageCircle, Plus, Search, Video } from "lucide-react";
+import { Copy, Loader2, MessageCircle, Plus, Search, Trash2, Video } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { crearReunionAction } from "@/app/actions/reuniones-actions";
+import { borrarReunionAction, crearReunionAction } from "@/app/actions/reuniones-actions";
 import { ESTADOS_EN_CURSO, ESTADOS_PARA_ENTRAR, NOMBRE_DEL_ESTADO } from "@/features/reuniones/estados";
 
 export type ReunionDeLaPantalla = {
@@ -25,7 +25,36 @@ export type ReunionDeLaPantalla = {
   creadaPor: string | null;
   participantes: number;
   resumen: string | null;
+  /** El servidor igual lo revisa: esto solo muestra u oculta el botón. */
+  puedeBorrar: boolean;
 };
+
+/** Pide confirmación y borra una reunión sin grabación. */
+export function BotonBorrar({ reunionId, despues }: { reunionId: string; despues?: () => void }) {
+  const router = useRouter();
+  const [borrando, startBorrar] = useTransition();
+  const borrar = () => {
+    if (!window.confirm("¿Borrar esta reunión? No se puede deshacer.")) {
+      return;
+    }
+    startBorrar(async () => {
+      const resultado = await borrarReunionAction(reunionId);
+      if (resultado.error) {
+        toast.error(resultado.error);
+        return;
+      }
+      toast.success("Reunión borrada");
+      despues?.();
+      router.refresh();
+    });
+  };
+  return (
+    <Button size="sm" variant="outline" onClick={borrar} disabled={borrando}>
+      {borrando ? <Loader2 className="animate-spin" /> : <Trash2 />}
+      Borrar
+    </Button>
+  );
+}
 
 
 /** El color de cada estado: rojo en vivo y en error, gris lo que espera, normal lo que está listo. */
@@ -201,8 +230,13 @@ export function ReunionesWorkspace({
                 ) : null}
                 {reunion.resumen ? <span className="mt-1 line-clamp-2 block text-xs text-foreground/80">{reunion.resumen}</span> : null}
               </Link>
-              {reunion.origen === "VIVO" && ESTADOS_PARA_ENTRAR.includes(reunion.estado) ? (
-                <CompartirLink codigo={reunion.codigo} titulo={reunion.titulo} />
+              {(reunion.origen === "VIVO" && ESTADOS_PARA_ENTRAR.includes(reunion.estado)) || reunion.puedeBorrar ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {reunion.origen === "VIVO" && ESTADOS_PARA_ENTRAR.includes(reunion.estado) ? (
+                    <CompartirLink codigo={reunion.codigo} titulo={reunion.titulo} />
+                  ) : null}
+                  {reunion.puedeBorrar ? <BotonBorrar reunionId={reunion.id} /> : null}
+                </div>
               ) : null}
             </div>
           ))}

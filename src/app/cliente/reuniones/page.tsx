@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { esDuenoOAdmin } from "@/features/reuniones/servicios/permisos";
+import { puedeBorrarLaReunionDe } from "@/features/reuniones/servicios/borrar-reunion";
 import { ReunionesWorkspace } from "@/features/reuniones/components/ReunionesWorkspace";
 import { buscarReuniones } from "@/features/reuniones/servicios/buscar-reuniones";
 import { claveDeOpenAI } from "@/features/reuniones/servicios/cola-de-reuniones";
@@ -40,6 +42,7 @@ export default async function ClienteReunionesPage({ searchParams }: { searchPar
         creadaPor: reunion.creadaPor,
         participantes: reunion.participantes,
         resumen: reunion.resumen,
+        puedeBorrar: puedeBorrarLaReunionDe({ userId: access.userId, esDuenoOAdmin: esDuenoOAdmin(access) }, reunion),
       }))}
     />
   );

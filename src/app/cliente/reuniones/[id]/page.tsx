@@ -5,6 +5,8 @@ import { nombreVisible, pareceIdentidad, personasDeLaReunion } from "@/features/
 
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
+import { esDuenoOAdmin } from "@/features/reuniones/servicios/permisos";
+import { puedeBorrarLaReunionDe } from "@/features/reuniones/servicios/borrar-reunion";
 import { DetalleDeReunion } from "@/features/reuniones/components/DetalleDeReunion";
 import { normalizarActa } from "@/features/reuniones/servicios/hacer-acta";
 import { linkFirmado, secretoDeLosLinks } from "@/features/reuniones/servicios/link-firmado";
@@ -36,6 +38,7 @@ export default async function ClienteReunionPage({ params }: { params: Promise<{
       terminoEn: true,
       transcripcion: true,
       acta: true,
+      creadaPorId: true,
       creadaPor: { select: { name: true, email: true } },
       participantes: { orderBy: { entroEn: "asc" }, select: { id: true, nombre: true, identidad: true, userId: true, entroEn: true, salioEn: true } },
       pistas: {
@@ -84,6 +87,7 @@ export default async function ClienteReunionPage({ params }: { params: Promise<{
           link: secreto && (pista.estado === "LISTA" || pista.estado === "TRANSCRITA") ? linkFirmado(pista.id, secreto) : null,
         })),
         frases: Array.isArray(reunion.transcripcion) ? (reunion.transcripcion as unknown as FraseDeReunion[]).map((frase) => ({ ...frase, nombre: visiblePorNombre.get(frase.nombre) ?? (pareceIdentidad(frase.nombre) ? "Participante" : frase.nombre) })) : [],
+        puedeBorrar: puedeBorrarLaReunionDe({ userId: access.userId, esDuenoOAdmin: esDuenoOAdmin(access) }, reunion),
         acta: reunion.acta ? normalizarActa(reunion.acta) : null,
       }}
     />

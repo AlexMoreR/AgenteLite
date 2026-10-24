@@ -21,6 +21,7 @@ export type ReunionDeLaLista = {
   empezoEn: Date | null;
   terminoEn: Date | null;
   creadaPor: string | null;
+  creadaPorId: string | null;
   participantes: number;
   resumen: string | null;
 };
@@ -51,6 +52,7 @@ export async function buscarReuniones(workspaceId: string, texto?: string | null
       empezoEn: true,
       terminoEn: true,
       acta: true,
+      creadaPorId: true,
       creadaPor: { select: { name: true, email: true } },
       _count: { select: { participantes: { where: { NOT: { identidad: { startsWith: "EG_" } } } } } },
     },
@@ -67,6 +69,7 @@ export async function buscarReuniones(workspaceId: string, texto?: string | null
     empezoEn: fila.empezoEn,
     terminoEn: fila.terminoEn,
     creadaPor: fila.creadaPor?.name?.trim() || fila.creadaPor?.email || null,
+    creadaPorId: fila.creadaPorId,
     participantes: fila._count.participantes,
     resumen: resumenDelActa(fila.acta),
   }));

@@ -1,6 +1,7 @@
 "use server";
 
 import { randomBytes } from "node:crypto";
+import { rmdir } from "node:fs/promises";
 
 import { revalidatePath } from "next/cache";
 
@@ -10,7 +11,9 @@ import { prisma } from "@/lib/prisma";
 import { revisarSiTermino } from "@/features/reuniones/servicios/avisos-de-livekit";
 import { slugLibre } from "@/features/reuniones/servicios/slug-de-reunion";
 import { cerrarSala, leerConfigLivekit } from "@/features/reuniones/servicios/livekit";
-import { puedeTerminarLaReunion, puedeVerReuniones } from "@/features/reuniones/servicios/permisos";
+import { carpetaDeReuniones, rutaDeArchivo } from "@/features/reuniones/servicios/archivos-de-reuniones";
+import { puedeBorrarLaReunionDe, sePuedeBorrarPorEstado } from "@/features/reuniones/servicios/borrar-reunion";
+import { esDuenoOAdmin, puedeTerminarLaReunion, puedeVerReuniones } from "@/features/reuniones/servicios/permisos";
 
 async function contexto() {
   const session = await auth();
@@ -97,5 +100,41 @@ export async function reintentarReunionAction(reunionId: string): Promise<{ ok?:
   }
   revalidatePath("/cliente/reuniones");
   revalidatePath(`/cliente/reuniones/${reunionId}`);
+  return { ok: true };
+}
+
+/**
+ * "Borrar": quita una reunión SIN grabación (Esperando o Error). La regla se revisa aquí, no solo en
+ * la pantalla. Solo quien la creó, el dueño o un administrador. Participantes y pistas caen en cascada.
+ */
+export async function borrarReunionAction(reunionId: string): Promise<{ ok?: true; error?: string }> {
+  const access = await contexto();
+  if (!access || typeof reunionId !== "string" || !reunionId) {
+    return { error: "No autorizado" };
+  }
+  const reunion = await prisma.reunion.findFirst({
+    where: { id: reunionId, workspaceId: access.workspaceId },
+    select: { id: true, sala: true, estado: true, creadaPorId: true },
+  });
+  if (!reunion || !puedeBorrarLaReunionDe({ userId: access.userId, esDuenoOAdmin: esDuenoOAdmin(access) }, reunion)) {
+    return { error: "No autorizado" };
+  }
+  if (!sePuedeBorrarPorEstado(reunion.estado)) {
+    return { error: "Solo se borran reuniones sin grabación (Esperando o Error)." };
+  }
+  // El estado va en el where: si cambió mientras tanto (alguien entró), no se borra.
+  const borradas = await prisma.reunion.deleteMany({
+    where: { id: reunion.id, workspaceId: access.workspaceId, estado: { in: ["ESPERANDO", "ERROR"] } },
+  });
+  if (!borradas.count) {
+    return { error: "La reunión cambió de estado y ya no se puede borrar." };
+  }
+  // La carpeta de la sala, solo si quedó vacía (rmdir no borra carpetas con archivos). Si falla, no importa.
+  try {
+    await rmdir(rutaDeArchivo(reunion.sala, carpetaDeReuniones()));
+  } catch {
+    // no existe, no está vacía o no hay permiso
+  }
+  revalidatePath("/cliente/reuniones");
   return { ok: true };
 }
