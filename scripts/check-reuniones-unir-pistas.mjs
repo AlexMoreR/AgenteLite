@@ -26,6 +26,8 @@ const { esDeEgress, nombreParaGuardar, nombreVisible, personasDeLaReunion, userI
 
 const { sePuedeBorrarPorEstado, puedeBorrarLaReunionDe } = cargar("src/features/reuniones/servicios/borrar-reunion.ts", mocks);
 
+const { parsearSilencios, armarTramos, frasesDelTramo, modeloDeTranscripcion, devuelveSegmentos, resumenDeAhorro, argumentosDeSilencios } = cargar("src/features/reuniones/servicios/tramos-de-voz.ts", mocks);
+
 let casos = 0;
 const prueba = (nombre, fn) => {
   fn();
@@ -391,6 +393,74 @@ prueba("borrar: quién puede (creador, dueño o admin) y en qué estado", () => 
   assert.equal(puedeBorrarLaReunionDe(admin, { estado: "ERROR", creadaPorId: "u1" }), true);
   assert.equal(puedeBorrarLaReunionDe(admin, { estado: "LISTA", creadaPorId: "u1" }), false);
   assert.equal(puedeBorrarLaReunionDe({ userId: "u1", esDuenoOAdmin: false }, { estado: "EN_VIVO", creadaPorId: "u1" }), false);
+});
+
+prueba("tramos: parsea la salida de silencedetect y la duración", () => {
+  const salida = [
+    "  Duration: 00:01:40.50, start: 0.000000, bitrate: 32 kb/s",
+    "[silencedetect @ 0x55] silence_start: 5.5",
+    "[silencedetect @ 0x55] silence_end: 20.25 | silence_duration: 14.75",
+    "[silencedetect @ 0x55] silence_start: 60",
+    "[silencedetect @ 0x55] silence_end: 70.5 | silence_duration: 10.5",
+    "[silencedetect @ 0x55] silence_start: 95",
+  ].join("\n");
+  const r = parsearSilencios(salida);
+  assert.equal(r.duracionS, 100.5);
+  assert.deepEqual(r.silencios, [{ inicioS: 5.5, finS: 20.25 }, { inicioS: 60, finS: 70.5 }, { inicioS: 95, finS: 100.5 }]);
+  // Sin Duration (ogg de Egress): se usa el último time= del avance.
+  const sinDuracion = "Duration: N/A, bitrate: N/A\nsize=N/A time=00:00:30.00 bitrate=N/A\nsize=N/A time=00:00:42.50 bitrate=N/A\n";
+  assert.equal(parsearSilencios(sinDuracion).duracionS, 42.5);
+  assert.deepEqual(parsearSilencios("nada").silencios, []);
+  assert.ok(argumentosDeSilencios("a.ogg").some((a) => a.startsWith("silencedetect=noise=-40dB:d=1")));
+});
+
+prueba("tramos: armado con colchón, unión y sin silencios", () => {
+  // Voz 0-5.5, 20.25-60, 70.5-95 de 100.5 s; silencios de 14 y 10 s.
+  const silencios = [{ inicioS: 5.5, finS: 20.25 }, { inicioS: 60, finS: 70.5 }, { inicioS: 95, finS: 100.5 }];
+  const tramos = armarTramos(silencios, 100.5);
+  assert.deepEqual(tramos, [
+    { inicioMs: 0, finMs: 5800 },
+    { inicioMs: 19950, finMs: 60300 },
+    { inicioMs: 70200, finMs: 95300 },
+  ]);
+  // Sin silencios: un solo tramo con todo.
+  assert.deepEqual(armarTramos([], 30), [{ inicioMs: 0, finMs: 30000 }]);
+  // Todo silencio, o duración vacía: nada que mandar.
+  assert.deepEqual(armarTramos([{ inicioS: 0, finS: 30 }], 30), []);
+  assert.deepEqual(armarTramos([], 0), []);
+  // Un silencio de 1,2 s deja dos voces a 0,6 s: se unen en un tramo.
+  assert.deepEqual(armarTramos([{ inicioS: 10, finS: 11.2 }], 20), [{ inicioMs: 0, finMs: 20000 }]);
+  // Un clic de 0,1 s entre dos silencios no es voz.
+  assert.deepEqual(armarTramos([{ inicioS: 0, finS: 10 }, { inicioS: 10.1, finS: 30 }], 30), []);
+  // Voz seguida sin pausas: se parte en pedazos de 10 min como mucho.
+  const largo = armarTramos([], 1500);
+  assert.deepEqual(largo.map((t) => [t.inicioMs, t.finMs]), [[0, 600000], [600000, 1200000], [1200000, 1500000]]);
+  const { enviadoS, fraccion } = resumenDeAhorro(tramos, 100.5);
+  assert.ok(Math.abs(enviadoS - (5.8 + 40.35 + 25.1)) < 1e-6 && fraccion < 0.71);
+});
+
+prueba("tramos: la hora de cada frase es la real aunque se quitaran silencios", () => {
+  const tramo = { inicioMs: 19950, finMs: 60300 };
+  // Sin segmentos (gpt-4o-mini-transcribe): una frase con la hora de inicio del tramo.
+  assert.deepEqual(frasesDelTramo(tramo, "  Hola   a todos \n"), [{ inicioMs: 19950, finMs: 60300, texto: "Hola a todos" }]);
+  assert.deepEqual(frasesDelTramo(tramo, "   "), []);
+  // Con segmentos (whisper-1): cada uno se suma al inicio del tramo.
+  const frases = frasesDelTramo(tramo, "", [{ inicioMs: 0, finMs: 2000, texto: "uno" }, { inicioMs: 5000, finMs: 99999999, texto: "dos" }]);
+  assert.deepEqual(frases, [{ inicioMs: 19950, finMs: 21950, texto: "uno" }, { inicioMs: 24950, finMs: 60300, texto: "dos" }]);
+  // Dos personas, cada una con su tramo: al unir por hora el orden es el real.
+  const inicio = new Date("2026-10-24T10:00:00Z");
+  const luis = [{ inicioMs: 19950, finMs: 25000, texto: "Hola" }];
+  const ana = [{ inicioMs: 0, finMs: 5800, texto: "Buenos días" }];
+  const unidas = unirPistas([{ nombre: "Luis", empiezaEn: inicio, frases: luis }, { nombre: "Ana", empiezaEn: inicio, frases: ana }], inicio);
+  assert.deepEqual(unidas.map((f) => f.nombre), ["Ana", "Luis"]);
+});
+
+prueba("modelo: por defecto gpt-4o-mini-transcribe y configurable", () => {
+  assert.equal(modeloDeTranscripcion(undefined), "gpt-4o-mini-transcribe");
+  assert.equal(modeloDeTranscripcion("  "), "gpt-4o-mini-transcribe");
+  assert.equal(modeloDeTranscripcion(" whisper-1 "), "whisper-1");
+  assert.equal(devuelveSegmentos("whisper-1"), true);
+  assert.equal(devuelveSegmentos("gpt-4o-mini-transcribe"), false);
 });
 
 console.log(`\n${casos} pruebas de reuniones (unir pistas y partes puras) OK`);

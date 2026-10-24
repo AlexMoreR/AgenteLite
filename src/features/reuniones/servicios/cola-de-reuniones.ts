@@ -20,7 +20,7 @@ import { transcripcionEnTexto, unirPistas } from "@/features/reuniones/servicios
   al 100 %).
 
   - Una reunión a la vez, la que lleva más tiempo esperando.
-  - Por cada pista: whisper-1 (los archivos de más de 25 MB se parten en pedazos de 10 minutos).
+  - Por cada pista: solo los tramos con voz (ffmpeg quita los silencios) con gpt-4o-mini-transcribe (REUNIONES_MODELO_TRANSCRIPCION).
     Una pista ya transcrita no se vuelve a mandar en un reintento: no se paga dos veces.
   - Se unen las pistas por hora con el nombre de quien habló y gpt-4o-mini hace el acta.
   - Si algo falla, se reintenta (cada vez un poco más tarde) hasta 3 veces; después queda en Error

@@ -1,3 +1,4 @@
+import { argumentosDeSilencios, argumentosDeTramo, armarTramos, parsearSilencios, type Tramo } from "@/features/reuniones/servicios/tramos-de-voz";
 import { execFile } from "node:child_process";
 import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
@@ -132,4 +133,39 @@ export async function pedazosDeAudio(ruta: string): Promise<{ pedazos: Pedazo[];
     const codigo = (error as { code?: string }).code;
     throw new Error(codigo === "ENOENT" ? "Falta ffmpeg en el servidor para partir el audio." : `No se pudo partir el audio: ${String((error as Error).message).slice(0, 200)}`);
   }
+}
+
+/**
+ * Los tramos con voz de una pista (ffmpeg `silencedetect`). Devuelve null si ffmpeg no está o falla:
+ * quien llama cae al camino de siempre (el archivo entero o en pedazos).
+ */
+export async function detectarTramosDeVoz(ruta: string): Promise<{ tramos: Tramo[]; duracionS: number } | null> {
+  let salida = "";
+  try {
+    const resultado = await ejecutar("ffmpeg", argumentosDeSilencios(ruta), { timeout: 10 * 60_000, maxBuffer: 64 * 1024 * 1024 });
+    salida = resultado.stderr;
+  } catch (error) {
+    const falla = error as { code?: string; stderr?: string };
+    if (falla.code === "ENOENT" || !falla.stderr) {
+      return null;
+    }
+    salida = falla.stderr;
+  }
+  const { duracionS, silencios } = parsearSilencios(salida);
+  if (!duracionS) {
+    return null;
+  }
+  return { tramos: armarTramos(silencios, duracionS), duracionS };
+}
+
+/** Saca un tramo a un mp3 mono liviano en la carpeta dada y devuelve su ruta. */
+export async function extraerTramo(ruta: string, tramo: Tramo, carpeta: string, indice: number): Promise<string> {
+  const salida = path.join(carpeta, `tramo-${String(indice).padStart(5, "0")}.mp3`);
+  await ejecutar("ffmpeg", argumentosDeTramo(ruta, tramo, salida), { timeout: 5 * 60_000 });
+  return salida;
+}
+
+export async function carpetaTemporalDeTramos(): Promise<{ carpeta: string; limpiar: () => Promise<void> }> {
+  const carpeta = await mkdtemp(path.join(os.tmpdir(), "reunion-tramos-"));
+  return { carpeta, limpiar: () => rm(carpeta, { recursive: true, force: true }) };
 }

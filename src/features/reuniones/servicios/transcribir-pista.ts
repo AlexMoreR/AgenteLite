@@ -1,17 +1,23 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { pedazosDeAudio, tipoDeAudio } from "@/features/reuniones/servicios/archivos-de-reuniones";
+import { carpetaTemporalDeTramos, detectarTramosDeVoz, extraerTramo, pedazosDeAudio, tipoDeAudio } from "@/features/reuniones/servicios/archivos-de-reuniones";
+import { devuelveSegmentos, frasesDelTramo, modeloDeTranscripcion, resumenDeAhorro, type Tramo } from "@/features/reuniones/servicios/tramos-de-voz";
 
 /*
   PASAR A TEXTO UNA PISTA de una reunión con la API de OpenAI.
 
-  whisper-1, en español y con la hora de cada frase (verbose_json con segmentos): gpt-4o-transcribe
-  no devuelve las horas, y sin ellas no se pueden unir las pistas por hora. Cuesta unos 0,36 USD por
-  hora de audio por pista.
+  Solo se manda la voz: ffmpeg quita los silencios (tramos-de-voz.ts) y cada tramo con voz va a
+  OpenAI como mp3 mono liviano, con su hora real de inicio en la pista. Así la unión de pistas por
+  hora y la hora de cada frase no se corren aunque se hayan quitado los silencios.
+
+  Modelo: REUNIONES_MODELO_TRANSCRIPCION, por defecto gpt-4o-mini-transcribe (USD 0,003 por minuto,
+  la mitad de whisper-1). Ese modelo no devuelve horas: cada tramo sale como una frase con la hora
+  de inicio del tramo. Con REUNIONES_MODELO_TRANSCRIPCION=whisper-1 se piden los segmentos con hora
+  (verbose_json) y cada uno se suma a la hora del tramo.
 
   Código propio a propósito: src/lib/transcripcion-de-audios.ts es de los audios de los chats y no
-  se toca. Acá se filtran con la misma idea las frases que whisper-1 inventa en los silencios.
+  se toca. Acá se filtran con la misma idea las frases que el modelo inventa en los silencios.
 */
 
 export type Frase = { inicioMs: number; finMs: number; texto: string };
@@ -27,12 +33,14 @@ const INVENTADAS = [
   /^…+$/,
 ];
 
+export const esInventada = (texto: string) => INVENTADAS.some((patron) => patron.test(texto));
+
 /** Los segmentos de whisper-1 pasados a frases, sin las inventadas y corridos por el desfase del pedazo. */
 export function limpiarSegmentos(segmentos: Segmento[], desfaseMs = 0): Frase[] {
   const frases: Frase[] = [];
   for (const segmento of segmentos) {
     const texto = (segmento.text ?? "").replace(/\s+/g, " ").trim();
-    if (!texto || INVENTADAS.some((patron) => patron.test(texto))) {
+    if (!texto || esInventada(texto)) {
       continue;
     }
     // Casi seguro que ahí no habló nadie: es de las que se inventa en los silencios.
@@ -46,15 +54,20 @@ export function limpiarSegmentos(segmentos: Segmento[], desfaseMs = 0): Frase[] 
   return frases;
 }
 
-async function transcribirArchivo(ruta: string, apiKey: string): Promise<Segmento[]> {
+async function transcribirArchivo(ruta: string, apiKey: string, modelo: string): Promise<{ texto: string; segmentos: Segmento[] }> {
   const bytes = await readFile(ruta);
   const nombre = path.basename(ruta);
+  const conSegmentos = devuelveSegmentos(modelo);
   const formulario = new FormData();
   formulario.append("file", new Blob([new Uint8Array(bytes)], { type: tipoDeAudio(nombre) }), nombre);
-  formulario.append("model", "whisper-1");
+  formulario.append("model", modelo);
   formulario.append("language", "es");
-  formulario.append("response_format", "verbose_json");
-  formulario.append("timestamp_granularities[]", "segment");
+  if (conSegmentos) {
+    formulario.append("response_format", "verbose_json");
+    formulario.append("timestamp_granularities[]", "segment");
+  } else {
+    formulario.append("response_format", "json");
+  }
 
   const respuesta = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
@@ -70,17 +83,54 @@ async function transcribirArchivo(ruta: string, apiKey: string): Promise<Segment
     }
     throw new Error(`OpenAI respondió ${respuesta.status} al transcribir: ${detalle}`);
   }
-  const datos = (await respuesta.json()) as { segments?: Segmento[] };
-  return datos.segments ?? [];
+  const datos = (await respuesta.json()) as { text?: string; segments?: Segmento[] };
+  return { texto: datos.text ?? "", segmentos: datos.segments ?? [] };
 }
 
-/** Las frases de un archivo de audio (si pesa más de 25 MB, se parte en pedazos de 10 minutos). */
+/** Las frases de un trozo de audio que empieza en `inicioMs` de la pista (con la hora real). */
+async function frasesDeUnTrozo(ruta: string, apiKey: string, modelo: string, tramo: Tramo): Promise<Frase[]> {
+  const { texto, segmentos } = await transcribirArchivo(ruta, apiKey, modelo);
+  if (devuelveSegmentos(modelo)) {
+    return limpiarSegmentos(segmentos, tramo.inicioMs);
+  }
+  return frasesDelTramo(tramo, texto).filter((frase) => !esInventada(frase.texto));
+}
+
+/**
+ * Las frases de una pista, con la hora real dentro de ella. Quita los silencios con ffmpeg y manda
+ * solo los tramos con voz; si ffmpeg no está o falla, cae al camino de antes (el archivo entero, o en
+ * pedazos de 10 minutos si pasa de 25 MB).
+ */
 export async function transcribirPista(ruta: string, apiKey: string): Promise<Frase[]> {
+  const modelo = modeloDeTranscripcion();
+  const deteccion = await detectarTramosDeVoz(ruta).catch((error) => {
+    console.error("[reuniones] no se pudieron detectar los silencios; se manda el audio completo", error);
+    return null;
+  });
+
+  if (deteccion) {
+    const { carpeta, limpiar } = await carpetaTemporalDeTramos();
+    try {
+      const ahorro = resumenDeAhorro(deteccion.tramos, deteccion.duracionS);
+      console.info(
+        `[reuniones] ${path.basename(ruta)}: ${Math.round(ahorro.enviadoS)} s con voz de ${Math.round(deteccion.duracionS)} s (${Math.round(ahorro.fraccion * 100)} %), modelo ${modelo}`,
+      );
+      const frases: Frase[] = [];
+      for (const [indice, tramo] of deteccion.tramos.entries()) {
+        const archivo = await extraerTramo(ruta, tramo, carpeta, indice);
+        frases.push(...(await frasesDeUnTrozo(archivo, apiKey, modelo, tramo)));
+      }
+      return frases;
+    } finally {
+      await limpiar();
+    }
+  }
+
   const { pedazos, limpiar } = await pedazosDeAudio(ruta);
   try {
     const frases: Frase[] = [];
     for (const pedazo of pedazos) {
-      frases.push(...limpiarSegmentos(await transcribirArchivo(pedazo.ruta, apiKey), pedazo.desfaseMs));
+      frases.push(...(await frasesDeUnTrozo(pedazo.ruta, apiKey, modelo, { inicioMs: pedazo.desfaseMs, finMs: pedazo.desfaseMs })));
     }
     return frases;
   } finally {
