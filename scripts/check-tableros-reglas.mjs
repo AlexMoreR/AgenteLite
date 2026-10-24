@@ -1429,4 +1429,135 @@ prueba("motivosDelResultado: un migration.sql sin migracionDestructiva es ALTO; 
   assert.ok(riesgo.motivosDelResultado({ archivos: muchos, migracionDestructiva: [], zonaProtegida: [] }).length);
 });
 
+/* ------------------------------------------------------------------ hecho a mano */
+
+const personaDeHecho = (extra) => ({ esDueno: false, esAdminPlataforma: false, aprobador: null, ...extra });
+const pedidoDePantalla = (extra) => ({
+  via: "pantalla",
+  origen: "PANTALLA",
+  estado: "ERROR",
+  usaEstados: true,
+  repo: "aizencrm",
+  nota: "Lo subió Claude Code a mano",
+  commit: undefined,
+  persona: personaDeHecho({ esDueno: true }),
+  ...extra,
+});
+const pedidoDeVoz = (extra) => pedidoDePantalla({ via: "voz", origen: "MCP", textoConfirmacion: "sí, márcala hecha", ...extra });
+
+prueba("hecho a mano: el dueño marca HECHO desde ERROR, FALLIDO y POR_REVISAR, en pantalla y por voz", () => {
+  for (const estado of ["ERROR", "FALLIDO", "POR_REVISAR"]) {
+    assert.deepEqual(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ estado })), { nota: "Lo subió Claude Code a mano", commit: null }, estado);
+    assert.ok(!("error" in trabajo.puedeMarcarHechoAMano(pedidoDeVoz({ estado }))), `${estado} voz`);
+  }
+});
+
+prueba("hecho a mano: se niega si el Coordinador la tiene y en cualquier otro estado", () => {
+  for (const estado of ["PLANEANDO", "EN_CURSO", "SUBIENDO"]) {
+    assert.match(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ estado })).error, /Coordinador tiene/, estado);
+  }
+  for (const estado of ["POR_APROBAR", "APROBADO", "PLAN_LISTO", "PLAN_APROBADO", "IDEA", "HECHO"]) {
+    assert.ok(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ estado })).error, estado);
+  }
+});
+
+prueba("hecho a mano: solo el dueño (ni asesora, ni aprobador, ni ADMIN de la plataforma que no es la dueña)", () => {
+  const otras = [
+    personaDeHecho({}),
+    personaDeHecho({ aprobador: { alcance: "TODO", puedeSubir: true } }),
+    personaDeHecho({ esAdminPlataforma: true }),
+  ];
+  for (const persona of otras) {
+    assert.match(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ persona })).error, /solo el dueño/);
+    assert.match(trabajo.puedeMarcarHechoAMano(pedidoDeVoz({ persona })).error, /solo el dueño/);
+  }
+});
+
+prueba("hecho a mano: sin repo, sin nota, con nota larga o con el commit mal escrito se niega", () => {
+  assert.ok(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ repo: null })).error);
+  assert.match(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ nota: "   " })).error, /nota/);
+  assert.match(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ nota: undefined })).error, /nota/);
+  assert.match(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ nota: "a".repeat(501) })).error, /muy larga/);
+  assert.equal(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ nota: "a".repeat(500) })).nota.length, 500);
+  for (const commit of ["abc", "xyz 123456", "desplegado", "zzzzzzzz", "a".repeat(41), "http://github.com/a/b/commit/abcdef1", "https://malo.com/a"]) {
+    assert.match(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ commit })).error, /commit/, commit);
+  }
+  assert.equal(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ commit: " abcdef1 " })).commit, "abcdef1");
+  assert.equal(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ commit: "A".repeat(40) })).commit, "A".repeat(40));
+  const link = "https://github.com/alexmorer/AgenteLite/commit/abcdef1";
+  assert.equal(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ commit: link })).commit, link);
+  assert.equal(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ commit: "" })).commit, null);
+});
+
+prueba("hecho a mano por voz: 'sí, márcala hecha' vale; 'no la marques hecha', un texto corto o uno sin 'sí' no", () => {
+  for (const texto of ["sí, márcala hecha", "Si, marcalo hecho", "sí, ponla hecha"]) {
+    assert.equal(trabajo.textoDeConfirmacionParaHecho(texto), null, texto);
+  }
+  for (const texto of [
+    "no la marques hecha",
+    "sí, no la marques hecha",
+    "sí, pero no la marcas hecha",
+    "sí, no está hecha",
+    "¿sí la marco hecha?",
+    "sí, está hecha",
+    "sí",
+    "hecha",
+    "márcala hecha",
+    "sí, dale",
+    undefined,
+    5,
+  ]) {
+    assert.ok(trabajo.textoDeConfirmacionParaHecho(texto), String(texto));
+  }
+  assert.match(trabajo.puedeMarcarHechoAMano(pedidoDeVoz({ textoConfirmacion: undefined })).error, /márcala hecha/);
+  assert.match(trabajo.puedeMarcarHechoAMano(pedidoDeVoz({ textoConfirmacion: "sí, no la marques hecha" })).error, /un "no"/);
+  assert.ok(trabajo.puedeMarcarHechoAMano(pedidoDeVoz({ textoConfirmacion: "no la marques hecha" })).error);
+});
+
+prueba("hecho a mano: por el MCP solo por voz, en la pantalla solo con el botón, y el Coordinador nunca", () => {
+  assert.ok(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ origen: "MCP" })).error);
+  assert.ok(trabajo.puedeMarcarHechoAMano(pedidoDeVoz({ origen: "PANTALLA" })).error);
+  assert.ok(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ origen: "TRABAJADOR" })).error);
+  assert.ok(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ usaEstados: false })).error);
+});
+
+prueba("hecho a mano: lo de siempre no cambia (el HECHO común de una tarjeta con repo sigue negado, y dice cómo pedirlo)", () => {
+  for (const de of ["ERROR", "FALLIDO", "POR_REVISAR"]) {
+    assert.match(reglas.puedeCambiarEstado(de, "HECHO", true, true, true), /márcala hecha/, de);
+  }
+  assert.ok(reglas.puedeCambiarEstado("APROBADO", "HECHO", true, true, true));
+  assert.doesNotMatch(reglas.puedeCambiarEstado("APROBADO", "HECHO", true, true, true), /márcala hecha/);
+  assert.equal(reglas.puedeCambiarEstado("APROBADO", "HECHO", true, true, false), null);
+  assert.equal(reglas.puedeCambiarEstado("EN_CURSO", "HECHO", true, true, false), null);
+  assert.deepEqual([...reglas.ESTADOS_QUE_SE_MARCAN_HECHO_A_MANO], ["ERROR", "FALLIDO", "POR_REVISAR"]);
+});
+
+prueba("hecho a mano: el registro del historial guarda nota, commit, vía y texto, y se reconoce", () => {
+  const registro = trabajo.registroDeHechoAMano({
+    via: "voz",
+    quienNombre: "Alexander",
+    userId: "u1",
+    nota: "Subido a mano",
+    commit: "abcdef1",
+    textoConfirmacion: "sí, márcala hecha",
+  });
+  assert.equal(registro.estado, "HECHO");
+  assert.equal(registro.como, "marcado hecho a mano por el dueño (Alexander)");
+  assert.equal(registro.nota, "Subido a mano");
+  assert.equal(registro.commit, "abcdef1");
+  assert.equal(registro.textoConfirmacion, "sí, márcala hecha");
+  assert.ok(trabajo.esHechoAMano({ accion: "estado", despues: registro }));
+  assert.ok(!trabajo.esHechoAMano({ accion: "estado", despues: { estado: "HECHO" } }));
+  assert.ok(!trabajo.esHechoAMano({ accion: "aprobar", despues: registro }));
+});
+
+prueba("hecho a mano: deshacerlo se niega si venía de ERROR o POR_REVISAR y se permite si venía de FALLIDO", () => {
+  const marca = (antes) =>
+    cambio({ accion: "estado", antes: { estado: antes }, despues: { estado: "HECHO", hechoAMano: true, via: "voz" } });
+  for (const antes of ["ERROR", "POR_REVISAR"]) {
+    assert.ok(reglas.puedeDeshacer(marca(antes), [], "HECHO"), antes);
+  }
+  assert.equal(reglas.puedeDeshacer(marca("FALLIDO"), [], "HECHO"), null);
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);

@@ -65,7 +65,10 @@ function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyM
     const momento = typeof despues.momento === "string" ? ` (${MOMENTO[despues.momento] ?? despues.momento})` : "";
     const motivo = typeof despues.motivo === "string" ? ` · ${despues.motivo}` : "";
     const sola = cambio.accion === "aprobar" && despues.automatica === true ? " · Aprobada sola por la regla de bajo riesgo" : "";
-    return `${de} → ${a}${momento}${como}${sola}${motivo}`;
+    // Un HECHO a mano deja la nota de qué se hizo y, si lo hay, el commit.
+    const nota = cambio.accion === "estado" && typeof despues.nota === "string" ? ` · Nota: ${despues.nota}` : "";
+    const commit = cambio.accion === "estado" && typeof despues.commit === "string" ? ` · Commit: ${despues.commit}` : "";
+    return `${de} → ${a}${momento}${como}${sola}${motivo}${nota}${commit}`;
   }
   if (cambio.accion === "editar") {
     const campos = Object.keys(despues).filter((campo) => campo !== "estado");

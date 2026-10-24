@@ -288,7 +288,9 @@ la IA pausada no lo contesta el agente.
   las mueve de estado, pero **nunca aprueba por su cuenta**: aprobar es su propia acción (botón de la
   pantalla, o `aprobar_tarjeta` del MCP SOLO cuando la persona lo dijo explícitamente, con su texto "sí,
   apruebo"), y solo desde POR_APROBAR (se valida en el servidor). Lo que no está aprobado no se ejecuta:
-  EN_CURSO solo sale de APROBADO, y HECHO o FALLIDO de APROBADO o EN_CURSO. Si Claude edita una tarjeta
+  EN_CURSO solo sale de APROBADO, y HECHO o FALLIDO de APROBADO o EN_CURSO (en una tarjeta con repo el
+  HECHO lo pone el trabajador al subir, o el dueño a mano desde ERROR, FALLIDO o POR_REVISAR: ver
+  "Advertencias de operación"). Si Claude edita una tarjeta
   aprobada, vuelve a POR_APROBAR. Toda escritura deja una fila en `HistorialTarjeta`.
 - **Tablero IA — el TRABAJADOR (fase 2, 20-oct-2026)**: una Tarea con `repo` (gestion o aizencrm) la
   ejecuta un PC aparte ("aizen1", carpeta `trabajador-tablero/` de este repo; NADA corre en el servidor de
@@ -479,6 +481,11 @@ la IA pausada no lo contesta el agente.
   están en el README, "Respaldo de la base". Las claves (token de Drive, conexión de solo lectura, correo)
   están solo en las variables del servicio `aizenbot_respaldo` en Portainer y en `config.local.json` de
   aizen1. Las copias tienen teléfonos y conversaciones de clientes: la carpeta de Drive no se comparte.
+- **Una tarea con repo terminada por fuera se marca hecha a mano, no se borra**: el dueño toca "Marcar
+  hecho a mano" en la ficha (ERROR, FALLIDO o POR_REVISAR), con una nota de qué se hizo y, si quiere, el
+  commit; o Claude lo hace con `cambiar_estado_tarjeta` (HECHO) solo si el dueño dijo "sí, márcala hecha".
+  Queda en el historial como "marcado hecho a mano por el dueño". No se hace mientras el trabajador la
+  tiene (PLANEANDO, EN_CURSO, SUBIENDO). Desde ERROR o POR_REVISAR no se puede deshacer desde Claude.
 - **Todo push a `main` se despliega solo** si el CI pasa. Para cambios que se quieren revisar antes, rama
   y pull request.
 - **El contenedor corre en UTC**: las fechas que se muestran tienen que fijar `timeZone:

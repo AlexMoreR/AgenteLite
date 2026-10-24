@@ -25,6 +25,7 @@ import {
   puedeColgar,
   puedeDeshacer,
   puedeEditarTarjeta,
+  sePuedeMarcarHechoAMano,
   tieneAprobacion,
   ESTADOS_CON_APROBACION,
   problemaDelNombreDeTablero,
@@ -37,11 +38,14 @@ import {
 } from "./reglas";
 import {
   esDuenoDelNegocio,
+  esHechoAMano,
   esRepo,
   motivoNoEsDueno,
   puedeAprobarMomento,
   puedeCambiarZonas,
+  puedeMarcarHechoAMano,
   registroDeAprobacion,
+  registroDeHechoAMano,
   repoDeEntrada,
   textoDeConfirmacionParaBorrar,
   unirZonas,
@@ -701,7 +705,19 @@ function aprobacionesDelHistorial(
 /** ver_plan_y_resultado (MCP) y la ficha: estado, repo, plan, resultado y quién aprobó qué y cuándo. */
 export async function planYResultado(alcance: Alcance, tarjetaId: unknown) {
   const { tarjeta, cambios } = await historialDeTarjeta(alcance, tarjetaId);
-  return { tarjeta, aprobaciones: aprobacionesDelHistorial(cambios) };
+  // Si la tarjeta está HECHO porque el dueño la marcó a mano, no la subió el Coordinador: se dice.
+  const marca = tarjeta.estado === "HECHO" ? cambios.find((cambio) => !cambio.deshechoEn && esHechoAMano(cambio)) : undefined;
+  const despues = (marca?.despues ?? {}) as Record<string, unknown>;
+  const hechoAMano = marca
+    ? {
+        nota: typeof despues.nota === "string" ? despues.nota : "",
+        commit: typeof despues.commit === "string" ? despues.commit : null,
+        quien: typeof despues.quienNombre === "string" ? despues.quienNombre : marca.quienNombre,
+        via: typeof despues.via === "string" ? despues.via : "pantalla",
+        cuando: marca.creadoEn.toISOString(),
+      }
+    : null;
+  return { tarjeta, aprobaciones: aprobacionesDelHistorial(cambios), hechoAMano };
 }
 
 /** Una tarjeta que espera al dueño ("Te toca a ti"), de cualquier tablero del negocio. */
@@ -1525,11 +1541,25 @@ async function reglasDelTipo(tipoId: string) {
   return { requiereAprobacion: tipo?.requiereAprobacion ?? true, usaEstados: tipo?.usaEstados ?? true };
 }
 
-export async function cambiarEstadoTarjeta(contexto: ContextoTablero, tarjetaId: unknown, estado: unknown) {
+/** Los datos extra de un HECHO a mano que pide Claude por voz (cambiar_estado_tarjeta). */
+export type DatosDeHechoAMano = { textoConfirmacion?: unknown; nota?: unknown; commit?: unknown };
+
+export async function cambiarEstadoTarjeta(
+  contexto: ContextoTablero,
+  tarjetaId: unknown,
+  estado: unknown,
+  hechoAMano: DatosDeHechoAMano = {},
+) {
   if (!esEstado(estado)) {
     throw new Error("Estado desconocido. Van: IDEA, POR_APROBAR, EN_CURSO, HECHO o FALLIDO.");
   }
   const actual = await tarjetaDelNegocio(contexto, tarjetaId);
+  // HECHO de una tarjeta con repo que quedó en ERROR, FALLIDO o POR_REVISAR: es "marcar hecho a mano",
+  // una regla aparte que exige al dueño (reglas-trabajador.ts). Lo demás sigue por las reglas de siempre.
+  if (estado === "HECHO" && actual.repo && sePuedeMarcarHechoAMano(actual.estado)) {
+    const marcada = await marcarHechoAMano(contexto, actual.id, { via: "voz", ...hechoAMano });
+    return { cambioId: marcada.cambioId, antes: marcada.antes, ahora: marcada.ahora, titulo: marcada.titulo, aprobacionAutomatica: null };
+  }
   const tipo = await reglasDelTipo(actual.tipoId);
   const veredicto = puedeCambiarEstado(actual.estado, estado, tipo.requiereAprobacion, tipo.usaEstados, Boolean(actual.repo));
   if (veredicto) {
@@ -1550,6 +1580,79 @@ export async function cambiarEstadoTarjeta(contexto: ContextoTablero, tarjetaId:
   if (estado !== "POR_APROBAR" || !actual.repo || actual.riesgo !== "BAJO") return { ...cambiado, aprobacionAutomatica: null };
   const aprobacion = await aprobarSolaLaTarea(actual.id);
   return { ...cambiado, ahora: aprobacion.aprobada ? ("APROBADO" as EstadoTarjetaTablero) : cambiado.ahora, aprobacionAutomatica: aprobacion };
+}
+
+/** Cómo llega un HECHO a mano: por dónde, la nota, el commit y (voz) lo que dijo el dueño o (pantalla) lo que vio. */
+export type PedidoDeMarcarHecho = DatosDeHechoAMano & {
+  via: ViaDeAprobacion;
+  /** El actualizadoEn de la tarjeta que tenía la pantalla: se marca lo que se leyó. */
+  vistaEn?: string;
+};
+
+/**
+ * Marcar HECHO a mano una tarjeta con repo en ERROR, FALLIDO o POR_REVISAR cuyo cambio se terminó por
+ * fuera del Coordinador. Quién puede y con qué datos lo decide `puedeMarcarHechoAMano`
+ * (reglas-trabajador.ts). Se guarda solo si la tarjeta sigue igual que cuando se leyó (si el
+ * Coordinador la tomó un instante antes, no se hace). El historial deja la nota, el commit, la vía y el
+ * texto exacto del dueño. Lo que dejó el Coordinador (plan, rama, error) no se borra.
+ */
+export async function marcarHechoAMano(contexto: ContextoTablero, tarjetaId: unknown, pedido: PedidoDeMarcarHecho) {
+  const actual = await tarjetaDelNegocio(contexto, tarjetaId);
+  const [tipo, persona] = await Promise.all([
+    reglasDelTipo(actual.tipoId),
+    personaQueAprueba(contexto.workspaceId, contexto.userId),
+  ]);
+  const veredicto = puedeMarcarHechoAMano({
+    via: pedido.via,
+    origen: contexto.origen,
+    estado: actual.estado,
+    usaEstados: tipo.usaEstados,
+    repo: actual.repo && esRepo(actual.repo) ? actual.repo : null,
+    textoConfirmacion: pedido.textoConfirmacion,
+    nota: pedido.nota,
+    commit: pedido.commit,
+    persona,
+  });
+  if ("error" in veredicto) throw new Error(veredicto.error);
+  if (pedido.vistaEn && pedido.vistaEn !== actual.actualizadoEn.toISOString()) {
+    throw new Error("La tarjeta cambió mientras la mirabas. Revísala de nuevo antes de marcarla hecha.");
+  }
+  const texto = typeof pedido.textoConfirmacion === "string" ? pedido.textoConfirmacion.trim().slice(0, 500) : null;
+  const registro = registroDeHechoAMano({
+    via: pedido.via,
+    quienNombre: persona.nombre,
+    userId: contexto.userId,
+    nota: veredicto.nota,
+    commit: veredicto.commit,
+    textoConfirmacion: pedido.via === "voz" ? texto || null : null,
+  });
+  return prisma.$transaction(async (tx) => {
+    // Condicionado al estado y al momento en que se leyó, al tipo y al repo: si el Coordinador la tomó
+    // o alguien la editó un instante antes, no se marca.
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: {
+        id: actual.id,
+        estado: actual.estado,
+        actualizadoEn: actual.actualizadoEn,
+        tipoId: actual.tipoId,
+        repo: actual.repo,
+        ...NO_BORRADA,
+      },
+      data: { estado: "HECHO", trabajoVenceEn: null },
+    });
+    if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
+    const cambio = await anotar(tx, contexto, actual.id, "estado", { estado: actual.estado }, registro);
+    await tocarTablero(tx, actual.tableroId);
+    return {
+      cambioId: cambio.id,
+      titulo: actual.titulo,
+      antes: actual.estado,
+      ahora: "HECHO" as EstadoTarjetaTablero,
+      quien: persona.nombre,
+      nota: veredicto.nota,
+      commit: veredicto.commit,
+    };
+  });
 }
 
 /**

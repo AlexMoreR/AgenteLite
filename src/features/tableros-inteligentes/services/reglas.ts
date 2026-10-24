@@ -37,6 +37,11 @@
      reglas-trabajador.ts: desde la pantalla, o por el MCP con aprobar_tarjeta y la confirmación
      explícita de la persona ("sí, apruebo"). Las tarjetas SIN repo siguen como en la fase 1
      (APROBADO -> EN_CURSO -> HECHO | FALLIDO a mano).
+
+  9. HECHO A MANO (22-oct-2026): una tarjeta con repo en ERROR, FALLIDO o POR_REVISAR cuyo cambio se
+     terminó por fuera del Coordinador (por ejemplo, lo subió Claude Code a mano) la marca HECHO el
+     dueño, con una nota obligatoria y el commit opcional (puedeMarcarHechoAMano, reglas-trabajador.ts).
+     Es una regla aparte: puedeCambiarEstado NO cambia y sigue negando el HECHO en tarjetas con repo.
 */
 
 export const ESTADOS_TARJETA = [
@@ -132,6 +137,21 @@ export function estaTrabajando(estado: EstadoTarjetaTablero) {
 }
 
 /**
+ * Los estados de una tarjeta con repo desde los que el dueño la puede marcar HECHO a mano (cuando el
+ * cambio se terminó por fuera del Coordinador). Es una regla aparte (puedeMarcarHechoAMano en
+ * reglas-trabajador.ts): puedeCambiarEstado sigue negando el HECHO en tarjetas con repo.
+ */
+export const ESTADOS_QUE_SE_MARCAN_HECHO_A_MANO = ["ERROR", "FALLIDO", "POR_REVISAR"] as const;
+
+export function sePuedeMarcarHechoAMano(estado: EstadoTarjetaTablero) {
+  return (ESTADOS_QUE_SE_MARCAN_HECHO_A_MANO as readonly string[]).includes(estado);
+}
+
+/** Cómo pedir el HECHO de una tarjeta con repo, para decirlo cuando se niega. */
+export const COMO_MARCAR_HECHO_A_MANO =
+  'Si el cambio ya se terminó por fuera del trabajador, el dueño la marca "hecha a mano" desde ERROR, FALLIDO o POR_REVISAR: en la pantalla con el botón "Marcar hecho a mano", o con cambiar_estado_tarjeta (estado HECHO) con texto_confirmacion (lo que dijo el dueño, por ejemplo "sí, márcala hecha") y una nota de qué se hizo.';
+
+/**
  * ¿Se puede mover la tarjeta de `de` a `a` con un cambio de estado común (no una aprobación)?
  * `requiereAprobacion` es el de su tipo (por defecto sí, como antes de que hubiera tipos).
  */
@@ -160,7 +180,7 @@ export function puedeCambiarEstado(
     return `La tarjeta ya está en ${a}.`;
   }
   if (conRepo && (a === "EN_CURSO" || a === "HECHO")) {
-    return `Las tarjetas con repo las ejecuta el trabajador: ${a} lo pone él. ${SOLO_EL_TRABAJADOR}`;
+    return `Las tarjetas con repo las ejecuta el trabajador: ${a} lo pone él. ${SOLO_EL_TRABAJADOR}${a === "HECHO" && sePuedeMarcarHechoAMano(de) ? ` ${COMO_MARCAR_HECHO_A_MANO}` : ""}`;
   }
   if (a === "EN_CURSO" && de !== "APROBADO") {
     return "Solo se pone EN_CURSO una tarjeta APROBADA. Primero hay que dejarla POR_APROBAR y que el dueño la apruebe.";

@@ -5,7 +5,15 @@ import { Check, ChevronRight, ExternalLink, Gauge, GitBranch, Loader2, RotateCcw
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { aprobarTarjetaAction, cambiarRiesgoAction, cambiarZonasAction } from "@/app/actions/tableros-inteligentes-actions";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  aprobarTarjetaAction,
+  cambiarRiesgoAction,
+  cambiarZonasAction,
+  marcarHechoAManoAction,
+} from "@/app/actions/tableros-inteligentes-actions";
 import {
   NOMBRE_DE_LA_ZONA,
   NOMBRE_DEL_REPO,
@@ -34,6 +42,8 @@ import type { TarjetaVista } from "../services/tableros";
     sola (EN_CURSO -> SUBIENDO -> HECHO, con el link del commit); POR_REVISAR queda para las que tocan
     una zona protegida (chats, agentes, libro V3, Meta Ads) y acá se dice cuál.
   - "Reintentar" (ERROR): con el plan que ya tiene (si tiene) o planeando de nuevo.
+  - "Marcar hecho a mano" (ERROR, FALLIDO o POR_REVISAR, con repo): SOLO el dueño. Abre un panel con la
+    nota (obligatoria) y el commit (opcional); el servidor revisa todo (puedeMarcarHechoAMano).
   - Quitar una zona protegida: solo el dueño.
   Los botones son una ayuda: el servidor vuelve a revisar todo (reglas-trabajador.ts). Cada aprobación
   queda en el historial con el nombre de quien aprobó y "pantalla".
@@ -58,6 +68,9 @@ const BOTON_GRANDE = "h-14 w-full text-lg font-semibold";
 export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDueno, alCambiar }: Props) {
   const [ocupado, empezar] = useTransition();
   const [confirmarSubida, setConfirmarSubida] = useState(false);
+  const [hechoAMano, setHechoAMano] = useState(false);
+  const [nota, setNota] = useState("");
+  const [commit, setCommit] = useState("");
   const resultado = tarjeta.resultado;
   const conZona = tarjeta.zonaProtegida.length > 0;
   // Con zona protegida aprueba solo el dueño (lo dice el servidor; acá solo no se ofrece el botón).
@@ -70,6 +83,20 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
       if (respuesta.ok) toast.success(listo);
       else toast.error(respuesta.error);
       setConfirmarSubida(false);
+      alCambiar();
+    });
+  };
+
+  const marcarHechoAMano = () => {
+    const vistaEn = tarjeta.actualizadoEn;
+    empezar(async () => {
+      const respuesta = await marcarHechoAManoAction(tarjeta.id, nota, commit.trim() || undefined, vistaEn);
+      if (respuesta.ok) {
+        toast.success("Marcada hecha a mano");
+        setHechoAMano(false);
+        setNota("");
+        setCommit("");
+      } else toast.error(respuesta.error);
       alCambiar();
     });
   };
@@ -271,6 +298,53 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
             </Button>
           ) : null}
         </div>
+      ) : null}
+
+      {esDueno && tarjeta.repo && (estado === "ERROR" || estado === "FALLIDO" || estado === "POR_REVISAR") ? (
+        hechoAMano ? (
+          <div role="dialog" aria-label="Marcar hecho a mano" className="space-y-3 rounded-lg border-2 border-primary p-3">
+            <p className="text-base font-medium">Marcar hecho a mano</p>
+            <p className="text-xs text-muted-foreground">
+              Para un cambio que ya se terminó por fuera del Coordinador. La tarjeta queda Hecha y sale de “Te toca a ti”; lo que dejó el
+              Coordinador (plan, rama, error) se conserva.
+              {estado === "POR_REVISAR" ? " Lo que hay en su rama no se va a subir." : ""}
+            </p>
+            <div className="space-y-1">
+              <Label htmlFor={`nota-${tarjeta.id}`}>Qué se hizo (obligatorio)</Label>
+              <Textarea
+                id={`nota-${tarjeta.id}`}
+                value={nota}
+                maxLength={500}
+                onChange={(evento) => setNota(evento.target.value)}
+                placeholder="Ej.: Lo subió Claude Code a mano a aizen1"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor={`commit-${tarjeta.id}`}>Commit (opcional)</Label>
+              <Input
+                id={`commit-${tarjeta.id}`}
+                value={commit}
+                maxLength={300}
+                onChange={(evento) => setCommit(evento.target.value)}
+                placeholder="Código del cambio o link de GitHub"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="h-12 flex-1 text-base" onClick={() => setHechoAMano(false)} disabled={ocupado}>
+                Cancelar
+              </Button>
+              <Button className="h-12 flex-1 text-base" onClick={marcarHechoAMano} disabled={ocupado || !nota.trim()}>
+                {ocupado ? <Loader2 className="animate-spin" /> : <Check />}
+                Marcar hecha
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button className={BOTON} variant="outline" onClick={() => setHechoAMano(true)} disabled={ocupado}>
+            <Check />
+            Marcar hecho a mano
+          </Button>
+        )
       ) : null}
 
       {estado === "ERROR" && resultado?.error?.motivo ? (

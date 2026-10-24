@@ -43,7 +43,9 @@ minuto y antes que cualquier otra tarjeta.
 - Un archivo nuevo de chats, agentes o Meta Ads que no calce con ningún glob **subiría solo**: al
   crear carpetas nuevas de esas áreas, agregarlas a `zonasProtegidas`.
 
-Desde ERROR el dueño toca **Reintentar**.
+Desde ERROR el dueño toca **Reintentar**. Si el cambio ya se terminó por fuera del trabajador (por ejemplo,
+lo subió Claude Code a mano), no se borra la tarjeta: el dueño toca **Marcar hecho a mano** (desde ERROR,
+FALLIDO o POR_REVISAR) con una nota de qué se hizo, y queda HECHO sin que el trabajador la toque.
 
 Mientras trabaja manda un **latido** cada minuto. Si el PC se apaga o se cuelga, a los 5 minutos sin
 latido la tarjeta pasa a ERROR ("se pasó del tiempo"). Topes por etapa: plan 20 min, construir 90 min,

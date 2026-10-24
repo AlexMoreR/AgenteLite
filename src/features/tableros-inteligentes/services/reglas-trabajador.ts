@@ -39,9 +39,22 @@
   7. Por el MCP, una tarjeta PLAN_LISTO o ERROR se borra solo si el dueño lo pidió por voz: texto con
      "sí" y "borrar" (textoDeConfirmacionParaBorrar) y la cuenta de la clave es la dueña. Las que tiene
      el Coordinador en la mano y las de zona protegida no se borran (puedeBorrarTarjeta en reglas.ts).
+  8. HECHO A MANO (22-oct-2026): cuando un cambio se termina por fuera del Coordinador, el dueño marca
+     la tarjeta con repo HECHO desde ERROR, FALLIDO o POR_REVISAR (puedeMarcarHechoAMano): nota
+     obligatoria, commit opcional, y por voz el texto "sí, márcala hecha" con la clave de la cuenta
+     dueña. Nunca mientras el Coordinador la tiene. Queda en el historial (registroDeHechoAMano). La
+     regla general no cambia: en el camino normal el HECHO lo pone solo el Coordinador.
 */
 
-import { type EstadoTarjetaTablero, type OrigenCambio, type Veredicto, claveDeNombre } from "./reglas";
+import {
+  COMO_MARCAR_HECHO_A_MANO,
+  type EstadoTarjetaTablero,
+  type OrigenCambio,
+  type Veredicto,
+  claveDeNombre,
+  estaTrabajando,
+  sePuedeMarcarHechoAMano,
+} from "./reglas";
 import { type ModelosDelResultado, modelosDeEntrada } from "./modelos-del-coordinador";
 import { archivosDeEntrada, migracionDestructivaDeEntrada } from "./reglas-riesgo";
 
@@ -310,6 +323,30 @@ export function textoDeConfirmacionParaBorrar(texto: unknown): Veredicto {
   return null;
 }
 
+/**
+ * ¿El texto de confirmación dice de verdad "sí, márcala hecha"? Al menos 8 caracteres, con la palabra
+ * "sí" (o "si") y "hecha" o "hecho", sin importar tildes ni mayúsculas. "No la marques hecha" no vale.
+ * Lo usa cambiar_estado_tarjeta para el HECHO a mano por voz.
+ */
+export function textoDeConfirmacionParaHecho(texto: unknown): Veredicto {
+  const COMO = 'Tiene que ser lo que dijo la persona, por ejemplo: "sí, márcala hecha".';
+  if (typeof texto !== "string" || texto.trim().length < 8) {
+    return `Falta el texto de confirmación (mínimo 8 caracteres). ${COMO}`;
+  }
+  const limpio = normalizar(texto);
+  if (!/(^|[^a-z])si([^a-z]|$)/.test(limpio) || !/(^|[^a-z])hech[ao]([^a-z]|$)/.test(limpio)) {
+    return `El texto de confirmación tiene que decir "sí" y "hecha" (o "hecho"). ${COMO}`;
+  }
+  // Cualquier "no" o una pregunta (¿sí la marco hecha?) no es una orden del dueño.
+  if (/(^|[^a-z])(no|nunca|tampoco)([^a-z]|$)/.test(limpio) || /[?¿]/.test(texto)) {
+    return 'El texto tiene un "no" o es una pregunta: no es una orden clara de marcarla hecha.';
+  }
+  if (!/(^|[^a-z])(marc|pon|dej|cierr|pas|dal)[a-z]*/.test(limpio)) {
+    return `El texto de confirmación tiene que decir "márcala" (o "ponla", "déjala") además de "sí" y "hecha". ${COMO}`;
+  }
+  return null;
+}
+
 /** Lo que se sabe de la cuenta que aprueba para decidir si es la dueña del negocio. */
 export type CuentaQueAprueba = {
   nombre: string;
@@ -517,6 +554,98 @@ export type RegistroDeAprobacion = {
 
 export function registroDeAprobacion(datos: Omit<RegistroDeAprobacion, "como">): RegistroDeAprobacion {
   return { ...datos, como: datos.via === "voz" ? "aprobado por voz" : "aprobado en pantalla" };
+}
+
+/* ───────────────────────────────────────────────────────────────────── hecho a mano ── */
+
+export const MAXIMO_NOTA_HECHO_A_MANO = 500;
+
+/**
+ * El commit de un HECHO a mano: el código del cambio (de 7 a 40 letras y números) o un link de GitHub.
+ * null si no vino (es opcional); el texto limpio si está bien; { error } si está mal escrito.
+ */
+export function commitDeEntrada(valor: unknown): string | null | { error: string } {
+  if (valor === undefined || valor === null) return null;
+  if (typeof valor !== "string") return { error: "El commit tiene que ser texto: el código (7 a 40 letras y números) o un link de GitHub." };
+  const limpio = valor.trim();
+  if (!limpio) return null;
+  if (/^[0-9a-f]{7,40}$/i.test(limpio)) return limpio;
+  if (/^https:\/\/github\.com\/\S+$/i.test(limpio) && limpio.length <= 300) return limpio;
+  return { error: "El commit está mal escrito: tiene que ser el código del cambio (7 a 40 letras y números, como abc1234) o un link de GitHub (https://github.com/...)." };
+}
+
+export type PedidoDeHechoAMano = {
+  via: ViaDeAprobacion;
+  origen: OrigenCambio;
+  estado: EstadoTarjetaTablero;
+  usaEstados: boolean;
+  repo: string | null;
+  textoConfirmacion?: unknown;
+  nota: unknown;
+  commit?: unknown;
+  persona: PersonaQueAprueba;
+};
+
+/**
+ * La regla de "marcar hecho a mano": una tarjeta CON repo en ERROR, FALLIDO o POR_REVISAR (nunca
+ * mientras el Coordinador la tiene) la pasa a HECHO solo el dueño del negocio, con una nota obligatoria
+ * (hasta 500 letras) y el commit opcional. Por voz (MCP), además, el texto "sí, márcala hecha". Devuelve
+ * la nota y el commit ya limpios, o el error.
+ */
+export function puedeMarcarHechoAMano(
+  pedido: PedidoDeHechoAMano,
+): { nota: string; commit: string | null } | { error: string } {
+  if (!pedido.usaEstados) return { error: "Las tarjetas de ese tipo (como Área) son carpetas: no tienen estado." };
+  if (pedido.origen === "TRABAJADOR") return { error: "El Coordinador no marca hecho a mano." };
+  if ((pedido.origen === "MCP") !== (pedido.via === "voz")) {
+    return { error: "Por el MCP se marca solo con la confirmación del dueño (via voz); en la pantalla, con el botón." };
+  }
+  if (!pedido.repo) return { error: "Esta tarjeta no tiene repo: el HECHO a mano es solo para las que ejecuta el Coordinador." };
+  if (estaTrabajando(pedido.estado)) {
+    return { error: `El Coordinador tiene esta tarjeta en este momento (${pedido.estado}): no se marca hecha hasta que termine o falle.` };
+  }
+  if (!sePuedeMarcarHechoAMano(pedido.estado)) {
+    return { error: `Solo se marca hecha a mano una tarjeta en ERROR, FALLIDO o POR_REVISAR. Está ${pedido.estado}.` };
+  }
+  if (pedido.via === "voz") {
+    const texto = textoDeConfirmacionParaHecho(pedido.textoConfirmacion);
+    if (texto) return { error: `${texto} ${COMO_MARCAR_HECHO_A_MANO}` };
+  }
+  if (!pedido.persona.esDueno) {
+    return { error: `Marcar hecho a mano lo hace solo el dueño del negocio.${conLaCuenta(pedido.persona, pedido.via)}` };
+  }
+  const nota = typeof pedido.nota === "string" ? pedido.nota.trim() : "";
+  if (!nota) return { error: "Falta la nota: escribe en pocas palabras qué se hizo por fuera." };
+  if (nota.length > MAXIMO_NOTA_HECHO_A_MANO) {
+    return { error: `La nota es muy larga (máximo ${MAXIMO_NOTA_HECHO_A_MANO} letras).` };
+  }
+  const commit = commitDeEntrada(pedido.commit);
+  if (commit !== null && typeof commit === "object") return commit;
+  return { nota, commit };
+}
+
+/** Lo que queda en `HistorialTarjeta.despues` de un HECHO a mano (la acción es "estado"). */
+export type RegistroDeHechoAMano = {
+  estado: "HECHO";
+  hechoAMano: true;
+  via: ViaDeAprobacion;
+  quienNombre: string;
+  userId: string;
+  nota: string;
+  commit: string | null;
+  textoConfirmacion: string | null;
+  /** "marcado hecho a mano por el dueño (nombre)". */
+  como: string;
+};
+
+export function registroDeHechoAMano(datos: Omit<RegistroDeHechoAMano, "estado" | "hechoAMano" | "como">): RegistroDeHechoAMano {
+  return { ...datos, estado: "HECHO", hechoAMano: true, como: `marcado hecho a mano por el dueño (${datos.quienNombre})` };
+}
+
+/** ¿Este cambio del historial es un HECHO a mano? Lo dice su `despues`. */
+export function esHechoAMano(cambio: { accion: string; despues: unknown }) {
+  const despues = cambio.despues as { hechoAMano?: unknown } | null;
+  return cambio.accion === "estado" && despues?.hechoAMano === true;
 }
 
 /* ───────────────────────────────────────────────────────────────────── el resultado ── */

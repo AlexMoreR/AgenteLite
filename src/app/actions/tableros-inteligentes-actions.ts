@@ -12,6 +12,7 @@ import {
   editarTarjeta,
   editarTipo,
   historialDeTarjeta,
+  marcarHechoAMano,
   personaQueAprueba,
   renombrarTablero,
   type ContextoTablero,
@@ -69,6 +70,25 @@ export async function aprobarTarjetaAction(
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo aprobar") };
+  }
+}
+
+/**
+ * Marcar hecho a mano desde la pantalla (solo el dueño; lo comprueba el servicio): una tarjeta con repo
+ * en ERROR, FALLIDO o POR_REVISAR cuyo cambio se terminó por fuera. Pide la nota y, si se quiere, el commit.
+ */
+export async function marcarHechoAManoAction(
+  tarjetaId: string,
+  nota: string,
+  commit?: string,
+  vistaEn?: string,
+): Promise<Resultado> {
+  const contexto = await contextoDePantalla();
+  try {
+    await marcarHechoAMano(contexto, tarjetaId, { via: "pantalla", nota, commit, vistaEn });
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo marcar la tarjeta como hecha") };
   }
 }
 

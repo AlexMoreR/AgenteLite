@@ -81,6 +81,10 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "explicitamente en esta conversacion: antes leerle el titulo y que se aprueba y esperar que diga 'si, apruebo'; " +
           "texto_confirmacion es lo que dijo, tal cual. Nunca aprobar por cuenta propia. El si final (subir) lo da solo el " +
           "dueno, y solo aplica a chats, agentes, zonas protegidas y tarjetas que ya estaban POR_REVISAR. " +
+          "Si un cambio con repo se termino por fuera del Coordinador (por ejemplo, lo subio Claude Code a mano) y la tarjeta quedo " +
+          "ERROR, FALLIDO o POR_REVISAR, NO se borra: el dueno la marca hecha a mano. Leerle el titulo y esperar que diga 'si, " +
+          "marcala hecha'; cambiar_estado_tarjeta con estado HECHO, texto_confirmacion (lo que dijo, tal cual) y nota (que se hizo; " +
+          "commit opcional). Nunca por cuenta propia ni mientras el Coordinador la tiene. " +
           "Si toca Meta Ads, el bot de ventas, el libro V3 o los chats, marcar zona_protegida: esas se aprueban solo en la " +
           "pantalla (Claude puede poner la zona, no quitarla). " +
           "CUAL TABLERO (se habla por voz y hay varios, por ejemplo 'Magilus General' de Alexander y 'Desarrollo " +
