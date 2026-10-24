@@ -24,7 +24,8 @@ import { completarConfig } from "../lib/config.mjs";
 import { crearCrm } from "../lib/crm.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, nombreDeRama, webDeGithub } from "../lib/git.mjs";
-import { esLimiteDeUso } from "../lib/etapas.mjs";
+import { esLimiteDeUso, promptDelPlan } from "../lib/etapas.mjs";
+import { destructivoDelSql, migracionDestructiva } from "../lib/riesgo.mjs";
 import {
   crearEstadoDeMotores,
   decidirUso,
@@ -69,6 +70,57 @@ await prueba("ensayo: se quitan BEGIN/COMMIT del archivo, va dentro de BEGIN…R
   assert.equal((guion.match(/^BEGIN;$/gm) ?? []).length, 1);
   assert.throws(() => sqlParaEnsayo("BEGIN;\nSELECT 1; COMMIT; SELECT 2;\nCOMMIT;"), /COMMIT/);
   assert.throws(() => sqlParaEnsayo("CREATE INDEX CONCURRENTLY x ON y (z);"), /CONCURRENTLY/);
+});
+
+await prueba("riesgo: el prompt del plan pide la línea RIESGO con sus criterios y dice el riesgo que ya trae la tarjeta", async () => {
+  const repo = { clave: "aizencrm", subirSolo: true, zonasProtegidas: { CHATS: ["src/chats/**"] } };
+  const prompt = promptDelPlan({ titulo: "Algo", tablero: "T", detalle: "d", intentos: 1 }, repo);
+  assert.match(prompt, /RIESGO: BAJO — <motivo en una frase>/);
+  assert.match(prompt, /RIESGO: ALTO — <motivo en una frase>/);
+  assert.match(prompt, /PRIMERAS líneas/);
+  for (const criterio of ["CHATS, BOT_VENTAS, LIBRO_V3, META_ADS", "DROP, ALTER destructivo, RENAME, DELETE, UPDATE ni TRUNCATE", "abonos, saldos, nómina, comisiones, facturación, pagos", "permisos, usuarios, contraseñas o credenciales", "trabajador-tablero/", "tienes duda, es ALTO"]) {
+    assert.ok(prompt.includes(criterio), criterio);
+  }
+  assert.match(prompt, /NO escribas las palabras DROP, DELETE, UPDATE, RENAME ni TRUNCATE/);
+  assert.match(prompt, /Al terminar: sube solo a producción/, "sigue la frase Al terminar");
+  assert.match(prompt, /^Eres el Coordinador[\s\S]*Contesta SOLO con el plan\.$/);
+  assert.ok(!prompt.includes("Riesgo que ya tiene la tarjeta"), "sin riesgo en la tarjeta, no lo menciona");
+  const conRiesgo = promptDelPlan({ titulo: "Algo", tablero: "T", detalle: "d", intentos: 1, riesgo: "ALTO", riesgoMotivo: "habla de pagos" }, repo, "codex");
+  assert.match(conRiesgo, /Riesgo que ya tiene la tarjeta en el CRM: ALTO \(habla de pagos\)/);
+});
+
+await prueba("riesgo: destructivoDelSql ignora comentarios y textos entre comillas y detecta cada palabra sin repetir", async () => {
+  assert.deepEqual(destructivoDelSql(null), []);
+  assert.deepEqual(destructivoDelSql('BEGIN;\nCREATE TABLE IF NOT EXISTS "A" ("id" TEXT);\nALTER TABLE "B" ADD COLUMN IF NOT EXISTS "x" TEXT;\nCREATE INDEX IF NOT EXISTS "i" ON "A" ("id");\nCOMMIT;'), []);
+  assert.deepEqual(destructivoDelSql("-- DROP TABLE x;\n/* DELETE FROM y;\n UPDATE z */\nSELECT 'DROP y, UPDATE z';"), [], "comentarios y textos");
+  assert.deepEqual(destructivoDelSql("INSERT INTO a VALUES ('it''s a DELETE');"), [], "comilla doble escapada dentro del texto");
+  assert.deepEqual(destructivoDelSql('DROP TABLE "A";'), ["DROP"]);
+  assert.deepEqual(destructivoDelSql('TRUNCATE "A";'), ["TRUNCATE"]);
+  assert.deepEqual(destructivoDelSql('DELETE FROM "A";'), ["DELETE"]);
+  assert.deepEqual(destructivoDelSql('update "A" set x = 1;'), ["UPDATE"]);
+  assert.deepEqual(destructivoDelSql('ALTER TABLE "A" RENAME TO "B";'), ["RENAME"]);
+  assert.ok(destructivoDelSql('ALTER TABLE "A" ALTER COLUMN "x" SET NOT NULL;').includes("ALTER destructivo"));
+  assert.deepEqual(destructivoDelSql("ALTER TYPE \"E\" ADD VALUE 'X';"), [], "agregar un valor a un enum es aditivo");
+  assert.deepEqual(
+    destructivoDelSql('CREATE TABLE "A" ("id" TEXT, "tipo" TEXT);\nALTER TABLE "A" ADD COLUMN "type" TEXT;\nALTER TABLE "A" ADD CONSTRAINT "f" FOREIGN KEY ("id") REFERENCES "B"("id") ON DELETE CASCADE ON UPDATE CASCADE;'),
+    [],
+    "las llaves foráneas de Prisma (ON DELETE/UPDATE) y una columna llamada type no cuentan",
+  );
+  assert.deepEqual(destructivoDelSql('DROP TABLE a; DROP TABLE b; DELETE FROM c;'), ["DROP", "DELETE"], "sin repetir");
+});
+
+await prueba("riesgo: migracionDestructiva lee cada migración nueva ([] si es aditiva, si no hay migración o si no se puede leer)", async () => {
+  const archivos = {
+    "prisma/migrations/1_a/migration.sql": 'CREATE TABLE IF NOT EXISTS "A" ("id" TEXT);',
+    "prisma/migrations/2_b/migration.sql": 'DROP TABLE "A";',
+    "prisma/migrations/3_c/migration.sql": 'UPDATE "A" SET x = 1; DROP INDEX i;',
+  };
+  const leer = (ruta) => archivos[ruta];
+  assert.deepEqual(migracionDestructiva([], leer), []);
+  assert.deepEqual(migracionDestructiva(undefined, leer), []);
+  assert.deepEqual(migracionDestructiva(["prisma/migrations/1_a/migration.sql"], leer), []);
+  assert.deepEqual(migracionDestructiva(["prisma/migrations/1_a/migration.sql", "prisma/migrations/3_c/migration.sql", "prisma/migrations/2_b/migration.sql"], leer).sort(), ["DROP", "UPDATE"]);
+  assert.deepEqual(migracionDestructiva(["no/existe/migration.sql"], () => { throw new Error("ENOENT"); }), []);
 });
 
 await prueba("ramas y links: tablero/<id>-<slug>, solo esas se empujan, link de GitHub", async () => {
@@ -497,6 +549,7 @@ try {
     // El título dice "migracion": toca la base, es difícil -> Opus, y la firma del plan lo dice.
     assert.equal(llamada.argumentos[llamada.argumentos.indexOf("--model") + 1], "opus");
     assert.match(t.plan, /Plan escrito con: Claude Code \(Opus\)\s*$/);
+    assert.match(t.plan, /^RIESGO: BAJO — .+$/m, "el plan trae la línea RIESGO");
     assert.equal(shaDe("main"), mainAntes, "planear no toca main");
     sinRestos();
   });
@@ -519,6 +572,11 @@ try {
     assert.match(t.resultado.pruebas, /lint sin errores nuevos/);
     assert.match(t.resultado.migracion, /PGlite: ok; producción \(magilus\) dentro de BEGIN…ROLLBACK: ok/);
     assert.equal(shaDe("main"), mainAntes, "construir NUNCA toca main");
+    // Riesgo: manda los archivos que cambió y que la migración (aditiva) no tiene nada destructivo.
+    const enviado = llamadas.findLast((l) => l.accion === "resultado" && l.id === feliz).cuerpo;
+    assert.deepEqual(enviado.archivos, ["prisma/migrations/20261020130000_nueva/migration.sql"]);
+    assert.deepEqual(enviado.migracionDestructiva, []);
+    assert.ok(!/destructivo/.test(t.resultado.pruebas));
     assert.deepEqual(ramasDelRemoto().sort(), ["main", rama].sort());
     // Claude con acceptEdits, herramientas acotadas y sin push.
     const [llamada] = leerLog(LOGS.claude).slice(-1);
@@ -590,6 +648,30 @@ try {
     const resultado = await vuelta();
     assert.equal(resultado.ok, true, resultado.motivo);
     assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    sinRestos();
+  });
+
+  await prueba("riesgo: una migración con DROP y UPDATE manda migracionDestructiva, deja el aviso en pruebas y NO rompe el flujo", async () => {
+    const id = nueva("Migración que borra [migracion-drop]", "PLAN_APROBADO", { plan: "El plan" });
+    const resultado = await vuelta();
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.equal(t.resultado.paso, true);
+    const enviado = llamadas.findLast((l) => l.accion === "resultado" && l.id === id).cuerpo;
+    assert.deepEqual(enviado.migracionDestructiva.sort(), ["DROP", "UPDATE"], "el comentario con DELETE y el texto con TRUNCATE no cuentan");
+    assert.deepEqual(enviado.archivos, ["prisma/migrations/20261020140000_destructiva/migration.sql"]);
+    assert.match(t.resultado.pruebas, /⚠ migración con cambios destructivos: DROP, UPDATE/);
+    sinRestos();
+  });
+
+  await prueba("riesgo: sin migración, migracionDestructiva es [] y archivos trae lo que cambió", async () => {
+    const id = nueva("Cambio chico sin migración", "PLAN_APROBADO", { plan: "El plan" });
+    assert.equal((await vuelta()).ok, true);
+    const enviado = llamadas.findLast((l) => l.accion === "resultado" && l.id === id).cuerpo;
+    assert.deepEqual(enviado.migracionDestructiva, []);
+    assert.equal(enviado.archivos.length, 1);
+    assert.match(enviado.archivos[0], /^cambio-\d+\.txt$/);
     sinRestos();
   });
 

@@ -43,6 +43,7 @@
 
 import { type EstadoTarjetaTablero, type OrigenCambio, type Veredicto, claveDeNombre } from "./reglas";
 import { type ModelosDelResultado, modelosDeEntrada } from "./modelos-del-coordinador";
+import { archivosDeEntrada, migracionDestructivaDeEntrada } from "./reglas-riesgo";
 
 /* ───────────────────────────────────────────────────────────────────── repos ── */
 
@@ -536,6 +537,10 @@ export type ResultadoDelTrabajador = {
   motor?: MotoresDelResultado;
   /** Qué modelo (Opus, Sonnet...) hizo cada paso. Lo elige el Coordinador con reglas fijas. Solo si vino. */
   modelo?: ModelosDelResultado;
+  /** Los archivos que de verdad cambió (para la última revisión de riesgo). Solo si vino. */
+  archivos?: string[];
+  /** Lo destructivo que encontró en la migración nueva (DROP, UPDATE...). [] = nada. Solo si vino. */
+  migracionDestructiva?: string[];
 };
 
 export type MotoresDelResultado = Partial<Record<"plan" | "construir" | "revisar", "claude" | "codex">>;
@@ -562,9 +567,15 @@ export function resultadoDeEntrada(valor: unknown): ResultadoDelTrabajador {
   const link = textoONull(datos.linkRama, 500);
   const motor = motoresDeEntrada(datos.motor);
   const modelo = modelosDeEntrada(datos.modelo);
+  const archivos = archivosDeEntrada(datos.archivos);
+  const destructivo = migracionDestructivaDeEntrada(datos.migracionDestructiva);
   return {
     ...(motor ? { motor } : {}),
     ...(modelo ? { modelo } : {}),
+    // Se guardan 100; la revisión de riesgo (trabajador.ts) mira la lista completa (hasta 300) del cuerpo.
+    ...(archivos ? { archivos: archivos.slice(0, 100) } : {}),
+    // Un `true` suelto (sin lista) se guarda como ["algo"]: no se pierde la señal de migración destructiva.
+    ...(Array.isArray(destructivo) ? { migracionDestructiva: destructivo } : destructivo === true ? { migracionDestructiva: ["algo"] } : {}),
     resumen,
     pruebas: textoCorto(datos.pruebas, 8000),
     paso: datos.paso === true,

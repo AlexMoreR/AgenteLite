@@ -27,6 +27,13 @@ import {
   type EtapaDelTrabajador,
   type PedidoDeTomar,
 } from "./reglas-trabajador";
+import { archivosDeEntrada, frase, motivosDelResultado, porQueNoSeApruebaSola, riesgoDelPlan } from "./reglas-riesgo";
+import {
+  anotarAprobacionAutomatica,
+  aprobacionAutomaticaPrendida,
+  motivoDeLaAprobacionAutomatica,
+  registroDeAprobacionAutomatica,
+} from "./aprobacion-automatica";
 import { SQL_CANDADO_DEL_NEGOCIO, SQL_CANDIDATAS, SQL_PASAR_VENCIDAS_A_ERROR, SQL_TOMAR_UNA, SQL_TRABAJANDO } from "./sql-trabajador";
 import { QUIEN_TRABAJADOR, linkDeLaTarjeta } from "./tableros";
 
@@ -212,6 +219,9 @@ const SELECT_PARA_TRABAJAR = {
   plan: true,
   resultado: true,
   zonaProtegida: true,
+  riesgo: true,
+  riesgoMotivo: true,
+  riesgoPor: true,
   intentos: true,
   trabajoIniciadoEn: true,
   trabajoVenceEn: true,
@@ -234,6 +244,9 @@ function paraElTrabajador(fila: FilaParaTrabajar) {
     // Las zonas que ya tiene la tarjeta son las que el dueño aprobó en la pantalla (/tomar no toma una
     // con zona si su última aprobación no fue en la pantalla): el cambio puede tocar esas, no otras.
     zonasAprobadas: fila.zonaProtegida,
+    // El riesgo que lleva la tarjeta (BAJO / ALTO / null): el trabajador lo recalcula al planear.
+    riesgo: fila.riesgo,
+    riesgoMotivo: fila.riesgoMotivo,
     intentos: fila.intentos,
     venceEn: fila.trabajoVenceEn ? fila.trabajoVenceEn.toISOString() : null,
     link: linkDeLaTarjeta(fila.id),
@@ -368,6 +381,8 @@ export async function accionDelTrabajador(
   const previo = resultadoComoObjeto(actual.resultado);
   const datos: Prisma.TarjetaTableroUpdateManyMutationInput = { estado: a, trabajoVenceEn: null };
   const despues: Record<string, unknown> = { estado: a };
+  // El plan de una tarjeta BAJO que se aprueba solo: se anota como una aprobación aparte (abajo).
+  let aprobacionDelPlan: ReturnType<typeof registroDeAprobacionAutomatica> | null = null;
   // Las zonas protegidas que marca el Coordinador (el cambio toca esas rutas): se suman, nunca se quitan.
   const marcarZonas = () => {
     const zonas = zonasDeEntrada(cuerpo.zonaProtegida);
@@ -386,13 +401,70 @@ export async function accionDelTrabajador(
       // Un plan nuevo deja atrás el resultado (y el error) de un intento anterior.
       datos.resultado = Prisma.DbNull;
       despues.plan = plan;
+      // Segunda revisión de riesgo: el CRM lee el plan (su línea RIESGO, la zona, la migración y los archivos).
+      // Una tarjeta BAJO sigue BAJO solo si el plan lo confirma; si no, sube a ALTO y espera al dueño.
+      const revision = riesgoDelPlan(plan);
+      if (actual.riesgo === "BAJO") {
+        const motivos = revision.motivosAlto;
+        if (motivos.length) {
+          datos.riesgo = "ALTO";
+          datos.riesgoMotivo = frase(motivos).slice(0, 300);
+          datos.riesgoPor = "TRABAJADOR";
+          despues.riesgo = "ALTO";
+          despues.riesgoMotivo = datos.riesgoMotivo;
+          despues.nota = `plan listo: el riesgo subió a ALTO, espera tu sí (${datos.riesgoMotivo})`;
+        } else {
+          if (revision.motivoDeclarado) {
+            datos.riesgoMotivo = revision.motivoDeclarado.slice(0, 300);
+            datos.riesgoPor = "TRABAJADOR";
+          }
+          // Sigue BAJO y sin zona protegida: el plan se aprueba solo (con el interruptor prendido).
+          // También se repasa el texto de la tarjeta (título y detalle) por si cambió desde que se marcó BAJO.
+          const prendido = await aprobacionAutomaticaPrendida(contexto.workspaceId);
+          const noSola = porQueNoSeApruebaSola({
+            titulo: actual.titulo,
+            detalle: actual.detalle,
+            repo: actual.repo,
+            zonaProtegida: actual.zonaProtegida,
+            riesgo: actual.riesgo,
+            prendido,
+          });
+          if (!noSola) {
+            const motivo = motivoDeLaAprobacionAutomatica(revision.motivoDeclarado ?? actual.riesgoMotivo);
+            aprobacionDelPlan = registroDeAprobacionAutomatica({ estado: "PLAN_APROBADO", momento: "plan", motivo });
+            a = "PLAN_APROBADO";
+            datos.estado = a;
+          }
+        }
+      }
     } else if (accion === "resultado") {
       const resultado = resultadoDeEntrada(cuerpo);
       const zonas = marcarZonas();
+      // Última revisión de riesgo: los archivos que de verdad cambió y su migración. Una tarjeta BAJO que
+      // toca algo de riesgo alto pasa a ALTO y no sube sola (espera el sí del dueño).
+      let subeSolo = resultado.subeSolo;
+      if (actual.riesgo === "BAJO") {
+        const motivos = motivosDelResultado({
+          // La lista completa del cuerpo (hasta 300): lo que se guarda en el resultado se recorta a 100.
+          archivos: archivosDeEntrada(cuerpo.archivos),
+          migracionDestructiva: resultado.migracionDestructiva ?? null,
+          zonaProtegida: zonas,
+        });
+        if (motivos.length) {
+          subeSolo = false;
+          datos.riesgo = "ALTO";
+          datos.riesgoMotivo = frase(motivos).slice(0, 300);
+          datos.riesgoPor = "TRABAJADOR";
+          despues.riesgo = "ALTO";
+          despues.riesgoMotivo = datos.riesgoMotivo;
+        }
+      }
       // Sube sola (SUBIENDO pendiente, la toma enseguida) o espera el sí final del dueño (POR_REVISAR).
-      a = destinoDelResultado({ paso: resultado.paso, subeSolo: resultado.subeSolo, zonaProtegida: zonas });
+      a = destinoDelResultado({ paso: resultado.paso, subeSolo, zonaProtegida: zonas });
       datos.estado = a;
       despues.estado = a;
+      // Lo que queda guardado dice lo que de verdad pasó: si el riesgo subió a ALTO, ya no "sube solo".
+      resultado.subeSolo = subeSolo;
       datos.resultado = resultado as unknown as Prisma.InputJsonValue;
       despues.resultado = resultado;
       despues.nota =
@@ -429,9 +501,26 @@ export async function accionDelTrabajador(
   }
 
   return prisma.$transaction(async (tx) => {
-    const hecho = await tx.tarjetaTablero.updateMany({ where: { id: actual.id, estado: actual.estado, borradoEn: null }, data: datos });
+    const hecho = await tx.tarjetaTablero.updateMany({
+      // Condicionado también al riesgo que se leyó: si el dueño lo cambió un instante antes, no se pisa.
+      where: {
+        id: actual.id,
+        estado: actual.estado,
+        riesgo: actual.riesgo,
+        borradoEn: null,
+        // Si el plan se aprueba solo, que nadie haya tocado el texto ni las zonas desde que se revisó.
+        ...(aprobacionDelPlan ? { titulo: actual.titulo, detalle: actual.detalle, zonaProtegida: { isEmpty: true } } : {}),
+      },
+      data: datos,
+    });
     if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    if (aprobacionDelPlan) {
+      // El plan queda PLAN_LISTO un instante y se aprueba solo: quedan las dos filas en el historial.
+      despues.estado = "PLAN_LISTO";
+      despues.nota = "plan listo, se aprueba solo (riesgo BAJO)";
+    }
     await anotarTrabajador(tx, contexto, actual.id, { estado }, despues);
+    if (aprobacionDelPlan) await anotarAprobacionAutomatica(tx, actual.id, { estado: "PLAN_LISTO" }, aprobacionDelPlan);
     await tocarTableros(tx, [actual.tableroId], ahora);
     return { ok: true, estado: a, link: linkDeLaTarjeta(actual.id) };
   });

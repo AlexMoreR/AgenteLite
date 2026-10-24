@@ -1,6 +1,12 @@
 // El cliente HTTP del CRM: lo único que el trabajador habla con el servidor (solo HTTPS saliente).
 // POST /api/trabajador/tablero/tomar, /candidatas y /api/trabajador/tablero/<id>/<accion>, con la clave
 // en Bearer.
+//
+// Riesgo (24-oct-2026): no cambia el cliente. `plan` sigue mandando { plan }: el plan trae en sus primeras
+// líneas "RIESGO: BAJO|ALTO — motivo" y el CRM lo lee del texto. `resultado` manda el objeto que arma
+// construir tal cual, con `archivos` (rutas que de verdad cambió, máx. 300) y `migracionDestructiva`
+// (palabras de SQL destructivo, [] si nada) para la última revisión de riesgo. La tarjeta que llega de
+// /tomar puede traer `riesgo` y `riesgoMotivo`.
 
 export class ErrorDelCrm extends Error {
   constructor(message, status) {

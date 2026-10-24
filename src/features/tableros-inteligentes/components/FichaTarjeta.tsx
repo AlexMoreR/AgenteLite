@@ -49,6 +49,9 @@ const CAMPO: Record<string, string> = {
   linkTexto: "texto del link",
   repo: "repo",
   zonaProtegida: "zona protegida",
+  riesgo: "riesgo",
+  riesgoMotivo: "motivo del riesgo",
+  riesgoPor: "quién puso el riesgo",
 };
 
 function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyMap<string, string>): string | null {
@@ -61,7 +64,8 @@ function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyM
     const como = typeof despues.como === "string" ? ` · ${despues.como}` : "";
     const momento = typeof despues.momento === "string" ? ` (${MOMENTO[despues.momento] ?? despues.momento})` : "";
     const motivo = typeof despues.motivo === "string" ? ` · ${despues.motivo}` : "";
-    return `${de} → ${a}${momento}${como}${motivo}`;
+    const sola = cambio.accion === "aprobar" && despues.automatica === true ? " · Aprobada sola por la regla de bajo riesgo" : "";
+    return `${de} → ${a}${momento}${como}${sola}${motivo}`;
   }
   if (cambio.accion === "editar") {
     const campos = Object.keys(despues).filter((campo) => campo !== "estado");

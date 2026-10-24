@@ -39,6 +39,7 @@ import {
 import { dificultadDeLaTarea, modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
 import { comoTexto, correr, ultimasLineas } from "./procesos.mjs";
+import { migracionDestructiva } from "./riesgo.mjs";
 import { zonasTocadas } from "./zonas.mjs";
 
 export class ErrorDeEtapa extends Error {
@@ -273,6 +274,9 @@ function contextoDeLaTarjeta(tarjeta) {
     `Tablero: ${tarjeta.tablero}`,
     `Detalle:\n${tarjeta.detalle || "(sin detalle)"}`,
     tarjeta.intentos > 1 ? `Es el intento ${tarjeta.intentos}.${error ? ` El anterior falló así:\n${error}` : ""}` : "",
+    tarjeta.riesgo
+      ? `Riesgo que ya tiene la tarjeta en el CRM: ${tarjeta.riesgo}${tarjeta.riesgoMotivo ? ` (${tarjeta.riesgoMotivo})` : ""}. Es solo un punto de partida: tú revisas el plan y pones tu propia línea RIESGO.`
+      : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -289,7 +293,7 @@ export function promptDelPlan(tarjeta, repo, motor = "claude") {
       "1. Qué se cambia.",
       "2. Qué efecto tiene (para el negocio, las asesoras o los clientes).",
       "3. Riesgos.",
-      "4. Migración de base de datos: sí o no. Si sí, cuál (solo aditiva y escrita a mano).",
+      "4. Migración de base de datos: sí o no. Si sí, cuál (solo aditiva y escrita a mano). El CRM revisa esta parte buscando SQL destructivo: NO escribas las palabras DROP, DELETE, UPDATE, RENAME ni TRUNCATE (ni siquiera para decir que no se usan) salvo que de verdad se vayan a usar.",
       "5. Archivos que se tocan.",
       "6. Cómo se va a probar.",
     ].join("\n"),
@@ -297,9 +301,28 @@ export function promptDelPlan(tarjeta, repo, motor = "claude") {
     motor === "codex" ? SIN_SUBAGENTES_AL_PLANEAR : SUBAGENTES_AL_PLANEAR,
     "En la parte 5 escribe cada archivo con su ruta completa desde la raíz del repo (por ejemplo src/features/coach/servicio.ts): el Coordinador la usa para no construir a la vez dos tareas que tocan lo mismo.",
     fraseAlTerminar(repo),
+    INSTRUCCION_DE_RIESGO,
     "Contesta SOLO con el plan.",
   ].join("\n\n");
 }
+
+/**
+ * El riesgo del plan (24-oct-2026): el CRM lee esta línea para aprobar solo las tareas sencillas. Los
+ * criterios espejan src/features/tableros-inteligentes/services/reglas-riesgo.ts; el CRM además lo
+ * revisa por su cuenta (la parte 4 y las rutas de la parte 5), así que marcar BAJO no basta.
+ */
+export const INSTRUCCION_DE_RIESGO = [
+  'En las PRIMERAS líneas del plan (junto a la frase "Al terminar: ...") escribe una línea exacta con este formato:',
+  "RIESGO: BAJO — <motivo en una frase>",
+  "o bien",
+  "RIESGO: ALTO — <motivo en una frase>",
+  "Es BAJO solo si cumple TODO esto:",
+  "- no toca ninguna zona protegida (CHATS, BOT_VENTAS, LIBRO_V3, META_ADS);",
+  "- no hay migración, o es solo aditiva (nada de DROP, ALTER destructivo, RENAME, DELETE, UPDATE ni TRUNCATE);",
+  "- no toca dinero (abonos, saldos, nómina, comisiones, facturación, pagos), ni permisos, usuarios, contraseñas o credenciales, ni envía mensajes a clientes;",
+  "- no toca el propio trabajador (trabajador-tablero/) ni las reglas de aprobación del tablero.",
+  "Si algo de eso no se cumple, o tienes duda, es ALTO. Es mejor pedirle permiso al dueño de más que de menos.",
+].join("\n");
 
 /** Lo que el plan tiene que decir al principio: si al terminar sube solo o espera el sí del dueño. */
 function fraseAlTerminar(repo) {
@@ -540,6 +563,9 @@ export async function construir(contexto, tarjeta) {
       throw new ErrorDeEtapa(`${MOTIVO_ENSAYO}\nDetalle técnico: ${error.message}`);
     }
     if (migracion) pruebas.push(`✔ ensayo de la migración: ${migracion}`);
+    // Riesgo: lo destructivo de las migraciones nuevas. No hace fallar nada: el CRM decide si pide el sí del dueño.
+    const destructivo = migracionDestructiva(migraciones, (ruta) => fs.readFileSync(path.join(carpeta, ruta), "utf8"));
+    if (destructivo.length) pruebas.push(`⚠ migración con cambios destructivos: ${destructivo.join(", ")}`);
     const alTerminar = subeSolo
       ? "construido, sube solo"
       : zonas.length
@@ -575,6 +601,9 @@ export async function construir(contexto, tarjeta) {
       migracion,
       subeSolo,
       base: baseSha,
+      // Para la última revisión de riesgo del CRM: los archivos que de verdad cambió y lo destructivo de la migración.
+      archivos: archivos.slice(0, 300),
+      migracionDestructiva: destructivo,
       ...(zonas.length ? { zonaProtegida: zonas } : {}),
     };
   } finally {

@@ -32,6 +32,7 @@ import {
   NOMBRE_DEL_ESTADO,
 } from "@/features/tableros-inteligentes/services/reglas";
 import { contarHijas } from "@/features/tableros-inteligentes/services/niveles";
+import { RIESGOS } from "@/features/tableros-inteligentes/services/reglas-riesgo";
 import {
   MOMENTOS_DE_APROBACION,
   NOMBRE_DEL_MOMENTO,
@@ -61,7 +62,17 @@ import {
   y queda ERROR. El sí final ('subir') queda para las tarjetas que tocan chats, agentes, el libro V3 o
   Meta Ads (zona protegida) y las que ya estaban POR_REVISAR.
 
+  Riesgo y aprobación automática (22-oct-2026, decisión del dueño): una tarjeta con repo es de riesgo BAJO
+  o ALTO (reglas-riesgo.ts; sin riesgo cuenta como ALTO). Claude lo propone en crear_tarjeta /
+  editar_tarjeta (riesgo, motivo_riesgo). Una tarjeta BAJO se aprueba SOLA (la tarea y el plan) si el
+  interruptor de la pantalla está prendido: queda "aprobado automáticamente por regla de bajo riesgo" en
+  el historial. El servidor revisa las reglas, no solo este texto: pedir BAJO con algo de riesgo alto es un
+  error y la tarjeta no se guarda.
+
   Lo que Claude NO puede hacer, por diseño:
+  - Marcar BAJO algo que cumpla un criterio ALTO (zona protegida, dinero, permisos o credenciales,
+    mensajes a clientes, el propio trabajador, migraciones que borren o cambien datos), ni bajar a BAJO una
+    tarjeta que el trabajador o el dueño dejaron en ALTO.
   - Aprobar por su cuenta. La única puerta es aprobar_tarjeta: el servidor exige un texto de
     confirmación de la persona ("sí, apruebo"), que el userId de la clave sea el dueño o un aprobador
     con alcance, que el estado corresponda, y rechaza las tarjetas con zona protegida (esas, solo en la
@@ -131,6 +142,18 @@ const PROPIEDAD_ZONA = {
   items: { type: "string", enum: [...ZONAS_PROTEGIDAS] },
   description:
     "Zonas protegidas que toca: META_ADS (anuncios y campañas), BOT_VENTAS (el bot que atiende, agentes V2/V3 y flujos), LIBRO_V3 (el libro del agente V3), CHATS (envío y recepción de WhatsApp, Evolution, webhooks, la bandeja de las asesoras). Una tarjeta con zona protegida se aprueba SOLO en la pantalla y no sube sola a producción: espera el sí final del dueño. Opcional.",
+} as const;
+
+const PROPIEDAD_RIESGO = {
+  type: "string",
+  enum: [...RIESGOS],
+  description:
+    "Solo en tarjetas con repo. BAJO = una tarea sencilla y sin riesgo que se aprueba SOLA y arranca sin pedirle permiso al dueño; ALTO = la aprueba el dueño. Es BAJO únicamente si cumple TODO: sin zona protegida; sin migración o con una migración solo aditiva (nada de DROP, ALTER destructivo, borrar ni modificar datos existentes); no toca dinero (abonos, saldos, nómina, comisiones, facturación, pagos), ni permisos, usuarios, contraseñas o credenciales, ni envía mensajes a clientes; no toca el propio trabajador ni las reglas de aprobación. Si hay duda, ALTO. El servidor lo revisa: si pides BAJO y algo calza con ALTO, la tarjeta no se guarda. Sin riesgo cuenta como ALTO.",
+} as const;
+
+const PROPIEDAD_MOTIVO_RIESGO = {
+  type: "string",
+  description: "Una frase que explique por qué es BAJO o ALTO (se ve en la tarjeta y queda en el historial de la aprobación automática). Opcional.",
 } as const;
 
 export const HERRAMIENTAS_MCP_TABLEROS = [
@@ -243,7 +266,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "crear_tarjeta",
     title: "Agregar una tarjeta",
     description:
-      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea; un Área también dentro de otra Área). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el Coordinador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente)." +
+      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea; un Área también dentro de otra Área). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el Coordinador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente). RIESGO (22-oct-2026, decisión del dueño: 'las cosas básicas que ayudan al negocio y no tienen riesgo, hágalas sin pedirme permiso; lo súper importante sí me lo manda al tablero'): en tarjetas con repo, proponer riesgo BAJO o ALTO. Una tarjeta BAJO POR_APROBAR se aprueba SOLA (si el interruptor de la pantalla está prendido) y el trabajador arranca sin pedir permiso. El servidor revisa las reglas: Claude nunca puede marcar BAJO algo con zona protegida, dinero, permisos o credenciales, mensajes a clientes, el propio trabajador o migraciones que borren o cambien datos. Si hay duda, ALTO." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -261,6 +284,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
         link_texto: { type: "string", description: "Lo que dice el botón del link. Opcional (si no, se ve el dominio)." },
         repo: PROPIEDAD_REPO,
         zona_protegida: PROPIEDAD_ZONA,
+        riesgo: PROPIEDAD_RIESGO,
+        motivo_riesgo: PROPIEDAD_MOTIVO_RIESGO,
         conectar_con: {
           type: "array",
           items: { type: "string" },
@@ -276,7 +301,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "editar_tarjeta",
     title: "Editar una tarjeta",
     description:
-      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo o la zona protegida de una tarjeta. Se manda solo lo que cambia. Si estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR. Mientras el Coordinador la tiene (PLANEANDO, EN_CURSO, SUBIENDO) no se edita. Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla)." +
+      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo, la zona protegida o el riesgo (BAJO / ALTO, con su motivo_riesgo) de una tarjeta. Se manda solo lo que cambia. Si queda POR_APROBAR con riesgo BAJO y el interruptor está prendido, se aprueba sola. Si estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR. Mientras el Coordinador la tiene (PLANEANDO, EN_CURSO, SUBIENDO) no se edita. Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla)." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -293,6 +318,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
         link_texto: { type: "string", description: "Texto del botón del link, o vacío para mostrar el dominio" },
         repo: { ...PROPIEDAD_REPO, enum: [...REPOS_DEL_TRABAJADOR, ""], description: `${PROPIEDAD_REPO.description} Vacío para quitarlo.` },
         zona_protegida: { ...PROPIEDAD_ZONA, description: "Zonas protegidas que AGREGAR (las que ya tiene se quedan: quitarlas es solo del dueño en la pantalla)." },
+        riesgo: { ...PROPIEDAD_RIESGO, enum: [...RIESGOS, ""], description: `${PROPIEDAD_RIESGO.description} Vacío para quitarlo (queda como ALTO). Claude no puede bajar a BAJO una tarjeta que el trabajador o el dueño dejaron en ALTO.` },
+        motivo_riesgo: PROPIEDAD_MOTIVO_RIESGO,
       },
       required: ["tarjeta_id"],
       additionalProperties: false,
@@ -608,7 +635,13 @@ export async function ejecutarHerramientaMcpTableros(
             link: tarjeta.link,
             link_texto: tarjeta.linkTexto,
             ...(tarjeta.repo
-              ? { repo: tarjeta.repo, tiene_plan: Boolean(tarjeta.plan), intentos: tarjeta.intentos }
+              ? {
+                  repo: tarjeta.repo,
+                  tiene_plan: Boolean(tarjeta.plan),
+                  intentos: tarjeta.intentos,
+                  riesgo: tarjeta.riesgo ?? "ALTO (sin riesgo puesto)",
+                  ...(tarjeta.riesgoMotivo ? { motivo_riesgo: tarjeta.riesgoMotivo } : {}),
+                }
               : {}),
             ...(tarjeta.zonaProtegida.length ? { zona_protegida: tarjeta.zonaProtegida } : {}),
           };
@@ -674,6 +707,8 @@ export async function ejecutarHerramientaMcpTableros(
         linkTexto: args.link_texto,
         repo: args.repo,
         zonaProtegida: args.zona_protegida,
+        riesgo: args.riesgo,
+        motivoRiesgo: args.motivo_riesgo,
       });
       return {
         ok: true,
@@ -682,12 +717,17 @@ export async function ejecutarHerramientaMcpTableros(
         tipo: resultado.tipo.nombre,
         padre_id: resultado.tarjeta.padreId,
         estado: resultado.tipo.usaEstados ? resultado.tarjeta.estado : null,
-        ...(resultado.tarjeta.repo ? { repo: resultado.tarjeta.repo } : {}),
+        ...(resultado.tarjeta.repo ? { repo: resultado.tarjeta.repo, riesgo: resultado.tarjeta.riesgo ?? "ALTO (sin riesgo puesto)" } : {}),
         ...(resultado.tarjeta.zonaProtegida.length ? { zona_protegida: resultado.tarjeta.zonaProtegida } : {}),
+        ...(resultado.aprobacionAutomatica?.aprobada ? { aprobada_sola: true } : {}),
         cambio_id: resultado.cambioId,
         aviso: !resultado.tipo.usaEstados
           ? `Listo: es de tipo ${resultado.tipo.nombre}, una carpeta sin estado. Para ponerle cosas adentro, usar su tarjeta_id como padre_id.`
-          : resultado.tarjeta.estado === "POR_APROBAR"
+          : resultado.aprobacionAutomatica?.aprobada
+            ? "Quedó APROBADA sola por la regla de bajo riesgo: el trabajador la toma enseguida, sin pedirle permiso al dueño. Queda en el historial y en el resumen de las 9 p. m."
+            : resultado.aprobacionAutomatica
+              ? `Riesgo BAJO, pero no se aprobó sola (${resultado.aprobacionAutomatica.porQue}): quedó POR_APROBAR para el dueño.`
+              : resultado.tarjeta.estado === "POR_APROBAR"
             ? "Quedó POR_APROBAR: el dueño la ve en la pantalla y la aprueba él."
             : resultado.tipo.requiereAprobacion
               ? "Quedó como IDEA. Cuando esté lista, pasarla a POR_APROBAR para que el dueño la apruebe."
@@ -709,8 +749,17 @@ export async function ejecutarHerramientaMcpTableros(
         linkTexto: args.link_texto,
         repo: args.repo,
         zonaProtegida: args.zona_protegida,
+        riesgo: args.riesgo,
+        motivoRiesgo: args.motivo_riesgo,
       });
-      const aviso = resultado.cambioDeTipo
+      const aviso = resultado.aprobacionAutomatica?.aprobada
+        ? "Quedó APROBADA sola por la regla de bajo riesgo: el trabajador la toma enseguida, sin pedirle permiso al dueño."
+        : resultado.avisoDeRiesgo
+          ? `${resultado.avisoDeRiesgo} Queda para el dueño.`
+          : resultado.aprobacionAutomatica
+            ? `Riesgo BAJO, pero no se aprobó sola (${resultado.aprobacionAutomatica.porQue}): queda POR_APROBAR para el dueño.`
+            : null;
+      const avisoBase = resultado.cambioDeTipo
         ? `Ahora es de tipo ${resultado.tipo.nombre} y quedó ${resultado.tipo.usaEstados ? resultado.tarjeta.estado : "sin estado"}${
             resultado.perdioAprobacion ? ": perdió la aprobación, hay que avisarle al dueño" : ""
           }.`
@@ -727,9 +776,11 @@ export async function ejecutarHerramientaMcpTableros(
         padre_id: resultado.tarjeta.padreId,
         estado: resultado.tipo.usaEstados ? resultado.tarjeta.estado : null,
         repo: resultado.tarjeta.repo,
+        riesgo: resultado.tarjeta.repo ? (resultado.tarjeta.riesgo ?? "ALTO (sin riesgo puesto)") : null,
         zona_protegida: resultado.tarjeta.zonaProtegida,
+        ...(resultado.aprobacionAutomatica?.aprobada ? { aprobada_sola: true } : {}),
         cambio_id: resultado.cambioId,
-        aviso,
+        aviso: aviso ? `${aviso} ${avisoBase}` : avisoBase,
         link: linkDeLaTarjeta(resultado.tarjeta.id),
       };
     }
@@ -755,7 +806,9 @@ export async function ejecutarHerramientaMcpTableros(
         antes: resultado.antes,
         ahora: resultado.ahora,
         aviso:
-          resultado.ahora === "POR_APROBAR"
+          resultado.aprobacionAutomatica?.aprobada
+            ? "Quedó APROBADA sola por la regla de bajo riesgo: el trabajador la toma enseguida."
+            : resultado.ahora === "POR_APROBAR"
             ? "Quedó POR_APROBAR: el dueño la aprueba en la pantalla."
             : `"${resultado.titulo}" pasó de ${resultado.antes} a ${resultado.ahora}.`,
         link: linkDeLaTarjeta(tarjetaId),
@@ -825,6 +878,13 @@ export async function ejecutarHerramientaMcpTableros(
         estado_texto: NOMBRE_DEL_ESTADO[tarjeta.estado],
         repo: tarjeta.repo,
         zona_protegida: tarjeta.zonaProtegida,
+        ...(tarjeta.repo
+          ? {
+              riesgo: tarjeta.riesgo ?? "ALTO (sin riesgo puesto)",
+              motivo_riesgo: tarjeta.riesgoMotivo,
+              riesgo_puesto_por: tarjeta.riesgoPor,
+            }
+          : {}),
         intentos: tarjeta.intentos,
         plan: tarjeta.plan,
         resultado: resultado
@@ -848,6 +908,7 @@ export async function ejecutarHerramientaMcpTableros(
           via: aprobacion.via,
           cuando: hora(new Date(aprobacion.cuando)),
           texto_confirmacion: aprobacion.textoConfirmacion,
+          ...(aprobacion.automatica ? { aprobada_sola: true, motivo: aprobacion.motivo } : {}),
         })),
         que_falta: queFalta(tarjeta.estado, Boolean(tarjeta.repo), tarjeta.zonaProtegida.length > 0),
         link: linkDeLaTarjeta(tarjeta.id),

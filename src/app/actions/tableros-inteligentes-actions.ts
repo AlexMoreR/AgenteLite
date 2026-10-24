@@ -9,8 +9,10 @@ import {
   borrarTipo,
   crearTablero,
   crearTipo,
+  editarTarjeta,
   editarTipo,
   historialDeTarjeta,
+  personaQueAprueba,
   renombrarTablero,
   type ContextoTablero,
 } from "@/features/tableros-inteligentes/services/tableros";
@@ -22,6 +24,11 @@ import {
   quitarAprobador,
   revocarClaveTrabajador,
 } from "@/features/tableros-inteligentes/services/trabajador";
+import {
+  aprobacionAutomaticaPrendida,
+  ponerAprobacionAutomatica,
+} from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { resumenDeHoyParaLaPantalla } from "@/features/tableros-inteligentes/services/resumen-diario";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 
 /*
@@ -116,6 +123,10 @@ export type PanelTrabajadorVista = {
   claves: { id: string; nombre: string; creadoEn: string; ultimoUsoEn: string | null; revocadaEn: string | null }[];
   aprobadores: { id: string; userId: string; nombre: string; alcance: string; puedeSubir: boolean }[];
   candidatos: { userId: string; nombre: string }[];
+  /** El interruptor "Aprobar solas las tareas de bajo riesgo" (prendido por defecto). */
+  aprobacionAutomatica: boolean;
+  /** Quien mira es el dueño del negocio: solo él mueve el interruptor. */
+  esDueno: boolean;
 };
 
 const SOLO_EL_DUENO_TRABAJADOR = "El Coordinador y los aprobadores los maneja solo el dueño del negocio.";
@@ -130,9 +141,11 @@ export async function panelTrabajadorAction(): Promise<{ ok: true; panel: PanelT
   const access = await accesoDelDueno();
   if (!access) return { ok: false, error: SOLO_EL_DUENO_TRABAJADOR };
   try {
-    const [claves, { aprobadores, candidatos }] = await Promise.all([
+    const [claves, { aprobadores, candidatos }, aprobacionAutomatica, persona] = await Promise.all([
       listarClavesTrabajador(access.workspaceId),
       listarAprobadores(access.workspaceId),
+      aprobacionAutomaticaPrendida(access.workspaceId),
+      personaQueAprueba(access.workspaceId, access.userId),
     ]);
     return {
       ok: true,
@@ -146,6 +159,8 @@ export async function panelTrabajadorAction(): Promise<{ ok: true; panel: PanelT
         })),
         aprobadores,
         candidatos,
+        aprobacionAutomatica,
+        esDueno: persona.esDueno,
       },
     };
   } catch (fallo) {
@@ -195,6 +210,47 @@ export async function quitarAprobadorAction(id: string): Promise<Resultado> {
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo quitar") };
+  }
+}
+
+/** Prende o apaga la aprobación automática de las tareas de bajo riesgo. Solo el dueño (no basta ser ADMIN de la plataforma). */
+export async function cambiarAprobacionAutomaticaAction(prendida: boolean): Promise<Resultado> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  try {
+    const persona = await personaQueAprueba(access.workspaceId, access.userId);
+    if (!persona.esDueno) return { ok: false, error: "Prender o apagar la aprobación automática es solo del dueño del negocio." };
+    await ponerAprobacionAutomatica(access.workspaceId, Boolean(prendida));
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo cambiar la aprobación automática") };
+  }
+}
+
+export type ResumenDeHoyVista = Awaited<ReturnType<typeof resumenDeHoyParaLaPantalla>>;
+
+/** La caja "Resumen de hoy": el dueño o el ADMIN de la plataforma, como el panel del Coordinador. */
+export async function resumenDeHoyAction(): Promise<{ ok: true; resumen: ResumenDeHoyVista } | { ok: false; error: string }> {
+  const access = await accesoDelDueno();
+  if (!access) return { ok: false, error: "El resumen de hoy lo ve solo el dueño del negocio." };
+  try {
+    return { ok: true, resumen: await resumenDeHoyParaLaPantalla(access.workspaceId) };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo leer el resumen de hoy") };
+  }
+}
+
+/** Cambiar el riesgo de una tarjeta con repo. Solo el dueño; el servidor rechaza BAJO si las reglas ven riesgo alto. */
+export async function cambiarRiesgoAction(tarjetaId: string, riesgo: "BAJO" | "ALTO", motivo?: string): Promise<Resultado> {
+  const contexto = await contextoDePantalla();
+  try {
+    const persona = await personaQueAprueba(contexto.workspaceId, contexto.userId);
+    if (!persona.esDueno) return { ok: false, error: "El riesgo de una tarjeta lo cambia solo el dueño del negocio." };
+    await editarTarjeta(contexto, tarjetaId, { riesgo, motivoRiesgo: motivo?.trim() || undefined });
+    return { ok: true };
+  } catch (fallo) {
+    const texto = mensaje(fallo, "No se pudo cambiar el riesgo");
+    // Dejarlo como estaba no es un error para la pantalla.
+    return texto === "No hay nada distinto para cambiar." ? { ok: true } : { ok: false, error: texto };
   }
 }
 

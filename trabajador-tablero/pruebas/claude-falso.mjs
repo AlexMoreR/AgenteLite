@@ -6,7 +6,8 @@
 //   en los dos modos: [limite] = sale con el aviso del límite de uso de Claude.
 //   modo acceptEdits: [zona] edita src/bot/ (zona protegida), [tsc] rompe la verificación, [lint] deja un
 //                     error de lint nuevo, [migracion] agrega una migración, [conflicto] escribe un archivo
-//                     que después choca con main, [nada] no cambia nada; si no, escribe cambio-<algo>.txt.
+//                     que después choca con main, [migracion-drop] agrega una migración con DROP y UPDATE,
+//                     [nada] no cambia nada; si no, escribe cambio-<algo>.txt.
 //   la revisión ("Eres el REVISOR"): no cambia nada. `-p /usage`: el uso del plan (CLAUDE_FALSO_USO).
 // Anota cada llamada (argumentos y carpeta) en el archivo de CLAUDE_FALSO_LOG.
 import fs from "node:fs";
@@ -39,7 +40,9 @@ if (titulo.includes("[limite]")) {
 if (modo === "plan") {
   if (titulo.includes("[lento]")) await dormir(10 * 60_000);
   await dormir(titulo.includes("[medio]") ? 6000 : 1500);
-  console.log(`PLAN para "${titulo}"\n1. Qué se cambia: un archivo.\n2. Efecto: ninguno para clientes.\n3. Riesgos: bajos.\n4. Migración: no.\n5. Archivos: ${modulo ? `src/${modulo}/cambio.ts` : "cambio.txt"}\n6. Pruebas: verificar.mjs`);
+  // Como pide el prompt: la línea RIESGO en las primeras líneas (BAJO salvo que el título marque [zona]).
+  const riesgo = titulo.includes("[zona]") ? "RIESGO: ALTO — toca el bot de ventas" : "RIESGO: BAJO — un cambio chico sin zonas ni migración destructiva";
+  console.log(`PLAN para "${titulo}"\n${riesgo}\n1. Qué se cambia: un archivo.\n2. Efecto: ninguno para clientes.\n3. Riesgos: bajos.\n4. Migración: no.\n5. Archivos: ${modulo ? `src/${modulo}/cambio.ts` : "cambio.txt"}\n6. Pruebas: verificar.mjs`);
   process.exit(0);
 }
 
@@ -60,6 +63,12 @@ else if (titulo.includes("[migracion]")) {
   escribir(
     "prisma/migrations/20261020130000_nueva/migration.sql",
     'BEGIN;\nCREATE TABLE IF NOT EXISTS "Nueva" ("id" TEXT NOT NULL);\nCOMMIT;\n',
+  );
+} else if (titulo.includes("[migracion-drop]")) {
+  // Una migración con cambios destructivos: un DROP y un UPDATE (más un comentario con DELETE que no cuenta).
+  escribir(
+    "prisma/migrations/20261020140000_destructiva/migration.sql",
+    'BEGIN;\n-- DELETE en un comentario no cuenta\nALTER TABLE "Nueva" DROP COLUMN IF EXISTS "viejo";\nUPDATE "Nueva" SET "id" = \'TRUNCATE\';\nCOMMIT;\n',
   );
 } else if (titulo.includes("[conflicto]")) escribir("conflicto.txt", "lo de la rama\n");
 else if (modulo) {

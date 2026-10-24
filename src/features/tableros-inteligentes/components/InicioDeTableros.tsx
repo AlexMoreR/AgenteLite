@@ -16,6 +16,7 @@ import {
   type CuentasDeTableros,
   type EdicionDeTablero,
 } from "./DialogoDeTablero";
+import { ResumenDelDia } from "./ResumenDelDia";
 import { SeccionTrabajador } from "./SeccionTrabajador";
 import { useListaDeTableros } from "../hooks/useRefrescoDelTablero";
 
@@ -151,6 +152,8 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
           </ul>
         )}
       </section>
+
+      {puedeAdministrar ? <ResumenDelDia /> : null}
 
       {puedeAdministrar ? <SeccionTrabajador /> : null}
 

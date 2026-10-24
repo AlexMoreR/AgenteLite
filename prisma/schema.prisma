@@ -2055,6 +2055,12 @@ model TarjetaTablero {
   resultado         Json?
   /// Zonas protegidas que toca (META_ADS | BOT_VENTAS | LIBRO_V3): se aprueba solo en la pantalla. El MCP puede ponerlas, no quitarlas.
   zonaProtegida     String[]           @default([])
+  /// Riesgo de la tarjeta con repo: 'BAJO' | 'ALTO' (texto: sin tipo nuevo en la base). Sin riesgo cuenta como ALTO. Lo propone Claude, lo recalcula el trabajador (reglas-riesgo.ts). Solo 'BAJO' se aprueba solo.
+  riesgo            String?
+  /// El motivo del riesgo, en una frase.
+  riesgoMotivo      String?
+  /// Quién puso el riesgo: 'CLAUDE' | 'TRABAJADOR' | 'DUENO'.
+  riesgoPor         String?
   /// Cuántas veces la tomó el trabajador.
   intentos          Int                @default(0)
   /// Candado del trabajador: desde cuándo la tiene y hasta cuándo (cada latido lo corre, hasta el tope de la etapa).

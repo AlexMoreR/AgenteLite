@@ -7,8 +7,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Switch } from "@/components/ui/switch";
 import {
   agregarAprobadorAction,
+  cambiarAprobacionAutomaticaAction,
   crearClaveTrabajadorAction,
   panelTrabajadorAction,
   quitarAprobadorAction,
@@ -94,6 +96,32 @@ export function SeccionTrabajador() {
       </div>
 
       {!panel ? <Loader2 className="mx-auto animate-spin text-muted-foreground" aria-label="Cargando" /> : null}
+
+      {panel ? (
+        <label className="flex items-start gap-3 rounded-xl border bg-card p-4 text-sm">
+          <Switch
+            checked={panel.aprobacionAutomatica}
+            disabled={ocupado || !panel.esDueno}
+            onCheckedChange={(valor) =>
+              hacer(
+                () => cambiarAprobacionAutomaticaAction(Boolean(valor)),
+                valor ? "Las tareas de bajo riesgo se aprueban solas" : "Todo vuelve a pedir tu aprobación",
+              )
+            }
+            className="mt-0.5"
+          />
+          <span>
+            <span className="font-medium">Aprobar solas las tareas de bajo riesgo</span>
+            <span className="block text-xs text-muted-foreground">
+              Las tareas sencillas, sin dinero, permisos, chats ni cambios que borren datos, arrancan sin pedirte permiso. Apagado, todo
+              vuelve a pedir tu aprobación.
+            </span>
+            {!panel.esDueno ? (
+              <span className="mt-1 block text-xs text-muted-foreground">Solo el dueño del negocio mueve este interruptor.</span>
+            ) : null}
+          </span>
+        </label>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2 rounded-xl border bg-card p-4">

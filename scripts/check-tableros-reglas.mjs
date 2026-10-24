@@ -1221,4 +1221,212 @@ prueba("sin resultado usa 'Qué se cambia' del plan; sin plan, el detalle; sin n
   assert.equal(sinMarkdown("1. **Hola** [link](http://x.co) `código`"), "Hola link código");
 });
 
+/* ------------------------------------------------------------------ riesgo BAJO / ALTO (reglas-riesgo.ts) */
+
+const riesgo = cargar("src/features/tableros-inteligentes/services/reglas-riesgo.ts");
+const limpia = { titulo: "Reporte de ventas por mes", detalle: "Agregar un reporte nuevo de ventas por mes en una pantalla", repo: "aizen-crm", zonaProtegida: [] };
+const conTexto = (detalle, titulo = "Tarea") => ({ ...limpia, titulo, detalle });
+
+prueba("sin riesgo cuenta como ALTO y riesgoDeEntrada acepta bajo/ALTO/vacío", () => {
+  assert.equal(riesgo.riesgoEfectivo(null), "ALTO");
+  assert.equal(riesgo.riesgoEfectivo(undefined), "ALTO");
+  assert.equal(riesgo.riesgoEfectivo("raro"), "ALTO");
+  assert.equal(riesgo.riesgoEfectivo("ALTO"), "ALTO");
+  assert.equal(riesgo.riesgoEfectivo("BAJO"), "BAJO");
+  assert.equal(riesgo.riesgoDeEntrada("bajo"), "BAJO");
+  assert.equal(riesgo.riesgoDeEntrada(" ALTO "), "ALTO");
+  assert.equal(riesgo.riesgoDeEntrada(""), null);
+  assert.equal(riesgo.riesgoDeEntrada(null), null);
+  assert.equal(riesgo.riesgoDeEntrada(undefined), undefined);
+  assert.throws(() => riesgo.riesgoDeEntrada("medio"), /BAJO o ALTO/);
+});
+
+prueba("motivosDeRiesgoAlto: cada zona protegida, dinero, permisos, mensajes y el trabajador dan ALTO", () => {
+  for (const zona of ["CHATS", "BOT_VENTAS", "LIBRO_V3", "META_ADS"]) {
+    const motivos = riesgo.motivosDeRiesgoAlto({ ...limpia, zonaProtegida: [zona] });
+    assert.ok(motivos.some((m) => m.includes(zona)), zona);
+  }
+  const casos = [
+    "Cambiar cómo se calculan los abonos",
+    "Mostrar los saldos de cuentas",
+    "Arreglar la nómina del mes",
+    "Corregir las comisiones",
+    "Mejorar la facturación",
+    "Revisar los pagos pendientes",
+    "Cambiar la contraseña por defecto",
+    "Agregar un permiso nuevo",
+    "Crear un usuario de prueba",
+    "Rotar las credenciales",
+    "Enviar mensajes a clientes con la promo",
+    "Mandar un aviso por WhatsApp",
+    "Cambiar las reglas de aprobación del trabajador",
+  ];
+  for (const caso of casos) assert.ok(riesgo.motivosDeRiesgoAlto(conTexto(caso)).length > 0, caso);
+  assert.deepEqual(riesgo.motivosDeRiesgoAlto(limpia), []);
+  assert.ok(riesgo.motivosDeRiesgoAlto({ ...limpia, repo: null }).some((m) => m.includes("repo")));
+});
+
+prueba("motivosDeRiesgoAlto: una migración destructiva en el detalle da ALTO", () => {
+  assert.ok(riesgo.motivosDeRiesgoAlto(conTexto('Migración: DROP TABLE "Reporte";')).length > 0);
+  assert.ok(riesgo.motivosDeRiesgoAlto(conTexto('Migración: DELETE FROM "Reporte";')).length > 0);
+  assert.deepEqual(riesgo.motivosDeRiesgoAlto(conTexto('Migración: ALTER TABLE "Reporte" ADD COLUMN "mes" TEXT;')), []);
+});
+
+prueba("motivosDeLosArchivos: trabajador, reglas, dinero y login dan ALTO; un reporte no", () => {
+  const alto = [
+    "trabajador-tablero/lib/crm.mjs",
+    "src/features/tableros-inteligentes/services/reglas-riesgo.ts",
+    "src/features/tableros-inteligentes/services/reglas.ts",
+    "src/features/abonos/lista.tsx",
+    "src/features/nomina/calculo.ts",
+    "src/features/comisiones/tabla.tsx",
+    "src/app/login/page.tsx",
+    "src/features/permisos/guardar.ts",
+  ];
+  for (const ruta of alto) assert.ok(riesgo.motivosDeLosArchivos([ruta]).length > 0, ruta);
+  assert.ok(riesgo.motivosDeLosArchivos(["trabajador-tablero\\lib\\crm.mjs"]).length > 0);
+  assert.deepEqual(riesgo.motivosDeLosArchivos(["src/features/reportes/x.tsx"]), []);
+});
+
+prueba("destructivoDelSql: detecta lo que borra o cambia y deja pasar lo aditivo", () => {
+  const d = riesgo.destructivoDelSql;
+  assert.deepEqual(d('DROP TABLE "X";'), ["DROP"]);
+  assert.deepEqual(d('DELETE FROM "X";'), ["DELETE"]);
+  assert.deepEqual(d('UPDATE "X" SET a = 1;'), ["UPDATE"]);
+  assert.deepEqual(d('TRUNCATE "X";'), ["TRUNCATE"]);
+  assert.ok(d('ALTER TABLE "X" RENAME COLUMN a TO b;').includes("RENAME"));
+  assert.deepEqual(d('ALTER TABLE "X" ALTER COLUMN y TYPE INTEGER;'), ["ALTER destructivo"]);
+  assert.ok(d('ALTER TABLE "X" DROP COLUMN y;').includes("DROP"));
+  assert.deepEqual(d('ALTER TABLE "X" ADD COLUMN IF NOT EXISTS "riesgo" TEXT;'), []);
+  assert.deepEqual(d('ALTER TABLE "X" ADD COLUMN "type" TEXT;'), []);
+  assert.deepEqual(d("ALTER TYPE \"Estado\" ADD VALUE 'NUEVO';"), []);
+  assert.deepEqual(d('CREATE TABLE "X" ("id" TEXT NOT NULL);'), []);
+  assert.deepEqual(d('CREATE INDEX "i" ON "X"("id");'), []);
+  assert.deepEqual(
+    d('CREATE TABLE "H" ("id" TEXT, "xId" TEXT, CONSTRAINT "f" FOREIGN KEY ("xId") REFERENCES "X"("id") ON DELETE CASCADE ON UPDATE CASCADE);'),
+    [],
+  );
+  assert.deepEqual(d('ALTER TABLE "H" ADD CONSTRAINT "f" FOREIGN KEY ("a") REFERENCES "X"("id") ON DELETE SET NULL ON UPDATE RESTRICT;'), []);
+  assert.deepEqual(d(null), []);
+  assert.deepEqual(d(""), []);
+  // Comentarios y textos entre comillas no cuentan.
+  assert.deepEqual(d('-- drop table viejo\nCREATE TABLE "X" ("id" TEXT);'), []);
+  assert.deepEqual(d('/* delete everything */ CREATE TABLE "X" ("id" TEXT);'), []);
+  assert.deepEqual(d("ALTER TABLE \"X\" ADD COLUMN \"c\" TEXT DEFAULT 'update me';"), []);
+});
+
+const PLAN_BASE = (extra = {}) => {
+  const p = {
+    riesgo: "RIESGO: BAJO — solo agrega un reporte nuevo",
+    migracion: "No hay migración.",
+    archivos: "- src/features/reportes/Reporte.tsx",
+    zonas: "Zonas: ninguna. (No toca las rutas de chats, ni del bot de ventas.)",
+    ...extra,
+  };
+  return `${p.riesgo}\n\n1. Contexto\nUn reporte de ventas por mes.\n\n2. Qué se cambia\nUn componente nuevo.\n\n3. Zonas protegidas\n${p.zonas}\n\n4. Migración\n${p.migracion}\n\n5. Archivos que se tocan\n${p.archivos}\n\n6. Pruebas\nCorrer todo.`;
+};
+
+prueba("riesgoDelPlan: BAJO limpio no trae motivos; sin la línea, ALTO o zona protegida sí", () => {
+  const limpio = riesgo.riesgoDelPlan(PLAN_BASE());
+  assert.equal(limpio.declarado, "BAJO");
+  assert.equal(limpio.motivoDeclarado, "solo agrega un reporte nuevo");
+  assert.deepEqual(limpio.motivosAlto, []);
+
+  const sinLinea = riesgo.riesgoDelPlan(PLAN_BASE({ riesgo: "" }));
+  assert.equal(sinLinea.declarado, null);
+  assert.ok(sinLinea.motivosAlto.some((m) => m.includes("no trae la línea RIESGO")));
+
+  const alto = riesgo.riesgoDelPlan(PLAN_BASE({ riesgo: "RIESGO: ALTO — toca dinero" }));
+  assert.equal(alto.declarado, "ALTO");
+  assert.ok(alto.motivosAlto.length > 0);
+
+  const zona = riesgo.riesgoDelPlan(PLAN_BASE({ zonas: "TOCA ZONA PROTEGIDA: CHATS" }));
+  assert.ok(zona.motivosAlto.some((m) => m.includes("zona protegida")));
+  assert.deepEqual(riesgo.riesgoDelPlan(PLAN_BASE({ zonas: "No toca zona protegida." })).motivosAlto, []);
+});
+
+prueba("riesgoDelPlan: migración destructiva y archivos del trabajador dan ALTO", () => {
+  const drop = riesgo.riesgoDelPlan(PLAN_BASE({ migracion: 'DROP TABLE "Reporte";' }));
+  assert.ok(drop.motivosAlto.some((m) => m.includes("DROP")));
+  const aditiva = riesgo.riesgoDelPlan(PLAN_BASE({ migracion: 'ALTER TABLE "X" ADD COLUMN IF NOT EXISTS "mes" TEXT;' }));
+  assert.deepEqual(aditiva.motivosAlto, []);
+  const trabajadorTocado = riesgo.riesgoDelPlan(PLAN_BASE({ archivos: "- trabajador-tablero/lib/crm.mjs" }));
+  assert.ok(trabajadorTocado.motivosAlto.some((m) => m.includes("trabajador-tablero")));
+});
+
+prueba("problemaDelRiesgo: BAJO con motivo de riesgo alto es error (validación del servidor del MCP)", () => {
+  const pedir = (extra = {}) => ({ quien: "CLAUDE", pedido: "BAJO", actual: null, actualPor: null, datos: limpia, ...extra });
+  assert.equal(riesgo.problemaDelRiesgo(pedir()), null);
+  assert.match(riesgo.problemaDelRiesgo(pedir({ datos: conTexto("Cambiar las comisiones de los asesores") })), /No puede ser riesgo BAJO/);
+  assert.match(riesgo.problemaDelRiesgo(pedir({ datos: { ...limpia, zonaProtegida: ["CHATS"] } })), /No puede ser riesgo BAJO/);
+  assert.match(riesgo.problemaDelRiesgo(pedir({ datos: conTexto('Migración: DROP TABLE "X";') })), /No puede ser riesgo BAJO/);
+  assert.match(riesgo.problemaDelRiesgo(pedir({ datos: { ...limpia, repo: null } })), /No puede ser riesgo BAJO/);
+  // Claude no baja a BAJO un ALTO que puso el trabajador o el dueño; el dueño sí, si las reglas no ven nada.
+  assert.match(riesgo.problemaDelRiesgo(pedir({ actual: "ALTO", actualPor: "TRABAJADOR" })), /el trabajador/);
+  assert.match(riesgo.problemaDelRiesgo(pedir({ actual: "ALTO", actualPor: "DUENO" })), /el dueño/);
+  assert.equal(riesgo.problemaDelRiesgo(pedir({ actual: "ALTO", actualPor: "CLAUDE" })), null);
+  assert.equal(riesgo.problemaDelRiesgo(pedir({ quien: "DUENO", actual: "ALTO", actualPor: "TRABAJADOR" })), null);
+  assert.match(riesgo.problemaDelRiesgo(pedir({ quien: "DUENO", datos: conTexto("Pagar nómina") })), /No puede ser riesgo BAJO/);
+  // ALTO (o no tocarlo) nunca da problema.
+  assert.equal(riesgo.problemaDelRiesgo(pedir({ pedido: "ALTO", datos: conTexto("Pagar nómina") })), null);
+  assert.equal(riesgo.problemaDelRiesgo(pedir({ pedido: null })), null);
+  assert.equal(riesgo.problemaDelRiesgo(pedir({ pedido: undefined })), null);
+});
+
+prueba("porQueNoSeApruebaSola: solo BAJO limpio, con repo y el interruptor prendido", () => {
+  const base = { ...limpia, riesgo: "BAJO", prendido: true };
+  assert.equal(riesgo.porQueNoSeApruebaSola(base), null);
+  assert.ok(riesgo.porQueNoSeApruebaSola({ ...base, prendido: false }).includes("apagada"));
+  assert.ok(riesgo.porQueNoSeApruebaSola({ ...base, repo: null }));
+  assert.ok(riesgo.porQueNoSeApruebaSola({ ...base, riesgo: null }));
+  assert.ok(riesgo.porQueNoSeApruebaSola({ ...base, riesgo: "ALTO" }));
+  assert.ok(riesgo.porQueNoSeApruebaSola({ ...base, zonaProtegida: ["META_ADS"] }));
+  assert.ok(riesgo.porQueNoSeApruebaSola({ ...base, detalle: "Cambiar los saldos" }));
+});
+
+prueba("motivosDelResultado: archivos de riesgo, migración destructiva, zona o sin lista dan motivos", () => {
+  const m = riesgo.motivosDelResultado;
+  assert.deepEqual(m({ archivos: ["src/features/reportes/x.tsx"], migracionDestructiva: [], zonaProtegida: [] }), []);
+  assert.deepEqual(m({ archivos: [], migracionDestructiva: null, zonaProtegida: [] }), []);
+  assert.ok(m({ archivos: ["trabajador-tablero/lib/crm.mjs"], migracionDestructiva: [], zonaProtegida: [] }).length > 0);
+  assert.ok(m({ archivos: ["src/a/b.ts"], migracionDestructiva: ["DROP"], zonaProtegida: [] }).some((x) => x.includes("DROP")));
+  assert.ok(m({ archivos: ["src/a/b.ts"], migracionDestructiva: true, zonaProtegida: [] }).length > 0);
+  assert.ok(m({ archivos: ["src/a/b.ts"], migracionDestructiva: [], zonaProtegida: ["CHATS"] }).length > 0);
+  assert.ok(m({ archivos: null, migracionDestructiva: [], zonaProtegida: [] }).some((x) => x.includes("lista de archivos")));
+});
+
+prueba("resultadoDeEntrada guarda archivos (máx. 100) y migracionDestructiva, y sigue igual sin ellos", () => {
+  const sin = trabajo.resultadoDeEntrada({ resumen: "Listo", paso: true });
+  assert.equal("archivos" in sin, false);
+  assert.equal("migracionDestructiva" in sin, false);
+  const muchos = Array.from({ length: 150 }, (_, i) => `src/a/f${i}.ts`);
+  const con = trabajo.resultadoDeEntrada({ resumen: "Listo", archivos: muchos, migracionDestructiva: ["DROP"] });
+  assert.equal(con.archivos.length, 100);
+  assert.deepEqual(con.migracionDestructiva, ["DROP"]);
+  assert.deepEqual(trabajo.resultadoDeEntrada({ resumen: "Listo", archivos: [], migracionDestructiva: [] }).migracionDestructiva, []);
+  // Un `true` suelto no se pierde: sigue siendo una migración destructiva.
+  const verdadero = trabajo.resultadoDeEntrada({ resumen: "Listo", archivos: ["src/a/b.ts"], migracionDestructiva: true });
+  assert.ok(verdadero.migracionDestructiva.length > 0);
+});
+
+prueba("riesgoDelPlan: si hay dos líneas RIESGO gana la ALTO, y el plan trae el título 'Archivos' repetido sin esconder la parte real", () => {
+  const dos = riesgo.riesgoDelPlan("RIESGO: BAJO — sencillo\n\n1. Qué se cambia en los archivos\nUn texto.\n\nRIESGO: ALTO — toca dinero\n");
+  assert.ok(dos.motivosAlto.length, "una línea ALTO basta");
+  const repetido = riesgo.riesgoDelPlan(
+    "RIESGO: BAJO — sencillo\n\n1. Qué se cambia en los archivos de la pantalla\nUn texto.\n\n5. Archivos que se tocan\n- trabajador-tablero/lib/etapas.mjs\n",
+  );
+  assert.ok(repetido.motivosAlto.some((motivo) => /trabajador/i.test(motivo)), "la parte real de archivos se revisa");
+});
+
+prueba("motivosDelResultado: un migration.sql sin migracionDestructiva es ALTO; una ruta de riesgo pasada la posición 100 también", () => {
+  const sinCampo = riesgo.motivosDelResultado({
+    archivos: ["src/app/cliente/reportes/page.tsx", "prisma/migrations/20261101000000_x/migration.sql"],
+    migracionDestructiva: null,
+    zonaProtegida: [],
+  });
+  assert.ok(sinCampo.length, "no se sabe si la migración es aditiva");
+  const muchos = [...Array.from({ length: 150 }, (_, i) => `src/features/reportes/archivo-${i}.tsx`), "trabajador-tablero/lib/bucle.mjs"];
+  assert.ok(riesgo.motivosDelResultado({ archivos: muchos, migracionDestructiva: [], zonaProtegida: [] }).length);
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);

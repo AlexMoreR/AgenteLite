@@ -4,6 +4,8 @@ import path from "node:path";
 
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { prisma } from "@/lib/prisma";
+import { aprobacionAutomaticaPrendida } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { leerUltimoEnvio } from "@/features/tableros-inteligentes/services/resumen-diario";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -371,6 +373,26 @@ async function estadoDeLasReuniones(workspaceId: string) {
   return process.env.OPENAI_API_KEY?.trim() ? `activa: ${cola}` : `en pausa: falta la clave de OpenAI (${cola})`;
 }
 
+/** Tablero IA: si la aprobación automática de tareas de bajo riesgo está prendida y cuántas esperan por riesgo. */
+async function estadoDeLaAprobacionAutomatica(workspaceId: string) {
+  const [prendida, bajoPorAprobar] = await Promise.all([
+    aprobacionAutomaticaPrendida(workspaceId),
+    prisma.tarjetaTablero.count({
+      where: { estado: "POR_APROBAR", riesgo: "BAJO", repo: { not: null }, borradoEn: null, tablero: { workspaceId } },
+    }),
+  ]);
+  return prendida
+    ? `PRENDIDA: las tareas de riesgo BAJO se aprueban solas (tarea y plan)${bajoPorAprobar ? `; ${bajoPorAprobar} BAJO esperando que el reloj las apruebe` : ""}`
+    : "APAGADA: todo vuelve a pedir la aprobación del dueño";
+}
+
+/** Tablero IA: cuándo salió el último resumen de las 9 p. m. y si el WhatsApp salió. */
+async function estadoDelResumenDiario(workspaceId: string) {
+  const ultimo = await leerUltimoEnvio(workspaceId);
+  if (!ultimo) return "activa: a las 9:00 p. m. (Bogotá) por la línea Admin; todavía no ha salido ninguno";
+  return `activa: último resumen del ${ultimo.dia}, ${ultimo.enviado ? "WhatsApp enviado" : `WhatsApp NO salió (${ultimo.motivo ?? "sin motivo"})`}`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -424,6 +446,8 @@ async function automatizaciones(
       : "sin informes generados",
     coach_de_ventas: await estadoDelCoach(workspaceId).catch(() => "no se pudo leer"),
     reuniones_transcripcion: await estadoDeLasReuniones(workspaceId).catch(() => "no se pudo leer"),
+    aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
+    resumen_diario_tablero: await estadoDelResumenDiario(workspaceId).catch(() => "no se pudo leer"),
   };
 
   return {

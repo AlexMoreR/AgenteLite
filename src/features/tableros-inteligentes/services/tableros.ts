@@ -51,6 +51,15 @@ import {
   type PersonaQueAprueba,
   type ViaDeAprobacion,
 } from "./reglas-trabajador";
+import {
+  frase,
+  motivoDeRiesgoDeEntrada,
+  motivosDeRiesgoAlto,
+  problemaDelRiesgo,
+  riesgoDeEntrada,
+  type QuienPoneRiesgo,
+} from "./reglas-riesgo";
+import { NOMBRE_AUTOMATICO, QUIEN_AUTOMATICO, aprobarSolaLaTarea, type ResultadoDeAprobarSola } from "./aprobacion-automatica";
 import { contadoresDelConteo, type Contadores } from "./niveles";
 
 /*
@@ -146,6 +155,10 @@ export type TarjetaVista = {
   plan: string | null;
   resultado: ResultadoVista | null;
   zonaProtegida: string[];
+  /** BAJO | ALTO (sin riesgo cuenta como ALTO), el motivo en una frase y quién lo puso (CLAUDE | TRABAJADOR | DUENO). */
+  riesgo: string | null;
+  riesgoMotivo: string | null;
+  riesgoPor: string | null;
   intentos: number;
   trabajoVenceEn: string | null;
 };
@@ -225,6 +238,9 @@ const SELECT_TARJETA = {
   plan: true,
   resultado: true,
   zonaProtegida: true,
+  riesgo: true,
+  riesgoMotivo: true,
+  riesgoPor: true,
   intentos: true,
   trabajoVenceEn: true,
 } as const;
@@ -251,6 +267,9 @@ function aVista(fila: FilaTarjeta): TarjetaVista {
       ? (fila.resultado as ResultadoVista)
       : null,
     zonaProtegida: fila.zonaProtegida,
+    riesgo: fila.riesgo,
+    riesgoMotivo: fila.riesgoMotivo,
+    riesgoPor: fila.riesgoPor,
     intentos: fila.intentos,
     trabajoVenceEn: fila.trabajoVenceEn ? fila.trabajoVenceEn.toISOString() : null,
   };
@@ -633,7 +652,7 @@ export const QUIEN_TRABAJADOR = "trabajador:";
 async function nombresDeQuien(quienes: string[]) {
   const unicos = [...new Set(quienes)];
   const claves = unicos.filter((quien) => quien.startsWith(QUIEN_TRABAJADOR)).map((quien) => quien.slice(QUIEN_TRABAJADOR.length));
-  const ids = unicos.filter((quien) => !quien.startsWith(QUIEN_TRABAJADOR));
+  const ids = unicos.filter((quien) => !quien.startsWith(QUIEN_TRABAJADOR) && quien !== QUIEN_AUTOMATICO);
   const [personas, trabajadores] = await Promise.all([
     ids.length ? prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true } }) : [],
     claves.length ? prisma.claveTrabajador.findMany({ where: { id: { in: claves } }, select: { id: true, nombre: true } }) : [],
@@ -641,6 +660,7 @@ async function nombresDeQuien(quienes: string[]) {
   return new Map([
     ...personas.map((persona) => [persona.id, persona.name?.trim() || persona.email || "Alguien"] as const),
     ...trabajadores.map((clave) => [`${QUIEN_TRABAJADOR}${clave.id}`, `Coordinador (${clave.nombre})`] as const),
+    [QUIEN_AUTOMATICO, NOMBRE_AUTOMATICO] as const,
   ]);
 }
 
@@ -652,6 +672,9 @@ export type AprobacionVista = {
   cuando: string;
   textoConfirmacion: string | null;
   estado: string | null;
+  /** Aprobada sola por la regla de bajo riesgo, y el motivo que quedó anotado. */
+  automatica: boolean;
+  motivo: string | null;
 };
 
 function aprobacionesDelHistorial(
@@ -669,6 +692,8 @@ function aprobacionesDelHistorial(
         cuando: fila.creadoEn.toISOString(),
         textoConfirmacion: typeof despues.textoConfirmacion === "string" ? despues.textoConfirmacion : null,
         estado: typeof despues.estado === "string" ? despues.estado : null,
+        automatica: despues.automatica === true,
+        motivo: typeof despues.motivo === "string" ? despues.motivo : null,
       };
     });
 }
@@ -1129,6 +1154,8 @@ export async function crearTarjeta(
     linkTexto?: unknown;
     repo?: unknown;
     zonaProtegida?: unknown;
+    riesgo?: unknown;
+    motivoRiesgo?: unknown;
   },
 ) {
   const tablero = await tableroDelNegocio(contexto, datos.tableroId);
@@ -1147,6 +1174,20 @@ export async function crearTarjeta(
   const repo = repoDeEntrada(datos.repo) ?? null;
   const zonaProtegida = zonasDeEntrada(datos.zonaProtegida) ?? [];
   if (repo) revisarRepoParaTipo(tipo);
+  // El riesgo (BAJO / ALTO) lo propone quien crea; BAJO solo si las reglas no ven nada de riesgo alto.
+  const detalle = textoLimpio(datos.detalle, MAX_DETALLE) ?? "";
+  const riesgo = riesgoDeEntrada(datos.riesgo) ?? null;
+  const riesgoPor = quienPoneElRiesgo(contexto.origen);
+  if (riesgo && !repo) throw new Error("El riesgo va solo en tarjetas con repo (las que ejecuta el trabajador).");
+  const problemaDeRiesgo = problemaDelRiesgo({
+    quien: riesgoPor,
+    pedido: riesgo,
+    actual: null,
+    actualPor: null,
+    datos: { titulo, detalle, repo, zonaProtegida },
+  });
+  if (problemaDeRiesgo) throw new Error(problemaDeRiesgo);
+  const riesgoMotivo = riesgo ? (motivoDeRiesgoDeEntrada(datos.motivoRiesgo) ?? null) : null;
   const conectarCon = Array.isArray(datos.conectarCon)
     ? [...new Set(datos.conectarCon.filter((id): id is string => typeof id === "string" && id.trim() !== ""))]
     : [];
@@ -1168,12 +1209,12 @@ export async function crearTarjeta(
     await revisarMadre({ id: "", tipoId: tipo.id, tableroId: tablero.id }, padreId, tipos);
   }
 
-  return prisma.$transaction(async (tx) => {
+  const creada = await prisma.$transaction(async (tx) => {
     const tarjeta = await tx.tarjetaTablero.create({
       data: {
         tableroId: tablero.id,
         titulo,
-        detalle: textoLimpio(datos.detalle, MAX_DETALLE) ?? "",
+        detalle,
         area: textoLimpio(datos.area, MAX_AREA) ?? null,
         estado: estado as EstadoTarjeta,
         orden,
@@ -1184,6 +1225,9 @@ export async function crearTarjeta(
         linkTexto,
         repo,
         zonaProtegida,
+        riesgo,
+        riesgoMotivo,
+        riesgoPor: riesgo ? riesgoPor : null,
         creadoPor: contexto.userId,
       },
       select: SELECT_TARJETA,
@@ -1201,6 +1245,9 @@ export async function crearTarjeta(
       linkTexto: tarjeta.linkTexto,
       repo: tarjeta.repo,
       zonaProtegida: tarjeta.zonaProtegida,
+      riesgo: tarjeta.riesgo,
+      riesgoMotivo: tarjeta.riesgoMotivo,
+      riesgoPor: tarjeta.riesgoPor,
     });
     // Cada flecha es su propio cambio: así se puede deshacer una sin tocar la tarjeta.
     for (const destinoId of conectarCon) {
@@ -1213,6 +1260,26 @@ export async function crearTarjeta(
     await tocarTablero(tx, tablero.id);
     return { tarjeta: aVista(tarjeta), cambioId: cambio.id, tablero, tipo };
   });
+  // Una tarea BAJO que nace POR_APROBAR se aprueba sola (si el interruptor está prendido).
+  const aprobacion = await aprobarSiEsBajo(creada.tarjeta);
+  return { ...creada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado };
+}
+
+/** Quién pone el riesgo según de dónde viene el cambio: la pantalla es el dueño; el MCP, Claude. */
+function quienPoneElRiesgo(origen: OrigenCambio): QuienPoneRiesgo {
+  return origen === "PANTALLA" ? "DUENO" : origen === "TRABAJADOR" ? "TRABAJADOR" : "CLAUDE";
+}
+
+/**
+ * Si la tarjeta quedó POR_APROBAR con repo y riesgo BAJO, intenta aprobarla sola. Devuelve la tarjeta
+ * como quedó (si se aprobó, ya APROBADO) y el resultado, o null si no correspondía intentarlo.
+ */
+async function aprobarSiEsBajo(tarjeta: TarjetaVista): Promise<{ tarjeta: TarjetaVista; resultado: ResultadoDeAprobarSola | null }> {
+  if (tarjeta.estado !== "POR_APROBAR" || !tarjeta.repo || tarjeta.riesgo !== "BAJO") return { tarjeta, resultado: null };
+  const resultado = await aprobarSolaLaTarea(tarjeta.id);
+  if (!resultado.aprobada) return { tarjeta, resultado };
+  const fila = await prisma.tarjetaTablero.findUnique({ where: { id: tarjeta.id }, select: SELECT_TARJETA });
+  return { tarjeta: fila ? aVista(fila) : { ...tarjeta, estado: "APROBADO" }, resultado };
 }
 
 /** El Coordinador ejecuta solo tarjetas de un tipo con aprobación (y con estados): solo esas llevan repo. */
@@ -1239,6 +1306,9 @@ type CamposEditables = {
   linkTexto?: string | null;
   repo?: string | null;
   zonaProtegida?: string[];
+  riesgo?: string | null;
+  riesgoMotivo?: string | null;
+  riesgoPor?: string | null;
 };
 
 export async function editarTarjeta(
@@ -1256,6 +1326,8 @@ export async function editarTarjeta(
     linkTexto?: unknown;
     repo?: unknown;
     zonaProtegida?: unknown;
+    riesgo?: unknown;
+    motivoRiesgo?: unknown;
   },
 ) {
   const actual = await tarjetaDelNegocio(contexto, tarjetaId);
@@ -1309,9 +1381,6 @@ export async function editarTarjeta(
   }
   const padreId = padreDeEntrada(cambios.padreId);
   if (padreId !== undefined && padreId !== actual.padreId) nuevo.padreId = padreId;
-  if (!Object.keys(nuevo).length) {
-    throw new Error("No hay nada distinto para cambiar.");
-  }
 
   // Jerarquía: con el tipo y la madre como quedarían.
   const tipoFinal = tipos.find((tipo) => tipo.id === (nuevo.tipoId ?? actual.tipoId));
@@ -1328,6 +1397,51 @@ export async function editarTarjeta(
   const repoFinal = nuevo.repo !== undefined ? nuevo.repo : actual.repo;
   if (repoFinal && (nuevo.repo !== undefined || nuevo.tipoId)) revisarRepoParaTipo(tipoFinal);
 
+  // Riesgo: BAJO solo si las reglas no ven nada de riesgo alto con la tarjeta como quedaría. Si queda BAJO
+  // y el texto o las zonas cambiaron a algo de riesgo alto, pasa a ALTO sola (y no se aprueba sola).
+  const riesgoPedido = riesgoDeEntrada(cambios.riesgo);
+  const motivoPedido = motivoDeRiesgoDeEntrada(cambios.motivoRiesgo);
+  const quienRiesgo = quienPoneElRiesgo(contexto.origen);
+  const datosDeRiesgo = {
+    titulo: nuevo.titulo ?? actual.titulo,
+    detalle: nuevo.detalle ?? actual.detalle,
+    repo: repoFinal,
+    zonaProtegida: nuevo.zonaProtegida ?? actual.zonaProtegida,
+  };
+  let avisoDeRiesgo: string | null = null;
+  if (riesgoPedido !== undefined) {
+    if (riesgoPedido && !repoFinal) throw new Error("El riesgo va solo en tarjetas con repo (las que ejecuta el trabajador).");
+    const problema = problemaDelRiesgo({
+      quien: quienRiesgo,
+      pedido: riesgoPedido,
+      actual: actual.riesgo === "BAJO" || actual.riesgo === "ALTO" ? actual.riesgo : null,
+      actualPor: actual.riesgoPor,
+      datos: datosDeRiesgo,
+    });
+    if (problema) throw new Error(problema);
+    const motivo = riesgoPedido ? (motivoPedido ?? (riesgoPedido === actual.riesgo ? actual.riesgoMotivo : null)) : null;
+    const por = riesgoPedido ? quienRiesgo : null;
+    if (riesgoPedido !== actual.riesgo) nuevo.riesgo = riesgoPedido;
+    if (motivo !== actual.riesgoMotivo) nuevo.riesgoMotivo = motivo;
+    if (nuevo.riesgo !== undefined || nuevo.riesgoMotivo !== undefined) {
+      if (por !== actual.riesgoPor) nuevo.riesgoPor = por;
+    }
+  } else if (motivoPedido !== undefined && actual.riesgo && motivoPedido !== actual.riesgoMotivo) {
+    nuevo.riesgoMotivo = motivoPedido;
+  }
+  if (nuevo.riesgo === undefined && actual.riesgo === "BAJO") {
+    const motivos = motivosDeRiesgoAlto(datosDeRiesgo);
+    if (motivos.length) {
+      nuevo.riesgo = "ALTO";
+      nuevo.riesgoMotivo = frase(motivos).slice(0, 300);
+      nuevo.riesgoPor = quienRiesgo;
+      avisoDeRiesgo = `El riesgo pasó a ALTO porque ahora ${frase(motivos)}.`;
+    }
+  }
+  if (!Object.keys(nuevo).length) {
+    throw new Error("No hay nada distinto para cambiar.");
+  }
+
   const estado = nuevo.tipoId
     ? estadoTrasCambiarTipo(tipoFinal.requiereAprobacion, tipoFinal.usaEstados)
     : estadoTrasEditar(contexto.origen, actual.estado);
@@ -1342,7 +1456,7 @@ export async function editarTarjeta(
     despues.estado = estado;
   }
 
-  return prisma.$transaction(async (tx) => {
+  const editada = await prisma.$transaction(async (tx) => {
     const hecho = await tx.tarjetaTablero.updateMany({
       where: { id: actual.id, estado: actual.estado, ...NO_BORRADA },
       data: { ...nuevo, estado },
@@ -1360,6 +1474,9 @@ export async function editarTarjeta(
       tipo: tipoFinal,
     };
   });
+  // Si quedó POR_APROBAR con riesgo BAJO, se aprueba sola otra vez (si el interruptor está prendido).
+  const aprobacion = await aprobarSiEsBajo(editada.tarjeta);
+  return { ...editada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado, avisoDeRiesgo };
 }
 
 export async function conectarTarjetas(contexto: ContextoTablero, origenId: unknown, destinoId: unknown) {
@@ -1418,7 +1535,7 @@ export async function cambiarEstadoTarjeta(contexto: ContextoTablero, tarjetaId:
   if (veredicto) {
     throw new Error(veredicto);
   }
-  return prisma.$transaction(async (tx) => {
+  const cambiado = await prisma.$transaction(async (tx) => {
     const hecho = await tx.tarjetaTablero.updateMany({
       // Condicionado también al repo: si se lo pusieron un instante antes, valen las reglas del Coordinador.
       where: { id: actual.id, estado: actual.estado, tipoId: actual.tipoId, repo: actual.repo, ...NO_BORRADA },
@@ -1427,8 +1544,12 @@ export async function cambiarEstadoTarjeta(contexto: ContextoTablero, tarjetaId:
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
     const cambio = await anotar(tx, contexto, actual.id, "estado", { estado: actual.estado }, { estado });
     await tocarTablero(tx, actual.tableroId);
-    return { cambioId: cambio.id, antes: actual.estado, ahora: estado, titulo: actual.titulo };
+    return { cambioId: cambio.id, antes: actual.estado, ahora: estado as EstadoTarjetaTablero, titulo: actual.titulo };
   });
+  // POR_APROBAR con repo y riesgo BAJO: se aprueba sola (si el interruptor está prendido).
+  if (estado !== "POR_APROBAR" || !actual.repo || actual.riesgo !== "BAJO") return { ...cambiado, aprobacionAutomatica: null };
+  const aprobacion = await aprobarSolaLaTarea(actual.id);
+  return { ...cambiado, ahora: aprobacion.aprobada ? ("APROBADO" as EstadoTarjetaTablero) : cambiado.ahora, aprobacionAutomatica: aprobacion };
 }
 
 /**
@@ -1836,6 +1957,22 @@ export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId:
     }
     datos.zonaProtegida = vuelven;
     ahora.zonaProtegida = tarjeta.zonaProtegida;
+  }
+  if ("riesgo" in antes) {
+    // Deshacer nunca deja una tarjeta en BAJO: BAJO se pone con editar_tarjeta, que revisa las reglas.
+    if (antes.riesgo === "BAJO") {
+      throw new Error("Deshacer eso dejaría la tarjeta en riesgo BAJO. Se pone de nuevo con editar_tarjeta, que revisa las reglas de riesgo.");
+    }
+    datos.riesgo = typeof antes.riesgo === "string" ? antes.riesgo : null;
+    ahora.riesgo = tarjeta.riesgo;
+  }
+  if ("riesgoMotivo" in antes) {
+    datos.riesgoMotivo = typeof antes.riesgoMotivo === "string" ? antes.riesgoMotivo : null;
+    ahora.riesgoMotivo = tarjeta.riesgoMotivo;
+  }
+  if ("riesgoPor" in antes) {
+    datos.riesgoPor = typeof antes.riesgoPor === "string" ? antes.riesgoPor : null;
+    ahora.riesgoPor = tarjeta.riesgoPor;
   }
   const estadoRestaurado = esEstado(antes.estado) ? antes.estado : undefined;
   if (estadoRestaurado) {

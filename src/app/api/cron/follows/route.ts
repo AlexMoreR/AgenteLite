@@ -16,6 +16,8 @@ import { vueltaDeCadaHora, vueltaDeCincoMinutos } from "@/features/supervisor/se
 import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente/servicios/motor";
 import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/servicio";
 import { procesarColaDeReuniones } from "@/features/reuniones/servicios/cola-de-reuniones";
+import { aprobarSolasLasPendientes } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { enviarResumenDiarioSiToca } from "@/features/tableros-inteligentes/services/resumen-diario";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -189,6 +191,25 @@ async function handleCron(request: Request) {
       await procesarColaDeReuniones();
     } catch (error) {
       console.error("[cron/follows] cola de reuniones error", error);
+    }
+  });
+
+  /*
+    TABLERO IA (ver src/features/tableros-inteligentes): cada vuelta aprueba solas las tareas de riesgo
+    bajo que quedaron POR_APROBAR (con el interruptor prendido) y, entre las 9:00 y las 9:59 p. m. de
+    Bogotá, manda UNA vez por día el resumen a Alexander por la línea Admin. Sin nada pendiente son un
+    par de lecturas; en segundo plano.
+  */
+  after(async () => {
+    try {
+      await aprobarSolasLasPendientes();
+    } catch (error) {
+      console.error("[cron/follows] aprobacion automatica del tablero error", error);
+    }
+    try {
+      await enviarResumenDiarioSiToca();
+    } catch (error) {
+      console.error("[cron/follows] resumen diario del tablero error", error);
     }
   });
 

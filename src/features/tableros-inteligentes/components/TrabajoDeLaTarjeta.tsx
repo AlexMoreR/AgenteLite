@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useTransition, type ReactNode } from "react";
-import { Check, ChevronRight, ExternalLink, GitBranch, Loader2, RotateCcw, Rocket, ShieldAlert, X } from "lucide-react";
+import { Check, ChevronRight, ExternalLink, Gauge, GitBranch, Loader2, RotateCcw, Rocket, ShieldAlert, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { aprobarTarjetaAction, cambiarZonasAction } from "@/app/actions/tableros-inteligentes-actions";
+import { aprobarTarjetaAction, cambiarRiesgoAction, cambiarZonasAction } from "@/app/actions/tableros-inteligentes-actions";
 import {
   NOMBRE_DE_LA_ZONA,
   NOMBRE_DEL_REPO,
@@ -50,6 +50,8 @@ type Props = {
   alCambiar: () => void;
 };
 
+const QUIEN_DEL_RIESGO: Record<string, string> = { CLAUDE: "Claude", TRABAJADOR: "el Coordinador", DUENO: "el dueño" };
+
 const BOTON = "h-11 w-full text-base";
 const BOTON_GRANDE = "h-14 w-full text-lg font-semibold";
 
@@ -84,9 +86,25 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
     });
   };
 
+  const cambiarRiesgo = (riesgo: "BAJO" | "ALTO") => {
+    empezar(async () => {
+      const respuesta = await cambiarRiesgoAction(tarjeta.id, riesgo);
+      if (respuesta.ok) toast.success(riesgo === "BAJO" ? "Riesgo bajo" : "Riesgo alto");
+      else toast.error(respuesta.error);
+      alCambiar();
+    });
+  };
+
   if (!pideAprobacion) return null;
 
   const estado = tarjeta.estado;
+  // Sin riesgo puesto cuenta como alto. Mientras el Coordinador la tiene no se cambia.
+  const riesgoBajo = tarjeta.riesgo === "BAJO";
+  const coordinadorLaTiene = estado === "PLANEANDO" || estado === "EN_CURSO" || estado === "SUBIENDO";
+  const quienPusoElRiesgo = tarjeta.riesgoPor ? ` (lo puso ${QUIEN_DEL_RIESGO[tarjeta.riesgoPor] ?? tarjeta.riesgoPor})` : "";
+  const textoDelRiesgo = tarjeta.riesgo
+    ? `${riesgoBajo ? "Riesgo bajo" : "Riesgo alto"}${tarjeta.riesgoMotivo ? `: ${tarjeta.riesgoMotivo}` : ""}${quienPusoElRiesgo}`
+    : "Riesgo alto: sin riesgo puesto, cuenta como alto.";
   const repo = tarjeta.repo && esRepo(tarjeta.repo) ? NOMBRE_DEL_REPO[tarjeta.repo] : tarjeta.repo;
   const resumen = resumenCorto({ resultadoResumen: resultado?.resumen, plan: tarjeta.plan, detalle: tarjeta.detalle });
   const modelosTexto = textoDeModelos(tarjeta.plan, resultado?.modelo);
@@ -102,6 +120,31 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
             <span className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs">
               <GitBranch className="size-3.5" />
               {repo}
+            </span>
+          ) : null}
+          {tarjeta.repo ? (
+            <span
+              className={
+                riesgoBajo
+                  ? "flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-100"
+                  : "flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"
+              }
+              title={textoDelRiesgo}
+            >
+              <Gauge className="size-3.5" />
+              {riesgoBajo ? "Riesgo bajo" : "Riesgo alto"}
+              {esDueno && !coordinadorLaTiene ? (
+                <button
+                  type="button"
+                  className="-mr-1 rounded-full px-1.5 py-0.5 font-medium underline-offset-2 hover:underline"
+                  onClick={() => cambiarRiesgo(riesgoBajo ? "ALTO" : "BAJO")}
+                  disabled={ocupado}
+                  aria-label={riesgoBajo ? "Cambiar el riesgo a alto" : "Cambiar el riesgo a bajo"}
+                  title={riesgoBajo ? "Marcarla de riesgo alto: pedirá tu aprobación" : "Marcarla de riesgo bajo (solo si las reglas no ven riesgo alto)"}
+                >
+                  {riesgoBajo ? "Poner alto" : "Poner bajo"}
+                </button>
+              ) : null}
             </span>
           ) : null}
           {tarjeta.zonaProtegida.map((zona) => (
@@ -127,6 +170,8 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
           ))}
         </div>
       ) : null}
+
+      {tarjeta.repo ? <p className="text-xs text-muted-foreground">{textoDelRiesgo}</p> : null}
 
       {modelosTexto ? <p className="text-xs text-muted-foreground">{modelosTexto}</p> : null}
 

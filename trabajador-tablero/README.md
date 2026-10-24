@@ -160,6 +160,27 @@ Current week (all models): 6% used · resets Oct 30, 7am (America/Bogota)
   WhatsApp llamada "Admin" (o con purpose ADMIN) conectada. Sin número, el CRM contesta 412 y el trabajador
   lo anota en el log.
 
+### Riesgo BAJO / ALTO (desde el 24-oct-2026)
+
+El CRM aprueba solo las tareas sencillas y de riesgo BAJO; lo importante sigue esperando el sí del dueño.
+El trabajador aporta tres cosas (las reglas están en `src/features/tableros-inteligentes/services/reglas-riesgo.ts`
+y se espejan en `lib/riesgo.mjs`):
+
+- **Al planear**: el plan trae, en sus primeras líneas, `RIESGO: BAJO — <motivo>` o `RIESGO: ALTO — <motivo>`.
+  Es BAJO solo si no toca zonas protegidas, la migración no existe o es aditiva, no toca dinero, permisos ni
+  mensajes a clientes, y no toca el trabajador ni las reglas de aprobación. Con duda, ALTO. Si la tarjeta
+  ya trae `riesgo` y `riesgoMotivo`, el prompt lo menciona. El prompt también pide no escribir DROP, DELETE,
+  UPDATE, RENAME ni TRUNCATE en la parte 4 (migración) salvo que de verdad se usen, porque el CRM la revisa
+  por palabras.
+- **Al construir**: el resultado trae `archivos` (las rutas que de verdad cambió, hasta 300) y
+  `migracionDestructiva` (las palabras de SQL destructivo de las migraciones nuevas, `[]` si es aditiva o no
+  hay migración). Si hay algo destructivo, `pruebas` lleva una línea `⚠ migración con cambios destructivos: ...`;
+  no hace fallar la construcción. El CRM usa ambos para la última revisión de riesgo.
+
+**Ojo**: un trabajador sin actualizar no manda la línea de riesgo ni `archivos`, y el CRM cuenta sus planes como
+ALTO (siguen pidiendo la aprobación del dueño). Para que funcione la aprobación automática hay que actualizar el
+trabajador del PC **aizen1** (`git pull` y reiniciarlo).
+
 ### Actualizar aizen1 al flujo nuevo
 
 1. Traer el código nuevo (`git pull` en la copia del repo de donde corre el trabajador).
