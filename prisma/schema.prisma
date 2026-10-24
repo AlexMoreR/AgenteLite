@@ -2066,6 +2066,8 @@ model TarjetaTablero {
   /// Candado del trabajador: desde cuándo la tiene y hasta cuándo (cada latido lo corre, hasta el tope de la etapa).
   trabajoIniciadoEn DateTime?
   trabajoVenceEn    DateTime?
+  /// Cuántas reparaciones seguidas lleva (tope 3: TOPE_DE_REPARACIONES). El dueño que pulsa Reintentar la deja en 0.
+  reparaciones      Int                @default(0)
   tablero       TableroInteligente @relation(fields: [tableroId], references: [id], onDelete: Cascade)
   tipo          TipoTarjeta        @relation(fields: [tipoId], references: [id], onDelete: Restrict)
   padre         TarjetaTablero?    @relation("TarjetaMadre", fields: [padreId], references: [id], onDelete: SetNull)
@@ -2073,6 +2075,7 @@ model TarjetaTablero {
   salientes     ConexionTarjeta[]  @relation("ConexionOrigen")
   entrantes     ConexionTarjeta[]  @relation("ConexionDestino")
   historial     HistorialTarjeta[]
+  intentosDeTrabajo IntentoTarjeta[]
 
   @@index([tableroId, estado])
   @@index([tipoId])
@@ -2086,6 +2089,8 @@ model ConexionTarjeta {
   origenId  String
   destinoId String
   creadoEn  DateTime           @default(now())
+  /// true = el DESTINO depende del ORIGEN: no se toma hasta que el origen esté HECHO.
+  esDependencia Boolean        @default(false)
   tablero   TableroInteligente @relation(fields: [tableroId], references: [id], onDelete: Cascade)
   origen    TarjetaTablero     @relation("ConexionOrigen", fields: [origenId], references: [id], onDelete: Cascade)
   destino   TarjetaTablero     @relation("ConexionDestino", fields: [destinoId], references: [id], onDelete: Cascade)
@@ -2111,6 +2116,29 @@ model HistorialTarjeta {
   deshechoEn DateTime?
   creadoEn   DateTime       @default(now())
   tarjeta    TarjetaTablero @relation(fields: [tarjetaId], references: [id], onDelete: Cascade)
+
+  @@index([tarjetaId, creadoEn])
+}
+
+/// Cada vez que algo falló (o el Coordinador tuvo que esperar, partir la tarjeta o escalar): etapa, categoría, causa en una línea y qué se hizo. Se ve en la tarjeta ("Intentos"). `numero` es consecutivo por tarjeta. Las categorías y acciones están en reglas-trabajador.ts.
+model IntentoTarjeta {
+  id                String         @id @default(cuid())
+  tarjetaId         String
+  numero            Int
+  /// planear | construir | subir
+  etapa             String
+  /// limite_claude, pc_sobrecargado, tiempo_agotado, no_compila... (CATEGORIAS_DE_INTENTO).
+  categoria         String
+  /// La causa en una línea.
+  causa             String
+  /// El error técnico, recortado a 6000 letras ("Detalles técnicos").
+  error             String?
+  /// reparar | partir | esperar | escalar
+  accion            String
+  /// false = esperar o partir: no gasta una de las 3 reparaciones.
+  cuentaComoIntento Boolean        @default(true)
+  creadoEn          DateTime       @default(now())
+  tarjeta           TarjetaTablero @relation(fields: [tarjetaId], references: [id], onDelete: Cascade)
 
   @@index([tarjetaId, creadoEn])
 }

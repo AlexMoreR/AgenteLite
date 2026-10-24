@@ -183,6 +183,48 @@ y se espejan en `lib/riesgo.mjs`):
 ALTO (siguen pidiendo la aprobación del dueño). Para que funcione la aprobación automática hay que actualizar el
 trabajador del PC **aizen1** (`git pull` y reiniciarlo).
 
+### Reparar solo (desde el 24-oct-2026)
+
+Antes, si algo fallaba, la tarjeta se reintentaba igual o quedaba en ERROR sin decir por qué. Ahora, cuando una
+etapa falla, el Coordinador (`lib/bucle.mjs`, `lib/diagnostico.mjs`):
+
+1. **Diagnostica**: guarda el error completo y el log del intento (`<carpetaTrabajo>/intentos/<id>/`), lo clasifica
+   en una categoría (`no_compila`, `fallan_pruebas`, `lint`, `choca_con_main`, `migracion`, `limite_claude`,
+   `tiempo_agotado`, `sesion_atascada`...) y escribe la causa en UNA línea.
+2. **Decide**: *esperar* (límite de uso de Claude, PC lleno, carpeta trabada: no cuenta como intento ni como
+   reparación), *reparar* (el siguiente intento recibe la causa y el error exacto y corrige solo eso; hasta 3),
+   *partir* (si es muy grande, la divide en 2 a 4 tarjetas que dependen una de otra y se hacen en orden) o
+   *escalar* (después de 3 reparaciones queda en ERROR con un resumen de 3 líneas: qué falló, qué se probó y qué
+   necesita del dueño).
+3. Cada paso queda en la ficha de la tarjeta ("Por qué está en ERROR" e "Intentos").
+
+Lo que se guarda cuando un comando falla (`lib/procesos.mjs`): las líneas que fallaron (`not ok`, `error`,
+`FAIL`...) con un poco de contexto, las últimas 60 líneas, y la salida COMPLETA en un archivo
+(`intentos/<id>/salida-...log`). El diagnóstico lee todo eso, no solo el final.
+
+**Sesión de construir**: no puede lanzar subagentes ni tareas en segundo plano ni quedarse esperando (`Agent` y
+`Task` van en `herramientasProhibidas`); lo hace todo ella, en orden y en primer plano. Al planear sí puede usar
+subagentes.
+
+**Sesión atascada** (`lib/atasco.mjs`): cada minuto se mira si la sesión de Claude tocó archivos (`git status`)
+o usó el procesador (ella o sus hijos). Si pasan `atasco.minutos` (15) sin ninguna de las dos, se corta con la
+causa `sesion_atascada`; el siguiente intento recibe la orden de no esperar nada, y si se vuelve a atascar la
+tarea se parte. En `config.local.json`: `"atasco": { "minutos": 15, "revisarCadaSegundos": 60,
+"cpuMinimaSegundos": 0.3 }` (`minutos: 0` lo apaga).
+
+**Aviso "carpeta sin confianza" de Claude Code**: no es la falla (los permisos del Coordinador van en los
+argumentos con que arranca cada sesión, no en `.claude/settings.json`) y el diagnóstico ignora esa línea. Para
+que deje de salir, abrir Claude Code una vez en la carpeta del repo y aceptar "confiar en esta carpeta" (a
+mano), y no dejar en `.claude/settings.json` permisos de un solo uso.
+
+**Orden al subir este cambio**: primero sube el CRM (trae la migración `20261024120000_tablero_intentos`) y
+después se actualiza el Coordinador en aizen1 (`git pull` y reiniciarlo). Al revés, el Coordinador nuevo
+llamaría rutas (`/reparar`, `/partir`, `/arranque`) que el CRM viejo todavía no tiene (el Coordinador lo
+nota: si /tomar no trae `topeReparaciones`, se porta como antes).
+
+**Dependencias**: una flecha marcada "esto depende de aquella" (`conectar_tarjetas` con `depende`, o el botón de
+la ficha) hace que la tarjeta no se tome hasta que la otra esté HECHO.
+
 ### Actualizar aizen1 al flujo nuevo
 
 1. Traer el código nuevo (`git pull` en la copia del repo de donde corre el trabajador).
@@ -254,6 +296,8 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 - `lib/etapas.mjs`: planear, construir (con su revisión) y subir; `correrMotor` corre Claude o Codex.
 - `lib/motores.mjs`: qué motor hace cada paso, el límite de Codex y la vigilancia del uso de Claude.
 - `lib/ensayo.mjs`: ensayo de migraciones (PGlite y producción en BEGIN…ROLLBACK por ssh).
+- `lib/diagnostico.mjs`: clasifica una falla, decide (reparar, partir, esperar, escalar) y escribe el resumen de 3 líneas.
+- `lib/atasco.mjs`: detecta una sesión quieta (sin archivos ni procesador por 15 min).
 - `lib/git.mjs`, `lib/procesos.mjs`, `lib/zonas.mjs`, `lib/crm.mjs`, `lib/config.mjs`, `lib/registro.mjs`.
 - La API del lado del CRM: `src/app/api/trabajador/tablero/*` y `src/features/tableros-inteligentes/services/trabajador.ts`;
   el aviso por WhatsApp, `src/app/api/trabajador/aviso` y `services/aviso-del-trabajador.ts`.

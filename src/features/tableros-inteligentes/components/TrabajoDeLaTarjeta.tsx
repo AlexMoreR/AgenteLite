@@ -226,6 +226,9 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
       ) : null}
 
       {estado === "APROBADO" && tarjeta.repo ? espera("Aprobada: el Coordinador la toma en el próximo minuto y escribe el plan.") : null}
+      {tarjeta.reparaciones > 0 && (estado === "APROBADO" || estado === "PLAN_APROBADO")
+        ? espera(`Falló y está en reparación (${tarjeta.reparaciones} de 3): el Coordinador la toma enseguida con la causa y el error exacto.`)
+        : null}
       {estado === "PLANEANDO" ? espera("El Coordinador está escribiendo el plan…") : null}
       {estado === "PLAN_APROBADO" ? espera("Plan aprobado: el Coordinador la toma en el próximo minuto y la construye.") : null}
       {estado === "EN_CURSO" && tarjeta.repo ? espera("El Coordinador la está construyendo y probando en su rama…") : null}
@@ -349,8 +352,8 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
 
       {estado === "ERROR" && resultado?.error?.motivo ? (
         <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-700 dark:bg-red-950 dark:text-red-100">
-          <p className="text-xs font-medium">Falló{resultado.error.en ? ` (en ${resultado.error.en})` : ""}</p>
-          <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap">{resultado.error.motivo}</p>
+          <p className="text-xs font-medium">Por qué está en ERROR{resultado.error.en ? ` (falló en ${resultado.error.en})` : ""}</p>
+          <p className="mt-0.5 whitespace-pre-wrap">{resultado.error.motivo}</p>
         </div>
       ) : null}
     </div>

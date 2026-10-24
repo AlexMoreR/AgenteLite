@@ -350,6 +350,7 @@ export function TablerosInteligentesVista({
   const tarjetaAbierta = abierta ? (tarjetas.find((tarjeta) => tarjeta.id === abierta) ?? null) : null;
   const entrantes = abierta ? conexiones.filter((c) => c.destinoId === abierta).map((c) => c.origenId) : [];
   const salientes = abierta ? conexiones.filter((c) => c.origenId === abierta).map((c) => c.destinoId) : [];
+  const flechasEntrantes = abierta ? conexiones.filter((c) => c.destinoId === abierta) : [];
 
   return (
     <div className="tablero-ia flex h-[calc(100dvh-3.5rem)] flex-col">
@@ -471,6 +472,7 @@ export function TablerosInteligentesVista({
         hijas={abierta ? (hijas.get(abierta) ?? 0) : 0}
         entrantes={entrantes}
         salientes={salientes}
+        flechasEntrantes={flechasEntrantes}
         abierta={abierta !== null}
         lado={angosta ? "bottom" : "right"}
         puedeAprobar={puedeAprobar}

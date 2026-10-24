@@ -21,6 +21,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import crypto from "node:crypto";
+
+import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, enUnaLinea, esLimiteDeUso, recortar } from "./diagnostico.mjs";
 import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
 import {
   archivosCambiados,
@@ -38,15 +41,22 @@ import {
 } from "./git.mjs";
 import { dificultadDeLaTarea, modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
-import { comoTexto, correr, ultimasLineas } from "./procesos.mjs";
+import { vigilarSesion } from "./atasco.mjs";
+import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, ultimasLineas } from "./procesos.mjs";
+import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
+import { carpetaDeIntentos } from "./registro.mjs";
 import { migracionDestructiva } from "./riesgo.mjs";
 import { zonasTocadas } from "./zonas.mjs";
 
 export class ErrorDeEtapa extends Error {
-  constructor(message, { zonas = [], reversion = null, limiteDeUso = false, motor = null } = {}) {
+  constructor(message, { zonas = [], reversion = null, limiteDeUso = false, motor = null, categoria = null, archivosCambiados = null } = {}) {
     super(message);
     this.zonas = zonas;
     this.reversion = reversion;
+    // La causa cuando la etapa ya la sabe (una de CATEGORIAS de diagnostico.mjs): así diagnosticar no adivina.
+    this.categoria = categoria;
+    // Cuántos archivos llevaba cambiados el trabajo que falló (lo llena construir): decide si se parte la tarea.
+    this.archivosCambiados = archivosCambiados;
     // Claude o Codex llegó al límite de uso del plan: no es ERROR de la tarjeta, se suelta y se reintenta
     // después. `motor` dice cuál ("claude" | "codex"; null = ningún motor disponible ahora).
     this.limiteDeUso = limiteDeUso;
@@ -54,12 +64,8 @@ export class ErrorDeEtapa extends Error {
   }
 }
 
-/** Lo que dice `claude -p` cuando la suscripción llegó a su límite de uso ("Claude AI usage limit reached|…", "You've hit your session limit · resets 1:20am": 23-10-2026 este no lo reconocía y marcó 3 tarjetas en ERROR). */
-const LIMITE_DE_USO = /usage limit|limit reached|hit your (?:\w+ )?limit|session limit|weekly limit|limit · resets|rate[ _-]?limit|overloaded_error|out of (extra )?usage|límite de uso/i;
-
-export function esLimiteDeUso(texto) {
-  return LIMITE_DE_USO.test(String(texto ?? ""));
-}
+// El reconocimiento del límite de uso de Claude vive ahora en diagnostico.mjs (puro); se sigue exportando de acá.
+export { esLimiteDeUso };
 
 const MINUTO = 60_000;
 
@@ -72,16 +78,62 @@ export function entornoSeguro() {
   };
 }
 
-/** Un reloj de la etapa: cuánto le queda y un error claro si ya no queda. */
+/** Un reloj de la etapa: cuánto le queda y un error claro si ya no queda. `extender` suma el tiempo que se esperó al PC. */
 function relojDeEtapa(minutos, nombre) {
-  const limite = Date.now() + minutos * MINUTO;
+  let limite = Date.now() + minutos * MINUTO;
   return {
     resta() {
       const queda = limite - Date.now();
-      if (queda <= 0) throw new ErrorDeEtapa(`Se pasó del tiempo de ${nombre} (${minutos} min).`);
+      if (queda <= 0) throw new ErrorDeEtapa(`Se pasó del tiempo de ${nombre} (${minutos} min).`, { categoria: "tiempo_agotado" });
       return queda;
     },
+    extender(ms) {
+      limite += Math.max(0, ms);
+    },
   };
+}
+
+/**
+ * Antes de un comando pesado (verificación, build): si OTRAS sesiones están corriendo y el PC pasó de los límites,
+ * espera (hasta config.limites.esperaMaximaMinutos) a que baje, y ese tiempo NO se descuenta del reloj de la etapa.
+ * Sin otras sesiones la carga es de esta misma, así que no espera.
+ */
+async function esperarAlPc(contexto, reloj, que) {
+  const { medidor, config, registro, senal, otrasSesiones } = contexto;
+  const maximoMs = (config.limites?.esperaMaximaMinutos ?? 0) * MINUTO;
+  if (!medidor || !maximoMs || !(otrasSesiones?.() > 0)) return;
+  const falta = faltanRecursos(medidor.medir(), config.limites);
+  if (!falta) return;
+  registro?.info?.(`espero al PC antes de ${que} (${falta}); como mucho ${config.limites.esperaMaximaMinutos} min y no se descuenta del reloj de la etapa`);
+  const { esperadoMs, liberado } = await esperarRecursos({ medir: () => medidor.medir(), limites: config.limites, maximoMs, senal });
+  reloj.extender(esperadoMs);
+  registro?.info?.(`esperé ${Math.round(esperadoMs / 1000)} s al PC${liberado ? "" : " (sigue lleno: sigo igual)"}`);
+}
+
+/** Cierra lo que la sesión dejó corriendo dentro de su carpeta y borra el candado de Next (.next/lock). */
+async function cerrarRestos(contexto, carpeta) {
+  try {
+    const cerrados = await cerrarProcesosEn(carpeta);
+    fs.rmSync(path.join(carpeta, ".next", "lock"), { force: true });
+    if (cerrados) contexto.registro?.aviso?.(`cerré ${cerrados} proceso(s) que la sesión dejó corriendo en ${carpeta}`);
+  } catch {
+    // Limpiar no puede tumbar la tarjeta.
+  }
+}
+
+/**
+ * Para carpeta_trabada: cierra procesos, borra .next/lock y saca las carpetas de trabajo (worktrees) de esta
+ * tarjeta, para que el próximo intento arranque en una carpeta sana. Nunca lanza.
+ */
+export async function limpiarCarpetasDeTrabajo(contexto, tarjeta) {
+  const repo = contexto.config.repos[tarjeta.repo];
+  for (const etapa of ["plan", "construir", "subir", "partir"]) {
+    const carpeta = carpetaDe(contexto, tarjeta, etapa);
+    if (!fs.existsSync(carpeta)) continue;
+    await cerrarRestos(contexto, carpeta);
+    if (repo) await quitarWorktree(repo, carpeta, etapa === "subir" ? `subida/${idCorto(tarjeta.id)}` : etapa === "construir" ? nombreDeRama(tarjeta) : undefined);
+    else fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 3 });
+  }
 }
 
 function configDelRepo(contexto, tarjeta) {
@@ -100,14 +152,28 @@ const carpetaDe = (contexto, tarjeta, etapa) => path.join(contexto.config.carpet
 async function paso(contexto, comando, { cwd, reloj, que, motivo, entrada }) {
   const { config, senal } = contexto;
   const timeoutMs = Math.min(reloj.resta(), config.tiempos.comandoMinutos * MINUTO);
-  const resultado = await correr(comando, { cwd, env: entornoSeguro(), senal, timeoutMs, entrada });
-  if (resultado.cancelado) throw new ErrorDeEtapa(`Se canceló ${que}: la tarjeta venció en el CRM.`);
-  if (resultado.vencido) throw new ErrorDeEtapa(`${motivo ?? `Falló ${que}`}: se pasó del tiempo (${comoTexto(comando)}).`);
-  if (resultado.codigo !== 0) {
+  // La salida completa queda en un archivo (intentos/<tarjeta>/salida-...): si el comando falla, el diagnóstico
+  // lee las líneas que fallaron y el final, no solo el principio.
+  const tarjetaCorta = path.basename(cwd).replace(/-(?:plan|construir|subir|partir)$/, "");
+  const archivoSalida = path.join(config.carpetaTrabajo, "intentos", tarjetaCorta, `salida-${new Date().toISOString().replace(/[:.]/g, "-")}-${path.basename(String(comando[comando.length - 1]))}.log`);
+  const resultado = await correr(comando, { cwd, env: entornoSeguro(), senal, timeoutMs, entrada, archivoSalida });
+  if (resultado.cancelado) throw new ErrorDeEtapa(`Se canceló ${que}: la tarjeta venció en el CRM.`, { categoria: "coordinador_cortado" });
+  if (resultado.vencido) {
+    // ¿Se pasó de tiempo porque el PC estaba saturado? (22-23-oct-2026: las pruebas tardaban el triple con 3 sesiones a la vez).
+    const { cpu, memoria } = contexto.medidor ? contexto.medidor.medir() : await medirUnaVez(300);
+    const saturado = faltanRecursos({ cpu, memoria }, config.limites);
     throw new ErrorDeEtapa(
-      `${motivo ?? `Falló ${que}`}. No se subió nada.\nDetalle técnico (${comoTexto(comando)}):\n${ultimasLineas(`${resultado.errores}\n${resultado.salida}`, 30)}`,
+      `${motivo ?? `Falló ${que}`}: se pasó del tiempo (${comoTexto(comando)})${saturado ? ` con el PC saturado (CPU ${cpu} %, memoria ${memoria} %)` : ""}.`,
+      { categoria: saturado ? "pc_sobrecargado" : "tiempo_agotado" },
     );
   }
+  if (resultado.codigo !== 0) {
+    throw new ErrorDeEtapa(
+      `${motivo ?? `Falló ${que}`}. No se subió nada.\nDetalle técnico (${comoTexto(comando)}):\n${detalleDeFalla(resultado)}`,
+    );
+  }
+  // Salió bien: la salida completa ya no hace falta.
+  if (resultado.archivoSalida) fs.rmSync(resultado.archivoSalida, { force: true });
   return resultado;
 }
 
@@ -127,9 +193,16 @@ async function claude(contexto, argumentos, prompt, { cwd, timeoutMs, que }) {
   const comando = [...config.comandoClaude, ...argumentos];
   // Los subagentes que lance esta sesión usan el modelo de config.modelos.subagentes (Sonnet), no Opus.
   const env = { ...entornoSeguro(), CLAUDE_CODE_SUBAGENT_MODEL: config.modelos?.subagentes ?? "sonnet" };
-  const resultado = await correr(comando, { cwd, entrada: prompt, timeoutMs, senal, env });
-  if (resultado.cancelado) throw new ErrorDeEtapa(`Se canceló Claude (${que}): la tarjeta venció en el CRM.`);
-  if (resultado.vencido) throw new ErrorDeEtapa(`Claude tardó más de ${Math.round(timeoutMs / MINUTO)} min en ${que}: se cortó.`);
+  const vigia = vigilarSesion(config, cwd, contexto.vigilanteDeAtasco);
+  const resultado = await correr(comando, { cwd, entrada: prompt, timeoutMs, senal, env, vigilar: vigia ?? undefined });
+  if (resultado.cancelado) throw new ErrorDeEtapa(`Se canceló Claude (${que}): la tarjeta venció en el CRM.`, { categoria: "coordinador_cortado" });
+  if (resultado.atascado) {
+    throw new ErrorDeEtapa(
+      `La sesión de Claude se quedó quieta ${Math.round((vigia?.quietoMs?.() ?? config.atasco.minutos * MINUTO) / MINUTO)} min al ${que} (no tocó archivos ni usó el procesador): se cortó como sesión atascada.`,
+      { categoria: "sesion_atascada" },
+    );
+  }
+  if (resultado.vencido) throw new ErrorDeEtapa(`Claude tardó más de ${Math.round(timeoutMs / MINUTO)} min en ${que}: se cortó.`, { categoria: "tiempo_agotado" });
   const cola = ultimasLineas(`${resultado.errores}\n${resultado.salida}`, 20);
   if (resultado.codigo !== 0) {
     throw new ErrorDeEtapa(`Claude falló al ${que} (código ${resultado.codigo}):\n${cola}`, { limiteDeUso: esLimiteDeUso(cola), motor: "claude" });
@@ -171,8 +244,8 @@ async function codex(contexto, prompt, { cwd, timeoutMs, que, sandbox }) {
   ];
   try {
     const resultado = await correr(comando, { cwd, entrada: prompt, timeoutMs, senal, env: entornoSeguro() });
-    if (resultado.cancelado) throw new ErrorDeEtapa(`Se canceló Codex (${que}): la tarjeta venció en el CRM.`);
-    if (resultado.vencido) throw new ErrorDeEtapa(`Codex tardó más de ${Math.round(timeoutMs / MINUTO)} min en ${que}: se cortó.`);
+    if (resultado.cancelado) throw new ErrorDeEtapa(`Se canceló Codex (${que}): la tarjeta venció en el CRM.`, { categoria: "coordinador_cortado" });
+    if (resultado.vencido) throw new ErrorDeEtapa(`Codex tardó más de ${Math.round(timeoutMs / MINUTO)} min en ${que}: se cortó.`, { categoria: "tiempo_agotado" });
     const cola = ultimasLineas(`${resultado.errores}\n${resultado.salida}`, 20);
     if (resultado.codigo !== 0) {
       throw new ErrorDeEtapa(`Codex falló al ${que} (código ${resultado.codigo}):\n${cola}`, { limiteDeUso: esLimiteDeCodex(cola), motor: "codex" });
@@ -192,6 +265,9 @@ async function codex(contexto, prompt, { cwd, timeoutMs, que, sandbox }) {
 function argumentosDeClaude(config, paso, tarjeta, modeloElegido) {
   const modelo = ["--model", modeloElegido ?? modeloDelPaso(config, paso, tarjeta)];
   if (paso === "planear") return ["-p", ...modelo, "--permission-mode", "plan", "--output-format", "text"];
+  // Construir y revisar NO lanzan subagentes (24-oct-2026: una sesión lanzó 2 en segundo plano y se quedó
+  // esperándolos horas): hacen todo ellas, en primer plano. Planear sí puede, porque ahí no se queda esperando.
+  const sinSubagentes = (herramientas) => herramientas.filter((herramienta) => !HERRAMIENTAS_DE_SUBAGENTES.includes(herramienta));
   return [
     "-p",
     ...modelo,
@@ -200,11 +276,14 @@ function argumentosDeClaude(config, paso, tarjeta, modeloElegido) {
     "--output-format",
     "text",
     "--allowedTools",
-    ...config.herramientasPermitidas,
+    ...sinSubagentes(config.herramientasPermitidas),
     "--disallowedTools",
-    ...config.herramientasProhibidas,
+    ...new Set([...config.herramientasProhibidas, ...HERRAMIENTAS_DE_SUBAGENTES]),
   ];
 }
+
+/** Las herramientas con las que una sesión lanza subagentes o tareas en segundo plano. */
+export const HERRAMIENTAS_DE_SUBAGENTES = ["Agent", "Task"];
 
 /**
  * Correr un MOTOR ("claude" | "codex") para un paso ("planear" | "construir" | "revisar") en `cwd`.
@@ -253,15 +332,17 @@ const REGLAS_DE_ZONAS =
 /** Subagentes (22-oct-2026): más rápido y mejor revisado. Los subagentes siguen las mismas reglas. */
 const SUBAGENTES_AL_PLANEAR =
   "Usa subagentes (herramienta Agent) para investigar el código en paralelo: por ejemplo uno que encuentre dónde vive lo que hay que cambiar y otro que busque las pruebas y los usos que se pueden romper. Ellos tampoco cambian archivos.";
+// Construir NO usa subagentes (24-oct-2026): el intento de las 2:23 p. m. lanzó 2 en segundo plano, dijo
+// "Revisaré de nuevo en unos 30 minutos" y se quedó esperando desde las 3:11 p. m.
 const SUBAGENTES_AL_CONSTRUIR = [
-  "- Usa subagentes (herramienta Agent), con las mismas reglas de acá:",
-  "  · antes de editar, uno o más para investigar el código que toca el plan;",
-  "  · uno para escribir o completar las pruebas del cambio;",
-  "  · al terminar, uno que REVISE el cambio completo (git diff) buscando errores, casos que faltan y reglas rotas; arregla lo que encuentre antes de entregar.",
+  "- Haz TODO tú, en esta misma sesión, en orden y en PRIMER PLANO. PROHIBIDO lanzar subagentes (herramienta Agent o Task) o cualquier cosa en segundo plano, y PROHIBIDO quedarte esperando algo (nada de \"reviso de nuevo en unos minutos\"): si un comando tarda, córrelo en primer plano y espera su resultado aquí mismo.",
+  "- Trabaja en este orden: primero investiga el código que toca el plan; después edita; escribe o completa las pruebas del cambio;",
+  "  al terminar, REVISA tu cambio completo (git diff y git status) buscando errores, casos que faltan y reglas rotas, y arréglalo antes de entregar.",
 ].join("\n");
 /** Codex no tiene subagentes: lo mismo, hecho por él en orden. */
 const SIN_SUBAGENTES_AL_PLANEAR = "Antes de planear, investiga el código: dónde vive lo que hay que cambiar, las pruebas y los usos que se pueden romper.";
 const SIN_SUBAGENTES_AL_CONSTRUIR = [
+  "- Haz todo tú, en orden y en primer plano; nunca dejes nada corriendo en segundo plano ni te quedes esperando algo para después.",
   "- Trabaja en este orden: primero investiga el código que toca el plan; después edita; escribe o completa las pruebas del cambio;",
   "  al terminar, REVISA tu cambio completo (git diff y git status) buscando errores, casos que faltan y reglas rotas, y arréglalo antes de entregar.",
   "- Si un comando necesita internet o la base y no puede correr acá, sigue: el Coordinador corre tsc, build, lint y las pruebas después.",
@@ -282,12 +363,38 @@ function contextoDeLaTarjeta(tarjeta) {
     .join("\n\n");
 }
 
+/**
+ * Reparación (24-oct-2026): lo que el Coordinador ya sabe del intento anterior que falló. `tarjeta.reparacion` =
+ * { numero, de, causa, categoria, error, estrategia } (lo arma el bucle con lo que trae /tomar). `patchAplicado`:
+ * el trabajo del intento anterior ya está puesto en los archivos del worktree.
+ */
+export function bloqueDeReparacion(tarjeta, { patchAplicado = false } = {}) {
+  const r = tarjeta.reparacion;
+  if (!r) return "";
+  return [
+    `REPARACIÓN ${r.numero} de ${r.de ?? 3}: el intento anterior falló y SOLO eso hay que corregir.`,
+    `La causa fue: ${r.causa || "(no se sabe)"}${r.categoria ? ` (categoría: ${r.categoria})` : ""}.`,
+    r.error ? `El error exacto es:\n${recortar(r.error, 3500)}` : "",
+    "Corrige solo eso y no rehagas lo demás.",
+    r.categoria === "sesion_atascada"
+      ? "El intento anterior se atascó esperando tareas en segundo plano. En ESTE intento no lances subagentes ni dejes nada en segundo plano, y no esperes nada: haz todo tú, en primer plano, y termina."
+      : "",
+    patchAplicado
+      ? "El trabajo del intento anterior YA está aplicado en los archivos de este worktree (míralo con git status y git diff): parte de ahí, no lo escribas otra vez."
+      : "El trabajo del intento anterior no se pudo conservar: empieza desde la base, pero con la causa de arriba presente para no repetir el error.",
+    r.estrategia === "opus" ? "Ya falló dos veces por lo mismo: antes de editar, piensa con calma por qué y busca otra forma de resolverlo." : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function promptDelPlan(tarjeta, repo, motor = "claude") {
   return [
     `Eres el Coordinador del Tablero IA de Magilus. Tienes que escribir un PLAN para esta tarea del repositorio "${repo.clave}". ${
       motor === "codex" ? "Estás en modo de solo lectura" : "Estás en modo plan"
     }: NO cambies ningún archivo, solo lee el código y planea.`,
     contextoDeLaTarjeta(tarjeta),
+    bloqueDeReparacion(tarjeta),
     [
       "Escribe el plan en español sencillo, para el dueño del negocio (no es programador), con estas partes:",
       "1. Qué se cambia.",
@@ -303,7 +410,9 @@ export function promptDelPlan(tarjeta, repo, motor = "claude") {
     fraseAlTerminar(repo),
     INSTRUCCION_DE_RIESGO,
     "Contesta SOLO con el plan.",
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /**
@@ -340,12 +449,13 @@ function fraseAlTerminar(repo) {
   ].join("\n");
 }
 
-export function promptDeConstruir(tarjeta, repo, rama, motor = "claude") {
+export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patchAplicado = false } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   return [
     `Eres el Coordinador del Tablero IA de Magilus. Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en un worktree aparte, en la rama ${rama}.`,
     contextoDeLaTarjeta(tarjeta),
     `PLAN APROBADO:\n${tarjeta.plan}`,
+    bloqueDeReparacion(tarjeta, { patchAplicado }),
     [
       "Reglas:",
       "- No hagas git push ni commit, no cambies de rama ni toques el remoto: el Coordinador hace el commit y sube la rama él mismo.",
@@ -353,10 +463,71 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude") {
       `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
       "- Respeta el estilo del repo y escribe los comentarios en español.",
       motor === "codex" ? SIN_SUBAGENTES_AL_CONSTRUIR : SUBAGENTES_AL_CONSTRUIR,
-      "- Al final corre tsc, lint (sin errores nuevos), build y las pruebas que correspondan, y arregla lo que falle.",
+      "- NO corras `npm run build` ni `next build` (ni `next dev`, ni nada que quede corriendo): el Coordinador compila él mismo al terminar, y dos builds en la misma carpeta se traban en `.next/lock`.",
+      "- Al final corre tsc, lint (sin errores nuevos) y las pruebas que correspondan, y arregla lo que falle.",
+      "- Si terminas SIN haber cambiado ningún archivo (porque ya estaba hecho, o no se puede hacer), escribe como última línea: NO_CAMBIE: <el motivo en una frase>. Es la única forma de decir que no hacía falta cambiar nada.",
       "- Termina con un RESUMEN corto en español sencillo: qué cambiaste, qué archivos y cómo lo probaste.",
     ].join("\n"),
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * La sesión de PARTIR (24-oct-2026): una tarea que se pasó del tiempo (o es muy grande) se divide en 2 a 4
+ * partes pequeñas, en orden. Solo lee; contesta SOLO con un JSON { "partes": [{ "titulo", "detalle" }] }.
+ */
+export function promptDePartir(tarjeta, repo, { causa, error, motor = "claude" } = {}) {
+  return [
+    `Eres el Coordinador del Tablero IA de Magilus. Tienes que DIVIDIR en partes pequeñas esta tarea del repositorio "${repo.clave}", porque no se pudo hacer de una sola vez. ${
+      motor === "codex" ? "Estás en modo de solo lectura" : "Estás en modo plan"
+    }: NO cambies ningún archivo, solo lee el código.`,
+    contextoDeLaTarjeta(tarjeta),
+    tarjeta.plan ? `PLAN APROBADO (lo que hay que lograr entre todas las partes):\n${tarjeta.plan}` : "",
+    `Por qué no se pudo: ${causa || "(no se sabe)"}${error ? `\nÚltimo error:\n${recortar(error, 2000)}` : ""}`,
+    [
+      `Divide el trabajo en entre ${MINIMO_DE_PARTES} y ${MAXIMO_DE_PARTES} partes. Reglas:`,
+      "- Las partes se hacen EN ORDEN, cada una en su propia sesión y subida a main: la parte 2 parte de main con la parte 1 ya subida.",
+      "- Cada parte es PEQUEÑA (ideal: menos de 6 archivos), tiene sentido por sí sola y deja el proyecto compilando y con las pruebas pasando.",
+      "- Todas juntas cubren TODO el plan, sin repetir trabajo ni dejar huecos. No hagas partes que solo sean pruebas o solo documentación.",
+      "- `titulo`: corto, qué logra esa parte. `detalle`: qué hay que hacer EXACTO en esa parte (archivos con su ruta desde la raíz, qué cambia, cómo se prueba), escrito para quien no vio el resto.",
+      REGLAS_DE_ZONAS,
+    ].join("\n"),
+    'Contesta SOLO con un JSON válido, sin texto antes ni después: {"partes":[{"titulo":"...","detalle":"..."},{"titulo":"...","detalle":"..."}]}',
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/** Las partes que contestó la sesión de partir (2 a 4 con título y detalle), o ErrorDeEtapa si no sirven. */
+export function partesDeLaRespuesta(texto) {
+  const bruto = String(texto ?? "");
+  const candidatos = [];
+  const cerca = bruto.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (cerca) candidatos.push(cerca[1]);
+  const primera = bruto.indexOf("{");
+  const ultima = bruto.lastIndexOf("}");
+  if (primera >= 0 && ultima > primera) candidatos.push(bruto.slice(primera, ultima + 1));
+  const primeraLista = bruto.indexOf("[");
+  const ultimaLista = bruto.lastIndexOf("]");
+  if (primeraLista >= 0 && ultimaLista > primeraLista) candidatos.push(bruto.slice(primeraLista, ultimaLista + 1));
+  for (const candidato of candidatos) {
+    let datos;
+    try {
+      datos = JSON.parse(candidato);
+    } catch {
+      continue;
+    }
+    const lista = Array.isArray(datos) ? datos : datos?.partes;
+    if (!Array.isArray(lista)) continue;
+    const partes = lista
+      .map((parte) => ({ titulo: enUnaLinea(parte?.titulo, 120), detalle: String(parte?.detalle ?? "").trim().slice(0, 6000) }))
+      .filter((parte) => parte.titulo && parte.detalle);
+    if (partes.length !== lista.length) continue;
+    if (partes.length >= MINIMO_DE_PARTES && partes.length <= MAXIMO_DE_PARTES) return partes;
+    throw new ErrorDeEtapa(`La sesión de dividir devolvió ${partes.length} parte(s): tienen que ser de ${MINIMO_DE_PARTES} a ${MAXIMO_DE_PARTES}.`, { categoria: "otra" });
+  }
+  throw new ErrorDeEtapa(`La sesión de dividir no devolvió partes válidas (un JSON con "partes" de título y detalle):\n${ultimasLineas(bruto, 10)}`, { categoria: "otra" });
 }
 
 /** La revisión (23-oct-2026): otro motor (por defecto Claude) revisa y corrige lo que construyó Codex. */
@@ -383,7 +554,9 @@ export function promptDeRevisar(tarjeta, repo, rama, quienConstruyo) {
 async function erroresDeLint(contexto, repo, cwd, reloj) {
   const timeoutMs = Math.min(reloj.resta(), contexto.config.tiempos.comandoMinutos * MINUTO);
   const resultado = await correr(repo.lint.comando, { cwd, env: entornoSeguro(), senal: contexto.senal, timeoutMs });
-  if (resultado.vencido || resultado.cancelado) throw new ErrorDeEtapa(`El lint (${comoTexto(repo.lint.comando)}) se pasó del tiempo. No se subió nada.`);
+  if (resultado.vencido || resultado.cancelado) {
+    throw new ErrorDeEtapa(`El lint (${comoTexto(repo.lint.comando)}) se pasó del tiempo. No se subió nada.`, { categoria: resultado.cancelado ? "coordinador_cortado" : "tiempo_agotado" });
+  }
   let datos;
   try {
     datos = JSON.parse(resultado.salida.slice(resultado.salida.indexOf("[")));
@@ -413,6 +586,7 @@ async function verificar(contexto, repo, cwd, reloj) {
   const lineas = [];
   const comandos = [...repo.verificar.map((comando) => [comando, false]), ...repo.pruebas.map((comando) => [comando, true])];
   for (const [comando, esPrueba] of comandos) {
+    await esperarAlPc(contexto, reloj, `correr ${comoTexto(comando)}`);
     const resultado = await paso(contexto, comando, { cwd, reloj, que: "la verificación", motivo: motivoDeVerificacion(comando, esPrueba) });
     const cola = ultimasLineas(resultado.salida, 3);
     lineas.push(`✔ ${comoTexto(comando)}${cola ? `\n  ${cola.replace(/\n/g, "\n  ")}` : ""}`);
@@ -457,22 +631,29 @@ export async function construir(contexto, tarjeta) {
   const rama = nombreDeRama(tarjeta);
   const base = `${repo.remoto}/${repo.ramaBase}`;
   const carpeta = carpetaDe(contexto, tarjeta, "construir");
+  const intentos = carpetaDeIntentos(config.carpetaTrabajo, tarjeta.id);
+  // La 2ª reparación seguida por lo mismo se hace con un modelo más fuerte (decidir -> estrategia "opus").
+  const modeloElegido = tarjeta.reparacion?.estrategia === "opus" ? (config.modelos?.planear ?? "opus") : undefined;
   await git(repo.ruta, ["fetch", repo.remoto]);
+  let baseSha = null;
   try {
     await crearWorktree(repo, carpeta, base, rama);
-    const baseSha = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
+    baseSha = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
     if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias" });
     // El lint de main, para que solo cuenten los errores NUEVOS.
     const lintBase = repo.lint ? await erroresDeLint(contexto, repo, carpeta, reloj) : null;
+    // Lo ya hecho en el intento anterior se reaplica (si encaja sobre main) DESPUÉS de medir el lint de la base.
+    const patchAplicado = await reaplicarTrabajo(contexto, tarjeta, carpeta, intentos);
 
     let motor = motorDelPaso(contexto, "construir");
     let resumenDelMotor;
     try {
-      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor), {
+      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor, { patchAplicado }), {
         cwd: carpeta,
         timeoutMs: reloj.resta(),
         que: "construir",
         tarjeta,
+        modelo: modeloElegido,
       });
     } catch (error) {
       // Codex se agotó: se pausa. Pasa a Claude SOLO con motores.respaldoClaude (y si Claude está disponible).
@@ -485,18 +666,22 @@ export async function construir(contexto, tarjeta) {
       await git(carpeta, ["reset", "--hard", baseSha]);
       await git(carpeta, ["clean", "-fd"]);
       motor = "claude";
-      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor), {
+      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor, { patchAplicado: false }), {
         cwd: carpeta,
         timeoutMs: reloj.resta(),
         que: "construir",
         tarjeta,
+        modelo: modeloElegido,
       });
+    } finally {
+      // Lo que la sesión dejó corriendo (un next build colgado, un servidor) y el candado .next/lock.
+      await cerrarRestos(contexto, carpeta);
     }
     const motores = { ...(motorDelPlan(tarjeta.plan) ? { plan: motorDelPlan(tarjeta.plan) } : {}), construir: motor };
     // Qué modelo hizo cada paso (para mostrarlo en la tarjeta). Codex no tiene modelo que elijamos acá.
     const modelos = {
       ...(modeloDelPlan(tarjeta.plan) ? { plan: modeloDelPlan(tarjeta.plan) } : {}),
-      ...(motor === "claude" ? { construir: modeloDelPaso(config, "construir", tarjeta), subagentes: modeloDelPaso(config, "subagentes", tarjeta) } : {}),
+      ...(motor === "claude" ? { construir: modeloElegido ?? modeloDelPaso(config, "construir", tarjeta), subagentes: modeloDelPaso(config, "subagentes", tarjeta) } : {}),
     };
 
     // Lo que construyó Codex lo revisa otro paso (Claude por defecto; Codex si Claude está alto). Claude ya
@@ -531,7 +716,11 @@ export async function construir(contexto, tarjeta) {
       });
     }
     const cambios = await archivosCambiados(carpeta, base);
-    if (!cambios.length) throw new ErrorDeEtapa(`${nombreDelMotor(motor)} no cambió ningún archivo.`);
+    if (!cambios.length) {
+      // "NO_CAMBIE: <motivo>" es la forma de decir que no hacía falta cambiar nada: ese motivo es la causa.
+      const noCambie = String(resumenDelMotor).match(/^\s*NO_CAMBIE:\s*(.+)$/im)?.[1]?.trim();
+      throw new ErrorDeEtapa(`${nombreDelMotor(motor)} no cambió ningún archivo${noCambie ? ` (NO_CAMBIE: ${noCambie})` : ""}.`, { categoria: "no_cambio_nada", archivosCambiados: 0 });
+    }
     const archivos = cambios.map((cambio) => cambio.archivo);
 
     // Zonas protegidas (chats, agentes, libro V3, Meta Ads): ya no es ERROR. Se construye y prueba igual,
@@ -544,7 +733,7 @@ export async function construir(contexto, tarjeta) {
     const pruebas = await verificar(contexto, repo, carpeta, reloj);
     if (lintBase) {
       const nuevos = erroresNuevos(lintBase, await erroresDeLint(contexto, repo, carpeta, reloj));
-      if (nuevos.length) throw new ErrorDeEtapa(`El lint tiene ${nuevos.length} error(es) nuevo(s):\n${nuevos.slice(0, 15).join("\n")}\nNo se subió nada.`);
+      if (nuevos.length) throw new ErrorDeEtapa(`El lint tiene ${nuevos.length} error(es) nuevo(s):\n${nuevos.slice(0, 15).join("\n")}\nNo se subió nada.`, { categoria: "lint" });
       pruebas.push("✔ lint sin errores nuevos");
     }
     const migraciones = migracionesNuevas(cambios, repo.carpetaMigraciones);
@@ -560,7 +749,7 @@ export async function construir(contexto, tarjeta) {
         timeoutMs: Math.min(reloj.resta(), config.tiempos.comandoMinutos * MINUTO),
       });
     } catch (error) {
-      throw new ErrorDeEtapa(`${MOTIVO_ENSAYO}\nDetalle técnico: ${error.message}`);
+      throw new ErrorDeEtapa(`${MOTIVO_ENSAYO}\nDetalle técnico: ${error.message}`, { categoria: "migracion" });
     }
     if (migracion) pruebas.push(`✔ ensayo de la migración: ${migracion}`);
     // Riesgo: lo destructivo de las migraciones nuevas. No hace fallar nada: el CRM decide si pide el sí del dueño.
@@ -578,6 +767,8 @@ export async function construir(contexto, tarjeta) {
     const commit = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
     const web = webDeGithub(await urlDelRemoto(repo));
     registro.info(`rama ${rama} empujada (${commit.slice(0, 10)}): ${alTerminar}`);
+    // Terminó bien: el patch del trabajo a medias de un intento anterior ya no sirve.
+    borrarTrabajoGuardado(intentos);
     const textoMotores = Object.entries(motores)
       .map(([paso, cual]) => `${paso} ${cual}${modelos[paso] ? ` (${nombreDelModelo(modelos[paso])})` : ""}`)
       .join(" · ");
@@ -606,9 +797,80 @@ export async function construir(contexto, tarjeta) {
       migracionDestructiva: destructivo,
       ...(zonas.length ? { zonaProtegida: zonas } : {}),
     };
+  } catch (error) {
+    // Lo ya hecho se guarda para el siguiente intento (un patch) y se anota cuántos archivos llevaba.
+    if (baseSha && error instanceof Error) await guardarTrabajo(contexto, tarjeta, carpeta, baseSha, intentos, error);
+    throw error;
   } finally {
+    fs.rmSync(path.join(carpeta, ".next", "lock"), { force: true });
     await quitarWorktree(repo, carpeta, rama);
   }
+}
+
+/* ── El trabajo a medias entre intentos: <carpetaTrabajo>/intentos/<idCorto>/trabajo.patch ── */
+
+const firmaDelPlanAprobado = (tarjeta) => crypto.createHash("sha1").update(String(tarjeta.plan ?? "")).digest("hex").slice(0, 16);
+
+function borrarTrabajoGuardado(carpetaIntentos) {
+  for (const nombre of ["trabajo.patch", "trabajo.json"]) fs.rmSync(path.join(carpetaIntentos, nombre), { force: true });
+}
+
+/**
+ * Al fallar construir: guarda lo que se alcanzó a cambiar como un patch contra main (con el commit, si el
+ * Coordinador ya lo hizo, y los archivos nuevos) y anota en el error cuántos archivos eran. Nunca lanza.
+ */
+async function guardarTrabajo(contexto, tarjeta, carpeta, baseSha, carpetaIntentos, error) {
+  try {
+    if (!fs.existsSync(carpeta)) return;
+    await git(carpeta, ["add", "-A"], { permitirFallo: true });
+    const nombres = (await git(carpeta, ["diff", "--cached", "--name-only", baseSha], { permitirFallo: true })).salida.split(/\r?\n/).filter(Boolean);
+    if (error.archivosCambiados === null || error.archivosCambiados === undefined) error.archivosCambiados = nombres.length;
+    if (!nombres.length) {
+      borrarTrabajoGuardado(carpetaIntentos);
+      return;
+    }
+    const patch = await git(carpeta, ["diff", "--cached", "--binary", baseSha], { permitirFallo: true });
+    if (patch.codigo !== 0 || !patch.salida.trim()) return;
+    fs.mkdirSync(carpetaIntentos, { recursive: true });
+    fs.writeFileSync(path.join(carpetaIntentos, "trabajo.patch"), patch.salida.endsWith("\n") ? patch.salida : `${patch.salida}\n`);
+    fs.writeFileSync(path.join(carpetaIntentos, "trabajo.json"), JSON.stringify({ plan: firmaDelPlanAprobado(tarjeta), archivos: nombres.length, guardado: new Date().toISOString() }));
+    contexto.registro?.info?.(`guardé el trabajo a medias (${nombres.length} archivo(s)) en ${path.join(carpetaIntentos, "trabajo.patch")}`);
+  } catch (otro) {
+    contexto.registro?.aviso?.(`no se pudo guardar el trabajo a medias: ${otro.message}`);
+  }
+}
+
+/** Reaplica el patch del intento anterior sobre la base limpia si encaja (git apply --check). true = quedó aplicado. */
+async function reaplicarTrabajo(contexto, tarjeta, carpeta, carpetaIntentos) {
+  const archivoPatch = path.join(carpetaIntentos, "trabajo.patch");
+  if (!fs.existsSync(archivoPatch)) return false;
+  const { registro } = contexto;
+  try {
+    const meta = JSON.parse(fs.readFileSync(path.join(carpetaIntentos, "trabajo.json"), "utf8"));
+    if (meta.plan !== firmaDelPlanAprobado(tarjeta)) {
+      registro?.info?.("el trabajo guardado es de otro plan: empiezo limpio");
+      borrarTrabajoGuardado(carpetaIntentos);
+      return false;
+    }
+  } catch {
+    borrarTrabajoGuardado(carpetaIntentos);
+    return false;
+  }
+  const comprobacion = await git(carpeta, ["apply", "--check", archivoPatch], { permitirFallo: true });
+  if (comprobacion.codigo !== 0) {
+    registro?.aviso?.("el trabajo del intento anterior no encaja sobre main: empiezo limpio (con la causa escrita en el prompt)");
+    borrarTrabajoGuardado(carpetaIntentos);
+    return false;
+  }
+  const aplicado = await git(carpeta, ["apply", "--whitespace=nowarn", archivoPatch], { permitirFallo: true });
+  if (aplicado.codigo !== 0) {
+    await git(carpeta, ["checkout", "--", "."], { permitirFallo: true });
+    await git(carpeta, ["clean", "-fd"], { permitirFallo: true });
+    borrarTrabajoGuardado(carpetaIntentos);
+    return false;
+  }
+  registro?.info?.("reapliqué el trabajo del intento anterior sobre main");
+  return true;
 }
 
 const dormir = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
@@ -721,6 +983,7 @@ export async function subir(contexto, tarjeta) {
       await git(carpeta, ["rebase", "--abort"], { permitirFallo: true });
       throw new ErrorDeEtapa(
         `Choca con lo nuevo de ${repo.ramaBase}: alguien cambió los mismos archivos mientras se construía (conflicto en el rebase de ${rama}). No se subió nada; hay que reintentar (construir de nuevo).`,
+        { categoria: "choca_con_main" },
       );
     }
     let pruebas;
@@ -743,7 +1006,7 @@ export async function subir(contexto, tarjeta) {
         });
         if (migracion) pruebas.push(`✔ ensayo de la migración: ${migracion}`);
       } catch (error) {
-        throw new ErrorDeEtapa(`${MOTIVO_ENSAYO}\nDetalle técnico: ${error.message}`);
+        throw new ErrorDeEtapa(`${MOTIVO_ENSAYO}\nDetalle técnico: ${error.message}`, { categoria: "migracion" });
       }
     }
 
@@ -752,7 +1015,7 @@ export async function subir(contexto, tarjeta) {
     try {
       await pushARamaBase(carpeta, repo.remoto, repo.ramaBase);
     } catch (error) {
-      throw new ErrorDeEtapa(`No se pudo subir a ${repo.ramaBase} (¿cambió mientras tanto?). No se subió nada.\nDetalle técnico: ${error.message}`);
+      throw new ErrorDeEtapa(`No se pudo subir a ${repo.ramaBase} (¿cambió mientras tanto?). No se subió nada.\nDetalle técnico: ${error.message}`, { categoria: "choca_con_main" });
     }
     registro.info(`subido a ${repo.ramaBase}: ${commit.slice(0, 10)} (${tarjeta.titulo})`);
     let version;
@@ -770,6 +1033,52 @@ export async function subir(contexto, tarjeta) {
   } finally {
     await quitarWorktree(repo, carpeta, ramaLocal);
   }
+}
+
+/**
+ * PARTIR (24-oct-2026): una sesión de SOLO LECTURA (worktree desde origin/main, modo plan / sandbox read-only)
+ * divide la tarea en 2 a 4 partes pequeñas, en orden. Devuelve [{ titulo, detalle }]; el bucle llama /partir.
+ */
+export async function partirTarea(contexto, tarjeta, { causa = "", error = "" } = {}) {
+  const repo = configDelRepo(contexto, tarjeta);
+  const reloj = relojDeEtapa(Math.min(contexto.config.tiempos.planMinutos, 15), "dividir la tarea");
+  const carpeta = carpetaDe(contexto, tarjeta, "partir");
+  await git(repo.ruta, ["fetch", repo.remoto]);
+  try {
+    await crearWorktree(repo, carpeta, `${repo.remoto}/${repo.ramaBase}`, null);
+    const motor = motorDelPaso(contexto, "planear");
+    const modelo = motor === "claude" ? modeloDelPaso(contexto.config, "planear", { ...tarjeta, intentos: 2 }) : null;
+    const texto = await correrMotor(contexto, motor, "planear", promptDePartir(tarjeta, repo, { causa, error, motor }), {
+      cwd: carpeta,
+      timeoutMs: reloj.resta(),
+      que: "dividir la tarea",
+      tarjeta,
+      modelo,
+    });
+    return partesDeLaRespuesta(texto);
+  } finally {
+    await quitarWorktree(repo, carpeta);
+  }
+}
+
+/**
+ * DIAGNÓSTICO de una causa desconocida (categoría "otra"): una sesión corta de Claude, SOLO LECTURA (herramientas
+ * Read y Grep, sin editar ni correr nada), lee el log del intento y escribe la causa en UNA línea.
+ * Devuelve el texto de la causa, o "" si no contestó nada útil. Puede lanzar (el bucle lo ignora).
+ */
+export async function diagnosticarConClaude(contexto, { rutaLog, error }) {
+  const { config } = contexto;
+  const cwd = path.dirname(rutaLog);
+  const prompt = [
+    "Eres el DIAGNOSTICADOR del Coordinador del Tablero IA de Magilus. Una etapa falló y no se reconoció la causa por reglas. SOLO LEES: no cambies nada ni corras comandos.",
+    `El log completo del intento está en el archivo ${path.basename(rutaLog)} (en tu carpeta de trabajo: léelo con Read; busca con Grep). Lo último del error:`,
+    recortar(String(error ?? ""), 2500),
+    "Escribe la causa de la falla en UNA sola línea, en español sencillo, de máximo 200 caracteres: qué pasó de verdad (no repitas el comando). Contesta SOLO con esa línea.",
+  ].join("\n\n");
+  const modelo = modeloDelPaso(config, "leer");
+  const argumentos = ["-p", "--model", modelo, "--permission-mode", "plan", "--output-format", "text", "--allowedTools", "Read", "Grep", "--disallowedTools", "Edit", "Write", "Bash", "WebFetch"];
+  const texto = await claude(contexto, argumentos, prompt, { cwd, timeoutMs: (config.reparar?.diagnosticoMinutos ?? 3) * MINUTO, que: "diagnosticar" });
+  return enUnaLinea(texto.split(/\r?\n/).find((linea) => linea.trim()) ?? "").replace(/^["'`]+|["'`]+$/g, "");
 }
 
 /** Revert del commit en main después de un despliegue fallido. Devuelve el ErrorDeEtapa para la tarjeta. */

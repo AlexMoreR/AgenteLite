@@ -181,7 +181,12 @@ export function vencimientoDelCandado(etapa: EtapaDelTrabajador, iniciadoEn: Dat
   return new Date(Math.min(ahora.getTime() + MINUTOS_DE_GRACIA_DEL_LATIDO * MINUTO, tope));
 }
 
-export const MOTIVO_VENCIDA = "Se pasó del tiempo: el Coordinador dejó de dar señales (sin latido) o la etapa superó su tope.";
+// Tres líneas (qué falló, qué se probó, qué necesita del dueño), igual que el resumen de una escalada.
+export const MOTIVO_VENCIDA = [
+  "Se pasó del tiempo: el Coordinador dejó de dar señales (sin latido) o la etapa superó su tope.",
+  "Se volvió a intentar sola y no avanzó.",
+  "Necesita que la veas: pulsa Reintentar o, si es muy grande, pide partirla.",
+].join("\n");
 
 /* ───────────────────────────────────────────────────────────────────── transiciones del Coordinador ── */
 
@@ -205,8 +210,17 @@ export function opcionesDeTomar(pedido: PedidoDeTomar) {
 }
 
 
-export type AccionDelTrabajador = "latido" | "plan" | "resultado" | "subida" | "error" | "soltar";
-export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = ["latido", "plan", "resultado", "subida", "error", "soltar"];
+export type AccionDelTrabajador = "latido" | "plan" | "resultado" | "subida" | "error" | "soltar" | "reparar" | "partir";
+export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
+  "latido",
+  "plan",
+  "resultado",
+  "subida",
+  "error",
+  "soltar",
+  "reparar",
+  "partir",
+];
 
 /**
  * Desde qué estados puede llamar el Coordinador cada acción, y a cuál pasa (null = no cambia). El
@@ -226,6 +240,13 @@ export const TRANSICIONES_DEL_TRABAJADOR: Record<
   // de subida). PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente (a =
   // null: depende de dónde estaba). Una SUBIENDO se suelta solo antes de empezar, nunca después del push.
   soltar: { desde: ["PLANEANDO", "EN_CURSO", "SUBIENDO"], a: null },
+  // Reparar (24-oct-2026): algo falló y el Coordinador sabe la causa: la tarjeta vuelve a la fila SIN ERROR
+  // (PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> PLAN_APROBADO: una subida que falló antes
+  // del push se arregla reconstruyendo) y cuenta una reparación (tope TOPE_DE_REPARACIONES). a = null: depende de dónde estaba.
+  reparar: { desde: ["PLANEANDO", "EN_CURSO", "SUBIENDO"], a: null },
+  // Partir: una tarjeta muy grande se divide en 2 a 4 partes en orden. Solo desde EN_CURSO (ya hay plan).
+  // La madre se queda EN_CURSO sin candado (nadie la toma) hasta que todas sus hijas estén HECHO.
+  partir: { desde: ["EN_CURSO"], a: null },
 };
 
 /** ¿Puede el Coordinador hacer `accion` con una tarjeta en `estado`? */
@@ -750,4 +771,219 @@ export function reversionDeEntrada(valor: unknown): ReversionDelTrabajador | nul
 export function motivoDeEntrada(valor: unknown): string {
   const motivo = typeof valor === "string" ? valor.trim().slice(0, 4000) : "";
   return motivo || "El Coordinador no dijo el motivo.";
+}
+
+/* ───────────────────────────────────────────────────────────────────── reparar, partir y esperar ── */
+
+/*
+  Cuando algo falla (24-oct-2026), el Coordinador diagnostica (categoría y causa en una línea), repara (no
+  repite lo mismo), parte la tarjeta si es muy grande, espera si es el límite de Claude, y escala al dueño
+  con un resumen de máximo 3 líneas después de TOPE_DE_REPARACIONES reparaciones. Cada paso deja una fila en
+  IntentoTarjeta (el historial que se ve en la tarjeta). Las categorías y acciones son las mismas en el
+  Coordinador (trabajador-tablero/lib/diagnostico.mjs).
+*/
+
+/** Cuántas reparaciones seguidas se le permiten a una tarjeta; la siguiente falla se escala al dueño. */
+export const TOPE_DE_REPARACIONES = 3;
+/** Cuántas esperas seguidas (sin contar como intento) aguanta antes de escalar. */
+export const TOPE_DE_ESPERAS_SEGUIDAS = 5;
+/** En cuántas partes se puede partir una tarjeta (de 2 a 4). */
+export const MAXIMO_DE_PARTES = 4;
+export const MINIMO_DE_PARTES = 2;
+
+export const CATEGORIAS_DE_INTENTO = [
+  "limite_claude",
+  "pc_sobrecargado",
+  "tiempo_agotado",
+  "no_compila",
+  "fallan_pruebas",
+  "lint",
+  "choca_con_main",
+  "migracion",
+  "no_cambio_nada",
+  "carpeta_trabada",
+  "tarea_muy_grande",
+  "coordinador_cortado",
+  "sesion_atascada",
+  "otra",
+] as const;
+export type CategoriaDeIntento = (typeof CATEGORIAS_DE_INTENTO)[number];
+
+export const ACCIONES_DE_INTENTO = ["reparar", "partir", "esperar", "escalar"] as const;
+export type AccionDeIntento = (typeof ACCIONES_DE_INTENTO)[number];
+
+/** Cómo se dice en la pantalla lo que se hizo en cada intento. */
+export const NOMBRE_DE_LA_ACCION_DE_INTENTO: Record<AccionDeIntento, string> = {
+  reparar: "Reparó",
+  partir: "La partió",
+  esperar: "Esperó",
+  escalar: "Te la pasó",
+};
+
+export const MAXIMO_CAUSA_DEL_INTENTO = 200;
+export const MAXIMO_ERROR_DEL_INTENTO = 6000;
+export const MAXIMO_LINEAS_DEL_RESUMEN = 3;
+const MAXIMO_LINEA_DEL_RESUMEN = 300;
+const MAXIMO_TITULO_DE_LA_PARTE = 120;
+const MAXIMO_DETALLE_DE_LA_PARTE = 4000;
+const MAXIMO_TITULO_DE_LA_TARJETA = 200;
+
+export function esCategoria(valor: unknown): valor is CategoriaDeIntento {
+  return typeof valor === "string" && (CATEGORIAS_DE_INTENTO as readonly string[]).includes(valor);
+}
+
+/** La categoría que manda el Coordinador: null si no vino, "otra" si no es una de la lista. */
+export function categoriaDeEntrada(valor: unknown): CategoriaDeIntento | null {
+  if (typeof valor !== "string" || !valor.trim()) return null;
+  const limpia = valor.trim().toLowerCase();
+  return esCategoria(limpia) ? limpia : "otra";
+}
+
+/** La causa en UNA línea (la primera con texto, espacios simples, máximo 200 letras). */
+export function causaDeEntrada(valor: unknown, porDefecto = "El Coordinador no dijo la causa."): string {
+  const lineas = typeof valor === "string" ? valor.split(/\r?\n/) : [];
+  const primera = lineas.map((linea) => linea.replace(/\s+/g, " ").trim()).find(Boolean) ?? "";
+  return primera.slice(0, MAXIMO_CAUSA_DEL_INTENTO) || porDefecto;
+}
+
+/** El error técnico de un intento, recortado a 6000 letras; null si no vino. */
+export function errorDeIntentoDeEntrada(valor: unknown): string | null {
+  const texto = typeof valor === "string" ? valor.trim().slice(0, MAXIMO_ERROR_DEL_INTENTO) : "";
+  return texto || null;
+}
+
+/** El resumen que escribe el Coordinador al escalar: máximo 3 líneas con texto (cada una hasta 300 letras). */
+export function resumenDeEscalada(valor: unknown): string {
+  const lineas = (typeof valor === "string" ? valor.split(/\r?\n/) : [])
+    .map((linea) => linea.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, MAXIMO_LINEAS_DEL_RESUMEN)
+    .map((linea) => linea.slice(0, MAXIMO_LINEA_DEL_RESUMEN));
+  return lineas.join("\n") || "El Coordinador no dijo el motivo.";
+}
+
+/** La estrategia que sugiere el Coordinador al reparar: solo se anota ("opus" | "partir"); null si no vino o no es una. */
+export function estrategiaDeEntrada(valor: unknown): "opus" | "partir" | null {
+  const limpia = typeof valor === "string" ? valor.trim().toLowerCase() : "";
+  return limpia === "opus" || limpia === "partir" ? limpia : null;
+}
+
+/** La causa con la estrategia anotada al final, sin pasar de 200 letras. */
+export function causaConEstrategia(causa: string, estrategia: "opus" | "partir" | null): string {
+  if (!estrategia) return causa;
+  const cola = ` (estrategia: ${estrategia})`;
+  return `${causa.slice(0, MAXIMO_CAUSA_DEL_INTENTO - cola.length)}${cola}`;
+}
+
+/** La etapa del intento: la que dice el Coordinador si es válida; si no, la que corresponde al estado de la tarjeta. */
+export function etapaDeEntrada(valor: unknown, estado: EstadoTarjetaTablero): EtapaDelTrabajador {
+  const limpia = typeof valor === "string" ? valor.trim().toLowerCase() : "";
+  if (limpia === "planear" || limpia === "construir" || limpia === "subir") return limpia;
+  return ETAPA_DEL_ESTADO[estado] ?? "construir";
+}
+
+/** A qué estado de la fila vuelve una tarjeta que se repara (sin ERROR). */
+export function estadoTrasReparar(estado: EstadoTarjetaTablero): EstadoTarjetaTablero {
+  return estado === "PLANEANDO" ? "APROBADO" : "PLAN_APROBADO";
+}
+
+/** ¿Se puede reparar una vez más? Con TOPE_DE_REPARACIONES hechas, no: el Coordinador tiene que escalar (/error). */
+export function puedeReparar(reparaciones: number): Veredicto {
+  return reparaciones >= TOPE_DE_REPARACIONES
+    ? `Ya lleva ${reparaciones} reparaciones (el tope es ${TOPE_DE_REPARACIONES}): escala con /error y un resumen para el dueño.`
+    : null;
+}
+
+/** Las esperas seguidas: las filas que no cuentan como intento después de la última que sí cuenta (lista del más viejo al más nuevo). */
+export function esperasSeguidas(intentos: readonly { cuentaComoIntento: boolean }[]): number {
+  let esperas = 0;
+  for (let i = intentos.length - 1; i >= 0 && !intentos[i].cuentaComoIntento; i -= 1) esperas += 1;
+  return esperas;
+}
+
+export type ParteDeLaTarjeta = { titulo: string; detalle: string };
+
+/** Las partes que manda el Coordinador en /partir: de 2 a 4, cada una con título y detalle. Lanza si no cumplen. */
+export function partesDeEntrada(valor: unknown): ParteDeLaTarjeta[] {
+  if (!Array.isArray(valor)) throw new Error(`Faltan las partes: manda de ${MINIMO_DE_PARTES} a ${MAXIMO_DE_PARTES}.`);
+  if (valor.length < MINIMO_DE_PARTES || valor.length > MAXIMO_DE_PARTES) {
+    throw new Error(`Se parte en ${MINIMO_DE_PARTES} a ${MAXIMO_DE_PARTES} partes (llegaron ${valor.length}).`);
+  }
+  return valor.map((cruda, indice) => {
+    const parte = (cruda && typeof cruda === "object" ? cruda : {}) as Record<string, unknown>;
+    const titulo = textoCorto(parte.titulo, MAXIMO_TITULO_DE_LA_PARTE).replace(/\s+/g, " ");
+    const detalle = textoCorto(parte.detalle, MAXIMO_DETALLE_DE_LA_PARTE);
+    if (!titulo) throw new Error(`A la parte ${indice + 1} le falta el título.`);
+    if (!detalle) throw new Error(`A la parte ${indice + 1} le falta el detalle.`);
+    return { titulo, detalle };
+  });
+}
+
+/** "<título de la madre> — parte N: <título>", sin pasar de 200 letras (se recorta el de la madre). */
+export function tituloDeLaParte(tituloMadre: string, numero: number, titulo: string): string {
+  const cola = ` — parte ${numero}: ${titulo}`;
+  if (cola.length >= MAXIMO_TITULO_DE_LA_TARJETA) return `Parte ${numero}: ${titulo}`.slice(0, MAXIMO_TITULO_DE_LA_TARJETA);
+  return `${tituloMadre.slice(0, MAXIMO_TITULO_DE_LA_TARJETA - cola.length)}${cola}`;
+}
+
+/** El detalle de una parte: empieza con "Parte N de M de «<título de la madre>»." y sigue lo que toca hacer. */
+export function detalleDeLaParte(tituloMadre: string, numero: number, total: number, detalle: string): string {
+  return `Parte ${numero} de ${total} de «${tituloMadre}».\n\n${detalle}`;
+}
+
+export type PartidaDelResultado = { hijas: string[]; causa: string; cuando: string };
+
+/** `resultado.partida` de una madre partida (o null si no está partida). */
+export function partidaDelResultado(resultado: unknown): PartidaDelResultado | null {
+  if (!resultado || typeof resultado !== "object" || Array.isArray(resultado)) return null;
+  const partida = (resultado as Record<string, unknown>).partida;
+  if (!partida || typeof partida !== "object" || Array.isArray(partida)) return null;
+  const datos = partida as Record<string, unknown>;
+  const hijas = Array.isArray(datos.hijas) ? datos.hijas.filter((id): id is string => typeof id === "string") : [];
+  if (!hijas.length) return null;
+  return {
+    hijas,
+    causa: typeof datos.causa === "string" ? datos.causa : "",
+    cuando: typeof datos.cuando === "string" ? datos.cuando : "",
+  };
+}
+
+/** ¿Se puede partir? No si ya está partida ni si es una parte (esParte). */
+export function puedePartir(datos: { yaPartida: boolean; esParte: boolean }): Veredicto {
+  if (datos.yaPartida) return "La tarjeta ya está partida.";
+  if (datos.esParte) return "Esta tarjeta ya es una parte de otra: no se parte más (repárala o escálala).";
+  return null;
+}
+
+/**
+ * ¿Poner `origenId -> destinoId` como dependencia crearía un ciclo? Sí si ya hay un camino de dependencias
+ * de destino a origen (o si son la misma tarjeta): entonces ninguna de las dos se podría tomar nunca.
+ * `dependencias` son las flechas que ya son dependencia (esDependencia = true).
+ */
+export function dependenciaHaceCiclo(
+  dependencias: readonly { origenId: string; destinoId: string }[],
+  origenId: string,
+  destinoId: string,
+): boolean {
+  if (origenId === destinoId) return true;
+  const visto = new Set<string>([destinoId]);
+  const pendientes = [destinoId];
+  while (pendientes.length) {
+    const actual = pendientes.pop() as string;
+    for (const flecha of dependencias) {
+      if (flecha.origenId !== actual || visto.has(flecha.destinoId)) continue;
+      if (flecha.destinoId === origenId) return true;
+      visto.add(flecha.destinoId);
+      pendientes.push(flecha.destinoId);
+    }
+  }
+  return false;
+}
+
+/**
+ * La madre pasa a HECHO cuando todas sus hijas están HECHO. `hijasVivas` = las hijas de la partida que no
+ * están borradas, con su estado. Sin hijas vivas no se cierra sola.
+ */
+export function madreSeCierra(hijasVivas: readonly { estado: string }[]): boolean {
+  return hijasVivas.length > 0 && hijasVivas.every((hija) => hija.estado === "HECHO");
 }

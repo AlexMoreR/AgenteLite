@@ -7,11 +7,16 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { historialDeTarjetaAction, type CambioDeTarjetaVista } from "@/app/actions/tableros-inteligentes-actions";
+import {
+  historialDeTarjetaAction,
+  marcarDependenciaAction,
+  type CambioDeTarjetaVista,
+} from "@/app/actions/tableros-inteligentes-actions";
 import { NOMBRE_DEL_ESTADO, esEstado, textoDelLink } from "../services/reglas";
-import type { TarjetaVista, TipoVista } from "../services/tableros";
+import type { ConexionVista, TarjetaVista, TipoVista } from "../services/tableros";
 import { COLOR_DEL_ESTADO } from "./colores";
 import { IconoDeTipo } from "./IconoDeTipo";
+import { IntentosDeLaTarjeta } from "./IntentosDeLaTarjeta";
 import { DetallesTecnicos, TrabajoDeLaTarjeta } from "./TrabajoDeLaTarjeta";
 
 const CUANDO = new Intl.DateTimeFormat("es-CO", {
@@ -93,6 +98,8 @@ type Props = {
   hijas: number;
   entrantes: string[];
   salientes: string[];
+  /** Las flechas que llegan a esta tarjeta (para marcar "esto depende de aquella"). */
+  flechasEntrantes: ConexionVista[];
   abierta: boolean;
   lado: "bottom" | "right";
   puedeAprobar: boolean;
@@ -116,6 +123,7 @@ export function FichaTarjeta({
   hijas,
   entrantes,
   salientes,
+  flechasEntrantes,
   abierta,
   lado,
   puedeAprobar,
@@ -147,6 +155,13 @@ export function FichaTarjeta({
     } else {
       toast.error(resultado.error);
     }
+  };
+
+  const alternarDependencia = async (flecha: ConexionVista) => {
+    const resultado = await marcarDependenciaAction(flecha.id, !flecha.esDependencia);
+    if (resultado.ok) toast.success(flecha.esDependencia ? "Ya no depende de aquella" : "Ahora espera a que aquella esté hecha");
+    else toast.error(resultado.error);
+    alAprobar();
   };
 
   const color = tarjeta ? COLOR_DEL_ESTADO[tarjeta.estado] : null;
@@ -217,6 +232,8 @@ export function FichaTarjeta({
                 }}
               />
 
+              {pideAprobacion ? <IntentosDeLaTarjeta tarjetaId={tarjeta.id} version={tarjeta.actualizadoEn} /> : null}
+
               {madre || hijas > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {madre ? (
@@ -248,17 +265,32 @@ export function FichaTarjeta({
                       <span className="line-clamp-2">{titulo.get(id) ?? "Tarjeta"}</span>
                     </button>
                   ))}
-                  {entrantes.map((id) => (
-                    <button
-                      key={`e-${id}`}
-                      type="button"
-                      onClick={() => alElegir(id)}
-                      className="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm hover:bg-muted"
-                    >
-                      <ArrowDownLeft className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="line-clamp-2">{titulo.get(id) ?? "Tarjeta"}</span>
-                    </button>
-                  ))}
+                  {entrantes.map((id) => {
+                    const flecha = flechasEntrantes.find((f) => f.origenId === id);
+                    return (
+                      <div key={`e-${id}`} className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => alElegir(id)}
+                          className="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm hover:bg-muted"
+                        >
+                          <ArrowDownLeft className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="line-clamp-2">{titulo.get(id) ?? "Tarjeta"}</span>
+                        </button>
+                        {flecha && (puedeAprobar || flecha.esDependencia) ? (
+                          <Button
+                            variant={flecha.esDependencia ? "secondary" : "ghost"}
+                            size="sm"
+                            className="w-full"
+                            disabled={!puedeAprobar}
+                            onClick={() => void alternarDependencia(flecha)}
+                          >
+                            {flecha.esDependencia ? "Depende de aquella: espera a que esté hecha (quitar)" : "Esto depende de aquella"}
+                          </Button>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : null}
 

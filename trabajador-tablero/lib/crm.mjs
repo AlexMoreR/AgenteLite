@@ -8,6 +8,14 @@
 // (palabras de SQL destructivo, [] si nada) para la última revisión de riesgo. La tarjeta que llega de
 // /tomar puede traer `riesgo` y `riesgoMotivo`.
 
+/** Un objeto sin los campos vacíos (undefined / null): así un CRM viejo no recibe nada que no conoce. */
+const limpio = (datos) => Object.fromEntries(Object.entries(datos ?? {}).filter(([, valor]) => valor !== undefined && valor !== null));
+
+// Reparar solo (24-oct-2026): `reparar`, `partir` y `arranque` son acciones nuevas; `soltar` y `error` aceptan
+// campos nuevos (categoria, causa, error, etapa). /tomar trae reparaciones, topeReparaciones, esperasSeguidas,
+// esParte, ultimosIntentos y ultimoError. Un CRM que no manda topeReparaciones es uno viejo: el bucle sigue
+// como antes (a la primera falla, /error).
+
 export class ErrorDelCrm extends Error {
   constructor(message, status) {
     super(message);
@@ -44,18 +52,30 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     /** { maxParalelo, excluir }: cuántas puede tener a la vez y cuáles no quiere ahora (chocan). */
     tomar: (opciones) => pedir("/api/trabajador/tablero/tomar", opciones),
     candidatas: () => pedir("/api/trabajador/tablero/candidatas"),
-    soltar: (id, motivo) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/soltar`, { motivo }),
+    /** Devuelve la tarjeta a la fila sin ERROR. `extra` { categoria, causa, error, etapa }: el CRM guarda un intento "esperar" que no cuenta. */
+    soltar: (id, motivo, extra) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/soltar`, { motivo, ...limpio(extra) }),
+    /** La falla se repara: vuelve a la fila (PLAN_APROBADO o APROBADO), reparaciones + 1. 409 si ya hizo las 3. { etapa, categoria, causa, error, estrategia? } */
+    reparar: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/reparar`, limpio(datos)),
+    /** La tarea era muy grande: crea las partes (2 a 4) que salieron de la sesión de partir. { causa, error, partes: [{ titulo, detalle }] } */
+    partir: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/partir`, limpio(datos)),
+    /** Al arrancar el Coordinador: el CRM suelta todo lo que el proceso anterior dejó con candado (PLANEANDO / EN_CURSO). -> { sueltas } */
+    arranque: () => pedir("/api/trabajador/tablero/arranque"),
     latido: (id) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/latido`),
     plan: (id, plan) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/plan`, { plan }),
     resultado: (id, resultado) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/resultado`, resultado),
     subida: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/subida`, datos),
     /** WhatsApp al dueño desde la línea Admin (POST /api/trabajador/aviso): el aviso del uso de Claude. */
     aviso: (texto) => pedir("/api/trabajador/aviso", { texto }),
-    error: (id, motivo, zonaProtegida, reversion) =>
+    /**
+     * Escala: la tarjeta queda en ERROR. `motivo` es el resumen de máximo 3 líneas para el dueño; `extra`
+     * { categoria, causa, resumen, error, etapa } deja el intento "escalar" con sus detalles técnicos.
+     */
+    error: (id, motivo, zonaProtegida, reversion, extra) =>
       pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/error`, {
         motivo,
         ...(zonaProtegida?.length ? { zonaProtegida } : {}),
         ...(reversion ? { reversion } : {}),
+        ...limpio(extra),
       }),
   };
 }

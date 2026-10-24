@@ -20,7 +20,13 @@ for await (const pedazo of process.stdin) prompt += pedazo;
 const titulo = (prompt.match(/^Tarea: (.*)$/m) ?? [])[1] ?? "";
 const modo = argumentos[argumentos.indexOf("--permission-mode") + 1];
 if (process.env.CLAUDE_FALSO_LOG) {
-  fs.appendFileSync(process.env.CLAUDE_FALSO_LOG, `${JSON.stringify({ argumentos, cwd: process.cwd(), titulo, modo })}\n`);
+  fs.appendFileSync(process.env.CLAUDE_FALSO_LOG, `${JSON.stringify({ argumentos, cwd: process.cwd(), titulo, modo, prompt: prompt.slice(0, 8000) })}\n`);
+}
+
+// Dividir una tarea (promptDePartir): contesta un JSON con 2 partes.
+if (prompt.includes("DIVIDIR en partes pequeñas")) {
+  console.log(JSON.stringify({ partes: [{ titulo: "Primera mitad", detalle: "Hacer la primera mitad (archivos a, b)." }, { titulo: "Segunda mitad", detalle: "Hacer la segunda mitad (archivos c, d)." }] }));
+  process.exit(0);
 }
 const dormir = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
 
@@ -56,7 +62,20 @@ const escribir = (archivo, texto) => {
   fs.mkdirSync(path.dirname(archivo), { recursive: true });
   fs.writeFileSync(archivo, texto);
 };
-if (titulo.includes("[zona]")) escribir("src/bot/respuesta.ts", "export const saludo = 'hola';\n");
+if (titulo.includes("[atascado]")) {
+  // Lanza "tareas en segundo plano" y se queda esperando sin tocar nada (el atasco del 24-oct-2026).
+  console.error("Revisaré de nuevo en unos 30 minutos");
+  await dormir(120_000);
+} else if (titulo.includes("[muchos-archivos]")) {
+  // Cambia muchos archivos y no termina nunca (para probar que una tarea grande se parte).
+  for (let i = 1; i <= 9; i += 1) escribir(`src/grande/parte-${i}.ts`, `// ${i}\n`);
+  await dormir(120_000);
+} else if (titulo.includes("[tsc-una-vez]")) {
+  // Rompe tsc la primera vez; en la reparación (el prompt trae "REPARACIÓN") lo arregla.
+  if (prompt.includes("REPARACIÓN")) fs.rmSync("ROMPER_TSC", { force: true });
+  else escribir("ROMPER_TSC", "sí\n");
+  escribir(`cambio-${Date.now()}.txt`, `${titulo}\n`);
+} else if (titulo.includes("[zona]")) escribir("src/bot/respuesta.ts", "export const saludo = 'hola';\n");
 else if (titulo.includes("[tsc]")) escribir("ROMPER_TSC", "sí\n");
 else if (titulo.includes("[lint]")) escribir("nuevo.txt", "ERROR_LINT\n");
 else if (titulo.includes("[migracion]")) {

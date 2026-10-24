@@ -23,9 +23,8 @@ export const HERRAMIENTAS_PERMITIDAS = [
   "Bash(git diff:*)",
   "Bash(git log:*)",
   "Bash(git show:*)",
-  // Subagentes (22-oct-2026): para investigar el código, escribir pruebas y revisar el cambio.
-  "Agent",
-  "Task",
+  // Sin "Agent" ni "Task" (24-oct-2026): construir no lanza subagentes ni tareas en segundo plano, porque una
+  // sesión se quedó esperándolos durante horas. Planear sí puede (no usa esta lista).
 ];
 
 /** Lo que Claude NUNCA puede usar, aunque se cuele en la lista de arriba. */
@@ -40,7 +39,14 @@ export const HERRAMIENTAS_PROHIBIDAS = [
   "Bash(npm run db:*)",
   "Bash(ssh:*)",
   "Bash(curl:*)",
+  // El build lo hace el Coordinador (dos builds en la misma carpeta se traban en .next/lock): la sesión no lo corre.
+  "Bash(npm run build:*)",
+  "Bash(npx next:*)",
+  "Bash(next:*)",
   "WebFetch",
+  // Subagentes y tareas en segundo plano: una sesión de construir las lanzó y se quedó esperándolas.
+  "Agent",
+  "Task",
 ];
 
 const TIEMPOS_POR_DEFECTO = {
@@ -74,7 +80,19 @@ const MOTORES_POR_DEFECTO = { planear: "claude", construir: "claude", revisar: "
 const MAXIMO_EN_PARALELO = 5;
 
 /** Si la CPU (promedio del último minuto) o la memoria pasan de esto, no se abre otra sesión. */
-const LIMITES_POR_DEFECTO = { cpuPorciento: 85, memoriaPorciento: 85 };
+// esperaMaximaMinutos (24-oct-2026): con 0 sesiones y el PC por encima de los límites, el Coordinador espera
+// hasta esto antes de tomar una tarjeta (y después la toma igual); la espera dentro de una etapa tampoco se
+// come el reloj de la etapa. 0 = no espera.
+const LIMITES_POR_DEFECTO = { cpuPorciento: 85, memoriaPorciento: 85, esperaMaximaMinutos: 10 };
+
+/** Cuándo se parte una tarea en partes más chicas (24-oct-2026): con tantos archivos cambiados a medias, o por contexto, o si se pasa dos veces del tiempo. */
+const PARTIR_POR_DEFECTO = { archivosMinimos: 8 };
+
+/** Reparar solo (24-oct-2026). diagnosticoConClaude: si no se reconoce la causa, una sesión corta de Claude (solo lectura) lee el log. */
+const REPARAR_POR_DEFECTO = { diagnosticoConClaude: true, diagnosticoMinutos: 3 };
+
+/** Sesión atascada (24-oct-2026): sin tocar archivos ni usar el procesador por `minutos`, se corta. 0 = apagado. */
+const ATASCO_POR_DEFECTO = { minutos: 15, revisarCadaSegundos: 60, cpuMinimaSegundos: 0.3 };
 
 export function leerConfig(ruta) {
   if (!fs.existsSync(ruta)) {
@@ -170,6 +188,23 @@ export function completarConfig(datos, base = process.cwd()) {
     }
   }
 
+  limites.esperaMaximaMinutos = Number(limites.esperaMaximaMinutos);
+  if (!Number.isFinite(limites.esperaMaximaMinutos) || limites.esperaMaximaMinutos < 0 || limites.esperaMaximaMinutos > 240) {
+    errores.push("limites.esperaMaximaMinutos: minutos de 0 a 240 (0 = no espera al PC).");
+  }
+  const partir = { ...PARTIR_POR_DEFECTO, ...(datos.partir ?? {}) };
+  partir.archivosMinimos = Number(partir.archivosMinimos);
+  if (!Number.isFinite(partir.archivosMinimos) || partir.archivosMinimos < 1) errores.push("partir.archivosMinimos: cuántos archivos cambiados a medias hacen partir la tarea (1 o más).");
+  const atasco = { ...ATASCO_POR_DEFECTO, ...(datos.atasco ?? {}) };
+  for (const campo of ["minutos", "revisarCadaSegundos", "cpuMinimaSegundos"]) {
+    atasco[campo] = Number(atasco[campo]);
+    if (!Number.isFinite(atasco[campo]) || atasco[campo] < 0) errores.push(`atasco.${campo}: un número, 0 o más (atasco.minutos en 0 apaga el vigilante).`);
+  }
+  const reparar = { ...REPARAR_POR_DEFECTO, ...(datos.reparar ?? {}) };
+  reparar.diagnosticoMinutos = Number(reparar.diagnosticoMinutos);
+  if (typeof reparar.diagnosticoConClaude !== "boolean") errores.push("reparar.diagnosticoConClaude: true o false.");
+  if (!Number.isFinite(reparar.diagnosticoMinutos) || reparar.diagnosticoMinutos <= 0) errores.push("reparar.diagnosticoMinutos: minutos, más de 0.");
+
   const motores = { ...MOTORES_POR_DEFECTO, ...(datos.motores ?? {}) };
   for (const paso of ["planear", "construir"]) {
     if (!MOTORES.includes(motores[paso])) errores.push(`motores.${paso}: "claude" o "codex".`);
@@ -202,6 +237,9 @@ export function completarConfig(datos, base = process.cwd()) {
     ssh,
     maxParalelo,
     limites,
+    partir: { archivosMinimos: partir.archivosMinimos },
+    atasco: { minutos: atasco.minutos, revisarCadaSegundos: atasco.revisarCadaSegundos, cpuMinimaSegundos: atasco.cpuMinimaSegundos },
+    reparar: { diagnosticoConClaude: reparar.diagnosticoConClaude, diagnosticoMinutos: reparar.diagnosticoMinutos },
     comandoClaude: comando(datos.comandoClaude, "comandoClaude") ?? ["claude"],
     comandoCodex,
     motores: {

@@ -836,6 +836,8 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
     subida: ["SUBIENDO"],
     error: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
     soltar: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
+    reparar: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
+    partir: ["EN_CURSO"],
   };
   for (const [accion, validos] of Object.entries(esperado)) {
     for (const estado of reglas.ESTADOS_TARJETA) {
@@ -845,12 +847,63 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
-    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null },
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null },
   );
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.AL_TOMAR).map(([de, regla]) => [de, [regla.a, regla.etapa]])),
     { APROBADO: ["PLANEANDO", "planear"], PLAN_APROBADO: ["EN_CURSO", "construir"], SUBIENDO: ["SUBIENDO", "subir"] },
   );
+});
+
+prueba("reparar y partir: tope de 3 reparaciones, resumen de máximo 3 líneas, partes de 2 a 4", () => {
+  assert.equal(trabajo.TOPE_DE_REPARACIONES, 3);
+  assert.equal(trabajo.puedeReparar(0), null);
+  assert.equal(trabajo.puedeReparar(2), null);
+  assert.match(trabajo.puedeReparar(3), /escala/);
+  // El resumen de escalada: 3 líneas con texto como máximo, sin líneas vacías.
+  assert.equal(trabajo.resumenDeEscalada("a\n\n b \nc\nd\ne"), "a\nb\nc");
+  assert.equal(trabajo.resumenDeEscalada(""), "El Coordinador no dijo el motivo.");
+  assert.ok(trabajo.MOTIVO_VENCIDA.split("\n").length <= 3);
+  // La causa es una sola línea.
+  assert.equal(trabajo.causaDeEntrada("  primera   línea \nsegunda"), "primera línea");
+  assert.equal(trabajo.categoriaDeEntrada("limite_claude"), "limite_claude");
+  assert.equal(trabajo.categoriaDeEntrada("inventada"), "otra");
+  assert.equal(trabajo.categoriaDeEntrada(""), null);
+  // Partir: de 2 a 4 partes, cada una con título y detalle.
+  const parte = (n) => ({ titulo: `P${n}`, detalle: `Hacer ${n}` });
+  assert.throws(() => trabajo.partesDeEntrada([parte(1)]), /2 a 4/);
+  assert.throws(() => trabajo.partesDeEntrada([1, 2, 3, 4, 5].map(parte)), /2 a 4/);
+  assert.throws(() => trabajo.partesDeEntrada([parte(1), { titulo: "x" }]), /detalle/);
+  assert.equal(trabajo.partesDeEntrada([parte(1), parte(2)]).length, 2);
+  assert.equal(trabajo.partesDeEntrada([1, 2, 3, 4].map(parte)).length, 4);
+  assert.equal(trabajo.puedePartir({ yaPartida: false, esParte: false }), null);
+  assert.ok(trabajo.puedePartir({ yaPartida: true, esParte: false }));
+  assert.ok(trabajo.puedePartir({ yaPartida: false, esParte: true }));
+  // La madre se cierra cuando todas las hijas están HECHO.
+  assert.equal(trabajo.madreSeCierra([]), false);
+  assert.equal(trabajo.madreSeCierra([{ estado: "HECHO" }, { estado: "EN_CURSO" }]), false);
+  assert.equal(trabajo.madreSeCierra([{ estado: "HECHO" }, { estado: "HECHO" }]), true);
+});
+
+prueba("el límite de Claude no cuenta como intento: las esperas seguidas se cuentan aparte", () => {
+  const cuenta = (...v) => v.map((cuentaComoIntento) => ({ cuentaComoIntento }));
+  assert.equal(trabajo.esperasSeguidas([]), 0);
+  assert.equal(trabajo.esperasSeguidas(cuenta(true, false, false)), 2);
+  assert.equal(trabajo.esperasSeguidas(cuenta(false, true)), 0);
+  assert.equal(trabajo.estadoTrasReparar("PLANEANDO"), "APROBADO");
+  assert.equal(trabajo.estadoTrasReparar("EN_CURSO"), "PLAN_APROBADO");
+});
+
+prueba("dependencias: no se permiten ciclos", () => {
+  const flechas = [
+    { origenId: "ventas", destinoId: "marketing" },
+    { origenId: "marketing", destinoId: "sistemas" },
+  ];
+  assert.equal(trabajo.dependenciaHaceCiclo(flechas, "ventas", "sistemas"), false);
+  assert.equal(trabajo.dependenciaHaceCiclo(flechas, "sistemas", "ventas"), true, "ciclo indirecto");
+  assert.equal(trabajo.dependenciaHaceCiclo(flechas, "marketing", "ventas"), true, "ciclo directo");
+  assert.equal(trabajo.dependenciaHaceCiclo([], "a", "a"), true, "consigo misma");
+  assert.equal(trabajo.dependenciaHaceCiclo(flechas, "cerebro", "ventas"), false);
 });
 
 prueba("tomar en paralelo: maxParalelo 1 si no viene (trabajador viejo), tope 5; excluir solo ids de texto", () => {

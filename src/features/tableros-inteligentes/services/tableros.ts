@@ -37,10 +37,13 @@ import {
   type OrigenCambio,
 } from "./reglas";
 import {
+  dependenciaHaceCiclo,
   esDuenoDelNegocio,
   esHechoAMano,
   esRepo,
+  madreSeCierra,
   motivoNoEsDueno,
+  partidaDelResultado,
   puedeAprobarMomento,
   puedeCambiarZonas,
   puedeMarcarHechoAMano,
@@ -63,6 +66,7 @@ import {
   riesgoDeEntrada,
   type QuienPoneRiesgo,
 } from "./reglas-riesgo";
+import { SQL_ES_PARTE } from "./sql-trabajador";
 import { NOMBRE_AUTOMATICO, QUIEN_AUTOMATICO, aprobarSolaLaTarea, type ResultadoDeAprobarSola } from "./aprobacion-automatica";
 import { contadoresDelConteo, type Contadores } from "./niveles";
 
@@ -164,6 +168,8 @@ export type TarjetaVista = {
   riesgoMotivo: string | null;
   riesgoPor: string | null;
   intentos: number;
+  /** Reparaciones seguidas (tope 3): "Reparación N de 3" mientras espera en la fila. */
+  reparaciones: number;
   trabajoVenceEn: string | null;
 };
 
@@ -181,16 +187,22 @@ export type ResultadoVista = {
   /** Qué modelo hizo cada paso (plan, construir, revisar, subagentes). */
   modelo?: Partial<Record<"plan" | "construir" | "revisar" | "subagentes", string>>;
   subida?: { commit?: string | null; version?: string | null; linkCommit?: string | null; cuando?: string };
+  /** Si el Coordinador la partió: las tarjetas hijas (ids), la causa y cuándo. */
+  partida?: { hijas?: string[]; causa?: string; cuando?: string };
   error?: {
     motivo?: string;
     en?: string;
     cuando?: string;
+    /** Si el Coordinador escaló después de reparar: la categoría y la causa en una línea. */
+    categoria?: string;
+    causa?: string;
     /** El despliegue falló después de subir: el Coordinador hizo revert del commit en main. */
     reversion?: { commit?: string | null; revert?: string | null; ok?: boolean };
   };
 };
 
-export type ConexionVista = { id: string; origenId: string; destinoId: string };
+/** `esDependencia`: el destino depende del origen y no se toma hasta que el origen esté HECHO. */
+export type ConexionVista = { id: string; origenId: string; destinoId: string; esDependencia: boolean };
 
 /** Un tipo de tarjeta con sus madres permitidas (ids de tipo). */
 export type TipoVista = {
@@ -246,6 +258,7 @@ const SELECT_TARJETA = {
   riesgoMotivo: true,
   riesgoPor: true,
   intentos: true,
+  reparaciones: true,
   trabajoVenceEn: true,
 } as const;
 
@@ -275,6 +288,7 @@ function aVista(fila: FilaTarjeta): TarjetaVista {
     riesgoMotivo: fila.riesgoMotivo,
     riesgoPor: fila.riesgoPor,
     intentos: fila.intentos,
+    reparaciones: fila.reparaciones,
     trabajoVenceEn: fila.trabajoVenceEn ? fila.trabajoVenceEn.toISOString() : null,
   };
 }
@@ -558,7 +572,7 @@ export async function contenidoDelTablero(tableroId: string) {
     prisma.conexionTarjeta.findMany({
       where: { tableroId },
       orderBy: { creadoEn: "asc" },
-      select: { id: true, origenId: true, destinoId: true },
+      select: { id: true, origenId: true, destinoId: true, esDependencia: true },
     }),
     tiposDelTablero(prisma, tableroId),
   ]);
@@ -702,9 +716,35 @@ function aprobacionesDelHistorial(
     });
 }
 
-/** ver_plan_y_resultado (MCP) y la ficha: estado, repo, plan, resultado y quién aprobó qué y cuándo. */
+/** Un intento de la tarjeta (algo falló, esperó, se partió o se escaló), como lo ve la pantalla y el MCP. */
+export type IntentoVista = {
+  numero: number;
+  etapa: string;
+  categoria: string;
+  causa: string;
+  /** El error técnico completo (solo para "Detalles técnicos"). */
+  error: string | null;
+  accion: string;
+  cuentaComoIntento: boolean;
+  cuando: string;
+};
+
+/** Los intentos de una tarjeta, del más viejo al más nuevo (los últimos 50). */
+export async function intentosDeLaTarjeta(alcance: Alcance, tarjetaId: unknown): Promise<IntentoVista[]> {
+  const tarjeta = await tarjetaDelNegocio(alcance, tarjetaId, { incluirBorradas: true });
+  const filas = await prisma.intentoTarjeta.findMany({
+    where: { tarjetaId: tarjeta.id },
+    orderBy: { numero: "desc" },
+    take: 50,
+    select: { numero: true, etapa: true, categoria: true, causa: true, error: true, accion: true, cuentaComoIntento: true, creadoEn: true },
+  });
+  return filas.reverse().map(({ creadoEn, ...fila }) => ({ ...fila, cuando: creadoEn.toISOString() }));
+}
+
+/** ver_plan_y_resultado (MCP) y la ficha: estado, repo, plan, resultado, intentos y quién aprobó qué y cuándo. */
 export async function planYResultado(alcance: Alcance, tarjetaId: unknown) {
   const { tarjeta, cambios } = await historialDeTarjeta(alcance, tarjetaId);
+  const intentos = await intentosDeLaTarjeta(alcance, tarjeta.id);
   // Si la tarjeta está HECHO porque el dueño la marcó a mano, no la subió el Coordinador: se dice.
   const marca = tarjeta.estado === "HECHO" ? cambios.find((cambio) => !cambio.deshechoEn && esHechoAMano(cambio)) : undefined;
   const despues = (marca?.despues ?? {}) as Record<string, unknown>;
@@ -717,7 +757,7 @@ export async function planYResultado(alcance: Alcance, tarjetaId: unknown) {
         cuando: marca.creadoEn.toISOString(),
       }
     : null;
-  return { tarjeta, aprobaciones: aprobacionesDelHistorial(cambios), hechoAMano };
+  return { tarjeta, aprobaciones: aprobacionesDelHistorial(cambios), hechoAMano, intentos };
 }
 
 /** Una tarjeta que espera al dueño ("Te toca a ti"), de cualquier tablero del negocio. */
@@ -1495,15 +1535,39 @@ export async function editarTarjeta(
   return { ...editada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado, avisoDeRiesgo };
 }
 
-export async function conectarTarjetas(contexto: ContextoTablero, origenId: unknown, destinoId: unknown) {
+/** Un `depende`: verdadero o falso (si no vino, falso); cualquier otra cosa se rechaza. */
+function dependeDeEntrada(valor: unknown): boolean {
+  if (valor === undefined || valor === null || valor === "") return false;
+  if (typeof valor === "boolean") return valor;
+  throw new Error('"depende" es verdadero o falso.');
+}
+
+/** Si poner origen -> destino como dependencia haría un ciclo, error claro (ninguna de las dos se podría tomar). */
+async function revisarCicloDeDependencias(tableroId: string, origenId: string, destinoId: string, salvoConexionId?: string) {
+  const dependencias = await prisma.conexionTarjeta.findMany({
+    where: { tableroId, esDependencia: true, ...(salvoConexionId ? { id: { not: salvoConexionId } } : {}) },
+    select: { origenId: true, destinoId: true },
+  });
+  if (dependenciaHaceCiclo(dependencias, origenId, destinoId)) {
+    throw new Error("Eso haría un ciclo de dependencias: la otra tarjeta ya depende (directa o indirectamente) de esta, y ninguna de las dos se podría tomar.");
+  }
+}
+
+/**
+ * Conecta dos tarjetas con una flecha. Con `depende` la flecha es una dependencia: el DESTINO no se toma
+ * hasta que el ORIGEN esté HECHO (se rechaza si haría un ciclo).
+ */
+export async function conectarTarjetas(contexto: ContextoTablero, origenId: unknown, destinoId: unknown, depende?: unknown) {
   const origen = await tarjetaDelNegocio(contexto, origenId);
   const destino = await tarjetaDelNegocio(contexto, destinoId);
+  const esDependencia = dependeDeEntrada(depende);
   if (origen.id === destino.id) {
     throw new Error("Una tarjeta no se conecta consigo misma.");
   }
   if (origen.tableroId !== destino.tableroId) {
     throw new Error("Las dos tarjetas tienen que ser del mismo tablero.");
   }
+  if (esDependencia) await revisarCicloDeDependencias(origen.tableroId, origen.id, destino.id);
   const ya = await prisma.conexionTarjeta.findUnique({
     where: { origenId_destinoId: { origenId: origen.id, destinoId: destino.id } },
     select: { id: true },
@@ -1514,13 +1578,14 @@ export async function conectarTarjetas(contexto: ContextoTablero, origenId: unkn
   try {
     return await prisma.$transaction(async (tx) => {
       const conexion = await tx.conexionTarjeta.create({
-        data: { tableroId: origen.tableroId, origenId: origen.id, destinoId: destino.id },
-        select: { id: true, origenId: true, destinoId: true },
+        data: { tableroId: origen.tableroId, origenId: origen.id, destinoId: destino.id, esDependencia },
+        select: { id: true, origenId: true, destinoId: true, esDependencia: true },
       });
       const cambio = await anotar(tx, contexto, origen.id, "conectar", null, {
         conexionId: conexion.id,
         origenId: origen.id,
         destinoId: destino.id,
+        ...(esDependencia ? { esDependencia } : {}),
       });
       await tocarTablero(tx, origen.tableroId);
       return { conexion, cambioId: cambio.id, origen: origen.titulo, destino: destino.titulo };
@@ -1531,6 +1596,48 @@ export async function conectarTarjetas(contexto: ContextoTablero, origenId: unkn
     }
     throw fallo;
   }
+}
+
+/**
+ * Marca (o desmarca) una flecha como dependencia: el destino no se toma hasta que el origen esté HECHO.
+ * Se rechaza si haría un ciclo. Queda en el historial del origen como un "editar" con la flecha (deshacer lo
+ * revierte).
+ */
+export async function marcarDependencia(contexto: ContextoTablero, conexionId: unknown, esDependencia: unknown) {
+  const id = typeof conexionId === "string" ? conexionId.trim() : "";
+  const quiere = dependeDeEntrada(esDependencia);
+  const conexion = id
+    ? await prisma.conexionTarjeta.findFirst({
+        where: { id, tablero: dondeTablero(contexto) },
+        select: { id: true, tableroId: true, origenId: true, destinoId: true, esDependencia: true },
+      })
+    : null;
+  if (!conexion) throw new Error("No existe esa flecha en este negocio.");
+  if (conexion.esDependencia === quiere) {
+    return { conexion, cambioId: null, aviso: quiere ? "Esa flecha ya era una dependencia." : "Esa flecha ya no era una dependencia." };
+  }
+  if (quiere) await revisarCicloDeDependencias(conexion.tableroId, conexion.origenId, conexion.destinoId, conexion.id);
+  return prisma.$transaction(async (tx) => {
+    const hecho = await tx.conexionTarjeta.updateMany({
+      where: { id: conexion.id, esDependencia: conexion.esDependencia },
+      data: { esDependencia: quiere },
+    });
+    if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
+    const cambio = await anotar(
+      tx,
+      contexto,
+      conexion.origenId,
+      "editar",
+      { conexionId: conexion.id, esDependencia: conexion.esDependencia },
+      { conexionId: conexion.id, origenId: conexion.origenId, destinoId: conexion.destinoId, esDependencia: quiere },
+    );
+    await tocarTablero(tx, conexion.tableroId);
+    return {
+      conexion: { ...conexion, esDependencia: quiere },
+      cambioId: cambio.id,
+      aviso: quiere ? "Listo: la segunda tarjeta espera a que la primera esté hecha." : "Listo: esa flecha ya no es una dependencia.",
+    };
+  });
 }
 
 async function reglasDelTipo(tipoId: string) {
@@ -1642,6 +1749,24 @@ export async function marcarHechoAMano(contexto: ContextoTablero, tarjetaId: unk
     });
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
     const cambio = await anotar(tx, contexto, actual.id, "estado", { estado: actual.estado }, registro);
+    // Si es la última parte de una tarjeta partida, la madre (EN_CURSO, sin candado) queda HECHO; si no, se quedaría ahí para siempre.
+    const [esParte] = await tx.$queryRawUnsafe<{ id: string }[]>(SQL_ES_PARTE, actual.tableroId, actual.id);
+    if (esParte) {
+      const madre = await tx.tarjetaTablero.findUnique({ where: { id: esParte.id }, select: { id: true, estado: true, resultado: true, borradoEn: true } });
+      const partida = partidaDelResultado(madre?.resultado);
+      if (madre && partida && !madre.borradoEn && madre.estado === "EN_CURSO") {
+        const hijas = await tx.tarjetaTablero.findMany({ where: { id: { in: partida.hijas }, borradoEn: null }, select: { estado: true } });
+        if (madreSeCierra(hijas)) {
+          const cerrada = await tx.tarjetaTablero.updateMany({
+            where: { id: madre.id, estado: "EN_CURSO", borradoEn: null },
+            data: { estado: "HECHO", trabajoVenceEn: null },
+          });
+          if (cerrada.count === 1) {
+            await anotar(tx, contexto, madre.id, "estado", { estado: "EN_CURSO" }, { estado: "HECHO", nota: `terminada: sus ${hijas.length} partes están hechas` });
+          }
+        }
+      }
+    }
     await tocarTablero(tx, actual.tableroId);
     return {
       cambioId: cambio.id,
@@ -1766,7 +1891,8 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
         ...NO_BORRADA,
       },
       // SUBIENDO queda "pendiente" (sin candado) hasta que el Coordinador la tome; reintentar suelta el candado.
-      data: { estado: veredicto.a, trabajoVenceEn: null },
+      // Reintentar (desde ERROR) también devuelve las reparaciones a 0: empiezan otras 3.
+      data: { estado: veredicto.a, trabajoVenceEn: null, ...(actual.estado === "ERROR" ? { reparaciones: 0 } : {}) },
     });
     if (hecho.count !== 1) {
       throw new Error(CAMBIO_MIENTRAS_MIRABAS);
@@ -1812,7 +1938,7 @@ export async function cambiarZonasEnPantalla(contexto: ContextoTablero, tarjetaI
 }
 
 /** Una flecha como queda guardada en el historial de un borrado. */
-type FlechaGuardada = { id: string; origenId: string; destinoId: string };
+type FlechaGuardada = { id: string; origenId: string; destinoId: string; esDependencia?: boolean };
 
 /**
  * Borrar una tarjeta (borrado suave): se marca borradoEn y se quitan TODAS sus flechas (salientes y
@@ -1847,7 +1973,7 @@ export async function borrarTarjeta(contexto: ContextoTablero, tarjetaId: unknow
   return prisma.$transaction(async (tx) => {
     const flechas: FlechaGuardada[] = await tx.conexionTarjeta.findMany({
       where: { tableroId: actual.tableroId, OR: [{ origenId: actual.id }, { destinoId: actual.id }] },
-      select: { id: true, origenId: true, destinoId: true },
+      select: { id: true, origenId: true, destinoId: true, esDependencia: true },
     });
     const ahora = new Date();
     // Condicionado al estado que se leyó (si el Coordinador la tomó un instante antes, no se borra) y,
@@ -1946,7 +2072,13 @@ export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId:
       if (volver.length) {
         // Con sus mismos ids: así el "conectar" del historial de la otra tarjeta sigue sirviendo.
         await tx.conexionTarjeta.createMany({
-          data: volver.map((f) => ({ id: f.id, tableroId: tarjeta.tableroId, origenId: f.origenId, destinoId: f.destinoId })),
+          data: volver.map((f) => ({
+            id: f.id,
+            tableroId: tarjeta.tableroId,
+            origenId: f.origenId,
+            destinoId: f.destinoId,
+            esDependencia: f.esDependencia === true,
+          })),
           skipDuplicates: true,
         });
       }
@@ -2003,6 +2135,26 @@ export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId:
       const nuevo = await anotar(tx, contexto, tarjeta.id, "deshacer", { ...datos, deshace: cambio.id }, null);
       await tocarTablero(tx, tarjeta.tableroId);
       return { cambioId: nuevo.id, aviso: "Listo: se quitó esa flecha." };
+    });
+  }
+
+  // Marcar una flecha como dependencia (o quitarlo): se vuelve a lo de antes.
+  const flechaAntes = (cambio.antes ?? {}) as { conexionId?: unknown; esDependencia?: unknown };
+  if (cambio.accion === "editar" && typeof flechaAntes.conexionId === "string" && typeof flechaAntes.esDependencia === "boolean") {
+    const conexionId = flechaAntes.conexionId;
+    const vuelve = flechaAntes.esDependencia;
+    const conexion = await prisma.conexionTarjeta.findFirst({
+      where: { id: conexionId, tableroId: tarjeta.tableroId },
+      select: { id: true, origenId: true, destinoId: true, esDependencia: true },
+    });
+    if (!conexion) throw new Error("Esa flecha ya no está (se borró una de las dos tarjetas).");
+    if (vuelve) await revisarCicloDeDependencias(tarjeta.tableroId, conexion.origenId, conexion.destinoId, conexion.id);
+    return prisma.$transaction(async (tx) => {
+      await tx.conexionTarjeta.updateMany({ where: { id: conexion.id }, data: { esDependencia: vuelve } });
+      await tx.historialTarjeta.update({ where: { id: cambio.id }, data: { deshechoEn: new Date() } });
+      const nuevo = await anotar(tx, contexto, tarjeta.id, "deshacer", { esDependencia: conexion.esDependencia, deshace: cambio.id }, { esDependencia: vuelve });
+      await tocarTablero(tx, tarjeta.tableroId);
+      return { cambioId: nuevo.id, aviso: vuelve ? "Listo: la flecha volvió a ser una dependencia." : "Listo: la flecha ya no es una dependencia." };
     });
   }
 

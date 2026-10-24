@@ -3,7 +3,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { idCorto } from "./git.mjs";
+
 const DIAS_QUE_SE_GUARDAN = 14;
+
+/** <carpetaTrabajo>/intentos/<idCorto>: el log de cada intento y el patch del trabajo de una tarjeta. */
+export const carpetaDeIntentos = (carpetaTrabajo, tarjetaId) => path.join(carpetaTrabajo, "intentos", idCorto(tarjetaId));
 
 export function crearRegistro(carpetaTrabajo, { consola = true, ocultar = [] } = {}) {
   const carpeta = path.join(carpetaTrabajo, "logs");
@@ -43,7 +48,40 @@ export function crearRegistro(carpetaTrabajo, { consola = true, ocultar = [] } =
     if (consola) (nivel === "ERROR" ? console.error : console.log)(linea);
   }
 
+  let intentosRotados = false;
+  /** Borra las carpetas de intentos que no se tocan hace más de 14 días (el patch y los logs de tarjetas ya olvidadas). */
+  function rotarIntentos() {
+    if (intentosRotados) return;
+    intentosRotados = true;
+    const raiz = path.join(carpetaTrabajo, "intentos");
+    try {
+      for (const nombre of fs.readdirSync(raiz)) {
+        const ruta = path.join(raiz, nombre);
+        if (Date.now() - fs.statSync(ruta).mtimeMs > DIAS_QUE_SE_GUARDAN * 86_400_000) fs.rmSync(ruta, { recursive: true, force: true });
+      }
+    } catch {
+      // No hay carpeta todavía o no se pudo borrar: no es motivo para parar.
+    }
+  }
+
   return {
+    /**
+     * Guarda el error completo y el log de un intento que falló en
+     * <carpetaTrabajo>/intentos/<idCorto>/<fecha>-<etapa>.log (ANTES de diagnosticar). Devuelve la ruta (o null si no se pudo).
+     */
+    guardarIntento({ tarjetaId, etapa, texto }) {
+      try {
+        rotarIntentos();
+        const carpetaIntento = carpetaDeIntentos(carpetaTrabajo, tarjetaId);
+        fs.mkdirSync(carpetaIntento, { recursive: true });
+        const fecha = new Date().toISOString().replace(/[:.]/g, "-");
+        const ruta = path.join(carpetaIntento, `${fecha}-${etapa}.log`);
+        fs.writeFileSync(ruta, limpiar(String(texto ?? "")));
+        return ruta;
+      } catch {
+        return null;
+      }
+    },
     info: (mensaje, extra) => escribir("INFO", mensaje, extra),
     aviso: (mensaje, extra) => escribir("AVISO", mensaje, extra),
     error: (mensaje, extra) => escribir("ERROR", mensaje, extra),

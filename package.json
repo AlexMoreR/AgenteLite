@@ -31,6 +31,7 @@
     "test:tableros": "node scripts/check-tableros-reglas.mjs",
     "test:tablero-tipos-migracion": "node scripts/check-tablero-tipos-migracion.mjs",
     "test:tablero-trabajador-migracion": "node scripts/check-tablero-trabajador-migracion.mjs",
+    "test:tablero-intentos-migracion": "node scripts/check-tablero-intentos-migracion.mjs",
     "test:tableros-por-cuenta-migracion": "node scripts/check-tableros-por-cuenta-migracion.mjs",
     "test:tablero-riesgo-migracion": "node scripts/check-tablero-riesgo-migracion.mjs",
     "test:tablero-aprobacion-automatica": "node scripts/check-tablero-aprobacion-automatica.mjs",

@@ -10,7 +10,10 @@
   depender de la zona de la sesión.
 
   Parámetros (salvo SQL_CANDIDATAS): $1 = workspaceId, $2 = ahora (ISO).
+  (SQL_PASAR_VENCIDAS_A_ERROR y SQL_ARRANQUE también escriben filas de IntentoTarjeta: 20261024120000_tablero_intentos.)
 */
+
+import { MINUTOS_POR_ETAPA } from "./reglas-trabajador";
 
 const AHORA = `($2::timestamptz AT TIME ZONE 'UTC')`;
 
@@ -18,14 +21,39 @@ const AHORA = `($2::timestamptz AT TIME ZONE 'UTC')`;
 // (En el FROM y con una columna: Prisma no sabe leer una columna de tipo void.)
 export const SQL_CANDADO_DEL_NEGOCIO = `SELECT 1 AS "ok" FROM pg_advisory_xact_lock(hashtext('tablero-trabajador:' || $1::text))`;
 
+/** A qué estado de la fila vuelve una tarjeta que el Coordinador tenía (la CTE se llama `v`, con la columna "antes"). */
+const estadoDeLaFila = (v: string) =>
+  `CASE ${v}."antes" WHEN 'PLANEANDO' THEN 'APROBADO'::"EstadoTarjeta" ELSE 'PLAN_APROBADO'::"EstadoTarjeta" END`;
+const etapaDelAntes = (v: string) =>
+  `CASE ${v}."antes" WHEN 'PLANEANDO' THEN 'planear' WHEN 'EN_CURSO' THEN 'construir' ELSE 'subir' END`;
+
+/** El número del próximo intento de la tarjeta `v."id"`: las filas que tiene + 1. */
+const numeroSiguiente = (v: string) => `(SELECT count(*) FROM "IntentoTarjeta" n WHERE n."tarjetaId" = ${v}."id")::int + 1`;
+
+/** Un id para una fila de IntentoTarjeta insertada desde SQL (sin depender de extensiones). */
+const idDelIntento = (v: string) => `'int' || md5(random()::text || clock_timestamp()::text || ${v}."id")`;
+
 /**
- * Las que el trabajador tenía (PLANEANDO, EN_CURSO, SUBIENDO) y se le vencieron sin latido: pasan a
- * ERROR con el motivo ($3) en resultado.error ($4 = ahora como texto ISO: $2 no sirve como texto porque
- * Postgres ya lo tipó timestamptz). Devuelve id, tableroId y el estado que tenían.
+ * Las que el Coordinador tenía (PLANEANDO, EN_CURSO, SUBIENDO) y se le vencieron (protocolo de reparación):
+ *  - PLANEANDO o EN_CURSO que vencieron por FALTA DE LATIDO (el candado vencía antes del tope de su etapa:
+ *    20 / 90 min) y con menos de $5 esperas seguidas: vuelven a la fila (APROBADO / PLAN_APROBADO), sin
+ *    ERROR y sin gastar el intento, con una fila de IntentoTarjeta (coordinador_cortado, esperar, no cuenta).
+ *  - El resto (vencieron por el tope de la etapa, ya llevan $5 esperas seguidas o estaban SUBIENDO, que pudo
+ *    haber empujado a main) pasan a ERROR con el motivo ($3) en resultado.error ($4 = ahora como texto
+ *    ISO: $2 no sirve como texto porque Postgres ya lo tipó timestamptz) y una fila de IntentoTarjeta
+ *    (escalar, cuenta; categoria tiempo_agotado si fue por el tope, coordinador_cortado si no).
+ * "Esperas seguidas" = filas de IntentoTarjeta con cuentaComoIntento = false después de la última con true.
+ * Devuelve id, tableroId, el estado que tenían ("antes") y el que quedaron ("estado").
  */
 export const SQL_PASAR_VENCIDAS_A_ERROR = `
-WITH vencidas AS (
-  SELECT c."id", c."estado"::text AS "antes"
+WITH v AS (
+  SELECT c."id", c."tableroId", c."estado"::text AS "antes", c."trabajoIniciadoEn" AS "ini", c."trabajoVenceEn" AS "vence",
+         CASE c."estado"::text WHEN 'PLANEANDO' THEN ${MINUTOS_POR_ETAPA.planear} WHEN 'EN_CURSO' THEN ${MINUTOS_POR_ETAPA.construir} ELSE ${MINUTOS_POR_ETAPA.subir} END AS "tope",
+         (
+           SELECT count(*) FROM "IntentoTarjeta" e
+           WHERE e."tarjetaId" = c."id" AND NOT e."cuentaComoIntento"
+             AND e."numero" > COALESCE((SELECT max(u."numero") FROM "IntentoTarjeta" u WHERE u."tarjetaId" = c."id" AND u."cuentaComoIntento"), 0)
+         )::int AS "esperas"
   FROM "TarjetaTablero" c
   JOIN "TableroInteligente" b ON b."id" = c."tableroId"
   WHERE b."workspaceId" = $1
@@ -34,16 +62,98 @@ WITH vencidas AS (
     AND c."trabajoVenceEn" IS NOT NULL
     AND c."trabajoVenceEn" <= ${AHORA}
   FOR UPDATE OF c
+),
+x AS (
+  SELECT v.*,
+         (v."ini" IS NULL OR v."vence" >= v."ini" + make_interval(mins => v."tope")) AS "portope",
+         (v."antes" <> 'SUBIENDO' AND v."ini" IS NOT NULL AND v."vence" < v."ini" + make_interval(mins => v."tope") AND v."esperas" < $5::int) AS "vuelve"
+  FROM v
+),
+sueltas AS (
+  UPDATE "TarjetaTablero" t
+  SET "estado" = ${estadoDeLaFila("x")},
+      "trabajoVenceEn" = NULL,
+      "intentos" = GREATEST(0, t."intentos" - 1),
+      "actualizadoEn" = ${AHORA}
+  FROM x
+  WHERE t."id" = x."id" AND x."vuelve"
+  RETURNING t."id", t."tableroId", x."antes", t."estado"::text AS "estado"
+),
+fallidas AS (
+  UPDATE "TarjetaTablero" t
+  SET "estado" = 'ERROR'::"EstadoTarjeta",
+      "trabajoVenceEn" = NULL,
+      "resultado" = COALESCE(t."resultado", '{}'::jsonb)
+        || jsonb_build_object('error', jsonb_build_object('motivo', $3::text, 'en', x."antes", 'cuando', $4::text)),
+      "actualizadoEn" = ${AHORA}
+  FROM x
+  WHERE t."id" = x."id" AND NOT x."vuelve"
+  RETURNING t."id", t."tableroId", x."antes", t."estado"::text AS "estado"
+),
+intentos AS (
+  INSERT INTO "IntentoTarjeta" ("id", "tarjetaId", "numero", "etapa", "categoria", "causa", "error", "accion", "cuentaComoIntento", "creadoEn")
+  SELECT ${idDelIntento("x")}, x."id", ${numeroSiguiente("x")}, ${etapaDelAntes("x")},
+         CASE WHEN x."portope" AND NOT x."vuelve" THEN 'tiempo_agotado' ELSE 'coordinador_cortado' END,
+         CASE
+           WHEN x."vuelve" THEN 'El Coordinador dejó de dar señales (se cortó o se apagó); la tarjeta vuelve a la fila.'
+           WHEN x."portope" THEN 'La etapa se pasó de su tiempo máximo.'
+           ELSE 'El Coordinador dejó de dar señales y ya había esperado varias veces seguidas.'
+         END,
+         NULL,
+         CASE WHEN x."vuelve" THEN 'esperar' ELSE 'escalar' END,
+         NOT x."vuelve",
+         ${AHORA}
+  FROM x
+  RETURNING "id"
 )
-UPDATE "TarjetaTablero" t
-SET "estado" = 'ERROR'::"EstadoTarjeta",
-    "trabajoVenceEn" = NULL,
-    "resultado" = COALESCE(t."resultado", '{}'::jsonb)
-      || jsonb_build_object('error', jsonb_build_object('motivo', $3::text, 'en', vencidas."antes", 'cuando', $4::text)),
-    "actualizadoEn" = ${AHORA}
-FROM vencidas
-WHERE t."id" = vencidas."id"
-RETURNING t."id", t."tableroId", vencidas."antes"`;
+SELECT "id", "tableroId", "antes", "estado" FROM sueltas
+UNION ALL
+SELECT "id", "tableroId", "antes", "estado" FROM fallidas`;
+
+/**
+ * /arranque: el Coordinador acaba de arrancar, así que lo que el negocio tenía en PLANEANDO o EN_CURSO con
+ * candado (trabajoVenceEn) lo tenía el proceso anterior, que murió. Vuelve a la fila (APROBADO /
+ * PLAN_APROBADO) sin ERROR y sin gastar el intento, con una fila de IntentoTarjeta (coordinador_cortado,
+ * esperar, no cuenta). SUBIENDO no se toca: pudo haber empujado a main (sigue como hoy y vence).
+ * Parámetros: $1 = workspaceId, $2 = ahora (ISO). Devuelve id, tableroId y el estado que tenían ("antes").
+ */
+export const SQL_ARRANQUE = `
+WITH v AS (
+  SELECT c."id", c."tableroId", c."estado"::text AS "antes"
+  FROM "TarjetaTablero" c
+  JOIN "TableroInteligente" b ON b."id" = c."tableroId"
+  WHERE b."workspaceId" = $1
+    AND c."borradoEn" IS NULL
+    AND c."estado" IN ('PLANEANDO', 'EN_CURSO')
+    AND c."trabajoVenceEn" IS NOT NULL
+  FOR UPDATE OF c
+),
+sueltas AS (
+  UPDATE "TarjetaTablero" t
+  SET "estado" = ${estadoDeLaFila("v")},
+      "trabajoVenceEn" = NULL,
+      "intentos" = GREATEST(0, t."intentos" - 1),
+      "actualizadoEn" = ${AHORA}
+  FROM v
+  WHERE t."id" = v."id"
+  RETURNING t."id", t."tableroId", v."antes"
+),
+intentos AS (
+  INSERT INTO "IntentoTarjeta" ("id", "tarjetaId", "numero", "etapa", "categoria", "causa", "error", "accion", "cuentaComoIntento", "creadoEn")
+  SELECT ${idDelIntento("v")}, v."id", ${numeroSiguiente("v")}, ${etapaDelAntes("v")}, 'coordinador_cortado',
+         'El Coordinador se reinició mientras la tenía; vuelve a la fila.', NULL, 'esperar', false, ${AHORA}
+  FROM v
+  RETURNING "id"
+)
+SELECT "id", "tableroId", "antes" FROM sueltas`;
+
+/** ¿Esta tarjeta es una parte (hija creada por /partir)? $1 = tableroId, $2 = id de la tarjeta. Devuelve una fila si sí. */
+export const SQL_ES_PARTE = `
+SELECT m."id"
+FROM "TarjetaTablero" m
+WHERE m."tableroId" = $1
+  AND m."resultado" -> 'partida' -> 'hijas' @> jsonb_build_array($2::text)
+LIMIT 1`;
 
 /** ¿El trabajador ya tiene una tarjeta de este negocio (con el candado vigente)? */
 export const SQL_HAY_UNA_TRABAJANDO = `
@@ -70,7 +180,9 @@ ORDER BY c."trabajoIniciadoEn" ASC`;
 /**
  * Qué se puede tomar: solo tipos con aprobación, con repo de la lista (`repos`, el parámetro text[]),
  * sin borrar, en APROBADO, PLAN_APROBADO (con plan) o SUBIENDO pendiente (sin candado). Una con zona
- * protegida solo si su última aprobación fue en la pantalla.
+ * protegida solo si su última aprobación fue en la pantalla. Una APROBADO o PLAN_APROBADO con una
+ * dependencia sin terminar (flecha esDependencia cuyo origen, sin borrar y de un tipo con estados, no está HECHO) espera (un Área no tiene estado y bloquearía para siempre); una
+ * SUBIENDO no (ya construyó).
  */
 const wherePara = (repos: string) => `
   WHERE b."workspaceId" = $1
@@ -81,6 +193,17 @@ const wherePara = (repos: string) => `
       c."estado" = 'APROBADO'
       OR (c."estado" = 'PLAN_APROBADO' AND c."plan" IS NOT NULL)
       OR (c."estado" = 'SUBIENDO' AND c."trabajoVenceEn" IS NULL)
+    )
+    AND (
+      c."estado" = 'SUBIENDO'
+      OR NOT EXISTS (
+        SELECT 1
+        FROM "ConexionTarjeta" x
+        JOIN "TarjetaTablero" o ON o."id" = x."origenId"
+        JOIN "TipoTarjeta" ot ON ot."id" = o."tipoId"
+        WHERE x."destinoId" = c."id" AND x."esDependencia" AND o."borradoEn" IS NULL AND o."estado" <> 'HECHO'
+          AND ot."usaEstados"
+      )
     )
     AND (
       cardinality(c."zonaProtegida") = 0

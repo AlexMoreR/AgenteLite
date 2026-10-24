@@ -341,6 +341,11 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
       properties: {
         origen_id: { type: "string", description: "Tarjeta de donde sale la flecha" },
         destino_id: { type: "string", description: "Tarjeta a donde llega la flecha" },
+        depende: {
+          type: "boolean",
+          description:
+            "Verdadero si el destino DEPENDE del origen: el Coordinador no toma el destino hasta que el origen esté HECHO (por ejemplo, Marketing y Sistemas dependen de Ventas). Se rechaza si haría un ciclo. Por defecto falso.",
+        },
       },
       required: ["origen_id", "destino_id"],
       additionalProperties: false,
@@ -807,12 +812,14 @@ export async function ejecutarHerramientaMcpTableros(
     }
     case "conectar_tarjetas": {
       const tablero = await tableroDeLaTarjeta(contexto,args.origen_id);
-      const resultado = await conectarTarjetas(contexto, args.origen_id, args.destino_id);
+      const resultado = await conectarTarjetas(contexto, args.origen_id, args.destino_id, args.depende);
       return {
         ok: true,
         tablero: referencia(tablero),
         cambio_id: resultado.cambioId,
-        aviso: `Flecha de "${resultado.origen}" a "${resultado.destino}".`,
+        aviso: resultado.conexion.esDependencia
+          ? `Flecha de "${resultado.origen}" a "${resultado.destino}": "${resultado.destino}" espera a que "${resultado.origen}" esté HECHO.`
+          : `Flecha de "${resultado.origen}" a "${resultado.destino}".`,
         link: linkDeLaTarjeta(resultado.conexion.origenId),
       };
     }

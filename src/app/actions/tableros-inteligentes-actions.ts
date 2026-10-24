@@ -12,10 +12,13 @@ import {
   editarTarjeta,
   editarTipo,
   historialDeTarjeta,
+  intentosDeLaTarjeta,
+  marcarDependencia,
   marcarHechoAMano,
   personaQueAprueba,
   renombrarTablero,
   type ContextoTablero,
+  type IntentoVista,
 } from "@/features/tableros-inteligentes/services/tableros";
 import {
   agregarAprobador,
@@ -271,6 +274,33 @@ export async function cambiarRiesgoAction(tarjetaId: string, riesgo: "BAJO" | "A
     const texto = mensaje(fallo, "No se pudo cambiar el riesgo");
     // Dejarlo como estaba no es un error para la pantalla.
     return texto === "No hay nada distinto para cambiar." ? { ok: true } : { ok: false, error: texto };
+  }
+}
+
+/**
+ * Marcar una flecha como dependencia ("depende de"): el destino no se toma hasta que el origen esté HECHO.
+ * Quien puede aprobar (dueño, ADMIN o aprobador); el servicio rechaza los ciclos.
+ */
+export async function marcarDependenciaAction(conexionId: string, esDependencia: boolean): Promise<Resultado> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  if (!personaPuedeAprobar(access)) return { ok: false, error: "Las dependencias las marca el dueño o quien aprueba en este tablero." };
+  try {
+    await marcarDependencia({ ...alcanceDe(access), userId: access.userId, origen: "PANTALLA" }, conexionId, esDependencia);
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo marcar la dependencia") };
+  }
+}
+
+/** Los intentos de una tarjeta (lo que falló, esperó, se partió o se escaló), para la ficha. */
+export async function intentosDeTarjetaAction(
+  tarjetaId: string,
+): Promise<{ ok: true; intentos: IntentoVista[] } | { ok: false; error: string }> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  try {
+    return { ok: true, intentos: await intentosDeLaTarjeta(alcanceDe(access), tarjetaId) };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudieron leer los intentos") };
   }
 }
 

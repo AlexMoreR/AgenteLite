@@ -13,11 +13,18 @@ export const dynamic = "force-dynamic";
   - resultado { resumen, pruebas, paso, rama, linkRama, commit, migracion, subeSolo, base, zonaProtegida? }
                 EN_CURSO -> SUBIENDO pendiente (paso, subeSolo y sin zona protegida) o POR_REVISAR.
   - subida    { commit, version, linkCommit }     SUBIENDO -> HECHO.
-  - error     { motivo, zonaProtegida?, reversion? }   PLANEANDO | EN_CURSO | SUBIENDO -> ERROR.
-              reversion = { commit, revert, ok }: el despliegue falló después de subir y se hizo revert.
-  - soltar    { motivo }                          PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO ->
-              SUBIENDO pendiente, sin ERROR ni contar el intento (Claude llegó a su límite de uso, o
-              choca con otra que corre).
+  - error     { motivo, categoria?, causa?, resumen?, error?, etapa?, zonaProtegida?, reversion? }
+              PLANEANDO | EN_CURSO | SUBIENDO -> ERROR. reversion = { commit, revert, ok }: el despliegue
+              falló después de subir y se hizo revert. Con `categoria`, `motivo` es el resumen de máximo
+              3 líneas para el dueño y queda un intento "escalar".
+  - soltar    { motivo, categoria?, causa?, error?, etapa? }   PLANEANDO -> APROBADO, EN_CURSO ->
+              PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente, sin ERROR ni contar el intento (Claude llegó
+              a su límite de uso, o choca con otra que corre). Con `categoria` queda un intento "esperar".
+  - reparar   { etapa, categoria, causa, error, estrategia? }   PLANEANDO | EN_CURSO | SUBIENDO -> la fila sin
+              ERROR (APROBADO / PLAN_APROBADO), reparaciones + 1. 409 si ya lleva 3.
+  - partir    { causa, error, partes: [{ titulo, detalle }] }   EN_CURSO: crea de 2 a 4 hijas en orden
+              (dependencia), la madre queda EN_CURSO sin candado. 409 si ya está partida o es una parte.
+  (El arranque del Coordinador es otra ruta: /api/trabajador/tablero/arranque.)
   409 si la tarjeta no está en el estado de esa acción. Ver services/trabajador.ts.
 */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string; accion: string }> }) {

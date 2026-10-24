@@ -196,6 +196,15 @@ await prueba("aplicarla otra vez no falla ni duplica nada", async () => {
 });
 
 // ── Las consultas del trabajador ────────────────────────────────────────────────────────────
+// Las consultas de hoy (services/sql-trabajador.ts) usan también lo que agregaron las migraciones
+// posteriores (IntentoTarjeta, esDependencia, reparaciones): se aplican en orden antes de correrlas.
+for (const nombre of migraciones.slice(migraciones.indexOf(NUEVA) + 1)) {
+  try {
+    await db.exec(leer(nombre));
+  } catch (fallo) {
+    throw new Error(`La migración ${nombre} falló en PGlite: ${fallo.message}`);
+  }
+}
 const AHORA = "2026-10-20T15:00:00.000Z";
 const EN_5_MIN = "2026-10-20T15:05:00.000Z";
 const REPOS = ["gestion", "aizencrm"];
@@ -305,22 +314,73 @@ await prueba("SUBIENDO pendiente (sin candado) se toma; con candado no", async (
 await prueba("vencidas: las que pasaron su vencimiento quedan ERROR con motivo (y se conserva el resultado anterior)", async () => {
   await db.exec(`UPDATE "TarjetaTablero" SET "resultado" = '{"rama":"tablero/x"}' WHERE "id" = 'plan-ok'`);
   // A las 15:06 vencieron las tomadas a las 15:00 (vence 15:05); sube-ya vence 15:10.
-  const vencidas = await filas(sql.SQL_PASAR_VENCIDAS_A_ERROR, ["ws1", "2026-10-20T15:06:00.000Z", "Se pasó del tiempo", "2026-10-20T15:06:00.000Z"]);
-  assert.deepEqual(vencidas.map((f) => [f.id, f.antes]).sort(), [
-    ["c3", "PLANEANDO"],
-    ["plan-ok", "EN_CURSO"],
-    ["sube", "SUBIENDO"],
-    ["zona", "PLANEANDO"],
+  // Protocolo de reparación: las de planear/construir que vencieron por falta de latido (antes de su tope de
+  // etapa) vuelven a la fila sin ERROR y sin gastar el intento; las que estaban SUBIENDO pasan a ERROR.
+  // El quinto parámetro es el tope de esperas seguidas.
+  const vencidas = await filas(sql.SQL_PASAR_VENCIDAS_A_ERROR, ["ws1", "2026-10-20T15:06:00.000Z", "Se pasó del tiempo", "2026-10-20T15:06:00.000Z", 5]);
+  assert.deepEqual(vencidas.map((f) => [f.id, f.antes, f.estado]).sort(), [
+    ["c3", "PLANEANDO", "APROBADO"],
+    ["plan-ok", "EN_CURSO", "PLAN_APROBADO"],
+    ["sube", "SUBIENDO", "ERROR"],
+    ["zona", "PLANEANDO", "APROBADO"],
   ]);
-  const [fila] = await filas(`SELECT "estado", "resultado", "trabajoVenceEn" FROM "TarjetaTablero" WHERE "id" = 'plan-ok'`);
+  const [suelta] = await filas(`SELECT "estado", "resultado", "trabajoVenceEn", "intentos" FROM "TarjetaTablero" WHERE "id" = 'plan-ok'`);
+  assert.equal(suelta.estado, "PLAN_APROBADO");
+  assert.equal(suelta.trabajoVenceEn, null);
+  assert.equal(suelta.intentos, 0, "no gasta el intento");
+  assert.equal(suelta.resultado.rama, "tablero/x", "se conserva el resultado anterior");
+  const [intento] = await filas(`SELECT "categoria", "accion", "cuentaComoIntento" FROM "IntentoTarjeta" WHERE "tarjetaId" = 'plan-ok'`);
+  assert.deepEqual(intento, { categoria: "coordinador_cortado", accion: "esperar", cuentaComoIntento: false });
+  const [fila] = await filas(`SELECT "estado", "resultado", "trabajoVenceEn" FROM "TarjetaTablero" WHERE "id" = 'sube'`);
   assert.equal(fila.estado, "ERROR");
   assert.equal(fila.trabajoVenceEn, null);
-  assert.equal(fila.resultado.rama, "tablero/x");
-  assert.deepEqual(fila.resultado.error, { motivo: "Se pasó del tiempo", en: "EN_CURSO", cuando: "2026-10-20T15:06:00.000Z" });
+  assert.deepEqual(fila.resultado.error, { motivo: "Se pasó del tiempo", en: "SUBIENDO", cuando: "2026-10-20T15:06:00.000Z" });
+  const [escalada] = await filas(`SELECT "accion", "cuentaComoIntento" FROM "IntentoTarjeta" WHERE "tarjetaId" = 'sube'`);
+  assert.deepEqual(escalada, { accion: "escalar", cuentaComoIntento: true }, "una tarjeta en ERROR siempre deja su motivo en el historial");
   assert.deepEqual((await hay("ws1", "2026-10-20T15:06:00.000Z")).map((f) => f.id), ["sube-ya"]);
   // La de otro negocio, idea-repo (EN_CURSO sin candado) y sube-ya no se tocaron.
   const [idea] = await filas(`SELECT "estado" FROM "TarjetaTablero" WHERE "id" = 'idea-repo'`);
   assert.equal(idea.estado, "EN_CURSO");
+});
+
+await prueba("arranque: lo que el Coordinador anterior dejó con candado vuelve a la fila, sin ERROR y sin gastar el intento", async () => {
+  await db.exec(`
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "intentos", "trabajoVenceEn") VALUES
+      ('ar-plan', 'tab2', 'Planeando', 'PLANEANDO', 'u-dueno', now(), 'tarea2', 'aizencrm', 2, '2099-01-01'),
+      ('ar-obra', 'tab2', 'Construyendo', 'EN_CURSO', 'u-dueno', now(), 'tarea2', 'aizencrm', 1, '2099-01-01'),
+      ('ar-sube', 'tab2', 'Subiendo', 'SUBIENDO', 'u-dueno', now(), 'tarea2', 'aizencrm', 1, '2099-01-01')`);
+  const sueltas = await filas(sql.SQL_ARRANQUE, ["ws2","2026-10-24T10:00:00.000Z"]);
+  assert.deepEqual(sueltas.map((f) => [f.id, f.antes]).sort(), [["ar-obra", "EN_CURSO"], ["ar-plan", "PLANEANDO"]], "SUBIENDO no se toca");
+  const tarjetas = Object.fromEntries((await filas(`SELECT "id", "estado", "intentos", "trabajoVenceEn" FROM "TarjetaTablero" WHERE "id" LIKE 'ar-%'`)).map((f) => [f.id, f]));
+  assert.deepEqual([tarjetas["ar-plan"].estado, tarjetas["ar-plan"].intentos, tarjetas["ar-plan"].trabajoVenceEn], ["APROBADO", 1, null]);
+  assert.deepEqual([tarjetas["ar-obra"].estado, tarjetas["ar-obra"].intentos], ["PLAN_APROBADO", 0]);
+  assert.equal(tarjetas["ar-sube"].estado, "SUBIENDO");
+  const intentos = await filas(`SELECT "tarjetaId", "categoria", "accion", "cuentaComoIntento" FROM "IntentoTarjeta" WHERE "tarjetaId" LIKE 'ar-%' ORDER BY "tarjetaId"`);
+  assert.deepEqual(intentos.map((i) => [i.tarjetaId, i.categoria, i.accion, i.cuentaComoIntento]), [
+    ["ar-obra", "coordinador_cortado", "esperar", false],
+    ["ar-plan", "coordinador_cortado", "esperar", false],
+  ]);
+  await db.exec(`DELETE FROM "TarjetaTablero" WHERE "id" LIKE 'ar-%'`);
+});
+
+await prueba("dependencias: una tarjeta no se toma hasta que de la que depende esté HECHO (y borrada no frena)", async () => {
+  // Un negocio aparte para que las demás tarjetas de la prueba no se cuelen.
+  await db.exec(`
+    INSERT INTO "Workspace" ("id", "name", "slug", "updatedAt", "ownerId") VALUES ('ws3', 'Tercero', 'tercero', now(), NULL);
+    INSERT INTO "TableroInteligente" ("id", "workspaceId", "nombre") VALUES ('tab3', 'ws3', 'Agentes');
+    INSERT INTO "TipoTarjeta" ("id", "tableroId", "nombre", "requiereAprobacion", "usaEstados", "orden") VALUES ('tarea3', 'tab3', 'Tarea', true, true, 0);
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo") VALUES
+      ('ventas', 'tab3', 'Agente de Ventas', 'EN_CURSO', 'u-dueno', '2026-10-20 03:00:00', 'tarea3', NULL),
+      ('marketing', 'tab3', 'Agente de Marketing', 'APROBADO', 'u-dueno', '2026-10-20 02:00:00', 'tarea3', 'aizencrm');
+    INSERT INTO "ConexionTarjeta" ("id", "tableroId", "origenId", "destinoId", "esDependencia") VALUES ('dep1', 'tab3', 'ventas', 'marketing', true)`);
+  assert.deepEqual(await tomar("ws3"), [], "Ventas no está HECHO: Marketing espera");
+  assert.deepEqual(await candidatas("ws3"), []);
+  await db.exec(`UPDATE "TarjetaTablero" SET "estado" = 'HECHO' WHERE "id" = 'ventas'`);
+  const [tomada] = await tomar("ws3");
+  assert.equal(tomada.id, "marketing", "con Ventas HECHO, Marketing arranca");
+  await db.exec(`UPDATE "TarjetaTablero" SET "estado" = 'APROBADO', "trabajoVenceEn" = NULL WHERE "id" = 'marketing'`);
+  await db.exec(`UPDATE "TarjetaTablero" SET "estado" = 'EN_CURSO', "borradoEn" = now() WHERE "id" = 'ventas'`);
+  assert.equal((await tomar("ws3"))[0]?.id, "marketing", "si Ventas se borró, no frena");
 });
 
 await prueba("tomar en otro negocio no ve las de este", async () => {

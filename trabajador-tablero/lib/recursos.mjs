@@ -35,6 +35,30 @@ export function crearMedidor({ cadaMs = 5000, muestras = 12 } = {}) {
   };
 }
 
+/** Una medida suelta (para cuando no hay medidor): la CPU de `ms` milisegundos y la memoria de ahora. */
+export async function medirUnaVez(ms = 500) {
+  const antes = muestraDeCpu();
+  await new Promise((resolver) => setTimeout(resolver, ms));
+  const ahora = muestraDeCpu();
+  const total = ahora.total - antes.total;
+  const cpu = total > 0 ? Math.round(100 * (1 - (ahora.libre - antes.libre) / total)) : 0;
+  return { cpu: Math.max(0, Math.min(100, cpu)), memoria: Math.round(100 * (1 - os.freemem() / os.totalmem())) };
+}
+
+/**
+ * Espera a que el PC tenga recursos (CPU y memoria bajo los límites), hasta `maximoMs`. Devuelve
+ * { esperadoMs, liberado } (liberado = false si se acabó el tiempo y sigue saturado). Mira cada `cadaMs`.
+ * Se corta (sin lanzar) si se aborta `senal`. `medir` y `dormir` se pueden reemplazar en las pruebas.
+ */
+export async function esperarRecursos({ medir, limites, maximoMs, cadaMs = 10_000, senal, dormir = (ms) => new Promise((resolver) => setTimeout(resolver, ms)), ahora = () => Date.now() }) {
+  const inicio = ahora();
+  for (;;) {
+    if (!faltanRecursos(medir(), limites)) return { esperadoMs: ahora() - inicio, liberado: true };
+    if (senal?.aborted || ahora() - inicio >= maximoMs) return { esperadoMs: ahora() - inicio, liberado: false };
+    await dormir(Math.min(cadaMs, Math.max(1, maximoMs - (ahora() - inicio))));
+  }
+}
+
 /** null si hay recursos para otra sesión; si no, el motivo ("CPU 92 % (límite 85 %)"). */
 export function faltanRecursos({ cpu, memoria }, limites) {
   const motivos = [];

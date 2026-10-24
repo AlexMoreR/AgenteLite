@@ -18,13 +18,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
+import { crearVigilante, sumarDescendientes } from "../lib/atasco.mjs";
 import { crearPlanificador, unaVuelta } from "../lib/bucle.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
 import { crearCrm } from "../lib/crm.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, nombreDeRama, webDeGithub } from "../lib/git.mjs";
-import { esLimiteDeUso, promptDelPlan } from "../lib/etapas.mjs";
+import { decidir, diagnosticar, resumenDeEscalada } from "../lib/diagnostico.mjs";
+import { esLimiteDeUso, promptDeConstruir, promptDelPlan } from "../lib/etapas.mjs";
+import { detalleDeFalla, lineasQueFallaron } from "../lib/procesos.mjs";
 import { destructivoDelSql, migracionDestructiva } from "../lib/riesgo.mjs";
 import {
   crearEstadoDeMotores,
@@ -153,9 +156,14 @@ await prueba("configuración: maxParalelo 2 si no viene (de 1 a 5), límites de 
   const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
   const config = completarConfig(base);
   assert.equal(config.maxParalelo, 2);
-  assert.deepEqual(config.limites, { cpuPorciento: 85, memoriaPorciento: 85 });
+  assert.deepEqual(config.limites, { cpuPorciento: 85, memoriaPorciento: 85, esperaMaximaMinutos: 10 });
   assert.equal(config.tiempos.pausaLimiteMinutos, 30);
-  assert.ok(config.herramientasPermitidas.includes("Agent"));
+  // Construir NO lanza subagentes ni tareas en segundo plano (24-oct-2026): están prohibidos, no permitidos.
+  assert.ok(!config.herramientasPermitidas.includes("Agent") && !config.herramientasPermitidas.includes("Task"));
+  assert.ok(config.herramientasProhibidas.includes("Agent") && config.herramientasProhibidas.includes("Task"));
+  assert.deepEqual(config.atasco, { minutos: 15, revisarCadaSegundos: 60, cpuMinimaSegundos: 0.3 });
+  assert.equal(completarConfig({ ...base, atasco: { minutos: 0 } }).atasco.minutos, 0, "0 apaga el vigilante");
+  assert.throws(() => completarConfig({ ...base, atasco: { minutos: -1 } }), /atasco\.minutos/);
   assert.equal(completarConfig({ ...base, maxParalelo: 3, limites: { cpuPorciento: 70 } }).maxParalelo, 3);
   assert.equal(completarConfig({ ...base, limites: { cpuPorciento: 70 } }).limites.cpuPorciento, 70);
   assert.throws(() => completarConfig({ ...base, maxParalelo: 9 }), /maxParalelo/);
@@ -176,6 +184,107 @@ await prueba("límite de uso de Claude: se reconoce el aviso (y no cualquier tex
   assert.ok(esLimiteDeUso("You've hit your session limit · resets 1:20am (America/Bogota)"));
   assert.ok(esLimiteDeUso("You've hit your weekly limit · resets Mon 9am"));
   assert.ok(!esLimiteDeUso("PLAN: agregar el botón de cobrar"));
+});
+
+await prueba("log de comandos: guarda las líneas que fallaron (not ok, error), el final y no solo el principio", async () => {
+  const salida = [
+    ...Array.from({ length: 299 }, (_, i) => `ok ${i + 1} - prueba ${i + 1}`),
+    "not ok 300 - la prueba que falló",
+    "  AssertionError: se esperaba 1 y llegó 2",
+    ...Array.from({ length: 100 }, (_, i) => `ok ${i + 301} - prueba ${i + 301}`),
+  ].join("\n");
+  const fallas = lineasQueFallaron(salida);
+  assert.match(fallas, /not ok 300 - la prueba que falló/);
+  assert.match(fallas, /AssertionError/);
+  assert.ok(!/^ok 1 /m.test(fallas), "no mete las líneas ok del principio");
+  assert.ok(fallas.split("\n").length < 10);
+  const detalle = detalleDeFalla({ salida, errores: "", archivoSalida: "C:/x/salida.log" });
+  assert.ok(detalle.indexOf("Líneas que fallaron") < detalle.indexOf("Últimas 60 líneas"), "las que fallaron van primero");
+  assert.match(detalle, /not ok 300/);
+  assert.match(detalle, /ok 400 - prueba 400/, "y el final de la salida");
+  assert.match(detalle, /Salida completa: C:\/x\/salida\.log/);
+  // Aunque la falla caiga en las últimas 60 líneas o fuera de ellas, "not ok" se conserva.
+  assert.equal(lineasQueFallaron("todo bien\nsin problemas"), "");
+});
+
+await prueba("diagnóstico: el aviso de 'carpeta sin confianza' no es la causa; las tareas en segundo plano son sesión atascada", async () => {
+  const aviso = "Warning: this folder is not trusted: 4 permission rules in .claude/settings.json were ignored.";
+  const d = diagnosticar({ error: new Error(`Fallaron las pruebas que ya existen. No se subió nada.\n${aviso}\nnot ok 3 - algo`), etapa: "construir" });
+  assert.equal(d.categoria, "fallan_pruebas");
+  assert.ok(!/trusted|settings\.json/.test(d.error), "el aviso no queda en el error");
+  const solo = diagnosticar({ error: new Error(`Claude falló al construir (código 1):\n${aviso}`), etapa: "construir" });
+  assert.equal(solo.categoria, "otra", "con solo el aviso no se inventa una causa");
+  const atascada = diagnosticar({ error: new Error("Claude falló al construir (código 1):\nse cortaron tareas en segundo plano"), etapa: "construir" });
+  assert.equal(atascada.categoria, "sesion_atascada");
+  assert.match(atascada.causa, /atascada|segundo plano/i);
+  const cortada = diagnosticar({ error: Object.assign(new Error("La sesión de Claude se quedó quieta 15 min"), { categoria: "sesion_atascada" }), etapa: "construir" });
+  assert.equal(cortada.categoria, "sesion_atascada");
+  // Primera vez: se repara; si se vuelve a atascar, se parte la tarea (sin gastar reparación).
+  assert.equal(decidir({ diagnostico: d.categoria ? cortada : cortada, tarjeta: { reparaciones: 0, ultimosIntentos: [] }, etapa: "construir" }).accion, "reparar");
+  const otraVez = decidir({ diagnostico: cortada, tarjeta: { reparaciones: 1, ultimosIntentos: [{ accion: "reparar", categoria: "sesion_atascada" }] }, etapa: "construir" });
+  assert.deepEqual([otraVez.accion, otraVez.cuenta], ["partir", false]);
+});
+
+await prueba("decisiones: el límite de Claude espera sin contar; 3 reparaciones y escala con resumen de 3 líneas; tarea grande se parte", async () => {
+  const limite = diagnosticar({ error: Object.assign(new Error("Claude llegó a su límite de uso al construir: usage limit reached"), { limiteDeUso: true }), etapa: "construir" });
+  assert.equal(limite.categoria, "limite_claude");
+  assert.deepEqual(decidir({ diagnostico: limite, tarjeta: { reparaciones: 3 }, etapa: "construir" }), { accion: "esperar", cuenta: false, motivo: "límite de uso de Claude: se espera su reinicio" });
+  const compila = diagnosticar({ error: new Error("No compiló: el código tiene errores de tipos (TypeScript)\nerror TS2322: el tipo no calza"), etapa: "construir" });
+  assert.equal(compila.categoria, "no_compila");
+  assert.equal(decidir({ diagnostico: compila, tarjeta: { reparaciones: 2, topeReparaciones: 3 }, etapa: "construir" }).accion, "reparar");
+  assert.equal(decidir({ diagnostico: compila, tarjeta: { reparaciones: 3, topeReparaciones: 3 }, etapa: "construir" }).accion, "escalar");
+  const resumen = resumenDeEscalada({ tarjeta: { reparaciones: 3 }, intentos: [{ accion: "reparar", categoria: "no_compila" }, { accion: "reparar", categoria: "no_compila" }, { accion: "reparar", categoria: "no_compila" }], diagnostico: compila });
+  const lineas = resumen.split("\n");
+  assert.equal(lineas.length, 3);
+  assert.match(lineas[0], /^Qué falló:/);
+  assert.match(lineas[1], /^Qué se probó:.*3 reparaciones/);
+  assert.match(lineas[2], /^Qué necesita de ti:/);
+  const lento = diagnosticar({ error: Object.assign(new Error("Claude tardó más de 88 min en construir: se cortó."), { categoria: "tiempo_agotado" }), etapa: "construir" });
+  assert.equal(decidir({ diagnostico: lento, tarjeta: {}, etapa: "construir", archivosCambiados: 12 }).accion, "partir", "muchos archivos: se parte");
+  assert.equal(decidir({ diagnostico: lento, tarjeta: {}, etapa: "construir", archivosCambiados: 2 }).accion, "reparar", "pocos archivos y primera vez: se repara");
+  assert.equal(decidir({ diagnostico: lento, tarjeta: { esParte: true }, etapa: "construir", archivosCambiados: 12 }).accion, "reparar", "una parte no se parte más");
+});
+
+await prueba("sesión atascada: solo se corta si pasan 15 min sin archivos nuevos NI procesador (reloj acelerado)", async () => {
+  let reloj = 0;
+  let huella = "a";
+  let cpu = 10;
+  const v = crearVigilante({ limiteMs: 15 * 60_000, leerHuella: async () => huella, leerCpu: async () => cpu, ahora: () => reloj });
+  assert.equal(await v.revisar(1), false, "la primera lectura es la línea de base");
+  reloj += 10 * 60_000;
+  assert.equal(await v.revisar(1), false, "10 min quieta: todavía no");
+  reloj += 6 * 60_000;
+  cpu += 3; // usó el procesador (pensando o corriendo pruebas)
+  assert.equal(await v.revisar(1), false, "16 min pero usó CPU: no está atascada");
+  reloj += 14 * 60_000;
+  huella = "b"; // tocó un archivo
+  assert.equal(await v.revisar(1), false, "tocó archivos: no está atascada");
+  reloj += 14 * 60_000;
+  assert.equal(await v.revisar(1), false, "14 min quieta");
+  reloj += 2 * 60_000;
+  assert.equal(await v.revisar(1), true, "16 min sin archivos ni CPU: sesión atascada");
+  const sinMedir = crearVigilante({ limiteMs: 60_000, leerHuella: async () => "x", leerCpu: async () => Number.NaN, ahora: () => reloj });
+  await sinMedir.revisar(1);
+  reloj += 10 * 60_000;
+  assert.equal(await sinMedir.revisar(1), false, "si no se puede medir la CPU no se corta (podría estar pensando)");
+  assert.equal(
+    sumarDescendientes(
+      [{ pid: 1, ppid: 0, segundos: 2 }, { pid: 2, ppid: 1, segundos: 3 }, { pid: 3, ppid: 2, segundos: 4 }, { pid: 4, ppid: 99, segundos: 100 }],
+      1,
+    ),
+    9,
+    "suma el proceso y todos sus hijos, no los ajenos",
+  );
+});
+
+await prueba("construir: el prompt prohíbe subagentes y esperar, y los argumentos de Claude los bloquean", async () => {
+  const repo = { clave: "aizencrm", subirSolo: true, zonasProtegidas: {} };
+  const prompt = promptDeConstruir({ titulo: "Algo", tablero: "T", detalle: "d", intentos: 1, plan: "El plan", zonasAprobadas: [] }, repo, "tablero/x");
+  assert.match(prompt, /PROHIBIDO lanzar subagentes/);
+  assert.match(prompt, /PRIMER PLANO/);
+  assert.match(prompt, /nada de "reviso de nuevo en unos minutos"/);
+  assert.ok(!/Usa subagentes \(herramienta Agent\), con las mismas reglas/.test(prompt), "ya no manda usar subagentes");
+  assert.match(promptDelPlan({ titulo: "Algo", tablero: "T", detalle: "d", intentos: 1 }, repo), /subagentes/, "al planear sí puede usarlos");
 });
 
 const USO_REAL = [
@@ -355,6 +464,7 @@ archivo(
   "ensayo.mjs",
   'import fs from "node:fs";\nconst c = "prisma/migrations";\nfor (const d of fs.readdirSync(c)) { if (fs.readFileSync(`${c}/${d}/migration.sql`, "utf8").includes("FALLA_PGLITE")) { console.error("falló " + d); process.exit(1); } }\nconsole.log("pglite ok");\n',
 );
+archivo("pruebas-largas.mjs", 'for (let i = 1; i <= 400; i += 1) console.log(i === 300 ? "not ok 300 - la prueba que falló" : `ok ${i} - prueba ${i}`);\nprocess.exit(1);\n');
 archivo("viejo.txt", "ERROR_LINT (ya estaba en main: no cuenta)\n");
 archivo("conflicto.txt", "lo de main\n");
 archivo("prisma/migrations/20260101000000_base/migration.sql", "SELECT 1;\n");
@@ -394,12 +504,40 @@ const nueva = (titulo, estado, extra = {}) => {
 };
 /** Como SQL_CANDIDATAS: primero las SUBIENDO pendientes, después en el orden en que se crearon. */
 const candidatasDelFalso = () => {
+  // `dependeDe`: ids de las que tienen que estar HECHO antes (las flechas esDependencia; no aplica a SUBIENDO).
+  const sinPendientes = (t) => t.estado === "SUBIENDO" || (t.dependeDe ?? []).every((id) => tarjetas.get(id)?.estado === "HECHO");
   const lista = [...tarjetas.values()].filter(
-    (t) => t.estado === "APROBADO" || (t.estado === "PLAN_APROBADO" && t.plan) || (t.estado === "SUBIENDO" && !t.venceEn),
+    (t) => (t.estado === "APROBADO" || (t.estado === "PLAN_APROBADO" && t.plan) || (t.estado === "SUBIENDO" && !t.venceEn)) && sinPendientes(t),
   );
   return [...lista.filter((t) => t.estado === "SUBIENDO"), ...lista.filter((t) => t.estado !== "SUBIENDO")];
 };
-const paraElTrabajador = (t) => ({ ...t, zonasAprobadas: t.zonaProtegida, link: `https://crm.falso/cliente/tablero-ia?tarjeta=${t.id}` });
+// Reparar solo (24-oct-2026): una tarjeta con `moderno: true` trae lo que manda el CRM nuevo en /tomar
+// (reparaciones, topeReparaciones, esperasSeguidas, esParte, ultimosIntentos, ultimoError); sin eso el
+// Coordinador se porta como con un CRM viejo (a la primera falla, /error), que es lo que prueban las de arriba.
+const esperasSeguidasDe = (t) => {
+  const lista = t.intentosLista ?? [];
+  const ultimaQueCuenta = lista.map((i) => i.cuentaComoIntento).lastIndexOf(true);
+  return lista.slice(ultimaQueCuenta + 1).filter((i) => !i.cuentaComoIntento).length;
+};
+const paraElTrabajador = (t) => ({
+  ...t,
+  zonasAprobadas: t.zonaProtegida,
+  link: `https://crm.falso/cliente/tablero-ia?tarjeta=${t.id}`,
+  ...(t.moderno
+    ? {
+        reparaciones: t.reparaciones ?? 0,
+        topeReparaciones: 3,
+        esperasSeguidas: esperasSeguidasDe(t),
+        esParte: [...tarjetas.values()].some((otra) => otra.resultado?.partida?.hijas?.includes(t.id)),
+        ultimosIntentos: (t.intentosLista ?? []).slice(-6),
+        ultimoError: [...(t.intentosLista ?? [])].reverse().find((i) => i.error)?.error ?? null,
+      }
+    : {}),
+});
+/** Anota un intento en la tarjeta (el IntentoTarjeta del CRM real). */
+const anotarIntento = (t, datos, accion, cuentaComoIntento) => {
+  t.intentosLista = [...(t.intentosLista ?? []), { numero: (t.intentosLista?.length ?? 0) + 1, etapa: datos.etapa, categoria: datos.categoria, causa: datos.causa, error: datos.error ?? null, accion, cuentaComoIntento }];
+};
 
 const servidor = http.createServer(async (pedido, respuesta) => {
   const contestar = (codigo, datos) => {
@@ -446,9 +584,36 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     return contestar(200, { ok: true });
   }
   if (accion === "soltar") {
+    // Con `categoria` (CRM nuevo) deja un intento "esperar" que NO cuenta.
+    if (cuerpo.categoria) anotarIntento(tarjeta, cuerpo, "esperar", false);
     tarjeta.estado = { PLANEANDO: "APROBADO", EN_CURSO: "PLAN_APROBADO", SUBIENDO: "SUBIENDO" }[tarjeta.estado];
     Object.assign(tarjeta, { venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1), soltada: cuerpo.motivo });
     return contestar(200, { ok: true, estado: tarjeta.estado });
+  }
+  if (accion === "reparar") {
+    // Como el CRM: tope de 3 reparaciones, vuelve a la fila y deja el intento (con la causa y el error exacto).
+    if ((tarjeta.reparaciones ?? 0) >= reglas.TOPE_DE_REPARACIONES) return contestar(409, { ok: false, error: "Ya lleva 3 reparaciones" });
+    anotarIntento(tarjeta, cuerpo, "reparar", true);
+    Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado), venceEn: null, reparaciones: (tarjeta.reparaciones ?? 0) + 1 });
+    return contestar(200, { ok: true, estado: tarjeta.estado, reparaciones: tarjeta.reparaciones });
+  }
+  if (accion === "partir") {
+    const partes = reglas.partesDeEntrada(cuerpo.partes);
+    anotarIntento(tarjeta, { ...cuerpo, etapa: "construir", categoria: cuerpo.categoria ?? "tarea_muy_grande" }, "partir", false);
+    const hijas = [];
+    for (const [indice, parte] of partes.entries()) {
+      // Cada hija depende de la anterior: se construyen en orden.
+      hijas.push(nueva(reglas.tituloDeLaParte(tarjeta.titulo, indice + 1, parte.titulo), "APROBADO", { detalle: parte.detalle, moderno: true, dependeDe: hijas.slice(-1) }));
+    }
+    Object.assign(tarjeta, { estado: "EN_CURSO", venceEn: null, resultado: { ...(tarjeta.resultado ?? {}), partida: { hijas, causa: cuerpo.causa } } });
+    return contestar(200, { ok: true, hijas });
+  }
+  if (accion === "error" && cuerpo.categoria) {
+    // Escalar con motivo: el resumen de máximo 3 líneas y el intento "escalar".
+    anotarIntento(tarjeta, cuerpo, "escalar", true);
+    tarjeta.estado = "ERROR";
+    Object.assign(tarjeta, { venceEn: null, resultado: { ...(tarjeta.resultado ?? {}), error: { motivo: reglas.resumenDeEscalada(cuerpo.motivo), categoria: cuerpo.categoria } } });
+    return contestar(200, { ok: true, estado: "ERROR" });
   }
   tarjeta.estado = reglas.TRANSICIONES_DEL_TRABAJADOR[accion].a;
   tarjeta.venceEn = null;
@@ -480,6 +645,9 @@ const crearConfig = (tiempos = {}, delRepo = {}, extra = {}) =>
     comandoCodex: [node, falso("codex-falso.mjs")],
     motores: { planear: "claude", construir: "claude", revisar: "claude" },
     vigilarUsoMinutos: 0,
+    // Las pruebas de siempre no esperan al PC (la espera tiene su propia prueba) y no vigilan sesiones quietas.
+    limites: { esperaMaximaMinutos: 0 },
+    atasco: { minutos: 0 },
     ...extra,
     tiempos: { latidoSegundos: 1, planMinutos: 0.3, construirMinutos: 1, subirMinutos: 1, comandoMinutos: 1, ...tiempos },
     git: { nombre: "Trabajador de prueba", correo: "trabajador@x.co" },
@@ -715,6 +883,150 @@ try {
     assert.equal(tarjetas.get(id).estado, "ERROR");
     assert.match(tarjetas.get(id).resultado.error.motivo, /conflicto en el rebase/);
     assert.equal(shaDe("main"), mainAhora, "no subió nada");
+    sinRestos();
+  });
+
+  /* ── Reparar solo (24-oct-2026): diagnosticar, reparar, partir, esperar y escalar ── */
+  const soltarTodas = (...ids) => {
+    for (const id of ids) Object.assign(tarjetas.get(id), { estado: "HECHO", venceEn: null });
+  };
+  const nuevaModerna = (titulo, estado = "PLAN_APROBADO", extra = {}) => nueva(titulo, estado, { plan: "El plan", moderno: true, ...extra });
+  const ultimaDeClaude = (titulo) => leerLog(LOGS.claude).findLast((l) => l.titulo === titulo && l.modo === "acceptEdits");
+
+  await prueba("lección A: si fallan las pruebas, el motivo trae la línea 'not ok 300' (no solo el principio) y la salida completa queda en un archivo", async () => {
+    const id = nueva("Pruebas largas [pruebas-largas]", "PLAN_APROBADO", { plan: "El plan" });
+    const resultado = await vuelta(crearConfig({}, { pruebas: [[node, "pruebas-largas.mjs"]] }));
+    assert.equal(resultado.ok, false);
+    const motivo = tarjetas.get(id).resultado.error.motivo;
+    assert.match(motivo, /^Fallaron las pruebas que ya existen/);
+    assert.match(motivo, /Líneas que fallaron:[\s\S]*not ok 300 - la prueba que falló/);
+    assert.match(motivo, /ok 400 - prueba 400/, "y el final de la salida");
+    const ruta = motivo.match(/Salida completa: (.+)/)?.[1]?.trim();
+    assert.ok(ruta && fs.existsSync(ruta), "la salida completa se guardó en un archivo");
+    const lineas = fs.readFileSync(ruta, "utf8").trim().split(/\r?\n/);
+    assert.equal(lineas.length, 400);
+    assert.equal(lineas[299], "not ok 300 - la prueba que falló");
+    sinRestos();
+  });
+
+  await prueba("falla -> diagnóstico -> reparar: el siguiente intento recibe la causa y el error exacto, y construir no usa subagentes", async () => {
+    const id = nuevaModerna("Se rompe una vez [tsc-una-vez]");
+    const resultado = await vuelta();
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.accion, "reparar");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_APROBADO", "vuelve a la fila, no queda en ERROR");
+    assert.equal(t.reparaciones, 1);
+    assert.equal(t.intentosLista.length, 1);
+    assert.deepEqual([t.intentosLista[0].categoria, t.intentosLista[0].accion, t.intentosLista[0].etapa], ["no_compila", "reparar", "construir"]);
+    assert.match(t.intentosLista[0].causa, /compil/i);
+    assert.match(t.intentosLista[0].error, /error TS2322/);
+    // Construir no lanza subagentes: Agent y Task bloqueados, no permitidos, y el prompt lo prohíbe.
+    const primera = ultimaDeClaude("Se rompe una vez [tsc-una-vez]");
+    const permitidas = primera.argumentos.slice(primera.argumentos.indexOf("--allowedTools") + 1, primera.argumentos.indexOf("--disallowedTools"));
+    const prohibidas = primera.argumentos.slice(primera.argumentos.indexOf("--disallowedTools") + 1);
+    assert.ok(!permitidas.includes("Agent") && !permitidas.includes("Task"));
+    assert.ok(prohibidas.includes("Agent") && prohibidas.includes("Task"));
+    assert.match(primera.prompt, /PROHIBIDO lanzar subagentes/);
+    // Segundo intento: recibe la causa y el error exacto, y corrige eso.
+    assert.equal((await vuelta()).ok, true);
+    const segunda = ultimaDeClaude("Se rompe una vez [tsc-una-vez]");
+    assert.notEqual(segunda.prompt, primera.prompt, "no repite lo mismo");
+    assert.match(segunda.prompt, /REPARACIÓN 1 de 3/);
+    assert.match(segunda.prompt, /La causa fue: .*compil/i);
+    assert.match(segunda.prompt, /error TS2322/);
+    assert.match(segunda.prompt, /Corrige solo eso/);
+    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("3 reparaciones que no alcanzan: queda en ERROR con un resumen de 3 líneas (qué falló, qué se probó, qué necesita)", async () => {
+    const id = nuevaModerna("Nunca compila [tsc]");
+    for (const esperado of ["reparar", "reparar", "reparar", "escalar"]) {
+      const resultado = await vuelta();
+      assert.equal(resultado.accion, esperado);
+    }
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.equal(t.reparaciones, 3);
+    assert.deepEqual(t.intentosLista.map((i) => i.accion), ["reparar", "reparar", "reparar", "escalar"]);
+    const lineas = t.resultado.error.motivo.split("\n");
+    assert.equal(lineas.length, 3, "máximo 3 líneas");
+    assert.match(lineas[0], /^Qué falló:/);
+    assert.match(lineas[1], /^Qué se probó:.*3 reparaciones/);
+    assert.match(lineas[2], /^Qué necesita de ti:/);
+    assert.equal(t.resultado.error.categoria, "no_compila");
+    assert.match(t.intentosLista[3].error, /error TS2322/, "el error exacto queda en el intento");
+    sinRestos();
+  });
+
+  await prueba("límite de Claude: espera sin contar como intento ni reparación y sin ERROR", async () => {
+    const id = nuevaModerna("Sin cupo [limite]");
+    const resultado = await vuelta();
+    assert.equal(resultado.limiteDeUso, true);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_APROBADO");
+    assert.equal(t.reparaciones ?? 0, 0);
+    assert.equal(t.intentos, 0, "no gastó el intento");
+    assert.deepEqual([t.intentosLista[0].categoria, t.intentosLista[0].accion, t.intentosLista[0].cuentaComoIntento], ["limite_claude", "esperar", false]);
+    assert.ok(!llamadas.some((l) => l.accion === "error" && l.id === id));
+    soltarTodas(id);
+  });
+
+  await prueba("tarea grande: se pasa del tiempo con muchos archivos y se parte en partes que dependen una de otra", async () => {
+    const id = nuevaModerna("Tarea enorme [muchos-archivos]");
+    const resultado = await vuelta(crearConfig({ construirMinutos: 0.08 }));
+    assert.equal(resultado.accion, "partir", resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "EN_CURSO", "la madre espera sus partes");
+    assert.equal(t.resultado.partida.hijas.length, 2);
+    const [primera, segunda] = t.resultado.partida.hijas;
+    assert.deepEqual(tarjetas.get(primera).dependeDe, []);
+    assert.deepEqual(tarjetas.get(segunda).dependeDe, [primera], "la parte 2 depende de la 1");
+    assert.equal(t.intentosLista.at(-1).accion, "partir");
+    assert.equal(t.intentosLista.at(-1).cuentaComoIntento, false);
+    // En orden: la primera parte arranca; la segunda espera a que la primera esté HECHO.
+    const siguiente = await vuelta();
+    assert.equal(siguiente.tarjetaId, primera);
+    assert.equal(tarjetas.get(segunda).estado, "APROBADO");
+    soltarTodas(id, primera, segunda);
+    sinRestos();
+  });
+
+  await prueba("dependencias: Marketing no arranca hasta que Ventas esté HECHO (aunque sea más vieja)", async () => {
+    const marketing = nueva("Agente de Marketing", "APROBADO");
+    const ventas = nueva("Agente de Ventas", "APROBADO");
+    tarjetas.get(marketing).dependeDe = [ventas];
+    const primera = await vuelta();
+    assert.equal(primera.tarjetaId, ventas, "arranca Ventas, no Marketing");
+    assert.equal(tarjetas.get(marketing).estado, "APROBADO");
+    assert.deepEqual(await vuelta(), { hizo: null, motivo: "nada" }, "con Ventas sin terminar, Marketing espera");
+    soltarTodas(ventas);
+    const despues = await vuelta();
+    assert.equal(despues.tarjetaId, marketing, "con Ventas HECHO, Marketing arranca");
+    soltarTodas(marketing);
+  });
+
+  await prueba("sesión atascada: sin tocar archivos ni CPU se corta, se diagnostica y, si se repite, se parte la tarea", async () => {
+    const id = nuevaModerna("Se queda esperando [atascado]");
+    // El reloj de la prueba va acelerado: 15 min -> 2 s, revisando cada 0.3 s.
+    const rapida = crearConfig({}, {}, { atasco: { minutos: 0.035, revisarCadaSegundos: 0.3, cpuMinimaSegundos: 30 } });
+    const inicio = Date.now();
+    const primera = await vuelta(rapida);
+    assert.ok(Date.now() - inicio < 60_000, "no esperó los 2 minutos de la sesión quieta");
+    assert.equal(primera.categoria, "sesion_atascada");
+    assert.equal(primera.accion, "reparar");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_APROBADO");
+    assert.match(t.intentosLista[0].causa, /atascada|segundo plano/i);
+    // El siguiente intento recibe la orden de no esperar nada.
+    const segunda = await vuelta(rapida);
+    assert.match(ultimaDeClaude("Se queda esperando [atascado]").prompt, /no lances subagentes ni dejes nada en segundo plano/);
+    assert.equal(segunda.categoria, "sesion_atascada");
+    assert.equal(segunda.accion, "partir", "se atascó otra vez: la tarea se parte");
+    assert.equal(t.resultado.partida.hijas.length, 2);
+    soltarTodas(id, ...t.resultado.partida.hijas);
     sinRestos();
   });
 
