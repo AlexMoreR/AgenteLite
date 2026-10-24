@@ -3,6 +3,20 @@
 Las reglas generales del proyecto (estructura, comandos, convenciones, componentes) están en
 [`AGENTS.md`](AGENTS.md). Este archivo documenta lo que es específico de trabajar con Claude.
 
+## REGLAS DE EJECUCIÓN (obligatorias)
+
+Las leen todas las sesiones (en aizen1 y en la nube). Existen porque varias sesiones quedaron sin
+terminar o "Detenidas", sin salida, por mandar trabajo a segundo plano.
+
+- Todo comando (`npm ci`, build, pruebas) se corre en **primer plano** y se espera hasta tener su salida.
+- **PROHIBIDO** usar tareas en segundo plano (`run_in_background`) y lanzar subagentes en segundo plano.
+  Los subagentes sí se pueden usar, pero siempre esperando su respuesta.
+- **PROHIBIDO** terminar el turno o "volver a revisar más tarde" con trabajo pendiente: la sesión no
+  termina hasta tener el resultado (OK o error).
+- Guardar siempre las líneas que fallaron y las últimas 30 líneas de la salida, y ponerlas en el resultado.
+- Antes de compilar (build) o correr pruebas, correr `npm ci`.
+- No usar `claude --teleport` solo para vigilar otra sesión.
+
 ## La herramienta del MCP `que_es_esta_aplicacion`
 
 Es la primera herramienta del MCP del CRM y la que un asesor de IA debería llamar al empezar: explica el
