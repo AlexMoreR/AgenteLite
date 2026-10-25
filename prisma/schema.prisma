@@ -38,6 +38,7 @@ model User {
   diagrams              Diagram[]             @relation("DiagramCreatedBy")
   aprobadorTablero      AprobadorTablero[]
   tablerosInteligentes  TableroInteligente[]  @relation("TableroDueno")
+  tarjetasAsignadas     TarjetaTablero[]      @relation("TarjetaResponsable")
   reunionesCreadas      Reunion[]             @relation("ReunionCreadaPor")
 }
 
@@ -2068,6 +2069,9 @@ model TarjetaTablero {
   trabajoVenceEn    DateTime?
   /// Cuántas reparaciones seguidas lleva (tope 3: TOPE_DE_REPARACIONES). El dueño que pulsa Reintentar la deja en 0.
   reparaciones      Int                @default(0)
+  /// userId de la persona activa del negocio a quien se asignó la tarjeta (opcional). Si se borra el usuario, queda sin responsable.
+  responsableId     String?
+  responsable   User?              @relation("TarjetaResponsable", fields: [responsableId], references: [id], onDelete: SetNull)
   tablero       TableroInteligente @relation(fields: [tableroId], references: [id], onDelete: Cascade)
   tipo          TipoTarjeta        @relation(fields: [tipoId], references: [id], onDelete: Restrict)
   padre         TarjetaTablero?    @relation("TarjetaMadre", fields: [padreId], references: [id], onDelete: SetNull)
@@ -2080,6 +2084,7 @@ model TarjetaTablero {
   @@index([tableroId, estado])
   @@index([tipoId])
   @@index([padreId])
+  @@index([responsableId])
 }
 
 /// Una flecha entre dos tarjetas del mismo tablero (sale de origen y llega a destino). Una sola por par.

@@ -1662,4 +1662,130 @@ prueba("porQueElPlanEsperaTuSi: sin línea y hablando de abonos espera; sin lín
   assert.equal(riesgo.porQueElPlanEsperaTuSi("Muestra los abonos en una lista.\nAPROBAR PLAN: SOLO"), null);
 });
 
+/* ------------------------------------------------------------------ responsable de la tarjeta */
+
+prueba("puedeAsignarResponsable: el dueño y el ADMIN (soloDe null) siempre; la dueña del tablero; otra persona no", () => {
+  assert.equal(reglas.puedeAsignarResponsable(null, "u-ana"), true, "dueño del negocio o ADMIN en un tablero con dueña");
+  assert.equal(reglas.puedeAsignarResponsable(null, null), true, "dueño del negocio en un tablero sin dueño");
+  assert.equal(reglas.puedeAsignarResponsable("u-ana", "u-ana"), true, "la dueña del tablero");
+  assert.equal(reglas.puedeAsignarResponsable("u-bruno", "u-ana"), false, "otra persona (solo ve la tarjeta que le asignaron)");
+});
+
+prueba("puedeAsignarResponsable: un tablero sin dueño solo lo asigna quien ve todo (soloDe null)", () => {
+  assert.equal(reglas.puedeAsignarResponsable("u-ana", null), false);
+  assert.equal(reglas.puedeAsignarResponsable("", null), false);
+});
+
+prueba("soloCambiaResponsable: solo si todo el cambio es el responsable", () => {
+  assert.equal(reglas.soloCambiaResponsable(["responsableId"]), true);
+  assert.equal(reglas.soloCambiaResponsable(["responsableId", "responsableId"]), true);
+  assert.equal(reglas.soloCambiaResponsable(["responsableId", "titulo"]), false);
+  assert.equal(reglas.soloCambiaResponsable(["titulo"]), false);
+  assert.equal(reglas.soloCambiaResponsable(["responsableId", "riesgo"]), false);
+  assert.equal(reglas.soloCambiaResponsable([]), false, "sin cambios no es 'solo el responsable'");
+});
+
+prueba("elegirMiembro con rol responsable: encuentra por id, email, nombre y nombre parcial", () => {
+  const miembros = [
+    { userId: "u1", nombre: "Emanuel Diaz", email: "emanuel@x.co" },
+    { userId: "u2", nombre: "Ana Pérez", email: "ana@x.co" },
+    { userId: "u3", nombre: "Ana Gómez", email: "ana2@x.co" },
+  ];
+  assert.equal(reglas.elegirMiembro(miembros, "Emanuel", "responsable").miembro.userId, "u1");
+  assert.equal(reglas.elegirMiembro(miembros, "emanuel diaz", "responsable").miembro.userId, "u1");
+  assert.equal(reglas.elegirMiembro(miembros, "ANA2@X.CO", "responsable").miembro.userId, "u3");
+  assert.equal(reglas.elegirMiembro(miembros, "u2", "responsable").miembro.userId, "u2");
+  assert.equal(reglas.elegirMiembro(miembros, "ana gomez", "responsable").miembro.userId, "u3");
+});
+
+prueba("elegirMiembro con rol responsable: los mensajes dicen 'responsable', no 'dueño'", () => {
+  const miembros = [
+    { userId: "u1", nombre: "Emanuel Diaz", email: "emanuel@x.co" },
+    { userId: "u2", nombre: "Ana Pérez", email: "ana@x.co" },
+    { userId: "u3", nombre: "Ana Gómez", email: "ana2@x.co" },
+  ];
+  assert.equal(reglas.elegirMiembro(miembros, "", "responsable").error, "Falta el responsable: el nombre o el email de una persona del negocio.");
+  assert.equal(reglas.elegirMiembro(miembros, undefined, "responsable").error, "Falta el responsable: el nombre o el email de una persona del negocio.");
+  const noExiste = reglas.elegirMiembro(miembros, "Zoe", "responsable").error;
+  assert.ok(noExiste.includes('"Zoe" no es una persona activa de este negocio'), noExiste);
+  assert.ok(noExiste.includes("Pueden ser responsables: Emanuel Diaz, Ana Pérez, Ana Gómez."), noExiste);
+  assert.ok(!noExiste.includes("dueños"), noExiste);
+  const ambiguo = reglas.elegirMiembro(miembros, "Ana", "responsable").error;
+  assert.ok(ambiguo.includes("Hay más de una persona así"), ambiguo);
+  assert.ok(ambiguo.includes("Ana Pérez (ana@x.co)") && ambiguo.includes("Ana Gómez (ana2@x.co)"), ambiguo);
+  assert.ok(ambiguo.endsWith("Usa el email."), ambiguo);
+  assert.ok(reglas.elegirMiembro([], "Zoe", "responsable").error.includes("Pueden ser responsables: nadie."));
+});
+
+prueba("elegirMiembro sin rol sigue diciendo 'dueño' (no se rompió lo de los tableros)", () => {
+  const miembros = [{ userId: "u1", nombre: "Emanuel Diaz", email: "emanuel@x.co" }];
+  assert.equal(reglas.elegirMiembro(miembros, "").error, "Falta el dueño: el nombre o el email de una persona del negocio.");
+  assert.ok(reglas.elegirMiembro(miembros, "Zoe").error.includes("Pueden ser dueños: Emanuel Diaz."));
+  assert.equal(reglas.elegirMiembro(miembros, "Emanuel").miembro.userId, "u1");
+});
+
+prueba("inicialDeLaPersona: la inicial en mayúscula; '?' si no hay nombre", () => {
+  assert.equal(reglas.inicialDeLaPersona("Emanuel"), "E");
+  assert.equal(reglas.inicialDeLaPersona("emanuel diaz"), "E");
+  assert.equal(reglas.inicialDeLaPersona("  ana pérez  "), "A");
+  assert.equal(reglas.inicialDeLaPersona("Ñandú"), "Ñ");
+  assert.equal(reglas.inicialDeLaPersona(""), "?");
+  assert.equal(reglas.inicialDeLaPersona("   "), "?");
+  assert.equal(reglas.inicialDeLaPersona(null), "?");
+  assert.equal(reglas.inicialDeLaPersona(undefined), "?");
+});
+
+{
+  // Área (A) > Idea (I) > Tareas; B es otra Área.
+  const arbol = (extra = []) => [
+    { id: "A", padreId: null, responsableId: null },
+    { id: "I", padreId: "A", responsableId: null },
+    { id: "T1", padreId: "I", responsableId: "u-ana" },
+    { id: "T2", padreId: "I", responsableId: "u-bruno" },
+    { id: "B", padreId: null, responsableId: null },
+    { id: "I2", padreId: "B", responsableId: null },
+    ...extra,
+  ];
+
+  prueba("tarjetasConMias: incluye las mías y todas sus madres (la carpeta con tareas mías no se apaga)", () => {
+    const mias = reglasNiveles.tarjetasConMias(arbol(), "u-ana");
+    assert.deepEqual([...mias].sort(), ["A", "I", "T1"]);
+    assert.ok(!mias.has("T2") && !mias.has("B") && !mias.has("I2"));
+  });
+
+  prueba("tarjetasConMias: una madre que también es mía no se duplica; sin tarjetas mías, vacío", () => {
+    const mias = reglasNiveles.tarjetasConMias(arbol([{ id: "T3", padreId: "T1", responsableId: "u-ana" }]), "u-ana");
+    assert.deepEqual([...mias].sort(), ["A", "I", "T1", "T3"]);
+    assert.equal(reglasNiveles.tarjetasConMias(arbol(), "u-nadie").size, 0);
+    assert.equal(reglasNiveles.tarjetasConMias([], "u-ana").size, 0);
+  });
+
+  prueba("tarjetasConMias: ignora las borradas (ni ellas ni sus madres cuentan)", () => {
+    const tarjetas = arbol().map((t) => (t.id === "T1" ? { ...t, borradoEn: new Date() } : t));
+    assert.equal(reglasNiveles.tarjetasConMias(tarjetas, "u-ana").size, 0);
+    // Una borrada con madre mía: la madre sigue contando por ser mía.
+    const conMadreMia = [
+      { id: "M", padreId: null, responsableId: "u-ana" },
+      { id: "H", padreId: "M", responsableId: "u-ana", borradoEn: new Date() },
+    ];
+    assert.deepEqual([...reglasNiveles.tarjetasConMias(conMadreMia, "u-ana")], ["M"]);
+  });
+
+  prueba("tarjetasConMias: una madre que no está en la lista no rompe nada", () => {
+    const mias = reglasNiveles.tarjetasConMias([{ id: "X", padreId: "no-existe", responsableId: "u-ana" }], "u-ana");
+    assert.deepEqual([...mias], ["X"]);
+  });
+
+  prueba("tarjetasConMias: un ciclo en las madres no cuelga", () => {
+    const ciclo = [
+      { id: "P", padreId: "Q", responsableId: "u-ana" },
+      { id: "Q", padreId: "R", responsableId: null },
+      { id: "R", padreId: "P", responsableId: null },
+      { id: "S", padreId: "S", responsableId: "u-ana" },
+    ];
+    const mias = reglasNiveles.tarjetasConMias(ciclo, "u-ana");
+    assert.deepEqual([...mias].sort(), ["P", "Q", "R", "S"]);
+  });
+}
+
 console.log(`\n${pruebas} pruebas, todas bien`);

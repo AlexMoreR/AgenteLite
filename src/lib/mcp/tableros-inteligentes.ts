@@ -14,6 +14,7 @@ import {
   linkDelTablero,
   listarTableros,
   listarTipos,
+  miembrosDelNegocio,
   planYResultado,
   renombrarTablero,
   tableroDeLaTarjeta,
@@ -30,6 +31,7 @@ import {
   ESTADOS_TARJETA,
   ICONOS_DE_TIPO,
   NOMBRE_DEL_ESTADO,
+  elegirMiembro,
   sePuedeMarcarHechoAMano,
 } from "@/features/tableros-inteligentes/services/reglas";
 import { contarHijas } from "@/features/tableros-inteligentes/services/niveles";
@@ -161,6 +163,12 @@ const PROPIEDAD_MOTIVO_RIESGO = {
   description: "Una frase que explique por qué es BAJO o ALTO (se ve en la tarjeta y queda en el historial de la aprobación automática). Opcional.",
 } as const;
 
+const PROPIEDAD_RESPONSABLE = {
+  type: "string",
+  description:
+    "A quién se le asigna la tarjeta: el nombre o el email de una persona activa del negocio (por ejemplo 'Emanuel'). Si el nombre coincide con más de una persona, da error y pide el email. La persona la ve en 'Asignadas a mí' aunque esté en un tablero que no es suyo. Opcional.",
+} as const;
+
 export const HERRAMIENTAS_MCP_TABLEROS = [
   {
     name: "listar_tableros",
@@ -214,12 +222,16 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "ver_tablero",
     title: "Ver un tablero",
     description:
-      "Muestra las tarjetas de un tablero (título, detalle, tipo, de qué tarjeta cuelga, área, estado, fecha, link) con qué flechas las unen, y los tipos del tablero. Hay que llamarla antes de editar o conectar: devuelve los ids.",
+      "Muestra las tarjetas de un tablero (título, detalle, tipo, de qué tarjeta cuelga, área, estado, responsable, fecha, link) con qué flechas las unen, y los tipos del tablero. Hay que llamarla antes de editar o conectar: devuelve los ids.",
     inputSchema: {
       type: "object",
       properties: {
         tablero_id: { type: "string", description: "Id del tablero (ver listar_tableros)" },
         estado: { type: "string", enum: [...ESTADOS_TARJETA], description: "Solo las tarjetas en este estado. Opcional." },
+        responsable: {
+          type: "string",
+          description: "Solo las tarjetas asignadas a esta persona: su nombre o email (de una persona activa del negocio). Opcional.",
+        },
       },
       required: ["tablero_id"],
       additionalProperties: false,
@@ -291,6 +303,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
         zona_protegida: PROPIEDAD_ZONA,
         riesgo: PROPIEDAD_RIESGO,
         motivo_riesgo: PROPIEDAD_MOTIVO_RIESGO,
+        responsable: PROPIEDAD_RESPONSABLE,
         conectar_con: {
           type: "array",
           items: { type: "string" },
@@ -306,7 +319,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "editar_tarjeta",
     title: "Editar una tarjeta",
     description:
-      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo, la zona protegida o el riesgo (BAJO / ALTO, con su motivo_riesgo) de una tarjeta. Se manda solo lo que cambia. Si queda POR_APROBAR con riesgo BAJO y el interruptor está prendido, se aprueba sola. Si estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR. Mientras el Coordinador la tiene (PLANEANDO, EN_CURSO, SUBIENDO) no se edita. Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla)." +
+      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo, la zona protegida, el riesgo (BAJO / ALTO, con su motivo_riesgo) o el responsable (a quién se le asigna; asignar NO reinicia la aprobación) de una tarjeta. Se manda solo lo que cambia. Si queda POR_APROBAR con riesgo BAJO y el interruptor está prendido, se aprueba sola. Si estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR. Mientras el Coordinador la tiene (PLANEANDO, EN_CURSO, SUBIENDO) no se edita. Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla)." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -325,6 +338,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
         zona_protegida: { ...PROPIEDAD_ZONA, description: "Zonas protegidas que AGREGAR (las que ya tiene se quedan: quitarlas es solo del dueño en la pantalla)." },
         riesgo: { ...PROPIEDAD_RIESGO, enum: [...RIESGOS, ""], description: `${PROPIEDAD_RIESGO.description} Vacío para quitarlo (queda como ALTO). Claude no puede bajar a BAJO una tarjeta que el trabajador o el dueño dejaron en ALTO.` },
         motivo_riesgo: PROPIEDAD_MOTIVO_RIESGO,
+        responsable: { ...PROPIEDAD_RESPONSABLE, description: `${PROPIEDAD_RESPONSABLE.description} Vacío para quitar el responsable.` },
       },
       required: ["tarjeta_id"],
       additionalProperties: false,
@@ -626,9 +640,19 @@ export async function ejecutarHerramientaMcpTableros(
       const hijas = contarHijas(tarjetas);
       const usaEstados = (tipoId: string) => tipoDe.get(tipoId)?.usaEstados ?? true;
       // Las carpetas (Área) no tienen estado: el filtro por estado no las trae.
-      const visibles = filtro
+      const porEstado = filtro
         ? tarjetas.filter((tarjeta) => usaEstados(tarjeta.tipoId) && tarjeta.estado === filtro)
         : tarjetas;
+      // El filtro por responsable: una persona activa del negocio (nombre o email); si hay dudas, error.
+      const pedidoResponsable = typeof args.responsable === "string" ? args.responsable.trim() : "";
+      let filtroResponsable: { userId: string; nombre: string } | null = null;
+      if (pedidoResponsable) {
+        const elegido = elegirMiembro(await miembrosDelNegocio(contexto.workspaceId), pedidoResponsable, "responsable");
+        if ("error" in elegido) throw new Error(elegido.error);
+        filtroResponsable = { userId: elegido.miembro.userId, nombre: elegido.miembro.nombre };
+      }
+      const idDelFiltro: string | null = filtroResponsable ? filtroResponsable.userId : null;
+      const visibles = idDelFiltro ? porEstado.filter((tarjeta) => tarjeta.responsableId === idDelFiltro) : porEstado;
       const ids = new Set(visibles.map((tarjeta) => tarjeta.id));
       return {
         tablero: referencia(tablero),
@@ -657,6 +681,7 @@ export async function ejecutarHerramientaMcpTableros(
             detalle: tarjeta.detalle || null,
             area: tarjeta.area,
             estado: usaEstados(tarjeta.tipoId) ? tarjeta.estado : null,
+            responsable: tarjeta.responsableNombre,
             orden: tarjeta.orden,
             fecha: dia(tarjeta.fecha),
             link: tarjeta.link,
@@ -674,7 +699,7 @@ export async function ejecutarHerramientaMcpTableros(
           };
         }),
         conexiones: conexiones
-          .filter((conexion) => !filtro || ids.has(conexion.origenId) || ids.has(conexion.destinoId))
+          .filter((conexion) => (!filtro && !idDelFiltro) || ids.has(conexion.origenId) || ids.has(conexion.destinoId))
           .map((conexion) => ({
             de: conexion.origenId,
             de_titulo: titulo.get(conexion.origenId) ?? null,
@@ -736,6 +761,7 @@ export async function ejecutarHerramientaMcpTableros(
         zonaProtegida: args.zona_protegida,
         riesgo: args.riesgo,
         motivoRiesgo: args.motivo_riesgo,
+        responsable: args.responsable,
       });
       return {
         ok: true,
@@ -744,6 +770,7 @@ export async function ejecutarHerramientaMcpTableros(
         tipo: resultado.tipo.nombre,
         padre_id: resultado.tarjeta.padreId,
         estado: resultado.tipo.usaEstados ? resultado.tarjeta.estado : null,
+        responsable: resultado.tarjeta.responsableNombre,
         ...(resultado.tarjeta.repo ? { repo: resultado.tarjeta.repo, riesgo: resultado.tarjeta.riesgo ?? "ALTO (sin riesgo puesto)" } : {}),
         ...(resultado.tarjeta.zonaProtegida.length ? { zona_protegida: resultado.tarjeta.zonaProtegida } : {}),
         ...(resultado.aprobacionAutomatica?.aprobada ? { aprobada_sola: true } : {}),
@@ -778,6 +805,7 @@ export async function ejecutarHerramientaMcpTableros(
         zonaProtegida: args.zona_protegida,
         riesgo: args.riesgo,
         motivoRiesgo: args.motivo_riesgo,
+        responsable: args.responsable,
       });
       const aviso = resultado.aprobacionAutomatica?.aprobada
         ? "Quedó APROBADA sola por la regla de bajo riesgo: el trabajador la toma enseguida, sin pedirle permiso al dueño."
@@ -802,6 +830,7 @@ export async function ejecutarHerramientaMcpTableros(
         tipo: resultado.tipo.nombre,
         padre_id: resultado.tarjeta.padreId,
         estado: resultado.tipo.usaEstados ? resultado.tarjeta.estado : null,
+        responsable: resultado.tarjeta.responsableNombre,
         repo: resultado.tarjeta.repo,
         riesgo: resultado.tarjeta.repo ? (resultado.tarjeta.riesgo ?? "ALTO (sin riesgo puesto)") : null,
         zona_protegida: resultado.tarjeta.zonaProtegida,

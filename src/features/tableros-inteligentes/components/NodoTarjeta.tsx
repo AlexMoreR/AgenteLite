@@ -6,6 +6,7 @@ import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { cn } from "@/lib/utils";
 import { ANCHO_CENTRO, ANCHO_TARJETA } from "../services/disposicion";
 import type { Contadores } from "../services/niveles";
+import { inicialDeLaPersona } from "../services/reglas";
 
 export type DatosNodoTarjeta = {
   titulo: string;
@@ -16,6 +17,8 @@ export type DatosNodoTarjeta = {
   /** Es la tarjeta del nivel actual (la del centro): tocarla abre su ficha. */
   esNivel: boolean;
   atenuado: boolean;
+  /** El nombre de su responsable (se dibuja su inicial en un circulito); null si no tiene. */
+  responsable: string | null;
   /** Abre la ficha sin entrar (mantener presionada una tarjeta con hijas). */
   alAbrirFicha: () => void;
 };
@@ -98,6 +101,18 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
     >
       {/* Las líneas se dibujan solas: los puntos de conexión no se muestran ni se arrastran. */}
       <Handle type="target" position={Position.Top} className="!pointer-events-none !opacity-0" isConnectable={false} />
+      {data.responsable ? (
+        <span
+          className={cn(
+            "absolute top-0.5 right-0.5 flex size-4 items-center justify-center rounded-full text-[9px] font-semibold leading-none",
+            centro ? "bg-zinc-50 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-50" : "bg-zinc-900 text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900",
+          )}
+          title={`Responsable: ${data.responsable}`}
+          aria-label={`Responsable: ${data.responsable}`}
+        >
+          {inicialDeLaPersona(data.responsable)}
+        </span>
+      ) : null}
       {/* El título: hasta 3 líneas (con o sin contadores) y entero al pasar el mouse. */}
       <p className={cn("line-clamp-3 max-w-full break-words font-semibold", centro ? "text-sm" : "text-xs")}>{data.titulo}</p>
       {lineas.map((linea) => (

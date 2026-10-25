@@ -109,6 +109,22 @@ export async function cambiarZonasAction(tarjetaId: string, zonas: string[]): Pr
 }
 
 /**
+ * Asignar la tarjeta a una persona del negocio (su userId) o quitar el responsable (null). Lo hace quien
+ * edita ese tablero: el alcance de la sesión lo comprueba, y quien solo es responsable de una tarjeta de
+ * un tablero ajeno recibe "no existe". No cambia el estado: asignar no reinicia la aprobación.
+ */
+export async function cambiarResponsableAction(tarjetaId: string, responsableId: string | null): Promise<Resultado> {
+  const contexto = await contextoDePantalla();
+  try {
+    await editarTarjeta(contexto, tarjetaId, { responsable: responsableId });
+    return { ok: true };
+  } catch (fallo) {
+    const texto = mensaje(fallo, "No se pudo asignar la tarjeta");
+    return texto === "No hay nada distinto para cambiar." ? { ok: true } : { ok: false, error: texto };
+  }
+}
+
+/**
  * La persona de la sesión con su alcance: el dueño o el ADMIN ven todos los tableros; los demás, solo
  * los suyos (tableros por cuenta, 20-oct-2026). Un tablero ajeno responde "no existe".
  */

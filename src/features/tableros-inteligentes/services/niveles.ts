@@ -272,6 +272,28 @@ export function atenuadaPorGrupos(contadores: Contadores, activos: ReadonlySet<G
 }
 
 /**
+ * Filtro "Mis tarjetas": los ids de las tarjetas que son de esta persona o que tienen, más abajo, alguna
+ * suya (así una carpeta con tareas mías no se apaga). Las demás se ven apagadas, no desaparecen.
+ */
+export function tarjetasConMias(
+  tarjetas: readonly { id: string; padreId: string | null; responsableId: string | null; borradoEn?: unknown }[],
+  userId: string,
+): Set<string> {
+  const porId = new Map(tarjetas.map((tarjeta) => [tarjeta.id, tarjeta]));
+  const conMias = new Set<string>();
+  for (const tarjeta of tarjetas) {
+    if (tarjeta.borradoEn || tarjeta.responsableId !== userId) continue;
+    // Sube por las madres hasta la raíz (con tope y sin repetir, por si los datos tuvieran un ciclo).
+    let actual: typeof tarjeta | undefined = tarjeta;
+    while (actual && !conMias.has(actual.id)) {
+      conMias.add(actual.id);
+      actual = actual.padreId ? porId.get(actual.padreId) : undefined;
+    }
+  }
+  return conMias;
+}
+
+/**
  * Los contadores de un tablero entero a partir de un conteo agrupado (estado y tipo, cuántas): los
  * de la página de inicio, que no lee las tarjetas. Suman lo mismo que los chips en la raíz.
  */

@@ -24,6 +24,7 @@ export const RUTA_DEL_INICIO = "/cliente/tablero-ia";
 
 /** El diagrama de un tablero. */
 export const linkDelTableroEnPantalla = (id: string) => `${RUTA_DEL_INICIO}?tablero=${encodeURIComponent(id)}`;
+export const linkDeLaTarjetaEnPantalla = (id: string) => `${RUTA_DEL_INICIO}?tarjeta=${encodeURIComponent(id)}`;
 
 /** Lo que edita el diálogo: un tablero que se renombra, o uno nuevo. */
 export type EdicionDeTablero =

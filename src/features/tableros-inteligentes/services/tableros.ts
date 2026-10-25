@@ -26,6 +26,7 @@ import {
   puedeDeshacer,
   puedeEditarTarjeta,
   sePuedeMarcarHechoAMano,
+  soloCambiaResponsable,
   tieneAprobacion,
   ESTADOS_CON_APROBACION,
   problemaDelNombreDeTablero,
@@ -171,6 +172,9 @@ export type TarjetaVista = {
   /** Reparaciones seguidas (tope 3): "Reparación N de 3" mientras espera en la fila. */
   reparaciones: number;
   trabajoVenceEn: string | null;
+  /** A quién se le asignó (un miembro activo del negocio) y su nombre; null si no tiene responsable. */
+  responsableId: string | null;
+  responsableNombre: string | null;
 };
 
 /** El resultado del Coordinador como lo ve la pantalla (todo opcional: lo escribe el Coordinador). */
@@ -260,6 +264,8 @@ const SELECT_TARJETA = {
   intentos: true,
   reparaciones: true,
   trabajoVenceEn: true,
+  responsableId: true,
+  responsable: { select: { name: true, email: true } },
 } as const;
 
 type FilaTarjeta = Prisma.TarjetaTableroGetPayload<{ select: typeof SELECT_TARJETA }>;
@@ -290,6 +296,8 @@ function aVista(fila: FilaTarjeta): TarjetaVista {
     intentos: fila.intentos,
     reparaciones: fila.reparaciones,
     trabajoVenceEn: fila.trabajoVenceEn ? fila.trabajoVenceEn.toISOString() : null,
+    responsableId: fila.responsableId,
+    responsableNombre: fila.responsable ? nombreDePersona(fila.responsable) : null,
   };
 }
 
@@ -342,12 +350,29 @@ function aReferencia(fila: Prisma.TableroInteligenteGetPayload<{ select: typeof 
 
 const nombreDePersona = (persona: { name: string | null; email: string }) => persona.name?.trim() || persona.email;
 
-/** Una tarjeta (no borrada) de ESTE negocio (por su tablero, que la persona alcanza), o error. */
-async function tarjetaDelNegocio(alcance: Alcance, tarjetaId: unknown, { incluirBorradas = false } = {}) {
+/**
+ * Una tarjeta (no borrada) de ESTE negocio (por su tablero, que la persona alcanza), o error.
+ * `comoResponsable` es SOLO para leer (ficha, historial, intentos): deja ver también la tarjeta que le
+ * asignaron a la persona en un tablero que no es suyo. Para escribir nunca se usa: el responsable no edita.
+ */
+async function tarjetaDelNegocio(
+  alcance: Alcance,
+  tarjetaId: unknown,
+  { incluirBorradas = false, comoResponsable = false } = {},
+) {
   const id = typeof tarjetaId === "string" ? tarjetaId.trim() : "";
+  const donde: Prisma.TarjetaTableroWhereInput =
+    comoResponsable && alcance.soloDe
+      ? {
+          OR: [
+            { tablero: dondeTablero(alcance) },
+            { responsableId: alcance.soloDe, tablero: { workspaceId: alcance.workspaceId } },
+          ],
+        }
+      : { tablero: dondeTablero(alcance) };
   const tarjeta = id
     ? await prisma.tarjetaTablero.findFirst({
-        where: { id, tablero: dondeTablero(alcance), ...(incluirBorradas ? {} : NO_BORRADA) },
+        where: { id, ...donde, ...(incluirBorradas ? {} : NO_BORRADA) },
         select: { ...SELECT_TARJETA, tableroId: true, borradoEn: true },
       })
     : null;
@@ -648,7 +673,7 @@ export async function tableroDelCambio(alcance: Alcance, cambioId: unknown): Pro
 
 /** Incluye las borradas: así se encuentra el cambio "borrar" para deshacerlo. */
 export async function historialDeTarjeta(alcance: Alcance, tarjetaId: unknown) {
-  const tarjeta = await tarjetaDelNegocio(alcance, tarjetaId, { incluirBorradas: true });
+  const tarjeta = await tarjetaDelNegocio(alcance, tarjetaId, { incluirBorradas: true, comoResponsable: true });
   const filas = await prisma.historialTarjeta.findMany({
     where: { tarjetaId: tarjeta.id },
     orderBy: { creadoEn: "desc" },
@@ -731,7 +756,7 @@ export type IntentoVista = {
 
 /** Los intentos de una tarjeta, del más viejo al más nuevo (los últimos 50). */
 export async function intentosDeLaTarjeta(alcance: Alcance, tarjetaId: unknown): Promise<IntentoVista[]> {
-  const tarjeta = await tarjetaDelNegocio(alcance, tarjetaId, { incluirBorradas: true });
+  const tarjeta = await tarjetaDelNegocio(alcance, tarjetaId, { incluirBorradas: true, comoResponsable: true });
   const filas = await prisma.intentoTarjeta.findMany({
     where: { tarjetaId: tarjeta.id },
     orderBy: { numero: "desc" },
@@ -739,6 +764,74 @@ export async function intentosDeLaTarjeta(alcance: Alcance, tarjetaId: unknown):
     select: { numero: true, etapa: true, categoria: true, causa: true, error: true, accion: true, cuentaComoIntento: true, creadoEn: true },
   });
   return filas.reverse().map(({ creadoEn, ...fila }) => ({ ...fila, cuando: creadoEn.toISOString() }));
+}
+
+/** Una tarjeta asignada a una persona, con el tablero donde está (sección "Asignadas a mí"). */
+export type AsignadaVista = {
+  id: string;
+  titulo: string;
+  estado: EstadoTarjetaTablero;
+  /** false = carpeta (Área): no tiene estado que mostrar. */
+  usaEstados: boolean;
+  tipoNombre: string;
+  tableroId: string;
+  tableroNombre: string;
+  /** El link "ir al tablero" solo se muestra si la persona alcanza ese tablero. */
+  puedeVerElTablero: boolean;
+  actualizadoEn: string;
+};
+
+/** Cuántas tarjetas asignadas se muestran como máximo. */
+const LIMITE_ASIGNADAS = 100;
+
+/**
+ * Las tarjetas vivas del negocio asignadas a esta persona, en cualquier tablero, las que cambiaron
+ * hace poco primero. Las que ya están HECHAS no salen: ya no hay nada que trabajar.
+ */
+export async function asignadasA(alcance: Alcance, userId: string): Promise<AsignadaVista[]> {
+  const filas = await prisma.tarjetaTablero.findMany({
+    where: {
+      responsableId: userId,
+      tablero: { workspaceId: alcance.workspaceId },
+      ...NO_BORRADA,
+      estado: { not: "HECHO" },
+    },
+    orderBy: { actualizadoEn: "desc" },
+    take: LIMITE_ASIGNADAS,
+    select: {
+      id: true,
+      titulo: true,
+      estado: true,
+      actualizadoEn: true,
+      tipo: { select: { nombre: true, usaEstados: true } },
+      tablero: { select: { id: true, nombre: true, duenoUserId: true } },
+    },
+  });
+  return filas.map((fila) => ({
+    id: fila.id,
+    titulo: fila.titulo,
+    estado: fila.estado,
+    usaEstados: fila.tipo.usaEstados,
+    tipoNombre: fila.tipo.nombre,
+    tableroId: fila.tablero.id,
+    tableroNombre: fila.tablero.nombre,
+    puedeVerElTablero: !alcance.soloDe || fila.tablero.duenoUserId === alcance.soloDe,
+    actualizadoEn: fila.actualizadoEn.toISOString(),
+  }));
+}
+
+/**
+ * La ficha de una tarjeta que le asignaron a la persona en un tablero que NO alcanza: solo ESA tarjeta
+ * y los tipos de su tablero (para dibujarla), nunca el resto del tablero. null si no es suya.
+ */
+export async function tarjetaAsignada(workspaceId: string, userId: string, tarjetaId: string) {
+  const fila = await prisma.tarjetaTablero.findFirst({
+    where: { id: tarjetaId, responsableId: userId, tablero: { workspaceId }, ...NO_BORRADA },
+    select: { ...SELECT_TARJETA, tablero: { select: { id: true, nombre: true } } },
+  });
+  if (!fila) return null;
+  const { tablero, ...tarjeta } = fila;
+  return { tarjeta: aVista(tarjeta), tablero, tipos: await tiposDelTablero(prisma, tablero.id) };
 }
 
 /** ver_plan_y_resultado (MCP) y la ficha: estado, repo, plan, resultado, intentos y quién aprobó qué y cuándo. */
@@ -859,6 +952,22 @@ async function duenoDeEntrada(contexto: ContextoTablero, pedido: unknown): Promi
   const elegido = elegirMiembro(await miembrosDelNegocio(contexto.workspaceId), pedido);
   if ("error" in elegido) throw new Error(elegido.error);
   return elegido.miembro.userId;
+}
+
+/**
+ * El responsable pedido para una tarjeta: undefined si no vino (no cambia), null si vino vacío (se quita)
+ * o la persona (id, nombre o email de un miembro ACTIVO del negocio). Un nombre repetido da error.
+ * Asignar lo puede quien edita el tablero: eso ya lo decide `tarjetaDelNegocio` con el alcance.
+ */
+async function responsableDeEntrada(
+  workspaceId: string,
+  pedido: unknown,
+): Promise<{ userId: string; nombre: string } | null | undefined> {
+  if (pedido === undefined) return undefined;
+  if (pedido === null || (typeof pedido === "string" && !pedido.trim())) return null;
+  const elegido = elegirMiembro(await miembrosDelNegocio(workspaceId), pedido, "responsable");
+  if ("error" in elegido) throw new Error(elegido.error);
+  return { userId: elegido.miembro.userId, nombre: elegido.miembro.nombre };
 }
 
 /**
@@ -1212,6 +1321,7 @@ export async function crearTarjeta(
     zonaProtegida?: unknown;
     riesgo?: unknown;
     motivoRiesgo?: unknown;
+    responsable?: unknown;
   },
 ) {
   const tablero = await tableroDelNegocio(contexto, datos.tableroId);
@@ -1244,6 +1354,7 @@ export async function crearTarjeta(
   });
   if (problemaDeRiesgo) throw new Error(problemaDeRiesgo);
   const riesgoMotivo = riesgo ? (motivoDeRiesgoDeEntrada(datos.motivoRiesgo) ?? null) : null;
+  const responsable = (await responsableDeEntrada(contexto.workspaceId, datos.responsable)) ?? null;
   const conectarCon = Array.isArray(datos.conectarCon)
     ? [...new Set(datos.conectarCon.filter((id): id is string => typeof id === "string" && id.trim() !== ""))]
     : [];
@@ -1284,6 +1395,7 @@ export async function crearTarjeta(
         riesgo,
         riesgoMotivo,
         riesgoPor: riesgo ? riesgoPor : null,
+        responsableId: responsable?.userId ?? null,
         creadoPor: contexto.userId,
       },
       select: SELECT_TARJETA,
@@ -1304,6 +1416,8 @@ export async function crearTarjeta(
       riesgo: tarjeta.riesgo,
       riesgoMotivo: tarjeta.riesgoMotivo,
       riesgoPor: tarjeta.riesgoPor,
+      // Sin responsable no se anota nada: el historial de antes de este campo queda igual.
+      ...(responsable ? { responsableId: responsable.userId, responsableNombre: responsable.nombre } : {}),
     });
     // Cada flecha es su propio cambio: así se puede deshacer una sin tocar la tarjeta.
     for (const destinoId of conectarCon) {
@@ -1365,6 +1479,7 @@ type CamposEditables = {
   riesgo?: string | null;
   riesgoMotivo?: string | null;
   riesgoPor?: string | null;
+  responsableId?: string | null;
 };
 
 export async function editarTarjeta(
@@ -1384,13 +1499,22 @@ export async function editarTarjeta(
     zonaProtegida?: unknown;
     riesgo?: unknown;
     motivoRiesgo?: unknown;
+    responsable?: unknown;
   },
 ) {
   const actual = await tarjetaDelNegocio(contexto, tarjetaId);
-  const enManos = puedeEditarTarjeta(actual.estado, Boolean(actual.repo));
+  // Asignar a alguien no toca el texto ni el trabajo: se puede aunque el Coordinador tenga la tarjeta.
+  const soloAsigna =
+    cambios.responsable !== undefined &&
+    Object.entries(cambios).every(([campo, valor]) => campo === "responsable" || valor === undefined);
+  const enManos = soloAsigna ? null : puedeEditarTarjeta(actual.estado, Boolean(actual.repo));
   if (enManos) throw new Error(enManos);
 
   const nuevo: CamposEditables = {};
+  const responsable = await responsableDeEntrada(contexto.workspaceId, cambios.responsable);
+  if (responsable !== undefined && (responsable?.userId ?? null) !== actual.responsableId) {
+    nuevo.responsableId = responsable?.userId ?? null;
+  }
   const repo = repoDeEntrada(cambios.repo);
   if (repo !== undefined && repo !== actual.repo) nuevo.repo = repo;
   // La zona protegida: Claude (y el Coordinador) la pueden poner, no quitar. Quitarla es de la pantalla.
@@ -1485,7 +1609,8 @@ export async function editarTarjeta(
   } else if (motivoPedido !== undefined && actual.riesgo && motivoPedido !== actual.riesgoMotivo) {
     nuevo.riesgoMotivo = motivoPedido;
   }
-  if (nuevo.riesgo === undefined && actual.riesgo === "BAJO") {
+  // Asignar a alguien nunca toca el riesgo (ni el estado): el recálculo automático es solo si cambia otra cosa.
+  if (!soloAsigna && nuevo.riesgo === undefined && actual.riesgo === "BAJO") {
     const motivos = motivosDeRiesgoAlto(datosDeRiesgo);
     if (motivos.length) {
       nuevo.riesgo = "ALTO";
@@ -1498,14 +1623,22 @@ export async function editarTarjeta(
     throw new Error("No hay nada distinto para cambiar.");
   }
 
-  const estado = nuevo.tipoId
-    ? estadoTrasCambiarTipo(tipoFinal.requiereAprobacion, tipoFinal.usaEstados)
-    : estadoTrasEditar(contexto.origen, actual.estado);
+  // Cambiar solo el responsable no reinicia la aprobación: la tarjeta sigue en el estado en que estaba.
+  const estado = soloCambiaResponsable(Object.keys(nuevo))
+    ? actual.estado
+    : nuevo.tipoId
+      ? estadoTrasCambiarTipo(tipoFinal.requiereAprobacion, tipoFinal.usaEstados)
+      : estadoTrasEditar(contexto.origen, actual.estado);
   const antes: Record<string, unknown> = {};
   const despues: Record<string, unknown> = {};
   for (const campo of Object.keys(nuevo) as (keyof CamposEditables)[]) {
     antes[campo] = campo === "fecha" ? isoONull(actual.fecha) : actual[campo];
     despues[campo] = campo === "fecha" ? isoONull(nuevo.fecha) : nuevo[campo];
+  }
+  if (nuevo.responsableId !== undefined) {
+    // El historial dice el nombre ("asignó a Emanuel"), no solo el id.
+    antes.responsableNombre = actual.responsable ? nombreDePersona(actual.responsable) : null;
+    despues.responsableNombre = responsable?.nombre ?? null;
   }
   if (estado !== actual.estado) {
     antes.estado = actual.estado;
@@ -1531,7 +1664,10 @@ export async function editarTarjeta(
     };
   });
   // Si quedó POR_APROBAR con riesgo BAJO, se aprueba sola otra vez (si el interruptor está prendido).
-  const aprobacion = await aprobarSiEsBajo(editada.tarjeta);
+  // Asignar a alguien no aprueba nada: ahí el estado se queda como estaba.
+  const aprobacion = soloCambiaResponsable(Object.keys(nuevo))
+    ? { tarjeta: editada.tarjeta, resultado: null }
+    : await aprobarSiEsBajo(editada.tarjeta);
   return { ...editada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado, avisoDeRiesgo };
 }
 
@@ -2228,6 +2364,21 @@ export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId:
   if ("riesgoPor" in antes) {
     datos.riesgoPor = typeof antes.riesgoPor === "string" ? antes.riesgoPor : null;
     ahora.riesgoPor = tarjeta.riesgoPor;
+  }
+  if ("responsableId" in antes) {
+    const anterior = typeof antes.responsableId === "string" ? antes.responsableId : null;
+    // Solo se devuelve a alguien que sigue siendo una persona activa del negocio.
+    if (anterior) {
+      const sigue = await prisma.workspaceMember.count({
+        where: { workspaceId: contexto.workspaceId, userId: anterior, isActive: true },
+      });
+      if (!sigue) {
+        throw new Error("Quien era responsable antes ya no es una persona activa del negocio: no se puede deshacer. Asigna a alguien con editar_tarjeta.");
+      }
+    }
+    datos.responsableId = anterior;
+    ahora.responsableId = tarjeta.responsableId;
+    ahora.responsableNombre = tarjeta.responsable ? nombreDePersona(tarjeta.responsable) : null;
   }
   const estadoRestaurado = esEstado(antes.estado) ? antes.estado : undefined;
   if (estadoRestaurado) {

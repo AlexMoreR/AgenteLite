@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { Controls, ReactFlow, applyNodeChanges, type NodeChange } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import Link from "next/link";
-import { ArrowLeft, ChevronRight, LayoutGrid, Shapes } from "lucide-react";
+import { ArrowLeft, ChevronRight, LayoutGrid, Shapes, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,7 @@ import {
   gruposDelNivel,
   madresVisibles,
   migasDelNivel,
+  tarjetasConMias,
   tarjetasDelNivel,
   type Contadores,
   type GrupoDeContador,
@@ -88,6 +89,8 @@ type Props = {
   cuentas: CuentasDeTableros;
   /** Dueño del negocio: el sí final y quitar zonas protegidas. */
   esDueno: boolean;
+  /** Puede cambiar el responsable de las tarjetas de este tablero (quien lo edita). */
+  puedeAsignar: boolean;
 };
 
 const CONSULTA_ANGOSTA = "(max-width: 767px)";
@@ -109,9 +112,18 @@ function useEsAngosta() {
 /** Los grupos encendidos (chips). */
 type Filtros = ReadonlySet<GrupoDeContador>;
 
-/** ¿El filtro la atenúa? Las del centro nunca; las demás si no tienen nada en los grupos encendidos. */
-const filtrada = (id: string, centros: ReadonlySet<string>, contadores: ReadonlyMap<string, Contadores>, filtros: Filtros) =>
-  !centros.has(id) && atenuadaPorGrupos(contadores.get(id) ?? contadoresEnCero(), filtros);
+/**
+ * ¿El filtro la atenúa? Las del centro nunca; las demás si no tienen nada en los grupos encendidos o, con
+ * "Mis tarjetas" prendido (`mias` = las tarjetas mías y sus madres), si no hay nada mío en ellas.
+ */
+const filtrada = (
+  id: string,
+  centros: ReadonlySet<string>,
+  contadores: ReadonlyMap<string, Contadores>,
+  filtros: Filtros,
+  mias: ReadonlySet<string> | null,
+) =>
+  !centros.has(id) && (atenuadaPorGrupos(contadores.get(id) ?? contadoresEnCero(), filtros) || (mias !== null && !mias.has(id)));
 
 /** El nivel que de verdad se muestra (uno que ya no existe = la raíz) y sus tarjetas. */
 function nivelVisible(tarjetas: TarjetaVista[], nivel: string | null) {
@@ -135,6 +147,8 @@ function construirNodos(
   filtros: Filtros,
   previas: ReadonlyMap<string, Punto>,
   alAbrirFicha: (id: string) => void,
+  /** El userId de quien mira si "Mis tarjetas" está prendido; null si no. */
+  propias: string | null,
 ): NodoDeTarjeta[] {
   const { nivel, grupos } = gruposDelNivel(contenido.tarjetas, nivelPedido);
   const visibles = grupos.flatMap((grupo) => [grupo.centro, ...grupo.hijas]);
@@ -142,6 +156,7 @@ function construirNodos(
   const centros = new Set(grupos.map((grupo) => grupo.centro));
   const contadores = contadoresDe(contenido);
   const hijas = contarHijas(contenido.tarjetas);
+  const mias = propias ? tarjetasConMias(contenido.tarjetas, propias) : null;
   // Si el nivel pedido ya no existe (se borró) se muestra la raíz: las posiciones de antes no sirven.
   const posiciones = disponerRadial(grupos, nivel === nivelPedido ? previas : new Map());
   return visibles.map((id) => {
@@ -157,7 +172,8 @@ function construirNodos(
         contadores: contadores.get(id) ?? contadoresEnCero(),
         esNivel: centros.has(id),
         // Lo filtrado se atenúa en vez de desaparecer: así no se rompe el mapa.
-        atenuado: filtrada(id, centros, contadores, filtros),
+        atenuado: filtrada(id, centros, contadores, filtros, mias),
+        responsable: tarjeta.responsableNombre,
         alAbrirFicha: () => alAbrirFicha(id),
       },
     };
@@ -184,6 +200,7 @@ export function TablerosInteligentesVista({
   puedeEditarTipos,
   cuentas,
   esDueno,
+  puedeAsignar,
 }: Props) {
   const angosta = useEsAngosta();
 
@@ -192,10 +209,13 @@ export function TablerosInteligentesVista({
     inicial ? nivelVisible(inicial.tarjetas, nivelInicial).nivel : null,
   );
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_INICIALES);
+  // "Mis tarjetas": las que no son mías se ven apagadas (como los chips de grupo).
+  const [soloMias, setSoloMias] = useState(false);
+  const propias = soloMias ? cuentas.yo : null;
   const [abierta, setAbierta] = useState<string | null>(tarjetaInicial);
   const [nodos, setNodos] = useState<NodoDeTarjeta[]>(() =>
     inicial
-      ? construirNodos(inicial, nivelVisible(inicial.tarjetas, nivelInicial).nivel, FILTROS_INICIALES, new Map(), setAbierta)
+      ? construirNodos(inicial, nivelVisible(inicial.tarjetas, nivelInicial).nivel, FILTROS_INICIALES, new Map(), setAbierta, null)
       : [],
   );
   const [panelTipos, setPanelTipos] = useState(false);
@@ -217,10 +237,15 @@ export function TablerosInteligentesVista({
   );
 
   // Lo que necesitan los manejadores de "atrás" del navegador sin recrearse en cada render.
-  const estadoRef = useRef({ contenido, filtros });
+  const estadoRef = useRef({ contenido, filtros, propias });
   useEffect(() => {
-    estadoRef.current = { contenido, filtros };
-  }, [contenido, filtros]);
+    estadoRef.current = { contenido, filtros, propias };
+  }, [contenido, filtros, propias]);
+  const mias = useMemo(() => (propias ? tarjetasConMias(tarjetas, propias) : null), [propias, tarjetas]);
+  const cuantasMias = useMemo(
+    () => tarjetas.filter((tarjeta) => tarjeta.responsableId === cuentas.yo).length,
+    [cuentas.yo, tarjetas],
+  );
 
   // Lo que cambia por fuera (Claude, el trabajador, otra pestaña) entra solo: se cambian los datos,
   // no la página, así que el nivel, la ficha abierta, lo arrastrado y el zoom del mapa se quedan.
@@ -228,11 +253,11 @@ export function TablerosInteligentesVista({
     (nuevo: ContenidoNuevo) => {
       setContenido(nuevo);
       // Mismo nivel: las que ya estaban (o el dueño arrastró) se quedan donde estaban.
-      setNodos((previos) => construirNodos(nuevo, nivel, filtros, posicionesDe(previos), setAbierta));
+      setNodos((previos) => construirNodos(nuevo, nivel, filtros, posicionesDe(previos), setAbierta, propias));
       // Si borraron la tarjeta de la ficha abierta, la ficha se cierra.
       setAbierta((actual) => (actual && nuevo.tarjetas.some((tarjeta) => tarjeta.id === actual) ? actual : null));
     },
-    [nivel, filtros],
+    [nivel, filtros, propias],
   );
 
   const refrescarYa = useRefrescoDelTablero(tableroId, contenido?.actualizadoEn ?? null, alCambiar);
@@ -254,7 +279,7 @@ export function TablerosInteligentesVista({
       const real = nivelVisible(actual.tarjetas, destino).nivel;
       setNivel(real);
       setAbierta(abrir);
-      setNodos(construirNodos(actual, real, estadoRef.current.filtros, new Map(), setAbierta));
+      setNodos(construirNodos(actual, real, estadoRef.current.filtros, new Map(), setAbierta, estadoRef.current.propias));
       if (empujar) window.history.pushState(null, "", urlDelNivel(tableroId, real));
     },
     [tableroId],
@@ -288,7 +313,16 @@ export function TablerosInteligentesVista({
     else siguiente.add(grupo);
     setFiltros(siguiente);
     setNodos((previos) =>
-      previos.map((nodo) => ({ ...nodo, data: { ...nodo.data, atenuado: filtrada(nodo.id, centros, contadores, siguiente) } })),
+      previos.map((nodo) => ({ ...nodo, data: { ...nodo.data, atenuado: filtrada(nodo.id, centros, contadores, siguiente, mias) } })),
+    );
+  };
+
+  const alternarMias = () => {
+    const prendido = !soloMias;
+    setSoloMias(prendido);
+    const siguiente = prendido ? tarjetasConMias(tarjetas, cuentas.yo) : null;
+    setNodos((previos) =>
+      previos.map((nodo) => ({ ...nodo, data: { ...nodo.data, atenuado: filtrada(nodo.id, centros, contadores, filtros, siguiente) } })),
     );
   };
 
@@ -299,7 +333,7 @@ export function TablerosInteligentesVista({
   }, []);
 
   const aristas = useMemo<FlechaDeTablero[]>(() => {
-    const atenuadaPor = (id: string) => filtrada(id, centros, contadores, filtros);
+    const atenuadaPor = (id: string) => filtrada(id, centros, contadores, filtros, mias);
     const esMadreEHija = (a: string, b: string) => madre.get(a) === b || madre.get(b) === a;
     // Las flechas entre tarjetas del nivel: punteadas, tenues y sin punto (lo principal es la madre).
     // Una flecha entre madre e hija no se dibuja: ya la representa la unión con la madre (con su punto).
@@ -339,7 +373,7 @@ export function TablerosInteligentesVista({
         };
       });
     return [...uniones, ...flechas];
-  }, [centros, conexiones, contadores, enNivel, filtros, madre, visibles]);
+  }, [centros, conexiones, contadores, enNivel, filtros, madre, mias, visibles]);
 
   const usosDeTipo = useMemo(() => {
     const cuenta = new Map<string, number>();
@@ -428,6 +462,19 @@ export function TablerosInteligentesVista({
             </button>
           );
         })}
+        <button
+          type="button"
+          onClick={alternarMias}
+          aria-pressed={soloMias}
+          title={soloMias ? "Ver todas las tarjetas" : "Resaltar solo las tarjetas que me asignaron"}
+          className={cn(
+            "flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium tabular-nums md:min-h-0",
+            soloMias ? "border-foreground bg-foreground text-background" : "border-border bg-background text-foreground",
+          )}
+        >
+          <UserRound className="size-3.5 shrink-0" aria-hidden />
+          Mis tarjetas {cuantasMias}
+        </button>
       </div>
 
       <div className="relative min-h-0 flex-1 bg-zinc-50 dark:bg-zinc-950">
@@ -477,6 +524,8 @@ export function TablerosInteligentesVista({
         lado={angosta ? "bottom" : "right"}
         puedeAprobar={puedeAprobar}
         esDueno={esDueno}
+        miembros={cuentas.miembros}
+        puedeAsignar={puedeAsignar}
         alCerrar={() => setAbierta(null)}
         alElegir={mostrarTarjeta}
         alEntrar={(id) => irANivel(id)}

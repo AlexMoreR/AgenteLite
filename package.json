@@ -35,6 +35,8 @@
     "test:tableros-por-cuenta-migracion": "node scripts/check-tableros-por-cuenta-migracion.mjs",
     "test:tablero-riesgo-migracion": "node scripts/check-tablero-riesgo-migracion.mjs",
     "test:tablero-aprobacion-automatica": "node scripts/check-tablero-aprobacion-automatica.mjs",
+    "test:tablero-responsable-migracion": "node scripts/check-tablero-responsable-migracion.mjs",
+    "test:tablero-responsable": "node scripts/check-tablero-responsable.mjs",
     "test:tablero-resumen-diario": "node scripts/check-tablero-resumen-diario.mjs",
     "test:reuniones-unir-pistas": "node scripts/check-reuniones-unir-pistas.mjs",
     "test:reuniones-link-firmado": "node scripts/check-reuniones-link-firmado.mjs",

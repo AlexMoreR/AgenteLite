@@ -8,11 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import {
+  cambiarResponsableAction,
   historialDeTarjetaAction,
   marcarDependenciaAction,
   type CambioDeTarjetaVista,
 } from "@/app/actions/tableros-inteligentes-actions";
-import { NOMBRE_DEL_ESTADO, esEstado, textoDelLink } from "../services/reglas";
+import { NOMBRE_DEL_ESTADO, esEstado, textoDelLink, type MiembroDelNegocio } from "../services/reglas";
 import type { ConexionVista, TarjetaVista, TipoVista } from "../services/tableros";
 import { COLOR_DEL_ESTADO } from "./colores";
 import { IconoDeTipo } from "./IconoDeTipo";
@@ -57,6 +58,7 @@ const CAMPO: Record<string, string> = {
   riesgo: "riesgo",
   riesgoMotivo: "motivo del riesgo",
   riesgoPor: "quién puso el riesgo",
+  responsableId: "responsable",
 };
 
 function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyMap<string, string>): string | null {
@@ -80,14 +82,27 @@ function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyM
     const commit = cambio.accion === "estado" && typeof despues.commit === "string" ? ` · Commit: ${despues.commit}` : "";
     return `${de} → ${a}${momento}${como}${sola}${motivo}${nota}${commit}`;
   }
+  if (cambio.accion === "crear") {
+    return typeof despues.responsableNombre === "string" ? `Asignada a ${despues.responsableNombre}` : null;
+  }
   if (cambio.accion === "editar") {
-    const campos = Object.keys(despues).filter((campo) => campo !== "estado");
+    // El nombre del responsable viaja aparte (responsableNombre): no es un campo que se "cambió".
+    const campos = Object.keys(despues).filter((campo) => campo !== "estado" && campo !== "responsableNombre" && campo !== "responsableId");
+    const asignacion =
+      "responsableId" in despues
+        ? typeof despues.responsableNombre === "string"
+          ? `Asignó a ${despues.responsableNombre}`
+          : typeof antes.responsableNombre === "string"
+            ? `Quitó a ${antes.responsableNombre}`
+            : "Quitó al responsable"
+        : null;
     const tipo =
       typeof antes.tipoId === "string" && typeof despues.tipoId === "string"
         ? ` (${nombreDelTipo.get(antes.tipoId) ?? "?"} → ${nombreDelTipo.get(despues.tipoId) ?? "?"})`
         : "";
     const estado = esEstado(despues.estado) ? ` y quedó ${NOMBRE_DEL_ESTADO[despues.estado]}` : "";
-    return campos.length ? `Cambió ${campos.map((campo) => CAMPO[campo] ?? campo).join(", ")}${tipo}${estado}` : null;
+    const cambios = campos.length ? `Cambió ${campos.map((campo) => CAMPO[campo] ?? campo).join(", ")}${tipo}${estado}` : null;
+    return [asignacion, cambios].filter(Boolean).join(" · ") || null;
   }
   if (cambio.accion === "borrar") {
     const flechas = Array.isArray(antes.conexiones) ? antes.conexiones.length : 0;
@@ -110,6 +125,10 @@ type Props = {
   puedeAprobar: boolean;
   /** Dueño del negocio: el sí final (subir a producción) y quitar zonas protegidas. */
   esDueno: boolean;
+  /** Las personas activas del negocio (para el selector de responsable). */
+  miembros: MiembroDelNegocio[];
+  /** Puede cambiar el responsable (quien edita el tablero). Quien solo es responsable la ve, no la asigna. */
+  puedeAsignar: boolean;
   alCerrar: () => void;
   alElegir: (tarjetaId: string) => void;
   alEntrar: (tarjetaId: string) => void;
@@ -133,6 +152,8 @@ export function FichaTarjeta({
   lado,
   puedeAprobar,
   esDueno,
+  miembros,
+  puedeAsignar,
   alCerrar,
   alElegir,
   alEntrar,
@@ -140,6 +161,7 @@ export function FichaTarjeta({
 }: Props) {
   const [historial, setHistorial] = useState<{ tarjetaId: string; cambios: CambioDeTarjetaVista[] } | null>(null);
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
+  const [asignando, setAsignando] = useState(false);
 
   const titulo = new Map(tarjetas.map((otra) => [otra.id, otra.titulo]));
   const nombreDelTipo = new Map([...tipos.values()].map((tipo) => [tipo.id, tipo.nombre]));
@@ -166,6 +188,20 @@ export function FichaTarjeta({
     const resultado = await marcarDependenciaAction(flecha.id, !flecha.esDependencia);
     if (resultado.ok) toast.success(flecha.esDependencia ? "Ya no depende de aquella" : "Ahora espera a que aquella esté hecha");
     else toast.error(resultado.error);
+    alAprobar();
+  };
+
+  const asignar = async (responsableId: string | null) => {
+    if (!tarjeta) return;
+    setAsignando(true);
+    const resultado = await cambiarResponsableAction(tarjeta.id, responsableId);
+    setAsignando(false);
+    if (resultado.ok) {
+      toast.success(responsableId ? "Tarjeta asignada" : "Sin responsable");
+      setHistorial(null);
+    } else {
+      toast.error(resultado.error);
+    }
     alAprobar();
   };
 
@@ -224,6 +260,34 @@ export function FichaTarjeta({
                   <ExternalLink />
                   <span className="truncate">{textoDelLink(tarjeta.link, tarjeta.linkTexto)}</span>
                 </Button>
+              ) : null}
+
+              {puedeAsignar ? (
+                <label className="block space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground">Responsable</span>
+                  <select
+                    className="h-10 w-full rounded-lg border bg-background px-3 text-sm md:h-9"
+                    value={tarjeta.responsableId ?? ""}
+                    disabled={asignando}
+                    onChange={(evento) => void asignar(evento.target.value || null)}
+                  >
+                    <option value="">Nadie</option>
+                    {/* Alguien que ya no está entre las personas activas igual se muestra mientras sea el responsable. */}
+                    {tarjeta.responsableId && !miembros.some((miembro) => miembro.userId === tarjeta.responsableId) ? (
+                      <option value={tarjeta.responsableId}>{tarjeta.responsableNombre ?? "Otra persona"}</option>
+                    ) : null}
+                    {miembros.map((miembro) => (
+                      <option key={miembro.userId} value={miembro.userId}>
+                        {miembro.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : tarjeta.responsableNombre ? (
+                <p className="text-sm">
+                  <span className="text-xs font-medium text-muted-foreground">Responsable: </span>
+                  {tarjeta.responsableNombre}
+                </p>
               ) : null}
 
               <TrabajoDeLaTarjeta

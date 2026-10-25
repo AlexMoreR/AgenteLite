@@ -92,7 +92,12 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "Antes de escribir, decir en voz alta el nombre del tablero ('Lo anoto en Magilus General, listo?'). Nunca " +
           "adivinar por el ultimo tablero usado. Cada respuesta del tablero trae `tablero` ({id, nombre, dueno}): repetir ese nombre. " +
           "Cada tablero es de una persona (dueno): ella lo ve en su pantalla y el dueno del negocio ve todos; crear_tablero " +
-          "acepta dueno (nombre o email de alguien del negocio) para crearlo a nombre de otra persona.",
+          "acepta dueno (nombre o email de alguien del negocio) para crearlo a nombre de otra persona. " +
+          "RESPONSABLE: crear_tarjeta y editar_tarjeta aceptan responsable (nombre o email de una persona activa del negocio; " +
+          "vacio para quitarlo) para asignar una tarjeta sin crearla otra vez en otro tablero; la persona la ve en 'Asignadas a mi' " +
+          "aunque este en un tablero que no es suyo, pero solo esa tarjeta. Asignar no reinicia la aprobacion. ver_tablero devuelve " +
+          "el responsable de cada tarjeta y acepta responsable para ver solo las de una persona. Si el nombre coincide con dos " +
+          "personas, pedir el email.",
       });
     }
     case "ping":

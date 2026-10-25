@@ -7,10 +7,12 @@ import { Network, Pencil, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { GrupoDeContador } from "../services/niveles";
-import type { TableroDelInicio } from "../services/tableros";
+import { NOMBRE_DEL_ESTADO } from "../services/reglas";
+import type { AsignadaVista, TableroDelInicio } from "../services/tableros";
 import {
   DialogoDeTablero,
   etiquetaDelDueno,
+  linkDeLaTarjetaEnPantalla,
   linkDelTableroEnPantalla,
   puedeRenombrar,
   type CuentasDeTableros,
@@ -56,9 +58,11 @@ type Props = {
   puedeAdministrar: boolean;
   /** Tableros por cuenta: quién mira, si ve todos y a quién le puede dar uno. */
   cuentas: CuentasDeTableros;
+  /** Las tarjetas que le asignaron a quien mira, en cualquier tablero del negocio ("Asignadas a mí"). */
+  asignadas: AsignadaVista[];
 };
 
-export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar, cuentas }: Props) {
+export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar, cuentas, asignadas }: Props) {
   const router = useRouter();
   // Se actualiza sola (tableros nuevos, contadores, nombres) mientras la pestaña está a la vista.
   const { tableros: lista, setTableros } = useListaDeTableros(iniciales, firma);
@@ -71,6 +75,44 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
 
   return (
     <div className="tablero-ia mx-auto w-full max-w-6xl space-y-8 px-4 py-6 md:px-6">
+      {asignadas.length > 0 ? (
+        <section aria-labelledby="titulo-asignadas" className="space-y-3">
+          <div>
+            <h2 id="titulo-asignadas" className="text-lg font-semibold">
+              Asignadas a mí
+            </h2>
+            <p className="text-sm text-muted-foreground">Las tarjetas que te asignaron, estén en el tablero que estén.</p>
+          </div>
+          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {asignadas.map((tarjeta) => (
+              <li key={tarjeta.id} className="flex flex-col gap-1 rounded-xl border bg-card p-3">
+                <Link
+                  href={linkDeLaTarjetaEnPantalla(tarjeta.id)}
+                  className="line-clamp-2 text-sm font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  title={tarjeta.titulo}
+                >
+                  {tarjeta.titulo}
+                </Link>
+                <span className="text-xs text-muted-foreground">
+                  {tarjeta.tipoNombre}
+                  {tarjeta.usaEstados ? ` · ${NOMBRE_DEL_ESTADO[tarjeta.estado]}` : ""}
+                </span>
+                <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                  <span className="truncate" title={tarjeta.tableroNombre}>
+                    En {tarjeta.tableroNombre}
+                  </span>
+                  {tarjeta.puedeVerElTablero ? (
+                    <Link href={linkDelTableroEnPantalla(tarjeta.tableroId)} className="underline-offset-2 hover:underline">
+                      ir al tablero
+                    </Link>
+                  ) : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <section aria-labelledby="titulo-tableros" className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

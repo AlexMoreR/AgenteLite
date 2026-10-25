@@ -399,9 +399,10 @@ export type MiembroDelNegocio = { userId: string; nombre: string; email: string 
 export function elegirMiembro(
   miembros: MiembroDelNegocio[],
   pedido: unknown,
+  rol: "dueño" | "responsable" = "dueño",
 ): { miembro: MiembroDelNegocio } | { error: string } {
   const texto = typeof pedido === "string" ? pedido.trim() : "";
-  if (!texto) return { error: "Falta el dueño: el nombre o el email de una persona del negocio." };
+  if (!texto) return { error: `Falta el ${rol}: el nombre o el email de una persona del negocio.` };
   const clave = claveDeNombre(texto);
   const iguales = miembros.filter(
     (miembro) =>
@@ -411,7 +412,7 @@ export function elegirMiembro(
   if (candidatos.length === 1) return { miembro: candidatos[0] };
   if (!candidatos.length) {
     return {
-      error: `"${texto}" no es una persona activa de este negocio. Pueden ser dueños: ${
+      error: `"${texto}" no es una persona activa de este negocio. Pueden ser ${rol === "dueño" ? "dueños" : "responsables"}: ${
         miembros.map((miembro) => miembro.nombre).join(", ") || "nadie"
       }.`,
     };
@@ -419,6 +420,26 @@ export function elegirMiembro(
   return {
     error: `Hay más de una persona así: ${candidatos.map((miembro) => `${miembro.nombre} (${miembro.email})`).join(", ")}. Usa el email.`,
   };
+}
+
+/**
+ * ¿Esta persona puede asignar el responsable de una tarjeta de este tablero? Quien puede editar el
+ * tablero: el dueño del negocio o un ADMIN (`soloDe` null: ven todos) o la dueña de ese tablero.
+ * Quien es solo la responsable de una tarjeta de un tablero ajeno no asigna: solo la ve.
+ */
+export function puedeAsignarResponsable(soloDe: string | null, duenoDelTablero: string | null): boolean {
+  return soloDe === null || (duenoDelTablero !== null && soloDe === duenoDelTablero);
+}
+
+/** ¿El cambio toca únicamente al responsable? Asignar no reinicia la aprobación ni el estado. */
+export function soloCambiaResponsable(campos: readonly string[]): boolean {
+  return campos.length > 0 && campos.every((campo) => campo === "responsableId");
+}
+
+/** La inicial en mayúscula del nombre ("Emanuel" -> "E") para el circulito de la tarjeta; "?" si no hay nombre. */
+export function inicialDeLaPersona(nombre: string | null | undefined): string {
+  const letra = (nombre ?? "").trim().charAt(0);
+  return letra ? letra.toUpperCase() : "?";
 }
 
 /** Texto limpio, o undefined si no vino (o vino vacío cuando no se permite). */

@@ -3,18 +3,21 @@ import { redirect } from "next/navigation";
 
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
-import { personaPuedeAprobar } from "@/features/tableros-inteligentes/services/reglas";
+import { personaPuedeAprobar, puedeAsignarResponsable } from "@/features/tableros-inteligentes/services/reglas";
 import { nivelDeLaTarjeta } from "@/features/tableros-inteligentes/services/niveles";
 import {
   RUTA_TABLEROS,
   aTableroDelInicio,
   alcanceDe,
+  asignadasA,
   contenidoDelTablero,
   firmaDeLaLista,
   listarTableros,
   miembrosDelNegocio,
   personaQueAprueba,
+  tarjetaAsignada,
 } from "@/features/tableros-inteligentes/services/tableros";
+import { FichaDeAsignada } from "@/features/tableros-inteligentes/components/FichaDeAsignada";
 import { InicioDeTableros } from "@/features/tableros-inteligentes/components/InicioDeTableros";
 import { TablerosInteligentesVista } from "@/features/tableros-inteligentes/components/TablerosInteligentesVista";
 
@@ -54,8 +57,9 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
   const [tableros, persona, miembros] = await Promise.all([
     listarTableros(alcance),
     personaQueAprueba(access.workspaceId, access.userId),
-    // A quién se le puede dar un tablero (el diálogo de nombre del dueño o el ADMIN).
-    alcance.soloDe ? [] : miembrosDelNegocio(access.workspaceId),
+    // A quién se le puede dar un tablero (el diálogo del dueño o el ADMIN) y a quién se le puede asignar
+    // una tarjeta (el selector Responsable de la ficha: lo ve cualquiera que edite un tablero).
+    miembrosDelNegocio(access.workspaceId),
   ]);
   // La sección Trabajador: el dueño o el ADMIN de la plataforma (nunca una asesora).
   const puedeAdministrar = persona.esDueno || persona.esAdminPlataforma;
@@ -63,7 +67,12 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
   // La lista (inicio y selector) se refresca sola: lleva la firma de lo que se leyó ahora.
   const lista = tableros.map(aTableroDelInicio);
   const firmaDeTableros = firmaDeLaLista(tableros);
-  const cuentas = { yo: access.userId, verTodos: alcance.soloDe === null, miembros };
+  // Quien ve solo lo suyo recibe los nombres para el selector de responsable, no los correos de los demás.
+  const cuentas = {
+    yo: access.userId,
+    verTodos: alcance.soloDe === null,
+    miembros: alcance.soloDe ? miembros.map((miembro) => ({ ...miembro, email: "" })) : miembros,
+  };
 
   // Sin nada en el link: la página de inicio con el listado (el último que cambió va primero).
   if (!pedidoTablero && !pedidaTarjeta && !pedidoNivel) {
@@ -73,6 +82,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
         firma={firmaDeTableros}
         puedeAdministrar={puedeAdministrar}
         cuentas={cuentas}
+        asignadas={await asignadasA(alcance, access.userId)}
       />
     );
   }
@@ -93,7 +103,24 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
   // Un link a un tablero (o tarjeta) que ya no existe, o que es de otra persona, vuelve al listado:
   // `tableros` ya trae solo los que esta persona ve.
   const elegido = tableros.find((tablero) => tablero.id === tableroId);
-  if (!elegido) redirect(RUTA_TABLEROS);
+  if (!elegido) {
+    // Una tarjeta que le asignaron en un tablero que no es suyo: se abre SOLO su ficha, sobre el inicio.
+    // Nunca el resto de ese tablero (la condición es que la persona sea la responsable de esa tarjeta).
+    const asignada = pedidaTarjeta ? await tarjetaAsignada(access.workspaceId, access.userId, pedidaTarjeta) : null;
+    if (!asignada) redirect(RUTA_TABLEROS);
+    return (
+      <>
+        <InicioDeTableros
+          tableros={lista}
+          firma={firmaDeTableros}
+          puedeAdministrar={puedeAdministrar}
+          cuentas={cuentas}
+          asignadas={await asignadasA(alcance, access.userId)}
+        />
+        <FichaDeAsignada tarjeta={asignada.tarjeta} tipos={asignada.tipos} />
+      </>
+    );
+  }
   const contenido = await contenidoDelTablero(elegido.id);
   // El link a una tarjeta abre el nivel de su madre; si no, el nivel pedido (la vista lo valida).
   const nivelInicial =
@@ -114,6 +141,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       puedeAprobar={personaPuedeAprobar(access) || persona.esDueno || Boolean(persona.aprobador)}
       puedeEditarTipos={personaPuedeAprobar(access)}
       esDueno={persona.esDueno}
+      puedeAsignar={puedeAsignarResponsable(alcance.soloDe, elegido.duenoUserId)}
     />
   );
 }
