@@ -481,7 +481,7 @@ la IA pausada no lo contesta el agente.
   las tarjetas, no de los latidos. Hoy todo se construye en aizen1: "Nube de Claude" aparece en el panel solo
   cuando el Coordinador mande tareas a la nube, y GitHub Actions solo mientras espera las pruebas automáticas al
   subir. Si aizen1 corre un Coordinador viejo (sin `lib/latido.mjs`), el panel dice "apagado".
-- **Reuniones: solo voz.** No hay cámara, video ni compartir pantalla (la sala pide solo micrófono y el pase de LiveKit solo deja publicar `microphone`). Solo se graba el audio, una pista por persona; el video compuesto (mp4) no
+- **Reuniones: voz y pantalla compartida, sin cámara.** Hay compartir pantalla (Chrome y Edge de PC; en celular el botón no aparece) y el pase de LiveKit deja publicar `microphone`, `screen_share` y `screen_share_audio`, pero no cámara. La pantalla compartida NO se graba: solo se graba el audio de los micrófonos, una pista por persona; el video compuesto (mp4) no
   está en esta versión porque Egress con Chrome come de 2 a 6 núcleos. El chat de la sala no se guarda.
   En un audio subido no se separa quién habló (sale todo como "Audio"). Los audios no se borran desde la
   pantalla. Una reunión SIN grabación (Esperando o Error) sí: botón "Borrar" en la lista y el detalle, con

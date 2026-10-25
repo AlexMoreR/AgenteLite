@@ -123,8 +123,9 @@ export function crearPaseDeEntrada(
         room: datos.sala,
         roomJoin: true,
         canPublish: true,
-        // Solo voz: nadie puede publicar cámara, video ni pantalla.
-        canPublishSources: ["microphone"],
+        // Micrófono y pantalla compartida (con su audio, por si el navegador lo manda). Sin cámara.
+        // La pantalla no se graba: el grabador solo toma audio de micrófono (esMicrofono).
+        canPublishSources: ["microphone", "screen_share", "screen_share_audio"],
         canSubscribe: true,
         canPublishData: true,
         canUpdateOwnMetadata: false,

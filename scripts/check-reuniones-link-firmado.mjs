@@ -160,8 +160,8 @@ prueba("crearPaseDeEntrada: dura 10 minutos, entra solo a su sala y sin roomAdmi
   assert.equal("roomRecord" in cuerpo.video, false);
   assert.equal("roomCreate" in cuerpo.video, false);
   assert.equal("roomList" in cuerpo.video, false);
-  // Solo voz: el pase solo deja publicar el micrófono (nada de cámara ni pantalla).
-  assert.deepEqual(cuerpo.video.canPublishSources, ["microphone"]);
+  // El pase deja publicar micrófono y pantalla compartida (con su audio), nunca la cámara.
+  assert.deepEqual(cuerpo.video.canPublishSources, ["microphone", "screen_share", "screen_share_audio"]);
   // Firmado con el secreto: se verifica con él y no con otro.
   assert.ok(verificarJwt(pase, CONFIG.apiSecret, AHORA));
   assert.equal(verificarJwt(pase, "otro", AHORA), null);

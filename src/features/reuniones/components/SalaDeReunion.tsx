@@ -7,6 +7,7 @@ import {
   MessageSquare,
   Mic,
   MicOff,
+  MonitorUp,
   PhoneOff,
   Send,
   X,
@@ -47,6 +48,22 @@ function AudioDePista({ pista }: { pista: PistaLK }) {
   return <audio ref={audio} autoPlay />;
 }
 
+/** Pega una pista de video (la pantalla compartida) a su elemento. */
+function VideoDePista({ pista, className }: { pista: PistaLK; className?: string }) {
+  const video = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const elemento = video.current;
+    if (!elemento) {
+      return;
+    }
+    pista.attach(elemento);
+    return () => {
+      pista.detach(elemento);
+    };
+  }, [pista]);
+  return <video ref={video} autoPlay playsInline muted className={className} />;
+}
+
 function Cuadro({ participante }: { participante: ParticipanteLK }) {
   const nombre = participante.name || participante.identity;
   return (
@@ -69,7 +86,8 @@ function Cuadro({ participante }: { participante: ParticipanteLK }) {
 }
 
 /**
- * Adentro de la reunión: solo voz (micrófono, silenciar, salir) y chat. Sin cámara, video ni pantalla.
+ * Adentro de la reunión: micrófono, compartir pantalla, chat y salir. Sin cámara. La pantalla
+ * compartida se ve grande para todos y no se graba (solo se graba el audio de los micrófonos).
  * Quien la creó, el dueño y los administradores ven
  * "Terminar reunión", que la cierra para todos.
  */
@@ -203,6 +221,25 @@ export function SalaDeReunion({
     repintar();
   };
 
+  // El botón solo existe si el navegador sabe compartir pantalla (Chrome y Edge de PC; el celular no).
+  const puedeCompartir = typeof navigator !== "undefined" && typeof navigator.mediaDevices?.getDisplayMedia === "function";
+
+  const alternarPantalla = async () => {
+    if (!local) {
+      return;
+    }
+    try {
+      await local.setScreenShareEnabled(!local.isScreenShareEnabled);
+    } catch (error) {
+      // Si la persona cancela el permiso no es un error; otro fallo (por ejemplo, el sistema lo bloquea) sí se avisa.
+      const nombre = error instanceof Error ? error.name : "";
+      if (nombre !== "NotAllowedError" && nombre !== "AbortError") {
+        toast.error("No se pudo compartir la pantalla. Revisa los permisos del navegador o del sistema.");
+      }
+    }
+    repintar();
+  };
+
   const enviar = async (evento: React.FormEvent) => {
     evento.preventDefault();
     const limpio = texto.trim().slice(0, 1000);
@@ -251,6 +288,17 @@ export function SalaDeReunion({
         )
     : [];
 
+  // La pantalla que alguien comparte (la primera con video). Quien comparte la ve en pequeño, no grande.
+  const pantalla = lk
+    ? participantes
+        .filter((participante) => !participante.isLocal)
+        .map((participante) => participante.getTrackPublication(lk.Track.Source.ScreenShare))
+        .find((publicacion) => publicacion?.track)
+    : undefined;
+  const quienComparte = pantalla
+    ? participantes.find((participante) => participante.getTrackPublication(lk!.Track.Source.ScreenShare) === pantalla)
+    : undefined;
+
   return (
     <div className="flex h-dvh flex-col bg-neutral-950 text-white">
       <div className="flex shrink-0 items-center bg-neutral-900 px-3 py-1.5">
@@ -271,7 +319,15 @@ export function SalaDeReunion({
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+              {pantalla?.track ? (
+                <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg bg-black">
+                  <VideoDePista pista={pantalla.track} className="size-full object-contain" />
+                  <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
+                    Pantalla de {quienComparte?.name || quienComparte?.identity}
+                  </span>
+                </div>
+              ) : null}
+              <div className={cn("grid gap-2", pantalla ? "shrink-0 grid-cols-3 md:grid-cols-6" : "grid-cols-2 md:grid-cols-3")}>
                 {participantes.map((participante) => (
                   <Cuadro key={participante.identity} participante={participante} />
                 ))}
@@ -318,6 +374,19 @@ export function SalaDeReunion({
         >
           {local?.isMicrophoneEnabled ? <Mic /> : <MicOff />}
         </Button>
+        {puedeCompartir ? (
+          <Button
+            size="icon-lg"
+            variant={local?.isScreenShareEnabled ? "default" : "outline"}
+            onClick={() => void alternarPantalla()}
+            disabled={!local}
+            aria-label="Compartir pantalla"
+            title={local?.isScreenShareEnabled ? "Dejar de compartir" : "Compartir pantalla"}
+            className={cn(!local?.isScreenShareEnabled && "text-foreground")}
+          >
+            <MonitorUp />
+          </Button>
+        ) : null}
         <Button
           size="icon-lg"
           variant={chatAbierto ? "default" : "outline"}
