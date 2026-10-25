@@ -228,10 +228,13 @@ const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, c."actualizad
  * Las que podría tomar, SIN tomarlas, en el orden en que las tomaría. El trabajador las mira para no
  * juntar en paralelo dos del mismo repo que tocan la misma zona o el mismo módulo, ni dos subidas del
  * mismo repo: esas las manda en `excluir` a /tomar y esperan en fila.
+ * "desbloquea" (25-oct-2026): cuántas tarjetas esperan a que esta esté HECHO (flechas esDependencia que salen de
+ * ella): el Coordinador toma primero las que desbloquean a otras (trabajador-tablero/lib/reparto.mjs).
  * Parámetros: $1 = workspaceId, $2 = repos (text[]).
  */
 export const SQL_CANDIDATAS = `
-SELECT c."id", c."titulo", c."estado"::text AS "estado", c."repo", c."zonaProtegida", c."plan"
+SELECT c."id", c."titulo", c."estado"::text AS "estado", c."repo", c."zonaProtegida", c."plan",
+  (SELECT count(*)::int FROM "ConexionTarjeta" d WHERE d."origenId" = c."id" AND d."esDependencia") AS "desbloquea"
 FROM "TarjetaTablero" c
 JOIN "TableroInteligente" b ON b."id" = c."tableroId"
 JOIN "TipoTarjeta" k ON k."id" = c."tipoId"

@@ -473,7 +473,7 @@ async function cerrarLaMadreSiToca(tx: Tx, contexto: ContextoTrabajador, hija: {
 /** POST /candidatas: las que /tomar podría tomar, sin tomarlas (con su repo, zonas y plan). */
 export async function candidatasDelTrabajador(contexto: ContextoTrabajador) {
   const filas = await prisma.$queryRawUnsafe<
-    { id: string; titulo: string; estado: string; repo: string; zonaProtegida: string[]; plan: string | null }[]
+    { id: string; titulo: string; estado: string; repo: string; zonaProtegida: string[]; plan: string | null; desbloquea: number }[]
   >(SQL_CANDIDATAS, contexto.workspaceId, [...REPOS_DEL_TRABAJADOR]);
   return {
     candidatas: filas.map((fila) => ({

@@ -22,7 +22,13 @@
 // pausaLimiteMinutos) y sus pasos esperan o pasan al otro según config.motores; las candidatas cuyo paso
 // no tiene motor van en `excluir`. Cada config.vigilarUsoMinutos se mira el uso de Claude: sobre
 // config.umbralClaude todos los pasos van con Codex y sale UN aviso por WhatsApp por cruce.
+// Escoger y partir (25-oct-2026, reparto.mjs y cola.mjs): de las candidatas que no chocan se toma la más cerca de HECHO,
+// la que desbloquea a otras y la más chica (las demás van en `excluir`); una tarea de aizen1 muy grande se parte
+// ANTES de construirla; y los pasos pesados (npm ci, lint, tsc, build, pruebas) de todas las sesiones pasan por UNA
+// cola en aizen1 (config.colaPesada.maximo, 1 por defecto), así 3 sesiones no compilan a la vez en un i3 de 2 núcleos.
 import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.mjs";
+import { crearColaPesada } from "./cola.mjs";
+import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
 import { TOPE_DE_REPARACIONES, decidir, diagnosticar, enUnaLinea, resumenDeEscalada } from "./diagnostico.mjs";
 import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, partirTarea, planear, subir } from "./etapas.mjs";
 import { idCorto } from "./git.mjs";
@@ -85,7 +91,7 @@ export async function unaVuelta({ crm, config, registro }) {
   return { hizo: hacer, tarjetaId: tarjeta.id, ...resultado };
 }
 
-export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null }, tarjeta, hacer) {
+export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null, colaPesada = null, etiqueta = "" }, tarjeta, hacer) {
   const control = new AbortController();
   // Lo que escribe la sesión se guarda también aquí: es el "log del intento" si falla.
   const bitacora = [];
@@ -132,10 +138,14 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     linkSesion: null,
   });
   const fase = (etapa, extra = {}) => Object.assign(vivo, { etapa }, extra);
-  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, lugar: enNube ? "nube" : "aizen1" };
+  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1" };
   try {
     const etapa = ETAPAS[hacer];
     if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este Coordinador no sabe hacer (¿hay que actualizarlo?).`);
+    if (hacer === "construir" && !enNube && conReparaciones) {
+      const partida = await partirAntesDeConstruir({ crm, config, registro, contexto }, tarjeta);
+      if (partida) return { ok: true, estado: "EN_CURSO", partes: partida };
+    }
     const salida = await etapa(contexto, tarjeta);
     if (vencida) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se trabajaba.");
     let respuesta;
@@ -183,6 +193,42 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     clearInterval(reloj);
     await latidoEnVuelo;
   }
+}
+
+/**
+ * PARTIR ANTES de construir (25-oct-2026, reparto.mjs: debePartirAntes): una tarea de aizen1 con un plan muy grande se
+ * parte en 2 a 4 partes chicas, en orden, en vez de gastar 90 min y caerse por tiempo o por choque con main. Las partes
+ * las crea el CRM (/partir) en PLAN_APROBADO, heredando la aprobación de la madre: eso vale SOLO si no agregan alcance
+ * (partesSinAlcanceNuevo); si agregan, o si partir falla, se construye la tarea entera como siempre.
+ * Devuelve cuántas partes quedaron, o 0 si no se partió. El límite de uso de Claude se deja subir (la tarjeta se suelta).
+ */
+async function partirAntesDeConstruir({ crm, config, registro, contexto }, tarjeta) {
+  const repo = config.repos[tarjeta.repo];
+  const decision = debePartirAntes(tarjeta, { partir: config.partir, carpetaMigraciones: repo?.carpetaMigraciones ?? undefined, sinChoque: repo?.sinChoque });
+  if (!decision.partir) return 0;
+  registro.info(`tarea grande (${decision.motivo}): la parto en partes chicas antes de construir`);
+  const causa = enUnaLinea(`Tarea grande: ${decision.motivo}. Se partió antes de construir para que no se caiga por tiempo ni choque con main.`);
+  let partes;
+  try {
+    partes = await partirTarea(contexto, tarjeta, { causa, error: "" });
+  } catch (error) {
+    if (error?.limiteDeUso) throw error;
+    registro.aviso(`no se pudo partir antes de construir (${String(error?.message ?? error).split("\n")[0]}): se construye entera`);
+    return 0;
+  }
+  const alcance = partesSinAlcanceNuevo(tarjeta.plan, partes, { sinChoque: repo?.sinChoque });
+  if (!alcance.ok) {
+    registro.aviso(`las partes tocan módulos que el plan aprobado no nombra (${alcance.fuera.join(", ")}): no heredan la aprobación; se construye entera`);
+    return 0;
+  }
+  try {
+    await crm.partir(tarjeta.id, { causa, error: "", partes, categoria: "tarea_muy_grande", etapa: "construir" });
+  } catch (error) {
+    registro.aviso(`el CRM no dejó partir (${error.message}): se construye entera`);
+    return 0;
+  }
+  registro.info(`la tarea se partió en ${partes.length} partes (antes de construir): ${partes.map((parte) => parte.titulo).join(" | ")}`);
+  return partes.length;
 }
 
 async function soltar(crm, registro, tarjeta, motivo, extra) {
@@ -238,6 +284,10 @@ async function manejarFalla({ crm, config, registro, contexto, bitacora }, tarje
   if (decision.accion === "partir") {
     try {
       const partes = await partirTarea(contexto, tarjeta, { causa: diagnostico.causa, error: diagnostico.error });
+      // Las partes heredan la aprobación de la madre: solo si no agregan alcance (25-oct-2026).
+      const repo = config.repos[tarjeta.repo];
+      const alcance = partesSinAlcanceNuevo(tarjeta.plan, partes, { sinChoque: repo?.sinChoque });
+      if (!alcance.ok) throw new Error(`las partes tocan módulos que el plan aprobado no nombra (${alcance.fuera.join(", ")})`);
       await crm.partir(tarjeta.id, { causa: diagnostico.causa, error: diagnostico.error, partes });
       registro.info(`la tarea se partió en ${partes.length} partes: ${partes.map((parte) => parte.titulo).join(" | ")}`);
       return { ...resultado, partes: partes.length };
@@ -370,7 +420,7 @@ export function crearPlanificador({
   crm,
   config,
   registro,
-  medidor = crearMedidor(),
+  medidor = crearMedidor({ muestras: Math.max(1, Math.round(((config.limites?.cpuPromedioMinutos ?? 3) * 60) / 5)) }),
   motores = crearEstadoDeMotores(config),
   vigilante = crearVigilanteDeUso({ config, registro, crm, estado: motores, entorno: entornoSeguro() }),
 }) {
@@ -382,6 +432,8 @@ export function crearPlanificador({
   const enNube = new Map();
   // Lo que vuelve de la nube se verifica en aizen1 (npm ci, build…): no más a la vez que puestos tiene aizen1.
   const puestosDeVerificacion = crearSemaforo(Math.max(1, max));
+  // La cola de pasos pesados de aizen1 (cola.mjs): una sola para todas las sesiones (0 = sin cola, como antes).
+  const colaPesada = (config.colaPesada?.maximo ?? 0) > 0 ? crearColaPesada({ maximo: config.colaPesada.maximo }) : null;
   let despertar = null;
   // Terminó una sesión mientras no se esperaba: la próxima espera no duerme.
   let cupoNuevo = false;
@@ -442,7 +494,19 @@ export function crearPlanificador({
     contarCorriendo();
     if (!nube) esperaPcDesde = null;
     sesion.promesa = procesar(
-      { crm, config, registro: suRegistro, motores, medidor, otrasSesiones: () => Math.max(0, sesiones.size - (nube ? 0 : 1)), vivo, lugar: donde, puestoParaVerificar: (senal) => puestosDeVerificacion.tomar(senal) },
+      {
+        crm,
+        config,
+        registro: suRegistro,
+        motores,
+        medidor,
+        otrasSesiones: () => Math.max(0, sesiones.size - (nube ? 0 : 1)),
+        vivo,
+        lugar: donde,
+        puestoParaVerificar: (senal) => puestosDeVerificacion.tomar(senal),
+        colaPesada,
+        etiqueta: nube ? `nube ${idCorto(tarjeta.id)}` : `s${n} ${idCorto(tarjeta.id)}`,
+      },
       tarjeta,
       hacer,
     )
@@ -516,7 +580,8 @@ export function crearPlanificador({
       const estadoDeCupos = { aizenOk, nubeUsable, nubeLibre };
       const corriendo = [...sesiones.values(), ...enNube.values()].map((s) => s.huella);
       let excluir = [...descartadas.keys()];
-      if (corriendo.length || sinMotor.length || nubeUsable || !aizenOk || descartadas.size) {
+      // Siempre se miran las candidatas (25-oct-2026): también para ESCOGER cuál conviene (ordenarCandidatas).
+      {
         const { candidatas = [] } = await crm.candidatas();
         const chocan = corriendo.length ? candidatasQueChocan(candidatas, corriendo, config.repos) : {};
         for (const c of candidatas) if (!chocan[c.id] && sinMotor.includes(c.hacer)) chocan[c.id] = `(sin motor para ${c.hacer})`;
@@ -533,6 +598,11 @@ export function crearPlanificador({
           avisarUnaVez(`fila-${excluir.join(",")}-${sesiones.size}-${enNube.size}`, `esperan en fila: ${enFila.join("; ")}`);
           return;
         }
+        // ESCOGER: de las que sí se pueden tomar, la mejor (subir > construir > planear, la que desbloquea, la más chica);
+        // las demás también van en `excluir` para que /tomar dé justo esa.
+        const libres = candidatas.filter((c) => !excluir.includes(c.id));
+        const elegida = ordenarCandidatas(libres)[0];
+        if (elegida && libres.length > 1) excluir = [...excluir, ...libres.filter((c) => c.id !== elegida.id).map((c) => c.id)];
       }
       // El CRM cuenta las de aizen1 y las de la nube juntas: el tope que se le da es la suma.
       const respuesta = await crm.tomar({ maxParalelo: max + (nubeConfig.activa ? nubeConfig.maxTareas : 0), excluir });
