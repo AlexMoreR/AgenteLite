@@ -230,7 +230,7 @@ await prueba("configuración: maxParalelo 2 si no viene (de 1 a 5), límites de 
   const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
   const config = completarConfig(base);
   assert.equal(config.maxParalelo, 2);
-  assert.deepEqual(config.limites, { cpuPorciento: 85, memoriaPorciento: 85, esperaMaximaMinutos: 10 });
+  assert.deepEqual(config.limites, { cpuPorciento: 85, memoriaPorciento: 85, esperaMaximaMinutos: 10, cpuPromedioMinutos: 3 });
   assert.equal(config.tiempos.pausaLimiteMinutos, 30);
   // Construir NO lanza subagentes ni tareas en segundo plano (24-oct-2026): están prohibidos, no permitidos.
   assert.ok(!config.herramientasPermitidas.includes("Agent") && !config.herramientasPermitidas.includes("Task"));
@@ -1266,7 +1266,11 @@ try {
   async function correrHasta(planificador, listo, ms = 60_000) {
     const limite = Date.now() + ms;
     while (!listo()) {
-      if (Date.now() > limite) throw new Error("no terminó a tiempo");
+      if (Date.now() > limite) {
+        // Para saber dónde se quedó: el estado de cada tarjeta viva y lo último que se le pidió al CRM.
+        const estados = [...tarjetas.values()].filter((t) => !["HECHO", "ERROR"].includes(t.estado) || Date.now() - (t.venceEn ?? 0) < ms).map((t) => `${t.titulo}: ${t.estado}`);
+        throw new Error(`no terminó a tiempo\n${estados.join("\n")}\núltimas llamadas: ${llamadas.slice(-8).map((l) => `${l.accion} ${l.id ?? ""}`).join(", ")}\ncorriendo: ${JSON.stringify(planificador.estado().tareas.map((t) => [t.titulo, t.etapa]))}`);
+      }
       await planificador.llenar();
       await planificador.esperar(300);
     }

@@ -40,7 +40,16 @@
   },
   "limites": {
     "cpuPorciento": 85,
-    "memoriaPorciento": 85
+    "memoriaPorciento": 85,
+    "cpuPromedioMinutos": 3
+  },
+  "colaPesada": {
+    "maximo": 1
+  },
+  "partir": {
+    "archivosMinimos": 8,
+    "archivosAntes": 25,
+    "archivosConMigracion": 15
   },
   "tiempos": {
     "intervaloSegundos": 60,
@@ -123,6 +132,9 @@
         "tablaGuia": "WhatsAppChannel"
       },
       "subirSolo": true,
+      "sinChoque": [
+        "**/*.md"
+      ],
       "zonasProtegidas": {
         "CHATS": [
           "src/features/chats/**",

@@ -102,14 +102,23 @@ const NUBE_POR_DEFECTO = {
   lanzarMinutos: 5,
 };
 
-/** Si la CPU (promedio del último minuto) o la memoria pasan de esto, no se abre otra sesión. */
+/** Si la CPU (promedio SOSTENIDO de los últimos cpuPromedioMinutos) o la memoria pasan de esto, no se abre otra sesión. */
 // esperaMaximaMinutos (24-oct-2026): con 0 sesiones y el PC por encima de los límites, el Coordinador espera
 // hasta esto antes de tomar una tarjeta (y después la toma igual); la espera dentro de una etapa tampoco se
 // come el reloj de la etapa. 0 = no espera.
-const LIMITES_POR_DEFECTO = { cpuPorciento: 85, memoriaPorciento: 85, esperaMaximaMinutos: 10 };
+// cpuPromedioMinutos (25-oct-2026): antes era 1 min y un build de otro worktree ("CPU 100 %") frenaba todo; ahora 3.
+const LIMITES_POR_DEFECTO = { cpuPorciento: 85, memoriaPorciento: 85, esperaMaximaMinutos: 10, cpuPromedioMinutos: 3 };
+
+/**
+ * Cola de pasos pesados de aizen1 (25-oct-2026, cola.mjs): cuántos npm ci / lint / tsc / build / pruebas corren a la
+ * vez en todo aizen1, sin importar cuántas sesiones haya. 0 = sin cola (como antes).
+ */
+const COLA_PESADA_POR_DEFECTO = { maximo: 1 };
 
 /** Cuándo se parte una tarea en partes más chicas (24-oct-2026): con tantos archivos cambiados a medias, o por contexto, o si se pasa dos veces del tiempo. */
-const PARTIR_POR_DEFECTO = { archivosMinimos: 8 };
+// archivosAntes / archivosConMigracion (25-oct-2026, reparto.mjs: debePartirAntes): una tarea de aizen1 con más archivos
+// de código que esto en el plan se parte ANTES de construir. 0 = no se parte antes.
+const PARTIR_POR_DEFECTO = { archivosMinimos: 8, archivosAntes: 25, archivosConMigracion: 15 };
 
 /** Reparar solo (24-oct-2026). diagnosticoConClaude: si no se reconoce la causa, una sesión corta de Claude (solo lectura) lee el log. */
 const REPARAR_POR_DEFECTO = { diagnosticoConClaude: true, diagnosticoMinutos: 3 };
@@ -183,6 +192,8 @@ export function completarConfig(datos, base = process.cwd()) {
         ensayoPglite: comando(repo.ensayoPglite, `repos.${clave}.ensayoPglite`),
         ensayoProduccion: repo.ensayoProduccion?.tablaGuia ? { tablaGuia: String(repo.ensayoProduccion.tablaGuia) } : null,
         zonasProtegidas,
+        // Archivos de solo agregar que no hacen chocar y se juntan (merge=union) al subir (choques.mjs: noChoca); por defecto los .md.
+        sinChoque: Array.isArray(repo.sinChoque) ? repo.sinChoque.filter((glob) => typeof glob === "string" && glob.trim()) : ["**/*.md"],
         subida: {
           ciBuscar: comando(repo.subida?.ciBuscar, `repos.${clave}.subida.ciBuscar`),
           ciEsperar: comando(repo.subida?.ciEsperar, `repos.${clave}.subida.ciEsperar`),
@@ -216,6 +227,13 @@ export function completarConfig(datos, base = process.cwd()) {
     }
   }
 
+  limites.cpuPromedioMinutos = Number(limites.cpuPromedioMinutos);
+  if (!Number.isFinite(limites.cpuPromedioMinutos) || limites.cpuPromedioMinutos < 0.5 || limites.cpuPromedioMinutos > 15) {
+    errores.push("limites.cpuPromedioMinutos: de 0.5 a 15 minutos (el promedio de CPU que decide si se abre otra sesión).");
+  }
+  const colaPesada = { ...COLA_PESADA_POR_DEFECTO, ...(datos.colaPesada ?? {}) };
+  colaPesada.maximo = Math.floor(Number(colaPesada.maximo));
+  if (!Number.isFinite(colaPesada.maximo) || colaPesada.maximo < 0 || colaPesada.maximo > 5) errores.push("colaPesada.maximo: de 0 a 5 (0 = sin cola).");
   limites.esperaMaximaMinutos = Number(limites.esperaMaximaMinutos);
   if (!Number.isFinite(limites.esperaMaximaMinutos) || limites.esperaMaximaMinutos < 0 || limites.esperaMaximaMinutos > 240) {
     errores.push("limites.esperaMaximaMinutos: minutos de 0 a 240 (0 = no espera al PC).");
@@ -223,6 +241,10 @@ export function completarConfig(datos, base = process.cwd()) {
   const partir = { ...PARTIR_POR_DEFECTO, ...(datos.partir ?? {}) };
   partir.archivosMinimos = Number(partir.archivosMinimos);
   if (!Number.isFinite(partir.archivosMinimos) || partir.archivosMinimos < 1) errores.push("partir.archivosMinimos: cuántos archivos cambiados a medias hacen partir la tarea (1 o más).");
+  for (const campo of ["archivosAntes", "archivosConMigracion"]) {
+    partir[campo] = Number(partir[campo]);
+    if (!Number.isFinite(partir[campo]) || partir[campo] < 0) errores.push(`partir.${campo}: un número de archivos, 0 o más (0 = no se parte antes de construir).`);
+  }
   const atasco = { ...ATASCO_POR_DEFECTO, ...(datos.atasco ?? {}) };
   for (const campo of ["minutos", "revisarCadaSegundos", "cpuMinimaSegundos"]) {
     atasco[campo] = Number(atasco[campo]);
@@ -316,7 +338,8 @@ export function completarConfig(datos, base = process.cwd()) {
     },
     limites,
     autoactualizar: { activo: auto.activo, cadaMinutos: auto.cadaMinutos, rama: auto.rama, remoto: auto.remoto },
-    partir: { archivosMinimos: partir.archivosMinimos },
+    colaPesada: { maximo: colaPesada.maximo },
+    partir: { archivosMinimos: partir.archivosMinimos, archivosAntes: partir.archivosAntes, archivosConMigracion: partir.archivosConMigracion },
     atasco: { minutos: atasco.minutos, revisarCadaSegundos: atasco.revisarCadaSegundos, cpuMinimaSegundos: atasco.cpuMinimaSegundos },
     reparar: { diagnosticoConClaude: reparar.diagnosticoConClaude, diagnosticoMinutos: reparar.diagnosticoMinutos },
     comandoClaude: comando(datos.comandoClaude, "comandoClaude") ?? ["claude"],
