@@ -193,7 +193,7 @@ async function leerUsoConClaude(config, entorno) {
  * El vigilante del uso de Claude. vigilar() lo llama el planificador en cada vuelta; solo mira cada
  * config.vigilarUsoMinutos. Guarda en carpetaTrabajo/estado-uso.json a quién ya avisó.
  */
-export function crearVigilanteDeUso({ config, registro, crm, estado, entorno, leer = leerUsoConClaude, ahora = () => Date.now() }) {
+export function crearVigilanteDeUso({ config, registro, estado, entorno, leer = leerUsoConClaude, ahora = () => Date.now() }) {
   const archivo = path.join(config.carpetaTrabajo, "estado-uso.json");
   let proxima = 0;
   let altoAntes = "";
@@ -213,15 +213,8 @@ export function crearVigilanteDeUso({ config, registro, crm, estado, entorno, le
       registro.aviso(`no pude guardar ${archivo}: ${error.message}`);
     }
   };
-  const avisar = async (texto) => {
-    try {
-      await crm.aviso(texto);
-      return true;
-    } catch (error) {
-      registro.aviso(`no salió el aviso por WhatsApp (${error.status ?? "sin respuesta"}): ${error.message}`);
-      return false;
-    }
-  };
+  // Decisión del dueño (24-oct-2026): el cruce del umbral y "no pude leer el uso" ya NO se mandan por WhatsApp,
+  // solo quedan en el registro.
 
   async function mirar() {
     const { texto, motivo } = await leer(config, entorno);
@@ -231,13 +224,6 @@ export function crearVigilanteDeUso({ config, registro, crm, estado, entorno, le
     const decision = decidirUso(uso, guardado, config.umbralClaude);
     const aGuardar = { ...decision.estado };
 
-    if (decision.alertaLectura && !(await avisar("⚠️ Coordinador del Tablero IA: no pude leer el uso de Claude (claude -p /usage). Sigo como si estuviera bajo el umbral."))) {
-      aGuardar.alertaLectura = guardado.alertaLectura ?? null;
-    }
-    if (decision.avisos.length && !(await avisar(textoDelAviso(decision.avisos, config)))) {
-      // No salió: se deja como estaba para volver a intentar en la próxima mirada.
-      for (const aviso of decision.avisos) aGuardar.avisado[aviso.periodo] = guardado.avisado?.[aviso.periodo] ?? null;
-    }
     guardarEstado(aGuardar);
 
     const alto = decision.alto.sort((a, b) => b.porcentaje - a.porcentaje)[0] ?? null;

@@ -34,6 +34,12 @@ import {
   ponerAprobacionAutomatica,
   ponerAprobarPlanesSolo,
 } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import {
+  avisosParaLaPantalla,
+  guardarTelefonoDelDueno,
+  mandarPruebaAlDueno,
+  ponerAvisosAlDueno,
+} from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { resumenDeHoyParaLaPantalla } from "@/features/tableros-inteligentes/services/resumen-diario";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 
@@ -427,5 +433,56 @@ export async function borrarTipoAction(tipoId: string): Promise<Resultado> {
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo borrar el tipo") };
+  }
+}
+
+/* ── Avisos de Sistemas por WhatsApp al dueño (Mi empresa → Claude, 24-oct-2026) ───────────────── */
+
+export type AvisosAlDuenoVista = Awaited<ReturnType<typeof avisosParaLaPantalla>>;
+
+const SOLO_EL_JEFE_DE_AVISOS = "Los avisos de Sistemas los maneja solo el dueño o un administrador del negocio.";
+
+/** Mismo permiso que la página Mi empresa → Claude: el dueño o un administrador del negocio. */
+async function accesoParaAvisos() {
+  const access = await requireClientWorkspaceAccess();
+  const esJefe = access.isOwner || access.membershipRole === "OWNER" || access.membershipRole === "ADMIN";
+  return esJefe ? access : null;
+}
+
+export async function avisosAlDuenoAction(): Promise<{ ok: true; avisos: AvisosAlDuenoVista } | { ok: false; error: string }> {
+  const access = await accesoParaAvisos();
+  if (!access) return { ok: false, error: SOLO_EL_JEFE_DE_AVISOS };
+  try {
+    return { ok: true, avisos: await avisosParaLaPantalla(access.workspaceId) };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudieron leer los avisos") };
+  }
+}
+
+/** Guarda el número personal del dueño (validado en el servidor) y el interruptor. */
+export async function guardarAvisosAlDuenoAction(numero: string, prendidos: boolean): Promise<Resultado> {
+  const access = await accesoParaAvisos();
+  if (!access) return { ok: false, error: SOLO_EL_JEFE_DE_AVISOS };
+  try {
+    if (numero.trim()) {
+      const guardado = await guardarTelefonoDelDueno(access.workspaceId, numero);
+      if (!guardado.ok) return guardado;
+    }
+    await ponerAvisosAlDueno(access.workspaceId, Boolean(prendidos));
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo guardar") };
+  }
+}
+
+/** El botón "Mandar prueba": un WhatsApp de prueba al número guardado, desde la línea Admin. */
+export async function mandarPruebaDeAvisosAction(): Promise<Resultado> {
+  const access = await accesoParaAvisos();
+  if (!access) return { ok: false, error: SOLO_EL_JEFE_DE_AVISOS };
+  try {
+    const resultado = await mandarPruebaAlDueno(access.workspaceId);
+    return resultado.salio ? { ok: true } : { ok: false, error: `No salió: ${resultado.motivo ?? "sin motivo"}.` };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo mandar la prueba") };
   }
 }

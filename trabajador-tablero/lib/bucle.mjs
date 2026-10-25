@@ -21,7 +21,8 @@
 // Si Codex o Claude llegan a su límite, ESE motor se pausa (Codex pausaLimiteCodexMinutos, Claude
 // pausaLimiteMinutos) y sus pasos esperan o pasan al otro según config.motores; las candidatas cuyo paso
 // no tiene motor van en `excluir`. Cada config.vigilarUsoMinutos se mira el uso de Claude: sobre
-// config.umbralClaude todos los pasos van con Codex y sale UN aviso por WhatsApp por cruce.
+// config.umbralClaude todos los pasos van con Codex (solo queda en el registro: ya no sale WhatsApp por el umbral;
+// solo sale uno cuando se agota el uso y no queda ningún motor, ver avisarSiTodoQuedoEnPausa).
 import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.mjs";
 import { TOPE_DE_REPARACIONES, decidir, diagnosticar, enUnaLinea, resumenDeEscalada } from "./diagnostico.mjs";
 import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, partirTarea, planear, subir } from "./etapas.mjs";
@@ -85,6 +86,25 @@ export async function unaVuelta({ crm, config, registro }) {
   return { hizo: hacer, tarjetaId: tarjeta.id, ...resultado };
 }
 
+/**
+ * Decisión del dueño (24-oct-2026): el único WhatsApp que manda el Coordinador es este (y el de "necesita"):
+ * se agotó el uso y NINGÚN motor puede planear ni construir, o sea, todo quedó en pausa. Dice a qué hora vuelve.
+ * El CRM no repite el mismo aviso en 3 horas ni lo manda de noche (queda pendiente hasta las 7:00 a. m.).
+ */
+export function textoDeTodoEnPausa(vuelveEn) {
+  const hora = new Date(vuelveEn).toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit", hour12: true });
+  return `⛔ Sistemas en pausa: se agotó el uso de Claude y no hay otro motor para seguir.\nVuelve a trabajar hacia las ${hora}.`;
+}
+
+export function avisarSiTodoQuedoEnPausa(crm, registro, motores) {
+  if (["planear", "construir"].some((paso) => motores.motorDe(paso) !== null)) return;
+  const vuelve = Math.min(...["claude", "codex"].map((motor) => motores.pausadoHasta(motor)).filter(Boolean));
+  if (!Number.isFinite(vuelve)) return;
+  Promise.resolve(crm.aviso(textoDeTodoEnPausa(vuelve), "limite")).catch((error) => {
+    registro.aviso(`no salió el aviso del límite por WhatsApp (${error.status ?? "sin respuesta"}): ${error.message}`);
+  });
+}
+
 export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null }, tarjeta, hacer) {
   const control = new AbortController();
   // Lo que escribe la sesión se guarda también aquí: es el "log del intento" si falla.
@@ -120,6 +140,7 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
   const pausar = (motor) => {
     const hasta = motores.pausar(motor);
     registro.aviso(`pausa: ${nombreDelMotor(motor)} llegó a su límite de uso; no lo uso hasta ${new Date(hasta).toISOString()}`);
+    avisarSiTodoQuedoEnPausa(crm, registro, motores);
   };
   const enNube = lugar === "nube" && hacer === "construir";
   Object.assign(vivo, {

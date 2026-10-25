@@ -17,6 +17,7 @@ import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente
 import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/servicio";
 import { procesarColaDeReuniones } from "@/features/reuniones/servicios/cola-de-reuniones";
 import { aprobarPlanesListosQueEsperan, aprobarSolasLasPendientes } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { revisarAvisosAlDueno } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { enviarResumenDiarioSiToca } from "@/features/tableros-inteligentes/services/resumen-diario";
 
 function resolveCronSecret() {
@@ -196,8 +197,8 @@ async function handleCron(request: Request) {
 
   /*
     TABLERO IA (ver src/features/tableros-inteligentes): cada vuelta aprueba solas las tareas de riesgo
-    bajo que quedaron POR_APROBAR (con el interruptor prendido) y, entre las 9:00 y las 9:59 p. m. de
-    Bogotá, manda UNA vez por día el resumen a Alexander por la línea Admin. Sin nada pendiente son un
+    bajo que quedaron POR_APROBAR (con el interruptor prendido), anota el resumen del día y avisa a
+    Alexander por WhatsApp (línea Admin) solo si Sistemas se detiene o lo necesita. Sin nada pendiente son un
     par de lecturas; en segundo plano.
   */
   after(async () => {
@@ -216,6 +217,12 @@ async function handleCron(request: Request) {
       await enviarResumenDiarioSiToca();
     } catch (error) {
       console.error("[cron/follows] resumen diario del tablero error", error);
+    }
+    try {
+      // Decisión del dueño (24-oct): WhatsApp solo si Sistemas se detiene o necesita algo (avisos-al-dueno.ts).
+      await revisarAvisosAlDueno();
+    } catch (error) {
+      console.error("[cron/follows] avisos al dueno del tablero error", error);
     }
   });
 

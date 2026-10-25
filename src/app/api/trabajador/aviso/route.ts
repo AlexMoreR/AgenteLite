@@ -6,11 +6,11 @@ import { SIN_CACHE, contextoDelPedido, respuestaDeError, sinClave } from "../tab
 export const dynamic = "force-dynamic";
 
 /*
-  POST /api/trabajador/aviso — el trabajador del Tablero IA le manda un WhatsApp al dueño desde la línea
-  Admin del negocio (p. ej. "el plan de Claude pasó el 80 %"). Misma clave que /api/trabajador/tablero/*
-  (Bearer aizen_trab_...). Cuerpo `{ texto }` (hasta 500 caracteres). El número sale de la AppSetting
-  `trabajador:aviso-telefono:<workspaceId>`: sin él, 412. Como mucho 1 por minuto (429).
-  Ver services/aviso-del-trabajador.ts.
+  POST /api/trabajador/aviso — el Coordinador del Tablero IA le manda un WhatsApp al dueño desde la línea Admin.
+  Misma clave que /api/trabajador/tablero/* (Bearer aizen_trab_...). Cuerpo `{ texto, tipo }` con tipo "limite"
+  (se agotó Claude y todo quedó en pausa) o "necesita" (algo que no puede hacer solo); sin tipo se descarta sin
+  error. El número sale de Mi empresa → Claude: sin él ya no hay 412, el aviso queda anotado en esa caja.
+  Respuesta `{ ok, enviado, descartado, motivo }`. Ver services/avisos-al-dueno.ts.
 */
 export async function POST(request: Request) {
   const contexto = await contextoDelPedido(request);

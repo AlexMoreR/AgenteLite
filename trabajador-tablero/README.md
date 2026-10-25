@@ -226,17 +226,18 @@ Current week (all models): 6% used · resets Oct 30, 7am (America/Bogota)
 - Si la sesión o la semana llegan a `umbralClaude` (80 % por defecto): con `respaldoCodex: true`, **todos los
   pasos van con Codex** hasta que baje (`Claude al 83 % (sesión): planear y revisar pasan a Codex hasta 3:20pm`);
   con `respaldoCodex: false` (hoy) se sigue con Claude y solo se avisa.
-- Manda **un** WhatsApp al dueño por cada cruce (con el porcentaje y la hora de reinicio), desde la línea
-  Admin del CRM (`POST /api/trabajador/aviso`). Vuelve a avisar solo si bajó del umbral y volvió a subir, o si
-  empezó otro periodo. Lo que ya avisó queda en `<carpetaTrabajo>/estado-uso.json`.
-- Si no puede leer el uso, lo anota en el log, sigue como si estuviera bajo el umbral (no inventa números) y
-  manda **una** alerta "no pude leer el uso de Claude" por día.
+- **Ya no manda WhatsApp por el umbral** (decisión del dueño, 24-oct-2026): el cruce del 80 % y "no pude leer
+  el uso" solo quedan en el log (`<carpetaTrabajo>/estado-uso.json` sigue guardando lo visto).
+- Si no puede leer el uso, lo anota en el log y sigue como si estuviera bajo el umbral (no inventa números).
 - Si Claude de verdad llega a su límite, la tarjeta se suelta sin error y Claude se pausa
   `pausaLimiteMinutos`; mientras tanto sus pasos van con Codex.
-- **Para que llegue el WhatsApp**: guardar el número del dueño (solo dígitos, con indicativo, por ejemplo
-  `573001234567`) en la AppSetting `trabajador:aviso-telefono:<workspaceId>` del CRM, y tener una línea de
-  WhatsApp llamada "Admin" (o con purpose ADMIN) conectada. Sin número, el CRM contesta 412 y el trabajador
-  lo anota en el log.
+- **El único WhatsApp del Coordinador**: si se agota el uso y NINGÚN motor puede planear ni construir (todo en
+  pausa), manda `crm.aviso(texto, "limite")` (`POST /api/trabajador/aviso`) con la hora en que vuelve. El CRM no lo
+  repite en 3 horas y, si cae entre las 9:00 p. m. y las 7:00 a. m., lo deja pendiente hasta las 7:00 a. m.
+  También existe el tipo `"necesita"` para algo que el Coordinador no puede hacer solo. Sin tipo, el CRM descarta
+  el aviso. Los demás avisos (caído, sin trabajo, trabado) los arma el propio CRM mirando el tablero.
+- **Para que llegue**: guardar el número personal del dueño en Mi empresa → Claude ("Avisos de Sistemas por
+  WhatsApp") y tener la línea Admin conectada. Sin número, el CRM ya no contesta 412: lo anota en esa caja.
 
 ### Riesgo BAJO / ALTO (desde el 24-oct-2026)
 
@@ -398,4 +399,4 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 - `lib/atasco.mjs`: detecta una sesión quieta (sin archivos ni procesador por 15 min).
 - `lib/git.mjs`, `lib/procesos.mjs`, `lib/zonas.mjs`, `lib/crm.mjs`, `lib/config.mjs`, `lib/registro.mjs`.
 - La API del lado del CRM: `src/app/api/trabajador/tablero/*` y `src/features/tableros-inteligentes/services/trabajador.ts`;
-  el aviso por WhatsApp, `src/app/api/trabajador/aviso` y `services/aviso-del-trabajador.ts`.
+  el aviso por WhatsApp, `src/app/api/trabajador/aviso`, `services/aviso-del-trabajador.ts` y `services/avisos-al-dueno.ts`.

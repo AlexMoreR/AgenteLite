@@ -1,18 +1,17 @@
 import { prisma } from "@/lib/prisma";
-import { destinoWhatsAppCritico, leerConfigGravedad, whatsAppAAlexander } from "@/features/avisos-gravedad/servicios/enrutador";
 import { QUIEN_AUTOMATICO, aprobacionAutomaticaPrendida } from "./aprobacion-automatica";
 
 /*
-  RESUMEN DIARIO del Tablero IA (22-oct-2026): cada noche a las 9:00 p. m. (hora de Bogotá) Alexander
-  recibe por WhatsApp, desde la línea Admin (nunca una línea de ventas), tres cosas del día:
+  RESUMEN DIARIO del Tablero IA (22-oct-2026): lo del día en tres cosas para la caja "Resumen de hoy" del
+  tablero. DESDE EL 24-OCT-2026 YA NO SE MANDA POR WHATSAPP (decisión del dueño: los WhatsApp son solo cuando
+  Sistemas se detiene o necesita algo; ver avisos-al-dueno.ts). Las tres cosas:
     1. qué se aprobó solo (la tarea o el plan de las tarjetas de riesgo bajo) y por qué;
     2. qué subió a producción, con el link del commit;
     3. qué falló y el motivo.
-  Si no pasó nada, dice "hoy no hubo movimiento". El mismo texto se ve en la caja "Resumen de hoy" del
-  tablero, con si el WhatsApp salió o por qué no.
+  Si no pasó nada, dice "hoy no hubo movimiento".
 
   Lo revisa el reloj del servidor (api/cron/follows, cada minuto): entre las 9:00 y las 9:59 p. m. y una
-  sola vez por día (el sistema anota el día del último envío en AppSetting). Todo sale del historial
+  sola vez por día anota en AppSetting que el resumen del día quedó listo (sin mandar nada). Todo sale del historial
   de las tarjetas (HistorialTarjeta), sin tablas nuevas.
 */
 
@@ -178,7 +177,7 @@ export async function resumenDelDia(workspaceId: string, dia: string): Promise<R
   );
 }
 
-/** Lo que se anota de cada envío (AppSetting): el día, si el WhatsApp salió y, si no, por qué. */
+/** Lo que se anota cada noche (AppSetting): el día y, como ya no sale por WhatsApp, el motivo. */
 export type EnvioDelResumen = { dia: string; enviado: boolean; motivo: string | null; cuando: string };
 
 export async function leerUltimoEnvio(workspaceId: string): Promise<EnvioDelResumen | null> {
@@ -200,47 +199,22 @@ async function anotarEnvio(workspaceId: string, envio: EnvioDelResumen) {
   await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
 }
 
-/** Por qué no salió el WhatsApp (para decirlo en el tablero). */
-async function motivoDeNoEnvio(workspaceId: string): Promise<string> {
-  const config = await leerConfigGravedad(workspaceId);
-  if (!config.whatsapp.activo) return "El WhatsApp de avisos está apagado en la configuración de avisos graves.";
-  const destino = await destinoWhatsAppCritico(workspaceId, config).catch(() => null);
-  if (!destino) return "No hay línea Admin conectada o número configurado para los avisos.";
-  return "La línea Admin no pudo enviar el mensaje (¿está desconectada?).";
-}
-
-/** Manda el resumen de hoy por WhatsApp (línea Admin) y anota si salió. Nunca lanza. */
-async function enviarResumen(workspaceId: string, ahora: Date): Promise<EnvioDelResumen> {
-  const dia = diaDeBogota(ahora);
-  let envio: EnvioDelResumen;
-  try {
-    const mensaje = textoDelResumen(await resumenDelDia(workspaceId, dia));
-    const config = await leerConfigGravedad(workspaceId);
-    const salio = await whatsAppAAlexander({ workspaceId, config, texto: mensaje });
-    envio = { dia, enviado: salio, motivo: salio ? null : await motivoDeNoEnvio(workspaceId), cuando: ahora.toISOString() };
-  } catch (error) {
-    envio = { dia, enviado: false, motivo: `Falló al armarlo o mandarlo: ${error instanceof Error ? error.message : String(error)}`.slice(0, 300), cuando: ahora.toISOString() };
-  }
-  await anotarEnvio(workspaceId, envio);
-  return envio;
-}
+/** Lo que se anota en lugar del WhatsApp (se ve en la caja «Resumen de hoy»). */
+export const MOTIVO_SIN_WHATSAPP = "El resumen ya no se manda por WhatsApp: se ve aquí en el tablero.";
 
 /**
- * La vuelta del reloj (cada minuto): entre las 9:00 y las 9:59 p. m. de Bogotá manda el resumen una vez
- * por negocio con tableros. Anota el día ANTES de armarlo, así dos vueltas seguidas no lo mandan dos veces.
+ * La vuelta del reloj (cada minuto): entre las 9:00 y las 9:59 p. m. de Bogotá anota, una vez por día y por
+ * negocio con tableros, que el resumen del día quedó listo en el tablero. NO manda WhatsApp: `enviados` es 0.
  */
 export async function enviarResumenDiarioSiToca(ahora = new Date()): Promise<{ enviados: number }> {
   if (horaDeBogota(ahora) !== HORA_DEL_RESUMEN) return { enviados: 0 };
   const negocios = await prisma.tableroInteligente.findMany({ distinct: ["workspaceId"], select: { workspaceId: true } });
-  let enviados = 0;
   for (const { workspaceId } of negocios) {
     const ultimo = await leerUltimoEnvio(workspaceId);
     if (!tocaElResumen(ahora, ultimo?.dia)) continue;
-    await anotarEnvio(workspaceId, { dia: diaDeBogota(ahora), enviado: false, motivo: "Enviándose…", cuando: ahora.toISOString() });
-    const envio = await enviarResumen(workspaceId, ahora);
-    if (envio.enviado) enviados += 1;
+    await anotarEnvio(workspaceId, { dia: diaDeBogota(ahora), enviado: false, motivo: MOTIVO_SIN_WHATSAPP, cuando: ahora.toISOString() });
   }
-  return { enviados };
+  return { enviados: 0 };
 }
 
 /** La caja "Resumen de hoy" del tablero: lo de hoy hasta ahora, el interruptor y el envío de hoy (si ya salió). */

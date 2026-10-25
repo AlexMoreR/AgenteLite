@@ -1,13 +1,13 @@
 // Pruebas del resumen diario del Tablero IA (resumen-diario.ts): el día y la hora de Bogotá, cuándo toca
 // mandarlo (9:00 a 9:59 p. m., una vez por día), cómo se arma con el historial de HOY (no el de ayer), el texto
-// y el envío con un prisma y un enrutador de avisos FALSOS. No necesita base ni red.
+// y que el reloj solo anota el día (ya NO manda WhatsApp), con un prisma falso. No necesita base ni red.
 // Correr: npm run test:tablero-resumen-diario
 import assert from "node:assert/strict";
 import { cargar } from "./supervisor-cargar.mjs";
 
 /* ------------------------------------------------------------------ falsos */
 
-const estado = { historial: [], ajustes: new Map(), negocios: ["ws1"], salidas: [], mensajes: [], whatsappSale: true, activo: true, destino: "573001112233" };
+const estado = { historial: [], ajustes: new Map(), negocios: ["ws1"], mensajes: [], escrituras: 0 };
 
 const falso = {
   historialTarjeta: {
@@ -22,25 +22,18 @@ const falso = {
   appSetting: {
     findUnique: async ({ where }) => (estado.ajustes.has(where.key) ? { value: estado.ajustes.get(where.key) } : null),
     upsert: async ({ where, create, update }) => {
+      estado.escrituras += 1;
       estado.ajustes.set(where.key, estado.ajustes.has(where.key) ? update.value : create.value);
     },
   },
   tableroInteligente: { findMany: async () => estado.negocios.map((workspaceId) => ({ workspaceId })) },
 };
 
-const enrutador = {
-  leerConfigGravedad: async () => ({ whatsapp: { activo: estado.activo } }),
-  destinoWhatsAppCritico: async () => estado.destino,
-  whatsAppAAlexander: async ({ texto }) => {
-    estado.mensajes.push(texto);
-    return estado.whatsappSale;
-  },
-};
-
 const mocks = {
   "@/lib/prisma": { prisma: falso },
   "@prisma/client": { Prisma: {} },
-  "@/features/avisos-gravedad/servicios/enrutador": enrutador,
+  // El resumen ya no manda WhatsApp: si algo intentara usar Evolution, la prueba lo detecta.
+  "@/lib/evolution": new Proxy({}, { get: () => () => { estado.mensajes.push("evolution"); } }),
 };
 
 const resumen = cargar("src/features/tableros-inteligentes/services/resumen-diario.ts", mocks);
@@ -51,9 +44,7 @@ async function prueba(nombre, fn) {
   estado.historial.length = 0;
   estado.ajustes.clear();
   estado.mensajes.length = 0;
-  estado.whatsappSale = true;
-  estado.activo = true;
-  estado.destino = "573001112233";
+  estado.escrituras = 0;
   await fn();
   pruebas += 1;
   console.log(`ok - ${nombre}`);
@@ -145,61 +136,29 @@ await prueba("textoDelResumen: link del commit, sin movimiento y listas largas r
 
 /* ------------------------------------------------------------------ envío */
 
-await prueba("enviarResumenDiarioSiToca: a las 9:05 p. m. manda UNA vez y anota el día", async () => {
+await prueba("enviarResumenDiarioSiToca: a las 9:05 p. m. anota el día UNA vez y no manda ningún mensaje", async () => {
   estado.historial.push(aprobada({ titulo: "Pantalla nueva" }));
   const primera = await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:05:00Z"));
-  assert.deepEqual(primera, { enviados: 1 }, JSON.stringify([...estado.ajustes]));
-  assert.equal(estado.mensajes.length, 1);
-  assert.ok(estado.mensajes[0].includes("Pantalla nueva"));
+  assert.deepEqual(primera, { enviados: 0 });
   const anotado = await resumen.leerUltimoEnvio("ws1");
   assert.equal(anotado.dia, "2026-10-22");
-  assert.equal(anotado.enviado, true);
-  assert.equal(anotado.motivo, null);
+  assert.equal(anotado.enviado, false);
+  assert.equal(anotado.motivo, resumen.MOTIVO_SIN_WHATSAPP);
+  assert.equal(estado.escrituras, 1);
 
+  // Un minuto después no vuelve a anotar (una vez por día).
   const segunda = await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:06:00Z"));
   assert.deepEqual(segunda, { enviados: 0 });
-  assert.equal(estado.mensajes.length, 1);
+  assert.equal(estado.escrituras, 1);
+  assert.equal(estado.mensajes.length, 0);
 });
 
-await prueba("enviarResumenDiarioSiToca: a las 8:59 p. m. y a las 10:00 p. m. no manda", async () => {
+await prueba("enviarResumenDiarioSiToca: a las 8:59 p. m. y a las 10:00 p. m. no anota nada", async () => {
   assert.deepEqual(await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T01:59:00Z")), { enviados: 0 });
   assert.deepEqual(await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T03:00:00Z")), { enviados: 0 });
   assert.equal(estado.mensajes.length, 0);
+  assert.equal(estado.escrituras, 0);
   assert.equal(await resumen.leerUltimoEnvio("ws1"), null);
-});
-
-await prueba("enviarResumenDiarioSiToca: si el WhatsApp no sale queda anotado enviado:false con un motivo", async () => {
-  estado.whatsappSale = false;
-  const r = await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:05:00Z"));
-  assert.deepEqual(r, { enviados: 0 });
-  const anotado = await resumen.leerUltimoEnvio("ws1");
-  assert.equal(anotado.enviado, false);
-  assert.equal(anotado.dia, "2026-10-22");
-  assert.ok(anotado.motivo && anotado.motivo.includes("Admin"));
-  // Anotado el día: no lo reintenta cada minuto.
-  await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:06:00Z"));
-  assert.equal(estado.mensajes.length, 1);
-
-  estado.ajustes.clear();
-  estado.activo = false;
-  await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:07:00Z"));
-  assert.ok((await resumen.leerUltimoEnvio("ws1")).motivo.includes("apagado"));
-});
-
-await prueba("enviarResumenDiarioSiToca: si el enrutador lanza un error, lo anota y no lanza", async () => {
-  const original = enrutador.whatsAppAAlexander;
-  enrutador.whatsAppAAlexander = async () => {
-    throw new Error("sin red");
-  };
-  try {
-    const r = await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:05:00Z"));
-    assert.deepEqual(r, { enviados: 0 });
-    const anotado = await resumen.leerUltimoEnvio("ws1");
-    assert.equal(anotado.enviado, false);
-    assert.ok(anotado.motivo.includes("sin red"));
-  } finally {
-    enrutador.whatsAppAAlexander = original;
-  }
 });
 
 await prueba("resumenDeHoyParaLaPantalla devuelve lo de hoy, el interruptor y el envío de hoy", async () => {
@@ -215,7 +174,8 @@ await prueba("resumenDeHoyParaLaPantalla devuelve lo de hoy, el interruptor y el
 
   await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:05:00Z"));
   const despues = await resumen.resumenDeHoyParaLaPantalla("ws1", ahora);
-  assert.equal(despues.envioDeHoy.enviado, true);
+  assert.equal(despues.envioDeHoy.enviado, false);
+  assert.equal(despues.envioDeHoy.motivo, resumen.MOTIVO_SIN_WHATSAPP);
   // Al día siguiente el envío de ayer ya no cuenta como el de hoy.
   const manana = await resumen.resumenDeHoyParaLaPantalla("ws1", new Date("2026-10-23T15:00:00Z"));
   assert.equal(manana.envioDeHoy, null);

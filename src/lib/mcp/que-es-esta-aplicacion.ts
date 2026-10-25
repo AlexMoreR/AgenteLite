@@ -5,6 +5,7 @@ import path from "node:path";
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { estadoDeLosAvisosAlDueno } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { leerUltimoEnvio } from "@/features/tableros-inteligentes/services/resumen-diario";
 
 /**
@@ -400,8 +401,16 @@ async function estadoDeAprobarPlanesSolo(workspaceId: string) {
 /** Tablero IA: cuándo salió el último resumen de las 9 p. m. y si el WhatsApp salió. */
 async function estadoDelResumenDiario(workspaceId: string) {
   const ultimo = await leerUltimoEnvio(workspaceId);
-  if (!ultimo) return "activa: a las 9:00 p. m. (Bogotá) por la línea Admin; todavía no ha salido ninguno";
-  return `activa: último resumen del ${ultimo.dia}, ${ultimo.enviado ? "WhatsApp enviado" : `WhatsApp NO salió (${ultimo.motivo ?? "sin motivo"})`}`;
+  if (!ultimo) return "activa: a las 9:00 p. m. (Bogotá) arma el resumen del día en el tablero (ya no sale por WhatsApp); todavía no ha corrido";
+  return `activa: último resumen del ${ultimo.dia}, solo en el tablero (no sale por WhatsApp)`;
+}
+
+async function estadoDeLosAvisosAlDuenoTablero(workspaceId: string) {
+  const estado = await estadoDeLosAvisosAlDueno(workspaceId);
+  if (!estado.prendidos) return "apagada: el interruptor de Mi empresa → Claude está apagado, no sale ningún WhatsApp";
+  const numero = estado.hayNumero ? "número del dueño guardado" : "FALTA el número del dueño en Mi empresa → Claude (no sale nada)";
+  const ultimo = estado.ultimoAviso ? `último aviso ${estado.ultimoAviso.cuando}: ${estado.ultimoAviso.salio ? "salió" : `NO salió (${estado.ultimoAviso.motivo ?? "sin motivo"})`}` : "todavía no ha salido ninguno";
+  return `activa: ${numero}; ${ultimo}`;
 }
 
 async function automatizaciones(
@@ -460,6 +469,7 @@ async function automatizaciones(
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(workspaceId).catch(() => "no se pudo leer"),
+    avisos_al_dueno_tablero: await estadoDeLosAvisosAlDuenoTablero(workspaceId).catch(() => "no se pudo leer"),
   };
 
   return {

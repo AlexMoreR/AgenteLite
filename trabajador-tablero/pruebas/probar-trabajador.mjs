@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
 import { crearVigilante, sumarDescendientes } from "../lib/atasco.mjs";
-import { crearPlanificador, crearSemaforo, unaVuelta } from "../lib/bucle.mjs";
+import { avisarSiTodoQuedoEnPausa, crearPlanificador, crearSemaforo, unaVuelta } from "../lib/bucle.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
 import { crearCrm } from "../lib/crm.mjs";
@@ -576,6 +576,42 @@ await prueba("motores: por defecto todo Claude (Opus planea, Sonnet construye y 
   const conRespaldo = crearEstadoDeMotores(completarConfig({ ...base, motores: { respaldoClaude: true } }), { ahora: () => reloj });
   conRespaldo.pausar("codex");
   assert.equal(conRespaldo.motorDe("construir"), "claude", "con respaldoClaude pasa a Claude");
+});
+
+await prueba("aviso al dueño: solo cuando se agota el uso y NINGÚN motor puede planear ni construir (todo en pausa), tipo limite y con la hora", async () => {
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
+  const registroFalso = { info: () => undefined, aviso: () => undefined, error: () => undefined };
+  const avisos = [];
+  const crmFalso = { aviso: async (texto, tipo) => avisos.push({ texto, tipo }) };
+  const reloj = Date.parse("2026-10-24T20:00:00Z");
+
+  const solo = crearEstadoDeMotores(completarConfig(base), { ahora: () => reloj });
+  solo.pausar("claude");
+  avisarSiTodoQuedoEnPausa(crmFalso, registroFalso, solo);
+  await new Promise((resolver) => setImmediate(resolver));
+  assert.equal(avisos.length, 1, "Claude agotado y sin respaldo: todo en pausa -> un aviso");
+  assert.equal(avisos[0].tipo, "limite");
+  assert.match(avisos[0].texto, /Sistemas en pausa/);
+  assert.match(avisos[0].texto, /Vuelve a trabajar hacia las \d{1,2}:\d{2}/);
+  assert.ok(avisos[0].texto.split("\n").length <= 2, "el CRM agrega el link: máximo 3 líneas");
+
+  // Con Codex de respaldo todavía hay motor para seguir: no se avisa.
+  const conRespaldo = crearEstadoDeMotores(completarConfig({ ...base, motores: { construir: "codex", respaldoCodex: true } }), { ahora: () => reloj });
+  conRespaldo.pausar("claude");
+  avisarSiTodoQuedoEnPausa(crmFalso, registroFalso, conRespaldo);
+  await new Promise((resolver) => setImmediate(resolver));
+  assert.equal(avisos.length, 1, "aún hay otro motor: no se avisa");
+
+  // Si el CRM falla, no lanza: queda en el registro.
+  const anotados = [];
+  avisarSiTodoQuedoEnPausa({ aviso: async () => { throw new Error("sin red"); } }, { ...registroFalso, aviso: (m) => anotados.push(m) }, solo);
+  await new Promise((resolver) => setImmediate(resolver));
+  assert.equal(anotados.length, 1);
+  // El cliente manda texto y tipo.
+  let cuerpo = null;
+  const crm = crearCrm({ urlCrm: "https://crm.test", claveTrabajador: "k" }, { fetch: async (_url, opciones) => { cuerpo = JSON.parse(opciones.body); return { ok: true, json: async () => ({ ok: true }) }; } });
+  await crm.aviso("hola", "limite");
+  assert.deepEqual(cuerpo, { texto: "hola", tipo: "limite" });
 });
 
 await prueba("choques: archivos y módulos del plan; misma zona o módulo del mismo repo, o dos subidas, esperan en fila", async () => {
@@ -1432,7 +1468,7 @@ try {
     sinRestos();
   });
 
-  await prueba("uso de Claude >= 80 %: planear pasa a Codex, UN aviso por WhatsApp por cruce y estado-uso.json", async () => {
+  await prueba("uso de Claude >= 80 %: planear pasa a Codex, SIN aviso por WhatsApp y con estado-uso.json", async () => {
     fs.writeFileSync(USO, "Current session: 83% used · resets Oct 23, 3:20pm (America/Bogota)\nCurrent week (all models): 6% used · resets Oct 30, 7am (America/Bogota)\n");
     const avisos = () => llamadas.filter((l) => l.accion === "aviso");
     const antes = avisos().length;
@@ -1448,30 +1484,28 @@ try {
     assert.equal(leerLog(LOGS.codex).at(-1).sandbox, "read-only", "Codex planea sin poder escribir");
     assert.equal(leerLog(LOGS.claude).filter((l) => !l.argumentos.includes("/usage")).length, claudeAntes, "no planeó con Claude");
     assert.ok(leerLog(LOGS.claude).some((l) => l.argumentos.join(" ").endsWith("-p --model haiku /usage")), "leyó el uso con claude -p /usage");
-    assert.equal(avisos().length, antes + 1, "un aviso");
-    assert.match(avisos().at(-1).cuerpo.texto, /sesión: 83 % usado, se reinicia Oct 23, 3:20pm/);
+    assert.equal(avisos().length, antes, "el cruce del umbral ya no se manda por WhatsApp (decisión del dueño, 24-oct)");
     const estadoUso = JSON.parse(fs.readFileSync(path.join(T, "trabajo", "estado-uso.json"), "utf8"));
     assert.equal(estadoUso.avisado.sesion.reinicio, "Oct 23, 3:20pm (America/Bogota)");
     await new Promise((r) => setTimeout(r, 20));
     await planificador.llenar();
-    assert.equal(avisos().length, antes + 1, "el mismo cruce no avisa otra vez");
+    assert.equal(avisos().length, antes, "sigue sin avisar");
     fs.writeFileSync(USO, "Current session: 30% used · resets Oct 23, 3:20pm (America/Bogota)\n");
     await new Promise((r) => setTimeout(r, 20));
     await planificador.llenar();
     fs.writeFileSync(USO, "Current session: 85% used · resets Oct 23, 3:20pm (America/Bogota)\n");
     await new Promise((r) => setTimeout(r, 20));
     await planificador.llenar();
-    assert.equal(avisos().length, antes + 2, "bajó y volvió a subir: otro aviso");
+    assert.equal(avisos().length, antes, "bajó y volvió a subir: tampoco avisa");
     const texto = fs.readFileSync(path.join(T, "trabajo", "logs", fs.readdirSync(path.join(T, "trabajo", "logs"))[0]), "utf8");
     assert.match(texto, /Claude al 83 % \(sesión\): planear y revisar pasan a Codex hasta 3:20pm/);
-    // Uso ilegible: se trata como bajo y sale UNA alerta por día.
+    // Uso ilegible: se trata como bajo y solo queda en el registro (sin WhatsApp).
     fs.rmSync(USO);
     await new Promise((r) => setTimeout(r, 20));
     await planificador.llenar();
     await new Promise((r) => setTimeout(r, 20));
     await planificador.llenar();
-    const alertas = avisos().filter((l) => /no pude leer el uso de Claude/.test(l.cuerpo.texto));
-    assert.equal(alertas.length, 1, "una sola alerta por día");
+    assert.equal(avisos().length, antes, "ilegible: ninguna alerta por WhatsApp");
     await planificador.esperarTodas();
     planificador.parar();
   });

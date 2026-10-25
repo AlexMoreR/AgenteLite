@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 
 import { NegocioEquipoTabs } from "@/components/negocio-equipo-tabs";
 import { ConexionClaudeWorkspace } from "@/features/mcp/components/ConexionClaudeWorkspace";
+import { AvisosAlDueno } from "@/features/tableros-inteligentes/components/AvisosAlDueno";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { listarClavesMcp } from "@/lib/mcp/claves";
 import { listarCambiosMcp } from "@/lib/mcp/cambios";
@@ -43,6 +44,8 @@ export default async function ClienteClaudePage() {
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <NegocioEquipoTabs />
+
+      <AvisosAlDueno />
 
       <ConexionClaudeWorkspace
         direccion={`${protocolo}://${host}/api/mcp`}
