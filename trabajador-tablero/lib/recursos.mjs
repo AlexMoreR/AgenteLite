@@ -1,6 +1,7 @@
 // Cuidar aizen1 (Core i3, 40 GB de RAM): antes de abrir otra sesión de Claude Code se mira la CPU y la
 // memoria. Si alguna pasa del límite de config.limites, no se abre otra (las que corren siguen).
-// La CPU es el promedio del último minuto (una muestra cada 5 s): un pico de un segundo no frena nada.
+// La CPU es el promedio de los últimos limites.cpuPromedioMinutos (3 por defecto, una muestra cada 5 s; antes 1 min):
+// un build de 1-2 min en otro worktree ya no frena todo, solo una carga SOSTENIDA (25-oct-2026).
 import fs from "node:fs";
 import os from "node:os";
 

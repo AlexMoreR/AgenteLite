@@ -25,7 +25,7 @@ import path from "node:path";
 
 import crypto from "node:crypto";
 
-import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, enUnaLinea, esLimiteDeUso, recortar } from "./diagnostico.mjs";
+import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, enUnaLinea, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
 import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
 import {
   archivosCambiados,
@@ -38,6 +38,7 @@ import {
   pushDeRama,
   quitarWorktree,
   ramaExisteEnElRemoto,
+  rebaseSobre,
   revertirEnRamaBase,
   urlDelRemoto,
   webDeGithub,
@@ -48,6 +49,7 @@ import { esperarResultado, lanzarEnNube } from "./nube.mjs";
 import { vigilarSesion } from "./atasco.mjs";
 import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, ultimasLineas } from "./procesos.mjs";
 import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
+import { PRIORIDAD } from "./cola.mjs";
 import { carpetaDeIntentos } from "./registro.mjs";
 import { migracionDestructiva } from "./riesgo.mjs";
 import { zonasTocadas } from "./zonas.mjs";
@@ -82,19 +84,73 @@ export function entornoSeguro() {
   };
 }
 
-/** Un reloj de la etapa: cuánto le queda y un error claro si ya no queda. `extender` suma el tiempo que se esperó al PC. */
-function relojDeEtapa(minutos, nombre) {
-  let limite = Date.now() + minutos * MINUTO;
+/**
+ * Los topes del CRM por etapa (minutos, reglas-trabajador.ts: MINUTOS_POR_ETAPA). Pasado el tope el CRM pasa la
+ * tarjeta a ERROR por su cuenta (y cuenta), así que el reloj de la etapa nunca se estira más allá (1 min antes).
+ */
+export const TOPE_DEL_CRM = { planear: 20, construir: 90, subir: 45 };
+
+/**
+ * Un reloj de la etapa: cuánto le queda y un error claro si ya no queda. `extender` suma el tiempo que se esperó al PC
+ * o a la cola de pasos pesados, pero sin pasar de `topeMinutos` (el del CRM menos 1; sin tope = como antes).
+ * Si se acaba el tiempo y buena parte se fue esperando turno (cola.mjs), no es culpa de la tarea: la categoría es
+ * pc_sobrecargado (se suelta y se reintenta sin contar), no tiempo_agotado.
+ */
+function relojDeEtapa(minutos, nombre, { topeMinutos = null } = {}) {
+  const inicio = Date.now();
+  let limite = inicio + minutos * MINUTO;
+  const techo = topeMinutos ? inicio + (topeMinutos - 1) * MINUTO : Infinity;
+  let esperadoMs = 0;
   return {
     resta() {
       const queda = limite - Date.now();
-      if (queda <= 0) throw new ErrorDeEtapa(`Se pasó del tiempo de ${nombre} (${minutos} min).`, { categoria: "tiempo_agotado" });
+      if (queda <= 0) {
+        if (esperadoMs >= 2 * MINUTO) {
+          throw new ErrorDeEtapa(`Se acabó el tiempo de ${nombre} esperando turno para compilar (${Math.round(esperadoMs / MINUTO)} min en la cola de aizen1). Se reintenta sin contar.`, {
+            categoria: "pc_sobrecargado",
+          });
+        }
+        throw new ErrorDeEtapa(`Se pasó del tiempo de ${nombre} (${minutos} min).`, { categoria: "tiempo_agotado" });
+      }
       return queda;
     },
     extender(ms) {
-      limite += Math.max(0, ms);
+      esperadoMs += Math.max(0, ms);
+      limite = Math.min(techo, limite + Math.max(0, ms));
     },
+    esperado: () => esperadoMs,
   };
+}
+
+/**
+ * Corre `fn` con un turno de la cola de pasos pesados de aizen1 (cola.mjs). El tiempo de espera se le devuelve al reloj
+ * de la etapa (hasta el tope del CRM). Sin cola en el contexto (--una-vez), corre enseguida.
+ */
+async function conTurno(contexto, reloj, prioridad, que, fn) {
+  const cola = contexto.colaPesada;
+  if (!cola) return fn();
+  const inicio = Date.now();
+  const antes = cola.estado();
+  if (antes.ocupados >= antes.maximo) {
+    contexto.registro?.info?.(`espero turno para ${que} (cola de pasos pesados: corre ${antes.corriendo.join(", ") || "otro"}; ${antes.esperando} en fila)`);
+  }
+  let liberar;
+  try {
+    liberar = await cola.tomar({ prioridad, senal: contexto.senal, que: `${contexto.etiqueta ?? ""} ${que}`.trim() });
+  } catch (error) {
+    if (error?.cancelado) throw new ErrorDeEtapa(`Se canceló la espera para ${que}: la tarjeta venció en el CRM.`, { categoria: "coordinador_cortado" });
+    throw error;
+  }
+  const esperado = Date.now() - inicio;
+  if (esperado > 5000) {
+    reloj.extender(esperado);
+    contexto.registro?.info?.(`turno para ${que} después de ${Math.round(esperado / 1000)} s en la cola`);
+  }
+  try {
+    return await fn();
+  } finally {
+    liberar();
+  }
 }
 
 /**
@@ -105,6 +161,8 @@ function relojDeEtapa(minutos, nombre) {
 async function esperarAlPc(contexto, reloj, que) {
   const { medidor, config, registro, senal, otrasSesiones } = contexto;
   const maximoMs = (config.limites?.esperaMaximaMinutos ?? 0) * MINUTO;
+  // Con la cola de pasos pesados, los comandos pesados ya van de a uno: la CPU alta es de ese mismo paso, no se espera.
+  if (contexto.colaPesada) return;
   if (!medidor || !maximoMs || !(otrasSesiones?.() > 0)) return;
   const falta = faltanRecursos(medidor.medir(), config.limites);
   if (!falta) return;
@@ -153,7 +211,11 @@ const carpetaDe = (contexto, tarjeta, etapa) => path.join(contexto.config.carpet
  * Corre un comando de la etapa; si falla, ErrorDeEtapa con `motivo` (en palabras sencillas, para el
  * dueño) y debajo el detalle técnico (el comando y lo último que dijo).
  */
-async function paso(contexto, comando, { cwd, reloj, que, motivo, entrada }) {
+async function paso(contexto, comando, { cwd, reloj, que, motivo, entrada, prioridad = PRIORIDAD.verificar }) {
+  return conTurno(contexto, reloj, prioridad, comoTexto(comando), () => pasoSinTurno(contexto, comando, { cwd, reloj, que, motivo, entrada }));
+}
+
+async function pasoSinTurno(contexto, comando, { cwd, reloj, que, motivo, entrada }) {
   const { config, senal } = contexto;
   const timeoutMs = Math.min(reloj.resta(), config.tiempos.comandoMinutos * MINUTO);
   // La salida completa queda en un archivo (intentos/<tarjeta>/salida-...): si el comando falla, el diagnóstico
@@ -207,7 +269,10 @@ async function claude(contexto, argumentos, prompt, { cwd, timeoutMs, que }) {
     );
   }
   if (resultado.vencido) throw new ErrorDeEtapa(`Claude tardó más de ${Math.round(timeoutMs / MINUTO)} min en ${que}: se cortó.`, { categoria: "tiempo_agotado" });
-  const cola = ultimasLineas(`${resultado.errores}\n${resultado.salida}`, 20);
+  // Sin el aviso "Ignoring N permissions.allow entries… this workspace has not been trusted" (23-24-oct-2026: salía en
+  // cada sesión, encabezaba el error y escondía la causa real: el límite de uso o las tareas en segundo plano). No hace
+  // daño: las herramientas van por --allowedTools en la línea de comando, no por .claude/settings.json.
+  const cola = ultimasLineas(sinRuido(`${resultado.errores}\n${resultado.salida}`), 20);
   if (resultado.codigo !== 0) {
     throw new ErrorDeEtapa(`Claude falló al ${que} (código ${resultado.codigo}):\n${cola}`, { limiteDeUso: esLimiteDeUso(cola), motor: "claude" });
   }
@@ -386,6 +451,9 @@ export function bloqueDeReparacion(tarjeta, { patchAplicado = false } = {}) {
     patchAplicado
       ? "El trabajo del intento anterior YA está aplicado en los archivos de este worktree (míralo con git status y git diff): parte de ahí, no lo escribas otra vez."
       : "El trabajo del intento anterior no se pudo conservar: empieza desde la base, pero con la causa de arriba presente para no repetir el error.",
+    patchAplicado?.conflictos?.length
+      ? `OJO: main cambió desde el intento anterior y estos archivos quedaron con MARCAS DE CONFLICTO (<<<<<<< / ======= / >>>>>>>): ${patchAplicado.conflictos.join(", ")}. Resuélvelas PRIMERO: deja lo nuevo de main y suma lo de esta tarea, y borra todas las marcas. El Coordinador no sube nada que tenga marcas.`
+      : "",
     r.estrategia === "opus" ? "Ya falló dos veces por lo mismo: antes de editar, piensa con calma por qué y busca otra forma de resolverlo." : "",
   ]
     .filter(Boolean)
@@ -474,7 +542,9 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
       "- Respeta el estilo del repo y escribe los comentarios en español.",
       motor === "codex" ? SIN_SUBAGENTES_AL_CONSTRUIR : SUBAGENTES_AL_CONSTRUIR,
       "- NO corras `npm run build` ni `next build` (ni `next dev`, ni nada que quede corriendo): el Coordinador compila él mismo al terminar, y dos builds en la misma carpeta se traban en `.next/lock`.",
-      "- Al final corre tsc, lint (sin errores nuevos) y las pruebas que correspondan, y arregla lo que falle.",
+      // 25-oct-2026: `eslint .` y toda la batería dentro de la sesión corrían FUERA de la cola de pasos pesados (cola.mjs)
+      // y, con 3 sesiones, saturaban el i3. Claude prueba lo suyo; lo completo lo corre el Coordinador, de a uno.
+      "- Al final corre `npx tsc --noEmit`, el lint SOLO de los archivos que cambiaste (`npx eslint <esos archivos>`, sin errores nuevos) y las pruebas del módulo que tocaste, y arregla lo que falle. NO corras `eslint .` del repo entero ni toda la batería de pruebas: el Coordinador corre todo eso al terminar, de a uno en aizen1.",
       "- Si terminas SIN haber cambiado ningún archivo (porque ya estaba hecho, o no se puede hacer), escribe como última línea: NO_CAMBIE: <el motivo en una frase>. Es la única forma de decir que no hacía falta cambiar nada.",
       "- Termina con un RESUMEN corto en español sencillo: qué cambiaste, qué archivos y cómo lo probaste.",
     ].join("\n"),
@@ -674,6 +744,47 @@ export function promptDeRevisar(tarjeta, repo, rama, quienConstruyo) {
   ].join("\n\n");
 }
 
+/**
+ * El lint de main se guarda por commit (25-oct-2026): <carpetaTrabajo>/cache/lint/<repo>-<sha>.json. Varias tareas
+ * salen del mismo commit de main y `eslint .` en un i3 tarda minutos: con el guardado, solo la primera lo mide.
+ */
+function archivoDeLintGuardado(contexto, repo, sha) {
+  const llave = crypto.createHash("sha1").update(JSON.stringify(repo.lint?.comando ?? [])).digest("hex").slice(0, 8);
+  return path.join(contexto.config.carpetaTrabajo, "cache", "lint", `${String(repo.clave ?? "repo").replace(/[^\w-]/g, "")}-${sha}-${llave}.json`);
+}
+
+/** El lint de la base: del guardado si ya se midió ese commit; si no, se mide (con turno en la cola) y se guarda. */
+async function lintDeLaBase(contexto, repo, cwd, reloj, sha) {
+  const archivo = sha ? archivoDeLintGuardado(contexto, repo, sha) : null;
+  if (archivo) {
+    try {
+      const guardado = new Map(JSON.parse(fs.readFileSync(archivo, "utf8")));
+      contexto.registro?.info?.(`lint de main ${sha.slice(0, 8)}: ya estaba medido (no se vuelve a correr)`);
+      return guardado;
+    } catch {
+      // No estaba o no se pudo leer: se mide.
+    }
+  }
+  const cuenta = await conTurno(contexto, reloj, PRIORIDAD.preparar, "medir el lint de main", () => erroresDeLint(contexto, repo, cwd, reloj));
+  if (archivo) {
+    try {
+      fs.mkdirSync(path.dirname(archivo), { recursive: true });
+      fs.writeFileSync(archivo, JSON.stringify([...cuenta]));
+      // Solo los últimos 20 commits medidos.
+      const carpeta = path.dirname(archivo);
+      const viejos = fs
+        .readdirSync(carpeta)
+        .map((nombre) => ({ nombre, cuando: fs.statSync(path.join(carpeta, nombre)).mtimeMs }))
+        .sort((a, b) => b.cuando - a.cuando)
+        .slice(20);
+      for (const viejo of viejos) fs.rmSync(path.join(carpeta, viejo.nombre), { force: true });
+    } catch {
+      // Guardar es una ayuda: si falla, la próxima vez se mide de nuevo.
+    }
+  }
+  return cuenta;
+}
+
 /** Los errores de lint (no avisos) como firmas "archivo|regla|mensaje", contados. */
 async function erroresDeLint(contexto, repo, cwd, reloj) {
   const timeoutMs = Math.min(reloj.resta(), contexto.config.tiempos.comandoMinutos * MINUTO);
@@ -706,14 +817,16 @@ function erroresNuevos(base, despues) {
 }
 
 /** Instalar + verificar + pruebas en el worktree. Devuelve el texto de "pruebas" para el resultado. */
-async function verificar(contexto, repo, cwd, reloj) {
+async function verificar(contexto, repo, cwd, reloj, prioridad = PRIORIDAD.verificar) {
   const lineas = [];
   // Panel "Coordinador en vivo": desde acá la tarea está "probando".
   contexto.fase?.("probando");
   const comandos = [...repo.verificar.map((comando) => [comando, false]), ...repo.pruebas.map((comando) => [comando, true])];
   for (const [comando, esPrueba] of comandos) {
     await esperarAlPc(contexto, reloj, `correr ${comoTexto(comando)}`);
-    const resultado = await paso(contexto, comando, { cwd, reloj, que: "la verificación", motivo: motivoDeVerificacion(comando, esPrueba) });
+    // Un build que quedó a medias (otro intento, una sesión) deja .next/lock: se borra antes de compilar (24-oct-2026).
+    if (/\bbuild\b/.test(comoTexto(comando))) await cerrarRestos(contexto, cwd);
+    const resultado = await paso(contexto, comando, { cwd, reloj, que: "la verificación", motivo: motivoDeVerificacion(comando, esPrueba), prioridad });
     const cola = ultimasLineas(resultado.salida, 3);
     lineas.push(`✔ ${comoTexto(comando)}${cola ? `\n  ${cola.replace(/\n/g, "\n  ")}` : ""}`);
   }
@@ -760,7 +873,9 @@ export async function construir(contexto, tarjeta) {
   const repo = configDelRepo(contexto, tarjeta);
   const enNube = contexto.lugar === "nube";
   // En la nube el reloj de la espera es el de construirNubeMinutos; al volver, la verificación en aizen1 tiene el suyo.
-  let reloj = relojDeEtapa(enNube ? config.tiempos.construirNubeMinutos : config.tiempos.construirMinutos, enNube ? "construir en la nube" : "construir");
+  let reloj = relojDeEtapa(enNube ? config.tiempos.construirNubeMinutos : config.tiempos.construirMinutos, enNube ? "construir en la nube" : "construir", {
+    topeMinutos: enNube ? null : TOPE_DEL_CRM.construir,
+  });
   let liberarPuesto = null;
   let rama = nombreDeRama(tarjeta);
   const base = `${repo.remoto}/${repo.ramaBase}`;
@@ -787,14 +902,16 @@ export async function construir(contexto, tarjeta) {
     }
     await crearWorktree(repo, carpeta, nube ? nube.baseComun : base, rama);
     baseSha = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
-    if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias" });
-    // El lint de main, para que solo cuenten los errores NUEVOS.
-    const lintBase = repo.lint ? await erroresDeLint(contexto, repo, carpeta, reloj) : null;
+    // Lo que vuelve de la nube ya esperó: se verifica con la prioridad de verificar; una tarea nueva de aizen1, con la de preparar.
+    const prioridadDeInstalar = nube ? PRIORIDAD.verificar : PRIORIDAD.preparar;
+    if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: prioridadDeInstalar });
+    // El lint de main, para que solo cuenten los errores NUEVOS (guardado por commit: el mismo commit no se mide dos veces).
+    const lintBase = repo.lint ? await lintDeLaBase(contexto, repo, carpeta, reloj, baseSha) : null;
     if (nube) {
       // La rama de la nube se trae encima de esa base. Si cambió las dependencias, se instala otra vez.
       await git(carpeta, ["merge", "--ff-only", `${repo.remoto}/${rama}`]);
       const tocoPaquetes = (await archivosCambiados(carpeta, nube.baseComun)).some((cambio) => /(^|\/)package(-lock)?\.json$/.test(cambio.archivo));
-      if (tocoPaquetes && repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias" });
+      if (tocoPaquetes && repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: PRIORIDAD.verificar });
     }
     // Lo ya hecho en el intento anterior se reaplica (si encaja sobre main) DESPUÉS de medir el lint de la base.
     const patchAplicado = nube ? false : await reaplicarTrabajo(contexto, tarjeta, carpeta, intentos);
@@ -863,6 +980,11 @@ export async function construir(contexto, tarjeta) {
       }
     }
 
+    // Marcas de conflicto que quedaron (de reaplicar a 3 vías): no se compila ni se sube nada con ellas.
+    const sinResolver = await archivosConMarcasDeConflicto(carpeta);
+    if (sinResolver.length) {
+      throw new ErrorDeEtapa(`Quedaron marcas de conflicto (<<<<<<<) sin resolver en: ${sinResolver.slice(0, 10).join(", ")}. No se subió nada.`, { categoria: "no_compila" });
+    }
     // El commit lo hace el Coordinador (si el motor hizo alguno, queda debajo).
     await git(carpeta, ["add", "-A"]);
     const pendiente = await git(carpeta, ["diff", "--cached", "--quiet"], { permitirFallo: true });
@@ -893,23 +1015,27 @@ export async function construir(contexto, tarjeta) {
 
     const pruebas = await verificar(contexto, repo, carpeta, reloj);
     if (lintBase) {
-      const nuevos = erroresNuevos(lintBase, await erroresDeLint(contexto, repo, carpeta, reloj));
+      const nuevos = erroresNuevos(lintBase, await conTurno(contexto, reloj, PRIORIDAD.verificar, "lint", () => erroresDeLint(contexto, repo, carpeta, reloj)));
       if (nuevos.length) throw new ErrorDeEtapa(`El lint tiene ${nuevos.length} error(es) nuevo(s):\n${nuevos.slice(0, 15).join("\n")}\nNo se subió nada.`, { categoria: "lint" });
       pruebas.push("✔ lint sin errores nuevos");
     }
     const migraciones = migracionesNuevas(cambios, repo.carpetaMigraciones);
     let migracion = null;
     try {
-      migracion = await ensayarMigraciones({
-        migraciones,
-        repo,
-        ssh: config.ssh,
-        cwd: carpeta,
-        env: entornoSeguro(),
-        senal: contexto.senal,
-        timeoutMs: Math.min(reloj.resta(), config.tiempos.comandoMinutos * MINUTO),
-      });
+      const ensayar = () =>
+        ensayarMigraciones({
+          migraciones,
+          repo,
+          ssh: config.ssh,
+          cwd: carpeta,
+          env: entornoSeguro(),
+          senal: contexto.senal,
+          timeoutMs: Math.min(reloj.resta(), config.tiempos.comandoMinutos * MINUTO),
+        });
+      migracion = migraciones.length ? await conTurno(contexto, reloj, PRIORIDAD.verificar, "ensayar la migración", ensayar) : await ensayar();
     } catch (error) {
+      // Cortada esperando turno, o sin tiempo por la cola: no es la migración.
+      if (error instanceof ErrorDeEtapa && ["coordinador_cortado", "pc_sobrecargado"].includes(error.categoria)) throw error;
       throw new ErrorDeEtapa(`${MOTIVO_ENSAYO}\nDetalle técnico: ${error.message}`, { categoria: "migracion" });
     }
     if (migracion) pruebas.push(`✔ ensayo de la migración: ${migracion}`);
@@ -1008,7 +1134,16 @@ async function guardarTrabajo(contexto, tarjeta, carpeta, baseSha, carpetaIntent
   }
 }
 
-/** Reaplica el patch del intento anterior sobre la base limpia si encaja (git apply --check). true = quedó aplicado. */
+/** Los archivos (versionados o nuevos) que tienen marcas de conflicto de git al principio de una línea. */
+async function archivosConMarcasDeConflicto(carpeta) {
+  const r = await git(carpeta, ["grep", "-l", "--untracked", "-E", "^(<<<<<<<|>>>>>>>)( |$)"], { permitirFallo: true });
+  return r.codigo === 0 ? r.salida.split(/\r?\n/).map((linea) => linea.trim()).filter(Boolean) : [];
+}
+
+/**
+ * Reaplica el patch del intento anterior sobre la base limpia si encaja (git apply --check); si no encaja, a 3 vías.
+ * true = quedó aplicado; { conflictos: [archivos] } = aplicado con marcas de conflicto por resolver; false = limpio.
+ */
 async function reaplicarTrabajo(contexto, tarjeta, carpeta, carpetaIntentos) {
   const archivoPatch = path.join(carpetaIntentos, "trabajo.patch");
   if (!fs.existsSync(archivoPatch)) return false;
@@ -1026,6 +1161,18 @@ async function reaplicarTrabajo(contexto, tarjeta, carpeta, carpetaIntentos) {
   }
   const comprobacion = await git(carpeta, ["apply", "--check", archivoPatch], { permitirFallo: true });
   if (comprobacion.codigo !== 0) {
+    // 25-oct-2026: antes se tiraba el trabajo y Claude rehacía TODO. Ahora se aplica a 3 vías: lo que encaja queda, y lo
+    // que choca con lo nuevo de main queda con marcas de conflicto (<<<<<<<) para que Claude solo resuelva eso.
+    const tresVias = await git(carpeta, ["apply", "--3way", "--whitespace=nowarn", archivoPatch], { permitirFallo: true });
+    const conMarcas = await archivosConMarcasDeConflicto(carpeta);
+    if (tresVias.codigo === 0 || conMarcas.length) {
+      // Las marcas quedan como cambios normales (sin "unmerged" en el índice): Claude las ve con git diff y las arregla.
+      await git(carpeta, ["reset", "-q"], { permitirFallo: true });
+      registro?.info?.(`reapliqué el trabajo del intento anterior a 3 vías${conMarcas.length ? `; quedan conflictos por resolver en: ${conMarcas.join(", ")}` : ""}`);
+      return conMarcas.length ? { conflictos: conMarcas } : true;
+    }
+    await git(carpeta, ["checkout", "--", "."], { permitirFallo: true });
+    await git(carpeta, ["clean", "-fd"], { permitirFallo: true });
     registro?.aviso?.("el trabajo del intento anterior no encaja sobre main: empiezo limpio (con la causa escrita en el prompt)");
     borrarTrabajoGuardado(carpetaIntentos);
     return false;
@@ -1063,7 +1210,9 @@ async function esperarCi(contexto, repo, commit, cwd, reloj) {
     if (resultado.codigo !== 0 && /gh auth login|GH_TOKEN|authentication/i.test(resultado.errores)) {
       return "CI: no se pudo consultar (gh sin sesión en este PC; poner GH_TOKEN)";
     }
-    corrida = resultado.codigo === 0 ? resultado.salida.trim().split(/\s+/)[0] ?? "" : "";
+    // Solo un número es una corrida: con la lista vacía `--jq .[0].databaseId` escribe "null" (25-oct-2026: eso se
+    // tomaba por una corrida, `gh run watch null` fallaba y se deshacía una subida buena).
+    corrida = resultado.codigo === 0 ? (resultado.salida.trim().split(/\s+/).find((palabra) => /^\d+$/.test(palabra)) ?? "") : "";
     if (corrida) break;
     if (Date.now() > limite) return `CI: no apareció la corrida de ${commit.slice(0, 10)} (se revisa la versión)`;
     await dormir(10_000);
@@ -1103,10 +1252,13 @@ async function versionIncluye(repo, version, commit) {
 }
 
 /** Espera que la URL de versión diga el commit nuevo, o uno posterior que lo incluya (= arrancó la versión nueva). */
-async function esperarVersion(contexto, repo, commit, reloj) {
-  const { urlVersion, campoVersion, versionMinutos, urlArranque } = repo.subida;
+async function esperarVersion(contexto, repo, commit, reloj, { sinCi = false } = {}) {
+  const { urlVersion, campoVersion, versionMinutos, urlArranque, ciMinutos } = repo.subida;
   if (!urlVersion) return { version: null, texto: "versión: no configurada" };
-  const limite = Date.now() + Math.min(versionMinutos * MINUTO, reloj.resta());
+  // Si no se encontró la corrida del CI, el despliegue puede venir atrasado: se le da también el tiempo del CI
+  // antes de decir "no arrancó" y deshacer (25-oct-2026).
+  const minutos = sinCi ? versionMinutos + (ciMinutos ?? 0) : versionMinutos;
+  const limite = Date.now() + Math.min(minutos * MINUTO, reloj.resta());
   let ultima = "";
   for (;;) {
     try {
@@ -1140,7 +1292,7 @@ async function esperarVersion(contexto, repo, commit, reloj) {
 export async function subir(contexto, tarjeta) {
   const { config, registro } = contexto;
   const repo = configDelRepo(contexto, tarjeta);
-  const reloj = relojDeEtapa(config.tiempos.subirMinutos, "subir");
+  const reloj = relojDeEtapa(config.tiempos.subirMinutos, "subir", { topeMinutos: TOPE_DEL_CRM.subir });
   const rama = tarjeta.resultado?.rama;
   if (!esRamaDelTrabajador(rama)) throw new ErrorDeEtapa(`La tarjeta no tiene una rama del Coordinador para subir (rama: ${rama ?? "ninguna"}).`);
   if (tarjeta.resultado?.paso !== true) throw new ErrorDeEtapa("El resultado no dice que todo pasó: no se sube.");
@@ -1150,55 +1302,71 @@ export async function subir(contexto, tarjeta) {
   await git(repo.ruta, ["fetch", repo.remoto]);
   try {
     await crearWorktree(repo, carpeta, `${repo.remoto}/${rama}`, ramaLocal);
-    const antes = (await git(carpeta, ["rev-parse", base])).salida.trim();
     const cabeza = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
-    // Si main sigue donde estaba al construir y la rama es la que se probó, ya está todo verificado.
-    const mainIgual = Boolean(tarjeta.resultado?.base) && tarjeta.resultado.base === antes && tarjeta.resultado?.commit === cabeza;
-    const rebase = await git(carpeta, ["rebase", base], { identidad: config.git, permitirFallo: true });
-    if (rebase.codigo !== 0) {
-      await git(carpeta, ["rebase", "--abort"], { permitirFallo: true });
-      throw new ErrorDeEtapa(
-        `Choca con lo nuevo de ${repo.ramaBase}: alguien cambió los mismos archivos mientras se construía (conflicto en el rebase de ${rama}). No se subió nada; hay que reintentar (construir de nuevo).`,
-        { categoria: "choca_con_main" },
-      );
-    }
+    let antes;
     let pruebas;
-    if (mainIgual) {
-      pruebas = [`✔ ${repo.ramaBase} no cambió desde que se construyó: no se vuelve a compilar`];
-    } else {
-      if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias" });
-      pruebas = await verificar(contexto, repo, carpeta, reloj);
-      contexto.fase?.("subiendo");
-      const cambios = await archivosCambiados(carpeta, base);
-      const migraciones = migracionesNuevas(cambios, repo.carpetaMigraciones);
-      try {
-        const migracion = await ensayarMigraciones({
-          migraciones,
-          repo,
-          ssh: config.ssh,
-          cwd: carpeta,
-          env: entornoSeguro(),
-          senal: contexto.senal,
-          timeoutMs: Math.min(reloj.resta(), config.tiempos.comandoMinutos * MINUTO),
-        });
-        if (migracion) pruebas.push(`✔ ensayo de la migración: ${migracion}`);
-      } catch (error) {
-        throw new ErrorDeEtapa(`${MOTIVO_ENSAYO}\nDetalle técnico: ${error.message}`, { categoria: "migracion" });
+    let commit;
+    // 25-oct-2026: rebase (con los .md y demás "sin choque" juntados solos, git.mjs: rebaseSobre), verificar y push. Si
+    // main cambió MIENTRAS se verificaba (push rechazado), se reintenta UNA vez sola: fetch, rebase y verificar de nuevo.
+    for (let vuelta = 1; ; vuelta += 1) {
+      antes = (await git(carpeta, ["rev-parse", base])).salida.trim();
+      // Si main sigue donde estaba al construir y la rama es la que se probó, ya está todo verificado.
+      const mainIgual = vuelta === 1 && Boolean(tarjeta.resultado?.base) && tarjeta.resultado.base === antes && tarjeta.resultado?.commit === cabeza;
+      const rebase = await rebaseSobre(carpeta, base, { identidad: config.git, carpetaTrabajo: config.carpetaTrabajo, sinChoque: repo.sinChoque, nombre: repo.clave });
+      if (!rebase.ok) {
+        throw new ErrorDeEtapa(
+          `Choca con lo nuevo de ${repo.ramaBase}: alguien cambió los mismos archivos mientras se construía (conflicto en el rebase de ${rama}${rebase.conflicto.length ? `: ${rebase.conflicto.join(", ")}` : ""}). No se subió nada; hay que reintentar (construir de nuevo).`,
+          { categoria: "choca_con_main" },
+        );
       }
-    }
+      if (mainIgual) {
+        pruebas = [`✔ ${repo.ramaBase} no cambió desde que se construyó: no se vuelve a compilar`];
+      } else {
+        if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: PRIORIDAD.subir });
+        pruebas = await verificar(contexto, repo, carpeta, reloj, PRIORIDAD.subir);
+        contexto.fase?.("subiendo");
+        const cambios = await archivosCambiados(carpeta, base);
+        const migraciones = migracionesNuevas(cambios, repo.carpetaMigraciones);
+        try {
+          const ensayar = () =>
+            ensayarMigraciones({
+              migraciones,
+              repo,
+              ssh: config.ssh,
+              cwd: carpeta,
+              env: entornoSeguro(),
+              senal: contexto.senal,
+              timeoutMs: Math.min(reloj.resta(), config.tiempos.comandoMinutos * MINUTO),
+            });
+          const migracion = migraciones.length ? await conTurno(contexto, reloj, PRIORIDAD.subir, "ensayar la migración", ensayar) : await ensayar();
+          if (migracion) pruebas.push(`✔ ensayo de la migración: ${migracion}`);
+        } catch (error) {
+          if (error instanceof ErrorDeEtapa && ["coordinador_cortado", "pc_sobrecargado"].includes(error.categoria)) throw error;
+          throw new ErrorDeEtapa(`${MOTIVO_ENSAYO}\nDetalle técnico: ${error.message}`, { categoria: "migracion" });
+        }
+      }
+      if (vuelta > 1) pruebas.unshift(`✔ ${repo.ramaBase} cambió mientras se verificaba: rebase y verificación otra vez (reintento automático)`);
 
-    reloj.resta();
-    const commit = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
-    try {
-      await pushARamaBase(carpeta, repo.remoto, repo.ramaBase);
-    } catch (error) {
-      throw new ErrorDeEtapa(`No se pudo subir a ${repo.ramaBase} (¿cambió mientras tanto?). No se subió nada.\nDetalle técnico: ${error.message}`, { categoria: "choca_con_main" });
+      reloj.resta();
+      commit = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
+      try {
+        await pushARamaBase(carpeta, repo.remoto, repo.ramaBase);
+        break;
+      } catch (error) {
+        const rechazado = /rejected|fetch first|non-fast-forward|failed to push/i.test(String(error?.message ?? ""));
+        if (rechazado && vuelta === 1) {
+          registro.info(`${repo.ramaBase} cambió mientras se verificaba (push rechazado): rebase de nuevo y reintento una vez`);
+          await git(repo.ruta, ["fetch", repo.remoto]);
+          continue;
+        }
+        throw new ErrorDeEtapa(`No se pudo subir a ${repo.ramaBase} (¿cambió mientras tanto?). No se subió nada.\nDetalle técnico: ${error.message}`, { categoria: "choca_con_main" });
+      }
     }
     registro.info(`subido a ${repo.ramaBase}: ${commit.slice(0, 10)} (${tarjeta.titulo})`);
     let version;
     try {
       const ci = await esperarCi(contexto, repo, commit, carpeta, reloj);
-      const comprobada = await esperarVersion(contexto, repo, commit, reloj);
+      const comprobada = await esperarVersion(contexto, repo, commit, reloj, { sinCi: !/: ok$/.test(ci) });
       version = comprobada.version;
       registro.info(`${ci}; ${comprobada.texto}`);
     } catch (error) {

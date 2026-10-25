@@ -122,6 +122,31 @@ export async function ramaExisteEnElRemoto(cwd, remoto, rama) {
   return resultado.codigo === 0 && resultado.salida.trim().length > 0;
 }
 
+/**
+ * Rebase de la rama de la tarjeta sobre `base` (25-oct-2026). Los documentos .md se juntan con merge=union (las
+ * líneas de los dos lados quedan): casi todas las tareas agregan una línea al manual (docs/que-es-esta-aplicacion.md)
+ * y eso solo no puede tumbar una subida. Va con un archivo de atributos propio (core.attributesFile, solo para este
+ * comando): no cambia el repo ni la configuración de git del PC. Si choca, deja el worktree como estaba (rebase --abort).
+ * -> { ok, conflicto: [archivos], detalle }
+ */
+export async function rebaseSobre(cwd, base, { identidad, carpetaTrabajo, sinChoque = ["**/*.md"], nombre = "repo" } = {}) {
+  // Los globs de repos.<x>.sinChoque (choques.mjs: noChoca) son los que se juntan solos. Un archivo por repo.
+  const atributos = path.join(carpetaTrabajo ?? path.dirname(cwd), "cache", `atributos-de-subida-${String(nombre).replace(/[^\w-]/g, "")}`);
+  const globs = (sinChoque ?? []).filter((glob) => typeof glob === "string" && /^[^\s#]+$/.test(glob));
+  try {
+    fs.mkdirSync(path.dirname(atributos), { recursive: true });
+    fs.writeFileSync(atributos, globs.map((glob) => `${glob} merge=union\n`).join(""));
+  } catch {
+    // Sin el archivo el rebase es el de siempre.
+  }
+  const extra = globs.length && fs.existsSync(atributos) ? ["-c", `core.attributesFile=${atributos.replace(/\\/g, "/")}`] : [];
+  const rebase = await git(cwd, [...extra, "rebase", base], { identidad, permitirFallo: true });
+  if (rebase.codigo === 0) return { ok: true, conflicto: [], detalle: "" };
+  const conflicto = lineas((await git(cwd, ["diff", "--name-only", "--diff-filter=U"], { permitirFallo: true })).salida);
+  await git(cwd, ["rebase", "--abort"], { permitirFallo: true });
+  return { ok: false, conflicto, detalle: ultimasLineas(`${rebase.errores}\n${rebase.salida}`, 15) };
+}
+
 /** El push a la rama base (main): SOLO desde la etapa de subir (sube sola o con el sí final). Sin --force. */
 export async function pushARamaBase(cwd, remoto, ramaBase) {
   await git(cwd, ["push", remoto, `HEAD:refs/heads/${ramaBase}`]);
