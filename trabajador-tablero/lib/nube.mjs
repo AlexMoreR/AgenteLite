@@ -4,13 +4,14 @@
 //
 //   esTareaGrande       la regla de reparto, fija y sin IA (más de 8 archivos, migración, agente nuevo, o ya
 //                       falló por tamaño o recursos).
-//   lanzarEnNube        corre `claude -p --cloud … --output-format json` (a) y, si pide terminal real, node-pty (b);
-//                       lee el link de la sesión (claude.ai/code/session_…). Si ninguna sirve sin que alguien la
-//                       toque, lanza un error que dice que se propone GitHub Actions (tarjeta cmvmjh9a504dp2mrpg7cazs8u).
+//   lanzarEnNube        lanza `claude --cloud "<descripción>"` en una terminal real (node-pty, sin cmd.exe) y
+//                       lee el link de la sesión (claude.ai/code/session_…). Si no se puede lanzar sin que alguien la
+//                       toque (o no da el link), lanza un error que dice que se propone GitHub Actions (tarjeta cmvmjh9a504dp2mrpg7cazs8u).
 //   esperarResultado    cada minuto mira la RAMA en GitHub (gh api) buscando el commit vacío
 //                       "resultado: build=OK|FALLO tests=OK|FALLO segundos=N". NUNCA usa `claude --teleport`.
 //
 // Lo que se hace con la rama cuando vuelve (verificar, zonas, ensayo, subir) está en etapas.mjs (construirEnNube).
+import { execFileSync } from "node:child_process";
 import { archivosDelPlan } from "./choques.mjs";
 import { esLimiteDeUso } from "./diagnostico.mjs";
 import { ErrorDeEtapa, entornoSeguro } from "./etapas.mjs";
@@ -100,28 +101,127 @@ function mensajeSinTerminal(detalle) {
     .join("\n");
 }
 
-/** (b) La terminal real de Windows (node-pty, instalada solo en trabajador-tablero): escribe la instrucción y lee el link. */
-async function lanzarConTerminalReal(contexto, { cwd, prompt, base, timeoutMs, antes }) {
-  const { senal, registro } = contexto;
+/** Con la terminal real la instrucción va en la línea de comandos: Windows no deja pasar de ~32.767 caracteres. */
+export const MAX_DESCRIPCION = 24_000;
+
+/**
+ * La descripción para `claude --cloud "<descripción>"`. Si no cabe en la línea de comandos, se recorta SOLO el
+ * plan (y después el contexto de la tarjeta) por el medio; el saludo con la rama, las lecciones y las prohibiciones
+ * quedan enteras.
+ */
+export function descripcionParaLaNube(prompt, max = MAX_DESCRIPCION) {
+  const texto = String(prompt ?? "");
+  if (texto.length <= max) return texto;
+  const bloques = texto.split("\n\n");
+  const recortar = (bloque, cabe) => {
+    if (bloque.length <= cabe) return bloque;
+    const aviso = "\n[… recortado para que quepa en la línea de comandos: el plan completo está en la tarjeta del CRM …]\n";
+    const mitad = Math.max(0, Math.floor((cabe - aviso.length) / 2));
+    return `${bloque.slice(0, mitad)}${aviso}${bloque.slice(bloque.length - mitad)}`;
+  };
+  const sobra = () => bloques.join("\n\n").length - max;
+  for (const esElBloque of [(b) => b.startsWith("PLAN APROBADO:"), (b, i) => i === 1]) {
+    const i = bloques.findIndex(esElBloque);
+    if (i >= 0 && sobra() > 0) bloques[i] = recortar(bloques[i], Math.max(400, bloques[i].length - sobra()));
+  }
+  const final = bloques.join("\n\n");
+  return final.length <= max ? final : recortar(final, max);
+}
+
+/**
+ * La ruta del ejecutable para la terminal real (sin cmd.exe). En Windows, un nombre suelto ("claude") se busca con
+ * `where` y se prefiere el .exe (C:\Users\…\.local\bin\claude.exe). Una ruta o el de otro sistema quedan igual.
+ */
+export function rutaDelEjecutable(nombre) {
+  if (process.platform !== "win32" || /[\\/]/.test(nombre)) return nombre;
+  try {
+    const rutas = execFileSync("where", [nombre], { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] })
+      .split(/\r?\n/)
+      .map((linea) => linea.trim())
+      .filter(Boolean);
+    return rutas.find((ruta) => /\.exe$/i.test(ruta)) ?? rutas[0] ?? nombre;
+  } catch {
+    return nombre;
+  }
+}
+
+/**
+ * (b) La terminal real (node-pty, instalada solo en trabajador-tablero): `claude --cloud "<descripción>" [--model m]`
+ * con los argumentos en un array (sin cmd.exe, así la descripción multilínea con comillas y acentos llega entera
+ * como argumento posicional justo después de --cloud). Lee el link de la sesión y cierra la terminal apenas lo tiene
+ * (Claude se queda esperando y no debe colgar al Coordinador). -> { link, via, salida, modeloForzado }.
+ */
+async function lanzarConTerminalReal(contexto, { cwd, prompt, base, modelo, timeoutMs, antes }) {
+  const { registro } = contexto;
   let pty;
   try {
     pty = await import("node-pty");
   } catch {
     throw new ErrorDeEtapa(mensajeSinTerminal(`${antes}\nnode-pty no está instalado.`), { categoria: "otra" });
   }
-  const comando = [...base, "--cloud"];
-  const [archivo, argumentos] =
-    process.platform === "win32"
-      ? ["cmd.exe", ["/d", "/s", "/c", comando.map((parte) => (/\s/.test(parte) ? `"${parte}"` : parte)).join(" ")]]
-      : [comando[0], comando.slice(1)];
-  registro?.info?.("claude --cloud: lo lanzo con una terminal real (node-pty)");
+  const descripcion = descripcionParaLaNube(prompt);
+  if (descripcion.length < String(prompt ?? "").length) registro?.aviso?.(`claude --cloud: la instrucción tenía ${String(prompt).length} caracteres; la recorté a ${descripcion.length} (el plan, por el medio)`);
+  const archivo = rutaDelEjecutable(base[0]);
+  const lanzar = (conModelo) => {
+    registro?.info?.(`claude --cloud: lo lanzo con una terminal real (node-pty, ${archivo})`);
+    return unaTerminal(contexto, pty, archivo, [...base.slice(1), "--cloud", descripcion, ...(conModelo ? ["--model", modelo] : [])], { cwd, timeoutMs, antes });
+  };
+  const primero = await lanzar(Boolean(modelo));
+  if (primero.link) return { ...primero, modeloForzado: Boolean(modelo) };
+  if (modelo && NO_ACEPTA_MODELO.test(primero.salida)) {
+    registro?.aviso?.("claude --cloud no deja elegir modelo con --model: lo lanzo sin él (el modelo va pedido en el prompt)");
+    const segundo = await lanzar(false);
+    if (segundo.link) return { ...segundo, modeloForzado: false };
+    throw segundo.error;
+  }
+  throw primero.error;
+}
+
+/**
+ * Suelta el hilo que lee la salida de la terminal en Windows. node-pty solo lo suelta en kill(): si Claude sale solo
+ * (o kill() quedó en cola), el hilo queda vivo y el proceso del Coordinador (o de las pruebas) nunca termina.
+ */
+function soltarHilo(hijo) {
+  try {
+    hijo._agent?._conoutSocketWorker?.dispose?.();
+  } catch {
+    // Otra versión de node-pty: no hay más que soltar.
+  }
+}
+
+/**
+ * Cierra la terminal real. En Windows, node-pty deja `kill()` en cola hasta que llega el primer dato: si Claude no
+ * escribió nada, kill() no mata nada y la terminal (y su hilo) quedan abiertos para siempre. En ese caso se mata el
+ * árbol con taskkill y se suelta el hilo de la salida.
+ */
+function cerrarTerminal(hijo, recibioDatos) {
+  if (process.platform === "win32" && !recibioDatos) {
+    try {
+      execFileSync("taskkill", ["/pid", String(hijo.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    } catch {
+      // Ya terminó.
+    }
+    soltarHilo(hijo);
+    return;
+  }
+  try {
+    hijo.kill();
+  } catch {
+    // Ya terminó.
+  }
+}
+
+/** Una terminal real: { link, via, salida } si salió el link, o { error, salida } si no. Rechaza solo al cancelar. */
+function unaTerminal(contexto, pty, archivo, argumentos, { cwd, timeoutMs, antes }) {
+  const { senal } = contexto;
   return new Promise((resolver, rechazar) => {
     let texto = "";
     let hijo;
+    const fallo = (detalle) => resolver({ error: new ErrorDeEtapa(mensajeSinTerminal(`${antes}\n${detalle}`), { categoria: "otra" }), salida: sinColores(texto) });
     try {
       hijo = (pty.default ?? pty).spawn(archivo, argumentos, { name: "xterm-256color", cols: 200, rows: 50, cwd, env: entornoSeguro() });
     } catch (error) {
-      rechazar(new ErrorDeEtapa(mensajeSinTerminal(`${antes}\n${error.message}`), { categoria: "otra" }));
+      fallo(error.message);
       return;
     }
     let listo = false;
@@ -129,31 +229,36 @@ async function lanzarConTerminalReal(contexto, { cwd, prompt, base, timeoutMs, a
       if (listo) return;
       listo = true;
       clearTimeout(reloj);
-      clearTimeout(escribir);
       senal?.removeEventListener?.("abort", cortar);
-      try {
-        hijo.kill();
-      } catch {
-        // Ya terminó.
-      }
+      // Si ya salió no se mata (node-pty en Windows se queja con "AttachConsole failed").
+      if (!salio) cerrarTerminal(hijo, texto.length > 0);
       accion();
     };
+    let salio = false;
     const cortar = () => terminar(() => rechazar(new ErrorDeEtapa("Se canceló el lanzamiento en la nube: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" })));
-    const reloj = setTimeout(
-      () => terminar(() => (esLimiteDeUso(texto) ? rechazar(new ErrorDeEtapa(`Claude llegó a su límite de uso al lanzar en la nube: ${ultimasLineas(sinColores(texto), 5)}`, { limiteDeUso: true, motor: "claude" })) : rechazar(new ErrorDeEtapa(mensajeSinTerminal(`${antes}\n${ultimasLineas(sinColores(texto), 15)}`), { categoria: "otra" })))),
-      timeoutMs,
-    );
-    // La instrucción entra como texto pegado (así sus saltos de línea no la mandan a medias) y se manda con Enter.
-    const escribir = setTimeout(() => {
-      hijo.write(`\u001b[200~${prompt}\u001b[201~`);
-      setTimeout(() => hijo.write("\r"), 500);
-    }, 4000);
+    const ganar = (link) => terminar(() => resolver({ link, via: "terminal-real", salida: sinColores(texto) }));
+    const sinLink = (porque) => {
+      const link = linkDeSesion(sinColores(texto));
+      if (link) return ganar(link);
+      return terminar(() =>
+        esLimiteDeUso(sinColores(texto))
+          ? resolver({ error: new ErrorDeEtapa(`Claude llegó a su límite de uso al lanzar en la nube: ${ultimasLineas(sinColores(texto), 5)}`, { limiteDeUso: true, motor: "claude" }), salida: sinColores(texto) })
+          : fallo(`${porque}\n${ultimasLineas(sinColores(texto), 15)}`),
+      );
+    };
+    const reloj = setTimeout(() => sinLink(`la terminal real no dio el link en ${Math.round(timeoutMs / 1000)} s`), timeoutMs);
     hijo.onData((dato) => {
       texto += dato;
-      const link = linkDeSesion(sinColores(texto));
-      if (link) terminar(() => resolver({ link, via: "terminal-real", salida: sinColores(texto) }));
+      // El link puede llegar partido en dos pedazos: vale cuando ya viene algo después (o al salir / vencer).
+      const limpio = sinColores(texto);
+      const link = linkDeSesion(limpio);
+      if (link && limpio.indexOf(link) + link.length < limpio.length) ganar(link);
     });
-    hijo.onExit(() => terminar(() => rechazar(new ErrorDeEtapa(mensajeSinTerminal(`${antes}\n${ultimasLineas(sinColores(texto), 15)}`), { categoria: "otra" }))));
+    hijo.onExit(({ exitCode } = {}) => {
+      salio = true;
+      if (process.platform === "win32") setTimeout(() => soltarHilo(hijo), 500);
+      sinLink(`claude --cloud salió con código ${exitCode ?? "?"} sin dar el link de la sesión`);
+    });
     if (senal?.aborted) cortar();
     else senal?.addEventListener?.("abort", cortar, { once: true });
   });
@@ -161,41 +266,39 @@ async function lanzarConTerminalReal(contexto, { cwd, prompt, base, timeoutMs, a
 
 /**
  * Lanza la sesión de la nube desde `cwd` (un worktree en la rama ya empujada) con la instrucción `prompt`.
- * (a) `claude -p --cloud --output-format json` con la instrucción por stdin; (b) si no sirve, node-pty.
- * Devuelve { link, via, salida }. Lanza ErrorDeEtapa (límite de uso, o sin forma de lanzarlo sin terminal).
+ * `claude -p --cloud` NO sirve: la CLI lo rechaza ("--cloud cannot be combined with --print … interactive only").
+ * Por eso "auto" y "pty" van directo a la terminal real (node-pty). "sin-terminal" deja el intento con -p (por si
+ * una versión futura lo acepta; las pruebas lo usan con un claude falso).
+ * Devuelve { link, via, salida, modeloForzado }. Lanza ErrorDeEtapa (límite de uso, o sin forma de lanzarlo).
  */
 export async function lanzarEnNube(contexto, { cwd, prompt, modelo = null }) {
   const { config, senal, registro } = contexto;
   const base = config.nube.comandoClaude ?? config.comandoClaude;
   const timeoutMs = Math.max(1000, config.nube.lanzarMinutos * MINUTO);
-  let antes = "";
-  let aceptaModelo = Boolean(modelo);
-  if (config.nube.terminal !== "pty") {
-    // El modelo va explícito con --model (la misma regla fija que en aizen1). Si esta versión de `--cloud` no lo
-    // acepta, se lanza sin él (el prompt ya trae el modelo pedido) y la tarjeta lo dice (modeloForzado: false).
-    const lanzar = (conModelo) =>
-      correr([...base, "-p", "--cloud", ...(conModelo ? ["--model", modelo] : []), "--output-format", "json"], { cwd, entrada: prompt, timeoutMs, senal, env: entornoSeguro() });
-    let resultado = await lanzar(Boolean(modelo));
-    const salidaDelIntento = () => `${resultado.errores}\n${resultado.salida}`;
-    if (modelo && !resultado.cancelado && !linkDeSesion(salidaDelIntento()) && NO_ACEPTA_MODELO.test(salidaDelIntento())) {
-      registro?.aviso?.("claude --cloud no deja elegir modelo con --model: lo lanzo sin él (el modelo va pedido en el prompt)");
-      resultado = await lanzar(false);
-      aceptaModelo = false;
-    }
-    if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló el lanzamiento en la nube: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
-    const texto = sinColores(`${resultado.errores}\n${resultado.salida}`);
-    const link = linkDeSesion(texto);
-    if (link) return { link, via: "sin-terminal", salida: texto, modeloForzado: aceptaModelo };
-    if (esLimiteDeUso(texto)) {
-      throw new ErrorDeEtapa(`Claude llegó a su límite de uso al lanzar en la nube: ${ultimasLineas(texto, 5)}`, { limiteDeUso: true, motor: "claude" });
-    }
-    antes = `claude -p --cloud ${resultado.vencido ? "no contestó a tiempo" : `salió con código ${resultado.codigo} sin dar el link de la sesión`}:\n${ultimasLineas(texto, 15)}`;
-    if (config.nube.terminal === "sin-terminal") throw new ErrorDeEtapa(mensajeSinTerminal(antes), { categoria: "otra" });
-    registro?.aviso?.(`claude -p --cloud no sirvió (${String(antes).split("\n")[0]}): pruebo con una terminal real`);
+  if (config.nube.terminal !== "sin-terminal") {
+    return lanzarConTerminalReal(contexto, { cwd, prompt, base, modelo, timeoutMs, antes: "claude -p --cloud no se intenta: la CLI no deja --cloud con --print." });
   }
-  // (b) Por la terminal real el modelo va en el comando (salvo que (a) ya mostró que --cloud no lo acepta).
-  const real = await lanzarConTerminalReal(contexto, { cwd, prompt, base: aceptaModelo ? [...base, "--model", modelo] : base, timeoutMs, antes });
-  return { ...real, modeloForzado: aceptaModelo };
+  // El modelo va explícito con --model (la misma regla fija que en aizen1). Si esta versión de `--cloud` no lo
+  // acepta, se lanza sin él (el prompt ya trae el modelo pedido) y la tarjeta lo dice (modeloForzado: false).
+  let aceptaModelo = Boolean(modelo);
+  const lanzar = (conModelo) =>
+    correr([...base, "-p", "--cloud", ...(conModelo ? ["--model", modelo] : []), "--output-format", "json"], { cwd, entrada: prompt, timeoutMs, senal, env: entornoSeguro() });
+  let resultado = await lanzar(Boolean(modelo));
+  const salidaDelIntento = () => `${resultado.errores}\n${resultado.salida}`;
+  if (modelo && !resultado.cancelado && !linkDeSesion(salidaDelIntento()) && NO_ACEPTA_MODELO.test(salidaDelIntento())) {
+    registro?.aviso?.("claude --cloud no deja elegir modelo con --model: lo lanzo sin él (el modelo va pedido en el prompt)");
+    resultado = await lanzar(false);
+    aceptaModelo = false;
+  }
+  if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló el lanzamiento en la nube: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
+  const texto = sinColores(`${resultado.errores}\n${resultado.salida}`);
+  const link = linkDeSesion(texto);
+  if (link) return { link, via: "sin-terminal", salida: texto, modeloForzado: aceptaModelo };
+  if (esLimiteDeUso(texto)) {
+    throw new ErrorDeEtapa(`Claude llegó a su límite de uso al lanzar en la nube: ${ultimasLineas(texto, 5)}`, { limiteDeUso: true, motor: "claude" });
+  }
+  const antes = `claude -p --cloud ${resultado.vencido ? "no contestó a tiempo" : `salió con código ${resultado.codigo} sin dar el link de la sesión`}:\n${ultimasLineas(texto, 15)}`;
+  throw new ErrorDeEtapa(mensajeSinTerminal(antes), { categoria: "otra" });
 }
 
 /* ───────────────────────────────────────────────────────── vigilar la rama en GitHub ── */

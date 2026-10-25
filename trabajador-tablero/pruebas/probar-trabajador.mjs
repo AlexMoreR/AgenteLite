@@ -27,7 +27,7 @@ import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
 import { decidir, diagnosticar, resumenDeEscalada } from "../lib/diagnostico.mjs";
 import { esLimiteDeUso, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
-import { esTareaGrande, linkDeSesion, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
+import { MAX_DESCRIPCION, descripcionParaLaNube, esTareaGrande, lanzarEnNube, linkDeSesion, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
 import { detalleDeFalla, lineasQueFallaron } from "../lib/procesos.mjs";
 import { destructivoDelSql, migracionDestructiva } from "../lib/riesgo.mjs";
 import {
@@ -354,6 +354,17 @@ await prueba("nube: se lee el link de la sesión y la línea 'resultado:' del co
   assert.equal(resultadoDelCommit("resultado: build=OK tests=OK").segundos, null);
   assert.equal(resultadoDelCommit("arreglar el build=OK"), null);
   assert.equal(resultadoDelCommit("tablero: algo\n\nresultado: build=OK tests=OK segundos=1"), null, "solo cuenta la primera línea");
+});
+
+await prueba("nube: la descripción para `claude --cloud` cabe en la línea de comandos de Windows sin perder rama, plan (recortado) ni reglas", async () => {
+  const corta = "Eres el Coordinador… rama tablero/x\n\nTarea: t\n\nPLAN APROBADO:\n1. algo";
+  assert.equal(descripcionParaLaNube(corta), corta, "si cabe, va entera");
+  const larga = ["Eres el Coordinador… sobre la rama tablero/abc-larga", "Tarea: Larga", `PLAN APROBADO:\n1. Qué se cambia\n${"x".repeat(60_000)}\n6. Pruebas: FIN_DEL_PLAN`, "LECCIONES OBLIGATORIAS:\n1. …", "PROHIBIDO:\n- git push --force"].join("\n\n");
+  const recortada = descripcionParaLaNube(larga);
+  assert.ok(recortada.length <= MAX_DESCRIPCION && MAX_DESCRIPCION < 32_000);
+  for (const pedazo of ["rama tablero/abc-larga", "Tarea: Larga", "PLAN APROBADO:\n1. Qué se cambia", "FIN_DEL_PLAN", "LECCIONES OBLIGATORIAS:", "PROHIBIDO:\n- git push --force", "recortado para que quepa"]) {
+    assert.ok(recortada.includes(pedazo), pedazo);
+  }
 });
 
 await prueba("nube: la instrucción lleva el plan completo, CLAUDE.md, las 4 lecciones, las prohibiciones y la rama; nunca claves", async () => {
@@ -1693,7 +1704,7 @@ try {
     sinRestos();
   });
 
-  await prueba("nube: si `claude -p --cloud` pide terminal real y no hay node-pty, se detiene y propone GitHub Actions", async () => {
+  await prueba("nube: si `claude --cloud` no da el link (sin node-pty o la terminal falla), se detiene y propone GitHub Actions", async () => {
     despejar();
     const id = nueva("Pide terminal [nube-sin-terminal]", "PLAN_APROBADO", { plan: planDe("terminal", 9) });
     const planificador = planificar(nubeConfig({ terminal: "auto" }));
@@ -1703,9 +1714,51 @@ try {
     assert.equal(t.estado, "ERROR");
     assert.match(t.resultado.error.motivo, /sin que alguien toque la terminal/);
     assert.match(t.resultado.error.motivo, /GitHub Actions \(tarjeta cmvmjh9a504dp2mrpg7cazs8u\)/);
-    assert.match(t.resultado.error.motivo, /not a TTY/);
+    // "auto" ya no intenta `claude -p --cloud` (la CLI no lo deja): sin node-pty lo dice; con node-pty, lo que dijo Claude.
+    assert.match(t.resultado.error.motivo, /node-pty no está instalado|not a TTY/);
+    assert.match(t.resultado.error.motivo, /-p --cloud no se intenta/);
     planificador.parar();
     sinRestos();
+  });
+
+  // La terminal real (node-pty): solo si está instalado (en aizen1 sí; en otros PCs se salta).
+  const hayPty = await import("node-pty").then(
+    () => true,
+    () => false,
+  );
+  const saltada = hayPty ? "" : " (SALTADA: no hay node-pty)";
+  await prueba(`nube: por la terminal real la descripción va como argumento justo después de --cloud (multilínea, comillas, acentos), se lee el link entre colores y se cierra la terminal${saltada}`, async () => {
+    if (!hayPty) return;
+    despejar();
+    const desde = leerLog(LOGS.claude).length;
+    const titulo = 'Terminal real "comillas" y acentos: camión ñandú [mod:pty]';
+    const nota = `Nota: dice "hola" y 'chao' con \\ barra & y % y ^ y | y "fin\\".`;
+    const id = nueva(titulo, "PLAN_APROBADO", { plan: `${planDe("pty", 9)}\n${nota}` });
+    const planificador = planificar(nubeConfig({ terminal: "pty" }));
+    await planificador.llenar();
+    await correrHasta(planificador, () => tarjetas.get(id).estado === "HECHO", 180_000);
+    const [llamada] = llamadasALaNube(desde);
+    assert.ok(llamada, "se lanzó la nube");
+    assert.equal(llamada.terminal, true, "en una terminal real");
+    assert.equal(llamada.argumentos[0], "--cloud");
+    assert.ok(llamada.argumentos[1].startsWith("Eres el Coordinador"), "la descripción es el argumento justo después de --cloud");
+    assert.deepEqual(llamada.argumentos.slice(2), ["--model", "sonnet"]);
+    assert.equal(llamada.titulo, titulo, "el título con comillas y acentos llegó entero");
+    assert.match(llamada.prompt, /PLAN APROBADO:\nPLAN\n4\. Migración: no\./);
+    assert.ok(llamada.prompt.includes(nota), "comillas, barras y símbolos intactos");
+    assert.match(llamada.prompt, /DEJA TODO EN LA RAMA tablero\//);
+    assert.equal(tarjetas.get(id).resultado.construidoEn, "nube");
+    assert.ok(llamadas.some((l) => l.accion === "latido" && l.id === id && l.cuerpo.sesion === enlaceDe(titulo)), "el link (limpio de colores) llegó al CRM");
+    planificador.parar();
+    sinRestos();
+  });
+
+  await prueba(`nube: si la terminal real no da el link a tiempo, la cierra y no cuelga al Coordinador${saltada}`, async () => {
+    if (!hayPty) return;
+    const config = nubeConfig({ terminal: "pty", lanzarMinutos: 0.05 });
+    const inicio = Date.now();
+    await assert.rejects(lanzarEnNube({ config, registro: null, senal: null }, { cwd: AQUI, prompt: "Tarea: nunca da el link [nube-sin-link]\n\nsin rama", modelo: null }), /no dio el link en 3 s/);
+    assert.ok(Date.now() - inicio < 20_000, "no se quedó colgado");
   });
 
   await prueba("nube: si la sesión nunca deja el commit 'resultado:', la tarjeta pasa a ERROR con el link de la sesión", async () => {

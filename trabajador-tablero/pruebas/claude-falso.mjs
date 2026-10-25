@@ -15,7 +15,8 @@
 //                     commit vacío "resultado: build=OK tests=OK segundos=42". [nube-fallo] deja FALLO con 35 líneas de
 //                     error en el cuerpo, [nube-fallo-limite] FALLO con el aviso del límite de uso, [nube-sin-resultado]
 //                     nunca deja el commit, [nube-env] sube un archivo .env, [nube-limite] sale con el límite de uso al
-//                     lanzar y [nube-sin-terminal] sale como si pidiera una terminal real.
+//                     lanzar y [nube-sin-terminal] sale como si pidiera una terminal real. Con `--cloud "<descripción>"`
+//                     (la terminal real) la instrucción es ese argumento; imprime el link con colores y se queda esperando.
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -52,13 +53,17 @@ if (argumentos[0] === "--trabajo-de-la-nube") {
   process.exit(0);
 }
 
-let prompt = "";
-for await (const pedazo of process.stdin) prompt += pedazo;
+// `claude --cloud "<descripción>"` (la terminal real, 25-oct-2026): la instrucción llega como argumento justo después
+// de --cloud y NO por stdin (en una terminal real stdin nunca se cierra).
+const trasCloud = argumentos[argumentos.indexOf("--cloud") + 1];
+const descripcion = argumentos.includes("--cloud") && trasCloud !== undefined && !trasCloud.startsWith("-") ? trasCloud : null;
+let prompt = descripcion ?? "";
+if (descripcion === null) for await (const pedazo of process.stdin) prompt += pedazo;
 
 const titulo = (prompt.match(/^Tarea: (.*)$/m) ?? [])[1] ?? "";
 const modo = argumentos[argumentos.indexOf("--permission-mode") + 1];
 if (process.env.CLAUDE_FALSO_LOG) {
-  fs.appendFileSync(process.env.CLAUDE_FALSO_LOG, `${JSON.stringify({ argumentos, cwd: process.cwd(), titulo, modo, prompt: prompt.slice(0, 8000) })}\n`);
+  fs.appendFileSync(process.env.CLAUDE_FALSO_LOG, `${JSON.stringify({ argumentos, cwd: process.cwd(), titulo, modo, prompt: prompt.slice(0, 8000), terminal: Boolean(process.stdout.isTTY) })}\n`);
 }
 
 // `claude -p --cloud`: lanza la sesión de la nube. El link sale del título (para que la prueba sepa cuál es).
@@ -80,6 +85,8 @@ if (argumentos.includes("--cloud")) {
     console.error("Error: Raw mode is not supported on the current process.stdin (not a TTY)");
     process.exit(1);
   }
+  // [nube-sin-link]: en la terminal real nunca da el link ni trabaja (para probar el tiempo máximo).
+  if (descripcion !== null && titulo.includes("[nube-sin-link]")) await new Promise(() => setInterval(() => {}, 60_000));
   const rama = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim();
   const remoto = execFileSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" }).trim();
   const sesion = `https://claude.ai/code/session_FALSA_${Buffer.from(titulo).toString("hex").slice(0, 24)}`;
@@ -88,8 +95,15 @@ if (argumentos.includes("--cloud")) {
     stdio: "ignore",
     windowsHide: true,
   }).unref();
-  console.log(JSON.stringify({ type: "result", subtype: "success", result: `Sesión de la nube creada: ${sesion}`, session_url: sesion }));
-  process.exit(0);
+  if (descripcion === null) {
+    console.log(JSON.stringify({ type: "result", subtype: "success", result: `Sesión de la nube creada: ${sesion}`, session_url: sesion }));
+    process.exit(0);
+  }
+  // En la terminal real: el link con colores (el Coordinador los limpia) y se queda esperando como la CLI de verdad;
+  // el Coordinador tiene que cerrar la terminal.
+  process.stdout.write(`\u001b[1mCloud session:\u001b[0m \u001b[36m${sesion}\u001b[0m\r\n`);
+  setInterval(() => {}, 60_000);
+  await new Promise(() => {});
 }
 
 // Dividir una tarea (promptDePartir): contesta un JSON con 2 partes.
