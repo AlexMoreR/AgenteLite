@@ -194,6 +194,26 @@ y se espejan en `lib/riesgo.mjs`):
 ALTO (siguen pidiendo la aprobación del dueño). Para que funcione la aprobación automática hay que actualizar el
 trabajador del PC **aizen1** (`git pull` y reiniciarlo).
 
+### El latido y el panel "Coordinador en vivo" (desde el 24-oct-2026)
+
+Cada 15 segundos el Coordinador manda un **latido** al CRM (`POST /api/trabajador/latido`, con la misma clave
+`aizen_trab_...`; `lib/latido.mjs`) para la pestaña **Coordinador en vivo** de Tablero IA (solo para el dueño y el
+ADMIN). Lleva:
+
+- las tareas que tiene en las manos: etapa (planeando, construyendo, **probando**, subiendo), dónde corre
+  (aizen1; **GitHub Actions** con el link del workflow mientras espera las pruebas automáticas al subir; la
+  nube de Claude queda preparada pero hoy no se usa), el modelo (Opus / Sonnet / Haiku), cuándo empezó y en qué
+  intento o reparación va;
+- la carga de aizen1: procesador y memoria en %, memoria usada de la total en GB y el disco libre de
+  `carpetaTrabajo` (`lib/recursos.mjs`), y si está **esperando a que el PC se desocupe**;
+- las tarjetas que dejó esperando en fila por chocar con lo que corre, con el motivo;
+- si Claude (o Codex) llegó a su límite de uso y cuándo termina la pausa.
+
+El latido es solo información: si el CRM no contesta (o es uno viejo que no conoce la ruta), el Coordinador sigue
+trabajando igual y lo anota una sola vez en el log. El CRM guarda solo el último y, si pasan más de 2 minutos sin
+recibirlo, el panel dice **"Coordinador apagado o sin conexión"**. Un Coordinador sin actualizar (sin `lib/latido.mjs`)
+hace que el panel diga "apagado": para verlo hay que hacer `git pull` en aizen1 y reiniciarlo.
+
 ### Reparar solo (desde el 24-oct-2026)
 
 Antes, si algo fallaba, la tarjeta se reintentaba igual o quedaba en ERROR sin decir por qué. Ahora, cuando una
@@ -303,7 +323,8 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 - `trabajador.mjs`: el bucle.
 - `lib/bucle.mjs`: el planificador (varias a la vez) y una vuelta (tomar, la etapa con latido, avisar el resultado o el error).
 - `lib/choques.mjs`: qué tarjetas no pueden ir a la vez (zona, módulo, cola de subida).
-- `lib/recursos.mjs`: CPU y memoria del PC.
+- `lib/recursos.mjs`: CPU y memoria del PC (y memoria en GB y disco libre para el latido).
+- `lib/latido.mjs`: el latido de cada 15 s al CRM para el panel "Coordinador en vivo".
 - `lib/etapas.mjs`: planear, construir (con su revisión) y subir; `correrMotor` corre Claude o Codex.
 - `lib/motores.mjs`: qué motor hace cada paso, el límite de Codex y la vigilancia del uso de Claude.
 - `lib/ensayo.mjs`: ensayo de migraciones (PGlite y producción en BEGIN…ROLLBACK por ssh).

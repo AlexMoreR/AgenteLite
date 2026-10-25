@@ -34,6 +34,7 @@ import {
   elegirMiembro,
   sePuedeMarcarHechoAMano,
 } from "@/features/tableros-inteligentes/services/reglas";
+import { textoDelCoordinador, vistaDelCoordinador } from "@/features/tableros-inteligentes/services/coordinador-en-vivo";
 import { contarHijas } from "@/features/tableros-inteligentes/services/niveles";
 import { RIESGOS } from "@/features/tableros-inteligentes/services/reglas-riesgo";
 import {
@@ -459,6 +460,14 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
       required: ["tarjeta_id"],
       additionalProperties: false,
     },
+    annotations: SOLO_LECTURA,
+  },
+  {
+    name: "ver_coordinador",
+    title: "Ver qué está haciendo el Coordinador",
+    description:
+      "SOLO LECTURA. Úsala cuando la persona pregunte '¿qué está haciendo el Coordinador?', cómo va el PC o si está apagado. Devuelve lo mismo que la pestaña 'Coordinador en vivo' de Tablero IA: `resumen` (texto sencillo para leer en voz alta), las tareas en marcha (título, etapa: planeando / construyendo / probando / subiendo, dónde corre: aizen1, nube de Claude o GitHub Actions, modelo, hace cuánto empezó y en qué intento o reparación va), la carga de aizen1 (procesador, memoria, disco y semáforo verde / amarillo / rojo, y si espera que el PC se desocupe), la fila con lo bloqueado y su motivo, lo de hoy (terminadas, falladas, reparadas y cuánto tomó cada una) y el uso de Claude (si llegó al límite y cuándo se reinicia). Si `en_linea` es false, el Coordinador está apagado o sin conexión (más de 2 minutos sin latido) y lo demás es el último dato conocido. No cambia nada.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: SOLO_LECTURA,
   },
   {
@@ -1002,6 +1011,53 @@ export async function ejecutarHerramientaMcpTableros(
           resultado.ahora === "SUBIENDO" ? ": el Coordinador la sube a producción en el próximo minuto" : ""
         }. Una aprobación no se deshace.`,
         link: linkDeLaTarjeta(String(args.tarjeta_id ?? "")),
+      };
+    }
+    case "ver_coordinador": {
+      // Solo lectura: lo mismo que la pestaña "Coordinador en vivo", más el texto para leerlo por voz.
+      const vista = await vistaDelCoordinador(contexto.workspaceId);
+      return {
+        resumen: textoDelCoordinador(vista),
+        en_linea: vista.enLinea,
+        ultimo_latido: vista.ultimoLatidoEn ? hora(new Date(vista.ultimoLatidoEn)) : null,
+        ahora_mismo: vista.tareas.map((tarea) => ({
+          tarjeta_id: tarea.tarjetaId,
+          titulo: tarea.titulo,
+          etapa: tarea.etapaTexto,
+          donde: tarea.lugarTexto,
+          modelo: tarea.modeloTexto,
+          empezo: tarea.inicioEn ? hora(new Date(tarea.inicioEn)) : null,
+          en_que_va: tarea.enQueVa,
+          link: tarea.link,
+          ...(tarea.linkSesion ? { link_sesion: tarea.linkSesion } : {}),
+          ...(tarea.linkWorkflow ? { link_workflow: tarea.linkWorkflow } : {}),
+        })),
+        carga_de_aizen1: vista.carga
+          ? {
+              semaforo: vista.carga.semaforo,
+              procesador_porciento: vista.carga.cpu,
+              memoria_usada_gb: vista.carga.memoriaUsadaGb,
+              memoria_total_gb: vista.carga.memoriaTotalGb,
+              disco_libre_gb: vista.carga.discoLibreGb,
+              esperando_que_el_pc_se_desocupe: vista.carga.esperandoPc,
+            }
+          : null,
+        fila: vista.fila.siguientes.map((item) => ({ tarjeta_id: item.tarjetaId, titulo: item.titulo, link: item.link })),
+        bloqueadas: vista.fila.bloqueadas.map((item) => ({ tarjeta_id: item.tarjetaId, titulo: item.titulo, motivo: item.motivo, link: item.link })),
+        hoy: {
+          terminadas: vista.hoy.terminadas,
+          falladas: vista.hoy.falladas,
+          reparadas: vista.hoy.reparadas,
+          trabajos: vista.hoy.trabajos.map((trabajo) => ({
+            tarjeta_id: trabajo.tarjetaId,
+            titulo: trabajo.titulo,
+            resultado: trabajo.resultado === "terminada" ? "terminada" : "falló",
+            duracion_minutos: trabajo.duracionMinutos,
+            reparaciones: trabajo.reparaciones,
+          })),
+        },
+        uso_de_claude: { limite_alcanzado: vista.uso.limiteAlcanzado, reinicia: vista.uso.reiniciaEn ? hora(new Date(vista.uso.reiniciaEn)) : null, texto: vista.uso.texto },
+        pantalla: "/cliente/tablero-ia?vista=coordinador",
       };
     }
     default:

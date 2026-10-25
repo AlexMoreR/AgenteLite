@@ -55,6 +55,17 @@ export function crearEstadoDeMotores(config, { ahora = () => Date.now() } = {}) 
       claudeAlto = valor;
     },
     claudeAlto: () => claudeAlto,
+    /**
+     * Para el panel "Coordinador en vivo": { limiteAlcanzado, motor, reiniciaEn (ISO) }. Es el primer motor que
+     * está en pausa por su límite de uso (Claude antes que Codex); `reiniciaEn` es cuando termina esa pausa (el
+     * momento en que el Coordinador vuelve a intentarlo). Sin límite: { limiteAlcanzado: false }.
+     */
+    resumenDeUso() {
+      for (const motor of ["claude", "codex"]) {
+        if (ahora() < pausaHasta[motor]) return { limiteAlcanzado: true, motor, reiniciaEn: new Date(pausaHasta[motor]).toISOString() };
+      }
+      return { limiteAlcanzado: false, motor: null, reiniciaEn: null };
+    },
   };
 }
 

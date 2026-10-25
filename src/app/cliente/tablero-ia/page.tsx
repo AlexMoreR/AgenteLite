@@ -44,6 +44,8 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
   alrededor);
   ?tarjeta=<id> abre el tablero de esa tarjeta, en el nivel de su madre, con su ficha a la vista (es
   el link que devuelve el MCP y el que usarán los avisos por WhatsApp de la fase 2).
+  ?vista=coordinador abre la página de inicio en la pestaña "Coordinador en vivo" (solo el dueño o el ADMIN;
+  para los demás se ignora).
 */
 export default async function TableroIAPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
@@ -83,6 +85,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
         puedeAdministrar={puedeAdministrar}
         cuentas={cuentas}
         asignadas={await asignadasA(alcance, access.userId)}
+        vistaInicial={uno(parametros.vista) === "coordinador" ? "coordinador" : "tableros"}
       />
     );
   }

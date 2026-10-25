@@ -1,6 +1,7 @@
 // Cuidar aizen1 (Core i3, 40 GB de RAM): antes de abrir otra sesión de Claude Code se mira la CPU y la
 // memoria. Si alguna pasa del límite de config.limites, no se abre otra (las que corren siguen).
 // La CPU es el promedio del último minuto (una muestra cada 5 s): un pico de un segundo no frena nada.
+import fs from "node:fs";
 import os from "node:os";
 
 function muestraDeCpu() {
@@ -57,6 +58,32 @@ export async function esperarRecursos({ medir, limites, maximoMs, cadaMs = 10_00
     if (senal?.aborted || ahora() - inicio >= maximoMs) return { esperadoMs: ahora() - inicio, liberado: false };
     await dormir(Math.min(cadaMs, Math.max(1, maximoMs - (ahora() - inicio))));
   }
+}
+
+const GB = 1024 ** 3;
+const unDecimal = (bytes) => Math.round((bytes / GB) * 10) / 10;
+
+/**
+ * Lo que el panel "Coordinador en vivo" muestra de aizen1 (en GB, con un decimal): memoria usada y total, y el
+ * disco donde trabaja el Coordinador (`carpeta`). Lo que no se pueda leer (Node viejo sin `statfsSync`, una
+ * carpeta que no existe) queda en null: nunca lanza.
+ */
+export function leerCarga(carpeta, { statfs = fs.statfsSync } = {}) {
+  const total = os.totalmem();
+  const resultado = {
+    memoriaTotalGb: unDecimal(total),
+    memoriaUsadaGb: unDecimal(total - os.freemem()),
+    discoLibreGb: null,
+    discoTotalGb: null,
+  };
+  try {
+    const disco = statfs(carpeta);
+    resultado.discoLibreGb = unDecimal(disco.bavail * disco.bsize);
+    resultado.discoTotalGb = unDecimal(disco.blocks * disco.bsize);
+  } catch {
+    // Sin dato de disco: el panel lo deja en blanco.
+  }
+  return resultado;
 }
 
 /** null si hay recursos para otra sesión; si no, el motivo ("CPU 92 % (límite 85 %)"). */

@@ -26,6 +26,18 @@ import { crearMedidor, faltanRecursos } from "./recursos.mjs";
 
 const ETAPAS = { planear, construir, subir };
 
+// Panel "Coordinador en vivo" (24-oct-2026): cada sesión lleva un `vivo` { etapa, lugar, modelo, motor, inicioEn,
+// linkWorkflow } que las etapas actualizan con `contexto.fase(etapa, extra)` ("probando", GitHub Actions…) y el
+// latido (latido.mjs) lee con planificador.estado(). Solo informa: nunca decide nada.
+const ETAPA_VISIBLE = { planear: "planeando", construir: "construyendo", subir: "subiendo" };
+
+/** El modelo de Claude que usa esta etapa (el mismo que eligen las etapas), o null si no es Claude. */
+function modeloDeLaSesion(config, motores, tarjeta, hacer, reparacion) {
+  if (hacer === "subir" || motores.motorDe(hacer) !== "claude") return null;
+  if (hacer === "construir" && reparacion?.estrategia === "opus") return config.modelos?.planear ?? "opus";
+  return modeloDelPaso(config, hacer, tarjeta);
+}
+
 // Reparar solo (24-oct-2026). Si una etapa falla, en vez de mandar la tarjeta a ERROR a la primera:
 //   1. guarda el error y el log del intento (<carpetaTrabajo>/intentos/<id>/<fecha>-<etapa>.log),
 //   2. lo diagnostica (diagnostico.mjs: por reglas; si no se reconoce, una sesión corta de Claude de solo lectura),
@@ -66,7 +78,7 @@ export async function unaVuelta({ crm, config, registro }) {
   return { hizo: hacer, tarjetaId: tarjeta.id, ...resultado };
 }
 
-export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null }, tarjeta, hacer) {
+export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {} }, tarjeta, hacer) {
   const control = new AbortController();
   // Lo que escribe la sesión se guarda también aquí: es el "log del intento" si falla.
   const bitacora = [];
@@ -100,7 +112,16 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     const hasta = motores.pausar(motor);
     registro.aviso(`pausa: ${nombreDelMotor(motor)} llegó a su límite de uso; no lo uso hasta ${new Date(hasta).toISOString()}`);
   };
-  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones };
+  Object.assign(vivo, {
+    etapa: ETAPA_VISIBLE[hacer] ?? "construyendo",
+    lugar: "aizen1",
+    modelo: modeloDeLaSesion(config, motores, tarjeta, hacer, reparacion),
+    motor: hacer === "subir" ? null : (motores.motorDe(hacer) ?? null),
+    inicioEn: vivo.inicioEn ?? Date.now(),
+    linkWorkflow: null,
+  });
+  const fase = (etapa, extra = {}) => Object.assign(vivo, { etapa }, extra);
+  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase };
   try {
     const etapa = ETAPAS[hacer];
     if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este Coordinador no sabe hacer (¿hay que actualizarlo?).`);
@@ -306,6 +327,9 @@ export function crearPlanificador({
   let ultimoSinMotor = "";
   // Desde cuándo se espera al PC antes de tomar la primera tarjeta (null = no se espera).
   let esperaPcDesde = null;
+  // Para el panel "Coordinador en vivo": por qué no se abre otra sesión (PC lleno) y las que esperan en fila por chocar.
+  let pcEspera = null;
+  let esperasDeFila = new Map();
 
   /** Para no llenar el log: el mismo aviso (fila, recursos, pausa) se escribe una vez. */
   const avisarUnaVez = (clave, mensaje) => {
@@ -330,11 +354,12 @@ export function crearPlanificador({
     const n = cupoLibre();
     const suRegistro = registroDeLaSesion(registro, `s${n} ${idCorto(tarjeta.id)}`);
     suRegistro.info(`tomé "${tarjeta.titulo}" (${tarjeta.id}, ${tarjeta.repo}) para ${hacer}`);
-    const sesion = { tarjeta, hacer, huella };
+    const vivo = { inicioEn: Date.now() };
+    const sesion = { tarjeta, hacer, huella, vivo };
     sesiones.set(n, sesion);
     contarCorriendo();
     esperaPcDesde = null;
-    sesion.promesa = procesar({ crm, config, registro: suRegistro, motores, medidor, otrasSesiones: () => Math.max(0, sesiones.size - 1) }, tarjeta, hacer)
+    sesion.promesa = procesar({ crm, config, registro: suRegistro, motores, medidor, otrasSesiones: () => Math.max(0, sesiones.size - 1), vivo }, tarjeta, hacer)
       .catch((error) => {
         suRegistro.error(`la sesión se cayó: ${error?.message ?? error}`);
         return { ok: false };
@@ -345,6 +370,7 @@ export function crearPlanificador({
       })
       .finally(() => {
         sesiones.delete(n);
+        if (!sesiones.size) esperasDeFila = new Map();
         contarCorriendo();
         if (despertar) despertar();
         else cupoNuevo = true;
@@ -358,6 +384,7 @@ export function crearPlanificador({
 
   async function llenar() {
     await vigilante?.vigilar();
+    pcEspera = null;
     while (sesiones.size < max) {
       const sinMotor = etapasSinMotor();
       if (sinMotor.length) {
@@ -377,6 +404,7 @@ export function crearPlanificador({
         else {
           esperaPcDesde ??= Date.now();
           if (Date.now() - esperaPcDesde < esperaMs) {
+            pcEspera = falta;
             avisarUnaVez("pc-espera", `espero al PC antes de tomar una tarjeta (${falta}); como mucho ${config.limites.esperaMaximaMinutos} min`);
             return;
           }
@@ -386,6 +414,7 @@ export function crearPlanificador({
       if (sesiones.size > 0) {
         const falta = faltanRecursos(medidor.medir(), config.limites);
         if (falta) {
+          pcEspera = falta;
           avisarUnaVez(`recursos-${sesiones.size}`, `no abro otra sesión (${sesiones.size}/${max} corriendo): ${falta}`);
           return;
         }
@@ -397,6 +426,7 @@ export function crearPlanificador({
         const chocan = corriendo.length ? candidatasQueChocan(candidatas, corriendo, config.repos) : {};
         for (const c of candidatas) if (!chocan[c.id] && sinMotor.includes(c.hacer)) chocan[c.id] = `(sin motor para ${c.hacer})`;
         excluir = Object.keys(chocan);
+        esperasDeFila = new Map(Object.entries(chocan).map(([id, motivo]) => [id, String(motivo).replace(/^\(|\)$/g, "")]));
         if (candidatas.length && excluir.length === candidatas.length) {
           const enFila = candidatas.map((c) => `"${c.titulo}" ${chocan[c.id]}`);
           avisarUnaVez(`fila-${excluir.join(",")}-${sesiones.size}`, `esperan en fila: ${enFila.join("; ")}`);
@@ -440,6 +470,34 @@ export function crearPlanificador({
       }
     },
     corriendo: () => sesiones.size,
+    /**
+     * Para el latido del panel "Coordinador en vivo": las tareas en las manos (etapa, dónde, modelo, intento o
+     * reparación), si espera que el PC se desocupe, las que esperan en fila por chocar y el uso de los motores.
+     */
+    estado() {
+      const tareas = [...sesiones.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([, { tarjeta, vivo }]) => ({
+          tarjetaId: tarjeta.id,
+          titulo: tarjeta.titulo,
+          etapa: vivo.etapa,
+          lugar: vivo.lugar,
+          modelo: vivo.modelo ?? null,
+          motor: vivo.motor ?? null,
+          inicioEn: new Date(vivo.inicioEn).toISOString(),
+          intento: tarjeta.intentos ?? null,
+          reparacion: Number(tarjeta.reparaciones) || 0,
+          reparacionDe: Number(tarjeta.topeReparaciones) || null,
+          linkWorkflow: vivo.linkWorkflow ?? null,
+        }));
+      return {
+        tareas,
+        esperandoPc: Boolean(pcEspera),
+        motivoEspera: pcEspera,
+        esperas: [...esperasDeFila.entries()].map(([tarjetaId, motivo]) => ({ tarjetaId, motivo })),
+        uso: motores.resumenDeUso(),
+      };
+    },
     esperar: (ms) =>
       new Promise((resolver) => {
         if (cupoNuevo) {

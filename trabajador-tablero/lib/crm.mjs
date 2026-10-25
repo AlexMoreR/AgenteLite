@@ -60,6 +60,8 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     partir: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/partir`, limpio(datos)),
     /** Al arrancar el Coordinador: el CRM suelta todo lo que el proceso anterior dejó con candado (PLANEANDO / EN_CURSO). -> { sueltas } */
     arranque: () => pedir("/api/trabajador/tablero/arranque"),
+    /** El latido del Coordinador entero (POST /api/trabajador/latido, cada 15 s): el panel "Coordinador en vivo". No es el de una tarjeta. */
+    latidoDelCoordinador: (datos) => pedir("/api/trabajador/latido", datos),
     latido: (id) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/latido`),
     plan: (id, plan) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/plan`, { plan }),
     resultado: (id, resultado) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/resultado`, resultado),

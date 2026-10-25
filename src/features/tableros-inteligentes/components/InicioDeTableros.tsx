@@ -9,8 +9,10 @@ import { Button } from "@/components/ui/button";
 import type { GrupoDeContador } from "../services/niveles";
 import { NOMBRE_DEL_ESTADO } from "../services/reglas";
 import type { AsignadaVista, TableroDelInicio } from "../services/tableros";
+import { CoordinadorEnVivo } from "./CoordinadorEnVivo";
 import {
   DialogoDeTablero,
+  RUTA_DEL_INICIO,
   etiquetaDelDueno,
   linkDeLaTarjetaEnPantalla,
   linkDelTableroEnPantalla,
@@ -48,6 +50,13 @@ const CUANDO = new Intl.DateTimeFormat("es-CO", {
   minute: "2-digit",
 });
 
+/** Las dos pestañas de arriba (solo las ve el dueño o el ADMIN): "Tableros" es lo de siempre. */
+export type VistaDelInicio = "tableros" | "coordinador";
+const PESTANAS: { vista: VistaDelInicio; nombre: string }[] = [
+  { vista: "tableros", nombre: "Tableros" },
+  { vista: "coordinador", nombre: "Coordinador en vivo" },
+];
+
 const tarjetasEnTexto = (cuantas: number) => (cuantas === 1 ? "1 tarjeta" : `${cuantas} tarjetas`);
 
 type Props = {
@@ -60,9 +69,11 @@ type Props = {
   cuentas: CuentasDeTableros;
   /** Las tarjetas que le asignaron a quien mira, en cualquier tablero del negocio ("Asignadas a mí"). */
   asignadas: AsignadaVista[];
+  /** Con qué pestaña abre (?vista=coordinador). Sin permiso de administrar siempre es "tableros". */
+  vistaInicial?: VistaDelInicio;
 };
 
-export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar, cuentas, asignadas }: Props) {
+export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar, cuentas, asignadas, vistaInicial = "tableros" }: Props) {
   const router = useRouter();
   // Se actualiza sola (tableros nuevos, contadores, nombres) mientras la pestaña está a la vista.
   const { tableros: lista, setTableros } = useListaDeTableros(iniciales, firma);
@@ -72,10 +83,39 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
     [lista],
   );
   const [edicion, setEdicion] = useState<EdicionDeTablero | null>(null);
+  // Las pestañas "Tableros" y "Coordinador en vivo" (solo el dueño o el ADMIN las ven).
+  const [vista, setVista] = useState<VistaDelInicio>(puedeAdministrar ? vistaInicial : "tableros");
+  const enCoordinador = puedeAdministrar && vista === "coordinador";
+  const elegirVista = (nueva: VistaDelInicio) => {
+    setVista(nueva);
+    // El link se queda con la pestaña (recargar o compartir vuelve a ella) sin recargar la página.
+    window.history.replaceState(null, "", nueva === "coordinador" ? `${RUTA_DEL_INICIO}?vista=coordinador` : RUTA_DEL_INICIO);
+  };
 
   return (
     <div className="tablero-ia mx-auto w-full max-w-6xl space-y-8 px-4 py-6 md:px-6">
-      {asignadas.length > 0 ? (
+      {puedeAdministrar ? (
+        <div role="tablist" aria-label="Vistas de Tablero IA" className="flex gap-1 rounded-xl border bg-muted/40 p-1">
+          {PESTANAS.map(({ vista: clave, nombre }) => (
+            <button
+              key={clave}
+              type="button"
+              role="tab"
+              aria-selected={vista === clave}
+              onClick={() => elegirVista(clave)}
+              className={`h-11 flex-1 rounded-lg px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-9 ${
+                vista === clave ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {nombre}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {enCoordinador ? <CoordinadorEnVivo /> : null}
+
+      {!enCoordinador && asignadas.length > 0 ? (
         <section aria-labelledby="titulo-asignadas" className="space-y-3">
           <div>
             <h2 id="titulo-asignadas" className="text-lg font-semibold">
@@ -113,6 +153,7 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
         </section>
       ) : null}
 
+      {!enCoordinador ? (
       <section aria-labelledby="titulo-tableros" className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -194,10 +235,11 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
           </ul>
         )}
       </section>
+      ) : null}
 
-      {puedeAdministrar ? <ResumenDelDia /> : null}
+      {puedeAdministrar && !enCoordinador ? <ResumenDelDia /> : null}
 
-      {puedeAdministrar ? <SeccionTrabajador /> : null}
+      {puedeAdministrar && !enCoordinador ? <SeccionTrabajador /> : null}
 
       <DialogoDeTablero
         edicion={edicion}

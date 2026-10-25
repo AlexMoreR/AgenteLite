@@ -590,6 +590,8 @@ function erroresNuevos(base, despues) {
 /** Instalar + verificar + pruebas en el worktree. Devuelve el texto de "pruebas" para el resultado. */
 async function verificar(contexto, repo, cwd, reloj) {
   const lineas = [];
+  // Panel "Coordinador en vivo": desde acá la tarea está "probando".
+  contexto.fase?.("probando");
   const comandos = [...repo.verificar.map((comando) => [comando, false]), ...repo.pruebas.map((comando) => [comando, true])];
   for (const [comando, esPrueba] of comandos) {
     await esperarAlPc(contexto, reloj, `correr ${comoTexto(comando)}`);
@@ -906,11 +908,19 @@ async function esperarCi(contexto, repo, commit, cwd, reloj) {
     if (Date.now() > limite) return `CI: no apareció la corrida de ${commit.slice(0, 10)} (se revisa la versión)`;
     await dormir(10_000);
   }
-  const resultado = await correr(conValores(ciEsperar, { commit, run: corrida }), {
-    cwd,
-    timeoutMs: Math.max(1, limite - Date.now()),
-    senal: contexto.senal,
-  });
+  // Panel "Coordinador en vivo": mientras espera las pruebas automáticas, la tarea figura en GitHub Actions.
+  const web = webDeGithub(await urlDelRemoto(repo));
+  contexto.fase?.("subiendo", { lugar: "github", linkWorkflow: web ? `${web}/actions/runs/${corrida}` : null });
+  let resultado;
+  try {
+    resultado = await correr(conValores(ciEsperar, { commit, run: corrida }), {
+      cwd,
+      timeoutMs: Math.max(1, limite - Date.now()),
+      senal: contexto.senal,
+    });
+  } finally {
+    contexto.fase?.("subiendo", { lugar: "aizen1", linkWorkflow: null });
+  }
   if (resultado.codigo !== 0) {
     throw new ErrorDeEtapa(
       `Subió a ${repo.ramaBase} (commit ${commit.slice(0, 10)}) pero el CI ${resultado.vencido ? "se pasó del tiempo" : "falló"}: ${ultimasLineas(
@@ -998,6 +1008,7 @@ export async function subir(contexto, tarjeta) {
     } else {
       if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias" });
       pruebas = await verificar(contexto, repo, carpeta, reloj);
+      contexto.fase?.("subiendo");
       const cambios = await archivosCambiados(carpeta, base);
       const migraciones = migracionesNuevas(cambios, repo.carpetaMigraciones);
       try {

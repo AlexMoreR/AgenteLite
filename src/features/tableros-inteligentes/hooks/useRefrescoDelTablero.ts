@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import type { VistaDelCoordinador } from "../services/coordinador-en-vivo";
 import type { ConexionVista, TableroDelInicio, TarjetaVista, TipoVista } from "../services/tableros";
 
 /*
@@ -18,6 +19,8 @@ import type { ConexionVista, TableroDelInicio, TarjetaVista, TipoVista } from ".
 */
 
 const CADA_MS = 5_000;
+/** El panel "Coordinador en vivo" (el latido llega cada 15 s) se pregunta cada 12 s. */
+const CADA_COORDINADOR_MS = 12_000;
 const TRAS_ERROR_MS = 30_000;
 const LIMITE_MS = 15_000;
 
@@ -32,17 +35,25 @@ export type ContenidoNuevo = {
  * El reloj compartido: mientras `clave` no sea null, pide `armarUrl()` cada 5 s y le pasa la
  * respuesta a `alResponder`. Devuelve "pregunta ya" (espera la respuesta).
  */
-function useConsultaPeriodica(clave: string | null, armarUrl: () => string, alResponder: (datos: unknown) => void) {
+function useConsultaPeriodica(
+  clave: string | null,
+  armarUrl: () => string,
+  alResponder: (datos: unknown) => void,
+  cadaMs: number = CADA_MS,
+  alFallar?: () => void,
+) {
   const enCursoRef = useRef(false);
   const armarUrlRef = useRef(armarUrl);
   const alResponderRef = useRef(alResponder);
+  const alFallarRef = useRef(alFallar);
   const relojRef = useRef<number | null>(null);
   const preguntarRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     armarUrlRef.current = armarUrl;
     alResponderRef.current = alResponder;
-  }, [armarUrl, alResponder]);
+    alFallarRef.current = alFallar;
+  }, [armarUrl, alResponder, alFallar]);
 
   useEffect(() => {
     if (!clave) {
@@ -64,7 +75,7 @@ function useConsultaPeriodica(clave: string | null, armarUrl: () => string, alRe
       }
       if (enCursoRef.current) return;
       enCursoRef.current = true;
-      let espera = CADA_MS;
+      let espera = cadaMs;
       const corte = new AbortController();
       const limite = window.setTimeout(() => corte.abort(), LIMITE_MS);
       try {
@@ -78,6 +89,7 @@ function useConsultaPeriodica(clave: string | null, armarUrl: () => string, alRe
         if (!cancelado) alResponderRef.current(datos);
       } catch {
         espera = TRAS_ERROR_MS;
+        if (!cancelado) alFallarRef.current?.();
       } finally {
         window.clearTimeout(limite);
         enCursoRef.current = false;
@@ -91,7 +103,7 @@ function useConsultaPeriodica(clave: string | null, armarUrl: () => string, alRe
       if (document.visibilityState === "visible") void preguntar();
     };
 
-    programar(CADA_MS);
+    programar(cadaMs);
     document.addEventListener("visibilitychange", alVerse);
 
     return () => {
@@ -101,7 +113,7 @@ function useConsultaPeriodica(clave: string | null, armarUrl: () => string, alRe
       document.removeEventListener("visibilitychange", alVerse);
       preguntarRef.current = async () => {};
     };
-  }, [clave]);
+  }, [clave, cadaMs]);
 
   return useCallback(() => preguntarRef.current(), []);
 }
@@ -167,4 +179,32 @@ export function useListaDeTableros(iniciales: TableroDelInicio[], firmaInicial: 
 
   const preguntarYa = useConsultaPeriodica("lista", armarUrl, alResponder);
   return { tableros, setTableros, preguntarYa };
+}
+
+/**
+ * El panel "Coordinador en vivo": se pide al abrirlo y después cada 12 s (con la pestaña a la vista, como los
+ * demás). Solo lectura. `error` es true si la última pregunta no volvió (sin red, o no es el dueño); la última
+ * vista buena se sigue mostrando.
+ */
+export function useRefrescoDelCoordinador(activo: boolean) {
+  const [vista, setVista] = useState<VistaDelCoordinador | null>(null);
+  const [error, setError] = useState(false);
+
+  const armarUrl = useCallback(() => "/api/cliente/tableros-inteligentes/coordinador", []);
+  const alResponder = useCallback((respuesta: unknown) => {
+    const datos = respuesta as { ok?: boolean; vista?: VistaDelCoordinador };
+    if (!datos.ok || !datos.vista) {
+      setError(true);
+      return;
+    }
+    setError(false);
+    setVista(datos.vista);
+  }, []);
+  const alFallar = useCallback(() => setError(true), []);
+
+  const preguntarYa = useConsultaPeriodica(activo ? "coordinador" : null, armarUrl, alResponder, CADA_COORDINADOR_MS, alFallar);
+  useEffect(() => {
+    if (activo) preguntarYa();
+  }, [activo, preguntarYa]);
+  return { vista, error };
 }

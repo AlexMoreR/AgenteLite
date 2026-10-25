@@ -38,12 +38,15 @@ import {
   motorDeLaEtapa,
   textoDelAviso,
 } from "../lib/motores.mjs";
-import { faltanRecursos } from "../lib/recursos.mjs";
+import { armarLatido, crearLatido } from "../lib/latido.mjs";
+import { faltanRecursos, leerCarga } from "../lib/recursos.mjs";
 import { crearRegistro } from "../lib/registro.mjs";
 import { globARegex, zonasTocadas } from "../lib/zonas.mjs";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
+
+const sinMedirAqui = { medir: () => ({ cpu: 10, memoria: 20 }), parar: () => undefined };
 
 let pruebas = 0;
 async function prueba(nombre, fn) {
@@ -73,6 +76,72 @@ await prueba("ensayo: se quitan BEGIN/COMMIT del archivo, va dentro de BEGIN…R
   assert.equal((guion.match(/^BEGIN;$/gm) ?? []).length, 1);
   assert.throws(() => sqlParaEnsayo("BEGIN;\nSELECT 1; COMMIT; SELECT 2;\nCOMMIT;"), /COMMIT/);
   assert.throws(() => sqlParaEnsayo("CREATE INDEX CONCURRENTLY x ON y (z);"), /CONCURRENTLY/);
+});
+
+await prueba("latido: la carga del PC (GB) se lee sin lanzar y el cuerpo lleva tareas, carga, uso y esperas", async () => {
+  const carga = leerCarga(os.tmpdir());
+  assert.ok(carga.memoriaTotalGb > 0 && carga.memoriaUsadaGb >= 0 && carga.memoriaUsadaGb <= carga.memoriaTotalGb);
+  assert.ok(carga.discoLibreGb === null || carga.discoLibreGb >= 0);
+  const sinDisco = leerCarga("/no/existe", { statfs: () => { throw new Error("sin disco"); } });
+  assert.equal(sinDisco.discoLibreGb, null);
+  assert.equal(sinDisco.discoTotalGb, null);
+  const estado = { tareas: [{ tarjetaId: "t1", titulo: "Algo", etapa: "probando", lugar: "aizen1" }], esperandoPc: true, motivoEspera: "CPU 92 % (límite 85 %)", esperas: [{ tarjetaId: "t2", motivo: "misma zona" }], uso: { limiteAlcanzado: false, motor: null, reiniciaEn: null } };
+  const cuerpo = armarLatido({ estado, medidor: { medir: () => ({ cpu: 40, memoria: 55 }) }, carga: { memoriaUsadaGb: 22, memoriaTotalGb: 40, discoLibreGb: 120.5, discoTotalGb: 500 } });
+  assert.equal(cuerpo.nombre, "aizen1");
+  assert.equal(cuerpo.tareas[0].etapa, "probando");
+  assert.deepEqual(cuerpo.carga, { cpu: 40, memoriaPorciento: 55, memoriaUsadaGb: 22, memoriaTotalGb: 40, discoLibreGb: 120.5, discoTotalGb: 500, esperandoPc: true, motivoEspera: "CPU 92 % (límite 85 %)" });
+  assert.equal(cuerpo.esperas[0].tarjetaId, "t2");
+  // Un medidor que falla no tumba el latido: la carga va en null.
+  const sinMedidor = armarLatido({ estado, medidor: { medir: () => { throw new Error("x"); } }, carga: null });
+  assert.equal(sinMedidor.carga.cpu, null);
+  assert.equal(sinMedidor.carga.discoLibreGb, null);
+});
+
+await prueba("latido: se manda al CRM; si el CRM falla, no lanza, avisa una sola vez y nunca hay dos en vuelo", async () => {
+  const enviados = [];
+  const avisos = [];
+  let falla = false;
+  let suelta = null;
+  const crmFalso = {
+    latidoDelCoordinador: async (cuerpo) => {
+      if (falla) throw new Error("No se pudo hablar con el CRM (caído).");
+      if (suelta) await suelta;
+      enviados.push(cuerpo);
+      return { ok: true };
+    },
+  };
+  const planificadorFalso = { estado: () => ({ tareas: [], esperandoPc: false, motivoEspera: null, esperas: [], uso: { limiteAlcanzado: false, motor: null, reiniciaEn: null } }) };
+  const registroFalso = { info: () => undefined, aviso: (mensaje) => avisos.push(mensaje), error: () => undefined };
+  const latido = crearLatido({ crm: crmFalso, config: { carpetaTrabajo: os.tmpdir() }, registro: registroFalso, planificador: planificadorFalso, medidor: sinMedirAqui, cadaSegundos: 3600 });
+  await latido.latirYa();
+  assert.ok(enviados.length >= 1, "el latido salió");
+  falla = true;
+  assert.equal(await latido.latirYa(), false);
+  assert.equal(await latido.latirYa(), false);
+  assert.equal(avisos.length, 1, "el mismo fallo se avisa una vez");
+  assert.match(avisos[0], /sigue trabajando/);
+  falla = false;
+  let soltar;
+  suelta = new Promise((resolver) => { soltar = resolver; });
+  const primero = latido.latirYa();
+  assert.equal(await latido.latirYa(), false, "con uno en vuelo se salta el turno");
+  soltar();
+  assert.equal(await primero, true);
+  latido.parar();
+});
+
+await prueba("latido: el uso de los motores dice cuándo se reinicia la pausa por límite de uso", async () => {
+  let ahora = Date.parse("2026-10-24T15:00:00Z");
+  const config = completarConfig({ urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", repos: { a: { ruta: "." } } });
+  const motores = crearEstadoDeMotores(config, { ahora: () => ahora });
+  assert.deepEqual(motores.resumenDeUso(), { limiteAlcanzado: false, motor: null, reiniciaEn: null });
+  const hasta = motores.pausar("claude");
+  const uso = motores.resumenDeUso();
+  assert.equal(uso.limiteAlcanzado, true);
+  assert.equal(uso.motor, "claude");
+  assert.equal(uso.reiniciaEn, new Date(hasta).toISOString());
+  ahora = hasta + 1;
+  assert.equal(motores.resumenDeUso().limiteAlcanzado, false);
 });
 
 await prueba("riesgo: el prompt del plan pide la línea RIESGO con sus criterios y dice el riesgo que ya trae la tarjeta", async () => {
@@ -1113,6 +1182,30 @@ try {
     const planificador = planificar({ ...enParalelo, maxParalelo: 3 }, { medir: () => ({ cpu: 99, memoria: 10 }), parar: () => undefined });
     await correrHasta(planificador, () => [a, b].every((id) => tarjetas.get(id).estado === "PLAN_LISTO"));
     assert.equal(aLaVez.total, 1, "de a una mientras la CPU está alta");
+    planificador.parar();
+  });
+
+  await prueba("latido: planificador.estado() dice qué corre (etapa, dónde, modelo, intento) y que espera al PC cuando está lleno", async () => {
+    reiniciarALaVez();
+    const suyas = [nueva("Plan uno [mod:x]", "APROBADO"), nueva("Plan dos [mod:y]", "APROBADO")];
+    const planificador = planificar({ ...enParalelo, maxParalelo: 3 }, { medir: () => ({ cpu: 99, memoria: 10 }), parar: () => undefined });
+    assert.deepEqual(planificador.estado().tareas, []);
+    await planificador.llenar();
+    const estado = planificador.estado();
+    assert.equal(estado.tareas.length, 1, "la segunda no se abre con el PC lleno");
+    const [tarea] = estado.tareas;
+    assert.equal(tarea.etapa, "planeando");
+    assert.equal(tarea.lugar, "aizen1");
+    assert.equal(tarea.motor, "claude");
+    assert.ok(["opus", "sonnet"].includes(tarea.modelo), `modelo ${tarea.modelo}`);
+    assert.equal(tarea.reparacion, 0);
+    assert.ok(Number.isFinite(Date.parse(tarea.inicioEn)));
+    assert.equal(estado.esperandoPc, true);
+    assert.match(estado.motivoEspera, /CPU 99 %/);
+    assert.equal(estado.uso.limiteAlcanzado, false);
+    await planificador.esperarTodas();
+    assert.deepEqual(planificador.estado().tareas, []);
+    for (const id of suyas) tarjetas.get(id).estado = "HECHO"; // que no estorben a la prueba que sigue
     planificador.parar();
   });
 

@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url";
 import { crearPlanificador, unaVuelta } from "./lib/bucle.mjs";
 import { leerConfig } from "./lib/config.mjs";
 import { crearCrm } from "./lib/crm.mjs";
+import { crearLatido } from "./lib/latido.mjs";
+import { crearMedidor } from "./lib/recursos.mjs";
 import { crearRegistro } from "./lib/registro.mjs";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
@@ -48,7 +50,9 @@ if (unaSola) {
   process.exit(0);
 }
 
-const planificador = crearPlanificador({ crm, config, registro });
+// Un solo medidor de CPU y memoria: lo usa el planificador para decidir y el latido para contárselo al panel.
+const medidor = crearMedidor();
+const planificador = crearPlanificador({ crm, config, registro, medidor });
 let parar = false;
 for (const senal of ["SIGINT", "SIGTERM"]) {
   process.on(senal, () => {
@@ -69,6 +73,9 @@ registro.info(
 // Lo que el proceso anterior dejó con candado (murió o se reinició) vuelve a la fila sin ERROR.
 await planificador.iniciar();
 
+// El latido cada 15 s para la pestaña "Coordinador en vivo". Si el CRM no contesta, no frena nada.
+const latido = crearLatido({ crm, config, registro, planificador, medidor });
+
 while (!parar) {
   try {
     await planificador.llenar();
@@ -80,5 +87,6 @@ while (!parar) {
   await planificador.esperar(config.tiempos.intervaloSegundos * 1000);
 }
 await planificador.esperarTodas();
+latido.parar();
 planificador.parar();
 registro.info("Coordinador detenido");
