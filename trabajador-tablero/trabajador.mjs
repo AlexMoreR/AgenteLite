@@ -7,14 +7,21 @@
 //   node trabajador-tablero/trabajador.mjs              -> el bucle (cada 60 s, o antes si se libera un cupo)
 //   node trabajador-tablero/trabajador.mjs --una-vez    -> una sola tarjeta (para probar)
 //   node trabajador-tablero/trabajador.mjs --config otra/ruta.json
+//   node trabajador-tablero/trabajador.mjs --probar-arranque -> carga la config e importa todos los módulos; sale 0 sin tomar tarjetas
+//
+// Se actualiza solo: cada config.autoactualizar.cadaMinutos mira si main trae código nuevo del Coordinador, espera a que
+// terminen las tarjetas, se actualiza, prueba el arranque y sale con 0 para que lo relancen (lib/autoactualizar.mjs, lanzador.mjs).
+import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { actualizarCuandoSeaPosible, crearVigilanteDeVersion, marcarActualizacionOk, raizDelRepo } from "./lib/autoactualizar.mjs";
 import { crearPlanificador, unaVuelta } from "./lib/bucle.mjs";
 import { leerConfig } from "./lib/config.mjs";
 import { crearCrm } from "./lib/crm.mjs";
 import { crearLatido } from "./lib/latido.mjs";
 import { crearMedidor } from "./lib/recursos.mjs";
+import { git } from "./lib/git.mjs";
 import { crearRegistro } from "./lib/registro.mjs";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
@@ -29,6 +36,23 @@ try {
 } catch (error) {
   console.error(error.message);
   process.exit(1);
+}
+
+if (argumentos.includes("--probar-arranque")) {
+  // La prueba de la autoactualización: el código nuevo carga la config y TODOS sus módulos (no solo los de arriba).
+  // No toma tarjetas ni habla con el CRM.
+  try {
+    const carpetaLib = path.join(AQUI, "lib");
+    for (const archivo of fs.readdirSync(carpetaLib).filter((nombre) => nombre.endsWith(".mjs"))) {
+      await import(pathToFileURL(path.join(carpetaLib, archivo)).href);
+    }
+    crearCrm(config);
+    console.log("arranque probado: config y módulos bien");
+    process.exit(0);
+  } catch (error) {
+    console.error(`el arranque falla: ${error?.stack ?? error}`);
+    process.exit(1);
+  }
 }
 
 const registro = crearRegistro(config.carpetaTrabajo, { ocultar: [config.claveTrabajador] });
@@ -76,17 +100,58 @@ await planificador.iniciar();
 // El latido cada 15 s para la pestaña "Coordinador en vivo". Si el CRM no contesta, no frena nada.
 const latido = crearLatido({ crm, config, registro, planificador, medidor });
 
+// Autoactualización: la copia desde la que corre este código (si no es un repo git, queda apagada).
+let repoPropio = null;
+let versionActual = null;
+let vigilante = null;
+if (config.autoactualizar.activo) {
+  try {
+    repoPropio = await raizDelRepo(AQUI);
+    versionActual = (await git(repoPropio, ["rev-parse", "HEAD"])).salida.trim();
+    vigilante = crearVigilanteDeVersion({ repo: repoPropio, config, carpetaTrabajo: config.carpetaTrabajo, registro });
+    registro.info(`autoactualizar: miro cada ${config.autoactualizar.cadaMinutos} min si ${config.autoactualizar.remoto}/${config.autoactualizar.rama} trae código nuevo (versión ${versionActual.slice(0, 8)})`);
+  } catch (error) {
+    registro.aviso(`autoactualizar apagada: ${String(error.message).split("\n")[0]}`);
+  }
+}
+let primeraVueltaBien = false;
+let reiniciar = false;
+
 while (!parar) {
   try {
     await planificador.llenar();
+    if (!primeraVueltaBien && versionActual) {
+      primeraVueltaBien = true;
+      marcarActualizacionOk({ carpetaTrabajo: config.carpetaTrabajo, versionActual, registro });
+    }
   } catch (error) {
     avisarFallo(error);
   }
   if (parar) break;
+  const nueva = vigilante ? await vigilante.revisar() : null;
+  if (nueva) {
+    // Versión nueva del Coordinador: no tomo más tarjetas (no llamo a llenar), espero las que corren y me actualizo.
+    const resultado = await actualizarCuandoSeaPosible({
+      planificador,
+      repo: repoPropio,
+      carpetaTrabajo: config.carpetaTrabajo,
+      config,
+      nueva: nueva.nueva,
+      registro,
+      avisar: (texto) => crm.aviso(texto),
+      argumentosDePrueba: indiceConfig >= 0 ? ["--config", rutaConfig] : [],
+    });
+    if (resultado.resultado === "reiniciar") {
+      reiniciar = true;
+      break;
+    }
+    continue;
+  }
   // Se despierta antes si termina una sesión (una que quedó SUBIENDO se sube enseguida).
   await planificador.esperar(config.tiempos.intervaloSegundos * 1000);
 }
 await planificador.esperarTodas();
 latido.parar();
 planificador.parar();
-registro.info("Coordinador detenido");
+registro.info(reiniciar ? "Coordinador detenido para arrancar con la versión nueva" : "Coordinador detenido");
+if (reiniciar) process.exit(0);

@@ -34,6 +34,10 @@
       "DIRECT_URL": "postgresql://trabajador:no-usar@127.0.0.1:1/no_usar"
     }
   },
+  "autoactualizar": {
+    "activo": true,
+    "cadaMinutos": 10
+  },
   "limites": {
     "cpuPorciento": 85,
     "memoriaPorciento": 85

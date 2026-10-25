@@ -371,6 +371,26 @@ Mientras no se haga, sigue funcionando como antes (todo queda POR_REVISAR).
 
 Para cortarlo en seco: revocar la clave en el panel Trabajador (deja de entrar al instante).
 
+## Autoactualización (25-oct-2026)
+
+Cuando se sube código nuevo a main, el Coordinador se pone al día solo (antes seguía con el viejo hasta que alguien lo reiniciara a mano).
+
+1. **Cada 10 minutos** (`autoactualizar: { activo: true, cadaMinutos: 10 }` en `config.local.json`; sin esa clave usa esos valores) hace `git fetch` en SU copia (la carpeta del repo desde donde corre) y mira si `origin/main` trae commits que toquen `trabajador-tablero/`. Si no tocan esa carpeta, solo hace `git pull --ff-only` (copia limpia) y sigue sin reiniciar.
+2. **Si hay versión nueva**: deja de tomar tarjetas, espera a que terminen las que corren y lo anota ("versión nueva <hash>: espero a que terminen N tarjetas").
+3. **Con 0 tarjetas**: guarda `<carpetaTrabajo>/actualizacion.json` (`{ anterior, nueva, cuando, estado: "probando" }`), hace `git pull --ff-only` (con cambios locales, sin fast-forward o en otra rama no actualiza: lo anota, avisa y no insiste con ese hash), prueba el código nuevo con `node trabajador-tablero/trabajador.mjs --probar-arranque` (carga la config e importa todos los módulos; no toma tarjetas ni habla con el CRM) y, si pasa, sale con código 0.
+4. **Si no arranca**: `git reset --hard <anterior>` (solo en esa copia), estado `revertida` y aviso por WhatsApp en una línea (el aviso del CRM; sin número guardado da 412 y queda en el log).
+5. **El lanzador** (`lanzador.mjs`, sin imports del resto: solo `node:*`) es lo que la tarea de Windows corre en vez de `trabajador.mjs`. Al ver la salida 0 de una actualización lo relanza de inmediato (sin esperar los 5 min de la tarea); y si el Coordinador nuevo se cae en los primeros 3 minutos (código que pasó la prueba pero falla al correr), hace él mismo el `reset --hard` a `anterior`, marca `revertida`, avisa con `fetch` directo al CRM y vuelve a correr la versión anterior. Cuando el proceso nuevo completa su primera vuelta bien, el estado pasa a `ok` y el log dice "actualizado a <hash>". Sin el lanzador la actualización y la reversión por `--probar-arranque` funcionan igual, pero un código que pasa la prueba y luego se cae no se deshace solo, y el relanzamiento espera a la tarea (≤5 min). El lanzador mismo no se actualiza hasta el siguiente reinicio de la tarea.
+
+**Cambiar la tarea de Windows para que use el lanzador** (una vez, en aizen1; la tarea sigue con su disparador y `MultipleInstances=IgnoreNew`):
+
+```
+$t = Get-ScheduledTask -TaskName 'Trabajador Tablero IA'; $a = $t.Actions[0]; $a.Arguments = $a.Arguments -replace 'trabajador.mjs','lanzador.mjs'; Set-ScheduledTask -TaskName 'Trabajador Tablero IA' -Action $a | Out-Null; (Get-ScheduledTask -TaskName 'Trabajador Tablero IA').Actions | Format-List Execute,Arguments
+```
+
+Para volver atrás, la misma línea con `-replace 'lanzador.mjs','trabajador.mjs'`. (Se pega en PowerShell tal cual; conserva el `conhost --headless` y la carpeta de trabajo.) Los cambios surten efecto la próxima vez que la tarea arranque el proceso (al reiniciar el Coordinador una vez).
+
+Pruebas: `pruebas/probar-autoactualizar.mjs` (repos git temporales y un Coordinador falso).
+
 ## Pruebas
 
 ```
@@ -385,7 +405,9 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 
 ## Archivos
 
-- `trabajador.mjs`: el bucle.
+- `trabajador.mjs`: el bucle (y `--probar-arranque`).
+- `lanzador.mjs`: lo que corre la tarea de Windows: arranca `trabajador.mjs`, lo relanza tras una actualización y lo deshace si el nuevo se cae al arrancar.
+- `lib/autoactualizar.mjs`: mirar si main trae código nuevo, esperar las tarjetas, `pull --ff-only`, probar el arranque, revertir y el estado `actualizacion.json`.
 - `lib/bucle.mjs`: el planificador (varias a la vez) y una vuelta (tomar, la etapa con latido, avisar el resultado o el error).
 - `lib/choques.mjs`: qué tarjetas no pueden ir a la vez (zona, módulo, cola de subida).
 - `lib/recursos.mjs`: CPU y memoria del PC (y memoria en GB y disco libre para el latido).

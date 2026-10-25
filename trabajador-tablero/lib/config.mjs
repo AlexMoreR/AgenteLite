@@ -117,6 +117,9 @@ const REPARAR_POR_DEFECTO = { diagnosticoConClaude: true, diagnosticoMinutos: 3 
 /** Sesión atascada (24-oct-2026): sin tocar archivos ni usar el procesador por `minutos`, se corta. 0 = apagado. */
 const ATASCO_POR_DEFECTO = { minutos: 15, revisarCadaSegundos: 60, cpuMinimaSegundos: 0.3 };
 
+/** Autoactualización (25-oct-2026): cada tanto mira si main trae código nuevo del Coordinador y se reinicia solo. Ver lib/autoactualizar.mjs. */
+const AUTOACTUALIZAR_POR_DEFECTO = { activo: true, cadaMinutos: 10, rama: "main", remoto: "origin" };
+
 export function leerConfig(ruta) {
   if (!fs.existsSync(ruta)) {
     throw new Error(`No existe ${ruta}. Copia config.example.json a config.local.json y complétalo (ver README.md).`);
@@ -230,6 +233,14 @@ export function completarConfig(datos, base = process.cwd()) {
   if (typeof reparar.diagnosticoConClaude !== "boolean") errores.push("reparar.diagnosticoConClaude: true o false.");
   if (!Number.isFinite(reparar.diagnosticoMinutos) || reparar.diagnosticoMinutos <= 0) errores.push("reparar.diagnosticoMinutos: minutos, más de 0.");
 
+  const auto = { ...AUTOACTUALIZAR_POR_DEFECTO, ...(datos.autoactualizar ?? {}) };
+  if (typeof auto.activo !== "boolean") errores.push("autoactualizar.activo: true o false.");
+  auto.cadaMinutos = Number(auto.cadaMinutos);
+  if (!Number.isFinite(auto.cadaMinutos) || auto.cadaMinutos < 1) errores.push("autoactualizar.cadaMinutos: minutos, 1 o más.");
+  for (const campo of ["rama", "remoto"]) {
+    if (typeof auto[campo] !== "string" || !/^[\w./-]+$/.test(auto[campo])) errores.push(`autoactualizar.${campo}: un nombre de git.`);
+  }
+
   const nube = { ...NUBE_POR_DEFECTO, ...(datos.nube ?? {}) };
   if (typeof nube.activa !== "boolean") errores.push("nube.activa: true o false.");
   for (const campo of ["maxTareas", "maxArchivosChica"]) {
@@ -304,6 +315,7 @@ export function completarConfig(datos, base = process.cwd()) {
       entorno: entornoNube,
     },
     limites,
+    autoactualizar: { activo: auto.activo, cadaMinutos: auto.cadaMinutos, rama: auto.rama, remoto: auto.remoto },
     partir: { archivosMinimos: partir.archivosMinimos },
     atasco: { minutos: atasco.minutos, revisarCadaSegundos: atasco.revisarCadaSegundos, cpuMinimaSegundos: atasco.cpuMinimaSegundos },
     reparar: { diagnosticoConClaude: reparar.diagnosticoConClaude, diagnosticoMinutos: reparar.diagnosticoMinutos },

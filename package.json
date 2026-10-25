@@ -43,7 +43,7 @@
     "test:reuniones-link-firmado": "node scripts/check-reuniones-link-firmado.mjs",
     "test:reuniones-migracion": "node scripts/check-reuniones-migracion.mjs",
     "test:migraciones-pglite":"node scripts/ensayo-migraciones-pglite.mjs",
-    "test:trabajador-tablero": "node trabajador-tablero/pruebas/probar-trabajador.mjs && node trabajador-tablero/pruebas/probar-modelos.mjs",
+    "test:trabajador-tablero": "node trabajador-tablero/pruebas/probar-trabajador.mjs && node trabajador-tablero/pruebas/probar-modelos.mjs && node trabajador-tablero/pruebas/probar-autoactualizar.mjs",
     "test:seguimiento-inteligente": "node scripts/check-seguimiento-inteligente.mjs",
     "test:avisos-gravedad": "node scripts/check-avisos-gravedad.mjs",
     "test:supervisor-accionable": "node scripts/check-supervisor-accionable.mjs",

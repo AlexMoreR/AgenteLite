@@ -370,6 +370,7 @@ la IA pausada no lo contesta el agente.
   tarjeta asignada**: la persona responsable ve la ficha completa y el historial de ESA tarjeta aunque esté en
   un tablero que no es suyo; no ve el resto de ese tablero, no la edita ni aprueba (aprobar sigue siendo del
   dueño y de los aprobadores). El link "ir al tablero" solo aparece si la persona alcanza ese tablero.
+- **Tablero IA — el Coordinador se actualiza solo (25-oct-2026)**: cada 10 min (`autoactualizar` en `config.local.json`) el Coordinador hace `git fetch` en su copia y, si `origin/main` trae código que toca `trabajador-tablero/`, deja de tomar tarjetas, espera a que terminen las que corren, guarda `actualizacion.json` en su carpeta de trabajo (`anterior`, `nueva`, `estado`: probando, ok, revertida, no-actualizada), hace `git pull --ff-only`, prueba el código nuevo con `trabajador.mjs --probar-arranque` y sale con 0 para que se relance. Si no arranca vuelve a la versión anterior (`git reset --hard` solo en esa copia) y avisa por WhatsApp. `trabajador-tablero/lanzador.mjs` (lo que corre la tarea de Windows en lugar de `trabajador.mjs`) lo relanza al instante y deshace una versión que se cae en sus primeros 3 minutos. Ver el README de `trabajador-tablero`.
 - **Tablero IA — motores del trabajador y aviso por WhatsApp (23-oct-2026)**: el trabajador (aizen1) planea
   y revisa con Claude Code y construye con Codex CLI (sesión de ChatGPT Plus), según `motores` de su
   `config.local.json`. Codex solo escribe archivos en el worktree (`codex exec --sandbox workspace-write`,

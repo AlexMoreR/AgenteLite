@@ -13,7 +13,9 @@ $ErrorActionPreference = "Stop"
 
 $nombre = "Trabajador Tablero IA"
 $carpeta = Split-Path -Parent $MyInvocation.MyCommand.Path
-$script = Join-Path $carpeta "trabajador.mjs"
+# La tarea corre el LANZADOR (lanzador.mjs), que arranca trabajador.mjs y lo devuelve a la versión anterior si una
+# autoactualización lo deja caído al arrancar (ver README.md, "Autoactualización").
+$script = Join-Path $carpeta "lanzador.mjs"
 $config = Join-Path $carpeta "config.local.json"
 $node = (Get-Command node -ErrorAction Stop).Source
 
