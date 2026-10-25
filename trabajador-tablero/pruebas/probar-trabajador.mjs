@@ -1538,7 +1538,9 @@ try {
     assert.equal(nube.length, 1, "solo la tercera salió a la nube");
     assert.equal(nube[0].titulo, "Desborde tres [mod:tres]");
     assert.match(nube[0].cwd, /-nube$/, "lanzada desde un worktree de la rama");
-    assert.deepEqual(nube[0].argumentos, ["-p", "--cloud", "--output-format", "json"]);
+    assert.deepEqual(nube[0].argumentos, ["-p", "--cloud", "--model", "sonnet", "--output-format", "json"], "la nube pide Sonnet para construir, igual que aizen1");
+    assert.match(nube[0].prompt, /MODELO PEDIDO: Sonnet/);
+    assert.equal(tarjetas.get(c).resultado.modelo.construir, "sonnet", "la tarjeta guarda el modelo con que corrió la nube");
     assert.equal(tarjetas.get(c).resultado.construidoEn, "nube");
     assert.equal(tarjetas.get(c).resultado.linkSesion, enlaceDe("Desborde tres [mod:tres]"));
     assert.equal(tarjetas.get(a).resultado.construidoEn, "aizen1");
@@ -1634,6 +1636,41 @@ try {
     assert.equal(t.intentos, 0, "no gasta el intento");
     assert.match(t.soltada, /límite de uso/);
     assert.equal(t.resultado?.error, undefined, "sin ERROR");
+    planificador.parar();
+    sinRestos();
+  });
+
+  await prueba("nube: modelo no disponible: la tarjeta se suelta sin gastar intento y nunca se lanza con Opus", async () => {
+    despejar();
+    const desde = leerLog(LOGS.claude).length;
+    const id = nueva("Modelo caído [nube-modelo-no-disponible]", "PLAN_APROBADO", { plan: planDe("modelocaido", 9) });
+    const planificador = planificar(nubeConfig());
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_APROBADO", "vuelve a la fila");
+    assert.equal(t.intentos, 0, "no gasta el intento");
+    assert.equal(t.resultado?.error, undefined, "sin ERROR");
+    const lanzadas = llamadasALaNube(desde);
+    assert.ok(lanzadas.length >= 1 && lanzadas.every((l) => l.argumentos[l.argumentos.indexOf("--model") + 1] === "sonnet"), "siempre Sonnet");
+    planificador.parar();
+    sinRestos();
+  });
+
+  await prueba("nube: si --cloud no acepta --model, se lanza sin él y la tarjeta lo dice en una línea", async () => {
+    despejar();
+    const desde = leerLog(LOGS.claude).length;
+    const id = nueva("Sin model [nube-sin-model]", "PLAN_APROBADO", { plan: planDe("sinmodel", 9) });
+    const planificador = planificar(nubeConfig());
+    await planificador.llenar();
+    await correrHasta(planificador, () => tarjetas.get(id).estado === "HECHO", 180_000);
+    const lanzadas = llamadasALaNube(desde);
+    assert.equal(lanzadas.length, 2, "un intento con --model y otro sin él");
+    assert.ok(lanzadas[0].argumentos.includes("--model") && !lanzadas[1].argumentos.includes("--model"));
+    assert.match(lanzadas[1].prompt, /MODELO PEDIDO: Sonnet/, "el modelo va pedido en el prompt");
+    const r = tarjetas.get(id).resultado;
+    assert.match(r.resumen, /La nube no deja elegir modelo; se pidió en el prompt\./);
+    assert.equal(r.modelo?.construir, undefined, "no se anota un modelo que no se pudo forzar");
     planificador.parar();
     sinRestos();
   });

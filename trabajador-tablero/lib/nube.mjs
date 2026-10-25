@@ -80,6 +80,9 @@ export function esTareaGrande(tarjeta, { repo = null, maxArchivosChica = 8 } = {
 
 /* ───────────────────────────────────────────────────────── lanzar `claude --cloud` ── */
 
+/** `claude --cloud` rechazó la opción --model (una versión que no la acepta con la nube). */
+const NO_ACEPTA_MODELO = /(?:unknown|unrecognized|unexpected) (?:option|argument)[^\n]*--model|--model[^\n]*(?:not supported|cannot be used|incompatible)/i;
+
 const LINK_DE_SESION = /https:\/\/claude\.ai\/code\/session_[A-Za-z0-9_-]+/;
 
 /** El link de la sesión (claude.ai/code/session_…) que aparece en un texto, o null. */
@@ -161,17 +164,28 @@ async function lanzarConTerminalReal(contexto, { cwd, prompt, base, timeoutMs, a
  * (a) `claude -p --cloud --output-format json` con la instrucción por stdin; (b) si no sirve, node-pty.
  * Devuelve { link, via, salida }. Lanza ErrorDeEtapa (límite de uso, o sin forma de lanzarlo sin terminal).
  */
-export async function lanzarEnNube(contexto, { cwd, prompt }) {
+export async function lanzarEnNube(contexto, { cwd, prompt, modelo = null }) {
   const { config, senal, registro } = contexto;
   const base = config.nube.comandoClaude ?? config.comandoClaude;
   const timeoutMs = Math.max(1000, config.nube.lanzarMinutos * MINUTO);
   let antes = "";
+  let aceptaModelo = Boolean(modelo);
   if (config.nube.terminal !== "pty") {
-    const resultado = await correr([...base, "-p", "--cloud", "--output-format", "json"], { cwd, entrada: prompt, timeoutMs, senal, env: entornoSeguro() });
+    // El modelo va explícito con --model (la misma regla fija que en aizen1). Si esta versión de `--cloud` no lo
+    // acepta, se lanza sin él (el prompt ya trae el modelo pedido) y la tarjeta lo dice (modeloForzado: false).
+    const lanzar = (conModelo) =>
+      correr([...base, "-p", "--cloud", ...(conModelo ? ["--model", modelo] : []), "--output-format", "json"], { cwd, entrada: prompt, timeoutMs, senal, env: entornoSeguro() });
+    let resultado = await lanzar(Boolean(modelo));
+    const salidaDelIntento = () => `${resultado.errores}\n${resultado.salida}`;
+    if (modelo && !resultado.cancelado && !linkDeSesion(salidaDelIntento()) && NO_ACEPTA_MODELO.test(salidaDelIntento())) {
+      registro?.aviso?.("claude --cloud no deja elegir modelo con --model: lo lanzo sin él (el modelo va pedido en el prompt)");
+      resultado = await lanzar(false);
+      aceptaModelo = false;
+    }
     if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló el lanzamiento en la nube: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
     const texto = sinColores(`${resultado.errores}\n${resultado.salida}`);
     const link = linkDeSesion(texto);
-    if (link) return { link, via: "sin-terminal", salida: texto };
+    if (link) return { link, via: "sin-terminal", salida: texto, modeloForzado: aceptaModelo };
     if (esLimiteDeUso(texto)) {
       throw new ErrorDeEtapa(`Claude llegó a su límite de uso al lanzar en la nube: ${ultimasLineas(texto, 5)}`, { limiteDeUso: true, motor: "claude" });
     }
@@ -179,7 +193,9 @@ export async function lanzarEnNube(contexto, { cwd, prompt }) {
     if (config.nube.terminal === "sin-terminal") throw new ErrorDeEtapa(mensajeSinTerminal(antes), { categoria: "otra" });
     registro?.aviso?.(`claude -p --cloud no sirvió (${String(antes).split("\n")[0]}): pruebo con una terminal real`);
   }
-  return lanzarConTerminalReal(contexto, { cwd, prompt, base, timeoutMs, antes });
+  // (b) Por la terminal real el modelo va en el comando (salvo que (a) ya mostró que --cloud no lo acepta).
+  const real = await lanzarConTerminalReal(contexto, { cwd, prompt, base: aceptaModelo ? [...base, "--model", modelo] : base, timeoutMs, antes });
+  return { ...real, modeloForzado: aceptaModelo };
 }
 
 /* ───────────────────────────────────────────────────────── vigilar la rama en GitHub ── */

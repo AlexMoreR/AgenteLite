@@ -44,8 +44,15 @@ const LARGO_DE_LA_CAUSA = 200;
 /** Lo que dice `claude -p` cuando la suscripción llegó a su límite de uso ("Claude AI usage limit reached|…", "You've hit your session limit · resets 1:20am": 23-10-2026 este no lo reconocía y marcó 3 tarjetas en ERROR). */
 const LIMITE_DE_USO = /usage limit|limit reached|hit your (?:\w+ )?limit|session limit|weekly limit|limit · resets|rate[ _-]?limit|overloaded_error|out of (extra )?usage|límite de uso/i;
 
+/**
+ * El modelo pedido no existe para esta cuenta o no está disponible por ahora: se trata como un límite de uso
+ * (se espera y se reintenta, sin contar intento) y NUNCA se cambia a otro modelo más fuerte.
+ */
+// Solo las frases del aviso de la CLI (no "Model User not found" de un build ni "models/x does not exist" de un test).
+const MODELO_NO_DISPONIBLE = /issue with the selected model|\bmodel\b[^\n]{0,60}\b(?:is not available|is currently unavailable|is temporarily unavailable)\b|\bmodelo\b[^\n]{0,40}\bno (?:est[aá] )?disponible/i;
+
 export function esLimiteDeUso(texto) {
-  return LIMITE_DE_USO.test(String(texto ?? ""));
+  return LIMITE_DE_USO.test(String(texto ?? "")) || MODELO_NO_DISPONIBLE.test(String(texto ?? ""));
 }
 
 /** Un texto recortado a `n` caracteres (con "…" si se cortó). */

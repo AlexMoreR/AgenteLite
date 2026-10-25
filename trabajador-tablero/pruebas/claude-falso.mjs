@@ -67,6 +67,15 @@ if (argumentos.includes("--cloud")) {
     console.log("Claude AI usage limit reached|1761210000");
     process.exit(1);
   }
+  if (titulo.includes("[nube-modelo-no-disponible]")) {
+    console.log("API Error: model claude-sonnet is not available");
+    process.exit(1);
+  }
+  // Una versión de --cloud que no acepta --model: rechaza la opción (el Coordinador lo lanza otra vez sin ella).
+  if (titulo.includes("[nube-sin-model]") && argumentos.includes("--model")) {
+    console.error("error: unknown option '--model'");
+    process.exit(1);
+  }
   if (titulo.includes("[nube-sin-terminal]")) {
     console.error("Error: Raw mode is not supported on the current process.stdin (not a TTY)");
     process.exit(1);

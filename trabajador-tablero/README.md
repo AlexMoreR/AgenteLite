@@ -178,6 +178,12 @@ o dice arquitectura, refactor, rediseño, reescribir, seguridad, autenticación 
 Cada tarjeta muestra qué modelo usó cada paso ("Planeado con Opus · Construido con Sonnet"): el plan lleva la firma
 `Plan escrito con: Claude Code (Opus)` y el resultado trae `modelo` (guardado en el JSON `resultado`, sin migración).
 
+**La nube usa la misma regla.** Al lanzar `claude -p --cloud` el Coordinador pasa `--model` con el modelo de construir
+(Sonnet) y el prompt lo repite ("MODELO PEDIDO"). Si esa versión de `--cloud` rechaza `--model`, se lanza sin él, el
+resumen de la tarjeta dice "La nube no deja elegir modelo; se pidió en el prompt." y no se anota `modelo.construir`.
+Un modelo no disponible se trata como límite de uso: la tarjeta se suelta y espera, sin gastar intento, y nunca se
+cambia a Opus para construir. Dónde corrió cada tarjeta ya está en `resultado.construidoEn` (`aizen1` o `nube`).
+
 Se elige en `config.local.json`:
 
 ```json

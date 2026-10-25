@@ -488,7 +488,7 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
  * leer CLAUDE.md, las 4 lecciones, las prohibiciones y la orden de dejar todo en la rama tablero/<id>. Nunca lleva
  * claves, .env ni tokens: `entorno` solo trae variables NO secretas (la dirección de base falsa de siempre).
  */
-export function promptDeNube(tarjeta, repo, rama, { entorno = {} } = {}) {
+export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   const pasos = [repo.instalar, ...(repo.verificar ?? []), ...(repo.pruebas ?? [])].filter(Boolean).map((comando) => `\`${comoTexto(comando)}\``);
   const variables = Object.entries(entorno).map(([nombre, valor]) => `export ${nombre}="${valor}"`);
@@ -497,6 +497,7 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {} } = {}) {
     contextoDeLaTarjeta(tarjeta),
     `PLAN APROBADO:\n${tarjeta.plan}`,
     bloqueDeReparacion(tarjeta),
+    modelo ? `MODELO PEDIDO: ${nombreDelModelo(modelo)} (construir se hace con ese modelo; no cambies a otro).` : "",
     "LO PRIMERO: lee el archivo CLAUDE.md de la raíz del repositorio y cumple sus REGLAS DE EJECUCIÓN (son obligatorias).",
     [
       "LECCIONES OBLIGATORIAS:",
@@ -552,7 +553,10 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
     const vistos = new Set((await git(carpeta, ["rev-list", "-n", "100", "HEAD"])).salida.split(/\r?\n/).filter(Boolean));
     const entorno = { ...Object.fromEntries(["DATABASE_URL", "DIRECT_URL"].map((nombre) => [nombre, entornoSeguro()[nombre]])), ...config.nube.entorno };
     contexto.fase?.("construyendo", { lugar: "nube", linkSesion: null });
-    const lanzado = await lanzarEnNube(contexto, { cwd: carpeta, prompt: promptDeNube(tarjeta, repo, rama, { entorno }) });
+    // El modelo sale de la misma regla fija que en aizen1 (modelos.mjs): construir -> Sonnet, nunca Opus.
+    const modelo = modeloDelPaso(config, "construir", tarjeta);
+    registro.info(`construir en la nube: modelo ${nombreDelModelo(modelo)}`);
+    const lanzado = await lanzarEnNube(contexto, { cwd: carpeta, prompt: promptDeNube(tarjeta, repo, rama, { entorno, modelo }), modelo });
     contexto.fase?.("construyendo", { lugar: "nube", linkSesion: lanzado.link });
     registro.info(`construyo en la nube: sesión ${lanzado.link}, rama ${rama} (${lanzado.via})`);
     let resultado;
@@ -578,7 +582,10 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
       link: lanzado.link,
       segundos: resultado.segundos,
       baseComun,
+      // Solo se anota el modelo si de verdad se pidió con --model; si no, la tarjeta lo dice en una línea.
+      modelo: lanzado.modeloForzado ? modelo : null,
       resumen: [
+        lanzado.modeloForzado ? "" : "La nube no deja elegir modelo; se pidió en el prompt.",
         `Construido por Claude en la nube (${resultado.segundos === null ? "sin tiempo" : `${resultado.segundos} s`}): build=${resultado.build} tests=${resultado.tests}. Sesión: ${lanzado.link}`,
         resultado.detalle ? `Lo que dejó en la rama:\n${resultado.detalle}` : "",
       ]
@@ -830,6 +837,7 @@ export async function construir(contexto, tarjeta) {
     const modelos = {
       ...(modeloDelPlan(tarjeta.plan) ? { plan: modeloDelPlan(tarjeta.plan) } : {}),
       ...(motor === "claude" && !nube ? { construir: modeloElegido ?? modeloDelPaso(config, "construir", tarjeta), subagentes: modeloDelPaso(config, "subagentes", tarjeta) } : {}),
+      ...(nube?.modelo ? { construir: nube.modelo } : {}),
     };
 
     // Lo que construyó Codex lo revisa otro paso (Claude por defecto; Codex si Claude está alto). Claude ya

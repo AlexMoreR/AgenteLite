@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
+import { esLimiteDeUso } from "../lib/diagnostico.mjs";
 import { completarConfig } from "../lib/config.mjs";
 import { DETALLE_LARGO, dificultadDeLaTarea, modeloDelPaso, nombreDelModelo } from "../lib/modelos.mjs";
 
@@ -88,6 +89,18 @@ prueba("la tarjeta muestra qué modelo usó cada paso", () => {
   assert.equal(textos.textoDeModelos("1. Qué se cambia\n\nPlan escrito con: Claude Code (Sonnet)", null), "Planeado con Sonnet");
   assert.equal(textos.textoDeModelos("Plan escrito con: Codex", null), "", "Codex: no hay modelo que mostrar");
   assert.equal(textos.textoDeModelos(null, null), "");
+});
+
+prueba("un modelo no disponible se trata como límite (espera y reintenta); construir nunca sube a Opus", () => {
+  for (const aviso of ["API Error: model claude-sonnet is not available", "There's an issue with the selected model (sonnet)", "El modelo pedido no está disponible"]) {
+    assert.ok(esLimiteDeUso(aviso), aviso);
+  }
+  for (const normal of ["Error: build falló en src/model.ts", "Model User not found", "ENOENT: src/models/user.ts does not exist", "Invalid model name en el formulario"]) {
+    assert.ok(!esLimiteDeUso(normal), `no es un límite: ${normal}`);
+  }
+  // Un reintento (intentos 3, por ejemplo tras esperar el límite) sube el PLAN a Opus, pero construir sigue en Sonnet.
+  const config = completarConfig(base);
+  assert.equal(modeloDelPaso(config, "construir", { intentos: 3, titulo: "x", detalle: "" }), "sonnet");
 });
 
 prueba("el CRM guarda el modelo del resultado, limpio", () => {
