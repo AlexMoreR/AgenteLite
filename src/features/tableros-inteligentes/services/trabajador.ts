@@ -48,10 +48,11 @@ import {
   type EtapaDelTrabajador,
   type PedidoDeTomar,
 } from "./reglas-trabajador";
-import { archivosDeEntrada, frase, motivosDelResultado, porQueNoSeApruebaSola, riesgoDelPlan } from "./reglas-riesgo";
+import { archivosDeEntrada, frase, motivosDelResultado, porQueElPlanEsperaTuSi, porQueNoSeApruebaSola, riesgoDelPlan } from "./reglas-riesgo";
 import {
   anotarAprobacionAutomatica,
   aprobacionAutomaticaPrendida,
+  aprobarPlanesSoloPrendido,
   motivoDeLaAprobacionAutomatica,
   registroDeAprobacionAutomatica,
 } from "./aprobacion-automatica";
@@ -595,6 +596,8 @@ export async function accionDelTrabajador(
   const despues: Record<string, unknown> = { estado: a };
   // El plan de una tarjeta BAJO que se aprueba solo: se anota como una aprobación aparte (abajo).
   let aprobacionDelPlan: ReturnType<typeof registroDeAprobacionAutomatica> | null = null;
+  // true si ese plan se aprobó por la regla del dueño (24-oct) y no por el riesgo BAJO.
+  let reglaDelDueno = false;
   // La fila de intentos que deja una escalada (/error con categoria).
   let intentoPorGuardar: IntentoPorGuardar | null = null;
   // Las zonas protegidas que marca el Coordinador (el cambio toca esas rutas): se suman, nunca se quitan.
@@ -618,6 +621,15 @@ export async function accionDelTrabajador(
       // Segunda revisión de riesgo: el CRM lee el plan (su línea RIESGO, la zona, la migración y los archivos).
       // Una tarjeta BAJO sigue BAJO solo si el plan lo confirma; si no, sube a ALTO y espera al dueño.
       const revision = riesgoDelPlan(plan);
+      // Regla del dueño (24-oct): con "Aprobar planes solo" prendido, el plan espera su sí solo si toca dinero de Gestión
+      // o gasto en Meta Ads. Una tarjeta con zona protegida también espera: /tomar exige que su plan se apruebe en la
+      // pantalla, así que aprobarlo solo la dejaría parada en PLAN_APROBADO sin que nadie lo vea.
+      const planesSolos = await aprobarPlanesSoloPrendido(contexto.workspaceId);
+      const esperaPorRegla = !planesSolos
+        ? null
+        : actual.zonaProtegida.length
+          ? `tiene zona protegida (${actual.zonaProtegida.join(", ")}): su plan se aprueba en la pantalla`
+          : porQueElPlanEsperaTuSi(plan);
       if (actual.riesgo === "BAJO") {
         const motivos = revision.motivosAlto;
         if (motivos.length) {
@@ -643,12 +655,37 @@ export async function accionDelTrabajador(
             riesgo: actual.riesgo,
             prendido,
           });
-          if (!noSola) {
+          if (!noSola && !esperaPorRegla) {
             const motivo = motivoDeLaAprobacionAutomatica(revision.motivoDeclarado ?? actual.riesgoMotivo);
             aprobacionDelPlan = registroDeAprobacionAutomatica({ estado: "PLAN_APROBADO", momento: "plan", motivo });
             a = "PLAN_APROBADO";
             datos.estado = a;
           }
+        }
+      }
+      // Regla del dueño (24-oct): aprobada la tarea, el plan pasa solo a construir. Única excepción: el plan toca
+      // dinero de Gestión o gasto en Meta Ads (queda PLAN_LISTO con el motivo). Con el interruptor apagado, todo
+      // como antes.
+      if (!aprobacionDelPlan && planesSolos) {
+        if (esperaPorRegla) {
+          despues.nota = `plan listo, espera tu sí (${esperaPorRegla})`;
+          if (actual.riesgoPor !== "DUENO") {
+            datos.riesgo = "ALTO";
+            datos.riesgoMotivo = esperaPorRegla.slice(0, 300);
+            datos.riesgoPor = "TRABAJADOR";
+            despues.riesgo = "ALTO";
+            despues.riesgoMotivo = datos.riesgoMotivo;
+          }
+        } else {
+          aprobacionDelPlan = registroDeAprobacionAutomatica({
+            estado: "PLAN_APROBADO",
+            momento: "plan",
+            motivo: "el plan no toca dinero de Gestión ni gasto en Meta Ads",
+            regla: "dueno-24-oct",
+          });
+          reglaDelDueno = true;
+          a = "PLAN_APROBADO";
+          datos.estado = a;
         }
       }
     } else if (accion === "resultado") {
@@ -751,7 +788,7 @@ export async function accionDelTrabajador(
     if (aprobacionDelPlan) {
       // El plan queda PLAN_LISTO un instante y se aprueba solo: quedan las dos filas en el historial.
       despues.estado = "PLAN_LISTO";
-      despues.nota = "plan listo, se aprueba solo (riesgo BAJO)";
+      despues.nota = reglaDelDueno ? "plan listo, se aprueba solo (regla del dueño 24-oct)" : "plan listo, se aprueba solo (riesgo BAJO)";
     }
     await anotarTrabajador(tx, contexto, actual.id, { estado }, despues);
     if (aprobacionDelPlan) await anotarAprobacionAutomatica(tx, actual.id, { estado: "PLAN_LISTO" }, aprobacionDelPlan);

@@ -1613,4 +1613,53 @@ prueba("hecho a mano: deshacerlo se niega si venía de ERROR o POR_REVISAR y se 
   assert.equal(reglas.puedeDeshacer(marca("FALLIDO"), [], "HECHO"), null);
 });
 
+/* ------------------------------------------------------------------ el sí del plan (regla del dueño 24-oct) */
+
+prueba("lineaAprobarPlan: lee SOLO y ESPERA TU SÍ con motivo; sin línea es null", () => {
+  assert.deepEqual(riesgo.lineaAprobarPlan("RIESGO: BAJO — x\nAPROBAR PLAN: SOLO"), { espera: false, motivo: null });
+  assert.deepEqual(riesgo.lineaAprobarPlan("**APROBAR PLAN:** solo"), { espera: false, motivo: null });
+  const espera = riesgo.lineaAprobarPlan("APROBAR PLAN: ESPERA TU SÍ — toca los abonos");
+  assert.equal(espera.espera, true);
+  assert.equal(espera.motivo, "toca los abonos");
+  assert.equal(riesgo.lineaAprobarPlan("Un plan cualquiera sin la línea"), null);
+});
+
+prueba("lineaAprobarPlan: si trae varias líneas gana la que espera", () => {
+  const r = riesgo.lineaAprobarPlan("APROBAR PLAN: SOLO\nAPROBAR PLAN: ESPERA TU SÍ — dinero");
+  assert.equal(r.espera, true);
+});
+
+prueba("porQueElPlanEsperaTuSi: la línea SOLO pasa; ESPERA TU SÍ da el motivo", () => {
+  assert.equal(riesgo.porQueElPlanEsperaTuSi("Cambia una pantalla.\nAPROBAR PLAN: SOLO"), null);
+  const motivo = riesgo.porQueElPlanEsperaTuSi("Cambia algo.\nAPROBAR PLAN: ESPERA TU SÍ — sube el gasto en Meta Ads");
+  assert.ok(motivo.includes("espera tu sí"));
+  // El motivo queda como lo escribió el Coordinador (mayúsculas y tildes).
+  assert.ok(motivo.includes("sube el gasto en Meta Ads"), motivo);
+  // La línea tolera puntuación: "ESPERA TU SÍ." y "ESPERA TU SÍ (motivo)".
+  assert.ok(riesgo.porQueElPlanEsperaTuSi("Cambia algo.\nAPROBAR PLAN: ESPERA TU SÍ."));
+  assert.ok(riesgo.porQueElPlanEsperaTuSi("Cambia algo.\nAPROBAR PLAN: ESPERA TU SÍ (toca Meta Ads)").includes("toca Meta Ads"));
+});
+
+prueba("porQueElPlanEsperaTuSi: archivos de abonos esperan aunque diga SOLO", () => {
+  const motivo = riesgo.porQueElPlanEsperaTuSi("Archivos:\n- src/features/abonos/tabla.tsx\nAPROBAR PLAN: SOLO");
+  assert.ok(motivo && motivo.includes("dinero"), motivo);
+});
+
+prueba("porQueElPlanEsperaTuSi: presupuesto, activar campañas o gasto en Meta Ads esperan", () => {
+  const planes = [
+    "Sube el presupuesto diario de la campaña.\nAPROBAR PLAN: SOLO",
+    "Activar las campañas nuevas de Meta.\nAPROBAR PLAN: SOLO",
+    "Lanzar una campaña de remarketing.",
+    "Puede generar gasto en Meta Ads.\nAPROBAR PLAN: SOLO",
+  ];
+  for (const plan of planes) assert.ok(riesgo.porQueElPlanEsperaTuSi(plan), plan);
+});
+
+prueba("porQueElPlanEsperaTuSi: sin línea y hablando de abonos espera; sin línea y sin dinero pasa", () => {
+  assert.ok(riesgo.porQueElPlanEsperaTuSi("Se cambia cómo se muestran los abonos en la lista."));
+  assert.equal(riesgo.porQueElPlanEsperaTuSi("Se agrega un reporte de ventas por mes.\nArchivos:\n- src/features/reportes/Reporte.tsx"), null);
+  // Con la línea SOLO, hablar de abonos en el texto no basta (solo cuentan los archivos y Meta).
+  assert.equal(riesgo.porQueElPlanEsperaTuSi("Muestra los abonos en una lista.\nAPROBAR PLAN: SOLO"), null);
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);

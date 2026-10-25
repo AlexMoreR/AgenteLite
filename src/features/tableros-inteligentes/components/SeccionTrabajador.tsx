@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   agregarAprobadorAction,
   cambiarAprobacionAutomaticaAction,
+  cambiarAprobarPlanesSoloAction,
   crearClaveTrabajadorAction,
   panelTrabajadorAction,
   quitarAprobadorAction,
@@ -115,6 +116,32 @@ export function SeccionTrabajador() {
             <span className="block text-xs text-muted-foreground">
               Las tareas sencillas, sin dinero, permisos, chats ni cambios que borren datos, arrancan sin pedirte permiso. Apagado, todo
               vuelve a pedir tu aprobación.
+            </span>
+            {!panel.esDueno ? (
+              <span className="mt-1 block text-xs text-muted-foreground">Solo el dueño del negocio mueve este interruptor.</span>
+            ) : null}
+          </span>
+        </label>
+      ) : null}
+
+      {panel ? (
+        <label className="flex items-start gap-3 rounded-xl border bg-card p-4 text-sm">
+          <Switch
+            checked={panel.aprobarPlanesSolo}
+            disabled={ocupado || !panel.esDueno}
+            onCheckedChange={(valor) =>
+              hacer(
+                () => cambiarAprobarPlanesSoloAction(Boolean(valor)),
+                valor ? "Los planes pasan solos a construir" : "Los planes vuelven a pedir tu sí",
+              )
+            }
+            className="mt-0.5"
+          />
+          <span>
+            <span className="font-medium">Aprobar planes solo</span>
+            <span className="block text-xs text-muted-foreground">
+              Aprobada la tarea, el plan pasa solo a construir. Solo te espera el plan que toca dinero de Gestión o puede subir presupuesto,
+              activar campañas o crear gasto en Meta Ads. Apagado, todos los planes piden tu sí.
             </span>
             {!panel.esDueno ? (
               <span className="mt-1 block text-xs text-muted-foreground">Solo el dueño del negocio mueve este interruptor.</span>

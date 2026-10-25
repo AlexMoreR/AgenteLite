@@ -18,6 +18,17 @@ Solo toma tarjetas de un tipo **con aprobación** (como Tarea) que tengan **repo
 | PLAN_APROBADO | En una rama `tablero/<id>-<nombre>` desde `origin/main`: Claude **construye** el plan (puede editar, no puede hacer push). Después el trabajador, él mismo: hace el commit, marca las **zonas protegidas** que toca, corre tsc / build / pruebas, compara el **lint** con el de main (solo cuentan errores nuevos), **ensaya la migración** si hay una nueva (PGlite y producción dentro de `BEGIN … ROLLBACK`) y **sube solo la rama**. | SUBIENDO (sube sola) o POR_REVISAR (espera el sí) |
 | SUBIENDO | Rebase de la rama sobre `origin/main`. Si `main` no cambió desde que se construyó, no vuelve a compilar; si cambió, verifica y ensaya otra vez. **Push a main**, espera el CI (`gh run watch`) y comprueba que `/api/version` diga el commit nuevo. | HECHO (con el commit y su link) |
 
+### El plan pasa solo (regla del dueño, 24-oct-2026)
+
+Aprobada la tarea, el plan pasa solo de PLAN_LISTO a PLAN_APROBADO, con cualquier riesgo y aunque
+la tarjeta tenga zona protegida (esa zona sigue pidiendo el sí final al subir). **Única excepción:**
+el plan toca dinero de Gestión (abonos, saldos, nómina, comisiones, facturación, pagos) o puede subir
+presupuesto, activar campañas o crear gasto en Meta Ads: queda PLAN_LISTO con su motivo. El Coordinador
+lo dice con una línea del plan, `APROBAR PLAN: SOLO` o `APROBAR PLAN: ESPERA TU SÍ — motivo`, y el CRM
+lo revisa por su cuenta como respaldo (archivos de dinero y palabras de presupuesto/campañas/gasto en Meta;
+sin la línea, también las palabras de dinero). El interruptor `tablero:planes-solos:<negocio>` (prendido
+sin fila) la apaga por negocio; la vuelta del reloj también pasa las PLAN_LISTO que esperaban.
+
 ### Sube solo (desde el 21-oct-2026)
 
 El flujo es **Planear → Aprobar plan → Hacer**, y "Hacer" incluye subir a producción. Con

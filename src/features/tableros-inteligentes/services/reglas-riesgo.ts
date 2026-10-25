@@ -267,6 +267,59 @@ export function riesgoDelPlan(plan: string): RiesgoDelPlan {
   return { declarado, motivoDeclarado, motivosAlto };
 }
 
+/* ─────────────────────────────────────────────────────────── el sí del plan (regla 24-oct) ── */
+
+/*
+  Regla del dueño (24-oct-2026): aprobada la tarea, el plan pasa solo a construir. ÚNICA excepción: el plan
+  espera el sí del dueño si toca dinero en Gestión o puede subir presupuesto, activar campañas o crear gasto
+  en Meta Ads. Lo dice el Coordinador en la línea "APROBAR PLAN: SOLO" o "APROBAR PLAN: ESPERA TU SÍ — motivo"
+  y el CRM lo revisa por su cuenta como respaldo (más estricto que el Coordinador).
+*/
+
+const LINEA_APROBAR_PLAN = /^[ \t>*_#-]*\**aprobar plan\**\s*:\s*\**\s*(solo|espera tu si)(?![a-z])(.*)$/;
+
+/** Lo que dice el plan sobre su propio sí; null si no trae la línea. El motivo queda como lo escribió el Coordinador. */
+export function lineaAprobarPlan(plan: string): { espera: boolean; motivo: string | null } | null {
+  const encontradas: { espera: boolean; motivo: string | null }[] = [];
+  for (const original of plan.replace(/\r\n/g, "\n").split("\n")) {
+    const calce = LINEA_APROBAR_PLAN.exec(normalizar(original));
+    if (!calce) continue;
+    // El motivo se toma de la línea original (con tildes y mayúsculas): lo que sigue a SOLO / ESPERA TU SÍ y al guion.
+    // Tolera "ESPERA TU SÍ.", "ESPERA TU SÍ (motivo)" y "ESPERA TU SÍ — motivo".
+    let motivo = original.replace(/^.*?(?:solo|espera tu s[ií])(?![a-zA-Z])[\s*.—–:()-]*/i, "").replace(/\*+/g, "").trim();
+    if (!motivo.includes("(")) motivo = motivo.replace(/\)\s*$/, "").trim();
+    encontradas.push({ espera: calce[1] === "espera tu si", motivo: motivo || null });
+  }
+  if (!encontradas.length) return null;
+  // Si trae varias líneas, gana la que espera: ante la duda, se pide el sí.
+  return encontradas.find((una) => una.espera) ?? encontradas[0];
+}
+
+const PALABRAS_DE_DINERO_DE_GESTION = /\b(abono\w*|saldo\w*|nomina\w*|comision\w*|factura\w*|pago\w*|pagar\w*)\b/;
+
+const PALABRAS_DE_GASTO_EN_META =
+  /\b(presupuesto\w*|budget\w*|(activ\w*|encend\w*|prend\w*|lanz\w*|reanud\w*|publica\w*|cre[ao]\w*) (las |los |la |el |una |un |nuevas? |nuevos? )?(campan\w*|anuncio\w*|ads)|(subir|aumentar|subid\w*|aument\w*|crear|cree|crea) (el |un |nuevo )?gasto\w*|gasto\w* (en|de|con) (meta|anuncio\w*|publicidad|ads)|gastar en (meta|anuncio\w*|publicidad|ads))\b/;
+
+/**
+ * ¿El plan espera el sí del dueño aunque la tarea ya esté aprobada? Devuelve el motivo en una línea, o null
+ * si el plan pasa solo a construir. Sin base: se prueba con `npm run test:tableros`.
+ */
+export function porQueElPlanEsperaTuSi(plan: string): string | null {
+  const linea = lineaAprobarPlan(plan);
+  if (linea?.espera) return `el trabajador dice que espera tu sí${linea.motivo ? `: ${linea.motivo}` : ""}`.slice(0, 300);
+  const texto = plan.replace(/\r\n/g, "\n");
+  // Archivos de dinero: las mismas rutas que ya vuelven ALTO una tarjeta.
+  const dinero = motivosDeLosArchivos(rutasDelTexto(texto)).find((motivo) => motivo.startsWith("toca dinero"));
+  if (dinero) return `el plan ${dinero}`.slice(0, 300);
+  const normal = normalizar(texto);
+  if (PALABRAS_DE_GASTO_EN_META.test(normal)) return "el plan habla de presupuesto, de activar campañas o de gasto en Meta Ads";
+  // Sin la línea (un trabajador sin actualizar) no hay quien diga que no toca dinero: se miran las palabras.
+  if (!linea && PALABRAS_DE_DINERO_DE_GESTION.test(normal)) {
+    return "el plan habla de dinero de Gestión (abonos, saldos, nómina, comisiones, facturación o pagos) y no trae la línea APROBAR PLAN";
+  }
+  return null;
+}
+
 /* ───────────────────────────────────────────────────────────────────── la tarjeta ── */
 
 /** Lo que se sabe de una tarjeta para decidir su riesgo al crearla o editarla. */

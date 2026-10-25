@@ -106,6 +106,7 @@ function tarjeta(extra = {}) {
 
 const contexto = { claveId: "k1", workspaceId: "ws1", nombre: "Coordinador" };
 const apagar = (ws = "ws1") => estado.ajustes.set(`tablero:aprobacion-automatica:${ws}`, "false");
+const apagarPlanes = (ws = "ws1") => estado.ajustes.set(`tablero:planes-solos:${ws}`, "false");
 
 /* ------------------------------------------------------------------ aprobarSolaLaTarea */
 
@@ -246,6 +247,7 @@ await prueba("plan: BAJO con un plan que muestra riesgo alto queda PLAN_LISTO y 
     "migración destructiva": planDe({ migracion: 'DROP TABLE "Reporte";' }),
     "archivos del trabajador": planDe({ archivos: "- trabajador-tablero/lib/crm.mjs" }),
   };
+  apagarPlanes(); // sin la regla del dueño 24-oct, un plan con riesgo alto espera el sí
   for (const [nombre, plan] of Object.entries(planes)) {
     estado.tarjetas.clear();
     estado.historial.length = 0;
@@ -261,7 +263,8 @@ await prueba("plan: BAJO con un plan que muestra riesgo alto queda PLAN_LISTO y 
   }
 });
 
-await prueba("plan: tarjeta ALTO queda PLAN_LISTO sin cambios; con el interruptor apagado también", async () => {
+await prueba("plan: tarjeta ALTO queda PLAN_LISTO sin cambios con la regla del dueño apagada; con el interruptor apagado también", async () => {
+  apagarPlanes();
   planeando({ riesgo: "ALTO", riesgoPor: "DUENO" });
   const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planDe() });
   const t = estado.tarjetas.get("t1");
@@ -285,7 +288,8 @@ await prueba("plan: tarjeta ALTO queda PLAN_LISTO sin cambios; con el interrupto
   assert.equal(estado.historial.length, 1);
 });
 
-await prueba("plan: BAJO con zona protegida ya puesta no se aprueba solo", async () => {
+await prueba("plan: BAJO con zona protegida ya puesta no se aprueba solo (regla del dueño apagada)", async () => {
+  apagarPlanes();
   planeando({ zonaProtegida: ["CHATS"] });
   assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planDe() })).estado, "PLAN_LISTO");
 });
@@ -354,6 +358,129 @@ await prueba("resultado: ALTO con zona protegida marcada espera el sí del dueñ
   enCurso({ riesgo: "ALTO" });
   const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ zonaProtegida: ["CHATS"] }));
   assert.equal(r.estado, "POR_REVISAR");
+});
+
+/* ------------------------------------------------------------------ regla del dueño 24-oct */
+
+const FRASE_PLAN_SOLO = "plan aprobado automáticamente (regla del dueño 24-oct)";
+const planAlto = (extra = {}) => planDe({ riesgo: "RIESGO: ALTO — toca el bot de ventas", ...extra });
+
+await prueba("regla 24-oct: plan normal con riesgo ALTO e interruptor prendido pasa a PLAN_APROBADO con 2 filas de historial", async () => {
+  planeando({ riesgo: "ALTO", riesgoPor: "DUENO" });
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planAlto() });
+  assert.equal(r.estado, "PLAN_APROBADO");
+  assert.equal(estado.tarjetas.get("t1").estado, "PLAN_APROBADO");
+  assert.equal(estado.historial.length, 2);
+  assert.equal(estado.historial[0].despues.estado, "PLAN_LISTO");
+  const segunda = estado.historial[1];
+  assert.equal(segunda.accion, "aprobar");
+  assert.equal(segunda.quien, auto.QUIEN_AUTOMATICO);
+  assert.equal(segunda.despues.estado, "PLAN_APROBADO");
+  assert.equal(segunda.despues.regla, "dueno-24-oct");
+  assert.ok(segunda.despues.textoConfirmacion.includes(FRASE_PLAN_SOLO));
+});
+
+await prueba("regla 24-oct: con la línea APROBAR PLAN: SOLO pasa; tarjeta sin riesgo también", async () => {
+  planeando({ riesgo: null });
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: `${planAlto()}\nAPROBAR PLAN: SOLO` });
+  assert.equal(r.estado, "PLAN_APROBADO");
+  assert.equal(estado.historial.length, 2);
+});
+
+await prueba("regla 24-oct: plan que toca abonos queda PLAN_LISTO con el motivo", async () => {
+  planeando({ riesgo: "BAJO" });
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planDe({ archivos: "- src/features/abonos/tabla.tsx" }) });
+  const t = estado.tarjetas.get("t1");
+  assert.equal(r.estado, "PLAN_LISTO");
+  assert.equal(t.estado, "PLAN_LISTO");
+  assert.equal(t.riesgo, "ALTO");
+  assert.equal(t.riesgoPor, "TRABAJADOR");
+  assert.match(t.riesgoMotivo, /dinero/);
+  assert.equal(estado.historial.length, 1);
+  assert.match(estado.historial[0].despues.nota, /espera tu sí/);
+});
+
+await prueba("regla 24-oct: plan de presupuesto o campañas de Meta queda PLAN_LISTO", async () => {
+  const planes = {
+    presupuesto: planAlto({ archivos: "- src/features/meta/ajuste.ts\nSube el presupuesto diario de la campaña." }),
+    "activar campañas": planAlto({ archivos: "- src/features/meta/ajuste.ts\nActivar las campañas nuevas." }),
+    "línea ESPERA TU SÍ": `${planAlto()}\nAPROBAR PLAN: ESPERA TU SÍ — crea gasto en Meta Ads`,
+  };
+  for (const [nombre, plan] of Object.entries(planes)) {
+    estado.tarjetas.clear();
+    estado.historial.length = 0;
+    planeando({ riesgo: "ALTO", riesgoPor: "CLAUDE" });
+    const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan });
+    assert.equal(r.estado, "PLAN_LISTO", nombre);
+    assert.equal(estado.tarjetas.get("t1").estado, "PLAN_LISTO", nombre);
+    assert.equal(estado.historial.length, 1, nombre);
+  }
+});
+
+await prueba("regla 24-oct: con el interruptor tablero:planes-solos apagado el plan queda PLAN_LISTO", async () => {
+  apagarPlanes();
+  planeando({ riesgo: "ALTO", riesgoPor: "DUENO" });
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planAlto() });
+  assert.equal(r.estado, "PLAN_LISTO");
+  assert.equal(estado.historial.length, 1);
+  assert.equal(await auto.aprobarPlanesSoloPrendido("ws1"), false);
+  await auto.ponerAprobarPlanesSolo("ws1", true);
+  assert.equal(await auto.aprobarPlanesSoloPrendido("ws1"), true);
+  assert.equal(await auto.aprobarPlanesSoloPrendido("otro"), true);
+});
+
+await prueba("regla 24-oct: tarjeta con zona protegida: el plan espera su sí en la pantalla (/tomar lo exige)", async () => {
+  planeando({ riesgo: "ALTO", zonaProtegida: ["CHATS"] });
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planAlto() });
+  assert.equal(r.estado, "PLAN_LISTO");
+  assert.equal(estado.historial.length, 1);
+  assert.ok(estado.historial[0].despues.nota.includes("zona protegida"));
+});
+
+await prueba("regla 24-oct: tarjeta BAJO con la línea ESPERA TU SÍ o gasto en Meta Ads no se aprueba por la vía de bajo riesgo", async () => {
+  planeando();
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", {
+    plan: `${planDe()}\nAPROBAR PLAN: ESPERA TU SÍ — sube el gasto en Meta Ads`,
+  });
+  assert.equal(r.estado, "PLAN_LISTO");
+  assert.equal(estado.historial.length, 1);
+  assert.equal(estado.tarjetas.get("t1").riesgo, "ALTO");
+  estado.historial.length = 0;
+  planeando({ id: "t2" });
+  const r2 = await trabajador.accionDelTrabajador(contexto, "t2", "plan", { plan: `${planDe()}\nSe va a activar las campañas nuevas.` });
+  assert.equal(r2.estado, "PLAN_LISTO");
+});
+
+await prueba("aprobarPlanesListosQueEsperan: no toca las tarjetas con zona protegida", async () => {
+  tarjeta({ id: "zona", estado: "PLAN_LISTO", plan: planAlto(), zonaProtegida: ["CHATS"] });
+  assert.equal(await auto.aprobarPlanesListosQueEsperan(), 0);
+  assert.equal(estado.tarjetas.get("zona").estado, "PLAN_LISTO");
+});
+
+await prueba("aprobarPlanesListosQueEsperan: pasa la normal, deja la de abonos, no toca ERROR", async () => {
+  const sano = planAlto();
+  tarjeta({ id: "normal", estado: "PLAN_LISTO", plan: sano, riesgo: "ALTO" });
+  tarjeta({ id: "abonos", estado: "PLAN_LISTO", plan: planDe({ archivos: "- src/features/abonos/tabla.tsx" }) });
+  tarjeta({ id: "error", estado: "ERROR", plan: sano });
+  tarjeta({ id: "sinplan", estado: "PLAN_LISTO", plan: null });
+  assert.equal(await auto.aprobarPlanesListosQueEsperan(), 1);
+  assert.equal(estado.tarjetas.get("normal").estado, "PLAN_APROBADO");
+  assert.equal(estado.tarjetas.get("abonos").estado, "PLAN_LISTO");
+  assert.equal(estado.tarjetas.get("error").estado, "ERROR");
+  assert.equal(estado.tarjetas.get("sinplan").estado, "PLAN_LISTO");
+  assert.equal(estado.historial.length, 1);
+  assert.equal(estado.historial[0].despues.regla, "dueno-24-oct");
+  assert.ok(estado.historial[0].despues.textoConfirmacion.includes(FRASE_PLAN_SOLO));
+  assert.deepEqual(estado.historial[0].antes, { estado: "PLAN_LISTO" });
+});
+
+await prueba("aprobarPlanesListosQueEsperan: con el interruptor apagado no hace nada (por negocio)", async () => {
+  tarjeta({ id: "a", estado: "PLAN_LISTO", plan: planAlto() });
+  tarjeta({ id: "b", estado: "PLAN_LISTO", plan: planAlto(), tablero: { workspaceId: "ws2", nombre: "Otro" } });
+  apagarPlanes("ws1");
+  assert.equal(await auto.aprobarPlanesListosQueEsperan(), 1);
+  assert.equal(estado.tarjetas.get("a").estado, "PLAN_LISTO");
+  assert.equal(estado.tarjetas.get("b").estado, "PLAN_APROBADO");
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);

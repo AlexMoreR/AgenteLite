@@ -16,7 +16,7 @@ import { vueltaDeCadaHora, vueltaDeCincoMinutos } from "@/features/supervisor/se
 import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente/servicios/motor";
 import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/servicio";
 import { procesarColaDeReuniones } from "@/features/reuniones/servicios/cola-de-reuniones";
-import { aprobarSolasLasPendientes } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { aprobarPlanesListosQueEsperan, aprobarSolasLasPendientes } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { enviarResumenDiarioSiToca } from "@/features/tableros-inteligentes/services/resumen-diario";
 
 function resolveCronSecret() {
@@ -205,6 +205,12 @@ async function handleCron(request: Request) {
       await aprobarSolasLasPendientes();
     } catch (error) {
       console.error("[cron/follows] aprobacion automatica del tablero error", error);
+    }
+    try {
+      // Regla del dueño (24-oct): los planes que esperaban en PLAN_LISTO y no tocan dinero pasan a construir.
+      await aprobarPlanesListosQueEsperan();
+    } catch (error) {
+      console.error("[cron/follows] aprobacion de planes del tablero error", error);
     }
     try {
       await enviarResumenDiarioSiToca();

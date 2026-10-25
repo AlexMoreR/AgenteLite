@@ -55,7 +55,8 @@ import {
   permite, y llevar un link.
 
   Fase 2 (20-oct-2026): las tarjetas con `repo` (gestion, aizencrm) las ejecuta el Coordinador (un PC
-  aparte): arma un plan, el dueño lo aprueba, lo construye en una rama, el dueño da el sí final y lo
+  aparte): arma un plan (desde el 24-oct pasa solo a construir; solo espera el sí del dueño si toca dinero de
+  Gestión o gasto en Meta Ads, si tiene zona protegida o si "Aprobar planes solo" está apagado), lo construye en una rama, el dueño da el sí final y lo
   sube. ver_plan_y_resultado muestra todo eso; aprobar_tarjeta aprueba la tarea, el plan o el sí final
   SOLO cuando la persona lo dijo explícitamente en la conversación.
   Desde el 21-oct-2026 (Planear -> Aprobar plan -> Hacer): si todo pasa, el Coordinador sube solo a
@@ -451,7 +452,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     title: "Aprobar una tarjeta (solo si la persona lo dijo)",
     description:
       "Úsala SOLO si la persona lo dijo explícitamente en esta conversación. Antes, léele el título y qué se aprueba, y espera que diga 'sí, apruebo'. Nunca apruebes por tu cuenta. " +
-      "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del Coordinador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan) o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
+      "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del Coordinador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan; desde el 24-oct-2026 el plan pasa SOLO a construir al aprobar la tarea, así que el sí del plan solo se pide si toca dinero de Gestión o puede subir presupuesto, activar campañas o crear gasto en Meta Ads, o si el dueño apagó 'Aprobar planes solo') o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
       "'subir' solo aplica a las tarjetas que tocan chats, agentes o una zona protegida (Meta Ads, libro V3) y a las que ya estaban POR_REVISAR de antes: las demás las sube solo el Coordinador cuando todo pasa (quedan HECHO con el link del commit, o ERROR si algo falla). " +
       "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con zona protegida no se aprueba acá: solo en la pantalla. " +
       "Aprueba la cuenta que creó la clave de Claude (no la que mira la pantalla): tiene que ser la cuenta dueña de este negocio. Si no lo es, el error dice qué cuenta llegó y por qué." +
@@ -513,7 +514,7 @@ function queFalta(estado: string, conRepo: boolean, conZona: boolean, hechoAMano
     case "PLANEANDO":
       return "El Coordinador está escribiendo el plan.";
     case "PLAN_LISTO":
-      return `El plan está listo: espera que el dueño lo apruebe, ${dondeAprobar}.`;
+      return `El plan está listo y espera el sí del dueño (toca dinero de Gestión o gasto en Meta Ads, o 'Aprobar planes solo' está apagado), ${dondeAprobar}.`;
     case "PLAN_APROBADO":
       return "Plan aprobado: el Coordinador la toma en el próximo minuto y la construye en una rama.";
     case "EN_CURSO":

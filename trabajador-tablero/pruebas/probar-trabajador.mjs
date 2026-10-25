@@ -81,6 +81,10 @@ await prueba("riesgo: el prompt del plan pide la línea RIESGO con sus criterios
   assert.match(prompt, /RIESGO: BAJO — <motivo en una frase>/);
   assert.match(prompt, /RIESGO: ALTO — <motivo en una frase>/);
   assert.match(prompt, /PRIMERAS líneas/);
+  // Regla del dueño 24-oct: pide también la línea APROBAR PLAN.
+  assert.match(prompt, /^APROBAR PLAN: SOLO$/m);
+  assert.match(prompt, /^APROBAR PLAN: ESPERA TU SÍ — <motivo en una línea>$/m);
+  assert.match(prompt, /subir presupuesto, activar campañas o crear gasto en Meta Ads/);
   for (const criterio of ["CHATS, BOT_VENTAS, LIBRO_V3, META_ADS", "DROP, ALTER destructivo, RENAME, DELETE, UPDATE ni TRUNCATE", "abonos, saldos, nómina, comisiones, facturación, pagos", "permisos, usuarios, contraseñas o credenciales", "trabajador-tablero/", "tienes duda, es ALTO"]) {
     assert.ok(prompt.includes(criterio), criterio);
   }

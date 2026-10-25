@@ -247,7 +247,7 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
             Aprobar plan
           </Button>
         ) : (
-          espera("El plan espera la aprobación del dueño.")
+          espera("El plan espera la aprobación del dueño (toca dinero de Gestión o gasto en Meta Ads, tiene zona protegida, o “Aprobar planes solo” está apagado).")
         )
       ) : null}
 

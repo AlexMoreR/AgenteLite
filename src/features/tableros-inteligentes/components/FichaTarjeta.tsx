@@ -69,7 +69,12 @@ function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyM
     const como = typeof despues.como === "string" ? ` · ${despues.como}` : "";
     const momento = typeof despues.momento === "string" ? ` (${MOMENTO[despues.momento] ?? despues.momento})` : "";
     const motivo = typeof despues.motivo === "string" ? ` · ${despues.motivo}` : "";
-    const sola = cambio.accion === "aprobar" && despues.automatica === true ? " · Aprobada sola por la regla de bajo riesgo" : "";
+    const sola =
+      cambio.accion === "aprobar" && despues.automatica === true
+        ? despues.regla === "dueno-24-oct"
+          ? " · Aprobada sola por la regla del dueño"
+          : " · Aprobada sola por la regla de bajo riesgo"
+        : "";
     // Un HECHO a mano deja la nota de qué se hizo y, si lo hay, el commit.
     const nota = cambio.accion === "estado" && typeof despues.nota === "string" ? ` · Nota: ${despues.nota}` : "";
     const commit = cambio.accion === "estado" && typeof despues.commit === "string" ? ` · Commit: ${despues.commit}` : "";

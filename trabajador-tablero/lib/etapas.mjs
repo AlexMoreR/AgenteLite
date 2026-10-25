@@ -431,6 +431,12 @@ export const INSTRUCCION_DE_RIESGO = [
   "- no toca dinero (abonos, saldos, nómina, comisiones, facturación, pagos), ni permisos, usuarios, contraseñas o credenciales, ni envía mensajes a clientes;",
   "- no toca el propio trabajador (trabajador-tablero/) ni las reglas de aprobación del tablero.",
   "Si algo de eso no se cumple, o tienes duda, es ALTO. Es mejor pedirle permiso al dueño de más que de menos.",
+  "",
+  "Además, en otra línea exacta, di si el plan puede pasar solo a construir sin esperar el sí del dueño (regla del dueño del 24-oct):",
+  "APROBAR PLAN: SOLO",
+  "o bien",
+  "APROBAR PLAN: ESPERA TU SÍ — <motivo en una línea>",
+  "Escribe ESPERA TU SÍ solo si el plan toca dinero en Gestión (abonos, saldos, nómina, comisiones, facturación, pagos) o puede subir presupuesto, activar campañas o crear gasto en Meta Ads. En cualquier otro caso (aunque el RIESGO sea ALTO) escribe SOLO.",
 ].join("\n");
 
 /** Lo que el plan tiene que decir al principio: si al terminar sube solo o espera el sí del dueño. */

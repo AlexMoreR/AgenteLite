@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { prisma } from "@/lib/prisma";
-import { aprobacionAutomaticaPrendida } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { leerUltimoEnvio } from "@/features/tableros-inteligentes/services/resumen-diario";
 
 /**
@@ -386,6 +386,17 @@ async function estadoDeLaAprobacionAutomatica(workspaceId: string) {
     : "APAGADA: todo vuelve a pedir la aprobación del dueño";
 }
 
+/** Tablero IA: si "Aprobar planes solo" (regla del dueño 24-oct) está prendido y cuántos planes esperan su sí. */
+async function estadoDeAprobarPlanesSolo(workspaceId: string) {
+  const [prendido, esperando] = await Promise.all([
+    aprobarPlanesSoloPrendido(workspaceId),
+    prisma.tarjetaTablero.count({ where: { estado: "PLAN_LISTO", repo: { not: null }, borradoEn: null, tablero: { workspaceId } } }),
+  ]);
+  return prendido
+    ? `PRENDIDA: aprobada la tarea, el plan pasa solo a construir; solo espera el sí del dueño el plan que toca dinero de Gestión o gasto en Meta Ads (${esperando} en PLAN_LISTO ahora)`
+    : `APAGADA: todos los planes piden el sí del dueño (${esperando} en PLAN_LISTO ahora)`;
+}
+
 /** Tablero IA: cuándo salió el último resumen de las 9 p. m. y si el WhatsApp salió. */
 async function estadoDelResumenDiario(workspaceId: string) {
   const ultimo = await leerUltimoEnvio(workspaceId);
@@ -447,6 +458,7 @@ async function automatizaciones(
     coach_de_ventas: await estadoDelCoach(workspaceId).catch(() => "no se pudo leer"),
     reuniones_transcripcion: await estadoDeLasReuniones(workspaceId).catch(() => "no se pudo leer"),
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
+    aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(workspaceId).catch(() => "no se pudo leer"),
   };
 
