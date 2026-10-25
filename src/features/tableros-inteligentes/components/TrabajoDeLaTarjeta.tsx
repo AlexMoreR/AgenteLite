@@ -21,7 +21,7 @@ import {
   esZona,
   type MomentoDeAprobacion,
 } from "../services/reglas-trabajador";
-import { textoDeModelos } from "../services/modelos-del-coordinador";
+import { dondeSeConstruyo, textoDeModelos } from "../services/modelos-del-coordinador";
 import { resumenCorto } from "../services/resumen-corto";
 import type { TarjetaVista } from "../services/tableros";
 
@@ -61,6 +61,19 @@ type Props = {
 };
 
 const QUIEN_DEL_RIESGO: Record<string, string> = { CLAUDE: "Claude", TRABAJADOR: "el Coordinador", DUENO: "el dueño" };
+
+/** "· Ver la sesión": el link de la sesión de Claude en la nube (ya validado: solo claude.ai/code/session_…). */
+function EnlaceDeLaSesion({ link }: { link: string }) {
+  return (
+    <>
+      {" · "}
+      <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium underline underline-offset-2">
+        Ver la sesión
+        <ExternalLink className="size-3" />
+      </a>
+    </>
+  );
+}
 
 const BOTON = "h-11 w-full text-base";
 const BOTON_GRANDE = "h-14 w-full text-lg font-semibold";
@@ -135,6 +148,8 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
   const repo = tarjeta.repo && esRepo(tarjeta.repo) ? NOMBRE_DEL_REPO[tarjeta.repo] : tarjeta.repo;
   const resumen = resumenCorto({ resultadoResumen: resultado?.resumen, plan: tarjeta.plan, detalle: tarjeta.detalle });
   const modelosTexto = textoDeModelos(tarjeta.plan, resultado?.modelo);
+  // "Construida en: aizen1 / la nube" y el link de la sesión (25-oct-2026).
+  const donde = dondeSeConstruyo(estado, resultado);
   const espera = (texto: string) => (
     <p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">{texto}</p>
   );
@@ -231,7 +246,22 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
         : null}
       {estado === "PLANEANDO" ? espera("El Coordinador está escribiendo el plan…") : null}
       {estado === "PLAN_APROBADO" ? espera("Plan aprobado: el Coordinador la toma en el próximo minuto y la construye.") : null}
-      {estado === "EN_CURSO" && tarjeta.repo ? espera("El Coordinador la está construyendo y probando en su rama…") : null}
+      {estado === "EN_CURSO" && tarjeta.repo ? (
+        donde?.lugar === "nube" ? (
+          <p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
+            {donde.texto}
+            {donde.link ? <EnlaceDeLaSesion link={donde.link} /> : null}
+          </p>
+        ) : (
+          espera("El Coordinador la está construyendo y probando en su rama…")
+        )
+      ) : null}
+      {donde && estado !== "EN_CURSO" ? (
+        <p className="text-xs text-muted-foreground">
+          {donde.texto}
+          {donde.link ? <EnlaceDeLaSesion link={donde.link} /> : null}
+        </p>
+      ) : null}
       {estado === "SUBIENDO"
         ? espera(
             resultado?.subeSolo && !conZona

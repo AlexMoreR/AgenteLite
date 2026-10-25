@@ -8,6 +8,8 @@
 //              pruebas él mismo, compara el lint con el de main, ensaya la migración (PGlite + producción
 //              en BEGIN…ROLLBACK) y empuja SOLO la rama. -> /resultado, que dice si sube sola (subirSolo
 //              del repo y sin zonas: el CRM la pasa a SUBIENDO) o espera el sí del dueño (POR_REVISAR).
+//              En la nube (25-oct-2026, nube.mjs): las tareas GRANDES y las de desborde las escribe una sesión de
+//              `claude --cloud` en la rama tablero/<id> (sin --force); al volver, el Coordinador hace aquí lo mismo.
 // - subir:     rebase de la rama sobre origin/main; si main no cambió desde que se construyó no vuelve
 //              a compilar, si cambió verifica y ensaya de nuevo; push a main, espera el CI y comprueba
 //              la versión. Si el despliegue falla, revert del commit en main (sin --force). -> /subida
@@ -35,12 +37,14 @@ import {
   pushARamaBase,
   pushDeRama,
   quitarWorktree,
+  ramaExisteEnElRemoto,
   revertirEnRamaBase,
   urlDelRemoto,
   webDeGithub,
 } from "./git.mjs";
 import { dificultadDeLaTarea, modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
+import { esperarResultado, lanzarEnNube } from "./nube.mjs";
 import { vigilarSesion } from "./atasco.mjs";
 import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, ultimasLineas } from "./procesos.mjs";
 import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
@@ -127,7 +131,7 @@ async function cerrarRestos(contexto, carpeta) {
  */
 export async function limpiarCarpetasDeTrabajo(contexto, tarjeta) {
   const repo = contexto.config.repos[tarjeta.repo];
-  for (const etapa of ["plan", "construir", "subir", "partir"]) {
+  for (const etapa of ["plan", "construir", "subir", "partir", "nube"]) {
     const carpeta = carpetaDe(contexto, tarjeta, etapa);
     if (!fs.existsSync(carpeta)) continue;
     await cerrarRestos(contexto, carpeta);
@@ -480,6 +484,113 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
 }
 
 /**
+ * La instrucción para la sesión de la NUBE (25-oct-2026, `claude --cloud`): el plan aprobado completo, la orden de
+ * leer CLAUDE.md, las 4 lecciones, las prohibiciones y la orden de dejar todo en la rama tablero/<id>. Nunca lleva
+ * claves, .env ni tokens: `entorno` solo trae variables NO secretas (la dirección de base falsa de siempre).
+ */
+export function promptDeNube(tarjeta, repo, rama, { entorno = {} } = {}) {
+  const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
+  const pasos = [repo.instalar, ...(repo.verificar ?? []), ...(repo.pruebas ?? [])].filter(Boolean).map((comando) => `\`${comoTexto(comando)}\``);
+  const variables = Object.entries(entorno).map(([nombre, valor]) => `export ${nombre}="${valor}"`);
+  return [
+    `Eres el Coordinador del Tablero IA de Magilus. Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en una sesión de Claude en la nube, sobre la rama ${rama} (ya existe en GitHub: es la tuya).`,
+    contextoDeLaTarjeta(tarjeta),
+    `PLAN APROBADO:\n${tarjeta.plan}`,
+    bloqueDeReparacion(tarjeta),
+    "LO PRIMERO: lee el archivo CLAUDE.md de la raíz del repositorio y cumple sus REGLAS DE EJECUCIÓN (son obligatorias).",
+    [
+      "LECCIONES OBLIGATORIAS:",
+      `1. PREPARACIÓN, en este orden: ${pasos.join(" → ")}. Sin \`npx prisma generate\` el build falla con errores de tipos falsos.`,
+      variables.length
+        ? `   Antes de compilar o probar, exporta estas variables (NO son secretas, son direcciones falsas a propósito):\n${variables.map((linea) => `   ${linea}`).join("\n")}`
+        : "",
+      "2. TODO EN PRIMER PLANO: nada en segundo plano ni subagentes esperando. No digas \"reviso más tarde\": la sesión no termina hasta tener el resultado (OK o error).",
+      `3. DEJA TODO EN LA RAMA ${rama}: haz commit y \`git push origin ${rama}\` (sin --force). No uses otra rama ni abras pull requests. Como ÚLTIMO paso deja un commit VACÍO y súbelo:`,
+      '   git commit --allow-empty -m "resultado: build=OK tests=OK segundos=<N>"',
+      "   (build=FALLO o tests=FALLO si algo falló; <N> = los segundos que tardó todo).",
+      '4. SI FALLA: no preguntes ni te quedes dando vueltas. Si no lo puedes arreglar, deja el commit vacío con FALLO y pon en su CUERPO las últimas 30 líneas del error: git commit --allow-empty -m "resultado: build=FALLO tests=FALLO segundos=<N>" -m "<últimas 30 líneas>", y súbelo.',
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    [
+      "PROHIBIDO:",
+      "- Tocar bases de datos (nada de prisma migrate, db push, psql ni conexiones reales), claves, tokens, archivos .env ni nada secreto. No hay claves de producción acá y no se piden.",
+      "- git push --force (ni --force-with-lease) a ninguna rama.",
+      `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
+      "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). El Coordinador las ensaya después contra producción, no tú.",
+    ].join("\n"),
+    "Respeta el estilo del repo y escribe los comentarios en español. Si terminas SIN haber cambiado ningún archivo, escribe como última línea de tu resumen: NO_CAMBIE: <el motivo en una frase>. Termina con un RESUMEN corto en español sencillo: qué cambiaste, qué archivos y cómo lo probaste.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * Una rama que no exista todavía en GitHub: tablero/<id>-<nombre>, o con -nube2, -nube3… si un intento anterior ya la
+ * dejó (la de la nube no se rehace con --force: cada intento usa la suya).
+ */
+async function ramaParaLaNube(repo, tarjeta) {
+  const principal = nombreDeRama(tarjeta);
+  for (let n = 1; n <= 20; n += 1) {
+    const rama = n === 1 ? principal : `${principal}-nube${n}`;
+    if (!(await ramaExisteEnElRemoto(repo.ruta, repo.remoto, rama))) return rama;
+  }
+  throw new ErrorDeEtapa(`Ya hay 20 ramas de la nube para esta tarjeta en GitHub (${principal}-nube…): hay que borrarlas a mano.`);
+}
+
+/**
+ * La parte de CONSTRUIR que pasa en la nube: crea la rama desde main y la sube (sin --force), lanza `claude --cloud`,
+ * guarda el link de la sesión (contexto.fase -> el latido se lo cuenta al CRM) y vigila la rama hasta el commit
+ * "resultado:". Si dejó FALLO lanza el error con las últimas 30 líneas. Devuelve lo que necesita el resto de construir.
+ */
+async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, reloj }) {
+  const { config, registro } = contexto;
+  const carpeta = carpetaDe(contexto, tarjeta, "nube");
+  try {
+    await crearWorktree(repo, carpeta, base, rama);
+    await pushDeRama(carpeta, repo.remoto, rama, { forzar: false });
+    const vistos = new Set((await git(carpeta, ["rev-list", "-n", "100", "HEAD"])).salida.split(/\r?\n/).filter(Boolean));
+    const entorno = { ...Object.fromEntries(["DATABASE_URL", "DIRECT_URL"].map((nombre) => [nombre, entornoSeguro()[nombre]])), ...config.nube.entorno };
+    contexto.fase?.("construyendo", { lugar: "nube", linkSesion: null });
+    const lanzado = await lanzarEnNube(contexto, { cwd: carpeta, prompt: promptDeNube(tarjeta, repo, rama, { entorno }) });
+    contexto.fase?.("construyendo", { lugar: "nube", linkSesion: lanzado.link });
+    registro.info(`construyo en la nube: sesión ${lanzado.link}, rama ${rama} (${lanzado.via})`);
+    let resultado;
+    try {
+      resultado = await esperarResultado(contexto, { repo, rama, vistos, reloj, link: lanzado.link });
+    } catch (error) {
+      if (error instanceof ErrorDeEtapa && !error.message.includes(lanzado.link)) error.message += `\nSesión de la nube: ${lanzado.link}`;
+      throw error;
+    }
+    registro.info(`la nube terminó: build=${resultado.build} tests=${resultado.tests} segundos=${resultado.segundos ?? "?"}`);
+    if (!resultado.paso) {
+      if (esLimiteDeUso(resultado.detalle)) {
+        throw new ErrorDeEtapa(`Claude llegó a su límite de uso en la nube: ${ultimasLineas(resultado.detalle, 5)}`, { limiteDeUso: true, motor: "claude" });
+      }
+      throw new ErrorDeEtapa(
+        `La sesión de la nube dejó el resultado FALLO (build=${resultado.build} tests=${resultado.tests}). No se subió nada.\nÚltimas líneas del error que dejó en la rama ${rama}:\n${ultimasLineas(resultado.detalle, 30) || "(no dejó líneas)"}\nSesión de la nube: ${lanzado.link}`,
+      );
+    }
+    // La rama vuelve a aizen1: se verifica sobre el commit de main del que salió (así lo que se prueba es lo de la nube).
+    await git(repo.ruta, ["fetch", repo.remoto]);
+    const baseComun = (await git(repo.ruta, ["merge-base", base, `${repo.remoto}/${rama}`])).salida.trim();
+    return {
+      link: lanzado.link,
+      segundos: resultado.segundos,
+      baseComun,
+      resumen: [
+        `Construido por Claude en la nube (${resultado.segundos === null ? "sin tiempo" : `${resultado.segundos} s`}): build=${resultado.build} tests=${resultado.tests}. Sesión: ${lanzado.link}`,
+        resultado.detalle ? `Lo que dejó en la rama:\n${resultado.detalle}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
+  } finally {
+    await quitarWorktree(repo, carpeta, rama);
+  }
+}
+
+/**
  * La sesión de PARTIR (24-oct-2026): una tarea que se pasó del tiempo (o es muy grande) se divide en 2 a 4
  * partes pequeñas, en orden. Solo lee; contesta SOLO con un JSON { "partes": [{ "titulo", "detalle" }] }.
  */
@@ -630,13 +741,21 @@ export async function planear(contexto, tarjeta) {
   }
 }
 
-/** EN_CURSO -> el resultado (rama empujada, todo verificado). */
+/**
+ * EN_CURSO -> el resultado (rama empujada, todo verificado).
+ * `contexto.lugar === "nube"` (25-oct-2026, lo decide el planificador): el trabajo de escribir el código lo hace una
+ * sesión de `claude --cloud` en la rama tablero/<id>; al volver, esta etapa trae la rama a aizen1 y hace lo mismo
+ * que con cualquier tarea (instalar, prisma generate, tipos, build, pruebas, lint, zonas, ensayo y subir la rama).
+ */
 export async function construir(contexto, tarjeta) {
   const { config, registro } = contexto;
   if (!tarjeta.plan) throw new ErrorDeEtapa("La tarjeta no tiene plan aprobado.");
   const repo = configDelRepo(contexto, tarjeta);
-  const reloj = relojDeEtapa(config.tiempos.construirMinutos, "construir");
-  const rama = nombreDeRama(tarjeta);
+  const enNube = contexto.lugar === "nube";
+  // En la nube el reloj de la espera es el de construirNubeMinutos; al volver, la verificación en aizen1 tiene el suyo.
+  let reloj = relojDeEtapa(enNube ? config.tiempos.construirNubeMinutos : config.tiempos.construirMinutos, enNube ? "construir en la nube" : "construir");
+  let liberarPuesto = null;
+  let rama = nombreDeRama(tarjeta);
   const base = `${repo.remoto}/${repo.ramaBase}`;
   const carpeta = carpetaDe(contexto, tarjeta, "construir");
   const intentos = carpetaDeIntentos(config.carpetaTrabajo, tarjeta.id);
@@ -645,17 +764,38 @@ export async function construir(contexto, tarjeta) {
   await git(repo.ruta, ["fetch", repo.remoto]);
   let baseSha = null;
   try {
-    await crearWorktree(repo, carpeta, base, rama);
+    // En la nube: primero la rama sale de main, la sesión trabaja y deja su resultado; la verificación parte del
+    // commit de main del que salió la rama (nube.baseComun) para medir el lint de la base y comparar.
+    let nube = null;
+    if (enNube) {
+      rama = await ramaParaLaNube(repo, tarjeta);
+      nube = await construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, reloj });
+    }
+    // Ya volvió de la nube: lo que sigue (instalar, tipos, build, pruebas, ensayo) corre en aizen1. Hace fila por un puesto
+    // (no más verificaciones a la vez que puestos de aizen1) y tiene su propio reloj, que no gastó la espera de la nube.
+    if (nube) {
+      contexto.fase?.("probando", { lugar: "aizen1" });
+      liberarPuesto = (await contexto.puestoParaVerificar?.(contexto.senal)) ?? null;
+      reloj = relojDeEtapa(config.nube.verificarMinutos, "verificar lo que volvió de la nube");
+    }
+    await crearWorktree(repo, carpeta, nube ? nube.baseComun : base, rama);
     baseSha = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
     if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias" });
     // El lint de main, para que solo cuenten los errores NUEVOS.
     const lintBase = repo.lint ? await erroresDeLint(contexto, repo, carpeta, reloj) : null;
+    if (nube) {
+      // La rama de la nube se trae encima de esa base. Si cambió las dependencias, se instala otra vez.
+      await git(carpeta, ["merge", "--ff-only", `${repo.remoto}/${rama}`]);
+      const tocoPaquetes = (await archivosCambiados(carpeta, nube.baseComun)).some((cambio) => /(^|\/)package(-lock)?\.json$/.test(cambio.archivo));
+      if (tocoPaquetes && repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias" });
+    }
     // Lo ya hecho en el intento anterior se reaplica (si encaja sobre main) DESPUÉS de medir el lint de la base.
-    const patchAplicado = await reaplicarTrabajo(contexto, tarjeta, carpeta, intentos);
+    const patchAplicado = nube ? false : await reaplicarTrabajo(contexto, tarjeta, carpeta, intentos);
 
-    let motor = motorDelPaso(contexto, "construir");
+    let motor = nube ? "claude" : motorDelPaso(contexto, "construir");
     let resumenDelMotor;
-    try {
+    if (nube) resumenDelMotor = nube.resumen;
+    else try {
       resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor, { patchAplicado }), {
         cwd: carpeta,
         timeoutMs: reloj.resta(),
@@ -689,7 +829,7 @@ export async function construir(contexto, tarjeta) {
     // Qué modelo hizo cada paso (para mostrarlo en la tarjeta). Codex no tiene modelo que elijamos acá.
     const modelos = {
       ...(modeloDelPlan(tarjeta.plan) ? { plan: modeloDelPlan(tarjeta.plan) } : {}),
-      ...(motor === "claude" ? { construir: modeloElegido ?? modeloDelPaso(config, "construir", tarjeta), subagentes: modeloDelPaso(config, "subagentes", tarjeta) } : {}),
+      ...(motor === "claude" && !nube ? { construir: modeloElegido ?? modeloDelPaso(config, "construir", tarjeta), subagentes: modeloDelPaso(config, "subagentes", tarjeta) } : {}),
     };
 
     // Lo que construyó Codex lo revisa otro paso (Claude por defecto; Codex si Claude está alto). Claude ya
@@ -730,6 +870,11 @@ export async function construir(contexto, tarjeta) {
       throw new ErrorDeEtapa(`${nombreDelMotor(motor)} no cambió ningún archivo${noCambie ? ` (NO_CAMBIE: ${noCambie})` : ""}.`, { categoria: "no_cambio_nada", archivosCambiados: 0 });
     }
     const archivos = cambios.map((cambio) => cambio.archivo);
+    if (nube) {
+      // Los .env nunca viajan: si la sesión de la nube dejó uno en la rama, no se sube nada.
+      const secretos = archivos.filter((archivo) => /(^|\/)\.env(\.|$)/.test(archivo) && !/\.(example|sample|template)$/.test(archivo));
+      if (secretos.length) throw new ErrorDeEtapa(`La sesión de la nube dejó archivos .env en la rama (${secretos.join(", ")}): no se sube nada. Sesión de la nube: ${nube.link}`);
+    }
 
     // Zonas protegidas (chats, agentes, libro V3, Meta Ads): ya no es ERROR. Se construye y prueba igual,
     // pero no sube sola: el CRM la deja POR_REVISAR con la zona marcada, esperando el sí del dueño.
@@ -771,7 +916,8 @@ export async function construir(contexto, tarjeta) {
     pruebas.push(`→ ${alTerminar}`);
 
     reloj.resta();
-    await pushDeRama(carpeta, repo.remoto, rama);
+    // La rama de la nube se sube sin --force, encima de lo que dejó la sesión; las de aizen1 se rehacen cada intento.
+    await pushDeRama(carpeta, repo.remoto, rama, { forzar: !nube });
     const commit = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
     const web = webDeGithub(await urlDelRemoto(repo));
     registro.info(`rama ${rama} empujada (${commit.slice(0, 10)}): ${alTerminar}`);
@@ -786,6 +932,7 @@ export async function construir(contexto, tarjeta) {
         revision ? `Revisión (${motores.revisar}): ${revision.slice(-800)}` : null,
         `Archivos (${archivos.length}): ${archivos.slice(0, 40).join(", ")}${archivos.length > 40 ? "…" : ""}`,
         `Motores: ${textoMotores}.`,
+        `Construida en: ${nube ? `la nube (${nube.link})` : "aizen1"}.`,
         `Al terminar: ${alTerminar}.`,
       ]
         .filter(Boolean)
@@ -803,15 +950,20 @@ export async function construir(contexto, tarjeta) {
       // Para la última revisión de riesgo del CRM: los archivos que de verdad cambió y lo destructivo de la migración.
       archivos: archivos.slice(0, 300),
       migracionDestructiva: destructivo,
+      // Dónde se construyó y el link de la sesión de la nube: la tarjeta lo muestra.
+      construidoEn: nube ? "nube" : "aizen1",
+      ...(nube ? { linkSesion: nube.link, segundosNube: nube.segundos } : {}),
       ...(zonas.length ? { zonaProtegida: zonas } : {}),
     };
   } catch (error) {
     // Lo ya hecho se guarda para el siguiente intento (un patch) y se anota cuántos archivos llevaba.
-    if (baseSha && error instanceof Error) await guardarTrabajo(contexto, tarjeta, carpeta, baseSha, intentos, error);
+    // (En la nube lo hecho queda en la rama de GitHub: no hay patch que guardar.)
+    if (baseSha && !enNube && error instanceof Error) await guardarTrabajo(contexto, tarjeta, carpeta, baseSha, intentos, error);
     throw error;
   } finally {
     fs.rmSync(path.join(carpeta, ".next", "lock"), { force: true });
     await quitarWorktree(repo, carpeta, rama);
+    liberarPuesto?.();
   }
 }
 

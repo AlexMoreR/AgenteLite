@@ -54,6 +54,8 @@ const TIEMPOS_POR_DEFECTO = {
   planMinutos: 19,
   construirMinutos: 88,
   subirMinutos: 44,
+  // Construir en la nube (25-oct-2026): el CRM da 180 min cuando el latido dice "nube". Un poco menos, igual que arriba.
+  construirNubeMinutos: 178,
   latidoSegundos: 60,
   intervaloSegundos: 60,
   // Cada comando de verificación (tsc, build, pruebas) como mucho esto.
@@ -76,8 +78,29 @@ const MOTORES_POR_DEFECTO = { planear: "claude", construir: "claude", revisar: "
 
 // Los modelos por paso y las reglas de "tarea difícil" están en modelos.mjs (MODELOS_POR_DEFECTO).
 
-/** Cuántas tarjetas a la vez como mucho (22-oct-2026). El CRM tampoco da más de 5. */
+/** Cuántas tarjetas a la vez como mucho EN AIZEN1 (22-oct-2026). El CRM tampoco da más de 12 en total (aizen1 + nube). */
 const MAXIMO_EN_PARALELO = 5;
+
+/**
+ * Tareas grandes y de desborde a la nube con `claude --cloud` (25-oct-2026, decisión del dueño). Reglas fijas, sin IA:
+ *  - GRANDE (más de `maxArchivosChica` archivos en el plan, migración, agente nuevo, o ya falló por tamaño o recursos) -> nube;
+ *  - chica -> aizen1 si tiene puesto; si aizen1 ya tiene `maxParalelo`, la siguiente aprobada también va a la nube (desborde).
+ * `maxTareas` es un tope de seguridad de tareas en la nube a la vez (no un tope del plan de Claude).
+ * `terminal`: "auto" (primero sin terminal, y si no sirve una terminal real con node-pty), "sin-terminal" o "pty".
+ * `entorno`: variables NO secretas que van dentro de la instrucción (nunca claves, .env ni tokens).
+ */
+const NUBE_POR_DEFECTO = {
+  activa: true,
+  maxTareas: 8,
+  maxArchivosChica: 8,
+  vigilarCadaSegundos: 60,
+  // Cuánto se espera el commit "resultado:" de la nube y, aparte, cuánto se da para verificar en aizen1 lo que volvió
+  // (instalar, tipos, build, pruebas, ensayo): 120 + 45 caben en los 180 min que da el CRM.
+  esperaMinutos: 120,
+  verificarMinutos: 45,
+  terminal: "auto",
+  lanzarMinutos: 5,
+};
 
 /** Si la CPU (promedio del último minuto) o la memoria pasan de esto, no se abre otra sesión. */
 // esperaMaximaMinutos (24-oct-2026): con 0 sesiones y el PC por encima de los límites, el Coordinador espera
@@ -144,6 +167,8 @@ export function completarConfig(datos, base = process.cwd()) {
       repos[clave] = {
         clave,
         subirSolo,
+        // "dueño/repo" en GitHub: la vigilancia de la rama en la nube lo usa (si falta, se saca del remoto).
+        github: typeof repo.github === "string" && /^[\w.-]+\/[\w.-]+$/.test(repo.github) ? repo.github : null,
         ruta: path.resolve(base, repo.ruta),
         ramaBase: typeof repo.ramaBase === "string" ? repo.ramaBase : "main",
         remoto: typeof repo.remoto === "string" ? repo.remoto : "origin",
@@ -178,7 +203,7 @@ export function completarConfig(datos, base = process.cwd()) {
 
   const maxParalelo = datos.maxParalelo === undefined ? 2 : Math.floor(Number(datos.maxParalelo));
   if (!Number.isFinite(maxParalelo) || maxParalelo < 1 || maxParalelo > MAXIMO_EN_PARALELO) {
-    errores.push(`maxParalelo: cuántas tarjetas a la vez, de 1 a ${MAXIMO_EN_PARALELO}.`);
+    errores.push(`maxParalelo: cuántas tarjetas a la vez en aizen1, de 1 a ${MAXIMO_EN_PARALELO}.`);
   }
   const limites = { ...LIMITES_POR_DEFECTO, ...(datos.limites ?? {}) };
   for (const campo of ["cpuPorciento", "memoriaPorciento"]) {
@@ -204,6 +229,35 @@ export function completarConfig(datos, base = process.cwd()) {
   reparar.diagnosticoMinutos = Number(reparar.diagnosticoMinutos);
   if (typeof reparar.diagnosticoConClaude !== "boolean") errores.push("reparar.diagnosticoConClaude: true o false.");
   if (!Number.isFinite(reparar.diagnosticoMinutos) || reparar.diagnosticoMinutos <= 0) errores.push("reparar.diagnosticoMinutos: minutos, más de 0.");
+
+  const nube = { ...NUBE_POR_DEFECTO, ...(datos.nube ?? {}) };
+  if (typeof nube.activa !== "boolean") errores.push("nube.activa: true o false.");
+  for (const campo of ["maxTareas", "maxArchivosChica"]) {
+    nube[campo] = Number(nube[campo]);
+    if (!Number.isFinite(nube[campo]) || nube[campo] < 1) errores.push(`nube.${campo}: un número, 1 o más.`);
+  }
+  for (const campo of ["vigilarCadaSegundos", "esperaMinutos", "verificarMinutos", "lanzarMinutos"]) {
+    nube[campo] = Number(nube[campo]);
+    if (!Number.isFinite(nube[campo]) || nube[campo] <= 0) errores.push(`nube.${campo}: un número, más de 0.`);
+  }
+  // El CRM da 12 tarjetas a la vez entre aizen1 y la nube: más que eso lo recorta en silencio y contesta "ocupado".
+  if (nube.activa === true && Number.isFinite(maxParalelo) && maxParalelo + nube.maxTareas > 12) {
+    errores.push(`maxParalelo (${maxParalelo}) + nube.maxTareas (${nube.maxTareas}) no pueden pasar de 12: es lo que da el CRM a la vez entre aizen1 y la nube.`);
+  }
+  if (!["auto", "sin-terminal", "pty"].includes(nube.terminal)) errores.push('nube.terminal: "auto", "sin-terminal" o "pty".');
+  let comandoGh = ["gh"];
+  let comandoClaudeNube = null;
+  try {
+    comandoGh = comando(nube.comandoGh, "nube.comandoGh") ?? ["gh"];
+    comandoClaudeNube = comando(nube.comandoClaude, "nube.comandoClaude");
+  } catch (error) {
+    errores.push(error.message);
+  }
+  const entornoNube = {};
+  for (const [nombre, valor] of Object.entries(nube.entorno ?? {})) {
+    if (!/^[A-Z][A-Z0-9_]*$/.test(nombre) || typeof valor !== "string") errores.push(`nube.entorno.${nombre}: NOMBRE_EN_MAYUSCULAS con un texto.`);
+    else entornoNube[nombre] = valor;
+  }
 
   const motores = { ...MOTORES_POR_DEFECTO, ...(datos.motores ?? {}) };
   for (const paso of ["planear", "construir"]) {
@@ -236,6 +290,19 @@ export function completarConfig(datos, base = process.cwd()) {
     repos,
     ssh,
     maxParalelo,
+    nube: {
+      activa: nube.activa,
+      maxTareas: Math.floor(nube.maxTareas),
+      maxArchivosChica: Math.floor(nube.maxArchivosChica),
+      vigilarCadaSegundos: nube.vigilarCadaSegundos,
+      esperaMinutos: nube.esperaMinutos,
+      verificarMinutos: nube.verificarMinutos,
+      lanzarMinutos: nube.lanzarMinutos,
+      terminal: nube.terminal,
+      comandoGh,
+      comandoClaude: comandoClaudeNube,
+      entorno: entornoNube,
+    },
     limites,
     partir: { archivosMinimos: partir.archivosMinimos },
     atasco: { minutos: atasco.minutos, revisarCadaSegundos: atasco.revisarCadaSegundos, cpuMinimaSegundos: atasco.cpuMinimaSegundos },

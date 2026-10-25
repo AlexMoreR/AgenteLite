@@ -597,3 +597,16 @@ la IA pausada no lo contesta el agente.
 - **Reuniones: sin `OPENAI_API_KEY` no hay acta.** La reunión queda "En cola" con el aviso "Falta la clave
   de OpenAI" y arranca sola al poner la clave. Cuesta unos 0,36 USD por hora de audio por persona (con 3
   personas, unos 1,1 USD por hora de reunión); el acta cuesta centavos.
+- **Tablero IA: las tareas grandes se construyen en la nube (25-oct-2026, decisión del dueño).** aizen1
+  corre como máximo 2 tareas a la vez. Al CONSTRUIR, una tarea GRANDE (el plan nombra más de 8 archivos,
+  trae migración, crea un agente nuevo, o ya falló por tamaño o recursos) va SIEMPRE a la nube con
+  `claude --cloud`; una chica va a aizen1 si tiene puesto y, si aizen1 ya tiene sus 2, la siguiente
+  aprobada también va a la nube (desborde). Planear y subir siguen en aizen1. La sesión de la nube trabaja
+  en la rama `tablero/<id>-<slug>` de GitHub (sin `--force`), deja un commit vacío `resultado: build=OK|FALLO
+  tests=OK|FALLO segundos=N` y el Coordinador (que mira la rama cada minuto, nunca con `claude --teleport`)
+  trae la rama a aizen1 y repite la verificación, las zonas protegidas y el ensayo de la migración contra
+  producción. Las claves de producción, los `.env` y los tokens de WhatsApp NUNCA van a la nube. La tarjeta
+  dice dónde se construyó y trae el link de la sesión (solo `claude.ai/code/session_…`). Construir en la
+  nube tiene tope de 180 minutos (en aizen1, 90) y el CRM acepta hasta 12 tarjetas a la vez entre las dos.
+  Si el Coordinador se reinicia con tareas en la nube, pierde la pista de esas sesiones: las tarjetas
+  vuelven a la fila (la rama queda en GitHub). La nube gasta del mismo plan de Claude del dueño.

@@ -8,9 +8,12 @@ export const dynamic = "force-dynamic";
 
 /*
   POST /api/trabajador/tablero/<tarjetaId>/<accion> — lo que el trabajador avisa de una tarjeta que tomó:
-  - latido    {}                                  corre el vencimiento del candado (hasta el tope).
+  - latido    { lugar?, sesion? }                 corre el vencimiento del candado (hasta el tope). Construyendo,
+              lugar = "aizen1" | "nube" (en la nube el tope es de 180 min, no 90) y sesion = el link
+              https://claude.ai/code/session_… (cualquier otro link se descarta); queda en resultado.construccion.
   - plan      { plan }                            PLANEANDO -> PLAN_LISTO.
-  - resultado { resumen, pruebas, paso, rama, linkRama, commit, migracion, subeSolo, base, zonaProtegida? }
+  - resultado { resumen, pruebas, paso, rama, linkRama, commit, migracion, subeSolo, base, zonaProtegida?,
+                construidoEn?, linkSesion?, segundosNube? }   (construidoEn = "aizen1" | "nube")
                 EN_CURSO -> SUBIENDO pendiente (paso, subeSolo y sin zona protegida) o POR_REVISAR.
   - subida    { commit, version, linkCommit }     SUBIENDO -> HECHO.
   - error     { motivo, categoria?, causa?, resumen?, error?, etapa?, zonaProtegida?, reversion? }

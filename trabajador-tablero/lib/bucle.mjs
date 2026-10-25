@@ -11,6 +11,12 @@
 //   (/soltar) y el planificador pausa.
 // - unaVuelta: tomar UNA y hacerla (--una-vez y las pruebas).
 //
+// Reparto aizen1 / nube (25-oct-2026, decisión del dueño, reglas fijas sin IA): aizen1 corre como MÁXIMO
+// config.maxParalelo (2) tareas a la vez. Al CONSTRUIR, una tarea GRANDE (nube.mjs: esTareaGrande) va SIEMPRE a la
+// nube con `claude --cloud`; una chica va a aizen1 si tiene puesto; si aizen1 ya tiene todos sus puestos ocupados, la
+// siguiente aprobada también va a la nube (desborde). Planear y subir siguen en aizen1 y esperan su puesto en fila.
+// Las tareas de la nube NO ocupan puesto de aizen1 (tope de seguridad aparte: config.nube.maxTareas).
+//
 // Motores (23-oct-2026, motores.mjs): el estado de los motores es uno solo para todas las sesiones.
 // Si Codex o Claude llegan a su límite, ESE motor se pausa (Codex pausaLimiteCodexMinutos, Claude
 // pausaLimiteMinutos) y sus pasos esperan o pasan al otro según config.motores; las candidatas cuyo paso
@@ -22,6 +28,7 @@ import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarC
 import { idCorto } from "./git.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor } from "./motores.mjs";
+import { esTareaGrande } from "./nube.mjs";
 import { crearMedidor, faltanRecursos } from "./recursos.mjs";
 
 const ETAPAS = { planear, construir, subir };
@@ -78,7 +85,7 @@ export async function unaVuelta({ crm, config, registro }) {
   return { hizo: hacer, tarjetaId: tarjeta.id, ...resultado };
 }
 
-export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {} }, tarjeta, hacer) {
+export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null }, tarjeta, hacer) {
   const control = new AbortController();
   // Lo que escribe la sesión se guarda también aquí: es el "log del intento" si falla.
   const bitacora = [];
@@ -94,9 +101,11 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
   let vencida = false;
   // El latido que va en camino: se espera al terminar, para que no llegue al CRM después del resultado.
   let latidoEnVuelo = null;
+  // Construyendo, el latido le dice al CRM dónde (aizen1 o nube) y el link de la sesión: en la nube el tope es de 180 min.
+  const datosDelLatido = () => (hacer === "construir" ? { lugar: lugar === "nube" ? "nube" : "aizen1", ...(vivo.linkSesion ? { sesion: vivo.linkSesion } : {}) } : undefined);
   const latir = async () => {
     try {
-      await crm.latido(tarjeta.id);
+      await crm.latido(tarjeta.id, datosDelLatido());
     } catch (error) {
       registro.aviso(`latido de ${tarjeta.id}: ${error.message}`);
       if (error.status === 409 || error.status === 404) {
@@ -112,16 +121,18 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     const hasta = motores.pausar(motor);
     registro.aviso(`pausa: ${nombreDelMotor(motor)} llegó a su límite de uso; no lo uso hasta ${new Date(hasta).toISOString()}`);
   };
+  const enNube = lugar === "nube" && hacer === "construir";
   Object.assign(vivo, {
     etapa: ETAPA_VISIBLE[hacer] ?? "construyendo",
-    lugar: "aizen1",
-    modelo: modeloDeLaSesion(config, motores, tarjeta, hacer, reparacion),
-    motor: hacer === "subir" ? null : (motores.motorDe(hacer) ?? null),
+    lugar: enNube ? "nube" : "aizen1",
+    modelo: enNube ? null : modeloDeLaSesion(config, motores, tarjeta, hacer, reparacion),
+    motor: enNube ? "claude" : hacer === "subir" ? null : (motores.motorDe(hacer) ?? null),
     inicioEn: vivo.inicioEn ?? Date.now(),
     linkWorkflow: null,
+    linkSesion: null,
   });
   const fase = (etapa, extra = {}) => Object.assign(vivo, { etapa }, extra);
-  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase };
+  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, lugar: enNube ? "nube" : "aizen1" };
   try {
     const etapa = ETAPAS[hacer];
     if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este Coordinador no sabe hacer (¿hay que actualizarlo?).`);
@@ -304,6 +315,52 @@ function registroDeLaSesion(registro, etiqueta) {
 }
 
 /**
+ * Un semáforo de `maximo` puestos: `tomar(senal)` espera su turno y devuelve la función que lo libera (una sola vez).
+ * Si la señal se aborta esperando, rechaza. Lo usan las verificaciones de lo que vuelve de la nube.
+ */
+export function crearSemaforo(maximo) {
+  let usados = 0;
+  const cola = [];
+  const entregar = () => {
+    while (cola.length && usados < maximo) {
+      usados += 1;
+      cola.shift().entregar();
+    }
+  };
+  return {
+    tomar(senal) {
+      return new Promise((resolver, rechazar) => {
+        let liberada = false;
+        const liberar = () => {
+          if (liberada) return;
+          liberada = true;
+          usados -= 1;
+          entregar();
+        };
+        const entrada = {
+          entregar: () => {
+            senal?.removeEventListener?.("abort", cancelar);
+            resolver(liberar);
+          },
+        };
+        function cancelar() {
+          const indice = cola.indexOf(entrada);
+          if (indice >= 0) cola.splice(indice, 1);
+          rechazar(new Error("Se canceló la espera de un puesto para verificar: la tarjeta venció en el CRM."));
+        }
+        if (senal?.aborted) {
+          cancelar();
+          return;
+        }
+        cola.push(entrada);
+        senal?.addEventListener?.("abort", cancelar, { once: true });
+        entregar();
+      });
+    },
+  };
+}
+
+/**
  * El planificador: varias tarjetas a la vez, hasta config.maxParalelo.
  *   llenar()        toma tarjetas hasta llenar los cupos (o hasta que no haya, choquen o falten recursos).
  *   esperar(ms)     duerme hasta ms, o menos si terminó una sesión (hay un cupo libre).
@@ -318,8 +375,13 @@ export function crearPlanificador({
   vigilante = crearVigilanteDeUso({ config, registro, crm, estado: motores, entorno: entornoSeguro() }),
 }) {
   const max = config.maxParalelo;
-  /** sesión (1..max) -> { tarjeta, hacer, huella, promesa } */
+  const nubeConfig = config.nube ?? { activa: false, maxTareas: 0, maxArchivosChica: 8 };
+  /** sesión de aizen1 (1..max) -> { tarjeta, hacer, huella, promesa } */
   const sesiones = new Map();
+  /** Las que se construyen en la nube (no ocupan puesto de aizen1): id de la tarjeta -> { tarjeta, hacer, huella, promesa } */
+  const enNube = new Map();
+  // Lo que vuelve de la nube se verifica en aizen1 (npm ci, build…): no más a la vez que puestos tiene aizen1.
+  const puestosDeVerificacion = crearSemaforo(Math.max(1, max));
   let despertar = null;
   // Terminó una sesión mientras no se esperaba: la próxima espera no duerme.
   let cupoNuevo = false;
@@ -339,10 +401,28 @@ export function crearPlanificador({
   };
 
   function contarCorriendo() {
-    const lista = [...sesiones.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([n, s]) => `s${n} "${s.tarjeta.titulo}" (${s.hacer}, ${s.tarjeta.repo})`);
-    registro.info(`corriendo ${sesiones.size}/${max} tarjetas al tiempo${lista.length ? `: ${lista.join("; ")}` : ""}`);
+    const lista = [
+      ...[...sesiones.entries()].sort(([a], [b]) => a - b).map(([n, s]) => `s${n} "${s.tarjeta.titulo}" (${s.hacer}, ${s.tarjeta.repo})`),
+      ...[...enNube.values()].map((s) => `nube "${s.tarjeta.titulo}" (${s.hacer}, ${s.tarjeta.repo})`),
+    ];
+    registro.info(`corriendo ${sesiones.size}/${max} tarjetas al tiempo en aizen1${enNube.size ? ` y ${enNube.size} en la nube` : ""}${lista.length ? `: ${lista.join("; ")}` : ""}`);
+  }
+
+  /** ¿Se puede construir en la nube? Prendida en la configuración y con Claude como motor de construir (y no en pausa por su límite). */
+  const nubeUtilizable = () => nubeConfig.activa && motorDeLaEtapa(motores, "construir") === "claude";
+
+  /**
+   * LA REGLA DE REPARTO (fija, sin IA). A dónde iría `tarjeta` en esta etapa, según lo que hay libre:
+   *   { donde: "aizen1" | "nube", motivo } o null (no hay dónde ahora: espera en fila).
+   * Planear y subir siempre van a aizen1. Al CONSTRUIR: GRANDE -> nube; chica -> aizen1 si hay puesto (y el PC aguanta),
+   * si no, DESBORDE -> nube.
+   */
+  function dondeCorre(tarjeta, hacer, { aizenOk, nubeUsable, nubeLibre }) {
+    if (hacer !== "construir" || !nubeUsable) return aizenOk ? { donde: "aizen1", motivo: null } : null;
+    const { grande, motivos } = esTareaGrande(tarjeta, { repo: config.repos[tarjeta.repo], maxArchivosChica: nubeConfig.maxArchivosChica });
+    if (grande) return nubeLibre ? { donde: "nube", motivo: `es grande: ${motivos.join("; ")}` } : null;
+    if (aizenOk) return { donde: "aizen1", motivo: null };
+    return nubeLibre ? { donde: "nube", motivo: `desborde: aizen1 no tiene puesto libre (${sesiones.size}/${max})` } : null;
   }
 
   const cupoLibre = () => {
@@ -350,16 +430,22 @@ export function crearPlanificador({
     return null;
   };
 
-  function arrancar(tarjeta, hacer, huella) {
-    const n = cupoLibre();
-    const suRegistro = registroDeLaSesion(registro, `s${n} ${idCorto(tarjeta.id)}`);
-    suRegistro.info(`tomé "${tarjeta.titulo}" (${tarjeta.id}, ${tarjeta.repo}) para ${hacer}`);
+  function arrancar(tarjeta, hacer, huella, { donde = "aizen1", motivo = null } = {}) {
+    const nube = donde === "nube";
+    const n = nube ? null : cupoLibre();
+    const suRegistro = registroDeLaSesion(registro, nube ? `nube ${idCorto(tarjeta.id)}` : `s${n} ${idCorto(tarjeta.id)}`);
+    suRegistro.info(`tomé "${tarjeta.titulo}" (${tarjeta.id}, ${tarjeta.repo}) para ${hacer}${nube ? ` — se construye en la nube (${motivo})` : ""}`);
     const vivo = { inicioEn: Date.now() };
     const sesion = { tarjeta, hacer, huella, vivo };
-    sesiones.set(n, sesion);
+    if (nube) enNube.set(tarjeta.id, sesion);
+    else sesiones.set(n, sesion);
     contarCorriendo();
-    esperaPcDesde = null;
-    sesion.promesa = procesar({ crm, config, registro: suRegistro, motores, medidor, otrasSesiones: () => Math.max(0, sesiones.size - 1), vivo }, tarjeta, hacer)
+    if (!nube) esperaPcDesde = null;
+    sesion.promesa = procesar(
+      { crm, config, registro: suRegistro, motores, medidor, otrasSesiones: () => Math.max(0, sesiones.size - (nube ? 0 : 1)), vivo, lugar: donde, puestoParaVerificar: (senal) => puestosDeVerificacion.tomar(senal) },
+      tarjeta,
+      hacer,
+    )
       .catch((error) => {
         suRegistro.error(`la sesión se cayó: ${error?.message ?? error}`);
         return { ok: false };
@@ -369,8 +455,9 @@ export function crearPlanificador({
         return resultado;
       })
       .finally(() => {
-        sesiones.delete(n);
-        if (!sesiones.size) esperasDeFila = new Map();
+        if (nube) enNube.delete(tarjeta.id);
+        else sesiones.delete(n);
+        if (!sesiones.size && !enNube.size) esperasDeFila = new Map();
         contarCorriendo();
         if (despertar) despertar();
         else cupoNuevo = true;
@@ -385,7 +472,12 @@ export function crearPlanificador({
   async function llenar() {
     await vigilante?.vigilar();
     pcEspera = null;
-    while (sesiones.size < max) {
+    // Las que se soltaron en esta pasada porque no tenían dónde correr: no se vuelven a tomar hasta la próxima.
+    const descartadas = new Map();
+    for (;;) {
+      const nubeUsable = nubeUtilizable();
+      const nubeLibre = nubeUsable && enNube.size < nubeConfig.maxTareas;
+      if (sesiones.size >= max && !nubeLibre) return;
       const sinMotor = etapasSinMotor();
       if (sinMotor.length) {
         const pausas = ["claude", "codex"]
@@ -397,7 +489,9 @@ export function crearPlanificador({
       } else ultimoSinMotor = "";
       // Sin sesiones y con el PC lleno (algo más lo está usando): se espera hasta limites.esperaMaximaMinutos
       // antes de tomar la primera, y después se toma igual (una CPU ocupada por otra cosa no deja todo quieto).
-      if (sesiones.size === 0) {
+      // ¿Aizen1 puede abrir otra sesión? Tiene puesto y el PC aguanta. Si no, solo la nube puede tomar tareas de construir.
+      let aizenOk = sesiones.size < max;
+      if (aizenOk && sesiones.size === 0) {
         const esperaMs = (config.limites.esperaMaximaMinutos ?? 0) * 60_000;
         const falta = esperaMs > 0 ? faltanRecursos(medidor.medir(), config.limites) : null;
         if (!falta) esperaPcDesde = null;
@@ -406,34 +500,42 @@ export function crearPlanificador({
           if (Date.now() - esperaPcDesde < esperaMs) {
             pcEspera = falta;
             avisarUnaVez("pc-espera", `espero al PC antes de tomar una tarjeta (${falta}); como mucho ${config.limites.esperaMaximaMinutos} min`);
-            return;
-          }
-          avisarUnaVez("pc-sigue", `el PC sigue lleno (${falta}) pero ya esperé ${config.limites.esperaMaximaMinutos} min: tomo igual`);
+            aizenOk = false;
+          } else avisarUnaVez("pc-sigue", `el PC sigue lleno (${falta}) pero ya esperé ${config.limites.esperaMaximaMinutos} min: tomo igual`);
         }
       }
-      if (sesiones.size > 0) {
+      if (aizenOk && sesiones.size > 0) {
         const falta = faltanRecursos(medidor.medir(), config.limites);
         if (falta) {
           pcEspera = falta;
           avisarUnaVez(`recursos-${sesiones.size}`, `no abro otra sesión (${sesiones.size}/${max} corriendo): ${falta}`);
-          return;
+          aizenOk = false;
         }
       }
-      const corriendo = [...sesiones.values()].map((s) => s.huella);
-      let excluir = [];
-      if (corriendo.length || sinMotor.length) {
+      if (!aizenOk && !nubeLibre) return;
+      const estadoDeCupos = { aizenOk, nubeUsable, nubeLibre };
+      const corriendo = [...sesiones.values(), ...enNube.values()].map((s) => s.huella);
+      let excluir = [...descartadas.keys()];
+      if (corriendo.length || sinMotor.length || nubeUsable || !aizenOk || descartadas.size) {
         const { candidatas = [] } = await crm.candidatas();
         const chocan = corriendo.length ? candidatasQueChocan(candidatas, corriendo, config.repos) : {};
         for (const c of candidatas) if (!chocan[c.id] && sinMotor.includes(c.hacer)) chocan[c.id] = `(sin motor para ${c.hacer})`;
-        excluir = Object.keys(chocan);
+        // Sin dónde correr ahora: planear y subir esperan un puesto de aizen1; una grande espera un puesto de la nube.
+        for (const c of candidatas) {
+          if (chocan[c.id]) continue;
+          if (descartadas.has(c.id)) chocan[c.id] = `(${descartadas.get(c.id)})`;
+          else if (!dondeCorre(c, c.hacer, estadoDeCupos)) chocan[c.id] = c.hacer === "construir" && nubeUsable ? "(espera un puesto en la nube)" : "(espera un puesto en aizen1)";
+        }
+        excluir = [...new Set([...Object.keys(chocan), ...descartadas.keys()])];
         esperasDeFila = new Map(Object.entries(chocan).map(([id, motivo]) => [id, String(motivo).replace(/^\(|\)$/g, "")]));
-        if (candidatas.length && excluir.length === candidatas.length) {
-          const enFila = candidatas.map((c) => `"${c.titulo}" ${chocan[c.id]}`);
-          avisarUnaVez(`fila-${excluir.join(",")}-${sesiones.size}`, `esperan en fila: ${enFila.join("; ")}`);
+        if (candidatas.length && candidatas.every((c) => excluir.includes(c.id))) {
+          const enFila = candidatas.map((c) => `"${c.titulo}" ${chocan[c.id] ?? "(sin dónde correr ahora)"}`);
+          avisarUnaVez(`fila-${excluir.join(",")}-${sesiones.size}-${enNube.size}`, `esperan en fila: ${enFila.join("; ")}`);
           return;
         }
       }
-      const respuesta = await crm.tomar({ maxParalelo: max, excluir });
+      // El CRM cuenta las de aizen1 y las de la nube juntas: el tope que se le da es la suma.
+      const respuesta = await crm.tomar({ maxParalelo: max + (nubeConfig.activa ? nubeConfig.maxTareas : 0), excluir });
       if (respuesta.vencidas?.length) registro.aviso(`el CRM pasó a ERROR por vencidas: ${respuesta.vencidas.join(", ")}`);
       if (!respuesta.tarjeta) {
         avisarUnaVez(`sin-${respuesta.motivo}-${sesiones.size}`, null);
@@ -449,7 +551,15 @@ export function crearPlanificador({
         if (await soltar(crm, registro, tarjeta, `Espera en fila: ${choque[1]}.`)) continue;
         return;
       }
-      arrancar(tarjeta, hacer, huella);
+      // La regla de reparto con la tarjeta completa (trae sus intentos: "ya falló por tamaño o recursos").
+      const lugar = dondeCorre(tarjeta, hacer, estadoDeCupos);
+      if (!lugar) {
+        registro.info(`"${tarjeta.titulo}" no tiene dónde correr ahora (${hacer}): la suelto y espera en fila`);
+        descartadas.set(tarjeta.id, hacer === "construir" && nubeUsable ? "espera un puesto en la nube" : "espera un puesto en aizen1");
+        if (await soltar(crm, registro, tarjeta, "Espera en fila: no hay un puesto libre donde construirla.")) continue;
+        return;
+      }
+      arrancar(tarjeta, hacer, huella, lugar);
     }
   }
 
@@ -469,15 +579,16 @@ export function crearPlanificador({
         return [];
       }
     },
-    corriendo: () => sesiones.size,
+    corriendo: () => sesiones.size + enNube.size,
+    /** Cuántas hay en aizen1 y cuántas en la nube (la nube no ocupa puestos de aizen1). */
+    cupos: () => ({ aizen1: sesiones.size, nube: enNube.size }),
     /**
      * Para el latido del panel "Coordinador en vivo": las tareas en las manos (etapa, dónde, modelo, intento o
      * reparación), si espera que el PC se desocupe, las que esperan en fila por chocar y el uso de los motores.
      */
     estado() {
-      const tareas = [...sesiones.entries()]
-        .sort(([a], [b]) => a - b)
-        .map(([, { tarjeta, vivo }]) => ({
+      const tareas = [...[...sesiones.entries()].sort(([a], [b]) => a - b).map(([, sesion]) => sesion), ...enNube.values()]
+        .map(({ tarjeta, vivo }) => ({
           tarjetaId: tarjeta.id,
           titulo: tarjeta.titulo,
           etapa: vivo.etapa,
@@ -489,6 +600,7 @@ export function crearPlanificador({
           reparacion: Number(tarjeta.reparaciones) || 0,
           reparacionDe: Number(tarjeta.topeReparaciones) || null,
           linkWorkflow: vivo.linkWorkflow ?? null,
+          linkSesion: vivo.linkSesion ?? null,
         }));
       return {
         tareas,
@@ -514,7 +626,7 @@ export function crearPlanificador({
         despertar = listo;
       }),
     esperarTodas: async () => {
-      while (sesiones.size) await Promise.allSettled([...sesiones.values()].map((s) => s.promesa));
+      while (sesiones.size || enNube.size) await Promise.allSettled([...sesiones.values(), ...enNube.values()].map((s) => s.promesa));
     },
     parar: () => medidor.parar(),
   };

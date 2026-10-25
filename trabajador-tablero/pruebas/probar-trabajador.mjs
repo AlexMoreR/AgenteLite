@@ -19,14 +19,15 @@ import { fileURLToPath } from "node:url";
 
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
 import { crearVigilante, sumarDescendientes } from "../lib/atasco.mjs";
-import { crearPlanificador, unaVuelta } from "../lib/bucle.mjs";
+import { crearPlanificador, crearSemaforo, unaVuelta } from "../lib/bucle.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
 import { crearCrm } from "../lib/crm.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
-import { esRamaDelTrabajador, nombreDeRama, webDeGithub } from "../lib/git.mjs";
+import { esRamaDelTrabajador, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
 import { decidir, diagnosticar, resumenDeEscalada } from "../lib/diagnostico.mjs";
-import { esLimiteDeUso, promptDeConstruir, promptDelPlan } from "../lib/etapas.mjs";
+import { esLimiteDeUso, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
+import { esTareaGrande, linkDeSesion, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
 import { detalleDeFalla, lineasQueFallaron } from "../lib/procesos.mjs";
 import { destructivoDelSql, migracionDestructiva } from "../lib/riesgo.mjs";
 import {
@@ -242,6 +243,137 @@ await prueba("configuración: maxParalelo 2 si no viene (de 1 a 5), límites de 
   assert.throws(() => completarConfig({ ...base, maxParalelo: 9 }), /maxParalelo/);
   assert.throws(() => completarConfig({ ...base, maxParalelo: 0 }), /maxParalelo/);
   assert.throws(() => completarConfig({ ...base, limites: { memoriaPorciento: 500 } }), /memoriaPorciento/);
+});
+
+await prueba("nube: la configuración de ejemplo trae aizen1 con 2, la nube prendida (tope 8, 180 min) y los tres repos con su nombre en GitHub", async () => {
+  const ejemplo = JSON.parse(fs.readFileSync(path.join(AQUI, "..", "config.example.json"), "utf8"));
+  const config = completarConfig(ejemplo);
+  assert.equal(config.maxParalelo, 2, "aizen1: como máximo 2 a la vez");
+  assert.equal(config.nube.activa, true);
+  assert.equal(config.nube.maxTareas, 8);
+  assert.equal(config.nube.maxArchivosChica, 8);
+  assert.equal(config.nube.terminal, "auto");
+  assert.equal(config.tiempos.construirNubeMinutos, 178);
+  assert.deepEqual(Object.keys(config.repos).sort(), ["aizencrm", "gestion", "messenger-basic"]);
+  assert.equal(config.repos.aizencrm.github, "AlexMoreR/AgenteLite");
+  assert.equal(config.repos.gestion.github, "AlexMoreR/Gestion");
+  assert.equal(config.repos["messenger-basic"].github, "AlexMoreR/messenger-basic");
+  // El entorno de la nube lleva SOLO direcciones falsas: ninguna clave.
+  assert.deepEqual(Object.keys(config.nube.entorno).sort(), ["DATABASE_URL", "DIRECT_URL"]);
+  for (const valor of Object.values(config.nube.entorno)) assert.match(valor, /no-usar@127\.0\.0\.1:1/);
+  // Sin `nube` ni `maxParalelo` en la configuración: aizen1 2 y la nube prendida por defecto.
+  const sinNada = completarConfig({ urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } });
+  assert.equal(sinNada.maxParalelo, 2);
+  assert.equal(sinNada.nube.activa, true);
+  assert.equal(sinNada.tiempos.construirNubeMinutos, 178);
+  assert.throws(() => completarConfig({ urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { a: { ruta: "." } }, nube: { terminal: "otra" } }), /nube\.terminal/);
+  assert.throws(() => completarConfig({ urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { a: { ruta: "." } }, nube: { entorno: { clave: "x" } } }), /nube\.entorno/);
+});
+
+await prueba("nube: la configuración no deja pasar de 12 entre aizen1 y la nube; la verificación de lo que vuelve hace fila con un semáforo", async () => {
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
+  assert.throws(() => completarConfig({ ...base, maxParalelo: 5, nube: { maxTareas: 8 } }), /no pueden pasar de 12/);
+  assert.equal(completarConfig({ ...base, maxParalelo: 5, nube: { maxTareas: 7 } }).nube.maxTareas, 7);
+  assert.equal(completarConfig({ ...base, maxParalelo: 5, nube: { activa: false, maxTareas: 8 } }).nube.activa, false, "apagada no se mide");
+  assert.equal(completarConfig(base).nube.esperaMinutos + completarConfig(base).nube.verificarMinutos < 180, true, "espera + verificación caben en los 180 min del CRM");
+  const semaforo = crearSemaforo(2);
+  const a = await semaforo.tomar();
+  const b = await semaforo.tomar();
+  let tercera = false;
+  const pendiente = semaforo.tomar().then((liberar) => {
+    tercera = true;
+    return liberar;
+  });
+  await new Promise((resolver) => setTimeout(resolver, 20));
+  assert.equal(tercera, false, "con los 2 puestos ocupados la tercera espera");
+  a();
+  a(); // liberar dos veces no libera dos puestos
+  const liberarTercera = await pendiente;
+  assert.equal(tercera, true);
+  let cuarta = false;
+  const siguiente = semaforo.tomar().then(() => {
+    cuarta = true;
+  });
+  await new Promise((resolver) => setTimeout(resolver, 20));
+  assert.equal(cuarta, false, "b y la tercera siguen ocupando los 2 puestos");
+  b();
+  await siguiente;
+  assert.equal(cuarta, true);
+  liberarTercera();
+  // Una espera cancelada por la señal rechaza y no se queda con el puesto.
+  const lleno = crearSemaforo(1);
+  const unico = await lleno.tomar();
+  const control = new AbortController();
+  const cancelada = lleno.tomar(control.signal);
+  control.abort();
+  await assert.rejects(cancelada, /Se canceló la espera/);
+  unico();
+  const otra = await lleno.tomar();
+  otra();
+});
+
+await prueba("nube: la regla de reparto (GRANDE = más de 8 archivos, migración, agente nuevo o ya falló por tamaño o recursos)", async () => {
+  const archivos = (n) => Array.from({ length: n }, (_, i) => `- src/features/algo/archivo-${i + 1}.ts`).join("\n");
+  const plan = (n, migracion = "No.") => `# Plan\n## 1. Qué se cambia\nUna mejora.\n## 4. Migración de base de datos\n${migracion}\n## 5. Archivos que se tocan\n${archivos(n)}\n## 6. Cómo se va a probar\nCorrer pruebas.`;
+  const repo = { carpetaMigraciones: "prisma/migrations" };
+  const grande = (tarjeta) => esTareaGrande(tarjeta, { repo, maxArchivosChica: 8 });
+  // Archivos: 8 es chica, 9 es grande.
+  assert.deepEqual(grande({ titulo: "Algo", plan: plan(3) }), { grande: false, motivos: [] });
+  assert.equal(grande({ titulo: "Algo", plan: plan(8) }).grande, false, "8 archivos todavía es chica");
+  assert.match(grande({ titulo: "Algo", plan: plan(9) }).motivos[0], /9 archivos/);
+  // Migración: lo dice la parte 4, o la parte 5 nombra la carpeta de migraciones.
+  assert.equal(trabajaConMigracion(plan(2, "**No.** Lo nuevo se guarda en un campo que ya existe."), repo), false);
+  assert.equal(trabajaConMigracion(plan(2, "Sí. Una tabla nueva, aditiva."), repo), true);
+  assert.equal(trabajaConMigracion(plan(2, "Sí o no: no."), repo), false, "la plantilla 'sí o no' no cuenta");
+  assert.equal(trabajaConMigracion("4. Migración (sí/no): no.\n5. Archivos\n- src/a.ts", repo), false, "ni 'sí/no'");
+  assert.equal(trabajaConMigracion("5. Archivos\n- prisma/migrations/20261025_x/migration.sql\n- src/a.ts", repo), true);
+  assert.deepEqual(grande({ titulo: "Algo", plan: plan(2, "Sí. Una tabla nueva.") }).motivos, ["trae migración"]);
+  // Agente nuevo: en el título o en la parte 1.
+  assert.deepEqual(grande({ titulo: "Crear un agente nuevo de postventa", plan: plan(2) }).motivos, ["crea un agente nuevo"]);
+  assert.equal(grande({ titulo: "Corregir el agente de ventas", plan: plan(2) }).grande, false);
+  // Falló antes por tamaño o recursos.
+  for (const categoria of ["tiempo_agotado", "pc_sobrecargado", "tarea_muy_grande"]) {
+    assert.match(grande({ titulo: "Algo", plan: plan(2), ultimosIntentos: [{ categoria: "no_compila" }, { categoria }] }).motivos[0], /ya falló por tamaño o recursos/);
+  }
+  assert.equal(grande({ titulo: "Algo", plan: plan(2), ultimosIntentos: [{ categoria: "fallan_pruebas" }] }).grande, false, "una prueba que falla no es de tamaño");
+  assert.equal(grande({ titulo: "Algo", plan: null }).grande, false, "sin plan no se sabe: chica");
+  assert.match(seccionDelPlan(plan(2, "Sí."), 4), /^## 4\. Migración[\s\S]*Sí\.$/);
+});
+
+await prueba("nube: se lee el link de la sesión y la línea 'resultado:' del commit (con las líneas del error en el cuerpo)", async () => {
+  assert.equal(linkDeSesion('{"session_url":"https://claude.ai/code/session_01AbC-9_x"}'), "https://claude.ai/code/session_01AbC-9_x");
+  assert.equal(linkDeSesion("mira https://claude.ai/code/session_ABC\u001b[0m ya"), "https://claude.ai/code/session_ABC");
+  assert.equal(linkDeSesion("https://malo.example/code/session_ABC"), null);
+  assert.equal(linkDeSesion("https://claude.ai/otra/cosa"), null);
+  assert.deepEqual(resultadoDelCommit("resultado: build=OK tests=OK segundos=361"), { build: "OK", tests: "OK", segundos: 361, paso: true, detalle: "" });
+  const fallo = resultadoDelCommit("resultado: build=FALLO tests=OK segundos=7\n\nerror uno\nerror dos");
+  assert.equal(fallo.paso, false);
+  assert.equal(fallo.build, "FALLO");
+  assert.equal(fallo.detalle, "error uno\nerror dos");
+  assert.equal(resultadoDelCommit("resultado: build=OK tests=FALLO").paso, false);
+  assert.equal(resultadoDelCommit("resultado: build=OK tests=OK").segundos, null);
+  assert.equal(resultadoDelCommit("arreglar el build=OK"), null);
+  assert.equal(resultadoDelCommit("tablero: algo\n\nresultado: build=OK tests=OK segundos=1"), null, "solo cuenta la primera línea");
+});
+
+await prueba("nube: la instrucción lleva el plan completo, CLAUDE.md, las 4 lecciones, las prohibiciones y la rama; nunca claves", async () => {
+  const repo = { clave: "aizencrm", instalar: ["npm", "ci"], verificar: [["npx", "prisma", "generate"], ["npm", "run", "build"]], pruebas: [["npm", "run", "test:tableros"]] };
+  const tarjeta = { id: "tarjeta0001", titulo: "Una tarea grande", tablero: "Empresa", detalle: "Hacer lo grande", intentos: 1, plan: "PLAN COMPLETO\n5. Archivos: src/a.ts" };
+  const texto = promptDeNube(tarjeta, repo, "tablero/abcd1234-una-tarea", { entorno: { DATABASE_URL: "postgresql://trabajador:no-usar@127.0.0.1:1/no_usar" } });
+  assert.match(texto, /PLAN APROBADO:\nPLAN COMPLETO\n5\. Archivos: src\/a\.ts/);
+  assert.match(texto, /lee el archivo CLAUDE\.md/);
+  assert.match(texto, /1\. PREPARACIÓN[^\n]*`npm ci` → `npx prisma generate` → `npm run build` → `npm run test:tableros`/);
+  assert.match(texto, /Sin `npx prisma generate` el build falla con errores de tipos falsos/);
+  assert.match(texto, /export DATABASE_URL="postgresql:\/\/trabajador:no-usar@127\.0\.0\.1:1\/no_usar"/);
+  assert.match(texto, /2\. TODO EN PRIMER PLANO: nada en segundo plano ni subagentes esperando/);
+  assert.match(texto, /3\. DEJA TODO EN LA RAMA tablero\/abcd1234-una-tarea/);
+  assert.match(texto, /git push origin tablero\/abcd1234-una-tarea` \(sin --force\)|git push origin tablero\/abcd1234-una-tarea \(sin --force\)/);
+  assert.match(texto, /resultado: build=OK tests=OK segundos=<N>/);
+  assert.match(texto, /4\. SI FALLA[^\n]*últimas 30 líneas del error/);
+  assert.match(texto, /PROHIBIDO:\n- Tocar bases de datos[^\n]*claves, tokens, archivos \.env/);
+  assert.match(texto, /git push --force/);
+  assert.match(texto, /No toques Meta Ads \(anuncios, campañas, píxel\), el bot de ventas \(el agente que atiende WhatsApp\) ni el libro del agente V3/);
+  assert.ok(!/aizen_trab_|Bearer|password/i.test(texto), "ninguna clave");
 });
 
 await prueba("recursos: no abre otra sesión si la CPU o la memoria pasan del límite", async () => {
@@ -510,6 +642,7 @@ process.env.CODEX_FALSO_LOG = LOGS.codex;
 process.env.CLAUDE_FALSO_USO = USO;
 process.env.SSH_FALSO_LOG = LOGS.ssh;
 process.env.GH_FALSO_LOG = LOGS.gh;
+process.env.GH_FALSO_REMOTO = REMOTO;
 
 const g = (cwd, ...args) =>
   execFileSync("git", ["-c", "user.name=Prueba", "-c", "user.email=prueba@x.co", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -721,6 +854,8 @@ const crearConfig = (tiempos = {}, delRepo = {}, extra = {}) =>
     // Las pruebas de siempre no esperan al PC (la espera tiene su propia prueba) y no vigilan sesiones quietas.
     limites: { esperaMaximaMinutos: 0 },
     atasco: { minutos: 0 },
+    // La nube está apagada salvo en las pruebas que la prueban (nubeConfig).
+    nube: { activa: false },
     ...extra,
     tiempos: { latidoSegundos: 1, planMinutos: 0.3, construirMinutos: 1, subirMinutos: 1, comandoMinutos: 1, ...tiempos },
     git: { nombre: "Trabajador de prueba", correo: "trabajador@x.co" },
@@ -1341,12 +1476,230 @@ try {
     planificador.parar();
   });
 
+  /* ── La nube (25-oct-2026): tareas grandes y de desborde con `claude --cloud` ── */
+
+  const enlaceDe = (titulo) => `https://claude.ai/code/session_FALSA_${Buffer.from(titulo).toString("hex").slice(0, 24)}`;
+  // La nube prendida, con el `gh` y el `claude --cloud` falsos. Sin terminal real (la prueba de "auto" lo cambia).
+  const nubeConfig = (nube = {}, tiempos = {}) =>
+    crearConfig({ construirNubeMinutos: 2, ...tiempos }, { subirSolo: true, github: "prueba/repo" }, {
+      maxParalelo: 2,
+      nube: { activa: true, maxTareas: 8, vigilarCadaSegundos: 0.3, esperaMinutos: 1, lanzarMinutos: 1, terminal: "sin-terminal", comandoGh: [node, falso("gh-falso.mjs")], ...nube },
+    });
+  const despejar = () => {
+    for (const t of tarjetas.values()) if (!["HECHO", "ERROR", "POR_REVISAR", "PLAN_LISTO"].includes(t.estado)) t.estado = "HECHO";
+    reiniciarALaVez();
+  };
+  const planDe = (modulo, archivos = 1) =>
+    `PLAN\n4. Migración: no.\n5. Archivos:\n${Array.from({ length: archivos }, (_, i) => `src/${modulo}/parte-${i + 1}.ts`).join("\n")}\n6. Pruebas: verificar.mjs`;
+  const llamadasALaNube = (desde) => leerLog(LOGS.claude).slice(desde).filter((l) => l.argumentos.includes("--cloud"));
+
+  await prueba("nube: pushDeRama sin forzar no pisa lo que dejó la nube; con forzar (las ramas de aizen1) sí", async () => {
+    const clon = path.join(T, "clon-push");
+    execFileSync("git", ["clone", "--quiet", REMOTO, clon], { stdio: "ignore" });
+    const rama = "tablero/prueba-sin-force";
+    g(clon, "checkout", "--quiet", "-b", "de-la-nube", "origin/main");
+    fs.writeFileSync(path.join(clon, "de-la-nube.txt"), "nube\n");
+    g(clon, "add", "-A");
+    g(clon, "commit", "-m", "de la nube");
+    await pushDeRama(clon, "origin", rama, { forzar: false });
+    const dejado = shaDe(rama);
+    // Otra historia que sale de main (lo que haría aizen1 al rehacer la rama): sin --force no entra.
+    g(clon, "checkout", "--quiet", "-b", "otra", "origin/main");
+    fs.writeFileSync(path.join(clon, "otra.txt"), "otra\n");
+    g(clon, "add", "-A");
+    g(clon, "commit", "-m", "otra");
+    await assert.rejects(pushDeRama(clon, "origin", rama, { forzar: false }), /rejected|non-fast-forward/);
+    assert.equal(shaDe(rama), dejado, "la rama de la nube queda intacta");
+    await pushDeRama(clon, "origin", rama);
+    assert.notEqual(shaDe(rama), dejado, "las ramas de aizen1 siguen rehaciéndose con --force");
+    await assert.rejects(pushDeRama(clon, "origin", "main", { forzar: false }), /no es una rama del Coordinador/);
+    execFileSync("git", ["--git-dir", REMOTO, "branch", "-D", rama], { stdio: "ignore" });
+  });
+
+  await prueba("nube: con 2 corriendo en aizen1, la tercera aprobada va a la nube (desborde); la que espera plan NO; la nube no ocupa puesto de aizen1", async () => {
+    despejar();
+    const desde = leerLog(LOGS.claude).length;
+    const a = nueva("Chica uno [mod:uno]", "PLAN_APROBADO", { plan: planDe("uno") });
+    const b = nueva("Chica dos [mod:dos]", "PLAN_APROBADO", { plan: planDe("dos") });
+    const c = nueva("Desborde tres [mod:tres]", "PLAN_APROBADO", { plan: planDe("tres") });
+    const d = nueva("Espera su plan cuatro [mod:cuatro]", "APROBADO");
+    const planificador = planificar(nubeConfig());
+    await planificador.llenar();
+    assert.deepEqual(planificador.cupos(), { aizen1: 2, nube: 1 }, "aizen1 con 2 y la tercera en la nube");
+    const tareas = planificador.estado().tareas;
+    assert.equal(tareas.find((t) => t.tarjetaId === c).lugar, "nube");
+    assert.equal(tareas.find((t) => t.tarjetaId === a).lugar, "aizen1");
+    assert.equal(tareas.find((t) => t.tarjetaId === c).motor, "claude");
+    assert.equal(tarjetas.get(d).estado, "APROBADO", "la que espera plan no va a la nube: espera su puesto en aizen1");
+    assert.match(planificador.estado().esperas.find((e) => e.tarjetaId === d)?.motivo ?? "", /puesto en aizen1/);
+    await correrHasta(planificador, () => [a, b, c].every((id) => tarjetas.get(id).estado === "HECHO") && tarjetas.get(d).estado === "PLAN_LISTO", 180_000);
+    assert.equal(aLaVez.EN_CURSO, 3, "dos en aizen1 y una en la nube, construyendo a la vez");
+    const nube = llamadasALaNube(desde);
+    assert.equal(nube.length, 1, "solo la tercera salió a la nube");
+    assert.equal(nube[0].titulo, "Desborde tres [mod:tres]");
+    assert.match(nube[0].cwd, /-nube$/, "lanzada desde un worktree de la rama");
+    assert.deepEqual(nube[0].argumentos, ["-p", "--cloud", "--output-format", "json"]);
+    assert.equal(tarjetas.get(c).resultado.construidoEn, "nube");
+    assert.equal(tarjetas.get(c).resultado.linkSesion, enlaceDe("Desborde tres [mod:tres]"));
+    assert.equal(tarjetas.get(a).resultado.construidoEn, "aizen1");
+    assert.equal(tarjetas.get(a).resultado.linkSesion, undefined);
+    // El link de la sesión llegó al CRM en el latido (con dónde se construye); en aizen1 el latido dice aizen1.
+    assert.ok(llamadas.some((l) => l.accion === "latido" && l.id === c && l.cuerpo.lugar === "nube" && l.cuerpo.sesion === enlaceDe("Desborde tres [mod:tres]")), "latido con el link");
+    assert.ok(llamadas.some((l) => l.accion === "latido" && [a, b].includes(l.id) && l.cuerpo.lugar === "aizen1" && l.cuerpo.sesion === undefined), "latido de aizen1 sin link");
+    assert.ok(!llamadas.some((l) => l.accion === "latido" && l.id === c && l.cuerpo.lugar === "aizen1"), "la de la nube nunca avisa que construye en aizen1 (el CRM le daría 90 min)");
+    // Lo que hizo la nube quedó en main: la rama no se rehízo.
+    assert.match(g(REPO, "log", "--format=%s", "origin/main"), /cambios de la nube/);
+    assert.ok(esRamaDelTrabajador(tarjetas.get(c).resultado.rama));
+    sinRestos();
+    planificador.parar();
+  });
+
+  await prueba("nube: una tarea grande (9 archivos) va a la nube aunque aizen1 tenga puesto libre; una de pocos archivos se queda en aizen1", async () => {
+    despejar();
+    const desde = leerLog(LOGS.claude).length;
+    const grande = nueva("Grande nueve archivos", "PLAN_APROBADO", { plan: planDe("grande", 9) });
+    const chica = nueva("Chica tres archivos [mod:chica]", "PLAN_APROBADO", { plan: planDe("chica", 3) });
+    const planificador = planificar(nubeConfig());
+    await planificador.llenar();
+    assert.deepEqual(planificador.cupos(), { aizen1: 1, nube: 1 }, "aizen1 tenía puesto libre y la grande igual va a la nube");
+    await correrHasta(planificador, () => [grande, chica].every((id) => tarjetas.get(id).estado === "HECHO"), 180_000);
+    assert.deepEqual(llamadasALaNube(desde).map((l) => l.titulo), ["Grande nueve archivos"]);
+    assert.equal(tarjetas.get(grande).resultado.construidoEn, "nube");
+    assert.equal(tarjetas.get(chica).resultado.construidoEn, "aizen1");
+    // La instrucción que recibió la nube: el plan completo, CLAUDE.md, las lecciones y la rama; ninguna clave.
+    const { prompt } = llamadasALaNube(desde)[0];
+    assert.match(prompt, /PLAN APROBADO:\nPLAN\n4\. Migración: no\./);
+    assert.match(prompt, /lee el archivo CLAUDE\.md/);
+    assert.match(prompt, /DEJA TODO EN LA RAMA tablero\//);
+    assert.match(prompt, /últimas 30 líneas del error/);
+    assert.match(prompt, /export DATABASE_URL="postgresql:\/\/trabajador:no-usar@127\.0\.0\.1:1\/no_usar"/);
+    assert.ok(!prompt.includes(CLAVE) && !/aizen_trab_/.test(prompt), "la clave del Coordinador nunca va a la nube");
+    sinRestos();
+    planificador.parar();
+  });
+
+  await prueba("nube: tope de seguridad de tareas en la nube; la que no cabe espera su puesto sin error", async () => {
+    despejar();
+    const uno = nueva("Grande uno", "PLAN_APROBADO", { plan: planDe("gran-uno", 9) });
+    const dos = nueva("Grande dos", "PLAN_APROBADO", { plan: planDe("gran-dos", 9) });
+    const planificador = planificar(nubeConfig({ maxTareas: 1 }));
+    await planificador.llenar();
+    assert.deepEqual(planificador.cupos(), { aizen1: 0, nube: 1 });
+    assert.equal(tarjetas.get(dos).estado, "PLAN_APROBADO", "la segunda grande espera: la grande no se queda en aizen1");
+    assert.match(planificador.estado().esperas.find((e) => e.tarjetaId === dos)?.motivo ?? "", /puesto en la nube/);
+    await correrHasta(planificador, () => [uno, dos].every((id) => tarjetas.get(id).estado === "HECHO"), 240_000);
+    assert.equal(aLaVez.EN_CURSO, 1, "nunca dos en la nube con tope 1");
+    planificador.parar();
+  });
+
+  await prueba("nube: si la nube deja FALLO, la tarjeta pasa a ERROR con las últimas 30 líneas y el link; el reintento usa otra rama (sin --force)", async () => {
+    despejar();
+    const id = nueva("Falla en la nube [nube-fallo]", "PLAN_APROBADO", { plan: planDe("fallo", 9) });
+    const intentar = async () => {
+      const planificador = planificar(nubeConfig());
+      await planificador.llenar();
+      await planificador.esperarTodas();
+      planificador.parar();
+    };
+    await intentar();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    const motivo = t.resultado.error.motivo;
+    assert.match(motivo, /resultado FALLO \(build=FALLO tests=OK\)/);
+    assert.match(motivo, /linea 35 del error/);
+    assert.match(motivo, /linea 6 del error/);
+    assert.ok(!motivo.includes("linea 5 del error"), "solo las últimas 30 de 35 líneas");
+    assert.ok(motivo.includes(enlaceDe("Falla en la nube [nube-fallo]")), "el link de la sesión para mirarla");
+    const rama = nombreDeRama(t);
+    assert.ok(ramasDelRemoto().includes(rama), "la rama queda en GitHub");
+    sinRestos();
+    // Reintentar: la rama de la vez anterior sigue ahí (con lo de la nube) y no se toca; esta vez usa otra.
+    Object.assign(t, { estado: "PLAN_APROBADO", venceEn: null });
+    const antes = shaDe(rama);
+    await intentar();
+    assert.equal(tarjetas.get(id).estado, "ERROR");
+    assert.ok(ramasDelRemoto().includes(`${rama}-nube2`), "el reintento usa su propia rama");
+    assert.equal(shaDe(rama), antes, "la rama del primer intento queda intacta");
+    sinRestos();
+  });
+
+  await prueba("nube: con el límite de uso al lanzar, la tarjeta se suelta sin error y sin gastar intento", async () => {
+    despejar();
+    const id = nueva("Sin cupo en la nube [nube-limite]", "PLAN_APROBADO", { plan: planDe("limite", 9) });
+    const planificador = planificar(nubeConfig());
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_APROBADO", "vuelve a la fila");
+    assert.equal(t.intentos, 0, "no gasta el intento");
+    assert.match(t.soltada, /límite de uso/);
+    assert.equal(t.resultado?.error, undefined, "sin ERROR");
+    planificador.parar();
+    sinRestos();
+  });
+
+  await prueba("nube: si el límite de uso llega a la sesión de la nube (FALLO con el aviso), también se suelta sin error", async () => {
+    despejar();
+    const id = nueva("Límite dentro de la nube [nube-fallo-limite]", "PLAN_APROBADO", { plan: planDe("limite2", 9) });
+    const planificador = planificar(nubeConfig());
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_APROBADO");
+    assert.equal(t.intentos, 0);
+    assert.equal(t.resultado?.error, undefined);
+    planificador.parar();
+    sinRestos();
+  });
+
+  await prueba("nube: si `claude -p --cloud` pide terminal real y no hay node-pty, se detiene y propone GitHub Actions", async () => {
+    despejar();
+    const id = nueva("Pide terminal [nube-sin-terminal]", "PLAN_APROBADO", { plan: planDe("terminal", 9) });
+    const planificador = planificar(nubeConfig({ terminal: "auto" }));
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, /sin que alguien toque la terminal/);
+    assert.match(t.resultado.error.motivo, /GitHub Actions \(tarjeta cmvmjh9a504dp2mrpg7cazs8u\)/);
+    assert.match(t.resultado.error.motivo, /not a TTY/);
+    planificador.parar();
+    sinRestos();
+  });
+
+  await prueba("nube: si la sesión nunca deja el commit 'resultado:', la tarjeta pasa a ERROR con el link de la sesión", async () => {
+    despejar();
+    const id = nueva("Se quedó pensando [nube-sin-resultado]", "PLAN_APROBADO", { plan: planDe("pensando", 9) });
+    const planificador = planificar(nubeConfig({ esperaMinutos: 0.03 }));
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, /no dejó el commit "resultado:"/);
+    assert.ok(t.resultado.error.motivo.includes(enlaceDe("Se quedó pensando [nube-sin-resultado]")));
+    planificador.parar();
+    sinRestos();
+  });
+
+  await prueba("nube: si la sesión de la nube sube un archivo .env, no se sube nada", async () => {
+    despejar();
+    const id = nueva("Sube un secreto [nube-env]", "PLAN_APROBADO", { plan: planDe("secreto", 9) });
+    const planificador = planificar(nubeConfig());
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, /archivos \.env/);
+    planificador.parar();
+    sinRestos();
+  });
+
   await prueba("el log dice qué tarjeta corre en cada sesión y cuántas corren al tiempo", async () => {
     const archivos = fs.readdirSync(path.join(T, "trabajo", "logs"));
     const texto = fs.readFileSync(path.join(T, "trabajo", "logs", archivos[0]), "utf8");
     assert.match(texto, /\[s1 [A-Za-z0-9]{8}\] tomé "/);
     assert.match(texto, /\[s2 [A-Za-z0-9]{8}\] tomé "/);
-    assert.match(texto, /corriendo 2\/3 tarjetas al tiempo: s1 "/);
+    assert.match(texto, /corriendo 2\/3 tarjetas al tiempo en aizen1: s1 "/);
   });
 
   await prueba("el registro se escribe por día en carpetaTrabajo/logs y nunca muestra la clave", async () => {

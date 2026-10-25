@@ -55,7 +55,7 @@ import {
   estaTrabajando,
   sePuedeMarcarHechoAMano,
 } from "./reglas";
-import { type ModelosDelResultado, modelosDeEntrada } from "./modelos-del-coordinador";
+import { type ModelosDelResultado, esLinkDeSesion, modelosDeEntrada } from "./modelos-del-coordinador";
 import { archivosDeEntrada, migracionDestructivaDeEntrada } from "./reglas-riesgo";
 
 /* ───────────────────────────────────────────────────────────────────── repos ── */
@@ -152,6 +152,17 @@ export type EtapaDelTrabajador = "planear" | "construir" | "subir";
  */
 export const MINUTOS_POR_ETAPA: Record<EtapaDelTrabajador, number> = { planear: 20, construir: 90, subir: 45 };
 
+/** Dónde construye el Coordinador (25-oct-2026): en aizen1 o en la nube (`claude --cloud`). */
+export type LugarDeConstruccion = "aizen1" | "nube";
+
+/** Construir en la nube tiene 180 minutos (en aizen1 siguen siendo 90): la sesión tarda más y luego se verifica en aizen1. */
+export const MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE = 180;
+
+/** El tope de una etapa en minutos. Solo construir cambia, y solo si el latido dijo que se construye en la nube. */
+export function topeDeLaEtapa(etapa: EtapaDelTrabajador, lugar?: LugarDeConstruccion | null): number {
+  return etapa === "construir" && lugar === "nube" ? MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE : MINUTOS_POR_ETAPA[etapa];
+}
+
 /**
  * Sin latido, el candado vence a los 5 minutos (así un Coordinador que se apagó se nota pronto). Cada
  * latido lo corre otros 5 minutos, nunca más allá del tope de la etapa.
@@ -175,9 +186,12 @@ export const ETAPA_DEL_ESTADO: Partial<Record<EstadoTarjetaTablero, EtapaDelTrab
 
 const MINUTO = 60_000;
 
-/** El vencimiento del candado: ahora + gracia, sin pasar del tope de la etapa contado desde que la tomó. */
-export function vencimientoDelCandado(etapa: EtapaDelTrabajador, iniciadoEn: Date, ahora: Date): Date {
-  const tope = iniciadoEn.getTime() + MINUTOS_POR_ETAPA[etapa] * MINUTO;
+/**
+ * El vencimiento del candado: ahora + gracia, sin pasar del tope de la etapa contado desde que la tomó.
+ * `lugar` = "nube" solo importa al construir (180 min en vez de 90).
+ */
+export function vencimientoDelCandado(etapa: EtapaDelTrabajador, iniciadoEn: Date, ahora: Date, lugar?: LugarDeConstruccion | null): Date {
+  const tope = iniciadoEn.getTime() + topeDeLaEtapa(etapa, lugar) * MINUTO;
   return new Date(Math.min(ahora.getTime() + MINUTOS_DE_GRACIA_DEL_LATIDO * MINUTO, tope));
 }
 
@@ -195,8 +209,25 @@ export const MOTIVO_VENCIDA = [
  * no viene: un Coordinador viejo sigue de a una) y `excluir` = ids que no quiere ahora (chocan con lo que
  * ya tiene corriendo).
  */
-/** Cuántas tarjetas a la vez puede tener el Coordinador (lo manda él; tope duro 5). */
-export const MAXIMO_EN_PARALELO = 5;
+/**
+ * Cuántas tarjetas a la vez puede tener el Coordinador (lo manda él; tope duro 12). Desde el 25-oct-2026 caben las
+ * de aizen1 (máximo 2) más las que se construyen en la nube (tope de seguridad de 8 en el Coordinador).
+ */
+export const MAXIMO_EN_PARALELO = 12;
+
+/** Un link de sesión de Claude en la nube: solo https://claude.ai/code/session_… (nada de otros sitios ni parámetros). */
+export function linkDeSesionDeEntrada(valor: unknown): string | null {
+  const link = textoONull(valor, 300);
+  return esLinkDeSesion(link) ? link : null;
+}
+
+/** Lo que el latido de una tarjeta puede decir al construir: dónde (aizen1 o nube) y el link de la sesión de la nube. */
+export function latidoDeEntrada(cuerpo: unknown): { lugar: LugarDeConstruccion | null; linkSesion: string | null } {
+  const datos = (cuerpo && typeof cuerpo === "object" ? cuerpo : {}) as Record<string, unknown>;
+  const lugar = datos.lugar === "nube" || datos.lugar === "aizen1" ? datos.lugar : null;
+  // El link solo vale si la construcción es en la nube.
+  return { lugar, linkSesion: lugar === "nube" ? linkDeSesionDeEntrada(datos.sesion) : null };
+}
 
 export type PedidoDeTomar = { maxParalelo?: unknown; excluir?: unknown };
 
@@ -691,6 +722,12 @@ export type ResultadoDelTrabajador = {
   archivos?: string[];
   /** Lo destructivo que encontró en la migración nueva (DROP, UPDATE...). [] = nada. Solo si vino. */
   migracionDestructiva?: string[];
+  /** Dónde se construyó (25-oct-2026): "aizen1" o "nube". Solo si vino (un Coordinador viejo no lo manda). */
+  construidoEn?: LugarDeConstruccion;
+  /** El link de la sesión de Claude en la nube (solo claude.ai/code/session_…). Solo si se construyó en la nube. */
+  linkSesion?: string;
+  /** Cuántos segundos dijo la nube que tardó (la línea "resultado:" de su commit). */
+  segundosNube?: number;
 };
 
 export type MotoresDelResultado = Partial<Record<"plan" | "construir" | "revisar", "claude" | "codex">>;
@@ -719,7 +756,14 @@ export function resultadoDeEntrada(valor: unknown): ResultadoDelTrabajador {
   const modelo = modelosDeEntrada(datos.modelo);
   const archivos = archivosDeEntrada(datos.archivos);
   const destructivo = migracionDestructivaDeEntrada(datos.migracionDestructiva);
+  const construidoEn: LugarDeConstruccion | null = datos.construidoEn === "nube" || datos.construidoEn === "aizen1" ? datos.construidoEn : null;
+  // El link solo se guarda si se construyó en la nube y es de claude.ai (nada de otros sitios).
+  const linkSesion = construidoEn === "nube" ? linkDeSesionDeEntrada(datos.linkSesion) : null;
+  const segundosNube = construidoEn === "nube" && typeof datos.segundosNube === "number" && Number.isFinite(datos.segundosNube) && datos.segundosNube >= 0 ? Math.round(datos.segundosNube) : null;
   return {
+    ...(construidoEn ? { construidoEn } : {}),
+    ...(linkSesion ? { linkSesion } : {}),
+    ...(segundosNube !== null ? { segundosNube } : {}),
     ...(motor ? { motor } : {}),
     ...(modelo ? { modelo } : {}),
     // Se guardan 100; la revisión de riesgo (trabajador.ts) mira la lista completa (hasta 300) del cuerpo.

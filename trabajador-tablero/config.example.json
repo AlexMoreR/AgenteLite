@@ -17,7 +17,23 @@
   },
   "pausaLimiteCodexMinutos": 30,
   "umbralClaude": 80,
-  "maxParalelo": 3,
+  "maxParalelo": 2,
+  "nube": {
+    "activa": true,
+    "maxTareas": 8,
+    "maxArchivosChica": 8,
+    "vigilarCadaSegundos": 60,
+    "esperaMinutos": 120,
+    "verificarMinutos": 45,
+    "terminal": "auto",
+    "comandoGh": [
+      "gh"
+    ],
+    "entorno": {
+      "DATABASE_URL": "postgresql://trabajador:no-usar@127.0.0.1:1/no_usar",
+      "DIRECT_URL": "postgresql://trabajador:no-usar@127.0.0.1:1/no_usar"
+    }
+  },
   "limites": {
     "cpuPorciento": 85,
     "memoriaPorciento": 85
@@ -27,6 +43,7 @@
     "latidoSegundos": 60,
     "planMinutos": 19,
     "construirMinutos": 88,
+    "construirNubeMinutos": 178,
     "subirMinutos": 44,
     "comandoMinutos": 30,
     "pausaLimiteMinutos": 30
@@ -46,6 +63,7 @@
   },
   "repos": {
     "aizencrm": {
+      "github": "AlexMoreR/AgenteLite",
       "ruta": "D:/Proyectos/AgenteLite",
       "ramaBase": "main",
       "remoto": "origin",
@@ -221,6 +239,7 @@
       }
     },
     "gestion": {
+      "github": "AlexMoreR/Gestion",
       "ruta": "D:/Proyectos/Gestion",
       "ramaBase": "main",
       "remoto": "origin",
@@ -291,6 +310,25 @@
         ],
         "ciMinutos": 20
       }
+    },
+    "messenger-basic": {
+      "github": "AlexMoreR/messenger-basic",
+      "ruta": "D:/Proyectos/messenger-basic",
+      "ramaBase": "main",
+      "remoto": "origin",
+      "instalar": [
+        "npm",
+        "ci"
+      ],
+      "verificar": [],
+      "pruebas": [
+        [
+          "npm",
+          "test"
+        ]
+      ],
+      "subirSolo": false,
+      "zonasProtegidas": {}
     }
   },
   "modelos": {

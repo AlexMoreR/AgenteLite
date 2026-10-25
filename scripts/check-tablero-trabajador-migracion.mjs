@@ -343,6 +343,22 @@ await prueba("vencidas: las que pasaron su vencimiento quedan ERROR con motivo (
   assert.equal(idea.estado, "EN_CURSO");
 });
 
+await prueba("vencidas: construir en la nube tiene tope de 180 min (en aizen1, 90): a los 100 min sin latido la de la nube vuelve a la fila y la de aizen1 pasó su tope", async () => {
+  await db.exec(`
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "intentos", "trabajoIniciadoEn", "trabajoVenceEn", "resultado") VALUES
+      ('tp-nube', 'tab2', 'En la nube', 'EN_CURSO', 'u-dueno', now(), 'tarea2', 'aizencrm', 1, '2026-10-25 10:00:00', '2026-10-25 11:40:00', '{"construccion":{"lugar":"nube"}}'),
+      ('tp-aizen', 'tab2', 'En aizen1', 'EN_CURSO', 'u-dueno', now(), 'tarea2', 'aizencrm', 1, '2026-10-25 10:00:00', '2026-10-25 11:40:00', '{"construccion":{"lugar":"aizen1"}}')`);
+  const vencidas = await filas(sql.SQL_PASAR_VENCIDAS_A_ERROR, ["ws2", "2026-10-25T12:00:00.000Z", "Se pasó del tiempo", "2026-10-25T12:00:00.000Z", 5]);
+  assert.deepEqual(
+    vencidas.map((f) => [f.id, f.antes, f.estado]).sort(),
+    [
+      ["tp-aizen", "EN_CURSO", "ERROR"],
+      ["tp-nube", "EN_CURSO", "PLAN_APROBADO"],
+    ],
+    "con el tope de 90 la de aizen1 ya lo pasó; la de la nube tiene hasta los 180",
+  );
+});
+
 await prueba("arranque: lo que el Coordinador anterior dejó con candado vuelve a la fila, sin ERROR y sin gastar el intento", async () => {
   await db.exec(`
     INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "intentos", "trabajoVenceEn") VALUES

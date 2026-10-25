@@ -13,7 +13,7 @@
   (SQL_PASAR_VENCIDAS_A_ERROR y SQL_ARRANQUE también escriben filas de IntentoTarjeta: 20261024120000_tablero_intentos.)
 */
 
-import { MINUTOS_POR_ETAPA } from "./reglas-trabajador";
+import { MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE, MINUTOS_POR_ETAPA } from "./reglas-trabajador";
 
 const AHORA = `($2::timestamptz AT TIME ZONE 'UTC')`;
 
@@ -48,7 +48,12 @@ const idDelIntento = (v: string) => `'int' || md5(random()::text || clock_timest
 export const SQL_PASAR_VENCIDAS_A_ERROR = `
 WITH v AS (
   SELECT c."id", c."tableroId", c."estado"::text AS "antes", c."trabajoIniciadoEn" AS "ini", c."trabajoVenceEn" AS "vence",
-         CASE c."estado"::text WHEN 'PLANEANDO' THEN ${MINUTOS_POR_ETAPA.planear} WHEN 'EN_CURSO' THEN ${MINUTOS_POR_ETAPA.construir} ELSE ${MINUTOS_POR_ETAPA.subir} END AS "tope",
+         CASE c."estado"::text
+           WHEN 'PLANEANDO' THEN ${MINUTOS_POR_ETAPA.planear}
+           -- Construir en la nube tiene 180 min: el latido de la nube deja resultado.construccion.lugar = 'nube'.
+           WHEN 'EN_CURSO' THEN (CASE WHEN c."resultado"->'construccion'->>'lugar' = 'nube' THEN ${MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE} ELSE ${MINUTOS_POR_ETAPA.construir} END)
+           ELSE ${MINUTOS_POR_ETAPA.subir}
+         END AS "tope",
          (
            SELECT count(*) FROM "IntentoTarjeta" e
            WHERE e."tarjetaId" = c."id" AND NOT e."cuentaComoIntento"

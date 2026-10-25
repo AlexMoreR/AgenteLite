@@ -36,6 +36,7 @@ import {
 } from "@/features/tableros-inteligentes/services/reglas";
 import { textoDelCoordinador, vistaDelCoordinador } from "@/features/tableros-inteligentes/services/coordinador-en-vivo";
 import { contarHijas } from "@/features/tableros-inteligentes/services/niveles";
+import { dondeSeConstruyo } from "@/features/tableros-inteligentes/services/modelos-del-coordinador";
 import { RIESGOS } from "@/features/tableros-inteligentes/services/reglas-riesgo";
 import {
   MOMENTOS_DE_APROBACION,
@@ -453,7 +454,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "ver_plan_y_resultado",
     title: "Ver el plan y el resultado del Coordinador",
     description:
-      "Muestra en qué va una tarjeta que ejecuta el trabajador: estado, repo, zona protegida, el plan que escribió, el resultado (resumen, pruebas, si pasó, si sube sola, la rama con su link, commit, migración, la subida con el link del commit o el error con su motivo y la reversión si la hubo) y quién aprobó qué (la tarea, el plan, el sí final), cuándo y por dónde (pantalla o voz). Llamarla antes de aprobar_tarjeta para poder leerle a la persona lo que aprueba.",
+      "Muestra en qué va una tarjeta que ejecuta el trabajador: estado, repo, zona protegida, el plan que escribió, dónde se construyó (construida_en: aizen1 o la nube de Claude, con link_sesion para mirar la sesión), el resultado (resumen, pruebas, si pasó, si sube sola, la rama con su link, commit, migración, la subida con el link del commit o el error con su motivo y la reversión si la hubo) y quién aprobó qué (la tarea, el plan, el sí final), cuándo y por dónde (pantalla o voz). Llamarla antes de aprobar_tarjeta para poder leerle a la persona lo que aprueba.",
     inputSchema: {
       type: "object",
       properties: { tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero)" } },
@@ -947,6 +948,8 @@ export async function ejecutarHerramientaMcpTableros(
         tableroDeLaTarjeta(contexto,args.tarjeta_id),
       ]);
       const resultado = tarjeta.resultado;
+      // Dónde se construyó (aizen1 o la nube de Claude) y el link de la sesión de la nube (25-oct-2026).
+      const donde = dondeSeConstruyo(tarjeta.estado, resultado);
       return {
         tablero: referencia(tablero),
         tarjeta_id: tarjeta.id,
@@ -954,6 +957,7 @@ export async function ejecutarHerramientaMcpTableros(
         estado: tarjeta.estado,
         estado_texto: NOMBRE_DEL_ESTADO[tarjeta.estado],
         repo: tarjeta.repo,
+        ...(donde ? { construida_en: donde.lugar === "nube" ? "la nube" : "aizen1", ...(donde.link ? { link_sesion: donde.link } : {}) } : {}),
         zona_protegida: tarjeta.zonaProtegida,
         ...(tarjeta.repo
           ? {

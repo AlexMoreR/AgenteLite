@@ -64,7 +64,7 @@ for (const senal of ["SIGINT", "SIGTERM"]) {
 const { limites, motores } = config;
 registro.info(
   `Coordinador arrancó: CRM ${config.urlCrm}, repos ${Object.keys(config.repos).join(", ")}, carpeta ${config.carpetaTrabajo}; ` +
-    `hasta ${config.maxParalelo} tarjetas al tiempo (no abre otra con CPU > ${limites.cpuPorciento} % o memoria > ${limites.memoriaPorciento} %; con el PC lleno espera hasta ${limites.esperaMaximaMinutos} min antes de tomar); ` +
+    `hasta ${config.maxParalelo} tarjetas al tiempo en aizen1 (las grandes y el desborde se construyen en la nube con claude --cloud: ${config.nube.activa ? `hasta ${config.nube.maxTareas} a la vez` : "APAGADO"}) (no abre otra con CPU > ${limites.cpuPorciento} % o memoria > ${limites.memoriaPorciento} %; con el PC lleno espera hasta ${limites.esperaMaximaMinutos} min antes de tomar); ` +
     `repara solo hasta 3 veces (parte la tarea desde ${config.partir.archivosMinimos} archivos a medias); ` +
     `motores: planear ${motores.planear}, construir ${motores.construir}, revisar ${motores.revisar ?? "ninguno"}` +
     `${motores.respaldoClaude ? " (respaldo Claude)" : ""}; todo con Codex si Claude pasa el ${config.umbralClaude} % de uso`,

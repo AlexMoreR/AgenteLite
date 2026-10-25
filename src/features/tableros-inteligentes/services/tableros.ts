@@ -190,6 +190,11 @@ export type ResultadoVista = {
   subeSolo?: boolean;
   /** Qué modelo hizo cada paso (plan, construir, revisar, subagentes). */
   modelo?: Partial<Record<"plan" | "construir" | "revisar" | "subagentes", string>>;
+  /** Dónde se construyó (25-oct-2026): "aizen1" o "nube" (`claude --cloud`), y el link de la sesión de la nube. */
+  construidoEn?: "aizen1" | "nube";
+  linkSesion?: string | null;
+  /** Mientras se construye (EN_CURSO): dónde y la sesión, como lo avisa el latido. */
+  construccion?: { lugar?: "aizen1" | "nube"; linkSesion?: string | null };
   subida?: { commit?: string | null; version?: string | null; linkCommit?: string | null; cuando?: string };
   /** Si el Coordinador la partió: las tarjetas hijas (ids), la causa y cuándo. */
   partida?: { hijas?: string[]; causa?: string; cuando?: string };

@@ -11,6 +11,7 @@ import { cargar } from "./supervisor-cargar.mjs";
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas.ts");
 const trabajo = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
 const { disponerRadial, sePisan, RADIO_INICIAL, ANCHO_CENTRO, ALTO_CENTRO, ANCHO_TARJETA, MAX_PRIMER_ANILLO, SEPARACION, ALTO_TARJETA } = cargar("src/features/tableros-inteligentes/services/disposicion.ts");
+const modelosCoordinador = cargar("src/features/tableros-inteligentes/services/modelos-del-coordinador.ts");
 const reglasNiveles = cargar("src/features/tableros-inteligentes/services/niveles.ts");
 
 let pruebas = 0;
@@ -906,10 +907,13 @@ prueba("dependencias: no se permiten ciclos", () => {
   assert.equal(trabajo.dependenciaHaceCiclo(flechas, "cerebro", "ventas"), false);
 });
 
-prueba("tomar en paralelo: maxParalelo 1 si no viene (trabajador viejo), tope 5; excluir solo ids de texto", () => {
+prueba("tomar en paralelo: maxParalelo 1 si no viene (trabajador viejo), tope 12 (aizen1 + nube); excluir solo ids de texto", () => {
   assert.deepEqual(trabajo.opcionesDeTomar({}), { maxParalelo: 1, excluir: [] });
   assert.deepEqual(trabajo.opcionesDeTomar({ maxParalelo: 3, excluir: ["a", "", 7, null, "b"] }), { maxParalelo: 3, excluir: ["a", "b"] });
-  assert.equal(trabajo.opcionesDeTomar({ maxParalelo: 99 }).maxParalelo, 5);
+  assert.equal(trabajo.MAXIMO_EN_PARALELO, 12);
+  assert.equal(trabajo.opcionesDeTomar({ maxParalelo: 10 }).maxParalelo, 10, "2 en aizen1 + 8 en la nube caben");
+  assert.equal(trabajo.opcionesDeTomar({ maxParalelo: 12 }).maxParalelo, 12);
+  assert.equal(trabajo.opcionesDeTomar({ maxParalelo: 99 }).maxParalelo, 12);
   assert.equal(trabajo.opcionesDeTomar({ maxParalelo: 0 }).maxParalelo, 1);
   assert.equal(trabajo.opcionesDeTomar({ maxParalelo: "2" }).maxParalelo, 2);
   assert.equal(trabajo.opcionesDeTomar({ maxParalelo: "x" }).maxParalelo, 1);
@@ -925,6 +929,82 @@ prueba("candado: cada latido da 5 min más, nunca más allá del tope de la etap
   assert.equal(trabajo.vencimientoDelCandado("construir", inicio, min(88)).toISOString(), min(90).toISOString(), "tope");
   assert.equal(trabajo.vencimientoDelCandado("planear", inicio, min(19)).toISOString(), min(20).toISOString(), "tope plan");
   assert.equal(trabajo.vencimientoDelCandado("subir", inicio, min(44)).toISOString(), min(45).toISOString(), "tope subir");
+});
+
+prueba("construir en la nube (25-oct-2026): 180 min solo cuando el latido dice nube; en aizen1 y en las otras etapas no cambia", () => {
+  assert.equal(trabajo.MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE, 180);
+  assert.equal(trabajo.topeDeLaEtapa("construir"), 90);
+  assert.equal(trabajo.topeDeLaEtapa("construir", "aizen1"), 90);
+  assert.equal(trabajo.topeDeLaEtapa("construir", "nube"), 180);
+  assert.equal(trabajo.topeDeLaEtapa("planear", "nube"), 20, "la nube solo cambia el tope de construir");
+  assert.equal(trabajo.topeDeLaEtapa("subir", "nube"), 45);
+  const inicio = new Date("2026-10-25T15:00:00Z");
+  const min = (n) => new Date(inicio.getTime() + n * 60_000);
+  assert.equal(trabajo.vencimientoDelCandado("construir", inicio, min(88), "aizen1").toISOString(), min(90).toISOString(), "aizen1: 90");
+  assert.equal(trabajo.vencimientoDelCandado("construir", inicio, min(88), "nube").toISOString(), min(93).toISOString(), "nube: sigue dando 5 min");
+  assert.equal(trabajo.vencimientoDelCandado("construir", inicio, min(178), "nube").toISOString(), min(180).toISOString(), "tope de 180");
+  assert.equal(trabajo.vencimientoDelCandado("planear", inicio, min(19), "nube").toISOString(), min(20).toISOString());
+});
+
+prueba("el latido dice dónde se construye y el link de la sesión; solo se aceptan links seguros de claude.ai", () => {
+  const sesion = "https://claude.ai/code/session_01AbC-9_x";
+  assert.deepEqual(trabajo.latidoDeEntrada({ lugar: "nube", sesion }), { lugar: "nube", linkSesion: sesion });
+  assert.deepEqual(trabajo.latidoDeEntrada({ lugar: "aizen1" }), { lugar: "aizen1", linkSesion: null });
+  assert.deepEqual(trabajo.latidoDeEntrada({}), { lugar: null, linkSesion: null }, "un Coordinador viejo no manda nada");
+  assert.deepEqual(trabajo.latidoDeEntrada(null), { lugar: null, linkSesion: null });
+  assert.deepEqual(trabajo.latidoDeEntrada({ lugar: "luna", sesion }), { lugar: null, linkSesion: null }, "lugar desconocido");
+  assert.equal(trabajo.latidoDeEntrada({ lugar: "aizen1", sesion }).linkSesion, null, "el link solo vale en la nube");
+  for (const malo of [
+    "http://claude.ai/code/session_ABC",
+    "https://claude.ai.malo.example/code/session_ABC",
+    "https://evil.example/https://claude.ai/code/session_ABC",
+    "https://claude.ai/code/session_ABC?next=https://evil.example",
+    "https://claude.ai/code/session_ABC/../../x",
+    "https://claude.ai/code/",
+    "javascript:alert(1)",
+    "https://claude.ai/code/session_ABC ",
+    42,
+    null,
+  ]) {
+    assert.equal(trabajo.linkDeSesionDeEntrada(malo), malo === "https://claude.ai/code/session_ABC " ? "https://claude.ai/code/session_ABC" : null, String(malo));
+    assert.equal(trabajo.latidoDeEntrada({ lugar: "nube", sesion: malo }).linkSesion, malo === "https://claude.ai/code/session_ABC " ? "https://claude.ai/code/session_ABC" : null);
+  }
+});
+
+prueba("el resultado guarda dónde se construyó (aizen1 o nube) y el link de la sesión; un link raro o un Coordinador viejo no guardan nada", () => {
+  const base = { resumen: "Hecho", paso: true };
+  const sesion = "https://claude.ai/code/session_01AbC";
+  const nube = trabajo.resultadoDeEntrada({ ...base, construidoEn: "nube", linkSesion: sesion, segundosNube: 361.4 });
+  assert.equal(nube.construidoEn, "nube");
+  assert.equal(nube.linkSesion, sesion);
+  assert.equal(nube.segundosNube, 361);
+  const enAizen1 = trabajo.resultadoDeEntrada({ ...base, construidoEn: "aizen1", linkSesion: sesion, segundosNube: 5 });
+  assert.equal(enAizen1.construidoEn, "aizen1");
+  assert.ok(!("linkSesion" in enAizen1) && !("segundosNube" in enAizen1), "en aizen1 no hay sesión");
+  const raro = trabajo.resultadoDeEntrada({ ...base, construidoEn: "nube", linkSesion: "https://evil.example/code/session_X", segundosNube: -3 });
+  assert.equal(raro.construidoEn, "nube");
+  assert.ok(!("linkSesion" in raro) && !("segundosNube" in raro));
+  const viejo = trabajo.resultadoDeEntrada(base);
+  assert.ok(!("construidoEn" in viejo) && !("linkSesion" in viejo));
+  assert.ok(!("construidoEn" in trabajo.resultadoDeEntrada({ ...base, construidoEn: "luna" })));
+});
+
+prueba("la tarjeta dice dónde se construyó: 'La está construyendo Claude en la nube…', 'Construida en: aizen1 / la nube' y el link de la sesión", () => {
+  const sesion = "https://claude.ai/code/session_01AbC";
+  const { dondeSeConstruyo, esLinkDeSesion } = modelosCoordinador;
+  assert.deepEqual(dondeSeConstruyo("EN_CURSO", { construccion: { lugar: "nube", linkSesion: sesion } }), { lugar: "nube", texto: "La está construyendo Claude en la nube…", link: sesion });
+  assert.equal(dondeSeConstruyo("EN_CURSO", { construccion: { lugar: "nube", linkSesion: null } }).link, null, "todavía sin link");
+  assert.equal(dondeSeConstruyo("EN_CURSO", { construccion: { lugar: "aizen1" } }), null, "en aizen1 vale el aviso de siempre");
+  assert.equal(dondeSeConstruyo("EN_CURSO", null), null);
+  assert.deepEqual(dondeSeConstruyo("HECHO", { construidoEn: "nube", linkSesion: sesion }), { lugar: "nube", texto: "Construida en: la nube", link: sesion });
+  assert.deepEqual(dondeSeConstruyo("POR_REVISAR", { construidoEn: "aizen1" }), { lugar: "aizen1", texto: "Construida en: aizen1", link: null });
+  assert.equal(dondeSeConstruyo("HECHO", { construidoEn: "nube", linkSesion: "https://evil.example/x" }).link, null, "un link que no es de claude.ai se descarta");
+  assert.equal(dondeSeConstruyo("HECHO", {}), null, "una tarjeta de antes no dice nada");
+  // Una que se cayó en la nube (ERROR) conserva el link de la sesión para mirarla.
+  assert.deepEqual(dondeSeConstruyo("ERROR", { construccion: { lugar: "nube", linkSesion: sesion }, error: { motivo: "x" } }), { lugar: "nube", texto: "Construida en: la nube", link: sesion });
+  assert.equal(esLinkDeSesion(sesion), true);
+  assert.equal(esLinkDeSesion("https://claude.ai/code/session_"), false);
+  assert.equal(esLinkDeSesion(undefined), false);
 });
 
 prueba("texto de confirmación: ≥ 8 caracteres, con 'sí' y 'apruebo' (sin importar tildes ni mayúsculas); 'no apruebo' no", () => {

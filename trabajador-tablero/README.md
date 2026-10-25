@@ -87,9 +87,68 @@ en **su propia sesión de Claude Code**, su worktree (`carpetaTrabajo/wt/<id>-<e
 - **Subagentes.** Las instrucciones le piden a Claude usar subagentes para investigar el código,
   escribir las pruebas y revisar el cambio antes de entregarlo.
 - **El log** antepone la sesión y la tarjeta a cada línea (`[s2 abcd1234] …`) y cada vez que empieza o
-  termina una escribe `corriendo N/M tarjetas al tiempo: s1 "…" (construir, aizencrm); s2 …`.
+  termina una escribe `corriendo N/M tarjetas al tiempo en aizen1 (y K en la nube): s1 "…" (construir, aizencrm); s2 …`.
 - Del lado del CRM: `/tomar` recibe `{ maxParalelo, excluir }`, `/candidatas` dice qué tomaría y
   `/:id/soltar` devuelve una tarjeta sin error. Un trabajador viejo (sin cuerpo) sigue de a una.
+
+### Tareas pequeñas en aizen1, grandes a la nube (desde el 25-oct-2026)
+
+Decisión del dueño: "aprovechar todo". **aizen1 corre como máximo 2 tareas a la vez** (`maxParalelo`, 2) y las
+grandes se construyen en la nube de Claude con `claude --cloud`, sin copiar y pegar. La regla es fija, sin IA
+(`lib/nube.mjs`, `lib/bucle.mjs`) y se aplica al momento de CONSTRUIR; planear (escribir el plan) y subir
+siguen en aizen1.
+
+| Tarea | A dónde va |
+|---|---|
+| **GRANDE**: el plan nombra más de 8 archivos (parte 5), trae migración, crea un agente nuevo, o ya falló por tamaño o recursos (`tiempo_agotado`, `pc_sobrecargado`, `tarea_muy_grande`) | **siempre a la nube** |
+| pequeña, con puesto libre en aizen1 | aizen1 |
+| **desborde**: aizen1 ya tiene 2 y hay más aprobadas en fila | la siguiente va a la nube aunque sea pequeña |
+| espera su *plan* (APROBADO) | no va a la nube: espera puesto en aizen1 |
+
+- **En la nube no hay tope fijo**, solo uno de seguridad: `nube.maxTareas` (8). Una tarea de la nube **no
+  ocupa** un puesto de aizen1 (el CRM da 12 en total). Si Claude dice "límite de uso", la tarjeta se suelta sin
+  error y sin gastar el intento, como hoy.
+- **Cómo se manda** (`etapas.mjs`, `construirLaParteDeLaNube`): (1) crea la rama `tablero/<id>-<nombre>` desde
+  main y la sube a GitHub **sin `--force`** (si ya existe de un intento anterior usa `-nube2`, `-nube3`…);
+  (2) desde un worktree de esa rama lanza `claude -p --cloud … --output-format json` con la instrucción por
+  stdin: el plan aprobado completo, la orden de leer `CLAUDE.md`, las 4 lecciones (preparar con `npm ci` →
+  `npx prisma generate` → build → pruebas; todo en primer plano; dejar todo en la rama; si falla, las últimas 30
+  líneas del error), las prohibiciones (nada de bases de datos, claves, `.env` ni `--force`; no tocar el bot, el
+  libro V3 ni Meta Ads) y las variables **no secretas** (`nube.entorno`: la misma dirección de base falsa que
+  usa aizen1 para compilar). Las claves de producción **nunca** van a la nube.
+- **Vigilar sin interrumpir**: cada minuto (`nube.vigilarCadaSegundos`) mira la rama con
+  `gh api repos/<dueño>/<repo>/commits?sha=<rama>` buscando el commit vacío
+  `resultado: build=OK|FALLO tests=OK|FALLO segundos=N`. **Nunca** `claude --teleport`. Mientras tanto el
+  latido de la tarjeta sigue (con `{ lugar: "nube", sesion }`: el CRM guarda el link `claude.ai/code/session_…` y
+  da 180 minutos en vez de 90). Si no aparece en `nube.esperaMinutos` (120), la tarjeta pasa a ERROR con el link. Lo que vuelve se verifica en
+  aizen1 con su propio reloj (`nube.verificarMinutos`, 45) y, como mucho, 2 a la vez (`maxParalelo`): la
+  verificación de la nube hace fila para no pasar de los puestos de aizen1.
+- **Al volver** (en aizen1, igual que cualquier tarea): trae la rama, instala, `prisma generate`, tipos,
+  build, pruebas y lint comparado con main; revisa las zonas protegidas y que no haya `.env`; ensaya la
+  migración en PGlite y en producción (BEGIN…ROLLBACK, por ssh: las claves no salen de aizen1); sube la rama
+  sin `--force` y la tarjeta sigue como siempre. Con `FALLO` la tarjeta va a ERROR con las 30 líneas que dejó
+  la sesión en la rama (o a reparar, si el CRM entiende reparaciones).
+- **La tarjeta** dice "Construida en: aizen1" o "Construida en: la nube · Ver la sesión", y mientras se
+  construye "La está construyendo Claude en la nube… Ver la sesión". El panel "Coordinador en vivo" lo muestra
+  con `lugar: "nube"` y `linkSesion`.
+- **Terminal real**: `--cloud` exige una terminal real (pty). `nube.terminal` = `"auto"` (por defecto) prueba
+  primero `claude -p --cloud` sin terminal y, si no da el link, una terminal real con `node-pty`, que NO viene
+  instalada: `npm install node-pty --prefix trabajador-tablero` (solo en esta carpeta, nunca en el CRM). Si ninguna
+  de las dos funciona sin que alguien la toque, el trabajo se detiene, lo dice en la tarjeta y propone GitHub
+  Actions (tarjeta `cmvmjh9a504dp2mrpg7cazs8u`). `"sin-terminal"` y `"pty"` fuerzan una sola vía.
+  **Primer paso en aizen1**: lanzar una tarea de prueba desde la tarea programada y comprobar que se lee el link
+  y el resultado sin tocar la sesión; la vía de `node-pty` (escribir la instrucción en la terminal) no se pudo
+  probar sin una sesión de verdad.
+- **Limitación**: si el Coordinador se reinicia con tareas en la nube, pierde la pista de esas sesiones (la
+  tarjeta vuelve a la fila al arrancar); la rama queda en GitHub y la sesión puede seguir sola.
+- **Entorno de la nube** (`/web-setup` ya hecho con la cuenta del dueño): `AlexMoreR/AgenteLite`,
+  `AlexMoreR/Gestion` y `AlexMoreR/messenger-basic` quedan en `config.example.json` con su nombre en GitHub
+  (`github`) y sus pasos de preparación (`instalar`, `verificar`, `pruebas`), que van dentro de la instrucción: no
+  hay que tocar los otros repos. `messenger-basic` queda configurado, pero hoy el tablero no le crea tarjetas.
+- `--una-vez` y las pruebas de una sola vuelta construyen siempre en aizen1; el reparto lo hace el
+  planificador (el bucle normal).
+- `config.local.json` de aizen1 (no está en el repo): poner `"maxParalelo": 2` (bajarlo de 3) y copiar el bloque
+  `nube` y los `github` de `config.example.json`.
 
 ### Motores (Codex y Claude) (desde el 23-oct-2026)
 
@@ -325,6 +384,7 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 - `lib/choques.mjs`: qué tarjetas no pueden ir a la vez (zona, módulo, cola de subida).
 - `lib/recursos.mjs`: CPU y memoria del PC (y memoria en GB y disco libre para el latido).
 - `lib/latido.mjs`: el latido de cada 15 s al CRM para el panel "Coordinador en vivo".
+- `lib/nube.mjs`: la regla de reparto (grande o chica), el lanzamiento de `claude --cloud` (con o sin terminal real), el link de la sesión y la vigilancia de la rama en GitHub.
 - `lib/etapas.mjs`: planear, construir (con su revisión) y subir; `correrMotor` corre Claude o Codex.
 - `lib/motores.mjs`: qué motor hace cada paso, el límite de Codex y la vigilancia del uso de Claude.
 - `lib/ensayo.mjs`: ensayo de migraciones (PGlite y producción en BEGIN…ROLLBACK por ssh).

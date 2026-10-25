@@ -62,7 +62,8 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     arranque: () => pedir("/api/trabajador/tablero/arranque"),
     /** El latido del Coordinador entero (POST /api/trabajador/latido, cada 15 s): el panel "Coordinador en vivo". No es el de una tarjeta. */
     latidoDelCoordinador: (datos) => pedir("/api/trabajador/latido", datos),
-    latido: (id) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/latido`),
+    /** El latido de una tarjeta. Construyendo lleva { lugar: "aizen1" | "nube", sesion? }: en la nube el CRM da 180 min (no 90) y guarda el link. */
+    latido: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/latido`, limpio(datos)),
     plan: (id, plan) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/plan`, { plan }),
     resultado: (id, resultado) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/resultado`, resultado),
     subida: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/subida`, datos),

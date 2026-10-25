@@ -41,6 +41,7 @@ import {
   tituloDeLaParte,
   unirZonas,
   vencimientoDelCandado,
+  latidoDeEntrada,
   zonasDeEntrada,
   type AccionDeIntento,
   type AccionDelTrabajador,
@@ -84,7 +85,8 @@ import { QUIEN_TRABAJADOR, linkDeLaTarjeta } from "./tableros";
     del mismo repo que tocan la misma zona o módulo, ni dos subidas del mismo repo (van en `excluir`).
   - /:id/soltar la devuelve sin ERROR ni contar el intento (Claude llegó a su límite de uso, o choca con
     otra que corre): PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente.
-  - /:id/latido corre el vencimiento (de a 5 min, hasta el tope de la etapa: 20 / 90 / 45 min).
+  - /:id/latido corre el vencimiento (de a 5 min, hasta el tope de la etapa: 20 / 90 / 45 min; construyendo en la
+    nube, 180 min). Construyendo trae { lugar, sesion }: se guarda en resultado.construccion (25-oct-2026).
   - /:id/plan, /resultado, /subida y /error la mueven de estado (reglas-trabajador.ts). /resultado
     pasa a SUBIENDO (sube sola) o a POR_REVISAR (espera el sí final) según destinoDelResultado.
 
@@ -516,12 +518,23 @@ export async function accionDelTrabajador(
     if (!etapa || !actual.trabajoVenceEn || actual.trabajoVenceEn.getTime() <= ahora.getTime() || !actual.trabajoIniciadoEn) {
       throw new ErrorDelTrabajador("El candado de esta tarjeta ya venció: no sigas (el próximo /tomar la pasa a ERROR).", 409);
     }
-    const venceEn = vencimientoDelCandado(etapa, actual.trabajoIniciadoEn, ahora);
+    // Construyendo, el latido dice dónde (aizen1 o nube) y el link de la sesión de la nube. En la nube el tope es de
+    // 180 min (no 90) y la tarjeta muestra "La está construyendo Claude en la nube… Ver la sesión".
+    const { lugar, linkSesion } = latidoDeEntrada(cuerpo);
+    const venceEn = vencimientoDelCandado(etapa, actual.trabajoIniciadoEn, ahora, etapa === "construir" ? lugar : null);
+    const previo = resultadoComoObjeto(actual.resultado);
+    const construccionAntes = resultadoComoObjeto(previo.construccion);
+    const cambiaConstruccion = etapa === "construir" && lugar !== null && (construccionAntes.lugar !== lugar || (construccionAntes.linkSesion ?? null) !== linkSesion);
     const hecho = await prisma.tarjetaTablero.updateMany({
       where: { id: actual.id, estado: actual.estado, trabajoVenceEn: { gt: ahora } },
-      data: { trabajoVenceEn: venceEn },
+      data: {
+        trabajoVenceEn: venceEn,
+        ...(cambiaConstruccion ? { resultado: { ...previo, construccion: { lugar, linkSesion } } as Prisma.InputJsonValue } : {}),
+      },
     });
     if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    // Lo único visible que cambia un latido: dónde se construye y el link de la sesión (una o dos veces por tarjeta).
+    if (cambiaConstruccion) await prisma.tableroInteligente.updateMany({ where: { id: actual.tableroId }, data: { actualizadoEn: ahora } });
     return { ok: true, venceEn: venceEn.toISOString(), topeAlcanzado: venceEn.getTime() < ahora.getTime() + MINUTOS_DE_GRACIA_DEL_LATIDO * 60_000 };
   }
 

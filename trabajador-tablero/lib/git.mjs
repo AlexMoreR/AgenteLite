@@ -107,10 +107,19 @@ export async function archivosCambiados(cwd, base) {
     });
 }
 
-/** Empuja SOLO una rama del Coordinador (tablero/...). Con --force: cada intento la rehace desde main. */
-export async function pushDeRama(cwd, remoto, rama) {
+/**
+ * Empuja SOLO una rama del Coordinador (tablero/...). Con --force: cada intento la rehace desde main.
+ * `forzar: false` (las ramas que vienen de la nube, 25-oct-2026): sin --force, encima de lo que dejó la sesión.
+ */
+export async function pushDeRama(cwd, remoto, rama, { forzar = true } = {}) {
   if (!esRamaDelTrabajador(rama)) throw new ErrorDeGit(`"${rama}" no es una rama del Coordinador (tablero/...): no se empuja.`);
-  await git(cwd, ["push", "--force", remoto, `HEAD:refs/heads/${rama}`]);
+  await git(cwd, ["push", ...(forzar ? ["--force"] : []), remoto, `HEAD:refs/heads/${rama}`]);
+}
+
+/** ¿Existe `rama` en el remoto? (git ls-remote; si no se puede consultar, se supone que no.) */
+export async function ramaExisteEnElRemoto(cwd, remoto, rama) {
+  const resultado = await git(cwd, ["ls-remote", "--heads", remoto, `refs/heads/${rama}`], { permitirFallo: true });
+  return resultado.codigo === 0 && resultado.salida.trim().length > 0;
 }
 
 /** El push a la rama base (main): SOLO desde la etapa de subir (sube sola o con el sí final). Sin --force. */
