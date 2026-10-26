@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
+import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -472,8 +473,8 @@ async function estadoDelCerebro(workspaceId: string) {
     where: { workspaceId },
     select: { tokenCifrado: true, carpetaNombre: true, carpetaId: true, ultimaSincronizacion: true, ultimoError: true },
   });
-  if (!conexion?.tokenCifrado) return "apagada: Google Drive no está conectado (Mi empresa → Cerebro)";
-  if (!conexion.carpetaId) return "conectada a Google pero sin carpeta elegida: no sincroniza nada todavía";
+  if (!tieneAccesoAlDrive(conexion)) return "apagada: Google Drive no está conectado (Mi empresa → Cerebro)";
+  if (!conexion?.carpetaId) return "conectada a Google pero sin carpeta elegida: no sincroniza nada todavía";
   const cuando = conexion.ultimaSincronizacion ? `última sincronización buena: ${conexion.ultimaSincronizacion.toISOString().slice(0, 16).replace("T", " ")} UTC` : "todavía sin sincronizar";
   return `activa: el reloj trae el Drive (carpeta ${conexion.carpetaNombre ?? "sin nombre"}) cada hora, gana el Drive; ${cuando}${conexion.ultimoError ? `; ÚLTIMO ERROR: ${conexion.ultimoError}` : ""}`;
 }

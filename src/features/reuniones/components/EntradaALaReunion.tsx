@@ -31,7 +31,7 @@ function recordar(clave: string, valor: string) {
  * La puerta de la reunión: el nombre (si no hay sesión), el aviso de grabación y "Entrar".
  * Al entrar pide el pase al servidor del CRM y abre la sala.
  */
-export function EntradaALaReunion({ codigo, titulo, nombreConSesion }: { codigo: string; titulo: string; nombreConSesion: string | null }) {
+export function EntradaALaReunion({ codigo, titulo, sinGrabar = false, nombreConSesion }: { codigo: string; titulo: string; sinGrabar?: boolean; nombreConSesion: string | null }) {
   const [nombre, setNombre] = useState("");
   const [entrando, setEntrando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +82,7 @@ export function EntradaALaReunion({ codigo, titulo, nombreConSesion }: { codigo:
   };
 
   if (pase) {
-    return <SalaDeReunion codigo={codigo} titulo={titulo} pase={pase} onSalir={() => setPase(null)} />;
+    return <SalaDeReunion codigo={codigo} titulo={titulo} sinGrabar={sinGrabar} pase={pase} onSalir={() => setPase(null)} />;
   }
 
   return (

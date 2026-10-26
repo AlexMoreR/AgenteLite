@@ -24,8 +24,12 @@ async function contexto() {
   return puedeVerReuniones(access) ? access : null;
 }
 
-/** "Nueva reunión": deja la reunión lista con su link. La sala se abre cuando entra el primero. */
-export async function crearReunionAction(titulo?: string): Promise<{ id?: string; codigo?: string; error?: string }> {
+/**
+ * "Nueva reunión": deja la reunión lista con su link. La sala se abre cuando entra el primero.
+ * Con `sinGrabar` la videollamada funciona igual, pero no se graba, no se transcribe y no hay acta.
+ * Solo se elige aquí: después no se puede cambiar, para que no queden reuniones grabadas a medias.
+ */
+export async function crearReunionAction(titulo?: string, sinGrabar?: boolean): Promise<{ id?: string; codigo?: string; error?: string }> {
   const access = await contexto();
   if (!access) {
     return { error: "No autorizado" };
@@ -42,6 +46,7 @@ export async function crearReunionAction(titulo?: string): Promise<{ id?: string
       // El link sale del título (reunion-de-ventas, -2, -3 si ya existe); los viejos, al azar, siguen valiendo.
       codigo,
       sala: `reunion_${randomBytes(9).toString("hex")}`,
+      sinGrabar: sinGrabar === true,
     },
     select: { id: true, codigo: true },
   });

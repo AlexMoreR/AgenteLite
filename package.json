@@ -50,6 +50,7 @@
     "test:coordinador-en-vivo": "node scripts/check-coordinador-en-vivo.mjs",
     "test:reuniones-unir-pistas": "node scripts/check-reuniones-unir-pistas.mjs",
     "test:reuniones-link-firmado": "node scripts/check-reuniones-link-firmado.mjs",
+    "test:reuniones-sin-grabar": "node scripts/check-reuniones-sin-grabar.mjs",
     "test:reuniones-pase": "node scripts/check-reuniones-pase.mjs",
     "test:reuniones-migracion": "node scripts/check-reuniones-migracion.mjs",
     "test:migraciones-pglite":"node scripts/ensayo-migraciones-pglite.mjs",

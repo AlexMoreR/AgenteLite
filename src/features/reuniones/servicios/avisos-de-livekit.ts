@@ -15,6 +15,7 @@ import { grabarPista, type ConfigLivekit } from "@/features/reuniones/servicios/
   así queda una pista por persona, y si se cae y vuelve, la pista nueva se une por la hora.
 
   La reunión pasa a "En cola" cuando la sala se cerró y todas sus grabaciones terminaron.
+  Si es "Sin grabar" (sinGrabar), no se pide ninguna grabación y al cerrarse pasa directo a "Lista".
 
   LiveKit puede mandar el mismo aviso dos veces: todo lo de acá aguanta repetirse.
 */
@@ -92,7 +93,7 @@ async function reunionDeLaSala(sala: string | undefined) {
   if (!sala) {
     return null;
   }
-  return prisma.reunion.findUnique({ where: { sala }, select: { id: true, sala: true, estado: true } });
+  return prisma.reunion.findUnique({ where: { sala }, select: { id: true, sala: true, estado: true, sinGrabar: true } });
 }
 
 async function registrarParticipante(reunionId: string, participante: Participante) {
@@ -116,7 +117,8 @@ async function registrarParticipante(reunionId: string, participante: Participan
 }
 
 /**
- * Si la sala ya se cerró y no queda ninguna grabación andando, la reunión pasa a "En cola".
+ * Si la sala ya se cerró y no queda ninguna grabación andando, la reunión pasa a "En cola"
+ * (o directo a "Lista" si es "Sin grabar").
  * Si se cerró sin que nadie entrara, vuelve a "Esperando": el link sigue sirviendo.
  */
 export async function revisarSiTermino(reunionId: string) {
@@ -125,6 +127,7 @@ export async function revisarSiTermino(reunionId: string) {
     select: {
       estado: true,
       terminoEn: true,
+      sinGrabar: true,
       _count: { select: { participantes: { where: { NOT: { identidad: { startsWith: "EG_" } } } } } },
       pistas: { select: { estado: true } },
     },
@@ -142,9 +145,10 @@ export async function revisarSiTermino(reunionId: string) {
     });
     return;
   }
+  // Sin grabar: no hay audio que transcribir ni acta que hacer, así que no pasa por la cola.
   await prisma.reunion.updateMany({
     where: { id: reunionId, estado: { in: ["EN_VIVO", "ESPERANDO"] } },
-    data: { estado: "EN_COLA", aviso: null, motivoError: null },
+    data: { estado: reunion.sinGrabar ? "LISTA" : "EN_COLA", aviso: null, motivoError: null },
   });
 }
 
@@ -263,7 +267,8 @@ export async function procesarAvisoDeLivekit(aviso: AvisoDeLivekit, config: Conf
       return;
     }
     case "track_published": {
-      if (esMicrofono(aviso.track) && (reunion.estado === "EN_VIVO" || reunion.estado === "ESPERANDO")) {
+      // Sin grabar: no se crea la pista ni se pide la grabación (no se gasta disco ni tokens).
+      if (!reunion.sinGrabar && esMicrofono(aviso.track) && (reunion.estado === "EN_VIVO" || reunion.estado === "ESPERANDO")) {
         await empezarGrabacion(config, reunion, aviso);
       }
       return;

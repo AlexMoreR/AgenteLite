@@ -473,4 +473,156 @@ await prueba("el coach suma las reglas del cerebro al prompt; sin cerebro el pro
   assert.equal(vacio.sistema, sin.sistema);
 });
 
+/* ── Cuenta de servicio (sin "Conectar Google") ── */
+
+const { generateKeyPairSync, createVerify } = await import("node:crypto");
+const { privateKey: clavePrivada, publicKey: clavePublica } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const PEM = clavePrivada.export({ type: "pkcs8", format: "pem" });
+const CORREO_SA = "finanzas@proyecto-falso.iam.gserviceaccount.com";
+const ENTORNO_SA = { GOOGLE_SERVICE_ACCOUNT_EMAIL: CORREO_SA, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: PEM.replace(/\n/g, "\\n") };
+const servicio = cargar("src/features/cerebro/services/cuenta-servicio.ts");
+
+await prueba("cuenta de servicio: lee las variables (con \\n del .env), firma un JWT válido con el permiso drive", () => {
+  assert.equal(servicio.datosDeCuentaDeServicio({}), null);
+  assert.equal(servicio.datosDeCuentaDeServicio({ GOOGLE_SERVICE_ACCOUNT_EMAIL: CORREO_SA }), null);
+  const datos = servicio.datosDeCuentaDeServicio(ENTORNO_SA);
+  assert.equal(datos.correo, CORREO_SA);
+  assert.ok(datos.clave.includes("\n-----END PRIVATE KEY-----"));
+  const jwt = servicio.firmarJwt(datos, 1_000);
+  const [cabecera, reclamos, firma] = jwt.split(".");
+  const leidos = JSON.parse(Buffer.from(reclamos, "base64url").toString());
+  assert.deepEqual(leidos, { iss: CORREO_SA, scope: "https://www.googleapis.com/auth/drive", aud: "https://oauth2.googleapis.com/token", iat: 1_000, exp: 4_600 });
+  const verificador = createVerify("RSA-SHA256");
+  verificador.update(`${cabecera}.${reclamos}`);
+  assert.ok(verificador.verify(clavePublica, Buffer.from(firma, "base64url")), "la firma es de la clave");
+});
+
+await prueba("cuenta de servicio: pide el permiso a Google (jwt-bearer), lo reutiliza 55 min y avisa claro si Google lo niega", async () => {
+  servicio.olvidarTokenDeCuentaDeServicio();
+  const pedidos = [];
+  const googleFalso = async (url, init) => {
+    pedidos.push({ url, cuerpo: new URLSearchParams(init.body) });
+    return new Response(JSON.stringify({ access_token: `tok-${pedidos.length}`, expires_in: 3600 }), { status: 200 });
+  };
+  assert.equal(await servicio.tokenDeCuentaDeServicio({ entorno: ENTORNO_SA, fetchFn: googleFalso, ahora: 0 }), "tok-1");
+  assert.equal(pedidos[0].url, "https://oauth2.googleapis.com/token");
+  assert.equal(pedidos[0].cuerpo.get("grant_type"), "urn:ietf:params:oauth:grant-type:jwt-bearer");
+  assert.equal(await servicio.tokenDeCuentaDeServicio({ entorno: ENTORNO_SA, fetchFn: googleFalso, ahora: 54 * 60_000 }), "tok-1", "en memoria");
+  assert.equal(await servicio.tokenDeCuentaDeServicio({ entorno: ENTORNO_SA, fetchFn: googleFalso, ahora: 56 * 60_000 }), "tok-2", "se renueva");
+  servicio.olvidarTokenDeCuentaDeServicio();
+  const niega = async () => new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 });
+  await assert.rejects(() => servicio.tokenDeCuentaDeServicio({ entorno: ENTORNO_SA, fetchFn: niega, ahora: 0 }), /no aceptó la cuenta de servicio \(invalid_grant\)/);
+  await assert.rejects(() => servicio.tokenDeCuentaDeServicio({ entorno: {}, fetchFn: niega }), /Falta configurar la cuenta de servicio/);
+  servicio.olvidarTokenDeCuentaDeServicio();
+});
+
+await prueba("con la cuenta de servicio las carpetas que se listan son solo las compartidas (también las de Ordenadores) y se preselecciona Magilus", async () => {
+  const urls = [];
+  const fetchFalso = async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ files: [{ id: "c1", name: "Magilus", mimeType: reglas.MIME_CARPETA }] }), { status: 200 });
+  };
+  const drive = crearClienteDeDrive("token", fetchFalso);
+  await drive.listarCarpetas("", { soloCompartidas: true });
+  const q = new URL(urls[0]).searchParams;
+  assert.equal(q.get("q"), `mimeType='${reglas.MIME_CARPETA}' and trashed=false and sharedWithMe`);
+  assert.equal(q.get("supportsAllDrives"), "true");
+  assert.equal(q.get("includeItemsFromAllDrives"), "true");
+  await drive.listarCarpetas("Mag");
+  assert.equal(new URL(urls[1]).searchParams.get("q"), `mimeType='${reglas.MIME_CARPETA}' and trashed=false and name contains 'Mag'`, "OAuth: como antes");
+  assert.equal(reglas.carpetaPreferida([{ id: "a", nombre: "Fotos" }, { id: "b", nombre: " magilus " }]), "b");
+  assert.equal(reglas.carpetaPreferida([{ id: "a", nombre: "Fotos" }, { id: "e", nombre: "Empresa Magilus" }]), "e");
+  assert.equal(reglas.carpetaPreferida([{ id: "a", nombre: "Fotos" }]), "a", "si hay una sola, esa");
+  assert.equal(reglas.carpetaPreferida([{ id: "a", nombre: "Fotos" }, { id: "b", nombre: "Otra" }]), "");
+  assert.equal(reglas.carpetaPreferida([]), "");
+});
+
+await prueba("Drive: si Google no deja crear con la cuenta de servicio (sin espacio propio) el error lo explica", async () => {
+  const sinEspacio = async () => new Response(JSON.stringify({ error: { errors: [{ reason: "storageQuotaExceeded" }] } }), { status: 403 });
+  await assert.rejects(() => crearClienteDeDrive("t", sinEspacio).crearTexto("raiz", "n.md", "x"), /no deja que la cuenta de servicio cree archivos nuevos/);
+});
+
+await prueba("conexión: con la cuenta de servicio no hacen falta OAuth ni CEREBRO_CLAVE_CIFRADO; lee, lista y escribe con su permiso", async () => {
+  const VARIABLES = ["GOOGLE_SERVICE_ACCOUNT_EMAIL", "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "CEREBRO_CLAVE_CIFRADO"];
+  const antes = Object.fromEntries(VARIABLES.map((v) => [v, process.env[v]]));
+  const fetchOriginal = globalThis.fetch;
+  const filas = new Map();
+  const prismaFalso = {
+    cerebroConexion: {
+      findUnique: async ({ where }) => filas.get(where.workspaceId) ?? null,
+      upsert: async ({ where, create }) => {
+        const fila = filas.get(where.workspaceId) ?? { tokenCifrado: null, carpetaId: null, carpetaNombre: null, ultimoError: null, ...create };
+        filas.set(where.workspaceId, fila);
+        return fila;
+      },
+      update: async ({ where, data }) => Object.assign(filas.get(where.workspaceId), data),
+    },
+  };
+  // conexion.ts ya quedó en caché con "@/lib/prisma" = nada (al cargar el MCP): se le pone la base falsa ahí.
+  const conexion = cargar("src/features/cerebro/services/conexion.ts", { "@/lib/prisma": nada });
+  nada.prisma = prismaFalso;
+  try {
+    for (const v of VARIABLES) delete process.env[v];
+    assert.equal(conexion.modoDelCerebro(), null);
+    assert.equal(conexion.googleConfigurado(), false);
+    process.env.GOOGLE_OAUTH_CLIENT_ID = "id";
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = "secreto";
+    process.env.CEREBRO_CLAVE_CIFRADO = "una-clave-de-prueba-larga";
+    assert.equal(conexion.modoDelCerebro(), "oauth", "sin cuenta de servicio sigue el camino OAuth");
+    assert.equal(conexion.tieneAccesoAlDrive({ tokenCifrado: null }), false);
+    assert.equal(conexion.tieneAccesoAlDrive({ tokenCifrado: "x" }), true);
+    await assert.rejects(() => conexion.driveDelNegocio("ws1"), /no está conectado/);
+
+    for (const v of VARIABLES) delete process.env[v];
+    Object.assign(process.env, ENTORNO_SA);
+    assert.equal(conexion.modoDelCerebro(), "cuenta-servicio");
+    assert.equal(conexion.googleConfigurado(), true);
+    assert.equal(conexion.oauthConfigurado(), false);
+    assert.equal(conexion.correoDeCuentaDeServicio(), CORREO_SA);
+    assert.equal(conexion.tieneAccesoAlDrive(null), true, "no hace falta token guardado");
+
+    servicio.olvidarTokenDeCuentaDeServicio();
+    const pedidos = [];
+    globalThis.fetch = async (url, init = {}) => {
+      pedidos.push({ url: String(url), metodo: init.method ?? "GET", auth: init.headers?.Authorization });
+      if (String(url).startsWith("https://oauth2.googleapis.com/token")) return new Response(JSON.stringify({ access_token: "tok-sa", expires_in: 3600 }), { status: 200 });
+      if (String(url).includes("/files?q=")) return new Response(JSON.stringify({ files: [{ id: "c1", name: "Magilus", mimeType: reglas.MIME_CARPETA }] }), { status: 200 });
+      if (String(url).includes("alt=media")) return new Response("hola desde Drive", { status: 200 });
+      return new Response(JSON.stringify({ id: "d1", name: "nota.md", mimeType: "text/markdown", version: "2", parents: ["c1"] }), { status: 200 });
+    };
+    const { drive, conexion: fila, modo } = await conexion.driveDelNegocio("ws1");
+    assert.equal(modo, "cuenta-servicio");
+    assert.equal(fila.cuentaGoogle, CORREO_SA, "la fila se crea sola con el correo de la cuenta");
+    assert.equal(fila.tokenCifrado, null, "no se guarda ningún permiso");
+    assert.equal((await drive.listarCarpetas("", { soloCompartidas: true }))[0].nombre, "Magilus");
+    assert.equal(await drive.leerTexto("d1", "nota.md", "text/markdown"), "hola desde Drive");
+    await drive.crearTexto("c1", "nota.md", "nuevo");
+    await drive.reemplazarTexto("d1", "cambiado", "text/markdown");
+    const aDrive = pedidos.filter((p) => p.url.includes("googleapis.com/") && !p.url.startsWith("https://oauth2."));
+    assert.ok(aDrive.length === 4 && aDrive.every((p) => p.auth === "Bearer tok-sa"), "todo con el permiso de la cuenta de servicio");
+    assert.deepEqual(aDrive.map((p) => p.metodo), ["GET", "GET", "POST", "PATCH"]);
+    assert.equal(pedidos.filter((p) => p.url.startsWith("https://oauth2.")).length, 1, "un solo permiso para todo");
+  } finally {
+    globalThis.fetch = fetchOriginal;
+    for (const v of VARIABLES) {
+      if (antes[v] === undefined) delete process.env[v];
+      else process.env[v] = antes[v];
+    }
+    servicio.olvidarTokenDeCuentaDeServicio();
+  }
+});
+
+await prueba("pantalla, reloj y MCP usan la cuenta de servicio (no exigen token guardado) y escribir no está bloqueado", () => {
+  const leer = (ruta) => fs.readFileSync(path.join(RAIZ, ruta), "utf8");
+  assert.match(leer("src/features/cerebro/services/sincronizar-negocio.ts"), /modoDelCerebro\(\) === "cuenta-servicio" \? \{ carpetaId: \{ not: null \} \}/);
+  assert.match(leer("src/lib/mcp/cerebro.ts"), /tieneAccesoAlDrive\(conexion\)/);
+  assert.match(leer("src/lib/mcp/que-es-esta-aplicacion.ts"), /tieneAccesoAlDrive\(conexion\)/);
+  assert.match(leer("src/app/cliente/negocio/cerebro/page.tsx"), /tienePermiso=\{tieneAccesoAlDrive\(conexion\)\}/);
+  assert.match(leer("src/app/actions/cerebro-actions.ts"), /soloCompartidas: modo === "cuenta-servicio"/);
+  const pantalla = leer("src/features/cerebro/components/ConexionCerebro.tsx");
+  assert.match(pantalla, /Conectado con la cuenta de servicio/);
+  assert.match(pantalla, /carpetaPreferida\(respuesta\.carpetas\)/);
+  assert.ok(!/cuenta-servicio/.test(leer("src/features/cerebro/services/escribir.ts")), "escribir no se bloquea con la cuenta de servicio");
+});
+
 console.log(`\n${pruebas} pruebas del cerebro: OK`);

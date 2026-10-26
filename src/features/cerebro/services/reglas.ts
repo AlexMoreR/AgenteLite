@@ -349,3 +349,16 @@ export function problemaDeVersion(versionEsperada: string | null, versionEnDrive
   }
   return null;
 }
+
+/** Los nombres que se preseleccionan al elegir la carpeta del cerebro (la del dueño se llama "Magilus"). */
+export const CARPETAS_PREFERIDAS = ["magilus", "empresa magilus"];
+
+/** La carpeta que se preselecciona: la que se llama como una preferida; si hay una sola, esa; si no, ninguna. */
+export function carpetaPreferida(carpetas: ReadonlyArray<{ id: string; nombre: string }>): string {
+  const normal = (texto: string) => texto.trim().toLowerCase();
+  for (const preferida of CARPETAS_PREFERIDAS) {
+    const encontrada = carpetas.find((carpeta) => normal(carpeta.nombre) === preferida);
+    if (encontrada) return encontrada.id;
+  }
+  return carpetas.length === 1 ? carpetas[0].id : "";
+}

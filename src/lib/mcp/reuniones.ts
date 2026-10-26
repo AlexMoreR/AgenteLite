@@ -84,6 +84,7 @@ async function listarReuniones(args: Argumentos, contexto: Contexto) {
       titulo: reunion.titulo,
       estado: NOMBRE_DEL_ESTADO[reunion.estado],
       origen: reunion.origen === "SUBIDA" ? "audio subido (no se separa quién habló)" : "videollamada",
+      sin_grabar: reunion.sinGrabar,
       creada_en: fecha(reunion.createdAt),
       empezo_en: fecha(reunion.empezoEn),
       termino_en: fecha(reunion.terminoEn),
@@ -107,6 +108,7 @@ async function verReunion(args: Argumentos, contexto: Contexto) {
       id: true,
       titulo: true,
       origen: true,
+      sinGrabar: true,
       estado: true,
       aviso: true,
       motivoError: true,
@@ -127,6 +129,7 @@ async function verReunion(args: Argumentos, contexto: Contexto) {
     titulo: reunion.titulo,
     estado: NOMBRE_DEL_ESTADO[reunion.estado],
     origen: reunion.origen === "SUBIDA" ? "audio subido (no se separa quién habló)" : "videollamada",
+    sin_grabar: reunion.sinGrabar,
     creada_en: fecha(reunion.createdAt),
     empezo_en: fecha(reunion.empezoEn),
     termino_en: fecha(reunion.terminoEn),
@@ -140,6 +143,7 @@ async function verReunion(args: Argumentos, contexto: Contexto) {
     transcripcion: reunion.textoTranscripcion ?? null,
     ...(reunion.aviso ? { aviso: reunion.aviso } : {}),
     ...(reunion.motivoError ? { motivo_error: reunion.motivoError } : {}),
+    ...(reunion.sinGrabar ? { aviso_sin_grabar: "Reunión sin grabar: no hay audio, transcripción ni acta." } : {}),
     nota: "La transcripción va como '[mm:ss] Nombre: frase', con la hora desde que empezó la reunión.",
   };
 }

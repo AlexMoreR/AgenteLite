@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { almacenDeLaBase } from "./almacen";
-import { driveDelNegocio } from "./conexion";
+import { driveDelNegocio, modoDelCerebro } from "./conexion";
 import { sincronizarConAlmacen, type ResultadoDeSincronizacion } from "./sincronizar";
 
 /** Sincroniza el cerebro de un negocio con su Drive (el botón "Sincronizar ahora" y la vuelta de cada hora). */
@@ -22,7 +22,8 @@ export async function sincronizarElCerebro(workspaceId: string): Promise<Resulta
  */
 export async function sincronizarCerebroDeTodos() {
   const conexiones = await prisma.cerebroConexion.findMany({
-    where: { tokenCifrado: { not: null }, carpetaId: { not: null } },
+    // Con la cuenta de servicio no hay permiso guardado: basta con la carpeta elegida.
+    where: modoDelCerebro() === "cuenta-servicio" ? { carpetaId: { not: null } } : { tokenCifrado: { not: null }, carpetaId: { not: null } },
     select: { workspaceId: true },
   });
   let bien = 0;
