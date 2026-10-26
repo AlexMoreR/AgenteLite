@@ -205,7 +205,14 @@ export function completarConfig(datos, base = process.cwd()) {
       cadaSegundos: Number(repo.vigilancia?.cadaSegundos) > 0 ? Number(repo.vigilancia.cadaSegundos) : 60,
       // Cuántos errores nuevos en los logs (que no estaban antes de subir) hacen deshacer el cambio.
       maxErroresNuevos: Number(repo.vigilancia?.maxErroresNuevos) >= 1 ? Math.floor(Number(repo.vigilancia.maxErroresNuevos)) : 3,
+      // Cuántas veces más envíos por minuto que antes de subir hacen deshacer el cambio (1.5 = 50 % más).
+      maxSubidaDeEnvios: Number(repo.vigilancia?.maxSubidaDeEnvios) >= 1 ? Number(repo.vigilancia.maxSubidaDeEnvios) : 1.5,
+      // Por debajo de estos envíos por minuto no se compara (un número chico daría falsas alarmas).
+      minEnviosParaComparar: Number(repo.vigilancia?.minEnviosParaComparar) >= 0 ? Number(repo.vigilancia.minEnviosParaComparar) : 5,
     };
+    if (repo.vigilancia?.maxSubidaDeEnvios !== undefined && !(Number(repo.vigilancia.maxSubidaDeEnvios) >= 1)) {
+      errores.push(`repos.${clave}.vigilancia.maxSubidaDeEnvios: 1 o más (1.5 = hasta 50 % más envíos que antes de subir).`);
+    }
     if (vigilancia.minutos > 40) errores.push(`repos.${clave}.vigilancia.minutos: de 1 a 40 (el candado de subir en el CRM es de 80 min).`);
     try {
       repos[clave] = {

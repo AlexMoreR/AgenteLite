@@ -54,12 +54,16 @@ minuto y antes que cualquier otra tarjeta.
     conjuntos o anuncios, queda esperando el sí (nunca sube presupuesto, prende ni crea gasto solo). Leer,
     reportes, pausar, textos y configuraciones sin gasto suben solos. Las herramientas de Meta Ads que se
     usan desde fuera del repo no las controla esta regla.
-- **Vigilancia de 30 minutos** (`repos.*.vigilancia`: `minutos`, `cadaSegundos`, `maxErroresNuevos`), solo
+- **Vigilancia de 30 minutos** (`repos.*.vigilancia`: `minutos`, `cadaSegundos`, `maxErroresNuevos`, `maxSubidaDeEnvios`, `minEnviosParaComparar`), solo
   para esas zonas: antes de subir se toma una foto de los logs del servidor (`ssh.logs`, y `ssh.estado` para
   saber si el contenedor corre y cuántas veces se reinició); después de subir y de comprobar la versión, se
   vigilan los logs. Si aparecen `maxErroresNuevos` líneas de error que no estaban antes, el contenedor se
-  cae o se reinicia, o no se pueden leer los logs 5 veces seguidas, se hace `git revert` con un commit nuevo
-  (sin force-push), la tarjeta queda ERROR con "Revertida: motivo" y se avisa al dueño. Si todo va bien,
+  cae o se reinicia, suben los envíos de mensajes fallidos, los envíos por minuto pasan de
+  `foto × maxSubidaDeEnvios` (por defecto 1.5, es decir 50 % más) y de `minEnviosParaComparar` (por defecto 5
+  por minuto; por debajo no se compara), o no se pueden leer los logs 5 veces seguidas, se hace `git revert` con un commit nuevo
+  (sin force-push), la tarjeta queda ERROR con "Revertida: motivo" y se avisa al dueño por WhatsApp (aviso de
+  tipo `necesita` con el motivo, el commit deshecho y el de la reversión; si el deshacer falló, empieza con
+  "URGENTE"). Los envíos se cuentan por minuto según el `--since` de `ssh.logs` (3 min si no lo trae). Si todo va bien,
   la tarjeta dice "Subió sola (zona X) — vigilancia 30 min OK". **Mientras se vigila, no sube otra
   tarjeta.** Sin `ssh.logs` el trabajador no arranca con `zonasQueSubenSolas` (no hay forma de vigilar).
 - **Si algo falla antes de subir**, no sube nada: queda **ERROR** con el motivo en palabras sencillas

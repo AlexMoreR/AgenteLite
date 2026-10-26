@@ -19,6 +19,13 @@ if (remoto.startsWith("logs-falso")) {
     process.exit(255);
   }
   console.log("2026-10-26T10:00:00Z INFO servidor listo\n2026-10-26T10:00:01Z ERROR error viejo conocido en 12 ms");
+  // Envíos de mensajes: unos pocos parejos (6 en 3 min = 2 por minuto). SSH_FALSO_ENVIOS=1: la 1ª lectura trae pocos y las
+  // siguientes muchos más (60 en 3 min). SSH_FALSO_ENVIOS_FALLIDOS=1: las siguientes traen envíos con error.
+  const muchos = process.env.SSH_FALSO_ENVIOS === "1" && llamada > 0;
+  for (let i = 0; i < (muchos ? 60 : 6); i += 1) console.log(`2026-10-26T10:00:${String(i % 60).padStart(2, "0")}Z INFO sendMessage ok a cliente ${i}`);
+  if (process.env.SSH_FALSO_ENVIOS_FALLIDOS === "1" && llamada > 0) {
+    for (let i = 0; i < 3; i += 1) console.log(`2026-10-26T10:06:0${i}Z ERROR sendMessage falló con status 500`);
+  }
   if (process.env.SSH_FALSO_ERRORES === "1" && llamada > 0) {
     console.log("2026-10-26T10:05:00Z ERROR TypeError: no se pudo leer saludo\n2026-10-26T10:05:01Z ERROR Unhandled rejection en el bot\n2026-10-26T10:05:02Z ERROR fallo al guardar el libro");
   }

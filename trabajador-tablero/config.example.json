@@ -164,7 +164,9 @@
       "vigilancia": {
         "minutos": 30,
         "cadaSegundos": 60,
-        "maxErroresNuevos": 3
+        "maxErroresNuevos": 3,
+        "maxSubidaDeEnvios": 1.5,
+        "minEnviosParaComparar": 5
       },
       "sinChoque": [
         "**/*.md"

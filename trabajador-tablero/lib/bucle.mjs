@@ -196,6 +196,7 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
       return { ok: false, motivo, limiteDeUso: true, motor: error.motor ?? null };
     }
     registro.error(`"${tarjeta.titulo}" (${hacer}) falló: ${motivo}`);
+    if (error?.reversion) await avisarReversion(crm, registro, tarjeta, motivo, error.reversion);
     if (conReparaciones) return manejarFalla({ crm, config, registro, contexto, bitacora }, tarjeta, hacer, error);
     try {
       await crm.error(tarjeta.id, motivo, error?.zonas, error?.reversion);
@@ -206,6 +207,23 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
   } finally {
     clearInterval(reloj);
     await latidoEnVuelo;
+  }
+}
+
+/**
+ * Subió y hubo que deshacerlo: aviso de tipo "necesita" al dueño (WhatsApp por la línea Admin) con el motivo y los
+ * commits. Si el aviso no sale, queda en el registro y la tarjeta sigue su camino.
+ */
+async function avisarReversion(crm, registro, tarjeta, motivo, reversion) {
+  const corto = (sha) => String(sha ?? "").slice(0, 10);
+  const detalle = enUnaLinea(motivo, 600);
+  const texto = reversion.ok
+    ? `Se deshizo una subida de "${tarjeta.titulo}": ${detalle} Commit deshecho: ${corto(reversion.commit)}; commit de la reversión: ${corto(reversion.revert)}.`
+    : `URGENTE: no se pudo deshacer una subida de "${tarjeta.titulo}", hay que revisar a mano. Commit en producción: ${corto(reversion.commit)}. ${detalle}`;
+  try {
+    await crm.aviso(texto, "necesita");
+  } catch (error) {
+    registro.aviso(`no salió el aviso de la reversión al dueño (${error.status ?? "sin respuesta"}): ${error.message}`);
   }
 }
 
