@@ -34,6 +34,8 @@ export function armarLatido({ estado, medidor, carga, nombre = "aizen1" }) {
       motivoEspera: estado.motivoEspera ?? null,
     },
     uso: estado.uso,
+    // Pausa por uso de Claude: el porcentaje de la sesión y de la semana, el interruptor, el umbral y si está pausado.
+    pausaUso: estado.pausaUso ?? null,
     esperas: estado.esperas ?? [],
   };
 }
@@ -51,7 +53,9 @@ export function crearLatido({ crm, config, registro, planificador, medidor, cada
     enVuelo = true;
     try {
       const cuerpo = armarLatido({ estado: planificador.estado(), medidor, carga: leer(config.carpetaTrabajo) });
-      await crm.latidoDelCoordinador(cuerpo);
+      const respuesta = await crm.latidoDelCoordinador(cuerpo);
+      // El CRM devuelve el interruptor y el umbral de la pausa por uso (los que se cambian en el panel).
+      if (respuesta?.pausaUso) planificador.ajustarPausaUso?.(respuesta.pausaUso);
       if (ultimoFallo) registro.info("el latido al CRM volvió a funcionar");
       ultimoFallo = "";
       return true;

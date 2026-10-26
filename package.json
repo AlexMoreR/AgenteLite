@@ -49,7 +49,7 @@
     "test:reuniones-pase": "node scripts/check-reuniones-pase.mjs",
     "test:reuniones-migracion": "node scripts/check-reuniones-migracion.mjs",
     "test:migraciones-pglite":"node scripts/ensayo-migraciones-pglite.mjs",
-    "test:trabajador-tablero": "node trabajador-tablero/pruebas/probar-reparto.mjs && node trabajador-tablero/pruebas/probar-medir.mjs && node trabajador-tablero/pruebas/probar-trabajador.mjs && node trabajador-tablero/pruebas/probar-modelos.mjs && node trabajador-tablero/pruebas/probar-autoactualizar.mjs",
+    "test:trabajador-tablero": "node trabajador-tablero/pruebas/probar-reparto.mjs && node trabajador-tablero/pruebas/probar-medir.mjs && node trabajador-tablero/pruebas/probar-pausa-uso.mjs && node trabajador-tablero/pruebas/probar-trabajador.mjs && node trabajador-tablero/pruebas/probar-modelos.mjs && node trabajador-tablero/pruebas/probar-autoactualizar.mjs",
     "test:seguimiento-inteligente": "node scripts/check-seguimiento-inteligente.mjs",
     "test:avisos-gravedad": "node scripts/check-avisos-gravedad.mjs",
     "test:supervisor-accionable": "node scripts/check-supervisor-accionable.mjs",

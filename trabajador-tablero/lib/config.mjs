@@ -432,6 +432,14 @@ export function completarConfig(datos, base = process.cwd()) {
   if (!Number.isFinite(pausaLimiteCodexMinutos) || pausaLimiteCodexMinutos < 1) errores.push("pausaLimiteCodexMinutos: minutos, 1 o más.");
   const umbralClaude = datos.umbralClaude === undefined ? 80 : Number(datos.umbralClaude);
   if (!Number.isFinite(umbralClaude) || umbralClaude < 1 || umbralClaude > 100) errores.push("umbralClaude: un porcentaje de 1 a 100.");
+  // La pausa por uso (26-oct-2026, pausa-uso.mjs): al llegar al umbral (50 a 95 %) todo se detiene. El interruptor y el umbral
+  // del panel (que llegan en la respuesta del latido) mandan sobre esto; esto es lo que vale si el CRM no contesta.
+  const pausaUso = { activa: true, umbral: umbralClaude, cercaDesde: 70, vigilarCercaMinutos: 2, ...(datos.pausaUso ?? {}) };
+  if (typeof pausaUso.activa !== "boolean") errores.push("pausaUso.activa: true o false.");
+  if (!Number.isFinite(Number(pausaUso.umbral)) || Number(pausaUso.umbral) < 50 || Number(pausaUso.umbral) > 95) errores.push("pausaUso.umbral: un porcentaje de 50 a 95.");
+  for (const campo of ["cercaDesde", "vigilarCercaMinutos"]) {
+    if (!Number.isFinite(Number(pausaUso[campo])) || Number(pausaUso[campo]) <= 0) errores.push(`pausaUso.${campo}: un número, más de 0.`);
+  }
   let comandoCodex = ["codex"];
   try {
     comandoCodex = comando(datos.comandoCodex, "comandoCodex") ?? ["codex"];
@@ -485,8 +493,9 @@ export function completarConfig(datos, base = process.cwd()) {
     modelos: Object.fromEntries(Object.keys(MODELOS_POR_DEFECTO).map((paso) => [paso, modelos[paso]])),
     pausaLimiteCodexMinutos,
     umbralClaude,
+    pausaUso: { activa: pausaUso.activa, umbral: Number(pausaUso.umbral), cercaDesde: Number(pausaUso.cercaDesde), vigilarCercaMinutos: Number(pausaUso.vigilarCercaMinutos) },
     // Cada cuánto se mira el uso del plan de Claude (`claude -p /usage`). 0 = no se mira.
-    vigilarUsoMinutos: datos.vigilarUsoMinutos === undefined ? 10 : Math.max(0, Number(datos.vigilarUsoMinutos) || 0),
+    vigilarUsoMinutos: datos.vigilarUsoMinutos === undefined ? 5 : Math.max(0, Number(datos.vigilarUsoMinutos) || 0),
     herramientasPermitidas: lista(datos.herramientasPermitidas).length ? datos.herramientasPermitidas : HERRAMIENTAS_PERMITIDAS,
     herramientasProhibidas: [...new Set([...HERRAMIENTAS_PROHIBIDAS, ...lista(datos.herramientasProhibidas)])],
     tiempos: { ...TIEMPOS_POR_DEFECTO, ...(datos.tiempos ?? {}) },

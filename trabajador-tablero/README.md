@@ -254,7 +254,7 @@ Se elige en `config.local.json`:
 
 ### Alerta de uso de Claude
 
-Cada 10 minutos (`vigilarUsoMinutos`) el trabajador corre `claude -p /usage` y lee algo así:
+Cada 5 minutos (`vigilarUsoMinutos`; cada 2 desde el 70 % o en pausa: `pausaUso.vigilarCercaMinutos`) el trabajador corre `claude -p /usage` y lee algo así:
 
 ```
 Current session: 36% used · resets Oct 23, 3:20pm (America/Bogota)
@@ -264,10 +264,10 @@ Current week (all models): 6% used · resets Oct 30, 7am (America/Bogota)
 - Si la sesión o la semana llegan a `umbralClaude` (80 % por defecto): con `respaldoCodex: true`, **todos los
   pasos van con Codex** hasta que baje (`Claude al 83 % (sesión): planear y revisar pasan a Codex hasta 3:20pm`);
   con `respaldoCodex: false` (hoy) se sigue con Claude y solo se anota en el log.
-- **Sin WhatsApp por el umbral** (26-oct-2026, decisión del dueño: "solo cuando sea súper importante"): ni el
-  cruce del umbral ni "no pude leer el uso" se avisan; quedan en el log y en el panel. Lo último visto queda en
+- **Sin WhatsApp por cruzar el umbral** (26-oct-2026, decisión del dueño: "solo cuando sea súper importante"): el cruce
+  solo queda en el log y en el panel (lo que sí avisa es la pausa por uso, ver abajo). Lo último visto queda en
   `<carpetaTrabajo>/estado-uso.json`.
-- Si no puede leer el uso, lo anota en el log y sigue como si estuviera bajo el umbral (no inventa números).
+- Si no puede leer el uso, lo anota en el log y sigue como si estuviera bajo el umbral (no inventa números); a la 3.ª falla seguida avisa UNA vez.
 - Si Claude de verdad llega a su límite, la tarjeta se suelta sin error y Claude se pausa
   `pausaLimiteMinutos`; mientras tanto sus pasos van con Codex.
 - **El único WhatsApp que manda el Coordinador** es el del límite: si Claude se agota y no queda otro motor para
@@ -279,6 +279,29 @@ Current week (all models): 6% used · resets Oct 30, 7am (America/Bogota)
 - **Para que llegue**: guardar el número personal del dueño en la caja "Avisos de Sistemas por WhatsApp" de
   Mi empresa → Claude (ya no en la AppSetting a mano) y tener la línea Admin conectada. Sin número no sale nada y la
   caja lo dice. Este cambio corre en aizen1: `git pull` y reiniciar la tarea.
+
+### Pausa por uso de Claude (26-oct-2026)
+
+Todo el desarrollo se construye en la nube de Claude: si el plan se agota se cae TODO (desarrollo, voz y chat del dueño).
+Por eso, al llegar al **umbral** (80 % por defecto, de 50 a 95) de la sesión **o** de la semana, el Coordinador entra en
+**"Pausado por uso de Claude"** (`lib/pausa-uso.mjs`):
+
+- No toma tarjetas nuevas (ni planear, ni construir, ni con Codex), y no corren el trabajo de noche del manual ni el recogedor de errores.
+- Detiene con orden lo que corre: planear y construir (en aizen1 y en la nube) se cortan y la tarjeta vuelve a la fila
+  **sin ERROR y sin gastar intento** ("Pausado por uso de Claude"). Al construir en aizen1, lo ya escrito queda en
+  `<carpetaTrabajo>/intentos/<id>/trabajo.patch` y al retomar se reaplica y el agente recibe "RETOMADA: … ya está aplicado".
+  **Subir** no usa Claude: termina (cortarlo a medias es más peligroso).
+- UN WhatsApp (tipo `limite`): "⛔ Se paró todo: el uso de Claude llegó al 80 %. Se reanuda el <día y hora de Bogotá>." Se manda una
+  vez por pausa y queda guardado en `estado-uso.json` (un reinicio del Coordinador no lo repite); en horas de silencio sale a las 7 a. m.
+- Sigue leyendo el uso durante la pausa. Sale cuando una lectura nueva baja del umbral (o el dueño apaga el interruptor) y avisa
+  en una línea: "✅ Volvió a trabajar: el uso de Claude se reinició." Las tarjetas detenidas se retoman solas y primero.
+  Si pasa la hora de reinicio + 30 min y no se puede leer nada, la pausa se levanta sola.
+- Si no se puede leer el porcentaje (3 lecturas malas seguidas) **no se pausa** (no hay número): el panel dice "No pude leer el uso
+  de Claude desde las …" y sale UN solo aviso, hasta que haya una lectura buena y vuelva a fallar.
+- El **interruptor y el umbral** se cambian en el panel "Coordinador en vivo → Uso de Claude" (solo el dueño; AppSetting
+  `tablero:pausa-uso-claude:<negocio>`); el CRM se los devuelve al Coordinador en la respuesta del latido. Si el CRM no responde,
+  vale `pausaUso` de `config.local.json` (`activa`, `umbral`, `cercaDesde`, `vigilarCercaMinutos`).
+- Los Agentes de Ventas y Marketing de aizen1 **no** son parte del Coordinador y no se pausan con esto. Codex también para.
 
 ### Riesgo BAJO / ALTO (desde el 24-oct-2026)
 

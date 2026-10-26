@@ -1,8 +1,13 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
+import { toast } from "sonner";
+
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Switch } from "@/components/ui/switch";
+import { cambiarPausaPorUsoAction } from "@/app/actions/tableros-inteligentes-actions";
 
 import { useRefrescoDelCoordinador } from "../hooks/useRefrescoDelTablero";
 import type { CargaVista, ItemDeFila, TareaEnVivo, VistaDelCoordinador } from "../services/coordinador-en-vivo";
@@ -18,8 +23,10 @@ import {
 } from "../services/reglas-coordinador-en-vivo";
 import { linkDeLaTarjetaEnPantalla } from "./DialogoDeTablero";
 
+const UMBRALES_DE_PAUSA = [50, 60, 70, 75, 80, 85, 90, 95];
+
 /*
-  La pestaña "Coordinador en vivo" de Tablero IA (24-oct-2026). Solo lectura, sin botones que cambien nada.
+  La pestaña "Coordinador en vivo" de Tablero IA (24-oct-2026). Solo lectura, salvo el interruptor y el umbral de la pausa por uso de Claude (solo el dueño).
   Se actualiza sola cada 12 s con la pestaña a la vista (useRefrescoDelCoordinador) y está pensada primero
   para el celular: una sola columna, lo más importante arriba (qué se construye, dónde, y si el PC está
   ahogado) y todo en palabras sencillas. Si el último latido tiene más de 2 minutos, arriba sale en rojo
@@ -154,6 +161,49 @@ function ListaDeFila({ items }: { items: ItemDeFila[] }) {
   );
 }
 
+/** "Uso de Claude" (26-oct-2026): porcentaje de la sesión y la semana, el estado y el interruptor de la pausa (solo el dueño lo mueve). */
+function UsoDeClaude({ uso }: { uso: VistaDelCoordinador["usoDeClaude"] }) {
+  const [ocupado, empezar] = useTransition();
+  const cambiar = (cambios: { activa?: boolean; umbral?: number }, bien: string) =>
+    empezar(async () => {
+      const resultado = await cambiarPausaPorUsoAction(cambios);
+      if (resultado.ok) toast.success(bien);
+      else toast.error(resultado.error);
+    });
+  const resaltado = uso.estado === "pausado" || uso.estado === "sin_lectura";
+  return (
+    <div className="space-y-2">
+      <p className={`rounded-xl border px-3 py-2 text-sm ${resaltado ? "border-amber-500/50 bg-amber-500/10 font-medium" : "bg-card"}`}>{uso.texto}</p>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border bg-card px-3 py-2 text-sm">
+        <label className="flex items-center gap-2">
+          <Switch
+            checked={uso.activa}
+            disabled={ocupado}
+            onCheckedChange={(valor) => cambiar({ activa: Boolean(valor) }, valor ? `La pausa por uso está prendida al ${uso.umbral} %` : "La pausa por uso quedó apagada")}
+          />
+          <span>Parar todo al llegar al umbral</span>
+        </label>
+        <label className="flex items-center gap-2">
+          <span className="text-muted-foreground">Umbral</span>
+          <NativeSelect
+            size="sm"
+            value={uso.umbral}
+            disabled={ocupado}
+            onChange={(evento) => cambiar({ umbral: Number(evento.target.value) }, `El umbral quedó en ${evento.target.value} %`)}
+            aria-label="Umbral de uso de Claude"
+          >
+            {UMBRALES_DE_PAUSA.map((valor) => (
+              <NativeSelectOption key={valor} value={valor}>
+                {valor} %
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </label>
+      </div>
+    </div>
+  );
+}
+
 function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number }) {
   const apagado = !vista.enLinea;
   const hora = horaDeBogotaTexto(vista.ultimoLatidoEn);
@@ -257,7 +307,8 @@ function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number
       </Bloque>
 
       <Bloque titulo="Uso de Claude" id="cev-uso" atenuado={apagado}>
-        <p className={`rounded-xl border px-3 py-2 text-sm ${uso.limiteAlcanzado ? "border-amber-500/50 bg-amber-500/10 font-medium" : "bg-card"}`}>{uso.texto}</p>
+        <UsoDeClaude uso={vista.usoDeClaude} />
+        {uso.limiteAlcanzado ? <p className="rounded-xl border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm font-medium">{uso.texto}</p> : null}
       </Bloque>
     </div>
   );
