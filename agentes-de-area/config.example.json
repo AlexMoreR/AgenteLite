@@ -1,0 +1,19 @@
+{
+  "urlCrm": "https://app.aizenbot.com",
+  "claveMcp": "aizen_mcp_PEGAR_AQUI_LA_CLAVE_DEL_MCP_DEL_CRM",
+  "comandoClaude": ["claude"],
+  "carpetaTrabajador": "../trabajador-tablero",
+  "carpetaSalida": "./salida",
+  "carpetaLogs": "./logs",
+  "horaDeInicio": "07:00",
+  "horaDeMensajes": "07:30",
+  "toleranciaMinutos": 10,
+  "modelo": null,
+  "modeloSubagentes": "sonnet",
+  "maxMinutosClaude": 60,
+  "esperaLimiteMinutos": 30,
+  "maxEsperaLimiteHoras": 6,
+  "reintentosEnvio": 3,
+  "esperaEnvioSegundos": 60,
+  "herramientasExtra": []
+}
