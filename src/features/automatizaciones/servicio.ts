@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import type { CrmStage } from "@/features/crm/types";
 import { avisoSiNoSePuedeDescartar } from "@/features/crm/services/candado-descarte-sin-respuesta";
 import { condicionRecuperacionVencida } from "@/features/recuperacion/servicios/alarma";
@@ -503,12 +504,24 @@ function puertosDe(input: {
             const aviso = await avisoSiNoSePuedeDescartar({ contactId: foto.contactId, lostReason: accion.motivoPerdida });
             if (aviso) throw new Error(`No se descartó: ${aviso}`);
           }
-          await prisma.$executeRaw`
+          const movidos = await prisma.$executeRaw`
             UPDATE "Contact"
                SET "crmStage" = ${accion.etapa}::"CrmStage",
                    "lostReason" = ${accion.etapa === "PERDIDO" ? accion.motivoPerdida : null},
                    "wonAt" = NULL, "wonQuoteRef" = NULL, "updatedAt" = NOW()
              WHERE "id" = ${foto.contactId} AND "crmStage"::text <> 'GANADO'`;
+          if (movidos > 0) {
+            await registrarCambioDeEtapa({
+              workspaceId,
+              contactId: foto.contactId,
+              conversationId: foto.conversationId,
+              etapaAnterior: foto.etapa,
+              etapaNueva: accion.etapa,
+              origen: "AUTOMATICO",
+              quien: automatizacion.nombre,
+              nota: "regla de Automatizaciones",
+            });
+          }
           if (accion.etapa === "PERDIDO") {
             await cancelarAutomaticosPendientesDelContacto({ workspaceId, contactId: foto.contactId, motivo: "etapa_cerrada" });
           }

@@ -22,6 +22,7 @@ import { buildSnoozeMetadata } from "@/lib/lead-snooze";
 import { CRM_STAGE_META, getCrmLostReasonLabel, motivoOtroSinDetalle } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 import { CLAVE_CIERRE_PENDIENTE } from "@/lib/crm-stage-sync";
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { AVISO_FALTA_COTIZACION, normalizarCotizacion } from "@/features/crm/domain/cotizacion-de-gestion";
 
 const updateCrmStageSchema = z.object({
@@ -89,6 +90,7 @@ export async function updateCrmStageAction(input: {
     },
     select: {
       id: true,
+      crmStage: true,
     },
   });
 
@@ -139,6 +141,16 @@ export async function updateCrmStageAction(input: {
         "updatedAt" = NOW()
     WHERE "id" = ${contact.id}
   `;
+
+  // Historial de etapas: todas las pantallas (kanban, tabla, chat, aviso de cierre, llamadas) pasan por aca.
+  await registrarCambioDeEtapa({
+    workspaceId: membership.workspace.id,
+    contactId: contact.id,
+    etapaAnterior: contact.crmStage,
+    etapaNueva: parsed.data.status,
+    origen: "ASESORA",
+    quien: session.user.id,
+  });
 
   /*
     Anti-bloqueo, un solo dueño (apagado por defecto): un lead que se descarta o se gana no recibe

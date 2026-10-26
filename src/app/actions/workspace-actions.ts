@@ -1,5 +1,6 @@
 "use server";
 
+import { registrarCambiosDeEtapa } from "@/lib/historial-etapa";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -472,10 +473,26 @@ export async function clearWorkspaceCrmAction(formData: FormData): Promise<void>
 
   // Reinicia el embudo del CRM SIN borrar contactos: todas las etapas vuelven a NUEVO y
   // ningún contacto queda oculto del CRM. No toca chats, mensajes ni etiquetas.
+  const aMover = await prisma.contact.findMany({
+    where: { workspaceId, crmStage: { not: "NUEVO" } },
+    select: { id: true, crmStage: true },
+  });
   await prisma.contact.updateMany({
     where: { workspaceId },
     data: { crmStage: "NUEVO", excludedFromCrm: false },
   });
+  // Una sola instruccion de base para todos, no una por contacto.
+  await registrarCambiosDeEtapa(
+    aMover.map((contacto) => ({
+      workspaceId,
+      contactId: contacto.id,
+      etapaAnterior: contacto.crmStage,
+      etapaNueva: "NUEVO",
+      origen: "SISTEMA" as const,
+      quien: session.user.id,
+      nota: "vaciar CRM",
+    })),
+  );
 
   revalidatePath("/cliente/negocio");
   revalidatePath("/cliente/crm");

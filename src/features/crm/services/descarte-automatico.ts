@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 
+import { registrarCambiosDeEtapa, type CambioDeEtapa } from "@/lib/historial-etapa";
 import { prisma } from "@/lib/prisma";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 
@@ -137,6 +138,8 @@ export async function ejecutarDescarteAutomatico(): Promise<{ descartados: numbe
 
   let descartados = 0;
   let revisados = 0;
+  // Se anotan todos juntos al final: una sola instruccion de base, no una por lead.
+  const cambios: CambioDeEtapa[] = [];
 
   for (const workspace of workspaces) {
     if (!(await descarteAutomaticoEncendido(workspace.id))) {
@@ -194,6 +197,15 @@ export async function ejecutarDescarteAutomatico(): Promise<{ descartados: numbe
         }
 
         descartados += 1;
+        cambios.push({
+          workspaceId: workspace.id,
+          contactId: candidato.contactId,
+          conversationId: conversacion?.id ?? null,
+          etapaAnterior: candidato.etapa,
+          etapaNueva: "PERDIDO",
+          origen: "AUTOMATICO",
+          nota: "descarte automático",
+        });
       } catch (error) {
         console.error("[descarte-automatico] no se pudo descartar", {
           contactId: candidato.contactId,
@@ -202,6 +214,8 @@ export async function ejecutarDescarteAutomatico(): Promise<{ descartados: numbe
       }
     }
   }
+
+  await registrarCambiosDeEtapa(cambios);
 
   if (descartados > 0) {
     console.log("[descarte-automatico] leads descartados", { descartados, revisados });

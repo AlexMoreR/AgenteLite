@@ -269,6 +269,25 @@ const FECHA_DE_LA_ETAPA: Record<EtapaCrm, "wonAt" | "createdAt" | "updatedAt"> =
   PERDIDO: "updatedAt",
 };
 
+/**
+ * Desde el Embudo 1 cada cambio de etapa deja una fila en HistorialEtapa. Para las etapas que antes
+ * se fechaban de forma aproximada (`updatedAt`), ESA fecha manda cuando existe; si el lead cambio de
+ * etapa antes de esa subida no hay fila, y sigue la fecha aproximada de siempre. NUEVO (cuando entro)
+ * y GANADO (la fecha real de la venta, editable) ya tienen su propia fecha y no cambian.
+ */
+function condicionDeEtapa(etapa: EtapaCrm, rango: { gte: Date; lt?: Date }) {
+  const campo = FECHA_DE_LA_ETAPA[etapa];
+  if (campo !== "updatedAt") {
+    return { crmStage: etapa, [campo]: rango };
+  }
+  return {
+    OR: [
+      { crmStage: etapa, historialEtapas: { some: { etapaNueva: etapa, creadoEn: rango } } },
+      { crmStage: etapa, historialEtapas: { none: { etapaNueva: etapa } }, updatedAt: rango },
+    ],
+  };
+}
+
 // Colombia no tiene horario de verano: el desfase es fijo y no hace falta una libreria.
 const BOGOTA_OFFSET_MS = 5 * 60 * 60 * 1000;
 
@@ -665,7 +684,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
     FECHA_DE_LA_ETAPA). Si se filtrara igual por movimiento, "los ganados de septiembre" dejaria
     afuera justo a los que se cerraron y no volvieron a escribir, que suelen ser la mayoria.
   */
-  const filtroDeEtapas = etapas.map((etapa) => ({ crmStage: etapa, [FECHA_DE_LA_ETAPA[etapa]]: rango }));
+  const filtroDeEtapas = etapas.map((etapa) => condicionDeEtapa(etapa, rango));
 
   /*
     Las dos condiciones sobre el contacto van dentro de un `AND` y no sueltas en el mismo objeto:
@@ -725,6 +744,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       automationPaused: true,
       channel: { select: { id: true, name: true } },
       assignedTo: { select: { name: true } },
+      contactId: true,
       contact: {
         select: {
           name: true,
@@ -736,6 +756,17 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       },
     },
   });
+
+  // La fecha REAL de la etapa actual de cada chat, si hay fila en el historial (la mas reciente).
+  const cambiosDeEtapa = conversaciones.length
+    ? await prisma.historialEtapa.findMany({
+        where: { workspaceId: contexto.workspaceId, contactId: { in: conversaciones.map((fila) => fila.contactId) } },
+        orderBy: { creadoEn: "desc" },
+        select: { contactId: true, etapaNueva: true, creadoEn: true },
+      })
+    : [];
+  const fechaRealDeLaEtapa = (contactId: string, etapa: string) =>
+    cambiosDeEtapa.find((cambio) => cambio.contactId === contactId && cambio.etapaNueva === etapa)?.creadoEn ?? null;
 
   const conteos = conversaciones.length
     ? await prisma.message.groupBy({
@@ -766,8 +797,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
           workspaceId: contexto.workspaceId,
           // La misma regla que la lista: si se piden los ocultos, cuentan tambien aca.
           ...(incluirOcultos ? {} : { excludedFromCrm: false }),
-          crmStage: etapa,
-          [FECHA_DE_LA_ETAPA[etapa]]: rango,
+          ...condicionDeEtapa(etapa, rango),
         },
       }),
     })),
@@ -791,7 +821,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
           ? "fecha real de la venta (los ganados historicos sin fecha no entran)"
           : FECHA_DE_LA_ETAPA[etapa] === "createdAt"
             ? "fecha en que entro el lead"
-            : "ultima vez que se toco la ficha (aproximado: no hay fecha de cambio de etapa)",
+            : "fecha real del cambio de etapa (real) si el cambio fue despues de que se empezo a guardar; si fue antes, la ultima vez que se toco la ficha (aproximada)",
       ]),
     ),
     totales_por_etapa: Object.fromEntries(totales.map((fila) => [fila.etapa, fila.cuantos])),
@@ -814,6 +844,12 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       telefono: fila.contact.phoneNumber,
       linea: fila.channel?.name ?? null,
       etapa_crm: fila.contact.crmStage,
+      ...(() => {
+        const real = fechaRealDeLaEtapa(fila.contactId, fila.contact.crmStage);
+        return real
+          ? { etapa_desde: hora(real), etapa_fechada_por: "real" }
+          : { etapa_desde: null, etapa_fechada_por: "aproximada" };
+      })(),
       etiquetas: fila.contact.ContactTag.map((fila) => fila.Tag.name),
       // Contacto de una linea administrativa (proveedores, logistica) o sacado del CRM a mano.
       oculto_del_crm: fila.contact.excludedFromCrm,
