@@ -206,6 +206,14 @@ export function completarConfig(datos, base = process.cwd()) {
         zonasProtegidas,
         // Archivos de solo agregar que no hacen chocar y se juntan (merge=union) al subir (choques.mjs: noChoca); por defecto los .md.
         sinChoque: Array.isArray(repo.sinChoque) ? repo.sinChoque.filter((glob) => typeof glob === "string" && glob.trim()) : ["**/*.md"],
+        // GitHub Actions revisa la rama antes que aizen1 (ciDeRama.activo). Apagado o sin comandos: todo como antes.
+        ciDeRama: {
+          activo: repo.ciDeRama?.activo === true,
+          buscar: comando(repo.ciDeRama?.buscar, `repos.${clave}.ciDeRama.buscar`),
+          esperar: comando(repo.ciDeRama?.esperar, `repos.${clave}.ciDeRama.esperar`),
+          log: comando(repo.ciDeRama?.log, `repos.${clave}.ciDeRama.log`),
+          minutos: Number(repo.ciDeRama?.minutos) > 0 ? Number(repo.ciDeRama.minutos) : 20,
+        },
         subida: {
           ciBuscar: comando(repo.subida?.ciBuscar, `repos.${clave}.subida.ciBuscar`),
           ciEsperar: comando(repo.subida?.ciEsperar, `repos.${clave}.subida.ciEsperar`),

@@ -728,7 +728,13 @@ export type ResultadoDelTrabajador = {
   linkSesion?: string;
   /** Cuántos segundos dijo la nube que tardó (la línea "resultado:" de su commit). */
   segundosNube?: number;
+  /** El link de la corrida del workflow de GitHub Actions que probó la rama (solo github.com). Solo si vino. */
+  linkWorkflow?: string;
+  /** Dónde se compiló y probó: "github-actions" (la corrida de arriba), "aizen1" o "nube". Solo si vino. */
+  verificadoEn?: VerificadoEn;
 };
+
+export type VerificadoEn = "github-actions" | "aizen1" | "nube";
 
 export type MotoresDelResultado = Partial<Record<"plan" | "construir" | "revisar", "claude" | "codex">>;
 
@@ -760,8 +766,14 @@ export function resultadoDeEntrada(valor: unknown): ResultadoDelTrabajador {
   // El link solo se guarda si se construyó en la nube y es de claude.ai (nada de otros sitios).
   const linkSesion = construidoEn === "nube" ? linkDeSesionDeEntrada(datos.linkSesion) : null;
   const segundosNube = construidoEn === "nube" && typeof datos.segundosNube === "number" && Number.isFinite(datos.segundosNube) && datos.segundosNube >= 0 ? Math.round(datos.segundosNube) : null;
+  // El link del workflow solo se guarda si es de github.com (nada de otros sitios).
+  const enlaceWorkflow = textoONull(datos.linkWorkflow, 500);
+  const linkWorkflow = enlaceWorkflow && /^https:\/\/github\.com\//.test(enlaceWorkflow) ? enlaceWorkflow : null;
+  const verificadoEn: VerificadoEn | null = datos.verificadoEn === "github-actions" || datos.verificadoEn === "aizen1" || datos.verificadoEn === "nube" ? datos.verificadoEn : null;
   return {
     ...(construidoEn ? { construidoEn } : {}),
+    ...(linkWorkflow ? { linkWorkflow } : {}),
+    ...(verificadoEn ? { verificadoEn } : {}),
     ...(linkSesion ? { linkSesion } : {}),
     ...(segundosNube !== null ? { segundosNube } : {}),
     ...(motor ? { motor } : {}),

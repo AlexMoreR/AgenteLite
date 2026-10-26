@@ -193,6 +193,9 @@ export type ResultadoVista = {
   /** Dónde se construyó (25-oct-2026): "aizen1" o "nube" (`claude --cloud`), y el link de la sesión de la nube. */
   construidoEn?: "aizen1" | "nube";
   linkSesion?: string | null;
+  /** La corrida de GitHub Actions que probó la rama (github.com) y dónde se compiló y probó. */
+  linkWorkflow?: string | null;
+  verificadoEn?: "github-actions" | "aizen1" | "nube";
   /** Mientras se construye (EN_CURSO): dónde y la sesión, como lo avisa el latido. */
   construccion?: { lugar?: "aizen1" | "nube"; linkSesion?: string | null };
   subida?: { commit?: string | null; version?: string | null; linkCommit?: string | null; cuando?: string };

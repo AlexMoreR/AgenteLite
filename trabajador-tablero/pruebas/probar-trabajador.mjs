@@ -1253,6 +1253,81 @@ try {
     sinRestos();
   });
 
+  /* ── GitHub Actions revisa la rama (ciDeRama): aizen1 no compila; si falla trae el log; si no responde, cae al modo de antes ── */
+  const MARCA_LOCAL = path.join(T, "verificado-en-aizen1.txt");
+  const delCi = (buscar, esperar, extra = {}) => ({
+    verificar: [[node, "-e", `require("fs").appendFileSync(${JSON.stringify(MARCA_LOCAL)}, "x")`]],
+    ciDeRama: { activo: true, buscar: [node, falso("gh-falso.mjs"), buscar, "{commit}"], esperar: [node, falso("gh-falso.mjs"), esperar, "{run}"], log: [node, falso("gh-falso.mjs"), "log", "{run}", "build"], minutos: 0.05, ...extra },
+  });
+
+  await prueba("ciDeRama: Actions pasa -> no se compila ni se prueba en aizen1, el ensayo de la migración SÍ corre y la rama ya está subida", async () => {
+    fs.rmSync(MARCA_LOCAL, { force: true });
+    const ghAntes = leerLog(LOGS.gh).length;
+    const sshAntes = leerLog(LOGS.ssh).length;
+    const id = nueva("Con Actions [migracion-drop]", "PLAN_APROBADO", { plan: "El plan" });
+    const resultado = await vuelta(crearConfig({}, delCi("buscar-rama", "esperar")));
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.match(t.resultado.pruebas, /^✔ verificado en GitHub Actions \(corrida 7001\)/);
+    assert.ok(!fs.existsSync(MARCA_LOCAL), "aizen1 no corrió el build/tipos");
+    assert.ok(!/lint sin errores nuevos/.test(t.resultado.pruebas), "el lint tampoco: lo hizo Actions");
+    const enviado = llamadas.findLast((l) => l.accion === "resultado" && l.id === id).cuerpo;
+    assert.equal(enviado.verificadoEn, "github-actions");
+    assert.equal(enviado.linkWorkflow, undefined, "el remoto de prueba no es GitHub: no hay link");
+    const gh = leerLog(LOGS.gh).slice(ghAntes);
+    assert.deepEqual(gh.map((l) => l.accion), ["buscar-rama", "esperar"]);
+    assert.equal(gh[0].valor, t.resultado.commit, "buscó la corrida del commit que subió");
+    assert.ok(leerLog(LOGS.ssh).slice(sshAntes).some((l) => l.entrada.includes("ALTER TABLE")), "el ensayo de migración corrió por ssh en aizen1");
+    assert.match(t.resultado.migracion, /producción \(magilus\) dentro de BEGIN…ROLLBACK: ok/);
+    assert.equal(shaDe(t.resultado.rama), t.resultado.commit);
+    sinRestos();
+  });
+
+  await prueba("ciDeRama: Actions falla en 'build' -> el error trae las líneas exactas del log del paso, categoría 'no compila'", async () => {
+    fs.rmSync(MARCA_LOCAL, { force: true });
+    const id = nueva("Actions falla [tsc]", "PLAN_APROBADO", { plan: "El plan" });
+    const resultado = await vuelta(crearConfig({}, delCi("buscar-rama", "esperar-falla")));
+    assert.equal(resultado.ok, false);
+    assert.equal(tarjetas.get(id).estado, "ERROR");
+    const motivo = tarjetas.get(id).resultado.error.motivo;
+    assert.match(motivo, /^No compiló: falló en GitHub Actions \(paso: Build; corrida 7001/);
+    assert.match(motivo, /Líneas que fallaron:[\s\S]*Type error: Property 'colorFalso' does not exist on type 'Tarjeta'/);
+    assert.match(motivo, /Últimas 30 líneas:\n\s*> next build/, "las líneas sin el prefijo del log de gh");
+    assert.ok(!/2026-10-26T10:00/.test(motivo), "sin el prefijo job/paso/hora");
+    assert.ok(!fs.existsSync(MARCA_LOCAL), "no se compiló en aizen1 para repetir lo que ya falló");
+    const intento = llamadas.findLast((l) => l.id === id && l.cuerpo?.categoria)?.cuerpo;
+    if (intento) assert.equal(intento.categoria, "no_compila");
+    sinRestos();
+  });
+
+  await prueba("ciDeRama: si no aparece la corrida en el tiempo, se compila en aizen1 como hoy y la nota queda en la tarjeta", async () => {
+    fs.rmSync(MARCA_LOCAL, { force: true });
+    const id = nueva("Sin Actions", "PLAN_APROBADO", { plan: "El plan" });
+    const resultado = await vuelta(crearConfig({}, delCi("buscar-nada", "esperar", { minutos: 0.03 })));
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.match(t.resultado.pruebas, /^⚠ Actions no respondió en 0\.03 min: se compiló en aizen1/);
+    assert.ok(fs.existsSync(MARCA_LOCAL), "aizen1 sí compiló");
+    assert.match(t.resultado.pruebas, /lint sin errores nuevos/, "y midió el lint de main para comparar");
+    const enviado = llamadas.findLast((l) => l.accion === "resultado" && l.id === id).cuerpo;
+    assert.equal(enviado.verificadoEn, "aizen1");
+    sinRestos();
+  });
+
+  await prueba("ciDeRama apagado: todo igual que hoy (no se llama a gh y aizen1 compila)", async () => {
+    fs.rmSync(MARCA_LOCAL, { force: true });
+    const ghAntes = leerLog(LOGS.gh).length;
+    const id = nueva("Con Actions apagado", "PLAN_APROBADO", { plan: "El plan" });
+    const resultado = await vuelta(crearConfig({}, delCi("buscar-rama", "esperar", { activo: false })));
+    assert.equal(resultado.ok, true, resultado.motivo);
+    assert.ok(fs.existsSync(MARCA_LOCAL));
+    assert.equal(leerLog(LOGS.gh).length, ghAntes, "no consultó a gh");
+    assert.ok(!/GitHub Actions/.test(tarjetas.get(id).resultado.pruebas));
+    sinRestos();
+  });
+
   await prueba("ERROR si Claude no cambió nada", async () => {
     const id = nueva("No hacer nada [nada]", "PLAN_APROBADO", { plan: "El plan" });
     await vuelta();
