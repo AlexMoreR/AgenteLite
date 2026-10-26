@@ -1,4 +1,5 @@
 # Registra los AGENTES DE ÁREA como tareas programadas de Windows, de lunes a sábado:
+#   - "Agente de Sistemas"  a las 6:30 a. m. (solo lee: revisa lo subido, la salud del sistema y, los lunes, el uso)
 #   - "Agente de Marketing" a las 6:45 a. m. (antes de Ventas, para que Ventas pueda usar su dato)
 #   - "Agente de Ventas"    a las 7:00 a. m.
 # Si aizen1 estaba apagado a esa hora, corren apenas prenda ("ejecutar en cuanto se pueda si se pasó la hora"): Ventas
@@ -8,7 +9,8 @@
 #
 #   powershell -ExecutionPolicy Bypass -File agentes-de-area\instalar-tarea-windows.ps1
 #   (para quitarlas:  Unregister-ScheduledTask -TaskName "Agente de Ventas" -Confirm:$false
-#                     Unregister-ScheduledTask -TaskName "Agente de Marketing" -Confirm:$false)
+#                     Unregister-ScheduledTask -TaskName "Agente de Marketing" -Confirm:$false
+#                     Unregister-ScheduledTask -TaskName "Agente de Sistemas" -Confirm:$false)
 #
 # Corren con el usuario que inicia sesión (el que tiene `claude` con el plan de Alexander), sin permisos de
 # administrador: el `claude` logueado vive en la sesión del usuario.
@@ -23,9 +25,9 @@ $node = (Get-Command node -ErrorAction Stop).Source
 if (-not (Test-Path $config)) {
   Write-Error "Falta $config. Copia config.example.json a config.local.json y complétalo antes de instalar las tareas."
 }
-foreach ($area in @("ventas", "marketing")) {
+foreach ($area in @("ventas", "marketing", "sistemas")) {
   if (-not (Test-Path (Join-Path $carpeta "$area\.mcp.json"))) {
-    Write-Error "Falta $area\.mcp.json. Copia $area\.mcp.json.example a $area\.mcp.json y pon las claves (CRM, Gestión y, en marketing, el conector de Meta Ads)."
+    Write-Error "Falta $area\.mcp.json. Copia $area\.mcp.json.example a $area\.mcp.json y pon las claves (CRM, Gestión y, en marketing, el conector de Meta Ads; en sistemas, además, el de Google Drive de solo lectura)."
   }
 }
 
@@ -41,6 +43,7 @@ $quien = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive
 $dias = @("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
 
 $tareas = @(
+  @{ Nombre = "Agente de Sistemas"; Area = "sistemas"; Hora = "6:30AM"; Descripcion = "Agente de Sistemas: revisión de lo subido a producción, salud del sistema y uso (solo lee; agentes-de-area/correr-agente.mjs)." },
   @{ Nombre = "Agente de Marketing"; Area = "marketing"; Hora = "6:45AM"; Descripcion = "Agente de Marketing: revisión diaria de la pauta (solo lee Meta Ads) y resumen para el Agente de Ventas (agentes-de-area/correr-agente.mjs)." },
   @{ Nombre = "Agente de Ventas"; Area = "ventas"; Hora = "7:00AM"; Descripcion = "Agente de Ventas: números de ayer, subagentes y WhatsApp internos a las 7:30 (agentes-de-area/correr-agente.mjs)." }
 )

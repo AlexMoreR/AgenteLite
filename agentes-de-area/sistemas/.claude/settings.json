@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Write",
+      "Glob",
+      "Grep",
+      "Task",
+      "Agent",
+      "Bash(node herramientas/revisar-pantalla.mjs:*)",
+      "Bash(node herramientas/leer-servidor.mjs:*)",
+      "Bash(node herramientas/salud-de-aizen1.mjs:*)",
+      "mcp__aizencrm__revision_de_sistemas",
+      "mcp__aizencrm__guardar_resumen_del_dia",
+      "mcp__aizencrm__agente_de_sistemas",
+      "mcp__aizencrm__listar_tableros",
+      "mcp__aizencrm__ver_tablero",
+      "mcp__aizencrm__ver_plan_y_resultado",
+      "mcp__aizencrm__ver_historial_tarjeta",
+      "mcp__aizencrm__ver_coordinador",
+      "mcp__aizencrm__resumen_del_negocio",
+      "mcp__gestion"
+    ],
+    "deny": [
+      "Edit",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch",
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "mcp__aizencrm__aprobar_tarjeta",
+      "mcp__aizencrm__cambiar_estado_tarjeta",
+      "mcp__aizencrm__editar_tarjeta",
+      "mcp__aizencrm__borrar_tarjeta",
+      "mcp__aizencrm__deshacer_cambio_tarjeta",
+      "mcp__aizencrm__conectar_tarjetas",
+      "mcp__aizencrm__crear_tablero",
+      "mcp__aizencrm__renombrar_tablero",
+      "mcp__aizencrm__crear_tipo",
+      "mcp__aizencrm__editar_tipo",
+      "mcp__aizencrm__mandar_whatsapp_al_equipo"
+    ]
+  }
+}

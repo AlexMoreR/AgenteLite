@@ -7,6 +7,7 @@
   "carpetaLogs": "./logs",
   "horaDeInicio": "07:00",
   "horaDeInicioMarketing": "06:45",
+  "horaDeInicioSistemas": "06:30",
   "horaDeMensajes": "07:30",
   "toleranciaMinutos": 10,
   "modelo": null,
@@ -16,5 +17,15 @@
   "maxEsperaLimiteHoras": 6,
   "reintentosEnvio": 3,
   "esperaEnvioSegundos": 60,
-  "herramientasExtra": []
+  "herramientasExtra": [],
+  "servidor": {
+    "comandoSsh": ["ssh", "-i", "C:/Users/aizen1/.ssh/trabajador"],
+    "destino": "trabajador@PEGAR_AQUI_EL_VPS",
+    "contenedor": "PEGAR_AQUI_EL_NOMBRE_DEL_CONTENEDOR_DEL_CRM",
+    "urlInicio": "https://app.aizenbot.com"
+  },
+  "tableroDeEmanuel": "PEGAR_AQUI_EL_ID_DEL_TABLERO_DE_EMANUEL",
+  "sistemas": {
+    "sesionPlaywright": "./sistemas/sesion-solo-lectura.json"
+  }
 }
