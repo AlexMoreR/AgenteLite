@@ -330,6 +330,7 @@
           "--exit-status"
         ],
         "ciMinutos": 20,
+        "workflowDespliegue": "docker-image.yml",
         "urlVersion": "https://app.aizenbot.com/api/version",
         "campoVersion": "version",
         "versionMinutos": 8,
@@ -411,7 +412,8 @@
           "AlexMoreR/Gestion",
           "--exit-status"
         ],
-        "ciMinutos": 20
+        "ciMinutos": 20,
+        "workflowDespliegue": "docker-image.yml"
       },
       "ciDeRama": {
         "activo": false,

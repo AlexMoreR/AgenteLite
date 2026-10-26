@@ -28,8 +28,8 @@ import { crearCrm } from "../lib/crm.mjs";
 import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstadoDelManual } from "../lib/manual-nocturno.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
-import { decidir, diagnosticar, resumenDeEscalada } from "../lib/diagnostico.mjs";
-import { esLimiteDeUso, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
+import { LARGO_MAXIMO_DEL_AVISO, decidir, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
+import { buscarCorridaDelDespliegue, esLimiteDeUso, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
 import { MAX_DESCRIPCION, descripcionParaLaNube, esTareaGrande, estaDentroDe, lanzarEnNube, linkDeSesion, preguntaDeConfianza, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
 import { detalleDeFalla, lineasQueFallaron } from "../lib/procesos.mjs";
 import { destructivoDelSql, migracionDestructiva } from "../lib/riesgo.mjs";
@@ -544,6 +544,31 @@ await prueba("decisiones: el límite de Claude espera sin contar; 3 reparaciones
   assert.equal(decidir({ diagnostico: lento, tarjeta: {}, etapa: "construir", archivosCambiados: 12 }).accion, "partir", "muchos archivos: se parte");
   assert.equal(decidir({ diagnostico: lento, tarjeta: {}, etapa: "construir", archivosCambiados: 2 }).accion, "reparar", "pocos archivos y primera vez: se repara");
   assert.equal(decidir({ diagnostico: lento, tarjeta: { esParte: true }, etapa: "construir", archivosCambiados: 12 }).accion, "reparar", "una parte no se parte más");
+});
+
+await prueba("aviso de reversión al dueño: máximo 3 líneas y 500 caracteres aunque el motivo sea larguísimo (26-oct-2026: uno de 869 no salió)", () => {
+  const motivo = `Se subió, no arrancó y se deshizo; producción vuelve a la versión anterior.\nCommit deshecho: 602d0beb01 (revert 66918ed0e7).\nDetalle técnico: Subió a main (commit 602d0beb01) pero el CI falló: 'servicio' is assigned a value but never used\n${"error  A require() style import is forbidden\n".repeat(30)}`;
+  const reversion = { commit: "602d0beb01d949b85e6bdc7200fa4229ed4dc069", revert: "66918ed0e7dbd48e0c40520e8b2a499a84afdf0b", ok: true };
+  const texto = textoDelAvisoDeReversion(`Paralelo de verdad — parte 1: ${"Workflow de GitHub Actions ".repeat(10)}`, motivo, reversion);
+  assert.ok(texto.length <= LARGO_MAXIMO_DEL_AVISO, `tiene ${texto.length} caracteres`);
+  const lineas = texto.split("\n");
+  assert.equal(lineas.length, 3);
+  assert.match(lineas[1], /^Motivo: Subió a main \(commit 602d0beb01\) pero el CI falló/, "la causa técnica, no la frase genérica");
+  assert.match(lineas[2], /Commit deshecho: 602d0beb01; commit de la reversión: 66918ed0e7\. Detalle en el tablero\./);
+  const urgente = textoDelAvisoDeReversion("x", "y".repeat(2000), { commit: "abc", revert: null, ok: false });
+  assert.ok(urgente.length <= LARGO_MAXIMO_DEL_AVISO && urgente.startsWith("URGENTE:") && urgente.split("\n").length === 3);
+  const largo = recortarAviso(`uno\ndos\ntres\ncuatro\n${"z".repeat(900)}`);
+  assert.ok(largo.length <= 500 && largo.split("\n").length === 3);
+});
+
+await prueba("subida: la corrida que decide 'deshacer' es la del workflow de despliegue (workflowDespliegue), no la de revisión", () => {
+  const buscar = ["gh", "run", "list", "--repo", "AlexMoreR/AgenteLite", "--commit", "{commit}", "--json", "databaseId", "--jq", ".[0].databaseId"];
+  assert.deepEqual(buscarCorridaDelDespliegue(buscar, "docker-image.yml").slice(0, 5), ["gh", "run", "list", "--workflow", "docker-image.yml"]);
+  assert.deepEqual(buscarCorridaDelDespliegue(buscar, null), buscar, "sin configurar: igual que antes");
+  const yaFijado = ["gh", "run", "list", "--workflow", "otro.yml", "--commit", "{commit}"];
+  assert.deepEqual(buscarCorridaDelDespliegue(yaFijado, "docker-image.yml"), yaFijado, "si el comando ya dice --workflow, no se toca");
+  const falso = ["node", "gh-falso.mjs", "buscar", "{commit}"];
+  assert.deepEqual(buscarCorridaDelDespliegue(falso, "docker-image.yml"), falso, "otro comando (no gh run list): no se toca");
 });
 
 await prueba("sesión atascada: solo se corta si pasan 15 min sin archivos nuevos NI procesador (reloj acelerado)", async () => {

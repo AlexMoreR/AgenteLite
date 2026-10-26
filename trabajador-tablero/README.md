@@ -74,6 +74,11 @@ minuto y antes que cualquier otra tarjeta.
   Queda ERROR: "Se subió, no arrancó y se deshizo; producción vuelve a la versión anterior". Las
   carpetas de migración nuevas se conservan (la migración es aditiva y pudo haber corrido; la base no se
   deshace). Si no logra deshacerlo, el motivo empieza con **"URGENTE: no se pudo deshacer, revisar a mano"**.
+  El aviso al dueño por WhatsApp va en 3 líneas y máximo 500 caracteres (el CRM rechaza los más largos); el detalle queda en el tablero.
+- **Qué CI cuenta como "el despliegue"**: solo el workflow de `subida.workflowDespliegue` (p. ej. `"docker-image.yml"`, el que
+  publica la imagen) más la comprobación de `/api/version`. Se le agrega `--workflow <archivo>` al `gh run list` de `ciBuscar`
+  (o se usa `{workflow}` en el comando). Un workflow de revisión (p. ej. «CI tablero») que falle en el mismo commit no deshace
+  nada (26-oct-2026: así se deshizo una subida buena). Sin configurarlo queda un aviso en el registro en cada subida.
 - Con `subirSolo` apagado (o sin ponerlo) todo sigue como antes: queda POR_REVISAR y espera el sí final.
 - En `aizencrm`, el trabajador **no arranca** con `subirSolo: true` si falta la zona `CHATS`: así un
   descuido en la configuración no puede hacer que un cambio de chats suba solo.

@@ -364,3 +364,40 @@ export function resumenDeEscalada({ tarjeta = {}, intentos, diagnostico } = {}) 
   const necesita = `Qué necesita de ti: ${NECESITA[categoria] ?? NECESITA.otra}`;
   return [queFallo.replace(/\.?$/, "."), enUnaLinea(queSeProbo, 240), enUnaLinea(necesita, 240)].join("\n");
 }
+
+/** El CRM no acepta avisos al dueño de más de 500 caracteres (26-oct-2026: uno de 869 no salió). */
+export const LARGO_MAXIMO_DEL_AVISO = 500;
+
+/** Un aviso al dueño de máximo 3 líneas y LARGO_MAXIMO_DEL_AVISO caracteres (cada línea sin saltos ni espacios de más). */
+export function recortarAviso(texto, n = LARGO_MAXIMO_DEL_AVISO, maxLineas = 3) {
+  const lineas = String(texto ?? "")
+    .split(/\r?\n/)
+    .map((linea) => linea.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const primeras = lineas.slice(0, maxLineas - 1);
+  const ultima = lineas.slice(maxLineas - 1).join(" ");
+  return recortar([...primeras, ...(ultima ? [ultima] : [])].join("\n"), n);
+}
+
+/** La causa de una reversión en una línea: el "Detalle técnico" si lo hay (es lo que de verdad falló), si no la primera línea. */
+function causaDeLaReversion(motivo) {
+  const texto = String(motivo ?? "");
+  const tecnico = texto.match(/Detalle técnico:\s*([^\n]+)/);
+  const linea = tecnico?.[1] ?? texto.split(/\r?\n/).find((l) => l.trim()) ?? "";
+  return linea.replace(/^Revertida:\s*/, "").trim();
+}
+
+/**
+ * El aviso al dueño cuando una subida se deshizo (o no se pudo deshacer): 3 líneas y máximo 500 caracteres.
+ * El detalle completo queda en el tablero (motivo de la tarjeta).
+ */
+export function textoDelAvisoDeReversion(titulo, motivo, reversion) {
+  const corto = (sha) => String(sha ?? "").slice(0, 10);
+  const nombre = enUnaLinea(titulo, 120);
+  const [primera, ultima] = reversion?.ok
+    ? [`Se deshizo una subida de "${nombre}".`, `Commit deshecho: ${corto(reversion.commit)}; commit de la reversión: ${corto(reversion.revert)}. Detalle en el tablero.`]
+    : [`URGENTE: no se pudo deshacer una subida de "${nombre}", hay que revisar a mano.`, `Commit en producción: ${corto(reversion?.commit)}. Detalle en el tablero.`];
+  const espacio = LARGO_MAXIMO_DEL_AVISO - primera.length - ultima.length - 2 - "Motivo: ".length;
+  const causa = enUnaLinea(causaDeLaReversion(motivo), Math.max(40, espacio));
+  return recortarAviso([primera, `Motivo: ${causa}`, ultima].join("\n"));
+}

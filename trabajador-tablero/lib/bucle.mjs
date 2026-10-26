@@ -30,7 +30,7 @@ import { agenteDelRepo, anotarLeccion, leccionDe, tresLineasDe } from "./agentes
 import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.mjs";
 import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
-import { TOPE_DE_REPARACIONES, decidir, diagnosticar, enUnaLinea, resumenDeEscalada } from "./diagnostico.mjs";
+import { TOPE_DE_REPARACIONES, decidir, diagnosticar, enUnaLinea, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "./diagnostico.mjs";
 import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, medirConClaude, partirTarea, planear, subir } from "./etapas.mjs";
 import { idCorto } from "./git.mjs";
 import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedida } from "./medir.mjs";
@@ -293,7 +293,7 @@ async function avisarQueNecesita(crm, registro, config, tarjeta, hacer, necesita
   const donde = hacer === "planear" ? "El plan quedó listo esperando tu sí." : "La tarjeta quedó en «Por revisar» esperando tu respuesta.";
   const texto = `${quien} necesita ${{ clave: "una clave", acceso: "un acceso", decisión: "una decisión" }[necesita.tipo] ?? necesita.tipo} para "${tarjeta.titulo}": ${enUnaLinea(necesita.detalle, 400)} ${donde}`;
   try {
-    await crm.aviso(texto, "necesita");
+    await crm.aviso(recortarAviso(texto), "necesita");
   } catch (error) {
     registro.aviso(`no salió el aviso de lo que necesita el agente (${error.status ?? "sin respuesta"}): ${error.message}`);
   }
@@ -304,11 +304,8 @@ async function avisarQueNecesita(crm, registro, config, tarjeta, hacer, necesita
  * commits. Si el aviso no sale, queda en el registro y la tarjeta sigue su camino.
  */
 async function avisarReversion(crm, registro, tarjeta, motivo, reversion) {
-  const corto = (sha) => String(sha ?? "").slice(0, 10);
-  const detalle = enUnaLinea(motivo, 600);
-  const texto = reversion.ok
-    ? `Se deshizo una subida de "${tarjeta.titulo}": ${detalle} Commit deshecho: ${corto(reversion.commit)}; commit de la reversión: ${corto(reversion.revert)}.`
-    : `URGENTE: no se pudo deshacer una subida de "${tarjeta.titulo}", hay que revisar a mano. Commit en producción: ${corto(reversion.commit)}. ${detalle}`;
+  // Máximo 3 líneas y 500 caracteres (el CRM rechaza los más largos); el detalle completo queda en el tablero.
+  const texto = textoDelAvisoDeReversion(tarjeta.titulo, motivo, reversion);
   try {
     await crm.aviso(texto, "necesita");
   } catch (error) {

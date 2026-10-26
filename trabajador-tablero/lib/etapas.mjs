@@ -1489,12 +1489,20 @@ const conValores = (comando, valores) => comando.map((parte) => parte.replace(/\
  * de verdad es que /api/version diga el commit nuevo (22-10-2026: por esto se deshizo un cambio bueno).
  */
 async function esperarCi(contexto, repo, commit, cwd, reloj) {
-  const { ciBuscar, ciEsperar, ciMinutos } = repo.subida;
+  const { ciEsperar, ciMinutos, workflowDespliegue } = repo.subida;
+  // Solo cuenta la corrida del workflow que DESPLIEGA (26-oct-2026: el mismo commit tenía una corrida fallida de
+  // "CI tablero" por lint viejo, se tomó por el despliegue y se deshizo una subida que sí desplegaba).
+  const ciBuscar = buscarCorridaDelDespliegue(repo.subida.ciBuscar, workflowDespliegue);
   if (!ciBuscar || !ciEsperar) return "CI: no configurado";
+  if (!workflowDespliegue && !ciBuscar.some((parte) => parte === "--workflow" || parte === "-w")) {
+    contexto.registro?.aviso?.(
+      `subida.workflowDespliegue sin configurar en ${repo.ruta}: cualquier workflow del commit puede deshacer la subida (poner p. ej. "docker-image.yml")`,
+    );
+  }
   const limite = Date.now() + Math.min(ciMinutos * MINUTO, reloj.resta());
   let corrida = "";
   while (!corrida) {
-    const resultado = await correr(conValores(ciBuscar, { commit }), { cwd, timeoutMs: 60_000, senal: contexto.senal });
+    const resultado = await correr(conValores(ciBuscar, { commit, workflow: workflowDespliegue ?? "" }), { cwd, timeoutMs: 60_000, senal: contexto.senal });
     if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló la espera del CI: la tarjeta venció en el CRM.");
     if (resultado.codigo !== 0 && /gh auth login|GH_TOKEN|authentication/i.test(resultado.errores)) {
       return "CI: no se pudo consultar (gh sin sesión en este PC; poner GH_TOKEN)";
@@ -1527,7 +1535,20 @@ async function esperarCi(contexto, repo, commit, cwd, reloj) {
       )}`,
     );
   }
-  return `CI ${corrida}: ok`;
+  return `CI ${corrida}${workflowDespliegue ? ` (${workflowDespliegue})` : ""}: ok`;
+}
+
+/**
+ * El comando para buscar la corrida del DESPLIEGUE (subida.ciBuscar) fijado a `workflowDespliegue`: si el comando es
+ * `gh run list` sin `--workflow`, se le agrega `--workflow <archivo>` justo después de "list". Así un workflow de
+ * revisión (p. ej. "CI tablero") que falle en el mismo commit no se toma por el despliegue. Puro (se prueba solo).
+ */
+export function buscarCorridaDelDespliegue(ciBuscar, workflowDespliegue) {
+  if (!Array.isArray(ciBuscar) || !workflowDespliegue) return ciBuscar ?? null;
+  if (ciBuscar.some((parte) => parte === "--workflow" || parte === "-w" || parte.includes("{workflow}"))) return ciBuscar;
+  const lista = ciBuscar.findIndex((parte, i) => parte === "list" && ciBuscar[i - 1] === "run");
+  if (lista < 0) return ciBuscar;
+  return [...ciBuscar.slice(0, lista + 1), "--workflow", workflowDespliegue, ...ciBuscar.slice(lista + 1)];
 }
 
 /** ¿Está prendido el ciDeRama de este repo y trae sus tres comandos? */

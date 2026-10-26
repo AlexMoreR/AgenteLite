@@ -3,6 +3,8 @@ name: CI tablero
 # Revisa cada rama tablero/* que sube el Coordinador: tipos, lint, build y pruebas.
 # El Coordinador clasifica el error por el NOMBRE del paso que falla: "Lint" = lint,
 # "Pruebas" = pruebas que fallan y cualquier otro = no compila. No renombrar a la ligera.
+# Corre SOLO en las ramas tablero/* (y a mano): en main la revisión no aplica y el despliegue es docker-image.yml.
+# El Coordinador, al subir a main, solo mira el workflow de subida.workflowDespliegue, no este.
 on:
   push:
     branches: ['tablero/**']
@@ -26,6 +28,9 @@ jobs:
     steps:
       - name: Bajar el codigo
         uses: actions/checkout@v4
+        with:
+          # Historia completa: el paso Lint compara la rama con su base (merge-base).
+          fetch-depth: 0
 
       - name: Node 20
         uses: actions/setup-node@v4
@@ -50,8 +55,25 @@ jobs:
       - name: Tipos tsc
         run: npx tsc --noEmit
 
+      # Solo los archivos que cambió la rama respecto de main (igual que la regla del Coordinador "sin errores nuevos"):
+      # los errores de lint viejos del repo no frenan la rama. Sin archivos .ts/.tsx/.js/.mjs cambiados, el paso pasa.
       - name: Lint
-        run: npx eslint .
+        env:
+          RAMA_BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          git fetch --no-tags origin "$RAMA_BASE"
+          base="$(git merge-base "origin/$RAMA_BASE" HEAD || echo "origin/$RAMA_BASE")"
+          archivos=()
+          while IFS= read -r archivo; do
+            if [ -f "$archivo" ]; then archivos+=("$archivo"); fi
+          done < <(git diff --name-only --diff-filter=d "$base" HEAD -- '*.ts' '*.tsx' '*.js' '*.mjs')
+          if [ "${#archivos[@]}" -eq 0 ]; then
+            echo "La rama no cambió archivos .ts/.tsx/.js/.mjs respecto de $RAMA_BASE: nada que revisar."
+            exit 0
+          fi
+          echo "Lint de ${#archivos[@]} archivo(s) cambiados respecto de $RAMA_BASE:"
+          printf '  %s\n' "${archivos[@]}"
+          npx eslint --no-warn-ignored -- "${archivos[@]}"
 
       - name: Build
         run: npm run build

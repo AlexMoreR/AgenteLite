@@ -271,6 +271,9 @@ export function completarConfig(datos, base = process.cwd()) {
           ciBuscar: comando(repo.subida?.ciBuscar, `repos.${clave}.subida.ciBuscar`),
           ciEsperar: comando(repo.subida?.ciEsperar, `repos.${clave}.subida.ciEsperar`),
           ciMinutos: Number(repo.subida?.ciMinutos) || 20,
+          // El workflow que publica la imagen (p. ej. "docker-image.yml"): solo su corrida decide "falló el despliegue → deshacer".
+          workflowDespliegue:
+            typeof repo.subida?.workflowDespliegue === "string" && repo.subida.workflowDespliegue.trim() ? repo.subida.workflowDespliegue.trim() : null,
           urlVersion: typeof repo.subida?.urlVersion === "string" ? repo.subida.urlVersion : null,
           campoVersion: typeof repo.subida?.campoVersion === "string" ? repo.subida.campoVersion : "version",
           versionMinutos: Number(repo.subida?.versionMinutos) || 10,
