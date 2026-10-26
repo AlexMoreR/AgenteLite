@@ -7,6 +7,7 @@ import {
   MessageSquare,
   Mic,
   MicOff,
+  MonitorUp,
   PhoneOff,
   Send,
   X,
@@ -47,6 +48,29 @@ function AudioDePista({ pista }: { pista: PistaLK }) {
   return <audio ref={audio} autoPlay />;
 }
 
+/** Pega la pantalla compartida de otra persona a un video grande. Al soltarla, la despega. */
+function PantallaGrande({ pista, nombre }: { pista: PistaLK; nombre: string }) {
+  const video = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const elemento = video.current;
+    if (!elemento) {
+      return;
+    }
+    pista.attach(elemento);
+    return () => {
+      pista.detach(elemento);
+    };
+  }, [pista]);
+  return (
+    <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg bg-black">
+      <video ref={video} autoPlay playsInline muted className="size-full object-contain" />
+      <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
+        Pantalla de {nombre}
+      </span>
+    </div>
+  );
+}
+
 function Cuadro({ participante }: { participante: ParticipanteLK }) {
   const nombre = participante.name || participante.identity;
   return (
@@ -69,7 +93,8 @@ function Cuadro({ participante }: { participante: ParticipanteLK }) {
 }
 
 /**
- * Adentro de la reunión: solo voz (micrófono, silenciar, salir) y chat. Sin cámara, video ni pantalla.
+ * Adentro de la reunión: voz (micrófono, silenciar, salir), compartir pantalla y chat. Sin cámara.
+ * La pantalla compartida no se graba: el acta sale solo del audio de los micrófonos.
  * Quien la creó, el dueño y los administradores ven
  * "Terminar reunión", que la cierra para todos.
  */
@@ -124,6 +149,8 @@ export function SalaDeReunion({
           E.TrackUnmuted,
           E.LocalTrackPublished,
           E.LocalTrackUnpublished,
+          E.TrackPublished,
+          E.TrackUnpublished,
           E.ActiveSpeakersChanged,
           E.ParticipantNameChanged,
         ]) {
@@ -203,6 +230,24 @@ export function SalaDeReunion({
     repintar();
   };
 
+  const puedeCompartir = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
+
+  const alternarPantalla = async () => {
+    if (!local) {
+      return;
+    }
+    try {
+      await local.setScreenShareEnabled(!local.isScreenShareEnabled);
+    } catch (error) {
+      const nombreDelError = error instanceof Error ? error.name : "";
+      // Si la persona cancela el permiso no pasa nada.
+      if (nombreDelError !== "NotAllowedError" && nombreDelError !== "AbortError") {
+        toast.error("No se pudo compartir la pantalla.");
+      }
+    }
+    repintar();
+  };
+
   const enviar = async (evento: React.FormEvent) => {
     evento.preventDefault();
     const limpio = texto.trim().slice(0, 1000);
@@ -251,6 +296,19 @@ export function SalaDeReunion({
         )
     : [];
 
+  // Pantalla de otra persona: se ve en grande; la propia solo se ve en pequeño.
+  const pantalla = lk
+    ? participantes
+        .filter((participante) => !participante.isLocal)
+        .map((participante) => ({
+          participante,
+          publicacion: Array.from(participante.trackPublications.values()).find(
+            (item) => item.source === lk.Track.Source.ScreenShare && item.kind === "video" && item.track,
+          ),
+        }))
+        .find((item) => item.publicacion?.track)
+    : undefined;
+
   return (
     <div className="flex h-dvh flex-col bg-neutral-950 text-white">
       <div className="flex shrink-0 items-center bg-neutral-900 px-3 py-1.5">
@@ -271,7 +329,19 @@ export function SalaDeReunion({
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+              {pantalla?.publicacion?.track ? (
+                <PantallaGrande
+                  key={pantalla.publicacion.trackSid}
+                  pista={pantalla.publicacion.track}
+                  nombre={pantalla.participante.name || pantalla.participante.identity}
+                />
+              ) : null}
+              <div
+                className={cn(
+                  "grid gap-2",
+                  pantalla ? "shrink-0 grid-cols-3 md:grid-cols-6" : "grid-cols-2 md:grid-cols-3",
+                )}
+              >
                 {participantes.map((participante) => (
                   <Cuadro key={participante.identity} participante={participante} />
                 ))}
@@ -318,6 +388,18 @@ export function SalaDeReunion({
         >
           {local?.isMicrophoneEnabled ? <Mic /> : <MicOff />}
         </Button>
+        {puedeCompartir ? (
+          <Button
+            size="icon-lg"
+            variant={local?.isScreenShareEnabled ? "default" : "outline"}
+            onClick={() => void alternarPantalla()}
+            disabled={!local}
+            aria-label="Compartir pantalla"
+            className={cn(!local?.isScreenShareEnabled && "text-foreground")}
+          >
+            <MonitorUp />
+          </Button>
+        ) : null}
         <Button
           size="icon-lg"
           variant={chatAbierto ? "default" : "outline"}
