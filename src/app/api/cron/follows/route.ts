@@ -19,6 +19,7 @@ import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/serv
 import { procesarColaDeReuniones } from "@/features/reuniones/servicios/cola-de-reuniones";
 import { aprobarPlanesListosQueEsperan, aprobarSolasLasPendientes } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { sincronizarCerebroDeTodos } from "@/features/cerebro/services/sincronizar-negocio";
+import { revisarAlertaDeConexion } from "@/features/cerebro/services/alerta-de-conexion";
 import { revisarAvisosAlDueno } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 
 function resolveCronSecret() {
@@ -327,6 +328,7 @@ async function handleCron(request: Request) {
     after(async () => {
       try {
         await sincronizarCerebroDeTodos();
+        await revisarAlertaDeConexion();
       } catch (error) {
         console.error("[cron/follows] sincronizacion del cerebro error", error);
       }

@@ -52,7 +52,7 @@ export type OpcionesDeAlertas = {
 
 export const OPCIONES_POR_DEFECTO: OpcionesDeAlertas = {
   recordatorioCriticoMin: 12 * 60,
-  cerrarTrasMin: { BOT: 3 * 60, EMBUDO: 3 * 60, CAMBIO: 72 * 60, ATENCION: 15 },
+  cerrarTrasMin: { BOT: 3 * 60, EMBUDO: 3 * 60, CAMBIO: 72 * 60, ATENCION: 15, CEREBRO: 15 },
   avisarDesde: "IMPORTANTE",
 };
 

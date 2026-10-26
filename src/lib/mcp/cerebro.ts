@@ -8,8 +8,9 @@ import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
   CEREBRO por el MCP: cerebro_listar, cerebro_leer, cerebro_buscar y cerebro_escribir.
 
   El cerebro es una carpeta de Google Drive (la copia en la base se sincroniza cada hora y con el botón).
-  Las tres primeras solo leen. cerebro_escribir es la única que modifica el Drive y SOLO cuando el dueño lo
-  pidió con sus palabras en esta conversación; nunca borra nada. Ver features/cerebro/services/escribir.ts.
+  Las tres primeras solo leen. cerebro_escribir es la única que modifica el Drive; nunca borra nada. Crear y
+  agregar no piden la frase del dueño (Claude anota cada decisión apenas se toma, en "Decisiones de Magilus");
+  reemplazar todo un documento sí la pide. Ver features/cerebro/services/escribir.ts.
 */
 
 type Contexto = { workspaceId: string; userId: string };
@@ -70,12 +71,12 @@ export const HERRAMIENTAS_MCP_CEREBRO = [
     name: "cerebro_escribir",
     title: "Escribir en el cerebro",
     description:
-      "Crea un documento de decisión nuevo (.md) o le agrega una parte al final a uno que ya existe, DIRECTO EN EL DRIVE. Solo cuando Alexander lo pide explícitamente: antes, léele lo que vas a escribir y espera que diga 'sí, escríbelo en el cerebro'; texto_confirmacion es lo que dijo, tal cual. La cuenta de la clave de Claude tiene que ser la dueña del negocio. Nunca lo hagas por tu cuenta. " +
+      "Anota en el cerebro (DIRECTO EN EL DRIVE). USO NORMAL: apenas Alexander TOME UNA DECISIÓN en la conversación, anótala en el documento único 'Decisiones de Magilus' SIN pedirle ninguna frase: búscalo con cerebro_buscar, léelo con cerebro_leer (para tener su `version`) y usa modo 'agregar' (si no existe, créalo con modo 'crear' en la carpeta principal). Escribe solo la conclusión en una o dos líneas, nunca la charla entera; el servidor le pone la fecha. Después avísale a Alexander en una línea: 'Lo anoté en Decisiones de Magilus'. Solo anota decisiones, no dudas ni ideas sueltas. modo 'reemplazar' (cambiar todo un documento) SÍ exige el 'sí' del dueño: léele lo que vas a escribir y espera que diga 'sí, escríbelo en el cerebro'; texto_confirmacion es lo que dijo, tal cual. La cuenta de la clave de Claude tiene que ser la dueña del negocio. " +
       "Antes de escribir se revisa que el documento no haya cambiado en el Drive desde que lo leíste (pasa `version_leida`, la `version` de cerebro_leer); si cambió, no escribe y avisa. Solo se modifican textos .md y .txt (un Google Doc no). Nunca borra nada; Drive guarda su historial de versiones y el CRM anota quién, cuándo, el antes y el después. Escribe solo la conclusión, no una conversación entera.",
     inputSchema: {
       type: "object",
       properties: {
-        modo: { type: "string", enum: ["crear", "agregar", "reemplazar"], description: "crear = documento nuevo; agregar = al final de uno existente (lo normal); reemplazar = todo el contenido (solo si el dueño lo pidió así)." },
+        modo: { type: "string", enum: ["crear", "agregar", "reemplazar"], description: "crear = documento nuevo; agregar = al final de uno existente (lo normal); reemplazar = todo el contenido (solo con el sí del dueño en texto_confirmacion)." },
         documento_id: { type: "string", description: "agregar/reemplazar: el id de Drive del documento." },
         carpeta_id: { type: "string", description: "crear: el id de la carpeta (por defecto la principal del cerebro)." },
         nombre: { type: "string", description: "crear: el nombre del documento nuevo (se le pone .md si falta)." },
@@ -83,10 +84,10 @@ export const HERRAMIENTAS_MCP_CEREBRO = [
         version_leida: { type: "string", description: "agregar/reemplazar: la `version` que devolvió cerebro_leer." },
         texto_confirmacion: {
           type: "string",
-          description: "Lo que dijo la persona para escribir, tal cual, por ejemplo 'sí, escríbelo en el cerebro'. Obligatorio. Mínimo 8 caracteres.",
+          description: "Solo para modo 'reemplazar': lo que dijo el dueño, tal cual, por ejemplo 'sí, escríbelo en el cerebro'. En crear y agregar no se pide.",
         },
       },
-      required: ["modo", "contenido", "texto_confirmacion"],
+      required: ["modo", "contenido"],
       additionalProperties: false,
     },
     annotations: ESCRIBE,

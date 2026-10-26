@@ -208,18 +208,35 @@ await prueba("el texto de confirmación: pide 'sí' y escribir; 'no', preguntas 
   assert.notEqual(v(undefined), null);
 });
 
-await prueba("por el MCP: sin 'sí', con 'no' o con una clave que no es del dueño NO escribe", () => {
+await prueba("por el MCP: crear y agregar no piden frase; reemplazar sí; una clave que no es del dueño NO escribe", () => {
   const base = { origen: "MCP", motivoCuentaNoDueno: null, autorizadaParaElCerebro: false };
-  assert.equal(problemaDeAutorizacion({ ...base, textoConfirmacion: "sí, escríbelo en el cerebro" }), null);
-  assert.ok(problemaDeAutorizacion({ ...base, textoConfirmacion: undefined }));
-  assert.ok(problemaDeAutorizacion({ ...base, textoConfirmacion: "no lo escribas en el cerebro" }));
+  for (const modo of ["crear", "agregar"]) {
+    assert.equal(problemaDeAutorizacion({ ...base, modo, textoConfirmacion: undefined }), null, `${modo} sin frase con la cuenta dueña escribe`);
+    assert.match(
+      problemaDeAutorizacion({ ...base, modo, motivoCuentaNoDueno: "La conexión llegó con la cuenta Ana: es CLIENTE" }),
+      /Ana/,
+    );
+  }
+  assert.ok(problemaDeAutorizacion({ ...base, modo: "reemplazar", textoConfirmacion: undefined }));
+  assert.ok(problemaDeAutorizacion({ ...base, modo: "reemplazar", textoConfirmacion: "no lo escribas en el cerebro" }));
+  assert.equal(problemaDeAutorizacion({ ...base, modo: "reemplazar", textoConfirmacion: "sí, escríbelo en el cerebro" }), null);
   assert.match(
-    problemaDeAutorizacion({ ...base, textoConfirmacion: "sí, escríbelo en el cerebro", motivoCuentaNoDueno: "La conexión llegó con la cuenta Ana: es CLIENTE" }),
+    problemaDeAutorizacion({ ...base, modo: "reemplazar", textoConfirmacion: "sí, escríbelo en el cerebro", motivoCuentaNoDueno: "La conexión llegó con la cuenta Ana: es CLIENTE" }),
     /Ana/,
   );
   // Desde la pantalla o el tablero: el dueño o quien él autorizó, sin texto.
-  assert.equal(problemaDeAutorizacion({ origen: "TABLERO", motivoCuentaNoDueno: "x", autorizadaParaElCerebro: true }), null);
-  assert.ok(problemaDeAutorizacion({ origen: "PANTALLA", motivoCuentaNoDueno: null, autorizadaParaElCerebro: false }));
+  assert.equal(problemaDeAutorizacion({ origen: "TABLERO", modo: "agregar", motivoCuentaNoDueno: "x", autorizadaParaElCerebro: true }), null);
+  assert.ok(problemaDeAutorizacion({ origen: "PANTALLA", modo: "agregar", motivoCuentaNoDueno: null, autorizadaParaElCerebro: false }));
+});
+
+await prueba("Decisiones de Magilus: el servidor pone la fecha si falta, no la repite y no toca otros documentos", () => {
+  const ahora = new Date("2026-10-26T20:00:00-05:00");
+  assert.equal(reglas.NOMBRE_DECISIONES, "Decisiones de Magilus");
+  assert.equal(reglas.conFechaDeDecision("Decisiones de Magilus.md", "Se quita la frase.", ahora), "### 2026-10-26\nSe quita la frase.");
+  assert.equal(reglas.conFechaDeDecision("decisiones de magilus", "Se quita la frase.", ahora), "### 2026-10-26\nSe quita la frase.");
+  assert.equal(reglas.conFechaDeDecision("Decisiones de Magilus.md", "### 2026-10-20\nOtra", ahora), "### 2026-10-20\nOtra");
+  assert.equal(reglas.conFechaDeDecision("Decisiones de Magilus.md", "2026-10-20: otra", ahora), "2026-10-20: otra");
+  assert.equal(reglas.conFechaDeDecision("politica.md", "Texto", ahora), "Texto");
 });
 
 function depsFalsas({ enDrive, copiaDe, carpetas = {}, hermanos = [] }) {
@@ -284,6 +301,16 @@ await prueba("agregar: escribe al final, deja el registro con el antes y el desp
   assert.equal(llamadas.registros[0].antes, "# Política\nTexto actual");
   assert.ok(llamadas.registros[0].despues.includes("Se suspende la contraentrega."));
   assert.equal(llamadas.copias[0].versionDrive, "8");
+});
+
+await prueba("agregar a Decisiones de Magilus.md y crearlo dejan la decisión fechada", async () => {
+  const doc = { ...docPolitica, nombre: "Decisiones de Magilus.md", ruta: "Decisiones de Magilus.md" };
+  const { deps, llamadas } = depsFalsas({ enDrive: { versionDrive: "7", padreId: "raiz" }, copiaDe: doc });
+  await escribirConDependencias({ ...pedidoBase, versionLeida: "7" }, deps);
+  assert.match(llamadas.reemplazos[0].contenido, /### \d{4}-\d{2}-\d{2}\n## Decisión\nSe suspende la contraentrega\./);
+  const nuevo = depsFalsas({ enDrive: {}, copiaDe: null });
+  await escribirConDependencias({ ...pedidoBase, modo: "crear", driveId: undefined, nombre: "Decisiones de Magilus", contenido: "Primera decisión" }, nuevo.deps);
+  assert.match(nuevo.llamadas.creados[0].contenido, /^### \d{4}-\d{2}-\d{2}\nPrimera decisión\n$/);
 });
 
 await prueba("un Google Doc, una carpeta o algo que ya no está en el Drive no se modifican", async () => {
@@ -434,14 +461,15 @@ await prueba("en el código del cerebro no existe ninguna llamada que borre, vac
 
 /* ── Está enchufado donde debe ── */
 
-await prueba("el MCP registra las 4 herramientas y cerebro_escribir exige la confirmación del dueño", () => {
+await prueba("el MCP registra las 4 herramientas y cerebro_escribir ya no exige la frase para crear y agregar", () => {
   const herramientas = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/herramientas.ts"), "utf8");
   assert.match(herramientas, /\.\.\.HERRAMIENTAS_MCP_CEREBRO/);
   assert.match(herramientas, /esHerramientaDelCerebro\(nombre\)/);
   const cerebro = cargar("src/lib/mcp/cerebro.ts", { "@/lib/prisma": nada, "@/features/cerebro/services/consultas": nada, "@/features/cerebro/services/escribir": nada });
   assert.deepEqual(cerebro.HERRAMIENTAS_MCP_CEREBRO.map((h) => h.name), ["cerebro_listar", "cerebro_leer", "cerebro_buscar", "cerebro_escribir"]);
   const escribir = cerebro.HERRAMIENTAS_MCP_CEREBRO.find((h) => h.name === "cerebro_escribir");
-  assert.ok(escribir.inputSchema.required.includes("texto_confirmacion"));
+  assert.ok(!escribir.inputSchema.required.includes("texto_confirmacion"));
+  assert.deepEqual(escribir.inputSchema.required, ["modo", "contenido"]);
   for (const solo of cerebro.HERRAMIENTAS_MCP_CEREBRO.filter((h) => h.name !== "cerebro_escribir")) assert.equal(solo.annotations.readOnlyHint, true);
   assert.equal(escribir.annotations.destructiveHint, false);
   const origen = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/cerebro.ts"), "utf8");
@@ -623,6 +651,54 @@ await prueba("pantalla, reloj y MCP usan la cuenta de servicio (no exigen token 
   assert.match(pantalla, /Conectado con la cuenta de servicio/);
   assert.match(pantalla, /carpetaPreferida\(respuesta\.carpetas\)/);
   assert.ok(!/cuenta-servicio/.test(leer("src/features/cerebro/services/escribir.ts")), "escribir no se bloquea con la cuenta de servicio");
+});
+
+await prueba("alerta CEREBRO:desconectado: IMPORTANTE, una sola, se cierra al sincronizar y no avisa por WhatsApp ni push", async () => {
+  let llamoAAvisos = false;
+  const alerta = cargar("src/features/cerebro/services/alerta-de-conexion.ts", {
+    "@/lib/prisma": nada,
+    "@/features/supervisor/servicios/almacen-alertas": nada,
+  });
+  const ahora = new Date("2026-10-26T15:41:00Z");
+  const base = { workspaceId: "ws", carpetaId: "raiz", ultimoError: null, ultimaSincronizacion: new Date("2026-10-26T15:00:00Z"), creadoEn: new Date("2026-10-01T00:00:00Z") };
+  const filas = new Map();
+  let conexion = { ...base, ultimoError: "invalid_grant" };
+  const deps = {
+    conexiones: async () => [conexion],
+    abiertos: async (ws) => [...filas.values()].filter((i) => i.estado === "ABIERTA" && ws === "ws"),
+    guardar: async (_ws, incidentes) => {
+      for (const i of incidentes) filas.set(i.clave, i);
+      return incidentes.length;
+    },
+    avisarAlDueno: () => {
+      llamoAAvisos = true;
+    },
+  };
+  await alerta.revisarAlertaDeConexionConDependencias(deps, ahora);
+  assert.equal(filas.size, 1);
+  const abierta = filas.get("CEREBRO:desconectado");
+  assert.equal(abierta.severidad, "IMPORTANTE");
+  assert.equal(abierta.familia, "CEREBRO");
+  assert.equal(abierta.estado, "ABIERTA");
+  assert.match(abierta.hallazgos[0].que, /invalid_grant/);
+  assert.equal(abierta.notificadaEn, null, "no se avisa por push");
+  // Segunda vuelta: la misma alerta, sin crear otra.
+  await alerta.revisarAlertaDeConexionConDependencias(deps, new Date(ahora.getTime() + 3_600_000));
+  assert.equal(filas.size, 1);
+  assert.equal(filas.get("CEREBRO:desconectado").vecesVista, 2);
+  // Sincronizó bien: se cierra.
+  conexion = { ...base, ultimaSincronizacion: new Date(ahora.getTime() + 2 * 3_600_000) };
+  await alerta.revisarAlertaDeConexionConDependencias(deps, new Date(ahora.getTime() + 2 * 3_600_000 + 60_000));
+  assert.equal(filas.get("CEREBRO:desconectado").estado, "RESUELTA");
+  // Más de 3 horas sin sincronizar (sin error) también abre; sin carpeta no se alerta.
+  assert.ok(alerta.motivoDeDesconexion({ ...base, ultimaSincronizacion: new Date("2026-10-26T10:00:00Z") }, ahora));
+  assert.equal(alerta.motivoDeDesconexion({ ...base, carpetaId: null, ultimoError: "x" }, ahora), null);
+  assert.equal(alerta.motivoDeDesconexion(base, ahora), null);
+  assert.equal(llamoAAvisos, false);
+  const fuente = fs.readFileSync(path.join(RAIZ, "src/features/cerebro/services/alerta-de-conexion.ts"), "utf8");
+  assert.ok(!/avisarAlDueno|whatsapp|push/i.test(fuente.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")), "no llama a WhatsApp ni push");
+  const cron = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8");
+  assert.match(cron, /sincronizarCerebroDeTodos\(\);\s*await revisarAlertaDeConexion\(\);/);
 });
 
 console.log(`\n${pruebas} pruebas del cerebro: OK`);

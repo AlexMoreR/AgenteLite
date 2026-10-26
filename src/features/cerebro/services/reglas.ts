@@ -296,6 +296,34 @@ export function agregarAlFinal(actual: string, bloque: string) {
   return base ? `${base}\n\n${bloque.trim()}\n` : `${bloque.trim()}\n`;
 }
 
+/** El documento único donde Claude anota cada decisión del dueño, con fecha. */
+export const NOMBRE_DECISIONES = "Decisiones de Magilus";
+
+/** La fecha de hoy en Colombia (AAAA-MM-DD). */
+export function fechaDeColombia(ahora: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).format(ahora);
+}
+
+/** ¿Este documento es el de decisiones? (con o sin .md, sin importar mayúsculas ni tildes). */
+export function esDocumentoDeDecisiones(nombre: string): boolean {
+  const limpio = nombre
+    .replace(/\.(md|markdown|txt)$/i, "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  const esperado = NOMBRE_DECISIONES.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return limpio === esperado;
+}
+
+/** En "Decisiones de Magilus" cada decisión lleva su fecha: si el texto no empieza con una, el servidor se la pone. */
+export function conFechaDeDecision(nombreDocumento: string, bloque: string, ahora: Date = new Date()): string {
+  if (!esDocumentoDeDecisiones(nombreDocumento)) return bloque;
+  const texto = bloque.trim();
+  if (/^(#+\s*)?\d{4}-\d{2}-\d{2}/.test(texto)) return bloque;
+  return `### ${fechaDeColombia(ahora)}\n${texto}`;
+}
+
 /** Valida lo que se va a escribir: no vacío y no gigante. */
 export function problemaDelContenido(contenido: unknown): string | null {
   if (typeof contenido !== "string" || !contenido.trim()) return "Falta el texto que se va a escribir en el cerebro.";
