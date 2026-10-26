@@ -650,6 +650,8 @@ export function crearPlanificador({
       }
     },
     corriendo: () => sesiones.size + enNube.size,
+    /** ¿Alguna tarjeta está subiendo a main ahora? (el trabajo de noche del manual no empieza mientras tanto). */
+    subiendo: () => [...sesiones.values(), ...enNube.values()].some((sesion) => sesion.hacer === "subir"),
     /** Cuántas hay en aizen1 y cuántas en la nube (la nube no ocupa puestos de aizen1). */
     cupos: () => ({ aizen1: sesiones.size, nube: enNube.size }),
     /**

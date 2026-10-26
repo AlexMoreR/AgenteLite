@@ -398,6 +398,14 @@ const MOTIVO_ENSAYO ="El ensayo de la migración falló: la migración no corre 
 const REGLAS_DE_ZONAS =
   "No toques Meta Ads (anuncios, campañas, píxel), el bot de ventas (el agente que atiende WhatsApp) ni el libro del agente V3.";
 
+/**
+ * El manual (26-oct-2026): las tareas NO lo editan (todas lo tocaban y eso las ponía en fila, de a una). Dejan una nota
+ * en su propio archivo y el Coordinador junta las notas en el manual una vez por noche (manual-nocturno.mjs).
+ */
+export const rutaDeLaNota = (tarjeta) => `docs/cambios-pendientes/${idCorto(tarjeta.id)}.md`;
+const reglaDelManual = (tarjeta) =>
+  `No edites docs/que-es-esta-aplicacion.md, aunque el plan lo diga. Si tu cambio agrega un modelo, una pantalla, una automatización, una limitación o una advertencia de operación, escríbelo en ${rutaDeLaNota(tarjeta)} (formato en docs/cambios-pendientes/README.md: la sección con su título "## ..." del manual y la línea "- \`clave\`: descripción").`;
+
 /** Subagentes (22-oct-2026): más rápido y mejor revisado. Los subagentes siguen las mismas reglas. */
 const SUBAGENTES_AL_PLANEAR =
   "Usa subagentes (herramienta Agent) para investigar el código en paralelo: por ejemplo uno que encuentre dónde vive lo que hay que cambiar y otro que busque las pruebas y los usos que se pueden romper. Ellos tampoco cambian archivos.";
@@ -540,6 +548,7 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
       "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). NUNCA prisma migrate dev, migrate deploy, db push ni nada contra una base de datos.",
       `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
       "- Respeta el estilo del repo y escribe los comentarios en español.",
+      `- ${reglaDelManual(tarjeta)}`,
       motor === "codex" ? SIN_SUBAGENTES_AL_CONSTRUIR : SUBAGENTES_AL_CONSTRUIR,
       "- NO corras `npm run build` ni `next build` (ni `next dev`, ni nada que quede corriendo): el Coordinador compila él mismo al terminar, y dos builds en la misma carpeta se traban en `.next/lock`.",
       // 25-oct-2026: `eslint .` y toda la batería dentro de la sesión corrían FUERA de la cola de pasos pesados (cola.mjs)
@@ -589,6 +598,7 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null 
       "- git push --force (ni --force-with-lease) a ninguna rama.",
       `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
       "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). El Coordinador las ensaya después contra producción, no tú.",
+      `- ${reglaDelManual(tarjeta)}`,
     ].join("\n"),
     "Respeta el estilo del repo y escribe los comentarios en español. Si terminas SIN haber cambiado ningún archivo, escribe como última línea de tu resumen: NO_CAMBIE: <el motivo en una frase>. Termina con un RESUMEN corto en español sencillo: qué cambiaste, qué archivos y cómo lo probaste.",
   ]

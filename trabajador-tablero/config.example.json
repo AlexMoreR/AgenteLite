@@ -38,6 +38,11 @@
     "activo": true,
     "cadaMinutos": 10
   },
+  "manual": {
+    "activo": true,
+    "hora": 23,
+    "repo": "aizencrm"
+  },
   "limites": {
     "cpuPorciento": 85,
     "memoriaPorciento": 85,

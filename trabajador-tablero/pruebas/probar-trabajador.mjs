@@ -23,6 +23,7 @@ import { crearPlanificador, crearSemaforo, unaVuelta } from "../lib/bucle.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
 import { crearCrm } from "../lib/crm.mjs";
+import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstadoDelManual } from "../lib/manual-nocturno.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
 import { decidir, diagnosticar, resumenDeEscalada } from "../lib/diagnostico.mjs";
@@ -639,6 +640,178 @@ await prueba("choques: archivos y módulos del plan; misma zona o módulo del mi
     repos,
   );
   assert.deepEqual(Object.keys(chocan), ["b"]);
+});
+
+await prueba("choques: el manual y las notas de cambios pendientes no hacen chocar (la medida de la tarjeta)", async () => {
+  const repos = { aizencrm: { zonasProtegidas: {} } };
+  const planDe = (codigo, id) =>
+    ["Al terminar: sube solo", "**5. Archivos que se tocan:**", `- ${codigo}`, "- docs/que-es-esta-aplicacion.md", `- docs/cambios-pendientes/${id}.md`, "6. Cómo se va a probar: npm test"].join("\n");
+  const a = { id: "a", titulo: "a", repo: "aizencrm", hacer: "construir", plan: planDe("src/features/a/x.ts", "aaaa1111"), zonaProtegida: [] };
+  const b = { id: "b", titulo: "b", repo: "aizencrm", hacer: "construir", plan: planDe("src/lib/b.ts", "bbbb2222"), zonaProtegida: [] };
+  const ha = huellaDeTarjeta(a, "construir", repos.aizencrm);
+  const hb = huellaDeTarjeta(b, "construir", repos.aizencrm);
+  assert.deepEqual([...ha.modulos], ["features/a"]);
+  assert.equal(motivoDeChoque(ha, hb), null, "código distinto: corren en paralelo");
+  assert.deepEqual(candidatasQueChocan([b], [ha], repos), {});
+  // Aunque la config del repo diga que ningún archivo es "sin choque", el manual y las notas siguen ignorándose.
+  const estricta = { ...repos.aizencrm, sinChoque: [] };
+  assert.deepEqual([...huellaDeTarjeta(a, "construir", estricta).modulos], ["features/a"]);
+  // Las reglas de siempre siguen.
+  const mismo = { ...b, plan: planDe("src/features/a/otro.ts", "cccc3333") };
+  assert.match(motivoDeChoque(ha, huellaDeTarjeta(mismo, "construir", repos.aizencrm)), /módulo features\/a/);
+  assert.match(motivoDeChoque(huellaDeTarjeta(a, "subir", repos.aizencrm), hb.hacer === "construir" ? huellaDeTarjeta(b, "subir", repos.aizencrm) : hb), /de a una/);
+  const sinArchivos = huellaDeTarjeta({ ...b, plan: "Cambiar el color del botón." }, "construir", repos.aizencrm);
+  assert.match(motivoDeChoque(ha, sinArchivos), /no dice qué archivos/);
+  // Un plan que SOLO nombra el manual o las notas no choca con nadie (no es "no dice archivos").
+  const soloManual = huellaDeTarjeta({ ...b, plan: "**5. Archivos**\n- docs/que-es-esta-aplicacion.md\n- docs/cambios-pendientes/dddd4444.md\n6. Pruebas" }, "construir", repos.aizencrm);
+  assert.equal(soloManual.modulos.size, 0);
+  assert.equal(motivoDeChoque(ha, soloManual), null);
+  assert.equal(motivoDeChoque(soloManual, huellaDeTarjeta({ ...a, plan: planDe("src/lib/b.ts", "eeee5555") }, "construir", repos.aizencrm)), null);
+});
+
+await prueba("instrucciones de construir: no se edita el manual, se deja una nota en docs/cambios-pendientes/<id-corto>.md", async () => {
+  const tarjeta = { id: "tarjeta-mfpz7jlu-abc12345", titulo: "Tarea", plan: "Editar docs/que-es-esta-aplicacion.md", link: "x", zonasAprobadas: [] };
+  const repo = { clave: "aizencrm", subirSolo: true, instalar: ["npm", "ci"], verificar: [], pruebas: [], zonasProtegidas: {} };
+  for (const prompt of [promptDeConstruir(tarjeta, repo, "tablero/x"), promptDeConstruir(tarjeta, repo, "tablero/x", "codex"), promptDeNube(tarjeta, repo, "tablero/x")]) {
+    assert.match(prompt, /No edites docs\/que-es-esta-aplicacion\.md, aunque el plan lo diga/);
+    assert.ok(prompt.includes("docs/cambios-pendientes/mfpz7jlu".replace("mfpz7jlu", "abc12345") + ".md"), "nombra la nota con el id corto");
+  }
+});
+
+await prueba("manual de la noche: hora, un solo intento al día, sin notas, con notas, revisión antes de subir y espera si hay una subida", async () => {
+  const N = fs.mkdtempSync(path.join(os.tmpdir(), "manual-nocturno-"));
+  const remoto = path.join(N, "remoto.git");
+  const repoDir = path.join(N, "repo");
+  const gn = (cwd, ...args) => execFileSync("git", ["-c", "user.name=P", "-c", "user.email=p@x.co", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const escribirN = (relativo, texto) => {
+    fs.mkdirSync(path.dirname(path.join(repoDir, relativo)), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, relativo), texto);
+  };
+  try {
+    execFileSync("git", ["init", "--bare", "-b", "main", remoto], { stdio: "ignore" });
+    fs.mkdirSync(repoDir);
+    gn(repoDir, "init", "-b", "main");
+    escribirN(MANUAL, "# Manual\n\n## Qué no existe hoy\n- `viejo`: algo\n\n## Advertencias de operación\n- `otra`: cosa\n");
+    escribirN(`${CARPETA_DE_NOTAS}/README.md`, "# Notas\n");
+    escribirN("src/a.ts", "// a\n");
+    gn(repoDir, "add", "-A");
+    gn(repoDir, "commit", "-m", "base");
+    gn(repoDir, "remote", "add", "origin", remoto);
+    gn(repoDir, "push", "-u", "origin", "main");
+    const ramaRemota = (archivo) => execFileSync("git", ["--git-dir", remoto, "show", `main:${archivo}`], { encoding: "utf8" });
+    const commitsRemotos = () => execFileSync("git", ["--git-dir", remoto, "rev-list", "--count", "main"], { encoding: "utf8" }).trim();
+    const notasEnRemoto = () =>
+      execFileSync("git", ["--git-dir", remoto, "ls-tree", "--name-only", "main", `${CARPETA_DE_NOTAS}/`], { encoding: "utf8" })
+        .split(/\r?\n/)
+        .filter((linea) => linea && !linea.endsWith("README.md"))
+        .map((linea) => path.basename(linea));
+    const subirNotas = (...nombres) => {
+      gn(repoDir, "pull", "--quiet", "origin", "main");
+      for (const nombre of nombres) escribirN(`${CARPETA_DE_NOTAS}/${nombre}.md`, `## Qué no existe hoy\n- \`${nombre}\`: nota de ${nombre}\n`);
+      gn(repoDir, "add", "-A");
+      gn(repoDir, "commit", "-m", `notas ${nombres.join(",")}`);
+      gn(repoDir, "push", "origin", "main");
+    };
+
+    const base = {
+      urlCrm: "https://crm.test",
+      claveTrabajador: "aizen_trab_x",
+      carpetaTrabajo: path.join(N, "trabajo"),
+      comandoClaude: [process.execPath, path.join(AQUI, "claude-falso.mjs")],
+      git: { nombre: "Trabajador de prueba", correo: "trabajador@x.co" },
+      repos: { aizencrm: { ruta: repoDir, ramaBase: "main", remoto: "origin" } },
+    };
+    const config = completarConfig(base);
+    assert.deepEqual(config.manual, { activo: true, hora: 23, repo: "aizencrm" }, "por defecto: prendido, 23 h, aizencrm");
+    assert.throws(() => completarConfig({ ...base, manual: { hora: 30 } }), /manual\.hora/);
+    assert.throws(() => completarConfig({ ...base, manual: { activo: "si" } }), /manual\.activo/);
+
+    const registro = { info: () => undefined, aviso: () => undefined, error: () => undefined };
+    const avisos = [];
+    // Se simula la hora con una fecha fija (Bogotá = UTC-5): 22:00 es antes de las 23; 23:30 ya es la noche.
+    let ahora = new Date("2026-10-26T03:00:00Z"); // 22:00 en Bogotá
+    assert.equal(horaEnBogota(ahora), 22);
+    const manual = crearManualNocturno({ config, registro, avisar: async (texto) => avisos.push(texto), entorno: process.env, ahora: () => ahora });
+    const libre = { subiendo: () => false };
+
+    subirNotas("aaaa1111", "bbbb2222");
+    assert.equal((await manual.revisar(libre)).motivo, "antes_de_la_hora");
+    assert.equal(commitsRemotos(), "2", "antes de la hora no hace nada");
+
+    ahora = new Date("2026-10-26T04:30:00Z"); // 23:30
+    assert.equal((await manual.revisar({ subiendo: () => true })).motivo, "subiendo", "si hay una tarea subiendo, espera");
+    assert.equal(commitsRemotos(), "2");
+    assert.equal(leerEstadoDelManual(config.carpetaTrabajo), null);
+
+    // La sesión cambia un archivo de código: no sube y avisa.
+    process.env.CLAUDE_FALSO_MANUAL = "codigo";
+    escribirN("src/a.ts", "// a\n"); // el worktree de la prueba no se usa: solo el remoto
+    let resultado = await manual.revisar(libre);
+    assert.equal(resultado.motivo, "fallo");
+    assert.match(resultado.error, /no son el manual ni las notas.*codigo-ajeno/);
+    assert.equal(commitsRemotos(), "2", "no subió nada");
+    assert.deepEqual(notasEnRemoto(), ["aaaa1111.md", "bbbb2222.md"]);
+    assert.match(avisos.at(-1), /No se subió nada/);
+    // Borra un título: no sube.
+    process.env.CLAUDE_FALSO_MANUAL = "titulo";
+    resultado = await manual.revisar(libre);
+    assert.equal(resultado.motivo, "fallo");
+    assert.equal(commitsRemotos(), "2");
+    assert.equal(leerEstadoDelManual(config.carpetaTrabajo).intentos, 2);
+
+    // Bien: pasa las 2 notas, las borra, hace un commit y lo sube.
+    delete process.env.CLAUDE_FALSO_MANUAL;
+    resultado = await manual.revisar(libre);
+    assert.equal(resultado.subio, true);
+    assert.equal(resultado.pasadas, 2);
+    assert.equal(commitsRemotos(), "3");
+    assert.match(execFileSync("git", ["--git-dir", remoto, "log", "-1", "--format=%s", "main"], { encoding: "utf8" }), /^manual: junta 2 notas de cambios pendientes/);
+    assert.deepEqual(notasEnRemoto(), []);
+    assert.match(ramaRemota(MANUAL), /`aaaa1111`:.*nota de aaaa1111/);
+    assert.match(ramaRemota(MANUAL), /## Advertencias de operación/);
+    assert.ok(ramaRemota(`${CARPETA_DE_NOTAS}/README.md`), "el README se queda");
+    assert.match(avisos.at(-1), /pasé 2 nota\(s\)/);
+    assert.equal(fs.existsSync(path.join(config.carpetaTrabajo, "wt", "manual-nocturno")), false, "no deja la copia aparte");
+
+    // Ese mismo día no lo repite (aunque haya notas nuevas).
+    subirNotas("cccc3333");
+    assert.equal((await manual.revisar(libre)).motivo, "ya_hecho");
+    assert.deepEqual(notasEnRemoto(), ["cccc3333.md"]);
+
+    // Otro día, una nota que no se entiende se queda sin borrar.
+    ahora = new Date("2026-10-28T04:30:00Z");
+    subirNotas("dddd4444");
+    process.env.CLAUDE_FALSO_MANUAL = "no-pase";
+    resultado = await manual.revisar(libre);
+    delete process.env.CLAUDE_FALSO_MANUAL;
+    assert.equal(resultado.pasadas, 1);
+    assert.deepEqual(notasEnRemoto(), ["cccc3333.md"], "la primera nota (cccc3333) no se pasó y sigue");
+    assert.match(avisos.at(-1), /Quedaron sin pasar.*cccc3333\.md/);
+
+    // Otro día sin notas: lo marca como hecho y no sube nada. (Se borran las que quedaban a mano.)
+    gn(repoDir, "pull", "origin", "main");
+    gn(repoDir, "rm", "-q", `${CARPETA_DE_NOTAS}/cccc3333.md`);
+    gn(repoDir, "commit", "-m", "quita nota");
+    gn(repoDir, "push", "origin", "main");
+    const antes = commitsRemotos();
+    ahora = new Date("2026-10-29T04:30:00Z");
+    resultado = await manual.revisar(libre);
+    assert.equal(resultado.hizo, true);
+    assert.equal(resultado.notas, 0);
+    assert.equal(commitsRemotos(), antes);
+    assert.equal(leerEstadoDelManual(config.carpetaTrabajo).hecho, true);
+
+    // Apagado en la configuración: no hace nada.
+    const apagado = crearManualNocturno({ config: completarConfig({ ...base, manual: { activo: false } }), registro, ahora: () => new Date("2026-10-30T04:30:00Z") });
+    assert.equal((await apagado.revisar(libre)).motivo, "apagado");
+  } finally {
+    delete process.env.CLAUDE_FALSO_MANUAL;
+    try {
+      fs.rmSync(N, { recursive: true, force: true, maxRetries: 3 });
+    } catch {
+      // Windows a veces tiene un archivo abierto un instante.
+    }
+  }
 });
 
 /* ─────────────────────────────────────────────────────────── el escenario ── */

@@ -129,6 +129,12 @@ const ATASCO_POR_DEFECTO = { minutos: 15, revisarCadaSegundos: 60, cpuMinimaSegu
 /** Autoactualización (25-oct-2026): cada tanto mira si main trae código nuevo del Coordinador y se reinicia solo. Ver lib/autoactualizar.mjs. */
 const AUTOACTUALIZAR_POR_DEFECTO = { activo: true, cadaMinutos: 10, rama: "main", remoto: "origin" };
 
+/**
+ * El manual de la noche (26-oct-2026, manual-nocturno.mjs): una vez al día, pasada `hora` (Bogotá), junta las notas de
+ * docs/cambios-pendientes/ en docs/que-es-esta-aplicacion.md y sube el cambio a main. Solo para el repo `repo`.
+ */
+const MANUAL_POR_DEFECTO = { activo: true, hora: 23, repo: "aizencrm" };
+
 export function leerConfig(ruta) {
   if (!fs.existsSync(ruta)) {
     throw new Error(`No existe ${ruta}. Copia config.example.json a config.local.json y complétalo (ver README.md).`);
@@ -255,6 +261,12 @@ export function completarConfig(datos, base = process.cwd()) {
   if (typeof reparar.diagnosticoConClaude !== "boolean") errores.push("reparar.diagnosticoConClaude: true o false.");
   if (!Number.isFinite(reparar.diagnosticoMinutos) || reparar.diagnosticoMinutos <= 0) errores.push("reparar.diagnosticoMinutos: minutos, más de 0.");
 
+  const manual = { ...MANUAL_POR_DEFECTO, ...(datos.manual ?? {}) };
+  if (typeof manual.activo !== "boolean") errores.push("manual.activo: true o false.");
+  manual.hora = Number(manual.hora);
+  if (!Number.isInteger(manual.hora) || manual.hora < 0 || manual.hora > 23) errores.push("manual.hora: la hora de la noche, un entero de 0 a 23 (hora de Bogotá).");
+  if (typeof manual.repo !== "string" || !manual.repo.trim()) errores.push("manual.repo: el nombre del repo (en repos) que tiene el manual.");
+
   const auto = { ...AUTOACTUALIZAR_POR_DEFECTO, ...(datos.autoactualizar ?? {}) };
   if (typeof auto.activo !== "boolean") errores.push("autoactualizar.activo: true o false.");
   auto.cadaMinutos = Number(auto.cadaMinutos);
@@ -337,6 +349,7 @@ export function completarConfig(datos, base = process.cwd()) {
       entorno: entornoNube,
     },
     limites,
+    manual: { activo: manual.activo, hora: manual.hora, repo: manual.repo },
     autoactualizar: { activo: auto.activo, cadaMinutos: auto.cadaMinutos, rama: auto.rama, remoto: auto.remoto },
     colaPesada: { maximo: colaPesada.maximo },
     partir: { archivosMinimos: partir.archivosMinimos, archivosAntes: partir.archivosAntes, archivosConMigracion: partir.archivosConMigracion },

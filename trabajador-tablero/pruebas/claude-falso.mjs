@@ -142,6 +142,21 @@ if (prompt.startsWith("Eres el REVISOR")) {
   process.exit(0);
 }
 
+// El manual de la noche (manual-nocturno.mjs): pasa las notas al manual. CLAUDE_FALSO_MANUAL: "codigo" cambia un archivo de
+// código, "titulo" borra un título `## ...`, "no-pase" deja la primera nota sin pasar; si no, agrega cada nota al manual.
+if (prompt.startsWith("MANUAL DE LA NOCHE")) {
+  const notas = [...prompt.matchAll(/^- (docs\/cambios-pendientes\/\S+)$/gm)].map((una) => una[1]);
+  const manual = "docs/que-es-esta-aplicacion.md";
+  const variante = process.env.CLAUDE_FALSO_MANUAL ?? "";
+  let texto = fs.readFileSync(manual, "utf8");
+  if (variante === "titulo") texto = texto.replace(/^## .*$/m, "");
+  else for (const nota of notas.slice(variante === "no-pase" ? 1 : 0)) texto += `- \`${path.basename(nota, ".md")}\`: ${fs.readFileSync(nota, "utf8").trim()}\n`;
+  fs.writeFileSync(manual, texto);
+  if (variante === "codigo") fs.writeFileSync("src/codigo-ajeno.ts", "// no debería\n");
+  console.log(`RESUMEN: pasé ${notas.length} notas.${variante === "no-pase" ? `\nNO_PASE: ${path.basename(notas[0])}` : ""}`);
+  process.exit(0);
+}
+
 const escribir = (archivo, texto) => {
   fs.mkdirSync(path.dirname(archivo), { recursive: true });
   fs.writeFileSync(archivo, texto);

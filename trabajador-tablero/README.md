@@ -391,6 +391,21 @@ Para volver atrás, la misma línea con `-replace 'lanzador.mjs','trabajador.mjs
 
 Pruebas: `pruebas/probar-autoactualizar.mjs` (repos git temporales y un Coordinador falso).
 
+## El manual de la noche
+
+Las tareas **no editan** `docs/que-es-esta-aplicacion.md` (todas lo tocaban y por eso no corrían juntas): dejan una nota en `docs/cambios-pendientes/<id-corto>.md` (las instrucciones de construir, `promptDeConstruir` y `promptDeNube`, lo piden aunque el plan diga otra cosa). El detector de choques (`lib/choques.mjs`) ignora siempre el manual y esa carpeta.
+
+Una vez al día, pasada la hora de la noche (`manual: { activo, hora, repo }` en `config.local.json`; por defecto `true`, 23 h de Bogotá y el repo `aizencrm`), `lib/manual-nocturno.mjs` —lo llama el bucle principal— hace esto, solo si hoy no se hizo y ninguna tarea está subiendo a main:
+
+1. trae lo último de main y abre una copia aparte;
+2. si no hay notas (sin contar el `README.md`), lo marca como hecho hoy y termina;
+3. abre una sesión de Claude (Sonnet) que pasa cada nota a su sección del manual;
+4. revisa antes de subir: solo cambiaron el manual y las notas, siguen todos los títulos `## ...` y se borraron justo las notas pasadas. Si algo falla, no sube nada;
+5. hace el commit "manual: junta N notas de cambios pendientes" y lo sube a main sin forzar;
+6. avisa en el panel (`crm.aviso`). Si la subida falla (main cambió), reintenta en una vuelta siguiente, hasta 3 veces por noche. El día hecho queda en `<carpetaTrabajo>/manual-nocturno.json`.
+
+Pruebas: en `pruebas/probar-trabajador.mjs` (con el Claude falso).
+
 ## Pruebas
 
 ```
@@ -408,6 +423,7 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 - `trabajador.mjs`: el bucle (y `--probar-arranque`).
 - `lanzador.mjs`: lo que corre la tarea de Windows: arranca `trabajador.mjs`, lo relanza tras una actualización y lo deshace si el nuevo se cae al arrancar.
 - `lib/autoactualizar.mjs`: mirar si main trae código nuevo, esperar las tarjetas, `pull --ff-only`, probar el arranque, revertir y el estado `actualizacion.json`.
+- `lib/manual-nocturno.mjs`: el manual de la noche (juntar `docs/cambios-pendientes/` en el manual y subirlo a main una vez al día).
 - `lib/bucle.mjs`: el planificador (varias a la vez) y una vuelta (tomar, la etapa con latido, avisar el resultado o el error).
 - `lib/choques.mjs`: qué tarjetas no pueden ir a la vez (zona, módulo, cola de subida).
 - `lib/recursos.mjs`: CPU y memoria del PC (y memoria en GB y disco libre para el latido).
