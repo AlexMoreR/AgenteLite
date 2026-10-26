@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, type ReactNode } from "react";
-import { Check, ChevronRight, ExternalLink, Gauge, GitBranch, Loader2, RotateCcw, Rocket, ShieldAlert, X } from "lucide-react";
+import { Ban, Check, ChevronRight, ExternalLink, Gauge, GitBranch, Loader2, RotateCcw, Rocket, ShieldAlert, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   aprobarTarjetaAction,
   cambiarRiesgoAction,
+  cerrarComoFallidaAction,
   cambiarZonasAction,
   marcarHechoAManoAction,
 } from "@/app/actions/tableros-inteligentes-actions";
@@ -47,6 +48,9 @@ import type { TarjetaVista } from "../services/tableros";
   - "Reintentar" (ERROR): con el plan que ya tiene (si tiene) o planeando de nuevo.
   - "Marcar hecho a mano" (ERROR, FALLIDO o POR_REVISAR, con repo): SOLO el dueño. Abre un panel con la
     nota (obligatoria) y el commit (opcional); el servidor revisa todo (puedeMarcarHechoAMano).
+  - "Cerrar como fallida" (26-oct-2026; ERROR, o huérfana: PLANEANDO o EN_CURSO sin el candado del Coordinador y
+    sin partes que esperar, con repo): el dueño o el ADMIN de la plataforma, con confirmación en la misma pantalla.
+    Queda FALLIDO (puedeCerrarComoFallida en reglas-trabajador.ts lo vuelve a revisar en el servidor).
   - Quitar una zona protegida: solo el dueño.
   Los botones son una ayuda: el servidor vuelve a revisar todo (reglas-trabajador.ts). Cada aprobación
   queda en el historial con el nombre de quien aprobó y "pantalla".
@@ -60,6 +64,8 @@ type Props = {
   puedeAprobar: boolean;
   /** Dueño del negocio: el sí final y quitar zonas protegidas. */
   esDueno: boolean;
+  /** Dueño o ADMIN de la plataforma: "Cerrar como fallida". */
+  puedeCerrarComoFallida?: boolean;
   alCambiar: () => void;
 };
 
@@ -81,9 +87,10 @@ function EnlaceDeLaSesion({ link }: { link: string }) {
 const BOTON = "h-11 w-full text-base";
 const BOTON_GRANDE = "h-14 w-full text-lg font-semibold";
 
-export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDueno, alCambiar }: Props) {
+export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDueno, puedeCerrarComoFallida = false, alCambiar }: Props) {
   const [ocupado, empezar] = useTransition();
   const [confirmarSubida, setConfirmarSubida] = useState(false);
+  const [confirmarFallida, setConfirmarFallida] = useState(false);
   const [hechoAMano, setHechoAMano] = useState(false);
   const [nota, setNota] = useState("");
   const [commit, setCommit] = useState("");
@@ -115,6 +122,17 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
         setNota("");
         setCommit("");
       } else toast.error(respuesta.error);
+      alCambiar();
+    });
+  };
+
+  const cerrarComoFallida = () => {
+    const vistaEn = tarjeta.actualizadoEn;
+    empezar(async () => {
+      const respuesta = await cerrarComoFallidaAction(tarjeta.id, vistaEn);
+      if (respuesta.ok) toast.success("Cerrada como fallida");
+      else toast.error(respuesta.error);
+      setConfirmarFallida(false);
       alCambiar();
     });
   };
@@ -155,6 +173,10 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
   const modelosTexto = textoDeModelos(tarjeta.plan, resultado?.modelo);
   // "Construida en: aizen1 / la nube" y el link de la sesión (25-oct-2026).
   const donde = dondeSeConstruyo(estado, resultado);
+  // Partida: espera a sus partes y se cierra sola. Huérfana: en su etapa sin el candado del Coordinador y sin partes.
+  const partes = resultado?.partida?.hijas?.length ?? 0;
+  const huerfana = Boolean(tarjeta.repo) && (estado === "PLANEANDO" || estado === "EN_CURSO") && !tarjeta.trabajoVenceEn && !partes;
+  const sePuedeCerrarComoFallida = puedeCerrarComoFallida && Boolean(tarjeta.repo) && (estado === "ERROR" || huerfana);
   const espera = (texto: string) => (
     <p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">{texto}</p>
   );
@@ -258,9 +280,15 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
       {tarjeta.reparaciones > 0 && (estado === "APROBADO" || estado === "PLAN_APROBADO")
         ? espera(`Falló y está en reparación (${tarjeta.reparaciones} de 3): el Coordinador la toma enseguida con la causa y el error exacto.`)
         : null}
-      {estado === "PLANEANDO" ? espera("El Coordinador está escribiendo el plan…") : null}
+      {tarjeta.repo && partes > 0 && (estado === "PLANEANDO" || estado === "EN_CURSO")
+        ? espera(`Partida en ${partes} partes: se cierra sola cuando terminen todas (hecha si todas salen bien; fallida si alguna falla).`)
+        : null}
+      {huerfana
+        ? espera("Nadie la está trabajando: el Coordinador no la tiene. Si sigue así 30 minutos pasa sola a Error; también la puedes cerrar como fallida.")
+        : null}
+      {estado === "PLANEANDO" && !huerfana && !partes ? espera("El Coordinador está escribiendo el plan…") : null}
       {estado === "PLAN_APROBADO" ? espera("Plan aprobado: el Coordinador la toma en el próximo minuto y la construye.") : null}
-      {estado === "EN_CURSO" && tarjeta.repo ? (
+      {estado === "EN_CURSO" && tarjeta.repo && !huerfana && !partes ? (
         donde?.lugar === "nube" ? (
           <p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
             {donde.texto}
@@ -390,6 +418,32 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
           <Button className={BOTON} variant="outline" onClick={() => setHechoAMano(true)} disabled={ocupado}>
             <Check />
             Marcar hecho a mano
+          </Button>
+        )
+      ) : null}
+
+      {sePuedeCerrarComoFallida ? (
+        confirmarFallida ? (
+          <div role="alertdialog" aria-label="Confirmar cerrar como fallida" className="space-y-3 rounded-lg border-2 border-destructive p-3">
+            <p className="text-base font-medium">¿Cerrarla como fallida?</p>
+            <p className="text-xs text-muted-foreground">
+              Queda Fallida y el Coordinador ya no la toma. Lo que dejó (plan, rama, error) se conserva; si después se termina por
+              fuera, se puede marcar hecha a mano.
+            </p>
+            <div className="flex gap-2">
+              <Button variant="outline" className="h-12 flex-1 text-base" onClick={() => setConfirmarFallida(false)} disabled={ocupado}>
+                Cancelar
+              </Button>
+              <Button variant="destructive" className="h-12 flex-1 text-base" onClick={cerrarComoFallida} disabled={ocupado}>
+                {ocupado ? <Loader2 className="animate-spin" /> : <Ban />}
+                Cerrar como fallida
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button className={BOTON} variant="ghost" onClick={() => setConfirmarFallida(true)} disabled={ocupado}>
+            <Ban />
+            Cerrar como fallida
           </Button>
         )
       ) : null}

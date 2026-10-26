@@ -527,6 +527,7 @@ export function TablerosInteligentesVista({
         lado={angosta ? "bottom" : "right"}
         puedeAprobar={puedeAprobar}
         esDueno={esDueno}
+        puedeCerrarComoFallida={esDueno || puedeEditarTipos}
         puedeCerebro={puedeCerebro}
         miembros={cuentas.miembros}
         puedeAsignar={puedeAsignar}

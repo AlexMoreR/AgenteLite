@@ -283,3 +283,68 @@ SET "estado" = CASE elegida."antes"
 FROM elegida
 WHERE t."id" = elegida."id"
 RETURNING t."id", t."tableroId", elegida."antes", t."estado"::text AS "estado"`;
+
+/**
+ * Las madres partidas del negocio que todavía están en su etapa (PLANEANDO o EN_CURSO, sin candado): /tomar
+ * revisa en cada vuelta si sus partes ya terminaron para cerrarlas (cierreDeLaMadre en reglas-trabajador.ts).
+ * $1 = workspaceId. Devuelve id.
+ */
+export const SQL_MADRES_PARTIDAS = `
+SELECT c."id"
+FROM "TarjetaTablero" c
+JOIN "TableroInteligente" b ON b."id" = c."tableroId"
+WHERE b."workspaceId" = $1
+  AND c."borradoEn" IS NULL
+  AND c."estado" IN ('PLANEANDO', 'EN_CURSO')
+  AND c."trabajoVenceEn" IS NULL
+  AND jsonb_typeof(c."resultado" -> 'partida' -> 'hijas') = 'array'
+ORDER BY c."actualizadoEn" ASC
+LIMIT 50`;
+
+/**
+ * Red de seguridad de /tomar (26-oct-2026): las HUÉRFANAS pasan a ERROR. Huérfana = tarjeta con repo, de un tipo
+ * con aprobación y estados, en PLANEANDO o EN_CURSO SIN candado (trabajoVenceEn NULL), sin cambios hace más de
+ * $5 minutos y que no es una madre partida con alguna parte viva (esa espera a sus partes). Nadie la trabaja y,
+ * sin candado, SQL_PASAR_VENCIDAS_A_ERROR nunca la vería. SUBIENDO sin candado NO entra: es la SUBIENDO pendiente.
+ * $3 = motivo, $4 = ahora como texto ISO, $5 = minutos. Deja su fila en IntentoTarjeta (escalar, no cuenta: nadie
+ * la intentó). Devuelve id, tableroId y el estado que tenían ("antes").
+ */
+export const SQL_PASAR_HUERFANAS_A_ERROR = `
+WITH v AS (
+  SELECT c."id", c."tableroId", c."estado"::text AS "antes"
+  FROM "TarjetaTablero" c
+  JOIN "TableroInteligente" b ON b."id" = c."tableroId"
+  JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
+  WHERE b."workspaceId" = $1
+    AND c."borradoEn" IS NULL
+    AND c."repo" IS NOT NULL
+    AND k."requiereAprobacion" AND k."usaEstados"
+    AND c."estado" IN ('PLANEANDO', 'EN_CURSO')
+    AND c."trabajoVenceEn" IS NULL
+    AND c."actualizadoEn" <= ${AHORA} - make_interval(mins => $5::int)
+    AND NOT EXISTS (
+      SELECT 1 FROM "TarjetaTablero" h
+      WHERE h."borradoEn" IS NULL
+        AND jsonb_typeof(c."resultado" -> 'partida' -> 'hijas') = 'array'
+        AND c."resultado" -> 'partida' -> 'hijas' @> jsonb_build_array(h."id")
+    )
+  FOR UPDATE OF c
+),
+fallidas AS (
+  UPDATE "TarjetaTablero" t
+  SET "estado" = 'ERROR'::"EstadoTarjeta",
+      "resultado" = COALESCE(t."resultado", '{}'::jsonb)
+        || jsonb_build_object('error', jsonb_build_object('motivo', $3::text, 'en', v."antes", 'cuando', $4::text)),
+      "actualizadoEn" = ${AHORA}
+  FROM v
+  WHERE t."id" = v."id"
+  RETURNING t."id", t."tableroId", v."antes"
+),
+intentos AS (
+  INSERT INTO "IntentoTarjeta" ("id", "tarjetaId", "numero", "etapa", "categoria", "causa", "error", "accion", "cuentaComoIntento", "creadoEn")
+  SELECT ${idDelIntento("v")}, v."id", ${numeroSiguiente("v")}, ${etapaDelAntes("v")}, 'coordinador_cortado',
+         'Quedó huérfana: estaba en su etapa sin el candado del Coordinador y nadie la trabajaba.', NULL, 'escalar', false, ${AHORA}
+  FROM v
+  RETURNING "id"
+)
+SELECT "id", "tableroId", "antes" FROM fallidas`;

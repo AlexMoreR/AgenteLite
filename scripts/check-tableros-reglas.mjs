@@ -1984,4 +1984,96 @@ prueba("inicialDeLaPersona: la inicial en mayúscula; '?' si no hay nombre", () 
   });
 }
 
+// ── Madres partidas, huérfanas y "cerrar como fallida" (26-oct-2026) ──────────────────────────
+{
+  const P = (...estados) => estados.map((estado) => ({ estado }));
+  prueba("cierreDeLaMadre: HECHO si todas HECHO, FALLIDO si todas terminaron y alguna falló, null si alguna sigue o no hay", () => {
+    assert.equal(trabajo.cierreDeLaMadre([]), null);
+    assert.equal(trabajo.cierreDeLaMadre(P("HECHO", "EN_CURSO")), null);
+    assert.equal(trabajo.cierreDeLaMadre(P("HECHO", "ERROR")), null, "una parte en ERROR todavía se puede reintentar");
+    assert.equal(trabajo.cierreDeLaMadre(P("HECHO", "HECHO")), "HECHO");
+    assert.equal(trabajo.cierreDeLaMadre(P("FALLIDO", "FALLIDO", "FALLIDO")), "FALLIDO", "«Paralelo de verdad»: sus 3 partes fallidas");
+    assert.equal(trabajo.cierreDeLaMadre(P("HECHO", "FALLIDO")), "FALLIDO");
+    assert.match(trabajo.notaDelCierreDeLaMadre(P("HECHO", "FALLIDO"), "FALLIDO"), /1 de sus 2 partes/);
+    assert.match(trabajo.notaDelCierreDeLaMadre(P("HECHO", "HECHO"), "HECHO"), /sus 2 partes están hechas/);
+  });
+
+  prueba("esperaASusPartes: solo una madre partida con alguna parte viva sin terminar", () => {
+    const partida = { partida: { hijas: ["h1", "h2"], causa: "x", cuando: "" } };
+    assert.equal(trabajo.esperaASusPartes(partida, P("HECHO", "PLAN_APROBADO")), true);
+    assert.equal(trabajo.esperaASusPartes(partida, P("FALLIDO", "FALLIDO")), false);
+    assert.equal(trabajo.esperaASusPartes(partida, []), false, "sin partes vivas no espera a nadie: es huérfana");
+    assert.equal(trabajo.esperaASusPartes({}, P("EN_CURSO")), false);
+    assert.equal(trabajo.esperaASusPartes(null, P("EN_CURSO")), false);
+  });
+
+  prueba("huérfanas: el motivo es claro y el tiempo es 30 min", () => {
+    assert.equal(trabajo.MINUTOS_PARA_HUERFANA, 30);
+    assert.match(trabajo.MOTIVO_HUERFANA, /^Quedó huérfana: nadie la estaba trabajando/);
+    assert.equal(trabajo.MOTIVO_HUERFANA.split("\n").length, 3);
+  });
+
+  const AHORA = new Date("2026-10-26T20:00:00Z");
+  const base = {
+    origen: "PANTALLA",
+    estado: "ERROR",
+    usaEstados: true,
+    repo: "aizencrm",
+    trabajoVenceEn: null,
+    ahora: AHORA,
+    esperaPartes: false,
+    persona: { esDueno: true, esAdminPlataforma: false, aprobador: null },
+  };
+  const cerrar = (extra) => trabajo.puedeCerrarComoFallida({ ...base, ...extra });
+
+  prueba("cerrar como fallida: ERROR y huérfanas (PLANEANDO / EN_CURSO sin candado o con candado vencido), dueño o ADMIN", () => {
+    assert.equal(cerrar({}), null);
+    assert.equal(cerrar({ estado: "PLANEANDO" }), null, "PLANEANDO sin candado (huérfana)");
+    assert.equal(cerrar({ estado: "EN_CURSO" }), null, "EN_CURSO sin candado (huérfana, como «Retroactivos en Gestión»)");
+    assert.equal(cerrar({ estado: "EN_CURSO", trabajoVenceEn: new Date("2026-10-26T19:59:00Z") }), null, "candado vencido");
+    assert.equal(cerrar({ persona: { esDueno: false, esAdminPlataforma: true, aprobador: null } }), null, "el ADMIN de la plataforma también");
+    // ERROR con un vencimiento viejo colgado no importa: ERROR no está en las manos del Coordinador.
+    assert.equal(cerrar({ trabajoVenceEn: new Date("2099-01-01T00:00:00Z") }), null);
+  });
+
+  prueba("cerrar como fallida: nunca con el candado vigente, ni SUBIENDO, ni una madre que espera partes, ni fuera de la pantalla", () => {
+    assert.match(cerrar({ estado: "EN_CURSO", trabajoVenceEn: new Date("2026-10-26T20:03:00Z") }), /El Coordinador tiene esta tarjeta/);
+    assert.match(cerrar({ estado: "PLANEANDO", trabajoVenceEn: new Date("2026-10-26T20:00:01Z") }), /El Coordinador tiene esta tarjeta/);
+    assert.match(cerrar({ estado: "SUBIENDO" }), /Está SUBIENDO/, "SUBIENDO pendiente es válida (pudo haber empujado a main)");
+    for (const estado of ["POR_APROBAR", "APROBADO", "PLAN_LISTO", "PLAN_APROBADO", "POR_REVISAR", "HECHO", "FALLIDO", "IDEA"]) {
+      assert.ok(cerrar({ estado }), `no desde ${estado}`);
+    }
+    assert.match(cerrar({ estado: "PLANEANDO", esperaPartes: true }), /espera a sus partes/);
+    assert.equal(cerrar({ estado: "ERROR", esperaPartes: true }), null, "desde ERROR sí");
+    assert.match(cerrar({ origen: "MCP" }), /solo en la pantalla/);
+    assert.match(cerrar({ origen: "TRABAJADOR" }), /solo en la pantalla/);
+    assert.match(cerrar({ repo: null }), /no tiene repo/);
+    assert.match(cerrar({ usaEstados: false }), /carpetas/);
+    assert.match(cerrar({ persona: { esDueno: false, esAdminPlataforma: false, aprobador: { alcance: "TODO", puedeSubir: true } } }), /solo el dueño/);
+  });
+
+  prueba("registroDeCierreComoFallida: FALLIDO, por la pantalla, con quién y si estaba huérfana", () => {
+    const r = trabajo.registroDeCierreComoFallida({ quienNombre: "Alexander", userId: "u1", antes: "EN_CURSO", esDueno: true });
+    assert.deepEqual(r, {
+      estado: "FALLIDO",
+      cerradaComoFallida: true,
+      via: "pantalla",
+      quienNombre: "Alexander",
+      userId: "u1",
+      como: "cerrada como fallida por el dueño (Alexander)",
+      huerfana: true,
+    });
+    assert.equal(trabajo.registroDeCierreComoFallida({ quienNombre: "Admin", userId: "u2", antes: "ERROR", esDueno: false }).huerfana, false);
+    assert.match(trabajo.registroDeCierreComoFallida({ quienNombre: "Admin", userId: "u2", antes: "ERROR", esDueno: false }).como, /el ADMIN/);
+  });
+
+  prueba("estadoAlPonerRepo: una EN_CURSO de la fase 1 que recibe repo vuelve a POR_APROBAR (si no, quedaba huérfana)", () => {
+    assert.equal(trabajo.estadoAlPonerRepo("EN_CURSO", null, "gestion"), "POR_APROBAR");
+    assert.equal(trabajo.estadoAlPonerRepo("EN_CURSO", "gestion", "gestion"), "EN_CURSO");
+    assert.equal(trabajo.estadoAlPonerRepo("EN_CURSO", null, null), "EN_CURSO", "sin repo sigue a mano");
+    assert.equal(trabajo.estadoAlPonerRepo("APROBADO", null, "aizencrm"), "APROBADO");
+    assert.equal(trabajo.estadoAlPonerRepo("IDEA", null, "aizencrm"), "IDEA");
+  });
+}
+
 console.log(`\n${pruebas} pruebas, todas bien`);

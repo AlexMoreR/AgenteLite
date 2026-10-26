@@ -6,6 +6,7 @@ import {
   alcanceDe,
   aprobarTarjeta,
   cambiarZonasEnPantalla,
+  cerrarComoFallida,
   borrarTipo,
   crearTablero,
   crearTipo,
@@ -102,6 +103,21 @@ export async function marcarHechoAManoAction(
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo marcar la tarjeta como hecha") };
+  }
+}
+
+/**
+ * Cerrar como fallida desde la pantalla (26-oct-2026; solo el dueño o el ADMIN de la plataforma, lo comprueba el
+ * servicio con puedeCerrarComoFallida): una tarjeta con repo en ERROR o huérfana (planeando o en curso sin el
+ * candado vigente del Coordinador) pasa a FALLIDO, con su fila en el historial (origen PANTALLA, quién).
+ */
+export async function cerrarComoFallidaAction(tarjetaId: string, vistaEn?: string): Promise<Resultado> {
+  const contexto = await contextoDePantalla();
+  try {
+    await cerrarComoFallida(contexto, tarjetaId, vistaEn);
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo cerrar la tarjeta como fallida") };
   }
 }
 

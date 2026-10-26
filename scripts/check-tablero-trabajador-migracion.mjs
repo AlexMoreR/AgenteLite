@@ -405,5 +405,65 @@ await prueba("tomar en otro negocio no ve las de este", async () => {
   assert.deepEqual(await tomar("ws2"), []);
 });
 
+await prueba("huérfanas (26-oct-2026): PLANEANDO o EN_CURSO sin candado y sin cambios hace más de 30 min pasan a ERROR; SUBIENDO pendiente, con candado, recientes, sin repo, Idea y madres que esperan partes no", async () => {
+  await db.exec(`
+    INSERT INTO "Workspace" ("id", "name", "slug", "updatedAt", "ownerId") VALUES ('ws4', 'Cuarto', 'cuarto', now(), NULL);
+    INSERT INTO "TableroInteligente" ("id", "workspaceId", "nombre") VALUES ('tab4', 'ws4', 'Huérfanas');
+    INSERT INTO "TipoTarjeta" ("id", "tableroId", "nombre", "requiereAprobacion", "usaEstados", "orden") VALUES
+      ('tarea4', 'tab4', 'Tarea', true, true, 0), ('idea4', 'tab4', 'Idea', false, true, 1);
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "trabajoVenceEn", "resultado") VALUES
+      ('hu-plan', 'tab4', 'Planeando sin candado', 'PLANEANDO', 'u-dueno', '2026-10-26 12:00:00', 'tarea4', 'aizencrm', NULL, NULL),
+      ('hu-obra', 'tab4', 'Retroactivos', 'EN_CURSO', 'u-dueno', '2026-10-26 12:00:00', 'tarea4', 'gestion', NULL, '{"previo":1}'),
+      ('hu-reciente', 'tab4', 'Hace 10 min', 'EN_CURSO', 'u-dueno', '2026-10-26 19:50:00', 'tarea4', 'gestion', NULL, NULL),
+      ('hu-candado', 'tab4', 'Con candado', 'EN_CURSO', 'u-dueno', '2026-10-26 12:00:00', 'tarea4', 'gestion', '2026-10-26 20:03:00', NULL),
+      ('hu-sube', 'tab4', 'Subiendo pendiente', 'SUBIENDO', 'u-dueno', '2026-10-26 12:00:00', 'tarea4', 'aizencrm', NULL, NULL),
+      ('hu-sin-repo', 'tab4', 'A mano', 'EN_CURSO', 'u-dueno', '2026-10-26 12:00:00', 'tarea4', NULL, NULL, NULL),
+      ('hu-idea', 'tab4', 'Idea con repo', 'EN_CURSO', 'u-dueno', '2026-10-26 12:00:00', 'idea4', 'aizencrm', NULL, NULL),
+      ('hu-madre', 'tab4', 'Madre esperando', 'PLANEANDO', 'u-dueno', '2026-10-26 12:00:00', 'tarea4', 'aizencrm', NULL, '{"partida":{"hijas":["hu-h1","hu-h2"]}}'),
+      ('hu-h1', 'tab4', 'Parte 1', 'FALLIDO', 'u-dueno', '2026-10-26 12:00:00', 'tarea4', 'aizencrm', NULL, NULL),
+      ('hu-h2', 'tab4', 'Parte 2', 'APROBADO', 'u-dueno', '2026-10-26 12:00:00', 'tarea4', 'aizencrm', NULL, NULL),
+      ('hu-madre-sola', 'tab4', 'Madre sin partes vivas', 'EN_CURSO', 'u-dueno', '2026-10-26 12:00:00', 'tarea4', 'aizencrm', NULL, '{"partida":{"hijas":["hu-h3"]}}'),
+      ('hu-h3', 'tab4', 'Parte borrada', 'APROBADO', 'u-dueno', '2026-10-26 12:00:00', 'tarea4', 'aizencrm', NULL, NULL);
+    UPDATE "TarjetaTablero" SET "borradoEn" = '2026-10-26 13:00:00' WHERE "id" = 'hu-h3';`);
+
+  // Las madres partidas que revisa /tomar en cada vuelta (la que espera y la que ya no tiene partes vivas).
+  const madres = await filas(sql.SQL_MADRES_PARTIDAS, ["ws4"]);
+  assert.deepEqual(madres.map((f) => f.id).sort(), ["hu-madre", "hu-madre-sola"]);
+
+  const AHORA_H = "2026-10-26T20:00:00.000Z";
+  const huerfanas = await filas(sql.SQL_PASAR_HUERFANAS_A_ERROR, ["ws4", AHORA_H, "Quedó huérfana: nadie la estaba trabajando", AHORA_H, 30]);
+  assert.deepEqual(
+    huerfanas.map((f) => [f.id, f.antes]).sort(),
+    [
+      ["hu-madre-sola", "EN_CURSO"],
+      ["hu-obra", "EN_CURSO"],
+      ["hu-plan", "PLANEANDO"],
+    ],
+    "solo las huérfanas de verdad (una madre sin partes vivas no espera a nadie)",
+  );
+  const estados = Object.fromEntries(
+    (await filas(`SELECT "id", "estado", "resultado" FROM "TarjetaTablero" WHERE "id" LIKE 'hu-%'`)).map((f) => [f.id, f]),
+  );
+  assert.equal(estados["hu-obra"].estado, "ERROR");
+  assert.equal(estados["hu-obra"].resultado.previo, 1, "conserva el resultado anterior");
+  assert.equal(estados["hu-obra"].resultado.error.motivo, "Quedó huérfana: nadie la estaba trabajando");
+  assert.equal(estados["hu-obra"].resultado.error.en, "EN_CURSO");
+  for (const id of ["hu-reciente", "hu-candado", "hu-sin-repo", "hu-idea"]) assert.equal(estados[id].estado, "EN_CURSO", `${id} no se toca`);
+  assert.equal(estados["hu-sube"].estado, "SUBIENDO", "SUBIENDO pendiente es válida");
+  assert.equal(estados["hu-madre"].estado, "PLANEANDO", "la madre espera a su parte 2");
+  const intentos = await filas(
+    `SELECT "tarjetaId", "etapa", "accion", "cuentaComoIntento" FROM "IntentoTarjeta" WHERE "tarjetaId" LIKE 'hu-%' ORDER BY "tarjetaId"`,
+  );
+  assert.deepEqual(intentos.map((i) => [i.tarjetaId, i.etapa, i.accion, i.cuentaComoIntento]), [
+    ["hu-madre-sola", "construir", "escalar", false],
+    ["hu-obra", "construir", "escalar", false],
+    ["hu-plan", "planear", "escalar", false],
+  ]);
+  // Otra vuelta no las vuelve a tocar (ya están en ERROR), ni se ven desde otro negocio.
+  assert.deepEqual(await filas(sql.SQL_PASAR_HUERFANAS_A_ERROR, ["ws4", AHORA_H, "x", AHORA_H, 30]), []);
+  const deOtro = await filas(sql.SQL_PASAR_HUERFANAS_A_ERROR, ["ws1", AHORA_H, "x", AHORA_H, 30]);
+  assert.ok(!deOtro.some((f) => f.id.startsWith("hu-")));
+});
+
 await db.close();
 console.log(`\n${pruebas} pruebas, todas bien`);

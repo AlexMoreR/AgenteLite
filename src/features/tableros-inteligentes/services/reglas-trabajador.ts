@@ -1240,3 +1240,138 @@ export function lineaParaElDueno(valor: unknown): string {
   const texto = typeof valor === "string" ? valor.replace(/\s+/g, " ").trim() : "";
   return texto.slice(0, 300);
 }
+
+/* ─────────────────────────────── madres partidas, huérfanas y "cerrar como fallida" (26-oct-2026) ── */
+
+/*
+  Una MADRE PARTIDA (resultado.partida con sus hijas) se queda donde estaba (PLANEANDO o EN_CURSO) sin candado:
+  es "partida, esperando a sus partes" y nadie la toma. Se cierra sola cuando TODAS sus partes vivas
+  terminaron: HECHO si todas quedaron HECHO, FALLIDO si alguna quedó FALLIDO (cierreDeLaMadre). Antes solo
+  se cerraba si todas quedaban HECHO, y solo cuando una parte subía: con una parte FALLIDO quedaba colgada
+  para siempre (como «Paralelo de verdad», 26-oct). /tomar también revisa las madres colgadas en cada vuelta.
+
+  HUÉRFANA = una tarjeta con repo en PLANEANDO o EN_CURSO, sin candado (trabajoVenceEn NULL), que no es una
+  madre esperando partes vivas: nadie la está trabajando y nunca vencería. /tomar la pasa a ERROR después de
+  MINUTOS_PARA_HUERFANA sin cambios. Una SUBIENDO sin candado NO es huérfana: es la SUBIENDO pendiente (el sí
+  final ya se dio y espera que el Coordinador la tome).
+*/
+
+/** Los estados en que una parte ya terminó (bien o mal): la madre no espera más por ella. */
+export const ESTADOS_FINALES_DE_LA_PARTE = ["HECHO", "FALLIDO"] as const;
+
+const esFinalDeLaParte = (estado: string) => (ESTADOS_FINALES_DE_LA_PARTE as readonly string[]).includes(estado);
+
+/**
+ * Cómo se cierra una madre partida según sus hijas vivas (no borradas): null si alguna sigue en camino (o no
+ * hay ninguna viva: entonces no se cierra sola y, sin partes que esperar, la recoge /tomar como huérfana);
+ * HECHO si todas quedaron HECHO; FALLIDO si todas terminaron y alguna quedó FALLIDO.
+ */
+export function cierreDeLaMadre(hijasVivas: readonly { estado: string }[]): "HECHO" | "FALLIDO" | null {
+  if (!hijasVivas.length || !hijasVivas.every((hija) => esFinalDeLaParte(hija.estado))) return null;
+  return hijasVivas.every((hija) => hija.estado === "HECHO") ? "HECHO" : "FALLIDO";
+}
+
+/** La nota del historial cuando la madre se cierra sola. */
+export function notaDelCierreDeLaMadre(hijasVivas: readonly { estado: string }[], cierre: "HECHO" | "FALLIDO"): string {
+  if (cierre === "HECHO") return `terminada: sus ${hijasVivas.length} partes están hechas`;
+  const fallidas = hijasVivas.filter((hija) => hija.estado === "FALLIDO").length;
+  return `cerrada como fallida: ${fallidas} de sus ${hijasVivas.length} partes quedaron fallidas`;
+}
+
+/** ¿Una madre partida sigue esperando a sus partes? (tiene partida y al menos una hija viva que no terminó) */
+export function esperaASusPartes(resultado: unknown, hijasVivas: readonly { estado: string }[]): boolean {
+  return Boolean(partidaDelResultado(resultado)) && hijasVivas.length > 0 && cierreDeLaMadre(hijasVivas) === null;
+}
+
+/** Minutos sin cambios que tiene que llevar una PLANEANDO o EN_CURSO sin candado para que /tomar la dé por huérfana. */
+export const MINUTOS_PARA_HUERFANA = 30;
+
+// Tres líneas, como MOTIVO_VENCIDA.
+export const MOTIVO_HUERFANA = [
+  "Quedó huérfana: nadie la estaba trabajando (estaba en planear o construir sin el candado del Coordinador).",
+  "No se volvió a intentar sola.",
+  "Necesita que la veas: pulsa Reintentar o, si ya no va, Cerrar como fallida.",
+].join("\n");
+
+/** Los estados desde los que el dueño cierra una tarjeta con repo como fallida en la pantalla. */
+export const ESTADOS_QUE_SE_CIERRAN_COMO_FALLIDA = ["ERROR", "PLANEANDO", "EN_CURSO"] as const;
+
+export type PedidoDeCerrarComoFallida = {
+  origen: OrigenCambio;
+  estado: EstadoTarjetaTablero;
+  usaEstados: boolean;
+  repo: string | null;
+  /** El candado del Coordinador (null = nadie la tiene). */
+  trabajoVenceEn: Date | null;
+  ahora: Date;
+  /** Es una madre partida con partes vivas que no terminaron (se cierra sola cuando terminen). */
+  esperaPartes: boolean;
+  persona: PersonaQueAprueba;
+};
+
+/**
+ * "Cerrar como fallida" (26-oct-2026): el dueño (o el ADMIN de la plataforma), en la pantalla, abandona una
+ * tarjeta con repo que está en ERROR o que quedó huérfana (PLANEANDO o EN_CURSO sin candado vigente). Nunca
+ * una que el Coordinador tiene con el candado vigente, ni una SUBIENDO (pudo haber empujado a main), ni una
+ * madre que espera a sus partes. Queda FALLIDO (desde ahí se puede marcar hecha a mano).
+ */
+export function puedeCerrarComoFallida(pedido: PedidoDeCerrarComoFallida): Veredicto {
+  if (pedido.origen !== "PANTALLA") return "Cerrar como fallida se hace solo en la pantalla, con el botón.";
+  if (!pedido.usaEstados) return "Las tarjetas de ese tipo (como Área) son carpetas: no tienen estado.";
+  if (!pedido.repo) return "Esta tarjeta no tiene repo: sin repo se marca FALLIDO con el estado de siempre.";
+  if (!pedido.persona.esDueno && !pedido.persona.esAdminPlataforma) {
+    return `Cerrar como fallida lo hace solo el dueño del negocio (o el ADMIN de la plataforma).${conLaCuenta(pedido.persona, "pantalla")}`;
+  }
+  if (!(ESTADOS_QUE_SE_CIERRAN_COMO_FALLIDA as readonly string[]).includes(pedido.estado)) {
+    return `Solo se cierra como fallida una tarjeta en ERROR o una que quedó huérfana (planeando o en curso sin el Coordinador). Está ${pedido.estado}.`;
+  }
+  if (pedido.estado !== "ERROR") {
+    if (pedido.trabajoVenceEn && pedido.trabajoVenceEn.getTime() > pedido.ahora.getTime()) {
+      return `El Coordinador tiene esta tarjeta en este momento (${pedido.estado}): no se cierra hasta que termine o falle.`;
+    }
+    if (pedido.esperaPartes) {
+      return "Esta tarjeta está partida y espera a sus partes: se cierra sola cuando terminen (cierra las partes si ya no van).";
+    }
+  }
+  return null;
+}
+
+/** Lo que queda en `HistorialTarjeta.despues` (acción "estado", origen PANTALLA) al cerrar como fallida. */
+export type RegistroDeCierreComoFallida = {
+  estado: "FALLIDO";
+  cerradaComoFallida: true;
+  via: "pantalla";
+  quienNombre: string;
+  userId: string;
+  /** "cerrada como fallida por el dueño (nombre)". */
+  como: string;
+  /** Si estaba huérfana (PLANEANDO o EN_CURSO sin candado), para que el historial lo diga. */
+  huerfana: boolean;
+};
+
+export function registroDeCierreComoFallida(datos: {
+  quienNombre: string;
+  userId: string;
+  antes: EstadoTarjetaTablero;
+  esDueno: boolean;
+}): RegistroDeCierreComoFallida {
+  return {
+    estado: "FALLIDO",
+    cerradaComoFallida: true,
+    via: "pantalla",
+    quienNombre: datos.quienNombre,
+    userId: datos.userId,
+    como: `cerrada como fallida por ${datos.esDueno ? "el dueño" : "el ADMIN"} (${datos.quienNombre})`,
+    huerfana: datos.antes !== "ERROR",
+  };
+}
+
+/**
+ * El estado con que queda una tarjeta EN_CURSO de la fase 1 (sin repo, a mano) cuando le ponen repo: POR_APROBAR.
+ * EN_CURSO con repo es un estado del Coordinador (con candado); dejarla ahí la volvía huérfana (nadie la toma
+ * y nunca vence: «Retroactivos en Gestión», 26-oct). Desde POR_APROBAR se aprueba (o se aprueba sola) y el
+ * Coordinador la toma desde el principio. Cualquier otro caso deja el estado como venía.
+ */
+export function estadoAlPonerRepo(estado: EstadoTarjetaTablero, repoAntes: string | null, repoFinal: string | null): EstadoTarjetaTablero {
+  return !repoAntes && repoFinal && estado === "EN_CURSO" ? "POR_APROBAR" : estado;
+}

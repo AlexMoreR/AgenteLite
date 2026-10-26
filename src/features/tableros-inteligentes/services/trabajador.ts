@@ -7,6 +7,8 @@ import {
   AL_TOMAR,
   ETAPA_DEL_ESTADO,
   MINUTOS_DE_GRACIA_DEL_LATIDO,
+  MINUTOS_PARA_HUERFANA,
+  MOTIVO_HUERFANA,
   MOTIVO_VENCIDA,
   NOMBRE_DE_LA_ZONA,
   REPOS_DEL_TRABAJADOR,
@@ -33,7 +35,6 @@ import {
   etapaDeEntrada,
   detalleDeLaParte,
   linkDeEntrada,
-  madreSeCierra,
   opcionesDeTomar,
   motivoDeEntrada,
   partesDeEntrada,
@@ -75,11 +76,14 @@ import {
   SQL_CANDADO_DEL_NEGOCIO,
   SQL_CANDIDATAS,
   SQL_ES_PARTE,
+  SQL_MADRES_PARTIDAS,
+  SQL_PASAR_HUERFANAS_A_ERROR,
   SQL_PASAR_VENCIDAS_A_ERROR,
   SQL_TOMAR_UNA,
   SQL_TRABAJANDO,
 } from "./sql-trabajador";
 import { QUIEN_TRABAJADOR, linkDeLaTarjeta } from "./tableros";
+import { cerrarLaMadreDeLaParte, cerrarLaMadreSiToca as cerrarMadrePartida } from "./madre-partida";
 
 /*
   EL TRABAJADOR del Tablero IA (fase 2, 20-oct-2026): lo que hace la API /api/trabajador/tablero/*.
@@ -108,8 +112,11 @@ import { QUIEN_TRABAJADOR, linkDeLaTarjeta } from "./tableros";
   IntentoTarjeta (el historial de intentos de la tarjeta):
   - /:id/reparar la devuelve a la fila SIN ERROR (PLANEANDO -> APROBADO; EN_CURSO y SUBIENDO ->
     PLAN_APROBADO) y suma una reparación (tope TOPE_DE_REPARACIONES; el 4.º aviso es un /error).
-  - /:id/partir (desde EN_CURSO) crea de 2 a 4 tarjetas hijas, una tras otra (flechas de dependencia), y
-    deja a la madre EN_CURSO sin candado. La madre pasa a HECHO cuando su última hija sube (/subida).
+  - /:id/partir (desde PLANEANDO o EN_CURSO) crea de 2 a 4 tarjetas hijas, una tras otra (flechas de dependencia),
+    y deja a la madre en su etapa sin candado ("partida, esperando a sus partes"). Se cierra sola cuando todas
+    sus partes terminaron: HECHO si todas quedaron HECHO, FALLIDO si alguna quedó FALLIDO (madre-partida.ts).
+  - /tomar (26-oct-2026) además cierra las madres colgadas y pasa a ERROR las HUÉRFANAS: PLANEANDO o EN_CURSO sin
+    candado, sin cambios hace más de 30 min, que no esperan a sus partes (SUBIENDO pendiente no es huérfana).
   - /:id/soltar con `categoria` (esperar) y /:id/error con `categoria` (escalar) también dejan su fila.
   - /arranque (ruta aparte): lo que el negocio tenía en PLANEANDO o EN_CURSO con candado vuelve a la fila.
   - Las vencidas sin latido vuelven a la fila (SQL_PASAR_VENCIDAS_A_ERROR) en vez de ERROR, salvo las que
@@ -394,8 +401,44 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
         { estado: suelta.estado, nota: "el Coordinador dejó de dar señales: vuelve a la fila, sin error" },
       );
     }
-    await tocarTableros(tx, vencidasODejadas.map((fila) => fila.tableroId), ahora);
-    const avisos = { vencidas: vencidas.map((fila) => fila.id), sueltas: sueltas.map((fila) => fila.id) };
+    // Las madres partidas cuyas partes ya terminaron (todas HECHO, o alguna FALLIDO) se cierran: antes del 26-oct
+    // solo se cerraban si todas subían, y con una parte FALLIDO quedaban colgadas en su etapa, sin candado.
+    const madresCerradas: string[] = [];
+    const tablerosDeLasMadres: string[] = [];
+    for (const { id } of await tx.$queryRawUnsafe<{ id: string }[]>(SQL_MADRES_PARTIDAS, contexto.workspaceId)) {
+      const cerrada = await cerrarMadrePartida(tx, id);
+      if (!cerrada) continue;
+      await anotarTrabajador(tx, contexto, cerrada.id, { estado: cerrada.antes }, { estado: cerrada.estado, nota: cerrada.nota });
+      madresCerradas.push(cerrada.id);
+      tablerosDeLasMadres.push(cerrada.tableroId);
+    }
+
+    // Red de seguridad: las HUÉRFANAS (PLANEANDO o EN_CURSO sin candado, sin cambios hace más de
+    // MINUTOS_PARA_HUERFANA, que no esperan a sus partes) pasan a ERROR: nadie las trabaja y nunca vencerían.
+    // SUBIENDO pendiente no entra: esa sí espera, a propósito, sin candado.
+    const huerfanas = await tx.$queryRawUnsafe<{ id: string; tableroId: string; antes: string }[]>(
+      SQL_PASAR_HUERFANAS_A_ERROR,
+      contexto.workspaceId,
+      iso,
+      MOTIVO_HUERFANA,
+      iso,
+      MINUTOS_PARA_HUERFANA,
+    );
+    for (const huerfana of huerfanas) {
+      await anotarTrabajador(tx, contexto, huerfana.id, { estado: huerfana.antes }, { estado: "ERROR", motivo: MOTIVO_HUERFANA });
+    }
+
+    await tocarTableros(
+      tx,
+      [...vencidasODejadas.map((fila) => fila.tableroId), ...tablerosDeLasMadres, ...huerfanas.map((fila) => fila.tableroId)],
+      ahora,
+    );
+    const avisos = {
+      vencidas: vencidas.map((fila) => fila.id),
+      sueltas: sueltas.map((fila) => fila.id),
+      huerfanas: huerfanas.map((fila) => fila.id),
+      madresCerradas,
+    };
 
     const enCurso = (await tx.$queryRawUnsafe<{ id: string }[]>(SQL_TRABAJANDO, contexto.workspaceId, iso)).map((fila) => fila.id);
     if (enCurso.length >= maxParalelo) {
@@ -464,24 +507,13 @@ async function anotarIntento(
 
 type IntentoPorGuardar = Parameters<typeof anotarIntento>[2];
 
-/** Cuando la última hija de una madre partida sube, la madre queda HECHO (si ya no falta ninguna). */
-async function cerrarLaMadreSiToca(tx: Tx, contexto: ContextoTrabajador, hija: { id: string; tableroId: string }, ahora: Date) {
-  const [fila] = await tx.$queryRawUnsafe<{ id: string }[]>(SQL_ES_PARTE, hija.tableroId, hija.id);
-  if (!fila) return;
-  const madre = await tx.tarjetaTablero.findUnique({
-    where: { id: fila.id },
-    select: { id: true, estado: true, resultado: true, borradoEn: true },
-  });
-  const partida = partidaDelResultado(madre?.resultado);
-  if (!madre || !partida || madre.borradoEn || (madre.estado !== "EN_CURSO" && madre.estado !== "PLANEANDO")) return;
-  const hijas = await tx.tarjetaTablero.findMany({ where: { id: { in: partida.hijas }, borradoEn: null }, select: { estado: true } });
-  if (!madreSeCierra(hijas)) return;
-  const hecho = await tx.tarjetaTablero.updateMany({
-    where: { id: madre.id, estado: madre.estado, borradoEn: null },
-    data: { estado: "HECHO", trabajoVenceEn: null },
-  });
-  if (hecho.count !== 1) return;
-  await anotarTrabajador(tx, contexto, madre.id, { estado: madre.estado }, { estado: "HECHO", nota: `terminada: sus ${hijas.length} partes están hechas` });
+/**
+ * Cuando una parte termina, la madre partida se cierra si ya no espera a ninguna (HECHO si todas quedaron HECHO,
+ * FALLIDO si alguna quedó FALLIDO: madre-partida.ts). Deja su fila en el historial (origen TRABAJADOR).
+ */
+async function cerrarLaMadreSiToca(tx: Tx, contexto: ContextoTrabajador, hija: { id: string; tableroId: string }) {
+  const cerrada = await cerrarLaMadreDeLaParte(tx, hija);
+  if (cerrada) await anotarTrabajador(tx, contexto, cerrada.id, { estado: cerrada.antes }, { estado: cerrada.estado, nota: cerrada.nota });
 }
 
 /** POST /candidatas: las que /tomar podría tomar, sin tomarlas (con su repo, zonas y plan). */
@@ -879,8 +911,8 @@ export async function accionDelTrabajador(
     await anotarTrabajador(tx, contexto, actual.id, { estado }, despues);
     if (aprobacionDelPlan) await anotarAprobacionAutomatica(tx, actual.id, { estado: "PLAN_LISTO" }, aprobacionDelPlan);
     if (intentoPorGuardar) await anotarIntento(tx, actual.id, intentoPorGuardar, ahora);
-    // Una parte que sube puede ser la última: entonces la madre queda HECHO.
-    if (accion === "subida") await cerrarLaMadreSiToca(tx, contexto, actual, ahora);
+    // Una parte que sube puede ser la última: entonces la madre se cierra (HECHO, o FALLIDO si otra parte quedó fallida).
+    if (accion === "subida") await cerrarLaMadreSiToca(tx, contexto, actual);
     await tocarTableros(tx, [actual.tableroId], ahora);
     return { ok: true, estado: a, link: linkDeLaTarjeta(actual.id) };
   });
@@ -892,7 +924,7 @@ export async function accionDelTrabajador(
  * detalle de la parte como plan), unidas en orden por flechas de dependencia (parte 1 -> parte 2 -> ...).
  * Cuelgan de la madre si su tipo lo permite y, si no, del mismo padre de la madre. Heredan la aprobación
  * (con zona protegida, /tomar exige una aprobación hecha en la pantalla). La madre queda EN_CURSO sin
- * candado (nadie la toma) y pasa a HECHO cuando suben todas (cerrarLaMadreSiToca).
+ * candado (nadie la toma) y se cierra sola cuando terminan todas: HECHO, o FALLIDO si alguna falló (cerrarLaMadreSiToca).
  */
 async function partirTarjeta(
   contexto: ContextoTrabajador,

@@ -41,14 +41,17 @@ import {
   dependenciaHaceCiclo,
   esDuenoDelNegocio,
   esHechoAMano,
+  esperaASusPartes,
   esRepo,
-  madreSeCierra,
+  estadoAlPonerRepo,
   motivoNoEsDueno,
   partidaDelResultado,
   puedeAprobarMomento,
+  puedeCerrarComoFallida,
   puedeCambiarZonas,
   puedeMarcarHechoAMano,
   registroDeAprobacion,
+  registroDeCierreComoFallida,
   registroDeHechoAMano,
   repoDeEntrada,
   textoDeConfirmacionParaBorrar,
@@ -67,7 +70,7 @@ import {
   riesgoDeEntrada,
   type QuienPoneRiesgo,
 } from "./reglas-riesgo";
-import { SQL_ES_PARTE } from "./sql-trabajador";
+import { cerrarLaMadreDeLaParte } from "./madre-partida";
 import { NOMBRE_AUTOMATICO, QUIEN_AUTOMATICO, aprobarSolaLaTarea, type ResultadoDeAprobarSola } from "./aprobacion-automatica";
 import { contadoresDelConteo, type Contadores } from "./niveles";
 
@@ -1657,7 +1660,7 @@ export async function editarTarjeta(
     ? actual.estado
     : nuevo.tipoId
       ? estadoTrasCambiarTipo(tipoFinal.requiereAprobacion, tipoFinal.usaEstados)
-      : estadoTrasEditar(contexto.origen, actual.estado);
+      : estadoAlPonerRepo(estadoTrasEditar(contexto.origen, actual.estado), actual.repo, repoFinal);
   const antes: Record<string, unknown> = {};
   const despues: Record<string, unknown> = {};
   for (const campo of Object.keys(nuevo) as (keyof CamposEditables)[]) {
@@ -1845,6 +1848,8 @@ export async function cambiarEstadoTarjeta(
     });
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
     const cambio = await anotar(tx, contexto, actual.id, "estado", { estado: actual.estado }, { estado });
+    // Una parte que termina (HECHO o FALLIDO) puede ser la última de una tarjeta partida: la madre se cierra.
+    if (estado === "HECHO" || estado === "FALLIDO") await cerrarLaMadreConHistorial(tx, contexto, actual);
     await tocarTablero(tx, actual.tableroId);
     return { cambioId: cambio.id, antes: actual.estado, ahora: estado as EstadoTarjetaTablero, titulo: actual.titulo };
   });
@@ -1914,24 +1919,8 @@ export async function marcarHechoAMano(contexto: ContextoTablero, tarjetaId: unk
     });
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
     const cambio = await anotar(tx, contexto, actual.id, "estado", { estado: actual.estado }, registro);
-    // Si es la última parte de una tarjeta partida, la madre (EN_CURSO, sin candado) queda HECHO; si no, se quedaría ahí para siempre.
-    const [esParte] = await tx.$queryRawUnsafe<{ id: string }[]>(SQL_ES_PARTE, actual.tableroId, actual.id);
-    if (esParte) {
-      const madre = await tx.tarjetaTablero.findUnique({ where: { id: esParte.id }, select: { id: true, estado: true, resultado: true, borradoEn: true } });
-      const partida = partidaDelResultado(madre?.resultado);
-      if (madre && partida && !madre.borradoEn && madre.estado === "EN_CURSO") {
-        const hijas = await tx.tarjetaTablero.findMany({ where: { id: { in: partida.hijas }, borradoEn: null }, select: { estado: true } });
-        if (madreSeCierra(hijas)) {
-          const cerrada = await tx.tarjetaTablero.updateMany({
-            where: { id: madre.id, estado: "EN_CURSO", borradoEn: null },
-            data: { estado: "HECHO", trabajoVenceEn: null },
-          });
-          if (cerrada.count === 1) {
-            await anotar(tx, contexto, madre.id, "estado", { estado: "EN_CURSO" }, { estado: "HECHO", nota: `terminada: sus ${hijas.length} partes están hechas` });
-          }
-        }
-      }
-    }
+    // Si es la última parte de una tarjeta partida, la madre (en su etapa, sin candado) se cierra; si no, se quedaría ahí para siempre.
+    await cerrarLaMadreConHistorial(tx, contexto, actual);
     await tocarTablero(tx, actual.tableroId);
     return {
       cambioId: cambio.id,
@@ -1942,6 +1931,73 @@ export async function marcarHechoAMano(contexto: ContextoTablero, tarjetaId: unk
       nota: veredicto.nota,
       commit: veredicto.commit,
     };
+  });
+}
+
+/** Si `parte` es una parte de una tarjeta partida y ya no queda ninguna en camino, cierra a la madre (con su historial). */
+async function cerrarLaMadreConHistorial(tx: Tx, contexto: ContextoTablero, parte: { id: string; tableroId: string }) {
+  const cerrada = await cerrarLaMadreDeLaParte(tx, parte);
+  if (cerrada) await anotar(tx, contexto, cerrada.id, "estado", { estado: cerrada.antes }, { estado: cerrada.estado, nota: cerrada.nota });
+}
+
+/**
+ * "Cerrar como fallida" desde la pantalla (26-oct-2026): el dueño o el ADMIN de la plataforma abandonan una tarjeta
+ * con repo en ERROR o huérfana (PLANEANDO o EN_CURSO sin el candado vigente del Coordinador). La regla es
+ * puedeCerrarComoFallida (reglas-trabajador.ts). Se guarda solo si la tarjeta sigue como se leyó (si el
+ * Coordinador la tomó un instante antes, no se hace) y deja su fila en el historial (origen PANTALLA, quién).
+ * Si era la última parte de una tarjeta partida, la madre se cierra también.
+ */
+export async function cerrarComoFallida(contexto: ContextoTablero, tarjetaId: unknown, vistaEn?: string) {
+  const actual = await tarjetaDelNegocio(contexto, tarjetaId);
+  const [tipo, persona, fila] = await Promise.all([
+    reglasDelTipo(actual.tipoId),
+    personaQueAprueba(contexto.workspaceId, contexto.userId),
+    prisma.tarjetaTablero.findUnique({ where: { id: actual.id }, select: { trabajoVenceEn: true, resultado: true } }),
+  ]);
+  const partida = partidaDelResultado(fila?.resultado);
+  const hijasVivas = partida
+    ? await prisma.tarjetaTablero.findMany({ where: { id: { in: partida.hijas }, ...NO_BORRADA }, select: { estado: true } })
+    : [];
+  const ahora = new Date();
+  const veredicto = puedeCerrarComoFallida({
+    origen: contexto.origen,
+    estado: actual.estado,
+    usaEstados: tipo.usaEstados,
+    repo: actual.repo,
+    trabajoVenceEn: fila?.trabajoVenceEn ?? null,
+    ahora,
+    esperaPartes: esperaASusPartes(fila?.resultado, hijasVivas),
+    persona,
+  });
+  if (veredicto) throw new Error(veredicto);
+  if (vistaEn && vistaEn !== actual.actualizadoEn.toISOString()) {
+    throw new Error("La tarjeta cambió mientras la mirabas. Revísala de nuevo antes de cerrarla.");
+  }
+  const registro = registroDeCierreComoFallida({
+    quienNombre: persona.nombre,
+    userId: contexto.userId,
+    antes: actual.estado,
+    esDueno: persona.esDueno,
+  });
+  return prisma.$transaction(async (tx) => {
+    // Condicionado al estado, al momento en que se leyó, al repo y a que el Coordinador no tenga el candado vigente.
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: {
+        id: actual.id,
+        estado: actual.estado,
+        actualizadoEn: actual.actualizadoEn,
+        tipoId: actual.tipoId,
+        repo: actual.repo,
+        OR: [{ trabajoVenceEn: null }, { trabajoVenceEn: { lte: ahora } }],
+        ...NO_BORRADA,
+      },
+      data: { estado: "FALLIDO", trabajoVenceEn: null },
+    });
+    if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
+    const cambio = await anotar(tx, contexto, actual.id, "estado", { estado: actual.estado }, registro);
+    await cerrarLaMadreConHistorial(tx, contexto, actual);
+    await tocarTablero(tx, actual.tableroId);
+    return { cambioId: cambio.id, titulo: actual.titulo, antes: actual.estado, ahora: "FALLIDO" as EstadoTarjetaTablero, quien: persona.nombre };
   });
 }
 
