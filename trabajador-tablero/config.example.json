@@ -17,6 +17,10 @@
   },
   "pausaLimiteCodexMinutos": 30,
   "umbralClaude": 80,
+  "pausaPorUsoClaude": true,
+  "vigilarUsoMinutos": 5,
+  "vigilarUsoCercaMinutos": 2,
+  "usoCercaDelUmbral": 70,
   "maxParalelo": 2,
   "nube": {
     "activa": true,

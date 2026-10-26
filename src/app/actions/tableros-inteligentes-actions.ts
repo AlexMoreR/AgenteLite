@@ -42,6 +42,7 @@ import {
   mandarPruebaAlDueno,
 } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { resumenDeHoyParaLaPantalla, vistaDeHoy, type VistaDeHoy } from "@/features/tableros-inteligentes/services/resumen-diario";
+import { guardarPausaPorUsoDeClaude } from "@/features/tableros-inteligentes/services/pausa-por-uso-de-claude";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 
 /*
@@ -305,6 +306,25 @@ export async function cambiarAprobarPlanesSoloAction(prendida: boolean): Promise
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo cambiar la aprobación de planes") };
+  }
+}
+
+/**
+ * Prende o apaga la pausa por uso de Claude y/o cambia su umbral (50 a 95 %, 80 por defecto). Solo el dueño. Apagarla en plena
+ * pausa la levanta: el Coordinador lo recibe en el siguiente latido (cada 15 s).
+ */
+export async function cambiarPausaPorUsoDeClaudeAction(cambio: { prendida?: boolean; umbral?: number }): Promise<{ ok: true; prendida: boolean; umbral: number } | { ok: false; error: string }> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  try {
+    const persona = await personaQueAprueba(access.workspaceId, access.userId);
+    if (!persona.esDueno) return { ok: false, error: "Cambiar la pausa por uso de Claude es solo del dueño del negocio." };
+    const guardado = await guardarPausaPorUsoDeClaude(access.workspaceId, {
+      ...(cambio.prendida === undefined ? {} : { prendida: Boolean(cambio.prendida) }),
+      ...(cambio.umbral === undefined ? {} : { umbral: Number(cambio.umbral) }),
+    });
+    return { ok: true, ...guardado };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo cambiar la pausa por uso de Claude") };
   }
 }
 

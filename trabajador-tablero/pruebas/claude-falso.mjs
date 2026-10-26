@@ -9,6 +9,7 @@
 //                     que después choca con main, [migracion-drop] agrega una migración con DROP y UPDATE,
 //                     [nada] no cambia nada; si no, escribe cambio-<algo>.txt.
 //   la revisión ("Eres el REVISOR"): no cambia nada. `-p /usage`: el uso del plan (CLAUDE_FALSO_USO).
+// [pausa-lento] (construir): escribe avance-pausa.txt y no termina; retomado (RETOMADA en el prompt) termina enseguida.
 // Anota cada llamada (argumentos y carpeta) en el archivo de CLAUDE_FALSO_LOG.
 //   la NUBE (`-p --cloud`, 25-oct-2026): contesta con el link de la sesión y un proceso aparte (la "máquina de la
 //                     nube") trabaja en la rama: tras NUBE_FALSA_DEMORA_MS (2500) hace un commit con un archivo y deja el
@@ -198,7 +199,15 @@ if (titulo.includes("[necesito]")) {
   console.log('RESUMEN: me quedé sin poder seguir.\nNECESITO: clave de la API de pagos para probar el cobro');
   process.exit(0);
 }
-if (titulo.includes("[atascado]")) {
+if (titulo.includes("[pausa-lento]")) {
+  // Pausa por uso de Claude (26-oct-2026): escribe algo y se queda trabajando hasta que lo corten; si lo retoman (el prompt
+  // trae "RETOMADA", con lo escrito ya aplicado) termina rápido y deja constancia de que recibió el avance.
+  if (prompt.includes("RETOMADA")) escribir(`retomada-${Date.now()}.txt`, `${fs.existsSync("avance-pausa.txt") ? "con avance" : "sin avance"}\n`);
+  else {
+    escribir("avance-pausa.txt", "a medias\n");
+    await dormir(120_000);
+  }
+} else if (titulo.includes("[atascado]")) {
   // Lanza "tareas en segundo plano" y se queda esperando sin tocar nada (el atasco del 24-oct-2026).
   console.error("Revisaré de nuevo en unos 30 minutos");
   await dormir(120_000);

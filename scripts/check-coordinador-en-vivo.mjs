@@ -26,6 +26,7 @@ const prismaFalso = {
     upsert: async ({ where, create, update }) => {
       estado.ajustes.set(where.key, estado.ajustes.has(where.key) ? update.value : create.value);
     },
+    findUnique: async ({ where }) => (estado.ajustes.has(where.key) ? { value: estado.ajustes.get(where.key) } : null),
     findMany: async ({ where }) =>
       [...estado.ajustes.entries()].filter(([key]) => key.startsWith(where.key.startsWith)).map(([key, value]) => ({ key, value })),
   },
@@ -100,6 +101,7 @@ const mocks = {
 
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas-coordinador-en-vivo.ts", mocks);
 const servicio = cargar("src/features/tableros-inteligentes/services/coordinador-en-vivo.ts", mocks);
+const pausaPorUso = cargar("src/features/tableros-inteligentes/services/pausa-por-uso-de-claude.ts", mocks);
 const rutaLatido = cargar("src/app/api/trabajador/latido/route.ts", mocks);
 
 let pruebas = 0;
@@ -154,7 +156,7 @@ await prueba("un latido con datos basura se recorta: tareas, textos, porcentajes
   assert.equal(latido.carga.memoriaUsadaGb, 22.5);
   assert.equal(latido.carga.discoLibreGb, null);
   assert.equal(latido.carga.esperandoPc, false, "solo true de verdad cuenta");
-  assert.deepEqual(latido.uso, { limiteAlcanzado: true, reiniciaEn: null, motor: null });
+  assert.deepEqual(latido.uso, { ...reglas.usoVacio(), limiteAlcanzado: true }, "un reinicio que no es fecha y un motor raro se descartan");
   assert.equal(reglas.latidoDeEntrada("texto", AHORA), null);
   assert.equal(reglas.latidoDeEntrada([], AHORA), null);
   assert.deepEqual(reglas.latidoDeEntrada({}, AHORA).tareas, []);
@@ -232,6 +234,70 @@ await prueba("palabras: hace cuánto, duración, en qué va y el uso de Claude",
   const texto = reglas.textoDelUso({ limiteAlcanzado: true, reiniciaEn: reinicio, motor: "claude" }, AHORA);
   assert.match(texto, /Límite de Claude alcanzado, se reinicia a las 3:00/);
   assert.equal(reglas.textoDelUso({ limiteAlcanzado: true, reiniciaEn: hace(5).toISOString(), motor: "claude" }, AHORA), "Límite de Claude alcanzado", "un reinicio que ya pasó no se muestra");
+});
+
+await prueba("el uso de Claude con porcentaje: se recorta lo que llega y el texto dice sesión, semana, pausa y lectura fallida", () => {
+  const latido = reglas.latidoDeEntrada(
+    {
+      uso: {
+        limiteAlcanzado: false,
+        sesion: { porcentaje: 142.34, reinicio: "Oct 24, 3:20pm (America/Bogota)" },
+        semana: { porcentaje: "63", reinicio: 7 },
+        pausado: true,
+        pausadoDesde: AHORA.toISOString(),
+        reanudaEn: new Date("2026-10-24T20:20:00Z").toISOString(),
+        pausaPorcentaje: 80,
+        umbral: 80,
+        leidoEn: AHORA.toISOString(),
+        lecturaFallidaDesde: "no es fecha",
+      },
+    },
+    AHORA,
+  );
+  assert.deepEqual(latido.uso.sesion, { porcentaje: 100, reinicio: "Oct 24, 3:20pm (America/Bogota)" }, "el porcentaje se acota a 100");
+  assert.deepEqual(latido.uso.semana, { porcentaje: 63, reinicio: null });
+  assert.equal(latido.uso.pausado, true);
+  assert.equal(latido.uso.lecturaFallidaDesde, null);
+  assert.equal(reglas.latidoDeEntrada({ uso: { pausado: false, pausadoDesde: AHORA.toISOString(), reanudaEn: AHORA.toISOString() } }, AHORA).uso.pausadoDesde, null, "sin pausa no hay fecha de pausa");
+  const base = reglas.usoVacio();
+  assert.equal(reglas.textoDelUso(base, AHORA), "Sin límite", "un Coordinador viejo no manda porcentaje");
+  assert.equal(reglas.textoDelUso({ ...base, sesion: { porcentaje: 42, reinicio: null }, semana: { porcentaje: 63, reinicio: null } }, AHORA), "sesión 42 % · semana 63 %");
+  assert.equal(reglas.textoDelUso({ ...base, semana: { porcentaje: 6, reinicio: null } }, AHORA), "semana 6 %");
+  const pausado = reglas.textoDelUso({ ...latido.uso, lecturaFallidaDesde: null }, AHORA);
+  assert.match(pausado, /^Pausado por uso de Claude \(sesión 100 % · semana 63 %\), se reanuda el sábado, 24 de octubre, 3:20 p\. m\.$/);
+  assert.match(reglas.textoDelUso({ ...base, pausado: true, reanudaEn: null }, AHORA), /^Pausado por uso de Claude, se reanuda cuando el uso baje del umbral$/);
+  assert.match(reglas.textoDelUso({ ...base, sesion: { porcentaje: 42, reinicio: null }, lecturaFallidaDesde: hace(30).toISOString() }, AHORA), /^sesión 42 %\. No pude leer el uso de Claude desde las 12:30 p\. m\.$/);
+  assert.match(reglas.textoDelUso({ ...base, lecturaFallidaDesde: hace(30).toISOString() }, AHORA), /^No pude leer el uso de Claude desde las 12:30/);
+  assert.match(reglas.textoDelUso({ ...base, limiteAlcanzado: true, motor: "claude" }, AHORA), /^Límite de Claude alcanzado$/);
+});
+
+await prueba("pausa por uso: el interruptor y el umbral (50 a 95, 80 por defecto) se guardan como un ajuste y vuelven en la respuesta del latido", async () => {
+  assert.deepEqual(reglas.ajusteDePausaDeTexto(null), { prendida: true, umbral: 80 });
+  assert.deepEqual(reglas.ajusteDePausaDeTexto("basura"), { prendida: true, umbral: 80 });
+  assert.deepEqual(reglas.ajusteDePausaDeTexto('{"prendida":false,"umbral":60}'), { prendida: false, umbral: 60 });
+  assert.equal(reglas.ajusteDePausaDeTexto('{"umbral":10}').umbral, 80, "un umbral fuera de rango vuelve al 80");
+  assert.equal(reglas.umbralDePausaValido(49), null);
+  assert.equal(reglas.umbralDePausaValido(50), 50);
+  assert.equal(reglas.umbralDePausaValido(95), 95);
+  assert.equal(reglas.umbralDePausaValido(96), null);
+  assert.equal(reglas.umbralDePausaValido("mucho"), null);
+  // Sin ajuste guardado: prendido al 80 %.
+  const primera = await servicio.guardarLatido(contexto, {}, AHORA);
+  assert.deepEqual(primera.pausaPorUso, { prendida: true, umbral: 80 });
+  assert.deepEqual(await pausaPorUso.guardarPausaPorUsoDeClaude("ws1", { umbral: 70 }), { prendida: true, umbral: 70 });
+  assert.deepEqual(await pausaPorUso.guardarPausaPorUsoDeClaude("ws1", { prendida: false }), { prendida: false, umbral: 70 }, "apagar no pierde el umbral");
+  assert.equal(estado.ajustes.has("tablero:pausa-uso-claude:ws1"), true);
+  await assert.rejects(() => pausaPorUso.guardarPausaPorUsoDeClaude("ws1", { umbral: 99 }), /50 a 95/);
+  await assert.rejects(() => pausaPorUso.guardarPausaPorUsoDeClaude("ws1", { umbral: 10 }), /50 a 95/);
+  assert.deepEqual((await servicio.guardarLatido(contexto, {}, AHORA)).pausaPorUso, { prendida: false, umbral: 70 }, "el Coordinador lo recibe en la respuesta del latido");
+  assert.deepEqual((await servicio.vistaDelCoordinador("ws1", AHORA)).pausaPorUso, { prendida: false, umbral: 70 });
+  const otro = await servicio.guardarLatido({ ...contexto, workspaceId: "ws2", claveId: "k2" }, {}, AHORA);
+  assert.deepEqual(otro.pausaPorUso, { prendida: true, umbral: 80 }, "cada negocio tiene el suyo");
+  // La voz y el MCP también lo dicen.
+  await servicio.guardarLatido(contexto, { uso: { pausado: true, pausaPorcentaje: 81, sesion: { porcentaje: 81, reinicio: "x" }, reanudaEn: new Date("2026-10-24T20:20:00Z").toISOString() } }, hace(0.2));
+  const texto = servicio.textoDelCoordinador(await servicio.vistaDelCoordinador("ws1", AHORA));
+  assert.match(texto, /Uso de Claude: Pausado por uso de Claude \(sesión 81 %\)/);
+  assert.match(texto, /pausa por uso de Claude está APAGADA/);
 });
 
 await prueba("el día de Bogotá: desde las 5:00 UTC hasta las 5:00 UTC del día siguiente", () => {

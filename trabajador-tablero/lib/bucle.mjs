@@ -22,6 +22,9 @@
 // pausaLimiteMinutos) y sus pasos esperan o pasan al otro según config.motores; las candidatas cuyo paso
 // no tiene motor van en `excluir`. Cada config.vigilarUsoMinutos se mira el uso de Claude: sobre
 // config.umbralClaude todos los pasos van con Codex (sin WhatsApp: solo avisa si todo queda en pausa).
+// Pausa por uso de Claude (26-oct-2026, motores.mjs): con la sesión o la semana en el umbral (80 %) el Coordinador NO toma
+// tarjetas, detiene con orden las que planean o construyen (procesar: vivo.detenerPorUso -> guarda el avance y las suelta
+// SIN ERROR y sin gastar intento; subir no usa Claude y termina) y retoma solo, primero las que quedaron detenidas.
 // Escoger y partir (25-oct-2026, reparto.mjs y cola.mjs): de las candidatas que no chocan se toma la más cerca de HECHO,
 // la que desbloquea a otras y la más chica (las demás van en `excluir`); una tarea de aizen1 muy grande se parte
 // ANTES de construirla; y los pasos pesados (npm ci, lint, tsc, build, pruebas) de todas las sesiones pasan por UNA
@@ -32,12 +35,16 @@ import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
 import { TOPE_DE_REPARACIONES, decidir, diagnosticar, enUnaLinea, resumenDeEscalada } from "./diagnostico.mjs";
 import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, medirConClaude, partirTarea, planear, subir } from "./etapas.mjs";
+import fs from "node:fs";
+import path from "node:path";
+
 import { idCorto } from "./git.mjs";
 import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedida } from "./medir.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
-import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
+import { crearEstadoDeMotores, crearVigilanteDeUso, guardarEstadoDeUso, leerEstadoDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
 import { esTareaGrande } from "./nube.mjs";
 import { crearMedidor, faltanRecursos } from "./recursos.mjs";
+import { carpetaDeIntentos } from "./registro.mjs";
 
 const ETAPAS = { planear, construir, subir };
 
@@ -126,6 +133,14 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
   const reloj = setInterval(() => {
     latidoEnVuelo = latir();
   }, Math.max(1, config.tiempos.latidoSegundos) * 1000);
+  // Pausa por uso de Claude: el planificador pide detener esta sesión (vivo.detenerPorUso); se corta y se suelta sin error.
+  let pausadaPorUso = false;
+  vivo.detenerPorUso = () => {
+    if (pausadaPorUso) return false;
+    pausadaPorUso = true;
+    control.abort();
+    return true;
+  };
   const pausar = (motor) => {
     const hasta = motores.pausar(motor);
     registro.aviso(`pausa: ${nombreDelMotor(motor)} llegó a su límite de uso; no lo uso hasta ${new Date(hasta).toISOString()}`);
@@ -200,6 +215,20 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
       registro.error(`"${tarjeta.titulo}" venció en el CRM: ${motivo}`);
       return { ok: false, motivo, vencida: true };
     }
+    if (pausadaPorUso) {
+      // Se detuvo a propósito por el uso de Claude: no es culpa de la tarjeta. Lo que construyó ya lo guardó construir (trabajo.patch);
+      // aquí se deja una copia en pausados/ y se nombra en la nota. Vuelve a la fila sin ERROR y sin gastar intento.
+      const avance = guardarAvanceDePausa(config, tarjeta, hacer);
+      registro.aviso(`"${tarjeta.titulo}" (${hacer}): pausado por uso de Claude; la suelto sin error${avance ? ` (avance en ${avance})` : ""}`);
+      await soltar(
+        crm,
+        registro,
+        tarjeta,
+        `Pausado por uso de Claude: se retoma solo cuando el uso se reinicie.${avance ? ` Avance guardado en ${avance}; al retomarla se aplica de nuevo.` : ""}`,
+        conReparaciones ? { categoria: "limite_claude", causa: "Pausado por uso de Claude: se retoma cuando el uso se reinicie", etapa: hacer } : undefined,
+      );
+      return { ok: false, motivo: "Pausado por uso de Claude", pausadoPorUso: true };
+    }
     if (error?.esperaDeCola) {
       // Esperó demasiado turno en la cola de pasos pesados antes de empezar (etapas.mjs: conTurno): vuelve a la fila del
       // tablero sin ERROR ni contar el intento, ANTES de que venza el candado del CRM (que sí la pasaría a ERROR).
@@ -240,6 +269,24 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
   } finally {
     clearInterval(reloj);
     await latidoEnVuelo;
+  }
+}
+
+/**
+ * Pausa por uso: una copia del trabajo a medias de construir (el patch que guardó etapas.mjs en intentos/<id>/trabajo.patch) en
+ * <carpetaTrabajo>/pausados/<id>.patch. Devuelve la ruta, o null si no había nada que guardar. Nunca lanza.
+ */
+function guardarAvanceDePausa(config, tarjeta, hacer) {
+  if (hacer !== "construir") return null;
+  try {
+    const origen = path.join(carpetaDeIntentos(config.carpetaTrabajo, tarjeta.id), "trabajo.patch");
+    if (!fs.existsSync(origen)) return null;
+    const destino = path.join(config.carpetaTrabajo, "pausados", `${idCorto(tarjeta.id)}.patch`);
+    fs.mkdirSync(path.dirname(destino), { recursive: true });
+    fs.copyFileSync(origen, destino);
+    return destino;
+  } catch {
+    return null;
   }
 }
 
@@ -603,7 +650,7 @@ export function crearPlanificador({
   registro,
   medidor = crearMedidor({ muestras: Math.max(1, Math.round(((config.limites?.cpuPromedioMinutos ?? 3) * 60) / 5)) }),
   motores = crearEstadoDeMotores(config),
-  vigilante = crearVigilanteDeUso({ config, registro, estado: motores, entorno: entornoSeguro() }),
+  vigilante = crearVigilanteDeUso({ config, registro, estado: motores, entorno: entornoSeguro(), crm }),
   // La cola de pasos pesados se puede dar hecha (las pruebas la llenan a mano); undefined = la de la configuración.
   colaPesada: colaDada = undefined,
 }) {
@@ -762,9 +809,43 @@ export function crearPlanificador({
     }
   }
 
+  /** Las tarjetas que se detuvieron por el uso de Claude (quedan en estado-uso.json: sobreviven a un reinicio). */
+  const detenidasPorUso = () => new Set(leerEstadoDeUso(config.carpetaTrabajo).detenidas ?? []);
+  const anotarDetenidas = (ids) => guardarEstadoDeUso(config.carpetaTrabajo, { detenidas: ids }, registro);
+  // Lo que ya se pidió detener en esta pausa (no se pide dos veces).
+  const yaDetenidas = new Set();
+
+  /**
+   * Pausa por uso de Claude: detiene con orden lo que planea o construye (en aizen1 y en la nube). Subir no usa Claude y
+   * termina: cortar una subida a medias es más peligroso que dejarla acabar. Cada tarjeta detenida vuelve a la fila (procesar).
+   */
+  function detenerLoQueCorre() {
+    const nuevas = [];
+    for (const sesion of [...sesiones.values(), ...enNube.values()]) {
+      if (sesion.hacer === "subir" || yaDetenidas.has(sesion.tarjeta.id)) continue;
+      if (sesion.vivo.detenerPorUso?.()) {
+        yaDetenidas.add(sesion.tarjeta.id);
+        nuevas.push(sesion.tarjeta.id);
+      }
+    }
+    if (nuevas.length) {
+      registro.aviso(`pausa por uso de Claude: detengo ${nuevas.length} tarjeta(s) con orden (guardan su avance y vuelven a la fila sin error)`);
+      anotarDetenidas([...new Set([...detenidasPorUso(), ...nuevas])]);
+    }
+  }
+
   async function llenar() {
     await vigilante?.vigilar();
     pcEspera = null;
+    // PAUSADO POR USO DE CLAUDE: no se toma nada y se detiene lo que corre. El latido sigue contando el porcentaje al panel.
+    if (motores.pausaPorUso()) {
+      avisarUnaVez("pausa-uso", "pausado por uso de Claude: no tomo tarjetas hasta que el uso baje del umbral");
+      esperasDeFila = new Map();
+      detenerLoQueCorre();
+      return;
+    }
+    if (ultimoAviso === "pausa-uso") ultimoAviso = "";
+    yaDetenidas.clear();
     // Las que se soltaron en esta pasada porque no tenían dónde correr: no se vuelven a tomar hasta la próxima.
     const descartadas = new Map();
     for (;;) {
@@ -841,7 +922,10 @@ export function crearPlanificador({
         // ESCOGER: de las que sí se pueden tomar, la mejor (subir > construir > planear, la que desbloquea, la más chica);
         // las demás también van en `excluir` para que /tomar dé justo esa.
         const libres = candidatas.filter((c) => !excluir.includes(c.id));
-        const elegida = ordenarCandidatas(libres)[0];
+        // Las que quedaron detenidas por el uso de Claude se retoman primero que todo.
+        const detenidas = detenidasPorUso();
+        const primeras = libres.filter((c) => detenidas.has(c.id));
+        const elegida = ordenarCandidatas(primeras.length ? primeras : libres)[0];
         if (elegida && libres.length > 1) excluir = [...excluir, ...libres.filter((c) => c.id !== elegida.id).map((c) => c.id)];
       }
       // El CRM cuenta las de aizen1 y las de la nube juntas: el tope que se le da es la suma.
@@ -853,6 +937,9 @@ export function crearPlanificador({
       }
       ultimoAviso = "";
       const { tarjeta, hacer } = respuesta;
+      // Retomada: ya no es una de las detenidas por el uso.
+      const detenidasAhora = detenidasPorUso();
+      if (detenidasAhora.delete(tarjeta.id)) anotarDetenidas([...detenidasAhora]);
       const huella = huellaDeTarjeta(tarjeta, hacer, config.repos[tarjeta.repo]);
       // Entre /candidatas y /tomar pudo aparecer otra que choca: se suelta (sin error) y espera en fila.
       const choque = corriendo.map((otra) => [otra, motivoDeChoque(huella, otra)]).find(([, motivo]) => motivo);
@@ -891,6 +978,15 @@ export function crearPlanificador({
       }
     },
     corriendo: () => sesiones.size + enNube.size,
+    /** ¿Está "Pausado por uso de Claude"? (el manual de la noche y el recogedor de errores esperan). */
+    pausadoPorUso: () => Boolean(motores.pausaPorUso()),
+    /** Lo que dice el CRM en la respuesta del latido { prendida, umbral }: despierta al bucle si cambió (apagar la pausa la levanta al instante). */
+    ajustarPausaPorUso(datos) {
+      if (motores.ajustarPausa(datos)) {
+        if (despertar) despertar();
+        else cupoNuevo = true;
+      }
+    },
     /** ¿Alguna tarjeta está subiendo a main ahora? (el trabajo de noche del manual no empieza mientras tanto). */
     subiendo: () => [...sesiones.values(), ...enNube.values()].some((sesion) => sesion.hacer === "subir"),
     /** Cuántas hay en aizen1 y cuántas en la nube (la nube no ocupa puestos de aizen1). */

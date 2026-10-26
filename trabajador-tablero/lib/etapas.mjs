@@ -542,6 +542,22 @@ export function bloqueDeReparacion(tarjeta, { patchAplicado = false } = {}) {
     .join("\n");
 }
 
+/**
+ * Retomada (26-oct-2026): una tarjeta que se detuvo a medias SIN fallar (la pausa por uso de Claude) vuelve con su avance ya
+ * aplicado en el worktree (reaplicarTrabajo). No es una reparación: aquí se le dice al agente que parta de ahí.
+ */
+export function bloqueDeRetomada(tarjeta, { patchAplicado = false } = {}) {
+  if (!patchAplicado || tarjeta.reparacion) return "";
+  return [
+    "RETOMADA: esta tarea se detuvo antes de terminar (por ejemplo, por el uso del plan de Claude) y vuelve a la fila. Lo que ya se había escrito YA está aplicado en los archivos de este worktree (míralo con git status y git diff): parte de ahí, no lo escribas otra vez y termina lo que falta del plan.",
+    patchAplicado?.conflictos?.length
+      ? `OJO: main cambió mientras tanto y estos archivos quedaron con MARCAS DE CONFLICTO (<<<<<<< / ======= / >>>>>>>): ${patchAplicado.conflictos.join(", ")}. Resuélvelas PRIMERO y borra todas las marcas: el Coordinador no sube nada que las tenga.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 /** La identidad del agente del proyecto de la tarjeta: va al principio del primer bloque de las instrucciones. */
 function identidadDelAgente(repo) {
   return textoDeIdentidad(agenteDelRepo(repo));
@@ -681,6 +697,7 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
     `PLAN APROBADO:\n${tarjeta.plan}`,
     bloqueDeLecciones(lecciones),
     bloqueDeReparacion(tarjeta, { patchAplicado }),
+    bloqueDeRetomada(tarjeta, { patchAplicado }),
     [
       "Reglas:",
       "- No hagas git push ni commit, no cambies de rama ni toques el remoto: el Coordinador hace el commit y sube la rama él mismo.",

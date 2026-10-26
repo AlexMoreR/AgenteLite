@@ -94,7 +94,8 @@ registro.info(
     `hasta ${config.maxParalelo} tarjetas al tiempo en aizen1 (las grandes y el desborde se construyen en la nube con claude --cloud: ${config.nube.activa ? `hasta ${config.nube.maxTareas} a la vez` : "APAGADO"}) (no abre otra con CPU > ${limites.cpuPorciento} % o memoria > ${limites.memoriaPorciento} %; con el PC lleno espera hasta ${limites.esperaMaximaMinutos} min antes de tomar); ` +
     `repara solo hasta 3 veces (parte la tarea desde ${config.partir.archivosMinimos} archivos a medias); ` +
     `motores: planear ${motores.planear}, construir ${motores.construir}, revisar ${motores.revisar ?? "ninguno"}` +
-    `${motores.respaldoClaude ? " (respaldo Claude)" : ""}; todo con Codex si Claude pasa el ${config.umbralClaude} % de uso`,
+    `${motores.respaldoClaude ? " (respaldo Claude)" : ""}; todo con Codex si Claude pasa el ${config.umbralClaude} % de uso; ` +
+    `${config.pausaPorUsoClaude ? `se pausa todo al llegar al ${config.umbralClaude} % de uso de Claude (el CRM puede cambiar el umbral o apagarlo)` : "pausa por uso de Claude APAGADA"}`,
 );
 
 // Lo que el proceso anterior dejó con candado (murió o se reinició) vuelve a la fila sin ERROR.
@@ -142,13 +143,14 @@ while (!parar) {
   if (parar) break;
   try {
     // Mientras trabaja no se toman tarjetas nuevas (el bucle espera aquí), así que ninguna subida empieza a la vez.
-    await manualNocturno.revisar(planificador);
+    // "Pausado por uso de Claude": el manual (abre una sesión de Claude) espera a que se reanude.
+    if (!planificador.pausadoPorUso()) await manualNocturno.revisar(planificador);
   } catch (error) {
     registro.aviso(`manual de la noche: ${String(error.message).split("\n")[0]}`);
   }
   if (parar) break;
   try {
-    await recogedor.revisar();
+    await recogedor.revisar({ pausadoPorUso: planificador.pausadoPorUso() });
   } catch (error) {
     registro.aviso(`recoger errores: ${String(error.message).split("\n")[0]}`);
   }

@@ -5,6 +5,9 @@
 //     trabajando igual. Nunca lanza ni frena el bucle: el error se anota una vez por cambio.
 //   - Nunca hay dos latidos en vuelo: si el anterior no volvió, se salta el turno.
 //   - Si el CRM deja de recibirlo más de 2 minutos, el panel dice "Coordinador apagado o sin conexión".
+//   - El uso de Claude (porcentaje de sesión y semana, "Pausado por uso", lectura fallida) viaja en `uso`. La respuesta del CRM
+//     trae el interruptor y el umbral de la pausa por uso (`pausaPorUso`: { prendida, umbral }): se le pasan al planificador.
+//     Un CRM viejo no lo manda: queda el valor de la configuración.
 import { leerCarga } from "./recursos.mjs";
 
 export const CADA_SEGUNDOS_DEL_LATIDO = 15;
@@ -51,7 +54,8 @@ export function crearLatido({ crm, config, registro, planificador, medidor, cada
     enVuelo = true;
     try {
       const cuerpo = armarLatido({ estado: planificador.estado(), medidor, carga: leer(config.carpetaTrabajo) });
-      await crm.latidoDelCoordinador(cuerpo);
+      const respuesta = await crm.latidoDelCoordinador(cuerpo);
+      if (respuesta?.pausaPorUso) planificador.ajustarPausaPorUso?.(respuesta.pausaPorUso);
       if (ultimoFallo) registro.info("el latido al CRM volvió a funcionar");
       ultimoFallo = "";
       return true;

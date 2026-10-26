@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
+import { toast } from "sonner";
+
+import { Switch } from "@/components/ui/switch";
+import { cambiarPausaPorUsoDeClaudeAction } from "@/app/actions/tableros-inteligentes-actions";
 
 import { useRefrescoDelCoordinador } from "../hooks/useRefrescoDelTablero";
 import type { CargaVista, ItemDeFila, TareaEnVivo, VistaDelCoordinador } from "../services/coordinador-en-vivo";
@@ -11,6 +15,8 @@ import {
   DISCO_LIBRE_ROJO_GB,
   LIMITE_AMARILLO,
   LIMITE_ROJO,
+  UMBRAL_DE_PAUSA_MAXIMO,
+  UMBRAL_DE_PAUSA_MINIMO,
   duracionTexto,
   haceTexto,
   horaDeBogotaTexto,
@@ -19,7 +25,7 @@ import {
 import { linkDeLaTarjetaEnPantalla } from "./DialogoDeTablero";
 
 /*
-  La pestaña "Coordinador en vivo" de Tablero IA (24-oct-2026). Solo lectura, sin botones que cambien nada.
+  La pestaña "Coordinador en vivo" de Tablero IA (24-oct-2026). Solo lectura, salvo el interruptor y el umbral de la pausa por uso de Claude (26-oct-2026).
   Se actualiza sola cada 12 s con la pestaña a la vista (useRefrescoDelCoordinador) y está pensada primero
   para el celular: una sola columna, lo más importante arriba (qué se construye, dónde, y si el PC está
   ahogado) y todo en palabras sencillas. Si el último latido tiene más de 2 minutos, arriba sale en rojo
@@ -154,6 +160,65 @@ function ListaDeFila({ items }: { items: ItemDeFila[] }) {
   );
 }
 
+/** El interruptor de la pausa por uso de Claude y su umbral (solo el dueño puede cambiarlos; a las demás les da un aviso). */
+function PausaPorUso({ ajuste, pausado }: { ajuste: VistaDelCoordinador["pausaPorUso"]; pausado: boolean }) {
+  const [ocupado, empezar] = useTransition();
+  // Lo que el dueño está escribiendo; null = mostrar el umbral guardado (así no hace falta copiarlo a un estado).
+  const [escrito, setEscrito] = useState<string | null>(null);
+  const umbral = escrito ?? String(ajuste.umbral);
+  const guardar = (cambio: { prendida?: boolean; umbral?: number }, bien: string) =>
+    empezar(async () => {
+      const respuesta = await cambiarPausaPorUsoDeClaudeAction(cambio);
+      if (respuesta.ok) {
+        toast.success(bien);
+        setEscrito(null);
+      } else toast.error(respuesta.error);
+    });
+  return (
+    <div className="space-y-3 rounded-xl border bg-card p-3 text-sm">
+      <label className="flex items-start gap-3">
+        <Switch
+          checked={ajuste.prendida}
+          disabled={ocupado}
+          onCheckedChange={(valor) => guardar({ prendida: Boolean(valor) }, valor ? "El Coordinador se pausará al llegar al umbral" : pausado ? "Pausa apagada: el Coordinador vuelve a trabajar" : "Pausa por uso apagada")}
+          className="mt-0.5"
+        />
+        <span>
+          <span className="font-medium">Parar todo cuando el uso de Claude llegue al umbral</span>
+          <span className="block text-xs text-muted-foreground">
+            No toma tarjetas nuevas y detiene con orden las que corren; vuelve solo cuando el uso se reinicia. El resto del plan queda para que sigas hablando con Claude.
+          </span>
+        </span>
+      </label>
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(evento) => {
+          evento.preventDefault();
+          guardar({ umbral: Number(umbral) }, `Umbral en ${umbral} %`);
+        }}
+      >
+        <label htmlFor="cev-umbral" className="text-xs text-muted-foreground">
+          Umbral (%)
+        </label>
+        <input
+          id="cev-umbral"
+          type="number"
+          inputMode="numeric"
+          min={UMBRAL_DE_PAUSA_MINIMO}
+          max={UMBRAL_DE_PAUSA_MAXIMO}
+          value={umbral}
+          onChange={(evento) => setEscrito(evento.target.value)}
+          className="h-8 w-20 rounded-md border bg-background px-2 text-sm tabular-nums"
+        />
+        <button type="submit" disabled={ocupado || Number(umbral) === ajuste.umbral} className="h-8 rounded-md border px-3 text-xs font-medium disabled:opacity-50">
+          Guardar
+        </button>
+        <span className="text-xs text-muted-foreground">De {UMBRAL_DE_PAUSA_MINIMO} a {UMBRAL_DE_PAUSA_MAXIMO}; 80 por defecto.</span>
+      </form>
+    </div>
+  );
+}
+
 function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number }) {
   const apagado = !vista.enLinea;
   const hora = horaDeBogotaTexto(vista.ultimoLatidoEn);
@@ -257,7 +322,8 @@ function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number
       </Bloque>
 
       <Bloque titulo="Uso de Claude" id="cev-uso" atenuado={apagado}>
-        <p className={`rounded-xl border px-3 py-2 text-sm ${uso.limiteAlcanzado ? "border-amber-500/50 bg-amber-500/10 font-medium" : "bg-card"}`}>{uso.texto}</p>
+        <p className={`rounded-xl border px-3 py-2 text-sm ${uso.limiteAlcanzado || uso.pausado || uso.lecturaFallidaDesde ? "border-amber-500/50 bg-amber-500/10 font-medium" : "bg-card"}`}>{uso.texto}</p>
+        <PausaPorUso ajuste={vista.pausaPorUso} pausado={uso.pausado} />
       </Bloque>
     </div>
   );

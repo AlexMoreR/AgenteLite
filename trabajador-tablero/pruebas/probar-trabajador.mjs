@@ -27,7 +27,7 @@ import { MAX_LECCIONES, agenteDelRepo, anotarLeccion, leccionDe, leccionesParaEl
 import { crearCrm } from "../lib/crm.mjs";
 import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstadoDelManual } from "../lib/manual-nocturno.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
-import { esRamaDelTrabajador, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
+import { esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
 import { decidir, diagnosticar, resumenDeEscalada } from "../lib/diagnostico.mjs";
 import { esLimiteDeUso, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
 import { MAX_DESCRIPCION, descripcionParaLaNube, esTareaGrande, estaDentroDe, lanzarEnNube, linkDeSesion, preguntaDeConfianza, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
@@ -35,12 +35,18 @@ import { detalleDeFalla, lineasQueFallaron } from "../lib/procesos.mjs";
 import { destructivoDelSql, migracionDestructiva } from "../lib/riesgo.mjs";
 import {
   crearEstadoDeMotores,
+  decidirPausaPorUso,
   decidirUso,
   esLimiteDeCodex,
   horaDelReinicio,
+  leerEstadoDeUso,
   leerUsoDeClaude,
   motorDeLaEtapa,
+  reinicioEnMs,
+  textoDelAvisoDeLecturaFallida,
   textoDelAvisoDeLimite,
+  textoDelAvisoDePausa,
+  textoDelAvisoDeVuelta,
 } from "../lib/motores.mjs";
 import { armarLatido, crearLatido } from "../lib/latido.mjs";
 import { faltanRecursos, leerCarga } from "../lib/recursos.mjs";
@@ -210,7 +216,20 @@ await prueba("latido: el uso de los motores dice cuándo se reinicia la pausa po
   let ahora = Date.parse("2026-10-24T15:00:00Z");
   const config = completarConfig({ urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", repos: { a: { ruta: "." } } });
   const motores = crearEstadoDeMotores(config, { ahora: () => ahora });
-  assert.deepEqual(motores.resumenDeUso(), { limiteAlcanzado: false, motor: null, reiniciaEn: null });
+  assert.deepEqual(motores.resumenDeUso(), {
+    limiteAlcanzado: false,
+    motor: null,
+    reiniciaEn: null,
+    sesion: null,
+    semana: null,
+    leidoEn: null,
+    pausado: false,
+    pausadoDesde: null,
+    reanudaEn: null,
+    pausaPorcentaje: null,
+    umbral: 80,
+    lecturaFallidaDesde: null,
+  });
   const hasta = motores.pausar("claude");
   const uso = motores.resumenDeUso();
   assert.equal(uso.limiteAlcanzado, true);
@@ -653,7 +672,10 @@ await prueba("motores: por defecto todo Claude (Opus planea, Sonnet construye y 
   assert.deepEqual(config.comandoCodex, ["codex"]);
   assert.equal(config.pausaLimiteCodexMinutos, 30);
   assert.equal(config.umbralClaude, 80);
-  assert.equal(config.vigilarUsoMinutos, 10);
+  assert.equal(config.vigilarUsoMinutos, 5, "el uso se lee cada 5 minutos");
+  assert.deepEqual([config.pausaPorUsoClaude, config.vigilarUsoCercaMinutos, config.usoCercaDelUmbral], [true, 2, 70], "pausa por uso prendida; cerca del umbral cada 2 min desde el 70 %");
+  assert.equal(completarConfig({ ...base, pausaPorUsoClaude: false }).pausaPorUsoClaude, false);
+  assert.throws(() => completarConfig({ ...base, pausaPorUsoClaude: "si" }), /pausaPorUsoClaude/);
   assert.equal(completarConfig({ ...base, motores: { revisar: "ninguno" } }).motores.revisar, null);
   assert.throws(() => completarConfig({ ...base, motores: { construir: "gpt" } }), /motores\.construir/);
   assert.throws(() => completarConfig({ ...base, motores: { respaldoClaude: "si" } }), /respaldoClaude/);
@@ -2187,7 +2209,7 @@ try {
     const antes = avisos().length;
     const id = nueva("Plan con Claude alto", "APROBADO");
     // vigilarUsoMinutos chiquito: mira en cada llenar.
-    const planificador = planificar({ ...conCodex({ respaldoCodex: true }, { vigilarUsoMinutos: 0.0001 }), maxParalelo: 1 });
+    const planificador = planificar({ ...conCodex({ respaldoCodex: true }, { vigilarUsoMinutos: 0.0001, pausaPorUsoClaude: false }), maxParalelo: 1 });
     const claudeAntes = leerLog(LOGS.claude).filter((l) => !l.argumentos.includes("/usage")).length;
     await planificador.llenar();
     await planificador.esperarTodas();
@@ -2243,6 +2265,274 @@ try {
     assert.equal(avisos().length, antes + 3, "y no se repite");
     otro.parar();
     tarjetas.get(id).estado = "HECHO";
+  });
+
+  /* ── Pausa por uso de Claude (26-oct-2026): al 80 % se para todo, un solo WhatsApp y al reiniciar se retoma ── */
+
+  const REINICIO_DE_PRUEBA = "Dec 31 2099, 3:20pm (America/Bogota)";
+  const escribirUso = (sesion, semana = 6) =>
+    fs.writeFileSync(USO, `Current session: ${sesion}% used · resets ${REINICIO_DE_PRUEBA}\nCurrent week (all models): ${semana}% used · resets Oct 30, 7am (America/Bogota)\n`);
+  const estadoDeUsoEnDisco = path.join(T, "trabajo", "estado-uso.json");
+  const limpiarUso = () => {
+    fs.rmSync(estadoDeUsoEnDisco, { force: true });
+    fs.rmSync(path.join(T, "trabajo", "pausados"), { recursive: true, force: true });
+  };
+  const avisosDeLimite = () => llamadas.filter((l) => l.accion === "aviso" && l.cuerpo.tipo === "limite");
+  const tomasDelCrm = () => llamadas.filter((l) => l.accion === "tomar").length;
+  const configDePausa = (extra = {}) => crearConfig({}, {}, { maxParalelo: 2, vigilarUsoMinutos: 0.0001, ...extra });
+  const llamadasDeClaude = () => leerLog(LOGS.claude).filter((l) => !l.argumentos.includes("/usage"));
+  const esperarHasta = async (condicion, ms = 20_000) => {
+    const limite = Date.now() + ms;
+    while (!condicion()) {
+      if (Date.now() > limite) throw new Error("no se cumplió a tiempo");
+      await new Promise((resolver) => setTimeout(resolver, 100));
+    }
+  };
+
+  await prueba("pausa por uso: reinicioEnMs entiende la hora de /usage (Bogotá) y decidirPausaPorUso entra al umbral, sale por una lectura nueva o al apagarla", async () => {
+    const ahora = Date.parse("2026-10-26T20:00:00Z"); // 3:00 p. m. en Bogotá
+    assert.equal(new Date(reinicioEnMs("Oct 30, 7am (America/Bogota)", ahora)).toISOString(), "2026-10-30T12:00:00.000Z");
+    assert.equal(new Date(reinicioEnMs("3:20pm (America/Bogota)", ahora)).toISOString(), "2026-10-26T20:20:00.000Z", "solo hora: la próxima vez que da");
+    assert.equal(new Date(reinicioEnMs("2:00pm (America/Bogota)", ahora)).toISOString(), "2026-10-27T19:00:00.000Z", "ya pasó hoy: mañana");
+    assert.equal(new Date(reinicioEnMs("Jan 2, 7am", Date.parse("2026-12-30T12:00:00Z"))).toISOString(), "2027-01-02T12:00:00.000Z", "enero visto en diciembre es del año que viene");
+    assert.equal(reinicioEnMs("Oct 30, 7am (Europe/Madrid)", ahora), null, "otra zona: no se inventa");
+    assert.equal(reinicioEnMs("pronto", ahora), null);
+    const uso = (sesion, semana = 6) => ({ sesion: { porcentaje: sesion, reinicio: "Oct 26, 3:20pm (America/Bogota)" }, semana: { porcentaje: semana, reinicio: "Oct 30, 7am (America/Bogota)" } });
+    const ajustes = { activa: true, umbral: 80 };
+    assert.equal(decidirPausaPorUso({ uso: uso(79), ajustes, pausa: null, ahoraMs: ahora }).accion, null, "al 79 % no se para");
+    const entra = decidirPausaPorUso({ uso: uso(80), ajustes, pausa: null, ahoraMs: ahora });
+    assert.equal(entra.accion, "entrar");
+    assert.deepEqual([entra.pausa.periodo, entra.pausa.porcentaje, entra.pausa.avisada], ["sesion", 80, false]);
+    assert.equal(new Date(entra.pausa.reinicioMs).toISOString(), "2026-10-26T20:20:00.000Z");
+    assert.equal(decidirPausaPorUso({ uso: uso(10, 100), ajustes, pausa: null, ahoraMs: ahora }).pausa.periodo, "semana", "la semana también para");
+    // Sesión y semana pasadas: se reanuda cuando termina la más tardía.
+    assert.equal(new Date(decidirPausaPorUso({ uso: uso(95, 90), ajustes, pausa: null, ahoraMs: ahora }).pausa.reinicioMs).toISOString(), "2026-10-30T12:00:00.000Z");
+    assert.equal(decidirPausaPorUso({ uso: uso(100), ajustes: { activa: false, umbral: 80 }, pausa: null, ahoraMs: ahora }).accion, null, "apagada no pausa ni al 100 %");
+    assert.equal(decidirPausaPorUso({ uso: uso(60), ajustes: { activa: true, umbral: 60 }, pausa: null, ahoraMs: ahora }).accion, "entrar", "con el umbral en 60 %, se pausa al 60 %");
+    const pausa = entra.pausa;
+    assert.equal(decidirPausaPorUso({ uso: uso(95), ajustes, pausa, ahoraMs: ahora }).accion, null, "sigue en pausa");
+    assert.equal(decidirPausaPorUso({ uso: null, ajustes, pausa, ahoraMs: ahora + 3_600_000 }).accion, null, "pasó la hora pero sin lectura nueva: sigue");
+    assert.equal(decidirPausaPorUso({ uso: uso(5), ajustes, pausa, ahoraMs: ahora }).accion, "salir", "una lectura nueva bajo el umbral la levanta");
+    assert.equal(decidirPausaPorUso({ uso: uso(95), ajustes: { activa: false, umbral: 80 }, pausa, ahoraMs: ahora }).accion, "salir", "apagarla la levanta");
+    assert.equal(decidirPausaPorUso({ uso: uso(95), ajustes, pausa, ahoraMs: pausa.reinicioMs + 31 * 60_000, lecturaFallida: true }).accion, "salir", "pasó el reinicio y no se puede leer: no se queda para siempre");
+    assert.equal(decidirPausaPorUso({ uso: uso(95), ajustes, pausa, ahoraMs: pausa.reinicioMs + 31 * 60_000, lecturaFallida: false }).accion, null, "si se lee y sigue alto, sigue");
+    // Los textos: máximo 3 líneas, con día y hora del reinicio en Bogotá.
+    const texto = textoDelAvisoDePausa({ porcentaje: 80, reinicioMs: Date.parse("2026-10-29T20:20:00Z") }, { urlCrm: "https://crm.ejemplo.com/" });
+    assert.equal(texto, "Se paró todo: el uso de Claude llegó al 80 %. Se reanuda el jueves, 29 de octubre, 3:20 p. m.\nVer: https://crm.ejemplo.com/cliente/tablero-ia?vista=coordinador");
+    assert.ok(texto.split("\n").length <= 3);
+    assert.match(textoDelAvisoDePausa({ porcentaje: 100, reinicioMs: null }, {}), /^Se paró todo: el uso de Claude llegó al 100 %\. Se reanuda cuando el uso se reinicie\./);
+    assert.equal(textoDelAvisoDeVuelta(), "Volvió a trabajar: el uso de Claude se reinició.");
+    assert.ok(textoDelAvisoDeLecturaFallida(ahora, {}).split("\n").length <= 3);
+  });
+
+  await prueba("pausa por uso al 79 %: sigue tomando tarjetas, no hay WhatsApp y el panel dice 79 %", async () => {
+    limpiarUso();
+    escribirUso(79);
+    const id = nueva("Plan al 79 por ciento", "APROBADO");
+    const avisosAntes = avisosDeLimite().length;
+    const planificador = planificar(configDePausa());
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    assert.equal(tarjetas.get(id).estado, "PLAN_LISTO", "la planeó normal");
+    assert.equal(planificador.pausadoPorUso(), false);
+    assert.equal(avisosDeLimite().length, avisosAntes, "sin WhatsApp");
+    const { uso } = planificador.estado();
+    assert.deepEqual([uso.sesion.porcentaje, uso.semana.porcentaje, uso.pausado, uso.umbral], [79, 6, false, 80]);
+    planificador.parar();
+    tarjetas.get(id).estado = "HECHO";
+  });
+
+  await prueba("pausa por uso al 80 %: detiene lo que corre guardando el avance, vuelve a la fila sin ERROR ni gastar intento, no toma nada, un solo WhatsApp; al 100 % sigue uno; al reiniciar retoma primero lo detenido con su avance", async () => {
+    limpiarUso();
+    escribirUso(40);
+    const construye = nueva("Construye a medias [pausa-lento]", "PLAN_APROBADO", { plan: "El plan de la pausa", moderno: true });
+    const planea = nueva("Planea lento [medio]", "APROBADO");
+    const planificador = planificar(configDePausa());
+    const avisosAntes = avisosDeLimite().length;
+    await planificador.llenar();
+    assert.equal(planificador.corriendo(), 2, "las dos corren");
+    await esperarHasta(() => llamadasDeClaude().some((l) => l.titulo.includes("[pausa-lento]")));
+    await new Promise((resolver) => setTimeout(resolver, 1200)); // deja que escriba su avance
+    assert.deepEqual([tarjetas.get(construye).intentos, tarjetas.get(planea).intentos], [1, 1], "al tomarlas gastaron un intento");
+
+    escribirUso(80);
+    const tomasAntes = tomasDelCrm();
+    await planificador.llenar(); // lee 80 %: entra en pausa y detiene las dos
+    await planificador.esperarTodas();
+    assert.equal(planificador.pausadoPorUso(), true);
+    assert.equal(tarjetas.get(construye).estado, "PLAN_APROBADO", "construir vuelve a la fila");
+    assert.equal(tarjetas.get(planea).estado, "APROBADO", "planear vuelve a la fila");
+    for (const id of [construye, planea]) {
+      assert.match(tarjetas.get(id).soltada, /^Pausado por uso de Claude/);
+      assert.ok(!llamadas.some((l) => l.accion === "error" && l.id === id), "sin ERROR");
+    }
+    assert.deepEqual([tarjetas.get(construye).intentos, tarjetas.get(planea).intentos], [0, 0], "el intento no se gastó");
+    assert.ok(tarjetas.get(construye).intentosLista.some((i) => i.accion === "esperar" && i.categoria === "limite_claude" && !i.cuentaComoIntento), "queda como una espera que no cuenta");
+    const avance = path.join(T, "trabajo", "pausados", `${idCorto(construye)}.patch`);
+    assert.ok(fs.existsSync(avance), `queda el archivo de avance (${avance})`);
+    assert.match(fs.readFileSync(avance, "utf8"), /avance-pausa\.txt/);
+    assert.match(tarjetas.get(construye).soltada, /Avance guardado en .*\.patch/);
+    sinRestos();
+    // Varias vueltas en pausa: ninguna tarjeta nueva y un solo aviso.
+    for (let i = 0; i < 4; i += 1) await planificador.llenar();
+    assert.equal(tomasDelCrm(), tomasAntes, "no tomó ninguna tarjeta nueva");
+    assert.equal(avisosDeLimite().length, avisosAntes + 1, "un solo WhatsApp");
+    const aviso = avisosDeLimite().at(-1).cuerpo.texto;
+    assert.match(aviso, /^Se paró todo: el uso de Claude llegó al 80 %\. Se reanuda el .+\nVer: /);
+    assert.ok(aviso.split("\n").length <= 3);
+    const { uso } = planificador.estado();
+    assert.deepEqual([uso.pausado, uso.pausaPorcentaje, uso.sesion.porcentaje], [true, 80, 80], "el panel dice Pausado por uso de Claude");
+    assert.equal(leerEstadoDeUso(path.join(T, "trabajo")).pausa.avisada, true, "el aviso queda marcado en el archivo");
+    assert.deepEqual(leerEstadoDeUso(path.join(T, "trabajo")).detenidas.sort(), [construye, planea].sort());
+
+    // 100 %: igual que al 80 %, y sigue habiendo un solo aviso.
+    escribirUso(100);
+    for (let i = 0; i < 3; i += 1) await planificador.llenar();
+    assert.equal(planificador.pausadoPorUso(), true);
+    assert.equal(avisosDeLimite().length, avisosAntes + 1, "al 100 % sigue habiendo un solo aviso");
+    assert.equal(tomasDelCrm(), tomasAntes);
+
+    // Una tarjeta nueva y más cerca de estar hecha (construir) NO se cuela antes que las detenidas al reanudar.
+    const otra = nueva("Otra que llegó en la pausa", "PLAN_APROBADO", { plan: "Otro plan" });
+
+    // Reinicio: el uso baja a 5 %. Sale de la pausa, retoma primero las detenidas y avisa en una línea.
+    escribirUso(5);
+    const llamadasAntes = llamadasDeClaude().length;
+    await correrHasta(planificador, () => tarjetas.get(construye).estado === "POR_REVISAR" && tarjetas.get(planea).estado === "PLAN_LISTO", 90_000);
+    assert.equal(planificador.pausadoPorUso(), false);
+    const nuevasLlamadas = llamadasDeClaude().slice(llamadasAntes);
+    assert.ok([nuevasLlamadas[0], nuevasLlamadas[1]].every((l) => /\[pausa-lento\]|\[medio\]/.test(l.titulo)), `primero las detenidas: ${nuevasLlamadas.slice(0, 2).map((l) => l.titulo).join(" | ")}`);
+    const retomada = nuevasLlamadas.find((l) => l.titulo.includes("[pausa-lento]") && l.modo === "acceptEdits");
+    assert.match(retomada.prompt, /RETOMADA: esta tarea se detuvo antes de terminar/, "el agente recibe su avance en las instrucciones");
+    assert.ok(tarjetas.get(construye).resultado.archivos.includes("avance-pausa.txt"), "lo que ya había escrito sigue en la rama");
+    assert.ok(tarjetas.get(construye).resultado.archivos.some((a) => a.startsWith("retomada-")));
+    assert.equal(avisosDeLimite().length, avisosAntes + 2, "un aviso al volver");
+    assert.equal(avisosDeLimite().at(-1).cuerpo.texto, "Volvió a trabajar: el uso de Claude se reinició.");
+    assert.equal(leerEstadoDeUso(path.join(T, "trabajo")).pausa, null);
+    assert.deepEqual(leerEstadoDeUso(path.join(T, "trabajo")).detenidas, [], "ya no quedan detenidas por retomar");
+    for (let i = 0; i < 3; i += 1) await planificador.llenar();
+    assert.equal(avisosDeLimite().length, avisosAntes + 2, "y no se repite");
+    await planificador.esperarTodas();
+    planificador.parar();
+    for (const id of [construye, planea, otra]) tarjetas.get(id).estado = "HECHO";
+    sinRestos();
+  });
+
+  await prueba("pausa por uso: un Coordinador reiniciado en plena pausa sigue pausado y no repite el WhatsApp", async () => {
+    limpiarUso();
+    escribirUso(90);
+    const id = nueva("Espera la pausa", "APROBADO");
+    const avisosAntes = avisosDeLimite().length;
+    const primero = planificar(configDePausa());
+    await primero.llenar();
+    assert.equal(primero.pausadoPorUso(), true);
+    assert.equal(avisosDeLimite().length, avisosAntes + 1);
+    primero.parar();
+    const tomasAntes = tomasDelCrm();
+    // "Se reinició": un planificador nuevo con la misma carpeta de trabajo.
+    const segundo = planificar(configDePausa());
+    assert.equal(segundo.pausadoPorUso(), true, "sigue en pausa desde antes de leer nada");
+    await segundo.llenar();
+    await segundo.llenar();
+    assert.equal(segundo.pausadoPorUso(), true);
+    assert.equal(avisosDeLimite().length, avisosAntes + 1, "no repite el WhatsApp");
+    assert.equal(tomasDelCrm(), tomasAntes, "no tomó nada");
+    assert.equal(tarjetas.get(id).estado, "APROBADO");
+    segundo.parar();
+    tarjetas.get(id).estado = "HECHO";
+  });
+
+  await prueba("pausa por uso: si no se puede leer el uso 3 veces seguidas no se pausa, el panel lo dice y sale UN aviso; tras una lectura buena y otra racha, avisa de nuevo una vez", async () => {
+    limpiarUso();
+    const id = nueva("Sigue aunque no lea el uso", "APROBADO");
+    fs.rmSync(USO, { force: true });
+    const avisosAntes = avisosDeLimite().length;
+    const planificador = planificar(configDePausa());
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    assert.equal(tarjetas.get(id).estado, "PLAN_LISTO", "sin número no se pausa: la planeó");
+    assert.equal(planificador.estado().uso.lecturaFallidaDesde, null, "con una sola falla todavía no se dice");
+    await planificador.llenar();
+    assert.equal(avisosDeLimite().length, avisosAntes);
+    await planificador.llenar(); // la tercera
+    assert.equal(planificador.pausadoPorUso(), false);
+    assert.equal(avisosDeLimite().length, avisosAntes + 1, "un solo aviso");
+    assert.match(avisosDeLimite().at(-1).cuerpo.texto, /^No pude leer el uso de Claude desde las \d{1,2}:\d{2} [ap]\. m\.: /);
+    assert.ok(planificador.estado().uso.lecturaFallidaDesde, "el panel lo dice");
+    for (let i = 0; i < 4; i += 1) await planificador.llenar();
+    assert.equal(avisosDeLimite().length, avisosAntes + 1, "no se repite mientras siga igual");
+    escribirUso(10);
+    await planificador.llenar();
+    assert.equal(planificador.estado().uso.lecturaFallidaDesde, null, "una lectura buena lo limpia");
+    fs.rmSync(USO, { force: true });
+    for (let i = 0; i < 3; i += 1) await planificador.llenar();
+    assert.equal(avisosDeLimite().length, avisosAntes + 2, "otra racha de fallas: avisa de nuevo, una vez");
+    for (let i = 0; i < 3; i += 1) await planificador.llenar();
+    assert.equal(avisosDeLimite().length, avisosAntes + 2);
+    planificador.parar();
+    tarjetas.get(id).estado = "HECHO";
+  });
+
+  await prueba("pausa por uso: apagada no pausa ni al 100 %; apagarla en plena pausa la levanta; con el umbral en 60 % se pausa al 60 %", async () => {
+    limpiarUso();
+    escribirUso(100);
+    const apagada = nueva("Con la pausa apagada", "APROBADO");
+    const avisosAntes = avisosDeLimite().length;
+    const sinPausa = planificar(configDePausa({ pausaPorUsoClaude: false }));
+    await sinPausa.llenar();
+    await sinPausa.esperarTodas();
+    assert.equal(tarjetas.get(apagada).estado, "PLAN_LISTO", "apagada, ni al 100 % se para");
+    assert.equal(avisosDeLimite().length, avisosAntes);
+    sinPausa.parar();
+    tarjetas.get(apagada).estado = "HECHO";
+
+    limpiarUso();
+    const espera = nueva("Espera a que la prendan", "APROBADO");
+    const planificador = planificar(configDePausa());
+    await planificador.llenar();
+    assert.equal(planificador.pausadoPorUso(), true);
+    assert.equal(tarjetas.get(espera).estado, "APROBADO");
+    assert.equal(avisosDeLimite().length, avisosAntes + 1);
+    planificador.ajustarPausaPorUso({ prendida: false, umbral: 80 }); // lo que dice el CRM en el latido
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    assert.equal(planificador.pausadoPorUso(), false, "apagarla en plena pausa la levanta");
+    assert.equal(tarjetas.get(espera).estado, "PLAN_LISTO", "y vuelve a trabajar");
+    assert.equal(avisosDeLimite().at(-1).cuerpo.texto, "Volvió a trabajar: el uso de Claude se reinició.");
+    tarjetas.get(espera).estado = "HECHO";
+
+    // Umbral en 60 %: al 59 % sigue, al 60 % se pausa.
+    escribirUso(59);
+    planificador.ajustarPausaPorUso({ prendida: true, umbral: 60 });
+    await planificador.llenar();
+    assert.equal(planificador.pausadoPorUso(), false);
+    escribirUso(60);
+    await planificador.llenar();
+    assert.equal(planificador.pausadoPorUso(), true, "al 60 % con el umbral en 60 %");
+    assert.equal(planificador.estado().uso.umbral, 60);
+    // Valores inválidos del CRM se ignoran.
+    planificador.ajustarPausaPorUso({ prendida: "sí", umbral: "mucho" });
+    assert.deepEqual([planificador.estado().uso.umbral, planificador.pausadoPorUso()], [60, true]);
+    planificador.parar();
+    limpiarUso();
+  });
+
+  await prueba("pausa por uso: el latido pasa el interruptor y el umbral que dice el CRM al planificador, y el uso con porcentaje viaja al CRM", async () => {
+    const recibidos = [];
+    const crmFalso = { latidoDelCoordinador: async (cuerpo) => { recibidos.push(cuerpo); return { ok: true, pausaPorUso: { prendida: false, umbral: 70 } }; } };
+    const estadoFalso = { tareas: [], esperandoPc: false, uso: { limiteAlcanzado: false, motor: null, reiniciaEn: null, sesion: { porcentaje: 42, reinicio: "x" }, semana: { porcentaje: 63, reinicio: "y" }, pausado: false, umbral: 80 } };
+    const ajustes = [];
+    const latido = crearLatido({ crm: crmFalso, config, registro, planificador: { estado: () => estadoFalso, ajustarPausaPorUso: (datos) => ajustes.push(datos) }, medidor: sinMedir, leer: () => null, cadaSegundos: 3600 });
+    await latido.latirYa();
+    latido.parar();
+    assert.deepEqual(ajustes, [{ prendida: false, umbral: 70 }]);
+    assert.equal(recibidos[0].uso.sesion.porcentaje, 42);
+    assert.equal(recibidos[0].uso.semana.porcentaje, 63);
+    // Un CRM viejo no manda nada: no se ajusta nada.
+    const viejo = crearLatido({ crm: { latidoDelCoordinador: async () => ({ ok: true }) }, config, registro, planificador: { estado: () => estadoFalso, ajustarPausaPorUso: (datos) => ajustes.push(datos) }, medidor: sinMedir, leer: () => null, cadaSegundos: 3600 });
+    await viejo.latirYa();
+    viejo.parar();
+    assert.equal(ajustes.length, 1);
   });
 
   /* ── La nube (25-oct-2026): tareas grandes y de desborde con `claude --cloud` ── */

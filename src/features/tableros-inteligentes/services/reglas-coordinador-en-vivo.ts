@@ -54,13 +54,48 @@ export type CargaDelLatido = {
   motivoEspera: string | null;
 };
 
+/** Un periodo del plan de Claude (sesión o semana): el porcentaje usado y cuándo se reinicia, tal como lo dice `/usage`. */
+export type PeriodoDeUso = { porcentaje: number; reinicio: string | null };
+
 export type UsoDelLatido = {
   limiteAlcanzado: boolean;
   /** Cuándo se reinicia el cupo (ISO), si se sabe. */
   reiniciaEn: string | null;
   /** Qué motor llegó al límite: "claude" | "codex" | null. */
   motor: string | null;
+  /** El porcentaje de uso del plan de Claude (26-oct-2026): lo último que leyó el Coordinador con `/usage`. null = no se sabe. */
+  sesion: PeriodoDeUso | null;
+  semana: PeriodoDeUso | null;
+  /** Cuándo se leyó (ISO). */
+  leidoEn: string | null;
+  /** "Pausado por uso de Claude": el Coordinador no toma tarjetas hasta que el uso baje del umbral. */
+  pausado: boolean;
+  pausadoDesde: string | null;
+  /** Cuándo se reanuda, si se pudo leer la hora de reinicio (ISO). */
+  reanudaEn: string | null;
+  /** El porcentaje que causó la pausa. */
+  pausaPorcentaje: number | null;
+  /** El umbral con que decide el Coordinador. */
+  umbral: number | null;
+  /** Desde cuándo no se puede leer el uso de Claude (ISO); null = se lee bien. */
+  lecturaFallidaDesde: string | null;
 };
+
+/** Un uso sin datos (todavía no hay latido, o es de un Coordinador viejo que no manda porcentaje). */
+export const usoVacio = (): UsoDelLatido => ({
+  limiteAlcanzado: false,
+  reiniciaEn: null,
+  motor: null,
+  sesion: null,
+  semana: null,
+  leidoEn: null,
+  pausado: false,
+  pausadoDesde: null,
+  reanudaEn: null,
+  pausaPorcentaje: null,
+  umbral: null,
+  lecturaFallidaDesde: null,
+});
 
 export type EsperaDelLatido = { tarjetaId: string; motivo: string };
 
@@ -176,13 +211,30 @@ function cargaDeEntrada(valor: unknown): CargaDelLatido {
   };
 }
 
+function periodoDeUsoDeEntrada(valor: unknown): PeriodoDeUso | null {
+  if (!esObjeto(valor)) return null;
+  const porcentaje = numeroEnRango(valor.porcentaje, 0, 100, 1);
+  if (porcentaje === null) return null;
+  return { porcentaje, reinicio: textoCorto(valor.reinicio, 80) || null };
+}
+
 function usoDeEntrada(valor: unknown): UsoDelLatido {
   const uso = esObjeto(valor) ? valor : {};
   const limiteAlcanzado = uso.limiteAlcanzado === true;
+  const pausado = uso.pausado === true;
   return {
     limiteAlcanzado,
     reiniciaEn: limiteAlcanzado ? fechaIso(uso.reiniciaEn) : null,
     motor: limiteAlcanzado ? enLista(["claude", "codex"] as const, uso.motor) : null,
+    sesion: periodoDeUsoDeEntrada(uso.sesion),
+    semana: periodoDeUsoDeEntrada(uso.semana),
+    leidoEn: fechaIso(uso.leidoEn),
+    pausado,
+    pausadoDesde: pausado ? fechaIso(uso.pausadoDesde) : null,
+    reanudaEn: pausado ? fechaIso(uso.reanudaEn) : null,
+    pausaPorcentaje: pausado ? numeroEnRango(uso.pausaPorcentaje, 0, 100, 1) : null,
+    umbral: numeroEnRango(uso.umbral, 1, 100, 0),
+    lecturaFallidaDesde: fechaIso(uso.lecturaFallidaDesde),
   };
 }
 
@@ -310,15 +362,74 @@ const HORA_BOGOTA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota
 /** "3:00 p. m." (hora de Bogotá). */
 export function horaDeBogotaTexto(iso: string | null): string | null {
   if (!iso || !Number.isFinite(Date.parse(iso))) return null;
-  return HORA_BOGOTA.format(new Date(iso));
+  return HORA_BOGOTA.format(new Date(iso)).replace(/[\u00a0\u202f]/g, " ");
 }
 
-/** "Sin límite" o "Límite alcanzado, se reinicia a las 3:00 p. m.". */
+/** "sesión 42 % · semana 63 %" (solo los periodos que se leyeron), o null si no se leyó ninguno. */
+export function textoDelPorcentajeDeUso(uso: Pick<UsoDelLatido, "sesion" | "semana"> | null): string | null {
+  const partes = [uso?.sesion ? `sesión ${uso.sesion.porcentaje} %` : null, uso?.semana ? `semana ${uso.semana.porcentaje} %` : null].filter(Boolean);
+  return partes.length ? partes.join(" · ") : null;
+}
+
+const FECHA_Y_HORA_BOGOTA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit", hour12: true });
+
+/** "jueves, 29 de octubre, 3:20 p. m." (hora de Bogotá), o null si no es una fecha. */
+export function fechaYHoraDeBogotaTexto(iso: string | null): string | null {
+  if (!iso || !Number.isFinite(Date.parse(iso))) return null;
+  return FECHA_Y_HORA_BOGOTA.format(new Date(iso)).replace(/[\u00a0\u202f]/g, " ");
+}
+
+/**
+ * El texto del bloque "Uso de Claude":
+ *  - "Pausado por uso de Claude (sesión 80 % · semana 6 %), se reanuda el jueves, 29 de octubre, 3:20 p. m."
+ *  - "Límite de Claude alcanzado, se reinicia a las 3:00 p. m." (una tarea chocó con el límite)
+ *  - "sesión 42 % · semana 63 %" (lo normal)
+ *  - "Sin límite" (el Coordinador no manda porcentaje: uno viejo)
+ *  y, si no se puede leer el uso: "No pude leer el uso de Claude desde las 3:00 p. m.".
+ */
 export function textoDelUso(uso: UsoDelLatido | null, ahora: Date): string {
-  if (!uso || !uso.limiteAlcanzado) return "Sin límite";
-  const quien = uso.motor === "codex" ? "Codex" : "Claude";
-  const reinicio = uso.reiniciaEn && Date.parse(uso.reiniciaEn) > ahora.getTime() ? horaDeBogotaTexto(uso.reiniciaEn) : null;
-  return reinicio ? `Límite de ${quien} alcanzado, se reinicia a las ${reinicio}` : `Límite de ${quien} alcanzado`;
+  const porcentaje = textoDelPorcentajeDeUso(uso);
+  let principal: string;
+  if (uso?.pausado) {
+    const cuando = uso.reanudaEn && Date.parse(uso.reanudaEn) > ahora.getTime() ? fechaYHoraDeBogotaTexto(uso.reanudaEn) : null;
+    principal = `Pausado por uso de Claude${porcentaje ? ` (${porcentaje})` : ""}${cuando ? `, se reanuda el ${cuando}` : ", se reanuda cuando el uso baje del umbral"}`;
+  } else if (uso?.limiteAlcanzado) {
+    const quien = uso.motor === "codex" ? "Codex" : "Claude";
+    const reinicio = uso.reiniciaEn && Date.parse(uso.reiniciaEn) > ahora.getTime() ? horaDeBogotaTexto(uso.reiniciaEn) : null;
+    principal = reinicio ? `Límite de ${quien} alcanzado, se reinicia a las ${reinicio}` : `Límite de ${quien} alcanzado`;
+  } else principal = porcentaje ?? "Sin límite";
+  const desde = horaDeBogotaTexto(uso?.lecturaFallidaDesde ?? null);
+  if (!desde) return principal;
+  const noLeido = `No pude leer el uso de Claude desde las ${desde}`;
+  return principal === "Sin límite" ? noLeido : `${principal}. ${noLeido}`;
+}
+
+/* ──────────────────────────────────────────────── pausa por uso de Claude (interruptor y umbral) ── */
+
+/** El umbral de uso con que el Coordinador se pausa: 80 % por defecto, ajustable de 50 a 95. */
+export const UMBRAL_DE_PAUSA_POR_DEFECTO = 80;
+export const UMBRAL_DE_PAUSA_MINIMO = 50;
+export const UMBRAL_DE_PAUSA_MAXIMO = 95;
+
+export type AjusteDePausaPorUso = { prendida: boolean; umbral: number };
+
+/** Un umbral válido (entero de 50 a 95) o null. */
+export function umbralDePausaValido(valor: unknown): number | null {
+  const numero = numeroEnRango(valor, 0, 1000, 0);
+  return numero !== null && numero >= UMBRAL_DE_PAUSA_MINIMO && numero <= UMBRAL_DE_PAUSA_MAXIMO ? numero : null;
+}
+
+/** El ajuste guardado (AppSetting, JSON). Sin fila o dañado: prendido al 80 %. */
+export function ajusteDePausaDeTexto(texto: string | null | undefined): AjusteDePausaPorUso {
+  const normal: AjusteDePausaPorUso = { prendida: true, umbral: UMBRAL_DE_PAUSA_POR_DEFECTO };
+  if (!texto) return normal;
+  try {
+    const dato: unknown = JSON.parse(texto);
+    if (!esObjeto(dato)) return normal;
+    return { prendida: dato.prendida !== false, umbral: umbralDePausaValido(dato.umbral) ?? UMBRAL_DE_PAUSA_POR_DEFECTO };
+  } catch {
+    return normal;
+  }
 }
 
 /* ───────────────────────────────────────────────────────────────────────────── lo de HOY ── */

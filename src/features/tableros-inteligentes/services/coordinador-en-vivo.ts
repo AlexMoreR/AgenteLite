@@ -3,12 +3,14 @@ import { prisma } from "@/lib/prisma";
 import {
   type CargaDelLatido,
   type EtapaVisible,
+  type AjusteDePausaPorUso,
   type HoyVista,
   type LatidoGuardado,
   type Lugar,
   type Modelo,
   type Semaforo,
   type UsoDelLatido,
+  ajusteDePausaDeTexto,
   armarHoy,
   etapaDelEstado,
   estaApagado,
@@ -23,7 +25,9 @@ import {
   rangoDeHoyEnBogota,
   semaforoDeLaCarga,
   textoDelUso,
+  usoVacio,
 } from "./reglas-coordinador-en-vivo";
+import { leerPausaPorUsoDeClaude } from "./pausa-por-uso-de-claude";
 import { etiquetaEsperando, recogidaDelResultado } from "./reglas-trabajador";
 import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
 import { linkDeLaTarjeta } from "./tableros";
@@ -50,14 +54,24 @@ const MAXIMO_DE_TRABAJOS_DE_HOY = 30;
 
 export const claveDelLatido = (workspaceId: string, claveId: string) => `${PREFIJO}${workspaceId}:${claveId}`;
 
-/** POST /latido: guarda el último latido de esta clave. Un cuerpo que no es un objeto es un 400. */
+/**
+ * POST /latido: guarda el último latido de esta clave. Un cuerpo que no es un objeto es un 400.
+ * Devuelve también el interruptor y el umbral de la pausa por uso de Claude: así el Coordinador los recibe en cada latido.
+ * Si no se pueden leer, no viaja (el Coordinador usa los de su configuración) y el latido se guarda igual.
+ */
 export async function guardarLatido(contexto: ContextoTrabajador, cuerpo: unknown, ahora = new Date()) {
   const latido = latidoDeEntrada(cuerpo, ahora, HOST_DEL_CRM);
   if (!latido) throw new ErrorDelTrabajador("El latido tiene que ser un objeto JSON.", 400);
   const key = claveDelLatido(contexto.workspaceId, contexto.claveId);
   const value = JSON.stringify(latido);
   await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
-  return { recibidoEn: latido.recibidoEn };
+  let pausaPorUso: AjusteDePausaPorUso | null = null;
+  try {
+    pausaPorUso = await leerPausaPorUsoDeClaude(contexto.workspaceId);
+  } catch {
+    pausaPorUso = null;
+  }
+  return { recibidoEn: latido.recibidoEn, ...(pausaPorUso ? { pausaPorUso } : {}) };
 }
 
 /** El latido más reciente del negocio (de cualquiera de sus claves), o null. */
@@ -112,6 +126,8 @@ export type VistaDelCoordinador = {
   esperandoAOtra: { cantidad: number; tarjetas: ItemDeFila[] };
   hoy: HoyVista;
   uso: UsoDelLatido & { texto: string };
+  /** El interruptor y el umbral de la pausa por uso de Claude (lo que el dueño cambia en el panel). */
+  pausaPorUso: AjusteDePausaPorUso;
 };
 
 const ESTADOS_EN_MARCHA = ["PLANEANDO", "EN_CURSO", "SUBIENDO"] as const;
@@ -244,7 +260,12 @@ async function hoyDelCoordinador(workspaceId: string, ahora: Date): Promise<HoyV
 
 /** La vista completa del panel para un negocio. Solo lee. */
 export async function vistaDelCoordinador(workspaceId: string, ahora = new Date()): Promise<VistaDelCoordinador> {
-  const [latido, enMarcha, hoy] = await Promise.all([ultimoLatido(workspaceId), tarjetasEnMarcha(workspaceId, ahora), hoyDelCoordinador(workspaceId, ahora)]);
+  const [latido, enMarcha, hoy, pausaPorUso] = await Promise.all([
+    ultimoLatido(workspaceId),
+    tarjetasEnMarcha(workspaceId, ahora),
+    hoyDelCoordinador(workspaceId, ahora),
+    leerPausaPorUsoDeClaude(workspaceId).catch(() => ajusteDePausaDeTexto(null)),
+  ]);
   const apagado = estaApagado(latido?.recibidoEn, ahora);
   const esperas = new Map((latido?.esperas ?? []).map((espera) => [espera.tarjetaId, espera.motivo]));
   const fila = await filaDelCoordinador(workspaceId, ahora, esperas);
@@ -277,7 +298,7 @@ export async function vistaDelCoordinador(workspaceId: string, ahora = new Date(
   }
 
   const carga: CargaVista | null = latido ? { ...latido.carga, semaforo: semaforoDeLaCarga(latido.carga) } : null;
-  const uso = latido?.uso ?? { limiteAlcanzado: false, reiniciaEn: null, motor: null };
+  const uso: UsoDelLatido = latido?.uso ?? usoVacio();
   return {
     generadoEn: ahora.toISOString(),
     enLinea: !apagado,
@@ -291,6 +312,7 @@ export async function vistaDelCoordinador(workspaceId: string, ahora = new Date(
     esperandoAOtra: fila.esperandoAOtra,
     hoy,
     uso: { ...uso, texto: textoDelUso(uso, ahora) },
+    pausaPorUso,
   };
 }
 
@@ -334,5 +356,10 @@ export function textoDelCoordinador(vista: VistaDelCoordinador): string {
     lineas.push(`- «${trabajo.titulo}»: ${trabajo.resultado === "terminada" ? "terminó" : "falló"} en ${duracionTexto(trabajo.duracionMinutos)}${trabajo.reparaciones ? ` (${trabajo.reparaciones} reparación${trabajo.reparaciones === 1 ? "" : "es"})` : ""}.`);
   }
   lineas.push(`Uso de Claude: ${vista.uso.texto}.`);
+  lineas.push(
+    vista.pausaPorUso.prendida
+      ? `La pausa por uso de Claude está prendida: el Coordinador se detiene al llegar al ${vista.pausaPorUso.umbral} % (sesión o semana).`
+      : "La pausa por uso de Claude está APAGADA: el Coordinador no se detiene por el porcentaje de uso.",
+  );
   return lineas.join("\n");
 }

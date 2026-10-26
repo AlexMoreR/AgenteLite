@@ -85,9 +85,11 @@ export function crearRecogedor({ crm, config, registro, partir, ahora = () => ne
   const ajustes = () => ({ ...RECOGER_POR_DEFECTO, ...(config.recogerErrores ?? {}) });
 
   return {
-    async revisar() {
+    /** `pausadoPorUso`: "Pausado por uso de Claude" (motores.mjs): no se recoge nada (puede abrir una sesión de Claude para partir). */
+    async revisar({ pausadoPorUso = false } = {}) {
       const { activo, maximoPorDia, maximoPorTarjeta } = ajustes();
       if (!activo) return { hizo: false, motivo: "apagado", recogidas: [] };
+      if (pausadoPorUso) return { hizo: false, motivo: "pausado por uso de Claude", recogidas: [] };
       const ahoraMs = ahora();
       const hoy = fechaBogota(ahoraMs);
       const previo = leerEstadoDeRecoger(config.carpetaTrabajo);
