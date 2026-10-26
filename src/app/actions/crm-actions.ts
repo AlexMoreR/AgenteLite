@@ -1,5 +1,6 @@
 "use server";
 
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { avisoSiNoSePuedeDescartar } from "@/features/crm/services/candado-descarte-sin-respuesta";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
@@ -89,6 +90,7 @@ export async function updateCrmStageAction(input: {
     },
     select: {
       id: true,
+      crmStage: true,
     },
   });
 
@@ -139,6 +141,16 @@ export async function updateCrmStageAction(input: {
         "updatedAt" = NOW()
     WHERE "id" = ${contact.id}
   `;
+
+  await registrarCambioDeEtapa({
+    workspaceId: membership.workspace.id,
+    contactId: contact.id,
+    etapaAnterior: contact.crmStage,
+    etapaNueva: parsed.data.status,
+    origen: "ASESORA",
+    quien: session.user.id,
+    nota: parsed.data.status === "PERDIDO" ? lostReason : null,
+  });
 
   /*
     Anti-bloqueo, un solo dueño (apagado por defecto): un lead que se descarta o se gana no recibe
