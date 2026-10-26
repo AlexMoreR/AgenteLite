@@ -101,11 +101,13 @@ function Cuadro({ participante }: { participante: ParticipanteLK }) {
 export function SalaDeReunion({
   codigo,
   titulo,
+  sinGrabar = false,
   pase,
   onSalir,
 }: {
   codigo: string;
   titulo: string;
+  sinGrabar?: boolean;
   pase: PaseDeLaSala;
   onSalir: () => void;
 }) {
@@ -314,6 +316,7 @@ export function SalaDeReunion({
       <div className="flex shrink-0 items-center bg-neutral-900 px-3 py-1.5">
         <span className="min-w-0 flex-1 truncate text-sm text-white/80">{titulo}</span>
       </div>
+      {sinGrabar ? <div className="shrink-0 bg-neutral-800 px-3 py-1 text-xs text-white/70">Esta reunión no se está grabando</div> : null}
       {reconectando ? <div className="shrink-0 bg-amber-600 px-3 py-1 text-xs">Reconectando…</div> : null}
       {sinAudio && room ? (
         <button type="button" onClick={() => void room.startAudio()} className="shrink-0 bg-sky-700 px-3 py-1.5 text-left text-xs">

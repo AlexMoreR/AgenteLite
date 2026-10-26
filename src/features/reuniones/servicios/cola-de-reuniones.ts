@@ -118,7 +118,8 @@ async function soltarTrabajosColgados() {
 
 async function siguienteEnLaCola() {
   const candidatas = await prisma.reunion.findMany({
-    where: { estado: "EN_COLA" },
+    // Salvaguarda: una reunión sin grabar nunca se toma (no tiene audio).
+    where: { estado: "EN_COLA", sinGrabar: false },
     orderBy: [{ terminoEn: "asc" }, { createdAt: "asc" }],
     select: { id: true, intentos: true, updatedAt: true, aviso: true },
     take: 20,

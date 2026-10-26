@@ -2239,6 +2239,8 @@ model Reunion {
   acta               Json?
   /// El acta en texto plano, para buscar.
   textoActa          String?
+  /// Reunión "Sin grabar": la videollamada funciona igual, pero no se graba, no se transcribe y no hay acta.
+  sinGrabar          Boolean               @default(false)
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
   workspace          Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
