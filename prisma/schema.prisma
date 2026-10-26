@@ -2344,3 +2344,67 @@ model AgenteDeAreaEnvio {
 
   @@index([workspaceId, area, fecha])
 }
+
+// ── Cerebro (Mi empresa → Cerebro) ─────────────────────────────────────────────────────────────
+// El ORIGINAL vive en la carpeta de Google Drive; estas tablas son una copia para buscar rápido.
+// Si hay diferencia, gana el Drive. El CRM nunca borra nada en el Drive.
+
+model CerebroConexion {
+  id                   String    @id @default(cuid())
+  workspaceId          String    @unique
+  cuentaGoogle         String?
+  /// Permiso de Google (refresh token) cifrado con CEREBRO_CLAVE_CIFRADO. Nunca se muestra.
+  tokenCifrado         String?
+  carpetaId            String?
+  carpetaNombre        String?
+  conectadoPor         String?
+  ultimaSincronizacion DateTime?
+  ultimoError          String?
+  creadoEn             DateTime  @default(now())
+  actualizadoEn        DateTime  @updatedAt
+}
+
+model CerebroDocumento {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  driveId           String
+  padreId           String?
+  nombre            String
+  ruta              String
+  tipo              String
+  esCarpeta         Boolean  @default(false)
+  modificadoEnDrive DateTime?
+  /// Número de versión que Drive le puso al archivo: sirve para saber si cambió.
+  versionDrive      String?
+  linkDrive         String?
+  texto             String?
+  textoTruncado     Boolean  @default(false)
+  /// false = ya no está en el Drive (se movió a la papelera o se borró allá).
+  enDrive           Boolean  @default(true)
+  sincronizadoEn    DateTime @default(now())
+
+  @@unique([workspaceId, driveId])
+  @@index([workspaceId, padreId])
+  @@index([workspaceId, enDrive])
+}
+
+model CerebroCambio {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  userId           String
+  quienNombre      String
+  /// MCP | PANTALLA | TABLERO
+  origen           String
+  driveId          String
+  nombreDocumento  String
+  /// crear | agregar | reemplazar
+  accion           String
+  antes            String?
+  despues          String
+  textoConfirmacion String?
+  tarjetaId        String?
+  creadoEn         DateTime @default(now())
+
+  @@index([workspaceId, creadoEn])
+  @@index([workspaceId, driveId])
+}

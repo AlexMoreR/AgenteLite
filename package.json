@@ -31,6 +31,8 @@
     "embudo:backfill": "node scripts/embudo-backfill.mjs",
     "test:supervisor": "node scripts/check-supervisor.mjs",
     "test:tableros": "node scripts/check-tableros-reglas.mjs",
+    "test:cerebro": "node scripts/check-cerebro.mjs",
+    "test:cerebro-migracion": "node scripts/check-cerebro-migracion.mjs",
     "test:tablero-tipos-migracion": "node scripts/check-tablero-tipos-migracion.mjs",
     "test:tablero-trabajador-migracion": "node scripts/check-tablero-trabajador-migracion.mjs",
     "test:tablero-intentos-migracion": "node scripts/check-tablero-intentos-migracion.mjs",

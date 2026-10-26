@@ -29,6 +29,10 @@ services:
       LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET}"
       REUNIONES_CARPETA: "/app/reuniones"
       LIVEKIT_EGRESS_CARPETA: "/out"
+      # Cerebro (Mi empresa → Cerebro): conexión con Google Drive. Los valores van en Portainer, no acá.
+      GOOGLE_OAUTH_CLIENT_ID: "${GOOGLE_OAUTH_CLIENT_ID}"
+      GOOGLE_OAUTH_CLIENT_SECRET: "${GOOGLE_OAUTH_CLIENT_SECRET}"
+      CEREBRO_CLAVE_CIFRADO: "${CEREBRO_CLAVE_CIFRADO}"
     networks:
       - minha_rede
     deploy:

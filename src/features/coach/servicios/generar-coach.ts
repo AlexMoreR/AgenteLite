@@ -11,6 +11,7 @@ import {
   redaccionValida,
   unaCosaAMejorarDe,
 } from "../habilidad";
+import { reglasDelCerebroParaElCoach } from "@/features/cerebro/services/consultas";
 import { POLITICA_COACH } from "../politica";
 import {
   apellidosDe,
@@ -526,6 +527,8 @@ async function analizarAsesora(input: {
   desde: Date;
   nombres: Record<string, string>;
   contadores: Contadores;
+  /** Lo que el cerebro tiene escrito de políticas y precios (vacío si no está conectado o no responde). */
+  reglasDelCerebro?: string[];
 }): Promise<{
   analisis: Map<string, AnalisisDeChat>;
   resumen: ResumenDeAsesora | null;
@@ -560,7 +563,7 @@ async function analizarAsesora(input: {
   const resumenes: ResumenDeAsesora[] = [];
   for (const lote of lotes) {
     try {
-      const { sistema, usuario } = armarPromptDelLote({ asesora: input.nombre, dia: input.dia, fichas: lote });
+      const { sistema, usuario } = armarPromptDelLote({ asesora: input.nombre, dia: input.dia, fichas: lote, reglasDelCerebro: input.reglasDelCerebro });
       const respuesta = await llamarIA(sistema, usuario, 350 * lote.length + 300, input.contadores);
       const parseado = parsearRespuestaDelLote(respuesta.contenido, lote.map((f) => f.ref));
       for (const [ref, valor] of parseado.chats) analisis.set(ref, valor);
@@ -920,6 +923,9 @@ export async function generarCoachDelDia(
     const erroresPorAsesora: ResumenDelEquipo["erroresDeAsesoras"] = [];
     let iaDisponible = false;
     const partes: Array<{ userId: string; parte: ReturnType<typeof armarParteDeAsesora>; transcripciones: Map<string, string> }> = [];
+    // Políticas, reglas y precios del cerebro (una sola lectura por informe). Si el cerebro no responde, [] y
+    // el coach usa las reglas de siempre.
+    const reglasDelCerebro = await reglasDelCerebroParaElCoach(workspaceId);
     for (const userId of new Set([...porAsesora.keys(), ...erroresDurosPorAsesora.keys()])) {
       const suyos = porAsesora.get(userId) ?? [];
       const { analisis, resumen, iaUsada, transcripciones } = await analizarAsesora({
@@ -929,6 +935,7 @@ export async function generarCoachDelDia(
         desde,
         nombres: nombresCortos,
         contadores,
+        reglasDelCerebro,
       });
       iaDisponible ||= iaUsada;
       for (const [ref, valor] of analisis) todasLasLecturas.set(ref, valor);

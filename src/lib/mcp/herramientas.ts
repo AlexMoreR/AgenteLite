@@ -45,6 +45,11 @@ import {
   ejecutarHerramientaMcpAgentesDeArea,
   esHerramientaDeAgentesDeArea,
 } from "@/lib/mcp/agentes-de-area";
+import {
+  HERRAMIENTAS_MCP_CEREBRO,
+  ejecutarHerramientaMcpCerebro,
+  esHerramientaDelCerebro,
+} from "@/lib/mcp/cerebro";
 import { getFlowReply } from "@/lib/agent-product-flow";
 import { prisma } from "@/lib/prisma";
 import { parseWorkspaceBusinessConfig } from "@/lib/workspace-business-config";
@@ -1024,6 +1029,7 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_MCP_PRODUCTOS,
   ...HERRAMIENTAS_MCP_TABLEROS,
   ...HERRAMIENTAS_MCP_AGENTES_DE_AREA,
+  ...HERRAMIENTAS_MCP_CEREBRO,
 ];
 
 export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, contexto: Contexto) {
@@ -1056,6 +1062,9 @@ export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, c
   }
   if (esHerramientaDeAgentesDeArea(nombre)) {
     return ejecutarHerramientaMcpAgentesDeArea(nombre, args, contexto);
+  }
+  if (esHerramientaDelCerebro(nombre)) {
+    return ejecutarHerramientaMcpCerebro(nombre, args, contexto);
   }
   switch (nombre) {
     case "resumen_del_negocio":

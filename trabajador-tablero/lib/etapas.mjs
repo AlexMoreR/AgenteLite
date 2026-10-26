@@ -504,6 +504,8 @@ function contextoDeLaTarjeta(tarjeta) {
     `Tablero: ${tarjeta.tablero}`,
     `Detalle:\n${tarjeta.detalle || "(sin detalle)"}`,
     tarjeta.intentos > 1 ? `Es el intento ${tarjeta.intentos}.${error ? ` El anterior falló así:\n${error}` : ""}` : "",
+    // Lo que el cerebro del negocio (Google Drive) ya tiene decidido sobre esto: se respeta, no se vuelve a discutir.
+    tarjeta.cerebro ? `Lo que el CEREBRO del negocio ya tiene decidido y toca esta tarea (respétalo al planear; si el plan lo contradice, dilo claro):\n${tarjeta.cerebro}` : "",
     tarjeta.riesgo
       ? `Riesgo que ya tiene la tarjeta en el CRM: ${tarjeta.riesgo}${tarjeta.riesgoMotivo ? ` (${tarjeta.riesgoMotivo})` : ""}. Es solo un punto de partida: tú revisas el plan y pones tu propia línea RIESGO.`
       : "",

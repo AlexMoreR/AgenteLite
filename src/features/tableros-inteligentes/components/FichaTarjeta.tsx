@@ -17,6 +17,8 @@ import { NOMBRE_DEL_ESTADO, esEstado, textoDelLink, type MiembroDelNegocio } fro
 import type { ConexionVista, TarjetaVista, TipoVista } from "../services/tableros";
 import { COLOR_DEL_ESTADO } from "./colores";
 import { IconoDeTipo } from "./IconoDeTipo";
+import { PasarAlCerebro } from "./PasarAlCerebro";
+import { sePuedePasarAlCerebro } from "@/features/cerebro/services/reglas";
 import { IntentosDeLaTarjeta } from "./IntentosDeLaTarjeta";
 import { DetallesTecnicos, TrabajoDeLaTarjeta } from "./TrabajoDeLaTarjeta";
 
@@ -37,6 +39,7 @@ const ACCION: Record<string, string> = {
   aprobar: "La aprobó",
   borrar: "La borró",
   deshacer: "Deshizo un cambio",
+  cerebro: "La pasó al cerebro",
 };
 
 const DESDE: Record<string, string> = { MCP: "Claude", PANTALLA: "pantalla", TRABAJADOR: "Coordinador" };
@@ -104,6 +107,9 @@ function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyM
     const cambios = campos.length ? `Cambió ${campos.map((campo) => CAMPO[campo] ?? campo).join(", ")}${tipo}${estado}` : null;
     return [asignacion, cambios].filter(Boolean).join(" · ") || null;
   }
+  if (cambio.accion === "cerebro") {
+    return typeof despues.documento === "string" ? `Conclusión guardada en el cerebro: ${despues.documento}` : null;
+  }
   if (cambio.accion === "borrar") {
     const flechas = Array.isArray(antes.conexiones) ? antes.conexiones.length : 0;
     return flechas ? `Con ${flechas} flecha(s)` : null;
@@ -125,6 +131,8 @@ type Props = {
   puedeAprobar: boolean;
   /** Dueño del negocio: el sí final (subir a producción) y quitar zonas protegidas. */
   esDueno: boolean;
+  /** Puede usar el cerebro (el dueño o quien él autorizó): muestra "Pasar al cerebro" en tarjetas hechas o de decisión. */
+  puedeCerebro?: boolean;
   /** Las personas activas del negocio (para el selector de responsable). */
   miembros: MiembroDelNegocio[];
   /** Puede cambiar el responsable (quien edita el tablero). Quien solo es responsable la ve, no la asigna. */
@@ -152,6 +160,7 @@ export function FichaTarjeta({
   lado,
   puedeAprobar,
   esDueno,
+  puedeCerebro = false,
   miembros,
   puedeAsignar,
   alCerrar,
@@ -300,6 +309,8 @@ export function FichaTarjeta({
                   alAprobar();
                 }}
               />
+
+              {puedeCerebro && sePuedePasarAlCerebro(tarjeta, tipo?.nombre) ? <PasarAlCerebro tarjetaId={tarjeta.id} /> : null}
 
               {pideAprobacion ? <IntentosDeLaTarjeta tarjetaId={tarjeta.id} version={tarjeta.actualizadoEn} /> : null}
 

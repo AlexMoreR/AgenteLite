@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
+import { permisosDelCerebro } from "@/features/cerebro/services/permisos";
 import { personaPuedeAprobar, puedeAsignarResponsable } from "@/features/tableros-inteligentes/services/reglas";
 import { nivelDeLaTarjeta } from "@/features/tableros-inteligentes/services/niveles";
 import {
@@ -66,6 +67,8 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
     // una tarjeta (el selector Responsable de la ficha: lo ve cualquiera que edite un tablero).
     miembrosDelNegocio(access.workspaceId),
   ]);
+  // "Pasar al cerebro": el dueño o quien él autorizó. Si falla la lectura, el botón simplemente no sale.
+  const puedeCerebro = await permisosDelCerebro(access).then((permisos) => permisos.ver).catch(() => false);
   // La sección Trabajador: el dueño o el ADMIN de la plataforma (nunca una asesora).
   const puedeAdministrar = persona.esDueno || persona.esAdminPlataforma;
   // Crear y renombrar: cualquiera los suyos; el dueño o el ADMIN, todos, y eligen de quién es cada uno.
@@ -147,6 +150,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       puedeAprobar={personaPuedeAprobar(access) || persona.esDueno || Boolean(persona.aprobador)}
       puedeEditarTipos={personaPuedeAprobar(access)}
       esDueno={persona.esDueno}
+      puedeCerebro={puedeCerebro}
       puedeAsignar={puedeAsignarResponsable(alcance.soloDe, elegido.duenoUserId)}
     />
   );

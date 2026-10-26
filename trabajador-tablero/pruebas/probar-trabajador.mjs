@@ -220,6 +220,16 @@ await prueba("latido: el uso de los motores dice cuándo se reinicia la pausa po
   assert.equal(motores.resumenDeUso().limiteAlcanzado, false);
 });
 
+await prueba("cerebro: si la tarjeta trae lo que el cerebro ya decidió, el plan lo recibe; sin cerebro el prompt no cambia", async () => {
+  const repo = { clave: "aizencrm", subirSolo: true, zonasProtegidas: {} };
+  const base = { titulo: "Cambiar precios", tablero: "T", detalle: "d", intentos: 1 };
+  const sin = promptDelPlan(base, repo);
+  const con = promptDelPlan({ ...base, cerebro: "- Reglas/precios.md: Camilla $1.200.000" }, repo);
+  assert.ok(!sin.includes("CEREBRO"));
+  assert.match(con, /CEREBRO del negocio ya tiene decidido/);
+  assert.match(con, /Reglas\/precios\.md: Camilla \$1\.200\.000/);
+});
+
 await prueba("riesgo: el prompt del plan pide la línea RIESGO con sus criterios y dice el riesgo que ya trae la tarjeta", async () => {
   const repo = { clave: "aizencrm", subirSolo: true, zonasProtegidas: { CHATS: ["src/chats/**"] } };
   const prompt = promptDelPlan({ titulo: "Algo", tablero: "T", detalle: "d", intentos: 1 }, repo);

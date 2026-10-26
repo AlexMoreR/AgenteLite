@@ -1,0 +1,476 @@
+// Pruebas del Cerebro (src/features/cerebro, src/lib/mcp/cerebro.ts): la regla "gana el Drive", el candado de
+// cerebro_escribir (palabras del dueño, cuenta dueña y versión sin cambios), "Pasar al cerebro" (solo la
+// conclusión, con fecha y link), quién ve la pestaña, el cifrado del permiso de Google y que NO exista ninguna
+// llamada de borrar en el Drive. Con un Drive y una base falsos: no necesita red ni base.
+// Correr: npm run test:cerebro
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { cargar, RAIZ } from "./supervisor-cargar.mjs";
+
+const reglas = cargar("src/features/cerebro/services/reglas.ts");
+const cifrado = cargar("src/features/cerebro/services/cifrado.ts");
+const { sincronizarConAlmacen } = cargar("src/features/cerebro/services/sincronizar.ts");
+const { crearClienteDeDrive } = cargar("src/features/cerebro/services/drive.ts");
+const trabajo = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
+const { textoDelPaso } = cargar("src/features/cerebro/services/textos.ts");
+const nada = {};
+const { escribirConDependencias, problemaDeAutorizacion } = cargar("src/features/cerebro/services/escribir.ts", {
+  "@/lib/prisma": nada,
+  "@/features/tableros-inteligentes/services/tableros": nada,
+  "./conexion": nada,
+  "./permisos": nada,
+});
+
+let pruebas = 0;
+async function prueba(nombre, fn) {
+  await fn();
+  pruebas += 1;
+  console.log(`ok - ${nombre}`);
+}
+
+const archivo = (id, nombre, extra = {}) => ({
+  driveId: id,
+  padreId: "raiz",
+  nombre,
+  ruta: nombre,
+  tipo: "text/markdown",
+  esCarpeta: false,
+  modificadoEnDrive: "2026-10-20T10:00:00.000Z",
+  versionDrive: "1",
+  linkDrive: `https://drive.google.com/${id}`,
+  ...extra,
+});
+const copia = (a, extra = {}) => ({
+  driveId: a.driveId,
+  nombre: a.nombre,
+  ruta: a.ruta,
+  padreId: a.padreId,
+  versionDrive: a.versionDrive,
+  modificadoEnDrive: a.modificadoEnDrive,
+  enDrive: true,
+  tieneTexto: true,
+  ...extra,
+});
+
+/* ── Qué se lee y quién ve ── */
+
+await prueba("se leen Google Docs, .md y .txt; PDF e imágenes solo por nombre; solo .md/.txt se escriben", () => {
+  assert.equal(reglas.tipoDeLectura("Precios", "application/vnd.google-apps.document"), "documento");
+  assert.equal(reglas.tipoDeLectura("reglas.md", "application/octet-stream"), "texto");
+  assert.equal(reglas.tipoDeLectura("nota", "text/plain"), "texto");
+  assert.equal(reglas.tipoDeLectura("catalogo.pdf", "application/pdf"), "otro");
+  assert.equal(reglas.tipoDeLectura("foto.png", "image/png"), "otro");
+  assert.equal(reglas.sePuedeEscribir("Precios", "application/vnd.google-apps.document"), false);
+  assert.equal(reglas.sePuedeEscribir("reglas.md", "text/markdown"), true);
+  assert.equal(reglas.recortarTexto("a".repeat(10), 4).truncado, true);
+});
+
+await prueba("la pestaña la ve el dueño y quien él autorizó; administrar es solo del dueño", () => {
+  const dueno = { userId: "u1", isOwner: true, membershipRole: "OWNER" };
+  const asesora = { userId: "u2", isOwner: false, membershipRole: "AGENT" };
+  const admin = { userId: "u3", isOwner: false, membershipRole: "ADMIN" };
+  assert.equal(reglas.puedeVerElCerebro(dueno, []), true);
+  assert.equal(reglas.puedeVerElCerebro(asesora, []), false);
+  assert.equal(reglas.puedeVerElCerebro(asesora, ["u2"]), true);
+  assert.equal(reglas.puedeVerElCerebro(admin, []), false, "un administrador no la ve si el dueño no lo autorizó");
+  assert.equal(reglas.puedeAdministrarElCerebro(asesora), false);
+  assert.equal(reglas.puedeAdministrarElCerebro(dueno), true);
+  assert.deepEqual(reglas.autorizadosDeEntrada('["u2","u2","u5"]'), ["u2", "u5"]);
+  assert.deepEqual(reglas.autorizadosDeEntrada("no es json"), []);
+});
+
+/* ── Gana el Drive ── */
+
+await prueba("el plan: nuevo, cambiado, movido, ausente y sin cambio", () => {
+  const a = archivo("a", "a.md");
+  const b = archivo("b", "b.md");
+  const c = archivo("c", "c.md");
+  const d = archivo("d", "d.md");
+  const plan = reglas.planificarSincronizacion(
+    [archivo("a", "a.md"), archivo("b", "b.md", { versionDrive: "2" }), archivo("d", "d-nuevo.md", { ruta: "d-nuevo.md" }), archivo("e", "e.md")],
+    [copia(a), copia(b), copia(c), copia(d)],
+  );
+  assert.deepEqual(plan.nuevos.map((x) => x.driveId), ["e"]);
+  assert.deepEqual(plan.cambiados.map((x) => x.driveId), ["b"]);
+  assert.deepEqual(plan.movidos.map((x) => x.driveId), ["d"]);
+  assert.deepEqual(plan.ausentes, ["c"]);
+  assert.equal(plan.igualesSinCambio, 1);
+  // Lo que había desaparecido y vuelve, se reemplaza con lo del Drive.
+  const vuelve = reglas.planificarSincronizacion([archivo("c", "c.md")], [copia(c, { enDrive: false })]);
+  assert.deepEqual(vuelve.cambiados.map((x) => x.driveId), ["c"]);
+});
+
+function almacenFalso(filasIniciales = []) {
+  const filas = new Map(filasIniciales.map((f) => [f.driveId, { ...f }]));
+  const anotaciones = [];
+  return {
+    filas,
+    anotaciones,
+    async copia() {
+      return [...filas.values()].map((f) => ({
+        driveId: f.driveId,
+        nombre: f.nombre,
+        ruta: f.ruta,
+        padreId: f.padreId,
+        versionDrive: f.versionDrive,
+        modificadoEnDrive: f.modificadoEnDrive,
+        enDrive: f.enDrive,
+        tieneTexto: f.texto !== null && f.texto !== undefined,
+      }));
+    },
+    async guardar(_ws, a, texto) {
+      const previo = filas.get(a.driveId) ?? {};
+      filas.set(a.driveId, { ...previo, ...a, enDrive: true, ...(texto ? { texto: texto.texto } : {}) });
+    },
+    async marcarAusentes(_ws, ids) {
+      for (const id of ids) filas.get(id).enDrive = false;
+    },
+    async anotarSincronizacion(_ws, resultado) {
+      anotaciones.push(resultado);
+    },
+  };
+}
+
+function driveFalso({ archivos, textos = {}, truncado = false, fallaLaCarpeta = false, fallanLosTextos = [] }) {
+  const llamadas = [];
+  return {
+    llamadas,
+    async metadatos(id) {
+      llamadas.push(["metadatos", id]);
+      if (fallaLaCarpeta) throw new Error("Drive respondió 404");
+      return { driveId: id, nombre: "Empresa Magilus" };
+    },
+    async recorrer() {
+      return { archivos, truncado };
+    },
+    async leerTexto(id) {
+      llamadas.push(["leerTexto", id]);
+      if (fallanLosTextos.includes(id)) throw new Error("Drive respondió 500");
+      return textos[id] ?? "";
+    },
+  };
+}
+
+await prueba("gana el Drive: lo cambiado se reemplaza, lo borrado allá se marca y nunca se borra de la copia", async () => {
+  const almacen = almacenFalso([
+    { ...archivo("a", "a.md"), texto: "viejo A", enDrive: true },
+    { ...archivo("b", "b.md"), texto: "texto B", enDrive: true },
+  ]);
+  // En el Drive: a cambió de contenido (versión 2), b ya no está, c es nuevo.
+  const drive = driveFalso({
+    archivos: [archivo("a", "a.md", { versionDrive: "2" }), archivo("c", "c.md")],
+    textos: { a: "NUEVO A del Drive", c: "texto C" },
+  });
+  const resultado = await sincronizarConAlmacen({ workspaceId: "ws", carpetaId: "raiz", drive, almacen });
+  assert.equal(resultado.ok, true);
+  assert.equal(almacen.filas.get("a").texto, "NUEVO A del Drive");
+  assert.equal(almacen.filas.get("c").texto, "texto C");
+  assert.equal(almacen.filas.get("b").enDrive, false, "b se marca 'ya no está en Drive'");
+  assert.equal(almacen.filas.get("b").texto, "texto B", "pero su última copia se conserva");
+  assert.equal(almacen.filas.has("b"), true, "la fila no se borra");
+  assert.equal(almacen.anotaciones.at(-1).ok, true);
+  assert.deepEqual([resultado.nuevos, resultado.cambiados, resultado.ausentes], [1, 1, 1]);
+  // La sincronización solo lee del Drive.
+  assert.ok(drive.llamadas.every(([que]) => que === "metadatos" || que === "leerTexto"));
+});
+
+await prueba("si el Drive falla (carpeta perdida o permiso), la copia queda como estaba y se anota el error", async () => {
+  const almacen = almacenFalso([{ ...archivo("a", "a.md"), texto: "A", enDrive: true }]);
+  const resultado = await sincronizarConAlmacen({ workspaceId: "ws", carpetaId: "raiz", drive: driveFalso({ archivos: [], fallaLaCarpeta: true }), almacen });
+  assert.equal(resultado.ok, false);
+  assert.equal(almacen.filas.get("a").enDrive, true);
+  assert.equal(almacen.anotaciones.at(-1).ok, false);
+});
+
+await prueba("un recorrido cortado por el tope no marca nada como ausente; un documento que no se baja no tumba el resto", async () => {
+  const almacen = almacenFalso([{ ...archivo("z", "z.md"), texto: "Z", enDrive: true }]);
+  const drive = driveFalso({ archivos: [archivo("x", "x.md"), archivo("y", "y.md")], textos: { y: "Y" }, truncado: true, fallanLosTextos: ["x"] });
+  const resultado = await sincronizarConAlmacen({ workspaceId: "ws", carpetaId: "raiz", drive, almacen });
+  assert.equal(resultado.ok, true);
+  assert.equal(almacen.filas.get("z").enDrive, true, "recorrido incompleto: no se declara ausente");
+  assert.equal(resultado.noSePudoLeer.length, 1);
+  assert.equal(almacen.filas.get("y").texto, "Y");
+  assert.equal(almacen.filas.has("x"), false, "x se reintenta en la próxima");
+});
+
+/* ── Candado de cerebro_escribir ── */
+
+await prueba("el texto de confirmación: pide 'sí' y escribir; 'no', preguntas y textos cortos no valen", () => {
+  const v = trabajo.textoDeConfirmacionParaCerebro;
+  assert.equal(v("sí, escríbelo en el cerebro"), null);
+  assert.equal(v("Si, guardalo en el cerebro por favor"), null);
+  assert.notEqual(v("no lo escribas en el cerebro"), null);
+  assert.notEqual(v("sí no lo escribas"), null);
+  assert.notEqual(v("¿sí lo escribo en el cerebro?"), null);
+  assert.notEqual(v("sí"), null);
+  assert.notEqual(v("escríbelo en el cerebro"), null, "sin la palabra sí no vale");
+  assert.notEqual(v(undefined), null);
+});
+
+await prueba("por el MCP: sin 'sí', con 'no' o con una clave que no es del dueño NO escribe", () => {
+  const base = { origen: "MCP", motivoCuentaNoDueno: null, autorizadaParaElCerebro: false };
+  assert.equal(problemaDeAutorizacion({ ...base, textoConfirmacion: "sí, escríbelo en el cerebro" }), null);
+  assert.ok(problemaDeAutorizacion({ ...base, textoConfirmacion: undefined }));
+  assert.ok(problemaDeAutorizacion({ ...base, textoConfirmacion: "no lo escribas en el cerebro" }));
+  assert.match(
+    problemaDeAutorizacion({ ...base, textoConfirmacion: "sí, escríbelo en el cerebro", motivoCuentaNoDueno: "La conexión llegó con la cuenta Ana: es CLIENTE" }),
+    /Ana/,
+  );
+  // Desde la pantalla o el tablero: el dueño o quien él autorizó, sin texto.
+  assert.equal(problemaDeAutorizacion({ origen: "TABLERO", motivoCuentaNoDueno: "x", autorizadaParaElCerebro: true }), null);
+  assert.ok(problemaDeAutorizacion({ origen: "PANTALLA", motivoCuentaNoDueno: null, autorizadaParaElCerebro: false }));
+});
+
+function depsFalsas({ enDrive, copiaDe, carpetas = {}, hermanos = [] }) {
+  const llamadas = { reemplazos: [], creados: [], registros: [], copias: [] };
+  const deps = {
+    carpetaRaizId: "raiz",
+    drive: {
+      async metadatos() {
+        return enDrive;
+      },
+      async leerTexto() {
+        return "# Política\nTexto actual";
+      },
+      async reemplazarTexto(id, contenido, tipo) {
+        llamadas.reemplazos.push({ id, contenido, tipo });
+        return { driveId: id, nombre: "politica.md", tipo, versionDrive: "8", modificadoEnDrive: "2026-10-26T00:00:00Z", linkDrive: "https://d/x", padreId: "raiz" };
+      },
+      async crearTexto(carpetaId, nombre, contenido) {
+        llamadas.creados.push({ carpetaId, nombre, contenido });
+        return { driveId: "nuevo1", nombre, tipo: "text/markdown", versionDrive: "1", modificadoEnDrive: "2026-10-26T00:00:00Z", linkDrive: "https://d/n", padreId: carpetaId };
+      },
+    },
+    async copiaDe() {
+      return copiaDe;
+    },
+    async hermanoConNombre(_carpeta, nombre) {
+      return hermanos.includes(nombre);
+    },
+    async carpetaDelCerebro(id) {
+      return carpetas[id] ?? null;
+    },
+    async guardarCopia(d) {
+      llamadas.copias.push(d);
+    },
+    async registrar(c) {
+      llamadas.registros.push(c);
+    },
+  };
+  return { deps, llamadas };
+}
+const docPolitica = { driveId: "doc1", nombre: "politica.md", ruta: "Reglas/politica.md", tipo: "text/markdown", esCarpeta: false, enDrive: true, versionDrive: "7" };
+const pedidoBase = { workspaceId: "ws", userId: "u1", origen: "MCP", modo: "agregar", driveId: "doc1", contenido: "## Decisión\nSe suspende la contraentrega." };
+
+await prueba("si el documento cambió en el Drive desde que se leyó, NO se escribe", async () => {
+  const { deps, llamadas } = depsFalsas({ enDrive: { versionDrive: "9", padreId: "raiz" }, copiaDe: docPolitica });
+  await assert.rejects(() => escribirConDependencias({ ...pedidoBase, versionLeida: "7" }, deps), /cambió en el Drive/);
+  assert.equal(llamadas.reemplazos.length, 0);
+  assert.equal(llamadas.registros.length, 0);
+  // Y sin saber qué versión se leyó, tampoco.
+  const sinVersion = depsFalsas({ enDrive: { versionDrive: "7", padreId: "raiz" }, copiaDe: { ...docPolitica, versionDrive: null } });
+  await assert.rejects(() => escribirConDependencias({ ...pedidoBase }, sinVersion.deps), /qué versión/);
+});
+
+await prueba("agregar: escribe al final, deja el registro con el antes y el después y actualiza la copia", async () => {
+  const { deps, llamadas } = depsFalsas({ enDrive: { versionDrive: "7", padreId: "raiz" }, copiaDe: docPolitica });
+  const resultado = await escribirConDependencias({ ...pedidoBase, versionLeida: "7" }, deps);
+  assert.equal(resultado.accion, "agregar");
+  assert.equal(llamadas.reemplazos.length, 1);
+  assert.ok(llamadas.reemplazos[0].contenido.startsWith("# Política\nTexto actual"), "lo anterior se conserva");
+  assert.ok(llamadas.reemplazos[0].contenido.includes("Se suspende la contraentrega."));
+  assert.equal(llamadas.registros.length, 1);
+  assert.equal(llamadas.registros[0].antes, "# Política\nTexto actual");
+  assert.ok(llamadas.registros[0].despues.includes("Se suspende la contraentrega."));
+  assert.equal(llamadas.copias[0].versionDrive, "8");
+});
+
+await prueba("un Google Doc, una carpeta o algo que ya no está en el Drive no se modifican", async () => {
+  for (const doc of [
+    { ...docPolitica, tipo: "application/vnd.google-apps.document", nombre: "Precios" },
+    { ...docPolitica, esCarpeta: true },
+    { ...docPolitica, enDrive: false },
+    null,
+  ]) {
+    const { deps, llamadas } = depsFalsas({ enDrive: { versionDrive: "7" }, copiaDe: doc });
+    await assert.rejects(() => escribirConDependencias({ ...pedidoBase, versionLeida: "7" }, deps));
+    assert.equal(llamadas.reemplazos.length, 0);
+  }
+});
+
+await prueba("crear: documento .md nuevo; no pisa uno existente ni crea fuera del cerebro", async () => {
+  const { deps, llamadas } = depsFalsas({ enDrive: {}, copiaDe: null, carpetas: { f1: { ruta: "Decisiones" } }, hermanos: ["Ya existe.md"] });
+  const resultado = await escribirConDependencias({ workspaceId: "ws", userId: "u1", origen: "MCP", modo: "crear", nombre: "Política de envíos", carpetaId: "f1", contenido: "Gratis sobre $200.000" }, deps);
+  assert.equal(llamadas.creados[0].nombre, "Política de envíos.md");
+  assert.equal(llamadas.creados[0].carpetaId, "f1");
+  assert.equal(resultado.ruta, "Decisiones/Política de envíos.md");
+  assert.equal(llamadas.registros[0].antes, null);
+  await assert.rejects(() => escribirConDependencias({ workspaceId: "ws", userId: "u1", origen: "MCP", modo: "crear", nombre: "Ya existe", contenido: "x" }, deps), /Ya existe/);
+  await assert.rejects(() => escribirConDependencias({ workspaceId: "ws", userId: "u1", origen: "MCP", modo: "crear", nombre: "Otro", carpetaId: "ajena", contenido: "x" }, deps), /no está dentro del cerebro/);
+  await assert.rejects(() => escribirConDependencias({ workspaceId: "ws", userId: "u1", origen: "MCP", modo: "crear", nombre: "Otro", contenido: "  " }, deps), /Falta el texto/);
+});
+
+/* ── Pasar al cerebro ── */
+
+await prueba("Pasar al cerebro escribe SOLO la conclusión, con la fecha y el link de la tarjeta", () => {
+  const link = "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=t1";
+  const bloque = textoDelPaso({ conclusion: "Se suspende la contraentrega.", titulo: "Decidir contraentrega", link, ahora: new Date("2026-10-26T15:00:00Z") });
+  assert.match(bloque, /^## 2026-10-26 — Decidir contraentrega/);
+  assert.ok(bloque.includes("Se suspende la contraentrega."));
+  assert.ok(bloque.includes(link));
+  const tarjeta = { estado: "HECHO", detalle: "DETALLE LARGO DE LA TARJETA que no se copia", resultado: { resumen: "Se suspende la contraentrega." } };
+  assert.equal(reglas.conclusionSugerida(tarjeta), "Se suspende la contraentrega.", "la conclusión sale del resultado, no del detalle");
+  assert.ok(!bloque.includes("DETALLE LARGO"));
+  assert.equal(reglas.conclusionSugerida({ detalle: "Solo detalle", resultado: null }), "Solo detalle");
+  assert.equal(reglas.agregarAlFinal("# Doc", "## Nuevo"), "# Doc\n\n## Nuevo\n");
+});
+
+await prueba("Pasar al cerebro se ofrece en tarjetas HECHAS o de tipo 'Decisión'", () => {
+  assert.equal(reglas.sePuedePasarAlCerebro({ estado: "HECHO" }, "Tarea"), true);
+  assert.equal(reglas.sePuedePasarAlCerebro({ estado: "APROBADO" }, "Tarea"), false);
+  assert.equal(reglas.sePuedePasarAlCerebro({ estado: "BORRADOR" }, "Decisión"), true);
+  assert.equal(reglas.sePuedePasarAlCerebro({ estado: "BORRADOR" }, "decision"), true);
+  const sugerido = reglas.documentoSugerido(
+    [
+      { driveId: "1", nombre: "envios.md", ruta: "Reglas/envios.md", legibleParaEscribir: true },
+      { driveId: "2", nombre: "precios.md", ruta: "Reglas/precios.md", legibleParaEscribir: true },
+    ],
+    "Cambiar precios de camillas",
+  );
+  assert.equal(sugerido.driveId, "2");
+});
+
+/* ── Buscar y dar contexto ── */
+
+await prueba("la búsqueda ordena por relevancia, ignora tildes y da un fragmento", () => {
+  const docs = [
+    { driveId: "1", nombre: "envios.md", ruta: "Reglas/envios.md", texto: "El envío es gratis con pago 50/50." },
+    { driveId: "2", nombre: "contraentrega.md", ruta: "Decisiones/contraentrega.md", texto: "Se suspendió la contraentrega desde octubre." },
+    { driveId: "3", nombre: "otro.md", ruta: "otro.md", texto: "Nada que ver" },
+  ];
+  const r = reglas.ordenarPorRelevancia(docs, "contraentrega suspendida");
+  assert.equal(r[0].driveId, "2");
+  assert.ok(r[0].fragmento.includes("contraentrega"));
+  assert.equal(reglas.ordenarPorRelevancia(docs, "envio gratis")[0].driveId, "1");
+  assert.deepEqual(reglas.ordenarPorRelevancia(docs, "zz"), []);
+  assert.equal(reglas.bloqueDelCerebroParaLaTarjeta([]), "");
+  assert.match(reglas.bloqueDelCerebroParaLaTarjeta(r), /Decisiones\/contraentrega\.md/);
+});
+
+await prueba("el árbol pone las carpetas primero y cuelga cada cosa de su madre", () => {
+  const filas = [
+    { driveId: "d1", padreId: "raiz", nombre: "b.md", esCarpeta: false },
+    { driveId: "f1", padreId: "raiz", nombre: "Reglas", esCarpeta: true },
+    { driveId: "d2", padreId: "f1", nombre: "envios.md", esCarpeta: false },
+  ];
+  const arbol = reglas.armarArbol(filas, "raiz");
+  assert.deepEqual(arbol.map((n) => n.nombre), ["Reglas", "b.md"]);
+  assert.deepEqual(arbol[0].hijos.map((n) => n.nombre), ["envios.md"]);
+});
+
+/* ── Cifrado ── */
+
+await prueba("el permiso de Google se cifra y descifra; el state firmado vence y no se puede falsificar", () => {
+  const clave = cifrado.claveDeCifrado("una-clave-de-prueba-larga");
+  const guardado = cifrado.cifrar("1//refresh-token-secreto", clave);
+  assert.ok(!guardado.includes("refresh-token-secreto"));
+  assert.equal(cifrado.descifrar(guardado, clave), "1//refresh-token-secreto");
+  assert.throws(() => cifrado.descifrar(guardado, cifrado.claveDeCifrado("otra-clave-distinta-larga")));
+  assert.throws(() => cifrado.claveDeCifrado(""), /CEREBRO_CLAVE_CIFRADO/);
+  const estado = cifrado.firmarEstado({ workspaceId: "ws", userId: "u1" }, 1_000, clave);
+  assert.deepEqual(cifrado.verificarEstado(estado, 2_000, clave), { workspaceId: "ws", userId: "u1", vence: 1_000 + 15 * 60_000 });
+  assert.equal(cifrado.verificarEstado(estado, 1_000 + 16 * 60_000, clave), null, "vencido");
+  assert.equal(cifrado.verificarEstado(`${estado}x`, 2_000, clave), null, "alterado");
+  assert.equal(cifrado.verificarEstado(null, 2_000, clave), null);
+});
+
+/* ── El cliente de Drive: solo lee, crea y reemplaza texto ── */
+
+await prueba("el cliente de Drive crea (POST) y reemplaza (PATCH) textos; no tiene ninguna función de borrar", async () => {
+  const pedidos = [];
+  const fetchFalso = async (url, init = {}) => {
+    pedidos.push({ url: String(url), metodo: init.method ?? "GET" });
+    return new Response(JSON.stringify({ id: "x1", name: "n.md", mimeType: "text/markdown", version: "3", parents: ["raiz"] }), { status: 200 });
+  };
+  const drive = crearClienteDeDrive("token", fetchFalso);
+  await drive.crearTexto("raiz", "n.md", "hola");
+  await drive.reemplazarTexto("x1", "chao", "text/markdown");
+  assert.deepEqual(pedidos.map((p) => p.metodo), ["POST", "PATCH"]);
+  await assert.rejects(() => drive.reemplazarTexto("x2", "x", "application/vnd.google-apps.document"));
+  assert.deepEqual(Object.keys(drive).sort(), ["crearTexto", "leerTexto", "listarCarpetas", "metadatos", "recorrer", "reemplazarTexto"]);
+});
+
+await prueba("en el código del cerebro no existe ninguna llamada que borre, vacíe o mande a la papelera en el Drive", () => {
+  const archivos = [];
+  const recorrer = (carpeta) => {
+    for (const entrada of fs.readdirSync(carpeta, { withFileTypes: true })) {
+      const ruta = path.join(carpeta, entrada.name);
+      if (entrada.isDirectory()) recorrer(ruta);
+      else if (/\.(ts|tsx)$/.test(entrada.name)) archivos.push(ruta);
+    }
+  };
+  recorrer(path.join(RAIZ, "src/features/cerebro"));
+  archivos.push(path.join(RAIZ, "src/lib/mcp/cerebro.ts"), path.join(RAIZ, "src/app/actions/cerebro-actions.ts"));
+  for (const carpeta of ["src/app/api/cerebro"]) recorrer(path.join(RAIZ, carpeta));
+  const prohibidos = [
+    /method:\s*["'`]DELETE/i,
+    /files\.delete/i,
+    /emptyTrash/i,
+    /trashed\s*[:=]\s*true/i,
+    /\/trash\b/i,
+    /["'`]DELETE["'`]/,
+    /\bdelete\s+from\b/i,
+    /permissions\//i,
+  ];
+  for (const ruta of archivos) {
+    const texto = fs.readFileSync(ruta, "utf8");
+    for (const patron of prohibidos) assert.ok(!patron.test(texto), `${path.relative(RAIZ, ruta)} tiene algo que borra o comparte en el Drive: ${patron}`);
+  }
+  // Además, el almacén de la copia nunca borra filas: el Drive manda, pero lo ausente solo se marca.
+  const almacen = fs.readFileSync(path.join(RAIZ, "src/features/cerebro/services/almacen.ts"), "utf8");
+  assert.ok(!/\.delete(Many)?\(/.test(almacen));
+});
+
+/* ── Está enchufado donde debe ── */
+
+await prueba("el MCP registra las 4 herramientas y cerebro_escribir exige la confirmación del dueño", () => {
+  const herramientas = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/herramientas.ts"), "utf8");
+  assert.match(herramientas, /\.\.\.HERRAMIENTAS_MCP_CEREBRO/);
+  assert.match(herramientas, /esHerramientaDelCerebro\(nombre\)/);
+  const cerebro = cargar("src/lib/mcp/cerebro.ts", { "@/lib/prisma": nada, "@/features/cerebro/services/consultas": nada, "@/features/cerebro/services/escribir": nada });
+  assert.deepEqual(cerebro.HERRAMIENTAS_MCP_CEREBRO.map((h) => h.name), ["cerebro_listar", "cerebro_leer", "cerebro_buscar", "cerebro_escribir"]);
+  const escribir = cerebro.HERRAMIENTAS_MCP_CEREBRO.find((h) => h.name === "cerebro_escribir");
+  assert.ok(escribir.inputSchema.required.includes("texto_confirmacion"));
+  for (const solo of cerebro.HERRAMIENTAS_MCP_CEREBRO.filter((h) => h.name !== "cerebro_escribir")) assert.equal(solo.annotations.readOnlyHint, true);
+  assert.equal(escribir.annotations.destructiveHint, false);
+  const origen = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/cerebro.ts"), "utf8");
+  assert.match(origen, /origen: "MCP"/);
+});
+
+await prueba("la sincronización cada hora, el estado de la automatización, la pestaña y el botón están enchufados", () => {
+  const cron = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8");
+  assert.match(cron, /if \(minuto === 41\) \{\s+after\(async \(\) => \{\s+try \{\s+await sincronizarCerebroDeTodos\(\);/);
+  const queEs = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/que-es-esta-aplicacion.ts"), "utf8");
+  assert.match(queEs, /cerebro_sincronizacion: await estadoDelCerebro/);
+  const pestanas = fs.readFileSync(path.join(RAIZ, "src/components/negocio-equipo-tabs-lista.tsx"), "utf8");
+  assert.match(pestanas, /value: "cerebro"/);
+  assert.match(pestanas, /item\.value !== "cerebro" \|\| verCerebro/);
+  const ficha = fs.readFileSync(path.join(RAIZ, "src/features/tableros-inteligentes/components/FichaTarjeta.tsx"), "utf8");
+  assert.match(ficha, /puedeCerebro && sePuedePasarAlCerebro\(tarjeta, tipo\?\.nombre\)/);
+  const tomar = fs.readFileSync(path.join(RAIZ, "src/app/api/trabajador/tablero/tomar/route.ts"), "utf8");
+  assert.match(tomar, /cerebroParaLaTarjeta/);
+});
+
+await prueba("el coach suma las reglas del cerebro al prompt; sin cerebro el prompt es el de siempre", () => {
+  const coach = cargar("src/features/coach/reglas.ts");
+  const fichas = [];
+  const sin = coach.armarPromptDelLote({ asesora: "Ana", dia: "2026-10-26", fichas });
+  const con = coach.armarPromptDelLote({ asesora: "Ana", dia: "2026-10-26", fichas, reglasDelCerebro: ["Del cerebro (Reglas/precios.md): Camilla $1.200.000"] });
+  assert.ok(!sin.sistema.includes("cerebro del negocio"));
+  assert.ok(con.sistema.includes("Camilla $1.200.000"));
+  const vacio = coach.armarPromptDelLote({ asesora: "Ana", dia: "2026-10-26", fichas, reglasDelCerebro: [] });
+  assert.equal(vacio.sistema, sin.sistema);
+});
+
+console.log(`\n${pruebas} pruebas del cerebro: OK`);

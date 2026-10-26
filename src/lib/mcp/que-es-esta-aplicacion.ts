@@ -456,6 +456,18 @@ async function estadoDeRecogerErrores(workspaceId: string) {
   return `activa: el Coordinador la corre una vez al día (y al arrancar con este cambio); ahora hay ${enError.length} tarjeta(s) en ERROR, ${conLinea} con una línea para el dueño`;
 }
 
+/** Cerebro: si hay Google conectado y carpeta elegida, y cómo fue la última sincronización (cada hora, minuto 41). */
+async function estadoDelCerebro(workspaceId: string) {
+  const conexion = await prisma.cerebroConexion.findUnique({
+    where: { workspaceId },
+    select: { tokenCifrado: true, carpetaNombre: true, carpetaId: true, ultimaSincronizacion: true, ultimoError: true },
+  });
+  if (!conexion?.tokenCifrado) return "apagada: Google Drive no está conectado (Mi empresa → Cerebro)";
+  if (!conexion.carpetaId) return "conectada a Google pero sin carpeta elegida: no sincroniza nada todavía";
+  const cuando = conexion.ultimaSincronizacion ? `última sincronización buena: ${conexion.ultimaSincronizacion.toISOString().slice(0, 16).replace("T", " ")} UTC` : "todavía sin sincronizar";
+  return `activa: el reloj trae el Drive (carpeta ${conexion.carpetaNombre ?? "sin nombre"}) cada hora, gana el Drive; ${cuando}${conexion.ultimoError ? `; ÚLTIMO ERROR: ${conexion.ultimoError}` : ""}`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -514,6 +526,7 @@ async function automatizaciones(
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(),
     avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
+    cerebro_sincronizacion: await estadoDelCerebro(workspaceId).catch(() => "no se pudo leer"),
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
     agente_de_marketing: await estadoDelAgenteDeMarketing(workspaceId).catch(() => "no se pudo leer"),
     recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),

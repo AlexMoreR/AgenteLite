@@ -675,12 +675,17 @@ export function armarPromptDelLote(input: {
   dia: string;
   fichas: FichaParaIA[];
   politica?: PoliticaCoach;
+  /** Políticas, reglas y precios que el cerebro (Google Drive) tiene escritos. Si vienen, se suman a las reglas de siempre. */
+  reglasDelCerebro?: string[];
 }): { sistema: string; usuario: string } {
   const politica = input.politica ?? POLITICA_COACH;
   const sistema = [
     "Eres el coach de ventas de Magilus. Lees los chats de WhatsApp de UNA asesora en un día y devuelves SOLO un JSON.",
     "Reglas del negocio (vigentes, no las discutas):",
     ...reglasParaElPrompt(politica).map((regla) => `- ${regla}`),
+    ...(input.reglasDelCerebro?.length
+      ? ["Lo que el cerebro del negocio tiene decidido (si choca con lo de arriba, manda lo más reciente del cerebro):", ...input.reglasDelCerebro.map((regla) => `- ${regla}`)]
+      : []),
     "",
     "Cómo juzgar:",
     "- Juzga SOLO lo que hizo la ASESORA en la sección '-- hoy --'. Lo que dijo el BOT, una plantilla o una regla que falta va en fallasDelSistema, nunca en errores.",

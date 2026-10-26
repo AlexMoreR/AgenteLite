@@ -439,6 +439,27 @@ export function textoDeConfirmacionParaHecho(texto: unknown): Veredicto {
   return null;
 }
 
+/**
+ * ¿El texto de confirmación dice de verdad "sí, escríbelo en el cerebro"? Al menos 8 caracteres, con la
+ * palabra "sí" (o "si") y un verbo de escribir ("escribe", "escríbelo", "guárdalo", "anótalo", "agrégalo",
+ * "pásalo"), sin importar tildes ni mayúsculas. Cualquier "no" o una pregunta no es una orden del dueño.
+ * Lo usa cerebro_escribir (escribir en el Drive por voz).
+ */
+export function textoDeConfirmacionParaCerebro(texto: unknown): Veredicto {
+  const COMO = 'Tiene que ser lo que dijo la persona, por ejemplo: "sí, escríbelo en el cerebro".';
+  if (typeof texto !== "string" || texto.trim().length < 8) {
+    return `Falta el texto de confirmación (mínimo 8 caracteres). ${COMO}`;
+  }
+  const limpio = normalizar(texto);
+  if (!/(^|[^a-z])si([^a-z]|$)/.test(limpio) || !/(^|[^a-z])(escrib|guard|anot|agreg|pas|document)[a-z]*/.test(limpio)) {
+    return `El texto de confirmación tiene que decir "sí" y escribir/guardar ("escríbelo", "guárdalo"). ${COMO}`;
+  }
+  if (/(^|[^a-z])(no|nunca|tampoco)([^a-z]|$)/.test(limpio) || /[?¿]/.test(texto)) {
+    return 'El texto tiene un "no" o es una pregunta: no es una orden clara de escribirlo en el cerebro.';
+  }
+  return null;
+}
+
 /** Lo que se sabe de la cuenta que aprueba para decidir si es la dueña del negocio. */
 export type CuentaQueAprueba = {
   nombre: string;

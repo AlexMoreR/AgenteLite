@@ -17,6 +17,7 @@ import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente
 import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/servicio";
 import { procesarColaDeReuniones } from "@/features/reuniones/servicios/cola-de-reuniones";
 import { aprobarPlanesListosQueEsperan, aprobarSolasLasPendientes } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { sincronizarCerebroDeTodos } from "@/features/cerebro/services/sincronizar-negocio";
 import { revisarAvisosAlDueno } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 
 function resolveCronSecret() {
@@ -301,6 +302,21 @@ async function handleCron(request: Request) {
       console.error("[cron/follows] automatizaciones error", error);
     }
   });
+
+  /*
+    CEREBRO (ver src/features/cerebro): una vez por hora (minuto 41) trae del Google Drive lo que cambió, con
+    su propio manejo de errores. Gana el Drive y nunca borra nada allá. Sin ninguna conexión es UNA
+    consulta a la base y sale. En segundo plano para no demorar los envíos de esta vuelta.
+  */
+  if (minuto === 41) {
+    after(async () => {
+      try {
+        await sincronizarCerebroDeTodos();
+      } catch (error) {
+        console.error("[cron/follows] sincronizacion del cerebro error", error);
+      }
+    });
+  }
 
   if (minuto === 23) {
     after(async () => {
