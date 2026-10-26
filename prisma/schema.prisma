@@ -1972,6 +1972,29 @@ model SupervisorAlerta {
   @@index([workspaceId, createdAt])
 }
 
+/// Registro de cada aviso por WhatsApp a una asesora y de cada reasignación automática que hace el Supervisor (ver src/features/supervisor-reasignacion). La regla única (chat, tipo, episodio) es la que impide avisar dos veces lo mismo: si no se pudo anotar, no se manda.
+/// Sin claves foraneas a proposito: es un registro de vigilancia, no tiene por que impedir borrar nada.
+model SupervisorAviso {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  conversationId   String
+  /// AVISO | REASIGNACION | CALIENTE_24H | BOT_PIDIO_ASESORA | SIN_CANDIDATA (texto, no enum)
+  tipo             String
+  /// La asesora avisada (en REASIGNACION, a la que se le quitó el chat).
+  asesoraId        String
+  /// En REASIGNACION, la que recibió el chat.
+  asesoraNuevaId   String?
+  /// La hora del mensaje del cliente (o de la asignación) que provocó el aviso.
+  episodio         DateTime
+  minutosEsperando Int      @default(0)
+  whatsappEnviado  Boolean  @default(false)
+  error            String?
+  creadoEn         DateTime @default(now())
+
+  @@unique([conversationId, tipo, episodio])
+  @@index([workspaceId, creadoEn])
+}
+
 /// Estado de una tarjeta de un Tablero inteligente. Aprobar (APROBADO, PLAN_APROBADO, SUBIENDO) es su propia
 /// acción: el dueño (o un aprobador) en la pantalla, o por el MCP con aprobar_tarjeta y la confirmación
 /// explícita de la persona; nunca moviendo el estado. Fase 2 (trabajador): APROBADO -> PLANEANDO ->

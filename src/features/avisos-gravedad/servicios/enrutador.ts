@@ -73,9 +73,10 @@ export async function idsDeAlexander(workspaceId: string, config: ConfigGravedad
   return jefes.map((jefe) => jefe.userId);
 }
 
-type ConfigDeAvisosCruda = { canalId?: string; destinos?: Array<{ numero?: string; soloDe?: string | null; userId?: string }> };
+export type ConfigDeAvisosCruda = { canalId?: string; destinos?: Array<{ numero?: string; soloDe?: string | null; userId?: string }> };
 
-async function leerAvisosCrudos(workspaceId: string): Promise<ConfigDeAvisosCruda> {
+/** La lista de avisos del equipo (Mi empresa → Equipo). La usan también los avisos del Supervisor (supervisor-reasignacion). */
+export async function leerAvisosCrudos(workspaceId: string): Promise<ConfigDeAvisosCruda> {
   const fila = await prisma.appSetting.findUnique({ where: { key: `agente-v3:avisos:${workspaceId}` } }).catch(() => null);
   try {
     return fila?.value ? (JSON.parse(fila.value) as ConfigDeAvisosCruda) : {};

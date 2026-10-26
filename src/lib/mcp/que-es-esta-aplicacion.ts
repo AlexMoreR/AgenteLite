@@ -5,6 +5,7 @@ import path from "node:path";
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
+import { claveConfigReasignacion, leerConfigReasignacionDeTexto } from "@/features/supervisor-reasignacion/dominio/reglas";
 import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
@@ -456,6 +457,17 @@ async function estadoDeRecogerErrores(workspaceId: string) {
   return `activa: el Coordinador la corre una vez al día (y al arrancar con este cambio); ahora hay ${enError.length} tarjeta(s) en ERROR, ${conLinea} con una línea para el dueño`;
 }
 
+/** Los avisos por WhatsApp y la reasignación del Supervisor: sus dos interruptores y sus tiempos. */
+async function estadoDeAvisosYReasignacion(workspaceId: string) {
+  const config = leerConfigReasignacionDeTexto(await bandera(claveConfigReasignacion(workspaceId)));
+  if (!config.avisosActivos && !config.reasignacionActiva) return "apagada (los dos interruptores, en la pantalla del Supervisor)";
+  const partes = [
+    config.avisosActivos ? `avisos a los ${config.avisoMin} min y Caliente a las ${config.calienteHoras} h` : "avisos apagados",
+    config.reasignacionActiva ? `reasigna a los ${config.reasignarMin} min solo si la asesora nunca le escribió al cliente (si ya respondió: recordatorio a los ${config.recordatorioMin} min y aviso al Supervisor a los ${config.avisoSupervisorMin}, nunca se le quita)` : "reasignacion apagada",
+  ];
+  return `activa: ${partes.join("; ")}; horario ${config.horario.desde}-${config.horario.hasta} h, dias ${config.horario.dias.join(",")}`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -519,6 +531,7 @@ async function automatizaciones(
     recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),
     // Vive en el Coordinador (aizen1), no en la base: el CRM solo recibe las 3 líneas del resumen con la subida.
     mejora_continua_tablero: "activa: corre dentro del Coordinador (aizen1); las lecciones viven en su carpeta de trabajo y el CRM no las puede leer, solo guarda las 3 líneas del resumen de cada subida",
+    supervisor_avisos_y_reasignacion: await estadoDeAvisosYReasignacion(workspaceId).catch(() => "no se pudo leer"),
   };
 
   return {
