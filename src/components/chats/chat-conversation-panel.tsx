@@ -77,6 +77,8 @@ import {
   refreshContactAvatarNowAction,
 } from "@/app/actions/chats-actions";
 import { sendChatLocationReplyAction } from "@/app/actions/agent-actions";
+import { getOrigenDelContactoAction } from "@/app/actions/origen-del-contacto-actions";
+import type { OrigenDelCliente } from "@/lib/origen-del-cliente";
 import { clearPendingConversationSelection } from "@/components/chats/chat-selection-store";
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
@@ -628,6 +630,8 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isContactPanelOpen, setIsContactPanelOpen] = useState(false);
   const isMobile = useIsMobile();
   const [contactCity, setContactCity] = useState("");
+  // De dónde llegó el cliente (anuncio, Marketplace u orgánico). Solo lectura; si falla, no se muestra.
+  const [contactOrigen, setContactOrigen] = useState<OrigenDelCliente | null>(null);
   // Chat en el que la asesora abrio "Calcular envio" (null = ninguno; otro chat = cerrado).
   const [envioAbiertoEn, setEnvioAbiertoEn] = useState<string | null>(null);
   // Etiquetas REALES del contacto para el panel. renderedConversation.tags viene del detalle
@@ -653,6 +657,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   useEffect(() => {
     if (!isContactPanelOpen || !panelContactId) {
       setContactCity("");
+      setContactOrigen(null);
       setContactPanelTags(null);
       return;
     }
@@ -665,6 +670,14 @@ export const ConversationPanel = memo(function ConversationPanel({
         setContactPanelTags(result.details.tags.map((tag) => ({ label: tag.name, color: tag.color })));
       }
     });
+
+    getOrigenDelContactoAction(panelContactId)
+      .then((origen) => {
+        if (!cancelled) setContactOrigen(origen);
+      })
+      .catch(() => {
+        if (!cancelled) setContactOrigen(null);
+      });
 
     return () => {
       cancelled = true;
@@ -1429,6 +1442,18 @@ export const ConversationPanel = memo(function ConversationPanel({
             <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
               <MapPin className="h-3.5 w-3.5 shrink-0" />
               <span className="min-w-0 truncate">{contactCity}</span>
+            </p>
+          ) : null}
+          {contactOrigen ? (
+            <p className="flex items-center gap-1 truncate text-xs text-muted-foreground" title={contactOrigen.etiqueta}>
+              <span className="shrink-0 font-medium">Origen:</span>
+              {contactOrigen.enlace ? (
+                <a href={contactOrigen.enlace} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate underline">
+                  {contactOrigen.etiqueta}
+                </a>
+              ) : (
+                <span className="min-w-0 truncate">{contactOrigen.etiqueta}</span>
+              )}
             </p>
           ) : null}
         </div>
@@ -2938,6 +2963,18 @@ export const ConversationPanel = memo(function ConversationPanel({
                     <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
                       <MapPin className="h-3.5 w-3.5 shrink-0" />
                       <span className="min-w-0 truncate">{contactCity}</span>
+                    </p>
+                  ) : null}
+                  {contactOrigen ? (
+                    <p className="flex items-center gap-1 truncate text-xs text-muted-foreground" title={contactOrigen.etiqueta}>
+                      <span className="shrink-0 font-medium">Origen:</span>
+                      {contactOrigen.enlace ? (
+                        <a href={contactOrigen.enlace} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate underline">
+                          {contactOrigen.etiqueta}
+                        </a>
+                      ) : (
+                        <span className="min-w-0 truncate">{contactOrigen.etiqueta}</span>
+                      )}
                     </p>
                   ) : null}
                 </div>

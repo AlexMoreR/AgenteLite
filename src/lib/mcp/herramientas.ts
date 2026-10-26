@@ -1,3 +1,5 @@
+import { leerMapaDeLineas } from "@/lib/origen-de-venta-crm";
+import { TIPOS_DE_ORIGEN, esTipoDeOrigen, origenDelCliente } from "@/lib/origen-del-cliente";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { HERRAMIENTAS_MCP_V3, ejecutarHerramientaMcpV3, esHerramientaV3 } from "@/lib/mcp/agente-v3";
 import {
@@ -128,7 +130,7 @@ const HERRAMIENTAS_DE_LECTURA = [
     name: "listar_conversaciones",
     title: "Listar conversaciones",
     description:
-      "Conversaciones de un periodo, con contacto, linea, etapa del CRM, asesora asignada y cuantos mensajes hubo de cada lado. Siempre devuelve ademas el total por etapa del periodo. Sin 'etapa' trae las que tuvieron MOVIMIENTO en el periodo, de la mas reciente a la mas vieja. Con 'etapa' trae las que CAYERON en esa etapa dentro del periodo, aunque el chat lleve meses quieto: sirve para 'los ganados de septiembre' o 'los perdidos del mes'. El campo 'fechado_por' de la respuesta dice con que fecha se ubico cada etapa. Cada conversacion trae las etiquetas del contacto y si esta oculto del CRM; por defecto los ocultos no vienen (ver incluir_ocultos).",
+      "Conversaciones de un periodo, con contacto, linea, etapa del CRM, asesora asignada y cuantos mensajes hubo de cada lado. Siempre devuelve ademas el total por etapa del periodo. Sin 'etapa' trae las que tuvieron MOVIMIENTO en el periodo, de la mas reciente a la mas vieja. Con 'etapa' trae las que CAYERON en esa etapa dentro del periodo, aunque el chat lleve meses quieto: sirve para 'los ganados de septiembre' o 'los perdidos del mes'. El campo 'fechado_por' de la respuesta dice con que fecha se ubico cada etapa. Cada conversacion trae su origen (anuncio, marketplace u organico) y se puede filtrar con 'origen'. Cada conversacion trae las etiquetas del contacto y si esta oculto del CRM; por defecto los ocultos no vienen (ver incluir_ocultos).",
     inputSchema: {
       type: "object",
       properties: {
@@ -152,6 +154,14 @@ const HERRAMIENTAS_DE_LECTURA = [
           type: "boolean",
           description:
             "Incluir los contactos ocultos del CRM (lineas administrativas como proveedores, o sacados a mano). Por defecto false, con o sin filtro de etapa. Aplica tambien a totales_por_etapa",
+        },
+        origen: {
+          description:
+            "De donde llego el cliente: anuncio (clic a WhatsApp de Meta), marketplace u organico (organico = sin dato). Una sola o varias. Cada conversacion trae su 'origen'; con este filtro se revisan hasta 500 chats del periodo. La campana no llega desde Evolution: solo el titulo y el id del anuncio",
+          anyOf: [
+            { type: "string", enum: [...TIPOS_DE_ORIGEN] },
+            { type: "array", items: { type: "string", enum: [...TIPOS_DE_ORIGEN] } },
+          ],
         },
         canal_id: { type: "string", description: "Solo una linea de WhatsApp (opcional)" },
         buscar: { type: "string", description: "Nombre o telefono del contacto (opcional)" },
@@ -618,6 +628,13 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
   }
   const etapas = etapasPedidas as EtapaCrm[];
 
+  // Por origen del cliente (anuncio, marketplace, organico). Se clasifica con la regla de origen-del-cliente.ts.
+  const origenesPedidos = lista(args, "origen").map((origen) => origen.toLowerCase());
+  const origenesInvalidos = origenesPedidos.filter((origen) => !esTipoDeOrigen(origen));
+  if (origenesInvalidos.length > 0) {
+    throw new Error(`Origen no valido: ${origenesInvalidos.join(", ")}. Los que existen son ${TIPOS_DE_ORIGEN.join(", ")}.`);
+  }
+
   /*
     Por etiqueta: una o varias, por nombre o por su slug, sin importar mayusculas. Una etiqueta que
     no existe en el negocio es un error y no una lista vacia: una lista vacia se leeria como "no hay
@@ -719,7 +736,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
     AND: condicionesDelContacto,
   };
 
-  const conversaciones = await prisma.conversation.findMany({
+  const conversacionesTodas = await prisma.conversation.findMany({
     where: {
       workspaceId: contexto.workspaceId,
       // Con etapa, el rango ya se aplico sobre la fecha de la etapa: pedirlo tambien sobre el
@@ -730,14 +747,15 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       contact: contactoWhere,
     },
     orderBy: { lastMessageAt: "desc" },
-    take: limite,
+    // Con filtro de origen se traen mas chats (tope fijo) para clasificarlos y recortar despues.
+    take: origenesPedidos.length > 0 ? 500 : limite,
     select: {
       id: true,
       contactId: true,
       status: true,
       lastMessageAt: true,
       automationPaused: true,
-      channel: { select: { id: true, name: true } },
+      channel: { select: { id: true, name: true, purpose: true, metadata: true } },
       assignedTo: { select: { name: true } },
       contact: {
         select: {
@@ -745,11 +763,34 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
           phoneNumber: true,
           crmStage: true,
           excludedFromCrm: true,
+          metadata: true,
           ContactTag: { select: { Tag: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
         },
       },
     },
   });
+
+  // Origen de cada chat (solo lectura de lo que el webhook ya guardo) y recorte final por filtro y limite.
+  const mapaDeLineas = await leerMapaDeLineas(contexto.workspaceId);
+  const clasificadas = conversacionesTodas.map((fila) => ({
+    fila,
+    origen: origenDelCliente(
+      fila.contact.metadata,
+      fila.channel
+        ? { channelId: fila.channel.id, nombre: fila.channel.name, purpose: fila.channel.purpose, metadata: fila.channel.metadata }
+        : null,
+      mapaDeLineas,
+    ),
+  }));
+  const totalesPorOrigen = Object.fromEntries(
+    TIPOS_DE_ORIGEN.map((tipo) => [tipo, clasificadas.filter((fila) => fila.origen.tipo === tipo).length]),
+  );
+  const conversaciones = (
+    origenesPedidos.length > 0 ? clasificadas.filter((fila) => origenesPedidos.includes(fila.origen.tipo)) : clasificadas
+  )
+    .slice(0, limite)
+    .map((fila) => fila.fila);
+  const origenDe = new Map(clasificadas.map((fila) => [fila.fila.id, fila.origen]));
 
   const conteos = conversaciones.length
     ? await prisma.message.groupBy({
@@ -808,6 +849,15 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
     filtrado_por: etapas.length > 0 ? "etapa" : "movimiento_del_chat",
     incluye_ocultos_del_crm: incluirOcultos,
     ...(etiquetasPedidas.length > 0 ? { etiquetas_pedidas: etiquetasPedidas } : {}),
+    ...(origenesPedidos.length > 0
+      ? {
+          origen_pedido: origenesPedidos,
+          nota_origen:
+            "Filtro aplicado sobre hasta 500 chats del periodo (los mas recientes). Un cliente de anuncio que escribe a la linea de Marketplace cuenta como anuncio. La campana no llega desde Evolution: solo el titulo y el id del anuncio.",
+        }
+      : {}),
+    // Conteo por origen de los chats revisados (hasta 500 con filtro; sin filtro, los de la lista).
+    totales_por_origen: totalesPorOrigen,
     /*
       Con que fecha se ubico cada etapa en el periodo. Va en la respuesta a proposito: sin esto,
       un "5 perdidos en septiembre" parece un dato exacto, y para PERDIDO es la fecha en que se
@@ -847,6 +897,12 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       etiquetas: fila.contact.ContactTag.map((fila) => fila.Tag.name),
       // Contacto de una linea administrativa (proveedores, logistica) o sacado del CRM a mano.
       oculto_del_crm: fila.contact.excludedFromCrm,
+      origen: (({ tipo, tituloAnuncio, idAnuncio, red }) => ({
+        tipo,
+        titulo_anuncio: tituloAnuncio,
+        id_anuncio: idAnuncio,
+        red,
+      }))(origenDe.get(fila.id)!),
       asignada_a: fila.assignedTo?.name ?? null,
       estado: fila.status,
       ia_pausada: fila.automationPaused,
