@@ -1,3 +1,4 @@
+import { registrarPasoDelV2 } from "@/features/embudo/servicios/eventos";
 import { prisma } from "@/lib/prisma";
 import {
   PRODUCT_FUNNEL_STAGES,
@@ -104,7 +105,7 @@ export async function syncFunnelStageFromCommercialStage(input: {
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: input.conversationId },
-    select: { funnelStage: true, funnelStageCount: true },
+    select: { funnelStage: true, funnelStageCount: true, workspaceId: true, contactId: true, channelId: true, activeProductContext: true },
   });
 
   if (!conversation) {
@@ -141,6 +142,19 @@ export async function syncFunnelStageFromCommercialStage(input: {
       ...(cambio ? { funnelNotifiedAt: null } : {}),
     },
   });
+
+  if (cambio) {
+    // Medición del embudo por paso: en segundo plano y sin lanzar, no frena al V2.
+    const producto = conversation.activeProductContext as { productId?: unknown } | null;
+    registrarPasoDelV2({
+      workspaceId: conversation.workspaceId,
+      conversationId: input.conversationId,
+      contactId: conversation.contactId,
+      channelId: conversation.channelId,
+      paso: target,
+      productoId: typeof producto?.productId === "string" ? producto.productId : null,
+    });
+  }
 
   return { stage: target, count, changed: cambio };
 }

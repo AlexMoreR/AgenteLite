@@ -214,6 +214,9 @@ export function EmbudoSemanalVista(props: EmbudoSemanalVistaProps) {
             Bogotá). Los pasos 2 a 4 miran sus primeros 14 días; los de menos de 72 h no entran en los números.
           </span>
           <span>Venta = chat marcado Ganado en el CRM. Muchas ventas no se marcan: por eso se ve tan baja.</span>
+          <Link href="/cliente/crm/embudo-por-paso" className="inline-flex min-h-11 items-center self-start underline">
+            Ver en qué paso del bot se queda cada cliente
+          </Link>
           <Link href={props.hrefClasica} className="mt-1 inline-flex min-h-11 items-center self-start underline">
             Ver la vista clásica del embudo
           </Link>

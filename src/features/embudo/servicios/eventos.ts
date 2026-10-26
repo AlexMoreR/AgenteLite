@@ -84,7 +84,12 @@ function comoFoto(fila: Record<string, unknown> | null): FotoDelLead | null {
   if (!fila) return null;
   const foto = fila as unknown as FotoDelLead;
   const accionDatos = fila.accionDatos && typeof fila.accionDatos === "object" && !Array.isArray(fila.accionDatos) ? (fila.accionDatos as Record<string, unknown>) : null;
-  return { ...foto, accionDatos, senales: Array.isArray(fila.senales) ? (fila.senales as FotoDelLead["senales"]) : null };
+  return {
+    ...foto,
+    accionDatos,
+    senales: Array.isArray(fila.senales) ? (fila.senales as FotoDelLead["senales"]) : null,
+    pasoHistorial: Array.isArray(fila.pasoHistorial) ? (fila.pasoHistorial as FotoDelLead["pasoHistorial"]) : null,
+  };
 }
 
 function datosDeLaFoto(foto: FotoDelLead) {
@@ -102,6 +107,11 @@ function datosDeLaFoto(foto: FotoDelLead) {
     libroVersionEntrada: foto.libroVersionEntrada,
     pasoActual: foto.pasoActual,
     pasoMaximo: foto.pasoMaximo,
+    // Embudo por paso. `undefined` = no se toca la columna.
+    pasoAnterior: foto.pasoAnterior,
+    pasoDesde: foto.pasoDesde,
+    pasoHistorial:
+      foto.pasoHistorial === undefined ? undefined : foto.pasoHistorial ? (foto.pasoHistorial as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
     temperatura: foto.temperatura,
     puntaje: foto.puntaje,
     motivo: foto.motivo,
@@ -275,6 +285,28 @@ export function registrarTurnoV3(input: BaseDelEvento & {
       // Las señales de texto ya salen por mensaje en el webhook; acá solo las de un audio transcrito.
       incluirSenales: (input.tipoMensaje ?? "").toUpperCase() === "AUDIO",
     });
+  });
+}
+
+/**
+ * El Agente V2 cambió de etapa: se anota el mismo "entró al paso X" que deja el V3, marcado como
+ * del V2. En segundo plano y sin lanzar: si falla, el V2 sigue igual.
+ */
+export function registrarPasoDelV2(input: BaseDelEvento & { paso: string; productoId?: string | null }): void {
+  registrarEnSegundoPlano(input, async () => {
+    if (!(await embudoActivo(input.workspaceId))) return [];
+    const producto = await claveDeProductoDelV3(input.workspaceId, input.productoId);
+    return [
+      {
+        tipo: "PASO_ENTRA" as const,
+        origen: "motor" as const,
+        paso: input.paso,
+        producto,
+        datos: { agente: "V2" },
+        claveUnica: `PASO:${input.conversationId}:${producto ?? "-"}:${input.paso}`,
+        createdAt: new Date(),
+      },
+    ];
   });
 }
 

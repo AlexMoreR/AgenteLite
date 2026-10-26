@@ -235,6 +235,12 @@ export function eventosDelTurno(input: {
    LA FOTO DEL LEAD
 ------------------------------------------------------------------------------------------------ */
 
+/** Un cambio de paso guardado en la foto del lead. `agente` dice quién lo hizo (V3 o V2). */
+export type CambioDePaso = { paso: string; producto: string | null; en: string; agente: "V3" | "V2" };
+
+/** Cuántos cambios de paso guarda la foto (los más recientes). */
+export const MAXIMO_DE_CAMBIOS_DE_PASO = 10;
+
 export type SenalGuardada = { tipo: TipoDeSenal; fragmento: string; en: string };
 
 export type FotoDelLead = {
@@ -252,6 +258,10 @@ export type FotoDelLead = {
   libroVersionEntrada: number | null;
   pasoActual: string | null;
   pasoMaximo: string | null;
+  /* Embudo por paso. Opcionales: las fotos anteriores a la migración no los traen. */
+  pasoAnterior?: string | null;
+  pasoDesde?: Date | null;
+  pasoHistorial?: CambioDePaso[] | null;
   temperatura: string | null;
   puntaje: number | null;
   motivo: string | null;
@@ -350,6 +360,21 @@ export function aplicarEvento(anterior: FotoDelLead | null, evento: EventoDelEmb
   if (evento.producto && evento.tipo !== "ENTRADA") {
     lead.productoActual = evento.producto;
     if (!lead.productoEntrada) lead.productoEntrada = evento.producto;
+  }
+  if (evento.tipo === "PASO_ENTRA" && evento.paso && ordenDelPaso(evento.paso) >= 0) {
+    const cambioDePaso = evento.paso !== lead.pasoActual;
+    const cambioDeProducto = Boolean(evento.producto) && evento.producto !== anterior?.productoActual;
+    if (cambioDePaso) {
+      lead.pasoAnterior = lead.pasoActual;
+      lead.pasoDesde = cuando;
+    }
+    if (cambioDePaso || cambioDeProducto) {
+      const agente = datos.agente === "V2" ? "V2" : "V3";
+      lead.pasoHistorial = [
+        ...(lead.pasoHistorial ?? []),
+        { paso: evento.paso, producto: evento.producto ?? null, en: cuando.toISOString(), agente } as CambioDePaso,
+      ].slice(-MAXIMO_DE_CAMBIOS_DE_PASO);
+    }
   }
   if (evento.paso && ordenDelPaso(evento.paso) >= 0 && evento.tipo !== "SENAL" && evento.tipo !== "CLIENTE_RESPONDIO") {
     lead.pasoActual = evento.paso;

@@ -1886,6 +1886,12 @@ model EmbudoLead {
   libroVersionEntrada       Int?
   pasoActual                String?
   pasoMaximo                String?
+  /// Paso en el que estaba antes del actual (null = nunca cambio de paso).
+  pasoAnterior              String?
+  /// Cuando entro al paso actual.
+  pasoDesde                 DateTime?
+  /// Ultimos 10 cambios de paso: [{ paso, producto, en, agente: "V3" | "V2" }].
+  pasoHistorial             Json?
   /// F2. En F1 queda en null.
   temperatura               String?
   /// Puntaje "en sombra" de las senales: se guarda, no decide nada en F1.
@@ -1933,6 +1939,7 @@ model EmbudoLead {
   @@index([workspaceId, transferencia, temperatura])
   @@index([workspaceId, revisarEn])
   @@index([workspaceId, accion, tareaVence])
+  @@index([workspaceId, productoActual, pasoActual])
 }
 
 /// SUPERVISOR (fase 1: leer, analizar, alertar y recomendar). Una fila = un INCIDENTE que se
