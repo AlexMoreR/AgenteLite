@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { argumentosDeClaude } from "../correr-agente.mjs";
+import { argumentosDeClaude, CEREBRO_DEL_AREA, PROHIBIDAS_DEL_CEREBRO_GENERAL } from "../correr-agente.mjs";
 import { CRM_PERMITIDAS_MARKETING, META_ESCRITURA, META_LECTURA, SERVIDOR_META, VERBOS_QUE_ESCRIBEN } from "../lib/candado-meta.mjs";
 
 const CARPETA = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -77,6 +77,12 @@ prueba("el agente no puede mandar WhatsApp ni editar el CRM, el bot o el V3", ()
   for (const nombre of delCrm) assert.ok(!sinEscritura.test(nombre), `${nombre} escribe en el CRM`);
   assert.ok(delCrm.includes("guardar_resumen_del_dia"));
   for (const x of allow) assert.ok(!/whatsapp|v3_|editar_|flujo/i.test(x), x);
+});
+
+prueba("settings.json de marketing repite las listas del cerebro del lanzador", () => {
+  const { allow, deny } = settings.permissions;
+  for (const x of CEREBRO_DEL_AREA) assert.ok(allow.includes(x), `permitida: ${x}`);
+  for (const x of PROHIBIDAS_DEL_CEREBRO_GENERAL) assert.ok(deny.includes(x) && !allow.includes(x), `prohibida: ${x}`);
 });
 
 prueba("el lanzador abre Claude Code con esa lista: permitidas solo de lectura y prohibidas las de escritura", () => {

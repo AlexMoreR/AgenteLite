@@ -16,7 +16,7 @@ const SISTEMAS = path.join(RAIZ, "agentes-de-area", "sistemas");
 const { revisarPantalla, decidirPedido, direccionPermitida } = await import("../sistemas/herramientas/revisar-pantalla.mjs");
 const { armarComandoRemoto, leerServidor, LISTA } = await import("../sistemas/herramientas/leer-servidor.mjs");
 const { evaluarSalud } = await import("../sistemas/herramientas/salud-de-aizen1.mjs");
-const { BASH_DE_SISTEMAS, PROHIBIDAS_DE_SISTEMAS, CRM_LECTURA_DE_SISTEMAS } = await import("../correr-agente.mjs");
+const { BASH_DE_SISTEMAS, PROHIBIDAS_DE_SISTEMAS, CRM_LECTURA_DE_SISTEMAS, CEREBRO_DEL_AREA, PROHIBIDAS_DEL_CEREBRO_GENERAL } = await import("../correr-agente.mjs");
 
 let pruebas = 0;
 const fallas = [];
@@ -216,6 +216,15 @@ await prueba("la lista de permisos (settings.json y lanzador) no tiene aprobar, 
   }
   assert.deepEqual([...ajustes.permissions.deny].sort(), [...PROHIBIDAS_DE_SISTEMAS].sort(), "settings.json y el lanzador niegan lo mismo");
   assert.deepEqual(BASH_DE_SISTEMAS.map((b) => b.match(/herramientas\/([\w-]+\.mjs)/)[1]).sort(), ["leer-servidor.mjs", "revisar-pantalla.mjs", "salud-de-aizen1.mjs"]);
+});
+
+await prueba("el cerebro: settings.json permite las 3 herramientas del área y niega las 4 generales (igual que el lanzador)", () => {
+  const ajustes = JSON.parse(fs.readFileSync(path.join(SISTEMAS, ".claude", "settings.json"), "utf8"));
+  for (const x of CEREBRO_DEL_AREA) assert.ok(ajustes.permissions.allow.includes(x), `permitida: ${x}`);
+  for (const x of PROHIBIDAS_DEL_CEREBRO_GENERAL) {
+    assert.ok(ajustes.permissions.deny.includes(x) && !ajustes.permissions.allow.includes(x), `prohibida: ${x}`);
+    assert.ok(PROHIBIDAS_DE_SISTEMAS.includes(x), `el lanzador la prohíbe: ${x}`);
+  }
 });
 
 await prueba("el CLAUDE.md del agente y sus 3 prompts existen con su frecuencia", () => {

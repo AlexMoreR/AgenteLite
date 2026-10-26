@@ -28,3 +28,5 @@ tableros y de los repos aizencrm y gestion), decide si lo subido **funciona en p
   pantalla", "pide un POST para cargar", "pide iniciar sesión: falta la sesión guardada".
 
 Nunca crees ni modifiques datos reales para probar. Devuelve la lista completa; no decidas tú qué entra en la línea.
+
+Cerebro: antes de recomendar consulta `cerebro_del_area` (area `sistemas`) y cita el documento; no contradigas "Decisiones de Magilus". Los aprendizajes y los datos que chocan los anota tu agente (ver su CLAUDE.md), no tú.

@@ -261,7 +261,7 @@ await prueba("las herramientas de Ventas y de Marketing están en la lista del M
   const nombres = mcp.HERRAMIENTAS_MCP_AGENTES_DE_AREA.map((h) => h.name);
   for (const n of ["numeros_de_ventas", "guardar_resumen_del_dia", "mandar_whatsapp_al_equipo", "agente_de_ventas"]) assert.ok(nombres.includes(n), n);
   const lectura = mcp.HERRAMIENTAS_MCP_AGENTES_DE_AREA.filter((h) => h.annotations.readOnlyHint).map((h) => h.name).sort();
-  assert.deepEqual(lectura, ["agente_de_marketing", "agente_de_sistemas", "agente_de_ventas", "numeros_de_marketing", "numeros_de_ventas", "revision_de_sistemas"]);
+  assert.deepEqual(lectura, ["agente_de_marketing", "agente_de_sistemas", "agente_de_ventas", "cerebro_del_area", "numeros_de_marketing", "numeros_de_ventas", "revision_de_sistemas"]);
 });
 
 await prueba("por el MCP: sin permiso no se puede ni leer ni mandar", async () => {

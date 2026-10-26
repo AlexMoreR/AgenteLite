@@ -39,3 +39,5 @@ están más cerca de comprar** y dejarle listo qué escribirles. No le escribes 
 { "asesoras": [ { "asesora": "Nombre", "clientes": [ { "cliente": "", "numero": "", "conversacionId": "", "enlace": "", "que_pidio": "", "que_falta": "", "mensaje_sugerido": "" } ] } ],
   "faltantes": ["lo que no pudiste leer o unir"], "propuestas": [] }
 ```
+
+Cerebro: antes de recomendar consulta `cerebro_del_area` (area `ventas`) y cita el documento; no contradigas "Decisiones de Magilus". Los aprendizajes y los datos que chocan los anota tu agente (ver su CLAUDE.md), no tú.

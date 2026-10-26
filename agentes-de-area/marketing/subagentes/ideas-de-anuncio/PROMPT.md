@@ -27,3 +27,5 @@ CRM o las que ya tiene la cuenta; nunca imágenes de otros) y `dato` que la sust
 ```json
 { "ideas": [{ "titulo": "...", "texto": "...", "angulo": "...", "producto": "...", "foto": "...", "dato": "..." }] }
 ```
+
+Cerebro: antes de recomendar consulta `cerebro_del_area` (area `marketing`) y cita el documento; no contradigas "Decisiones de Magilus". Los aprendizajes y los datos que chocan los anota tu agente (ver su CLAUDE.md), no tú.

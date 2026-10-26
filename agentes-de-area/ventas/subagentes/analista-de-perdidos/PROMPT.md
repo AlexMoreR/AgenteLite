@@ -29,3 +29,5 @@ perdieron o se enfriaron los chats de la semana** y proponer **máximo 3 arreglo
   "arreglos": [ { "que_cambiar": "", "quien": "", "como_se_mide": "" } ],
   "propuestas_para_el_dueno": [ { "titulo": "", "detalle": "", "numero_que_mueve": "" } ], "faltantes": [] }
 ```
+
+Cerebro: antes de recomendar consulta `cerebro_del_area` (area `ventas`) y cita el documento; no contradigas "Decisiones de Magilus". Los aprendizajes y los datos que chocan los anota tu agente (ver su CLAUDE.md), no tú.
