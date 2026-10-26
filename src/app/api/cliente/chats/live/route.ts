@@ -5,7 +5,10 @@ import { getOfficialApiChatsData } from "@/features/official-api/services/getOff
 import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { readGatewayConnection, resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
 import { WAHA_GATEWAY_KIND, suscribirPresenciaWaha } from "@/lib/waha";
-import { enmascararSiEsTelefono, enmascararTelefono, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
+import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
+import { getVisibleChannelIds } from "@/lib/channel-visibility";
+import { esSupervisora } from "@/lib/permisos-del-equipo";
+import { permisoParaAbrirChat } from "@/features/chats/services/permiso-para-abrir-chat-datos";
 import { scheduleSingleContactAvatarRefresh } from "@/lib/contact-avatar-refresh";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { prisma } from "@/lib/prisma";
@@ -102,10 +105,11 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     pagina. Tapando solo en el render del servidor, bastaba con abrir un chat para que el numero
     real volviera entero. Ver `modo-monitoreo.ts`.
   */
-  const taparTelefonos = await estaEnModoMonitoreo({
+  const canalesMonitoreados = await canalesQueMonitorea({
     workspaceId: membership.workspace.id,
     userId: session.user.id,
   });
+  const taparTelefonos = canalesMonitoreados.length > 0;
   t.marca("auth");
 
   const requestUrl = new URL(request.url);
@@ -142,6 +146,31 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
    *
    * Paginar hacia arriba todavia no aplica aca: el cargador trae los ultimos 20 mensajes.
    */
+  /*
+    Mismo permiso que la lista y que la pantalla: sin el, pedirle el chat directo a esta ruta
+    saltaba la linea y la asesora. "No encontrado", igual que un chat que no existe.
+  */
+  const esDuenoOAdmin = access.isOwner || access.role === "ADMIN";
+  const permitido = await permisoParaAbrirChat({
+    workspaceId: membership.workspace.id,
+    source: parsed.source,
+    conversationId: parsed.conversationId,
+    regla: {
+      userId: session.user.id,
+      esDuenoOAdmin,
+      esJefe: esDuenoOAdmin || (await esSupervisora(membership.workspace.id, session.user.id)),
+      canalesVisibles: await getVisibleChannelIds({
+        workspaceId: membership.workspace.id,
+        userId: session.user.id,
+        esJefe: esDuenoOAdmin,
+      }),
+      canalesMonitoreados,
+    },
+  });
+  if (!permitido) {
+    return NextResponse.json({ ok: false, error: "Conversacion no encontrada" }, { status: 404 });
+  }
+
   if (parsed.source === "official") {
     const data = await getOfficialApiChatsData({
       workspaceId: membership.workspace.id,

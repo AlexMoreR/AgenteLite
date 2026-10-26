@@ -33,6 +33,7 @@ import { Prisma } from "@prisma/client";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
+import { permisoParaAbrirChat } from "@/features/chats/services/permiso-para-abrir-chat-datos";
 import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
 import {
@@ -244,7 +245,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : "";
 
   const params = await searchParams;
-  const selectedChatKeyParam = typeof params.chatKey === "string" ? params.chatKey : "";
+  let selectedChatKeyParam = typeof params.chatKey === "string" ? params.chatKey : "";
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
 
@@ -356,9 +357,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const errorMessage = typeof params.error === "string" ? params.error : "";
   const scrollMode = typeof params.scroll === "string" ? params.scroll : "";
 
-  const selectedChatRef = parseChatKey(selectedChatKeyParam);
-  const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
-
   /**
    * Canales que esta persona puede ver (ver channel-visibility).
    *
@@ -370,6 +368,32 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     userId: access.userId,
     esJefe: access.isOwner || access.role === "ADMIN",
   });
+
+  /*
+    Abrir por ?chatKey= respeta lo mismo que la lista: linea visible, chat de la asesora y modo
+    monitoreo. Sin permiso se hace como si no hubiera enlace: bandeja normal, sin error, sin cargar
+    el chat ni marcarlo leido. Ver permiso-para-abrir-chat.ts.
+  */
+  let selectedChatRef = parseChatKey(selectedChatKeyParam);
+  if (
+    selectedChatRef &&
+    !(await permisoParaAbrirChat({
+      workspaceId: membership.workspace.id,
+      source: selectedChatRef.source,
+      conversationId: selectedChatRef.conversationId,
+      regla: {
+        userId: access.userId,
+        esDuenoOAdmin: access.isOwner || access.role === "ADMIN",
+        esJefe: isManager,
+        canalesVisibles,
+        canalesMonitoreados,
+      },
+    }))
+  ) {
+    selectedChatRef = null;
+    selectedChatKeyParam = "";
+  }
+  const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
 
 
   /**
