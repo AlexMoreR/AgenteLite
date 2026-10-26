@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
@@ -138,6 +139,16 @@ export async function syncCrmStageFromCommercialStage(input: {
     WHERE "id" = ${input.contactId}
   `;
 
+  await registrarCambioDeEtapa({
+    workspaceId: input.workspaceId,
+    contactId: input.contactId,
+    conversationId: input.conversationId,
+    etapaAnterior: current,
+    etapaNueva: target,
+    origen: "BOT",
+    nota: "etapa comercial del bot",
+  });
+
   // Mismas consecuencias que el cambio manual del kanban, para que el CRM se comporte igual sin
   // importar quien movio la etapa. Esto ademas hace que las reglas de seguimiento por etapa
   // (sourceType CRM_STAGE) empiecen a dispararse solas, que hoy solo pasaba si alguien arrastraba
@@ -232,6 +243,15 @@ export async function marcarCierreDeCompra(input: {
 
   const avanzo = BOT_STAGE_ORDER.indexOf(actual) < BOT_STAGE_ORDER.indexOf("NEGOCIACION");
   if (avanzo) {
+    await registrarCambioDeEtapa({
+      workspaceId: input.workspaceId,
+      contactId: input.contactId,
+      conversationId: input.conversationId,
+      etapaAnterior: actual,
+      etapaNueva: "NEGOCIACION",
+      origen: "BOT",
+      nota: "datos de compra",
+    });
     await createFollowsFromRulesForSource({
       workspaceId: input.workspaceId,
       contactId: input.contactId,
@@ -381,6 +401,16 @@ export async function moverEtapaDesdeAgente(input: {
         "updatedAt" = NOW()
     WHERE "id" = ${input.contactId}
   `;
+
+  await registrarCambioDeEtapa({
+    workspaceId: input.workspaceId,
+    contactId: input.contactId,
+    conversationId: input.conversationId,
+    etapaAnterior: contact.crmStage,
+    etapaNueva: destino,
+    origen: "BOT",
+    nota: "regla del agente",
+  });
 
   // Las mismas consecuencias que mover la tarjeta a mano, igual que en el puente del V2.
   await createFollowsFromRulesForSource({

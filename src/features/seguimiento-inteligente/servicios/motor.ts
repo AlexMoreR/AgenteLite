@@ -1,3 +1,4 @@
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { Prisma } from "@prisma/client";
 
 import { avisoSiNoSePuedeDescartar } from "@/features/crm/services/candado-descarte-sin-respuesta";
@@ -132,12 +133,22 @@ async function descartarPorCadencia(ctx: FichaConContexto, dias: number[]): Prom
     console.log("[seguimiento-inteligente] descarte frenado por el candado", { conversationId: ctx.ficha.conversationId, aviso: aviso.slice(0, 200) });
     return false;
   }
+  const antes = await prisma.contact.findUnique({ where: { id: ctx.contactId }, select: { crmStage: true } });
   const movidos = await prisma.$executeRaw(Prisma.sql`
     UPDATE "Contact"
     SET "crmStage" = 'PERDIDO', "lostReason" = ${MOTIVO_DESCARTE_CADENCIA}, "wonAt" = NULL, "wonQuoteRef" = NULL, "updatedAt" = NOW()
     WHERE "id" = ${ctx.contactId} AND "crmStage"::text NOT IN ('GANADO', 'PERDIDO')
   `);
   if (movidos === 0) return false;
+  await registrarCambioDeEtapa({
+    workspaceId: ctx.workspaceId,
+    contactId: ctx.contactId,
+    conversationId: ctx.ficha.conversationId,
+    etapaAnterior: antes?.crmStage ?? null,
+    etapaNueva: "PERDIDO",
+    origen: "AUTOMATICO",
+    nota: "descarte por seguimiento inteligente",
+  });
   await recordConversationActivity({
     workspaceId: ctx.workspaceId,
     conversationId: ctx.ficha.conversationId,

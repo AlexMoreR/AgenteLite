@@ -255,8 +255,9 @@ function lista(args: Argumentos, clave: string, enMayusculas = true) {
  *    fecha no se conoce, y contarlos por `updatedAt` es justo lo que hacia poco confiable al
  *    informe (un lead ganado hace meses, tocado hoy, aparecia como venta de hoy).
  *  - NUEVO: `createdAt`, el dia que el lead entro.
- *  - El resto (incluido PERDIDO): `updatedAt`. No existe una fecha de perdida, asi que es una
- *    APROXIMACION: dice cuando se toco la ficha por ultima vez, no cuando cambio de etapa.
+ *  - El resto (incluido PERDIDO): `updatedAt`. Para los cambios anteriores al historial no existe
+ *    una fecha de perdida, asi que es una APROXIMACION: dice cuando se toco la ficha por ultima
+ *    vez. Desde que existe HistorialEtapa, cada conversacion trae la fecha REAL (`etapa_desde`).
  *
  * La respuesta lo dice en `fechado_por` para que quien la lea no tenga que adivinarlo.
  */
@@ -727,6 +728,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       assignedTo: { select: { name: true } },
       contact: {
         select: {
+          id: true,
           name: true,
           phoneNumber: true,
           crmStage: true,
@@ -736,6 +738,22 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       },
     },
   });
+
+  /*
+    FECHA REAL DE LA ETAPA. Desde que existe el historial (HistorialEtapa), cada cambio deja su fila:
+    si el contacto tiene la fila de la etapa en la que esta hoy, esa es la fecha real. Si no (cambios
+    anteriores a la subida), se sigue con la fecha aproximada de siempre. Nada se inventa.
+  */
+  const idsDeContactos = [...new Set(conversaciones.map((fila) => fila.contact.id))];
+  const cambiosReales = idsDeContactos.length
+    ? await prisma.historialEtapa.findMany({
+        where: { workspaceId: contexto.workspaceId, contactId: { in: idsDeContactos } },
+        orderBy: { creadoEn: "desc" },
+        select: { contactId: true, etapaNueva: true, creadoEn: true },
+      })
+    : [];
+  const fechaRealDeLaEtapa = (contactId: string, etapa: string) =>
+    cambiosReales.find((cambio) => cambio.contactId === contactId && cambio.etapaNueva === etapa)?.creadoEn ?? null;
 
   const conteos = conversaciones.length
     ? await prisma.message.groupBy({
@@ -791,7 +809,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
           ? "fecha real de la venta (los ganados historicos sin fecha no entran)"
           : FECHA_DE_LA_ETAPA[etapa] === "createdAt"
             ? "fecha en que entro el lead"
-            : "ultima vez que se toco la ficha (aproximado: no hay fecha de cambio de etapa)",
+            : "ultima vez que se toco la ficha (aproximado). Cada conversacion trae 'etapa_desde' con la fecha REAL del cambio de etapa cuando existe en el historial (solo cambios posteriores a su puesta en marcha); si no, 'etapa_fecha' dice 'aproximada'",
       ]),
     ),
     totales_por_etapa: Object.fromEntries(totales.map((fila) => [fila.etapa, fila.cuantos])),
@@ -814,6 +832,10 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       telefono: fila.contact.phoneNumber,
       linea: fila.channel?.name ?? null,
       etapa_crm: fila.contact.crmStage,
+      ...(() => {
+        const real = fechaRealDeLaEtapa(fila.contact.id, fila.contact.crmStage);
+        return real ? { etapa_desde: hora(real), etapa_fecha: "real" } : { etapa_desde: null, etapa_fecha: "aproximada" };
+      })(),
       etiquetas: fila.contact.ContactTag.map((fila) => fila.Tag.name),
       // Contacto de una linea administrativa (proveedores, logistica) o sacado del CRM a mano.
       oculto_del_crm: fila.contact.excludedFromCrm,

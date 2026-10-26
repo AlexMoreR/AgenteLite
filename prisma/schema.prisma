@@ -248,6 +248,7 @@ model Contact {
   ContactTag         ContactTag[]
   contactMatches     ContactMatch[]
   conversations      Conversation[]
+  historialEtapas    HistorialEtapa[]
   messages           Message[]
   follows            Follow[]
   callAttempts       CallAttempt[]
@@ -2269,4 +2270,26 @@ model ReunionPista {
   /// Una pista de LiveKit se graba una sola vez, aunque el aviso llegue repetido.
   @@unique([reunionId, trackSid])
   @@index([reunionId])
+}
+
+/// Una fila por cada cambio de etapa del CRM (Contact.crmStage): cuándo, de cuál a cuál y quién la movió. Empieza vacía el día que sube: no se inventan fechas de antes. Se escribe con registrarCambioDeEtapa (src/lib/historial-etapa.ts).
+model HistorialEtapa {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  contactId      String
+  /// Chat desde donde se movió, si se sabe.
+  conversationId String?
+  etapaAnterior  String?
+  etapaNueva     String
+  /// ASESORA | BOT | AUTOMATICO | MCP | SISTEMA
+  origen         String
+  /// Para ASESORA: el id de la usuaria que la movió.
+  quien          String?
+  /// Nota corta: "descarte automático", "resultado de llamada"...
+  nota           String?
+  creadoEn       DateTime @default(now())
+  contact        Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId, creadoEn])
+  @@index([workspaceId, creadoEn])
 }

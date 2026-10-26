@@ -18,6 +18,7 @@ import {
 } from "@/features/seguimientos/services/follows";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { buildSnoozeMetadata } from "@/lib/lead-snooze";
 import { CRM_STAGE_META, getCrmLostReasonLabel, motivoOtroSinDetalle } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
@@ -89,6 +90,7 @@ export async function updateCrmStageAction(input: {
     },
     select: {
       id: true,
+      crmStage: true,
     },
   });
 
@@ -140,6 +142,25 @@ export async function updateCrmStageAction(input: {
     WHERE "id" = ${contact.id}
   `;
 
+  // Conversación más reciente del contacto: sirve para el historial de etapas y para el registro
+  // de actividad de más abajo.
+  const recentConversation = await prisma.conversation.findFirst({
+    where: { workspaceId: membership.workspace.id, contactId: contact.id },
+    orderBy: { lastMessageAt: "desc" },
+    select: { id: true, channelId: true },
+  });
+
+  // Historial de etapas: quién la movió y cuándo. No bloquea el cambio si falla.
+  await registrarCambioDeEtapa({
+    workspaceId: membership.workspace.id,
+    contactId: contact.id,
+    conversationId: recentConversation?.id ?? null,
+    etapaAnterior: contact.crmStage,
+    etapaNueva: parsed.data.status,
+    origen: "ASESORA",
+    quien: session.user.id,
+  });
+
   /*
     Anti-bloqueo, un solo dueño (apagado por defecto): un lead que se descarta o se gana no recibe
     más automáticos. Se cancela lo pendiente ANTES de agendar las reglas de la etapa nueva. Con la
@@ -161,11 +182,6 @@ export async function updateCrmStageAction(input: {
   });
 
   // Registro de actividad en la conversación más reciente del contacto.
-  const recentConversation = await prisma.conversation.findFirst({
-    where: { workspaceId: membership.workspace.id, contactId: contact.id },
-    orderBy: { lastMessageAt: "desc" },
-    select: { id: true, channelId: true },
-  });
   if (recentConversation) {
     const actorName = session.user.name?.trim() || "Alguien";
     const stageLabel = CRM_STAGE_META[parsed.data.status]?.label ?? parsed.data.status;
