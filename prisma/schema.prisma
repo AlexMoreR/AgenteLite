@@ -2408,3 +2408,53 @@ model CerebroCambio {
   @@index([workspaceId, creadoEn])
   @@index([workspaceId, driveId])
 }
+
+/// ORIGEN DE PAUTA: de qué anuncio (y campaña) de Meta llegó cada cliente. Una fila por cliente.
+/// El anuncio sale de Contact.metadata (adSourceId...); la campaña y el conjunto se piden a Meta (solo lectura).
+/// Sin llaves foráneas, como EmbudoLead: es un registro de medición y no puede impedir borrar nada.
+model OrigenDePauta {
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  contactId           String
+  conversationId      String?
+  anuncioId           String
+  anuncioNombre       String?
+  conjuntoId          String?
+  conjuntoNombre      String?
+  campanaId           String?
+  campanaNombre       String?
+  /// facebook | instagram | null
+  red                 String?
+  ctwaClid            String?
+  llegoEn             DateTime
+  /// Cuándo se le preguntó a Meta por la campaña (null = nunca).
+  campanaConsultadaEn DateTime?
+  creadoEn            DateTime  @default(now())
+  actualizadoEn       DateTime  @default(now()) @updatedAt
+
+  @@unique([workspaceId, contactId])
+  @@index([workspaceId, llegoEn])
+  @@index([workspaceId, anuncioId])
+}
+
+/// Una venta pagada (de Gestión, o un GANADO del CRM si Gestión no da la lista) con la campaña de su cliente.
+model VentaDePauta {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  /// Número de la venta en Gestión; con "CRM:" al inicio cuando sale de un GANADO del CRM.
+  ventaGestionId  String
+  cotizacion      String?
+  telefono        String?
+  /// null = no se conoce el monto (los GANADO del CRM no lo guardan).
+  monto           Float?
+  pagadaEn        DateTime
+  contactId       String?
+  origenDePautaId String?
+  /// PAUTA | ORGANICO_OTRO
+  categoria       String   @default("ORGANICO_OTRO")
+  creadoEn        DateTime @default(now())
+  actualizadoEn   DateTime @default(now()) @updatedAt
+
+  @@unique([workspaceId, ventaGestionId])
+  @@index([workspaceId, pagadaEn])
+}

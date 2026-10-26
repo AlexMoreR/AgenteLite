@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, Filter, Gauge, GitCompareArrows, KanbanSquare, Bot, Megaphone, LifeBuoy, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, Filter, Gauge, GitCompareArrows, KanbanSquare, Bot, Megaphone, Target, LifeBuoy, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -18,7 +18,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "comparar-embudos" | "recuperacion" | "supervisor" | "agente-de-ventas" | "agente-de-marketing" | "guiones";
+type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "comparar-embudos" | "pauta" | "recuperacion" | "supervisor" | "agente-de-ventas" | "agente-de-marketing" | "guiones";
 
 const crmViews: Array<{
   title: string;
@@ -40,6 +40,8 @@ const crmViews: Array<{
   { title: "Embudo", view: "embudo", icon: Filter, soloJefes: true },
   // Comparar dos versiones del libro lado a lado (solo lectura). También solo para quien supervisa.
   { title: "Comparar embudos", view: "comparar-embudos", icon: GitCompareArrows, soloJefes: true },
+  // Pauta: qué campaña y anuncio de Meta traen ventas y cuánto cuesta cada una (solo lectura).
+  { title: "Pauta", view: "pauta", icon: Target, soloJefes: true },
   // Recuperación de leads (13-10-2026): dueño / administrador y la supervisora del accionable.
   { title: "Recuperación", view: "recuperacion", icon: LifeBuoy, soloRecuperacion: true },
   // El Supervisor: solo dueño o administrador (Alex, 13-10-2026). Las supervisoras siguen

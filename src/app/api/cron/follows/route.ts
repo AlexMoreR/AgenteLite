@@ -12,6 +12,7 @@ import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
 import { repartirChatsDeMadrugada } from "@/lib/reparto-de-madrugada";
 import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
 import { sincronizarSiTocaHoy } from "@/lib/sincronizacion-gestion";
+import { correrPautaDeTodos } from "@/features/pauta/servicios/correr-pauta";
 import { vueltaDeCadaHora, vueltaDeCincoMinutos } from "@/features/supervisor/servicios/vueltas";
 import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente/servicios/motor";
 import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/servicio";
@@ -254,6 +255,20 @@ async function handleCron(request: Request) {
         await sincronizarSiTocaHoy();
       } catch (error) {
         console.error("[cron/follows] sincronizacion con Gestion error", error);
+      }
+    });
+  }
+
+  /*
+    Origen de pauta (campaña de cada chat y venta), una vez al día: a las 4 a. m. de Colombia (minuto 17).
+    Solo lee (Meta Ads y Gestión) y escribe sus dos tablas propias; no toca chats ni el bot.
+  */
+  if (new Date().getMinutes() === 17 && new Date(Date.now() - 5 * 3_600_000).getUTCHours() === 4) {
+    after(async () => {
+      try {
+        await correrPautaDeTodos();
+      } catch (error) {
+        console.error("[cron/follows] origen de pauta error", error);
       }
     });
   }

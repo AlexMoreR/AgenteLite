@@ -468,6 +468,16 @@ async function estadoDelCerebro(workspaceId: string) {
   return `activa: el reloj trae el Drive (carpeta ${conexion.carpetaNombre ?? "sin nombre"}) cada hora, gana el Drive; ${cuando}${conexion.ultimoError ? `; ÚLTIMO ERROR: ${conexion.ultimoError}` : ""}`;
 }
 
+/** Origen de pauta: cuántos chats y ventas ya tienen origen guardado, y si hay llave de Meta Ads (solo lectura). */
+async function estadoDeLaPauta(workspaceId: string) {
+  const [origenes, ventas] = await Promise.all([
+    prisma.origenDePauta.count({ where: { workspaceId } }),
+    prisma.ventaDePauta.count({ where: { workspaceId } }),
+  ]);
+  const meta = process.env.META_ADS_ACCESS_TOKEN?.trim() && process.env.META_ADS_ACCOUNT_ID?.trim();
+  return `activa: una vez al día (4 a. m.) guarda el origen de ${origenes} chat(s) de anuncio y de ${ventas} venta(s); ${meta ? "Meta Ads conectado en solo lectura" : "SIN llave de Meta Ads (META_ADS_ACCESS_TOKEN y META_ADS_ACCOUNT_ID): el gasto sale no disponible y no hay nombre de campaña"}`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -527,6 +537,7 @@ async function automatizaciones(
     resumen_diario_tablero: await estadoDelResumenDiario(),
     avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
     cerebro_sincronizacion: await estadoDelCerebro(workspaceId).catch(() => "no se pudo leer"),
+    origen_de_pauta: await estadoDeLaPauta(workspaceId).catch(() => "no se pudo leer"),
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
     agente_de_marketing: await estadoDelAgenteDeMarketing(workspaceId).catch(() => "no se pudo leer"),
     recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),

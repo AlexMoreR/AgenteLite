@@ -50,6 +50,11 @@ import {
   ejecutarHerramientaMcpCerebro,
   esHerramientaDelCerebro,
 } from "@/lib/mcp/cerebro";
+import {
+  HERRAMIENTAS_MCP_VENTAS_POR_CAMPANA,
+  ejecutarHerramientaMcpVentasPorCampana,
+  esHerramientaDeVentasPorCampana,
+} from "@/lib/mcp/ventas-por-campana";
 import { getFlowReply } from "@/lib/agent-product-flow";
 import { prisma } from "@/lib/prisma";
 import { parseWorkspaceBusinessConfig } from "@/lib/workspace-business-config";
@@ -1022,6 +1027,7 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_DE_LECTURA,
   ...HERRAMIENTAS_MCP_SUPERVISOR,
   ...HERRAMIENTAS_MCP_COMPARAR_EMBUDOS,
+  ...HERRAMIENTAS_MCP_VENTAS_POR_CAMPANA,
   ...HERRAMIENTAS_MCP_REUNIONES,
   ...HERRAMIENTAS_MCP_ESCRITURA,
   ...HERRAMIENTAS_MCP_DIAGRAMA,
@@ -1044,6 +1050,9 @@ export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, c
   }
   if (esHerramientaDeCompararEmbudos(nombre)) {
     return ejecutarHerramientaMcpCompararEmbudos(nombre, args, contexto);
+  }
+  if (esHerramientaDeVentasPorCampana(nombre)) {
+    return ejecutarHerramientaMcpVentasPorCampana(nombre, args, contexto);
   }
   if (esHerramientaDeReuniones(nombre)) {
     return ejecutarHerramientaMcpReuniones(nombre, args, contexto);
