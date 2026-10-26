@@ -37,6 +37,7 @@ import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedi
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
 import { esTareaGrande } from "./nube.mjs";
+import { crearPausaPorUso } from "./pausa-uso.mjs";
 import { crearMedidor, faltanRecursos } from "./recursos.mjs";
 
 const ETAPAS = { planear, construir, subir };
@@ -96,6 +97,12 @@ export async function unaVuelta({ crm, config, registro }) {
 
 export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null, colaPesada = null, etiqueta = "" }, tarjeta, hacer) {
   const control = new AbortController();
+  // Pausa por uso de Claude (pausa-uso.mjs): el planificador pide detener esta sesión con `vivo.detenerPorPausa()`.
+  let pausadaPorUso = false;
+  vivo.detenerPorPausa = () => {
+    pausadaPorUso = true;
+    control.abort();
+  };
   // Lo que escribe la sesión se guarda también aquí: es el "log del intento" si falla.
   const bitacora = [];
   const anotar = (nivel) => (mensaje, extra) => {
@@ -199,6 +206,20 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     if (vencida) {
       registro.error(`"${tarjeta.titulo}" venció en el CRM: ${motivo}`);
       return { ok: false, motivo, vencida: true };
+    }
+    if (pausadaPorUso) {
+      // Se detuvo con orden porque el uso de Claude llegó al umbral: vuelve a la fila SIN ERROR y sin gastar intento.
+      // Si construía en aizen1, construir() ya guardó lo escrito (intentos/<id>/trabajo.patch) y se reaplica al retomar.
+      const guardado = hacer === "construir" && !enNube ? " Lo que ya se escribió queda guardado y se reaplica al retomarla." : "";
+      registro.aviso(`"${tarjeta.titulo}" (${hacer}): pausa por uso de Claude; la suelto sin error ni intento`);
+      await soltar(
+        crm,
+        registro,
+        tarjeta,
+        `Pausado por uso de Claude: se retoma cuando se reinicie el uso.${guardado}`,
+        conReparaciones ? { categoria: "limite_claude", causa: enUnaLinea("Pausado por uso de Claude: se retoma cuando se reinicie el uso"), error: motivo.slice(0, 6000), etapa: hacer } : undefined,
+      );
+      return { ok: false, motivo, pausadaPorUso: true };
     }
     if (error?.esperaDeCola) {
       // Esperó demasiado turno en la cola de pasos pesados antes de empezar (etapas.mjs: conTurno): vuelve a la fila del
@@ -603,7 +624,8 @@ export function crearPlanificador({
   registro,
   medidor = crearMedidor({ muestras: Math.max(1, Math.round(((config.limites?.cpuPromedioMinutos ?? 3) * 60) / 5)) }),
   motores = crearEstadoDeMotores(config),
-  vigilante = crearVigilanteDeUso({ config, registro, estado: motores, entorno: entornoSeguro() }),
+  pausaUso = crearPausaPorUso({ config, registro }),
+  vigilante = crearVigilanteDeUso({ config, registro, estado: motores, entorno: entornoSeguro(), pausa: pausaUso }),
   // La cola de pasos pesados se puede dar hecha (las pruebas la llenan a mano); undefined = la de la configuración.
   colaPesada: colaDada = undefined,
 }) {
@@ -765,9 +787,42 @@ export function crearPlanificador({
     }
   }
 
+  /**
+   * Los WhatsApp de la pausa por uso (pausa-uso.mjs): al entrar en pausa, al volver y la primera vez que no se puede leer el uso.
+   * Cada uno sale UNA vez (lo que ya salió queda en estado-uso.json); si el CRM lo calla (9 p. m. a 7 a. m.) o falla, se
+   * reintenta en la próxima vuelta. Nunca tumba al planificador.
+   */
+  async function avisarPausaPorUso() {
+    for (const { clave, texto } of pausaUso.pendientes()) {
+      try {
+        const respuesta = await crm.aviso(texto, "limite");
+        if (!respuesta?.silenciado) pausaUso.avisado(clave);
+      } catch (error) {
+        registro.aviso(`no salió el aviso de la pausa por uso (${error.status ?? "sin respuesta"}): ${error.message}`);
+      }
+    }
+  }
+
+  /** Detiene con orden lo que corre, menos subir (no usa Claude y cortarlo a medias es más peligroso que dejarlo acabar). */
+  function detenerPorPausa() {
+    for (const sesion of [...sesiones.values(), ...enNube.values()]) {
+      if (sesion.hacer === "subir" || sesion.vivo.pausaPedida) continue;
+      sesion.vivo.pausaPedida = true;
+      registro.info(`pausa por uso: detengo "${sesion.tarjeta.titulo}" (${sesion.hacer})`);
+      sesion.vivo.detenerPorPausa?.();
+    }
+  }
+
   async function llenar() {
     await vigilante?.vigilar();
+    await avisarPausaPorUso();
     pcEspera = null;
+    if (pausaUso.pausado()) {
+      avisarUnaVez("pausa-uso", "Pausado por uso de Claude: no tomo tarjetas hasta que el uso baje del umbral");
+      detenerPorPausa();
+      return;
+    }
+    if (ultimoAviso === "pausa-uso") ultimoAviso = "";
     // Las que se soltaron en esta pasada porque no tenían dónde correr: no se vuelven a tomar hasta la próxima.
     const descartadas = new Map();
     for (;;) {
@@ -925,8 +980,12 @@ export function crearPlanificador({
         motivoEspera: pcEspera,
         esperas: [...esperasDeFila.entries()].map(([tarjetaId, motivo]) => ({ tarjetaId, motivo })),
         uso: motores.resumenDeUso(),
+        pausaUso: pausaUso.resumen(),
       };
     },
+    /** Pausa por uso de Claude: ¿está pausado? (el trabajo de noche y el recogedor tampoco corren) y los ajustes del panel. */
+    pausadoPorUso: () => pausaUso.pausado(),
+    ajustarPausaUso: (ajustes) => pausaUso.ajustes(ajustes),
     esperar: (ms) =>
       new Promise((resolver) => {
         if (cupoNuevo) {

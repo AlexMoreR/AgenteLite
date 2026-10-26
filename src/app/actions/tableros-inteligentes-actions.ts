@@ -36,6 +36,7 @@ import {
   ponerAprobarPlanesSolo,
   ponerAprobarTareasSolo,
 } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { guardarPausaPorUso } from "@/features/tableros-inteligentes/services/pausa-por-uso-de-claude";
 import {
   avisosParaLaPantalla,
   guardarConfigDeAvisos,
@@ -292,6 +293,22 @@ export async function cambiarAprobarTareasSoloAction(prendida: boolean): Promise
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo cambiar la aprobación de tareas") };
+  }
+}
+
+/**
+ * Pausa por uso de Claude (26-oct-2026): prende o apaga el interruptor y/o cambia el umbral (50 a 95 %, 80 por defecto).
+ * Solo el dueño. El Coordinador lo recibe en la respuesta de su próximo latido (cada 15 s).
+ */
+export async function cambiarPausaPorUsoAction(cambios: { activa?: boolean; umbral?: number }): Promise<Resultado> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  try {
+    const persona = await personaQueAprueba(access.workspaceId, access.userId);
+    if (!persona.esDueno) return { ok: false, error: "La pausa por uso de Claude la maneja solo el dueño del negocio." };
+    await guardarPausaPorUso(access.workspaceId, { activa: cambios.activa, umbral: cambios.umbral });
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo cambiar la pausa por uso de Claude") };
   }
 }
 

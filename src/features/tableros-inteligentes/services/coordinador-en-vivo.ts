@@ -7,6 +7,8 @@ import {
   type LatidoGuardado,
   type Lugar,
   type Modelo,
+  type EstadoDelUsoDeClaude,
+  type PausaUsoDelLatido,
   type Semaforo,
   type UsoDelLatido,
   armarHoy,
@@ -23,8 +25,10 @@ import {
   rangoDeHoyEnBogota,
   semaforoDeLaCarga,
   textoDelUso,
+  textoDelUsoDeClaude,
 } from "./reglas-coordinador-en-vivo";
 import { etiquetaEsperando, recogidaDelResultado } from "./reglas-trabajador";
+import { leerPausaPorUso } from "./pausa-por-uso-de-claude";
 import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
 import { linkDeLaTarjeta } from "./tableros";
 
@@ -57,7 +61,10 @@ export async function guardarLatido(contexto: ContextoTrabajador, cuerpo: unknow
   const key = claveDelLatido(contexto.workspaceId, contexto.claveId);
   const value = JSON.stringify(latido);
   await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
-  return { recibidoEn: latido.recibidoEn };
+  // El interruptor y el umbral de la pausa por uso viajan en la respuesta: así el Coordinador los recibe cada 15 s. Si no se
+  // pueden leer, se omiten (el Coordinador sigue con lo suyo).
+  const pausaUso = await leerPausaPorUso(contexto.workspaceId).catch(() => null);
+  return { recibidoEn: latido.recibidoEn, ...(pausaUso ? { pausaUso } : {}) };
 }
 
 /** El latido más reciente del negocio (de cualquiera de sus claves), o null. */
@@ -112,6 +119,11 @@ export type VistaDelCoordinador = {
   esperandoAOtra: { cantidad: number; tarjetas: ItemDeFila[] };
   hoy: HoyVista;
   uso: UsoDelLatido & { texto: string };
+  /**
+   * El uso del plan de Claude (26-oct-2026): porcentaje de la sesión y de la semana, el estado ("Pausado por uso de Claude"),
+   * y el interruptor y el umbral de la pausa (lo que el CRM tiene guardado).
+   */
+  usoDeClaude: { texto: string; estado: EstadoDelUsoDeClaude; activa: boolean; umbral: number; sesion: PausaUsoDelLatido["sesion"]; semana: PausaUsoDelLatido["semana"] };
 };
 
 const ESTADOS_EN_MARCHA = ["PLANEANDO", "EN_CURSO", "SUBIENDO"] as const;
@@ -244,7 +256,12 @@ async function hoyDelCoordinador(workspaceId: string, ahora: Date): Promise<HoyV
 
 /** La vista completa del panel para un negocio. Solo lee. */
 export async function vistaDelCoordinador(workspaceId: string, ahora = new Date()): Promise<VistaDelCoordinador> {
-  const [latido, enMarcha, hoy] = await Promise.all([ultimoLatido(workspaceId), tarjetasEnMarcha(workspaceId, ahora), hoyDelCoordinador(workspaceId, ahora)]);
+  const [latido, enMarcha, hoy, ajuste] = await Promise.all([
+    ultimoLatido(workspaceId),
+    tarjetasEnMarcha(workspaceId, ahora),
+    hoyDelCoordinador(workspaceId, ahora),
+    leerPausaPorUso(workspaceId),
+  ]);
   const apagado = estaApagado(latido?.recibidoEn, ahora);
   const esperas = new Map((latido?.esperas ?? []).map((espera) => [espera.tarjetaId, espera.motivo]));
   const fila = await filaDelCoordinador(workspaceId, ahora, esperas);
@@ -291,6 +308,7 @@ export async function vistaDelCoordinador(workspaceId: string, ahora = new Date(
     esperandoAOtra: fila.esperandoAOtra,
     hoy,
     uso: { ...uso, texto: textoDelUso(uso, ahora) },
+    usoDeClaude: { ...textoDelUsoDeClaude(latido?.pausaUso ?? null, ajuste), activa: ajuste.activa, umbral: ajuste.umbral, sesion: latido?.pausaUso?.sesion ?? null, semana: latido?.pausaUso?.semana ?? null },
   };
 }
 
@@ -333,6 +351,7 @@ export function textoDelCoordinador(vista: VistaDelCoordinador): string {
   for (const trabajo of hoy.trabajos.slice(0, 10)) {
     lineas.push(`- «${trabajo.titulo}»: ${trabajo.resultado === "terminada" ? "terminó" : "falló"} en ${duracionTexto(trabajo.duracionMinutos)}${trabajo.reparaciones ? ` (${trabajo.reparaciones} reparación${trabajo.reparaciones === 1 ? "" : "es"})` : ""}.`);
   }
-  lineas.push(`Uso de Claude: ${vista.uso.texto}.`);
+  lineas.push(`${vista.usoDeClaude.texto}${vista.usoDeClaude.activa ? ` (la pausa se activa al ${vista.usoDeClaude.umbral} %)` : ""}.`);
+  lineas.push(`Límite de uso: ${vista.uso.texto}.`);
   return lineas.join("\n");
 }
