@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
 import { crearVigilante, sumarDescendientes } from "../lib/atasco.mjs";
-import { crearPlanificador, crearSemaforo, unaVuelta } from "../lib/bucle.mjs";
+import { avisarLimiteSiTodoQuedoEnPausa, crearPlanificador, crearSemaforo, unaVuelta } from "../lib/bucle.mjs";
 import { PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
@@ -589,6 +589,35 @@ await prueba("motores: por defecto todo Claude (Opus planea, Sonnet construye y 
   const conRespaldo = crearEstadoDeMotores(completarConfig({ ...base, motores: { respaldoClaude: true } }), { ahora: () => reloj });
   conRespaldo.pausar("codex");
   assert.equal(conRespaldo.motorDe("construir"), "claude", "con respaldoClaude pasa a Claude");
+});
+
+await prueba("avisos al dueño: el umbral y 'no pude leer el uso' ya no van por WhatsApp; el límite solo si TODO quedó en pausa, con tipo 'limite'", async () => {
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
+  const llamadas = [];
+  const crm = { aviso: async (texto, tipo) => void llamadas.push({ texto, tipo }) };
+  const registro = { info: () => undefined, aviso: () => undefined, error: () => undefined };
+  const esperar = () => new Promise((resolver) => setTimeout(resolver, 5));
+  // Todo Claude: al agotarse no queda otro motor -> avisa con tipo "limite" y la hora de vuelta.
+  const soloClaude = crearEstadoDeMotores(completarConfig(base));
+  const hasta = soloClaude.pausar("claude");
+  assert.equal(avisarLimiteSiTodoQuedoEnPausa(crm, registro, soloClaude, hasta), true);
+  await esperar();
+  assert.equal(llamadas.length, 1);
+  assert.equal(llamadas[0].tipo, "limite");
+  assert.match(llamadas[0].texto, /se agotó el uso de Claude[\s\S]*Vuelve a las \d{1,2}:\d{2}/);
+  assert.ok(llamadas[0].texto.split("\n").length <= 2, "el CRM le suma el link: máximo 3 líneas");
+  // Construir va con Codex y Codex sigue disponible: el trabajo continúa, no se avisa.
+  const conCodex = crearEstadoDeMotores(completarConfig({ ...base, motores: { planear: "claude", construir: "codex", respaldoCodex: true } }));
+  assert.equal(avisarLimiteSiTodoQuedoEnPausa(crm, registro, conCodex, conCodex.pausar("claude")), false, "Codex toma el relevo");
+  await esperar();
+  assert.equal(llamadas.length, 1);
+  // Si el CRM falla, no lanza.
+  const fallido = { aviso: async () => Promise.reject(Object.assign(new Error("caído"), { status: 500 })) };
+  const registrado = [];
+  const estado = crearEstadoDeMotores(completarConfig(base));
+  assert.equal(avisarLimiteSiTodoQuedoEnPausa(fallido, { ...registro, aviso: (m) => registrado.push(m) }, estado, estado.pausar("claude")), true);
+  await esperar();
+  assert.match(registrado[0], /no salió el aviso del límite/);
 });
 
 await prueba("choques: archivos y módulos del plan; misma zona o módulo del mismo repo, o dos subidas, esperan en fila", async () => {
@@ -1696,7 +1725,7 @@ try {
     sinRestos();
   });
 
-  await prueba("uso de Claude >= 80 %: planear pasa a Codex, UN aviso por WhatsApp por cruce y estado-uso.json", async () => {
+  await prueba("uso de Claude >= 80 %: planear pasa a Codex, SIN aviso por WhatsApp (24-oct-2026) y estado-uso.json", async () => {
     fs.writeFileSync(USO, "Current session: 83% used · resets Oct 23, 3:20pm (America/Bogota)\nCurrent week (all models): 6% used · resets Oct 30, 7am (America/Bogota)\n");
     const avisos = () => llamadas.filter((l) => l.accion === "aviso");
     const antes = avisos().length;
@@ -1712,20 +1741,19 @@ try {
     assert.equal(leerLog(LOGS.codex).at(-1).sandbox, "read-only", "Codex planea sin poder escribir");
     assert.equal(leerLog(LOGS.claude).filter((l) => !l.argumentos.includes("/usage")).length, claudeAntes, "no planeó con Claude");
     assert.ok(leerLog(LOGS.claude).some((l) => l.argumentos.join(" ").endsWith("-p --model haiku /usage")), "leyó el uso con claude -p /usage");
-    assert.equal(avisos().length, antes + 1, "un aviso");
-    assert.match(avisos().at(-1).cuerpo.texto, /sesión: 83 % usado, se reinicia Oct 23, 3:20pm/);
+    assert.equal(avisos().length, antes, "cruzar el umbral ya no le escribe al dueño");
     const estadoUso = JSON.parse(fs.readFileSync(path.join(T, "trabajo", "estado-uso.json"), "utf8"));
     assert.equal(estadoUso.avisado.sesion.reinicio, "Oct 23, 3:20pm (America/Bogota)");
     await new Promise((r) => setTimeout(r, 20));
     await planificador.llenar();
-    assert.equal(avisos().length, antes + 1, "el mismo cruce no avisa otra vez");
+    assert.equal(avisos().length, antes, "tampoco el mismo cruce otra vez");
     fs.writeFileSync(USO, "Current session: 30% used · resets Oct 23, 3:20pm (America/Bogota)\n");
     await new Promise((r) => setTimeout(r, 20));
     await planificador.llenar();
     fs.writeFileSync(USO, "Current session: 85% used · resets Oct 23, 3:20pm (America/Bogota)\n");
     await new Promise((r) => setTimeout(r, 20));
     await planificador.llenar();
-    assert.equal(avisos().length, antes + 2, "bajó y volvió a subir: otro aviso");
+    assert.equal(avisos().length, antes, "bajó y volvió a subir: sigue sin WhatsApp");
     const texto = fs.readFileSync(path.join(T, "trabajo", "logs", fs.readdirSync(path.join(T, "trabajo", "logs"))[0]), "utf8");
     assert.match(texto, /Claude al 83 % \(sesión\): planear y revisar pasan a Codex hasta 3:20pm/);
     // Uso ilegible: se trata como bajo y sale UNA alerta por día.
@@ -1734,8 +1762,7 @@ try {
     await planificador.llenar();
     await new Promise((r) => setTimeout(r, 20));
     await planificador.llenar();
-    const alertas = avisos().filter((l) => /no pude leer el uso de Claude/.test(l.cuerpo.texto));
-    assert.equal(alertas.length, 1, "una sola alerta por día");
+    assert.equal(avisos().length, antes, "'no pude leer el uso' tampoco va por WhatsApp");
     await planificador.esperarTodas();
     planificador.parar();
   });

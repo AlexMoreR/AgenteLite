@@ -5,6 +5,7 @@ import path from "node:path";
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { LINEA_ADMIN_ID, avisosParaLaPantalla } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { leerUltimoEnvio } from "@/features/tableros-inteligentes/services/resumen-diario";
 
 /**
@@ -397,11 +398,25 @@ async function estadoDeAprobarPlanesSolo(workspaceId: string) {
     : `APAGADA: todos los planes piden el sí del dueño (${esperando} en PLAN_LISTO ahora)`;
 }
 
-/** Tablero IA: cuándo salió el último resumen de las 9 p. m. y si el WhatsApp salió. */
+/** Tablero IA: el resumen de las 9 p. m. ya no sale por WhatsApp (24-oct-2026): se ve en el tablero. */
 async function estadoDelResumenDiario(workspaceId: string) {
   const ultimo = await leerUltimoEnvio(workspaceId);
-  if (!ultimo) return "activa: a las 9:00 p. m. (Bogotá) por la línea Admin; todavía no ha salido ninguno";
-  return `activa: último resumen del ${ultimo.dia}, ${ultimo.enviado ? "WhatsApp enviado" : `WhatsApp NO salió (${ultimo.motivo ?? "sin motivo"})`}`;
+  return `sin WhatsApp desde el 24-oct-2026 (se ve en la caja "Resumen de hoy" del tablero)${ultimo ? `; el último que salió por WhatsApp fue el del ${ultimo.dia}` : ""}`;
+}
+
+/** Tablero IA: avisos por WhatsApp al dueño solo cuando Sistemas se detiene o lo necesita. */
+async function estadoDeLosAvisosAlDueno(workspaceId: string) {
+  const [pantalla, linea] = await Promise.all([
+    avisosParaLaPantalla(workspaceId),
+    prisma.whatsAppChannel.findFirst({ where: { id: LINEA_ADMIN_ID, workspaceId }, select: { status: true } }),
+  ]);
+  const ultimo = pantalla.ultimos[0];
+  return [
+    pantalla.prendidos ? "prendida" : "APAGADA (interruptor en Mi empresa → Claude)",
+    pantalla.telefono ? "numero del dueno guardado" : "FALTA el numero del dueno (Mi empresa → Claude): no sale nada",
+    linea ? `linea Admin ${linea.status}` : "linea Admin (id fijo) no existe en el negocio: se usa la llamada Admin",
+    ultimo ? `ultimo aviso: ${ultimo.tipo} ${ultimo.salio ? "enviado" : `NO salio (${ultimo.motivo ?? "sin motivo"})`}` : "todavia no ha salido ninguno",
+  ].join("; ");
 }
 
 async function automatizaciones(
@@ -460,6 +475,7 @@ async function automatizaciones(
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(workspaceId).catch(() => "no se pudo leer"),
+    avisos_al_dueno_tablero: await estadoDeLosAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
   };
 
   return {

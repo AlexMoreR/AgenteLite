@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 
 import { NegocioEquipoTabs } from "@/components/negocio-equipo-tabs";
+import { AvisosAlDueno } from "@/features/tableros-inteligentes/components/AvisosAlDueno";
+import { avisosParaLaPantalla } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { ConexionClaudeWorkspace } from "@/features/mcp/components/ConexionClaudeWorkspace";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { listarClavesMcp } from "@/lib/mcp/claves";
@@ -32,9 +34,10 @@ export default async function ClienteClaudePage() {
     );
   }
 
-  const [claves, cambios, cabeceras] = await Promise.all([
+  const [claves, cambios, avisos, cabeceras] = await Promise.all([
     listarClavesMcp(access.workspaceId),
     listarCambiosMcp(access.workspaceId),
+    avisosParaLaPantalla(access.workspaceId),
     headers(),
   ]);
   const host = cabeceras.get("x-forwarded-host") ?? cabeceras.get("host") ?? "app.aizenbot.com";
@@ -43,6 +46,8 @@ export default async function ClienteClaudePage() {
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <NegocioEquipoTabs />
+
+      <AvisosAlDueno inicial={avisos} />
 
       <ConexionClaudeWorkspace
         direccion={`${protocolo}://${host}/api/mcp`}

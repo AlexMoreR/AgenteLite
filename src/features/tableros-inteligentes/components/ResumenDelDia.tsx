@@ -8,25 +8,13 @@ import { Button } from "@/components/ui/button";
 import { resumenDeHoyAction, type ResumenDeHoyVista } from "@/app/actions/tableros-inteligentes-actions";
 
 /*
-  Caja "Resumen de hoy" de la página de inicio de Tablero IA (solo quien administra): lo mismo que sale
-  por WhatsApp a las 9:00 p. m. (services/resumen-diario.ts), visto hasta ahora: lo que se aprobó solo y
+  Caja "Resumen de hoy" de la página de inicio de Tablero IA (solo quien administra): lo que pasó hoy
+  (services/resumen-diario.ts; ya no sale por WhatsApp), visto hasta ahora: lo que se aprobó solo y
   por qué, lo que subió a producción (con el link del commit) y lo que falló. Se lee al mostrarse, se
   refresca cada minuto y con el botón.
 */
 
-const HORA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit", hour12: true });
 const REFRESCO_MS = 60_000;
-const HORA_DEL_ENVIO = 21;
-
-const horaDeBogota = (ahora: Date) => Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Bogota", hour: "numeric", hour12: false }).format(ahora)) % 24;
-
-function lineaDelWhatsApp(resumen: ResumenDeHoyVista): string {
-  const envio = resumen.envioDeHoy;
-  if (envio?.enviado) return `Enviado por WhatsApp a las ${HORA.format(new Date(envio.cuando))}`;
-  if (envio?.motivo) return `No salió por WhatsApp: ${envio.motivo}`;
-  if (horaDeBogota(new Date()) < HORA_DEL_ENVIO) return "Sale hoy a las 9:00 p. m. por WhatsApp";
-  return "Todavía no salió por WhatsApp.";
-}
 
 export function ResumenDelDia() {
   const [resumen, setResumen] = useState<ResumenDeHoyVista | null>(null);
@@ -142,7 +130,7 @@ export function ResumenDelDia() {
             </div>
           ) : null}
 
-          <p className="border-t pt-2 text-xs text-muted-foreground">{lineaDelWhatsApp(resumen)}</p>
+          <p className="border-t pt-2 text-xs text-muted-foreground">Ya no sale por WhatsApp: aquí lo ves cuando quieras. Solo te avisa por WhatsApp si Sistemas se detiene o te necesita.</p>
         </div>
       ) : null}
     </section>

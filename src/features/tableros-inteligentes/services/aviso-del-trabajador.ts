@@ -1,26 +1,21 @@
-import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
-import { prisma } from "@/lib/prisma";
-
 import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
+import { TIPOS_DEL_COORDINADOR, avisoDelCoordinador, type RespuestaDelAviso, type TipoDeAvisoDelCoordinador } from "./avisos-al-dueno";
 
 /*
-  AVISO DEL TRABAJADOR por WhatsApp (23-oct-2026): el trabajador del Tablero IA (PC aizen1) le avisa al
-  dueño, por ejemplo, que el plan de Claude pasó el umbral de uso. Sale desde la línea Admin del negocio
-  (la que se llama "Admin" o tiene purpose ADMIN; nunca una de ventas) al número guardado en la AppSetting
-  `trabajador:aviso-telefono:<workspaceId>`. Sin número: 412. Como mucho 1 aviso por minuto por negocio y
-  500 caracteres. El envío es el de siempre (`sendEvolutionTextMessageWithReconnect`, que también sabe
-  WAHA): no se toca nada de la zona de chats. No se guarda en ningún chat (como los avisos de gravedad).
+  AVISO DEL COORDINADOR por WhatsApp. El Coordinador del Tablero IA (PC aizen1) le avisa al dueño SOLO de dos cosas:
+  que se agotó el límite de Claude y todo quedó en pausa (tipo "limite") o que necesita algo que no puede hacer solo
+  (tipo "necesita"). Un aviso sin tipo (el del umbral de uso, de versiones viejas del Coordinador) se descarta sin
+  error: el dueño ya no quiere avisos de avance.
+
+  Sale por services/avisos-al-dueno.ts: línea Admin, número personal guardado en Mi empresa → Claude (validado en el
+  servidor), interruptor, silencio nocturno y un solo aviso por problema cada 3 horas. Antes buscaba el número en
+  una AppSetting que ninguna pantalla llenaba y respondía 412: ahora, sin número, anota "no salió: falta su número
+  en Mi empresa → Claude" y responde 200. El envío es el de siempre (`sendEvolutionTextMessageWithReconnect`).
 */
 
-export const claveTelefonoDeAviso = (workspaceId: string) => `trabajador:aviso-telefono:${workspaceId}`;
-
 export const MAXIMO_TEXTO_DE_AVISO = 500;
-const UN_MINUTO = 60_000;
 
-/** Último aviso por negocio (en memoria del proceso: el CRM corre en un solo contenedor). */
-const ultimoAviso = new Map<string, number>();
-
-/** El texto como lo manda el trabajador: no vacío, hasta 500 caracteres. */
+/** El texto como lo manda el Coordinador: no vacío, hasta 500 caracteres. */
 export function textoDeAvisoDeEntrada(valor: unknown): string {
   const texto = typeof valor === "string" ? valor.replace(/\r\n/g, "\n").trim() : "";
   if (!texto) throw new ErrorDelTrabajador("Falta el texto del aviso.", 400);
@@ -30,63 +25,15 @@ export function textoDeAvisoDeEntrada(valor: unknown): string {
   return texto;
 }
 
-/** El número guardado en la AppSetting, solo dígitos (10 o más), o null. */
-export function telefonoDeAviso(valor: string | null | undefined): string | null {
-  const numero = String(valor ?? "").replace(/\D/g, "");
-  return numero.length >= 10 ? numero : null;
+/** El tipo del aviso ("limite" o "necesita"); cualquier otra cosa (o nada) es null y el aviso se descarta. */
+export function tipoDeAvisoDeEntrada(valor: unknown): TipoDeAvisoDelCoordinador | null {
+  return (TIPOS_DEL_COORDINADOR as readonly string[]).includes(String(valor)) ? (valor as TipoDeAvisoDelCoordinador) : null;
 }
 
-/** ¿Ya salió un aviso de este negocio en el último minuto? Si no, anota este. */
-export function puedeAvisarAhora(workspaceId: string, ahora = Date.now()): boolean {
-  const ultimo = ultimoAviso.get(workspaceId) ?? 0;
-  if (ahora - ultimo < UN_MINUTO) return false;
-  ultimoAviso.set(workspaceId, ahora);
-  return true;
-}
-
-/** La línea Admin del negocio: la que se llama "Admin" primero, si no la de purpose ADMIN; conectada primero. */
-async function lineaAdmin(workspaceId: string) {
-  const lineas = await prisma.whatsAppChannel.findMany({
-    where: {
-      workspaceId,
-      isActive: true,
-      evolutionInstanceName: { not: null },
-      OR: [{ name: { equals: "Admin", mode: "insensitive" } }, { purpose: "ADMIN" }],
-    },
-    select: { id: true, name: true, status: true, evolutionInstanceName: true },
-  });
-  const puntaje = (linea: (typeof lineas)[number]) =>
-    (linea.name.trim().toLowerCase() === "admin" ? 2 : 0) + (linea.status === "CONNECTED" ? 1 : 0);
-  return lineas.sort((a, b) => puntaje(b) - puntaje(a))[0] ?? null;
-}
-
-export async function enviarAvisoDelTrabajador(contexto: ContextoTrabajador, cuerpo: unknown) {
-  const texto = textoDeAvisoDeEntrada((cuerpo as { texto?: unknown } | null)?.texto);
-  const fila = await prisma.appSetting.findUnique({ where: { key: claveTelefonoDeAviso(contexto.workspaceId) } });
-  const numero = telefonoDeAviso(fila?.value);
-  if (!numero) {
-    throw new ErrorDelTrabajador(
-      `No hay número para los avisos del Coordinador: guardarlo en la AppSetting "${claveTelefonoDeAviso(contexto.workspaceId)}" (solo dígitos, con indicativo, p. ej. 573001234567).`,
-      412,
-    );
-  }
-  const linea = await lineaAdmin(contexto.workspaceId);
-  if (!linea?.evolutionInstanceName) {
-    throw new ErrorDelTrabajador('El negocio no tiene una línea de WhatsApp "Admin" (o con purpose ADMIN) para mandar el aviso.', 412);
-  }
-  if (!puedeAvisarAhora(contexto.workspaceId)) {
-    throw new ErrorDelTrabajador("Ya salió un aviso en el último minuto: se manda como mucho uno por minuto.", 429);
-  }
-  try {
-    await sendEvolutionTextMessageWithReconnect({ instanceName: linea.evolutionInstanceName, phoneNumber: numero, text: texto });
-  } catch (error) {
-    // No salió: no cuenta para el límite de 1 por minuto.
-    ultimoAviso.delete(contexto.workspaceId);
-    console.warn("[trabajador-aviso] no salió el WhatsApp", {
-      numero: `…${numero.slice(-4)}`,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw new ErrorDelTrabajador("No se pudo mandar el WhatsApp por la línea Admin (¿está conectada?).", 502);
-  }
-  return { linea: linea.name, numero: `…${numero.slice(-4)}` };
+export async function enviarAvisoDelTrabajador(contexto: ContextoTrabajador, cuerpo: unknown): Promise<RespuestaDelAviso> {
+  const datos = (cuerpo ?? {}) as { texto?: unknown; tipo?: unknown };
+  const texto = textoDeAvisoDeEntrada(datos.texto);
+  const tipo = tipoDeAvisoDeEntrada(datos.tipo);
+  if (!tipo) return { ok: true, enviado: false, motivo: 'descartado: el aviso no trae tipo "limite" o "necesita"' };
+  return avisoDelCoordinador(contexto.workspaceId, tipo, texto);
 }

@@ -124,10 +124,10 @@ export const fechaBogota = (fecha = new Date()) => fecha.toLocaleDateString("sv-
  *   estado: lo guardado en estado-uso.json { avisado: { sesion, semana }, alertaLectura }
  * -> { alto, avisos, alertaLectura, estado }
  *   alto: los periodos sobre el umbral [{ periodo, porcentaje, reinicio }] (vacío si no se pudo leer)
- *   avisos: los cruces nuevos para el WhatsApp (uno por periodo y por cruce: se vuelve a avisar solo si
- *           bajó del umbral o cambió el periodo, es decir, el texto del reinicio)
- *   alertaLectura: true si hay que mandar "no pude leer el uso de Claude" (una vez por día)
- *   estado: lo que hay que guardar (se guarda solo si el aviso salió: ver crearVigilanteDeUso)
+ *   avisos: los cruces nuevos del umbral (uno por periodo y por cruce). Desde el 24-oct-2026 NO van por WhatsApp
+ *           (el dueño solo quiere avisos de lo súper importante): quedan en el registro.
+ *   alertaLectura: true la primera vez del día que no se pudo leer el uso (también solo al registro)
+ *   estado: lo que hay que guardar (estado-uso.json)
  */
 export function decidirUso(uso, estado, umbral, hoy = fechaBogota()) {
   const avisado = { sesion: estado?.avisado?.sesion ?? null, semana: estado?.avisado?.semana ?? null };
@@ -191,9 +191,9 @@ async function leerUsoConClaude(config, entorno) {
 
 /**
  * El vigilante del uso de Claude. vigilar() lo llama el planificador en cada vuelta; solo mira cada
- * config.vigilarUsoMinutos. Guarda en carpetaTrabajo/estado-uso.json a quién ya avisó.
+ * config.vigilarUsoMinutos. Guarda en carpetaTrabajo/estado-uso.json lo último que vio (sin WhatsApp: solo el registro).
  */
-export function crearVigilanteDeUso({ config, registro, crm, estado, entorno, leer = leerUsoConClaude, ahora = () => Date.now() }) {
+export function crearVigilanteDeUso({ config, registro, estado, entorno, leer = leerUsoConClaude, ahora = () => Date.now() }) {
   const archivo = path.join(config.carpetaTrabajo, "estado-uso.json");
   let proxima = 0;
   let altoAntes = "";
@@ -213,16 +213,6 @@ export function crearVigilanteDeUso({ config, registro, crm, estado, entorno, le
       registro.aviso(`no pude guardar ${archivo}: ${error.message}`);
     }
   };
-  const avisar = async (texto) => {
-    try {
-      await crm.aviso(texto);
-      return true;
-    } catch (error) {
-      registro.aviso(`no salió el aviso por WhatsApp (${error.status ?? "sin respuesta"}): ${error.message}`);
-      return false;
-    }
-  };
-
   async function mirar() {
     const { texto, motivo } = await leer(config, entorno);
     const uso = leerUsoDeClaude(texto);
@@ -231,13 +221,9 @@ export function crearVigilanteDeUso({ config, registro, crm, estado, entorno, le
     const decision = decidirUso(uso, guardado, config.umbralClaude);
     const aGuardar = { ...decision.estado };
 
-    if (decision.alertaLectura && !(await avisar("⚠️ Coordinador del Tablero IA: no pude leer el uso de Claude (claude -p /usage). Sigo como si estuviera bajo el umbral."))) {
-      aGuardar.alertaLectura = guardado.alertaLectura ?? null;
-    }
-    if (decision.avisos.length && !(await avisar(textoDelAviso(decision.avisos, config)))) {
-      // No salió: se deja como estaba para volver a intentar en la próxima mirada.
-      for (const aviso of decision.avisos) aGuardar.avisado[aviso.periodo] = guardado.avisado?.[aviso.periodo] ?? null;
-    }
+    // Sin WhatsApp (24-oct-2026): ni el cruce del umbral ni "no pude leer el uso" le llegan al dueño; solo el registro.
+    if (decision.alertaLectura) registro.aviso("no pude leer el uso de Claude (claude -p /usage): sigo como si estuviera bajo el umbral");
+    if (decision.avisos.length) registro.aviso(textoDelAviso(decision.avisos, config).replace(/\n/g, " "));
     guardarEstado(aGuardar);
 
     const alto = decision.alto.sort((a, b) => b.porcentaje - a.porcentaje)[0] ?? null;

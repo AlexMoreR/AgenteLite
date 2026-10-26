@@ -238,17 +238,20 @@ Current week (all models): 6% used · resets Oct 30, 7am (America/Bogota)
 - Si la sesión o la semana llegan a `umbralClaude` (80 % por defecto): con `respaldoCodex: true`, **todos los
   pasos van con Codex** hasta que baje (`Claude al 83 % (sesión): planear y revisar pasan a Codex hasta 3:20pm`);
   con `respaldoCodex: false` (hoy) se sigue con Claude y solo se avisa.
-- Manda **un** WhatsApp al dueño por cada cruce (con el porcentaje y la hora de reinicio), desde la línea
-  Admin del CRM (`POST /api/trabajador/aviso`). Vuelve a avisar solo si bajó del umbral y volvió a subir, o si
-  empezó otro periodo. Lo que ya avisó queda en `<carpetaTrabajo>/estado-uso.json`.
-- Si no puede leer el uso, lo anota en el log, sigue como si estuviera bajo el umbral (no inventa números) y
-  manda **una** alerta "no pude leer el uso de Claude" por día.
+- **WhatsApp al dueño (desde el 24-oct-2026): solo lo súper importante.** Cruzar el umbral y "no pude leer el uso"
+  ya NO se mandan: quedan solo en el log. El Coordinador manda `POST /api/trabajador/aviso` con `tipo` únicamente en
+  dos casos: `"limite"` (se agotó Claude y NO queda otro motor para planear ni construir, es decir, todo quedó en
+  pausa; el texto dice a qué hora vuelve) y `"necesita"` (algo que no puede hacer solo). Sin `tipo`, el CRM descarta
+  el aviso sin error. El CRM pone el link, calla de 9:00 p. m. a 7:00 a. m., no repite el mismo aviso antes de 3
+  horas y lo manda solo al número personal del dueño por la línea Admin. Los demás avisos (coordinador apagado, sin
+  trabajo, tarjeta trabada o en ERROR, plan que toca dinero o Meta Ads) los detecta el CRM solo, sin el Coordinador.
+- Si no puede leer el uso, lo anota en el log y sigue como si estuviera bajo el umbral (no inventa números).
 - Si Claude de verdad llega a su límite, la tarjeta se suelta sin error y Claude se pausa
   `pausaLimiteMinutos`; mientras tanto sus pasos van con Codex.
-- **Para que llegue el WhatsApp**: guardar el número del dueño (solo dígitos, con indicativo, por ejemplo
-  `573001234567`) en la AppSetting `trabajador:aviso-telefono:<workspaceId>` del CRM, y tener una línea de
-  WhatsApp llamada "Admin" (o con purpose ADMIN) conectada. Sin número, el CRM contesta 412 y el trabajador
-  lo anota en el log.
+- **Para que llegue el WhatsApp**: el dueño guarda su número personal en Mi empresa → Claude → "Avisos de Sistemas
+  por WhatsApp" (botón "Mandar prueba") y tiene la línea Admin conectada. Sin número, el aviso queda anotado como
+  "no salió: falta su número" (ya no da 412). Hay que actualizar este PC (`git pull` y reiniciar la tarea) para
+  dejar de mandar el aviso viejo del umbral.
 
 ### Riesgo BAJO / ALTO (desde el 24-oct-2026)
 
@@ -412,7 +415,7 @@ Cuando se sube código nuevo a main, el Coordinador se pone al día solo (antes 
 1. **Cada 10 minutos** (`autoactualizar: { activo: true, cadaMinutos: 10 }` en `config.local.json`; sin esa clave usa esos valores) hace `git fetch` en SU copia (la carpeta del repo desde donde corre) y mira si `origin/main` trae commits que toquen `trabajador-tablero/`. Si no tocan esa carpeta, solo hace `git pull --ff-only` (copia limpia) y sigue sin reiniciar.
 2. **Si hay versión nueva**: deja de tomar tarjetas, espera a que terminen las que corren y lo anota ("versión nueva <hash>: espero a que terminen N tarjetas").
 3. **Con 0 tarjetas**: guarda `<carpetaTrabajo>/actualizacion.json` (`{ anterior, nueva, cuando, estado: "probando" }`), hace `git pull --ff-only` (con cambios locales, sin fast-forward o en otra rama no actualiza: lo anota, avisa y no insiste con ese hash), prueba el código nuevo con `node trabajador-tablero/trabajador.mjs --probar-arranque` (carga la config e importa todos los módulos; no toma tarjetas ni habla con el CRM) y, si pasa, sale con código 0.
-4. **Si no arranca**: `git reset --hard <anterior>` (solo en esa copia), estado `revertida` y aviso por WhatsApp en una línea (el aviso del CRM; sin número guardado da 412 y queda en el log).
+4. **Si no arranca**: `git reset --hard <anterior>` (solo en esa copia), estado `revertida` y aviso por WhatsApp en una línea (sin `tipo`, el CRM lo descarta: queda solo en el log).
 5. **El lanzador** (`lanzador.mjs`, sin imports del resto: solo `node:*`) es lo que la tarea de Windows corre en vez de `trabajador.mjs`. Al ver la salida 0 de una actualización lo relanza de inmediato (sin esperar los 5 min de la tarea); y si el Coordinador nuevo se cae en los primeros 3 minutos (código que pasó la prueba pero falla al correr), hace él mismo el `reset --hard` a `anterior`, marca `revertida`, avisa con `fetch` directo al CRM y vuelve a correr la versión anterior. Cuando el proceso nuevo completa su primera vuelta bien, el estado pasa a `ok` y el log dice "actualizado a <hash>". Sin el lanzador la actualización y la reversión por `--probar-arranque` funcionan igual, pero un código que pasa la prueba y luego se cae no se deshace solo, y el relanzamiento espera a la tarea (≤5 min). El lanzador mismo no se actualiza hasta el siguiente reinicio de la tarea.
 
 **Cambiar la tarea de Windows para que use el lanzador** (una vez, en aizen1; la tarea sigue con su disparador y `MultipleInstances=IgnoreNew`):

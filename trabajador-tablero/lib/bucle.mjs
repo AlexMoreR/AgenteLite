@@ -92,6 +92,25 @@ export async function unaVuelta({ crm, config, registro }) {
   return { hizo: hacer, tarjetaId: tarjeta.id, ...resultado };
 }
 
+/** La hora (Bogotá) en que vuelve el motor, para el WhatsApp: "3:20 p. m.". */
+export function horaDeVuelta(hasta) {
+  return new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(hasta));
+}
+
+/**
+ * WhatsApp al dueño (tipo "limite") SOLO cuando se agotó el uso y no queda otro motor para planear ni construir: todo
+ * quedó en pausa. Si el otro motor (Codex) sigue disponible, el trabajo continúa y no hay nada que avisar. El CRM
+ * pone el link, calla de noche y no repite el mismo aviso antes de 3 horas. Nunca lanza ni espera la respuesta.
+ */
+export function avisarLimiteSiTodoQuedoEnPausa(crm, registro, motores, hasta) {
+  if (!["planear", "construir"].every((hacer) => motorDeLaEtapa(motores, hacer) === null)) return false;
+  const texto = `⚠️ Sistemas en pausa: se agotó el uso de Claude y no queda otro motor.\nVuelve a las ${horaDeVuelta(hasta)} (hora de Bogotá).`;
+  Promise.resolve()
+    .then(() => crm.aviso(texto, "limite"))
+    .catch((error) => registro.aviso(`no salió el aviso del límite por WhatsApp (${error?.status ?? "sin respuesta"}): ${error?.message ?? error}`));
+  return true;
+}
+
 export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null, colaPesada = null, etiqueta = "" }, tarjeta, hacer) {
   const control = new AbortController();
   // Lo que escribe la sesión se guarda también aquí: es el "log del intento" si falla.
@@ -127,6 +146,7 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
   const pausar = (motor) => {
     const hasta = motores.pausar(motor);
     registro.aviso(`pausa: ${nombreDelMotor(motor)} llegó a su límite de uso; no lo uso hasta ${new Date(hasta).toISOString()}`);
+    avisarLimiteSiTodoQuedoEnPausa(crm, registro, motores, hasta);
   };
   const enNube = lugar === "nube" && hacer === "construir";
   Object.assign(vivo, {
@@ -432,7 +452,7 @@ export function crearPlanificador({
   registro,
   medidor = crearMedidor({ muestras: Math.max(1, Math.round(((config.limites?.cpuPromedioMinutos ?? 3) * 60) / 5)) }),
   motores = crearEstadoDeMotores(config),
-  vigilante = crearVigilanteDeUso({ config, registro, crm, estado: motores, entorno: entornoSeguro() }),
+  vigilante = crearVigilanteDeUso({ config, registro, estado: motores, entorno: entornoSeguro() }),
   // La cola de pasos pesados se puede dar hecha (las pruebas la llenan a mano); undefined = la de la configuración.
   colaPesada: colaDada = undefined,
 }) {
