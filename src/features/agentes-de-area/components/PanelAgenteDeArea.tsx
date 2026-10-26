@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { InterruptorDelAgente } from "./InterruptorDelAgente";
+import { TablaDeCampanas } from "./TablaDeCampanas";
 
 export type DatosDelPanel = {
   area: string;
@@ -17,6 +18,9 @@ export type DatosDelPanel = {
     meta: unknown;
     subagentes: Record<string, unknown>;
     sugeridos: number;
+    /** Solo marketing: la línea para Alexander y la recomendación (máximo una) con su dato. */
+    linea?: string | null;
+    recomendacion?: { accion: string; texto: string; dato: string } | null;
   } | null;
   envios: Array<{ id: string; tipo: string; destinatario: string | null; numero: string; estado: string; motivo: string | null; texto: string; hora: string }>;
   historial: Array<{ fecha: string; esPrueba: boolean; salioTarde: boolean; resumen: string | null }>;
@@ -56,10 +60,18 @@ export function PanelAgenteDeArea({ datos }: { datos: DatosDelPanel }) {
           <CardTitle>{datos.titulo}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
-          <p className="text-muted-foreground">
-            Corre en aizen1 todos los días a las 7:00 a. m. (lunes a sábado). El CRM solo da los datos, manda los WhatsApp internos que el agente pide y
-            muestra el resumen. Nunca le escribe a un cliente. Si aizen1 está apagado, no hay resumen.
-          </p>
+          {datos.area === "marketing" ? (
+            <p className="text-muted-foreground">
+              Corre en aizen1 todos los días a las 6:45 a. m. (lunes a sábado), antes del Agente de Ventas. Solo LEE Meta Ads: nunca pausa, prende,
+              edita presupuestos ni crea anuncios; las decisiones las toma Alexander. No manda WhatsApp: su línea va dentro del mensaje de las 7:30.
+              Con el interruptor apagado se genera el resumen, pero la línea no sale en ese mensaje. Si aizen1 está apagado, no hay resumen.
+            </p>
+          ) : (
+            <p className="text-muted-foreground">
+              Corre en aizen1 todos los días a las 7:00 a. m. (lunes a sábado). El CRM solo da los datos, manda los WhatsApp internos que el agente pide y
+              muestra el resumen. Nunca le escribe a un cliente. Si aizen1 está apagado, no hay resumen.
+            </p>
+          )}
           <InterruptorDelAgente area={datos.area} activo={datos.activo} />
           {datos.sinNumeroDeAvisos.length ? (
             <p className="rounded-md border border-amber-500/60 bg-amber-500/5 px-3 py-2 text-xs">
@@ -81,8 +93,20 @@ export function PanelAgenteDeArea({ datos }: { datos: DatosDelPanel }) {
           {resumen ? (
             <>
               {resumen.notaDeRetraso ? <p className="text-xs text-muted-foreground">{resumen.notaDeRetraso}</p> : null}
+              {resumen.linea ? <p className="font-medium">{resumen.linea}</p> : null}
+              {resumen.recomendacion ? (
+                <p className="rounded-md border border-border px-3 py-2 text-xs">
+                  <span className="font-semibold uppercase">{resumen.recomendacion.accion}:</span> {resumen.recomendacion.texto}{" "}
+                  <span className="text-muted-foreground">Dato: {resumen.recomendacion.dato}</span>
+                </p>
+              ) : null}
+              {datos.area === "marketing" ? (
+                <Bloque titulo="Por campaña y por anuncio">
+                  <TablaDeCampanas numeros={resumen.numeros} />
+                </Bloque>
+              ) : null}
               {resumen.texto ? <pre className="whitespace-pre-wrap text-xs leading-relaxed text-foreground">{resumen.texto}</pre> : null}
-              {resumen.numeros ? (
+              {resumen.numeros && datos.area !== "marketing" ? (
                 <Bloque titulo="Números de ayer">
                   <pre className="whitespace-pre-wrap text-xs text-foreground">{aTexto(resumen.numeros)}</pre>
                 </Bloque>
@@ -92,7 +116,7 @@ export function PanelAgenteDeArea({ datos }: { datos: DatosDelPanel }) {
                   <pre className="whitespace-pre-wrap text-xs text-foreground">{aTexto(resumen.meta)}</pre>
                 </Bloque>
               ) : null}
-              <p className="text-xs text-muted-foreground">Clientes sugeridos guardados para medir mañana: {resumen.sugeridos}.</p>
+              {datos.area !== "marketing" ? <p className="text-xs text-muted-foreground">Clientes sugeridos guardados para medir mañana: {resumen.sugeridos}.</p> : null}
             </>
           ) : (
             <p className="text-muted-foreground">Todavía no hay resumen de este día.</p>
@@ -119,6 +143,7 @@ export function PanelAgenteDeArea({ datos }: { datos: DatosDelPanel }) {
         </Card>
       )}
 
+      {datos.area === "marketing" ? null : (
       <Card size="sm">
         <CardHeader>
           <CardTitle>Mensajes del día</CardTitle>
@@ -140,6 +165,7 @@ export function PanelAgenteDeArea({ datos }: { datos: DatosDelPanel }) {
           ))}
         </CardContent>
       </Card>
+      )}
 
       <Card size="sm">
         <CardHeader>

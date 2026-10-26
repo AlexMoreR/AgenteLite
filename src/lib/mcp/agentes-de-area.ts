@@ -1,6 +1,7 @@
 import {
   ETIQUETA_DE_AREA,
   diaAnterior,
+  esArea,
   fechaValida,
   hoyEnBogota,
   leerPedidoDeEnvio,
@@ -9,6 +10,7 @@ import {
 } from "@/features/agentes-de-area/dominio/reglas";
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { mandarWhatsAppAlEquipo } from "@/features/agentes-de-area/servicios/envios";
+import { numerosDeMarketing } from "@/features/agentes-de-area/servicios/numeros-de-marketing";
 import { avisosDelSupervisor, medirLosSugeridosDe, numerosDelDia } from "@/features/agentes-de-area/servicios/numeros";
 import {
   guardarResumenDelDia,
@@ -28,6 +30,12 @@ import { puedeVerElSupervisor } from "@/lib/mcp/supervisor";
     - mandar_whatsapp_al_equipo (escribe) → SOLO a números del equipo, por la línea Admin, con el
       interruptor prendido y una vez por persona y por día. Todo se valida en el servidor.
     - agente_de_ventas (lee)        → el estado, el resumen de hoy, los mensajes y los últimos días.
+
+  El Agente de Marketing (segunda área, mismo molde) agrega dos más:
+    - numeros_de_marketing (lee)   → conversaciones por anuncio de origen: Tibio/Caliente, ventas, sin respuesta.
+    - agente_de_marketing (lee)    → el estado, el resumen de hoy, su línea y su recomendación.
+  Su resumen se guarda con guardar_resumen_del_dia (area = "marketing"). Marketing NO manda WhatsApp: su línea
+  va dentro del mensaje de las 7:30 que arma Ventas. Solo LEE Meta Ads (eso lo traba aizen1, no el CRM).
 
   Nunca le escribe a un cliente. No toca el bot, el libro V3, los flujos ni Meta Ads.
 */
@@ -60,10 +68,22 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
     name: "guardar_resumen_del_dia",
     title: "Guardar el resumen del día del Agente de Ventas",
     description:
-      "Guarda el resumen del día: números de ayer, meta de hoy, lo que entregó cada subagente (objeto con una clave por subagente: cerrador, cobrador, analista-de-perdidos), los clientes sugeridos a cada asesora (para medirlos mañana: asesora, conversacionId, numero, cliente), los mensajes que quedan listos para mandar y si la corrida salió tarde. Si ya hay un resumen de ese día, se REEMPLAZA. No manda ningún mensaje. Con es_prueba=true queda marcado como corrida de prueba.",
+      "Guarda el resumen del día: números de ayer, meta de hoy, lo que entregó cada subagente (objeto con una clave por subagente: cerrador, cobrador, analista-de-perdidos), los clientes sugeridos a cada asesora (para medirlos mañana: asesora, conversacionId, numero, cliente), los mensajes que quedan listos para mandar y si la corrida salió tarde. Si ya hay un resumen de ese día, se REEMPLAZA. No manda ningún mensaje. Con es_prueba=true queda marcado como corrida de prueba. Con area=\"marketing\" guarda el resumen del Agente de Marketing: la tabla por campaña y anuncio va en numeros, y se agregan linea (UNA línea para Alexander) y recomendacion (máximo UNA: subir, bajar o cambiar un anuncio, con el dato que la sustenta; nunca pausar para que reaprenda).",
     inputSchema: {
       type: "object",
       properties: {
+        area: { type: "string", enum: ["ventas", "marketing"], description: "Por defecto, ventas." },
+        linea: { type: "string", description: "Solo marketing: UNA línea de marketing para el mensaje de las 7:30." },
+        recomendacion: {
+          type: "object",
+          description: "Solo marketing: máximo UNA recomendación concreta.",
+          properties: {
+            accion: { type: "string", enum: ["subir", "bajar", "cambiar"] },
+            texto: { type: "string" },
+            dato: { type: "string", description: "El dato que sustenta la recomendación." },
+          },
+          required: ["accion", "texto", "dato"],
+        },
         fecha: { type: "string", description: "AAAA-MM-DD (hora de Colombia). Por defecto, hoy." },
         es_prueba: { type: "boolean", description: "true = corrida de prueba." },
         salio_tarde: { type: "boolean", description: "true si la corrida arrancó después de las 7:00 a. m." },
@@ -124,6 +144,33 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
     annotations: ESCRITURA,
   },
   {
+    name: "numeros_de_marketing",
+    title: "Números de marketing por anuncio",
+    description:
+      "Las conversaciones NUEVAS por ANUNCIO de origen de UN día (por defecto ayer, hora de Colombia) o de los últimos 7 días (dias=7): cuántas llegaron, cuántas quedaron en Tibio/Caliente (temperatura del sistema y etapa de la asesora), cuántas son venta (GANADO, con su cotización de Gestión), cuántas NO tuvieron respuesta y en cuánto se respondió la primera vez, y cuántas son de fuera de Colombia. Con un solo día trae además los primeros mensajes cortos de cada cliente (precio, ciudad, envío) para separar clientes reales de curiosos. Dice cuántas conversaciones NO tienen anuncio de origen y el porcentaje. El CRM guarda el anuncio, no la campaña: la campaña se une leyendo Meta. El gasto sale de Meta, no de aquí. Solo lectura.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fecha: { type: "string", description: "AAAA-MM-DD (hora de Colombia): último día del rango. Por defecto, ayer." },
+        dias: { type: "number", enum: [1, 7], description: "1 = solo ese día (con primeros mensajes); 7 = los últimos 7 días. Por defecto, 1." },
+      },
+      additionalProperties: false,
+    },
+    annotations: SOLO_LECTURA,
+  },
+  {
+    name: "agente_de_marketing",
+    title: "Ver el Agente de Marketing",
+    description:
+      "Para leer en voz alta: si el interruptor del Agente de Marketing está prendido o apagado, el resumen de hoy (o de la fecha pedida) con su línea para Alexander y su recomendación, la tabla por campaña y anuncio, lo que entregó cada subagente y los últimos días. El Agente de Ventas lo lee para saber qué campañas traen clientes calientes. Solo lectura.",
+    inputSchema: {
+      type: "object",
+      properties: { fecha: { type: "string", description: "AAAA-MM-DD (hora de Colombia). Por defecto, hoy." } },
+      additionalProperties: false,
+    },
+    annotations: SOLO_LECTURA,
+  },
+  {
     name: "agente_de_ventas",
     title: "Ver el Agente de Ventas",
     description:
@@ -145,7 +192,7 @@ export function esHerramientaDeAgentesDeArea(nombre: string) {
 
 async function exigirPermiso(contexto: Contexto) {
   if (!(await puedeVerElSupervisor(contexto))) {
-    throw new Error("Esta clave no tiene permiso para el Agente de Ventas: es solo del dueño, los administradores y la supervisora.");
+    throw new Error("Esta clave no tiene permiso para los agentes de área: es solo del dueño, los administradores y la supervisora.");
   }
 }
 
@@ -206,9 +253,13 @@ async function verNumeros(args: Argumentos, contexto: Contexto) {
 
 async function guardarResumen(args: Argumentos, contexto: Contexto) {
   await exigirPermiso(contexto);
-  const resumen = leerResumenAGuardar(args, hoyEnBogota());
-  const guardado = await guardarResumenDelDia(contexto.workspaceId, AREA, resumen);
+  const pedida = args.area === undefined || args.area === null || args.area === "" ? AREA : args.area;
+  if (!esArea(pedida)) throw new Error('El área tiene que ser "ventas" o "marketing".');
+  const area: Area = pedida;
+  const resumen = leerResumenAGuardar(args, hoyEnBogota(), area);
+  const guardado = await guardarResumenDelDia(contexto.workspaceId, area, resumen);
   return {
+    area,
     guardado: true,
     fecha: resumen.fecha,
     id: guardado.id,
@@ -233,18 +284,31 @@ async function mandarAlEquipo(args: Argumentos, contexto: Contexto) {
   };
 }
 
-async function verAgente(args: Argumentos, contexto: Contexto) {
+async function verNumerosDeMarketing(args: Argumentos, contexto: Contexto) {
+  await exigirPermiso(contexto);
+  const fecha = leerFecha(args, "fecha", diaAnterior(hoyEnBogota()));
+  const dias = args.dias === 7 || args.dias === "7" ? 7 : 1;
+  return numerosDeMarketing(contexto.workspaceId, fecha, dias);
+}
+
+/** La línea para Alexander y la recomendación viajan dentro de `meta` del resumen de marketing. */
+function lineaYRecomendacion(meta: unknown) {
+  const datos = meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
+  return { linea_para_alexander: datos.linea ?? null, recomendacion: datos.recomendacion ?? null };
+}
+
+async function verAgente(args: Argumentos, contexto: Contexto, area: Area = "ventas") {
   await exigirPermiso(contexto);
   const ws = contexto.workspaceId;
   const fecha = leerFecha(args, "fecha", hoyEnBogota());
   const [activo, resumen, envios, ultimos] = await Promise.all([
-    agenteActivo(AREA, ws),
-    leerResumenDelDia(ws, AREA, fecha),
-    leerEnviosDelDia(ws, AREA, fecha),
-    leerUltimosResumenes(ws, AREA, 14),
+    agenteActivo(area, ws),
+    leerResumenDelDia(ws, area, fecha),
+    leerEnviosDelDia(ws, area, fecha),
+    leerUltimosResumenes(ws, area, 14),
   ]);
   return {
-    agente: ETIQUETA_DE_AREA[AREA],
+    agente: ETIQUETA_DE_AREA[area],
     interruptor: activo ? "prendido" : "apagado",
     fecha,
     resumen_del_dia: resumen
@@ -255,6 +319,7 @@ async function verAgente(args: Argumentos, contexto: Contexto) {
           resumen: resumen.resumen,
           numeros: resumen.numeros,
           meta: resumen.meta,
+          ...(area === "marketing" ? lineaYRecomendacion(resumen.meta) : {}),
           subagentes: resumen.subagentes,
           sugeridos: resumen.sugeridos,
           guardado_en: resumen.actualizadoEn,
@@ -269,10 +334,17 @@ async function verAgente(args: Argumentos, contexto: Contexto) {
       en: envio.creadoEn,
     })),
     ultimos_dias: ultimos.map((dia) => ({ fecha: dia.fecha, es_prueba: dia.esPrueba, salio_tarde: dia.salioTarde, resumen: dia.resumen })),
-    advertencias: [
-      "El Agente de Ventas corre en aizen1: si aizen1 está apagado, no hay resumen.",
-      ...(activo ? [] : ["Con el interruptor apagado el agente genera el resumen pero el servidor no deja salir ningún WhatsApp."]),
-    ],
+    advertencias:
+      area === "marketing"
+        ? [
+            "El Agente de Marketing corre en aizen1 y solo LEE Meta Ads: no pausa, prende, edita ni crea nada.",
+            "Si falta el anuncio de origen en muchos chats, el costo por venta sale incompleto.",
+            ...(activo ? [] : ["Con el interruptor apagado el agente genera el resumen, pero su línea NO va en el mensaje de las 7:30."]),
+          ]
+        : [
+            "El Agente de Ventas corre en aizen1: si aizen1 está apagado, no hay resumen.",
+            ...(activo ? [] : ["Con el interruptor apagado el agente genera el resumen pero el servidor no deja salir ningún WhatsApp."]),
+          ],
   };
 }
 
@@ -284,6 +356,10 @@ export async function ejecutarHerramientaMcpAgentesDeArea(nombre: string, argume
       return guardarResumen(argumentos, contexto);
     case "mandar_whatsapp_al_equipo":
       return mandarAlEquipo(argumentos, contexto);
+    case "numeros_de_marketing":
+      return verNumerosDeMarketing(argumentos, contexto);
+    case "agente_de_marketing":
+      return verAgente(argumentos, contexto, "marketing");
     case "agente_de_ventas":
       return verAgente(argumentos, contexto);
     default:

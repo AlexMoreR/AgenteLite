@@ -1,4 +1,4 @@
-# Agentes de área (molde) — hoy: Agente de Ventas
+# Agentes de área (molde) — hoy: Agente de Ventas y Agente de Marketing
 
 Un **agente por área** que mira su número todos los días, decide qué hace falta y reparte el trabajo a
 **subagentes**. En Magilus nadie es jefe: se llama "Agente de Ventas". Se empieza solo con Ventas; si sube el
@@ -17,6 +17,12 @@ El **CRM no piensa**: da los datos (MCP), guarda el resumen, entrega los WhatsAp
 | `ventas/CLAUDE.md` | La instrucción permanente del Agente de Ventas: número, metas, límites, paso a paso y formato de mensajes. |
 | `ventas/subagentes/<nombre>/PROMPT.md` | Un subagente = una carpeta con su prompt (`Frecuencia: diario` o `sabado`). Agregar un subagente es agregar una carpeta. |
 | `ventas/.mcp.json.example` | Conexiones al MCP de AizenCRM y de Gestión. Se copia a `ventas/.mcp.json` (con las claves; **nunca se sube**). |
+| `marketing/CLAUDE.md` | La instrucción permanente del Agente de Marketing: su número (costo por **venta**), campañas, cruce, límites y salida. |
+| `marketing/subagentes/<nombre>/PROMPT.md` | Vigilante de pauta (diario), calidad del lead (diario) e ideas de anuncio (`Frecuencia: lunes`). |
+| `marketing/.claude/settings.json` | **El candado de solo lectura en Meta Ads**: solo permite las herramientas de lectura y prohíbe todas las que escriben. |
+| `marketing/.mcp.json.example` | Conexiones al CRM, a Gestión y al conector de Meta Ads (servidor `meta-ads`). Se copia a `marketing/.mcp.json` (**nunca se sube**). |
+| `lib/candado-meta.mjs` | Las listas de herramientas de Meta permitidas (lectura) y prohibidas (escritura); el lanzador las pasa a Claude Code. |
+| `pruebas/probar-solo-lectura-meta.mjs` | Comprueba el candado: `npm run test:agente-de-marketing-candado`. |
 | `correr-agente.mjs` | El lanzador: abre Claude, espera hasta las 7:30, entrega los mensajes y deja el log. |
 | `instalar-tarea-windows.ps1` | Tarea de Windows: lunes a sábado 7:00 a. m., "ejecutar apenas se pueda si se pasó la hora". |
 | `config.example.json` | Se copia a `config.local.json` (con la clave del MCP; **nunca se sube**). |
@@ -26,7 +32,26 @@ Subagentes de Ventas: **cerrador** (diario: 5 clientes más cerca de comprar por
 **analista de perdidos** (sábado: causas y máximo 3 arreglos; las fallas del bot/sistema no son de la asesora) y
 **cobrador** (diario: ventas de Gestión con saldo, por monto y fecha de entrega, con el mensaje de cobro).
 
-## Cómo corre cada mañana
+Subagentes de Marketing: **vigilante de pauta** (diario: gasto, conversaciones, Tibio/Caliente, ventas y costo por
+**venta** por campaña y anuncio; marca el que gasta sin calientes, la frecuencia alta y el costo disparado),
+**calidad del lead** (diario: clientes reales vs. curiosos y si el problema es el anuncio o la atención) e
+**ideas de anuncio** (lunes: máximo 3, solo fotos propias).
+
+## Agente de Marketing: cómo corre
+
+1. **6:45** — `node correr-agente.mjs --area marketing`. Lee Meta Ads (**solo lectura**), el CRM (`numeros_de_marketing`) y
+   Gestión; reparte a sus subagentes y guarda su resumen (`guardar_resumen_del_dia` con `area: "marketing"`) con UNA línea
+   para Alexander y máximo UNA recomendación (subir, bajar o cambiar un anuncio) con su dato. **No manda WhatsApp.**
+2. **7:00** — corre el Agente de Ventas, que lee el resumen de marketing (`agente_de_marketing`).
+3. **7:30** — el mensaje a Alexander que arma Ventas lleva la línea de marketing **solo si el interruptor de marketing
+   está prendido** (en el mismo mensaje, nunca en otro). Si marketing sigue corriendo, Ventas espera hasta 15 min; si no
+   corrió, la línea dice "Marketing: sin resumen hoy"; si salió tarde, lo dice.
+4. El candado de Meta: `marketing/.claude/settings.json` y los argumentos que abre el lanzador (`--allowedTools` solo de
+   lectura, `--disallowedTools` con todas las que escriben). Hay que comprobar en el primer uso que los nombres de
+   `lib/candado-meta.mjs` son los del conector de Meta del dueño (`/mcp` en Claude Code los lista); si no coinciden,
+   se ajustan ahí y en `settings.json` (la prueba `test:agente-de-marketing-candado` avisa si quedan distintos).
+
+## Cómo corre cada mañana (Ventas)
 
 1. 7:00 — el lanzador abre Claude en `ventas/`. El agente calcula los números de ayer (`numeros_de_ventas`), mide los
    sugeridos de ayer, reparte a los subagentes, guarda el resumen (`guardar_resumen_del_dia`) y deja
@@ -45,11 +70,17 @@ Subagentes de Ventas: **cerrador** (diario: 5 clientes más cerca de comprar por
 # 1. Copiar esta carpeta a D:\Proyectos\agentes (o dejarla dentro del repo; carpetaTrabajador apunta al trabajador).
 copy agentes-de-area\config.example.json agentes-de-area\config.local.json        # poner urlCrm, claveMcp y carpetaTrabajador
 copy agentes-de-area\ventas\.mcp.json.example agentes-de-area\ventas\.mcp.json    # poner las claves del CRM y de Gestión
+copy agentes-de-area\marketing\.mcp.json.example agentes-de-area\marketing\.mcp.json  # CRM, Gestión y el conector de Meta Ads
 # 2. Corrida de prueba (con el interruptor apagado no sale ningún mensaje; --prueba marca el resumen como prueba):
+node agentes-de-area\correr-agente.mjs --area marketing --prueba --forzar-lunes --sin-esperar --repetir
 node agentes-de-area\correr-agente.mjs --area ventas --prueba --forzar-sabado --sin-esperar --repetir
 # 3. Instalar la tarea programada:
 powershell -ExecutionPolicy Bypass -File agentes-de-area\instalar-tarea-windows.ps1
 ```
+
+Después de la corrida de marketing: revisar el registro (`logs\AAAA-MM-DD-claude.txt`) y que **ninguna** llamada fue a una
+herramienta de escritura de Meta, y comprobar en Meta Ads (historial de actividad de la cuenta) que no hubo cambios.
+Prender el interruptor de Marketing (pantalla *CRM → Agente de Marketing*) solo con el sí del dueño.
 
 Prender el interruptor (pantalla *CRM → Agente de Ventas*) solo con el sí del dueño. El primer día prendido,
 comprobar que Alexander recibió **un** mensaje a las 7:30 y cada asesora **uno**.

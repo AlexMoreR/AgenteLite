@@ -436,6 +436,16 @@ async function estadoDelAgenteDeVentas(workspaceId: string) {
     : `apagada: interruptor apagado, solo genera el resumen y no manda nada; ${resumen}`;
 }
 
+/** Agente de Marketing: el interruptor (si su línea va en el mensaje de las 7:30) y cuándo se guardó el último resumen. */
+async function estadoDelAgenteDeMarketing(workspaceId: string) {
+  const [activo, ultimos] = await Promise.all([agenteActivo("marketing", workspaceId), leerUltimosResumenes(workspaceId, "marketing", 1)]);
+  const ultimo = ultimos[0];
+  const resumen = ultimo ? `último resumen del ${ultimo.fecha}${ultimo.esPrueba ? " (prueba)" : ""}` : "todavía no ha guardado ningún resumen";
+  return activo
+    ? `ACTIVA: interruptor prendido, su línea va en el mensaje de las 7:30 a Alexander; solo lee Meta Ads; ${resumen}`
+    : `apagada: interruptor apagado, solo genera el resumen y su línea NO va en el mensaje de las 7:30; ${resumen}`;
+}
+
 /** Tablero IA: la recogida diaria de errores viejos (26-oct-2026): cuántas tarjetas hay en ERROR y cuántas dejaron una línea para el dueño. */
 async function estadoDeRecogerErrores(workspaceId: string) {
   const enError = await prisma.tarjetaTablero.findMany({
@@ -505,6 +515,7 @@ async function automatizaciones(
     resumen_diario_tablero: await estadoDelResumenDiario(),
     avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
+    agente_de_marketing: await estadoDelAgenteDeMarketing(workspaceId).catch(() => "no se pudo leer"),
     recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),
   };
 

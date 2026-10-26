@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, Filter, Gauge, GitCompareArrows, KanbanSquare, Bot, LifeBuoy, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, Filter, Gauge, GitCompareArrows, KanbanSquare, Bot, Megaphone, LifeBuoy, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -18,7 +18,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "comparar-embudos" | "recuperacion" | "supervisor" | "agente-de-ventas" | "guiones";
+type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "comparar-embudos" | "recuperacion" | "supervisor" | "agente-de-ventas" | "agente-de-marketing" | "guiones";
 
 const crmViews: Array<{
   title: string;
@@ -47,6 +47,8 @@ const crmViews: Array<{
   { title: "Supervisor", view: "supervisor", icon: ShieldCheck, soloDueno: true },
   // El Agente de Ventas (molde de agentes de área): lo ven los mismos que ven el Tablero.
   { title: "Agente de Ventas", view: "agente-de-ventas", icon: Bot, soloJefes: true },
+  // El Agente de Marketing: el mismo molde, junto al de Ventas.
+  { title: "Agente de Marketing", view: "agente-de-marketing", icon: Megaphone, soloJefes: true },
   { title: "Guiones", view: "guiones", icon: BookOpen },
 ];
 
