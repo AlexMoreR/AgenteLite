@@ -60,7 +60,7 @@ export async function guardarLatido(contexto: ContextoTrabajador, cuerpo: unknow
 }
 
 /** El latido más reciente del negocio (de cualquiera de sus claves), o null. */
-async function ultimoLatido(workspaceId: string): Promise<LatidoGuardado | null> {
+export async function ultimoLatido(workspaceId: string): Promise<LatidoGuardado | null> {
   const filas = await prisma.appSetting.findMany({
     where: { key: { startsWith: `${PREFIJO}${workspaceId}:` } },
     select: { value: true },

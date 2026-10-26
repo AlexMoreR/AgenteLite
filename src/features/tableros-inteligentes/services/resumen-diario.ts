@@ -1,33 +1,24 @@
 import { prisma } from "@/lib/prisma";
-import { destinoWhatsAppCritico, leerConfigGravedad, whatsAppAAlexander } from "@/features/avisos-gravedad/servicios/enrutador";
 import { QUIEN_AUTOMATICO, aprobacionAutomaticaPrendida } from "./aprobacion-automatica";
 import { resumenCorto, tituloCorto } from "./resumen-corto";
 import { linkDeHoy, pendientesDelDueno, todoElNegocio } from "./tableros";
 
 /*
-  RESUMEN DIARIO del Tablero IA (22-oct-2026; formato corto el 26-oct-2026, pedido de Alexander: "mensajes con
-  harto texto que no tengo tiempo de leer"): cada noche, entre las 8:55 y las 8:59 p. m. (hora de Bogotá, antes
-  del silencio de 9 p. m. a 7 a. m.), Alexander recibe por WhatsApp, desde la línea Admin (nunca una línea de
-  ventas), UN mensaje de 2 líneas:
+  RESUMEN DIARIO del Tablero IA (22-oct-2026; formato corto el 26-oct-2026). Es el texto corto de 2 líneas que se
+  ve en la caja "Resumen de hoy" y en la vista "Hoy" del tablero:
     Hoy: 4 listas ✅, 1 con problema ⚠️, 2 esperando tu sí 👆
     Ver: <link al tablero filtrado en lo de hoy>
-  Si una cifra es 0, esa parte no sale; si las tres son 0, no se manda nada. Sin commits, ramas, ids ni
-  títulos largos: el detalle se queda dentro de cada tarjeta (vista "Hoy" del tablero). El mismo texto se ve
-  en la caja "Resumen de hoy", con si el WhatsApp salió o por qué no.
+  Si una cifra es 0, esa parte no sale. Sin commits, ramas, ids ni títulos largos.
 
-  Lo revisa el reloj del servidor (api/cron/follows, cada minuto) y una sola vez por día (el sistema anota el
-  día del último envío en AppSetting). Todo sale del historial de las tarjetas (HistorialTarjeta) y de la lista
-  "Te toca a ti", sin tablas nuevas.
+  26-oct-2026 (decisión del dueño: "WhatsApp solo cuando sea súper importante, lo demás lo miro en el tablero"):
+  YA NO SE MANDA POR WHATSAPP. Los únicos avisos al dueño son los de avisos-al-dueno.ts (Sistemas detenido o
+  que lo necesita). Todo sale del historial de las tarjetas (HistorialTarjeta) y de la lista "Te toca a ti",
+  sin tablas nuevas.
 */
 
-// Sale entre las 8:55 y las 8:59 p. m. de Bogotá (el silencio de los avisos empieza a las 9:00 p. m.).
-const HORA_DEL_RESUMEN = 20;
-const MINUTO_DEL_RESUMEN = 55;
 const MS_HORA = 3_600_000;
 const BOGOTA_MS = 5 * MS_HORA;
 const MAX_POR_GRUPO = 30;
-
-export const claveDelUltimoResumen = (workspaceId: string) => `tablero:resumen-diario:${workspaceId}`;
 
 /* ───────────────────────────────────────────────────────────────────── el día de Bogotá ── */
 
@@ -44,16 +35,6 @@ export function horaDeBogota(ahora: Date): number {
 export function rangoDelDia(dia: string): { desde: Date; hasta: Date } {
   const desde = new Date(Date.parse(`${dia}T00:00:00Z`) + BOGOTA_MS);
   return { desde, hasta: new Date(desde.getTime() + 24 * MS_HORA) };
-}
-
-/** ¿Estamos en la ventana del resumen (8:55 a 8:59 p. m. de Bogotá)? */
-export function enLaVentanaDelResumen(ahora: Date): boolean {
-  return horaDeBogota(ahora) === HORA_DEL_RESUMEN && new Date(ahora.getTime() - BOGOTA_MS).getUTCMinutes() >= MINUTO_DEL_RESUMEN;
-}
-
-/** ¿Toca mandar el resumen? Entre las 8:55 y las 8:59 p. m. de Bogotá y solo si hoy no salió ya. */
-export function tocaElResumen(ahora: Date, ultimoDia: string | null | undefined): boolean {
-  return enLaVentanaDelResumen(ahora) && ultimoDia !== diaDeBogota(ahora);
 }
 
 /* ───────────────────────────────────────────────────────────────────── armar el resumen ── */
@@ -228,95 +209,20 @@ export async function vistaDeHoy(workspaceId: string, ahora = new Date()): Promi
   };
 }
 
-/** Lo que se anota de cada envío (AppSetting): el día, si el WhatsApp salió y, si no, por qué. */
-export type EnvioDelResumen = { dia: string; enviado: boolean; motivo: string | null; cuando: string };
-
-export async function leerUltimoEnvio(workspaceId: string): Promise<EnvioDelResumen | null> {
-  const fila = await prisma.appSetting.findUnique({ where: { key: claveDelUltimoResumen(workspaceId) }, select: { value: true } });
-  if (!fila?.value) return null;
-  try {
-    const leido = JSON.parse(fila.value) as Partial<EnvioDelResumen>;
-    return typeof leido.dia === "string"
-      ? { dia: leido.dia, enviado: leido.enviado === true, motivo: texto(leido.motivo), cuando: texto(leido.cuando) ?? "" }
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-async function anotarEnvio(workspaceId: string, envio: EnvioDelResumen) {
-  const key = claveDelUltimoResumen(workspaceId);
-  const value = JSON.stringify(envio);
-  await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
-}
-
-/** Por qué no salió el WhatsApp (para decirlo en el tablero). */
-async function motivoDeNoEnvio(workspaceId: string): Promise<string> {
-  const config = await leerConfigGravedad(workspaceId);
-  if (!config.whatsapp.activo) return "El WhatsApp de avisos está apagado en la configuración de avisos graves.";
-  const destino = await destinoWhatsAppCritico(workspaceId, config).catch(() => null);
-  if (!destino) return "No hay línea Admin conectada o número configurado para los avisos.";
-  return "La línea Admin no pudo enviar el mensaje (¿está desconectada?).";
-}
-
-/** Manda el resumen de hoy por WhatsApp (línea Admin) y anota si salió. Nunca lanza. */
-async function enviarResumen(workspaceId: string, ahora: Date): Promise<EnvioDelResumen> {
-  const dia = diaDeBogota(ahora);
-  let envio: EnvioDelResumen;
-  try {
-    const cifras = cifrasDelDia(await resumenDelDia(workspaceId, dia), await cuantasEsperan(workspaceId));
-    const mensaje = textoDelResumen(cifras);
-    // Si el día no tuvo nada, no se manda nada (y se anota para no reintentarlo cada minuto).
-    if (!mensaje) return await anotarYDevolver(workspaceId, { dia, enviado: false, motivo: "Sin movimiento hoy: no se mandó nada.", cuando: ahora.toISOString() });
-    const config = await leerConfigGravedad(workspaceId);
-    const salio = await whatsAppAAlexander({ workspaceId, config, texto: mensaje });
-    envio = { dia, enviado: salio, motivo: salio ? null : await motivoDeNoEnvio(workspaceId), cuando: ahora.toISOString() };
-  } catch (error) {
-    envio = { dia, enviado: false, motivo: `Falló al armarlo o mandarlo: ${error instanceof Error ? error.message : String(error)}`.slice(0, 300), cuando: ahora.toISOString() };
-  }
-  return anotarYDevolver(workspaceId, envio);
-}
-
-async function anotarYDevolver(workspaceId: string, envio: EnvioDelResumen): Promise<EnvioDelResumen> {
-  await anotarEnvio(workspaceId, envio);
-  return envio;
-}
-
-/**
- * La vuelta del reloj (cada minuto): entre las 8:55 y las 8:59 p. m. de Bogotá manda el resumen una vez
- * por negocio con tableros (si hubo algo que contar). Anota el día ANTES de armarlo, así dos vueltas seguidas no lo mandan dos veces.
- */
-export async function enviarResumenDiarioSiToca(ahora = new Date()): Promise<{ enviados: number }> {
-  if (!enLaVentanaDelResumen(ahora)) return { enviados: 0 };
-  const negocios = await prisma.tableroInteligente.findMany({ distinct: ["workspaceId"], select: { workspaceId: true } });
-  let enviados = 0;
-  for (const { workspaceId } of negocios) {
-    const ultimo = await leerUltimoEnvio(workspaceId);
-    if (!tocaElResumen(ahora, ultimo?.dia)) continue;
-    await anotarEnvio(workspaceId, { dia: diaDeBogota(ahora), enviado: false, motivo: "Enviándose…", cuando: ahora.toISOString() });
-    const envio = await enviarResumen(workspaceId, ahora);
-    if (envio.enviado) enviados += 1;
-  }
-  return { enviados };
-}
-
-/** La caja "Resumen de hoy" del tablero: lo de hoy hasta ahora, el interruptor y el envío de hoy (si ya salió). */
+/** La caja "Resumen de hoy" del tablero: lo de hoy hasta ahora y el interruptor de la aprobación automática. */
 export async function resumenDeHoyParaLaPantalla(workspaceId: string, ahora = new Date()) {
   const dia = diaDeBogota(ahora);
-  const [resumen, esperando, ultimo, prendida] = await Promise.all([
+  const [resumen, esperando, prendida] = await Promise.all([
     resumenDelDia(workspaceId, dia),
     cuantasEsperan(workspaceId),
-    leerUltimoEnvio(workspaceId),
     aprobacionAutomaticaPrendida(workspaceId),
   ]);
   const cifras = cifrasDelDia(resumen, esperando);
   return {
     dia,
     cifras,
-    // El mismo texto corto que llega por WhatsApp; vacío si hoy no hay nada que contar.
+    // El texto corto del día; vacío si hoy no hay nada que contar.
     texto: textoDelResumen(cifras),
-    envioDeHoy: ultimo && ultimo.dia === dia ? ultimo : null,
-    ultimoEnvio: ultimo,
     aprobacionAutomatica: prendida,
   };
 }

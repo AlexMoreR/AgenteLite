@@ -1,7 +1,5 @@
-import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
-import { prisma } from "@/lib/prisma";
-
 import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
+import { TIPOS_DEL_COORDINADOR, aTresLineas, enSilencioDeAvisos, registrarAvisoDelCoordinador } from "./avisos-al-dueno";
 
 /*
   AVISO DEL TRABAJADOR por WhatsApp (23-oct-2026): el trabajador del Tablero IA (PC aizen1) le avisa al
@@ -11,40 +9,27 @@ import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
   500 caracteres. El envío es el de siempre (`sendEvolutionTextMessageWithReconnect`, que también sabe
   WAHA): no se toca nada de la zona de chats. No se guarda en ningún chat (como los avisos de gravedad).
 
+  26-oct-2026 (decisión del dueño: solo avisos súper importantes): el CRM solo deja pasar avisos con tipo
+  "limite" (Claude se agotó y todo quedó en pausa) o "necesita" (algo que el sistema no puede hacer solo); sin
+  tipo o con otro, los descarta con 200 `descartado: true`. El número ya NO sale de la AppSetting a mano: sale
+  de la caja de Mi empresa → Claude (services/avisos-al-dueno.ts, que valida el número, usa la línea Admin por
+  id, calla de noche, respeta el interruptor y no repite el mismo aviso antes de 3 horas). Eso arregla el 412.
+
   26-oct-2026: el aviso lleva MÁXIMO 3 LÍNEAS (si llega con más, se recorta a 3) y hay SILENCIO de 9:00 p. m.
   a 7:00 a. m. (Bogotá): en ese horario no se manda y se contesta `silenciado: true` (200), para que el
   Coordinador lo vuelva a intentar y salga a las 7 a. m. si sigue siendo cierto.
 */
 
-export const claveTelefonoDeAviso = (workspaceId: string) => `trabajador:aviso-telefono:${workspaceId}`;
-
 export const MAXIMO_TEXTO_DE_AVISO = 500;
-export const MAXIMO_LINEAS_DE_AVISO = 3;
 const UN_MINUTO = 60_000;
-const BOGOTA_MS = 5 * 3_600_000;
-const HORA_DE_INICIO_DEL_SILENCIO = 21;
-const HORA_DE_FIN_DEL_SILENCIO = 7;
 
 /** ¿Es hora de silencio (9:00 p. m. a 6:59 a. m. de Bogotá, UTC-5 todo el año)? */
-export function enSilencio(ahora: Date = new Date()): boolean {
-  const hora = new Date(ahora.getTime() - BOGOTA_MS).getUTCHours();
-  return hora >= HORA_DE_INICIO_DEL_SILENCIO || hora < HORA_DE_FIN_DEL_SILENCIO;
-}
-
-/** El texto recortado a las primeras 3 líneas con contenido. */
-export function aTresLineas(texto: string): string {
-  return texto
-    .split("\n")
-    .map((linea) => linea.trimEnd())
-    .filter((linea) => linea.trim())
-    .slice(0, MAXIMO_LINEAS_DE_AVISO)
-    .join("\n");
-}
+export const enSilencio = enSilencioDeAvisos;
 
 /** Último aviso por negocio (en memoria del proceso: el CRM corre en un solo contenedor). */
 const ultimoAviso = new Map<string, number>();
 
-/** El texto como lo manda el trabajador: no vacío, hasta 500 caracteres. */
+/** El texto como lo manda el trabajador: no vacío, hasta 500 caracteres, máximo 3 líneas. */
 export function textoDeAvisoDeEntrada(valor: unknown): string {
   const texto = typeof valor === "string" ? aTresLineas(valor.replace(/\r\n/g, "\n").trim()) : "";
   if (!texto) throw new ErrorDelTrabajador("Falta el texto del aviso.", 400);
@@ -52,12 +37,6 @@ export function textoDeAvisoDeEntrada(valor: unknown): string {
     throw new ErrorDelTrabajador(`El aviso tiene ${texto.length} caracteres: el máximo es ${MAXIMO_TEXTO_DE_AVISO}.`, 400);
   }
   return texto;
-}
-
-/** El número guardado en la AppSetting, solo dígitos (10 o más), o null. */
-export function telefonoDeAviso(valor: string | null | undefined): string | null {
-  const numero = String(valor ?? "").replace(/\D/g, "");
-  return numero.length >= 10 ? numero : null;
 }
 
 /** ¿Ya salió un aviso de este negocio en el último minuto? Si no, anota este. */
@@ -68,51 +47,18 @@ export function puedeAvisarAhora(workspaceId: string, ahora = Date.now()): boole
   return true;
 }
 
-/** La línea Admin del negocio: la que se llama "Admin" primero, si no la de purpose ADMIN; conectada primero. */
-async function lineaAdmin(workspaceId: string) {
-  const lineas = await prisma.whatsAppChannel.findMany({
-    where: {
-      workspaceId,
-      isActive: true,
-      evolutionInstanceName: { not: null },
-      OR: [{ name: { equals: "Admin", mode: "insensitive" } }, { purpose: "ADMIN" }],
-    },
-    select: { id: true, name: true, status: true, evolutionInstanceName: true },
-  });
-  const puntaje = (linea: (typeof lineas)[number]) =>
-    (linea.name.trim().toLowerCase() === "admin" ? 2 : 0) + (linea.status === "CONNECTED" ? 1 : 0);
-  return lineas.sort((a, b) => puntaje(b) - puntaje(a))[0] ?? null;
-}
-
 export async function enviarAvisoDelTrabajador(contexto: ContextoTrabajador, cuerpo: unknown, ahora: Date = new Date()) {
-  const texto = textoDeAvisoDeEntrada((cuerpo as { texto?: unknown } | null)?.texto);
+  const datos = cuerpo as { texto?: unknown; tipo?: unknown } | null;
+  const texto = textoDeAvisoDeEntrada(datos?.texto);
+  // Sin tipo permitido ("limite" o "necesita") se descarta sin error: el Coordinador viejo sigue andando sin molestar al dueño.
+  if (!TIPOS_DEL_COORDINADOR.includes(datos?.tipo as never)) return { descartado: true as const };
   // De 9 p. m. a 7 a. m. no se manda nada: el Coordinador lo reintenta y sale a las 7 a. m. si sigue siendo cierto.
   if (enSilencio(ahora)) return { silenciado: true as const };
-  const fila = await prisma.appSetting.findUnique({ where: { key: claveTelefonoDeAviso(contexto.workspaceId) } });
-  const numero = telefonoDeAviso(fila?.value);
-  if (!numero) {
-    throw new ErrorDelTrabajador(
-      `No hay número para los avisos del Coordinador: guardarlo en la AppSetting "${claveTelefonoDeAviso(contexto.workspaceId)}" (solo dígitos, con indicativo, p. ej. 573001234567).`,
-      412,
-    );
-  }
-  const linea = await lineaAdmin(contexto.workspaceId);
-  if (!linea?.evolutionInstanceName) {
-    throw new ErrorDelTrabajador('El negocio no tiene una línea de WhatsApp "Admin" (o con purpose ADMIN) para mandar el aviso.', 412);
-  }
-  if (!puedeAvisarAhora(contexto.workspaceId)) {
+  if (!puedeAvisarAhora(contexto.workspaceId, ahora.getTime())) {
     throw new ErrorDelTrabajador("Ya salió un aviso en el último minuto: se manda como mucho uno por minuto.", 429);
   }
-  try {
-    await sendEvolutionTextMessageWithReconnect({ instanceName: linea.evolutionInstanceName, phoneNumber: numero, text: texto });
-  } catch (error) {
-    // No salió: no cuenta para el límite de 1 por minuto.
-    ultimoAviso.delete(contexto.workspaceId);
-    console.warn("[trabajador-aviso] no salió el WhatsApp", {
-      numero: `…${numero.slice(-4)}`,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw new ErrorDelTrabajador("No se pudo mandar el WhatsApp por la línea Admin (¿está conectada?).", 502);
-  }
-  return { silenciado: false as const, linea: linea.name, numero: `…${numero.slice(-4)}` };
+  const respuesta = await registrarAvisoDelCoordinador(contexto.workspaceId, datos?.tipo, texto, ahora);
+  // Lo que no se mandó (apagado, repetido, sin número, línea caída) no cuenta para el límite de 1 por minuto.
+  if (respuesta.salio !== true) ultimoAviso.delete(contexto.workspaceId);
+  return respuesta;
 }

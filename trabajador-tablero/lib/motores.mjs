@@ -124,10 +124,10 @@ export const fechaBogota = (fecha = new Date()) => fecha.toLocaleDateString("sv-
  *   estado: lo guardado en estado-uso.json { avisado: { sesion, semana }, alertaLectura }
  * -> { alto, avisos, alertaLectura, estado }
  *   alto: los periodos sobre el umbral [{ periodo, porcentaje, reinicio }] (vacío si no se pudo leer)
- *   avisos: los cruces nuevos para el WhatsApp (uno por periodo y por cruce: se vuelve a avisar solo si
- *           bajó del umbral o cambió el periodo, es decir, el texto del reinicio)
- *   alertaLectura: true si hay que mandar "no pude leer el uso de Claude" (una vez por día)
- *   estado: lo que hay que guardar (se guarda solo si el aviso salió: ver crearVigilanteDeUso)
+ *   avisos: los cruces nuevos (uno por periodo y por cruce: cambia solo si bajó del umbral o cambió el periodo,
+ *           es decir, el texto del reinicio). Ya no se mandan por WhatsApp; quedan para el registro.
+ *   alertaLectura: true la primera vez del día que no se pudo leer el uso de Claude (solo para el registro)
+ *   estado: lo que hay que guardar
  */
 export function decidirUso(uso, estado, umbral, hoy = fechaBogota()) {
   const avisado = { sesion: estado?.avisado?.sesion ?? null, semana: estado?.avisado?.semana ?? null };
@@ -163,23 +163,23 @@ function pasosDeClaude(config, { verbo = "pasa" } = {}) {
   return `${pasos.join(" y ")} ${verbo}${pasos.length > 1 ? "n" : ""}`;
 }
 
-/** Máximo de líneas de un WhatsApp al dueño (26-oct-2026: "mensajes que se leen en 5 segundos"). */
-export const MAXIMO_LINEAS_DEL_AVISO = 3;
-
 const URL_DEL_CRM = "https://app.aizenbot.com";
 
 /** El link al Coordinador en vivo, en la dirección del CRM de la config. */
 export const linkDelCoordinador = (config) => `${String(config?.urlCrm || URL_DEL_CRM).replace(/\/+$/, "")}/cliente/tablero-ia?vista=coordinador`;
 
-/** El aviso del uso de Claude: 3 líneas (qué pasa, qué hace el Coordinador, a dónde mirar). */
-export function textoDelAviso(avisos, config) {
-  const peor = [...avisos].sort((a, b) => b.porcentaje - a.porcentaje)[0];
-  const donde = peor.periodo === "semana" ? "de la semana" : "de la sesión";
+/** Máximo de líneas de un WhatsApp al dueño (26-oct-2026: "mensajes que se leen en 5 segundos"). */
+export const MAXIMO_LINEAS_DEL_AVISO = 3;
+
+/**
+ * El aviso de que Claude se agotó y todo quedó en pausa (26-oct-2026: es de los pocos WhatsApp que quiere el dueño).
+ * 3 líneas: qué pasa, cuándo vuelve y el link. `hasta` es el momento (ms) en que se vuelve a usar.
+ */
+export function textoDelAvisoDeLimite(hasta, config) {
+  const hora = new Date(hasta).toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit", hour12: true }).replace(/[\u00a0\u202f]/g, " ");
   return [
-    `⚠️ Claude va en ${peor.porcentaje} % ${donde}.`,
-    config.motores.respaldoCodex
-      ? "El Coordinador pasa parte del trabajo a Codex mientras tanto."
-      : "El Coordinador sigue trabajando; si se agota, espera al reinicio.",
+    "⛔ Claude llegó a su límite de uso: Sistemas quedó en pausa.",
+    `Vuelve a trabajar solo a las ${hora}`,
     `Ver: ${linkDelCoordinador(config)}`,
   ]
     .slice(0, MAXIMO_LINEAS_DEL_AVISO)
@@ -201,9 +201,9 @@ async function leerUsoConClaude(config, entorno) {
 
 /**
  * El vigilante del uso de Claude. vigilar() lo llama el planificador en cada vuelta; solo mira cada
- * config.vigilarUsoMinutos. Guarda en carpetaTrabajo/estado-uso.json a quién ya avisó.
+ * config.vigilarUsoMinutos. Guarda en carpetaTrabajo/estado-uso.json el último cruce visto (sin WhatsApp).
  */
-export function crearVigilanteDeUso({ config, registro, crm, estado, entorno, leer = leerUsoConClaude, ahora = () => Date.now() }) {
+export function crearVigilanteDeUso({ config, registro, estado, entorno, leer = leerUsoConClaude, ahora = () => Date.now() }) {
   const archivo = path.join(config.carpetaTrabajo, "estado-uso.json");
   let proxima = 0;
   let altoAntes = "";
@@ -223,34 +223,15 @@ export function crearVigilanteDeUso({ config, registro, crm, estado, entorno, le
       registro.aviso(`no pude guardar ${archivo}: ${error.message}`);
     }
   };
-  const avisar = async (texto) => {
-    try {
-      const respuesta = await crm.aviso(texto);
-      // El CRM calla los avisos de 9 p. m. a 7 a. m.: no salió, se vuelve a intentar en la próxima mirada.
-      if (respuesta?.silenciado) return false;
-      return true;
-    } catch (error) {
-      registro.aviso(`no salió el aviso por WhatsApp (${error.status ?? "sin respuesta"}): ${error.message}`);
-      return false;
-    }
-  };
-
   async function mirar() {
     const { texto, motivo } = await leer(config, entorno);
     const uso = leerUsoDeClaude(texto);
     if (!uso) registro.aviso(`no pude leer el uso de Claude (${motivo ?? "la respuesta no dice el porcentaje"}): lo trato como bajo el umbral`);
     const guardado = leerEstado();
     const decision = decidirUso(uso, guardado, config.umbralClaude);
-    const aGuardar = { ...decision.estado };
-
-    if (decision.alertaLectura && !(await avisar("⚠️ Coordinador del Tablero IA: no pude leer el uso de Claude (claude -p /usage). Sigo como si estuviera bajo el umbral."))) {
-      aGuardar.alertaLectura = guardado.alertaLectura ?? null;
-    }
-    if (decision.avisos.length && !(await avisar(textoDelAviso(decision.avisos, config)))) {
-      // No salió: se deja como estaba para volver a intentar en la próxima mirada.
-      for (const aviso of decision.avisos) aGuardar.avisado[aviso.periodo] = guardado.avisado?.[aviso.periodo] ?? null;
-    }
-    guardarEstado(aGuardar);
+    // 26-oct-2026: el umbral y el "no pude leer el uso" ya NO se avisan por WhatsApp (decisión del dueño: solo
+    // avisa cuando Sistemas se detiene o lo necesita); quedan en el registro y en el panel del Coordinador.
+    guardarEstado(decision.estado);
 
     const alto = decision.alto.sort((a, b) => b.porcentaje - a.porcentaje)[0] ?? null;
     estado.ponerClaudeAlto(alto);

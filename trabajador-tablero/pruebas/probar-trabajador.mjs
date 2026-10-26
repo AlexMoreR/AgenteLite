@@ -39,7 +39,7 @@ import {
   horaDelReinicio,
   leerUsoDeClaude,
   motorDeLaEtapa,
-  textoDelAviso,
+  textoDelAvisoDeLimite,
 } from "../lib/motores.mjs";
 import { armarLatido, crearLatido } from "../lib/latido.mjs";
 import { faltanRecursos, leerCarga } from "../lib/recursos.mjs";
@@ -522,7 +522,7 @@ await prueba("uso de Claude: se lee el texto real de `claude -p /usage` (sesión
   assert.equal(horaDelReinicio("Oct 30, 7am (America/Bogota)"), "7am");
 });
 
-await prueba("uso de Claude: UN aviso por cada cruce del umbral (se repite solo si bajó o cambió el periodo); ilegible = bajo y una alerta por día", async () => {
+await prueba("uso de Claude: el cruce del umbral se detecta una vez (se repite solo si bajó o cambió el periodo); ilegible = bajo; el aviso de límite lleva la hora de vuelta", async () => {
   const uso = (sesion, reinicio = "Oct 23, 3:20pm") => ({ sesion: { porcentaje: sesion, reinicio }, semana: { porcentaje: 6, reinicio: "Oct 30, 7am" } });
   const primera = decidirUso(uso(83), {}, 80, "2026-10-23");
   assert.deepEqual(primera.alto.map((a) => a.periodo), ["sesion"]);
@@ -540,16 +540,11 @@ await prueba("uso de Claude: UN aviso por cada cruce del umbral (se repite solo 
   assert.deepEqual([ilegible.alto, ilegible.alertaLectura], [[], true]);
   assert.equal(decidirUso(null, ilegible.estado, 80, "2026-10-23").alertaLectura, false, "una sola vez por día");
   assert.equal(decidirUso(null, ilegible.estado, 80, "2026-10-24").alertaLectura, true, "al otro día otra vez");
-  assert.match(textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "codex", revisar: "claude", respaldoCodex: true } }), /^⚠️ Claude va en 83 % de la sesión\.\n.*Codex.*\nVer: https:\/\/app\.aizenbot\.com\/cliente\/tablero-ia\?vista=coordinador$/);
-  const sinRespaldo = textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "claude", revisar: "claude", respaldoCodex: false } });
-  assert.match(sinRespaldo, /sigue trabajando; si se agota, espera al reinicio/);
-  assert.ok(sinRespaldo.split("\n").length <= 3, "el aviso tiene 3 líneas o menos");
-  assert.doesNotMatch(sinRespaldo, /commit|rama/i);
-  const dos = decidirUso({ sesion: { porcentaje: 83, reinicio: "a" }, semana: { porcentaje: 85, reinicio: "b" } }, {}, 80, "2026-10-23");
-  const textoDos = textoDelAviso(dos.avisos, { umbralClaude: 80, urlCrm: "https://crm.ejemplo.com/", motores: { planear: "claude", construir: "claude", revisar: "claude", respaldoCodex: false } });
-  assert.ok(textoDos.split("\n").length <= 3);
-  assert.match(textoDos, /Claude va en 85 % de la semana/);
-  assert.match(textoDos, /Ver: https:\/\/crm\.ejemplo\.com\/cliente\/tablero-ia\?vista=coordinador$/);
+  const hasta = Date.parse("2026-10-23T20:20:00Z"); // 3:20 p. m. en Bogotá
+  const limite = textoDelAvisoDeLimite(hasta, { urlCrm: "https://crm.ejemplo.com/" });
+  assert.equal(limite, "⛔ Claude llegó a su límite de uso: Sistemas quedó en pausa.\nVuelve a trabajar solo a las 3:20 p. m.\nVer: https://crm.ejemplo.com/cliente/tablero-ia?vista=coordinador");
+  assert.ok(limite.split("\n").length <= 3, "el aviso tiene 3 líneas o menos");
+  assert.match(textoDelAvisoDeLimite(hasta, {}), /Ver: https:\/\/app\.aizenbot\.com\/cliente\/tablero-ia\?vista=coordinador$/);
 });
 
 await prueba("límite de Codex: se reconoce el aviso de ChatGPT (y no cualquier texto)", async () => {
@@ -1856,7 +1851,7 @@ try {
     sinRestos();
   });
 
-  await prueba("uso de Claude >= 80 %: planear pasa a Codex, UN aviso por WhatsApp por cruce y estado-uso.json", async () => {
+  await prueba("uso de Claude >= 80 %: planear pasa a Codex y NO sale ningún WhatsApp (ni por el umbral ni por no poder leer el uso); queda estado-uso.json", async () => {
     fs.writeFileSync(USO, "Current session: 83% used · resets Oct 23, 3:20pm (America/Bogota)\nCurrent week (all models): 6% used · resets Oct 30, 7am (America/Bogota)\n");
     const avisos = () => llamadas.filter((l) => l.accion === "aviso");
     const antes = avisos().length;
@@ -1872,58 +1867,52 @@ try {
     assert.equal(leerLog(LOGS.codex).at(-1).sandbox, "read-only", "Codex planea sin poder escribir");
     assert.equal(leerLog(LOGS.claude).filter((l) => !l.argumentos.includes("/usage")).length, claudeAntes, "no planeó con Claude");
     assert.ok(leerLog(LOGS.claude).some((l) => l.argumentos.join(" ").endsWith("-p --model haiku /usage")), "leyó el uso con claude -p /usage");
-    assert.equal(avisos().length, antes + 1, "un aviso");
-    assert.match(avisos().at(-1).cuerpo.texto, /^⚠️ Claude va en 83 % de la sesión\./);
-    assert.ok(avisos().at(-1).cuerpo.texto.split("\n").length <= 3, "el aviso tiene 3 líneas o menos");
+    assert.equal(avisos().length, antes, "el umbral no avisa por WhatsApp");
     const estadoUso = JSON.parse(fs.readFileSync(path.join(T, "trabajo", "estado-uso.json"), "utf8"));
     assert.equal(estadoUso.avisado.sesion.reinicio, "Oct 23, 3:20pm (America/Bogota)");
-    await new Promise((r) => setTimeout(r, 20));
-    await planificador.llenar();
-    assert.equal(avisos().length, antes + 1, "el mismo cruce no avisa otra vez");
-    fs.writeFileSync(USO, "Current session: 30% used · resets Oct 23, 3:20pm (America/Bogota)\n");
-    await new Promise((r) => setTimeout(r, 20));
-    await planificador.llenar();
-    fs.writeFileSync(USO, "Current session: 85% used · resets Oct 23, 3:20pm (America/Bogota)\n");
-    await new Promise((r) => setTimeout(r, 20));
-    await planificador.llenar();
-    assert.equal(avisos().length, antes + 2, "bajó y volvió a subir: otro aviso");
     const texto = fs.readFileSync(path.join(T, "trabajo", "logs", fs.readdirSync(path.join(T, "trabajo", "logs"))[0]), "utf8");
     assert.match(texto, /Claude al 83 % \(sesión\): planear y revisar pasan a Codex hasta 3:20pm/);
-    // Uso ilegible: se trata como bajo y sale UNA alerta por día.
+    // Uso ilegible: se trata como bajo y tampoco avisa.
     fs.rmSync(USO);
     await new Promise((r) => setTimeout(r, 20));
     await planificador.llenar();
-    await new Promise((r) => setTimeout(r, 20));
-    await planificador.llenar();
-    const alertas = avisos().filter((l) => /no pude leer el uso de Claude/.test(l.cuerpo.texto));
-    assert.equal(alertas.length, 1, "una sola alerta por día");
+    assert.equal(avisos().length, antes, "no poder leer el uso tampoco avisa por WhatsApp");
     await planificador.esperarTodas();
     planificador.parar();
   });
 
-  await prueba("uso de Claude: si el CRM contesta 'silenciado' (9 p. m. a 7 a. m.) el aviso NO se anota como enviado y se reintenta", async () => {
+  await prueba("límite de Claude con todo en pausa: UN aviso tipo 'limite' con la hora de vuelta; si el CRM lo silencia se reintenta", async () => {
     const avisos = () => llamadas.filter((l) => l.accion === "aviso");
-    const planificador = planificar({ ...conCodex({ respaldoCodex: true }, { vigilarUsoMinutos: 0.0001 }), maxParalelo: 1 });
-    // Bajo el umbral primero, para que el siguiente cruce sea nuevo.
-    fs.writeFileSync(USO, "Current session: 30% used · resets Oct 24, 3:20pm (America/Bogota)\n");
-    await new Promise((r) => setTimeout(r, 20));
-    await planificador.llenar();
+    const id = nueva("Plan sin cupo [limite]", "APROBADO");
+    const configLimite = { ...enParalelo, maxParalelo: 1, tiempos: { ...enParalelo.tiempos, pausaLimiteMinutos: 10 } };
     const antes = avisos().length;
-    avisosSilenciados = true;
-    fs.writeFileSync(USO, "Current session: 91% used · resets Oct 24, 3:20pm (America/Bogota)\n");
-    await new Promise((r) => setTimeout(r, 20));
+    const planificador = planificar(configLimite);
     await planificador.llenar();
-    assert.equal(avisos().length, antes + 1, "lo intentó una vez");
-    const estadoUso = JSON.parse(fs.readFileSync(path.join(T, "trabajo", "estado-uso.json"), "utf8"));
-    assert.ok(!estadoUso.avisado?.sesion, "silenciado: no se anota como enviado");
-    avisosSilenciados = false;
-    await new Promise((r) => setTimeout(r, 20));
-    await planificador.llenar();
-    assert.equal(avisos().length, antes + 2, "pasado el silencio se reintenta y sale");
-    const despues = JSON.parse(fs.readFileSync(path.join(T, "trabajo", "estado-uso.json"), "utf8"));
-    assert.equal(despues.avisado.sesion.reinicio, "Oct 24, 3:20pm (America/Bogota)");
     await planificador.esperarTodas();
+    // Claude quedó en pausa y no hay otro motor: la siguiente pasada avisa.
+    await planificador.llenar();
+    assert.equal(avisos().length, antes + 1, "un aviso");
+    const llamada = avisos().at(-1);
+    assert.equal(llamada.cuerpo.tipo, "limite");
+    assert.match(llamada.cuerpo.texto, /^⛔ Claude llegó a su límite de uso: Sistemas quedó en pausa\.\nVuelve a trabajar solo a las \d{1,2}:\d{2} [ap]\. ?m\.\nVer: /);
+    assert.ok(llamada.cuerpo.texto.split("\n").length <= 3, "3 líneas o menos");
+    await planificador.llenar();
+    assert.equal(avisos().length, antes + 1, "la misma pausa no avisa otra vez");
     planificador.parar();
+    // Silenciado (9 p. m. a 7 a. m.): no se da por avisado y se reintenta pasado el silencio.
+    const otro = planificar(configLimite);
+    avisosSilenciados = true;
+    await otro.llenar();
+    await otro.esperarTodas();
+    await otro.llenar();
+    assert.equal(avisos().length, antes + 2, "lo intentó una vez");
+    avisosSilenciados = false;
+    await otro.llenar();
+    assert.equal(avisos().length, antes + 3, "pasado el silencio se reintenta y sale");
+    await otro.llenar();
+    assert.equal(avisos().length, antes + 3, "y no se repite");
+    otro.parar();
+    tarjetas.get(id).estado = "HECHO";
   });
 
   /* ── La nube (25-oct-2026): tareas grandes y de desborde con `claude --cloud` ── */

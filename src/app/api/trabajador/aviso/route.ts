@@ -6,13 +6,13 @@ import { SIN_CACHE, contextoDelPedido, respuestaDeError, sinClave } from "../tab
 export const dynamic = "force-dynamic";
 
 /*
-  POST /api/trabajador/aviso — el trabajador del Tablero IA le manda un WhatsApp al dueño desde la línea
-  Admin del negocio (p. ej. "el plan de Claude pasó el 80 %"). Misma clave que /api/trabajador/tablero/*
-  (Bearer aizen_trab_...). Cuerpo `{ texto }` (hasta 500 caracteres). El número sale de la AppSetting
-  `trabajador:aviso-telefono:<workspaceId>`: sin él, 412. Como mucho 1 por minuto (429).
-  Máximo 3 líneas (si llegan más, se recortan) y silencio de 9 p. m. a 7 a. m.: contesta 200 con
-  `silenciado: true` y no manda nada, para que el Coordinador lo reintente después.
-  Ver services/aviso-del-trabajador.ts.
+  POST /api/trabajador/aviso — el Coordinador del Tablero IA le manda un WhatsApp al dueño desde la línea Admin
+  del negocio. Misma clave que /api/trabajador/tablero/* (Bearer aizen_trab_...). Cuerpo `{ texto, tipo }`
+  (hasta 500 caracteres y 3 líneas). Solo pasan los tipos "limite" (Claude se agotó y todo quedó en pausa) y
+  "necesita" (algo que el sistema no puede hacer solo); sin tipo o con otro se descarta con 200 `descartado: true`.
+  El número sale de la caja "Avisos de Sistemas por WhatsApp" de Mi empresa → Claude (validado en el servidor).
+  Como mucho 1 por minuto (429). Silencio de 9 p. m. a 7 a. m. y interruptor apagado: 200 sin mandar nada
+  (`silenciado` / `apagado`). Ver services/aviso-del-trabajador.ts y services/avisos-al-dueno.ts.
 */
 export async function POST(request: Request) {
   const contexto = await contextoDelPedido(request);

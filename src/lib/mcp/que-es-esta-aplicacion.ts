@@ -7,7 +7,7 @@ import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
 import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
-import { leerUltimoEnvio } from "@/features/tableros-inteligentes/services/resumen-diario";
+import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -410,11 +410,19 @@ async function estadoDeAprobarPlanesSolo(workspaceId: string) {
     : `APAGADA: todos los planes piden el sí del dueño (${esperando} en PLAN_LISTO ahora)`;
 }
 
-/** Tablero IA: cuándo salió el último resumen de las 9 p. m. y si el WhatsApp salió. */
-async function estadoDelResumenDiario(workspaceId: string) {
-  const ultimo = await leerUltimoEnvio(workspaceId);
-  if (!ultimo) return "activa: a las 9:00 p. m. (Bogotá) por la línea Admin; todavía no ha salido ninguno";
-  return `activa: último resumen del ${ultimo.dia}, ${ultimo.enviado ? "WhatsApp enviado" : `WhatsApp NO salió (${ultimo.motivo ?? "sin motivo"})`}`;
+/** Tablero IA: el resumen del día ya no sale por WhatsApp (26-oct-2026): solo se ve en el tablero. */
+async function estadoDelResumenDiario() {
+  return "solo en el tablero: la caja \"Resumen de hoy\" y la pestaña \"Hoy\"; ya no se manda por WhatsApp (decisión del dueño, 26-oct-2026)";
+}
+
+/** Tablero IA: los avisos de WhatsApp al dueño (solo Sistemas detenido o que lo necesita): interruptor, número y último aviso. */
+async function estadoDeAvisosAlDueno(workspaceId: string) {
+  const [prendido, telefono, estado] = await Promise.all([avisosPrendidos(workspaceId), telefonoGuardado(workspaceId), leerEstadoDeAvisos(workspaceId)]);
+  const ultimo = estado.historial[0];
+  const cola = ultimo ? `; último: ${ultimo.tipo} del ${ultimo.cuando.slice(0, 16).replace("T", " ")} UTC, ${ultimo.salio ? "salió" : (ultimo.motivo ?? "no salió")}` : "; todavía no ha salido ninguno";
+  if (!prendido) return `APAGADA: interruptor apagado en Mi empresa → Claude, no sale nada${cola}`;
+  if (!telefono) return `PRENDIDA pero SIN NÚMERO: falta guardar el número del dueño en Mi empresa → Claude, así que nada sale${cola}`;
+  return `PRENDIDA: el reloj revisa cada minuto y avisa por la línea Admin solo si el Coordinador se cae, se queda sin trabajo, una tarjeta se traba o algo necesita al dueño (o Claude se agota)${cola}`;
 }
 
 /** Agente de Ventas: el interruptor y cuándo se guardó el último resumen (corre en aizen1). */
@@ -483,7 +491,8 @@ async function automatizaciones(
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
     aprobar_tareas_solas_tablero: await estadoDeAprobarTareasSolo(workspaceId).catch(() => "no se pudo leer"),
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
-    resumen_diario_tablero: await estadoDelResumenDiario(workspaceId).catch(() => "no se pudo leer"),
+    resumen_diario_tablero: await estadoDelResumenDiario(),
+    avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
   };
 

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 
 import { NegocioEquipoTabs } from "@/components/negocio-equipo-tabs";
+import { AvisosAlDueno } from "@/features/tableros-inteligentes/components/AvisosAlDueno";
 import { ConexionClaudeWorkspace } from "@/features/mcp/components/ConexionClaudeWorkspace";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { listarClavesMcp } from "@/lib/mcp/claves";
@@ -61,6 +62,8 @@ export default async function ClienteClaudePage() {
           ultimoUso: clave.ultimoUso,
         }))}
       />
+
+      <AvisosAlDueno />
     </div>
   );
 }

@@ -17,7 +17,7 @@ import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente
 import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/servicio";
 import { procesarColaDeReuniones } from "@/features/reuniones/servicios/cola-de-reuniones";
 import { aprobarPlanesListosQueEsperan, aprobarSolasLasPendientes } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
-import { enviarResumenDiarioSiToca } from "@/features/tableros-inteligentes/services/resumen-diario";
+import { revisarAvisosAlDueno } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -197,9 +197,9 @@ async function handleCron(request: Request) {
   /*
     TABLERO IA (ver src/features/tableros-inteligentes): cada vuelta aprueba solas las tareas con repo que
     quedaron POR_APROBAR (regla del dueño 25-oct, salvo dinero o Meta Ads; apagado "Aprobar tareas solo", solo las
-    de riesgo bajo) y, entre las 9:00 y las 9:59 p. m. de
-    Bogotá, manda UNA vez por día el resumen a Alexander por la línea Admin. Sin nada pendiente son un
-    par de lecturas; en segundo plano.
+    de riesgo bajo) y revisa si hay que avisarle al dueño por WhatsApp (línea Admin) que Sistemas se detuvo o lo
+    necesita: Coordinador caído, sin trabajo, trabado, necesita al dueño (avisos-al-dueno.ts; ya no hay resumen
+    por WhatsApp). Sin nada pendiente son un par de lecturas; en segundo plano.
   */
   after(async () => {
     try {
@@ -214,9 +214,9 @@ async function handleCron(request: Request) {
       console.error("[cron/follows] aprobacion de planes del tablero error", error);
     }
     try {
-      await enviarResumenDiarioSiToca();
+      await revisarAvisosAlDueno();
     } catch (error) {
-      console.error("[cron/follows] resumen diario del tablero error", error);
+      console.error("[cron/follows] avisos al dueno del tablero error", error);
     }
   });
 

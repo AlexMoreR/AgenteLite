@@ -21,7 +21,7 @@
 // Si Codex o Claude llegan a su límite, ESE motor se pausa (Codex pausaLimiteCodexMinutos, Claude
 // pausaLimiteMinutos) y sus pasos esperan o pasan al otro según config.motores; las candidatas cuyo paso
 // no tiene motor van en `excluir`. Cada config.vigilarUsoMinutos se mira el uso de Claude: sobre
-// config.umbralClaude todos los pasos van con Codex y sale UN aviso por WhatsApp por cruce.
+// config.umbralClaude todos los pasos van con Codex (sin WhatsApp: solo avisa si todo queda en pausa).
 // Escoger y partir (25-oct-2026, reparto.mjs y cola.mjs): de las candidatas que no chocan se toma la más cerca de HECHO,
 // la que desbloquea a otras y la más chica (las demás van en `excluir`); una tarea de aizen1 muy grande se parte
 // ANTES de construirla; y los pasos pesados (npm ci, lint, tsc, build, pruebas) de todas las sesiones pasan por UNA
@@ -33,7 +33,7 @@ import { TOPE_DE_REPARACIONES, decidir, diagnosticar, enUnaLinea, resumenDeEscal
 import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, partirTarea, planear, subir } from "./etapas.mjs";
 import { idCorto } from "./git.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
-import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor } from "./motores.mjs";
+import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
 import { esTareaGrande } from "./nube.mjs";
 import { crearMedidor, faltanRecursos } from "./recursos.mjs";
 
@@ -432,7 +432,7 @@ export function crearPlanificador({
   registro,
   medidor = crearMedidor({ muestras: Math.max(1, Math.round(((config.limites?.cpuPromedioMinutos ?? 3) * 60) / 5)) }),
   motores = crearEstadoDeMotores(config),
-  vigilante = crearVigilanteDeUso({ config, registro, crm, estado: motores, entorno: entornoSeguro() }),
+  vigilante = crearVigilanteDeUso({ config, registro, estado: motores, entorno: entornoSeguro() }),
   // La cola de pasos pesados se puede dar hecha (las pruebas la llenan a mano); undefined = la de la configuración.
   colaPesada: colaDada = undefined,
 }) {
@@ -451,6 +451,8 @@ export function crearPlanificador({
   let cupoNuevo = false;
   let ultimoAviso = "";
   let ultimoSinMotor = "";
+  // La hora de vuelta de la pausa de la que ya se avisó al dueño por WhatsApp (0 = ninguna): un aviso por pausa.
+  let limiteAvisadoHasta = 0;
   // Desde cuándo se espera al PC antes de tomar la primera tarjeta (null = no se espera).
   let esperaPcDesde = null;
   // Para el panel "Coordinador en vivo": por qué no se abre otra sesión (PC lleno) y las que esperan en fila por chocar.
@@ -559,6 +561,22 @@ export function crearPlanificador({
     return ["planear", "construir"].filter((hacer) => motorDeLaEtapa(motores, hacer) === null);
   }
 
+  /**
+   * Claude se agotó y no queda otro motor para planear ni construir: todo quedó en pausa. Es uno de los pocos
+   * WhatsApp que quiere el dueño (26-oct-2026): lo manda UNA vez por pausa, con la hora de vuelta. Si el CRM lo
+   * calla (9 p. m. a 7 a. m.) o falla, se reintenta en la próxima vuelta; nunca tumba al planificador.
+   */
+  async function avisarLimiteSiTodoQuedoEnPausa(sinMotor) {
+    const hasta = motores.pausadoHasta("claude");
+    if (!hasta || sinMotor.length < 2 || hasta === limiteAvisadoHasta) return;
+    try {
+      const respuesta = await crm.aviso(textoDelAvisoDeLimite(hasta, config), "limite");
+      if (!respuesta?.silenciado) limiteAvisadoHasta = hasta;
+    } catch (error) {
+      registro.aviso(`no salió el aviso del límite de Claude (${error.status ?? "sin respuesta"}): ${error.message}`);
+    }
+  }
+
   async function llenar() {
     await vigilante?.vigilar();
     pcEspera = null;
@@ -576,6 +594,7 @@ export function crearPlanificador({
         const clave = `${sinMotor.join(",")}-${pausas.join(",")}`;
         if (clave !== ultimoSinMotor) registro.info(`sin motor para ${sinMotor.join(" ni ")} (en pausa: ${pausas.join(", ") || "ninguno"}): esas esperan`);
         ultimoSinMotor = clave;
+        await avisarLimiteSiTodoQuedoEnPausa(sinMotor);
       } else ultimoSinMotor = "";
       // Sin sesiones y con el PC lleno (algo más lo está usando): se espera hasta limites.esperaMaximaMinutos
       // antes de tomar la primera, y después se toma igual (una CPU ocupada por otra cosa no deja todo quieto).

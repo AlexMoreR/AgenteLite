@@ -67,8 +67,11 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     plan: (id, plan) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/plan`, { plan }),
     resultado: (id, resultado) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/resultado`, resultado),
     subida: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/subida`, datos),
-    /** WhatsApp al dueño desde la línea Admin (POST /api/trabajador/aviso): el aviso del uso de Claude. */
-    aviso: (texto) => pedir("/api/trabajador/aviso", { texto }),
+    /**
+     * WhatsApp al dueño desde la línea Admin (POST /api/trabajador/aviso). `tipo` es "limite" (Claude se agotó y todo
+     * quedó en pausa) o "necesita" (algo que no se puede hacer solo); el CRM descarta los avisos sin tipo.
+     */
+    aviso: (texto, tipo) => pedir("/api/trabajador/aviso", { texto, ...(tipo ? { tipo } : {}) }),
     /**
      * Escala: la tarjeta queda en ERROR. `motivo` es el resumen de máximo 3 líneas para el dueño; `extra`
      * { categoria, causa, resumen, error, etapa } deja el intento "escalar" con sus detalles técnicos.

@@ -36,6 +36,11 @@ import {
   ponerAprobarPlanesSolo,
   ponerAprobarTareasSolo,
 } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import {
+  avisosParaLaPantalla,
+  guardarConfigDeAvisos,
+  mandarPruebaAlDueno,
+} from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { resumenDeHoyParaLaPantalla, vistaDeHoy, type VistaDeHoy } from "@/features/tableros-inteligentes/services/resumen-diario";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 
@@ -457,5 +462,54 @@ export async function borrarTipoAction(tipoId: string): Promise<Resultado> {
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo borrar el tipo") };
+  }
+}
+
+/* ───────────────────────────────────────────── avisos de Sistemas por WhatsApp (Mi empresa → Claude) ── */
+
+export type AvisosAlDuenoVista = Awaited<ReturnType<typeof avisosParaLaPantalla>>;
+
+const SOLO_JEFES_AVISOS = "Los avisos de Sistemas por WhatsApp los maneja solo el dueño o un administrador del negocio.";
+
+/** Mi empresa → Claude es del dueño o de un administrador (como las claves de Claude). El servidor lo comprueba acá. */
+async function accesoDeJefe() {
+  const access = await requireClientWorkspaceAccess();
+  const esJefe = access.isOwner || access.membershipRole === "OWNER" || access.membershipRole === "ADMIN";
+  return esJefe ? access : null;
+}
+
+export async function avisosAlDuenoAction(): Promise<{ ok: true; avisos: AvisosAlDuenoVista } | { ok: false; error: string }> {
+  const access = await accesoDeJefe();
+  if (!access) return { ok: false, error: SOLO_JEFES_AVISOS };
+  try {
+    return { ok: true, avisos: await avisosParaLaPantalla(access.workspaceId) };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudieron leer los avisos") };
+  }
+}
+
+/** Guarda el número personal del dueño (validado en el servidor) y/o el interruptor de los avisos. */
+export async function guardarAvisosAlDuenoAction(cambios: { telefono?: string; activo?: boolean }): Promise<Resultado> {
+  const access = await accesoDeJefe();
+  if (!access) return { ok: false, error: SOLO_JEFES_AVISOS };
+  try {
+    return await guardarConfigDeAvisos(access.workspaceId, {
+      ...(typeof cambios.telefono === "string" ? { telefono: cambios.telefono } : {}),
+      ...(typeof cambios.activo === "boolean" ? { activo: cambios.activo } : {}),
+    });
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo guardar") };
+  }
+}
+
+/** El botón "Mandar prueba": un mensaje corto al número guardado, desde la línea Admin. */
+export async function mandarPruebaDeAvisosAction(): Promise<Resultado> {
+  const access = await accesoDeJefe();
+  if (!access) return { ok: false, error: SOLO_JEFES_AVISOS };
+  try {
+    const envio = await mandarPruebaAlDueno(access.workspaceId);
+    return envio.salio ? { ok: true } : { ok: false, error: `No salió: ${envio.motivo}` };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo mandar la prueba") };
   }
 }
