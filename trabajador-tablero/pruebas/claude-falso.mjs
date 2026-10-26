@@ -218,9 +218,11 @@ if (titulo.includes("[atascado]")) {
   escribir("src/ads/campana.ts", `export const cuerpo = { daily_budget: ${Date.now()}, status: 'ACTIVE' };\n`);
 } else if (titulo.includes("[solas-ads")) {
   escribir("src/ads/lectura.ts", `export const leer = () => 'reporte ${Date.now()}';\n`);
-} else if (titulo.includes("[solas-chats]")) {
+} else if (titulo.includes("[solas-chats")) {
+  // Chats sube sola (26-oct-2026): [solas-chats] deja su confirmación; [solas-chats-sin] no; [solas-chats-envio] agrega un envío.
   escribir("src/chats/bandeja.ts", `export const x = ${Date.now()};\n`);
-  console.log("✔ sin mensajes nuevos a clientes");
+  if (!titulo.includes("[solas-chats-sin]")) console.log("✔ chats: sin mensajes nuevos a clientes");
+  if (titulo.includes("[solas-chats-envio]")) escribir("src/chats/aviso.ts", `export const avisar = (x: string) => sendMessage(x); // ${Date.now()}\n`);
 } else if (titulo.includes("[zona]")) escribir("src/bot/respuesta.ts", "export const saludo = 'hola';\n");
 else if (titulo.includes("[tsc]")) escribir("ROMPER_TSC", "sí\n");
 else if (titulo.includes("[lint]")) escribir("nuevo.txt", "ERROR_LINT\n");

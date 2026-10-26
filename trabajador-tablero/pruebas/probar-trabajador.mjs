@@ -1244,7 +1244,7 @@ try {
   });
 
   // ── Zonas que suben solas (24-oct-2026): bot de ventas, Meta Ads y libro V3 ──
-  const SOLAS = { subirSolo: true, zonasQueSubenSolas: ["BOT_VENTAS", "META_ADS", "LIBRO_V3"], vigilancia: { minutos: 0.02, cadaSegundos: 0.3, maxErroresNuevos: 2 } };
+  const SOLAS = { subirSolo: true, zonasQueSubenSolas: ["BOT_VENTAS", "META_ADS", "LIBRO_V3", "CHATS"], vigilancia: { minutos: 0.02, cadaSegundos: 0.3, maxErroresNuevos: 2 } };
   const configSolas = () => crearConfig({}, SOLAS);
   const conteoLogs = path.join(T, "ssh.log.conteo-logs");
   const reiniciarLogs = () => fs.rmSync(conteoLogs, { force: true });
@@ -1269,8 +1269,9 @@ try {
     ["bot de ventas", "BOT_VENTAS", "src/bot/respuesta.ts"],
     ["libro V3", "LIBRO_V3", "src/agente-v3/libro.ts"],
     ["Meta Ads (solo lectura)", "META_ADS", "src/ads/lectura.ts"],
+    ["chats", "CHATS", "src/chats/bandeja.ts"],
   ]) {
-    const marca = { BOT_VENTAS: "[solas-bot]", LIBRO_V3: "[solas-v3]", META_ADS: "[solas-ads]" }[zona];
+    const marca = { BOT_VENTAS: "[solas-bot]", LIBRO_V3: "[solas-v3]", META_ADS: "[solas-ads]", CHATS: "[solas-chats]" }[zona];
     await prueba(`${etiqueta}: construye, queda SUBIENDO sola, sube a main, vigila y dice "Subió sola (zona …) — vigilancia OK"`, async () => {
       reiniciarLogs();
       const id = nueva(`Cambio de ${etiqueta} ${marca}`, "PLAN_APROBADO", { plan: "El plan" });
@@ -1338,12 +1339,23 @@ try {
     sinRestos();
   });
 
-  await prueba("zonas que suben solas: CHATS sigue esperando el sí del dueño (aunque la lista tenga las otras tres)", async () => {
-    const id = nueva("Cambio en chats [solas-chats]", "PLAN_APROBADO", { plan: "El plan" });
+  await prueba("zonas que suben solas: CHATS sin la confirmación 'sin mensajes nuevos a clientes' espera el sí del dueño", async () => {
+    const id = nueva("Cambio en chats [solas-chats-sin]", "PLAN_APROBADO", { plan: "El plan" });
     assert.equal((await vuelta(configSolas())).ok, true);
     assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
     assert.equal(tarjetas.get(id).resultado.subeSolo, false);
+    assert.match(tarjetas.get(id).resultado.esperaPor, /chats no mandan mensajes nuevos a clientes/);
     assert.deepEqual(tarjetas.get(id).zonaProtegida, ["CHATS"]);
+    sinRestos();
+  });
+
+  await prueba("zonas que suben solas: un envío nuevo en src/chats espera el sí aunque el plan lo mencione", async () => {
+    const id = nueva("Chats con aviso [solas-chats-envio]", "PLAN_APROBADO", { plan: "Se enviará un mensaje nuevo al cliente." });
+    const mainAhora = shaDe("main");
+    assert.equal((await vuelta(configSolas())).ok, true);
+    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    assert.match(tarjetas.get(id).resultado.esperaPor, /envío de mensaje en chats/);
+    assert.equal(shaDe("main"), mainAhora);
     sinRestos();
   });
 

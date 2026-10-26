@@ -57,6 +57,7 @@ import { carpetaDeIntentos } from "./registro.mjs";
 import { migracionDestructiva } from "./riesgo.mjs";
 import {
   CONFIRMACION_BOT_VENTAS,
+  CONFIRMACION_CHATS,
   CONFIRMACION_LIBRO_V3,
   MARCA_GASTO_META_ADS,
   enviosDeLog,
@@ -605,6 +606,11 @@ export function reglasDeZonasQueSubenSolas(repo) {
   if (zonas.includes("BOT_VENTAS")) {
     lineas.push(`- Bot de ventas: comprueba que no se manda ningún mensaje nuevo ni distinto a clientes fuera de lo pedido y escribe "${CONFIRMACION_BOT_VENTAS}".`);
   }
+  if (zonas.includes("CHATS")) {
+    lineas.push(
+      `- Chats: sube sola solo si está actualizada con main, compila, pasa TODAS las pruebas, nunca usa force-push y queda con la vigilancia de 30 minutos. COMPRUEBA primero que el cambio no manda ningún mensaje nuevo ni distinto a clientes (ningún envío nuevo en las rutas de chats) y RECIÉN ENTONCES escribe "${CONFIRMACION_CHATS}". Si agrega cualquier envío, aunque el plan lo mencione, espera el sí del dueño.`,
+    );
+  }
   if (zonas.includes("META_ADS")) {
     lineas.push(
       `- Meta Ads: NUNCA subas presupuesto (daily_budget, lifetime_budget, bid_amount), prendas (ACTIVE) ni crees campañas, conjuntos o anuncios, ni crees gasto nuevo: eso sigue esperando el sí del dueño (el plan dice "${MARCA_GASTO_META_ADS}"). Leer, reportes, pausar, textos y configuraciones sin gasto sí suben solos.`,
@@ -627,7 +633,7 @@ function fraseAlTerminar(repo) {
     '- "Al terminar: espera tu sí (toca chats / agentes / Meta Ads)" si toca alguna (di cuál). Esos cambios se construyen y prueban igual, pero no suben sin el sí del dueño.',
     `Las rutas de chats, agentes, libro V3 y Meta Ads:\n${rutas || "(ninguna configurada)"}`,
     (repo.zonasQueSubenSolas ?? []).length
-      ? `Excepción (decisión del dueño, 24-oct-2026): ${repo.zonasQueSubenSolas.join(", ")} SÍ suben solas ("Al terminar: sube solo a producción (zona X, con vigilancia de 30 min)"). Si el cambio de Meta Ads sube presupuesto, prende (activa) campañas, conjuntos o anuncios o crea gasto nuevo, escribe "${MARCA_GASTO_META_ADS}" en el plan y "Al terminar: espera tu sí".`
+      ? `Excepción (decisión del dueño, 24-oct-2026; chats, 26-oct-2026): ${repo.zonasQueSubenSolas.join(", ")} SÍ suben solas ("Al terminar: sube solo a producción (zona X, con vigilancia de 30 min)")${repo.zonasQueSubenSolas.includes("CHATS") ? ", CHATS siempre que esté actualizada con main, compile, pase TODAS las pruebas, no use force-push, tenga la confirmación de que no manda mensajes nuevos a clientes y quede con la vigilancia de 30 minutos" : ""}. Si el cambio de Meta Ads sube presupuesto, prende (activa) campañas, conjuntos o anuncios o crea gasto nuevo, escribe "${MARCA_GASTO_META_ADS}" en el plan y "Al terminar: espera tu sí".`
       : "",
   ]
     .filter(Boolean)
@@ -1139,8 +1145,8 @@ export async function construir(contexto, tarjeta) {
     // pero no sube sola: el CRM la deja POR_REVISAR con la zona marcada, esperando el sí del dueño.
     const tocadas = zonasTocadas(archivos, repo.zonasProtegidas);
     const zonas = Object.keys(tocadas);
-    // Zonas que suben solas (24-oct-2026): bot de ventas, Meta Ads y libro V3 no piden el sí final del dueño si pasan sus
-    // pruebas extra (motivoPorElQueNoSubeSola). Cualquier otra zona (chats) sigue pidiéndolo.
+    // Zonas que suben solas (24-oct-2026; chats, 26-oct-2026): bot de ventas, Meta Ads, libro V3 y chats no piden el sí final
+    // del dueño si pasan sus pruebas extra (motivoPorElQueNoSubeSola). Cualquier otra zona sigue pidiéndolo.
     const zonasSolas = repo.zonasQueSubenSolas ?? [];
     const zonasDeLaTarjeta = [...new Set([...zonas, ...(tarjeta.zonasAprobadas ?? [])])];
     const zonasQuePidenSi = zonasDeLaTarjeta.filter((zona) => !zonasSolas.includes(zona));

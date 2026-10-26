@@ -7,8 +7,8 @@
   BAJO o ALTO. Una tarjeta sin riesgo cuenta como ALTO, y ante la duda es ALTO.
 
   Es ALTO si cumple CUALQUIERA de estas:
-  1. tiene zona protegida (CHATS, BOT_VENTAS, LIBRO_V3, META_ADS; ser ALTO no frena subir: BOT_VENTAS, META_ADS y
-     LIBRO_V3 suben solas desde el 24-oct-2026, ver ZONAS_QUE_SUBEN_SOLAS en reglas-trabajador.ts);
+  1. tiene zona protegida (CHATS, BOT_VENTAS, LIBRO_V3, META_ADS; ser ALTO no frena subir: BOT_VENTAS, META_ADS,
+     LIBRO_V3 y CHATS suben solas desde el 24-oct-2026 (chats, 26-oct-2026), ver ZONAS_QUE_SUBEN_SOLAS en reglas-trabajador.ts);
   2. habla de dinero (abonos, saldos, nómina, comisiones, facturación, pagos);
   3. habla de permisos, usuarios, contraseñas, claves o credenciales;
   4. envía mensajes a clientes;

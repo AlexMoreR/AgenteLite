@@ -157,7 +157,7 @@ const PROPIEDAD_ZONA = {
   type: "array",
   items: { type: "string", enum: [...ZONAS_PROTEGIDAS] },
   description:
-    "Zonas protegidas que toca: META_ADS (anuncios y campañas), BOT_VENTAS (el bot que atiende, agentes V2/V3 y flujos), LIBRO_V3 (el libro del agente V3), CHATS (envío y recepción de WhatsApp, Evolution, webhooks, la bandeja de las asesoras). Una tarjeta con zona CHATS se aprueba SOLO en la pantalla y no sube sola a producción: espera el sí final del dueño. BOT_VENTAS, META_ADS y LIBRO_V3 (desde el 24-oct-2026) se aprueban también por voz y suben solas si compilan y pasan las pruebas, con vigilancia de 30 minutos; lo que gasta plata en Meta Ads (presupuesto, prender, crear) sigue esperando el sí del dueño. Opcional.",
+    "Zonas protegidas que toca: META_ADS (anuncios y campañas), BOT_VENTAS (el bot que atiende, agentes V2/V3 y flujos), LIBRO_V3 (el libro del agente V3), CHATS (envío y recepción de WhatsApp, Evolution, webhooks, la bandeja de las asesoras). BOT_VENTAS, META_ADS y LIBRO_V3 (desde el 24-oct-2026) y CHATS (desde el 26-oct-2026) se aprueban también por voz y suben solas si compilan y pasan las pruebas, con vigilancia de 30 minutos (CHATS además exige la confirmación de que no manda mensajes nuevos a clientes; cualquier envío nuevo espera el sí del dueño); lo que gasta plata en Meta Ads (presupuesto, prender, crear) sigue esperando el sí del dueño. Opcional.",
 } as const;
 
 const PROPIEDAD_RIESGO = {

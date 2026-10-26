@@ -13,10 +13,10 @@
 
   Subir solo (21-oct-2026, decisión de Alexander: Planear -> Aprobar plan -> Hacer): EN_CURSO pasa
   directo a SUBIENDO pendiente si todo pasó, el Coordinador dice que sube solo (su interruptor
-  `subirSolo` del repo) y la tarjeta no tiene zona protegida (destinoDelResultado). Si toca chats,
-  agentes o chats (o el interruptor está apagado), queda POR_REVISAR con la zona marcada y espera el sí
-  final del dueño (momento 'subir'), como antes. El bot de ventas, Meta Ads y el libro V3 ya NO piden ese
-  sí (24-oct-2026, ZONAS_QUE_SUBEN_SOLAS): suben solos, con pruebas extra y vigilancia de 30 minutos. Si el despliegue falla después
+  `subirSolo` del repo) y la tarjeta no tiene zona protegida (destinoDelResultado). Si el
+  interruptor está apagado o toca una zona que no esté en ZONAS_QUE_SUBEN_SOLAS, queda POR_REVISAR con la zona
+  marcada y espera el sí final del dueño (momento 'subir'). El bot de ventas, Meta Ads, el libro V3 y los chats
+  ya NO piden ese sí (24-oct-2026; chats, 26-oct-2026, ZONAS_QUE_SUBEN_SOLAS): suben solos, con pruebas extra y vigilancia de 30 minutos. Si el despliegue falla después
   de subir, el Coordinador hace revert del commit en main y la deja ERROR.
 
   Lo que no se negocia:
@@ -27,8 +27,8 @@
      el historial quién (nombre y userId), el momento, por dónde ('pantalla' o 'voz') y el texto de
      confirmación.
   3. Por el MCP (via 'voz') se aprueba solo si la persona lo dijo explícitamente: el texto tiene que
-     decir "sí" y "apruebo". Una tarjeta con zona protegida de chats se aprueba SOLO en la pantalla, y solo
-     el dueño; las de bot de ventas, Meta Ads y libro V3 también se aprueban por voz (ZONAS_QUE_SUBEN_SOLAS).
+     decir "sí" y "apruebo". Las tarjetas con zona protegida se aprueban solo por el dueño; las de bot de
+     ventas, Meta Ads, libro V3 y chats también se aprueban por voz (ZONAS_QUE_SUBEN_SOLAS).
   4. El sí final ('subir') lo da solo el DUEÑO del negocio (SI_FINAL_SOLO_DUENO), y solo si el
      Coordinador dijo que todo pasó (resultado.paso = true). Hoy solo hace falta para las tarjetas con
      zona protegida de chats, las de un repo con `subirSolo` apagado y las
@@ -103,12 +103,13 @@ export const NOMBRE_DE_LA_ZONA: Record<ZonaProtegida, string> = {
 
 /**
  * Zonas que suben solas (decisión del dueño, 24-oct-2026, por voz: "que sea igual que las otras"): si compiló y
- * pasó las pruebas, la tarjeta pasa a SUBIENDO sin el sí final. CHATS no está: sigue pidiendo el sí del dueño
- * hasta que su propia tarjeta (Coordinador de Sistemas autónomo) la agregue acá. Es la lista que lee todo lo
+ * pasó las pruebas, la tarjeta pasa a SUBIENDO sin el sí final. CHATS se sumó el 26-oct-2026 (Coordinador de
+ * Sistemas autónomo, parte 2): sube sola solo con la confirmación de que no manda mensajes nuevos a clientes; cualquier
+ * envío nuevo en sus archivos la deja esperando el sí. Es la lista que lee todo lo
  * demás (destino del resultado, aprobación por voz, el Coordinador): se agrega una zona en un solo lugar.
  * META_ADS tiene una excepción: lo que gasta plata (presupuesto, prender, crear) sigue pidiendo el sí.
  */
-export const ZONAS_QUE_SUBEN_SOLAS: readonly ZonaProtegida[] = ["BOT_VENTAS", "META_ADS", "LIBRO_V3"];
+export const ZONAS_QUE_SUBEN_SOLAS: readonly ZonaProtegida[] = ["BOT_VENTAS", "META_ADS", "LIBRO_V3", "CHATS"];
 
 /** De estas zonas, las que TODAVÍA piden el sí final del dueño (las que no están en ZONAS_QUE_SUBEN_SOLAS). */
 export function zonasQuePidenTuSi(zonas: readonly string[]): string[] {
@@ -331,7 +332,7 @@ export function puedeElTrabajador(accion: AccionDelTrabajador, estado: EstadoTar
 /**
  * A qué estado pasa la tarjeta con el /resultado: SUBIENDO (pendiente: el Coordinador la sube enseguida)
  * solo si todo pasó, el Coordinador dice que sube solo y la tarjeta no tiene una zona que pida el sí (ni la
- * que ya tenía ni la que marcó el Coordinador; BOT_VENTAS, META_ADS y LIBRO_V3 ya suben solas, ver
+ * que ya tenía ni la que marcó el Coordinador; BOT_VENTAS, META_ADS, LIBRO_V3 y CHATS ya suben solas, ver
  * ZONAS_QUE_SUBEN_SOLAS). Si no, POR_REVISAR: espera el sí final del dueño.
  */
 export function destinoDelResultado(datos: {
@@ -612,7 +613,7 @@ export function puedeAprobarMomento(pedido: PedidoDeAprobacion): { a: EstadoTarj
     return { error: "Por el MCP se aprueba solo con la confirmación de la persona (via voz); en la pantalla, con el botón." };
   }
   if (pedido.via === "voz") {
-    // Bot de ventas, Meta Ads y libro V3 también se aprueban por voz (24-oct-2026); chats sigue solo en pantalla.
+    // Bot de ventas, Meta Ads, libro V3 y chats se aprueban también por voz (chats desde el 26-oct-2026).
     const soloPantalla = zonasQuePidenTuSi(pedido.zonaProtegida);
     if (soloPantalla.length) {
       return {

@@ -359,10 +359,14 @@ await prueba("resultado: tarjeta ALTO normal, sin zona, sigue subiendo sola como
   assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio())).estado, "SUBIENDO");
 });
 
-await prueba("resultado: ALTO con zona protegida marcada espera el sí del dueño", async () => {
+await prueba("resultado: ALTO con zona CHATS (26-oct-2026) sube sola como el bot; con META_ADS marcada por gasto (subeSolo false) espera", async () => {
   enCurso({ riesgo: "ALTO" });
-  const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ zonaProtegida: ["CHATS"] }));
-  assert.equal(r.estado, "POR_REVISAR");
+  const chats = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ zonaProtegida: ["CHATS"] }));
+  assert.equal(chats.estado, "SUBIENDO");
+  estado.tarjetas.clear();
+  enCurso({ riesgo: "ALTO" });
+  const gasto = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ zonaProtegida: ["META_ADS"], subeSolo: false }));
+  assert.equal(gasto.estado, "POR_REVISAR");
 });
 
 /* ------------------------------------------------------------------ regla del dueño 24-oct */

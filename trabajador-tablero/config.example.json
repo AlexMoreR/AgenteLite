@@ -159,7 +159,8 @@
       "zonasQueSubenSolas": [
         "BOT_VENTAS",
         "META_ADS",
-        "LIBRO_V3"
+        "LIBRO_V3",
+        "CHATS"
       ],
       "vigilancia": {
         "minutos": 30,

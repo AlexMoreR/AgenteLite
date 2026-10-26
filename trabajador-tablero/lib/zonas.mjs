@@ -46,7 +46,7 @@ export function zonasTocadas(archivos, zonas = {}) {
 
 /* ─────────────────────────── zonas que suben solas (24-oct-2026, decisión del dueño) ── */
 
-// BOT_VENTAS, META_ADS y LIBRO_V3 ya no piden el sí final del dueño (`repo.zonasQueSubenSolas`, la misma lista
+// BOT_VENTAS, META_ADS, LIBRO_V3 y CHATS (26-oct-2026) ya no piden el sí final del dueño (`repo.zonasQueSubenSolas`, la misma lista
 // que ZONAS_QUE_SUBEN_SOLAS del CRM). A cambio: pruebas extra antes de subir y vigilancia de 30 minutos después.
 // Meta Ads tiene UNA excepción: lo que gasta plata (presupuesto, prender, crear) sigue esperando el sí.
 
@@ -55,6 +55,7 @@ export const MARCA_GASTO_META_ADS = "GASTO EN META ADS";
 
 /** Lo que el que construye tiene que dejar escrito en sus pruebas / resumen (por zona) para que suba sola. */
 export const CONFIRMACION_BOT_VENTAS = "✔ sin mensajes nuevos a clientes";
+export const CONFIRMACION_CHATS = "✔ chats: sin mensajes nuevos a clientes";
 export const CONFIRMACION_LIBRO_V3 = "✔ simulación V3: sin cambios fuera de lo pedido";
 
 /** Señales de gasto en una línea AGREGADA de código de Meta Ads: presupuesto, puja, prender o crear algo. */
@@ -137,6 +138,12 @@ export function motivoPorElQueNoSubeSola({ zonas, zonasQueSubenSolas, diffs, pla
     // Solo se miran los envíos que agregan los archivos del bot (no los de toda la tarjeta).
     const envios = enviosNuevosDeMensajes(diffDe("BOT_VENTAS"));
     if (envios.length && !planMencionaEnvios(plan)) return "el cambio agrega un envío de mensaje que el plan no menciona";
+  }
+  if (suben("CHATS")) {
+    if (!String(texto ?? "").includes(CONFIRMACION_CHATS)) return "falta la prueba de que los chats no mandan mensajes nuevos a clientes (✔ chats: sin mensajes nuevos a clientes)";
+    // Más duro que el bot: aunque el plan lo mencione, cualquier envío nuevo en los archivos de chats espera el sí del dueño.
+    const envios = enviosNuevosDeMensajes(diffDe("CHATS"));
+    if (envios.length) return "el cambio agrega un envío de mensaje en chats (espera el sí del dueño aunque el plan lo mencione)";
   }
   return null;
 }
