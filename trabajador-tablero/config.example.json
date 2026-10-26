@@ -267,13 +267,15 @@
         ]
       },
       "ciDeRama": {
-        "activo": false,
+        "activo": true,
         "buscar": [
           "gh",
           "run",
           "list",
           "--repo",
           "AlexMoreR/AgenteLite",
+          "--workflow",
+          "ci-tablero.yml",
           "--commit",
           "{commit}",
           "--json",
@@ -407,6 +409,43 @@
           "--exit-status"
         ],
         "ciMinutos": 20
+      },
+      "ciDeRama": {
+        "activo": false,
+        "buscar": [
+          "gh",
+          "run",
+          "list",
+          "--repo",
+          "AlexMoreR/Gestion",
+          "--workflow",
+          "ci-tablero.yml",
+          "--commit",
+          "{commit}",
+          "--json",
+          "databaseId",
+          "--jq",
+          ".[0].databaseId"
+        ],
+        "esperar": [
+          "gh",
+          "run",
+          "watch",
+          "{run}",
+          "--repo",
+          "AlexMoreR/Gestion",
+          "--exit-status"
+        ],
+        "log": [
+          "gh",
+          "run",
+          "view",
+          "{run}",
+          "--repo",
+          "AlexMoreR/Gestion",
+          "--log-failed"
+        ],
+        "minutos": 20
       }
     },
     "messenger-basic": {
@@ -431,7 +470,44 @@
         ]
       ],
       "subirSolo": false,
-      "zonasProtegidas": {}
+      "zonasProtegidas": {},
+      "ciDeRama": {
+        "activo": false,
+        "buscar": [
+          "gh",
+          "run",
+          "list",
+          "--repo",
+          "AlexMoreR/messenger-basic",
+          "--workflow",
+          "ci-tablero.yml",
+          "--commit",
+          "{commit}",
+          "--json",
+          "databaseId",
+          "--jq",
+          ".[0].databaseId"
+        ],
+        "esperar": [
+          "gh",
+          "run",
+          "watch",
+          "{run}",
+          "--repo",
+          "AlexMoreR/messenger-basic",
+          "--exit-status"
+        ],
+        "log": [
+          "gh",
+          "run",
+          "view",
+          "{run}",
+          "--repo",
+          "AlexMoreR/messenger-basic",
+          "--log-failed"
+        ],
+        "minutos": 20
+      }
     },
     "marketing": {
       "activo": false,

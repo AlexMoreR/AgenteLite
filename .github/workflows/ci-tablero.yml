@@ -1,0 +1,60 @@
+name: CI tablero
+
+# Revisa cada rama tablero/* que sube el Coordinador: tipos, lint, build y pruebas.
+# El Coordinador clasifica el error por el NOMBRE del paso que falla: "Lint" = lint,
+# "Pruebas" = pruebas que fallan y cualquier otro = no compila. No renombrar a la ligera.
+on:
+  push:
+    branches: ['tablero/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-tablero-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  revisar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Direcciones de mentira a propósito (las mismas de entornoSeguro() en etapas.mjs). Sin secretos.
+      DATABASE_URL: postgresql://trabajador:no-usar@127.0.0.1:1/no_usar
+      DIRECT_URL: postgresql://trabajador:no-usar@127.0.0.1:1/no_usar
+    steps:
+      - name: Bajar el codigo
+        uses: actions/checkout@v4
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Cache de Next
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            next-${{ runner.os }}-
+
+      - name: Instalar
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Tipos tsc
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint .
+
+      - name: Build
+        run: npm run build
+
+      - name: Pruebas
+        run: node scripts/correr-pruebas-ci.mjs
