@@ -55,7 +55,11 @@ export function PasarAlCerebro({ tarjetaId }: { tarjetaId: string }) {
     });
     setGuardando(false);
     if (respuesta.ok) {
-      toast.success(`Quedó en el cerebro: ${respuesta.documento}`);
+      toast.success(
+        respuesta.pendienteEnAizen1
+          ? `${respuesta.documento}: se crea en aizen1 en ~1 minuto (pendiente de crear en aizen1).`
+          : `Quedó en el cerebro: ${respuesta.documento}`,
+      );
       setAbierto(false);
     } else toast.error(respuesta.error);
   };

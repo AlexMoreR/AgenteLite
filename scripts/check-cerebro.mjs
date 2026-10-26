@@ -338,6 +338,92 @@ await prueba("crear: documento .md nuevo; no pisa uno existente ni crea fuera de
   await assert.rejects(() => escribirConDependencias({ workspaceId: "ws", userId: "u1", origen: "MCP", modo: "crear", nombre: "Otro", contenido: "  " }, deps), /Falta el texto/);
 });
 
+/* ── Notas nuevas que crea aizen1 (Google da 403 storageQuotaExceeded al crear con la cuenta de servicio) ── */
+
+const notas = cargar("src/features/cerebro/services/notas-por-crear.ts", { "@/lib/prisma": nada });
+const sinEspacioDeGoogle = async () =>
+  new Response(JSON.stringify({ error: { code: 403, errors: [{ reason: "storageQuotaExceeded", message: "Service Accounts do not have storage quota." }] } }), { status: 403 });
+
+await prueba("crear con un Google que da 403 storageQuotaExceeded NO falla: queda PENDIENTE para aizen1 y en el registro", async () => {
+  const { deps, llamadas } = depsFalsas({ enDrive: {}, copiaDe: null, carpetas: { f1: { ruta: "Ventas" } } });
+  deps.drive = { ...deps.drive, crearTexto: crearClienteDeDrive("t", sinEspacioDeGoogle).crearTexto };
+  const encoladas = [];
+  deps.encolarNotaNueva = async (nota) => {
+    encoladas.push(nota);
+    return { id: "nota1" };
+  };
+  const resultado = await escribirConDependencias(
+    { workspaceId: "ws", userId: "u1", origen: "MCP", modo: "crear", nombre: "2026-10-26-guion", carpetaId: "f1", contenido: "Guion nuevo" },
+    deps,
+  );
+  assert.equal(resultado.ruta, "Ventas/2026-10-26-guion.md");
+  assert.deepEqual(resultado.pendiente, { id: "nota1", estado: "PENDIENTE", aviso: reglas.AVISO_NOTA_EN_AIZEN1 });
+  assert.match(reglas.AVISO_NOTA_EN_AIZEN1, /aizen1 en ~1 minuto/);
+  assert.deepEqual(encoladas, [{ ruta: "Ventas/2026-10-26-guion.md", contenido: "Guion nuevo\n" }]);
+  assert.equal(llamadas.copias.length, 0, "no hay copia: el archivo todavía no está en el Drive");
+  assert.equal(llamadas.registros.length, 1);
+  assert.deepEqual(llamadas.registros[0], { driveId: "aizen1:nota1", nombreDocumento: "Ventas/2026-10-26-guion.md", accion: "crear", antes: null, despues: "Guion nuevo\n" });
+
+  // Decisiones de Magilus en la carpeta principal: con su fecha, igual que si lo creara el Drive.
+  const raiz = depsFalsas({ enDrive: {}, copiaDe: null });
+  raiz.deps.drive = { ...raiz.deps.drive, crearTexto: crearClienteDeDrive("t", sinEspacioDeGoogle).crearTexto };
+  let encolada = null;
+  raiz.deps.encolarNotaNueva = async (nota) => ((encolada = nota), { id: "nota2" });
+  await escribirConDependencias({ ...pedidoBase, modo: "crear", driveId: undefined, nombre: "Decisiones de Magilus", contenido: "Primera decisión" }, raiz.deps);
+  assert.equal(encolada.ruta, "Decisiones de Magilus.md");
+  assert.match(encolada.contenido, /^### \d{4}-\d{2}-\d{2}\nPrimera decisión\n$/);
+});
+
+await prueba("otros errores de Drive al crear siguen siendo error; sin dónde encolar, el 403 también", async () => {
+  const otro = depsFalsas({ enDrive: {}, copiaDe: null });
+  otro.deps.drive = { ...otro.deps.drive, crearTexto: crearClienteDeDrive("t", async () => new Response("nope", { status: 500 })).crearTexto };
+  otro.deps.encolarNotaNueva = async () => assert.fail("no debía encolar");
+  await assert.rejects(() => escribirConDependencias({ ...pedidoBase, modo: "crear", driveId: undefined, nombre: "Otra nota", contenido: "x" }, otro.deps), /Drive respondió 500/);
+  const sinCola = depsFalsas({ enDrive: {}, copiaDe: null });
+  sinCola.deps.drive = { ...sinCola.deps.drive, crearTexto: crearClienteDeDrive("t", sinEspacioDeGoogle).crearTexto };
+  await assert.rejects(() => escribirConDependencias({ ...pedidoBase, modo: "crear", driveId: undefined, nombre: "Otra nota", contenido: "x" }, sinCola.deps), /cuenta de servicio/);
+});
+
+await prueba("ruta de la nota: solo dentro de la carpeta del cerebro y solo .md/.txt", () => {
+  assert.equal(reglas.problemaDeRutaDeNota("Decisiones de Magilus.md"), null);
+  assert.equal(reglas.problemaDeRutaDeNota("Ventas/2026-10-26-x.md"), null);
+  for (const mala of ["../x.md", "Ventas/../../x.md", "/x.md", "C:/x.md", "a//b.md", "x.exe", "x", "a|b.md", ""]) {
+    assert.ok(reglas.problemaDeRutaDeNota(mala), `debía rechazar ${JSON.stringify(mala)}`);
+  }
+  assert.equal(reglas.rutaDeNota("", "a.md"), "a.md");
+  assert.equal(reglas.rutaDeNota("Ventas/", "a.md"), "Ventas/a.md");
+});
+
+await prueba("API del trabajador: marcar CREADA o ERROR (con motivo); repetir no falla; cambiar de final sí (409)", () => {
+  assert.deepEqual(notas.marcaDeEntrada({ id: "n1", estado: "CREADA" }), { id: "n1", estado: "CREADA", motivo: null });
+  assert.deepEqual(notas.marcaDeEntrada({ id: "n1", estado: "ERROR", motivo: " ruta mala " }), { id: "n1", estado: "ERROR", motivo: "ruta mala" });
+  assert.throws(() => notas.marcaDeEntrada({ id: "n1", estado: "ERROR" }), /motivo/);
+  assert.throws(() => notas.marcaDeEntrada({ id: "n1", estado: "PENDIENTE" }), /CREADA/);
+  assert.throws(() => notas.marcaDeEntrada(null), /id/);
+  assert.equal(notas.decidirMarca("PENDIENTE", "CREADA"), "cambiar");
+  assert.equal(notas.decidirMarca("CREADA", "CREADA"), "igual");
+  assert.throws(() => notas.decidirMarca("CREADA", "ERROR"), (e) => e.status === 409);
+});
+
+await prueba("la ruta GET/POST /api/trabajador/cerebro/notas-por-crear usa la clave del Coordinador; MCP y pantalla muestran el estado", () => {
+  const ruta = fs.readFileSync(path.join(RAIZ, "src/app/api/trabajador/cerebro/notas-por-crear/route.ts"), "utf8");
+  assert.match(ruta, /export async function GET/);
+  assert.match(ruta, /export async function POST/);
+  assert.equal((ruta.match(/if \(!contexto\) return sinClave\(\);/g) ?? []).length, 2, "las dos piden la clave");
+  assert.match(ruta, /contexto\.workspaceId/);
+  const mcp = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/cerebro.ts"), "utf8");
+  assert.match(mcp, /resultado\.pendiente/);
+  assert.match(mcp, /notas_nuevas/);
+  assert.equal(reglas.TEXTO_DEL_ESTADO_DE_NOTA.PENDIENTE, "pendiente de crear en aizen1");
+  assert.equal(reglas.TEXTO_DEL_ESTADO_DE_NOTA.CREADA, "creada");
+  const pantalla = fs.readFileSync(path.join(RAIZ, "src/features/cerebro/components/CerebroPantalla.tsx"), "utf8");
+  assert.match(pantalla, /TEXTO_DEL_ESTADO_DE_NOTA/);
+  const pagina = fs.readFileSync(path.join(RAIZ, "src/app/cliente/negocio/cerebro/page.tsx"), "utf8");
+  assert.match(pagina, /notasRecientes/);
+  const paso = fs.readFileSync(path.join(RAIZ, "src/features/tableros-inteligentes/components/PasarAlCerebro.tsx"), "utf8");
+  assert.match(paso, /pendienteEnAizen1/);
+});
+
 /* ── Pasar al cerebro ── */
 
 await prueba("Pasar al cerebro escribe SOLO la conclusión, con la fecha y el link de la tarjeta", () => {

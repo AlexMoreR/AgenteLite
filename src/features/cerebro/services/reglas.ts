@@ -390,3 +390,38 @@ export function carpetaPreferida(carpetas: ReadonlyArray<{ id: string; nombre: s
   }
   return carpetas.length === 1 ? carpetas[0].id : "";
 }
+
+/* ── Notas NUEVAS que crea aizen1 (la cuenta de servicio no puede crear en un Drive personal) ── */
+
+export const ESTADOS_DE_NOTA = ["PENDIENTE", "CREADA", "ERROR"] as const;
+export type EstadoDeNota = (typeof ESTADOS_DE_NOTA)[number];
+
+/** Cómo se dice el estado en la pantalla y el MCP. */
+export const TEXTO_DEL_ESTADO_DE_NOTA: Record<string, string> = {
+  PENDIENTE: "pendiente de crear en aizen1",
+  CREADA: "creada",
+  ERROR: "error al crear en aizen1",
+};
+
+export const AVISO_NOTA_EN_AIZEN1 ="Se crea en aizen1 en ~1 minuto (pendiente de crear en aizen1).";
+
+/**
+ * ¿Esta ruta (relativa a la carpeta del cerebro) se puede crear en la bóveda? null si sí; si no, el motivo.
+ * Nada que salga de la carpeta: sin "..", sin rutas absolutas ni de unidad (C:), sin caracteres raros; solo .md o .txt.
+ * La misma regla la repite el Coordinador (trabajador-tablero/lib/notas-boveda.mjs) antes de escribir.
+ */
+export function problemaDeRutaDeNota(ruta: unknown): string | null {
+  if (typeof ruta !== "string" || !ruta.trim()) return "Falta la ruta de la nota.";
+  if (ruta.length > 300) return "La ruta es muy larga (máximo 300 letras).";
+  if (/^[\\/]/.test(ruta) || /^[a-z]:/i.test(ruta)) return "La ruta no puede ser absoluta.";
+  if (/[\u0000-\u001f<>:"|?*]/.test(ruta)) return "La ruta tiene caracteres que no se permiten.";
+  const partes = ruta.split(/[\\/]/);
+  if (partes.some((parte) => !parte.trim() || parte === "." || parte === ".." || parte !== parte.trim() || parte.endsWith("."))) {
+    return "La ruta no puede tener partes vacías, \".\" ni \"..\".";
+  }
+  if (!/\.(md|txt)$/i.test(ruta)) return "Solo se crean notas .md o .txt.";
+  return null;
+}
+
+/** Une la carpeta y el nombre como ruta relativa con "/". */
+export const rutaDeNota = (carpeta: string, nombre: string) => (carpeta ? `${carpeta.replace(/[\\/]+$/, "")}/${nombre}` : nombre);

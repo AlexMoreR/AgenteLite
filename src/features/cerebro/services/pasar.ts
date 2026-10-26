@@ -90,7 +90,12 @@ export async function pasarAlCerebro(acceso: Acceso, pedido: PedidoDelPaso) {
       quien: acceso.userId,
       origen: "PANTALLA",
       accion: "cerebro",
-      despues: { documento: resultado.ruta, driveId: resultado.driveId, accion: resultado.accion },
+      despues: {
+        documento: resultado.ruta,
+        driveId: resultado.driveId,
+        accion: resultado.accion,
+        ...(resultado.pendiente ? { notaPorCrearEnAizen1: resultado.pendiente.id } : {}),
+      },
     },
   });
   return resultado;

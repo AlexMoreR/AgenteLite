@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { buscarEnElCerebroAction, leerDocumentoAction, sincronizarAhoraAction } from "@/app/actions/cerebro-actions";
 import type { DocumentoLeido, FilaDelCerebro } from "../services/consultas";
-import type { NodoDelArbol, PedazoDelCerebro } from "../services/reglas";
+import { TEXTO_DEL_ESTADO_DE_NOTA, type NodoDelArbol, type PedazoDelCerebro } from "../services/reglas";
+import type { NotaReciente } from "../services/notas-por-crear";
 
 type Nodo = NodoDelArbol<FilaDelCerebro>;
 
@@ -17,6 +18,8 @@ type Props = {
   arbol: Nodo[];
   ultimaSincronizacion: string | null;
   cambios: Array<{ id: string; quienNombre: string; origen: string; nombreDocumento: string; accion: string; creadoEn: string }>;
+  /** Notas nuevas que crea aizen1 (la cuenta de servicio no puede crear en el Drive personal). */
+  notas?: NotaReciente[];
 };
 
 const FECHA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", dateStyle: "medium", timeStyle: "short" });
@@ -59,7 +62,7 @@ function Rama({ nodo, nivel, abierto, alElegir }: { nodo: Nodo; nivel: number; a
 }
 
 /** El árbol del cerebro, el visor de documentos, el buscador y el botón "Sincronizar ahora". */
-export function CerebroPantalla({ arbol, ultimaSincronizacion, cambios }: Props) {
+export function CerebroPantalla({ arbol, ultimaSincronizacion, cambios, notas = [] }: Props) {
   const router = useRouter();
   const [pendiente, empezar] = useTransition();
   const [abierto, setAbierto] = useState<DocumentoLeido | null>(null);
@@ -187,6 +190,24 @@ export function CerebroPantalla({ arbol, ultimaSincronizacion, cambios }: Props)
           )}
         </article>
       </div>
+
+      {notas.length ? (
+        <section className="space-y-1.5">
+          <h3 className="text-sm font-medium">Notas nuevas (las crea aizen1)</h3>
+          <ul className="space-y-1">
+            {notas.map((nota) => (
+              <li key={nota.id} className="rounded-lg border px-3 py-1.5 text-xs">
+                <span className="font-medium">{nota.ruta}</span> ·{" "}
+                <span className={nota.estado === "ERROR" ? "text-destructive" : nota.estado === "PENDIENTE" ? "text-muted-foreground" : ""}>
+                  {TEXTO_DEL_ESTADO_DE_NOTA[nota.estado] ?? nota.estado}
+                </span>
+                {nota.motivo ? <span className="text-destructive"> · {nota.motivo}</span> : null}
+                <span className="text-muted-foreground"> · {FECHA.format(new Date(nota.creadaEn ?? nota.creadoEn))}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {cambios.length ? (
         <section className="space-y-1.5">

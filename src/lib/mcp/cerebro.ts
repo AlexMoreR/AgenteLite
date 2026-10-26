@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { buscarEnElCerebro, filasDelCerebro, leerDocumentoDelCerebro } from "@/features/cerebro/services/consultas";
 import { escribirEnElCerebro } from "@/features/cerebro/services/escribir";
-import { MAXIMO_ESCRITURA } from "@/features/cerebro/services/reglas";
+import { MAXIMO_ESCRITURA, TEXTO_DEL_ESTADO_DE_NOTA } from "@/features/cerebro/services/reglas";
+import { notasRecientes } from "@/features/cerebro/services/notas-por-crear";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 
 /*
@@ -72,7 +73,7 @@ export const HERRAMIENTAS_MCP_CEREBRO = [
     title: "Escribir en el cerebro",
     description:
       "Anota en el cerebro (DIRECTO EN EL DRIVE). USO NORMAL: apenas Alexander TOME UNA DECISIÓN en la conversación, anótala en el documento único 'Decisiones de Magilus' SIN pedirle ninguna frase: búscalo con cerebro_buscar, léelo con cerebro_leer (para tener su `version`) y usa modo 'agregar' (si no existe, créalo con modo 'crear' en la carpeta principal). Escribe solo la conclusión en una o dos líneas, nunca la charla entera; el servidor le pone la fecha. Después avísale a Alexander en una línea: 'Lo anoté en Decisiones de Magilus'. Solo anota decisiones, no dudas ni ideas sueltas. modo 'reemplazar' (cambiar todo un documento) SÍ exige el 'sí' del dueño: léele lo que vas a escribir y espera que diga 'sí, escríbelo en el cerebro'; texto_confirmacion es lo que dijo, tal cual. La cuenta de la clave de Claude tiene que ser la dueña del negocio. " +
-      "Antes de escribir se revisa que el documento no haya cambiado en el Drive desde que lo leíste (pasa `version_leida`, la `version` de cerebro_leer); si cambió, no escribe y avisa. Solo se modifican textos .md y .txt (un Google Doc no). Nunca borra nada; Drive guarda su historial de versiones y el CRM anota quién, cuándo, el antes y el después. Escribe solo la conclusión, no una conversación entera.",
+      "Antes de escribir se revisa que el documento no haya cambiado en el Drive desde que lo leíste (pasa `version_leida`, la `version` de cerebro_leer); si cambió, no escribe y avisa. Solo se modifican textos .md y .txt (un Google Doc no). Nunca borra nada; Drive guarda su historial de versiones y el CRM anota quién, cuándo, el antes y el después. Escribe solo la conclusión, no una conversación entera. Al CREAR, si la respuesta trae estado 'pendiente de crear en aizen1' no es un error: el PC del dueño la crea en ~1 minuto; dile a Alexander 'Lo anoté; se crea en aizen1 en un minuto'.",
     inputSchema: {
       type: "object",
       properties: {
@@ -118,6 +119,9 @@ export async function ejecutarHerramientaMcpCerebro(nombre: string, args: Argume
       const filas = (await filasDelCerebro(contexto.workspaceId)).filter(
         (fila) => fila.enDrive && (!carpeta || fila.ruta.toLowerCase().startsWith(carpeta)),
       );
+      const notas = (await notasRecientes(contexto.workspaceId, 10)).filter(
+        (nota) => nota.estado !== "CREADA" || !filas.some((fila) => fila.ruta.toLowerCase() === nota.ruta.toLowerCase()),
+      );
       return {
         conectado: true,
         carpeta_del_cerebro: conexion.carpetaNombre,
@@ -134,6 +138,17 @@ export async function ejecutarHerramientaMcpCerebro(nombre: string, args: Argume
           link: fila.linkDrive,
         })),
         ...(filas.length > 400 ? { aviso: "Hay más de 400: pasa `carpeta` para ver una parte." } : {}),
+        // Las notas nuevas que todavía crea aizen1 (o que ya creó y aún no llegan a la copia): no están en `documentos`.
+        ...(notas.length
+          ? {
+              notas_nuevas: notas.map((nota) => ({
+                ruta: nota.ruta,
+                estado: TEXTO_DEL_ESTADO_DE_NOTA[nota.estado] ?? nota.estado,
+                ...(nota.motivo ? { motivo: nota.motivo } : {}),
+                pedida: nota.creadoEn,
+              })),
+            }
+          : {}),
       };
     }
     case "cerebro_leer": {
@@ -182,6 +197,17 @@ export async function ejecutarHerramientaMcpCerebro(nombre: string, args: Argume
         versionLeida: typeof args.version_leida === "string" ? args.version_leida : null,
         textoConfirmacion: typeof args.texto_confirmacion === "string" ? args.texto_confirmacion : undefined,
       });
+      if (resultado.pendiente) {
+        // La cuenta de servicio no puede crear en el Drive personal: la nota la crea aizen1 en ~1 minuto. No es un error.
+        return {
+          ok: true,
+          accion: resultado.accion,
+          ruta: resultado.ruta,
+          estado: TEXTO_DEL_ESTADO_DE_NOTA.PENDIENTE,
+          nota_id: resultado.pendiente.id,
+          aviso: `${resultado.pendiente.aviso} Si en ese rato hay otra decisión para la misma nota, vuelve a usar modo 'crear' con el mismo nombre: aizen1 la agrega al final, no la pisa. Cuando aparezca en cerebro_listar ya se puede 'agregar' con su id.`,
+        };
+      }
       return {
         ok: true,
         accion: resultado.accion,

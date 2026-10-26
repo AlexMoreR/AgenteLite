@@ -26,11 +26,17 @@ export class ErrorDeDrive extends Error {
   constructor(
     mensaje: string,
     readonly estado: number,
+    /** true = Google no deja crear porque la cuenta (de servicio) no tiene espacio propio: la nota la crea aizen1. */
+    readonly sinEspacio = false,
   ) {
     super(mensaje);
     this.name = "ErrorDeDrive";
   }
 }
+
+/** ¿Este error es el 403 storageQuotaExceeded al crear con la cuenta de servicio? */
+export const esErrorSinEspacio = (fallo: unknown) =>
+  fallo instanceof Error && ((fallo as Partial<ErrorDeDrive>).sinEspacio === true || /storageQuotaExceeded/i.test(fallo.message));
 
 type ArchivoCrudo = {
   id: string;
@@ -70,13 +76,14 @@ export function crearClienteDeDrive(token: string, fetchFn: FetchDeDrive = fetch
     });
     if (!respuesta.ok) {
       const cuerpo = await respuesta.text().catch(() => "");
+      const sinEspacio = /storageQuotaExceeded/i.test(cuerpo);
       const motivo =
         respuesta.status === 401
           ? "Google ya no acepta el permiso: hay que reconectar el Drive."
-          : /storageQuotaExceeded/i.test(cuerpo)
+          : sinEspacio
             ? "Google no deja que la cuenta de servicio cree archivos nuevos en un Drive personal (no tiene espacio propio). Agregar o reemplazar en un documento .md que ya existe sí funciona; o crea el archivo vacío en la carpeta y luego se escribe"
             : `Drive respondió ${respuesta.status}`;
-      throw new ErrorDeDrive(`${motivo}${cuerpo ? `: ${cuerpo.slice(0, 200)}` : ""}`, respuesta.status);
+      throw new ErrorDeDrive(`${motivo}${cuerpo ? `: ${cuerpo.slice(0, 200)}` : ""}`, respuesta.status, sinEspacio);
     }
     return respuesta;
   };

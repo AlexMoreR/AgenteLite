@@ -7,6 +7,7 @@ import { CerebroPantalla } from "@/features/cerebro/components/CerebroPantalla";
 import { ConexionCerebro } from "@/features/cerebro/components/ConexionCerebro";
 import { correoDeCuentaDeServicio, googleConfigurado, modoDelCerebro, tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 import { arbolDelCerebro } from "@/features/cerebro/services/consultas";
+import { notasRecientes } from "@/features/cerebro/services/notas-por-crear";
 import { permisosDelCerebro } from "@/features/cerebro/services/permisos";
 
 export const metadata: Metadata = {
@@ -40,7 +41,7 @@ export default async function ClienteCerebroPage({ searchParams }: { searchParam
     where: { workspaceId: access.workspaceId },
     select: { cuentaGoogle: true, tokenCifrado: true, carpetaId: true, carpetaNombre: true, ultimaSincronizacion: true, ultimoError: true },
   });
-  const [arbol, cambios, miembros] = await Promise.all([
+  const [arbol, cambios, miembros, notas] = await Promise.all([
     conexion?.carpetaId ? arbolDelCerebro(access.workspaceId) : Promise.resolve([]),
     prisma.cerebroCambio.findMany({
       where: { workspaceId: access.workspaceId },
@@ -54,6 +55,7 @@ export default async function ClienteCerebroPage({ searchParams }: { searchParam
           select: { userId: true, user: { select: { name: true, email: true } } },
         })
       : Promise.resolve([]),
+    conexion?.carpetaId ? notasRecientes(access.workspaceId, 10) : Promise.resolve([]),
   ]);
 
   return (
@@ -80,6 +82,7 @@ export default async function ClienteCerebroPage({ searchParams }: { searchParam
           arbol={JSON.parse(JSON.stringify(arbol))}
           ultimaSincronizacion={conexion.ultimaSincronizacion?.toISOString() ?? null}
           cambios={cambios.map((cambio) => ({ ...cambio, creadoEn: cambio.creadoEn.toISOString() }))}
+          notas={notas}
         />
       ) : null}
     </div>
