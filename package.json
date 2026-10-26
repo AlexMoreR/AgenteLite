@@ -41,6 +41,8 @@
     "test:coordinador-en-vivo": "node scripts/check-coordinador-en-vivo.mjs",
     "test:reuniones-unir-pistas": "node scripts/check-reuniones-unir-pistas.mjs",
     "test:reuniones-link-firmado": "node scripts/check-reuniones-link-firmado.mjs",
+    "test:historial-etapa-migracion": "node scripts/check-historial-etapa-migracion.mjs",
+    "test:historial-etapa": "node scripts/check-historial-etapa.mjs",
     "test:reuniones-migracion": "node scripts/check-reuniones-migracion.mjs",
     "test:migraciones-pglite":"node scripts/ensayo-migraciones-pglite.mjs",
     "test:trabajador-tablero": "node trabajador-tablero/pruebas/probar-reparto.mjs && node trabajador-tablero/pruebas/probar-trabajador.mjs && node trabajador-tablero/pruebas/probar-modelos.mjs && node trabajador-tablero/pruebas/probar-autoactualizar.mjs",

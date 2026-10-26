@@ -723,6 +723,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       status: true,
       lastMessageAt: true,
       automationPaused: true,
+      contactId: true,
       channel: { select: { id: true, name: true } },
       assignedTo: { select: { name: true } },
       contact: {
@@ -731,6 +732,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
           phoneNumber: true,
           crmStage: true,
           excludedFromCrm: true,
+          updatedAt: true,
           ContactTag: { select: { Tag: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
         },
       },
@@ -744,6 +746,24 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
         _count: { _all: true },
       })
     : [];
+  /*
+    Desde cuando esta cada contacto en su etapa: la fecha REAL del historial (HistorialEtapa) si
+    hay una fila que llevo a la etapa de hoy; si no (cambios anteriores a esta funcion), la fecha
+    aproximada de siempre (ultima vez que se toco la ficha). Cada fila dice cual de las dos es.
+  */
+  const cambiosReales = conversaciones.length
+    ? await prisma.historialEtapa.findMany({
+        where: { contactId: { in: [...new Set(conversaciones.map((fila) => fila.contactId))] } },
+        orderBy: { creadoEn: "desc" },
+        select: { contactId: true, etapaNueva: true, creadoEn: true },
+      })
+    : [];
+  const etapaDesde = (contactId: string, etapa: string, aproximada: Date) => {
+    const real = cambiosReales.find((fila) => fila.contactId === contactId && fila.etapaNueva === etapa);
+    return real
+      ? { etapa_desde: hora(real.creadoEn), etapa_desde_tipo: "real" as const }
+      : { etapa_desde: hora(aproximada), etapa_desde_tipo: "aproximada" as const };
+  };
   const cuantos = (id: string, direccion: "INBOUND" | "OUTBOUND") =>
     conteos.find((fila) => fila.conversationId === id && fila.direction === direccion)?._count._all ?? 0;
 
@@ -791,7 +811,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
           ? "fecha real de la venta (los ganados historicos sin fecha no entran)"
           : FECHA_DE_LA_ETAPA[etapa] === "createdAt"
             ? "fecha en que entro el lead"
-            : "ultima vez que se toco la ficha (aproximado: no hay fecha de cambio de etapa)",
+            : "ultima vez que se toco la ficha (aproximado; las filas con cambio de etapa registrado desde la subida del historial traen la fecha real en etapa_desde)",
       ]),
     ),
     totales_por_etapa: Object.fromEntries(totales.map((fila) => [fila.etapa, fila.cuantos])),
@@ -814,6 +834,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       telefono: fila.contact.phoneNumber,
       linea: fila.channel?.name ?? null,
       etapa_crm: fila.contact.crmStage,
+      ...etapaDesde(fila.contactId, fila.contact.crmStage, fila.contact.updatedAt),
       etiquetas: fila.contact.ContactTag.map((fila) => fila.Tag.name),
       // Contacto de una linea administrativa (proveedores, logistica) o sacado del CRM a mano.
       oculto_del_crm: fila.contact.excludedFromCrm,

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import {
   DIAS_DESDE_SU_ULTIMO_MENSAJE,
@@ -49,6 +50,14 @@ export async function demoteUnresponsiveStaleLeads(): Promise<{ demoted: number 
       if (updated === 0) {
         continue;
       }
+      await registrarCambioDeEtapa({
+        workspaceId: candidate.workspaceId,
+        contactId: candidate.id,
+        etapaAnterior: "NEGOCIACION",
+        etapaNueva: "PROPUESTA",
+        origen: "AUTOMATICO",
+        nota: "baja de Caliente a Tibio por inactividad",
+      });
       demoted += 1;
 
       // La marca que permite devolverlo a Caliente si contesta (ver recalentarLeadSiRespondio).

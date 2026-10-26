@@ -1,3 +1,4 @@
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { Prisma } from "@prisma/client";
 
 import type { CrmStage } from "@/features/crm/types";
@@ -509,6 +510,15 @@ function puertosDe(input: {
                    "lostReason" = ${accion.etapa === "PERDIDO" ? accion.motivoPerdida : null},
                    "wonAt" = NULL, "wonQuoteRef" = NULL, "updatedAt" = NOW()
              WHERE "id" = ${foto.contactId} AND "crmStage"::text <> 'GANADO'`;
+          await registrarCambioDeEtapa({
+            workspaceId,
+            contactId: foto.contactId,
+            conversationId: foto.conversationId,
+            etapaAnterior: foto.etapa,
+            etapaNueva: accion.etapa,
+            origen: "AUTOMATICO",
+            nota: `automatización «${automatizacion.nombre}»`,
+          });
           if (accion.etapa === "PERDIDO") {
             await cancelarAutomaticosPendientesDelContacto({ workspaceId, contactId: foto.contactId, motivo: "etapa_cerrada" });
           }
