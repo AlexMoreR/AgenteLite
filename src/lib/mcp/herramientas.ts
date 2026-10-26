@@ -30,6 +30,12 @@ import {
   ejecutarHerramientaMcpCompararEmbudos,
   esHerramientaDeCompararEmbudos,
 } from "@/lib/mcp/comparar-embudos";
+import { seQuedoAqui } from "@/features/embudo/dominio/por-paso";
+import {
+  HERRAMIENTAS_MCP_EMBUDO_POR_PASO,
+  ejecutarHerramientaMcpEmbudoPorPaso,
+  esHerramientaDeEmbudoPorPaso,
+} from "@/lib/mcp/embudo-por-paso";
 import {
   HERRAMIENTAS_MCP_REUNIONES,
   ejecutarHerramientaMcpReuniones,
@@ -895,7 +901,7 @@ async function verConversacion(args: Argumentos, contexto: Contexto) {
     throw new Error("No existe esa conversacion en este negocio. Ver listar_conversaciones.");
   }
 
-  const [mensajes, decisiones] = await Promise.all([
+  const [mensajes, decisiones, pasoDelEmbudo] = await Promise.all([
     prisma.message.findMany({
       where: { conversationId: conversacion.id, deletedAt: null },
       orderBy: { createdAt: "desc" },
@@ -908,6 +914,14 @@ async function verConversacion(args: Argumentos, contexto: Contexto) {
       take: 50,
       select: { detectedAt: true, matchType: true, sourceType: true, targetName: true, confidence: true },
     }),
+    // El paso del Agente V3 vive en el registro del embudo, no en funnelStage (que solo llena el V2).
+    // Si la lectura falla, la ficha sale igual sin estos datos.
+    prisma.embudoLead
+      .findUnique({
+        where: { conversationId: conversacion.id },
+        select: { pasoActual: true, pasoAnterior: true, pasoDesde: true, ultimoClienteEn: true, ventaEn: true },
+      })
+      .catch(() => null),
   ]);
 
   return {
@@ -924,7 +938,16 @@ async function verConversacion(args: Argumentos, contexto: Contexto) {
     estado: conversacion.status,
     ia_pausada: conversacion.automationPaused,
     producto_activo: conversacion.activeProductContext,
-    etapa_del_embudo: conversacion.funnelStage,
+    etapa_del_embudo: conversacion.funnelStage ?? pasoDelEmbudo?.pasoActual ?? null,
+    paso_anterior: pasoDelEmbudo?.pasoAnterior ?? null,
+    en_este_paso_desde: pasoDelEmbudo?.pasoDesde ? hora(pasoDelEmbudo.pasoDesde) : null,
+    se_quedo_aqui: pasoDelEmbudo?.pasoActual
+      ? seQuedoAqui({
+          ultimoClienteEn: pasoDelEmbudo.ultimoClienteEn,
+          ahora: new Date(),
+          compro: conversacion.contact.crmStage === "GANADO" || Boolean(pasoDelEmbudo.ventaEn),
+        })
+      : null,
     decisiones_del_agente: decisiones.map((decision) => ({
       cuando: hora(decision.detectedAt),
       detecto: decision.matchType === "PRODUCT" ? "producto" : "flujo",
@@ -1017,6 +1040,7 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_DE_LECTURA,
   ...HERRAMIENTAS_MCP_SUPERVISOR,
   ...HERRAMIENTAS_MCP_COMPARAR_EMBUDOS,
+  ...HERRAMIENTAS_MCP_EMBUDO_POR_PASO,
   ...HERRAMIENTAS_MCP_REUNIONES,
   ...HERRAMIENTAS_MCP_ESCRITURA,
   ...HERRAMIENTAS_MCP_DIAGRAMA,
@@ -1038,6 +1062,9 @@ export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, c
   }
   if (esHerramientaDeCompararEmbudos(nombre)) {
     return ejecutarHerramientaMcpCompararEmbudos(nombre, args, contexto);
+  }
+  if (esHerramientaDeEmbudoPorPaso(nombre)) {
+    return ejecutarHerramientaMcpEmbudoPorPaso(nombre, args, contexto);
   }
   if (esHerramientaDeReuniones(nombre)) {
     return ejecutarHerramientaMcpReuniones(nombre, args, contexto);

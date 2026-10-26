@@ -1925,11 +1925,18 @@ model EmbudoLead {
   /// Dijo una fecha futura de compra: sin automaticos ni alertas hasta esta fecha.
   dormidoHasta              DateTime?
   fechaCompra               DateTime?
+  /// Paso en el que estaba antes del actual (null = el actual es el primero).
+  pasoAnterior              String?
+  /// Desde cuando esta en el paso actual (cuando entro a el).
+  pasoDesde                 DateTime?
+  /// Los ultimos 10 cambios de paso: [{ paso, producto, en, por: "v3" | "v2" }]. Sirve para medir tiempos.
+  pasoHistorial             Json?
   version                   Int       @default(0)
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 
   @@index([workspaceId, entradaEn])
+  @@index([workspaceId, productoActual, pasoActual])
   @@index([workspaceId, transferencia, temperatura])
   @@index([workspaceId, revisarEn])
   @@index([workspaceId, accion, tareaVence])

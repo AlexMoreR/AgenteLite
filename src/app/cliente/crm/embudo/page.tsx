@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { EmbudoSemanalVista } from "@/features/embudo/components/embudo-semanal";
@@ -84,27 +85,34 @@ export default async function EmbudoPage({ searchParams }: PageProps) {
   const siguiente = sumarDias(lunes, 7);
 
   return (
-    <EmbudoSemanalVista
-      etiquetaSemana={etiquetaDeSemana(lunes)}
-      etiquetaAnterior={etiquetaDeSemana(lunesAnterior)}
-      hrefSemanaAnterior={href({ semana: lunesAnterior })}
-      hrefSemanaSiguiente={siguiente <= porDefecto ? href({ semana: siguiente }) : null}
-      familias={FAMILIAS.map((item) => ({
-        clave: item.clave,
-        nombre: item.nombre,
-        href: href({ familia: item.clave }),
-        activa: item.clave === familia,
-        leads: actual.leads.filter((lead) => lead.familia === item.clave).length,
-      }))}
-      nombreFamilia={nombreDeFamilia(familia)}
-      embudo={embudo}
-      anterior={embudoAnterior.llegaron > 0 ? embudoAnterior : null}
-      fuga={fuga}
-      hrefVerFuga={`${href({ ver: "fuga" })}#chats`}
-      hrefCerrarFuga={href({})}
-      chats={chats}
-      hrefClasica="/cliente/crm/embudo?vista=clasica"
-      ahora={ahora}
-    />
+    <>
+      <div className="mx-auto flex w-full max-w-5xl px-4 pt-4">
+        <Link href="/cliente/crm/embudo-por-paso" className="inline-flex min-h-11 items-center text-sm font-semibold underline">
+          Ver en qué paso del bot se queda cada cliente
+        </Link>
+      </div>
+      <EmbudoSemanalVista
+        etiquetaSemana={etiquetaDeSemana(lunes)}
+        etiquetaAnterior={etiquetaDeSemana(lunesAnterior)}
+        hrefSemanaAnterior={href({ semana: lunesAnterior })}
+        hrefSemanaSiguiente={siguiente <= porDefecto ? href({ semana: siguiente }) : null}
+        familias={FAMILIAS.map((item) => ({
+          clave: item.clave,
+          nombre: item.nombre,
+          href: href({ familia: item.clave }),
+          activa: item.clave === familia,
+          leads: actual.leads.filter((lead) => lead.familia === item.clave).length,
+        }))}
+        nombreFamilia={nombreDeFamilia(familia)}
+        embudo={embudo}
+        anterior={embudoAnterior.llegaron > 0 ? embudoAnterior : null}
+        fuga={fuga}
+        hrefVerFuga={`${href({ ver: "fuga" })}#chats`}
+        hrefCerrarFuga={href({})}
+        chats={chats}
+        hrefClasica="/cliente/crm/embudo?vista=clasica"
+        ahora={ahora}
+      />
+    </>
   );
 }

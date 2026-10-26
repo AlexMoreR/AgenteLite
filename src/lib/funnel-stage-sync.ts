@@ -1,3 +1,4 @@
+import { registrarEnSegundoPlano } from "@/features/embudo/servicios/eventos";
 import { prisma } from "@/lib/prisma";
 import {
   PRODUCT_FUNNEL_STAGES,
@@ -104,7 +105,7 @@ export async function syncFunnelStageFromCommercialStage(input: {
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: input.conversationId },
-    select: { funnelStage: true, funnelStageCount: true },
+    select: { funnelStage: true, funnelStageCount: true, workspaceId: true },
   });
 
   if (!conversation) {
@@ -141,6 +142,24 @@ export async function syncFunnelStageFromCommercialStage(input: {
       ...(cambio ? { funnelNotifiedAt: null } : {}),
     },
   });
+
+  // Medición del embudo por paso: se anota que el V2 entró a este paso. Va en segundo plano y no
+  // lanza: si falla, el V2 sigue igual. Con el interruptor del embudo apagado no escribe nada.
+  if (cambio) {
+    try {
+      registrarEnSegundoPlano({ workspaceId: conversation.workspaceId, conversationId: input.conversationId }, [
+        {
+          tipo: "PASO_ENTRA",
+          origen: "motor",
+          paso: target,
+          claveUnica: `PASOV2:${input.conversationId}:${target}`,
+          datos: { desde: guardadaEsInvalida ? null : current, motor: "v2" },
+        },
+      ]);
+    } catch (error) {
+      console.warn("[embudo] no se pudo anotar el paso del V2", error instanceof Error ? error.message : String(error));
+    }
+  }
 
   return { stage: target, count, changed: cambio };
 }

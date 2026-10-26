@@ -1,0 +1,11 @@
+## Módulos
+- `crm`: `/cliente/crm/embudo-por-paso` (solo quien supervisa, con enlace desde `/cliente/crm/embudo`) muestra en qué paso del bot se queda cada cliente: por producto (Combo por defecto) y rango de fechas, barras de cuántos llegaron a cada paso (Presentación, Producto, Objeciones, Cierre) y cuántos se quedaron, la tasa de paso a paso con el paso de mayor caída resaltado y el tiempo promedio por paso. Separa "solo el bot" de "lo tomó una asesora" (IA en pausa o chat asignado). "Se quedó aquí" = su paso actual es ese y lleva más de 24 horas sin escribir (si compró no cuenta); se calcula al mirar. Con menos de 30 clientes en un paso sale el aviso "pocos datos". Desde el MCP, `embudo_por_paso` (solo lectura; producto, desde, hasta; dueño, administradores y supervisora) devuelve los mismos números más `resumen_para_decir` para la reunión de las 8:00. Código en `src/features/embudo/dominio/por-paso.ts` y `src/lib/mcp/embudo-por-paso.ts`; pruebas `npm run test:embudo-por-paso` y `npm run test:mcp-embudo-por-paso`.
+
+## Entidades
+- `EmbudoLead`: además de lo anterior guarda `pasoAnterior`, `pasoDesde` (cuándo entró al paso actual) y `pasoHistorial` (los últimos 10 cambios de paso: paso, producto, fecha y si lo hizo el V3 o el V2). Se llenan donde ya se anota "entró al paso X". `ver_conversacion` muestra el paso del V3 en `etapa_del_embudo` cuando el V2 no tiene uno, y agrega `paso_anterior`, `en_este_paso_desde` y `se_quedo_aqui`.
+
+## Qué no existe hoy
+- `embudo_por_paso_octubre`: el reporte solo tiene datos desde que corre la migración `20261026120000_embudo_paso_detalle`; `pasoAnterior`, `pasoDesde` y `pasoHistorial` de octubre se llenan solo si se corre el relleno histórico (sección "Historia" de `/cliente/crm/embudo`), que primero se simula y se revisa a mano. Un cliente que vuelve a un paso ya visitado no se anota otra vez (el aviso "entró al paso" es único por chat, producto y paso), así que el historial corto no guarda esa vuelta; el paso actual sí cambia.
+
+## Advertencias de operación
+- `embudo_por_paso_interruptor`: con el interruptor `embudo:activo:<negocio>` = `false` no se registra el paso de ningún chat (ni del V3 ni del V2) y el reporte avisa que está apagado. El aviso del V2 se anota en segundo plano; si falla solo queda en el registro, el bot sigue igual.

@@ -84,7 +84,12 @@ function comoFoto(fila: Record<string, unknown> | null): FotoDelLead | null {
   if (!fila) return null;
   const foto = fila as unknown as FotoDelLead;
   const accionDatos = fila.accionDatos && typeof fila.accionDatos === "object" && !Array.isArray(fila.accionDatos) ? (fila.accionDatos as Record<string, unknown>) : null;
-  return { ...foto, accionDatos, senales: Array.isArray(fila.senales) ? (fila.senales as FotoDelLead["senales"]) : null };
+  return {
+    ...foto,
+    accionDatos,
+    senales: Array.isArray(fila.senales) ? (fila.senales as FotoDelLead["senales"]) : null,
+    pasoHistorial: Array.isArray(fila.pasoHistorial) ? (fila.pasoHistorial as FotoDelLead["pasoHistorial"]) : null,
+  };
 }
 
 function datosDeLaFoto(foto: FotoDelLead) {
@@ -129,6 +134,15 @@ function datosDeLaFoto(foto: FotoDelLead) {
     exterior: foto.exterior,
     dormidoHasta: foto.dormidoHasta,
     fechaCompra: foto.fechaCompra,
+    // Embudo por paso. `undefined` = no se toca la columna.
+    pasoAnterior: foto.pasoAnterior,
+    pasoDesde: foto.pasoDesde,
+    pasoHistorial:
+      foto.pasoHistorial === undefined
+        ? undefined
+        : foto.pasoHistorial
+          ? (foto.pasoHistorial as unknown as Prisma.InputJsonValue)
+          : Prisma.DbNull,
   };
 }
 

@@ -74,6 +74,17 @@ export function pasoMayor(a: string | null | undefined, b: string | null | undef
   return ib > ia ? (b as string) : (a as string);
 }
 
+/** Hasta cuántos cambios de paso se guardan en la foto del lead (los más recientes). */
+export const MAXIMO_DE_PASOS_EN_HISTORIAL = 10;
+
+/** Un cambio de paso: cuándo entró, a qué paso y producto, y quién lo hizo (el agente V3 o el V2). */
+export type CambioDePaso = { paso: string; producto: string | null; en: string; por: "v3" | "v2" };
+
+/** Agrega un cambio al historial y deja solo los últimos 10. Pura: no toca el arreglo recibido. */
+export function agregarAlHistorialDePasos(historial: ReadonlyArray<CambioDePaso> | null | undefined, cambio: CambioDePaso): CambioDePaso[] {
+  return [...(historial ?? []), cambio].slice(-MAXIMO_DE_PASOS_EN_HISTORIAL);
+}
+
 /** Un evento listo para guardar. `producto` ya viene como clave del embudo ("combo-camilla" o id). */
 export type EventoDelEmbudo = {
   tipo: TipoDeEvento;
@@ -186,7 +197,7 @@ export function eventosDelTurno(input: {
       tipo: "PASO_ENTRA",
       paso: despuesPaso,
       producto: productoDespues,
-      datos: { desde: antesPaso, productoAntes: clave(antesProducto) },
+      datos: { desde: antesPaso, productoAntes: clave(antesProducto), motor: "v3" },
       claveUnica: `PASO:${conversationId}:${productoDespues ?? "-"}:${despuesPaso}`,
     });
   }
@@ -278,6 +289,10 @@ export type FotoDelLead = {
   exterior?: boolean;
   dormidoHasta?: Date | null;
   fechaCompra?: Date | null;
+  /* Embudo por paso. Opcionales: las fotos viejas no los traen. */
+  pasoAnterior?: string | null;
+  pasoDesde?: Date | null;
+  pasoHistorial?: CambioDePaso[] | null;
 };
 
 export type ContextoDelLead = {
@@ -319,6 +334,9 @@ export function leadVacio(contexto: ContextoDelLead): FotoDelLead {
     cotizacionEn: null,
     anticipoEn: null,
     ventaEn: null,
+    pasoAnterior: null,
+    pasoDesde: null,
+    pasoHistorial: null,
   };
 }
 
@@ -345,6 +363,8 @@ export function aplicarEvento(anterior: FotoDelLead | null, evento: EventoDelEmb
   const lead: FotoDelLead = anterior ? { ...anterior } : leadVacio(contexto);
   const cuando = evento.createdAt ?? new Date();
   const datos = evento.datos ?? {};
+  const pasoAntes = lead.pasoActual;
+  const productoAntes = lead.productoActual;
 
   // El producto que trae cualquier evento cuenta como "actual" (y como entrada si no había).
   if (evento.producto && evento.tipo !== "ENTRADA") {
@@ -356,6 +376,21 @@ export function aplicarEvento(anterior: FotoDelLead | null, evento: EventoDelEmb
   }
   if (evento.paso && ordenDelPaso(evento.paso) >= 0) {
     lead.pasoMaximo = pasoMayor(lead.pasoMaximo, evento.paso);
+  }
+  // Cambió de paso (o, en PASO_ENTRA, de producto dentro del mismo paso): se anota de dónde viene,
+  // desde cuándo está ahí y el cambio en el historial corto. Solo mide: no decide nada.
+  if (
+    lead.pasoActual &&
+    (lead.pasoActual !== pasoAntes || (evento.tipo === "PASO_ENTRA" && lead.productoActual !== productoAntes))
+  ) {
+    if (lead.pasoActual !== pasoAntes) lead.pasoAnterior = pasoAntes;
+    lead.pasoDesde = cuando;
+    lead.pasoHistorial = agregarAlHistorialDePasos(lead.pasoHistorial, {
+      paso: lead.pasoActual,
+      producto: lead.productoActual,
+      en: cuando.toISOString(),
+      por: datos.motor === "v2" ? "v2" : "v3",
+    });
   }
 
   switch (evento.tipo) {

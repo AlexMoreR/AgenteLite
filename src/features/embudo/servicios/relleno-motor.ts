@@ -242,6 +242,9 @@ const COLUMNAS_DEL_LEAD: [keyof FotoDelLead, TipoDeColumna][] = [
   ["cotizacionEn", "instante"],
   ["anticipoEn", "instante"],
   ["ventaEn", "instante"],
+  ["pasoAnterior", "texto"],
+  ["pasoDesde", "instante"],
+  ["pasoHistorial", "json"],
 ];
 
 /** Recalcula la foto del lead con TODOS sus eventos (en vivo + relleno), en orden. */
