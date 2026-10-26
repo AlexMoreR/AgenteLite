@@ -111,6 +111,8 @@ model Workspace {
   funnelStates          ConversationFunnelState[]
 
   @@index([ownerId])
+  agentesDeAreaDias     AgenteDeAreaDia[]
+  agentesDeAreaEnvios   AgenteDeAreaEnvio[]
 }
 
 model QuickReply {
@@ -2269,4 +2271,61 @@ model ReunionPista {
   /// Una pista de LiveKit se graba una sola vez, aunque el aviso llegue repetido.
   @@unique([reunionId, trackSid])
   @@index([reunionId])
+}
+
+/// AGENTES DE ÁREA (molde reutilizable, empieza solo con Ventas): el resumen de cada día de un agente de área.
+/// El agente corre en aizen1 (Claude Code); el CRM solo guarda y muestra. Un resumen por negocio, área y día:
+/// guardarlo dos veces el mismo día lo reemplaza.
+model AgenteDeAreaDia {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  /// Clave del área: "ventas" (mañana: "marketing", etc.).
+  area           String
+  /// AAAA-MM-DD en hora de Colombia.
+  fecha          String
+  /// true = se guardó con el interruptor apagado (corrida de prueba: no se mandó nada).
+  esPrueba       Boolean   @default(true)
+  salioTarde     Boolean   @default(false)
+  notaTarde      String?
+  /// Los números de ayer por asesora, la tasa de cierre, las ventas.
+  numeros        Json?
+  /// La meta de hoy.
+  meta           Json?
+  /// Lo que entregó cada subagente, por separado: { cerrador: ..., cobrador: ..., "analista-de-perdidos": ... }.
+  subagentes     Json?
+  /// Los clientes sugeridos a cada asesora, para medirlos al día siguiente.
+  sugeridos      Json?
+  /// El mensaje de las 7:30 para Alexander.
+  textoAlexander String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, area, fecha])
+  @@index([workspaceId, area, fecha])
+}
+
+/// Un registro por cada WhatsApp interno que pide un agente de área (salió, se bloqueó o falló).
+/// `claveDelDia` solo la llevan los que están enviados o en camino: es única, así que NO puede haber dos
+/// mensajes al mismo número el mismo día (los bloqueados y los fallidos la dejan en null y no estorban).
+model AgenteDeAreaEnvio {
+  id          String    @id @default(cuid())
+  workspaceId String
+  area        String
+  fecha       String
+  /// Solo dígitos, con indicativo.
+  numero      String
+  /// ALEXANDER | ASESORA
+  tipo        String
+  nombre      String?
+  texto       String
+  /// ENVIANDO | ENVIADO | BLOQUEADO | FALLO
+  estado      String
+  motivo      String?
+  claveDelDia String?   @unique
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, area, fecha])
 }

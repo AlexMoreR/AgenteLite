@@ -1,0 +1,16 @@
+{
+  "urlCrm": "https://app.aizenbot.com",
+  "claveMcp": "aizen_mcp_PEGAR_AQUI_LA_CLAVE_DEL_MCP_DEL_CRM",
+  "numeroAlexander": "57PEGAR_AQUI_EL_NUMERO_DE_ALEXANDER",
+  "carpetaTrabajo": "D:/Proyectos/agentes/trabajo",
+  "carpetaAgentes": "D:/Proyectos/agentes",
+  "comandoClaude": ["claude"],
+  "modelo": "sonnet",
+  "horaProgramada": "07:00",
+  "horaEntrega": "07:30",
+  "diasDeTrabajo": [1, 2, 3, 4, 5, 6],
+  "esperaLimiteMinutos": 30,
+  "maxReintentosLimite": 10,
+  "tiempoMaximoMinutos": 40,
+  "toleranciaMinutos": 2
+}

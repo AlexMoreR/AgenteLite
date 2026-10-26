@@ -4,6 +4,8 @@ import path from "node:path";
 
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { prisma } from "@/lib/prisma";
+import { AREA_VENTAS } from "@/features/agentes-de-area/dominio/reglas";
+import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { leerUltimoEnvio } from "@/features/tableros-inteligentes/services/resumen-diario";
 
@@ -397,6 +399,18 @@ async function estadoDeAprobarPlanesSolo(workspaceId: string) {
     : `APAGADA: todos los planes piden el sí del dueño (${esperando} en PLAN_LISTO ahora)`;
 }
 
+/** Agente de Ventas (corre en aizen1): el interruptor y cuándo se guardó el último resumen. */
+async function estadoDelAgenteDeVentas(workspaceId: string) {
+  const [prendido, ultimo] = await Promise.all([
+    agenteActivo(workspaceId, AREA_VENTAS),
+    prisma.agenteDeAreaDia.findFirst({ where: { workspaceId, area: AREA_VENTAS }, orderBy: { fecha: "desc" }, select: { fecha: true, esPrueba: true } }),
+  ]);
+  const cuando = ultimo ? `último resumen del ${ultimo.fecha}${ultimo.esPrueba ? " (corrida de prueba)" : ""}` : "todavía no hay ningún resumen";
+  return prendido
+    ? `PRENDIDA: manda sus WhatsApp internos a las 7:30 (${cuando})`
+    : `APAGADA: solo genera el resumen y no manda nada (${cuando})`;
+}
+
 /** Tablero IA: cuándo salió el último resumen de las 9 p. m. y si el WhatsApp salió. */
 async function estadoDelResumenDiario(workspaceId: string) {
   const ultimo = await leerUltimoEnvio(workspaceId);
@@ -460,6 +474,7 @@ async function automatizaciones(
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(workspaceId).catch(() => "no se pudo leer"),
+    agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
   };
 
   return {

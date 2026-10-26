@@ -21,6 +21,11 @@ import {
   esHerramientaDeEscritura,
 } from "@/lib/mcp/escritura";
 import {
+  HERRAMIENTAS_MCP_AGENTES_DE_AREA,
+  ejecutarHerramientaMcpAgentesDeArea,
+  esHerramientaDeAgentesDeArea,
+} from "@/lib/mcp/agentes-de-area";
+import {
   HERRAMIENTAS_MCP_SUPERVISOR,
   ejecutarHerramientaMcpSupervisor,
   esHerramientaDelSupervisor,
@@ -984,6 +989,7 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_MCP_APLICACION,
   ...HERRAMIENTAS_DE_LECTURA,
   ...HERRAMIENTAS_MCP_SUPERVISOR,
+  ...HERRAMIENTAS_MCP_AGENTES_DE_AREA,
   ...HERRAMIENTAS_MCP_COMPARAR_EMBUDOS,
   ...HERRAMIENTAS_MCP_REUNIONES,
   ...HERRAMIENTAS_MCP_ESCRITURA,
@@ -1002,6 +1008,9 @@ export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, c
   }
   if (esHerramientaDelSupervisor(nombre)) {
     return ejecutarHerramientaMcpSupervisor(nombre, args, contexto);
+  }
+  if (esHerramientaDeAgentesDeArea(nombre)) {
+    return ejecutarHerramientaMcpAgentesDeArea(nombre, args, contexto);
   }
   if (esHerramientaDeCompararEmbudos(nombre)) {
     return ejecutarHerramientaMcpCompararEmbudos(nombre, args, contexto);

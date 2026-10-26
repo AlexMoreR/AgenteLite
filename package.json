@@ -48,6 +48,8 @@
     "test:migraciones-pglite":"node scripts/ensayo-migraciones-pglite.mjs",
     "test:trabajador-tablero": "node trabajador-tablero/pruebas/probar-reparto.mjs && node trabajador-tablero/pruebas/probar-trabajador.mjs && node trabajador-tablero/pruebas/probar-modelos.mjs && node trabajador-tablero/pruebas/probar-autoactualizar.mjs",
     "test:seguimiento-inteligente": "node scripts/check-seguimiento-inteligente.mjs",
+    "test:agentes-de-area": "node scripts/check-agentes-de-area.mjs && node agentes-de-area/pruebas/probar-lanzador.mjs",
+    "test:agentes-de-area-migracion": "node scripts/check-agentes-de-area-migracion.mjs",
     "test:avisos-gravedad": "node scripts/check-avisos-gravedad.mjs",
     "test:supervisor-accionable": "node scripts/check-supervisor-accionable.mjs",
     "test:mcp-supervisor": "node scripts/check-mcp-supervisor.mjs",
