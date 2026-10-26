@@ -102,7 +102,7 @@ function tokenDeLaApi(config: ConfigLivekit, permisos: Permisos): string {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * El pase para entrar a la sala. Nadie recibe permiso de grabar (roomRecord) ni de administrar
+ * El pase para entrar a la sala. Todos pueden publicar micrófono y pantalla, nunca cámara. Nadie recibe permiso de grabar (roomRecord) ni de administrar
  * (roomAdmin): la grabación la pide el servidor y "Terminar reunión" pasa por el CRM, que revisa
  * quién lo pide.
  */
@@ -123,8 +123,9 @@ export function crearPaseDeEntrada(
         room: datos.sala,
         roomJoin: true,
         canPublish: true,
-        // Solo voz: nadie puede publicar cámara, video ni pantalla.
-        canPublishSources: ["microphone"],
+        // Micrófono y pantalla compartida (con su audio, por si el navegador lo manda). Sin cámara.
+        // La pantalla no se graba: el grabador solo toma audio de micrófono.
+        canPublishSources: ["microphone", "screen_share", "screen_share_audio"],
         canSubscribe: true,
         canPublishData: true,
         canUpdateOwnMetadata: false,
