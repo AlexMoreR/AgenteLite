@@ -181,6 +181,19 @@ await prueba("los links: solo https de claude.ai, github.com o del propio CRM; e
   assert.equal(latido.tareas[0].linkWorkflow, "https://github.com/o/r/actions/runs/9");
 });
 
+await prueba("el agente de cada tarea se conserva, se recorta y es opcional (un latido viejo no lo trae)", async () => {
+  const propio = "app.aizenbot.com";
+  const latido = reglas.latidoDeEntrada(
+    { tareas: [{ tarjetaId: "t1", etapa: "planeando", agente: "Agente Gestión" }, { tarjetaId: "t2", etapa: "planeando" }, { tarjetaId: "t3", etapa: "planeando", agente: "x".repeat(200) }, { tarjetaId: "t4", etapa: "planeando", agente: 7 }] },
+    AHORA,
+    propio,
+  );
+  assert.equal(latido.tareas[0].agente, "Agente Gestión");
+  assert.equal(latido.tareas[1].agente, null, "sin el campo no se muestra y no pasa nada más");
+  assert.equal(latido.tareas[2].agente.length, 60);
+  assert.equal(latido.tareas[3].agente, null);
+});
+
 /* ------------------------------------------------------------------ semáforo y apagado */
 
 await prueba("semáforo: verde bajo 70 %, amarillo de 70 a 85 %, rojo sobre 85 % o con poco disco", () => {
@@ -258,6 +271,7 @@ await prueba("la vista junta el latido con las tarjetas en marcha: lugar, modelo
   const [tarea] = vista.tareas;
   assert.deepEqual([tarea.etapaTexto, tarea.lugarTexto, tarea.modeloTexto, tarea.enQueVa], ["Probando", "GitHub Actions", "Sonnet", "reparación 1 de 3"]);
   assert.equal(tarea.linkWorkflow, "https://github.com/o/r/actions/runs/7");
+  assert.equal(tarea.agente, null, "un latido sin agente no inventa uno");
   assert.match(tarea.link, /tarjeta=t1/);
   assert.equal(vista.carga.semaforo, "verde");
   const texto = servicio.textoDelCoordinador(vista);

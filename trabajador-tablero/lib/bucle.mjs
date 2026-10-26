@@ -26,6 +26,7 @@
 // la que desbloquea a otras y la más chica (las demás van en `excluir`); una tarea de aizen1 muy grande se parte
 // ANTES de construirla; y los pasos pesados (npm ci, lint, tsc, build, pruebas) de todas las sesiones pasan por UNA
 // cola en aizen1 (config.colaPesada.maximo, 1 por defecto), así 3 sesiones no compilan a la vez en un i3 de 2 núcleos.
+import { agenteDelRepo } from "./agentes.mjs";
 import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.mjs";
 import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
@@ -520,6 +521,12 @@ export function crearPlanificador({
 }) {
   const max = config.maxParalelo;
   const nubeConfig = config.nube ?? { activa: false, maxTareas: 0, maxArchivosChica: 8 };
+  /** El agente del proyecto de una tarjeta (agentes.mjs); un proyecto que no esté en la configuración da null. */
+  const agenteDe = (tarjeta) => {
+    const repo = config.repos[tarjeta.repo];
+    // Sin tope propio, el del agente es todo lo que cabe (aizen1 + nube): no frena nada, como antes.
+    return repo ? agenteDelRepo(repo, max + (nubeConfig.activa ? nubeConfig.maxTareas : 0)) : null;
+  };
   /** sesión de aizen1 (1..max) -> { tarjeta, hacer, huella, promesa } */
   const sesiones = new Map();
   /** Las que se construyen en la nube (no ocupan puesto de aizen1): id de la tarjeta -> { tarjeta, hacer, huella, promesa } */
@@ -548,10 +555,18 @@ export function crearPlanificador({
     if (mensaje) registro.info(mensaje);
   };
 
+  const nombreDeAgente = (tarjeta) => {
+    const agente = agenteDe(tarjeta);
+    return agente ? `, ${agente.nombre}` : "";
+  };
+
+  /** Cuántas tarjetas de este agente (proyecto) corren ahora, en aizen1 y en la nube. */
+  const corriendoDelAgente = (clave) => [...sesiones.values(), ...enNube.values()].filter((s) => s.tarjeta.repo === clave).length;
+
   function contarCorriendo() {
     const lista = [
-      ...[...sesiones.entries()].sort(([a], [b]) => a - b).map(([n, s]) => `s${n} "${s.tarjeta.titulo}" (${s.hacer}, ${s.tarjeta.repo})`),
-      ...[...enNube.values()].map((s) => `nube "${s.tarjeta.titulo}" (${s.hacer}, ${s.tarjeta.repo})`),
+      ...[...sesiones.entries()].sort(([a], [b]) => a - b).map(([n, s]) => `s${n} "${s.tarjeta.titulo}" (${s.hacer}, ${s.tarjeta.repo}${nombreDeAgente(s.tarjeta)})`),
+      ...[...enNube.values()].map((s) => `nube "${s.tarjeta.titulo}" (${s.hacer}, ${s.tarjeta.repo}${nombreDeAgente(s.tarjeta)})`),
     ];
     registro.info(`corriendo ${sesiones.size}/${max} tarjetas al tiempo en aizen1${enNube.size ? ` y ${enNube.size} en la nube` : ""}${lista.length ? `: ${lista.join("; ")}` : ""}`);
   }
@@ -596,7 +611,7 @@ export function crearPlanificador({
     const nube = donde === "nube";
     const n = nube ? null : cupoLibre();
     const suRegistro = registroDeLaSesion(registro, nube ? `nube ${idCorto(tarjeta.id)}` : `s${n} ${idCorto(tarjeta.id)}`);
-    suRegistro.info(`tomé "${tarjeta.titulo}" (${tarjeta.id}, ${tarjeta.repo}) para ${hacer}${nube ? ` — se construye en la nube (${motivo})` : ""}`);
+    suRegistro.info(`tomé "${tarjeta.titulo}" (${tarjeta.id}, ${tarjeta.repo}${nombreDeAgente(tarjeta)}) para ${hacer}${nube ? ` — se construye en la nube (${motivo})` : ""}`);
     const vivo = { inicioEn: Date.now() };
     const sesion = { tarjeta, hacer, huella, vivo };
     if (nube) enNube.set(tarjeta.id, sesion);
@@ -712,6 +727,16 @@ export function crearPlanificador({
         const { candidatas = [] } = await crm.candidatas();
         const chocan = corriendo.length ? candidatasQueChocan(candidatas, corriendo, config.repos) : {};
         for (const c of candidatas) if (!chocan[c.id] && sinMotor.includes(c.hacer)) chocan[c.id] = `(sin motor para ${c.hacer})`;
+        // La cola de cada proyecto: un agente no pasa de su `maxEnParalelo` (sesiones de aizen1 y de la nube juntas).
+        for (const c of candidatas) {
+          if (chocan[c.id]) continue;
+          const agente = agenteDe(c);
+          if (!agente) continue;
+          const trabajando = corriendoDelAgente(c.repo);
+          if (trabajando >= agente.maxEnParalelo) {
+            chocan[c.id] = `(el ${agente.nombre} ya tiene ${trabajando} tarjeta${trabajando === 1 ? "" : "s"} trabajando (su máximo es ${agente.maxEnParalelo}))`;
+          }
+        }
         // Sin dónde correr ahora: planear y subir esperan un puesto de aizen1; una grande espera un puesto de la nube.
         for (const c of candidatas) {
           if (chocan[c.id]) continue;
@@ -791,6 +816,7 @@ export function crearPlanificador({
         .map(({ tarjeta, vivo }) => ({
           tarjetaId: tarjeta.id,
           titulo: tarjeta.titulo,
+          agente: agenteDe(tarjeta)?.nombre ?? null,
           etapa: vivo.etapa,
           lugar: vivo.lugar,
           modelo: vivo.modelo ?? null,

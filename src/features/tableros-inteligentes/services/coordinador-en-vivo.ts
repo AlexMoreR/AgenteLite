@@ -78,6 +78,8 @@ export type TareaEnVivo = {
   tarjetaId: string;
   titulo: string;
   link: string;
+  /** El agente del proyecto que la trabaja; null si el latido no lo trae (Coordinador viejo). */
+  agente: string | null;
   etapa: EtapaVisible;
   etapaTexto: string;
   lugar: Lugar;
@@ -260,6 +262,7 @@ export async function vistaDelCoordinador(workspaceId: string, ahora = new Date(
       tarjetaId: tarjeta.id,
       titulo: tarjeta.titulo,
       link: linkDeLaTarjeta(tarjeta.id),
+      agente: dato?.agente ?? null,
       etapa,
       etapaTexto: NOMBRE_DE_LA_ETAPA[etapa],
       lugar,
@@ -304,7 +307,7 @@ export function textoDelCoordinador(vista: VistaDelCoordinador): string {
     lineas.push(`Ahora mismo (${vista.tareas.length}):`);
     for (const tarea of vista.tareas) {
       const desde = tarea.inicioEn ? `, empezó ${haceTexto(ahora - Date.parse(tarea.inicioEn))}` : "";
-      lineas.push(`- «${tarea.titulo}»: ${tarea.etapaTexto.toLowerCase()} en ${tarea.lugarTexto}${tarea.modeloTexto ? ` con ${tarea.modeloTexto}` : ""}${desde}, ${tarea.enQueVa}.`);
+      lineas.push(`- «${tarea.titulo}»: ${tarea.etapaTexto.toLowerCase()} en ${tarea.lugarTexto}${tarea.agente ? ` (${tarea.agente})` : ""}${tarea.modeloTexto ? ` con ${tarea.modeloTexto}` : ""}${desde}, ${tarea.enQueVa}.`);
     }
   } else lineas.push("Ahora mismo no tiene ninguna tarea en marcha.");
 

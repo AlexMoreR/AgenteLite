@@ -25,6 +25,7 @@ import path from "node:path";
 
 import crypto from "node:crypto";
 
+import { agenteDelRepo, textoDeIdentidad } from "./agentes.mjs";
 import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, enUnaLinea, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
 import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
 import {
@@ -539,9 +540,14 @@ export function bloqueDeReparacion(tarjeta, { patchAplicado = false } = {}) {
     .join("\n");
 }
 
+/** La identidad del agente del proyecto de la tarjeta: va al principio del primer bloque de las instrucciones. */
+function identidadDelAgente(repo) {
+  return textoDeIdentidad(agenteDelRepo(repo));
+}
+
 export function promptDelPlan(tarjeta, repo, motor = "claude") {
   return [
-    `Eres el Coordinador del Tablero IA de Magilus. Tienes que escribir un PLAN para esta tarea del repositorio "${repo.clave}". ${
+    `${identidadDelAgente(repo)} Eres parte del Coordinador de Sistemas de Magilus. Tienes que escribir un PLAN para esta tarea del repositorio "${repo.clave}". ${
       motor === "codex" ? "Estás en modo de solo lectura" : "Estás en modo plan"
     }: NO cambies ningún archivo, solo lee el código y planea.`,
     contextoDeLaTarjeta(tarjeta),
@@ -643,7 +649,7 @@ function fraseAlTerminar(repo) {
 export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patchAplicado = false } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   return [
-    `Eres el Coordinador del Tablero IA de Magilus. Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en un worktree aparte, en la rama ${rama}.`,
+    `${identidadDelAgente(repo)} Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en un worktree aparte, en la rama ${rama}.`,
     contextoDeLaTarjeta(tarjeta),
     `PLAN APROBADO:\n${tarjeta.plan}`,
     bloqueDeReparacion(tarjeta, { patchAplicado }),
@@ -678,7 +684,7 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null 
   const pasos = [repo.instalar, ...(repo.verificar ?? []), ...(repo.pruebas ?? [])].filter(Boolean).map((comando) => `\`${comoTexto(comando)}\``);
   const variables = Object.entries(entorno).map(([nombre, valor]) => `export ${nombre}="${valor}"`);
   return [
-    `Eres el Coordinador del Tablero IA de Magilus. Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en una sesión de Claude en la nube, sobre la rama ${rama} (ya existe en GitHub: es la tuya).`,
+    `${identidadDelAgente(repo)} Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en una sesión de Claude en la nube, sobre la rama ${rama} (ya existe en GitHub: es la tuya).`,
     contextoDeLaTarjeta(tarjeta),
     `PLAN APROBADO:\n${tarjeta.plan}`,
     bloqueDeReparacion(tarjeta),

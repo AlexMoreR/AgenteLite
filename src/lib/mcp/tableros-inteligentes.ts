@@ -474,7 +474,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "ver_coordinador",
     title: "Ver qué está haciendo el Coordinador",
     description:
-      "SOLO LECTURA. Úsala cuando la persona pregunte '¿qué está haciendo el Coordinador?', cómo va el PC o si está apagado. Devuelve lo mismo que la pestaña 'Coordinador en vivo' de Tablero IA: `resumen` (texto sencillo para leer en voz alta), las tareas en marcha (título, etapa: planeando / construyendo / probando / subiendo, dónde corre: aizen1, nube de Claude o GitHub Actions, modelo, hace cuánto empezó y en qué intento o reparación va), la carga de aizen1 (procesador, memoria, disco y semáforo verde / amarillo / rojo, y si espera que el PC se desocupe), la fila con lo bloqueado y su motivo, lo de hoy (terminadas, falladas, reparadas y cuánto tomó cada una) y el uso de Claude (si llegó al límite y cuándo se reinicia). Si `en_linea` es false, el Coordinador está apagado o sin conexión (más de 2 minutos sin latido) y lo demás es el último dato conocido. No cambia nada.",
+      "SOLO LECTURA. Úsala cuando la persona pregunte '¿qué está haciendo el Coordinador?', cómo va el PC o si está apagado. Devuelve lo mismo que la pestaña 'Coordinador en vivo' de Tablero IA: `resumen` (texto sencillo para leer en voz alta), las tareas en marcha (título, el agente del proyecto que la trabaja, etapa: planeando / construyendo / probando / subiendo, dónde corre: aizen1, nube de Claude o GitHub Actions, modelo, hace cuánto empezó y en qué intento o reparación va), la carga de aizen1 (procesador, memoria, disco y semáforo verde / amarillo / rojo, y si espera que el PC se desocupe), la fila con lo bloqueado y su motivo, lo de hoy (terminadas, falladas, reparadas y cuánto tomó cada una) y el uso de Claude (si llegó al límite y cuándo se reinicia). Si `en_linea` es false, el Coordinador está apagado o sin conexión (más de 2 minutos sin latido) y lo demás es el último dato conocido. No cambia nada.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: SOLO_LECTURA,
   },
@@ -1034,6 +1034,7 @@ export async function ejecutarHerramientaMcpTableros(
         ahora_mismo: vista.tareas.map((tarea) => ({
           tarjeta_id: tarea.tarjetaId,
           titulo: tarea.titulo,
+          ...(tarea.agente ? { agente: tarea.agente } : {}),
           etapa: tarea.etapaTexto,
           donde: tarea.lugarTexto,
           modelo: tarea.modeloTexto,

@@ -114,16 +114,61 @@ await prueba("latido: la carga del PC (GB) se lee sin lanzar y el cuerpo lleva t
   const sinDisco = leerCarga("/no/existe", { statfs: () => { throw new Error("sin disco"); } });
   assert.equal(sinDisco.discoLibreGb, null);
   assert.equal(sinDisco.discoTotalGb, null);
-  const estado = { tareas: [{ tarjetaId: "t1", titulo: "Algo", etapa: "probando", lugar: "aizen1" }], esperandoPc: true, motivoEspera: "CPU 92 % (límite 85 %)", esperas: [{ tarjetaId: "t2", motivo: "misma zona" }], uso: { limiteAlcanzado: false, motor: null, reiniciaEn: null } };
+  const estado = { tareas: [{ tarjetaId: "t1", titulo: "Algo", agente: "Agente CRM", etapa: "probando", lugar: "aizen1" }], esperandoPc: true, motivoEspera: "CPU 92 % (límite 85 %)", esperas: [{ tarjetaId: "t2", motivo: "misma zona" }], uso: { limiteAlcanzado: false, motor: null, reiniciaEn: null } };
   const cuerpo = armarLatido({ estado, medidor: { medir: () => ({ cpu: 40, memoria: 55 }) }, carga: { memoriaUsadaGb: 22, memoriaTotalGb: 40, discoLibreGb: 120.5, discoTotalGb: 500 } });
   assert.equal(cuerpo.nombre, "aizen1");
   assert.equal(cuerpo.tareas[0].etapa, "probando");
+  assert.equal(cuerpo.tareas[0].agente, "Agente CRM", "el latido lleva el agente de cada tarea");
   assert.deepEqual(cuerpo.carga, { cpu: 40, memoriaPorciento: 55, memoriaUsadaGb: 22, memoriaTotalGb: 40, discoLibreGb: 120.5, discoTotalGb: 500, esperandoPc: true, motivoEspera: "CPU 92 % (límite 85 %)" });
   assert.equal(cuerpo.esperas[0].tarjetaId, "t2");
   // Un medidor que falla no tumba el latido: la carga va en null.
   const sinMedidor = armarLatido({ estado, medidor: { medir: () => { throw new Error("x"); } }, carga: null });
   assert.equal(sinMedidor.carga.cpu, null);
   assert.equal(sinMedidor.carga.discoLibreGb, null);
+});
+
+await prueba("agentes: el prompt del plan, de construir y de la nube empieza con la identidad del agente del proyecto; el revisor no cambia", async () => {
+  const tarjeta = { id: "t1", titulo: "Algo", tablero: "T", detalle: "d", intentos: 1, plan: "El plan", zonasAprobadas: [] };
+  const casos = [
+    [{ clave: "aizencrm", ruta: "/r/crm" }, "Eres el Agente CRM del proyecto aizencrm; el Coordinador de Sistemas te pasó esta tarjeta."],
+    [{ clave: "gestion", ruta: "/r/gestion" }, "Eres el Agente Gestión del proyecto gestion; el Coordinador de Sistemas te pasó esta tarjeta."],
+    [{ clave: "messenger-basic", ruta: "/r/mb" }, "Eres el Agente Marketplace (NETMAGI) del proyecto messenger-basic;"],
+    [{ clave: "gestion", ruta: "/r/gestion", agente: { nombre: "Agente Cuentas" } }, "Eres el Agente Cuentas del proyecto gestion;"],
+  ];
+  for (const [repo, inicio] of casos) {
+    for (const prompt of [promptDelPlan(tarjeta, repo), promptDelPlan(tarjeta, repo, "codex"), promptDeConstruir(tarjeta, repo, "tablero/x"), promptDeNube(tarjeta, repo, "tablero/x")]) {
+      assert.ok(prompt.startsWith(inicio), `${repo.clave}: ${prompt.slice(0, 120)}`);
+      assert.ok(!prompt.includes("Coordinador del Tablero IA"), "ya se llama Coordinador de Sistemas");
+    }
+  }
+  // La identidad va en el MISMO primer bloque: el recorte de la nube sigue partiendo por bloques.
+  assert.ok(!promptDeNube(tarjeta, casos[0][0], "tablero/x").split("\n\n")[0].includes("PLAN APROBADO"));
+  // Las lecciones del agente se nombran en su identidad.
+  const conLecciones = promptDeConstruir(tarjeta, { clave: "aizencrm", ruta: "/r/crm", agente: { lecciones: "docs/lecciones.md" } }, "tablero/x");
+  assert.match(conLecciones, /lecciones de .*docs[\\/]lecciones\.md/);
+});
+
+await prueba("agentes: la configuración inválida del agente da error, la válida se completa y un proyecto apagado no cuenta", async () => {
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
+  const con = (agente) => ({ ...base, repos: { aizencrm: { ruta: ".", agente } } });
+  assert.throws(() => completarConfig(con({ maxEnParalelo: 0 })), /agente\.maxEnParalelo/);
+  assert.throws(() => completarConfig(con({ maxEnParalelo: 9 })), /agente\.maxEnParalelo/);
+  assert.throws(() => completarConfig(con({ maxEnParalelo: 1.5 })), /agente\.maxEnParalelo/);
+  assert.throws(() => completarConfig(con({ nombre: "" })), /agente\.nombre/);
+  assert.throws(() => completarConfig(con({ nombre: 7 })), /agente\.nombre/);
+  assert.throws(() => completarConfig(con({ lecciones: 5 })), /agente\.lecciones/);
+  assert.throws(() => completarConfig(con("Agente CRM")), /repos\.aizencrm\.agente/);
+  assert.deepEqual(completarConfig(con({ nombre: "Agente CRM", lecciones: "docs/l.md", maxEnParalelo: 2 })).repos.aizencrm.agente, { nombre: "Agente CRM", lecciones: "docs/l.md", maxEnParalelo: 2 });
+  // marketing apagado (activo:false) no da error aunque no tenga ruta ni carpeta, y no queda en la lista de proyectos.
+  const ejemplo = JSON.parse(fs.readFileSync(path.join(AQUI, "..", "config.example.json"), "utf8"));
+  assert.equal(ejemplo.repos.marketing.activo, false);
+  assert.deepEqual(ejemplo.repos.marketing.agente.nombre, "Agente Marketing");
+  const completa = completarConfig(ejemplo);
+  assert.ok(!("marketing" in completa.repos));
+  assert.deepEqual(Object.values(completa.repos).map((r) => [r.clave, r.agente.nombre, r.agente.maxEnParalelo]), [["aizencrm", "Agente CRM", 2], ["gestion", "Agente Gestión", 1], ["messenger-basic", "Agente Marketplace (NETMAGI)", 1]]);
+  assert.doesNotThrow(() => completarConfig({ ...base, repos: { aizencrm: { ruta: "." }, marketing: { activo: false } } }));
+  // Prendido, el mismo bloque se completa como los demás.
+  assert.ok("marketing" in completarConfig({ ...base, repos: { aizencrm: { ruta: "." }, marketing: { ...ejemplo.repos.marketing, activo: true } } }).repos);
 });
 
 await prueba("latido: se manda al CRM; si el CRM falla, no lanza, avisa una sola vez y nunca hay dos en vuelo", async () => {
@@ -188,7 +233,7 @@ await prueba("riesgo: el prompt del plan pide la línea RIESGO con sus criterios
   }
   assert.match(prompt, /NO escribas las palabras DROP, DELETE, UPDATE, RENAME ni TRUNCATE/);
   assert.match(prompt, /Al terminar: sube solo a producción/, "sigue la frase Al terminar");
-  assert.match(prompt, /^Eres el Coordinador[\s\S]*Contesta SOLO con el plan\.$/);
+  assert.match(prompt, /^Eres el Agente CRM del proyecto aizencrm; el Coordinador de Sistemas te pasó esta tarjeta[\s\S]*Contesta SOLO con el plan\.$/);
   assert.ok(!prompt.includes("Riesgo que ya tiene la tarjeta"), "sin riesgo en la tarjeta, no lo menciona");
   const conRiesgo = promptDelPlan({ titulo: "Algo", tablero: "T", detalle: "d", intentos: 1, riesgo: "ALTO", riesgoMotivo: "habla de pagos" }, repo, "codex");
   assert.match(conRiesgo, /Riesgo que ya tiene la tarjeta en el CRM: ALTO \(habla de pagos\)/);
@@ -2317,7 +2362,7 @@ try {
     assert.ok(llamada, "se lanzó la nube");
     assert.equal(llamada.terminal, true, "en una terminal real");
     assert.equal(llamada.argumentos[0], "--cloud");
-    assert.ok(llamada.argumentos[1].startsWith("Eres el Coordinador"), "la descripción es el argumento justo después de --cloud");
+    assert.ok(llamada.argumentos[1].startsWith("Eres el Agente CRM"), "la descripción es el argumento justo después de --cloud");
     assert.deepEqual(llamada.argumentos.slice(2), ["--model", "sonnet"]);
     assert.equal(llamada.titulo, titulo, "el título con comillas y acentos llegó entero");
     assert.match(llamada.prompt, /PLAN APROBADO:\nPLAN\n4\. Migración: no\./);

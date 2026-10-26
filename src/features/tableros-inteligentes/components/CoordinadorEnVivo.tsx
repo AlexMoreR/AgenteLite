@@ -75,6 +75,7 @@ function FichaDeTarea({ tarea, ahora }: { tarea: TareaEnVivo; ahora: number }) {
         <span className="shrink-0 rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground">{tarea.etapaTexto}</span>
       </div>
       <div className="flex flex-wrap gap-1.5 text-xs">
+        {tarea.agente ? <span className="rounded-full border px-2 py-0.5 font-medium">{tarea.agente}</span> : null}
         <span className="rounded-full border px-2 py-0.5">En {tarea.lugarTexto}</span>
         {tarea.modeloTexto ? <span className="rounded-full border px-2 py-0.5">{tarea.modeloTexto}</span> : null}
         <span className="rounded-full border px-2 py-0.5">{tarea.enQueVa}</span>

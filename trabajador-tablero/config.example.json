@@ -104,6 +104,11 @@
       "ruta": "D:/Proyectos/AgenteLite",
       "ramaBase": "main",
       "remoto": "origin",
+      "agente": {
+        "nombre": "Agente CRM",
+        "lecciones": "",
+        "maxEnParalelo": 2
+      },
       "instalar": [
         "npm",
         "ci"
@@ -331,6 +336,11 @@
       "ruta": "D:/Proyectos/Gestion",
       "ramaBase": "main",
       "remoto": "origin",
+      "agente": {
+        "nombre": "Agente Gestión",
+        "lecciones": "",
+        "maxEnParalelo": 1
+      },
       "instalar": [
         "npm",
         "ci"
@@ -404,6 +414,36 @@
       "ruta": "D:/Proyectos/messenger-basic",
       "ramaBase": "main",
       "remoto": "origin",
+      "agente": {
+        "nombre": "Agente Marketplace (NETMAGI)",
+        "lecciones": "",
+        "maxEnParalelo": 1
+      },
+      "instalar": [
+        "npm",
+        "ci"
+      ],
+      "verificar": [],
+      "pruebas": [
+        [
+          "npm",
+          "test"
+        ]
+      ],
+      "subirSolo": false,
+      "zonasProtegidas": {}
+    },
+    "marketing": {
+      "activo": false,
+      "github": "AlexMoreR/Marketing",
+      "ruta": "D:/Proyectos/Marketing",
+      "ramaBase": "main",
+      "remoto": "origin",
+      "agente": {
+        "nombre": "Agente Marketing",
+        "lecciones": "",
+        "maxEnParalelo": 1
+      },
       "instalar": [
         "npm",
         "ci"

@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { agenteDelRepo } from "./agentes.mjs";
 import { MODELOS_POR_DEFECTO } from "./modelos.mjs";
 
 /** Lo que Claude puede usar al CONSTRUIR (acceptEdits): editar dentro del worktree y correr pruebas. */
@@ -182,6 +183,9 @@ export function completarConfig(datos, base = process.cwd()) {
 
   const repos = {};
   for (const [clave, repo] of Object.entries(datos.repos ?? {})) {
+    // Un proyecto apagado (`activo: false`, por ejemplo marketing antes de arrancar) no se valida ni se usa: sus tarjetas
+    // reciben el aviso de siempre, "no está configurado en este PC".
+    if (repo && typeof repo === "object" && repo.activo === false) continue;
     if (!repo || typeof repo.ruta !== "string") {
       errores.push(`repos.${clave}.ruta: la carpeta del repositorio en este PC.`);
       continue;
@@ -214,9 +218,25 @@ export function completarConfig(datos, base = process.cwd()) {
       errores.push(`repos.${clave}.vigilancia.maxSubidaDeEnvios: 1 o más (1.5 = hasta 50 % más envíos que antes de subir).`);
     }
     if (vigilancia.minutos > 40) errores.push(`repos.${clave}.vigilancia.minutos: de 1 a 40 (el candado de subir en el CRM es de 80 min).`);
+    // El agente del proyecto (agentes.mjs): nombre, archivo de lecciones y cuántas tarjetas suyas a la vez.
+    const agente = repo.agente;
+    if (agente !== undefined && (!agente || typeof agente !== "object" || Array.isArray(agente))) {
+      errores.push(`repos.${clave}.agente: un bloque con nombre, lecciones y maxEnParalelo.`);
+    } else if (agente) {
+      if (agente.nombre !== undefined && (typeof agente.nombre !== "string" || !agente.nombre.trim())) {
+        errores.push(`repos.${clave}.agente.nombre: el nombre del agente, un texto que no esté vacío.`);
+      }
+      if (agente.lecciones !== undefined && typeof agente.lecciones !== "string") {
+        errores.push(`repos.${clave}.agente.lecciones: la ruta del archivo de lecciones, un texto (desde la carpeta del repo).`);
+      }
+      if (agente.maxEnParalelo !== undefined && (!Number.isInteger(agente.maxEnParalelo) || agente.maxEnParalelo < 1 || agente.maxEnParalelo > MAXIMO_EN_PARALELO)) {
+        errores.push(`repos.${clave}.agente.maxEnParalelo: cuántas tarjetas de este proyecto a la vez, un entero de 1 a ${MAXIMO_EN_PARALELO}.`);
+      }
+    }
     try {
       repos[clave] = {
         clave,
+        agente: agente && typeof agente === "object" && !Array.isArray(agente) ? { nombre: agente.nombre, lecciones: agente.lecciones, maxEnParalelo: agente.maxEnParalelo } : undefined,
         subirSolo,
         zonasQueSubenSolas,
         vigilancia,
@@ -280,6 +300,13 @@ export function completarConfig(datos, base = process.cwd()) {
   const maxParalelo = datos.maxParalelo === undefined ? 2 : Math.floor(Number(datos.maxParalelo));
   if (!Number.isFinite(maxParalelo) || maxParalelo < 1 || maxParalelo > MAXIMO_EN_PARALELO) {
     errores.push(`maxParalelo: cuántas tarjetas a la vez en aizen1, de 1 a ${MAXIMO_EN_PARALELO}.`);
+  }
+  // Cada proyecto queda con su agente completo. Sin `maxEnParalelo` queda en null: el agente no tiene tope propio y
+  // vale el general (maxParalelo + nube), así quien no configure nada sigue trabajando igual que antes.
+  for (const repo of Object.values(repos)) {
+    const { nombre } = agenteDelRepo(repo);
+    const { lecciones, maxEnParalelo } = repo.agente ?? {};
+    repo.agente = { nombre, lecciones: typeof lecciones === "string" ? lecciones.trim() : "", maxEnParalelo: maxEnParalelo ?? null };
   }
   const limites = { ...LIMITES_POR_DEFECTO, ...(datos.limites ?? {}) };
   for (const campo of ["cpuPorciento", "memoriaPorciento"]) {

@@ -18,6 +18,7 @@ import { crearPlanificador } from "../lib/bucle.mjs";
 import { archivosDelPlan, huellaDeTarjeta, motivoDeChoque, noChoca } from "../lib/choques.mjs";
 import { COLA_LIBRE, PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { completarConfig } from "../lib/config.mjs";
+import { agenteDelRepo, textoDeIdentidad } from "../lib/agentes.mjs";
 import { crearEstadoDeMotores } from "../lib/motores.mjs";
 import { rebaseSobre } from "../lib/git.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo, tamanoDelPlan } from "../lib/reparto.mjs";
@@ -222,6 +223,91 @@ await prueba("escoger: el planificador manda en `excluir` todas las libres menos
   planificador.parar();
 });
 
+await prueba("agentes: agenteDelRepo toma los datos de la configuración y, si faltan, los deduce de la clave", async () => {
+  const deducido = (clave) => agenteDelRepo({ clave, ruta: `/repos/${clave}` });
+  assert.equal(deducido("aizencrm").nombre, "Agente CRM");
+  assert.equal(deducido("gestion").nombre, "Agente Gestión");
+  assert.equal(deducido("messenger-basic").nombre, "Agente Marketplace (NETMAGI)");
+  assert.equal(deducido("marketing").nombre, "Agente Marketing");
+  assert.equal(deducido("otro").nombre, "Agente otro", "clave desconocida");
+  const crm = deducido("aizencrm");
+  assert.equal(crm.clave, "aizencrm");
+  assert.equal(crm.carpeta, "/repos/aizencrm");
+  assert.equal(crm.archivoClaude, path.join("/repos/aizencrm", "CLAUDE.md"));
+  assert.equal(crm.archivoLecciones, "", "sin lecciones configuradas queda vacío");
+  assert.equal(crm.maxEnParalelo, 2, "sin dato usa el tope por defecto");
+  assert.equal(agenteDelRepo({ clave: "gestion", ruta: "/r" }, 3).maxEnParalelo, 3, "o el maxParalelo general que se le dé");
+  const dado = agenteDelRepo({ clave: "gestion", ruta: "/r", agente: { nombre: "Agente Cuentas", lecciones: "docs/lecciones.md", maxEnParalelo: 1 } });
+  assert.equal(dado.nombre, "Agente Cuentas");
+  assert.equal(dado.maxEnParalelo, 1);
+  assert.equal(dado.archivoLecciones, path.resolve("/r", "docs/lecciones.md"));
+  assert.match(textoDeIdentidad(dado), /^Eres el Agente Cuentas del proyecto gestion; el Coordinador de Sistemas te pasó esta tarjeta\./);
+  assert.ok(textoDeIdentidad(dado).includes(dado.archivoLecciones), "nombra el archivo de lecciones");
+  assert.ok(!textoDeIdentidad(crm).includes("lecciones de"), "sin lecciones no las nombra");
+});
+
+await prueba("agentes: el planificador no toma una segunda tarjeta del mismo agente con maxEnParalelo 1, pero sí una de otro proyecto", async () => {
+  const montar = (maxGestion) => {
+    const config = completarConfig({
+      urlCrm: "https://app.aizenbot.com",
+      claveTrabajador: "aizen_trab_x",
+      maxParalelo: 3,
+      nube: { activa: false },
+      repos: { aizencrm: { ruta: "." }, gestion: { ruta: ".", agente: { maxEnParalelo: maxGestion } } },
+    });
+    const tarjetas = [
+      { id: "g1", titulo: "g1", repo: "gestion", hacer: "planear", plan: null },
+      { id: "g2", titulo: "g2", repo: "gestion", hacer: "planear", plan: null },
+      { id: "c1", titulo: "c1", repo: "aizencrm", hacer: "planear", plan: null },
+    ];
+    const tomadas = [];
+    // Las sesiones se quedan colgadas (corriendo): ninguna llamada al CRM contesta.
+    const crm = new Proxy({
+      candidatas: async () => ({ candidatas: tarjetas.filter((t) => !tomadas.includes(t.id)) }),
+      tomar: async ({ excluir }) => {
+        const tarjeta = tarjetas.find((t) => !tomadas.includes(t.id) && !excluir.includes(t.id));
+        if (!tarjeta) return { tarjeta: null, motivo: "prueba" };
+        tomadas.push(tarjeta.id);
+        return { tarjeta, hacer: tarjeta.hacer };
+      },
+    }, { get: (propias, nombre) => propias[nombre] ?? (() => new Promise(() => undefined)) });
+    const planificador = crearPlanificador({
+      crm,
+      config,
+      registro: { info: () => undefined, aviso: () => undefined, error: () => undefined },
+      medidor: { medir: () => ({ cpu: 10, memoria: 20 }), parar: () => undefined },
+      motores: crearEstadoDeMotores(config),
+      vigilante: null,
+    });
+    return { planificador, tomadas };
+  };
+
+  const uno = montar(1);
+  await uno.planificador.llenar();
+  assert.equal(uno.tomadas.length, 2, "toma dos: una de cada proyecto");
+  assert.equal(uno.tomadas.filter((id) => id.startsWith("g")).length, 1, "de Gestión solo una (maxEnParalelo 1)");
+  assert.ok(uno.tomadas.includes("c1"), "la de otro proyecto sí se toma");
+  const estado = uno.planificador.estado();
+  assert.deepEqual(estado.tareas.map((t) => t.agente).sort(), ["Agente CRM", "Agente Gestión"], "el latido dice qué agente trabaja cada tarjeta");
+  const espera = estado.esperas.find((e) => e.tarjetaId.startsWith("g"));
+  assert.match(espera.motivo, /el Agente Gestión ya tiene 1 tarjeta trabajando \(su máximo es 1\)/);
+  uno.planificador.parar();
+
+  const dos = montar(2);
+  await dos.planificador.llenar();
+  assert.deepEqual(dos.tomadas.slice().sort(), ["c1", "g1", "g2"], "con maxEnParalelo 2 sí toma la segunda de Gestión");
+  dos.planificador.parar();
+});
+
+await prueba("configuración: repos.<clave>.agente se valida, sin tope propio queda en null y un proyecto apagado no cuenta", async () => {
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", maxParalelo: 3, repos: { aizencrm: { ruta: "." } } };
+  assert.deepEqual(completarConfig(base).repos.aizencrm.agente, { nombre: "Agente CRM", lecciones: "", maxEnParalelo: null });
+  assert.equal(completarConfig({ ...base, repos: { aizencrm: { ruta: ".", agente: { maxEnParalelo: 1 } } } }).repos.aizencrm.agente.maxEnParalelo, 1);
+  const apagado = completarConfig({ ...base, repos: { aizencrm: { ruta: "." }, marketing: { activo: false } } });
+  assert.deepEqual(Object.keys(apagado.repos), ["aizencrm"], "el proyecto apagado no entra");
+  assert.throws(() => completarConfig({ ...base, repos: { marketing: { activo: false } } }), /falta al menos un repositorio/);
+});
+
 await prueba("configuración: cola de pasos pesados de 1, CPU promedio de 3 min, partir antes con 25 archivos, .md sin choque", async () => {
   const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
   const config = completarConfig(base);
@@ -237,3 +323,5 @@ await prueba("configuración: cola de pasos pesados de 1, CPU promedio de 3 min,
 });
 
 console.log(`\n${pruebas} pruebas de reparto, todas bien`);
+// Las sesiones colgadas a propósito (agentes) dejan su reloj de latido abierto: se sale sin esperarlas.
+process.exit(0);

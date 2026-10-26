@@ -28,6 +28,8 @@ export type Semaforo = "verde" | "amarillo" | "rojo";
 export type TareaDelLatido = {
   tarjetaId: string;
   titulo: string;
+  /** El agente del proyecto que la trabaja ("Agente CRM"…). null si el Coordinador es uno viejo que no lo manda. */
+  agente: string | null;
   etapa: EtapaVisible;
   lugar: Lugar;
   modelo: Modelo | null;
@@ -146,6 +148,7 @@ function tareaDeEntrada(valor: unknown, hostPropio: string | null): TareaDelLati
   return {
     tarjetaId,
     titulo: textoCorto(valor.titulo, 140) || "(sin título)",
+    agente: textoCorto(valor.agente, 60) || null,
     etapa,
     lugar: enLista(LUGARES, valor.lugar) ?? "aizen1",
     modelo: modeloDeEntrada(valor.modelo),
