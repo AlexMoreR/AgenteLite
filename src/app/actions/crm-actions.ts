@@ -1,5 +1,6 @@
 "use server";
 
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { avisoSiNoSePuedeDescartar } from "@/features/crm/services/candado-descarte-sin-respuesta";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
@@ -89,6 +90,7 @@ export async function updateCrmStageAction(input: {
     },
     select: {
       id: true,
+      crmStage: true,
     },
   });
 
@@ -166,6 +168,19 @@ export async function updateCrmStageAction(input: {
     orderBy: { lastMessageAt: "desc" },
     select: { id: true, channelId: true },
   });
+
+  // Historial de etapas (Embudo 1): quien la movio y cuando. No bloquea el cambio si falla.
+  await registrarCambioDeEtapa({
+    workspaceId: membership.workspace.id,
+    contactId: contact.id,
+    conversationId: recentConversation?.id ?? null,
+    etapaAnterior: contact.crmStage,
+    etapaNueva: parsed.data.status,
+    origen: "ASESORA",
+    quien: session.user.id,
+    nota: parsed.data.status === "PERDIDO" ? "descarte" : null,
+  });
+
   if (recentConversation) {
     const actorName = session.user.name?.trim() || "Alguien";
     const stageLabel = CRM_STAGE_META[parsed.data.status]?.label ?? parsed.data.status;

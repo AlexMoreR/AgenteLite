@@ -113,6 +113,7 @@ propio catálogo (la hermana de Alex va a vender plantas y artículos de vivero 
 - `AgentCopilotMessage`: la conversación con el copiloto que ayuda a configurar un agente.
 - `WhatsAppChannel`: una línea de WhatsApp. `purpose` SALES o ADMIN; en `metadata` el gateway, las colaboradoras, quién está en pausa o monitoreando y si usa el Agente V3.
 - `Contact`: el lead / cliente. Etapa del CRM (`crmStage`), motivo de pérdida, fecha real de venta (`wonAt`) y si está oculto del CRM (`excludedFromCrm`). En `metadata` van `city` y `address` de la ficha y, desde el panel de envío, `envio` = `{ gestionId, estado (GRATIS/ADICIONAL/COTIZAR/NO_LLEGA), lugar, consultadoEn, porUserId }`: lo último que se le consultó en Gestión para ese cliente (sin migración).
+- `HistorialEtapa`: una fila por cada cambio de etapa del CRM: cliente, chat (si se sabe), etapa anterior y nueva, fecha y hora, y quién la movió (`origen`: ASESORA con la usuaria en `quien`, BOT, AUTOMATICO, MCP o SISTEMA) con una nota corta. Se escribe con `registrarCambioDeEtapa` (`src/lib/historial-etapa.ts`) desde cada lugar que cambia `crmStage`; si falla no bloquea el cambio. Empieza vacía el día que sube (no se inventan fechas viejas). Se borra con el cliente.
 - `Conversation`: un chat de un contacto en una línea. Asesora asignada, estado, IA pausada, producto activo.
 - `Message`: cada mensaje del chat (entrante, saliente o nota del sistema), con su medio y, si es audio, su transcripción.
 - `Tag`: una etiqueta del negocio.
@@ -417,7 +418,7 @@ la IA pausada no lo contesta el agente.
 - **No hay fecha de pérdida**: PERDIDO se ubica en el tiempo por `updatedAt` (la última vez que se tocó la
   ficha), no por cuándo se perdió. Por eso "perdidos del mes" es aproximado: la corrida del descarte
   automático del 30-09-2026 marcó ~1.100 leads y todos parecen perdidos en septiembre.
-- **No hay historial de etapas**: el contacto solo guarda la etapa en la que está hoy, no por dónde pasó.
+- **El historial de etapas empieza el día que subió** (`HistorialEtapa`): los cambios anteriores no tienen fecha real y `listar_conversaciones` los marca como "aproximada" (`updatedAt`). No hay herramienta del MCP que mueva etapas; el origen `MCP` queda listo para cuando exista.
 - **Ganados sin fecha**: los ganados históricos sin `wonAt` no entran en ningún periodo.
 - **La etiqueta "Proveedor" no oculta del CRM**: existe, pero no está conectada a `excludedFromCrm`.
 - **Los audios de la API oficial no se transcriben** (solo los de las líneas por Evolution/WAHA).

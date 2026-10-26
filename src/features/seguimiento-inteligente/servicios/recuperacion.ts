@@ -1,3 +1,4 @@
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { Prisma } from "@prisma/client";
 
 import { avisoSiNoSePuedeDescartar } from "@/features/crm/services/candado-descarte-sin-respuesta";
@@ -62,6 +63,16 @@ export async function descartarPorRecuperacion(
     WHERE "id" = ${charla.contactId} AND "crmStage"::text NOT IN ('GANADO', 'PERDIDO')
   `);
   if (movidos === 0) return "ya estaba cerrado (Ganado o Perdido)";
+  await registrarCambioDeEtapa({
+    workspaceId: charla.workspaceId,
+    contactId: charla.contactId,
+    conversationId: charla.conversationId,
+    etapaAnterior: antes.crmStage,
+    etapaNueva: "PERDIDO",
+    origen: "AUTOMATICO",
+    quien: opciones.aprobadoPor?.id ?? "recuperacion-72h",
+    nota: "descarte de la recuperación 72 h",
+  });
   const r = recuperacion ?? {};
   const texto = opciones.aprobadoPor
     ? `${ETIQUETA_DESCARTE} (Recuperación 72 h, aprobado por ${opciones.aprobadoPor.nombre}): último intento sin respuesta (llamada ${horaCorta(r.llamadaEn)}, audio ${horaCorta(r.audioEn)}).`
@@ -188,6 +199,16 @@ export async function deshacerDescarte(input: {
     WHERE "id" = ${charla.contactId} AND "crmStage"::text = 'PERDIDO' AND "lostReason" = ${MOTIVO_DESCARTE}
   `);
   if (movidos === 0) return { ok: false, error: "El contacto ya no está en Descartado — Sin respuesta." };
+  await registrarCambioDeEtapa({
+    workspaceId: input.workspaceId,
+    contactId: charla.contactId,
+    conversationId: input.conversationId,
+    etapaAnterior: "PERDIDO",
+    etapaNueva: etapa,
+    origen: "ASESORA",
+    quien: input.usuario.id,
+    nota: "deshacer descarte de la recuperación 72 h",
+  });
   const recuperacion = (datos.recuperacion && typeof datos.recuperacion === "object" ? datos.recuperacion : {}) as Record<string, unknown>;
   await registrarEventos(charla, [
     {

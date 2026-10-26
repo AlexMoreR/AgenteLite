@@ -252,10 +252,31 @@ model Contact {
   follows            Follow[]
   callAttempts       CallAttempt[]
   campaignRecipients CampaignRecipient[]
+  historialEtapas    HistorialEtapa[]
 
   @@unique([workspaceId, phoneNumber])
   @@index([workspaceId, createdAt])
   @@index([workspaceId, updatedAt])
+}
+
+// Una fila por cada cambio de etapa del CRM (desde la subida; no hay fechas viejas). Ver
+// src/lib/historial-etapa.ts. `origen`: ASESORA | BOT | AUTOMATICO | MCP | SISTEMA. `quien`: la usuaria
+// cuando es ASESORA (o la regla/proceso en los automaticos). Es texto y no enum a proposito.
+model HistorialEtapa {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  contactId      String
+  conversationId String?
+  etapaAnterior  String?
+  etapaNueva     String
+  origen         String
+  quien          String?
+  nota           String?
+  creadoEn       DateTime @default(now())
+  contact        Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId, creadoEn])
+  @@index([workspaceId, creadoEn])
 }
 
 model Conversation {

@@ -1,3 +1,4 @@
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { Prisma } from "@prisma/client";
 
 import { avisoSiNoSePuedeDescartar } from "@/features/crm/services/candado-descarte-sin-respuesta";
@@ -138,6 +139,17 @@ async function descartarPorCadencia(ctx: FichaConContexto, dias: number[]): Prom
     WHERE "id" = ${ctx.contactId} AND "crmStage"::text NOT IN ('GANADO', 'PERDIDO')
   `);
   if (movidos === 0) return false;
+  await registrarCambioDeEtapa({
+    workspaceId: ctx.workspaceId,
+    contactId: ctx.contactId,
+    conversationId: ctx.ficha.conversationId,
+    // El UPDATE solo mueve etapas abiertas: no se sabe cual era sin otra consulta, y no hace falta.
+    etapaAnterior: null,
+    etapaNueva: "PERDIDO",
+    origen: "AUTOMATICO",
+    quien: "seguimiento-inteligente",
+    nota: "descarte por cadencia",
+  });
   await recordConversationActivity({
     workspaceId: ctx.workspaceId,
     conversationId: ctx.ficha.conversationId,

@@ -18,6 +18,8 @@
     "test:agente-v3-foto": "node scripts/check-agente-v3-foto.mjs",
     "test:v3-mapa": "node scripts/check-v3-mapa.mjs",
     "test:velocidad-bandeja": "node scripts/check-velocidad-bandeja.mjs",
+    "test:historial-etapa-migracion": "node scripts/check-historial-etapa-migracion.mjs",
+    "test:historial-etapa": "node scripts/check-historial-etapa.mjs",
     "test:coach": "node scripts/check-coach.mjs",
     "test:coach-acciones": "node scripts/check-coach-acciones.mjs",
     "test:coach-resueltos": "node scripts/check-coach-resueltos.mjs",

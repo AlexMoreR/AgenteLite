@@ -1,3 +1,4 @@
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { prisma } from "@/lib/prisma";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import {
@@ -100,6 +101,15 @@ export async function enfriarUnLead(input: {
     if (movidos === 0) {
       return false;
     }
+    await registrarCambioDeEtapa({
+      workspaceId: input.workspaceId,
+      contactId: input.contactId,
+      etapaAnterior: "PROPUESTA",
+      etapaNueva: "CALIFICADO",
+      origen: "AUTOMATICO",
+      quien: "enfriamiento",
+      nota: input.motivo,
+    });
 
     // La marca es lo que hace reversible el enfriamiento: sin ella no se sabria a donde
     // devolver el lead cuando conteste, ni se podria distinguir de un lead que siempre estuvo
@@ -221,6 +231,15 @@ export async function recalentarLeadSiRespondio(input: {
     if (movidos === 0) {
       return false;
     }
+    await registrarCambioDeEtapa({
+      workspaceId: input.workspaceId,
+      contactId: input.contactId,
+      etapaAnterior: dondeLoDejo,
+      etapaNueva: destino,
+      origen: "AUTOMATICO",
+      quien: "recalentamiento",
+      nota: "el cliente respondió",
+    });
 
     await anotarEnElChat({
       workspaceId: input.workspaceId,

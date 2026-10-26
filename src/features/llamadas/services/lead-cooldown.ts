@@ -1,3 +1,4 @@
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { prisma } from "@/lib/prisma";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import {
@@ -50,6 +51,15 @@ export async function demoteUnresponsiveStaleLeads(): Promise<{ demoted: number 
         continue;
       }
       demoted += 1;
+      await registrarCambioDeEtapa({
+        workspaceId: candidate.workspaceId,
+        contactId: candidate.id,
+        etapaAnterior: "NEGOCIACION",
+        etapaNueva: "PROPUESTA",
+        origen: "AUTOMATICO",
+        quien: "enfriamiento",
+        nota: "intentos sin respuesta",
+      });
 
       // La marca que permite devolverlo a Caliente si contesta (ver recalentarLeadSiRespondio).
       const contacto = await prisma.contact.findUnique({ where: { id: candidate.id }, select: { metadata: true } });
