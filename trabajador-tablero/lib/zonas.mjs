@@ -160,6 +160,33 @@ export function erroresDeLog(log) {
   return [...new Set(String(log ?? "").split(/\r?\n/).filter((linea) => LINEA_DE_ERROR.test(linea)).map(huellaDeLinea))];
 }
 
+/** Las líneas del log que muestran un mensaje enviado: las palabras de ENVIOS_DE_MENSAJES más las del log. */
+const ENVIO_EN_LOG = new RegExp(`${ENVIOS_DE_MENSAJES.source}|\\b(sendText|message sent)\\b|/message/send`, "i");
+
+/** Los minutos que cubre el comando que lee el log (`--since 3m`, `--since=10m`, `--since 1h`); 3 si no lo dice. */
+export function minutosDeLaVentana(comando) {
+  const calce = String(comando ?? "").match(/--since[= ]\s*(\d+(?:\.\d+)?)\s*(s|m|h)?\b/i);
+  if (!calce) return 3;
+  const valor = Number(calce[1]) * ({ s: 1 / 60, m: 1, h: 60 }[(calce[2] ?? "m").toLowerCase()] ?? 1);
+  return valor > 0 ? valor : 3;
+}
+
+/**
+ * Los mensajes enviados y los envíos fallidos (envío y error en la misma línea) del log, POR MINUTO.
+ * `patron` cambia las palabras que cuentan como envío; `minutos` es lo que cubre el comando que leyó el log.
+ */
+export function enviosDeLog(log, patron = ENVIO_EN_LOG, minutos = 3) {
+  const ventana = Number(minutos) > 0 ? Number(minutos) : 3;
+  let enviados = 0;
+  let fallidos = 0;
+  for (const linea of String(log ?? "").split(/\r?\n/)) {
+    if (!patron.test(linea)) continue;
+    if (LINEA_DE_ERROR.test(linea)) fallidos += 1;
+    else enviados += 1;
+  }
+  return { enviados: enviados / ventana, fallidos: fallidos / ventana };
+}
+
 /** Los errores del log que no estaban antes de subir (`base` = huellas de antes). */
 export function erroresNuevosDeLog(log, base = []) {
   const conocidos = new Set(base);

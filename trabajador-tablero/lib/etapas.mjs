@@ -59,8 +59,10 @@ import {
   CONFIRMACION_BOT_VENTAS,
   CONFIRMACION_LIBRO_V3,
   MARCA_GASTO_META_ADS,
+  enviosDeLog,
   erroresDeLog,
   erroresNuevosDeLog,
+  minutosDeLaVentana,
   motivoPorElQueNoSubeSola,
   zonasTocadas,
 } from "./zonas.mjs";
@@ -1611,6 +1613,8 @@ function tomarLaVigilancia() {
   return soltar;
 }
 
+const redondear = (numero) => Math.round(numero * 10) / 10;
+
 /** Lee algo del servidor por ssh (solo lectura). -> { ok, salida } */
 async function leerDelServidor(config, remoto, senal) {
   const resultado = await correr([...config.ssh.comando, config.ssh.destino, remoto], { timeoutMs: 60_000, senal, env: entornoSeguro() });
@@ -1632,7 +1636,7 @@ async function fotoDelServidor(contexto) {
   if (!logs.ok) {
     throw new ErrorDeEtapa(`No se pudieron leer los logs del servidor (ssh) antes de subir: una tarjeta de zona que sube sola no sube sin poder vigilarla. No se subió nada.\nDetalle técnico: ${ultimasLineas(logs.salida, 8)}`);
   }
-  return { errores: erroresDeLog(logs.salida), estado: await estadoDelContenedor(config, contexto.senal) };
+  return { errores: erroresDeLog(logs.salida), envios: enviosDeLog(logs.salida, undefined, minutosDeLaVentana(config.ssh.logs)), estado: await estadoDelContenedor(config, contexto.senal) };
 }
 
 /**
@@ -1642,7 +1646,7 @@ async function fotoDelServidor(contexto) {
  */
 async function vigilarElServidor(contexto, repo, foto) {
   const { config, registro } = contexto;
-  const { minutos, cadaSegundos, maxErroresNuevos } = repo.vigilancia;
+  const { minutos, cadaSegundos, maxErroresNuevos, maxSubidaDeEnvios = 1.5, minEnviosParaComparar = 5 } = repo.vigilancia;
   const fin = Date.now() + minutos * MINUTO;
   const nuevos = new Set();
   let fallosSeguidos = 0;
@@ -1653,6 +1657,15 @@ async function vigilarElServidor(contexto, repo, foto) {
     if (logs.ok) {
       fallosSeguidos = 0;
       for (const huella of erroresNuevosDeLog(logs.salida, foto.errores)) nuevos.add(huella);
+      // Los envíos de mensajes por minuto, contra los de antes de subir: un bucle que repite mensajes o envíos que fallan.
+      const envios = enviosDeLog(logs.salida, undefined, minutosDeLaVentana(config.ssh.logs));
+      const antes = foto.envios ?? { enviados: 0, fallidos: 0 };
+      if (envios.fallidos > antes.fallidos && envios.fallidos > 0) {
+        return { ok: false, motivo: `suben los envíos de mensajes que fallan: ${redondear(antes.fallidos)} por minuto antes de subir y ${redondear(envios.fallidos)} ahora` };
+      }
+      if (envios.enviados > antes.enviados * maxSubidaDeEnvios && envios.enviados > minEnviosParaComparar) {
+        return { ok: false, motivo: `suben mucho los envíos de mensajes: ${redondear(antes.enviados)} por minuto antes de subir y ${redondear(envios.enviados)} ahora (más de ${maxSubidaDeEnvios} veces)` };
+      }
     } else {
       fallosSeguidos += 1;
     }

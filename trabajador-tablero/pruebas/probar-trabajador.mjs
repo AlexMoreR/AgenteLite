@@ -44,7 +44,7 @@ import {
 import { armarLatido, crearLatido } from "../lib/latido.mjs";
 import { faltanRecursos, leerCarga } from "../lib/recursos.mjs";
 import { crearRegistro } from "../lib/registro.mjs";
-import { globARegex, zonasTocadas } from "../lib/zonas.mjs";
+import { enviosDeLog, globARegex, minutosDeLaVentana, zonasTocadas } from "../lib/zonas.mjs";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
@@ -59,6 +59,32 @@ async function prueba(nombre, fn) {
 }
 
 /* ─────────────────────────────────────────────────────────── piezas puras ── */
+
+await prueba("zonas: enviosDeLog cuenta enviados y fallidos por minuto, acepta otro patrón y no confunde errores sin envío", async () => {
+  const log = [
+    "10:00 INFO sendMessage ok",
+    "10:00 INFO sendText ok",
+    "10:00 INFO message sent a 573001",
+    "10:00 INFO POST /message/send 200",
+    "10:00 ERROR sendMessage falló con status 500",
+    "10:00 ERROR TypeError: no se pudo leer saludo",
+    "10:00 INFO servidor listo",
+  ].join("\n");
+  assert.deepEqual(enviosDeLog(log, undefined, 1), { enviados: 4, fallidos: 1 });
+  assert.deepEqual(enviosDeLog(log, undefined, 2), { enviados: 2, fallidos: 0.5 });
+  assert.deepEqual(enviosDeLog(log), { enviados: 4 / 3, fallidos: 1 / 3 });
+  assert.deepEqual(enviosDeLog("10:00 INFO enviado por la bandeja\n10:01 ERROR enviado falló", /enviado/i, 1), { enviados: 1, fallidos: 1 });
+  assert.deepEqual(enviosDeLog("", undefined, 3), { enviados: 0, fallidos: 0 });
+  assert.deepEqual(enviosDeLog(undefined), { enviados: 0, fallidos: 0 });
+});
+
+await prueba("zonas: minutosDeLaVentana saca los minutos del --since del comando (3 si no lo dice)", async () => {
+  assert.equal(minutosDeLaVentana("docker logs --since 3m crm"), 3);
+  assert.equal(minutosDeLaVentana("docker logs --since 10m crm"), 10);
+  assert.equal(minutosDeLaVentana("docker logs --since=1h crm"), 60);
+  assert.equal(minutosDeLaVentana("docker logs crm"), 3);
+  assert.equal(minutosDeLaVentana(undefined), 3);
+});
 
 await prueba("zonas: globs simples y qué zonas toca un cambio", async () => {
   assert.ok(globARegex("src/bot/**").test("src/bot/a/b.ts"));
@@ -1223,6 +1249,16 @@ try {
   const conteoLogs = path.join(T, "ssh.log.conteo-logs");
   const reiniciarLogs = () => fs.rmSync(conteoLogs, { force: true });
 
+  await prueba("configuración: la vigilancia trae maxSubidaDeEnvios 1.5 y minEnviosParaComparar 5; un valor que no sirve usa el de por defecto", async () => {
+    const con = (vigilancia) => completarConfig({ ...config, repos: { aizencrm: { ruta: REPO, vigilancia } } }).repos.aizencrm.vigilancia;
+    assert.equal(con({}).maxSubidaDeEnvios, 1.5);
+    assert.equal(con({}).minEnviosParaComparar, 5);
+    assert.equal(con({ maxSubidaDeEnvios: 2, minEnviosParaComparar: 10 }).maxSubidaDeEnvios, 2);
+    assert.equal(con({ maxSubidaDeEnvios: 2, minEnviosParaComparar: 10 }).minEnviosParaComparar, 10);
+    assert.equal(con({ minEnviosParaComparar: "x" }).minEnviosParaComparar, 5);
+    assert.throws(() => con({ maxSubidaDeEnvios: 0.5 }), /maxSubidaDeEnvios/);
+  });
+
   await prueba("zonas que suben solas: la configuración exige ssh.logs y rutas de cada zona", async () => {
     const base = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "config.example.json"), "utf8"));
     assert.ok(Array.isArray(base.repos.aizencrm.zonasQueSubenSolas));
@@ -1335,7 +1371,64 @@ try {
     assert.notEqual(shaDe("main"), antes, "main avanzó con el revert");
     assert.equal(g(REPO, "merge-base", "--is-ancestor", antes, "origin/main"), "", "el commit subido sigue en la historia de main");
     assert.equal(llamadas.findLast((l) => l.accion === "error" && l.id === id).cuerpo.reversion.ok, true, "el CRM supo de la reversión");
+    assert.ok(llamadas.some((l) => l.accion === "aviso" && l.cuerpo.tipo === "necesita" && /Bot que rompe/.test(l.cuerpo.texto)), "avisó al dueño con tipo necesita");
     assert.match(llamadas.findLast((l) => l.accion === "error" && l.id === id).cuerpo.motivo, /[Rr]evertida/);
+    sinRestos();
+  });
+
+  const cortaPorEnvios = async (variable, patron, titulo, config = configSolas()) => {
+    reiniciarLogs();
+    const id = nueva(titulo, "PLAN_APROBADO", { plan: "El plan", moderno: titulo.includes("[moderno]") });
+    assert.equal((await vuelta(config)).ok, true);
+    assert.equal(tarjetas.get(id).estado, "SUBIENDO");
+    const antes = shaDe("main");
+    const avisos = llamadas.filter((l) => l.accion === "aviso").length;
+    process.env[variable] = "1";
+    let resultado;
+    try {
+      resultado = await vuelta(config);
+    } finally {
+      delete process.env[variable];
+    }
+    assert.equal(resultado.ok, false);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, patron);
+    g(REPO, "fetch", "origin");
+    assert.match(g(REPO, "log", "--format=%s", "-8", "origin/main"), /^revert: deshacer [0-9a-f]{10} \(la vigilancia de 30 min vio una falla\)/m);
+    assert.equal(g(REPO, "merge-base", "--is-ancestor", antes, "origin/main"), "", "el commit subido sigue en la historia de main (sin force-push)");
+    // La reversión avisa al dueño: tipo "necesita", con el motivo y los commits.
+    const nuevos = llamadas.filter((l) => l.accion === "aviso").slice(avisos);
+    assert.equal(nuevos.length, 1, "un solo aviso por reversión");
+    assert.equal(nuevos[0].cuerpo.tipo, "necesita");
+    assert.match(nuevos[0].cuerpo.texto, patron);
+    assert.match(nuevos[0].cuerpo.texto, new RegExp(`Commit deshecho: [0-9a-f]{10}`));
+    assert.match(nuevos[0].cuerpo.texto, /commit de la reversión: [0-9a-f]{10}/);
+    sinRestos();
+  };
+
+  await prueba("zonas que suben solas: si los envíos de mensajes suben de golpe, la vigilancia deshace con un commit nuevo y avisa al dueño (necesita)", async () => {
+    await cortaPorEnvios("SSH_FALSO_ENVIOS", /suben mucho los envíos de mensajes: 2 por minuto antes de subir y 20 ahora/, "Bot que repite mensajes [solas-bot]");
+  });
+
+  await prueba("zonas que suben solas: si los envíos fallan, la vigilancia deshace y avisa (tarjeta moderna, camino de manejarFalla)", async () => {
+    await cortaPorEnvios("SSH_FALSO_ENVIOS_FALLIDOS", /suben los envíos de mensajes que fallan: 0 por minuto antes de subir y 1 ahora/, "Bot que falla al enviar [solas-bot] [moderno]");
+  });
+
+  await prueba("zonas que suben solas: por debajo de minEnviosParaComparar no corta aunque los envíos se dupliquen", async () => {
+    reiniciarLogs();
+    const id = nueva("Bot parejo [solas-bot]", "PLAN_APROBADO", { plan: "El plan" });
+    const config = crearConfig({}, { ...SOLAS, vigilancia: { ...SOLAS.vigilancia, minEnviosParaComparar: 1000 } });
+    assert.equal((await vuelta(config)).ok, true);
+    process.env.SSH_FALSO_ENVIOS = "1";
+    let resultado;
+    try {
+      resultado = await vuelta(config);
+    } finally {
+      delete process.env.SSH_FALSO_ENVIOS;
+    }
+    assert.equal(resultado.ok, true, resultado.motivo);
+    assert.equal(tarjetas.get(id).estado, "HECHO");
     sinRestos();
   });
 
