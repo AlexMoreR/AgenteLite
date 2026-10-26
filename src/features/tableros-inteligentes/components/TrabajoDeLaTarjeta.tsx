@@ -19,6 +19,7 @@ import {
   NOMBRE_DEL_REPO,
   esRepo,
   esZona,
+  zonasQuePidenSi,
   type MomentoDeAprobacion,
 } from "../services/reglas-trabajador";
 import { dondeSeConstruyo, textoDeModelos } from "../services/modelos-del-coordinador";
@@ -40,7 +41,9 @@ import type { TarjetaVista } from "../services/tableros";
     ("Se sube a producción. ¿Seguro?"), sin window.confirm. Con zona protegida también sale: la
     aprobación en pantalla es justo lo que esas zonas exigen. Desde el 21-oct-2026 lo normal es que suba
     sola (EN_CURSO -> SUBIENDO -> HECHO, con el link del commit); POR_REVISAR queda para las que tocan
-    una zona protegida (chats, agentes, libro V3, Meta Ads) y acá se dice cuál.
+    CHATS, Meta Ads con gasto y las de un repo sin "sube solo", y acá se dice cuál. Bot de ventas, libro V3
+    y Meta Ads (sin gasto) suben solas (24-oct-2026): la ficha muestra "Subió sola… / Revertida…".
+
   - "Reintentar" (ERROR): con el plan que ya tiene (si tiene) o planeando de nuevo.
   - "Marcar hecho a mano" (ERROR, FALLIDO o POR_REVISAR, con repo): SOLO el dueño. Abre un panel con la
     nota (obligatoria) y el commit (opcional); el servidor revisa todo (puedeMarcarHechoAMano).
@@ -227,7 +230,13 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
         </div>
       ) : null}
 
-      {conZona ? espera("Toca una zona protegida: se aprueba solo en esta pantalla, y solo el dueño.") : null}
+      {conZona
+        ? espera(
+            zonasQuePidenSi(tarjeta.zonaProtegida).length
+              ? "Toca una zona protegida: se aprueba solo en esta pantalla, y solo el dueño."
+              : "Toca una zona que sube sola: la tarea y el plan los aprueba el dueño (en esta pantalla o por voz); el sí final ya no se pide.",
+          )
+        : null}
 
       {estado === "POR_APROBAR" ? (
         puedeEstaTarjeta ? (
@@ -283,9 +292,11 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
 
       {estado === "POR_REVISAR" && resultado?.paso === true
         ? espera(
-            conZona
-              ? `Espera tu sí porque toca ${tarjeta.zonaProtegida.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")}: no sube sola.`
-              : "Espera tu sí: el Coordinador no la subió solo (todavía no sube solo en este repositorio, o es de antes).",
+            zonasQuePidenSi(tarjeta.zonaProtegida).length
+              ? `Espera tu sí porque toca ${zonasQuePidenSi(tarjeta.zonaProtegida).map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")}: no sube sola.`
+              : resultado.gastoMetaAds
+                ? "Espera tu sí (gasto en Meta Ads): el cambio sube presupuesto, prende campañas o crea gasto."
+                : "Espera tu sí: el Coordinador no la subió solo (todavía no sube solo en este repositorio, falta una prueba de su zona, o es de antes).",
           )
         : null}
       {estado === "POR_REVISAR" ? (
@@ -314,6 +325,14 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
         )
       ) : null}
 
+      {estado === "HECHO" && resultado?.subida?.vigilancia
+        ? espera(
+            `Subió sola (zona ${resultado.subida.vigilancia.zonas.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")}) — vigilancia ${resultado.subida.vigilancia.minutos} min OK`,
+          )
+        : null}
+      {estado === "ERROR" && resultado?.error?.reversion?.ok
+        ? espera(`Revertida: ${resultado.error.reversion.motivo ?? (resultado.error.motivo ?? "algo se rompió después de subir").split("\n")[0]}`)
+        : null}
       {estado === "ERROR" && puedeEstaTarjeta ? (
         <div className="space-y-2">
           <Button

@@ -49,10 +49,14 @@ export const HERRAMIENTAS_PROHIBIDAS = [
   "Task",
 ];
 
+/** Las únicas zonas que se pueden poner en `zonasQueSubenSolas` (reglas-trabajador.ts: ZONAS_QUE_SUBEN_SOLAS). */
+export const ZONAS_QUE_PUEDEN_SUBIR_SOLAS = ["BOT_VENTAS", "META_ADS", "LIBRO_V3"];
+
 const TIEMPOS_POR_DEFECTO = {
-  // Un poco menos que el tope del CRM (20 / 90 / 45 min), para avisar el error antes de que venza.
+  // Un poco menos que el tope del CRM (20 / 90 / 80 min), para avisar el error antes de que venza.
   planMinutos: 19,
   construirMinutos: 88,
+  // El tope del CRM para subir es 80: hasta 44 subiendo + los 30 min de vigilancia de las zonas que suben solas.
   subirMinutos: 44,
   // Construir en la nube (25-oct-2026): el CRM da 180 min cuando el latido dice "nube". Un poco menos, igual que arriba.
   construirNubeMinutos: 178,
@@ -187,10 +191,19 @@ export function completarConfig(datos, base = process.cwd()) {
     if (subirSolo && clave === "aizencrm" && !(Array.isArray(zonasProtegidas.CHATS) && zonasProtegidas.CHATS.length)) {
       errores.push(`repos.${clave}.subirSolo está prendido pero falta la zona CHATS en zonasProtegidas: no se prende sin ella.`);
     }
+    // Zonas que suben solas (24-oct-2026): solo estas tres. CHATS NO se puede poner aquí (lo cambia su propia
+    // tarjeta, "Coordinador de Sistemas autónomo"). Sin la lista, todo sigue pidiendo el sí del dueño (error seguro).
+    const zonasQueSubenSolas = lista(repo.zonasQueSubenSolas).map((zona) => String(zona).trim().toUpperCase());
+    for (const zona of zonasQueSubenSolas) {
+      if (!ZONAS_QUE_PUEDEN_SUBIR_SOLAS.includes(zona)) {
+        errores.push(`repos.${clave}.zonasQueSubenSolas: "${zona}" no puede subir sola. Van: ${ZONAS_QUE_PUEDEN_SUBIR_SOLAS.join(", ")} (CHATS lo cambia su propia tarjeta).`);
+      }
+    }
     try {
       repos[clave] = {
         clave,
         subirSolo,
+        zonasQueSubenSolas: [...new Set(zonasQueSubenSolas)],
         // "dueño/repo" en GitHub: la vigilancia de la rama en la nube lo usa (si falta, se saca del remoto).
         github: typeof repo.github === "string" && /^[\w.-]+\/[\w.-]+$/.test(repo.github) ? repo.github : null,
         ruta: path.resolve(base, repo.ruta),
@@ -234,6 +247,26 @@ export function completarConfig(datos, base = process.cwd()) {
     datos.ssh && typeof datos.ssh.destino === "string" && typeof datos.ssh.psql === "string"
       ? { comando: comando(datos.ssh.comando, "ssh.comando") ?? ["ssh"], destino: datos.ssh.destino, psql: datos.ssh.psql }
       : null;
+
+  // Vigilancia de después de subir (24-oct-2026): mira los logs del contenedor por el mismo SSH. Sin `contenedor` (o sin
+  // ssh) no se puede vigilar y las zonas que suben solas vuelven a pedir el sí del dueño.
+  const vigilanciaDatos = datos.vigilancia && typeof datos.vigilancia === "object" ? datos.vigilancia : {};
+  const vigilancia = {
+    activa: vigilanciaDatos.activa === true,
+    contenedor: typeof vigilanciaDatos.contenedor === "string" && /^[\w.-]+$/.test(vigilanciaDatos.contenedor) ? vigilanciaDatos.contenedor : null,
+    minutos: Number(vigilanciaDatos.minutos) > 0 ? Number(vigilanciaDatos.minutos) : 30,
+    cadaSegundos: Number(vigilanciaDatos.cadaSegundos) > 0 ? Number(vigilanciaDatos.cadaSegundos) : 60,
+    // Cuántos errores nuevos distintos hacen revertir (1 = el primero).
+    erroresParaRevertir: Number(vigilanciaDatos.erroresParaRevertir) >= 1 ? Math.floor(Number(vigilanciaDatos.erroresParaRevertir)) : 1,
+    // Líneas de log que cuentan como error nuevo (las que ya salían antes de subir no cuentan).
+    patronesDeError:
+      Array.isArray(vigilanciaDatos.patronesDeError) && vigilanciaDatos.patronesDeError.length
+        ? vigilanciaDatos.patronesDeError.filter((p) => typeof p === "string" && p.trim())
+        : ["\\bError\\b", "\\bUnhandled", "ECONNREFUSED", "\\bFATAL\\b", "\\bTypeError\\b", "\\bPrismaClient\\w*Error"],
+  };
+  if (vigilancia.activa && (!vigilancia.contenedor || !ssh)) {
+    errores.push("vigilancia.activa está prendida pero falta vigilancia.contenedor o la sección ssh: no se puede vigilar.");
+  }
 
   const maxParalelo = datos.maxParalelo === undefined ? 2 : Math.floor(Number(datos.maxParalelo));
   if (!Number.isFinite(maxParalelo) || maxParalelo < 1 || maxParalelo > MAXIMO_EN_PARALELO) {
@@ -353,6 +386,7 @@ export function completarConfig(datos, base = process.cwd()) {
     carpetaTrabajo,
     repos,
     ssh,
+    vigilancia,
     maxParalelo,
     nube: {
       activa: nube.activa,

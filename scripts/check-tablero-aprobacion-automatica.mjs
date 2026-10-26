@@ -360,6 +360,31 @@ await prueba("resultado: ALTO con zona protegida marcada espera el sí del dueñ
   assert.equal(r.estado, "POR_REVISAR");
 });
 
+await prueba("resultado 24-oct (tercer sí): bot de ventas, Meta Ads y libro V3 suben solos; CHATS no; Meta Ads con gasto espera", async () => {
+  for (const zona of ["BOT_VENTAS", "META_ADS", "LIBRO_V3"]) {
+    estado.tarjetas.clear();
+    enCurso({ riesgo: "ALTO" });
+    const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ zonaProtegida: [zona] }));
+    assert.equal(r.estado, "SUBIENDO", zona);
+    assert.deepEqual(estado.tarjetas.get("t1").zonaProtegida, [zona]);
+    assert.match(estado.historial.at(-1).despues.nota, /sube solo \(zona/);
+  }
+  // Las tres juntas suben; con CHATS en la mezcla espera.
+  estado.tarjetas.clear();
+  enCurso({ riesgo: "ALTO", zonaProtegida: ["BOT_VENTAS", "LIBRO_V3"] });
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ zonaProtegida: ["META_ADS"] }))).estado, "SUBIENDO");
+  estado.tarjetas.clear();
+  enCurso({ riesgo: "ALTO" });
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ zonaProtegida: ["BOT_VENTAS", "CHATS"] }))).estado, "POR_REVISAR");
+  // Meta Ads con gasto: el Coordinador dice subeSolo = false y la nota lo explica.
+  estado.tarjetas.clear();
+  enCurso({ riesgo: "ALTO" });
+  const gasto = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ zonaProtegida: ["META_ADS"], subeSolo: false, gastoMetaAds: true }));
+  assert.equal(gasto.estado, "POR_REVISAR");
+  assert.match(estado.historial.at(-1).despues.nota, /gasto en Meta Ads/);
+  assert.equal(estado.tarjetas.get("t1").resultado.gastoMetaAds, true);
+});
+
 /* ------------------------------------------------------------------ regla del dueño 24-oct */
 
 const FRASE_PLAN_SOLO = "plan aprobado automáticamente (regla del dueño 24-oct)";

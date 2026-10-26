@@ -920,15 +920,16 @@ prueba("tomar en paralelo: maxParalelo 1 si no viene (trabajador viejo), tope 12
   assert.equal(trabajo.opcionesDeTomar({ excluir: "a" }).excluir.length, 0);
 });
 
-prueba("candado: cada latido da 5 min más, nunca más allá del tope de la etapa (20 / 90 / 45 min)", () => {
-  assert.deepEqual({ ...trabajo.MINUTOS_POR_ETAPA }, { planear: 20, construir: 90, subir: 45 });
+prueba("candado: cada latido da 5 min más, nunca más allá del tope de la etapa (20 / 90 / 80 min)", () => {
+  assert.deepEqual({ ...trabajo.MINUTOS_POR_ETAPA }, { planear: 20, construir: 90, subir: 80 });
   const inicio = new Date("2026-10-20T15:00:00Z");
   const min = (n) => new Date(inicio.getTime() + n * 60_000);
   assert.equal(trabajo.vencimientoDelCandado("construir", inicio, inicio).toISOString(), min(5).toISOString());
   assert.equal(trabajo.vencimientoDelCandado("construir", inicio, min(40)).toISOString(), min(45).toISOString());
   assert.equal(trabajo.vencimientoDelCandado("construir", inicio, min(88)).toISOString(), min(90).toISOString(), "tope");
   assert.equal(trabajo.vencimientoDelCandado("planear", inicio, min(19)).toISOString(), min(20).toISOString(), "tope plan");
-  assert.equal(trabajo.vencimientoDelCandado("subir", inicio, min(44)).toISOString(), min(45).toISOString(), "tope subir");
+  assert.equal(trabajo.vencimientoDelCandado("subir", inicio, min(44)).toISOString(), min(49).toISOString(), "subir: 5 min más (la vigilancia de 30 min cabe)");
+  assert.equal(trabajo.vencimientoDelCandado("subir", inicio, min(78)).toISOString(), min(80).toISOString(), "tope subir");
 });
 
 prueba("construir en la nube (25-oct-2026): 180 min solo cuando el latido dice nube; en aizen1 y en las otras etapas no cambia", () => {
@@ -937,7 +938,7 @@ prueba("construir en la nube (25-oct-2026): 180 min solo cuando el latido dice n
   assert.equal(trabajo.topeDeLaEtapa("construir", "aizen1"), 90);
   assert.equal(trabajo.topeDeLaEtapa("construir", "nube"), 180);
   assert.equal(trabajo.topeDeLaEtapa("planear", "nube"), 20, "la nube solo cambia el tope de construir");
-  assert.equal(trabajo.topeDeLaEtapa("subir", "nube"), 45);
+  assert.equal(trabajo.topeDeLaEtapa("subir", "nube"), 80);
   const inicio = new Date("2026-10-25T15:00:00Z");
   const min = (n) => new Date(inicio.getTime() + n * 60_000);
   assert.equal(trabajo.vencimientoDelCandado("construir", inicio, min(88), "aizen1").toISOString(), min(90).toISOString(), "aizen1: 90");
@@ -1073,7 +1074,13 @@ prueba("aprobar_tarjeta: texto obligatorio y válido por voz; zona protegida = s
   assert.match(destino({ textoConfirmacion: undefined }), /texto de confirmación/);
   assert.match(destino({ textoConfirmacion: "ok dale" }), /texto de confirmación/);
   assert.match(destino({ textoConfirmacion: "no apruebo, sí" }), /no apruebo/);
-  assert.match(destino({ zonaProtegida: ["BOT_VENTAS"] }), /solo en la pantalla/);
+  // CHATS sigue solo en pantalla; bot de ventas, Meta Ads y libro V3 también por voz (24-oct-2026).
+  assert.match(destino({ zonaProtegida: ["CHATS"] }), /solo en la pantalla/);
+  assert.match(destino({ zonaProtegida: ["BOT_VENTAS", "CHATS"] }), /CHATS.*solo en la pantalla/);
+  for (const zona of ["BOT_VENTAS", "META_ADS", "LIBRO_V3"]) {
+    assert.equal(destino({ zonaProtegida: [zona] }), "APROBADO", `${zona} por voz`);
+    assert.match(destino({ zonaProtegida: [zona], textoConfirmacion: "ok dale" }), /texto de confirmación/);
+  }
   // En la pantalla, la de zona protegida la aprueba el dueño (sin texto) y nadie más.
   assert.equal(destino({ via: "pantalla", origen: "PANTALLA", zonaProtegida: ["LIBRO_V3"], textoConfirmacion: undefined }), "APROBADO");
   assert.match(destino({ via: "pantalla", origen: "PANTALLA", zonaProtegida: ["META_ADS"], persona: todo }), /solo el dueño/);
@@ -1146,7 +1153,8 @@ prueba("aprobar por voz: la dueña registrada con cuenta ADMIN aprueba la tarea,
   // Las reglas de siempre siguen: texto, "no apruebo", zona protegida solo en pantalla.
   assert.match(destino({ persona: magilus, textoConfirmacion: "ok dale" }), /texto de confirmación/);
   assert.match(destino({ persona: magilus, textoConfirmacion: "no apruebo, sí" }), /no apruebo/);
-  assert.match(destino({ persona: magilus, zonaProtegida: ["BOT_VENTAS"] }), /solo en la pantalla/);
+  assert.match(destino({ persona: magilus, zonaProtegida: ["CHATS"] }), /solo en la pantalla/);
+  assert.equal(destino({ persona: magilus, zonaProtegida: ["BOT_VENTAS"] }), "APROBADO");
   assert.equal(destino({ persona: magilus, via: "pantalla", origen: "PANTALLA", zonaProtegida: ["META_ADS"], textoConfirmacion: undefined }), "APROBADO");
   // Una CLIENTE dueña sigue aprobando como hoy.
   assert.equal(destino({ persona: persona({ esDuenaRegistrada: false, rolEnNegocio: "OWNER" }), momento: "subir", estado: "POR_REVISAR", resultadoPaso: true }), "SUBIENDO");
@@ -1869,3 +1877,32 @@ prueba("inicialDeLaPersona: la inicial en mayúscula; '?' si no hay nombre", () 
 }
 
 console.log(`\n${pruebas} pruebas, todas bien`);
+
+prueba("zonas que suben solas (24-oct-2026): bot de ventas, Meta Ads y libro V3 suben; CHATS sigue pidiendo el sí", () => {
+  assert.deepEqual([...trabajo.ZONAS_QUE_SUBEN_SOLAS], ["BOT_VENTAS", "META_ADS", "LIBRO_V3"]);
+  assert.ok(!trabajo.ZONAS_QUE_SUBEN_SOLAS.includes("CHATS"));
+  assert.deepEqual(trabajo.zonasQuePidenSi(["BOT_VENTAS", "META_ADS", "LIBRO_V3", "CHATS"]), ["CHATS"]);
+  assert.deepEqual(trabajo.zonasQuePidenSi(["BOT_VENTAS"]), []);
+  const resultado = (zonaProtegida, extra = {}) => trabajo.destinoDelResultado({ paso: true, subeSolo: true, zonaProtegida, ...extra });
+  for (const zona of ["BOT_VENTAS", "META_ADS", "LIBRO_V3"]) assert.equal(resultado([zona]), "SUBIENDO", zona);
+  assert.equal(resultado(["BOT_VENTAS", "META_ADS", "LIBRO_V3"]), "SUBIENDO");
+  assert.equal(resultado([]), "SUBIENDO");
+  // CHATS (sola o con las otras) sigue esperando el sí del dueño.
+  assert.equal(resultado(["CHATS"]), "POR_REVISAR");
+  assert.equal(resultado(["BOT_VENTAS", "CHATS"]), "POR_REVISAR");
+  // Meta Ads con gasto: el Coordinador dice subeSolo = false y espera.
+  assert.equal(resultado(["META_ADS"], { subeSolo: false }), "POR_REVISAR");
+  assert.equal(resultado(["BOT_VENTAS"], { paso: false }), "POR_REVISAR");
+  // El sí final sigue siendo solo del dueño.
+  assert.match(destino({ persona: todo, momento: "subir", estado: "POR_REVISAR", resultadoPaso: true }), /solo el dueño/);
+});
+
+prueba("vigilanciaDeEntrada: solo zonas conocidas y minutos válidos", () => {
+  assert.deepEqual(trabajo.vigilanciaDeEntrada({ zonas: ["BOT_VENTAS"], minutos: 30 }), { vigilancia: { zonas: ["BOT_VENTAS"], minutos: 30 } });
+  assert.deepEqual(trabajo.vigilanciaDeEntrada({ zonas: ["NADA"], minutos: 30 }), {});
+  assert.deepEqual(trabajo.vigilanciaDeEntrada({ zonas: ["META_ADS"], minutos: 0 }), {});
+  assert.deepEqual(trabajo.vigilanciaDeEntrada(null), {});
+  assert.equal(trabajo.vigilanciaDeEntrada({ zonas: ["LIBRO_V3"], minutos: 9999 }).vigilancia.minutos, 120);
+  assert.equal(trabajo.reversionDeEntrada({ commit: "a", revert: "b", ok: true, motivo: "errores nuevos" }).motivo, "errores nuevos");
+  assert.equal(trabajo.resultadoDeEntrada({ resumen: "x", gastoMetaAds: true }).gastoMetaAds, true);
+});

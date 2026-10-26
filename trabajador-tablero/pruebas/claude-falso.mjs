@@ -189,6 +189,7 @@ if (prompt.startsWith("MANUAL DE LA NOCHE")) {
   process.exit(0);
 }
 
+let resumenExtra = "";
 const escribir = (archivo, texto) => {
   fs.mkdirSync(path.dirname(archivo), { recursive: true });
   fs.writeFileSync(archivo, texto);
@@ -207,6 +208,21 @@ if (titulo.includes("[atascado]")) {
   else escribir("ROMPER_TSC", "sí\n");
   escribir(`cambio-${Date.now()}.txt`, `${titulo}\n`);
 } else if (titulo.includes("[zona]")) escribir("src/bot/respuesta.ts", "export const saludo = 'hola';\n");
+else if (titulo.includes("[bot-ok]")) {
+  escribir("src/bot/respuesta.ts", `export const saludo = 'hola de nuevo ${Date.now()}';\n`);
+  resumenExtra = "\n✔ sin mensajes nuevos a clientes";
+} else if (titulo.includes("[bot-envio]")) {
+  // Un envío nuevo de mensajes que el plan no menciona: aunque diga que no hay, el Coordinador lo ve en el diff.
+  escribir("src/bot/aviso.ts", "export async function avisar(x) { await enviarMensajeNuevo(x); }\n");
+  resumenExtra = "\n✔ sin mensajes nuevos a clientes";
+} else if (titulo.includes("[bot-sin-prueba]")) escribir("src/bot/respuesta.ts", `export const saludo = 'hola otra vez ${Date.now()}';\n`);
+else if (titulo.includes("[ads-ok]")) escribir("src/ads/reporte.ts", `export const reporte = () => 'gasto de ayer ${Date.now()}';\n`);
+else if (titulo.includes("[ads-gasto]")) escribir("src/ads/campana.ts", "export const campana = { daily_budget: 5000 };\n");
+else if (titulo.includes("[v3-ok]")) {
+  escribir("src/agente-v3/libro.ts", `export const libro = 'v2 ${Date.now()}';\n`);
+  resumenExtra = "\n✔ simulación V3: sin cambios fuera de lo pedido\nversión anterior del libro: 12";
+} else if (titulo.includes("[v3-sin-prueba]")) escribir("src/agente-v3/libro.ts", `export const libro = 'v3 ${Date.now()}';\n`);
+else if (titulo.includes("[chats-zona]")) escribir("src/chats/entrada.ts", "export const entrada = 1;\n");
 else if (titulo.includes("[tsc]")) escribir("ROMPER_TSC", "sí\n");
 else if (titulo.includes("[lint]")) escribir("nuevo.txt", "ERROR_LINT\n");
 else if (titulo.includes("[migracion]")) {
@@ -225,4 +241,4 @@ else if (modulo) {
   await dormir(1500); // para que dos construcciones se crucen en el tiempo
   escribir(`src/${modulo}/cambio-${Date.now()}-${process.pid}.ts`, `// ${titulo}\n`);
 } else if (!titulo.includes("[nada]")) escribir(`cambio-${Date.now()}.txt`, `${titulo}\n`);
-console.log(`RESUMEN: hice "${titulo}".`);
+console.log(`RESUMEN: hice "${titulo}".${resumenExtra}`);

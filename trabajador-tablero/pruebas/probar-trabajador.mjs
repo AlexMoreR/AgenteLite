@@ -44,7 +44,7 @@ import {
 import { armarLatido, crearLatido } from "../lib/latido.mjs";
 import { faltanRecursos, leerCarga } from "../lib/recursos.mjs";
 import { crearRegistro } from "../lib/registro.mjs";
-import { globARegex, zonasTocadas } from "../lib/zonas.mjs";
+import { anotoSinMensajesNuevos, enviosNuevosDelBot, globARegex, planDiceGastoEnMetaAds, senalesDeGastoEnMetaAds, simulacionV3Anotada, zonasQuePidenSi, zonasTocadas } from "../lib/zonas.mjs";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
@@ -69,6 +69,41 @@ await prueba("zonas: globs simples y qué zonas toca un cambio", async () => {
     BOT_VENTAS: ["src/bot/x.ts"],
     LIBRO_V3: ["src\\v3\\libro.ts"],
   });
+});
+
+await prueba("zonas que suben solas: las pruebas extra por zona (gasto en Meta Ads, envíos del bot, simulación V3)", async () => {
+  assert.deepEqual(zonasQuePidenSi(["BOT_VENTAS", "CHATS", "META_ADS"], ["BOT_VENTAS", "META_ADS"]), ["CHATS"]);
+  assert.deepEqual(zonasQuePidenSi(["BOT_VENTAS"], []), ["BOT_VENTAS"], "sin la lista, todo pide el sí");
+  const diff = "+++ b/src/ads/a.ts\n+const x = { daily_budget: 5 };\n+await fetch('/act_1/campaigns', { method: 'POST' });\n+++ b/src/ads/b.ts\n+const ok = 1;\n";
+  assert.equal(senalesDeGastoEnMetaAds(diff, ["src/ads/a.ts"]).length, 2);
+  assert.deepEqual(senalesDeGastoEnMetaAds(diff, ["src/ads/b.ts"]), []);
+  for (const linea of ["lifetime_budget: 1", "bid_amount: 2", "status: 'ACTIVE'", "await activarCampana(id)", "crearAnuncio(x)"]) {
+    assert.equal(senalesDeGastoEnMetaAds(`+++ b/src/ads/z.ts\n+${linea}\n`, ["src/ads/z.ts"]).length, 1, linea);
+  }
+  assert.deepEqual(senalesDeGastoEnMetaAds("+++ b/src/ads/z.ts\n+status: 'PAUSED'\n+leerReporte()\n", ["src/ads/z.ts"]), [], "pausar y leer no es gasto");
+  assert.equal(planDiceGastoEnMetaAds("Plan\nGASTO EN META ADS: sube presupuesto"), true);
+  assert.equal(planDiceGastoEnMetaAds("Plan\nno hay gasto en Meta Ads en este cambio"), false);
+  assert.deepEqual(enviosNuevosDelBot("+++ b/src/bot/a.ts\n+await sendText(x)\n", ["src/bot/a.ts"], "cambia el saludo"), ["src/bot/a.ts: sendText"]);
+  assert.deepEqual(enviosNuevosDelBot("+++ b/src/bot/a.ts\n+await sendText(x)\n", ["src/bot/a.ts"], "Agregar un sendText nuevo"), [], "el plan lo menciona");
+  assert.deepEqual(enviosNuevosDelBot("+++ b/src/otro/a.ts\n+await sendText(x)\n", ["src/bot/a.ts"], ""), [], "fuera de los archivos del bot");
+  assert.equal(anotoSinMensajesNuevos("RESUMEN\n✔ sin mensajes nuevos a clientes"), true);
+  assert.equal(anotoSinMensajesNuevos("RESUMEN"), false);
+  assert.deepEqual(simulacionV3Anotada("✔ simulación V3: sin cambios fuera de lo pedido\nversión anterior del libro: 7").versionAnterior, "7");
+  assert.equal(simulacionV3Anotada("✔ simulación V3: sin cambios fuera de lo pedido").ok, false, "sin la versión anterior no sirve");
+  assert.equal(simulacionV3Anotada("versión anterior del libro: 7").ok, false, "sin la simulación no sirve");
+});
+
+await prueba("config: zonasQueSubenSolas solo acepta BOT_VENTAS, META_ADS y LIBRO_V3 (CHATS no) y la vigilancia pide contenedor y ssh", async () => {
+  const base = { urlCrm: "https://x.co", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: ".", subirSolo: true, zonasProtegidas: { CHATS: ["src/chats/**"] } } } };
+  const ssh = { comando: ["ssh"], destino: "u@s", psql: "psql" };
+  assert.deepEqual(completarConfig({ ...base, repos: { aizencrm: { ...base.repos.aizencrm, zonasQueSubenSolas: ["bot_ventas", "META_ADS"] } } }).repos.aizencrm.zonasQueSubenSolas, ["BOT_VENTAS", "META_ADS"]);
+  assert.deepEqual(completarConfig(base).repos.aizencrm.zonasQueSubenSolas, [], "sin la lista, todo sigue pidiendo el sí");
+  assert.throws(() => completarConfig({ ...base, repos: { aizencrm: { ...base.repos.aizencrm, zonasQueSubenSolas: ["CHATS"] } } }), /CHATS.*no puede subir sola/);
+  assert.throws(() => completarConfig({ ...base, vigilancia: { activa: true } }), /vigilancia\.contenedor/);
+  const con = completarConfig({ ...base, ssh, vigilancia: { activa: true, contenedor: "app" } });
+  assert.equal(con.vigilancia.minutos, 30);
+  assert.equal(con.vigilancia.contenedor, "app");
+  assert.equal(completarConfig(base).vigilancia.activa, false);
 });
 
 await prueba("ensayo: se quitan BEGIN/COMMIT del archivo, va dentro de BEGIN…ROLLBACK con ON_ERROR_STOP y lock_timeout", async () => {
@@ -1014,9 +1049,9 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     if (cuerpo.zonaProtegida) tarjeta.zonaProtegida = reglas.unirZonas(tarjeta.zonaProtegida, reglas.zonasDeEntrada(cuerpo.zonaProtegida));
     tarjeta.estado = reglas.destinoDelResultado({ ...tarjeta.resultado, zonaProtegida: tarjeta.zonaProtegida });
   }
-  if (accion === "subida") tarjeta.resultado = { ...tarjeta.resultado, subida: { commit: cuerpo.commit, version: cuerpo.version, linkCommit: cuerpo.linkCommit } };
+  if (accion === "subida") tarjeta.resultado = { ...tarjeta.resultado, subida: { commit: cuerpo.commit, version: cuerpo.version, linkCommit: cuerpo.linkCommit, ...reglas.vigilanciaDeEntrada(cuerpo.vigilancia) } };
   if (accion === "error") {
-    tarjeta.resultado = { ...(tarjeta.resultado ?? {}), error: { motivo: reglas.motivoDeEntrada(cuerpo.motivo) } };
+    tarjeta.resultado = { ...(tarjeta.resultado ?? {}), error: { motivo: reglas.motivoDeEntrada(cuerpo.motivo), reversion: reglas.reversionDeEntrada(cuerpo.reversion) ?? undefined } };
     if (cuerpo.zonaProtegida) tarjeta.zonaProtegida = reglas.unirZonas(tarjeta.zonaProtegida, reglas.zonasDeEntrada(cuerpo.zonaProtegida));
   }
   return contestar(200, { ok: true, estado: tarjeta.estado });
@@ -1209,6 +1244,150 @@ try {
     const resultado = await vuelta();
     assert.equal(resultado.ok, true, resultado.motivo);
     assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    sinRestos();
+  });
+
+  // ── 24-oct-2026: bot de ventas, Meta Ads y libro V3 suben solos (sin el tercer sí); CHATS no ──
+  const VIGILANCIA = { activa: true, contenedor: "app-falsa", minutos: 0.03, cadaSegundos: 0.5 };
+  const zonasSolas = (extraRepo = {}) => crearConfig({}, { subirSolo: true, zonasQueSubenSolas: ["BOT_VENTAS", "META_ADS", "LIBRO_V3"], ...extraRepo }, { vigilancia: VIGILANCIA });
+  const ZONA_DE = { "[bot-ok]": "BOT_VENTAS", "[ads-ok]": "META_ADS", "[v3-ok]": "LIBRO_V3" };
+  for (const [marca, zona] of Object.entries(ZONA_DE)) {
+    await prueba(`zona ${zona} sube sola: construye con sus pruebas, sube a main, vigila y la tarjeta dice "Subió sola"`, async () => {
+      const id = nueva(`Cambio de ${zona} ${marca}`, "PLAN_APROBADO", { plan: "El plan", zonaProtegida: [zona] });
+      const mainAhora = shaDe("main");
+      const construida = await vuelta(zonasSolas());
+      assert.equal(construida.ok, true, construida.motivo);
+      const t = tarjetas.get(id);
+      assert.equal(t.estado, "SUBIENDO", `${zona} pasa directo a SUBIENDO: ${t.resultado?.pruebas}`);
+      assert.equal(t.resultado.subeSolo, true);
+      assert.deepEqual(t.zonaProtegida, [zona]);
+      assert.match(t.resultado.pruebas, new RegExp(`sube solo \\(zona ${zona}; después vigila`));
+      assert.equal(shaDe("main"), mainAhora, "construir no toca main");
+      const subida = await vuelta(zonasSolas());
+      assert.equal(subida.hizo, "subir");
+      assert.equal(subida.ok, true, subida.motivo);
+      assert.equal(tarjetas.get(id).estado, "HECHO");
+      assert.deepEqual(tarjetas.get(id).resultado.subida.vigilancia, { zonas: [zona], minutos: 0.03 });
+      assert.notEqual(shaDe("main"), mainAhora);
+      sinRestos();
+    });
+  }
+
+  await prueba("zona sube sola: sin `zonasQueSubenSolas` en la config (o sin vigilancia lista) sigue esperando el sí (error seguro)", async () => {
+    for (const config2 of [crearConfig({}, { subirSolo: true }, { vigilancia: VIGILANCIA }), crearConfig({}, { subirSolo: true, zonasQueSubenSolas: ["BOT_VENTAS"] })]) {
+      const id = nueva("Cambio del bot [bot-ok]", "PLAN_APROBADO", { plan: "El plan", zonaProtegida: ["BOT_VENTAS"] });
+      const vueltaZ = await vuelta(config2);
+      assert.equal(vueltaZ.ok, true, vueltaZ.motivo);
+      assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+      assert.equal(tarjetas.get(id).resultado.subeSolo, false);
+      tarjetas.get(id).estado = "HECHO";
+      sinRestos();
+    }
+  });
+
+  await prueba("CHATS sigue esperando el sí del dueño aunque las otras zonas suban solas", async () => {
+    const id = nueva("Cambio de chats [chats-zona]", "PLAN_APROBADO", { plan: "El plan" });
+    const mainAhora = shaDe("main");
+    assert.equal((await vuelta(zonasSolas())).ok, true);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.equal(t.resultado.subeSolo, false);
+    assert.deepEqual(t.zonaProtegida, ["CHATS"]);
+    assert.match(t.resultado.pruebas, /espera tu sí \(zona CHATS/);
+    assert.equal(shaDe("main"), mainAhora);
+    sinRestos();
+  });
+
+  await prueba("Meta Ads con gasto (daily_budget en el cambio) NO sube sola: queda POR_REVISAR con 'gasto en Meta Ads'", async () => {
+    const id = nueva("Campaña con presupuesto [ads-gasto]", "PLAN_APROBADO", { plan: "El plan", zonaProtegida: ["META_ADS"] });
+    assert.equal((await vuelta(zonasSolas())).ok, true);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.equal(t.resultado.subeSolo, false);
+    assert.equal(t.resultado.gastoMetaAds, true);
+    assert.match(t.resultado.pruebas, /⚠ gasto en Meta Ads: src\/ads\/campana\.ts: .*daily_budget/);
+    assert.match(t.resultado.pruebas, /espera tu sí \(gasto en Meta Ads\)/);
+    sinRestos();
+  });
+
+  await prueba("Meta Ads: si el PLAN dice GASTO EN META ADS, tampoco sube sola aunque el código no tenga señales", async () => {
+    const id = nueva("Reporte [ads-ok]", "PLAN_APROBADO", { plan: "El plan\nGASTO EN META ADS: prende una campaña nueva", zonaProtegida: ["META_ADS"] });
+    assert.equal((await vuelta(zonasSolas())).ok, true);
+    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    assert.equal(tarjetas.get(id).resultado.gastoMetaAds, true);
+    sinRestos();
+  });
+
+  await prueba("libro V3 sin '✔ simulación V3' (ni versión anterior) en lo que dejó la construcción: no sube sola", async () => {
+    const id = nueva("Libro [v3-sin-prueba]", "PLAN_APROBADO", { plan: "El plan", zonaProtegida: ["LIBRO_V3"] });
+    assert.equal((await vuelta(zonasSolas())).ok, true);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.match(t.resultado.pruebas, /⚠ libro V3: falta la simulación V3/);
+    sinRestos();
+  });
+
+  await prueba("bot de ventas: sin '✔ sin mensajes nuevos a clientes' no sube sola; con un envío nuevo en el diff tampoco", async () => {
+    const sin = nueva("Bot [bot-sin-prueba]", "PLAN_APROBADO", { plan: "El plan", zonaProtegida: ["BOT_VENTAS"] });
+    assert.equal((await vuelta(zonasSolas())).ok, true);
+    assert.equal(tarjetas.get(sin).estado, "POR_REVISAR");
+    assert.match(tarjetas.get(sin).resultado.pruebas, /⚠ bot de ventas: falta "✔ sin mensajes nuevos a clientes"/);
+    const envio = nueva("Bot [bot-envio]", "PLAN_APROBADO", { plan: "El plan", zonaProtegida: ["BOT_VENTAS"] });
+    assert.equal((await vuelta(zonasSolas())).ok, true);
+    assert.equal(tarjetas.get(envio).estado, "POR_REVISAR");
+    assert.match(tarjetas.get(envio).resultado.pruebas, /envío nuevo de mensajes que el plan no menciona \(src\/bot\/aviso\.ts: enviarMensajeNuevo\)/);
+    sinRestos();
+  });
+
+  await prueba("vigilancia: errores NUEVOS en los logs después de subir -> revierte con un commit nuevo (sin force-push) y dice 'Revertida'", async () => {
+    const id = nueva("Cambio del bot [bot-ok]", "PLAN_APROBADO", { plan: "El plan", zonaProtegida: ["BOT_VENTAS"] });
+    assert.equal((await vuelta(zonasSolas())).ok, true);
+    assert.equal(tarjetas.get(id).estado, "SUBIENDO");
+    const mainAhora = shaDe("main");
+    process.env.SSH_FALSO_ERRORES_NUEVOS = String(leerLog(LOGS.ssh).length);
+    process.env.SSH_FALSO_ERRORES_VIEJOS = "1";
+    try {
+      const subida = await vuelta(zonasSolas());
+      assert.equal(subida.hizo, "subir");
+      assert.equal(subida.ok, false);
+    } finally {
+      delete process.env.SSH_FALSO_ERRORES_NUEVOS;
+      delete process.env.SSH_FALSO_ERRORES_VIEJOS;
+    }
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, /Revertida: errores nuevos en los logs después de subir: .*se rompió algo nuevo/);
+    assert.ok(!/conexión vieja/.test(t.resultado.error.motivo), "un error que ya salía antes de subir no cuenta");
+    assert.equal(t.resultado.error.reversion?.ok, true);
+    assert.match(t.resultado.error.reversion.motivo, /errores nuevos/);
+    // El revert es un commit NUEVO encima de main: el historial anterior sigue ahí (nada de force-push).
+    assert.notEqual(shaDe("main"), mainAhora);
+    assert.match(g(REPO, "log", "-1", "--format=%s", "origin/main"), /^revert:/i);
+    assert.ok(g(REPO, "log", "--format=%H", "origin/main").includes(mainAhora), "lo anterior de main sigue en el historial");
+    assert.equal(g(REPO, "show", "origin/main:src/bot/respuesta.ts"), g(REPO, "show", `${mainAhora}:src/bot/respuesta.ts`), "el cambio del bot quedó deshecho en main");
+    sinRestos();
+  });
+
+  await prueba("vigilancia: el contenedor se cae después de subir -> revierte; un error viejo que ya salía antes NO revierte", async () => {
+    const caida = nueva("Cambio del bot [bot-ok]", "PLAN_APROBADO", { plan: "El plan", zonaProtegida: ["BOT_VENTAS"] });
+    assert.equal((await vuelta(zonasSolas())).ok, true);
+    process.env.SSH_FALSO_CAIDO = "1";
+    try {
+      assert.equal((await vuelta(zonasSolas())).ok, false);
+    } finally {
+      delete process.env.SSH_FALSO_CAIDO;
+    }
+    assert.match(tarjetas.get(caida).resultado.error.motivo, /Revertida: el contenedor de la app se cayó/);
+
+    const viejo = nueva("Cambio del ads [ads-ok]", "PLAN_APROBADO", { plan: "El plan", zonaProtegida: ["META_ADS"] });
+    assert.equal((await vuelta(zonasSolas())).ok, true);
+    process.env.SSH_FALSO_ERRORES_VIEJOS = "1";
+    try {
+      assert.equal((await vuelta(zonasSolas())).ok, true);
+    } finally {
+      delete process.env.SSH_FALSO_ERRORES_VIEJOS;
+    }
+    assert.equal(tarjetas.get(viejo).estado, "HECHO");
     sinRestos();
   });
 

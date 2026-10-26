@@ -6,6 +6,7 @@ import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { leerUltimoEnvio } from "@/features/tableros-inteligentes/services/resumen-diario";
+import { ZONAS_QUE_SUBEN_SOLAS } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -460,6 +461,9 @@ async function automatizaciones(
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(workspaceId).catch(() => "no se pudo leer"),
+    // Regla fija del código (24-oct-2026): sin interruptor en el CRM. Que el Coordinador de verdad las suba solas depende
+    // de su config.json (zonasQueSubenSolas y vigilancia), que vive en su PC y desde acá no se ve.
+    zonas_que_suben_solas: `activa (no tiene interruptor): ${ZONAS_QUE_SUBEN_SOLAS.join(", ")} suben solas sin el tercer sí; el resto de zonas protegidas (CHATS) pide el sí del dueño`,
   };
 
   return {

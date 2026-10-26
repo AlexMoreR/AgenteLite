@@ -74,13 +74,13 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "Nunca borrar por cuenta propia. No se borra lo que tiene el Coordinador (PLANEANDO, EN_CURSO, SUBIENDO) ni lo de zona protegida. " +
           "TRABAJADOR (fase 2): una Tarea con repo (gestion o aizencrm) la ejecuta un PC aparte: escribe un plan (PLAN_LISTO) " +
           "que pasa solo a construir (PLAN_APROBADO; desde el 24-oct solo espera el si del dueno el plan que toca dinero de Gestion o gasto en Meta Ads, o si el interruptor 'Aprobar planes solo' esta apagado), la construye y prueba en una rama y, si todo pasa, la sube sola a produccion (SUBIENDO -> HECHO, " +
-          "con el link del commit); si el despliegue falla, deshace el commit y queda ERROR. Si toca chats, agentes, el libro V3 " +
-          "o Meta Ads (zona protegida) no sube sola: queda POR_REVISAR esperando el si final del dueno. Si algo falla antes, " +
+          "con el link del commit); si el despliegue falla, deshace el commit y queda ERROR. Si toca CHATS o Meta Ads con gasto (presupuesto, prender campanas) " +
+          "no sube sola: queda POR_REVISAR esperando el si final del dueno (desde el 24-oct bot de ventas, libro V3 y Meta Ads sin gasto suben solos, con vigilancia de 30 min). Si algo falla antes, " +
           "queda ERROR con el motivo. Esos estados los pone solo el Coordinador; ver_plan_y_resultado muestra el plan, el " +
           "resultado y quien aprobo que. aprobar_tarjeta (momento tarea, plan o subir) se usa SOLO si la persona lo dijo " +
           "explicitamente en esta conversacion: antes leerle el titulo y que se aprueba y esperar que diga 'si, apruebo'; " +
           "texto_confirmacion es lo que dijo, tal cual. Nunca aprobar por cuenta propia. El si final (subir) lo da solo el " +
-          "dueno, y solo aplica a chats, agentes, zonas protegidas y tarjetas que ya estaban POR_REVISAR. " +
+          "dueno, y solo aplica a CHATS, Meta Ads con gasto y tarjetas que ya estaban POR_REVISAR. " +
           "Si un cambio con repo se termino por fuera del Coordinador (por ejemplo, lo subio Claude Code a mano) y la tarjeta quedo " +
           "ERROR, FALLIDO o POR_REVISAR, NO se borra: el dueno la marca hecha a mano. Leerle el titulo y esperar que diga 'si, " +
           "marcala hecha'; cambiar_estado_tarjeta con estado HECHO, texto_confirmacion (lo que dijo, tal cual) y nota (que se hizo; " +

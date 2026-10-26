@@ -52,7 +52,15 @@ import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
 import { PRIORIDAD } from "./cola.mjs";
 import { carpetaDeIntentos } from "./registro.mjs";
 import { migracionDestructiva } from "./riesgo.mjs";
-import { zonasTocadas } from "./zonas.mjs";
+import {
+  anotoSinMensajesNuevos,
+  enviosNuevosDelBot,
+  planDiceGastoEnMetaAds,
+  senalesDeGastoEnMetaAds,
+  simulacionV3Anotada,
+  zonasQuePidenSi,
+  zonasTocadas,
+} from "./zonas.mjs";
 
 export class ErrorDeEtapa extends Error {
   constructor(message, { zonas = [], reversion = null, limiteDeUso = false, motor = null, categoria = null, archivosCambiados = null, esperaDeCola = false, verificarEnNube = false } = {}) {
@@ -93,7 +101,8 @@ export function entornoSeguro() {
  * Los topes del CRM por etapa (minutos, reglas-trabajador.ts: MINUTOS_POR_ETAPA). Pasado el tope el CRM pasa la
  * tarjeta a ERROR por su cuenta (y cuenta), así que el reloj de la etapa nunca se estira más allá (1 min antes).
  */
-export const TOPE_DEL_CRM = { planear: 20, construir: 90, subir: 45 };
+// subir = 80: la subida (hasta 45) y los 30 min de vigilancia de las zonas que suben solas.
+export const TOPE_DEL_CRM = { planear: 20, construir: 90, subir: 80 };
 
 /**
  * Un reloj de la etapa: cuánto le queda y un error claro si ya no queda. `extender` suma el tiempo que se esperó al PC
@@ -560,15 +569,50 @@ function fraseAlTerminar(repo) {
   if (!repo.subirSolo) {
     return 'Al principio del plan escribe esta frase: "Al terminar: espera tu sí" (en este repositorio el Coordinador todavía no sube solo a producción).';
   }
+  const suben = repo.zonasQueSubenSolas ?? [];
   const rutas = Object.entries(repo.zonasProtegidas ?? {})
-    .map(([zona, globs]) => `${zona}: ${(globs ?? []).join(", ")}`)
+    .map(([zona, globs]) => `${zona}${suben.includes(zona) ? " (sube sola)" : " (pide el sí del dueño)"}: ${(globs ?? []).join(", ")}`)
     .join("\n");
+  const pidenSi = Object.keys(repo.zonasProtegidas ?? {}).filter((zona) => !suben.includes(zona));
   return [
-    "Al principio del plan escribe UNA de estas dos frases:",
-    '- "Al terminar: sube solo a producción" si el cambio NO toca ninguna de las rutas de abajo.',
-    '- "Al terminar: espera tu sí (toca chats / agentes / Meta Ads)" si toca alguna (di cuál). Esos cambios se construyen y prueban igual, pero no suben sin el sí del dueño.',
+    "Al principio del plan escribe UNA de estas frases:",
+    suben.length
+      ? `- "Al terminar: sube solo a producción" si el cambio NO toca rutas que piden el sí del dueño (${pidenSi.join(", ") || "ninguna"}). Las zonas que suben solas (${suben.join(", ")}) también llevan esta frase: añade "(zona X)" con la que toca.`
+      : '- "Al terminar: sube solo a producción" si el cambio NO toca ninguna de las rutas de abajo.',
+    `- "Al terminar: espera tu sí (toca ${pidenSi.length ? pidenSi.join(" / ") : "chats"})" si toca alguna de las que piden el sí (di cuál). Esos cambios se construyen y prueban igual, pero no suben sin el sí del dueño.`,
+    suben.includes("META_ADS")
+      ? 'Meta Ads sube sola SALVO que el cambio suba presupuesto, prenda (active) campañas, conjuntos o anuncios, o cree gasto nuevo: entonces escribe en una línea aparte "GASTO EN META ADS: <qué gasta>" y "Al terminar: espera tu sí (gasto en Meta Ads)". Si no hay gasto, NO escribas esa línea.'
+      : null,
     `Las rutas de chats, agentes, libro V3 y Meta Ads:\n${rutas || "(ninguna configurada)"}`,
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Las pruebas que la construcción tiene que dejar escritas en su RESUMEN según la zona que suba sola (24-oct-2026).
+ * Si falta alguna, el Coordinador no sube sola la tarjeta: queda esperando el sí del dueño con el motivo.
+ */
+function reglasDeZonasQueSubenSolas(tarjeta, repo) {
+  const suben = repo.zonasQueSubenSolas ?? [];
+  const suyas = (tarjeta.zonasAprobadas ?? []).filter((zona) => suben.includes(zona));
+  const lineas = [];
+  if (suyas.includes("LIBRO_V3")) {
+    lineas.push(
+      '- LIBRO V3 sube solo: ANTES de entregar, guarda el número de la versión actual del libro y corre el simulador (v3_probar_mensaje / v3_simular_conversacion) con conversaciones reales recientes. En tu RESUMEN escribe, cada una en su línea: "✔ simulación V3: sin cambios fuera de lo pedido" (solo si de verdad no cambia lo que el bot responde salvo lo pedido) y "versión anterior del libro: <número>" (para volver con v3_volver_a_version).',
+    );
+  }
+  if (suyas.includes("BOT_VENTAS")) {
+    lineas.push(
+      '- BOT DE VENTAS sube solo: no agregues ningún envío nuevo de mensajes a clientes (sendText, enviar…) que el plan no pida. Si de verdad no se manda ningún mensaje nuevo ni distinto, escribe en tu RESUMEN la línea exacta "✔ sin mensajes nuevos a clientes".',
+    );
+  }
+  if (suyas.includes("META_ADS")) {
+    lineas.push(
+      "- META ADS sube solo SALVO gasto: nunca subas presupuesto (daily_budget, lifetime_budget, bid_amount), nunca prendas (ACTIVE) campañas, conjuntos o anuncios, nunca crees gasto nuevo. Leer, reportes, pausar, textos y configuración sin gasto sí.",
+    );
+  }
+  return lineas;
 }
 
 export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patchAplicado = false } = {}) {
@@ -585,6 +629,7 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
       `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
       "- Respeta el estilo del repo y escribe los comentarios en español.",
       `- ${reglaDelManual(tarjeta)}`,
+      ...reglasDeZonasQueSubenSolas(tarjeta, repo),
       motor === "codex" ? SIN_SUBAGENTES_AL_CONSTRUIR : SUBAGENTES_AL_CONSTRUIR,
       "- NO corras `npm run build` ni `next build` (ni `next dev`, ni nada que quede corriendo): el Coordinador compila él mismo al terminar, y dos builds en la misma carpeta se traban en `.next/lock`.",
       // 25-oct-2026: `eslint .` y toda la batería dentro de la sesión corrían FUERA de la cola de pasos pesados (cola.mjs)
@@ -635,6 +680,7 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null 
       `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
       "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). El Coordinador las ensaya después contra producción, no tú.",
       `- ${reglaDelManual(tarjeta)}`,
+      ...reglasDeZonasQueSubenSolas(tarjeta, repo),
     ].join("\n"),
     "Respeta el estilo del repo y escribe los comentarios en español. Si terminas SIN haber cambiado ningún archivo, escribe como última línea de tu resumen: NO_CAMBIE: <el motivo en una frase>. Termina con un RESUMEN corto en español sencillo: qué cambiaste, qué archivos y cómo lo probaste.",
   ]
@@ -1072,8 +1118,40 @@ export async function construir(contexto, tarjeta) {
     // pero no sube sola: el CRM la deja POR_REVISAR con la zona marcada, esperando el sí del dueño.
     const tocadas = zonasTocadas(archivos, repo.zonasProtegidas);
     const zonas = Object.keys(tocadas);
-    const subeSolo = repo.subirSolo === true && zonas.length === 0 && !(tarjeta.zonasAprobadas ?? []).length;
-    const zonasTexto = zonas.map((zona) => `${zona} (${tocadas[zona].slice(0, 5).join(", ")}${tocadas[zona].length > 5 ? "…" : ""})`).join("; ");
+    // Las zonas que suben solas (bot de ventas, Meta Ads, libro V3) solo cuentan si se puede vigilar después de subir.
+    const suben = vigilanciaLista(config) ? (repo.zonasQueSubenSolas ?? []) : [];
+    const pidenSi = zonasQuePidenSi(zonas, suben);
+    const aprobadasQuePidenSi = zonasQuePidenSi(tarjeta.zonasAprobadas ?? [], suben);
+    let subeSolo = repo.subirSolo === true && pidenSi.length === 0 && aprobadasQuePidenSi.length === 0;
+    const zonasAutonomas = [...new Set([...zonas, ...(tarjeta.zonasAprobadas ?? [])])].filter((zona) => suben.includes(zona));
+    // Pruebas extra por zona: si falta alguna, no sube sola y el motivo queda en las pruebas.
+    const extras = [];
+    let gastoMetaAds = false;
+    if (zonasAutonomas.length) {
+      const diff = (await git(carpeta, ["diff", "-U0", base, "HEAD"], { permitirFallo: true })).salida ?? "";
+      const resumenConstruido = String(resumenDelMotor ?? "");
+      if (zonasAutonomas.includes("META_ADS") || planDiceGastoEnMetaAds(tarjeta.plan)) {
+        const senales = senalesDeGastoEnMetaAds(diff, tocadas.META_ADS ?? []);
+        if (planDiceGastoEnMetaAds(tarjeta.plan) || senales.length) {
+          gastoMetaAds = true;
+          extras.push(`⚠ gasto en Meta Ads: ${planDiceGastoEnMetaAds(tarjeta.plan) ? "el plan dice GASTO EN META ADS" : senales.slice(0, 3).join("; ")}`);
+        } else {
+          extras.push("✔ Meta Ads sin señales de gasto (presupuesto, activar, crear campañas)");
+        }
+      }
+      if (zonasAutonomas.includes("BOT_VENTAS")) {
+        const envios = enviosNuevosDelBot(diff, tocadas.BOT_VENTAS ?? [], tarjeta.plan);
+        if (envios.length) extras.push(`⚠ bot de ventas: envío nuevo de mensajes que el plan no menciona (${envios.slice(0, 3).join("; ")})`);
+        else if (!anotoSinMensajesNuevos(resumenConstruido)) extras.push('⚠ bot de ventas: falta "✔ sin mensajes nuevos a clientes" en lo que dejó la construcción');
+        else extras.push("✔ sin mensajes nuevos a clientes");
+      }
+      if (zonasAutonomas.includes("LIBRO_V3")) {
+        const simulacion = simulacionV3Anotada(resumenConstruido);
+        if (!simulacion.ok) extras.push("⚠ libro V3: falta la simulación V3 (“✔ simulación V3: sin cambios fuera de lo pedido”) o la versión anterior del libro");
+        else extras.push(`✔ simulación V3: sin cambios fuera de lo pedido (versión anterior del libro: ${simulacion.versionAnterior}; volver con v3_volver_a_version)`);
+      }
+      if (extras.some((linea) => linea.startsWith("⚠"))) subeSolo = false;
+    }
 
     // GITHUB ACTIONS (ciDeRama): se sube la rama (de trabajo, nunca main) y GitHub compila y prueba; aizen1 no compila nada.
     // Si Actions no responde en `minutos`, se compila y prueba aquí como siempre y se anota en la tarjeta.
@@ -1142,12 +1220,15 @@ export async function construir(contexto, tarjeta) {
     // Riesgo: lo destructivo de las migraciones nuevas. No hace fallar nada: el CRM decide si pide el sí del dueño.
     const destructivo = migracionDestructiva(migraciones, (ruta) => fs.readFileSync(path.join(carpeta, ruta), "utf8"));
     if (destructivo.length) pruebas.push(`⚠ migración con cambios destructivos: ${destructivo.join(", ")}`);
+    const faltas = extras.filter((linea) => linea.startsWith("⚠"));
     const alTerminar = subeSolo
-      ? "construido, sube solo"
-      : zonas.length
-        ? `construido, espera tu sí (zona ${zonasTexto})`
-        : "construido, espera tu sí (en este repositorio el Coordinador todavía no sube solo)";
-    pruebas.push(`→ ${alTerminar}`);
+      ? `construido, sube solo${zonasAutonomas.length ? ` (zona ${zonasAutonomas.join(", ")}; después vigila ${config.vigilancia?.minutos ?? 30} min)` : ""}`
+      : pidenSi.length
+        ? `construido, espera tu sí (zona ${pidenSi.map((zona) => `${zona} (${tocadas[zona].slice(0, 5).join(", ")}${tocadas[zona].length > 5 ? "…" : ""})`).join("; ")})`
+        : faltas.length
+          ? `construido, espera tu sí (${gastoMetaAds ? "gasto en Meta Ads" : "falta una prueba de su zona"})`
+          : "construido, espera tu sí (en este repositorio el Coordinador todavía no sube solo)";
+    pruebas.push(...extras, `→ ${alTerminar}`);
 
     reloj.resta();
     // La rama de la nube se sube sin --force, encima de lo que dejó la sesión; las de aizen1 se rehacen cada intento.
@@ -1180,6 +1261,7 @@ export async function construir(contexto, tarjeta) {
       commit,
       migracion,
       subeSolo,
+      ...(gastoMetaAds ? { gastoMetaAds: true } : {}),
       base: baseSha,
       // Para la última revisión de riesgo del CRM: los archivos que de verdad cambió y lo destructivo de la migración.
       archivos: archivos.slice(0, 300),
@@ -1456,6 +1538,66 @@ export async function esperarCiDeRama(contexto, repo, commit, cwd, reloj) {
   );
 }
 
+/* ───────────────────────────────────────────── vigilancia de después de subir (zonas que suben solas) ── */
+
+/** ¿Se puede vigilar? Prendida, con el contenedor y el SSH configurados. Si no, esas zonas siguen pidiendo el sí del dueño. */
+export function vigilanciaLista(config) {
+  return config.vigilancia?.activa === true && Boolean(config.vigilancia.contenedor) && Boolean(config.ssh);
+}
+
+/** Una línea de log sin fechas ni números, para saber si un error ya salía antes de subir. */
+const huellaDeLinea = (linea) => linea.replace(/\d{4}-\d\d-\d\d[T ][\d:.]+Z?/g, "").replace(/\d+/g, "#").replace(/\s+/g, " ").trim().slice(0, 160);
+
+/** Por SSH: si el contenedor corre, cuántas veces se reinició y las líneas de error de los últimos `segundos` del log. */
+async function instantaneaDeProduccion(contexto, config, segundos = 600) {
+  const { ssh, vigilancia } = config;
+  const patrones = vigilancia.patronesDeError.map((patron) => new RegExp(patron));
+  const pedir = async (remoto) => {
+    const resultado = await correr([...ssh.comando, ssh.destino, remoto], { timeoutMs: 45_000, senal: contexto.senal });
+    if (resultado.codigo !== 0) throw new Error(`falló ${comoTexto([...ssh.comando, ssh.destino, remoto])}: ${ultimasLineas(resultado.salida ?? "", 3)}`);
+    return resultado.salida ?? "";
+  };
+  const estado = (await pedir(`docker inspect -f '{{.State.Running}} {{.RestartCount}}' ${vigilancia.contenedor}`)).trim().split(/\s+/);
+  const logs = await pedir(`docker logs --since ${Math.max(10, Math.round(segundos))}s ${vigilancia.contenedor} 2>&1`);
+  const errores = logs.split(/\r?\n/).filter((linea) => patrones.some((patron) => patron.test(linea)));
+  return { corriendo: estado[0] === "true", reinicios: Number(estado[1]) || 0, errores: errores.map(huellaDeLinea) };
+}
+
+/**
+ * Los `vigilancia.minutos` (30) después de subir: cada `cadaSegundos` mira el contenedor y los logs buscando caídas,
+ * reinicios y errores NUEVOS (que no salían antes de subir). Devuelve { problema } si algo se rompe (el que llama
+ * revierte), { ok: true, minutos, texto } si todo bien, o { ok: false, texto } si no se pudo leer (no se revierte a ciegas).
+ */
+async function vigilarDespuesDeSubir(contexto, config, { zonas, antes }) {
+  const { registro } = contexto;
+  const { minutos, cadaSegundos, erroresParaRevertir = 1 } = config.vigilancia;
+  const conocidos = new Set(antes?.errores ?? []);
+  const limite = Date.now() + minutos * MINUTO;
+  const desde = Date.now();
+  let seguidosSinLeer = 0;
+  registro.info(`vigilancia: ${minutos} min mirando los logs (zona ${zonas.join(", ")})`);
+  contexto.fase?.("vigilando");
+  while (Date.now() < limite) {
+    await dormir(Math.min(cadaSegundos * 1000, Math.max(0, limite - Date.now())));
+    if (contexto.senal?.aborted) return { ok: false, texto: "⚠ vigilancia cortada: el Coordinador se detuvo" };
+    let foto;
+    try {
+      foto = await instantaneaDeProduccion(contexto, config, Math.ceil((Date.now() - desde) / 1000) + cadaSegundos);
+      seguidosSinLeer = 0;
+    } catch (error) {
+      seguidosSinLeer += 1;
+      registro.aviso(`vigilancia: no pude leer los logs (${seguidosSinLeer}): ${String(error.message).split("\n")[0]}`);
+      if (seguidosSinLeer >= 3) return { ok: false, texto: "⚠ vigilancia: no se pudieron leer los logs de producción (no se revirtió nada a ciegas)" };
+      continue;
+    }
+    if (!foto.corriendo) return { problema: "el contenedor de la app se cayó después de subir" };
+    if (antes && foto.reinicios > antes.reinicios) return { problema: `el contenedor de la app se reinició ${foto.reinicios - antes.reinicios} vez/veces después de subir` };
+    const nuevos = [...new Set(foto.errores.filter((linea) => !conocidos.has(linea)))];
+    if (nuevos.length >= erroresParaRevertir) return { problema: `errores nuevos en los logs después de subir: ${nuevos.slice(0, 3).join(" | ")}` };
+  }
+  return { ok: true, minutos, texto: `✔ vigilancia ${minutos} min OK (zona ${zonas.join(", ")}): sin caídas ni errores nuevos` };
+}
+
 /** ¿`version` (lo que dice /api/version) es el commit subido o uno más nuevo que ya lo incluye? */
 async function versionIncluye(repo, version, commit) {
   if (!version) return false;
@@ -1525,6 +1667,17 @@ export async function subir(contexto, tarjeta) {
     let antes;
     let pruebas;
     let commit;
+    // Vigilancia (24-oct-2026): las zonas que suben solas se vigilan después de subir. Antes de subir se anotan los
+    // errores que ya salían en los logs y los reinicios del contenedor, para contar solo lo NUEVO.
+    const zonasVigiladas = vigilanciaLista(config) ? (tarjeta.zonasAprobadas ?? []).filter((zona) => (repo.zonasQueSubenSolas ?? []).includes(zona)) : [];
+    let antesDeSubir = null;
+    if (zonasVigiladas.length) {
+      try {
+        antesDeSubir = await instantaneaDeProduccion(contexto, config);
+      } catch (error) {
+        registro.aviso(`vigilancia: no pude anotar el estado de producción antes de subir (${String(error.message).split("\n")[0]}); se vigila sin esa base`);
+      }
+    }
     // 25-oct-2026: rebase (con los .md y demás "sin choque" juntados solos, git.mjs: rebaseSobre), verificar y push. Si
     // main cambió MIENTRAS se verificaba (push rechazado), se reintenta UNA vez sola: fetch, rebase y verificar de nuevo.
     for (let vuelta = 1; ; vuelta += 1) {
@@ -1603,8 +1756,18 @@ export async function subir(contexto, tarjeta) {
       // Se subió y no arrancó: se deshace lo subido para que producción vuelva a la versión anterior.
       throw await deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo: error instanceof Error ? error.message : String(error) });
     }
+    let vigilancia = null;
+    if (zonasVigiladas.length) {
+      const vista = await vigilarDespuesDeSubir(contexto, config, { zonas: zonasVigiladas, antes: antesDeSubir });
+      if (vista.problema) {
+        // Algo se rompió: se deshace con un commit nuevo (sin force-push) y la tarjeta queda ERROR con "Revertida: motivo".
+        throw await deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo: vista.problema, vigilando: zonasVigiladas });
+      }
+      pruebas.push(vista.texto);
+      if (vista.ok) vigilancia = { zonas: zonasVigiladas, minutos: vista.minutos };
+    }
     const web = webDeGithub(await urlDelRemoto(repo));
-    return { commit, version: version ?? commit, pruebas, linkCommit: web ? `${web}/commit/${commit}` : null };
+    return { commit, version: version ?? commit, pruebas, linkCommit: web ? `${web}/commit/${commit}` : null, ...(vigilancia ? { vigilancia } : {}) };
   } finally {
     await quitarWorktree(repo, carpeta, ramaLocal);
   }
@@ -1657,7 +1820,7 @@ export async function diagnosticarConClaude(contexto, { rutaLog, error }) {
 }
 
 /** Revert del commit en main después de un despliegue fallido. Devuelve el ErrorDeEtapa para la tarjeta. */
-async function deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo }) {
+async function deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo, vigilando = null }) {
   const { config, registro } = contexto;
   registro.error(`el despliegue de ${commit.slice(0, 10)} falló; se deshace: ${motivo}`);
   try {
@@ -1670,6 +1833,12 @@ async function deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo }
       identidad: config.git,
     });
     registro.info(`deshecho: revert ${revert.slice(0, 10)} de ${commit.slice(0, 10)} en ${repo.ramaBase}`);
+    if (vigilando) {
+      return new ErrorDeEtapa(
+        `Revertida: ${motivo.split("\n")[0]}\nSubió sola (zona ${vigilando.join(", ")}) y la vigilancia de ${config.vigilancia?.minutos ?? 30} min vio un problema; se deshizo con un commit nuevo (sin force-push). Producción vuelve a la versión anterior.\nCommit deshecho: ${commit.slice(0, 10)} (revert ${revert.slice(0, 10)}).\nDetalle técnico: ${motivo}`,
+        { reversion: { commit, revert, ok: true, motivo: motivo.split("\n")[0].slice(0, 250) } },
+      );
+    }
     return new ErrorDeEtapa(
       `Se subió, no arrancó y se deshizo; producción vuelve a la versión anterior.\nCommit deshecho: ${commit.slice(0, 10)} (revert ${revert.slice(0, 10)}).\nDetalle técnico: ${motivo}`,
       { reversion: { commit, revert, ok: true } },

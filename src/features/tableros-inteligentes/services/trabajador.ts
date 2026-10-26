@@ -41,6 +41,8 @@ import {
   tituloDeLaParte,
   unirZonas,
   vencimientoDelCandado,
+  vigilanciaDeEntrada,
+  zonasQuePidenSi,
   latidoDeEntrada,
   zonasDeEntrada,
   type AccionDeIntento,
@@ -731,24 +733,33 @@ export async function accionDelTrabajador(
       resultado.subeSolo = subeSolo;
       datos.resultado = resultado as unknown as Prisma.InputJsonValue;
       despues.resultado = resultado;
+      const pideSi = zonasQuePidenSi(zonas);
+      const nombreDeZonas = (lista: readonly string[]) => lista.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ");
       despues.nota =
         a === "SUBIENDO"
-          ? "construido, sube solo"
-          : zonas.length
-            ? `construido, espera tu sí (zona ${zonas.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")})`
-            : "construido, espera tu sí";
+          ? zonas.length
+            ? `construido, sube solo (zona ${nombreDeZonas(zonas)})`
+            : "construido, sube solo"
+          : pideSi.length
+            ? `construido, espera tu sí (zona ${nombreDeZonas(pideSi)})`
+            : resultado.gastoMetaAds
+              ? "construido, espera tu sí (gasto en Meta Ads)"
+              : "construido, espera tu sí";
     } else if (accion === "subida") {
       const subida = {
         commit: typeof cuerpo.commit === "string" ? cuerpo.commit.trim().slice(0, 80) : null,
         version: typeof cuerpo.version === "string" ? cuerpo.version.trim().slice(0, 120) : null,
         linkCommit: linkDeEntrada(cuerpo.linkCommit),
         cuando: ahora.toISOString(),
+        ...vigilanciaDeEntrada(cuerpo.vigilancia),
       };
       const { error: _errorViejo, ...sinError } = previo;
       void _errorViejo;
       datos.resultado = { ...sinError, subida } as Prisma.InputJsonValue;
       despues.subida = subida;
-      despues.nota = `subido a main, commit ${subida.commit?.slice(0, 10) ?? "?"}; en producción, versión ${subida.version?.slice(0, 10) ?? "?"}`;
+      despues.nota = `subido a main, commit ${subida.commit?.slice(0, 10) ?? "?"}; en producción, versión ${subida.version?.slice(0, 10) ?? "?"}${
+        subida.vigilancia ? `. Subió sola (zona ${subida.vigilancia.zonas.join(", ")}) — vigilancia ${subida.vigilancia.minutos} min OK` : ""
+      }`;
     } else if (accion === "error") {
       // Con `categoria` es una escalada del protocolo de reparación: el motivo es el resumen de máximo 3 líneas
       // para el dueño, y queda una fila de intentos (escalar, cuenta como intento) con el error técnico.

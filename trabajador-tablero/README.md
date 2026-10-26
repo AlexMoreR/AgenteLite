@@ -36,11 +36,34 @@ El flujo es **Planear → Aprobar plan → Hacer**, y "Hacer" incluye subir a pr
 migración) la tarjeta pasa directo a SUBIENDO y el trabajador la sube **enseguida**, sin esperar el
 minuto y antes que cualquier otra tarjeta.
 
-- **Chats, agentes, libro V3 y Meta Ads no suben solos.** Si el cambio toca una ruta de
-  `zonasProtegidas` (`CHATS`, `BOT_VENTAS`, `LIBRO_V3`, `META_ADS`), se construye y prueba igual pero
-  queda **POR_REVISAR** marcada con la zona, hasta que el dueño dé el "Sí, subir a producción" en la
-  pantalla. El plan lo dice desde el principio: "Al terminar: sube solo a producción" o "Al terminar:
-  espera tu sí (toca chats / agentes / Meta Ads)".
+- **Chats no sube solo; bot de ventas, libro V3 y Meta Ads sí (desde el 24-oct-2026).** Si el cambio toca
+  una ruta de `zonasProtegidas` que NO está en `zonasQueSubenSolas` del repo (hoy `CHATS`), se construye y
+  prueba igual pero queda **POR_REVISAR** marcada con la zona, hasta que el dueño dé el "Sí, subir a
+  producción" en la pantalla. El plan lo dice desde el principio: "Al terminar: sube solo a producción" o
+  "Al terminar: espera tu sí (toca chats)".
+- **Zonas que suben solas (decisión del dueño, 24-oct-2026: "que no pida esa tercera aprobación").**
+  `repos.*.zonasQueSubenSolas` = `["BOT_VENTAS", "META_ADS", "LIBRO_V3"]` (config.example.json). `CHATS` no
+  se puede poner ahí (la config se rechaza): lo cambia su propia tarjeta, "Coordinador de Sistemas
+  autónomo"; cuando se construya basta con agregarla a esa lista y a `ZONAS_QUE_SUBEN_SOLAS` del CRM
+  (`reglas-trabajador.ts`). Sin la lista, o sin la sección `vigilancia`, todo sigue pidiendo el sí (error seguro).
+  Para subir sola, cada zona tiene su prueba extra; si falta, la tarjeta espera el sí con el motivo:
+  - **Libro V3:** lo que dejó la construcción en su resumen tiene que decir "✔ simulación V3: sin cambios
+    fuera de lo pedido" y "versión anterior del libro: N" (para volver con `v3_volver_a_version`).
+  - **Bot de ventas:** el resumen dice "✔ sin mensajes nuevos a clientes" y en los archivos del bot no
+    aparece un envío nuevo (`sendText`, `enviarMensaje…`) que el plan no mencione.
+  - **Meta Ads, única excepción que sigue pidiendo el sí:** si el plan trae una línea "GASTO EN META ADS" o el
+    cambio tiene señales de gasto (`daily_budget`, `lifetime_budget`, `bid_amount`, `ACTIVE`, activar o crear
+    campaña, conjunto o anuncio), queda POR_REVISAR: "espera tu sí (gasto en Meta Ads)". Leer, reportes,
+    pausar, textos y configuración sin gasto suben solos. Es una revisión por palabras: las herramientas de
+    Meta Ads que Claude usa por fuera de este repositorio no las controla este código.
+- **Vigilancia de 30 minutos (solo estas zonas).** Después de subir y comprobar que la versión nueva arrancó,
+  el Coordinador mira por SSH (`vigilancia.contenedor`: `docker inspect` y `docker logs`) cada
+  `vigilancia.cadaSegundos` durante `vigilancia.minutos`: busca que el contenedor se caiga, se reinicie o
+  salgan errores NUEVOS (los que ya salían antes de subir no cuentan). Si algo se rompe, hace `git revert`
+  con un commit nuevo (sin force-push) y la tarjeta queda ERROR con "Revertida: motivo"; si todo sale bien,
+  HECHO con "Subió sola (zona X) — vigilancia 30 min OK". Mientras vigila no sube otra tarjeta del mismo
+  repo (es parte de la etapa de subir). Si no puede leer los logs, no revierte a ciegas y no dice OK. Por eso
+  el tope de subir en el CRM es ahora 80 min (antes 45).
 - **Si algo falla antes de subir**, no sube nada: queda **ERROR** con el motivo en palabras sencillas
   ("No compiló: …", "Fallaron las pruebas…", "El ensayo de la migración falló…") y el detalle técnico debajo.
 - **Si el despliegue falla después de subir** (el CI falla, o `/api/version` no muestra el commit nuevo
@@ -60,7 +83,7 @@ FALLIDO o POR_REVISAR) con una nota de qué se hizo, y queda HECHO sin que el tr
 
 Mientras trabaja manda un **latido** cada minuto. Si el PC se apaga o se cuelga, a los 5 minutos sin
 latido la tarjeta pasa a ERROR ("se pasó del tiempo"). Topes por etapa: plan 20 min, construir 90 min,
-subir 45 min (el CI de AizenCRM tarda hasta 20 y la versión hasta 8; tiene que alcanzar para deshacer).
+subir 80 min (45 de subida + 30 de vigilancia de las zonas que suben solas; el CI de AizenCRM tarda hasta 20 y la versión hasta 8; tiene que alcanzar para deshacer).
 
 Lo que **nunca** hace: push a main de un cambio que no pasó todo, ni de uno que toca una zona
 protegida sin el sí final del dueño; push con `--force` a main; `prisma migrate dev` / `db push`; nada
@@ -380,6 +403,10 @@ Mientras no se haga, sigue funcionando como antes (todo queda POR_REVISAR).
    - `zonasProtegidas`: las rutas (globs) de cada zona (`CHATS`, `BOT_VENTAS`, `LIBRO_V3`, `META_ADS`).
      Las del ejemplo son un punto de partida: revisarlas.
    - `subirSolo`: `true` para que las tarjetas que pasan todo y no tocan una zona suban solas a producción.
+   - `zonasQueSubenSolas`: de las zonas anteriores, las que suben solas (`BOT_VENTAS`, `META_ADS`, `LIBRO_V3`).
+   - `vigilancia`: `activa`, `contenedor` (la app en el servidor), `minutos` (30), `cadaSegundos` (60) y
+     `erroresParaRevertir` (1). Necesita la sección `ssh`. **Hay que agregar estas dos cosas al `config.json` real
+     del Coordinador** (el que está fuera del repositorio): sin ellas todo sigue pidiendo el sí.
    - `subida`: cómo esperar el CI y comprobar la versión de cada repo.
 3. **Requisitos del PC.** Node 20+, `git` (con permiso de push a los repos), `gh` logueado (`gh auth status`),
    `claude` logueado, `codex` logueado con ChatGPT (`codex login status`), y la llave ssh si se usa el ensayo

@@ -81,8 +81,19 @@
     "destino": "USUARIO@SERVIDOR",
     "psql": "docker exec -i CONTENEDOR_POSTGRES psql -U postgres"
   },
+  "vigilancia": {
+    "activa": true,
+    "contenedor": "NOMBRE_DEL_CONTENEDOR_DE_LA_APP",
+    "minutos": 30,
+    "cadaSegundos": 60
+  },
   "repos": {
     "aizencrm": {
+      "zonasQueSubenSolas": [
+        "BOT_VENTAS",
+        "META_ADS",
+        "LIBRO_V3"
+      ],
       "github": "AlexMoreR/AgenteLite",
       "ruta": "D:/Proyectos/AgenteLite",
       "ramaBase": "main",

@@ -196,9 +196,11 @@ export type ResultadoVista = {
   /** La corrida de GitHub Actions que probó la rama (github.com) y dónde se compiló y probó. */
   linkWorkflow?: string | null;
   verificadoEn?: "github-actions" | "aizen1" | "nube";
+  /** El cambio sube presupuesto, prende campañas o crea gasto en Meta Ads: espera el sí del dueño. */
+  gastoMetaAds?: boolean;
   /** Mientras se construye (EN_CURSO): dónde y la sesión, como lo avisa el latido. */
   construccion?: { lugar?: "aizen1" | "nube"; linkSesion?: string | null };
-  subida?: { commit?: string | null; version?: string | null; linkCommit?: string | null; cuando?: string };
+  subida?: { commit?: string | null; version?: string | null; linkCommit?: string | null; cuando?: string; vigilancia?: { zonas: string[]; minutos: number } };
   /** Si el Coordinador la partió: las tarjetas hijas (ids), la causa y cuándo. */
   partida?: { hijas?: string[]; causa?: string; cuando?: string };
   error?: {
@@ -209,7 +211,7 @@ export type ResultadoVista = {
     categoria?: string;
     causa?: string;
     /** El despliegue falló después de subir: el Coordinador hizo revert del commit en main. */
-    reversion?: { commit?: string | null; revert?: string | null; ok?: boolean };
+    reversion?: { commit?: string | null; revert?: string | null; ok?: boolean; motivo?: string };
   };
 };
 
