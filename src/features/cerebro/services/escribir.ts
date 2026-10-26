@@ -6,6 +6,7 @@ import { driveDelNegocio } from "./conexion";
 import { permisosDelCerebro } from "./permisos";
 import {
   agregarAlFinal,
+  conFechaDeDecision,
   nombreDeDocumentoNuevo,
   problemaDeVersion,
   problemaDelContenido,
@@ -17,8 +18,9 @@ import {
   .md nuevo, agregarle una parte al final a un .md/.txt, o reemplazar su contenido. Nunca borra nada.
 
   Reglas (las revisa el SERVIDOR, no Claude):
-  - Por el MCP (cerebro_escribir): la clave tiene que ser de la cuenta dueña y hay que pasar las palabras
-    exactas del dueño ("sí, escríbelo en el cerebro"), como aprobar y borrar tarjetas por voz.
+  - Por el MCP (cerebro_escribir): la clave tiene que ser de la cuenta dueña. Crear y agregar NO piden
+    la frase del dueño (Claude anota cada decisión apenas se toma); reemplazar todo un documento SÍ pide
+    las palabras exactas del dueño ("sí, escríbelo en el cerebro").
   - Desde la pantalla o el tablero: el dueño o quien él autorizó para el cerebro.
   - Antes de escribir se compara la versión del documento en el Drive con la que se leyó. Si cambió, no se escribe.
   - Todo queda en CerebroCambio: quién, cuándo, desde dónde, el antes y el después.
@@ -95,6 +97,7 @@ const TOPE_REGISTRO = 100_000;
 /** ¿Esta persona puede escribir por esta puerta? Devuelve el motivo de que no, o null. */
 export function problemaDeAutorizacion(datos: {
   origen: OrigenDeEscritura;
+  modo: ModoDeEscritura;
   textoConfirmacion?: unknown;
   /** Por el MCP: el motivo de que la cuenta de la clave no sea la dueña (null si lo es). */
   motivoCuentaNoDueno: string | null;
@@ -102,8 +105,10 @@ export function problemaDeAutorizacion(datos: {
   autorizadaParaElCerebro: boolean;
 }): string | null {
   if (datos.origen === "MCP") {
-    const texto = textoDeConfirmacionParaCerebro(datos.textoConfirmacion);
-    if (texto) return texto;
+    if (datos.modo === "reemplazar") {
+      const texto = textoDeConfirmacionParaCerebro(datos.textoConfirmacion);
+      if (texto) return `Reemplazar todo un documento pide la confirmación del dueño: ${texto}`;
+    }
     return datos.motivoCuentaNoDueno;
   }
   return datos.autorizadaParaElCerebro ? null : "Solo el dueño o quien él autorizó para el cerebro puede escribir en él.";
@@ -122,7 +127,8 @@ export async function escribirConDependencias(pedido: PedidoDeEscritura, deps: D
     if (await deps.hermanoConNombre(carpetaId, nombre)) {
       throw new Error(`Ya existe "${nombre}" en esa carpeta. Para sumarle algo usa modo "agregar" con su id.`);
     }
-    const creado = await deps.drive.crearTexto(carpetaId, nombre, pedido.contenido.trim() + "\n");
+    const contenidoNuevo = conFechaDeDecision(nombre, pedido.contenido).trim() + "\n";
+    const creado = await deps.drive.crearTexto(carpetaId, nombre, contenidoNuevo);
     const ruta = carpeta.ruta ? `${carpeta.ruta}/${nombre}` : nombre;
     await deps.guardarCopia({
       driveId: creado.driveId,
@@ -130,12 +136,12 @@ export async function escribirConDependencias(pedido: PedidoDeEscritura, deps: D
       nombre: creado.nombre,
       ruta,
       tipo: creado.tipo,
-      texto: pedido.contenido.trim() + "\n",
+      texto: contenidoNuevo,
       versionDrive: creado.versionDrive,
       modificadoEnDrive: creado.modificadoEnDrive,
       linkDrive: creado.linkDrive,
     });
-    await deps.registrar({ driveId: creado.driveId, nombreDocumento: ruta, accion: "crear", antes: null, despues: pedido.contenido.trim() + "\n" });
+    await deps.registrar({ driveId: creado.driveId, nombreDocumento: ruta, accion: "crear", antes: null, despues: contenidoNuevo });
     return { driveId: creado.driveId, nombre: creado.nombre, ruta, accion: "crear", linkDrive: creado.linkDrive, versionNueva: creado.versionDrive };
   }
 
@@ -154,7 +160,7 @@ export async function escribirConDependencias(pedido: PedidoDeEscritura, deps: D
   if (versionProblema) throw new Error(versionProblema);
 
   const antes = (await deps.drive.leerTexto(driveId, copia.nombre, copia.tipo)) ?? "";
-  const despues = pedido.modo === "agregar" ? agregarAlFinal(antes, pedido.contenido) : pedido.contenido.trim() + "\n";
+  const despues = pedido.modo === "agregar" ? agregarAlFinal(antes, conFechaDeDecision(copia.nombre, pedido.contenido)) : pedido.contenido.trim() + "\n";
   if (despues === antes) throw new Error("No hay nada distinto para escribir.");
   const nuevo = await deps.drive.reemplazarTexto(driveId, despues, copia.tipo);
   await deps.guardarCopia({
@@ -197,6 +203,7 @@ export async function escribirEnElCerebro(pedido: PedidoDeEscritura): Promise<Re
   }
   const veto = problemaDeAutorizacion({
     origen: pedido.origen,
+    modo: pedido.modo,
     textoConfirmacion: pedido.textoConfirmacion,
     motivoCuentaNoDueno: persona.cuenta ? motivoNoEsDueno(persona.cuenta, "voz") : "No se pudo verificar la cuenta de la clave.",
     autorizadaParaElCerebro: autorizada,

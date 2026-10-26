@@ -8,7 +8,7 @@
  */
 
 export type Severidad = "CRITICO" | "IMPORTANTE" | "OBSERVACION";
-export type Familia = "BOT" | "EMBUDO" | "ATENCION" | "CAMBIO";
+export type Familia = "BOT" | "EMBUDO" | "ATENCION" | "CAMBIO" | "CEREBRO";
 
 export const ORDEN_DE_SEVERIDAD: Record<Severidad, number> = { OBSERVACION: 1, IMPORTANTE: 2, CRITICO: 3 };
 

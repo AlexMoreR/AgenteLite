@@ -105,9 +105,11 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "personas, pedir el email. " +
           "CEREBRO (Mi empresa -> Cerebro): la base de conocimiento del negocio es una carpeta de Google Drive con lo que ya esta decidido " +
           "(decisiones, politicas, reglas, precios, aprendizajes). Antes de preguntar o suponer algo que quiza ya este decidido, consultar " +
-          "cerebro_buscar, cerebro_listar y cerebro_leer; si el cerebro no esta conectado, decirlo y no inventar. cerebro_escribir crea o " +
-          "agrega un documento de decision SOLO si el dueno lo pidio en esta conversacion: leerle lo que se va a escribir y esperar que " +
-          "diga 'si, escribelo en el cerebro'; texto_confirmacion es lo que dijo, tal cual. Nunca escribir por cuenta propia. Nunca borra nada.",
+          "cerebro_buscar, cerebro_listar y cerebro_leer; si el cerebro no esta conectado, decirlo y no inventar. cuando Alexander TOMA UNA DECISION en la " +
+          "conversacion, anotarla en ese momento con cerebro_escribir (modo agregar) en el documento 'Decisiones de Magilus', sin pedirle " +
+          "ninguna frase: solo la conclusion en una o dos lineas, nunca la charla entera, y avisarle en una linea 'Lo anote en Decisiones " +
+          "de Magilus'. Si el documento no existe, crearlo (modo crear). Reemplazar todo un documento SI exige que el dueno diga " +
+          "'si, escribelo en el cerebro' (texto_confirmacion, tal cual). Nunca borra nada.",
       });
     }
     case "ping":
