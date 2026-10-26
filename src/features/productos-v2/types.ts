@@ -41,6 +41,8 @@ export type ProductoV2Item = {
   }>;
   /** El embudo que se muestra vino del agente y todavia no es del producto. */
   funnelFromAgent: boolean;
+  /** La version vigente del embudo (Embudo 3). Null si todavia no se guardo ninguna. */
+  versionVigente: { numero: number; creadoEn: string } | null;
   /** Hasta donde llegaron los leads en los ultimos 30 dias. */
   leadProgress: {
     murioPrimero: number;

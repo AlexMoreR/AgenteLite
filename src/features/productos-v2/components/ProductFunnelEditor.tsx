@@ -62,6 +62,7 @@ export function ProductFunnelEditor({
   stages,
   vienenDelAgente,
   avance,
+  versionVigente = null,
 }: {
   productId: string;
   /** Los flujos que un seguimiento puede mandar en vez de un texto. */
@@ -81,6 +82,8 @@ export function ProductFunnelEditor({
   }>;
   /** El texto se trajo del embudo que el agente ya tenia y todavia no se guardo aca. */
   vienenDelAgente: boolean;
+  /** La version vigente del embudo (Embudo 3). */
+  versionVigente?: { numero: number; creadoEn: string } | null;
   /** Hasta donde llegaron los leads en los ultimos 30 dias. */
   avance: {
     murioPrimero: number;
@@ -118,6 +121,8 @@ export function ProductFunnelEditor({
   } | null>(null);
   const [guardado, setGuardado] = useState(() => JSON.stringify(etapas));
   const [ocupado, setOcupado] = useState(false);
+  /** Nota corta del cambio: queda en la version nueva del embudo. */
+  const [nota, setNota] = useState("");
   const [etapaAbierta, setEtapaAbierta] = useState<{
     etiqueta: string;
     criterio: string;
@@ -232,6 +237,7 @@ export function ProductFunnelEditor({
     try {
       const result = await saveProductFunnelAction({
         productId,
+        nota,
         stages: etapas.map((etapa) => ({
           ...etapa,
           // El valor se escribe como texto (un input vacio no es un 0) y se manda como numero.
@@ -249,6 +255,7 @@ export function ProductFunnelEditor({
         return;
       }
       setGuardado(JSON.stringify(etapas));
+      setNota("");
       toast.success("Embudo guardado");
       router.refresh();
     } catch {
@@ -461,6 +468,25 @@ export function ProductFunnelEditor({
             );
           })}
         </Accordion>
+
+        {versionVigente ? (
+          <p className="text-xs text-muted-foreground">
+            Versión vigente: V{versionVigente.numero} ({new Date(versionVigente.creadoEn).toLocaleDateString("es-CO")})
+          </p>
+        ) : null}
+
+        <div className="space-y-1">
+          <Label htmlFor="nota-del-cambio" className="text-xs text-muted-foreground">
+            Nota del cambio (opcional)
+          </Label>
+          <Input
+            id="nota-del-cambio"
+            value={nota}
+            maxLength={300}
+            onChange={(evento) => setNota(evento.target.value)}
+            placeholder="Ej: bienvenida más corta"
+          />
+        </div>
 
         <div className="flex items-center gap-3">
           <Button type="button" size="sm" onClick={() => void guardar()} disabled={ocupado}>

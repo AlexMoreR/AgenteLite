@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { asegurarVersionInicial, quienEs, registrarVersionDelEmbudo } from "@/features/embudo/servicios/versiones";
 
 /*
   El historial de lo que Claude cambió, con su vuelta atrás.
@@ -81,6 +82,7 @@ export async function anotarCambioMcp(
 export async function deshacerCambioMcp(
   workspaceId: string,
   cambioId: string,
+  userId?: string | null,
 ): Promise<{ ok: true; titulo: string; agenteId?: string | null } | { ok: false; error: string }> {
   const lista = await listarCambiosMcp(workspaceId);
   const cambio = lista.find((fila) => fila.id === cambioId);
@@ -104,10 +106,24 @@ export async function deshacerCambioMcp(
     };
   }
 
+  // Embudo 3: deshacer algo del embudo tambien deja una version (la V1 guarda lo de antes).
+  const productoId = await productoDelEmbudo(workspaceId, cambio);
+  if (productoId) {
+    await asegurarVersionInicial(workspaceId, productoId);
+  }
   try {
     await revertir(workspaceId, cambio);
   } catch (fallo) {
     return { ok: false, error: fallo instanceof Error ? fallo.message : "No se pudo deshacer" };
+  }
+  if (productoId) {
+    await registrarVersionDelEmbudo({
+      workspaceId,
+      productId: productoId,
+      origen: "deshacer",
+      nota: `Deshacer: ${cambio.titulo}`.slice(0, 300),
+      quien: await quienEs(userId),
+    });
   }
 
   await guardarLista(
@@ -115,6 +131,32 @@ export async function deshacerCambioMcp(
     lista.map((fila) => (fila.id === cambio.id ? { ...fila, deshecho: true } : fila)),
   );
   return { ok: true, titulo: cambio.titulo, agenteId: cambio.agenteId };
+}
+
+/** El producto al que pertenece un cambio del embudo (paso o seguimiento de un paso). Null si no es del embudo. */
+async function productoDelEmbudo(workspaceId: string, cambio: CambioDelMcp): Promise<string | null> {
+  try {
+    let etapaId: string | null = null;
+    if (cambio.tabla === "ProductFunnelStage") {
+      etapaId = cambio.filaId;
+    } else if (cambio.tabla === "ProductStageFollowUp") {
+      const antes = cambio.antes as { stageId?: unknown };
+      if (cambio.accion === "borrar" && typeof antes.stageId === "string") {
+        etapaId = antes.stageId;
+      } else {
+        const fila = await prisma.productStageFollowUp.findUnique({ where: { id: cambio.filaId }, select: { stageId: true } });
+        etapaId = fila?.stageId ?? null;
+      }
+    }
+    if (!etapaId) return null;
+    const etapa = await prisma.productFunnelStage.findFirst({
+      where: { id: etapaId, playbook: { workspaceId } },
+      select: { playbook: { select: { productId: true } } },
+    });
+    return etapa?.playbook.productId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function revertir(workspaceId: string, cambio: CambioDelMcp) {

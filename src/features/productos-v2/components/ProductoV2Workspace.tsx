@@ -262,6 +262,7 @@ export function ProductoV2Workspace({
                 stages={selected.funnelStages}
                 vienenDelAgente={selected.funnelFromAgent}
                 avance={selected.leadProgress}
+                versionVigente={selected.versionVigente}
               />
               <ProductInsightsCard
                 productId={selected.id}

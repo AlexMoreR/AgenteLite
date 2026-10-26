@@ -1,6 +1,13 @@
 import { publicarAgenteV2 } from "@/app/actions/agent-v2-actions";
 import { anotarCambioMcp, deshacerCambioMcp, listarCambiosMcp } from "@/lib/mcp/cambios";
 import { prisma } from "@/lib/prisma";
+import {
+  asegurarVersionInicial,
+  leerVersion,
+  listarVersiones,
+  quienEs,
+  registrarVersionDelEmbudo,
+} from "@/features/embudo/servicios/versiones";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 
 /*
@@ -42,6 +49,35 @@ export const HERRAMIENTAS_MCP_ESCRITURA = [
     annotations: SOLO_LECTURA,
   },
   {
+    name: "ver_versiones_del_embudo",
+    title: "Ver las versiones del embudo de un producto",
+    description:
+      "La lista de versiones del embudo de un producto (V1 es el embudo inicial): numero, fecha, quien lo cambio, la nota y cuantos chats entraron con cada una. Cada cambio al embudo crea una version nueva.",
+    inputSchema: {
+      type: "object",
+      properties: { producto_id: { type: "string", description: "Id del producto (ver listar_productos)" } },
+      required: ["producto_id"],
+      additionalProperties: false,
+    },
+    annotations: SOLO_LECTURA,
+  },
+  {
+    name: "ver_version_del_embudo",
+    title: "Ver una version del embudo completa",
+    description:
+      "Una version del embudo de un producto completa, como estaba en ese momento: bienvenida, objetivo y guion de cada paso, pasos quitados y seguimientos. Solo lectura.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        producto_id: { type: "string", description: "Id del producto (ver listar_productos)" },
+        numero: { type: "number", description: "Numero de la version (1 = embudo inicial). Ver ver_versiones_del_embudo." },
+      },
+      required: ["producto_id", "numero"],
+      additionalProperties: false,
+    },
+    annotations: SOLO_LECTURA,
+  },
+  {
     name: "editar_paso_del_embudo",
     title: "Editar un paso del embudo",
     description:
@@ -56,6 +92,7 @@ export const HERRAMIENTAS_MCP_ESCRITURA = [
           type: "number",
           description: "Si el cliente lleva tantos mensajes sin avanzar, se avisa a un asesor. 0 = sin red.",
         },
+        nota: { type: "string", description: "Nota corta del cambio, queda en la version nueva del embudo. Opcional." },
       },
       required: ["etapa_id"],
       additionalProperties: false,
@@ -267,6 +304,24 @@ async function productoDelNegocio(contexto: Contexto, productoId: string) {
   return { id: playbook.product.id, name: playbook.product.name, playbookId: playbook.id };
 }
 
+/*
+  Embudo 3: cada cambio al embudo deja una version. Las dos funciones nunca lanzan: si la version
+  falla, el cambio ya hecho vale igual.
+*/
+async function antesDelCambioDelEmbudo(contexto: Contexto, productoId: string) {
+  await asegurarVersionInicial(contexto.workspaceId, productoId);
+}
+
+async function despuesDelCambioDelEmbudo(contexto: Contexto, productoId: string, nota?: string) {
+  await registrarVersionDelEmbudo({
+    workspaceId: contexto.workspaceId,
+    productId: productoId,
+    origen: "mcp",
+    nota,
+    quien: await quienEs(contexto.userId),
+  });
+}
+
 /** Un paso del embudo, comprobando que su producto sea de este negocio. */
 async function pasoDelNegocio(contexto: Contexto, etapaId: string) {
   const paso = await prisma.productFunnelStage.findFirst({
@@ -381,6 +436,51 @@ export async function ejecutarHerramientaMcpEscritura(
       };
     }
 
+    case "ver_versiones_del_embudo": {
+      const producto = await productoDelNegocio(contexto, String(argumentos.producto_id ?? ""));
+      const versiones = await listarVersiones(contexto.workspaceId, producto.id);
+      return {
+        producto: { id: producto.id, nombre: producto.name },
+        versiones: versiones.map((version) => ({
+          numero: version.numero,
+          nombre: version.nombre,
+          fecha: version.creadoEn,
+          quien: version.quienNombre,
+          desde: version.origen,
+          nota: version.nota,
+          chats: version.chats,
+        })),
+        nota: versiones.length === 0 ? "Este producto todavia no tiene versiones: la V1 se guarda con el primer cambio al embudo." : undefined,
+      };
+    }
+
+    case "ver_version_del_embudo": {
+      const producto = await productoDelNegocio(contexto, String(argumentos.producto_id ?? ""));
+      const numeroPedido = numero(argumentos.numero);
+      if (numeroPedido === undefined) {
+        throw new Error("Falta el numero de la version");
+      }
+      const version = await leerVersion(contexto.workspaceId, producto.id, Math.round(numeroPedido));
+      if (!version) {
+        throw new Error("Esa version no existe para este producto (ver ver_versiones_del_embudo)");
+      }
+      return {
+        producto: { id: producto.id, nombre: producto.name },
+        version: {
+          numero: version.numero,
+          nombre: version.nombre,
+          fecha: version.creadoEn,
+          quien: version.quienNombre,
+          desde: version.origen,
+          nota: version.nota,
+          chats: version.chats,
+        },
+        bienvenida: version.foto.bienvenida,
+        pasos: version.foto.pasos,
+        pasos_quitados: version.foto.pasosQuitados,
+      };
+    }
+
     case "editar_paso_del_embudo": {
       const paso = await pasoDelNegocio(contexto, String(argumentos.etapa_id ?? ""));
       const avisar = numero(argumentos.avisar_tras_mensajes);
@@ -392,6 +492,7 @@ export async function ejecutarHerramientaMcpEscritura(
       if (Object.keys(datos).length === 0) {
         throw new Error("No mandaste nada para cambiar (guion, objetivo o avisar_tras_mensajes)");
       }
+      await antesDelCambioDelEmbudo(contexto, paso.playbook.product.id);
       await prisma.productFunnelStage.update({ where: { id: paso.id }, data: datos });
       const cambio = await anotarCambioMcp(contexto.workspaceId, {
         titulo: `Paso ${paso.stage} de ${paso.playbook.product.name}`,
@@ -401,6 +502,7 @@ export async function ejecutarHerramientaMcpEscritura(
         antes: { script: paso.script, goal: paso.goal, stuckAfterMessages: paso.stuckAfterMessages },
         despues: datos,
       });
+      await despuesDelCambioDelEmbudo(contexto, paso.playbook.product.id, texto(argumentos.nota));
       return { ok: true, cambio_id: cambio.id, aviso: "Ya esta activo. Para volver atras: deshacer_cambio." };
     }
 
@@ -482,6 +584,7 @@ export async function ejecutarHerramientaMcpEscritura(
       if (!cuerpo && !flujoId) {
         throw new Error("Falta que mandar: un texto o un flujo_id");
       }
+      await antesDelCambioDelEmbudo(contexto, paso.playbook.product.id);
       const ultimos = await prisma.productStageFollowUp.count({ where: { stageId: paso.id } });
       const creado = await prisma.productStageFollowUp.create({
         data: {
@@ -506,6 +609,7 @@ export async function ejecutarHerramientaMcpEscritura(
           ? { flujo_id: flujoId, esperar, unidad: unidad(argumentos.unidad) }
           : { texto: cuerpo, esperar, unidad: unidad(argumentos.unidad) },
       });
+      await despuesDelCambioDelEmbudo(contexto, paso.playbook.product.id);
       return { ok: true, seguimiento_id: creado.id, cambio_id: cambio.id };
     }
 
@@ -520,7 +624,7 @@ export async function ejecutarHerramientaMcpEscritura(
           timeValue: true,
           flowId: true,
           isActive: true,
-          stage: { select: { stage: true } },
+          stage: { select: { stage: true, playbook: { select: { productId: true } } } },
         },
       });
       if (!actual) {
@@ -542,6 +646,7 @@ export async function ejecutarHerramientaMcpEscritura(
       if (Object.keys(datos).length === 0) {
         throw new Error("No mandaste nada para cambiar");
       }
+      await antesDelCambioDelEmbudo(contexto, actual.stage.playbook.productId);
       await prisma.productStageFollowUp.update({ where: { id: actual.id }, data: datos });
       const cambio = await anotarCambioMcp(contexto.workspaceId, {
         titulo: `Seguimiento del paso ${actual.stage.stage}`,
@@ -557,6 +662,7 @@ export async function ejecutarHerramientaMcpEscritura(
         },
         despues: datos,
       });
+      await despuesDelCambioDelEmbudo(contexto, actual.stage.playbook.productId);
       return { ok: true, cambio_id: cambio.id };
     }
 
@@ -568,6 +674,13 @@ export async function ejecutarHerramientaMcpEscritura(
       if (!actual) {
         throw new Error("Ese seguimiento no existe en este negocio");
       }
+      const productoDelSeguimiento = await prisma.productFunnelStage.findUnique({
+        where: { id: actual.stageId },
+        select: { playbook: { select: { productId: true } } },
+      });
+      if (productoDelSeguimiento) {
+        await antesDelCambioDelEmbudo(contexto, productoDelSeguimiento.playbook.productId);
+      }
       await prisma.productStageFollowUp.delete({ where: { id: actual.id } });
       const { createdAt: _creado, updatedAt: _actualizado, ...fila } = actual;
       const cambio = await anotarCambioMcp(contexto.workspaceId, {
@@ -578,6 +691,9 @@ export async function ejecutarHerramientaMcpEscritura(
         antes: fila as unknown as Record<string, unknown>,
         despues: {},
       });
+      if (productoDelSeguimiento) {
+        await despuesDelCambioDelEmbudo(contexto, productoDelSeguimiento.playbook.productId);
+      }
       return { ok: true, cambio_id: cambio.id };
     }
 
@@ -695,7 +811,7 @@ export async function ejecutarHerramientaMcpEscritura(
     }
 
     case "deshacer_cambio": {
-      const resultado = await deshacerCambioMcp(contexto.workspaceId, String(argumentos.cambio_id ?? ""));
+      const resultado = await deshacerCambioMcp(contexto.workspaceId, String(argumentos.cambio_id ?? ""), contexto.userId);
       if (!resultado.ok) {
         throw new Error(resultado.error);
       }

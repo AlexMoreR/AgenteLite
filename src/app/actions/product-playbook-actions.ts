@@ -8,6 +8,11 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { slugifyProductSegment } from "@/lib/product-slugs";
 import { guardarEtapasQuitadas, leerEtapasQuitadas } from "@/lib/etapas-quitadas";
 import {
+  asegurarVersionInicial,
+  quienEs,
+  registrarVersionDelEmbudo,
+} from "@/features/embudo/servicios/versiones";
+import {
   isPlaybookRuleKind,
   PRODUCT_FUNNEL_STAGES,
   type PlaybookRuleKind,
@@ -29,6 +34,12 @@ async function getAccess() {
   await requireClientWorkspaceAccess("products_v2");
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   return membership?.workspace.id ?? null;
+}
+
+/** Quién está guardando, para anotarlo en la versión del embudo (Embudo 3). */
+async function quienGuarda() {
+  const session = await auth();
+  return quienEs(session?.user?.id);
 }
 
 async function ensurePlaybook(workspaceId: string, productId: string) {
@@ -118,6 +129,8 @@ export async function saveProductFunnelAction(input: {
     avisa. Ahora que Claude tambien escribe por el MCP, esto va a pasar seguido.
   */
   cargadoEl?: string;
+  /** Nota corta del cambio, para la versión del embudo (opcional). */
+  nota?: string;
   stages: Array<{
     stage: string;
     goal: string;
@@ -170,6 +183,9 @@ export async function saveProductFunnelAction(input: {
       };
     }
   }
+
+  // Embudo 3: antes del primer cambio queda guardado como "V1 - embudo inicial" lo que hay hoy.
+  await asegurarVersionInicial(workspaceId, productId);
 
   /*
     Quitar una etapa borra su fila, y ademas queda anotada.
@@ -254,6 +270,16 @@ export async function saveProductFunnelAction(input: {
       });
     }
   }
+
+  // Embudo 3: la version nueva se crea DESPUES de guardar y protegida (nunca lanza): si falla, el
+  // embudo ya quedo guardado.
+  await registrarVersionDelEmbudo({
+    workspaceId,
+    productId,
+    origen: "pantalla",
+    nota: input.nota,
+    quien: await quienGuarda().catch(() => ({})),
+  });
 
   revalidatePath("/cliente/productos-v2");
   // La hora del servidor: la pantalla se queda con esta marca para el proximo guardado.

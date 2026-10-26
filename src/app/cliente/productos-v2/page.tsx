@@ -6,6 +6,7 @@ import { getProductInsights } from "@/features/productos-v2/services/getProductI
 import { getProductLeadProgress } from "@/features/productos-v2/services/getProductLeadProgress";
 import { getProductMatchRule } from "@/features/productos-v2/services/productConversationFilter";
 import type { ProductoV2Item } from "@/features/productos-v2/types";
+import { versionVigente } from "@/features/embudo/servicios/versiones";
 
 // Palabra distintiva ilustrativa: el primer token "fuerte" del nombre (no genérico). La real la
 // calcula el motor comparando contra los otros productos; acá solo es para mostrar.
@@ -94,6 +95,14 @@ export default async function ClienteProductoV2Page() {
 
   // Por producto: su regla de reconocimiento, hasta donde llegan sus leads y que leyo la IA.
   const avancePorProducto = new Map<string, Awaited<ReturnType<typeof getProductLeadProgress>>>();
+  // Embudo 3: la version vigente de cada embudo. Si falla, la pantalla sigue sin la linea.
+  const versionPorProducto = new Map<string, { numero: number; creadoEn: string }>();
+  await Promise.all(
+    productRows.map(async (product) => {
+      const version = await versionVigente(product.id).catch(() => null);
+      if (version) versionPorProducto.set(product.id, { numero: version.numero, creadoEn: version.creadoEn.toISOString() });
+    }),
+  );
   const insightsPorProducto = new Map<string, Awaited<ReturnType<typeof getProductInsights>>>();
   await Promise.all(
     productRows.map(async (product) => {
@@ -188,6 +197,7 @@ export default async function ClienteProductoV2Page() {
       funnelStages: tieneEmbudoPropio ? etapasGuardadas : embudoDelAgente,
       funnelFromAgent: !tieneEmbudoPropio && embudoDelAgente.length > 0,
       leadProgress: avancePorProducto.get(product.id) ?? null,
+      versionVigente: versionPorProducto.get(product.id) ?? null,
       insights: insightsPorProducto.get(product.id) ?? null,
       playbookRules: (playbook?.rules ?? []).map((rule) => ({
         id: rule.id,
