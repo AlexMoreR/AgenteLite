@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, Filter, Gauge, KanbanSquare, LifeBuoy, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, Filter, Gauge, GitCompareArrows, KanbanSquare, LifeBuoy, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -18,7 +18,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "recuperacion" | "supervisor" | "guiones";
+type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "comparar-embudos" | "recuperacion" | "supervisor" | "guiones";
 
 const crmViews: Array<{
   title: string;
@@ -38,6 +38,8 @@ const crmViews: Array<{
   { title: "Tablero", view: "tablero", icon: Gauge, soloJefes: true },
   // El embudo del Combo (F1): de la entrada del anuncio al anticipo. También solo para quien supervisa.
   { title: "Embudo", view: "embudo", icon: Filter, soloJefes: true },
+  // Comparar dos versiones del libro lado a lado (solo lectura). También solo para quien supervisa.
+  { title: "Comparar embudos", view: "comparar-embudos", icon: GitCompareArrows, soloJefes: true },
   // Recuperación de leads (13-10-2026): dueño / administrador y la supervisora del accionable.
   { title: "Recuperación", view: "recuperacion", icon: LifeBuoy, soloRecuperacion: true },
   // El Supervisor: solo dueño o administrador (Alex, 13-10-2026). Las supervisoras siguen

@@ -416,7 +416,7 @@ export function armarRespuesta(entrada: EntradaArmado) {
 // ---------------------------------------------------------------------------------------------
 
 /** El mismo permiso de la pantalla, con el rol de la persona DENTRO del negocio de la clave. */
-async function puedeVerElSupervisor(contexto: Contexto): Promise<boolean> {
+export async function puedeVerElSupervisor(contexto: Contexto): Promise<boolean> {
   const miembro = await prisma.workspaceMember.findFirst({
     where: { workspaceId: contexto.workspaceId, userId: contexto.userId, isActive: true },
     select: { role: true, user: { select: { role: true } }, workspace: { select: { ownerId: true } } },

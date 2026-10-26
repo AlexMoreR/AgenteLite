@@ -196,6 +196,8 @@ export function AppSidebar({
                       ? "informe"
                     : pathname.startsWith("/cliente/crm/supervisor")
                       ? "supervisor"
+                    : pathname.startsWith("/cliente/crm/comparar-embudos")
+                      ? "comparar-embudos"
                     : pathname.startsWith("/cliente/crm/embudo")
                       ? "embudo"
                     : pathname.startsWith("/cliente/crm/recuperacion")

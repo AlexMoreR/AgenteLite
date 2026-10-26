@@ -26,6 +26,11 @@ import {
   esHerramientaDelSupervisor,
 } from "@/lib/mcp/supervisor";
 import {
+  HERRAMIENTAS_MCP_COMPARAR_EMBUDOS,
+  ejecutarHerramientaMcpCompararEmbudos,
+  esHerramientaDeCompararEmbudos,
+} from "@/lib/mcp/comparar-embudos";
+import {
   HERRAMIENTAS_MCP_REUNIONES,
   ejecutarHerramientaMcpReuniones,
   esHerramientaDeReuniones,
@@ -979,6 +984,7 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_MCP_APLICACION,
   ...HERRAMIENTAS_DE_LECTURA,
   ...HERRAMIENTAS_MCP_SUPERVISOR,
+  ...HERRAMIENTAS_MCP_COMPARAR_EMBUDOS,
   ...HERRAMIENTAS_MCP_REUNIONES,
   ...HERRAMIENTAS_MCP_ESCRITURA,
   ...HERRAMIENTAS_MCP_DIAGRAMA,
@@ -996,6 +1002,9 @@ export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, c
   }
   if (esHerramientaDelSupervisor(nombre)) {
     return ejecutarHerramientaMcpSupervisor(nombre, args, contexto);
+  }
+  if (esHerramientaDeCompararEmbudos(nombre)) {
+    return ejecutarHerramientaMcpCompararEmbudos(nombre, args, contexto);
   }
   if (esHerramientaDeReuniones(nombre)) {
     return ejecutarHerramientaMcpReuniones(nombre, args, contexto);
