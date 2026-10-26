@@ -10,6 +10,7 @@ import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasS
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
+import { CLAVE_ETAPA_AUTOMATICA } from "@/lib/etapa-automatica-reglas";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -494,7 +495,7 @@ async function automatizaciones(
   descritas: Map<string, string>,
   v3: { reglasSinRespuesta: number; hayLineasConV3: boolean },
 ) {
-  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, transcripcionApagada] =
+  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, transcripcionApagada, etapaAutomatica] =
     await Promise.all([
       prisma.followRule.count({ where: { workspaceId, isActive: true } }),
       prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
@@ -505,6 +506,7 @@ async function automatizaciones(
       }),
       bandera(`crm:descarte-automatico:${workspaceId}`),
       bandera("transcripcion-de-audios:apagada"),
+      bandera(`${CLAVE_ETAPA_AUTOMATICA}${workspaceId}`),
     ]);
 
   const sinInterruptor = "activa (no tiene interruptor: corre siempre)";
@@ -529,6 +531,10 @@ async function automatizaciones(
         : "sin negocios conectados a Gestión",
     enfriamiento_por_llamadas: sinInterruptor,
     temperatura: sinInterruptor,
+    etapa_automatica:
+      (etapaAutomatica ?? "").trim().toLowerCase() === "off"
+        ? `apagada (${CLAVE_ETAPA_AUTOMATICA}${workspaceId} = off)`
+        : "activa: al asignar un chat pasa NUEVO a Frío; al cotizar o enviar el total pasa a Caliente; nunca Ganado ni Perdido, nunca baja",
     descarte_automatico: descarte === "on" ? "ACTIVA: mueve leads a Descartado" : "apagada",
     campanas: campanasEnCurso > 0 ? `activa: ${campanasEnCurso} en curso` : "sin campañas en curso",
     transcripcion_de_audios: !process.env.OPENAI_API_KEY?.trim()

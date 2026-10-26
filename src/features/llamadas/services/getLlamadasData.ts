@@ -9,6 +9,7 @@ import {
 } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 import { ETAPAS_VIVAS } from "@/features/crm/services/getMiTableroData";
+import { PREFIJO_NOTA_HISTORIAL } from "@/lib/etapa-automatica-reglas";
 import { leerAsignacionesDelEquipo } from "@/features/llamadas/services/asignaciones-del-equipo";
 
 // ── Utilidades de fecha (día de HOY en Bogotá, UTC-5) ───────────────────────────────────────
@@ -239,33 +240,76 @@ export async function getLlamadasVendedoraData(
       recordingUrl: intento.recordingUrl,
     }));
 
-    // Nuevos sin tocar: etapa NUEVO y CERO llamadas registradas. Máx. 10, los más recientes.
-    const nuevosRows = await prisma.contact.findMany({
-      where: {
-        workspaceId,
-        excludedFromCrm: false,
-        crmStage: "NUEVO",
-        callAttempts: { none: {} },
-        conversations: {
-          some: { OR: [{ assignedToUserId: userId }, { assignedToUserId: null }] },
-        },
+    // Nuevos sin tocar: CERO llamadas registradas y en NUEVO, o recien asignados que nadie atendio
+    // (Frio puesto por el sistema, ver etapa-automatica-crm.ts). Sin esto la etapa automatica
+    // vaciaria la lista: los recien asignados ya no estan en NUEVO. Máx. 10, los más recientes.
+    const dueñoOLibre = { OR: [{ assignedToUserId: userId }, { assignedToUserId: null }] };
+    const seleccionNuevos = {
+      id: true,
+      name: true,
+      phoneNumber: true,
+      avatarUrl: true,
+      crmStage: true,
+      metadata: true,
+      createdAt: true,
+      conversations: {
+        select: { id: true },
+        orderBy: { lastMessageAt: "desc" },
+        take: 1,
       },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        avatarUrl: true,
-        crmStage: true,
-        metadata: true,
-        conversations: {
-          select: { id: true },
-          orderBy: { lastMessageAt: "desc" },
-          take: 1,
+    } as const;
+    const [enNuevo, frioDelSistema] = await Promise.all([
+      prisma.contact.findMany({
+        where: {
+          workspaceId,
+          excludedFromCrm: false,
+          crmStage: "NUEVO",
+          callAttempts: { none: {} },
+          conversations: { some: dueñoOLibre },
         },
-      },
-    });
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: seleccionNuevos,
+      }),
+      prisma.contact.findMany({
+        where: {
+          workspaceId,
+          excludedFromCrm: false,
+          crmStage: "CALIFICADO",
+          callAttempts: { none: {} },
+          // El Frio lo puso el sistema y ninguna asesora lo movio.
+          historialEtapas: {
+            some: { origen: "AUTOMATICO", etapaNueva: "CALIFICADO", nota: { startsWith: PREFIJO_NOTA_HISTORIAL } },
+            none: { origen: "ASESORA" },
+          },
+          // Sin respuesta humana: ningun mensaje saliente desde el CRM ("manual") o el celular
+          // ("instance"), el mismo criterio de "respondidos hoy" mas abajo.
+          conversations: {
+            some: {
+              ...dueñoOLibre,
+              messages: {
+                none: {
+                  direction: "OUTBOUND",
+                  type: { not: "SYSTEM" },
+                  OR: [
+                    { rawPayload: { path: ["source"], equals: "manual" } },
+                    { rawPayload: { path: ["source"], equals: "instance" } },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: seleccionNuevos,
+      }),
+    ]);
+    // Juntos y sin repetir, los mas recientes primero, con el mismo limite de 10.
+    const nuevosRows = [...enNuevo, ...frioDelSistema]
+      .filter((contact, indice, todos) => todos.findIndex((otro) => otro.id === contact.id) === indice)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 10);
     nuevos = nuevosRows.map((contact) => ({
       contactId: contact.id,
       name: contact.name?.trim() || contact.phoneNumber,

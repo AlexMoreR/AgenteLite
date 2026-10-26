@@ -115,6 +115,7 @@ import { recordContactMatch } from "@/lib/contact-matches";
 import { detectarOrigenMarketplace, registrarOrigenMarketplace } from "@/lib/origen-marketplace";
 import { leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { filtrarPorHorario } from "@/lib/horario-de-reparto";
+import { moverEtapaAutomatica } from "@/lib/etapa-automatica-crm";
 import { filtrarEnLinea } from "@/lib/en-linea";
 import { repartirSiElTurnoLoAmerita } from "@/lib/reparto-por-turno";
 import {
@@ -791,6 +792,14 @@ async function assignAdLeadByCampaign(args: {
     // Queda escrito POR QUE le toco a esa persona: si manana el reparto parece raro, la
     // conversacion misma lo explica sin tener que revisar configuraciones.
     text: `${nombre} asignado por la campaña "${args.adTitle || "anuncio"}"`,
+  });
+
+  // Etapa automática: el lead de pauta asignado sale de "---" y pasa a Frío. No lanza.
+  await moverEtapaAutomatica({
+    workspaceId: args.workspaceId,
+    conversationId: args.conversationId,
+    canal: "agent",
+    motivo: { tipo: "asignacion", asesora: nombre },
   });
 
   console.log("[EVOLUTION] ad_campaign_assign", {

@@ -61,10 +61,21 @@ export type MiDiaLead = {
   esMio: boolean;
 };
 
+/** Un chat suyo que sigue en NUEVO ("---"): la asesora tiene que clasificarlo. */
+export type MiDiaChatSinEtapa = {
+  chatKey: string;
+  name: string;
+};
+
 export type MiDiaData = {
   generatedAt: string;
   leads: MiDiaLead[];
+  /** Cuantos chats ABIERTOS suyos siguen sin etapa (las dos lineas) y los primeros para abrirlos. */
+  sinEtapa: { total: number; chats: MiDiaChatSinEtapa[] };
 };
+
+const MAX_SIN_ETAPA = 50;
+const SIN_ETAPA_VACIO: MiDiaData["sinEtapa"] = { total: 0, chats: [] };
 
 function previewFromMessage(content: string | null, rawPayload: unknown, type: string | null) {
   const text = content?.trim() || extractEvolutionMessageText(rawPayload) || "";
@@ -83,21 +94,91 @@ export async function getMiDiaData(input: {
   userId: string;
   visibleChannelIds?: string[] | null;
 }): Promise<MiDiaData> {
-  try {
-    return await computeMiDiaData(input);
-  } catch (error) {
-    // Una vista de trabajo no debe tumbar la pantalla si la consulta falla (timeout, etc.):
-    // preferimos mostrar el estado vacio antes que un 500 en toda la seccion CRM.
-    console.error("[mi-dia] fallo al calcular la lista de prioridad:", error);
-    return { generatedAt: new Date().toISOString(), leads: [] };
-  }
+  const [base, sinEtapa] = await Promise.all([
+    computeMiDiaData(input).catch((error) => {
+      // Una vista de trabajo no debe tumbar la pantalla si la consulta falla (timeout, etc.):
+      // preferimos mostrar el estado vacio antes que un 500 en toda la seccion CRM.
+      console.error("[mi-dia] fallo al calcular la lista de prioridad:", error);
+      return { generatedAt: new Date().toISOString(), leads: [] as MiDiaLead[] };
+    }),
+    // Si esta consulta falla, "Mi dia" sale igual, sin el aviso.
+    leerChatsSinEtapa(input).catch((error) => {
+      console.error("[mi-dia] fallo al contar los chats sin etapa:", error);
+      return SIN_ETAPA_VACIO;
+    }),
+  ]);
+  return { ...base, sinEtapa };
+}
+
+/**
+ * Los chats ABIERTOS de la asesora cuyo lead sigue en NUEVO, en las dos lineas (WhatsApp viejo y
+ * API oficial). Solo los suyos: los que no tienen dueña no son su tarea. La etapa automatica ya
+ * pasa a Frio los recien asignados; esto es lo que quedo atras (los de antes) para que los
+ * clasifique antes de terminar el dia.
+ */
+async function leerChatsSinEtapa(input: {
+  workspaceId: string;
+  userId: string;
+  visibleChannelIds?: string[] | null;
+}): Promise<MiDiaData["sinEtapa"]> {
+  const [viejos, totalViejos, oficiales] = await Promise.all([
+    prisma.conversation.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        assignedToUserId: input.userId,
+        ...WHERE_CHAT_ABIERTO,
+        contact: { crmStage: "NUEVO", excludedFromCrm: false },
+        ...(input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {}),
+      },
+      orderBy: { lastMessageAt: "desc" },
+      take: MAX_SIN_ETAPA,
+      select: { id: true, contact: { select: { name: true, phoneNumber: true } } },
+    }),
+    prisma.conversation.count({
+      where: {
+        workspaceId: input.workspaceId,
+        assignedToUserId: input.userId,
+        ...WHERE_CHAT_ABIERTO,
+        contact: { crmStage: "NUEVO", excludedFromCrm: false },
+        ...(input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {}),
+      },
+    }),
+    prisma.$queryRaw<Array<{ id: string; name: string | null; phoneNumber: string | null; total: bigint }>>`
+      SELECT c."id" AS "id", k."name" AS "name", k."phoneNumber" AS "phoneNumber",
+             COUNT(*) OVER () AS "total"
+      FROM "OfficialApiConversation" c
+      INNER JOIN "OfficialApiClientConfig" cfg ON cfg."id" = c."configId"
+      INNER JOIN "OfficialApiContact" ct ON ct."id" = c."contactId"
+      INNER JOIN "Contact" k ON k."id" = ct."crmContactId"
+      WHERE cfg."workspaceId" = ${input.workspaceId}
+        AND c."assignedToUserId" = ${input.userId}
+        AND c."status"::text IN ('OPEN', 'PENDING')
+        AND k."crmStage"::text = 'NUEVO'
+        AND k."excludedFromCrm" = false
+      ORDER BY c."lastMessageAt" DESC NULLS LAST
+      LIMIT ${MAX_SIN_ETAPA}
+    `,
+  ]);
+
+  const chats: MiDiaChatSinEtapa[] = [
+    ...viejos.map((fila) => ({
+      chatKey: `agent:${fila.id}`,
+      name: fila.contact.name?.trim() || fila.contact.phoneNumber,
+    })),
+    ...oficiales.map((fila) => ({
+      chatKey: `official:${fila.id}`,
+      name: fila.name?.trim() || fila.phoneNumber || "Sin nombre",
+    })),
+  ].slice(0, MAX_SIN_ETAPA);
+  const totalOficiales = oficiales.length > 0 ? Number(oficiales[0]!.total) : 0;
+  return { total: totalViejos + totalOficiales, chats };
 }
 
 async function computeMiDiaData(input: {
   workspaceId: string;
   userId: string;
   visibleChannelIds?: string[] | null;
-}): Promise<MiDiaData> {
+}): Promise<Omit<MiDiaData, "sinEtapa">> {
   const now = Date.now();
   const maxAge = new Date(now - MAX_DAYS_SINCE_CONTACT * 24 * 60 * 60 * 1000);
   const minAge = new Date(now - MIN_HOURS_SINCE_CONTACT * 60 * 60 * 1000);

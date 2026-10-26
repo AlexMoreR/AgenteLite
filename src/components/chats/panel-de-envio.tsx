@@ -92,6 +92,7 @@ function OpcionDePago({
   cifras,
   nota,
   texto,
+  total,
   puedeEscribir,
   onInsertar,
   extra,
@@ -101,8 +102,10 @@ function OpcionDePago({
   nota?: string | null;
   extra?: ReactNode;
   texto: string | null;
+  /** El total que trae el mensaje (null si el mensaje ofrece cotizar). Se avisa al insertar. */
+  total?: number | null;
   puedeEscribir: boolean;
-  onInsertar: (texto: string) => void;
+  onInsertar: (texto: string, total?: string | null) => void;
 }) {
   const copiar = () => {
     if (!texto) return;
@@ -141,7 +144,7 @@ function OpcionDePago({
                   toast.error("No hay cuadro de mensaje en este chat");
                   return;
                 }
-                onInsertar(texto);
+                onInsertar(texto, total ? pesos(total) : null);
               }}
               disabled={!puedeEscribir}
             >
@@ -327,7 +330,7 @@ export function PanelDeEnvio({
   chatKey: string | null;
   contactCity: string;
   puedeEscribir: boolean;
-  onInsertar: (texto: string) => void;
+  onInsertar: (texto: string, total?: string | null) => void;
   onCiudadGuardada?: (city: string) => void;
 }) {
   const [productos, setProductos] = useState<ProductoParaEnvio[] | null>(null);
@@ -611,6 +614,7 @@ export function PanelDeEnvio({
                     : null
               }
               texto={anticipo.texto}
+              total={anticipo.estado === "TOTAL" ? anticipo.total : null}
               puedeEscribir={puedeEscribir}
               onInsertar={onInsertar}
             />
@@ -657,6 +661,7 @@ export function PanelDeEnvio({
                   ) : null
                 }
                 texto={contraentrega.texto}
+                total={contraentrega.estado === "TOTAL" ? contraentrega.total : null}
                 puedeEscribir={puedeEscribir}
                 onInsertar={onInsertar}
               />

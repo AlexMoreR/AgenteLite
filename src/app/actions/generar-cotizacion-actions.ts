@@ -16,6 +16,7 @@ import {
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { crearCotizacionEnGestion } from "@/lib/cotizacion-en-gestion";
+import { moverEtapaAutomatica } from "@/lib/etapa-automatica-crm";
 import { origenDelContacto } from "@/lib/origen-de-venta-crm";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -175,6 +176,13 @@ export async function generarCotizacionEnGestionAction(input: {
       channelId: conversacion.channelId,
       cotizacion: respuesta.codigo,
       actorUserId: ctx.user.id,
+    });
+    // Etapa automatica: cotizar desde el chat lleva al lead a Caliente (no lanza).
+    await moverEtapaAutomatica({
+      workspaceId: ctx.workspaceId,
+      conversationId: conversacion.id,
+      canal: "agent",
+      motivo: { tipo: "cotizacion", codigo: respuesta.codigo },
     });
   }
 

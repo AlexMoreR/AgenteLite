@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { registrarAsesoraRespondio } from "@/features/embudo/servicios/eventos";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import { moverEtapaAutomatica } from "@/lib/etapa-automatica-crm";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -51,6 +52,12 @@ export async function claimConversationIfUnassigned(input: {
       if (actualizadas.count === 0) {
         return;
       }
+      await moverEtapaAlTomarElChat({
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        canal: "official",
+        userId,
+      });
     } else {
       const conversacion = await prisma.conversation.findFirst({
         where: { id: input.conversationId, workspaceId: input.workspaceId, assignedToUserId: null },
@@ -84,6 +91,12 @@ export async function claimConversationIfUnassigned(input: {
         assigneeUserId: userId,
         text: `${quien?.name?.trim() || quien?.email || "Una asesora"} tomó esta conversación al responder`,
       });
+      await moverEtapaAlTomarElChat({
+        workspaceId: input.workspaceId,
+        conversationId: conversacion.id,
+        canal: "agent",
+        userId,
+      });
     }
   } catch (error) {
     // Nunca puede tumbar un envio: quedarse con el lead es un extra, mandar el mensaje no.
@@ -92,4 +105,22 @@ export async function claimConversationIfUnassigned(input: {
       error: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+/** Quedarse con el chat es una asignación: el lead sale de "---" y pasa a Frío (no lanza). */
+async function moverEtapaAlTomarElChat(input: {
+  workspaceId: string;
+  conversationId: string;
+  canal: "agent" | "official";
+  userId: string;
+}): Promise<void> {
+  const quien = await prisma.user
+    .findUnique({ where: { id: input.userId }, select: { name: true, email: true } })
+    .catch(() => null);
+  await moverEtapaAutomatica({
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    canal: input.canal,
+    motivo: { tipo: "asignacion", asesora: quien?.name?.trim() || quien?.email || "una asesora" },
+  });
 }

@@ -83,6 +83,7 @@ import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { MediaLibraryDialog } from "@/components/chats/media-library-dialog";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
 import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
+import { textoConservaElTotal } from "@/lib/etapa-automatica-reglas";
 import {
   MENSAJE_SIN_CONEXION_ENVIO,
   TIEMPO_LIMITE_SUBIDA_MS,
@@ -398,6 +399,12 @@ export const ConversationPanel = memo(function ConversationPanel({
     cambiar de chat.
   */
   const sugerenciaEnLaCaja = useRef<{ id: string; chat: string } | null>(null);
+  /*
+    El total ("$150.000") del panel de envio que se inserto en la caja. Al ENVIAR se comprueba que el
+    texto todavia lo trae; solo entonces el formulario lleva la marca para pasar el lead a Caliente.
+    Insertarlo no mueve nada. Se suelta con la caja vacia, al enviar o al cambiar de chat.
+  */
+  const totalDelPanelEnLaCaja = useRef<{ total: string; chat: string } | null>(null);
   /*
     El flujo que la estrella propone junto al texto ("Enviar flujo: Video combo armado"). Es un
     boton: nunca se envia solo. Se ve solo en el chat donde se pidio.
@@ -1351,6 +1358,17 @@ export const ConversationPanel = memo(function ConversationPanel({
     });
   }, [autoResizeComposer]);
 
+  // Inserta el mensaje del panel de envio y recuerda su total para marcarlo al enviar.
+  const insertarDesdePanelDeEnvio = useCallback(
+    (content: string, total?: string | null) => {
+      insertQuickReply(content);
+      totalDelPanelEnLaCaja.current = total
+        ? { total, chat: selectedConversationId ?? "" }
+        : null;
+    },
+    [insertQuickReply, selectedConversationId],
+  );
+
   const handleSuggestReply = useCallback(async () => {
     // Se usa el chat REALMENTE abierto y no mediaConfig: en los chats de la API oficial ese
     // config no existía, así que el botón ✨ se veía pero al tocarlo no pasaba NADA (ni un aviso).
@@ -1431,7 +1449,7 @@ export const ConversationPanel = memo(function ConversationPanel({
         chatKey={selectedConversationId || null}
         contactCity={contactCity}
         puedeEscribir={Boolean(composer)}
-        onInsertar={insertQuickReply}
+        onInsertar={insertarDesdePanelDeEnvio}
         onCiudadGuardada={(city) => {
           setContactCity(city);
           cacheDeContactos.delete(contactoDelEnvio);
@@ -2120,6 +2138,17 @@ export const ConversationPanel = memo(function ConversationPanel({
                     }
                     sugerenciaEnLaCaja.current = null;
 
+                    // Total del panel de envio: la marca va solo si el texto que sale todavia lo trae.
+                    const totalDelPanel = totalDelPanelEnLaCaja.current;
+                    totalDelPanelEnLaCaja.current = null;
+                    if (
+                      totalDelPanel &&
+                      totalDelPanel.chat === (selectedConversationId ?? "") &&
+                      textoConservaElTotal(message, totalDelPanel.total)
+                    ) {
+                      formData.set("conTotalDeEnvio", "1");
+                    }
+
                     // Respuesta rapida: va tal cual, sin la firma encima.
                     if (desdeRespuestaRapida) {
                       formData.set("skipSignature", "1");
@@ -2587,7 +2616,10 @@ export const ConversationPanel = memo(function ConversationPanel({
                           onChange={(event) => {
                             const conTexto = event.currentTarget.value.trim().length > 0;
                             setComposerHasText(conTexto);
-                            if (!conTexto) sugerenciaEnLaCaja.current = null;
+                            if (!conTexto) {
+                              sugerenciaEnLaCaja.current = null;
+                              totalDelPanelEnLaCaja.current = null;
+                            }
                             autoResizeComposer(event.currentTarget);
                           }}
                           onKeyDown={(event) => {
