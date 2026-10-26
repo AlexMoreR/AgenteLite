@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { prisma } from "@/lib/prisma";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 
@@ -168,6 +169,14 @@ export async function ejecutarDescarteAutomatico(): Promise<{ descartados: numbe
         if (movidos === 0) {
           continue;
         }
+        await registrarCambioDeEtapa({
+          workspaceId: workspace.id,
+          contactId: candidato.contactId,
+          etapaAnterior: candidato.etapa,
+          etapaNueva: "PERDIDO",
+          origen: "AUTOMATICO",
+          nota: "descarte automático",
+        });
 
         /*
           La nota en la tarjeta, que es lo que pidió Alex para poder auditarlo.

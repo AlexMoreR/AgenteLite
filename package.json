@@ -63,6 +63,8 @@
     "test:tras-asesora-cierre": "node scripts/check-tras-asesora-cierre.mjs",
     "test:aviso-pausa": "node scripts/check-aviso-pausa.mjs",
     "test:listas-bandeja": "node scripts/check-listas-bandeja.mjs",
+    "test:historial-etapa-migracion": "node scripts/check-historial-etapa-migracion.mjs",
+    "test:historial-etapa": "node scripts/check-historial-etapa.mjs",
     "test:como-quedo": "node scripts/check-como-quedo.mjs",
     "test:resuelto": "node scripts/check-resuelto.mjs",
     "test:respaldo": "node scripts/check-respaldo.mjs",
