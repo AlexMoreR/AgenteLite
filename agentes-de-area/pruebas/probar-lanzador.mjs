@@ -29,6 +29,20 @@ if (process.argv.includes("--claude-falso")) {
     process.exit(2);
   }
   fs.mkdirSync(path.dirname(ruta), { recursive: true });
+  if (/Agente de Marketing/.test(prompt)) {
+    fs.writeFileSync(
+      ruta,
+      JSON.stringify({
+        numeros: { campanas: [{ campana: "Combo Diván", gasto: 100000, ventas: 0, costo_por_venta: null }] },
+        meta: { linea: "Marketing: Combo Diván gastó 100.000 sin vender.", recomendaciones: [{ accion: "bajar", anuncio: "Diván 1", texto: "Bajar el anuncio Diván 1", dato: "0 ventas en 7 días con 100.000 de gasto" }] },
+        subagentes: { "vigilante-de-pauta": { alertas: 1 }, "calidad-del-lead": {} },
+        textoAlexander: "Marketing: Combo Diván gastó 100.000 sin vender.\nRecomendación: Bajar el anuncio Diván 1 (0 ventas en 7 días con 100.000 de gasto)",
+        mensajesAsesoras: [{ nombre: "UN CLIENTE", numero: "573120000000", texto: "esto jamás debe salir" }],
+      }),
+    );
+    console.log("listo");
+    process.exit(0);
+  }
   fs.writeFileSync(
     ruta,
     JSON.stringify({
@@ -50,7 +64,7 @@ if (process.argv.includes("--claude-falso")) {
 }
 
 /* ── Las pruebas ──────────────────────────────────────────────────────────────────────────────── */
-const { correr, ejecutarClaudeReal, esLimiteDeUso, horaBogota, instanteDeHora, subagentesDeHoy, leerEncabezado, mensajesUnicos } = await import("../correr-agente.mjs");
+const { correr, ejecutarClaudeReal, herramientasDelAgente, recogerLineaDeMarketing, armarPrompt, esLimiteDeUso, horaBogota, instanteDeHora, subagentesDeHoy, leerEncabezado, mensajesUnicos } = await import("../correr-agente.mjs");
 
 const ALEXANDER = "573001112233";
 const EQUIPO = new Set([ALEXANDER, "573004445566", "573007778899"]);
@@ -61,10 +75,11 @@ async function prueba(nombre, fn) {
   console.log(`ok - ${nombre}`);
 }
 
-function entorno({ inicio, limites = 0, modo = "", activo = false }) {
+function entorno({ inicio, limites = 0, modo = "", activo = false, marketingActivo = false }) {
   const raiz = fs.mkdtempSync(path.join(os.tmpdir(), "agente-ventas-"));
   const carpetaAgentes = path.join(raiz, "agentes");
   fs.cpSync(path.resolve(path.dirname(ESTE), "..", "ventas"), path.join(carpetaAgentes, "ventas"), { recursive: true });
+  fs.cpSync(path.resolve(path.dirname(ESTE), "..", "marketing"), path.join(carpetaAgentes, "marketing"), { recursive: true });
   const contador = path.join(raiz, "contador");
   let reloj = new Date(inicio).getTime();
   const dormidos = [];
@@ -98,8 +113,16 @@ function entorno({ inicio, limites = 0, modo = "", activo = false }) {
     llamarMcp: async (nombre, args) => {
       llamadas.push({ nombre, args, en: new Date(reloj).toISOString() });
       if (nombre === "guardar_resumen_del_dia") {
-        dias.set(args.fecha, args);
-        return { fecha: args.fecha, esPrueba: !activo };
+        const area = args.area ?? "ventas";
+        dias.set(area === "ventas" ? args.fecha : `${area}:${args.fecha}`, args);
+        return { fecha: args.fecha, esPrueba: !(area === "ventas" ? activo : marketingActivo) };
+      }
+      if (nombre === "agente_de_marketing") {
+        const dia = dias.get(`marketing:${args.fecha}`);
+        return {
+          interruptor: marketingActivo ? "PRENDIDO: su línea va en el mensaje de las 7:30 de Alexander" : "APAGADO: no va",
+          dia: dia ? { fecha: dia.fecha, salio_tarde: dia.salio_tarde, nota_tarde: dia.nota_tarde ?? null, linea_para_alexander: dia.texto_alexander } : "Todavía no hay ningún resumen guardado.",
+        };
       }
       const numero = args.numero;
       if (!EQUIPO.has(numero)) return { enviado: false, estado: "BLOQUEADO", motivo: "ese número no es del equipo" };
@@ -234,6 +257,107 @@ await prueba("piezas sueltas: límite de uso, hora de Colombia, encabezado de su
   ]);
   assert.equal(mensajes.length, 1);
   assert.equal(repetidos.length, 1);
+});
+
+/* ── MARKETING ─────────────────────────────────────────────────────────────────────────────────── */
+const correrMarketing = (e, extra = {}) => correr({ ...e.entradas, area: "marketing", ...extra });
+const marcaDeCorriendo = (e) => path.join(e.config.carpetaTrabajo, "estado", "marketing-2026-10-26.corriendo");
+
+await prueba("marketing corre a las 6:45, guarda su resumen (area marketing) y NO manda ningún WhatsApp, ni a un cliente que se cuele", async () => {
+  const e = entorno({ inicio: "2026-10-26T11:45:00Z", marketingActivo: true });
+  const r = await correrMarketing(e);
+  assert.equal(r.estado, "entregado");
+  assert.equal(enviadosA(e.llamadas).length, 0, "marketing no pide ningún WhatsApp");
+  const guardado = e.dias.get("marketing:2026-10-26");
+  assert.equal(guardado.area, "marketing");
+  assert.equal(guardado.salio_tarde, false);
+  assert.match(guardado.texto_alexander, /Combo Diván/);
+  assert.equal(e.dormidos.filter((ms) => ms > 60_000).length, 0, "no espera a las 7:30");
+  assert.ok(!fs.existsSync(marcaDeCorriendo(e)), "la marca de corriendo se borra al terminar");
+  assert.match(fs.readFileSync(path.join(e.config.carpetaTrabajo, "logs", "marketing-2026-10-26.log"), "utf8"), /no manda mensajes/);
+});
+
+await prueba("marketing en domingo no corre, y los lunes (o --forzar-lunes) se agrega Ideas de anuncio", async () => {
+  const domingo = entorno({ inicio: "2026-10-25T11:45:00Z" });
+  assert.equal((await correrMarketing(domingo)).estado, "no_corre_hoy");
+  assert.ok(!fs.existsSync(domingo.contador), "ni siquiera abrió Claude");
+  const carpeta = path.resolve(path.dirname(ESTE), "..", "marketing");
+  const claves = (dia) => subagentesDeHoy(carpeta, dia).map((s) => s.clave);
+  assert.deepEqual(claves(2), ["calidad-del-lead", "vigilante-de-pauta"]);
+  assert.deepEqual(claves(1), ["calidad-del-lead", "ideas-de-anuncio", "vigilante-de-pauta"]);
+  const martes = entorno({ inicio: "2026-10-27T11:45:00Z" });
+  await correrMarketing(martes);
+  assert.doesNotMatch(fs.readFileSync(`${martes.contador}.prompts`, "utf8"), /ideas-de-anuncio/);
+  await correrMarketing(martes, { forzar: true, forzarLunes: true });
+  assert.match(fs.readFileSync(`${martes.contador}.prompts`, "utf8"), /ideas-de-anuncio/);
+});
+
+await prueba("marketing prendido: su línea va en el MISMO mensaje de las 7:30 de Alexander (no en uno aparte)", async () => {
+  const e = entorno({ inicio: "2026-10-26T11:45:00Z", activo: true, marketingActivo: true });
+  await correrMarketing(e);
+  const reloj = entorno({ inicio: "2026-10-26T12:00:00Z", activo: true, marketingActivo: true });
+  // Ventas usa el mismo CRM de mentira que ya tiene el resumen de marketing guardado.
+  reloj.entradas.llamarMcp = e.entradas.llamarMcp;
+  const r = await correr(reloj.entradas);
+  assert.equal(r.estado, "entregado");
+  const paraAlexander = e.llamadas.filter((l) => l.nombre === "mandar_whatsapp_al_equipo" && l.args.numero === ALEXANDER);
+  assert.equal(paraAlexander.length, 1, "UN solo mensaje a Alexander");
+  assert.match(paraAlexander[0].args.texto, /Ayer: 1 venta/);
+  assert.match(paraAlexander[0].args.texto, /Marketing: Combo Diván gastó 100\.000 sin vender\./);
+  assert.match(paraAlexander[0].args.texto, /Recomendación: Bajar el anuncio Diván 1 \(0 ventas en 7 días/);
+  assert.equal(e.llamadas.filter((l) => l.nombre === "mandar_whatsapp_al_equipo" && /Marketing:/.test(l.args.texto) && l.args.numero !== ALEXANDER).length, 0);
+});
+
+await prueba("marketing apagado: la línea NO entra en el mensaje de las 7:30", async () => {
+  const e = entorno({ inicio: "2026-10-26T11:45:00Z", activo: true, marketingActivo: false });
+  await correrMarketing(e);
+  assert.ok(e.dias.has("marketing:2026-10-26"), "el resumen sí se guarda");
+  const v = entorno({ inicio: "2026-10-26T12:00:00Z", activo: true, marketingActivo: false });
+  v.entradas.llamarMcp = e.entradas.llamarMcp;
+  await correr(v.entradas);
+  const alexander = e.llamadas.find((l) => l.nombre === "mandar_whatsapp_al_equipo" && l.args.numero === ALEXANDER);
+  assert.doesNotMatch(alexander.args.texto, /Marketing/);
+});
+
+await prueba("marketing no corrió: la línea dice 'Marketing: sin resumen hoy'; si salió tarde, lo dice", async () => {
+  const e = entorno({ inicio: "2026-10-26T12:00:00Z", activo: true, marketingActivo: true });
+  await correr(e.entradas);
+  const alexander = e.llamadas.find((l) => l.nombre === "mandar_whatsapp_al_equipo" && l.args.numero === ALEXANDER);
+  assert.match(alexander.args.texto, /Marketing: sin resumen hoy/);
+  // Marketing prendió tarde (aizen1 estaba apagado): su resumen lo avisa y Ventas lo repite.
+  const m = entorno({ inicio: "2026-10-26T12:20:00Z", marketingActivo: true });
+  await correrMarketing(m);
+  assert.equal(m.dias.get("marketing:2026-10-26").salio_tarde, true);
+  assert.equal(m.dias.get("marketing:2026-10-26").nota_tarde, "aizen1 prendió a las 07:20");
+  const v = entorno({ inicio: "2026-10-26T12:00:00Z", activo: true, marketingActivo: true });
+  v.entradas.llamarMcp = m.entradas.llamarMcp;
+  await correr(v.entradas);
+  const texto = m.llamadas.find((l) => l.nombre === "mandar_whatsapp_al_equipo" && l.args.numero === ALEXANDER).args.texto;
+  assert.match(texto, /Marketing salió tarde: aizen1 prendió a las 07:20/);
+});
+
+await prueba("si marketing sigue corriendo a las 7:30, Ventas espera hasta 15 minutos y luego sigue", async () => {
+  const e = entorno({ inicio: "2026-10-26T12:00:00Z", activo: true, marketingActivo: true });
+  fs.mkdirSync(path.join(e.config.carpetaTrabajo, "estado"), { recursive: true });
+  fs.writeFileSync(marcaDeCorriendo(e), "x");
+  const antes = e.dormidos.length;
+  await correr(e.entradas);
+  const esperas = e.dormidos.slice(antes).filter((ms) => ms === 60_000).length;
+  assert.equal(esperas, 15, "15 esperas de 1 minuto");
+  const alexander = e.llamadas.find((l) => l.nombre === "mandar_whatsapp_al_equipo" && l.args.numero === ALEXANDER);
+  assert.match(alexander.args.texto, /Marketing: sin resumen hoy/);
+});
+
+await prueba("Claude Code recibe la lista de permisos de marketing (candado de Meta); Ventas conserva la suya", async () => {
+  const marketing = herramientasDelAgente({}, path.resolve(path.dirname(ESTE), "..", "marketing"));
+  assert.equal(marketing.deSettings, true);
+  assert.ok(marketing.prohibidas.includes("mcp__meta__pause_campaign"));
+  assert.ok(marketing.prohibidas.includes("mcp__aizencrm__mandar_whatsapp_al_equipo"));
+  assert.ok(!marketing.permitidas.includes("mcp__meta"), "nunca el servidor de Meta completo");
+  const ventas = herramientasDelAgente({}, path.resolve(path.dirname(ESTE), "..", "ventas"));
+  assert.equal(ventas.deSettings, false);
+  assert.ok(ventas.permitidas.includes("mcp__aizencrm"));
+  assert.match(armarPrompt({ area: "marketing", fecha: "2026-10-26", ayer: "2026-10-25", subagentes: [], rutaSalida: "x.json" }), /SOLO LEES/);
 });
 
 console.log(`\n${pruebas} pruebas pasaron`);

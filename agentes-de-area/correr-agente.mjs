@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// EL LANZADOR de un agente de área (hoy, Ventas). Es lo que la tarea de Windows ejecuta a las 7:00 a. m.
+// EL LANZADOR de un agente de área (hoy, Ventas y Marketing). Es lo que la tarea de Windows ejecuta: Marketing a las 6:45 y Ventas a las 7:00.
 //
-//   node agentes-de-area/correr-agente.mjs [--area ventas] [--config ruta.json] [--forzar] [--forzar-sabado]
+//   node agentes-de-area/correr-agente.mjs [--area ventas|marketing] [--config ruta.json] [--forzar] [--forzar-sabado] [--forzar-lunes]
 //
 // Qué hace, en este orden:
 //   1. Lunes a sábado (domingo no corre). Si ya entregó hoy, no repite (--forzar lo salta).
@@ -15,6 +15,9 @@
 //      manda enseguida y el mensaje a Alexander empieza con "Salió tarde (aizen1 prendió a las …)".
 //   5. El CRM manda solo a la lista del equipo, por la línea Admin, con el interruptor prendido y una vez por persona
 //      y por día. NUNCA se le escribe a un cliente. Con el interruptor apagado solo queda el resumen.
+//   MARKETING (`--area marketing`, 6:45): mismo molde, pero NO manda ningún WhatsApp: solo guarda su resumen (línea + máximo 1
+//   recomendación). A las 7:30 el lanzador de VENTAS la agrega al mismo mensaje de Alexander si el interruptor de marketing está
+//   prendido (espera hasta 15 min si marketing sigue corriendo; si no corrió dice "Marketing: sin resumen hoy").
 //   6. Deja un registro del día en <carpetaTrabajo>/logs/<area>-AAAA-MM-DD.log.
 //
 // Solo usa node:*. Las partes que tocan el mundo (reloj, Claude, MCP) se inyectan para poder probarlo sin nada real.
@@ -88,19 +91,28 @@ export function subagentesDeHoy(carpetaDelAgente, diaSemana) {
   return lista.sort((a, b) => a.clave.localeCompare(b.clave));
 }
 
-export function armarPrompt({ area, fecha, ayer, subagentes, rutaSalida, forzarSabado }) {
+const NOMBRE_DEL_AREA = { ventas: "Ventas", marketing: "Marketing" };
+/** Las áreas que mandan WhatsApp a las 7:30. Marketing NO: su línea va dentro del mensaje de Ventas. */
+const AREAS_QUE_MANDAN = new Set(["ventas"]);
+const HORA_PROGRAMADA = { ventas: "07:00", marketing: "06:45" };
+
+export function armarPrompt({ area, fecha, ayer, subagentes, rutaSalida, forzarSabado, forzarLunes = false }) {
+  const manda = AREAS_QUE_MANDAN.has(area);
   return [
-    `Hoy es ${fecha} (hora de Colombia). Corre el día del Agente de ${area === "ventas" ? "Ventas" : area}.`,
+    `Hoy es ${fecha} (hora de Colombia). Corre el día del Agente de ${NOMBRE_DEL_AREA[area] ?? area}.`,
     `Los números que mides son los de AYER (${ayer}).`,
     "",
     "Sigue tu instrucción permanente (CLAUDE.md) paso a paso. Subagentes de HOY (lánzalos en PRIMER PLANO y espera lo que entregan;",
     "cada uno tiene su carpeta con un PROMPT.md que debes leer y pasarle completo):",
     ...(subagentes.length ? subagentes.map((s) => `- ${s.nombre}: ${s.prompt}`) : ["- (ninguno hoy)"]),
     forzarSabado ? "\nEs una corrida de PRUEBA del sábado: incluye también al Analista de perdidos." : "",
+    forzarLunes ? "\nEs una corrida de PRUEBA del lunes: incluye también a Ideas de anuncio." : "",
     "",
     "Al terminar guarda el resumen con guardar_resumen_del_dia y escribe el archivo de salida con este formato exacto:",
     `SALIDA: ${rutaSalida}`,
-    "NO mandes ningún WhatsApp tú: el lanzador entrega los mensajes a las 7:30. NUNCA le escribas a un cliente.",
+    manda
+      ? "NO mandes ningún WhatsApp tú: el lanzador entrega los mensajes a las 7:30. NUNCA le escribas a un cliente."
+      : "NO mandes ningún WhatsApp (no tienes cómo): tu línea viaja en el mensaje de las 7:30 del Agente de Ventas. En Meta Ads SOLO LEES. NUNCA le escribas a un cliente.",
   ]
     .filter((linea) => linea !== null)
     .join("\n");
@@ -110,7 +122,7 @@ export function armarPrompt({ area, fecha, ayer, subagentes, rutaSalida, forzarS
    LA SALIDA DEL AGENTE
 ------------------------------------------------------------------------------------------------ */
 
-export function leerSalida(ruta) {
+export function leerSalida(ruta, area = "ventas") {
   if (!fs.existsSync(ruta)) throw new Error(`El agente no dejó el archivo de salida (${ruta}).`);
   let salida;
   try {
@@ -120,7 +132,12 @@ export function leerSalida(ruta) {
   }
   if (!salida || typeof salida !== "object" || Array.isArray(salida)) throw new Error("El archivo de salida tiene que ser un objeto.");
   if (typeof salida.textoAlexander !== "string" || !salida.textoAlexander.trim()) throw new Error("A la salida le falta textoAlexander.");
-  if (!Array.isArray(salida.mensajesAsesoras)) throw new Error("A la salida le falta mensajesAsesoras (una lista, aunque vaya vacía).");
+  if (AREAS_QUE_MANDAN.has(area)) {
+    if (!Array.isArray(salida.mensajesAsesoras)) throw new Error("A la salida le falta mensajesAsesoras (una lista, aunque vaya vacía).");
+  } else {
+    // Marketing no manda mensajes a nadie, aunque el agente los escriba.
+    salida.mensajesAsesoras = [];
+  }
   return salida;
 }
 
@@ -159,10 +176,31 @@ function matarArbol(hijo) {
   }
 }
 
+/**
+ * Las herramientas que Claude Code deja usar al agente. Si la carpeta del agente tiene `.claude/settings.json`
+ * (Marketing: el candado de solo lectura en Meta Ads) ESA lista manda: lo permitido y lo prohibido salen de ahí y se pasan
+ * a Claude Code como --allowedTools y --disallowedTools. Sin ese archivo, valen las de config o las de Ventas.
+ */
+export function herramientasDelAgente(config, cwd) {
+  let permisos = null;
+  try {
+    permisos = JSON.parse(fs.readFileSync(path.join(cwd, ".claude", "settings.json"), "utf8").replace(/^﻿/, "")).permissions ?? null;
+  } catch {
+    permisos = null;
+  }
+  if (permisos && Array.isArray(permisos.allow) && Array.isArray(permisos.deny)) {
+    return { permitidas: permisos.allow, prohibidas: permisos.deny, deSettings: true };
+  }
+  return {
+    permitidas: config.herramientasPermitidas ?? ["Read", "Write", "Edit", "Glob", "Grep", "Task", "Agent", "mcp__aizencrm", "mcp__gestion"],
+    prohibidas: config.herramientasProhibidas ?? ["Bash", "WebFetch", "WebSearch"],
+    deSettings: false,
+  };
+}
+
 /** Corre `claude -p` con el prompt por stdin, dentro de la carpeta del agente. Nunca lanza. */
 export function ejecutarClaudeReal({ config, prompt, cwd }) {
-  const permitidas = config.herramientasPermitidas ?? ["Read", "Write", "Edit", "Glob", "Grep", "Task", "Agent", "mcp__aizencrm", "mcp__gestion"];
-  const prohibidas = config.herramientasProhibidas ?? ["Bash", "WebFetch", "WebSearch"];
+  const { permitidas, prohibidas } = herramientasDelAgente(config, cwd);
   const argumentos = [
     "-p",
     "--model",
@@ -232,6 +270,45 @@ export async function llamarMcpReal(config, nombre, argumentos) {
 }
 
 /* ------------------------------------------------------------------------------------------------
+   LA LÍNEA DE MARKETING DENTRO DEL MENSAJE DE LAS 7:30 DE VENTAS
+------------------------------------------------------------------------------------------------ */
+
+export const SIN_RESUMEN_DE_MARKETING = "Marketing: sin resumen hoy";
+
+/**
+ * Devuelve el texto de marketing para el mensaje de Alexander, o null si no va (interruptor apagado o CRM sin respuesta).
+ *  - Si marketing todavía está corriendo, espera hasta `esperaMarketingMinutos` (15) y vuelve a mirar cada minuto.
+ *  - Prendido y sin resumen de hoy: "Marketing: sin resumen hoy". Si el resumen salió tarde, lo dice.
+ */
+export async function recogerLineaDeMarketing({ config, hoy, carpetaTrabajo, ahora, dormir, llamarMcp, anotar }) {
+  const rutaCorriendo = path.join(carpetaTrabajo, "estado", `marketing-${hoy.fecha}.corriendo`);
+  const limite = ahora().getTime() + (config.esperaMarketingMinutos ?? 15) * MINUTO;
+  while (fs.existsSync(rutaCorriendo) && ahora().getTime() < limite) {
+    anotar("marketing todavía está corriendo: espero 1 min (hasta 15)");
+    await dormir(MINUTO);
+  }
+  let vista;
+  try {
+    vista = await llamarMcp("agente_de_marketing", { fecha: hoy.fecha, dias: 1 });
+  } catch (error) {
+    anotar(`no pude leer el Agente de Marketing (${error.message}): su línea no va hoy`);
+    return null;
+  }
+  if (!vista || typeof vista !== "object" || typeof vista.interruptor !== "string") return null;
+  if (!vista.interruptor.startsWith("PRENDIDO")) {
+    anotar("el interruptor de marketing está apagado: su línea no va en el mensaje");
+    return null;
+  }
+  const dia = vista.dia && typeof vista.dia === "object" ? vista.dia : null;
+  const linea = dia && dia.fecha === hoy.fecha && typeof dia.linea_para_alexander === "string" ? dia.linea_para_alexander.trim() : "";
+  if (!linea) {
+    anotar("marketing prendido, pero sin resumen de hoy");
+    return SIN_RESUMEN_DE_MARKETING;
+  }
+  return dia.salio_tarde ? `${linea}\n(Marketing salió tarde${dia.nota_tarde ? `: ${dia.nota_tarde}` : ""})` : linea;
+}
+
+/* ------------------------------------------------------------------------------------------------
    LA CORRIDA
 ------------------------------------------------------------------------------------------------ */
 
@@ -243,7 +320,7 @@ export async function llamarMcpReal(config, nombre, argumentos) {
  * @param opciones.llamarMcp   (nombre, argumentos) => Promise<objeto>
  * @param opciones.imprimir    (linea) => void   (por defecto, consola)
  */
-export async function correr({ config, area = "ventas", forzar = false, forzarSabado = false, ahora, dormir, ejecutar, llamarMcp, imprimir = console.log }) {
+export async function correr({ config, area = "ventas", forzar = false, forzarSabado = false, forzarLunes = false, ahora, dormir, ejecutar, llamarMcp, imprimir = console.log }) {
   const inicio = ahora();
   const hoy = horaBogota(inicio);
   const carpetaTrabajo = path.resolve(config.carpetaTrabajo);
@@ -273,17 +350,27 @@ export async function correr({ config, area = "ventas", forzar = false, forzarSa
   }
 
   const horaEntrega = config.horaEntrega ?? "07:30";
-  const horaProgramada = config.horaProgramada ?? "07:00";
+  const horaProgramada = (area === "ventas" ? config.horaProgramada : config.horaProgramadaMarketing) ?? HORA_PROGRAMADA[area] ?? "07:00";
   const momentoDeEntrega = instanteDeHora(hoy.fecha, horaEntrega);
   const rutaSalida = path.join(carpetaDelAgente, "salida", `${hoy.fecha}.json`);
   fs.mkdirSync(path.dirname(rutaSalida), { recursive: true });
   fs.rmSync(rutaSalida, { force: true });
 
-  const diaParaSubagentes = forzarSabado ? 6 : hoy.diaSemana;
+  const diaParaSubagentes = forzarSabado ? 6 : forzarLunes ? 1 : hoy.diaSemana;
   const subagentes = subagentesDeHoy(carpetaDelAgente, diaParaSubagentes);
-  const prompt = armarPrompt({ area, fecha: hoy.fecha, ayer: diaAnterior(hoy.fecha), subagentes, rutaSalida, forzarSabado });
+  const prompt = armarPrompt({ area, fecha: hoy.fecha, ayer: diaAnterior(hoy.fecha), subagentes, rutaSalida, forzarSabado, forzarLunes });
   anotar(`empieza (aizen1 prendió a las ${hoy.hhmm}); subagentes de hoy: ${subagentes.map((s) => s.clave).join(", ") || "ninguno"}`);
 
+  // Marca "estoy corriendo": Ventas la mira a las 7:30 para esperar a Marketing (hasta 15 min) en vez de decir "sin resumen".
+  const rutaCorriendo = path.join(carpetaTrabajo, "estado", `${area}-${hoy.fecha}.corriendo`);
+  if (!AREAS_QUE_MANDAN.has(area)) fs.writeFileSync(rutaCorriendo, `${inicio.toISOString()}\n`);
+  try {
+    return await correrDelAgente();
+  } finally {
+    fs.rmSync(rutaCorriendo, { force: true });
+  }
+
+  async function correrDelAgente() {
   // 1. Claude hace el trabajo. Si se agota el cupo del plan, espera y reintenta.
   const esperaMin = config.esperaLimiteMinutos ?? 30;
   const maxReintentos = config.maxReintentosLimite ?? 10;
@@ -308,7 +395,7 @@ export async function correr({ config, area = "ventas", forzar = false, forzarSa
 
   let salida;
   try {
-    salida = leerSalida(rutaSalida);
+    salida = leerSalida(rutaSalida, area);
   } catch (error) {
     anotar(`FALLO: ${error.message}`);
     return { estado: "fallo", motivo: "salida", ultimas: error.message };
@@ -316,9 +403,10 @@ export async function correr({ config, area = "ventas", forzar = false, forzarSa
 
   // 2. ¿Salió tarde? Si ya pasaron las 7:30 se entrega enseguida y se avisa a Alexander.
   const tolerancia = (config.toleranciaMinutos ?? 2) * MINUTO;
-  const tarde = ahora().getTime() > momentoDeEntrega.getTime() + tolerancia;
   const horaDeLlegada = hoy.hhmm;
   const llegoTarde = instanteDeHora(hoy.fecha, horaProgramada).getTime() + 5 * MINUTO < inicio.getTime();
+  // Marketing no entrega a las 7:30, pero si aizen1 prendió tarde también lo avisa ("salió tarde").
+  const tarde = ahora().getTime() > momentoDeEntrega.getTime() + tolerancia || (!AREAS_QUE_MANDAN.has(area) && llegoTarde);
   const nota = llegoTarde ? `aizen1 prendió a las ${horaDeLlegada}` : `la corrida terminó a las ${horaBogota(ahora()).hhmm}`;
   const textoAlexander = textoParaAlexander(salida.textoAlexander, tarde, nota);
 
@@ -334,22 +422,39 @@ export async function correr({ config, area = "ventas", forzar = false, forzarSa
     }
     return null;
   };
-  const guardado = await guardar("guardar_resumen_del_dia", {
-    fecha: hoy.fecha,
-    numeros: salida.numeros,
-    meta: salida.meta,
-    subagentes: salida.subagentes ?? {},
-    sugeridos: salida.sugeridos ?? [],
-    texto_alexander: textoAlexander,
-    salio_tarde: tarde,
-    ...(tarde ? { nota_tarde: nota } : {}),
-  });
+  const guardarResumen = (texto) =>
+    guardar("guardar_resumen_del_dia", {
+      fecha: hoy.fecha,
+      ...(area === "ventas" ? {} : { area }),
+      numeros: salida.numeros,
+      meta: salida.meta,
+      subagentes: salida.subagentes ?? {},
+      sugeridos: salida.sugeridos ?? [],
+      texto_alexander: texto,
+      salio_tarde: tarde,
+      ...(tarde ? { nota_tarde: nota } : {}),
+    });
+  const guardado = await guardarResumen(textoAlexander);
   anotar(guardado ? `resumen guardado${guardado.esPrueba ? " (corrida de PRUEBA: el interruptor está apagado)" : ""}` : "FALLO: no se pudo guardar el resumen");
+
+  // MARKETING termina aquí: no manda ningún WhatsApp. Su línea la recoge el lanzador de Ventas a las 7:30.
+  if (!AREAS_QUE_MANDAN.has(area)) {
+    fs.writeFileSync(rutaMarca, `${JSON.stringify({ fecha: hoy.fecha, tarde, nota: tarde ? nota : null, guardado: !!guardado, cuando: ahora().toISOString() }, null, 2)}\n`);
+    anotar(`listo: resumen de ${NOMBRE_DEL_AREA[area] ?? area} guardado${tarde ? " (salió tarde)" : ""}; no manda mensajes`);
+    return { estado: guardado ? "entregado" : "fallo", tarde, envios: [], textoAlexander, ...(guardado ? {} : { motivo: "no_se_pudo_guardar" }) };
+  }
 
   // 4. Esperar las 7:30 y entregar.
   if (!tarde && ahora().getTime() < momentoDeEntrega.getTime()) {
     anotar(`espero hasta las ${horaEntrega} para entregar`);
     await dormir(momentoDeEntrega.getTime() - ahora().getTime());
+  }
+  // El Agente de Marketing no manda nada por su cuenta: su línea va en ESTE mismo mensaje, si su interruptor está prendido.
+  const lineaDeMarketing = await recogerLineaDeMarketing({ config, hoy, carpetaTrabajo, ahora, dormir, llamarMcp, anotar });
+  let textoFinal = textoAlexander;
+  if (lineaDeMarketing) {
+    textoFinal = `${textoAlexander}\n\n${lineaDeMarketing}`;
+    await guardarResumen(textoFinal);
   }
   const { mensajes, repetidos } = mensajesUnicos(salida.mensajesAsesoras);
   if (repetidos.length) anotar(`el agente repitió ${repetidos.length} número(s) de asesoras: solo va el primer mensaje de cada una`);
@@ -362,14 +467,15 @@ export async function correr({ config, area = "ventas", forzar = false, forzarSa
     anotar(`mensaje para ${nombre || `…${numero.slice(-4)}`}: ${resumen}`);
     envios.push({ nombre, estado: respuesta?.estado ?? "ERROR", enviado: respuesta?.enviado === true });
   };
-  if (config.numeroAlexander) await enviar("Alexander", String(config.numeroAlexander).replace(/\D/g, ""), textoAlexander);
+  if (config.numeroAlexander) await enviar("Alexander", String(config.numeroAlexander).replace(/\D/g, ""), textoFinal);
   else anotar("FALLO: falta numeroAlexander en el config; el mensaje de las 7:30 no se pidió");
   for (const m of mensajes) await enviar(m.nombre, m.numero, m.texto);
 
   const entregado = { fecha: hoy.fecha, tarde, nota: tarde ? nota : null, envios, cuando: ahora().toISOString() };
   fs.writeFileSync(rutaMarca, `${JSON.stringify(entregado, null, 2)}\n`);
   anotar(`listo: ${envios.filter((e) => e.enviado).length} salieron, ${envios.filter((e) => !e.enviado).length} no salieron${tarde ? " (salió tarde)" : ""}`);
-  return { estado: "entregado", tarde, envios, textoAlexander };
+  return { estado: "entregado", tarde, envios, textoAlexander: textoFinal };
+  }
 }
 
 /* ------------------------------------------------------------------------------------------------
@@ -397,6 +503,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     area: valorDe("--area") ?? "ventas",
     forzar: argumentos.includes("--forzar"),
     forzarSabado: argumentos.includes("--forzar-sabado"),
+    forzarLunes: argumentos.includes("--forzar-lunes"),
     ahora: () => new Date(),
     dormir: (ms) => new Promise((resolver) => setTimeout(resolver, ms)),
     ejecutar: ({ prompt, cwd }) => ejecutarClaudeReal({ config, prompt, cwd }),

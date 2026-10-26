@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { prisma } from "@/lib/prisma";
-import { AREA_VENTAS } from "@/features/agentes-de-area/dominio/reglas";
+import { AREA_MARKETING, AREA_VENTAS } from "@/features/agentes-de-area/dominio/reglas";
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { leerUltimoEnvio } from "@/features/tableros-inteligentes/services/resumen-diario";
@@ -411,6 +411,18 @@ async function estadoDelAgenteDeVentas(workspaceId: string) {
     : `APAGADA: solo genera el resumen y no manda nada (${cuando})`;
 }
 
+/** Agente de Marketing (corre en aizen1, solo lee Meta Ads): el interruptor y cuándo se guardó el último resumen. */
+async function estadoDelAgenteDeMarketing(workspaceId: string) {
+  const [prendido, ultimo] = await Promise.all([
+    agenteActivo(workspaceId, AREA_MARKETING),
+    prisma.agenteDeAreaDia.findFirst({ where: { workspaceId, area: AREA_MARKETING }, orderBy: { fecha: "desc" }, select: { fecha: true, esPrueba: true } }),
+  ]);
+  const cuando = ultimo ? `último resumen del ${ultimo.fecha}${ultimo.esPrueba ? " (corrida de prueba)" : ""}` : "todavía no hay ningún resumen";
+  return prendido
+    ? `PRENDIDA: su línea de marketing va en el mensaje de las 7:30 de Alexander (${cuando})`
+    : `APAGADA: solo genera el resumen y su línea no va en el mensaje de las 7:30 (${cuando})`;
+}
+
 /** Tablero IA: cuándo salió el último resumen de las 9 p. m. y si el WhatsApp salió. */
 async function estadoDelResumenDiario(workspaceId: string) {
   const ultimo = await leerUltimoEnvio(workspaceId);
@@ -475,6 +487,7 @@ async function automatizaciones(
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(workspaceId).catch(() => "no se pudo leer"),
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
+    agente_de_marketing: await estadoDelAgenteDeMarketing(workspaceId).catch(() => "no se pudo leer"),
   };
 
   return {

@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { InterruptorDelAgente } from "./InterruptorDelAgente";
+import { TablaDeCampanas } from "./TablaDeCampanas";
 
 type Envio = { id: string; nombre: string | null; numero: string; tipo: string; estado: string; motivo: string | null; texto: string };
 type Dia = {
@@ -21,6 +22,9 @@ const NOMBRE_DE_SUBAGENTE: Record<string, string> = {
   cerrador: "Cerrador",
   cobrador: "Cobrador",
   "analista-de-perdidos": "Analista de perdidos",
+  "vigilante-de-pauta": "Vigilante de pauta",
+  "calidad-del-lead": "Calidad del lead",
+  "ideas-de-anuncio": "Ideas de anuncio",
 };
 
 const ETIQUETA_DE_ESTADO: Record<string, string> = {
@@ -29,6 +33,8 @@ const ETIQUETA_DE_ESTADO: Record<string, string> = {
   BLOQUEADO: "No se mandó",
   FALLO: "No salió",
 };
+
+const objeto = (v: unknown): Record<string, unknown> | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 
 function Contenido({ valor }: { valor: unknown }) {
   if (valor === null || valor === undefined || valor === "") return <p className="text-sm text-muted-foreground">Sin datos.</p>;
@@ -45,6 +51,7 @@ export function PanelAgenteDeArea({
   envios,
   historial,
   sinNumero,
+  area = "ventas",
 }: {
   titulo: string;
   activo: boolean;
@@ -53,7 +60,11 @@ export function PanelAgenteDeArea({
   envios: Envio[];
   historial: Historial[];
   sinNumero: string[];
+  area?: "ventas" | "marketing";
 }) {
+  const marketing = area === "marketing";
+  const meta = objeto(dia?.meta);
+  const recomendacion = objeto(meta?.recomendacion);
   const subagentes = dia?.subagentes && typeof dia.subagentes === "object" ? Object.entries(dia.subagentes as Record<string, unknown>) : [];
   const sugeridos = Array.isArray(dia?.sugeridos) ? dia.sugeridos.length : 0;
   return (
@@ -63,9 +74,11 @@ export function PanelAgenteDeArea({
           <CardTitle>{titulo}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <InterruptorDelAgente activo={activo} puedeCambiar={puedeCambiar} />
+          <InterruptorDelAgente activo={activo} puedeCambiar={puedeCambiar} area={area} />
           <p className="text-xs text-muted-foreground">
-            Corre en aizen1 a las 7:00 (lunes a sábado). Si aizen1 está apagado, no hay resumen. Nunca le escribe a un cliente.
+            {marketing
+              ? "Corre en aizen1 a las 6:45 (lunes a sábado) y guarda su resumen a las 7:00. Solo LEE Meta Ads: no pausa, prende ni edita nada. Nunca le escribe a un cliente."
+              : "Corre en aizen1 a las 7:00 (lunes a sábado). Si aizen1 está apagado, no hay resumen. Nunca le escribe a un cliente."}
           </p>
           {sinNumero.length ? (
             <p className="text-xs text-amber-600">Sin número de avisos (no les llegará nada): {sinNumero.join(", ")}.</p>
@@ -86,19 +99,47 @@ export function PanelAgenteDeArea({
             <p className="text-sm text-muted-foreground">Todavía no hay ningún resumen guardado.</p>
           ) : (
             <>
-              <div>
-                <h3 className="mb-1 text-sm font-medium">Números de ayer</h3>
-                <Contenido valor={dia.numeros} />
-              </div>
-              <div>
-                <h3 className="mb-1 text-sm font-medium">Meta de hoy</h3>
-                <Contenido valor={dia.meta} />
-              </div>
-              <div>
-                <h3 className="mb-1 text-sm font-medium">Mensaje de las 7:30 para Alexander</h3>
-                <Contenido valor={dia.textoAlexander} />
-              </div>
-              <p className="text-xs text-muted-foreground">Clientes sugeridos a las asesoras hoy: {sugeridos}.</p>
+              {marketing ? (
+                <>
+                  <div>
+                    <h3 className="mb-1 text-sm font-medium">Línea de marketing para Alexander</h3>
+                    <Contenido valor={meta?.linea ?? null} />
+                  </div>
+                  <div>
+                    <h3 className="mb-1 text-sm font-medium">Recomendación</h3>
+                    {recomendacion ? (
+                      <div className="space-y-1 text-sm">
+                        <p>
+                          <Badge variant="outline">{String(recomendacion.accion ?? "")}</Badge> {String(recomendacion.texto ?? "")}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Dato: {String(recomendacion.dato ?? "—")}</p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Hoy no hay recomendación.</p>
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="mb-1 text-sm font-medium">Por campaña y por anuncio</h3>
+                    <TablaDeCampanas numeros={dia.numeros} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <h3 className="mb-1 text-sm font-medium">Números de ayer</h3>
+                    <Contenido valor={dia.numeros} />
+                  </div>
+                  <div>
+                    <h3 className="mb-1 text-sm font-medium">Meta de hoy</h3>
+                    <Contenido valor={dia.meta} />
+                  </div>
+                  <div>
+                    <h3 className="mb-1 text-sm font-medium">Mensaje de las 7:30 para Alexander</h3>
+                    <Contenido valor={dia.textoAlexander} />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Clientes sugeridos a las asesoras hoy: {sugeridos}.</p>
+                </>
+              )}
             </>
           )}
         </CardContent>
@@ -115,6 +156,7 @@ export function PanelAgenteDeArea({
         </Card>
       ))}
 
+      {marketing ? null : (
       <Card>
         <CardHeader>
           <CardTitle>Mensajes de hoy</CardTitle>
@@ -134,6 +176,7 @@ export function PanelAgenteDeArea({
           ))}
         </CardContent>
       </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -147,7 +190,7 @@ export function PanelAgenteDeArea({
               {h.esPrueba ? <Badge variant="outline">Prueba</Badge> : null}
               {h.salioTarde ? <Badge variant="outline">Salió tarde</Badge> : null}
               <span className="text-xs text-muted-foreground">
-                {h.enviados} salieron · {h.bloqueados} no se mandaron
+                {marketing ? "" : `${h.enviados} salieron · ${h.bloqueados} no se mandaron`}
               </span>
             </div>
           ))}

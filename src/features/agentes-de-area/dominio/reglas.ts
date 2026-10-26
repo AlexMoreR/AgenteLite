@@ -1,5 +1,5 @@
 /**
- * AGENTES DE ÁREA (molde reutilizable; hoy solo existe el de Ventas).
+ * AGENTES DE ÁREA (molde reutilizable; hoy existen Ventas y Marketing).
  *
  * Un agente por área corre en aizen1 (Claude Code), mira su número y reparte el trabajo a subagentes.
  * El CRM NO piensa: guarda el resumen, muestra y entrega los WhatsApp internos que el agente pide.
@@ -12,7 +12,10 @@
  */
 
 export const AREA_VENTAS = "ventas";
-export const AREAS = [AREA_VENTAS] as const;
+export const AREA_MARKETING = "marketing";
+export const AREAS = [AREA_VENTAS, AREA_MARKETING] as const;
+/** Las áreas que pueden pedir un WhatsApp interno. Marketing NO: su línea viaja dentro del mensaje de Ventas. */
+export const AREAS_QUE_MANDAN = [AREA_VENTAS] as const;
 
 export type TipoDeEnvio = "ALEXANDER" | "ASESORA";
 export type EstadoDeEnvio = "ENVIANDO" | "ENVIADO" | "BLOQUEADO" | "FALLO";
@@ -152,7 +155,7 @@ const esObjeto = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 const textoONulo = (v: unknown, max = 4000) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
 
 /** Revisa y limpia lo que mandó el agente. Lanza un Error en español si algo no sirve. */
-export function leerResumenDelAgente(args: Record<string, unknown>, hoy: string): ResumenDelAgente {
+export function leerResumenDelAgente(args: Record<string, unknown>, hoy: string, area: string = AREA_VENTAS): ResumenDelAgente {
   const fecha = args.fecha === undefined || args.fecha === "" ? hoy : args.fecha;
   if (!fechaValida(fecha)) throw new Error("La fecha va como AAAA-MM-DD, por ejemplo 2026-10-22.");
   if (args.subagentes !== undefined && !esObjeto(args.subagentes)) {
@@ -172,16 +175,74 @@ export function leerResumenDelAgente(args: Record<string, unknown>, hoy: string)
       cliente: textoONulo(crudo.cliente, 160),
     });
   }
+  // Marketing: la línea y la recomendación van en `meta` y se revisan aquí (máximo 1, nunca "pausar para reaprender").
+  const meta = area === AREA_MARKETING ? leerMetaDeMarketing(args.meta) : (args.meta ?? null);
   return {
     fecha,
     salioTarde: args.salio_tarde === true,
     notaTarde: textoONulo(args.nota_tarde, 300),
     numeros: args.numeros ?? null,
-    meta: args.meta ?? null,
+    meta,
     subagentes: (args.subagentes as Record<string, unknown> | undefined) ?? {},
     sugeridos,
     textoAlexander: textoONulo(args.texto_alexander, MAX_TEXTO_ENVIO),
   };
+}
+
+/* ------------------------------------------------------------------------------------------------
+   MARKETING: la línea para Alexander y UNA recomendación con su dato
+------------------------------------------------------------------------------------------------ */
+
+/** Pausar una campaña "para que reaprenda" sube el costo (decisión del dueño): jamás se recomienda. */
+const PAUSAR_PARA_REAPRENDER = /(paus|apag|detener|frenar)[^.]{0,80}(reaprend|re-aprend|aprendizaje|reiniciar|resetear)|(reaprend|re-aprend|aprendizaje)[^.]{0,80}(paus|apag|detener|frenar)/i;
+export const ACCIONES_DE_MARKETING = ["subir", "bajar", "cambiar"] as const;
+
+export type MetaDeMarketing = {
+  linea: string | null;
+  recomendacion: { accion: string; anuncio: string | null; texto: string; dato: string } | null;
+  [otro: string]: unknown;
+};
+
+/**
+ * Revisa el `meta` que manda el agente de Marketing. Lanza un Error en español si trae más de una
+ * recomendación, una sin dato que la sustente, una que no sea subir/bajar/cambiar o una de "pausar para reaprender".
+ */
+export function leerMetaDeMarketing(meta: unknown): MetaDeMarketing {
+  const base = esObjeto(meta) ? meta : {};
+  const crudas = base.recomendaciones !== undefined ? base.recomendaciones : base.recomendacion !== undefined ? [base.recomendacion] : [];
+  if (!Array.isArray(crudas)) throw new Error("'meta.recomendaciones' tiene que ser una lista (máximo 1).");
+  const validas = crudas.filter((r) => r !== null && r !== undefined);
+  if (validas.length > 1) throw new Error("Marketing da MÁXIMO 1 recomendación al día.");
+  let recomendacion: MetaDeMarketing["recomendacion"] = null;
+  if (validas.length === 1) {
+    const r = validas[0];
+    if (!esObjeto(r)) throw new Error("La recomendación tiene que ser un objeto { accion, texto, dato }.");
+    const accion = textoONulo(r.accion, 20)?.toLowerCase() ?? "";
+    const texto = textoONulo(r.texto, 600);
+    const dato = textoONulo(r.dato, 600);
+    if (!(ACCIONES_DE_MARKETING as readonly string[]).includes(accion)) throw new Error("La acción de la recomendación es subir, bajar o cambiar un anuncio.");
+    if (!texto) throw new Error("La recomendación necesita su texto.");
+    if (!dato) throw new Error("La recomendación necesita el dato que la sustenta.");
+    if (PAUSAR_PARA_REAPRENDER.test(`${accion} ${texto}`)) {
+      throw new Error("No se recomienda pausar una campaña para que 'reaprenda': sube el costo (decisión del dueño).");
+    }
+    recomendacion = { accion, anuncio: textoONulo(r.anuncio, 200), texto, dato };
+  }
+  const { recomendaciones: _lista, recomendacion: _una, ...resto } = base;
+  void _lista;
+  void _una;
+  return { ...resto, linea: textoONulo(base.linea, 600), recomendacion };
+}
+
+/** La línea de marketing para el mensaje de las 7:30 (la arma el lanzador con esta misma forma). */
+export function lineaDeMarketingParaAlexander(meta: unknown): string | null {
+  const m = esObjeto(meta) ? meta : null;
+  const linea = m ? textoONulo(m.linea, 600) : null;
+  if (!linea) return null;
+  const r = m && esObjeto(m.recomendacion) ? m.recomendacion : null;
+  const texto = r ? textoONulo(r.texto, 600) : null;
+  const dato = r ? textoONulo(r.dato, 600) : null;
+  return texto ? `${linea}\nRecomendación: ${texto}${dato ? ` (${dato})` : ""}` : linea;
 }
 
 /** Antepone el aviso de tarde al mensaje de Alexander (el lanzador usa esta misma frase). */

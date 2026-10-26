@@ -62,5 +62,6 @@ next-env.d.ts
 # Agentes de área: lo que es solo de aizen1 (claves, config, salidas del agente, logs)
 /agentes-de-area/config.local.json
 /agentes-de-area/ventas/.mcp.json
+/agentes-de-area/marketing/.mcp.json
 /agentes-de-area/*/salida/
 /agentes-de-area/trabajo/

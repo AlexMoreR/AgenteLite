@@ -1,11 +1,15 @@
 import {
+  AREA_MARKETING,
   AREA_VENTAS,
+  AREAS_QUE_MANDAN,
   areaValida,
+  lineaDeMarketingParaAlexander,
   fechaBogota,
   fechaValida,
   type TipoDeEnvio,
 } from "@/features/agentes-de-area/dominio/reglas";
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
+import { numerosDeMarketing } from "@/features/agentes-de-area/servicios/numeros-de-marketing";
 import { mandarAlEquipo } from "@/features/agentes-de-area/servicios/envios";
 import { medirSugeridosDeAyer, numerosDeVentas } from "@/features/agentes-de-area/servicios/numeros";
 import { guardarResumenDelDia, leerEnviosDelDia, leerResumenesRecientes } from "@/features/agentes-de-area/servicios/resumenes";
@@ -75,6 +79,7 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
             required: ["asesora", "conversacion_id"],
           },
         },
+        area: { type: "string", description: "'ventas' (por defecto) o 'marketing'. Marketing guarda su línea y su recomendación en 'meta' ({ linea, recomendaciones: [{ accion, anuncio, texto, dato }] }, máximo 1)." },
         texto_alexander: { type: "string", description: "El mensaje de las 7:30 para Alexander (para mostrarlo en la pantalla)." },
         salio_tarde: { type: "boolean", description: "true si la corrida salió después de las 7:30." },
         nota_tarde: { type: "string", description: "Por ejemplo: 'aizen1 prendió a las 07:42'." },
@@ -82,6 +87,36 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
       additionalProperties: false,
     },
     annotations: ESCRIBE,
+  },
+  {
+    name: "numeros_de_marketing",
+    title: "Números de marketing por anuncio",
+    description:
+      "Para el Agente de Marketing. Por anuncio de origen: conversaciones nuevas, cuántas llegaron a Tibio o Caliente (etapa de la asesora y temperatura del sistema), ventas (GANADO, con su cotización de Gestión), chats sin respuesta y mediana de la primera respuesta. Con dias=1 trae también los primeros mensajes cortos del cliente de cada conversación. Dice cuántas conversaciones NO tienen anuncio de origen (y su porcentaje). El CRM guarda el anuncio, no la campaña: la campaña se une leyendo Meta. Solo lectura.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fecha: { type: "string", description: "AAAA-MM-DD (el último día incluido, hora de Colombia). Por defecto, AYER." },
+        dias: { type: "number", description: "1 = solo ese día (por defecto); 7 = ese día y los 6 anteriores (máximo 30)." },
+      },
+      additionalProperties: false,
+    },
+    annotations: SOLO_LECTURA,
+  },
+  {
+    name: "agente_de_marketing",
+    title: "Ver el Agente de Marketing",
+    description:
+      "Para leer en voz alta: si el interruptor del Agente de Marketing está prendido o apagado, el resumen de hoy (o del día pedido) con su línea y su recomendación, lo que entregó cada subagente y los últimos días. Solo lectura.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fecha: { type: "string", description: "AAAA-MM-DD. Por defecto, el último resumen guardado." },
+        dias: { type: "number", description: "Cuántos días de historial (1 a 30, por defecto 7)." },
+      },
+      additionalProperties: false,
+    },
+    annotations: SOLO_LECTURA,
   },
   {
     name: "mandar_whatsapp_al_equipo",
@@ -133,7 +168,16 @@ function fechaPedida(args: Argumentos, porDefecto: string): string {
 
 function areaPedida(args: Argumentos): string {
   const area = typeof args.area === "string" && args.area.trim() ? args.area.trim() : AREA_VENTAS;
-  if (!areaValida(area)) throw new Error(`Esa área no existe. Las que hay: ${AREA_VENTAS}.`);
+  if (!areaValida(area)) throw new Error(`Esa área no existe. Las que hay: ${AREA_VENTAS}, ${AREA_MARKETING}.`);
+  return area;
+}
+
+/** Solo Ventas manda WhatsApp: la línea de Marketing viaja dentro del mensaje de las 7:30 de Ventas. */
+function areaQueManda(args: Argumentos): string {
+  const area = areaPedida(args);
+  if (!(AREAS_QUE_MANDAN as readonly string[]).includes(area)) {
+    throw new Error("El Agente de Marketing no manda WhatsApp: su línea va dentro del mensaje de las 7:30 del Agente de Ventas.");
+  }
   return area;
 }
 
@@ -148,8 +192,14 @@ async function verNumeros(args: Argumentos, contexto: Contexto) {
   return { ...numeros, sugeridos_de_ayer: sugeridos };
 }
 
+async function verNumerosDeMarketing(args: Argumentos, contexto: Contexto) {
+  const fecha = fechaPedida(args, AYER());
+  const dias = Math.min(30, Math.max(1, Math.round(Number(args.dias)) || 1));
+  return numerosDeMarketing(contexto.workspaceId, fecha, dias);
+}
+
 async function guardarResumen(args: Argumentos, contexto: Contexto) {
-  const guardado = await guardarResumenDelDia({ workspaceId: contexto.workspaceId, area: AREA_VENTAS, args, hoy: fechaBogota(new Date()) });
+  const guardado = await guardarResumenDelDia({ workspaceId: contexto.workspaceId, area: areaPedida(args), args, hoy: fechaBogota(new Date()) });
   return {
     ...guardado,
     mensaje: guardado.esPrueba
@@ -159,7 +209,7 @@ async function guardarResumen(args: Argumentos, contexto: Contexto) {
 }
 
 async function mandar(args: Argumentos, contexto: Contexto) {
-  const area = areaPedida(args);
+  const area = areaQueManda(args);
   const resultado = await mandarAlEquipo({
     workspaceId: contexto.workspaceId,
     area,
@@ -172,6 +222,36 @@ async function mandar(args: Argumentos, contexto: Contexto) {
     estado: resultado.estado,
     ...(resultado.motivo ? { motivo: resultado.motivo } : {}),
     tipo: (resultado.tipo as TipoDeEnvio | null) ?? null,
+  };
+}
+
+async function verAgenteDeMarketing(args: Argumentos, contexto: Contexto) {
+  const dias = Math.min(30, Math.max(1, Math.round(Number(args.dias)) || 7));
+  const [activo, recientes] = await Promise.all([
+    agenteActivo(contexto.workspaceId, AREA_MARKETING),
+    leerResumenesRecientes(contexto.workspaceId, AREA_MARKETING, dias),
+  ]);
+  const pedida = typeof args.fecha === "string" && args.fecha.trim() ? fechaPedida(args, "") : null;
+  const dia = pedida ? recientes.find((r) => r.fecha === pedida) ?? null : (recientes[0] ?? null);
+  const meta = dia?.meta && typeof dia.meta === "object" && !Array.isArray(dia.meta) ? (dia.meta as Record<string, unknown>) : null;
+  return {
+    interruptor: activo
+      ? "PRENDIDO: su línea va en el mensaje de las 7:30 de Alexander"
+      : "APAGADO: el agente genera y guarda su resumen, pero su línea NO va en el mensaje de las 7:30",
+    dia: dia
+      ? {
+          fecha: dia.fecha,
+          corrida_de_prueba: dia.esPrueba,
+          salio_tarde: dia.salioTarde,
+          nota_tarde: dia.notaTarde,
+          tabla_por_campana_y_anuncio: dia.numeros,
+          linea: meta?.linea ?? null,
+          recomendacion: meta?.recomendacion ?? null,
+          linea_para_alexander: lineaDeMarketingParaAlexander(meta),
+          lo_que_entrego_cada_subagente: dia.subagentes,
+        }
+      : "Todavía no hay ningún resumen guardado.",
+    ultimos_dias: recientes.map((r) => ({ fecha: r.fecha, prueba: r.esPrueba, salio_tarde: r.salioTarde })),
   };
 }
 
@@ -217,6 +297,10 @@ export async function ejecutarHerramientaMcpAgentesDeArea(nombre: string, argume
   switch (nombre) {
     case "numeros_de_ventas":
       return verNumeros(argumentos, contexto);
+    case "numeros_de_marketing":
+      return verNumerosDeMarketing(argumentos, contexto);
+    case "agente_de_marketing":
+      return verAgenteDeMarketing(argumentos, contexto);
     case "guardar_resumen_del_dia":
       return guardarResumen(argumentos, contexto);
     case "mandar_whatsapp_al_equipo":

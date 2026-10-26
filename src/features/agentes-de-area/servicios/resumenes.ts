@@ -16,7 +16,7 @@ export async function guardarResumenDelDia(input: {
   args: Record<string, unknown>;
   hoy: string;
 }): Promise<{ fecha: string; esPrueba: boolean; reemplazo: boolean }> {
-  const resumen: ResumenDelAgente = leerResumenDelAgente(input.args, input.hoy);
+  const resumen: ResumenDelAgente = leerResumenDelAgente(input.args, input.hoy, input.area);
   const esPrueba = !(await agenteActivo(input.workspaceId, input.area));
   const datos = {
     esPrueba,

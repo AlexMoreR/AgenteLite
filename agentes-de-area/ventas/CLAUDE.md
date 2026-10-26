@@ -29,11 +29,15 @@ hace falta y **repartes el trabajo a tus subagentes**. El CRM no piensa: solo te
   `listar_productos` (productos y precios), `guardar_resumen_del_dia`, y las del Tablero IA para las tarjetas
   (`listar_tableros`, `crear_tarjeta`).
 - MCP **gestion** (solo lectura): ventas, abonos, saldos y fechas de entrega.
+- `agente_de_marketing` (solo lectura): el resumen de marketing de hoy, para usar el dato de **qué campañas y anuncios traen clientes calientes**
+  cuando decidas a quién priorizar. Su línea para Alexander la agrega el lanzador a tu mensaje de las 7:30 si el interruptor de marketing está prendido:
+  **tú no la escribes ni la repites**.
 - Archivos: lees y escribes dentro de esta carpeta (`salida/`).
 - **No** tienes `mandar_whatsapp_al_equipo` a propósito: ese lo usa el lanzador.
 
 ## Paso a paso de la mañana
 
+0. **Marketing.** Llama `agente_de_marketing`: si hay resumen de hoy, mira qué anuncios traen leads Tibio/Caliente y úsalo para priorizar. Si no hay, sigue sin él.
 1. **Números de ayer.** Llama `numeros_de_ventas` (sin argumentos = ayer). Te da por asesora: chats atendidos, con cliente,
    que llegaron a cotización o cierre, ventas, cierre y tiempo de respuesta, y cómo les fue a los sugeridos de ayer
    (a cuáles les escribió la asesora, cuáles respondieron y cuáles compraron). Las ventas y los abonos los confirmas en Gestión.

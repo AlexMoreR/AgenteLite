@@ -18,7 +18,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "comparar-embudos" | "recuperacion" | "supervisor" | "agente-de-ventas" | "guiones";
+type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "comparar-embudos" | "recuperacion" | "supervisor" | "agente-de-ventas" | "agente-de-marketing" | "guiones";
 
 const crmViews: Array<{
   title: string;
@@ -47,6 +47,7 @@ const crmViews: Array<{
   { title: "Supervisor", view: "supervisor", icon: ShieldCheck, soloDueno: true },
   // El Agente de Ventas (molde de agentes de área): lo ve quien supervisa, como el Supervisor.
   { title: "Agente de Ventas", view: "agente-de-ventas", icon: Bot, soloJefes: true },
+  { title: "Agente de Marketing", view: "agente-de-marketing", icon: Bot, soloJefes: true },
   { title: "Guiones", view: "guiones", icon: BookOpen },
 ];
 
