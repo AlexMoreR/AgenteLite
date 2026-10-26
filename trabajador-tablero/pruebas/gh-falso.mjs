@@ -7,8 +7,20 @@ import fs from "node:fs";
 
 const [accion, valor] = process.argv.slice(2);
 if (process.env.GH_FALSO_LOG) fs.appendFileSync(process.env.GH_FALSO_LOG, `${JSON.stringify({ accion, valor })}\n`);
+// ciDeRama (Actions revisa la rama): "buscar-rama" contesta la corrida 7001; "buscar-nada" no encuentra corrida (escribe "null",
+// como `--jq .[0].databaseId` con la lista vacía); "esperar-falla" termina con error; "log" trae el log del paso fallido
+// ("<job>\t<paso>\t<hora> texto", como `gh run view --log-failed`): el paso lo da el argumento "build" (por defecto) o "pruebas".
 if (accion === "buscar") console.log("4242");
-else if (accion === "esperar") console.log(`corrida ${valor}: completed success`);
+else if (accion === "buscar-rama") console.log("7001");
+else if (accion === "buscar-nada") console.log("null");
+else if (accion === "esperar-falla") {
+  console.log(`corrida ${valor}: completed failure`);
+  process.exit(1);
+} else if (accion === "log") {
+  const paso = process.argv[4] === "pruebas" ? "Pruebas" : "Build";
+  const lineas = paso === "Build" ? ["> next build", "Type error: Property 'colorFalso' does not exist on type 'Tarjeta'", "ERROR: build fallo en src/falso.ts"] : ["not ok 7 - la prueba falsa", "AssertionError: esperaba 1 y llegó 2"];
+  for (const linea of lineas) console.log(`pruebas\t${paso}\t2026-10-26T10:00:00.0000000Z ${linea}`);
+} else if (accion === "esperar") console.log(`corrida ${valor}: completed success`);
 else if (accion === "api") {
   const rama = decodeURIComponent(String(valor).match(/[?&]sha=([^&]+)/)?.[1] ?? "");
   let texto;

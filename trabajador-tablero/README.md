@@ -333,6 +333,28 @@ nota: si /tomar no trae `topeReparaciones`, se porta como antes).
 **Dependencias**: una flecha marcada "esto depende de aquella" (`conectar_tarjetas` con `depende`, o el botón de
 la ficha) hace que la tarjeta no se tome hasta que la otra esté HECHO.
 
+### GitHub Actions revisa la rama (`ciDeRama`, desde el 26-oct-2026)
+
+Antes, al terminar de construir, aizen1 compilaba y corría todas las pruebas (lo que más carga el PC). Con
+`repos.<x>.ciDeRama.activo: true` el orden es otro (necesita el workflow de GitHub que corre build, tipos, pruebas y
+lint en cada rama `tablero/**`):
+
+1. Se **sube primero la rama** `tablero/...` (nunca `main`; mismo `pushDeRama` de siempre).
+2. Se espera el resultado de Actions para ese commit (`esperarCiDeRama()`: `gh run list --commit` + `gh run watch --exit-status`;
+   solo un número cuenta como corrida). Mientras espera, el panel "Coordinador en vivo" muestra "en GitHub".
+3. **Pasa:** aizen1 no compila ni prueba. En "pruebas" queda "✔ verificado en GitHub Actions (corrida N)" y el resultado
+   trae `linkWorkflow` (la tarjeta muestra "Ver workflow de GitHub Actions") y `verificadoEn: "github-actions"`.
+4. **Falla:** se trae `gh run view <corrida> --log-failed`; el error (`ErrorDeEtapa`) lleva las líneas que fallaron y las
+   últimas 30, con la categoría según el paso ("no compila", "fallan pruebas" o "lint"). La autorreparación las recibe tal cual.
+5. **No responde en `minutos` (20):** no aparece la corrida, `gh` sin sesión, la corrida se pasa del tiempo o termina sin
+   un paso fallido que leer. Se compila y prueba en aizen1 como antes, y queda "⚠ Actions no respondió en 20 min: se compiló en aizen1".
+   El lint de main solo se mide en este caso.
+6. **El ensayo de migraciones contra producción (BEGIN…ROLLBACK) sigue en aizen1** (las claves no van a GitHub).
+7. Lo que vuelve de la nube con `confiarEnResultado` ya no compila en aizen1: no usa Actions. `subir()` (a main) no cambia.
+
+`ciDeRama` = `{ activo, buscar, esperar, log, minutos }` (comandos con `{commit}` y `{run}`; ejemplo en `config.example.json`).
+Apagado, todo funciona como antes.
+
 ### Actualizar aizen1 al flujo nuevo
 
 1. Traer el código nuevo (`git pull` en la copia del repo de donde corre el trabajador).
