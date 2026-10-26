@@ -161,3 +161,56 @@ export async function resumenDelMotor(workspaceId: string, ahora = new Date()): 
      GROUP BY 1, 2 ORDER BY 3 DESC`);
   return filas.map((fila) => ({ accion: fila.accion ?? "?", modo: fila.modo ?? "?", total: Number(fila.total) }));
 }
+
+export type PausaAcordadaDelLead = {
+  conversationId: string;
+  nombre: string;
+  telefonoFinal: string | null;
+  asesoraNombre: string | null;
+  /** Lo que dijo el cliente al dejar la compra en espera. */
+  frase: string;
+  /** Cuándo se retoma (EmbudoLead.dormidoHasta). */
+  retomarEn: Date;
+  /** La fecha dicha en palabras o "sin fecha: a los N días". */
+  como: string;
+  /** "activo" (el Supervisor no alerta) o "sombra" (solo se anota). */
+  modo: string;
+};
+
+/** Los chats en pausa acordada (acción "dormido" con motivo `pausa_acordada`), para la pantalla del Supervisor. */
+export async function leerPausasAcordadas(workspaceId: string, limite = 60): Promise<PausaAcordadaDelLead[]> {
+  const filas = await prisma.$queryRaw<
+    Array<{ conversationId: string; nombre: string | null; telefono: string | null; asesoraNombre: string | null; dormidoHasta: Date | null; accionDatos: Record<string, unknown> | null }>
+  >(Prisma.sql`
+    SELECT l."conversationId", ct."name" AS "nombre", ct."phoneNumber" AS "telefono", u."name" AS "asesoraNombre", l."dormidoHasta", l."accionDatos"
+      FROM "EmbudoLead" l
+      JOIN "Conversation" c ON c."id" = l."conversationId"
+      JOIN "Contact" ct ON ct."id" = c."contactId"
+      LEFT JOIN "User" u ON u."id" = c."assignedToUserId"
+     WHERE l."workspaceId" = ${workspaceId}
+       AND l."accion" = 'dormido'
+       AND l."accionDatos"->>'motivo' = 'pausa_acordada'
+       AND l."dormidoHasta" IS NOT NULL
+       AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
+       ${SQL_CHAT_ABIERTO}
+     ORDER BY l."dormidoHasta" ASC
+     LIMIT ${limite}`);
+  return filas.flatMap((fila) => {
+    if (!fila.dormidoHasta) return [];
+    const datos = fila.accionDatos ?? {};
+    const pausa = (datos.pausa && typeof datos.pausa === "object" ? datos.pausa : {}) as Record<string, unknown>;
+    const telefono = (fila.telefono ?? "").replace(/\D/g, "");
+    return [
+      {
+        conversationId: fila.conversationId,
+        nombre: fila.nombre?.trim() || "Cliente",
+        telefonoFinal: telefono.length >= 7 && telefono.length <= 13 ? telefono.slice(-4) : null,
+        asesoraNombre: fila.asesoraNombre,
+        frase: typeof pausa.frase === "string" ? pausa.frase : "",
+        retomarEn: new Date(fila.dormidoHasta),
+        como: typeof pausa.como === "string" ? pausa.como : "",
+        modo: typeof datos.modo === "string" ? datos.modo : "sombra",
+      },
+    ];
+  });
+}

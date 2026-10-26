@@ -759,4 +759,102 @@ prueba("color elegido / producto del chat (11-oct): solo elecciones claras; 'sol
   assert.equal(pr.nombreEnSingular("camillas"), "camilla");
 });
 
+/* ---------------------------------------------------------------------------------------------- */
+/* PAUSA ACORDADA (26-10-2026) */
+
+const CONFIG_PAUSA = cf.leerConfigDeTexto(JSON.stringify({ motor: { modo: "activo" }, pausaAcordada: { modo: "activo" } }));
+const LOCAL = "Espero que me organicen el lugar donde voy a trabajar";
+
+prueba("pausa acordada: el interruptor nace APAGADO y se lee del JSON (días acotados, modo desconocido = apagado)", () => {
+  assert.equal(cf.CONFIG_POR_DEFECTO.pausaAcordada.modo, "apagado");
+  assert.equal(cf.leerConfigDeTexto(null).pausaAcordada.modo, "apagado");
+  assert.deepEqual(cf.leerConfigDeTexto(JSON.stringify({ pausaAcordada: { modo: "sombra", diasSinFecha: 5 } })).pausaAcordada, { modo: "sombra", diasSinFecha: 5 });
+  assert.equal(cf.leerConfigDeTexto(JSON.stringify({ pausaAcordada: { modo: "raro", diasSinFecha: 999 } })).pausaAcordada.modo, "apagado");
+  assert.equal(cf.leerConfigDeTexto(JSON.stringify({ pausaAcordada: { diasSinFecha: 999 } })).pausaAcordada.diasSinFecha, 30);
+  // Solo la pausa prendida basta para que el reloj mire los chats.
+  assert.equal(cf.algoPrendido(cf.leerConfigDeTexto(JSON.stringify({ pausaAcordada: { modo: "sombra" } }))), true);
+  assert.equal(cf.algoPrendido(cf.leerConfigDeTexto(null)), false);
+});
+
+prueba("pausa acordada, caso real 26-oct: «espero que me organicen el lugar» → «quedamos al pendiente» queda dormido a 3 días", () => {
+  const f = ficha({ etapaCrm: "NEGOCIACION", asignadaA: "u1", mensajes: [IN(0, LOCAL), ASESORA(5, "Listo, quedamos al pendiente")] });
+  const ev = mo.evaluarLead(f, CONFIG_PAUSA, mas(6 * H));
+  const d = ev.decision;
+  assert.equal(d.accion, "dormido");
+  assert.equal(d.motivo, "pausa_acordada");
+  // Miércoles 7-oct 11:00 Bogotá + 3 días = sábado 10-oct 11:00 (horario laboral L–S).
+  assert.equal(d.dormidoHasta.toISOString(), "2026-10-10T16:00:00.000Z");
+  assert.equal(d.revisarEn.toISOString(), d.dormidoHasta.toISOString());
+  assert.equal(d.pausa.frase, LOCAL);
+  assert.equal(d.pausa.fuente, "sin_fecha");
+  assert.equal(d.pausa.fechaDelCliente, null);
+  assert.equal(mo.modoDeLaDecision(d, CONFIG_PAUSA), "activo");
+  // Sombra: el motor solo anota lo que haría.
+  const sombra = cf.leerConfigDeTexto(JSON.stringify({ motor: { modo: "activo" }, pausaAcordada: { modo: "sombra" } }));
+  assert.equal(mo.modoDeLaDecision(mo.evaluarLead(f, sombra, mas(6 * H)).decision, sombra), "sombra");
+});
+
+prueba("pausa acordada: la fecha que da el cliente manda sobre los 3 días", () => {
+  const quince = mo.evaluarLead(ficha({ mensajes: [IN(0, "El 15 te confirmo"), ASESORA(5, "Dale, quedo atenta")] }), CONFIG_PAUSA, mas(6 * H)).decision;
+  assert.equal(quince.motivo, "pausa_acordada");
+  assert.equal(quince.dormidoHasta.toISOString(), "2026-10-15T15:00:00.000Z"); // 15-oct 10:00 Bogotá
+  assert.equal(quince.pausa.fuente, "compromiso");
+  const plata = mo.evaluarLead(ficha({ mensajes: [IN(0, "Estoy reuniendo la plata"), ASESORA(5, "Perfecto, avísame")] }), CONFIG_PAUSA, mas(6 * H)).decision;
+  assert.equal(plata.motivo, "pausa_acordada");
+  assert.equal(plata.pausa.fuente, "sin_fecha");
+  const aviso = mo.evaluarLead(ficha({ mensajes: [IN(0, "Más adelante te aviso"), ASESORA(5, "Con gusto")] }), CONFIG_PAUSA, mas(6 * H)).decision;
+  assert.equal(aviso.motivo, "pausa_acordada");
+});
+
+prueba("pausa acordada: el día de retomar sale la tarea con un mensaje de valor sin presión (solo recordatorio, no se envía)", () => {
+  const f = ficha({ etapaCrm: "NEGOCIACION", asignadaA: "u1", mensajes: [IN(0, LOCAL), ASESORA(5, "Listo, quedamos al pendiente")] });
+  const dia = mo.evaluarLead(f, CONFIG_PAUSA, new Date("2026-10-10T16:01:00Z")).decision;
+  assert.equal(dia.accion, "tarea_asesora");
+  assert.equal(dia.motivo, "pausa_acordada_retomar");
+  assert.equal(dia.prioridad, "B");
+  assert.match(dia.mensajeSugerido, /^¡Hola, Laura! 😊 ¿Cómo vas con el local\? Te cuento que/);
+  assert.doesNotMatch(dia.mensajeSugerido, /\b(última|oferta|descuento|hoy mismo|urgente)\b/i);
+  assert.match(dia.detalle, /Quedó en pausa/);
+  assert.equal(mo.modoDeLaDecision(dia, CONFIG_PAUSA), "activo");
+  // Un día antes sigue dormido (no hay tarea).
+  assert.equal(mo.evaluarLead(f, CONFIG_PAUSA, new Date("2026-10-09T16:00:00Z")).decision.accion, "dormido");
+  // Si la asesora ya lo retomó ese día, no queda la tarea.
+  const retomada = ficha({ ...f, mensajes: [...f.mensajes, ASESORA(3 * 24 * 60 + 5, "¡Hola Laura! ¿Cómo vas con el local?")] });
+  assert.notEqual(mo.evaluarLead(retomada, CONFIG_PAUSA, mas(3 * DIA + 20 * MIN)).decision.motivo, "pausa_acordada_retomar");
+});
+
+prueba("pausa acordada: si el cliente vuelve a escribir, la pausa se cancela sola; y NO se pausa con pregunta, pago ni sin respuesta de una persona", () => {
+  const base = [IN(0, LOCAL), ASESORA(5, "Listo, quedamos al pendiente")];
+  const vuelve = mo.evaluarLead(ficha({ mensajes: [...base, IN(60, "¿Y el envío cuánto vale?")] }), CONFIG_PAUSA, mas(2 * H)).decision;
+  assert.notEqual(vuelve.motivo, "pausa_acordada");
+  assert.notEqual(vuelve.accion, "dormido");
+  const sinRespuesta = mo.evaluarLead(ficha({ mensajes: [IN(0, LOCAL)] }), CONFIG_PAUSA, mas(H)).decision;
+  assert.notEqual(sinRespuesta.motivo, "pausa_acordada");
+  const pago = mo.evaluarLead(ficha({ mensajes: [IN(0, "Ya pagué, te aviso"), ASESORA(5, "Recibido")] }), CONFIG_PAUSA, mas(H)).decision;
+  assert.notEqual(pago.motivo, "pausa_acordada");
+  const botSolo = mo.evaluarLead(ficha({ mensajes: [IN(0, LOCAL), BOT(1, "Claro, aquí estoy")] }), CONFIG_PAUSA, mas(H)).decision;
+  assert.notEqual(botSolo.motivo, "pausa_acordada");
+});
+
+prueba("pausa acordada: con el interruptor APAGADO la decisión es idéntica a la de hoy", () => {
+  const casos = [
+    [IN(0, LOCAL), ASESORA(5, "Listo, quedamos al pendiente")],
+    [IN(0, "Estoy reuniendo la plata"), ASESORA(5, "Perfecto")],
+    [IN(0, "El 15 te confirmo"), ASESORA(5, "Dale")],
+    [IN(0, "Hola, quiero el combo"), BOT(1, "Claro")],
+  ];
+  const apagada = cf.leerConfigDeTexto(JSON.stringify({ motor: { modo: "activo" } }));
+  for (const mensajes of casos) {
+    for (const t of [mas(H), mas(6 * H), mas(4 * DIA), mas(9 * DIA)]) {
+      const hoy = mo.evaluarLead(ficha({ mensajes }), CONFIG, t).decision;
+      const ahora = mo.evaluarLead(ficha({ mensajes }), apagada, t).decision;
+      assert.equal(ahora.clave, hoy.clave);
+      assert.equal(ahora.accion, hoy.accion);
+      assert.ok(!ahora.pausa);
+      assert.notEqual(ahora.motivo, "pausa_acordada");
+      assert.notEqual(ahora.motivo, "pausa_acordada_retomar");
+    }
+  }
+});
+
 console.log(`\n${pruebas} pruebas OK`);

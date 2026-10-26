@@ -245,6 +245,8 @@ export async function leerChatsAbiertos(input: {
   ahora: Date;
   /** Interruptor `turno:config`: lee los últimos mensajes y notas y calcula de quién es el turno. */
   conTurno?: boolean;
+  /** Pausa acordada en "activo": días por defecto de la pausa (null / sin dato = apagada, todo como antes). */
+  pausaAcordadaDias?: number | null;
 }): Promise<ChatAbierto[]> {
   const lineas = await lineasDelV3(input.workspaceId);
   if (lineas.length === 0) return [];
@@ -302,6 +304,7 @@ export async function leerChatsAbiertos(input: {
     temperatura: fila.temperatura,
     nombreCliente: fila.nombreCliente,
     mensajes: eventosDeLaFila(fila),
+    ...(input.pausaAcordadaDias ? { pausaAcordadaDias: input.pausaAcordadaDias } : {}),
     ...(input.conTurno ? { turno: turnoDeLaFila(fila) } : {}),
   }));
 }

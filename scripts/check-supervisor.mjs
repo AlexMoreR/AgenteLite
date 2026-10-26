@@ -948,4 +948,133 @@ prueba("revalidación: muestra insuficiente → pendiente, sin CRÍTICO y sin av
   assert.equal(alertas.severidadDelIncidente([p.hallazgos[0]]), "OBSERVACION");
 });
 
+/* ------------------------------------------------------------------ pausa acordada (26-10-2026) */
+
+const pausaAc = cargar("src/features/supervisor/dominio/pausa-acordada.ts");
+const exclusionesPausa = cargar("src/features/supervisor/dominio/exclusiones.ts");
+// Lunes 26-oct-2026, 10:00 de Bogotá (15:00 UTC).
+const P0 = Date.parse("2026-10-26T15:00:00Z");
+const pev = (direccion, min, texto, extra = {}) => ({ direccion, tipo: "TEXT", origen: direccion === "OUT" ? "manual" : null, texto, en: new Date(P0 + min * M), ...extra });
+const pausaDe = (mensajes, extra = {}) => pausaAc.detectarPausaAcordada({ mensajes, ahora: new Date(P0 + 6 * H), ...extra });
+const chatEnPausa = (mensajes, extra = {}) => {
+  const clientes = mensajes.filter((m) => m.direccion === "IN");
+  const humana = [...mensajes].reverse().find((m) => m.direccion === "OUT" && m.origen === "manual");
+  return {
+    conversationId: "pausa1",
+    asesoraId: "u1",
+    asesoraNombre: "María",
+    etapa: "NEGOCIACION",
+    pausado: false,
+    nombreCliente: "Carlos",
+    ultimoClienteEn: clientes.at(-1).en,
+    ultimaRespuestaHumanaEn: humana?.en ?? null,
+    textosPendientes: clientes.filter((m) => !humana || m.en > humana.en).map((m) => m.texto ?? ""),
+    mensajes,
+    ...extra,
+  };
+};
+const AHORA_PAUSA = new Date(P0 + 7 * H);
+
+prueba("pausa acordada: el caso real del 26-oct («espero que me organicen el lugar» → «quedamos al pendiente») pasa a 3 días", () => {
+  const mensajes = [pev("IN", 0, "Espero que me organicen el lugar donde voy a trabajar"), pev("OUT", 5, "Listo, quedamos al pendiente")];
+  const p = pausaDe(mensajes);
+  assert.ok(p, "es pausa acordada");
+  assert.equal(p.fuente, "sin_fecha");
+  assert.equal(p.fechaDelCliente, null);
+  assert.equal(p.frase, "Espero que me organicen el lugar donde voy a trabajar");
+  // Lunes 10:00 + 3 días = jueves 29-oct 10:00 de Bogotá (en horario laboral).
+  assert.equal(p.retomarEn.toISOString(), "2026-10-29T15:00:00.000Z");
+  // Los días por defecto se pueden cambiar.
+  assert.equal(pausaDe(mensajes, { dias: 5 }).retomarEn.toISOString(), "2026-10-31T15:00:00.000Z");
+});
+
+prueba("pausa acordada: otras frases de pausa y la fecha del cliente manda sobre los 3 días", () => {
+  for (const frase of ["Estoy reuniendo la plata", "estoy organizando el local", "espero un pago y te aviso", "Yo te aviso", "Más adelante lo miro", "cuando tenga el dinero te escribo"]) {
+    const p = pausaDe([pev("IN", 0, frase), pev("OUT", 5, "Con gusto, quedo atenta")]);
+    assert.ok(p, `«${frase}» es pausa`);
+    assert.equal(p.fuente, "sin_fecha", frase);
+  }
+  const quince = pausaDe([pev("IN", 0, "El 15 te confirmo"), pev("OUT", 5, "Dale, quedo atenta")]);
+  assert.equal(quince.fuente, "compromiso");
+  assert.equal(quince.como, "el 15");
+  assert.equal(quince.retomarEn.toISOString(), "2026-11-16T13:00:00.000Z", "el 15-nov es domingo: corre al lunes 8:00");
+  const noviembre = pausaDe([pev("IN", 0, "Finales de noviembre te aviso"), pev("OUT", 5, "Perfecto")]);
+  assert.equal(noviembre.fuente, "fecha_del_cliente");
+  assert.equal(noviembre.fechaDelCliente.toISOString().slice(0, 10), "2026-11-25");
+});
+
+prueba("pausa acordada: NO es pausa sin respuesta de una persona, con pregunta, pago, datos, señal de compra o pregunta de la asesora", () => {
+  assert.equal(pausaDe([pev("IN", 0, "Espero que me organicen el lugar")]), null, "nadie le ha respondido");
+  assert.equal(pausaDe([pev("IN", 0, "Espero que me organicen el lugar"), pev("OUT", 5, "Listo", { origen: null })]), null, "solo respondió el bot");
+  assert.equal(pausaDe([pev("IN", 0, "Estoy reuniendo la plata, ¿y el envío cuánto vale?"), pev("OUT", 5, "Son 15 mil")]), null, "con pregunta");
+  assert.equal(pausaDe([pev("IN", 0, "Ya pagué, te aviso cualquier cosa"), pev("OUT", 5, "Recibido")]), null, "ya pagué");
+  assert.equal(pausaDe([pev("IN", 0, "Te aviso, ahí va el comprobante", { tipo: "IMAGE" }), pev("OUT", 5, "Recibido")]), null, "comprobante");
+  assert.equal(pausaDe([pev("IN", 0, "Te envío la transferencia en la tarde"), pev("OUT", 5, "Perfecto")]), null, "promesa de pago: es compromiso, no pausa");
+  assert.equal(pausaDe([pev("IN", 0, "Estoy reuniendo la plata para el combo"), pev("OUT", 5, "¿Te separo uno?")]), null, "la asesora preguntó");
+  assert.equal(pausaDe([pev("IN", 0, "Estoy reuniendo la plata"), pev("OUT", 5, "En un momento te envío el catálogo")]), null, "la asesora dejó una promesa sin cumplir");
+  assert.equal(pausaDe([pev("IN", 0, "Hola, ¿tienen disponible el combo?"), pev("OUT", 5, "Sí claro")]), null, "no dijo que espera nada");
+  // Lo que escribe DESPUÉS: una pregunta, un pedido o una señal de compra la sacan de la pausa.
+  const base = [pev("IN", 0, "Estoy reuniendo la plata"), pev("OUT", 5, "Con gusto, quedo atenta")];
+  assert.ok(pausaDe([...base, pev("IN", 30, "ok gracias")]), "un acuse sigue en pausa");
+  assert.ok(pausaDe([...base, pev("IN", 30, "es que apenas están terminando la obra")]), "más de lo mismo sigue en pausa");
+  assert.equal(pausaDe([...base, pev("IN", 30, "¿y el envío?")]), null, "pregunta nueva");
+  assert.equal(pausaDe([...base, pev("IN", 30, "dame el precio del combo")]), null, "pedido nuevo");
+  assert.equal(pausaDe([...base, pev("IN", 30, "ya lo quiero, lo compro")]), null, "señal de compra nueva");
+  assert.equal(pausaDe([...base, pev("IN", 30, "ya pagué")]), null, "pago");
+});
+
+prueba("pausa acordada: una pausa cuya fecha pasó hace más de 7 días ya no cuenta (se alerta como hoy)", () => {
+  const mensajes = [pev("IN", 0, "Estoy reuniendo la plata"), pev("OUT", 5, "Con gusto")];
+  assert.ok(pausaAc.detectarPausaAcordada({ mensajes, ahora: new Date(P0 + 8 * 24 * H) }), "7 días después de la fecha: todavía");
+  assert.equal(pausaAc.detectarPausaAcordada({ mensajes, ahora: new Date(P0 + 15 * 24 * H) }), null);
+});
+
+prueba("pausa acordada: el mensaje del día de retomar es de valor, sin presión ni descuentos", () => {
+  const local = pausaAc.mensajeDePausaAcordada({ frase: "Espero que me organicen el lugar donde voy a trabajar" }, "carlos pérez");
+  assert.match(local, /^¡Hola, Carlos! 😊 ¿Cómo vas con el local\? Te cuento que/);
+  assert.match(pausaAc.mensajeDePausaAcordada({ frase: "estoy reuniendo la plata" }, null), /^¡Hola! 😊 ¿Cómo vas con lo que estabas organizando\?/);
+  for (const m of [local, pausaAc.mensajeDePausaAcordada({ frase: "te aviso" }, "Ana")]) {
+    assert.doesNotMatch(m, /\b(última|ultima|oferta|descuento|promoci|hoy mismo|no te lo pierdas|urgente|ya mismo)\b/i, m);
+    assert.match(m, /sin ningún afán/);
+  }
+});
+
+prueba("Supervisor: con el interruptor ENCENDIDO el chat en pausa acordada no genera alerta; APAGADO es exactamente como hoy", () => {
+  // María respondió, el cliente siguió hablando de lo mismo (no es acuse: el detector de acuses no lo cubre).
+  const mensajes = [pev("IN", 0, "Espero que me organicen el lugar donde voy a trabajar"), pev("OUT", 5, "Listo, quedamos al pendiente"), pev("IN", 20, "es que apenas están terminando la obra")];
+  const apagado = chatEnPausa(mensajes);
+  const eA = atencion.estadoDeEspera(apagado, AHORA_PAUSA);
+  assert.equal(eA.esperando, true);
+  assert.equal(eA.acuse, null, "no es un acuse");
+  assert.equal(eA.pausa, null, "apagado: no se mira");
+  assert.equal(eA.cierre, false);
+  const hallazgosA = atencion.detectarAtencion([apagado], AHORA_PAUSA);
+  assert.ok(hallazgosA.some((h) => h.evidencia.chats.includes("pausa1")), "hoy: caliente esperando (es lo que se arregla)");
+  // Encendido (activo): ni caliente esperando, ni señal sin dueña, ni asignado sin respuesta.
+  const encendido = { ...apagado, pausaAcordadaDias: 3 };
+  const eE = atencion.estadoDeEspera(encendido, AHORA_PAUSA);
+  assert.ok(eE.pausa, "en pausa acordada");
+  assert.equal(eE.cierre, true);
+  assert.equal(eE.pausa.retomarEn.toISOString(), "2026-10-29T15:00:00.000Z");
+  assert.ok(!atencion.detectarAtencion([encendido], AHORA_PAUSA).some((h) => h.evidencia.chats.includes("pausa1")), "cero alertas por el chat en pausa");
+  const sinDuena = { ...encendido, asesoraId: null, asesoraNombre: null, textosPendientes: ["Ya quiero el combo, estoy esperando que organicen el local"] };
+  assert.ok(!atencion.detectarAtencion([sinDuena], AHORA_PAUSA).some((h) => h.evidencia.chats.includes("pausa1")), "tampoco sin dueña");
+  // Si el cliente vuelve con una pregunta, la pausa se cancela sola y se alerta como siempre.
+  const vuelve = chatEnPausa([...mensajes, pev("IN", 60, "¿Y el envío cuánto vale? lo quiero ya")], { pausaAcordadaDias: 3 });
+  assert.equal(atencion.estadoDeEspera(vuelve, AHORA_PAUSA).pausa, null);
+  assert.ok(atencion.detectarAtencion([vuelve], AHORA_PAUSA).some((h) => h.evidencia.chats.includes("pausa1")));
+});
+
+prueba("Supervisor: las alertas ya abiertas por un chat en pausa acordada se retiran (y la que queda vacía se cierra)", () => {
+  const inc = {
+    id: "x", clave: "ATENCION:caliente-esperando:u1", familia: "ATENCION", estado: "ABIERTA", severidad: "CRITICO", titulo: "Cliente caliente esperando",
+    desde: new Date(P0), texto: "", hallazgos: [{ clave: "ATENCION:caliente-esperando:u1", familia: "ATENCION", severidad: "CRITICO", titulo: "t", que: "q", desde: new Date(P0), producto: null, leadsAfectados: 1,
+      evidencia: { chats: ["pausa1"], reglas: [], versiones: [] }, metrica: "", esperado: "", observado: "", hechos: ["Chat pausa1…: 6 h sin respuesta"], hipotesis: [], causaPosible: "", impacto: "", recomendacion: "" }],
+  };
+  const { incidentes, cambiados } = exclusionesPausa.purgarAcusesConAcuerdo([inc], new Set(["pausa1"]), AHORA_PAUSA);
+  assert.equal(cambiados, 1);
+  assert.equal(incidentes[0].estado, "RESUELTA");
+  assert.deepEqual(incidentes[0].hallazgos[0].evidencia.chats, []);
+});
+
 console.log(`\n${pruebas} pruebas del Supervisor OK`);

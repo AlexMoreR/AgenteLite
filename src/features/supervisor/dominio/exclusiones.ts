@@ -11,6 +11,9 @@
  *  - lead dormido por una fecha futura de compra ("finales de noviembre");
  *  - la asesora ya respondió después del último mensaje del cliente.
  *
+ * (Pausa acordada, 26-10-2026: el cliente dejó la compra en espera y una persona ya respondió; ver
+ * pausa-acordada.ts. Se purga igual que el acuse: `purgarAcusesConAcuerdo`.)
+ *
  * Si una alerta ABIERTA tiene chats que pasan a estar excluidos, al recalcular salen de la alerta, y
  * la alerta se cierra si queda vacía (ver purgarChatsExcluidos).
  */
@@ -59,6 +62,7 @@ function lineaDeChat(texto: string, excluidos: Set<string>): boolean {
  * Chats donde el cliente solo acusa recibo de algo ya acordado (acuse-con-acuerdo.ts, 13-10-2026):
  * salen de las alertas de atención abiertas (caliente, señal sin dueña, asignado…) y la que queda
  * vacía se cierra como RESUELTA en la siguiente vuelta. Las de "ya pagué" / comprobante no se tocan.
+ * También se usa con los chats en pausa acordada (el cliente dejó la compra en espera y ya se le respondió).
  */
 export function purgarAcusesConAcuerdo(abiertos: Incidente[], conAcuse: Set<string>, ahora: Date): { incidentes: Incidente[]; cambiados: number } {
   if (conAcuse.size === 0) return { incidentes: abiertos, cambiados: 0 };

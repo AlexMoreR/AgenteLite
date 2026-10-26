@@ -23,6 +23,9 @@
  *  - recuperacion72h.modo: "apagado" | "sombra" | "activo" (último intento humano a las 72 h).
  *    · recuperacion72h.vencerTrasDias (7; 13-10-2026): la tarea cuyo cliente lleva más de esos días
  *      sin escribir sale de las listas y queda para reactivación. 0 = como antes.
+ *  - pausaAcordada.modo: "apagado" | "sombra" | "activo" (26-10-2026). El cliente que dejó la compra en
+ *    espera y ya fue respondido queda dormido (motivo `pausa_acordada`) y el Supervisor no lo alerta;
+ *    `diasSinFecha` (3) es cuándo se retoma si no dio fecha (ver supervisor/dominio/pausa-acordada.ts).
  *  - diaSiguiente.rearmar: true | false (Alexander, 13-10-2026). El seguimiento de "día siguiente"
  *    del paso del Playbook se vuelve a armar en cada silencio, contando desde nuestra última
  *    respuesta (ver dominio/dia-siguiente.ts). false = como antes: solo al entrar al paso.
@@ -38,6 +41,10 @@ export const EXCEPCIONES_DEL_MOTOR: ExcepcionDelMotor[] = ["formulario", "cotiza
 
 /** El motivo de la tarea por un compromiso del cliente (dominio/compromiso.ts). */
 export const MOTIVO_COMPROMISO = "compromiso_pendiente";
+
+/** El motivo del chat dormido por una pausa acordada y el de la tarea del día de retomar (dominio/motor.ts). */
+export const MOTIVO_PAUSA_ACORDADA = "pausa_acordada";
+export const MOTIVO_PAUSA_ACORDADA_RETOMAR = "pausa_acordada_retomar";
 
 /** Los motivos de decisión (dominio/motor.ts) que pertenecen a cada excepción. */
 export const MOTIVOS_DE_EXCEPCION: Record<ExcepcionDelMotor, string[]> = {
@@ -221,6 +228,20 @@ export type ConfigSeguimientoInteligente = {
    * "Etapa <paso> · día siguiente" del paso de ese momento, para 24 h después de nuestra respuesta.
    * Apagado = exactamente como antes (el del paso sale solo al entrar al paso).
    */
+  /**
+   * PAUSA ACORDADA (tarjeta 8vvb74p2, 26-10-2026). El cliente dejó la compra en espera ("estoy reuniendo la
+   * plata", "te aviso", "más adelante") y una persona ya le respondió: el chat NO es alerta del Supervisor y
+   * queda "dormido" (motivo `pausa_acordada`) hasta la fecha que dio el cliente o, sin fecha, `diasSinFecha`
+   * días después (horario laboral). Ese día sale una tarea en Mi día con un mensaje de valor sin presión.
+   * Solo recordatorio para la asesora: el sistema no le escribe al cliente.
+   *  - "apagado" (por defecto): todo exactamente como antes.
+   *  - "sombra": el motor solo anota lo que HARÍA; el Supervisor sigue alertando como hoy.
+   *  - "activo": el motor deja el chat dormido y programa el recordatorio, y el Supervisor no lo alerta.
+   */
+  pausaAcordada: {
+    modo: ModoDelMotor;
+    diasSinFecha: number;
+  };
   diaSiguiente: {
     rearmar: boolean;
     /** Minutos callado después de nuestra respuesta antes de armarlo (deja terminar la tanda del bot). */
@@ -281,6 +302,7 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
     aprobadorId: null,
     vencerTrasDias: 7,
   },
+  pausaAcordada: { modo: "apagado", diasSinFecha: 3 },
   diaSiguiente: { rearmar: false, minutosDeCalma: 3 },
 };
 
@@ -358,6 +380,7 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
   const frm = objeto(crudo.formulario);
   const tra = objeto(crudo.trasAsesora);
   const rec = objeto(crudo.recuperacion72h);
+  const pau = objeto(crudo.pausaAcordada);
   const dsg = objeto(crudo.diaSiguiente);
   const recDesde = numero(rec.desdeHora, d.recuperacion72h.desdeHora, 0, 23);
   let recHasta = numero(rec.hastaHora, d.recuperacion72h.hastaHora, 1, 24);
@@ -448,6 +471,10 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
       aprobadorId: typeof rec.aprobadorId === "string" && rec.aprobadorId.trim() ? rec.aprobadorId.trim() : null,
       vencerTrasDias: Math.round(numero(rec.vencerTrasDias, d.recuperacion72h.vencerTrasDias, 0, 60)),
     },
+    pausaAcordada: {
+      modo: modo(pau.modo),
+      diasSinFecha: Math.round(numero(pau.diasSinFecha, d.pausaAcordada.diasSinFecha, 1, 30)),
+    },
     diaSiguiente: {
       rearmar: bandera(dsg.rearmar, d.diaSiguiente.rearmar),
       minutosDeCalma: numero(dsg.minutosDeCalma, d.diaSiguiente.minutosDeCalma, 0, 120),
@@ -484,6 +511,7 @@ export function algoPrendido(config: ConfigSeguimientoInteligente): boolean {
     config.exterior.activo ||
     config.cadencia.descarte !== "apagado" ||
     (config.trasAsesora?.modo ?? "apagado") !== "apagado" ||
-    (config.recuperacion72h?.modo ?? "apagado") !== "apagado"
+    (config.recuperacion72h?.modo ?? "apagado") !== "apagado" ||
+    (config.pausaAcordada?.modo ?? "apagado") !== "apagado"
   );
 }

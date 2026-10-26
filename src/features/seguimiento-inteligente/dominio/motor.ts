@@ -33,9 +33,10 @@
  */
 
 import { dentroDelHorario, esMensajeHumano, reprogramarFueraDeHorario } from "../../../lib/anti-bloqueo/reglas";
-import { MOTIVO_COMPROMISO, compromisoPrendido, esExcepcionQueActua, type ConfigSeguimientoInteligente, type ModoDelMotor } from "./config";
+import { MOTIVO_COMPROMISO, MOTIVO_PAUSA_ACORDADA, MOTIVO_PAUSA_ACORDADA_RETOMAR, compromisoPrendido, esExcepcionQueActua, type ConfigSeguimientoInteligente, type ModoDelMotor } from "./config";
 import { detectarCompromiso, mensajeDeCompromiso } from "./compromiso";
 import { detectarFechaFutura, type FechaFutura } from "./fecha-futura";
+import { detectarPausaAcordada, mensajeDePausaAcordada } from "../../supervisor/dominio/pausa-acordada";
 import { mencionaColombia, type Pais } from "./exterior";
 import { colorDelCliente, esPedidoDeDatos, siguienteHoraLaboral } from "./formulario";
 import { mensajeDeCadencia, mensajeDeCotizacion, mensajeDeFechaFutura, mensajeDeFormulario, mensajePorSenales, type ContextoDelMensaje } from "./mensajes";
@@ -158,6 +159,8 @@ export type Decision = {
   recuperacion?: Record<string, unknown> | null;
   /** Texto de la tarea para la asesora (compromiso: "Recordarle lo que quedó: «…»"). */
   detalle?: string | null;
+  /** Pausa acordada (se guarda en accionDatos.pausa): lo que dijo el cliente y cuándo se retoma. */
+  pausa?: { frase: string; dichoEn: string; retomarEn: string; fuente: string; como: string; fechaDelCliente: string | null } | null;
 };
 
 export type Evaluacion = {
@@ -246,6 +249,7 @@ export function evaluarLead(ficha: FichaDelLead, config: ConfigSeguimientoInteli
  */
 export function modoDeLaDecision(decision: Pick<Decision, "accion" | "motivo">, config: ConfigSeguimientoInteligente): ModoDelMotor {
   if (decision.motivo === MOTIVO_RECUPERACION) return config.recuperacion72h.modo;
+  if (decision.motivo === MOTIVO_PAUSA_ACORDADA || decision.motivo === MOTIVO_PAUSA_ACORDADA_RETOMAR) return config.pausaAcordada.modo;
   if (decision.accion === "excluir_exterior") return config.exterior.activo ? "activo" : "apagado";
   if (decision.accion === "descartar") return config.cadencia.descarte;
   if (esExcepcionQueActua(decision.motivo, config)) return "activo";
@@ -439,6 +443,42 @@ function decidir(c: Contexto): Decision {
     }
     // La asesora ya le escribió por la fecha: desde ahí corre la cadencia.
     inicioCadencia = tareaEn;
+  }
+
+  // 4b. PAUSA ACORDADA (26-10-2026, interruptor `pausaAcordada.modo`): el cliente dejó la compra en espera
+  //     ("estoy reuniendo la plata", "te aviso") y una persona ya le respondió. Queda dormido hasta la fecha
+  //     que dio (o a los 3 días) y ese día sale la tarea de retomarlo con un mensaje de valor. Si el cliente
+  //     escribe algo que no sea un acuse, deja de detectarse y todo sigue como siempre. Apagado = no se mira.
+  if (config.pausaAcordada && config.pausaAcordada.modo !== "apagado") {
+    const horario = { desde: config.formulario.desdeHora, hasta: config.formulario.hastaHora, dias: config.formulario.dias };
+    const pausa = detectarPausaAcordada({ mensajes, ahora, horario, dias: config.pausaAcordada.diasSinFecha });
+    if (pausa) {
+      const datos = {
+        frase: pausa.frase,
+        dichoEn: pausa.dichoEn.toISOString(),
+        retomarEn: pausa.retomarEn.toISOString(),
+        fuente: pausa.fuente,
+        como: pausa.como,
+        fechaDelCliente: pausa.fechaDelCliente?.toISOString() ?? null,
+      };
+      if (ahora.getTime() < pausa.retomarEn.getTime()) {
+        return {
+          ...base("dormido", MOTIVO_PAUSA_ACORDADA, { dormidoHasta: pausa.retomarEn, revisarEn: pausa.retomarEn }),
+          detalle: `En pausa acordada: «${pausa.frase}»`,
+          pausa: datos,
+        };
+      }
+      const hechaDespues = mensajes.some((m) => esHumano(m, c.inicio) && m.en.getTime() >= pausa.retomarEn.getTime());
+      if (!hechaDespues) {
+        return {
+          ...tarea("B", MOTIVO_PAUSA_ACORDADA_RETOMAR, mensajeDePausaAcordada(pausa, ficha.nombre), pausa.retomarEn, pausa.como),
+          detalle: `Retómalo con un mensaje de valor (sin presionar). Quedó en pausa: «${pausa.frase}»`,
+          pausa: datos,
+        };
+      }
+      // La asesora ya lo retomó: desde ahí corre la cadencia.
+      inicioCadencia = pausa.retomarEn;
+    }
   }
 
   // 5. El cliente está esperando respuesta.

@@ -24,7 +24,8 @@ import { leerConfigTurno } from "@/lib/turno-config";
 import { idsDelComboEnElLibro } from "@/features/supervisor/servicios/vueltas";
 import { TareasDeSeguimiento } from "@/features/seguimiento-inteligente/components/TareasDeSeguimiento";
 import { leerConfigSeguimiento } from "@/features/seguimiento-inteligente/servicios/config";
-import { leerTareasParaSupervisor, resumenDelMotor } from "@/features/seguimiento-inteligente/servicios/tareas";
+import { PausasAcordadas } from "@/features/supervisor/components/PausasAcordadas";
+import { leerPausasAcordadas, leerTareasParaSupervisor, resumenDelMotor } from "@/features/seguimiento-inteligente/servicios/tareas";
 import { ResumenDeRecuperacion } from "@/features/seguimiento-inteligente/components/ResumenDeRecuperacion";
 import { resumenDeRecuperacion } from "@/features/seguimiento-inteligente/servicios/recuperacion";
 import { bloqueDelCierreDelDia, fechaBogota } from "@/features/avisos-gravedad/dominio/reglas";
@@ -213,6 +214,9 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
       ? await resumenDeRecuperacion(workspaceId, configSeguimiento.recuperacion72h.modo, ahora).catch(() => null)
       : null;
 
+  // Pausa acordada: solo si está prendida (sombra o activo).
+  const pausasAcordadas = configSeguimiento.pausaAcordada.modo !== "apagado" ? await leerPausasAcordadas(workspaceId).catch(() => []) : null;
+
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-5">
       {/* Sin título ni párrafo (pedido de Alex, 11-oct-2026): lo primero son sus prioridades. */}
@@ -291,6 +295,23 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
                 : ""}
             </p>
             <TareasDeSeguimiento tareas={seguimiento.tareas} ahora={ahora} mostrarAsesora />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {pausasAcordadas ? (
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle>En pausa acordada</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p className="text-muted-foreground">
+              Clientes que dejaron la compra en espera y a quienes ya se les respondió: no son alerta. Se retoman en la fecha que
+              dieron o, sin fecha, a los {configSeguimiento.pausaAcordada.diasSinFecha} días, con un recordatorio para la asesora.
+              Modo <strong>{configSeguimiento.pausaAcordada.modo}</strong>
+              {configSeguimiento.pausaAcordada.modo === "sombra" ? ": solo muestra lo que haría, el Supervisor sigue alertando como siempre." : "."}
+            </p>
+            <PausasAcordadas pausas={pausasAcordadas} />
           </CardContent>
         </Card>
       ) : null}

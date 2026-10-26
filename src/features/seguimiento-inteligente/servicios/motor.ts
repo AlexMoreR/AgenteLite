@@ -63,6 +63,7 @@ function datosDeLaDecision(decision: Decision, evaluacion: Evaluacion, modo: str
     toque: decision.toque,
     ...(decision.recuperacion ? { recuperacion: decision.recuperacion } : {}),
     ...(decision.detalle ? { detalle: decision.detalle } : {}),
+    ...(decision.pausa ? { pausa: decision.pausa } : {}),
     temperatura: evaluacion.calificacion.temperatura,
     temperaturaBase: evaluacion.calificacion.temperaturaBase,
     producto: evaluacion.familia,
