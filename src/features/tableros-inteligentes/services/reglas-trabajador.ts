@@ -869,6 +869,24 @@ export function fraseDeLaVigilancia(vigilancia: VigilanciaDeLaSubida): string {
   return `Subió sola (zona ${zona}) — vigilancia ${vigilancia.minutos} min OK`;
 }
 
+/**
+ * Las 3 líneas fijas con que el agente termina de construir (26-oct-2026): "Qué se hizo:", "Qué se ve ahora:" y
+ * "Qué revisar juntos:". El Coordinador las manda con la subida; cada una se recorta y las vacías se descartan.
+ * Sin ninguna, null (el resumen del día se ve como antes).
+ */
+export type ResumenDeTresLineas = { hizo?: string; ahora?: string; revisar?: string };
+
+export function resumenDeTresLineasDeEntrada(valor: unknown): ResumenDeTresLineas | null {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return null;
+  const datos = valor as Record<string, unknown>;
+  const limpia = (dato: unknown) => textoCorto(dato, 300).replace(/\s+/g, " ").trim();
+  const hizo = limpia(datos.hizo);
+  const ahora = limpia(datos.ahora);
+  const revisar = limpia(datos.revisar);
+  if (!hizo && !ahora && !revisar) return null;
+  return { ...(hizo ? { hizo } : {}), ...(ahora ? { ahora } : {}), ...(revisar ? { revisar } : {}) };
+}
+
 /** Un link https (el del commit en GitHub), o null. */
 export function linkDeEntrada(valor: unknown): string | null {
   const link = textoONull(valor, 500);

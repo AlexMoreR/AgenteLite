@@ -26,7 +26,7 @@
 // la que desbloquea a otras y la más chica (las demás van en `excluir`); una tarea de aizen1 muy grande se parte
 // ANTES de construirla; y los pasos pesados (npm ci, lint, tsc, build, pruebas) de todas las sesiones pasan por UNA
 // cola en aizen1 (config.colaPesada.maximo, 1 por defecto), así 3 sesiones no compilan a la vez en un i3 de 2 núcleos.
-import { agenteDelRepo } from "./agentes.mjs";
+import { agenteDelRepo, anotarLeccion, leccionDe, tresLineasDe } from "./agentes.mjs";
 import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.mjs";
 import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
@@ -158,8 +158,33 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     if (vencida) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se trabajaba.");
     let respuesta;
     if (hacer === "planear") respuesta = await crm.plan(tarjeta.id, salida.plan);
-    else if (hacer === "construir") respuesta = await crm.resultado(tarjeta.id, salida);
-    else respuesta = await crm.subida(tarjeta.id, { commit: salida.commit, version: salida.version, linkCommit: salida.linkCommit, ...(salida.vigilancia ? { vigilancia: salida.vigilancia } : {}) });
+    else if (hacer === "construir") {
+      // "NECESITO:" al construir: la tarjeta queda en "Por revisar" (paso: false) con el motivo; no se reintenta.
+      const { necesita: _necesita, ...paraElCrm } = salida;
+      void _necesita;
+      respuesta = await crm.resultado(tarjeta.id, paraElCrm);
+    } else {
+      // Las 3 líneas con que el agente cerró construir ("Qué se hizo / Qué se ve ahora / Qué revisar juntos") viajan con la subida.
+      const tres = tresLineasDe(tarjeta.resultado?.resumen);
+      respuesta = await crm.subida(tarjeta.id, {
+        commit: salida.commit,
+        version: salida.version,
+        linkCommit: salida.linkCommit,
+        ...(salida.vigilancia ? { vigilancia: salida.vigilancia } : {}),
+        ...(tres ? { resumenTres: tres } : {}),
+      });
+    }
+    if (salida.necesita) await avisarQueNecesita(crm, registro, config, tarjeta, hacer, salida.necesita);
+    // Subió después de fallar: queda escrito cómo se arregló (si salió bien a la primera no se anota nada).
+    if (hacer === "subir" && reparacion) {
+      const veces = reparacion.numero;
+      anotarLaLeccion(config, registro, tarjeta, {
+        resultado: "bien",
+        etapa: "subir",
+        diagnostico: { categoria: reparacion.categoria, causa: reparacion.causa || "falló antes de subir" },
+        arreglo: `Subió después de ${veces} ${veces === 1 ? "reparación" : "reparaciones"}${reparacion.estrategia ? ` (estrategia ${reparacion.estrategia})` : ""}.`,
+      });
+    }
     const conMotor =
       hacer === "planear"
         ? `, motor: ${salida.motor}${salida.modelo ? ` (${nombreDelModelo(salida.modelo)})` : ""}`
@@ -199,6 +224,13 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     registro.error(`"${tarjeta.titulo}" (${hacer}) falló: ${motivo}`);
     if (error?.reversion) await avisarReversion(crm, registro, tarjeta, motivo, error.reversion);
     if (conReparaciones) return manejarFalla({ crm, config, registro, contexto, bitacora }, tarjeta, hacer, error);
+    // Un CRM viejo (sin reparaciones): igual queda escrita la lección de la falla.
+    anotarLaLeccion(config, registro, tarjeta, {
+      resultado: "fallo",
+      etapa: hacer,
+      diagnostico: diagnosticar({ error, etapa: hacer, textoLog: bitacora.join("\n"), tarjeta }),
+      arreglo: "Pasó al dueño (ERROR).",
+    });
     try {
       await crm.error(tarjeta.id, motivo, error?.zonas, error?.reversion);
     } catch (otro) {
@@ -208,6 +240,41 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
   } finally {
     clearInterval(reloj);
     await latidoEnVuelo;
+  }
+}
+
+/** El agente del proyecto de la tarjeta, con su archivo de lecciones en la carpeta de trabajo de aizen1; null si el repo no está en la configuración. */
+function agenteDeLaTarjeta(config, tarjeta) {
+  const repo = config.repos?.[tarjeta.repo];
+  return repo ? agenteDelRepo(repo, undefined, config.carpetaTrabajo) : null;
+}
+
+/** Anota la lección de lo que pasó con la tarjeta en el archivo de su agente. Nunca lanza: si no se puede, queda en el registro. */
+function anotarLaLeccion(config, registro, tarjeta, { resultado, etapa, diagnostico, arreglo }) {
+  try {
+    const agente = agenteDeLaTarjeta(config, tarjeta);
+    if (!agente) return;
+    const estado = anotarLeccion(agente, leccionDe({ tarjeta, resultado, diagnostico, etapa, arreglo }), { registro });
+    if (estado === "agregada") registro.info(`lección anotada para el ${agente.nombre} (${diagnostico?.categoria ?? "otra"})`);
+  } catch (error) {
+    registro.aviso(`no se pudo anotar la lección: ${error?.message ?? error}`);
+  }
+}
+
+/**
+ * El agente escribió "NECESITO: <clave|acceso|decisión> …": UN aviso de tipo "necesita" al dueño (WhatsApp por la línea Admin, el
+ * camino que ya existe) y la tarjeta se queda esperando (construir -> Por revisar, planear -> Plan listo). No se reintenta ni se
+ * escribe a ningún cliente. Si el aviso no sale, queda en el registro: la tarjeta ya está visible en el tablero con el motivo.
+ */
+async function avisarQueNecesita(crm, registro, config, tarjeta, hacer, necesita) {
+  const agente = agenteDeLaTarjeta(config, tarjeta);
+  const quien = agente?.nombre ?? "El agente";
+  const donde = hacer === "planear" ? "El plan quedó listo esperando tu sí." : "La tarjeta quedó en «Por revisar» esperando tu respuesta.";
+  const texto = `${quien} necesita ${{ clave: "una clave", acceso: "un acceso", decisión: "una decisión" }[necesita.tipo] ?? necesita.tipo} para "${tarjeta.titulo}": ${enUnaLinea(necesita.detalle, 400)} ${donde}`;
+  try {
+    await crm.aviso(texto, "necesita");
+  } catch (error) {
+    registro.aviso(`no salió el aviso de lo que necesita el agente (${error.status ?? "sin respuesta"}): ${error.message}`);
   }
 }
 
@@ -336,7 +403,26 @@ async function soltar(crm, registro, tarjeta, motivo, extra) {
  * Una etapa falló y el CRM entiende reparaciones: diagnosticar, decidir y hacerlo (ver el comentario de arriba).
  * Nunca lanza: lo que no se pueda avisar al CRM se anota en el log (la tarjeta venció por latido y el CRM la ve).
  */
-async function manejarFalla({ crm, config, registro, contexto, bitacora }, tarjeta, hacer, error) {
+async function manejarFalla(args, tarjeta, hacer, error) {
+  const nota = {};
+  const salida = await repararLaFalla(args, tarjeta, hacer, error, nota);
+  // Queda escrita la lección cuando la tarjeta se repara, se parte o pasa al dueño (ERROR). Cuando solo espera, o se acabó el
+  // cupo de Claude, no se anota: no es culpa del proyecto.
+  if (nota.diagnostico && ["reparar", "partir", "escalar"].includes(salida.accion) && salida.categoria !== "limite_claude") {
+    const hechas = Number(tarjeta.reparaciones) || 0;
+    const tope = Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES;
+    const arreglo =
+      salida.accion === "reparar"
+        ? `La tarjeta vuelve a la fila para repararla (reparación ${hechas + 1} de ${tope}).`
+        : salida.accion === "partir"
+          ? "La tarea se partió en partes más chicas."
+          : "Pasó al dueño con un resumen de la falla (ERROR).";
+    anotarLaLeccion(args.config, args.registro, tarjeta, { resultado: "fallo", etapa: hacer, diagnostico: nota.diagnostico, arreglo });
+  }
+  return salida;
+}
+
+async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tarjeta, hacer, error, nota) {
   const motivo = error instanceof Error ? error.message : String(error);
   const textoLog = bitacora.join("\n");
   // 1. El error completo y el log, ANTES de diagnosticar.
@@ -357,6 +443,8 @@ async function manejarFalla({ crm, config, registro, contexto, bitacora }, tarje
       registro.aviso(`no se pudo diagnosticar con Claude (queda la causa por reglas): ${String(otro.message).split("\n")[0]}`);
     }
   }
+
+  nota.diagnostico = diagnostico;
 
   // 3. Decidir.
   const estrategiaActual = tarjeta.reparacion?.estrategia;

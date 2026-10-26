@@ -53,9 +53,22 @@ export type FilaDelHistorial = {
 export type ResumenDelDia = {
   dia: string;
   aprobadas: { tarjetaId: string; titulo: string; momento: string; motivo: string | null; cuando: string }[];
-  subidas: { tarjetaId: string; titulo: string; commit: string | null; linkCommit: string | null; cuando: string }[];
+  subidas: { tarjetaId: string; titulo: string; commit: string | null; linkCommit: string | null; cuando: string; tresLineas?: TresLineasDeHoy }[];
   fallas: { tarjetaId: string; titulo: string; motivo: string; cuando: string }[];
 };
+
+/** Las 3 líneas con que el agente cierra una tarea subida (26-oct-2026); cada una puede faltar. */
+export type TresLineasDeHoy = { hizo?: string; ahora?: string; revisar?: string };
+
+/** Las 3 líneas guardadas en la subida, o undefined si no hay ninguna (entonces el resumen se ve como antes). */
+export function tresLineasDeLaSubida(subida: unknown): TresLineasDeHoy | undefined {
+  const datos = comoObjeto(comoObjeto(subida).resumenTres);
+  const hizo = texto(datos.hizo);
+  const ahora = texto(datos.ahora);
+  const revisar = texto(datos.revisar);
+  if (!hizo && !ahora && !revisar) return undefined;
+  return { ...(hizo ? { hizo } : {}), ...(ahora ? { ahora } : {}), ...(revisar ? { revisar } : {}) };
+}
 
 const comoObjeto = (valor: unknown): Record<string, unknown> =>
   valor && typeof valor === "object" && !Array.isArray(valor) ? (valor as Record<string, unknown>) : {};
@@ -88,6 +101,7 @@ export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): R
           commit: texto(subida.commit),
           linkCommit: texto(subida.linkCommit),
           cuando,
+          ...(tresLineasDeLaSubida(subida) ? { tresLineas: tresLineasDeLaSubida(subida) } : {}),
         });
       } else if (despues.estado === "HECHO") {
         // Terminada sin subir a producción (tareas que no llevan repo): también es "lista".
@@ -164,7 +178,7 @@ async function cuantasEsperan(workspaceId: string): Promise<number> {
 }
 
 /** Una línea de la vista "Hoy": el título corto y el resumen de una línea que ya se usa en la ficha. */
-export type LineaDeHoy = { tarjetaId: string; titulo: string; resumen: string | null };
+export type LineaDeHoy = { tarjetaId: string; titulo: string; resumen: string | null; tresLineas?: TresLineasDeHoy };
 
 export type VistaDeHoy = {
   dia: string;
@@ -189,12 +203,16 @@ export async function vistaDeHoy(workspaceId: string, ahora = new Date()): Promi
       })
     : [];
   const porId = new Map(filas.map((fila) => [fila.id, fila]));
+  // Las 3 líneas de la última subida de cada tarjeta lista (el CRM las guarda con la subida; sin ellas, la línea queda como antes).
+  const tresLineasPorTarjeta = new Map<string, TresLineasDeHoy>();
+  for (const subida of resumen.subidas) if (subida.tresLineas) tresLineasPorTarjeta.set(subida.tarjetaId, subida.tresLineas);
   const linea = (id: string): LineaDeHoy | null => {
     const fila = porId.get(id);
     if (!fila) return null;
     const resultado = comoObjeto(fila.resultado);
     const corto = resumenCorto({ resultadoResumen: texto(resultado.resumen), plan: fila.plan, detalle: fila.detalle });
-    return { tarjetaId: fila.id, titulo: tituloCorto(fila.titulo), resumen: unaLinea(corto?.texto ?? null) };
+    const tresLineas = tresLineasPorTarjeta.get(id);
+    return { tarjetaId: fila.id, titulo: tituloCorto(fila.titulo), resumen: unaLinea(corto?.texto ?? null), ...(tresLineas ? { tresLineas } : {}) };
   };
   const lineas = (lista: string[]) => lista.map(linea).filter((l): l is LineaDeHoy => l !== null).slice(0, MAX_POR_GRUPO);
   return {

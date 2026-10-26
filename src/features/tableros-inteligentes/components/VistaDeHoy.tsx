@@ -35,6 +35,13 @@ function Linea({ linea }: { linea: LineaDeHoy }) {
           {linea.titulo}
         </span>
         {linea.resumen ? <span className="line-clamp-1 text-xs text-muted-foreground">{linea.resumen}</span> : null}
+        {linea.tresLineas ? (
+          <span className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+            {linea.tresLineas.hizo ? <span>Qué se hizo: {linea.tresLineas.hizo}</span> : null}
+            {linea.tresLineas.ahora ? <span>Qué se ve ahora: {linea.tresLineas.ahora}</span> : null}
+            {linea.tresLineas.revisar ? <span>Qué revisar juntos: {linea.tresLineas.revisar}</span> : null}
+          </span>
+        ) : null}
       </Link>
     </li>
   );

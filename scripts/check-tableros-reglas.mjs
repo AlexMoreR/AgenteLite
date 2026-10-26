@@ -1124,6 +1124,19 @@ prueba("zonas que suben solas (24-oct-2026): bot, Meta Ads, libro V3 y chats (26
   assert.equal(trabajo.resultadoDeEntrada({ resumen: "x", esperaPor: "gasto en Meta Ads" }).esperaPor, "gasto en Meta Ads");
 });
 
+await prueba("las 3 líneas del resumen: se recortan y se descartan si vienen vacías", () => {
+  assert.deepEqual(trabajo.resumenDeTresLineasDeEntrada({ hizo: "  Se agregó\nel botón ", ahora: "Sale en la sala", revisar: "La vista de hoy" }), {
+    hizo: "Se agregó el botón",
+    ahora: "Sale en la sala",
+    revisar: "La vista de hoy",
+  });
+  assert.deepEqual(trabajo.resumenDeTresLineasDeEntrada({ hizo: "Algo", ahora: "   ", revisar: 5 }), { hizo: "Algo" });
+  assert.equal(trabajo.resumenDeTresLineasDeEntrada({ hizo: "", ahora: " ", revisar: "" }), null);
+  assert.equal(trabajo.resumenDeTresLineasDeEntrada("x"), null);
+  assert.equal(trabajo.resumenDeTresLineasDeEntrada(null), null);
+  assert.equal(trabajo.resumenDeTresLineasDeEntrada({ hizo: "x".repeat(900) }).hizo.length, 300);
+});
+
 prueba("aprobar_tarjeta: texto obligatorio y válido por voz; zona protegida: bot, Meta Ads, libro V3 y chats también por voz", () => {
   assert.match(destino({ textoConfirmacion: undefined }), /texto de confirmación/);
   assert.match(destino({ textoConfirmacion: "ok dale" }), /texto de confirmación/);

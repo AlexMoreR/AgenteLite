@@ -45,6 +45,7 @@ import {
   registroDeAprobacion,
   resultadoDeEntrada,
   fraseDeLaVigilancia,
+  resumenDeTresLineasDeEntrada,
   vigilanciaDeEntrada,
   resumenDeEscalada,
   reversionDeEntrada,
@@ -99,6 +100,7 @@ import { QUIEN_TRABAJADOR, linkDeLaTarjeta } from "./tableros";
     otra que corre): PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente.
   - /:id/latido corre el vencimiento (de a 5 min, hasta el tope de la etapa: 20 / 90 / 45 min; construyendo en la
     nube, 180 min). Construyendo trae { lugar, sesion }: se guarda en resultado.construccion (25-oct-2026).
+  - /:id/subida acepta también resumenTres { hizo, ahora, revisar } (las 3 líneas del agente; se recortan y se descartan si vienen vacías).
   - /:id/plan, /resultado, /subida y /error la mueven de estado (reglas-trabajador.ts). /resultado
     pasa a SUBIENDO (sube sola) o a POR_REVISAR (espera el sí final) según destinoDelResultado.
 
@@ -800,11 +802,14 @@ export async function accionDelTrabajador(
               ? `construido, espera tu sí (zona ${zonas.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")})`
               : "construido, espera tu sí";
     } else if (accion === "subida") {
+      const resumenTres = resumenDeTresLineasDeEntrada(cuerpo.resumenTres);
       const subida = {
         commit: typeof cuerpo.commit === "string" ? cuerpo.commit.trim().slice(0, 80) : null,
         version: typeof cuerpo.version === "string" ? cuerpo.version.trim().slice(0, 120) : null,
         linkCommit: linkDeEntrada(cuerpo.linkCommit),
         cuando: ahora.toISOString(),
+        // Las 3 líneas del agente (qué se hizo, qué se ve ahora, qué revisar juntos); sin ellas, la subida queda como antes.
+        ...(resumenTres ? { resumenTres } : {}),
       };
       const { error: _errorViejo, ...sinError } = previo;
       void _errorViejo;

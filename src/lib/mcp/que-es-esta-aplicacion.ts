@@ -517,6 +517,8 @@ async function automatizaciones(
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
     agente_de_marketing: await estadoDelAgenteDeMarketing(workspaceId).catch(() => "no se pudo leer"),
     recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),
+    // Vive en el Coordinador (aizen1), no en la base: el CRM solo recibe las 3 líneas del resumen con la subida.
+    mejora_continua_tablero: "activa: corre dentro del Coordinador (aizen1); las lecciones viven en su carpeta de trabajo y el CRM no las puede leer, solo guarda las 3 líneas del resumen de cada subida",
   };
 
   return {

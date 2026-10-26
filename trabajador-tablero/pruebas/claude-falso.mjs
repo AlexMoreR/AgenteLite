@@ -164,7 +164,7 @@ if (modo === "plan") {
   // Como pide el prompt: la línea RIESGO en las primeras líneas (BAJO salvo que el título marque [zona]).
   const riesgo = titulo.includes("[zona]") ? "RIESGO: ALTO — toca el bot de ventas" : "RIESGO: BAJO — un cambio chico sin zonas ni migración destructiva";
   // Regla del dueño 24-oct: el plan dice si pasa solo a construir o espera el sí.
-  console.log(`PLAN para "${titulo}"\n${riesgo}\nAPROBAR PLAN: SOLO\n1. Qué se cambia: un archivo.\n2. Efecto: ninguno para clientes.\n3. Riesgos: bajos.\n4. Migración: no.\n5. Archivos: ${modulo ? `src/${modulo}/cambio.ts` : "cambio.txt"}\n6. Pruebas: verificar.mjs`);
+  console.log(`PLAN para "${titulo}"\n${riesgo}\nAPROBAR PLAN: SOLO\n1. Qué se cambia: un archivo.\n2. Efecto: ninguno para clientes.\n3. Riesgos: bajos.\n4. Migración: no.\n5. Archivos: ${modulo ? `src/${modulo}/cambio.ts` : "cambio.txt"}\n6. Pruebas: verificar.mjs${titulo.includes("[necesito]") ? "\nNECESITO: acceso al panel de Meta para leer el píxel" : ""}`);
   process.exit(0);
 }
 
@@ -193,6 +193,11 @@ const escribir = (archivo, texto) => {
   fs.mkdirSync(path.dirname(archivo), { recursive: true });
   fs.writeFileSync(archivo, texto);
 };
+if (titulo.includes("[necesito]")) {
+  // Pide algo que solo el dueño puede dar (26-oct-2026): no cambia nada y lo dice con "NECESITO:".
+  console.log('RESUMEN: me quedé sin poder seguir.\nNECESITO: clave de la API de pagos para probar el cobro');
+  process.exit(0);
+}
 if (titulo.includes("[atascado]")) {
   // Lanza "tareas en segundo plano" y se queda esperando sin tocar nada (el atasco del 24-oct-2026).
   console.error("Revisaré de nuevo en unos 30 minutos");
@@ -242,4 +247,5 @@ else if (modulo) {
   await dormir(1500); // para que dos construcciones se crucen en el tiempo
   escribir(`src/${modulo}/cambio-${Date.now()}-${process.pid}.ts`, `// ${titulo}\n`);
 } else if (!titulo.includes("[nada]")) escribir(`cambio-${Date.now()}.txt`, `${titulo}\n`);
-console.log(`RESUMEN: hice "${titulo}".`);
+// Las 3 líneas fijas con que cierra construir (26-oct-2026): el Coordinador las manda al CRM con la subida.
+console.log(`RESUMEN: hice "${titulo}".\nQué se hizo: Se hizo "${titulo}".\nQué se ve ahora: Un archivo nuevo en el proyecto.\nQué revisar juntos: Mirar que el cambio sea el esperado.`);

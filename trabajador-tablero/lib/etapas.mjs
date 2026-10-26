@@ -25,7 +25,7 @@ import path from "node:path";
 
 import crypto from "node:crypto";
 
-import { agenteDelRepo, textoDeIdentidad } from "./agentes.mjs";
+import { agenteDelRepo, leccionesParaElPrompt, necesitoDe, textoDeIdentidad } from "./agentes.mjs";
 import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, enUnaLinea, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
 import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
 import {
@@ -545,12 +545,36 @@ function identidadDelAgente(repo) {
   return textoDeIdentidad(agenteDelRepo(repo));
 }
 
-export function promptDelPlan(tarjeta, repo, motor = "claude") {
+/** Las lecciones que el agente aprendió de sus fallas (agentes.mjs): van en las instrucciones de planear y de construir. Vacío si no hay. */
+export function bloqueDeLecciones(lecciones) {
+  const texto = String(lecciones ?? "").trim();
+  return texto ? `Lecciones de este proyecto: no repitas estas fallas.\n${texto}` : "";
+}
+
+/** Las lecciones de ESTE agente leídas de su archivo en aizen1 (carpetaTrabajo/lecciones/<clave>.md); "" si no hay o no se pueden leer. */
+function leccionesDelAgente(contexto, repo) {
+  try {
+    return leccionesParaElPrompt(agenteDelRepo(repo, undefined, contexto.config.carpetaTrabajo));
+  } catch {
+    return "";
+  }
+}
+
+/** El cierre de construir (26-oct-2026): el resumen termina con 3 líneas fijas que el Coordinador manda al CRM con la subida. */
+const INSTRUCCION_DEL_RESUMEN =
+  'Termina con un RESUMEN corto en español sencillo: qué cambiaste, qué archivos y cómo lo probaste. Las ÚLTIMAS 3 líneas de tu respuesta, en este orden y con estas palabras exactas al comienzo de cada una:\nQué se hizo: <una frase>\nQué se ve ahora: <una frase: lo que cambia para el dueño o las asesoras>\nQué revisar juntos: <una frase: lo que conviene mirar con el dueño>';
+
+/** Cuándo usar "NECESITO:" (26-oct-2026): el Coordinador lo ve, deja la tarjeta esperando y le avisa UNA vez al dueño. */
+const INSTRUCCION_NECESITO =
+  'Si de verdad no puedes seguir sin algo que solo el dueño puede darte (una clave, un acceso o una decisión), escribe en una línea sola, al principio de la línea: "NECESITO: <clave|acceso|decisión> <qué necesitas y para qué>". Úsalo SOLO cuando no hay otra salida (no por una duda pequeña): la tarea queda parada esperando al dueño y no se reintenta. Nunca le escribas a un cliente.';
+
+export function promptDelPlan(tarjeta, repo, motor = "claude", { lecciones = "" } = {}) {
   return [
     `${identidadDelAgente(repo)} Eres parte del Coordinador de Sistemas de Magilus. Tienes que escribir un PLAN para esta tarea del repositorio "${repo.clave}". ${
       motor === "codex" ? "Estás en modo de solo lectura" : "Estás en modo plan"
     }: NO cambies ningún archivo, solo lee el código y planea.`,
     contextoDeLaTarjeta(tarjeta),
+    bloqueDeLecciones(lecciones),
     bloqueDeReparacion(tarjeta),
     [
       "Escribe el plan en español sencillo, para el dueño del negocio (no es programador), con estas partes:",
@@ -566,6 +590,7 @@ export function promptDelPlan(tarjeta, repo, motor = "claude") {
     "En la parte 5 escribe cada archivo con su ruta completa desde la raíz del repo (por ejemplo src/features/coach/servicio.ts): el Coordinador la usa para no construir a la vez dos tareas que tocan lo mismo.",
     fraseAlTerminar(repo),
     INSTRUCCION_DE_RIESGO,
+    INSTRUCCION_NECESITO,
     "Contesta SOLO con el plan.",
   ]
     .filter(Boolean)
@@ -646,12 +671,13 @@ function fraseAlTerminar(repo) {
     .join("\n");
 }
 
-export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patchAplicado = false } = {}) {
+export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patchAplicado = false, lecciones = "" } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   return [
     `${identidadDelAgente(repo)} Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en un worktree aparte, en la rama ${rama}.`,
     contextoDeLaTarjeta(tarjeta),
     `PLAN APROBADO:\n${tarjeta.plan}`,
+    bloqueDeLecciones(lecciones),
     bloqueDeReparacion(tarjeta, { patchAplicado }),
     [
       "Reglas:",
@@ -667,7 +693,8 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
       // y, con 3 sesiones, saturaban el i3. Claude prueba lo suyo; lo completo lo corre el Coordinador, de a uno.
       "- Al final corre `npx tsc --noEmit`, el lint SOLO de los archivos que cambiaste (`npx eslint <esos archivos>`, sin errores nuevos) y las pruebas del módulo que tocaste, y arregla lo que falle. NO corras `eslint .` del repo entero ni toda la batería de pruebas: el Coordinador corre todo eso al terminar, de a uno en aizen1.",
       "- Si terminas SIN haber cambiado ningún archivo (porque ya estaba hecho, o no se puede hacer), escribe como última línea: NO_CAMBIE: <el motivo en una frase>. Es la única forma de decir que no hacía falta cambiar nada.",
-      "- Termina con un RESUMEN corto en español sencillo: qué cambiaste, qué archivos y cómo lo probaste.",
+      `- ${INSTRUCCION_NECESITO}`,
+      `- ${INSTRUCCION_DEL_RESUMEN}`,
     ].join("\n"),
   ]
     .filter(Boolean)
@@ -679,7 +706,7 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
  * leer CLAUDE.md, las 4 lecciones, las prohibiciones y la orden de dejar todo en la rama tablero/<id>. Nunca lleva
  * claves, .env ni tokens: `entorno` solo trae variables NO secretas (la dirección de base falsa de siempre).
  */
-export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null } = {}) {
+export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null, lecciones = "" } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   const pasos = [repo.instalar, ...(repo.verificar ?? []), ...(repo.pruebas ?? [])].filter(Boolean).map((comando) => `\`${comoTexto(comando)}\``);
   const variables = Object.entries(entorno).map(([nombre, valor]) => `export ${nombre}="${valor}"`);
@@ -687,6 +714,7 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null 
     `${identidadDelAgente(repo)} Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en una sesión de Claude en la nube, sobre la rama ${rama} (ya existe en GitHub: es la tuya).`,
     contextoDeLaTarjeta(tarjeta),
     `PLAN APROBADO:\n${tarjeta.plan}`,
+    bloqueDeLecciones(lecciones),
     bloqueDeReparacion(tarjeta),
     modelo ? `MODELO PEDIDO: ${nombreDelModelo(modelo)} (construir se hace con ese modelo; no cambies a otro).` : "",
     "LO PRIMERO: lee el archivo CLAUDE.md de la raíz del repositorio y cumple sus REGLAS DE EJECUCIÓN (son obligatorias).",
@@ -713,7 +741,7 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null 
       "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). El Coordinador las ensaya después contra producción, no tú.",
       `- ${reglaDelManual(tarjeta)}`,
     ].join("\n"),
-    "Respeta el estilo del repo y escribe los comentarios en español. Si terminas SIN haber cambiado ningún archivo, escribe como última línea de tu resumen: NO_CAMBIE: <el motivo en una frase>. Termina con un RESUMEN corto en español sencillo: qué cambiaste, qué archivos y cómo lo probaste.",
+    `Respeta el estilo del repo y escribe los comentarios en español. Si terminas SIN haber cambiado ningún archivo, escribe como última línea de tu resumen: NO_CAMBIE: <el motivo en una frase>. ${INSTRUCCION_NECESITO} ${INSTRUCCION_DEL_RESUMEN}`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -749,7 +777,7 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
     // El modelo sale de la misma regla fija que en aizen1 (modelos.mjs): construir -> Sonnet, nunca Opus.
     const modelo = modeloDelPaso(config, "construir", tarjeta);
     registro.info(`construir en la nube: modelo ${nombreDelModelo(modelo)}`);
-    const lanzado = await lanzarEnNube(contexto, { cwd: carpeta, prompt: promptDeNube(tarjeta, repo, rama, { entorno, modelo }), modelo });
+    const lanzado = await lanzarEnNube(contexto, { cwd: carpeta, prompt: promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo) }), modelo });
     contexto.fase?.("construyendo", { lugar: "nube", linkSesion: lanzado.link });
     registro.info(`construyo en la nube: sesión ${lanzado.link}, rama ${rama} (${lanzado.via})`);
     let resultado;
@@ -975,14 +1003,19 @@ export async function planear(contexto, tarjeta) {
     if (modelo) {
       contexto.registro?.info?.(`plan: ${dificultad.dificil ? `tarea difícil (${dificultad.motivos.join("; ")})` : "tarea sencilla"} -> ${nombreDelModelo(modelo)}`);
     }
-    const texto = await correrMotor(contexto, motor, "planear", promptDelPlan(tarjeta, repo, motor), {
+    const texto = await correrMotor(contexto, motor, "planear", promptDelPlan(tarjeta, repo, motor, { lecciones: leccionesDelAgente(contexto, repo) }), {
       cwd: carpeta,
       timeoutMs: reloj.resta(),
       que: "escribir el plan",
       tarjeta,
       modelo,
     });
-    return { plan: `${texto.replace(MARCA_DEL_PLAN, "").trimEnd()}\n\n${firmaDelPlan(motor, modelo)}`, motor, modelo };
+    const plan = `${texto.replace(MARCA_DEL_PLAN, "").trimEnd()}\n\n${firmaDelPlan(motor, modelo)}`;
+    // "NECESITO: …" (26-oct-2026): el plan queda en "Plan listo" esperando el sí del dueño (la línea APROBAR PLAN que espera
+    // gana sobre cualquier "SOLO") y el bucle manda UN aviso "necesita".
+    const necesita = necesitoDe(texto);
+    if (necesita) return { plan: `APROBAR PLAN: ESPERA TU SÍ — el agente necesita ${necesita.tipo}: ${necesita.detalle}\n\n${plan}`, motor, modelo, necesita };
+    return { plan, motor, modelo };
   } finally {
     await quitarWorktree(repo, carpeta);
   }
@@ -1061,7 +1094,7 @@ export async function construir(contexto, tarjeta) {
     let resumenDelMotor;
     if (nube) resumenDelMotor = nube.resumen;
     else try {
-      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor, { patchAplicado }), {
+      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor, { patchAplicado, lecciones: leccionesDelAgente(contexto, repo) }), {
         cwd: carpeta,
         timeoutMs: reloj.resta(),
         que: "construir",
@@ -1079,7 +1112,7 @@ export async function construir(contexto, tarjeta) {
       await git(carpeta, ["reset", "--hard", baseSha]);
       await git(carpeta, ["clean", "-fd"]);
       motor = "claude";
-      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor, { patchAplicado: false }), {
+      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor, { patchAplicado: false, lecciones: leccionesDelAgente(contexto, repo) }), {
         cwd: carpeta,
         timeoutMs: reloj.resta(),
         que: "construir",
@@ -1089,6 +1122,13 @@ export async function construir(contexto, tarjeta) {
     } finally {
       // Lo que la sesión dejó corriendo (un next build colgado, un servidor) y el candado .next/lock.
       await cerrarRestos(contexto, carpeta);
+    }
+    // "NECESITO: …" (26-oct-2026): no se verifica ni se sube nada. La tarjeta queda en "Por revisar" con el motivo y el bucle
+    // manda UN aviso "necesita"; no se reintenta.
+    const necesita = necesitoDe(resumenDelMotor);
+    if (necesita) {
+      registro.info(`el agente necesita ${necesita.tipo}: ${necesita.detalle}`);
+      return { necesita, resumen: `El agente necesita ${necesita.tipo}: ${necesita.detalle}\n\n${String(resumenDelMotor).slice(-3000)}`, pruebas: "", paso: false, subeSolo: false };
     }
     const motores = { ...(motorDelPlan(tarjeta.plan) ? { plan: motorDelPlan(tarjeta.plan) } : {}), construir: motor };
     // Qué modelo hizo cada paso (para mostrarlo en la tarjeta). Codex no tiene modelo que elijamos acá.

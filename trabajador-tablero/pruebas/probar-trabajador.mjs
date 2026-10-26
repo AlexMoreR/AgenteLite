@@ -23,6 +23,7 @@ import { crearPlanificador, crearSemaforo, procesar, unaVuelta } from "../lib/bu
 import { PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
+import { MAX_LECCIONES, agenteDelRepo, anotarLeccion, leccionDe, leccionesParaElPrompt, necesitoDe, tresLineasDe } from "../lib/agentes.mjs";
 import { crearCrm } from "../lib/crm.mjs";
 import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstadoDelManual } from "../lib/manual-nocturno.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
@@ -48,6 +49,7 @@ import { enviosDeLog, globARegex, minutosDeLaVentana, zonasTocadas } from "../li
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
+const reglasDeRiesgo = cargar("src/features/tableros-inteligentes/services/reglas-riesgo.ts");
 
 const sinMedirAqui = { medir: () => ({ cpu: 10, memoria: 20 }), parar: () => undefined };
 
@@ -1090,7 +1092,7 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     if (cuerpo.zonaProtegida) tarjeta.zonaProtegida = reglas.unirZonas(tarjeta.zonaProtegida, reglas.zonasDeEntrada(cuerpo.zonaProtegida));
     tarjeta.estado = reglas.destinoDelResultado({ ...tarjeta.resultado, zonaProtegida: tarjeta.zonaProtegida });
   }
-  if (accion === "subida") tarjeta.resultado = { ...tarjeta.resultado, subida: { commit: cuerpo.commit, version: cuerpo.version, linkCommit: cuerpo.linkCommit, ...(cuerpo.vigilancia ? { vigilancia: reglas.vigilanciaDeEntrada(cuerpo.vigilancia) } : {}) } };
+  if (accion === "subida") tarjeta.resultado = { ...tarjeta.resultado, subida: { commit: cuerpo.commit, version: cuerpo.version, linkCommit: cuerpo.linkCommit, ...(cuerpo.vigilancia ? { vigilancia: reglas.vigilanciaDeEntrada(cuerpo.vigilancia) } : {}), ...(cuerpo.resumenTres ? { resumenTres: reglas.resumenDeTresLineasDeEntrada(cuerpo.resumenTres) } : {}) } };
   if (accion === "error") {
     tarjeta.resultado = { ...(tarjeta.resultado ?? {}), error: { motivo: reglas.motivoDeEntrada(cuerpo.motivo) } };
     if (cuerpo.zonaProtegida) tarjeta.zonaProtegida = reglas.unirZonas(tarjeta.zonaProtegida, reglas.zonasDeEntrada(cuerpo.zonaProtegida));
@@ -1246,6 +1248,13 @@ try {
     assert.equal(t.resultado.subida.version, shaDe("main"));
     assert.ok(fs.existsSync(path.join(REMOTO)) && g(REPO, "fetch", "origin") === "");
     assert.ok(g(REPO, "show", "origin/main:prisma/migrations/20261020130000_nueva/migration.sql").includes("CREATE TABLE"));
+    // Las 3 líneas con que el agente cerró construir viajan con la subida (no por WhatsApp).
+    const subida = llamadas.findLast((l) => l.accion === "subida" && l.id === feliz).cuerpo;
+    assert.deepEqual(Object.keys(subida.resumenTres), ["hizo", "ahora", "revisar"]);
+    assert.match(subida.resumenTres.hizo, /^Se hizo "Agregar tabla nueva/);
+    assert.equal(subida.resumenTres.ahora, "Un archivo nuevo en el proyecto.");
+    assert.equal(subida.resumenTres.revisar, "Mirar que el cambio sea el esperado.");
+    assert.deepEqual(t.resultado.subida.resumenTres, subida.resumenTres);
     const gh = leerLog(LOGS.gh);
     assert.deepEqual(gh.slice(-2), [
       { accion: "buscar", valor: shaDe("main") },
@@ -1731,6 +1740,167 @@ try {
     assert.match(lineas[2], /^Qué necesita de ti:/);
     assert.equal(t.resultado.error.categoria, "no_compila");
     assert.match(t.intentosLista[3].error, /error TS2322/, "el error exacto queda en el intento");
+    sinRestos();
+  });
+
+  /* ── Mejora continua (26-oct-2026): lecciones, resumen de 3 líneas y "NECESITO:" ── */
+  const archivoDeLecciones = path.join(T, "trabajo", "lecciones", "aizencrm.md");
+  const avisosDeNecesita = () => llamadas.filter((l) => l.accion === "aviso" && l.cuerpo.tipo === "necesita");
+
+  await prueba("lecciones: una falla anota una lección y la siguiente sesión (plan y construir) la ve en sus instrucciones", async () => {
+    fs.rmSync(archivoDeLecciones, { force: true });
+    const id = nuevaModerna("Falla y se arregla [tsc-una-vez]");
+    assert.equal((await vuelta()).accion, "reparar");
+    const texto = fs.readFileSync(archivoDeLecciones, "utf8");
+    assert.match(texto, /^### \d{4}-\d{2}-\d{2} · fallo · no_compila · huella:[0-9a-f]{8}$/m);
+    assert.match(texto, /- Tarjeta: Falla y se arregla \[tsc-una-vez\]/);
+    assert.match(texto, /- Cómo se arregló: La tarjeta vuelve a la fila para repararla \(reparación 1 de 3\)/);
+    assert.match(texto, /- Regla: Corre `npx tsc --noEmit` y el build antes de terminar/);
+    // La segunda sesión (construir de nuevo) trae la lección en sus instrucciones.
+    assert.equal((await vuelta()).ok, true);
+    const reparada = ultimaDeClaude("Falla y se arregla [tsc-una-vez]");
+    assert.match(reparada.prompt, /Lecciones de este proyecto: no repitas estas fallas\./);
+    assert.match(reparada.prompt, /Regla: Corre `npx tsc --noEmit` y el build antes de terminar/);
+    // Y también la de planear de otra tarjeta del mismo proyecto.
+    nuevaModerna("Otra tarea del proyecto", "APROBADO");
+    assert.equal((await vuelta()).hizo, "planear");
+    const plan = leerLog(LOGS.claude).findLast((l) => l.titulo === "Otra tarea del proyecto" && l.modo === "plan");
+    assert.match(plan.prompt, /Lecciones de este proyecto: no repitas estas fallas\./);
+    assert.match(plan.prompt, /Regla: Corre `npx tsc --noEmit`/);
+    // Subió después de fallar: queda escrito cómo se arregló (y las 3 líneas viajan con la subida).
+    Object.assign(tarjetas.get(id), { estado: "SUBIENDO", venceEn: null });
+    const subida = await vuelta();
+    assert.equal(subida.hizo, "subir");
+    assert.equal(subida.ok, true, subida.motivo);
+    assert.match(fs.readFileSync(archivoDeLecciones, "utf8"), /^### \d{4}-\d{2}-\d{2} · bien · no_compila · huella:[0-9a-f]{8}$/m);
+    assert.match(fs.readFileSync(archivoDeLecciones, "utf8"), /Cómo se arregló: Subió después de 1 reparación\./);
+    const enviada = llamadas.findLast((l) => l.accion === "subida" && l.id === id).cuerpo;
+    assert.deepEqual(Object.keys(enviada.resumenTres), ["hizo", "ahora", "revisar"]);
+    soltarTodas(id);
+    for (const t of tarjetas.values()) if (t.titulo === "Otra tarea del proyecto") soltarTodas(t.id);
+    sinRestos();
+  });
+
+  await prueba("lecciones: la misma falla otra vez no agrega otra entrada, y una tarjeta que sube a la primera no anota nada", async () => {
+    const antes = fs.readFileSync(archivoDeLecciones, "utf8");
+    const entradasAntes = (antes.match(/^### /gm) ?? []).length;
+    const id = nuevaModerna("Se rompe de nuevo [tsc-una-vez]");
+    assert.equal((await vuelta()).accion, "reparar");
+    const despues = fs.readFileSync(archivoDeLecciones, "utf8");
+    assert.equal((despues.match(/^### /gm) ?? []).length, entradasAntes, "la misma huella no se repite");
+    assert.match(despues, /fallo · no_compila · huella:[0-9a-f]{8} · veces:2/);
+    assert.equal((await vuelta()).ok, true);
+    soltarTodas(id);
+    // Sube a la primera: nada que aprender.
+    const limpia = nuevaModerna("Todo bien a la primera", "APROBADO");
+    await vuelta();
+    Object.assign(tarjetas.get(limpia), { estado: "PLAN_APROBADO", venceEn: null });
+    assert.equal((await vuelta()).ok, true);
+    Object.assign(tarjetas.get(limpia), { estado: "SUBIENDO", venceEn: null });
+    assert.equal((await vuelta()).ok, true);
+    assert.equal((fs.readFileSync(archivoDeLecciones, "utf8").match(/^### /gm) ?? []).length, entradasAntes);
+    soltarTodas(limpia);
+    sinRestos();
+  });
+
+  await prueba("lecciones: sin repetir la huella, con tope de entradas (las viejas se resumen sin perder ninguna) y sin romper si no se puede escribir", async () => {
+    const carpeta = fs.mkdtempSync(path.join(os.tmpdir(), "lecciones-"));
+    const agente = agenteDelRepo({ clave: "gestion", ruta: "/r/gestion" }, undefined, carpeta);
+    assert.equal(agente.archivoLeccionesAprendidas, path.join(carpeta, "lecciones", "gestion.md"));
+    assert.equal(agenteDelRepo({ clave: "gestion", ruta: "/r/gestion" }).archivoLeccionesAprendidas, "", "sin carpeta de trabajo no hay archivo");
+    const fecha = new Date("2026-10-26T15:00:00Z");
+    const una = leccionDe({ tarjeta: { id: "abcdefgh1234", titulo: "Reporte" }, resultado: "fallo", diagnostico: { categoria: "fallan_pruebas", causa: "Fallaron las pruebas" }, etapa: "construir", arreglo: "Se repara", ahora: fecha });
+    assert.match(una.fecha, /^2026-10-26$/);
+    assert.match(una.regla, /pruebas/);
+    assert.match(una.huella, /^[0-9a-f]{8}$/);
+    assert.equal(anotarLeccion(agente, una), "agregada");
+    assert.equal(anotarLeccion(agente, una), "repetida");
+    assert.equal((fs.readFileSync(agente.archivoLeccionesAprendidas, "utf8").match(/^### /gm) ?? []).length, 1);
+    // 45 lecciones distintas: quedan MAX_LECCIONES recientes y el resto resumido, una línea cada una.
+    for (let n = 1; n <= 45; n += 1) {
+      anotarLeccion(agente, leccionDe({ tarjeta: { id: `t${n}`, titulo: `Tarea ${n}` }, resultado: "fallo", diagnostico: { categoria: "lint", causa: `Falla de lint número ${n}` }, etapa: "construir", ahora: fecha }));
+    }
+    const texto = fs.readFileSync(agente.archivoLeccionesAprendidas, "utf8");
+    assert.equal(MAX_LECCIONES, 40);
+    assert.equal((texto.match(/^### /gm) ?? []).length, 40);
+    const viejas = texto.split("## Lecciones viejas (resumidas)")[1].split("\n").filter((linea) => linea.startsWith("- huella:"));
+    assert.equal(viejas.length, 6, "46 en total - 40 = 6 resumidas");
+    assert.match(viejas[0], /^- huella:[0-9a-f]{8} · 2026-10-26 · fallan_pruebas · fallo — .*pruebas/);
+    // Una huella ya resumida tampoco se agrega otra vez: cuenta una vez más (iba en 2, pasa a 3).
+    assert.equal(anotarLeccion(agente, una), "repetida");
+    assert.match(fs.readFileSync(agente.archivoLeccionesAprendidas, "utf8"), /\(×3\)/);
+    // Al prompt van las últimas 8, una línea cada una.
+    const lineas = leccionesParaElPrompt(agente).split("\n");
+    assert.equal(lineas.length, 8);
+    assert.match(lineas.at(-1), /Falla de lint número 45/);
+    assert.ok(lineas.every((linea) => linea.startsWith("- (falló: lint)") && linea.length < 520));
+    // Un archivo dañado no mete texto raro ni rompe.
+    fs.writeFileSync(agente.archivoLeccionesAprendidas, "\u0000\u0001 basura\n### nada\n- x\n".repeat(3), "utf8");
+    assert.equal(leccionesParaElPrompt(agente), "");
+    assert.equal(leccionesParaElPrompt({ archivoLeccionesAprendidas: path.join(carpeta, "no-existe.md") }), "");
+    // Si no se puede escribir (la carpeta de lecciones es un archivo), no lanza.
+    const sinPermiso = agenteDelRepo({ clave: "x", ruta: "/r/x" }, undefined, path.join(carpeta, "lecciones", "gestion.md"));
+    const avisos = [];
+    assert.equal(anotarLeccion(sinPermiso, una, { registro: { aviso: (m) => avisos.push(m) } }), "no_se_pudo");
+    assert.match(avisos[0], /no se pudo anotar la lección/);
+    fs.rmSync(carpeta, { recursive: true, force: true });
+  });
+
+  await prueba("resumen de 3 líneas y NECESITO: el prompt de construir las pide y las funciones las leen", async () => {
+    const tarjeta = { id: "t1", titulo: "Algo", tablero: "T", detalle: "d", intentos: 1, plan: "El plan", zonasAprobadas: [] };
+    const repo = { clave: "aizencrm", ruta: "/r/crm" };
+    for (const prompt of [promptDeConstruir(tarjeta, repo, "tablero/x"), promptDeNube(tarjeta, repo, "tablero/x")]) {
+      assert.match(prompt, /Qué se hizo:/);
+      assert.match(prompt, /Qué se ve ahora:/);
+      assert.match(prompt, /Qué revisar juntos:/);
+      assert.match(prompt, /NECESITO: <clave\|acceso\|decisión>/);
+      assert.ok(!prompt.includes("Lecciones de este proyecto"), "sin lecciones no se menciona el bloque");
+      assert.match(prompt, /Nunca le escribas a un cliente/);
+    }
+    assert.match(promptDelPlan(tarjeta, repo), /NECESITO: <clave\|acceso\|decisión>/);
+    assert.match(promptDeConstruir(tarjeta, repo, "tablero/x", "claude", { lecciones: "- (falló: lint) algo → Regla: x" }), /Lecciones de este proyecto: no repitas estas fallas\.\n- \(falló: lint\) algo/);
+    assert.deepEqual(tresLineasDe("texto\n**Qué se hizo:** Cambié X\n- Qué se ve ahora: Y\nQué revisar juntos:   Z\nQué se hizo: "), { hizo: "Cambié X", ahora: "Y", revisar: "Z" });
+    assert.equal(tresLineasDe("sin nada"), null);
+    assert.deepEqual(necesitoDe("hola\nNECESITO: clave de Stripe para probar"), { tipo: "clave", detalle: "de Stripe para probar" });
+    assert.deepEqual(necesitoDe("**NECESITO:** decisión — ¿A o B?"), { tipo: "decisión", detalle: "¿A o B?" });
+    assert.equal(necesitoDe("NECESITO: cosas raras"), null);
+    assert.equal(necesitoDe("no necesito nada, NECESITO: clave dentro de una frase"), null);
+  });
+
+  await prueba("NECESITO al construir: la tarjeta queda en 'Por revisar' con el motivo, sale UN aviso 'necesita' y no se reintenta", async () => {
+    const id = nuevaModerna("Cobrar con la pasarela [necesito]");
+    const antes = avisosDeNecesita().length;
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "construir");
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.equal(t.resultado.paso, false);
+    assert.match(t.resultado.resumen, /^El agente necesita clave: de la API de pagos para probar el cobro/);
+    const nuevos = avisosDeNecesita().slice(antes);
+    assert.equal(nuevos.length, 1, "un solo aviso");
+    assert.match(nuevos[0].cuerpo.texto, /Agente CRM necesita una clave para "Cobrar con la pasarela \[necesito\]": de la API de pagos/);
+    const delId = llamadas.filter((l) => l.id === id).map((l) => l.accion);
+    assert.ok(!delId.includes("reparar") && !delId.includes("error") && !delId.includes("soltar"), `no se reintenta: ${delId.join(",")}`);
+    assert.equal(delId.filter((a) => a === "resultado").length, 1);
+    assert.equal(tarjetas.get(id).estado, "POR_REVISAR", "sigue esperando al dueño");
+    sinRestos();
+  });
+
+  await prueba("NECESITO al planear: el plan queda en 'Plan listo' esperando el sí del dueño y sale UN aviso 'necesita'", async () => {
+    const id = nuevaModerna("Leer el píxel [necesito]", "APROBADO");
+    const antes = avisosDeNecesita().length;
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "planear");
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_LISTO");
+    assert.match(t.plan, /^APROBAR PLAN: ESPERA TU SÍ — el agente necesita acceso: al panel de Meta para leer el píxel/);
+    assert.ok(reglasDeRiesgo.porQueElPlanEsperaTuSi(t.plan), "el CRM no lo aprueba solo (aunque el plan diga APROBAR PLAN: SOLO)");
+    const nuevos = avisosDeNecesita().slice(antes);
+    assert.equal(nuevos.length, 1);
+    assert.match(nuevos[0].cuerpo.texto, /Agente CRM necesita un acceso para "Leer el píxel \[necesito\]": al panel de Meta/);
+    assert.match(nuevos[0].cuerpo.texto, /El plan quedó listo esperando tu sí/);
     sinRestos();
   });
 

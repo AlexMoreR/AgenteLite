@@ -178,6 +178,29 @@ await prueba("vistaDeHoy: títulos cortos, una línea de resumen y los tres grup
   assert.ok(vista.teToca[0].resumen.length <= 140);
 });
 
+await prueba("vistaDeHoy muestra las 3 líneas de la subida y, sin ellas, se ve como antes", async () => {
+  estado.historial.length = 0;
+  estado.tarjetas.length = 0;
+  estado.esperando.length = 0;
+  estado.historial.push(
+    fila({
+      tarjetaId: "c1",
+      despues: { estado: "HECHO", subida: { commit: "abc1234567", resumenTres: { hizo: "Se agregó el botón", ahora: "El botón sale en la sala", revisar: "Probarlo con una asesora" } } },
+    }),
+    subida({ tarjetaId: "c2" }),
+  );
+  estado.tarjetas.push(
+    { id: "c1", titulo: "Botón de la sala", detalle: "x", plan: null, resultado: { resumen: "Listo." } },
+    { id: "c2", titulo: "Otra tarea", detalle: "x", plan: null, resultado: { resumen: "Listo también." } },
+  );
+  const vista = await resumen.vistaDeHoy("ws1", new Date("2026-10-23T01:55:00Z"));
+  const con = vista.listas.find((l) => l.tarjetaId === "c1");
+  const sin = vista.listas.find((l) => l.tarjetaId === "c2");
+  assert.deepEqual(con.tresLineas, { hizo: "Se agregó el botón", ahora: "El botón sale en la sala", revisar: "Probarlo con una asesora" });
+  assert.equal("tresLineas" in sin, false, "sin las 3 líneas la línea queda como antes");
+  assert.equal(resumen.armarResumen("2026-10-22", [subida({ tarjetaId: "z" })]).subidas[0].tresLineas, undefined);
+});
+
 /* ------------------------------------------------------------------ envío */
 
 await prueba("resumenDeHoyParaLaPantalla devuelve las cifras, el texto corto y el interruptor (sin envío por WhatsApp)", async () => {
