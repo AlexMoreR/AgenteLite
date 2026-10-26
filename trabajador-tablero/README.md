@@ -527,6 +527,16 @@ Una vez al día, pasada la hora de la noche (`manual: { activo, hora, repo }` en
 
 Pruebas: en `pruebas/probar-trabajador.mjs` (con el Claude falso).
 
+## Notas nuevas del cerebro en la bóveda (26-oct-2026)
+
+La cuenta de servicio de Google edita los archivos de la carpeta del cerebro, pero no puede **crear** uno nuevo en un Drive personal (403 `storageQuotaExceeded`). Esa carpeta es la bóveda de aizen1 (`D:/Magilus`, sincronizada con Google Drive para escritorio). Cuando el CRM necesita crear una nota (`cerebro_escribir` modo crear o "Pasar al cerebro" a un documento nuevo) deja un pedido PENDIENTE, y `lib/notas-boveda.mjs` —en el bucle principal, cada `boveda.cadaSegundos` (60)— lo crea:
+
+1. `GET /api/trabajador/cerebro/notas-por-crear` -> las pendientes (las más viejas primero, máx. 20);
+2. escribe `<boveda.ruta>/<ruta>` creando las carpetas que falten. **Nunca sobrescribe**: si el archivo ya existe, agrega el contenido al final después de una línea `---`. La ruta no puede salir de la bóveda (sin `..`, sin rutas absolutas ni de unidad, ni por un enlace) y solo `.md`/`.txt`; si no sirve, se marca ERROR con el motivo;
+3. `POST` `{ id, estado: "CREADA" }` (o `"ERROR"` con `motivo`). Los ids ya escritos quedan en `<carpetaTrabajo>/notas-boveda.json`: si el aviso falló, la vuelta siguiente solo avisa, no escribe dos veces.
+
+Se prende con `"boveda": { "ruta": "D:/Magilus" }` en `config.local.json` (sin ruta, apagado). Si la carpeta no existe (unidad sin montar) no marca nada y reintenta. Pruebas: `pruebas/probar-notas-boveda.mjs`.
+
 ## Pruebas
 
 ```
@@ -544,6 +554,7 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 - `trabajador.mjs`: el bucle (y `--probar-arranque`).
 - `lanzador.mjs`: lo que corre la tarea de Windows: arranca `trabajador.mjs`, lo relanza tras una actualización y lo deshace si el nuevo se cae al arrancar.
 - `lib/autoactualizar.mjs`: mirar si main trae código nuevo, esperar las tarjetas, `pull --ff-only`, probar el arranque, revertir y el estado `actualizacion.json`.
+- `lib/notas-boveda.mjs`: crea en la bóveda local las notas nuevas del cerebro que pidió el CRM.
 - `lib/manual-nocturno.mjs`: el manual de la noche (juntar `docs/cambios-pendientes/` en el manual y subirlo a main una vez al día).
 - `lib/bucle.mjs`: el planificador (varias a la vez) y una vuelta (tomar, la etapa con latido, avisar el resultado o el error).
 - `lib/choques.mjs`: qué tarjetas no pueden ir a la vez (zona, módulo, cola de subida).

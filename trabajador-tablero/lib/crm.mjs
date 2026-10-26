@@ -24,13 +24,13 @@ export class ErrorDelCrm extends Error {
 }
 
 export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalThis.fetch, timeoutMs = 30_000 } = {}) {
-  async function pedir(ruta, cuerpo) {
+  async function pedir(ruta, cuerpo, metodo = "POST") {
     let respuesta;
     try {
       respuesta = await miFetch(`${urlCrm}${ruta}`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${claveTrabajador}`, "Content-Type": "application/json" },
-        body: JSON.stringify(cuerpo ?? {}),
+        method: metodo,
+        headers: { Authorization: `Bearer ${claveTrabajador}`, ...(metodo === "GET" ? {} : { "Content-Type": "application/json" }) },
+        ...(metodo === "GET" ? {} : { body: JSON.stringify(cuerpo ?? {}) }),
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
@@ -78,6 +78,10 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
      * quedó en pausa) o "necesita" (algo que no se puede hacer solo); el CRM descarta los avisos sin tipo.
      */
     aviso: (texto, tipo) => pedir("/api/trabajador/aviso", { texto, ...(tipo ? { tipo } : {}) }),
+    /** Cerebro (26-oct-2026): las notas NUEVAS que crea aizen1 en la bóveda. -> { notas: [{ id, ruta, contenido, creadoEn }] } */
+    notasPorCrear: () => pedir("/api/trabajador/cerebro/notas-por-crear", null, "GET"),
+    /** Marca una nota: estado "CREADA" o "ERROR" (con motivo). Repetir la misma marca no falla. */
+    marcarNota: (id, estado, motivo) => pedir("/api/trabajador/cerebro/notas-por-crear", { id, estado, ...(motivo ? { motivo } : {}) }),
     /**
      * Escala: la tarjeta queda en ERROR. `motivo` es el resumen de máximo 3 líneas para el dueño; `extra`
      * { categoria, causa, resumen, error, etapa } deja el intento "escalar" con sus detalles técnicos.
