@@ -254,14 +254,14 @@ await prueba("el resumen valida la fecha y los subagentes", () => {
 
 /* ------------------------------------------------------------------ las herramientas MCP */
 
-await prueba("las cuatro herramientas están en la lista del MCP", () => {
+await prueba("las herramientas de Ventas y de Marketing están en la lista del MCP", () => {
   // herramientas.ts arrastra medio sistema: se comprueba que registre y ejecute el grupo.
   assert.ok(textoDeHerramientas.includes("...HERRAMIENTAS_MCP_AGENTES_DE_AREA"));
   assert.ok(textoDeHerramientas.includes("esHerramientaDeAgentesDeArea(nombre)"));
   const nombres = mcp.HERRAMIENTAS_MCP_AGENTES_DE_AREA.map((h) => h.name);
   for (const n of ["numeros_de_ventas", "guardar_resumen_del_dia", "mandar_whatsapp_al_equipo", "agente_de_ventas"]) assert.ok(nombres.includes(n), n);
   const lectura = mcp.HERRAMIENTAS_MCP_AGENTES_DE_AREA.filter((h) => h.annotations.readOnlyHint).map((h) => h.name).sort();
-  assert.deepEqual(lectura, ["agente_de_ventas", "numeros_de_ventas"]);
+  assert.deepEqual(lectura, ["agente_de_marketing", "agente_de_ventas", "numeros_de_marketing", "numeros_de_ventas"]);
 });
 
 await prueba("por el MCP: sin permiso no se puede ni leer ni mandar", async () => {

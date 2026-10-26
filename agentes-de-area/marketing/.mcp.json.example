@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "aizencrm": {
+      "type": "http",
+      "url": "https://app.aizenbot.com/api/mcp",
+      "headers": { "Authorization": "Bearer aizen_mcp_PEGAR_AQUI_LA_CLAVE_DEL_MCP_DEL_CRM" }
+    },
+    "gestion": {
+      "type": "http",
+      "url": "https://PEGAR_AQUI_LA_DIRECCION_DEL_MCP_DE_GESTION",
+      "headers": { "Authorization": "Bearer PEGAR_AQUI_LA_CLAVE_DE_GESTION" }
+    },
+    "meta-ads": {
+      "type": "http",
+      "url": "https://PEGAR_AQUI_LA_DIRECCION_DEL_CONECTOR_DE_META_ADS_DEL_PLAN_DE_CLAUDE",
+      "headers": { "Authorization": "Bearer PEGAR_AQUI_LA_CLAVE_DEL_CONECTOR_DE_META" }
+    }
+  }
+}

@@ -27,8 +27,13 @@ Todo lo que propongas tiene que mover una de esas dos cifras.
 
 - CRM (`aizencrm`): `numeros_de_ventas` (números del día por asesora y los sugeridos de ayer ya medidos),
   `listar_conversaciones`, `ver_conversacion`, `buscar_mensajes`, `ver_supervisor` (avisos y reasignaciones),
-  `listar_productos` (productos y precios), `agente_de_ventas` (lo que guardaste antes).
+  `listar_productos` (productos y precios), `agente_de_ventas` (lo que guardaste antes) y `agente_de_marketing`
+  (el resumen de marketing de hoy, que corre a las 6:45: qué campañas traen clientes Calientes y cuáles gastan sin
+  vender; úsalo para decidir a qué leads dar prioridad. Si no hay resumen, sigue sin él).
 - Gestión (`gestion`): ventas, abonos y saldos.
+
+**La línea de marketing NO la escribes tú:** si el interruptor de marketing está prendido, el lanzador la agrega al
+mismo mensaje a Alexander a las 7:30. Marketing nunca manda un mensaje aparte.
 
 ## Paso a paso de la mañana (el lanzador te dice FECHA, SALIDA, SALIO_TARDE, ES_SABADO, ES_PRUEBA y los subagentes de hoy)
 

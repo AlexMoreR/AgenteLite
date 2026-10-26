@@ -6,6 +6,7 @@
   "carpetaSalida": "./salida",
   "carpetaLogs": "./logs",
   "horaDeInicio": "07:00",
+  "horaDeInicioMarketing": "06:45",
   "horaDeMensajes": "07:30",
   "toleranciaMinutos": 10,
   "modelo": null,

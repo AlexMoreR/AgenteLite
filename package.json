@@ -69,6 +69,8 @@
     "test:agentes-de-area": "node scripts/check-agentes-de-area.mjs",
     "test:agentes-de-area-migracion": "node scripts/check-agentes-de-area-migracion.mjs",
     "test:agentes-de-area-lanzador": "node agentes-de-area/pruebas/probar-lanzador.mjs",
+    "test:agente-de-marketing": "node scripts/check-agente-de-marketing.mjs",
+    "test:agente-de-marketing-candado": "node agentes-de-area/pruebas/probar-solo-lectura-meta.mjs",
     "test:como-quedo": "node scripts/check-como-quedo.mjs",
     "test:resuelto": "node scripts/check-resuelto.mjs",
     "test:respaldo": "node scripts/check-respaldo.mjs",

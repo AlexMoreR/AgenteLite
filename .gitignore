@@ -62,5 +62,6 @@ next-env.d.ts
 # agentes de área (aizen1): la configuración local y el .mcp.json llevan la clave del MCP; las salidas y los logs son del día
 /agentes-de-area/config.local.json
 /agentes-de-area/ventas/.mcp.json
+/agentes-de-area/marketing/.mcp.json
 /agentes-de-area/salida/
 /agentes-de-area/logs/

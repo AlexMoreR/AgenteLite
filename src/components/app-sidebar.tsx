@@ -198,6 +198,8 @@ export function AppSidebar({
                       ? "supervisor"
                     : pathname.startsWith("/cliente/crm/agente-de-ventas")
                       ? "agente-de-ventas"
+                      : pathname.startsWith("/cliente/crm/agente-de-marketing")
+                        ? "agente-de-marketing"
                     : pathname.startsWith("/cliente/crm/comparar-embudos")
                       ? "comparar-embudos"
                     : pathname.startsWith("/cliente/crm/embudo")

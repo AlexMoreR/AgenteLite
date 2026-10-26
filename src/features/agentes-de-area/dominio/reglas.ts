@@ -1,15 +1,15 @@
 /**
  * AGENTES DE ÁREA: las reglas, en código puro (sin base, sin Next).
  *
- * Es un molde: un agente por área (hoy solo "ventas") que piensa en el PC aizen1 y reparte el trabajo
+ * Es un molde: un agente por área (hoy "ventas" y "marketing") que piensa en el PC aizen1 y reparte el trabajo
  * a subagentes. El CRM no piensa: guarda el resumen, muestra la pantalla y entrega los WhatsApp
  * INTERNOS. Las pruebas están en scripts/check-agentes-de-area.mjs.
  */
 
-export const AREAS = ["ventas"] as const;
+export const AREAS = ["ventas", "marketing"] as const;
 export type Area = (typeof AREAS)[number];
 
-export const ETIQUETA_DE_AREA: Record<Area, string> = { ventas: "Agente de Ventas" };
+export const ETIQUETA_DE_AREA: Record<Area, string> = { ventas: "Agente de Ventas", marketing: "Agente de Marketing" };
 
 export function esArea(valor: unknown): valor is Area {
   return typeof valor === "string" && (AREAS as readonly string[]).includes(valor);
@@ -127,7 +127,7 @@ const textoCorto = (valor: unknown, max: number): string | null =>
   typeof valor === "string" && valor.trim() ? valor.trim().slice(0, max) : null;
 
 /** Valida y limpia lo que manda el agente al guardar el resumen. Lanza un error legible si no sirve. */
-export function leerResumenAGuardar(args: Record<string, unknown>, hoy: string): ResumenAGuardar {
+export function leerResumenAGuardar(args: Record<string, unknown>, hoy: string, area: Area = "ventas"): ResumenAGuardar {
   const fecha = args.fecha === undefined || args.fecha === null || args.fecha === "" ? hoy : args.fecha;
   if (!fechaValida(fecha)) throw new Error("La fecha tiene que ir como AAAA-MM-DD.");
   const subagentes: Record<string, unknown> = {};
@@ -157,13 +157,22 @@ export function leerResumenAGuardar(args: Record<string, unknown>, hoy: string):
       if (leido.ok) mensajes.push(leido.pedido);
     }
   }
+  // Marketing nunca manda WhatsApp ni sugiere clientes: su línea y su recomendación viajan dentro de `meta`.
+  let meta: unknown = args.meta ?? null;
+  if (area === "marketing") {
+    const linea = textoCorto(args.linea, 400);
+    const recomendacion = leerRecomendacionDeMarketing(args.recomendacion);
+    meta = { ...(esObjeto(args.meta) ? args.meta : {}), linea, recomendacion };
+    sugeridos.length = 0;
+    mensajes.length = 0;
+  }
   return {
     fecha,
     esPrueba: args.es_prueba === true,
     salioTarde: args.salio_tarde === true,
     notaDeRetraso: textoCorto(args.nota_de_retraso, 300),
     numeros: args.numeros ?? null,
-    meta: args.meta ?? null,
+    meta,
     subagentes,
     sugeridos,
     mensajes,
@@ -204,4 +213,140 @@ export function medirSugeridos(actividades: ActividadDelSugerido[]): MedidaDeLos
 export function tasaDeCierre(ventas: number, chats: number): number | null {
   if (!Number.isFinite(ventas) || !Number.isFinite(chats) || chats <= 0) return null;
   return Math.round((ventas / chats) * 1000) / 10;
+}
+
+/* ------------------------------------------------------------------------------------------------
+   AGENTE DE MARKETING: la recomendación, la línea para Alexander y el cruce por anuncio
+------------------------------------------------------------------------------------------------ */
+
+export const ACCIONES_DE_MARKETING = ["subir", "bajar", "cambiar"] as const;
+export type AccionDeMarketing = (typeof ACCIONES_DE_MARKETING)[number];
+
+export type RecomendacionDeMarketing = { accion: AccionDeMarketing; texto: string; dato: string };
+
+/** Decisión del dueño: pausar una campaña para que "reaprenda" sube el costo. Nunca se recomienda. */
+export const PAUSAR_PARA_REAPRENDER = /(paus|apag|detener|parar).{0,80}(reaprend|re-aprend|aprendizaje)|(reaprend|re-aprend).{0,80}(paus|apag|detener|parar)/i;
+
+/**
+ * Valida la recomendación del Agente de Marketing: MÁXIMO UNA, de subir, bajar o cambiar un anuncio, con el
+ * dato que la sustenta, y jamás "pausar para que reaprenda". Lanza un error legible si no sirve.
+ */
+export function leerRecomendacionDeMarketing(valor: unknown): RecomendacionDeMarketing | null {
+  if (valor === undefined || valor === null || valor === "") return null;
+  if (Array.isArray(valor)) {
+    if (valor.length > 1) throw new Error("Máximo UNA recomendación de marketing por día.");
+    return leerRecomendacionDeMarketing(valor[0]);
+  }
+  if (!esObjeto(valor)) throw new Error('La recomendación tiene que ser un objeto: { accion: "subir"|"bajar"|"cambiar", texto, dato }.');
+  const accion = typeof valor.accion === "string" ? valor.accion.trim().toLowerCase() : "";
+  if (!(ACCIONES_DE_MARKETING as readonly string[]).includes(accion)) {
+    throw new Error('La acción de la recomendación tiene que ser "subir", "bajar" o "cambiar" un anuncio (nunca pausar ni prender).');
+  }
+  const texto = textoCorto(valor.texto, 500);
+  const dato = textoCorto(valor.dato, 500);
+  if (!texto) throw new Error("Falta el texto de la recomendación.");
+  if (!dato) throw new Error("La recomendación necesita el dato que la sustenta.");
+  if (PAUSAR_PARA_REAPRENDER.test(`${texto} ${dato}`)) {
+    throw new Error("No se recomienda pausar una campaña para que reaprenda: decisión del dueño, sube el costo.");
+  }
+  return { accion: accion as AccionDeMarketing, texto, dato };
+}
+
+/**
+ * La línea de marketing que va en el mensaje de las 7:30 a Alexander. Null = no va nada (interruptor apagado).
+ * Prendido: la línea del agente + su recomendación; si no corrió, "Marketing: sin resumen hoy".
+ */
+export function lineaDeMarketingParaAlexander(entrada: {
+  interruptorPrendido: boolean;
+  resumen: { linea: string | null; recomendacion: RecomendacionDeMarketing | null; salioTarde: boolean; notaDeRetraso: string | null } | null;
+}): string | null {
+  if (!entrada.interruptorPrendido) return null;
+  const { resumen } = entrada;
+  if (!resumen || !resumen.linea) return "Marketing: sin resumen hoy";
+  const partes = [resumen.linea.startsWith("Marketing") ? resumen.linea : `Marketing: ${resumen.linea}`];
+  if (resumen.recomendacion) partes.push(`Recomendación: ${resumen.recomendacion.texto} (${resumen.recomendacion.dato})`);
+  if (resumen.salioTarde) partes.push(`(salió tarde${resumen.notaDeRetraso ? `: ${resumen.notaDeRetraso}` : ""})`);
+  return partes.join(" ");
+}
+
+/** Una conversación nueva con su anuncio de origen (lo que sale de la base, ya plano). */
+export type ConversacionDeAnuncio = {
+  anuncioId: string | null;
+  anuncioTitulo: string | null;
+  /** Etapa que pone la asesora (CrmStage). */
+  etapa: string;
+  /** Temperatura que calcula el sistema (TIBIO, CALIENTE…). */
+  temperatura: string | null;
+  exterior: boolean;
+  /** Minutos hasta la primera respuesta de la asesora; null = nadie respondió. */
+  minutosPrimeraRespuesta: number | null;
+};
+
+export type NumerosDeAnuncio = {
+  anuncioId: string | null;
+  anuncioTitulo: string | null;
+  conversaciones: number;
+  /** La temperatura que calcula el sistema es Tibio o Caliente. */
+  tibioOCaliente: number;
+  /** La asesora la pasó a Propuesta, Negociación o Ganado. */
+  etapaAvanzada: number;
+  /** Cualquiera de las dos anteriores (sin contar dos veces). */
+  conInteres: number;
+  ventas: number;
+  sinRespuesta: number;
+  fueraDeColombia: number;
+  /** Mediana, en minutos, de la primera respuesta; null si nadie respondió. */
+  primeraRespuestaMin: number | null;
+};
+
+function mediana(valores: number[]): number | null {
+  if (!valores.length) return null;
+  const orden = [...valores].sort((a, b) => a - b);
+  const medio = Math.floor(orden.length / 2);
+  return Math.round(orden.length % 2 ? orden[medio] : (orden[medio - 1] + orden[medio]) / 2);
+}
+
+/**
+ * Agrupa las conversaciones nuevas por anuncio de origen. Las que no tienen anuncio NO se inventan: se cuentan
+ * aparte con su porcentaje, para saber qué tan completo es el cruce del costo por venta.
+ */
+export function agruparPorAnuncio(conversaciones: ConversacionDeAnuncio[]): {
+  porAnuncio: NumerosDeAnuncio[];
+  total: number;
+  sinAnuncio: { conversaciones: number; porCiento: number | null };
+} {
+  const grupos = new Map<string, { fila: NumerosDeAnuncio; tiempos: number[] }>();
+  let sinAnuncio = 0;
+  for (const chat of conversaciones) {
+    const id = chat.anuncioId?.trim() || null;
+    if (!id) {
+      sinAnuncio += 1;
+      continue;
+    }
+    let grupo = grupos.get(id);
+    if (!grupo) {
+      grupo = {
+        fila: { anuncioId: id, anuncioTitulo: chat.anuncioTitulo, conversaciones: 0, tibioOCaliente: 0, etapaAvanzada: 0, conInteres: 0, ventas: 0, sinRespuesta: 0, fueraDeColombia: 0, primeraRespuestaMin: null },
+        tiempos: [],
+      };
+      grupos.set(id, grupo);
+    }
+    const { fila } = grupo;
+    if (!fila.anuncioTitulo && chat.anuncioTitulo) fila.anuncioTitulo = chat.anuncioTitulo;
+    fila.conversaciones += 1;
+    const temperatura = (chat.temperatura ?? "").toUpperCase();
+    const porTemperatura = temperatura === "TIBIO" || temperatura === "CALIENTE";
+    const porEtapa = chat.etapa === "PROPUESTA" || chat.etapa === "NEGOCIACION" || chat.etapa === "GANADO";
+    if (porTemperatura) fila.tibioOCaliente += 1;
+    if (porEtapa) fila.etapaAvanzada += 1;
+    if (porTemperatura || porEtapa) fila.conInteres += 1;
+    if (chat.etapa === "GANADO") fila.ventas += 1;
+    if (chat.exterior) fila.fueraDeColombia += 1;
+    if (chat.minutosPrimeraRespuesta === null) fila.sinRespuesta += 1;
+    else grupo.tiempos.push(chat.minutosPrimeraRespuesta);
+  }
+  const porAnuncio = [...grupos.values()].map(({ fila, tiempos }) => ({ ...fila, primeraRespuestaMin: mediana(tiempos) }));
+  porAnuncio.sort((a, b) => b.conversaciones - a.conversaciones);
+  const total = conversaciones.length;
+  return { porAnuncio, total, sinAnuncio: { conversaciones: sinAnuncio, porCiento: total > 0 ? Math.round((sinAnuncio / total) * 1000) / 10 : null } };
 }
