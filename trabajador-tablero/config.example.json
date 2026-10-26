@@ -33,7 +33,8 @@
     "entorno": {
       "DATABASE_URL": "postgresql://trabajador:no-usar@127.0.0.1:1/no_usar",
       "DIRECT_URL": "postgresql://trabajador:no-usar@127.0.0.1:1/no_usar"
-    }
+    },
+    "todoEnLaNube": true
   },
   "autoactualizar": {
     "activo": true,

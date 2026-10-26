@@ -104,6 +104,10 @@ const NUBE_POR_DEFECTO = {
   // 26-oct-2026 (regla del dueño): si la nube dejó build=OK y tests=OK, aizen1 no compila ni prueba lo que volvió (ni
   // npm ci, tsc, build, pruebas ni lint): solo zonas, .env, el ensayo de la migración (BEGIN…ROLLBACK) y subir.
   confiarEnResultado: true,
+  // 26-oct-2026 (decisión del dueño): TODO el desarrollo se construye y prueba en la nube; aizen1 queda solo para el
+  // Coordinador (planear, ensayar migraciones, subir) y el editor de video. Ninguna tarea construye en aizen1.
+  // Se prende en config.local.json / config.example.json (por defecto apagado para no cambiar las pruebas de aizen1).
+  todoEnLaNube: false,
 };
 
 /** Si la CPU (promedio SOSTENIDO de los últimos cpuPromedioMinutos) o la memoria pasan de esto, no se abre otra sesión. */
@@ -398,6 +402,7 @@ export function completarConfig(datos, base = process.cwd()) {
   }
   if (!["auto", "sin-terminal", "pty"].includes(nube.terminal)) errores.push('nube.terminal: "auto", "sin-terminal" o "pty".');
   if (typeof nube.confiarEnResultado !== "boolean") errores.push("nube.confiarEnResultado: true o false.");
+  if (typeof nube.todoEnLaNube !== "boolean") errores.push("nube.todoEnLaNube: true o false.");
   let comandoGh = ["gh"];
   let comandoClaudeNube = null;
   try {
@@ -453,6 +458,7 @@ export function completarConfig(datos, base = process.cwd()) {
       lanzarMinutos: nube.lanzarMinutos,
       terminal: nube.terminal,
       confiarEnResultado: nube.confiarEnResultado,
+      todoEnLaNube: nube.todoEnLaNube,
       comandoGh,
       comandoClaude: comandoClaudeNube,
       entorno: entornoNube,

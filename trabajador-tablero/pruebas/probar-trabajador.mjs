@@ -2332,6 +2332,18 @@ try {
     execFileSync("git", ["--git-dir", REMOTO, "branch", "-D", rama], { stdio: "ignore" });
   });
 
+  await prueba("nube: con todoEnLaNube, una chica se construye en la nube y aizen1 queda con 0 construyendo", async () => {
+    despejar();
+    const a = nueva("Todo nube uno [mod:tnu]", "PLAN_APROBADO", { plan: planDe("tnu") });
+    const b = nueva("Todo nube dos [mod:tnd]", "PLAN_APROBADO", { plan: planDe("tnd") });
+    const planificador = planificar(nubeConfig({ todoEnLaNube: true }));
+    await planificador.llenar();
+    assert.deepEqual(planificador.cupos(), { aizen1: 0, nube: 2 }, "nada construye en aizen1");
+    for (const id of [a, b]) assert.equal(planificador.estado().tareas.find((t) => t.tarjetaId === id).lugar, "nube");
+    await correrHasta(planificador, () => [a, b].every((id) => tarjetas.get(id).estado === "HECHO"), 180_000);
+    assert.equal(tarjetas.get(a).resultado.construidoEn, "nube");
+  });
+
   await prueba("nube: con 2 corriendo en aizen1, la tercera aprobada va a la nube (desborde); la que espera plan NO; la nube no ocupa puesto de aizen1", async () => {
     despejar();
     const desde = leerLog(LOGS.claude).length;
