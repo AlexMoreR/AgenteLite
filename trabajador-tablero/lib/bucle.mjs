@@ -59,7 +59,8 @@ function modeloDeLaSesion(config, motores, tarjeta, hacer, reparacion) {
 // Un CRM que no manda `topeReparaciones` en la tarjeta es uno viejo: se sigue como antes (a la primera falla, /error).
 
 /** La marca que `reparar` deja en la causa cuando cambia de estrategia: "[estrategia: opus]". */
-const MARCA_DE_ESTRATEGIA = /\s*\[estrategia: (opus|partir)\]\s*$/;
+// "nube" (26-oct-2026): lo que verificó la nube cambió al subir; la reparación se vuelve a construir y verificar en la nube.
+const MARCA_DE_ESTRATEGIA = /\s*\[estrategia: (opus|partir|nube)\]\s*$/;
 
 /**
  * Lo que /tomar dice de intentos anteriores, armado como `tarjeta.reparacion` para el prompt de la etapa:
@@ -167,6 +168,13 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
       registro.error(`"${tarjeta.titulo}" venció en el CRM: ${motivo}`);
       return { ok: false, motivo, vencida: true };
     }
+    if (error?.esperaDeCola) {
+      // Esperó demasiado turno en la cola de pasos pesados antes de empezar (etapas.mjs: conTurno): vuelve a la fila del
+      // tablero sin ERROR ni contar el intento, ANTES de que venza el candado del CRM (que sí la pasaría a ERROR).
+      registro.aviso(`"${tarjeta.titulo}" (${hacer}): ${motivo}`);
+      await soltar(crm, registro, tarjeta, `Espera en fila: ${motivo}`);
+      return { ok: false, motivo, esperaDeCola: true };
+    }
     if (error?.limiteDeUso) {
       // No es culpa de la tarjeta: vuelve a esperar su turno, sin ERROR, y ese motor se pausa.
       const quien = error.motor ? `${nombreDelMotor(error.motor)} llegó a su límite de uso` : "Ningún motor disponible";
@@ -271,7 +279,9 @@ async function manejarFalla({ crm, config, registro, contexto, bitacora }, tarje
   const estrategiaActual = tarjeta.reparacion?.estrategia;
   const modeloConstruir = estrategiaActual === "opus" ? (config.modelos?.planear ?? "opus") : modeloDelPaso(config, "construir", tarjeta);
   const decision = decidir({ diagnostico, tarjeta, etapa: hacer, config, archivosCambiados: error?.archivosCambiados ?? undefined, reversion: error?.reversion ?? null, modeloConstruir });
-  registro.info(`diagnóstico: ${diagnostico.categoria} — ${diagnostico.causa}; decisión: ${decision.accion} (${decision.motivo})`);
+  // Lo que verificó la nube ya no es lo que se subiría: la reparación va a la NUBE (nunca a compilar en aizen1).
+  if (error?.verificarEnNube && decision.accion === "reparar") decision.estrategia = "nube";
+  registro.info(`diagnóstico: ${diagnostico.categoria} — ${diagnostico.causa}; decisión: ${decision.accion} (${decision.motivo})${decision.estrategia === "nube" ? "; se verifica otra vez en la nube" : ""}`);
   const resultado = { ok: false, motivo, zonas: error?.zonas ?? [], categoria: diagnostico.categoria, accion: decision.accion };
   const intento = { etapa: hacer, categoria: diagnostico.categoria, causa: diagnostico.causa, error: diagnostico.error };
 
@@ -423,6 +433,8 @@ export function crearPlanificador({
   medidor = crearMedidor({ muestras: Math.max(1, Math.round(((config.limites?.cpuPromedioMinutos ?? 3) * 60) / 5)) }),
   motores = crearEstadoDeMotores(config),
   vigilante = crearVigilanteDeUso({ config, registro, crm, estado: motores, entorno: entornoSeguro() }),
+  // La cola de pasos pesados se puede dar hecha (las pruebas la llenan a mano); undefined = la de la configuración.
+  colaPesada: colaDada = undefined,
 }) {
   const max = config.maxParalelo;
   const nubeConfig = config.nube ?? { activa: false, maxTareas: 0, maxArchivosChica: 8 };
@@ -433,7 +445,7 @@ export function crearPlanificador({
   // Lo que vuelve de la nube se verifica en aizen1 (npm ci, build…): no más a la vez que puestos tiene aizen1.
   const puestosDeVerificacion = crearSemaforo(Math.max(1, max));
   // La cola de pasos pesados de aizen1 (cola.mjs): una sola para todas las sesiones (0 = sin cola, como antes).
-  const colaPesada = (config.colaPesada?.maximo ?? 0) > 0 ? crearColaPesada({ maximo: config.colaPesada.maximo }) : null;
+  const colaPesada = colaDada !== undefined ? colaDada : (config.colaPesada?.maximo ?? 0) > 0 ? crearColaPesada({ maximo: config.colaPesada.maximo }) : null;
   let despertar = null;
   // Terminó una sesión mientras no se esperaba: la próxima espera no duerme.
   let cupoNuevo = false;
@@ -468,14 +480,28 @@ export function crearPlanificador({
    *   { donde: "aizen1" | "nube", motivo } o null (no hay dónde ahora: espera en fila).
    * Planear y subir siempre van a aizen1. Al CONSTRUIR: GRANDE -> nube; chica -> aizen1 si hay puesto (y el PC aguanta),
    * si no, DESBORDE -> nube.
+   * COLA EN FILA (26-oct-2026): construir en aizen1 empieza con npm ci y el lint de main, que van ÚLTIMOS en la cola de
+   * pasos pesados (prioridad "preparar"). Si la cola ya tiene trabajo esperando, una tarjeta nueva NO se toma para
+   * construir en aizen1: espera en la fila del tablero sin candado (el tope de 90 min del CRM corre desde que se toma).
    */
-  function dondeCorre(tarjeta, hacer, { aizenOk, nubeUsable, nubeLibre }) {
-    if (hacer !== "construir" || !nubeUsable) return aizenOk ? { donde: "aizen1", motivo: null } : null;
+  function dondeCorre(tarjeta, hacer, { aizenOk, nubeUsable, nubeLibre, colaEnFila = 0 }) {
+    const aizenParaEsta = aizenOk && !(hacer === "construir" && colaEnFila > 0);
+    if (hacer !== "construir" || !nubeUsable) return aizenParaEsta ? { donde: "aizen1", motivo: null } : null;
     const { grande, motivos } = esTareaGrande(tarjeta, { repo: config.repos[tarjeta.repo], maxArchivosChica: nubeConfig.maxArchivosChica });
     if (grande) return nubeLibre ? { donde: "nube", motivo: `es grande: ${motivos.join("; ")}` } : null;
-    if (aizenOk) return { donde: "aizen1", motivo: null };
-    return nubeLibre ? { donde: "nube", motivo: `desborde: aizen1 no tiene puesto libre (${sesiones.size}/${max})` } : null;
+    if (aizenParaEsta) return { donde: "aizen1", motivo: null };
+    const porque = aizenOk ? `la cola de pasos pesados de aizen1 tiene ${colaEnFila} en fila` : `aizen1 no tiene puesto libre (${sesiones.size}/${max})`;
+    return nubeLibre ? { donde: "nube", motivo: `desborde: ${porque}` } : null;
   }
+
+  /** Por qué una candidata no tiene dónde correr ahora (para el log y el panel "esperan en fila"). */
+  function motivoDeEspera(hacer, { aizenOk, nubeUsable, colaEnFila = 0 }) {
+    if (hacer === "construir" && aizenOk && colaEnFila > 0 && !nubeUsable) return `espera: la cola de pasos pesados de aizen1 tiene ${colaEnFila} en fila`;
+    return hacer === "construir" && nubeUsable ? "espera un puesto en la nube" : "espera un puesto en aizen1";
+  }
+
+  /** Cuántos pasos pesados esperan turno en aizen1 (0 sin cola). */
+  const colaEnFila = () => colaPesada?.estado().esperando ?? 0;
 
   const cupoLibre = () => {
     for (let n = 1; n <= max; n += 1) if (!sesiones.has(n)) return n;
@@ -577,7 +603,7 @@ export function crearPlanificador({
         }
       }
       if (!aizenOk && !nubeLibre) return;
-      const estadoDeCupos = { aizenOk, nubeUsable, nubeLibre };
+      const estadoDeCupos = { aizenOk, nubeUsable, nubeLibre, colaEnFila: colaEnFila() };
       const corriendo = [...sesiones.values(), ...enNube.values()].map((s) => s.huella);
       let excluir = [...descartadas.keys()];
       // Siempre se miran las candidatas (25-oct-2026): también para ESCOGER cuál conviene (ordenarCandidatas).
@@ -589,7 +615,7 @@ export function crearPlanificador({
         for (const c of candidatas) {
           if (chocan[c.id]) continue;
           if (descartadas.has(c.id)) chocan[c.id] = `(${descartadas.get(c.id)})`;
-          else if (!dondeCorre(c, c.hacer, estadoDeCupos)) chocan[c.id] = c.hacer === "construir" && nubeUsable ? "(espera un puesto en la nube)" : "(espera un puesto en aizen1)";
+          else if (!dondeCorre(c, c.hacer, estadoDeCupos)) chocan[c.id] = `(${motivoDeEspera(c.hacer, estadoDeCupos)})`;
         }
         excluir = [...new Set([...Object.keys(chocan), ...descartadas.keys()])];
         esperasDeFila = new Map(Object.entries(chocan).map(([id, motivo]) => [id, String(motivo).replace(/^\(|\)$/g, "")]));
@@ -625,8 +651,9 @@ export function crearPlanificador({
       const lugar = dondeCorre(tarjeta, hacer, estadoDeCupos);
       if (!lugar) {
         registro.info(`"${tarjeta.titulo}" no tiene dónde correr ahora (${hacer}): la suelto y espera en fila`);
-        descartadas.set(tarjeta.id, hacer === "construir" && nubeUsable ? "espera un puesto en la nube" : "espera un puesto en aizen1");
-        if (await soltar(crm, registro, tarjeta, "Espera en fila: no hay un puesto libre donde construirla.")) continue;
+        const espera = motivoDeEspera(hacer, estadoDeCupos);
+        descartadas.set(tarjeta.id, espera);
+        if (await soltar(crm, registro, tarjeta, `Espera en fila: no hay dónde construirla ahora (${espera}).`)) continue;
         return;
       }
       arrancar(tarjeta, hacer, huella, lugar);

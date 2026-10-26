@@ -12,6 +12,7 @@
 //
 // Lo que se hace con la rama cuando vuelve (verificar, zonas, ensayo, subir) está en etapas.mjs (construirEnNube).
 import { execFileSync } from "node:child_process";
+import path from "node:path";
 import { archivosDelPlan } from "./choques.mjs";
 import { esLimiteDeUso } from "./diagnostico.mjs";
 import { ErrorDeEtapa, entornoSeguro } from "./etapas.mjs";
@@ -76,6 +77,11 @@ export function esTareaGrande(tarjeta, { repo = null, maxArchivosChica = 8 } = {
   const categorias = [...(tarjeta?.ultimosIntentos ?? []).map((intento) => intento?.categoria), tarjeta?.reparacion?.categoria];
   const previa = categorias.find((categoria) => CATEGORIAS_DE_TAMANO.includes(categoria));
   if (previa) motivos.push(`ya falló por tamaño o recursos (${previa})`);
+  // Lo que verificó la nube cambió al subir (confiarEnResultado): se verifica otra vez en la nube, no en aizen1.
+  const ultimaReparacion = [...(tarjeta?.ultimosIntentos ?? [])].reverse().find((intento) => intento?.accion === "reparar");
+  if (tarjeta?.reparacion?.estrategia === "nube" || /\[estrategia: nube\]\s*$/.test(String(ultimaReparacion?.causa ?? ""))) {
+    motivos.push("lo que verificó la nube cambió al subir: se verifica otra vez en la nube");
+  }
   return { grande: motivos.length > 0, motivos };
 }
 
@@ -88,6 +94,59 @@ const LINK_DE_SESION = /https:\/\/claude\.ai\/code\/session_[A-Za-z0-9_-]+/;
 
 /** El link de la sesión (claude.ai/code/session_…) que aparece en un texto, o null. */
 export const linkDeSesion = (texto) => String(texto ?? "").match(LINK_DE_SESION)?.[0] ?? null;
+
+/* ── la pregunta "¿Confías en esta carpeta?" (26-oct-2026, tarjeta e8qucrhq) ──
+ * En un worktree nuevo, la terminal real de `claude --cloud` se queda en "Quick safety check: Is this a project you
+ * created or one you trust? ❯ No, exit / Yes, I trust this folder" (en la versión 2.1 la opción marcada es "No, exit" y
+ * no hay números: Enter a ciegas SALE). La CLI no trae una opción documentada para marcar una carpeta como confiable
+ * (`claude --help`: solo -p se salta la pregunta, y --cloud no deja -p), y ~/.claude.json no se edita a mano. Así que
+ * se contesta en la terminal: flecha abajo hasta que la marca (❯) quede en "Yes/Sí", y ahí Enter. SOLO si la carpeta
+ * está dentro de config.carpetaTrabajo (los worktrees que crea el Coordinador); fuera de ahí no se toca y falla claro.
+ */
+const PREGUNTA_DE_CONFIANZA = /trust this folder|Do you trust the files|one you trust\?|conf[ií]as en (?:esta carpeta|los archivos)|conf[ií]o en esta carpeta/i;
+const OPCION_SI = /^(?:\d+[.)]\s*)?(?:Yes|S[ií])\b/i;
+/** Máximo de teclas que se mandan a la pregunta (2 opciones; incluye las que la CLI pierde al arrancar). */
+const MAX_TECLAS_DE_CONFIANZA = 10;
+/** Si la pantalla no respondió a una tecla en este tiempo, la CLI la perdió (todavía arrancaba): se manda otra vez. */
+const TECLA_PERDIDA_MS = 2000;
+const FLECHA_ABAJO = "\u001b[B";
+
+/**
+ * La pantalla como texto: los saltos del cursor (ESC[nC) son espacios y cada ESC[fila;colH un salto de línea (la CLI
+ * dibuja así: "Yes,\u001b[1CI\u001b[1Ctrust"); después se quitan los colores.
+ */
+export const textoDePantalla = (texto) =>
+  sinColores(
+    String(texto ?? "")
+      .replace(/\u001b\[(\d*)C/g, (_, n) => " ".repeat(Math.max(1, Number(n) || 1)))
+      .replace(/\u001b\[\d*(?:;\d*)?[Hf]/g, "\n")
+      // Las secuencias con parámetros privados (ESC[>0q, ESC[<u…) también: su ">" no es la marca de la opción.
+      .replace(/\u001b\[[0-9;?<=>]*[ -/]*[@-~]/g, ""),
+  );
+
+/** ¿La pantalla muestra la pregunta de confianza? -> { marcadaSi } (la marca ❯ / › / > está en "Yes/Sí"), o null. */
+export function preguntaDeConfianza(pantalla) {
+  const texto = textoDePantalla(pantalla);
+  const donde = texto.search(PREGUNTA_DE_CONFIANZA);
+  if (donde < 0) return null;
+  const desde = texto.slice(donde);
+  // La marca de la opción elegida: ❯ (o ›); ">" solo si no hay ninguna de esas (terminales sin Unicode).
+  const flecha = Math.max(desde.lastIndexOf("❯"), desde.lastIndexOf("›"));
+  const marca = flecha >= 0 ? flecha : desde.lastIndexOf(">");
+  if (marca < 0) return { marcadaSi: false };
+  return { marcadaSi: OPCION_SI.test(desde.slice(marca + 1).trim()) };
+}
+
+/** ¿`carpeta` está dentro de `raiz` (o es ella)? Sin mayúsculas en Windows. */
+export function estaDentroDe(carpeta, raiz) {
+  if (!carpeta || !raiz) return false;
+  const normal = (ruta) => {
+    const resuelta = path.resolve(ruta);
+    return process.platform === "win32" ? resuelta.toLowerCase() : resuelta;
+  };
+  const relativa = path.relative(normal(raiz), normal(carpeta));
+  return relativa === "" || (!relativa.startsWith("..") && !path.isAbsolute(relativa));
+}
 
 const sinColores = (texto) => String(texto ?? "").replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "").replace(/\u001b\][^\u0007]*\u0007/g, "");
 
@@ -162,9 +221,11 @@ async function lanzarConTerminalReal(contexto, { cwd, prompt, base, modelo, time
   const descripcion = descripcionParaLaNube(prompt);
   if (descripcion.length < String(prompt ?? "").length) registro?.aviso?.(`claude --cloud: la instrucción tenía ${String(prompt).length} caracteres; la recorté a ${descripcion.length} (el plan, por el medio)`);
   const archivo = rutaDelEjecutable(base[0]);
+  // La pregunta de confianza solo se acepta en las carpetas del Coordinador (sus worktrees en carpetaTrabajo).
+  const confiar = estaDentroDe(cwd, contexto.config?.carpetaTrabajo);
   const lanzar = (conModelo) => {
     registro?.info?.(`claude --cloud: lo lanzo con una terminal real (node-pty, ${archivo})`);
-    return unaTerminal(contexto, pty, archivo, [...base.slice(1), "--cloud", descripcion, ...(conModelo ? ["--model", modelo] : [])], { cwd, timeoutMs, antes });
+    return unaTerminal(contexto, pty, archivo, [...base.slice(1), "--cloud", descripcion, ...(conModelo ? ["--model", modelo] : [])], { cwd, timeoutMs, antes, confiar });
   };
   const primero = await lanzar(Boolean(modelo));
   if (primero.link) return { ...primero, modeloForzado: Boolean(modelo) };
@@ -212,8 +273,8 @@ function cerrarTerminal(hijo, recibioDatos) {
 }
 
 /** Una terminal real: { link, via, salida } si salió el link, o { error, salida } si no. Rechaza solo al cancelar. */
-function unaTerminal(contexto, pty, archivo, argumentos, { cwd, timeoutMs, antes }) {
-  const { senal } = contexto;
+function unaTerminal(contexto, pty, archivo, argumentos, { cwd, timeoutMs, antes, confiar = false }) {
+  const { senal, registro } = contexto;
   return new Promise((resolver, rechazar) => {
     let texto = "";
     let hijo;
@@ -229,6 +290,7 @@ function unaTerminal(contexto, pty, archivo, argumentos, { cwd, timeoutMs, antes
       if (listo) return;
       listo = true;
       clearTimeout(reloj);
+      clearInterval(vigiaDeConfianza);
       senal?.removeEventListener?.("abort", cortar);
       // Si ya salió no se mata (node-pty en Windows se queja con "AttachConsole failed").
       if (!salio) cerrarTerminal(hijo, texto.length > 0);
@@ -247,8 +309,48 @@ function unaTerminal(contexto, pty, archivo, argumentos, { cwd, timeoutMs, antes
       );
     };
     const reloj = setTimeout(() => sinLink(`la terminal real no dio el link en ${Math.round(timeoutMs / 1000)} s`), timeoutMs);
+    // La pregunta "¿Confías en esta carpeta?": se contesta con la pantalla quieta (400 ms sin datos) y, después de cada
+    // tecla, solo cuando la pantalla ya respondió (al arrancar la CLI tarda en leer teclas: mandarlas a ciegas da la
+    // vuelta a las opciones y termina en "No, exit"). Si no respondió en TECLA_PERDIDA_MS, la tecla se perdió: otra vez.
+    let ultimoDato = 0;
+    let largoAlTocar = -1;
+    let tocadoEn = 0;
+    let teclas = 0;
+    let confianzaResuelta = false;
+    const vigiaDeConfianza = setInterval(() => {
+      if (listo || confianzaResuelta || Date.now() - ultimoDato < 400) return;
+      if (largoAlTocar >= 0 && texto.length === largoAlTocar && Date.now() - tocadoEn < TECLA_PERDIDA_MS) return;
+      const pregunta = preguntaDeConfianza(texto);
+      if (!pregunta) return;
+      if (!confiar) {
+        confianzaResuelta = true;
+        terminar(() =>
+          // La explicación va al final: el mensaje se queda con las últimas líneas del detalle.
+          fallo(`${ultimasLineas(textoDePantalla(texto).replace(/\n\s*\n+/g, "\n"), 8)}\nLa terminal real se quedó en la pregunta "¿Confías en esta carpeta?" y ${cwd} no está dentro de la carpeta de trabajo del Coordinador: no la acepto sola.`),
+        );
+        return;
+      }
+      if (teclas >= MAX_TECLAS_DE_CONFIANZA) {
+        confianzaResuelta = true;
+        registro?.aviso?.(`claude --cloud: no pude marcar "Sí, confío en esta carpeta" con ${teclas} teclas; sigo esperando el link`);
+        return;
+      }
+      largoAlTocar = texto.length;
+      tocadoEn = Date.now();
+      teclas += 1;
+      try {
+        if (pregunta.marcadaSi) {
+          confianzaResuelta = true;
+          hijo.write("\r");
+          registro?.info?.(`claude --cloud: acepté la pregunta "¿Confías en esta carpeta?" (${cwd}, dentro de la carpeta de trabajo)`);
+        } else hijo.write(FLECHA_ABAJO);
+      } catch {
+        // La terminal ya se cerró: lo dice onExit.
+      }
+    }, 150);
     hijo.onData((dato) => {
       texto += dato;
+      ultimoDato = Date.now();
       // El link puede llegar partido en dos pedazos: vale cuando ya viene algo después (o al salir / vencer).
       const limpio = sinColores(texto);
       const link = linkDeSesion(limpio);

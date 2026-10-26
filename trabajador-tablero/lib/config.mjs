@@ -100,6 +100,9 @@ const NUBE_POR_DEFECTO = {
   verificarMinutos: 45,
   terminal: "auto",
   lanzarMinutos: 5,
+  // 26-oct-2026 (regla del dueño): si la nube dejó build=OK y tests=OK, aizen1 no compila ni prueba lo que volvió (ni
+  // npm ci, tsc, build, pruebas ni lint): solo zonas, .env, el ensayo de la migración (BEGIN…ROLLBACK) y subir.
+  confiarEnResultado: true,
 };
 
 /** Si la CPU (promedio SOSTENIDO de los últimos cpuPromedioMinutos) o la memoria pasan de esto, no se abre otra sesión. */
@@ -113,7 +116,10 @@ const LIMITES_POR_DEFECTO = { cpuPorciento: 85, memoriaPorciento: 85, esperaMaxi
  * Cola de pasos pesados de aizen1 (25-oct-2026, cola.mjs): cuántos npm ci / lint / tsc / build / pruebas corren a la
  * vez en todo aizen1, sin importar cuántas sesiones haya. 0 = sin cola (como antes).
  */
-const COLA_PESADA_POR_DEFECTO = { maximo: 1 };
+// esperaMaximaMinutos (26-oct-2026): lo más que una tarea NUEVA de aizen1 espera turno para instalar o medir el lint de main
+// (prioridad "preparar", antes de que Claude escriba nada). Pasado eso se suelta sin contar el intento y vuelve a la fila del
+// tablero, en vez de dejar que el candado del CRM (90 min desde que se tomó) venza con ERROR. 0 = sin límite.
+const COLA_PESADA_POR_DEFECTO = { maximo: 1, esperaMaximaMinutos: 20 };
 
 /** Cuándo se parte una tarea en partes más chicas (24-oct-2026): con tantos archivos cambiados a medias, o por contexto, o si se pasa dos veces del tiempo. */
 // archivosAntes / archivosConMigracion (25-oct-2026, reparto.mjs: debePartirAntes): una tarea de aizen1 con más archivos
@@ -240,6 +246,10 @@ export function completarConfig(datos, base = process.cwd()) {
   const colaPesada = { ...COLA_PESADA_POR_DEFECTO, ...(datos.colaPesada ?? {}) };
   colaPesada.maximo = Math.floor(Number(colaPesada.maximo));
   if (!Number.isFinite(colaPesada.maximo) || colaPesada.maximo < 0 || colaPesada.maximo > 5) errores.push("colaPesada.maximo: de 0 a 5 (0 = sin cola).");
+  colaPesada.esperaMaximaMinutos = Number(colaPesada.esperaMaximaMinutos);
+  if (!Number.isFinite(colaPesada.esperaMaximaMinutos) || colaPesada.esperaMaximaMinutos < 0 || colaPesada.esperaMaximaMinutos > 80) {
+    errores.push("colaPesada.esperaMaximaMinutos: de 0 a 80 minutos (0 = sin límite; el candado del CRM al construir es de 90).");
+  }
   limites.esperaMaximaMinutos = Number(limites.esperaMaximaMinutos);
   if (!Number.isFinite(limites.esperaMaximaMinutos) || limites.esperaMaximaMinutos < 0 || limites.esperaMaximaMinutos > 240) {
     errores.push("limites.esperaMaximaMinutos: minutos de 0 a 240 (0 = no espera al PC).");
@@ -290,6 +300,7 @@ export function completarConfig(datos, base = process.cwd()) {
     errores.push(`maxParalelo (${maxParalelo}) + nube.maxTareas (${nube.maxTareas}) no pueden pasar de 12: es lo que da el CRM a la vez entre aizen1 y la nube.`);
   }
   if (!["auto", "sin-terminal", "pty"].includes(nube.terminal)) errores.push('nube.terminal: "auto", "sin-terminal" o "pty".');
+  if (typeof nube.confiarEnResultado !== "boolean") errores.push("nube.confiarEnResultado: true o false.");
   let comandoGh = ["gh"];
   let comandoClaudeNube = null;
   try {
@@ -344,6 +355,7 @@ export function completarConfig(datos, base = process.cwd()) {
       verificarMinutos: nube.verificarMinutos,
       lanzarMinutos: nube.lanzarMinutos,
       terminal: nube.terminal,
+      confiarEnResultado: nube.confiarEnResultado,
       comandoGh,
       comandoClaude: comandoClaudeNube,
       entorno: entornoNube,
@@ -351,7 +363,7 @@ export function completarConfig(datos, base = process.cwd()) {
     limites,
     manual: { activo: manual.activo, hora: manual.hora, repo: manual.repo },
     autoactualizar: { activo: auto.activo, cadaMinutos: auto.cadaMinutos, rama: auto.rama, remoto: auto.remoto },
-    colaPesada: { maximo: colaPesada.maximo },
+    colaPesada: { maximo: colaPesada.maximo, esperaMaximaMinutos: colaPesada.esperaMaximaMinutos },
     partir: { archivosMinimos: partir.archivosMinimos, archivosAntes: partir.archivosAntes, archivosConMigracion: partir.archivosConMigracion },
     atasco: { minutos: atasco.minutos, revisarCadaSegundos: atasco.revisarCadaSegundos, cpuMinimaSegundos: atasco.cpuMinimaSegundos },
     reparar: { diagnosticoConClaude: reparar.diagnosticoConClaude, diagnosticoMinutos: reparar.diagnosticoMinutos },

@@ -87,6 +87,38 @@ if (argumentos.includes("--cloud")) {
   }
   // [nube-sin-link]: en la terminal real nunca da el link ni trabaja (para probar el tiempo máximo).
   if (descripcion !== null && titulo.includes("[nube-sin-link]")) await new Promise(() => setInterval(() => {}, 60_000));
+  // [nube-confianza] (en la terminal real): ANTES de trabajar y dar el link, la pregunta "¿Confías en esta carpeta?" como
+  // la dibuja la CLI 2.1 (marcada "No, exit", sin números, espacios como ESC[1C). Las teclas del primer segundo se pierden
+  // (la CLI de verdad tarda en leerlas al arrancar). Flecha abajo/arriba cambia la opción; Enter en "Yes" sigue, en "No"
+  // (o Esc) sale con código 1 sin trabajar.
+  if (descripcion !== null && titulo.includes("[nube-confianza]")) {
+    const conCursor = (texto) => texto.replace(/ /g, "\u001b[1C");
+    const marca = "\u001b[38;2;177;185;249m❯";
+    const opciones = (enSi) =>
+      `\u001b[14;2H${enSi ? " " : marca}\u001b[1C${conCursor("No, exit")}\u001b[m\u001b[15;2H${enSi ? marca : " "}\u001b[1C${conCursor("Yes, I trust this folder")}\u001b[m`;
+    process.stdout.write(
+      `\u001b[2J\u001b[H\u001b[1m\u001b[3;2H${conCursor("Accessing workspace:")}\u001b[m\u001b[5;2H${process.cwd()}\u001b[7;2H${conCursor("Quick safety check: Is this a project you created or one you trust?")}${opciones(false)}\u001b[17;2H${conCursor("Enter to confirm · Esc to cancel")}\u001b[>0q\u001b[?u`,
+    );
+    const desde = Date.now();
+    let enSi = false;
+    const aceptada = await new Promise((resolver) => {
+      process.stdin.setRawMode?.(true);
+      process.stdin.resume();
+      process.stdin.on("data", (dato) => {
+        if (Date.now() - desde < 1000) return;
+        const tecla = dato.toString("utf8");
+        if (tecla.includes("\u001b[B") || tecla.includes("\u001b[A")) {
+          enSi = !enSi;
+          process.stdout.write(opciones(enSi));
+        } else if (tecla.includes("\r")) resolver(enSi);
+        else if (tecla === "\u001b") resolver(false);
+      });
+    });
+    if (process.env.CLAUDE_FALSO_LOG) fs.appendFileSync(`${process.env.CLAUDE_FALSO_LOG}.confianza`, `${JSON.stringify({ confianza: aceptada, cwd: process.cwd(), titulo })}\n`);
+    if (!aceptada) process.exit(1);
+    process.stdin.pause();
+    process.stdout.write("\u001b[2J\u001b[H");
+  }
   const rama = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim();
   const remoto = execFileSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" }).trim();
   const sesion = `https://claude.ai/code/session_FALSA_${Buffer.from(titulo).toString("hex").slice(0, 24)}`;

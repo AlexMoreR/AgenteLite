@@ -26,6 +26,7 @@
     "esperaMinutos": 120,
     "verificarMinutos": 45,
     "terminal": "auto",
+    "confiarEnResultado": true,
     "comandoGh": [
       "gh"
     ],
@@ -49,7 +50,8 @@
     "cpuPromedioMinutos": 3
   },
   "colaPesada": {
-    "maximo": 1
+    "maximo": 1,
+    "esperaMaximaMinutos": 20
   },
   "partir": {
     "archivosMinimos": 8,

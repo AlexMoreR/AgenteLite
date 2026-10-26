@@ -55,7 +55,7 @@ import { migracionDestructiva } from "./riesgo.mjs";
 import { zonasTocadas } from "./zonas.mjs";
 
 export class ErrorDeEtapa extends Error {
-  constructor(message, { zonas = [], reversion = null, limiteDeUso = false, motor = null, categoria = null, archivosCambiados = null } = {}) {
+  constructor(message, { zonas = [], reversion = null, limiteDeUso = false, motor = null, categoria = null, archivosCambiados = null, esperaDeCola = false, verificarEnNube = false } = {}) {
     super(message);
     this.zonas = zonas;
     this.reversion = reversion;
@@ -67,6 +67,11 @@ export class ErrorDeEtapa extends Error {
     // después. `motor` dice cuál ("claude" | "codex"; null = ningún motor disponible ahora).
     this.limiteDeUso = limiteDeUso;
     this.motor = motor;
+    // Una tarea nueva de aizen1 esperó demasiado turno en la cola de pasos pesados ANTES de empezar (conTurno): no es
+    // culpa de la tarjeta; se suelta sin contar el intento y vuelve a la fila del tablero (26-oct-2026).
+    this.esperaDeCola = esperaDeCola;
+    // Lo que verificó la nube ya no es lo que se subiría (confiarEnResultado): se repara verificándolo otra vez en la nube.
+    this.verificarEnNube = verificarEnNube;
   }
 }
 
@@ -125,6 +130,10 @@ function relojDeEtapa(minutos, nombre, { topeMinutos = null } = {}) {
 /**
  * Corre `fn` con un turno de la cola de pasos pesados de aizen1 (cola.mjs). El tiempo de espera se le devuelve al reloj
  * de la etapa (hasta el tope del CRM). Sin cola en el contexto (--una-vez), corre enseguida.
+ * Con prioridad "preparar" (una tarea NUEVA de aizen1, antes de que Claude escriba nada) la espera tiene tope:
+ * config.colaPesada.esperaMaximaMinutos. Pasado, ErrorDeEtapa con esperaDeCola y procesar() la suelta sin contar el
+ * intento (26-oct-2026: "GitHub Actions 1/3" y "3/3" esperaron ~90 min detrás de las verificaciones de la nube y el
+ * candado del CRM venció con ERROR). El latido no puede parar el tope del CRM (cuenta desde que se tomó la tarjeta).
  */
 async function conTurno(contexto, reloj, prioridad, que, fn) {
   const cola = contexto.colaPesada;
@@ -134,12 +143,39 @@ async function conTurno(contexto, reloj, prioridad, que, fn) {
   if (antes.ocupados >= antes.maximo) {
     contexto.registro?.info?.(`espero turno para ${que} (cola de pasos pesados: corre ${antes.corriendo.join(", ") || "otro"}; ${antes.esperando} en fila)`);
   }
+  // Solo en aizen1: lo que vuelve de la nube ya tiene trabajo hecho (no se suelta por esperar el lint de main).
+  const topeMinutos = prioridad === PRIORIDAD.preparar && contexto.lugar !== "nube" ? Number(contexto.config?.colaPesada?.esperaMaximaMinutos) || 0 : 0;
+  let senal = contexto.senal;
+  let vencimiento = null;
+  let seCanso = false;
+  let cortar = null;
+  if (topeMinutos > 0) {
+    const control = new AbortController();
+    cortar = () => control.abort();
+    if (contexto.senal?.aborted) control.abort();
+    else contexto.senal?.addEventListener?.("abort", cortar, { once: true });
+    vencimiento = setTimeout(() => {
+      seCanso = true;
+      control.abort();
+    }, topeMinutos * MINUTO);
+    senal = control.signal;
+  }
   let liberar;
   try {
-    liberar = await cola.tomar({ prioridad, senal: contexto.senal, que: `${contexto.etiqueta ?? ""} ${que}`.trim() });
+    liberar = await cola.tomar({ prioridad, senal, que: `${contexto.etiqueta ?? ""} ${que}`.trim() });
   } catch (error) {
+    if (error?.cancelado && seCanso && !contexto.senal?.aborted) {
+      const ahora = cola.estado();
+      throw new ErrorDeEtapa(
+        `Esperé ${topeMinutos} min turno para ${que} en la cola de pasos pesados de aizen1 (corre ${ahora.corriendo.join(", ") || "otro"}; ${ahora.esperando} en fila) sin empezar: la suelto sin contar el intento y vuelve a la fila del tablero.`,
+        { esperaDeCola: true },
+      );
+    }
     if (error?.cancelado) throw new ErrorDeEtapa(`Se canceló la espera para ${que}: la tarjeta venció en el CRM.`, { categoria: "coordinador_cortado" });
     throw error;
+  } finally {
+    if (vencimiento) clearTimeout(vencimiento);
+    if (cortar) contexto.senal?.removeEventListener?.("abort", cortar);
   }
   const esperado = Date.now() - inicio;
   if (esperado > 5000) {
@@ -664,6 +700,8 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
       baseComun,
       // Solo se anota el modelo si de verdad se pidió con --model; si no, la tarjeta lo dice en una línea.
       modelo: lanzado.modeloForzado ? modelo : null,
+      // El commit "resultado: build=OK tests=OK": lo que se empuje tiene que tener su mismo código (confiarEnResultado).
+      commitVerificado: resultado.sha,
       resumen: [
         lanzado.modeloForzado ? "" : "La nube no deja elegir modelo; se pidió en el prompt.",
         `Construido por Claude en la nube (${resultado.segundos === null ? "sin tiempo" : `${resultado.segundos} s`}): build=${resultado.build} tests=${resultado.tests}. Sesión: ${lanzado.link}`,
@@ -903,25 +941,37 @@ export async function construir(contexto, tarjeta) {
       rama = await ramaParaLaNube(repo, tarjeta);
       nube = await construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, reloj });
     }
-    // Ya volvió de la nube: lo que sigue (instalar, tipos, build, pruebas, ensayo) corre en aizen1. Hace fila por un puesto
-    // (no más verificaciones a la vez que puestos de aizen1) y tiene su propio reloj, que no gastó la espera de la nube.
+    // CONFIAR EN LA NUBE (26-oct-2026, regla del dueño; config.nube.confiarEnResultado, sí por defecto): si allá pasaron
+    // build y pruebas, aizen1 NO compila ni prueba NADA (ni npm ci, prisma generate, tsc, build, pruebas ni lint). Solo
+    // lee los nombres de archivos (zonas protegidas, .env), ensaya la migración en producción dentro de BEGIN…ROLLBACK si
+    // hay, y empuja la rama. El código que se empuja tiene que ser EXACTAMENTE el que verificó la nube.
+    const confiarEnLaNube = Boolean(nube) && config.nube?.confiarEnResultado !== false;
+    // Ya volvió de la nube: sin confiar, lo que sigue (instalar, tipos, build, pruebas, ensayo) corre en aizen1. Hace fila
+    // por un puesto (no más verificaciones a la vez que puestos de aizen1) y tiene su propio reloj, que no gastó la espera
+    // de la nube. Confiando no hay nada pesado: no ocupa puesto.
     if (nube) {
       contexto.fase?.("probando", { lugar: "aizen1" });
-      liberarPuesto = (await contexto.puestoParaVerificar?.(contexto.senal)) ?? null;
+      if (!confiarEnLaNube) liberarPuesto = (await contexto.puestoParaVerificar?.(contexto.senal)) ?? null;
       reloj = relojDeEtapa(config.nube.verificarMinutos, "verificar lo que volvió de la nube");
     }
     await crearWorktree(repo, carpeta, nube ? nube.baseComun : base, rama);
     baseSha = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
     // Lo que vuelve de la nube ya esperó: se verifica con la prioridad de verificar; una tarea nueva de aizen1, con la de preparar.
     const prioridadDeInstalar = nube ? PRIORIDAD.verificar : PRIORIDAD.preparar;
-    if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: prioridadDeInstalar });
+    if (repo.instalar && !confiarEnLaNube) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: prioridadDeInstalar });
     // El lint de main, para que solo cuenten los errores NUEVOS (guardado por commit: el mismo commit no se mide dos veces).
-    const lintBase = repo.lint ? await lintDeLaBase(contexto, repo, carpeta, reloj, baseSha) : null;
+    const lintBase = repo.lint && !confiarEnLaNube ? await lintDeLaBase(contexto, repo, carpeta, reloj, baseSha) : null;
     if (nube) {
       // La rama de la nube se trae encima de esa base. Si cambió las dependencias, se instala otra vez.
       await git(carpeta, ["merge", "--ff-only", `${repo.remoto}/${rama}`]);
-      const tocoPaquetes = (await archivosCambiados(carpeta, nube.baseComun)).some((cambio) => /(^|\/)package(-lock)?\.json$/.test(cambio.archivo));
-      if (tocoPaquetes && repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: PRIORIDAD.verificar });
+      if (confiarEnLaNube) {
+        const sinVerificar = await cambiosSinVerificar(carpeta, nube.commitVerificado);
+        if (sinVerificar.length) throw errorDeVerificarEnNube(`La rama ${rama} trae cambios después del commit "resultado:" que verificó la nube`, sinVerificar, nube.link);
+      }
+      else {
+        const tocoPaquetes = (await archivosCambiados(carpeta, nube.baseComun)).some((cambio) => /(^|\/)package(-lock)?\.json$/.test(cambio.archivo));
+        if (tocoPaquetes && repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: PRIORIDAD.verificar });
+      }
     }
     // Lo ya hecho en el intento anterior se reaplica (si encaja sobre main) DESPUÉS de medir el lint de la base.
     const patchAplicado = nube ? false : await reaplicarTrabajo(contexto, tarjeta, carpeta, intentos);
@@ -1023,7 +1073,9 @@ export async function construir(contexto, tarjeta) {
     const subeSolo = repo.subirSolo === true && zonas.length === 0 && !(tarjeta.zonasAprobadas ?? []).length;
     const zonasTexto = zonas.map((zona) => `${zona} (${tocadas[zona].slice(0, 5).join(", ")}${tocadas[zona].length > 5 ? "…" : ""})`).join("; ");
 
-    const pruebas = await verificar(contexto, repo, carpeta, reloj);
+    const pruebas = confiarEnLaNube
+      ? [`✔ build=OK y tests=OK en la nube sobre este mismo código (commit ${nube.commitVerificado.slice(0, 10)}): aizen1 no vuelve a compilar ni a probar`]
+      : await verificar(contexto, repo, carpeta, reloj);
     if (lintBase) {
       const nuevos = erroresNuevos(lintBase, await conTurno(contexto, reloj, PRIORIDAD.verificar, "lint", () => erroresDeLint(contexto, repo, carpeta, reloj)));
       if (nuevos.length) throw new ErrorDeEtapa(`El lint tiene ${nuevos.length} error(es) nuevo(s):\n${nuevos.slice(0, 15).join("\n")}\nNo se subió nada.`, { categoria: "lint" });
@@ -1035,7 +1087,9 @@ export async function construir(contexto, tarjeta) {
       const ensayar = () =>
         ensayarMigraciones({
           migraciones,
-          repo,
+          // Confiando en la nube no hay node_modules: el ensayo en PGlite (npm run …) lo cubrieron las pruebas de allá;
+          // queda el de producción dentro de BEGIN…ROLLBACK (psql por ssh, sin compilar nada).
+          repo: confiarEnLaNube ? { ...repo, ensayoPglite: null } : repo,
           ssh: config.ssh,
           cwd: carpeta,
           env: entornoSeguro(),
@@ -1101,8 +1155,9 @@ export async function construir(contexto, tarjeta) {
     };
   } catch (error) {
     // Lo ya hecho se guarda para el siguiente intento (un patch) y se anota cuántos archivos llevaba.
-    // (En la nube lo hecho queda en la rama de GitHub: no hay patch que guardar.)
-    if (baseSha && !enNube && error instanceof Error) await guardarTrabajo(contexto, tarjeta, carpeta, baseSha, intentos, error);
+    // (En la nube lo hecho queda en la rama de GitHub: no hay patch que guardar.) Si se soltó esperando turno en la cola
+    // (esperaDeCola) todavía no se hizo nada: no se toca lo guardado del intento anterior (guardar "nada" lo borraría).
+    if (baseSha && !enNube && error instanceof Error && !error.esperaDeCola) await guardarTrabajo(contexto, tarjeta, carpeta, baseSha, intentos, error);
     throw error;
   } finally {
     fs.rmSync(path.join(carpeta, ".next", "lock"), { force: true });
@@ -1110,6 +1165,42 @@ export async function construir(contexto, tarjeta) {
     liberarPuesto?.();
   }
 }
+
+/* ── Confiar en lo que verificó la nube (26-oct-2026) ── */
+
+/** Los archivos que no cambian lo que se compila ni lo que se prueba: si solo cambian estos, lo verificado sigue valiendo. */
+const SOLO_TEXTO = /\.md$/i;
+
+/** Lo que cambió entre el commit que verificó la nube y HEAD, sin contar los .md (solo nombres: no compila nada). */
+async function cambiosSinVerificar(carpeta, commitVerificado) {
+  const distintos = (await git(carpeta, ["diff", "--name-only", commitVerificado, "HEAD"])).salida.split(/\r?\n/).filter(Boolean);
+  return distintos.filter((archivo) => !SOLO_TEXTO.test(archivo));
+}
+
+/**
+ * El código que se iba a subir ya no es el que verificó la nube: no se sube a ciegas ni se compila en aizen1; se manda
+ * a verificar otra vez a la NUBE (bucle.mjs: la reparación lleva la estrategia "nube" y el reparto la manda allá).
+ */
+function errorDeVerificarEnNube(que, archivos, link) {
+  return new ErrorDeEtapa(
+    `${que} (${archivos.slice(0, 10).join(", ")}${archivos.length > 10 ? "…" : ""}): no se sube a ciegas; se manda a verificar otra vez a la nube.${link ? ` Sesión de la nube: ${link}` : ""}`,
+    { categoria: "choca_con_main", verificarEnNube: true },
+  );
+}
+
+/**
+ * Al subir lo de la nube (26-oct-2026, decisión del orquestador para entregar 20 al día): solo obliga a volver a la nube
+ * lo que main cambió en los MISMOS archivos que la tarea cambió (sin contar .md), desde la base de lo que verificó la
+ * nube. Si main cambió otros archivos, el rebase deja el diff de la tarea intacto y se sube sin compilar: el CI de main
+ * y la reversión automática del despliegue cubren el resto. Solo nombres de archivos: no compila nada.
+ */
+async function archivosQueChocanConMain(carpeta, commitVerificado, refMain) {
+  const nombres = async (desde, hasta) => (await git(carpeta, ["diff", "--name-only", desde, hasta])).salida.split(/\r?\n/).filter(Boolean);
+  const baseVerificada = (await git(carpeta, ["merge-base", commitVerificado, refMain])).salida.trim();
+  const deMain = new Set(await nombres(baseVerificada, refMain));
+  return (await nombres(baseVerificada, commitVerificado)).filter((archivo) => !SOLO_TEXTO.test(archivo) && deMain.has(archivo));
+}
+
 
 /* ── El trabajo a medias entre intentos: <carpetaTrabajo>/intentos/<idCorto>/trabajo.patch ── */
 
@@ -1313,6 +1404,10 @@ export async function subir(contexto, tarjeta) {
   try {
     await crearWorktree(repo, carpeta, `${repo.remoto}/${rama}`, ramaLocal);
     const cabeza = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
+    // Construida en la nube con build y pruebas OK (nube.confiarEnResultado): aizen1 no compila ni prueba nada al subir.
+    // Solo el ensayo de la migración (BEGIN…ROLLBACK) si main cambió, y subir. Si el rebase cambió algo además de .md
+    // respecto del commit que verificó la nube, no se sube: se manda a verificar otra vez a la nube.
+    const confiarEnLaNube = tarjeta.resultado?.construidoEn === "nube" && config.nube?.confiarEnResultado !== false && Boolean(tarjeta.resultado?.commit);
     let antes;
     let pruebas;
     let commit;
@@ -1329,11 +1424,21 @@ export async function subir(contexto, tarjeta) {
           { categoria: "choca_con_main" },
         );
       }
+      if (confiarEnLaNube) {
+        const chocan = await archivosQueChocanConMain(carpeta, tarjeta.resultado.commit, base);
+        if (chocan.length) {
+          throw errorDeVerificarEnNube(`Al hacer rebase, ${repo.ramaBase} cambió archivos que la tarea también cambia y la nube no verificó juntos`, chocan, tarjeta.resultado?.linkSesion);
+        }
+      }
       if (mainIgual) {
         pruebas = [`✔ ${repo.ramaBase} no cambió desde que se construyó: no se vuelve a compilar`];
       } else {
-        if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: PRIORIDAD.subir });
-        pruebas = await verificar(contexto, repo, carpeta, reloj, PRIORIDAD.subir);
+        if (confiarEnLaNube) {
+          pruebas = [`✔ la nube verificó build y pruebas (commit ${tarjeta.resultado.commit.slice(0, 10)}); ${repo.ramaBase} no cambió los archivos de la tarea (salvo .md): aizen1 no compila ni prueba (el CI de ${repo.ramaBase} cubre el resto)`];
+        } else {
+          if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: PRIORIDAD.subir });
+          pruebas = await verificar(contexto, repo, carpeta, reloj, PRIORIDAD.subir);
+        }
         contexto.fase?.("subiendo");
         const cambios = await archivosCambiados(carpeta, base);
         const migraciones = migracionesNuevas(cambios, repo.carpetaMigraciones);
@@ -1341,7 +1446,8 @@ export async function subir(contexto, tarjeta) {
           const ensayar = () =>
             ensayarMigraciones({
               migraciones,
-              repo,
+              // Confiando en la nube no hay node_modules: queda el ensayo de producción dentro de BEGIN…ROLLBACK.
+              repo: confiarEnLaNube ? { ...repo, ensayoPglite: null } : repo,
               ssh: config.ssh,
               cwd: carpeta,
               env: entornoSeguro(),

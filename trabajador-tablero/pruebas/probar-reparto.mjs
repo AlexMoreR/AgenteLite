@@ -225,13 +225,14 @@ await prueba("escoger: el planificador manda en `excluir` todas las libres menos
 await prueba("configuración: cola de pasos pesados de 1, CPU promedio de 3 min, partir antes con 25 archivos, .md sin choque", async () => {
   const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
   const config = completarConfig(base);
-  assert.deepEqual(config.colaPesada, { maximo: 1 });
+  assert.deepEqual(config.colaPesada, { maximo: 1, esperaMaximaMinutos: 20 });
   assert.equal(config.limites.cpuPromedioMinutos, 3);
   assert.deepEqual(config.partir, { archivosMinimos: 8, archivosAntes: 25, archivosConMigracion: 15 });
   assert.deepEqual(config.repos.aizencrm.sinChoque, ["**/*.md"]);
   assert.deepEqual(completarConfig({ ...base, repos: { aizencrm: { ruta: ".", sinChoque: ["**/*.md", "CHANGELOG.txt"] } } }).repos.aizencrm.sinChoque, ["**/*.md", "CHANGELOG.txt"]);
   assert.equal(completarConfig({ ...base, colaPesada: { maximo: 0 } }).colaPesada.maximo, 0, "0 = sin cola");
   assert.throws(() => completarConfig({ ...base, colaPesada: { maximo: 9 } }), /colaPesada/);
+  assert.throws(() => completarConfig({ ...base, colaPesada: { maximo: 1, esperaMaximaMinutos: 95 } }), /colaPesada.esperaMaximaMinutos/);
   assert.throws(() => completarConfig({ ...base, limites: { cpuPromedioMinutos: 0 } }), /cpuPromedioMinutos/);
 });
 

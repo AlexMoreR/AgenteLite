@@ -123,11 +123,23 @@ siguen en aizen1.
   da 180 minutos en vez de 90). Si no aparece en `nube.esperaMinutos` (120), la tarjeta pasa a ERROR con el link. Lo que vuelve se verifica en
   aizen1 con su propio reloj (`nube.verificarMinutos`, 45) y, como mucho, 2 a la vez (`maxParalelo`): la
   verificación de la nube hace fila para no pasar de los puestos de aizen1.
-- **Al volver** (en aizen1, igual que cualquier tarea): trae la rama, instala, `prisma generate`, tipos,
-  build, pruebas y lint comparado con main; revisa las zonas protegidas y que no haya `.env`; ensaya la
-  migración en PGlite y en producción (BEGIN…ROLLBACK, por ssh: las claves no salen de aizen1); sube la rama
-  sin `--force` y la tarjeta sigue como siempre. Con `FALLO` la tarjeta va a ERROR con las 30 líneas que dejó
-  la sesión en la rama (o a reparar, si el CRM entiende reparaciones).
+- **Al volver con `build=OK tests=OK`** (`nube.confiarEnResultado`, sí por defecto; 26-oct-2026, regla del
+  dueño): aizen1 **no compila ni prueba nada** (ni `npm ci`, `prisma generate`, tipos, build, pruebas ni lint).
+  Solo comprueba que el código de la rama es el mismo que verificó la nube (commit `resultado:`), lee los
+  nombres de archivos (zonas protegidas, `.env`), ensaya la migración en producción dentro de BEGIN…ROLLBACK si
+  hay (por ssh) y sube. Al subir, si main cambió (desde la base que verificó la nube) archivos que la tarea
+  también cambia (sin contar `.md`), no sube a ciegas: la tarjeta se repara con la estrategia `nube` y se vuelve a
+  construir y verificar en la nube. Si main cambió otros archivos, sube sin compilar (el CI de main y la
+  reversión automática del despliegue cubren el resto). Con `confiarEnResultado: false` se verifica en aizen1 como antes: instala, `prisma generate`,
+  tipos, build, pruebas, lint comparado con main y el ensayo en PGlite. Con `FALLO` la tarjeta va a ERROR con
+  las 30 líneas que dejó la sesión en la rama (o a reparar, si el CRM entiende reparaciones).
+- **"¿Confías en esta carpeta?"**: en un worktree nuevo la terminal real de `claude --cloud` hace esa pregunta
+  (marcada en "No, exit"). El Coordinador la contesta solo (flecha hasta "Yes, I trust this folder" y Enter)
+  **solo** si la carpeta está dentro de `carpetaTrabajo`; fuera de ahí falla y lo dice.
+- **Cola de pasos pesados sin vencer tarjetas**: si la cola de aizen1 ya tiene trabajo en fila, no se toma una
+  tarjeta nueva para construir en aizen1 (espera en la fila del tablero, sin candado). Y si una ya tomada espera
+  más de `colaPesada.esperaMaximaMinutos` (20) su `npm ci` o el lint de main antes de empezar, se suelta sin
+  ERROR ni intento, antes de que venza el candado de 90 min del CRM.
 - **La tarjeta** dice "Construida en: aizen1" o "Construida en: la nube · Ver la sesión", y mientras se
   construye "La está construyendo Claude en la nube… Ver la sesión". El panel "Coordinador en vivo" lo muestra
   con `lugar: "nube"` y `linkSesion`.

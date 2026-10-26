@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
 import { crearVigilante, sumarDescendientes } from "../lib/atasco.mjs";
 import { crearPlanificador, crearSemaforo, unaVuelta } from "../lib/bucle.mjs";
+import { PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
 import { crearCrm } from "../lib/crm.mjs";
@@ -28,7 +29,7 @@ import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
 import { decidir, diagnosticar, resumenDeEscalada } from "../lib/diagnostico.mjs";
 import { esLimiteDeUso, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
-import { MAX_DESCRIPCION, descripcionParaLaNube, esTareaGrande, lanzarEnNube, linkDeSesion, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
+import { MAX_DESCRIPCION, descripcionParaLaNube, esTareaGrande, estaDentroDe, lanzarEnNube, linkDeSesion, preguntaDeConfianza, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
 import { detalleDeFalla, lineasQueFallaron } from "../lib/procesos.mjs";
 import { destructivoDelSql, migracionDestructiva } from "../lib/riesgo.mjs";
 import {
@@ -1681,6 +1682,53 @@ try {
     `PLAN\n4. Migración: no.\n5. Archivos:\n${Array.from({ length: archivos }, (_, i) => `src/${modulo}/parte-${i + 1}.ts`).join("\n")}\n6. Pruebas: verificar.mjs`;
   const llamadasALaNube = (desde) => leerLog(LOGS.claude).slice(desde).filter((l) => l.argumentos.includes("--cloud"));
 
+  // La COLA QUE VENCE TARJETAS (26-oct-2026): "GitHub Actions 1/3" y "3/3" se tomaron para construir en aizen1 con la cola
+  // de pasos pesados llena de verificaciones de la nube; esperaron ~90 min su npm ci y el candado del CRM venció con ERROR.
+  await prueba("cola de pasos pesados con trabajo en fila: no se toma una tarjeta nueva para construir en aizen1 (espera sin candado)", async () => {
+    despejar();
+    const cola = crearColaPesada({ maximo: 1 });
+    const soltarCorriendo = await cola.tomar({ prioridad: PRIORIDAD.verificar, que: "nube abcd npm ci" });
+    const enFila = cola.tomar({ prioridad: PRIORIDAD.verificar, que: "nube efgh npm ci" });
+    const id = nueva("Chica con la cola llena", "PLAN_APROBADO", { plan: planDe("colallena", 1) });
+    const planificador = crearPlanificador({ crm, config: crearConfig(), registro, medidor: sinMedir, colaPesada: cola });
+    await planificador.llenar();
+    assert.equal(tarjetas.get(id).estado, "PLAN_APROBADO", "no se tomó (no tiene candado que se venza)");
+    assert.equal(planificador.corriendo(), 0);
+    const espera = planificador.estado().esperas.find((e) => e.tarjetaId === id);
+    assert.match(espera?.motivo ?? "", /cola de pasos pesados de aizen1 tiene 1 en fila/);
+    // Se vacía la fila: ahora sí se toma y se construye.
+    soltarCorriendo();
+    (await enFila)();
+    await planificador.llenar();
+    await correrHasta(planificador, () => !["PLAN_APROBADO", "EN_CURSO"].includes(tarjetas.get(id).estado));
+    assert.notEqual(tarjetas.get(id).estado, "ERROR", tarjetas.get(id).resultado?.error?.motivo);
+    await planificador.esperarTodas();
+    planificador.parar();
+    sinRestos();
+  });
+
+  await prueba("cola de pasos pesados: si una tarea nueva de aizen1 espera más de colaPesada.esperaMaximaMinutos para empezar, se suelta sin ERROR ni intento (antes de que venza en el CRM)", async () => {
+    despejar();
+    const cola = crearColaPesada({ maximo: 1 });
+    const soltarCorriendo = await cola.tomar({ prioridad: PRIORIDAD.verificar, que: "nube abcd build" });
+    const id = nueva("Espera demasiado su npm ci", "PLAN_APROBADO", { plan: planDe("colalarga", 1) });
+    const otraConfig = crearConfig({}, { instalar: [node, "-e", "0"] }, { colaPesada: { maximo: 1, esperaMaximaMinutos: 0.02 } });
+    const planificador = crearPlanificador({ crm, config: otraConfig, registro, medidor: sinMedir, colaPesada: cola });
+    await planificador.llenar();
+    assert.equal(planificador.corriendo(), 1, "se tomó: la cola tenía uno corriendo pero nadie en fila");
+    await planificador.esperarTodas();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_APROBADO", "volvió a la fila del tablero");
+    assert.equal(t.intentos, 0, "no contó el intento");
+    assert.equal(t.resultado?.error, undefined, "sin ERROR");
+    assert.match(t.soltada, /Esperé 0.02 min turno para .*instalar|Esperé 0.02 min turno para/);
+    assert.equal(cola.estado().esperando, 0, "salió de la cola");
+    soltarCorriendo();
+    planificador.parar();
+    despejar();
+    sinRestos();
+  });
+
   await prueba("nube: pushDeRama sin forzar no pisa lo que dejó la nube; con forzar (las ramas de aizen1) sí", async () => {
     const clon = path.join(T, "clon-push");
     execFileSync("git", ["clone", "--quiet", REMOTO, clon], { stdio: "ignore" });
@@ -1934,6 +1982,51 @@ try {
     assert.ok(Date.now() - inicio < 20_000, "no se quedó colgado");
   });
 
+  await prueba("nube: reconoce la pregunta \"¿Confías en esta carpeta?\" como la dibuja la CLI y dónde está la marca", () => {
+    // Lo que de verdad imprimió claude 2.1 en una carpeta nueva (26-oct-2026), con sus saltos de cursor y colores.
+    const real =
+      "\u001b[?25l\u001b[2J\u001b[m\u001b[H\u001b[1m\u001b[3;2HAccessing\u001b[1Cworkspace:\u001b[m\u001b[7;2HQuick\u001b[1Csafety\u001b[1Ccheck:\u001b[1CIs\u001b[1Cthis\u001b[1Ca\u001b[1Cproject\u001b[1Cyou\u001b[1Ccreated\u001b[1Cor\u001b[1Cone\u001b[1Cyou\u001b[1Ctrust?" +
+      "\u001b[38;2;153;153;153m\u001b[12;2HSecurity\u001b[1Cguide\u001b[38;2;177;185;249m\u001b[14;2H❯\u001b[1CNo,\u001b[1Cexit\u001b[m\u001b[15;4HYes,\u001b[1CI\u001b[1Ctrust\u001b[1Cthis\u001b[1Cfolder\u001b[38;2;153;153;153m\u001b[17;2HEnter\u001b[1Cto\u001b[1Cconfirm\u001b[1C·\u001b[1CEsc\u001b[1Cto\u001b[1Ccancel\u001b[>0q\u001b[?u\u001b[m";
+    assert.deepEqual(preguntaDeConfianza(real), { marcadaSi: false }, "marcada en No (el ESC[>0q no cuenta como marca)");
+    const trasLaFlecha = `${real}\u001b[14;2H \u001b[1CNo, exit\u001b[38;2;177;185;249m\u001b[15;2H❯\u001b[1CYes, I trust this folder\u001b[m`;
+    assert.deepEqual(preguntaDeConfianza(trasLaFlecha), { marcadaSi: true });
+    assert.deepEqual(preguntaDeConfianza("Do you trust the files in this folder?\n❯ 1. Yes, proceed\n  2. No, exit"), { marcadaSi: true });
+    assert.equal(preguntaDeConfianza("\u001b[1mCloud session:\u001b[0m https://claude.ai/code/session_x"), null);
+    assert.equal(estaDentroDe(path.join(T, "trabajo", "wt", "abcd-nube"), path.join(T, "trabajo")), true);
+    assert.equal(estaDentroDe(path.join(T, "trabajo-otro"), path.join(T, "trabajo")), false);
+    assert.equal(estaDentroDe(AQUI, path.join(T, "trabajo")), false);
+  });
+
+  await prueba(`nube: la terminal real acepta sola "¿Confías en esta carpeta?" en un worktree del Coordinador y sigue hasta el link${saltada}`, async () => {
+    if (!hayPty) return;
+    despejar();
+    const registroConfianza = `${LOGS.claude}.confianza`;
+    fs.rmSync(registroConfianza, { force: true });
+    const titulo = "Worktree nuevo pide confianza [nube-confianza]";
+    const id = nueva(titulo, "PLAN_APROBADO", { plan: planDe("confianza", 9) });
+    const planificador = planificar(nubeConfig({ terminal: "pty" }));
+    await planificador.llenar();
+    await correrHasta(planificador, () => ["HECHO", "ERROR"].includes(tarjetas.get(id).estado), 180_000);
+    assert.equal(tarjetas.get(id).estado, "HECHO", tarjetas.get(id).resultado?.error?.motivo);
+    const [respuesta] = leerLog(registroConfianza);
+    assert.equal(respuesta?.confianza, true, "contestó Sí (no Enter a ciegas sobre No, exit)");
+    assert.ok(estaDentroDe(respuesta.cwd, path.join(T, "trabajo")), "en la carpeta de trabajo");
+    assert.ok(llamadas.some((l) => l.accion === "latido" && l.id === id && l.cuerpo.sesion === enlaceDe(titulo)), "dio el link después de la pregunta");
+    planificador.parar();
+    sinRestos();
+  });
+
+  await prueba(`nube: fuera de la carpeta de trabajo NO acepta la pregunta de confianza: falla enseguida y lo dice${saltada}`, async () => {
+    if (!hayPty) return;
+    const registroConfianza = `${LOGS.claude}.confianza`;
+    fs.rmSync(registroConfianza, { force: true });
+    const config = nubeConfig({ terminal: "pty", lanzarMinutos: 1 });
+    const inicio = Date.now();
+    await assert.rejects(lanzarEnNube({ config, registro: null, senal: null }, { cwd: AQUI, prompt: "Tarea: carpeta ajena [nube-confianza]\n\nsin rama", modelo: null }), /no está dentro de la carpeta de trabajo del Coordinador: no la acepto sola/);
+    assert.ok(Date.now() - inicio < 30_000, "no esperó el minuto entero");
+    assert.deepEqual(leerLog(registroConfianza), [], "no contestó nada");
+  });
+
   await prueba("nube: si la sesión nunca deja el commit 'resultado:', la tarjeta pasa a ERROR con el link de la sesión", async () => {
     despejar();
     const id = nueva("Se quedó pensando [nube-sin-resultado]", "PLAN_APROBADO", { plan: planDe("pensando", 9) });
@@ -1944,6 +2037,123 @@ try {
     assert.equal(t.estado, "ERROR");
     assert.match(t.resultado.error.motivo, /no dejó el commit "resultado:"/);
     assert.ok(t.resultado.error.motivo.includes(enlaceDe("Se quedó pensando [nube-sin-resultado]")));
+    planificador.parar();
+    sinRestos();
+  });
+
+  // CONFIAR EN LA NUBE (26-oct-2026, regla del dueño): con build=OK y tests=OK en la nube, aizen1 no compila ni prueba
+  // NADA. Los comandos pesados del repo (instalar, verificar, pruebas, lint, PGlite) dejan una marca si alguien los corre.
+  const MARCAS_PESADAS = path.join(T, "pesados.log");
+  // El lint tiene que contestar JSON (eslint --format json): la marca del lint imprime "[]".
+  const marcar = (que) => [node, "-e", `require("fs").appendFileSync(${JSON.stringify(MARCAS_PESADAS)}, ${JSON.stringify(`${que}\n`)});${que === "lint" ? 'console.log("[]")' : ""}`];
+  const pesadosCorridos = () => (fs.existsSync(MARCAS_PESADAS) ? fs.readFileSync(MARCAS_PESADAS, "utf8").split("\n").filter(Boolean) : []);
+  const configQueConfia = (nube = {}) =>
+    crearConfig(
+      { construirNubeMinutos: 2 },
+      { subirSolo: true, github: "prueba/repo", instalar: marcar("npm ci"), verificar: [marcar("tsc"), marcar("build")], pruebas: [marcar("tests")], lint: { comando: marcar("lint") }, ensayoPglite: marcar("pglite") },
+      { maxParalelo: 2, nube: { activa: true, maxTareas: 8, vigilarCadaSegundos: 0.3, esperaMinutos: 1, lanzarMinutos: 1, terminal: "sin-terminal", comandoGh: [node, falso("gh-falso.mjs")], ...nube } },
+    );
+  /** Una tarjeta SUBIENDO como la deja construir en la nube: rama tablero/… en GitHub (el remoto) con el código que verificó la nube. */
+  const subiendoDeLaNube = (titulo, nombre, { relativo = `src-${nombre}.txt`, texto = "lo que hizo la nube\n" } = {}) => {
+    g(REPO, "pull", "--quiet", "--ff-only", "origin", "main");
+    const base = g(REPO, "rev-parse", "HEAD");
+    const clon = path.join(T, `clon-${nombre}`);
+    fs.rmSync(clon, { recursive: true, force: true });
+    execFileSync("git", ["clone", "--quiet", REMOTO, clon], { stdio: "ignore" });
+    const rama = `tablero/${nombre}`;
+    g(clon, "checkout", "--quiet", "-b", rama, "origin/main");
+    fs.mkdirSync(path.dirname(path.join(clon, relativo)), { recursive: true });
+    fs.writeFileSync(path.join(clon, relativo), texto);
+    g(clon, "add", "-A");
+    g(clon, "commit", "--quiet", "-m", "cambios de la nube");
+    g(clon, "commit", "--quiet", "--allow-empty", "-m", "resultado: build=OK tests=OK segundos=42");
+    g(clon, "push", "--quiet", "origin", rama);
+    const commit = g(clon, "rev-parse", "HEAD");
+    fs.rmSync(clon, { recursive: true, force: true });
+    return nuevaModerna(titulo, "SUBIENDO", {
+      plan: planDe(nombre, 1),
+      resultado: { paso: true, rama, commit, base, subeSolo: true, construidoEn: "nube", linkSesion: "https://claude.ai/code/session_FALSA_subida" },
+    });
+  };
+  const cambiarMain = async (relativo, texto) => {
+    g(REPO, "pull", "--quiet", "--ff-only", "origin", "main");
+    archivo(relativo, texto);
+    g(REPO, "add", "-A");
+    g(REPO, "commit", "--quiet", "-m", `main cambia ${relativo}`);
+    g(REPO, "push", "--quiet", "origin", "main");
+    // Los git de arriba bloquean el proceso varios segundos: el CRM falso cierra sus conexiones viejas (keep-alive de
+    // 5 s) apenas se desbloquea; se le da un momento para que el primer pedido no caiga en una conexión que se cierra.
+    await new Promise((resolver) => setTimeout(resolver, 300));
+  };
+
+  await prueba("nube con build=OK y tests=OK: aizen1 no corre npm ci, tsc, build, pruebas, lint ni PGlite; solo revisa nombres y sube", async () => {
+    despejar();
+    fs.rmSync(MARCAS_PESADAS, { force: true });
+    const id = nueva("Grande que confía en la nube", "PLAN_APROBADO", { plan: planDe("confia", 9) });
+    const planificador = planificar(configQueConfia());
+    await planificador.llenar();
+    await correrHasta(planificador, () => ["HECHO", "ERROR"].includes(tarjetas.get(id).estado), 180_000);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "HECHO", t.resultado?.error?.motivo);
+    assert.equal(t.resultado.construidoEn, "nube");
+    assert.deepEqual(pesadosCorridos(), [], "aizen1 no compiló ni probó nada");
+    assert.match(t.resultado.pruebas, /build=OK y tests=OK en la nube sobre este mismo código/);
+    planificador.parar();
+    sinRestos();
+  });
+
+  await prueba("nube: con confiarEnResultado=false se vuelve a verificar en aizen1 (como antes)", async () => {
+    despejar();
+    fs.rmSync(MARCAS_PESADAS, { force: true });
+    const id = nueva("Grande que no confía", "PLAN_APROBADO", { plan: planDe("noconfia", 9) });
+    const planificador = planificar(configQueConfia({ confiarEnResultado: false }));
+    await planificador.llenar();
+    await correrHasta(planificador, () => ["HECHO", "ERROR"].includes(tarjetas.get(id).estado), 180_000);
+    assert.ok(["npm ci", "tsc", "build", "tests"].every((paso) => pesadosCorridos().includes(paso)), `corrió: ${pesadosCorridos().join(", ")}; ${tarjetas.get(id).estado}: ${tarjetas.get(id).resultado?.error?.motivo ?? ""}`);
+    planificador.parar();
+    despejar();
+    sinRestos();
+  });
+
+  await prueba("subir lo de la nube: si main cambió .md u OTROS archivos (no los de la tarea), sube sin compilar ni probar nada en aizen1", async () => {
+    despejar();
+    const id = subiendoDeLaNube("Sube tras cambios ajenos en main", "solo-md");
+    await cambiarMain("NOTAS-solo-md.md", "solo texto\n");
+    await cambiarMain("src/otra-cosa.ts", "export const x = 1;\n");
+    fs.rmSync(MARCAS_PESADAS, { force: true });
+    const planificador = planificar(configQueConfia());
+    await planificador.llenar();
+    await correrHasta(planificador, () => ["HECHO", "ERROR", "PLAN_APROBADO"].includes(tarjetas.get(id).estado), 120_000);
+    await planificador.esperarTodas();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "HECHO", t.resultado?.error?.motivo);
+    assert.deepEqual(pesadosCorridos(), [], "aizen1 no compiló ni probó nada");
+    assert.match(g(REPO, "log", "--format=%s", "origin/main"), /cambios de la nube/);
+    planificador.parar();
+    sinRestos();
+  });
+
+  await prueba("subir lo de la nube: si main cambió un archivo que la tarea también cambia, NO sube ni compila: vuelve a verificarse en la NUBE", async () => {
+    despejar();
+    const desde = leerLog(LOGS.claude).length;
+    // Un archivo de 9 líneas: la nube cambia la primera y main la última (el rebase no choca, pero la mezcla no se probó).
+    const lineas = Array.from({ length: 9 }, (_, i) => `linea ${i + 1}`);
+    await cambiarMain("src/compartido.ts", `${lineas.join("\n")}\n`);
+    const id = subiendoDeLaNube("Sube tras cambio de código [mod:otra-vez]", "codigo-nuevo", { relativo: "src/compartido.ts", texto: `${["LINEA 1 DE LA NUBE", ...lineas.slice(1)].join("\n")}\n` });
+    await cambiarMain("src/compartido.ts", `${[...lineas.slice(0, 8), "LINEA 9 DE MAIN"].join("\n")}\n`);
+    fs.rmSync(MARCAS_PESADAS, { force: true });
+    const planificador = planificar(configQueConfia());
+    await planificador.llenar();
+    await correrHasta(planificador, () => tarjetas.get(id).estado === "HECHO" || tarjetas.get(id).estado === "ERROR", 180_000);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "HECHO", t.resultado?.error?.motivo);
+    const reparacion = (t.intentosLista ?? []).find((intento) => intento.accion === "reparar");
+    assert.ok(reparacion, "se mandó a reparar (no ERROR)");
+    assert.match(reparacion.causa ?? "", /\[estrategia: nube\]$/);
+    assert.match(reparacion.error ?? "", /cambió archivos que la tarea también cambia y la nube no verificó juntos \(src\/compartido\.ts\)/);
+    assert.equal(llamadasALaNube(desde).length, 1, "se volvió a construir y verificar en la nube (es chica: sin la estrategia iría a aizen1)");
+    assert.equal(t.resultado.construidoEn, "nube");
+    assert.deepEqual(pesadosCorridos(), [], "aizen1 nunca compiló ni probó");
     planificador.parar();
     sinRestos();
   });
