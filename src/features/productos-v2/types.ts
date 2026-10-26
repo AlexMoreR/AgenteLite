@@ -49,6 +49,8 @@ export type ProductoV2Item = {
     larga: number;
     total: number;
   } | null;
+  /** La version vigente del embudo (Embudo 3). Null si todavia no tiene ninguna. */
+  versionDelEmbudo: { numero: number; fecha: string } | null;
   /** Lo que la IA leyo en las conversaciones de este producto. */
   insights: {
     leidas: number;

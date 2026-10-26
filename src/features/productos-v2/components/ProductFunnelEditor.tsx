@@ -62,6 +62,7 @@ export function ProductFunnelEditor({
   stages,
   vienenDelAgente,
   avance,
+  versionDelEmbudo = null,
 }: {
   productId: string;
   /** Los flujos que un seguimiento puede mandar en vez de un texto. */
@@ -89,6 +90,8 @@ export function ProductFunnelEditor({
     larga: number;
     total: number;
   } | null;
+  /** La version vigente del embudo (Embudo 3), para mostrarla arriba del boton de guardar. */
+  versionDelEmbudo?: { numero: number; fecha: string } | null;
 }) {
   const router = useRouter();
   /** Lista para editar, diagrama para mirar. Arranca en lista: es donde se trabaja. */
@@ -118,6 +121,8 @@ export function ProductFunnelEditor({
   } | null>(null);
   const [guardado, setGuardado] = useState(() => JSON.stringify(etapas));
   const [ocupado, setOcupado] = useState(false);
+  /** Nota corta del cambio: queda escrita en la version nueva del embudo. */
+  const [nota, setNota] = useState("");
   const [etapaAbierta, setEtapaAbierta] = useState<{
     etiqueta: string;
     criterio: string;
@@ -232,6 +237,7 @@ export function ProductFunnelEditor({
     try {
       const result = await saveProductFunnelAction({
         productId,
+        nota: nota.trim() || undefined,
         stages: etapas.map((etapa) => ({
           ...etapa,
           // El valor se escribe como texto (un input vacio no es un 0) y se manda como numero.
@@ -249,6 +255,7 @@ export function ProductFunnelEditor({
         return;
       }
       setGuardado(JSON.stringify(etapas));
+      setNota("");
       toast.success("Embudo guardado");
       router.refresh();
     } catch {
@@ -461,6 +468,23 @@ export function ProductFunnelEditor({
             );
           })}
         </Accordion>
+
+        {/* Embudo 3: cada guardado con cambios crea una version nueva; la nota es opcional. */}
+        <div className="space-y-1">
+          <Label className="text-xs">Nota del cambio (opcional)</Label>
+          <Input
+            value={nota}
+            maxLength={300}
+            onChange={(event) => setNota(event.target.value)}
+            placeholder="Ej.: bienvenida más corta"
+          />
+          {versionDelEmbudo ? (
+            <p className="text-[11px] text-muted-foreground">
+              Versión vigente: V{versionDelEmbudo.numero} (
+              {new Date(versionDelEmbudo.fecha).toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" })})
+            </p>
+          ) : null}
+        </div>
 
         <div className="flex items-center gap-3">
           <Button type="button" size="sm" onClick={() => void guardar()} disabled={ocupado}>

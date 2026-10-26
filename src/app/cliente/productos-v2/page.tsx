@@ -92,6 +92,18 @@ export default async function ClienteProductoV2Page() {
     .catch(() => []);
   const playbookByProductId = new Map(playbookRows.map((row) => [row.productId, row] as const));
 
+  // Embudo 3: la versión vigente de cada producto (la más nueva). Si la tabla todavía no existe
+  // o falla, la pantalla se ve igual, sin la línea de versión.
+  const versionesRows = await prisma.embudoVersion
+    .findMany({
+      where: { workspaceId: access.workspaceId },
+      orderBy: { numero: "desc" },
+      distinct: ["productId"],
+      select: { productId: true, numero: true, creadoEn: true },
+    })
+    .catch(() => []);
+  const versionPorProducto = new Map(versionesRows.map((row) => [row.productId, row] as const));
+
   // Por producto: su regla de reconocimiento, hasta donde llegan sus leads y que leyo la IA.
   const avancePorProducto = new Map<string, Awaited<ReturnType<typeof getProductLeadProgress>>>();
   const insightsPorProducto = new Map<string, Awaited<ReturnType<typeof getProductInsights>>>();
@@ -188,6 +200,12 @@ export default async function ClienteProductoV2Page() {
       funnelStages: tieneEmbudoPropio ? etapasGuardadas : embudoDelAgente,
       funnelFromAgent: !tieneEmbudoPropio && embudoDelAgente.length > 0,
       leadProgress: avancePorProducto.get(product.id) ?? null,
+      versionDelEmbudo: versionPorProducto.has(product.id)
+        ? {
+            numero: versionPorProducto.get(product.id)!.numero,
+            fecha: versionPorProducto.get(product.id)!.creadoEn.toISOString(),
+          }
+        : null,
       insights: insightsPorProducto.get(product.id) ?? null,
       playbookRules: (playbook?.rules ?? []).map((rule) => ({
         id: rule.id,

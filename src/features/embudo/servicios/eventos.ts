@@ -15,6 +15,7 @@ import {
   type TrazaDelTurno,
 } from "../dominio/eventos";
 import { claveDeProductoDelV3, embudoActivo, leerConfigEmbudo } from "./config";
+import { marcarVersionDelChat } from "./versiones";
 
 /**
  * EL REGISTRO DEL EMBUDO (F1: medir sin cambiar nada).
@@ -208,6 +209,9 @@ export async function registrarEventos(base: BaseDelEvento, eventos: EventoDelEm
     const paraLaFoto = nuevos.filter((evento) => !SOLO_REGISTRO.has(evento.tipo));
     if (paraLaFoto.length) {
       await actualizarLead(contexto, paraLaFoto);
+      // Embudo 3: el chat se queda con la versión del embudo que regía cuando tuvo producto.
+      // Nunca lanza y no cambia nada de lo que ya se registra.
+      await marcarVersionDelChat({ workspaceId: base.workspaceId, conversationId: base.conversationId });
     }
     return nuevos.length;
   } catch (error) {

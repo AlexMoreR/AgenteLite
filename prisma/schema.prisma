@@ -370,6 +370,7 @@ model Product {
   workspace          Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   agentKnowledge     AgentKnowledgeProduct[]
   playbooks          ProductPlaybook[]
+  embudoVersiones    EmbudoVersion[]
   specs              ProductSpec[]
   category           Category?               @relation(fields: [categoryId], references: [id])
   images             ProductImage[]
@@ -2343,4 +2344,47 @@ model AgenteDeAreaEnvio {
   creadoEn    DateTime @default(now())
 
   @@index([workspaceId, area, fecha])
+}
+
+/// EMBUDO 3: una foto completa del embudo de un producto en un momento dado (bienvenida, guion y
+/// seguimientos de cada paso, y los pasos quitados). Una fila por cambio; la V1 es el embudo
+/// inicial. Solo se registra: el bot sigue leyendo el embudo de ProductFunnelStage.
+model EmbudoVersion {
+  id          String              @id @default(cuid())
+  workspaceId String
+  productId   String
+  /// 1, 2, 3... por producto. Dos guardados a la vez no pueden repetir número (índice único).
+  numero      Int
+  nota        String?
+  quienId     String?
+  quienNombre String?
+  /// "inicial" | "pantalla" | "mcp" | "deshacer".
+  origen      String
+  /// Hash del contenido: si no cambió, no se crea otra versión.
+  huella      String
+  contenido   Json
+  creadoEn    DateTime            @default(now())
+  product     Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  chats       EmbudoChatVersion[]
+
+  @@unique([productId, numero])
+  @@index([workspaceId, creadoEn])
+}
+
+/// EMBUDO 3: con qué versión del embudo entró cada chat. Una fila por conversación; se guarda una
+/// sola vez y no cambia aunque el embudo cambie después. `asignadaPor` deja a Embudo 5 (prueba A/B)
+/// marcar "ab" cuando la versión se elija al azar.
+model EmbudoChatVersion {
+  conversationId String        @id
+  workspaceId    String
+  productId      String
+  versionId      String
+  numero         Int
+  /// "vigente" (la que regía al entrar) | "ab" (elegida al azar por una prueba A/B).
+  asignadaPor    String        @default("vigente")
+  creadoEn       DateTime      @default(now())
+  version        EmbudoVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+  @@index([workspaceId, productId, creadoEn])
 }

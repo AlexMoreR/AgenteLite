@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { asegurarVersionInicial, registrarVersionDelEmbudo } from "@/features/embudo/servicios/versiones";
 
 /*
   El historial de lo que Claude cambió, con su vuelta atrás.
@@ -104,10 +105,25 @@ export async function deshacerCambioMcp(
     };
   }
 
+  // Embudo 3: deshacer un cambio del embudo tambien deja su version. La V1 se asegura ANTES de
+  // volver atras, para que guarde lo que habia antes.
+  const productoId = await productoDelEmbudoDelCambio(cambio);
+  if (productoId) await asegurarVersionInicial(workspaceId, productoId);
+
   try {
     await revertir(workspaceId, cambio);
   } catch (fallo) {
     return { ok: false, error: fallo instanceof Error ? fallo.message : "No se pudo deshacer" };
+  }
+
+  if (productoId) {
+    // No lanza: si falla, lo deshecho ya quedo deshecho.
+    await registrarVersionDelEmbudo({
+      workspaceId,
+      productId: productoId,
+      origen: "deshacer",
+      nota: `Se deshizo: ${cambio.titulo}`,
+    });
   }
 
   await guardarLista(
@@ -115,6 +131,28 @@ export async function deshacerCambioMcp(
     lista.map((fila) => (fila.id === cambio.id ? { ...fila, deshecho: true } : fila)),
   );
   return { ok: true, titulo: cambio.titulo, agenteId: cambio.agenteId };
+}
+
+/** El producto del embudo que toca un cambio (null si el cambio no es de un embudo). Nunca lanza. */
+async function productoDelEmbudoDelCambio(cambio: CambioDelMcp): Promise<string | null> {
+  try {
+    let etapaId: string | null = null;
+    if (cambio.tabla === "ProductFunnelStage") {
+      etapaId = cambio.filaId;
+    } else if (cambio.tabla === "ProductStageFollowUp") {
+      const fila = await prisma.productStageFollowUp.findUnique({ where: { id: cambio.filaId }, select: { stageId: true } });
+      // Un seguimiento borrado ya no esta: su fila entera quedo guardada en `antes`.
+      etapaId = fila?.stageId ?? (typeof cambio.antes.stageId === "string" ? cambio.antes.stageId : null);
+    }
+    if (!etapaId) return null;
+    const etapa = await prisma.productFunnelStage.findUnique({
+      where: { id: etapaId },
+      select: { playbook: { select: { productId: true } } },
+    });
+    return etapa?.playbook.productId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function revertir(workspaceId: string, cambio: CambioDelMcp) {

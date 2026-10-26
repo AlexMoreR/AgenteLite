@@ -7,6 +7,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { slugifyProductSegment } from "@/lib/product-slugs";
 import { guardarEtapasQuitadas, leerEtapasQuitadas } from "@/lib/etapas-quitadas";
+import { asegurarVersionInicial, registrarVersionDelEmbudo } from "@/features/embudo/servicios/versiones";
 import {
   isPlaybookRuleKind,
   PRODUCT_FUNNEL_STAGES,
@@ -118,6 +119,8 @@ export async function saveProductFunnelAction(input: {
     avisa. Ahora que Claude tambien escribe por el MCP, esto va a pasar seguido.
   */
   cargadoEl?: string;
+  /** Nota corta del cambio para su versión del embudo (Embudo 3). Opcional. */
+  nota?: string;
   stages: Array<{
     stage: string;
     goal: string;
@@ -147,6 +150,7 @@ export async function saveProductFunnelAction(input: {
   if (!producto) {
     return { error: "Producto no encontrado" };
   }
+  const session = await auth();
 
   const conocidas = new Map(PRODUCT_FUNNEL_STAGES.map((etapa, indice) => [etapa.stage as string, indice]));
   const playbookId = await ensurePlaybook(workspaceId, productId);
@@ -170,6 +174,9 @@ export async function saveProductFunnelAction(input: {
       };
     }
   }
+
+  // Embudo 3: la V1 guarda el embudo tal como estaba ANTES de este cambio. No lanza.
+  await asegurarVersionInicial(workspaceId, productId);
 
   /*
     Quitar una etapa borra su fila, y ademas queda anotada.
@@ -253,6 +260,21 @@ export async function saveProductFunnelAction(input: {
         })),
       });
     }
+  }
+
+  // Embudo 3: la versión nueva se crea DESPUES de guardar y protegida: si falla, el embudo ya
+  // quedo guardado y solo se anota en el log.
+  try {
+    await registrarVersionDelEmbudo({
+      workspaceId,
+      productId,
+      origen: "pantalla",
+      nota: input.nota,
+      quienId: session?.user?.id ?? null,
+      quienNombre: session?.user?.name ?? null,
+    });
+  } catch (error) {
+    console.warn("[embudo-versiones] no se pudo crear la versión", error);
   }
 
   revalidatePath("/cliente/productos-v2");
