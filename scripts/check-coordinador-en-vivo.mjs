@@ -26,6 +26,7 @@ const prismaFalso = {
     upsert: async ({ where, create, update }) => {
       estado.ajustes.set(where.key, estado.ajustes.has(where.key) ? update.value : create.value);
     },
+    findUnique: async ({ where }) => (estado.ajustes.has(where.key) ? { value: estado.ajustes.get(where.key) } : null),
     findMany: async ({ where }) =>
       [...estado.ajustes.entries()].filter(([key]) => key.startsWith(where.key.startsWith)).map(([key, value]) => ({ key, value })),
   },
@@ -100,6 +101,7 @@ const mocks = {
 
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas-coordinador-en-vivo.ts", mocks);
 const servicio = cargar("src/features/tableros-inteligentes/services/coordinador-en-vivo.ts", mocks);
+const pausaServicio = cargar("src/features/tableros-inteligentes/services/pausa-por-uso-de-claude.ts", mocks);
 const rutaLatido = cargar("src/app/api/trabajador/latido/route.ts", mocks);
 
 let pruebas = 0;
@@ -277,7 +279,8 @@ await prueba("la vista junta el latido con las tarjetas en marcha: lugar, modelo
   const texto = servicio.textoDelCoordinador(vista);
   assert.match(texto, /Coordinador en línea/);
   assert.match(texto, /«Panel en vivo»: probando en GitHub Actions con Sonnet/);
-  assert.match(texto, /Uso de Claude: Sin límite/);
+  assert.match(texto, /Uso de Claude: sin dato/);
+  assert.match(texto, /Límite de uso: Sin límite/);
 });
 
 await prueba("sin latido (o con uno viejo) el panel dice apagado, pero las tarjetas se siguen viendo", async () => {
@@ -395,6 +398,77 @@ await prueba("hoy: cuenta terminadas, falladas y reparadas, con cuánto tomó ca
   assert.equal(porId.c.duracionMinutos, 90);
   assert.ok(!porId.d);
   assert.deepEqual(hoy.trabajos.map((t) => t.tarjetaId), ["c", "b", "a"], "lo más nuevo primero");
+});
+
+/* ------------------------------------------------------------------ pausa por uso de Claude (26-oct-2026) */
+
+const reinicioDePausa = "2026-10-26T20:20:00.000Z"; // lun 26 oct, 3:20 p. m. en Bogotá
+const pausaDelLatido = (cambios = {}) => ({
+  activa: true,
+  umbral: 80,
+  sesion: { porcentaje: 42, reinicio: "Oct 26, 3:20pm (America/Bogota)" },
+  semana: { porcentaje: 63.4, reinicio: "Oct 30, 7am (America/Bogota)" },
+  leidoEn: AHORA.toISOString(),
+  pausado: false,
+  reiniciaEn: null,
+  sinLeerDesde: null,
+  ...cambios,
+});
+
+await prueba("pausa por uso: el latido la trae recortada y validada; uno viejo (sin pausaUso) da null", () => {
+  const latido = reglas.latidoDeEntrada({ pausaUso: { ...pausaDelLatido(), umbral: 10, sesion: { porcentaje: 250, reinicio: "x".repeat(300) }, semana: "no", reiniciaEn: "no es fecha" } }, AHORA);
+  assert.equal(latido.pausaUso.umbral, 80, "un umbral fuera de 50 a 95 cae en 80");
+  assert.equal(latido.pausaUso.sesion.porcentaje, 100);
+  assert.ok(latido.pausaUso.sesion.reinicio.length <= 80);
+  assert.equal(latido.pausaUso.semana, null);
+  assert.equal(latido.pausaUso.reiniciaEn, null);
+  assert.equal(reglas.latidoDeEntrada({ tareas: [] }, AHORA).pausaUso, null);
+});
+
+await prueba("pausa por uso: el umbral va de 50 a 95 y el ajuste dañado vuelve a prendida al 80 %", () => {
+  assert.deepEqual([49, 50, 80, 95, 96, "70", "abc", null].map(reglas.umbralDePausaValido), [null, 50, 80, 95, null, 70, null, null]);
+  assert.deepEqual(reglas.ajusteDePausaUsoDeValor(undefined), { activa: true, umbral: 80 });
+  assert.deepEqual(reglas.ajusteDePausaUsoDeValor("{no es json"), { activa: true, umbral: 80 });
+  assert.deepEqual(reglas.ajusteDePausaUsoDeValor(JSON.stringify({ activa: false, umbral: 60 })), { activa: false, umbral: 60 });
+  assert.deepEqual(reglas.ajusteDePausaUsoDeValor(JSON.stringify({ umbral: 20 })), { activa: true, umbral: 80 });
+});
+
+await prueba("pausa por uso: el texto del panel (normal, pausado, sin poder leer, apagado)", () => {
+  const prendida = { activa: true, umbral: 80 };
+  assert.deepEqual(reglas.textoDelUsoDeClaude(pausaDelLatido(), prendida), { estado: "normal", texto: "Uso de Claude: sesión 42 % · semana 63 %" });
+  const pausado = reglas.textoDelUsoDeClaude(pausaDelLatido({ pausado: true, reiniciaEn: reinicioDePausa, sesion: { porcentaje: 82, reinicio: "x" } }), prendida);
+  assert.equal(pausado.estado, "pausado");
+  assert.match(pausado.texto, /^Pausado por uso de Claude hasta lun 26 (de )?oct,? 3:20 p\. m\. \(sesión 82 % · semana 63 %\)$/);
+  const sinLeer = reglas.textoDelUsoDeClaude(pausaDelLatido({ sinLeerDesde: reinicioDePausa }), prendida);
+  assert.equal(sinLeer.estado, "sin_lectura");
+  assert.equal(sinLeer.texto, "No pude leer el uso de Claude desde las 3:20 p. m.");
+  const apagado = reglas.textoDelUsoDeClaude(pausaDelLatido({ pausado: true }), { activa: false, umbral: 80 });
+  assert.equal(apagado.estado, "apagado", "con el interruptor apagado ya no dice pausado");
+  assert.match(apagado.texto, /la pausa está apagada/);
+  assert.equal(reglas.textoDelUsoDeClaude(null, prendida).estado, "sin_dato");
+});
+
+await prueba("pausa por uso: la respuesta del latido devuelve el interruptor; la vista lo muestra y cambiarlo se guarda", async () => {
+  estado.ajustes.clear();
+  const sinFila = await servicio.guardarLatido(contexto, { pausaUso: pausaDelLatido() }, AHORA);
+  assert.deepEqual(sinFila.pausaUso, { activa: true, umbral: 80 }, "sin fila: prendida al 80 %");
+  const nuevo = await pausaServicio.guardarPausaPorUso("ws1", { umbral: 60 });
+  assert.deepEqual(nuevo, { activa: true, umbral: 60 });
+  await assert.rejects(() => pausaServicio.guardarPausaPorUso("ws1", { umbral: 99 }), /entre 50 y 95/);
+  await assert.rejects(() => pausaServicio.guardarPausaPorUso("ws1", { umbral: 40 }), /entre 50 y 95/);
+  assert.deepEqual(await pausaServicio.guardarPausaPorUso("ws1", { activa: false }), { activa: false, umbral: 60 }, "lo que no se manda queda como estaba");
+  assert.deepEqual((await servicio.guardarLatido(contexto, { pausaUso: pausaDelLatido() }, AHORA)).pausaUso, { activa: false, umbral: 60 });
+  const vista = await servicio.vistaDelCoordinador("ws1", AHORA);
+  assert.equal(vista.usoDeClaude.activa, false);
+  assert.equal(vista.usoDeClaude.umbral, 60);
+  assert.equal(vista.usoDeClaude.estado, "apagado");
+  await pausaServicio.guardarPausaPorUso("ws1", { activa: true, umbral: 80 });
+  await servicio.guardarLatido(contexto, { pausaUso: pausaDelLatido({ pausado: true, reiniciaEn: reinicioDePausa }) }, AHORA);
+  const pausada = await servicio.vistaDelCoordinador("ws1", AHORA);
+  assert.equal(pausada.usoDeClaude.estado, "pausado");
+  assert.match(pausada.usoDeClaude.texto, /^Pausado por uso de Claude hasta /);
+  assert.match(servicio.textoDelCoordinador(pausada), /Pausado por uso de Claude hasta .*\(la pausa se activa al 80 %\)/, "la voz y el MCP también lo dicen");
+  estado.ajustes.clear();
 });
 
 /* ------------------------------------------------------------------ la ruta */

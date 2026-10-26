@@ -27,7 +27,7 @@ import { MAX_LECCIONES, agenteDelRepo, anotarLeccion, leccionDe, leccionesParaEl
 import { crearCrm } from "../lib/crm.mjs";
 import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstadoDelManual } from "../lib/manual-nocturno.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
-import { esRamaDelTrabajador, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
+import { esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
 import { decidir, diagnosticar, resumenDeEscalada } from "../lib/diagnostico.mjs";
 import { esLimiteDeUso, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
 import { MAX_DESCRIPCION, descripcionParaLaNube, esTareaGrande, estaDentroDe, lanzarEnNube, linkDeSesion, preguntaDeConfianza, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
@@ -653,7 +653,7 @@ await prueba("motores: por defecto todo Claude (Opus planea, Sonnet construye y 
   assert.deepEqual(config.comandoCodex, ["codex"]);
   assert.equal(config.pausaLimiteCodexMinutos, 30);
   assert.equal(config.umbralClaude, 80);
-  assert.equal(config.vigilarUsoMinutos, 10);
+  assert.equal(config.vigilarUsoMinutos, 5);
   assert.equal(completarConfig({ ...base, motores: { revisar: "ninguno" } }).motores.revisar, null);
   assert.throws(() => completarConfig({ ...base, motores: { construir: "gpt" } }), /motores\.construir/);
   assert.throws(() => completarConfig({ ...base, motores: { respaldoClaude: "si" } }), /respaldoClaude/);
@@ -2187,7 +2187,8 @@ try {
     const antes = avisos().length;
     const id = nueva("Plan con Claude alto", "APROBADO");
     // vigilarUsoMinutos chiquito: mira en cada llenar.
-    const planificador = planificar({ ...conCodex({ respaldoCodex: true }, { vigilarUsoMinutos: 0.0001 }), maxParalelo: 1 });
+    // (pausaUso apagada: aquí se prueba el paso a Codex; la pausa por uso tiene sus propias pruebas más abajo)
+    const planificador = planificar({ ...conCodex({ respaldoCodex: true }, { vigilarUsoMinutos: 0.0001, pausaUso: { activa: false } }), maxParalelo: 1 });
     const claudeAntes = leerLog(LOGS.claude).filter((l) => !l.argumentos.includes("/usage")).length;
     await planificador.llenar();
     await planificador.esperarTodas();
@@ -2243,6 +2244,161 @@ try {
     assert.equal(avisos().length, antes + 3, "y no se repite");
     otro.parar();
     tarjetas.get(id).estado = "HECHO";
+  });
+
+  /* ── Pausa por uso de Claude (26-oct-2026): al llegar al umbral se detiene todo, con orden ── */
+
+  const pausaConfig = (extra = {}) =>
+    crearConfig({ construirMinutos: 1 }, { subirSolo: true }, { maxParalelo: 2, vigilarUsoMinutos: 0.0001, pausaUso: { vigilarCercaMinutos: 0.0001 }, ...extra });
+  const usoAl = (sesion) => fs.writeFileSync(USO, `Current session: ${sesion}% used · resets Oct 26, 3:20pm (America/Bogota)\nCurrent week (all models): 6% used · resets Oct 30, 7am (America/Bogota)\n`);
+  const avisosDeLimite = () => llamadas.filter((l) => l.accion === "aviso" && l.cuerpo.tipo === "limite");
+  const tomadas = () => llamadas.filter((l) => l.accion === "tomar").length;
+  /** Vueltas del bucle (llenar + esperar) hasta que se cumpla `listo`. No espera a las sesiones que corren. */
+  async function vueltasHasta(planificador, listo, ms = 40_000) {
+    const limite = Date.now() + ms;
+    while (!listo()) {
+      if (Date.now() > limite) throw new Error(`no se cumplió a tiempo; corriendo: ${JSON.stringify(planificador.estado().tareas.map((t) => [t.titulo, t.etapa]))}; llamadas: ${llamadas.slice(-6).map((l) => l.accion).join(",")}`);
+      await planificador.llenar();
+      await planificador.esperar(200);
+    }
+  }
+  const despejarFila = () => {
+    for (const t of tarjetas.values()) if (!["HECHO", "ERROR", "POR_REVISAR", "PLAN_LISTO"].includes(t.estado)) t.estado = "HECHO";
+    reiniciarALaVez();
+  };
+  const dormirUnPoco = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
+
+  await prueba("pausa por uso: al 79 % sigue, al 80 % y al 100 % para todo (un solo WhatsApp, avance guardado, sin ERROR ni intento) y al reiniciarse retoma primero lo detenido", async () => {
+    despejarFila();
+    for (const t of tarjetas.values()) if (t.estado === "PLAN_LISTO" || t.estado === "POR_REVISAR") t.estado = "HECHO";
+    fs.rmSync(path.join(T, "trabajo", "estado-uso.json"), { force: true });
+    const config = pausaConfig();
+    const planeando = nuevaModerna("Plan lento de la pausa [lento]", "APROBADO", { plan: null });
+    const construyendo = nuevaModerna("Construye grande de la pausa [muchos-archivos]", "PLAN_APROBADO", { plan: "PLAN\n5. Archivos: src/pausa/uno.ts" });
+    const antesDeAvisos = avisosDeLimite().length;
+
+    // 79 %: trabaja con normalidad y no sale ningún WhatsApp; el panel dice 79 %.
+    usoAl(79);
+    const planificador = planificar(config);
+    await vueltasHasta(planificador, () => planificador.estado().tareas.length === 2);
+    assert.equal(planificador.estado().pausaUso.pausado, false);
+    assert.equal(planificador.estado().pausaUso.sesion.porcentaje, 79);
+    assert.equal(avisosDeLimite().length, antesDeAvisos, "al 79 % no hay aviso");
+    await vueltasHasta(planificador, () => leerLog(LOGS.claude).some((l) => l.titulo === "Construye grande de la pausa [muchos-archivos]" && l.modo === "acceptEdits"));
+    await dormirUnPoco(2500); // que la sesión alcance a escribir sus archivos antes de cortarla
+
+    // 80 %: las dos se detienen con orden y vuelven a la fila.
+    usoAl(80);
+    await vueltasHasta(planificador, () => planificador.estado().tareas.length === 0);
+    for (const id of [planeando, construyendo]) {
+      const t = tarjetas.get(id);
+      assert.ok(!llamadas.some((l) => l.accion === "error" && l.id === id), "sin ERROR");
+      assert.equal(t.intentos, 0, "no gastó el intento");
+      assert.equal(t.reparaciones ?? 0, 0);
+      assert.match(t.soltada, /Pausado por uso de Claude/);
+      assert.deepEqual([t.intentosLista.at(-1).categoria, t.intentosLista.at(-1).accion, t.intentosLista.at(-1).cuentaComoIntento], ["limite_claude", "esperar", false]);
+    }
+    assert.equal(tarjetas.get(planeando).estado, "APROBADO");
+    assert.equal(tarjetas.get(construyendo).estado, "PLAN_APROBADO");
+    assert.match(tarjetas.get(construyendo).soltada, /queda guardado/);
+    const patch = path.join(T, "trabajo", "intentos", idCorto(construyendo), "trabajo.patch");
+    assert.ok(fs.existsSync(patch), "quedó el archivo de avance de la que construía");
+    assert.match(fs.readFileSync(patch, "utf8"), /src\/grande\/parte-1\.ts/);
+    assert.equal(planificador.estado().pausaUso.pausado, true, "el panel dice pausado");
+    assert.equal(avisosDeLimite().length, antesDeAvisos + 1, "un solo WhatsApp");
+    const aviso = avisosDeLimite().at(-1).cuerpo.texto;
+    assert.match(aviso, /^⛔ Se paró todo: el uso de Claude llegó al 80 %\.\nSe reanuda el .*3:20 p\. m\.\.\nVer: /);
+    assert.ok(aviso.split("\n").length <= 3, "máximo 3 líneas");
+    sinRestos();
+
+    // Varias vueltas más (y al 100 %): no toma ninguna tarjeta y no repite el aviso.
+    const tomasAntes = tomadas();
+    usoAl(100);
+    for (let i = 0; i < 4; i += 1) {
+      await planificador.llenar();
+      await dormirUnPoco(20);
+    }
+    assert.equal(tomadas(), tomasAntes, "en pausa no toma tarjetas nuevas");
+    assert.equal(avisosDeLimite().length, antesDeAvisos + 1, "al 100 % sigue habiendo un solo aviso");
+    planificador.parar();
+
+    // El Coordinador se reinicia en plena pausa: sigue pausado y no repite el WhatsApp.
+    const reiniciado = planificar(config);
+    await reiniciado.llenar();
+    await reiniciado.llenar();
+    assert.equal(reiniciado.estado().pausaUso.pausado, true);
+    assert.equal(tomadas(), tomasAntes);
+    assert.equal(avisosDeLimite().length, antesDeAvisos + 1, "reiniciado no repite el WhatsApp");
+
+    // Reinicio del uso: baja al 5 %, sale de la pausa, retoma (el avance se reaplica y el agente lo sabe) y avisa en una línea.
+    usoAl(5);
+    await vueltasHasta(reiniciado, () => reiniciado.estado().tareas.length === 2);
+    assert.equal(reiniciado.estado().pausaUso.pausado, false);
+    assert.equal(avisosDeLimite().length, antesDeAvisos + 2, "un aviso más: volvió");
+    const volvio = avisosDeLimite().at(-1).cuerpo.texto;
+    assert.match(volvio, /Volvió a trabajar: el uso de Claude se reinició\./);
+    assert.equal(volvio.split("\n").length, 1, "una línea");
+    await vueltasHasta(reiniciado, () => leerLog(LOGS.claude).filter((l) => l.titulo === "Construye grande de la pausa [muchos-archivos]" && l.modo === "acceptEdits").length >= 2);
+    const retomada = leerLog(LOGS.claude).filter((l) => l.titulo === "Construye grande de la pausa [muchos-archivos]" && l.modo === "acceptEdits").at(-1);
+    assert.match(retomada.prompt, /RETOMADA: .*YA está aplicado/s, "el agente recibe el avance guardado en sus instrucciones");
+    for (const id of [planeando, construyendo]) latidoVencido.add(id);
+    await reiniciado.esperarTodas();
+    for (const id of [planeando, construyendo]) latidoVencido.delete(id);
+    soltarTodas(planeando, construyendo);
+    reiniciado.parar();
+    despejarFila();
+  });
+
+  await prueba("pausa por uso: apagada no pausa ni al 100 % y apagarla en plena pausa la levanta; con el umbral en 60 % pausa al 60 %", async () => {
+    despejarFila();
+    fs.rmSync(path.join(T, "trabajo", "estado-uso.json"), { force: true });
+    const config = pausaConfig();
+    const id = nuevaModerna("Construye con el interruptor [muchos-archivos]", "PLAN_APROBADO", { plan: "PLAN\n5. Archivos: src/interruptor/uno.ts" });
+    usoAl(100);
+    const planificador = planificar(config);
+    planificador.ajustarPausaUso({ activa: false, umbral: 80 }); // lo que el CRM devuelve en el latido
+    await vueltasHasta(planificador, () => planificador.estado().tareas.length === 1);
+    assert.equal(planificador.estado().pausaUso.pausado, false, "apagada: ni al 100 % pausa");
+    assert.equal(planificador.estado().pausaUso.activa, false);
+    // Con el umbral en 60 % y el interruptor prendido, el 100 % pausa y detiene la tarjeta.
+    await dormirUnPoco(1500);
+    planificador.ajustarPausaUso({ activa: true, umbral: 60 });
+    await vueltasHasta(planificador, () => planificador.estado().tareas.length === 0);
+    assert.equal(planificador.estado().pausaUso.pausado, true);
+    assert.equal(planificador.estado().pausaUso.umbral, 60);
+    assert.equal(tarjetas.get(id).estado, "PLAN_APROBADO");
+    // Apagarla en plena pausa la levanta: vuelve a tomar la tarjeta sin que baje el uso y sin avisar "volvió".
+    const avisosAntes = avisosDeLimite().length;
+    planificador.ajustarPausaUso({ activa: false, umbral: 60 });
+    await vueltasHasta(planificador, () => planificador.estado().tareas.length === 1);
+    assert.equal(planificador.estado().pausaUso.pausado, false);
+    assert.equal(avisosDeLimite().length, avisosAntes, "el dueño la apagó: no se manda 'volvió a trabajar'");
+    latidoVencido.add(id);
+    await planificador.esperarTodas();
+    latidoVencido.delete(id);
+    soltarTodas(id);
+    planificador.parar();
+    usoAl(5);
+    despejarFila();
+  });
+
+  await prueba("pausa por uso: si no se puede leer el uso (3 veces seguidas) no se pausa, el panel lo dice y sale UN solo aviso", async () => {
+    despejarFila();
+    fs.rmSync(path.join(T, "trabajo", "estado-uso.json"), { force: true });
+    fs.rmSync(USO, { force: true }); // `claude -p /usage` contesta algo ilegible
+    const antes = avisosDeLimite().length;
+    const planificador = planificar(pausaConfig());
+    for (let i = 0; i < 6; i += 1) {
+      await planificador.llenar();
+      await dormirUnPoco(20);
+    }
+    const estado = planificador.estado().pausaUso;
+    assert.equal(estado.pausado, false, "sin número no se pausa");
+    assert.ok(estado.sinLeerDesde, "el panel dice desde cuándo no puede leer");
+    assert.equal(avisosDeLimite().length, antes + 1, "un solo aviso, no uno por vuelta");
+    assert.match(avisosDeLimite().at(-1).cuerpo.texto, /No pude leer el uso de Claude desde las/);
+    usoAl(5);
+    planificador.parar();
   });
 
   /* ── La nube (25-oct-2026): tareas grandes y de desborde con `claude --cloud` ── */

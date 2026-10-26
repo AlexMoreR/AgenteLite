@@ -521,7 +521,18 @@ function contextoDeLaTarjeta(tarjeta) {
  */
 export function bloqueDeReparacion(tarjeta, { patchAplicado = false } = {}) {
   const r = tarjeta.reparacion;
-  if (!r) return "";
+  // Retomada sin haber fallado (pausa por uso de Claude, límite de uso, espera en fila): lo escrito antes ya está puesto.
+  if (!r) {
+    return patchAplicado
+      ? [
+          "RETOMADA: esta tarjeta se detuvo a medias sin ningún error (por ejemplo la pausa por uso de Claude) y el trabajo que ya habías escrito YA está aplicado en los archivos de este worktree (míralo con git status y git diff).",
+          "Continúa desde ahí: no lo escribas otra vez, termina lo que falte del plan.",
+          patchAplicado?.conflictos?.length ? `OJO: main cambió y estos archivos quedaron con MARCAS DE CONFLICTO (<<<<<<< / ======= / >>>>>>>): ${patchAplicado.conflictos.join(", ")}. Resuélvelas PRIMERO y borra todas las marcas.` : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "";
+  }
   return [
     `REPARACIÓN ${r.numero} de ${r.de ?? 3}: el intento anterior falló y SOLO eso hay que corregir.`,
     `La causa fue: ${r.causa || "(no se sabe)"}${r.categoria ? ` (categoría: ${r.categoria})` : ""}.`,

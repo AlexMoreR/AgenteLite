@@ -62,6 +62,28 @@ export type UsoDelLatido = {
   motor: string | null;
 };
 
+/** Un periodo del plan de Claude (la sesión o la semana): su porcentaje de uso y el texto de su reinicio ("Oct 30, 7am (America/Bogota)"). */
+export type PeriodoDeUso = { porcentaje: number; reinicio: string };
+
+/**
+ * La pausa por uso de Claude (26-oct-2026), como la cuenta el Coordinador en su latido: el porcentaje de la sesión y de la
+ * semana, si está pausado y hasta cuándo, y desde cuándo no puede leer el uso. `activa` y `umbral` son lo que el Coordinador
+ * tiene puesto ahora (el interruptor del panel se lo devuelve el CRM en la respuesta del latido).
+ */
+export type PausaUsoDelLatido = {
+  activa: boolean;
+  umbral: number;
+  sesion: PeriodoDeUso | null;
+  semana: PeriodoDeUso | null;
+  /** Cuándo se leyó el uso por última vez (ISO), si se sabe. */
+  leidoEn: string | null;
+  pausado: boolean;
+  /** Cuándo se reanuda (ISO), si se sabe. */
+  reiniciaEn: string | null;
+  /** Desde cuándo no se puede leer el uso (ISO); null si la lectura anda bien. */
+  sinLeerDesde: string | null;
+};
+
 export type EsperaDelLatido = { tarjetaId: string; motivo: string };
 
 export type LatidoGuardado = {
@@ -71,6 +93,8 @@ export type LatidoGuardado = {
   tareas: TareaDelLatido[];
   carga: CargaDelLatido;
   uso: UsoDelLatido;
+  /** La pausa por uso de Claude; null si el Coordinador es uno viejo que no la manda. */
+  pausaUso: PausaUsoDelLatido | null;
   /** Lo que el Coordinador dejó en fila por chocar con lo que corre (tarjeta y motivo). */
   esperas: EsperaDelLatido[];
 };
@@ -186,6 +210,26 @@ function usoDeEntrada(valor: unknown): UsoDelLatido {
   };
 }
 
+function periodoDeUsoDeEntrada(valor: unknown): PeriodoDeUso | null {
+  if (!esObjeto(valor)) return null;
+  const porcentaje = numeroEnRango(valor.porcentaje, 0, 100, 1);
+  return porcentaje === null ? null : { porcentaje, reinicio: textoCorto(valor.reinicio, 80) };
+}
+
+function pausaUsoDeEntrada(valor: unknown): PausaUsoDelLatido | null {
+  if (!esObjeto(valor)) return null;
+  return {
+    activa: valor.activa !== false,
+    umbral: umbralDePausaValido(valor.umbral) ?? PAUSA_USO_POR_DEFECTO.umbral,
+    sesion: periodoDeUsoDeEntrada(valor.sesion),
+    semana: periodoDeUsoDeEntrada(valor.semana),
+    leidoEn: fechaIso(valor.leidoEn),
+    pausado: valor.pausado === true,
+    reiniciaEn: fechaIso(valor.reiniciaEn),
+    sinLeerDesde: fechaIso(valor.sinLeerDesde),
+  };
+}
+
 /**
  * El latido como queda guardado, o null si el cuerpo no es un objeto. Recorta y valida todo: hasta
  * MAXIMO_DE_TAREAS tareas, textos cortos, porcentajes de 0 a 100 y links solo de claude.ai, github.com o del CRM.
@@ -210,6 +254,7 @@ export function latidoDeEntrada(cuerpo: unknown, ahora: Date, hostPropio: string
     tareas,
     carga: cargaDeEntrada(cuerpo.carga),
     uso: usoDeEntrada(cuerpo.uso),
+    pausaUso: pausaUsoDeEntrada(cuerpo.pausaUso),
     esperas,
   };
 }
@@ -319,6 +364,75 @@ export function textoDelUso(uso: UsoDelLatido | null, ahora: Date): string {
   const quien = uso.motor === "codex" ? "Codex" : "Claude";
   const reinicio = uso.reiniciaEn && Date.parse(uso.reiniciaEn) > ahora.getTime() ? horaDeBogotaTexto(uso.reiniciaEn) : null;
   return reinicio ? `Límite de ${quien} alcanzado, se reinicia a las ${reinicio}` : `Límite de ${quien} alcanzado`;
+}
+
+/* ───────────────────────────────────────────────────────────────── pausa por uso de Claude ── */
+
+/** El interruptor y el umbral de la pausa por uso (AppSetting `tablero:pausa-uso-claude:<negocio>`). Sin fila: prendida al 80 %. */
+export type AjusteDePausaUso = { activa: boolean; umbral: number };
+
+export const PAUSA_USO_POR_DEFECTO: AjusteDePausaUso = { activa: true, umbral: 80 };
+export const UMBRAL_DE_PAUSA_MINIMO = 50;
+export const UMBRAL_DE_PAUSA_MAXIMO = 95;
+
+/** El umbral (50 a 95), o null si no es un número razonable. */
+export function umbralDePausaValido(valor: unknown): number | null {
+  const numero = typeof valor === "number" ? valor : typeof valor === "string" && valor.trim() ? Number(valor) : NaN;
+  if (!Number.isFinite(numero)) return null;
+  const entero = Math.round(numero);
+  return entero >= UMBRAL_DE_PAUSA_MINIMO && entero <= UMBRAL_DE_PAUSA_MAXIMO ? entero : null;
+}
+
+/** Lo guardado en la AppSetting (JSON { activa, umbral }) de vuelta a un ajuste; lo dañado o ausente vuelve al valor por defecto. */
+export function ajusteDePausaUsoDeValor(texto: string | null | undefined): AjusteDePausaUso {
+  if (!texto) return { ...PAUSA_USO_POR_DEFECTO };
+  try {
+    const dato: unknown = JSON.parse(texto);
+    if (!esObjeto(dato)) return { ...PAUSA_USO_POR_DEFECTO };
+    return { activa: dato.activa !== false, umbral: umbralDePausaValido(dato.umbral) ?? PAUSA_USO_POR_DEFECTO.umbral };
+  } catch {
+    return { ...PAUSA_USO_POR_DEFECTO };
+  }
+}
+
+const DIA_BOGOTA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", weekday: "short", day: "numeric", month: "short" });
+
+/** "lun 27 oct, 3:20 p. m." (hora de Bogotá). */
+export function fechaYHoraDeBogotaTexto(iso: string | null): string | null {
+  const hora = horaDeBogotaTexto(iso);
+  if (!hora || !iso) return null;
+  const dia = DIA_BOGOTA.format(new Date(iso)).replace(/[,.]/g, "");
+  return `${dia}, ${hora}`.replace(/[\u00a0\u202f]/g, " ");
+}
+
+export type EstadoDelUsoDeClaude = "pausado" | "sin_lectura" | "normal" | "sin_dato" | "apagado";
+
+/** "sesión 42 % · semana 63 %" (lo que haya); "" si no hay ninguno. */
+export function porcentajesTexto(pausa: Pick<PausaUsoDelLatido, "sesion" | "semana"> | null): string {
+  const partes: string[] = [];
+  if (pausa?.sesion) partes.push(`sesión ${Math.round(pausa.sesion.porcentaje)} %`);
+  if (pausa?.semana) partes.push(`semana ${Math.round(pausa.semana.porcentaje)} %`);
+  return partes.join(" · ");
+}
+
+/**
+ * Lo que dice el panel del uso de Claude. `ajuste` es lo que el CRM tiene guardado (el interruptor manda sobre lo que dijo el
+ * último latido). Pausado: "Pausado por uso de Claude hasta lun 27 oct, 3:20 p. m. (sesión 82 % · semana 63 %)".
+ * Sin poder leer: "No pude leer el uso de Claude desde las 3:20 p. m.". Normal: "Uso de Claude: sesión 42 % · semana 63 %".
+ */
+export function textoDelUsoDeClaude(pausa: PausaUsoDelLatido | null, ajuste: AjusteDePausaUso): { estado: EstadoDelUsoDeClaude; texto: string } {
+  if (!pausa) return { estado: "sin_dato", texto: "Uso de Claude: sin dato (el Coordinador todavía no lo manda)" };
+  const porcentajes = porcentajesTexto(pausa);
+  if (pausa.pausado && ajuste.activa) {
+    const hasta = fechaYHoraDeBogotaTexto(pausa.reiniciaEn);
+    return { estado: "pausado", texto: `Pausado por uso de Claude${hasta ? ` hasta ${hasta}` : ""}${porcentajes ? ` (${porcentajes})` : ""}` };
+  }
+  if (pausa.sinLeerDesde) {
+    const desde = horaDeBogotaTexto(pausa.sinLeerDesde)?.replace(/[\u00a0\u202f]/g, " ");
+    return { estado: "sin_lectura", texto: `No pude leer el uso de Claude${desde ? ` desde las ${desde}` : ""}` };
+  }
+  if (!porcentajes) return { estado: "sin_dato", texto: "Uso de Claude: sin lectura todavía" };
+  return { estado: ajuste.activa ? "normal" : "apagado", texto: `Uso de Claude: ${porcentajes}${ajuste.activa ? "" : " (la pausa está apagada)"}` };
 }
 
 /* ───────────────────────────────────────────────────────────────────────────── lo de HOY ── */

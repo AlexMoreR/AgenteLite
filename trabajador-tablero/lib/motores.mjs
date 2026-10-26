@@ -203,7 +203,7 @@ async function leerUsoConClaude(config, entorno) {
  * El vigilante del uso de Claude. vigilar() lo llama el planificador en cada vuelta; solo mira cada
  * config.vigilarUsoMinutos. Guarda en carpetaTrabajo/estado-uso.json el último cruce visto (sin WhatsApp).
  */
-export function crearVigilanteDeUso({ config, registro, estado, entorno, leer = leerUsoConClaude, ahora = () => Date.now() }) {
+export function crearVigilanteDeUso({ config, registro, estado, entorno, leer = leerUsoConClaude, ahora = () => Date.now(), pausa = null }) {
   const archivo = path.join(config.carpetaTrabajo, "estado-uso.json");
   let proxima = 0;
   let altoAntes = "";
@@ -218,7 +218,8 @@ export function crearVigilanteDeUso({ config, registro, estado, entorno, leer = 
   const guardarEstado = (valor) => {
     try {
       fs.mkdirSync(config.carpetaTrabajo, { recursive: true });
-      fs.writeFileSync(archivo, `${JSON.stringify(valor, null, 2)}\n`);
+      // Se mezcla con lo que ya hay: en el mismo archivo la pausa por uso (pausa-uso.mjs) guarda su estado.
+      fs.writeFileSync(archivo, `${JSON.stringify({ ...leerEstado(), ...valor }, null, 2)}\n`);
     } catch (error) {
       registro.aviso(`no pude guardar ${archivo}: ${error.message}`);
     }
@@ -232,6 +233,8 @@ export function crearVigilanteDeUso({ config, registro, estado, entorno, leer = 
     // 26-oct-2026: el umbral y el "no pude leer el uso" ya NO se avisan por WhatsApp (decisión del dueño: solo
     // avisa cuando Sistemas se detiene o lo necesita); quedan en el registro y en el panel del Coordinador.
     guardarEstado(decision.estado);
+    // 26-oct-2026: la pausa por uso (pausa-uso.mjs) decide con esta misma lectura; ilegible = no se pausa.
+    pausa?.leyo(uso, motivo);
 
     const alto = decision.alto.sort((a, b) => b.porcentaje - a.porcentaje)[0] ?? null;
     estado.ponerClaudeAlto(alto);
@@ -258,12 +261,21 @@ export function crearVigilanteDeUso({ config, registro, estado, entorno, leer = 
   return {
     async vigilar() {
       if (!config.vigilarUsoMinutos || ahora() < proxima) return null;
-      proxima = ahora() + config.vigilarUsoMinutos * 60_000;
+      // Cerca del umbral (desde el 70 %) o en pausa se lee más seguido, para no pasarse sin darse cuenta. Se decide DESPUÉS
+      // de leer: así una lectura que acaba de subir al 72 % ya acorta la espera de la siguiente.
+      const programar = () => {
+        const cerca = pausa?.cerca(config.pausaUso?.cercaDesde);
+        const minutos = cerca ? Math.min(config.vigilarUsoMinutos, config.pausaUso?.vigilarCercaMinutos ?? config.vigilarUsoMinutos) : config.vigilarUsoMinutos;
+        proxima = ahora() + minutos * 60_000;
+      };
+      programar();
       try {
         return await mirar();
       } catch (error) {
         registro.aviso(`la vigilancia del uso de Claude falló: ${error.message}`);
         return null;
+      } finally {
+        programar();
       }
     },
   };

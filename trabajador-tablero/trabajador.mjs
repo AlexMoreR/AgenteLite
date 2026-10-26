@@ -142,13 +142,14 @@ while (!parar) {
   if (parar) break;
   try {
     // Mientras trabaja no se toman tarjetas nuevas (el bucle espera aquí), así que ninguna subida empieza a la vez.
-    await manualNocturno.revisar(planificador);
+    // Pausado por uso de Claude (26-oct-2026): el trabajo de noche usa Claude, así que no corre mientras dure la pausa.
+    if (!planificador.pausadoPorUso()) await manualNocturno.revisar(planificador);
   } catch (error) {
     registro.aviso(`manual de la noche: ${String(error.message).split("\n")[0]}`);
   }
   if (parar) break;
   try {
-    await recogedor.revisar();
+    if (!planificador.pausadoPorUso()) await recogedor.revisar();
   } catch (error) {
     registro.aviso(`recoger errores: ${String(error.message).split("\n")[0]}`);
   }
