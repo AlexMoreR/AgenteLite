@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   Loader2,
   LogOut,
@@ -32,6 +32,9 @@ export type PaseDeLaSala = { url: string; pase: string; identidad: string; nombr
 type Mensaje = { id: string; de: string; texto: string; mio: boolean };
 
 const TEMA_DEL_CHAT = "chat";
+
+/** Lo que soporta el navegador no cambia mientras la página está abierta: no hay a qué suscribirse. */
+const sinSuscripcion = () => () => {};
 
 /** Pega una pista de audio a su elemento mientras está en la sala. */
 function AudioDePista({ pista }: { pista: PistaLK }) {
@@ -211,10 +214,11 @@ export function SalaDeReunion({
   const local = room?.localParticipant;
 
   // Compartir pantalla solo existe en navegadores de PC; en celular el botón no aparece.
-  const [puedeCompartir, setPuedeCompartir] = useState(false);
-  useEffect(() => {
-    setPuedeCompartir(typeof navigator !== "undefined" && typeof navigator.mediaDevices?.getDisplayMedia === "function");
-  }, []);
+  const puedeCompartir = useSyncExternalStore(
+    sinSuscripcion,
+    () => typeof navigator.mediaDevices?.getDisplayMedia === "function",
+    () => false,
+  );
 
   const alternarPantalla = async () => {
     if (!local) {
