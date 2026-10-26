@@ -348,6 +348,61 @@ async function lineasYAgentes(workspaceId: string) {
   };
 }
 
+/**
+ * La etapa por lectura (el sistema pone Caliente/Tibio/Descartado leyendo al cliente) y su medición
+ * de los últimos 7 días: % de leads nuevos con etapa, cuántos movió cada método y cuántos
+ * Descartados automáticos revirtió una asesora (más del 5 % = endurecer la regla).
+ */
+async function estadoDeLaEtapaPorLectura(workspaceId: string) {
+  const [general, lectura, descarte] = await Promise.all([
+    bandera(`crm:etapa-automatica:${workspaceId}`),
+    bandera(`crm:etapa-por-lectura:${workspaceId}`),
+    bandera(`crm:etapa-por-lectura-descarte:${workspaceId}`),
+  ]);
+  const apagado = (valor: string | null) => valor?.trim().toLowerCase() === "off";
+  if (apagado(general) || apagado(lectura)) {
+    return `apagada (${apagado(lectura) ? "crm:etapa-por-lectura" : "crm:etapa-automatica"} = off)`;
+  }
+  const desde = new Date(Date.now() - 7 * 86_400_000);
+  const [leads, porMetodo, descartes] = await Promise.all([
+    prisma.$queryRaw<Array<{ total: bigint; con_etapa: bigint }>>`
+      SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE "crmStage"::text <> 'NUEVO') AS con_etapa
+      FROM "Contact" WHERE "workspaceId" = ${workspaceId} AND "excludedFromCrm" = false AND "createdAt" >= ${desde}
+    `,
+    prisma.$queryRaw<Array<{ metodo: string; total: bigint }>>`
+      SELECT split_part("nota", ':', 2) AS metodo, COUNT(*) AS total
+      FROM "HistorialEtapa"
+      WHERE "workspaceId" = ${workspaceId} AND "origen" = 'AUTOMATICO' AND "nota" LIKE 'lectura:%' AND "creadoEn" >= ${desde}
+      GROUP BY 1
+    `,
+    prisma.$queryRaw<Array<{ total: bigint; revertidos: bigint }>>`
+      SELECT COUNT(*) AS total,
+             COUNT(*) FILTER (WHERE EXISTS (
+               SELECT 1 FROM "HistorialEtapa" r
+               WHERE r."contactId" = h."contactId" AND r."origen" = 'ASESORA'
+                 AND r."etapaAnterior" = 'PERDIDO' AND r."creadoEn" > h."creadoEn"
+             )) AS revertidos
+      FROM "HistorialEtapa" h
+      WHERE h."workspaceId" = ${workspaceId} AND h."origen" = 'AUTOMATICO' AND h."nota" LIKE 'lectura:%'
+        AND h."etapaNueva" = 'PERDIDO' AND h."creadoEn" >= ${desde}
+    `,
+  ]);
+  const total = Number(leads[0]?.total ?? 0);
+  const conEtapa = Number(leads[0]?.con_etapa ?? 0);
+  const pct = total > 0 ? Math.round((conEtapa / total) * 100) : null;
+  const metodo = (nombre: string) => Number(porMetodo.find((fila) => fila.metodo.trim() === nombre)?.total ?? 0);
+  const totalDescartes = Number(descartes[0]?.total ?? 0);
+  const revertidos = Number(descartes[0]?.revertidos ?? 0);
+  const pctRevertidos = totalDescartes > 0 ? (revertidos / totalDescartes) * 100 : 0;
+  const aviso = totalDescartes > 0 && pctRevertidos > 5 ? " ALERTA: más del 5 % revertido, endurecer la regla o apagar el descarte" : "";
+  return [
+    `activa (descarte automático ${apagado(descarte) ? "apagado" : "prendido"})`,
+    `ultimos 7 dias: ${pct === null ? "sin leads nuevos" : `${pct} % de los leads nuevos con etapa (${conEtapa} de ${total})`}`,
+    `movidos por frase ${metodo("frase")}, por IA ${metodo("ia")}`,
+    `descartes automaticos ${totalDescartes}, revertidos por una asesora ${revertidos} (${pctRevertidos.toFixed(1)} %)${aviso}`,
+  ].join("; ");
+}
+
 async function bandera(clave: string) {
   const fila = await prisma.appSetting.findUnique({ where: { key: clave }, select: { value: true } });
   return fila?.value ?? null;
@@ -494,7 +549,7 @@ async function automatizaciones(
   descritas: Map<string, string>,
   v3: { reglasSinRespuesta: number; hayLineasConV3: boolean },
 ) {
-  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, transcripcionApagada] =
+  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, transcripcionApagada, etapaAutomatica] =
     await Promise.all([
       prisma.followRule.count({ where: { workspaceId, isActive: true } }),
       prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
@@ -505,6 +560,7 @@ async function automatizaciones(
       }),
       bandera(`crm:descarte-automatico:${workspaceId}`),
       bandera("transcripcion-de-audios:apagada"),
+      bandera(`crm:etapa-automatica:${workspaceId}`),
     ]);
 
   const sinInterruptor = "activa (no tiene interruptor: corre siempre)";
@@ -530,6 +586,13 @@ async function automatizaciones(
     enfriamiento_por_llamadas: sinInterruptor,
     temperatura: sinInterruptor,
     descarte_automatico: descarte === "on" ? "ACTIVA: mueve leads a Descartado" : "apagada",
+    // Viene prendida: solo la apaga el valor "off" (src/lib/etapa-automatica-crm.ts).
+    etapa_automatica:
+      etapaAutomatica?.trim().toLowerCase() === "off"
+        ? "apagada (crm:etapa-automatica = off)"
+        : "activa: asignar un chat NUEVO lo pasa a Frío; cotizar o enviar el total lo pasa a Caliente",
+    // Viene prendida: la apagan crm:etapa-por-lectura = off (todo) y crm:etapa-por-lectura-descarte = off (solo el descarte).
+    etapa_por_lectura: await estadoDeLaEtapaPorLectura(workspaceId).catch(() => "no se pudo leer"),
     campanas: campanasEnCurso > 0 ? `activa: ${campanasEnCurso} en curso` : "sin campañas en curso",
     transcripcion_de_audios: !process.env.OPENAI_API_KEY?.trim()
       ? "apagada: falta la clave de OpenAI"

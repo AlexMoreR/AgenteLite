@@ -11,6 +11,7 @@ export const MOTIVOS_DE_TAREA: Record<string, string> = {
   cotizacion_sin_respuesta: "Cotización sin respuesta",
   formulario_sin_respuesta: "Le pediste los datos y no los ha mandado",
   fecha_futura_cerca: "Se acerca la fecha que dijo",
+  recontacto_pactado: "Llegó el día en que dijo que volvería",
   cadencia_sin_respuesta: "Seguimiento después de tu mensaje",
   cadencia_tope_de_automaticos: "Seguimiento después de tu mensaje",
   recuperacion_72h: "Recuperación 72 h · último intento",

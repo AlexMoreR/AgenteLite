@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { registrarAsesoraRespondio } from "@/features/embudo/servicios/eventos";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import { aplicarEtapaAutomatica } from "@/lib/etapa-automatica-crm";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -51,6 +52,12 @@ export async function claimConversationIfUnassigned(input: {
       if (actualizadas.count === 0) {
         return;
       }
+      await aplicarEtapaAutomatica({
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        linea: "official",
+        motivo: { tipo: "asignacion", asesoraId: userId },
+      });
     } else {
       const conversacion = await prisma.conversation.findFirst({
         where: { id: input.conversationId, workspaceId: input.workspaceId, assignedToUserId: null },
@@ -83,6 +90,12 @@ export async function claimConversationIfUnassigned(input: {
         actorUserId: userId,
         assigneeUserId: userId,
         text: `${quien?.name?.trim() || quien?.email || "Una asesora"} tomó esta conversación al responder`,
+      });
+      await aplicarEtapaAutomatica({
+        workspaceId: input.workspaceId,
+        conversationId: conversacion.id,
+        linea: "agent",
+        motivo: { tipo: "asignacion", asesoraId: userId },
       });
     }
   } catch (error) {

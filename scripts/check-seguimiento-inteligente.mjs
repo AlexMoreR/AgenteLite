@@ -316,6 +316,28 @@ prueba("motor: COTIZACIÓN → tareas A a las 24 h y 72 h con total y pregunta d
   assert.notEqual(mo.evaluarLead(todo, CONFIG, mas(10 * DIA)).decision.accion, "descartar");
 });
 
+prueba("motor: RECONTACTO de la etapa por lectura → duerme hasta ese día y ese día es una tarea", () => {
+  const dijo = new Date("2026-10-26T15:00:00Z");
+  const recontactoEn = new Date("2026-10-29T14:00:00Z");
+  const f = ficha({
+    inicioDeLaCharla: new Date("2026-10-26T14:00:00Z"),
+    recontactoEn,
+    mensajes: [
+      { direccion: "IN", tipo: "TEXT", texto: "lo pienso", en: dijo, leidoEn: dijo, origen: "webhook" },
+      { direccion: "OUT", tipo: "TEXT", texto: "Claro, aquí estamos", en: new Date("2026-10-26T15:05:00Z"), leidoEn: null, origen: "manual" },
+    ],
+  });
+  const antes = mo.evaluarLead(f, CONFIG, new Date("2026-10-27T15:00:00Z")).decision;
+  assert.equal(antes.accion, "dormido");
+  assert.equal(antes.motivo, "recontacto_pactado");
+  assert.equal(antes.dormidoHasta.toISOString(), recontactoEn.toISOString());
+  const ese = mo.evaluarLead(f, CONFIG, new Date("2026-10-29T16:00:00Z")).decision;
+  assert.equal(ese.accion, "tarea_asesora");
+  assert.equal(ese.motivo, "recontacto_pactado");
+  // Sin la fecha, el motor se comporta como siempre.
+  assert.notEqual(mo.evaluarLead({ ...f, recontactoEn: null }, CONFIG, new Date("2026-10-27T15:00:00Z")).decision.motivo, "recontacto_pactado");
+});
+
 prueba("motor: FECHA FUTURA → dormido, tarea 7 días antes, se despierta si escribe", () => {
   const cuando = new Date("2026-10-08T04:11:00Z");
   const f = ficha({

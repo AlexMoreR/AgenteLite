@@ -154,6 +154,8 @@ import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { persistEvolutionHistorySync, syncEvolutionMessagesSince } from "@/lib/evolution-chat-sync";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { reabreAlLlegar } from "@/lib/chat-resuelto";
+import { aplicarEtapaAutomatica } from "@/lib/etapa-automatica-crm";
+import { aplicarEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
   const state = rawState?.toLowerCase() ?? "";
@@ -791,6 +793,14 @@ async function assignAdLeadByCampaign(args: {
     // Queda escrito POR QUE le toco a esa persona: si manana el reparto parece raro, la
     // conversacion misma lo explica sin tener que revisar configuraciones.
     text: `${nombre} asignado por la campaña "${args.adTitle || "anuncio"}"`,
+  });
+
+  // Asignado por campaña: si el lead sigue en NUEVO pasa a Frío (nunca lanza).
+  await aplicarEtapaAutomatica({
+    workspaceId: args.workspaceId,
+    conversationId: args.conversationId,
+    linea: "agent",
+    motivo: { tipo: "asignacion", asesoraId: elegido },
   });
 
   console.log("[EVOLUTION] ad_campaign_assign", {
@@ -2515,6 +2525,21 @@ export async function POST(request: NextRequest) {
     instanceName,
     event: eventName,
   });
+
+  // Etapa por lectura: el sistema lee lo que dijo el cliente y pone Caliente, Tibio o Descartado.
+  // En segundo plano (after): no demora el webhook ni cambia lo que el bot contesta. Nunca lanza.
+  if (direction === "INBOUND" && !messageWasEdited && !messageWasDeleted && !isCallEvent && conversation.id && messageText?.trim()) {
+    const conversationIdDeLectura = conversation.id;
+    const textoDeLectura = messageText;
+    after(async () => {
+      await aplicarEtapaPorLectura({
+        workspaceId: channel.workspaceId,
+        conversationId: conversationIdDeLectura,
+        linea: "agent",
+        texto: textoDeLectura,
+      });
+    });
+  }
 
   // Notificación push "tipo WhatsApp": suena/vibra en el celular del equipo aunque la
   // PWA esté cerrada o en segundo plano. Solo para mensajes ENTRANTES nuevos (no

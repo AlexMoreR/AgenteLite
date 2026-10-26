@@ -3,6 +3,7 @@ import { CLAVE_COMBO } from "@/features/embudo/dominio/combo";
 import { estaResuelto } from "@/lib/chat-resuelto";
 import { prisma } from "@/lib/prisma";
 import { isSnoozed } from "@/lib/lead-snooze";
+import { leerRecontacto } from "@/features/crm/domain/intencion-del-cliente";
 import { isMarkedAsLid, readDiscoveredPhone } from "@/lib/whatsapp-lid";
 
 import { leerMarcaExterior, paisDelTelefono } from "../dominio/exterior";
@@ -142,6 +143,7 @@ export async function leerFicha(conversationId: string): Promise<FichaConContext
       anticipoEn: lead?.anticipoEn ?? null,
       historialCompleto: filas.length < MENSAJES_A_MIRAR,
       pospuesto: isSnoozed(metadata),
+      recontactoEn: leerRecontacto(metadata),
     },
   };
 }
