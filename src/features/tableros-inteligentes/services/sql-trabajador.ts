@@ -185,7 +185,7 @@ ORDER BY c."trabajoIniciadoEn" ASC`;
 /**
  * Qué se puede tomar: solo tipos con aprobación, con repo de la lista (`repos`, el parámetro text[]),
  * sin borrar, en APROBADO, PLAN_APROBADO (con plan) o SUBIENDO pendiente (sin candado). Una con zona
- * protegida solo si su última aprobación fue en la pantalla. Una APROBADO o PLAN_APROBADO con una
+ * protegida solo si su última aprobación fue en la pantalla (regla del dueño 25-oct: CHATS y BOT_VENTAS también valen con la automática). Una APROBADO o PLAN_APROBADO con una
  * dependencia sin terminar (flecha esDependencia cuyo origen, sin borrar y de un tipo con estados, no está HECHO) espera (un Área no tiene estado y bloquearía para siempre); una
  * SUBIENDO no (ya construyó).
  */
@@ -219,6 +219,16 @@ const wherePara = (repos: string) => `
         ORDER BY h."creadoEn" DESC
         LIMIT 1
       ) = 'pantalla'
+      OR (
+        c."zonaProtegida" <@ ARRAY['CHATS', 'BOT_VENTAS']::text[]
+        AND (
+          SELECT h."despues"->>'via'
+          FROM "HistorialTarjeta" h
+          WHERE h."tarjetaId" = c."id" AND h."accion" = 'aprobar' AND h."deshechoEn" IS NULL
+          ORDER BY h."creadoEn" DESC
+          LIMIT 1
+        ) = 'automatica'
+      )
     )`;
 
 /** Primero una SUBIENDO pendiente (la que sube sola no espera detrás de otras); después la que más espera. */

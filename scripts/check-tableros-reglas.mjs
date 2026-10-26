@@ -1709,6 +1709,23 @@ prueba("lineaAprobarPlan: si trae varias líneas gana la que espera", () => {
   assert.equal(r.espera, true);
 });
 
+prueba("porQueLaTareaEsperaTuSi (regla 25-oct): solo espera lo de dinero de Gestión, gasto en Meta Ads y zonas META_ADS / LIBRO_V3", () => {
+  const sin = { zonaProtegida: [] };
+  assert.equal(riesgo.porQueLaTareaEsperaTuSi({ titulo: "Cambiar el color del encabezado", detalle: "Solo estilos", ...sin }), null);
+  // Cualquier riesgo arranca: la función no mira el riesgo; CHATS y BOT_VENTAS tampoco la frenan.
+  assert.equal(riesgo.porQueLaTareaEsperaTuSi({ titulo: "Ajustar un texto", detalle: "", zonaProtegida: ["CHATS", "BOT_VENTAS"] }), null);
+  for (const detalle of ["Corregir los abonos", "Arreglar los saldos", "Ajustar la nómina", "Cambiar las comisiones", "Mejorar la facturación", "Registrar pagos"]) {
+    assert.match(riesgo.porQueLaTareaEsperaTuSi({ titulo: "Tarea", detalle, ...sin }), /dinero de Gestión/, detalle);
+  }
+  for (const detalle of ["Subir el presupuesto diario", "Activar las campañas nuevas", "Crear gasto en Meta Ads"]) {
+    assert.match(riesgo.porQueLaTareaEsperaTuSi({ titulo: "Tarea", detalle, ...sin }), /Meta Ads/, detalle);
+  }
+  assert.match(riesgo.porQueLaTareaEsperaTuSi({ titulo: "Tarea", detalle: "Tocar src/features/abonos/tabla.tsx", ...sin }), /dinero|abonos/);
+  assert.match(riesgo.porQueLaTareaEsperaTuSi({ titulo: "Tarea", detalle: "", zonaProtegida: ["META_ADS"] }), /META_ADS/);
+  assert.match(riesgo.porQueLaTareaEsperaTuSi({ titulo: "Tarea", detalle: "", zonaProtegida: ["CHATS", "LIBRO_V3"] }), /LIBRO_V3/);
+  assert.deepEqual(riesgo.zonasQueEsperan(["CHATS", "BOT_VENTAS", "META_ADS", "LIBRO_V3"]), ["META_ADS", "LIBRO_V3"]);
+});
+
 prueba("porQueElPlanEsperaTuSi: la línea SOLO pasa; ESPERA TU SÍ da el motivo", () => {
   assert.equal(riesgo.porQueElPlanEsperaTuSi("Cambia una pantalla.\nAPROBAR PLAN: SOLO"), null);
   const motivo = riesgo.porQueElPlanEsperaTuSi("Cambia algo.\nAPROBAR PLAN: ESPERA TU SÍ — sube el gasto en Meta Ads");

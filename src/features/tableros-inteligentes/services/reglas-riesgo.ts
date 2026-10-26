@@ -320,6 +320,46 @@ export function porQueElPlanEsperaTuSi(plan: string): string | null {
   return null;
 }
 
+/* ─────────────────────────────────────────────────────────── el sí de la tarea (regla 25-oct) ── */
+
+/*
+  Regla del dueño (25-oct-2026, por voz: "¿por qué esperan mi aprobación si ya dije que no la necesitan?"): toda
+  tarjeta Tarea con repo que entra en POR_APROBAR pasa sola a APROBADO, con cualquier riesgo. ÚNICA excepción: la
+  tarjeta espera el sí del dueño si su título o detalle hablan de dinero de Gestión (abonos, saldos, nómina,
+  comisiones, facturación, pagos) o de subir presupuesto, activar campañas o crear gasto en Meta Ads, o si tiene
+  una zona protegida distinta de CHATS y BOT_VENTAS (META_ADS y LIBRO_V3 siguen esperando).
+*/
+
+/** Las zonas protegidas que arrancan solas (con la red de seguridad: pruebas, vigilancia y sí para subir). */
+export const ZONAS_QUE_ARRANCAN_SOLAS: readonly string[] = ["CHATS", "BOT_VENTAS"];
+
+/** Las zonas de la lista que NO arrancan solas (vacío = todas las zonas de la tarjeta arrancan solas). */
+export function zonasQueEsperan(zonas: readonly string[]): string[] {
+  return zonas.filter((zona) => !ZONAS_QUE_ARRANCAN_SOLAS.includes(zona));
+}
+
+/**
+ * ¿La tarea espera el sí del dueño aunque la regla del 25-oct esté prendida? Devuelve el motivo en una línea,
+ * o null si arranca sola. Usa las mismas palabras y rutas que frenan los planes de dinero.
+ */
+export function porQueLaTareaEsperaTuSi(datos: {
+  titulo: string;
+  detalle: string;
+  zonaProtegida: readonly string[];
+}): string | null {
+  const zonas = zonasQueEsperan(datos.zonaProtegida);
+  if (zonas.length) return `tiene zona protegida (${zonas.join(", ")}): la aprueba el dueño`;
+  const texto = `${datos.titulo}\n${datos.detalle}`;
+  const normal = normalizar(texto);
+  if (PALABRAS_DE_DINERO_DE_GESTION.test(normal)) {
+    return "habla de dinero de Gestión (abonos, saldos, nómina, comisiones, facturación o pagos)";
+  }
+  if (PALABRAS_DE_GASTO_EN_META.test(normal)) return "habla de presupuesto, de activar campañas o de gasto en Meta Ads";
+  const dinero = motivosDeLosArchivos(rutasDelTexto(texto)).find((motivo) => motivo.startsWith("toca dinero"));
+  if (dinero) return dinero.slice(0, 300);
+  return null;
+}
+
 /* ───────────────────────────────────────────────────────────────────── la tarjeta ── */
 
 /** Lo que se sabe de una tarjeta para decidir su riesgo al crearla o editarla. */

@@ -12,6 +12,7 @@ import {
   agregarAprobadorAction,
   cambiarAprobacionAutomaticaAction,
   cambiarAprobarPlanesSoloAction,
+  cambiarAprobarTareasSoloAction,
   crearClaveTrabajadorAction,
   panelTrabajadorAction,
   quitarAprobadorAction,
@@ -116,6 +117,33 @@ export function SeccionTrabajador() {
             <span className="block text-xs text-muted-foreground">
               Las tareas sencillas, sin dinero, permisos, chats ni cambios que borren datos, arrancan sin pedirte permiso. Apagado, todo
               vuelve a pedir tu aprobación.
+            </span>
+            {!panel.esDueno ? (
+              <span className="mt-1 block text-xs text-muted-foreground">Solo el dueño del negocio mueve este interruptor.</span>
+            ) : null}
+          </span>
+        </label>
+      ) : null}
+
+      {panel ? (
+        <label className="flex items-start gap-3 rounded-xl border bg-card p-4 text-sm">
+          <Switch
+            checked={panel.aprobarTareasSolo}
+            disabled={ocupado || !panel.esDueno}
+            onCheckedChange={(valor) =>
+              hacer(
+                () => cambiarAprobarTareasSoloAction(Boolean(valor)),
+                valor ? "Las tareas arrancan solas" : "Las tareas vuelven a pedir tu aprobación",
+              )
+            }
+            className="mt-0.5"
+          />
+          <span>
+            <span className="font-medium">Aprobar tareas solo</span>
+            <span className="block text-xs text-muted-foreground">
+              Toda tarea con repo arranca sola, sin esperar tu sí (también las de chats y bot de ventas). Solo te espera la que toca dinero de
+              Gestión (abonos, saldos, nómina, comisiones, facturación, pagos), la que puede subir presupuesto, activar campañas o crear
+              gasto en Meta Ads, y las de libro V3 o Meta Ads. Apagado, solo las de riesgo bajo arrancan solas.
             </span>
             {!panel.esDueno ? (
               <span className="mt-1 block text-xs text-muted-foreground">Solo el dueño del negocio mueve este interruptor.</span>

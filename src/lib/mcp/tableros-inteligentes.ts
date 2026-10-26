@@ -63,6 +63,12 @@ import {
   Gestión o gasto en Meta Ads, si tiene zona protegida o si "Aprobar planes solo" está apagado), lo construye en una rama, el dueño da el sí final y lo
   sube. ver_plan_y_resultado muestra todo eso; aprobar_tarjeta aprueba la tarea, el plan o el sí final
   SOLO cuando la persona lo dijo explícitamente en la conversación.
+  Desde el 25-oct-2026 (regla del dueño) la TAREA con repo que entra en POR_APROBAR también pasa SOLA a
+  APROBADO ("aprobada automáticamente (regla del dueño 25-oct)"), sin esperar al dueño. Única excepción:
+  habla de dinero de Gestión (abonos, saldos, nómina, comisiones, facturación, pagos) o de subir presupuesto,
+  activar campañas o crear gasto en Meta Ads, o tiene zona META_ADS o LIBRO_V3: se queda POR_APROBAR con el
+  motivo. CHATS y BOT_VENTAS también arrancan solas (su subida sigue esperando el sí del dueño). El dueño
+  puede apagarlo con "Aprobar tareas solo"; apagado, solo las de riesgo BAJO arrancan solas.
   Desde el 21-oct-2026 (Planear -> Aprobar plan -> Hacer): si todo pasa, el Coordinador sube solo a
   producción y la deja HECHO con el link del commit; si el despliegue falla, deshace el commit (revert)
   y queda ERROR. El sí final ('subir') queda para las tarjetas que tocan chats, agentes, el libro V3 o
@@ -79,7 +85,7 @@ import {
   - Marcar BAJO algo que cumpla un criterio ALTO (zona protegida, dinero, permisos o credenciales,
     mensajes a clientes, el propio trabajador, migraciones que borren o cambien datos), ni bajar a BAJO una
     tarjeta que el trabajador o el dueño dejaron en ALTO.
-  - Aprobar por su cuenta. La única puerta es aprobar_tarjeta: el servidor exige un texto de
+  - Aprobar por su cuenta: aparte de la regla del 25-oct, que aprueba el servidor y no Claude, la única puerta es aprobar_tarjeta: el servidor exige un texto de
     confirmación de la persona ("sí, apruebo"), que el userId de la clave sea el dueño o un aprobador
     con alcance, que el estado corresponda, y rechaza las tarjetas con zona protegida (esas, solo en la
     pantalla). El sí final (subir) es solo del dueño. Ningún inputSchema de cambiar_estado_tarjeta
@@ -475,7 +481,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "aprobar_tarjeta",
     title: "Aprobar una tarjeta (solo si la persona lo dijo)",
     description:
-      "Úsala SOLO si la persona lo dijo explícitamente en esta conversación. Antes, léele el título y qué se aprueba, y espera que diga 'sí, apruebo'. Nunca apruebes por tu cuenta. " +
+      "Úsala SOLO si la persona lo dijo explícitamente en esta conversación. Antes, léele el título y qué se aprueba, y espera que diga 'sí, apruebo'. Nunca apruebes por tu cuenta. Desde el 25-oct-2026 casi nunca hace falta para 'tarea': toda tarea con repo que queda POR_APROBAR se aprueba SOLA (regla del dueño, interruptor 'Aprobar tareas solo'), salvo la que habla de dinero de Gestión (abonos, saldos, nómina, comisiones, facturación, pagos) o de subir presupuesto, activar campañas o crear gasto en Meta Ads, o tiene zona META_ADS o LIBRO_V3: esas esperan el sí del dueño con su motivo. " +
       "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del Coordinador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan; desde el 24-oct-2026 el plan pasa SOLO a construir al aprobar la tarea, así que el sí del plan solo se pide si toca dinero de Gestión o puede subir presupuesto, activar campañas o crear gasto en Meta Ads, o si el dueño apagó 'Aprobar planes solo') o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
       "'subir' solo aplica a las tarjetas que tocan chats, agentes o una zona protegida (Meta Ads, libro V3) y a las que ya estaban POR_REVISAR de antes: las demás las sube solo el Coordinador cuando todo pasa (quedan HECHO con el link del commit, o ERROR si algo falla). " +
       "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con zona protegida no se aprueba acá: solo en la pantalla. " +

@@ -202,6 +202,7 @@ async function handleCron(request: Request) {
   */
   after(async () => {
     try {
+      // Regla del dueño (25-oct): las tareas con repo que esperaban en POR_APROBAR arrancan solas, salvo dinero / Meta Ads.
       await aprobarSolasLasPendientes();
     } catch (error) {
       console.error("[cron/follows] aprobacion automatica del tablero error", error);

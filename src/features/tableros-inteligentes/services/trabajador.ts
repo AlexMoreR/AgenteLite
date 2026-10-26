@@ -49,7 +49,7 @@ import {
   type EtapaDelTrabajador,
   type PedidoDeTomar,
 } from "./reglas-trabajador";
-import { archivosDeEntrada, frase, motivosDelResultado, porQueElPlanEsperaTuSi, porQueNoSeApruebaSola, riesgoDelPlan } from "./reglas-riesgo";
+import { archivosDeEntrada, frase, motivosDelResultado, porQueElPlanEsperaTuSi, porQueNoSeApruebaSola, riesgoDelPlan, zonasQueEsperan } from "./reglas-riesgo";
 import {
   anotarAprobacionAutomatica,
   aprobacionAutomaticaPrendida,
@@ -635,13 +635,13 @@ export async function accionDelTrabajador(
       // Una tarjeta BAJO sigue BAJO solo si el plan lo confirma; si no, sube a ALTO y espera al dueño.
       const revision = riesgoDelPlan(plan);
       // Regla del dueño (24-oct): con "Aprobar planes solo" prendido, el plan espera su sí solo si toca dinero de Gestión
-      // o gasto en Meta Ads. Una tarjeta con zona protegida también espera: /tomar exige que su plan se apruebe en la
+      // o gasto en Meta Ads. Una tarjeta con META_ADS o LIBRO_V3 también espera (CHATS y BOT_VENTAS arrancan solas, 25-oct): /tomar exige que su plan se apruebe en la
       // pantalla, así que aprobarlo solo la dejaría parada en PLAN_APROBADO sin que nadie lo vea.
       const planesSolos = await aprobarPlanesSoloPrendido(contexto.workspaceId);
       const esperaPorRegla = !planesSolos
         ? null
-        : actual.zonaProtegida.length
-          ? `tiene zona protegida (${actual.zonaProtegida.join(", ")}): su plan se aprueba en la pantalla`
+        : zonasQueEsperan(actual.zonaProtegida).length
+          ? `tiene zona protegida (${zonasQueEsperan(actual.zonaProtegida).join(", ")}): su plan se aprueba en la pantalla`
           : porQueElPlanEsperaTuSi(plan);
       if (actual.riesgo === "BAJO") {
         const motivos = revision.motivosAlto;
@@ -793,7 +793,7 @@ export async function accionDelTrabajador(
         riesgo: actual.riesgo,
         borradoEn: null,
         // Si el plan se aprueba solo, que nadie haya tocado el texto ni las zonas desde que se revisó.
-        ...(aprobacionDelPlan ? { titulo: actual.titulo, detalle: actual.detalle, zonaProtegida: { isEmpty: true } } : {}),
+        ...(aprobacionDelPlan ? { titulo: actual.titulo, detalle: actual.detalle, zonaProtegida: { equals: actual.zonaProtegida } } : {}),
       },
       data: datos,
     });

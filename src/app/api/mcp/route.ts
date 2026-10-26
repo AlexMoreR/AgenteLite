@@ -67,7 +67,7 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "conversacion con el dueno, como tarjetas unidas con flechas. Cada tarjeta tiene un TIPO (por defecto Area, Idea " +
           "y Tarea) y puede colgar de otra (padre_id) si el tipo lo permite: Area > Idea > Tarea (un Area tambien dentro de " +
           "otra Area). El Area es una carpeta: no tiene estado. Solo los tipos que piden " +
-          "aprobacion (Tarea) pasan por POR_APROBAR. Claude nunca aprueba por su cuenta: deja la tarjeta POR_APROBAR y el dueno la aprueba " +
+          "aprobacion (Tarea) pasan por POR_APROBAR. Claude nunca aprueba por su cuenta: deja la tarjeta POR_APROBAR. Desde el 25-oct la Tarea con repo pasa SOLA a APROBADO (regla del dueno, interruptor 'Aprobar tareas solo'), salvo si toca dinero de Gestion o gasto en Meta Ads (o zona META_ADS / LIBRO_V3): esa la aprueba el dueno " +
           "en la pantalla. Si se edita una tarjeta aprobada, vuelve a POR_APROBAR. borrar_tarjeta quita la tarjeta con sus " +
           "flechas y se deshace con deshacer_cambio_tarjeta. Una tarjeta PLAN_LISTO o ERROR se borra solo si el dueno lo " +
           "pidio: antes leerle el titulo y esperar que diga 'si, borrala'; texto_confirmacion es lo que dijo, tal cual. " +

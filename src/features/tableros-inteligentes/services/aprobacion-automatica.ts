@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { porQueElPlanEsperaTuSi, porQueNoSeApruebaSola } from "./reglas-riesgo";
+import { porQueElPlanEsperaTuSi, porQueLaTareaEsperaTuSi, porQueNoSeApruebaSola, zonasQueEsperan } from "./reglas-riesgo";
 
 /*
   APROBACIÓN AUTOMÁTICA del Tablero IA (22-oct-2026, decisión de Alexander: "las cosas básicas que
@@ -22,6 +22,14 @@ import { porQueElPlanEsperaTuSi, porQueNoSeApruebaSola } from "./reglas-riesgo";
   motivo. Tiene su propio interruptor ("Aprobar planes solo", prendido sin fila). La vuelta del reloj
   (aprobarPlanesListosQueEsperan) pasa a construir las PLAN_LISTO que esperaban y no caen en la excepción.
 
+  REGLA DEL DUEÑO (25-oct-2026, por voz: "¿por qué esperan mi aprobación si ya dije que no la necesitan?"): toda
+  TAREA con repo que entra en POR_APROBAR pasa sola a APROBADO, con cualquier riesgo. ÚNICA excepción
+  (porQueLaTareaEsperaTuSi, en reglas-riesgo.ts): habla de dinero de Gestión o de presupuesto / campañas / gasto
+  en Meta Ads, o tiene una zona protegida distinta de CHATS y BOT_VENTAS (esas dos arrancan solas; su subida sigue
+  pasando por la red de seguridad y esperando el sí del dueño). Tiene su propio interruptor ("Aprobar tareas
+  solo", prendido sin fila); apagado, vuelve la regla de antes (solo riesgo BAJO). La vuelta del reloj
+  (aprobarSolasLasPendientes) aprueba las que esperaban.
+
   El interruptor es POR NEGOCIO y vive en AppSetting (sin migración). Sin la fila, está PRENDIDO.
 */
 
@@ -33,6 +41,9 @@ export const TEXTO_AUTOMATICO = "aprobado automáticamente por regla de bajo rie
 export const TEXTO_PLAN_SOLO = "plan aprobado automáticamente (regla del dueño 24-oct)";
 
 export const claveDelInterruptor = (workspaceId: string) => `tablero:aprobacion-automatica:${workspaceId}`;
+export const TEXTO_TAREA_SOLA = "aprobada automáticamente (regla del dueño 25-oct)";
+
+export const claveDelInterruptorDeTareas = (workspaceId: string) => `tablero:tareas-solas:${workspaceId}`;
 export const claveDelInterruptorDePlanes = (workspaceId: string) => `tablero:planes-solos:${workspaceId}`;
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -47,6 +58,18 @@ export async function aprobacionAutomaticaPrendida(workspaceId: string, db: Db =
 export async function aprobarPlanesSoloPrendido(workspaceId: string, db: Db = prisma): Promise<boolean> {
   const fila = await db.appSetting.findUnique({ where: { key: claveDelInterruptorDePlanes(workspaceId) }, select: { value: true } });
   return fila?.value !== "false";
+}
+
+/** ¿Está prendido "Aprobar tareas solo" (regla del dueño 25-oct)? Sin ajuste guardado, sí. */
+export async function aprobarTareasSoloPrendido(workspaceId: string, db: Db = prisma): Promise<boolean> {
+  const fila = await db.appSetting.findUnique({ where: { key: claveDelInterruptorDeTareas(workspaceId) }, select: { value: true } });
+  return fila?.value !== "false";
+}
+
+export async function ponerAprobarTareasSolo(workspaceId: string, prendida: boolean) {
+  const key = claveDelInterruptorDeTareas(workspaceId);
+  const value = prendida ? "true" : "false";
+  await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
 }
 
 export async function ponerAprobarPlanesSolo(workspaceId: string, prendida: boolean) {
@@ -66,9 +89,23 @@ export function registroDeAprobacionAutomatica(datos: {
   estado: "APROBADO" | "PLAN_APROBADO";
   momento: "tarea" | "plan";
   motivo: string;
-  /** "dueno-24-oct": el plan se aprobó por la regla del dueño (no por el riesgo BAJO). */
-  regla?: "dueno-24-oct";
+  /** "dueno-24-oct" (plan) o "dueno-25-oct" (tarea): se aprobó por una regla del dueño, no por el riesgo BAJO. */
+  regla?: "dueno-24-oct" | "dueno-25-oct";
 }) {
+  if (datos.regla === "dueno-25-oct") {
+    return {
+      estado: datos.estado,
+      momento: datos.momento,
+      via: "automatica",
+      quienNombre: NOMBRE_AUTOMATICO,
+      userId: QUIEN_AUTOMATICO,
+      textoConfirmacion: TEXTO_TAREA_SOLA,
+      como: TEXTO_TAREA_SOLA,
+      automatica: true,
+      regla: datos.regla,
+      motivo: datos.motivo,
+    };
+  }
   if (datos.regla) {
     return {
       estado: datos.estado,
@@ -120,6 +157,26 @@ export async function anotarAprobacionAutomatica(
   });
 }
 
+/**
+ * Deja el motivo de la espera en la tarjeta (una línea, la ve el dueño): ALTO con el motivo, salvo que el dueño
+ * mismo haya puesto el riesgo. Solo escribe si el motivo cambió, para no mover la tarjeta en cada vuelta del reloj.
+ */
+async function anotarMotivoDeEspera(
+  tarjeta: { id: string; riesgo: string | null; riesgoMotivo: string | null; actualizadoEn: Date },
+  motivo: string,
+) {
+  const texto = motivo.slice(0, 300);
+  if (tarjeta.riesgoMotivo === texto && tarjeta.riesgo === "ALTO") return;
+  try {
+    await prisma.tarjetaTablero.updateMany({
+      where: { id: tarjeta.id, estado: "POR_APROBAR", actualizadoEn: tarjeta.actualizadoEn, OR: [{ riesgoPor: null }, { riesgoPor: { not: "DUENO" } }], borradoEn: null },
+      data: { riesgo: "ALTO", riesgoMotivo: texto, riesgoPor: "TRABAJADOR" },
+    });
+  } catch (error) {
+    console.error("[aprobacion-automatica] no se pudo anotar el motivo de la espera", tarjeta.id, error);
+  }
+}
+
 export type ResultadoDeAprobarSola = { aprobada: true; motivo: string } | { aprobada: false; porQue: string };
 
 /**
@@ -148,19 +205,39 @@ export async function aprobarSolaLaTarea(tarjetaId: string): Promise<ResultadoDe
   if (!tarjeta) return { aprobada: false, porQue: "la tarjeta no existe" };
   if (tarjeta.estado !== "POR_APROBAR") return { aprobada: false, porQue: `está ${tarjeta.estado}, no POR_APROBAR` };
   if (!tarjeta.tipo.requiereAprobacion || !tarjeta.tipo.usaEstados) return { aprobada: false, porQue: "su tipo no pide aprobación" };
-  const prendido = await aprobacionAutomaticaPrendida(tarjeta.tablero.workspaceId);
-  const porQue = porQueNoSeApruebaSola({
-    titulo: tarjeta.titulo,
-    detalle: tarjeta.detalle,
-    repo: tarjeta.repo,
-    zonaProtegida: tarjeta.zonaProtegida,
-    riesgo: tarjeta.riesgo,
-    prendido,
-  });
-  if (porQue) return { aprobada: false, porQue };
+  if (!tarjeta.repo) return { aprobada: false, porQue: "no tiene repo" };
+  // Regla del dueño (25-oct): con "Aprobar tareas solo" prendido arranca sola, salvo dinero / Meta Ads / zona que espera.
+  const tareasSolas = await aprobarTareasSoloPrendido(tarjeta.tablero.workspaceId);
+  let reglaDelDueno = false;
+  if (tareasSolas) {
+    const espera = porQueLaTareaEsperaTuSi(tarjeta);
+    if (espera) {
+      await anotarMotivoDeEspera(tarjeta, espera);
+      return { aprobada: false, porQue: espera };
+    }
+    reglaDelDueno = true;
+  } else {
+    const prendido = await aprobacionAutomaticaPrendida(tarjeta.tablero.workspaceId);
+    const porQue = porQueNoSeApruebaSola({
+      titulo: tarjeta.titulo,
+      detalle: tarjeta.detalle,
+      repo: tarjeta.repo,
+      zonaProtegida: tarjeta.zonaProtegida,
+      riesgo: tarjeta.riesgo,
+      prendido,
+    });
+    if (porQue) return { aprobada: false, porQue };
+  }
 
-  const motivo = motivoDeLaAprobacionAutomatica(tarjeta.riesgoMotivo);
-  const registro = registroDeAprobacionAutomatica({ estado: "APROBADO", momento: "tarea", motivo });
+  const motivo = reglaDelDueno
+    ? "la tarea no toca dinero de Gestión ni gasto en Meta Ads"
+    : motivoDeLaAprobacionAutomatica(tarjeta.riesgoMotivo);
+  const registro = registroDeAprobacionAutomatica({
+    estado: "APROBADO",
+    momento: "tarea",
+    motivo,
+    ...(reglaDelDueno ? { regla: "dueno-25-oct" as const } : {}),
+  });
   return prisma.$transaction(async (tx) => {
     // Condicionado a lo que se leyó: si alguien la editó un instante antes, no se aprueba lo que no se revisó.
     const hecho = await tx.tarjetaTablero.updateMany({
@@ -170,8 +247,10 @@ export async function aprobarSolaLaTarea(tarjetaId: string): Promise<ResultadoDe
         actualizadoEn: tarjeta.actualizadoEn,
         tipoId: tarjeta.tipoId,
         repo: tarjeta.repo,
-        riesgo: "BAJO",
-        zonaProtegida: { isEmpty: true },
+        // Regla de antes: solo BAJO y sin zona. Regla del 25-oct: las zonas son las que se leyeron y se revisaron.
+        ...(reglaDelDueno
+          ? { zonaProtegida: { equals: tarjeta.zonaProtegida }, titulo: tarjeta.titulo, detalle: tarjeta.detalle }
+          : { riesgo: "BAJO", zonaProtegida: { isEmpty: true } }),
         borradoEn: null,
       },
       data: { estado: "APROBADO", trabajoVenceEn: null },
@@ -184,27 +263,34 @@ export async function aprobarSolaLaTarea(tarjetaId: string): Promise<ResultadoDe
 }
 
 /**
- * La vuelta del reloj: aprueba las tareas BAJO que quedaron POR_APROBAR (por ejemplo, las que esperaban
- * con el interruptor apagado y se prendió) sin hacer nada si está apagado en su negocio. Devuelve cuántas.
+ * La vuelta del reloj: aprueba las tareas con repo que quedaron POR_APROBAR. Con "Aprobar tareas solo" prendido
+ * (regla del dueño 25-oct) son todas menos las de dinero / Meta Ads / zona que espera; con ese interruptor apagado,
+ * solo las BAJO y solo si la aprobación automática está prendida. Devuelve cuántas aprobó.
  */
-export async function aprobarSolasLasPendientes(limite = 25): Promise<number> {
+export async function aprobarSolasLasPendientes(limite = 200): Promise<number> {
   const pendientes = await prisma.tarjetaTablero.findMany({
-    where: { estado: "POR_APROBAR", riesgo: "BAJO", repo: { not: null }, borradoEn: null },
+    where: { estado: "POR_APROBAR", repo: { not: null }, borradoEn: null },
     orderBy: { actualizadoEn: "asc" },
     take: limite,
-    select: { id: true, tablero: { select: { workspaceId: true } } },
+    select: { id: true, titulo: true, detalle: true, zonaProtegida: true, riesgo: true, tablero: { select: { workspaceId: true } } },
   });
-  // Con el interruptor apagado no se hace nada más que leerlo (una vez por negocio).
-  const prendidos = new Map<string, boolean>();
+  // Los interruptores se leen una vez por negocio.
+  const interruptores = new Map<string, { tareasSolas: boolean; bajoSolo: boolean }>();
   let aprobadas = 0;
-  for (const { id, tablero } of pendientes) {
-    if (!prendidos.has(tablero.workspaceId)) prendidos.set(tablero.workspaceId, await aprobacionAutomaticaPrendida(tablero.workspaceId));
-    if (!prendidos.get(tablero.workspaceId)) continue;
+  for (const tarjeta of pendientes) {
+    const { workspaceId } = tarjeta.tablero;
     try {
-      const resultado = await aprobarSolaLaTarea(id);
+      let estado = interruptores.get(workspaceId);
+      if (!estado) {
+        estado = { tareasSolas: await aprobarTareasSoloPrendido(workspaceId), bajoSolo: await aprobacionAutomaticaPrendida(workspaceId) };
+        interruptores.set(workspaceId, estado);
+      }
+      if (estado.tareasSolas ? false : !estado.bajoSolo || tarjeta.riesgo !== "BAJO") continue;
+      // Las de dinero / Meta Ads no hacen más que anotar su motivo (aprobarSolaLaTarea), y solo si cambió.
+      const resultado = await aprobarSolaLaTarea(tarjeta.id);
       if (resultado.aprobada) aprobadas += 1;
     } catch (error) {
-      console.error("[aprobacion-automatica] no se pudo aprobar sola", id, error);
+      console.error("[aprobacion-automatica] no se pudo aprobar sola", tarjeta.id, error);
     }
   }
   return aprobadas;
@@ -217,11 +303,11 @@ export async function aprobarSolasLasPendientes(limite = 25): Promise<number> {
  */
 export async function aprobarPlanesListosQueEsperan(limite = 100): Promise<number> {
   const esperando = await prisma.tarjetaTablero.findMany({
-    // Sin zona protegida: el plan de esas se aprueba en la pantalla (así lo exige /tomar).
-    where: { estado: "PLAN_LISTO", repo: { not: null }, plan: { not: null }, zonaProtegida: { isEmpty: true }, borradoEn: null },
+    // Con META_ADS o LIBRO_V3 el plan se aprueba en la pantalla (abajo se saltan); CHATS y BOT_VENTAS arrancan solas (25-oct).
+    where: { estado: "PLAN_LISTO", repo: { not: null }, plan: { not: null }, borradoEn: null },
     orderBy: { actualizadoEn: "asc" },
     take: limite,
-    select: { id: true, tableroId: true, plan: true, actualizadoEn: true, tablero: { select: { workspaceId: true } } },
+    select: { id: true, tableroId: true, plan: true, zonaProtegida: true, actualizadoEn: true, tablero: { select: { workspaceId: true } } },
   });
   const prendidos = new Map<string, boolean>();
   let aprobadas = 0;
@@ -229,7 +315,7 @@ export async function aprobarPlanesListosQueEsperan(limite = 100): Promise<numbe
     const { workspaceId } = tarjeta.tablero;
     try {
       if (!prendidos.has(workspaceId)) prendidos.set(workspaceId, await aprobarPlanesSoloPrendido(workspaceId));
-      if (!prendidos.get(workspaceId) || !tarjeta.plan || porQueElPlanEsperaTuSi(tarjeta.plan)) continue;
+      if (!prendidos.get(workspaceId) || !tarjeta.plan || zonasQueEsperan(tarjeta.zonaProtegida).length || porQueElPlanEsperaTuSi(tarjeta.plan)) continue;
       const registro = registroDeAprobacionAutomatica({
         estado: "PLAN_APROBADO",
         momento: "plan",
@@ -239,7 +325,7 @@ export async function aprobarPlanesListosQueEsperan(limite = 100): Promise<numbe
       const hecha = await prisma.$transaction(async (tx) => {
         // Condicionado a lo que se leyó: si el plan o la tarjeta cambiaron un instante antes, no se aprueba.
         const hecho = await tx.tarjetaTablero.updateMany({
-          where: { id: tarjeta.id, estado: "PLAN_LISTO", actualizadoEn: tarjeta.actualizadoEn, zonaProtegida: { isEmpty: true }, borradoEn: null },
+          where: { id: tarjeta.id, estado: "PLAN_LISTO", actualizadoEn: tarjeta.actualizadoEn, zonaProtegida: { equals: tarjeta.zonaProtegida }, borradoEn: null },
           data: { estado: "PLAN_APROBADO", trabajoVenceEn: null },
         });
         if (hecho.count !== 1) return false;

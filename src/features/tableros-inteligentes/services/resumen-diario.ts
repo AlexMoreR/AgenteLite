@@ -130,7 +130,7 @@ export function textoDelResumen(resumen: ResumenDelDia): string {
     encabezado,
     "",
     ...lista(
-      `✅ Aprobé solas ${resumen.aprobadas.length} (riesgo bajo):`,
+      `✅ Aprobé solas ${resumen.aprobadas.length} (sin esperar tu sí):`,
       resumen.aprobadas.map(
         (a) => `• ${corto(a.titulo, 80)} — ${a.momento === "plan" ? "el plan" : "la tarea"}${a.motivo ? `: ${corto(a.motivo, 100)}` : ""}`,
       ),
