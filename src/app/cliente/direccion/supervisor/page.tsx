@@ -33,6 +33,9 @@ import { leerConfigGravedad, leerResumenDelDia } from "@/features/avisos-graveda
 import { PanelAccionableView } from "@/features/supervisor-accionable/components/PanelAccionable";
 import { anclaDeAlerta, claveSinVersion, esAvisoDeVersionVieja } from "@/features/supervisor-accionable/dominio/reglas";
 import { leerConfigAccionable, leerPanelAccionable } from "@/features/supervisor-accionable/servicios/accionable";
+import { PanelReasignacion } from "@/features/supervisor-reasignacion/components/PanelReasignacion";
+import { leerDatosDeLaTarjeta } from "@/features/supervisor-reasignacion/servicios/config";
+import { leerRegistroDelDia } from "@/features/supervisor-reasignacion/servicios/registro";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
 
@@ -118,6 +121,12 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
   const panelAccionable = configAccionable?.activo
     ? await leerPanelAccionable(workspaceId, (alertas ?? []).filter((alerta) => alerta.estado === "ABIERTA"), ahora, chatsFueraDeHorario, linea.actual.version).catch(() => null)
     : null;
+
+  // Avisos por WhatsApp y reasignación automática: la tarjeta de ajustes y el registro de hoy (solo el dueño).
+  const esDueno = access.isOwner || access.role === "ADMIN";
+  const [tarjetaReasignacion, registroReasignacion] = esDueno
+    ? await Promise.all([leerDatosDeLaTarjeta(workspaceId).catch(() => null), leerRegistroDelDia(workspaceId).catch(() => null)])
+    : [null, null];
 
   const configAvisos = await leerConfigGravedad(workspaceId).catch(() => null);
   const avisos = {
@@ -247,6 +256,8 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
       ) : null}
 
       {panelAccionable ? <PanelAccionableView panel={panelAccionable} /> : null}
+
+      {tarjetaReasignacion ? <PanelReasignacion datos={tarjetaReasignacion} registro={registroReasignacion} /> : null}
 
       {avisos.resumen ? (
         <Card size="sm">
