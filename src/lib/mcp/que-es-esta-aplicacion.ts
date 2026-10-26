@@ -446,6 +446,16 @@ async function estadoDelAgenteDeMarketing(workspaceId: string) {
     : `apagada: interruptor apagado, solo genera el resumen y su línea NO va en el mensaje de las 7:30; ${resumen}`;
 }
 
+/** Agente de Sistemas: el interruptor (si su línea va en el mensaje de las 7:30 y si crea tarjetas de arreglo) y cuándo se guardó el último resumen. */
+async function estadoDelAgenteDeSistemas(workspaceId: string) {
+  const [activo, ultimos] = await Promise.all([agenteActivo("sistemas", workspaceId), leerUltimosResumenes(workspaceId, "sistemas", 1)]);
+  const ultimo = ultimos[0];
+  const resumen = ultimo ? `último resumen del ${ultimo.fecha}${ultimo.esPrueba ? " (prueba)" : ""}` : "todavía no ha guardado ningún resumen";
+  return activo
+    ? `ACTIVA: interruptor prendido, su línea va en el mensaje de las 7:30 a Alexander y crea tarjetas de arreglo POR_APROBAR; solo lee producción; ${resumen}`
+    : `apagada: interruptor apagado, solo genera el resumen; su línea NO va en el mensaje de las 7:30 y no crea tarjetas; ${resumen}`;
+}
+
 /** Tablero IA: la recogida diaria de errores viejos (26-oct-2026): cuántas tarjetas hay en ERROR y cuántas dejaron una línea para el dueño. */
 async function estadoDeRecogerErrores(workspaceId: string) {
   const enError = await prisma.tarjetaTablero.findMany({
@@ -540,6 +550,7 @@ async function automatizaciones(
     origen_de_pauta: await estadoDeLaPauta(workspaceId).catch(() => "no se pudo leer"),
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
     agente_de_marketing: await estadoDelAgenteDeMarketing(workspaceId).catch(() => "no se pudo leer"),
+    agente_de_sistemas: await estadoDelAgenteDeSistemas(workspaceId).catch(() => "no se pudo leer"),
     recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),
     // Vive en el Coordinador (aizen1), no en la base: el CRM solo recibe las 3 líneas del resumen con la subida.
     mejora_continua_tablero: "activa: corre dentro del Coordinador (aizen1); las lecciones viven en su carpeta de trabajo y el CRM no las puede leer, solo guarda las 3 líneas del resumen de cada subida",

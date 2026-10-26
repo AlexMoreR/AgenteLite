@@ -2345,6 +2345,25 @@ model AgenteDeAreaEnvio {
   @@index([workspaceId, area, fecha])
 }
 
+/// Contador de uso (Agente de Sistemas): una fila por negocio, día (hora de Colombia), tipo ("pantalla" | "herramienta"),
+/// clave (la ruta /cliente/... o el nombre de la herramienta del MCP) y quién (userId). `veces` sube con cada visita o llamada.
+/// Empieza a contar el día que se sube: lo de antes no tiene uso medido.
+model UsoDelSistemaDia {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  fecha         String
+  tipo          String
+  clave         String
+  quien         String
+  veces         Int      @default(1)
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  @@unique([workspaceId, fecha, tipo, clave, quien])
+  @@index([workspaceId, fecha])
+  @@index([workspaceId, tipo, clave])
+}
+
 // ── Cerebro (Mi empresa → Cerebro) ─────────────────────────────────────────────────────────────
 // El ORIGINAL vive en la carpeta de Google Drive; estas tablas son una copia para buscar rápido.
 // Si hay diferencia, gana el Drive. El CRM nunca borra nada en el Drive.

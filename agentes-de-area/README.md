@@ -1,4 +1,4 @@
-# Agentes de área (molde) — hoy: Agente de Ventas y Agente de Marketing
+# Agentes de área (molde) — hoy: Agente de Ventas, Agente de Marketing y Agente de Sistemas
 
 Un **agente por área** que mira su número todos los días, decide qué hace falta y reparte el trabajo a
 **subagentes**. En Magilus nadie es jefe: se llama "Agente de Ventas". Se empieza solo con Ventas; si sube el
@@ -84,3 +84,26 @@ Prender el interruptor de Marketing (pantalla *CRM → Agente de Marketing*) sol
 
 Prender el interruptor (pantalla *CRM → Agente de Ventas*) solo con el sí del dueño. El primer día prendido,
 comprobar que Alexander recibió **un** mensaje a las 7:30 y cada asesora **uno**.
+
+## Agente de Sistemas: cómo corre
+
+Revisa **al día siguiente de cada subida** si lo construido funciona, si se usa y si el sistema está sano. **Solo lee.**
+
+1. **6:30** — `node correr-agente.mjs --area sistemas` (tarea de Windows "Agente de Sistemas", lunes a sábado; si aizen1 estaba apagado corre al prender y queda
+   "salió tarde"). Reparte a tres subagentes (`sistemas/subagentes/`): **revisor-de-produccion** (diario: abre en producción lo que quedó HECHO en 24 h y marca
+   FUNCIONA / FALLA con el error exacto / NO SE PUEDE PROBAR), **salud-del-sistema** (diario: trabajador, atascadas, ERROR, respaldos en Drive, aizen1 y VPS) y **uso**
+   (`Frecuencia: lunes`). Guarda su resumen con `guardar_resumen_del_dia` (`area: "sistemas"`) y UNA línea para Alexander.
+2. **El interruptor** (pantalla `/cliente/crm/agente-de-sistemas`, empieza **apagado**): apagado, el lanzador abre Claude **sin** `crear_tarjeta` (las tarjetas de arreglo
+   quedan escritas como "se crearía") y la línea no va en el mensaje de las 7:30. Prendido, Claude recibe `crear_tarjeta` para la tarjeta de arreglo POR_APROBAR en el
+   tablero de Emanuel, y el lanzador de Ventas suma la línea ("Sistemas: todo funciona" o lo roto) al MISMO mensaje de las 7:30 (espera hasta 15 min si Sistemas sigue corriendo).
+   `--prueba` también abre Claude sin `crear_tarjeta`.
+3. **Los candados** (están en el lanzador y en `sistemas/.claude/settings.json`, no en la buena voluntad del agente): Bash solo para los tres programas de
+   `sistemas/herramientas/` y sin git, gh ni npm; ninguna herramienta que apruebe, cambie estados, edite o borre tarjetas ni mande WhatsApp.
+   - `revisar-pantalla.mjs` (Playwright sin ventana): bloquea POST/PUT/PATCH/DELETE y el latido, nunca hace clic, nunca abre un chat puntual.
+   - `leer-servidor.mjs` (ssh con la llave del trabajador): solo una lista cerrada de comandos de lectura (logs filtrados, disco, uptime, si la página de inicio responde).
+   - `salud-de-aizen1.mjs`: disco, CPU y RAM de aizen1.
+4. **Para instalarlo**: copiar `sistemas/.mcp.json.example` a `sistemas/.mcp.json` (clave del CRM, Gestión y el conector de Google Drive de **solo lectura**), completar en
+   `config.local.json` los bloques `servidor` y `sistemas` y el `tableroDeEmanuel` (su id), y guardar una vez la sesión de una cuenta de solo lectura para
+   `revisar-pantalla.mjs` (`sistemas.sesionPlaywright`). Sin esa sesión las pantallas salen "NO SE PUEDE PROBAR: pide iniciar sesión".
+5. Pruebas: `npm run test:agente-de-sistemas` (CRM, base de mentira), `npm run test:agente-de-sistemas-candado` (herramientas y candado) y
+   `npm run test:agentes-de-area-lanzador`.

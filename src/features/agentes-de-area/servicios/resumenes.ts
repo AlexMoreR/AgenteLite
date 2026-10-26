@@ -51,3 +51,18 @@ export async function leerEnviosDelDia(workspaceId: string, area: Area, fecha: s
     select: { id: true, tipo: true, numero: true, destinatario: true, texto: true, estado: true, motivo: true, creadoEn: true },
   });
 }
+
+/** Lo último que entregó un subagente que no corre todos los días (p. ej. el informe de Uso de los lunes), de los últimos días guardados. */
+export async function leerUltimaEntregaDe(workspaceId: string, area: Area, subagente: string, dias = 14) {
+  const filas = await prisma.agenteDeAreaDia.findMany({
+    where: { workspaceId, area },
+    orderBy: { fecha: "desc" },
+    take: dias,
+    select: { fecha: true, subagentes: true },
+  });
+  for (const fila of filas) {
+    const entregas = fila.subagentes && typeof fila.subagentes === "object" && !Array.isArray(fila.subagentes) ? (fila.subagentes as Record<string, unknown>) : {};
+    if (entregas[subagente] !== undefined && entregas[subagente] !== null) return { fecha: fila.fecha, entrega: entregas[subagente] };
+  }
+  return null;
+}

@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { anotarActividad } from "@/lib/actividad-del-equipo";
 import { latirEnLinea } from "@/lib/en-linea";
+import { contarPantalla } from "@/lib/uso-del-sistema";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,9 @@ export async function POST(request: Request) {
     }).catch(() => {}),
     latirEnLinea({ workspaceId: access.workspaceId, userId: session.user.id }),
   ]);
+
+  // Contador de uso (Agente de Sistemas): sin esperarlo y sin que pueda fallar el latido.
+  void contarPantalla({ workspaceId: access.workspaceId, userId: session.user.id, ruta });
 
   return NextResponse.json({ ok: true, enLinea });
 }

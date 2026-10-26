@@ -1,15 +1,19 @@
 /**
  * AGENTES DE ÁREA: las reglas, en código puro (sin base, sin Next).
  *
- * Es un molde: un agente por área (hoy "ventas" y "marketing") que piensa en el PC aizen1 y reparte el trabajo
+ * Es un molde: un agente por área (hoy "ventas", "marketing" y "sistemas") que piensa en el PC aizen1 y reparte el trabajo
  * a subagentes. El CRM no piensa: guarda el resumen, muestra la pantalla y entrega los WhatsApp
  * INTERNOS. Las pruebas están en scripts/check-agentes-de-area.mjs.
  */
 
-export const AREAS = ["ventas", "marketing"] as const;
+export const AREAS = ["ventas", "marketing", "sistemas"] as const;
 export type Area = (typeof AREAS)[number];
 
-export const ETIQUETA_DE_AREA: Record<Area, string> = { ventas: "Agente de Ventas", marketing: "Agente de Marketing" };
+export const ETIQUETA_DE_AREA: Record<Area, string> = {
+  ventas: "Agente de Ventas",
+  marketing: "Agente de Marketing",
+  sistemas: "Agente de Sistemas",
+};
 
 export function esArea(valor: unknown): valor is Area {
   return typeof valor === "string" && (AREAS as readonly string[]).includes(valor);
@@ -163,6 +167,18 @@ export function leerResumenAGuardar(args: Record<string, unknown>, hoy: string, 
     const linea = textoCorto(args.linea, 400);
     const recomendacion = leerRecomendacionDeMarketing(args.recomendacion);
     meta = { ...(esObjeto(args.meta) ? args.meta : {}), linea, recomendacion };
+    sugeridos.length = 0;
+    mensajes.length = 0;
+  }
+  // Sistemas tampoco manda WhatsApp: su línea, sus revisiones, la salud y las tarjetas de arreglo viajan dentro de `meta`.
+  if (area === "sistemas") {
+    meta = {
+      ...(esObjeto(args.meta) ? args.meta : {}),
+      linea: textoCorto(args.linea, 400),
+      revisiones: leerRevisionesDeSistemas(args.revisiones),
+      salud: args.salud ?? null,
+      arreglos: leerArreglosDeSistemas(args.arreglos),
+    };
     sugeridos.length = 0;
     mensajes.length = 0;
   }
@@ -349,4 +365,196 @@ export function agruparPorAnuncio(conversaciones: ConversacionDeAnuncio[]): {
   porAnuncio.sort((a, b) => b.conversaciones - a.conversaciones);
   const total = conversaciones.length;
   return { porAnuncio, total, sinAnuncio: { conversaciones: sinAnuncio, porCiento: total > 0 ? Math.round((sinAnuncio / total) * 1000) / 10 : null } };
+}
+
+/* ------------------------------------------------------------------------------------------------
+   AGENTE DE SISTEMAS: revisión al día siguiente de cada subida (solo lectura)
+------------------------------------------------------------------------------------------------ */
+
+export const RESULTADOS_DE_REVISION = ["FUNCIONA", "FALLA", "NO SE PUEDE PROBAR"] as const;
+export type ResultadoDeRevision = (typeof RESULTADOS_DE_REVISION)[number];
+
+/** Horas que una tarjeta puede estar PLANEANDO / EN_CURSO / SUBIENDO antes de contarse como atascada. */
+export const HORAS_PARA_ATASCADA = 2;
+/** Minutos sin usar su clave a partir de los cuales el trabajador se considera sin señal. */
+export const MINUTOS_SIN_SENAL = 30;
+/** Horas hacia atrás de las tarjetas HECHO que se revisan cada día. */
+export const HORAS_DE_REVISION = 24;
+export const ESTADOS_QUE_SE_ATASCAN = ["PLANEANDO", "EN_CURSO", "SUBIENDO"] as const;
+
+/** "no se puede probar", "NO_SE_PUEDE_PROBAR" o "Falla" → el valor canónico; null si no es ninguno. */
+export function leerResultadoDeRevision(valor: unknown): ResultadoDeRevision | null {
+  if (typeof valor !== "string") return null;
+  const limpio = valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[_\s]+/g, " ")
+    .trim()
+    .toUpperCase();
+  return (RESULTADOS_DE_REVISION as readonly string[]).includes(limpio) ? (limpio as ResultadoDeRevision) : null;
+}
+
+export type RevisionDeSistemas = {
+  tarjetaId: string | null;
+  titulo: string;
+  repo: string | null;
+  commit: string | null;
+  resultado: ResultadoDeRevision;
+  /** FALLA: el error exacto. NO SE PUEDE PROBAR: el porqué. FUNCIONA: lo que se abrió. */
+  detalle: string | null;
+};
+
+/** Valida la lista de revisiones por tarjeta. Una sin resultado válido es un error legible (no se adivina). */
+export function leerRevisionesDeSistemas(valor: unknown): RevisionDeSistemas[] {
+  if (valor === undefined || valor === null || valor === "") return [];
+  if (!Array.isArray(valor)) throw new Error('"revisiones" tiene que ser una lista: una por tarjeta HECHO { titulo, repo, commit, resultado, detalle }.');
+  const revisiones: RevisionDeSistemas[] = [];
+  for (const crudo of valor.slice(0, 100)) {
+    if (!esObjeto(crudo)) continue;
+    const titulo = textoCorto(crudo.titulo, 200);
+    if (!titulo) throw new Error("Cada revisión necesita el título de la tarjeta.");
+    const resultado = leerResultadoDeRevision(crudo.resultado);
+    if (!resultado) throw new Error(`El resultado de "${titulo}" tiene que ser FUNCIONA, FALLA o NO SE PUEDE PROBAR.`);
+    const detalle = textoCorto(crudo.detalle, 2000);
+    if (resultado !== "FUNCIONA" && !detalle) {
+      throw new Error(`"${titulo}": ${resultado === "FALLA" ? "FALLA necesita el error exacto" : "NO SE PUEDE PROBAR necesita el porqué"} en "detalle".`);
+    }
+    revisiones.push({
+      tarjetaId: textoCorto(crudo.tarjetaId, 64),
+      titulo,
+      repo: textoCorto(crudo.repo, 20),
+      commit: textoCorto(crudo.commit, 80),
+      resultado,
+      detalle,
+    });
+  }
+  return revisiones;
+}
+
+export type ArregloDeSistemas = { titulo: string; commit: string | null; estado: "creada" | "se_crearia"; tarjetaId: string | null };
+
+/** Las tarjetas de arreglo POR_APROBAR: las creadas (interruptor prendido) o las que "se crearía" (apagado o en prueba). */
+export function leerArreglosDeSistemas(valor: unknown): ArregloDeSistemas[] {
+  if (valor === undefined || valor === null || valor === "") return [];
+  if (!Array.isArray(valor)) throw new Error('"arreglos" tiene que ser una lista { titulo, commit, estado: "creada"|"se_crearia" }.');
+  const arreglos: ArregloDeSistemas[] = [];
+  for (const crudo of valor.slice(0, 50)) {
+    if (!esObjeto(crudo)) continue;
+    const titulo = textoCorto(crudo.titulo, 300);
+    if (!titulo) continue;
+    const estado = crudo.estado === "creada" ? "creada" : "se_crearia";
+    arreglos.push({ titulo, commit: textoCorto(crudo.commit, 80), estado, tarjetaId: textoCorto(crudo.tarjetaId, 64) });
+  }
+  return arreglos;
+}
+
+/** La marca que lleva el título de la tarjeta de arreglo, para no repetirla todos los días. */
+export const marcaDeArreglo = (commit: string) => `[sistemas:${commit.trim().slice(0, 12)}]`;
+
+/** ¿Ya hay una tarjeta de arreglo (de cualquier estado, sin borrar) para este commit? */
+export function yaExisteArreglo(titulos: Iterable<string>, commit: string): boolean {
+  const marca = marcaDeArreglo(commit);
+  for (const titulo of titulos) if (titulo.includes(marca)) return true;
+  return false;
+}
+
+/** Una tarjeta en PLANEANDO / EN_CURSO / SUBIENDO por más de 2 h está atascada. `desde` = cuándo arrancó o su último movimiento. */
+export function estaAtascada(estado: string, desde: Date | null, ahora: Date, horas = HORAS_PARA_ATASCADA): boolean {
+  if (!(ESTADOS_QUE_SE_ATASCAN as readonly string[]).includes(estado) || !desde) return false;
+  return ahora.getTime() - desde.getTime() > horas * 3_600_000;
+}
+
+/** ¿Quedó HECHO dentro de las últimas 24 h? */
+export function quedoHechoRecien(hechoEn: Date | null, ahora: Date, horas = HORAS_DE_REVISION): boolean {
+  if (!hechoEn) return false;
+  const edad = ahora.getTime() - hechoEn.getTime();
+  return edad >= 0 && edad <= horas * 3_600_000;
+}
+
+export type VidaDelTrabajador = { vivo: boolean; minutosSinSenal: number | null; texto: string };
+
+/** El trabajador está vivo si usó su clave en los últimos 30 minutos. */
+export function vidaDelTrabajador(ultimoUsoEn: Date | null, ahora: Date): VidaDelTrabajador {
+  if (!ultimoUsoEn) return { vivo: false, minutosSinSenal: null, texto: "sin señal: la clave del trabajador nunca se ha usado" };
+  const minutos = Math.max(0, Math.round((ahora.getTime() - ultimoUsoEn.getTime()) / 60_000));
+  if (minutos > MINUTOS_SIN_SENAL) return { vivo: false, minutosSinSenal: minutos, texto: `sin señal desde ${ultimoUsoEn.toISOString()} (hace ${minutos} min)` };
+  return { vivo: true, minutosSinSenal: minutos, texto: `vivo: última señal hace ${minutos} min` };
+}
+
+export type HallazgosDeSistemas = {
+  fallas: number;
+  sinProbar: number;
+  funcionan: number;
+  atascadas: number;
+  enError: number;
+  trabajadorVivo: boolean;
+};
+
+/** La línea de UNA frase para Alexander: "Sistemas: todo funciona" o lo que está roto o atascado. */
+export function lineaDeSistemas(h: HallazgosDeSistemas): string {
+  const partes: string[] = [];
+  if (h.fallas > 0) partes.push(`${h.fallas} ${h.fallas === 1 ? "subida falla" : "subidas fallan"} en producción`);
+  if (h.atascadas > 0) partes.push(`${h.atascadas} ${h.atascadas === 1 ? "tarjeta atascada" : "tarjetas atascadas"} más de ${HORAS_PARA_ATASCADA} h`);
+  if (h.enError > 0) partes.push(`${h.enError} en ERROR`);
+  if (!h.trabajadorVivo) partes.push("el trabajador no da señal");
+  return partes.length ? `Sistemas: ${partes.join(", ")}` : "Sistemas: todo funciona";
+}
+
+/**
+ * La línea de sistemas para el mensaje de las 7:30 a Alexander. Null = no va nada (interruptor apagado).
+ * Prendido: la línea del agente ("Sistemas: todo funciona" o lo roto / atascado). Sin resumen: "Sistemas: sin revisión hoy".
+ */
+export function lineaDeSistemasParaAlexander(entrada: {
+  interruptorPrendido: boolean;
+  resumen: { linea: string | null; salioTarde: boolean; notaDeRetraso: string | null } | null;
+}): string | null {
+  if (!entrada.interruptorPrendido) return null;
+  const { resumen } = entrada;
+  if (!resumen || !resumen.linea) return "Sistemas: sin revisión hoy";
+  const partes = [resumen.linea.startsWith("Sistemas") ? resumen.linea : `Sistemas: ${resumen.linea}`];
+  if (resumen.salioTarde) partes.push(`(salió tarde${resumen.notaDeRetraso ? `: ${resumen.notaDeRetraso}` : ""})`);
+  return partes.join(" ");
+}
+
+/* ------------------------------------------------------------------------------------------------
+   CONTADOR DE USO
+------------------------------------------------------------------------------------------------ */
+
+export const TIPOS_DE_USO = ["pantalla", "herramienta"] as const;
+export type TipoDeUso = (typeof TIPOS_DE_USO)[number];
+
+/** La pantalla `/cliente/crm/agente-de-sistemas` y sus herramientas no se cuentan: inflarían el uso. */
+export const PANTALLA_PROPIA_DE_SISTEMAS = "/cliente/crm/agente-de-sistemas";
+export const HERRAMIENTAS_PROPIAS_DE_SISTEMAS = new Set(["agente_de_sistemas", "revision_de_sistemas"]);
+
+/** La ruta que se cuenta: solo `/cliente/...`, sin parámetros y a lo más tres niveles (no se cuentan ids de chats). Null = no se cuenta. */
+export function clavePantallaParaContar(ruta: unknown): string | null {
+  if (typeof ruta !== "string") return null;
+  const limpia = ruta.split(/[?#]/)[0].trim().replace(/\/+$/, "");
+  if (limpia !== "/cliente" && !limpia.startsWith("/cliente/")) return null;
+  const niveles = limpia.split("/").filter(Boolean).slice(0, 3);
+  const clave = `/${niveles.join("/")}`;
+  if (clave === PANTALLA_PROPIA_DE_SISTEMAS) return null;
+  return clave.slice(0, 120);
+}
+
+export function claveHerramientaParaContar(nombre: unknown): string | null {
+  if (typeof nombre !== "string") return null;
+  const limpio = nombre.trim().slice(0, 80);
+  if (!limpio || HERRAMIENTAS_PROPIAS_DE_SISTEMAS.has(limpio)) return null;
+  return limpio;
+}
+
+/** Las pantallas que una subida tocó: `src/app/cliente/crm/pauta/page.tsx` → `/cliente/crm/pauta` (a lo más tres niveles, como el contador). */
+export function pantallasDeArchivos(archivos: unknown): string[] {
+  if (!Array.isArray(archivos)) return [];
+  const rutas = new Set<string>();
+  for (const archivo of archivos) {
+    if (typeof archivo !== "string") continue;
+    const encontrado = archivo.replace(/\\/g, "/").match(/^src\/app\/(cliente(?:\/[^/]+)*)\/page\.tsx$/);
+    if (!encontrado) continue;
+    const ruta = clavePantallaParaContar(`/${encontrado[1]}`);
+    if (ruta) rutas.add(ruta);
+  }
+  return [...rutas];
 }

@@ -18,12 +18,21 @@ function lineaYRecomendacion(meta: unknown): { linea: string | null; recomendaci
   };
 }
 
+/** Sistemas guarda su línea y sus tarjetas de arreglo dentro de `meta`. */
+function lineaYArreglos(meta: unknown): { linea: string | null; arreglos: Array<{ titulo: string; estado: string }> } {
+  const datos = meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
+  const arreglos = Array.isArray(datos.arreglos)
+    ? datos.arreglos.flatMap((a) => (a && typeof a === "object" && typeof (a as { titulo?: unknown }).titulo === "string" ? [{ titulo: String((a as { titulo: string }).titulo), estado: String((a as { estado?: unknown }).estado ?? "se_crearia") }] : []))
+    : [];
+  return { linea: typeof datos.linea === "string" ? datos.linea : null, arreglos };
+}
+
 function hora(fecha: Date): string {
   return fecha.toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "short", timeStyle: "short" });
 }
 
 /**
- * LA PANTALLA DE UN AGENTE DE ÁREA (ventas o marketing): el resumen del día, lo que entregó cada subagente, los
+ * LA PANTALLA DE UN AGENTE DE ÁREA (ventas, marketing o sistemas): el resumen del día, lo que entregó cada subagente, los
  * mensajes internos que salieron (o se bloquearon) y el historial. Con el interruptor. La ven los mismos que ven
  * el Supervisor. Cada ruta (`/cliente/crm/agente-de-ventas`, `/agente-de-marketing`) solo dice de qué área es.
  */
@@ -68,11 +77,12 @@ export async function PaginaDeAgenteDeArea({ area: AREA, searchParams }: { area:
           subagentes: resumen.subagentes && typeof resumen.subagentes === "object" && !Array.isArray(resumen.subagentes) ? (resumen.subagentes as Record<string, unknown>) : {},
           sugeridos: Array.isArray(resumen.sugeridos) ? resumen.sugeridos.length : 0,
           ...(AREA === "marketing" ? lineaYRecomendacion(resumen.meta) : {}),
+          ...(AREA === "sistemas" ? lineaYArreglos(resumen.meta) : {}),
         }
       : null,
     envios: envios.map((envio) => ({ ...envio, hora: hora(envio.creadoEn) })),
     historial: historial.map((dia) => ({ fecha: dia.fecha, esPrueba: dia.esPrueba, salioTarde: dia.salioTarde, resumen: dia.resumen })),
-    sinNumeroDeAvisos,
+    sinNumeroDeAvisos: AREA === "sistemas" ? [] : sinNumeroDeAvisos,
   };
 
   return (
