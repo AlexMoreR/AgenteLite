@@ -118,6 +118,63 @@ test.describe("Asesora en celular (solo lectura)", () => {
     });
   });
 
+  test("5b. Pegar una imagen en la caja de mensaje (sin enviar)", async () => {
+    test.skip(!chatAbierto, "No hay chat abierto.");
+
+    // Si la prueba anterior se salto, la ficha puede seguir abierta tapando la caja.
+    if (await fichaMovil(pagina).isVisible()) {
+      await pagina.getByRole("button", { name: "Cerrar panel" }).click();
+      await expect(fichaMovil(pagina)).toBeHidden();
+    }
+    const caja = pagina.locator('textarea[name="message"]');
+    test.skip((await caja.count()) === 0, "El chat no tiene caja de mensaje.");
+
+    // PNG de 1x1; se dispara el evento "paste" como lo hace el celular (en `files`) y el computador (en `items`).
+    const pegar = (modo: "files" | "items" | "texto") =>
+      caja.evaluate((el, modoPegado) => {
+        const bytes = Uint8Array.from(
+          atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=="),
+          (c) => c.charCodeAt(0),
+        );
+        const datos = new DataTransfer();
+        if (modoPegado === "texto") {
+          datos.setData("text/plain", "hola");
+        } else if (modoPegado === "items") {
+          datos.items.add(new File([bytes], "image.png", { type: "image/png" }));
+        }
+        const evento = new Event("paste", { bubbles: true, cancelable: true }) as Event & {
+          clipboardData: DataTransfer;
+        };
+        if (modoPegado === "files") {
+          // Como Android/iPhone: la imagen solo se ve en `files`, `items` llega vacio.
+          const archivo = new File([bytes], "", { type: "image/png" });
+          Object.defineProperty(evento, "clipboardData", {
+            value: { items: [], files: [archivo], getData: () => "" },
+          });
+        } else {
+          Object.defineProperty(evento, "clipboardData", { value: datos });
+        }
+        return !el.dispatchEvent(evento); // true = la app cancelo el pegado (lo tomo ella)
+      }, modo);
+
+    const vistaPrevia = pagina.getByRole("dialog").filter({ hasText: "Enviar archivo" });
+
+    for (const modo of ["files", "items"] as const) {
+      await test.step(`pegar imagen en ${modo}: aparece la vista previa`, async () => {
+        expect(await pegar(modo)).toBe(true);
+        await expect(vistaPrevia).toBeVisible();
+        // Se cancela: esta prueba NUNCA envia nada al cliente.
+        await pagina.keyboard.press("Escape");
+        await expect(vistaPrevia).toBeHidden();
+      });
+    }
+
+    await test.step("pegar solo texto: no abre vista previa y el pegado sigue normal", async () => {
+      expect(await pegar("texto")).toBe(false);
+      await expect(vistaPrevia).toBeHidden();
+    });
+  });
+
   test("6. Cerrar sesion", async () => {
     await test.step("cerrar sesion", async () => {
       // Se usa la pagina de salida de NextAuth (/api/auth/signout) y no el menu del usuario:

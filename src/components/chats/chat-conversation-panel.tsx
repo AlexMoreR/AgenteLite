@@ -253,6 +253,52 @@ async function copiarArchivosAMemoria(
   return { archivos, ilegible: null };
 }
 
+/*
+  Imagenes que trae el portapapeles. En Android Chrome y iPhone Safari la imagen pegada suele
+  venir en `clipboardData.files` y no en `items`; en computador viene en `items`. Se mira en los
+  dos y se quitan repetidos. Si falta el nombre (vacio o `image.png` generico) o el tipo, se
+  completan para que la vista previa y el envio funcionen igual que con "Fotos y videos".
+*/
+function imagenesDelPortapapeles(datos: DataTransfer | null | undefined): File[] {
+  if (!datos) {
+    return [];
+  }
+  const candidatos: File[] = [];
+  for (const item of Array.from(datos.items ?? [])) {
+    if (item.kind === "file" && (item.type === "" || item.type.startsWith("image/"))) {
+      const archivo = item.getAsFile();
+      if (archivo) {
+        candidatos.push(archivo);
+      }
+    }
+  }
+  candidatos.push(...Array.from(datos.files ?? []));
+  const vistos = new Set<string>();
+  const imagenes: File[] = [];
+  for (const archivo of candidatos) {
+    const tipo = archivo.type || "image/png";
+    if (!tipo.startsWith("image/")) {
+      continue;
+    }
+    const huella = `${archivo.size}:${archivo.lastModified}:${tipo}`;
+    if (vistos.has(huella)) {
+      continue;
+    }
+    vistos.add(huella);
+    const extension = tipo.split("/")[1]?.split("+")[0] || "png";
+    const sinNombre = !archivo.name || /^image\.\w+$/i.test(archivo.name);
+    imagenes.push(
+      sinNombre || !archivo.type
+        ? new File([archivo], `imagen-pegada-${Date.now()}-${imagenes.length + 1}.${extension}`, {
+            type: tipo,
+            lastModified: archivo.lastModified,
+          })
+        : archivo,
+    );
+  }
+  return imagenes;
+}
+
 /** Si la barra de primera accion del celular quedo escondida ("no") o visible ("si"). */
 const CLAVE_BARRA_VISIBLE = "chat:barra-de-acciones";
 
@@ -2567,20 +2613,28 @@ export const ConversationPanel = memo(function ConversationPanel({
                           onMouseUp={(event) => syncComposerSelection(event.currentTarget)}
                           onBlur={(event) => syncComposerSelection(event.currentTarget)}
                           onPaste={(event) => {
-                            // Pegar (Ctrl+V) una imagen del portapapeles: se envía por el
+                            // Pegar (Ctrl+V o "Pegar" del celular) una imagen: se envía por el
                             // mismo flujo que "Fotos y videos" (previsualización + envío).
-                            if (!mediaConfig || isSendingMedia) {
+                            const images = imagenesDelPortapapeles(event.clipboardData);
+                            if (images.length === 0) {
+                              // Sin imagen: se deja pegar el texto normal.
                               return;
                             }
-                            const items = Array.from(event.clipboardData?.items ?? []);
-                            const images = items
-                              .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
-                              .map((item) => item.getAsFile())
-                              .filter((file): file is File => Boolean(file));
-                            if (images.length > 0) {
-                              event.preventDefault();
-                              setPendingMediaFiles(images);
+                            event.preventDefault();
+                            if (!mediaConfig) {
+                              return;
                             }
+                            if (isSendingMedia || isSendingAudio || isRecordingAudio) {
+                              toast.info("Espera a que termine el envío actual para pegar la imagen.");
+                              return;
+                            }
+                            void copiarArchivosAMemoria(images).then((copia) => {
+                              if (copia.ilegible) {
+                                toast.error(`No se pudo leer "${copia.ilegible}". Intenta copiarla de nuevo.`);
+                                return;
+                              }
+                              setPendingMediaFiles(copia.archivos);
+                            });
                           }}
                           /**
                            * 16px en el celular no es capricho: por debajo de eso el navegador
