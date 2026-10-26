@@ -43,6 +43,7 @@ import {
   whereDeFiltros,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
+import { estadoConBusqueda } from "@/lib/busqueda-de-chats";
 import { whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
 import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
 import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
@@ -244,7 +245,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : "";
 
   const params = await searchParams;
-  const selectedChatKeyParam = typeof params.chatKey === "string" ? params.chatKey : "";
+  const conversacionParam = typeof params.conversacion === "string" ? params.conversacion.trim() : "";
+  let selectedChatKeyParam = typeof params.chatKey === "string" ? params.chatKey : "";
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
 
@@ -332,8 +334,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   // Filtro de estado de conversación. Por DEFECTO se ocultan las resueltas (solo abiertas):
   // las resueltas solo aparecen al elegir "Resueltas" o "Todas".
   const statusParam = typeof params.status === "string" ? params.status.trim() : "";
-  const statusFilter: "all" | "open" | "resolved" =
+  const statusPedido: "all" | "open" | "resolved" =
     statusParam === "all" || statusParam === "resolved" ? statusParam : "open";
+  // Enlace directo (?conversacion=<id>): se abre con el estado en "Todos" para que se vea aunque
+  // este cerrado. Con algo escrito en el buscador el estado tampoco filtra (ver busqueda-de-chats).
+  const statusFilter: "all" | "open" | "resolved" = estadoConBusqueda(
+    searchQuery,
+    conversacionParam && !selectedChatKeyParam ? "all" : statusPedido,
+  );
   const statusWhere: Prisma.ConversationWhereInput =
     statusFilter === "resolved"
       ? { status: { in: ["CLOSED", "ARCHIVED"] } }
@@ -356,9 +364,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const errorMessage = typeof params.error === "string" ? params.error : "";
   const scrollMode = typeof params.scroll === "string" ? params.scroll : "";
 
-  const selectedChatRef = parseChatKey(selectedChatKeyParam);
-  const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
-
   /**
    * Canales que esta persona puede ver (ver channel-visibility).
    *
@@ -370,6 +375,33 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     userId: access.userId,
     esJefe: access.isOwner || access.role === "ADMIN",
   });
+
+  /**
+   * Enlace directo a un chat por su id (?conversacion=<id>), de WhatsApp normal o de la API oficial.
+   * Se convierte en el chatKey de siempre. Si el id no existe, es de otro negocio o de una linea que
+   * esta persona no puede ver, no pasa nada: se abre la bandeja normal.
+   */
+  if (conversacionParam && !selectedChatKeyParam) {
+    const delCanal = await prisma.conversation.findFirst({
+      where: {
+        id: conversacionParam,
+        workspaceId: membership.workspace.id,
+        ...(canalesVisibles ? { channelId: { in: canalesVisibles } } : {}),
+      },
+      select: { id: true },
+    });
+    if (delCanal) {
+      selectedChatKeyParam = `agent:${delCanal.id}`;
+    } else {
+      const oficial = await prisma.officialApiConversation.findFirst({
+        where: { id: conversacionParam, config: { workspaceId: membership.workspace.id } },
+        select: { id: true },
+      });
+      if (oficial) selectedChatKeyParam = `official:${oficial.id}`;
+    }
+  }
+  const selectedChatRef = parseChatKey(selectedChatKeyParam);
+  const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
 
 
   /**
@@ -532,8 +564,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   // scroll, con miles de chats abajo que nunca se podian ver.
   const agentConversationsConsumidas = agentConversationsRaw.slice(0, conversationListTake);
   const hasMoreConversationItems = agentConversationsRaw.length > conversationListTake;
+  // Buscando, tambien salen los pospuestos: si no, el cliente pospuesto "no existe" para la asesora.
   const agentConversationsBase = agentConversationsConsumidas.filter(
-    (conversation) => !isSnoozed(conversation.contact?.metadata),
+    (conversation) => Boolean(searchQuery) || !isSnoozed(conversation.contact?.metadata),
   );
   // Si el chat seleccionado (deep-link) no vino en el lote de la lista, lo agregamos para que el
   // panel lo abra. Va primero para que quede visible arriba al aterrizar desde Mi día.

@@ -155,6 +155,7 @@ function construirNodos(
   const { nivel, grupos } = gruposDelNivel(contenido.tarjetas, nivelPedido);
   const visibles = grupos.flatMap((grupo) => [grupo.centro, ...grupo.hijas]);
   const porId = new Map(contenido.tarjetas.map((tarjeta) => [tarjeta.id, tarjeta]));
+  const tipoDe = new Map(contenido.tipos.map((tipo) => [tipo.id, tipo]));
   const centros = new Set(grupos.map((grupo) => grupo.centro));
   const contadores = contadoresDe(contenido);
   const hijas = contarHijas(contenido.tarjetas);
@@ -176,6 +177,9 @@ function construirNodos(
         // Lo filtrado se atenúa en vez de desaparecer: así no se rompe el mapa.
         atenuado: filtrada(id, centros, contadores, filtros, mias),
         responsable: tarjeta.responsableNombre,
+        // El color y el ícono de su tipo (cualquiera, incluidos los que se creen después).
+        colorDelTipo: tipoDe.get(tarjeta.tipoId)?.color ?? null,
+        iconoDelTipo: tipoDe.get(tarjeta.tipoId)?.icono ?? null,
         alAbrirFicha: () => alAbrirFicha(id),
       },
     };

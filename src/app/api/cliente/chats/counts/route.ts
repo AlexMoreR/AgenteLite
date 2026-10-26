@@ -16,7 +16,7 @@ import {
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
-import { whereDeBusquedaDeChats, whereDeBusquedaDeChatsOficiales } from "@/lib/busqueda-de-chats";
+import { estadoConBusqueda, whereDeBusquedaDeChats, whereDeBusquedaDeChatsOficiales } from "@/lib/busqueda-de-chats";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +56,8 @@ function buildBaseWhere(input: {
       whereDeFiltros(input.filtros, input.sinResponder),
       // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
       { contact: { bloqueadoEn: null } },
-      input.snoozedContactIds.length ? { contactId: { notIn: input.snoozedContactIds } } : {},
+      // Buscando, los pospuestos tambien cuentan (igual que en la lista).
+      input.snoozedContactIds.length && !normalizedSearchQuery ? { contactId: { notIn: input.snoozedContactIds } } : {},
       input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {},
       input.selectedConnectionKey.startsWith("channel:")
         ? { channelId: input.selectedConnectionKey.slice("channel:".length) }
@@ -191,8 +192,10 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   const selectedConnectionKey = requestUrl.searchParams.get("connection")?.trim() || "";
   // Mismo default que la lista y la pantalla: solo abiertas.
   const requestedStatusRaw = requestUrl.searchParams.get("status")?.trim() || "";
-  const statusFilter: ChatsStatusFilter =
-    requestedStatusRaw === "all" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "open";
+  const statusFilter: ChatsStatusFilter = estadoConBusqueda(
+    searchQuery,
+    requestedStatusRaw === "all" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "open",
+  );
 
   /*
     Quien ve TODAS las conversaciones de sus lineas: dueño, administrador o supervisora.

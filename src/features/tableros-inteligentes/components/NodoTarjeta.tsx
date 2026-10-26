@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { ANCHO_CENTRO, ANCHO_TARJETA } from "../services/disposicion";
 import type { Contadores } from "../services/niveles";
 import { inicialDeLaPersona } from "../services/reglas";
+import { IconoDeTipo } from "./IconoDeTipo";
 
 export type DatosNodoTarjeta = {
   titulo: string;
@@ -19,6 +20,9 @@ export type DatosNodoTarjeta = {
   atenuado: boolean;
   /** El nombre de su responsable (se dibuja su inicial en un circulito); null si no tiene. */
   responsable: string | null;
+  /** El color y el ícono de su tipo (null si el tipo no los tiene): ícono junto al título y franja en el borde. */
+  colorDelTipo: string | null;
+  iconoDelTipo: string | null;
   /** Abre la ficha sin entrar (mantener presionada una tarjeta con hijas). */
   alAbrirFicha: () => void;
 };
@@ -99,6 +103,14 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
         evento.stopPropagation();
       }}
     >
+      {/* La franja fina del color de su tipo, en el borde de arriba. */}
+      {data.colorDelTipo ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-[3px]"
+          style={{ background: data.colorDelTipo }}
+        />
+      ) : null}
       {/* Las líneas se dibujan solas: los puntos de conexión no se muestran ni se arrastran. */}
       <Handle type="target" position={Position.Top} className="!pointer-events-none !opacity-0" isConnectable={false} />
       {data.responsable ? (
@@ -114,7 +126,16 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
         </span>
       ) : null}
       {/* El título: hasta 3 líneas (con o sin contadores) y entero al pasar el mouse. */}
-      <p className={cn("line-clamp-3 max-w-full break-words font-semibold", centro ? "text-sm" : "text-xs")}>{data.titulo}</p>
+      <div className="flex max-w-full items-start justify-center gap-1">
+        {data.iconoDelTipo || data.colorDelTipo ? (
+          <IconoDeTipo
+            icono={data.iconoDelTipo}
+            color={data.colorDelTipo ?? undefined}
+            className={cn("mt-px shrink-0", centro ? "size-4" : "size-3.5")}
+          />
+        ) : null}
+        <p className={cn("line-clamp-3 min-w-0 break-words font-semibold", centro ? "text-sm" : "text-xs")}>{data.titulo}</p>
+      </div>
       {lineas.map((linea) => (
         <p
           key={linea}

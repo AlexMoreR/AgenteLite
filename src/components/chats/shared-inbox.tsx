@@ -56,7 +56,7 @@ export type {
   StatusFilter,
 } from "./chat-inbox-types";
 import { normalizeChatSearchText, getMediaPreviewLabel } from "./chat-inbox-format";
-import { cifrasDeLaBusqueda } from "@/lib/busqueda-de-chats";
+import { estadoConBusqueda, variantesDeCifras } from "@/lib/busqueda-de-chats";
 import {
   normalizeLiveConversationSnapshot,
   normalizeLiveConversationListSnapshot,
@@ -1108,7 +1108,11 @@ export function SharedInbox({
       problema. Los items sin estado conocido se dejan pasar: no se puede decidir sobre lo que no
       se sabe.
     */
+    // Con algo escrito en el buscador el estado no filtra (igual que en el servidor): un chat
+    // cerrado o descartado tiene que poder encontrarse por nombre o numero.
+    const estadoVigente = estadoConBusqueda(searchInputValue, statusFilter);
     const porEstado = conversationItems.filter((item) => {
+      if (estadoVigente === "all" && statusFilter !== "all") return true;
       const resueltaAca = statusFilter === "open" ? resueltasAca.get(item.id) : undefined;
       if (resueltaAca !== undefined) {
         const ultimo = item.lastMessageAt ? new Date(item.lastMessageAt).getTime() : 0;
@@ -1129,7 +1133,7 @@ export function SharedInbox({
     }
 
     // "300 123 4567" tambien encuentra el numero guardado sin espacios (igual que el servidor).
-    const cifras = cifrasDeLaBusqueda(searchInputValue);
+    const cifras = variantesDeCifras(searchInputValue);
 
     /*
       Como en WhatsApp: en "Chats" van los que coinciden por NOMBRE o NUMERO; los que tienen la
@@ -1143,8 +1147,9 @@ export function SharedInbox({
       return (
         normalizeChatSearchText(item.label).includes(normalizedQuery) ||
         normalizeChatSearchText(item.secondaryLabel).includes(normalizedQuery) ||
-        (cifras !== null &&
-          (item.secondaryLabel.replace(/\D/g, "").includes(cifras) || item.label.replace(/\D/g, "").includes(cifras)))
+        cifras.some(
+          (c) => item.secondaryLabel.replace(/\D/g, "").includes(c) || item.label.replace(/\D/g, "").includes(c),
+        )
       );
     });
   }, [conversationItems, resueltasAca, searchInputValue, statusFilter]);
