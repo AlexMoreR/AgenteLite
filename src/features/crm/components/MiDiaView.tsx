@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
 import { MiDiaLeadDialog } from "./MiDiaLeadDialog";
-import { Clock, Flame, PhoneCall } from "lucide-react";
+import { ChevronDown, Clock, Flame, PhoneCall, Tag } from "lucide-react";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { CRM_STAGE_META } from "../domain/crm-config";
 import type { CrmStage } from "../types";
 import type { MiDiaLead } from "../services/getMiDiaData";
@@ -90,6 +91,40 @@ export function MiDiaView({
       </div>
 
       {llamadasUrgentes}
+
+      {/* Chats suyos sin etapa ("---"): que los clasifique antes de terminar el dia. */}
+      {data.sinEtapa && data.sinEtapa.total > 0 ? (
+        <Collapsible className="rounded-xl border border-amber-300/70 bg-amber-50/60 dark:border-amber-500/30 dark:bg-amber-500/10">
+          <CollapsibleTrigger className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-amber-800 dark:text-amber-300">
+            <Tag className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1">
+              {data.sinEtapa.total === 1
+                ? "Tienes 1 chat sin etapa — clasifícalo antes de terminar el día"
+                : `Tienes ${data.sinEtapa.total} chats sin etapa — clasifícalos antes de terminar el día`}
+            </span>
+            <ChevronDown className="h-4 w-4 shrink-0" />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <ul className="space-y-1 px-3 pb-2.5">
+              {data.sinEtapa.chats.map((chat) => (
+                <li key={chat.chatKey}>
+                  <Link
+                    href={`/cliente/chats?chatKey=${encodeURIComponent(chat.chatKey)}`}
+                    className="block truncate rounded-lg border border-border bg-card px-3 py-1.5 text-[13px] font-medium text-foreground transition hover:bg-muted/50"
+                  >
+                    {chat.name}
+                  </Link>
+                </li>
+              ))}
+              {data.sinEtapa.total > data.sinEtapa.chats.length ? (
+                <li className="px-1 text-[12px] text-muted-foreground">
+                  Y {data.sinEtapa.total - data.sinEtapa.chats.length} más.
+                </li>
+              ) : null}
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
+      ) : null}
 
       {porEtapa.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">

@@ -61,10 +61,23 @@ export type MiDiaLead = {
   esMio: boolean;
 };
 
+/** Un chat abierto de la asesora cuyo lead sigue en NUEVO ("---", sin etapa). */
+export type MiDiaChatSinEtapa = {
+  chatKey: string;
+  name: string;
+};
+
 export type MiDiaData = {
   generatedAt: string;
   leads: MiDiaLead[];
+  /**
+   * Chats suyos (abiertos, de las dos lineas) que siguen sin etapa. Es para que los clasifique
+   * antes de terminar el dia. null = no se pudo leer: Mi dia sale igual, sin el aviso.
+   */
+  sinEtapa?: { total: number; chats: MiDiaChatSinEtapa[] } | null;
 };
+
+const MAX_SIN_ETAPA_EN_LISTA = 50;
 
 function previewFromMessage(content: string | null, rawPayload: unknown, type: string | null) {
   const text = content?.trim() || extractEvolutionMessageText(rawPayload) || "";
@@ -84,12 +97,66 @@ export async function getMiDiaData(input: {
   visibleChannelIds?: string[] | null;
 }): Promise<MiDiaData> {
   try {
-    return await computeMiDiaData(input);
+    const [data, sinEtapa] = await Promise.all([computeMiDiaData(input), leerChatsSinEtapa(input)]);
+    return { ...data, sinEtapa };
   } catch (error) {
     // Una vista de trabajo no debe tumbar la pantalla si la consulta falla (timeout, etc.):
     // preferimos mostrar el estado vacio antes que un 500 en toda la seccion CRM.
     console.error("[mi-dia] fallo al calcular la lista de prioridad:", error);
     return { generatedAt: new Date().toISOString(), leads: [] };
+  }
+}
+
+/**
+ * Los chats ABIERTOS de esta asesora cuyo lead sigue en NUEVO, de las dos lineas (WhatsApp viejo
+ * y API oficial). Si la consulta falla devuelve null: el aviso es un extra y no puede tumbar Mi dia.
+ */
+async function leerChatsSinEtapa(input: {
+  workspaceId: string;
+  userId: string;
+  visibleChannelIds?: string[] | null;
+}): Promise<MiDiaData["sinEtapa"]> {
+  try {
+    const [viejos, oficiales] = await Promise.all([
+      prisma.conversation.findMany({
+        where: {
+          workspaceId: input.workspaceId,
+          assignedToUserId: input.userId,
+          contact: { crmStage: "NUEVO", excludedFromCrm: false },
+          ...WHERE_CHAT_ABIERTO,
+          ...(input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {}),
+        },
+        orderBy: { lastMessageAt: "desc" },
+        select: { id: true, contact: { select: { name: true, phoneNumber: true } } },
+      }),
+      prisma.$queryRaw<Array<{ id: string; name: string | null; phoneNumber: string | null }>>`
+        SELECT c."id" AS "id", COALESCE(ct."name", k."name") AS "name", COALESCE(ct."phoneNumber", k."phoneNumber") AS "phoneNumber"
+        FROM "OfficialApiConversation" c
+        INNER JOIN "OfficialApiClientConfig" cfg ON cfg."id" = c."configId"
+        INNER JOIN "OfficialApiContact" ct ON ct."id" = c."contactId"
+        INNER JOIN "Contact" k ON k."id" = ct."crmContactId"
+        WHERE cfg."workspaceId" = ${input.workspaceId}
+          AND c."assignedToUserId" = ${input.userId}
+          AND c."status" IN ('OPEN', 'PENDING')
+          AND k."crmStage" = 'NUEVO'
+          AND k."excludedFromCrm" = false
+        ORDER BY c."lastMessageAt" DESC NULLS LAST
+      `,
+    ]);
+    const chats: MiDiaChatSinEtapa[] = [
+      ...viejos.map((fila) => ({
+        chatKey: `agent:${fila.id}`,
+        name: fila.contact.name?.trim() || fila.contact.phoneNumber,
+      })),
+      ...oficiales.map((fila) => ({
+        chatKey: `official:${fila.id}`,
+        name: fila.name?.trim() || fila.phoneNumber || "Sin nombre",
+      })),
+    ];
+    return { total: chats.length, chats: chats.slice(0, MAX_SIN_ETAPA_EN_LISTA) };
+  } catch (error) {
+    console.error("[mi-dia] no se pudo contar los chats sin etapa:", error);
+    return null;
   }
 }
 
