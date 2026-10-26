@@ -40,8 +40,8 @@ export async function listarCarpetasDeGoogleAction(
 ): Promise<{ ok: true; carpetas: Array<{ id: string; nombre: string }> } | Fallo> {
   try {
     const access = await conPermiso("administrar");
-    const { drive } = await driveDelNegocio(access.workspaceId);
-    const carpetas = await drive.listarCarpetas(texto);
+    const { drive, modo } = await driveDelNegocio(access.workspaceId);
+    const carpetas = await drive.listarCarpetas(texto, { soloCompartidas: modo === "cuenta-servicio" });
     return { ok: true, carpetas: carpetas.map((carpeta) => ({ id: carpeta.driveId, nombre: carpeta.nombre })).slice(0, 100) };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudieron leer las carpetas de Drive") };

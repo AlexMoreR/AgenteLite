@@ -5,7 +5,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { CerebroPantalla } from "@/features/cerebro/components/CerebroPantalla";
 import { ConexionCerebro } from "@/features/cerebro/components/ConexionCerebro";
-import { googleConfigurado } from "@/features/cerebro/services/conexion";
+import { correoDeCuentaDeServicio, googleConfigurado, modoDelCerebro, tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 import { arbolDelCerebro } from "@/features/cerebro/services/consultas";
 import { permisosDelCerebro } from "@/features/cerebro/services/permisos";
 
@@ -66,8 +66,9 @@ export default async function ClienteCerebroPage({ searchParams }: { searchParam
       <ConexionCerebro
         puedeAdministrar={permisos.administrar}
         googleListo={googleConfigurado()}
+        cuentaDeServicio={modoDelCerebro() === "cuenta-servicio" ? correoDeCuentaDeServicio() : null}
         cuenta={conexion?.cuentaGoogle ?? null}
-        tienePermiso={Boolean(conexion?.tokenCifrado)}
+        tienePermiso={tieneAccesoAlDrive(conexion)}
         carpeta={conexion?.carpetaNombre ?? null}
         ultimoError={conexion?.ultimoError ?? null}
         miembros={miembros.map((miembro) => ({ userId: miembro.userId, nombre: miembro.user?.name?.trim() || miembro.user?.email || "Sin nombre" }))}

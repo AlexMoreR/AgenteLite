@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { buscarEnElCerebro, filasDelCerebro, leerDocumentoDelCerebro } from "@/features/cerebro/services/consultas";
 import { escribirEnElCerebro } from "@/features/cerebro/services/escribir";
 import { MAXIMO_ESCRITURA } from "@/features/cerebro/services/reglas";
+import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 
 /*
   CEREBRO por el MCP: cerebro_listar, cerebro_leer, cerebro_buscar y cerebro_escribir.
@@ -103,7 +104,7 @@ async function conectado(workspaceId: string) {
     where: { workspaceId },
     select: { carpetaId: true, carpetaNombre: true, tokenCifrado: true, ultimaSincronizacion: true, ultimoError: true },
   });
-  return conexion?.carpetaId && conexion.tokenCifrado ? conexion : null;
+  return conexion?.carpetaId && tieneAccesoAlDrive(conexion) ? conexion : null;
 }
 
 export async function ejecutarHerramientaMcpCerebro(nombre: string, args: Argumentos, contexto: Contexto): Promise<unknown> {

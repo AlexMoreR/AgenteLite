@@ -70,7 +70,12 @@ export function crearClienteDeDrive(token: string, fetchFn: FetchDeDrive = fetch
     });
     if (!respuesta.ok) {
       const cuerpo = await respuesta.text().catch(() => "");
-      const motivo = respuesta.status === 401 ? "Google ya no acepta el permiso: hay que reconectar el Drive." : `Drive respondió ${respuesta.status}`;
+      const motivo =
+        respuesta.status === 401
+          ? "Google ya no acepta el permiso: hay que reconectar el Drive."
+          : /storageQuotaExceeded/i.test(cuerpo)
+            ? "Google no deja que la cuenta de servicio cree archivos nuevos en un Drive personal (no tiene espacio propio). Agregar o reemplazar en un documento .md que ya existe sí funciona; o crea el archivo vacío en la carpeta y luego se escribe"
+            : `Drive respondió ${respuesta.status}`;
       throw new ErrorDeDrive(`${motivo}${cuerpo ? `: ${cuerpo.slice(0, 200)}` : ""}`, respuesta.status);
     }
     return respuesta;
@@ -94,9 +99,11 @@ export function crearClienteDeDrive(token: string, fetchFn: FetchDeDrive = fetch
 
   return {
     /** Las carpetas del Drive para que el dueño elija la del cerebro (con filtro opcional por nombre). */
-    async listarCarpetas(texto?: string) {
+    async listarCarpetas(texto?: string, opciones: { soloCompartidas?: boolean } = {}) {
       const filtro = texto?.trim() ? ` and name contains '${texto.trim().replace(/['\\]/g, " ")}'` : "";
-      return listar(`mimeType='${MIME_CARPETA}' and trashed=false${filtro}`);
+      // Con la cuenta de servicio: solo las carpetas que el dueño compartió con ella (no sus subcarpetas).
+      const compartidas = opciones.soloCompartidas ? " and sharedWithMe" : "";
+      return listar(`mimeType='${MIME_CARPETA}' and trashed=false${compartidas}${filtro}`);
     },
 
     async metadatos(driveId: string): Promise<MetadatosDeArchivo> {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
-import { urlDeInicioDeSesion, googleConfigurado } from "@/features/cerebro/services/conexion";
+import { urlDeInicioDeSesion, oauthConfigurado } from "@/features/cerebro/services/conexion";
 import { puedeAdministrarElCerebro } from "@/features/cerebro/services/reglas";
 import { origenDelPedido } from "../../origen";
 
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   if (!acceso || !puedeAdministrarElCerebro(acceso)) {
     return NextResponse.redirect(`${origen}${PANTALLA}?error=${encodeURIComponent("Solo el dueño conecta Google.")}`);
   }
-  if (!googleConfigurado()) {
+  if (!oauthConfigurado()) {
     return NextResponse.redirect(
       `${origen}${PANTALLA}?error=${encodeURIComponent("Falta configurar Google en el servidor (GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET y CEREBRO_CLAVE_CIFRADO).")}`,
     );

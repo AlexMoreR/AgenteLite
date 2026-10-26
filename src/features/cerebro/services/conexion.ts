@@ -1,9 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { cifrar, descifrar, firmarEstado, verificarEstado } from "./cifrado";
 import { crearClienteDeDrive, type ClienteDeDrive } from "./drive";
+import { cuentaDeServicioConfigurada, datosDeCuentaDeServicio, tokenDeCuentaDeServicio } from "./cuenta-servicio";
 
 /*
-  CEREBRO: la conexión con Google (OAuth) de cada negocio.
+  CEREBRO: la conexión con Google de cada negocio. Dos caminos (ver modoDelCerebro):
+  - CUENTA DE SERVICIO (si GOOGLE_SERVICE_ACCOUNT_EMAIL y _PRIVATE_KEY están): el dueño comparte la carpeta
+    con ese correo como Editor (permiso drive: lee y escribe textos, nunca borra). Es el camino preferido: no vence.
+  - OAuth (lo de abajo), si no hay cuenta de servicio.
 
   Quién inicia sesión en Google es siempre el dueño, en su navegador: el CRM nunca ve la contraseña.
   Se guarda solo el permiso de larga duración (refresh token), cifrado. Se pide el permiso "drive"
@@ -20,7 +24,28 @@ export function datosDeGoogle() {
   return clientId && clientSecret ? { clientId, clientSecret } : null;
 }
 
-export const googleConfigurado = () => Boolean(datosDeGoogle()) && Boolean(process.env.CEREBRO_CLAVE_CIFRADO?.trim());
+export const oauthConfigurado = () => Boolean(datosDeGoogle()) && Boolean(process.env.CEREBRO_CLAVE_CIFRADO?.trim());
+
+/**
+ * Cómo entra el cerebro al Drive. Si está la cuenta de servicio del servidor, se usa ELLA (no vence y no
+ * necesita OAuth ni cifrado). Si no, el camino de antes: "Conectar Google" con OAuth.
+ */
+export type ModoDelCerebro = "cuenta-servicio" | "oauth" | null;
+export function modoDelCerebro(): ModoDelCerebro {
+  if (cuentaDeServicioConfigurada()) return "cuenta-servicio";
+  return oauthConfigurado() ? "oauth" : null;
+}
+
+export const googleConfigurado = () => modoDelCerebro() !== null;
+
+/** El correo de la cuenta de servicio, para mostrarlo y para decirle al dueño con quién compartir la carpeta. */
+export const correoDeCuentaDeServicio = () => datosDeCuentaDeServicio()?.correo ?? null;
+
+/** Si el negocio tiene con qué entrar al Drive: la cuenta de servicio, o el permiso OAuth guardado. */
+export function tieneAccesoAlDrive(conexion: { tokenCifrado: string | null } | null | undefined): boolean {
+  if (modoDelCerebro() === "cuenta-servicio") return true;
+  return Boolean(conexion?.tokenCifrado);
+}
 
 /** La dirección de regreso de Google, según el sitio desde donde entra el dueño. */
 export function direccionDeRegreso(origen: string) {
@@ -107,7 +132,26 @@ export function leerConexion(workspaceId: string) {
 }
 
 /** El cliente de Drive del negocio, o un error claro si no está conectado o el permiso se perdió. */
-export async function driveDelNegocio(workspaceId: string): Promise<{ drive: ClienteDeDrive; conexion: ConexionDelCerebro }> {
+export async function driveDelNegocio(
+  workspaceId: string,
+): Promise<{ drive: ClienteDeDrive; conexion: ConexionDelCerebro; modo: "cuenta-servicio" | "oauth" }> {
+  if (modoDelCerebro() === "cuenta-servicio") {
+    // Con la cuenta de servicio no hay permiso que guardar, solo la carpeta: la fila se crea si no existe.
+    const conexion =
+      (await leerConexion(workspaceId)) ??
+      (await prisma.cerebroConexion.upsert({
+        where: { workspaceId },
+        create: { workspaceId, cuentaGoogle: correoDeCuentaDeServicio() },
+        update: {},
+      }));
+    try {
+      return { drive: crearClienteDeDrive(await tokenDeCuentaDeServicio()), conexion, modo: "cuenta-servicio" };
+    } catch (fallo) {
+      const mensaje = fallo instanceof Error ? fallo.message : "Google no aceptó la cuenta de servicio.";
+      await prisma.cerebroConexion.update({ where: { workspaceId }, data: { ultimoError: mensaje.slice(0, 500) } }).catch(() => undefined);
+      throw new Error(mensaje);
+    }
+  }
   const conexion = await leerConexion(workspaceId);
   if (!conexion?.tokenCifrado) throw new Error("El cerebro no está conectado a Google Drive.");
   const google = datosDeGoogle();
@@ -119,7 +163,7 @@ export async function driveDelNegocio(workspaceId: string): Promise<{ drive: Cli
       refresh_token: descifrar(conexion.tokenCifrado),
       grant_type: "refresh_token",
     });
-    return { drive: crearClienteDeDrive(token.access_token), conexion };
+    return { drive: crearClienteDeDrive(token.access_token), conexion, modo: "oauth" };
   } catch (fallo) {
     const mensaje = fallo instanceof Error ? fallo.message : MENSAJE_RECONECTAR;
     await prisma.cerebroConexion.update({ where: { workspaceId }, data: { ultimoError: mensaje.slice(0, 500) } }).catch(() => undefined);
