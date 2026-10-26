@@ -19,6 +19,7 @@ import { actualizarCuandoSeaPosible, crearVigilanteDeVersion, marcarActualizacio
 import { crearPlanificador, unaVuelta } from "./lib/bucle.mjs";
 import { leerConfig } from "./lib/config.mjs";
 import { crearCrm } from "./lib/crm.mjs";
+import { manualNocturno } from "./lib/manual-nocturno.mjs";
 import { crearLatido } from "./lib/latido.mjs";
 import { crearMedidor } from "./lib/recursos.mjs";
 import { git } from "./lib/git.mjs";
@@ -126,6 +127,13 @@ while (!parar) {
     }
   } catch (error) {
     avisarFallo(error);
+  }
+  if (parar) break;
+  // El manual al día, una vez cada noche (lib/manual-nocturno.mjs). Mientras trabaja no se toman tarjetas nuevas.
+  try {
+    await manualNocturno({ config, registro, planificador, avisar: (texto) => crm.aviso(texto) });
+  } catch (error) {
+    registro.error(`manual de la noche: ${error.message}`);
   }
   if (parar) break;
   const nueva = vigilante ? await vigilante.revisar() : null;

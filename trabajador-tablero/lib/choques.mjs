@@ -56,9 +56,17 @@ export const esDocumento = (ruta) => /\.md$/i.test(String(ruta));
  */
 export const SIN_CHOQUE_POR_DEFECTO = ["**/*.md"];
 
+/**
+ * El manual y las notas de cambios pendientes NUNCA hacen chocar (25-oct-2026), pase lo que pase con la configuración:
+ * las tareas no editan docs/que-es-esta-aplicacion.md, dejan una nota en docs/cambios-pendientes/<id>.md y el
+ * Coordinador junta las notas en el manual una vez cada noche (lib/manual-nocturno.mjs).
+ */
+export const RUTAS_SIEMPRE_SIN_CHOQUE = ["docs/que-es-esta-aplicacion.md", "docs/cambios-pendientes", "docs/cambios-pendientes/**"];
+
 /** ¿Este archivo no cuenta para chocar? `globs` = repoConfig.sinChoque (o el defecto). */
 export function noChoca(ruta, globs = SIN_CHOQUE_POR_DEFECTO) {
-  const limpia = String(ruta).replace(/\\/g, "/");
+  const limpia = String(ruta).replace(/\\/g, "/").replace(/^\.\//, "");
+  if (RUTAS_SIEMPRE_SIN_CHOQUE.some((glob) => globARegex(glob).test(limpia))) return true;
   return (globs ?? SIN_CHOQUE_POR_DEFECTO).some((glob) => globARegex(glob).test(limpia));
 }
 

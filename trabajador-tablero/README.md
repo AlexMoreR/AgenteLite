@@ -391,6 +391,12 @@ Para volver atrás, la misma línea con `-replace 'lanzador.mjs','trabajador.mjs
 
 Pruebas: `pruebas/probar-autoactualizar.mjs` (repos git temporales y un Coordinador falso).
 
+## El manual al día, una vez cada noche (25-oct-2026)
+
+Las tareas ya **no editan** `docs/que-es-esta-aplicacion.md` (casi todas lo ponían en la parte 5 del plan y por eso corrían de a una). Cada tarea deja una nota en `docs/cambios-pendientes/<id-corto>.md` (formato en el README de esa carpeta; la orden está en `promptDeConstruir` y `promptDeNube`, que dicen "aunque el plan lo diga"). El detector de choques (`lib/choques.mjs`) ignora siempre el manual y la carpeta de notas: un plan que solo nombra eso no choca con nadie.
+
+`lib/manual-nocturno.mjs` lo llama el bucle en cada vuelta y solo hace algo si ya pasó la hora (`manual: { activo: true, hora: 23, repo: "aizencrm" }`, hora de Bogotá), hoy no se hizo y ninguna tarea está subiendo (`planificador.subiendo()`). Trae main, abre una copia aparte, y si hay notas abre una sesión de Claude (modelo de construir) que las pasa al manual y las borra. Antes de subir revisa que solo cambiaron el manual y las notas, que siguen todos los títulos `## ...` y que se borraron justo las notas pasadas (las que la sesión dejó con `SIN_PASAR:` quedan). Si todo cuadra, commit "manual: junta N notas de cambios pendientes" y `pushARamaBase` (sin forzar); avisa en el panel (`crm.aviso`). Si algo falla no sube nada y reintenta (cada 10 min, hasta 3 veces por noche). El día hecho queda en `<carpetaTrabajo>/manual-nocturno.json`. Mientras trabaja el bucle no toma tarjetas nuevas.
+
 ## Pruebas
 
 ```
@@ -409,7 +415,8 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 - `lanzador.mjs`: lo que corre la tarea de Windows: arranca `trabajador.mjs`, lo relanza tras una actualización y lo deshace si el nuevo se cae al arrancar.
 - `lib/autoactualizar.mjs`: mirar si main trae código nuevo, esperar las tarjetas, `pull --ff-only`, probar el arranque, revertir y el estado `actualizacion.json`.
 - `lib/bucle.mjs`: el planificador (varias a la vez) y una vuelta (tomar, la etapa con latido, avisar el resultado o el error).
-- `lib/choques.mjs`: qué tarjetas no pueden ir a la vez (zona, módulo, cola de subida).
+- `lib/choques.mjs`: qué tarjetas no pueden ir a la vez (zona, módulo, cola de subida); el manual y `docs/cambios-pendientes` nunca cuentan.
+- `lib/manual-nocturno.mjs`: el trabajo de noche que junta las notas de `docs/cambios-pendientes` en el manual y lo sube a main.
 - `lib/recursos.mjs`: CPU y memoria del PC (y memoria en GB y disco libre para el latido).
 - `lib/latido.mjs`: el latido de cada 15 s al CRM para el panel "Coordinador en vivo".
 - `lib/nube.mjs`: la regla de reparto (grande o chica), el lanzamiento de `claude --cloud` (con o sin terminal real), el link de la sesión y la vigilancia de la rama en GitHub.

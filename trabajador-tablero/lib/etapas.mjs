@@ -417,6 +417,9 @@ const SIN_SUBAGENTES_AL_CONSTRUIR = [
   "- Si un comando necesita internet o la base y no puede correr acá, sigue: el Coordinador corre tsc, build, lint y las pruebas después.",
 ].join("\n");
 
+const REGLA_DEL_MANUAL = (tarjeta) =>
+  `No edites docs/que-es-esta-aplicacion.md, aunque el plan lo diga: el Coordinador junta los cambios en el manual una vez cada noche. Si tu cambio agrega un modelo, una pantalla, una automatización, una limitación o una advertencia de operación, escríbelo en docs/cambios-pendientes/${idCorto(tarjeta.id)}.md (el formato está en docs/cambios-pendientes/README.md: la sección del manual con su mismo título "## ..." y líneas "- <clave>: descripción"). Cada tarea escribe solo su propio archivo.`;
+
 function contextoDeLaTarjeta(tarjeta) {
   const error = tarjeta.resultado?.error?.motivo;
   return [
@@ -540,6 +543,7 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
       "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). NUNCA prisma migrate dev, migrate deploy, db push ni nada contra una base de datos.",
       `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
       "- Respeta el estilo del repo y escribe los comentarios en español.",
+      `- ${REGLA_DEL_MANUAL(tarjeta)}`,
       motor === "codex" ? SIN_SUBAGENTES_AL_CONSTRUIR : SUBAGENTES_AL_CONSTRUIR,
       "- NO corras `npm run build` ni `next build` (ni `next dev`, ni nada que quede corriendo): el Coordinador compila él mismo al terminar, y dos builds en la misma carpeta se traban en `.next/lock`.",
       // 25-oct-2026: `eslint .` y toda la batería dentro de la sesión corrían FUERA de la cola de pasos pesados (cola.mjs)
@@ -590,6 +594,7 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null 
       `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
       "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). El Coordinador las ensaya después contra producción, no tú.",
     ].join("\n"),
+    `MANUAL: ${REGLA_DEL_MANUAL(tarjeta)}`,
     "Respeta el estilo del repo y escribe los comentarios en español. Si terminas SIN haber cambiado ningún archivo, escribe como última línea de tu resumen: NO_CAMBIE: <el motivo en una frase>. Termina con un RESUMEN corto en español sencillo: qué cambiaste, qué archivos y cómo lo probaste.",
   ]
     .filter(Boolean)

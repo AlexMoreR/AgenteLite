@@ -42,6 +42,7 @@ import {
 import { armarLatido, crearLatido } from "../lib/latido.mjs";
 import { faltanRecursos, leerCarga } from "../lib/recursos.mjs";
 import { crearRegistro } from "../lib/registro.mjs";
+import { manualNocturno, notasPendientes, revisarResultado } from "../lib/manual-nocturno.mjs";
 import { globARegex, zonasTocadas } from "../lib/zonas.mjs";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
@@ -639,6 +640,190 @@ await prueba("choques: archivos y módulos del plan; misma zona o módulo del mi
     repos,
   );
   assert.deepEqual(Object.keys(chocan), ["b"]);
+});
+
+await prueba("manual: la medida de la tarjeta, dos tareas con código distinto y el manual + su nota en la parte 5 corren a la vez", async () => {
+  const repos = { aizencrm: { zonasProtegidas: {} } };
+  const tarea = (id, archivo) => ({
+    id,
+    titulo: id,
+    repo: "aizencrm",
+    plan: `**5. Archivos que se tocan:**\n- ${archivo}\n- docs/que-es-esta-aplicacion.md\n- docs/cambios-pendientes/${id}.md\n6. Cómo se va a probar: npm test`,
+    zonaProtegida: [],
+  });
+  const a = huellaDeTarjeta(tarea("a1", "src/features/a/x.ts"), "construir", repos.aizencrm);
+  const b = huellaDeTarjeta(tarea("b2", "src/lib/b.ts"), "construir", repos.aizencrm);
+  assert.equal(motivoDeChoque(a, b), null, "no chocan");
+  assert.deepEqual(candidatasQueChocan([{ ...tarea("b2", "src/lib/b.ts"), hacer: "construir" }], [a], repos), {});
+  // Aunque el repo tenga una lista de "sin choque" propia que no incluya los .md, el manual y las notas nunca chocan.
+  const repoSinMd = { aizencrm: { zonasProtegidas: {}, sinChoque: ["**/*.txt"] } };
+  assert.equal(motivoDeChoque(huellaDeTarjeta(tarea("a1", "src/features/a/x.ts"), "construir", repoSinMd.aizencrm), huellaDeTarjeta(tarea("b2", "src/lib/b.ts"), "construir", repoSinMd.aizencrm)), null);
+  // Las reglas de siempre siguen.
+  assert.match(motivoDeChoque(a, huellaDeTarjeta(tarea("c3", "src/features/a/otro.ts"), "construir", repos.aizencrm)), /módulo features\/a/);
+  assert.match(motivoDeChoque(huellaDeTarjeta(tarea("s1", "src/x/a.ts"), "subir", repos.aizencrm), huellaDeTarjeta(tarea("s2", "src/y/b.ts"), "subir", repos.aizencrm)), /de a una/);
+  assert.match(motivoDeChoque(a, huellaDeTarjeta({ id: "d", titulo: "d", repo: "aizencrm", plan: "Cambiar el color." }, "construir", repos.aizencrm)), /no dice qué archivos/);
+  // Un plan que solo nombra el manual o las notas no choca con nadie.
+  const soloManual = huellaDeTarjeta({ id: "m", titulo: "m", repo: "aizencrm", plan: "5. Archivos:\n- docs/que-es-esta-aplicacion.md\n- docs/cambios-pendientes/m.md" }, "construir", repos.aizencrm);
+  assert.equal(soloManual.modulos.size, 0);
+  assert.equal(motivoDeChoque(soloManual, a), null);
+  assert.equal(motivoDeChoque(soloManual, soloManual), null);
+});
+
+await prueba("manual: la configuración (prendido, 23 h, aizencrm) se valida", async () => {
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
+  assert.deepEqual(completarConfig(base).manual, { activo: true, hora: 23, repo: "aizencrm" });
+  assert.equal(completarConfig({ ...base, manual: { hora: 2 } }).manual.hora, 2);
+  assert.throws(() => completarConfig({ ...base, manual: { hora: 24 } }), /manual\.hora/);
+  assert.throws(() => completarConfig({ ...base, manual: { activo: "si" } }), /manual\.activo/);
+});
+
+await prueba("manual: las instrucciones de construir (aizen1 y nube) prohíben editar el manual y piden la nota", async () => {
+  const repo = { clave: "aizencrm", subirSolo: true, zonasProtegidas: {}, instalar: ["npm", "ci"], verificar: [], pruebas: [] };
+  const tarjeta = { id: "tarjetaABCD1234", titulo: "Algo", tablero: "T", detalle: "d", intentos: 1, plan: "5. Archivos: docs/que-es-esta-aplicacion.md", zonasAprobadas: [] };
+  for (const texto of [promptDeConstruir(tarjeta, repo, "tablero/x"), promptDeNube(tarjeta, repo, "tablero/x")]) {
+    assert.match(texto, /No edites docs\/que-es-esta-aplicacion\.md, aunque el plan lo diga/);
+    assert.match(texto, /docs\/cambios-pendientes\/ABCD1234\.md/);
+  }
+});
+
+await prueba("manual: la revisión antes de subir rechaza código, títulos perdidos y notas de más; acepta lo correcto", async () => {
+  const notas = ["a.md", "b.md"];
+  const titulosAntes = ["## Uno", "## Dos"];
+  const bueno = [{ letra: "M", archivo: "docs/que-es-esta-aplicacion.md" }, { letra: "D", archivo: "docs/cambios-pendientes/a.md" }, { letra: "D", archivo: "docs/cambios-pendientes/b.md" }];
+  const revisar = (cambios, extra = {}) => revisarResultado({ cambios, notas, titulosAntes, manualDespues: "## Uno\n## Dos\n- x", ...extra });
+  assert.equal(revisar(bueno).ok, true);
+  assert.match(revisar([...bueno, { letra: "??", archivo: "src/x.ts" }]).motivo, /no son el manual ni las notas/);
+  assert.match(revisar(bueno, { manualDespues: "## Uno\n" }).motivo, /faltan títulos/);
+  assert.match(revisar(bueno.slice(0, 2)).motivo, /no son justo las que se pasaron/);
+  assert.match(revisar([...bueno, { letra: "D", archivo: "docs/cambios-pendientes/README.md" }]).motivo, /no son justo/);
+  assert.equal(revisar(bueno.slice(0, 2), { sinPasar: ["b.md"] }).ok, true, "la que la sesión no entendió queda");
+  assert.match(revisar([{ letra: "M", archivo: "docs/que-es-esta-aplicacion.md" }]).motivo, /ninguna nota/);
+});
+
+await prueba("manual de la noche: antes de la hora, sin notas, con notas, no se repite, rechazos y tarea subiendo", async () => {
+  const M = fs.mkdtempSync(path.join(os.tmpdir(), "manual-nocturno-"));
+  try {
+    const remoto = path.join(M, "remoto.git");
+    const repoM = path.join(M, "repo");
+    const mg = (cwd, ...args) => execFileSync("git", ["-c", "user.name=Prueba", "-c", "user.email=prueba@x.co", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const escribirM = (relativo, texto) => {
+      fs.mkdirSync(path.dirname(path.join(repoM, relativo)), { recursive: true });
+      fs.writeFileSync(path.join(repoM, relativo), texto);
+    };
+    fs.mkdirSync(repoM);
+    execFileSync("git", ["init", "--bare", "-b", "main", remoto], { stdio: "ignore" });
+    mg(repoM, "init", "-b", "main");
+    escribirM("docs/que-es-esta-aplicacion.md", "# Manual\n\n## Módulos\n- `uno`: el uno.\n\n## Advertencias de operación\n- `a`: cuidado.\n");
+    escribirM("docs/cambios-pendientes/README.md", "# Notas\n");
+    escribirM("src/codigo.ts", "export {};\n");
+    mg(repoM, "add", "-A");
+    mg(repoM, "commit", "-m", "base");
+    mg(repoM, "remote", "add", "origin", remoto);
+    mg(repoM, "push", "-u", "origin", "main");
+    // Las notas llegan a main desde otra copia (como las que suben las tareas).
+    const subirNotas = (notas) => {
+      for (const [nombre, texto] of Object.entries(notas)) escribirM(`docs/cambios-pendientes/${nombre}`, texto);
+      mg(repoM, "add", "-A");
+      mg(repoM, "commit", "-m", "notas");
+      mg(repoM, "push", "origin", "main");
+    };
+    const principal = () => execFileSync("git", ["--git-dir", remoto, "rev-parse", "main"], { encoding: "utf8" }).trim();
+    const config = completarConfig({
+      urlCrm: "https://crm.test",
+      claveTrabajador: "aizen_trab_x",
+      carpetaTrabajo: path.join(M, "trabajo"),
+      comandoClaude: [process.execPath, path.join(AQUI, "claude-falso.mjs")],
+      git: { nombre: "Trabajador de prueba", correo: "trabajador@x.co" },
+      repos: { aizencrm: { ruta: repoM } },
+    });
+    const registroM = crearRegistro(path.join(M, "trabajo"), { consola: false });
+    const avisos = [];
+    const avisar = async (texto) => void avisos.push(texto);
+    const noche = new Date("2026-10-26T04:30:00Z"); // 23:30 del 25-oct en Bogotá
+    const tarde = new Date("2026-10-26T01:00:00Z"); // 20:00 en Bogotá
+    const subiendo = (n) => ({ subiendo: () => n });
+    const correrM = (opciones = {}) => manualNocturno({ config, registro: registroM, planificador: subiendo(0), avisar, ahora: () => noche, esperaEntreIntentosMs: 0, ...opciones });
+    const estadoM = () => JSON.parse(fs.readFileSync(path.join(M, "trabajo", "manual-nocturno.json"), "utf8"));
+    const sinWorktrees = () => assert.equal(mg(repoM, "worktree", "list", "--porcelain").split(/\r?\n/).filter((l) => l.startsWith("worktree ")).length, 1);
+
+    // Antes de la hora no hace nada.
+    assert.equal((await correrM({ ahora: () => tarde })).motivo, "todavía no es la hora");
+    assert.ok(!fs.existsSync(path.join(M, "trabajo", "manual-nocturno.json")));
+
+    // Con notas pero una tarea subiendo: espera.
+    subirNotas({ "t1.md": "## Módulos\n- `dos`: el dos.\n", "t2.md": "## Advertencias de operación\n- `b`: otra cuidado.\n" });
+    const conNotas = principal();
+    assert.equal((await correrM({ planificador: subiendo(1) })).motivo, "hay una tarea subiendo a main");
+    assert.equal(principal(), conNotas);
+
+    // Si la sesión cambia código: no sube nada, avisa y cuenta el intento.
+    process.env.CLAUDE_FALSO_MANUAL = "codigo";
+    let r = await correrM();
+    assert.equal(r.fallo, true);
+    assert.match(r.motivo, /no son el manual ni las notas/);
+    assert.equal(principal(), conNotas, "no subió");
+    assert.equal(estadoM().intentos, 1);
+    assert.match(avisos.at(-1), /No se subió nada/);
+    // Si borra un título del manual: tampoco.
+    process.env.CLAUDE_FALSO_MANUAL = "titulo";
+    r = await correrM();
+    assert.match(r.motivo, /faltan títulos/);
+    assert.equal(principal(), conNotas);
+    assert.equal(estadoM().intentos, 2);
+    sinWorktrees();
+
+    // Con la sesión bien: pasa las 2 notas, las borra, un commit a main, y ese día no se repite.
+    process.env.CLAUDE_FALSO_MANUAL = "";
+    r = await correrM();
+    assert.equal(r.hizo, true, r.motivo);
+    assert.equal(r.notas, 2);
+    assert.notEqual(principal(), conNotas);
+    assert.match(execFileSync("git", ["--git-dir", remoto, "log", "-1", "--format=%s", "main"], { encoding: "utf8" }), /^manual: junta 2 notas de cambios pendientes/);
+    mg(repoM, "pull", "--quiet", "origin", "main");
+    assert.deepEqual(notasPendientes(repoM), []);
+    assert.ok(fs.existsSync(path.join(repoM, "docs/cambios-pendientes/README.md")), "el README se queda");
+    const manual = fs.readFileSync(path.join(repoM, "docs/que-es-esta-aplicacion.md"), "utf8");
+    assert.match(manual, /`dos`: el dos/);
+    assert.match(manual, /`b`: otra cuidado/);
+    assert.match(avisos.at(-1), /pasé 2 nota/);
+    assert.equal(estadoM().hecho, true);
+    const despues = principal();
+    assert.equal((await correrM()).motivo, "ya se hizo hoy");
+    assert.equal(principal(), despues);
+    sinWorktrees();
+
+    // Otro día sin notas: lo marca como hecho y no sube nada.
+    const otroDia = new Date("2026-10-27T04:30:00Z");
+    r = await correrM({ ahora: () => otroDia });
+    assert.equal(r.motivo, "sin notas");
+    assert.equal(estadoM().hecho, true);
+    assert.equal(estadoM().dia, "2026-10-26");
+    assert.equal(principal(), despues);
+
+    // Una nota que la sesión no entendió queda sin borrar y se dice en el aviso.
+    subirNotas({ "t3.md": "## Módulos\n- `tres`: el tres.\n", "t4.md": "## Módulos\n- `cuatro`: el cuatro.\n" });
+    process.env.CLAUDE_FALSO_MANUAL = "una-sin-pasar";
+    r = await correrM({ ahora: () => new Date("2026-10-28T04:30:00Z") });
+    assert.equal(r.hizo, true, r.motivo);
+    assert.deepEqual(r.sinPasar, ["t3.md"]);
+    assert.match(avisos.at(-1), /Quedaron sin pasar: t3\.md/);
+    mg(repoM, "pull", "--quiet", "origin", "main");
+    assert.deepEqual(notasPendientes(repoM), ["t3.md"]);
+
+    // Tres intentos fallidos en la noche y no se insiste más.
+    subirNotas({ "t5.md": "## Módulos\n- `cinco`: el cinco.\n" });
+    process.env.CLAUDE_FALSO_MANUAL = "sin-borrar";
+    const dia4 = () => new Date("2026-10-29T04:30:00Z");
+    for (let i = 0; i < 3; i += 1) assert.equal((await correrM({ ahora: dia4 })).fallo, true);
+    assert.equal((await correrM({ ahora: dia4 })).motivo, "ya se intentó 3 veces hoy");
+    // Y con la espera normal entre intentos, el segundo intento aún no toca.
+    assert.equal((await correrM({ ahora: () => new Date("2026-10-30T04:30:00Z"), esperaEntreIntentosMs: 10 * 60_000 })).fallo, true);
+    assert.equal((await correrM({ ahora: () => new Date("2026-10-30T04:31:00Z"), esperaEntreIntentosMs: 10 * 60_000 })).motivo, "espera para reintentar");
+    sinWorktrees();
+  } finally {
+    delete process.env.CLAUDE_FALSO_MANUAL;
+    fs.rmSync(M, { recursive: true, force: true, maxRetries: 3 });
+  }
 });
 
 /* ─────────────────────────────────────────────────────────── el escenario ── */

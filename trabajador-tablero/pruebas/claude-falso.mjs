@@ -146,6 +146,26 @@ const escribir = (archivo, texto) => {
   fs.mkdirSync(path.dirname(archivo), { recursive: true });
   fs.writeFileSync(archivo, texto);
 };
+// El trabajo de noche del manual (lib/manual-nocturno.mjs): pasa las notas de docs/cambios-pendientes al manual y las borra.
+// CLAUDE_FALSO_MANUAL: "codigo" = además cambia un archivo de código, "titulo" = borra un título `## ...`,
+// "sin-borrar" = no borra las notas, "una-sin-pasar" = deja la primera nota y lo dice (SIN_PASAR), "borra-de-mas" = borra el README.
+if (prompt.includes("JUNTAR NOTAS DEL MANUAL")) {
+  const variante = process.env.CLAUDE_FALSO_MANUAL ?? "";
+  const carpetaNotas = "docs/cambios-pendientes";
+  const notas = fs.readdirSync(carpetaNotas).filter((n) => n.endsWith(".md") && n.toLowerCase() !== "readme.md").sort();
+  const dejada = variante === "una-sin-pasar" ? notas[0] : null;
+  let manual = fs.readFileSync("docs/que-es-esta-aplicacion.md", "utf8");
+  for (const nota of notas.filter((n) => n !== dejada)) {
+    manual += `${fs.readFileSync(path.join(carpetaNotas, nota), "utf8").trim()}\n`;
+    if (variante !== "sin-borrar") fs.rmSync(path.join(carpetaNotas, nota));
+  }
+  if (variante === "titulo") manual = manual.replace(/^## Advertencias.*$/gm, "");
+  fs.writeFileSync("docs/que-es-esta-aplicacion.md", manual);
+  if (variante === "codigo") escribir("src/codigo.ts", "export const x = 1;\n");
+  if (variante === "borra-de-mas") fs.rmSync(path.join(carpetaNotas, "README.md"));
+  console.log(`RESUMEN: junté ${notas.length} notas.${dejada ? `\nSIN_PASAR: ${dejada}` : ""}`);
+  process.exit(0);
+}
 if (titulo.includes("[atascado]")) {
   // Lanza "tareas en segundo plano" y se queda esperando sin tocar nada (el atasco del 24-oct-2026).
   console.error("Revisaré de nuevo en unos 30 minutos");

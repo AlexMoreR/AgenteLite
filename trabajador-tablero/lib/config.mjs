@@ -129,6 +129,9 @@ const ATASCO_POR_DEFECTO = { minutos: 15, revisarCadaSegundos: 60, cpuMinimaSegu
 /** Autoactualización (25-oct-2026): cada tanto mira si main trae código nuevo del Coordinador y se reinicia solo. Ver lib/autoactualizar.mjs. */
 const AUTOACTUALIZAR_POR_DEFECTO = { activo: true, cadaMinutos: 10, rama: "main", remoto: "origin" };
 
+/** El manual al día cada noche (25-oct-2026): hora de Bogotá (0-23) y repo. Ver lib/manual-nocturno.mjs. */
+const MANUAL_POR_DEFECTO = { activo: true, hora: 23, repo: "aizencrm" };
+
 export function leerConfig(ruta) {
   if (!fs.existsSync(ruta)) {
     throw new Error(`No existe ${ruta}. Copia config.example.json a config.local.json y complétalo (ver README.md).`);
@@ -263,6 +266,12 @@ export function completarConfig(datos, base = process.cwd()) {
     if (typeof auto[campo] !== "string" || !/^[\w./-]+$/.test(auto[campo])) errores.push(`autoactualizar.${campo}: un nombre de git.`);
   }
 
+  const manual = { ...MANUAL_POR_DEFECTO, ...(datos.manual ?? {}) };
+  if (typeof manual.activo !== "boolean") errores.push("manual.activo: true o false.");
+  manual.hora = Number(manual.hora);
+  if (!Number.isInteger(manual.hora) || manual.hora < 0 || manual.hora > 23) errores.push("manual.hora: la hora de Bogotá en que se junta el manual, de 0 a 23.");
+  if (typeof manual.repo !== "string" || !/^[\w.-]+$/.test(manual.repo)) errores.push("manual.repo: la clave del repositorio que tiene el manual (aizencrm).");
+
   const nube = { ...NUBE_POR_DEFECTO, ...(datos.nube ?? {}) };
   if (typeof nube.activa !== "boolean") errores.push("nube.activa: true o false.");
   for (const campo of ["maxTareas", "maxArchivosChica"]) {
@@ -338,6 +347,7 @@ export function completarConfig(datos, base = process.cwd()) {
     },
     limites,
     autoactualizar: { activo: auto.activo, cadaMinutos: auto.cadaMinutos, rama: auto.rama, remoto: auto.remoto },
+    manual: { activo: manual.activo, hora: manual.hora, repo: manual.repo },
     colaPesada: { maximo: colaPesada.maximo },
     partir: { archivosMinimos: partir.archivosMinimos, archivosAntes: partir.archivosAntes, archivosConMigracion: partir.archivosConMigracion },
     atasco: { minutos: atasco.minutos, revisarCadaSegundos: atasco.revisarCadaSegundos, cpuMinimaSegundos: atasco.cpuMinimaSegundos },

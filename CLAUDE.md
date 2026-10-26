@@ -50,20 +50,29 @@ actualizar esa línea del `Dockerfile`.
 
 ### Cómo mantener el archivo al día
 
+**Las tareas NO editan `docs/que-es-esta-aplicacion.md`** (aunque su plan lo diga): si todas lo editaran, el
+Coordinador no podría correr dos a la vez. En vez de eso, cada tarea deja una nota corta en su propio archivo,
+`docs/cambios-pendientes/<id-corto-de-la-tarjeta>.md`, cuando su cambio agrega un modelo, una pantalla, una
+automatización, una limitación o una advertencia de operación. La nota lleva el título `## ...` de la sección del
+manual donde va (el mismo título que tiene el manual) y debajo las líneas `- \`clave\`: descripción`. El formato y un
+ejemplo están en [`docs/cambios-pendientes/README.md`](docs/cambios-pendientes/README.md).
+
+Una vez al día, de noche (23:00 de Bogotá), el Coordinador junta las notas en el manual, sube el cambio a main y
+borra las notas (`trabajador-tablero/lib/manual-nocturno.mjs`). Hasta entonces la herramienta puede mostrar el cambio
+en `falta_describir`; es esperado.
+
 La herramienta cruza lo que existe con lo que está escrito y lo avisa en su respuesta:
 
 - `falta_describir`: un modelo de Prisma, una pantalla o una automatización que existe y no tiene línea
   en el archivo.
 - `descrito_pero_no_existe`: una línea del archivo sobre algo que ya no existe.
 
-Al agregar un modelo, una pantalla o una automatización nueva, agregar su línea en la sección
-correspondiente (`- \`clave\`: descripción`). La clave tiene que coincidir con el código: el nombre
-del modelo, la carpeta de `src/app/cliente` o la clave de la automatización en
-`que-es-esta-aplicacion.ts`. Una automatización nueva también necesita su estado en la función
-`automatizaciones()` de ese archivo.
+La clave de cada línea tiene que coincidir con el código: el nombre del modelo, la carpeta de `src/app/cliente` o la
+clave de la automatización en `que-es-esta-aplicacion.ts`. Una automatización nueva también necesita su estado en la
+función `automatizaciones()` de ese archivo.
 
 Al descubrir una limitación nueva (un dato que no se guarda, un campo que falta) o una trampa de
-operación, agregarla en "Qué no existe hoy" o en "Advertencias de operación". Los títulos `## ...` no se
+operación, va en la nota, en la sección "Qué no existe hoy" o "Advertencias de operación". Los títulos `## ...` no se
 cambian: la herramienta busca cada sección por su título.
 
 Si una fuente en vivo falla (por ejemplo, la base no responde), la respuesta lo dice en
