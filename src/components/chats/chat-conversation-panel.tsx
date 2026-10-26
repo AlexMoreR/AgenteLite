@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { OrigenDelClienteLinea } from "@/components/chats/origen-del-cliente-linea";
 import {
   CalendarPlus,
   ArrowLeft,
@@ -1477,6 +1478,7 @@ export const ConversationPanel = memo(function ConversationPanel({
               <span className="min-w-0 truncate">{contactCity}</span>
             </p>
           ) : null}
+          <OrigenDelClienteLinea contactId={renderedConversation.contactId} />
         </div>
       </div>
 
@@ -2994,6 +2996,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                       <span className="min-w-0 truncate">{contactCity}</span>
                     </p>
                   ) : null}
+                  <OrigenDelClienteLinea contactId={renderedConversation.contactId} />
                 </div>
               </div>
 
