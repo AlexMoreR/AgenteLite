@@ -43,7 +43,7 @@ import {
   whereDeFiltros,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
-import { whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
+import { estadoEfectivoConBusqueda, whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
 import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
 import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
 
@@ -244,6 +244,29 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : "";
 
   const params = await searchParams;
+  /*
+    Enlace directo a un chat por su id: /cliente/chats?conversacion=<id>. Abre ese chat, sea de
+    WhatsApp normal o de la API oficial, con el estado en "Todos" para que se vea aunque este cerrado.
+    Si el id no existe (o es de otro negocio) se ignora y sale la bandeja normal, sin error. Si es
+    de una linea que esta persona no ve, la seleccion de abajo ya no lo muestra.
+  */
+  const conversacionDirecta = typeof params.conversacion === "string" ? params.conversacion.trim() : "";
+  if (conversacionDirecta && typeof params.chatKey !== "string") {
+    const [normal, oficial] = await Promise.all([
+      prisma.conversation.findFirst({
+        where: { id: conversacionDirecta, workspaceId: membership.workspace.id },
+        select: { id: true },
+      }),
+      prisma.officialApiConversation.findFirst({
+        where: { id: conversacionDirecta, config: { workspaceId: membership.workspace.id } },
+        select: { id: true },
+      }),
+    ]);
+    const clave = normal ? `agent:${normal.id}` : oficial ? `official:${oficial.id}` : null;
+    if (clave) {
+      redirect(`/cliente/chats?${new URLSearchParams([["chatKey", clave], ["status", "all"]]).toString()}`);
+    }
+  }
   const selectedChatKeyParam = typeof params.chatKey === "string" ? params.chatKey : "";
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
@@ -334,10 +357,13 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const statusParam = typeof params.status === "string" ? params.status.trim() : "";
   const statusFilter: "all" | "open" | "resolved" =
     statusParam === "all" || statusParam === "resolved" ? statusParam : "open";
+  // Con algo escrito en el buscador el estado no filtra: se encuentran tambien los cerrados.
+  // (`statusFilter` sigue siendo lo elegido: viaja en los enlaces y a la pantalla.)
+  const statusDeLaConsulta = estadoEfectivoConBusqueda(searchQuery, statusFilter);
   const statusWhere: Prisma.ConversationWhereInput =
-    statusFilter === "resolved"
+    statusDeLaConsulta === "resolved"
       ? { status: { in: ["CLOSED", "ARCHIVED"] } }
-      : statusFilter === "all"
+      : statusDeLaConsulta === "all"
         ? {}
         : { status: { in: ["OPEN", "PENDING"] } };
 
@@ -533,7 +559,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const agentConversationsConsumidas = agentConversationsRaw.slice(0, conversationListTake);
   const hasMoreConversationItems = agentConversationsRaw.length > conversationListTake;
   const agentConversationsBase = agentConversationsConsumidas.filter(
-    (conversation) => !isSnoozed(conversation.contact?.metadata),
+    // Al buscar tambien salen los pospuestos.
+    (conversation) => Boolean(searchQuery) || !isSnoozed(conversation.contact?.metadata),
   );
   // Si el chat seleccionado (deep-link) no vino en el lote de la lista, lo agregamos para que el
   // panel lo abra. Va primero para que quede visible arriba al aterrizar desde Mi día.

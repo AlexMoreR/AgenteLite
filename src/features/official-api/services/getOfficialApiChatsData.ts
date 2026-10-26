@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { cifrasDeLaBusqueda, cifrasSinIndicativo } from "@/lib/busqueda-de-chats";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { downloadOfficialApiMedia, extractMediaRefFromRawPayload } from "@/lib/official-api-media";
 import type { OfficialApiChatsData } from "@/features/official-api/types/official-api";
@@ -326,12 +327,19 @@ async function loadOfficialApiChatsData(input: {
   const includeSelectedConversation = input.includeSelectedConversation ?? true;
   const requestedConversationId = input.conversationId?.trim() || "";
   const conversationListLimit = !requestedConversationId && !searchQuery ? 50 : 80;
+  // El numero escrito con espacios o con el 57 delante tambien tiene que encontrar al guardado sin ellos.
+  const cifrasDeBusqueda = cifrasSinIndicativo(searchQuery) ?? cifrasDeLaBusqueda(searchQuery);
   const officialSearchFilter = searchQuery
     ? Prisma.sql`
       AND (
         ct."name" ILIKE ${`%${searchQuery}%`}
         OR ct."phoneNumber" ILIKE ${`%${searchQuery}%`}
         OR ct."waId" ILIKE ${`%${searchQuery}%`}
+        ${
+          cifrasDeBusqueda
+            ? Prisma.sql`OR ct."phoneNumber" LIKE ${`%${cifrasDeBusqueda}%`} OR ct."waId" LIKE ${`%${cifrasDeBusqueda}%`}`
+            : Prisma.empty
+        }
         OR lm."content" ILIKE ${`%${searchQuery}%`}
       )
     `
@@ -340,10 +348,12 @@ async function loadOfficialApiChatsData(input: {
   // Mismo criterio que el canal viejo: por defecto la bandeja muestra SOLO las abiertas.
   // Sin esto, darle "Resolver" a un chat oficial no lo sacaba de la lista: se resolvia de
   // verdad (la cabecera pasaba a "Reabrir") pero seguia ahi, asi que la bandeja nunca bajaba.
+  // Con algo escrito en el buscador el estado no filtra: se encuentran tambien los cerrados.
+  const estadoOficial = searchQuery ? "all" : input.statusFilter;
   const officialStatusFilter =
-    input.statusFilter === "resolved"
+    estadoOficial === "resolved"
       ? Prisma.sql`AND c."status"::text IN ('CLOSED', 'ARCHIVED')`
-      : input.statusFilter === "all"
+      : estadoOficial === "all"
         ? Prisma.empty
         : Prisma.sql`AND c."status"::text IN ('OPEN', 'PENDING')`;
 

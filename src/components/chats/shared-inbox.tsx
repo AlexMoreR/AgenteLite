@@ -56,7 +56,7 @@ export type {
   StatusFilter,
 } from "./chat-inbox-types";
 import { normalizeChatSearchText, getMediaPreviewLabel } from "./chat-inbox-format";
-import { cifrasDeLaBusqueda } from "@/lib/busqueda-de-chats";
+import { cifrasDeLaBusqueda, cifrasSinIndicativo, estadoEfectivoConBusqueda } from "@/lib/busqueda-de-chats";
 import {
   normalizeLiveConversationSnapshot,
   normalizeLiveConversationListSnapshot,
@@ -1108,8 +1108,10 @@ export function SharedInbox({
       problema. Los items sin estado conocido se dejan pasar: no se puede decidir sobre lo que no
       se sabe.
     */
+    // Con algo escrito en el buscador el estado no filtra (igual que el servidor): se ven tambien los cerrados.
+    const estadoAplicado = estadoEfectivoConBusqueda(searchInputValue, statusFilter);
     const porEstado = conversationItems.filter((item) => {
-      const resueltaAca = statusFilter === "open" ? resueltasAca.get(item.id) : undefined;
+      const resueltaAca = estadoAplicado === "open" ? resueltasAca.get(item.id) : undefined;
       if (resueltaAca !== undefined) {
         const ultimo = item.lastMessageAt ? new Date(item.lastMessageAt).getTime() : 0;
         if (ultimo <= resueltaAca) {
@@ -1120,7 +1122,7 @@ export function SharedInbox({
         return true;
       }
       const cerrada = item.status === "CLOSED" || item.status === "ARCHIVED";
-      return statusFilter === "open" ? !cerrada : statusFilter === "resolved" ? cerrada : true;
+      return estadoAplicado === "open" ? !cerrada : estadoAplicado === "resolved" ? cerrada : true;
     });
 
     const normalizedQuery = normalizeChatSearchText(searchInputValue.trim());
@@ -1130,6 +1132,8 @@ export function SharedInbox({
 
     // "300 123 4567" tambien encuentra el numero guardado sin espacios (igual que el servidor).
     const cifras = cifrasDeLaBusqueda(searchInputValue);
+    // "573012175617" tambien encuentra el numero guardado sin el 57 (igual que el servidor).
+    const sinIndicativo = cifrasSinIndicativo(searchInputValue);
 
     /*
       Como en WhatsApp: en "Chats" van los que coinciden por NOMBRE o NUMERO; los que tienen la
@@ -1144,7 +1148,10 @@ export function SharedInbox({
         normalizeChatSearchText(item.label).includes(normalizedQuery) ||
         normalizeChatSearchText(item.secondaryLabel).includes(normalizedQuery) ||
         (cifras !== null &&
-          (item.secondaryLabel.replace(/\D/g, "").includes(cifras) || item.label.replace(/\D/g, "").includes(cifras)))
+          (item.secondaryLabel.replace(/\D/g, "").includes(cifras) || item.label.replace(/\D/g, "").includes(cifras))) ||
+        (sinIndicativo !== null &&
+          (item.secondaryLabel.replace(/\D/g, "").includes(sinIndicativo) ||
+            item.label.replace(/\D/g, "").includes(sinIndicativo)))
       );
     });
   }, [conversationItems, resueltasAca, searchInputValue, statusFilter]);

@@ -156,6 +156,7 @@ function construirNodos(
   const visibles = grupos.flatMap((grupo) => [grupo.centro, ...grupo.hijas]);
   const porId = new Map(contenido.tarjetas.map((tarjeta) => [tarjeta.id, tarjeta]));
   const centros = new Set(grupos.map((grupo) => grupo.centro));
+  const tipoPorId = new Map(contenido.tipos.map((tipo) => [tipo.id, tipo]));
   const contadores = contadoresDe(contenido);
   const hijas = contarHijas(contenido.tarjetas);
   const mias = propias ? tarjetasConMias(contenido.tarjetas, propias) : null;
@@ -170,6 +171,9 @@ function construirNodos(
       position: posiciones.get(id) ?? { x: 0, y: 0 },
       data: {
         titulo: tarjeta.titulo,
+        // El color y el ícono de su tipo (cualquiera, también los que se creen después).
+        colorDelTipo: tipoPorId.get(tarjeta.tipoId)?.color ?? null,
+        iconoDelTipo: tipoPorId.get(tarjeta.tipoId)?.icono ?? null,
         hijas: hijas.get(id) ?? 0,
         contadores: contadores.get(id) ?? contadoresEnCero(),
         esNivel: centros.has(id),

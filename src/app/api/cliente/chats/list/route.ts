@@ -7,7 +7,7 @@ import { scheduleContactAvatarRefresh, type ContactAvatarTarget } from "@/lib/co
 import { extractEvolutionMessageText, extractEvolutionPushName } from "@/lib/evolution-webhook";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 import { canalesDelNegocio } from "@/lib/canales-del-negocio";
-import { whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
+import { estadoEfectivoConBusqueda, whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
 import {
   ORDEN_DE_BANDEJA,
   cortarPagina,
@@ -317,7 +317,8 @@ async function getAgentConversationList(input: {
    * lo dejaba aca, no servia de nada: la asesora lo veia igual en la lista que mira todo el dia.
    */
   const activeAgentConversations = consumedConversationRows.filter(
-    (conversation) => !isSnoozed(conversation.contact?.metadata),
+    // Al buscar tambien salen los pospuestos: si no, el cliente buscado parece no existir.
+    (conversation) => Boolean(input.searchQuery.trim()) || !isSnoozed(conversation.contact?.metadata),
   );
 
   const activeAgentConversationIds = activeAgentConversations.map((conversation) => conversation.id);
@@ -664,8 +665,11 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   // `status` cuando esta en "open", porque es su default— asi que el chat resuelto volvia a
   // aparecer a los segundos. Una asesora lo resolvia y lo seguia viendo.
   const requestedStatusRaw = requestUrl.searchParams.get("status")?.trim() || "";
-  const statusFilter: "all" | "open" | "resolved" =
-    requestedStatusRaw === "all" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "open";
+  // Con algo escrito en el buscador el estado no filtra: se encuentran tambien los cerrados.
+  const statusFilter: "all" | "open" | "resolved" = estadoEfectivoConBusqueda(
+    searchQuery,
+    requestedStatusRaw === "all" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "open",
+  );
 
   const visibleChannelIds = await getVisibleChannelIds({
     workspaceId: membership.workspace.id,

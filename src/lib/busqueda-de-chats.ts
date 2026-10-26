@@ -29,6 +29,27 @@ export function cifrasDeLaBusqueda(q: string): string | null {
   return cifras.length >= 4 && cifras !== texto ? cifras : null;
 }
 
+/**
+ * Las cifras del numero SIN el 57 del pais, si lo escrito es un numero colombiano de 12 cifras
+ * ("573012175617" o "+57 301 217 5617"). Un telefono guardado sin el 57 no contiene el 57 delante,
+ * asi que buscando con el no aparecia.
+ */
+export function cifrasSinIndicativo(q: string): string | null {
+  const texto = q.trim();
+  if (!/^[\d\s()+.-]+$/.test(texto)) return null;
+  const cifras = texto.replace(/\D/g, "");
+  return cifras.length === 12 && cifras.startsWith("57") ? cifras.slice(2) : null;
+}
+
+/**
+ * El filtro de estado de la bandeja (abiertos / resueltos) no aplica mientras hay algo escrito en
+ * el buscador: quien busca a un cliente quiere encontrarlo aunque su chat este cerrado o descartado.
+ * Sin busqueda, el filtro queda como lo eligio la persona.
+ */
+export function estadoEfectivoConBusqueda<T extends string>(q: string, estado: T): T | "all" {
+  return q.trim() ? "all" : estado;
+}
+
 function desdeCuandoBuscarMensajes(ahora: Date): Date {
   return new Date(ahora.getTime() - DIAS_DE_MENSAJES_EN_LA_BUSQUEDA * 24 * 60 * 60 * 1000);
 }
@@ -47,11 +68,13 @@ export function whereDeBusquedaDeChats(rawQ: string, ahora: Date = new Date()): 
   const q = rawQ.trim();
   if (!q) return {};
   const cifras = cifrasDeLaBusqueda(q);
+  const sinIndicativo = cifrasSinIndicativo(q);
   return {
     OR: [
       { contact: { name: { contains: q, mode: "insensitive" } } },
       { contact: { phoneNumber: { contains: q, mode: "insensitive" } } },
       ...(cifras ? [{ contact: { phoneNumber: { contains: cifras } } }] : []),
+      ...(sinIndicativo ? [{ contact: { phoneNumber: { contains: sinIndicativo } } }] : []),
       ...(q.length >= LETRAS_PARA_BUSCAR_EN_MENSAJES ? [{ messages: filtroDeMensajes(q, ahora) }] : []),
     ],
   };
@@ -65,11 +88,13 @@ export function whereDeBusquedaDeChatsOficiales(
   const q = rawQ.trim();
   if (!q) return {};
   const cifras = cifrasDeLaBusqueda(q);
+  const sinIndicativo = cifrasSinIndicativo(q);
   return {
     OR: [
       { contact: { name: { contains: q, mode: "insensitive" } } },
       { contact: { waId: { contains: q, mode: "insensitive" } } },
       ...(cifras ? [{ contact: { waId: { contains: cifras } } }] : []),
+      ...(sinIndicativo ? [{ contact: { waId: { contains: sinIndicativo } } }] : []),
       ...(q.length >= LETRAS_PARA_BUSCAR_EN_MENSAJES ? [{ messages: filtroDeMensajes(q, ahora) }] : []),
     ],
   };

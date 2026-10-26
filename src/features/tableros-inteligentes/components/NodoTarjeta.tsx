@@ -7,9 +7,13 @@ import { cn } from "@/lib/utils";
 import { ANCHO_CENTRO, ANCHO_TARJETA } from "../services/disposicion";
 import type { Contadores } from "../services/niveles";
 import { inicialDeLaPersona } from "../services/reglas";
+import { IconoDeTipo } from "./IconoDeTipo";
 
 export type DatosNodoTarjeta = {
   titulo: string;
+  /** El color (hex) y el ícono de su tipo; null si el tipo no se conoce. */
+  colorDelTipo: string | null;
+  iconoDelTipo: string | null;
   /** Cuántas hijas (no borradas) tiene: si tiene, tocarla entra a su nivel. */
   hijas: number;
   /** Ella y toda su descendencia (services/niveles.ts, contadoresRecursivos). */
@@ -101,6 +105,10 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
     >
       {/* Las líneas se dibujan solas: los puntos de conexión no se muestran ni se arrastran. */}
       <Handle type="target" position={Position.Top} className="!pointer-events-none !opacity-0" isConnectable={false} />
+      {/* Franja fina del color del tipo arriba; va por dentro, así el borde rojo de "te toca" no cambia. */}
+      {data.colorDelTipo ? (
+        <span className="pointer-events-none absolute inset-x-0 top-0 h-[3px]" style={{ backgroundColor: data.colorDelTipo }} aria-hidden />
+      ) : null}
       {data.responsable ? (
         <span
           className={cn(
@@ -114,7 +122,16 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
         </span>
       ) : null}
       {/* El título: hasta 3 líneas (con o sin contadores) y entero al pasar el mouse. */}
-      <p className={cn("line-clamp-3 max-w-full break-words font-semibold", centro ? "text-sm" : "text-xs")}>{data.titulo}</p>
+      <div className="flex max-w-full items-start justify-center gap-1">
+        {data.colorDelTipo ? (
+          <IconoDeTipo
+            icono={data.iconoDelTipo}
+            color={data.colorDelTipo}
+            className={cn("shrink-0", centro ? "mt-0.5 size-3.5" : "mt-px size-3")}
+          />
+        ) : null}
+        <p className={cn("line-clamp-3 min-w-0 break-words font-semibold", centro ? "text-sm" : "text-xs")}>{data.titulo}</p>
+      </div>
       {lineas.map((linea) => (
         <p
           key={linea}
