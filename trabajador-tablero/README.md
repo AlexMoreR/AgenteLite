@@ -426,6 +426,12 @@ lint en cada rama `tablero/**`):
 6. **El ensayo de migraciones contra producción (BEGIN…ROLLBACK) sigue en aizen1** (las claves no van a GitHub).
 7. Lo que vuelve de la nube con `confiarEnResultado` ya no compila en aizen1: no usa Actions. `subir()` (a main) no cambia.
 
+**aizen1 ya no compila:** sube la rama y espera a Actions (workflow `.github/workflows/ci-tablero.yml`, «CI tablero»; corre tipos,
+lint, build y todos los `test:*` salvo `test:e2e` con `scripts/correr-pruebas-ci.mjs`). Para Gestion y messenger-basic la plantilla
+está en `trabajador-tablero/plantillas/ci-tablero.yml` (se copia tal cual y se quitan los pasos de Prisma o Lint si no existen; su
+`ciDeRama` viene en `config.example.json` con `activo: false`). El ensayo de migraciones contra producción (BEGIN…ROLLBACK,
+`lib/ensayo.mjs`) sigue en aizen1, porque las claves no van a GitHub. Para prenderlo, copiar el `ciDeRama` al `config.local.json`.
+
 `ciDeRama` = `{ activo, buscar, esperar, log, minutos }` (comandos con `{commit}` y `{run}`; ejemplo en `config.example.json`).
 Apagado, todo funciona como antes.
 
