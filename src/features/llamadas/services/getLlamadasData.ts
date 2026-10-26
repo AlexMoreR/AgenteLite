@@ -240,32 +240,75 @@ export async function getLlamadasVendedoraData(
     }));
 
     // Nuevos sin tocar: etapa NUEVO y CERO llamadas registradas. Máx. 10, los más recientes.
-    const nuevosRows = await prisma.contact.findMany({
-      where: {
-        workspaceId,
-        excludedFromCrm: false,
-        crmStage: "NUEVO",
-        callAttempts: { none: {} },
-        conversations: {
-          some: { OR: [{ assignedToUserId: userId }, { assignedToUserId: null }] },
-        },
+    // Con la etapa automática, al asignarse el lead sale de NUEVO y pasa a Frío; por eso también
+    // entran los Frío que PUSO EL SISTEMA y nadie ha atendido: sin movimiento de ninguna asesora,
+    // sin respuesta humana ("manual" = desde el CRM, "instance" = desde el celular, el mismo
+    // criterio de "respondidos hoy") y sin llamadas.
+    const seleccionNuevos = {
+      id: true,
+      name: true,
+      phoneNumber: true,
+      avatarUrl: true,
+      crmStage: true,
+      metadata: true,
+      createdAt: true,
+      conversations: {
+        select: { id: true },
+        orderBy: { lastMessageAt: "desc" as const },
+        take: 1,
       },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        avatarUrl: true,
-        crmStage: true,
-        metadata: true,
-        conversations: {
-          select: { id: true },
-          orderBy: { lastMessageAt: "desc" },
-          take: 1,
+    };
+    const esMiaOSinDueno = {
+      some: { OR: [{ assignedToUserId: userId }, { assignedToUserId: null }] },
+    };
+    const [nuevosEnNuevo, nuevosDelSistema] = await Promise.all([
+      prisma.contact.findMany({
+        where: {
+          workspaceId,
+          excludedFromCrm: false,
+          crmStage: "NUEVO",
+          callAttempts: { none: {} },
+          conversations: esMiaOSinDueno,
         },
-      },
-    });
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: seleccionNuevos,
+      }),
+      prisma.contact.findMany({
+        where: {
+          workspaceId,
+          excludedFromCrm: false,
+          crmStage: "CALIFICADO",
+          callAttempts: { none: {} },
+          conversations: {
+            ...esMiaOSinDueno,
+            none: {
+              messages: {
+                some: {
+                  direction: "OUTBOUND",
+                  type: { not: "SYSTEM" },
+                  OR: [
+                    { rawPayload: { path: ["source"], equals: "manual" } },
+                    { rawPayload: { path: ["source"], equals: "instance" } },
+                  ],
+                },
+              },
+            },
+          },
+          historialEtapas: {
+            some: { origen: "AUTOMATICO", nota: { startsWith: "etapa automática" } },
+            none: { origen: "ASESORA" },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: seleccionNuevos,
+      }),
+    ]);
+    const nuevosRows = [...nuevosEnNuevo, ...nuevosDelSistema]
+      .filter((contact, indice, todos) => todos.findIndex((otro) => otro.id === contact.id) === indice)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 10);
     nuevos = nuevosRows.map((contact) => ({
       contactId: contact.id,
       name: contact.name?.trim() || contact.phoneNumber,

@@ -91,6 +91,34 @@ export function MiDiaView({
 
       {llamadasUrgentes}
 
+      {/* Aviso: los chats suyos que siguen en "---". Se despliega con la lista para abrir cada uno. */}
+      {data.sinEtapa && data.sinEtapa.total > 0 ? (
+        <details className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+          <summary className="cursor-pointer font-semibold text-amber-800 dark:text-amber-300">
+            Tienes {data.sinEtapa.total} {data.sinEtapa.total === 1 ? "chat" : "chats"} sin etapa — clasifícalos antes de
+            terminar el día
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {data.sinEtapa.chats.map((chat) => (
+              <li key={chat.chatKey}>
+                <Link
+                  href={`/cliente/chats?chatKey=${encodeURIComponent(chat.chatKey)}`}
+                  className="flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[13px] text-foreground hover:bg-amber-100 dark:hover:bg-amber-500/20"
+                >
+                  <span className="min-w-0 truncate font-medium">{chat.name}</span>
+                  <span className="shrink-0 text-muted-foreground">{chat.phoneNumber}</span>
+                </Link>
+              </li>
+            ))}
+            {data.sinEtapa.total > data.sinEtapa.chats.length ? (
+              <li className="px-2 text-[12px] text-muted-foreground">
+                Y {data.sinEtapa.total - data.sinEtapa.chats.length} más.
+              </li>
+            ) : null}
+          </ul>
+        </details>
+      ) : null}
+
       {porEtapa.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
           {porEtapa.map(({ stage, total }) => (

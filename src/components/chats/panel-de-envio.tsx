@@ -95,6 +95,7 @@ function OpcionDePago({
   puedeEscribir,
   onInsertar,
   extra,
+  totalEnTexto,
 }: {
   titulo: string;
   cifras: Array<{ etiqueta: string; valor: string }>;
@@ -102,7 +103,10 @@ function OpcionDePago({
   extra?: ReactNode;
   texto: string | null;
   puedeEscribir: boolean;
-  onInsertar: (texto: string) => void;
+  /** El 2.º dato avisa que lo insertado trae el total (para pasar a Caliente SOLO al enviarlo). */
+  onInsertar: (texto: string, totalEnTexto?: string) => void;
+  /** El total tal como sale escrito en el mensaje; null si el mensaje no trae total. */
+  totalEnTexto?: string | null;
 }) {
   const copiar = () => {
     if (!texto) return;
@@ -141,7 +145,7 @@ function OpcionDePago({
                   toast.error("No hay cuadro de mensaje en este chat");
                   return;
                 }
-                onInsertar(texto);
+                onInsertar(texto, totalEnTexto ?? undefined);
               }}
               disabled={!puedeEscribir}
             >
@@ -327,7 +331,7 @@ export function PanelDeEnvio({
   chatKey: string | null;
   contactCity: string;
   puedeEscribir: boolean;
-  onInsertar: (texto: string) => void;
+  onInsertar: (texto: string, totalEnTexto?: string) => void;
   onCiudadGuardada?: (city: string) => void;
 }) {
   const [productos, setProductos] = useState<ProductoParaEnvio[] | null>(null);
@@ -611,6 +615,7 @@ export function PanelDeEnvio({
                     : null
               }
               texto={anticipo.texto}
+              totalEnTexto={anticipo.estado === "TOTAL" ? pesos(anticipo.total) : null}
               puedeEscribir={puedeEscribir}
               onInsertar={onInsertar}
             />
@@ -657,6 +662,7 @@ export function PanelDeEnvio({
                   ) : null
                 }
                 texto={contraentrega.texto}
+                totalEnTexto={contraentrega.estado === "TOTAL" ? pesos(contraentrega.total) : null}
                 puedeEscribir={puedeEscribir}
                 onInsertar={onInsertar}
               />

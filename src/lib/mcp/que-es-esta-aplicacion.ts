@@ -473,7 +473,7 @@ async function automatizaciones(
   descritas: Map<string, string>,
   v3: { reglasSinRespuesta: number; hayLineasConV3: boolean },
 ) {
-  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, transcripcionApagada] =
+  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, transcripcionApagada, etapaAutomatica] =
     await Promise.all([
       prisma.followRule.count({ where: { workspaceId, isActive: true } }),
       prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
@@ -484,6 +484,7 @@ async function automatizaciones(
       }),
       bandera(`crm:descarte-automatico:${workspaceId}`),
       bandera("transcripcion-de-audios:apagada"),
+      bandera(`crm:etapa-automatica:${workspaceId}`),
     ]);
 
   const sinInterruptor = "activa (no tiene interruptor: corre siempre)";
@@ -509,6 +510,10 @@ async function automatizaciones(
     enfriamiento_por_llamadas: sinInterruptor,
     temperatura: sinInterruptor,
     descarte_automatico: descarte === "on" ? "ACTIVA: mueve leads a Descartado" : "apagada",
+    etapa_automatica:
+      etapaAutomatica?.trim().toLowerCase() === "off"
+        ? "apagada (crm:etapa-automatica:<negocio> = off)"
+        : "activa: al asignar un chat el lead pasa de NUEVO a Frío; al crear la cotización o enviar el panel de envío con el total pasa a Caliente; nunca Ganado ni Perdido, nunca baja",
     campanas: campanasEnCurso > 0 ? `activa: ${campanasEnCurso} en curso` : "sin campañas en curso",
     transcripcion_de_audios: !process.env.OPENAI_API_KEY?.trim()
       ? "apagada: falta la clave de OpenAI"

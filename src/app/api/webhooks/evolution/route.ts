@@ -154,6 +154,7 @@ import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { persistEvolutionHistorySync, syncEvolutionMessagesSince } from "@/lib/evolution-chat-sync";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { reabreAlLlegar } from "@/lib/chat-resuelto";
+import { moverEtapaAutomatica } from "@/lib/etapa-automatica-crm";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
   const state = rawState?.toLowerCase() ?? "";
@@ -791,6 +792,14 @@ async function assignAdLeadByCampaign(args: {
     // Queda escrito POR QUE le toco a esa persona: si manana el reparto parece raro, la
     // conversacion misma lo explica sin tener que revisar configuraciones.
     text: `${nombre} asignado por la campaña "${args.adTitle || "anuncio"}"`,
+  });
+
+  // Etapa automática: el lead de campaña asignado sale de "---" y pasa a Frío (no lanza).
+  await moverEtapaAutomatica({
+    workspaceId: args.workspaceId,
+    source: "agent",
+    conversationId: args.conversationId,
+    motivo: { tipo: "asignacion", asesoraId: elegido },
   });
 
   console.log("[EVOLUTION] ad_campaign_assign", {

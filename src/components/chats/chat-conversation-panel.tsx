@@ -81,6 +81,7 @@ import { clearPendingConversationSelection } from "@/components/chats/chat-selec
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { MediaLibraryDialog } from "@/components/chats/media-library-dialog";
+import { textoTraeElTotal } from "@/lib/texto-trae-el-total";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
 import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
 import {
@@ -352,6 +353,11 @@ export const ConversationPanel = memo(function ConversationPanel({
     cambiar de chat.
   */
   const sugerenciaEnLaCaja = useRef<{ id: string; chat: string } | null>(null);
+  /*
+    El total del panel de envio que se inserto en la caja. Solo si al ENVIAR el texto todavia lo
+    trae, el servidor mueve el lead a Caliente (insertar sin enviar no mueve nada).
+  */
+  const totalDelPanelEnLaCaja = useRef<{ total: string; chat: string } | null>(null);
   /*
     El flujo que la estrella propone junto al texto ("Enviar flujo: Video combo armado"). Es un
     boton: nunca se envia solo. Se ve solo en el chat donde se pidio.
@@ -1281,7 +1287,10 @@ export const ConversationPanel = memo(function ConversationPanel({
 
   // Inserta el texto de una respuesta rápida en el cuadro (en la posición del cursor),
   // sin enviarlo, para que la chica lo revise/edite antes de mandar.
-  const insertQuickReply = useCallback((content: string) => {
+  const insertQuickReply = useCallback((content: string, totalEnTexto?: string) => {
+    if (totalEnTexto) {
+      totalDelPanelEnLaCaja.current = { total: totalEnTexto, chat: selectedConversationId ?? "" };
+    }
     const textarea = composerTextAreaRef.current;
     if (!textarea) {
       return;
@@ -1303,7 +1312,7 @@ export const ConversationPanel = memo(function ConversationPanel({
       textarea.focus();
       textarea.setSelectionRange(nextCursor, nextCursor);
     });
-  }, [autoResizeComposer]);
+  }, [autoResizeComposer, selectedConversationId]);
 
   const handleSuggestReply = useCallback(async () => {
     // Se usa el chat REALMENTE abierto y no mediaConfig: en los chats de la API oficial ese
@@ -2074,6 +2083,18 @@ export const ConversationPanel = memo(function ConversationPanel({
                     }
                     sugerenciaEnLaCaja.current = null;
 
+                    // Salio del panel de envio y el texto todavia trae el total: se marca para que el
+                    // servidor pase el lead a Caliente cuando el mensaje de verdad salga.
+                    const totalDelPanel = totalDelPanelEnLaCaja.current;
+                    if (
+                      totalDelPanel &&
+                      totalDelPanel.chat === (selectedConversationId ?? "") &&
+                      textoTraeElTotal(message, totalDelPanel.total)
+                    ) {
+                      formData.set("trajoTotalEnvio", "1");
+                    }
+                    totalDelPanelEnLaCaja.current = null;
+
                     // Respuesta rapida: va tal cual, sin la firma encima.
                     if (desdeRespuestaRapida) {
                       formData.set("skipSignature", "1");
@@ -2541,7 +2562,10 @@ export const ConversationPanel = memo(function ConversationPanel({
                           onChange={(event) => {
                             const conTexto = event.currentTarget.value.trim().length > 0;
                             setComposerHasText(conTexto);
-                            if (!conTexto) sugerenciaEnLaCaja.current = null;
+                            if (!conTexto) {
+                              sugerenciaEnLaCaja.current = null;
+                              totalDelPanelEnLaCaja.current = null;
+                            }
                             autoResizeComposer(event.currentTarget);
                           }}
                           onKeyDown={(event) => {

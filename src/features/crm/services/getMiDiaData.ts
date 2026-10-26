@@ -61,10 +61,83 @@ export type MiDiaLead = {
   esMio: boolean;
 };
 
+/** Un chat suyo que sigue en NUEVO ("---"): la asesora lo tiene que clasificar. */
+export type MiDiaSinEtapa = {
+  chatKey: string;
+  name: string;
+  phoneNumber: string;
+};
+
 export type MiDiaData = {
   generatedAt: string;
   leads: MiDiaLead[];
+  /** Cuantos chats abiertos suyos siguen sin etapa, y los primeros (hasta 50) para abrirlos. */
+  sinEtapa: { total: number; chats: MiDiaSinEtapa[] };
 };
+
+const MAX_SIN_ETAPA = 50;
+
+/**
+ * Los chats abiertos de la asesora (de las dos lineas) que siguen en NUEVO.
+ *
+ * Es un extra del dia: si la consulta falla, "Mi dia" sale igual, sin el aviso.
+ */
+async function leerChatsSinEtapa(input: {
+  workspaceId: string;
+  userId: string;
+  visibleChannelIds?: string[] | null;
+}): Promise<MiDiaData["sinEtapa"]> {
+  try {
+    const where = {
+      workspaceId: input.workspaceId,
+      assignedToUserId: input.userId,
+      ...WHERE_CHAT_ABIERTO,
+      contact: { crmStage: "NUEVO" as CrmStage, excludedFromCrm: false },
+      ...(input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {}),
+    };
+    const [totalViejo, viejos, oficiales] = await Promise.all([
+      prisma.conversation.count({ where }),
+      prisma.conversation.findMany({
+        where,
+        orderBy: { lastMessageAt: "desc" },
+        take: MAX_SIN_ETAPA,
+        select: { id: true, contact: { select: { name: true, phoneNumber: true } } },
+      }),
+      // La API oficial vive en otras tablas: el chat se une con su ficha del CRM por crmContactId.
+      prisma.$queryRaw<Array<{ id: string; name: string | null; phoneNumber: string | null; total: bigint }>>`
+        SELECT oc."id", ct."name", ct."phoneNumber", COUNT(*) OVER () AS "total"
+        FROM "OfficialApiConversation" oc
+        INNER JOIN "OfficialApiClientConfig" cfg ON cfg."id" = oc."configId"
+        INNER JOIN "OfficialApiContact" ct ON ct."id" = oc."contactId"
+        INNER JOIN "Contact" c ON c."id" = ct."crmContactId"
+        WHERE cfg."workspaceId" = ${input.workspaceId}
+          AND oc."assignedToUserId" = ${input.userId}
+          AND oc."status" IN ('OPEN', 'PENDING')
+          AND c."crmStage" = 'NUEVO'
+          AND c."excludedFromCrm" = false
+        ORDER BY oc."lastMessageAt" DESC NULLS LAST
+        LIMIT ${MAX_SIN_ETAPA}
+      `,
+    ]);
+    const totalOficial = oficiales.length > 0 ? Number(oficiales[0]!.total) : 0;
+    const chats: MiDiaSinEtapa[] = [
+      ...viejos.map((fila) => ({
+        chatKey: `agent:${fila.id}`,
+        name: fila.contact.name?.trim() || fila.contact.phoneNumber,
+        phoneNumber: fila.contact.phoneNumber,
+      })),
+      ...oficiales.map((fila) => ({
+        chatKey: `official:${fila.id}`,
+        name: fila.name?.trim() || fila.phoneNumber || "Sin nombre",
+        phoneNumber: fila.phoneNumber ?? "",
+      })),
+    ].slice(0, MAX_SIN_ETAPA);
+    return { total: totalViejo + totalOficial, chats };
+  } catch (error) {
+    console.error("[mi-dia] no se pudo contar los chats sin etapa:", error);
+    return { total: 0, chats: [] };
+  }
+}
 
 function previewFromMessage(content: string | null, rawPayload: unknown, type: string | null) {
   const text = content?.trim() || extractEvolutionMessageText(rawPayload) || "";
@@ -84,12 +157,13 @@ export async function getMiDiaData(input: {
   visibleChannelIds?: string[] | null;
 }): Promise<MiDiaData> {
   try {
-    return await computeMiDiaData(input);
+    const [data, sinEtapa] = await Promise.all([computeMiDiaData(input), leerChatsSinEtapa(input)]);
+    return { ...data, sinEtapa };
   } catch (error) {
     // Una vista de trabajo no debe tumbar la pantalla si la consulta falla (timeout, etc.):
     // preferimos mostrar el estado vacio antes que un 500 en toda la seccion CRM.
     console.error("[mi-dia] fallo al calcular la lista de prioridad:", error);
-    return { generatedAt: new Date().toISOString(), leads: [] };
+    return { generatedAt: new Date().toISOString(), leads: [], sinEtapa: { total: 0, chats: [] } };
   }
 }
 
@@ -97,7 +171,7 @@ async function computeMiDiaData(input: {
   workspaceId: string;
   userId: string;
   visibleChannelIds?: string[] | null;
-}): Promise<MiDiaData> {
+}): Promise<Omit<MiDiaData, "sinEtapa">> {
   const now = Date.now();
   const maxAge = new Date(now - MAX_DAYS_SINCE_CONTACT * 24 * 60 * 60 * 1000);
   const minAge = new Date(now - MIN_HOURS_SINCE_CONTACT * 60 * 60 * 1000);

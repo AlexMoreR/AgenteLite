@@ -15,6 +15,7 @@ import {
 } from "@/features/cotizaciones/services/generar-cotizacion";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import { moverEtapaAutomatica } from "@/lib/etapa-automatica-crm";
 import { crearCotizacionEnGestion } from "@/lib/cotizacion-en-gestion";
 import { origenDelContacto } from "@/lib/origen-de-venta-crm";
 import { prisma } from "@/lib/prisma";
@@ -175,6 +176,14 @@ export async function generarCotizacionEnGestionAction(input: {
       channelId: conversacion.channelId,
       cotizacion: respuesta.codigo,
       actorUserId: ctx.user.id,
+    });
+    // Etapa automatica: ya hay cotizacion para este cliente, el lead pasa a Caliente (no lanza).
+    // Esta accion solo existe para chats del canal viejo (Conversation).
+    await moverEtapaAutomatica({
+      workspaceId: ctx.workspaceId,
+      source: "agent",
+      conversationId: conversacion.id,
+      motivo: { tipo: "cotizacion", codigo: respuesta.codigo },
     });
   }
 
