@@ -112,6 +112,8 @@ export type FichaDelLead = {
   historialCompleto?: boolean;
   /** Pospuesto por la asesora (snooze). */
   pospuesto?: boolean;
+  /** Fecha para volver a escribirle que dejó el sistema al leer un "más adelante" (Contact.metadata.recontactoEn). */
+  recontactoEn?: Date | null;
   /** Recuperaciones cerradas a mano (entradaEn ISO a minuto): no vuelven a descartar. */
   recuperacionesCerradas?: string[];
 };
@@ -253,9 +255,12 @@ export function modoDeLaDecision(decision: Pick<Decision, "accion" | "motivo">, 
 }
 
 /** ¿Está dormido por una fecha futura que todavía no llega? (lo mismo que el paso 4 del motor) */
-function dormidoPorFecha(c: Pick<Contexto, "mensajes" | "delCliente" | "config" | "ahora">): boolean {
+function dormidoPorFecha(c: Pick<Contexto, "mensajes" | "delCliente" | "config" | "ahora" | "ficha">): boolean {
   const ultimoCliente = c.delCliente.at(-1) ?? null;
   if (!ultimoCliente) return false;
+  // Dijo "más adelante" y el sistema dejó la fecha de recontacto: duerme hasta ese día.
+  const recontacto = c.ficha.recontactoEn ?? null;
+  if (recontacto && recontacto.getTime() > ultimoCliente.en.getTime() && c.ahora.getTime() < recontacto.getTime()) return true;
   const ultimoOut = [...c.mensajes].reverse().find((m) => m.direccion === "OUT") ?? null;
   if (!ultimoOut || ultimoCliente.en.getTime() > ultimoOut.en.getTime()) return false;
   const anterior = [...c.mensajes].reverse().find((m) => m.direccion === "OUT" && m.en.getTime() < ultimoCliente.en.getTime()) ?? null;
@@ -421,6 +426,20 @@ function decidir(c: Contexto): Decision {
     if (fechaFutura) break;
   }
   let inicioCadencia = ultimoCliente.en;
+  // 4b. Fecha de recontacto del Tibio por lectura (la que dijo el cliente, o 3 días): antes duerme
+  // sin automáticos y ese día es una tarea para la asesora. Una fecha que dijo en el texto manda.
+  const recontacto = ficha.recontactoEn ?? null;
+  if (!fechaFutura && recontacto && !clienteEsperando && recontacto.getTime() > ultimoCliente.en.getTime()) {
+    if (ahora.getTime() < recontacto.getTime()) {
+      return base("dormido", "recontacto_pactado", { dormidoHasta: recontacto, revisarEn: recontacto });
+    }
+    const hechaDespues = mensajes.some((m) => esHumano(m, c.inicio) && m.en.getTime() >= recontacto.getTime());
+    if (!hechaDespues && ahora.getTime() - recontacto.getTime() < 14 * DIA) {
+      return tarea("B", "recontacto_pactado", mensajePorSenales(contextoDelMensaje), recontacto);
+    }
+    // La asesora ya le escribió por la fecha: desde ahí corre la cadencia.
+    if (hechaDespues) inicioCadencia = recontacto;
+  }
   if (fechaFutura && !clienteEsperando) {
     const tareaEn = new Date(fechaFutura.fecha.getTime() - config.fechaFutura.diasAntes * DIA);
     if (ahora.getTime() < tareaEn.getTime()) {

@@ -186,6 +186,10 @@ const LEGACY_LOST_REASON_LABELS: Record<string, string> = {
   sin_dinero: "Sin dinero hoy",
   decide_otro: "Decide otra persona",
   desconfianza: "Desconfianza",
+  // Los pone el sistema al leer al cliente (etapa por lectura); no se pueden elegir a mano.
+  no_le_interesa: "No le interesa",
+  numero_equivocado: "Número equivocado",
+  no_quiere_mensajes: "No quiere que le escriban",
 };
 
 export function getCrmLostReasonLabel(value: string | null | undefined) {

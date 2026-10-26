@@ -155,6 +155,7 @@ import { persistEvolutionHistorySync, syncEvolutionMessagesSince } from "@/lib/e
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { reabreAlLlegar } from "@/lib/chat-resuelto";
 import { aplicarEtapaAutomatica } from "@/lib/etapa-automatica-crm";
+import { aplicarEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
   const state = rawState?.toLowerCase() ?? "";
@@ -2524,6 +2525,21 @@ export async function POST(request: NextRequest) {
     instanceName,
     event: eventName,
   });
+
+  // Etapa por lectura: el sistema lee lo que dijo el cliente y pone Caliente, Tibio o Descartado.
+  // En segundo plano (after): no demora el webhook ni cambia lo que el bot contesta. Nunca lanza.
+  if (direction === "INBOUND" && !messageWasEdited && !messageWasDeleted && !isCallEvent && conversation.id && messageText?.trim()) {
+    const conversationIdDeLectura = conversation.id;
+    const textoDeLectura = messageText;
+    after(async () => {
+      await aplicarEtapaPorLectura({
+        workspaceId: channel.workspaceId,
+        conversationId: conversationIdDeLectura,
+        linea: "agent",
+        texto: textoDeLectura,
+      });
+    });
+  }
 
   // Notificación push "tipo WhatsApp": suena/vibra en el celular del equipo aunque la
   // PWA esté cerrada o en segundo plano. Solo para mensajes ENTRANTES nuevos (no

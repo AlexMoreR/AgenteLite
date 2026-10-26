@@ -37,6 +37,7 @@ import { registrarOrigenAnuncio } from "@/lib/origen-anuncio";
 import { detectarOrigenMarketplace, leerReferralOficial, type AnuncioDelLead } from "@/lib/origen-de-venta";
 import { registrarOrigenMarketplace } from "@/lib/origen-marketplace";
 import { syncOfficialApiCrmStage } from "@/lib/official-api-crm-stage";
+import { aplicarEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
 import { getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
 import {
@@ -1375,6 +1376,13 @@ export async function POST(request: Request) {
           configId: config.id,
           conversationId: conversationIdForStage,
           latestUserMessage,
+        });
+        // Después del clasificador de siempre: lee lo que dijo el cliente y pone la etapa (nunca lanza).
+        await aplicarEtapaPorLectura({
+          workspaceId: config.workspaceId,
+          conversationId: conversationIdForStage,
+          linea: "official",
+          texto: latestUserMessage,
         });
       });
     }

@@ -78,14 +78,14 @@ function textoDelMotivo(motivo: MotivoDeEtapaAutomatica, asesora: string | null)
   return "se envió el panel de envío con el total";
 }
 
-type ChatResuelto = {
+export type ChatResuelto = {
   contactId: string;
   channelId: string | null;
   configId: string | null;
   lineaAdministrativa: boolean;
 };
 
-async function resolverChat(input: {
+export async function resolverChat(input: {
   workspaceId: string;
   conversationId: string;
   linea: "agent" | "official";

@@ -69,6 +69,7 @@
     "test:historial-etapa-migracion": "node scripts/check-historial-etapa-migracion.mjs",
     "test:historial-etapa": "node scripts/check-historial-etapa.mjs",
     "test:etapa-automatica": "node scripts/check-etapa-automatica.mjs",
+    "test:etapa-por-lectura": "node scripts/check-etapa-por-lectura.mjs",
     "test:agentes-de-area": "node scripts/check-agentes-de-area.mjs",
     "test:agentes-de-area-migracion": "node scripts/check-agentes-de-area-migracion.mjs",
     "test:agentes-de-area-lanzador": "node agentes-de-area/pruebas/probar-lanzador.mjs",
