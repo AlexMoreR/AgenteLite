@@ -457,6 +457,16 @@ export function DetallesTecnicos({
             ) : resultado.rama ? (
               <p className="text-xs text-muted-foreground">Rama: {resultado.rama}</p>
             ) : null}
+            {resultado.linkWorkflow ? (
+              <Button
+                variant="outline"
+                className="h-10 w-full justify-start"
+                render={<a href={resultado.linkWorkflow} target="_blank" rel="noopener noreferrer" />}
+              >
+                <ExternalLink />
+                <span className="truncate">Ver workflow de GitHub Actions</span>
+              </Button>
+            ) : null}
             {resultado.subida?.commit && resultado.subida.linkCommit ? (
               <Button
                 variant="outline"

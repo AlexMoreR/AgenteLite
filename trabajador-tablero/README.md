@@ -18,6 +18,25 @@ Solo toma tarjetas de un tipo **con aprobación** (como Tarea) que tengan **repo
 | PLAN_APROBADO | En una rama `tablero/<id>-<nombre>` desde `origin/main`: Claude **construye** el plan (puede editar, no puede hacer push). Después el trabajador, él mismo: hace el commit, marca las **zonas protegidas** que toca, corre tsc / build / pruebas, compara el **lint** con el de main (solo cuentan errores nuevos), **ensaya la migración** si hay una nueva (PGlite y producción dentro de `BEGIN … ROLLBACK`) y **sube solo la rama**. | SUBIENDO (sube sola) o POR_REVISAR (espera el sí) |
 | SUBIENDO | Rebase de la rama sobre `origin/main`. Si `main` no cambió desde que se construyó, no vuelve a compilar; si cambió, verifica y ensaya otra vez. **Push a main**, espera el CI (`gh run watch`) y comprueba que `/api/version` diga el commit nuevo. | HECHO (con el commit y su link) |
 
+### GitHub Actions verifica la rama en vez de aizen1 (desde el 26-oct-2026)
+
+Con `repos.<x>.ciDeRama.activo: true`, al terminar de construir el orden es:
+
+1. Se **sube la rama** `tablero/...` (el mismo `pushDeRama`: nunca `main`, sin cambiar cómo se sube).
+2. Se **espera el resultado del workflow** de ese commit (`ciDeRama.buscar` = `gh run list --commit`, `ciDeRama.esperar` =
+   `gh run watch --exit-status`; solo un número cuenta como corrida). Mientras espera, el panel "Coordinador en vivo" dice "en GitHub".
+3. **Pasó:** aizen1 no compila ni prueba (ni mide el lint de main). En "pruebas" queda `✔ verificado en GitHub Actions (corrida N)`.
+4. **Falló:** se trae el log del paso que falló (`ciDeRama.log` = `gh run view {run} --log-failed`) y salen las líneas que fallaron y las últimas 30.
+   Con eso se lanza el error de siempre; la categoría sale del nombre del paso (`no_compila`, `fallan_pruebas` o `lint`) y la
+   autorreparación recibe las líneas exactas.
+5. **El ensayo de migraciones contra producción (BEGIN…ROLLBACK) sigue en aizen1** (las claves de la base no van a GitHub).
+6. **Actions no responde** (no aparece la corrida, `gh` sin sesión, pasan `ciDeRama.minutos` = 20 o GitHub no da el log): se compila y prueba en
+   aizen1 como antes y en la tarjeta queda `⚠ Actions no respondió en 20 min: se compiló en aizen1`. Solo ahí se mide el lint de main.
+7. El resultado trae `verificadoEn` (`github` | `aizen1`) y `linkWorkflow`; la tarjeta muestra "Ver workflow de GitHub Actions" junto al link de la rama.
+
+Las tareas hechas en la nube también pasan por Actions (su rama ya está en GitHub). Apagado (`activo: false` o sin la sección) todo
+funciona como antes. Lo de subir a `main` (`subir()`, que rehace la prueba tras juntar con `main`) no cambia.
+
 ### El plan pasa solo (regla del dueño, 24-oct-2026)
 
 Aprobada la tarea, el plan pasa solo de PLAN_LISTO a PLAN_APROBADO, con cualquier riesgo y aunque

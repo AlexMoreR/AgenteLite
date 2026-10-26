@@ -224,6 +224,41 @@
           "src/app/actions/product-ad-actions.ts"
         ]
       },
+      "ciDeRama": {
+        "activo": true,
+        "buscar": [
+          "gh",
+          "run",
+          "list",
+          "--repo",
+          "AlexMoreR/AgenteLite",
+          "--commit",
+          "{commit}",
+          "--json",
+          "databaseId",
+          "--jq",
+          ".[0].databaseId"
+        ],
+        "esperar": [
+          "gh",
+          "run",
+          "watch",
+          "{run}",
+          "--repo",
+          "AlexMoreR/AgenteLite",
+          "--exit-status"
+        ],
+        "log": [
+          "gh",
+          "run",
+          "view",
+          "{run}",
+          "--repo",
+          "AlexMoreR/AgenteLite",
+          "--log-failed"
+        ],
+        "minutos": 20
+      },
       "subida": {
         "ciBuscar": [
           "gh",

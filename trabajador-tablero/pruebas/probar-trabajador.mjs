@@ -210,6 +210,19 @@ await prueba("ramas y links: tablero/<id>-<slug>, solo esas se empujan, link de 
   assert.equal(webDeGithub("C:/tmp/remoto.git"), null);
 });
 
+await prueba("configuración: ciDeRama apagado por defecto, 20 minutos, y activo exige buscar, esperar y log", async () => {
+  const datos = (ciDeRama) => ({
+    urlCrm: "https://crm.falso",
+    claveTrabajador: "aizen_trab_x",
+    repos: { aizencrm: { ruta: ".", ...(ciDeRama ? { ciDeRama } : {}) } },
+  });
+  assert.equal(completarConfig(datos()).repos.aizencrm.ciDeRama.activo, false);
+  const comandos = { buscar: ["gh", "run", "list"], esperar: ["gh", "run", "watch"], log: ["gh", "run", "view"] };
+  assert.deepEqual(completarConfig(datos({ activo: true, ...comandos })).repos.aizencrm.ciDeRama, { activo: true, ...comandos, minutos: 20 });
+  assert.throws(() => completarConfig(datos({ activo: true, buscar: comandos.buscar })), /ciDeRama está activo pero faltan/);
+  assert.throws(() => completarConfig(datos({ minutos: 0 })), /ciDeRama\.minutos/);
+});
+
 await prueba("configuración: exige https, la clave y un repo; agrega las herramientas prohibidas siempre", async () => {
   assert.throws(() => completarConfig({ urlCrm: "http://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { a: { ruta: "." } } }), /https/);
   assert.throws(() => completarConfig({ urlCrm: "https://app.aizenbot.com", claveTrabajador: "otra", repos: { a: { ruta: "." } } }), /claveTrabajador/);
@@ -1102,6 +1115,119 @@ try {
     assert.equal(tarjetas.get(id).estado, "ERROR");
     assert.match(tarjetas.get(id).resultado.error.motivo, /conflicto en el rebase/);
     assert.equal(shaDe("main"), mainAhora, "no subió nada");
+    sinRestos();
+  });
+
+  /* ── ciDeRama (26-oct-2026): el resultado de GitHub Actions en vez de compilar en aizen1 ── */
+  const ciDeRama = (extra = {}) => ({
+    activo: true,
+    buscar: [node, falso("gh-falso.mjs"), "buscar", "{commit}"],
+    esperar: [node, falso("gh-falso.mjs"), "esperar", "{run}"],
+    log: [node, falso("gh-falso.mjs"), "log", "{run}"],
+    minutos: 20,
+    ...extra,
+  });
+  // Si aizen1 compilara o probara, estos comandos fallarían: así se ve que no corren.
+  const verificarQueFalla = { verificar: [[node, "-e", "console.error('NO DEBIA CORRER'); process.exit(1)"]], pruebas: [[node, "-e", "process.exit(1)"]] };
+  const conModo = async (modo, fn) => {
+    process.env.GH_FALSO_MODO = modo;
+    try {
+      return await fn();
+    } finally {
+      delete process.env.GH_FALSO_MODO;
+    }
+  };
+
+  await prueba("ciDeRama: si Actions pasa no se compila ni se prueba en aizen1, el ensayo de la migración sí corre y queda el link del workflow", async () => {
+    const id = nueva("Cambio con Actions [migracion-drop]", "PLAN_APROBADO", { plan: "El plan" });
+    const ghAntes = leerLog(LOGS.gh).length;
+    const sshAntes = leerLog(LOGS.ssh).length;
+    const resultado = await vuelta(crearConfig({}, { ...verificarQueFalla, ciDeRama: ciDeRama() }));
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.match(t.resultado.pruebas, /✔ verificado en GitHub Actions \(corrida 4242\)/);
+    assert.ok(!/NO DEBIA CORRER|lint sin errores/.test(t.resultado.pruebas), "aizen1 no compiló ni hizo lint");
+    assert.equal(t.resultado.verificadoEn, "github");
+    assert.match(t.resultado.migracion, /producción \(magilus\) dentro de BEGIN…ROLLBACK: ok/, "el ensayo de migraciones sigue en aizen1");
+    assert.ok(leerLog(LOGS.ssh).slice(sshAntes).some((l) => l.entrada.includes("DROP COLUMN")), "el ensayo fue por ssh, dentro de BEGIN…ROLLBACK");
+    // La rama se subió ANTES de esperar y el gh falso buscó y esperó ese mismo commit.
+    const gh = leerLog(LOGS.gh).slice(ghAntes);
+    assert.deepEqual(gh, [{ accion: "buscar", valor: t.resultado.commit }, { accion: "esperar", valor: "4242" }]);
+    assert.equal(t.resultado.commit, shaDe(t.resultado.rama));
+    // El remoto de prueba no es GitHub: no hay link que armar (con GitHub trae .../actions/runs/4242).
+    assert.ok(!("linkWorkflow" in t.resultado) || t.resultado.linkWorkflow === null || /\/actions\/runs\/4242$/.test(t.resultado.linkWorkflow));
+    sinRestos();
+  });
+
+  await prueba("ciDeRama: si Actions falla en el build, el error trae las líneas exactas del log del paso y la categoría 'no compila'", async () => {
+    // moderno: el CRM nuevo manda la reparación (la categoría y el error exacto quedan en el intento).
+    const id = nueva("Cambio que rompe en Actions", "PLAN_APROBADO", { plan: "El plan", moderno: true });
+    const resultado = await conModo("falla", () => vuelta(crearConfig({}, { ...verificarQueFalla, ciDeRama: ciDeRama() })));
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.categoria, "no_compila");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_APROBADO", "vuelve a la fila para repararse");
+    const intento = t.intentosLista.at(-1);
+    assert.equal(intento.accion, "reparar");
+    const motivo = intento.error;
+    assert.match(motivo, /No compiló: falló la compilación en GitHub Actions \(corrida 4242\), paso "verificar \/ Build"/);
+    assert.match(motivo, /Líneas que fallaron:[\s\S]*error TS2322: el tipo no calza en la corrida/);
+    assert.match(motivo, /Últimas 30 líneas:[\s\S]*línea 40 del log/);
+    assert.ok(!/2026-10-26T10:00/.test(motivo), "sin las columnas ni la hora de gh");
+    assert.ok(!/NO DEBIA CORRER/.test(motivo), "no cayó a compilar en aizen1");
+    Object.assign(t, { estado: "HECHO", venceEn: null }); // ya se probó: no se vuelve a tomar
+    sinRestos();
+  });
+
+  await prueba("ciDeRama: un paso de pruebas o de lint que falla en Actions da su propia categoría", async () => {
+    for (const [paso, categoria] of [["Run tests", "fallan_pruebas"], ["Lint", "lint"]]) {
+      process.env.GH_FALSO_PASO = paso;
+      try {
+        const otra = nueva(`Falla ${paso} en Actions`, "PLAN_APROBADO", { plan: "El plan", moderno: true });
+        const resultado = await conModo("falla", () => vuelta(crearConfig({}, { ...verificarQueFalla, ciDeRama: ciDeRama() })));
+        assert.equal(resultado.categoria, categoria, paso);
+        Object.assign(tarjetas.get(otra), { estado: "HECHO", venceEn: null });
+      } finally {
+        delete process.env.GH_FALSO_PASO;
+      }
+    }
+    sinRestos();
+  });
+
+  await prueba("ciDeRama: si Actions no responde se compila en aizen1 como hoy y queda la nota '⚠ Actions no respondió'", async () => {
+    const id = nueva("Cambio sin Actions", "PLAN_APROBADO", { plan: "El plan" });
+    // 0.03 min = menos de 2 s de espera (en producción son 20 min).
+    const resultado = await conModo("sin-corrida", () => vuelta(crearConfig({}, { ciDeRama: ciDeRama({ minutos: 0.03 }) })));
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.match(t.resultado.pruebas, /⚠ Actions no respondió en 0\.03 min: se compiló en aizen1/);
+    assert.match(t.resultado.pruebas, /verificar\.mjs/, "compiló y probó en aizen1");
+    assert.match(t.resultado.pruebas, /lint sin errores nuevos/, "y midió el lint contra main");
+    assert.equal(t.resultado.verificadoEn, "aizen1");
+    assert.equal(t.resultado.commit, shaDe(t.resultado.rama), "la rama ya estaba subida");
+    sinRestos();
+  });
+
+  await prueba("ciDeRama: el fallback a aizen1 sigue frenando lo que está mal (errores nuevos de lint)", async () => {
+    const id = nueva("Ensuciar el lint sin Actions [lint]", "PLAN_APROBADO", { plan: "El plan" });
+    const resultado = await conModo("sin-corrida", () => vuelta(crearConfig({}, { ciDeRama: ciDeRama({ minutos: 0.03 }) })));
+    assert.equal(resultado.ok, false);
+    assert.match(tarjetas.get(id).resultado.error.motivo, /1 error\(es\) nuevo\(s\):\nnuevo\.txt\|regla-falsa/);
+    sinRestos();
+  });
+
+  await prueba("ciDeRama: apagado (o sin la sección) todo funciona como antes y gh no se usa para la rama", async () => {
+    const id = nueva("Cambio sin ciDeRama", "PLAN_APROBADO", { plan: "El plan" });
+    const ghAntes = leerLog(LOGS.gh).length;
+    const resultado = await vuelta(crearConfig({}, { ciDeRama: ciDeRama({ activo: false }) }));
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.match(t.resultado.pruebas, /verificar\.mjs/);
+    assert.ok(!/Actions/.test(t.resultado.pruebas));
+    assert.equal(t.resultado.verificadoEn, "aizen1");
+    assert.equal(leerLog(LOGS.gh).length, ghAntes);
     sinRestos();
   });
 

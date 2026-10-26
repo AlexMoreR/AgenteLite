@@ -221,6 +221,12 @@ export function linkDeSesionDeEntrada(valor: unknown): string | null {
   return esLinkDeSesion(link) ? link : null;
 }
 
+/** Un link de una corrida de GitHub Actions: solo https://github.com/<dueño>/<repo>/actions/runs/<número> (nada de otros sitios). */
+export function linkDeWorkflowDeEntrada(valor: unknown): string | null {
+  const link = textoONull(valor, 300);
+  return link && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/\d+$/.test(link) ? link : null;
+}
+
 /** Lo que el latido de una tarjeta puede decir al construir: dónde (aizen1 o nube) y el link de la sesión de la nube. */
 export function latidoDeEntrada(cuerpo: unknown): { lugar: LugarDeConstruccion | null; linkSesion: string | null } {
   const datos = (cuerpo && typeof cuerpo === "object" ? cuerpo : {}) as Record<string, unknown>;
@@ -728,6 +734,10 @@ export type ResultadoDelTrabajador = {
   linkSesion?: string;
   /** Cuántos segundos dijo la nube que tardó (la línea "resultado:" de su commit). */
   segundosNube?: number;
+  /** Dónde se compiló y probó (26-oct-2026): "github" (GitHub Actions) o "aizen1". Solo si vino. */
+  verificadoEn?: "github" | "aizen1";
+  /** El link de la corrida de GitHub Actions (solo github.com/…/actions/runs/N). Solo si se verificó o se esperó en Actions. */
+  linkWorkflow?: string;
 };
 
 export type MotoresDelResultado = Partial<Record<"plan" | "construir" | "revisar", "claude" | "codex">>;
@@ -760,8 +770,12 @@ export function resultadoDeEntrada(valor: unknown): ResultadoDelTrabajador {
   // El link solo se guarda si se construyó en la nube y es de claude.ai (nada de otros sitios).
   const linkSesion = construidoEn === "nube" ? linkDeSesionDeEntrada(datos.linkSesion) : null;
   const segundosNube = construidoEn === "nube" && typeof datos.segundosNube === "number" && Number.isFinite(datos.segundosNube) && datos.segundosNube >= 0 ? Math.round(datos.segundosNube) : null;
+  const verificadoEn = datos.verificadoEn === "github" || datos.verificadoEn === "aizen1" ? datos.verificadoEn : null;
+  const linkWorkflow = linkDeWorkflowDeEntrada(datos.linkWorkflow);
   return {
     ...(construidoEn ? { construidoEn } : {}),
+    ...(verificadoEn ? { verificadoEn } : {}),
+    ...(linkWorkflow ? { linkWorkflow } : {}),
     ...(linkSesion ? { linkSesion } : {}),
     ...(segundosNube !== null ? { segundosNube } : {}),
     ...(motor ? { motor } : {}),

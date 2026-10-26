@@ -151,6 +151,24 @@ const comando = (valor, campo) => {
   return valor;
 };
 
+/**
+ * `repos.<x>.ciDeRama` (26-oct-2026): { activo, buscar, esperar, log, minutos }. `buscar` ({commit}) contesta el número de la
+ * corrida del commit, `esperar` ({run}) termina con código 0 si pasó, `log` ({run}) trae el log de los pasos que fallaron
+ * (`gh run view {run} --log-failed`). `minutos` (20 por defecto) es lo máximo que se espera antes de compilar en aizen1.
+ */
+function ciDeRama(datos, clave) {
+  const activo = datos?.activo === true;
+  const minutos = datos?.minutos === undefined ? 20 : Number(datos.minutos);
+  if (!Number.isFinite(minutos) || minutos <= 0) throw new Error(`repos.${clave}.ciDeRama.minutos: minutos, más de 0.`);
+  const buscar = comando(datos?.buscar, `repos.${clave}.ciDeRama.buscar`);
+  const esperar = comando(datos?.esperar, `repos.${clave}.ciDeRama.esperar`);
+  const log = comando(datos?.log, `repos.${clave}.ciDeRama.log`);
+  if (activo && !(buscar && esperar && log)) {
+    throw new Error(`repos.${clave}.ciDeRama está activo pero faltan los comandos buscar, esperar y log (gh run list / watch / view --log-failed).`);
+  }
+  return { activo, buscar, esperar, log, minutos };
+}
+
 export function completarConfig(datos, base = process.cwd()) {
   const errores = [];
   const urlCrm = typeof datos.urlCrm === "string" ? datos.urlCrm.replace(/\/+$/, "") : "";
@@ -192,6 +210,9 @@ export function completarConfig(datos, base = process.cwd()) {
         ensayoPglite: comando(repo.ensayoPglite, `repos.${clave}.ensayoPglite`),
         ensayoProduccion: repo.ensayoProduccion?.tablaGuia ? { tablaGuia: String(repo.ensayoProduccion.tablaGuia) } : null,
         zonasProtegidas,
+        // GitHub Actions de la rama (26-oct-2026): si está activo, se sube la rama y se espera el resultado del workflow en vez de
+        // compilar y probar en aizen1. Apagado (por defecto) todo funciona como antes.
+        ciDeRama: ciDeRama(repo.ciDeRama, clave),
         // Archivos de solo agregar que no hacen chocar y se juntan (merge=union) al subir (choques.mjs: noChoca); por defecto los .md.
         sinChoque: Array.isArray(repo.sinChoque) ? repo.sinChoque.filter((glob) => typeof glob === "string" && glob.trim()) : ["**/*.md"],
         subida: {

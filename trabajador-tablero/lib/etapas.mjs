@@ -906,7 +906,9 @@ export async function construir(contexto, tarjeta) {
     const prioridadDeInstalar = nube ? PRIORIDAD.verificar : PRIORIDAD.preparar;
     if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: prioridadDeInstalar });
     // El lint de main, para que solo cuenten los errores NUEVOS (guardado por commit: el mismo commit no se mide dos veces).
-    const lintBase = repo.lint ? await lintDeLaBase(contexto, repo, carpeta, reloj, baseSha) : null;
+    // Con ciDeRama activo no se mide acá: solo se necesita si Actions no responde y hay que compilar en aizen1 (más abajo).
+    const conCiDeRama = repo.ciDeRama?.activo === true;
+    const lintBaseDeEntrada = repo.lint && !conCiDeRama ? await lintDeLaBase(contexto, repo, carpeta, reloj, baseSha) : null;
     if (nube) {
       // La rama de la nube se trae encima de esa base. Si cambió las dependencias, se instala otra vez.
       await git(carpeta, ["merge", "--ff-only", `${repo.remoto}/${rama}`]);
@@ -1013,11 +1015,37 @@ export async function construir(contexto, tarjeta) {
     const subeSolo = repo.subirSolo === true && zonas.length === 0 && !(tarjeta.zonasAprobadas ?? []).length;
     const zonasTexto = zonas.map((zona) => `${zona} (${tocadas[zona].slice(0, 5).join(", ")}${tocadas[zona].length > 5 ? "…" : ""})`).join("; ");
 
-    const pruebas = await verificar(contexto, repo, carpeta, reloj);
-    if (lintBase) {
-      const nuevos = erroresNuevos(lintBase, await conTurno(contexto, reloj, PRIORIDAD.verificar, "lint", () => erroresDeLint(contexto, repo, carpeta, reloj)));
-      if (nuevos.length) throw new ErrorDeEtapa(`El lint tiene ${nuevos.length} error(es) nuevo(s):\n${nuevos.slice(0, 15).join("\n")}\nNo se subió nada.`, { categoria: "lint" });
-      pruebas.push("✔ lint sin errores nuevos");
+    // ciDeRama (26-oct-2026): primero se sube la rama de trabajo (tablero/..., nunca main) y se espera el resultado de GitHub
+    // Actions; si pasó, aizen1 no compila ni prueba. Si Actions falla, el error trae las líneas exactas del paso que falló. Si
+    // no responde en `ciDeRama.minutos`, se cae al modo de siempre (más abajo) y se anota. El ensayo de migraciones sigue acá.
+    let pruebas = null;
+    let ramaSubida = false;
+    let linkWorkflow = null;
+    let verificadoEn = "aizen1";
+    if (conCiDeRama) {
+      reloj.resta();
+      await pushDeRama(carpeta, repo.remoto, rama, { forzar: !nube });
+      ramaSubida = true;
+      const commitSubido = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
+      const ci = await esperarCiDeRama(contexto, repo, commitSubido, carpeta, reloj);
+      if (ci.paso) {
+        pruebas = [`✔ verificado en GitHub Actions (corrida ${ci.corrida})`];
+        linkWorkflow = ci.link;
+        verificadoEn = "github";
+      } else {
+        registro.aviso(`GitHub Actions no respondió (${ci.motivo}): se compila en aizen1`);
+        pruebas = [`⚠ Actions no respondió en ${repo.ciDeRama.minutos} min: se compiló en aizen1 (${ci.motivo})`];
+        linkWorkflow = ci.link ?? null;
+      }
+    }
+    if (verificadoEn === "aizen1") {
+      const lintBase = lintBaseDeEntrada ?? (repo.lint && conCiDeRama ? await lintDeLaBaseEnFallback(contexto, repo, carpeta, reloj, baseSha, rama) : null);
+      pruebas = [...(pruebas ?? []), ...(await verificar(contexto, repo, carpeta, reloj))];
+      if (lintBase) {
+        const nuevos = erroresNuevos(lintBase, await conTurno(contexto, reloj, PRIORIDAD.verificar, "lint", () => erroresDeLint(contexto, repo, carpeta, reloj)));
+        if (nuevos.length) throw new ErrorDeEtapa(`El lint tiene ${nuevos.length} error(es) nuevo(s):\n${nuevos.slice(0, 15).join("\n")}\nNo se subió nada.`, { categoria: "lint" });
+        pruebas.push("✔ lint sin errores nuevos");
+      }
     }
     const migraciones = migracionesNuevas(cambios, repo.carpetaMigraciones);
     let migracion = null;
@@ -1051,7 +1079,7 @@ export async function construir(contexto, tarjeta) {
 
     reloj.resta();
     // La rama de la nube se sube sin --force, encima de lo que dejó la sesión; las de aizen1 se rehacen cada intento.
-    await pushDeRama(carpeta, repo.remoto, rama, { forzar: !nube });
+    if (!ramaSubida) await pushDeRama(carpeta, repo.remoto, rama, { forzar: !nube });
     const commit = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
     const web = webDeGithub(await urlDelRemoto(repo));
     registro.info(`rama ${rama} empujada (${commit.slice(0, 10)}): ${alTerminar}`);
@@ -1086,6 +1114,9 @@ export async function construir(contexto, tarjeta) {
       migracionDestructiva: destructivo,
       // Dónde se construyó y el link de la sesión de la nube: la tarjeta lo muestra.
       construidoEn: nube ? "nube" : "aizen1",
+      // Dónde se compiló y probó (GitHub Actions o aizen1) y el link del workflow: la tarjeta lo muestra junto al de la rama.
+      verificadoEn,
+      ...(linkWorkflow ? { linkWorkflow } : {}),
       ...(nube ? { linkSesion: nube.link, segundosNube: nube.segundos } : {}),
       ...(zonas.length ? { zonaProtegida: zonas } : {}),
     };
@@ -1192,6 +1223,102 @@ const dormir = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
 
 /** Reemplaza {commit} y {run} en un comando de la configuración. */
 const conValores = (comando, valores) => comando.map((parte) => parte.replace(/\{(\w+)\}/g, (todo, clave) => valores[clave] ?? todo));
+
+/** Qué paso del workflow falló, según el nombre que dice el log (`--log-failed`): "lint", "fallan_pruebas" o "no_compila". */
+function categoriaDelPasoQueFallo(paso) {
+  if (/lint|eslint/i.test(paso)) return "lint";
+  if (/test|prueba/i.test(paso)) return "fallan_pruebas";
+  if (/build|tsc|type|tipos|compil|prisma|generate|install|\bnpm ci\b/i.test(paso)) return "no_compila";
+  return "otra";
+}
+
+/**
+ * El log de `gh run view <corrida> --log-failed`: cada línea es "trabajo<TAB>paso<TAB>hora texto". Devuelve el nombre del
+ * primer paso que falló y el texto sin esas columnas (para sacar de ahí las líneas que fallaron y las últimas 30).
+ */
+export function logDelPasoQueFallo(bruto) {
+  const pasos = [];
+  const lineas = [];
+  for (const linea of String(bruto ?? "").split(/\r?\n/)) {
+    const partes = linea.split("\t");
+    if (partes.length >= 3) {
+      const paso = `${partes[0]} / ${partes[1]}`.trim();
+      if (!pasos.includes(paso)) pasos.push(paso);
+      lineas.push(partes.slice(2).join("\t").replace(/^\uFEFF?\d{4}-\d\d-\d\dT[\d:.]+Z\s?/, ""));
+    } else {
+      lineas.push(linea);
+    }
+  }
+  return { paso: pasos[0] ?? "", pasos, texto: lineas.join("\n").trim() };
+}
+
+/**
+ * Espera el resultado de GitHub Actions para la rama ya subida (ciDeRama). Misma mecánica que esperarCi: busca la corrida del
+ * commit (solo un número es una corrida), la sigue con `gh run watch --exit-status` y dice:
+ *   { paso: true, corrida, link }        pasó
+ *   { paso: false, motivo, link? }       Actions no respondió (sin corrida, gh sin sesión, se pasó de `minutos`, sin log): se compila en aizen1
+ * Si la corrida FALLÓ lanza ErrorDeEtapa con las líneas exactas del paso que falló (la autorreparación las recibe tal cual).
+ */
+async function esperarCiDeRama(contexto, repo, commit, cwd, reloj) {
+  const { buscar, esperar, log, minutos } = repo.ciDeRama;
+  const limite = Date.now() + Math.min(minutos * MINUTO, reloj.resta());
+  const web = webDeGithub(await urlDelRemoto(repo));
+  let corrida = "";
+  while (!corrida) {
+    const resultado = await correr(conValores(buscar, { commit }), { cwd, timeoutMs: 60_000, senal: contexto.senal });
+    if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló la espera de GitHub Actions: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
+    if (resultado.codigo !== 0 && /gh auth login|GH_TOKEN|authentication/i.test(resultado.errores)) {
+      return { paso: false, motivo: "gh sin sesión en este PC; poner GH_TOKEN" };
+    }
+    corrida = resultado.codigo === 0 ? (resultado.salida.trim().split(/\s+/).find((palabra) => /^\d+$/.test(palabra)) ?? "") : "";
+    if (corrida) break;
+    const queda = limite - Date.now();
+    if (queda <= 0) return { paso: false, motivo: `no apareció la corrida de ${commit.slice(0, 10)}` };
+    await dormir(Math.min(10_000, queda));
+  }
+  const link = web ? `${web}/actions/runs/${corrida}` : null;
+  // Panel "Coordinador en vivo": mientras espera, la tarea figura en GitHub.
+  contexto.fase?.("probando", { lugar: "github", linkWorkflow: link });
+  let resultado;
+  try {
+    resultado = await correr(conValores(esperar, { commit, run: corrida }), { cwd, timeoutMs: Math.max(1, limite - Date.now()), senal: contexto.senal });
+  } finally {
+    contexto.fase?.("probando", { lugar: "aizen1", linkWorkflow: null });
+  }
+  if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló la espera de GitHub Actions: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
+  if (resultado.vencido) return { paso: false, motivo: `la corrida ${corrida} se pasó del tiempo`, link };
+  if (resultado.codigo === 0) return { paso: true, corrida, link };
+  if (/gh auth login|GH_TOKEN|authentication/i.test(resultado.errores)) return { paso: false, motivo: "gh sin sesión en este PC; poner GH_TOKEN", link };
+
+  // La corrida falló: el log del paso que falló, para la autorreparación.
+  const trae = await correr(conValores(log, { commit, run: corrida }), { cwd, timeoutMs: 120_000, senal: contexto.senal });
+  if (trae.cancelado) throw new ErrorDeEtapa("Se canceló la espera de GitHub Actions: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
+  const { paso, texto } = logDelPasoQueFallo(trae.codigo === 0 ? trae.salida : "");
+  // Sin log de ningún paso (corrida cancelada, falla del propio GitHub): no hay error que reparar, se compila en aizen1.
+  if (!texto) return { paso: false, motivo: `la corrida ${corrida} terminó mal pero GitHub no dio el log del paso`, link };
+  const categoria = categoriaDelPasoQueFallo(paso);
+  const motivo = { lint: "El lint falló", fallan_pruebas: "Fallaron las pruebas que ya existen", no_compila: "No compiló: falló la compilación" }[categoria] ?? "Falló la verificación";
+  throw new ErrorDeEtapa(
+    `${motivo} en GitHub Actions (corrida ${corrida}${link ? `, ${link}` : ""}), paso "${paso}". No se subió nada a main.\nDetalle técnico (gh run view ${corrida} --log-failed):\n${detalleDeFalla({ salida: texto }, { ultimas: 30 })}`,
+    { categoria },
+  );
+}
+
+/** El lint de la base cuando hubo que caer a aizen1: del guardado, o midiéndolo con la carpeta puesta un momento en el commit de main. */
+async function lintDeLaBaseEnFallback(contexto, repo, cwd, reloj, baseSha, rama) {
+  if (!baseSha) return null;
+  try {
+    return new Map(JSON.parse(fs.readFileSync(archivoDeLintGuardado(contexto, repo, baseSha), "utf8")));
+  } catch {
+    // No estaba guardado: se mide en el commit de main (node_modules no se toca: no está en git).
+  }
+  await git(cwd, ["checkout", "--detach", baseSha]);
+  try {
+    return await lintDeLaBase(contexto, repo, cwd, reloj, baseSha);
+  } finally {
+    await git(cwd, ["checkout", rama]);
+  }
+}
 
 /**
  * Espera el CI del commit (si está configurado): busca la corrida y la mira hasta que termine.

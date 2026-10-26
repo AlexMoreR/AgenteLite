@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
               https://claude.ai/code/session_… (cualquier otro link se descarta); queda en resultado.construccion.
   - plan      { plan }                            PLANEANDO -> PLAN_LISTO.
   - resultado { resumen, pruebas, paso, rama, linkRama, commit, migracion, subeSolo, base, zonaProtegida?,
-                construidoEn?, linkSesion?, segundosNube? }   (construidoEn = "aizen1" | "nube")
+                construidoEn?, linkSesion?, segundosNube?, verificadoEn?, linkWorkflow? }   (construidoEn = "aizen1" | "nube"; verificadoEn = "github" | "aizen1";
+                linkWorkflow solo github.com/…/actions/runs/N)
                 EN_CURSO -> SUBIENDO pendiente (paso, subeSolo y sin zona protegida) o POR_REVISAR.
   - subida    { commit, version, linkCommit }     SUBIENDO -> HECHO.
   - error     { motivo, categoria?, causa?, resumen?, error?, etapa?, zonaProtegida?, reversion? }
