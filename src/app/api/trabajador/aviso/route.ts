@@ -8,7 +8,9 @@ export const dynamic = "force-dynamic";
 /*
   POST /api/trabajador/aviso — el trabajador del Tablero IA le manda un WhatsApp al dueño desde la línea
   Admin del negocio (p. ej. "el plan de Claude pasó el 80 %"). Misma clave que /api/trabajador/tablero/*
-  (Bearer aizen_trab_...). Cuerpo `{ texto }` (hasta 500 caracteres). El número sale de la AppSetting
+  (Bearer aizen_trab_...). Cuerpo `{ texto }` (hasta 500 caracteres; se deja en 3 líneas como mucho).
+  De 9 p. m. a 7 a. m. (Bogotá) no se manda: responde 200 con `{ ok: true, silenciado: true }` y el Coordinador
+  lo reintenta después. El número sale de la AppSetting
   `trabajador:aviso-telefono:<workspaceId>`: sin él, 412. Como mucho 1 por minuto (429).
   Ver services/aviso-del-trabajador.ts.
 */

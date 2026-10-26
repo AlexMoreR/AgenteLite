@@ -70,6 +70,7 @@ import {
 import { SQL_ES_PARTE } from "./sql-trabajador";
 import { NOMBRE_AUTOMATICO, QUIEN_AUTOMATICO, aprobarSolaLaTarea, type ResultadoDeAprobarSola } from "./aprobacion-automatica";
 import { contadoresDelConteo, type Contadores } from "./niveles";
+import { RUTA_TABLEROS, URL_APP, linkDeVista } from "./enlaces";
 
 /*
   TABLERO IA (tableros inteligentes): la lógica compartida entre el MCP (Claude) y la pantalla (el dueño).
@@ -131,8 +132,12 @@ const MAX_AREA = 60;
 const MAX_NOMBRE_TIPO = 40;
 const MAX_LINK_TEXTO = 80;
 
-const URL_APP = "https://app.aizenbot.com";
-export const RUTA_TABLEROS = "/cliente/tablero-ia";
+export { RUTA_TABLEROS };
+
+/** Abre el tablero en la vista "Hoy": lo que terminó, falló o espera al dueño. Es el único link de los avisos. */
+export function linkDeHoy() {
+  return linkDeVista("hoy");
+}
 
 /** Abre el tablero de la tarjeta, en el nivel de su madre, con su ficha a la vista. */
 export function linkDeLaTarjeta(tarjetaId: string) {

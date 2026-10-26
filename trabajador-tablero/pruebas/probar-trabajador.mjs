@@ -34,6 +34,7 @@ import { detalleDeFalla, lineasQueFallaron } from "../lib/procesos.mjs";
 import { destructivoDelSql, migracionDestructiva } from "../lib/riesgo.mjs";
 import {
   crearEstadoDeMotores,
+  crearVigilanteDeUso,
   decidirUso,
   esLimiteDeCodex,
   horaDelReinicio,
@@ -540,8 +541,47 @@ await prueba("uso de Claude: UN aviso por cada cruce del umbral (se repite solo 
   assert.deepEqual([ilegible.alto, ilegible.alertaLectura], [[], true]);
   assert.equal(decidirUso(null, ilegible.estado, 80, "2026-10-23").alertaLectura, false, "una sola vez por día");
   assert.equal(decidirUso(null, ilegible.estado, 80, "2026-10-24").alertaLectura, true, "al otro día otra vez");
-  assert.match(textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "codex", revisar: "claude", respaldoCodex: true } }), /sesión: 83 % usado, se reinicia Oct 23, 3:20pm[\s\S]*planear y revisar pasan a Codex/);
-  assert.match(textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "claude", revisar: "claude", respaldoCodex: false } }), /sigue con Claude/);
+  const conCodex = textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "codex", revisar: "claude", respaldoCodex: true } });
+  assert.match(conCodex, /^⚠️ Claude va en 83 % de la sesión\./);
+  assert.match(conCodex, /planear y revisar pasan a Codex/);
+  const sinCodex = textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "claude", revisar: "claude", respaldoCodex: false } });
+  assert.match(sinCodex, /sigue trabajando; si se agota, espera al reinicio/);
+  for (const texto of [conCodex, sinCodex]) {
+    assert.ok(texto.split("\n").length <= 3, texto);
+    assert.equal(texto.split("\n").at(-1), "Ver: https://app.aizenbot.com/cliente/tablero-ia?vista=coordinador");
+  }
+});
+
+await prueba("aviso del uso de Claude silenciado (9 p. m. a 7 a. m.): no se anota como enviado y se reintenta", async () => {
+  const carpeta = fs.mkdtempSync(path.join(os.tmpdir(), "vigilante-"));
+  const config = { carpetaTrabajo: carpeta, vigilarUsoMinutos: 1, umbralClaude: 80, motores: { planear: "claude", construir: "claude", revisar: "claude", respaldoCodex: false } };
+  const registro = { info: () => undefined, aviso: () => undefined, error: () => undefined };
+  const enviados = [];
+  let silenciado = true;
+  const crm = { aviso: async (texto) => (enviados.push(texto), silenciado ? { ok: true, silenciado: true } : { ok: true }) };
+  let reloj = 1_000_000;
+  const vigilante = crearVigilanteDeUso({
+    config,
+    registro,
+    crm,
+    estado: { ponerClaudeAlto: () => undefined },
+    entorno: {},
+    leer: async () => ({ texto: "Current week (all models): 85% used\nResets Oct 30, 7am (America/Bogota)", motivo: null }),
+    ahora: () => reloj,
+  });
+  await vigilante.vigilar();
+  assert.equal(enviados.length, 1);
+  assert.ok(enviados[0].split("\n").length <= 3, enviados[0]);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(carpeta, "estado-uso.json"), "utf8")).avisado.semana, null, "silenciado: no queda anotado como avisado");
+  silenciado = false;
+  reloj += 120_000;
+  await vigilante.vigilar();
+  assert.equal(enviados.length, 2, "a las 7 a. m. lo reintenta");
+  assert.notEqual(JSON.parse(fs.readFileSync(path.join(carpeta, "estado-uso.json"), "utf8")).avisado.semana, null);
+  reloj += 120_000;
+  await vigilante.vigilar();
+  assert.equal(enviados.length, 2, "ya avisado: no repite");
+  fs.rmSync(carpeta, { recursive: true, force: true });
 });
 
 await prueba("límite de Codex: se reconoce el aviso de ChatGPT (y no cualquier texto)", async () => {
@@ -1638,7 +1678,8 @@ try {
     assert.equal(leerLog(LOGS.claude).filter((l) => !l.argumentos.includes("/usage")).length, claudeAntes, "no planeó con Claude");
     assert.ok(leerLog(LOGS.claude).some((l) => l.argumentos.join(" ").endsWith("-p --model haiku /usage")), "leyó el uso con claude -p /usage");
     assert.equal(avisos().length, antes + 1, "un aviso");
-    assert.match(avisos().at(-1).cuerpo.texto, /sesión: 83 % usado, se reinicia Oct 23, 3:20pm/);
+    assert.match(avisos().at(-1).cuerpo.texto, /^⚠️ Claude va en 83 % de la sesión\.\n.*planear y revisar pasan a Codex/);
+    assert.ok(avisos().at(-1).cuerpo.texto.split("\n").length <= 3, "el aviso tiene 3 líneas o menos");
     const estadoUso = JSON.parse(fs.readFileSync(path.join(T, "trabajo", "estado-uso.json"), "utf8"));
     assert.equal(estadoUso.avisado.sesion.reinicio, "Oct 23, 3:20pm (America/Bogota)");
     await new Promise((r) => setTimeout(r, 20));
@@ -1659,7 +1700,7 @@ try {
     await planificador.llenar();
     await new Promise((r) => setTimeout(r, 20));
     await planificador.llenar();
-    const alertas = avisos().filter((l) => /no pude leer el uso de Claude/.test(l.cuerpo.texto));
+    const alertas = avisos().filter((l) => /No pude leer el uso de Claude/.test(l.cuerpo.texto));
     assert.equal(alertas.length, 1, "una sola alerta por día");
     await planificador.esperarTodas();
     planificador.parar();

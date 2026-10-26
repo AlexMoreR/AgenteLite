@@ -34,7 +34,7 @@ import {
   ponerAprobacionAutomatica,
   ponerAprobarPlanesSolo,
 } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
-import { resumenDeHoyParaLaPantalla } from "@/features/tableros-inteligentes/services/resumen-diario";
+import { resumenDeHoyParaLaPantalla, vistaDeHoy, type VistaDeHoy } from "@/features/tableros-inteligentes/services/resumen-diario";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 
 /*
@@ -294,6 +294,17 @@ export async function resumenDeHoyAction(): Promise<{ ok: true; resumen: Resumen
     return { ok: true, resumen: await resumenDeHoyParaLaPantalla(access.workspaceId) };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo leer el resumen de hoy") };
+  }
+}
+
+/** La vista "Hoy" (?vista=hoy): listas hoy, con problema hoy y te toca a ti, una línea por tarjeta. Solo el dueño o el ADMIN. */
+export async function vistaDeHoyAction(): Promise<{ ok: true; vista: VistaDeHoy } | { ok: false; error: string }> {
+  const access = await accesoDelDueno();
+  if (!access) return { ok: false, error: "La vista de hoy la ve solo el dueño del negocio." };
+  try {
+    return { ok: true, vista: await vistaDeHoy(access.workspaceId) };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo leer la vista de hoy") };
   }
 }
 

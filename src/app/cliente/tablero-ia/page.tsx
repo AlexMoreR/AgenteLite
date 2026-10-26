@@ -44,8 +44,9 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
   alrededor);
   ?tarjeta=<id> abre el tablero de esa tarjeta, en el nivel de su madre, con su ficha a la vista (es
   el link que devuelve el MCP y el que usarán los avisos por WhatsApp de la fase 2).
-  ?vista=coordinador abre la página de inicio en la pestaña "Coordinador en vivo" (solo el dueño o el ADMIN;
-  para los demás se ignora).
+  ?vista=coordinador abre la página de inicio en la pestaña "Coordinador en vivo" y ?vista=hoy en "Hoy" (lo que
+  terminó, falló o espera al dueño: es el link de los WhatsApp cortos). Solo el dueño o el ADMIN; para los
+  demás se ignoran.
 */
 export default async function TableroIAPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
@@ -53,6 +54,8 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
   const pedidoTablero = uno(parametros.tablero);
   const pedidaTarjeta = uno(parametros.tarjeta);
   const pedidoNivel = uno(parametros.area);
+  const vista = uno(parametros.vista);
+  const vistaPedida = vista === "coordinador" || vista === "hoy" ? vista : "tableros";
 
   // Tableros por cuenta: cada persona ve los suyos; el dueño o el ADMIN, todos (con el nombre del dueño).
   const alcance = alcanceDe(access);
@@ -85,7 +88,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
         puedeAdministrar={puedeAdministrar}
         cuentas={cuentas}
         asignadas={await asignadasA(alcance, access.userId)}
-        vistaInicial={uno(parametros.vista) === "coordinador" ? "coordinador" : "tableros"}
+        vistaInicial={vistaPedida}
       />
     );
   }

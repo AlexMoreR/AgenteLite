@@ -163,17 +163,24 @@ function pasosDeClaude(config, { verbo = "pasa" } = {}) {
   return `${pasos.join(" y ")} ${verbo}${pasos.length > 1 ? "n" : ""}`;
 }
 
+/** Un solo link: el Coordinador en vivo del tablero. */
+export const LINK_DEL_COORDINADOR = "https://app.aizenbot.com/cliente/tablero-ia?vista=coordinador";
+
+/**
+ * El aviso del uso de Claude: 3 líneas como mucho, en lenguaje de dueño (pedido del 25-oct-2026).
+ *   ⚠️ Claude va en 85 % de la semana.
+ *   El Coordinador sigue trabajando; si se agota, espera al reinicio.
+ *   Ver: <link al Coordinador en vivo>
+ */
 export function textoDelAviso(avisos, config) {
-  const lineas = avisos.map((a) => `• ${NOMBRE_DEL_PERIODO[a.periodo]}: ${a.porcentaje} % usado, se reinicia ${a.reinicio || "(sin hora)"}`);
+  const mayor = [...avisos].sort((a, b) => b.porcentaje - a.porcentaje)[0];
   return [
-    `⚠️ Coordinador del Tablero IA: el plan de Claude pasó el ${config.umbralClaude} %.`,
-    ...lineas,
+    `⚠️ Claude va en ${mayor.porcentaje} % de ${mayor.periodo === "semana" ? "la semana" : "la sesión"}.`,
     config.motores.respaldoCodex
       ? `Mientras esté arriba, ${pasosDeClaude(config)} a Codex.`
-      : "El Coordinador sigue con Claude; si se agota, las tarjetas esperan al reinicio.",
-  ]
-    .join("\n")
-    .slice(0, 500);
+      : "El Coordinador sigue trabajando; si se agota, espera al reinicio.",
+    `Ver: ${LINK_DEL_COORDINADOR}`,
+  ].join("\n");
 }
 
 /** Leer el uso: [...comandoClaude, "-p", "--model", <leer: Haiku>, "/usage"], sin entrada, 60 s. Devuelve el texto o null. */
@@ -215,7 +222,12 @@ export function crearVigilanteDeUso({ config, registro, crm, estado, entorno, le
   };
   const avisar = async (texto) => {
     try {
-      await crm.aviso(texto);
+      const respuesta = await crm.aviso(texto);
+      if (respuesta?.silenciado) {
+        // Silencio de 9 p. m. a 7 a. m.: no cuenta como enviado; se reintenta en la próxima mirada (sale a las 7 a. m. si sigue siendo cierto).
+        registro.info("aviso del uso de Claude en silencio (9 p. m. a 7 a. m.): se reintenta después");
+        return false;
+      }
       return true;
     } catch (error) {
       registro.aviso(`no salió el aviso por WhatsApp (${error.status ?? "sin respuesta"}): ${error.message}`);
@@ -231,7 +243,7 @@ export function crearVigilanteDeUso({ config, registro, crm, estado, entorno, le
     const decision = decidirUso(uso, guardado, config.umbralClaude);
     const aGuardar = { ...decision.estado };
 
-    if (decision.alertaLectura && !(await avisar("⚠️ Coordinador del Tablero IA: no pude leer el uso de Claude (claude -p /usage). Sigo como si estuviera bajo el umbral."))) {
+    if (decision.alertaLectura && !(await avisar(`⚠️ No pude leer el uso de Claude; sigo como si estuviera bajo el límite.\nVer: ${LINK_DEL_COORDINADOR}`))) {
       aGuardar.alertaLectura = guardado.alertaLectura ?? null;
     }
     if (decision.avisos.length && !(await avisar(textoDelAviso(decision.avisos, config)))) {

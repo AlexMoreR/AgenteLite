@@ -124,3 +124,18 @@ export function resumenCorto(
   }
   return null;
 }
+
+export const MAXIMO_PALABRAS_DEL_TITULO = 6;
+
+/**
+ * El título corto de una tarjeta para los avisos y la vista "Hoy": corta en el primer ":", "—" o "(" y deja
+ * como mucho ~6 palabras ("Autorreparación del Coordinador: que se arregle sola…" -> "Autorreparación del Coordinador").
+ */
+export function tituloCorto(titulo: string, maxPalabras = MAXIMO_PALABRAS_DEL_TITULO): string {
+  const limpio = sinMarkdown(titulo);
+  const corte = limpio.search(/[:—(]/);
+  const inicio = (corte > 0 ? limpio.slice(0, corte) : limpio).replace(/[\s,;.\-–]+$/, "").trim();
+  const palabras = inicio.split(/\s+/).filter(Boolean);
+  if (palabras.length <= maxPalabras) return palabras.join(" ");
+  return `${palabras.slice(0, maxPalabras).join(" ").replace(/[\s,;:.]+$/, "")}…`;
+}

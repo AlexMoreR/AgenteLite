@@ -1320,7 +1320,7 @@ prueba("el dueño de un tablero se elige por id, email o nombre (sin tildes ni m
 
 /* ------------------------------------------------------------ resumen corto de la ficha */
 
-const { resumenCorto, sinMarkdown, seccionQueSeCambia } = cargar("src/features/tableros-inteligentes/services/resumen-corto.ts");
+const { resumenCorto, sinMarkdown, seccionQueSeCambia, tituloCorto } = cargar("src/features/tableros-inteligentes/services/resumen-corto.ts");
 
 prueba("el resumen corto limpia el markdown y quita el relleno del trabajador", () => {
   const r = resumenCorto({
@@ -1352,6 +1352,17 @@ prueba("sin resultado usa 'Qué se cambia' del plan; sin plan, el detalle; sin n
   assert.equal(resumenCorto({ plan: null, detalle: "Cambiar el color del botón principal." }).fuente, "detalle");
   assert.equal(resumenCorto({ resultadoResumen: "Listo.\n---\n", plan: "", detalle: "" }), null);
   assert.equal(sinMarkdown("1. **Hola** [link](http://x.co) `código`"), "Hola link código");
+});
+
+prueba("tituloCorto deja 6 palabras o menos y corta en ':', '—' o '('", () => {
+  assert.equal(tituloCorto("Autorreparación del Coordinador: que se arregle sola cuando falle"), "Autorreparación del Coordinador");
+  assert.equal(tituloCorto("WhatsApp del Coordinador — máximo 3 líneas y el detalle en el tablero"), "WhatsApp del Coordinador");
+  assert.equal(tituloCorto("Reporte de ventas (versión 2) con filtros"), "Reporte de ventas");
+  assert.equal(tituloCorto("Uno dos tres cuatro cinco seis siete ocho"), "Uno dos tres cuatro cinco seis…");
+  assert.equal(tituloCorto("Uno dos tres cuatro cinco seis"), "Uno dos tres cuatro cinco seis");
+  assert.equal(tituloCorto("**Reporte** de `ventas`"), "Reporte de ventas");
+  assert.equal(tituloCorto(": raro"), ": raro", "si el corte queda al inicio, no deja el título vacío");
+  for (const t of ["a b c d e f g h i j", "Título: largo largo largo largo largo largo largo"]) assert.ok(tituloCorto(t).replace("…", "").split(" ").length <= 6);
 });
 
 /* ------------------------------------------------------------------ riesgo BAJO / ALTO (reglas-riesgo.ts) */

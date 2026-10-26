@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { CalendarCheck, ExternalLink, Loader2, RefreshCw } from "lucide-react";
+import { CalendarCheck, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -9,22 +9,28 @@ import { resumenDeHoyAction, type ResumenDeHoyVista } from "@/app/actions/tabler
 
 /*
   Caja "Resumen de hoy" de la página de inicio de Tablero IA (solo quien administra): lo mismo que sale
-  por WhatsApp a las 9:00 p. m. (services/resumen-diario.ts), visto hasta ahora: lo que se aprobó solo y
-  por qué, lo que subió a producción (con el link del commit) y lo que falló. Se lee al mostrarse, se
-  refresca cada minuto y con el botón.
+  por WhatsApp a las 8:55 p. m. (services/resumen-diario.ts), visto hasta ahora: dos líneas con cuántas
+  quedaron listas, cuántas con problema y cuántas esperan el sí del dueño, y el link a la vista "Hoy". Se lee
+  al mostrarse, se refresca cada minuto y con el botón.
 */
 
 const HORA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit", hour12: true });
 const REFRESCO_MS = 60_000;
-const HORA_DEL_ENVIO = 21;
+const HORA_DEL_ENVIO = 20;
+const MINUTO_DEL_ENVIO = 55;
 
-const horaDeBogota = (ahora: Date) => Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Bogota", hour: "numeric", hour12: false }).format(ahora)) % 24;
+/** Minutos desde la medianoche de Bogotá. */
+const minutosDeBogota = (ahora: Date) => {
+  const partes = new Intl.DateTimeFormat("en-US", { timeZone: "America/Bogota", hour: "numeric", minute: "numeric", hour12: false }).formatToParts(ahora);
+  const numero = (tipo: string) => Number(partes.find((parte) => parte.type === tipo)?.value ?? 0);
+  return (numero("hour") % 24) * 60 + numero("minute");
+};
 
 function lineaDelWhatsApp(resumen: ResumenDeHoyVista): string {
   const envio = resumen.envioDeHoy;
   if (envio?.enviado) return `Enviado por WhatsApp a las ${HORA.format(new Date(envio.cuando))}`;
   if (envio?.motivo) return `No salió por WhatsApp: ${envio.motivo}`;
-  if (horaDeBogota(new Date()) < HORA_DEL_ENVIO) return "Sale hoy a las 9:00 p. m. por WhatsApp";
+  if (minutosDeBogota(new Date()) < HORA_DEL_ENVIO * 60 + MINUTO_DEL_ENVIO) return "Sale hoy a las 8:55 p. m. por WhatsApp (si hay algo que contar)";
   return "Todavía no salió por WhatsApp.";
 }
 
@@ -54,9 +60,6 @@ export function ResumenDelDia() {
     };
   }, []);
 
-  const datos = resumen?.resumen;
-  const sinMovimiento = datos ? !datos.aprobadas.length && !datos.subidas.length && !datos.fallas.length : false;
-
   return (
     <section aria-labelledby="titulo-resumen-hoy" className="space-y-3">
       <div className="flex items-start justify-between gap-2">
@@ -65,7 +68,7 @@ export function ResumenDelDia() {
             <CalendarCheck className="size-5 text-muted-foreground" aria-hidden />
             Resumen de hoy
           </h2>
-          <p className="text-sm text-muted-foreground">Lo que hizo el Coordinador hoy: lo aprobado solo, lo subido y lo que falló.</p>
+          <p className="text-sm text-muted-foreground">Lo mismo que te llega por WhatsApp, en dos líneas.</p>
         </div>
         <Button
           variant="outline"
@@ -81,67 +84,24 @@ export function ResumenDelDia() {
 
       {!resumen ? <Loader2 className="mx-auto animate-spin text-muted-foreground" aria-label="Cargando" /> : null}
 
-      {resumen && datos ? (
+      {resumen ? (
         <div className="space-y-3 rounded-xl border bg-card p-4 text-sm">
-          {sinMovimiento ? <p className="text-muted-foreground">Hoy no hubo movimiento.</p> : null}
-
-          {datos.aprobadas.length ? (
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">Aprobadas solas ({datos.aprobadas.length})</p>
-              <ul className="space-y-1">
-                {datos.aprobadas.map((item, indice) => (
-                  <li key={`${item.tarjetaId}-${indice}`} className="rounded-lg border px-3 py-2">
-                    <p className="font-medium">{item.titulo}</p>
-                    {item.motivo ? <p className="text-xs text-muted-foreground">{item.motivo}</p> : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {datos.subidas.length ? (
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">Subidas a producción ({datos.subidas.length})</p>
-              <ul className="space-y-1">
-                {datos.subidas.map((item, indice) => (
-                  <li key={`${item.tarjetaId}-${indice}`} className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">
-                    <span className="min-w-0 font-medium">{item.titulo}</span>
-                    {item.linkCommit ? (
-                      <a
-                        href={item.linkCommit}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex shrink-0 items-center gap-1 text-xs underline"
-                      >
-                        <ExternalLink className="size-3.5" />
-                        {item.commit ? `commit ${item.commit.slice(0, 10)}` : "ver commit"}
-                      </a>
-                    ) : item.commit ? (
-                      <span className="shrink-0 text-xs text-muted-foreground">commit {item.commit.slice(0, 10)}</span>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {datos.fallas.length ? (
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">Fallas ({datos.fallas.length})</p>
-              <ul className="space-y-1">
-                {datos.fallas.map((item, indice) => (
-                  <li
-                    key={`${item.tarjetaId}-${indice}`}
-                    className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-red-900 dark:border-red-700 dark:bg-red-950 dark:text-red-100"
-                  >
-                    <p className="font-medium">{item.titulo}</p>
-                    <p className="line-clamp-3 whitespace-pre-wrap text-xs">{item.motivo}</p>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
+          <div className="space-y-1">
+            {resumen.texto.split("\n").map((linea) =>
+              linea.startsWith("Ver: ") ? (
+                <p key={linea}>
+                  Ver:{" "}
+                  <a href={linea.slice(5)} className="underline">
+                    abrir el tablero de hoy
+                  </a>
+                </p>
+              ) : (
+                <p key={linea} className={linea.startsWith("Hoy no") ? "text-muted-foreground" : "font-medium"}>
+                  {linea}
+                </p>
+              ),
+            )}
+          </div>
           <p className="border-t pt-2 text-xs text-muted-foreground">{lineaDelWhatsApp(resumen)}</p>
         </div>
       ) : null}
