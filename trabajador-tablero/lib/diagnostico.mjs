@@ -9,6 +9,7 @@
 // pasan de tiempo con el PC saturado, ".next/lock" / "el build está ocupado", "Claude no cambió ningún
 // archivo" y el límite de uso de Claude. Si una etapa ya sabe la causa, lo dice en `error.categoria`
 // (ErrorDeEtapa) y acá no se adivina nada.
+import { esAvisoDeCandado } from "./candado-de-build.mjs";
 import { esLimiteDeCodex } from "./motores.mjs";
 
 /** Las categorías (slugs): son las mismas del lado del CRM. */
@@ -35,6 +36,11 @@ export const ACCIONES = ["reparar", "partir", "esperar", "escalar"];
 /** Iguales a reglas-trabajador.ts del CRM. */
 export const TOPE_DE_REPARACIONES = 3;
 export const TOPE_DE_ESPERAS_SEGUIDAS = 5;
+/**
+ * El candado del build (26-oct-2026: "Unable to acquire lock ... another instance of next build running") es del PC, no de
+ * la tarea: sus esperas no cuentan como intento. Solo un tope muy alto evita esperar para siempre si algo lo deja trabado.
+ */
+export const TOPE_DE_ESPERAS_DE_CANDADO = 20;
 export const MAXIMO_DE_PARTES = 4;
 export const MINIMO_DE_PARTES = 2;
 
@@ -204,7 +210,14 @@ function causaDe(categoria, titular, texto) {
  *   recursos   (opcional) { cpu, memoria, limites }: si un comando se pasó de tiempo con el PC saturado.
  * -> { categoria, causa (UNA línea, <= 200), error (recortado a 6000) }
  */
-export function diagnosticar({ error, etapa, textoLog = "", tarjeta = null, recursos = null } = {}) {
+export function diagnosticar(entrada = {}) {
+  const diagnostico = diagnosticarPorReglas(entrada);
+  // El aviso del candado del build: se reconoce en el texto del error o porque la etapa ya lo marcó tras sus reintentos.
+  const candado = diagnostico.categoria === "carpeta_trabada" && (entrada.error?.candadoDeBuild === true || esAvisoDeCandado(`${textoDelError(entrada.error)}\n${entrada.textoLog ?? ""}`));
+  return candado ? { ...diagnostico, candadoDeBuild: true } : diagnostico;
+}
+
+function diagnosticarPorReglas({ error, etapa, textoLog = "", tarjeta = null, recursos = null } = {}) {
   void etapa;
   void tarjeta;
   const texto = sinRuido(textoDelError(error));
@@ -287,6 +300,10 @@ export function decidir({ diagnostico, tarjeta = {}, etapa, config = {}, archivo
   // Con tope (como el PC y la carpeta): una tarjeta que corta al Coordinador cada vez no puede esperar para siempre; pasado el tope cuenta como reparación.
   if (categoria === "coordinador_cortado" && esperasSeguidas < TOPE_DE_ESPERAS_SEGUIDAS) return { accion: "esperar", cuenta: false, motivo: "el Coordinador se cortó: se vuelve a tomar" };
 
+  // El candado del build: se espera sin contar, hasta un tope muy alto (no los 5 de siempre).
+  if (categoria === "carpeta_trabada" && diagnostico?.candadoDeBuild && esperasSeguidas < TOPE_DE_ESPERAS_DE_CANDADO) {
+    return { accion: "esperar", cuenta: false, arreglo: "sin_claude", motivo: `candado del build: otro build tenía la carpeta; espera sin contar como intento (${esperasSeguidas + 1}ª espera seguida)` };
+  }
   if (categoria === "pc_sobrecargado" || categoria === "carpeta_trabada") {
     if (esperasSeguidas < TOPE_DE_ESPERAS_SEGUIDAS) {
       return { accion: "esperar", cuenta: false, arreglo: "sin_claude", motivo: `${categoria}: el Coordinador lo arregla sin Claude (${esperasSeguidas + 1}ª espera seguida de ${TOPE_DE_ESPERAS_SEGUIDAS})` };

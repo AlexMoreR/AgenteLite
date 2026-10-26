@@ -25,7 +25,9 @@ import path from "node:path";
 
 import crypto from "node:crypto";
 
+import { CANDADO_DE_BUILD_POR_DEFECTO, candadosDeBuild, conReintentoDeCandado } from "./candado-de-build.mjs";
 import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, enUnaLinea, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
+import { promptDeTamano, tamanoDeLaRespuesta } from "./medir.mjs";
 import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
 import {
   archivosCambiados,
@@ -725,7 +727,9 @@ export function promptDePartir(tarjeta, repo, { causa, error, motor = "claude" }
       motor === "codex" ? "Estás en modo de solo lectura" : "Estás en modo plan"
     }: NO cambies ningún archivo, solo lee el código.`,
     contextoDeLaTarjeta(tarjeta),
-    tarjeta.plan ? `PLAN APROBADO (lo que hay que lograr entre todas las partes):\n${tarjeta.plan}` : "",
+    tarjeta.plan
+      ? `PLAN APROBADO (lo que hay que lograr entre todas las partes):\n${tarjeta.plan}`
+      : "TODAVÍA NO HAY PLAN: esta tarea se divide ANTES de planearla (es muy grande para escribir su plan en una sola sesión). Divídela según lo que pide el detalle de la tarea y lo que veas en el código; cada parte se planeará y construirá aparte.",
     `Por qué no se pudo: ${causa || "(no se sabe)"}${error ? `\nÚltimo error:\n${recortar(error, 2000)}` : ""}`,
     [
       `Divide el trabajo en entre ${MINIMO_DE_PARTES} y ${MAXIMO_DE_PARTES} partes. Reglas:`,
@@ -864,6 +868,38 @@ function erroresNuevos(base, despues) {
   return nuevos;
 }
 
+/**
+ * Un build a la vez por carpeta y sin contar el candado como intento (26-oct-2026, candado-de-build.mjs): hace fila si otro build
+ * tiene la carpeta; si Next igual dice "Unable to acquire lock / another instance of next build", espera, limpia el candado
+ * viejo y reintenta. Lo que se esperó se le devuelve al reloj de la etapa.
+ */
+async function buildSinChocar(contexto, cwd, reloj, fn) {
+  const { config, registro, senal } = contexto;
+  const inicio = Date.now();
+  if (candadosDeBuild.ocupada(cwd)) registro?.info?.(`espero turno para compilar en ${path.basename(cwd)}: otro build tiene esta carpeta`);
+  let liberar;
+  try {
+    liberar = await candadosDeBuild.tomar(cwd, senal);
+  } catch (error) {
+    throw new ErrorDeEtapa(`Se canceló la espera para compilar: la tarjeta venció en el CRM.`, { categoria: "coordinador_cortado", causa: error });
+  }
+  const esperado = Date.now() - inicio;
+  if (esperado > 1000) reloj.extender(esperado);
+  try {
+    const candado = { ...CANDADO_DE_BUILD_POR_DEFECTO, ...(config.candadoDeBuild ?? {}) };
+    return await conReintentoDeCandado(fn, {
+      reintentos: candado.reintentos,
+      esperaMs: candado.esperaSegundos * 1000,
+      senal,
+      limpiar: () => cerrarRestos(contexto, cwd),
+      alEsperar: (vez, ms) => registro?.aviso?.(`el build encontró el candado de Next tomado (${vez} de ${candado.reintentos}): espero ${Math.round(ms / 1000)} s, limpio el candado viejo y reintento; no cuenta como intento`),
+      despuesDeEsperar: (ms) => reloj.extender(ms),
+    });
+  } finally {
+    liberar();
+  }
+}
+
 /** Instalar + verificar + pruebas en el worktree. Devuelve el texto de "pruebas" para el resultado. */
 async function verificar(contexto, repo, cwd, reloj, prioridad = PRIORIDAD.verificar) {
   const lineas = [];
@@ -873,8 +909,10 @@ async function verificar(contexto, repo, cwd, reloj, prioridad = PRIORIDAD.verif
   for (const [comando, esPrueba] of comandos) {
     await esperarAlPc(contexto, reloj, `correr ${comoTexto(comando)}`);
     // Un build que quedó a medias (otro intento, una sesión) deja .next/lock: se borra antes de compilar (24-oct-2026).
-    if (/\bbuild\b/.test(comoTexto(comando))) await cerrarRestos(contexto, cwd);
-    const resultado = await paso(contexto, comando, { cwd, reloj, que: "la verificación", motivo: motivoDeVerificacion(comando, esPrueba), prioridad });
+    const esBuild = /\bbuild\b/.test(comoTexto(comando));
+    if (esBuild) await cerrarRestos(contexto, cwd);
+    const correrPaso = () => paso(contexto, comando, { cwd, reloj, que: "la verificación", motivo: motivoDeVerificacion(comando, esPrueba), prioridad });
+    const resultado = esBuild ? await buildSinChocar(contexto, cwd, reloj, correrPaso) : await correrPaso();
     const cola = ultimasLineas(resultado.salida, 3);
     lineas.push(`✔ ${comoTexto(comando)}${cola ? `\n  ${cola.replace(/\n/g, "\n  ")}` : ""}`);
   }
@@ -1634,6 +1672,21 @@ export async function partirTarea(contexto, tarjeta, { causa = "", error = "" } 
   } finally {
     await quitarWorktree(repo, carpeta);
   }
+}
+
+/**
+ * MEDIR con Haiku (26-oct-2026): para una tarjeta "dudosa" (medir.mjs), una consulta corta y barata, de solo lectura y de
+ * menos de 2 minutos: ¿cabe en una sola sesión? -> "grande" | "manejable" | null (no contestó algo claro). Puede lanzar (el
+ * bucle lo ignora y planea la tarjeta entera).
+ */
+export async function consultarTamanoConClaude(contexto, tarjeta) {
+  const { config } = contexto;
+  const modelo = modeloDelPaso(config, "leer");
+  const argumentos = ["-p", "--model", modelo, "--permission-mode", "plan", "--output-format", "text", "--allowedTools", "Read", "--disallowedTools", "Edit", "Write", "Bash", "WebFetch", "Agent", "Task"];
+  const minutos = config.medir?.haikuMinutos ?? 2;
+  fs.mkdirSync(config.carpetaTrabajo, { recursive: true });
+  const texto = await claude(contexto, argumentos, promptDeTamano(tarjeta), { cwd: config.carpetaTrabajo, timeoutMs: minutos * MINUTO, que: "medir el tamaño" });
+  return tamanoDeLaRespuesta(texto);
 }
 
 /**

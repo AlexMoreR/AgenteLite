@@ -24,6 +24,7 @@ import {
   semaforoDeLaCarga,
   textoDelUso,
 } from "./reglas-coordinador-en-vivo";
+import { etiquetaDeEspera, recogidaDelResultado } from "./reglas-trabajador";
 import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
 import { linkDeLaTarjeta } from "./tableros";
 
@@ -93,6 +94,18 @@ export type CargaVista = CargaDelLatido & { semaforo: Semaforo | null };
 
 export type ItemDeFila = { tarjetaId: string; titulo: string; link: string; motivo: string | null };
 
+/** Una tarjeta en ERROR (26-oct-2026): el panel dice cuántas hay y de cuáles se trata; si necesita algo del dueño, su línea. */
+export type ItemDeError = { tarjetaId: string; titulo: string; link: string; motivo: string | null; lineaDueno: string | null; recogidas: number };
+
+export type ErroresVista = {
+  /** Tarjetas del Coordinador en ERROR (las primeras MAXIMO_DE_FILA en `enError`). */
+  totalEnError: number;
+  enError: ItemDeError[];
+  /** Tarjetas que no arrancan porque esperan a otra que no está HECHO ("Esperando a «X»"). */
+  totalEsperandoAOtra: number;
+  esperandoAOtra: ItemDeFila[];
+};
+
 export type VistaDelCoordinador = {
   generadoEn: string;
   /** false = apagado o sin conexión (nunca mandó latido, o el último tiene más de 2 minutos). */
@@ -103,6 +116,7 @@ export type VistaDelCoordinador = {
   tareas: TareaEnVivo[];
   carga: CargaVista | null;
   fila: { siguientes: ItemDeFila[]; bloqueadas: ItemDeFila[] };
+  errores: ErroresVista;
   hoy: HoyVista;
   uso: UsoDelLatido & { texto: string };
 };
@@ -134,7 +148,7 @@ async function tarjetasEnMarcha(workspaceId: string, ahora: Date) {
 async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map<string, string>) {
   const dependencias = {
     where: { esDependencia: true, origen: { borradoEn: null, estado: { not: "HECHO" as const }, tipo: { usaEstados: true } } },
-    select: { origen: { select: { titulo: true } } },
+    select: { origen: { select: { titulo: true, estado: true } } },
   };
   const [paraTomar, esperandoAlDueno] = await Promise.all([
     prisma.tarjetaTablero.findMany({
@@ -169,6 +183,7 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
 
   const siguientes: ItemDeFila[] = [];
   const bloqueadas: ItemDeFila[] = [];
+  const esperandoAOtra: ItemDeFila[] = [];
   const item = (tarjeta: { id: string; titulo: string }, motivo: string | null): ItemDeFila => ({
     tarjetaId: tarjeta.id,
     titulo: tarjeta.titulo,
@@ -177,13 +192,33 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
   });
   for (const tarjeta of paraTomar) {
     if (!(ESTADOS_DE_FILA as readonly string[]).includes(tarjeta.estado)) continue;
-    const espera = tarjeta.entrantes[0]?.origen.titulo;
-    if (espera && tarjeta.estado !== "SUBIENDO") bloqueadas.push(item(tarjeta, `Espera a la tarjeta «${espera}»`));
-    else if (esperas.has(tarjeta.id)) bloqueadas.push(item(tarjeta, esperas.get(tarjeta.id) || "Espera a que termine otra tarea"));
+    // «Esperando a «X»» (y «que está en error» si la otra falló): la misma etiqueta que usa /errores.
+    const espera = tarjeta.estado !== "SUBIENDO" ? etiquetaDeEspera(tarjeta.entrantes.map((flecha) => flecha.origen)) : null;
+    if (espera) {
+      bloqueadas.push(item(tarjeta, espera));
+      esperandoAOtra.push(item(tarjeta, espera));
+    } else if (esperas.has(tarjeta.id)) bloqueadas.push(item(tarjeta, esperas.get(tarjeta.id) || "Espera a que termine otra tarea"));
     else siguientes.push(item(tarjeta, null));
   }
   for (const tarjeta of esperandoAlDueno) bloqueadas.push(item(tarjeta, MOTIVO_DEL_DUENO[tarjeta.estado] ?? "Espera tu sí"));
-  return { siguientes: siguientes.slice(0, MAXIMO_DE_FILA), bloqueadas: bloqueadas.slice(0, MAXIMO_DE_FILA) };
+  return { siguientes: siguientes.slice(0, MAXIMO_DE_FILA), bloqueadas: bloqueadas.slice(0, MAXIMO_DE_FILA), esperandoAOtra };
+}
+
+/** Las tarjetas del Coordinador que están en ERROR, con la línea para el dueño si la tienen (26-oct-2026). */
+async function tarjetasEnError(workspaceId: string) {
+  const filas = await prisma.tarjetaTablero.findMany({
+    where: { tablero: { workspaceId }, borradoEn: null, repo: { not: null }, tipo: { requiereAprobacion: true, usaEstados: true }, estado: "ERROR" },
+    orderBy: { actualizadoEn: "asc" },
+    take: 100,
+    select: { id: true, titulo: true, resultado: true },
+  });
+  return filas.map((fila): ItemDeError => {
+    const resultado = (fila.resultado && typeof fila.resultado === "object" && !Array.isArray(fila.resultado) ? fila.resultado : {}) as Record<string, unknown>;
+    const error = (resultado.error && typeof resultado.error === "object" ? resultado.error : {}) as Record<string, unknown>;
+    const recogida = recogidaDelResultado(resultado);
+    const motivo = typeof error.motivo === "string" ? (error.motivo.split(/\r?\n/).find((linea) => linea.trim()) ?? null) : null;
+    return { tarjetaId: fila.id, titulo: fila.titulo, link: linkDeLaTarjeta(fila.id), motivo, lineaDueno: recogida.lineaDueno, recogidas: recogida.veces };
+  });
 }
 
 async function hoyDelCoordinador(workspaceId: string, ahora: Date): Promise<HoyVista> {
@@ -213,10 +248,15 @@ async function hoyDelCoordinador(workspaceId: string, ahora: Date): Promise<HoyV
 
 /** La vista completa del panel para un negocio. Solo lee. */
 export async function vistaDelCoordinador(workspaceId: string, ahora = new Date()): Promise<VistaDelCoordinador> {
-  const [latido, enMarcha, hoy] = await Promise.all([ultimoLatido(workspaceId), tarjetasEnMarcha(workspaceId, ahora), hoyDelCoordinador(workspaceId, ahora)]);
+  const [latido, enMarcha, hoy, enError] = await Promise.all([
+    ultimoLatido(workspaceId),
+    tarjetasEnMarcha(workspaceId, ahora),
+    hoyDelCoordinador(workspaceId, ahora),
+    tarjetasEnError(workspaceId),
+  ]);
   const apagado = estaApagado(latido?.recibidoEn, ahora);
   const esperas = new Map((latido?.esperas ?? []).map((espera) => [espera.tarjetaId, espera.motivo]));
-  const fila = await filaDelCoordinador(workspaceId, ahora, esperas);
+  const { esperandoAOtra, ...fila } = await filaDelCoordinador(workspaceId, ahora, esperas);
 
   // Qué hay en marcha lo dice la base; el latido agrega el detalle (dónde, modelo, intento, links).
   const delLatido = new Map((latido?.tareas ?? []).map((tarea) => [tarea.tarjetaId, tarea]));
@@ -255,6 +295,12 @@ export async function vistaDelCoordinador(workspaceId: string, ahora = new Date(
     tareas,
     carga,
     fila,
+    errores: {
+      totalEnError: enError.length,
+      enError: enError.slice(0, MAXIMO_DE_FILA),
+      totalEsperandoAOtra: esperandoAOtra.length,
+      esperandoAOtra: esperandoAOtra.slice(0, MAXIMO_DE_FILA),
+    },
     hoy,
     uso: { ...uso, texto: textoDelUso(uso, ahora) },
   };
@@ -291,6 +337,13 @@ export function textoDelCoordinador(vista: VistaDelCoordinador): string {
   if (vista.fila.siguientes.length) lineas.push(`Sigue en la fila: ${vista.fila.siguientes.map((item, i) => `${i + 1}. «${item.titulo}»`).join("; ")}.`);
   else lineas.push("La fila está vacía.");
   if (vista.fila.bloqueadas.length) lineas.push(`Bloqueadas: ${vista.fila.bloqueadas.map((item) => `«${item.titulo}» (${item.motivo?.toLowerCase() ?? "espera"})`).join("; ")}.`);
+
+  const { errores } = vista;
+  lineas.push(`En error: ${errores.totalEnError}. Esperando a otra: ${errores.totalEsperandoAOtra}.`);
+  for (const error of errores.enError) {
+    lineas.push(`- En error «${error.titulo}»${error.lineaDueno ? ` — te necesita: ${error.lineaDueno}` : error.motivo ? ` — ${error.motivo}` : ""}.`);
+  }
+  for (const espera of errores.esperandoAOtra) lineas.push(`- «${espera.titulo}»: ${espera.motivo?.toLowerCase() ?? "espera a otra tarjeta"}.`);
 
   const { hoy } = vista;
   lineas.push(`Hoy: ${hoy.terminadas} terminadas, ${hoy.falladas} falladas, ${hoy.reparadas} reparadas.`);

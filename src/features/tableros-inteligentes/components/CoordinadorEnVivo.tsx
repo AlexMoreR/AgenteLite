@@ -156,7 +156,7 @@ function ListaDeFila({ items }: { items: ItemDeFila[] }) {
 function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number }) {
   const apagado = !vista.enLinea;
   const hora = horaDeBogotaTexto(vista.ultimoLatidoEn);
-  const { hoy, fila, uso } = vista;
+  const { hoy, fila, uso, errores } = vista;
   return (
     <div className="space-y-6">
       {apagado ? (
@@ -195,6 +195,39 @@ function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number
           <div className="space-y-1.5 pt-1">
             <h3 className="text-xs font-medium text-muted-foreground">Bloqueadas</h3>
             <ListaDeFila items={fila.bloqueadas} />
+          </div>
+        ) : null}
+      </Bloque>
+
+      <Bloque titulo="En error y esperando" id="cev-errores">
+        <div className="grid grid-cols-2 gap-2 text-center">
+          {[
+            { nombre: "En error", valor: errores.totalEnError },
+            { nombre: "Esperando a otra", valor: errores.totalEsperandoAOtra },
+          ].map(({ nombre, valor }) => (
+            <div key={nombre} className="rounded-xl border bg-card px-2 py-2">
+              <p className="text-xl font-semibold tabular-nums">{valor}</p>
+              <p className="text-xs text-muted-foreground">{nombre}</p>
+            </div>
+          ))}
+        </div>
+        {errores.enError.length ? (
+          <div className="space-y-1.5">
+            <h3 className="text-xs font-medium text-muted-foreground">En error</h3>
+            <ListaDeFila
+              items={errores.enError.map((error) => ({
+                tarjetaId: error.tarjetaId,
+                titulo: error.titulo,
+                link: error.link,
+                motivo: error.lineaDueno ? `Te necesita: ${error.lineaDueno}` : (error.motivo ?? "En error"),
+              }))}
+            />
+          </div>
+        ) : null}
+        {errores.esperandoAOtra.length ? (
+          <div className="space-y-1.5">
+            <h3 className="text-xs font-medium text-muted-foreground">Esperando a otra</h3>
+            <ListaDeFila items={errores.esperandoAOtra} />
           </div>
         ) : null}
       </Bloque>

@@ -32,6 +32,8 @@ const prismaFalso = {
   tarjetaTablero: {
     findMany: async ({ where }) => {
       const delNegocio = estado.tarjetas.filter((t) => t.workspaceId === where.tablero.workspaceId && t.borradoEn === null);
+      // En error (26-oct-2026): las del Coordinador (con repo) que están en ERROR.
+      if (where.estado === "ERROR") return delNegocio.filter((t) => t.repo && t.estado === "ERROR");
       if (where.estado?.in && where.trabajoVenceEn) {
         // En marcha: PLANEANDO / EN_CURSO / SUBIENDO con el candado vigente.
         return delNegocio.filter((t) => where.estado.in.includes(t.estado) && coincide(t.trabajoVenceEn, where.trabajoVenceEn));
@@ -308,7 +310,7 @@ await prueba("la fila: lo que sigue en orden y lo bloqueado con su motivo (otra 
   estado.tarjetas.push(
     tarjeta({ id: "f1", titulo: "Primera", estado: "APROBADO", trabajoVenceEn: null }),
     tarjeta({ id: "f2", titulo: "Segunda", estado: "PLAN_APROBADO", trabajoVenceEn: null }),
-    tarjeta({ id: "f3", titulo: "Depende", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: { titulo: "La base" } }] }),
+    tarjeta({ id: "f3", titulo: "Depende", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: { titulo: "La base", estado: "EN_CURSO" } }] }),
     tarjeta({ id: "f4", titulo: "Choca", estado: "APROBADO", trabajoVenceEn: null }),
     tarjeta({ id: "f5", titulo: "Espera tu sí", estado: "PLAN_LISTO", trabajoVenceEn: null }),
     tarjeta({ id: "f6", titulo: "Sin repo", estado: "APROBADO", repo: null, trabajoVenceEn: null }),
@@ -317,10 +319,43 @@ await prueba("la fila: lo que sigue en orden y lo bloqueado con su motivo (otra 
   const { fila } = await servicio.vistaDelCoordinador("ws1", AHORA);
   assert.deepEqual(fila.siguientes.map((i) => i.tarjetaId), ["f1", "f2"]);
   const bloqueadas = Object.fromEntries(fila.bloqueadas.map((i) => [i.tarjetaId, i.motivo]));
-  assert.equal(bloqueadas.f3, "Espera a la tarjeta «La base»");
+  assert.equal(bloqueadas.f3, "Esperando a «La base»");
   assert.equal(bloqueadas.f4, "toca la misma zona que otra tarea");
   assert.equal(bloqueadas.f5, "Espera tu aprobación del plan");
   assert.ok(!("f6" in bloqueadas) && !fila.siguientes.some((i) => i.tarjetaId === "f6"), "sin repo no es del Coordinador");
+});
+
+/* ------------------------------------------------------------------ en error y esperando a otra */
+
+await prueba("el panel cuenta las tarjetas EN ERROR y las que ESPERAN A OTRA, con la lista y la línea para el dueño (26-oct-2026)", async () => {
+  const conError = (id, titulo, resultado) => tarjeta({ id, titulo, estado: "ERROR", trabajoVenceEn: null, resultado });
+  estado.tarjetas.push(
+    conError("e1", "Cerebro", { error: { motivo: "Qué falló: build bloqueado.\nQué se probó: nada.\nQué necesita de ti: mirar." } }),
+    conError("e2", "Reuniones", { error: { motivo: "Se pasó del tiempo" }, recogida: { veces: 1, lineaDueno: "Falta que decidas A o B sobre la carpeta de Drive." } }),
+    tarjeta({ id: "w1", titulo: "Marketing", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: { titulo: "Ventas", estado: "ERROR" } }] }),
+    tarjeta({ id: "w2", titulo: "Sistemas", estado: "PLAN_APROBADO", trabajoVenceEn: null, entrantes: [{ origen: { titulo: "Ventas", estado: "EN_CURSO" } }, { origen: { titulo: "La base", estado: "EN_CURSO" } }] }),
+    tarjeta({ id: "s1", titulo: "Sube sola", estado: "SUBIENDO", trabajoVenceEn: null, entrantes: [{ origen: { titulo: "Ventas", estado: "EN_CURSO" } }] }),
+    tarjeta({ id: "ok", titulo: "Libre", estado: "APROBADO", trabajoVenceEn: null }),
+  );
+  const { errores } = await servicio.vistaDelCoordinador("ws1", AHORA);
+  assert.equal(errores.totalEnError, 2);
+  assert.deepEqual(errores.enError.map((e) => e.tarjetaId), ["e1", "e2"]);
+  assert.equal(errores.enError[0].motivo, "Qué falló: build bloqueado.", "la primera línea del motivo");
+  assert.equal(errores.enError[1].lineaDueno, "Falta que decidas A o B sobre la carpeta de Drive.");
+  assert.equal(errores.enError[1].recogidas, 1);
+  assert.equal(errores.totalEsperandoAOtra, 2, "una SUBIENDO ya construyó: no espera");
+  const porId = Object.fromEntries(errores.esperandoAOtra.map((i) => [i.tarjetaId, i.motivo]));
+  assert.equal(porId.w1, "Esperando a «Ventas», que está en error");
+  assert.equal(porId.w2, "Esperando a «Ventas» y «La base»");
+  const texto = servicio.textoDelCoordinador(await servicio.vistaDelCoordinador("ws1", AHORA));
+  assert.match(texto, /En error: 2\. Esperando a otra: 2\./);
+  assert.match(texto, /En error «Reuniones» — te necesita: Falta que decidas A o B/);
+  assert.match(texto, /«Marketing»: esperando a «ventas», que está en error\./i);
+});
+
+await prueba("sin tarjetas en error ni esperando, los números son 0", async () => {
+  const { errores } = await servicio.vistaDelCoordinador("ws1", AHORA);
+  assert.deepEqual([errores.totalEnError, errores.totalEsperandoAOtra, errores.enError.length, errores.esperandoAOtra.length], [0, 0, 0, 0]);
 });
 
 /* ------------------------------------------------------------------ lo de hoy */

@@ -11,10 +11,19 @@ import {
   NOMBRE_DE_LA_ZONA,
   REPOS_DEL_TRABAJADOR,
   TOPE_DE_ESPERAS_SEGUIDAS,
+  TOPE_DE_RECOGIDAS_POR_TARJETA,
   TOPE_DE_REPARACIONES,
   TRANSICIONES_DEL_TRABAJADOR,
   categoriaDeEntrada,
   causaConEstrategia,
+  decisionDeRecogidaDeEntrada,
+  dependenciaHaceCiclo,
+  estadosAlPartir,
+  etiquetaDeEspera,
+  lineaDelDuenoDeEntrada,
+  origenDeDependenciaDeEntrada,
+  puedeRecoger,
+  recogidaDelResultado,
   causaDeEntrada,
   destinoDelResultado,
   errorDeIntentoDeEntrada,
@@ -62,6 +71,7 @@ import {
   SQL_CANDADO_DEL_NEGOCIO,
   SQL_CANDIDATAS,
   SQL_ES_PARTE,
+  SQL_ESPERANDO,
   SQL_PASAR_VENCIDAS_A_ERROR,
   SQL_TOMAR_UNA,
   SQL_TRABAJANDO,
@@ -100,7 +110,12 @@ import { QUIEN_TRABAJADOR, linkDeLaTarjeta } from "./tableros";
   - /arranque (ruta aparte): lo que el negocio tenía en PLANEANDO o EN_CURSO con candado vuelve a la fila.
   - Las vencidas sin latido vuelven a la fila (SQL_PASAR_VENCIDAS_A_ERROR) en vez de ERROR, salvo las que
     se pasaron del tope de su etapa, las SUBIENDO o las que ya esperaron TOPE_DE_ESPERAS_SEGUIDAS veces.
-  - /tomar no toma una tarjeta con una dependencia sin terminar (sql-trabajador.ts).
+  - /tomar no toma una tarjeta con una dependencia sin terminar (sql-trabajador.ts). Esas muestran «Esperando a «X»»
+    (etiquetaDeEspera; «que está en error» si la otra falló) y /errores las lista (SQL_ESPERANDO).
+  - /:id/partir también desde PLANEANDO (26-oct-2026, medir antes de arrancar): las hijas quedan APROBADO, sin plan.
+  - /:id/depender pone la flecha "depende de" cuando el texto de la tarjeta nombra otra como molde o requisito.
+  - /:id/recoger y /errores (26-oct-2026): una vez al día el Coordinador recoge las tarjetas en ERROR (reintentar, partir
+    o dejar una línea para el dueño; máximo 2 veces por tarjeta). Lo que recuerda va en resultado.recogida.
 
   Cada cambio deja su fila en HistorialTarjeta con origen TRABAJADOR (quien = "trabajador:<clave>")
   y toca TableroInteligente.actualizadoEn (el refresco de la pantalla). El latido no: no cambia nada
@@ -459,15 +474,16 @@ async function cerrarLaMadreSiToca(tx: Tx, contexto: ContextoTrabajador, hija: {
     select: { id: true, estado: true, resultado: true, borradoEn: true },
   });
   const partida = partidaDelResultado(madre?.resultado);
-  if (!madre || !partida || madre.borradoEn || madre.estado !== "EN_CURSO") return;
+  // La madre queda EN_CURSO (partida al construir) o PLANEANDO (partida antes de planear, 26-oct-2026), sin candado.
+  if (!madre || !partida || madre.borradoEn || (madre.estado !== "EN_CURSO" && madre.estado !== "PLANEANDO")) return;
   const hijas = await tx.tarjetaTablero.findMany({ where: { id: { in: partida.hijas }, borradoEn: null }, select: { estado: true } });
   if (!madreSeCierra(hijas)) return;
   const hecho = await tx.tarjetaTablero.updateMany({
-    where: { id: madre.id, estado: "EN_CURSO", borradoEn: null },
+    where: { id: madre.id, estado: madre.estado, borradoEn: null },
     data: { estado: "HECHO", trabajoVenceEn: null },
   });
   if (hecho.count !== 1) return;
-  await anotarTrabajador(tx, contexto, madre.id, { estado: "EN_CURSO" }, { estado: "HECHO", nota: `terminada: sus ${hijas.length} partes están hechas` });
+  await anotarTrabajador(tx, contexto, madre.id, { estado: madre.estado }, { estado: "HECHO", nota: `terminada: sus ${hijas.length} partes están hechas` });
 }
 
 /** POST /candidatas: las que /tomar podría tomar, sin tomarlas (con su repo, zonas y plan). */
@@ -602,6 +618,8 @@ export async function accionDelTrabajador(
   }
 
   if (accion === "partir") return partirTarjeta(contexto, actual, cuerpo, ahora);
+  if (accion === "depender") return dependerTarjeta(contexto, actual, cuerpo, ahora);
+  if (accion === "recoger") return recogerTarjeta(contexto, actual, cuerpo, ahora);
 
   let a = TRANSICIONES_DEL_TRABAJADOR[accion].a as EstadoTarjetaTablero;
   const previo = resultadoComoObjeto(actual.resultado);
@@ -826,6 +844,8 @@ async function partirTarjeta(
   actual: FilaParaTrabajar,
   cuerpo: Record<string, unknown>,
   ahora: Date,
+  // 26-oct-2026: al recoger un error viejo (desde ERROR) la partida cuenta como una recogida de la tarjeta.
+  recogida: { veces: number } | null = null,
 ) {
   let partes: ReturnType<typeof partesDeEntrada>;
   try {
@@ -837,8 +857,12 @@ async function partirTarjeta(
   const veredicto = puedePartir({ yaPartida: Boolean(partidaDelResultado(actual.resultado)), esParte: Boolean(esParte) });
   if (veredicto) throw new ErrorDelTrabajador(veredicto, 409);
   const causa = causaDeEntrada(cuerpo.causa);
+  // Desde PLANEANDO (medir antes de arrancar) o ERROR sin plan aprobado, las hijas quedan APROBADO y se planean aparte.
+  const errorEn = actual.estado === "ERROR" ? String(resultadoComoObjeto(resultadoComoObjeto(actual.resultado).error).en ?? "") : null;
+  const destinos = estadosAlPartir(actual.estado, errorEn);
+  const conPlan = destinos.hijas === "PLAN_APROBADO";
   const intento: IntentoPorGuardar = {
-    etapa: etapaDeEntrada(cuerpo.etapa, "EN_CURSO"),
+    etapa: etapaDeEntrada(cuerpo.etapa, destinos.madre),
     categoria: categoriaDeEntrada(cuerpo.categoria) ?? "tarea_muy_grande",
     causa,
     error: errorDeIntentoDeEntrada(cuerpo.error),
@@ -848,7 +872,7 @@ async function partirTarjeta(
 
   return prisma.$transaction(async (tx) => {
     const madre = await tx.tarjetaTablero.findFirst({
-      where: { id: actual.id, estado: "EN_CURSO", borradoEn: null },
+      where: { id: actual.id, estado: actual.estado, borradoEn: null },
       select: { tipoId: true, area: true, padreId: true, creadoPor: true, orden: true, resultado: true },
     });
     if (!madre) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
@@ -872,12 +896,12 @@ async function partirTarjeta(
           titulo: tituloDeLaParte(actual.titulo, numero, parte.titulo),
           detalle: detalleDeLaParte(actual.titulo, numero, partes.length, parte.detalle),
           area: madre.area,
-          estado: "PLAN_APROBADO",
+          estado: destinos.hijas,
           orden: madre.orden + numero,
           tipoId: madre.tipoId,
           padreId,
           repo: actual.repo,
-          plan: parte.detalle,
+          plan: conPlan ? parte.detalle : null,
           zonaProtegida: actual.zonaProtegida,
           riesgo: actual.riesgo,
           riesgoMotivo: actual.riesgoMotivo,
@@ -895,7 +919,7 @@ async function partirTarjeta(
           accion: "crear",
           despues: {
             titulo: hija.titulo,
-            estado: "PLAN_APROBADO",
+            estado: destinos.hijas,
             parteDe: actual.id,
             nota: `parte ${numero} de ${partes.length} de «${actual.titulo}»`,
           } as Prisma.InputJsonValue,
@@ -908,18 +932,18 @@ async function partirTarjeta(
           quien: quienEs(contexto),
           origen: "TRABAJADOR",
           accion: "aprobar",
-          antes: { estado: "PLAN_APROBADO" } as Prisma.InputJsonValue,
+          antes: { estado: destinos.hijas } as Prisma.InputJsonValue,
           despues: {
             ...(conZona
               ? registroDeAprobacion({
-                  estado: "PLAN_APROBADO",
-                  momento: "plan",
+                  estado: destinos.hijas,
+                  momento: conPlan ? "plan" : "tarea",
                   via: "pantalla",
                   quienNombre: "el dueño (en la tarjeta madre)",
                   userId: quienEs(contexto),
                   textoConfirmacion: null,
                 })
-              : { estado: "PLAN_APROBADO", momento: "plan" }),
+              : { estado: destinos.hijas, momento: conPlan ? "plan" : "tarea" }),
             como: "heredada",
             heredadaDe: actual.id,
           } as Prisma.InputJsonValue,
@@ -932,12 +956,18 @@ async function partirTarjeta(
       }
     }
 
-    const previo = resultadoComoObjeto(madre.resultado);
+    const { error: _errorViejo, ...previo } = resultadoComoObjeto(madre.resultado);
+    void _errorViejo;
     const hecho = await tx.tarjetaTablero.updateMany({
-      where: { id: actual.id, estado: "EN_CURSO", borradoEn: null },
+      where: { id: actual.id, estado: actual.estado, borradoEn: null },
       data: {
+        estado: destinos.madre,
         trabajoVenceEn: null,
-        resultado: { ...previo, partida: { hijas, causa, cuando: ahora.toISOString() } } as Prisma.InputJsonValue,
+        resultado: {
+          ...previo,
+          partida: { hijas, causa, cuando: ahora.toISOString() },
+          ...(recogida ? { recogida: { veces: recogida.veces + 1, ultima: ahora.toISOString(), lineaDueno: null } } : {}),
+        } as Prisma.InputJsonValue,
       },
     });
     if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
@@ -945,11 +975,185 @@ async function partirTarjeta(
       tx,
       contexto,
       actual.id,
-      { estado: "EN_CURSO" },
-      { estado: "EN_CURSO", nota: `partida en ${partes.length} partes: ${causa}`, hijas },
+      { estado: actual.estado },
+      { estado: destinos.madre, nota: `partida en ${partes.length} partes: ${causa}`, hijas },
     );
     await anotarIntento(tx, actual.id, intento, ahora);
     await tocarTableros(tx, [actual.tableroId], ahora);
-    return { ok: true, estado: "EN_CURSO", hijas, link: linkDeLaTarjeta(actual.id) };
+    return { ok: true, estado: destinos.madre, hijas, link: linkDeLaTarjeta(actual.id) };
   });
+}
+
+/**
+ * POST /:id/depender { origenId } (desde PLANEANDO o APROBADO, 26-oct-2026): al medir, el texto de la tarjeta nombra otra
+ * como molde o requisito y el Coordinador pone la flecha "depende de" solo. La tarjeta no se toma hasta que la otra esté HECHO
+ * (y muestra «Esperando a «X»»). Idempotente: si la flecha ya existe o la otra ya está HECHO, no crea nada. Nunca crea un ciclo.
+ * Queda en el historial; la flecha se ve en el tablero y se quita con un clic.
+ */
+async function dependerTarjeta(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
+  const origenId = origenDeDependenciaDeEntrada(cuerpo.origenId);
+  if (!origenId) throw new ErrorDelTrabajador("Falta origenId: el id de la tarjeta de la que depende.", 400);
+  if (origenId === actual.id) throw new ErrorDelTrabajador("Una tarjeta no puede depender de sí misma.", 409);
+  const origen = await prisma.tarjetaTablero.findFirst({
+    where: { id: origenId, tablero: { workspaceId: contexto.workspaceId }, borradoEn: null },
+    select: { id: true, titulo: true, estado: true, tableroId: true, tipo: { select: { usaEstados: true } } },
+  });
+  if (!origen) throw new ErrorDelTrabajador("No existe esa tarjeta en este negocio.", 404);
+  if (origen.tableroId !== actual.tableroId) throw new ErrorDelTrabajador("La tarjeta de la que depende está en otro tablero.", 409);
+  if (!origen.tipo.usaEstados || origen.estado === "HECHO") {
+    return { ok: true, creada: false, motivo: origen.estado === "HECHO" ? "ya está HECHO" : "no tiene estados", origen: { id: origen.id, titulo: origen.titulo, estado: origen.estado } };
+  }
+  return prisma.$transaction(async (tx) => {
+    const flechas = await tx.conexionTarjeta.findMany({ where: { tableroId: actual.tableroId, esDependencia: true }, select: { origenId: true, destinoId: true } });
+    if (flechas.some((flecha) => flecha.origenId === origen.id && flecha.destinoId === actual.id)) {
+      return { ok: true, creada: false, motivo: "ya depende de ella", origen: { id: origen.id, titulo: origen.titulo, estado: origen.estado } };
+    }
+    if (dependenciaHaceCiclo(flechas, origen.id, actual.id)) {
+      throw new ErrorDelTrabajador("Esa dependencia haría un ciclo: ninguna de las dos se podría tomar nunca.", 409);
+    }
+    // Si ya había una flecha sin dependencia entre las dos (@@unique origen+destino), se vuelve dependencia.
+    await tx.conexionTarjeta.upsert({
+      where: { origenId_destinoId: { origenId: origen.id, destinoId: actual.id } },
+      create: { tableroId: actual.tableroId, origenId: origen.id, destinoId: actual.id, esDependencia: true },
+      update: { esDependencia: true },
+    });
+    const etiqueta = etiquetaDeEspera([{ titulo: origen.titulo, estado: origen.estado }]);
+    await anotarTrabajador(tx, contexto, actual.id, { estado: actual.estado }, { estado: actual.estado, nota: `dependencia puesta sola: ${etiqueta}`, dependeDe: origen.id });
+    await tocarTableros(tx, [actual.tableroId], ahora);
+    return { ok: true, creada: true, etiqueta, origen: { id: origen.id, titulo: origen.titulo, estado: origen.estado }, link: linkDeLaTarjeta(actual.id) };
+  });
+}
+
+/**
+ * POST /:id/recoger (desde ERROR, 26-oct-2026): el Coordinador recoge una tarjeta que quedó en ERROR (una vez al día).
+ *   { decision: "reintentar", causa, categoria?, etapa? }  vuelve a la fila (APROBADO si no tiene plan o se cayó planeando,
+ *                                                          si no PLAN_APROBADO), reparaciones en 0, recogida + 1.
+ *   { decision: "partir", causa, partes, ... }             crea las hijas en orden (como /partir) y la madre sale de ERROR; recogida + 1.
+ *   { decision: "dueno", linea }                           no mueve nada: deja UNA línea para el dueño en resultado.recogida.
+ * Tope: TOPE_DE_RECOGIDAS_POR_TARJETA por tarjeta (409). Lo que se recuerda va en resultado.recogida { veces, ultima, lineaDueno }:
+ * sin tabla ni columna nueva.
+ */
+async function recogerTarjeta(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
+  const decision = decisionDeRecogidaDeEntrada(cuerpo.decision);
+  if (!decision) throw new ErrorDelTrabajador("decision tiene que ser reintentar, partir o dueno.", 400);
+  const previo = resultadoComoObjeto(actual.resultado);
+  const recogida = recogidaDelResultado(actual.resultado);
+
+  if (decision === "dueno") {
+    const linea = lineaDelDuenoDeEntrada(cuerpo.linea);
+    if (!linea) throw new ErrorDelTrabajador("Falta la línea para el dueño.", 400);
+    return prisma.$transaction(async (tx) => {
+      const hecho = await tx.tarjetaTablero.updateMany({
+        where: { id: actual.id, estado: "ERROR", borradoEn: null },
+        data: { resultado: { ...previo, recogida: { ...recogida, ultima: ahora.toISOString(), lineaDueno: linea } } as Prisma.InputJsonValue },
+      });
+      if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+      await anotarTrabajador(tx, contexto, actual.id, { estado: "ERROR" }, { estado: "ERROR", nota: `espera al dueño: ${linea}` });
+      await tocarTableros(tx, [actual.tableroId], ahora);
+      return { ok: true, estado: "ERROR", lineaDueno: linea, link: linkDeLaTarjeta(actual.id) };
+    });
+  }
+
+  const tope = puedeRecoger(recogida.veces);
+  if (tope) throw new ErrorDelTrabajador(tope, 409);
+
+  if (decision === "partir") return partirTarjeta(contexto, actual, cuerpo, ahora, { veces: recogida.veces });
+
+  const causa = causaDeEntrada(cuerpo.causa);
+  const errorEn = String(resultadoComoObjeto(previo.error).en ?? "");
+  const vuelve: EstadoTarjetaTablero = errorEn === "PLANEANDO" || !actual.plan ? "APROBADO" : "PLAN_APROBADO";
+  const intento: IntentoPorGuardar = {
+    etapa: etapaDeEntrada(cuerpo.etapa, vuelve === "APROBADO" ? "PLANEANDO" : "EN_CURSO"),
+    categoria: categoriaDeEntrada(cuerpo.categoria) ?? "otra",
+    causa: `Recogida del error viejo: ${causa}`.slice(0, 200),
+    error: errorDeIntentoDeEntrada(cuerpo.error),
+    accion: "reparar",
+    cuentaComoIntento: true,
+  };
+  return prisma.$transaction(async (tx) => {
+    // El error de antes queda en la recogida (para el historial); `error` sale de resultado para que no se vea como si siguiera fallando.
+    const { error: errorAnterior, ...sinError } = previo;
+    const veces = recogida.veces + 1;
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: { id: actual.id, estado: "ERROR", borradoEn: null },
+      data: {
+        estado: vuelve,
+        trabajoVenceEn: null,
+        reparaciones: 0,
+        resultado: { ...sinError, recogida: { veces, ultima: ahora.toISOString(), lineaDueno: null, errorAnterior: errorAnterior ?? null } } as Prisma.InputJsonValue,
+      },
+    });
+    if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    await anotarTrabajador(tx, contexto, actual.id, { estado: "ERROR" }, { estado: vuelve, nota: `error viejo recogido (${veces} de ${TOPE_DE_RECOGIDAS_POR_TARJETA}): ${causa}` });
+    await anotarIntento(tx, actual.id, intento, ahora);
+    await tocarTableros(tx, [actual.tableroId], ahora);
+    return { ok: true, estado: vuelve, recogidas: veces, link: linkDeLaTarjeta(actual.id) };
+  });
+}
+
+const MAXIMO_DE_ERRORES_A_RECOGER = 50;
+
+/**
+ * POST /errores (26-oct-2026): lo que el Coordinador necesita para recoger los errores viejos y lo que muestra el panel:
+ *   enError    cada tarjeta del Coordinador en ERROR (detalle, plan, motivo, intentos, cuántas veces se recogió y su línea para el dueño);
+ *   esperando  las que esperan a otra tarjeta, con la etiqueta «Esperando a «X»» (y «que está en error» si la otra falló).
+ * Solo lee.
+ */
+export async function erroresDelTrabajador(contexto: ContextoTrabajador) {
+  const [filas, esperaFilas] = await Promise.all([
+    prisma.tarjetaTablero.findMany({
+      where: {
+        tablero: { workspaceId: contexto.workspaceId },
+        borradoEn: null,
+        estado: "ERROR",
+        repo: { in: [...REPOS_DEL_TRABAJADOR] },
+        tipo: { requiereAprobacion: true, usaEstados: true },
+      },
+      orderBy: { actualizadoEn: "asc" },
+      take: MAXIMO_DE_ERRORES_A_RECOGER,
+      select: { ...SELECT_PARA_TRABAJAR },
+    }),
+    prisma.$queryRawUnsafe<
+      { id: string; titulo: string; estado: string; origenId: string; origenTitulo: string; origenEstado: string }[]
+    >(SQL_ESPERANDO, contexto.workspaceId, [...REPOS_DEL_TRABAJADOR]),
+  ]);
+
+  const enError = [];
+  for (const fila of filas) {
+    const intentos = await datosDeIntentos(prisma, fila);
+    const resultado = resultadoComoObjeto(fila.resultado);
+    const error = resultadoComoObjeto(resultado.error);
+    const recogida = recogidaDelResultado(fila.resultado);
+    enError.push({
+      id: fila.id,
+      titulo: fila.titulo,
+      detalle: (fila.detalle ?? "").slice(0, 6000),
+      repo: fila.repo,
+      tienePlan: Boolean(fila.plan),
+      plan: fila.plan ? fila.plan.slice(0, 6000) : null,
+      reparaciones: fila.reparaciones,
+      intentos: fila.intentos,
+      esParte: intentos.esParte,
+      yaPartida: Boolean(partidaDelResultado(fila.resultado)),
+      cayoEn: typeof error.en === "string" ? error.en : null,
+      motivo: typeof error.motivo === "string" ? error.motivo.slice(0, 3000) : null,
+      categoria: typeof error.categoria === "string" ? error.categoria : null,
+      ultimosIntentos: intentos.ultimosIntentos,
+      ultimoError: intentos.ultimoError,
+      recogidas: recogida.veces,
+      recogidaEn: recogida.ultima,
+      lineaDueno: recogida.lineaDueno,
+      actualizadoEn: fila.actualizadoEn.toISOString(),
+      link: linkDeLaTarjeta(fila.id),
+    });
+  }
+
+  const porTarjeta = new Map<string, { id: string; titulo: string; esperaA: { id: string; titulo: string; estado: string }[] }>();
+  for (const fila of esperaFilas) {
+    const una = porTarjeta.get(fila.id) ?? { id: fila.id, titulo: fila.titulo, esperaA: [] };
+    una.esperaA.push({ id: fila.origenId, titulo: fila.origenTitulo, estado: fila.origenEstado });
+    porTarjeta.set(fila.id, una);
+  }
+  const esperando = [...porTarjeta.values()].map((una) => ({ ...una, etiqueta: etiquetaDeEspera(una.esperaA), link: linkDeLaTarjeta(una.id) }));
+  return { enError, esperando };
 }

@@ -272,3 +272,27 @@ SET "estado" = CASE elegida."antes"
 FROM elegida
 WHERE t."id" = elegida."id"
 RETURNING t."id", t."tableroId", elegida."antes", t."estado"::text AS "estado"`;
+
+/**
+ * Las tarjetas que ESPERAN a otra (26-oct-2026): APROBADO o PLAN_APROBADO con una flecha "depende de" hacia una tarjeta (sin
+ * borrar y de un tipo con estados) que no está HECHO. Una fila por cada tarjeta de la que se espera, con su estado:
+ * si es ERROR o FALLIDO, la etiqueta dice "que está en error" (etiquetaDeEspera). Es la misma regla que impide que /tomar la tome.
+ * Parámetros: $1 = workspaceId, $2 = repos (text[]).
+ */
+export const SQL_ESPERANDO = `
+SELECT c."id", c."titulo", c."estado"::text AS "estado",
+       o."id" AS "origenId", o."titulo" AS "origenTitulo", o."estado"::text AS "origenEstado"
+FROM "TarjetaTablero" c
+JOIN "TableroInteligente" b ON b."id" = c."tableroId"
+JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
+JOIN "ConexionTarjeta" x ON x."destinoId" = c."id" AND x."esDependencia"
+JOIN "TarjetaTablero" o ON o."id" = x."origenId"
+JOIN "TipoTarjeta" ot ON ot."id" = o."tipoId"
+WHERE b."workspaceId" = $1
+  AND c."borradoEn" IS NULL
+  AND k."requiereAprobacion" AND k."usaEstados"
+  AND c."repo" = ANY($2::text[])
+  AND c."estado" IN ('APROBADO', 'PLAN_APROBADO')
+  AND o."borradoEn" IS NULL AND o."estado" <> 'HECHO' AND ot."usaEstados"
+ORDER BY c."actualizadoEn" ASC, c."id" ASC, x."creadoEn" ASC
+LIMIT 200`;

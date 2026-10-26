@@ -27,6 +27,11 @@ export const dynamic = "force-dynamic";
               ERROR (APROBADO / PLAN_APROBADO), reparaciones + 1. 409 si ya lleva 3.
   - partir    { causa, error, partes: [{ titulo, detalle }] }   EN_CURSO: crea de 2 a 4 hijas en orden
               (dependencia), la madre queda EN_CURSO sin candado. 409 si ya está partida o es una parte.
+              Desde PLANEANDO (medir antes de arrancar, 26-oct-2026): las hijas quedan APROBADO, sin plan.
+  depender    { origenId }                        PLANEANDO | APROBADO | PLAN_APROBADO | ERROR: pone la flecha "depende de" hacia otra tarjeta que no
+              está HECHO (el texto la nombra como molde o requisito). Idempotente; 409 si haría un ciclo.
+  recoger     { decision: "reintentar" | "partir" | "dueno", causa?, categoria?, etapa?, error?, partes?, linea? }   ERROR:
+              recoge un error viejo (reintentar o partir; máximo 2 veces por tarjeta) o deja UNA línea para el dueño.
   (El arranque del Coordinador es otra ruta: /api/trabajador/tablero/arranque.)
   409 si la tarjeta no está en el estado de esa acción. Ver services/trabajador.ts.
 */

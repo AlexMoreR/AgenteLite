@@ -58,6 +58,12 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     reparar: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/reparar`, limpio(datos)),
     /** La tarea era muy grande: crea las partes (2 a 4) que salieron de la sesión de partir. { causa, error, partes: [{ titulo, detalle }] } */
     partir: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/partir`, limpio(datos)),
+    /** Medir antes de arrancar (26-oct-2026): pone la flecha "depende de" hacia `origenId` (el texto la nombra como molde o requisito). -> { creada, etiqueta?, origen } */
+    depender: (id, origenId) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/depender`, { origenId }),
+    /** Recoger errores viejos (26-oct-2026): las tarjetas en ERROR y las que esperan a otra. -> { enError: [...], esperando: [...] } */
+    errores: () => pedir("/api/trabajador/tablero/errores"),
+    /** Recoge UNA tarjeta en ERROR: { decision: "reintentar" | "partir" | "dueno", causa?, categoria?, etapa?, error?, partes?, linea? }. 409 si ya se recogió 2 veces. */
+    recoger: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/recoger`, limpio(datos)),
     /** Al arrancar el Coordinador: el CRM suelta todo lo que el proceso anterior dejó con candado (PLANEANDO / EN_CURSO). -> { sueltas } */
     arranque: () => pedir("/api/trabajador/tablero/arranque"),
     /** El latido del Coordinador entero (POST /api/trabajador/latido, cada 15 s): el panel "Coordinador en vivo". No es el de una tarjeta. */

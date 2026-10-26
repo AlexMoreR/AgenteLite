@@ -333,6 +333,47 @@ nota: si /tomar no trae `topeReparaciones`, se porta como antes).
 **Dependencias**: una flecha marcada "esto depende de aquella" (`conectar_tarjetas` con `depende`, o el botón de
 la ficha) hace que la tarjeta no se tome hasta que la otra esté HECHO.
 
+### Medir antes de arrancar, esperar a otra y recoger los errores viejos (desde el 26-oct-2026)
+
+Queja del dueño: "¿para qué tengo un coordinador si no sabe que si mandamos todos esos trabajos se van a bloquear?". Cuatro cosas
+(todo con reglas fijas; ninguna IA decide el reparto):
+
+- **Medir antes de planear** (`lib/medir.mjs`, `medirAntesDePlanear` en `lib/bucle.mjs`). Antes de escribir el plan, la tarjeta se mide
+  por el largo de su texto, cuántos puntos pide y si menciona una migración, una pantalla o módulo nuevo, o un agente nuevo
+  (`config.medir`: `puntosDudosa` 4, `puntosGrande` 6). Si no queda claro ("dudosa") se hace una consulta corta a Haiku (menos de 2 min).
+  Si es **grande** se parte en 2 a 4 tarjetas hijas, en orden y unidas por flechas de dependencia, **sin abrir sesión de plan para la
+  madre**. Las hijas quedan "Aprobadas, por planear" (sin plan copiado) y cada una se planea aparte. Una parte, una tarjeta ya partida
+  o una que viene de una reparación no se vuelve a partir. Para eso el CRM acepta `/partir` también desde PLANEANDO.
+- **Esperando a otra** (`/depender`, `/errores`). Una tarjeta con una flecha "depende de" hacia otra que no está HECHO ya no se tomaba;
+  ahora se **ve**: «Esperando a «X»» (y «Esperando a «X», que está en error» si la otra está en ERROR o FALLIDO). Si el texto de la
+  tarjeta nombra por su id otra tarjeta como molde o requisito (una línea con un solo id y "molde", "requisito", "depende de"…), el
+  Coordinador pone la flecha solo y suelta la tarjeta: no es ERROR. La flecha queda en el historial y se quita con un clic.
+- **No chocar los builds** (`lib/candado-de-build.mjs`). Un build a la vez por carpeta (además de la cola de pasos pesados de aizen1). Si
+  Next igual dice "Unable to acquire lock / another instance of next build running", espera 1 minuto, limpia el candado viejo y reintenta
+  (`config.candadoDeBuild`: 3 reintentos, 60 s). **Esas esperas no cuentan como intento ni como reparación** (a diferencia de las demás
+  esperas, que después de 5 seguidas empiezan a contar, estas solo tienen un tope de 20 por seguridad).
+- **Recoger los errores viejos** (`lib/recoger-errores.mjs`). La autorreparación solo actúa sobre fallas nuevas. Una vez al día (pasada
+  `config.recogerErrores.hora`, 6 a. m. de Bogotá) **y la primera vez que arranca con este cambio**, revisa todas las tarjetas en ERROR,
+  les aplica el mismo diagnóstico y hace una de tres cosas: **reintentar** (causa pasajera: build trabado, PC cargado, límite de Claude,
+  choque con main; la primera vez también "no compila", pruebas, lint, "no cambió nada"), **partir** (por tiempo o por tamaño; las grandes
+  van a la nube al construirse) o **dejar una línea para el dueño** (si el plan o el motivo piden una decisión o una clave: "Falta que
+  decidas: …"). Topes: **2 recogidas por tarjeta** (el CRM lo exige) y **6 tarjetas por día** (`maximoPorDia`). Lo que recuerda cada tarjeta
+  va en su `resultado.recogida` ({ veces, ultima, lineaDueno }); la fecha de la última pasada, en `recoger-errores.json` de la carpeta de
+  trabajo. Al terminar manda un solo aviso por WhatsApp. **Nunca pasa una tarjeta a FALLIDO ni la cierra**: eso es decisión del dueño.
+
+El panel "Coordinador en vivo" y la herramienta `ver_coordinador` del MCP muestran **"En error: N"** y **"Esperando a otra: N"** con la
+lista de cuáles son (y la línea para el dueño cuando la hay).
+
+**Primer uso con las 7 tarjetas que quedaron en ERROR el 23-24 de octubre** (se hace con las herramientas del tablero, dejando todo en el
+historial; la pasada de recoger errores hace sola lo que dice su regla):
+
+| Tarjeta | Qué pasa |
+|---|---|
+| Cerebro | Su plan pide decidir A/B sobre la carpeta de Drive: queda una línea para el dueño y espera su respuesta. Cuando responda, se reintenta (en la nube si es grande). |
+| Reuniones | "se pasó del tiempo": se parte en hijas y se reintenta en la nube. |
+| Coordinador autónomo y GitHub Actions | A mano: comparar lo que piden con lo que ya está HECHO (reparto aizen1/nube, autorreparación, quitar la aprobación del plan) y con las de hoy ("tareas arrancan solas", "tercer sí"); escribir "ya cubierto por…; falta solo…" y proponer cerrarlas o dejar una tarjeta nueva solo con lo que falte. |
+| Agentes de Ventas, Marketing y Sistemas | Decisión del dueño 24-oct: skills en vez de agentes. **Se propone** pasarlas a FALLIDO con esa nota; solo se pasan cuando el dueño diga que sí. |
+
 ### GitHub Actions revisa la rama (`ciDeRama`, desde el 26-oct-2026)
 
 Antes, al terminar de construir, aizen1 compilaba y corría todas las pruebas (lo que más carga el PC). Con
@@ -466,6 +507,9 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 - `lib/etapas.mjs`: planear, construir (con su revisión) y subir; `correrMotor` corre Claude o Codex.
 - `lib/motores.mjs`: qué motor hace cada paso, el límite de Codex y la vigilancia del uso de Claude.
 - `lib/ensayo.mjs`: ensayo de migraciones (PGlite y producción en BEGIN…ROLLBACK por ssh).
+- `lib/medir.mjs`: medir el tamaño de una tarjeta antes de planearla y buscar las tarjetas que nombra como molde o requisito.
+- `lib/candado-de-build.mjs`: un build a la vez por carpeta y reintento (sin contar intento) cuando Next dice que el candado está tomado.
+- `lib/recoger-errores.mjs`: recoger las tarjetas en ERROR una vez al día (reintentar, partir o dejar una línea para el dueño).
 - `lib/diagnostico.mjs`: clasifica una falla, decide (reparar, partir, esperar, escalar) y escribe el resumen de 3 líneas.
 - `lib/atasco.mjs`: detecta una sesión quieta (sin archivos ni procesador por 15 min).
 - `lib/git.mjs`, `lib/procesos.mjs`, `lib/zonas.mjs`, `lib/crm.mjs`, `lib/config.mjs`, `lib/registro.mjs`.

@@ -30,8 +30,9 @@ import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.
 import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
 import { TOPE_DE_REPARACIONES, decidir, diagnosticar, enUnaLinea, resumenDeEscalada } from "./diagnostico.mjs";
-import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, partirTarea, planear, subir } from "./etapas.mjs";
+import { ErrorDeEtapa, consultarTamanoConClaude, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, partirTarea, planear, subir } from "./etapas.mjs";
 import { idCorto } from "./git.mjs";
+import { dependenciasNombradas, medirTarjeta } from "./medir.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor } from "./motores.mjs";
 import { esTareaGrande } from "./nube.mjs";
@@ -147,6 +148,10 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
       const partida = await partirAntesDeConstruir({ crm, config, registro, contexto }, tarjeta);
       if (partida) return { ok: true, estado: "EN_CURSO", partes: partida };
     }
+    if (hacer === "planear" && conReparaciones) {
+      const previa = await medirAntesDePlanear({ crm, config, registro, contexto }, tarjeta);
+      if (previa) return previa;
+    }
     const salida = await etapa(contexto, tarjeta);
     if (vencida) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se trabajaba.");
     let respuesta;
@@ -237,6 +242,69 @@ async function partirAntesDeConstruir({ crm, config, registro, contexto }, tarje
   }
   registro.info(`la tarea se partió en ${partes.length} partes (antes de construir): ${partes.map((parte) => parte.titulo).join(" | ")}`);
   return partes.length;
+}
+
+/**
+ * MEDIR ANTES DE ARRANCAR (26-oct-2026, medir.mjs): antes de gastar 20 min escribiendo un plan que no cabe en una sesión,
+ *   1. si el texto de la tarjeta nombra otra como molde o requisito, pone la flecha de dependencia y la suelta: queda
+ *      «Esperando a «X»» (nunca en ERROR) hasta que la otra esté HECHO;
+ *   2. mide el tamaño (reglas fijas; si no queda claro, una consulta corta a Haiku);
+ *   3. si es GRANDE la parte en 2 a 4 hijas pequeñas, en orden y con flechas de dependencia, y no abre ninguna sesión de plan
+ *      para la madre. Las hijas quedan "Aprobadas, por planear", sin plan copiado: cada una se planea aparte.
+ * Devuelve el resultado de `procesar` si la tarjeta ya no se planea ahora, o null para planearla como siempre. Cualquier fallo
+ * (menos el límite de uso de Claude, que se deja subir para soltar la tarjeta) deja planear la tarjeta entera.
+ */
+async function medirAntesDePlanear({ crm, config, registro, contexto }, tarjeta) {
+  if (config.medir?.activo === false) return null;
+  const puestas = [];
+  for (const origenId of dependenciasNombradas(tarjeta)) {
+    try {
+      const respuesta = await crm.depender(tarjeta.id, origenId);
+      if (respuesta?.creada) puestas.push(respuesta.etiqueta ?? `Esperando a la tarjeta ${origenId}`);
+    } catch (error) {
+      registro.aviso(`no se pudo poner la dependencia de ${origenId} (${String(error.message).split("\n")[0]}): se sigue sin ella`);
+    }
+  }
+  if (puestas.length) {
+    registro.info(`"${tarjeta.titulo}" nombra otra tarjeta como molde o requisito: ${puestas.join("; ")}. La suelto: no arranca hasta que la otra esté HECHO`);
+    if (await soltar(crm, registro, tarjeta, `Espera en fila: ${puestas.join("; ")}`)) return { ok: true, estado: "APROBADO", esperando: puestas };
+    return null;
+  }
+
+  const medida = medirTarjeta(tarjeta, config.medir);
+  if (medida.omitida) return null;
+  let tamano = medida.tamano;
+  if (tamano === "dudosa") {
+    tamano = "mediana";
+    if (config.medir?.consultaHaiku !== false) {
+      try {
+        if ((await consultarTamanoConClaude(contexto, tarjeta)) === "grande") tamano = "grande";
+      } catch (error) {
+        if (error?.limiteDeUso) throw error;
+        registro.aviso(`no se pudo consultar el tamaño a Haiku (${String(error?.message ?? error).split("\n")[0]}): se trata como mediana`);
+      }
+    }
+  }
+  registro.info(`medí "${tarjeta.titulo}": ${tamano} (${medida.puntos} puntos${medida.senales.length ? `: ${medida.senales.join("; ")}` : ""})`);
+  if (tamano !== "grande") return null;
+
+  const causa = enUnaLinea(`Tarea grande antes de planear (${medida.senales.join("; ")}). Se partió para que cada parte quepa en una sesión.`);
+  let partes;
+  try {
+    partes = await partirTarea(contexto, tarjeta, { causa, error: "" });
+  } catch (error) {
+    if (error?.limiteDeUso) throw error;
+    registro.aviso(`no se pudo partir antes de planear (${String(error?.message ?? error).split("\n")[0]}): se planea entera`);
+    return null;
+  }
+  try {
+    await crm.partir(tarjeta.id, { causa, error: "", partes, categoria: "tarea_muy_grande", etapa: "planear" });
+  } catch (error) {
+    registro.aviso(`el CRM no dejó partir antes de planear (${error.message}): se planea entera`);
+    return null;
+  }
+  registro.info(`la tarea se partió en ${partes.length} partes (antes de planear): ${partes.map((parte) => parte.titulo).join(" | ")}`);
+  return { ok: true, estado: "PLANEANDO", partes: partes.length };
 }
 
 async function soltar(crm, registro, tarjeta, motivo, extra) {
@@ -676,6 +744,29 @@ export function crearPlanificador({
         return [];
       }
     },
+    /** Para recoger errores viejos (recoger-errores.mjs): una sesión de solo lectura que divide la tarjeta en 2 a 4 partes. */
+    partirParaRecoger: (tarjeta, datos) =>
+      partirTarea(
+        {
+          config,
+          registro,
+          senal: undefined,
+          motorDe: motores.motorDe,
+          alLimite: (motor) => {
+            const hasta = motores.pausar(motor);
+            registro.aviso(`pausa: ${nombreDelMotor(motor)} llegó a su límite de uso; no lo uso hasta ${new Date(hasta).toISOString()}`);
+          },
+          medidor,
+          otrasSesiones: () => sesiones.size,
+          fase: () => undefined,
+          puestoParaVerificar: null,
+          colaPesada,
+          etiqueta: "recoger",
+          lugar: "aizen1",
+        },
+        tarjeta,
+        datos,
+      ),
     corriendo: () => sesiones.size + enNube.size,
     /** ¿Alguna tarjeta está subiendo a main ahora? (el trabajo de noche del manual no empieza mientras tanto). */
     subiendo: () => [...sesiones.values(), ...enNube.values()].some((sesion) => sesion.hacer === "subir"),

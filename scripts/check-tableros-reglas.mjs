@@ -838,7 +838,9 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
     error: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
     soltar: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
     reparar: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
-    partir: ["EN_CURSO"],
+    partir: ["PLANEANDO", "EN_CURSO"],
+    depender: ["PLANEANDO", "APROBADO", "PLAN_APROBADO", "ERROR"],
+    recoger: ["ERROR"],
   };
   for (const [accion, validos] of Object.entries(esperado)) {
     for (const estado of reglas.ESTADOS_TARJETA) {
@@ -848,12 +850,49 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
-    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null },
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null },
   );
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.AL_TOMAR).map(([de, regla]) => [de, [regla.a, regla.etapa]])),
     { APROBADO: ["PLANEANDO", "planear"], PLAN_APROBADO: ["EN_CURSO", "construir"], SUBIENDO: ["SUBIENDO", "subir"] },
   );
+});
+
+prueba("esperar a otra y recoger errores viejos (26-oct-2026): etiqueta «Esperando a X», topes de 2 por tarjeta y 6 por día, hijas al partir", () => {
+  const e = trabajo.etiquetaDeEspera;
+  assert.equal(e([]), null);
+  assert.equal(e([{ titulo: "Agente de Ventas", estado: "EN_CURSO" }]), "Esperando a «Agente de Ventas»");
+  assert.equal(e([{ titulo: "Agente de Ventas", estado: "ERROR" }]), "Esperando a «Agente de Ventas», que está en error");
+  assert.equal(e([{ titulo: "Agente de Ventas", estado: "FALLIDO" }]), "Esperando a «Agente de Ventas», que está en error");
+  assert.equal(e([{ titulo: "A", estado: "EN_CURSO" }, { titulo: "B", estado: "APROBADO" }]), "Esperando a «A» y «B»");
+  assert.equal(e([{ titulo: "A", estado: "EN_CURSO" }, { titulo: "B", estado: "ERROR" }, { titulo: "C", estado: "PLAN_LISTO" }]), "Esperando a «A», «B» y «C»; en error: «B»");
+  // La recogida se recuerda en resultado.recogida (sin tabla ni columna nueva).
+  assert.deepEqual(trabajo.recogidaDelResultado(null), { veces: 0, ultima: null, lineaDueno: null });
+  assert.deepEqual(trabajo.recogidaDelResultado({ recogida: { veces: 2, ultima: "2026-10-26T10:00:00.000Z", lineaDueno: "Decide A o B" } }), { veces: 2, ultima: "2026-10-26T10:00:00.000Z", lineaDueno: "Decide A o B" });
+  assert.equal(trabajo.recogidaDelResultado({ recogida: { veces: "x" } }).veces, 0);
+  assert.equal(trabajo.TOPE_DE_RECOGIDAS_POR_TARJETA, 2);
+  assert.equal(trabajo.TOPE_DE_RECOGIDAS_POR_DIA, 6);
+  assert.equal(trabajo.puedeRecoger(0), null);
+  assert.equal(trabajo.puedeRecoger(1), null);
+  assert.match(trabajo.puedeRecoger(2), /se queda en ERROR/);
+  assert.equal(trabajo.decisionDeRecogidaDeEntrada(" Reintentar "), "reintentar");
+  assert.equal(trabajo.decisionDeRecogidaDeEntrada("dueno"), "dueno");
+  assert.equal(trabajo.decisionDeRecogidaDeEntrada("borrar"), null);
+  assert.equal(trabajo.lineaDelDuenoDeEntrada("\n  Falta que  decidas A o B \nsegunda"), "Falta que decidas A o B");
+  assert.equal(trabajo.lineaDelDuenoDeEntrada("x".repeat(500)).length, 300);
+  assert.equal(trabajo.lineaDelDuenoDeEntrada(null), "");
+  assert.equal(trabajo.origenDeDependenciaDeEntrada(" cmvkcrakm00no2nlgu1khlqi3 "), "cmvkcrakm00no2nlgu1khlqi3");
+  assert.equal(trabajo.origenDeDependenciaDeEntrada("../x"), null);
+  // Partir antes de planear: las hijas quedan «Aprobadas, por planear» (sin plan); al construir, con el plan de su parte.
+  assert.deepEqual(trabajo.estadosAlPartir("PLANEANDO"), { madre: "PLANEANDO", hijas: "APROBADO" });
+  assert.deepEqual(trabajo.estadosAlPartir("EN_CURSO"), { madre: "EN_CURSO", hijas: "PLAN_APROBADO" });
+  assert.deepEqual(trabajo.estadosAlPartir("ERROR", "PLANEANDO"), { madre: "PLANEANDO", hijas: "APROBADO" });
+  assert.deepEqual(trabajo.estadosAlPartir("ERROR", "EN_CURSO"), { madre: "EN_CURSO", hijas: "PLAN_APROBADO" });
+  assert.deepEqual(trabajo.estadosAlPartir("ERROR", "SUBIENDO"), { madre: "EN_CURSO", hijas: "PLAN_APROBADO" });
+  assert.deepEqual(trabajo.estadosAlPartir("ERROR", undefined), { madre: "PLANEANDO", hijas: "APROBADO" });
+  // Una dependencia que haría un ciclo no se pone sola.
+  assert.equal(trabajo.dependenciaHaceCiclo([{ origenId: "a", destinoId: "b" }], "b", "a"), true);
+  assert.equal(trabajo.dependenciaHaceCiclo([{ origenId: "a", destinoId: "b" }], "a", "c"), false);
 });
 
 prueba("reparar y partir: tope de 3 reparaciones, resumen de máximo 3 líneas, partes de 2 a 4", () => {

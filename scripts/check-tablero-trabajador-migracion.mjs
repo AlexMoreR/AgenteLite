@@ -399,6 +399,28 @@ await prueba("dependencias: una tarjeta no se toma hasta que de la que depende e
   assert.equal((await tomar("ws3"))[0]?.id, "marketing", "si Ventas se borró, no frena");
 });
 
+await prueba("esperando a otra (26-oct-2026): SQL_ESPERANDO lista la tarjeta con cada tarjeta de la que espera y su estado; HECHO o borrada no cuentan", async () => {
+  await db.exec(`
+    INSERT INTO "Workspace" ("id", "name", "slug", "updatedAt", "ownerId") VALUES ('ws4', 'Cuarto', 'cuarto', now(), NULL);
+    INSERT INTO "TableroInteligente" ("id", "workspaceId", "nombre") VALUES ('tab4', 'ws4', 'Agentes');
+    INSERT INTO "TipoTarjeta" ("id", "tableroId", "nombre", "requiereAprobacion", "usaEstados", "orden") VALUES ('tarea4', 'tab4', 'Tarea', true, true, 0);
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo") VALUES
+      ('molde', 'tab4', 'Agente de Ventas', 'ERROR', 'u-dueno', '2026-10-20 03:00:00', 'tarea4', NULL),
+      ('otra', 'tab4', 'La base', 'EN_CURSO', 'u-dueno', '2026-10-20 03:00:00', 'tarea4', NULL),
+      ('sistemas', 'tab4', 'Agente de Sistemas', 'PLAN_APROBADO', 'u-dueno', '2026-10-20 02:00:00', 'tarea4', 'aizencrm'),
+      ('libre', 'tab4', 'Libre', 'APROBADO', 'u-dueno', '2026-10-20 02:00:00', 'tarea4', 'aizencrm');
+    INSERT INTO "ConexionTarjeta" ("id", "tableroId", "origenId", "destinoId", "esDependencia") VALUES
+      ('e1', 'tab4', 'molde', 'sistemas', true), ('e2', 'tab4', 'otra', 'sistemas', true), ('e3', 'tab4', 'libre', 'sistemas', false)`);
+  const esperando = () => filas(sql.SQL_ESPERANDO, ["ws4", REPOS]);
+  let lista = await esperando();
+  assert.deepEqual(lista.map((f) => [f.id, f.origenId, f.origenEstado]).sort(), [["sistemas", "molde", "ERROR"], ["sistemas", "otra", "EN_CURSO"]], "una fila por cada tarjeta de la que espera; la flecha sin dependencia no cuenta");
+  assert.ok(!lista.some((f) => f.id === "libre"));
+  await db.exec(`UPDATE "TarjetaTablero" SET "estado" = 'HECHO' WHERE "id" = 'otra'`);
+  await db.exec(`UPDATE "TarjetaTablero" SET "borradoEn" = now() WHERE "id" = 'molde'`);
+  assert.deepEqual(await esperando(), [], "HECHO y borrada no frenan");
+  assert.deepEqual(await filas(sql.SQL_ESPERANDO, ["ws1", REPOS]), [], "otro negocio no ve las de este");
+});
+
 await prueba("tomar en otro negocio no ve las de este", async () => {
   const [tomada] = await tomar("ws2");
   assert.equal(tomada.id, "ajena");

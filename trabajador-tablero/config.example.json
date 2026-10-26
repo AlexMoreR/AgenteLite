@@ -58,6 +58,24 @@
     "archivosAntes": 25,
     "archivosConMigracion": 15
   },
+  "medir": {
+    "activo": true,
+    "textoMediano": 1800,
+    "textoLargo": 3500,
+    "puntosDudosa": 4,
+    "puntosGrande": 6,
+    "consultaHaiku": true,
+    "haikuMinutos": 2
+  },
+  "candadoDeBuild": {
+    "reintentos": 3,
+    "esperaSegundos": 60
+  },
+  "recogerErrores": {
+    "activo": true,
+    "hora": 6,
+    "maximoPorDia": 6
+  },
   "tiempos": {
     "intervaloSegundos": 60,
     "latidoSegundos": 60,

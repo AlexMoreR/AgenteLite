@@ -23,7 +23,10 @@ import { crearPlanificador, crearSemaforo, unaVuelta } from "../lib/bucle.mjs";
 import { PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
+import { crearCandadosDeBuild, conReintentoDeCandado, esAvisoDeCandado } from "../lib/candado-de-build.mjs";
 import { crearCrm } from "../lib/crm.mjs";
+import { dependenciasNombradas, medirTarjeta, tamanoDeLaRespuesta } from "../lib/medir.mjs";
+import { crearRecogedorDeErrores, decidirRecogida, leerEstadoDeRecoger, lineaParaElDueno } from "../lib/recoger-errores.mjs";
 import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstadoDelManual } from "../lib/manual-nocturno.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
@@ -856,6 +859,11 @@ archivo(
   'import fs from "node:fs";\nconst c = "prisma/migrations";\nfor (const d of fs.readdirSync(c)) { if (fs.readFileSync(`${c}/${d}/migration.sql`, "utf8").includes("FALLA_PGLITE")) { console.error("falló " + d); process.exit(1); } }\nconsole.log("pglite ok");\n',
 );
 archivo("pruebas-largas.mjs", 'for (let i = 1; i <= 400; i += 1) console.log(i === 300 ? "not ok 300 - la prueba que falló" : `ok ${i} - prueba ${i}`);\nprocess.exit(1);\n');
+// Un "build" que simula el candado de Next: la primera vez (sin el marcador) dice que otro build tiene el candado; con "siempre", siempre.
+archivo(
+  "build-con-candado.mjs",
+  'import fs from "node:fs";\nconst [marcador, modo] = process.argv.slice(2);\nif (modo === "siempre" || !fs.existsSync(marcador)) {\n  fs.writeFileSync(marcador, "x");\n  console.error("Error: Unable to acquire lock at .next/lock, is another instance of next build running?");\n  process.exit(1);\n}\nconsole.log("build ok");\n',
+);
 archivo("viejo.txt", "ERROR_LINT (ya estaba en main: no cuenta)\n");
 archivo("conflicto.txt", "lo de main\n");
 archivo("prisma/migrations/20260101000000_base/migration.sql", "SELECT 1;\n");
@@ -956,6 +964,37 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     llamadas.push({ accion: "aviso", cuerpo });
     return contestar(200, { ok: true, linea: "Admin" });
   }
+  if (pedido.url === "/api/trabajador/tablero/errores") {
+    llamadas.push({ accion: "errores" });
+    const enError = [...tarjetas.values()]
+      .filter((t) => t.estado === "ERROR")
+      .map((t) => ({
+        id: t.id,
+        titulo: t.titulo,
+        detalle: t.detalle,
+        repo: t.repo,
+        tienePlan: Boolean(t.plan),
+        plan: t.plan,
+        reparaciones: t.reparaciones ?? 0,
+        intentos: t.intentos,
+        esParte: [...tarjetas.values()].some((otra) => otra.resultado?.partida?.hijas?.includes(t.id)),
+        yaPartida: Boolean(t.resultado?.partida),
+        cayoEn: t.resultado?.error?.en ?? null,
+        motivo: t.resultado?.error?.motivo ?? null,
+        categoria: t.resultado?.error?.categoria ?? null,
+        ultimosIntentos: (t.intentosLista ?? []).slice(-6),
+        ultimoError: [...(t.intentosLista ?? [])].reverse().find((i) => i.error)?.error ?? null,
+        recogidas: t.recogida?.veces ?? 0,
+        lineaDueno: t.recogida?.lineaDueno ?? null,
+      }));
+    const esperando = [...tarjetas.values()]
+      .filter((t) => (t.estado === "APROBADO" || t.estado === "PLAN_APROBADO") && (t.dependeDe ?? []).some((id) => tarjetas.get(id)?.estado !== "HECHO"))
+      .map((t) => {
+        const esperaA = t.dependeDe.map((id) => tarjetas.get(id)).filter((o) => o && o.estado !== "HECHO").map((o) => ({ id: o.id, titulo: o.titulo, estado: o.estado }));
+        return { id: t.id, titulo: t.titulo, esperaA, etiqueta: reglas.etiquetaDeEspera(esperaA) };
+      });
+    return contestar(200, { ok: true, enError, esperando });
+  }
   if (pedido.url === "/api/trabajador/tablero/candidatas") {
     llamadas.push({ accion: "candidatas" });
     return contestar(200, {
@@ -996,8 +1035,40 @@ const servidor = http.createServer(async (pedido, respuesta) => {
       // Cada hija depende de la anterior: se construyen en orden.
       hijas.push(nueva(reglas.tituloDeLaParte(tarjeta.titulo, indice + 1, parte.titulo), "APROBADO", { detalle: parte.detalle, moderno: true, dependeDe: hijas.slice(-1) }));
     }
-    Object.assign(tarjeta, { estado: "EN_CURSO", venceEn: null, resultado: { ...(tarjeta.resultado ?? {}), partida: { hijas, causa: cuerpo.causa } } });
+    Object.assign(tarjeta, { estado: reglas.estadosAlPartir(tarjeta.estado, tarjeta.resultado?.error?.en).madre, venceEn: null, resultado: { ...(tarjeta.resultado ?? {}), partida: { hijas, causa: cuerpo.causa } } });
     return contestar(200, { ok: true, hijas });
+  }
+  if (accion === "depender") {
+    // Como el CRM: la otra tiene que existir; si ya está HECHO no se crea nada; idempotente.
+    const origen = tarjetas.get(cuerpo.origenId);
+    if (!origen) return contestar(404, { ok: false, error: "No existe esa tarjeta en este negocio." });
+    if (origen.estado === "HECHO" || (tarjeta.dependeDe ?? []).includes(origen.id)) return contestar(200, { ok: true, creada: false });
+    tarjeta.dependeDe = [...(tarjeta.dependeDe ?? []), origen.id];
+    return contestar(200, { ok: true, creada: true, etiqueta: reglas.etiquetaDeEspera([{ titulo: origen.titulo, estado: origen.estado }]), origen: { id: origen.id, titulo: origen.titulo, estado: origen.estado } });
+  }
+  if (accion === "recoger") {
+    const veces = tarjeta.recogida?.veces ?? 0;
+    if (cuerpo.decision === "dueno") {
+      tarjeta.recogida = { ...(tarjeta.recogida ?? { veces: 0 }), lineaDueno: reglas.lineaDelDuenoDeEntrada(cuerpo.linea) };
+      return contestar(200, { ok: true, estado: "ERROR" });
+    }
+    const tope = reglas.puedeRecoger(veces);
+    if (tope) return contestar(409, { ok: false, error: tope });
+    tarjeta.recogida = { veces: veces + 1, lineaDueno: null };
+    if (cuerpo.decision === "partir") {
+      const partes = reglas.partesDeEntrada(cuerpo.partes);
+      const destinos = reglas.estadosAlPartir("ERROR", tarjeta.resultado?.error?.en);
+      const hijas = [];
+      for (const [indice, parte] of partes.entries()) {
+        hijas.push(nueva(reglas.tituloDeLaParte(tarjeta.titulo, indice + 1, parte.titulo), destinos.hijas, { detalle: parte.detalle, moderno: true, plan: destinos.hijas === "PLAN_APROBADO" ? parte.detalle : null, dependeDe: hijas.slice(-1) }));
+      }
+      Object.assign(tarjeta, { estado: destinos.madre, venceEn: null, resultado: { partida: { hijas, causa: cuerpo.causa } } });
+      return contestar(200, { ok: true, estado: destinos.madre, hijas });
+    }
+    const vuelve = tarjeta.resultado?.error?.en === "PLANEANDO" || !tarjeta.plan ? "APROBADO" : "PLAN_APROBADO";
+    anotarIntento(tarjeta, { ...cuerpo, etapa: vuelve === "APROBADO" ? "planear" : "construir" }, "reparar", true);
+    Object.assign(tarjeta, { estado: vuelve, venceEn: null, reparaciones: 0, resultado: null });
+    return contestar(200, { ok: true, estado: vuelve, recogidas: veces + 1 });
   }
   if (accion === "error" && cuerpo.categoria) {
     // Escalar con motivo: el resumen de máximo 3 líneas y el intento "escalar".
@@ -1474,6 +1545,283 @@ try {
     const despues = await vuelta();
     assert.equal(despues.tarjetaId, marketing, "con Ventas HECHO, Marketing arranca");
     soltarTodas(marketing);
+  });
+
+  /* ── Medir antes de arrancar, esperar a otra, no chocar y recoger errores viejos (26-oct-2026) ── */
+  const detalleGrande = `${"Detalle largo de la tarea. ".repeat(140)}\n- Agregar una migración nueva de la base\n- Crear una pantalla nueva para verlo`;
+  const sinSesionDePlan = (desde) =>
+    leerLog(LOGS.claude)
+      .slice(desde)
+      .filter((l) => l.modo === "plan" && !l.prompt.includes("DIVIDIR en partes pequeñas") && !l.prompt.includes("GRANDE o MANEJABLE"));
+
+  await prueba("medir: una tarjeta grande (texto largo, migración y pantalla nueva) se parte en hijas en orden ANTES de planear, sin sesión de plan para la madre", async () => {
+    const id = nueva("Tarea enorme [grande-medida]", "APROBADO", { moderno: true, detalle: detalleGrande });
+    const desde = leerLog(LOGS.claude).length;
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "planear");
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLANEANDO", "la madre espera a sus hijas, sin plan");
+    assert.equal(t.plan, null);
+    assert.equal(t.resultado.partida.hijas.length, 2, "de 2 a 4 hijas");
+    const [primera, segunda] = t.resultado.partida.hijas;
+    assert.equal(tarjetas.get(primera).estado, "APROBADO", "Aprobadas, por planear");
+    assert.equal(tarjetas.get(primera).plan, null, "sin plan copiado");
+    assert.deepEqual(tarjetas.get(primera).dependeDe, []);
+    assert.deepEqual(tarjetas.get(segunda).dependeDe, [primera], "en orden: la 2 espera a la 1");
+    assert.equal(t.intentosLista.at(-1).accion, "partir");
+    assert.equal(t.intentosLista.at(-1).cuentaComoIntento, false);
+    const nuevas = leerLog(LOGS.claude).slice(desde);
+    assert.ok(nuevas.some((l) => l.prompt.includes("DIVIDIR en partes pequeñas") && l.prompt.includes("TODAVÍA NO HAY PLAN")), "una sesión de solo lectura la dividió");
+    assert.deepEqual(sinSesionDePlan(desde), [], "no se abrió ninguna sesión de plan para la madre");
+    // La primera hija se planea sola (es una parte: no se vuelve a medir ni a partir).
+    const siguiente = await vuelta();
+    assert.equal(siguiente.tarjetaId, primera);
+    assert.equal(siguiente.hizo, "planear");
+    assert.equal(tarjetas.get(primera).estado, "PLAN_LISTO");
+    assert.equal(tarjetas.get(segunda).estado, "APROBADO", "la 2 espera a que la 1 esté HECHO");
+    soltarTodas(id, primera, segunda);
+    sinRestos();
+  });
+
+  await prueba("medir: una tarjeta chica pasa directo a planear, sin partirse", async () => {
+    const id = nueva("Cambio chico [chica-medida]", "APROBADO", { moderno: true, detalle: "Cambiar el color del botón." });
+    const desde = leerLog(LOGS.claude).length;
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "planear");
+    assert.equal(tarjetas.get(id).estado, "PLAN_LISTO");
+    assert.ok(!tarjetas.get(id).resultado?.partida);
+    assert.equal(sinSesionDePlan(desde).length, 1, "una sola sesión de plan");
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("medir: una tarjeta dudosa se consulta a Haiku (GRANDE se parte, MANEJABLE se planea)", async () => {
+    const dudosa = `${"Detalle largo de la tarea. ".repeat(140)}\n- Agregar una migración nueva de la base`;
+    assert.equal(medirTarjeta({ titulo: "x", detalle: dudosa }).tamano, "dudosa");
+    const grande = nueva("Dudosa grande [haiku-grande]", "APROBADO", { moderno: true, detalle: dudosa });
+    const desde = leerLog(LOGS.claude).length;
+    assert.equal((await vuelta()).hizo, "planear");
+    const consulta = leerLog(LOGS.claude).slice(desde).find((l) => l.prompt.includes("GRANDE o MANEJABLE"));
+    assert.equal(consulta.argumentos[consulta.argumentos.indexOf("--model") + 1], "haiku", "la consulta barata va con Haiku");
+    assert.equal(tarjetas.get(grande).resultado.partida.hijas.length, 2, "Haiku dijo GRANDE: se partió");
+    soltarTodas(grande, ...tarjetas.get(grande).resultado.partida.hijas);
+    const manejable = nueva("Dudosa manejable", "APROBADO", { moderno: true, detalle: dudosa });
+    assert.equal((await vuelta()).hizo, "planear");
+    assert.equal(tarjetas.get(manejable).estado, "PLAN_LISTO", "Haiku dijo MANEJABLE: se planeó entera");
+    soltarTodas(manejable);
+    sinRestos();
+  });
+
+  await prueba("medir: reglas puras (nada de partir lo ya partido, partes ni reparaciones; negaciones; ids de tarjetas)", async () => {
+    assert.equal(medirTarjeta({ titulo: "x", detalle: "Sin migración. Nada más." }).tamano, "chica", "'sin migración' no cuenta");
+    const grande = { titulo: "x", detalle: detalleGrande };
+    assert.equal(medirTarjeta(grande).tamano, "grande");
+    for (const [campo, valor] of [["esParte", true], ["reparaciones", 1], ["resultado", { partida: { hijas: ["a"] } }]]) {
+      assert.ok(medirTarjeta({ ...grande, [campo]: valor }).omitida, `${campo}: no se vuelve a partir`);
+    }
+    assert.ok(medirTarjeta(grande, { activo: false }).omitida);
+    assert.equal(tamanoDeLaRespuesta("Es GRANDE."), "grande");
+    assert.equal(tamanoDeLaRespuesta("manejable"), "manejable");
+    assert.equal(tamanoDeLaRespuesta("no sé"), null);
+    const id = "cmvkcrakm00no2nlgu1khlqi3";
+    assert.deepEqual(dependenciasNombradas({ id: "cmpropia0000000000000000", titulo: "Marketing", detalle: `Sigue el molde del Agente de Ventas ${id}.` }), [id]);
+    assert.deepEqual(dependenciasNombradas({ id, titulo: "Ventas", detalle: `Sigue el molde ${id}.` }), [], "nunca la propia");
+    assert.deepEqual(dependenciasNombradas({ id: "x", titulo: "t", detalle: `Causas: ${id} y cmvkdso6u00yh2nlg6b4y991s dependen del molde.` }), [], "una línea con varios ids es un resumen, no un requisito");
+  });
+
+  await prueba("dependencias: «Esperando a X» (no ERROR); si la otra está en error, la etiqueta lo dice; al pasar a HECHO arranca", async () => {
+    const molde = nueva("Agente de Ventas (molde)", "EN_CURSO", { venceEn: Date.now() + 60_000 });
+    const hija = nueva("Agente de Marketing", "APROBADO", { moderno: true, detalle: "Hacer el agente." });
+    tarjetas.get(hija).dependeDe = [molde];
+    assert.equal((await vuelta()).hizo, null, "no arranca");
+    let { esperando } = await crm.errores();
+    assert.equal(esperando.find((e) => e.id === hija).etiqueta, "Esperando a «Agente de Ventas (molde)»");
+    assert.equal(tarjetas.get(hija).estado, "APROBADO", "no queda en ERROR");
+    tarjetas.get(molde).estado = "ERROR";
+    ({ esperando } = await crm.errores());
+    assert.equal(esperando.find((e) => e.id === hija).etiqueta, "Esperando a «Agente de Ventas (molde)», que está en error");
+    tarjetas.get(molde).estado = "HECHO";
+    const resultado = await vuelta();
+    assert.equal(resultado.tarjetaId, hija, "con la otra HECHO, arranca");
+    soltarTodas(hija);
+  });
+
+  await prueba("dependencias: si el texto nombra otra tarjeta como molde, el Coordinador pone la flecha y la suelta («Esperando a…»)", async () => {
+    // Un id real de la base tiene la forma cm… de 25 letras: el de la prueba se parece.
+    const idMolde = `cm${"a".repeat(23)}`;
+    tarjetas.set(idMolde, { id: idMolde, titulo: "Molde de Ventas", detalle: "", tablero: "Pruebas", estado: "EN_CURSO", repo: "aizencrm", plan: "El plan", resultado: null, zonaProtegida: [], intentos: 1, venceEn: null });
+    const hija = nueva("Agente de Sistemas", "APROBADO", { moderno: true, detalle: `Sigue el molde ${idMolde} del Agente de Ventas.` });
+    const antes = leerLog(LOGS.claude).length;
+    const primera = await vuelta();
+    assert.equal(primera.hizo, "planear");
+    assert.equal(primera.estado, "APROBADO", "se soltó");
+    assert.deepEqual(tarjetas.get(hija).dependeDe, [idMolde]);
+    assert.deepEqual(sinSesionDePlan(antes), [], "no se gastó ni una sesión de plan");
+    assert.equal(tarjetas.get(hija).estado, "APROBADO");
+    assert.deepEqual(await vuelta(), { hizo: null, motivo: "nada" }, "espera");
+    tarjetas.get(idMolde).estado = "HECHO";
+    assert.equal((await vuelta()).tarjetaId, hija, "cuando la otra pasa a HECHO, arranca");
+    soltarTodas(hija);
+  });
+
+  await prueba("no chocar: dos builds en la misma carpeta hacen fila; el candado de otra carpeta no estorba", async () => {
+    const candados = crearCandadosDeBuild();
+    const orden = [];
+    const liberarA = await candados.tomar("/trabajo/wt/a");
+    const segundo = candados.tomar("/trabajo/wt/a").then((liberar) => {
+      orden.push("segundo");
+      return liberar;
+    });
+    const otraCarpeta = await candados.tomar("/trabajo/wt/b");
+    otraCarpeta();
+    await new Promise((resolver) => setTimeout(resolver, 30));
+    assert.deepEqual(orden, [], "el segundo build espera su turno");
+    assert.equal(candados.esperando("/trabajo/wt/a"), 1);
+    orden.push("primero-termina");
+    liberarA();
+    liberarA(); // liberar dos veces no libera dos turnos
+    (await segundo)();
+    assert.deepEqual(orden, ["primero-termina", "segundo"]);
+    assert.equal(candados.ocupada("/trabajo/wt/a"), false);
+    // Una espera cancelada por la señal rechaza y no se queda con el turno.
+    const control = new AbortController();
+    const uno = await candados.tomar("/trabajo/wt/c");
+    const cancelada = candados.tomar("/trabajo/wt/c", control.signal);
+    control.abort();
+    await assert.rejects(cancelada, /Se canceló la espera/);
+    uno();
+    assert.equal(candados.ocupada("/trabajo/wt/c"), false);
+    // El aviso del candado de Next se reconoce; reintenta sin límite de tiempo más allá de los reintentos.
+    assert.ok(esAvisoDeCandado("Unable to acquire lock at /x/.next/lock, is another instance of next build running?"));
+    assert.ok(!esAvisoDeCandado("error TS2322: el tipo no calza"));
+    let llamadasAlBuild = 0;
+    let limpiezas = 0;
+    const resultado = await conReintentoDeCandado(
+      async () => {
+        llamadasAlBuild += 1;
+        if (llamadasAlBuild < 3) throw new Error("Unable to acquire lock at .next/lock");
+        return "ok";
+      },
+      { reintentos: 3, esperaMs: 5, limpiar: async () => { limpiezas += 1; } },
+    );
+    assert.equal(resultado, "ok");
+    assert.deepEqual([llamadasAlBuild, limpiezas], [3, 2], "esperó, limpió el candado viejo y reintentó");
+    await assert.rejects(conReintentoDeCandado(async () => { throw new Error("another instance of next build"); }, { reintentos: 1, esperaMs: 1 }), (error) => error.candadoDeBuild === true);
+    await assert.rejects(conReintentoDeCandado(async () => { throw new Error("error TS2322"); }, { reintentos: 3, esperaMs: 1 }), (error) => error.candadoDeBuild !== true);
+  });
+
+  await prueba("no chocar: si el build encuentra el candado de Next, espera, limpia y reintenta SIN contar intento ni reparación", async () => {
+    const marcador = path.join(T, "marca-candado");
+    fs.rmSync(marcador, { force: true });
+    const id = nuevaModerna("Build con candado [candado-una-vez]");
+    const rapida = crearConfig({}, { verificar: [[node, "build-con-candado.mjs", marcador]] }, { candadoDeBuild: { reintentos: 2, esperaSegundos: 0.1 } });
+    const resultado = await vuelta(rapida);
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR", "el build pasó en el reintento");
+    assert.equal(t.reparaciones ?? 0, 0, "ninguna reparación");
+    assert.equal((t.intentosLista ?? []).length, 0, "ningún intento anotado");
+    assert.ok(!llamadas.some((l) => l.accion === "error" && l.id === id));
+    const log = fs.readFileSync(path.join(T, "trabajo", "logs", fs.readdirSync(path.join(T, "trabajo", "logs"))[0]), "utf8");
+    assert.match(log, /el build encontró el candado de Next tomado \(1 de 2\)/);
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("no chocar: si el candado sigue tomado tras los reintentos, la tarjeta se suelta sin error y sin contar (aunque lleve muchas esperas)", async () => {
+    const marcador = path.join(T, "marca-candado-siempre");
+    const id = nuevaModerna("Build que siempre choca [candado-siempre]");
+    // Ya lleva 9 esperas seguidas: con el tope de siempre (5) ya contaría; con el candado del build, no.
+    tarjetas.get(id).intentosLista = Array.from({ length: 9 }, (_, i) => ({ numero: i + 1, etapa: "construir", categoria: "carpeta_trabada", causa: "x", error: null, accion: "esperar", cuentaComoIntento: false }));
+    const rapida = crearConfig({}, { verificar: [[node, "build-con-candado.mjs", marcador, "siempre"]] }, { candadoDeBuild: { reintentos: 1, esperaSegundos: 0.1 } });
+    const resultado = await vuelta(rapida);
+    assert.equal(resultado.accion, "esperar", resultado.motivo);
+    assert.equal(resultado.categoria, "carpeta_trabada");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_APROBADO", "vuelve a la fila, no queda en ERROR");
+    assert.equal(t.reparaciones ?? 0, 0);
+    assert.deepEqual([t.intentosLista.at(-1).accion, t.intentosLista.at(-1).cuentaComoIntento], ["esperar", false]);
+    assert.equal(t.intentos, 0, "no gastó el intento");
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  /** Archiva las tarjetas en ERROR de las pruebas de antes (recoger errores mira TODAS las que están en ERROR). */
+  const archivarErrores = () => {
+    for (const t of tarjetas.values()) if (t.estado === "ERROR") t.estado = "HECHO";
+  };
+  const enError = (titulo, motivo, extra = {}) =>
+    nueva(titulo, "ERROR", { moderno: true, plan: "El plan", resultado: { error: { motivo, en: "EN_CURSO", categoria: "otra" } }, ...extra });
+
+  await prueba("recoger errores: decide por la causa (candado -> reintentar, tiempo -> partir, decisión del dueño -> su línea, ya recogida 2 veces -> la deja)", async () => {
+    const decide = (extra) => decidirRecogida({ id: "x", titulo: "t", detalle: "", plan: null, esParte: false, yaPartida: false, recogidas: 0, lineaDueno: null, cayoEn: "EN_CURSO", ultimosIntentos: [], ...extra });
+    assert.equal(decide({ motivo: "No compiló: falló el build\nUnable to acquire lock ... another instance of next build running" }).accion, "reintentar");
+    assert.equal(decide({ motivo: "Se pasó del tiempo: el build tardó más de 90 min" }).accion, "partir");
+    assert.equal(decide({ cayoEn: "PLANEANDO", motivo: "Claude tardó más de 19 min en escribir el plan: se cortó" }).accion, "partir");
+    assert.equal(decide({ esParte: true, motivo: "Se pasó del tiempo" }).accion, "reintentar", "una parte no se parte otra vez");
+    assert.equal(decide({ motivo: "Claude no cambió ningún archivo" }).accion, "reintentar", "la primera vez se reintenta");
+    assert.equal(decide({ motivo: "Claude no cambió ningún archivo", recogidas: 1 }).accion, "dueno", "y si ya se recogió, es de alguien");
+    const decision = decide({ motivo: "Falló", plan: "# Plan\nFalta que decidas A o B sobre la carpeta de Drive antes de construir." });
+    assert.equal(decision.accion, "dueno");
+    assert.match(decision.linea, /decidas A o B sobre la carpeta de Drive/);
+    assert.ok(!decision.linea.includes("\n") && decision.linea.length <= 300, "UNA línea");
+    assert.match(lineaParaElDueno({ motivo: "Falta la clave de OpenAI para seguir" }), /clave/i);
+    assert.equal(lineaParaElDueno({ motivo: "No compiló" }), null);
+    assert.equal(decide({ motivo: "Se pasó del tiempo", recogidas: 2 }).accion, "dejar", "máximo 2 veces por tarjeta");
+    assert.equal(decide({ motivo: "x", lineaDueno: "Falta que decidas A o B" }).accion, "dejar", "espera la respuesta del dueño");
+    const nombrada = decide({ motivo: "Claude no cambió ningún archivo", detalle: "Usa el molde cmvkcrakm00no2nlgu1khlqi3 del Agente de Ventas." });
+    assert.deepEqual(nombrada.depende, ["cmvkcrakm00no2nlgu1khlqi3"], "pone la flecha antes de reintentar");
+  });
+
+  await prueba("recoger errores: reintenta, parte y deja la línea del dueño; una sola vez por día; topes de 6 por día y 2 por tarjeta", async () => {
+    archivarErrores();
+    const candado = enError("Cerebro [e-candado]", "No compiló: falló el build\nUnable to acquire lock ... another instance of next build running");
+    const lenta = enError("Coordinador autónomo [e-tiempo]", "La etapa se pasó de su tiempo máximo: tardó más de 19 min en escribir el plan: se cortó", { plan: null, resultado: { error: { motivo: "Claude tardó más de 19 min en escribir el plan: se cortó", en: "PLANEANDO" } } });
+    const decision = enError("Cerebro Drive [e-decision]", "Falló", { plan: "# Plan\nFalta que decidas A o B sobre la carpeta de Drive." });
+    const agotada = enError("Ya recogida dos veces [e-agotada]", "Se pasó del tiempo", { recogida: { veces: 2, lineaDueno: null } });
+    const otras = Array.from({ length: 5 }, (_, i) => enError(`Otra pasajera ${i + 1}`, "El PC estaba saturado: ENOMEM"));
+    const planificador = crearPlanificador({ crm, config, registro, medidor: sinMedirAqui });
+    const avisos = [];
+    const registroDeLaPrueba = { info: () => undefined, aviso: () => undefined, error: () => undefined };
+    const carpeta = path.join(T, "trabajo-recoger");
+    const configPropia = crearConfig({}, {}, { carpetaTrabajo: carpeta, recogerErrores: { hora: 6, maximoPorDia: 6 } });
+    const recogedor = (ahora) => crearRecogedorDeErrores({ crm, config: configPropia, registro: registroDeLaPrueba, avisar: async (texto) => avisos.push(texto), partir: planificador.partirParaRecoger, ahora: () => ahora });
+
+    // La primera vez (sin archivo de estado) recoge enseguida, a la hora que sea.
+    const primera = await recogedor(new Date("2026-10-26T03:00:00Z")).revisar(); // 10:00 p. m. del 25 en Bogotá
+    assert.equal(primera.hizo, true);
+    // Topes: 6 por día de las 8 en ERROR; la agotada y la que espera al dueño no se tocan.
+    assert.equal(primera.reintentadas + primera.partidas + primera.alDueno, 6, "máximo 6 por día");
+    assert.equal(tarjetas.get(candado).estado, "PLAN_APROBADO", "el candado se reintenta");
+    assert.equal(tarjetas.get(candado).recogida.veces, 1);
+    assert.equal(tarjetas.get(lenta).estado, "PLANEANDO", "la de tiempo se partió");
+    const hijas = tarjetas.get(lenta).resultado.partida.hijas;
+    assert.equal(hijas.length, 2);
+    assert.equal(tarjetas.get(hijas[0]).estado, "APROBADO", "cayó planeando: las hijas se planean aparte");
+    assert.deepEqual(tarjetas.get(hijas[1]).dependeDe, [hijas[0]]);
+    assert.equal(tarjetas.get(decision).estado, "ERROR", "la que pide una decisión sigue en ERROR");
+    assert.match(tarjetas.get(decision).recogida.lineaDueno, /decidas A o B sobre la carpeta de Drive/);
+    assert.equal(tarjetas.get(agotada).estado, "ERROR", "ya se recogió 2 veces: no se toca");
+    assert.equal(otras.filter((id) => tarjetas.get(id).estado !== "ERROR").length, 3, "de las otras 5 solo cupieron 3 (el tope de 6 por día)");
+    assert.equal(avisos.length, 1, "un solo aviso por pasada");
+    assert.match(avisos[0], /esperan tu respuesta/);
+    assert.equal(leerEstadoDeRecoger(carpeta).dia, "2026-10-25");
+
+    // Una sola vez por día; al día siguiente, antes de la hora, tampoco; pasada la hora, sí (las que faltaban).
+    assert.deepEqual(await recogedor(new Date("2026-10-26T04:00:00Z")).revisar(), { hizo: false, motivo: "ya_hecho" });
+    assert.deepEqual(await recogedor(new Date("2026-10-26T08:00:00Z")).revisar(), { hizo: false, motivo: "antes_de_la_hora" }, "3:00 a. m. en Bogotá");
+    const segunda = await recogedor(new Date("2026-10-26T13:00:00Z")).revisar();
+    assert.equal(segunda.hizo, true);
+    assert.equal(otras.filter((id) => tarjetas.get(id).estado === "ERROR").length, 0, "las que faltaban se recogen al día siguiente");
+    assert.equal(tarjetas.get(decision).recogida.lineaDueno ? "espera" : "", "espera", "la línea del dueño no se pisa");
+    assert.equal(tarjetas.get(agotada).estado, "ERROR");
+    // El tope de 2 por tarjeta lo exige el CRM (409): lo que ya se recogió dos veces no se vuelve a recoger.
+    await assert.rejects(crm.recoger(agotada, { decision: "reintentar", causa: "otra vez" }), (error) => error.status === 409);
+    planificador.parar();
+    soltarTodas(candado, lenta, ...hijas, ...otras);
+    archivarErrores();
+    sinRestos();
   });
 
   await prueba("sesión atascada: sin tocar archivos ni CPU se corta, se diagnostica y, si se repite, se parte la tarea", async () => {

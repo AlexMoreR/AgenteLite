@@ -404,6 +404,15 @@ async function estadoDelResumenDiario(workspaceId: string) {
   return `activa: último resumen del ${ultimo.dia}, ${ultimo.enviado ? "WhatsApp enviado" : `WhatsApp NO salió (${ultimo.motivo ?? "sin motivo"})`}`;
 }
 
+/** Tablero IA: el Coordinador recoge los errores viejos una vez al día (corre en aizen1, no en el servidor). */
+async function estadoDeRecogerErrores(workspaceId: string) {
+  const [enError, esperando] = await Promise.all([
+    prisma.tarjetaTablero.count({ where: { tablero: { workspaceId }, borradoEn: null, repo: { not: null }, estado: "ERROR" } }),
+    prisma.tarjetaTablero.count({ where: { tablero: { workspaceId }, borradoEn: null, repo: { not: null }, estado: { in: ["APROBADO", "PLAN_APROBADO"] }, entrantes: { some: { esDependencia: true, origen: { borradoEn: null, estado: { not: "HECHO" } } } } } }),
+  ]);
+  return `activa: el Coordinador (aizen1) revisa una vez al día las tarjetas en ERROR y reintenta, parte o deja una línea para el dueño (máximo 6 por día y 2 veces por tarjeta); ahora hay ${enError} en ERROR y ${esperando} esperando a otra`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -460,6 +469,7 @@ async function automatizaciones(
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(workspaceId).catch(() => "no se pudo leer"),
+    recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),
   };
 
   return {

@@ -3,6 +3,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { CANDADO_DE_BUILD_POR_DEFECTO } from "./candado-de-build.mjs";
+import { MEDIR_POR_DEFECTO } from "./medir.mjs";
 import { MODELOS_POR_DEFECTO } from "./modelos.mjs";
 
 /** Lo que Claude puede usar al CONSTRUIR (acceptEdits): editar dentro del worktree y correr pruebas. */
@@ -124,6 +126,9 @@ const COLA_PESADA_POR_DEFECTO = { maximo: 1, esperaMaximaMinutos: 20 };
 /** Cuándo se parte una tarea en partes más chicas (24-oct-2026): con tantos archivos cambiados a medias, o por contexto, o si se pasa dos veces del tiempo. */
 // archivosAntes / archivosConMigracion (25-oct-2026, reparto.mjs: debePartirAntes): una tarea de aizen1 con más archivos
 // de código que esto en el plan se parte ANTES de construir. 0 = no se parte antes.
+// Recoger errores viejos (26-oct-2026, lib/recoger-errores.mjs): una vez al día, pasada la `hora` (Bogotá) y la primera vez que
+// arranca con este cambio; hasta `maximoPorDia` tarjetas por día (el CRM pone el tope de 2 recogidas por tarjeta).
+const RECOGER_ERRORES_POR_DEFECTO = { activo: true, hora: 6, maximoPorDia: 6 };
 const PARTIR_POR_DEFECTO = { archivosMinimos: 8, archivosAntes: 25, archivosConMigracion: 15 };
 
 /** Reparar solo (24-oct-2026). diagnosticoConClaude: si no se reconoce la causa, una sesión corta de Claude (solo lectura) lee el log. */
@@ -269,6 +274,23 @@ export function completarConfig(datos, base = process.cwd()) {
     partir[campo] = Number(partir[campo]);
     if (!Number.isFinite(partir[campo]) || partir[campo] < 0) errores.push(`partir.${campo}: un número de archivos, 0 o más (0 = no se parte antes de construir).`);
   }
+  // Medir antes de arrancar (lib/medir.mjs): los puntos de corte del tamaño.
+  const medir = { ...MEDIR_POR_DEFECTO, ...(datos.medir ?? {}) };
+  for (const campo of ["textoMediano", "textoLargo", "puntosDudosa", "puntosGrande", "haikuMinutos"]) {
+    medir[campo] = Number(medir[campo]);
+    if (!Number.isFinite(medir[campo]) || medir[campo] <= 0) errores.push(`medir.${campo}: un número mayor que 0.`);
+  }
+  if (medir.puntosDudosa > medir.puntosGrande) errores.push("medir.puntosDudosa no puede ser mayor que medir.puntosGrande.");
+  const candadoDeBuild = { ...CANDADO_DE_BUILD_POR_DEFECTO, ...(datos.candadoDeBuild ?? {}) };
+  candadoDeBuild.reintentos = Math.floor(Number(candadoDeBuild.reintentos));
+  if (!Number.isFinite(candadoDeBuild.reintentos) || candadoDeBuild.reintentos < 0 || candadoDeBuild.reintentos > 10) errores.push("candadoDeBuild.reintentos: de 0 a 10.");
+  candadoDeBuild.esperaSegundos = Number(candadoDeBuild.esperaSegundos);
+  if (!Number.isFinite(candadoDeBuild.esperaSegundos) || candadoDeBuild.esperaSegundos < 0 || candadoDeBuild.esperaSegundos > 600) errores.push("candadoDeBuild.esperaSegundos: de 0 a 600 segundos.");
+  const recogerErrores = { ...RECOGER_ERRORES_POR_DEFECTO, ...(datos.recogerErrores ?? {}) };
+  recogerErrores.hora = Number(recogerErrores.hora);
+  if (!Number.isInteger(recogerErrores.hora) || recogerErrores.hora < 0 || recogerErrores.hora > 23) errores.push("recogerErrores.hora: una hora de 0 a 23 (Bogotá).");
+  recogerErrores.maximoPorDia = Math.floor(Number(recogerErrores.maximoPorDia));
+  if (!Number.isFinite(recogerErrores.maximoPorDia) || recogerErrores.maximoPorDia < 1 || recogerErrores.maximoPorDia > 50) errores.push("recogerErrores.maximoPorDia: de 1 a 50 tarjetas por día.");
   const atasco = { ...ATASCO_POR_DEFECTO, ...(datos.atasco ?? {}) };
   for (const campo of ["minutos", "revisarCadaSegundos", "cpuMinimaSegundos"]) {
     atasco[campo] = Number(atasco[campo]);
@@ -373,6 +395,9 @@ export function completarConfig(datos, base = process.cwd()) {
     autoactualizar: { activo: auto.activo, cadaMinutos: auto.cadaMinutos, rama: auto.rama, remoto: auto.remoto },
     colaPesada: { maximo: colaPesada.maximo, esperaMaximaMinutos: colaPesada.esperaMaximaMinutos },
     partir: { archivosMinimos: partir.archivosMinimos, archivosAntes: partir.archivosAntes, archivosConMigracion: partir.archivosConMigracion },
+    medir: { ...medir, activo: medir.activo !== false, consultaHaiku: medir.consultaHaiku !== false },
+    candadoDeBuild: { reintentos: candadoDeBuild.reintentos, esperaSegundos: candadoDeBuild.esperaSegundos },
+    recogerErrores: { activo: recogerErrores.activo !== false, hora: recogerErrores.hora, maximoPorDia: recogerErrores.maximoPorDia },
     atasco: { minutos: atasco.minutos, revisarCadaSegundos: atasco.revisarCadaSegundos, cpuMinimaSegundos: atasco.cpuMinimaSegundos },
     reparar: { diagnosticoConClaude: reparar.diagnosticoConClaude, diagnosticoMinutos: reparar.diagnosticoMinutos },
     comandoClaude: comando(datos.comandoClaude, "comandoClaude") ?? ["claude"],

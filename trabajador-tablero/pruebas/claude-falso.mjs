@@ -138,6 +138,12 @@ if (argumentos.includes("--cloud")) {
   await new Promise(() => {});
 }
 
+// Medir el tamaño (promptDeTamano, 26-oct-2026): Haiku contesta GRANDE solo si el título trae [haiku-grande]; si no, MANEJABLE.
+if (prompt.includes("Contesta SOLO con una palabra: GRANDE o MANEJABLE")) {
+  console.log(titulo.includes("[haiku-grande]") ? "GRANDE" : "MANEJABLE");
+  process.exit(0);
+}
+
 // Dividir una tarea (promptDePartir): contesta un JSON con 2 partes.
 if (prompt.includes("DIVIDIR en partes pequeñas")) {
   console.log(JSON.stringify({ partes: [{ titulo: "Primera mitad", detalle: "Hacer la primera mitad (archivos a, b)." }, { titulo: "Segunda mitad", detalle: "Hacer la segunda mitad (archivos c, d)." }] }));

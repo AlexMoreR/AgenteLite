@@ -22,6 +22,7 @@ import { leerConfig } from "./lib/config.mjs";
 import { crearCrm } from "./lib/crm.mjs";
 import { crearLatido } from "./lib/latido.mjs";
 import { crearManualNocturno } from "./lib/manual-nocturno.mjs";
+import { crearRecogedorDeErrores } from "./lib/recoger-errores.mjs";
 import { crearMedidor } from "./lib/recursos.mjs";
 import { git } from "./lib/git.mjs";
 import { crearRegistro } from "./lib/registro.mjs";
@@ -118,6 +119,9 @@ if (config.autoactualizar.activo) {
 }
 // El manual de la noche: junta las notas de docs/cambios-pendientes/ en el manual una vez al día (lib/manual-nocturno.mjs).
 const manualNocturno = crearManualNocturno({ config, registro, avisar: (texto) => crm.aviso(texto), entorno: entornoSeguro() });
+// Recoger los errores viejos (26-oct-2026): una vez al día revisa las tarjetas en ERROR y las reintenta, las parte o deja una línea
+// para el dueño; la primera vez que arranca con este cambio lo hace enseguida (lib/recoger-errores.mjs).
+const recogedorDeErrores = crearRecogedorDeErrores({ crm, config, registro, avisar: (texto) => crm.aviso(texto), partir: planificador.partirParaRecoger });
 let primeraVueltaBien = false;
 let reiniciar = false;
 
@@ -137,6 +141,12 @@ while (!parar) {
     await manualNocturno.revisar(planificador);
   } catch (error) {
     registro.aviso(`manual de la noche: ${String(error.message).split("\n")[0]}`);
+  }
+  if (parar) break;
+  try {
+    await recogedorDeErrores.revisar();
+  } catch (error) {
+    registro.aviso(`recoger errores: ${String(error.message).split("\n")[0]}`);
   }
   if (parar) break;
   const nueva = vigilante ? await vigilante.revisar() : null;
