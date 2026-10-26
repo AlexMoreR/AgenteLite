@@ -239,16 +239,51 @@ export async function getLlamadasVendedoraData(
       recordingUrl: intento.recordingUrl,
     }));
 
-    // Nuevos sin tocar: etapa NUEVO y CERO llamadas registradas. Máx. 10, los más recientes.
+    /*
+      Nuevos sin tocar: etapa NUEVO y CERO llamadas registradas. Máx. 10, los más recientes.
+
+      Desde la etapa automática, asignar un chat pasa el lead de NUEVO a Frío. Para que esta lista
+      siga mostrando los recién asignados que nadie atendió, entran también los Frío que cumplen
+      todo esto: el Frío lo puso el sistema (historial AUTOMATICO "etapa automática"), ninguna
+      asesora lo movió, nadie respondió el chat a mano (mismo criterio que "respondidos hoy") y no
+      tienen llamadas.
+    */
+    const recienAsignadosSinAtender = {
+      crmStage: "CALIFICADO" as const,
+      historialEtapas: {
+        some: { origen: "AUTOMATICO", nota: { startsWith: "etapa automática" } },
+        none: { origen: "ASESORA" },
+      },
+      conversations: {
+        some: { OR: [{ assignedToUserId: userId }, { assignedToUserId: null }] },
+        none: {
+          messages: {
+            some: {
+              direction: "OUTBOUND" as const,
+              type: { not: "SYSTEM" as const },
+              OR: [
+                { rawPayload: { path: ["source"], equals: "manual" } },
+                { rawPayload: { path: ["source"], equals: "instance" } },
+              ],
+            },
+          },
+        },
+      },
+    };
     const nuevosRows = await prisma.contact.findMany({
       where: {
         workspaceId,
         excludedFromCrm: false,
-        crmStage: "NUEVO",
         callAttempts: { none: {} },
-        conversations: {
-          some: { OR: [{ assignedToUserId: userId }, { assignedToUserId: null }] },
-        },
+        OR: [
+          {
+            crmStage: "NUEVO",
+            conversations: {
+              some: { OR: [{ assignedToUserId: userId }, { assignedToUserId: null }] },
+            },
+          },
+          recienAsignadosSinAtender,
+        ],
       },
       orderBy: { createdAt: "desc" },
       take: 10,

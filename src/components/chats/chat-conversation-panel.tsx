@@ -117,6 +117,7 @@ import { MessageBubble } from "./chat-message-bubble";
 import { ChatFloatingDateBadge } from "./chat-floating-date-badge";
 import { esNotaInternaDelAgente } from "@/lib/notas-internas-del-agente";
 import { ComposerEmojiPicker, ComposerSendButton } from "./chat-composer";
+import { textoEnviadoTraeElTotal } from "@/lib/etapa-automatica-texto";
 import { AvisoDeCierre } from "./aviso-de-cierre";
 import { AvisoDeLlamada } from "./aviso-de-llamada";
 import { BotonDeMapaDeCaminos } from "./boton-mapa-de-caminos";
@@ -352,6 +353,8 @@ export const ConversationPanel = memo(function ConversationPanel({
     cambiar de chat.
   */
   const sugerenciaEnLaCaja = useRef<{ id: string; chat: string } | null>(null);
+  // El total que inserto el panel de envio en la caja (para pasar a Caliente solo si se ENVIA).
+  const totalDelPanelEnLaCaja = useRef<{ total: string; chat: string } | null>(null);
   /*
     El flujo que la estrella propone junto al texto ("Enviar flujo: Video combo armado"). Es un
     boton: nunca se envia solo. Se ve solo en el chat donde se pidio.
@@ -1305,6 +1308,14 @@ export const ConversationPanel = memo(function ConversationPanel({
     });
   }, [autoResizeComposer]);
 
+  const insertarDelPanelDeEnvio = useCallback(
+    (content: string, total?: string) => {
+      insertQuickReply(content);
+      totalDelPanelEnLaCaja.current = total ? { total, chat: selectedConversationId ?? "" } : null;
+    },
+    [insertQuickReply, selectedConversationId],
+  );
+
   const handleSuggestReply = useCallback(async () => {
     // Se usa el chat REALMENTE abierto y no mediaConfig: en los chats de la API oficial ese
     // config no existía, así que el botón ✨ se veía pero al tocarlo no pasaba NADA (ni un aviso).
@@ -1385,7 +1396,7 @@ export const ConversationPanel = memo(function ConversationPanel({
         chatKey={selectedConversationId || null}
         contactCity={contactCity}
         puedeEscribir={Boolean(composer)}
-        onInsertar={insertQuickReply}
+        onInsertar={insertarDelPanelDeEnvio}
         onCiudadGuardada={(city) => {
           setContactCity(city);
           cacheDeContactos.delete(contactoDelEnvio);
@@ -2073,6 +2084,18 @@ export const ConversationPanel = memo(function ConversationPanel({
                       formData.set("sugerenciaId", sugerencia.id);
                     }
                     sugerenciaEnLaCaja.current = null;
+
+                    // Lo insertado por el panel de envio trae el total: solo cuenta si el texto que
+                    // SALE todavia lo trae (la marca pasa el lead a Caliente al enviarse).
+                    const delPanel = totalDelPanelEnLaCaja.current;
+                    if (
+                      delPanel &&
+                      delPanel.chat === (selectedConversationId ?? "") &&
+                      textoEnviadoTraeElTotal(message, delPanel.total)
+                    ) {
+                      formData.set("panelEnvioTotal", "1");
+                    }
+                    totalDelPanelEnLaCaja.current = null;
 
                     // Respuesta rapida: va tal cual, sin la firma encima.
                     if (desdeRespuestaRapida) {
