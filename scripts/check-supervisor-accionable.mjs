@@ -1233,4 +1233,30 @@ await prueba("acuse: la alerta de atención abierta suelta el chat y se cierra R
 });
 
 
+await prueba("acuse: cierre corto (\"Ok\" tras la asesora, sin pregunta ni promesa) no es espera; con pregunta, promesa, compra o sin persona sí", () => {
+  const charla = (asesora, cliente, extra = {}) => [ev("IN", "08:00", "Hola, info del combo"), ev("OUT", "09:01", asesora), ev("IN", "09:02", cliente, extra)];
+  const cierraCorto = (asesora, cliente, extra) => assert.equal(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: charla(asesora, cliente, extra) })?.tipo, "cierre_corto", `${asesora} / ${cliente}`);
+  cierraCorto("Quedamos al pendiente", "Ok"); // María 573112022514
+  cierraCorto("Te quedamos atentos a lo que necesites", "Ok"); // Ingrid 573206587833
+  for (const t of ["Listo", "Gracias", "Dale", "Perfecto", "👍", "okey"]) {
+    const e = acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: charla("Quedamos al pendiente", t) });
+    // "dale" puede ser un sí a la compra: solo cuenta si no es señal de compra.
+    if (t !== "Dale") assert.equal(e?.tipo, "cierre_corto", t);
+  }
+  assert.equal(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: charla("Quedamos al pendiente", null, { tipo: "STICKER" }) })?.tipo, "cierre_corto");
+  assert.equal(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: charla("Quedamos al pendiente", "👍", { tipo: "REACTION" }) })?.tipo, "cierre_corto");
+  // Sí debe quedar como espera.
+  assert.equal(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: charla("¿Te separo el combo?", "ok") }), null, "la asesora preguntó");
+  assert.equal(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: charla("Ya te envío las fotos", "ok") }), null, "promesa sin cumplir");
+  assert.equal(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: charla("Quedamos al pendiente", "Ok, ¿y el envío?") }), null, "pregunta del cliente");
+  assert.equal(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: charla("Quedamos al pendiente", "de una") }), null, "señal de compra");
+  assert.equal(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: charla("Quedamos al pendiente", "Ya pagué") }), null, "pago");
+  assert.equal(acuse.soloAcusaReciboDeUnAcuerdo({ mensajes: [ev("IN", "09:01", "ok")] }), null, "nadie respondió");
+  // El detector no avisa y la alerta ya abierta se cierra en la siguiente vuelta.
+  const chat = chatReal({}, charla("Quedamos al pendiente", "Ok"));
+  const e = det.estadoDeEspera(chat, AHORA_REAL);
+  assert.ok(e.acuse && e.cierre, "estadoDeEspera lo trata como cierre");
+  assert.equal(det.detectarAtencion([chat], AHORA_REAL).some((h) => h.clave === "ATENCION:caliente-esperando:maria"), false);
+});
+
 console.log(`\n${pruebas} pruebas OK`);

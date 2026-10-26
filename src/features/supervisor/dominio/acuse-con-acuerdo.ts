@@ -21,6 +21,8 @@
  *     - compromiso del cliente (seguimiento-inteligente/dominio/compromiso.ts: "te envío la
  *       transferencia en la tarde");
  *     - cierre de la charla (tras-asesora.ts `terminoEnCierre`: «Mil gracias» → «Gracias a ti»);
+ *     - cierre corto: el cliente solo cerró con "ok" / "gracias" / 👍 justo tras la asesora, sin que ella
+ *       preguntara ni dejara una promesa sin cumplir (tipo `cierre_corto`; cae al seguimiento programado);
  *     - el cliente ya mandó sus datos de compra (`mandoSusDatos`) o prometió el pago; o
  *     - lo único que provocó el acuse fue un seguimiento automático (la persona ya había respondido
  *       todo y no dejó una promesa propia sin cumplir).
@@ -33,7 +35,7 @@ import { compromisoEnTexto, detectarCompromiso, esAcuseDelCliente, mensajeDeComp
 import type { Horario } from "../../seguimiento-inteligente/dominio/formulario";
 import { promesaPendiente, terminoEnCierre } from "../../seguimiento-inteligente/dominio/tras-asesora";
 
-export type TipoDeAcuerdo = "compromiso" | "cierre" | "datos" | "promesa_de_pago" | "seguimiento_automatico";
+export type TipoDeAcuerdo = "compromiso" | "cierre" | "datos" | "promesa_de_pago" | "seguimiento_automatico" | "cierre_corto";
 
 export type AcuerdoPrevio = {
   tipo: TipoDeAcuerdo;
@@ -129,6 +131,12 @@ export function soloAcusaReciboDeUnAcuerdo(chat: ChatParaAcuse, horario: Horario
   if (terminoEnCierre(hasta, esPersona)) return { tipo: "cierre", detalle: "La charla terminó en cierre antes del acuse.", compromiso: null };
   if (huboAutomatico && !preguntoLaPersona && !promesaPendiente(tandaPersona)) {
     return { tipo: "seguimiento_automatico", detalle: "El acuse contesta a un seguimiento automático; la persona ya había respondido.", compromiso: null };
+  }
+  // 4. Cierre corto (26-oct): "Ok" / "gracias" / 👍 justo después de la asesora, sin acuerdo previo. La asesora no
+  //    preguntó ni dejó una promesa sin cumplir y el cliente no mostró señal de compra (ya filtrado arriba con
+  //    `esSoloAcuse`): es un cierre, queda para el seguimiento programado y no como alerta.
+  if (!preguntoLaPersona && !promesaPendiente(tandaPersona)) {
+    return { tipo: "cierre_corto", detalle: "El cliente solo cerró con un acuse corto tras la respuesta de la asesora.", compromiso: null };
   }
   return null;
 }
