@@ -18,6 +18,7 @@ const coincide = (fila, where) =>
     const valor = fila[campo];
     if (esperado instanceof Date) return valor instanceof Date && valor.getTime() === esperado.getTime();
     if (esperado && typeof esperado === "object" && "isEmpty" in esperado) return (valor ?? []).length === 0 === esperado.isEmpty;
+    if (esperado && typeof esperado === "object" && "equals" in esperado) return JSON.stringify(valor ?? []) === JSON.stringify(esperado.equals);
     if (esperado && typeof esperado === "object" && "not" in esperado) return valor !== esperado.not;
     return valor === esperado;
   });
@@ -70,6 +71,9 @@ async function prueba(nombre, fn) {
   estado.historial.length = 0;
   estado.ajustes.clear();
   estado.tableros.length = 0;
+  // Las pruebas de antes de la regla del 25-oct esperan que una tarea ALTO quede quieta: corren con "Aprobar tareas solo" apagado.
+  // Las pruebas de la regla nueva lo prenden a propósito (prenderTareas).
+  estado.ajustes.set("tablero:tareas-solas:ws1", "false");
   await fn();
   pruebas += 1;
   console.log(`ok - ${nombre}`);
@@ -106,6 +110,7 @@ function tarjeta(extra = {}) {
 
 const contexto = { claveId: "k1", workspaceId: "ws1", nombre: "Coordinador" };
 const apagar = (ws = "ws1") => estado.ajustes.set(`tablero:aprobacion-automatica:${ws}`, "false");
+const prenderTareas = (ws = "ws1") => estado.ajustes.delete(`tablero:tareas-solas:${ws}`);
 const apagarPlanes = (ws = "ws1") => estado.ajustes.set(`tablero:planes-solos:${ws}`, "false");
 
 /* ------------------------------------------------------------------ aprobarSolaLaTarea */
@@ -429,8 +434,8 @@ await prueba("regla 24-oct: con el interruptor tablero:planes-solos apagado el p
   assert.equal(await auto.aprobarPlanesSoloPrendido("otro"), true);
 });
 
-await prueba("regla 24-oct: tarjeta con zona protegida: el plan espera su sí en la pantalla (/tomar lo exige)", async () => {
-  planeando({ riesgo: "ALTO", zonaProtegida: ["CHATS"] });
+await prueba("regla 24-oct: tarjeta con zona protegida que no arranca sola (META_ADS): el plan espera su sí en la pantalla (/tomar lo exige)", async () => {
+  planeando({ riesgo: "ALTO", zonaProtegida: ["META_ADS"] });
   const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planAlto() });
   assert.equal(r.estado, "PLAN_LISTO");
   assert.equal(estado.historial.length, 1);
@@ -451,8 +456,8 @@ await prueba("regla 24-oct: tarjeta BAJO con la línea ESPERA TU SÍ o gasto en 
   assert.equal(r2.estado, "PLAN_LISTO");
 });
 
-await prueba("aprobarPlanesListosQueEsperan: no toca las tarjetas con zona protegida", async () => {
-  tarjeta({ id: "zona", estado: "PLAN_LISTO", plan: planAlto(), zonaProtegida: ["CHATS"] });
+await prueba("aprobarPlanesListosQueEsperan: no toca las tarjetas con una zona que no arranca sola", async () => {
+  tarjeta({ id: "zona", estado: "PLAN_LISTO", plan: planAlto(), zonaProtegida: ["META_ADS"] });
   assert.equal(await auto.aprobarPlanesListosQueEsperan(), 0);
   assert.equal(estado.tarjetas.get("zona").estado, "PLAN_LISTO");
 });
@@ -482,5 +487,133 @@ await prueba("aprobarPlanesListosQueEsperan: con el interruptor apagado no hace 
   assert.equal(estado.tarjetas.get("a").estado, "PLAN_LISTO");
   assert.equal(estado.tarjetas.get("b").estado, "PLAN_APROBADO");
 });
+
+/* ------------------------------------------------------------------ regla del dueño 25-oct: las tareas arrancan solas */
+
+const FRASE_TAREA_SOLA = "aprobada automáticamente (regla del dueño 25-oct)";
+
+await prueba("regla 25-oct: una tarea nueva de riesgo ALTO arranca sola y deja la frase del 25-oct en el historial", async () => {
+  prenderTareas();
+  tarjeta({ riesgo: "ALTO", riesgoMotivo: "habla de chats", titulo: "Mejorar la pantalla de reportes", detalle: "Ordenar las columnas" });
+  const r = await auto.aprobarSolaLaTarea("t1");
+  assert.equal(r.aprobada, true);
+  assert.equal(estado.tarjetas.get("t1").estado, "APROBADO");
+  assert.equal(estado.historial.length, 1);
+  const h = estado.historial[0];
+  assert.equal(h.accion, "aprobar");
+  assert.equal(h.despues.via, "automatica");
+  assert.equal(h.despues.regla, "dueno-25-oct");
+  assert.equal(h.despues.textoConfirmacion, FRASE_TAREA_SOLA);
+  assert.deepEqual(h.antes, { estado: "POR_APROBAR" });
+});
+
+await prueba("regla 25-oct: una tarea sin riesgo puesto también arranca sola", async () => {
+  prenderTareas();
+  tarjeta({ riesgo: null, riesgoMotivo: null, titulo: "Ajustar un color", detalle: "Cambiar el azul" });
+  assert.equal((await auto.aprobarSolaLaTarea("t1")).aprobada, true);
+});
+
+await prueba("regla 25-oct: la tarea que habla de abonos, de presupuesto en Meta o de campañas se queda esperándote con su motivo", async () => {
+  prenderTareas();
+  const casos = [
+    ["Corregir los abonos de la tabla", "habla de dinero de Gestión"],
+    ["Revisar la nómina", "habla de dinero de Gestión"],
+    ["Subir el presupuesto diario", "presupuesto"],
+    ["Activar las campañas nuevas", "presupuesto"],
+    ["Facturación", "habla de dinero de Gestión"],
+  ];
+  for (const [titulo, motivo] of casos) {
+    estado.tarjetas.clear();
+    estado.historial.length = 0;
+    tarjeta({ riesgo: "ALTO", titulo, detalle: "" });
+    const r = await auto.aprobarSolaLaTarea("t1");
+    assert.equal(r.aprobada, false, titulo);
+    assert.ok(r.porQue.includes(motivo), `${titulo}: ${r.porQue}`);
+    assert.equal(estado.tarjetas.get("t1").estado, "POR_APROBAR");
+    assert.equal(estado.historial.length, 0);
+  }
+  // El detalle también cuenta, no solo el título.
+  estado.tarjetas.clear();
+  tarjeta({ riesgo: "ALTO", titulo: "Pantalla nueva", detalle: "Muestra los saldos de cada cliente" });
+  assert.equal((await auto.aprobarSolaLaTarea("t1")).aprobada, false);
+});
+
+await prueba("regla 25-oct: una tarea sin repo no se toca", async () => {
+  prenderTareas();
+  tarjeta({ repo: null, riesgo: "ALTO", titulo: "Algo", detalle: "" });
+  const r = await auto.aprobarSolaLaTarea("t1");
+  assert.equal(r.aprobada, false);
+  assert.equal(estado.tarjetas.get("t1").estado, "POR_APROBAR");
+  assert.equal(await auto.aprobarSolasLasPendientes(), 0);
+  assert.equal(estado.tarjetas.get("t1").estado, "POR_APROBAR");
+});
+
+await prueba("regla 25-oct: zonas CHATS y BOT_VENTAS arrancan solas; META_ADS y LIBRO_V3 esperan", async () => {
+  prenderTareas();
+  for (const zona of [["CHATS"], ["BOT_VENTAS"], ["CHATS", "BOT_VENTAS"]]) {
+    estado.tarjetas.clear();
+    tarjeta({ riesgo: "ALTO", zonaProtegida: zona, titulo: "Mejorar la bandeja", detalle: "" });
+    assert.equal((await auto.aprobarSolaLaTarea("t1")).aprobada, true, zona.join());
+    assert.equal(estado.tarjetas.get("t1").estado, "APROBADO");
+  }
+  for (const zona of [["META_ADS"], ["LIBRO_V3"], ["CHATS", "META_ADS"]]) {
+    estado.tarjetas.clear();
+    tarjeta({ riesgo: "ALTO", zonaProtegida: zona, titulo: "Mejorar la bandeja", detalle: "" });
+    const r = await auto.aprobarSolaLaTarea("t1");
+    assert.equal(r.aprobada, false, zona.join());
+    assert.ok(r.porQue.includes("zona protegida"));
+    assert.equal(estado.tarjetas.get("t1").estado, "POR_APROBAR");
+  }
+});
+
+await prueba("regla 25-oct: con 'Aprobar tareas solo' apagado una tarea ALTO vuelve a pedir tu aprobación", async () => {
+  tarjeta({ riesgo: "ALTO", titulo: "Mejorar la pantalla de reportes", detalle: "" });
+  assert.equal(await auto.aprobarTareasSoloPrendido("ws1"), false);
+  assert.equal((await auto.aprobarSolaLaTarea("t1")).aprobada, false);
+  assert.equal(estado.tarjetas.get("t1").estado, "POR_APROBAR");
+  // Una BAJO limpia sí sigue aprobándose sola (regla de antes).
+  tarjeta({ id: "t2", riesgo: "BAJO" });
+  assert.equal((await auto.aprobarSolaLaTarea("t2")).aprobada, true);
+  assert.equal(estado.historial[0].despues.textoConfirmacion.includes("bajo riesgo"), true);
+  // Se prende con la función y sin fila está prendido.
+  await auto.ponerAprobarTareasSolo("ws1", true);
+  assert.equal(await auto.aprobarTareasSoloPrendido("ws1"), true);
+  assert.equal(await auto.aprobarTareasSoloPrendido("otro-negocio"), true);
+  assert.equal((await auto.aprobarSolaLaTarea("t1")).aprobada, true);
+});
+
+await prueba("regla 25-oct: la vuelta del reloj aprueba las pendientes y deja las de dinero", async () => {
+  prenderTareas();
+  tarjeta({ id: "a", riesgo: "ALTO", titulo: "Pantalla de reportes", detalle: "" });
+  tarjeta({ id: "b", riesgo: null, titulo: "Mejorar la lista", detalle: "" });
+  tarjeta({ id: "chats", riesgo: "ALTO", zonaProtegida: ["CHATS"], titulo: "Mejorar la bandeja", detalle: "" });
+  tarjeta({ id: "abonos", riesgo: "ALTO", titulo: "Arreglar los abonos", detalle: "" });
+  tarjeta({ id: "meta", riesgo: "ALTO", titulo: "Pantalla", detalle: "Crear gasto en Meta Ads", zonaProtegida: ["META_ADS"] });
+  tarjeta({ id: "sinrepo", repo: null, riesgo: "ALTO", titulo: "Algo", detalle: "" });
+  tarjeta({ id: "otro", riesgo: "ALTO", titulo: "Pantalla de otro negocio", detalle: "", tablero: { workspaceId: "ws2", nombre: "Otro" } });
+  estado.ajustes.set("tablero:tareas-solas:ws2", "false");
+  assert.equal(await auto.aprobarSolasLasPendientes(), 3);
+  for (const id of ["a", "b", "chats"]) assert.equal(estado.tarjetas.get(id).estado, "APROBADO", id);
+  for (const id of ["abonos", "meta", "sinrepo", "otro"]) assert.equal(estado.tarjetas.get(id).estado, "POR_APROBAR", id);
+});
+
+await prueba("regla 25-oct: el plan de una tarjeta CHATS pasa solo a construir; el de META_ADS espera", async () => {
+  planeando({ riesgo: "ALTO", zonaProtegida: ["CHATS"] });
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planAlto() });
+  assert.equal(r.estado, "PLAN_APROBADO");
+  assert.equal(estado.historial.at(-1).despues.via, "automatica");
+  planeando({ id: "t2", riesgo: "ALTO", zonaProtegida: ["META_ADS"] });
+  const r2 = await trabajador.accionDelTrabajador(contexto, "t2", "plan", { plan: planAlto() });
+  assert.equal(r2.estado, "PLAN_LISTO");
+});
+
+await prueba("regla 25-oct: la vuelta del reloj de planes pasa a construir los de CHATS y BOT_VENTAS", async () => {
+  tarjeta({ id: "c", estado: "PLAN_LISTO", plan: planAlto(), zonaProtegida: ["CHATS"] });
+  tarjeta({ id: "m", estado: "PLAN_LISTO", plan: planAlto(), zonaProtegida: ["LIBRO_V3"] });
+  assert.equal(await auto.aprobarPlanesListosQueEsperan(), 1);
+  assert.equal(estado.tarjetas.get("c").estado, "PLAN_APROBADO");
+  assert.equal(estado.tarjetas.get("m").estado, "PLAN_LISTO");
+});
+
 
 console.log(`\n${pruebas} pruebas, todas bien`);

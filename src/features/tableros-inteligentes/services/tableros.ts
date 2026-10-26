@@ -1458,8 +1458,8 @@ export async function crearTarjeta(
     await tocarTablero(tx, tablero.id);
     return { tarjeta: aVista(tarjeta), cambioId: cambio.id, tablero, tipo };
   });
-  // Una tarea BAJO que nace POR_APROBAR se aprueba sola (si el interruptor está prendido).
-  const aprobacion = await aprobarSiEsBajo(creada.tarjeta);
+  // Una tarea con repo que nace POR_APROBAR se aprueba sola (regla del dueño 25-oct; salvo dinero o Meta Ads).
+  const aprobacion = await aprobarSiCorresponde(creada.tarjeta);
   return { ...creada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado };
 }
 
@@ -1469,11 +1469,12 @@ function quienPoneElRiesgo(origen: OrigenCambio): QuienPoneRiesgo {
 }
 
 /**
- * Si la tarjeta quedó POR_APROBAR con repo y riesgo BAJO, intenta aprobarla sola. Devuelve la tarjeta
- * como quedó (si se aprobó, ya APROBADO) y el resultado, o null si no correspondía intentarlo.
+ * Si la tarjeta quedó POR_APROBAR con repo, intenta aprobarla sola (regla del dueño 25-oct: cualquier riesgo salvo
+ * dinero o Meta Ads; con el interruptor apagado, solo las BAJO). Devuelve la tarjeta como quedó (si se aprobó,
+ * ya APROBADO) y el resultado, o null si no correspondía intentarlo.
  */
-async function aprobarSiEsBajo(tarjeta: TarjetaVista): Promise<{ tarjeta: TarjetaVista; resultado: ResultadoDeAprobarSola | null }> {
-  if (tarjeta.estado !== "POR_APROBAR" || !tarjeta.repo || tarjeta.riesgo !== "BAJO") return { tarjeta, resultado: null };
+async function aprobarSiCorresponde(tarjeta: TarjetaVista): Promise<{ tarjeta: TarjetaVista; resultado: ResultadoDeAprobarSola | null }> {
+  if (tarjeta.estado !== "POR_APROBAR" || !tarjeta.repo) return { tarjeta, resultado: null };
   const resultado = await aprobarSolaLaTarea(tarjeta.id);
   if (!resultado.aprobada) return { tarjeta, resultado };
   const fila = await prisma.tarjetaTablero.findUnique({ where: { id: tarjeta.id }, select: SELECT_TARJETA });
@@ -1691,11 +1692,11 @@ export async function editarTarjeta(
       tipo: tipoFinal,
     };
   });
-  // Si quedó POR_APROBAR con riesgo BAJO, se aprueba sola otra vez (si el interruptor está prendido).
+  // Si quedó POR_APROBAR con repo, se aprueba sola otra vez (si corresponde por las reglas de aprobación automática).
   // Asignar a alguien no aprueba nada: ahí el estado se queda como estaba.
   const aprobacion = soloCambiaResponsable(Object.keys(nuevo))
     ? { tarjeta: editada.tarjeta, resultado: null }
-    : await aprobarSiEsBajo(editada.tarjeta);
+    : await aprobarSiCorresponde(editada.tarjeta);
   return { ...editada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado, avisoDeRiesgo };
 }
 
@@ -1847,8 +1848,8 @@ export async function cambiarEstadoTarjeta(
     await tocarTablero(tx, actual.tableroId);
     return { cambioId: cambio.id, antes: actual.estado, ahora: estado as EstadoTarjetaTablero, titulo: actual.titulo };
   });
-  // POR_APROBAR con repo y riesgo BAJO: se aprueba sola (si el interruptor está prendido).
-  if (estado !== "POR_APROBAR" || !actual.repo || actual.riesgo !== "BAJO") return { ...cambiado, aprobacionAutomatica: null };
+  // POR_APROBAR con repo: se aprueba sola si corresponde (regla del dueño 25-oct; con el interruptor apagado, solo BAJO).
+  if (estado !== "POR_APROBAR" || !actual.repo) return { ...cambiado, aprobacionAutomatica: null };
   const aprobacion = await aprobarSolaLaTarea(actual.id);
   return { ...cambiado, ahora: aprobacion.aprobada ? ("APROBADO" as EstadoTarjetaTablero) : cambiado.ahora, aprobacionAutomatica: aprobacion };
 }

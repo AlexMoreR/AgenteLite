@@ -6,7 +6,7 @@ import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
 import { prisma } from "@/lib/prisma";
-import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { leerUltimoEnvio } from "@/features/tableros-inteligentes/services/resumen-diario";
 
 /**
@@ -388,6 +388,17 @@ async function estadoDeLaAprobacionAutomatica(workspaceId: string) {
     : "APAGADA: todo vuelve a pedir la aprobación del dueño";
 }
 
+/** Tablero IA: si "Aprobar tareas solo" (regla del dueño 25-oct) está prendido y cuántas tareas con repo esperan su sí. */
+async function estadoDeAprobarTareasSolo(workspaceId: string) {
+  const [prendido, esperando] = await Promise.all([
+    aprobarTareasSoloPrendido(workspaceId),
+    prisma.tarjetaTablero.count({ where: { estado: "POR_APROBAR", repo: { not: null }, borradoEn: null, tablero: { workspaceId } } }),
+  ]);
+  return prendido
+    ? `PRENDIDA: toda tarea con repo arranca sola; solo espera el sí del dueño la que toca dinero de Gestión o gasto en Meta Ads (${esperando} en POR_APROBAR ahora)`
+    : `APAGADA: solo las de riesgo BAJO se aprueban solas, lo demás espera el sí del dueño (${esperando} en POR_APROBAR ahora)`;
+}
+
 /** Tablero IA: si "Aprobar planes solo" (regla del dueño 24-oct) está prendido y cuántos planes esperan su sí. */
 async function estadoDeAprobarPlanesSolo(workspaceId: string) {
   const [prendido, esperando] = await Promise.all([
@@ -470,6 +481,7 @@ async function automatizaciones(
     coach_de_ventas: await estadoDelCoach(workspaceId).catch(() => "no se pudo leer"),
     reuniones_transcripcion: await estadoDeLasReuniones(workspaceId).catch(() => "no se pudo leer"),
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
+    aprobar_tareas_solas_tablero: await estadoDeAprobarTareasSolo(workspaceId).catch(() => "no se pudo leer"),
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(workspaceId).catch(() => "no se pudo leer"),
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),

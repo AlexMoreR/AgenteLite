@@ -344,6 +344,31 @@ export function porQueElPlanEsperaTuSi(plan: string): string | null {
   return null;
 }
 
+/* ─────────────────────────────────────────────────────── el sí de la tarea (regla 25-oct) ── */
+
+/**
+ * Regla del dueño (25-oct-2026): toda tarea con repo que entra en POR_APROBAR pasa sola a APROBADO. ÚNICA
+ * excepción: espera el sí del dueño si su título o detalle hablan de dinero de Gestión (abonos, saldos, nómina,
+ * comisiones, facturación, pagos) o de subir presupuesto, activar campañas o crear gasto en Meta Ads (las mismas
+ * palabras que frenan los planes), o si tiene una zona que no arranca sola (META_ADS, LIBRO_V3).
+ * Devuelve el motivo en una línea, o null si la tarea arranca sola. Sin base: se prueba con `npm run test:tableros`.
+ */
+export function porQueLaTareaEsperaTuSi(datos: {
+  titulo: string;
+  detalle: string;
+  zonaProtegida: readonly string[];
+  /** Zonas que no arrancan solas (reglas-trabajador.ts); se pasan para que este archivo siga sin imports. */
+  zonasQueEsperan: readonly string[];
+}): string | null {
+  if (datos.zonasQueEsperan.length) return `tiene zona protegida que espera tu sí (${datos.zonasQueEsperan.join(", ")})`;
+  const normal = normalizar(`${datos.titulo}\n${datos.detalle}`);
+  if (PALABRAS_DE_DINERO_DE_GESTION.test(normal)) {
+    return "habla de dinero de Gestión (abonos, saldos, nómina, comisiones, facturación o pagos)";
+  }
+  if (PALABRAS_DE_GASTO_EN_META.test(normal)) return "habla de presupuesto, de activar campañas o de gasto en Meta Ads";
+  return null;
+}
+
 /* ───────────────────────────────────────────────────────────────────── la tarjeta ── */
 
 /** Lo que se sabe de una tarjeta para decidir su riesgo al crearla o editarla. */

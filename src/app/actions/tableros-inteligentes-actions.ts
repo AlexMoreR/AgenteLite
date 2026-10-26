@@ -31,8 +31,10 @@ import {
 import {
   aprobacionAutomaticaPrendida,
   aprobarPlanesSoloPrendido,
+  aprobarTareasSoloPrendido,
   ponerAprobacionAutomatica,
   ponerAprobarPlanesSolo,
+  ponerAprobarTareasSolo,
 } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { resumenDeHoyParaLaPantalla, vistaDeHoy, type VistaDeHoy } from "@/features/tableros-inteligentes/services/resumen-diario";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
@@ -168,6 +170,8 @@ export type PanelTrabajadorVista = {
   aprobacionAutomatica: boolean;
   /** El interruptor "Aprobar planes solo" (regla del dueño 24-oct; prendido por defecto). */
   aprobarPlanesSolo: boolean;
+  /** El interruptor "Aprobar tareas solo" (regla del dueño 25-oct; prendido por defecto). */
+  aprobarTareasSolo: boolean;
   /** Quien mira es el dueño del negocio: solo él mueve el interruptor. */
   esDueno: boolean;
 };
@@ -184,11 +188,12 @@ export async function panelTrabajadorAction(): Promise<{ ok: true; panel: PanelT
   const access = await accesoDelDueno();
   if (!access) return { ok: false, error: SOLO_EL_DUENO_TRABAJADOR };
   try {
-    const [claves, { aprobadores, candidatos }, aprobacionAutomatica, aprobarPlanesSolo, persona] = await Promise.all([
+    const [claves, { aprobadores, candidatos }, aprobacionAutomatica, aprobarPlanesSolo, aprobarTareasSolo, persona] = await Promise.all([
       listarClavesTrabajador(access.workspaceId),
       listarAprobadores(access.workspaceId),
       aprobacionAutomaticaPrendida(access.workspaceId),
       aprobarPlanesSoloPrendido(access.workspaceId),
+      aprobarTareasSoloPrendido(access.workspaceId),
       personaQueAprueba(access.workspaceId, access.userId),
     ]);
     return {
@@ -205,6 +210,7 @@ export async function panelTrabajadorAction(): Promise<{ ok: true; panel: PanelT
         candidatos,
         aprobacionAutomatica,
         aprobarPlanesSolo,
+        aprobarTareasSolo,
         esDueno: persona.esDueno,
       },
     };
@@ -268,6 +274,19 @@ export async function cambiarAprobacionAutomaticaAction(prendida: boolean): Prom
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo cambiar la aprobación automática") };
+  }
+}
+
+/** Prende o apaga "Aprobar tareas solo" (regla del dueño 25-oct). Solo el dueño; apagado, solo se aprueban solas las de riesgo BAJO. */
+export async function cambiarAprobarTareasSoloAction(prendida: boolean): Promise<Resultado> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  try {
+    const persona = await personaQueAprueba(access.workspaceId, access.userId);
+    if (!persona.esDueno) return { ok: false, error: "Prender o apagar la aprobación de tareas es solo del dueño del negocio." };
+    await ponerAprobarTareasSolo(access.workspaceId, Boolean(prendida));
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo cambiar la aprobación de tareas") };
   }
 }
 

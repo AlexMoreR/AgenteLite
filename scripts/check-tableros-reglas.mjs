@@ -1559,6 +1559,29 @@ prueba("porQueNoSeApruebaSola: solo BAJO limpio, con repo y el interruptor prend
   assert.ok(riesgo.porQueNoSeApruebaSola({ ...base, detalle: "Cambiar los saldos" }));
 });
 
+prueba("porQueLaTareaEsperaTuSi (regla 25-oct): arranca sola salvo dinero de Gestión, gasto en Meta Ads o zona que espera", () => {
+  const base = { titulo: "Reporte de ventas por mes", detalle: "Agregar una pantalla nueva", zonaProtegida: [], zonasQueEsperan: [] };
+  assert.equal(riesgo.porQueLaTareaEsperaTuSi(base), null);
+  // Cualquier riesgo arranca: hablar de chats, usuarios o mensajes ya no la frena.
+  assert.equal(riesgo.porQueLaTareaEsperaTuSi({ ...base, titulo: "Mejorar la bandeja de chats y los permisos de usuarios" }), null);
+  for (const texto of ["Corregir los abonos", "Revisar el saldo", "Ajustar la nómina", "Pagar comisiones", "Arreglar la facturación", "Registrar pagos"]) {
+    assert.ok(riesgo.porQueLaTareaEsperaTuSi({ ...base, titulo: texto })?.includes("dinero de Gestión"), texto);
+    assert.ok(riesgo.porQueLaTareaEsperaTuSi({ ...base, detalle: texto }), texto);
+  }
+  for (const texto of ["Subir el presupuesto de la campaña", "Activar las campañas pausadas", "Crear gasto nuevo en Meta Ads", "Gastar en anuncios"]) {
+    assert.ok(riesgo.porQueLaTareaEsperaTuSi({ ...base, detalle: texto })?.includes("Meta Ads"), texto);
+  }
+  assert.ok(riesgo.porQueLaTareaEsperaTuSi({ ...base, zonaProtegida: ["META_ADS"], zonasQueEsperan: ["META_ADS"] })?.includes("META_ADS"));
+});
+
+prueba("zonasQueNoArrancanSolas (regla 25-oct): CHATS y BOT_VENTAS arrancan solas; META_ADS y LIBRO_V3 no", () => {
+  assert.deepEqual(trabajo.zonasQueNoArrancanSolas([]), []);
+  assert.deepEqual(trabajo.zonasQueNoArrancanSolas(["CHATS", "BOT_VENTAS"]), []);
+  assert.deepEqual(trabajo.zonasQueNoArrancanSolas(["CHATS", "META_ADS", "LIBRO_V3"]), ["META_ADS", "LIBRO_V3"]);
+  // La subida no cambia: CHATS sigue pidiendo el sí final.
+  assert.deepEqual(trabajo.zonasQuePidenTuSi(["CHATS"]), ["CHATS"]);
+});
+
 prueba("motivosDelResultado: archivos de riesgo, migración destructiva, zona o sin lista dan motivos", () => {
   const m = riesgo.motivosDelResultado;
   assert.deepEqual(m({ archivos: ["src/features/reportes/x.tsx"], migracionDestructiva: [], zonaProtegida: [] }), []);

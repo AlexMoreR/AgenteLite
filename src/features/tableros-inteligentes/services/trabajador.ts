@@ -45,6 +45,7 @@ import {
   vencimientoDelCandado,
   latidoDeEntrada,
   zonasDeEntrada,
+  zonasQueNoArrancanSolas,
   zonasQuePidenTuSi,
   type AccionDeIntento,
   type AccionDelTrabajador,
@@ -639,12 +640,13 @@ export async function accionDelTrabajador(
       const revision = riesgoDelPlan(plan);
       // Regla del dueño (24-oct): con "Aprobar planes solo" prendido, el plan espera su sí solo si toca dinero de Gestión
       // o gasto en Meta Ads. Una tarjeta con zona protegida también espera: /tomar exige que su plan se apruebe en la
-      // pantalla, así que aprobarlo solo la dejaría parada en PLAN_APROBADO sin que nadie lo vea.
+      // pantalla, así que aprobarlo solo la dejaría parada en PLAN_APROBADO sin que nadie lo vea. Desde el 25-oct, CHATS y BOT_VENTAS
+      // arrancan solas (ZONAS_QUE_ARRANCAN_SOLAS): su plan se aprueba solo igual que el de cualquier otra tarjeta.
       const planesSolos = await aprobarPlanesSoloPrendido(contexto.workspaceId);
       const esperaPorRegla = !planesSolos
         ? null
-        : actual.zonaProtegida.length
-          ? `tiene zona protegida (${actual.zonaProtegida.join(", ")}): su plan se aprueba en la pantalla`
+        : zonasQueNoArrancanSolas(actual.zonaProtegida).length
+          ? `tiene zona protegida (${zonasQueNoArrancanSolas(actual.zonaProtegida).join(", ")}): su plan se aprueba en la pantalla`
           : porQueElPlanEsperaTuSi(plan);
       if (actual.riesgo === "BAJO") {
         const motivos = revision.motivosAlto;
@@ -807,7 +809,7 @@ export async function accionDelTrabajador(
         riesgo: actual.riesgo,
         borradoEn: null,
         // Si el plan se aprueba solo, que nadie haya tocado el texto ni las zonas desde que se revisó.
-        ...(aprobacionDelPlan ? { titulo: actual.titulo, detalle: actual.detalle, zonaProtegida: { isEmpty: true } } : {}),
+        ...(aprobacionDelPlan ? { titulo: actual.titulo, detalle: actual.detalle, zonaProtegida: { equals: actual.zonaProtegida } } : {}),
       },
       data: datos,
     });

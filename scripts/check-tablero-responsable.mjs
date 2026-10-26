@@ -199,7 +199,8 @@ const falso = {
   },
   aprobadorTablero: { findUnique: async () => null },
   claveTrabajador: { findMany: async () => [] },
-  appSetting: { findUnique: async () => null },
+  // "Aprobar tareas solo" (regla del 25-oct) apagado: estas pruebas miran que asignar no aprueba y que editar quita la aprobación.
+  appSetting: { findUnique: async ({ where }) => (where.key.startsWith("tablero:tareas-solas:") ? { value: "false" } : null) },
   $transaction: async (fn) => fn(falso),
 };
 

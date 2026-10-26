@@ -195,8 +195,9 @@ async function handleCron(request: Request) {
   });
 
   /*
-    TABLERO IA (ver src/features/tableros-inteligentes): cada vuelta aprueba solas las tareas de riesgo
-    bajo que quedaron POR_APROBAR (con el interruptor prendido) y, entre las 9:00 y las 9:59 p. m. de
+    TABLERO IA (ver src/features/tableros-inteligentes): cada vuelta aprueba solas las tareas con repo que
+    quedaron POR_APROBAR (regla del dueño 25-oct, salvo dinero o Meta Ads; apagado "Aprobar tareas solo", solo las
+    de riesgo bajo) y, entre las 9:00 y las 9:59 p. m. de
     Bogotá, manda UNA vez por día el resumen a Alexander por la línea Admin. Sin nada pendiente son un
     par de lecturas; en segundo plano.
   */

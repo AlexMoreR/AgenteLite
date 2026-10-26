@@ -68,6 +68,13 @@ import {
   y queda ERROR. El sí final ('subir') queda para las tarjetas que tocan chats, agentes, el libro V3 o
   Meta Ads (zona protegida) y las que ya estaban POR_REVISAR.
 
+  Desde el 25-oct-2026 (decisión del dueño: "¿por qué esperan mi aprobación si ya dije que no la necesitan?")
+  toda TAREA con repo que entra en POR_APROBAR pasa SOLA a APROBADO, con cualquier riesgo: queda "aprobada
+  automáticamente (regla del dueño 25-oct)" en el historial. ÚNICA excepción: si el título o el detalle hablan
+  de dinero de Gestión (abonos, saldos, nómina, comisiones, facturación, pagos) o de subir presupuesto, activar
+  campañas o crear gasto en Meta Ads, o si tiene zona Meta Ads o libro V3, se queda POR_APROBAR con su motivo.
+  CHATS y BOT_VENTAS también arrancan solas (la subida no cambia). El dueño la apaga con "Aprobar tareas solo".
+
   Riesgo y aprobación automática (22-oct-2026, decisión del dueño): una tarjeta con repo es de riesgo BAJO
   o ALTO (reglas-riesgo.ts; sin riesgo cuenta como ALTO). Claude lo propone en crear_tarjeta /
   editar_tarjeta (riesgo, motivo_riesgo). Una tarjeta BAJO se aprueba SOLA (la tarea y el plan) si el
@@ -79,7 +86,7 @@ import {
   - Marcar BAJO algo que cumpla un criterio ALTO (zona protegida, dinero, permisos o credenciales,
     mensajes a clientes, el propio trabajador, migraciones que borren o cambien datos), ni bajar a BAJO una
     tarjeta que el trabajador o el dueño dejaron en ALTO.
-  - Aprobar por su cuenta. La única puerta es aprobar_tarjeta: el servidor exige un texto de
+  - Aprobar por su cuenta. Las únicas aprobaciones son las automáticas del servidor (reglas del dueño) y aprobar_tarjeta: el servidor exige un texto de
     confirmación de la persona ("sí, apruebo"), que el userId de la clave sea el dueño o un aprobador
     con alcance, que el estado corresponda, y rechaza las tarjetas con zona protegida (esas, solo en la
     pantalla). El sí final (subir) es solo del dueño. Ningún inputSchema de cambiar_estado_tarjeta
@@ -475,7 +482,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "aprobar_tarjeta",
     title: "Aprobar una tarjeta (solo si la persona lo dijo)",
     description:
-      "Úsala SOLO si la persona lo dijo explícitamente en esta conversación. Antes, léele el título y qué se aprueba, y espera que diga 'sí, apruebo'. Nunca apruebes por tu cuenta. " +
+      "Úsala SOLO si la persona lo dijo explícitamente en esta conversación. Antes, léele el título y qué se aprueba, y espera que diga 'sí, apruebo'. Nunca apruebes por tu cuenta. Desde el 25-oct-2026 casi nunca hace falta para la tarea: toda tarea con repo pasa SOLA a APROBADO ('aprobada automáticamente (regla del dueño 25-oct)'; también CHATS y BOT_VENTAS). Solo se queda POR_APROBAR esperando este sí la que habla de dinero de Gestión (abonos, saldos, nómina, comisiones, facturación, pagos), de subir presupuesto, activar campañas o crear gasto en Meta Ads, o la de zona Meta Ads o libro V3, o cualquiera si el dueño apagó 'Aprobar tareas solo'. " +
       "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del Coordinador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan; desde el 24-oct-2026 el plan pasa SOLO a construir al aprobar la tarea, así que el sí del plan solo se pide si toca dinero de Gestión o puede subir presupuesto, activar campañas o crear gasto en Meta Ads, o si el dueño apagó 'Aprobar planes solo') o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
       "'subir' solo aplica a las tarjetas que tocan chats, a las de Meta Ads que gastan plata (presupuesto, prender campañas, conjuntos o anuncios, gasto nuevo) o a las que no pasaron las pruebas extra de su zona, y a las que ya estaban POR_REVISAR de antes: las demás las sube solo el Coordinador cuando todo pasa (quedan HECHO con el link del commit, o ERROR si algo falla). El bot de ventas, Meta Ads (sin gasto) y el libro V3 suben solos y el Coordinador los vigila 30 minutos. " +
       "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con la zona protegida de chats no se aprueba acá: solo en la pantalla (las de bot de ventas, Meta Ads y libro V3 sí se aprueban por voz). " +
@@ -788,9 +795,9 @@ export async function ejecutarHerramientaMcpTableros(
         aviso: !resultado.tipo.usaEstados
           ? `Listo: es de tipo ${resultado.tipo.nombre}, una carpeta sin estado. Para ponerle cosas adentro, usar su tarjeta_id como padre_id.`
           : resultado.aprobacionAutomatica?.aprobada
-            ? "Quedó APROBADA sola por la regla de bajo riesgo: el trabajador la toma enseguida, sin pedirle permiso al dueño. Queda en el historial y en el resumen de las 9 p. m."
+            ? "Quedó APROBADA sola (regla del dueño 25-oct, o de bajo riesgo con el interruptor apagado): el trabajador la toma enseguida, sin pedirle permiso al dueño. Queda en el historial y en el resumen de las 9 p. m."
             : resultado.aprobacionAutomatica
-              ? `Riesgo BAJO, pero no se aprobó sola (${resultado.aprobacionAutomatica.porQue}): quedó POR_APROBAR para el dueño.`
+              ? `No se aprobó sola (${resultado.aprobacionAutomatica.porQue}): quedó POR_APROBAR para el dueño.`
               : resultado.tarjeta.estado === "POR_APROBAR"
             ? "Quedó POR_APROBAR: el dueño la ve en la pantalla y la aprueba él."
             : resultado.tipo.requiereAprobacion
@@ -818,11 +825,11 @@ export async function ejecutarHerramientaMcpTableros(
         responsable: args.responsable,
       });
       const aviso = resultado.aprobacionAutomatica?.aprobada
-        ? "Quedó APROBADA sola por la regla de bajo riesgo: el trabajador la toma enseguida, sin pedirle permiso al dueño."
+        ? "Quedó APROBADA sola (regla del dueño 25-oct, o de bajo riesgo con el interruptor apagado): el trabajador la toma enseguida, sin pedirle permiso al dueño."
         : resultado.avisoDeRiesgo
           ? `${resultado.avisoDeRiesgo} Queda para el dueño.`
           : resultado.aprobacionAutomatica
-            ? `Riesgo BAJO, pero no se aprobó sola (${resultado.aprobacionAutomatica.porQue}): queda POR_APROBAR para el dueño.`
+            ? `No se aprobó sola (${resultado.aprobacionAutomatica.porQue}): queda POR_APROBAR para el dueño.`
             : null;
       const avisoBase = resultado.cambioDeTipo
         ? `Ahora es de tipo ${resultado.tipo.nombre} y quedó ${resultado.tipo.usaEstados ? resultado.tarjeta.estado : "sin estado"}${
@@ -881,7 +888,7 @@ export async function ejecutarHerramientaMcpTableros(
         ahora: resultado.ahora,
         aviso:
           resultado.aprobacionAutomatica?.aprobada
-            ? "Quedó APROBADA sola por la regla de bajo riesgo: el trabajador la toma enseguida."
+            ? "Quedó APROBADA sola (regla del dueño 25-oct, o de bajo riesgo con el interruptor apagado): el trabajador la toma enseguida."
             : resultado.ahora === "POR_APROBAR"
             ? "Quedó POR_APROBAR: el dueño la aprueba en la pantalla."
             : resultado.ahora === "HECHO" && sePuedeMarcarHechoAMano(resultado.antes)

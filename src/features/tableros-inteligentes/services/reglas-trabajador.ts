@@ -115,6 +115,18 @@ export function zonasQuePidenTuSi(zonas: readonly string[]): string[] {
   return zonas.filter((zona) => !(ZONAS_QUE_SUBEN_SOLAS as readonly string[]).includes(zona));
 }
 
+/**
+ * Zonas que ARRANCAN solas (regla del dueño, 25-oct-2026): su tarea y su plan se aprueban solos y el Coordinador las
+ * toma sin esperar el sí de la pantalla. La subida no cambia (ZONAS_QUE_SUBEN_SOLAS, pruebas y vigilancia de 30 min).
+ * META_ADS y LIBRO_V3 no están: su tarea sigue esperando el sí del dueño.
+ */
+export const ZONAS_QUE_ARRANCAN_SOLAS: readonly ZonaProtegida[] = ["CHATS", "BOT_VENTAS"];
+
+/** De estas zonas, las que NO arrancan solas (vacío = todas arrancan solas, o no hay zona). */
+export function zonasQueNoArrancanSolas(zonas: readonly string[]): string[] {
+  return zonas.filter((zona) => !(ZONAS_QUE_ARRANCAN_SOLAS as readonly string[]).includes(zona));
+}
+
 export function esZona(valor: unknown): valor is ZonaProtegida {
   return typeof valor === "string" && (ZONAS_PROTEGIDAS as readonly string[]).includes(valor);
 }
