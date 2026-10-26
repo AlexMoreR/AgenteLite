@@ -35,6 +35,7 @@ export default async function ClienteReunionesPage({ searchParams }: { searchPar
         titulo: reunion.titulo,
         codigo: reunion.codigo,
         origen: reunion.origen,
+        sinGrabar: reunion.sinGrabar,
         estado: reunion.estado,
         aviso: reunion.aviso,
         motivoError: reunion.motivoError,

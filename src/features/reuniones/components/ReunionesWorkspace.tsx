@@ -18,6 +18,7 @@ export type ReunionDeLaPantalla = {
   titulo: string;
   codigo: string;
   origen: string;
+  sinGrabar: boolean;
   estado: EstadoReunion;
   aviso: string | null;
   motivoError: string | null;
@@ -58,14 +59,17 @@ export function BotonBorrar({ reunionId, despues }: { reunionId: string; despues
 
 
 /** El color de cada estado: rojo en vivo y en error, gris lo que espera, normal lo que está listo. */
-export function EtiquetaDeEstado({ estado }: { estado: EstadoReunion }) {
+export function EtiquetaDeEstado({ estado, sinGrabar = false }: { estado: EstadoReunion; sinGrabar?: boolean }) {
   const variante = estado === "ERROR" || estado === "EN_VIVO" ? "destructive" : estado === "LISTA" ? "default" : "secondary";
   return (
-    <Badge variant={variante} className="gap-1">
-      {ESTADOS_EN_CURSO.includes(estado) && estado !== "EN_VIVO" ? <Loader2 className="animate-spin" /> : null}
-      {estado === "EN_VIVO" ? "●" : null}
-      {NOMBRE_DEL_ESTADO[estado]}
-    </Badge>
+    <span className="inline-flex items-center gap-1">
+      <Badge variant={variante} className="gap-1">
+        {ESTADOS_EN_CURSO.includes(estado) && estado !== "EN_VIVO" ? <Loader2 className="animate-spin" /> : null}
+        {estado === "EN_VIVO" ? "●" : null}
+        {NOMBRE_DEL_ESTADO[estado]}
+      </Badge>
+      {sinGrabar ? <Badge variant="outline">Sin grabar</Badge> : null}
+    </span>
   );
 }
 
@@ -115,6 +119,7 @@ export function ReunionesWorkspace({
 }) {
   const router = useRouter();
   const [titulo, setTitulo] = useState("");
+  const [sinGrabar, setSinGrabar] = useState(false);
   const [texto, setTexto] = useState(buscado);
   const [creando, startCrear] = useTransition();
   const [nueva, setNueva] = useState<{ codigo: string; titulo: string } | null>(null);
@@ -135,13 +140,14 @@ export function ReunionesWorkspace({
 
   const crear = () => {
     startCrear(async () => {
-      const resultado = await crearReunionAction(titulo);
+      const resultado = await crearReunionAction(titulo, sinGrabar);
       if (resultado.error || !resultado.codigo) {
         toast.error(resultado.error ?? "No se pudo crear la reunión.");
         return;
       }
       setNueva({ codigo: resultado.codigo, titulo: titulo.trim() || "la reunión" });
       setTitulo("");
+      setSinGrabar(false);
       router.refresh();
     });
   };
@@ -181,6 +187,12 @@ export function ReunionesWorkspace({
         </div>
       </div>
 
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={sinGrabar} onChange={(evento) => setSinGrabar(evento.target.checked)} className="size-4" />
+        Sin grabar
+        <span className="text-xs text-muted-foreground">(no se graba, no se transcribe y no hay acta)</span>
+      </label>
+
       {nueva ? (
         <div className="space-y-2 rounded-xl border border-border bg-card px-3 py-3">
           <p className="text-sm font-medium">Reunión creada. Comparte el link:</p>
@@ -217,7 +229,7 @@ export function ReunionesWorkspace({
               <Link href={`/cliente/reuniones/${reunion.id}`} className="block min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{reunion.titulo}</span>
-                  <EtiquetaDeEstado estado={reunion.estado} />
+                  <EtiquetaDeEstado estado={reunion.estado} sinGrabar={reunion.sinGrabar} />
                 </div>
                 <span className="block text-xs text-muted-foreground">
                   {formatearFecha(reunion.creada)}

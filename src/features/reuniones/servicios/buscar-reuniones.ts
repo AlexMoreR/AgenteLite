@@ -14,6 +14,7 @@ export type ReunionDeLaLista = {
   titulo: string;
   codigo: string;
   origen: string;
+  sinGrabar: boolean;
   estado: EstadoReunion;
   aviso: string | null;
   motivoError: string | null;
@@ -45,6 +46,7 @@ export async function buscarReuniones(workspaceId: string, texto?: string | null
       titulo: true,
       codigo: true,
       origen: true,
+      sinGrabar: true,
       estado: true,
       aviso: true,
       motivoError: true,
@@ -62,6 +64,7 @@ export async function buscarReuniones(workspaceId: string, texto?: string | null
     titulo: fila.titulo,
     codigo: fila.codigo,
     origen: fila.origen,
+    sinGrabar: fila.sinGrabar,
     estado: fila.estado,
     aviso: fila.aviso,
     motivoError: fila.motivoError,

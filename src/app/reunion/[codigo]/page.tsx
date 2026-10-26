@@ -22,7 +22,7 @@ export default async function ReunionPublicaPage({ params }: { params: Promise<{
   const { codigo } = await params;
   const reunion =
     codigo.length <= 100
-      ? await prisma.reunion.findUnique({ where: { codigo }, select: { titulo: true, estado: true, origen: true } })
+      ? await prisma.reunion.findUnique({ where: { codigo }, select: { titulo: true, estado: true, origen: true, sinGrabar: true } })
       : null;
 
   if (!reunion || reunion.origen !== "VIVO") {
@@ -35,7 +35,7 @@ export default async function ReunionPublicaPage({ params }: { params: Promise<{
   const session = await auth();
   const nombreConSesion = session?.user?.id ? session.user.name?.trim() || session.user.email?.split("@")[0] || "Tú" : null;
 
-  return <EntradaALaReunion codigo={codigo} titulo={reunion.titulo} nombreConSesion={nombreConSesion} />;
+  return <EntradaALaReunion codigo={codigo} titulo={reunion.titulo} sinGrabar={reunion.sinGrabar} nombreConSesion={nombreConSesion} />;
 }
 
 function Aviso({ titulo, detalle }: { titulo: string; detalle: string }) {
