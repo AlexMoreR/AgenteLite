@@ -442,6 +442,17 @@ export function inicialDeLaPersona(nombre: string | null | undefined): string {
   return letra ? letra.toUpperCase() : "?";
 }
 
+/** El color del tipo si es un hex válido (#rgb o #rrggbb); null si falta o no sirve (la tarjeta queda gris). */
+export function colorDeTipoValido(color: string | null | undefined): string | null {
+  const limpio = (color ?? "").trim();
+  return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(limpio) ? limpio : null;
+}
+
+/** Fondo suave de la tarjeta: el color del tipo mezclado con el fondo de la pantalla (parejo en claro y oscuro). */
+export function fondoSuaveDeTipo(color: string, porcentaje = 16): string {
+  return `color-mix(in srgb, ${color} ${porcentaje}%, var(--background))`;
+}
+
 /** Texto limpio, o undefined si no vino (o vino vacío cuando no se permite). */
 export function textoLimpio(valor: unknown, maximo: number): string | undefined {
   if (typeof valor !== "string") return undefined;
