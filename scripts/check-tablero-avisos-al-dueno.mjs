@@ -50,7 +50,11 @@ const falso = {
   },
   workspaceMember: { findMany: async () => estado.miembros },
   tarjetaTablero: {
-    findMany: async () => estado.enCurso.map((t) => ({ ...t, trabajoIniciadoEn: null, creadoEn: new Date("2026-10-26T00:00:00Z") })),
+    // Como Prisma: con `repo: { not: null }` quedan fuera las tarjetas sin repo (tareas humanas). Sin decir repo, es de aizencrm.
+    findMany: async ({ where } = {}) =>
+      estado.enCurso
+        .map((t) => ({ repo: "aizencrm", ...t, trabajoIniciadoEn: null, creadoEn: new Date("2026-10-26T00:00:00Z") }))
+        .filter((t) => !(where?.repo && "not" in where.repo && where.repo.not === null) || t.repo !== null),
     count: async () => estado.enFila,
   },
   historialTarjeta: {
@@ -253,6 +257,18 @@ await prueba("revisión: el latido no cuenta como avance (se mide con el histori
   estado.historial.set("c1", hace(2.5 * HORA));
   assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
   assert.match(estado.enviados[0].text, /"Una tarea vieja" lleva 2 h subiendo sin avanzar/);
+});
+
+await prueba("revisión: una tarjeta SIN repo (tarea humana) en EN_CURSO hace 3 h no avisa 'trabado'", async () => {
+  guardarNumero();
+  estado.enCurso = [{ id: "h1", titulo: "Revisar mejoras del Agente SEO", estado: "EN_CURSO", repo: null }];
+  estado.historial.set("h1", hace(3 * HORA));
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
+  assert.equal(estado.enviados.length, 0);
+  // La misma tarjeta con repo (la ejecuta el Coordinador) sí avisa.
+  estado.enCurso = [{ id: "h1", titulo: "Revisar mejoras del Agente SEO", estado: "EN_CURSO", repo: "aizencrm" }];
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
+  assert.match(estado.enviados[0].text, /lleva 3 h construyendo sin avanzar/);
 });
 
 await prueba("silencio: de 9:00 p. m. a 7:00 a. m. no sale nada, salvo Coordinador caído; a las 7 a. m. sale lo que siga igual", async () => {

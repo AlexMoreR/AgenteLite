@@ -238,7 +238,7 @@ export type TarjetaEsperando = {
 export type SituacionDeSistemas = {
   /** Cuándo el CRM recibió el último latido del Coordinador (null = nunca ha dado señales). */
   latidoEn: string | null;
-  /** Planeando, construyendo o subiendo, con el momento de su último cambio de estado. */
+  /** Planeando, construyendo o subiendo (solo las del Coordinador, con repo), con el momento de su último cambio de estado. */
   enCurso: TarjetaActiva[];
   /** Aprobadas esperando turno. */
   enFila: number;
@@ -388,7 +388,9 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
   const [latido, enCursoFilas, enFila, pendientes] = await Promise.all([
     ultimoLatido(workspaceId),
     prisma.tarjetaTablero.findMany({
-      where: { ...alcance, estado: { in: [...ESTADOS_EN_CURSO] } },
+      // Solo las que ejecuta el Coordinador (con repo): una tarea humana que alguien dejó en EN_CURSO a mano no es
+      // trabajo de Sistemas y no debe avisar "trabado" (26-oct-2026: "Revisar mejoras del Agente SEO", de Emanuel).
+      where: { ...alcance, repo: { not: null }, estado: { in: [...ESTADOS_EN_CURSO] } },
       select: { id: true, titulo: true, estado: true, trabajoIniciadoEn: true, creadoEn: true },
     }),
     prisma.tarjetaTablero.count({ where: { ...alcance, repo: { not: null }, estado: { in: [...ESTADOS_EN_FILA] } } }),
