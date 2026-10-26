@@ -161,8 +161,10 @@ function construirNodos(
   const mias = propias ? tarjetasConMias(contenido.tarjetas, propias) : null;
   // Si el nivel pedido ya no existe (se borró) se muestra la raíz: las posiciones de antes no sirven.
   const posiciones = disponerRadial(grupos, nivel === nivelPedido ? previas : new Map());
+  const tipoPorId = new Map(contenido.tipos.map((tipo) => [tipo.id, tipo]));
   return visibles.map((id) => {
     const tarjeta = porId.get(id)!;
+    const tipo = tipoPorId.get(tarjeta.tipoId);
     return {
       id,
       type: "tarjeta" as const,
@@ -176,6 +178,9 @@ function construirNodos(
         // Lo filtrado se atenúa en vez de desaparecer: así no se rompe el mapa.
         atenuado: filtrada(id, centros, contadores, filtros, mias),
         responsable: tarjeta.responsableNombre,
+        colorTipo: tipo?.color ?? null,
+        iconoTipo: tipo?.icono ?? null,
+        nombreTipo: tipo?.nombre ?? null,
         alAbrirFicha: () => alAbrirFicha(id),
       },
     };

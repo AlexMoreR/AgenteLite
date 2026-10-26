@@ -1920,6 +1920,16 @@ prueba("elegirMiembro sin rol sigue diciendo 'dueño' (no se rompió lo de los t
   assert.equal(reglas.elegirMiembro(miembros, "Emanuel").miembro.userId, "u1");
 });
 
+prueba("colorDeTipoValido y fondoSuaveDeTipo: hex válido, inválido y vacío", () => {
+  assert.equal(reglas.colorDeTipoValido("#6366f1"), "#6366f1");
+  assert.equal(reglas.colorDeTipoValido(" #FFF "), "#FFF");
+  assert.equal(reglas.colorDeTipoValido("rojo"), null);
+  assert.equal(reglas.colorDeTipoValido("#12345"), null);
+  assert.equal(reglas.colorDeTipoValido(""), null);
+  assert.equal(reglas.colorDeTipoValido(null), null);
+  assert.match(reglas.fondoSuaveDeTipo("#6366f1"), /^color-mix\(in srgb, #6366f1 16%/);
+});
+
 prueba("inicialDeLaPersona: la inicial en mayúscula; '?' si no hay nombre", () => {
   assert.equal(reglas.inicialDeLaPersona("Emanuel"), "E");
   assert.equal(reglas.inicialDeLaPersona("emanuel diaz"), "E");
