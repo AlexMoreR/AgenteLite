@@ -72,6 +72,7 @@
     "test:como-quedo": "node scripts/check-como-quedo.mjs",
     "test:resuelto": "node scripts/check-resuelto.mjs",
     "test:respaldo": "node scripts/check-respaldo.mjs",
+    "test:permiso-para-abrir-chat": "node scripts/check-permiso-para-abrir-chat.mjs",
     "supervisor:guardian": "node scripts/supervisor-guardian.mjs",
     "supervisor:simular": "node scripts/supervisor-simulacion.mjs",
     "test:e2e": "playwright test -c e2e",

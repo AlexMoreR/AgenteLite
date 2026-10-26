@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { auth } from "@/auth";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { getOfficialApiChatsData } from "@/features/official-api/services/getOfficialApiChatsData";
+import { puedeAbrirChatDeLaBase } from "@/features/chats/services/permiso-para-abrir-chat-db";
 import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { readGatewayConnection, resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
 import { WAHA_GATEWAY_KIND, suscribirPresenciaWaha } from "@/lib/waha";
@@ -126,6 +127,23 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
 
   if (!parsed) {
     return NextResponse.json({ ok: false, error: "Chat invalido" }, { status: 400 });
+  }
+
+  /*
+    Misma regla que la lista y que la pantalla de chats: sin permiso sobre la linea o sobre la
+    asesora del chat, responde "no encontrado" (igual que un chat que no existe) y no carga nada,
+    ni mensajes ni marca de leido. Sin esto, pedirle los datos directo a esta ruta saltaba el
+    filtro de la pantalla. Aplica tambien a la precarga.
+  */
+  const permitido = await puedeAbrirChatDeLaBase({
+    workspaceId: membership.workspace.id,
+    userId: session.user.id,
+    esJefe: access.isOwner || access.role === "ADMIN",
+    membershipRole: access.membershipRole,
+    chat: parsed,
+  });
+  if (!permitido) {
+    return NextResponse.json({ ok: false, error: "Conversacion no encontrada" }, { status: 404 });
   }
 
   /**

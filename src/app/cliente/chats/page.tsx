@@ -33,6 +33,7 @@ import { Prisma } from "@prisma/client";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
+import { puedeAbrirChatDeLaBase } from "@/features/chats/services/permiso-para-abrir-chat-db";
 import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
 import {
@@ -244,7 +245,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : "";
 
   const params = await searchParams;
-  const selectedChatKeyParam = typeof params.chatKey === "string" ? params.chatKey : "";
+  const chatKeyPedida = typeof params.chatKey === "string" ? params.chatKey : "";
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
 
@@ -356,9 +357,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const errorMessage = typeof params.error === "string" ? params.error : "";
   const scrollMode = typeof params.scroll === "string" ? params.scroll : "";
 
-  const selectedChatRef = parseChatKey(selectedChatKeyParam);
-  const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
-
   /**
    * Canales que esta persona puede ver (ver channel-visibility).
    *
@@ -371,6 +369,24 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     esJefe: access.isOwner || access.role === "ADMIN",
   });
 
+  /*
+    Abrir por enlace (?chatKey=) respeta lo mismo que la lista: linea visible, "solo mis chats" y
+    monitoreo. Sin permiso se hace como si no hubiera enlace: no se carga el chat ni sus mensajes,
+    no se marca leido y se abre la bandeja normal, sin error (ver permiso-para-abrir-chat.ts).
+  */
+  const chatKeyDelEnlace = parseChatKey(chatKeyPedida);
+  const puedeAbrirElEnlace = chatKeyDelEnlace
+    ? await puedeAbrirChatDeLaBase({
+        workspaceId: membership.workspace.id,
+        userId: access.userId,
+        esJefe: access.isOwner || access.role === "ADMIN",
+        membershipRole: membership.role,
+        chat: chatKeyDelEnlace,
+      })
+    : false;
+  const selectedChatRef = puedeAbrirElEnlace ? chatKeyDelEnlace : null;
+  const selectedChatKeyParam = selectedChatRef ? chatKeyPedida : "";
+  const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
 
   /**
    * La conexion elegida se valida contra ESTE negocio antes de filtrar por ella: una que quedo
