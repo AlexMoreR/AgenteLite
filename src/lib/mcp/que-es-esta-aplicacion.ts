@@ -3,6 +3,8 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
+import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
+import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
 import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { leerUltimoEnvio } from "@/features/tableros-inteligentes/services/resumen-diario";
@@ -404,6 +406,16 @@ async function estadoDelResumenDiario(workspaceId: string) {
   return `activa: último resumen del ${ultimo.dia}, ${ultimo.enviado ? "WhatsApp enviado" : `WhatsApp NO salió (${ultimo.motivo ?? "sin motivo"})`}`;
 }
 
+/** Agente de Ventas: el interruptor y cuándo se guardó el último resumen (corre en aizen1). */
+async function estadoDelAgenteDeVentas(workspaceId: string) {
+  const [activo, ultimos] = await Promise.all([agenteActivo("ventas", workspaceId), leerUltimosResumenes(workspaceId, "ventas", 1)]);
+  const ultimo = ultimos[0];
+  const resumen = ultimo ? `último resumen del ${ultimo.fecha}${ultimo.esPrueba ? " (prueba)" : ""}` : "todavía no ha guardado ningún resumen";
+  return activo
+    ? `ACTIVA: interruptor prendido, manda WhatsApp internos desde la línea Admin; ${resumen}`
+    : `apagada: interruptor apagado, solo genera el resumen y no manda nada; ${resumen}`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -460,6 +472,7 @@ async function automatizaciones(
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(workspaceId).catch(() => "no se pudo leer"),
+    agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
   };
 
   return {

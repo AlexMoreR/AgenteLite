@@ -1,0 +1,292 @@
+// Pruebas de los agentes de área (Agente de Ventas): WhatsApp interno, resumen del día y herramientas MCP.
+// Usa una base de mentira (sin red ni base real). Correr: npm run test:agentes-de-area
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { cargar, RAIZ } from "./supervisor-cargar.mjs";
+
+const WS = "ws1";
+const ALEX = "573001112233";
+const MARIA = "573104445566";
+const CLIENTE = "573205557788";
+
+const db = {
+  settings: new Map(),
+  envios: [],
+  dias: new Map(),
+  enviados: [],
+  evolutionFalla: false,
+  proposito: "ADMIN",
+  siguiente: 1,
+};
+
+const MEMBRESIAS = new Map([[`${WS}:alex`, { role: "OWNER", user: { role: "CLIENTE" }, workspace: { ownerId: "alex" } }]]);
+
+const prisma = {
+  appSetting: {
+    findUnique: async ({ where }) => (db.settings.has(where.key) ? { key: where.key, value: db.settings.get(where.key) } : null),
+    upsert: async ({ where, create, update }) => {
+      db.settings.set(where.key, db.settings.has(where.key) ? update.value : create.value);
+      return {};
+    },
+  },
+  workspaceMember: { findFirst: async ({ where }) => MEMBRESIAS.get(`${where.workspaceId}:${where.userId}`) ?? null },
+  whatsAppChannel: {
+    findFirst: async ({ where, select }) => {
+      if (where.id !== "admin1") return null;
+      return select.evolutionInstanceName ? { id: "admin1", evolutionInstanceName: "admin-instancia" } : { purpose: db.proposito };
+    },
+  },
+  agenteDeAreaEnvio: {
+    create: async ({ data }) => {
+      // Como el índice único parcial de la migración: un solo envío vivo por número, área y día.
+      if (["PENDIENTE", "ENVIADO"].includes(data.estado)) {
+        const choca = db.envios.some(
+          (e) => e.workspaceId === data.workspaceId && e.area === data.area && e.fecha === data.fecha && e.numero === data.numero && ["PENDIENTE", "ENVIADO"].includes(e.estado),
+        );
+        if (choca) throw Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
+      }
+      const fila = { id: `e${db.siguiente++}`, creadoEn: new Date(), ...data };
+      db.envios.push(fila);
+      return { id: fila.id };
+    },
+    update: async ({ where, data }) => {
+      Object.assign(db.envios.find((e) => e.id === where.id), data);
+      return {};
+    },
+    findMany: async () => db.envios,
+  },
+  agenteDeAreaDia: {
+    upsert: async ({ where, create, update }) => {
+      const k = where.workspaceId_area_fecha;
+      const clave = `${k.workspaceId}|${k.area}|${k.fecha}`;
+      const previo = db.dias.get(clave);
+      const fila = previo ? { ...previo, ...update, actualizadoEn: new Date() } : { id: `d${db.siguiente++}`, ...create, actualizadoEn: new Date() };
+      db.dias.set(clave, fila);
+      return fila;
+    },
+    findUnique: async ({ where }) => {
+      const k = where.workspaceId_area_fecha;
+      return db.dias.get(`${k.workspaceId}|${k.area}|${k.fecha}`) ?? null;
+    },
+    findMany: async () => [...db.dias.values()].sort((a, b) => (a.fecha < b.fecha ? 1 : -1)),
+  },
+  $queryRaw: async () => [],
+};
+
+const mocks = {
+  "@/lib/prisma": { prisma },
+  "@prisma/client": { Prisma: { sql: (...a) => a, join: (x) => x, DbNull: "DbNull" } },
+  react: { cache: (f) => f },
+  "@/lib/cache-de-permisos": {
+    cacheDeSupervisoras: { obtener: (_c, fn) => fn(), invalidar: () => {}, vaciar: () => {} },
+    cacheDeAcceso: { obtener: (_c, fn) => fn(), invalidar: () => {}, vaciar: () => {} },
+    cacheDeCanales: { obtener: (_c, fn) => fn(), invalidar: () => {}, vaciar: () => {} },
+    invalidarTrasEscritura: () => {},
+  },
+  "@/lib/web-push": { sendPushToUser: async () => 0 },
+  "@/lib/evolution": {
+    sendEvolutionTextMessageWithReconnect: async (args) => {
+      if (db.evolutionFalla) throw new Error("línea caída");
+      db.enviados.push(args);
+    },
+  },
+  "@/lib/anti-bloqueo/servicio": { leerConfigAntiBloqueo: async () => ({ avisos: { canalInternoId: null } }) },
+};
+
+const reglas = cargar("src/features/agentes-de-area/dominio/reglas.ts", mocks);
+const envios = cargar("src/features/agentes-de-area/servicios/envios.ts", mocks);
+const resumenes = cargar("src/features/agentes-de-area/servicios/resumenes.ts", mocks);
+const mcp = cargar("src/lib/mcp/agentes-de-area.ts", mocks);
+const textoDeHerramientas = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/herramientas.ts"), "utf8");
+
+let pruebas = 0;
+const fallas = [];
+async function prueba(nombre, fn) {
+  try {
+    await fn();
+    pruebas += 1;
+    console.log(`ok - ${nombre}`);
+  } catch (error) {
+    fallas.push(nombre);
+    console.log(`FALLA - ${nombre}\n  ${String(error?.stack ?? error).split("\n").slice(0, 6).join("\n  ")}`);
+  }
+}
+
+function reiniciar({ activo }) {
+  db.envios.length = 0;
+  db.enviados.length = 0;
+  db.dias.clear();
+  db.evolutionFalla = false;
+  db.proposito = "ADMIN";
+  db.settings.clear();
+  db.settings.set(`agente-v3:avisos:${WS}`, JSON.stringify({ canalId: "admin1", destinos: [{ numero: ALEX, soloDe: null }, { numero: `+57 ${MARIA.slice(2, 5)} ${MARIA.slice(5)}`, soloDe: "maria", userId: "maria" }] }));
+  if (activo) db.settings.set(`agente-area:ventas:${WS}`, JSON.stringify({ activo: true }));
+}
+const pedir = (numero, tipo = "ASESORA", texto = "Tu lista del día") => ({ workspaceId: WS, area: "ventas", pedido: { tipo, numero, texto, destinatario: null } });
+
+/* ------------------------------------------------------------------ reglas puras */
+
+await prueba("el interruptor: sin valor o con basura está apagado", () => {
+  assert.equal(reglas.interpretarInterruptor(undefined), false);
+  assert.equal(reglas.interpretarInterruptor("quizás"), false);
+  assert.equal(reglas.interpretarInterruptor('{"activo":false}'), false);
+  assert.equal(reglas.interpretarInterruptor('{"activo":true}'), true);
+});
+
+await prueba("los números se comparan por dígitos y con o sin 57", () => {
+  assert.equal(reglas.numeroCanonico("+57 300 111 2233"), ALEX);
+  assert.equal(reglas.numeroCanonico("3001112233"), ALEX);
+  assert.equal(reglas.estaEnElEquipo("3001112233", [ALEX]), true);
+  assert.equal(reglas.estaEnElEquipo(CLIENTE, [ALEX]), false);
+  assert.equal(reglas.estaEnElEquipo("", [ALEX]), false);
+});
+
+await prueba("el pedido de envío se valida", () => {
+  assert.equal(reglas.leerPedidoDeEnvio({ tipo: "otro", numero: ALEX, texto: "x" }).ok, false);
+  assert.equal(reglas.leerPedidoDeEnvio({ tipo: "asesora", numero: "123", texto: "x" }).ok, false);
+  assert.equal(reglas.leerPedidoDeEnvio({ tipo: "asesora", numero: ALEX, texto: "  " }).ok, false);
+  const bueno = reglas.leerPedidoDeEnvio({ tipo: "alexander", numero: ALEX, texto: "hola" });
+  assert.equal(bueno.ok, true);
+  assert.equal(bueno.pedido.tipo, "ALEXANDER");
+});
+
+await prueba("medir los sugeridos y la tasa de cierre", () => {
+  const medida = reglas.medirSugeridos([
+    { leEscribieron: true, respondio: true, compro: true },
+    { leEscribieron: true, respondio: false, compro: false },
+    { leEscribieron: false, respondio: true, compro: false },
+  ]);
+  assert.deepEqual(medida, { sugeridos: 3, leEscribieron: 2, respondieron: 1, compraron: 1 });
+  assert.equal(reglas.tasaDeCierre(5, 1000), 0.5);
+  assert.equal(reglas.tasaDeCierre(1, 0), null);
+});
+
+/* ------------------------------------------------------------------ el servidor decide */
+
+await prueba("mandar a un número de CLIENTE: el servidor lo rechaza, no sale nada y queda bloqueado", async () => {
+  reiniciar({ activo: true });
+  const r = await envios.mandarWhatsAppAlEquipo(pedir(CLIENTE));
+  assert.equal(r.ok, false);
+  assert.equal(r.motivo, "ese número no es del equipo");
+  assert.equal(db.enviados.length, 0);
+  assert.equal(db.envios.length, 1);
+  assert.equal(db.envios[0].estado, "BLOQUEADO");
+});
+
+await prueba("un cliente se rechaza aunque el interruptor esté apagado", async () => {
+  reiniciar({ activo: false });
+  const r = await envios.mandarWhatsAppAlEquipo(pedir(CLIENTE, "ALEXANDER"));
+  assert.equal(r.motivo, "ese número no es del equipo");
+  assert.equal(db.enviados.length, 0);
+});
+
+await prueba("con el interruptor apagado no se manda nada", async () => {
+  reiniciar({ activo: false });
+  const r = await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER"));
+  assert.equal(r.ok, false);
+  assert.equal(r.motivo, "interruptor apagado: no se mandó");
+  assert.equal(db.enviados.length, 0);
+  assert.equal(db.envios[0].estado, "BLOQUEADO");
+});
+
+await prueba("Alexander recibe el mensaje de las 7:30 UNA sola vez, por la línea Admin", async () => {
+  reiniciar({ activo: true });
+  const primero = await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER", "Números de ayer"));
+  const segundo = await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER", "Otra vez"));
+  assert.equal(primero.ok, true);
+  assert.equal(segundo.ok, false);
+  assert.equal(segundo.motivo, "ya se le mandó hoy");
+  assert.equal(db.enviados.length, 1);
+  assert.equal(db.enviados[0].instanceName, "admin-instancia");
+  assert.equal(db.enviados[0].phoneNumber, ALEX);
+});
+
+await prueba("cada asesora recibe UN solo mensaje: sale el primero y el segundo no", async () => {
+  reiniciar({ activo: true });
+  const a = await envios.mandarWhatsAppAlEquipo(pedir(MARIA, "ASESORA", "Lista 1"));
+  const b = await envios.mandarWhatsAppAlEquipo(pedir(MARIA, "ASESORA", "Lista 2"));
+  assert.equal(a.ok, true);
+  assert.equal(b.ok, false);
+  assert.equal(db.enviados.length, 1);
+  assert.equal(db.enviados[0].text, "Lista 1");
+});
+
+await prueba("nunca se usa una línea de ventas", async () => {
+  reiniciar({ activo: true });
+  db.proposito = "SALES";
+  const r = await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER"));
+  assert.equal(r.ok, false);
+  assert.equal(db.enviados.length, 0);
+});
+
+await prueba("si la línea Admin falla, queda 'no salió' y se reintenta sin duplicar", async () => {
+  reiniciar({ activo: true });
+  db.evolutionFalla = true;
+  const falla = await envios.mandarWhatsAppAlEquipo(pedir(MARIA));
+  assert.equal(falla.estado, "FALLIDO");
+  db.evolutionFalla = false;
+  const reintento = await envios.mandarWhatsAppAlEquipo(pedir(MARIA));
+  const repetido = await envios.mandarWhatsAppAlEquipo(pedir(MARIA));
+  assert.equal(reintento.ok, true);
+  assert.equal(repetido.ok, false);
+  assert.equal(db.enviados.length, 1);
+});
+
+/* ------------------------------------------------------------------ el resumen del día */
+
+await prueba("guardar el resumen dos veces el mismo día deja uno solo", async () => {
+  const uno = reglas.leerResumenAGuardar({ fecha: "2026-10-27", resumen: "primero", subagentes: { cerrador: { clientes: 5 } } }, "2026-10-27");
+  const dos = reglas.leerResumenAGuardar({ fecha: "2026-10-27", resumen: "segundo", subagentes: { cobrador: { ventas: 2 } } }, "2026-10-27");
+  await resumenes.guardarResumenDelDia(WS, "ventas", uno);
+  await resumenes.guardarResumenDelDia(WS, "ventas", dos);
+  assert.equal(db.dias.size, 1);
+  assert.equal(db.dias.get(`${WS}|ventas|2026-10-27`).resumen, "segundo");
+});
+
+await prueba("el resumen valida la fecha y los subagentes", () => {
+  assert.throws(() => reglas.leerResumenAGuardar({ fecha: "27/10/2026" }, "2026-10-27"));
+  assert.throws(() => reglas.leerResumenAGuardar({ subagentes: [1] }, "2026-10-27"));
+  const r = reglas.leerResumenAGuardar({ sugeridos: [{ asesora: "María", numero: "+57 300", conversacionId: "c1" }, { cliente: "sin asesora" }] }, "2026-10-27");
+  assert.equal(r.fecha, "2026-10-27");
+  assert.equal(r.sugeridos.length, 1);
+});
+
+/* ------------------------------------------------------------------ las herramientas MCP */
+
+await prueba("las cuatro herramientas están en la lista del MCP", () => {
+  // herramientas.ts arrastra medio sistema: se comprueba que registre y ejecute el grupo.
+  assert.ok(textoDeHerramientas.includes("...HERRAMIENTAS_MCP_AGENTES_DE_AREA"));
+  assert.ok(textoDeHerramientas.includes("esHerramientaDeAgentesDeArea(nombre)"));
+  const nombres = mcp.HERRAMIENTAS_MCP_AGENTES_DE_AREA.map((h) => h.name);
+  for (const n of ["numeros_de_ventas", "guardar_resumen_del_dia", "mandar_whatsapp_al_equipo", "agente_de_ventas"]) assert.ok(nombres.includes(n), n);
+  const lectura = mcp.HERRAMIENTAS_MCP_AGENTES_DE_AREA.filter((h) => h.annotations.readOnlyHint).map((h) => h.name).sort();
+  assert.deepEqual(lectura, ["agente_de_ventas", "numeros_de_ventas"]);
+});
+
+await prueba("por el MCP: sin permiso no se puede ni leer ni mandar", async () => {
+  reiniciar({ activo: true });
+  await assert.rejects(mcp.ejecutarHerramientaMcpAgentesDeArea("agente_de_ventas", {}, { workspaceId: WS, userId: "intruso" }), /permiso/);
+  await assert.rejects(mcp.ejecutarHerramientaMcpAgentesDeArea("mandar_whatsapp_al_equipo", { tipo: "asesora", numero: ALEX, texto: "x" }, { workspaceId: WS, userId: "intruso" }), /permiso/);
+  assert.equal(db.enviados.length, 0);
+});
+
+await prueba("por el MCP: un número de cliente es rechazado y agente_de_ventas lo muestra", async () => {
+  reiniciar({ activo: false });
+  const contexto = { workspaceId: WS, userId: "alex" };
+  const r = await mcp.ejecutarHerramientaMcpAgentesDeArea("mandar_whatsapp_al_equipo", { tipo: "asesora", numero: CLIENTE, texto: "hola" }, contexto);
+  assert.equal(r.se_mando, false);
+  assert.equal(r.motivo, "ese número no es del equipo");
+  const g = await mcp.ejecutarHerramientaMcpAgentesDeArea("guardar_resumen_del_dia", { fecha: "2026-10-27", es_prueba: true, resumen: "Prueba" }, contexto);
+  assert.equal(g.guardado, true);
+  const ver = await mcp.ejecutarHerramientaMcpAgentesDeArea("agente_de_ventas", { fecha: "2026-10-27" }, contexto);
+  assert.equal(ver.interruptor, "apagado");
+  assert.equal(ver.resumen_del_dia.es_prueba, true);
+  assert.equal(db.enviados.length, 0);
+});
+
+console.log(`\n${pruebas} pruebas ok, ${fallas.length} con falla`);
+if (fallas.length) {
+  console.log("Fallaron:\n- " + fallas.join("\n- "));
+  process.exit(1);
+}

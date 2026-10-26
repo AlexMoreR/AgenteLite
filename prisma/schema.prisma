@@ -2291,3 +2291,56 @@ model ReunionPista {
   @@unique([reunionId, trackSid])
   @@index([reunionId])
 }
+
+/// Agentes de área (molde: hoy solo Ventas). Un resumen por negocio, área y día; si se guarda dos
+/// veces el mismo día se reemplaza. Lo escribe la herramienta MCP `guardar_resumen_del_dia`.
+model AgenteDeAreaDia {
+  id          String   @id @default(cuid())
+  workspaceId String
+  area        String
+  /// Día en hora de Colombia: AAAA-MM-DD.
+  fecha       String
+  /// true = corrida de prueba (con el interruptor apagado no se manda nada).
+  esPrueba    Boolean  @default(false)
+  salioTarde  Boolean  @default(false)
+  /// "aizen1 prendió a las 8:12": solo si salió tarde.
+  notaDeRetraso String?
+  /// Números de ayer por asesora y totales.
+  numeros     Json?
+  /// Meta de hoy.
+  meta        Json?
+  /// Lo que entregó cada subagente, por separado (clave = nombre del subagente).
+  subagentes  Json?
+  /// Clientes sugeridos a cada asesora, para medirlos al día siguiente.
+  sugeridos   Json?
+  /// Mensajes que el agente dejó listos para mandar (a Alexander y a cada asesora).
+  mensajes    Json?
+  /// Texto del resumen para leer en pantalla.
+  resumen     String?
+  creadoEn    DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  @@unique([workspaceId, area, fecha])
+  @@index([workspaceId, area, fecha])
+}
+
+/// Un registro por cada WhatsApp interno que pidió un agente de área. La base garantiza UN solo
+/// envío vivo (PENDIENTE o ENVIADO) por número, área y día con un índice único parcial que está
+/// solo en la migración (Prisma no sabe expresarlo).
+model AgenteDeAreaEnvio {
+  id          String   @id @default(cuid())
+  workspaceId String
+  area        String
+  fecha       String
+  /// ALEXANDER o ASESORA.
+  tipo        String
+  numero      String
+  destinatario String?
+  texto       String
+  /// PENDIENTE, ENVIADO, BLOQUEADO o FALLIDO.
+  estado      String
+  motivo      String?
+  creadoEn    DateTime @default(now())
+
+  @@index([workspaceId, area, fecha])
+}
