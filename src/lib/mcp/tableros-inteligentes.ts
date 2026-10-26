@@ -150,7 +150,7 @@ const PROPIEDAD_ZONA = {
   type: "array",
   items: { type: "string", enum: [...ZONAS_PROTEGIDAS] },
   description:
-    "Zonas protegidas que toca: META_ADS (anuncios y campañas), BOT_VENTAS (el bot que atiende, agentes V2/V3 y flujos), LIBRO_V3 (el libro del agente V3), CHATS (envío y recepción de WhatsApp, Evolution, webhooks, la bandeja de las asesoras). Una tarjeta con zona protegida se aprueba SOLO en la pantalla y no sube sola a producción: espera el sí final del dueño. Opcional.",
+    "Zonas protegidas que toca: META_ADS (anuncios y campañas), BOT_VENTAS (el bot que atiende, agentes V2/V3 y flujos), LIBRO_V3 (el libro del agente V3), CHATS (envío y recepción de WhatsApp, Evolution, webhooks, la bandeja de las asesoras). Una tarjeta con zona CHATS se aprueba SOLO en la pantalla y no sube sola a producción: espera el sí final del dueño. BOT_VENTAS, META_ADS y LIBRO_V3 (desde el 24-oct-2026) se aprueban también por voz y suben solas si compilan y pasan las pruebas, con vigilancia de 30 minutos; lo que gasta plata en Meta Ads (presupuesto, prender, crear) sigue esperando el sí del dueño. Opcional.",
 } as const;
 
 const PROPIEDAD_RIESGO = {
@@ -477,8 +477,8 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     description:
       "Úsala SOLO si la persona lo dijo explícitamente en esta conversación. Antes, léele el título y qué se aprueba, y espera que diga 'sí, apruebo'. Nunca apruebes por tu cuenta. " +
       "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del Coordinador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan; desde el 24-oct-2026 el plan pasa SOLO a construir al aprobar la tarea, así que el sí del plan solo se pide si toca dinero de Gestión o puede subir presupuesto, activar campañas o crear gasto en Meta Ads, o si el dueño apagó 'Aprobar planes solo') o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
-      "'subir' solo aplica a las tarjetas que tocan chats, agentes o una zona protegida (Meta Ads, libro V3) y a las que ya estaban POR_REVISAR de antes: las demás las sube solo el Coordinador cuando todo pasa (quedan HECHO con el link del commit, o ERROR si algo falla). " +
-      "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con zona protegida no se aprueba acá: solo en la pantalla. " +
+      "'subir' solo aplica a las tarjetas que tocan chats, a las de Meta Ads que gastan plata (presupuesto, prender campañas, conjuntos o anuncios, gasto nuevo) o a las que no pasaron las pruebas extra de su zona, y a las que ya estaban POR_REVISAR de antes: las demás las sube solo el Coordinador cuando todo pasa (quedan HECHO con el link del commit, o ERROR si algo falla). El bot de ventas, Meta Ads (sin gasto) y el libro V3 suben solos y el Coordinador los vigila 30 minutos. " +
+      "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con la zona protegida de chats no se aprueba acá: solo en la pantalla (las de bot de ventas, Meta Ads y libro V3 sí se aprueban por voz). " +
       "Aprueba la cuenta que creó la clave de Claude (no la que mira la pantalla): tiene que ser la cuenta dueña de este negocio. Si no lo es, el error dice qué cuenta llegó y por qué." +
       REGLA_DEL_TABLERO,
     inputSchema: {
@@ -545,7 +545,7 @@ function queFalta(estado: string, conRepo: boolean, conZona: boolean, hechoAMano
       return conRepo ? "El Coordinador la está construyendo y probando." : "En curso.";
     case "POR_REVISAR":
       return conZona
-        ? "Lista en su rama: toca una zona protegida (chats, agentes, libro V3 o Meta Ads), así que no sube sola. Espera el sí final del dueño, en la pantalla."
+        ? "Lista en su rama: toca una zona protegida que pide el sí final (chats) o, en Meta Ads, algo que gasta plata (o le faltó una prueba extra de su zona), así que no sube sola. Espera el sí final del dueño; por voz con aprobar_tarjeta si es bot de ventas, Meta Ads o libro V3, en la pantalla si toca chats."
         : "Lista en su rama: espera el sí final del dueño para subir a producción.";
     case "SUBIENDO":
       return "El Coordinador la está subiendo a producción (sube sola si pasó todo, o el dueño dio el sí final). Si el despliegue falla, la deshace y queda ERROR.";
@@ -609,7 +609,7 @@ export async function ejecutarHerramientaMcpTableros(
           : {}),
         estados: Object.entries(NOMBRE_DEL_ESTADO).map(([clave, texto]) => ({ clave, texto })),
         quien_aprueba:
-          "El dueño del negocio (o un aprobador que él agregó), en la pantalla o con aprobar_tarjeta cuando lo dice explícitamente; solo tarjetas de un tipo que pide aprobación. El sí final (subir a producción) lo da solo el dueño. Las de zona protegida, solo en la pantalla.",
+          "El dueño del negocio (o un aprobador que él agregó), en la pantalla o con aprobar_tarjeta cuando lo dice explícitamente; solo tarjetas de un tipo que pide aprobación. El sí final (subir a producción) lo da solo el dueño. Las de la zona protegida de chats, solo en la pantalla.",
       };
     }
     case "crear_tablero": {

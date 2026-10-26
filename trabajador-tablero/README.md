@@ -36,11 +36,32 @@ El flujo es **Planear → Aprobar plan → Hacer**, y "Hacer" incluye subir a pr
 migración) la tarjeta pasa directo a SUBIENDO y el trabajador la sube **enseguida**, sin esperar el
 minuto y antes que cualquier otra tarjeta.
 
-- **Chats, agentes, libro V3 y Meta Ads no suben solos.** Si el cambio toca una ruta de
-  `zonasProtegidas` (`CHATS`, `BOT_VENTAS`, `LIBRO_V3`, `META_ADS`), se construye y prueba igual pero
-  queda **POR_REVISAR** marcada con la zona, hasta que el dueño dé el "Sí, subir a producción" en la
-  pantalla. El plan lo dice desde el principio: "Al terminar: sube solo a producción" o "Al terminar:
-  espera tu sí (toca chats / agentes / Meta Ads)".
+- **Chats no sube solo.** Si el cambio toca una ruta de una zona de `zonasProtegidas` que NO está en
+  `zonasQueSubenSolas` (hoy `CHATS`), se construye y prueba igual pero queda **POR_REVISAR** marcada con la
+  zona, hasta que el dueño dé el "Sí, subir a producción" en la pantalla. El plan lo dice desde el
+  principio: "Al terminar: sube solo a producción" o "Al terminar: espera tu sí (toca chats)".
+- **Zonas que suben solas (24-oct-2026, decisión del dueño): `BOT_VENTAS`, `META_ADS` y `LIBRO_V3`.** La
+  lista es `zonasQueSubenSolas` del repo (la misma `ZONAS_QUE_SUBEN_SOLAS` del CRM; cuando la tarjeta
+  "Coordinador de Sistemas autónomo" quite el sí en chats, basta agregar `CHATS` a las dos). Sin la lista en
+  `config.json`, todo sigue pidiendo el sí. Una tarjeta de esas zonas sube sola si compila y pasa las pruebas,
+  más estas **pruebas extra** (si falta una, queda POR_REVISAR con "espera tu sí (motivo)"):
+  - **Libro V3**: el que construye escribe `✔ simulación V3: sin cambios fuera de lo pedido` y
+    `versión anterior del libro: <número>` (con ese número se vuelve con `v3_volver_a_version`).
+  - **Bot de ventas**: escribe `✔ sin mensajes nuevos a clientes`; además, un envío de mensaje nuevo en el
+    cambio (`sendMessage`, `enviarMensaje`...) que el plan no menciona no sube solo.
+  - **Meta Ads, la única excepción**: si el plan trae la línea `GASTO EN META ADS: <qué>` o el cambio agrega
+    `daily_budget`, `lifetime_budget`, `bid_amount`, pasar algo a `ACTIVE`, activar o crear campañas,
+    conjuntos o anuncios, queda esperando el sí (nunca sube presupuesto, prende ni crea gasto solo). Leer,
+    reportes, pausar, textos y configuraciones sin gasto suben solos. Las herramientas de Meta Ads que se
+    usan desde fuera del repo no las controla esta regla.
+- **Vigilancia de 30 minutos** (`repos.*.vigilancia`: `minutos`, `cadaSegundos`, `maxErroresNuevos`), solo
+  para esas zonas: antes de subir se toma una foto de los logs del servidor (`ssh.logs`, y `ssh.estado` para
+  saber si el contenedor corre y cuántas veces se reinició); después de subir y de comprobar la versión, se
+  vigilan los logs. Si aparecen `maxErroresNuevos` líneas de error que no estaban antes, el contenedor se
+  cae o se reinicia, o no se pueden leer los logs 5 veces seguidas, se hace `git revert` con un commit nuevo
+  (sin force-push), la tarjeta queda ERROR con "Revertida: motivo" y se avisa al dueño. Si todo va bien,
+  la tarjeta dice "Subió sola (zona X) — vigilancia 30 min OK". **Mientras se vigila, no sube otra
+  tarjeta.** Sin `ssh.logs` el trabajador no arranca con `zonasQueSubenSolas` (no hay forma de vigilar).
 - **Si algo falla antes de subir**, no sube nada: queda **ERROR** con el motivo en palabras sencillas
   ("No compiló: …", "Fallaron las pruebas…", "El ensayo de la migración falló…") y el detalle técnico debajo.
 - **Si el despliegue falla después de subir** (el CI falla, o `/api/version` no muestra el commit nuevo
@@ -380,6 +401,8 @@ Mientras no se haga, sigue funcionando como antes (todo queda POR_REVISAR).
    - `zonasProtegidas`: las rutas (globs) de cada zona (`CHATS`, `BOT_VENTAS`, `LIBRO_V3`, `META_ADS`).
      Las del ejemplo son un punto de partida: revisarlas.
    - `subirSolo`: `true` para que las tarjetas que pasan todo y no tocan una zona suban solas a producción.
+   - `zonasQueSubenSolas`: las zonas que suben solas aunque estén en `zonasProtegidas` (`BOT_VENTAS`, `META_ADS`,
+     `LIBRO_V3`), con `vigilancia` y `ssh.logs` / `ssh.estado`. Hay que agregarlas al `config.json` real.
    - `subida`: cómo esperar el CI y comprobar la versión de cada repo.
 3. **Requisitos del PC.** Node 20+, `git` (con permiso de push a los repos), `gh` logueado (`gh auth status`),
    `claude` logueado, `codex` logueado con ChatGPT (`codex login status`), y la llave ssh si se usa el ensayo

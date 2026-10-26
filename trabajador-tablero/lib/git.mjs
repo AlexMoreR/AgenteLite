@@ -94,6 +94,12 @@ export async function quitarWorktree(repo, carpeta, ramaLocal) {
   if (ramaLocal) await git(repo.ruta, ["branch", "-D", ramaLocal], { permitirFallo: true });
 }
 
+/** El diff (sin contexto) de `base` a HEAD, de todos los archivos o solo de `archivos`. */
+export async function diffDeArchivos(cwd, base, archivos = null) {
+  const resto = archivos?.length ? ["--", ...archivos] : [];
+  return (await git(cwd, ["diff", "--unified=0", "--no-renames", `${base}...HEAD`, ...resto])).salida;
+}
+
 /** Los archivos que cambian de `base` a HEAD, con su letra (A agregado, M, D, R...). */
 export async function archivosCambiados(cwd, base) {
   const resultado = await git(cwd, ["diff", "--name-status", "--no-renames", `${base}...HEAD`]);
@@ -166,7 +172,7 @@ const lineas = (texto) =>
  * que seguir encontrándola. Reintenta el push hasta 3 veces si la rama base se movió. Devuelve el
  * commit del revert; lanza ErrorDeGit si no pudo.
  */
-export async function revertirEnRamaBase(cwd, { remoto, ramaBase, antes, commit, carpetaMigraciones, identidad }) {
+export async function revertirEnRamaBase(cwd, { remoto, ramaBase, antes, commit, carpetaMigraciones, identidad, razon = "el despliegue falló" }) {
   let ultimo = "";
   for (let intento = 1; intento <= 3; intento += 1) {
     await git(cwd, ["fetch", remoto]);
@@ -180,7 +186,7 @@ export async function revertirEnRamaBase(cwd, { remoto, ramaBase, antes, commit,
       const agregadas = lineas((await git(cwd, ["diff", "--name-only", "--diff-filter=A", antes, commit, "--", carpetaMigraciones])).salida);
       if (agregadas.length) await git(cwd, ["checkout", commit, "--", ...agregadas]);
     }
-    const mensaje = [`revert: deshacer ${commit.slice(0, 10)} (el despliegue falló)`, "Lo deshizo solo el Coordinador del Tablero IA. Las migraciones nuevas se conservan."];
+    const mensaje = [`revert: deshacer ${commit.slice(0, 10)} (${razon})`, "Lo deshizo solo el Coordinador del Tablero IA. Las migraciones nuevas se conservan."];
     await git(cwd, ["commit", "--allow-empty", "-m", mensaje[0], "-m", mensaje[1]], { identidad });
     const push = await git(cwd, ["push", remoto, `HEAD:refs/heads/${ramaBase}`], { permitirFallo: true });
     if (push.codigo === 0) return (await git(cwd, ["rev-parse", "HEAD"])).salida.trim();

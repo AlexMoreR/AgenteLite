@@ -30,6 +30,7 @@ import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
 import {
   archivosCambiados,
   crearWorktree,
+  diffDeArchivos,
   esRamaDelTrabajador,
   git,
   idCorto,
@@ -52,7 +53,15 @@ import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
 import { PRIORIDAD } from "./cola.mjs";
 import { carpetaDeIntentos } from "./registro.mjs";
 import { migracionDestructiva } from "./riesgo.mjs";
-import { zonasTocadas } from "./zonas.mjs";
+import {
+  CONFIRMACION_BOT_VENTAS,
+  CONFIRMACION_LIBRO_V3,
+  MARCA_GASTO_META_ADS,
+  erroresDeLog,
+  erroresNuevosDeLog,
+  motivoPorElQueNoSubeSola,
+  zonasTocadas,
+} from "./zonas.mjs";
 
 export class ErrorDeEtapa extends Error {
   constructor(message, { zonas = [], reversion = null, limiteDeUso = false, motor = null, categoria = null, archivosCambiados = null, esperaDeCola = false, verificarEnNube = false } = {}) {
@@ -93,7 +102,7 @@ export function entornoSeguro() {
  * Los topes del CRM por etapa (minutos, reglas-trabajador.ts: MINUTOS_POR_ETAPA). Pasado el tope el CRM pasa la
  * tarjeta a ERROR por su cuenta (y cuenta), así que el reloj de la etapa nunca se estira más allá (1 min antes).
  */
-export const TOPE_DEL_CRM = { planear: 20, construir: 90, subir: 45 };
+export const TOPE_DEL_CRM = { planear: 20, construir: 90, subir: 80 };
 
 /**
  * Un reloj de la etapa: cuánto le queda y un error claro si ya no queda. `extender` suma el tiempo que se esperó al PC
@@ -555,6 +564,30 @@ export const INSTRUCCION_DE_RIESGO = [
   "Escribe ESPERA TU SÍ solo si el plan toca dinero en Gestión (abonos, saldos, nómina, comisiones, facturación, pagos) o puede subir presupuesto, activar campañas o crear gasto en Meta Ads. En cualquier otro caso (aunque el RIESGO sea ALTO) escribe SOLO.",
 ].join("\n");
 
+/**
+ * Las pruebas extra de las zonas que suben solas (24-oct-2026): lo que el que construye tiene que dejar escrito en su
+ * resumen para que la tarjeta suba sola. Vacío si el repo no tiene zonas que suban solas.
+ */
+export function reglasDeZonasQueSubenSolas(repo) {
+  const zonas = repo.zonasQueSubenSolas ?? [];
+  if (!zonas.length) return "";
+  const lineas = [`Zonas que suben solas a producción (sin el sí final del dueño): ${zonas.join(", ")}. Para que suban solas, deja escrito en tu RESUMEN final lo siguiente (si falta, la tarjeta espera el sí del dueño):`];
+  if (zonas.includes("LIBRO_V3")) {
+    lineas.push(
+      `- Libro V3: corre el simulador (v3_probar_mensaje / v3_simular_conversacion) con conversaciones reales recientes y escribe "${CONFIRMACION_LIBRO_V3}" y "versión anterior del libro: <número>" (con ese número se vuelve atrás con v3_volver_a_version).`,
+    );
+  }
+  if (zonas.includes("BOT_VENTAS")) {
+    lineas.push(`- Bot de ventas: comprueba que no se manda ningún mensaje nuevo ni distinto a clientes fuera de lo pedido y escribe "${CONFIRMACION_BOT_VENTAS}".`);
+  }
+  if (zonas.includes("META_ADS")) {
+    lineas.push(
+      `- Meta Ads: NUNCA subas presupuesto (daily_budget, lifetime_budget, bid_amount), prendas (ACTIVE) ni crees campañas, conjuntos o anuncios, ni crees gasto nuevo: eso sigue esperando el sí del dueño (el plan dice "${MARCA_GASTO_META_ADS}"). Leer, reportes, pausar, textos y configuraciones sin gasto sí suben solos.`,
+    );
+  }
+  return lineas.join("\n");
+}
+
 /** Lo que el plan tiene que decir al principio: si al terminar sube solo o espera el sí del dueño. */
 function fraseAlTerminar(repo) {
   if (!repo.subirSolo) {
@@ -568,7 +601,12 @@ function fraseAlTerminar(repo) {
     '- "Al terminar: sube solo a producción" si el cambio NO toca ninguna de las rutas de abajo.',
     '- "Al terminar: espera tu sí (toca chats / agentes / Meta Ads)" si toca alguna (di cuál). Esos cambios se construyen y prueban igual, pero no suben sin el sí del dueño.',
     `Las rutas de chats, agentes, libro V3 y Meta Ads:\n${rutas || "(ninguna configurada)"}`,
-  ].join("\n");
+    (repo.zonasQueSubenSolas ?? []).length
+      ? `Excepción (decisión del dueño, 24-oct-2026): ${repo.zonasQueSubenSolas.join(", ")} SÍ suben solas ("Al terminar: sube solo a producción (zona X, con vigilancia de 30 min)"). Si el cambio de Meta Ads sube presupuesto, prende (activa) campañas, conjuntos o anuncios o crea gasto nuevo, escribe "${MARCA_GASTO_META_ADS}" en el plan y "Al terminar: espera tu sí".`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patchAplicado = false } = {}) {
@@ -583,6 +621,7 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
       "- No hagas git push ni commit, no cambies de rama ni toques el remoto: el Coordinador hace el commit y sube la rama él mismo.",
       "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). NUNCA prisma migrate dev, migrate deploy, db push ni nada contra una base de datos.",
       `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
+      ...(reglasDeZonasQueSubenSolas(repo) ? [`- ${reglasDeZonasQueSubenSolas(repo)}`] : []),
       "- Respeta el estilo del repo y escribe los comentarios en español.",
       `- ${reglaDelManual(tarjeta)}`,
       motor === "codex" ? SIN_SUBAGENTES_AL_CONSTRUIR : SUBAGENTES_AL_CONSTRUIR,
@@ -633,6 +672,7 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null 
       "- Tocar bases de datos (nada de prisma migrate, db push, psql ni conexiones reales), claves, tokens, archivos .env ni nada secreto. No hay claves de producción acá y no se piden.",
       "- git push --force (ni --force-with-lease) a ninguna rama.",
       `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
+      ...(reglasDeZonasQueSubenSolas(repo) ? [`- ${reglasDeZonasQueSubenSolas(repo)}`] : []),
       "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). El Coordinador las ensaya después contra producción, no tú.",
       `- ${reglaDelManual(tarjeta)}`,
     ].join("\n"),
@@ -1072,7 +1112,11 @@ export async function construir(contexto, tarjeta) {
     // pero no sube sola: el CRM la deja POR_REVISAR con la zona marcada, esperando el sí del dueño.
     const tocadas = zonasTocadas(archivos, repo.zonasProtegidas);
     const zonas = Object.keys(tocadas);
-    const subeSolo = repo.subirSolo === true && zonas.length === 0 && !(tarjeta.zonasAprobadas ?? []).length;
+    // Zonas que suben solas (24-oct-2026): bot de ventas, Meta Ads y libro V3 no piden el sí final del dueño si pasan sus
+    // pruebas extra (motivoPorElQueNoSubeSola). Cualquier otra zona (chats) sigue pidiéndolo.
+    const zonasSolas = repo.zonasQueSubenSolas ?? [];
+    const zonasDeLaTarjeta = [...new Set([...zonas, ...(tarjeta.zonasAprobadas ?? [])])];
+    const zonasQuePidenSi = zonasDeLaTarjeta.filter((zona) => !zonasSolas.includes(zona));
     const zonasTexto = zonas.map((zona) => `${zona} (${tocadas[zona].slice(0, 5).join(", ")}${tocadas[zona].length > 5 ? "…" : ""})`).join("; ");
 
     // GITHUB ACTIONS (ciDeRama): se sube la rama (de trabajo, nunca main) y GitHub compila y prueba; aizen1 no compila nada.
@@ -1142,9 +1186,21 @@ export async function construir(contexto, tarjeta) {
     // Riesgo: lo destructivo de las migraciones nuevas. No hace fallar nada: el CRM decide si pide el sí del dueño.
     const destructivo = migracionDestructiva(migraciones, (ruta) => fs.readFileSync(path.join(carpeta, ruta), "utf8"));
     if (destructivo.length) pruebas.push(`⚠ migración con cambios destructivos: ${destructivo.join(", ")}`);
+    // Las pruebas extra de la zona se miran con todo ya probado: lo que escribió el que construyó y el diff.
+    let esperaPor = null;
+    if (repo.subirSolo === true && !zonasQuePidenSi.length && zonasDeLaTarjeta.length) {
+      const diffs = { todo: await diffDeArchivos(carpeta, base, archivos) };
+      for (const zona of zonasDeLaTarjeta) if (tocadas[zona]) diffs[zona] = await diffDeArchivos(carpeta, base, tocadas[zona]);
+      esperaPor = motivoPorElQueNoSubeSola({ zonas: zonasDeLaTarjeta, zonasQueSubenSolas: zonasSolas, diffs, plan: tarjeta.plan, texto: `${resumenDelMotor}\n${(pruebas ?? []).join("\n")}` });
+    }
+    const subeSolo = repo.subirSolo === true && !zonasQuePidenSi.length && !esperaPor;
     const alTerminar = subeSolo
-      ? "construido, sube solo"
-      : zonas.length
+      ? zonasDeLaTarjeta.length
+        ? `construido, sube solo (zona ${zonasDeLaTarjeta.join(", ")}; la vigilan 30 min)`
+        : "construido, sube solo"
+      : esperaPor
+        ? `construido, espera tu sí (${esperaPor})`
+        : zonas.length
         ? `construido, espera tu sí (zona ${zonasTexto})`
         : "construido, espera tu sí (en este repositorio el Coordinador todavía no sube solo)";
     pruebas.push(`→ ${alTerminar}`);
@@ -1180,6 +1236,7 @@ export async function construir(contexto, tarjeta) {
       commit,
       migracion,
       subeSolo,
+      ...(esperaPor ? { esperaPor } : {}),
       base: baseSha,
       // Para la última revisión de riesgo del CRM: los archivos que de verdad cambió y lo destructivo de la migración.
       archivos: archivos.slice(0, 300),
@@ -1500,6 +1557,95 @@ async function esperarVersion(contexto, repo, commit, reloj, { sinCi = false } =
   return { version: ultima, texto: `versión ${ultima.slice(0, 10)}: ok` };
 }
 
+/* ─────────────────────────── vigilancia de 30 minutos (zonas que suben solas, 24-oct-2026) ── */
+
+// Una sola vigilancia a la vez: mientras se vigila una tarjeta no sube otra, para que si hay que deshacer algo no se
+// mezcle con otro cambio. Es una promesa compartida por todo el proceso del Coordinador.
+let vigilandoAhora = null;
+
+/** Espera a que termine la vigilancia en curso (si hay). El tiempo esperado se le devuelve al reloj de la etapa. */
+async function esperarFinDeLaVigilancia(contexto, reloj, registro) {
+  while (vigilandoAhora) {
+    const desde = Date.now();
+    registro.info("otra tarjeta está en vigilancia de 30 min: espero para subir");
+    await vigilandoAhora.catch(() => {});
+    reloj.extender(Date.now() - desde);
+    if (contexto.senal?.aborted) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras esperaba su turno para subir.");
+  }
+}
+
+/** Toma el turno de la vigilancia (síncrono, justo después de esperar). Devuelve cómo soltarlo. */
+function tomarLaVigilancia() {
+  let soltar;
+  vigilandoAhora = new Promise((resolver) => {
+    soltar = () => {
+      vigilandoAhora = null;
+      resolver();
+    };
+  });
+  return soltar;
+}
+
+/** Lee algo del servidor por ssh (solo lectura). -> { ok, salida } */
+async function leerDelServidor(config, remoto, senal) {
+  const resultado = await correr([...config.ssh.comando, config.ssh.destino, remoto], { timeoutMs: 60_000, senal, env: entornoSeguro() });
+  return { ok: resultado.codigo === 0 && !resultado.vencido, salida: `${resultado.salida}\n${resultado.errores ?? ""}`.trim() };
+}
+
+/** Los reinicios del contenedor y si corre ("true 0"), o null si no se pudo leer o no hay comando de estado. */
+async function estadoDelContenedor(config, senal) {
+  if (!config.ssh?.estado) return null;
+  const lectura = await leerDelServidor(config, config.ssh.estado, senal);
+  const calce = lectura.salida.match(/\b(true|false)\s+(\d+)\b/);
+  return calce ? { corre: calce[1] === "true", reinicios: Number(calce[2]) } : null;
+}
+
+/** Lo que había en los logs ANTES de subir: los errores que ya existían no cuentan como nuevos. */
+async function fotoDelServidor(contexto) {
+  const { config } = contexto;
+  const logs = await leerDelServidor(config, config.ssh.logs, contexto.senal);
+  if (!logs.ok) {
+    throw new ErrorDeEtapa(`No se pudieron leer los logs del servidor (ssh) antes de subir: una tarjeta de zona que sube sola no sube sin poder vigilarla. No se subió nada.\nDetalle técnico: ${ultimasLineas(logs.salida, 8)}`);
+  }
+  return { errores: erroresDeLog(logs.salida), estado: await estadoDelContenedor(config, contexto.senal) };
+}
+
+/**
+ * Vigila los logs del servidor `minutos` minutos después de subir. Devuelve { ok: true } si no pasó nada, o
+ * { ok: false, motivo } con lo primero que se rompió: errores nuevos (más de `maxErroresNuevos`), el contenedor
+ * caído o reiniciado, o no poder leer los logs varias veces seguidas.
+ */
+async function vigilarElServidor(contexto, repo, foto) {
+  const { config, registro } = contexto;
+  const { minutos, cadaSegundos, maxErroresNuevos } = repo.vigilancia;
+  const fin = Date.now() + minutos * MINUTO;
+  const nuevos = new Set();
+  let fallosSeguidos = 0;
+  registro.info(`vigilancia de ${minutos} min del servidor después de subir`);
+  for (;;) {
+    if (contexto.senal?.aborted) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se vigilaba el servidor.");
+    const logs = await leerDelServidor(config, config.ssh.logs, contexto.senal);
+    if (logs.ok) {
+      fallosSeguidos = 0;
+      for (const huella of erroresNuevosDeLog(logs.salida, foto.errores)) nuevos.add(huella);
+    } else {
+      fallosSeguidos += 1;
+    }
+    const estado = await estadoDelContenedor(config, contexto.senal);
+    if (estado && !estado.corre) return { ok: false, motivo: "el contenedor del CRM se cayó después de subir" };
+    if (estado && foto.estado && estado.reinicios > foto.estado.reinicios) {
+      return { ok: false, motivo: `el contenedor del CRM se reinició después de subir (${estado.reinicios - foto.estado.reinicios} vez/veces)` };
+    }
+    if (nuevos.size >= maxErroresNuevos) {
+      return { ok: false, motivo: `${nuevos.size} línea(s) de falla nueva(s) en los logs: ${[...nuevos].slice(0, 3).join(" | ").slice(0, 400)}` };
+    }
+    if (fallosSeguidos >= 5) return { ok: false, motivo: "no se pudieron leer los logs del servidor 5 veces seguidas (no se puede vigilar)" };
+    const falta = fin - Date.now();
+    if (falta <= 0) return { ok: true };
+    await dormir(Math.min(cadaSegundos * 1000, falta));
+  }
+}
+
 /**
  * SUBIENDO -> sube a main. Llega acá sola (construir pasó todo, subirSolo y sin zona protegida) o con
  * el sí final del dueño (las de zona protegida y las que ya estaban POR_REVISAR).
@@ -1514,8 +1660,18 @@ export async function subir(contexto, tarjeta) {
   const base = `${repo.remoto}/${repo.ramaBase}`;
   const carpeta = carpetaDe(contexto, tarjeta, "subir");
   const ramaLocal = `subida/${idCorto(tarjeta.id)}`;
+  // Zonas que suben solas (bot de ventas, Meta Ads, libro V3): después de subir se vigilan los logs 30 minutos y, si algo
+  // se rompe, se deshace con un commit nuevo. Mientras se vigila, no sube otra tarjeta.
+  const zonasAVigilar = (tarjeta.zonasAprobadas ?? []).filter((zona) => (repo.zonasQueSubenSolas ?? []).includes(zona));
   await git(repo.ruta, ["fetch", repo.remoto]);
+  await esperarFinDeLaVigilancia(contexto, reloj, registro);
+  // Sin ningún await entre esperar y tomar el turno: no se cuela otra tarjeta.
+  const soltarVigilancia = zonasAVigilar.length ? tomarLaVigilancia() : null;
   try {
+    if (zonasAVigilar.length && !config.ssh?.logs) {
+      throw new ErrorDeEtapa(`La tarjeta tiene zona que sube sola (${zonasAVigilar.join(", ")}) pero falta ssh.logs en la configuración del Coordinador: sin vigilancia no se sube.`);
+    }
+    const foto = zonasAVigilar.length ? await fotoDelServidor(contexto) : null;
     await crearWorktree(repo, carpeta, `${repo.remoto}/${rama}`, ramaLocal);
     const cabeza = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
     // Construida en la nube con build y pruebas OK (nube.confiarEnResultado): aizen1 no compila ni prueba nada al subir.
@@ -1603,9 +1759,20 @@ export async function subir(contexto, tarjeta) {
       // Se subió y no arrancó: se deshace lo subido para que producción vuelva a la versión anterior.
       throw await deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo: error instanceof Error ? error.message : String(error) });
     }
+    let vigilancia = null;
+    if (foto) {
+      contexto.fase?.("vigilando");
+      const visto = await vigilarElServidor(contexto, repo, foto);
+      if (!visto.ok) {
+        throw await deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo: visto.motivo, vigilancia: true });
+      }
+      vigilancia = { zona: zonasAVigilar.join(", "), minutos: Math.round(repo.vigilancia.minutos), ok: true };
+      registro.info(`vigilancia de ${repo.vigilancia.minutos} min OK (zona ${vigilancia.zona})`);
+    }
     const web = webDeGithub(await urlDelRemoto(repo));
-    return { commit, version: version ?? commit, pruebas, linkCommit: web ? `${web}/commit/${commit}` : null };
+    return { commit, version: version ?? commit, pruebas, linkCommit: web ? `${web}/commit/${commit}` : null, ...(vigilancia ? { vigilancia } : {}) };
   } finally {
+    soltarVigilancia?.();
     await quitarWorktree(repo, carpeta, ramaLocal);
   }
 }
@@ -1657,9 +1824,9 @@ export async function diagnosticarConClaude(contexto, { rutaLog, error }) {
 }
 
 /** Revert del commit en main después de un despliegue fallido. Devuelve el ErrorDeEtapa para la tarjeta. */
-async function deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo }) {
+async function deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo, vigilancia = false }) {
   const { config, registro } = contexto;
-  registro.error(`el despliegue de ${commit.slice(0, 10)} falló; se deshace: ${motivo}`);
+  registro.error(`${vigilancia ? "la vigilancia de" : "el despliegue de"} ${commit.slice(0, 10)} ${vigilancia ? "vio una falla" : "falló"}; se deshace: ${motivo}`);
   try {
     const revert = await revertirEnRamaBase(carpeta, {
       remoto: repo.remoto,
@@ -1668,11 +1835,14 @@ async function deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo }
       commit,
       carpetaMigraciones: repo.carpetaMigraciones,
       identidad: config.git,
+      razon: vigilancia ? "la vigilancia de 30 min vio una falla" : "el despliegue falló",
     });
     registro.info(`deshecho: revert ${revert.slice(0, 10)} de ${commit.slice(0, 10)} en ${repo.ramaBase}`);
     return new ErrorDeEtapa(
-      `Se subió, no arrancó y se deshizo; producción vuelve a la versión anterior.\nCommit deshecho: ${commit.slice(0, 10)} (revert ${revert.slice(0, 10)}).\nDetalle técnico: ${motivo}`,
-      { reversion: { commit, revert, ok: true } },
+      vigilancia
+        ? `Revertida: ${motivo}\nSubió sola, la vigilancia de 30 min vio la falla y se deshizo; producción vuelve a la versión anterior.\nCommit deshecho: ${commit.slice(0, 10)} (revert ${revert.slice(0, 10)}).`
+        : `Se subió, no arrancó y se deshizo; producción vuelve a la versión anterior.\nCommit deshecho: ${commit.slice(0, 10)} (revert ${revert.slice(0, 10)}).\nDetalle técnico: ${motivo}`,
+      { reversion: { commit, revert, ok: true }, ...(vigilancia ? { categoria: "otra" } : {}) },
     );
   } catch (error) {
     registro.error(`URGENTE: no se pudo deshacer ${commit}: ${error.message}`);

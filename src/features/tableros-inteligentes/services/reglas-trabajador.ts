@@ -14,8 +14,9 @@
   Subir solo (21-oct-2026, decisión de Alexander: Planear -> Aprobar plan -> Hacer): EN_CURSO pasa
   directo a SUBIENDO pendiente si todo pasó, el Coordinador dice que sube solo (su interruptor
   `subirSolo` del repo) y la tarjeta no tiene zona protegida (destinoDelResultado). Si toca chats,
-  agentes, el libro V3 o Meta Ads (o el interruptor está apagado), queda POR_REVISAR con la zona
-  marcada y espera el sí final del dueño (momento 'subir'), como antes. Si el despliegue falla después
+  agentes o chats (o el interruptor está apagado), queda POR_REVISAR con la zona marcada y espera el sí
+  final del dueño (momento 'subir'), como antes. El bot de ventas, Meta Ads y el libro V3 ya NO piden ese
+  sí (24-oct-2026, ZONAS_QUE_SUBEN_SOLAS): suben solos, con pruebas extra y vigilancia de 30 minutos. Si el despliegue falla después
   de subir, el Coordinador hace revert del commit en main y la deja ERROR.
 
   Lo que no se negocia:
@@ -26,11 +27,11 @@
      el historial quién (nombre y userId), el momento, por dónde ('pantalla' o 'voz') y el texto de
      confirmación.
   3. Por el MCP (via 'voz') se aprueba solo si la persona lo dijo explícitamente: el texto tiene que
-     decir "sí" y "apruebo". Una tarjeta con zona protegida (Meta Ads, bot de ventas, libro V3, chats) se
-     aprueba SOLO en la pantalla, y solo el dueño.
+     decir "sí" y "apruebo". Una tarjeta con zona protegida de chats se aprueba SOLO en la pantalla, y solo
+     el dueño; las de bot de ventas, Meta Ads y libro V3 también se aprueban por voz (ZONAS_QUE_SUBEN_SOLAS).
   4. El sí final ('subir') lo da solo el DUEÑO del negocio (SI_FINAL_SOLO_DUENO), y solo si el
      Coordinador dijo que todo pasó (resultado.paso = true). Hoy solo hace falta para las tarjetas con
-     zona protegida (chats, agentes, libro V3, Meta Ads), las de un repo con `subirSolo` apagado y las
+     zona protegida de chats, las de un repo con `subirSolo` apagado y las
      que ya estaban POR_REVISAR.
   5. Un aprobador (AprobadorTablero) con alcance DESARROLLO aprueba la tarea y el plan solo de
      tarjetas con repo de desarrollo (gestion, aizencrm); con alcance TODO, cualquiera.
@@ -100,6 +101,20 @@ export const NOMBRE_DE_LA_ZONA: Record<ZonaProtegida, string> = {
   CHATS: "Chats",
 };
 
+/**
+ * Zonas que suben solas (decisión del dueño, 24-oct-2026, por voz: "que sea igual que las otras"): si compiló y
+ * pasó las pruebas, la tarjeta pasa a SUBIENDO sin el sí final. CHATS no está: sigue pidiendo el sí del dueño
+ * hasta que su propia tarjeta (Coordinador de Sistemas autónomo) la agregue acá. Es la lista que lee todo lo
+ * demás (destino del resultado, aprobación por voz, el Coordinador): se agrega una zona en un solo lugar.
+ * META_ADS tiene una excepción: lo que gasta plata (presupuesto, prender, crear) sigue pidiendo el sí.
+ */
+export const ZONAS_QUE_SUBEN_SOLAS: readonly ZonaProtegida[] = ["BOT_VENTAS", "META_ADS", "LIBRO_V3"];
+
+/** De estas zonas, las que TODAVÍA piden el sí final del dueño (las que no están en ZONAS_QUE_SUBEN_SOLAS). */
+export function zonasQuePidenTuSi(zonas: readonly string[]): string[] {
+  return zonas.filter((zona) => !(ZONAS_QUE_SUBEN_SOLAS as readonly string[]).includes(zona));
+}
+
 export function esZona(valor: unknown): valor is ZonaProtegida {
   return typeof valor === "string" && (ZONAS_PROTEGIDAS as readonly string[]).includes(valor);
 }
@@ -148,9 +163,10 @@ export type EtapaDelTrabajador = "planear" | "construir" | "subir";
 
 /**
  * Tope de cada etapa (minutos). Pasado el tope, la tarjeta pasa a ERROR ("se pasó del tiempo"). Subir
- * tiene 45: el CI de AizenCRM tarda hasta 20, la versión hasta 8, y tiene que alcanzar para deshacer.
+ * tiene 80: el CI de AizenCRM tarda hasta 20, la versión hasta 8, tiene que alcanzar para deshacer y, en las zonas
+ * que suben solas, la vigilancia de 30 minutos va dentro de la misma etapa (24-oct-2026).
  */
-export const MINUTOS_POR_ETAPA: Record<EtapaDelTrabajador, number> = { planear: 20, construir: 90, subir: 45 };
+export const MINUTOS_POR_ETAPA: Record<EtapaDelTrabajador, number> = { planear: 20, construir: 90, subir: 80 };
 
 /** Dónde construye el Coordinador (25-oct-2026): en aizen1 o en la nube (`claude --cloud`). */
 export type LugarDeConstruccion = "aizen1" | "nube";
@@ -292,15 +308,16 @@ export function puedeElTrabajador(accion: AccionDelTrabajador, estado: EstadoTar
 
 /**
  * A qué estado pasa la tarjeta con el /resultado: SUBIENDO (pendiente: el Coordinador la sube enseguida)
- * solo si todo pasó, el Coordinador dice que sube solo y la tarjeta no tiene zona protegida (ni la que
- * ya tenía ni la que marcó el Coordinador). Si no, POR_REVISAR: espera el sí final del dueño.
+ * solo si todo pasó, el Coordinador dice que sube solo y la tarjeta no tiene una zona que pida el sí (ni la
+ * que ya tenía ni la que marcó el Coordinador; BOT_VENTAS, META_ADS y LIBRO_V3 ya suben solas, ver
+ * ZONAS_QUE_SUBEN_SOLAS). Si no, POR_REVISAR: espera el sí final del dueño.
  */
 export function destinoDelResultado(datos: {
   paso: boolean;
   subeSolo: boolean;
   zonaProtegida: readonly string[];
 }): "SUBIENDO" | "POR_REVISAR" {
-  return datos.paso && datos.subeSolo && datos.zonaProtegida.length === 0 ? "SUBIENDO" : "POR_REVISAR";
+  return datos.paso && datos.subeSolo && zonasQuePidenTuSi(datos.zonaProtegida).length === 0 ? "SUBIENDO" : "POR_REVISAR";
 }
 
 /* ───────────────────────────────────────────────────────────────────── aprobaciones ── */
@@ -573,9 +590,11 @@ export function puedeAprobarMomento(pedido: PedidoDeAprobacion): { a: EstadoTarj
     return { error: "Por el MCP se aprueba solo con la confirmación de la persona (via voz); en la pantalla, con el botón." };
   }
   if (pedido.via === "voz") {
-    if (pedido.zonaProtegida.length) {
+    // Bot de ventas, Meta Ads y libro V3 también se aprueban por voz (24-oct-2026); chats sigue solo en pantalla.
+    const soloPantalla = zonasQuePidenTuSi(pedido.zonaProtegida);
+    if (soloPantalla.length) {
       return {
-        error: `Esta tarjeta toca una zona protegida (${pedido.zonaProtegida.join(", ")}): se aprueba solo en la pantalla.`,
+        error: `Esta tarjeta toca una zona protegida (${soloPantalla.join(", ")}): se aprueba solo en la pantalla.`,
       };
     }
     const texto = textoDeConfirmacionValido(pedido.textoConfirmacion);
@@ -732,6 +751,11 @@ export type ResultadoDelTrabajador = {
   linkWorkflow?: string;
   /** Dónde se compiló y probó: "github-actions" (la corrida de arriba), "aizen1" o "nube". Solo si vino. */
   verificadoEn?: VerificadoEn;
+  /**
+   * Por qué NO sube sola aunque su zona suba sola (24-oct-2026): "gasto en Meta Ads", "falta la simulación V3",
+   * "mensaje nuevo a clientes". Lo escribe el Coordinador; la tarjeta lo muestra como "espera tu sí (motivo)".
+   */
+  esperaPor?: string;
 };
 
 export type VerificadoEn = "github-actions" | "aizen1" | "nube";
@@ -769,6 +793,7 @@ export function resultadoDeEntrada(valor: unknown): ResultadoDelTrabajador {
   // El link del workflow solo se guarda si es de github.com (nada de otros sitios).
   const enlaceWorkflow = textoONull(datos.linkWorkflow, 500);
   const linkWorkflow = enlaceWorkflow && /^https:\/\/github\.com\//.test(enlaceWorkflow) ? enlaceWorkflow : null;
+  const esperaPor = textoONull(datos.esperaPor, 200);
   const verificadoEn: VerificadoEn | null = datos.verificadoEn === "github-actions" || datos.verificadoEn === "aizen1" || datos.verificadoEn === "nube" ? datos.verificadoEn : null;
   return {
     ...(construidoEn ? { construidoEn } : {}),
@@ -791,7 +816,34 @@ export function resultadoDeEntrada(valor: unknown): ResultadoDelTrabajador {
     migracion: textoONull(datos.migracion, 300),
     subeSolo: datos.subeSolo === true,
     base: textoONull(datos.base, 80),
+    ...(esperaPor ? { esperaPor } : {}),
   };
+}
+
+/** Lo que vigiló el Coordinador 30 minutos después de subir una tarjeta de zona que sube sola. */
+export type VigilanciaDeLaSubida = {
+  zona: string;
+  minutos: number;
+  ok: boolean;
+};
+
+export function vigilanciaDeEntrada(valor: unknown): VigilanciaDeLaSubida | null {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return null;
+  const datos = valor as Record<string, unknown>;
+  const zona = textoCorto(datos.zona, 80);
+  if (!zona) return null;
+  const minutos = typeof datos.minutos === "number" && Number.isFinite(datos.minutos) && datos.minutos >= 0 ? Math.round(datos.minutos) : 0;
+  return { zona, minutos, ok: datos.ok === true };
+}
+
+/** La frase de la tarjeta cuando subió sola y se vigiló: "Subió sola (zona X) — vigilancia 30 min OK". */
+export function fraseDeLaVigilancia(vigilancia: VigilanciaDeLaSubida): string {
+  const zona = vigilancia.zona
+    .split(",")
+    .map((una) => una.trim())
+    .map((una) => (esZona(una) ? NOMBRE_DE_LA_ZONA[una] : una))
+    .join(", ");
+  return `Subió sola (zona ${zona}) — vigilancia ${vigilancia.minutos} min OK`;
 }
 
 /** Un link https (el del commit en GitHub), o null. */

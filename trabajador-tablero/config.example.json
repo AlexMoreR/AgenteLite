@@ -79,7 +79,9 @@
       "BatchMode=yes"
     ],
     "destino": "USUARIO@SERVIDOR",
-    "psql": "docker exec -i CONTENEDOR_POSTGRES psql -U postgres"
+    "psql": "docker exec -i CONTENEDOR_POSTGRES psql -U postgres",
+    "logs": "docker logs --since 3m --tail 400 CONTENEDOR_CRM 2>&1",
+    "estado": "docker inspect -f '{{.State.Running}} {{.RestartCount}}' CONTENEDOR_CRM"
   },
   "repos": {
     "aizencrm": {
@@ -139,6 +141,16 @@
         "tablaGuia": "WhatsAppChannel"
       },
       "subirSolo": true,
+      "zonasQueSubenSolas": [
+        "BOT_VENTAS",
+        "META_ADS",
+        "LIBRO_V3"
+      ],
+      "vigilancia": {
+        "minutos": 30,
+        "cadaSegundos": 60,
+        "maxErroresNuevos": 3
+      },
       "sinChoque": [
         "**/*.md"
       ],

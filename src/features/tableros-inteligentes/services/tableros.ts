@@ -198,6 +198,8 @@ export type ResultadoVista = {
   migracion?: string | null;
   /** El Coordinador la quiso subir sola (subirSolo prendido). */
   subeSolo?: boolean;
+  /** Por qué espera tu sí aunque su zona suba sola (p. ej. "gasto en Meta Ads"). */
+  esperaPor?: string;
   /** Qué modelo hizo cada paso (plan, construir, revisar, subagentes). */
   modelo?: Partial<Record<"plan" | "construir" | "revisar" | "subagentes", string>>;
   /** Dónde se construyó (25-oct-2026): "aizen1" o "nube" (`claude --cloud`), y el link de la sesión de la nube. */
@@ -208,7 +210,15 @@ export type ResultadoVista = {
   verificadoEn?: "github-actions" | "aizen1" | "nube";
   /** Mientras se construye (EN_CURSO): dónde y la sesión, como lo avisa el latido. */
   construccion?: { lugar?: "aizen1" | "nube"; linkSesion?: string | null };
-  subida?: { commit?: string | null; version?: string | null; linkCommit?: string | null; cuando?: string };
+  subida?: {
+    commit?: string | null;
+    version?: string | null;
+    linkCommit?: string | null;
+    cuando?: string;
+    /** Zona que sube sola: lo que vigiló el Coordinador después de subir ("Subió sola (zona X) — vigilancia 30 min OK"). */
+    vigilancia?: { zona?: string; minutos?: number; ok?: boolean };
+    resumenVigilancia?: string;
+  };
   /** Si el Coordinador la partió: las tarjetas hijas (ids), la causa y cuándo. */
   partida?: { hijas?: string[]; causa?: string; cuando?: string };
   error?: {
