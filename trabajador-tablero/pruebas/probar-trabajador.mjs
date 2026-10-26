@@ -540,8 +540,16 @@ await prueba("uso de Claude: UN aviso por cada cruce del umbral (se repite solo 
   assert.deepEqual([ilegible.alto, ilegible.alertaLectura], [[], true]);
   assert.equal(decidirUso(null, ilegible.estado, 80, "2026-10-23").alertaLectura, false, "una sola vez por día");
   assert.equal(decidirUso(null, ilegible.estado, 80, "2026-10-24").alertaLectura, true, "al otro día otra vez");
-  assert.match(textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "codex", revisar: "claude", respaldoCodex: true } }), /sesión: 83 % usado, se reinicia Oct 23, 3:20pm[\s\S]*planear y revisar pasan a Codex/);
-  assert.match(textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "claude", revisar: "claude", respaldoCodex: false } }), /sigue con Claude/);
+  assert.match(textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "codex", revisar: "claude", respaldoCodex: true } }), /^⚠️ Claude va en 83 % de la sesión\.\n.*Codex.*\nVer: https:\/\/app\.aizenbot\.com\/cliente\/tablero-ia\?vista=coordinador$/);
+  const sinRespaldo = textoDelAviso(primera.avisos, { umbralClaude: 80, motores: { planear: "claude", construir: "claude", revisar: "claude", respaldoCodex: false } });
+  assert.match(sinRespaldo, /sigue trabajando; si se agota, espera al reinicio/);
+  assert.ok(sinRespaldo.split("\n").length <= 3, "el aviso tiene 3 líneas o menos");
+  assert.doesNotMatch(sinRespaldo, /commit|rama/i);
+  const dos = decidirUso({ sesion: { porcentaje: 83, reinicio: "a" }, semana: { porcentaje: 85, reinicio: "b" } }, {}, 80, "2026-10-23");
+  const textoDos = textoDelAviso(dos.avisos, { umbralClaude: 80, urlCrm: "https://crm.ejemplo.com/", motores: { planear: "claude", construir: "claude", revisar: "claude", respaldoCodex: false } });
+  assert.ok(textoDos.split("\n").length <= 3);
+  assert.match(textoDos, /Claude va en 85 % de la semana/);
+  assert.match(textoDos, /Ver: https:\/\/crm\.ejemplo\.com\/cliente\/tablero-ia\?vista=coordinador$/);
 });
 
 await prueba("límite de Codex: se reconoce el aviso de ChatGPT (y no cualquier texto)", async () => {
@@ -876,6 +884,7 @@ const ramasDelRemoto = () =>
 const CLAVE = "aizen_trab_prueba";
 const tarjetas = new Map();
 const llamadas = [];
+let avisosSilenciados = false;
 const latidoVencido = new Set();
 /** Cuántas tuvo el trabajador a la vez (con candado), por etapa: { construir: 2, subir: 1, ... }. */
 const aLaVez = {};
@@ -954,6 +963,7 @@ const servidor = http.createServer(async (pedido, respuesta) => {
   }
   if (pedido.url === "/api/trabajador/aviso") {
     llamadas.push({ accion: "aviso", cuerpo });
+    if (avisosSilenciados) return contestar(200, { ok: true, silenciado: true });
     return contestar(200, { ok: true, linea: "Admin" });
   }
   if (pedido.url === "/api/trabajador/tablero/candidatas") {
@@ -1713,7 +1723,8 @@ try {
     assert.equal(leerLog(LOGS.claude).filter((l) => !l.argumentos.includes("/usage")).length, claudeAntes, "no planeó con Claude");
     assert.ok(leerLog(LOGS.claude).some((l) => l.argumentos.join(" ").endsWith("-p --model haiku /usage")), "leyó el uso con claude -p /usage");
     assert.equal(avisos().length, antes + 1, "un aviso");
-    assert.match(avisos().at(-1).cuerpo.texto, /sesión: 83 % usado, se reinicia Oct 23, 3:20pm/);
+    assert.match(avisos().at(-1).cuerpo.texto, /^⚠️ Claude va en 83 % de la sesión\./);
+    assert.ok(avisos().at(-1).cuerpo.texto.split("\n").length <= 3, "el aviso tiene 3 líneas o menos");
     const estadoUso = JSON.parse(fs.readFileSync(path.join(T, "trabajo", "estado-uso.json"), "utf8"));
     assert.equal(estadoUso.avisado.sesion.reinicio, "Oct 23, 3:20pm (America/Bogota)");
     await new Promise((r) => setTimeout(r, 20));
@@ -1736,6 +1747,31 @@ try {
     await planificador.llenar();
     const alertas = avisos().filter((l) => /no pude leer el uso de Claude/.test(l.cuerpo.texto));
     assert.equal(alertas.length, 1, "una sola alerta por día");
+    await planificador.esperarTodas();
+    planificador.parar();
+  });
+
+  await prueba("uso de Claude: si el CRM contesta 'silenciado' (9 p. m. a 7 a. m.) el aviso NO se anota como enviado y se reintenta", async () => {
+    const avisos = () => llamadas.filter((l) => l.accion === "aviso");
+    const planificador = planificar({ ...conCodex({ respaldoCodex: true }, { vigilarUsoMinutos: 0.0001 }), maxParalelo: 1 });
+    // Bajo el umbral primero, para que el siguiente cruce sea nuevo.
+    fs.writeFileSync(USO, "Current session: 30% used · resets Oct 24, 3:20pm (America/Bogota)\n");
+    await new Promise((r) => setTimeout(r, 20));
+    await planificador.llenar();
+    const antes = avisos().length;
+    avisosSilenciados = true;
+    fs.writeFileSync(USO, "Current session: 91% used · resets Oct 24, 3:20pm (America/Bogota)\n");
+    await new Promise((r) => setTimeout(r, 20));
+    await planificador.llenar();
+    assert.equal(avisos().length, antes + 1, "lo intentó una vez");
+    const estadoUso = JSON.parse(fs.readFileSync(path.join(T, "trabajo", "estado-uso.json"), "utf8"));
+    assert.ok(!estadoUso.avisado?.sesion, "silenciado: no se anota como enviado");
+    avisosSilenciados = false;
+    await new Promise((r) => setTimeout(r, 20));
+    await planificador.llenar();
+    assert.equal(avisos().length, antes + 2, "pasado el silencio se reintenta y sale");
+    const despues = JSON.parse(fs.readFileSync(path.join(T, "trabajo", "estado-uso.json"), "utf8"));
+    assert.equal(despues.avisado.sesion.reinicio, "Oct 24, 3:20pm (America/Bogota)");
     await planificador.esperarTodas();
     planificador.parar();
   });

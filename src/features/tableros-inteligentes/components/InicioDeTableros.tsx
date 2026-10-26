@@ -21,6 +21,7 @@ import {
   type EdicionDeTablero,
 } from "./DialogoDeTablero";
 import { ResumenDelDia } from "./ResumenDelDia";
+import { VistaDeHoy } from "./VistaDeHoy";
 import { SeccionTrabajador } from "./SeccionTrabajador";
 import { useListaDeTableros } from "../hooks/useRefrescoDelTablero";
 
@@ -50,10 +51,11 @@ const CUANDO = new Intl.DateTimeFormat("es-CO", {
   minute: "2-digit",
 });
 
-/** Las dos pestañas de arriba (solo las ve el dueño o el ADMIN): "Tableros" es lo de siempre. */
-export type VistaDelInicio = "tableros" | "coordinador";
+/** Las pestañas de arriba (solo las ve el dueño o el ADMIN): "Tableros" es lo de siempre. */
+export type VistaDelInicio = "tableros" | "hoy" | "coordinador";
 const PESTANAS: { vista: VistaDelInicio; nombre: string }[] = [
   { vista: "tableros", nombre: "Tableros" },
+  { vista: "hoy", nombre: "Hoy" },
   { vista: "coordinador", nombre: "Coordinador en vivo" },
 ];
 
@@ -69,7 +71,7 @@ type Props = {
   cuentas: CuentasDeTableros;
   /** Las tarjetas que le asignaron a quien mira, en cualquier tablero del negocio ("Asignadas a mí"). */
   asignadas: AsignadaVista[];
-  /** Con qué pestaña abre (?vista=coordinador). Sin permiso de administrar siempre es "tableros". */
+  /** Con qué pestaña abre (?vista=hoy o ?vista=coordinador). Sin permiso de administrar siempre es "tableros". */
   vistaInicial?: VistaDelInicio;
 };
 
@@ -85,11 +87,14 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
   const [edicion, setEdicion] = useState<EdicionDeTablero | null>(null);
   // Las pestañas "Tableros" y "Coordinador en vivo" (solo el dueño o el ADMIN las ven).
   const [vista, setVista] = useState<VistaDelInicio>(puedeAdministrar ? vistaInicial : "tableros");
+  const enHoy = puedeAdministrar && vista === "hoy";
+  // Las vistas que reemplazan al listado de tableros ("Hoy" y "Coordinador en vivo").
   const enCoordinador = puedeAdministrar && vista === "coordinador";
+  const aparte = enHoy || enCoordinador;
   const elegirVista = (nueva: VistaDelInicio) => {
     setVista(nueva);
     // El link se queda con la pestaña (recargar o compartir vuelve a ella) sin recargar la página.
-    window.history.replaceState(null, "", nueva === "coordinador" ? `${RUTA_DEL_INICIO}?vista=coordinador` : RUTA_DEL_INICIO);
+    window.history.replaceState(null, "", nueva === "tableros" ? RUTA_DEL_INICIO : `${RUTA_DEL_INICIO}?vista=${nueva}`);
   };
 
   return (
@@ -113,9 +118,11 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
         </div>
       ) : null}
 
+      {enHoy ? <VistaDeHoy /> : null}
+
       {enCoordinador ? <CoordinadorEnVivo /> : null}
 
-      {!enCoordinador && asignadas.length > 0 ? (
+      {!aparte && asignadas.length > 0 ? (
         <section aria-labelledby="titulo-asignadas" className="space-y-3">
           <div>
             <h2 id="titulo-asignadas" className="text-lg font-semibold">
@@ -153,7 +160,7 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
         </section>
       ) : null}
 
-      {!enCoordinador ? (
+      {!aparte ? (
       <section aria-labelledby="titulo-tableros" className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -237,9 +244,9 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
       </section>
       ) : null}
 
-      {puedeAdministrar && !enCoordinador ? <ResumenDelDia /> : null}
+      {puedeAdministrar && !aparte ? <ResumenDelDia /> : null}
 
-      {puedeAdministrar && !enCoordinador ? <SeccionTrabajador /> : null}
+      {puedeAdministrar && !aparte ? <SeccionTrabajador /> : null}
 
       <DialogoDeTablero
         edicion={edicion}

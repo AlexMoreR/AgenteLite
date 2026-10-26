@@ -163,17 +163,27 @@ function pasosDeClaude(config, { verbo = "pasa" } = {}) {
   return `${pasos.join(" y ")} ${verbo}${pasos.length > 1 ? "n" : ""}`;
 }
 
+/** Máximo de líneas de un WhatsApp al dueño (26-oct-2026: "mensajes que se leen en 5 segundos"). */
+export const MAXIMO_LINEAS_DEL_AVISO = 3;
+
+const URL_DEL_CRM = "https://app.aizenbot.com";
+
+/** El link al Coordinador en vivo, en la dirección del CRM de la config. */
+export const linkDelCoordinador = (config) => `${String(config?.urlCrm || URL_DEL_CRM).replace(/\/+$/, "")}/cliente/tablero-ia?vista=coordinador`;
+
+/** El aviso del uso de Claude: 3 líneas (qué pasa, qué hace el Coordinador, a dónde mirar). */
 export function textoDelAviso(avisos, config) {
-  const lineas = avisos.map((a) => `• ${NOMBRE_DEL_PERIODO[a.periodo]}: ${a.porcentaje} % usado, se reinicia ${a.reinicio || "(sin hora)"}`);
+  const peor = [...avisos].sort((a, b) => b.porcentaje - a.porcentaje)[0];
+  const donde = peor.periodo === "semana" ? "de la semana" : "de la sesión";
   return [
-    `⚠️ Coordinador del Tablero IA: el plan de Claude pasó el ${config.umbralClaude} %.`,
-    ...lineas,
+    `⚠️ Claude va en ${peor.porcentaje} % ${donde}.`,
     config.motores.respaldoCodex
-      ? `Mientras esté arriba, ${pasosDeClaude(config)} a Codex.`
-      : "El Coordinador sigue con Claude; si se agota, las tarjetas esperan al reinicio.",
+      ? "El Coordinador pasa parte del trabajo a Codex mientras tanto."
+      : "El Coordinador sigue trabajando; si se agota, espera al reinicio.",
+    `Ver: ${linkDelCoordinador(config)}`,
   ]
-    .join("\n")
-    .slice(0, 500);
+    .slice(0, MAXIMO_LINEAS_DEL_AVISO)
+    .join("\n");
 }
 
 /** Leer el uso: [...comandoClaude, "-p", "--model", <leer: Haiku>, "/usage"], sin entrada, 60 s. Devuelve el texto o null. */
@@ -215,7 +225,9 @@ export function crearVigilanteDeUso({ config, registro, crm, estado, entorno, le
   };
   const avisar = async (texto) => {
     try {
-      await crm.aviso(texto);
+      const respuesta = await crm.aviso(texto);
+      // El CRM calla los avisos de 9 p. m. a 7 a. m.: no salió, se vuelve a intentar en la próxima mirada.
+      if (respuesta?.silenciado) return false;
       return true;
     } catch (error) {
       registro.aviso(`no salió el aviso por WhatsApp (${error.status ?? "sin respuesta"}): ${error.message}`);

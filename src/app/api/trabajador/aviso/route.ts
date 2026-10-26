@@ -10,6 +10,8 @@ export const dynamic = "force-dynamic";
   Admin del negocio (p. ej. "el plan de Claude pasó el 80 %"). Misma clave que /api/trabajador/tablero/*
   (Bearer aizen_trab_...). Cuerpo `{ texto }` (hasta 500 caracteres). El número sale de la AppSetting
   `trabajador:aviso-telefono:<workspaceId>`: sin él, 412. Como mucho 1 por minuto (429).
+  Máximo 3 líneas (si llegan más, se recortan) y silencio de 9 p. m. a 7 a. m.: contesta 200 con
+  `silenciado: true` y no manda nada, para que el Coordinador lo reintente después.
   Ver services/aviso-del-trabajador.ts.
 */
 export async function POST(request: Request) {

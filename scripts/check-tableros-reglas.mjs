@@ -1320,7 +1320,19 @@ prueba("el dueño de un tablero se elige por id, email o nombre (sin tildes ni m
 
 /* ------------------------------------------------------------ resumen corto de la ficha */
 
-const { resumenCorto, sinMarkdown, seccionQueSeCambia } = cargar("src/features/tableros-inteligentes/services/resumen-corto.ts");
+const { resumenCorto, sinMarkdown, seccionQueSeCambia, tituloCorto } = cargar("src/features/tableros-inteligentes/services/resumen-corto.ts");
+
+prueba("tituloCorto: corta en ':', '—', '–' y '(' y deja 6 palabras o menos", () => {
+  assert.equal(tituloCorto("Autorreparación del Coordinador: que se repare solo cuando falle"), "Autorreparación del Coordinador");
+  assert.equal(tituloCorto("WhatsApp del Coordinador — máximo 3 líneas y el detalle en el tablero"), "WhatsApp del Coordinador");
+  assert.equal(tituloCorto("Reuniones (parte 2) compartir pantalla"), "Reuniones");
+  assert.equal(tituloCorto("Embudo - guardar la fecha de cada etapa"), "Embudo");
+  const largo = tituloCorto("uno dos tres cuatro cinco seis siete ocho nueve");
+  assert.equal(largo, "uno dos tres cuatro cinco seis…");
+  assert.ok(largo.replace("…", "").split(" ").length <= 6);
+  assert.equal(tituloCorto("  Reporte   de ventas "), "Reporte de ventas");
+  assert.equal(tituloCorto(": raro"), ": raro");
+});
 
 prueba("el resumen corto limpia el markdown y quita el relleno del trabajador", () => {
   const r = resumenCorto({

@@ -32,6 +32,8 @@ type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
+const vistaPedida = (valor: string | null) => (valor === "coordinador" || valor === "hoy" ? valor : "tableros");
+
 const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? valor[0] : valor)?.trim() || null;
 
 /*
@@ -46,6 +48,7 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
   el link que devuelve el MCP y el que usarán los avisos por WhatsApp de la fase 2).
   ?vista=coordinador abre la página de inicio en la pestaña "Coordinador en vivo" (solo el dueño o el ADMIN;
   para los demás se ignora).
+  ?vista=hoy abre la pestaña "Hoy" (lo que terminó, falló o espera al dueño): es el link de los WhatsApp.
 */
 export default async function TableroIAPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
@@ -85,7 +88,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
         puedeAdministrar={puedeAdministrar}
         cuentas={cuentas}
         asignadas={await asignadasA(alcance, access.userId)}
-        vistaInicial={uno(parametros.vista) === "coordinador" ? "coordinador" : "tableros"}
+        vistaInicial={vistaPedida(uno(parametros.vista))}
       />
     );
   }

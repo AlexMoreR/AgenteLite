@@ -124,3 +124,19 @@ export function resumenCorto(
   }
   return null;
 }
+
+/** Las palabras que caben en un título corto de aviso. */
+export const MAXIMO_PALABRAS_DEL_TITULO = 6;
+
+/**
+ * El título corto de una tarjeta para los avisos y la vista "Hoy" (26-oct-2026): corta en el primer ":",
+ * "—", "–" o "(" y deja a lo más 6 palabras ("Autorreparación del Coordinador: que se repare sola" ->
+ * "Autorreparación del Coordinador"). Si el recorte queda vacío usa el título entero.
+ */
+export function tituloCorto(titulo: string, maximoPalabras = MAXIMO_PALABRAS_DEL_TITULO): string {
+  const limpio = titulo.replace(/\s+/g, " ").trim();
+  const antesDelCorte = limpio.split(/\s[—–-]\s|[:—–(]/)[0].trim() || limpio;
+  const palabras = antesDelCorte.split(" ");
+  if (palabras.length <= maximoPalabras) return antesDelCorte;
+  return `${palabras.slice(0, maximoPalabras).join(" ").replace(/[\s,;.]+$/, "")}…`;
+}

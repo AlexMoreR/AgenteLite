@@ -1,13 +1,14 @@
 // Pruebas del resumen diario del Tablero IA (resumen-diario.ts): el día y la hora de Bogotá, cuándo toca
-// mandarlo (9:00 a 9:59 p. m., una vez por día), cómo se arma con el historial de HOY (no el de ayer), el texto
-// y el envío con un prisma y un enrutador de avisos FALSOS. No necesita base ni red.
+// mandarlo (8:55 a 8:59 p. m., una vez por día), cómo se arma con el historial de HOY (no el de ayer), el texto
+// corto de 2 líneas, la vista "Hoy", el silencio de los avisos (aviso-del-trabajador.ts) y el envío con un
+// prisma y un enrutador de avisos FALSOS. No necesita base ni red.
 // Correr: npm run test:tablero-resumen-diario
 import assert from "node:assert/strict";
 import { cargar } from "./supervisor-cargar.mjs";
 
 /* ------------------------------------------------------------------ falsos */
 
-const estado = { historial: [], ajustes: new Map(), negocios: ["ws1"], salidas: [], mensajes: [], whatsappSale: true, activo: true, destino: "573001112233" };
+const estado = { esperando: [], tarjetas: [], historial: [], ajustes: new Map(), negocios: ["ws1"], salidas: [], mensajes: [], whatsappSale: true, activo: true, destino: "573001112233" };
 
 const falso = {
   historialTarjeta: {
@@ -25,6 +26,9 @@ const falso = {
       estado.ajustes.set(where.key, estado.ajustes.has(where.key) ? update.value : create.value);
     },
   },
+  tarjetaTablero: {
+    findMany: async ({ where }) => estado.tarjetas.filter((t) => where.id.in.includes(t.id)),
+  },
   tableroInteligente: { findMany: async () => estado.negocios.map((workspaceId) => ({ workspaceId })) },
 };
 
@@ -41,6 +45,12 @@ const mocks = {
   "@/lib/prisma": { prisma: falso },
   "@prisma/client": { Prisma: {} },
   "@/features/avisos-gravedad/servicios/enrutador": enrutador,
+  // "Te toca a ti" falso: lo que hoy espera al dueño. El link es el de verdad (misma forma que tableros.ts).
+  "./tableros": {
+    pendientesDelDueno: async () => estado.esperando,
+    todoElNegocio: (workspaceId) => ({ workspaceId, soloDe: null }),
+    linkDeHoy: () => "https://app.aizenbot.com/cliente/tablero-ia?vista=hoy",
+  },
 };
 
 const resumen = cargar("src/features/tableros-inteligentes/services/resumen-diario.ts", mocks);
@@ -51,6 +61,8 @@ async function prueba(nombre, fn) {
   estado.historial.length = 0;
   estado.ajustes.clear();
   estado.mensajes.length = 0;
+  estado.esperando = [];
+  estado.tarjetas = [];
   estado.whatsappSale = true;
   estado.activo = true;
   estado.destino = "573001112233";
@@ -84,13 +96,14 @@ await prueba("día, hora y rango de Bogotá (UTC-5)", () => {
   assert.equal(hasta.toISOString(), "2026-10-23T05:00:00.000Z");
 });
 
-await prueba("tocaElResumen: 9:00 y 9:59 p. m. sí; 8:59 y 10:00 p. m. no; no si hoy ya salió", () => {
-  assert.equal(resumen.tocaElResumen(new Date("2026-10-23T02:00:00Z"), null), true);
-  assert.equal(resumen.tocaElResumen(new Date("2026-10-23T02:59:00Z"), undefined), true);
-  assert.equal(resumen.tocaElResumen(new Date("2026-10-23T01:59:00Z"), null), false);
-  assert.equal(resumen.tocaElResumen(new Date("2026-10-23T03:00:00Z"), null), false);
-  assert.equal(resumen.tocaElResumen(new Date("2026-10-23T02:30:00Z"), "2026-10-22"), false);
-  assert.equal(resumen.tocaElResumen(new Date("2026-10-23T02:30:00Z"), "2026-10-21"), true);
+await prueba("tocaElResumen: 8:55 y 8:59 p. m. sí; 8:54 y 9:00 p. m. no; no si hoy ya salió", () => {
+  // 8:55 p. m. de Bogotá = 01:55Z del día siguiente.
+  assert.equal(resumen.tocaElResumen(new Date("2026-10-23T01:55:00Z"), null), true);
+  assert.equal(resumen.tocaElResumen(new Date("2026-10-23T01:59:00Z"), undefined), true);
+  assert.equal(resumen.tocaElResumen(new Date("2026-10-23T01:54:00Z"), null), false);
+  assert.equal(resumen.tocaElResumen(new Date("2026-10-23T02:00:00Z"), null), false);
+  assert.equal(resumen.tocaElResumen(new Date("2026-10-23T01:57:00Z"), "2026-10-22"), false);
+  assert.equal(resumen.tocaElResumen(new Date("2026-10-23T01:57:00Z"), "2026-10-21"), true);
 });
 
 /* ------------------------------------------------------------------ armar y texto */
@@ -103,96 +116,147 @@ await prueba("armarResumen lista solo lo de hoy (no lo de ayer)", () => {
     aprobada({ tarjetaId: "a", titulo: "Reporte A" }),
     subida({ tarjetaId: "b", titulo: "Reporte B", creadoEn: HOY_TARDE }),
     falla({ tarjetaId: "c", titulo: "Reporte C" }),
+    fila({ tarjetaId: "d", despues: { estado: "HECHO" } }),
     fila({ despues: { estado: "EN_CURSO" } }),
     fila({ accion: "aprobar", quien: "user-1", despues: { momento: "tarea" } }),
   ]);
   assert.equal(r.aprobadas.length, 1);
   assert.equal(r.aprobadas[0].titulo, "Reporte A");
-  assert.equal(r.aprobadas[0].momento, "tarea");
-  assert.equal(r.aprobadas[0].motivo, "solo agrega una pantalla");
-  assert.equal(r.subidas.length, 1);
-  assert.equal(r.subidas[0].commit, "abcdef1234567890");
-  assert.equal(r.subidas[0].linkCommit, "https://github.com/x/y/commit/abcdef1234567890");
+  assert.equal(r.subidas.length, 2, "una subida y una terminada sin subir");
+  assert.equal(r.subidas.find((x) => x.tarjetaId === "b").commit, "abcdef1234567890");
   assert.equal(r.fallas.length, 1);
   assert.equal(r.fallas[0].motivo, "las pruebas fallaron");
-  assert.equal(resumen.haySinMovimiento(r), false);
-  assert.equal(resumen.haySinMovimiento(resumen.armarResumen("2026-10-22", [aprobada({ creadoEn: AYER })])), true);
+  assert.deepEqual(resumen.cifrasDelDia(resumen.armarResumen("2026-10-22", [aprobada({ creadoEn: AYER })]), 0), { listas: 0, conProblema: 0, esperando: 0 });
 });
 
-await prueba("textoDelResumen: link del commit, sin movimiento y listas largas recortadas", () => {
-  const completo = resumen.textoDelResumen(
-    resumen.armarResumen("2026-10-22", [aprobada({ titulo: "Pantalla nueva" }), subida({ titulo: "Reporte B" }), falla({ titulo: "Reporte C" })]),
-  );
-  assert.ok(completo.includes("22/10/2026"));
-  assert.ok(completo.includes("Pantalla nueva"));
-  assert.ok(completo.includes("solo agrega una pantalla"));
-  assert.ok(completo.includes("https://github.com/x/y/commit/abcdef1234567890"));
-  assert.ok(completo.includes("commit abcdef1234"));
-  assert.ok(completo.includes("las pruebas fallaron"));
+await prueba("el resumen de ayer: 4 listas, 1 con problema y 2 esperando -> 2 líneas y un solo link", () => {
+  const filas = [
+    ...["l1", "l2", "l3", "l4"].map((id) => subida({ tarjetaId: id, titulo: `Tarjeta larguísima con detalles técnicos número ${id}: rama tablero/abc commit abcdef1234` })),
+    falla({ tarjetaId: "p1", despues: { estado: "ERROR", motivo: "las pruebas fallaron en la rama tablero/xyz" } }),
+  ];
+  const r = resumen.armarResumen("2026-10-22", filas);
+  const cifras = resumen.cifrasDelDia(r, 2);
+  assert.deepEqual(cifras, { listas: 4, conProblema: 1, esperando: 2 });
+  const texto = resumen.textoDelResumen(cifras);
+  assert.equal(texto, "Hoy: 4 listas ✅, 1 con problema ⚠️, 2 esperando tu sí 👆\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy");
+  const lineas = texto.split("\n");
+  assert.ok(lineas.length <= 3, "3 líneas o menos");
+  assert.equal(lineas[0], "Hoy: 4 listas ✅, 1 con problema ⚠️, 2 esperando tu sí 👆");
+  assert.equal(texto.match(/https?:\/\//g).length, 1, "un solo link");
+  assert.ok(lineas[1].endsWith("/cliente/tablero-ia?vista=hoy"), "abre el tablero filtrado en hoy");
+  const sinLink = texto.replace(/https?:\/\/\S+/g, "");
+  assert.doesNotMatch(sinLink, /commit|rama|http|tablero\/|abcdef|Tarjeta larguísima/i);
+});
 
-  assert.ok(resumen.textoDelResumen(resumen.armarResumen("2026-10-22", [])).includes("Hoy no hubo movimiento"));
+await prueba("cifras: una tarjeta que falló y luego subió cuenta una sola vez, como lista", () => {
+  const r = resumen.armarResumen("2026-10-22", [
+    falla({ tarjetaId: "x", creadoEn: new Date("2026-10-22T13:00:00Z") }),
+    subida({ tarjetaId: "x", creadoEn: new Date("2026-10-22T15:00:00Z") }),
+    subida({ tarjetaId: "x", creadoEn: new Date("2026-10-22T16:00:00Z") }),
+    falla({ tarjetaId: "y" }),
+    falla({ tarjetaId: "y", creadoEn: HOY_TARDE }),
+  ]);
+  assert.deepEqual(resumen.cifrasDelDia(r, 0), { listas: 1, conProblema: 1, esperando: 0 });
+});
 
-  const muchas = Array.from({ length: 15 }, (_, i) => aprobada({ tarjetaId: `m${i}`, titulo: `Tarea ${i}` }));
-  const largo = resumen.textoDelResumen(resumen.armarResumen("2026-10-22", muchas));
-  assert.ok(largo.includes("Aprobé solas 15"));
-  assert.ok(largo.includes("y 5 más"));
-  assert.equal(largo.includes("Tarea 14"), false);
-  const enorme = resumen.textoDelResumen(
-    resumen.armarResumen("2026-10-22", Array.from({ length: 40 }, (_, i) => falla({ tarjetaId: `f${i}`, titulo: "x".repeat(200), motivo: "y".repeat(500), despues: { estado: "ERROR", motivo: "y".repeat(500) } }))),
+await prueba("textoDelResumen: la cifra en 0 no sale; con las tres en 0 no hay texto", () => {
+  assert.equal(
+    resumen.textoDelResumen({ listas: 1, conProblema: 0, esperando: 0 }),
+    "Hoy: 1 lista ✅\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy",
   );
-  assert.ok(enorme.length <= 3500);
+  assert.equal(
+    resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 3 }),
+    "Hoy: 3 esperando tu sí 👆\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy",
+  );
+  assert.equal(resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 0 }), "");
+  assert.equal(resumen.haySinMovimiento({ listas: 0, conProblema: 0, esperando: 0 }), true);
+});
+
+await prueba("vistaDeHoy: títulos cortos, una línea de resumen y los tres grupos", async () => {
+  estado.historial.push(subida({ tarjetaId: "t1" }), falla({ tarjetaId: "t2" }));
+  estado.tarjetas.push(
+    { id: "t1", titulo: "Autorreparación del Coordinador: que se repare solo cuando falle", detalle: "x", plan: null, resultado: { resumen: "Ahora el Coordinador se repara solo si falla una tarea." } },
+    { id: "t2", titulo: "Reporte de ventas — arreglar el total", detalle: "El total no suma bien las ventas de hoy.", plan: null, resultado: null },
+  );
+  estado.esperando.push({ id: "t3", titulo: "Reuniones (parte 2)", detalle: "Agregar el botón de compartir pantalla a la sala.", plan: null, resultado: null });
+  const vista = await resumen.vistaDeHoy("ws1", new Date("2026-10-23T01:55:00Z"));
+  assert.equal(vista.dia, "2026-10-22");
+  assert.equal(vista.listas[0].titulo, "Autorreparación del Coordinador");
+  assert.match(vista.listas[0].resumen, /se repara solo/);
+  assert.equal(vista.conProblema[0].titulo, "Reporte de ventas");
+  assert.equal(vista.teToca[0].titulo, "Reuniones");
+  assert.ok(vista.teToca[0].resumen.length <= 140);
 });
 
 /* ------------------------------------------------------------------ envío */
 
-await prueba("enviarResumenDiarioSiToca: a las 9:05 p. m. manda UNA vez y anota el día", async () => {
-  estado.historial.push(aprobada({ titulo: "Pantalla nueva" }));
-  const primera = await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:05:00Z"));
+await prueba("enviarResumenDiarioSiToca: a las 8:55 p. m. manda UNA vez, en 2 líneas, y anota el día", async () => {
+  estado.historial.push(aprobada({ titulo: "Pantalla nueva" }), subida({ tarjetaId: "u1" }));
+  estado.esperando.push({ id: "e1" }, { id: "e2" });
+  const primera = await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T01:55:00Z"));
   assert.deepEqual(primera, { enviados: 1 }, JSON.stringify([...estado.ajustes]));
   assert.equal(estado.mensajes.length, 1);
-  assert.ok(estado.mensajes[0].includes("Pantalla nueva"));
+  assert.equal(
+    estado.mensajes[0],
+    "Hoy: 1 lista ✅, 2 esperando tu sí 👆\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy",
+  );
   const anotado = await resumen.leerUltimoEnvio("ws1");
   assert.equal(anotado.dia, "2026-10-22");
   assert.equal(anotado.enviado, true);
   assert.equal(anotado.motivo, null);
 
-  const segunda = await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:06:00Z"));
+  const segunda = await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T01:56:00Z"));
   assert.deepEqual(segunda, { enviados: 0 });
   assert.equal(estado.mensajes.length, 1);
 });
 
-await prueba("enviarResumenDiarioSiToca: a las 8:59 p. m. y a las 10:00 p. m. no manda", async () => {
-  assert.deepEqual(await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T01:59:00Z")), { enviados: 0 });
-  assert.deepEqual(await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T03:00:00Z")), { enviados: 0 });
+await prueba("enviarResumenDiarioSiToca: a las 8:54 p. m. y a las 9:00 p. m. no manda", async () => {
+  estado.historial.push(subida({ tarjetaId: "u1" }));
+  assert.deepEqual(await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T01:54:00Z")), { enviados: 0 });
+  assert.deepEqual(await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:00:00Z")), { enviados: 0 });
   assert.equal(estado.mensajes.length, 0);
   assert.equal(await resumen.leerUltimoEnvio("ws1"), null);
 });
 
+await prueba("enviarResumenDiarioSiToca: si el día no tuvo nada, no se manda y no se reintenta", async () => {
+  estado.historial.push(subida({ creadoEn: AYER }));
+  const r = await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T01:55:00Z"));
+  assert.deepEqual(r, { enviados: 0 });
+  assert.equal(estado.mensajes.length, 0);
+  const anotado = await resumen.leerUltimoEnvio("ws1");
+  assert.equal(anotado.enviado, false);
+  assert.equal(anotado.dia, "2026-10-22");
+  await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T01:56:00Z"));
+  assert.equal(estado.mensajes.length, 0);
+});
+
 await prueba("enviarResumenDiarioSiToca: si el WhatsApp no sale queda anotado enviado:false con un motivo", async () => {
+  estado.historial.push(subida({ tarjetaId: "u1" }));
   estado.whatsappSale = false;
-  const r = await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:05:00Z"));
+  const r = await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T01:56:00Z"));
   assert.deepEqual(r, { enviados: 0 });
   const anotado = await resumen.leerUltimoEnvio("ws1");
   assert.equal(anotado.enviado, false);
   assert.equal(anotado.dia, "2026-10-22");
   assert.ok(anotado.motivo && anotado.motivo.includes("Admin"));
   // Anotado el día: no lo reintenta cada minuto.
-  await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:06:00Z"));
+  await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T01:57:00Z"));
   assert.equal(estado.mensajes.length, 1);
 
   estado.ajustes.clear();
   estado.activo = false;
-  await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:07:00Z"));
+  await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T01:58:00Z"));
   assert.ok((await resumen.leerUltimoEnvio("ws1")).motivo.includes("apagado"));
 });
 
 await prueba("enviarResumenDiarioSiToca: si el enrutador lanza un error, lo anota y no lanza", async () => {
+  estado.historial.push(subida({ tarjetaId: "u1" }));
   const original = enrutador.whatsAppAAlexander;
   enrutador.whatsAppAAlexander = async () => {
     throw new Error("sin red");
   };
   try {
-    const r = await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:05:00Z"));
+    const r = await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T01:56:00Z"));
     assert.deepEqual(r, { enviados: 0 });
     const anotado = await resumen.leerUltimoEnvio("ws1");
     assert.equal(anotado.enviado, false);
@@ -202,24 +266,49 @@ await prueba("enviarResumenDiarioSiToca: si el enrutador lanza un error, lo anot
   }
 });
 
-await prueba("resumenDeHoyParaLaPantalla devuelve lo de hoy, el interruptor y el envío de hoy", async () => {
-  estado.historial.push(aprobada({ titulo: "Hoy 1" }), aprobada({ titulo: "De ayer", creadoEn: AYER }));
+await prueba("resumenDeHoyParaLaPantalla devuelve las cifras, el texto corto, el interruptor y el envío de hoy", async () => {
+  estado.historial.push(subida({ tarjetaId: "h1", titulo: "Hoy 1" }), subida({ tarjetaId: "v1", titulo: "De ayer", creadoEn: AYER }));
   const ahora = new Date("2026-10-23T02:30:00Z");
   const antes = await resumen.resumenDeHoyParaLaPantalla("ws1", ahora);
   assert.equal(antes.dia, "2026-10-22");
-  assert.equal(antes.resumen.aprobadas.length, 1);
-  assert.ok(antes.texto.includes("Hoy 1"));
-  assert.equal(antes.texto.includes("De ayer"), false);
+  assert.deepEqual(antes.cifras, { listas: 1, conProblema: 0, esperando: 0 });
+  assert.equal(antes.texto, "Hoy: 1 lista ✅\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy");
   assert.equal(antes.envioDeHoy, null);
   assert.equal(antes.aprobacionAutomatica, true);
 
-  await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T02:05:00Z"));
+  await resumen.enviarResumenDiarioSiToca(new Date("2026-10-23T01:56:00Z"));
   const despues = await resumen.resumenDeHoyParaLaPantalla("ws1", ahora);
   assert.equal(despues.envioDeHoy.enviado, true);
-  // Al día siguiente el envío de ayer ya no cuenta como el de hoy.
+  // Al día siguiente el envío de ayer ya no cuenta como el de hoy, y sin movimiento el texto queda vacío.
   const manana = await resumen.resumenDeHoyParaLaPantalla("ws1", new Date("2026-10-23T15:00:00Z"));
   assert.equal(manana.envioDeHoy, null);
   assert.equal(manana.ultimoEnvio.dia, "2026-10-22");
+  assert.equal(manana.texto, "");
+});
+
+/* ------------------------------------------------------------------ silencio y 3 líneas del aviso */
+
+const aviso = cargar("src/features/tableros-inteligentes/services/aviso-del-trabajador.ts", {
+  ...mocks,
+  "@/lib/evolution": { sendEvolutionTextMessageWithReconnect: async () => undefined },
+  "./trabajador": { ErrorDelTrabajador: class extends Error { constructor(m, status) { super(m); this.status = status; } } },
+});
+
+await prueba("silencio: a las 10 p. m. y a las 6:59 a. m. el aviso no sale; a las 7:00 a. m. sí", () => {
+  assert.equal(aviso.enSilencio(new Date("2026-10-23T03:00:00Z")), true, "10:00 p. m.");
+  assert.equal(aviso.enSilencio(new Date("2026-10-23T02:00:00Z")), true, "9:00 p. m.");
+  assert.equal(aviso.enSilencio(new Date("2026-10-23T11:59:00Z")), true, "6:59 a. m.");
+  assert.equal(aviso.enSilencio(new Date("2026-10-23T12:00:00Z")), false, "7:00 a. m.");
+  assert.equal(aviso.enSilencio(new Date("2026-10-23T01:59:00Z")), false, "8:59 p. m.");
+  assert.equal(aviso.enSilencio(new Date("2026-10-23T17:00:00Z")), false, "12:00 m.");
+});
+
+await prueba("aviso: contesta silenciado de noche y recorta a 3 líneas", async () => {
+  const contexto = { workspaceId: "ws1" };
+  const noche = await aviso.enviarAvisoDelTrabajador(contexto, { texto: "a\nb\nc\nd" }, new Date("2026-10-23T03:00:00Z"));
+  assert.deepEqual(noche, { silenciado: true });
+  assert.equal(aviso.aTresLineas("uno\n\ndos\ntres\ncuatro\ncinco"), "uno\ndos\ntres");
+  assert.equal(aviso.textoDeAvisoDeEntrada("1\n2\n3\n4\n5"), "1\n2\n3");
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);

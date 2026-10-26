@@ -139,6 +139,16 @@ export function linkDeLaTarjeta(tarjetaId: string) {
   return `${URL_APP}${RUTA_TABLEROS}?tarjeta=${encodeURIComponent(tarjetaId)}`;
 }
 
+/** Abre el tablero ya filtrado en lo de hoy (lo que terminó, falló o espera al dueño): el link de los avisos. */
+export function linkDeHoy() {
+  return `${URL_APP}${RUTA_TABLEROS}?vista=hoy`;
+}
+
+/** Abre el tablero en la pestaña "Coordinador en vivo". */
+export function linkDelCoordinador() {
+  return `${URL_APP}${RUTA_TABLEROS}?vista=coordinador`;
+}
+
 export function linkDelTablero(tableroId: string) {
   return `${URL_APP}${RUTA_TABLEROS}?tablero=${encodeURIComponent(tableroId)}`;
 }

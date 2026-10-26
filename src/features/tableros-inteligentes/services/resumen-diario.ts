@@ -1,26 +1,31 @@
 import { prisma } from "@/lib/prisma";
 import { destinoWhatsAppCritico, leerConfigGravedad, whatsAppAAlexander } from "@/features/avisos-gravedad/servicios/enrutador";
 import { QUIEN_AUTOMATICO, aprobacionAutomaticaPrendida } from "./aprobacion-automatica";
+import { resumenCorto, tituloCorto } from "./resumen-corto";
+import { linkDeHoy, pendientesDelDueno, todoElNegocio } from "./tableros";
 
 /*
-  RESUMEN DIARIO del Tablero IA (22-oct-2026): cada noche a las 9:00 p. m. (hora de Bogotá) Alexander
-  recibe por WhatsApp, desde la línea Admin (nunca una línea de ventas), tres cosas del día:
-    1. qué se aprobó solo (la tarea o el plan de las tarjetas de riesgo bajo) y por qué;
-    2. qué subió a producción, con el link del commit;
-    3. qué falló y el motivo.
-  Si no pasó nada, dice "hoy no hubo movimiento". El mismo texto se ve en la caja "Resumen de hoy" del
-  tablero, con si el WhatsApp salió o por qué no.
+  RESUMEN DIARIO del Tablero IA (22-oct-2026; formato corto el 26-oct-2026, pedido de Alexander: "mensajes con
+  harto texto que no tengo tiempo de leer"): cada noche, entre las 8:55 y las 8:59 p. m. (hora de Bogotá, antes
+  del silencio de 9 p. m. a 7 a. m.), Alexander recibe por WhatsApp, desde la línea Admin (nunca una línea de
+  ventas), UN mensaje de 2 líneas:
+    Hoy: 4 listas ✅, 1 con problema ⚠️, 2 esperando tu sí 👆
+    Ver: <link al tablero filtrado en lo de hoy>
+  Si una cifra es 0, esa parte no sale; si las tres son 0, no se manda nada. Sin commits, ramas, ids ni
+  títulos largos: el detalle se queda dentro de cada tarjeta (vista "Hoy" del tablero). El mismo texto se ve
+  en la caja "Resumen de hoy", con si el WhatsApp salió o por qué no.
 
-  Lo revisa el reloj del servidor (api/cron/follows, cada minuto): entre las 9:00 y las 9:59 p. m. y una
-  sola vez por día (el sistema anota el día del último envío en AppSetting). Todo sale del historial
-  de las tarjetas (HistorialTarjeta), sin tablas nuevas.
+  Lo revisa el reloj del servidor (api/cron/follows, cada minuto) y una sola vez por día (el sistema anota el
+  día del último envío en AppSetting). Todo sale del historial de las tarjetas (HistorialTarjeta) y de la lista
+  "Te toca a ti", sin tablas nuevas.
 */
 
-const HORA_DEL_RESUMEN = 21;
+// Sale entre las 8:55 y las 8:59 p. m. de Bogotá (el silencio de los avisos empieza a las 9:00 p. m.).
+const HORA_DEL_RESUMEN = 20;
+const MINUTO_DEL_RESUMEN = 55;
 const MS_HORA = 3_600_000;
 const BOGOTA_MS = 5 * MS_HORA;
-const MAX_POR_SECCION = 10;
-const MAX_TEXTO = 3500;
+const MAX_POR_GRUPO = 30;
 
 export const claveDelUltimoResumen = (workspaceId: string) => `tablero:resumen-diario:${workspaceId}`;
 
@@ -41,9 +46,14 @@ export function rangoDelDia(dia: string): { desde: Date; hasta: Date } {
   return { desde, hasta: new Date(desde.getTime() + 24 * MS_HORA) };
 }
 
-/** ¿Toca mandar el resumen? Entre las 9:00 y las 9:59 p. m. de Bogotá y solo si hoy no salió ya. */
+/** ¿Estamos en la ventana del resumen (8:55 a 8:59 p. m. de Bogotá)? */
+export function enLaVentanaDelResumen(ahora: Date): boolean {
+  return horaDeBogota(ahora) === HORA_DEL_RESUMEN && new Date(ahora.getTime() - BOGOTA_MS).getUTCMinutes() >= MINUTO_DEL_RESUMEN;
+}
+
+/** ¿Toca mandar el resumen? Entre las 8:55 y las 8:59 p. m. de Bogotá y solo si hoy no salió ya. */
 export function tocaElResumen(ahora: Date, ultimoDia: string | null | undefined): boolean {
-  return horaDeBogota(ahora) === HORA_DEL_RESUMEN && ultimoDia !== diaDeBogota(ahora);
+  return enLaVentanaDelResumen(ahora) && ultimoDia !== diaDeBogota(ahora);
 }
 
 /* ───────────────────────────────────────────────────────────────────── armar el resumen ── */
@@ -98,6 +108,9 @@ export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): R
           linkCommit: texto(subida.linkCommit),
           cuando,
         });
+      } else if (despues.estado === "HECHO") {
+        // Terminada sin subir a producción (tareas que no llevan repo): también es "lista".
+        resumen.subidas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, commit: null, linkCommit: null, cuando });
       } else if (despues.estado === "ERROR") {
         resumen.fallas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, motivo: texto(despues.motivo) ?? "sin motivo", cuando });
       }
@@ -106,47 +119,33 @@ export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): R
   return resumen;
 }
 
-export const haySinMovimiento = (resumen: ResumenDelDia) =>
-  !resumen.aprobadas.length && !resumen.subidas.length && !resumen.fallas.length;
+/** Las tres cifras del mensaje. */
+export type CifrasDelDia = { listas: number; conProblema: number; esperando: number };
 
-const corto = (valor: string, maximo: number) => (valor.length > maximo ? `${valor.slice(0, maximo - 1).trimEnd()}…` : valor);
-
-/** "2026-10-22" -> "22/10/2026". */
-const fechaCorta = (dia: string) => dia.split("-").reverse().join("/");
-
-/** Lista de a lo más MAX_POR_SECCION, con "y N más" si hay más. */
-function lista(titulo: string, lineas: string[]): string[] {
-  if (!lineas.length) return [];
-  const verdes = lineas.slice(0, MAX_POR_SECCION);
-  if (lineas.length > verdes.length) verdes.push(`• …y ${lineas.length - verdes.length} más`);
-  return [titulo, ...verdes, ""];
+/**
+ * Cuenta por tarjeta (no por evento): una que falló y después subió el mismo día cuenta una sola vez, como
+ * lista. "Esperando tu sí" son las que hoy esperan al dueño (la lista de "Te toca a ti").
+ */
+export function cifrasDelDia(resumen: ResumenDelDia, esperando: number): CifrasDelDia {
+  const listas = new Set(resumen.subidas.map((s) => s.tarjetaId));
+  const conProblema = new Set(resumen.fallas.map((f) => f.tarjetaId).filter((id) => !listas.has(id)));
+  return { listas: listas.size, conProblema: conProblema.size, esperando };
 }
 
-/** El texto que se manda por WhatsApp y se ve en la caja "Resumen de hoy". */
-export function textoDelResumen(resumen: ResumenDelDia): string {
-  const encabezado = `Resumen del Tablero IA — ${fechaCorta(resumen.dia)}`;
-  if (haySinMovimiento(resumen)) return `${encabezado}\n\nHoy no hubo movimiento.`;
+export const haySinMovimiento = (cifras: CifrasDelDia) => !cifras.listas && !cifras.conProblema && !cifras.esperando;
+
+/**
+ * El texto que se manda por WhatsApp y se ve en la caja "Resumen de hoy": 2 líneas fijas. Texto vacío si
+ * las tres cifras son 0 (entonces no se manda nada).
+ */
+export function textoDelResumen(cifras: CifrasDelDia, link: string = linkDeHoy()): string {
   const partes = [
-    encabezado,
-    "",
-    ...lista(
-      `✅ Aprobé solas ${resumen.aprobadas.length} (riesgo bajo):`,
-      resumen.aprobadas.map(
-        (a) => `• ${corto(a.titulo, 80)} — ${a.momento === "plan" ? "el plan" : "la tarea"}${a.motivo ? `: ${corto(a.motivo, 100)}` : ""}`,
-      ),
-    ),
-    ...lista(
-      `🚀 Subió a producción ${resumen.subidas.length}:`,
-      resumen.subidas.map(
-        (s) => `• ${corto(s.titulo, 80)}${s.commit ? ` — commit ${s.commit.slice(0, 10)}` : ""}${s.linkCommit ? ` ${s.linkCommit}` : ""}`,
-      ),
-    ),
-    ...lista(
-      `⚠️ Falló ${resumen.fallas.length}:`,
-      resumen.fallas.map((f) => `• ${corto(f.titulo, 80)} — ${corto(f.motivo.replace(/\s+/g, " "), 160)}`),
-    ),
-  ];
-  return corto(partes.join("\n").trim(), MAX_TEXTO);
+    cifras.listas ? `${cifras.listas} ${cifras.listas === 1 ? "lista" : "listas"} ✅` : null,
+    cifras.conProblema ? `${cifras.conProblema} con problema ⚠️` : null,
+    cifras.esperando ? `${cifras.esperando} esperando tu sí 👆` : null,
+  ].filter((parte): parte is string => parte !== null);
+  if (!partes.length) return "";
+  return `Hoy: ${partes.join(", ")}\nVer: ${link}`;
 }
 
 /* ───────────────────────────────────────────────────────────────────── la base ── */
@@ -176,6 +175,57 @@ export async function resumenDelDia(workspaceId: string, dia: string): Promise<R
     dia,
     filas.map((fila) => ({ ...fila, titulo: fila.tarjeta.titulo })),
   );
+}
+
+/** Cuántas tarjetas esperan en este momento al dueño (la misma lista de "Te toca a ti"). */
+async function cuantasEsperan(workspaceId: string): Promise<number> {
+  return (await pendientesDelDueno(todoElNegocio(workspaceId))).length;
+}
+
+/** Una línea de la vista "Hoy": el título corto y el resumen de una línea que ya se usa en la ficha. */
+export type LineaDeHoy = { tarjetaId: string; titulo: string; resumen: string | null };
+
+export type VistaDeHoy = {
+  dia: string;
+  listas: LineaDeHoy[];
+  conProblema: LineaDeHoy[];
+  teToca: LineaDeHoy[];
+};
+
+const unaLinea = (valor: string | null) => (valor && valor.length > 140 ? `${valor.slice(0, 139).trimEnd()}…` : valor);
+
+/** La vista "Hoy" del tablero: lo que terminó, falló o espera al dueño, una línea por tarjeta. */
+export async function vistaDeHoy(workspaceId: string, ahora = new Date()): Promise<VistaDeHoy> {
+  const dia = diaDeBogota(ahora);
+  const [resumen, pendientes] = await Promise.all([resumenDelDia(workspaceId, dia), pendientesDelDueno(todoElNegocio(workspaceId))]);
+  const idsListas = [...new Set(resumen.subidas.map((s) => s.tarjetaId))];
+  const idsProblema = [...new Set(resumen.fallas.map((f) => f.tarjetaId))].filter((id) => !idsListas.includes(id));
+  const ids = [...idsListas, ...idsProblema];
+  const filas = ids.length
+    ? await prisma.tarjetaTablero.findMany({
+        where: { id: { in: ids }, borradoEn: null, tablero: { workspaceId } },
+        select: { id: true, titulo: true, detalle: true, plan: true, resultado: true },
+      })
+    : [];
+  const porId = new Map(filas.map((fila) => [fila.id, fila]));
+  const linea = (id: string): LineaDeHoy | null => {
+    const fila = porId.get(id);
+    if (!fila) return null;
+    const resultado = comoObjeto(fila.resultado);
+    const corto = resumenCorto({ resultadoResumen: texto(resultado.resumen), plan: fila.plan, detalle: fila.detalle });
+    return { tarjetaId: fila.id, titulo: tituloCorto(fila.titulo), resumen: unaLinea(corto?.texto ?? null) };
+  };
+  const lineas = (lista: string[]) => lista.map(linea).filter((l): l is LineaDeHoy => l !== null).slice(0, MAX_POR_GRUPO);
+  return {
+    dia,
+    listas: lineas(idsListas),
+    conProblema: lineas(idsProblema),
+    teToca: pendientes.slice(0, MAX_POR_GRUPO).map((p) => ({
+      tarjetaId: p.id,
+      titulo: tituloCorto(p.titulo),
+      resumen: unaLinea(resumenCorto({ resultadoResumen: p.resultado?.resumen, plan: p.plan, detalle: p.detalle })?.texto ?? null),
+    })),
+  };
 }
 
 /** Lo que se anota de cada envío (AppSetting): el día, si el WhatsApp salió y, si no, por qué. */
@@ -214,23 +264,30 @@ async function enviarResumen(workspaceId: string, ahora: Date): Promise<EnvioDel
   const dia = diaDeBogota(ahora);
   let envio: EnvioDelResumen;
   try {
-    const mensaje = textoDelResumen(await resumenDelDia(workspaceId, dia));
+    const cifras = cifrasDelDia(await resumenDelDia(workspaceId, dia), await cuantasEsperan(workspaceId));
+    const mensaje = textoDelResumen(cifras);
+    // Si el día no tuvo nada, no se manda nada (y se anota para no reintentarlo cada minuto).
+    if (!mensaje) return await anotarYDevolver(workspaceId, { dia, enviado: false, motivo: "Sin movimiento hoy: no se mandó nada.", cuando: ahora.toISOString() });
     const config = await leerConfigGravedad(workspaceId);
     const salio = await whatsAppAAlexander({ workspaceId, config, texto: mensaje });
     envio = { dia, enviado: salio, motivo: salio ? null : await motivoDeNoEnvio(workspaceId), cuando: ahora.toISOString() };
   } catch (error) {
     envio = { dia, enviado: false, motivo: `Falló al armarlo o mandarlo: ${error instanceof Error ? error.message : String(error)}`.slice(0, 300), cuando: ahora.toISOString() };
   }
+  return anotarYDevolver(workspaceId, envio);
+}
+
+async function anotarYDevolver(workspaceId: string, envio: EnvioDelResumen): Promise<EnvioDelResumen> {
   await anotarEnvio(workspaceId, envio);
   return envio;
 }
 
 /**
- * La vuelta del reloj (cada minuto): entre las 9:00 y las 9:59 p. m. de Bogotá manda el resumen una vez
- * por negocio con tableros. Anota el día ANTES de armarlo, así dos vueltas seguidas no lo mandan dos veces.
+ * La vuelta del reloj (cada minuto): entre las 8:55 y las 8:59 p. m. de Bogotá manda el resumen una vez
+ * por negocio con tableros (si hubo algo que contar). Anota el día ANTES de armarlo, así dos vueltas seguidas no lo mandan dos veces.
  */
 export async function enviarResumenDiarioSiToca(ahora = new Date()): Promise<{ enviados: number }> {
-  if (horaDeBogota(ahora) !== HORA_DEL_RESUMEN) return { enviados: 0 };
+  if (!enLaVentanaDelResumen(ahora)) return { enviados: 0 };
   const negocios = await prisma.tableroInteligente.findMany({ distinct: ["workspaceId"], select: { workspaceId: true } });
   let enviados = 0;
   for (const { workspaceId } of negocios) {
@@ -246,15 +303,18 @@ export async function enviarResumenDiarioSiToca(ahora = new Date()): Promise<{ e
 /** La caja "Resumen de hoy" del tablero: lo de hoy hasta ahora, el interruptor y el envío de hoy (si ya salió). */
 export async function resumenDeHoyParaLaPantalla(workspaceId: string, ahora = new Date()) {
   const dia = diaDeBogota(ahora);
-  const [resumen, ultimo, prendida] = await Promise.all([
+  const [resumen, esperando, ultimo, prendida] = await Promise.all([
     resumenDelDia(workspaceId, dia),
+    cuantasEsperan(workspaceId),
     leerUltimoEnvio(workspaceId),
     aprobacionAutomaticaPrendida(workspaceId),
   ]);
+  const cifras = cifrasDelDia(resumen, esperando);
   return {
     dia,
-    resumen,
-    texto: textoDelResumen(resumen),
+    cifras,
+    // El mismo texto corto que llega por WhatsApp; vacío si hoy no hay nada que contar.
+    texto: textoDelResumen(cifras),
     envioDeHoy: ultimo && ultimo.dia === dia ? ultimo : null,
     ultimoEnvio: ultimo,
     aprobacionAutomatica: prendida,
