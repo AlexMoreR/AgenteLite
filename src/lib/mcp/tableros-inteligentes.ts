@@ -1055,6 +1055,14 @@ export async function ejecutarHerramientaMcpTableros(
           : null,
         fila: vista.fila.siguientes.map((item) => ({ tarjeta_id: item.tarjetaId, titulo: item.titulo, link: item.link })),
         bloqueadas: vista.fila.bloqueadas.map((item) => ({ tarjeta_id: item.tarjetaId, titulo: item.titulo, motivo: item.motivo, link: item.link })),
+        en_error: {
+          cantidad: vista.errores.cantidad,
+          tarjetas: vista.errores.tarjetas.map((item) => ({ tarjeta_id: item.tarjetaId, titulo: item.titulo, linea_para_el_dueno: item.motivo, link: item.link })),
+        },
+        esperando_a_otra: {
+          cantidad: vista.esperandoAOtra.cantidad,
+          tarjetas: vista.esperandoAOtra.tarjetas.map((item) => ({ tarjeta_id: item.tarjetaId, titulo: item.titulo, esperando: item.motivo, link: item.link })),
+        },
         hoy: {
           terminadas: vista.hoy.terminadas,
           falladas: vista.hoy.falladas,

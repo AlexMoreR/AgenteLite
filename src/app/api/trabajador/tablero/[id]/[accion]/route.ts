@@ -25,8 +25,16 @@ export const dynamic = "force-dynamic";
               a su límite de uso, o choca con otra que corre). Con `categoria` queda un intento "esperar".
   - reparar   { etapa, categoria, causa, error, estrategia? }   PLANEANDO | EN_CURSO | SUBIENDO -> la fila sin
               ERROR (APROBADO / PLAN_APROBADO), reparaciones + 1. 409 si ya lleva 3.
-  - partir    { causa, error, partes: [{ titulo, detalle }] }   EN_CURSO: crea de 2 a 4 hijas en orden
-              (dependencia), la madre queda EN_CURSO sin candado. 409 si ya está partida o es una parte.
+  - partir    { causa, error, partes: [{ titulo, detalle }] }   EN_CURSO | PLANEANDO: crea de 2 a 4 hijas en orden
+              (dependencia), la madre queda donde estaba, sin candado. Desde EN_CURSO las hijas quedan
+              PLAN_APROBADO con su parte como plan; desde PLANEANDO (medir antes de planear) quedan APROBADO,
+              sin plan. 409 si ya está partida o es una parte.
+  - depender  { referencias: [id o título] }      APROBADO | PLANEANDO: pone la flecha de dependencia hacia esas
+              tarjetas (mismo tablero, sin ciclos). Si alguna no está HECHO, PLANEANDO vuelve a APROBADO sin ERROR
+              ni contar el intento: queda "Esperando a «X»". -> { creadas, esperando, soltada }
+  - recoger   { decision: reintentar | partir | dueno, causa?, error?, partes?, linea? }   ERROR: recoge una tarjeta
+              vieja en ERROR (máximo 2 veces por tarjeta; el tope diario lo lleva el Coordinador). reintentar vuelve
+              a la fila, partir crea las hijas, dueno deja UNA línea para el dueño y sigue en ERROR.
   (El arranque del Coordinador es otra ruta: /api/trabajador/tablero/arranque.)
   409 si la tarjeta no está en el estado de esa acción. Ver services/trabajador.ts.
 */

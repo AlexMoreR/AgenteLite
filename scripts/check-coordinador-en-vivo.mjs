@@ -323,6 +323,26 @@ await prueba("la fila: lo que sigue en orden y lo bloqueado con su motivo (otra 
   assert.ok(!("f6" in bloqueadas) && !fila.siguientes.some((i) => i.tarjetaId === "f6"), "sin repo no es del Coordinador");
 });
 
+await prueba("en error y esperando a otra: los números y la lista (con la línea para el dueño y «que está en error»)", async () => {
+  estado.tarjetas.push(
+    tarjeta({ id: "e1", titulo: "Rota", estado: "ERROR", trabajoVenceEn: null, resultado: { recogida: { veces: 1, linea: "Falta que decidas A o B" } } }),
+    tarjeta({ id: "e2", titulo: "Otra rota", estado: "ERROR", trabajoVenceEn: null }),
+    tarjeta({ id: "e3", titulo: "Sin repo en error", estado: "ERROR", repo: null, trabajoVenceEn: null }),
+    tarjeta({ id: "w1", titulo: "Espera al molde", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: { titulo: "El molde", estado: "ERROR" } }] }),
+    tarjeta({ id: "w2", titulo: "Espera en curso", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: { titulo: "La base", estado: "EN_CURSO" } }] }),
+  );
+  const vista = await servicio.vistaDelCoordinador("ws1", AHORA);
+  assert.equal(vista.errores.cantidad, 2);
+  assert.deepEqual(vista.errores.tarjetas.map((i) => [i.tarjetaId, i.motivo]), [["e1", "Falta que decidas A o B"], ["e2", null]]);
+  assert.equal(vista.esperandoAOtra.cantidad, 2);
+  const motivos = Object.fromEntries(vista.esperandoAOtra.tarjetas.map((i) => [i.tarjetaId, i.motivo]));
+  assert.equal(motivos.w1, "Esperando a «El molde», que está en error");
+  assert.equal(motivos.w2, "Esperando a «La base»");
+  const texto = servicio.textoDelCoordinador(vista);
+  assert.match(texto, /En error: 2 — «Rota» \(Falta que decidas A o B\); «Otra rota»\./);
+  assert.match(texto, /Esperando a otra: 2 — /);
+});
+
 /* ------------------------------------------------------------------ lo de hoy */
 
 await prueba("hoy: cuenta terminadas, falladas y reparadas, con cuánto tomó cada una; lo de ayer no cuenta", async () => {

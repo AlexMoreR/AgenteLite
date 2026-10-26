@@ -838,7 +838,9 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
     error: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
     soltar: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
     reparar: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
-    partir: ["EN_CURSO"],
+    partir: ["PLANEANDO", "EN_CURSO"],
+    depender: ["APROBADO", "PLANEANDO"],
+    recoger: ["ERROR"],
   };
   for (const [accion, validos] of Object.entries(esperado)) {
     for (const estado of reglas.ESTADOS_TARJETA) {
@@ -848,7 +850,7 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
-    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null },
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null },
   );
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.AL_TOMAR).map(([de, regla]) => [de, [regla.a, regla.etapa]])),
@@ -880,6 +882,35 @@ prueba("reparar y partir: tope de 3 reparaciones, resumen de máximo 3 líneas, 
   assert.equal(trabajo.puedePartir({ yaPartida: false, esParte: false }), null);
   assert.ok(trabajo.puedePartir({ yaPartida: true, esParte: false }));
   assert.ok(trabajo.puedePartir({ yaPartida: false, esParte: true }));
+  // Medir antes de planear (26-oct-2026): partir también desde PLANEANDO; las hijas quedan "por planear", sin plan.
+  assert.equal(trabajo.puedeElTrabajador("partir", "PLANEANDO"), null);
+  assert.equal(trabajo.puedeElTrabajador("partir", "EN_CURSO"), null);
+  assert.ok(trabajo.puedeElTrabajador("partir", "SUBIENDO"));
+  assert.equal(trabajo.estadoDeLasHijas("PLANEANDO"), "APROBADO");
+  assert.equal(trabajo.estadoDeLasHijas("EN_CURSO"), "PLAN_APROBADO");
+  // Dependencias antes de arrancar: "Esperando a «X»", nunca ERROR; si la otra está en error o fallida, lo dice.
+  assert.equal(trabajo.etiquetaEsperando([]), null);
+  assert.equal(trabajo.etiquetaEsperando([{ titulo: "El molde", estado: "HECHO" }]), null);
+  assert.equal(trabajo.etiquetaEsperando([{ titulo: "El molde", estado: "EN_CURSO" }]), "Esperando a «El molde»");
+  assert.equal(trabajo.etiquetaEsperando([{ titulo: "El molde", estado: "ERROR" }]), "Esperando a «El molde», que está en error");
+  assert.equal(trabajo.etiquetaEsperando([{ titulo: "El molde", estado: "FALLIDO" }]), "Esperando a «El molde», que está fallida");
+  assert.match(trabajo.etiquetaEsperando([{ titulo: "A", estado: "EN_CURSO" }, { titulo: "B", estado: "ERROR" }]), /^Esperando a «A» y «B»; «B» está en error o fallidas$/);
+  assert.equal(trabajo.dependenciaHaceCiclo([{ origenId: "a", destinoId: "b" }], "b", "a"), true);
+  // Recoger los errores viejos: máximo 2 veces por tarjeta; lo que hay que recordar va en resultado.recogida.
+  assert.deepEqual(trabajo.recogidaDelResultado(null), { veces: 0, ultima: null, linea: null });
+  assert.deepEqual(trabajo.recogidaDelResultado({ recogida: { veces: 1, ultima: "2026-10-26", linea: "Decide A o B" } }), { veces: 1, ultima: "2026-10-26", linea: "Decide A o B" });
+  assert.equal(trabajo.puedeRecoger({ recogida: { veces: 1 } }), null);
+  assert.match(trabajo.puedeRecoger({ recogida: { veces: 2 } }), /Ya se recogió 2 veces/);
+  assert.equal(trabajo.TOPE_DE_RECOGIDAS_POR_TARJETA, 2);
+  assert.equal(trabajo.TOPE_DE_RECOGIDAS_POR_DIA, 6);
+  assert.equal(trabajo.estadoTrasRecoger("Un plan"), "PLAN_APROBADO");
+  assert.equal(trabajo.estadoTrasRecoger(null), "APROBADO");
+  assert.equal(trabajo.decisionDeRecogerDeEntrada(" Partir "), "partir");
+  assert.equal(trabajo.decisionDeRecogerDeEntrada("borrar"), null);
+  assert.equal(trabajo.lineaParaElDueno("  Falta que\ndecidas   A o B  "), "Falta que decidas A o B");
+  assert.equal(trabajo.puedeElTrabajador("recoger", "ERROR"), null);
+  assert.ok(trabajo.puedeElTrabajador("recoger", "EN_CURSO"));
+  assert.equal(trabajo.puedeElTrabajador("depender", "PLANEANDO"), null);
   // La madre se cierra cuando todas las hijas están HECHO.
   assert.equal(trabajo.madreSeCierra([]), false);
   assert.equal(trabajo.madreSeCierra([{ estado: "HECHO" }, { estado: "EN_CURSO" }]), false);

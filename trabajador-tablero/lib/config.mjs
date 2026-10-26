@@ -124,6 +124,12 @@ const COLA_PESADA_POR_DEFECTO = { maximo: 1, esperaMaximaMinutos: 20 };
 /** Cuándo se parte una tarea en partes más chicas (24-oct-2026): con tantos archivos cambiados a medias, o por contexto, o si se pasa dos veces del tiempo. */
 // archivosAntes / archivosConMigracion (25-oct-2026, reparto.mjs: debePartirAntes): una tarea de aizen1 con más archivos
 // de código que esto en el plan se parte ANTES de construir. 0 = no se parte antes.
+// Medir antes de planear (26-oct-2026, medir.mjs) y recoger los errores viejos una vez al día (recoger-errores.mjs).
+const MEDIR_POR_DEFECTO = { activo: true, puntosGrande: 4, puntosDudosa: 2, consultaHaiku: true };
+const RECOGER_POR_DEFECTO = { activo: true, maximoPorDia: 6, maximoPorTarjeta: 2 };
+// Candado de build (candado-de-build.mjs): cuántas veces espera el aviso "another instance of next build" y cuánto entre una y otra.
+const CANDADO_DE_BUILD_POR_DEFECTO = { esperaSegundos: 60, maximoEsperas: 10 };
+
 const PARTIR_POR_DEFECTO = { archivosMinimos: 8, archivosAntes: 25, archivosConMigracion: 15 };
 
 /** Reparar solo (24-oct-2026). diagnosticoConClaude: si no se reconoce la causa, una sesión corta de Claude (solo lectura) lee el log. */
@@ -298,6 +304,26 @@ export function completarConfig(datos, base = process.cwd()) {
     partir[campo] = Number(partir[campo]);
     if (!Number.isFinite(partir[campo]) || partir[campo] < 0) errores.push(`partir.${campo}: un número de archivos, 0 o más (0 = no se parte antes de construir).`);
   }
+  const medir = { ...MEDIR_POR_DEFECTO, ...(datos.medir ?? {}) };
+  for (const campo of ["activo", "consultaHaiku"]) {
+    if (typeof medir[campo] !== "boolean") errores.push(`medir.${campo}: true o false.`);
+  }
+  for (const campo of ["puntosGrande", "puntosDudosa"]) {
+    medir[campo] = Number(medir[campo]);
+    if (!Number.isFinite(medir[campo]) || medir[campo] < 1) errores.push(`medir.${campo}: un número de puntos, 1 o más.`);
+  }
+  if (medir.puntosDudosa > medir.puntosGrande) errores.push("medir.puntosDudosa no puede pasar de medir.puntosGrande.");
+  const recoger = { ...RECOGER_POR_DEFECTO, ...(datos.recogerErrores ?? {}) };
+  if (typeof recoger.activo !== "boolean") errores.push("recogerErrores.activo: true o false.");
+  for (const campo of ["maximoPorDia", "maximoPorTarjeta"]) {
+    recoger[campo] = Math.floor(Number(recoger[campo]));
+    if (!Number.isFinite(recoger[campo]) || recoger[campo] < 1 || recoger[campo] > 50) errores.push(`recogerErrores.${campo}: de 1 a 50.`);
+  }
+  const candadoDeBuild = { ...CANDADO_DE_BUILD_POR_DEFECTO, ...(datos.candadoDeBuild ?? {}) };
+  for (const campo of ["esperaSegundos", "maximoEsperas"]) {
+    candadoDeBuild[campo] = Number(candadoDeBuild[campo]);
+    if (!Number.isFinite(candadoDeBuild[campo]) || candadoDeBuild[campo] < 0) errores.push(`candadoDeBuild.${campo}: un número, 0 o más (maximoEsperas en 0 = no reintenta).`);
+  }
   const atasco = { ...ATASCO_POR_DEFECTO, ...(datos.atasco ?? {}) };
   for (const campo of ["minutos", "revisarCadaSegundos", "cpuMinimaSegundos"]) {
     atasco[campo] = Number(atasco[campo]);
@@ -401,6 +427,9 @@ export function completarConfig(datos, base = process.cwd()) {
     manual: { activo: manual.activo, hora: manual.hora, repo: manual.repo },
     autoactualizar: { activo: auto.activo, cadaMinutos: auto.cadaMinutos, rama: auto.rama, remoto: auto.remoto },
     colaPesada: { maximo: colaPesada.maximo, esperaMaximaMinutos: colaPesada.esperaMaximaMinutos },
+    medir: { activo: medir.activo, puntosGrande: medir.puntosGrande, puntosDudosa: medir.puntosDudosa, consultaHaiku: medir.consultaHaiku },
+    recogerErrores: { activo: recoger.activo, maximoPorDia: recoger.maximoPorDia, maximoPorTarjeta: recoger.maximoPorTarjeta },
+    candadoDeBuild: { esperaSegundos: candadoDeBuild.esperaSegundos, maximoEsperas: candadoDeBuild.maximoEsperas },
     partir: { archivosMinimos: partir.archivosMinimos, archivosAntes: partir.archivosAntes, archivosConMigracion: partir.archivosConMigracion },
     atasco: { minutos: atasco.minutos, revisarCadaSegundos: atasco.revisarCadaSegundos, cpuMinimaSegundos: atasco.cpuMinimaSegundos },
     reparar: { diagnosticoConClaude: reparar.diagnosticoConClaude, diagnosticoMinutos: reparar.diagnosticoMinutos },

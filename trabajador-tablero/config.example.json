@@ -53,6 +53,21 @@
     "maximo": 1,
     "esperaMaximaMinutos": 20
   },
+  "medir": {
+    "activo": true,
+    "puntosGrande": 4,
+    "puntosDudosa": 2,
+    "consultaHaiku": true
+  },
+  "recogerErrores": {
+    "activo": true,
+    "maximoPorDia": 6,
+    "maximoPorTarjeta": 2
+  },
+  "candadoDeBuild": {
+    "esperaSegundos": 60,
+    "maximoEsperas": 10
+  },
   "partir": {
     "archivosMinimos": 8,
     "archivosAntes": 25,

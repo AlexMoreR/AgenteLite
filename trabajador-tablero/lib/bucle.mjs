@@ -30,8 +30,9 @@ import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.
 import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
 import { TOPE_DE_REPARACIONES, decidir, diagnosticar, enUnaLinea, resumenDeEscalada } from "./diagnostico.mjs";
-import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, partirTarea, planear, subir } from "./etapas.mjs";
+import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, medirConClaude, partirTarea, planear, subir } from "./etapas.mjs";
 import { idCorto } from "./git.mjs";
+import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedida } from "./medir.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
 import { esTareaGrande } from "./nube.mjs";
@@ -147,6 +148,11 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
       const partida = await partirAntesDeConstruir({ crm, config, registro, contexto }, tarjeta);
       if (partida) return { ok: true, estado: "EN_CURSO", partes: partida };
     }
+    // Medir ANTES de planear (26-oct-2026): dependencias sin terminar y tarjetas muy grandes no abren la sesión de plan.
+    if (hacer === "planear" && conReparaciones) {
+      const previa = await medirAntesDePlanear({ crm, config, registro, contexto }, tarjeta);
+      if (previa) return previa;
+    }
     const salida = await etapa(contexto, tarjeta);
     if (vencida) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se trabajaba.");
     let respuesta;
@@ -237,6 +243,64 @@ async function partirAntesDeConstruir({ crm, config, registro, contexto }, tarje
   }
   registro.info(`la tarea se partió en ${partes.length} partes (antes de construir): ${partes.map((parte) => parte.titulo).join(" | ")}`);
   return partes.length;
+}
+
+/**
+ * MEDIR ANTES DE PLANEAR (26-oct-2026, medir.mjs). Devuelve un resultado si NO hay que planear ahora, o null si hay que planear:
+ *  1. Dependencias: si el texto nombra otra tarjeta como molde o requisito, pone la flecha (/depender). Si esa tarjeta no está
+ *     HECHO, esta vuelve a la fila ("Esperando a «X»"), sin ERROR y sin contar intento, y no se abre ninguna sesión de plan.
+ *  2. Tamaño: grande -> se parte en 2 a 4 hijas pequeñas, en orden, ANTES de planear (/partir desde PLANEANDO: las hijas
+ *     quedan aprobadas, por planear, sin plan copiado). Dudosa -> una consulta corta con Haiku. Chica -> a planear.
+ * Todo lo que falle aquí (un CRM viejo, una sesión sin respuesta) deja planear como siempre: medir solo ayuda, nunca frena.
+ * El límite de uso de Claude se deja subir (la tarjeta se suelta).
+ */
+export async function medirAntesDePlanear({ crm, config, registro, contexto, partir = partirTarea, medirHaiku = medirConClaude }, tarjeta) {
+  const ajustes = { ...MEDIR_POR_DEFECTO, ...(config.medir ?? {}) };
+  if (!ajustes.activo) return null;
+  const referencias = referenciasParaDepender(tarjeta);
+  if (referencias.length) {
+    try {
+      const respuesta = await crm.depender(tarjeta.id, { referencias });
+      if (respuesta?.creadas?.length) registro.info(`"${tarjeta.titulo}" depende de ${respuesta.creadas.length} tarjeta(s) que nombra en su texto: puse la flecha de dependencia`);
+      if (respuesta?.soltada) {
+        registro.info(`"${tarjeta.titulo}": ${respuesta.esperando ?? "espera a otra tarjeta"}; no la planeo todavía`);
+        return { ok: true, estado: respuesta.estado ?? "APROBADO", esperando: respuesta.esperando ?? true };
+      }
+    } catch (error) {
+      registro.aviso(`no se pudo mirar las dependencias de "${tarjeta.titulo}" (${error.message}): se planea como siempre`);
+    }
+  }
+  const medida = medirTarjeta(tarjeta, ajustes);
+  let tamano = medida.tamano;
+  registro.info(`medí "${tarjeta.titulo}": ${textoDeLaMedida(medida)}`);
+  if (tamano === "dudosa" && ajustes.consultaHaiku) {
+    try {
+      tamano = (await medirHaiku(contexto, tarjeta)) ?? "chica";
+      registro.info(`consulta corta con Haiku: ${tamano}`);
+    } catch (error) {
+      if (error?.limiteDeUso) throw error;
+      registro.aviso(`no se pudo consultar el tamaño (${String(error?.message ?? error).split("\n")[0]}): se planea como siempre`);
+      tamano = "chica";
+    }
+  }
+  if (tamano !== "grande") return null;
+  const causa = enUnaLinea(`Tarea grande: ${medida.motivos.join(", ") || "lo decidió la consulta corta"}. Se partió ANTES de planear para que no se corte a los ${config.tiempos?.planMinutos ?? 19} min.`);
+  let partes;
+  try {
+    partes = await partir(contexto, tarjeta, { causa, error: "" });
+  } catch (error) {
+    if (error?.limiteDeUso) throw error;
+    registro.aviso(`no se pudo partir antes de planear (${String(error?.message ?? error).split("\n")[0]}): se planea entera`);
+    return null;
+  }
+  try {
+    await crm.partir(tarjeta.id, { causa, error: "", partes, categoria: "tarea_muy_grande", etapa: "planear" });
+  } catch (error) {
+    registro.aviso(`el CRM no dejó partir antes de planear (${error.message}): se planea entera`);
+    return null;
+  }
+  registro.info(`la tarea se partió en ${partes.length} partes (antes de planear): ${partes.map((parte) => parte.titulo).join(" | ")}`);
+  return { ok: true, estado: "PLANEANDO", partes: partes.length };
 }
 
 async function soltar(crm, registro, tarjeta, motivo, extra) {

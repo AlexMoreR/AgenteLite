@@ -355,6 +355,27 @@ después se actualiza el Coordinador en aizen1 (`git pull` y reiniciarlo). Al re
 llamaría rutas (`/reparar`, `/partir`, `/arranque`) que el CRM viejo todavía no tiene (el Coordinador lo
 nota: si /tomar no trae `topeReparaciones`, se porta como antes).
 
+**Medir antes de planear, esperar a otra, no chocar y recoger los errores viejos (26-oct-2026)**:
+
+- *Medir el tamaño* (`lib/medir.mjs`, `medirAntesDePlanear` en `lib/bucle.mjs`): antes de abrir la sesión de plan se
+  mira la tarjeta (largo del texto, puntos que pide, migración, pantalla o módulo nuevo, agente nuevo). Grande → se
+  parte en 2 a 4 hijas pequeñas, en orden y unidas con flechas, que quedan "aprobadas, por planear" (sin plan copiado);
+  dudosa → una consulta corta con Haiku; chica → a planear. Una parte, una ya partida o una que viene de una
+  reparación no se vuelve a partir. En `config.local.json`: `"medir": { "activo": true, "puntosGrande": 4,
+  "puntosDudosa": 2, "consultaHaiku": true }`.
+- *Esperando a otra*: si el texto nombra otra tarjeta (su id) como molde o requisito, el Coordinador pone la flecha de
+  dependencia (`/depender`) y la tarjeta vuelve a la fila con "Esperando a «X»" (o "…, que está en error"), sin ERROR
+  y sin contar intento. No es un estado nuevo: se calcula con las flechas.
+- *No chocar* (`lib/candado-de-build.mjs`): un solo build a la vez por carpeta. Si aparece "Unable to acquire lock /
+  another instance of next build", espera `candadoDeBuild.esperaSegundos` (60), limpia el candado viejo y reintenta
+  (hasta `maximoEsperas`, 10). Esas esperas no cuentan como intento ni se descuentan del reloj de la etapa.
+- *Recoger los errores viejos* (`lib/recoger-errores.mjs`): una vez al día, y la primera vez que arranca con este
+  cambio, revisa las tarjetas en ERROR (`/errores`), les aplica el diagnóstico y las reintenta, las parte o deja UNA
+  línea para el dueño (`/:id/recoger`). Máximo 6 por día y 2 recogidas por tarjeta
+  (`"recogerErrores": { "maximoPorDia": 6, "maximoPorTarjeta": 2 }`). La fecha de la última recogida va en
+  `<carpetaTrabajo>/recoger-errores.json`; las veces y la línea, en `resultado.recogida` de la tarjeta.
+- El panel "Coordinador en vivo" y `ver_coordinador` muestran "En error: N" y "Esperando a otra: N" con la lista.
+
 **Dependencias**: una flecha marcada "esto depende de aquella" (`conectar_tarjetas` con `depende`, o el botón de
 la ficha) hace que la tarjeta no se tome hasta que la otra esté HECHO.
 
@@ -494,6 +515,7 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 - `lib/motores.mjs`: qué motor hace cada paso, el límite de Codex y la vigilancia del uso de Claude.
 - `lib/ensayo.mjs`: ensayo de migraciones (PGlite y producción en BEGIN…ROLLBACK por ssh).
 - `lib/diagnostico.mjs`: clasifica una falla, decide (reparar, partir, esperar, escalar) y escribe el resumen de 3 líneas.
+- `lib/medir.mjs`, `lib/candado-de-build.mjs`, `lib/recoger-errores.mjs`: medir el tamaño y las dependencias antes de planear, que los builds no choquen y recoger los errores viejos (ver arriba).
 - `lib/atasco.mjs`: detecta una sesión quieta (sin archivos ni procesador por 15 min).
 - `lib/git.mjs`, `lib/procesos.mjs`, `lib/zonas.mjs`, `lib/crm.mjs`, `lib/config.mjs`, `lib/registro.mjs`.
 - La API del lado del CRM: `src/app/api/trabajador/tablero/*` y `src/features/tableros-inteligentes/services/trabajador.ts`;

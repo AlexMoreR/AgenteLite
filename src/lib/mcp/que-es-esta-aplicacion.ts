@@ -7,6 +7,7 @@ import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
 import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 
 /**
@@ -435,6 +436,16 @@ async function estadoDelAgenteDeVentas(workspaceId: string) {
     : `apagada: interruptor apagado, solo genera el resumen y no manda nada; ${resumen}`;
 }
 
+/** Tablero IA: la recogida diaria de errores viejos (26-oct-2026): cuántas tarjetas hay en ERROR y cuántas dejaron una línea para el dueño. */
+async function estadoDeRecogerErrores(workspaceId: string) {
+  const enError = await prisma.tarjetaTablero.findMany({
+    where: { estado: "ERROR", repo: { not: null }, borradoEn: null, tablero: { workspaceId } },
+    select: { resultado: true },
+  });
+  const conLinea = enError.filter((tarjeta) => recogidaDelResultado(tarjeta.resultado).linea).length;
+  return `activa: el Coordinador la corre una vez al día (y al arrancar con este cambio); ahora hay ${enError.length} tarjeta(s) en ERROR, ${conLinea} con una línea para el dueño`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -494,6 +505,7 @@ async function automatizaciones(
     resumen_diario_tablero: await estadoDelResumenDiario(),
     avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
+    recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),
   };
 
   return {

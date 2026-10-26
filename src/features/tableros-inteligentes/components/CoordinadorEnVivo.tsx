@@ -199,6 +199,32 @@ function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number
         ) : null}
       </Bloque>
 
+      <Bloque titulo="En error y esperando" id="cev-error">
+        <div className="grid grid-cols-2 gap-2 text-center">
+          {[
+            { nombre: "En error", valor: vista.errores.cantidad },
+            { nombre: "Esperando a otra", valor: vista.esperandoAOtra.cantidad },
+          ].map(({ nombre, valor }) => (
+            <div key={nombre} className="rounded-xl border bg-card px-2 py-2">
+              <p className="text-xl font-semibold tabular-nums">{valor}</p>
+              <p className="text-xs text-muted-foreground">{nombre}</p>
+            </div>
+          ))}
+        </div>
+        {vista.errores.tarjetas.length ? (
+          <div className="space-y-1.5 pt-1">
+            <h3 className="text-xs font-medium text-muted-foreground">En error</h3>
+            <ListaDeFila items={vista.errores.tarjetas} />
+          </div>
+        ) : null}
+        {vista.esperandoAOtra.tarjetas.length ? (
+          <div className="space-y-1.5 pt-1">
+            <h3 className="text-xs font-medium text-muted-foreground">Esperando a otra</h3>
+            <ListaDeFila items={vista.esperandoAOtra.tarjetas} />
+          </div>
+        ) : null}
+      </Bloque>
+
       <Bloque titulo="Hoy" id="cev-hoy">
         <div className="grid grid-cols-3 gap-2 text-center">
           {[

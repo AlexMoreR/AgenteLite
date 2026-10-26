@@ -50,7 +50,9 @@ import { esperarResultado, lanzarEnNube } from "./nube.mjs";
 import { vigilarSesion } from "./atasco.mjs";
 import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, ultimasLineas } from "./procesos.mjs";
 import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
+import { crearSerieDeBuilds, conReintentoPorCandado } from "./candado-de-build.mjs";
 import { PRIORIDAD } from "./cola.mjs";
+import { tamanoDeLaRespuesta } from "./medir.mjs";
 import { carpetaDeIntentos } from "./registro.mjs";
 import { migracionDestructiva } from "./riesgo.mjs";
 import {
@@ -257,8 +259,29 @@ const carpetaDe = (contexto, tarjeta, etapa) => path.join(contexto.config.carpet
  * dueño) y debajo el detalle técnico (el comando y lo último que dijo).
  */
 async function paso(contexto, comando, { cwd, reloj, que, motivo, entrada, prioridad = PRIORIDAD.verificar }) {
-  return conTurno(contexto, reloj, prioridad, comoTexto(comando), () => pasoSinTurno(contexto, comando, { cwd, reloj, que, motivo, entrada }));
+  const ejecutar = () => conTurno(contexto, reloj, prioridad, comoTexto(comando), () => pasoSinTurno(contexto, comando, { cwd, reloj, que, motivo, entrada }));
+  if (!/\bbuild\b/.test(comoTexto(comando))) return ejecutar();
+  // Un build (26-oct-2026): nunca dos a la vez en la misma carpeta; si aun así aparece el candado de Next, espera, limpia el
+  // candado viejo y reintenta, SIN contar intento y sin descontar la espera del reloj de la etapa (candado-de-build.mjs).
+  const candado = contexto.config.candadoDeBuild ?? {};
+  const { valor } = await SERIE_DE_BUILDS.correr(cwd, () =>
+    conReintentoPorCandado(ejecutar, {
+      maximoEsperas: candado.maximoEsperas ?? 10,
+      esperaMs: (candado.esperaSegundos ?? 60) * 1000,
+      limpiar: () => cerrarRestos(contexto, cwd),
+      // La serie ya garantiza que no hay otro build de este proceso en esta carpeta: lo que quede es un resto viejo.
+      hayOtroBuild: () => false,
+      esperar: contexto.esperar,
+      extender: (ms) => reloj.extender(ms),
+      registro: contexto.registro,
+      senal: contexto.senal,
+    }),
+  );
+  return valor;
 }
+
+/** Los builds de este Coordinador: uno a la vez por carpeta (candado-de-build.mjs). */
+export const SERIE_DE_BUILDS = crearSerieDeBuilds();
 
 async function pasoSinTurno(contexto, comando, { cwd, reloj, que, motivo, entrada }) {
   const { config, senal } = contexto;
@@ -765,7 +788,9 @@ export function promptDePartir(tarjeta, repo, { causa, error, motor = "claude" }
       motor === "codex" ? "Estás en modo de solo lectura" : "Estás en modo plan"
     }: NO cambies ningún archivo, solo lee el código.`,
     contextoDeLaTarjeta(tarjeta),
-    tarjeta.plan ? `PLAN APROBADO (lo que hay que lograr entre todas las partes):\n${tarjeta.plan}` : "",
+    tarjeta.plan
+      ? `PLAN APROBADO (lo que hay que lograr entre todas las partes):\n${tarjeta.plan}`
+      : "Todavía NO hay plan: la tarea es muy grande para planearla de una sola vez (medida antes de planear). Divide la TAREA que pide el detalle; cada parte se planeará aparte después.",
     `Por qué no se pudo: ${causa || "(no se sabe)"}${error ? `\nÚltimo error:\n${recortar(error, 2000)}` : ""}`,
     [
       `Divide el trabajo en entre ${MINIMO_DE_PARTES} y ${MAXIMO_DE_PARTES} partes. Reglas:`,
@@ -1801,6 +1826,26 @@ export async function partirTarea(contexto, tarjeta, { causa = "", error = "" } 
   } finally {
     await quitarWorktree(repo, carpeta);
   }
+}
+
+/**
+ * MEDIR con Claude (26-oct-2026): cuando los puntos de medir.mjs no deciden (tarjeta "dudosa"), una consulta corta y barata
+ * (Haiku, de solo lectura, menos de 2 min) dice si la tarea cabe en UNA sesión de plan + construcción o hay que partirla.
+ * Devuelve "grande" | "chica" | null (sin respuesta útil). Puede lanzar (el bucle lo ignora y la deja como chica).
+ */
+export async function medirConClaude(contexto, tarjeta) {
+  const { config } = contexto;
+  const carpeta = path.join(config.carpetaTrabajo, "medir", idCorto(tarjeta.id));
+  fs.mkdirSync(carpeta, { recursive: true });
+  const prompt = [
+    "Eres el MEDIDOR del Coordinador del Tablero IA de Magilus. Decide si esta tarea cabe en UNA sola sesión de Claude Code (escribir el plan en menos de 19 minutos y construirlo en menos de 90) o si hay que partirla en tarjetas hijas más pequeñas. SOLO LEES el texto: no cambies nada ni corras comandos.",
+    `Tarea: ${tarjeta.titulo}\n\nDetalle:\n${recortar(String(tarjeta.detalle ?? ""), 6000)}`,
+    "Es GRANDE si toca muchos archivos (más de unos 15), mezcla una migración con una pantalla o un módulo nuevo, o junta varias cosas independientes. Contesta SOLO con una palabra: grande o chica.",
+  ].join("\n\n");
+  const modelo = modeloDelPaso(config, "leer");
+  const argumentos = ["-p", "--model", modelo, "--permission-mode", "plan", "--output-format", "text", "--disallowedTools", "Edit", "Write", "Bash", "WebFetch", "Read", "Grep"];
+  const texto = await claude(contexto, argumentos, prompt, { cwd: carpeta, timeoutMs: 2 * MINUTO, que: "medir el tamaño" });
+  return tamanoDeLaRespuesta(texto);
 }
 
 /**

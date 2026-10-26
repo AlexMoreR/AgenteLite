@@ -24,6 +24,7 @@ import {
   semaforoDeLaCarga,
   textoDelUso,
 } from "./reglas-coordinador-en-vivo";
+import { etiquetaEsperando, recogidaDelResultado } from "./reglas-trabajador";
 import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
 import { linkDeLaTarjeta } from "./tableros";
 
@@ -103,12 +104,17 @@ export type VistaDelCoordinador = {
   tareas: TareaEnVivo[];
   carga: CargaVista | null;
   fila: { siguientes: ItemDeFila[]; bloqueadas: ItemDeFila[] };
+  /** Las tarjetas del Coordinador en ERROR (26-oct-2026): cuántas son y cuáles (con la línea para el dueño, si la dejó). */
+  errores: { cantidad: number; tarjetas: ItemDeFila[] };
+  /** Las que esperan a otra tarjeta que no está HECHO: "Esperando a «X»" (o "…, que está en error"). Se calcula con las flechas, no es un estado. */
+  esperandoAOtra: { cantidad: number; tarjetas: ItemDeFila[] };
   hoy: HoyVista;
   uso: UsoDelLatido & { texto: string };
 };
 
 const ESTADOS_EN_MARCHA = ["PLANEANDO", "EN_CURSO", "SUBIENDO"] as const;
 const ESTADOS_DE_FILA = ["APROBADO", "PLAN_APROBADO", "SUBIENDO"] as const;
+const ESTADOS_EN_ERROR = ["ERROR"] as const;
 const ESTADOS_ESPERANDO_AL_DUENO = ["POR_APROBAR", "PLAN_LISTO", "POR_REVISAR"] as const;
 
 const MOTIVO_DEL_DUENO: Record<string, string> = {
@@ -134,9 +140,9 @@ async function tarjetasEnMarcha(workspaceId: string, ahora: Date) {
 async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map<string, string>) {
   const dependencias = {
     where: { esDependencia: true, origen: { borradoEn: null, estado: { not: "HECHO" as const }, tipo: { usaEstados: true } } },
-    select: { origen: { select: { titulo: true } } },
+    select: { origen: { select: { titulo: true, estado: true } } },
   };
-  const [paraTomar, esperandoAlDueno] = await Promise.all([
+  const [paraTomar, esperandoAlDueno, enError] = await Promise.all([
     prisma.tarjetaTablero.findMany({
       where: {
         tablero: { workspaceId },
@@ -165,10 +171,23 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
       take: MAXIMO_DE_FILA,
       select: { id: true, titulo: true, estado: true },
     }),
+    prisma.tarjetaTablero.findMany({
+      where: {
+        tablero: { workspaceId },
+        borradoEn: null,
+        repo: { not: null },
+        tipo: { requiereAprobacion: true, usaEstados: true },
+        estado: { in: [...ESTADOS_EN_ERROR] },
+      },
+      orderBy: { actualizadoEn: "asc" },
+      take: 50,
+      select: { id: true, titulo: true, estado: true, resultado: true },
+    }),
   ]);
 
   const siguientes: ItemDeFila[] = [];
   const bloqueadas: ItemDeFila[] = [];
+  const esperando: ItemDeFila[] = [];
   const item = (tarjeta: { id: string; titulo: string }, motivo: string | null): ItemDeFila => ({
     tarjetaId: tarjeta.id,
     titulo: tarjeta.titulo,
@@ -178,12 +197,22 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
   for (const tarjeta of paraTomar) {
     if (!(ESTADOS_DE_FILA as readonly string[]).includes(tarjeta.estado)) continue;
     const espera = tarjeta.entrantes[0]?.origen.titulo;
-    if (espera && tarjeta.estado !== "SUBIENDO") bloqueadas.push(item(tarjeta, `Espera a la tarjeta «${espera}»`));
+    if (espera && tarjeta.estado !== "SUBIENDO") {
+      bloqueadas.push(item(tarjeta, `Espera a la tarjeta «${espera}»`));
+      esperando.push(item(tarjeta, etiquetaEsperando(tarjeta.entrantes.map((entrante) => ({ titulo: entrante.origen.titulo, estado: entrante.origen.estado ?? "" })))));
+    }
     else if (esperas.has(tarjeta.id)) bloqueadas.push(item(tarjeta, esperas.get(tarjeta.id) || "Espera a que termine otra tarea"));
     else siguientes.push(item(tarjeta, null));
   }
   for (const tarjeta of esperandoAlDueno) bloqueadas.push(item(tarjeta, MOTIVO_DEL_DUENO[tarjeta.estado] ?? "Espera tu sí"));
-  return { siguientes: siguientes.slice(0, MAXIMO_DE_FILA), bloqueadas: bloqueadas.slice(0, MAXIMO_DE_FILA) };
+  // En ERROR: el motivo es la línea para el dueño que dejó la recogida diaria, si hay una.
+  const errores = enError.map((tarjeta) => item(tarjeta, recogidaDelResultado(tarjeta.resultado).linea));
+  return {
+    siguientes: siguientes.slice(0, MAXIMO_DE_FILA),
+    bloqueadas: bloqueadas.slice(0, MAXIMO_DE_FILA),
+    errores: { cantidad: errores.length, tarjetas: errores.slice(0, MAXIMO_DE_FILA) },
+    esperandoAOtra: { cantidad: esperando.length, tarjetas: esperando.slice(0, MAXIMO_DE_FILA) },
+  };
 }
 
 async function hoyDelCoordinador(workspaceId: string, ahora: Date): Promise<HoyVista> {
@@ -254,7 +283,9 @@ export async function vistaDelCoordinador(workspaceId: string, ahora = new Date(
     nombre: latido?.nombre ?? null,
     tareas,
     carga,
-    fila,
+    fila: { siguientes: fila.siguientes, bloqueadas: fila.bloqueadas },
+    errores: fila.errores,
+    esperandoAOtra: fila.esperandoAOtra,
     hoy,
     uso: { ...uso, texto: textoDelUso(uso, ahora) },
   };
@@ -290,6 +321,8 @@ export function textoDelCoordinador(vista: VistaDelCoordinador): string {
 
   if (vista.fila.siguientes.length) lineas.push(`Sigue en la fila: ${vista.fila.siguientes.map((item, i) => `${i + 1}. «${item.titulo}»`).join("; ")}.`);
   else lineas.push("La fila está vacía.");
+  lineas.push(`En error: ${vista.errores.cantidad}${vista.errores.cantidad ? ` — ${vista.errores.tarjetas.map((item) => `«${item.titulo}»${item.motivo ? ` (${item.motivo})` : ""}`).join("; ")}` : ""}.`);
+  lineas.push(`Esperando a otra: ${vista.esperandoAOtra.cantidad}${vista.esperandoAOtra.cantidad ? ` — ${vista.esperandoAOtra.tarjetas.map((item) => `«${item.titulo}» (${item.motivo ?? "espera"})`).join("; ")}` : ""}.`);
   if (vista.fila.bloqueadas.length) lineas.push(`Bloqueadas: ${vista.fila.bloqueadas.map((item) => `«${item.titulo}» (${item.motivo?.toLowerCase() ?? "espera"})`).join("; ")}.`);
 
   const { hoy } = vista;

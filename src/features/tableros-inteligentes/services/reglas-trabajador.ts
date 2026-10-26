@@ -269,7 +269,7 @@ export function opcionesDeTomar(pedido: PedidoDeTomar) {
 }
 
 
-export type AccionDelTrabajador = "latido" | "plan" | "resultado" | "subida" | "error" | "soltar" | "reparar" | "partir";
+export type AccionDelTrabajador = "latido" | "plan" | "resultado" | "subida" | "error" | "soltar" | "reparar" | "partir" | "depender" | "recoger";
 export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "latido",
   "plan",
@@ -279,6 +279,8 @@ export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "soltar",
   "reparar",
   "partir",
+  "depender",
+  "recoger",
 ];
 
 /**
@@ -303,9 +305,17 @@ export const TRANSICIONES_DEL_TRABAJADOR: Record<
   // (PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> PLAN_APROBADO: una subida que falló antes
   // del push se arregla reconstruyendo) y cuenta una reparación (tope TOPE_DE_REPARACIONES). a = null: depende de dónde estaba.
   reparar: { desde: ["PLANEANDO", "EN_CURSO", "SUBIENDO"], a: null },
-  // Partir: una tarjeta muy grande se divide en 2 a 4 partes en orden. Solo desde EN_CURSO (ya hay plan).
-  // La madre se queda EN_CURSO sin candado (nadie la toma) hasta que todas sus hijas estén HECHO.
-  partir: { desde: ["EN_CURSO"], a: null },
+  // Partir: una tarjeta muy grande se divide en 2 a 4 partes en orden. Desde EN_CURSO (ya hay plan: las hijas
+  // quedan PLAN_APROBADO con su parte como plan) y, desde el 26-oct-2026, también desde PLANEANDO: se mide el
+  // tamaño ANTES de planear y las hijas quedan APROBADO ("por planear"), sin plan copiado.
+  // La madre se queda donde estaba, sin candado (nadie la toma), hasta que todas sus hijas estén HECHO.
+  partir: { desde: ["PLANEANDO", "EN_CURSO"], a: null },
+  // Depender (26-oct-2026): al medir, la tarjeta nombra a otra como molde o requisito: se pone la flecha de dependencia
+  // y, si la otra no está HECHO, la tarjeta vuelve a la fila ("Esperando a «X»") sin ERROR y sin gastar el intento.
+  depender: { desde: ["APROBADO", "PLANEANDO"], a: null },
+  // Recoger (26-oct-2026): una vez al día el Coordinador revisa las tarjetas en ERROR; esta acción las reintenta, las
+  // parte o deja una línea para el dueño (la tarjeta sigue en ERROR). a = null: depende de la decisión.
+  recoger: { desde: ["ERROR"], a: null },
 };
 
 /** ¿Puede el Coordinador hacer `accion` con una tarjeta en `estado`? */
@@ -1106,4 +1116,87 @@ export function dependenciaHaceCiclo(
  */
 export function madreSeCierra(hijasVivas: readonly { estado: string }[]): boolean {
   return hijasVivas.length > 0 && hijasVivas.every((hija) => hija.estado === "HECHO");
+}
+
+
+/* ───────────────────────────────────────────────── esperando a otra, recoger errores viejos (26-oct-2026) ── */
+
+/** Cuántas veces se recoge una misma tarjeta en ERROR; la tercera falla se queda en ERROR con su línea. */
+export const TOPE_DE_RECOGIDAS_POR_TARJETA = 2;
+/** Cuántas tarjetas se recogen por día. */
+export const TOPE_DE_RECOGIDAS_POR_DIA = 6;
+
+/** Los estados desde los que una dependencia "está trabada": nadie la va a terminar sin que el dueño mire. */
+const ESTADOS_QUE_NO_AVANZAN = ["ERROR", "FALLIDO"] as const;
+
+/**
+ * La etiqueta "Esperando a «X»" de una tarjeta que depende de otras que no están HECHO. `origenes` son las tarjetas de
+ * las que depende (sin borrar y de un tipo con estados). null si no espera a nadie. Si alguna está en ERROR o FALLIDO
+ * lo dice: "Esperando a «X», que está en error" (así no se queda trabada para siempre sin que nadie lo sepa).
+ */
+export function etiquetaEsperando(origenes: readonly { titulo: string; estado: string }[]): string | null {
+  const pendientes = origenes.filter((origen) => origen.estado !== "HECHO");
+  if (!pendientes.length) return null;
+  const nombres = pendientes.map((origen) => `«${origen.titulo}»`);
+  const lista = nombres.length === 1 ? nombres[0] : `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
+  const trabadas = pendientes.filter((origen) => (ESTADOS_QUE_NO_AVANZAN as readonly string[]).includes(origen.estado));
+  if (!trabadas.length) return `Esperando a ${lista}`;
+  if (trabadas.length === 1 && pendientes.length === 1) {
+    return `Esperando a ${lista}, que está ${trabadas[0].estado === "ERROR" ? "en error" : "fallida"}`;
+  }
+  return `Esperando a ${lista}; ${trabadas.map((origen) => `«${origen.titulo}»`).join(" y ")} ${trabadas.length === 1 ? "está" : "están"} en error o fallidas`;
+}
+
+export type RecogidaDelResultado = { veces: number; ultima: string | null; linea: string | null };
+
+/** `resultado.recogida` de una tarjeta: cuántas veces se recogió, cuándo y la línea para el dueño (si dejó una). */
+export function recogidaDelResultado(resultado: unknown): RecogidaDelResultado {
+  const vacia: RecogidaDelResultado = { veces: 0, ultima: null, linea: null };
+  if (!resultado || typeof resultado !== "object" || Array.isArray(resultado)) return vacia;
+  const recogida = (resultado as Record<string, unknown>).recogida;
+  if (!recogida || typeof recogida !== "object" || Array.isArray(recogida)) return vacia;
+  const datos = recogida as Record<string, unknown>;
+  const veces = Number(datos.veces);
+  return {
+    veces: Number.isFinite(veces) && veces > 0 ? Math.floor(veces) : 0,
+    ultima: typeof datos.ultima === "string" ? datos.ultima : null,
+    linea: typeof datos.linea === "string" && datos.linea.trim() ? datos.linea : null,
+  };
+}
+
+export const DECISIONES_DE_RECOGER = ["reintentar", "partir", "dueno"] as const;
+export type DecisionDeRecoger = (typeof DECISIONES_DE_RECOGER)[number];
+
+/** La decisión que manda el Coordinador al recoger: null si no es una de la lista. */
+export function decisionDeRecogerDeEntrada(valor: unknown): DecisionDeRecoger | null {
+  const limpia = typeof valor === "string" ? valor.trim().toLowerCase() : "";
+  return (DECISIONES_DE_RECOGER as readonly string[]).includes(limpia) ? (limpia as DecisionDeRecoger) : null;
+}
+
+/** ¿Se puede recoger esta tarjeta? Máximo TOPE_DE_RECOGIDAS_POR_TARJETA veces. */
+export function puedeRecoger(resultado: unknown): Veredicto {
+  const { veces } = recogidaDelResultado(resultado);
+  if (veces >= TOPE_DE_RECOGIDAS_POR_TARJETA) {
+    return `Ya se recogió ${veces} veces: se queda en ERROR con su línea y no se reintenta sola otra vez.`;
+  }
+  return null;
+}
+
+/**
+ * A dónde vuelve una tarjeta en ERROR que se reintenta: con plan ya hecho vuelve a PLAN_APROBADO (a construir); sin plan,
+ * a APROBADO (a planear). El dueño ya había aprobado la tarea (y el plan, si lo hay) antes de que fallara.
+ */
+export function estadoTrasRecoger(plan: string | null | undefined): EstadoTarjetaTablero {
+  return plan && plan.trim() ? "PLAN_APROBADO" : "APROBADO";
+}
+
+/** El estado en que quedan las hijas de una partida: desde PLANEANDO (aún sin plan) APROBADO; desde EN_CURSO, PLAN_APROBADO. */
+export function estadoDeLasHijas(estadoDeLaMadre: EstadoTarjetaTablero): EstadoTarjetaTablero {
+  return estadoDeLaMadre === "PLANEANDO" ? "APROBADO" : "PLAN_APROBADO";
+}
+
+/** La línea para el dueño: una sola línea, de máximo 300 letras; "" si no vino. */
+export function lineaParaElDueno(valor: unknown): string {
+  const texto = typeof valor === "string" ? valor.replace(/\s+/g, " ").trim() : "";
+  return texto.slice(0, 300);
 }
