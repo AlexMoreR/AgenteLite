@@ -36,6 +36,8 @@ import {
   puedeReparar,
   registroDeAprobacion,
   resultadoDeEntrada,
+  fraseDeLaVigilancia,
+  vigilanciaDeEntrada,
   resumenDeEscalada,
   reversionDeEntrada,
   tituloDeLaParte,
@@ -43,6 +45,7 @@ import {
   vencimientoDelCandado,
   latidoDeEntrada,
   zonasDeEntrada,
+  zonasQuePidenTuSi,
   type AccionDeIntento,
   type AccionDelTrabajador,
   type CategoriaDeIntento,
@@ -731,12 +734,17 @@ export async function accionDelTrabajador(
       resultado.subeSolo = subeSolo;
       datos.resultado = resultado as unknown as Prisma.InputJsonValue;
       despues.resultado = resultado;
+      const zonasQueSuben = zonas.filter((zona) => !zonasQuePidenTuSi([zona]).length);
       despues.nota =
         a === "SUBIENDO"
-          ? "construido, sube solo"
-          : zonas.length
-            ? `construido, espera tu sí (zona ${zonas.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")})`
-            : "construido, espera tu sí";
+          ? zonasQueSuben.length
+            ? `construido, sube solo (zona ${zonasQueSuben.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")})`
+            : "construido, sube solo"
+          : resultado.esperaPor
+            ? `construido, espera tu sí (${resultado.esperaPor})`
+            : zonas.length
+              ? `construido, espera tu sí (zona ${zonas.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")})`
+              : "construido, espera tu sí";
     } else if (accion === "subida") {
       const subida = {
         commit: typeof cuerpo.commit === "string" ? cuerpo.commit.trim().slice(0, 80) : null,
@@ -748,6 +756,12 @@ export async function accionDelTrabajador(
       void _errorViejo;
       datos.resultado = { ...sinError, subida } as Prisma.InputJsonValue;
       despues.subida = subida;
+      // Las zonas que suben solas (bot, Meta Ads, libro V3) se vigilan 30 min: el Coordinador manda lo que vio.
+      const vigilancia = vigilanciaDeEntrada(cuerpo.vigilancia);
+      if (vigilancia) {
+        datos.resultado = { ...sinError, subida: { ...subida, vigilancia, resumenVigilancia: fraseDeLaVigilancia(vigilancia) } } as Prisma.InputJsonValue;
+        despues.vigilancia = vigilancia;
+      }
       despues.nota = `subido a main, commit ${subida.commit?.slice(0, 10) ?? "?"}; en producción, versión ${subida.version?.slice(0, 10) ?? "?"}`;
     } else if (accion === "error") {
       // Con `categoria` es una escalada del protocolo de reparación: el motivo es el resumen de máximo 3 líneas

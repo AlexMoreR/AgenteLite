@@ -7,7 +7,8 @@
   BAJO o ALTO. Una tarjeta sin riesgo cuenta como ALTO, y ante la duda es ALTO.
 
   Es ALTO si cumple CUALQUIERA de estas:
-  1. tiene zona protegida (CHATS, BOT_VENTAS, LIBRO_V3, META_ADS);
+  1. tiene zona protegida (CHATS, BOT_VENTAS, LIBRO_V3, META_ADS; ser ALTO no frena subir: BOT_VENTAS, META_ADS y
+     LIBRO_V3 suben solas desde el 24-oct-2026, ver ZONAS_QUE_SUBEN_SOLAS en reglas-trabajador.ts);
   2. habla de dinero (abonos, saldos, nómina, comisiones, facturación, pagos);
   3. habla de permisos, usuarios, contraseñas, claves o credenciales;
   4. envía mensajes a clientes;
@@ -300,6 +301,27 @@ const PALABRAS_DE_DINERO_DE_GESTION = /\b(abono\w*|saldo\w*|nomina\w*|comision\w
 const PALABRAS_DE_GASTO_EN_META =
   /\b(presupuesto\w*|budget\w*|(activ\w*|encend\w*|prend\w*|lanz\w*|reanud\w*|publica\w*|cre[ao]\w*) (las |los |la |el |una |un |nuevas? |nuevos? )?(campan\w*|anuncio\w*|ads)|(subir|aumentar|subid\w*|aument\w*|crear|cree|crea) (el |un |nuevo )?gasto\w*|gasto\w* (en|de|con) (meta|anuncio\w*|publicidad|ads)|gastar en (meta|anuncio\w*|publicidad|ads))\b/;
 
+/** La marca del plan para los cambios de Meta Ads que gastan plata (24-oct-2026): "GASTO EN META ADS: <qué>". */
+export const MARCA_GASTO_EN_META_ADS = "GASTO EN META ADS";
+
+const LINEA_GASTO_EN_META_ADS = /^[ \t>*_#-]*\**gasto en meta ads\**\s*[:.\u2014\u2013-]?\s*\**\s*(.*)$/;
+const SIN_GASTO = /^(no|ninguno|ninguna|sin|n\/a|cero)(?![a-z])/;
+
+/**
+ * ¿El plan declara una línea "GASTO EN META ADS: ..."? Es la forma en que el Coordinador dice que el cambio sube
+ * presupuesto, prende campañas, conjuntos o anuncios o crea gasto nuevo. "GASTO EN META ADS: no / ninguno" no cuenta.
+ * Devuelve lo que dijo (o la marca sola), o null si no la trae.
+ */
+export function gastoDeclaradoEnElPlan(plan: string): string | null {
+  for (const original of plan.replace(/\r\n/g, "\n").split("\n")) {
+    const calce = LINEA_GASTO_EN_META_ADS.exec(normalizar(original));
+    if (!calce) continue;
+    if (SIN_GASTO.test(calce[1].trim())) continue;
+    return calce[1].trim() ? `${MARCA_GASTO_EN_META_ADS}: ${original.replace(/^.*?gasto en meta ads[\s*:.\u2014\u2013-]*/i, "").replace(/\*+/g, "").trim()}` : MARCA_GASTO_EN_META_ADS;
+  }
+  return null;
+}
+
 /**
  * ¿El plan espera el sí del dueño aunque la tarea ya esté aprobada? Devuelve el motivo en una línea, o null
  * si el plan pasa solo a construir. Sin base: se prueba con `npm run test:tableros`.
@@ -308,6 +330,8 @@ export function porQueElPlanEsperaTuSi(plan: string): string | null {
   const linea = lineaAprobarPlan(plan);
   if (linea?.espera) return `el trabajador dice que espera tu sí${linea.motivo ? `: ${linea.motivo}` : ""}`.slice(0, 300);
   const texto = plan.replace(/\r\n/g, "\n");
+  const gasto = gastoDeclaradoEnElPlan(texto);
+  if (gasto) return `el plan declara gasto en Meta Ads (${gasto})`.slice(0, 300);
   // Archivos de dinero: las mismas rutas que ya vuelven ALTO una tarjeta.
   const dinero = motivosDeLosArchivos(rutasDelTexto(texto)).find((motivo) => motivo.startsWith("toca dinero"));
   if (dinero) return `el plan ${dinero}`.slice(0, 300);

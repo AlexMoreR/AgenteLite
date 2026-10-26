@@ -187,10 +187,26 @@ export function completarConfig(datos, base = process.cwd()) {
     if (subirSolo && clave === "aizencrm" && !(Array.isArray(zonasProtegidas.CHATS) && zonasProtegidas.CHATS.length)) {
       errores.push(`repos.${clave}.subirSolo está prendido pero falta la zona CHATS en zonasProtegidas: no se prende sin ella.`);
     }
+    // Zonas que suben solas (24-oct-2026): las mismas que ZONAS_QUE_SUBEN_SOLAS del CRM. Sin la lista, todas piden el sí.
+    const zonasQueSubenSolas = lista(repo.zonasQueSubenSolas).filter((zona) => typeof zona === "string" && zona.trim());
+    for (const zona of zonasQueSubenSolas) {
+      if (!(Array.isArray(zonasProtegidas[zona]) && zonasProtegidas[zona].length)) {
+        errores.push(`repos.${clave}.zonasQueSubenSolas: la zona ${zona} no tiene rutas en zonasProtegidas.`);
+      }
+    }
+    const vigilancia = {
+      minutos: Number(repo.vigilancia?.minutos) > 0 ? Number(repo.vigilancia.minutos) : 30,
+      cadaSegundos: Number(repo.vigilancia?.cadaSegundos) > 0 ? Number(repo.vigilancia.cadaSegundos) : 60,
+      // Cuántos errores nuevos en los logs (que no estaban antes de subir) hacen deshacer el cambio.
+      maxErroresNuevos: Number(repo.vigilancia?.maxErroresNuevos) >= 1 ? Math.floor(Number(repo.vigilancia.maxErroresNuevos)) : 3,
+    };
+    if (vigilancia.minutos > 40) errores.push(`repos.${clave}.vigilancia.minutos: de 1 a 40 (el candado de subir en el CRM es de 80 min).`);
     try {
       repos[clave] = {
         clave,
         subirSolo,
+        zonasQueSubenSolas,
+        vigilancia,
         // "dueño/repo" en GitHub: la vigilancia de la rama en la nube lo usa (si falta, se saca del remoto).
         github: typeof repo.github === "string" && /^[\w.-]+\/[\w.-]+$/.test(repo.github) ? repo.github : null,
         ruta: path.resolve(base, repo.ruta),
@@ -232,8 +248,21 @@ export function completarConfig(datos, base = process.cwd()) {
 
   const ssh =
     datos.ssh && typeof datos.ssh.destino === "string" && typeof datos.ssh.psql === "string"
-      ? { comando: comando(datos.ssh.comando, "ssh.comando") ?? ["ssh"], destino: datos.ssh.destino, psql: datos.ssh.psql }
+      ? {
+          comando: comando(datos.ssh.comando, "ssh.comando") ?? ["ssh"],
+          destino: datos.ssh.destino,
+          psql: datos.ssh.psql,
+          // Vigilancia de 30 min (zonas que suben solas): el comando remoto que imprime los últimos logs del contenedor
+          // y el que dice si sigue corriendo ("true <reinicios>"). Solo lectura.
+          logs: typeof datos.ssh.logs === "string" && datos.ssh.logs.trim() ? datos.ssh.logs.trim() : null,
+          estado: typeof datos.ssh.estado === "string" && datos.ssh.estado.trim() ? datos.ssh.estado.trim() : null,
+        }
       : null;
+  for (const repo of Object.values(repos)) {
+    if (repo.zonasQueSubenSolas.length && !ssh?.logs) {
+      errores.push(`repos.${repo.clave}.zonasQueSubenSolas necesita ssh.logs (el comando que lee los logs): sin vigilancia de 30 minutos no suben solas.`);
+    }
+  }
 
   const maxParalelo = datos.maxParalelo === undefined ? 2 : Math.floor(Number(datos.maxParalelo));
   if (!Number.isFinite(maxParalelo) || maxParalelo < 1 || maxParalelo > MAXIMO_EN_PARALELO) {

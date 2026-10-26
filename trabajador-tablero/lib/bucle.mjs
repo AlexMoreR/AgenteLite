@@ -152,7 +152,7 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     let respuesta;
     if (hacer === "planear") respuesta = await crm.plan(tarjeta.id, salida.plan);
     else if (hacer === "construir") respuesta = await crm.resultado(tarjeta.id, salida);
-    else respuesta = await crm.subida(tarjeta.id, { commit: salida.commit, version: salida.version, linkCommit: salida.linkCommit });
+    else respuesta = await crm.subida(tarjeta.id, { commit: salida.commit, version: salida.version, linkCommit: salida.linkCommit, ...(salida.vigilancia ? { vigilancia: salida.vigilancia } : {}) });
     const conMotor =
       hacer === "planear"
         ? `, motor: ${salida.motor}${salida.modelo ? ` (${nombreDelModelo(salida.modelo)})` : ""}`

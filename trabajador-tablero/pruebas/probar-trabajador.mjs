@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
 import { crearVigilante, sumarDescendientes } from "../lib/atasco.mjs";
-import { crearPlanificador, crearSemaforo, unaVuelta } from "../lib/bucle.mjs";
+import { crearPlanificador, crearSemaforo, procesar, unaVuelta } from "../lib/bucle.mjs";
 import { PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
@@ -1024,7 +1024,7 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     if (cuerpo.zonaProtegida) tarjeta.zonaProtegida = reglas.unirZonas(tarjeta.zonaProtegida, reglas.zonasDeEntrada(cuerpo.zonaProtegida));
     tarjeta.estado = reglas.destinoDelResultado({ ...tarjeta.resultado, zonaProtegida: tarjeta.zonaProtegida });
   }
-  if (accion === "subida") tarjeta.resultado = { ...tarjeta.resultado, subida: { commit: cuerpo.commit, version: cuerpo.version, linkCommit: cuerpo.linkCommit } };
+  if (accion === "subida") tarjeta.resultado = { ...tarjeta.resultado, subida: { commit: cuerpo.commit, version: cuerpo.version, linkCommit: cuerpo.linkCommit, ...(cuerpo.vigilancia ? { vigilancia: reglas.vigilanciaDeEntrada(cuerpo.vigilancia) } : {}) } };
   if (accion === "error") {
     tarjeta.resultado = { ...(tarjeta.resultado ?? {}), error: { motivo: reglas.motivoDeEntrada(cuerpo.motivo) } };
     if (cuerpo.zonaProtegida) tarjeta.zonaProtegida = reglas.unirZonas(tarjeta.zonaProtegida, reglas.zonasDeEntrada(cuerpo.zonaProtegida));
@@ -1054,7 +1054,7 @@ const crearConfig = (tiempos = {}, delRepo = {}, extra = {}) =>
     ...extra,
     tiempos: { latidoSegundos: 1, planMinutos: 0.3, construirMinutos: 1, subirMinutos: 1, comandoMinutos: 1, ...tiempos },
     git: { nombre: "Trabajador de prueba", correo: "trabajador@x.co" },
-    ssh: { comando: [node, falso("ssh-falso.mjs")], destino: "prueba@servidor-falso", psql: "psql -U postgres" },
+    ssh: { comando: [node, falso("ssh-falso.mjs")], destino: "prueba@servidor-falso", psql: "psql -U postgres", logs: "logs-falso", estado: "estado-falso" },
     repos: {
       aizencrm: {
         ruta: REPO,
@@ -1219,6 +1219,156 @@ try {
     const resultado = await vuelta();
     assert.equal(resultado.ok, true, resultado.motivo);
     assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    sinRestos();
+  });
+
+  // ── Zonas que suben solas (24-oct-2026): bot de ventas, Meta Ads y libro V3 ──
+  const SOLAS = { subirSolo: true, zonasQueSubenSolas: ["BOT_VENTAS", "META_ADS", "LIBRO_V3"], vigilancia: { minutos: 0.02, cadaSegundos: 0.3, maxErroresNuevos: 2 } };
+  const configSolas = () => crearConfig({}, SOLAS);
+  const conteoLogs = path.join(T, "ssh.log.conteo-logs");
+  const reiniciarLogs = () => fs.rmSync(conteoLogs, { force: true });
+
+  await prueba("zonas que suben solas: la configuración exige ssh.logs y rutas de cada zona", async () => {
+    const base = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "config.example.json"), "utf8"));
+    assert.ok(Array.isArray(base.repos.aizencrm.zonasQueSubenSolas));
+    assert.throws(() => completarConfig({ ...config, ssh: { ...config.ssh, logs: undefined }, repos: { aizencrm: { ...SOLAS, ruta: REPO, zonasProtegidas: { BOT_VENTAS: ["src/bot/**"] } } } }));
+  });
+
+  for (const [etiqueta, zona, archivo] of [
+    ["bot de ventas", "BOT_VENTAS", "src/bot/respuesta.ts"],
+    ["libro V3", "LIBRO_V3", "src/agente-v3/libro.ts"],
+    ["Meta Ads (solo lectura)", "META_ADS", "src/ads/lectura.ts"],
+  ]) {
+    const marca = { BOT_VENTAS: "[solas-bot]", LIBRO_V3: "[solas-v3]", META_ADS: "[solas-ads]" }[zona];
+    await prueba(`${etiqueta}: construye, queda SUBIENDO sola, sube a main, vigila y dice "Subió sola (zona …) — vigilancia OK"`, async () => {
+      reiniciarLogs();
+      const id = nueva(`Cambio de ${etiqueta} ${marca}`, "PLAN_APROBADO", { plan: "El plan" });
+      const mainAhora = shaDe("main");
+      const construccion = await vuelta(configSolas());
+      assert.equal(construccion.ok, true, construccion.motivo);
+      const t = tarjetas.get(id);
+      assert.equal(t.estado, "SUBIENDO", "sube sola, sin el sí del dueño");
+      assert.equal(t.resultado.subeSolo, true);
+      assert.deepEqual(t.zonaProtegida, [zona]);
+      assert.equal(shaDe("main"), mainAhora, "construir no toca main");
+      const subida = await vuelta(configSolas());
+      assert.equal(subida.hizo, "subir");
+      assert.equal(subida.ok, true, subida.motivo);
+      assert.equal(t.estado, "HECHO");
+      assert.notEqual(shaDe("main"), mainAhora);
+      assert.ok(g(REPO, "show", `origin/main:${archivo}`).length > 0, "el archivo llegó a main");
+      assert.equal(t.resultado.subida.vigilancia.ok, true);
+      assert.equal(t.resultado.subida.vigilancia.zona, zona);
+      assert.ok(leerLog(LOGS.ssh).filter((l) => l.remoto === "logs-falso").length >= 2, "leyó los logs antes y durante la vigilancia");
+      sinRestos();
+    });
+  }
+
+  await prueba("zonas que suben solas: Meta Ads con daily_budget / ACTIVE queda POR_REVISAR esperando el sí (gasto)", async () => {
+    const id = nueva("Subir presupuesto [solas-ads-gasto]", "PLAN_APROBADO", { plan: "El plan" });
+    const mainAhora = shaDe("main");
+    const resultado = await vuelta(configSolas());
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.equal(t.resultado.subeSolo, false);
+    assert.match(t.resultado.esperaPor, /gasto en Meta Ads \(daily_budget, pasa algo a ACTIVE\)/);
+    assert.match(t.resultado.pruebas, /espera tu sí \(gasto en Meta Ads/);
+    assert.equal(shaDe("main"), mainAhora);
+    sinRestos();
+  });
+
+  await prueba("zonas que suben solas: un plan con la línea GASTO EN META ADS espera aunque el código no tenga las palabras", async () => {
+    const id = nueva("Cambio de anuncios [solas-ads]", "PLAN_APROBADO", { plan: "GASTO EN META ADS: crea una campaña nueva\nEl plan" });
+    const resultado = await vuelta(configSolas());
+    assert.equal(resultado.ok, true, resultado.motivo);
+    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    assert.match(tarjetas.get(id).resultado.esperaPor, /el plan lo declara/);
+    sinRestos();
+  });
+
+  await prueba("zonas que suben solas: libro V3 sin la simulación V3 y bot sin la prueba de mensajes esperan el sí", async () => {
+    const v3 = nueva("Libro sin simular [solas-v3-sin]", "PLAN_APROBADO", { plan: "El plan" });
+    assert.equal((await vuelta(configSolas())).ok, true);
+    assert.equal(tarjetas.get(v3).estado, "POR_REVISAR");
+    assert.match(tarjetas.get(v3).resultado.esperaPor, /falta la simulación V3/);
+    const bot = nueva("Bot sin probar [solas-bot-sin]", "PLAN_APROBADO", { plan: "El plan" });
+    assert.equal((await vuelta(configSolas())).ok, true);
+    assert.equal(tarjetas.get(bot).estado, "POR_REVISAR");
+    assert.match(tarjetas.get(bot).resultado.esperaPor, /mensajes nuevos a clientes/);
+    sinRestos();
+  });
+
+  await prueba("zonas que suben solas: un envío nuevo de mensaje en el bot que el plan no menciona no sube solo", async () => {
+    const id = nueva("Bot con aviso [solas-bot] [solas-bot-envio]", "PLAN_APROBADO", { plan: "Cambiar el saludo." });
+    assert.equal((await vuelta(configSolas())).ok, true);
+    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    assert.match(tarjetas.get(id).resultado.esperaPor, /envío de mensaje que el plan no menciona/);
+    sinRestos();
+  });
+
+  await prueba("zonas que suben solas: CHATS sigue esperando el sí del dueño (aunque la lista tenga las otras tres)", async () => {
+    const id = nueva("Cambio en chats [solas-chats]", "PLAN_APROBADO", { plan: "El plan" });
+    assert.equal((await vuelta(configSolas())).ok, true);
+    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    assert.equal(tarjetas.get(id).resultado.subeSolo, false);
+    assert.deepEqual(tarjetas.get(id).zonaProtegida, ["CHATS"]);
+    sinRestos();
+  });
+
+  await prueba("zonas que suben solas: si en la vigilancia aparecen errores nuevos, se deshace con un commit nuevo (sin force-push) y queda 'Revertida'", async () => {
+    reiniciarLogs();
+    const id = nueva("Bot que rompe [solas-bot]", "PLAN_APROBADO", { plan: "El plan" });
+    assert.equal((await vuelta(configSolas())).ok, true);
+    assert.equal(tarjetas.get(id).estado, "SUBIENDO");
+    const antes = shaDe("main");
+    process.env.SSH_FALSO_ERRORES = "1";
+    let resultado;
+    try {
+      resultado = await vuelta(configSolas());
+    } finally {
+      delete process.env.SSH_FALSO_ERRORES;
+    }
+    assert.equal(resultado.ok, false);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, /Revertida|error\(es\) nuevo\(s\)/);
+    // main tiene el commit de la tarjeta Y encima un revert nuevo (historia intacta: sin force-push).
+    g(REPO, "fetch", "origin");
+    const log = g(REPO, "log", "--format=%s", "-8", "origin/main");
+    assert.match(log, /^revert: deshacer [0-9a-f]{10} \(la vigilancia de 30 min vio una falla\)/m);
+    assert.notEqual(shaDe("main"), antes, "main avanzó con el revert");
+    assert.equal(g(REPO, "merge-base", "--is-ancestor", antes, "origin/main"), "", "el commit subido sigue en la historia de main");
+    assert.equal(llamadas.findLast((l) => l.accion === "error" && l.id === id).cuerpo.reversion.ok, true, "el CRM supo de la reversión");
+    assert.match(llamadas.findLast((l) => l.accion === "error" && l.id === id).cuerpo.motivo, /[Rr]evertida/);
+    sinRestos();
+  });
+
+  await prueba("zonas que suben solas: mientras una tarjeta se vigila no sube otra (queda esperando su turno)", async () => {
+    reiniciarLogs();
+    const a = nueva("Bot A [solas-bot]", "PLAN_APROBADO", { plan: "El plan" });
+    const b = nueva("Cambio común B", "PLAN_APROBADO", { plan: "El plan" });
+    assert.equal((await vuelta(configSolas())).ok, true);
+    assert.equal(tarjetas.get(a).estado, "SUBIENDO");
+    // Se aparta A un momento para que el Coordinador construya B (una SUBIENDO se toma antes que cualquier otra).
+    tarjetas.get(a).estado = "POR_REVISAR";
+    assert.equal((await vuelta(configSolas())).ok, true);
+    tarjetas.get(a).estado = "SUBIENDO";
+    assert.equal(tarjetas.get(b).estado, "SUBIENDO");
+    const largo = crearConfig({}, { ...SOLAS, vigilancia: { minutos: 0.05, cadaSegundos: 0.5, maxErroresNuevos: 2 } });
+    const t0 = Date.now();
+    const primera = await crm.tomar({ maxParalelo: 2 });
+    const segunda = await crm.tomar({ maxParalelo: 2 });
+    assert.deepEqual([primera.hacer, segunda.hacer], ["subir", "subir"]);
+    const [ra, rb] = await Promise.all([
+      procesar({ crm, config: largo, registro }, primera.tarjeta, "subir"),
+      procesar({ crm, config: largo, registro }, segunda.tarjeta, "subir"),
+    ]);
+    assert.equal(ra.ok, true, ra.motivo);
+    assert.equal(rb.ok, true, rb.motivo);
+    assert.ok(Date.now() - t0 >= 3000, "la segunda esperó a que la primera terminara su vigilancia de 3 s");
+    assert.equal(tarjetas.get(a).estado, "HECHO");
+    assert.equal(tarjetas.get(b).estado, "HECHO");
     sinRestos();
   });
 

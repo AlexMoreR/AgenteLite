@@ -19,6 +19,7 @@ import {
   NOMBRE_DEL_REPO,
   esRepo,
   esZona,
+  zonasQuePidenTuSi,
   type MomentoDeAprobacion,
 } from "../services/reglas-trabajador";
 import { dondeSeConstruyo, textoDeModelos } from "../services/modelos-del-coordinador";
@@ -40,7 +41,9 @@ import type { TarjetaVista } from "../services/tableros";
     ("Se sube a producción. ¿Seguro?"), sin window.confirm. Con zona protegida también sale: la
     aprobación en pantalla es justo lo que esas zonas exigen. Desde el 21-oct-2026 lo normal es que suba
     sola (EN_CURSO -> SUBIENDO -> HECHO, con el link del commit); POR_REVISAR queda para las que tocan
-    una zona protegida (chats, agentes, libro V3, Meta Ads) y acá se dice cuál.
+    chats (el bot de ventas, Meta Ads y el libro V3 suben solos desde el 24-oct-2026, con vigilancia de
+    30 minutos: "Subió sola (zona X) — vigilancia 30 min OK" o "Revertida: motivo") o lo que gasta plata
+    en Meta Ads, y acá se dice cuál.
   - "Reintentar" (ERROR): con el plan que ya tiene (si tiene) o planeando de nuevo.
   - "Marcar hecho a mano" (ERROR, FALLIDO o POR_REVISAR, con repo): SOLO el dueño. Abre un panel con la
     nota (obligatoria) y el commit (opcional); el servidor revisa todo (puedeMarcarHechoAMano).
@@ -86,6 +89,8 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
   const [commit, setCommit] = useState("");
   const resultado = tarjeta.resultado;
   const conZona = tarjeta.zonaProtegida.length > 0;
+  // Bot de ventas, Meta Ads y libro V3 ya no piden el sí final (24-oct-2026): suben solas. Solo chats lo sigue pidiendo.
+  const zonasQuePiden = zonasQuePidenTuSi(tarjeta.zonaProtegida);
   // Con zona protegida aprueba solo el dueño (lo dice el servidor; acá solo no se ofrece el botón).
   const puedeEstaTarjeta = puedeAprobar && (!conZona || esDueno);
 
@@ -227,7 +232,16 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
         </div>
       ) : null}
 
-      {conZona ? espera("Toca una zona protegida: se aprueba solo en esta pantalla, y solo el dueño.") : null}
+      {zonasQuePiden.length ? espera("Toca una zona protegida (chats): se aprueba solo en esta pantalla, y solo el dueño.") : null}
+      {conZona && !zonasQuePiden.length
+        ? espera("Zona protegida que sube sola: si compila y pasa las pruebas sube sin tu sí, y el Coordinador vigila 30 minutos. Lo que gasta plata en Meta Ads sí espera tu sí.")
+        : null}
+      {resultado?.subida?.resumenVigilancia ? (
+        <p className="rounded-lg border border-primary/40 px-3 py-2 text-xs font-medium">{resultado.subida.resumenVigilancia}</p>
+      ) : null}
+      {estado === "ERROR" && resultado?.error?.motivo?.startsWith("Revertida:") ? (
+        <p className="rounded-lg border border-destructive/40 px-3 py-2 text-xs font-medium">{resultado.error.motivo.split("\n")[0]}</p>
+      ) : null}
 
       {estado === "POR_APROBAR" ? (
         puedeEstaTarjeta ? (

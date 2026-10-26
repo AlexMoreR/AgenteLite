@@ -206,6 +206,21 @@ if (titulo.includes("[atascado]")) {
   if (prompt.includes("REPARACIÓN")) fs.rmSync("ROMPER_TSC", { force: true });
   else escribir("ROMPER_TSC", "sí\n");
   escribir(`cambio-${Date.now()}.txt`, `${titulo}\n`);
+} else if (titulo.includes("[solas-bot")) {
+  // Zonas que suben solas (24-oct-2026): [solas-bot] deja la prueba de "sin mensajes nuevos"; [solas-bot-sin] no.
+  escribir("src/bot/respuesta.ts", `export const saludo = 'hola ${Date.now()}';\n`);
+  if (!titulo.includes("[solas-bot-sin]")) console.log("✔ sin mensajes nuevos a clientes");
+  if (titulo.includes("[solas-bot-envio]")) escribir("src/bot/aviso.ts", `export const avisar = (x: string) => sendMessage(x); // ${Date.now()}\n`);
+} else if (titulo.includes("[solas-v3")) {
+  escribir("src/agente-v3/libro.ts", `export const libro = 'v3 ${Date.now()}';\n`);
+  if (!titulo.includes("[solas-v3-sin]")) console.log("✔ simulación V3: sin cambios fuera de lo pedido\nversión anterior del libro: 7");
+} else if (titulo.includes("[solas-ads-gasto]")) {
+  escribir("src/ads/campana.ts", `export const cuerpo = { daily_budget: ${Date.now()}, status: 'ACTIVE' };\n`);
+} else if (titulo.includes("[solas-ads")) {
+  escribir("src/ads/lectura.ts", `export const leer = () => 'reporte ${Date.now()}';\n`);
+} else if (titulo.includes("[solas-chats]")) {
+  escribir("src/chats/bandeja.ts", `export const x = ${Date.now()};\n`);
+  console.log("✔ sin mensajes nuevos a clientes");
 } else if (titulo.includes("[zona]")) escribir("src/bot/respuesta.ts", "export const saludo = 'hola';\n");
 else if (titulo.includes("[tsc]")) escribir("ROMPER_TSC", "sí\n");
 else if (titulo.includes("[lint]")) escribir("nuevo.txt", "ERROR_LINT\n");
