@@ -8,6 +8,8 @@ import {
   leerResumenAGuardar,
   type Area,
 } from "@/features/agentes-de-area/dominio/reglas";
+import { ETIQUETA_DE_AGENTE, leerPedidoDeDatoViejo } from "@/features/agentes-de-area/dominio/cerebro-del-area";
+import { anotarAprendizaje, leerCerebroDelArea, marcarDatoViejo } from "@/features/agentes-de-area/servicios/cerebro-del-area";
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { mandarWhatsAppAlEquipo } from "@/features/agentes-de-area/servicios/envios";
 import { numerosDeMarketing } from "@/features/agentes-de-area/servicios/numeros-de-marketing";
@@ -43,6 +45,12 @@ import { puedeVerElSupervisor } from "@/lib/mcp/supervisor";
     - revision_de_sistemas (lee)   → tarjetas HECHO de 24 h con su commit, atascadas, en ERROR, si el trabajador está vivo y (dias) lo subido y su uso.
     - agente_de_sistemas (lee)     → el estado, el resumen de hoy, su línea, qué falla, lo atascado y el último informe de Uso.
   Su resumen se guarda con guardar_resumen_del_dia (area = "sistemas"); su línea va en el mensaje de las 7:30 si su interruptor está prendido.
+
+  Los tres leen el CEREBRO (la carpeta "Magilus" del Drive) antes de recomendar, SOLO su parte:
+    - cerebro_del_area (lee)             → sus carpetas + Decisiones de Magilus + su "Aprendizajes de <área>"; rechaza lo demás.
+    - cerebro_anotar_aprendizaje (escribe) → SOLO agrega al final de aprendizajes-AAAA-MM.md en su carpeta de aprendizajes.
+    - cerebro_marcar_dato_viejo (escribe)  → alerta Observación en el Supervisor cuando el cerebro choca con el CRM o Gestión.
+  Ninguna cambia un dato ni escribe decisiones. Ver features/agentes-de-area/servicios/cerebro-del-area.ts.
 
   Nunca le escribe a un cliente. No toca el bot, el libro V3, los flujos ni Meta Ads.
 */
@@ -226,6 +234,60 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
       additionalProperties: false,
     },
     annotations: SOLO_LECTURA,
+  },
+  {
+    name: "cerebro_del_area",
+    title: "Consultar el cerebro de mi área",
+    description:
+      "El cerebro del negocio (carpeta Magilus del Drive) pero SOLO la parte de tu área, para consultarlo ANTES de recomendar: Ventas lee Ventas, Precios y Equipo; Marketing lee Marketing y Precios; Sistemas lee Tecnología; los tres leen además \"Decisiones de Magilus\" y su propia carpeta \"Aprendizajes de <área>\". Sin más datos devuelve la lista de tus documentos y el texto de las decisiones. Con busqueda trae los mejores fragmentos; con documento_id lee un documento completo. Un documento de otra carpeta se rechaza. Cita el documento (su ruta) en tu recomendación y no contradigas las decisiones. Solo lectura.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        area: { type: "string", enum: ["ventas", "marketing", "sistemas"], description: "Tu área." },
+        busqueda: { type: "string", description: "Opcional: palabras a buscar en tus carpetas." },
+        documento_id: { type: "string", description: "Opcional: el id de un documento de tu lista, para leerlo completo." },
+        desde_drive: { type: "boolean", description: "true = leerlo ahora del Drive. Por defecto, la copia de la última sincronización." },
+      },
+      required: ["area"],
+      additionalProperties: false,
+    },
+    annotations: SOLO_LECTURA,
+  },
+  {
+    name: "cerebro_anotar_aprendizaje",
+    title: "Anotar un aprendizaje en el cerebro",
+    description:
+      "Anota lo que descubriste (unas pocas líneas, con fecha) en el cerebro, SOLO en tu carpeta \"Aprendizajes de <área>\": el servidor lo AGREGA al final del archivo aprendizajes-AAAA-MM.md del mes (lo crea si falta). Nunca reemplaza ni borra, nunca escribe en \"Decisiones de Magilus\" ni en otra carpeta, y si la carpeta de aprendizajes no existe en el Drive no la crea: avisa para que el dueño la cree. Cada anotación queda en el registro de cambios del cerebro. Como máximo unas pocas líneas al día.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        area: { type: "string", enum: ["ventas", "marketing", "sistemas"], description: "Tu área." },
+        texto: { type: "string", description: "Lo que descubriste, claro y corto (máximo 1.500 letras). Sin decisiones del negocio." },
+      },
+      required: ["area", "texto"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "cerebro_marcar_dato_viejo",
+    title: "Marcar un posible dato viejo",
+    description:
+      "Cuando lo que dice el cerebro choca con un dato del CRM o de Gestión, márcalo aquí y NO cambies nada: crea una alerta en la página del Supervisor (familia CEREBRO, nivel Observación, sin push ni WhatsApp) titulada \"Posible dato viejo: …\". Hay una sola alerta abierta por documento y dato: si la vuelves a marcar, solo suma \"vista N veces\". El dueño decide cuál dato está al día. No cambia ningún dato.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        area: { type: "string", enum: ["ventas", "marketing", "sistemas"], description: "Tu área." },
+        documento: { type: "string", description: "La ruta del documento del cerebro, tal como la dio cerebro_del_area (ej. 'Precios/Lista de precios.md')." },
+        dato: { type: "string", description: "Nombre corto del dato que choca (ej. 'precio de la camilla'). Por defecto, lo que dice el cerebro." },
+        lo_que_dice_el_cerebro: { type: "string", description: "Lo que dice el cerebro." },
+        lo_que_dice_el_sistema: { type: "string", description: "Lo que dice el CRM o Gestión." },
+        fuente: { type: "string", enum: ["crm", "gestion"], description: "De cuál salió el dato que choca." },
+      },
+      required: ["area", "documento", "lo_que_dice_el_cerebro", "lo_que_dice_el_sistema", "fuente"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "agente_de_ventas",
@@ -442,6 +504,42 @@ async function verAgente(args: Argumentos, contexto: Contexto, area: Area = "ven
   };
 }
 
+/** El área de las herramientas del cerebro: la dice el agente (los tres usan la misma clave), así que se valida. */
+function leerAreaDelCerebro(args: Argumentos): Area {
+  if (!esArea(args.area)) throw new Error('El área tiene que ser "ventas", "marketing" o "sistemas".');
+  return args.area;
+}
+
+const texto = (valor: unknown) => (typeof valor === "string" ? valor.trim() : "");
+
+async function verCerebroDelArea(args: Argumentos, contexto: Contexto) {
+  await exigirPermiso(contexto);
+  const area = leerAreaDelCerebro(args);
+  return leerCerebroDelArea(contexto.workspaceId, {
+    area,
+    busqueda: texto(args.busqueda),
+    documentoId: texto(args.documento_id),
+    desdeDrive: args.desde_drive === true,
+  });
+}
+
+async function anotarEnElCerebro(args: Argumentos, contexto: Contexto) {
+  await exigirPermiso(contexto);
+  const area = leerAreaDelCerebro(args);
+  const resultado = await anotarAprendizaje({ workspaceId: contexto.workspaceId, userId: contexto.userId, area, texto: args.texto });
+  return resultado.anotado
+    ? { ...resultado, nota: `Anotado por el ${ETIQUETA_DE_AGENTE[area]}. Solo se agregó al final; nada se reemplazó ni se borró.` }
+    : resultado;
+}
+
+async function marcarDatoViejoDelCerebro(args: Argumentos, contexto: Contexto) {
+  await exigirPermiso(contexto);
+  const area = leerAreaDelCerebro(args);
+  const leido = leerPedidoDeDatoViejo(area, args);
+  if (!leido.ok) throw new Error(leido.error);
+  return marcarDatoViejo(contexto.workspaceId, leido.pedido);
+}
+
 export async function ejecutarHerramientaMcpAgentesDeArea(nombre: string, argumentos: Argumentos, contexto: Contexto): Promise<unknown> {
   switch (nombre) {
     case "numeros_de_ventas":
@@ -460,6 +558,12 @@ export async function ejecutarHerramientaMcpAgentesDeArea(nombre: string, argume
       return verAgente(argumentos, contexto, "sistemas");
     case "agente_de_ventas":
       return verAgente(argumentos, contexto);
+    case "cerebro_del_area":
+      return verCerebroDelArea(argumentos, contexto);
+    case "cerebro_anotar_aprendizaje":
+      return anotarEnElCerebro(argumentos, contexto);
+    case "cerebro_marcar_dato_viejo":
+      return marcarDatoViejoDelCerebro(argumentos, contexto);
     default:
       throw new Error(`No existe la herramienta "${nombre}".`);
   }

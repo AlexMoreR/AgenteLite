@@ -19,6 +19,9 @@
       "mcp__aizencrm__ver_historial_tarjeta",
       "mcp__aizencrm__ver_coordinador",
       "mcp__aizencrm__resumen_del_negocio",
+      "mcp__aizencrm__cerebro_del_area",
+      "mcp__aizencrm__cerebro_anotar_aprendizaje",
+      "mcp__aizencrm__cerebro_marcar_dato_viejo",
       "mcp__gestion"
     ],
     "deny": [
@@ -40,6 +43,10 @@
       "mcp__aizencrm__renombrar_tablero",
       "mcp__aizencrm__crear_tipo",
       "mcp__aizencrm__editar_tipo",
+      "mcp__aizencrm__cerebro_listar",
+      "mcp__aizencrm__cerebro_buscar",
+      "mcp__aizencrm__cerebro_leer",
+      "mcp__aizencrm__cerebro_escribir",
       "mcp__aizencrm__mandar_whatsapp_al_equipo"
     ]
   }

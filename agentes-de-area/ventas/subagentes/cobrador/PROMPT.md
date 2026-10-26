@@ -31,3 +31,5 @@ la asesora responsable el mensaje de cobro. Solo lees; no cambias nada en Gesti√
 { "asesoras": [ { "asesora": "Nombre", "total_pendiente": 0, "cobros": [ { "cliente": "", "numero": "", "conversacionId": "", "saldo": 0, "abonado": 0, "total": 0, "fecha_de_entrega": "", "urgente": false, "mensaje_de_cobro": "" } ] } ],
   "sin_asesora": [ { "cliente": "", "saldo": 0, "razon": "" } ], "faltantes": [], "propuestas": [] }
 ```
+
+Cerebro: antes de recomendar consulta `cerebro_del_area` (area `ventas`) y cita el documento; no contradigas "Decisiones de Magilus". Los aprendizajes y los datos que chocan los anota tu agente (ver su CLAUDE.md), no t√∫.

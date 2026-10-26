@@ -52,7 +52,7 @@ if (process.argv.includes("--claude-falso")) {
 }
 
 /* ───────────────────────────────────────────────────────────── las pruebas ── */
-const { correrAgente, argumentosDeClaude, llamarMcp, leerMensajes, decidirCorrida, entornoDeClaude, lineaDeMarketing, conLineaDeMarketing, lineaDeSistemas, conLineaDeSistemas, BASH_DE_SISTEMAS, PROHIBIDAS_DE_SISTEMAS } = await import("../correr-agente.mjs");
+const { correrAgente, argumentosDeClaude, llamarMcp, leerMensajes, decidirCorrida, entornoDeClaude, lineaDeMarketing, conLineaDeMarketing, lineaDeSistemas, conLineaDeSistemas, BASH_DE_SISTEMAS, PROHIBIDAS_DE_SISTEMAS, CEREBRO_DEL_AREA, PROHIBIDAS_DEL_CEREBRO_GENERAL } = await import("../correr-agente.mjs");
 const { META_ESCRITURA, META_LECTURA } = await import("../lib/candado-meta.mjs");
 
 const RAIZ = path.resolve(path.dirname(ESTE), "..", "..");
@@ -548,6 +548,23 @@ await prueba("marketing abre Claude con Meta SOLO de lectura y sin WhatsApp; ven
   assert.ok(prohibidas.includes("Bash"));
   const ventas = argumentosDeClaude(config, "ventas").join(" ");
   assert.ok(!ventas.includes("meta-ads") && ventas.includes("mcp__aizencrm__agente_de_marketing"));
+});
+
+await prueba("el cerebro: las tres áreas reciben cerebro_del_area, anotar y marcar dato viejo, y tienen prohibidas las herramientas generales del cerebro", () => {
+  assert.deepEqual(CEREBRO_DEL_AREA, ["cerebro_del_area", "cerebro_anotar_aprendizaje", "cerebro_marcar_dato_viejo"].map((n) => `mcp__aizencrm__${n}`));
+  assert.deepEqual(PROHIBIDAS_DEL_CEREBRO_GENERAL, ["cerebro_listar", "cerebro_buscar", "cerebro_leer", "cerebro_escribir"].map((n) => `mcp__aizencrm__${n}`));
+  for (const area of ["ventas", "marketing", "sistemas"]) {
+    const args = argumentosDeClaude(config, area);
+    const permitidas = args.slice(args.indexOf("--allowedTools") + 1, args.indexOf("--disallowedTools"));
+    const prohibidas = args.slice(args.indexOf("--disallowedTools") + 1);
+    for (const herramienta of CEREBRO_DEL_AREA) assert.ok(permitidas.includes(herramienta), `${area} permitida: ${herramienta}`);
+    for (const herramienta of PROHIBIDAS_DEL_CEREBRO_GENERAL) {
+      assert.ok(prohibidas.includes(herramienta), `${area} prohibida: ${herramienta}`);
+      assert.ok(!permitidas.includes(herramienta), `${area} no permitida: ${herramienta}`);
+    }
+  }
+  // Sistemas sin interruptor de tarjetas: la última prohibida sigue siendo crear_tarjeta.
+  assert.ok(argumentosDeClaude(config, "sistemas").join(" ").endsWith("mcp__aizencrm__crear_tarjeta"));
 });
 
 await prueba("mensajes.json: un solo Alexander y un mensaje por número", () => {

@@ -130,6 +130,15 @@ export function armarPrompt({ area, decision, subagentes, carpetaSalida, puedeCr
 
 /* ──────────────────────────────────────────────────────────────── el plan de Claude ── */
 
+/**
+ * El cerebro (Drive "Magilus") para los agentes internos: cada uno lee SOLO su parte y anota SOLO en su carpeta
+ * "Aprendizajes de <área>" (el servidor lo hace cumplir). Las tres áreas usan estas tres herramientas.
+ */
+export const CEREBRO_DEL_AREA = ["cerebro_del_area", "cerebro_anotar_aprendizaje", "cerebro_marcar_dato_viejo"].map((n) => `mcp__aizencrm__${n}`);
+
+/** Las herramientas GENERALES del cerebro: prohibidas para que ningún agente lea todo el Drive ni escriba decisiones. */
+export const PROHIBIDAS_DEL_CEREBRO_GENERAL = ["cerebro_listar", "cerebro_buscar", "cerebro_leer", "cerebro_escribir"].map((n) => `mcp__aizencrm__${n}`);
+
 /** Lo que SOLO puede correr el Agente de Sistemas con Bash: sus tres programas de lectura (nada de git, gh, npm ni consola libre). */
 export const BASH_DE_SISTEMAS = [
   "Bash(node herramientas/revisar-pantalla.mjs:*)",
@@ -160,6 +169,7 @@ export const PROHIBIDAS_DE_SISTEMAS = [
   "Bash(gh:*)",
   "Bash(npm:*)",
   "Bash(npx:*)",
+  ...PROHIBIDAS_DEL_CEREBRO_GENERAL,
   ...[
     "aprobar_tarjeta",
     "cambiar_estado_tarjeta",
@@ -178,12 +188,13 @@ export const PROHIBIDAS_DE_SISTEMAS = [
 export function argumentosDeClaude(config, area = "ventas", { puedeCrearTarjetas = false } = {}) {
   const base = ["Read", "Write", "Glob", "Grep", "Task", "Agent"];
   let permitidas;
-  let prohibidas = ["Bash", "WebFetch", "WebSearch", "Edit"];
+  let prohibidas = ["Bash", "WebFetch", "WebSearch", "Edit", ...PROHIBIDAS_DEL_CEREBRO_GENERAL];
   if (area === "sistemas") {
     permitidas = [
       ...base,
       ...BASH_DE_SISTEMAS,
       ...CRM_LECTURA_DE_SISTEMAS.map((n) => `mcp__aizencrm__${n}`),
+      ...CEREBRO_DEL_AREA,
       ...(puedeCrearTarjetas ? ["mcp__aizencrm__crear_tarjeta"] : []),
       // Gestión: el MCP es de solo lectura. El conector de Google Drive (respaldos) entra por herramientasExtra, solo lectura.
       "mcp__gestion",
@@ -193,8 +204,8 @@ export function argumentosDeClaude(config, area = "ventas", { puedeCrearTarjetas
   } else if (area === "marketing") {
     // Meta: SOLO las herramientas de lectura (lo que no está en la lista queda bloqueado) y, además, prohibidas todas
     // las que escriben. En el CRM: leer y guardar el resumen; NO mandar_whatsapp_al_equipo.
-    permitidas = [...base, ...CRM_PERMITIDAS_MARKETING, "mcp__gestion", ...META_LECTURA, ...(config.herramientasExtra ?? [])];
-    prohibidas = [...new Set([...PROHIBIDAS_DE_MARKETING, ...META_ESCRITURA])];
+    permitidas = [...base, ...CRM_PERMITIDAS_MARKETING, ...CEREBRO_DEL_AREA, "mcp__gestion", ...META_LECTURA, ...(config.herramientasExtra ?? [])];
+    prohibidas = [...new Set([...PROHIBIDAS_DE_MARKETING, ...META_ESCRITURA, ...PROHIBIDAS_DEL_CEREBRO_GENERAL])];
   } else {
     permitidas = [
       ...base,
@@ -202,6 +213,7 @@ export function argumentosDeClaude(config, area = "ventas", { puedeCrearTarjetas
       ...["numeros_de_ventas", "guardar_resumen_del_dia", "agente_de_ventas", "agente_de_marketing", "resumen_del_negocio", "listar_conversaciones", "ver_conversacion", "buscar_mensajes", "listar_productos", "ver_supervisor"].map(
         (n) => `mcp__aizencrm__${n}`,
       ),
+      ...CEREBRO_DEL_AREA,
       // Gestión: el MCP es de solo lectura.
       "mcp__gestion",
       ...(config.herramientasExtra ?? []),

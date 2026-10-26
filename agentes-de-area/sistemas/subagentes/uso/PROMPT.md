@@ -19,3 +19,5 @@ De lo subido en los **últimos 30 días**, ¿alguien lo usó? ¿se movió el nú
 
 Solo lo que nadie usa y por qué podría ser (no se encontró, no se avisó al equipo, no resuelve algo real, es de uso poco frecuente…).
 Máximo 10 renglones.
+
+Cerebro: antes de recomendar consulta `cerebro_del_area` (area `sistemas`) y cita el documento; no contradigas "Decisiones de Magilus". Los aprendizajes y los datos que chocan los anota tu agente (ver su CLAUDE.md), no tú.

@@ -43,6 +43,12 @@ import { leerTareasSinDuena } from "@/features/seguimiento-inteligente/servicios
  * (SupervisorAlerta), la marca de "libro visto" y manda push al dueño.
  */
 
+/*
+  Las alertas "Posible dato viejo" de los agentes de área (familia CEREBRO) las cierra el dueño: el Supervisor
+  no las vuelve a mirar, ni las cierra, ni las mezcla con sus incidentes (el texto "CEREBRO" no es una Familia del tipo).
+*/
+const noEsDelCerebro = (inc: { familia: string }) => inc.familia !== "CEREBRO";
+
 let corriendo5 = false;
 let corriendoHora = false;
 
@@ -79,7 +85,7 @@ async function vigilarElLibro(workspaceId: string, ahora: Date): Promise<number>
     autor: ultimo?.autor ?? null,
     resumen: linea.cambios.filter((c) => c.version > vista && c.version <= actual).map((c) => c.resumen).filter(Boolean).join(" · ") || null,
   };
-  const abiertos = await leerIncidentesAbiertos(workspaceId);
+  const abiertos = (await leerIncidentesAbiertos(workspaceId)).filter(noEsDelCerebro);
   const hallazgos = [
     ...(diff ? [hallazgoDelCambioDelLibro({ cambio, diff, informe, producto: CLAVE_COMBO })] : []),
     ...hallazgosDeArreglo({ abiertos, cambio, informe }),
@@ -185,7 +191,7 @@ export async function vueltaDeCadaHora(ahora = new Date()): Promise<{ negocios: 
         // Revalidación de incidentes viejos (dominio/revalidacion.ts). Apagada = exactamente lo de antes.
         const revalidar = await revalidacionActiva(workspaceId);
         // El hallazgo de la revalidación de la vuelta anterior sale antes de consolidar: se decide de nuevo.
-        const abiertos = quitarRevalidacion((await leerIncidentesAbiertos(workspaceId)).filter((inc) => inc.familia !== "ATENCION"));
+        const abiertos = quitarRevalidacion((await leerIncidentesAbiertos(workspaceId)).filter((inc) => inc.familia !== "ATENCION" && noEsDelCerebro(inc)));
         // Los incidentes del libro ya arreglados (Change Guardian sobre el historial): se acotan a su
         // versión y se confirman con los leads de después del arreglo (version-del-incidente.ts).
         const ids = idsDelComboEnElLibro(linea.actual);

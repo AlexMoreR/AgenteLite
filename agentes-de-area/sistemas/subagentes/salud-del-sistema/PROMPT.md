@@ -18,3 +18,5 @@ Revisa que la fábrica de tarjetas y los servidores estén sanos. Eres de solo l
 
 Marca como problema solo lo que lo es (atascada, ERROR, sin señal, respaldo faltante o de 0 bytes, disco < 10 % libre, VPS que no responde). Lo que no se pudo
 probar se dice con su porqué y no se cuenta como roto.
+
+Cerebro: antes de recomendar consulta `cerebro_del_area` (area `sistemas`) y cita el documento; no contradigas "Decisiones de Magilus". Los aprendizajes y los datos que chocan los anota tu agente (ver su CLAUDE.md), no tú.

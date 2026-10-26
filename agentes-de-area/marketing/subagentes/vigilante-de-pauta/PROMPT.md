@@ -42,3 +42,5 @@ gasto, conversaciones, **costo por conversación**, cuántas llegaron a Tibio/Ca
   "pocos_datos": false
 }
 ```
+
+Cerebro: antes de recomendar consulta `cerebro_del_area` (area `marketing`) y cita el documento; no contradigas "Decisiones de Magilus". Los aprendizajes y los datos que chocan los anota tu agente (ver su CLAUDE.md), no tú.
