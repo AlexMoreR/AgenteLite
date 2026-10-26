@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { leerArreglosDelResumen, leerRevisionesDelResumen } from "./TablaDeRevisiones";
 import { PanelAgenteDeArea, type DatosDelPanel } from "./PanelAgenteDeArea";
 import { ETIQUETA_DE_AREA, fechaValida, hoyEnBogota, type Area } from "@/features/agentes-de-area/dominio/reglas";
 import { agenteActivo, leerEquipoDeAvisos } from "@/features/agentes-de-area/servicios/config";
@@ -7,6 +8,17 @@ import { leerEnviosDelDia, leerResumenDelDia, leerUltimosResumenes } from "@/fea
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
+
+/** Sistemas guarda su línea, las revisiones, la salud y las tarjetas de arreglo dentro de `meta`. */
+function datosDeSistemas(meta: unknown) {
+  const datos = meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
+  return {
+    linea: typeof datos.linea === "string" ? datos.linea : null,
+    revisiones: leerRevisionesDelResumen(meta),
+    arreglos: leerArreglosDelResumen(meta),
+    salud: datos.salud ?? null,
+  };
+}
 
 /** Marketing guarda su línea para Alexander y su recomendación dentro de `meta`. */
 function lineaYRecomendacion(meta: unknown): { linea: string | null; recomendacion: { accion: string; texto: string; dato: string } | null } {
@@ -23,9 +35,9 @@ function hora(fecha: Date): string {
 }
 
 /**
- * LA PANTALLA DE UN AGENTE DE ÁREA (ventas o marketing): el resumen del día, lo que entregó cada subagente, los
+ * LA PANTALLA DE UN AGENTE DE ÁREA (ventas, marketing o sistemas): el resumen del día, lo que entregó cada subagente, los
  * mensajes internos que salieron (o se bloquearon) y el historial. Con el interruptor. La ven los mismos que ven
- * el Supervisor. Cada ruta (`/cliente/crm/agente-de-ventas`, `/agente-de-marketing`) solo dice de qué área es.
+ * el Supervisor. Cada ruta (`/cliente/crm/agente-de-ventas`, `/agente-de-marketing`, `/agente-de-sistemas`) solo dice de qué área es.
  */
 export async function PaginaDeAgenteDeArea({ area: AREA, searchParams }: { area: Area; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
@@ -68,6 +80,7 @@ export async function PaginaDeAgenteDeArea({ area: AREA, searchParams }: { area:
           subagentes: resumen.subagentes && typeof resumen.subagentes === "object" && !Array.isArray(resumen.subagentes) ? (resumen.subagentes as Record<string, unknown>) : {},
           sugeridos: Array.isArray(resumen.sugeridos) ? resumen.sugeridos.length : 0,
           ...(AREA === "marketing" ? lineaYRecomendacion(resumen.meta) : {}),
+          ...(AREA === "sistemas" ? datosDeSistemas(resumen.meta) : {}),
         }
       : null,
     envios: envios.map((envio) => ({ ...envio, hora: hora(envio.creadoEn) })),

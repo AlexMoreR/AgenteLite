@@ -10,12 +10,14 @@ import {
 } from "@/features/agentes-de-area/dominio/reglas";
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { mandarWhatsAppAlEquipo } from "@/features/agentes-de-area/servicios/envios";
+import { revisionDeSistemas } from "@/features/agentes-de-area/servicios/revision-de-sistemas";
 import { numerosDeMarketing } from "@/features/agentes-de-area/servicios/numeros-de-marketing";
 import { avisosDelSupervisor, medirLosSugeridosDe, numerosDelDia } from "@/features/agentes-de-area/servicios/numeros";
 import {
   guardarResumenDelDia,
   leerEnviosDelDia,
   leerResumenDelDia,
+  leerUltimoInformeDeUso,
   leerUltimosResumenes,
 } from "@/features/agentes-de-area/servicios/resumenes";
 import { puedeVerElSupervisor } from "@/lib/mcp/supervisor";
@@ -36,6 +38,13 @@ import { puedeVerElSupervisor } from "@/lib/mcp/supervisor";
     - agente_de_marketing (lee)    → el estado, el resumen de hoy, su línea y su recomendación.
   Su resumen se guarda con guardar_resumen_del_dia (area = "marketing"). Marketing NO manda WhatsApp: su línea
   va dentro del mensaje de las 7:30 que arma Ventas. Solo LEE Meta Ads (eso lo traba aizen1, no el CRM).
+
+  El Agente de Sistemas (tercera área, mismo molde) agrega dos más:
+    - revision_de_sistemas (lee)   → las tarjetas HECHO de las últimas 24 h (o 30 días con dias=30), las atascadas, las
+      que están en ERROR, si el trabajador está vivo y el uso de lo subido.
+    - agente_de_sistemas (lee)     → el estado, el resumen de hoy, su línea, lo que falla, lo atascado y el último informe de Uso.
+  Su resumen se guarda con guardar_resumen_del_dia (area = "sistemas"). Sistemas NO manda WhatsApp (su línea va en el
+  mensaje de las 7:30 de Ventas) y SOLO LEE: nunca cambia código, estados ni datos.
 
   Nunca le escribe a un cliente. No toca el bot, el libro V3, los flujos ni Meta Ads.
 */
@@ -72,8 +81,30 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
     inputSchema: {
       type: "object",
       properties: {
-        area: { type: "string", enum: ["ventas", "marketing"], description: "Por defecto, ventas." },
-        linea: { type: "string", description: "Solo marketing: UNA línea de marketing para el mensaje de las 7:30." },
+        area: { type: "string", enum: ["ventas", "marketing", "sistemas"], description: "Por defecto, ventas." },
+        linea: { type: "string", description: "Solo marketing y sistemas: UNA línea para el mensaje de las 7:30 (sistemas: 'Sistemas: todo funciona' si nada está roto)." },
+        revisiones: {
+          type: "array",
+          description: "Solo sistemas: el resultado por tarjeta revisada.",
+          items: {
+            type: "object",
+            properties: {
+              tarjetaId: { type: "string" },
+              titulo: { type: "string" },
+              repo: { type: "string" },
+              commit: { type: "string" },
+              resultado: { type: "string", enum: ["FUNCIONA", "FALLA", "NO_SE_PUEDE_PROBAR"] },
+              detalle: { type: "string", description: "FALLA: el error exacto. NO_SE_PUEDE_PROBAR: el porqué." },
+            },
+            required: ["titulo", "resultado"],
+          },
+        },
+        salud: { type: "object", description: "Solo sistemas: la salud del sistema (trabajadorVivo, atascadas, enError, respaldos, recursos, vps, texto)." },
+        arreglos: {
+          type: "array",
+          description: "Solo sistemas: las tarjetas de arreglo creadas (creada=true) o las que 'se crearían' (creada=false).",
+          items: { type: "object", properties: { titulo: { type: "string" }, commit: { type: "string" }, creada: { type: "boolean" }, tarjetaId: { type: "string" } }, required: ["titulo"] },
+        },
         recomendacion: {
           type: "object",
           description: "Solo marketing: máximo UNA recomendación concreta.",
@@ -171,6 +202,30 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
     annotations: SOLO_LECTURA,
   },
   {
+    name: "revision_de_sistemas",
+    title: "Datos para la revisión de Sistemas",
+    description:
+      "Para el Agente de Sistemas, ya cruzado: las tarjetas que quedaron HECHO en las últimas 24 horas (de todos los tableros y de los dos repos, con título, detalle, repo, commit, rama, la hora en que quedaron HECHO y las pantallas y herramientas que nombran), las tarjetas atascadas (más de 2 h en PLANEANDO, EN_CURSO o SUBIENDO, con su último latido), las que están en ERROR con su motivo, si el trabajador está vivo (la última vez que usó su clave; pasados 30 minutos dice 'sin señal') y las tarjetas de arreglo [sistemas:<commit>] que ya existen. Con dias=30 trae lo subido en el último mes con lo que se usó cada pantalla y herramienta (el contador empieza el día que se sube). Solo lectura.",
+    inputSchema: {
+      type: "object",
+      properties: { dias: { type: "number", enum: [1, 30], description: "1 = últimas 24 h (por defecto); 30 = el último mes con el uso." } },
+      additionalProperties: false,
+    },
+    annotations: SOLO_LECTURA,
+  },
+  {
+    name: "agente_de_sistemas",
+    title: "Ver el Agente de Sistemas",
+    description:
+      "Para leer en voz alta: si el interruptor del Agente de Sistemas está prendido o apagado, el resumen de hoy (o de la fecha pedida) con su línea para Alexander, qué falla y qué no se pudo probar, lo atascado, el último informe de Uso y los últimos días. Solo lectura.",
+    inputSchema: {
+      type: "object",
+      properties: { fecha: { type: "string", description: "AAAA-MM-DD (hora de Colombia). Por defecto, hoy." } },
+      additionalProperties: false,
+    },
+    annotations: SOLO_LECTURA,
+  },
+  {
     name: "agente_de_ventas",
     title: "Ver el Agente de Ventas",
     description:
@@ -254,7 +309,7 @@ async function verNumeros(args: Argumentos, contexto: Contexto) {
 async function guardarResumen(args: Argumentos, contexto: Contexto) {
   await exigirPermiso(contexto);
   const pedida = args.area === undefined || args.area === null || args.area === "" ? AREA : args.area;
-  if (!esArea(pedida)) throw new Error('El área tiene que ser "ventas" o "marketing".');
+  if (!esArea(pedida)) throw new Error('El área tiene que ser "ventas", "marketing" o "sistemas".');
   const area: Area = pedida;
   const resumen = leerResumenAGuardar(args, hoyEnBogota(), area);
   const guardado = await guardarResumenDelDia(contexto.workspaceId, area, resumen);
@@ -291,6 +346,26 @@ async function verNumerosDeMarketing(args: Argumentos, contexto: Contexto) {
   return numerosDeMarketing(contexto.workspaceId, fecha, dias);
 }
 
+/** Sistemas: la línea, las revisiones, la salud y las tarjetas de arreglo viajan dentro de `meta`. */
+function datosDeSistemas(meta: unknown) {
+  const datos = meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
+  const revisiones = Array.isArray(datos.revisiones) ? (datos.revisiones as Array<Record<string, unknown>>) : [];
+  return {
+    linea_para_alexander: datos.linea ?? null,
+    revisiones,
+    lo_que_falla: revisiones.filter((r) => r.resultado === "FALLA"),
+    lo_que_no_se_pudo_probar: revisiones.filter((r) => r.resultado === "NO_SE_PUEDE_PROBAR"),
+    salud: datos.salud ?? null,
+    tarjetas_de_arreglo: datos.arreglos ?? [],
+  };
+}
+
+async function verRevisionDeSistemas(args: Argumentos, contexto: Contexto) {
+  await exigirPermiso(contexto);
+  const dias = args.dias === 30 || args.dias === "30" ? 30 : 1;
+  return revisionDeSistemas(contexto.workspaceId, { dias });
+}
+
 /** La línea para Alexander y la recomendación viajan dentro de `meta` del resumen de marketing. */
 function lineaYRecomendacion(meta: unknown) {
   const datos = meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
@@ -301,11 +376,13 @@ async function verAgente(args: Argumentos, contexto: Contexto, area: Area = "ven
   await exigirPermiso(contexto);
   const ws = contexto.workspaceId;
   const fecha = leerFecha(args, "fecha", hoyEnBogota());
-  const [activo, resumen, envios, ultimos] = await Promise.all([
+  const [activo, resumen, envios, ultimos, informeDeUso, vivo] = await Promise.all([
     agenteActivo(area, ws),
     leerResumenDelDia(ws, area, fecha),
     leerEnviosDelDia(ws, area, fecha),
     leerUltimosResumenes(ws, area, 14),
+    area === "sistemas" ? leerUltimoInformeDeUso(ws).catch(() => null) : Promise.resolve(null),
+    area === "sistemas" ? revisionDeSistemas(ws).catch(() => null) : Promise.resolve(null),
   ]);
   return {
     agente: ETIQUETA_DE_AREA[area],
@@ -320,11 +397,20 @@ async function verAgente(args: Argumentos, contexto: Contexto, area: Area = "ven
           numeros: resumen.numeros,
           meta: resumen.meta,
           ...(area === "marketing" ? lineaYRecomendacion(resumen.meta) : {}),
+          ...(area === "sistemas" ? datosDeSistemas(resumen.meta) : {}),
           subagentes: resumen.subagentes,
           sugeridos: resumen.sugeridos,
           guardado_en: resumen.actualizadoEn,
         }
       : null,
+    ...(area === "sistemas"
+      ? {
+          atascadas_ahora: vivo?.atascadas ?? null,
+          en_error_ahora: vivo?.en_error ?? null,
+          trabajador_ahora: vivo?.trabajador ?? null,
+          ultimo_informe_de_uso: informeDeUso,
+        }
+      : {}),
     mensajes: envios.map((envio) => ({
       tipo: envio.tipo,
       destinatario: envio.destinatario,
@@ -335,7 +421,13 @@ async function verAgente(args: Argumentos, contexto: Contexto, area: Area = "ven
     })),
     ultimos_dias: ultimos.map((dia) => ({ fecha: dia.fecha, es_prueba: dia.esPrueba, salio_tarde: dia.salioTarde, resumen: dia.resumen })),
     advertencias:
-      area === "marketing"
+      area === "sistemas"
+        ? [
+            "El Agente de Sistemas corre en aizen1 y solo LEE: nunca cambia código, estados ni datos, y no le escribe a nadie.",
+            "El contador de uso empieza a contar el día que se sube; lo de antes no tiene uso medido.",
+            ...(activo ? [] : ["Con el interruptor apagado el agente genera el resumen, pero su línea NO va en el mensaje de las 7:30 y no crea tarjetas de arreglo."]),
+          ]
+        : area === "marketing"
         ? [
             "El Agente de Marketing corre en aizen1 y solo LEE Meta Ads: no pausa, prende, edita ni crea nada.",
             "Si falta el anuncio de origen en muchos chats, el costo por venta sale incompleto.",
@@ -360,6 +452,10 @@ export async function ejecutarHerramientaMcpAgentesDeArea(nombre: string, argume
       return verNumerosDeMarketing(argumentos, contexto);
     case "agente_de_marketing":
       return verAgente(argumentos, contexto, "marketing");
+    case "revision_de_sistemas":
+      return verRevisionDeSistemas(argumentos, contexto);
+    case "agente_de_sistemas":
+      return verAgente(argumentos, contexto, "sistemas");
     case "agente_de_ventas":
       return verAgente(argumentos, contexto);
     default:

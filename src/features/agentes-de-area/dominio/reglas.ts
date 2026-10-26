@@ -1,15 +1,21 @@
 /**
  * AGENTES DE ÁREA: las reglas, en código puro (sin base, sin Next).
  *
- * Es un molde: un agente por área (hoy "ventas" y "marketing") que piensa en el PC aizen1 y reparte el trabajo
+ * Es un molde: un agente por área (hoy "ventas", "marketing" y "sistemas") que piensa en el PC aizen1 y reparte el trabajo
  * a subagentes. El CRM no piensa: guarda el resumen, muestra la pantalla y entrega los WhatsApp
  * INTERNOS. Las pruebas están en scripts/check-agentes-de-area.mjs.
  */
 
-export const AREAS = ["ventas", "marketing"] as const;
+import { construirLineaDeSistemas, leerArreglos, leerRevisiones, leerSalud } from "./reglas-sistemas";
+
+export const AREAS = ["ventas", "marketing", "sistemas"] as const;
 export type Area = (typeof AREAS)[number];
 
-export const ETIQUETA_DE_AREA: Record<Area, string> = { ventas: "Agente de Ventas", marketing: "Agente de Marketing" };
+export const ETIQUETA_DE_AREA: Record<Area, string> = {
+  ventas: "Agente de Ventas",
+  marketing: "Agente de Marketing",
+  sistemas: "Agente de Sistemas",
+};
 
 export function esArea(valor: unknown): valor is Area {
   return typeof valor === "string" && (AREAS as readonly string[]).includes(valor);
@@ -163,6 +169,16 @@ export function leerResumenAGuardar(args: Record<string, unknown>, hoy: string, 
     const linea = textoCorto(args.linea, 400);
     const recomendacion = leerRecomendacionDeMarketing(args.recomendacion);
     meta = { ...(esObjeto(args.meta) ? args.meta : {}), linea, recomendacion };
+    sugeridos.length = 0;
+    mensajes.length = 0;
+  }
+  // Sistemas tampoco manda WhatsApp: su línea, sus revisiones, la salud y las tarjetas de arreglo viajan dentro de `meta`.
+  if (area === "sistemas") {
+    const revisiones = leerRevisiones(args.revisiones);
+    const salud = leerSalud(args.salud);
+    const arreglos = leerArreglos(args.arreglos);
+    const linea = textoCorto(args.linea, 400) ?? construirLineaDeSistemas(revisiones, salud);
+    meta = { ...(esObjeto(args.meta) ? args.meta : {}), linea, revisiones, salud, arreglos };
     sugeridos.length = 0;
     mensajes.length = 0;
   }

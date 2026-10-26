@@ -2324,6 +2324,27 @@ model AgenteDeAreaDia {
   @@index([workspaceId, area, fecha])
 }
 
+/// Contador de uso (Agente de Sistemas): una fila por negocio, día, tipo (PANTALLA o HERRAMIENTA), clave (la ruta o el nombre de la herramienta) y quién (la persona o la clave del MCP). Solo cuenta desde el día que se sube: lo anterior no tiene uso medido.
+model UsoDelSistemaDia {
+  id          String   @id @default(cuid())
+  workspaceId String
+  /// Día en hora de Colombia: AAAA-MM-DD.
+  fecha       String
+  /// PANTALLA | HERRAMIENTA
+  tipo        String
+  /// La ruta (/cliente/...) o el nombre de la herramienta del MCP.
+  clave       String
+  /// userId de la persona (pantallas) o id de la clave del MCP (herramientas).
+  quien       String
+  veces       Int      @default(1)
+  creadoEn    DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  @@unique([workspaceId, fecha, tipo, clave, quien])
+  @@index([workspaceId, fecha])
+  @@index([workspaceId, tipo, clave])
+}
+
 /// Un registro por cada WhatsApp interno que pidió un agente de área. La base garantiza UN solo
 /// envío vivo (PENDIENTE o ENVIADO) por número, área y día con un índice único parcial que está
 /// solo en la migración (Prisma no sabe expresarlo).

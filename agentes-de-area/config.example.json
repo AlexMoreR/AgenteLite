@@ -1,12 +1,15 @@
 {
   "urlCrm": "https://app.aizenbot.com",
   "claveMcp": "aizen_mcp_PEGAR_AQUI_LA_CLAVE_DEL_MCP_DEL_CRM",
-  "comandoClaude": ["claude"],
+  "comandoClaude": [
+    "claude"
+  ],
   "carpetaTrabajador": "../trabajador-tablero",
   "carpetaSalida": "./salida",
   "carpetaLogs": "./logs",
   "horaDeInicio": "07:00",
   "horaDeInicioMarketing": "06:45",
+  "horaDeInicioSistemas": "06:30",
   "horaDeMensajes": "07:30",
   "toleranciaMinutos": 10,
   "modelo": null,
@@ -16,5 +19,24 @@
   "maxEsperaLimiteHoras": 6,
   "reintentosEnvio": 3,
   "esperaEnvioSegundos": 60,
-  "herramientasExtra": []
+  "herramientasExtra": [],
+  "urlGestion": "https://PEGAR_AQUI_LA_DIRECCION_DE_GESTION",
+  "tableroEmanuelId": "PEGAR_AQUI_EL_ID_DEL_TABLERO_DE_EMANUEL",
+  "vps": {
+    "host": "PEGAR_AQUI_EL_HOST_DEL_VPS",
+    "usuario": "PEGAR_AQUI_EL_USUARIO_SSH",
+    "llave": "PEGAR_AQUI_LA_RUTA_DE_LA_LLAVE_DEL_TRABAJADOR",
+    "contenedor": "PEGAR_AQUI_EL_NOMBRE_DEL_CONTENEDOR_DEL_CRM",
+    "urlInicio": "https://app.aizenbot.com"
+  },
+  "carpetasDeRespaldo": {
+    "crm": "PEGAR_AQUI_LA_CARPETA_DE_DRIVE_DEL_RESPALDO_DEL_CRM",
+    "gestion": "PEGAR_AQUI_LA_CARPETA_DE_DRIVE_DEL_RESPALDO_DE_GESTION"
+  },
+  "carpetaLogsTrabajador": "../trabajador-tablero/logs",
+  "herramientasDeDrive": [
+    "mcp__google-drive__search_files",
+    "mcp__google-drive__list_recent_files",
+    "mcp__google-drive__get_file_metadata"
+  ]
 }

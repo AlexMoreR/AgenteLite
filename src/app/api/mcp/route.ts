@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { validarClaveMcp } from "@/lib/mcp/claves";
 import { HERRAMIENTAS_MCP, ejecutarHerramientaMcp } from "@/lib/mcp/herramientas";
+import { registrarUso } from "@/lib/uso-del-sistema";
 
 export const dynamic = "force-dynamic";
 
@@ -61,9 +62,9 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "Aparte esta el AGENTE V3 (herramientas v3_*), que es el libro de reglas nuevo y todavia NO atiende " +
           "clientes: se escribe y se prueba en el simulador. Si el libro esta vacio, llamar v3_empezar y hacer " +
           "esas preguntas de a una; nunca inventar productos, precios ni textos del negocio. " +
-          "Los AGENTES DE AREA (Ventas y Marketing, corren en aizen1): agente_de_ventas y agente_de_marketing se leen por voz " +
+          "Los AGENTES DE AREA (Ventas, Marketing y Sistemas, corren en aizen1): agente_de_ventas, agente_de_marketing y agente_de_sistemas se leen por voz " +
           "(interruptor, resumen del dia, subagentes); numeros_de_marketing da las conversaciones por anuncio de origen. El Agente " +
-          "de Marketing solo LEE Meta Ads y nunca le escribe a un cliente. " +
+          "de Marketing solo LEE Meta Ads y nunca le escribe a un cliente. El Agente de Sistemas solo LEE: revision_de_sistemas le da las tarjetas HECHO de las ultimas 24 h, las atascadas y las que estan en ERROR. " +
           "Tambien esta el TABLERO IA (pantalla /cliente/tablero-ia; herramientas listar_tableros, crear_tablero, renombrar_tablero, ver_tablero," +
           "listar_tipos, crear_tipo, editar_tipo, crear_tarjeta, editar_tarjeta, conectar_tarjetas, cambiar_estado_tarjeta, " +
           "borrar_tarjeta, ver_historial_tarjeta, deshacer_cambio_tarjeta, ver_plan_y_resultado, aprobar_tarjeta, ver_coordinador): ahi se anotan las ideas que salen de la " +
@@ -113,6 +114,8 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
         pedido.params?.arguments && typeof pedido.params.arguments === "object"
           ? (pedido.params.arguments as Record<string, unknown>)
           : {};
+      // Contador de uso (Agente de Sistemas): una suma por herramienta, día y clave. No se espera ni puede romper la llamada.
+      void registrarUso({ workspaceId: contexto.workspaceId, tipo: "HERRAMIENTA", clave: nombre, quien: contexto.userId });
       try {
         const resultado = await ejecutarHerramientaMcp(nombre, argumentos, contexto);
         return respuesta(pedido.id, {

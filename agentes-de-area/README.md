@@ -1,4 +1,4 @@
-# Agentes de área (molde) — hoy: Agente de Ventas y Agente de Marketing
+# Agentes de área (molde) — hoy: Agente de Ventas, Agente de Marketing y Agente de Sistemas
 
 Un **agente por área** que mira su número todos los días, decide qué hace falta y reparte el trabajo a
 **subagentes**. En Magilus nadie es jefe: se llama "Agente de Ventas". Se empieza solo con Ventas; si sube el
@@ -21,6 +21,13 @@ El **CRM no piensa**: da los datos (MCP), guarda el resumen, entrega los WhatsAp
 | `marketing/subagentes/<nombre>/PROMPT.md` | Vigilante de pauta (diario), calidad del lead (diario) e ideas de anuncio (`Frecuencia: lunes`). |
 | `marketing/.claude/settings.json` | **El candado de solo lectura en Meta Ads**: solo permite las herramientas de lectura y prohíbe todas las que escriben. |
 | `marketing/.mcp.json.example` | Conexiones al CRM, a Gestión y al conector de Meta Ads (servidor `meta-ads`). Se copia a `marketing/.mcp.json` (**nunca se sube**). |
+| `sistemas/CLAUDE.md` | La instrucción permanente del Agente de Sistemas: su número (cuántas cosas subidas funcionan y se usan), límites de solo lectura, tarjeta de arreglo y su línea única. |
+| `sistemas/subagentes/<nombre>/PROMPT.md` | Revisor de producción (diario), salud del sistema (diario) y uso (`Frecuencia: lunes`). |
+| `sistemas/herramientas/*.mjs` | Los **únicos tres programas** que puede correr: `revisar-pantalla.mjs` (navegador sin ventana, solo lectura), `leer-servidor.mjs` (lista cerrada de comandos de lectura por ssh) y `salud-de-aizen1.mjs`. |
+| `sistemas/.claude/settings.json` | **El candado de solo lectura de Sistemas** (igual a `lib/candado-sistemas.mjs`). |
+| `sistemas/.mcp.json.example` | Conexiones al CRM, a Gestión y a Google Drive (solo lectura). Se copia a `sistemas/.mcp.json` (**nunca se sube**). |
+| `lib/candado-sistemas.mjs` | Las listas de lo permitido y lo prohibido de Sistemas; el lanzador las pasa a Claude Code. |
+| `pruebas/probar-agente-de-sistemas.mjs` | Prueba el candado y las herramientas: `npm run test:agente-de-sistemas-candado`. |
 | `lib/candado-meta.mjs` | Las listas de herramientas de Meta permitidas (lectura) y prohibidas (escritura); el lanzador las pasa a Claude Code. |
 | `pruebas/probar-solo-lectura-meta.mjs` | Comprueba el candado: `npm run test:agente-de-marketing-candado`. |
 | `correr-agente.mjs` | El lanzador: abre Claude, espera hasta las 7:30, entrega los mensajes y deja el log. |
@@ -64,6 +71,21 @@ Subagentes de Marketing: **vigilante de pauta** (diario: gasto, conversaciones, 
    empieza) solo se genera el resumen y cada mensaje queda como "no se mandó: interruptor apagado".
 4. Domingo no corre. Cada día deja `logs/AAAA-MM-DD.log` y `logs/AAAA-MM-DD-claude.txt` (salida completa).
 
+## Agente de Sistemas: cómo corre
+
+1. **6:30** — `node correr-agente.mjs --area sistemas`. **Solo lee.** Revisor de producción y Salud del sistema todos los días;
+   Uso los lunes. Guarda su resumen (`guardar_resumen_del_dia` con `area: "sistemas"`): resultado por tarjeta (FUNCIONA /
+   FALLA con el error exacto / NO SE PUEDE PROBAR con el porqué), la salud, las tarjetas de arreglo y UNA línea.
+2. **Tarjetas de arreglo**: por cada FALLA, una Tarea POR_APROBAR en el tablero de Emanuel (`tableroEmanuelId`), con el
+   error, el commit y el arreglo propuesto, y la marca `[sistemas:<commit>]` para no repetirla. El lanzador solo le da
+   `crear_tarjeta` a Claude Code si el interruptor está **prendido** y la corrida **no** es `--prueba`; si no, el resumen
+   dice cuáles "se crearían". Nunca la aprueba ni la arregla.
+3. **7:30** — el mensaje a Alexander que arma Ventas lleva la línea de Sistemas ("Sistemas: todo funciona" o lo que está
+   roto o atascado) **solo si el interruptor de Sistemas está prendido**, en el mismo mensaje. Si Sistemas sigue corriendo,
+   Ventas espera hasta 15 min; si no corrió, "Sistemas: sin revisión hoy".
+4. **Candados**: nunca modifica código, no hace deploy ni revierte commits, no aprueba ni cambia estados, no toca datos de
+   clientes, ventas ni dinero, no le escribe a nadie. La consola solo corre los tres programas de `sistemas/herramientas/`.
+
 ## Instalar en aizen1 (una vez)
 
 ```powershell
@@ -71,8 +93,11 @@ Subagentes de Marketing: **vigilante de pauta** (diario: gasto, conversaciones, 
 copy agentes-de-area\config.example.json agentes-de-area\config.local.json        # poner urlCrm, claveMcp y carpetaTrabajador
 copy agentes-de-area\ventas\.mcp.json.example agentes-de-area\ventas\.mcp.json    # poner las claves del CRM y de Gestión
 copy agentes-de-area\marketing\.mcp.json.example agentes-de-area\marketing\.mcp.json  # CRM, Gestión y el conector de Meta Ads
+copy agentes-de-area\sistemas\.mcp.json.example agentes-de-area\sistemas\.mcp.json  # CRM, Gestión y Google Drive (solo lectura)
+# (en config.local.json: urlGestion, tableroEmanuelId, vps, carpetasDeRespaldo; la sesión del navegador del revisor queda solo en aizen1)
 # 2. Corrida de prueba (con el interruptor apagado no sale ningún mensaje; --prueba marca el resumen como prueba):
 node agentes-de-area\correr-agente.mjs --area marketing --prueba --forzar-lunes --sin-esperar --repetir
+node agentes-de-area\correr-agente.mjs --area sistemas --prueba --forzar-lunes --sin-esperar --repetir
 node agentes-de-area\correr-agente.mjs --area ventas --prueba --forzar-sabado --sin-esperar --repetir
 # 3. Instalar la tarea programada:
 powershell -ExecutionPolicy Bypass -File agentes-de-area\instalar-tarea-windows.ps1
@@ -84,3 +109,8 @@ Prender el interruptor de Marketing (pantalla *CRM → Agente de Marketing*) sol
 
 Prender el interruptor (pantalla *CRM → Agente de Ventas*) solo con el sí del dueño. El primer día prendido,
 comprobar que Alexander recibió **un** mensaje a las 7:30 y cada asesora **uno**.
+
+Después de la corrida de sistemas: revisar que en el registro **ninguna** llamada fue a una herramienta que escribe (salvo
+`guardar_resumen_del_dia`) y que en el historial del tablero no aparece ningún cambio hecho por el agente. Con una tarjeta HECHO
+de prueba que apunte a una ruta rota (`/cliente/ruta-de-prueba-rota`) tiene que salir FALLA con el error exacto y el resumen
+tiene que mostrar la tarjeta de arreglo que "se crearía". Prender el interruptor (*CRM → Agente de Sistemas*) solo con el sí del dueño.

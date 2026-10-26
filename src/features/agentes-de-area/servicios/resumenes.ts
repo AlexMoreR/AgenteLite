@@ -51,3 +51,18 @@ export async function leerEnviosDelDia(workspaceId: string, area: Area, fecha: s
     select: { id: true, tipo: true, numero: true, destinatario: true, texto: true, estado: true, motivo: true, creadoEn: true },
   });
 }
+
+/** Sistemas: el último informe del subagente de Uso (corre los lunes) entre los últimos resúmenes guardados. */
+export async function leerUltimoInformeDeUso(workspaceId: string, cuantos = 14) {
+  const filas = await prisma.agenteDeAreaDia.findMany({
+    where: { workspaceId, area: "sistemas" },
+    orderBy: { fecha: "desc" },
+    take: cuantos,
+    select: { fecha: true, subagentes: true },
+  });
+  for (const fila of filas) {
+    const subagentes = fila.subagentes && typeof fila.subagentes === "object" && !Array.isArray(fila.subagentes) ? (fila.subagentes as Record<string, unknown>) : {};
+    if (subagentes.uso !== undefined && subagentes.uso !== null) return { fecha: fila.fecha, informe: subagentes.uso };
+  }
+  return null;
+}

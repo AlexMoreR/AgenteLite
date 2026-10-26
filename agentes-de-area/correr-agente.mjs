@@ -1,7 +1,7 @@
-// EL LANZADOR del agente de un área (hoy: ventas y marketing). Lo corren las tareas programadas de Windows en
-// aizen1 de lunes a sábado: marketing a las 6:45 a. m. y ventas a las 7:00 (instalar-tarea-windows.ps1):
+// EL LANZADOR del agente de un área (hoy: ventas, marketing y sistemas). Lo corren las tareas programadas de Windows
+// en aizen1 de lunes a sábado: sistemas a las 6:30 a. m., marketing a las 6:45 y ventas a las 7:00 (instalar-tarea-windows.ps1):
 //
-//   node correr-agente.mjs [--area ventas|marketing] [--config config.local.json] [--hoy AAAA-MM-DD]
+//   node correr-agente.mjs [--area ventas|marketing|sistemas] [--config config.local.json] [--hoy AAAA-MM-DD]
 //                          [--forzar-sabado] [--forzar-lunes] [--sin-esperar] [--repetir] [--prueba]
 //
 //  1. Mira la hora de Colombia: domingo no corre; si prendió después de las 7:00 (más la tolerancia) es una
@@ -20,11 +20,18 @@
 // está en marketing/.claude/settings.json y en los argumentos de Claude: lib/candado-meta.mjs) y guarda su resumen.
 // NUNCA manda WhatsApp: a las 7:30 el lanzador de VENTAS agrega la línea de marketing al MISMO mensaje a Alexander,
 // si el interruptor de marketing está prendido; espera hasta 15 min si marketing todavía está corriendo.
+//
+// SISTEMAS (--area sistemas): mismo molde, sin mensajes. Corre a las 6:30, SOLO LEE (candado en lib/candado-sistemas.mjs y
+// en sistemas/.claude/settings.json) y guarda su resumen. Revisa lo que se subió ayer, la salud del sistema y, los lunes,
+// el uso. La herramienta crear_tarjeta (la tarjeta de arreglo POR_APROBAR) solo se le da con el interruptor prendido y
+// fuera de --prueba. A las 7:30 el lanzador de VENTAS agrega su línea ("Sistemas: todo funciona" o lo que está roto) al
+// MISMO mensaje a Alexander, solo si el interruptor de sistemas está prendido.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { CRM_PERMITIDAS_MARKETING, META_ESCRITURA, META_LECTURA, PROHIBIDAS_DE_MARKETING } from "./lib/candado-meta.mjs";
+import { CRM_CREAR_TARJETA, CRM_PERMITIDAS_SISTEMAS, DRIVE_LECTURA_POR_DEFECTO, PROGRAMAS_PERMITIDOS, PROHIBIDAS_DE_SISTEMAS } from "./lib/candado-sistemas.mjs";
 
 const CARPETA = path.dirname(fileURLToPath(import.meta.url));
 const BOGOTA_MS = 5 * 3_600_000;
@@ -57,7 +64,7 @@ export function decidirCorrida({ ahora, config, hoy = null, forzarSabado = false
   const fecha = hoy ?? fechaBogota(ahora);
   const dia = diaDeLaSemana(instanteDe(fecha, "12:00"));
   if (dia === 0) return { corre: false, motivo: "domingo: el agente no corre", fecha, salioTarde: false, esSabado: false, esLunes: false, nota: null };
-  const horaDeInicio = area === "marketing" ? (config.horaDeInicioMarketing ?? "06:45") : config.horaDeInicio;
+  const horaDeInicio = area === "sistemas" ? (config.horaDeInicioSistemas ?? "06:30") : area === "marketing" ? (config.horaDeInicioMarketing ?? "06:45") : config.horaDeInicio;
   const limite = instanteDe(fecha, horaDeInicio).getTime() + config.toleranciaMinutos * MINUTO;
   const salioTarde = !hoy && ahora.getTime() > limite;
   return {
@@ -90,26 +97,34 @@ export function listarSubagentes(carpetaAgente, { esSabado, esLunes = false }) {
   return lista.sort((a, b) => a.nombre.localeCompare(b.nombre));
 }
 
-export function armarPrompt({ area, decision, subagentes, carpetaSalida }) {
+export function armarPrompt({ area, decision, subagentes, carpetaSalida, extras = [] }) {
   const esMarketing = area === "marketing";
+  const esSistemas = area === "sistemas";
   return [
-    `Es la corrida de la mañana del Agente de ${esMarketing ? "Marketing" : area}.`,
+    `Es la corrida de la mañana del Agente de ${esMarketing ? "Marketing" : esSistemas ? "Sistemas" : area}.`,
     `FECHA: ${decision.fecha}`,
     `SALIDA: ${carpetaSalida}`,
     `SALIO_TARDE: ${decision.salioTarde ? "si" : "no"}${decision.nota ? ` (${decision.nota})` : ""}`,
-    esMarketing ? `ES_LUNES: ${decision.esLunes ? "si (corre ideas-de-anuncio)" : "no"}` : `ES_SABADO: ${decision.esSabado ? "si (corre el analista de perdidos)" : "no"}`,
+    esMarketing
+      ? `ES_LUNES: ${decision.esLunes ? "si (corre ideas-de-anuncio)" : "no"}`
+      : esSistemas
+        ? `ES_LUNES: ${decision.esLunes ? "si (corre el subagente de uso)" : "no"}`
+        : `ES_SABADO: ${decision.esSabado ? "si (corre el analista de perdidos)" : "no"}`,
     `ES_PRUEBA: ${decision.esPrueba ? "si" : "no"}`,
+    ...extras,
     "SUBAGENTES de hoy (carpeta con su PROMPT.md; lanza cada uno con la herramienta de subagentes y ESPERA su respuesta, nunca en segundo plano):",
     ...subagentes.map((s) => `- ${s.nombre}: ${s.prompt}`),
-    esMarketing
-      ? "Sigue tu CLAUDE.md al pie de la letra. En Meta Ads SOLO LEES. Termina cuando hayas guardado el resumen (guardar_resumen_del_dia con area marketing). Marketing no escribe mensajes.json ni manda WhatsApp."
-      : "Sigue tu CLAUDE.md al pie de la letra. Termina cuando hayas guardado el resumen (guardar_resumen_del_dia) y escrito SALIDA/mensajes.json.",
+    esSistemas
+      ? "Sigue tu CLAUDE.md al pie de la letra. SOLO LEES: nunca cambias código, estados ni datos. Termina cuando hayas guardado el resumen (guardar_resumen_del_dia con area sistemas). Sistemas no escribe mensajes.json ni manda WhatsApp."
+      : esMarketing
+        ? "Sigue tu CLAUDE.md al pie de la letra. En Meta Ads SOLO LEES. Termina cuando hayas guardado el resumen (guardar_resumen_del_dia con area marketing). Marketing no escribe mensajes.json ni manda WhatsApp."
+        : "Sigue tu CLAUDE.md al pie de la letra. Termina cuando hayas guardado el resumen (guardar_resumen_del_dia) y escrito SALIDA/mensajes.json.",
   ].join("\n");
 }
 
 /* ──────────────────────────────────────────────────────────────── el plan de Claude ── */
 
-export function argumentosDeClaude(config, area = "ventas") {
+export function argumentosDeClaude(config, area = "ventas", { puedeCrearTarjetas = false } = {}) {
   const base = ["Read", "Write", "Glob", "Grep", "Task", "Agent"];
   let permitidas;
   let prohibidas = ["Bash", "WebFetch", "WebSearch", "Edit"];
@@ -118,6 +133,19 @@ export function argumentosDeClaude(config, area = "ventas") {
     // las que escriben. En el CRM: leer y guardar el resumen; NO mandar_whatsapp_al_equipo.
     permitidas = [...base, ...CRM_PERMITIDAS_MARKETING, "mcp__gestion", ...META_LECTURA, ...(config.herramientasExtra ?? [])];
     prohibidas = [...new Set([...PROHIBIDAS_DE_MARKETING, ...META_ESCRITURA])];
+  } else if (area === "sistemas") {
+    // Sistemas: SOLO lectura. Consola únicamente para los tres programas fijos; Drive solo lectura; sin Edit ni web.
+    // crear_tarjeta (la tarjeta de arreglo) solo si el interruptor está prendido y no es prueba: lo decide el lanzador.
+    permitidas = [
+      ...base.filter((herramienta) => herramienta !== "Write"),
+      ...CRM_PERMITIDAS_SISTEMAS,
+      ...(puedeCrearTarjetas ? [CRM_CREAR_TARJETA] : []),
+      ...PROGRAMAS_PERMITIDOS,
+      "mcp__gestion",
+      ...(config.herramientasDeDrive ?? DRIVE_LECTURA_POR_DEFECTO),
+      ...(config.herramientasExtra ?? []),
+    ];
+    prohibidas = [...PROHIBIDAS_DE_SISTEMAS, ...(puedeCrearTarjetas ? [] : [CRM_CREAR_TARJETA])];
   } else {
     permitidas = [
       ...base,
@@ -214,17 +242,37 @@ export function conLineaDeMarketing(texto, linea) {
   return `${texto.trimEnd()}\n\n${linea}`;
 }
 
+/**
+ * La línea de sistemas para el mensaje de las 7:30 a Alexander (espejo de lineaDeSistemasParaAlexander en el CRM).
+ * `datos` es lo que contesta la herramienta agente_de_sistemas. Null = no va nada (interruptor apagado o no se pudo leer).
+ */
+export function lineaDeSistemas(datos) {
+  if (!datos || datos.interruptor !== "prendido") return null;
+  const resumen = datos.resumen_del_dia;
+  const linea = typeof resumen?.linea_para_alexander === "string" ? resumen.linea_para_alexander.trim() : "";
+  if (!resumen || !linea) return "Sistemas: sin revisión hoy";
+  const partes = [/^sistemas/i.test(linea) ? linea : `Sistemas: ${linea}`];
+  if (resumen.salio_tarde) partes.push(`(salió tarde${resumen.nota_de_retraso ? `: ${resumen.nota_de_retraso}` : ""})`);
+  return partes.join(" ");
+}
+
+/** Agrega la línea de sistemas al MISMO mensaje a Alexander (nunca es un mensaje aparte ni se repite). */
+export function conLineaDeSistemas(texto, linea) {
+  if (!linea || /^\s*sistemas\s*:/im.test(texto)) return texto;
+  return `${texto.trimEnd()}\n\n${linea}`;
+}
+
 /** Si marketing todavía está corriendo (hay en-curso.json y no terminado.json), espera de a un minuto, hasta 15. */
-async function esperarAMarketing({ carpetaMarketing, ahora, dormir, registro }) {
+async function esperarAMarketing({ carpetaMarketing, ahora, dormir, registro, nombre = "marketing" }) {
   const enCurso = path.join(carpetaMarketing, "en-curso.json");
   const terminado = path.join(carpetaMarketing, "terminado.json");
   let esperados = 0;
   while (fs.existsSync(enCurso) && !fs.existsSync(terminado) && esperados < ESPERA_MAXIMA_DE_MARKETING_MIN) {
-    if (esperados === 0) registro("INFO", "marketing todavía está corriendo: espero hasta 15 min");
+    if (esperados === 0) registro("INFO", `${nombre} todavía está corriendo: espero hasta 15 min`);
     await dormir(MINUTO);
     esperados += 1;
   }
-  if (esperados >= ESPERA_MAXIMA_DE_MARKETING_MIN && !fs.existsSync(terminado)) registro("WARN", "marketing no terminó en 15 min: sigo sin esperarlo");
+  if (esperados >= ESPERA_MAXIMA_DE_MARKETING_MIN && !fs.existsSync(terminado)) registro("WARN", `${nombre} no terminó en 15 min: sigo sin esperarlo`);
   return esperados;
 }
 
@@ -248,6 +296,9 @@ export async function correrAgente({
   esLimiteDeUso = null,
 }) {
   const esMarketing = area === "marketing";
+  const esSistemas = area === "sistemas";
+  // Marketing y sistemas no mandan mensajes: guardan su resumen y listo (su línea la agrega Ventas a las 7:30).
+  const sinMensajes = esMarketing || esSistemas;
   const decision = { ...decidirCorrida({ ahora: ahora(), config, hoy, forzarSabado, forzarLunes, area }), esPrueba };
   const carpetaLogs = path.resolve(carpetaBase, config.carpetaLogs ?? "logs");
   fs.mkdirSync(carpetaLogs, { recursive: true });
@@ -268,17 +319,18 @@ export async function correrAgente({
     registro("INFO", decision.motivo);
     return { ok: true, saltada: true, motivo: decision.motivo, decision };
   }
-  // Ventas deja sus archivos en salida/<fecha>/ y marketing en salida/<fecha>/marketing/ (así no se pisan).
+  // Ventas deja sus archivos en salida/<fecha>/, marketing en salida/<fecha>/marketing/ y sistemas en salida/<fecha>/sistemas/ (así no se pisan).
   const carpetaDelDia = path.resolve(carpetaBase, config.carpetaSalida ?? "salida", decision.fecha);
   const carpetaMarketing = path.join(carpetaDelDia, "marketing");
-  const carpetaSalida = esMarketing ? carpetaMarketing : carpetaDelDia;
+  const carpetaSistemas = path.join(carpetaDelDia, "sistemas");
+  const carpetaSalida = esMarketing ? carpetaMarketing : esSistemas ? carpetaSistemas : carpetaDelDia;
   fs.mkdirSync(carpetaSalida, { recursive: true });
   const marca = path.join(carpetaSalida, "terminado.json");
   if (fs.existsSync(marca) && !repetir) {
     registro("INFO", `ya corrió el ${decision.fecha}: no se repite (usar --repetir para forzarlo)`);
     return { ok: true, saltada: true, motivo: "ya corrió hoy", decision };
   }
-  registro("INFO", `corrida del ${decision.fecha}${decision.salioTarde ? ` — SALIÓ TARDE (${decision.nota})` : ""}${esMarketing ? (decision.esLunes ? " — con ideas de anuncio" : "") : decision.esSabado ? " — con analista de perdidos" : ""}${esPrueba ? " — PRUEBA" : ""}`);
+  registro("INFO", `corrida del ${decision.fecha}${decision.salioTarde ? ` — SALIÓ TARDE (${decision.nota})` : ""}${esMarketing ? (decision.esLunes ? " — con ideas de anuncio" : "") : esSistemas ? (decision.esLunes ? " — con el subagente de uso" : "") : decision.esSabado ? " — con analista de perdidos" : ""}${esPrueba ? " — PRUEBA" : ""}`);
 
   // Las piezas del trabajador: correr un comando con tiempo máximo y reconocer el límite del plan.
   const carpetaTrabajador = path.resolve(carpetaBase, config.carpetaTrabajador ?? "../trabajador-tablero");
@@ -287,13 +339,32 @@ export async function correrAgente({
   const reconocerLimite = esLimiteDeUso ?? (await traer("diagnostico.mjs")).esLimiteDeUso;
 
   const subagentes = listarSubagentes(carpetaAgente, { esSabado: decision.esSabado, esLunes: decision.esLunes });
-  const prompt = armarPrompt({ area, decision, subagentes, carpetaSalida });
-  const comando = [...config.comandoClaude, ...argumentosDeClaude(config, area)];
+
+  // Sistemas: la tarjeta de arreglo solo se puede crear con el interruptor PRENDIDO y fuera de --prueba. Si no se
+  // puede leer el interruptor, se cuenta como apagado (nunca decidir crear sin saber).
+  let puedeCrearTarjetas = false;
+  if (esSistemas && !esPrueba && config.tableroEmanuelId) {
+    try {
+      puedeCrearTarjetas = (await mcp("agente_de_sistemas", { fecha: decision.fecha }))?.interruptor === "prendido";
+    } catch (error) {
+      registro("WARN", `no pude leer el interruptor de sistemas (cuenta como apagado): ${error.message}`);
+    }
+  }
+  const extras = esSistemas
+    ? [
+        `PUEDE_CREAR_TARJETAS: ${puedeCrearTarjetas ? "si (interruptor prendido)" : "no (interruptor apagado o prueba: las tarjetas de arreglo solo se escriben en el resumen como 'se crearía')"}`,
+        `TABLERO_DE_EMANUEL: ${config.tableroEmanuelId ?? "(sin configurar)"}`,
+        `CRM_PRODUCCION: ${config.urlCrm}`,
+        `GESTION_PRODUCCION: ${config.urlGestion ?? "(sin configurar)"}`,
+      ]
+    : [];
+  const prompt = armarPrompt({ area, decision, subagentes, carpetaSalida, extras });
+  const comando = [...config.comandoClaude, ...argumentosDeClaude(config, area, { puedeCrearTarjetas })];
   const archivoSalida = path.join(carpetaLogs, `${decision.fecha}-claude.txt`);
 
   // Marketing avisa que está corriendo: Ventas lo espera (hasta 15 min) antes de armar el mensaje de las 7:30.
   const archivoEnCurso = path.join(carpetaSalida, "en-curso.json");
-  if (esMarketing) fs.writeFileSync(archivoEnCurso, JSON.stringify({ desde: new Date().toISOString() }));
+  if (sinMensajes) fs.writeFileSync(archivoEnCurso, JSON.stringify({ desde: new Date().toISOString() }));
   const quitarEnCurso = () => fs.rmSync(archivoEnCurso, { force: true });
 
   // 1) Claude Code, con espera y reintento si se agota el límite del plan.
@@ -332,23 +403,24 @@ export async function correrAgente({
     return { ok: false, motivo: "Claude falló", decision, fallas };
   }
 
-  // Marketing termina aquí: no hay mensajes. Solo se comprueba que guardó su resumen.
-  if (esMarketing) {
+  // Marketing y sistemas terminan aquí: no hay mensajes. Solo se comprueba que guardaron su resumen.
+  if (sinMensajes) {
     quitarEnCurso();
+    const nombre = esSistemas ? "sistemas" : "marketing";
     let guardado = true;
     try {
-      const vista = await mcp("agente_de_marketing", { fecha: decision.fecha });
+      const vista = await mcp(`agente_de_${nombre}`, { fecha: decision.fecha });
       guardado = Boolean(vista?.resumen_del_dia);
     } catch (error) {
-      registro("WARN", `no pude comprobar el resumen de marketing: ${error.message}`);
+      registro("WARN", `no pude comprobar el resumen de ${nombre}: ${error.message}`);
     }
     if (!guardado) {
-      registro("ERROR", "marketing no guardó su resumen en el CRM");
+      registro("ERROR", `${nombre} no guardó su resumen en el CRM`);
       return { ok: false, motivo: "sin resumen", decision, fallas };
     }
     const nota = decision.nota;
     fs.writeFileSync(path.join(carpetaSalida, "terminado.json"), JSON.stringify({ terminadoEn: new Date().toISOString(), salioTarde: Boolean(nota), nota }, null, 2));
-    registro("INFO", "corrida de marketing terminada (no manda mensajes: su línea va en el de las 7:30 de Ventas)");
+    registro("INFO", `corrida de ${nombre} terminada (no manda mensajes: su línea va en el de las 7:30 de Ventas)`);
     return { ok: true, decision, resultados: [], nota, fallas };
   }
 
@@ -373,7 +445,15 @@ export async function correrAgente({
   }
   const nota = decision.nota ?? (retrasoDelDia && !sinEsperar ? `la corrida terminó a las ${horaBogota(ahora())}` : null);
 
-  // 3b) La línea de marketing va en el MISMO mensaje a Alexander, solo si el interruptor de marketing está prendido.
+  // 3b) Las líneas de sistemas y de marketing van en el MISMO mensaje a Alexander, cada una solo si su interruptor está prendido.
+  let lineaSistemas = null;
+  try {
+    await esperarAMarketing({ carpetaMarketing: carpetaSistemas, ahora, dormir, registro, nombre: "sistemas" });
+    lineaSistemas = lineaDeSistemas(await mcp("agente_de_sistemas", { fecha: decision.fecha }));
+    if (lineaSistemas) registro("INFO", `línea de sistemas para Alexander: ${lineaSistemas}`);
+  } catch (error) {
+    registro("WARN", `no pude leer el resumen de sistemas: ${error.message}`);
+  }
   let linea = null;
   try {
     await esperarAMarketing({ carpetaMarketing, ahora, dormir, registro });
@@ -386,7 +466,7 @@ export async function correrAgente({
   // 4) Entregar. El servidor decide si sale; aquí solo se reintenta lo que "no salió" (línea caída).
   const resultados = [];
   for (const mensaje of mensajes) {
-    const texto = mensaje.tipo === "alexander" ? conAvisoDeRetraso(conLineaDeMarketing(mensaje.texto, linea), nota) : mensaje.texto;
+    const texto = mensaje.tipo === "alexander" ? conAvisoDeRetraso(conLineaDeSistemas(conLineaDeMarketing(mensaje.texto, linea), lineaSistemas), nota) : mensaje.texto;
     let respuesta = null;
     for (let i = 1; i <= config.reintentosEnvio; i += 1) {
       try {

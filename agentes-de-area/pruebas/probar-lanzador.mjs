@@ -16,7 +16,8 @@ if (process.argv.includes("--claude-falso")) {
   let prompt = "";
   for await (const trozo of process.stdin) prompt += trozo;
   const salida = prompt.match(/^SALIDA: (.+)$/m)?.[1];
-  const esMarketing = prompt.includes("Agente de Marketing");
+  // Marketing y sistemas no escriben mensajes.json: guardan su resumen en el CRM y listo.
+  const sinMensajes = prompt.includes("Agente de Marketing") || prompt.includes("Agente de Sistemas");
   const contador = process.env.CLAUDE_FALSO_CONTADOR;
   const veces = contador ? (fs.existsSync(contador) ? Number(fs.readFileSync(contador, "utf8")) : 0) + 1 : 1;
   if (contador) fs.writeFileSync(contador, String(veces));
@@ -29,9 +30,8 @@ if (process.argv.includes("--claude-falso")) {
     process.exit(1);
   }
   fs.writeFileSync(path.join(salida, "entorno.json"), JSON.stringify({ claveDeApi: Boolean(process.env.ANTHROPIC_API_KEY), subagentes: process.env.CLAUDE_CODE_SUBAGENT_MODEL, prompt }));
-  if (esMarketing) {
-    // Marketing no escribe mensajes.json: guarda su resumen en el CRM y listo.
-    console.log("listo: resumen de marketing guardado (de mentira)");
+  if (sinMensajes) {
+    console.log("listo: resumen guardado (de mentira)");
     process.exit(0);
   }
   fs.writeFileSync(
@@ -47,7 +47,7 @@ if (process.argv.includes("--claude-falso")) {
 }
 
 /* ───────────────────────────────────────────────────────────── las pruebas ── */
-const { correrAgente, argumentosDeClaude, llamarMcp, leerMensajes, decidirCorrida, entornoDeClaude, lineaDeMarketing, conLineaDeMarketing } = await import("../correr-agente.mjs");
+const { correrAgente, argumentosDeClaude, llamarMcp, leerMensajes, decidirCorrida, entornoDeClaude, lineaDeMarketing, conLineaDeMarketing, lineaDeSistemas, conLineaDeSistemas } = await import("../correr-agente.mjs");
 const { META_ESCRITURA, META_LECTURA } = await import("../lib/candado-meta.mjs");
 
 const RAIZ = path.resolve(path.dirname(ESTE), "..", "..");
@@ -83,16 +83,23 @@ function reloj(inicio) {
 }
 
 /** El CRM de mentira: solo equipo, interruptor, una vez por número (como el servidor de verdad). */
-function crmFalso({ activo = true, falla = 0, marketing = { interruptor: "apagado", resumen: null } } = {}) {
+function crmFalso({ activo = true, falla = 0, marketing = { interruptor: "apagado", resumen: null }, sistemas = { interruptor: "apagado", resumen: { linea_para_alexander: "Sistemas: todo funciona" } } } = {}) {
   const equipo = new Set(["573001112233", "573104445566"]);
   const vivos = new Set();
   const llamadas = [];
   const llamadasDeMarketing = [];
+  const llamadasDeSistemas = [];
   let fallas = falla;
   return {
     llamadas,
     llamadasDeMarketing,
+    llamadasDeSistemas,
     mcp: async (nombre, args) => {
+      if (nombre === "agente_de_sistemas") {
+        llamadasDeSistemas.push(args);
+        if (sistemas === "error") throw new Error("el CRM contestó 500");
+        return { interruptor: sistemas.interruptor, resumen_del_dia: sistemas.resumen };
+      }
       if (nombre === "agente_de_marketing") {
         llamadasDeMarketing.push(args);
         if (marketing === "error") throw new Error("el CRM contestó 500");
@@ -423,6 +430,168 @@ await prueba("marketing abre Claude con Meta SOLO de lectura y sin WhatsApp; ven
   assert.ok(prohibidas.includes("Bash"));
   const ventas = argumentosDeClaude(config, "ventas").join(" ");
   assert.ok(!ventas.includes("meta-ads") && ventas.includes("mcp__aizencrm__agente_de_marketing"));
+});
+
+/* ───────────────────────────────────────────────────────────── Agente de Sistemas ── */
+const carpetaSistemas = path.join(RAIZ, "agentes-de-area", "sistemas");
+const configSistemas = { ...config, tableroEmanuelId: "tablero-emanuel", urlGestion: "https://gestion.falso" };
+const ejecutarSistemas = (opciones) => correrAgente({ config: configSistemas, area: "sistemas", carpetaAgente: carpetaSistemas, carpetaBase: base, ...opciones });
+const entornoDeSistemas = (fecha) => JSON.parse(fs.readFileSync(path.join(config.carpetaSalida, fecha, "sistemas", "entorno.json"), "utf8"));
+
+await prueba("sistemas: corre a las 6:30, guarda su resumen y NO manda ningún mensaje; entre semana sin el subagente de uso", async () => {
+  limpiarDia();
+  const r = reloj(a(27, "06:30"));
+  const crm = crmFalso({ sistemas: { interruptor: "apagado", resumen: { linea_para_alexander: "Sistemas: todo funciona" } } });
+  const resultado = await ejecutarSistemas({ ahora: r.ahora, dormir: r.dormir, mcp: crm.mcp });
+  assert.equal(resultado.ok, true);
+  assert.equal(resultado.decision.salioTarde, false);
+  assert.deepEqual(r.dormidas, [], "sistemas no espera hasta las 7:30");
+  assert.equal(crm.llamadas.length, 0, "sistemas no manda WhatsApp");
+  const carpetaDia = path.join(config.carpetaSalida, "2026-10-27", "sistemas");
+  assert.ok(fs.existsSync(path.join(carpetaDia, "terminado.json")));
+  assert.ok(!fs.existsSync(path.join(carpetaDia, "en-curso.json")));
+  assert.ok(!fs.existsSync(path.join(carpetaDia, "mensajes.json")));
+  const entorno = entornoDeSistemas("2026-10-27");
+  assert.equal(entorno.claveDeApi, false);
+  assert.ok(entorno.prompt.includes("- revisor-de-produccion:") && entorno.prompt.includes("- salud-del-sistema:"));
+  assert.ok(!entorno.prompt.includes("- uso:"), "el uso solo va los lunes");
+});
+
+await prueba("sistemas: los lunes se agrega el subagente de uso; --forzar-lunes lo fuerza", async () => {
+  limpiarDia();
+  const crm = crmFalso();
+  const lunes = reloj(a(26, "06:30"));
+  await ejecutarSistemas({ ahora: lunes.ahora, dormir: lunes.dormir, mcp: crm.mcp });
+  assert.ok(entornoDeSistemas("2026-10-26").prompt.includes("- uso:"));
+  limpiarDia();
+  const martes = reloj(a(27, "06:30"));
+  await ejecutarSistemas({ ahora: martes.ahora, dormir: martes.dormir, mcp: crm.mcp, forzarLunes: true });
+  assert.ok(entornoDeSistemas("2026-10-27").prompt.includes("- uso:"));
+});
+
+await prueba("sistemas: en domingo no corre; prendió a las 8:12 → sale tarde y lo anota", async () => {
+  limpiarDia();
+  const crm = crmFalso();
+  const domingo = reloj(a(25, "06:30"));
+  const saltada = await ejecutarSistemas({ ahora: domingo.ahora, dormir: domingo.dormir, mcp: crm.mcp });
+  assert.equal(saltada.saltada, true);
+  limpiarDia();
+  const tarde = reloj(a(27, "08:12"));
+  const resultado = await ejecutarSistemas({ ahora: tarde.ahora, dormir: tarde.dormir, mcp: crm.mcp });
+  assert.equal(resultado.decision.salioTarde, true);
+  assert.ok(entornoDeSistemas("2026-10-27").prompt.includes("SALIO_TARDE: si (aizen1 prendió a las 8:12)"));
+});
+
+await prueba("sistemas: si no guardó su resumen en el CRM, es un error claro", async () => {
+  limpiarDia();
+  const crm = crmFalso({ sistemas: { interruptor: "apagado", resumen: null } });
+  const r = reloj(a(27, "06:30"));
+  const resultado = await ejecutarSistemas({ ahora: r.ahora, dormir: r.dormir, mcp: crm.mcp });
+  assert.equal(resultado.ok, false);
+  assert.equal(resultado.motivo, "sin resumen");
+});
+
+await prueba("sistemas: PUEDE_CREAR_TARJETAS solo con el interruptor prendido y fuera de --prueba", async () => {
+  const resumen = { linea_para_alexander: "Sistemas: todo funciona" };
+  for (const [interruptor, esPrueba, esperado] of [["apagado", false, "no"], ["prendido", true, "no"], ["prendido", false, "si"]]) {
+    limpiarDia();
+    const r = reloj(a(27, "06:30"));
+    const crm = crmFalso({ sistemas: { interruptor, resumen } });
+    await ejecutarSistemas({ ahora: r.ahora, dormir: r.dormir, mcp: crm.mcp, esPrueba });
+    assert.ok(entornoDeSistemas("2026-10-27").prompt.includes(`PUEDE_CREAR_TARJETAS: ${esperado}`), `${interruptor} prueba=${esPrueba} → ${esperado}`);
+    assert.ok(entornoDeSistemas("2026-10-27").prompt.includes("TABLERO_DE_EMANUEL: tablero-emanuel"));
+  }
+  // Si el CRM no deja leer el interruptor, cuenta como apagado.
+  limpiarDia();
+  const r = reloj(a(27, "06:30"));
+  const roto = crmFalso({ sistemas: "error" });
+  const resultado = await ejecutarSistemas({ ahora: r.ahora, dormir: r.dormir, mcp: roto.mcp });
+  assert.equal(resultado.ok, true, "la corrida sigue (la verificación del resumen es solo un aviso)");
+  assert.ok(entornoDeSistemas("2026-10-27").prompt.includes("PUEDE_CREAR_TARJETAS: no"));
+});
+
+await prueba("ventas lee sistemas: PRENDIDO su línea va en el MISMO mensaje a Alexander; APAGADO no entra", async () => {
+  limpiarDia();
+  const prendido = crmFalso({ sistemas: { interruptor: "prendido", resumen: { linea_para_alexander: "Sistemas: falla “Tabla de campañas” (HTTP 500)" } } });
+  const r = reloj(a(27, "07:00"));
+  const resultado = await ejecutar({ ahora: r.ahora, dormir: r.dormir, mcp: prendido.mcp });
+  assert.equal(resultado.ok, true);
+  assert.equal(prendido.llamadas.length, 2, "sigue siendo un mensaje a Alexander y uno a la asesora");
+  const alexander = prendido.llamadas.filter((l) => l.args.tipo === "alexander");
+  assert.equal(alexander.length, 1, "UN solo mensaje a Alexander");
+  assert.ok(alexander[0].args.texto.includes("Sistemas: falla “Tabla de campañas” (HTTP 500)"));
+  assert.ok(!prendido.llamadas.find((l) => l.args.tipo === "asesora").args.texto.includes("Sistemas"), "la asesora no recibe la línea de sistemas");
+  limpiarDia();
+  const apagado = crmFalso({ sistemas: { interruptor: "apagado", resumen: { linea_para_alexander: "Sistemas: todo funciona" } } });
+  const r2 = reloj(a(27, "07:00"));
+  await ejecutar({ ahora: r2.ahora, dormir: r2.dormir, mcp: apagado.mcp });
+  assert.ok(!apagado.llamadas.find((l) => l.args.tipo === "alexander").args.texto.includes("Sistemas"));
+});
+
+await prueba("ventas lee sistemas: prendido pero sin corrida → 'Sistemas: sin revisión hoy'; si el CRM no contesta, sin línea", async () => {
+  limpiarDia();
+  const sinCorrida = crmFalso({ sistemas: { interruptor: "prendido", resumen: null } });
+  const r = reloj(a(27, "07:00"));
+  await ejecutar({ ahora: r.ahora, dormir: r.dormir, mcp: sinCorrida.mcp });
+  assert.ok(sinCorrida.llamadas.find((l) => l.args.tipo === "alexander").args.texto.includes("Sistemas: sin revisión hoy"));
+  limpiarDia();
+  const roto = crmFalso({ sistemas: "error" });
+  const r2 = reloj(a(27, "07:00"));
+  const resultado = await ejecutar({ ahora: r2.ahora, dormir: r2.dormir, mcp: roto.mcp });
+  assert.equal(resultado.ok, true);
+  assert.ok(!roto.llamadas.find((l) => l.args.tipo === "alexander").args.texto.includes("Sistemas"));
+});
+
+await prueba("ventas espera hasta 15 min a que sistemas termine", async () => {
+  limpiarDia();
+  const carpetaDia = path.join(config.carpetaSalida, "2026-10-27", "sistemas");
+  fs.mkdirSync(carpetaDia, { recursive: true });
+  fs.writeFileSync(path.join(carpetaDia, "en-curso.json"), "{}");
+  const crm = crmFalso({ sistemas: { interruptor: "prendido", resumen: { linea_para_alexander: "Sistemas: todo funciona" } } });
+  const r = reloj(a(27, "07:00"));
+  const originalDormir = r.dormir;
+  let n = 0;
+  await ejecutar({
+    ahora: r.ahora,
+    dormir: async (ms) => {
+      await originalDormir(ms);
+      n += 1;
+      if (n === 4) fs.writeFileSync(path.join(carpetaDia, "terminado.json"), "{}"); // la 1.ª es hasta las 7:30; terminó en la 3.ª espera de un minuto
+    },
+    mcp: crm.mcp,
+  });
+  assert.equal(r.dormidas.filter((ms) => ms === 60_000).length, 3, "esperó de a un minuto hasta que sistemas terminó (no los 15)");
+  assert.ok(crm.llamadas.find((l) => l.args.tipo === "alexander").args.texto.includes("Sistemas: todo funciona"));
+});
+
+await prueba("lineaDeSistemas y conLineaDeSistemas: puras, sin duplicar la línea", () => {
+  assert.equal(lineaDeSistemas({ interruptor: "apagado", resumen_del_dia: { linea_para_alexander: "Sistemas: todo funciona" } }), null);
+  assert.equal(lineaDeSistemas(null), null);
+  assert.equal(lineaDeSistemas({ interruptor: "prendido", resumen_del_dia: null }), "Sistemas: sin revisión hoy");
+  assert.equal(lineaDeSistemas({ interruptor: "prendido", resumen_del_dia: { linea_para_alexander: "todo funciona", salio_tarde: true, nota_de_retraso: "aizen1 prendió a las 8:12" } }), "Sistemas: todo funciona (salió tarde: aizen1 prendió a las 8:12)");
+  assert.equal(conLineaDeSistemas("Hola", "Sistemas: todo funciona"), "Hola\n\nSistemas: todo funciona");
+  assert.equal(conLineaDeSistemas("Hola\nSistemas: ya estaba", "Sistemas: otra"), "Hola\nSistemas: ya estaba");
+  assert.equal(conLineaDeSistemas("Hola", null), "Hola");
+});
+
+await prueba("sistemas abre Claude SOLO de lectura: sin Write/Edit, sin WhatsApp, sin git/gh/npm y con los tres programas; crear_tarjeta solo si se puede", () => {
+  const apagado = argumentosDeClaude(config, "sistemas");
+  const encendido = argumentosDeClaude(config, "sistemas", { puedeCrearTarjetas: true });
+  const parte = (args) => ({ permitidas: args.slice(args.indexOf("--allowedTools") + 1, args.indexOf("--disallowedTools")), prohibidas: args.slice(args.indexOf("--disallowedTools") + 1) });
+  const a1 = parte(apagado);
+  const a2 = parte(encendido);
+  assert.ok(!a1.permitidas.includes("mcp__aizencrm__crear_tarjeta") && a1.prohibidas.includes("mcp__aizencrm__crear_tarjeta"), "apagado/prueba: sin crear_tarjeta");
+  assert.ok(a2.permitidas.includes("mcp__aizencrm__crear_tarjeta") && !a2.prohibidas.includes("mcp__aizencrm__crear_tarjeta"), "prendido: con crear_tarjeta");
+  for (const { permitidas, prohibidas } of [a1, a2]) {
+    for (const x of ["Write", "Edit", "Bash"]) assert.ok(!permitidas.includes(x), `no permitida: ${x}`);
+    assert.ok(permitidas.includes("Bash(node herramientas/revisar-pantalla.mjs:*)") && permitidas.includes("Bash(node herramientas/leer-servidor.mjs:*)") && permitidas.includes("Bash(node herramientas/salud-de-aizen1.mjs:*)"));
+    for (const x of ["aprobar_tarjeta", "cambiar_estado_tarjeta", "editar_tarjeta", "borrar_tarjeta", "mandar_whatsapp_al_equipo"]) {
+      assert.ok(!permitidas.includes(`mcp__aizencrm__${x}`) && prohibidas.includes(`mcp__aizencrm__${x}`), x);
+    }
+    for (const x of ["git", "gh", "npm"]) assert.ok(prohibidas.includes(`Bash(${x}:*)`), x);
+    assert.ok(permitidas.includes("mcp__aizencrm__revision_de_sistemas") && permitidas.includes("mcp__aizencrm__guardar_resumen_del_dia"));
+  }
+  assert.ok(!argumentosDeClaude(config, "ventas").join(" ").includes("revisar-pantalla"), "ventas no recibe los programas de sistemas");
 });
 
 await prueba("mensajes.json: un solo Alexander y un mensaje por número", () => {

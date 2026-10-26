@@ -200,6 +200,8 @@ export function AppSidebar({
                       ? "agente-de-ventas"
                       : pathname.startsWith("/cliente/crm/agente-de-marketing")
                         ? "agente-de-marketing"
+                    : pathname.startsWith("/cliente/crm/agente-de-sistemas")
+                      ? "agente-de-sistemas"
                     : pathname.startsWith("/cliente/crm/comparar-embudos")
                       ? "comparar-embudos"
                     : pathname.startsWith("/cliente/crm/embudo")

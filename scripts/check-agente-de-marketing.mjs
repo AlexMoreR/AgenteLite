@@ -293,7 +293,7 @@ await prueba("la pantalla: ruta nueva, menú junto a Ventas, mismo panel con la 
   const panel = fs.readFileSync(path.join(RAIZ, "src/features/agentes-de-area/components/PanelAgenteDeArea.tsx"), "utf8");
   assert.ok(panel.includes("TablaDeCampanas") && panel.includes("InterruptorDelAgente"));
   const acciones = fs.readFileSync(path.join(RAIZ, "src/app/actions/agentes-de-area-actions.ts"), "utf8");
-  assert.ok(acciones.includes("esArea(area)") && acciones.includes("agente-de-marketing"));
+  assert.ok(acciones.includes("esArea(area)") && acciones.includes("agente-de-${area}"));
 });
 
 await prueba("la tabla por campaña lee solo números y deja '—' en lo que falta", () => {

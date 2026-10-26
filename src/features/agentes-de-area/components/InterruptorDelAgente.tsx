@@ -24,7 +24,13 @@ export function InterruptorDelAgente({ area, activo }: { area: string; activo: b
     <div className="space-y-1">
       <label className="flex items-center justify-between gap-3 text-sm">
         <span>
-          {valor ? "Prendido: los mensajes salen" : "Apagado: no sale ningún mensaje"}
+          {area === "sistemas"
+            ? valor
+              ? "Prendido: su línea va en el mensaje de las 7:30 y crea las tarjetas de arreglo"
+              : "Apagado: solo genera el resumen; no sale en el mensaje ni crea tarjetas"
+            : valor
+              ? "Prendido: los mensajes salen"
+              : "Apagado: no sale ningún mensaje"}
         </span>
         <Switch checked={valor} disabled={pendiente} onCheckedChange={cambiar} />
       </label>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, Filter, Gauge, GitCompareArrows, KanbanSquare, Bot, Megaphone, LifeBuoy, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, Filter, Gauge, GitCompareArrows, KanbanSquare, Bot, Megaphone, Activity, LifeBuoy, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -18,7 +18,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "comparar-embudos" | "recuperacion" | "supervisor" | "agente-de-ventas" | "agente-de-marketing" | "guiones";
+type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "comparar-embudos" | "recuperacion" | "supervisor" | "agente-de-ventas" | "agente-de-marketing" | "agente-de-sistemas" | "guiones";
 
 const crmViews: Array<{
   title: string;
@@ -49,6 +49,8 @@ const crmViews: Array<{
   { title: "Agente de Ventas", view: "agente-de-ventas", icon: Bot, soloJefes: true },
   // El Agente de Marketing: el mismo molde, junto al de Ventas.
   { title: "Agente de Marketing", view: "agente-de-marketing", icon: Megaphone, soloJefes: true },
+  // El Agente de Sistemas: revisa lo que se subió a producción. Mismo molde, junto a los otros dos.
+  { title: "Agente de Sistemas", view: "agente-de-sistemas", icon: Activity, soloJefes: true },
   { title: "Guiones", view: "guiones", icon: BookOpen },
 ];
 
