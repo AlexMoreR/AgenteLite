@@ -14,6 +14,7 @@ import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
 import { sincronizarSiTocaHoy } from "@/lib/sincronizacion-gestion";
 import { correrPautaDeTodos } from "@/features/pauta/servicios/correr-pauta";
 import { vueltaDeCadaHora, vueltaDeCincoMinutos } from "@/features/supervisor/servicios/vueltas";
+import { vigilarReasignacion } from "@/features/supervisor-reasignacion/servicios/vigilante";
 import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente/servicios/motor";
 import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/servicio";
 import { procesarColaDeReuniones } from "@/features/reuniones/servicios/cola-de-reuniones";
@@ -291,6 +292,20 @@ async function handleCron(request: Request) {
       }
     });
   }
+  /*
+    AVISOS POR WHATSAPP Y REASIGNACIÓN DE CHATS (ver src/features/supervisor-reasignacion). Cada vuelta, en
+    segundo plano: a los 5 min sin respuesta le avisa a la asesora, a los 30 pasa el chat a otra, y avisa a
+    las dos. APAGADO por defecto: sin `supervisor:reasignacion:<negocio>` es UNA lectura de AppSetting y sale.
+    Fuera de horario laboral no hace nada. Nunca le escribe al cliente.
+  */
+  after(async () => {
+    try {
+      await vigilarReasignacion();
+    } catch (error) {
+      console.error("[cron/follows] avisos y reasignacion error", error);
+    }
+  });
+
   /*
     SEGUIMIENTO INTELIGENTE (ver src/features/seguimiento-inteligente). APAGADO por defecto: sin
     `seguimiento-inteligente:config:<negocio>` es UNA consulta a AppSetting y sale. En cada vuelta y

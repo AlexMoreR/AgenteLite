@@ -32,6 +32,10 @@ import { leerConfigGravedad, leerResumenDelDia } from "@/features/avisos-graveda
 import { PanelAccionableView } from "@/features/supervisor-accionable/components/PanelAccionable";
 import { anclaDeAlerta } from "@/features/supervisor-accionable/dominio/reglas";
 import { leerConfigAccionable, leerPanelAccionable } from "@/features/supervisor-accionable/servicios/accionable";
+import { PanelReasignacion } from "@/features/supervisor-reasignacion/components/PanelReasignacion";
+import { fechaDeBogota } from "@/features/supervisor-reasignacion/dominio/reglas";
+import { leerConfigReasignacion } from "@/features/supervisor-reasignacion/servicios/config";
+import { asesorasSinNumeroDeAvisos, leerLineasParaAvisos, leerRegistroDelDia } from "@/features/supervisor-reasignacion/servicios/registro";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 
@@ -122,6 +126,15 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
   const avisos = {
     resumen: configAvisos?.activo ? await leerResumenDelDia(workspaceId, fechaBogota(new Date())) : null,
   };
+
+  // Avisos por WhatsApp y reasignación: ajustes (los edita el dueño o un administrador) + registro de hoy.
+  const [configReasignacion, registroReasignacion, lineasParaAvisos, asesorasSinNumero] = await Promise.all([
+    leerConfigReasignacion(workspaceId),
+    leerRegistroDelDia(workspaceId, fechaDeBogota(ahora)).catch(() => null),
+    leerLineasParaAvisos(workspaceId),
+    asesorasSinNumeroDeAvisos(workspaceId, ahora),
+  ]);
+  const puedeEditarReasignacion = access.isOwner || access.role === "ADMIN" || access.membershipRole === "OWNER" || access.membershipRole === "ADMIN";
 
   const ids = idsDelComboEnElLibro(linea.actual);
   const anterior = linea.libros.get(linea.actual.version - 1) ?? null;
@@ -223,6 +236,14 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
       ) : null}
 
       {panelAccionable ? <PanelAccionableView panel={panelAccionable} /> : null}
+
+      <PanelReasignacion
+        config={configReasignacion}
+        registro={registroReasignacion}
+        lineas={lineasParaAvisos}
+        sinNumero={asesorasSinNumero}
+        puedeEditar={puedeEditarReasignacion}
+      />
 
       {avisos.resumen ? (
         <Card size="sm">

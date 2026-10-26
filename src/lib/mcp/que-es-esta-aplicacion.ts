@@ -6,6 +6,7 @@ import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
 import { prisma } from "@/lib/prisma";
+import { claveConfigReasignacion, leerConfigDeTexto } from "@/features/supervisor-reasignacion/dominio/reglas";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
@@ -489,6 +490,20 @@ async function estadoDeLaPauta(workspaceId: string) {
   return `activa: una vez al día (4 a. m.) guarda el origen de ${origenes} chat(s) de anuncio y de ${ventas} venta(s); ${meta ? "Meta Ads conectado en solo lectura" : "SIN llave de Meta Ads (META_ADS_ACCESS_TOKEN y META_ADS_ACCOUNT_ID): el gasto sale no disponible y no hay nombre de campaña"}`;
 }
 
+/** Avisos por WhatsApp y reasignación de chats del Supervisor: los dos interruptores y los tiempos vigentes. */
+async function estadoDeLosAvisosYReasignaciones(workspaceId: string) {
+  const fila = await prisma.appSetting.findUnique({ where: { key: claveConfigReasignacion(workspaceId) } });
+  const config = leerConfigDeTexto(fila?.value);
+  if (!config.avisosActivo && !config.reasignacionActiva) {
+    return "apagada: los dos interruptores (avisos y reasignación) están apagados; se prenden en la pantalla del Supervisor";
+  }
+  const partes = [
+    config.avisosActivo ? `avisos prendidos (a los ${config.minutosAviso} min; Caliente a las ${config.horasCaliente} h)` : "avisos apagados",
+    config.reasignacionActiva ? `reasignación prendida (a los ${config.minutosReasignacion} min)` : "reasignación apagada",
+  ];
+  return `activa: ${partes.join("; ")}; horario ${config.horario.desde}:00 a ${config.horario.hasta}:00, días ${config.horario.dias.join(",")}; salen por la línea ${config.canalId}`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -540,6 +555,7 @@ async function automatizaciones(
     informe_diario: ultimoInforme
       ? `activa: ultimo informe del ${ultimoInforme.reportDate.toISOString().slice(0, 10)}`
       : "sin informes generados",
+    supervisor_avisos_y_reasignacion: await estadoDeLosAvisosYReasignaciones(workspaceId).catch(() => "no se pudo leer"),
     coach_de_ventas: await estadoDelCoach(workspaceId).catch(() => "no se pudo leer"),
     reuniones_transcripcion: await estadoDeLasReuniones(workspaceId).catch(() => "no se pudo leer"),
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
