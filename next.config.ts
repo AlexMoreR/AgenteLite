@@ -59,6 +59,17 @@ const nextConfig: NextConfig = {
       { source: "/cliente/crm/agente-de-marketing/:resto*", destination: "/cliente/direccion/agente-de-marketing/:resto*", permanent: false },
       { source: "/cliente/crm/agente-de-sistemas", destination: "/cliente/direccion/agente-de-sistemas", permanent: false },
       { source: "/cliente/crm/agente-de-sistemas/:resto*", destination: "/cliente/direccion/agente-de-sistemas/:resto*", permanent: false },
+      // Dirección (parte 2): Embudo, Comparar embudos, Pauta, Recuperación e Informe también salieron del CRM.
+      { source: "/cliente/crm/embudo", destination: "/cliente/direccion/embudo", permanent: false },
+      { source: "/cliente/crm/embudo/:resto*", destination: "/cliente/direccion/embudo/:resto*", permanent: false },
+      { source: "/cliente/crm/comparar-embudos", destination: "/cliente/direccion/comparar-embudos", permanent: false },
+      { source: "/cliente/crm/comparar-embudos/:resto*", destination: "/cliente/direccion/comparar-embudos/:resto*", permanent: false },
+      { source: "/cliente/crm/pauta", destination: "/cliente/direccion/pauta", permanent: false },
+      { source: "/cliente/crm/pauta/:resto*", destination: "/cliente/direccion/pauta/:resto*", permanent: false },
+      { source: "/cliente/crm/recuperacion", destination: "/cliente/direccion/recuperacion", permanent: false },
+      { source: "/cliente/crm/recuperacion/:resto*", destination: "/cliente/direccion/recuperacion/:resto*", permanent: false },
+      { source: "/cliente/crm/informe", destination: "/cliente/direccion/informe", permanent: false },
+      { source: "/cliente/crm/informe/:resto*", destination: "/cliente/direccion/informe/:resto*", permanent: false },
     ];
   },
 

@@ -111,7 +111,7 @@ const hecha = (id, titulo, haceHoras, extra = {}) => ({
     repo: "aizencrm",
     titulo,
     detalle: "detalle",
-    resultado: { rama: `tablero/${id}`, archivos: ["src/app/cliente/crm/pauta/page.tsx", "src/lib/x.ts"], subida: { commit: `commit${id}` } },
+    resultado: { rama: `tablero/${id}`, archivos: ["src/app/cliente/direccion/pauta/page.tsx", "src/lib/x.ts"], subida: { commit: `commit${id}` } },
     tablero: { nombre: "Magilus General" },
     ...extra,
   },
@@ -126,7 +126,7 @@ await prueba("una tarjeta que pasó a HECHO hace 3 horas entra en la revisión; 
   assert.equal(r[0].commit, "commita");
   assert.equal(r[0].rama, "tablero/a");
   assert.equal(r[0].hechoEn, hace(3).toISOString(), "la hora sale del historial de la tarjeta");
-  assert.deepEqual(r[0].pantallas, ["/cliente/crm/pauta"], "la pantalla sale de los archivos que tocó");
+  assert.deepEqual(r[0].pantallas, ["/cliente/direccion/pauta"], "la pantalla sale de los archivos que tocó");
 });
 
 await prueba("entran juntas las tarjetas de los dos repos y de varios tableros; cada una una sola vez", async () => {

@@ -13,7 +13,7 @@ import { puedeVerElSupervisor } from "@/lib/mcp/supervisor";
 /*
   COMPARAR EMBUDOS DESDE CLAUDE (solo lectura).
 
-  Devuelve lo mismo que la pantalla /cliente/crm/comparar-embudos: dos versiones del libro lado a
+  Devuelve lo mismo que la pantalla /cliente/direccion/comparar-embudos: dos versiones del libro lado a
   lado (chats, % que respondió la bienvenida, dio su ciudad, llegó a Caliente, compró, en qué paso
   se cae la gente, días hasta la venta y plata), más un texto corto para decir por voz qué versión
   vende más. Usa EL MISMO cálculo que la pantalla (features/embudo/dominio/comparar.ts).

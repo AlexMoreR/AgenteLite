@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BookOpen, ChartNoAxesCombined, ChevronDown, Filter, Gauge, GitCompareArrows, KanbanSquare, Target, LifeBuoy, Sun, type LucideIcon } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, ChevronDown, Gauge, KanbanSquare, Sun, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -18,7 +18,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "comparar-embudos" | "pauta" | "recuperacion" | "guiones";
+type CrmView = "mi-dia" | "registro" | "kanban" | "tablero" | "guiones";
 
 const crmViews: Array<{
   title: string;
@@ -30,18 +30,9 @@ const crmViews: Array<{
   { title: "Mi día", view: "mi-dia", icon: Sun },
   // Registro ya no está en el menú (Alex, 26-10-2026): la pantalla y los datos siguen, solo se esconde el botón.
   { title: "Kanban", view: "kanban", icon: KanbanSquare },
-  // Informe y Guiones: solo dueño o administrador; las demás cuentas ven solo Mi día y Kanban.
-  { title: "Informe", view: "informe", icon: ChartNoAxesCombined, soloJefes: true },
+  // Tablero y Guiones: solo dueño o administrador; las demás cuentas ven solo Mi día y Kanban.
   // Solo para quien supervisa: es como viene CADA asesora, no el trabajo de una.
   { title: "Tablero", view: "tablero", icon: Gauge, soloJefes: true },
-  // El embudo del Combo (F1): de la entrada del anuncio al anticipo. También solo para quien supervisa.
-  { title: "Embudo", view: "embudo", icon: Filter, soloJefes: true },
-  // Comparar dos versiones del libro lado a lado (solo lectura). También solo para quien supervisa.
-  { title: "Comparar embudos", view: "comparar-embudos", icon: GitCompareArrows, soloJefes: true },
-  // Pauta: qué campaña y anuncio de Meta traen ventas y cuánto cuesta cada una (solo lectura).
-  { title: "Pauta", view: "pauta", icon: Target, soloJefes: true },
-  // Recuperación de leads (13-10-2026): desde el 26-10-2026 solo dueño / administrador.
-  { title: "Recuperación", view: "recuperacion", icon: LifeBuoy, soloJefes: true },
   { title: "Guiones", view: "guiones", icon: BookOpen, soloJefes: true },
 ];
 

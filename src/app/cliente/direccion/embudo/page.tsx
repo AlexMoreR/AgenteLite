@@ -79,7 +79,7 @@ export default async function EmbudoPage({ searchParams }: PageProps) {
     if (fam !== "combo") query.set("familia", fam);
     if (cambios.ver) query.set("ver", cambios.ver);
     const cadena = query.toString();
-    return `/cliente/crm/embudo${cadena ? `?${cadena}` : ""}`;
+    return `/cliente/direccion/embudo${cadena ? `?${cadena}` : ""}`;
   };
   const siguiente = sumarDias(lunes, 7);
 
@@ -103,7 +103,7 @@ export default async function EmbudoPage({ searchParams }: PageProps) {
       hrefVerFuga={`${href({ ver: "fuga" })}#chats`}
       hrefCerrarFuga={href({})}
       chats={chats}
-      hrefClasica="/cliente/crm/embudo?vista=clasica"
+      hrefClasica="/cliente/direccion/embudo?vista=clasica"
       ahora={ahora}
     />
   );

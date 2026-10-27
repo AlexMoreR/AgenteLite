@@ -38,7 +38,7 @@ const GRUPO: Record<string, string> = {
 };
 
 /**
- * VISTA CLÁSICA DEL EMBUDO DEL COMBO (F1: solo mide), en /cliente/crm/embudo?vista=clasica.
+ * VISTA CLÁSICA DEL EMBUDO DEL COMBO (F1: solo mide), en /cliente/direccion/embudo?vista=clasica.
  * Era la pantalla del embudo hasta el 12-10-2026; se conserva completa (períodos libres, producto,
  * comparación, señales e "Historia" para el dueño). La página (page.tsx) ya revisó el acceso.
  *
@@ -99,7 +99,7 @@ export async function VistaClasicaDelEmbudo({ access, params }: { access: Client
 
       <Card size="sm">
         <CardContent>
-          <form method="get" action="/cliente/crm/embudo" className="flex flex-wrap items-end gap-2">
+          <form method="get" action="/cliente/direccion/embudo" className="flex flex-wrap items-end gap-2">
             <input type="hidden" name="vista" value="clasica" />
             <label className="space-y-1 text-xs text-muted-foreground">
               <span>Desde</span>
@@ -194,7 +194,7 @@ export async function VistaClasicaDelEmbudo({ access, params }: { access: Client
           Tablero del equipo
         </Link>
         {" · "}
-        <Link href="/cliente/crm/embudo" className="underline">
+        <Link href="/cliente/direccion/embudo" className="underline">
           Embudo semanal
         </Link>
       </p>

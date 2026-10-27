@@ -1,6 +1,6 @@
 // REVISAR UNA PANTALLA DE PRODUCCIÓN (Agente de Sistemas). SOLO LECTURA.
 //
-//   node herramientas/revisar-pantalla.mjs --url https://app.aizenbot.com/cliente/crm/pauta [--sesion sesion.json] [--esperar-ms 4000]
+//   node herramientas/revisar-pantalla.mjs --url https://app.aizenbot.com/cliente/direccion/pauta [--sesion sesion.json] [--esperar-ms 4000]
 //
 // Abre la pantalla con un navegador sin ventana (Playwright, el mismo que usan las pruebas del repo) y anota tres cosas:
 // si respondió bien, los errores de la consola y las respuestas 500. Imprime un JSON con el resultado:

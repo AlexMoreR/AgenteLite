@@ -1,5 +1,5 @@
 /**
- * COMPARAR EMBUDOS (pantalla /cliente/crm/comparar-embudos y herramienta MCP `comparar_embudos`),
+ * COMPARAR EMBUDOS (pantalla /cliente/direccion/comparar-embudos y herramienta MCP `comparar_embudos`),
  * en código puro: sin base ni Next. La pantalla y el MCP usan ESTAS funciones, así que nunca dan
  * números distintos. Se prueba con `npm run test:comparar-embudos` (scripts/check-comparar-embudos.mjs).
  *

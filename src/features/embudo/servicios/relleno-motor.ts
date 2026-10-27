@@ -2,7 +2,7 @@
  * EL MOTOR DEL RELLENO HISTÓRICO DEL EMBUDO (sin Next, sin Prisma: recibe la base por parámetro).
  *
  * Lo usan:
- *  - la app (servicios/relleno.ts, sección "Historia" de /cliente/crm/embudo), con Prisma;
+ *  - la app (servicios/relleno.ts, sección "Historia" de /cliente/direccion/embudo), con Prisma;
  *  - el script scripts/embudo-backfill.mjs y las pruebas, con un Pool de pg o PGlite.
  * Por eso aquí solo hay imports relativos y SQL explícito con conversiones (::jsonb, ::int,
  * timestamptz AT TIME ZONE 'UTC'), que funciona igual con los dos clientes.

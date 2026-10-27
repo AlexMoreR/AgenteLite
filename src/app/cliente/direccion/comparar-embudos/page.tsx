@@ -80,7 +80,7 @@ export default async function CompararEmbudosPage({ searchParams }: PageProps) {
           versiones={lectura.versiones}
           sinVersion={lectura.sinVersion}
           lineas={lineas}
-          hrefLimpiar="/cliente/crm/comparar-embudos"
+          hrefLimpiar="/cliente/direccion/comparar-embudos"
         />
       }
     />

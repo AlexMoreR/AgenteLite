@@ -2,7 +2,7 @@
 //
 // La lógica vive en la app: src/features/embudo/servicios/relleno-motor.ts (motor, sin Next ni
 // Prisma) y src/features/embudo/dominio/relleno.ts (reconstrucción pura de cada chat). En
-// producción se usa desde /cliente/crm/embudo, sección "Historia" (solo el dueño). Este script
+// producción se usa desde /cliente/direccion/embudo, sección "Historia" (solo el dueño). Este script
 // carga el mismo motor para correrlo a mano en desarrollo o en pruebas.
 //
 // Por defecto SIMULA: solo cuenta y muestra un resumen. Para escribir hay que pasar --escribir.

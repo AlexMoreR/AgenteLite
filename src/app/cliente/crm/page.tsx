@@ -13,5 +13,7 @@ function resolveCrmView(value: string | string[] | undefined) {
 
 export default async function ClienteCrmPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  redirect(`/cliente/crm/${resolveCrmView(params.view)}`);
+  const vista = resolveCrmView(params.view);
+  // El Informe ahora vive en Dirección.
+  redirect(vista === "informe" ? "/cliente/direccion/informe" : `/cliente/crm/${vista}`);
 }

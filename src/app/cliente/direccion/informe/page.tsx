@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { CrmInformeView } from "@/features/crm/components/CrmInformeView";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
-import { getAuthorizedCrmData } from "../_lib";
+import { getAuthorizedCrmData } from "@/app/cliente/crm/_lib";
 
 export const metadata: Metadata = {
   robots: {

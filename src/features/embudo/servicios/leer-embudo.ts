@@ -6,7 +6,7 @@ import { CLAVE_COMBO } from "../dominio/combo";
 import { ETAPAS_DEL_PANEL, rangoBogota, type ClaveDeEtapa, type ConteosDelEmbudo } from "../dominio/panel";
 
 /**
- * Lo que lee el panel del embudo (/cliente/crm/embudo). Dos consultas por período, con agregados
+ * Lo que lee el panel del embudo (/cliente/direccion/embudo). Dos consultas por período, con agregados
  * en SQL (nada de una consulta por lead):
  *  1. por lead, si llegó a cada etapa (bool_or sobre sus eventos) y cuánto lleva; sumado en la base.
  *  2. las señales por tipo.
