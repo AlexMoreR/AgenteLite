@@ -85,7 +85,12 @@ function comoFoto(fila: Record<string, unknown> | null): FotoDelLead | null {
   if (!fila) return null;
   const foto = fila as unknown as FotoDelLead;
   const accionDatos = fila.accionDatos && typeof fila.accionDatos === "object" && !Array.isArray(fila.accionDatos) ? (fila.accionDatos as Record<string, unknown>) : null;
-  return { ...foto, accionDatos, senales: Array.isArray(fila.senales) ? (fila.senales as FotoDelLead["senales"]) : null };
+  return {
+    ...foto,
+    accionDatos,
+    senales: Array.isArray(fila.senales) ? (fila.senales as FotoDelLead["senales"]) : null,
+    pasoHistorial: Array.isArray(fila.pasoHistorial) ? (fila.pasoHistorial as FotoDelLead["pasoHistorial"]) : null,
+  };
 }
 
 function datosDeLaFoto(foto: FotoDelLead) {
@@ -103,6 +108,11 @@ function datosDeLaFoto(foto: FotoDelLead) {
     libroVersionEntrada: foto.libroVersionEntrada,
     pasoActual: foto.pasoActual,
     pasoMaximo: foto.pasoMaximo,
+    // Embudo por paso. `undefined` = no se toca la columna.
+    pasoAnterior: foto.pasoAnterior,
+    pasoDesde: foto.pasoDesde,
+    pasoHistorial:
+      foto.pasoHistorial === undefined ? undefined : foto.pasoHistorial ? (foto.pasoHistorial as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
     temperatura: foto.temperatura,
     puntaje: foto.puntaje,
     motivo: foto.motivo,
@@ -279,6 +289,37 @@ export function registrarTurnoV3(input: BaseDelEvento & {
       // Las señales de texto ya salen por mensaje en el webhook; acá solo las de un audio transcrito.
       incluirSenales: (input.tipoMensaje ?? "").toUpperCase() === "AUDIO",
     });
+  });
+}
+
+/**
+ * El Agente V2 cambió de etapa del embudo: se anota el mismo PASO_ENTRA que anota el V3, marcado
+ * como del V2 (`datos.agente`). En segundo plano y sin lanzar: si falla, el V2 sigue igual. Con el
+ * interruptor del embudo apagado no se registra nada (lo revisa registrarEventos).
+ */
+export function registrarPasoDelV2(input: { workspaceId: string; conversationId: string; paso: string; desde?: string | null }): void {
+  registrarEnSegundoPlano(input, async () => {
+    // Si el V3 ya atendió este chat, su paso manda: la etapa del V2 no lo pisa.
+    const delV3 = await prisma.embudoEvento.findFirst({
+      where: { conversationId: input.conversationId, tipo: "TURNO_V3" },
+      select: { id: true },
+    });
+    if (delV3) return [];
+    const lead = await prisma.embudoLead.findUnique({
+      where: { conversationId: input.conversationId },
+      select: { productoActual: true },
+    });
+    const producto = lead?.productoActual ?? null;
+    return [
+      {
+        tipo: "PASO_ENTRA",
+        origen: "motor",
+        paso: input.paso,
+        producto,
+        datos: { desde: input.desde ?? null, agente: "v2" },
+        claveUnica: `PASO:${input.conversationId}:${producto ?? "-"}:${input.paso}`,
+      },
+    ];
   });
 }
 

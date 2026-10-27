@@ -1,3 +1,4 @@
+import { registrarPasoDelV2 } from "@/features/embudo/servicios/eventos";
 import { prisma } from "@/lib/prisma";
 import {
   PRODUCT_FUNNEL_STAGES,
@@ -104,7 +105,7 @@ export async function syncFunnelStageFromCommercialStage(input: {
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: input.conversationId },
-    select: { funnelStage: true, funnelStageCount: true },
+    select: { workspaceId: true, funnelStage: true, funnelStageCount: true },
   });
 
   if (!conversation) {
@@ -141,6 +142,17 @@ export async function syncFunnelStageFromCommercialStage(input: {
       ...(cambio ? { funnelNotifiedAt: null } : {}),
     },
   });
+
+  // Embudo por paso: el cambio de etapa del V2 queda medido igual que el del V3 (segundo plano,
+  // nunca lanza: si falla, el V2 sigue como si nada).
+  if (cambio) {
+    registrarPasoDelV2({
+      workspaceId: conversation.workspaceId,
+      conversationId: input.conversationId,
+      paso: target,
+      desde: current,
+    });
+  }
 
   return { stage: target, count, changed: cambio };
 }

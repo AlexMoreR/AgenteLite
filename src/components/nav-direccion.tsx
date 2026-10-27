@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Bell, Bot, ChartNoAxesCombined, ChevronDown, Compass, Filter, GitCompareArrows, LifeBuoy, Megaphone, ServerCog, ShieldCheck, Target, type LucideIcon } from "lucide-react";
+import { Bell, Bot, ChartNoAxesCombined, ChevronDown, Compass, Filter, GitCompareArrows, LifeBuoy, ListFilter, Megaphone, ServerCog, ShieldCheck, Target, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -37,6 +37,8 @@ const direccionViews: Array<{
   { title: "Embudo", view: "embudo", icon: Filter },
   // Comparar dos versiones del libro lado a lado (solo lectura).
   { title: "Comparar embudos", view: "comparar-embudos", icon: GitCompareArrows },
+  // En qué paso del bot se queda la gente (solo lectura).
+  { title: "Embudo por paso", view: "embudo-por-paso", icon: ListFilter },
   // Pauta: qué campaña y anuncio de Meta traen ventas y cuánto cuesta cada una (solo lectura).
   { title: "Pauta", view: "pauta", icon: Target },
   // Recuperación de leads: solo dueño / administrador.

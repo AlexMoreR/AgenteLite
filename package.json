@@ -29,6 +29,8 @@
     "test:embudo-versiones-migracion": "node scripts/check-embudo-versiones-migracion.mjs",
     "test:comparar-embudos": "node scripts/check-comparar-embudos.mjs",
     "test:mcp-comparar-embudos": "node scripts/check-mcp-comparar-embudos.mjs",
+    "test:embudo-por-paso": "node scripts/check-embudo-por-paso.mjs",
+    "test:mcp-embudo-por-paso": "node scripts/check-mcp-embudo-por-paso.mjs",
     "test:pauta": "node scripts/check-pauta.mjs",
     "test:pauta-migracion": "node scripts/check-pauta-migracion.mjs",
     "test:mcp-ventas-por-campana": "node scripts/check-mcp-ventas-por-campana.mjs",

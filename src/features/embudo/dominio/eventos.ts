@@ -188,7 +188,7 @@ export function eventosDelTurno(input: {
       tipo: "PASO_ENTRA",
       paso: despuesPaso,
       producto: productoDespues,
-      datos: { desde: antesPaso, productoAntes: clave(antesProducto) },
+      datos: { desde: antesPaso, productoAntes: clave(antesProducto), agente: "v3" },
       claveUnica: `PASO:${conversationId}:${productoDespues ?? "-"}:${despuesPaso}`,
     });
   }
@@ -237,6 +237,19 @@ export function eventosDelTurno(input: {
    LA FOTO DEL LEAD
 ------------------------------------------------------------------------------------------------ */
 
+/** Un cambio de paso guardado en la foto del lead (los últimos MAXIMO_DE_PASOS). */
+export type CambioDePaso = {
+  paso: string;
+  producto: string | null;
+  /** ISO. Cuándo entró a ese paso. */
+  en: string;
+  /** Qué agente lo movió: el V3 (libro) o el V2 (etapa del embudo). */
+  agente: "v3" | "v2";
+};
+
+/** Cuántos cambios de paso se guardan por chat (para medir tiempos sin crecer sin fin). */
+export const MAXIMO_DE_PASOS = 10;
+
 export type SenalGuardada = { tipo: TipoDeSenal; fragmento: string; en: string };
 
 export type FotoDelLead = {
@@ -280,6 +293,10 @@ export type FotoDelLead = {
   exterior?: boolean;
   dormidoHasta?: Date | null;
   fechaCompra?: Date | null;
+  /* Embudo por paso. Opcionales: las filas viejas no los traen. */
+  pasoAnterior?: string | null;
+  pasoDesde?: Date | null;
+  pasoHistorial?: CambioDePaso[] | null;
 };
 
 export type ContextoDelLead = {
@@ -340,6 +357,24 @@ function texto(valor: unknown): string | null {
 const MAXIMO_DE_SENALES = 20;
 
 /**
+ * Si el evento movió el paso actual, deja escrito el paso anterior, desde cuándo está en el nuevo y
+ * el cambio en el historial corto. Un evento que repite el paso no toca nada, así que el PASO_ENTRA
+ * y el TURNO_V3 de la misma vuelta anotan UN solo cambio. Volver a un paso anterior sí se anota.
+ */
+function anotarCambioDePaso(lead: FotoDelLead, pasoPrevio: string | null, evento: EventoDelEmbudo, cuando: Date): void {
+  if (!lead.pasoActual || lead.pasoActual === pasoPrevio) return;
+  lead.pasoAnterior = pasoPrevio;
+  lead.pasoDesde = cuando;
+  const cambio: CambioDePaso = {
+    paso: lead.pasoActual,
+    producto: lead.productoActual,
+    en: cuando.toISOString(),
+    agente: evento.datos?.agente === "v2" ? "v2" : "v3",
+  };
+  lead.pasoHistorial = [...(lead.pasoHistorial ?? []), cambio].slice(-MAXIMO_DE_PASOS);
+}
+
+/**
  * Cómo queda la foto del lead después de un evento. Pura: recibe la foto anterior (o null si el
  * lead no existía) y devuelve la nueva. Nunca baja el paso máximo ni deshace una asignación.
  */
@@ -347,6 +382,7 @@ export function aplicarEvento(anterior: FotoDelLead | null, evento: EventoDelEmb
   const lead: FotoDelLead = anterior ? { ...anterior } : leadVacio(contexto);
   const cuando = evento.createdAt ?? new Date();
   const datos = evento.datos ?? {};
+  const pasoPrevio = lead.pasoActual;
 
   // El producto que trae cualquier evento cuenta como "actual" (y como entrada si no había).
   if (evento.producto && evento.tipo !== "ENTRADA") {
@@ -359,6 +395,7 @@ export function aplicarEvento(anterior: FotoDelLead | null, evento: EventoDelEmb
   if (evento.paso && ordenDelPaso(evento.paso) >= 0) {
     lead.pasoMaximo = pasoMayor(lead.pasoMaximo, evento.paso);
   }
+  anotarCambioDePaso(lead, pasoPrevio, evento, cuando);
 
   switch (evento.tipo) {
     case "ENTRADA": {
