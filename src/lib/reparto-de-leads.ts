@@ -4,6 +4,7 @@ import { calcularReparto } from "@/lib/channel-collaborators";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { filtrarEnLinea, filtrarSinPausaManual, leerAsesoraDeRespaldo } from "@/lib/en-linea";
 import { decidirReparto, madrugadaConTope, respaldoAtiende, ventanaDeMadrugada } from "@/lib/en-linea-reglas";
+import { etapaAlAsignarChat } from "@/lib/etapa-automatica-crm";
 import { filtrarPorHorario } from "@/lib/horario-de-reparto";
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/web-push";
@@ -167,6 +168,14 @@ export async function autoAssignConversationToCollaborator(args: {
       : elegida.deMadrugada
         ? `${assigneeName} auto-asignado (chat que llegó de madrugada)`
         : `${assigneeName} auto-asignado a esta conversación`,
+  });
+
+  // Sale de "---": el lead recién asignado pasa a Frío. Nunca lanza ni frena el reparto.
+  await etapaAlAsignarChat({
+    fuente: "agent",
+    workspaceId: args.workspaceId,
+    conversationId: args.conversationId,
+    nombreAsesora: assigneeName,
   });
 
   // Aviso al celular de la asesora. Sin await: un push lento o caído no frena el reparto.

@@ -49,7 +49,7 @@ export function MiDiaView({
   llamadasUrgentes?: ReactNode;
   llamadasDespues?: ReactNode;
 }) {
-  const { leads } = data;
+  const { leads, sinEtapa } = data;
   const [leadAbierto, setLeadAbierto] = useState<MiDiaLead | null>(null);
   const waiting = leads.filter((lead) => lead.waitingOnUs).length;
   // Desglose por etapa: la asesora ve de un golpe cuanto de lo que tiene entre manos es plata
@@ -88,6 +88,27 @@ export function MiDiaView({
           ) : null}
         </div>
       </div>
+
+      {sinEtapa.total > 0 ? (
+        <details className="rounded-xl border border-amber-300/60 bg-amber-50 px-3 py-2 dark:border-amber-500/30 dark:bg-amber-500/10">
+          <summary className="cursor-pointer text-sm font-semibold text-amber-900 dark:text-amber-200">
+            Tienes {sinEtapa.total} {sinEtapa.total === 1 ? "chat" : "chats"} sin etapa — clasifícalos antes de
+            terminar el día
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {sinEtapa.chats.map((chat) => (
+              <li key={chat.chatKey}>
+                <Link
+                  href={`/cliente/chats?chatKey=${encodeURIComponent(chat.chatKey)}`}
+                  className="text-sm text-foreground underline-offset-2 hover:underline"
+                >
+                  {chat.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
       {llamadasUrgentes}
 

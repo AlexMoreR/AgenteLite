@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeImageForAgent, generateAgentReply, transcribeAudioForAgent } from "@/lib/agent-ai";
+import { etapaAlAsignarChat } from "@/lib/etapa-automatica-crm";
 import { summarizeContactHistory } from "@/lib/contact-summary";
 import { buildSnoozeMetadata, readSnoozedUntil } from "@/lib/lead-snooze";
 import { lookupEvolutionLidForPhone, lookupEvolutionPhoneForLid } from "@/lib/evolution";
@@ -791,6 +792,14 @@ async function assignAdLeadByCampaign(args: {
     // Queda escrito POR QUE le toco a esa persona: si manana el reparto parece raro, la
     // conversacion misma lo explica sin tener que revisar configuraciones.
     text: `${nombre} asignado por la campaña "${args.adTitle || "anuncio"}"`,
+  });
+
+  // Sale de "---": el lead recién asignado pasa a Frío. Nunca lanza.
+  await etapaAlAsignarChat({
+    fuente: "agent",
+    workspaceId: args.workspaceId,
+    conversationId: args.conversationId,
+    nombreAsesora: nombre,
   });
 
   console.log("[EVOLUTION] ad_campaign_assign", {

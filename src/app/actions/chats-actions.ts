@@ -40,6 +40,8 @@ import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
 import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 import { normalizeInternalPath } from "@/lib/app-url";
+import { etapaAlAsignarChat, etapaAlEnviarPanel } from "@/lib/etapa-automatica-crm";
+import { CAMPO_TOTAL_PANEL_ENVIO, textoEnviadoTraeElTotal } from "@/lib/etapa-automatica-reglas";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
@@ -703,6 +705,9 @@ const sendUnifiedChatReplySchema = z.object({
   skipSignature: z.string().trim().nullish(),
   // Id del registro de la estrella cuando el texto salio de una sugerencia (para medir su uso).
   sugerenciaId: z.string().trim().max(64).nullish(),
+  // Total del panel de envio ("$1.500.000") cuando el texto salio de ahi: si el mensaje sale y lo
+  // trae, el lead pasa a Caliente (ver etapa-automatica-crm.ts).
+  totalPanelEnvio: z.string().trim().max(40).nullish(),
   // El chat que la asesora tiene A LA VISTA al tocar enviar (lo pone el navegador). Si no coincide
   // con conversationId, el texto NO sale: iba para otro cliente (ver chat-envio-seguro).
   chatEsperado: z.string().trim().max(200).nullish(),
@@ -750,6 +755,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     message: formData.get("message"),
     skipSignature: formData.get("skipSignature"),
     sugerenciaId: formData.get("sugerenciaId"),
+    totalPanelEnvio: formData.get(CAMPO_TOTAL_PANEL_ENVIO),
     agentId: formData.get("agentId"),
     returnTo: formData.get("returnTo"),
     quotedMessageId: formData.get("quotedMessageId"),
@@ -864,6 +870,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     const conversationIdDelEnvio = parsed.data.conversationId;
     const sugerenciaIdDelEnvio = parsed.data.sugerenciaId;
     const mensajeDelEnvio = parsed.data.message;
+    const totalDelPanelDelEnvio = parsed.data.totalPanelEnvio;
     after(async () => {
       // Va la ficha del CRM, NO el id de la tabla oficial: ContactTag apunta a Contact, asi que
       // con el id oficial la consulta reventaba por clave foranea en CADA respuesta enviada por
@@ -902,6 +909,15 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
           console.error("[sendUnifiedChatReplyAction] No se pudo registrar el envio de la sugerencia", error);
         }
       }
+
+      // El panel de envio con el total SALIO al cliente: el lead pasa a Caliente.
+      if (totalDelPanelDelEnvio && textoEnviadoTraeElTotal(mensajeDelEnvio, totalDelPanelDelEnvio)) {
+        await etapaAlEnviarPanel({
+          fuente: "official",
+          workspaceId: workspaceIdDelEnvio,
+          conversationId: conversationIdDelEnvio,
+        });
+      }
     });
 
     return { ok: true };
@@ -932,6 +948,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     const conversationIdDelEnvio = parsed.data.conversationId;
     const sugerenciaIdDelEnvio = parsed.data.sugerenciaId;
     const mensajeDelEnvio = parsed.data.message;
+    const totalDelPanelDelEnvio = parsed.data.totalPanelEnvio;
     after(async () => {
       try {
         const userId = (await auth())?.user?.id ?? "";
@@ -950,6 +967,14 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
             userId,
             workspaceId: membership.workspace.id,
             mensaje: mensajeDelEnvio,
+          });
+        }
+        // El panel de envio con el total SALIO al cliente: el lead pasa a Caliente.
+        if (totalDelPanelDelEnvio && textoEnviadoTraeElTotal(mensajeDelEnvio, totalDelPanelDelEnvio)) {
+          await etapaAlEnviarPanel({
+            fuente: "agent",
+            workspaceId: membership.workspace.id,
+            conversationId: conversationIdDelEnvio,
           });
         }
       } catch (error) {
@@ -1914,6 +1939,16 @@ async function assignOfficialApiChat(input: {
     await avisarCambioDeEstado(input.workspaceId, conversation.id, "official", "OPEN");
   }
 
+  // Sale de "---": asignar a una asesora pasa el lead de NUEVO a Frío. Nunca lanza.
+  if (input.targetUserId) {
+    await etapaAlAsignarChat({
+      fuente: "official",
+      workspaceId: input.workspaceId,
+      conversationId: conversation.id,
+      nombreAsesora: assignedTo?.name ?? null,
+    });
+  }
+
   revalidatePath("/cliente/chats");
   return { ok: true, assignedTo };
 }
@@ -2038,6 +2073,15 @@ export async function assignChatAction(input: {
     dispositivo: leerDispositivo((await headers()).get("user-agent")),
     text: activityText,
   });
+  // Sale de "---": asignar a una asesora pasa el lead de NUEVO a Frío. Nunca lanza.
+  if (targetUserId) {
+    await etapaAlAsignarChat({
+      fuente: "agent",
+      workspaceId: membership.workspace.id,
+      conversationId: conversation.id,
+      nombreAsesora: assignedTo?.name ?? null,
+    });
+  }
   if (reabrir) {
     await recordConversationActivity({
       workspaceId: membership.workspace.id,

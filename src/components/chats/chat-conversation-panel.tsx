@@ -82,6 +82,7 @@ import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { MediaLibraryDialog } from "@/components/chats/media-library-dialog";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
+import { CAMPO_TOTAL_PANEL_ENVIO, textoEnviadoTraeElTotal } from "@/lib/etapa-automatica-reglas";
 import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
 import {
   MENSAJE_SIN_CONEXION_ENVIO,
@@ -398,6 +399,11 @@ export const ConversationPanel = memo(function ConversationPanel({
     cambiar de chat.
   */
   const sugerenciaEnLaCaja = useRef<{ id: string; chat: string } | null>(null);
+  /*
+    El total del panel de envío que está en la caja. Pasar a Caliente se decide al ENVIAR (no al
+    insertar): si la asesora lo borra o cambia de chat, no se mueve nada.
+  */
+  const totalDelPanelEnLaCaja = useRef<{ total: string; chat: string } | null>(null);
   /*
     El flujo que la estrella propone junto al texto ("Enviar flujo: Video combo armado"). Es un
     boton: nunca se envia solo. Se ve solo en el chat donde se pidio.
@@ -1435,7 +1441,12 @@ export const ConversationPanel = memo(function ConversationPanel({
         chatKey={selectedConversationId || null}
         contactCity={contactCity}
         puedeEscribir={Boolean(composer)}
-        onInsertar={insertQuickReply}
+        onInsertar={(texto, totalDelTexto) => {
+          insertQuickReply(texto);
+          totalDelPanelEnLaCaja.current = totalDelTexto
+            ? { total: totalDelTexto, chat: selectedConversationId ?? "" }
+            : null;
+        }}
         onCiudadGuardada={(city) => {
           setContactCity(city);
           cacheDeContactos.delete(contactoDelEnvio);
@@ -2123,6 +2134,18 @@ export const ConversationPanel = memo(function ConversationPanel({
                       formData.set("sugerenciaId", sugerencia.id);
                     }
                     sugerenciaEnLaCaja.current = null;
+
+                    // Salio del panel de envio con el total: el servidor mueve la etapa SOLO si el
+                    // mensaje sale y todavia lo trae.
+                    const totalDelPanel = totalDelPanelEnLaCaja.current;
+                    if (
+                      totalDelPanel &&
+                      totalDelPanel.chat === (selectedConversationId ?? "") &&
+                      textoEnviadoTraeElTotal(message, totalDelPanel.total)
+                    ) {
+                      formData.set(CAMPO_TOTAL_PANEL_ENVIO, totalDelPanel.total);
+                    }
+                    totalDelPanelEnLaCaja.current = null;
 
                     // Respuesta rapida: va tal cual, sin la firma encima.
                     if (desdeRespuestaRapida) {

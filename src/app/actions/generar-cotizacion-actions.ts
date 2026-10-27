@@ -15,6 +15,7 @@ import {
 } from "@/features/cotizaciones/services/generar-cotizacion";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import { etapaAlCotizar } from "@/lib/etapa-automatica-crm";
 import { crearCotizacionEnGestion } from "@/lib/cotizacion-en-gestion";
 import { origenDelContacto } from "@/lib/origen-de-venta-crm";
 import { prisma } from "@/lib/prisma";
@@ -175,6 +176,13 @@ export async function generarCotizacionEnGestionAction(input: {
       channelId: conversacion.channelId,
       cotizacion: respuesta.codigo,
       actorUserId: ctx.user.id,
+    });
+    // Cotizar es intención de compra: el lead pasa a Caliente (nunca baja ni cierra). No lanza.
+    await etapaAlCotizar({
+      fuente: "agent",
+      workspaceId: ctx.workspaceId,
+      conversationId: conversacion.id,
+      numeroCotizacion: respuesta.codigo,
     });
   }
 
