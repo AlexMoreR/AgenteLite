@@ -99,15 +99,35 @@ export async function tarjetasAtascadas(workspaceId: string, ahora: Date): Promi
 
 export type TarjetaEnError = { tarjetaId: string; titulo: string; tablero: string; motivo: string };
 
+/**
+ * El motivo de una tarjeta en ERROR. `resultado.error` es una ficha ({ motivo, en, cuando, categoria, causa }), no un texto:
+ * se lee su motivo (antes se buscaba como texto y salía "sin motivo guardado" aunque estuviera). Si no hay, la causa de la
+ * ficha, el motivo suelto, la última causa de los intentos y, al final, una frase fija con el estado donde estaba.
+ */
+export function motivoDelError(resultado: Record<string, unknown>, ultimaCausa?: string | null): string {
+  const ficha = comoObjeto(resultado.error);
+  const estabaEn = texto(ficha.en);
+  return (
+    texto(resultado.error) ??
+    texto(ficha.motivo) ??
+    texto(ficha.causa) ??
+    texto(resultado.motivo) ??
+    texto(ultimaCausa) ??
+    `en ERROR sin motivo guardado (estaba en ${estabaEn ?? "un estado desconocido"})`
+  );
+}
+
 export async function tarjetasEnError(workspaceId: string): Promise<TarjetaEnError[]> {
   const filas = await prisma.tarjetaTablero.findMany({
     where: { estado: "ERROR", borradoEn: null, repo: { not: null }, tablero: { workspaceId } },
-    select: { id: true, titulo: true, resultado: true, tablero: { select: { nombre: true } } },
+    select: { id: true, titulo: true, resultado: true, tablero: { select: { nombre: true } }, intentosDeTrabajo: { orderBy: { numero: "desc" }, take: 1, select: { causa: true } } },
   });
-  return filas.map((fila) => {
-    const resultado = comoObjeto(fila.resultado);
-    return { tarjetaId: fila.id, titulo: fila.titulo, tablero: fila.tablero.nombre, motivo: texto(resultado.error) ?? texto(resultado.motivo) ?? "sin motivo guardado" };
-  });
+  return filas.map((fila) => ({
+    tarjetaId: fila.id,
+    titulo: fila.titulo,
+    tablero: fila.tablero.nombre,
+    motivo: motivoDelError(comoObjeto(fila.resultado), fila.intentosDeTrabajo?.[0]?.causa),
+  }));
 }
 
 /** ¿Está vivo el trabajador? Por el último uso de su clave "aizen1" (si no hay con ese nombre, la más usada). */

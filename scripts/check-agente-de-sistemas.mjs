@@ -161,6 +161,22 @@ await prueba("2 h 10 min en EN_CURSO sale atascada; 1 h 50 min no; en ERROR sale
   assert.deepEqual(errores.map((e) => [e.tarjetaId, e.motivo]), [["e", "no compila: falta un import"]]);
 });
 
+await prueba("un error guardado como ficha muestra su motivo; sin motivo sale la última causa de los intentos; nunca 'sin motivo' a secas", async () => {
+  const t = (id, resultado, intentosDeTrabajo = []) => ({ id, titulo: `T ${id}`, estado: "ERROR", actualizadoEn: hace(1), trabajoIniciadoEn: null, resultado, intentosDeTrabajo, tablero: { nombre: "Magilus General" } });
+  db.tarjetas = [
+    t("f", { error: { motivo: "Qué falló: no compila.\nQué se probó: 2 reparaciones.", en: "EN_CURSO", cuando: "2026-10-27T10:00:00Z" } }),
+    t("c", { error: { en: "EN_CURSO" } }, [{ causa: "El código no compila: error TS2322" }]),
+    t("n", { error: { en: "PLANEANDO" } }),
+    t("v", null),
+  ];
+  const errores = Object.fromEntries((await revision.tarjetasEnError(WS)).map((e) => [e.tarjetaId, e.motivo]));
+  assert.match(errores.f, /^Qué falló: no compila/);
+  assert.equal(errores.c, "El código no compila: error TS2322");
+  assert.equal(errores.n, "en ERROR sin motivo guardado (estaba en PLANEANDO)");
+  assert.match(errores.v, /^en ERROR sin motivo guardado/);
+  assert.ok(Object.values(errores).every((m) => m !== "sin motivo guardado"));
+});
+
 await prueba("la clave del trabajador sin uso hace 40 minutos sale 'sin señal'; hace 5 minutos, viva", async () => {
   db.claves = [{ nombre: "aizen1", ultimoUsoEn: hace(0, 40) }, { nombre: "otra", ultimoUsoEn: hace(0, 1) }];
   const sin = await revision.vidaDelTrabajadorDelNegocio(WS, AHORA);

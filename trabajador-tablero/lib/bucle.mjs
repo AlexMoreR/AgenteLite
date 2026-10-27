@@ -30,7 +30,7 @@ import { agenteDelRepo, anotarLeccion, leccionDe, tresLineasDe } from "./agentes
 import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.mjs";
 import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
-import { TOPE_DE_REPARACIONES, decidir, diagnosticar, enUnaLinea, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "./diagnostico.mjs";
+import { MOTIVO_MISMA_CAUSA, TOPE_DE_REPARACIONES, causaPorDefecto, decidir, diagnosticar, enUnaLinea, motivoPorDefecto, queCambiaDe, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "./diagnostico.mjs";
 import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, medirConClaude, partirTarea, planear, subir } from "./etapas.mjs";
 import { idCorto } from "./git.mjs";
 import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedida } from "./medir.mjs";
@@ -74,15 +74,22 @@ export function reparacionDeLaTarjeta(tarjeta) {
   if (tarjeta.reparacion) return tarjeta.reparacion;
   const hechas = Number(tarjeta.reparaciones) || 0;
   if (hechas < 1) return null;
-  const ultima = [...(tarjeta.ultimosIntentos ?? [])].reverse().find((intento) => intento.accion === "reparar");
+  const reparaciones = (tarjeta.ultimosIntentos ?? []).filter((intento) => intento.accion === "reparar");
+  const ultima = reparaciones[reparaciones.length - 1];
+  const anterior = reparaciones.length > 1 ? reparaciones[reparaciones.length - 2] : null;
   const causa = String(ultima?.causa ?? "");
+  const sinMarca = causa.replace(MARCA_DE_ESTRATEGIA, "");
+  const categoria = ultima?.categoria ?? "otra";
+  const estrategia = causa.match(MARCA_DE_ESTRATEGIA)?.[1] ?? null;
   return {
     numero: hechas,
     de: Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES,
-    causa: causa.replace(MARCA_DE_ESTRATEGIA, ""),
-    categoria: ultima?.categoria ?? "otra",
+    causa: sinMarca,
+    categoria,
     error: tarjeta.ultimoError ?? null,
-    estrategia: causa.match(MARCA_DE_ESTRATEGIA)?.[1] ?? null,
+    estrategia,
+    // QUÉ CAMBIA frente al intento anterior: sale de lo ya guardado en los intentos (sin campo nuevo en la base).
+    queCambia: queCambiaDe({ estrategia, categoria, causa: sinMarca, anterior }),
   };
 }
 
@@ -263,7 +270,8 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
       arreglo: "Pasó al dueño (ERROR).",
     });
     try {
-      await crm.error(tarjeta.id, motivo, error?.zonas, error?.reversion);
+      // Nunca ERROR sin motivo: con el mensaje vacío queda en qué etapa e intento pasó.
+      await crm.error(tarjeta.id, motivo?.trim() ? motivo : motivoPorDefecto(hacer, tarjeta.intentos), error?.zonas, error?.reversion);
     } catch (otro) {
       registro.error(`no se pudo avisar el error al CRM: ${otro.message}`);
     }
@@ -545,10 +553,16 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
   // 3. Decidir.
   const estrategiaActual = tarjeta.reparacion?.estrategia;
   const modeloConstruir = estrategiaActual === "opus" ? (config.modelos?.planear ?? "opus") : modeloDelPaso(config, "construir", tarjeta);
-  const decision = decidir({ diagnostico, tarjeta, etapa: hacer, config, archivosCambiados: error?.archivosCambiados ?? undefined, reversion: error?.reversion ?? null, modeloConstruir });
+  // Una causa vacía nunca sigue adelante: ni a reparar ni a ERROR.
+  if (!String(diagnostico.causa ?? "").trim()) diagnostico = { ...diagnostico, causa: causaPorDefecto(hacer, tarjeta.intentos) };
+  const decision = decidir({ diagnostico, tarjeta, etapa: hacer, config, archivosCambiados: error?.archivosCambiados ?? undefined, reversion: error?.reversion ?? null, modeloConstruir, verificarEnNube: Boolean(error?.verificarEnNube) });
   // Lo que verificó la nube ya no es lo que se subiría: la reparación va a la NUBE (nunca a compilar en aizen1).
-  if (error?.verificarEnNube && decision.accion === "reparar") decision.estrategia = "nube";
-  registro.info(`diagnóstico: ${diagnostico.categoria} — ${diagnostico.causa}; decisión: ${decision.accion} (${decision.motivo})${decision.estrategia === "nube" ? "; se verifica otra vez en la nube" : ""}`);
+  if (error?.verificarEnNube && decision.accion === "reparar") {
+    decision.estrategia = "nube";
+    const anteriores = (tarjeta.ultimosIntentos ?? []).filter((intento) => intento.accion === "reparar");
+    decision.queCambia = queCambiaDe({ estrategia: "nube", categoria: diagnostico.categoria, causa: diagnostico.causa, anterior: anteriores[anteriores.length - 1] ?? null });
+  }
+  registro.info(`diagnóstico: ${diagnostico.categoria} — ${diagnostico.causa}; decisión: ${decision.accion} (${decision.motivo})${decision.estrategia === "nube" ? "; se verifica otra vez en la nube" : ""}${decision.queCambia ? `; qué cambia: ${decision.queCambia}` : ""}`);
   const resultado = { ok: false, motivo, zonas: error?.zonas ?? [], categoria: diagnostico.categoria, accion: decision.accion };
   const intento = { etapa: hacer, categoria: diagnostico.categoria, causa: diagnostico.causa, error: diagnostico.error };
 
@@ -597,7 +611,8 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
     }
   }
   // Escalar: el resumen de máximo 3 líneas para el dueño; el detalle técnico queda en "Detalles técnicos".
-  const resumen = resumenDeEscalada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico });
+  const razon = decision.motivo === MOTIVO_MISMA_CAUSA ? "la misma causa se repitió y no había nada distinto que probar" : null;
+  const resumen = resumenDeEscalada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico, razon }) || motivoPorDefecto(hacer, tarjeta.intentos);
   try {
     await crm.error(tarjeta.id, resumen, error?.zonas, error?.reversion, { ...intento, resumen });
   } catch (otro) {

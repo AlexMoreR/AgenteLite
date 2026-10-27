@@ -30,6 +30,15 @@ const etapaDelAntes = (v: string) =>
 /** El número del próximo intento de la tarjeta `v."id"`: las filas que tiene + 1. */
 const numeroSiguiente = (v: string) => `(SELECT count(*) FROM "IntentoTarjeta" n WHERE n."tarjetaId" = ${v}."id")::int + 1`;
 
+/**
+ * El motivo de una tarjeta que pasa a ERROR desde SQL: SIEMPRE empieza con una frase fija que dice en qué estado
+ * estaba ("venció el candado en EN_CURSO sin respuesta del Coordinador", "huérfana: PLANEANDO sin candado") y, si el
+ * parámetro `texto` trae algo, sigue con ese texto. Nunca queda vacío. Para el historial de intentos va la frase sola.
+ */
+const fraseConEstado = (v: string, antes: string, despues: string) => `'${antes} ' || ${v}."antes" || ' ${despues}'`;
+const motivoConEstado = (v: string, antes: string, despues: string, texto: string) =>
+  `(${fraseConEstado(v, antes, despues)} || CASE WHEN btrim(COALESCE(${texto}::text, '')) = '' THEN '' ELSE E'\\n' || btrim(${texto}::text) END)`;
+
 /** Un id para una fila de IntentoTarjeta insertada desde SQL (sin depender de extensiones). */
 const idDelIntento = (v: string) => `'int' || md5(random()::text || clock_timestamp()::text || ${v}."id")`;
 
@@ -89,7 +98,7 @@ fallidas AS (
   SET "estado" = 'ERROR'::"EstadoTarjeta",
       "trabajoVenceEn" = NULL,
       "resultado" = COALESCE(t."resultado", '{}'::jsonb)
-        || jsonb_build_object('error', jsonb_build_object('motivo', $3::text, 'en', x."antes", 'cuando', $4::text)),
+        || jsonb_build_object('error', jsonb_build_object('motivo', ${motivoConEstado("x", "venció el candado en", "sin respuesta del Coordinador", "$3")}, 'en', x."antes", 'cuando', $4::text)),
       "actualizadoEn" = ${AHORA}
   FROM x
   WHERE t."id" = x."id" AND NOT x."vuelve"
@@ -101,8 +110,8 @@ intentos AS (
          CASE WHEN x."portope" AND NOT x."vuelve" THEN 'tiempo_agotado' ELSE 'coordinador_cortado' END,
          CASE
            WHEN x."vuelve" THEN 'El Coordinador dejó de dar señales (se cortó o se apagó); la tarjeta vuelve a la fila.'
-           WHEN x."portope" THEN 'La etapa se pasó de su tiempo máximo.'
-           ELSE 'El Coordinador dejó de dar señales y ya había esperado varias veces seguidas.'
+           WHEN x."portope" THEN ${fraseConEstado("x", "Venció el candado en", "sin respuesta del Coordinador")} || ': la etapa se pasó de su tiempo máximo.'
+           ELSE ${fraseConEstado("x", "Venció el candado en", "sin respuesta del Coordinador")} || ': ya había esperado varias veces seguidas.'
          END,
          NULL,
          CASE WHEN x."vuelve" THEN 'esperar' ELSE 'escalar' END,
@@ -334,7 +343,7 @@ fallidas AS (
   UPDATE "TarjetaTablero" t
   SET "estado" = 'ERROR'::"EstadoTarjeta",
       "resultado" = COALESCE(t."resultado", '{}'::jsonb)
-        || jsonb_build_object('error', jsonb_build_object('motivo', $3::text, 'en', v."antes", 'cuando', $4::text)),
+        || jsonb_build_object('error', jsonb_build_object('motivo', ${motivoConEstado("v", "huérfana:", "sin candado", "$3")}, 'en', v."antes", 'cuando', $4::text)),
       "actualizadoEn" = ${AHORA}
   FROM v
   WHERE t."id" = v."id"
@@ -343,7 +352,7 @@ fallidas AS (
 intentos AS (
   INSERT INTO "IntentoTarjeta" ("id", "tarjetaId", "numero", "etapa", "categoria", "causa", "error", "accion", "cuentaComoIntento", "creadoEn")
   SELECT ${idDelIntento("v")}, v."id", ${numeroSiguiente("v")}, ${etapaDelAntes("v")}, 'coordinador_cortado',
-         'Quedó huérfana: estaba en su etapa sin el candado del Coordinador y nadie la trabajaba.', NULL, 'escalar', false, ${AHORA}
+         'Quedó huérfana: estaba en ' || v."antes" || ' sin el candado del Coordinador y nadie la trabajaba.', NULL, 'escalar', false, ${AHORA}
   FROM v
   RETURNING "id"
 )

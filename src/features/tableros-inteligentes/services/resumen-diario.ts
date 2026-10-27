@@ -76,8 +76,16 @@ const comoObjeto = (valor: unknown): Record<string, unknown> =>
   valor && typeof valor === "object" && !Array.isArray(valor) ? (valor as Record<string, unknown>) : {};
 const texto = (valor: unknown) => (typeof valor === "string" && valor.trim() ? valor.trim() : null);
 
+/**
+ * El motivo de una falla: el que anotó el Coordinador, si no la nota de ese paso y, antes de rendirse, la última causa
+ * anotada en los intentos de la tarjeta. Nunca sale "sin motivo" a secas.
+ */
+function motivoDeLaFalla(despues: Record<string, unknown>, ultimaCausa?: string): string {
+  return texto(despues.motivo) ?? texto(despues.nota) ?? texto(ultimaCausa) ?? "en ERROR sin motivo guardado";
+}
+
 /** Arma el resumen de un día con las filas del historial: solo cuenta lo que pasó ese día de Bogotá. */
-export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): ResumenDelDia {
+export function armarResumen(dia: string, filas: readonly FilaDelHistorial[], causas: ReadonlyMap<string, string> = new Map()): ResumenDelDia {
   const { desde, hasta } = rangoDelDia(dia);
   const resumen: ResumenDelDia = { dia, aprobadas: [], subidas: [], fallas: [], yaHechas: [] };
   const delDia = filas
@@ -112,7 +120,7 @@ export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): R
         // Terminada sin subir a producción (tareas que no llevan repo): también es "lista".
         resumen.subidas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, commit: null, linkCommit: null, cuando });
       } else if (despues.estado === "ERROR") {
-        resumen.fallas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, motivo: texto(despues.motivo) ?? "sin motivo", cuando });
+        resumen.fallas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, motivo: motivoDeLaFalla(despues, causas.get(fila.tarjetaId)), cuando });
       }
     }
   }
@@ -171,9 +179,21 @@ export async function resumenDelDia(workspaceId: string, dia: string): Promise<R
       tarjeta: { select: { titulo: true } },
     },
   });
+  const enError = [...new Set(filas.filter((fila) => comoObjeto(fila.despues).estado === "ERROR").map((fila) => fila.tarjetaId))];
+  const causas = new Map<string, string>();
+  if (enError.length) {
+    // La última causa de cada tarjeta (los intentos más nuevos al final pisan a los viejos).
+    const intentos = await prisma.intentoTarjeta.findMany({
+      where: { tarjetaId: { in: enError } },
+      orderBy: { numero: "asc" },
+      select: { tarjetaId: true, causa: true },
+    });
+    for (const intento of intentos) causas.set(intento.tarjetaId, intento.causa);
+  }
   return armarResumen(
     dia,
     filas.map((fila) => ({ ...fila, titulo: fila.tarjeta.titulo })),
+    causas,
   );
 }
 

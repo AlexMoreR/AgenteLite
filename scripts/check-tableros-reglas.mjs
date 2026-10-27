@@ -871,6 +871,11 @@ prueba("reparar y partir: tope de 3 reparaciones, resumen de máximo 3 líneas, 
   // El resumen de escalada: 3 líneas con texto como máximo, sin líneas vacías.
   assert.equal(trabajo.resumenDeEscalada("a\n\n b \nc\nd\ne"), "a\nb\nc");
   assert.equal(trabajo.resumenDeEscalada(""), "El Coordinador no dijo el motivo.");
+  // Nunca ERROR sin motivo (27-oct-2026): con un texto por defecto que dice la etapa y el intento.
+  assert.equal(trabajo.motivoDeEntrada("  ", trabajo.motivoSinMotivo("construir", 2)), "El Coordinador no mandó motivo (etapa construir, intento 2).");
+  assert.equal(trabajo.resumenDeEscalada(undefined, trabajo.motivoSinMotivo("planear", 1)), "El Coordinador no mandó motivo (etapa planear, intento 1).");
+  assert.equal(trabajo.motivoSinMotivo("subir", null), "El Coordinador no mandó motivo (etapa subir).");
+  assert.equal(trabajo.causaDeEntrada("", trabajo.causaSinCausa("construir", 3)), "El Coordinador no supo la causa (etapa construir, intento 3).");
   assert.ok(trabajo.MOTIVO_VENCIDA.split("\n").length <= 3);
   // La causa es una sola línea.
   assert.equal(trabajo.causaDeEntrada("  primera   línea \nsegunda"), "primera línea");

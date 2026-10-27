@@ -26,7 +26,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 import { agenteDelRepo, leccionesParaElPrompt, necesitoDe, textoDeIdentidad } from "./agentes.mjs";
-import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, enUnaLinea, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
+import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, enUnaLinea, esLimiteDeUso, queCambiaDe, recortar, sinRuido } from "./diagnostico.mjs";
 import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
 import {
   archivosCambiados,
@@ -562,7 +562,11 @@ export function bloqueDeReparacion(tarjeta, { patchAplicado = false } = {}) {
           .join("\n")
       : "";
   }
+  const queCambia = r.queCambia || queCambiaDe({ estrategia: r.estrategia ?? null, categoria: r.categoria ?? null, causa: r.causa ?? "" });
   return [
+    // Las dos primeras líneas del intento de reparación: por qué falló y qué es distinto ahora (no se repite a ciegas).
+    `CAUSA: ${r.causa || "El Coordinador no supo la causa."}`,
+    `QUÉ CAMBIA: ${queCambia}`,
     `REPARACIÓN ${r.numero} de ${r.de ?? 3}: el intento anterior falló y SOLO eso hay que corregir.`,
     `La causa fue: ${r.causa || "(no se sabe)"}${r.categoria ? ` (categoría: ${r.categoria})` : ""}.`,
     r.error ? `El error exacto es:\n${recortar(r.error, 3500)}` : "",

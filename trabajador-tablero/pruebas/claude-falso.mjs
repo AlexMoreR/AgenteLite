@@ -171,6 +171,11 @@ const palabraDeRevisionPrevia = () => {
 };
 
 if (modo === "plan") {
+  // [plan-falla]: planear falla SIEMPRE por la misma causa (para probar que no se repite a ciegas).
+  if (titulo.includes("[plan-falla]")) {
+    console.error("Error: no se pudo leer el contexto del proyecto");
+    process.exit(1);
+  }
   const previa = palabraDeRevisionPrevia();
   if (previa) {
     console.log(previa);

@@ -41,6 +41,8 @@ import {
   linkDeEntrada,
   opcionesDeTomar,
   motivoDeEntrada,
+  motivoSinMotivo,
+  causaSinCausa,
   partesDeEntrada,
   partidaDelResultado,
   planDeEntrada,
@@ -262,6 +264,11 @@ async function anotarTrabajador(
   antes: Record<string, unknown>,
   despues: Record<string, unknown>,
 ) {
+  // Una tarjeta que pasa a ERROR nunca se anota sin motivo (27-oct-2026): si llega vacío, queda la etapa donde estaba.
+  if (despues.estado === "ERROR" && !(typeof despues.motivo === "string" && despues.motivo.trim())) {
+    const etapa = antes.estado === "EN_CURSO" ? "construir" : antes.estado === "SUBIENDO" ? "subir" : "planear";
+    despues = { ...despues, motivo: motivoSinMotivo(etapa, null) };
+  }
   await tx.historialTarjeta.create({
     data: {
       tarjetaId,
@@ -772,7 +779,7 @@ export async function accionDelTrabajador(
     const intento: IntentoPorGuardar = {
       etapa: etapaDeEntrada(cuerpo.etapa, estado),
       categoria: categoriaDeEntrada(cuerpo.categoria) ?? "otra",
-      causa: causaConEstrategia(causaDeEntrada(cuerpo.causa), estrategiaDeEntrada(cuerpo.estrategia)),
+      causa: causaConEstrategia(causaDeEntrada(cuerpo.causa, causaSinCausa(etapaDeEntrada(cuerpo.etapa, estado), actual.intentos)), estrategiaDeEntrada(cuerpo.estrategia)),
       error: errorDeIntentoDeEntrada(cuerpo.error),
       accion: "reparar",
       cuentaComoIntento: true,
@@ -1000,9 +1007,12 @@ export async function accionDelTrabajador(
       // Con `categoria` es una escalada del protocolo de reparación: el motivo es el resumen de máximo 3 líneas
       // para el dueño, y queda una fila de intentos (escalar, cuenta como intento) con el error técnico.
       const categoria = categoriaDeEntrada(cuerpo.categoria);
-      const motivo = categoria ? resumenDeEscalada(cuerpo.motivo ?? cuerpo.resumen) : motivoDeEntrada(cuerpo.motivo);
+      // Nunca queda un ERROR sin motivo: si llega vacío, se guarda en qué etapa e intento pasó.
+      const etapaDelError = etapaDeEntrada(cuerpo.etapa, estado);
+      const sinMotivo = motivoSinMotivo(etapaDelError, actual.intentos);
+      const motivo = categoria ? resumenDeEscalada(cuerpo.motivo ?? cuerpo.resumen, sinMotivo) : motivoDeEntrada(cuerpo.motivo, sinMotivo);
       const reversion = reversionDeEntrada(cuerpo.reversion);
-      const causa = categoria ? causaDeEntrada(cuerpo.causa, causaDeEntrada(motivo)) : null;
+      const causa = categoria ? causaDeEntrada(cuerpo.causa, causaDeEntrada(motivo, causaSinCausa(etapaDelError, actual.intentos))) : null;
       const error = {
         motivo,
         en: estado,

@@ -259,11 +259,60 @@ function reparacionesSeguidasCon(intentos, categoria) {
   return n;
 }
 
+/** La causa sin lo que cambia de un intento a otro (números, mayúsculas, marca de estrategia) para saber si dos fallas son la misma. */
+export function firmaDeLaCausa(causa) {
+  return String(causa ?? "")
+    .replace(/\s*[\[(]estrategia: (?:opus|partir|nube)[\])]\s*$/i, "")
+    .toLowerCase()
+    .replace(/\d+/g, "#")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Lo que se guarda cuando una falla llega sin causa o sin motivo: nunca se manda vacío al CRM. */
+export function causaPorDefecto(etapa, intento) {
+  return `El Coordinador no supo la causa (etapa ${etapa ?? "?"}, intento ${intento ?? "?"}).`;
+}
+export function motivoPorDefecto(etapa, intento) {
+  return `El Coordinador no mandó motivo (etapa ${etapa ?? "?"}, intento ${intento ?? "?"}).`;
+}
+
+/** El último intento de reparación que ya tiene la tarjeta (el que falló justo antes de este). */
+function ultimaReparacion(intentos) {
+  return [...(intentos ?? [])].reverse().find((intento) => intento.accion === "reparar") ?? null;
+}
+
+/**
+ * QUÉ CAMBIA frente al intento anterior, en una frase. Se arma con lo que ya está guardado en los intentos
+ * (no hay campo nuevo): la estrategia que marcó la reparación y la causa del intento anterior a ella.
+ *   { estrategia, categoria, causa, anterior }  `anterior` = el intento de reparación previo (o null si es la primera).
+ */
+export function queCambiaDe({ estrategia = null, categoria = null, causa = "", anterior = null } = {}) {
+  if (estrategia === "opus") return "se construye con un modelo más fuerte (Opus) en vez del modelo de siempre";
+  if (estrategia === "nube") return "se vuelve a construir y verificar en la nube, no en aizen1";
+  if (estrategia === "partir") return "la tarea se divide en partes más chicas";
+  if (!anterior) return "primera reparación: se corrige solo lo que falló, partiendo de lo ya hecho";
+  if (anterior.categoria !== categoria) return `la falla es de otro tipo que la anterior (antes ${anterior.categoria ?? "otra"}, ahora ${categoria ?? "otra"})`;
+  if (firmaDeLaCausa(anterior.causa) !== firmaDeLaCausa(causa)) return `la causa es distinta a la anterior (antes: ${enUnaLinea(String(anterior.causa ?? "").replace(/\s*[\[(]estrategia: \w+[\])]\s*$/, ""), 120)})`;
+  return "mismo tipo y misma causa que el intento anterior: se corrige con más cuidado lo que quedó pendiente";
+}
+
+/** El motivo cuando la falla es igual a la anterior y no queda una estrategia distinta que probar. */
+export const MOTIVO_MISMA_CAUSA = "misma causa que el intento anterior, nada distinto que probar";
+
+/** Antes de reparar, la decisión lleva { causa (una frase), queCambia (frente al intento anterior) }; el siguiente intento los recibe en su prompt. */
+function conCausaYQueCambia(decision, diagnostico, categoria, anterior) {
+  const causa = enUnaLinea(diagnostico?.causa) || CAUSA_BASE[categoria] || CAUSA_BASE.otra;
+  return { ...decision, causa, queCambia: queCambiaDe({ estrategia: decision.estrategia ?? null, categoria, causa, anterior }) };
+}
+
 /**
  * Qué hacer con la falla. Devuelve { accion, cuenta, estrategia?, motivo }.
  *   accion      "reparar" | "partir" | "esperar" | "escalar"
  *   cuenta      si cuenta como una de las 3 reparaciones (reparar y escalar sí; esperar y partir no)
- *   estrategia  "opus" cuando la 2ª reparación seguida con la misma categoría cambia de modelo
+ *   estrategia  "opus" cuando la falla se repite igual (o 2 reparaciones seguidas del mismo tipo) y hay que cambiar de modelo; "nube" si hay que verificar otra vez en la nube
+ *   causa, queCambia  (solo al reparar) la causa en una frase y qué cambia frente al intento anterior
+ *   Si la falla es igual a la del último intento y no hay estrategia distinta que probar: escalar con MOTIVO_MISMA_CAUSA.
  *   arreglo     "sin_claude": el Coordinador lo arregla solo (cierra procesos, limpia la carpeta, espera al PC)
  *   motivo      por qué, para el log
  *
@@ -272,7 +321,7 @@ function reparacionesSeguidasCon(intentos, categoria) {
  *   archivosCambiados: cuántos archivos llevaba cambiados el intento que falló (o undefined)
  *   reversion: la etapa subió a main y tuvo que revertir -> siempre escala
  */
-export function decidir({ diagnostico, tarjeta = {}, etapa, config = {}, archivosCambiados, reversion = null, modeloConstruir = null } = {}) {
+export function decidir({ diagnostico, tarjeta = {}, etapa, config = {}, archivosCambiados, reversion = null, modeloConstruir = null, verificarEnNube = false } = {}) {
   const categoria = diagnostico?.categoria ?? "otra";
   const reparaciones = Number(tarjeta.reparaciones) || 0;
   const tope = Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES;
@@ -317,13 +366,35 @@ export function decidir({ diagnostico, tarjeta = {}, etapa, config = {}, archivo
 
   if (reparaciones >= tope) return { accion: "escalar", cuenta: true, motivo: `ya se hicieron ${reparaciones} reparaciones` };
 
+  // Repetir a ciegas no sirve (27-oct-2026): si la falla es igual a la del último intento (mismo tipo y misma causa),
+  // solo se repara con una estrategia DISTINTA: un modelo más fuerte (Opus), partir la tarea o verificar otra vez en la nube.
+  // Si no queda nada distinto, no se gasta otro intento igual: pasa al dueño.
+  const anterior = ultimaReparacion(intentos);
+  const repetida = Boolean(anterior) && anterior.categoria === categoria && firmaDeLaCausa(anterior.causa) === firmaDeLaCausa(diagnostico?.causa);
+  if (repetida) {
+    const yaEsOpus = /opus/i.test(String(modeloConstruir ?? ""));
+    const yaFueNube = /\[estrategia: nube\]\s*$/.test(String(anterior.causa ?? ""));
+    // Lo que verificó la nube obliga a reparar en la nube (la estrategia "nube" no se combina con Opus): si ya se hizo y falló igual, no queda nada distinto.
+    const distinto = verificarEnNube
+      ? yaFueNube
+        ? null
+        : { accion: "reparar", cuenta: true, estrategia: "nube", motivo: `${categoria} otra vez: se verifica otra vez en la nube` }
+      : etapa === "construir" && !yaEsOpus
+        ? { accion: "reparar", cuenta: true, estrategia: "opus", motivo: `${categoria} otra vez: se repara con un modelo más fuerte (Opus)` }
+        : etapa === "construir" && !esParte
+          ? { accion: "partir", cuenta: false, motivo: `${categoria} otra vez y Opus ya lo intentó: se parte` }
+          : null;
+    if (!distinto) return { accion: "escalar", cuenta: true, motivo: MOTIVO_MISMA_CAUSA };
+    return conCausaYQueCambia(distinto, diagnostico, categoria, anterior);
+  }
+
   // La 2ª reparación seguida con la misma categoría cambia de estrategia: modelo más fuerte o partir.
   if (reparacionesSeguidasCon(intentos, categoria) >= 2) {
     const yaEsOpus = /opus/i.test(String(modeloConstruir ?? ""));
     if (etapa === "construir" && !esParte && yaEsOpus) return { accion: "partir", cuenta: false, motivo: `${categoria} otra vez y Opus ya lo intentó: se parte` };
-    if (etapa === "construir" && !yaEsOpus) return { accion: "reparar", cuenta: true, estrategia: "opus", motivo: `${categoria} otra vez: se repara con un modelo más fuerte (Opus)` };
+    if (etapa === "construir" && !yaEsOpus) return conCausaYQueCambia({ accion: "reparar", cuenta: true, estrategia: "opus", motivo: `${categoria} otra vez: se repara con un modelo más fuerte (Opus)` }, diagnostico, categoria, anterior);
   }
-  return { accion: "reparar", cuenta: true, motivo: `${categoria}: se repara (${reparaciones + 1} de ${tope})` };
+  return conCausaYQueCambia({ accion: "reparar", cuenta: true, motivo: `${categoria}: se repara (${reparaciones + 1} de ${tope})` }, diagnostico, categoria, anterior);
 }
 
 /** Una frase de qué necesita el dueño, según la causa. */
@@ -348,7 +419,7 @@ const NECESITA = {
  * El resumen para el dueño, de MÁXIMO 3 líneas sencillas (qué falló / qué se probó / qué necesita).
  *   { tarjeta, intentos, diagnostico }  `intentos`: los de la tarjeta (más viejo a más nuevo), si se tienen.
  */
-export function resumenDeEscalada({ tarjeta = {}, intentos, diagnostico } = {}) {
+export function resumenDeEscalada({ tarjeta = {}, intentos, diagnostico, razon = null } = {}) {
   const lista = intentos ?? tarjeta.ultimosIntentos ?? [];
   const categoria = diagnostico?.categoria ?? "otra";
   const queFallo = `Qué falló: ${enUnaLinea(diagnostico?.causa || CAUSA_BASE[categoria], 220)}`;
@@ -360,7 +431,7 @@ export function resumenDeEscalada({ tarjeta = {}, intentos, diagnostico } = {}) 
   if (partidas) hecho.push("dividir la tarea");
   if (esperas) hecho.push(`esperar ${esperas} vez${esperas === 1 ? "" : "es"}`);
   const causas = [...new Set(lista.filter((intento) => intento.accion === "reparar").map((intento) => intento.categoria))].filter(Boolean);
-  const queSeProbo = `Qué se probó: ${hecho.length ? `${hecho.join(", ")}${causas.length ? ` (causas: ${causas.join(", ")})` : ""}` : "nada todavía, no había forma segura de repararlo solo"}.`;
+  const queSeProbo = `Qué se probó: ${hecho.length ? `${hecho.join(", ")}${causas.length ? ` (causas: ${causas.join(", ")})` : ""}` : "nada todavía, no había forma segura de repararlo solo"}${razon ? `; se paró porque ${razon}` : ""}.`;
   const necesita = `Qué necesita de ti: ${NECESITA[categoria] ?? NECESITA.otra}`;
   return [queFallo.replace(/\.?$/, "."), enUnaLinea(queSeProbo, 240), enUnaLinea(necesita, 240)].join("\n");
 }

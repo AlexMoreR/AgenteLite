@@ -26,6 +26,9 @@ const falso = {
       estado.ajustes.set(where.key, estado.ajustes.has(where.key) ? update.value : create.value);
     },
   },
+  intentoTarjeta: {
+    findMany: async ({ where }) => (estado.intentos ?? []).filter((i) => where.tarjetaId.in.includes(i.tarjetaId)),
+  },
   tarjetaTablero: {
     findMany: async ({ where }) => estado.tarjetas.filter((t) => where.id.in.includes(t.id)),
   },
@@ -170,6 +173,22 @@ await prueba("textoDelResumen: la cifra en 0 no sale; con las tres en 0 no hay t
   );
   assert.equal(resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 0 }), "");
   assert.equal(resumen.haySinMovimiento({ listas: 0, conProblema: 0, esperando: 0 }), true);
+});
+
+await prueba("una falla sin motivo busca la nota de ese paso y la última causa de los intentos antes de rendirse; nunca dice 'sin motivo' a secas", async () => {
+  const sinMotivo = (tarjetaId, despues) => fila({ tarjetaId, despues: { estado: "ERROR", ...despues } });
+  const filas = [sinMotivo("a", { nota: "pasó a ERROR por una prueba" }), sinMotivo("b", {}), sinMotivo("c", { motivo: "   " })];
+  const sola = resumen.armarResumen("2026-10-22", filas);
+  assert.equal(sola.fallas[0].motivo, "pasó a ERROR por una prueba");
+  assert.equal(sola.fallas[1].motivo, "en ERROR sin motivo guardado");
+  const conCausa = resumen.armarResumen("2026-10-22", filas, new Map([["b", "El código no compila: error TS2322"]]));
+  assert.equal(conCausa.fallas[1].motivo, "El código no compila: error TS2322");
+  // Desde la base: resumenDelDia lee los intentos de las tarjetas en ERROR.
+  estado.historial.push({ ...sinMotivo("zz", {}), workspaceId: "ws1" });
+  estado.intentos = [{ tarjetaId: "zz", numero: 1, causa: "primera" }, { tarjetaId: "zz", numero: 2, causa: "Quedó huérfana: estaba en EN_CURSO sin candado" }];
+  const delDia = await resumen.resumenDelDia("ws1", "2026-10-22");
+  estado.intentos = [];
+  assert.equal(delDia.fallas[0].motivo, "Quedó huérfana: estaba en EN_CURSO sin candado");
 });
 
 await prueba("vistaDeHoy: títulos cortos, una línea de resumen y los tres grupos", async () => {
