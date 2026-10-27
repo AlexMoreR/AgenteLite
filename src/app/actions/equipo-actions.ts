@@ -58,6 +58,8 @@ export async function guardarPersonaDelEquipoAction(input: {
    * campo, no se toca lo guardado.
    */
   whatsappDeAvisos?: string;
+  /** Nombre visible de la persona. Sin el campo, o igual al guardado, no se toca. */
+  nombre?: string;
 }): Promise<{ ok: true } | { error: string }> {
   const access = await requireClientWorkspaceAccess("client_team", { ownerOnly: true });
 
@@ -75,6 +77,12 @@ export async function guardarPersonaDelEquipoAction(input: {
   if (textoDelNumero && !numeroDeAvisos) {
     return { error: "El WhatsApp para avisos no parece un número. Escríbelo con el código del país, por ejemplo +57 300 123 4567." };
   }
+  // El nombre se valida antes de escribir nada (mismo largo que al invitar a un empleado).
+  const nombreNuevo = typeof input.nombre === "string" ? input.nombre.trim() : null;
+  if (nombreNuevo !== null && (nombreNuevo.length < 2 || nombreNuevo.length > 100)) {
+    return { error: "El nombre debe tener entre 2 y 100 caracteres" };
+  }
+  const cambiaElNombre = nombreNuevo !== null && nombreNuevo !== (miembro.user.name ?? "");
   // A un administrador no se le recortan pantallas ni se le pone rol: ya tiene todo. Solo sus lineas.
   const esEmpleada = miembro.role === "AGENT" && miembro.user.role === "EMPLEADO";
 
@@ -143,6 +151,11 @@ export async function guardarPersonaDelEquipoAction(input: {
     });
   }
 
+  // Solo el nombre: correo, clave y rol de acceso no se tocan. Los chats y reportes siguen ligados al id.
+  if (cambiaElNombre) {
+    await prisma.user.update({ where: { id: miembro.userId }, data: { name: nombreNuevo } });
+  }
+
   for (const cambio of cambios) {
     await prisma.whatsAppChannel.update({
       where: { id: cambio.id },
@@ -185,7 +198,7 @@ export async function guardarPersonaDelEquipoAction(input: {
           ...sinEsta,
           {
             numero: numeroDeAvisos,
-            nombre: miembro.user.name?.trim() || miembro.user.email || undefined,
+            nombre: (cambiaElNombre ? nombreNuevo : miembro.user.name?.trim()) || miembro.user.email || undefined,
             soloDe: miembro.role === "ADMIN" ? null : miembro.userId,
             userId: miembro.userId,
           },
