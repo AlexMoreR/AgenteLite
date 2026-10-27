@@ -38,7 +38,7 @@ export function PanelOperativoCoach({
         }
       >
         <Link
-          href="/cliente/crm/supervisor"
+          href="/cliente/direccion/supervisor"
           data-testid="ir-al-supervisor"
           className="inline-flex min-h-11 w-full items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground sm:w-auto"
         >

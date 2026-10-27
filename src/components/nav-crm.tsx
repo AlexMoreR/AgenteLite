@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BookOpen, ChartNoAxesCombined, ChevronDown, Filter, Gauge, GitCompareArrows, KanbanSquare, Bot, Megaphone, ServerCog, Target, LifeBuoy, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, ChevronDown, Filter, Gauge, GitCompareArrows, KanbanSquare, Target, LifeBuoy, Sun, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -18,7 +18,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "comparar-embudos" | "pauta" | "recuperacion" | "supervisor" | "agente-de-ventas" | "agente-de-marketing" | "agente-de-sistemas" | "guiones";
+type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "tablero" | "embudo" | "comparar-embudos" | "pauta" | "recuperacion" | "guiones";
 
 const crmViews: Array<{
   title: string;
@@ -42,14 +42,6 @@ const crmViews: Array<{
   { title: "Pauta", view: "pauta", icon: Target, soloJefes: true },
   // Recuperación de leads (13-10-2026): desde el 26-10-2026 solo dueño / administrador.
   { title: "Recuperación", view: "recuperacion", icon: LifeBuoy, soloJefes: true },
-  // El Supervisor: solo dueño o administrador (Alex, 13-10-2026); desde el 26-10-2026 la página también las bloquea.
-  { title: "Supervisor", view: "supervisor", icon: ShieldCheck, soloJefes: true },
-  // El Agente de Ventas (molde de agentes de área): lo ven los mismos que ven el Tablero.
-  { title: "Agente de Ventas", view: "agente-de-ventas", icon: Bot, soloJefes: true },
-  // El Agente de Marketing: el mismo molde, junto al de Ventas.
-  { title: "Agente de Marketing", view: "agente-de-marketing", icon: Megaphone, soloJefes: true },
-  // El Agente de Sistemas: el mismo molde; revisa que lo subido funcione. Solo lee.
-  { title: "Agente de Sistemas", view: "agente-de-sistemas", icon: ServerCog, soloJefes: true },
   { title: "Guiones", view: "guiones", icon: BookOpen, soloJefes: true },
 ];
 

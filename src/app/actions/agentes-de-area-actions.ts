@@ -27,6 +27,6 @@ export async function cambiarInterruptorDelAgenteAction(area: string, activo: bo
   } catch {
     return { ok: false, error: "No se pudo guardar el interruptor." };
   }
-  revalidatePath(area === "marketing" ? "/cliente/crm/agente-de-marketing" : area === "sistemas" ? "/cliente/crm/agente-de-sistemas" : "/cliente/crm/agente-de-ventas");
+  revalidatePath(area === "marketing" ? "/cliente/direccion/agente-de-marketing" : area === "sistemas" ? "/cliente/direccion/agente-de-sistemas" : "/cliente/direccion/agente-de-ventas");
   return { ok: true, activo: Boolean(activo) };
 }

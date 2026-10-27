@@ -446,7 +446,7 @@ export function tituloSinRevalidacion(titulo: string): string {
   return titulo.replace(RE_PREFIJO, "");
 }
 
-const ENLACE_SUPERVISOR = "/cliente/crm/supervisor";
+const ENLACE_SUPERVISOR = "/cliente/direccion/supervisor";
 const enlaceAlChat = (id: string) => `/cliente/chats?chatKey=${encodeURIComponent(`agent:${id}`)}&assigned=all`;
 
 /** El hallazgo que deja la revalidación en la alerta (historial y pantalla). */

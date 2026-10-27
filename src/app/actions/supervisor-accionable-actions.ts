@@ -21,5 +21,5 @@ export async function marcarPrioridadAtendidaAction(formData: FormData): Promise
   const id = String(formData.get("id") ?? "").trim();
   if (!id || id.length > 300) return;
   await marcarAtendida(access.workspaceId, id, session.user.id);
-  revalidatePath("/cliente/crm/supervisor");
+  revalidatePath("/cliente/direccion/supervisor");
 }

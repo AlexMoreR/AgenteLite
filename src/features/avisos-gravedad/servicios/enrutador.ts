@@ -38,7 +38,7 @@ export const claveConfigGravedad = (workspaceId: string) => `avisos:gravedad:${w
 const claveEstado = (workspaceId: string) => `avisos:gravedad:estado:${workspaceId}`;
 const claveResumen = (workspaceId: string, fecha: string) => `avisos:gravedad:resumen:${workspaceId}:${fecha}`;
 
-const ENLACE_SUPERVISOR = "https://app.aizenbot.com/cliente/crm/supervisor";
+const ENLACE_SUPERVISOR = "https://app.aizenbot.com/cliente/direccion/supervisor";
 
 const cacheConfig = new Map<string, { config: ConfigGravedad; vence: number }>();
 
@@ -313,7 +313,7 @@ export async function enrutarAlertasDelSupervisor(input: {
       salieron.push("resumen");
     } else if (decidirPush({ marca, gravedad, leads, ahora, enfriamientoMin: config.enfriamientoMin, recordatorio })) {
       const { title, body } = textoDelAviso(inc, recordatorio ? "recordatorio" : marca && gravedad !== marca.gravedad ? "sube" : "nuevo");
-      const payload = { title, body, tag: `supervisor:${inc.clave}`, url: "/cliente/crm/supervisor" };
+      const payload = { title, body, tag: `supervisor:${inc.clave}`, url: "/cliente/direccion/supervisor" };
       if (gravedad === "OPERATIVO") {
         const asesora = asesoraDelIncidente(inc);
         if (asesora) {

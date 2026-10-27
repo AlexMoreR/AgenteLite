@@ -34,6 +34,7 @@ import {
 
 import { NavChats } from "@/components/nav-chats"
 import { NavCrm } from "@/components/nav-crm"
+import { NavDireccion } from "@/components/nav-direccion"
 import { NavUser } from "@/components/nav-user"
 import { TeamSwitcher } from "@/components/team-switcher"
 import {
@@ -192,14 +193,6 @@ export function AppSidebar({
                     ? "tablero"
                     : pathname.startsWith("/cliente/crm/informe")
                       ? "informe"
-                    : pathname.startsWith("/cliente/crm/supervisor")
-                      ? "supervisor"
-                    : pathname.startsWith("/cliente/crm/agente-de-ventas")
-                      ? "agente-de-ventas"
-                      : pathname.startsWith("/cliente/crm/agente-de-marketing")
-                        ? "agente-de-marketing"
-                      : pathname.startsWith("/cliente/crm/agente-de-sistemas")
-                        ? "agente-de-sistemas"
                     : pathname.startsWith("/cliente/crm/pauta")
                       ? "pauta"
                     : pathname.startsWith("/cliente/crm/comparar-embudos")
@@ -217,6 +210,13 @@ export function AppSidebar({
                           : "mi-dia"
                 }
                 isCrmRoute={pathname.startsWith("/cliente/crm")}
+                esJefe={esJefeDelNegocio}
+              />
+            ) : null}
+            {/* Dirección: las pantallas del dueño, separadas del CRM. Solo sale si queda algún ítem visible. */}
+            {adminModuleAccess.crm ? (
+              <NavDireccion
+                currentPath={pathname}
                 esJefe={esJefeDelNegocio}
               />
             ) : null}

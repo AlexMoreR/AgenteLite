@@ -623,8 +623,8 @@ export function lineaDeSistemasParaAlexander(entrada: {
 export const TIPOS_DE_USO = ["pantalla", "herramienta"] as const;
 export type TipoDeUso = (typeof TIPOS_DE_USO)[number];
 
-/** La pantalla `/cliente/crm/agente-de-sistemas` y sus herramientas no se cuentan: inflarían el uso. */
-export const PANTALLA_PROPIA_DE_SISTEMAS = "/cliente/crm/agente-de-sistemas";
+/** La pantalla `/cliente/direccion/agente-de-sistemas` y sus herramientas no se cuentan: inflarían el uso. */
+export const PANTALLA_PROPIA_DE_SISTEMAS = "/cliente/direccion/agente-de-sistemas";
 export const HERRAMIENTAS_PROPIAS_DE_SISTEMAS = new Set(["agente_de_sistemas", "revision_de_sistemas"]);
 
 /** La ruta que se cuenta: solo `/cliente/...`, sin parámetros y a lo más tres niveles (no se cuentan ids de chats). Null = no se cuenta. */

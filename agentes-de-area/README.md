@@ -8,7 +8,7 @@ Corre en **aizen1** con Claude Code usando el **plan de Claude** de Alexander (n
 `ANTHROPIC_API_KEY` del entorno). Comparte el uso del plan con el trabajador del tablero: si se agota el límite,
 espera 30 min y reintenta (hasta 6 h), detectándolo igual que el trabajador (`trabajador-tablero/lib/diagnostico.mjs`).
 El **CRM no piensa**: da los datos (MCP), guarda el resumen, entrega los WhatsApp internos y los muestra en
-`/cliente/crm/agente-de-ventas`. El Supervisor (avisos a 5 min, reasignación a 30) sigue en el CRM.
+`/cliente/direccion/agente-de-ventas`. El Supervisor (avisos a 5 min, reasignación a 30) sigue en Dirección.
 
 ## Qué hay aquí
 
@@ -93,7 +93,7 @@ Revisa **al día siguiente de cada subida** si lo construido funciona, si se usa
    "salió tarde"). Reparte a tres subagentes (`sistemas/subagentes/`): **revisor-de-produccion** (diario: abre en producción lo que quedó HECHO en 24 h y marca
    FUNCIONA / FALLA con el error exacto / NO SE PUEDE PROBAR), **salud-del-sistema** (diario: trabajador, atascadas, ERROR, respaldos en Drive, aizen1 y VPS) y **uso**
    (`Frecuencia: lunes`). Guarda su resumen con `guardar_resumen_del_dia` (`area: "sistemas"`) y UNA línea para Alexander.
-2. **El interruptor** (pantalla `/cliente/crm/agente-de-sistemas`, empieza **apagado**): apagado, el lanzador abre Claude **sin** `crear_tarjeta` (las tarjetas de arreglo
+2. **El interruptor** (pantalla `/cliente/direccion/agente-de-sistemas`, empieza **apagado**): apagado, el lanzador abre Claude **sin** `crear_tarjeta` (las tarjetas de arreglo
    quedan escritas como "se crearía") y la línea no va en el mensaje de las 7:30. Prendido, Claude recibe `crear_tarjeta` para la tarjeta de arreglo POR_APROBAR en el
    tablero de Emanuel, y el lanzador de Ventas suma la línea ("Sistemas: todo funciona" o lo roto) al MISMO mensaje de las 7:30 (espera hasta 15 min si Sistemas sigue corriendo).
    `--prueba` también abre Claude sin `crear_tarjeta`.

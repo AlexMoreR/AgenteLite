@@ -283,11 +283,11 @@ await prueba("las herramientas de marketing están registradas, son de solo lect
 });
 
 await prueba("la pantalla: ruta nueva, menú junto a Ventas, mismo panel con la tabla y el mismo permiso", () => {
-  const pagina = fs.readFileSync(path.join(RAIZ, "src/app/cliente/crm/agente-de-marketing/page.tsx"), "utf8");
+  const pagina = fs.readFileSync(path.join(RAIZ, "src/app/cliente/direccion/agente-de-marketing/page.tsx"), "utf8");
   assert.ok(pagina.includes('area="marketing"'));
   const compartida = fs.readFileSync(path.join(RAIZ, "src/features/agentes-de-area/components/PaginaDeAgenteDeArea.tsx"), "utf8");
-  assert.ok(compartida.includes("puedeSupervisar(access)"), "mismos permisos que Ventas");
-  const nav = fs.readFileSync(path.join(RAIZ, "src/components/nav-crm.tsx"), "utf8");
+  assert.ok(compartida.includes("esJefeDelNegocio(access)"), "mismos permisos que Ventas");
+  const nav = fs.readFileSync(path.join(RAIZ, "src/components/nav-direccion.tsx"), "utf8");
   assert.ok(nav.indexOf('view: "agente-de-ventas"') < nav.indexOf('view: "agente-de-marketing"'));
   assert.ok(nav.includes('title: "Agente de Marketing"') && /agente-de-marketing[^\n]*soloJefes: true/.test(nav));
   const panel = fs.readFileSync(path.join(RAIZ, "src/features/agentes-de-area/components/PanelAgenteDeArea.tsx"), "utf8");

@@ -1072,7 +1072,7 @@ await prueba("tarjeta de patrón: trae sus chats (enlace al chat, teléfono tapa
   assert.ok(t.chats.every((c) => c.plazo && /^Plazo vencido \d{1,2}:\d{2}$/.test(c.plazo)), "cada chat dice a qué hora venció el plazo");
   assert.ok(t.chats.some((c) => c.cliente === "•••• 4567"));
   assert.ok(!JSON.stringify(t).includes("3001234567"), "nunca el teléfono completo");
-  assert.equal(t.enlace, `/cliente/crm/supervisor#${r.anclaDePrioridad(p.id)}`);
+  assert.equal(t.enlace, `/cliente/direccion/supervisor#${r.anclaDePrioridad(p.id)}`);
   assert.match(r.anclaDePrioridad(p.id), /^prioridad-[A-Za-z0-9_-]+$/);
   // Patrones viejos (sin idsDeChats): se arman con los incumplidos de la misma asesora ese día.
   const viejo = { ...res.estado.acciones[p.id] };
@@ -1094,9 +1094,9 @@ await prueba("tarjeta de incidente: lleva a la alerta concreta (?alerta=<clave>#
   };
   const t = r.tarjetaDeIncidente(inc);
   assert.equal(t.claveAlerta, inc.clave);
-  assert.equal(t.enlace, `/cliente/crm/supervisor?alerta=${encodeURIComponent(inc.clave)}#alerta-INC-libro-v187-combo-camilla`);
+  assert.equal(t.enlace, `/cliente/direccion/supervisor?alerta=${encodeURIComponent(inc.clave)}#alerta-INC-libro-v187-combo-camilla`);
   assert.equal(r.anclaDeAlerta(inc.clave), "alerta-INC-libro-v187-combo-camilla");
-  assert.ok(r.textoWhatsAppDeLaTarjeta(t).includes(`https://app.aizenbot.com/cliente/crm/supervisor?alerta=`));
+  assert.ok(r.textoWhatsAppDeLaTarjeta(t).includes(`https://app.aizenbot.com/cliente/direccion/supervisor?alerta=`));
 
   // El panel completo: patrón escalado + incidente crítico.
   settings.clear();
@@ -1113,7 +1113,7 @@ await prueba("tarjeta de incidente: lleva a la alerta concreta (?alerta=<clave>#
   assert.ok(tarjetas.some((x) => x.claveAlerta === inc.clave));
   const enlaces = tarjetas.flatMap((x) => [x.enlace, ...(x.chats ?? []).map((c) => c.enlace)]);
   assert.ok(enlaces.length >= 5);
-  for (const e of enlaces) assert.notEqual(e, "/cliente/crm/supervisor", `enlace a la misma página sin ancla: ${e}`);
+  for (const e of enlaces) assert.notEqual(e, "/cliente/direccion/supervisor", `enlace a la misma página sin ancla: ${e}`);
   settings.clear();
   servicio.olvidarConfigAccionable();
 });

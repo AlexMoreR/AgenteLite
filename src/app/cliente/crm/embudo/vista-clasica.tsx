@@ -91,7 +91,7 @@ export async function VistaClasicaDelEmbudo({ access, params }: { access: Client
         <p className="text-sm text-muted-foreground">
           Cada lead cuenta en el día en que entró. Los de menos de 72 h (30 días para cotización y anticipo) están
           madurando y no entran en los porcentajes. Solo mide: no cambia nada del bot ni del reparto.{" "}
-          <Link href="/cliente/crm/supervisor" className="underline">
+          <Link href="/cliente/direccion/supervisor" className="underline">
             Supervisor
           </Link>
         </p>

@@ -1230,7 +1230,7 @@ export type ChatDelPatron = {
 };
 
 export const DOMINIO = "https://app.aizenbot.com";
-export const RUTA_DEL_SUPERVISOR = "/cliente/crm/supervisor";
+export const RUTA_DEL_SUPERVISOR = "/cliente/direccion/supervisor";
 
 export function enlaceAlChat(conversationId: string): string {
   return `/cliente/chats?chatKey=${encodeURIComponent(`agent:${conversationId}`)}&assigned=all`;

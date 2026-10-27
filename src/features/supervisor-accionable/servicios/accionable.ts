@@ -190,7 +190,7 @@ async function ejecutar(workspaceId: string, estado: EstadoAccionable, eventos: 
         }
         if (evento.tipo === "segundo_aviso" && evento.supervisoraId) {
           const aviso = pushParaLaSupervisora(acciones);
-          enviados += await sendPushToUser({ userId: evento.supervisoraId, payload: { ...aviso, tag: `accionable:apoyo:${evento.responsableId}`, url: "/cliente/crm/supervisor" } }).catch(() => 0);
+          enviados += await sendPushToUser({ userId: evento.supervisoraId, payload: { ...aviso, tag: `accionable:apoyo:${evento.responsableId}`, url: "/cliente/direccion/supervisor" } }).catch(() => 0);
         }
         continue;
       }
@@ -211,7 +211,7 @@ async function ejecutar(workspaceId: string, estado: EstadoAccionable, eventos: 
   // Las escaladas de la vuelta van en UN push a Alexander (no uno por chat).
   if (paraAlexander.length) {
     const push = pushDeVariasTarjetas(paraAlexander);
-    const url = paraAlexander.length === 1 ? paraAlexander[0].enlace : "/cliente/crm/supervisor";
+    const url = paraAlexander.length === 1 ? paraAlexander[0].enlace : "/cliente/direccion/supervisor";
     enviados += await pushAAlexander(workspaceId, gravedad, { ...push, tag: paraAlexander.length === 1 ? `accionable:${paraAlexander[0].id}` : `accionable:vuelta:${ahora.getTime()}`, url }).catch(() => 0);
   }
   return enviados;

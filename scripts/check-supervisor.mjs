@@ -980,7 +980,7 @@ prueba("revalidación: si SIGUE se escala con evidencia actual, afectados hoy, r
   assert.match(h.impacto, /30 de 51 leads/);
   assert.ok(h.recomendacion.length > 10);
   assert.ok(h.hechos.some((x) => /^Decisión que necesita Alexander: /.test(x)));
-  assert.ok(h.hechos.some((x) => /^Enlace: \/cliente\/crm\/supervisor · chat de ejemplo: \/cliente\/chats\?chatKey=/.test(x)));
+  assert.ok(h.hechos.some((x) => /^Enlace: \/cliente\/direccion\/supervisor · chat de ejemplo: \/cliente\/chats\?chatKey=/.test(x)));
   assert.equal(h.evidencia.chats.length > 0, true);
   assert.equal(h.tocaProduccion, true);
   assert.deepEqual(r.avisar.map((a) => a.motivo), ["recordatorio"], "política de siempre: recordatorio de CRÍTICO a las 12 h");

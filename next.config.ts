@@ -50,6 +50,15 @@ const nextConfig: NextConfig = {
     return [
       { source: "/cliente/tableros-inteligentes", destination: "/cliente/tablero-ia", permanent: false },
       { source: "/cliente/tableros-inteligentes/:resto*", destination: "/cliente/tablero-ia/:resto*", permanent: false },
+      // Dirección (parte 1): las 4 pantallas salieron del CRM; los links viejos (WhatsApp, push, MCP) siguen sirviendo.
+      { source: "/cliente/crm/supervisor", destination: "/cliente/direccion/supervisor", permanent: false },
+      { source: "/cliente/crm/supervisor/:resto*", destination: "/cliente/direccion/supervisor/:resto*", permanent: false },
+      { source: "/cliente/crm/agente-de-ventas", destination: "/cliente/direccion/agente-de-ventas", permanent: false },
+      { source: "/cliente/crm/agente-de-ventas/:resto*", destination: "/cliente/direccion/agente-de-ventas/:resto*", permanent: false },
+      { source: "/cliente/crm/agente-de-marketing", destination: "/cliente/direccion/agente-de-marketing", permanent: false },
+      { source: "/cliente/crm/agente-de-marketing/:resto*", destination: "/cliente/direccion/agente-de-marketing/:resto*", permanent: false },
+      { source: "/cliente/crm/agente-de-sistemas", destination: "/cliente/direccion/agente-de-sistemas", permanent: false },
+      { source: "/cliente/crm/agente-de-sistemas/:resto*", destination: "/cliente/direccion/agente-de-sistemas/:resto*", permanent: false },
     ];
   },
 

@@ -35,7 +35,7 @@ function hora(fecha: Date): string {
 /**
  * LA PANTALLA DE UN AGENTE DE ÁREA (ventas, marketing o sistemas): el resumen del día, lo que entregó cada subagente, los
  * mensajes internos que salieron (o se bloquearon) y el historial. Con el interruptor. La ven los mismos que ven
- * el Supervisor. Cada ruta (`/cliente/crm/agente-de-ventas`, `/agente-de-marketing`) solo dice de qué área es.
+ * el Supervisor. Cada ruta (`/cliente/direccion/agente-de-ventas`, `/agente-de-marketing`) solo dice de qué área es.
  */
 export async function PaginaDeAgenteDeArea({ area: AREA, searchParams }: { area: Area; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });

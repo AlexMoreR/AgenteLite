@@ -191,7 +191,7 @@ await prueba("el contador cuenta las herramientas del MCP, y NO cuenta al propio
   await uso.contarHerramienta({ workspaceId: WS, userId: "alex", nombre: "ver_tablero" });
   await uso.contarHerramienta({ workspaceId: WS, userId: "alex", nombre: "agente_de_sistemas" });
   await uso.contarHerramienta({ workspaceId: WS, userId: "alex", nombre: "revision_de_sistemas" });
-  await uso.contarPantalla({ workspaceId: WS, userId: "alex", ruta: "/cliente/crm/agente-de-sistemas" });
+  await uso.contarPantalla({ workspaceId: WS, userId: "alex", ruta: "/cliente/direccion/agente-de-sistemas" });
   await uso.contarPantalla({ workspaceId: WS, userId: "alex", ruta: "/api/algo" });
   assert.deepEqual([...db.uso.values()].map((f) => f.clave), ["ver_tablero"]);
   assert.equal(reglas.clavePantallaParaContar("/cliente/chats/abc123/otra/cosa"), "/cliente/chats/abc123", "a lo más tres niveles");

@@ -64,7 +64,7 @@ export async function avisarAlDueno(input: {
     for (const jefe of jefes) {
       enviados += await sendPushToUser({
         userId: jefe.userId,
-        payload: { title, body, tag: `supervisor:${aviso.incidente.clave}`, url: "/cliente/crm/supervisor" },
+        payload: { title, body, tag: `supervisor:${aviso.incidente.clave}`, url: "/cliente/direccion/supervisor" },
       }).catch(() => 0);
     }
   }

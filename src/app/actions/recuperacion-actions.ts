@@ -46,7 +46,7 @@ export async function resolverAprobacionDeRecuperacionAction(conversationId: str
   const aprobadora = await aprobadorDeRecuperacion(yo.workspaceId, config);
   if (!yo.supervisa && aprobadora !== yo.id) return { ok: false, error: "Solo la supervisora aprueba estos descartes." };
   const resultado = await resolverAprobacion({ workspaceId: yo.workspaceId, conversationId: id, usuario: { id: yo.id, nombre: yo.nombre }, aprobar: Boolean(aprobar) });
-  revalidatePath("/cliente/crm/supervisor");
+  revalidatePath("/cliente/direccion/supervisor");
   revalidatePath("/cliente/crm/mi-dia");
   return resultado;
 }
@@ -56,6 +56,6 @@ export async function deshacerDescarteDeRecuperacionAction(conversationId: strin
   const id = idValido(conversationId);
   if (!yo || !id || !yo.supervisa) return { ok: false, error: "Sin permiso." };
   const resultado = await deshacerDescarte({ workspaceId: yo.workspaceId, conversationId: id, usuario: { id: yo.id, nombre: yo.nombre } });
-  revalidatePath("/cliente/crm/supervisor");
+  revalidatePath("/cliente/direccion/supervisor");
   return resultado;
 }
