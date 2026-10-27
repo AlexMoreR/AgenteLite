@@ -2,6 +2,7 @@ import { cache } from "react";
 
 import { cacheDeSupervisoras } from "@/lib/cache-de-permisos";
 import { prisma } from "@/lib/prisma";
+import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
 
 /*
   Quien puede SUPERVISAR al equipo, decidido en un solo lugar.
@@ -66,7 +67,7 @@ export async function puedeSupervisar(access: {
   role: string;
   membershipRole: string;
 }) {
-  if (access.isOwner || access.role === "ADMIN" || access.membershipRole === "OWNER" || access.membershipRole === "ADMIN") {
+  if (esJefeDelNegocio(access)) {
     return true;
   }
   return esSupervisora(access.workspaceId, access.userId);

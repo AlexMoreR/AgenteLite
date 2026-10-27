@@ -93,12 +93,8 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
     role?: string | null
   }
   currentConnectionKey?: string
-  /** Dueño, administrador o supervisora: le aparece el Tablero del equipo dentro de CRM. */
-  puedeSupervisarElEquipo?: boolean
   /** Dueño o administrador: le aparece el Supervisor dentro de CRM. */
   esJefeDelNegocio?: boolean
-  /** Dueño, administrador o la supervisora del Supervisor accionable: le aparece Recuperación. */
-  veRecuperacion?: boolean
   chatSidebarItems?: Array<{
     title: string
     url: string
@@ -113,7 +109,6 @@ export function AppSidebar({
   user,
   currentConnectionKey = "",
   esJefeDelNegocio = false,
-  veRecuperacion = false,
   chatSidebarItems = [],
   ...props
 }: AppSidebarProps) {
@@ -204,13 +199,9 @@ export function AppSidebar({
                 esJefe={esJefeDelNegocio}
               />
             ) : null}
-            {/* Dirección: las pantallas del dueño, separadas del CRM. Solo sale si queda algún ítem visible. */}
-            {adminModuleAccess.crm ? (
-              <NavDireccion
-                currentPath={pathname}
-                esJefe={esJefeDelNegocio}
-                veRecuperacion={veRecuperacion}
-              />
+            {/* Dirección: las pantallas del dueño, separadas del CRM. Solo dueño y administradores. */}
+            {adminModuleAccess.crm && esJefeDelNegocio ? (
+              <NavDireccion currentPath={pathname} />
             ) : null}
             {/* El coach de ventas: el jefe ve al equipo; cada asesora, solo lo suyo. */}
             {adminModuleAccess.crm ? (
