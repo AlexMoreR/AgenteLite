@@ -3,11 +3,17 @@
 import Link from "next/link";
 import { hayVersionNueva } from "@/components/app-version-guard";
 import {
+  ESPERA_RECARGA_ANTES_DE_ENVIAR_MS,
+  MAX_RECARGAS_SEGUIDAS,
+  MIN_ENTRE_RECARGAS_MS,
   guardarEnvioPendiente,
+  leerRecargas,
   marcarOcupada,
+  olvidarEscritura,
   pedirRevisionDeVersion,
   puedeReenviarPendiente,
   tomarEnvioPendiente,
+  versionViejaAntesDeEnviar,
 } from "@/lib/actualizacion-automatica";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -2511,10 +2517,54 @@ export function SharedInbox({
       });
 
       // Envio sin navegacion: la accion valida internamente y devuelve un resultado.
-      void Promise.resolve(composer.action(formData))
-        .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
-        .catch(() => finalizeOptimisticSend(optimisticId, null))
-        .finally(liberar);
+      const enviarAlServidor = () =>
+        void Promise.resolve(composer.action(formData))
+          .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
+          .catch(() => finalizeOptimisticSend(optimisticId, null))
+          .finally(liberar);
+
+      /*
+        Antes de enviar se mira si hay version nueva: un servidor nuevo rechaza el pedido de la
+        pagina vieja y el mensaje fallaba. Si hay version nueva, el texto NO se manda: queda como
+        "envio pendiente", la app se recarga sola y al volver sale UNA vez (efecto de "envio
+        pendiente" mas abajo). Este camino es solo de texto (los archivos no se guardan ni se reenvian), y solo si la
+        recarga va a poder hacerse ahora; si no, o si /api/version no contesta, sale normal.
+      */
+      const recargas = leerRecargas();
+      const recargaPosible =
+        recargas.intentos < MAX_RECARGAS_SEGUIDAS &&
+        (recargas.intentos === 0 || Date.now() - recargas.ultima >= MIN_ENTRE_RECARGAS_MS);
+      const textoDelEnvio = message.trim();
+      if (!recargaPosible || !textoDelEnvio) {
+        enviarAlServidor();
+        return true;
+      }
+      void versionViejaAntesDeEnviar(hayVersionNueva).then((vieja) => {
+        const guardado =
+          vieja &&
+          guardarEnvioPendiente({
+            chatKey: chatDelEnvio,
+            conversationId: renderedConversation.id,
+            campos: camposDelFormulario(formData),
+            texto: textoDelEnvio,
+            contenido: mensajeVisible,
+            creadoEn: Date.now(),
+          });
+        if (!guardado) {
+          enviarAlServidor();
+          return;
+        }
+        // El texto ya salio de la caja y esta guardado: la recarga no tiene por que esperar.
+        olvidarEscritura();
+        liberar();
+        pedirRevisionDeVersion();
+        // Red de seguridad: si la app no se recargo, el texto sale normal en vez de quedarse guardado.
+        window.setTimeout(() => {
+          if (tomarEnvioPendiente()) {
+            enviarAlServidor();
+          }
+        }, ESPERA_RECARGA_ANTES_DE_ENVIAR_MS);
+      });
       return true;
     },
     [renderedConversation, selectedConversationId, selectedConversationKey, composer, finalizeOptimisticSend, replyTarget, chatSignature],

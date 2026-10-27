@@ -37,21 +37,21 @@ function almacenFalso() {
 }
 
 let pruebas = 0;
-function prueba(nombre, fn) {
-  fn();
+async function prueba(nombre, fn) {
+  await fn();
   pruebas += 1;
   console.log(`ok - ${nombre}`);
 }
 
 const T0 = 1_000_000_000;
 
-prueba("ocupada: escribio hace menos de 5 segundos", () => {
+await prueba("ocupada: escribio hace menos de 5 segundos", () => {
   A.marcarEscritura(T0);
   assert.equal(A.estaOcupada(T0 + 4_000), true);
   assert.equal(A.estaOcupada(T0 + 5_000), false);
 });
 
-prueba("ocupada: envio en camino, grabando o subiendo; quieta cuando se apagan", () => {
+await prueba("ocupada: envio en camino, grabando o subiendo; quieta cuando se apagan", () => {
   for (const motivo of ["texto", "grabando", "subiendo"]) {
     A.marcarOcupada(motivo, true);
     assert.equal(A.estaOcupada(T0 + 60_000), true, motivo);
@@ -60,36 +60,36 @@ prueba("ocupada: envio en camino, grabando o subiendo; quieta cuando se apagan",
   }
 });
 
-prueba("ocupada: se puede ignorar la ventana de adjuntar al abrirla", () => {
+await prueba("ocupada: se puede ignorar la ventana de adjuntar al abrirla", () => {
   A.marcarOcupada("adjuntar", true);
   assert.equal(A.estaOcupada(T0 + 60_000), true);
   assert.equal(A.estaOcupada(T0 + 60_000, ["adjuntar"]), false);
   A.marcarOcupada("adjuntar", false);
 });
 
-prueba("recarga cuando esta quieta y es la primera vez", () => {
+await prueba("recarga cuando esta quieta y es la primera vez", () => {
   const r = A.decidirRecarga({ ahora: T0, ocupada: false, recargas: { ultima: 0, intentos: 0 } });
   assert.equal(r, "recargar");
 });
 
-prueba("no recarga si esta ocupada", () => {
+await prueba("no recarga si esta ocupada", () => {
   const r = A.decidirRecarga({ ahora: T0, ocupada: true, recargas: { ultima: 0, intentos: 0 } });
   assert.equal(r, "esperar");
 });
 
-prueba("tope de una recarga por minuto", () => {
+await prueba("tope de una recarga por minuto", () => {
   const recargas = { ultima: T0, intentos: 1 };
   assert.equal(A.decidirRecarga({ ahora: T0 + 30_000, ocupada: false, recargas }), "esperar");
   assert.equal(A.decidirRecarga({ ahora: T0 + 60_000, ocupada: false, recargas }), "recargar");
 });
 
-prueba("la pastilla aparece despues de 2 intentos", () => {
+await prueba("la pastilla aparece despues de 2 intentos", () => {
   const recargas = { ultima: T0, intentos: 2 };
   assert.equal(A.decidirRecarga({ ahora: T0 + 10_000, ocupada: false, recargas }), "pastilla");
   assert.equal(A.decidirRecarga({ ahora: T0 + 999_000, ocupada: true, recargas }), "pastilla");
 });
 
-prueba("registrar recargas suma intentos y olvidar los borra", () => {
+await prueba("registrar recargas suma intentos y olvidar los borra", () => {
   const almacen = almacenFalso();
   assert.deepEqual(A.leerRecargas(almacen), { ultima: 0, intentos: 0 });
   A.registrarRecarga(T0, almacen);
@@ -99,7 +99,7 @@ prueba("registrar recargas suma intentos y olvidar los borra", () => {
   assert.deepEqual(A.leerRecargas(almacen), { ultima: 0, intentos: 0 });
 });
 
-prueba("borrador: se guarda y se lee por chat, y se borra", () => {
+await prueba("borrador: se guarda y se lee por chat, y se borra", () => {
   const almacen = almacenFalso();
   A.guardarBorrador("agent:c1", "hola, el precio es", almacen);
   A.guardarBorrador("agent:c2", "otro chat", almacen);
@@ -111,14 +111,14 @@ prueba("borrador: se guarda y se lee por chat, y se borra", () => {
   assert.equal(A.leerBorrador("agent:c2", almacen), "otro chat");
 });
 
-prueba("borrador: guardar texto vacio lo quita", () => {
+await prueba("borrador: guardar texto vacio lo quita", () => {
   const almacen = almacenFalso();
   A.guardarBorrador("agent:c1", "algo", almacen);
   A.guardarBorrador("agent:c1", "   ", almacen);
   assert.equal(A.leerBorrador("agent:c1", almacen), "");
 });
 
-prueba("borrador: sin almacenamiento no revienta", () => {
+await prueba("borrador: sin almacenamiento no revienta", () => {
   assert.equal(A.leerBorrador("agent:c1", null), "");
   A.guardarBorrador("agent:c1", "x", null);
   const roto = {
@@ -140,14 +140,14 @@ const pendiente = {
   creadoEn: T0,
 };
 
-prueba("pendiente: se toma una sola vez (la marca se borra al leerlo)", () => {
+await prueba("pendiente: se toma una sola vez (la marca se borra al leerlo)", () => {
   const almacen = almacenFalso();
   A.guardarEnvioPendiente(pendiente, almacen);
   assert.deepEqual(A.tomarEnvioPendiente(almacen), pendiente);
   assert.equal(A.tomarEnvioPendiente(almacen), null);
 });
 
-prueba("pendiente: dato roto se descarta", () => {
+await prueba("pendiente: dato roto se descarta", () => {
   const almacen = almacenFalso();
   almacen.setItem("aizen:envio-pendiente", "{no es json");
   assert.equal(A.tomarEnvioPendiente(almacen), null);
@@ -156,23 +156,89 @@ prueba("pendiente: dato roto se descarta", () => {
   assert.equal(almacen.getItem("aizen:envio-pendiente"), null);
 });
 
-prueba("pendiente: se reenvia si es del chat abierto, reciente y no esta guardado", () => {
+await prueba("pendiente: se reenvia si es del chat abierto, reciente y no esta guardado", () => {
   assert.equal(A.puedeReenviarPendiente({ pendiente, chatAbiertoId: "c1", ahora: T0 + 20_000, yaGuardado: false }), true);
 });
 
-prueba("pendiente: no se reenvia si ya esta guardado en el chat", () => {
+await prueba("pendiente: no se reenvia si ya esta guardado en el chat", () => {
   assert.equal(A.puedeReenviarPendiente({ pendiente, chatAbiertoId: "c1", ahora: T0 + 20_000, yaGuardado: true }), false);
 });
 
-prueba("pendiente: no se reenvia con mas de 2 minutos", () => {
+await prueba("pendiente: no se reenvia con mas de 2 minutos", () => {
   assert.equal(A.puedeReenviarPendiente({ pendiente, chatAbiertoId: "c1", ahora: T0 + 120_001, yaGuardado: false }), false);
   assert.equal(A.puedeReenviarPendiente({ pendiente, chatAbiertoId: "c1", ahora: T0 + 120_000, yaGuardado: false }), true);
 });
 
-prueba("pendiente: no se reenvia a otro chat ni con hora en el futuro ni vacio", () => {
+await prueba("pendiente: no se reenvia a otro chat ni con hora en el futuro ni vacio", () => {
   assert.equal(A.puedeReenviarPendiente({ pendiente, chatAbiertoId: "c2", ahora: T0 + 1_000, yaGuardado: false }), false);
   assert.equal(A.puedeReenviarPendiente({ pendiente, chatAbiertoId: "c1", ahora: T0 - 5_000, yaGuardado: false }), false);
   assert.equal(A.puedeReenviarPendiente({ pendiente: { ...pendiente, texto: "  " }, chatAbiertoId: "c1", ahora: T0 + 1_000, yaGuardado: false }), false);
+});
+
+/* ---------------- Revision de version ANTES de enviar (intento 4) ---------------- */
+
+await prueba("antes de enviar: version nueva -> avisa que esta vieja (el texto se guarda y no se envia)", async () => {
+  A.olvidarRevision();
+  assert.equal(await A.versionViejaAntesDeEnviar(async () => true, T0), true);
+});
+
+await prueba("antes de enviar: misma version -> no esta vieja, se envia", async () => {
+  A.olvidarRevision();
+  assert.equal(await A.versionViejaAntesDeEnviar(async () => false, T0), false);
+});
+
+await prueba("antes de enviar: /api/version no contesta -> se envia normal", async () => {
+  A.olvidarRevision();
+  assert.equal(await A.versionViejaAntesDeEnviar(() => new Promise(() => {}), T0, 20), false);
+  A.olvidarRevision();
+  assert.equal(await A.versionViejaAntesDeEnviar(async () => { throw new Error("sin red"); }, T0), false);
+});
+
+await prueba("antes de enviar: una revision de menos de 15 s se reutiliza; la de mas, se vuelve a preguntar", async () => {
+  A.olvidarRevision();
+  A.recordarRevision(true, T0);
+  let preguntas = 0;
+  const consultar = async () => { preguntas += 1; return false; };
+  assert.equal(await A.versionViejaAntesDeEnviar(consultar, T0 + 14_000), true);
+  assert.equal(preguntas, 0);
+  assert.equal(await A.versionViejaAntesDeEnviar(consultar, T0 + 15_000), false);
+  assert.equal(preguntas, 1);
+});
+
+await prueba("pendiente: guardar avisa si no se pudo (entonces el texto sale normal)", () => {
+  assert.equal(A.guardarEnvioPendiente(pendiente, almacenFalso()), true);
+  assert.equal(A.guardarEnvioPendiente(pendiente, null), false);
+  const roto = { getItem: () => null, removeItem: () => {}, setItem: () => { throw new Error("lleno"); } };
+  assert.equal(A.guardarEnvioPendiente(pendiente, roto), false);
+});
+
+await prueba("pendiente: el texto que ya salio (mismo texto guardado) no se reenvia", () => {
+  assert.equal(A.puedeReenviarPendiente({ pendiente, chatAbiertoId: "c1", ahora: T0 + 5_000, yaGuardado: true }), false);
+});
+
+await prueba("olvidarEscritura: tras enviar, la recarga no espera los 5 s", () => {
+  A.marcarEscritura(T0);
+  assert.equal(A.estaOcupada(T0 + 1_000), true);
+  A.olvidarEscritura();
+  assert.equal(A.estaOcupada(T0 + 1_000), false);
+});
+
+/* ---------------- Lineas [nota-de-voz] vs la regla de la vigilancia ---------------- */
+
+const Z = await import(path.resolve("trabajador-tablero/lib/zonas.mjs"));
+
+await prueba("nota de voz: el codigo solo escribe 'error' cuando hubo error", () => {
+  const ruta = fs.readFileSync("src/app/api/cliente/chats/upload-audio/route.ts", "utf8");
+  const accion = fs.readFileSync("src/app/actions/agent-actions.ts", "utf8");
+  assert.match(ruta, /\.\.\.\(respuesta\.ok \? \{\} : \{ error \}\)/);
+  assert.match(accion, /\.\.\.\(error \? \{ error \} : \{\}\)/);
+});
+
+await prueba("nota de voz: una linea de subida que salio bien no cuenta como falla; una con error, si", () => {
+  const ok = '[nota-de-voz] {"paso":"subida","resultado":"ok","status":200,"bytes":1234,"mime":"audio/webm","ms":300,"userId":"u1"}';
+  const mal = '[nota-de-voz] {"paso":"subida","resultado":"error","status":500,"bytes":1234,"mime":"audio/webm","ms":300,"userId":"u1","error":"sin espacio"}';
+  assert.equal(Z.esLineaDeErrorReal(ok, { minutosDesdeSubir: 10 }), false);
+  assert.equal(Z.esLineaDeErrorReal(mal, { minutosDesdeSubir: 10 }), true);
 });
 
 console.log(`\n${pruebas} pruebas OK`);

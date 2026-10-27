@@ -18,6 +18,12 @@ export const MIN_ENTRE_RECARGAS_MS = 60_000;
 export const MAX_RECARGAS_SEGUIDAS = 2;
 /** Un envio pendiente mas viejo que esto ya no se reenvia. */
 export const VIDA_MAX_PENDIENTE_MS = 120_000;
+/** Una revision de version hecha hace menos de esto se reutiliza antes de enviar. */
+export const VIGENCIA_REVISION_MS = 15_000;
+/** Cuanto se espera, como mucho, la respuesta de /api/version antes de enviar. */
+export const ESPERA_REVISION_MS = 1_500;
+/** Si tras guardar el envio pendiente la app no se recarga en este tiempo, el texto sale normal. */
+export const ESPERA_RECARGA_ANTES_DE_ENVIAR_MS = 8_000;
 /** Espera tras la ultima tecla antes de guardar el borrador. */
 export const ESPERA_GUARDAR_BORRADOR_MS = 400;
 
@@ -58,6 +64,11 @@ export function marcarOcupada(motivo: string, activa: boolean) {
   }
 }
 
+/** El texto ya salio de la caja: no cuenta como "escribiendo" (la recarga previa al envio no espera). */
+export function olvidarEscritura() {
+  ultimaEscrituraMs = 0;
+}
+
 export function estaOcupada(ahora = Date.now(), ignorar: string[] = []): boolean {
   if (ahora - ultimaEscrituraMs < QUIETA_MS) {
     return true;
@@ -84,6 +95,50 @@ export function pedirGuardadoDeBorrador() {
     return;
   }
   window.dispatchEvent(new Event(EVENTO_GUARDAR_BORRADOR));
+}
+
+/* ------------------------- Revision de version antes de enviar ------------------------- */
+
+let ultimaRevision: { vieja: boolean; en: number } | null = null;
+
+/** El guardia anota cada resultado de /api/version para que el envio no tenga que repetir la pregunta. */
+export function recordarRevision(vieja: boolean, ahora = Date.now()) {
+  ultimaRevision = { vieja, en: ahora };
+}
+
+/**
+ * ¿Hay version nueva justo antes de enviar? Usa la ultima revision si tiene menos de 15 s; si no,
+ * pregunta (`consultar`) y espera como mucho 1,5 s. Ante la duda (sin respuesta) devuelve false:
+ * se envia normal, como antes de esta mejora.
+ */
+export async function versionViejaAntesDeEnviar(
+  consultar: () => Promise<boolean>,
+  ahora = Date.now(),
+  espera = ESPERA_REVISION_MS,
+): Promise<boolean> {
+  if (ultimaRevision && ahora - ultimaRevision.en < VIGENCIA_REVISION_MS) {
+    return ultimaRevision.vieja;
+  }
+  let temporizador: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const vieja = await Promise.race([
+      consultar(),
+      new Promise<boolean>((resolver) => {
+        temporizador = setTimeout(() => resolver(false), espera);
+      }),
+    ]);
+    recordarRevision(vieja, Date.now());
+    return vieja;
+  } catch {
+    return false;
+  } finally {
+    if (temporizador) clearTimeout(temporizador);
+  }
+}
+
+/** Solo para las pruebas. */
+export function olvidarRevision() {
+  ultimaRevision = null;
 }
 
 /* ------------------------------ Tope de recargas ------------------------------ */
@@ -200,14 +255,18 @@ export type EnvioPendiente = {
   creadoEn: number;
 };
 
+/** Devuelve false si no se pudo guardar (entonces el texto debe salir normal, no esperar la recarga). */
 export function guardarEnvioPendiente(
   envio: EnvioPendiente,
   almacen: AlmacenSimple | null = almacenDelNavegador(),
-) {
+): boolean {
   try {
-    almacen?.setItem(CLAVE_PENDIENTE, JSON.stringify(envio));
+    if (!almacen) return false;
+    almacen.setItem(CLAVE_PENDIENTE, JSON.stringify(envio));
+    return true;
   } catch {
     // Sin almacenamiento: queda como "No se envió" con Reintentar, como antes.
+    return false;
   }
 }
 

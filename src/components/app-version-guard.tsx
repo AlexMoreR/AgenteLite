@@ -9,6 +9,7 @@ import {
   leerRecargas,
   olvidarRecargas,
   pedirGuardadoDeBorrador,
+  recordarRevision,
   registrarRecarga,
 } from "@/lib/actualizacion-automatica";
 
@@ -56,7 +57,10 @@ export async function hayVersionNueva(): Promise<boolean> {
     return false;
   }
   const delServidor = await leerVersionDelServidor();
-  return Boolean(delServidor) && delServidor !== VERSION_CARGADA;
+  const vieja = Boolean(delServidor) && delServidor !== VERSION_CARGADA;
+  // Solo se anota cuando el servidor contesto: sin respuesta no se sabe nada.
+  if (delServidor) recordarRevision(vieja);
+  return vieja;
 }
 
 export function AppVersionGuard() {
