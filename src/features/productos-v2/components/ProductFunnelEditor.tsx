@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bell, Check, GitBranch, Pencil, Plus, Trash2 } from "lucide-react";
@@ -19,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { saveProductFunnelAction } from "@/app/actions/product-playbook-actions";
+import { leerVersionVigenteAction, saveProductFunnelAction } from "@/app/actions/product-playbook-actions";
 import { PRODUCT_FUNNEL_STAGES } from "@/lib/product-funnel-stages";
 import { StageFollowUpDialog, type SeguimientoDeEtapa } from "./StageFollowUpDialog";
 
@@ -91,6 +91,20 @@ export function ProductFunnelEditor({
   } | null;
 }) {
   const router = useRouter();
+  /** Embudo 3: nota corta opcional del cambio y la versión vigente del embudo. */
+  const [nota, setNota] = useState("");
+  const [vigente, setVigente] = useState<{ numero: number; fecha: string } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    void leerVersionVigenteAction(productId)
+      .then((resultado) => {
+        if (vivo) setVigente(resultado);
+      })
+      .catch(() => undefined);
+    return () => {
+      vivo = false;
+    };
+  }, [productId]);
   /** Lista para editar, diagrama para mirar. Arranca en lista: es donde se trabaja. */
   const [vista, setVista] = useState<"lista" | "diagrama">("lista");
   const [etapas, setEtapas] = useState<EtapaEditable[]>(() =>
@@ -232,6 +246,7 @@ export function ProductFunnelEditor({
     try {
       const result = await saveProductFunnelAction({
         productId,
+        nota: nota.trim() || undefined,
         stages: etapas.map((etapa) => ({
           ...etapa,
           // El valor se escribe como texto (un input vacio no es un 0) y se manda como numero.
@@ -249,6 +264,8 @@ export function ProductFunnelEditor({
         return;
       }
       setGuardado(JSON.stringify(etapas));
+      setNota("");
+      void leerVersionVigenteAction(productId).then(setVigente).catch(() => undefined);
       toast.success("Embudo guardado");
       router.refresh();
     } catch {
@@ -462,7 +479,15 @@ export function ProductFunnelEditor({
           })}
         </Accordion>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <Input
+            value={nota}
+            onChange={(evento) => setNota(evento.target.value)}
+            placeholder="Nota del cambio (opcional)"
+            maxLength={300}
+            aria-label="Nota del cambio"
+            className="h-8 max-w-xs text-xs"
+          />
           <Button type="button" size="sm" onClick={() => void guardar()} disabled={ocupado}>
             Guardar embudo
           </Button>
@@ -472,6 +497,11 @@ export function ProductFunnelEditor({
             <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
               <Check className="h-3.5 w-3.5" />
               Guardado
+            </span>
+          ) : null}
+          {vigente ? (
+            <span className="text-xs text-muted-foreground">
+              Versión vigente: V{vigente.numero} ({new Date(vigente.fecha).toLocaleDateString("es-CO")})
             </span>
           ) : null}
         </div>

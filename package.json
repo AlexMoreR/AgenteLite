@@ -25,6 +25,8 @@
     "test:embudo": "node scripts/check-embudo.mjs",
     "test:descarte-tras-seguimientos": "node scripts/check-descarte-tras-seguimientos.mjs",
     "test:embudo-semanal": "node scripts/check-embudo-semanal.mjs",
+    "test:embudo-versiones": "node scripts/check-embudo-versiones.mjs",
+    "test:embudo-versiones-migracion": "node scripts/check-embudo-versiones-migracion.mjs",
     "test:comparar-embudos": "node scripts/check-comparar-embudos.mjs",
     "test:mcp-comparar-embudos": "node scripts/check-mcp-comparar-embudos.mjs",
     "test:pauta": "node scripts/check-pauta.mjs",

@@ -58,7 +58,7 @@ export async function deshacerCambioMcpAction(cambioId: string) {
   if (!access) {
     return { error: "Solo el dueño o un administrador" };
   }
-  const resultado = await deshacerCambioMcp(access.workspaceId, typeof cambioId === "string" ? cambioId : "");
+  const resultado = await deshacerCambioMcp(access.workspaceId, typeof cambioId === "string" ? cambioId : "", { id: access.userId ?? null, nombre: "Pantalla de Claude" });
   if (!resultado.ok) {
     return { error: resultado.error };
   }
