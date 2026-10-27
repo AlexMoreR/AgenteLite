@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Controls, ReactFlow, applyNodeChanges, type NodeChange } from "@xyflow/react";
+import { Controls, ReactFlow, applyNodeChanges, type NodeChange, type ReactFlowInstance } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import Link from "next/link";
 import { ArrowLeft, ChevronRight, LayoutGrid, Shapes, UserRound } from "lucide-react";
@@ -70,7 +70,34 @@ const CHIPS: { grupo: GrupoDeContador; nombre: string; color: string }[] = [
   { grupo: "siguen", nombre: "Sigue", color: "var(--tia-gris)" },
   { grupo: "hecho", nombre: "Hecho", color: "var(--tia-gris)" },
 ];
-const FILTROS_INICIALES: ReadonlySet<GrupoDeContador> = new Set<GrupoDeContador>(["teToca", "enCurso", "siguen"]);
+const FILTROS_INICIALES: ReadonlySet<GrupoDeContador> = new Set<GrupoDeContador>(["teToca"]);
+
+/** Dónde se recuerda en el dispositivo qué chips están prendidos (y "Mis tarjetas"). */
+const CLAVE_FILTROS = "tablero-ia:filtros";
+const GRUPOS_VALIDOS = new Set<string>(CHIPS.map((chip) => chip.grupo));
+
+/** Lo guardado en el dispositivo; null si no hay nada, está dañado o el navegador lo bloquea. */
+function leerFiltrosGuardados(): { filtros: Set<GrupoDeContador>; mias: boolean } | null {
+  try {
+    const crudo = window.localStorage.getItem(CLAVE_FILTROS);
+    if (!crudo) return null;
+    const dato: unknown = JSON.parse(crudo);
+    if (typeof dato !== "object" || dato === null) return null;
+    const { grupos, mias } = dato as { grupos?: unknown; mias?: unknown };
+    if (!Array.isArray(grupos) || !grupos.every((g) => typeof g === "string" && GRUPOS_VALIDOS.has(g))) return null;
+    return { filtros: new Set(grupos as GrupoDeContador[]), mias: mias === true };
+  } catch {
+    return null;
+  }
+}
+
+function guardarFiltros(filtros: Filtros, mias: boolean) {
+  try {
+    window.localStorage.setItem(CLAVE_FILTROS, JSON.stringify({ grupos: [...filtros], mias }));
+  } catch {
+    // Modo privado o almacenamiento bloqueado: la elección solo dura esta visita.
+  }
+}
 
 type Props = {
   tableros: TableroDelInicio[];
@@ -95,6 +122,9 @@ type Props = {
   puedeAsignar: boolean;
 };
 
+/** Hasta dónde puede acercar el ajuste automático: pocas tarjetas se ven grandes. */
+const ZOOM_MAXIMO_AL_AJUSTAR = 1.5;
+
 const CONSULTA_ANGOSTA = "(max-width: 767px)";
 
 function suscribirAngosta(avisar: () => void) {
@@ -115,7 +145,7 @@ function useEsAngosta() {
 type Filtros = ReadonlySet<GrupoDeContador>;
 
 /**
- * ¿El filtro la atenúa? Las del centro nunca; las demás si no tienen nada en los grupos encendidos o, con
+ * ¿El filtro la oculta? Las del centro nunca; las demás si no tienen nada en los grupos encendidos o, con
  * "Mis tarjetas" prendido (`mias` = las tarjetas mías y sus madres), si no hay nada mío en ellas.
  */
 const filtrada = (
@@ -153,14 +183,19 @@ function construirNodos(
   propias: string | null,
 ): NodoDeTarjeta[] {
   const { nivel, grupos } = gruposDelNivel(contenido.tarjetas, nivelPedido);
-  const visibles = grupos.flatMap((grupo) => [grupo.centro, ...grupo.hijas]);
   const porId = new Map(contenido.tarjetas.map((tarjeta) => [tarjeta.id, tarjeta]));
   const centros = new Set(grupos.map((grupo) => grupo.centro));
   const contadores = contadoresDe(contenido);
   const hijas = contarHijas(contenido.tarjetas);
   const mias = propias ? tarjetasConMias(contenido.tarjetas, propias) : null;
+  // Lo filtrado no se pinta (ni su línea): el mapa se acomoda solo con lo que se ve.
+  const gruposVisibles = grupos.map((grupo) => ({
+    centro: grupo.centro,
+    hijas: grupo.hijas.filter((id) => !filtrada(id, centros, contadores, filtros, mias)),
+  }));
+  const visibles = gruposVisibles.flatMap((grupo) => [grupo.centro, ...grupo.hijas]);
   // Si el nivel pedido ya no existe (se borró) se muestra la raíz: las posiciones de antes no sirven.
-  const posiciones = disponerRadial(grupos, nivel === nivelPedido ? previas : new Map());
+  const posiciones = disponerRadial(gruposVisibles, nivel === nivelPedido ? previas : new Map());
   const tipoPorId = new Map(contenido.tipos.map((tipo) => [tipo.id, tipo]));
   return visibles.map((id) => {
     const tarjeta = porId.get(id)!;
@@ -175,8 +210,7 @@ function construirNodos(
         hijas: hijas.get(id) ?? 0,
         contadores: contadores.get(id) ?? contadoresEnCero(),
         esNivel: centros.has(id),
-        // Lo filtrado se atenúa en vez de desaparecer: así no se rompe el mapa.
-        atenuado: filtrada(id, centros, contadores, filtros, mias),
+        atenuado: false,
         responsable: tarjeta.responsableNombre,
         colorTipo: tipo?.color ?? null,
         iconoTipo: tipo?.icono ?? null,
@@ -217,6 +251,11 @@ export function TablerosInteligentesVista({
     inicial ? nivelVisible(inicial.tarjetas, nivelInicial).nivel : null,
   );
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_INICIALES);
+  // Cada vez que sube, el mapa vuelve a ajustar el zoom a lo que se ve (cambio de filtro).
+  const [pedidoDeZoom, setPedidoDeZoom] = useState(0);
+  const mapa = useRef<ReactFlowInstance<NodoDeTarjeta, FlechaDeTablero> | null>(null);
+  // Las tarjetas que el dueño arrastró a mano en este nivel: conservan su sitio al cambiar un filtro.
+  const arrastradas = useRef(new Set<string>());
   // "Mis tarjetas": las que no son mías se ven apagadas (como los chips de grupo).
   const [soloMias, setSoloMias] = useState(false);
   const propias = soloMias ? cuentas.yo : null;
@@ -244,7 +283,8 @@ export function TablerosInteligentesVista({
     [contadores, nivel, tarjetas, tipos],
   );
 
-  // Lo que necesitan los manejadores de "atrás" del navegador sin recrearse en cada render.
+  // Lo que necesitan los manejadores de "atrás" del navegador y el refresco automático: siempre los
+  // filtros vigentes, no los del cierre de la función.
   const estadoRef = useRef({ contenido, filtros, propias });
   useEffect(() => {
     estadoRef.current = { contenido, filtros, propias };
@@ -261,11 +301,13 @@ export function TablerosInteligentesVista({
     (nuevo: ContenidoNuevo) => {
       setContenido(nuevo);
       // Mismo nivel: las que ya estaban (o el dueño arrastró) se quedan donde estaban.
-      setNodos((previos) => construirNodos(nuevo, nivel, filtros, posicionesDe(previos), setAbierta, propias));
+      setNodos((previos) =>
+        construirNodos(nuevo, nivel, estadoRef.current.filtros, posicionesDe(previos), setAbierta, estadoRef.current.propias),
+      );
       // Si borraron la tarjeta de la ficha abierta, la ficha se cierra.
       setAbierta((actual) => (actual && nuevo.tarjetas.some((tarjeta) => tarjeta.id === actual) ? actual : null));
     },
-    [nivel, filtros, propias],
+    [nivel],
   );
 
   const refrescarYa = useRefrescoDelTablero(tableroId, contenido?.actualizadoEn ?? null, alCambiar);
@@ -287,6 +329,7 @@ export function TablerosInteligentesVista({
       const real = nivelVisible(actual.tarjetas, destino).nivel;
       setNivel(real);
       setAbierta(abrir);
+      arrastradas.current = new Set();
       setNodos(construirNodos(actual, real, estadoRef.current.filtros, new Map(), setAbierta, estadoRef.current.propias));
       if (empujar) window.history.pushState(null, "", urlDelNivel(tableroId, real));
     },
@@ -315,24 +358,55 @@ export function TablerosInteligentesVista({
     [enNivel, irANivel, madre],
   );
 
+  /** Aplica filtros nuevos: reacomoda el mapa con lo visible (lo arrastrado a mano se queda) y ajusta el zoom. */
+  const aplicarFiltros = useCallback(
+    (siguiente: Filtros, soloMiasNuevo: boolean) => {
+      const actual = estadoRef.current.contenido;
+      const propiasNuevo = soloMiasNuevo ? cuentas.yo : null;
+      estadoRef.current = { contenido: actual, filtros: siguiente, propias: propiasNuevo };
+      setFiltros(siguiente);
+      setSoloMias(soloMiasNuevo);
+      if (actual) {
+        setNodos((previos) => {
+          const fijas = new Map([...posicionesDe(previos)].filter(([id]) => arrastradas.current.has(id)));
+          return construirNodos(actual, nivel, siguiente, fijas, setAbierta, propiasNuevo);
+        });
+      }
+      setPedidoDeZoom((n) => n + 1);
+    },
+    [cuentas.yo, nivel],
+  );
+
   const alternarGrupo = (grupo: GrupoDeContador) => {
     const siguiente = new Set(filtros);
     if (siguiente.has(grupo)) siguiente.delete(grupo);
     else siguiente.add(grupo);
-    setFiltros(siguiente);
-    setNodos((previos) =>
-      previos.map((nodo) => ({ ...nodo, data: { ...nodo.data, atenuado: filtrada(nodo.id, centros, contadores, siguiente, mias) } })),
-    );
+    guardarFiltros(siguiente, soloMias);
+    aplicarFiltros(siguiente, soloMias);
   };
 
   const alternarMias = () => {
-    const prendido = !soloMias;
-    setSoloMias(prendido);
-    const siguiente = prendido ? tarjetasConMias(tarjetas, cuentas.yo) : null;
-    setNodos((previos) =>
-      previos.map((nodo) => ({ ...nodo, data: { ...nodo.data, atenuado: filtrada(nodo.id, centros, contadores, filtros, siguiente) } })),
-    );
+    guardarFiltros(filtros, !soloMias);
+    aplicarFiltros(filtros, !soloMias);
   };
+
+  // La elección guardada en el dispositivo se lee después de cargar (no antes, para no desajustar el HTML
+  // del servidor) y se aplica de una vez. Sin nada guardado o dañado, se queda solo "Te toca".
+  useEffect(() => {
+    const guardado = leerFiltrosGuardados();
+    if (guardado) aplicarFiltros(guardado.filtros, guardado.mias);
+    // Solo al abrir la pantalla.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // El zoom se ajusta con una pequeña espera, a que los nodos nuevos ya estén medidos.
+  useEffect(() => {
+    if (pedidoDeZoom === 0) return;
+    const espera = window.setTimeout(() => {
+      mapa.current?.fitView({ padding: 0.2, maxZoom: ZOOM_MAXIMO_AL_AJUSTAR, duration: 200 });
+    }, 100);
+    return () => window.clearTimeout(espera);
+  }, [pedidoDeZoom]);
 
   // Lo que el dueño arrastra se queda donde lo dejó mientras siga en este nivel (las posiciones
   // viven en los nodos; no se guardan en la base).
@@ -341,23 +415,23 @@ export function TablerosInteligentesVista({
   }, []);
 
   const aristas = useMemo<FlechaDeTablero[]>(() => {
-    const atenuadaPor = (id: string) => filtrada(id, centros, contadores, filtros, mias);
+    const oculta = (id: string) => filtrada(id, centros, contadores, filtros, mias);
     const esMadreEHija = (a: string, b: string) => madre.get(a) === b || madre.get(b) === a;
     // Las flechas entre tarjetas del nivel: punteadas, tenues y sin punto (lo principal es la madre).
     // Una flecha entre madre e hija no se dibuja: ya la representa la unión con la madre (con su punto).
     const flechas: FlechaDeTablero[] = conexiones
       .filter((conexion) => enNivel.has(conexion.origenId) && enNivel.has(conexion.destinoId))
+      .filter((conexion) => !oculta(conexion.origenId) && !oculta(conexion.destinoId))
       .filter((conexion) => !esMadreEHija(conexion.origenId, conexion.destinoId))
       .map((conexion) => {
-        const atenuada = atenuadaPor(conexion.origenId) || atenuadaPor(conexion.destinoId);
         return {
           id: conexion.id,
           source: conexion.origenId,
           target: conexion.destinoId,
           type: "flotante" as const,
-          data: { color: "var(--tia-gris)", atenuada, clase: "flecha" as const, conPunto: false },
+          data: { color: "var(--tia-gris)", atenuada: false, clase: "flecha" as const, conPunto: false },
           selectable: false,
-          style: { stroke: "var(--tia-gris)", strokeWidth: 1, strokeDasharray: "3 4", opacity: atenuada ? 0.15 : 0.6 },
+          style: { stroke: "var(--tia-gris)", strokeWidth: 1, strokeDasharray: "3 4", opacity: 0.6 },
         };
       });
     // La unión con la madre: línea fina gris del centro a cada hija, con UN punto que viaja (rojo si
@@ -365,19 +439,18 @@ export function TablerosInteligentesVista({
     const uniones: FlechaDeTablero[] = visibles
       .filter((id) => {
         const suMadre = madre.get(id);
-        return suMadre && enNivel.has(suMadre);
+        return suMadre && enNivel.has(suMadre) && !oculta(id) && !oculta(suMadre);
       })
       .map((id) => {
-        const atenuada = atenuadaPor(id);
         const teToca = (contadores.get(id)?.teToca ?? 0) > 0;
         return {
           id: `madre-${id}`,
           source: madre.get(id)!,
           target: id,
           type: "flotante" as const,
-          data: { color: teToca ? "var(--tia-rojo)" : "var(--tia-gris)", atenuada, clase: "madre" as const },
+          data: { color: teToca ? "var(--tia-rojo)" : "var(--tia-gris)", atenuada: false, clase: "madre" as const },
           selectable: false,
-          style: { stroke: "var(--tia-linea)", strokeWidth: 1, opacity: atenuada ? 0.3 : 1 },
+          style: { stroke: "var(--tia-linea)", strokeWidth: 1, opacity: 1 },
         };
       });
     return [...uniones, ...flechas];
@@ -444,7 +517,7 @@ export function TablerosInteligentesVista({
         ) : null}
       </div>
 
-      {/* Chips de grupo del nivel (recursivos). Apagado = tachado y "○": sus hijas se atenúan.
+      {/* Chips de grupo del nivel (recursivos). Apagado = tachado y "○": sus tarjetas desaparecen del mapa.
           Se deslizan de lado en el celular. */}
       <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-border bg-card px-3 py-2 [scrollbar-width:none]">
         {CHIPS.map(({ grupo, nombre, color }) => {
@@ -491,6 +564,7 @@ export function TablerosInteligentesVista({
             El tablero está vacío. Las ideas que anote Claude aparecen acá en unos segundos.
           </div>
         ) : (
+          <>
           <ReactFlow<NodoDeTarjeta, FlechaDeTablero>
             key={nivel ?? "raiz"}
             nodes={nodos}
@@ -509,13 +583,25 @@ export function TablerosInteligentesVista({
             edgesFocusable={false}
             deleteKeyCode={null}
             fitView
-            fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+            fitViewOptions={{ padding: 0.2, maxZoom: ZOOM_MAXIMO_AL_AJUSTAR }}
+            onInit={(instancia) => {
+              mapa.current = instancia;
+            }}
+            onNodeDragStop={(_, nodo) => {
+              arrastradas.current.add(nodo.id);
+            }}
             minZoom={0.15}
             maxZoom={2}
             proOptions={{ hideAttribution: true }}
           >
             <Controls showInteractive={false} position="bottom-right" />
           </ReactFlow>
+          {nodos.every((nodo) => nodo.data.esNivel) ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-6 text-center text-xs text-muted-foreground">
+              No hay tarjetas con estos filtros
+            </div>
+          ) : null}
+          </>
         )}
       </div>
 

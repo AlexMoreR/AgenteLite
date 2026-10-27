@@ -13,7 +13,7 @@ import { BaseEdge, getStraightPath, useInternalNode, type Edge, type EdgeProps, 
   Encima de la línea viaja UN solo punto (un <circle> con <animateMotion>) del origen al destino:
   lo anima el navegador, sin JS por cuadro, y con `prefers-reduced-motion: reduce` el punto queda
   quieto en la mitad de la línea. Las líneas
-  atenuadas por el filtro no llevan punto. Sin puntas de flecha.
+  las del filtro ya no se dibujan (no llegan acá). Sin puntas de flecha.
 
   La misma recta sirve para la UNIÓN CON LA MADRE (`data.clase = "madre"`): del centro a cada hija,
   fina y gris; el punto es rojo si la hija tiene algo que "te toca" y gris si no.
