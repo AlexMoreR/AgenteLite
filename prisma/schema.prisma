@@ -2567,3 +2567,28 @@ model EmbudoChatVersion {
   @@index([versionId])
   @@index([workspaceId, productId, creadoEn])
 }
+
+/// Cada aviso y cada reasignación del Supervisor de reasignación (src/features/supervisor-reasignacion).
+/// Sirve de registro para el dueño y de candado contra los avisos repetidos: la combinación
+/// chat + tipo + episodio (la hora del mensaje del cliente que lo provocó) es única, así que el mismo
+/// aviso no se puede anotar dos veces, y si no se pudo anotar, no se manda.
+/// Sin relaciones a propósito: no toca ninguna tabla que ya exista.
+model SupervisorAviso {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  conversationId   String
+  /// AVISO, REASIGNACION, CALIENTE_24H, BOT_PIDIO_ASESORA o SIN_CANDIDATA. Texto y no enum: se agregan sin migrar.
+  tipo             String
+  /// La asesora a la que se le avisó (en una reasignación, la que perdió el chat).
+  asesoraId        String?
+  /// En una reasignación, la que recibió el chat.
+  asesoraNuevaId   String?
+  episodio         DateTime
+  minutosEsperando Int?
+  whatsappEnviado  Boolean  @default(false)
+  error            String?
+  creadoEn         DateTime @default(now())
+
+  @@unique([conversationId, tipo, episodio])
+  @@index([workspaceId, creadoEn])
+}
