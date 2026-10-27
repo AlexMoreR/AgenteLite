@@ -120,8 +120,12 @@ export function versionAnteriorDelLibro(texto) {
  * Lo que falta para que una zona suba sola, según lo que escribió el que construyó (`texto` = su resumen y pruebas)
  * y el diff. Devuelve el motivo (una línea) o null si no falta nada. `zonas` = las zonas de la tarjeta (las que
  * toca el cambio y las que ya traía), `diffs` = { todo, BOT_VENTAS?, ... } (el diff de cada zona; si falta, el de todo).
+ * `confirmaElCoordinador` (27-oct-2026): la prueba extra del bot y de chats ("sin mensajes nuevos a clientes") la hace el propio
+ * Coordinador con el diff real: si el constructor no escribió la frase, ya no es un motivo para esperar el sí del dueño (la frase la
+ * escribe `confirmacionesDelCoordinador`). Un envío nuevo en esas rutas sigue esperando. El libro V3 no cambia: su simulación
+ * no se puede comprobar con el diff.
  */
-export function motivoPorElQueNoSubeSola({ zonas, zonasQueSubenSolas, diffs, plan, texto }) {
+export function motivoPorElQueNoSubeSola({ zonas, zonasQueSubenSolas, diffs, plan, texto, confirmaElCoordinador = false }) {
   const suben = (zona) => zonasQueSubenSolas.includes(zona) && zonas.includes(zona);
   const diffDe = (zona) => diffs?.[zona] ?? diffs?.todo ?? "";
   if (suben("META_ADS")) {
@@ -134,18 +138,44 @@ export function motivoPorElQueNoSubeSola({ zonas, zonasQueSubenSolas, diffs, pla
     if (versionAnteriorDelLibro(texto) === null) return "falta el número de la versión anterior del libro V3 (para volver con v3_volver_a_version)";
   }
   if (suben("BOT_VENTAS")) {
-    if (!String(texto ?? "").includes(CONFIRMACION_BOT_VENTAS)) return "falta la prueba de que no se mandan mensajes nuevos a clientes";
+    if (!confirmaElCoordinador && !String(texto ?? "").includes(CONFIRMACION_BOT_VENTAS)) return "falta la prueba de que no se mandan mensajes nuevos a clientes";
     // Solo se miran los envíos que agregan los archivos del bot (no los de toda la tarjeta).
     const envios = enviosNuevosDeMensajes(diffDe("BOT_VENTAS"));
     if (envios.length && !planMencionaEnvios(plan)) return "el cambio agrega un envío de mensaje que el plan no menciona";
   }
   if (suben("CHATS")) {
-    if (!String(texto ?? "").includes(CONFIRMACION_CHATS)) return "falta la prueba de que los chats no mandan mensajes nuevos a clientes (✔ chats: sin mensajes nuevos a clientes)";
+    if (!confirmaElCoordinador && !String(texto ?? "").includes(CONFIRMACION_CHATS)) return "falta la prueba de que los chats no mandan mensajes nuevos a clientes (✔ chats: sin mensajes nuevos a clientes)";
     // Más duro que el bot: aunque el plan lo mencione, cualquier envío nuevo en los archivos de chats espera el sí del dueño.
     const envios = enviosNuevosDeMensajes(diffDe("CHATS"));
     if (envios.length) return "el cambio agrega un envío de mensaje en chats (espera el sí del dueño aunque el plan lo mencione)";
   }
   return null;
+}
+
+/**
+ * Las frases de la prueba extra que escribe el Coordinador (27-oct-2026) por las zonas que suben solas y no las trae el texto del que
+ * construyó. Solo se llama si `motivoPorElQueNoSubeSola` (con `confirmaElCoordinador`) no encontró motivo: es decir, el diff real no
+ * agrega ningún envío de mensajes. Devuelve las líneas para dejar en las pruebas de la tarjeta.
+ */
+export function confirmacionesDelCoordinador({ zonas, zonasQueSubenSolas, texto }) {
+  const suben = (zona) => zonasQueSubenSolas.includes(zona) && zonas.includes(zona);
+  const lineas = [];
+  if (suben("BOT_VENTAS") && !String(texto ?? "").includes(CONFIRMACION_BOT_VENTAS)) {
+    lineas.push(`${CONFIRMACION_BOT_VENTAS} (comprobado por el Coordinador con el diff: ningún envío nuevo en los archivos del bot)`);
+  }
+  if (suben("CHATS") && !String(texto ?? "").includes(CONFIRMACION_CHATS)) {
+    lineas.push(`${CONFIRMACION_CHATS} (comprobado por el Coordinador con el diff: ningún envío nuevo en las rutas de chats)`);
+  }
+  return lineas;
+}
+
+/**
+ * La prueba extra completa, hecha por el Coordinador (27-oct-2026): { esperaPor, confirmaciones }. `esperaPor` es el motivo por el
+ * que sigue esperando el sí del dueño (null = sube sola); `confirmaciones` son las frases que escribió el Coordinador.
+ */
+export function pruebaExtraDeLasZonas({ zonas, zonasQueSubenSolas, diffs, plan, texto }) {
+  const esperaPor = motivoPorElQueNoSubeSola({ zonas, zonasQueSubenSolas, diffs, plan, texto, confirmaElCoordinador: true });
+  return { esperaPor, confirmaciones: esperaPor ? [] : confirmacionesDelCoordinador({ zonas, zonasQueSubenSolas, texto }) };
 }
 
 /* ─────────────────────────── vigilancia de 30 minutos después de subir ── */

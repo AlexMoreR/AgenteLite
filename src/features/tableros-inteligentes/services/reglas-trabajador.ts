@@ -57,7 +57,7 @@ import {
   sePuedeMarcarHechoAMano,
 } from "./reglas";
 import { type ModelosDelResultado, esLinkDeSesion, modelosDeEntrada } from "./modelos-del-coordinador";
-import { archivosDeEntrada, migracionDestructivaDeEntrada } from "./reglas-riesgo";
+import { archivosDeEntrada, migracionDestructivaDeEntrada, porQueElPlanEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
 
 /* ───────────────────────────────────────────────────────────────────── repos ── */
 
@@ -282,7 +282,8 @@ export type AccionDelTrabajador =
   | "depender"
   | "recoger"
   | "ya-hecha"
-  | "limpieza";
+  | "limpieza"
+  | "rescatar";
 export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "latido",
   "plan",
@@ -296,6 +297,7 @@ export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "recoger",
   "ya-hecha",
   "limpieza",
+  "rescatar",
 ];
 
 /**
@@ -338,6 +340,9 @@ export const TRANSICIONES_DEL_TRABAJADOR: Record<
   // Limpieza (27-oct-2026): main trae errores viejos. Crea UNA tarjeta de limpieza por repo (o le agrega los errores a la abierta). Se llama
   // con la tarjeta que los encontró, ya en el estado en que la dejó su resultado; no la mueve.
   limpieza: { desde: ["EN_CURSO", "SUBIENDO", "POR_REVISAR", "HECHO"], a: null },
+  // Rescatar (27-oct-2026): el Coordinador vuelve a revisar una tarjeta POR_REVISAR que pasó todo y solo esperaba su prueba extra (o
+  // ya traía el sí del dueño): si la comprobó él mismo con el diff real, pasa a SUBIENDO; si no, sigue POR_REVISAR con el motivo.
+  rescatar: { desde: ["POR_REVISAR"], a: null },
 };
 
 /** La nota de una tarjeta que ya estaba hecha (27-oct-2026): "ya estaba hecho (commit X)". */
@@ -370,8 +375,56 @@ export function destinoDelResultado(datos: {
   paso: boolean;
   subeSolo: boolean;
   zonaProtegida: readonly string[];
+  /** El dueño ya aprobó esta tarjeta y nada nuevo toca dinero ni Meta Ads (heredaAprobacionDelDueno): sube aunque el Coordinador no lo dijera. */
+  aprobacionHeredada?: boolean;
 }): "SUBIENDO" | "POR_REVISAR" {
-  return datos.paso && datos.subeSolo && zonasQuePidenTuSi(datos.zonaProtegida).length === 0 ? "SUBIENDO" : "POR_REVISAR";
+  if (!datos.paso || zonasQuePidenTuSi(datos.zonaProtegida).length > 0) return "POR_REVISAR";
+  return datos.subeSolo || datos.aprobacionHeredada ? "SUBIENDO" : "POR_REVISAR";
+}
+
+/* ───────────────────────────────────────────── el sí del dueño se hereda (27-oct-2026) ── */
+
+/** Lo que queda en el historial cuando el sí del dueño se hereda al reconstruir la tarea. */
+export const TEXTO_APROBACION_HEREDADA = "sube sola: el dueño ya la había aprobado (regla del dueño 27-oct)";
+
+/**
+ * ¿El historial de la tarjeta trae un sí del dueño? Una fila "aprobar" hecha por una persona (en pantalla o por voz): las
+ * aprobaciones automáticas (via "automatica") no cuentan. Sirve para tarea, plan o subir. Sin base.
+ */
+export function aprobacionDelDuenoEnElHistorial(filas: readonly { accion: string; despues: unknown }[]): boolean {
+  return filas.some((fila) => {
+    if (fila.accion !== "aprobar") return false;
+    const via = (fila.despues as { via?: unknown } | null)?.via;
+    return via === "pantalla" || via === "voz";
+  });
+}
+
+/** ¿Lo que dejó el Coordinador en `esperaPor` es solo que faltaba su prueba extra (no un envío ni un gasto)? */
+export function esperaSoloPorLaPruebaExtra(esperaPor: string | null | undefined): boolean {
+  return typeof esperaPor === "string" && /^falta la prueba de que/i.test(esperaPor.trim());
+}
+
+/**
+ * Regla del dueño (27-oct-2026): lo que él ya aprobó vale aunque la tarea se reconstruya o se repare; no se le pide dos veces.
+ * Hereda solo si el historial trae su sí, el Coordinador no dejó un motivo para esperar (un envío nuevo en chats, gasto en
+ * Meta Ads...), el plan y la tarjeta no tocan dinero ni gasto en Meta Ads y la migración no es destructiva. Devuelve el
+ * motivo de por qué NO hereda, o null si hereda.
+ */
+export function porQueNoHeredaLaAprobacion(datos: {
+  historial: readonly { accion: string; despues: unknown }[];
+  titulo: string;
+  detalle: string;
+  plan: string | null;
+  esperaPor?: string | null;
+  migracionDestructiva?: readonly string[] | null;
+}): string | null {
+  if (!aprobacionDelDuenoEnElHistorial(datos.historial)) return "no hay un sí del dueño en el historial";
+  if (datos.esperaPor && !esperaSoloPorLaPruebaExtra(datos.esperaPor)) return `el Coordinador dejó un motivo para esperar (${datos.esperaPor})`;
+  if (datos.migracionDestructiva?.length) return "la migración tiene cambios destructivos";
+  const plan = porQueElPlanEsperaTuSi(datos.plan ?? "");
+  if (plan) return plan;
+  const tarea = porQueLaTareaEsperaTuSi({ titulo: datos.titulo, detalle: datos.detalle, zonaProtegida: [], zonasQueEsperan: [] });
+  return tarea;
 }
 
 /* ───────────────────────────────────────────────────────────────────── aprobaciones ── */

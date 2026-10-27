@@ -12,7 +12,8 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
   importante; lo que están desarrollando lo puedo mirar en el tablero". Ni "empezó", ni "terminó", ni
   resúmenes ni avances. Solo estos 5 casos, en un mensaje de MÁXIMO 3 LÍNEAS con link:
     1. caido       el Coordinador no da señales hace más de 10 minutos (aizen1 apagado, proceso caído, sin internet).
-    2. sin_trabajo nada en curso ni en fila y hay tarjetas esperando al dueño (dice cuáles y qué necesitan).
+    2. sin_trabajo nada en curso ni en fila y hay tarjetas que de verdad lo esperan a él (dinero, Meta Ads, una clave o un envío
+                   nuevo a clientes en chats; 27-oct-2026: lo demás ya no le pide el sí).
     3. trabado     una tarjeta lleva más de 2 horas planeando, construyendo o subiendo sin cambiar de estado, o
                    quedó en ERROR (el Coordinador ya gastó sus 3 reparaciones): dice la causa en una línea.
     4. necesita    espera al dueño y toca Meta Ads, dinero o presupuesto, o su error pide una clave o un permiso.
@@ -234,6 +235,8 @@ export type TarjetaEsperando = {
   plan: string | null;
   zonaProtegida: string[];
   error: string | null;
+  /** Lo que dejó el Coordinador en resultado.esperaPor (solo POR_REVISAR). */
+  esperaPor?: string | null;
 };
 export type SituacionDeSistemas = {
   /** Cuándo el CRM recibió el último latido del Coordinador (null = nunca ha dado señales). */
@@ -271,6 +274,9 @@ export function porQueNecesitaAlDueno(tarjeta: TarjetaEsperando): string | null 
     return tarjeta.error && PIDE_CLAVE_O_ACCESO.test(tarjeta.error) ? "falta una clave, un acceso o un permiso" : null;
   }
   if (tarjeta.zonaProtegida.includes("META_ADS")) return "toca Meta Ads";
+  // Regla del dueño (27-oct-2026): un resultado POR_REVISAR solo lo espera a él por gasto en Meta Ads o por un envío nuevo a
+  // clientes en chats. Si solo faltaba la prueba extra, el Coordinador la hace él mismo y no se le avisa.
+  if (tarjeta.estado === "POR_REVISAR") return tarjeta.esperaPor && !/^falta la prueba de que/i.test(tarjeta.esperaPor) ? tarjeta.esperaPor : null;
   if (tarjeta.estado === "PLAN_LISTO" && tarjeta.plan) return porQueElPlanEsperaTuSi(tarjeta.plan);
   if (tarjeta.estado === "POR_APROBAR") {
     return porQueLaTareaEsperaTuSi({
@@ -335,12 +341,12 @@ export function calcularAvisos(situacion: SituacionDeSistemas, ahora: Date): Avi
   }
 
   // 2. Sin trabajo: nada en curso ni en fila y hay tarjetas esperando al dueño (si el Coordinador está caído, el aviso es el 1).
-  const sinTrabajo = !caido && minutosSinSenales !== null && situacion.enCurso.length === 0 && situacion.enFila === 0 && situacion.esperando.length > 0;
+  const sinTrabajo = !caido && minutosSinSenales !== null && situacion.enCurso.length === 0 && situacion.enFila === 0 && necesitan.length > 0;
   if (sinTrabajo) {
     avisos.push({
       clave: "auto:sin_trabajo",
       tipo: "sin_trabajo",
-      lineas: ["⏸️ Sistemas se quedó sin trabajo: nada en curso ni en fila.", `Esperan tu decisión: ${lista(situacion.esperando)}`],
+      lineas: ["⏸️ Sistemas se quedó sin trabajo: nada en curso ni en fila.", `Esperan tu decisión: ${lista(necesitan.map((x) => x.tarjeta))}`],
       link: linkDeHoy(),
     });
   }
@@ -375,6 +381,11 @@ export function armarMensaje(avisos: readonly AvisoCalculado[]): string {
 
 const ESTADOS_EN_CURSO = ["PLANEANDO", "EN_CURSO", "SUBIENDO"] as const;
 const ESTADOS_EN_FILA = ["APROBADO", "PLAN_APROBADO"] as const;
+
+function textoDeEsperaPor(resultado: unknown): string | null {
+  const valor = resultado && typeof resultado === "object" ? (resultado as { esperaPor?: unknown }).esperaPor : null;
+  return typeof valor === "string" && valor.trim() ? valor.trim() : null;
+}
 
 function textoDelError(resultado: unknown): string | null {
   if (!resultado || typeof resultado !== "object" || Array.isArray(resultado)) return null;
@@ -419,6 +430,7 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
       plan: p.plan,
       zonaProtegida: p.zonaProtegida,
       error: textoDelError(p.resultado),
+      esperaPor: textoDeEsperaPor(p.resultado),
     })),
   };
 }

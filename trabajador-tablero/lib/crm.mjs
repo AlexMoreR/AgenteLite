@@ -66,6 +66,10 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     limpieza: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/limpieza`, limpio(datos)),
     /** Las tarjetas en ERROR (las más viejas primero) con lo necesario para recogerlas. -> { tarjetas } */
     errores: () => pedir("/api/trabajador/tablero/errores"),
+    /** Las tarjetas POR_REVISAR que solo esperaban la prueba extra o que ya traen el sí del dueño (27-oct-2026). -> { tarjetas: [{ id, titulo, repo, plan, zonaProtegida, rama, base, commit, archivos, esperaPor, aprobadaPorElDueno }] } */
+    porRevisar: () => pedir("/api/trabajador/tablero/por-revisar"),
+    /** Rescata una tarjeta POR_REVISAR tras revisarla con el diff real: { sube: true, confirmacion } -> SUBIENDO; { sube: false, motivo } -> sigue POR_REVISAR con ese motivo. 409 si el CRM ve dinero, Meta Ads o una zona que pide el sí. */
+    rescatar: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/rescatar`, limpio(datos)),
     /** Recoge una tarjeta en ERROR: { decision: "reintentar" | "partir" | "dueno", causa, error, categoria, partes, linea }. 409 si ya se recogió 2 veces. */
     recoger: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/recoger`, limpio(datos)),
     /** Al arrancar el Coordinador: el CRM suelta todo lo que el proceso anterior dejó con candado (PLANEANDO / EN_CURSO). -> { sueltas } */

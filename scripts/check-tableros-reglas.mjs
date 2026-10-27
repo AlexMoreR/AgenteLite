@@ -852,7 +852,7 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
-    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null },
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null, rescatar: null },
   );
   // Revisión previa (27-oct-2026): la nota de "ya estaba hecha" y el título único de la tarjeta de limpieza.
   assert.equal(trabajo.notaDeYaHecha("f4759b0"), "ya estaba hecho (commit f4759b0)");
@@ -1127,6 +1127,36 @@ prueba("zonas que suben solas (24-oct-2026): bot, Meta Ads, libro V3 y chats (26
   assert.equal(trabajo.vigilanciaDeEntrada({ minutos: 30 }), null);
   assert.equal(trabajo.vigilanciaDeEntrada("x"), null);
   assert.equal(trabajo.resultadoDeEntrada({ resumen: "x", esperaPor: "gasto en Meta Ads" }).esperaPor, "gasto en Meta Ads");
+});
+
+prueba("el sí del dueño se hereda (27-oct-2026): vale aunque la tarea se reconstruya, salvo dinero, Meta Ads, envío nuevo en chats o migración destructiva", () => {
+  const siDelDueno = [{ accion: "aprobar", despues: { via: "voz", momento: "tarea" } }];
+  const tarea = { titulo: "Buscador de la bandeja", detalle: "Un buscador por nombre.", plan: "RIESGO: ALTO\nAPROBAR PLAN: sí\nBuscar en la bandeja.", historial: siDelDueno };
+  // El resultado que hoy deja la tarjeta POR_REVISAR (el constructor no escribió la frase) hereda el sí.
+  assert.equal(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, esperaPor: "falta la prueba de que los chats no mandan mensajes nuevos a clientes (✔ chats: sin mensajes nuevos a clientes)" }), null);
+  assert.equal(trabajo.porQueNoHeredaLaAprobacion(tarea), null);
+  // Por pantalla también cuenta; una aprobación automática o una fila que no es "aprobar" no.
+  assert.equal(trabajo.aprobacionDelDuenoEnElHistorial([{ accion: "aprobar", despues: { via: "pantalla" } }]), true);
+  assert.equal(trabajo.aprobacionDelDuenoEnElHistorial([{ accion: "aprobar", despues: { via: "automatica" } }, { accion: "estado", despues: { via: "voz" } }]), false);
+  assert.match(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, historial: [] }), /no hay un sí/);
+  // Excepciones: un envío nuevo en chats, dinero, gasto en Meta Ads, migración destructiva.
+  assert.match(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, esperaPor: "el cambio agrega un envío de mensaje en chats (espera el sí del dueño aunque el plan lo mencione)" }), /envío de mensaje/);
+  assert.match(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, esperaPor: "gasto en Meta Ads (daily_budget)" }), /gasto en Meta Ads/);
+  assert.match(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, plan: "RIESGO: ALTO\nGASTO EN META ADS: sube el presupuesto diario" }), /Meta Ads/);
+  assert.ok(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, titulo: "Pagar la nómina de las asesoras", detalle: "Calcula la nómina y las comisiones." }));
+  assert.match(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, migracionDestructiva: ["DROP"] }), /destructivos/);
+  // destinoDelResultado: con la aprobación heredada sube aunque el Coordinador no lo dijera, pero nunca si no pasó o una zona pide el sí.
+  const destino = (extra) => trabajo.destinoDelResultado({ paso: true, subeSolo: false, zonaProtegida: ["CHATS"], aprobacionHeredada: true, ...extra });
+  assert.equal(destino({}), "SUBIENDO");
+  assert.equal(destino({ aprobacionHeredada: false }), "POR_REVISAR");
+  assert.equal(destino({ paso: false }), "POR_REVISAR");
+  assert.equal(destino({ zonaProtegida: ["OTRA_ZONA"] }), "POR_REVISAR");
+  // Rescatar: solo desde POR_REVISAR.
+  assert.equal(trabajo.puedeElTrabajador("rescatar", "POR_REVISAR"), null);
+  assert.match(trabajo.puedeElTrabajador("rescatar", "EN_CURSO"), /solo vale desde POR_REVISAR/);
+  assert.equal(trabajo.esperaSoloPorLaPruebaExtra("falta la prueba de que no se mandan mensajes nuevos a clientes"), true);
+  assert.equal(trabajo.esperaSoloPorLaPruebaExtra("falta la simulación V3 (✔ ...)"), false);
+  assert.equal(trabajo.esperaSoloPorLaPruebaExtra(null), false);
 });
 
 await prueba("las 3 líneas del resumen: se recortan y se descartan si vienen vacías", () => {

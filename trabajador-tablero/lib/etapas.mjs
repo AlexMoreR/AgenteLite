@@ -66,7 +66,7 @@ import {
   erroresDeLog,
   erroresNuevosDeLog,
   minutosDeLaVentana,
-  motivoPorElQueNoSubeSola,
+  pruebaExtraDeLasZonas,
   zonasTocadas,
 } from "./zonas.mjs";
 
@@ -685,11 +685,11 @@ export function reglasDeZonasQueSubenSolas(repo) {
     );
   }
   if (zonas.includes("BOT_VENTAS")) {
-    lineas.push(`- Bot de ventas: comprueba que no se manda ningún mensaje nuevo ni distinto a clientes fuera de lo pedido y escribe "${CONFIRMACION_BOT_VENTAS}".`);
+    lineas.push(`- Bot de ventas: comprueba que no se manda ningún mensaje nuevo ni distinto a clientes fuera de lo pedido y escribe "${CONFIRMACION_BOT_VENTAS}". Si se te olvida, el Coordinador lo comprueba con el diff real y la escribe él.`);
   }
   if (zonas.includes("CHATS")) {
     lineas.push(
-      `- Chats: sube sola solo si está actualizada con main, compila, pasa TODAS las pruebas, nunca usa force-push y queda con la vigilancia de 30 minutos. COMPRUEBA primero que el cambio no manda ningún mensaje nuevo ni distinto a clientes (ningún envío nuevo en las rutas de chats) y RECIÉN ENTONCES escribe "${CONFIRMACION_CHATS}". Si agrega cualquier envío, aunque el plan lo mencione, espera el sí del dueño.`,
+      `- Chats: sube sola solo si está actualizada con main, compila, pasa TODAS las pruebas, nunca usa force-push y queda con la vigilancia de 30 minutos. COMPRUEBA primero que el cambio no manda ningún mensaje nuevo ni distinto a clientes (ningún envío nuevo en las rutas de chats) y RECIÉN ENTONCES escribe "${CONFIRMACION_CHATS}". Si agrega cualquier envío, aunque el plan lo mencione, espera el sí del dueño. Si se te olvida la frase, el Coordinador comprueba el diff real y la escribe él.`,
     );
   }
   if (zonas.includes("META_ADS")) {
@@ -1411,7 +1411,11 @@ export async function construir(contexto, tarjeta) {
     if (repo.subirSolo === true && !zonasQuePidenSi.length && zonasDeLaTarjeta.length) {
       const diffs = { todo: await diffDeArchivos(carpeta, base, archivos) };
       for (const zona of zonasDeLaTarjeta) if (tocadas[zona]) diffs[zona] = await diffDeArchivos(carpeta, base, tocadas[zona]);
-      esperaPor = motivoPorElQueNoSubeSola({ zonas: zonasDeLaTarjeta, zonasQueSubenSolas: zonasSolas, diffs, plan: tarjeta.plan, texto: `${resumenDelMotor}\n${(pruebas ?? []).join("\n")}` });
+      // La prueba extra de chats y del bot la hace el Coordinador con el diff real (27-oct-2026): si el constructor no escribió la
+      // frase y no hay envíos nuevos, la escribe él y la tarea sigue sin pedirle nada al dueño.
+      const prueba = pruebaExtraDeLasZonas({ zonas: zonasDeLaTarjeta, zonasQueSubenSolas: zonasSolas, diffs, plan: tarjeta.plan, texto: `${resumenDelMotor}\n${(pruebas ?? []).join("\n")}` });
+      esperaPor = prueba.esperaPor;
+      pruebas.push(...prueba.confirmaciones);
     }
     const subeSolo = repo.subirSolo === true && !zonasQuePidenSi.length && !esperaPor;
     const alTerminar = subeSolo

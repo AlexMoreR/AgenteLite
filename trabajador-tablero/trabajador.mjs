@@ -24,6 +24,7 @@ import { crearLatido } from "./lib/latido.mjs";
 import { crearManualNocturno } from "./lib/manual-nocturno.mjs";
 import { crearNotasDeBoveda } from "./lib/notas-boveda.mjs";
 import { crearRecogedor } from "./lib/recoger-errores.mjs";
+import { crearRescatador } from "./lib/rescate-por-revisar.mjs";
 import { crearMedidor } from "./lib/recursos.mjs";
 import { git } from "./lib/git.mjs";
 import { crearRegistro } from "./lib/registro.mjs";
@@ -127,6 +128,8 @@ const recogedor = crearRecogedor({
   registro,
   partir: (tarjeta, causa, error) => partirTarea({ config, registro, motorDe: null }, tarjeta, { causa, error }),
 });
+// Lo que espera el sí del dueño sin necesitarlo (27-oct-2026, lib/rescate-por-revisar.mjs): se revisa de nuevo con el diff real y sube sola.
+const rescatador = crearRescatador({ crm, config, registro });
 // Las notas NUEVAS del cerebro (lib/notas-boveda.mjs): si boveda.ruta está, cada minuto se crean en la bóveda local.
 const notasDeBoveda = crearNotasDeBoveda({ crm, config, registro });
 if (config.boveda.ruta) registro.info(`notas de la bóveda: creo las notas nuevas del cerebro en ${config.boveda.ruta}`);
@@ -156,6 +159,13 @@ while (!parar) {
     if (!planificador.pausadoPorUso()) await recogedor.revisar();
   } catch (error) {
     registro.aviso(`recoger errores: ${String(error.message).split("\n")[0]}`);
+  }
+  if (parar) break;
+  try {
+    // No usa Claude: solo lee git y habla con el CRM, corre también en la pausa por uso.
+    await rescatador.revisar();
+  } catch (error) {
+    registro.aviso(`rescate de tarjetas por revisar: ${String(error.message).split("\n")[0]}`);
   }
   if (parar) break;
   try {

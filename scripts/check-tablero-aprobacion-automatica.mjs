@@ -42,6 +42,7 @@ const falso = {
       estado.historial.push(data);
       return data;
     },
+    findMany: async ({ where, take }) => estado.historial.filter((fila) => fila.tarjetaId === where.tarjetaId && (!where.accion || fila.accion === where.accion)).slice(0, take ?? 1000),
   },
   appSetting: {
     findUnique: async ({ where }) => (estado.ajustes.has(where.key) ? { value: estado.ajustes.get(where.key) } : null),
@@ -367,6 +368,42 @@ await prueba("resultado: ALTO con zona CHATS (26-oct-2026) sube sola como el bot
   enCurso({ riesgo: "ALTO" });
   const gasto = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ zonaProtegida: ["META_ADS"], subeSolo: false }));
   assert.equal(gasto.estado, "POR_REVISAR");
+});
+
+await prueba("resultado: el sí del dueño ya dado se hereda aunque la tarea se reconstruya (27-oct); dinero, gasto en Meta Ads o un envío nuevo piden de nuevo", async () => {
+  const sinSi = { subeSolo: false, zonaProtegida: ["CHATS"], esperaPor: "falta la prueba de que los chats no mandan mensajes nuevos a clientes" };
+  const conSiDelDueno = () => estado.historial.push({ tarjetaId: "t1", accion: "aprobar", despues: { via: "voz", momento: "tarea" } });
+  // Sin sí del dueño en el historial, espera como antes.
+  estado.historial.length = 0;
+  enCurso({ riesgo: "ALTO" });
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "POR_REVISAR");
+  // Un sí automático no cuenta.
+  estado.tarjetas.clear();
+  estado.historial.push({ tarjetaId: "t1", accion: "aprobar", despues: { via: "automatica" } });
+  enCurso({ riesgo: "ALTO" });
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "POR_REVISAR");
+  // Con el sí del dueño sube sola, con la nota de la herencia, y el motivo viejo se borra.
+  estado.tarjetas.clear();
+  conSiDelDueno();
+  enCurso({ riesgo: "ALTO" });
+  const heredada = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi));
+  assert.equal(heredada.estado, "SUBIENDO");
+  assert.equal(estado.tarjetas.get("t1").resultado.subeSolo, true);
+  assert.equal(estado.tarjetas.get("t1").resultado.esperaPor, undefined);
+  assert.match(estado.historial.at(-1).despues.nota, /el dueño ya la había aprobado/);
+  // Un envío nuevo en chats, el gasto en Meta Ads o un plan de dinero se piden de nuevo aunque ya hubiera un sí.
+  for (const [etiqueta, extra, tarjetaExtra] of [
+    ["envío nuevo en chats", { esperaPor: "el cambio agrega un envío de mensaje en chats (espera el sí del dueño aunque el plan lo mencione)" }, {}],
+    ["gasto en Meta Ads", { zonaProtegida: ["META_ADS"], esperaPor: "gasto en Meta Ads (daily_budget)" }, {}],
+    ["plan con gasto en Meta Ads", {}, { plan: "RIESGO: ALTO\nGASTO EN META ADS: sube el presupuesto" }],
+    ["migración destructiva", { migracionDestructiva: ["DROP"] }, {}],
+  ]) {
+    estado.tarjetas.clear();
+    enCurso({ riesgo: "ALTO", ...tarjetaExtra });
+    const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ ...sinSi, esperaPor: undefined, ...extra }));
+    assert.equal(r.estado, "POR_REVISAR", etiqueta);
+  }
+  estado.historial.length = 0;
 });
 
 /* ------------------------------------------------------------------ regla del dueño 24-oct */

@@ -141,9 +141,19 @@ await prueba("1. Coordinador caído: más de 10 minutos sin señales avisa; 10 m
   assert.deepEqual(avisos.calcularAvisos(situacion(null), DIA), []);
 });
 
+await prueba("4. Un resultado POR_REVISAR solo avisa por un envío nuevo o gasto en Meta Ads; si solo faltaba la prueba extra, no (27-oct)", async () => {
+  const base = { latidoEn: DIA.toISOString(), enCurso: [], enFila: 1 };
+  const porRevisar = (esperaPor) => esperando({ id: "r1", titulo: "Buscador de la bandeja", estado: "POR_REVISAR", zonaProtegida: ["CHATS"], esperaPor });
+  assert.equal(avisos.porQueNecesitaAlDueno(porRevisar("falta la prueba de que los chats no mandan mensajes nuevos a clientes")), null);
+  assert.equal(avisos.porQueNecesitaAlDueno(porRevisar(null)), null);
+  assert.match(avisos.porQueNecesitaAlDueno(porRevisar("el cambio agrega un envío de mensaje en chats")), /envío de mensaje/);
+  assert.equal(avisos.calcularAvisos({ ...base, esperando: [porRevisar("falta la prueba de que los chats no mandan mensajes nuevos a clientes")] }, DIA).length, 0);
+  assert.equal(avisos.calcularAvisos({ ...base, esperando: [porRevisar("el cambio agrega un envío de mensaje en chats")] }, DIA).filter((a) => a.tipo === "necesita").length, 1);
+});
+
 await prueba("2. Sin trabajo: nada en curso ni en fila y hay tarjetas esperando; dice cuáles y qué necesitan", async () => {
   const base = { latidoEn: DIA.toISOString(), enCurso: [], enFila: 0 };
-  const dos = [esperando({ id: "a", titulo: "Mejorar chats", estado: "PLAN_LISTO" }), esperando({ id: "b", titulo: "Arreglar el envío", estado: "ERROR", resultado: null, error: "falló" })];
+  const dos = [esperando({ id: "a", titulo: "Mejorar chats", estado: "PLAN_LISTO", plan: "RIESGO: ALTO\nGASTO EN META ADS: sube el presupuesto diario" }), esperando({ id: "b", titulo: "Arreglar el envío", estado: "ERROR", resultado: null, error: "falta la clave de acceso" })];
   const sinTrabajo = avisos.calcularAvisos({ ...base, esperando: dos }, DIA).filter((a) => a.tipo === "sin_trabajo");
   assert.equal(sinTrabajo.length, 1);
   const mensaje = avisos.armarMensaje(sinTrabajo);

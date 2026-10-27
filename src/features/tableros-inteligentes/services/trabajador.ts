@@ -19,6 +19,10 @@ import {
   causaConEstrategia,
   causaDeEntrada,
   destinoDelResultado,
+  TEXTO_APROBACION_HEREDADA,
+  aprobacionDelDuenoEnElHistorial,
+  esperaSoloPorLaPruebaExtra,
+  porQueNoHeredaLaAprobacion,
   errorDeIntentoDeEntrada,
   decisionDeRecogerDeEntrada,
   dependenciaHaceCiclo,
@@ -65,7 +69,7 @@ import {
   type EtapaDelTrabajador,
   type PedidoDeTomar,
 } from "./reglas-trabajador";
-import { archivosDeEntrada, frase, motivosDelResultado, porQueElPlanEsperaTuSi, porQueNoSeApruebaSola, riesgoDelPlan } from "./reglas-riesgo";
+import { archivosDeEntrada, frase, motivosDeLosArchivos, motivosDelResultado, porQueElPlanEsperaTuSi, porQueLaTareaEsperaTuSi, porQueNoSeApruebaSola, riesgoDelPlan } from "./reglas-riesgo";
 import {
   anotarAprobacionAutomatica,
   aprobacionAutomaticaPrendida,
@@ -573,6 +577,108 @@ export async function erroresDelTrabajador(contexto: ContextoTrabajador) {
   return { tarjetas };
 }
 
+/**
+ * Las tarjetas POR_REVISAR que pasaron build y pruebas y a las que solo les faltaba la prueba extra de su zona (o que ya traen
+ * un sí del dueño): el Coordinador las revisa de nuevo con el diff real (/:id/rescatar). Solo lee.
+ * `{ tarjetas: [{ id, titulo, repo, plan, zonaProtegida, rama, base, commit, archivos, esperaPor, aprobadaPorElDueno }] }`.
+ */
+export async function porRevisarDelTrabajador(contexto: ContextoTrabajador) {
+  const filas = await prisma.tarjetaTablero.findMany({
+    where: { estado: "POR_REVISAR", borradoEn: null, repo: { in: [...REPOS_DEL_TRABAJADOR] }, tablero: { workspaceId: contexto.workspaceId } },
+    orderBy: { actualizadoEn: "asc" },
+    take: 50,
+    select: SELECT_PARA_TRABAJAR,
+  });
+  const tarjetas = [];
+  for (const fila of filas) {
+    const resultado = resultadoComoObjeto(fila.resultado);
+    const esperaPor = typeof resultado.esperaPor === "string" ? resultado.esperaPor : null;
+    // Solo las que pasaron todo, sin zona que pida el sí y sin otro motivo para esperar que la prueba extra.
+    if (resultado.paso !== true || zonasQuePidenTuSi(fila.zonaProtegida).length || (esperaPor && !esperaSoloPorLaPruebaExtra(esperaPor))) continue;
+    const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: fila.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
+    const aprobada = aprobacionDelDuenoEnElHistorial(historial);
+    // Sin sí del dueño y sin motivo de la prueba extra: espera su sí por otra causa (riesgo, repo que no sube solo): no se toca.
+    if (!esperaPor && !aprobada) continue;
+    tarjetas.push({
+      id: fila.id,
+      titulo: fila.titulo,
+      detalle: fila.detalle?.slice(0, 6000) ?? "",
+      repo: fila.repo,
+      plan: fila.plan,
+      zonaProtegida: fila.zonaProtegida,
+      rama: typeof resultado.rama === "string" ? resultado.rama : null,
+      base: typeof resultado.base === "string" ? resultado.base : null,
+      commit: typeof resultado.commit === "string" ? resultado.commit : null,
+      archivos: Array.isArray(resultado.archivos) ? resultado.archivos : [],
+      esperaPor,
+      aprobadaPorElDueno: aprobada,
+      migracionDestructiva: Array.isArray(resultado.migracionDestructiva) ? resultado.migracionDestructiva : [],
+      riesgo: fila.riesgo,
+    });
+  }
+  return { tarjetas };
+}
+
+/**
+ * POST /:id/rescatar (desde POR_REVISAR): el Coordinador volvió a mirar el cambio con el diff real. `sube: true` con su
+ * `confirmacion` (la frase de la prueba extra que escribió él): pasa a SUBIENDO (pendiente), con la misma vigilancia de 30
+ * minutos. `sube: false` con `motivo`: sigue POR_REVISAR y el motivo queda en el resultado (por ejemplo, un envío nuevo en chats).
+ * El CRM vuelve a comprobar lo suyo: que haya pasado todo, que ninguna zona pida el sí, que no toque dinero ni gasto en Meta Ads.
+ */
+async function rescatarTarjeta(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
+  const previo = resultadoComoObjeto(actual.resultado);
+  if (previo.paso !== true) throw new ErrorDelTrabajador("Solo se rescata una tarjeta que pasó build y pruebas.", 409);
+  const zonaQuePide = zonasQuePidenTuSi(actual.zonaProtegida);
+  if (zonaQuePide.length) throw new ErrorDelTrabajador(`La zona ${zonaQuePide.join(", ")} espera el sí del dueño.`, 409);
+  const esperaPor = typeof previo.esperaPor === "string" ? previo.esperaPor : null;
+  if (esperaPor && !esperaSoloPorLaPruebaExtra(esperaPor)) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${esperaPor}.`, 409);
+
+  if (cuerpo.sube !== true) {
+    const motivo = motivoDeEntrada(cuerpo.motivo);
+    return prisma.$transaction(async (tx) => {
+      const hecho = await tx.tarjetaTablero.updateMany({
+        where: { id: actual.id, estado: "POR_REVISAR", borradoEn: null },
+        data: { resultado: { ...previo, esperaPor: motivo } as Prisma.InputJsonValue },
+      });
+      if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+      await anotarTrabajador(tx, contexto, actual.id, { estado: actual.estado }, { estado: "POR_REVISAR", nota: `revisada de nuevo, sigue esperando tu sí (${motivo})` });
+      await tocarTableros(tx, [actual.tableroId], ahora);
+      return { ok: true, estado: "POR_REVISAR" as const, sube: false, link: linkDeLaTarjeta(actual.id) };
+    });
+  }
+
+  const confirmacion = typeof cuerpo.confirmacion === "string" ? cuerpo.confirmacion.trim().slice(0, 300) : "";
+  if (!confirmacion) throw new ErrorDelTrabajador("Falta la confirmación de la prueba extra.", 400);
+  const migracion = Array.isArray(previo.migracionDestructiva) ? (previo.migracionDestructiva as unknown[]) : [];
+  if (migracion.length) throw new ErrorDelTrabajador("La migración tiene cambios destructivos: espera el sí del dueño.", 409);
+  const plan = porQueElPlanEsperaTuSi(actual.plan ?? "");
+  if (plan) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${plan}.`, 409);
+  const dinero = motivosDeLosArchivos(Array.isArray(previo.archivos) ? (previo.archivos as string[]) : []).find((motivo) => motivo.startsWith("toca dinero"));
+  if (dinero) throw new ErrorDelTrabajador(`Espera el sí del dueño: el cambio ${dinero}.`, 409);
+  const tarea = porQueLaTareaEsperaTuSi({ titulo: actual.titulo, detalle: actual.detalle, zonaProtegida: [], zonasQueEsperan: [] });
+  const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: actual.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
+  // Con dinero o gasto en Meta Ads en el texto de la tarea solo sube si el dueño ya dio su sí.
+  if (tarea && !aprobacionDelDuenoEnElHistorial(historial)) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${tarea}.`, 409);
+
+  const { esperaPor: _quitada, ...sinEspera } = previo;
+  void _quitada;
+  const pruebas = typeof previo.pruebas === "string" ? previo.pruebas : "";
+  return prisma.$transaction(async (tx) => {
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: { id: actual.id, estado: "POR_REVISAR", borradoEn: null },
+      data: {
+        estado: "SUBIENDO",
+        trabajoVenceEn: null,
+        resultado: { ...sinEspera, subeSolo: true, pruebas: `${pruebas}${pruebas ? "\n" : ""}${confirmacion}`.slice(0, 6000) } as Prisma.InputJsonValue,
+      },
+    });
+    if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    await anotarTrabajador(tx, contexto, actual.id, { estado: actual.estado }, { estado: "SUBIENDO", nota: `revisada de nuevo por el Coordinador, sube sola (${confirmacion})` });
+    await tocarTableros(tx, [actual.tableroId], ahora);
+    return { ok: true, estado: "SUBIENDO" as const, sube: true, link: linkDeLaTarjeta(actual.id) };
+  });
+}
+
 /** Una tarjeta de ESTE negocio, o 404. */
 async function tarjetaDelTrabajador(contexto: ContextoTrabajador, tarjetaId: string) {
   const fila = await prisma.tarjetaTablero.findFirst({
@@ -695,6 +801,7 @@ export async function accionDelTrabajador(
   if (accion === "depender") return ponerDependencias(contexto, actual, cuerpo, ahora);
   if (accion === "limpieza") return pedirLimpieza(contexto, actual, cuerpo, ahora);
   if (accion === "recoger") return recogerTarjeta(contexto, actual, cuerpo, ahora);
+  if (accion === "rescatar") return rescatarTarjeta(contexto, actual, cuerpo, ahora);
 
   let a = TRANSICIONES_DEL_TRABAJADOR[accion].a as EstadoTarjetaTablero;
   const previo = resultadoComoObjeto(actual.resultado);
@@ -817,17 +924,38 @@ export async function accionDelTrabajador(
           despues.riesgoMotivo = datos.riesgoMotivo;
         }
       }
+      // Regla del dueño (27-oct): el sí que ya dio vale aunque la tarea se reconstruya. Salvo dinero, gasto en Meta Ads,
+      // un motivo del Coordinador para esperar (envío nuevo en chats...) o un riesgo que subió a ALTO con este resultado.
+      let aprobacionHeredada = false;
+      if (resultado.paso && !subeSolo && datos.riesgo === undefined) {
+        const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: actual.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
+        aprobacionHeredada =
+          porQueNoHeredaLaAprobacion({
+            historial,
+            titulo: actual.titulo,
+            detalle: actual.detalle,
+            plan: actual.plan,
+            esperaPor: resultado.esperaPor ?? null,
+            migracionDestructiva: resultado.migracionDestructiva ?? null,
+          }) === null;
+      }
       // Sube sola (SUBIENDO pendiente, la toma enseguida) o espera el sí final del dueño (POR_REVISAR).
-      a = destinoDelResultado({ paso: resultado.paso, subeSolo, zonaProtegida: zonas });
+      a = destinoDelResultado({ paso: resultado.paso, subeSolo, zonaProtegida: zonas, aprobacionHeredada });
       datos.estado = a;
       despues.estado = a;
       // Lo que queda guardado dice lo que de verdad pasó: si el riesgo subió a ALTO, ya no "sube solo".
+      if (a === "SUBIENDO" && aprobacionHeredada) {
+        subeSolo = true;
+        delete resultado.esperaPor;
+      }
       resultado.subeSolo = subeSolo;
       datos.resultado = resultado as unknown as Prisma.InputJsonValue;
       despues.resultado = resultado;
       const zonasQueSuben = zonas.filter((zona) => !zonasQuePidenTuSi([zona]).length);
       despues.nota =
-        a === "SUBIENDO"
+        a === "SUBIENDO" && aprobacionHeredada
+          ? TEXTO_APROBACION_HEREDADA
+          : a === "SUBIENDO"
           ? zonasQueSuben.length
             ? `construido, sube solo (zona ${zonasQueSuben.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")})`
             : "construido, sube solo"
