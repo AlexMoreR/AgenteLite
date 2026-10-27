@@ -3,9 +3,12 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 import {
+  CANAL_ADMIN_ID,
+  contarEtapasPorAsesora,
   medirSugeridos,
   tasaDeCierre,
   type ActividadDelSugerido,
+  type CambioDeEtapaDeChat,
   type MedidaDeLosSugeridos,
   type Area,
   type Sugerido,
@@ -37,7 +40,7 @@ export type NumerosDeAsesora = {
 };
 
 type FilaAtendidos = { asesoraId: string | null; asesora: string | null; atendidos: bigint | number };
-type FilaEtapas = { asesoraId: string | null; cotizaciones: bigint | number; ventas: bigint | number };
+type FilaEtapas = CambioDeEtapaDeChat;
 type FilaRespuesta = { asesoraId: string | null; mediana: number | null };
 
 const numero = (valor: bigint | number | null | undefined) => Number(valor ?? 0);
@@ -56,15 +59,20 @@ export async function numerosDelDia(workspaceId: string, fecha: string): Promise
        AND m."rawPayload"->>'source' IN ('manual', 'instance')
      GROUP BY c."assignedToUserId", u."name"`);
 
-  const etapas = await prisma.$queryRaw<FilaEtapas[]>(Prisma.sql`
-    SELECT c."assignedToUserId" AS "asesoraId",
-           count(DISTINCT h."conversationId") FILTER (WHERE h."etapaNueva" IN ('PROPUESTA', 'NEGOCIACION', 'GANADO')) AS "cotizaciones",
-           count(DISTINCT h."conversationId") FILTER (WHERE h."etapaNueva" = 'GANADO') AS "ventas"
+  // Un teléfono es una sola venta y la línea Admin nunca suma: se cuenta con la regla pura (por contacto, sin Admin).
+  const cambios = await prisma.$queryRaw<FilaEtapas[]>(Prisma.sql`
+    SELECT h."conversationId" AS "conversationId", c."contactId" AS "contactId", c."assignedToUserId" AS "asesoraId",
+           h."etapaNueva"::text AS "etapaNueva", w."purpose"::text AS "proposito", c."channelId" AS "canalId"
       FROM "HistorialEtapa" h
       JOIN "Conversation" c ON c."id" = h."conversationId"
+      LEFT JOIN "WhatsAppChannel" w ON w."id" = c."channelId"
      WHERE h."workspaceId" = ${workspaceId}
        AND h."creadoEn" >= ${desde} AND h."creadoEn" < ${hasta}
-     GROUP BY c."assignedToUserId"`);
+       AND h."etapaNueva" IN ('PROPUESTA', 'NEGOCIACION', 'GANADO')
+       AND (w."purpose" IS NULL OR w."purpose" <> 'ADMIN')
+       AND (c."channelId" IS NULL OR c."channelId" <> ${CANAL_ADMIN_ID})
+     ORDER BY h."creadoEn" ASC`);
+  const etapas = contarEtapasPorAsesora(cambios);
 
   const respuestas = await prisma.$queryRaw<FilaRespuesta[]>(Prisma.sql`
     SELECT x."asesoraId", percentile_cont(0.5) WITHIN GROUP (ORDER BY x."minutos") AS "mediana"
@@ -104,10 +112,10 @@ export async function numerosDelDia(workspaceId: string, fecha: string): Promise
     return nueva;
   };
   for (const fila of atendidos) obtener(fila.asesoraId, fila.asesora).chatsAtendidos = numero(fila.atendidos);
-  for (const fila of etapas) {
-    const dato = obtener(fila.asesoraId, null);
-    dato.cotizaciones = numero(fila.cotizaciones);
-    dato.ventas = numero(fila.ventas);
+  for (const [asesoraId, cuenta] of etapas) {
+    const dato = obtener(asesoraId, null);
+    dato.cotizaciones = cuenta.cotizaciones;
+    dato.ventas = cuenta.ventas;
   }
   for (const fila of respuestas) {
     obtener(fila.asesoraId, null).tiempoDeRespuestaMin = fila.mediana === null ? null : Math.round(Number(fila.mediana));

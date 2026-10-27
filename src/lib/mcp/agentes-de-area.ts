@@ -68,7 +68,7 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
     name: "numeros_de_ventas",
     title: "Números de ventas del día",
     description:
-      "Los números de UN día (por defecto ayer, hora de Colombia) POR ASESORA: chats atendidos, chats que llegaron a cotización o cierre, ventas, tasa de cierre y tiempo de respuesta (mediana en minutos), más los avisos que detectó el Supervisor ese día. También MIDE los sugeridos del último resumen guardado: a cuáles les escribió el equipo, cuáles respondieron y cuáles compraron. Así el agente no abre los chats uno por uno. Las ventas, abonos y saldos de dinero NO salen de aquí: se leen en el MCP de Gestión. Solo lectura.",
+      "Los números de UN día (por defecto ayer, hora de Colombia) POR ASESORA: chats atendidos, chats que llegaron a cotización o cierre, ventas (la venta cuenta en la línea de ventas, a nombre de quien vendió; la línea Admin nunca suma y un teléfono es una sola venta), tasa de cierre y tiempo de respuesta (mediana en minutos), más los avisos que detectó el Supervisor ese día. También MIDE los sugeridos del último resumen guardado: a cuáles les escribió el equipo, cuáles respondieron y cuáles compraron. Así el agente no abre los chats uno por uno. Las ventas, abonos y saldos de dinero NO salen de aquí: se leen en el MCP de Gestión. Solo lectura.",
     inputSchema: {
       type: "object",
       properties: {
