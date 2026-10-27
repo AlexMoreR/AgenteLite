@@ -966,7 +966,10 @@ archivo(
   "ensayo.mjs",
   'import fs from "node:fs";\nconst c = "prisma/migrations";\nfor (const d of fs.readdirSync(c)) { if (fs.readFileSync(`${c}/${d}/migration.sql`, "utf8").includes("FALLA_PGLITE")) { console.error("falló " + d); process.exit(1); } }\nconsole.log("pglite ok");\n',
 );
-archivo("pruebas-largas.mjs", 'for (let i = 1; i <= 400; i += 1) console.log(i === 300 ? "not ok 300 - la prueba que falló" : `ok ${i} - prueba ${i}`);\nprocess.exit(1);\n');
+// Falla solo si la tarea dejó FALLA_PRUEBAS (27-oct-2026: lo que falla igual en main ya no se le cobra a la tarea).
+archivo("pruebas-largas.mjs", 'import fs from "node:fs";\nif (!fs.existsSync("FALLA_PRUEBAS")) process.exit(0);\nfor (let i = 1; i <= 400; i += 1) console.log(i === 300 ? "not ok 300 - la prueba que falló" : `ok ${i} - prueba ${i}`);\nprocess.exit(1);\n');
+// Unas pruebas que YA fallan en main (27-oct-2026): siempre "not ok 3 - prueba vieja"; si la tarea deja FALLA_NUEVA, además "not ok 4 - prueba nueva".
+archivo("pruebas-viejas.mjs", 'import fs from "node:fs";\nconsole.log("ok 1 - a");\nconsole.log("not ok 3 - prueba vieja");\nif (fs.existsSync("FALLA_NUEVA")) console.log("not ok 4 - prueba nueva");\nprocess.exit(1);\n');
 archivo("viejo.txt", "ERROR_LINT (ya estaba en main: no cuenta)\n");
 archivo("conflicto.txt", "lo de main\n");
 archivo("prisma/migrations/20260101000000_base/migration.sql", "SELECT 1;\n");
@@ -988,6 +991,8 @@ const CLAVE = "aizen_trab_prueba";
 const tarjetas = new Map();
 const llamadas = [];
 let avisosSilenciados = false;
+/** true: la tarjeta de limpieza que crea el CRM falso queda APROBADO (como el real) y entra a la fila; false: no estorba a las demás pruebas. */
+let limpiezaEnLaFila = false;
 const latidoVencido = new Set();
 /** Cuántas tuvo el trabajador a la vez (con candado), por etapa: { construir: 2, subir: 1, ... }. */
 const aLaVez = {};
@@ -1076,7 +1081,7 @@ const servidor = http.createServer(async (pedido, respuesta) => {
       candidatas: candidatasDelFalso().map((t) => ({ ...t, hacer: reglas.AL_TOMAR[t.estado].etapa })),
     });
   }
-  const [, id, accion] = pedido.url.match(/^\/api\/trabajador\/tablero\/([^/]+)\/([a-z]+)$/) ?? [];
+  const [, id, accion] = pedido.url.match(/^\/api\/trabajador\/tablero\/([^/]+)\/([a-z-]+)$/) ?? [];
   const tarjeta = tarjetas.get(id);
   llamadas.push({ accion, id, cuerpo });
   if (!tarjeta) return contestar(404, { ok: false, error: "No existe" });
@@ -1111,6 +1116,38 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     }
     Object.assign(tarjeta, { estado: "EN_CURSO", venceEn: null, resultado: { ...(tarjeta.resultado ?? {}), partida: { hijas, causa: cuerpo.causa } } });
     return contestar(200, { ok: true, hijas });
+  }
+  if (accion === "depender") {
+    // Como el CRM (27-oct-2026): pone la flecha hacia las tarjetas que existan (por id o título) y, si alguna no está HECHO,
+    // PLANEANDO -> APROBADO y EN_CURSO -> PLAN_APROBADO sin gastar el intento.
+    const origenes = [...tarjetas.values()].filter((t) => t.id !== id && (cuerpo.referencias ?? []).some((r) => r === t.id || r.toLowerCase() === t.titulo.toLowerCase()));
+    tarjeta.dependeDe = [...new Set([...(tarjeta.dependeDe ?? []), ...origenes.map((t) => t.id)])];
+    const pendientes = origenes.filter((t) => t.estado !== "HECHO");
+    const etiqueta = pendientes.length ? `Esperando a ${pendientes.map((t) => `«${t.titulo}»`).join(" y ")}` : null;
+    const vuelve = { PLANEANDO: "APROBADO", EN_CURSO: "PLAN_APROBADO" }[tarjeta.estado];
+    if (etiqueta && vuelve) {
+      anotarIntento(tarjeta, { etapa: cuerpo.etapa ?? "planear", categoria: "otra", causa: etiqueta }, "esperar", false);
+      Object.assign(tarjeta, { estado: vuelve, venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1) });
+    }
+    return contestar(200, { ok: true, estado: tarjeta.estado, creadas: origenes.map((t) => t.id), esperando: etiqueta, soltada: Boolean(etiqueta && vuelve) });
+  }
+  if (accion === "ya-hecha") {
+    tarjeta.resultado = { ...(tarjeta.resultado ?? {}), yaEstabaHecho: { commit: cuerpo.commit, motivo: cuerpo.motivo, nota: reglas.notaDeYaHecha(cuerpo.commit) } };
+    Object.assign(tarjeta, { estado: "HECHO", venceEn: null });
+    return contestar(200, { ok: true, estado: "HECHO" });
+  }
+  if (accion === "limpieza") {
+    // UNA sola tarjeta de limpieza por repo: si hay una abierta, se le agregan los errores que no tenía.
+    const titulo = reglas.tituloDeLimpieza(cuerpo.repo);
+    const abierta = [...tarjetas.values()].find((t) => t.titulo === titulo && !["HECHO", "FALLIDO"].includes(t.estado));
+    if (abierta) {
+      const nuevos = cuerpo.errores.filter((e) => !abierta.detalle.includes(e));
+      abierta.detalle += nuevos.map((e) => `\n- ${e}`).join("");
+      return contestar(200, { ok: true, creada: false, agregados: nuevos.length, tarjetaId: abierta.id });
+    }
+    // El CRM real la deja en APROBADO; las pruebas de siempre no quieren que entre a la fila (limpiezaEnLaFila).
+    const idNueva = nueva(titulo, limpiezaEnLaFila ? "APROBADO" : "POR_APROBAR", { detalle: cuerpo.errores.map((e) => `- ${e}`).join("\n"), moderno: true });
+    return contestar(200, { ok: true, creada: true, agregados: cuerpo.errores.length, tarjetaId: idNueva });
   }
   if (accion === "error" && cuerpo.categoria) {
     // Escalar con motivo: el resumen de máximo 3 líneas y el intento "escalar".
@@ -2960,6 +2997,204 @@ try {
     assert.match(texto, /tomé "Agregar tabla nueva/);
     assert.ok(!texto.includes(CLAVE));
   });
+
+  /* ── Revisión previa (27-oct-2026): los 4 casos del 26-oct, con las tarjetas de ese día ── */
+  const cerrarLoDeAntes = () => {
+    for (const t of tarjetas.values()) if (!["HECHO", "ERROR"].includes(t.estado)) Object.assign(t, { estado: "HECHO", venceEn: null });
+  };
+  const sinFinal = (id) => assert.ok(!["FALLIDO", "ERROR"].includes(tarjetas.get(id).estado), `${tarjetas.get(id).titulo} terminó en ${tarjetas.get(id).estado}`);
+  const avisosAlDueno = () => llamadas.filter((l) => l.accion === "aviso").length;
+  const deLaTarjeta = (id) => llamadas.filter((l) => l.id === id).map((l) => l.accion);
+
+  await prueba("caso 1 — 'Alertas de Tecnología' depende de la página de alertas (aún no HECHO): espera sin intento ni reparación y arranca sola", async () => {
+    cerrarLoDeAntes();
+    const avisos = avisosAlDueno();
+    // La página todavía no está en main (IDEA: nadie la toma). Antes de planear, la dependencia está en el detalle.
+    const pagina = nuevaModerna("Prioridad y página de alertas", "IDEA");
+    const alertas = nuevaModerna("Alertas de Tecnología", "APROBADO", { plan: null, detalle: "Se apoya en la tarjeta «Prioridad y página de alertas»: usa su página." });
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "planear");
+    assert.equal(resultado.ok, true, resultado.motivo);
+    assert.equal(tarjetas.get(alertas).estado, "APROBADO", "esperando, sin ERROR");
+    assert.equal(tarjetas.get(alertas).intentos, 0, "no gastó intento");
+    assert.equal(tarjetas.get(alertas).reparaciones ?? 0, 0);
+    assert.deepEqual(tarjetas.get(alertas).dependeDe, [pagina], "la flecha de dependencia");
+    assert.ok(!leerLog(LOGS.claude).some((l) => l.titulo === "Alertas de Tecnología"), "no se abrió ninguna sesión de Claude");
+    // Mientras la página no esté HECHO, el CRM no la ofrece.
+    assert.equal((await vuelta()).hizo, null);
+    // La página sube a main: arranca sola.
+    tarjetas.get(pagina).estado = "HECHO";
+    const arranca = await vuelta();
+    assert.equal(arranca.hizo, "planear");
+    assert.equal(tarjetas.get(alertas).estado, "PLAN_LISTO");
+    sinFinal(alertas);
+    assert.equal(avisosAlDueno(), avisos, "ningún aviso al dueño");
+    soltarTodas(alertas);
+    sinRestos();
+  });
+
+  await prueba("caso 1 — con el plan aprobado, si el plan nombra una tarjeta que no está en main, no se construye y vuelve a 'Plan aprobado'", async () => {
+    const pagina = nuevaModerna("Página de alertas del plan", "IDEA");
+    const id = nuevaModerna("Alertas de Tecnología (plan)", "PLAN_APROBADO", { plan: "PLAN\n1. Requiere la «Página de alertas del plan» ya terminada.\n5. Archivos: cambio.txt" });
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "construir");
+    assert.equal(resultado.ok, true, resultado.motivo);
+    assert.equal(tarjetas.get(id).estado, "PLAN_APROBADO");
+    assert.equal(tarjetas.get(id).intentos, 0);
+    assert.equal(tarjetas.get(id).reparaciones ?? 0, 0);
+    assert.ok(!leerLog(LOGS.claude).some((l) => l.titulo === "Alertas de Tecnología (plan)"), "no se abrió la sesión de construir");
+    tarjetas.get(pagina).estado = "HECHO";
+    const construye = await vuelta();
+    assert.equal(construye.hizo, "construir");
+    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("caso 1 — DEPENDE_DE de la sesión (al planear y al construir): la tarjeta espera, sin intento, reparación, FALLIDO ni ERROR", async () => {
+    const pagina = nuevaModerna("Página de alertas", "IDEA");
+    const planear = nuevaModerna("Alertas por sesión [depende-sesion]", "APROBADO", { plan: null });
+    const antes = avisosAlDueno();
+    assert.equal((await vuelta()).hizo, "planear");
+    assert.equal(tarjetas.get(planear).estado, "APROBADO", "al planear vuelve a Aprobado");
+    assert.equal(tarjetas.get(planear).intentos, 0);
+    assert.deepEqual(tarjetas.get(planear).dependeDe, [pagina]);
+    assert.equal(tarjetas.get(planear).plan, null, "no se guardó como plan");
+    soltarTodas(planear);
+    const construir = nuevaModerna("Alertas por sesión [depende-sesion] construir", "PLAN_APROBADO");
+    assert.equal((await vuelta()).hizo, "construir");
+    assert.equal(tarjetas.get(construir).estado, "PLAN_APROBADO", "al construir vuelve a Plan aprobado");
+    assert.equal(tarjetas.get(construir).intentos, 0);
+    assert.equal(tarjetas.get(construir).reparaciones ?? 0, 0, "ni una reparación");
+    assert.deepEqual(tarjetas.get(construir).dependeDe, [pagina]);
+    const acciones = deLaTarjeta(construir);
+    assert.ok(!acciones.includes("reparar") && !acciones.includes("error"), acciones.join(","));
+    assert.equal(avisosAlDueno(), antes, "ningún aviso al dueño");
+    soltarTodas(pagina, construir);
+    sinRestos();
+  });
+
+  await prueba("caso 2 — 'Registro de retroactivos' ya estaba en main: HECHO con la nota 'ya estaba hecho (commit X)', sin pedirle nada al dueño", async () => {
+    cerrarLoDeAntes();
+    const antes = avisosAlDueno();
+    const id = nuevaModerna("Registro de retroactivos [ya-hecho]", "PLAN_APROBADO");
+    const ramasAntes = ramasDelRemoto().join();
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "construir");
+    assert.equal(resultado.ok, true, resultado.motivo);
+    assert.equal(tarjetas.get(id).estado, "HECHO");
+    assert.equal(tarjetas.get(id).resultado.yaEstabaHecho.nota, `ya estaba hecho (commit ${tarjetas.get(id).resultado.yaEstabaHecho.commit})`);
+    assert.equal(shaDe("main").slice(0, 7), tarjetas.get(id).resultado.yaEstabaHecho.commit.slice(0, 7), "el commit es el de main");
+    assert.equal(ramasDelRemoto().join(), ramasAntes, "no empujó ninguna rama");
+    assert.ok(!deLaTarjeta(id).some((a) => ["reparar", "error", "soltar"].includes(a)), deLaTarjeta(id).join(","));
+    assert.equal(avisosAlDueno(), antes);
+    sinRestos();
+  });
+
+  await prueba("caso 2 — al planear también: YA_ESTA_HECHO con un commit de main cierra la tarjeta", async () => {
+    const id = nuevaModerna("Registro de retroactivos (plan) [ya-hecho]", "APROBADO", { plan: null });
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "planear");
+    assert.equal(tarjetas.get(id).estado, "HECHO");
+    assert.match(tarjetas.get(id).resultado.yaEstabaHecho.nota, /^ya estaba hecho \(commit [0-9a-f]{7,}\)$/);
+    sinRestos();
+  });
+
+  await prueba("caso 2 — con un commit que NO está en main, no se cierra: sigue como siempre (se repara)", async () => {
+    const id = nuevaModerna("Registro de retroactivos [ya-hecho-falso]", "PLAN_APROBADO");
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "construir");
+    assert.notEqual(tarjetas.get(id).estado, "HECHO");
+    assert.ok(!tarjetas.get(id).resultado?.yaEstabaHecho);
+    assert.equal(resultado.accion, "reparar", "no_cambio_nada, como hoy");
+    assert.ok(!deLaTarjeta(id).includes("ya-hecha"));
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("caso 3 — main trae errores viejos de lint: las tareas limpias pasan y se crea UNA sola tarjeta de limpieza", async () => {
+    cerrarLoDeAntes();
+    limpiezaEnLaFila = true;
+    const antes = avisosAlDueno();
+    const ids = ["Paralelo de verdad", "GitHub Actions 1/3", "GitHub Actions 3/3"].map((titulo) => nuevaModerna(titulo));
+    for (const id of ids) {
+      const resultado = await vuelta();
+      assert.equal(resultado.hizo, "construir");
+      assert.equal(resultado.ok, true, resultado.motivo);
+      assert.equal(tarjetas.get(id).estado, "POR_REVISAR", tarjetas.get(id).resultado?.error?.motivo);
+      assert.equal(tarjetas.get(id).resultado.paso, true);
+      assert.ok(!("erroresViejos" in tarjetas.get(id).resultado), "la lista no viaja en el resultado");
+      sinFinal(id);
+    }
+    const limpiezas = [...tarjetas.values()].filter((t) => t.titulo === "Limpieza: main trae errores viejos (aizencrm)" && t.estado !== "HECHO");
+    assert.equal(limpiezas.length, 1, "una sola tarjeta de limpieza, no tres");
+    assert.equal(limpiezas[0].estado, "APROBADO");
+    assert.match(limpiezas[0].detalle, /lint\|viejo\.txt\|regla-falsa\|error de lint/);
+    assert.equal(llamadas.filter((l) => l.accion === "limpieza" && ids.includes(l.id)).length, 3, "las tres la pidieron");
+    assert.equal(avisosAlDueno(), antes, "ningún aviso al dueño");
+    soltarTodas(...ids, limpiezas[0].id);
+    limpiezaEnLaFila = false;
+    sinRestos();
+  });
+
+  await prueba("caso 3 — una tarea con un error de lint NUEVO sí falla (main ya tenía otro, no este)", async () => {
+    const id = nuevaModerna("Ensucia el lint [lint]");
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "construir");
+    assert.equal(resultado.ok, false);
+    assert.match(resultado.motivo, /lint/i);
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("caso 3 — pruebas que ya fallan en main: la tarea limpia pasa (se mide main una vez); una falla NUEVA sigue frenando", async () => {
+    const conPruebasViejas = crearConfig({}, { pruebas: [[node, "pruebas-viejas.mjs"]] });
+    const medidosDeMain = () => fs.readdirSync(path.join(T, "trabajo", "cache", "main")).length;
+    const medidosAntes = fs.existsSync(path.join(T, "trabajo", "cache", "main")) ? medidosDeMain() : 0;
+    const limpia = nuevaModerna("Tarea limpia con pruebas viejas");
+    const resultado = await vuelta(conPruebasViejas);
+    assert.equal(resultado.ok, true, resultado.motivo);
+    assert.equal(tarjetas.get(limpia).estado, "POR_REVISAR");
+    assert.match(tarjetas.get(limpia).resultado.pruebas, /falla igual en main \(1 falla\(s\) vieja\(s\)\)/);
+    assert.equal(medidosDeMain(), medidosAntes + 1, "main se midió una vez");
+    // Otra tarea del mismo main: usa lo guardado, no vuelve a correr main.
+    const otra = nuevaModerna("Otra tarea limpia con pruebas viejas");
+    assert.equal((await vuelta(conPruebasViejas)).ok, true);
+    assert.equal(tarjetas.get(otra).estado, "POR_REVISAR");
+    assert.equal(medidosDeMain(), medidosAntes + 1, "la segunda usó lo guardado");
+    // Una prueba nueva que se rompe: la falla es de la tarea.
+    const rota = nuevaModerna("Rompe una prueba nueva [falla-nueva]");
+    const fallo = await vuelta(conPruebasViejas);
+    assert.equal(fallo.ok, false);
+    assert.match(fallo.motivo, /prueba nueva/);
+    assert.notEqual(tarjetas.get(rota).estado, "POR_REVISAR");
+    soltarTodas(limpia, otra, rota);
+    sinRestos();
+  });
+
+  await prueba("caso 4 — una espera por choque se suelta sola cuando la otra termina (HECHO o con falla), aunque el Coordinador siga lleno", async () => {
+    cerrarLoDeAntes();
+    for (const [titulo, falla] of [["Ventas: la línea Admin nunca suma", false], ["Ventas: la línea Admin nunca suma (con falla) [tsc]", true]]) {
+      const plan = "PLAN\n5. Archivos: src/ventas/cambio.ts";
+      const ventas = nueva(`${titulo} [mod:ventas]`, "PLAN_APROBADO", { plan });
+      const bloqueada = nueva(`Alertas de ventas ${falla ? "B" : "A"} [mod:ventas]`, "PLAN_APROBADO", { plan, moderno: true });
+      const planificador = planificar({ ...enParalelo, maxParalelo: 3 });
+      await planificador.llenar(); // toma ventas; la otra choca y queda en espera
+      assert.equal(planificador.corriendo(), 1);
+      assert.equal(planificador.estado().esperas.find((e) => e.tarjetaId === bloqueada)?.contra, ventas);
+      await planificador.esperarTodas();
+      // Con ventas ya terminada (HECHO o con falla) y sin volver a llenar, la espera no se queda mostrando "choca con…".
+      assert.ok(!planificador.estado().esperas.some((e) => e.tarjetaId === bloqueada), "la espera se soltó");
+      await correrHasta(planificador, () => tarjetas.get(bloqueada).estado !== "PLAN_APROBADO", 120_000);
+      assert.notEqual(tarjetas.get(bloqueada).estado, "PLAN_APROBADO", "volvió a la fila y la tomaron");
+      sinFinal(bloqueada);
+      await planificador.esperarTodas();
+      planificador.parar();
+      soltarTodas(ventas, bloqueada);
+    }
+    sinRestos();
+  });
+
 } finally {
   servidor.close();
   try {
