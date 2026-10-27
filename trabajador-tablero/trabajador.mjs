@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { actualizarCuandoSeaPosible, crearVigilanteDeVersion, marcarActualizacionOk, raizDelRepo } from "./lib/autoactualizar.mjs";
+import { aplicarVersion, crearVigilanteDeVersion, marcarActualizacionOk, raizDelRepo } from "./lib/autoactualizar.mjs";
 import { crearPlanificador, unaVuelta } from "./lib/bucle.mjs";
 import { entornoSeguro, partirTarea } from "./lib/etapas.mjs";
 import { leerConfig } from "./lib/config.mjs";
@@ -28,6 +28,7 @@ import { crearRescatador } from "./lib/rescate-por-revisar.mjs";
 import { crearMedidor } from "./lib/recursos.mjs";
 import { git } from "./lib/git.mjs";
 import { crearRegistro } from "./lib/registro.mjs";
+import { crearMarcaDeVida, crearTareasConTope } from "./lib/vuelta.mjs";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const argumentos = process.argv.slice(2);
@@ -136,67 +137,112 @@ if (config.boveda.ruta) registro.info(`notas de la bóveda: creo las notas nueva
 let primeraVueltaBien = false;
 let reiniciar = false;
 
+// La vuelta que no se cuelga (27-oct-2026, lib/vuelta.mjs): cada trabajo tiene tope y la marca de vida (vivo.json)
+// le dice al lanzador hasta cuándo puede tardar; si no se mueve más de perroGuardianMinutos, el lanzador me reinicia.
+const MINUTO = 60_000;
+const TOPES = {
+  llenar: 15 * MINUTO,
+  "manual de la noche": 30 * MINUTO,
+  "recoger errores": 30 * MINUTO,
+  "rescate de tarjetas por revisar": 10 * MINUTO,
+  "notas de la bóveda": 5 * MINUTO,
+  autoactualizar: 10 * MINUTO,
+  "aplicar la versión nueva": 10 * MINUTO,
+};
+const marca = crearMarcaDeVida(config.carpetaTrabajo);
+marca.ocupado("arrancando", 5 * MINUTO);
+const tareas = crearTareasConTope({ registro, antes: (nombre, topeMs) => marca.ocupado(nombre, topeMs) });
+const conTope = (nombre, fn) => tareas.correr(nombre, fn, { topeMs: TOPES[nombre] });
+const primeraLinea = (error) => String(error?.message ?? error).split("\n")[0];
+/** Mientras corre el trabajo de noche o el recogedor no se toman tarjetas (ninguna subida empieza a la vez). */
+const trabajoLargoEnVuelo = () => tareas.algunaEnVuelo("manual de la noche", "recoger errores");
+
+// Versión nueva del Coordinador (antes: `await actualizarCuandoSeaPosible`, que dejaba el bucle mudo hasta que
+// terminaran TODAS, también las de la nube): ahora la vuelta sigue (rescate, notas, marca de vida) sin tomar tarjetas
+// nuevas, y cuando no queda ninguna corriendo se aplica.
+let pendiente = null;
+let pendienteDesde = 0;
+let ultimoAvisoDeEspera = 0;
+
 while (!parar) {
-  try {
-    await planificador.llenar();
-    if (!primeraVueltaBien && versionActual) {
+  if (!pendiente && !trabajoLargoEnVuelo()) {
+    const r = await conTope("llenar", () => planificador.llenar());
+    if (r.error) avisarFallo(r.error);
+    else if (r.estado === "hecha" && !primeraVueltaBien && versionActual) {
       primeraVueltaBien = true;
       marcarActualizacionOk({ carpetaTrabajo: config.carpetaTrabajo, versionActual, registro });
     }
-  } catch (error) {
-    avisarFallo(error);
   }
   if (parar) break;
-  try {
-    // Mientras trabaja no se toman tarjetas nuevas (el bucle espera aquí), así que ninguna subida empieza a la vez.
-    // Pausado por uso de Claude (26-oct-2026): el trabajo de noche usa Claude, así que no corre mientras dure la pausa.
-    if (!planificador.pausadoPorUso()) await manualNocturno.revisar(planificador);
-  } catch (error) {
-    registro.aviso(`manual de la noche: ${String(error.message).split("\n")[0]}`);
+  // Pausado por uso de Claude (26-oct-2026): el trabajo de noche usa Claude, así que no corre mientras dure la pausa.
+  if (!pendiente && !planificador.pausadoPorUso() && !tareas.enVuelo("llenar") && !trabajoLargoEnVuelo()) {
+    const r = await conTope("manual de la noche", () => manualNocturno.revisar(planificador));
+    if (r.error) registro.aviso(`manual de la noche: ${primeraLinea(r.error)}`);
   }
   if (parar) break;
-  try {
-    if (!planificador.pausadoPorUso()) await recogedor.revisar();
-  } catch (error) {
-    registro.aviso(`recoger errores: ${String(error.message).split("\n")[0]}`);
+  if (!pendiente && !planificador.pausadoPorUso() && !tareas.enVuelo("llenar") && !trabajoLargoEnVuelo()) {
+    const r = await conTope("recoger errores", () => recogedor.revisar());
+    if (r.error) registro.aviso(`recoger errores: ${primeraLinea(r.error)}`);
   }
   if (parar) break;
-  try {
+  {
     // No usa Claude: solo lee git y habla con el CRM, corre también en la pausa por uso.
-    await rescatador.revisar();
-  } catch (error) {
-    registro.aviso(`rescate de tarjetas por revisar: ${String(error.message).split("\n")[0]}`);
+    const r = await conTope("rescate de tarjetas por revisar", () => rescatador.revisar());
+    if (r.error) registro.aviso(`rescate de tarjetas por revisar: ${primeraLinea(r.error)}`);
   }
   if (parar) break;
-  try {
+  {
     // No usa Claude ni el PC: corre también en la pausa por uso.
-    await notasDeBoveda.revisar();
-  } catch (error) {
-    registro.aviso(`notas de la bóveda: ${String(error.message).split("\n")[0]}`);
+    const r = await conTope("notas de la bóveda", () => notasDeBoveda.revisar());
+    if (r.error) registro.aviso(`notas de la bóveda: ${primeraLinea(r.error)}`);
   }
   if (parar) break;
-  const nueva = vigilante ? await vigilante.revisar() : null;
-  if (nueva) {
-    // Versión nueva del Coordinador: no tomo más tarjetas (no llamo a llenar), espero las que corren y me actualizo.
-    const resultado = await actualizarCuandoSeaPosible({
-      planificador,
-      repo: repoPropio,
-      carpetaTrabajo: config.carpetaTrabajo,
-      config,
-      nueva: nueva.nueva,
-      registro,
-      avisar: (texto) => crm.aviso(texto),
-      argumentosDePrueba: indiceConfig >= 0 ? ["--config", rutaConfig] : [],
-    });
-    if (resultado.resultado === "reiniciar") {
-      reiniciar = true;
-      break;
+  if (!pendiente && vigilante) {
+    const r = await conTope("autoactualizar", () => vigilante.revisar());
+    if (r.error) registro.aviso(`autoactualizar: ${primeraLinea(r.error)}`);
+    else if (r.valor) {
+      pendiente = r.valor;
+      pendienteDesde = Date.now();
+      ultimoAvisoDeEspera = Date.now();
+      registro.info(`versión nueva ${String(pendiente.nueva).slice(0, 8)}: no tomo más tarjetas; espero a que terminen ${planificador.corriendo()} (la vuelta sigue)`);
     }
-    continue;
   }
+  if (pendiente) {
+    const ocupado = planificador.corriendo() > 0 || tareas.algunaEnVuelo("llenar", "manual de la noche", "recoger errores");
+    if (!ocupado) {
+      const r = await conTope("aplicar la versión nueva", () =>
+        aplicarVersion({
+          repo: repoPropio,
+          carpetaTrabajo: config.carpetaTrabajo,
+          config,
+          nueva: pendiente.nueva,
+          registro,
+          avisar: (texto) => crm.aviso(texto),
+          argumentosDePrueba: indiceConfig >= 0 ? ["--config", rutaConfig] : [],
+        }),
+      );
+      if (r.estado === "hecha" && r.valor?.resultado === "reiniciar") {
+        reiniciar = true;
+        break;
+      }
+      if (r.error) registro.error(`autoactualizar: no pude aplicar ${String(pendiente.nueva).slice(0, 8)}: ${primeraLinea(r.error)}`);
+      // revertida / no-actualiza / error: sigo con mi código y vuelvo a tomar tarjetas. Con "tope" sigue en vuelo.
+      if (r.estado !== "tope" && r.estado !== "ocupada") pendiente = null;
+    } else if (Date.now() - ultimoAvisoDeEspera >= 5 * MINUTO) {
+      ultimoAvisoDeEspera = Date.now();
+      const minutos = Math.round((Date.now() - pendienteDesde) / MINUTO);
+      registro.info(`autoactualizar: sigo esperando ${planificador.corriendo()} tarjeta(s) para pasar a ${String(pendiente.nueva).slice(0, 8)} (llevo ${minutos} min; no tomo nuevas)`);
+    }
+  }
+  marca.vueltaCompleta();
+  if (parar) break;
   // Se despierta antes si termina una sesión (una que quedó SUBIENDO se sube enseguida).
-  await planificador.esperar(config.tiempos.intervaloSegundos * 1000);
+  const dormir = (pendiente ? Math.min(config.tiempos.intervaloSegundos, 15) : config.tiempos.intervaloSegundos) * 1000;
+  marca.ocupado("esperando la próxima vuelta", dormir);
+  await planificador.esperar(dormir);
 }
+// Al salir se esperan las que corren (las de la nube pueden tardar): el perro guardián del lanzador no me corta.
+marca.ocupado("terminando las tarjetas que corren para salir", 4 * 60 * MINUTO);
 await planificador.esperarTodas();
 latido.parar();
 planificador.parar();

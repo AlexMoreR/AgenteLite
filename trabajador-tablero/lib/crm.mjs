@@ -24,7 +24,21 @@ export class ErrorDelCrm extends Error {
 }
 
 export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalThis.fetch, timeoutMs = 30_000 } = {}) {
-  async function pedir(ruta, cuerpo, metodo = "POST") {
+  /*
+    Tope duro (27-oct-2026): AbortSignal.timeout corta el fetch y la lectura del cuerpo, pero si algo no respeta la
+    señal (un fetch reemplazado, un socket que se queda a medias) la promesa podría no volver nunca y colgar la vuelta.
+    Por eso todo `pedir` (fetch + JSON) corre contra un reloj propio: a los timeoutMs + margen (5 s, o timeoutMs si es menor) falla con status 0.
+  */
+  function pedir(ruta, cuerpo, metodo = "POST") {
+    let reloj;
+    const margen = Math.min(5000, timeoutMs);
+    const tope = new Promise((_, rechazar) => {
+      reloj = setTimeout(() => rechazar(new ErrorDelCrm(`No se pudo hablar con el CRM (no contestó en ${Math.round((timeoutMs + margen) / 1000)} s).`, 0)), timeoutMs + margen);
+    });
+    return Promise.race([pedirSinTope(ruta, cuerpo, metodo), tope]).finally(() => clearTimeout(reloj));
+  }
+
+  async function pedirSinTope(ruta, cuerpo, metodo) {
     let respuesta;
     try {
       respuesta = await miFetch(`${urlCrm}${ruta}`, {

@@ -12,6 +12,8 @@
 //   - si el Coordinador recién actualizado se cae en los primeros `VENTANA_MINUTOS` (estado "probando" y ya lanzado):
 //     `git reset --hard <anterior>` en esta copia, estado "revertida", aviso por WhatsApp (fetch directo al CRM con la
 //     clave del config) y vuelve a correr la versión anterior;
+//   - perro guardián (27-oct-2026): si la marca de vida <carpetaTrabajo>/vivo.json no se mueve en perroGuardianMinutos
+//     (10 por defecto), el Coordinador está colgado: lo mata con sus hijos y lo arranca de nuevo (lanzador.log y log del día);
 //   - en cualquier otro caso sale con el mismo código del Coordinador (la tarea lo relanza en ≤5 min, como antes).
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -85,19 +87,77 @@ function git(...args) {
   return spawnSync("git", args, { cwd: repo, encoding: "utf8", windowsHide: true });
 }
 
+// PERRO GUARDIÁN (27-oct-2026): el Coordinador deja <carpetaTrabajo>/vivo.json (lib/vuelta.mjs) con su pid, la hora de
+// la última vuelta completa (`ultimaVuelta`) y hasta cuándo puede tardar lo que está haciendo (`ocupadoHasta`). Si
+// max(ultimaVuelta, ocupadoHasta) tiene más de `perroGuardianMinutos` (10 por defecto; 0 = apagado), el proceso está
+// vivo pero colgado: se mata con sus hijos y se arranca de nuevo. Solo mira un Coordinador que ya escribió su marca
+// (pid igual): una versión vieja que no la conoce no se reinicia por eso. No depende de que el Coordinador responda.
+const PERRO_MINUTOS = config.perroGuardianMinutos === undefined ? 10 : Number(config.perroGuardianMinutos);
+const PERRO_CADA_MS = Number(process.env.LANZADOR_PERRO_CADA_MS) || 30_000;
+const rutaVivo = path.join(carpetaTrabajo, "vivo.json");
+
+/** Milisegundos sin marca de vida del proceso `pid`; null si todavía no escribió la suya. */
+function sinMarcaHace(pid) {
+  const vivo = leerJson(rutaVivo);
+  if (!vivo || Number(vivo.pid) !== pid) return null;
+  const ultima = Math.max(Date.parse(vivo.ultimaVuelta ?? "") || 0, Date.parse(vivo.en ?? "") || 0, Date.parse(vivo.ocupadoHasta ?? "") || 0);
+  return ultima ? Date.now() - ultima : null;
+}
+
+/** La línea va también al log del día del Coordinador, para que se vea en el mismo lugar que el silencio. */
+function anotarEnElLogDelCoordinador(mensaje) {
+  const ahora = new Date();
+  try {
+    fs.mkdirSync(path.join(carpetaTrabajo, "logs"), { recursive: true });
+    fs.appendFileSync(path.join(carpetaTrabajo, "logs", `trabajador-${ahora.toISOString().slice(0, 10)}.log`), `${ahora.toISOString()} [ERROR] ${mensaje}\n`);
+  } catch {
+    // Un disco lleno no tumba el lanzador.
+  }
+}
+
+function matarArbol(pid) {
+  try {
+    if (process.platform === "win32") spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    else process.kill(pid, "SIGKILL");
+  } catch {
+    // Ya terminó.
+  }
+}
+
+/** -> { codigo, colgado } */
 function correrCoordinador() {
   return new Promise((resolver) => {
+    let colgado = false;
     const hijo = spawn(process.execPath, [script, ...argumentos], {
       cwd: repo,
       stdio: "inherit",
       windowsHide: true,
       env: { ...process.env, TRABAJADOR_LANZADOR: "1" },
     });
+    const perro =
+      PERRO_MINUTOS > 0
+        ? setInterval(() => {
+            if (colgado || !hijo.pid) return;
+            const ms = sinMarcaHace(hijo.pid);
+            if (ms === null || ms <= PERRO_MINUTOS * 60_000) return;
+            colgado = true;
+            const vivo = leerJson(rutaVivo);
+            const que = vivo?.ocupadoEn ? ` (lo último que hacía: ${vivo.ocupadoEn})` : "";
+            const mensaje = `perro guardián: el Coordinador (pid ${hijo.pid}) lleva ${(ms / 60_000).toFixed(1)} min sin marca de vida${que}; está colgado: lo mato y lo arranco de nuevo`;
+            anotar(mensaje);
+            anotarEnElLogDelCoordinador(`[LANZADOR] ${mensaje}`);
+            matarArbol(hijo.pid);
+          }, PERRO_CADA_MS)
+        : null;
+    const fin = (codigo) => {
+      if (perro) clearInterval(perro);
+      resolver({ codigo, colgado });
+    };
     hijo.on("error", (error) => {
       anotar(`no pude arrancar node: ${error.message}`);
-      resolver(1);
+      fin(1);
     });
-    hijo.on("exit", (codigo, senal) => resolver(codigo ?? (senal ? 1 : 0)));
+    hijo.on("exit", (codigo, senal) => fin(codigo ?? (senal ? 1 : 0)));
   });
 }
 
@@ -105,8 +165,15 @@ for (const senal of ["SIGINT", "SIGTERM"]) process.on(senal, () => process.exit(
 
 for (;;) {
   const inicio = Date.now();
-  const codigo = await correrCoordinador();
+  const { codigo, colgado } = await correrCoordinador();
   const minutos = (Date.now() - inicio) / 60_000;
+
+  // 0. El perro guardián lo mató por colgado: se arranca de nuevo ya (el CRM suelta lo que dejó con candado).
+  if (colgado) {
+    anotar(`el Coordinador colgado terminó (código ${codigo}): lo arranco de nuevo`);
+    continue;
+  }
+
   const estado = leerEstado();
 
   // 1. Salió con 0 para actualizarse: se relanza ya con el código nuevo.

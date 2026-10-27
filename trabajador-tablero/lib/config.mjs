@@ -467,9 +467,14 @@ export function completarConfig(datos, base = process.cwd()) {
     errores.push(error.message);
   }
 
+  // Perro guardián (27-oct-2026): lanzador.mjs reinicia el Coordinador si la marca de vida (vivo.json) no se mueve en estos minutos.
+  const perroGuardianMinutos = datos.perroGuardianMinutos === undefined ? 10 : Number(datos.perroGuardianMinutos);
+  if (!Number.isFinite(perroGuardianMinutos) || perroGuardianMinutos < 0) errores.push("perroGuardianMinutos: minutos sin marca de vida antes de que el lanzador reinicie (0 = apagado).");
+
   if (errores.length) throw new Error(`La configuración tiene problemas:\n- ${errores.join("\n- ")}`);
 
   return {
+    perroGuardianMinutos,
     urlCrm,
     claveTrabajador,
     carpetaTrabajo,

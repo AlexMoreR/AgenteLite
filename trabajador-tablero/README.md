@@ -497,7 +497,7 @@ Para cortarlo en seco: revocar la clave en el panel Trabajador (deja de entrar a
 Cuando se sube código nuevo a main, el Coordinador se pone al día solo (antes seguía con el viejo hasta que alguien lo reiniciara a mano).
 
 1. **Cada 10 minutos** (`autoactualizar: { activo: true, cadaMinutos: 10 }` en `config.local.json`; sin esa clave usa esos valores) hace `git fetch` en SU copia (la carpeta del repo desde donde corre) y mira si `origin/main` trae commits que toquen `trabajador-tablero/`. Si no tocan esa carpeta, solo hace `git pull --ff-only` (copia limpia) y sigue sin reiniciar.
-2. **Si hay versión nueva**: deja de tomar tarjetas, espera a que terminen las que corren y lo anota ("versión nueva <hash>: espero a que terminen N tarjetas").
+2. **Si hay versión nueva**: deja de tomar tarjetas, espera a que terminen las que corren y lo anota ("versión nueva <hash>: no tomo más tarjetas…"). Desde el 27-oct-2026 la espera NO detiene la vuelta: el rescate, las notas de la bóveda y la marca de vida siguen, y cada 5 min anota "sigo esperando N tarjeta(s)…" (antes un `await` esperaba también a las de la nube, hasta 120 min, y el log quedaba mudo).
 3. **Con 0 tarjetas**: guarda `<carpetaTrabajo>/actualizacion.json` (`{ anterior, nueva, cuando, estado: "probando" }`), hace `git pull --ff-only` (con cambios locales, sin fast-forward o en otra rama no actualiza: lo anota, avisa y no insiste con ese hash), prueba el código nuevo con `node trabajador-tablero/trabajador.mjs --probar-arranque` (carga la config e importa todos los módulos; no toma tarjetas ni habla con el CRM) y, si pasa, sale con código 0.
 4. **Si no arranca**: `git reset --hard <anterior>` (solo en esa copia), estado `revertida` y aviso en una línea (el CRM lo descarta si no trae tipo "limite" o "necesita": queda en el log).
 5. **El lanzador** (`lanzador.mjs`, sin imports del resto: solo `node:*`) es lo que la tarea de Windows corre en vez de `trabajador.mjs`. Al ver la salida 0 de una actualización lo relanza de inmediato (sin esperar los 5 min de la tarea); y si el Coordinador nuevo se cae en los primeros 3 minutos (código que pasó la prueba pero falla al correr), hace él mismo el `reset --hard` a `anterior`, marca `revertida`, avisa con `fetch` directo al CRM y vuelve a correr la versión anterior. Cuando el proceso nuevo completa su primera vuelta bien, el estado pasa a `ok` y el log dice "actualizado a <hash>". Sin el lanzador la actualización y la reversión por `--probar-arranque` funcionan igual, pero un código que pasa la prueba y luego se cae no se deshace solo, y el relanzamiento espera a la tarea (≤5 min). El lanzador mismo no se actualiza hasta el siguiente reinicio de la tarea.
@@ -511,6 +511,16 @@ $t = Get-ScheduledTask -TaskName 'Trabajador Tablero IA'; $a = $t.Actions[0]; $a
 Para volver atrás, la misma línea con `-replace 'lanzador.mjs','trabajador.mjs'`. (Se pega en PowerShell tal cual; conserva el `conhost --headless` y la carpeta de trabajo.) Los cambios surten efecto la próxima vez que la tarea arranque el proceso (al reiniciar el Coordinador una vez).
 
 Pruebas: `pruebas/probar-autoactualizar.mjs` (repos git temporales y un Coordinador falso).
+
+## No colgarse: topes y perro guardián (27-oct-2026)
+
+El 27-oct el Coordinador quedó ~25 min mudo con el proceso vivo (esperaba a las tarjetas de la nube para autoactualizarse). Ahora:
+
+- **Cada trabajo de la vuelta tiene tope** (`lib/vuelta.mjs`): llenar 15 min, manual de la noche y recoger errores 30 min, rescate 10, notas 5, autoactualizar 10. Si se pasa, se anota "lleva más de … sin terminar" y la vuelta sigue; no se vuelve a lanzar hasta que termine (nunca dos `llenar` a la vez). Cada pedido al CRM tiene además un tope duro propio (`crm.mjs`), aunque el fetch no respete la señal.
+- **Marca de vida**: `<carpetaTrabajo>/vivo.json` con `pid`, `ultimaVuelta` (la última vuelta completa) y `ocupadoEn`/`ocupadoHasta` (qué hace y hasta cuándo puede tardar sin estar colgado).
+- **Perro guardián** (`lanzador.mjs`): cada 30 s lee la marca; si max(`ultimaVuelta`, `ocupadoHasta`) tiene más de `perroGuardianMinutos` (config, 10 por defecto; 0 = apagado), mata el proceso con sus hijos y lo arranca de nuevo, con una línea en `logs/lanzador.log` y en el log del día. Solo vigila un Coordinador que ya escribió su marca (una versión vieja sin marca no se reinicia por eso). El lanzador nuevo empieza a vigilar cuando la tarea de Windows lo arranca otra vez.
+
+Pruebas: `pruebas/probar-no-colgarse.mjs` (CRM falso que no contesta, marca vieja → reinicia).
 
 ## El manual de la noche
 
