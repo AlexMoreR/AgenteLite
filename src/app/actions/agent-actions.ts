@@ -69,8 +69,6 @@ import {
   type PrimaryWorkspaceMembership,
 } from "@/lib/workspace";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
-import { registrarErrorDeEnvio } from "@/lib/chat-errores-de-envio";
-import { idDeMensajeValido } from "@/lib/chat-envio-reintento";
 import { resolveEvolutionQuickResponseFlow } from "@/features/flows/services/resolveEvolutionQuickResponseFlow";
 
 /*
@@ -2580,9 +2578,6 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
   await requireClientWorkspaceAccess("chats");
   envioMarca("sesion");
 
-  // Numero unico del mensaje (lo pone el navegador): queda en los datos del mensaje guardado.
-  const clientMessageId = idDeMensajeValido(String(formData.get("clientMessageId") ?? ""));
-
   const parsed = sendManualAgentReplySchema.safeParse({
     agentId: formData.get("agentId"),
     conversationId: formData.get("conversationId"),
@@ -2980,44 +2975,27 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
   }
   envioMarca("whatsapp");
 
-  // Si WhatsApp ya acepto el mensaje y falla el guardado, NO se responde error: la asesora veria
-  // "No se envio" aunque el cliente lo recibio y al reintentar lo recibiria dos veces. El mensaje
-  // se completa luego por el aviso (webhook) del gateway o por la sincronizacion.
-  try {
-    await prisma.message.create({
-      data: {
-        workspaceId: membership.workspace.id,
-        conversationId: conversation.id,
-        channelId: conversation.channel.id,
-        contactId: conversation.contact.id,
-        agentId: messageAgentId,
-        externalId: outbound.externalId,
-        direction: "OUTBOUND",
-        type: "TEXT",
-        status: "SENT",
-        content: parsed.data.message,
-        sentAt: new Date(),
-        rawPayload: {
-          source: "manual",
-          enviadoPorUserId: session.user.id,
-          ...(clientMessageId ? { clientMessageId } : {}),
-          evolution: outbound.raw,
-          ...(replyTo ? { replyTo } : {}),
-        } as never,
-      },
-    });
-  } catch (error) {
-    console.error("[sendManualAgentReplyAction] el mensaje salio pero no se pudo guardar", error);
-    await registrarErrorDeEnvio({
+  await prisma.message.create({
+    data: {
       workspaceId: membership.workspace.id,
       conversationId: conversation.id,
-      lineaId: conversation.channel.id,
-      motivo: "guardado_fallo",
-      detalle: error instanceof Error ? error.message : String(error),
-      clientMessageId,
-      userId: session.user.id,
-    });
-  }
+      channelId: conversation.channel.id,
+      contactId: conversation.contact.id,
+      agentId: messageAgentId,
+      externalId: outbound.externalId,
+      direction: "OUTBOUND",
+      type: "TEXT",
+      status: "SENT",
+      content: parsed.data.message,
+      sentAt: new Date(),
+      rawPayload: {
+        source: "manual",
+        enviadoPorUserId: session.user.id,
+        evolution: outbound.raw,
+        ...(replyTo ? { replyTo } : {}),
+      } as never,
+    },
+  });
   envioMarca("guardado");
 
   // El mensaje YA se envio a WhatsApp y se guardo en BD: el envio fue exitoso.

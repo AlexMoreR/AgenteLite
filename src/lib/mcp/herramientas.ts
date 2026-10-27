@@ -57,11 +57,6 @@ import {
   esHerramientaDelCerebro,
 } from "@/lib/mcp/cerebro";
 import {
-  HERRAMIENTAS_MCP_ERRORES_DE_ENVIO,
-  ejecutarHerramientaMcpErroresDeEnvio,
-  esHerramientaDeErroresDeEnvio,
-} from "@/lib/mcp/errores-de-envio-de-chats";
-import {
   HERRAMIENTAS_MCP_VENTAS_POR_CAMPANA,
   ejecutarHerramientaMcpVentasPorCampana,
   esHerramientaDeVentasPorCampana,
@@ -1073,7 +1068,6 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_MCP_COMPARAR_EMBUDOS,
   ...HERRAMIENTAS_MCP_EMBUDO_POR_PASO,
   ...HERRAMIENTAS_MCP_VENTAS_POR_CAMPANA,
-  ...HERRAMIENTAS_MCP_ERRORES_DE_ENVIO,
   ...HERRAMIENTAS_MCP_REUNIONES,
   ...HERRAMIENTAS_MCP_ESCRITURA,
   ...HERRAMIENTAS_MCP_DIAGRAMA,
@@ -1099,9 +1093,6 @@ export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, c
   }
   if (esHerramientaDeEmbudoPorPaso(nombre)) {
     return ejecutarHerramientaMcpEmbudoPorPaso(nombre, args, contexto);
-  }
-  if (esHerramientaDeErroresDeEnvio(nombre)) {
-    return ejecutarHerramientaMcpErroresDeEnvio(nombre, args, contexto);
   }
   if (esHerramientaDeVentasPorCampana(nombre)) {
     return ejecutarHerramientaMcpVentasPorCampana(nombre, args, contexto);

@@ -2574,29 +2574,3 @@ model EmbudoChatVersion {
   @@index([versionId])
   @@index([workspaceId, productId, creadoEn])
 }
-
-/// Cada vez que un texto del chat no sale (línea, hora, motivo) para medir los errores de envío.
-/// Se anota desde la ruta /api/cliente/chats/enviar y, si el navegador ni llegó al servidor,
-/// desde /api/cliente/chats/enviar/fallo. No se usa para nada más que medir.
-model ChatSendError {
-  id              String   @id @default(cuid())
-  workspaceId     String
-  conversationId  String?
-  lineaId         String?
-  lineaNombre     String?
-  /// WAHA | EVOLUTION_GO | EVOLUTION_API | OFFICIAL
-  gateway         String?
-  /// Código corto: version_vieja, sin_red, timeout_gateway, gateway_rechazo, conexion_cerrada,
-  /// guardado_fallo, sin_sesion u otro.
-  motivo          String
-  detalle         String?
-  clientMessageId String?
-  userId          String?
-  intento         Int      @default(1)
-  /// "servidor" o "navegador".
-  origen          String   @default("servidor")
-  createdAt       DateTime @default(now())
-
-  @@index([workspaceId, createdAt])
-  @@index([lineaId, createdAt])
-}

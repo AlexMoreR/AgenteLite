@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -86,8 +85,6 @@ import type { CrmStage } from "@/features/crm/types";
 import { resolveCallTarget } from "@/lib/whatsapp-lid";
 import { iniciarMedicion, terminarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 import { aplicarFirmaDelChat } from "@/lib/firma-del-chat";
-import { asegurarIdDeMensaje, enviarErroresPendientes, enviarTextoPorRuta } from "@/lib/chat-envio-cliente";
-import { cargarFallidosDelNavegador, guardarFallidosEnNavegador } from "@/lib/chat-envio-reintento";
 import {
   agregarFallido,
   estadoCargaDelChat,
@@ -428,71 +425,6 @@ export function SharedInbox({
   const [mensajesFallidos, setMensajesFallidos] = useState<OptimisticDraftMessage[]>([]);
   const mensajesFallidosRef = useRef(mensajesFallidos);
   mensajesFallidosRef.current = mensajesFallidos;
-  /*
-    Los textos que no salieron tambien se guardan en el navegador de la asesora: si recarga, la
-    burbuja "No se envió · Reintentar" sigue ahi con su texto. Se guardan por usuario.
-  */
-  const { data: sesionDelChat } = useSession();
-  const duenoDeFallidos = sesionDelChat?.user?.id ?? null;
-  const fallidosRestauradosRef = useRef(false);
-  useEffect(() => {
-    if (!duenoDeFallidos || fallidosRestauradosRef.current) {
-      return;
-    }
-    fallidosRestauradosRef.current = true;
-    const guardados = cargarFallidosDelNavegador(window.localStorage, duenoDeFallidos);
-    if (guardados.length === 0) {
-      return;
-    }
-    setMensajesFallidos((actual) => [
-      ...guardados
-        .filter((item) => !actual.some((existente) => existente.id === item.id))
-        .map(
-          (item): OptimisticDraftMessage => ({
-            id: item.id,
-            conversationId: item.conversationId,
-            content: item.content,
-            matchContent: item.matchContent,
-            direction: "OUTBOUND",
-            createdAt: new Date(item.createdAt),
-            authorType: "user",
-            outboundStatusLabel: "error",
-            errorDetail: item.errorDetail ?? null,
-            type: "TEXT",
-            mediaUrl: null,
-            rawPayload: { optimistic: true },
-            isOptimistic: true,
-            envio: item.envio,
-          }),
-        ),
-      ...actual,
-    ]);
-  }, [duenoDeFallidos]);
-  useEffect(() => {
-    if (!duenoDeFallidos || !fallidosRestauradosRef.current) {
-      return;
-    }
-    guardarFallidosEnNavegador(
-      window.localStorage,
-      duenoDeFallidos,
-      mensajesFallidos.map((item) => ({
-        id: item.id,
-        conversationId: item.conversationId,
-        content: item.content ?? "",
-        matchContent: item.matchContent,
-        createdAt: item.createdAt.toISOString(),
-        errorDetail: item.errorDetail ?? null,
-        envio: item.envio,
-      })),
-    );
-  }, [duenoDeFallidos, mensajesFallidos]);
-  // Vuelve la señal: se anotan los errores de envio que no se pudieron registrar sin conexion.
-  useEffect(() => {
-    void enviarErroresPendientes();
-    const alVolverLaSenal = () => void enviarErroresPendientes();
-    window.addEventListener("online", alVolverLaSenal);
-    return () => window.removeEventListener("online", alVolverLaSenal);
-  }, []);
   /** Envios de texto en camino, por id optimista: el resultado se resuelve contra ESTE registro. */
   const enviosEnCursoRef = useRef<Map<string, OptimisticDraftMessage>>(new Map());
   /* Carga del chat abierto: fallo /live, o cuando empezo a cargar (para el limite de espera). */
@@ -2542,17 +2474,13 @@ export function SharedInbox({
       }
 
       // Registro del envio: si falla, de aca sale la burbuja "No se envió" y su Reintentar.
-      // Numero unico del mensaje: viaja en los campos, asi "Reintentar" lo repite y el servidor no
-      // lo manda dos veces aunque el primer intento si haya salido.
-      asegurarIdDeMensaje(formData);
       enviosEnCursoRef.current.set(optimisticId, {
         ...burbuja,
         envio: { chatKey: chatDelEnvio, campos: camposDelFormulario(formData) },
       });
 
-      // Envio por la ruta normal del servidor (no por accion: se rompia al subir una version
-      // nueva) con 1 o 2 reintentos seguros. Nunca lanza: si no sale, queda "No se envió".
-      void Promise.resolve(enviarTextoPorRuta(formData))
+      // Envio sin navegacion: la accion valida internamente y devuelve un resultado.
+      void Promise.resolve(composer.action(formData))
         .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
         .catch(() => finalizeOptimisticSend(optimisticId, null))
         .finally(liberar);
@@ -3095,7 +3023,7 @@ export function SharedInbox({
     setOptimisticOutgoingMessage(burbuja);
     enviosEnCursoRef.current.set(optimisticId, burbuja);
 
-    void Promise.resolve(enviarTextoPorRuta(formData))
+    void Promise.resolve(composerValue.action(formData))
       .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
       .catch(() => finalizeOptimisticSend(optimisticId, null))
       .finally(liberar);

@@ -337,7 +337,6 @@ export function ChatsRealtimeSync({
     let nativeSocket: WebSocket | null = null;
     let nativeReconnectTimer: number | null = null;
     let nativeSocketClosedByCleanup = false;
-    let nativeSocketCayo = false;
     const listUpdateTimers = listUpdateTimerRefs.current;
     const listUpdateFollowUpTimers = listUpdateFollowUpTimerRefs.current;
     const listUpdatePendingByKey = listUpdatePendingByKeyRef.current;
@@ -1127,20 +1126,11 @@ export function ChatsRealtimeSync({
         }
       };
 
-      nativeSocket.onopen = () => {
-        // Re-conexion tras una caida: se trae lo que llego mientras no habia socket.
-        if (nativeSocketCayo) {
-          nativeSocketCayo = false;
-          window.dispatchEvent(new CustomEvent("chat-reconexion", { detail: { origen: "socket" } }));
-        }
-      };
-
       nativeSocket.onclose = () => {
         nativeSocket = null;
         if (nativeSocketClosedByCleanup) {
           return;
         }
-        nativeSocketCayo = true;
 
         clearNativeReconnectTimer();
         nativeReconnectTimer = window.setTimeout(() => {
@@ -1151,18 +1141,7 @@ export function ChatsRealtimeSync({
 
     connectNativeSocket();
 
-    // Vuelve la señal: no se espera los 2,5 s del reintento.
-    const alVolverLaSenal = () => {
-      if (nativeSocketClosedByCleanup || nativeSocket) {
-        return;
-      }
-      clearNativeReconnectTimer();
-      connectNativeSocket();
-    };
-    window.addEventListener("online", alVolverLaSenal);
-
     return () => {
-      window.removeEventListener("online", alVolverLaSenal);
       nativeSocketClosedByCleanup = true;
       clearLiveUpdateTimer();
       clearLiveUpdateFollowUpTimer();
