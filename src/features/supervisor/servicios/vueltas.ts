@@ -18,6 +18,7 @@ import { CONFIG_GRAVEDAD_POR_DEFECTO, detectarPagoSinRespuesta } from "@/feature
 import { leerConfigGravedad } from "@/features/avisos-gravedad/servicios/enrutador";
 import { avisarTareasSinDuena, gestionarAcciones, leerConfigAccionable } from "@/features/supervisor-accionable/servicios/accionable";
 import { avisarAlDueno } from "./avisar";
+import { ocultarChatsAutomaticos, robotsPorOcultar } from "./ocultar-automaticos";
 import { claveLibroVisto, negociosConSupervisor, revalidacionActiva } from "./config";
 import { chatsExcluidosDeAtencion, leerChatsAbiertos, leerFichasRecientes, leerFlujosDelLibro, leerLineaDelLibro, nombresDeAsesoras } from "./datos";
 import { purgarAcusesConAcuerdo, purgarChatsExcluidos, purgarPausasAcordadas } from "../dominio/exclusiones";
@@ -111,6 +112,11 @@ async function chequearAtencion(workspaceId: string, ahora: Date): Promise<numbe
   // Turno de la conversación (lib/turno-de-la-conversacion.ts). Apagado = exactamente lo de antes.
   const turno = await leerConfigTurno(workspaceId).catch(() => CONFIG_TURNO_APAGADO);
   const chats = await leerChatsAbiertos({ workspaceId, ahora, conTurno: turno.activo });
+  // Robots de bancos y códigos de verificación: no generan avisos (los detectores los excluyen) y se
+  // ocultan del CRM como los proveedores (chat-automatico.ts). Si falla, el resto de la vuelta sigue.
+  await ocultarChatsAutomaticos(workspaceId, robotsPorOcultar(chats), ahora).catch((error) =>
+    console.error("[supervisor] ocultar automáticos", workspaceId, error instanceof Error ? error.message : error),
+  );
   // Pausa acordada (interruptor `pausaAcordada.activo` del seguimiento inteligente, apagado por defecto):
   // el cliente que dejó la compra en pausa y ya fue atendido no es alerta. Apagado = exactamente lo de antes.
   const pausa = await leerConfigSeguimiento(workspaceId).then((c) => c.pausaAcordada).catch(() => null);
@@ -130,7 +136,7 @@ async function chequearAtencion(workspaceId: string, ahora: Date): Promise<numbe
     ...(conPago ? detectarPagoSinRespuesta(chats, ahora, gravedad?.pagoSinRespuestaMin ?? CONFIG_GRAVEDAD_POR_DEFECTO.pagoSinRespuestaMin) : []),
   ];
   const abiertosCrudos = (await leerIncidentesAbiertos(workspaceId)).filter((inc) => inc.familia === "ATENCION");
-  // Los chats que ya no son tarea (PERDIDO/GANADO, exterior, dormidos, ya respondidos) salen de las
+  // Los chats que ya no son tarea (PERDIDO/GANADO, exterior, dormidos, ya respondidos, ocultos, robots) salen de las
   // alertas abiertas, y la alerta que queda vacía se cierra (exclusiones.ts).
   const excluidos = await chatsExcluidosDeAtencion(
     workspaceId,

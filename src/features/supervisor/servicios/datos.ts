@@ -122,6 +122,8 @@ type FilaDeChat = {
   asignadaA: string | null;
   temperatura: string | null;
   nombreCliente: string | null;
+  ocultoDelCrm: boolean | null;
+  bloqueadoEn: Date | null;
   /** Los últimos 40 mensajes y notas (JSON): turno y "solo acusa recibo de un acuerdo". */
   eventos?: Array<{ d: string; t: string; o: string | null; x: string | null; en: string }> | null;
 };
@@ -162,8 +164,18 @@ export function turnoDeLaFila(fila: Pick<FilaDeChat, "eventos" | "etapa" | "temp
 }
 
 /** Lo de las exclusiones (exterior, LID, dormido) desde las columnas de la fila. */
-function datosDeExclusion(fila: { telefono: string | null; metadata: unknown; dormidoHasta: Date | null }) {
+function datosDeExclusion(fila: {
+  telefono: string | null;
+  metadata: unknown;
+  dormidoHasta: Date | null;
+  ocultoDelCrm?: boolean | null;
+  bloqueadoEn?: Date | null;
+  nombreCliente?: string | null;
+}) {
   return {
+    ocultoDelCrm: Boolean(fila.ocultoDelCrm),
+    bloqueado: Boolean(fila.bloqueadoEn),
+    nombreCliente: fila.nombreCliente ?? null,
     telefono: fila.telefono,
     metadata: fila.metadata,
     esLid: isMarkedAsLid(fila.metadata),
@@ -182,6 +194,9 @@ type FilaDeExclusion = {
   ultimaRespuestaHumanaEn: Date | null;
   textosCliente: string[] | null;
   estado: string | null;
+  nombreCliente: string | null;
+  ocultoDelCrm: boolean | null;
+  bloqueadoEn: Date | null;
 };
 
 /** Los últimos 20 textos del cliente (para no tratar como "del exterior" a quien nombra una ciudad de Colombia). */
@@ -194,7 +209,7 @@ const LATERAL_TEXTOS_DEL_CLIENTE = Prisma.sql`
 
 /**
  * Los chats (de las alertas de atención abiertas) que ya no son tarea: PERDIDO/GANADO, resueltos, fuera de
- * Colombia, dormidos o ya respondidos por una persona. UNA consulta, solo dentro del negocio.
+ * Colombia, dormidos, ya respondidos por una persona, ocultos del CRM, bloqueados o robots. UNA consulta, solo dentro del negocio.
  */
 export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[], ahora: Date): Promise<Set<string>> {
   const unicos = [...new Set(ids)].filter(Boolean);
@@ -202,7 +217,7 @@ export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[
   const filas = await prisma.$queryRaw<FilaDeExclusion[]>(Prisma.sql`
     SELECT c."id" AS "conversationId", ct."crmStage"::text AS "etapa", ct."phoneNumber" AS "telefono", ct."metadata",
            l."dormidoHasta", cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", todos."textosCliente",
-           c."status"::text AS "estado"
+           c."status"::text AS "estado", ct."name" AS "nombreCliente", ct."excludedFromCrm" AS "ocultoDelCrm", ct."bloqueadoEn"
       FROM "Conversation" c
       JOIN "Contact" ct ON ct."id" = c."contactId"
       LEFT JOIN "EmbudoLead" l ON l."conversationId" = c."id"
@@ -255,7 +270,7 @@ export async function leerChatsAbiertos(input: {
            cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", txt."textos",
            ct."phoneNumber" AS "telefono", ct."metadata", l."dormidoHasta", todos."textosCliente",
            asg."createdAt" AS "asignadaEn", asg."asignadaA", l."temperatura", ct."name" AS "nombreCliente",
-           ev."eventos"
+           ct."excludedFromCrm" AS "ocultoDelCrm", ct."bloqueadoEn", ev."eventos"
       FROM "Conversation" c
       JOIN "Contact" ct ON ct."id" = c."contactId"
       LEFT JOIN "User" u ON u."id" = c."assignedToUserId"

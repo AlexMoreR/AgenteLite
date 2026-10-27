@@ -9,7 +9,9 @@
  *  - cliente fuera de Colombia: marcado por el seguimiento inteligente o, sin marca, teléfono con
  *    indicativo distinto de 57 (un LID sin teléfono real NO se decide);
  *  - lead dormido por una fecha futura de compra ("finales de noviembre");
- *  - la asesora ya respondió después del último mensaje del cliente.
+ *  - la asesora ya respondió después del último mensaje del cliente;
+ *  - contacto oculto del CRM (proveedores, lo que el dueño oculta a mano) o bloqueado;
+ *  - chat automático (robot de banco, códigos de verificación: chat-automatico.ts, 26-10-2026).
  *
  * Si una alerta ABIERTA tiene chats que pasan a estar excluidos, al recalcular salen de la alerta, y
  * la alerta se cierra si queda vacía (ver purgarChatsExcluidos).
@@ -17,8 +19,9 @@
 
 import { esDelExterior } from "../../seguimiento-inteligente/dominio/exterior";
 import type { Incidente } from "./alertas";
+import { detectarChatAutomatico } from "./chat-automatico";
 
-export type MotivoDeExclusion = "etapa_cerrada" | "resuelto" | "fuera_de_colombia" | "dormido" | "ya_respondio";
+export type MotivoDeExclusion = "etapa_cerrada" | "resuelto" | "fuera_de_colombia" | "dormido" | "ya_respondio" | "oculto" | "automatico";
 
 export type DatosDeExclusion = {
   etapa: string | null;
@@ -33,11 +36,20 @@ export type DatosDeExclusion = {
   ultimaRespuestaHumanaEn?: Date | null;
   /** Lo que escribió el cliente: si nombra un lugar de Colombia no se excluye por el teléfono. */
   textos?: Array<string | null | undefined>;
+  /** Contact.excludedFromCrm (proveedores y lo que se oculta a mano) o Contact.bloqueadoEn. Opcionales. */
+  ocultoDelCrm?: boolean;
+  bloqueado?: boolean;
+  /** Nombre del contacto, para reconocer a un banco o servicio. */
+  nombreCliente?: string | null;
 };
 
 export function motivoDeExclusion(d: DatosDeExclusion, ahora: Date): MotivoDeExclusion | null {
   if (d.etapa === "PERDIDO" || d.etapa === "GANADO") return "etapa_cerrada";
   if (d.resuelto) return "resuelto";
+  if (d.ocultoDelCrm || d.bloqueado) return "oculto";
+  if (detectarChatAutomatico({ nombre: d.nombreCliente, textos: d.textos, respondioUnaPersona: Boolean(d.ultimaRespuestaHumanaEn) }).automatico) {
+    return "automatico";
+  }
   if (esDelExterior({ metadata: d.metadata, telefono: d.telefono, esLid: d.esLid, telefonoDescubierto: d.telefonoDescubierto, textos: d.textos })) {
     return "fuera_de_colombia";
   }

@@ -50,8 +50,11 @@ export type ChatAbierto = {
   asignadaEn?: Date | null;
   /** Temperatura guardada por el seguimiento inteligente (EmbudoLead.temperatura), si hay. */
   temperatura?: string | null;
-  /** Nombre del contacto (para el mensaje sugerido). */
+  /** Nombre del contacto (para el mensaje sugerido y para reconocer robots de bancos). */
   nombreCliente?: string | null;
+  /** Contacto oculto del CRM o bloqueado: no es tarea (exclusiones.ts). */
+  ocultoDelCrm?: boolean;
+  bloqueado?: boolean;
   /**
    * De quién es el turno (lib/turno-de-la-conversacion.ts). Solo viene con el interruptor
    * `turno:config` prendido; sin él (undefined) todo es exactamente como antes. Con turno del

@@ -1156,4 +1156,66 @@ prueba("limpieza dentro de aplicarRevalidaciones: lo cerrado no vuelve a salir e
   assert.equal(r.avisar.length, 0);
 });
 
+/* ------------------------------------------------------------------ chats automáticos (robots) */
+
+const automatico = cargar("src/features/supervisor/dominio/chat-automatico.ts");
+const gravedadReglas = cargar("src/features/avisos-gravedad/dominio/reglas.ts");
+
+prueba("chat automático: Bancolombia, Nequi, Daviplata y códigos de verificación son robot", () => {
+  const v = (nombre, textos) => automatico.detectarChatAutomatico({ nombre, textos, respondioUnaPersona: false });
+  assert.equal(v("Bancolombia", ["Bancolombia le informa Transferencia por $87.400 desde cta *1234"]).automatico, true);
+  assert.equal(v(null, ["Bancolombia le informa: compra por $87.400 en TIENDA"]).automatico, true);
+  assert.equal(v("Nequi", ["Recibiste una transferencia de $50.000"]).automatico, true);
+  assert.equal(v("DAVIPLATA", ["Daviplata le informa que su pago por $20.000 fue exitoso"]).automatico, true);
+  assert.equal(v(null, ["Tu código de verificación es 483920. No lo compartas."]).automatico, true);
+  assert.equal(v(null, ["Este es un mensaje automático, no responda este mensaje"]).automatico, true);
+});
+
+prueba("chat automático: un cliente real o un chat que una persona ya respondió NO es robot", () => {
+  assert.equal(automatico.detectarChatAutomatico({ nombre: "Marta Pérez", textos: ["ya pagué, adjunto comprobante"], respondioUnaPersona: false }).automatico, false);
+  assert.equal(automatico.detectarChatAutomatico({ nombre: "Juan", textos: ["hice la transferencia por $87.400, ya pagué"], respondioUnaPersona: false }).automatico, false);
+  assert.equal(automatico.detectarChatAutomatico({ nombre: "Bancolombia", textos: ["Bancolombia le informa compra por $87.400"], respondioUnaPersona: true }).automatico, false);
+  // Un banco en el nombre pero conversando como persona: ante la duda no se marca.
+  assert.equal(automatico.detectarChatAutomatico({ nombre: "Nequi Pedro", textos: ["hola, quiero el combo de camilla"], respondioUnaPersona: false }).automatico, false);
+  // Mezcla de notificación y mensaje humano: no se marca.
+  assert.equal(automatico.detectarChatAutomatico({ nombre: null, textos: ["Bancolombia le informa compra por $5.000", "hola buenas, cuánto vale"], respondioUnaPersona: false }).automatico, false);
+  assert.equal(automatico.detectarChatAutomatico({ nombre: null, textos: [], respondioUnaPersona: false }).automatico, false);
+});
+
+prueba("exclusiones: robots, ocultos del CRM y bloqueados salen; el cliente real que dice 'ya pagué' no", () => {
+  const ahora = new Date(LUNES_10AM);
+  const robot = { etapa: "NUEVO", telefono: "573013536788", nombreCliente: "Bancolombia", textos: ["Bancolombia le informa transferencia por $87.400"], ultimoClienteEn: new Date(LUNES_10AM - H), ultimaRespuestaHumanaEn: null };
+  assert.equal(exclusiones.motivoDeExclusion(robot, ahora), "automatico");
+  assert.equal(exclusiones.motivoDeExclusion({ ...robot, nombreCliente: null, textos: ["Hola"], ocultoDelCrm: true }, ahora), "oculto");
+  assert.equal(exclusiones.motivoDeExclusion({ ...robot, nombreCliente: null, textos: ["Hola"], bloqueado: true }, ahora), "oculto");
+  const real = { etapa: "NUEVO", telefono: "573001234567", nombreCliente: "Marta", textos: ["ya pagué, adjunto comprobante"], ultimoClienteEn: new Date(LUNES_10AM - H), ultimaRespuestaHumanaEn: null };
+  assert.equal(exclusiones.motivoDeExclusion(real, ahora), null);
+});
+
+prueba("exclusiones: la alerta con solo un robot se cierra RESUELTA y la mezcla conserva solo el real", () => {
+  const ahora = new Date(LUNES_10AM);
+  const h = (chats) => hallazgo("ATENCION:senal-sin-duena", "IMPORTANTE", new Date(LUNES_10AM - H), {
+    familia: "ATENCION",
+    evidencia: { chats, reglas: [], versiones: [] },
+    hechos: chats.map((c) => `Chat ${c}: 40 min, "comprobante".`),
+    leadsAfectados: chats.length,
+  });
+  const inc = (clave, hallazgos) => ({ clave, familia: "ATENCION", severidad: "IMPORTANTE", titulo: clave, producto: null, primeraVezEn: ahora, ultimaVezEn: ahora, desde: ahora, vecesVista: 1, estado: "ABIERTA", resueltaEn: null, notificadaEn: null, severidadNotificada: null, hallazgos });
+  const r = exclusiones.purgarChatsExcluidos([inc("ATENCION:pago-sin-respuesta", [h(["cvBanco"])]), inc("ATENCION:senal-sin-duena", [h(["cvBanco", "cvReal"])])], new Set(["cvBanco"]), ahora);
+  assert.equal(r.incidentes[0].estado, "RESUELTA");
+  assert.equal(r.incidentes[1].estado, "ABIERTA");
+  assert.deepEqual(r.incidentes[1].hallazgos[0].evidencia.chats, ["cvReal"]);
+});
+
+prueba("'ya pagó / comprobante sin respuesta' no apunta a un robot de banco", () => {
+  const ahora = new Date(LUNES_10AM);
+  const base = { asesoraId: null, etapa: "NUEVO", pausado: false, ultimoClienteEn: new Date(LUNES_10AM - 2 * H), ultimaRespuestaHumanaEn: null, telefono: "573001234567" };
+  const robot = { ...base, conversationId: "cvBanco", telefono: "573013536788", nombreCliente: "Bancolombia", textosPendientes: ["Bancolombia le informa transferencia por $87.400. Comprobante"], textosDelCliente: ["Bancolombia le informa transferencia por $87.400. Comprobante"] };
+  const real = { ...base, conversationId: "cvReal", nombreCliente: "Marta", textosPendientes: ["ya pagué, adjunto comprobante"], textosDelCliente: ["ya pagué, adjunto comprobante"] };
+  const hallazgos = gravedadReglas.detectarPagoSinRespuesta([robot, real], ahora, 5);
+  const ids = hallazgos.flatMap((x) => x.evidencia.chats);
+  assert.ok(!ids.includes("cvBanco"), "el robot no genera aviso de pago");
+  assert.ok(ids.includes("cvReal"), "el cliente real sí");
+});
+
 console.log(`\n${pruebas} pruebas del Supervisor OK`);
