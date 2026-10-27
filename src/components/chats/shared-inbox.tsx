@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { hayVersionNueva } from "@/components/app-version-guard";
+import { hayVersionNueva, hayVersionNuevaParaEnviar } from "@/components/app-version-guard";
 import {
+  enviarSalvoVersionVieja,
   guardarEnvioPendiente,
   marcarOcupada,
   pedirRevisionDeVersion,
@@ -2511,8 +2512,17 @@ export function SharedInbox({
       });
 
       // Envio sin navegacion: la accion valida internamente y devuelve un resultado.
-      void Promise.resolve(composer.action(formData))
-        .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
+      // Antes de hablarle al servidor se mira la version: si hay una nueva, el mensaje NO se envia
+      // (nunca llega al servidor, asi que no puede salir dos veces): queda como pendiente, la app se
+      // recarga sola y al volver sale UNA vez. Si /api/version no contesta, se envia normal.
+      void enviarSalvoVersionVieja({
+        hayVersionNueva: hayVersionNuevaParaEnviar,
+        enviar: () => Promise.resolve(composer.action(formData)),
+        dejarPendiente: () => finalizeOptimisticSend(optimisticId, null),
+      })
+        .then((salida) => {
+          if (salida.enviado) finalizeOptimisticSend(optimisticId, salida.resultado ?? { ok: true });
+        })
         .catch(() => finalizeOptimisticSend(optimisticId, null))
         .finally(liberar);
       return true;

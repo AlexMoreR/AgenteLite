@@ -264,3 +264,63 @@ export function puedeReenviarPendiente(input: {
   }
   return !yaGuardado;
 }
+
+/* ------------------------- Revision de version antes de enviar ------------------------- */
+
+/** Si la ultima revision de version es mas reciente que esto, se usa su resultado. */
+export const VIDA_REVISION_MS = 15_000;
+/** Cuanto se espera como maximo la respuesta de /api/version antes de enviar. */
+export const ESPERA_REVISION_MS = 1_500;
+
+export type RevisionDeVersion = { vieja: boolean; en: number };
+
+/**
+ * ¿Hay version nueva justo antes de enviar? Usa la ultima revision si tiene menos de 15 s; si no,
+ * pregunta y espera como mucho 1,5 s. Si no contesta a tiempo o falla, responde `false`
+ * (se envia normal, como antes de esta mejora). `guardar` recibe el resultado fresco.
+ */
+export async function hayVersionNuevaAntesDeEnviar(input: {
+  ahora: number;
+  ultima: RevisionDeVersion | null;
+  consultar: () => Promise<boolean>;
+  guardar: (revision: RevisionDeVersion) => void;
+}): Promise<boolean> {
+  const { ahora, ultima, consultar, guardar } = input;
+  if (ultima && ahora - ultima.en >= 0 && ahora - ultima.en < VIDA_REVISION_MS) {
+    return ultima.vieja;
+  }
+  const respuesta = await new Promise<boolean | null>((resolver) => {
+    const reloj = setTimeout(() => resolver(null), ESPERA_REVISION_MS);
+    consultar().then(
+      (vieja) => {
+        clearTimeout(reloj);
+        resolver(vieja);
+      },
+      () => {
+        clearTimeout(reloj);
+        resolver(null);
+      },
+    );
+  });
+  if (respuesta === null) {
+    return false;
+  }
+  guardar({ vieja: respuesta, en: ahora });
+  return respuesta;
+}
+
+/**
+ * Envia un texto salvo que haya version nueva: en ese caso NO se llama al servidor (que es el viejo
+ * o el nuevo, y rechazaria la accion) y se deja como pendiente para reenviarlo UNA vez tras recargar.
+ */
+export async function enviarSalvoVersionVieja<T>(input: {
+  hayVersionNueva: () => Promise<boolean>;
+  enviar: () => Promise<T>;
+  dejarPendiente: () => void;
+}): Promise<{ enviado: true; resultado: T } | { enviado: false }> {
+  if (await input.hayVersionNueva()) {
+    input.dejarPendiente();
+    return { enviado: false };
+  }
+  return { enviado: true, resultado: await input.enviar() };
+}

@@ -3096,7 +3096,8 @@ export async function sendChatAudioReplyAction(
       canal: input?.source === "official" ? "official" : "evolution",
       conversationId: input?.conversationId ?? null,
       archivo: audioUrl ? audioUrl.split("/").pop() : null,
-      error,
+      // Solo cuando hubo error: la vigilancia cuenta como falla toda linea con la palabra "error".
+      ...(error === null ? {} : { error }),
       ...extra,
     });
     if (resultado === "ok" || resultado === "repetido") {

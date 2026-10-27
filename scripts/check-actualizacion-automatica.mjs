@@ -175,4 +175,112 @@ prueba("pendiente: no se reenvia a otro chat ni con hora en el futuro ni vacio",
   assert.equal(A.puedeReenviarPendiente({ pendiente: { ...pendiente, texto: "  " }, chatAbiertoId: "c1", ahora: T0 + 1_000, yaGuardado: false }), false);
 });
 
+
+// ---- Revision de version antes de enviar y envio salvo version vieja ----
+
+async function pruebaAsync(nombre, fn) {
+  await fn();
+  pruebas += 1;
+  console.log(`ok - ${nombre}`);
+}
+
+const sinGuardar = () => {};
+
+await pruebaAsync("antes de enviar: usa la revision de hace menos de 15 s sin preguntar", async () => {
+  let preguntas = 0;
+  const vieja = await A.hayVersionNuevaAntesDeEnviar({
+    ahora: T0 + 10_000,
+    ultima: { vieja: true, en: T0 },
+    consultar: async () => { preguntas += 1; return false; },
+    guardar: sinGuardar,
+  });
+  assert.equal(vieja, true);
+  assert.equal(preguntas, 0);
+});
+
+await pruebaAsync("antes de enviar: con revision vieja pregunta y guarda el resultado", async () => {
+  let guardada = null;
+  const vieja = await A.hayVersionNuevaAntesDeEnviar({
+    ahora: T0 + 15_000,
+    ultima: { vieja: false, en: T0 },
+    consultar: async () => true,
+    guardar: (r) => { guardada = r; },
+  });
+  assert.equal(vieja, true);
+  assert.deepEqual(guardada, { vieja: true, en: T0 + 15_000 });
+});
+
+await pruebaAsync("antes de enviar: si /api/version falla o tarda mas de 1,5 s, responde false", async () => {
+  const falla = await A.hayVersionNuevaAntesDeEnviar({
+    ahora: T0, ultima: null, consultar: async () => { throw new Error("sin red"); }, guardar: sinGuardar,
+  });
+  assert.equal(falla, false);
+  const inicio = Date.now();
+  const tarda = await A.hayVersionNuevaAntesDeEnviar({
+    ahora: T0, ultima: null, consultar: () => new Promise(() => {}), guardar: sinGuardar,
+  });
+  assert.equal(tarda, false);
+  assert.ok(Date.now() - inicio < 3_000);
+});
+
+await pruebaAsync("con version nueva: guarda el pendiente y NO envia", async () => {
+  let enviados = 0;
+  let pendientes = 0;
+  const r = await A.enviarSalvoVersionVieja({
+    hayVersionNueva: async () => true,
+    enviar: async () => { enviados += 1; return { ok: true }; },
+    dejarPendiente: () => { pendientes += 1; },
+  });
+  assert.equal(r.enviado, false);
+  assert.equal(enviados, 0);
+  assert.equal(pendientes, 1);
+});
+
+await pruebaAsync("con la misma version: envia y no deja pendiente", async () => {
+  let pendientes = 0;
+  const r = await A.enviarSalvoVersionVieja({
+    hayVersionNueva: async () => false,
+    enviar: async () => ({ ok: true }),
+    dejarPendiente: () => { pendientes += 1; },
+  });
+  assert.deepEqual(r, { enviado: true, resultado: { ok: true } });
+  assert.equal(pendientes, 0);
+});
+
+await pruebaAsync("si /api/version no contesta, envia normal", async () => {
+  let enviados = 0;
+  const r = await A.enviarSalvoVersionVieja({
+    hayVersionNueva: () => A.hayVersionNuevaAntesDeEnviar({
+      ahora: T0, ultima: null, consultar: async () => { throw new Error("caido"); }, guardar: sinGuardar,
+    }),
+    enviar: async () => { enviados += 1; return "ok"; },
+    dejarPendiente: () => { throw new Error("no debia dejar pendiente"); },
+  });
+  assert.equal(r.enviado, true);
+  assert.equal(enviados, 1);
+});
+
+prueba("el pendiente se usa una sola vez aunque se pida dos veces", () => {
+  const almacen = almacenFalso();
+  A.guardarEnvioPendiente(pendiente, almacen);
+  assert.ok(A.tomarEnvioPendiente(almacen));
+  assert.equal(A.tomarEnvioPendiente(almacen), null);
+});
+
+// ---- Lineas [nota-de-voz]: las que salieron bien no cuentan como falla para la vigilancia ----
+// Misma regla que trabajador-tablero/lib/zonas.mjs: una linea es "falla" si trae la palabra error.
+const cuentaComoFalla = (linea) => /error/i.test(linea);
+
+prueba("[nota-de-voz] subida ok no trae la palabra error; una con error si", () => {
+  const rutaSrc = fs.readFileSync("src/app/api/cliente/chats/upload-audio/route.ts", "utf8");
+  const accionSrc = fs.readFileSync("src/app/actions/agent-actions.ts", "utf8");
+  // La clave error solo se agrega cuando hubo falla (nunca "error": null en una linea buena).
+  assert.match(rutaSrc, /\.\.\.\(respuesta\.ok \? \{\} : \{ error \}\)/);
+  assert.match(accionSrc, /\.\.\.\(error === null \? \{\} : \{ error \}\)/);
+  const buena = JSON.stringify({ paso: "subida", resultado: "ok", status: 200, bytes: 10, mime: "audio/webm", ms: 5, userId: "u", ...({}) });
+  const mala = JSON.stringify({ paso: "subida", resultado: "error", status: 400, error: "Audio vacio" });
+  assert.equal(cuentaComoFalla(buena), false);
+  assert.equal(cuentaComoFalla(mala), true);
+});
+
 console.log(`\n${pruebas} pruebas OK`);
