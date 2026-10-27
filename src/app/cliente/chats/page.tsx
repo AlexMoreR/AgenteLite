@@ -35,7 +35,6 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
-import { puedeAbrirChatPorClave } from "@/features/chats/services/permiso-para-abrir-chat";
 import {
   idsSinResponder,
   leerFiltrosDeBandeja,
@@ -357,7 +356,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const errorMessage = typeof params.error === "string" ? params.error : "";
   const scrollMode = typeof params.scroll === "string" ? params.scroll : "";
 
-  const selectedChatRefPedido = parseChatKey(selectedChatKeyParam);
+  const selectedChatRef = parseChatKey(selectedChatKeyParam);
+  const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
 
   /**
    * Canales que esta persona puede ver (ver channel-visibility).
@@ -370,28 +370,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     userId: access.userId,
     esJefe: access.isOwner || access.role === "ADMIN",
   });
-
-  /*
-    El chat pedido por enlace (?chatKey=) pasa por las MISMAS reglas que la lista: linea visible,
-    "solo mis chats" y lineas monitoreadas. Sin permiso se abre la bandeja normal, como si no
-    hubiera enlace: no se carga el chat, no se marca leido y no hay error. Ver permiso-para-abrir-chat.
-  */
-  const esJefeDelNegocio = membership.role === "OWNER" || membership.role === "ADMIN";
-  const selectedChatRef =
-    selectedChatRefPedido &&
-    (await puedeAbrirChatPorClave({
-      workspaceId: membership.workspace.id,
-      source: selectedChatRefPedido.source,
-      conversationId: selectedChatRefPedido.conversationId,
-      esJefe: esJefeDelNegocio,
-      esSupervisora: isManager && !esJefeDelNegocio,
-      userId: access.userId,
-      canalesVisibles,
-      canalesMonitoreados,
-    }))
-      ? selectedChatRefPedido
-      : null;
-  const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
 
 
   /**
@@ -904,10 +882,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       );
     });
 
-  // Con la clave ya validada (selectedChatRef), no con el texto crudo de la URL.
-  const selectedChatKey = selectedChatRef ? `${selectedChatRef.source}:${selectedChatRef.conversationId}` : "";
-  const selectedUnified = selectedChatKey
-    ? merged.find((item) => item.key === selectedChatKey) || null
+  const selectedUnified = selectedChatKeyParam
+    ? merged.find((item) => item.key === selectedChatKeyParam) || null
     : null;
 
   // Un chat abierto desde el buscador o un deep-link puede NO estar en el lote cargado
@@ -1285,7 +1261,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           .join("&")}
         searchAction="/cliente/chats"
         selectedConversationId={selectedUnified?.key ?? ""}
-        mobileConversationActive={Boolean(selectedChatKey)}
+        mobileConversationActive={Boolean(selectedChatKeyParam)}
         selectedConnectionKey={selectedConnectionKey}
         assignedFilter={assignedFilter}
         statusFilter={statusFilter}

@@ -5,10 +5,7 @@ import { getOfficialApiChatsData } from "@/features/official-api/services/getOff
 import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { readGatewayConnection, resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
 import { WAHA_GATEWAY_KIND, suscribirPresenciaWaha } from "@/lib/waha";
-import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
-import { getVisibleChannelIds } from "@/lib/channel-visibility";
-import { esSupervisora } from "@/lib/permisos-del-equipo";
-import { puedeAbrirChatPorClave } from "@/features/chats/services/permiso-para-abrir-chat";
+import { enmascararSiEsTelefono, enmascararTelefono, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import { scheduleSingleContactAvatarRefresh } from "@/lib/contact-avatar-refresh";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { prisma } from "@/lib/prisma";
@@ -129,32 +126,6 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
 
   if (!parsed) {
     return NextResponse.json({ ok: false, error: "Chat invalido" }, { status: 400 });
-  }
-
-  /*
-    Mismo permiso que la bandeja: sin esto, pedirle el chat directo a esta ruta se saltaba la linea
-    y la asesora. Sin permiso responde como si el chat no existiera. Ver permiso-para-abrir-chat.
-  */
-  const esJefeDelNegocio = access.membershipRole === "OWNER" || access.membershipRole === "ADMIN";
-  const permitido = await puedeAbrirChatPorClave({
-    workspaceId: membership.workspace.id,
-    source: parsed.source,
-    conversationId: parsed.conversationId,
-    esJefe: esJefeDelNegocio,
-    esSupervisora: !esJefeDelNegocio && (await esSupervisora(membership.workspace.id, session.user.id)),
-    userId: session.user.id,
-    canalesVisibles: await getVisibleChannelIds({
-      workspaceId: membership.workspace.id,
-      userId: session.user.id,
-      esJefe: access.isOwner || access.role === "ADMIN",
-    }),
-    canalesMonitoreados: await canalesQueMonitorea({
-      workspaceId: membership.workspace.id,
-      userId: session.user.id,
-    }),
-  });
-  if (!permitido) {
-    return NextResponse.json({ ok: false, error: "Conversacion no encontrada" }, { status: 404 });
   }
 
   /**
