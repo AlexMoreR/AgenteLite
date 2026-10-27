@@ -2430,6 +2430,28 @@ model CerebroCambio {
   @@index([workspaceId, driveId])
 }
 
+/// Notas NUEVAS del cerebro que crea aizen1: la cuenta de servicio no puede crear archivos en un Drive personal
+/// (403 storageQuotaExceeded). El Coordinador las escribe en la bóveda local (sincronizada con Drive para escritorio).
+/// estado: PENDIENTE | CREADA | ERROR. ruta: relativa a la carpeta del cerebro ("Ventas/2026-10-26-x.md").
+model CerebroNotaPorCrear {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  ruta          String
+  contenido     String
+  estado        String    @default("PENDIENTE")
+  motivo        String?
+  userId        String?
+  quienNombre   String?
+  /// MCP | PANTALLA | TABLERO
+  origen        String
+  tarjetaId     String?
+  creadoEn      DateTime  @default(now())
+  actualizadoEn DateTime  @default(now()) @updatedAt
+  creadaEn      DateTime?
+
+  @@index([workspaceId, estado, creadoEn])
+}
+
 /// ORIGEN DE PAUTA: de qué anuncio (y campaña) de Meta llegó cada cliente. Una fila por cliente.
 /// El anuncio sale de Contact.metadata (adSourceId...); la campaña y el conjunto se piden a Meta (solo lectura).
 /// Sin llaves foráneas, como EmbudoLead: es un registro de medición y no puede impedir borrar nada.

@@ -152,6 +152,13 @@ const AUTOACTUALIZAR_POR_DEFECTO = { activo: true, cadaMinutos: 10, rama: "main"
  */
 const MANUAL_POR_DEFECTO = { activo: true, hora: 23, repo: "aizencrm" };
 
+/**
+ * La bóveda de Obsidian del dueño (26-oct-2026, notas-boveda.mjs): la carpeta de aizen1 sincronizada con Google Drive para
+ * escritorio (la carpeta del cerebro). Si `ruta` está, cada minuto se crean ahí las notas NUEVAS que pidió el CRM (la cuenta
+ * de servicio no puede crear en un Drive personal). Sin ruta: apagado.
+ */
+const BOVEDA_POR_DEFECTO = { ruta: null, cadaSegundos: 60 };
+
 export function leerConfig(ruta) {
   if (!fs.existsSync(ruta)) {
     throw new Error(`No existe ${ruta}. Copia config.example.json a config.local.json y complétalo (ver README.md).`);
@@ -381,6 +388,11 @@ export function completarConfig(datos, base = process.cwd()) {
   if (!Number.isInteger(manual.hora) || manual.hora < 0 || manual.hora > 23) errores.push("manual.hora: la hora de la noche, un entero de 0 a 23 (hora de Bogotá).");
   if (typeof manual.repo !== "string" || !manual.repo.trim()) errores.push("manual.repo: el nombre del repo (en repos) que tiene el manual.");
 
+  const boveda = { ...BOVEDA_POR_DEFECTO, ...(datos.boveda ?? {}) };
+  if (boveda.ruta !== null && (typeof boveda.ruta !== "string" || !boveda.ruta.trim())) errores.push('boveda.ruta: la carpeta de la bóveda, por ejemplo "D:/Magilus" (o null para apagar).');
+  boveda.cadaSegundos = Number(boveda.cadaSegundos);
+  if (!Number.isFinite(boveda.cadaSegundos) || boveda.cadaSegundos < 10) errores.push("boveda.cadaSegundos: segundos, 10 o más.");
+
   const auto = { ...AUTOACTUALIZAR_POR_DEFECTO, ...(datos.autoactualizar ?? {}) };
   if (typeof auto.activo !== "boolean") errores.push("autoactualizar.activo: true o false.");
   auto.cadaMinutos = Number(auto.cadaMinutos);
@@ -476,6 +488,7 @@ export function completarConfig(datos, base = process.cwd()) {
     },
     limites,
     manual: { activo: manual.activo, hora: manual.hora, repo: manual.repo },
+    boveda: { ruta: typeof boveda.ruta === "string" ? path.resolve(base, boveda.ruta.trim()) : null, cadaSegundos: boveda.cadaSegundos },
     autoactualizar: { activo: auto.activo, cadaMinutos: auto.cadaMinutos, rama: auto.rama, remoto: auto.remoto },
     colaPesada: { maximo: colaPesada.maximo, esperaMaximaMinutos: colaPesada.esperaMaximaMinutos },
     medir: { activo: medir.activo, puntosGrande: medir.puntosGrande, puntosDudosa: medir.puntosDudosa, consultaHaiku: medir.consultaHaiku },

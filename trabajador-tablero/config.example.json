@@ -47,6 +47,10 @@
     "hora": 23,
     "repo": "aizencrm"
   },
+  "boveda": {
+    "ruta": null,
+    "cadaSegundos": 60
+  },
   "limites": {
     "cpuPorciento": 85,
     "memoriaPorciento": 85,

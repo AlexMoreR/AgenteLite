@@ -1,11 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { personaQueAprueba } from "@/features/tableros-inteligentes/services/tableros";
 import { motivoNoEsDueno, textoDeConfirmacionParaCerebro } from "@/features/tableros-inteligentes/services/reglas-trabajador";
-import type { ClienteDeDrive } from "./drive";
+import { esErrorSinEspacio, type ClienteDeDrive } from "./drive";
 import { driveDelNegocio } from "./conexion";
 import { permisosDelCerebro } from "./permisos";
 import {
+  AVISO_NOTA_EN_AIZEN1,
   agregarAlFinal,
+  problemaDeRutaDeNota,
+  rutaDeNota,
   conFechaDeDecision,
   nombreDeDocumentoNuevo,
   problemaDeVersion,
@@ -24,6 +27,9 @@ import {
   - Desde la pantalla o el tablero: el dueño o quien él autorizó para el cerebro.
   - Antes de escribir se compara la versión del documento en el Drive con la que se leyó. Si cambió, no se escribe.
   - Todo queda en CerebroCambio: quién, cuándo, desde dónde, el antes y el después.
+  - Crear con la cuenta de servicio en un Drive personal da 403 storageQuotaExceeded (no tiene espacio propio). En ese
+    caso NO es un error: queda un pedido en CerebroNotaPorCrear (PENDIENTE) y el Coordinador de aizen1 escribe el archivo
+    en la bóveda local (D:\Magilus, sincronizada con Drive para escritorio) en ~1 minuto. Ver notas-por-crear.ts.
 */
 
 export type OrigenDeEscritura = "MCP" | "PANTALLA" | "TABLERO";
@@ -81,6 +87,11 @@ export type DependenciasDeEscritura = {
     antes: string | null;
     despues: string;
   }): Promise<void>;
+  /**
+   * Si Google no deja crear (403 storageQuotaExceeded: la cuenta de servicio no tiene espacio en un Drive personal),
+   * se deja el pedido para que lo cree aizen1 en la bóveda local (CerebroNotaPorCrear). Sin esto, el error sube.
+   */
+  encolarNotaNueva?(nota: { ruta: string; contenido: string }): Promise<{ id: string }>;
 };
 
 export type ResultadoDeEscritura = {
@@ -90,6 +101,8 @@ export type ResultadoDeEscritura = {
   accion: ModoDeEscritura;
   linkDrive: string | null;
   versionNueva: string | null;
+  /** Solo si la nota nueva quedó para crearse en aizen1: el id del pedido y su estado (PENDIENTE). */
+  pendiente?: { id: string; estado: "PENDIENTE"; aviso: string };
 };
 
 const TOPE_REGISTRO = 100_000;
@@ -128,8 +141,27 @@ export async function escribirConDependencias(pedido: PedidoDeEscritura, deps: D
       throw new Error(`Ya existe "${nombre}" en esa carpeta. Para sumarle algo usa modo "agregar" con su id.`);
     }
     const contenidoNuevo = conFechaDeDecision(nombre, pedido.contenido).trim() + "\n";
-    const creado = await deps.drive.crearTexto(carpetaId, nombre, contenidoNuevo);
-    const ruta = carpeta.ruta ? `${carpeta.ruta}/${nombre}` : nombre;
+    const ruta = rutaDeNota(carpeta.ruta, nombre);
+    let creado;
+    try {
+      creado = await deps.drive.crearTexto(carpetaId, nombre, contenidoNuevo);
+    } catch (fallo) {
+      if (!esErrorSinEspacio(fallo) || !deps.encolarNotaNueva) throw fallo;
+      // La cuenta de servicio no puede crear en el Drive personal del dueño: la nota la crea aizen1 (Coordinador).
+      const problemaRuta = problemaDeRutaDeNota(ruta);
+      if (problemaRuta) throw new Error(`No se puede dejar la nota para aizen1: ${problemaRuta}`);
+      const nota = await deps.encolarNotaNueva({ ruta, contenido: contenidoNuevo });
+      await deps.registrar({ driveId: `aizen1:${nota.id}`, nombreDocumento: ruta, accion: "crear", antes: null, despues: contenidoNuevo });
+      return {
+        driveId: "",
+        nombre,
+        ruta,
+        accion: "crear",
+        linkDrive: null,
+        versionNueva: null,
+        pendiente: { id: nota.id, estado: "PENDIENTE", aviso: AVISO_NOTA_EN_AIZEN1 },
+      };
+    }
     await deps.guardarCopia({
       driveId: creado.driveId,
       padreId: carpetaId,
@@ -256,6 +288,20 @@ export async function escribirEnElCerebro(pedido: PedidoDeEscritura): Promise<Re
         update: ficha,
       });
     },
+    encolarNotaNueva: async (nota) =>
+      prisma.cerebroNotaPorCrear.create({
+        data: {
+          workspaceId,
+          ruta: nota.ruta,
+          contenido: nota.contenido,
+          estado: "PENDIENTE",
+          userId: pedido.userId,
+          quienNombre: persona.nombre,
+          origen: pedido.origen,
+          tarjetaId: pedido.tarjetaId ?? null,
+        },
+        select: { id: true },
+      }),
     registrar: async (cambio) => {
       try {
         await prisma.cerebroCambio.create({

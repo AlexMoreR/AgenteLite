@@ -22,6 +22,7 @@ import { leerConfig } from "./lib/config.mjs";
 import { crearCrm } from "./lib/crm.mjs";
 import { crearLatido } from "./lib/latido.mjs";
 import { crearManualNocturno } from "./lib/manual-nocturno.mjs";
+import { crearNotasDeBoveda } from "./lib/notas-boveda.mjs";
 import { crearRecogedor } from "./lib/recoger-errores.mjs";
 import { crearMedidor } from "./lib/recursos.mjs";
 import { git } from "./lib/git.mjs";
@@ -126,6 +127,9 @@ const recogedor = crearRecogedor({
   registro,
   partir: (tarjeta, causa, error) => partirTarea({ config, registro, motorDe: null }, tarjeta, { causa, error }),
 });
+// Las notas NUEVAS del cerebro (lib/notas-boveda.mjs): si boveda.ruta está, cada minuto se crean en la bóveda local.
+const notasDeBoveda = crearNotasDeBoveda({ crm, config, registro });
+if (config.boveda.ruta) registro.info(`notas de la bóveda: creo las notas nuevas del cerebro en ${config.boveda.ruta}`);
 let primeraVueltaBien = false;
 let reiniciar = false;
 
@@ -152,6 +156,13 @@ while (!parar) {
     if (!planificador.pausadoPorUso()) await recogedor.revisar();
   } catch (error) {
     registro.aviso(`recoger errores: ${String(error.message).split("\n")[0]}`);
+  }
+  if (parar) break;
+  try {
+    // No usa Claude ni el PC: corre también en la pausa por uso.
+    await notasDeBoveda.revisar();
+  } catch (error) {
+    registro.aviso(`notas de la bóveda: ${String(error.message).split("\n")[0]}`);
   }
   if (parar) break;
   const nueva = vigilante ? await vigilante.revisar() : null;

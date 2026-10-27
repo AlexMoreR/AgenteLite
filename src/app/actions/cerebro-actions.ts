@@ -125,11 +125,11 @@ export async function prepararPasoAlCerebroAction(tarjetaId: string): Promise<{ 
   }
 }
 
-export async function pasarAlCerebroAction(pedido: PedidoDelPaso): Promise<{ ok: true; documento: string } | Fallo> {
+export async function pasarAlCerebroAction(pedido: PedidoDelPaso): Promise<{ ok: true; documento: string; pendienteEnAizen1: boolean } | Fallo> {
   try {
     const access = await requireClientWorkspaceAccess("tableros_inteligentes");
     const resultado = await pasarAlCerebro(access, pedido);
-    return { ok: true, documento: resultado.ruta };
+    return { ok: true, documento: resultado.ruta, pendienteEnAizen1: Boolean(resultado.pendiente) };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo pasar al cerebro") };
   }
