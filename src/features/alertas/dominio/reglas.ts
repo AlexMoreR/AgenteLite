@@ -100,3 +100,73 @@ export function claveDeAlerta(origen: string, titulo: string): string {
   for (let i = 0; i < base.length; i += 1) hash = ((hash << 5) + hash + base.charCodeAt(i)) | 0;
   return `${origen.toLowerCase().replace(/[^a-z0-9]+/g, "-")}:${(hash >>> 0).toString(36)}`;
 }
+
+/* ───────────── ÁREAS (filtro de la página /cliente/alertas; solo lectura, no cambia a quién se avisa) ───────────── */
+
+/** Las áreas del filtro, en el orden de los botones. Lo que no encaje cae en "General". */
+export const AREAS_DE_ALERTA = ["Ventas", "CRM Ventas", "Gestión", "CRM Marketplace", "Coordinador", "General", "Marketing"] as const;
+export type AreaDeAlerta = (typeof AREAS_DE_ALERTA)[number];
+export const AREA_POR_DEFECTO: AreaDeAlerta = "General";
+
+const sinTildes = (valor: string) =>
+  valor
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+
+/** Texto libre → área de la lista fija ("gestion" y "Gestión" son la misma). Lo que no está en la lista es null. */
+export function leerAreaDeAlerta(valor: unknown): AreaDeAlerta | null {
+  const texto = sinTildes(String(valor ?? ""));
+  return AREAS_DE_ALERTA.find((area) => sinTildes(area) === texto) ?? null;
+}
+
+/** El id de la tarjeta de una clave `auto:trabado:<tarjeta>:<estado>` o `auto:necesita:<tarjeta>:<estado>`; null si no es de tarjeta. */
+export function idDeTarjetaDeLaClave(clave: string): string | null {
+  const partes = String(clave ?? "").split(":");
+  if (partes[0] !== "auto" || (partes[1] !== "trabado" && partes[1] !== "necesita")) return null;
+  return partes[2]?.trim() || null;
+}
+
+/**
+ * El área de una tarjeta a partir de sus áreas de arriba hacia abajo (la ruta: la raíz primero, la carpeta Área más
+ * cercana al final). Dentro de Tecnología manda la subárea madre (CRM Ventas, Gestión…); en cualquier otra, la primera.
+ * Si ninguna encaja con la lista fija, null.
+ */
+export function areaDeLaRuta(ruta: readonly string[]): AreaDeAlerta | null {
+  const enTecnologia = ruta.length > 1 && sinTildes(ruta[0]) === "tecnologia";
+  const candidatas = enTecnologia ? ruta.slice(1) : ruta;
+  for (const nombre of candidatas) {
+    const area = leerAreaDeAlerta(nombre);
+    if (area) return area;
+  }
+  return null;
+}
+
+/** Área de una alerta que no viene de una tarjeta, según quién la generó. */
+export function areaDelOrigen(origen: string): AreaDeAlerta {
+  if (origen === ORIGEN_COORDINADOR) return "Coordinador";
+  if (origen === ORIGEN_POR_AREA.ventas) return "Ventas";
+  if (origen === ORIGEN_POR_AREA.marketing) return "Marketing";
+  return leerAreaDeAlerta(origen) ?? AREA_POR_DEFECTO;
+}
+
+/**
+ * El área de una alerta. `areasDeTarjetas` trae el área de cada tarjeta que se pudo ubicar (null = borrada o sin área).
+ * Sin tarjeta o sin área ubicable: por quién la generó; y si tampoco, "General". Nunca queda una alerta sin área.
+ */
+export function areaDeAlerta(alerta: { clave: string; origen: string }, areasDeTarjetas: ReadonlyMap<string, AreaDeAlerta | null>): AreaDeAlerta {
+  const tarjetaId = idDeTarjetaDeLaClave(alerta.clave);
+  if (tarjetaId) return areasDeTarjetas.get(tarjetaId) ?? areaDelOrigen(alerta.origen);
+  return areaDelOrigen(alerta.origen);
+}
+
+/** Cuántas alertas ABIERTAS (nuevas o vistas) hay por área; las resueltas no cuentan. */
+export function contarAbiertasPorArea(alertas: readonly { estado: string; area: string }[]): Record<AreaDeAlerta, number> {
+  const cuenta = Object.fromEntries(AREAS_DE_ALERTA.map((area) => [area, 0])) as Record<AreaDeAlerta, number>;
+  for (const alerta of alertas) {
+    if (alerta.estado !== "NUEVA" && alerta.estado !== "VISTA") continue;
+    cuenta[leerAreaDeAlerta(alerta.area) ?? AREA_POR_DEFECTO] += 1;
+  }
+  return cuenta;
+}

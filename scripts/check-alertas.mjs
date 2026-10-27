@@ -43,6 +43,19 @@ const falso = {
 };
 const ajustes = new Map();
 
+// Tarjetas falsas del tablero: Tecnología (área) > Gestión (subárea) > Tarea; Ventas (área) > Tarea; una huérfana y una borrada.
+const tarjetas = [
+  { id: "tec", titulo: "Tecnología", padreId: null, borradoEn: null, area: null, tipo: { usaEstados: false } },
+  { id: "ges", titulo: "Gestión", padreId: "tec", borradoEn: null, area: null, tipo: { usaEstados: false } },
+  { id: "t1", titulo: "Arreglar facturas", padreId: "ges", borradoEn: null, area: null, tipo: { usaEstados: true } },
+  { id: "tt", titulo: "Algo de Tecnología", padreId: "tec", borradoEn: null, area: null, tipo: { usaEstados: true } },
+  { id: "ven", titulo: "Ventas", padreId: null, borradoEn: null, area: null, tipo: { usaEstados: false } },
+  { id: "t2", titulo: "Seguir clientes", padreId: "ven", borradoEn: null, area: null, tipo: { usaEstados: true } },
+  { id: "huerfana", titulo: "Sin madre", padreId: null, borradoEn: null, area: null, tipo: { usaEstados: true } },
+  { id: "borrada", titulo: "Vieja", padreId: "ven", borradoEn: new Date(), area: null, tipo: { usaEstados: true } },
+];
+falso.tarjetaTablero = { findMany: async ({ where }) => tarjetas.filter((t) => where.id.in.includes(t.id)) };
+
 const whatsapps = [];
 const mocks = {
   "@/lib/prisma": { prisma: falso },
@@ -269,6 +282,47 @@ await prueba("Línea de WhatsApp caída: es Urgente, queda en la página y avisa
   assert.equal(await enrutador.avisarLineaCaidaPorWhatsApp(pedido), false);
   assert.equal(whatsapps.length, 0);
   assert.equal(filas.length, 1);
+});
+
+await prueba("áreas: el id de la tarjeta sale de las claves auto:trabado y auto:necesita, y de ninguna otra", () => {
+  assert.equal(reglas.idDeTarjetaDeLaClave("auto:trabado:t1:ERROR"), "t1");
+  assert.equal(reglas.idDeTarjetaDeLaClave("auto:necesita:t2:PLAN_LISTO"), "t2");
+  assert.equal(reglas.idDeTarjetaDeLaClave("auto:caido"), null);
+  assert.equal(reglas.idDeTarjetaDeLaClave("supervisor:abc"), null);
+});
+
+await prueba("áreas: directa, subárea madre dentro de Tecnología, huérfana y borrada caen donde deben", async () => {
+  const mapa = await servicio.leerAreasDeTarjetas("ws1", ["t1", "tt", "t2", "huerfana", "borrada", "noexiste"]);
+  assert.equal(mapa.get("t1"), "Gestión");
+  assert.equal(mapa.get("tt"), null); // dentro de Tecnología pero sin subárea de la lista
+  assert.equal(mapa.get("t2"), "Ventas");
+  assert.equal(mapa.get("huerfana"), null);
+  assert.equal(mapa.get("borrada"), null);
+  assert.equal(mapa.get("noexiste"), null);
+});
+
+await prueba("áreas: alerta del Coordinador sin tarjeta, tarjeta sin área y área desconocida", () => {
+  const mapa = new Map([["t1", "Gestión"], ["borrada", null]]);
+  assert.equal(reglas.areaDeAlerta({ clave: "auto:trabado:t1:ERROR", origen: "Coordinador" }, mapa), "Gestión");
+  assert.equal(reglas.areaDeAlerta({ clave: "auto:caido", origen: "Coordinador" }, mapa), "Coordinador");
+  assert.equal(reglas.areaDeAlerta({ clave: "auto:trabado:borrada:ERROR", origen: "Supervisor" }, mapa), "General");
+  assert.equal(reglas.areaDeAlerta({ clave: "x:1", origen: "Supervisor" }, mapa), "General");
+  assert.equal(reglas.areaDeAlerta({ clave: "x:2", origen: "Agente de Ventas" }, mapa), "Ventas");
+  assert.equal(reglas.areaDeLaRuta(["Cosa rara"]), null);
+  assert.equal(reglas.leerAreaDeAlerta("gestion"), "Gestión");
+  assert.equal(reglas.leerAreaDeAlerta("Inventada"), null);
+});
+
+await prueba("áreas: los conteos solo cuentan las abiertas y un área desconocida cuenta en General", () => {
+  const cuenta = reglas.contarAbiertasPorArea([
+    { estado: "NUEVA", area: "Gestión" },
+    { estado: "VISTA", area: "Gestión" },
+    { estado: "RESUELTA", area: "Gestión" },
+    { estado: "NUEVA", area: "Inventada" },
+  ]);
+  assert.equal(cuenta["Gestión"], 2);
+  assert.equal(cuenta["General"], 1);
+  assert.equal(cuenta["Ventas"], 0);
 });
 
 console.log(`\n${pruebas} pruebas ok`);

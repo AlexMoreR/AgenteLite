@@ -6,6 +6,11 @@ import { BellRing } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ListaDeAlertas } from "@/features/alertas/components/ListaDeAlertas";
 import {
+  AREAS_DE_ALERTA,
+  AREA_POR_DEFECTO,
+  areaDeAlerta,
+  contarAbiertasPorArea,
+  idDeTarjetaDeLaClave,
   ESTADOS_DE_ALERTA,
   ETIQUETA_DE_ESTADO,
   ETIQUETA_DE_PRIORIDAD,
@@ -13,7 +18,7 @@ import {
   leerPrioridad,
   type EstadoDeAlerta,
 } from "@/features/alertas/dominio/reglas";
-import { contarAlertas, listarAlertas } from "@/features/alertas/servicios/alertas";
+import { contarAlertas, leerAreasDeTarjetas, listarAlertas } from "@/features/alertas/servicios/alertas";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
 import { cn } from "@/lib/utils";
@@ -40,10 +45,24 @@ export default async function AlertasPage({ searchParams }: PageProps) {
   const estado = estadoPedido === "TODAS" || estadoPedido === "ABIERTAS" || (ESTADOS_DE_ALERTA as readonly string[]).includes(estadoPedido) ? estadoPedido : "ABIERTAS";
   const prioridad = leerPrioridad(uno(parametros.prioridad));
 
-  const [alertas, cuenta] = await Promise.all([
+  const [alertas, abiertas, cuenta] = await Promise.all([
     listarAlertas(access.workspaceId, { estado: estado as EstadoDeAlerta | "ABIERTAS" | "TODAS", prioridad }).catch(() => null),
+    // Para los números de los botones de área: todas las abiertas, sin importar el estado ni la prioridad elegidos.
+    listarAlertas(access.workspaceId, { estado: "ABIERTAS" }).catch(() => []),
     contarAlertas(access.workspaceId).catch(() => null),
   ]);
+
+  // Área de cada alerta (solo lectura). Si la lectura de tarjetas falla, todo cae en el área por defecto y la página sigue.
+  const idsDeTarjetas = [...(alertas ?? []), ...abiertas].map((alerta) => idDeTarjetaDeLaClave(alerta.clave)).filter((id): id is string => !!id);
+  const areasDeTarjetas = await leerAreasDeTarjetas(access.workspaceId, idsDeTarjetas).catch(() => new Map());
+  const areaDe = (alerta: { clave: string; origen: string }) => {
+    try {
+      return areaDeAlerta(alerta, areasDeTarjetas);
+    } catch {
+      return AREA_POR_DEFECTO;
+    }
+  };
+  const conteoPorArea = contarAbiertasPorArea(abiertas.map((alerta) => ({ estado: alerta.estado, area: areaDe(alerta) })));
 
   const enlace = (cambios: { estado?: string; prioridad?: string | null }) => {
     const query = new URLSearchParams();
@@ -63,6 +82,8 @@ export default async function AlertasPage({ searchParams }: PageProps) {
     titulo: alerta.titulo,
     detalle: alerta.detalle,
     origen: alerta.origen,
+    area: areaDe(alerta),
+    tarjetaId: idDeTarjetaDeLaClave(alerta.clave),
     estado: alerta.estado,
     veces: alerta.veces,
     salioPorWhatsApp: alerta.salioPorWhatsApp,
@@ -94,7 +115,7 @@ export default async function AlertasPage({ searchParams }: PageProps) {
         ))}
       </div>
 
-      {alertas === null ? <p className="text-sm text-destructive">No se pudieron leer las alertas. Vuelve a intentar en un momento.</p> : <ListaDeAlertas alertas={filas} />}
+      {alertas === null ? <p className="text-sm text-destructive">No se pudieron leer las alertas. Vuelve a intentar en un momento.</p> : <ListaDeAlertas alertas={filas} areas={[...AREAS_DE_ALERTA]} conteoPorArea={conteoPorArea} />}
     </div>
   );
 }
