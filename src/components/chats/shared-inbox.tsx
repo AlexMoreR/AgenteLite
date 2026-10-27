@@ -1,6 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { hayVersionNueva } from "@/components/app-version-guard";
+import {
+  guardarEnvioPendiente,
+  marcarOcupada,
+  pedirRevisionDeVersion,
+  puedeReenviarPendiente,
+  tomarEnvioPendiente,
+} from "@/lib/actualizacion-automatica";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -2336,6 +2344,29 @@ export function SharedInbox({
             agregarFallido(lista, { ...enviado, outboundStatusLabel: "error", errorDetail: errorMessage }),
           );
         }
+        /*
+          Si el envio se cayo (la accion lanzo excepcion, no fue una respuesta de error) y el servidor
+          ya tiene otra version, el servidor rechazo el pedido antes de ejecutarlo: el mensaje NO salio.
+          Se guarda como pendiente y la app se recarga sola; al volver se reenvia UNA vez (ver el
+          efecto de "envio pendiente" mas abajo). Si no es por la version, queda como "No se envió".
+        */
+        if (!result && enviado?.envio && (enviado.type ?? "TEXT") === "TEXT") {
+          const aReenviar = enviado;
+          void hayVersionNueva().then((vieja) => {
+            if (!vieja || !aReenviar.envio) {
+              return;
+            }
+            guardarEnvioPendiente({
+              chatKey: aReenviar.envio.chatKey,
+              conversationId: aReenviar.conversationId,
+              campos: aReenviar.envio.campos,
+              texto: (aReenviar.matchContent ?? aReenviar.content ?? "").trim(),
+              contenido: aReenviar.content ?? "",
+              creadoEn: Date.now(),
+            });
+            pedirRevisionDeVersion();
+          });
+        }
         setOptimisticOutgoingMessage((current) => (current && current.id === optimisticId ? null : current));
       } else if (result.suppressOptimistic) {
         setOptimisticOutgoingMessage((current) => (current && current.id === optimisticId ? null : current));
@@ -2965,9 +2996,12 @@ export function SharedInbox({
   const composerHiddenFieldsRef = useRef(composerHiddenFields);
   composerHiddenFieldsRef.current = composerHiddenFields;
 
-  const handleRetryFailedMessage = useCallback((target: SharedInboxMessageItem) => {
+  /**
+   * Repite un envio de texto que no salio. Lo usan el boton Reintentar y el reenvio unico tras una
+   * recarga automatica por version nueva.
+   */
+  const reenviarFallido = useCallback((failed: OptimisticDraftMessage | null) => {
     const composerValue = composerRef.current;
-    const failed = mensajesFallidosRef.current.find((item) => item.id === target.id) ?? null;
     // Se reenvia el texto SIN firma (la pone el servidor). Si la burbuja salio sin firma
     // (respuesta rapida o firma apagada), el reintento tambien va sin firma.
     const text = (failed?.matchContent ?? failed?.content)?.trim();
@@ -3028,6 +3062,67 @@ export function SharedInbox({
       .catch(() => finalizeOptimisticSend(optimisticId, null))
       .finally(liberar);
   }, [finalizeOptimisticSend]);
+
+  const handleRetryFailedMessage = useCallback((target: SharedInboxMessageItem) => {
+    reenviarFallido(mensajesFallidosRef.current.find((item) => item.id === target.id) ?? null);
+  }, [reenviarFallido]);
+
+  /*
+    Envio pendiente por version vieja (ver finalizeOptimisticSend): la primera vez que carga un chat
+    despues de la recarga automatica se mira si quedo un texto sin salir y se reenvia UNA vez. La marca
+    se borra ANTES de cualquier otra cosa (tomarEnvioPendiente), asi que nunca se reenvia dos veces.
+    Solo sale si es de este chat, tiene menos de 2 minutos y el texto no esta ya guardado en el chat.
+    Si algo no cuadra no pasa nada: el texto ya no esta, igual que antes de esta mejora.
+  */
+  const pendienteRevisadoRef = useRef(false);
+  useEffect(() => {
+    if (pendienteRevisadoRef.current || !renderedConversation || renderedConversation.isPreview || !composer) {
+      return;
+    }
+    pendienteRevisadoRef.current = true;
+    const pendiente = tomarEnvioPendiente();
+    if (!pendiente) {
+      return;
+    }
+    const ahora = Date.now();
+    const yaGuardado = renderedConversation.messages.some(
+      (message) =>
+        message.direction === "OUTBOUND" &&
+        message.createdAt.getTime() >= pendiente.creadoEn - 5 * 60_000 &&
+        textoCoincideConGuardado(message.content, pendiente.texto),
+    );
+    if (
+      !puedeReenviarPendiente({
+        pendiente,
+        chatAbiertoId: renderedConversation.id,
+        ahora,
+        yaGuardado,
+      })
+    ) {
+      return;
+    }
+    reenviarFallido({
+      id: `pendiente:${pendiente.conversationId}:${pendiente.creadoEn}`,
+      conversationId: pendiente.conversationId,
+      content: pendiente.contenido,
+      matchContent: pendiente.texto,
+      direction: "OUTBOUND",
+      createdAt: new Date(ahora),
+      authorType: "user",
+      outboundStatusLabel: "error",
+      type: "TEXT",
+      mediaUrl: null,
+      rawPayload: { optimistic: true },
+      isOptimistic: true,
+      envio: { chatKey: pendiente.chatKey, campos: pendiente.campos },
+    });
+  }, [composer, renderedConversation, reenviarFallido]);
+
+  // Con un texto en camino la app no se recarga sola (ver actualizacion-automatica.ts).
+  useEffect(() => {
+    marcarOcupada("texto", chatsConTextoEnCurso.length > 0);
+    return () => marcarOcupada("texto", false);
+  }, [chatsConTextoEnCurso.length]);
   // Identidad estable de la conversación: normalizamos el id (el preview viene como
   // "agent:<id>" y el cargado como "<id>"), si no, split(":")[0] daría "agent" para todos
   // los chats y no detectaría el cambio de conversación → el scroll no bajaría al fondo.
