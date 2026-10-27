@@ -759,4 +759,90 @@ prueba("color elegido / producto del chat (11-oct): solo elecciones claras; 'sol
   assert.equal(pr.nombreEnSingular("camillas"), "camilla");
 });
 
+/* ------------------------------------------------------------------ pausa acordada (26-oct) */
+
+const PA = cargar("src/features/supervisor/dominio/pausa-acordada.ts");
+const CONFIG_PAUSA = cf.leerConfigDeTexto(JSON.stringify({ calificacion: { activo: true }, motor: { modo: "activo" }, pausaAcordada: { activo: true } }));
+const CASO_26_OCT = [IN(0, "Espero que me organicen el lugar donde voy a trabajar"), ASESORA(5, "Quedamos al pendiente, cualquier cosa me escribes 😊")];
+
+prueba("pausa acordada: el interruptor viene apagado y 'dias' se acota", () => {
+  assert.equal(cf.CONFIG_POR_DEFECTO.pausaAcordada.activo, false);
+  assert.equal(cf.leerConfigDeTexto("{}").pausaAcordada.dias, 3);
+  assert.equal(cf.leerConfigDeTexto(JSON.stringify({ pausaAcordada: { activo: "true", dias: 500 } })).pausaAcordada.dias, 30);
+});
+
+prueba("pausa acordada: el caso real del 26-oct queda dormido a los 3 días (horario laboral) y no es tarea", () => {
+  const e = mo.evaluarLead(ficha({ mensajes: CASO_26_OCT }), CONFIG_PAUSA, mas(2 * H));
+  assert.equal(e.decision.accion, "dormido");
+  assert.equal(e.decision.motivo, "pausa_acordada");
+  assert.equal(e.decision.dormidoHasta.getTime(), mas(3 * DIA).getTime());
+  assert.equal(e.decision.supresion, "siempre");
+  assert.match(e.decision.detalle, /organicen el lugar/);
+});
+
+prueba("pausa acordada: con el interruptor apagado el resultado es idéntico al de hoy", () => {
+  const apagada = cf.leerConfigDeTexto(JSON.stringify({ calificacion: { activo: true }, motor: { modo: "activo" } }));
+  const a = mo.evaluarLead(ficha({ mensajes: CASO_26_OCT }), apagada, mas(2 * H));
+  const b = mo.evaluarLead(ficha({ mensajes: CASO_26_OCT }), CONFIG, mas(2 * H));
+  assert.deepEqual(a.decision, b.decision);
+  assert.notEqual(a.decision.motivo, "pausa_acordada");
+});
+
+prueba("pausa acordada: el día de retomar sale una tarea de valor, sin presión; si ya la retomó, no", () => {
+  const e = mo.evaluarLead(ficha({ mensajes: CASO_26_OCT }), CONFIG_PAUSA, mas(3 * DIA + H));
+  assert.equal(e.decision.accion, "tarea_asesora");
+  assert.equal(e.decision.motivo, "pausa_acordada_retomar");
+  assert.match(e.decision.mensajeSugerido, /¿Cómo vas con el lugar donde vas a trabajar\?/);
+  assert.match(e.decision.mensajeSugerido, /sin ningún afán/);
+  assert.doesNotMatch(e.decision.mensajeSugerido, /urgente|última|ya casi|promoci|descuento/i);
+  const retomada = mo.evaluarLead(ficha({ mensajes: [...CASO_26_OCT, ASESORA(3 * DIA / MIN + 10, "¡Hola! ¿Cómo vas con el local?")] }), CONFIG_PAUSA, mas(3 * DIA + H));
+  assert.notEqual(retomada.decision.motivo, "pausa_acordada_retomar");
+});
+
+prueba("pausa acordada: la fecha que dio el cliente manda sobre los 3 días", () => {
+  const f = ficha({ mensajes: [IN(0, "Estoy reuniendo la plata, a finales de noviembre te confirmo"), ASESORA(5, "Perfecto, quedamos atentos")] });
+  const e = mo.evaluarLead(f, CONFIG_PAUSA, mas(2 * H));
+  assert.equal(e.decision.accion, "dormido");
+  assert.ok(e.decision.dormidoHasta.getTime() > mas(40 * DIA).getTime(), "finales de noviembre, no 3 días");
+  const semana = mo.evaluarLead(ficha({ mensajes: [IN(0, "Yo te aviso la otra semana"), ASESORA(5, "Dale, quedo atenta")] }), CONFIG_PAUSA, mas(2 * H));
+  assert.equal(semana.decision.motivo, "pausa_acordada");
+  assert.ok(semana.decision.dormidoHasta.getTime() > mas(2 * DIA).getTime());
+});
+
+prueba("pausa acordada: otras frases de pausa se reconocen; los acuses después no la rompen", () => {
+  for (const frase of ["Estoy reuniendo la plata", "Estoy organizando el local", "Espero un pago y te aviso", "te aviso", "Más adelante lo miro", "Cuando tenga la plata me comunico"]) {
+    const p = PA.detectarPausaAcordada({ mensajes: [IN(0, frase), ASESORA(5, "Claro que sí")] }, mas(H));
+    assert.ok(p, frase);
+    assert.ok(p.retomarEn.getTime() > mas(H).getTime(), frase);
+  }
+  const conAcuse = PA.detectarPausaAcordada({ mensajes: [IN(0, "te aviso"), ASESORA(5, "Dale"), IN(8, "ok gracias")] }, mas(H));
+  assert.ok(conAcuse);
+});
+
+prueba("pausa acordada: NO es pausa sin respuesta de una persona, con pregunta, señal de compra nueva, pago o media nueva", () => {
+  const sinPersona = PA.detectarPausaAcordada({ mensajes: [IN(0, "Estoy reuniendo la plata")] }, mas(H));
+  assert.equal(sinPersona, null);
+  const soloBot = PA.detectarPausaAcordada({ mensajes: [IN(0, "Estoy reuniendo la plata"), BOT(1, "¡Claro!")] }, mas(H));
+  assert.equal(soloBot, null);
+  const pregunta = PA.detectarPausaAcordada({ mensajes: [IN(0, "te aviso"), ASESORA(5, "Dale"), IN(10, "¿y el envío cuánto cuesta?")] }, mas(H));
+  assert.equal(pregunta, null);
+  const compra = PA.detectarPausaAcordada({ mensajes: [IN(0, "te aviso"), ASESORA(5, "Dale"), IN(10, "mejor ya la quiero, dime a qué cuenta consigno")] }, mas(H));
+  assert.equal(compra, null);
+  for (const pagado of ["Ya pagué, te aviso cuando llegue", "Ya hice la transferencia, te aviso", "te aviso, aquí va el comprobante"]) {
+    assert.equal(PA.detectarPausaAcordada({ mensajes: [IN(0, pagado), ASESORA(5, "Gracias")] }, mas(H)), null, pagado);
+  }
+  const foto = PA.detectarPausaAcordada({ mensajes: [IN(0, "te aviso"), ASESORA(5, "Dale"), { ...IN(10, ""), tipo: "IMAGE" }] }, mas(H));
+  assert.equal(foto, null);
+  // Espera algo NUESTRO: es turno del equipo, no pausa.
+  assert.equal(PA.detectarPausaAcordada({ mensajes: [IN(0, "Espero tu respuesta"), ASESORA(5, "Ya te escribo")] }, mas(H)), null);
+  assert.equal(PA.detectarPausaAcordada({ mensajes: [IN(0, "Espero que me respondas pronto"), ASESORA(5, "Claro")] }, mas(H)), null);
+});
+
+prueba("pausa acordada: el cliente vuelve a escribir y la pausa se cancela sola", () => {
+  const vuelve = ficha({ mensajes: [...CASO_26_OCT, IN(2 * 24 * 60, "Hola, ya tengo el local listo, ¿me cotizas el combo?")] });
+  const e = mo.evaluarLead(vuelve, CONFIG_PAUSA, mas(2 * DIA + H));
+  assert.notEqual(e.decision.motivo, "pausa_acordada");
+  assert.notEqual(e.decision.accion, "dormido");
+});
+
 console.log(`\n${pruebas} pruebas OK`);

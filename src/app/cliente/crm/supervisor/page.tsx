@@ -19,7 +19,8 @@ import { leerAlertasRecientes } from "@/features/supervisor/servicios/almacen-al
 import { leerDatosDeChats } from "@/features/supervisor/servicios/chats-de-alertas";
 import { supervisorActivo } from "@/features/supervisor/servicios/config";
 import { enHorario } from "@/features/supervisor/dominio/detectores-atencion";
-import { leerChatsAbiertos, leerFlujosDelLibro, leerLineaDelLibro } from "@/features/supervisor/servicios/datos";
+import { PausasAcordadas } from "@/features/supervisor/components/PausasAcordadas";
+import { leerChatsAbiertos, leerFlujosDelLibro, leerLineaDelLibro, leerPausasAcordadas } from "@/features/supervisor/servicios/datos";
 import { leerConfigTurno } from "@/lib/turno-config";
 import { idsDelComboEnElLibro } from "@/features/supervisor/servicios/vueltas";
 import { TareasDeSeguimiento } from "@/features/seguimiento-inteligente/components/TareasDeSeguimiento";
@@ -207,6 +208,8 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
           resumen: await resumenDelMotor(workspaceId, ahora).catch(() => []),
         }
       : null;
+  // Pausa acordada: solo si su interruptor está prendido.
+  const pausasAcordadas = configSeguimiento.pausaAcordada.activo ? await leerPausasAcordadas(workspaceId, ahora).catch(() => []) : null;
   // Recuperación 72 h: solo si está prendida (sombra o activo).
   const recuperacion =
     configSeguimiento.recuperacion72h.modo !== "apagado"
@@ -291,6 +294,21 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
                 : ""}
             </p>
             <TareasDeSeguimiento tareas={seguimiento.tareas} ahora={ahora} mostrarAsesora />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {pausasAcordadas ? (
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle>En pausa acordada ({pausasAcordadas.length})</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p className="text-muted-foreground">
+              Clientes que dejaron la compra en pausa (esperan algo o dijeron «te aviso») y ya fueron atendidos: no son alerta. Cada uno
+              vuelve como tarea para la asesora en su fecha, con un mensaje de valor sin presionar.
+            </p>
+            <PausasAcordadas pausas={pausasAcordadas} />
           </CardContent>
         </Card>
       ) : null}

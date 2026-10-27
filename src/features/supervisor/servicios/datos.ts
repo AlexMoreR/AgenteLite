@@ -357,3 +357,59 @@ export async function nombresDeAsesoras(workspaceId: string): Promise<Record<str
   });
   return Object.fromEntries(miembros.map((m) => [m.userId, m.user?.name ?? m.userId]));
 }
+
+export type PausaAcordadaDelChat = {
+  conversationId: string;
+  nombre: string;
+  telefonoFinal: string | null;
+  asesoraNombre: string | null;
+  /** Lo que dijo el cliente. */
+  frase: string;
+  /** La fecha en palabras ("finales de noviembre", "3 días"). */
+  como: string | null;
+  retomarEn: Date;
+};
+
+type FilaDePausa = {
+  conversationId: string;
+  nombre: string | null;
+  telefono: string | null;
+  asesoraNombre: string | null;
+  dormidoHasta: Date;
+  accionDatos: Record<string, unknown> | null;
+};
+
+/**
+ * Los chats en "pausa acordada" (26-10-2026): filas de EmbudoLead con accion "dormido" y motivo
+ * `pausa_acordada` que el motor del seguimiento inteligente dejó. Solo lectura, una consulta.
+ */
+export async function leerPausasAcordadas(workspaceId: string, ahora: Date): Promise<PausaAcordadaDelChat[]> {
+  const filas = await prisma.$queryRaw<FilaDePausa[]>(Prisma.sql`
+    SELECT l."conversationId", ct."name" AS "nombre", ct."phoneNumber" AS "telefono", u."name" AS "asesoraNombre",
+           l."dormidoHasta", l."accionDatos"
+      FROM "EmbudoLead" l
+      JOIN "Conversation" c ON c."id" = l."conversationId"
+      JOIN "Contact" ct ON ct."id" = c."contactId"
+      LEFT JOIN "User" u ON u."id" = c."assignedToUserId"
+     WHERE l."workspaceId" = ${workspaceId}
+       AND l."accion" = 'dormido'
+       AND l."accionDatos"->>'motivo' = 'pausa_acordada'
+       AND l."dormidoHasta" > ${ahora}
+       AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
+       AND c."status" = 'OPEN'
+     ORDER BY l."dormidoHasta" ASC
+     LIMIT 50`);
+  return filas.map((fila) => {
+    const datos = fila.accionDatos ?? {};
+    const telefono = (fila.telefono ?? "").replace(/\D/g, "");
+    return {
+      conversationId: fila.conversationId,
+      nombre: fila.nombre?.trim() || "Cliente",
+      telefonoFinal: telefono.length >= 7 && telefono.length <= 13 ? telefono.slice(-4) : null,
+      asesoraNombre: fila.asesoraNombre,
+      frase: typeof datos.fechaFragmento === "string" ? datos.fechaFragmento : "",
+      como: typeof datos.fechaComo === "string" ? datos.fechaComo : null,
+      retomarEn: new Date(fila.dormidoHasta),
+    };
+  });
+}

@@ -69,6 +69,15 @@ export function purgarAcusesConAcuerdo(abiertos: Incidente[], conAcuse: Set<stri
 }
 
 /**
+ * Chats en "pausa acordada" (pausa-acordada.ts, 26-10-2026): el cliente dejó la compra en pausa y la
+ * asesora ya respondió. Salen de las alertas de atención abiertas igual que los acuses (menos las de
+ * pago, que nunca son pausa), y la que queda vacía se cierra.
+ */
+export function purgarPausasAcordadas(abiertos: Incidente[], enPausa: Set<string>, ahora: Date): { incidentes: Incidente[]; cambiados: number } {
+  return purgarAcusesConAcuerdo(abiertos, enPausa, ahora);
+}
+
+/**
  * Saca de las alertas de ATENCIÓN abiertas los chats excluidos. Un hallazgo que queda sin chats se
  * quita; una alerta que queda sin hallazgos se CIERRA ya (no espera los 15 min de "dejó de verse").
  * Las alertas de bot, embudo y cambio no se tocan: sus chats son ejemplos del incidente.

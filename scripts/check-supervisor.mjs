@@ -948,4 +948,69 @@ prueba("revalidación: muestra insuficiente → pendiente, sin CRÍTICO y sin av
   assert.equal(alertas.severidadDelIncidente([p.hallazgos[0]]), "OBSERVACION");
 });
 
+/* ------------------------------------------------------------------ pausa acordada (26-oct) */
+
+const pausaMod = cargar("src/features/supervisor/dominio/pausa-acordada.ts");
+const excl = cargar("src/features/supervisor/dominio/exclusiones.ts");
+
+// Caso real del 26-oct: el cliente espera que le organicen el lugar, María responde y el cliente cierra con "Ok".
+const ev = (direccion, min, texto, origen = direccion === "OUT" ? "manual" : "webhook") => ({ direccion, tipo: "TEXT", texto, origen, en: new Date(LUNES_10AM - 400 * M + min * M) });
+function chatEnPausa(parcial = {}) {
+  const mensajes = [ev("IN", 0, "Espero que me organicen el lugar donde voy a trabajar"), ev("OUT", 5, "Quedamos al pendiente 😊"), ev("IN", 10, "Ok")];
+  return {
+    conversationId: "pausa1", asesoraId: "u1", asesoraNombre: "María", etapa: "NEGOCIACION",
+    ultimoClienteEn: mensajes[2].en, ultimaRespuestaHumanaEn: mensajes[1].en, textosPendientes: ["Ok"], mensajes, ...parcial,
+  };
+}
+
+prueba("pausa acordada (26-oct): el caso de María NO da alerta con el interruptor prendido y SÍ como hoy con él apagado", () => {
+  const ahora = new Date(LUNES_10AM);
+  // Para que el chat quede "esperando" (último del cliente después de la respuesta humana) y solo el "Ok" lo cierre.
+  const apagado = chatEnPausa();
+  const prendido = chatEnPausa({ pausaAcordada: { dias: 3 } });
+  const con = atencion.estadoDeEspera(prendido, ahora);
+  assert.ok(con.pausa, "reconoce la pausa");
+  assert.equal(con.cierre, true);
+  assert.match(con.pausa.frase, /organicen el lugar/);
+  assert.equal(atencion.detectarAtencion([prendido], ahora).length, 0);
+  // Apagado: el estado no calcula pausa (todo como hoy).
+  assert.equal(atencion.estadoDeEspera(apagado, ahora).pausa, null);
+});
+
+prueba("pausa acordada: sin respuesta de la asesora, con pregunta nueva o con pago NO se silencia: se alerta como hoy", () => {
+  const ahora = new Date(LUNES_10AM);
+  const sinRespuesta = chatEnPausa({ ultimaRespuestaHumanaEn: null, mensajes: [ev("IN", 0, "Espero que me organicen el lugar donde voy a trabajar")], textosPendientes: ["Espero que me organicen el lugar"], pausaAcordada: { dias: 3 } });
+  assert.equal(atencion.estadoDeEspera(sinRespuesta, ahora).pausa, null);
+  const m2 = [ev("IN", 0, "te aviso"), ev("OUT", 5, "Dale"), ev("IN", 10, "¿y el envío cuánto cuesta?")];
+  const pregunta = chatEnPausa({ mensajes: m2, ultimoClienteEn: m2[2].en, ultimaRespuestaHumanaEn: m2[1].en, textosPendientes: ["¿y el envío cuánto cuesta?"], pausaAcordada: { dias: 3 } });
+  assert.equal(atencion.estadoDeEspera(pregunta, ahora).pausa, null);
+  const m3 = [ev("IN", 0, "Ya pagué, te aviso cuando llegue"), ev("OUT", 5, "Gracias"), ev("IN", 10, "ok")];
+  const pago = chatEnPausa({ mensajes: m3, ultimoClienteEn: m3[2].en, ultimaRespuestaHumanaEn: m3[1].en, pausaAcordada: { dias: 3 } });
+  assert.equal(atencion.estadoDeEspera(pago, ahora).pausa, null);
+});
+
+prueba("pausa acordada: llegado el día de retomar deja de ser pausa; la fecha del cliente manda ('el 15 te confirmo')", () => {
+  const t0 = new Date(LUNES_10AM - 400 * M);
+  const p = pausaMod.detectarPausaAcordada({ mensajes: chatEnPausa().mensajes }, new Date(LUNES_10AM));
+  assert.ok(p);
+  assert.equal(p.origen, "tres_dias");
+  assert.ok(p.retomarEn.getTime() >= t0.getTime() + 3 * 24 * H);
+  assert.equal(pausaMod.detectarPausaAcordada({ mensajes: chatEnPausa().mensajes }, new Date(p.retomarEn.getTime() + M)), null);
+  const con15 = pausaMod.detectarPausaAcordada({ mensajes: [ev("IN", 0, "el 15 te confirmo"), ev("OUT", 5, "Listo, quedo atenta")] }, new Date(LUNES_10AM));
+  assert.ok(con15);
+  assert.equal(con15.origen, "momento_del_cliente");
+  assert.equal(con15.como, "el 15");
+});
+
+prueba("pausa acordada: las alertas abiertas con chats en pausa se cierran (menos las de pago)", () => {
+  const ahora = new Date(LUNES_10AM);
+  const hall = (clave, chat) => ({ clave, familia: "ATENCION", severidad: "CRITICO", titulo: "t", que: "q", leadsAfectados: 1, evidencia: { chats: [chat], reglas: [], versiones: [] }, hechos: [`Chat ${chat}: espera`], hipotesis: [] });
+  const inc = (clave, chat) => ({ clave, familia: "ATENCION", estado: "ABIERTA", severidad: "CRITICO", hallazgos: [hall(clave, chat)] });
+  const abiertos = [inc("ATENCION:caliente-esperando:u1", "pausa1"), inc("ATENCION:pago-sin-respuesta:u1", "pausa1")];
+  const { incidentes, cambiados } = excl.purgarPausasAcordadas(abiertos, new Set(["pausa1"]), ahora);
+  assert.equal(cambiados, 1);
+  assert.equal(incidentes[0].estado, "RESUELTA");
+  assert.equal(incidentes[1].estado, "ABIERTA");
+});
+
 console.log(`\n${pruebas} pruebas del Supervisor OK`);

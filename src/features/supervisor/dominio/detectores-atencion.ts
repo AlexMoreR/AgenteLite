@@ -16,6 +16,7 @@ import { horaBogota, diaSemanaBogota } from "./linea-base";
 import type { Hallazgo } from "./tipos";
 import type { EventoDelChat, TurnoDeLaConversacion } from "../../../lib/turno-de-la-conversacion";
 import { acuerdoDeCompra, mensajeDelAcuerdo, soloAcusaReciboDeUnAcuerdo, type AcuerdoPrevio } from "./acuse-con-acuerdo";
+import { detectarPausaAcordada, type PausaAcordada } from "./pausa-acordada";
 import { senalPrincipal } from "../../seguimiento-inteligente/dominio/mensajes";
 import { esAgradecimientoSinPendiente, normalizarParaCierre } from "../../../lib/cierre-de-conversacion";
 
@@ -62,6 +63,12 @@ export type ChatAbierto = {
    * solo acusa recibo de algo ya acordado (acuse-con-acuerdo.ts); sin ellos, todo como antes.
    */
   mensajes?: EventoDelChat[] | null;
+  /**
+   * Interruptor de la "pausa acordada" (seguimiento inteligente, `pausaAcordada.activo`): con valor, el
+   * cliente que dejó la compra en pausa y ya fue atendido no es tarea (pausa-acordada.ts). Sin valor
+   * (undefined / null) todo es exactamente como antes.
+   */
+  pausaAcordada?: { dias: number } | null;
 };
 
 export type HorarioLaboral = { desde: number; hasta: number; dias: number[] };
@@ -187,6 +194,8 @@ export type EstadoDeEspera = {
   cierre: boolean;
   /** El cliente solo acusa recibo ("Sí señora, está bien") de un acuerdo previo (13-10-2026). */
   acuse: AcuerdoPrevio | null;
+  /** El cliente dejó la compra en pausa y la asesora ya respondió (26-10-2026); solo con su interruptor. */
+  pausa: PausaAcordada | null;
   minutos: number;
   minutosLaborales: number;
   senalFuerte: boolean;
@@ -205,11 +214,13 @@ export function estadoDeEspera(chat: ChatAbierto, ahora: Date, horario = HORARIO
   const fuerte = senales.find((s) => s.grupo === "fuerte");
   const cualquiera = senales.find(esSenalDeCompra);
   const acuse = esperando ? soloAcusaReciboDeUnAcuerdo(chat, horario) : null;
+  const pausa = esperando && chat.pausaAcordada ? detectarPausaAcordada({ mensajes: chat.mensajes }, ahora, { dias: chat.pausaAcordada.dias }) : null;
   return {
     chat,
     esperando,
-    cierre: esperando && (ultimoEsCierre(chat) || Boolean(acuse)),
+    cierre: esperando && (ultimoEsCierre(chat) || Boolean(acuse) || Boolean(pausa)),
     acuse,
+    pausa,
     minutos: esperando ? Math.floor((ahora.getTime() - (chat.ultimoClienteEn as Date).getTime()) / MIN) : 0,
     minutosLaborales: esperando ? minutosLaborales(chat.ultimoClienteEn as Date, ahora, horario) : 0,
     senalFuerte: Boolean(fuerte),
@@ -480,6 +491,8 @@ export function detectarAsignadoSinRespuesta(
     if (ultimoEsCierre(chat)) continue;
     // Solo acusa recibo de algo ya acordado ("Mil gracias" → "Gracias a ti" → "Sí señora, está bien").
     if (soloAcusaReciboDeUnAcuerdo(chat, HORARIO_POR_DEFECTO)) continue;
+    // Dejó la compra en pausa y ya le respondieron (pausa acordada, con su interruptor).
+    if (chat.pausaAcordada && detectarPausaAcordada({ mensajes: chat.mensajes }, ahora, { dias: chat.pausaAcordada.dias })) continue;
     const interes = interesDelLead(chat, ahora);
     if (!interes.interesado) continue;
     const sugerido = sugeridoParaElChat(chat, ahora, chat.nombreCliente ?? null);
