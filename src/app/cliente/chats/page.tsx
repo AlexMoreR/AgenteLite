@@ -35,6 +35,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
+import { puedeAbrirChatPorClave } from "@/lib/chats-acceso-por-enlace";
 import {
   idsSinResponder,
   leerFiltrosDeBandeja,
@@ -244,7 +245,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : "";
 
   const params = await searchParams;
-  const selectedChatKeyParam = typeof params.chatKey === "string" ? params.chatKey : "";
+  const chatKeySolicitada = typeof params.chatKey === "string" ? params.chatKey : "";
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
 
@@ -356,8 +357,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const errorMessage = typeof params.error === "string" ? params.error : "";
   const scrollMode = typeof params.scroll === "string" ? params.scroll : "";
 
-  const selectedChatRef = parseChatKey(selectedChatKeyParam);
-  const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
+  const chatSolicitado = parseChatKey(chatKeySolicitada);
 
   /**
    * Canales que esta persona puede ver (ver channel-visibility).
@@ -370,6 +370,27 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     userId: access.userId,
     esJefe: access.isOwner || access.role === "ADMIN",
   });
+
+  /*
+    Abrir por enlace (?chatKey=) aplica las MISMAS reglas que la lista: linea visible, asesora
+    dueña del chat y modo monitoreo (ver lib/chats-acceso-por-enlace). Sin permiso se hace de
+    cuenta que el enlace no traia chat: bandeja normal, sin error y sin datos de ese chat. Todo lo
+    de abajo (carga, marcar leidos, panel) parte de estas dos variables y no de lo que trae la URL.
+  */
+  const puedeAbrirSolicitado =
+    chatSolicitado !== null &&
+    (await puedeAbrirChatPorClave({
+      workspaceId: membership.workspace.id,
+      userId: access.userId,
+      fuente: chatSolicitado.source,
+      conversationId: chatSolicitado.conversationId,
+      esJefe: isManager,
+      canalesVisibles,
+      canalesMonitoreados,
+    }));
+  const selectedChatRef = puedeAbrirSolicitado ? chatSolicitado : null;
+  const selectedChatKeyParam = puedeAbrirSolicitado ? chatKeySolicitada : "";
+  const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
 
 
   /**

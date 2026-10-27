@@ -90,6 +90,7 @@
     "test:agente-de-sistemas-candado": "node agentes-de-area/pruebas/probar-agente-de-sistemas.mjs",
     "test:uso-del-sistema-migracion": "node scripts/check-uso-del-sistema-migracion.mjs",
     "test:como-quedo": "node scripts/check-como-quedo.mjs",
+    "test:chats-acceso-por-enlace": "npx tsx --test src/lib/chats-acceso-por-enlace.test.ts",
     "test:resuelto": "node scripts/check-resuelto.mjs",
     "test:respaldo": "node scripts/check-respaldo.mjs",
     "supervisor:guardian": "node scripts/supervisor-guardian.mjs",
