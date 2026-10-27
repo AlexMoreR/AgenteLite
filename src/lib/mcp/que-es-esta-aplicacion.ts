@@ -6,7 +6,6 @@ import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
 import { prisma } from "@/lib/prisma";
-import { leerConfigReasignacion } from "@/features/supervisor-reasignacion/servicios/config";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
@@ -490,20 +489,6 @@ async function estadoDeLaPauta(workspaceId: string) {
   return `activa: una vez al día (4 a. m.) guarda el origen de ${origenes} chat(s) de anuncio y de ${ventas} venta(s); ${meta ? "Meta Ads conectado en solo lectura" : "SIN llave de Meta Ads (META_ADS_ACCESS_TOKEN y META_ADS_ACCOUNT_ID): el gasto sale no disponible y no hay nombre de campaña"}`;
 }
 
-async function estadoDelSupervisorDeReasignacion(workspaceId: string) {
-  const config = await leerConfigReasignacion(workspaceId);
-  const hoy = new Date(Date.now() - 5 * 3_600_000);
-  hoy.setUTCHours(0, 0, 0, 0);
-  const desde = new Date(hoy.getTime() + 5 * 3_600_000);
-  const [avisos, reasignados] = await Promise.all([
-    prisma.supervisorAviso.count({ where: { workspaceId, creadoEn: { gte: desde }, tipo: { not: "REASIGNACION" } } }),
-    prisma.supervisorAviso.count({ where: { workspaceId, creadoEn: { gte: desde }, tipo: "REASIGNACION" } }),
-  ]);
-  const cuando = `${config.minutosAviso} min para avisar, ${config.minutosReasignacion} min para reasignar, Caliente a las ${config.horasCaliente} h, horario ${config.horario.desde}-${config.horario.hasta}`;
-  if (!config.avisosActivo && !config.reasignacionActiva) return "apagada: los dos interruptores (avisos y reasignación) están apagados";
-  return `activa: avisos ${config.avisosActivo ? "prendidos" : "apagados"}, reasignación ${config.reasignacionActiva ? "prendida" : "apagada"} (${cuando}); hoy ${avisos} avisos y ${reasignados} reasignaciones`;
-}
-
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -572,7 +557,6 @@ async function automatizaciones(
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
     agente_de_marketing: await estadoDelAgenteDeMarketing(workspaceId).catch(() => "no se pudo leer"),
     agente_de_sistemas: await estadoDelAgenteDeSistemas(workspaceId).catch(() => "no se pudo leer"),
-    supervisor_avisos_y_reasignacion: await estadoDelSupervisorDeReasignacion(workspaceId).catch(() => "no se pudo leer"),
     recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),
     // Vive en el Coordinador (aizen1), no en la base: el CRM solo recibe las 3 líneas del resumen con la subida.
     mejora_continua_tablero: "activa: corre dentro del Coordinador (aizen1); las lecciones viven en su carpeta de trabajo y el CRM no las puede leer, solo guarda las 3 líneas del resumen de cada subida",

@@ -134,43 +134,6 @@ export async function numeroDeAvisosDeLaPersona(workspaceId: string, userId: str
   return numero.length >= 10 ? numero : null;
 }
 
-/**
- * WhatsApp a UNA persona del equipo por una línea ADMINISTRATIVA (nunca una de ventas ni al cliente).
- * Solo sale si el número está en la lista de avisos del equipo (Mi empresa → Equipo) y la línea es
- * la pedida (`canalId`) con propósito ADMIN, o la interna de siempre si no se pide ninguna. La usa el
- * Supervisor de reasignación. Nunca lanza: devuelve el motivo si no salió.
- */
-export async function whatsAppAPersonaDelEquipo(input: {
-  workspaceId: string;
-  userId: string;
-  texto: string;
-  canalId?: string | null;
-}): Promise<{ ok: true } | { ok: false; motivo: string }> {
-  try {
-    const numero = await numeroDeAvisosDeLaPersona(input.workspaceId, input.userId);
-    if (!numero) return { ok: false, motivo: "sin número de avisos en Equipo" };
-    let instancia: string | null = null;
-    if (input.canalId) {
-      const linea = await prisma.whatsAppChannel.findFirst({
-        where: { id: input.canalId, workspaceId: input.workspaceId, purpose: "ADMIN" },
-        select: { evolutionInstanceName: true },
-      });
-      instancia = linea?.evolutionInstanceName ?? null;
-      if (!instancia) return { ok: false, motivo: "la línea de avisos no existe o no es administrativa" };
-    } else {
-      const config = await leerConfigGravedad(input.workspaceId);
-      instancia = (await lineaInterna(input.workspaceId, config))?.instancia ?? null;
-      if (!instancia) return { ok: false, motivo: "no hay línea interna" };
-    }
-    await sendEvolutionTextMessageWithReconnect({ instanceName: instancia, phoneNumber: numero, text: input.texto });
-    return { ok: true };
-  } catch (error) {
-    const motivo = error instanceof Error ? error.message : String(error);
-    console.warn("[avisos-gravedad] no salió el WhatsApp al equipo", { userId: input.userId, error: motivo });
-    return { ok: false, motivo: motivo.slice(0, 200) };
-  }
-}
-
 export async function pushAAlexander(
   workspaceId: string,
   config: ConfigGravedad,

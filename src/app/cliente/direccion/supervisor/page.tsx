@@ -33,10 +33,6 @@ import { leerConfigGravedad, leerResumenDelDia } from "@/features/avisos-graveda
 import { PanelAccionableView } from "@/features/supervisor-accionable/components/PanelAccionable";
 import { anclaDeAlerta, claveSinVersion, esAvisoDeVersionVieja } from "@/features/supervisor-accionable/dominio/reglas";
 import { leerConfigAccionable, leerPanelAccionable } from "@/features/supervisor-accionable/servicios/accionable";
-import { PanelReasignacion } from "@/features/supervisor-reasignacion/components/PanelReasignacion";
-import { fechaDeBogota } from "@/features/supervisor-reasignacion/dominio/reglas";
-import { leerConfigReasignacion } from "@/features/supervisor-reasignacion/servicios/config";
-import { asesorasSinNumeroDeAvisos, leerRegistroDelDia } from "@/features/supervisor-reasignacion/servicios/registro";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
 
@@ -122,12 +118,6 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
   const panelAccionable = configAccionable?.activo
     ? await leerPanelAccionable(workspaceId, (alertas ?? []).filter((alerta) => alerta.estado === "ABIERTA"), ahora, chatsFueraDeHorario, linea.actual.version).catch(() => null)
     : null;
-
-  const [configReasignacion, registroReasignacion, sinNumeroDeAvisos] = await Promise.all([
-    leerConfigReasignacion(workspaceId),
-    leerRegistroDelDia(workspaceId, fechaDeBogota(ahora)).catch(() => null),
-    asesorasSinNumeroDeAvisos(workspaceId).catch(() => []),
-  ]);
 
   const configAvisos = await leerConfigGravedad(workspaceId).catch(() => null);
   const avisos = {
@@ -257,8 +247,6 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
       ) : null}
 
       {panelAccionable ? <PanelAccionableView panel={panelAccionable} /> : null}
-
-      <PanelReasignacion config={configReasignacion} registro={registroReasignacion} sinNumero={sinNumeroDeAvisos} />
 
       {avisos.resumen ? (
         <Card size="sm">
