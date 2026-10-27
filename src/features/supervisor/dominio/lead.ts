@@ -27,6 +27,13 @@ export type MensajeDelSupervisor = Pick<
 const MIN = 60_000;
 const HORA = 60 * MIN;
 
+/**
+ * Pausa máxima entre dos mensajes del bot para que sigan siendo parte del MISMO paquete de
+ * bienvenida (texto + audio de Ingrid + catálogo del producto). El paquete cuenta como UN envío.
+ * Es el único número a mover si el catálogo llega con pausas más largas.
+ */
+export const PAUSA_DEL_PAQUETE = 90_000;
+
 /** Ventanas de maduración (ms desde la entrada del lead). */
 export const VENTANAS = {
   primerTurno: 10 * MIN,
@@ -70,7 +77,7 @@ export const MADURA_EN: Record<Indicador, number> = {
 
 export const NOMBRE_DEL_INDICADOR: Record<Indicador, string> = {
   regla_primer_mensaje: "Regla que gana el primer mensaje",
-  rafaga_inicial: "Leads con más de 3 mensajes del bot en los primeros 5 min",
+  rafaga_inicial: "Leads con más de 3 envíos del bot en los primeros 5 min (bienvenida + catálogo = 1)",
   precio_o_fotos_antes_de_identificar: "Precio o fotos antes de identificar al cliente",
   respondio_2h: "Clientes que responden en 2 h",
   conversa_3_24h: "Clientes que conversan (3+ mensajes) en 24 h",
@@ -106,8 +113,10 @@ export type FichaDelLead = {
   asesoraId: string | null;
   /** Regla que ganó el primer turno (de la nota "Agente V3: Ganó …"), o null si no hubo nota. */
   reglaPrimerMensaje: string | null;
-  /** Mensajes del bot en los primeros 5 min. */
+  /** Mensajes del bot en los primeros 5 min (total, solo informativo). */
   botPrimeros5Min: number;
+  /** Envíos del bot en los primeros 5 min: el paquete de bienvenida + catálogo cuenta como 1. */
+  enviosPrimeros5Min: number;
   /** El turno con más mensajes seguidos del bot en las primeras 24 h. */
   maxRafaga: number;
   /** Precio o fotos/video en el primer turno, antes de que el cliente vuelva a escribir. */
@@ -163,6 +172,22 @@ function esDeSeguimiento(m: MensajeDelSupervisor): boolean {
 
 function esDelCliente(m: MensajeDelSupervisor): boolean {
   return m.direction === "INBOUND" && m.type !== "SYSTEM";
+}
+
+/**
+ * Cuenta los envíos de una lista de mensajes del bot (del más viejo al más nuevo): los primeros,
+ * encadenados con pausas de hasta PAUSA_DEL_PAQUETE, son el paquete de bienvenida y cuentan 1.
+ */
+export function contarEnvios(mensajes: MensajeDelSupervisor[]): number {
+  if (!mensajes.length) return 0;
+  let enPaquete = 1;
+  while (
+    enPaquete < mensajes.length &&
+    mensajes[enPaquete].createdAt.getTime() - mensajes[enPaquete - 1].createdAt.getTime() <= PAUSA_DEL_PAQUETE
+  ) {
+    enPaquete += 1;
+  }
+  return 1 + (mensajes.length - enPaquete);
 }
 
 /** La última oración con "?" de un texto del bot, normalizada, o null. */
@@ -232,6 +257,9 @@ export function fichaDelLead(
     respuesta (la primera simulación lo mostró: 100 % de "respuesta" en los que recibían ráfaga).
   */
   const botPrimeros5Min = primerTurno.filter((m) => dentro(m, VENTANAS.rafagaInicial)).length;
+  // Envíos: el primer mensaje del bot y los que le siguen sin pausa de más de PAUSA_DEL_PAQUETE son
+  // un solo envío (bienvenida + audio + catálogo); lo que llega después de una pausa cuenta uno por uno.
+  const enviosPrimeros5Min = contarEnvios(primerTurno.filter((m) => dentro(m, VENTANAS.rafagaInicial)));
   const precioOFotosAntesDeIdentificar = primerTurno.some(
     (m) => m.type === "IMAGE" || m.type === "VIDEO" || (m.type === "TEXT" && RE_PRECIO.test(m.content ?? "")),
   );
@@ -310,6 +338,7 @@ export function fichaDelLead(
     asesoraId: opciones.asesoraId ?? null,
     reglaPrimerMensaje,
     botPrimeros5Min,
+    enviosPrimeros5Min,
     maxRafaga,
     precioOFotosAntesDeIdentificar,
     minutosHastaRespuesta: primeraRespuesta ? minutos(primeraRespuesta) : null,
@@ -347,7 +376,7 @@ export function disponible(ficha: FichaDelLead, indicador: Indicador, ahora: Dat
 export function valorDelIndicador(ficha: FichaDelLead, indicador: Exclude<Indicador, "regla_primer_mensaje">): boolean | null {
   switch (indicador) {
     case "rafaga_inicial":
-      return ficha.botPrimeros5Min > 3;
+      return ficha.enviosPrimeros5Min > 3;
     case "precio_o_fotos_antes_de_identificar":
       return ficha.precioOFotosAntesDeIdentificar;
     case "respondio_2h":

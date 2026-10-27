@@ -1010,8 +1010,45 @@ await prueba("Prioridades + revalidación: el revalidado RESUELTO y el PENDIENTE
   assert.match(t.solucion, /Corregir la regla/);
   assert.match(t.accionDeAlexander, /^Autoriza o descarta: La regla del primer turno/);
   assert.equal(r2.incidentes.find((i) => i.clave.includes("v182")).estado, "RESUELTA");
-  assert.equal(r2.incidentes.find((i) => i.clave.includes("v187")).severidad, "IMPORTANTE");
+  // El PENDIENTE de una versión vieja ya no se queda: la limpieza del libro lo cierra como "Reemplazado".
+  const v187 = r2.incidentes.find((i) => i.clave.includes("v187"));
+  assert.equal(v187.estado, "RESUELTA");
+  assert.match(v187.titulo, /^Reemplazado: el libro ya está en la versión 222: /);
   assert.equal(enviados.push.length + enviados.whatsapp.length, 0, "revalidar no manda nada por sí solo");
+});
+
+await prueba("Prioridades + limpieza del libro: las viejas cerradas y las repetidas ya no salen; queda solo la de la versión vigente", async () => {
+  reiniciar();
+  settings.set("supervisor:accionable:ws1", JSON.stringify({ activo: true }));
+  servicio.olvidarConfigAccionable();
+  const ahora = mas(T0, 60);
+  const alerta = (version, severidad) => ({
+    clave: `INC:libro-v${version}:combo-camilla`,
+    familia: "BOT",
+    severidad,
+    titulo: `Libro V3 v${version}: ráfaga del combo`,
+    producto: "combo-camilla",
+    primeraVezEn: mas(T0, -version),
+    ultimaVezEn: mas(T0, -60),
+    desde: mas(T0, -version),
+    vecesVista: 10,
+    estado: "ABIERTA",
+    resueltaEn: null,
+    notificadaEn: null,
+    severidadNotificada: null,
+    hallazgos: [hallazgo(`CAMBIO:post-cambio:v${version}:combo-camilla`, ["c9"], { severidad, tocaProduccion: true, queCambiar: "La regla del primer turno (libro V3)", recomendacion: "Revisar" })],
+  });
+  const incidentes = [alerta(292, "CRITICO"), alerta(311, "CRITICO"), alerta(317, "CRITICO"), alerta(320, "CRITICO")];
+  const antes = await servicio.leerPanelAccionable(WS, incidentes, ahora);
+  assert.ok(antes.prioridades.visibles.length + antes.prioridades.resto.length >= 3, "hoy: las viejas y repetidas llenan Prioridades");
+  const limpio = reval.aplicarRevalidaciones({
+    incidentes, avisar: [], abiertasAntes: new Set(incidentes.map((i) => i.clave)), versionActual: 320, ahora, inicioDe: (inc) => inc.desde, revalidar: () => null,
+  });
+  const abiertas = limpio.incidentes.filter((i) => i.estado === "ABIERTA");
+  assert.deepEqual(abiertas.map((i) => i.clave), ["INC:libro-v320:combo-camilla"]);
+  const despues = await servicio.leerPanelAccionable(WS, abiertas, ahora);
+  assert.equal(despues.prioridades.visibles.length + despues.prioridades.resto.length, 1);
+  assert.equal(enviados.push.length + enviados.whatsapp.length, 0, "limpiar no manda nada");
 });
 
 /* ------------------------------------------------------------------ botones de las prioridades (12-oct-2026) */

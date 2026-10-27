@@ -27,6 +27,9 @@ import { ESPERANDO_AUTORIZACION, type CambioDelLibro, type Hallazgo } from "./ti
 
 const HORA = 3_600_000;
 
+/** Cuándo la respuesta en 2 h de los leads nuevos "bajó de forma clara" frente a los 7 días anteriores. */
+const REGLA_CAIDA_DE_RESPUESTA: ReglaDeSignificancia = { minimoObservado: 10, minimoBase: 30, zMinimo: 2.5, puntosMinimos: 10 };
+
 export const UMBRALES_BOT = {
   /** Leads mínimos con regla conocida en la ventana observada. */
   minimoReglas: 10,
@@ -300,14 +303,36 @@ export function detectarComportamiento(input: {
   const inicio = culpable?.en ?? primeros[0]?.entradaEn ?? desde;
   const cambio = culpable ?? cambioSospechoso(input.cambios, inicio);
   const ejemploRegla = primeros.find((f) => f.reglaPrimerMensaje)?.reglaPrimerMensaje ?? null;
+  /*
+    La ráfaga SOLA nunca es CRÍTICO ni IMPORTANTE: el paquete de bienvenida + catálogo es el diseño
+    elegido por el dueño. Sube a IMPORTANTE solo si, además, la respuesta en 2 h de los leads nuevos
+    de este período bajó de forma clara frente a los 7 días anteriores.
+  */
+  const caidaDeRespuesta =
+    input.indicador === "rafaga_inicial"
+      ? compararAntesYDespues(
+          input.fichas,
+          "respondio_2h",
+          input.ahora,
+          desde,
+          input.filtro,
+          REGLA_CAIDA_DE_RESPUESTA,
+          { antesDesde: new Date(desde.getTime() - 7 * 24 * HORA) },
+        )
+      : null;
+  const respuestaBajo = Boolean(caidaDeRespuesta && caidaDeRespuesta.significativo && caidaDeRespuesta.direccion === "baja");
   return {
     clave: `BOT:${input.indicador}:${input.producto}`,
     familia: "BOT",
     // Preguntas repetidas y ciudad repetida: OBSERVACIÓN salvo un salto grande (≥ 25 pts).
     severidad:
-      input.indicador === "rafaga_inicial" || input.indicador === "precio_o_fotos_antes_de_identificar" || c.puntos >= 25
-        ? "IMPORTANTE"
-        : "OBSERVACION",
+      input.indicador === "rafaga_inicial"
+        ? respuestaBajo
+          ? "IMPORTANTE"
+          : "OBSERVACION"
+        : input.indicador === "precio_o_fotos_antes_de_identificar" || c.puntos >= 25
+          ? "IMPORTANTE"
+          : "OBSERVACION",
     titulo: textos.titulo,
     que: `${NOMBRE_DEL_INDICADOR[input.indicador]}: ${pct(c.tasaObservada)} en las últimas ${c.ventanaHoras} h contra ${pct(c.tasaEsperada)} de la línea base.`,
     desde: inicio,
@@ -321,6 +346,11 @@ export function detectarComportamiento(input: {
       `${c.observado.exitos} de ${c.observado.total} leads recientes vs ${c.esperado.exitos} de ${c.esperado.total} en la base (z = ${c.z.toFixed(1)}, ${c.puntos > 0 ? "+" : ""}${c.puntos.toFixed(1)} pts).`,
       ...(c.mismaFranja ? [`Contra la misma franja horaria (${[...new Set(primeros.map((f) => NOMBRE_DE_FRANJA[franja(f.entradaEn)]))].join(", ")}): ${pct(c.mismaFranja.tasaEsperada)}.`] : []),
       ...(ejemploRegla ? [`Regla del primer mensaje en esos leads: "${corto(ejemploRegla)}".`] : []),
+      ...(caidaDeRespuesta
+        ? [
+            `Respuesta en 2 h de los leads nuevos: ${pct(caidaDeRespuesta.tasaObservada)} (${caidaDeRespuesta.observado.exitos}/${caidaDeRespuesta.observado.total}) vs ${pct(caidaDeRespuesta.tasaEsperada)} en los 7 días anteriores${respuestaBajo ? " (bajó)" : " (no bajó: la ráfaga sola es solo una observación)"}.`,
+          ]
+        : []),
     ],
     hipotesis: cambio ? [`Coincide con el cambio del libro a la versión ${cambio.version}.`] : [],
     causaPosible: cambio ? `Cambio del libro V3 a la versión ${cambio.version}.` : "Una regla o un flujo que se dispara antes de tiempo.",
@@ -343,8 +373,8 @@ export function respuestaSegunRafaga(fichas: FichaDelLead[], ahora: Date, filtro
   const maduros = fichas.filter(
     (f) => filtro(f) && f.entradaEn.getTime() >= desde && ahora.getTime() - f.entradaEn.getTime() >= 2 * HORA,
   );
-  const con = maduros.filter((f) => f.botPrimeros5Min > 3);
-  const sin = maduros.filter((f) => f.botPrimeros5Min <= 3);
+  const con = maduros.filter((f) => f.enviosPrimeros5Min > 3);
+  const sin = maduros.filter((f) => f.enviosPrimeros5Min <= 3);
   const respondieron = (lista: FichaDelLead[]) => ({ exitos: lista.filter((f) => f.minutosHastaRespuesta !== null).length, total: lista.length });
   return comparar(respondieron(con), respondieron(sin), { minimoObservado: 15, minimoBase: 15, zMinimo: 2.5, puntosMinimos: 10 });
 }

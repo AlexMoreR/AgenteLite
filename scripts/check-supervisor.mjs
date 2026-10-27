@@ -92,6 +92,10 @@ function chatDelIncidente(t0) {
     msg(t0 + 10000, "OUTBOUND", { type: "IMAGE" }),
     msg(t0 + 11000, "OUTBOUND", { type: "VIDEO" }),
     msg(t0 + 12000, "OUTBOUND", { content: "¿En qué color lo quieres?" }),
+    // Después del paquete de bienvenida + catálogo (pausas de más de 90 s): cada uno cuenta aparte.
+    msg(t0 + 2 * M, "OUTBOUND", { content: "Quedo atenta a tu respuesta" }),
+    msg(t0 + 3 * M, "OUTBOUND", { content: "Tenemos envío gratis a todo el país" }),
+    msg(t0 + 4 * M, "OUTBOUND", { content: "Te acompaño en todo el proceso de compra" }),
   ];
 }
 
@@ -111,7 +115,8 @@ prueba("ficha del incidente: regla, ráfaga, precio/fotos antes de identificar, 
   assert.equal(f.reglaPrimerMensaje, "Nombra las piezas del combo");
   assert.equal(f.textoDelAnuncio, true);
   assert.equal(f.producto, "combo-camilla");
-  assert.equal(f.botPrimeros5Min, 7);
+  assert.equal(f.botPrimeros5Min, 10);
+  assert.equal(f.enviosPrimeros5Min, 4);
   assert.equal(f.precioOFotosAntesDeIdentificar, true);
   assert.equal(f.minutosHastaRespuesta, null);
   assert.equal(lead.valorDelIndicador(f, "rafaga_inicial"), true);
@@ -126,9 +131,38 @@ prueba("ficha sana: pregunta el servicio, sin ráfaga, respondió a los 20 min",
   cerca(f.minutosHastaRespuesta, 20, 0.01);
 });
 
+prueba("bienvenida + audio + 5 fotos en segundos cuenta como 1 envío: no es ráfaga y el total sigue en 7", () => {
+  const lista = [
+    msg(T0, "INBOUND", { content: lead.TEXTO_DEL_ANUNCIO_COMBO, source: "webhook" }),
+    msg(T0 + 3000, "OUTBOUND", { content: "Bienvenid@ a Magilus" }),
+    msg(T0 + 8000, "OUTBOUND", { type: "AUDIO" }),
+    ...[1, 2, 3, 4, 5].map((i) => msg(T0 + 10000 + i * 2000, "OUTBOUND", { type: "IMAGE" })),
+  ];
+  const f = lead.fichaDelLead("paq", lista);
+  assert.equal(f.botPrimeros5Min, 7);
+  assert.equal(f.enviosPrimeros5Min, 1);
+  assert.equal(lead.valorDelIndicador(f, "rafaga_inicial"), false);
+});
+
+prueba("el paquete y después 3 mensajes a los 2, 3 y 4 minutos: 4 envíos y sí es ráfaga", () => {
+  const lista = [
+    msg(T0, "INBOUND", { content: lead.TEXTO_DEL_ANUNCIO_COMBO, source: "webhook" }),
+    msg(T0 + 3000, "OUTBOUND", { content: "Bienvenid@ a Magilus" }),
+    msg(T0 + 8000, "OUTBOUND", { type: "AUDIO" }),
+    msg(T0 + 12000, "OUTBOUND", { type: "IMAGE" }),
+    msg(T0 + 2 * M, "OUTBOUND", { content: "uno" }),
+    msg(T0 + 3 * M, "OUTBOUND", { content: "dos" }),
+    msg(T0 + 4 * M, "OUTBOUND", { content: "tres" }),
+  ];
+  const f = lead.fichaDelLead("paq2", lista);
+  assert.equal(f.enviosPrimeros5Min, 4);
+  assert.equal(lead.valorDelIndicador(f, "rafaga_inicial"), true);
+});
+
 prueba("las fotos que se mandan DESPUÉS de que el cliente contesta no cuentan como ráfaga inicial", () => {
   const lista = [...chatSano(T0), msg(T0 + 21 * M, "OUTBOUND", { type: "IMAGE" }), msg(T0 + 21 * M + 1, "OUTBOUND", { type: "IMAGE" }), msg(T0 + 21 * M + 2, "OUTBOUND", { type: "IMAGE" }), msg(T0 + 21 * M + 3, "OUTBOUND", { type: "VIDEO" })];
   assert.equal(lead.fichaDelLead("c3", lista).botPrimeros5Min, 2);
+  assert.equal(lead.fichaDelLead("c3", lista).enviosPrimeros5Min, 1);
 });
 
 prueba("no mira el futuro: con `hasta` antes de la respuesta, no respondió", () => {
@@ -207,13 +241,28 @@ prueba("con solo 3 leads después del cambio todavía NO opina (tamaño mínimo)
   assert.equal(h, null);
 });
 
-prueba("ráfaga y precio/fotos antes de identificar: detectados desde el cambio", () => {
+prueba("precio/fotos antes de identificar: detectado desde el cambio, IMPORTANTE", () => {
   const ahora = new Date(CAMBIO + 3 * H);
-  for (const indicador of ["rafaga_inicial", "precio_o_fotos_antes_de_identificar"]) {
-    const h = bot.detectarComportamiento({ fichas: [...sanos, ...despues], ahora, producto: "combo-camilla", filtro, indicador, cambios });
-    assert.ok(h, indicador);
-    assert.equal(h.severidad, "IMPORTANTE");
-  }
+  const h = bot.detectarComportamiento({ fichas: [...sanos, ...despues], ahora, producto: "combo-camilla", filtro, indicador: "precio_o_fotos_antes_de_identificar", cambios });
+  assert.ok(h);
+  assert.equal(h.severidad, "IMPORTANTE");
+});
+
+prueba("ráfaga sola: OBSERVACIÓN si la respuesta no bajó (o aún no madura) e IMPORTANTE si bajó frente a los 7 días anteriores", () => {
+  // A las 3 h casi ningún lead nuevo cumple las 2 h de la respuesta: no se puede decir que bajó.
+  const pronto = bot.detectarComportamiento({ fichas: [...sanos, ...despues], ahora: new Date(CAMBIO + 3 * H), producto: "combo-camilla", filtro, indicador: "rafaga_inicial", cambios });
+  assert.ok(pronto);
+  assert.equal(pronto.severidad, "OBSERVACION");
+  // Más tarde la respuesta de los leads nuevos (0 %) contra 70 % de antes: bajó, sube a IMPORTANTE con la cifra.
+  const tarde = bot.detectarComportamiento({ fichas: [...sanos, ...despues], ahora: new Date(CAMBIO + 6 * H), producto: "combo-camilla", filtro, indicador: "rafaga_inicial", cambios });
+  assert.ok(tarde);
+  assert.equal(tarde.severidad, "IMPORTANTE");
+  assert.ok(tarde.hechos.some((x) => /Respuesta en 2 h de los leads nuevos/.test(x) && /bajó/.test(x)));
+  // Mismo caso pero los leads nuevos responden igual que antes: la ráfaga sola queda en OBSERVACIÓN.
+  const respondonas = despues.map((f, i) => ({ ...f, minutosHastaRespuesta: i % 10 < 7 ? 20 : null }));
+  const igual = bot.detectarComportamiento({ fichas: [...sanos, ...respondonas], ahora: new Date(CAMBIO + 6 * H), producto: "combo-camilla", filtro, indicador: "rafaga_inicial", cambios });
+  assert.ok(igual);
+  assert.equal(igual.severidad, "OBSERVACION");
 });
 
 prueba("caída de respuesta: el detector del embudo la ve con muestra suficiente", () => {
@@ -281,11 +330,20 @@ prueba("alertas: nuevo avisa, repetido no (dedupe), sube avisa, se cierra cuando
   r = alertas.consolidar({ abiertos: r.incidentes, hallazgos: [hallazgo("BOT:rafaga_inicial:combo-camilla", "IMPORTANTE", new Date(CAMBIO + 10 * M))], ahora: t2, cambios, familiasEvaluadas: ["BOT"] });
   assert.equal(r.avisar.length, 0);
   assert.equal(r.incidentes[0].vecesVista, 2);
-  // Junto con un cambio de regla: CRÍTICO por combinación → "sube".
+  // Cambio de regla + ráfaga: la ráfaga ya no entra en la combinación que da CRÍTICO.
   const t3 = new Date(t2.getTime() + H);
-  r = alertas.consolidar({
+  const sinCritico = alertas.consolidar({
     abiertos: r.incidentes,
     hallazgos: [hallazgo("BOT:rafaga_inicial:combo-camilla", "IMPORTANTE", new Date(CAMBIO + 10 * M)), hallazgo("BOT:regla-primer-mensaje:combo-camilla", "IMPORTANTE", new Date(CAMBIO + 10 * M))],
+    ahora: t3, cambios, familiasEvaluadas: ["BOT"],
+  });
+  assert.equal(sinCritico.incidentes[0].severidad, "IMPORTANTE");
+  assert.equal(alertas.severidadDelIncidente([hallazgo("BOT:regla-primer-mensaje:combo-camilla", "IMPORTANTE", new Date(CAMBIO)), hallazgo("BOT:rafaga_inicial:combo-camilla", "OBSERVACION", new Date(CAMBIO))]), "IMPORTANTE");
+  // Cambio de regla + caída de respuesta o + precio/fotos: CRÍTICO por combinación → "sube".
+  assert.equal(alertas.severidadDelIncidente([hallazgo("BOT:regla-primer-mensaje:combo-camilla", "IMPORTANTE", new Date(CAMBIO)), hallazgo("EMBUDO:respondio_2h:combo-camilla", "IMPORTANTE", new Date(CAMBIO))]), "CRITICO");
+  r = alertas.consolidar({
+    abiertos: r.incidentes,
+    hallazgos: [hallazgo("BOT:precio_o_fotos_antes_de_identificar:combo-camilla", "IMPORTANTE", new Date(CAMBIO + 10 * M)), hallazgo("BOT:regla-primer-mensaje:combo-camilla", "IMPORTANTE", new Date(CAMBIO + 10 * M))],
     ahora: t3, cambios, familiasEvaluadas: ["BOT"],
   });
   assert.equal(r.incidentes[0].severidad, "CRITICO");
@@ -562,7 +620,10 @@ function incidente182(ahora) {
   });
   // Primero la regla del 7-oct; después (pegajosa) la versión del 10-oct con la regla de la v210.
   const primero = alertas.consolidar({ abiertos: [], hallazgos: [rafaga, { ...regla, desde: new Date(CAMBIO + 10 * M) }], ahora: new Date(CAMBIO + H), cambios, familiasEvaluadas: ["BOT"] }).incidentes;
-  return alertas.consolidar({ abiertos: primero, hallazgos: [rafaga, regla], ahora, cambios, familiasEvaluadas: ["BOT"] }).incidentes;
+  const incidentes = alertas.consolidar({ abiertos: primero, hallazgos: [rafaga, regla], ahora, cambios, familiasEvaluadas: ["BOT"] }).incidentes;
+  // Así estaba en producción: CRÍTICO por "cambio de regla + ráfaga" (antes de que la ráfaga sola dejara de escalar).
+  for (const inc of incidentes) inc.severidad = "CRITICO";
+  return incidentes;
 }
 const entradas = new Map([
   ["antes1", new Date(CAMBIO + 2 * H)],
@@ -873,7 +934,7 @@ prueba("revalidación caso v182 (datos tipo del 11-oct): ya no ocurre → RESUEL
   assert.equal(h.valores.leads, 59);
   const texto = alertas.textoDeLaAlerta(cerrado, AHORA_R);
   assert.match(texto, /v212 21, v213 37, v216 1/);
-  assert.match(texto, /Leads con más de 3 mensajes del bot en los primeros 5 min: 0 % \(0\/59\) con la versión ≥ 212 vs 84,3 % \(59\/70\) cuando se abrió el incidente/);
+  assert.match(texto, /Leads con más de 3 envíos del bot en los primeros 5 min \(bienvenida \+ catálogo = 1\): 0 % \(0\/59\) con la versión ≥ 212 vs 84,3 % \(59\/70\) cuando se abrió el incidente/);
   assert.match(texto, /Texto exacto del anuncio: gana "Llega del anuncio \(texto exacto\)"/);
   assert.match(texto, /"Nombra las piezas del combo", la regla de los ejemplos del incidente, ya no gana el texto del anuncio/);
   assert.match(texto, /→ ya no ocurre/);
@@ -931,13 +992,14 @@ prueba("revalidación: muestra insuficiente → pendiente, sin CRÍTICO y sin av
   const r = vueltaR({ abiertos: [inc], fichas: [...sanosR, ...actualesSanos.slice(0, 8)] });
   const p = r.incidentes.find((i) => i.clave === CLAVE_182);
   assert.equal(r.revalidaciones[0].decision, "PENDIENTE");
-  assert.equal(p.estado, "ABIERTA");
-  assert.equal(p.severidad, "IMPORTANTE");
-  assert.match(p.titulo, /^Pendiente de revalidar con la versión 222 \(falta muestra\): /);
+  // Un incidente de una versión vieja que no SIGUE se cierra como "Reemplazado" (limpieza del libro) y no avisa.
+  assert.equal(p.estado, "RESUELTA");
+  assert.match(p.titulo, /^Reemplazado: el libro ya está en la versión 222: Pendiente de revalidar con la versión 222 \(falta muestra\): /);
   assert.equal(r.avisar.length, 0);
   assert.match(p.hallazgos[0].que, /Todavía no hay muestra suficiente/);
-  // Apagado: quitarRevalidacion deja el incidente exactamente como estaba antes de revalidar.
-  const [antes] = reval.quitarRevalidacion([p]);
+  // Apagado: quitarRevalidacion deja el incidente exactamente como estaba antes de revalidar (antes de la limpieza).
+  const abierto = { ...p, estado: "ABIERTA", resueltaEn: null, severidad: "IMPORTANTE", titulo: p.titulo.replace(/^Reemplazado: [^:]*: /, "") };
+  const [antes] = reval.quitarRevalidacion([abierto]);
   assert.equal(antes.severidad, "CRITICO");
   assert.equal(antes.titulo, incidente182Real().titulo);
   assert.ok(!antes.hallazgos.some(reval.esHallazgoDeRevalidacion));
@@ -1011,6 +1073,87 @@ prueba("pausa acordada: las alertas abiertas con chats en pausa se cierran (meno
   assert.equal(cambiados, 1);
   assert.equal(incidentes[0].estado, "RESUELTA");
   assert.equal(incidentes[1].estado, "ABIERTA");
+});
+
+/* ------------------------------------------------------------------ limpieza de las alertas del libro (27-oct) */
+
+const limpieza = cargar("src/features/supervisor/dominio/limpieza-de-incidentes.ts");
+
+function incLibro(version, severidad, claves, extra = {}) {
+  const desde = new Date(CAMBIO + version * H);
+  return {
+    clave: `INC:libro-v${version}:combo-camilla`, familia: "BOT", severidad, titulo: `Libro V3 v${version}`, producto: "combo-camilla",
+    primeraVezEn: desde, ultimaVezEn: desde, desde, vecesVista: 3, estado: "ABIERTA", resueltaEn: null, notificadaEn: null, severidadNotificada: null,
+    hallazgos: claves.map((c, i) => hallazgo(c, severidad, desde, { evidencia: { chats: [`v${version}-chat${i}`], reglas: [], versiones: [version] } })),
+    ...extra,
+  };
+}
+
+prueba("limpieza: con el libro en la v320 queda solo la 320; las viejas pasan a RESUELTA 'Reemplazado' y no avisan", () => {
+  const ahora = new Date(CAMBIO + 400 * H);
+  const v292 = incLibro(292, "CRITICO", ["BOT:rafaga_inicial:combo-camilla", "BOT:regla-primer-mensaje:combo-camilla"]);
+  const v311 = incLibro(311, "OBSERVACION", ["BOT:rafaga_inicial:combo-camilla"]);
+  const v317 = incLibro(317, "OBSERVACION", ["BOT:rafaga_inicial:combo-camilla"]);
+  const v320 = incLibro(320, "OBSERVACION", ["BOT:rafaga_inicial:combo-camilla"]);
+  const r = limpieza.limpiarIncidentesDelLibro({
+    incidentes: [v292, v311, v317, v320],
+    avisar: [{ incidente: v292, motivo: "recordatorio" }],
+    versionActual: 320, ahora, siguen: new Set(),
+  });
+  const abiertas = r.incidentes.filter((i) => i.estado === "ABIERTA");
+  assert.deepEqual(abiertas.map((i) => i.clave), ["INC:libro-v320:combo-camilla"]);
+  for (const i of [v292, v311, v317]) {
+    assert.equal(i.estado, "RESUELTA");
+    assert.equal(i.resueltaEn.getTime(), ahora.getTime());
+    assert.equal(i.cambiadoEn.getTime(), ahora.getTime(), "el almacén tiene que guardarla");
+    assert.match(i.titulo, /^Reemplazado: el libro ya está en la versión 320: /);
+  }
+  assert.equal(r.avisar.length, 0);
+  assert.equal(r.cerradas.length, 3);
+});
+
+prueba("limpieza: una alerta vieja que la revalidación dice que SIGUE se queda abierta", () => {
+  const ahora = new Date(CAMBIO + 400 * H);
+  const v292 = incLibro(292, "CRITICO", ["BOT:precio_o_fotos_antes_de_identificar:combo-camilla"]);
+  const v320 = incLibro(320, "OBSERVACION", ["BOT:pregunta_repetida_24h:combo-camilla"]);
+  const r = limpieza.limpiarIncidentesDelLibro({
+    incidentes: [v292, v320], avisar: [{ incidente: v292, motivo: "recordatorio" }], versionActual: 320, ahora, siguen: new Set([v292.clave]),
+  });
+  assert.equal(v292.estado, "ABIERTA");
+  assert.equal(r.avisar.length, 1);
+  assert.equal(r.cerradas.length, 0);
+});
+
+prueba("limpieza: dos alertas con los mismos problemas y distinto número quedan en una (la más reciente, con los chats de las dos); la cerrada no avisa", () => {
+  const ahora = new Date(CAMBIO + 400 * H);
+  const a = incLibro(311, "OBSERVACION", ["CAMBIO:post-cambio:v311:combo-camilla", "BOT:rafaga_inicial:combo-camilla"]);
+  const b = incLibro(317, "OBSERVACION", ["CAMBIO:post-cambio:v317:combo-camilla", "BOT:rafaga_inicial:combo-camilla"]);
+  const otra = incLibro(318, "OBSERVACION", ["BOT:ciudad_repetida_24h:combo-camilla"]);
+  // Todas son de la versión vigente (o posterior): solo se prueba la unión.
+  const r = limpieza.limpiarIncidentesDelLibro({
+    incidentes: [a, b, otra], avisar: [{ incidente: a, motivo: "nuevo" }], versionActual: 311, ahora, siguen: new Set(),
+  });
+  assert.equal(b.estado, "ABIERTA");
+  assert.equal(a.estado, "RESUELTA");
+  assert.match(a.titulo, /^Unida a INC:libro-v317:combo-camilla: /);
+  assert.equal(otra.estado, "ABIERTA", "otro problema no se junta");
+  const rafaga = b.hallazgos.find((h) => h.clave === "BOT:rafaga_inicial:combo-camilla");
+  assert.deepEqual([...rafaga.evidencia.chats].sort(), ["v311-chat1", "v317-chat1"]);
+  assert.equal(r.avisar.length, 0);
+  assert.equal(limpieza.claveSinVersion("CAMBIO:post-cambio:v317:combo-camilla"), "CAMBIO:post-cambio:v#:combo-camilla");
+  assert.equal(limpieza.claveSinVersion("EMBUDO:respondio_2h:combo-camilla"), "EMBUDO:respondio_2h:combo-camilla");
+});
+
+prueba("limpieza dentro de aplicarRevalidaciones: lo cerrado no vuelve a salir en las alertas abiertas", () => {
+  const ahora = new Date(CAMBIO + 400 * H);
+  const v292 = incLibro(292, "CRITICO", ["BOT:rafaga_inicial:combo-camilla"]);
+  const v320 = incLibro(320, "OBSERVACION", ["BOT:rafaga_inicial:combo-camilla"]);
+  const r = reval.aplicarRevalidaciones({
+    incidentes: [v292, v320], avisar: [{ incidente: v292, motivo: "recordatorio" }], abiertasAntes: new Set([v292.clave, v320.clave]),
+    versionActual: 320, ahora, inicioDe: (i) => i.desde, revalidar: () => null,
+  });
+  assert.deepEqual(r.incidentes.filter((i) => i.estado === "ABIERTA").map((i) => i.clave), [v320.clave]);
+  assert.equal(r.avisar.length, 0);
 });
 
 console.log(`\n${pruebas} pruebas del Supervisor OK`);
