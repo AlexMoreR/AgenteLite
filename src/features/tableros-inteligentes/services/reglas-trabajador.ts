@@ -270,7 +270,19 @@ export function opcionesDeTomar(pedido: PedidoDeTomar) {
 }
 
 
-export type AccionDelTrabajador = "latido" | "plan" | "resultado" | "subida" | "error" | "soltar" | "reparar" | "partir" | "depender" | "recoger";
+export type AccionDelTrabajador =
+  | "latido"
+  | "plan"
+  | "resultado"
+  | "subida"
+  | "error"
+  | "soltar"
+  | "reparar"
+  | "partir"
+  | "depender"
+  | "recoger"
+  | "ya-hecha"
+  | "limpieza";
 export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "latido",
   "plan",
@@ -282,6 +294,8 @@ export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "partir",
   "depender",
   "recoger",
+  "ya-hecha",
+  "limpieza",
 ];
 
 /**
@@ -313,11 +327,28 @@ export const TRANSICIONES_DEL_TRABAJADOR: Record<
   partir: { desde: ["PLANEANDO", "EN_CURSO"], a: null },
   // Depender (26-oct-2026): al medir, la tarjeta nombra a otra como molde o requisito: se pone la flecha de dependencia
   // y, si la otra no está HECHO, la tarjeta vuelve a la fila ("Esperando a «X»") sin ERROR y sin gastar el intento.
-  depender: { desde: ["APROBADO", "PLANEANDO"], a: null },
+  // 27-oct-2026: también desde EN_CURSO (la sesión de construir descubre que falta otra tarjeta): vuelve a PLAN_APROBADO sin gastar intento.
+  depender: { desde: ["APROBADO", "PLANEANDO", "EN_CURSO"], a: null },
   // Recoger (26-oct-2026): una vez al día el Coordinador revisa las tarjetas en ERROR; esta acción las reintenta, las
   // parte o deja una línea para el dueño (la tarjeta sigue en ERROR). a = null: depende de la decisión.
   recoger: { desde: ["ERROR"], a: null },
+  // Ya hecha (27-oct-2026): al planear o al construir se encuentra que lo pedido ya está en main (el Coordinador comprobó el commit con
+  // git): la tarjeta pasa a HECHO con la nota "ya estaba hecho (commit X)", sin pedirle nada al dueño.
+  "ya-hecha": { desde: ["PLANEANDO", "EN_CURSO"], a: "HECHO" },
+  // Limpieza (27-oct-2026): main trae errores viejos. Crea UNA tarjeta de limpieza por repo (o le agrega los errores a la abierta). Se llama
+  // con la tarjeta que los encontró, ya en el estado en que la dejó su resultado; no la mueve.
+  limpieza: { desde: ["EN_CURSO", "SUBIENDO", "POR_REVISAR", "HECHO"], a: null },
 };
+
+/** La nota de una tarjeta que ya estaba hecha (27-oct-2026): "ya estaba hecho (commit X)". */
+export function notaDeYaHecha(commit: string): string {
+  return `ya estaba hecho (commit ${commit})`;
+}
+
+/** El título de la tarjeta única de limpieza de un repo. Las tareas de limpieza se buscan por este título exacto. */
+export function tituloDeLimpieza(repo: string): string {
+  return `Limpieza: main trae errores viejos (${repo})`;
+}
 
 /** ¿Puede el Coordinador hacer `accion` con una tarjeta en `estado`? */
 export function puedeElTrabajador(accion: AccionDelTrabajador, estado: EstadoTarjetaTablero): Veredicto {

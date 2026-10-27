@@ -11,6 +11,7 @@ import { conReintentoPorCandado, crearSerieDeBuilds, esAvisoDeCandado } from "..
 import { completarConfig } from "../lib/config.mjs";
 import { medirTarjeta, referenciasDeLaTarjeta, referenciasParaDepender, tamanoDeLaRespuesta } from "../lib/medir.mjs";
 import { crearRecogedor, decidirRecogida, leerEstadoDeRecoger } from "../lib/recoger-errores.mjs";
+import { dependenciasDeLaRespuesta, detalleDeLimpieza, esSoloLoDeMain, firmasDeFalla, notaDeYaHecho, tituloDeLimpieza, yaEstaHechoDe } from "../lib/revision-previa.mjs";
 
 let pruebas = 0;
 async function prueba(nombre, fn) {
@@ -299,6 +300,56 @@ await prueba("recoger: un error al recoger una no frena a las demás; apagado no
   assert.deepEqual(llamadas, ["b"]);
   const apagado = crearRecogedor({ crm, config: { carpetaTrabajo: carpeta, recogerErrores: { activo: false } }, registro: registro(), partir: async () => PARTES });
   assert.equal((await apagado.revisar()).hizo, false);
+});
+
+/* ── Revisión previa (27-oct-2026) ── */
+
+await prueba("dependencias: también se leen en el título y en el plan aprobado, no solo en el detalle", () => {
+  const pagina = "cmvpmu7bh00pv2umsnzs9qvgw";
+  assert.deepEqual(referenciasDeLaTarjeta({ id: "cmvotra00000000000000000", titulo: "Alertas", detalle: "", plan: `PLAN\n1. Depende de la tarjeta ${pagina}, que aún no subió.` }).ids, [pagina]);
+  assert.deepEqual(referenciasDeLaTarjeta({ id: "cmvotra00000000000000000", titulo: `Alertas (requiere «Página de alertas»)`, detalle: "" }).titulos, ["Página de alertas"]);
+  assert.deepEqual(referenciasParaDepender({ id: "cmvotra00000000000000000", titulo: "Algo", detalle: "", plan: "Necesita primero «Prioridad y página de alertas» en main." }), ["Prioridad y página de alertas"]);
+  // Un id nombrado como ejemplo, sin palabra que lo anuncie, no es una dependencia.
+  assert.deepEqual(referenciasDeLaTarjeta({ id: "cmvotra00000000000000000", titulo: "Algo", detalle: "", plan: `El caso de ${pagina} falló ayer.` }).ids, []);
+});
+
+await prueba("DEPENDE_DE: la sesión nombra la tarjeta por id o por título; las instrucciones repetidas tal cual no cuentan", () => {
+  const id = "cmvpmu7bh00pv2umsnzs9qvgw";
+  assert.deepEqual(dependenciasDeLaRespuesta(`Faltan cosas.\nDEPENDE_DE: ${id}`), [id]);
+  assert.deepEqual(dependenciasDeLaRespuesta("DEPENDE_DE: «Prioridad y página de alertas» y «Otra tarjeta»"), ["Prioridad y página de alertas", "Otra tarjeta"]);
+  assert.deepEqual(dependenciasDeLaRespuesta("**DEPENDE_DE:** la página de alertas"), ["la página de alertas"]);
+  assert.deepEqual(dependenciasDeLaRespuesta('"DEPENDE_DE: <id o «título» de esa tarjeta>"'), []);
+  assert.deepEqual(dependenciasDeLaRespuesta("Sin dependencias."), []);
+  // Solo las primeras N líneas (el plan que explica estas palabras no cuenta) o las últimas.
+  const plan = "1. Algo\n2. Algo\n3. Algo\n4. Algo\n5. Algo\n6. Algo\nDEPENDE_DE: «X de verdad»";
+  assert.deepEqual(dependenciasDeLaRespuesta(plan, { inicio: 5 }), []);
+  assert.deepEqual(dependenciasDeLaRespuesta(plan, { final: 2 }), ["X de verdad"]);
+});
+
+await prueba("YA_ESTA_HECHO: se lee el commit y el motivo; sin commit legible no vale", () => {
+  assert.deepEqual(yaEstaHechoDe("RESUMEN\nYA_ESTA_HECHO: f4759b0 — construida desde el 20-oct"), { commit: "f4759b0", motivo: "construida desde el 20-oct" });
+  assert.deepEqual(yaEstaHechoDe("`YA_ESTA_HECHO:` F4759B0A1 - ya está"), { commit: "f4759b0a1", motivo: "ya está" });
+  assert.equal(yaEstaHechoDe("YA_ESTA_HECHO: <commit> — <motivo>"), null);
+  assert.equal(yaEstaHechoDe("YA_ESTA_HECHO: el commit de antes"), null);
+  assert.equal(yaEstaHechoDe("no dijo nada"), null);
+  assert.equal(notaDeYaHecho("f4759b0"), "ya estaba hecho (commit f4759b0)");
+});
+
+await prueba("código limpio: las firmas de falla (lint, tipos, pruebas) se comparan sin números de línea ni tiempos", () => {
+  const main = firmasDeFalla("\u001b[31msrc/a.ts\u001b[0m\n  12:5  error  Unexpected any  @typescript-eslint/no-explicit-any\nsrc/b.ts(3,7): error TS2322: Type 'x' is not assignable.\nnot ok 3 - prueba vieja\n✖ otra vieja (12ms)");
+  assert.equal(main.size, 4);
+  const tarea = firmasDeFalla("src/a.ts\n  99:1  error  Unexpected any  @typescript-eslint/no-explicit-any\nsrc/b.ts(40,2): error TS2322: Type 'x' is not assignable.\nnot ok 3 - prueba vieja\n✖ otra vieja (340ms)");
+  assert.equal(esSoloLoDeMain(tarea, main), true, "lo mismo, aunque cambió de línea y de tiempo");
+  assert.equal(esSoloLoDeMain(firmasDeFalla("not ok 3 - prueba vieja\nnot ok 9 - prueba nueva"), main), false, "una falla nueva sigue frenando");
+  assert.equal(esSoloLoDeMain(firmasDeFalla("algo se rompió sin forma conocida"), main), false, "sin firmas reconocibles, la falla es de la tarea");
+  assert.equal(esSoloLoDeMain(tarea, new Set()), false, "main pasa: la falla es de la tarea");
+});
+
+await prueba("limpieza: un solo título por repo y el detalle sin repetidos ni más de 40 líneas", () => {
+  assert.equal(tituloDeLimpieza("aizencrm"), "Limpieza: main trae errores viejos (aizencrm)");
+  const detalle = detalleDeLimpieza("aizencrm", ["a", "a", " b ", ...Array.from({ length: 60 }, (_, i) => `e${i}`)]);
+  assert.equal(detalle.split("\n").filter((linea) => linea.startsWith("- ")).length, 40);
+  assert.ok(!detalle.includes("- a\n- a"));
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);

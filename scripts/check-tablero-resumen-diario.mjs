@@ -119,6 +119,16 @@ await prueba("armarResumen lista solo lo de hoy (no lo de ayer)", () => {
   assert.deepEqual(resumen.cifrasDelDia(resumen.armarResumen("2026-10-22", [aprobada({ creadoEn: AYER })]), 0), { listas: 0, conProblema: 0, esperando: 0 });
 });
 
+await prueba("las que ya estaban hechas (27-oct-2026) salen aparte, con su commit, y no cuentan como construidas ese día", () => {
+  const r = resumen.armarResumen("2026-10-22", [
+    subida({ tarjetaId: "b", titulo: "Reporte B" }),
+    fila({ tarjetaId: "ya", titulo: "Registro de retroactivos", despues: { estado: "HECHO", nota: "ya estaba hecho (commit f4759b0)", yaEstabaHecho: { commit: "f4759b0", motivo: "construida el 20-oct", nota: "ya estaba hecho (commit f4759b0)" } } }),
+  ]);
+  assert.equal(r.subidas.length, 1, "solo la construida");
+  assert.deepEqual(r.yaHechas.map((x) => [x.tarjetaId, x.titulo, x.commit]), [["ya", "Registro de retroactivos", "f4759b0"]]);
+  assert.deepEqual(resumen.cifrasDelDia(r, 0), { listas: 1, conProblema: 0, esperando: 0 });
+});
+
 await prueba("el resumen de ayer: 4 listas, 1 con problema y 2 esperando -> 2 líneas y un solo link", () => {
   const filas = [
     ...["l1", "l2", "l3", "l4"].map((id) => subida({ tarjetaId: id, titulo: `Tarjeta larguísima con detalles técnicos número ${id}: rama tablero/abc commit abcdef1234` })),

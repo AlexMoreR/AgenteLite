@@ -60,6 +60,10 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     partir: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/partir`, limpio(datos)),
     /** Medir antes de planear: la tarjeta nombra a otras como molde o requisito. { referencias: [id o título] } -> { creadas, esperando, soltada }. Si alguna no está HECHO, PLANEANDO vuelve a la fila ("Esperando a «X»") sin ERROR. */
     depender: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/depender`, limpio(datos)),
+    /** Revisión previa (27-oct-2026): lo pedido ya estaba en main. { commit, motivo, nota, etapa } -> la tarjeta pasa a HECHO con la nota "ya estaba hecho (commit X)". */
+    yaHecha: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/ya-hecha`, limpio(datos)),
+    /** Código limpio (27-oct-2026): main trae errores viejos. { repo, errores } -> { creada } crea UNA tarjeta de limpieza por repo, o le agrega los errores a la abierta. */
+    limpieza: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/limpieza`, limpio(datos)),
     /** Las tarjetas en ERROR (las más viejas primero) con lo necesario para recogerlas. -> { tarjetas } */
     errores: () => pedir("/api/trabajador/tablero/errores"),
     /** Recoge una tarjeta en ERROR: { decision: "reintentar" | "partir" | "dueno", causa, error, categoria, partes, linea }. 409 si ya se recogió 2 veces. */

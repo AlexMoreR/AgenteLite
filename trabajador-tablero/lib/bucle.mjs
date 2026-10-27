@@ -34,6 +34,7 @@ import { TOPE_DE_REPARACIONES, decidir, diagnosticar, enUnaLinea, recortarAviso,
 import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, medirConClaude, partirTarea, planear, subir } from "./etapas.mjs";
 import { idCorto } from "./git.mjs";
 import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedida } from "./medir.mjs";
+import { notaDeYaHecho } from "./revision-previa.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
 import { esTareaGrande } from "./nube.mjs";
@@ -161,15 +162,24 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
       const previa = await medirAntesDePlanear({ crm, config, registro, contexto }, tarjeta);
       if (previa) return previa;
     }
+    // Revisión previa al construir (27-oct-2026): con el plan aprobado en la mano, las dependencias que nombra se miran otra vez.
+    if (hacer === "construir" && conReparaciones) {
+      const previa = await esperarDependenciasAntesDeConstruir({ crm, config, registro }, tarjeta);
+      if (previa) return previa;
+    }
     const salida = await etapa(contexto, tarjeta);
     if (vencida) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se trabajaba.");
+    // La sesión descubrió que falta otra tarjeta, o que ya estaba hecho (commit comprobado en main): sin intento ni reparación.
+    if (salida.dependeDe?.length) return esperarPorDependencia({ crm, registro }, tarjeta, hacer, salida.dependeDe);
+    if (salida.yaHecho) return cerrarComoYaHecha({ crm, registro }, tarjeta, hacer, salida.yaHecho);
     let respuesta;
     if (hacer === "planear") respuesta = await crm.plan(tarjeta.id, salida.plan);
     else if (hacer === "construir") {
       // "NECESITO:" al construir: la tarjeta queda en "Por revisar" (paso: false) con el motivo; no se reintenta.
-      const { necesita: _necesita, ...paraElCrm } = salida;
+      const { necesita: _necesita, erroresViejos, ...paraElCrm } = salida;
       void _necesita;
       respuesta = await crm.resultado(tarjeta.id, paraElCrm);
+      if (erroresViejos?.length) await pedirLimpieza({ crm, registro }, tarjeta, erroresViejos);
     } else {
       // Las 3 líneas con que el agente cerró construir ("Qué se hizo / Qué se ve ahora / Qué revisar juntos") viajan con la subida.
       const tres = tresLineasDe(tarjeta.resultado?.resumen);
@@ -347,6 +357,74 @@ async function partirAntesDeConstruir({ crm, config, registro, contexto }, tarje
   }
   registro.info(`la tarea se partió en ${partes.length} partes (antes de construir): ${partes.map((parte) => parte.titulo).join(" | ")}`);
   return partes.length;
+}
+
+/**
+ * DEPENDE_DE (27-oct-2026): la sesión descubrió que falta algo que otra tarjeta todavía no subió a main. Se pone la flecha de dependencia
+ * y la tarjeta vuelve a la fila ("Esperando a «X»") sin ERROR y sin gastar intento ni reparación: planeando vuelve a APROBADO,
+ * construyendo a PLAN_APROBADO. Arranca sola cuando la otra queda HECHO. Si el CRM no la deja esperar, se suelta igual sin error.
+ */
+async function esperarPorDependencia({ crm, registro }, tarjeta, hacer, referencias) {
+  let respuesta = null;
+  try {
+    respuesta = await crm.depender(tarjeta.id, { referencias, etapa: hacer });
+  } catch (error) {
+    registro.aviso(`no se pudo poner la dependencia de "${tarjeta.titulo}" (${error.message}): la suelto sin error ni intento`);
+  }
+  if (respuesta?.soltada) {
+    registro.info(`"${tarjeta.titulo}": ${respuesta.esperando ?? "espera a otra tarjeta"}; la dejo en la fila sin gastar intento`);
+    return { ok: true, estado: respuesta.estado ?? (hacer === "construir" ? "PLAN_APROBADO" : "APROBADO"), esperando: respuesta.esperando ?? true };
+  }
+  // Las tarjetas que nombró ya están HECHO (o no existen): no hay a quién esperar. Se suelta sin error y vuelve a intentarse luego.
+  await soltar(crm, registro, tarjeta, `Dependencia (${referencias.join(", ")}): se reintenta después.`);
+  return { ok: true, estado: respuesta?.estado ?? null, esperando: true };
+}
+
+/**
+ * YA_ESTA_HECHO (27-oct-2026): el commit ya está comprobado en main (etapas.mjs). La tarjeta pasa a HECHO con la nota
+ * "ya estaba hecho (commit X)", sin pedirle nada al dueño. Si el CRM no lo acepta, se anota y la tarjeta sigue como si no se hubiera dicho.
+ */
+async function cerrarComoYaHecha({ crm, registro }, tarjeta, hacer, yaHecho) {
+  const nota = `${notaDeYaHecho(yaHecho.commit)}${yaHecho.motivo ? `: ${yaHecho.motivo}` : ""}`;
+  try {
+    const respuesta = await crm.yaHecha(tarjeta.id, { commit: yaHecho.commit, motivo: yaHecho.motivo, nota, etapa: hacer });
+    registro.info(`"${tarjeta.titulo}": ${nota}; pasó a HECHO`);
+    return { ok: true, estado: respuesta?.estado ?? "HECHO", yaHecha: true };
+  } catch (error) {
+    registro.aviso(`el CRM no dejó cerrar "${tarjeta.titulo}" como ya hecha (${error.message}): la suelto sin error`);
+    await soltar(crm, registro, tarjeta, `Ya estaba hecho (commit ${yaHecho.commit}) pero el CRM no lo cerró: ${error.message}`.slice(0, 500));
+    return { ok: true, estado: null, yaHecha: false };
+  }
+}
+
+/**
+ * Código limpio (27-oct-2026): main ya traía errores. La tarea no se culpa; se pide UNA sola tarjeta de limpieza por repo (el CRM busca
+ * una abierta y le agrega los errores nuevos). Nunca frena a la tarea.
+ */
+async function pedirLimpieza({ crm, registro }, tarjeta, errores) {
+  try {
+    const respuesta = await crm.limpieza(tarjeta.id, { repo: tarjeta.repo, errores });
+    registro.info(`main de ${tarjeta.repo} trae ${errores.length} error(es) viejo(s): ${respuesta?.creada ? "creé la tarjeta de limpieza" : "se los agregué a la tarjeta de limpieza abierta"}`);
+  } catch (error) {
+    registro.aviso(`no se pudo pedir la tarjeta de limpieza (${error.message}): la tarea sigue su camino`);
+  }
+}
+
+/** Antes de construir: si el título, el detalle o el plan nombran una tarjeta que no está HECHO, la tarjeta espera (no se abre la sesión). */
+async function esperarDependenciasAntesDeConstruir({ crm, config, registro }, tarjeta) {
+  if (!{ ...MEDIR_POR_DEFECTO, ...(config.medir ?? {}) }.activo) return null;
+  const referencias = referenciasParaDepender(tarjeta);
+  if (!referencias.length) return null;
+  try {
+    const respuesta = await crm.depender(tarjeta.id, { referencias, etapa: "construir" });
+    if (respuesta?.soltada) {
+      registro.info(`"${tarjeta.titulo}": ${respuesta.esperando ?? "espera a otra tarjeta"}; no la construyo todavía`);
+      return { ok: true, estado: respuesta.estado ?? "PLAN_APROBADO", esperando: respuesta.esperando ?? true };
+    }
+  } catch (error) {
+    registro.aviso(`no se pudo mirar las dependencias de "${tarjeta.titulo}" antes de construir (${error.message}): se construye como siempre`);
+  }
+  return null;
 }
 
 /**
@@ -653,7 +731,18 @@ export function crearPlanificador({
   let esperaPcDesde = null;
   // Para el panel "Coordinador en vivo": por qué no se abre otra sesión (PC lleno) y las que esperan en fila por chocar.
   let pcEspera = null;
+  // id de la tarjeta que espera -> { motivo, contra }: `contra` es el id de la tarjeta con la que choca (null si espera por otra razón).
   let esperasDeFila = new Map();
+
+  /**
+   * Bloqueos por choque que se sueltan solos (27-oct-2026): una espera que choca con una tarjeta que YA NO corre (terminó en HECHO,
+   * FALLIDO o ERROR) se borra. Se llama en cada ciclo, también con el Coordinador lleno, y cuando termina una sesión.
+   */
+  function soltarEsperasTerminadas() {
+    const corriendoIds = new Set([...sesiones.values(), ...enNube.values()].map((s) => s.tarjeta.id));
+    for (const [id, espera] of esperasDeFila) if (espera.contra && !corriendoIds.has(espera.contra)) esperasDeFila.delete(id);
+    if (!corriendoIds.size) esperasDeFila = new Map();
+  }
 
   /** Para no llenar el log: el mismo aviso (fila, recursos, pausa) se escribe una vez. */
   const avisarUnaVez = (clave, mensaje) => {
@@ -756,7 +845,7 @@ export function crearPlanificador({
       .finally(() => {
         if (nube) enNube.delete(tarjeta.id);
         else sesiones.delete(n);
-        if (!sesiones.size && !enNube.size) esperasDeFila = new Map();
+        soltarEsperasTerminadas();
         contarCorriendo();
         if (despertar) despertar();
         else cupoNuevo = true;
@@ -811,6 +900,7 @@ export function crearPlanificador({
   }
 
   async function llenar() {
+    soltarEsperasTerminadas();
     await vigilante?.vigilar();
     await avisarPausaPorUso();
     pcEspera = null;
@@ -868,7 +958,8 @@ export function crearPlanificador({
       // Siempre se miran las candidatas (25-oct-2026): también para ESCOGER cuál conviene (ordenarCandidatas).
       {
         const { candidatas = [] } = await crm.candidatas();
-        const chocan = corriendo.length ? candidatasQueChocan(candidatas, corriendo, config.repos) : {};
+        const contraQuien = {};
+        const chocan = corriendo.length ? candidatasQueChocan(candidatas, corriendo, config.repos, contraQuien) : {};
         for (const c of candidatas) if (!chocan[c.id] && sinMotor.includes(c.hacer)) chocan[c.id] = `(sin motor para ${c.hacer})`;
         // La cola de cada proyecto: un agente no pasa de su `maxEnParalelo` (sesiones de aizen1 y de la nube juntas).
         for (const c of candidatas) {
@@ -887,7 +978,7 @@ export function crearPlanificador({
           else if (!dondeCorre(c, c.hacer, estadoDeCupos)) chocan[c.id] = `(${motivoDeEspera(c.hacer, estadoDeCupos)})`;
         }
         excluir = [...new Set([...Object.keys(chocan), ...descartadas.keys()])];
-        esperasDeFila = new Map(Object.entries(chocan).map(([id, motivo]) => [id, String(motivo).replace(/^\(|\)$/g, "")]));
+        esperasDeFila = new Map(Object.entries(chocan).map(([id, motivo]) => [id, { motivo: String(motivo).replace(/^\(|\)$/g, ""), contra: contraQuien[id] ?? null }]));
         if (candidatas.length && candidatas.every((c) => excluir.includes(c.id))) {
           const enFila = candidatas.map((c) => `"${c.titulo}" ${chocan[c.id] ?? "(sin dónde correr ahora)"}`);
           avisarUnaVez(`fila-${excluir.join(",")}-${sesiones.size}-${enNube.size}`, `esperan en fila: ${enFila.join("; ")}`);
@@ -975,7 +1066,7 @@ export function crearPlanificador({
         tareas,
         esperandoPc: Boolean(pcEspera),
         motivoEspera: pcEspera,
-        esperas: [...esperasDeFila.entries()].map(([tarjetaId, motivo]) => ({ tarjetaId, motivo })),
+        esperas: [...esperasDeFila.entries()].map(([tarjetaId, espera]) => ({ tarjetaId, motivo: espera.motivo, ...(espera.contra ? { contra: espera.contra } : {}) })),
         uso: motores.resumenDeUso(),
         pausaUso: pausaUso.resumen(),
       };
