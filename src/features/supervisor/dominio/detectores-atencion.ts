@@ -76,6 +76,7 @@ export type ChatAbierto = {
    * (undefined / null) todo es exactamente como antes.
    */
   pausaAcordada?: { dias: number } | null;
+  /**
    * La primera vez que la asesora ASIGNADA le escribió al cliente desde que le llegó el chat (desde el
    * CRM con su usuario, o desde el celular de la línea pasado el primer minuto del chat). El bot, los
    * flujos, los seguimientos, las notas y otra persona del equipo desde el CRM no cuentan. Sin dato
