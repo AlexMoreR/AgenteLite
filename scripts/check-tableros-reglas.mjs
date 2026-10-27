@@ -839,8 +839,10 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
     soltar: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
     reparar: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
     partir: ["PLANEANDO", "EN_CURSO"],
-    depender: ["APROBADO", "PLANEANDO"],
+    depender: ["APROBADO", "PLANEANDO", "EN_CURSO"],
     recoger: ["ERROR"],
+    "ya-hecha": ["PLANEANDO", "EN_CURSO"],
+    limpieza: ["EN_CURSO", "SUBIENDO", "POR_REVISAR", "HECHO"],
   };
   for (const [accion, validos] of Object.entries(esperado)) {
     for (const estado of reglas.ESTADOS_TARJETA) {
@@ -850,8 +852,11 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
-    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null },
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null },
   );
+  // Revisión previa (27-oct-2026): la nota de "ya estaba hecha" y el título único de la tarjeta de limpieza.
+  assert.equal(trabajo.notaDeYaHecha("f4759b0"), "ya estaba hecho (commit f4759b0)");
+  assert.equal(trabajo.tituloDeLimpieza("aizencrm"), "Limpieza: main trae errores viejos (aizencrm)");
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.AL_TOMAR).map(([de, regla]) => [de, [regla.a, regla.etapa]])),
     { APROBADO: ["PLANEANDO", "planear"], PLAN_APROBADO: ["EN_CURSO", "construir"], SUBIENDO: ["SUBIENDO", "subir"] },

@@ -158,7 +158,24 @@ if (titulo.includes("[limite]")) {
   process.exit(1);
 }
 
+// Revisión previa (27-oct-2026): al planear o al construir, la sesión contesta con DEPENDE_DE / YA_ESTA_HECHO en vez de trabajar.
+//   [depende-sesion]   DEPENDE_DE: «Página de alertas»
+//   [ya-hecho]         YA_ESTA_HECHO: <el commit de main donde está parado el worktree> — ...  (existe en main)
+//   [ya-hecho-falso]   YA_ESTA_HECHO: f4759b0 — ...  (ese commit NO existe en el repo de prueba)
+const commitDeMain = () => execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
+const palabraDeRevisionPrevia = () => {
+  if (titulo.includes("[depende-sesion]")) return "DEPENDE_DE: «Página de alertas»";
+  if (titulo.includes("[ya-hecho-falso]")) return "YA_ESTA_HECHO: f4759b0 — ya estaba construida desde el 20-oct";
+  if (titulo.includes("[ya-hecho]")) return `YA_ESTA_HECHO: ${commitDeMain()} — ya estaba construida desde el 20-oct`;
+  return null;
+};
+
 if (modo === "plan") {
+  const previa = palabraDeRevisionPrevia();
+  if (previa) {
+    console.log(previa);
+    process.exit(0);
+  }
   if (titulo.includes("[lento]")) await dormir(10 * 60_000);
   await dormir(titulo.includes("[medio]") ? 6000 : 1500);
   // Como pide el prompt: la línea RIESGO en las primeras líneas (BAJO salvo que el título marque [zona]).
@@ -193,6 +210,11 @@ const escribir = (archivo, texto) => {
   fs.mkdirSync(path.dirname(archivo), { recursive: true });
   fs.writeFileSync(archivo, texto);
 };
+if (palabraDeRevisionPrevia()) {
+  // No cambia nada: lo dice con la palabra de la revisión previa (y un resumen, como siempre).
+  console.log(`RESUMEN: no hice cambios.\n${palabraDeRevisionPrevia()}`);
+  process.exit(0);
+}
 if (titulo.includes("[necesito]")) {
   // Pide algo que solo el dueño puede dar (26-oct-2026): no cambia nada y lo dice con "NECESITO:".
   console.log('RESUMEN: me quedé sin poder seguir.\nNECESITO: clave de la API de pagos para probar el cobro');
@@ -231,6 +253,8 @@ if (titulo.includes("[atascado]")) {
 } else if (titulo.includes("[zona]")) escribir("src/bot/respuesta.ts", "export const saludo = 'hola';\n");
 else if (titulo.includes("[tsc]")) escribir("ROMPER_TSC", "sí\n");
 else if (titulo.includes("[lint]")) escribir("nuevo.txt", "ERROR_LINT\n");
+else if (titulo.includes("[pruebas-largas]")) escribir("FALLA_PRUEBAS", "sí\n");
+else if (titulo.includes("[falla-nueva]")) escribir("FALLA_NUEVA", "sí\n");
 else if (titulo.includes("[migracion]")) {
   escribir(
     "prisma/migrations/20261020130000_nueva/migration.sql",

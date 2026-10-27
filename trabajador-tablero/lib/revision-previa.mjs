@@ -51,10 +51,11 @@ export function dependenciasDeLaRespuesta(texto, ventana) {
 export function yaEstaHechoDe(texto, ventana) {
   const linea = String(ventanaDe(texto, ventana)).match(/^[\s>*`_-]*YA_ESTA_HECHO:[ \t]*(.+)$/im)?.[1];
   if (!linea) return null;
-  const commit = linea.match(/\b[0-9a-f]{7,40}\b/i)?.[0]?.toLowerCase();
-  if (!commit) return null;
+  const original = linea.match(/\b[0-9a-f]{7,40}\b/i)?.[0];
+  if (!original) return null;
+  const commit = original.toLowerCase();
   const motivo = linea
-    .replace(commit, "")
+    .replace(original, "")
     .replace(/^[\s`*_:—–-]+/, "")
     .replace(/[`*_]+/g, "")
     .trim();
