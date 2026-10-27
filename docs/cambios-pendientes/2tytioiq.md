@@ -1,6 +1,0 @@
-## Automatizaciones
-- `resumen_diario_tablero`: desde el 26-oct-2026 el resumen sale entre las 8:55 y las 8:59 p. m. (antes del silencio) y es de 2 líneas fijas: «Hoy: 4 listas ✅, 1 con problema ⚠️, 2 esperando tu sí 👆» y «Ver: <link a `/cliente/tablero-ia?vista=hoy`>». La cifra en 0 no sale y, si las tres son 0, no se manda nada. Sin commits, ramas ni ids: el detalle queda en la pestaña "Hoy" y dentro de cada tarjeta. "Esperando tu sí" sale de la misma lista de "Te toca a ti".
-- `tablero-ia`: pestaña nueva "Hoy" en el inicio (`?vista=hoy`, `VistaDeHoy.tsx`): listas hoy, con problema hoy y te toca a ti, una línea por tarjeta (título corto de `tituloCorto` y el resumen de una línea de la ficha). Solo el dueño o el ADMIN.
-
-## Advertencias de operación
-- `silencio_de_avisos_del_tablero`: los WhatsApp del Coordinador (`POST /api/trabajador/aviso`) no salen de 9:00 p. m. a 7:00 a. m. (Bogotá): el CRM contesta 200 con `silenciado: true`, el Coordinador no anota el aviso como enviado y lo reintenta en la próxima mirada del uso de Claude, así que sale a las 7 a. m. si sigue siendo cierto. Todo aviso se recorta a 3 líneas. No aplica a los avisos graves del Supervisor (líneas caídas, incidentes).

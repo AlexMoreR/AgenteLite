@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { PanelAgenteDeArea, type DatosDelPanel } from "./PanelAgenteDeArea";
 import { ETIQUETA_DE_AREA, fechaValida, hoyEnBogota, type Area } from "@/features/agentes-de-area/dominio/reglas";
+import { numerosDeRespuestaBienvenida } from "@/features/agentes-de-area/servicios/numeros-respuesta-bienvenida";
 import { agenteActivo, leerEquipoDeAvisos } from "@/features/agentes-de-area/servicios/config";
 import { leerEnviosDelDia, leerResumenDelDia, leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -44,7 +45,7 @@ export async function PaginaDeAgenteDeArea({ area: AREA, searchParams }: { area:
   const pedida = (await searchParams).fecha;
   const fecha = typeof pedida === "string" && fechaValida(pedida) ? pedida : hoyEnBogota();
 
-  const [activo, resumen, envios, historial, equipo, miembros] = await Promise.all([
+  const [activo, resumen, envios, historial, equipo, miembros, bienvenida] = await Promise.all([
     agenteActivo(AREA, workspaceId),
     leerResumenDelDia(workspaceId, AREA, fecha).catch(() => null),
     leerEnviosDelDia(workspaceId, AREA, fecha).catch(() => []),
@@ -56,6 +57,8 @@ export async function PaginaDeAgenteDeArea({ area: AREA, searchParams }: { area:
         select: { userId: true, user: { select: { name: true, email: true } } },
       })
       .catch(() => []),
+    // Solo lectura; si falla, la tarjeta dice "sin dato" y el resto de la pantalla sigue igual.
+    AREA === "ventas" ? numerosDeRespuestaBienvenida(workspaceId, fecha).catch(() => null) : Promise.resolve(null),
   ]);
 
   const conNumero = new Set(equipo.flatMap((persona) => [persona.userId, persona.soloDe]).filter(Boolean));
@@ -82,6 +85,7 @@ export async function PaginaDeAgenteDeArea({ area: AREA, searchParams }: { area:
       : null,
     envios: envios.map((envio) => ({ ...envio, hora: hora(envio.creadoEn) })),
     historial: historial.map((dia) => ({ fecha: dia.fecha, esPrueba: dia.esPrueba, salioTarde: dia.salioTarde, resumen: dia.resumen })),
+    bienvenida: AREA === "ventas" ? bienvenida?.serie ?? null : undefined,
     sinNumeroDeAvisos: AREA === "sistemas" ? [] : sinNumeroDeAvisos,
   };
 

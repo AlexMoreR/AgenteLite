@@ -285,6 +285,70 @@ await prueba("por el MCP: un número de cliente es rechazado y agente_de_ventas 
   assert.equal(db.enviados.length, 0);
 });
 
+/* ------------------------------------------------------------------ tasa de respuesta a la bienvenida */
+
+const lead = (extra = {}) => ({ dia: "2026-10-26", canalId: "v1", proposito: "SALES", linea: "Ventas 1", anuncioId: "a1", anuncioTitulo: "Camillas", mensajes: 1, minutosAlSegundo: null, ...extra });
+
+await prueba("bienvenida: un lead con un solo mensaje no cuenta como respondido; con dos o más sí", async () => {
+  const m = reglas.medirRespuestaBienvenida([lead(), lead({ mensajes: 2, minutosAlSegundo: 5 }), lead({ mensajes: 4, minutosAlSegundo: 300 }), lead()]);
+  assert.equal(m.leads, 4);
+  assert.equal(m.respondieron, 2);
+  assert.equal(m.respondieronPorCiento, 50);
+  assert.equal(m.cumpleMeta, false);
+  assert.equal(m.metaPorCiento, 60);
+});
+
+await prueba("bienvenida: en menos de 2 horas, y justo en el límite no cuenta", async () => {
+  const m = reglas.medirRespuestaBienvenida([
+    lead({ mensajes: 2, minutosAlSegundo: 119.9 }),
+    lead({ mensajes: 2, minutosAlSegundo: 120 }),
+    lead({ mensajes: 2, minutosAlSegundo: 0.5 }),
+  ]);
+  assert.equal(m.respondieron, 3);
+  assert.equal(m.respondieronEnMenosDe2h, 2);
+  assert.equal(m.menosDe2hPorCiento, 66.7);
+  assert.equal(m.cumpleMeta, true);
+});
+
+await prueba("bienvenida: un día sin leads da sin dato (null), no 0 %", async () => {
+  const m = reglas.medirRespuestaBienvenida([]);
+  assert.equal(m.respondieronPorCiento, null);
+  assert.equal(m.menosDe2hPorCiento, null);
+  assert.equal(m.cumpleMeta, null);
+  assert.match(reglas.lineaDeRespuestaBienvenida(m), /sin dato/);
+  const serie = reglas.serieDeRespuestaBienvenida([lead({ mensajes: 3, minutosAlSegundo: 10 })], "2026-10-27");
+  assert.equal(serie.length, 14);
+  assert.equal(serie[13].fecha, "2026-10-27");
+  assert.equal(serie[13].respondieronPorCiento, null);
+  assert.equal(serie[12].fecha, "2026-10-26");
+  assert.equal(serie[12].respondieronPorCiento, 100);
+  assert.equal(serie[0].fecha, "2026-10-14");
+});
+
+await prueba("bienvenida: cuenta a todos los leads sin importar su etapa; la línea Admin no entra; por línea y por anuncio", async () => {
+  const leads = [
+    lead({ mensajes: 2, minutosAlSegundo: 10 }),
+    lead({ linea: "Ventas 2", canalId: "v2", anuncioId: null, anuncioTitulo: null }),
+    lead({ canalId: "admin", proposito: "ADMIN", linea: "Admin", mensajes: 5, minutosAlSegundo: 1 }),
+    lead({ canalId: reglas.CANAL_ADMIN_ID, proposito: null, linea: "Admin 2", mensajes: 5, minutosAlSegundo: 1 }),
+  ];
+  const dia = reglas.serieDeRespuestaBienvenida(leads, "2026-10-26").at(-1);
+  assert.equal(dia.leads, 2);
+  assert.equal(dia.respondieron, 1);
+  assert.deepEqual(dia.porLinea.map((l) => [l.linea, l.leads]).sort(), [["Ventas 1", 1], ["Ventas 2", 1]]);
+  const sin = dia.porAnuncio.find((a) => a.anuncioId === null);
+  assert.equal(sin.anuncio, "Sin anuncio");
+  assert.equal(sin.leads, 1);
+});
+
+await prueba("bienvenida: numeros_de_ventas trae el campo y, si falla la lectura, solo esa parte sale en no_se_pudo_leer", async () => {
+  reiniciar({ activo: true });
+  const r = await mcp.ejecutarHerramientaMcpAgentesDeArea("numeros_de_ventas", { fecha: "2026-10-26" }, { workspaceId: WS, userId: "alex" });
+  assert.ok("tasa_respuesta_bienvenida" in r);
+  assert.ok(Array.isArray(r.por_asesora));
+  assert.equal(db.enviados.length, 0);
+});
+
 console.log(`\n${pruebas} pruebas ok, ${fallas.length} con falla`);
 if (fallas.length) {
   console.log("Fallaron:\n- " + fallas.join("\n- "));

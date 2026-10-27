@@ -1,7 +1,0 @@
-## Módulos
-- `comparar-embudos`: `/cliente/crm/comparar-embudos` (solo quien supervisa) compara dos versiones del libro del agente lado a lado para un producto: chats que entraron, % que respondió la bienvenida, % que dio su ciudad, % que llegó a Caliente, % que compró (tasa de cierre), el embudo dibujado y el paso donde se cae la mayoría, días promedio hasta la venta y plata vendida. La diferencia sale en verde (mejora) o rojo (empeora) y avisa "faltan datos" con menos de 100 chats por versión. Filtros: fechas, línea de WhatsApp y origen (anuncio / Marketplace / directo). Solo lee (`EmbudoLead`, `EmbudoEvento`, `Contact`), no cambia el bot ni manda mensajes. Desde el MCP, `comparar_embudos` devuelve lo mismo (mismo cálculo, `src/features/embudo/dominio/comparar.ts`) con un `resumen_para_decir` de qué versión vende más y dónde se cae la gente. Pruebas: `npm run test:comparar-embudos` y `npm run test:mcp-comparar-embudos`.
-
-## Qué no existe hoy
-- `comparar_embudos_plata`: la plata vendida sale siempre "no disponible": el CRM no guarda el monto (vive en la cotización COT-xxxxx de Gestión) y no hay integración que lo lea.
-- `comparar_embudos_ab`: no existe una prueba A/B real (Embudo 5); el botón "Prueba A/B activa" de la pantalla va apagado. La "versión" es `EmbudoLead.libroVersionEntrada`; los chats sin ese dato salen como "Sin versión".
-- `comparar_embudos_origen`: no hay campo de campaña; el origen es anuncio (tiene `anuncioId`/título), Marketplace (línea Ventas 2) o directo.

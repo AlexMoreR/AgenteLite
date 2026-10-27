@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `chats_pegar_imagen`: en la caja de mensaje de Chats se puede pegar una imagen (Ctrl+V o «Pegar» en el celular); abre la vista previa y no se envía sola. La imagen puede llegar en `clipboardData.files` o en `items`. Si ya se está enviando otra imagen, un audio o grabando, el pegado avisa y no hace nada. Probada solo con eventos simulados: falta revisarla en Android Chrome e iPhone Safari reales.

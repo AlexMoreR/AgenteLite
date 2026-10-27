@@ -611,3 +611,101 @@ export function pantallasDeArchivos(archivos: unknown): string[] {
   }
   return [...rutas];
 }
+
+/* ------------------------------------------------------------------------------------------------
+   TASA DE RESPUESTA A LA BIENVENIDA (solo lectura)
+   De los leads que entraron un día, qué % mandó al menos un mensaje más después del primero (el primero suele
+   ser el texto automático del anuncio) y qué % lo hizo en menos de 2 horas. Se cuentan TODOS los leads que
+   entraron ese día, sin importar a qué etapa pasaron después. La línea Admin no entra. Sin leads = "sin dato".
+------------------------------------------------------------------------------------------------ */
+
+/** Meta fija de la tasa de respuesta a la bienvenida, en %. */
+export const META_RESPUESTA_BIENVENIDA = 60;
+/** "Respondió rápido" = el segundo mensaje llegó ANTES de estos minutos (justo 120 ya no cuenta). */
+export const MINUTOS_RESPUESTA_RAPIDA = 120;
+export const DIAS_DE_LA_SERIE_DE_BIENVENIDA = 14;
+
+export type LeadDeBienvenida = {
+  /** Día de entrada (AAAA-MM-DD, hora de Colombia). */
+  dia: string;
+  canalId: string | null;
+  /** `WhatsAppChannel.purpose` de la línea. */
+  proposito: string | null;
+  linea: string;
+  anuncioId: string | null;
+  anuncioTitulo: string | null;
+  /** Mensajes del cliente (no borrados) de la conversación. */
+  mensajes: number;
+  /** Minutos entre el primer y el segundo mensaje del cliente; null si no hubo segundo. */
+  minutosAlSegundo: number | null;
+};
+
+export type MedidaDeBienvenida = {
+  leads: number;
+  respondieron: number;
+  /** null = sin leads ("sin dato"), nunca 0 %. */
+  respondieronPorCiento: number | null;
+  respondieronEnMenosDe2h: number;
+  menosDe2hPorCiento: number | null;
+  metaPorCiento: number;
+  /** null = sin dato. */
+  cumpleMeta: boolean | null;
+};
+
+const unDecimal = (valor: number) => Math.round(valor * 10) / 10;
+
+export function medirRespuestaBienvenida(leads: LeadDeBienvenida[]): MedidaDeBienvenida {
+  const validos = leads.filter((lead) => !esLineaAdmin(lead.canalId, lead.proposito));
+  const respondieron = validos.filter((lead) => lead.mensajes >= 2).length;
+  const rapidos = validos.filter(
+    (lead) => lead.mensajes >= 2 && lead.minutosAlSegundo !== null && lead.minutosAlSegundo < MINUTOS_RESPUESTA_RAPIDA,
+  ).length;
+  const porCiento = validos.length ? unDecimal((respondieron / validos.length) * 100) : null;
+  return {
+    leads: validos.length,
+    respondieron,
+    respondieronPorCiento: porCiento,
+    respondieronEnMenosDe2h: rapidos,
+    menosDe2hPorCiento: validos.length ? unDecimal((rapidos / validos.length) * 100) : null,
+    metaPorCiento: META_RESPUESTA_BIENVENIDA,
+    cumpleMeta: porCiento === null ? null : porCiento >= META_RESPUESTA_BIENVENIDA,
+  };
+}
+
+export type RespuestaBienvenidaDelDia = MedidaDeBienvenida & {
+  fecha: string;
+  porLinea: Array<{ linea: string } & MedidaDeBienvenida>;
+  porAnuncio: Array<{ anuncioId: string | null; anuncio: string } & MedidaDeBienvenida>;
+};
+
+function agruparPor<T>(leads: LeadDeBienvenida[], clave: (lead: LeadDeBienvenida) => string, armar: (lead: LeadDeBienvenida, medida: MedidaDeBienvenida) => T): T[] {
+  const grupos = new Map<string, LeadDeBienvenida[]>();
+  for (const lead of leads) grupos.set(clave(lead), [...(grupos.get(clave(lead)) ?? []), lead]);
+  return [...grupos.values()].sort((a, b) => b.length - a.length).map((lista) => armar(lista[0], medirRespuestaBienvenida(lista)));
+}
+
+/** Los últimos `dias` días terminando en `fecha`: la medida de cada uno, por línea y por anuncio (los sin anuncio, aparte). */
+export function serieDeRespuestaBienvenida(leads: LeadDeBienvenida[], fecha: string, dias = DIAS_DE_LA_SERIE_DE_BIENVENIDA): RespuestaBienvenidaDelDia[] {
+  const fechas: string[] = [];
+  for (let dia = fecha, i = 0; i < dias; i += 1, dia = diaAnterior(dia)) fechas.unshift(dia);
+  return fechas.map((dia) => {
+    const delDia = leads.filter((lead) => lead.dia === dia && !esLineaAdmin(lead.canalId, lead.proposito));
+    return {
+      fecha: dia,
+      ...medirRespuestaBienvenida(delDia),
+      porLinea: agruparPor(delDia, (lead) => lead.canalId ?? lead.linea, (lead, medida) => ({ linea: lead.linea, ...medida })),
+      porAnuncio: agruparPor(delDia, (lead) => lead.anuncioId ?? "", (lead, medida) => ({
+        anuncioId: lead.anuncioId,
+        anuncio: lead.anuncioId ? (lead.anuncioTitulo ?? lead.anuncioId) : "Sin anuncio",
+        ...medida,
+      })),
+    };
+  });
+}
+
+/** La línea que se pone en el mensaje a Alexander; "sin dato" si ese día no hubo leads o la lectura falló. */
+export function lineaDeRespuestaBienvenida(medida: MedidaDeBienvenida | null | undefined): string {
+  if (!medida || medida.respondieronPorCiento === null) return "Respuesta a la bienvenida: sin dato";
+  const meta = medida.cumpleMeta ? "cumple" : "no llega a";
+  return `Respuesta a la bienvenida: ${medida.respondieronPorCiento} % (${medida.respondieron} de ${medida.leads} leads nuevos), ${medida.menosDe2hPorCiento} % en menos de 2 h; ${meta} la meta de ${medida.metaPorCiento} %`;
+}
