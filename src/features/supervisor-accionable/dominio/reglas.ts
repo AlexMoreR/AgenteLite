@@ -245,7 +245,7 @@ export const CONFIG_ACCIONABLE_POR_DEFECTO: ConfigAccionable = {
   segundaOportunidadMin: 10,
   repeticionDia: 3,
   repeticionSemana: 10,
-  maxPrioridades: 3,
+  maxPrioridades: 5,
   asesoraWhatsApp: true,
   supervisoraId: null,
   fueraDeHorario: null,
@@ -318,7 +318,7 @@ export function leerConfigAccionableDeTexto(crudoTexto: string | null | undefine
     segundaOportunidadMin: entero(crudo.segundaOportunidadMin, d.segundaOportunidadMin, 0, 120),
     repeticionDia: entero(crudo.repeticionDia, d.repeticionDia, 2, 50),
     repeticionSemana: entero(crudo.repeticionSemana, d.repeticionSemana, 3, 200),
-    maxPrioridades: entero(crudo.maxPrioridades, d.maxPrioridades, 1, 3),
+    maxPrioridades: entero(crudo.maxPrioridades, d.maxPrioridades, 1, MAX_PRIORIDADES),
     asesoraWhatsApp: !(crudo.asesoraWhatsApp === false || crudo.asesoraWhatsApp === "false"),
     supervisoraId: supervisora,
     fueraDeHorario: leerFueraDeHorario(crudo.fueraDeHorario),
@@ -1212,6 +1212,10 @@ export type Tarjeta = {
   chats?: ChatDelPatron[];
   /** Incidente del bot / embudo / sistema: la clave de su alerta (el botón lleva a esa alerta). */
   claveAlerta?: string | null;
+  /** Qué problema es: dos tarjetas con el mismo `grupo` son el mismo problema (ver juntarRepetidas). */
+  grupo?: string;
+  /** Cuántas tarjetas del mismo problema se juntaron en esta ("×N"); ausente = 1. */
+  repeticiones?: number;
 };
 
 /** Un chat de una tarjeta de patrón, listo para pintar. Nunca lleva el teléfono completo. */
@@ -1321,7 +1325,8 @@ export function chatsDelPatron(patron: Accion, estado: EstadoAccionable, ahora: 
     });
   }
   const orden = { SIN_RESPUESTA: 0, RESUELTA: 1, CERRADA: 2 } as const;
-  return filas.sort((x, y) => orden[x.situacion] - orden[y.situacion]);
+  // Los chats que "ya no aplican" (cerrados, ganados o perdidos) son ruido: no se listan.
+  return filas.filter((f) => !f.estado.startsWith(ETIQUETA_DE_ESTADO.YA_NO_APLICA)).sort((x, y) => orden[x.situacion] - orden[y.situacion]);
 }
 
 const RIESGO_CON_COTIZACION = "Tiene cotización o anticipo registrado: es una venta con monto a punto de cerrarse o de perderse.";
@@ -1391,6 +1396,7 @@ export function tarjetaDeAccion(a: Accion, ahora: Date, estado?: EstadoAccionabl
     enlaceCorto: a.numero ? `/c/${a.numero}` : null,
     desde: a.escaladaEn ?? a.detectadaEn,
     conversationId: a.conversationId,
+    grupo: `accion:${a.conversationId ?? a.id}:${a.tipo}`,
     ...(esPatron && estado ? { chats: chatsDelPatron(a, estado, ahora) } : {}),
   };
 }
@@ -1434,23 +1440,91 @@ export function tarjetaDeIncidente(inc: IncidenteParaTarjeta): Tarjeta {
     desde: inc.primeraVezEn.toISOString(),
     conversationId: null,
     claveAlerta: inc.clave,
+    grupo: `inc:${claveSinVersion(inc.clave)}`,
   };
 }
 
-/** Prioridades de Alexander: máximo N, críticas primero, luego por riesgo y por antigüedad. */
+/** Tope de alertas visibles en "Prioridades de Alexander" (decisión del dueño, 26-10-2026: 5). */
+export const MAX_PRIORIDADES = 5;
+
 const ORDEN_DE_GRAVEDAD: Record<GravedadDeEscalada, number> = { CRITICO: 3, IMPORTANTE: 2, OBSERVACION: 1 };
 
 export const ETIQUETA_DE_GRAVEDAD: Record<GravedadDeEscalada, string> = { CRITICO: "CRÍTICO", IMPORTANTE: "IMPORTANTE", OBSERVACION: "PARA REVISAR" };
 
-export function prioridadesDeAlexander(tarjetas: Tarjeta[], max = CONFIG_ACCIONABLE_POR_DEFECTO.maxPrioridades): { visibles: Tarjeta[]; resto: Tarjeta[] } {
-  const orden = [...tarjetas].sort(
-    (a, b) =>
-      ORDEN_DE_GRAVEDAD[b.gravedad] - ORDEN_DE_GRAVEDAD[a.gravedad] ||
-      ORDEN_DE_RIESGO[b.riesgoOrden] - ORDEN_DE_RIESGO[a.riesgoOrden] ||
-      Date.parse(a.desde) - Date.parse(b.desde),
+/** La clave de un incidente sin el número de versión ("INC:libro-v12:x" y "INC:libro-v13:x" son el mismo problema). */
+export function claveSinVersion(clave: string): string {
+  return clave.replace(/\bv\d+\b/g, "v*");
+}
+
+/**
+ * ¿Es solo informativa? Lo informativo (OBSERVACIÓN, cambios del libro que pasaron el Guardian) no
+ * pide acción del dueño: no va en "Prioridades de Alexander", queda en el historial plegado.
+ */
+export function esInformativa(t: Pick<Tarjeta, "gravedad">): boolean {
+  return t.gravedad === "OBSERVACION";
+}
+
+/**
+ * Un incidente del libro de una versión que ya no es la actual es un aviso viejo: se informa, no se actúa.
+ * Con la versión actual desconocida (null) nada se considera viejo.
+ */
+export function esAvisoDeVersionVieja(inc: { familia: string; hallazgos: Hallazgo[] }, versionActual: number | null): boolean {
+  if (versionActual === null || inc.familia !== "CAMBIO") return false;
+  const versiones = inc.hallazgos.flatMap((h) => h.evidencia.versiones);
+  return versiones.length > 0 && Math.max(...versiones) < versionActual;
+}
+
+/**
+ * Un mismo problema = una sola tarjeta. Se juntan las que tienen el mismo `grupo` (clave del
+ * incidente sin versión, o chat y tipo de aviso): queda la más urgente con "×N" y su fecha pasa a
+ * ser la del más reciente. Nunca se junta por parecido de texto.
+ */
+export function juntarRepetidas(tarjetas: Tarjeta[]): Tarjeta[] {
+  const grupos = new Map<string, Tarjeta[]>();
+  for (const t of tarjetas) {
+    const clave = t.grupo ?? t.id;
+    grupos.set(clave, [...(grupos.get(clave) ?? []), t]);
+  }
+  return [...grupos.values()].map((lista) => {
+    if (lista.length === 1) return lista[0];
+    const [principal] = [...lista].sort(compararUrgencia);
+    const reciente = lista.reduce((max, t) => (Date.parse(t.desde) > Date.parse(max.desde) ? t : max));
+    return { ...principal, repeticiones: lista.length, desde: reciente.desde };
+  });
+}
+
+function compararUrgencia(a: Tarjeta, b: Tarjeta): number {
+  return (
+    ORDEN_DE_GRAVEDAD[b.gravedad] - ORDEN_DE_GRAVEDAD[a.gravedad] ||
+    ORDEN_DE_RIESGO[b.riesgoOrden] - ORDEN_DE_RIESGO[a.riesgoOrden] ||
+    Date.parse(a.desde) - Date.parse(b.desde)
   );
-  const tope = Math.max(1, Math.min(3, max));
-  return { visibles: orden.slice(0, tope), resto: orden.slice(tope) };
+}
+
+/**
+ * Prioridades de Alexander: solo lo que pide acción (sin informativas), un problema = una tarjeta,
+ * máximo N visibles (críticas primero, luego por riesgo y antigüedad). Lo informativo va aparte, en `historial`.
+ */
+export function prioridadesDeAlexander(
+  tarjetas: Tarjeta[],
+  max = CONFIG_ACCIONABLE_POR_DEFECTO.maxPrioridades,
+): { visibles: Tarjeta[]; resto: Tarjeta[]; historial: Tarjeta[] } {
+  const orden = juntarRepetidas(tarjetas.filter((t) => !esInformativa(t))).sort(compararUrgencia);
+  const tope = Math.max(1, Math.min(MAX_PRIORIDADES, max));
+  return { visibles: orden.slice(0, tope), resto: orden.slice(tope), historial: tarjetas.filter(esInformativa).sort(compararUrgencia) };
+}
+
+/**
+ * ¿La escalada sigue pidiendo algo? No si el chat ya se cerró, se ganó o se perdió, o si una persona
+ * respondió después del aviso. `chat` null = el chat ya no existe o no está abierto.
+ */
+export function escaladaSigueVigente(
+  a: Pick<Accion, "avisadaEn" | "detectadaEn">,
+  chat: { etapa: string | null; ultimaRespuestaHumanaEn: Date | null } | null,
+): boolean {
+  if (!chat || chat.etapa === "GANADO" || chat.etapa === "PERDIDO") return false;
+  const desde = Date.parse(a.avisadaEn ?? a.detectadaEn);
+  return !(chat.ultimaRespuestaHumanaEn && chat.ultimaRespuestaHumanaEn.getTime() > desde);
 }
 
 /** El texto completo (pantalla / informe). */

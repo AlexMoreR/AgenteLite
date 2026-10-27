@@ -136,7 +136,8 @@ await prueba("interruptor: sin fila, JSON roto o activo≠true = APAGADO; los va
   assert.deepEqual(r.leerConfigAccionableDeTexto(""), r.CONFIG_ACCIONABLE_POR_DEFECTO);
   const c = r.leerConfigAccionableDeTexto('{"activo":true,"maxPrioridades":9,"plazos":{"caliente":1},"asesoraWhatsApp":false}');
   assert.equal(c.activo, true);
-  assert.equal(c.maxPrioridades, 3, "nunca más de 3 prioridades");
+  assert.equal(c.maxPrioridades, 5, "nunca más de 5 prioridades");
+  assert.equal(r.leerConfigAccionableDeTexto("{\"activo\":true}").maxPrioridades, 5, "por defecto 5");
   assert.equal(c.plazos.caliente, 5);
   assert.equal(c.asesoraWhatsApp, false);
 });
@@ -371,19 +372,87 @@ await prueba("incidente crítico del bot → tarjeta directa (responsable técni
   assert.equal(t.id, `inc:INC:libro-v187:combo-camilla:${T0.getTime()}`);
 });
 
-await prueba("Prioridades de Alexander: máximo 3, críticas primero (pago > sistema > venta), luego las más viejas", () => {
+await prueba("Prioridades de Alexander: máximo 5, críticas primero (pago > sistema > venta), luego las más viejas", () => {
   const base = { ...tarjetaEscalada };
   const tarjetas = [
-    { ...base, id: "a", gravedad: "IMPORTANTE", riesgoOrden: "PATRON", desde: mas(T0, -50).toISOString() },
-    { ...base, id: "b", gravedad: "CRITICO", riesgoOrden: "VENTA", desde: mas(T0, -10).toISOString() },
-    { ...base, id: "c", gravedad: "CRITICO", riesgoOrden: "PAGO", desde: mas(T0, -5).toISOString() },
-    { ...base, id: "d", gravedad: "CRITICO", riesgoOrden: "VENTA", desde: mas(T0, -30).toISOString() },
-    { ...base, id: "e", gravedad: "CRITICO", riesgoOrden: "SISTEMA", desde: mas(T0, -1).toISOString() },
+    { ...base, id: "a", grupo: "a", gravedad: "IMPORTANTE", riesgoOrden: "PATRON", desde: mas(T0, -50).toISOString() },
+    { ...base, id: "b", grupo: "b", gravedad: "CRITICO", riesgoOrden: "VENTA", desde: mas(T0, -10).toISOString() },
+    { ...base, id: "c", grupo: "c", gravedad: "CRITICO", riesgoOrden: "PAGO", desde: mas(T0, -5).toISOString() },
+    { ...base, id: "d", grupo: "d", gravedad: "CRITICO", riesgoOrden: "VENTA", desde: mas(T0, -30).toISOString() },
+    { ...base, id: "e", grupo: "e", gravedad: "CRITICO", riesgoOrden: "SISTEMA", desde: mas(T0, -1).toISOString() },
   ];
   const { visibles, resto } = r.prioridadesDeAlexander(tarjetas, 3);
   assert.deepEqual(visibles.map((t) => t.id), ["c", "e", "d"]);
   assert.deepEqual(resto.map((t) => t.id), ["b", "a"]);
-  assert.equal(r.prioridadesDeAlexander(tarjetas, 10).visibles.length, 3, "nunca más de 3");
+  assert.equal(r.prioridadesDeAlexander(tarjetas, 10).visibles.length, 5, "nunca más de 5");
+});
+
+await prueba("8 críticos distintos: 5 visibles ordenados y 3 en el desplegable", () => {
+  const tarjetas = Array.from({ length: 8 }, (_, i) => ({ ...tarjetaEscalada, id: `k${i}`, grupo: `k${i}`, gravedad: "CRITICO", riesgoOrden: "VENTA", desde: mas(T0, -i).toISOString() }));
+  const { visibles, resto } = r.prioridadesDeAlexander(tarjetas);
+  assert.equal(visibles.length, 5);
+  assert.equal(resto.length, 3);
+  assert.deepEqual(visibles.map((t) => t.id), ["k7", "k6", "k5", "k4", "k3"], "los más viejos primero");
+});
+
+await prueba("OBSERVACIÓN va al historial y no cuenta como prioridad", () => {
+  const tarjetas = [
+    { ...tarjetaEscalada, id: "x", grupo: "x", gravedad: "OBSERVACION" },
+    { ...tarjetaEscalada, id: "y", grupo: "y", gravedad: "IMPORTANTE" },
+  ];
+  const p = r.prioridadesDeAlexander(tarjetas);
+  assert.deepEqual(p.visibles.map((t) => t.id), ["y"]);
+  assert.deepEqual(p.historial.map((t) => t.id), ["x"]);
+  assert.equal(p.resto.length, 0);
+});
+
+await prueba("cambio de libro aprobado y avisos de versiones viejas son informativos; lo vigente no", () => {
+  const h = (v) => ({ ...hallazgo("CAMBIO:libro:v" + v, []), familia: "CAMBIO", evidencia: { chats: [], reglas: [], versiones: [v] } });
+  assert.equal(r.esAvisoDeVersionVieja({ familia: "CAMBIO", hallazgos: [h(180)] }, 187), true);
+  assert.equal(r.esAvisoDeVersionVieja({ familia: "CAMBIO", hallazgos: [h(187)] }, 187), false);
+  assert.equal(r.esAvisoDeVersionVieja({ familia: "BOT", hallazgos: [h(180)] }, 187), false, "solo los cambios del libro");
+  assert.equal(r.esAvisoDeVersionVieja({ familia: "CAMBIO", hallazgos: [h(180)] }, null), false, "sin versión actual no se oculta nada");
+});
+
+await prueba("un mismo problema = una sola tarjeta: 3 incidentes con la misma clave (distinta versión) salen ×3", () => {
+  const inc = (v, min) => ({
+    clave: `INC:libro-v${v}:combo`,
+    familia: "BOT",
+    severidad: "CRITICO",
+    titulo: `Libro V3 v${v}: ráfaga inicial`,
+    primeraVezEn: mas(T0, min),
+    hallazgos: [hallazgo("BOT:rafaga_inicial:combo", [], { severidad: "CRITICO" })],
+  });
+  const tarjetas = [inc(185, 0), inc(186, 10), inc(187, 20)].map((i) => r.tarjetaDeIncidente(i));
+  const p = r.prioridadesDeAlexander(tarjetas);
+  assert.equal(p.visibles.length, 1);
+  assert.equal(p.visibles[0].repeticiones, 3);
+  assert.equal(p.visibles[0].desde, mas(T0, 20).toISOString(), "indica el más reciente");
+  assert.equal(r.claveSinVersion("INC:libro-v12:combo"), "INC:libro-v*:combo");
+  // Dos problemas distintos nunca se juntan.
+  const otro = r.tarjetaDeIncidente({ ...inc(187, 5), clave: "INC:embudo:combo" });
+  assert.equal(r.prioridadesDeAlexander([...tarjetas, otro]).visibles.length, 2);
+});
+
+await prueba("varias escaladas del mismo cliente y tipo se juntan; de otro cliente no", () => {
+  const base = { ...tarjetaEscalada, gravedad: "IMPORTANTE", riesgoOrden: "VENTA" };
+  const p = r.prioridadesDeAlexander([
+    { ...base, id: "1", grupo: "accion:c1:caliente", desde: mas(T0, 0).toISOString() },
+    { ...base, id: "2", grupo: "accion:c1:caliente", desde: mas(T0, 30).toISOString() },
+    { ...base, id: "3", grupo: "accion:c2:caliente" },
+  ]);
+  assert.equal(p.visibles.length, 2);
+  assert.equal(p.visibles.find((t) => t.repeticiones)?.repeticiones, 2);
+});
+
+await prueba("escalada con chat cerrado, ganado, perdido o ya respondido no sigue vigente", () => {
+  const a = { avisadaEn: T0.toISOString(), detectadaEn: T0.toISOString() };
+  assert.equal(r.escaladaSigueVigente(a, null), false, "chat cerrado o inexistente");
+  assert.equal(r.escaladaSigueVigente(a, { etapa: "GANADO", ultimaRespuestaHumanaEn: null }), false);
+  assert.equal(r.escaladaSigueVigente(a, { etapa: "PERDIDO", ultimaRespuestaHumanaEn: null }), false);
+  assert.equal(r.escaladaSigueVigente(a, { etapa: "NEGOCIACION", ultimaRespuestaHumanaEn: mas(T0, 5) }), false, "la asesora respondió");
+  assert.equal(r.escaladaSigueVigente(a, { etapa: "NEGOCIACION", ultimaRespuestaHumanaEn: mas(T0, -5) }), true, "respuesta anterior al aviso");
+  assert.equal(r.escaladaSigueVigente(a, { etapa: "NEGOCIACION", ultimaRespuestaHumanaEn: null }), true);
 });
 
 await prueba("el aviso a la asesora: cliente, motivo, espera, qué responder, plazo y enlace; sin teléfono completo", () => {
@@ -973,7 +1042,8 @@ await prueba("Prioridades + revalidación: el revalidado RESUELTO y el PENDIENTE
   });
   const incidentes = [viejo("INC:libro-v182:combo-camilla"), viejo("INC:libro-v187:combo-camilla"), viejo("INC:libro-v188:combo-camilla")];
   const antes = await servicio.leerPanelAccionable(WS, incidentes, ahora);
-  assert.equal(antes.prioridades.visibles.length, 3, "hoy: los tres viejos son CRÍTICOS en Prioridades");
+  assert.equal(antes.prioridades.visibles.length, 1, "los tres viejos son el mismo problema: una sola tarjeta");
+  assert.equal(antes.prioridades.visibles[0].repeticiones, 3, "…con ×3");
   const decision = { "INC:libro-v182:combo-camilla": "RESUELTA", "INC:libro-v187:combo-camilla": "PENDIENTE", "INC:libro-v188:combo-camilla": "SIGUE" };
   const revalidacion = (inc) => ({
     clave: inc.clave,
@@ -1040,7 +1110,8 @@ await prueba("Prioridades + limpieza del libro: las viejas cerradas y las repeti
   });
   const incidentes = [alerta(292, "CRITICO"), alerta(311, "CRITICO"), alerta(317, "CRITICO"), alerta(320, "CRITICO")];
   const antes = await servicio.leerPanelAccionable(WS, incidentes, ahora);
-  assert.ok(antes.prioridades.visibles.length + antes.prioridades.resto.length >= 3, "hoy: las viejas y repetidas llenan Prioridades");
+  assert.equal(antes.prioridades.visibles.length + antes.prioridades.resto.length, 1, "las repetidas ya se juntan en una sola tarjeta");
+  assert.equal(antes.prioridades.visibles[0].repeticiones, 4);
   const limpio = reval.aplicarRevalidaciones({
     incidentes, avisar: [], abiertasAntes: new Set(incidentes.map((i) => i.clave)), versionActual: 320, ahora, inicioDe: (inc) => inc.desde, revalidar: () => null,
   });
@@ -1074,6 +1145,7 @@ await prueba("tarjeta de patrón: trae sus chats (enlace al chat, teléfono tapa
   assert.ok(!JSON.stringify(t).includes("3001234567"), "nunca el teléfono completo");
   assert.equal(t.enlace, `/cliente/direccion/supervisor#${r.anclaDePrioridad(p.id)}`);
   assert.match(r.anclaDePrioridad(p.id), /^prioridad-[A-Za-z0-9_-]+$/);
+  assert.ok(t.chats.every((c) => !/ya no aplica/i.test(c.estado)), "ninguna fila «Ya no aplica» en los chats del patrón");
   // Patrones viejos (sin idsDeChats): se arman con los incumplidos de la misma asesora ese día.
   const viejo = { ...res.estado.acciones[p.id] };
   delete viejo.idsDeChats;

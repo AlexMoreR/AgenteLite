@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client";
+
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/web-push";
@@ -26,6 +28,8 @@ import {
   type TareaParaSupervisora,
   candidatasDeLaVuelta,
   estadoVacio,
+  esAvisoDeVersionVieja,
+  escaladaSigueVigente,
   esperandoFueraDeHorario,
   idDeIncidente,
   leerConfigAccionableDeTexto,
@@ -310,7 +314,7 @@ export function textoCriticoDeIncidente(inc: Incidente): string {
 ------------------------------------------------------------------------------------------------ */
 
 export type PanelAccionable = {
-  prioridades: { visibles: Tarjeta[]; resto: Tarjeta[] };
+  prioridades: { visibles: Tarjeta[]; resto: Tarjeta[]; historial: Tarjeta[] };
   /** Lo que está en manos de las asesoras (abiertas y cerradas de las últimas 24 h), sin patrones. */
   enManos: Accion[];
   metricas: ReturnType<typeof metricasDelDia>;
@@ -319,26 +323,56 @@ export type PanelAccionable = {
 };
 
 /**
- * La pantalla del Supervisor: Prioridades de Alexander (máx. 3, solo escaladas reales y críticos
- * del bot/embudo/sistema sin atender) + lo que está en manos de las asesoras + métricas del día.
+ * La pantalla del Supervisor: Prioridades de Alexander (máx. 5, solo escaladas reales y críticos
+ * del bot/embudo/sistema sin atender, un problema = una tarjeta) + lo que está en manos de las
+ * asesoras + métricas del día. Lo informativo y lo que ya no aplica no se cuenta como alerta.
  */
+/**
+ * Estado en vivo de los chats de las escaladas (etapa y última respuesta de una persona). Solo lectura.
+ * Un chat que no sale en la lista (cerrado o inexistente) queda fuera del mapa.
+ */
+async function chatsVigentesDeEscaladas(workspaceId: string, ids: string[]): Promise<Map<string, { etapa: string | null; ultimaRespuestaHumanaEn: Date | null }>> {
+  const unicos = [...new Set(ids)].filter(Boolean);
+  if (!unicos.length) return new Map();
+  const filas = await prisma.$queryRaw<Array<{ id: string; etapa: string | null; humana: Date | null }>>(Prisma.sql`
+    SELECT c."id", ct."crmStage"::text AS "etapa", hum."createdAt" AS "humana"
+      FROM "Conversation" c
+      JOIN "Contact" ct ON ct."id" = c."contactId"
+      LEFT JOIN LATERAL (
+        SELECT m."createdAt" FROM "Message" m
+         WHERE m."conversationId" = c."id" AND m."direction" = 'OUTBOUND' AND m."type"::text <> 'SYSTEM'
+           AND m."rawPayload"->>'source' IN ('manual', 'instance')
+         ORDER BY m."createdAt" DESC LIMIT 1) hum ON true
+     WHERE c."workspaceId" = ${workspaceId} AND c."status" = 'OPEN' AND c."id" IN (${Prisma.join(unicos)})`);
+  return new Map(filas.map((f) => [f.id, { etapa: f.etapa, ultimaRespuestaHumanaEn: f.humana ? new Date(f.humana) : null }]));
+}
+
 export async function leerPanelAccionable(
   workspaceId: string,
   incidentesAbiertos: Incidente[],
   ahora = new Date(),
   /** Los chats abiertos (solo hacen falta fuera de horario, para "clientes esperando fuera de horario"). */
   chats: ChatAbierto[] = [],
+  /** Versión actual del libro V3: los incidentes de una versión anterior son avisos viejos (informativos). */
+  versionDelLibro: number | null = null,
 ): Promise<PanelAccionable> {
   const [config, estado, atendidas] = await Promise.all([leerConfigAccionable(workspaceId), leerEstadoAccionable(workspaceId), leerAtendidas(workspaceId)]);
   const supervisora = chats.length ? await supervisoraDelNegocio(workspaceId, config).catch(() => null) : null;
   const esperando = chats.length ? esperandoFueraDeHorario({ chats, ahora, config, supervisora }) : [];
-  const escaladas = Object.values(estado.acciones).filter((a) => a.estado === "ESCALADA" && !atendidas[a.id]);
+  const escaladasGuardadas = Object.values(estado.acciones).filter((a) => a.estado === "ESCALADA" && !atendidas[a.id]);
+  // Revisión en vivo: lo guardado puede ir una vuelta atrasado. Si el chat ya se cerró, se ganó, se
+  // perdió o una persona respondió, la escalada no se muestra (la próxima vuelta la cierra en lo guardado).
+  // Si la consulta falla no se sabe: se deja como estaba.
+  const vivos = await chatsVigentesDeEscaladas(workspaceId, escaladasGuardadas.flatMap((a) => (a.conversationId ? [a.conversationId] : []))).catch(() => null);
+  const escaladas = escaladasGuardadas.filter((a) => !vivos || !a.conversationId || escaladaSigueVigente(a, vivos.get(a.conversationId) ?? null));
   const criticos = incidentesAbiertos.filter(
-    (inc) => inc.estado === "ABIERTA" && inc.familia !== "ATENCION" && inc.severidad === "CRITICO" && !atendidas[idDeIncidente(inc)],
+    (inc) =>
+      inc.estado === "ABIERTA" && inc.familia !== "ATENCION" && inc.severidad === "CRITICO" && !atendidas[idDeIncidente(inc)] && !esAvisoDeVersionVieja(inc, versionDelLibro),
   );
-  const tarjetas = [...escaladas.map((a) => tarjetaDeAccion(a, ahora, estado)),...criticos.map((inc) => tarjetaDeIncidente(inc))];
+  const tarjetas = [...escaladas.map((a) => tarjetaDeAccion(a, ahora, estado)), ...criticos.map((inc) => tarjetaDeIncidente(inc))];
+  // "Ya no aplica" nunca se muestra: lo cerrado de verdad (resuelto o atendido) queda en el historial plegado.
   const enManos = Object.values(estado.acciones)
-    .filter((a) => a.tipo !== "patron_dia" && a.tipo !== "patron_semana")
+    .filter((a) => a.tipo !== "patron_dia" && a.tipo !== "patron_semana" && a.estado !== "YA_NO_APLICA")
     .sort((a, b) => Number(ESTADOS_ACTIVOS.includes(b.estado)) - Number(ESTADOS_ACTIVOS.includes(a.estado)) || Date.parse(b.detectadaEn) - Date.parse(a.detectadaEn));
   return { prioridades: prioridadesDeAlexander(tarjetas, config.maxPrioridades), enManos, metricas: metricasDelDia(estado, ahora), esperando };
 }

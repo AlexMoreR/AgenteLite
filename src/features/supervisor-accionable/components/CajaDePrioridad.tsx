@@ -97,6 +97,9 @@ export function CajaDePrioridad({ tarjeta }: { tarjeta: Tarjeta }) {
         className={`block min-h-11 w-full space-y-1 rounded-md border px-3 py-2 text-left transition hover:brightness-95 ${COLOR_DE_CAJA[tarjeta.gravedad]}`}
       >
         <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold ${COLOR_DE_INSIGNIA[tarjeta.gravedad]}`}>{caja.insignia}</span>
+        {tarjeta.repeticiones && tarjeta.repeticiones > 1 ? (
+          <span className="ml-1.5 inline-block rounded-full bg-muted px-2 py-0.5 text-xs font-bold text-foreground">×{tarjeta.repeticiones} · el más reciente</span>
+        ) : null}
         <span className="block text-sm font-semibold text-foreground">{caja.frase}</span>
         {caja.leads !== null ? <span className="block text-sm text-foreground/80">👥 Leads afectados: {caja.leads}</span> : null}
         <span className="block text-sm text-foreground/80">👤 Responsable: {caja.responsable}</span>

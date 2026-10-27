@@ -31,7 +31,7 @@ import { resumenDeRecuperacion } from "@/features/seguimiento-inteligente/servic
 import { bloqueDelCierreDelDia, fechaBogota } from "@/features/avisos-gravedad/dominio/reglas";
 import { leerConfigGravedad, leerResumenDelDia } from "@/features/avisos-gravedad/servicios/enrutador";
 import { PanelAccionableView } from "@/features/supervisor-accionable/components/PanelAccionable";
-import { anclaDeAlerta } from "@/features/supervisor-accionable/dominio/reglas";
+import { anclaDeAlerta, claveSinVersion, esAvisoDeVersionVieja } from "@/features/supervisor-accionable/dominio/reglas";
 import { leerConfigAccionable, leerPanelAccionable } from "@/features/supervisor-accionable/servicios/accionable";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
@@ -116,7 +116,7 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
       ? await leerChatsAbiertos({ workspaceId, ahora, conTurno: (await leerConfigTurno(workspaceId).catch(() => null))?.activo }).catch(() => [])
       : [];
   const panelAccionable = configAccionable?.activo
-    ? await leerPanelAccionable(workspaceId, (alertas ?? []).filter((alerta) => alerta.estado === "ABIERTA"), ahora, chatsFueraDeHorario).catch(() => null)
+    ? await leerPanelAccionable(workspaceId, (alertas ?? []).filter((alerta) => alerta.estado === "ABIERTA"), ahora, chatsFueraDeHorario, linea.actual.version).catch(() => null)
     : null;
 
   const configAvisos = await leerConfigGravedad(workspaceId).catch(() => null);
@@ -155,7 +155,27 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
   */
   type Alerta = NonNullable<typeof alertas>[number];
   const operativas = (alertas ?? []).filter((alerta) => alerta.familia === "ATENCION");
-  const incidentes = (alertas ?? []).filter((alerta) => alerta.familia !== "ATENCION");
+  // Un mismo problema = una sola alerta (misma clave sin la versión): queda la abierta más reciente con "×N".
+  // Lo informativo (observaciones, cambios que pasaron el Guardian, avisos de versiones viejas) y lo
+  // resuelto van al historial plegado: no es alerta.
+  const deIncidentes = (alertas ?? []).filter((alerta) => alerta.familia !== "ATENCION");
+  const veces = new Map<string, number>();
+  const representantes = new Map<string, Alerta>();
+  for (const alerta of deIncidentes) {
+    const grupo = claveSinVersion(alerta.clave);
+    veces.set(grupo, (veces.get(grupo) ?? 0) + 1);
+    const actual = representantes.get(grupo);
+    const mejor =
+      !actual ||
+      (alerta.estado === "ABIERTA") > (actual.estado === "ABIERTA") ||
+      (alerta.estado === actual.estado && alerta.desde.getTime() > actual.desde.getTime());
+    if (mejor) representantes.set(grupo, alerta);
+  }
+  const incidentesUnicos = [...representantes.values()].sort((a, b) => b.desde.getTime() - a.desde.getTime());
+  const esHistorial = (alerta: Alerta) =>
+    alerta.estado !== "ABIERTA" || alerta.severidad === "OBSERVACION" || esAvisoDeVersionVieja(alerta, linea.actual.version);
+  const incidentes = incidentesUnicos.filter((alerta) => !esHistorial(alerta));
+  const incidentesHistorial = incidentesUnicos.filter(esHistorial);
   const anclasUsadas = new Set<string>();
   const tarjeta = (alerta: Alerta, esIncidente: boolean) => {
     const chats = chatsDe(alerta.hallazgos);
@@ -173,6 +193,7 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
       >
         <summary className="cursor-pointer text-sm">
           <span className="font-semibold">[{ETIQUETA_DE_SEVERIDAD[alerta.severidad]}]</span> {alerta.titulo}
+          {(veces.get(claveSinVersion(alerta.clave)) ?? 1) > 1 && alerta.familia !== "ATENCION" ? ` ×${veces.get(claveSinVersion(alerta.clave))} (la más reciente)` : ""}
           <span className="text-muted-foreground">
             {" "}
             · desde {hora(alerta.desde)} · {alerta.estado === "ABIERTA" ? "abierta" : `resuelta ${alerta.resueltaEn ? hora(alerta.resueltaEn) : ""}`}
@@ -334,7 +355,13 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
               <CardTitle>Incidentes del bot y del embudo</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {incidentes.length === 0 ? <p className="text-sm text-muted-foreground">Sin incidentes.</p> : incidentes.map((alerta) => tarjeta(alerta, true))}
+              {incidentes.length === 0 ? <p className="text-sm text-muted-foreground">Sin incidentes que pidan acción.</p> : incidentes.map((alerta) => tarjeta(alerta, true))}
+              {incidentesHistorial.length ? (
+                <details className="text-sm">
+                  <summary className="cursor-pointer text-muted-foreground">Historial / informativo ({incidentesHistorial.length}) · no cuenta como alerta</summary>
+                  <div className="mt-2 space-y-3">{incidentesHistorial.map((alerta) => tarjeta(alerta, true))}</div>
+                </details>
+              ) : null}
             </CardContent>
           </Card>
         </>

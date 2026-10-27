@@ -49,8 +49,8 @@ function detalleDelEstado(a: Accion): string {
 
 /**
  * Arriba de la pantalla del Supervisor (con el interruptor `supervisor:accionable:<ws>`):
- * "Prioridades de Alexander" (máx. 3, solo escaladas reales y críticos del bot/embudo/sistema) y,
- * debajo, lo que está en manos de las asesoras con su estado.
+ * "Prioridades de Alexander" (máx. 5, solo lo que pide una acción suya hoy) y, debajo, lo que
+ * está en manos de las asesoras con su estado. Lo informativo y lo ya resuelto va en un historial plegado.
  */
 /** "N clientes esperando fuera de horario · los atiende Ingrid ahora / se avisan a las 8 a. m." */
 function resumenFueraDeHorario(esperando: EsperandoFueraDeHorario[]): string {
@@ -131,7 +131,7 @@ export function PanelAccionableView({ panel }: { panel: PanelAccionable }) {
           )}
           {prioridades.resto.length ? (
             <details className="text-sm">
-              <summary className="cursor-pointer text-muted-foreground">{prioridades.resto.length} escalada(s) más, menos urgentes</summary>
+              <summary className="cursor-pointer text-muted-foreground">{prioridades.resto.length} más, menos urgentes</summary>
               <ul className="mt-2 space-y-2">
                 {prioridades.resto.map((t) => (
                   <CajaDePrioridad key={t.id} tarjeta={t} />
@@ -157,7 +157,7 @@ export function PanelAccionableView({ panel }: { panel: PanelAccionable }) {
           {esperando.length ? <ListaFueraDeHorario esperando={esperando} /> : null}
           {activas.length === 0 && !esperando.length ? <p className="text-muted-foreground">Ningún aviso pendiente.</p> : null}
           <ul className="space-y-1.5">
-            {[...activas, ...cerradas.slice(0, 15)].map((a) => (
+            {activas.map((a) => (
               <li key={`${a.id}:${a.detectadaEn}`} className="flex flex-wrap items-start justify-between gap-2 rounded-md border border-border bg-background/60 px-3 py-2">
                 <div className="min-w-0 flex-1 space-y-0.5">
                   <p>
@@ -179,6 +179,37 @@ export function PanelAccionableView({ panel }: { panel: PanelAccionable }) {
               </li>
             ))}
           </ul>
+          {cerradas.length || prioridades.historial.length ? (
+            <details className="text-sm">
+              <summary className="cursor-pointer text-muted-foreground">
+                Historial / informativo ({cerradas.length + prioridades.historial.length}) · no cuenta como alerta
+              </summary>
+              <ul className="mt-2 space-y-1.5">
+                {prioridades.historial.map((t) => (
+                  <li key={t.id} className="rounded-md border border-border bg-background/60 px-3 py-2">
+                    <p className="text-xs font-semibold text-muted-foreground">{ETIQUETA_DE_GRAVEDAD[t.gravedad]}</p>
+                    <p>{t.quePaso}</p>
+                  </li>
+                ))}
+                {cerradas.slice(0, 15).map((a) => (
+                  <li key={`${a.id}:${a.detectadaEn}`} className="flex flex-wrap items-start justify-between gap-2 rounded-md border border-border bg-background/60 px-3 py-2">
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <p>
+                        <span className="font-medium">{a.cliente}</span>
+                        <span className="text-muted-foreground"> · {a.motivo} · {a.responsableNombre}</span>
+                      </p>
+                      <p className={`text-xs font-medium ${COLOR_DE_ESTADO[a.estado]}`}>{detalleDelEstado(a)}</p>
+                    </div>
+                    {a.conversationId ? (
+                      <Link href={enlaceAlChat(a.conversationId)} className={`${BOTON} shrink-0 bg-card text-foreground`}>
+                        Abrir chat
+                      </Link>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </CardContent>
       </Card>
     </>
