@@ -7,6 +7,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { slugifyProductSegment } from "@/lib/product-slugs";
 import { guardarEtapasQuitadas, leerEtapasQuitadas } from "@/lib/etapas-quitadas";
+import { asegurarVersionInicialProtegido, registrarVersionProtegido, versionVigente } from "@/features/embudo/servicios/versiones";
 import {
   isPlaybookRuleKind,
   PRODUCT_FUNNEL_STAGES,
@@ -118,6 +119,8 @@ export async function saveProductFunnelAction(input: {
     avisa. Ahora que Claude tambien escribe por el MCP, esto va a pasar seguido.
   */
   cargadoEl?: string;
+  /** Nota corta del cambio para la versión del embudo (opcional). */
+  nota?: string;
   stages: Array<{
     stage: string;
     goal: string;
@@ -170,6 +173,11 @@ export async function saveProductFunnelAction(input: {
       };
     }
   }
+
+  // Embudo 3: si es la primera vez, lo que hay AHORA queda como "V1 - embudo inicial", antes de cambiar nada.
+  const sesion = await auth();
+  const quien = { id: sesion?.user?.id ?? null, nombre: sesion?.user?.name ?? sesion?.user?.email ?? null };
+  await asegurarVersionInicialProtegido(workspaceId, productId, quien);
 
   /*
     Quitar una etapa borra su fila, y ademas queda anotada.
@@ -255,9 +263,37 @@ export async function saveProductFunnelAction(input: {
     }
   }
 
+  // Embudo 3: la versión nueva se crea DESPUÉS de guardar y protegida: si falla, el guardado ya quedó hecho.
+  await registrarVersionProtegido({
+    workspaceId,
+    productId,
+    nota: typeof input.nota === "string" ? input.nota.slice(0, 300) : null,
+    quien,
+    origen: "pantalla",
+  });
+
   revalidatePath("/cliente/productos-v2");
   // La hora del servidor: la pantalla se queda con esta marca para el proximo guardado.
   return { ok: true, guardadoEl: new Date().toISOString() };
+}
+
+/** Embudo 3: la versión vigente del embudo del producto, para mostrarla en la pantalla. Null si no hay. */
+export async function leerVersionVigenteAction(productId: string): Promise<{ numero: number; fecha: string } | null> {
+  const workspaceId = await getAccess();
+  const id = productId?.trim();
+  if (!workspaceId || !id) return null;
+  try {
+    // El producto tiene que ser de ESTE negocio.
+    const playbook = await prisma.productPlaybook.findUnique({
+      where: { workspaceId_productId: { workspaceId, productId: id } },
+      select: { id: true },
+    });
+    if (!playbook) return null;
+    const vigente = await versionVigente(id);
+    return vigente ? { numero: vigente.numero, fecha: vigente.creadoEn.toISOString() } : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

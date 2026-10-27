@@ -370,6 +370,7 @@ model Product {
   workspace          Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   agentKnowledge     AgentKnowledgeProduct[]
   playbooks          ProductPlaybook[]
+  embudoVersiones    EmbudoVersion[]
   specs              ProductSpec[]
   category           Category?               @relation(fields: [categoryId], references: [id])
   images             ProductImage[]
@@ -2525,4 +2526,44 @@ model AlertaInterna {
 
   @@index([workspaceId, estado, prioridad])
   @@index([workspaceId, clave])
+}
+
+/// Embudo 3: una foto completa del embudo de un producto (bienvenida, guiones, pasos quitados y
+/// seguimientos) cada vez que cambia. V1 = "embudo inicial". Solo se agregan filas, nunca se editan.
+model EmbudoVersion {
+  id          String   @id @default(cuid())
+  workspaceId String
+  productId   String
+  /// 1, 2, 3... por producto.
+  numero      Int
+  nota        String?
+  quienId     String?
+  quienNombre String?
+  /// "inicial" | "pantalla" | "mcp" | "deshacer".
+  origen      String
+  /// Huella del contenido: si no cambió, no se crea otra versión.
+  huella      String
+  contenido   Json
+  creadoEn    DateTime @default(now())
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  chats       EmbudoChatVersion[]
+
+  @@unique([productId, numero])
+  @@index([workspaceId, creadoEn])
+}
+
+/// Embudo 3: con qué versión del embudo entró cada chat. Una fila por chat, no se vuelve a tocar.
+model EmbudoChatVersion {
+  conversationId String        @id
+  workspaceId    String
+  productId      String
+  versionId      String
+  numero         Int
+  /// "vigente" hoy; Embudo 5 (prueba A/B) la marcará "ab".
+  asignadaPor    String        @default("vigente")
+  creadoEn       DateTime      @default(now())
+  version        EmbudoVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+  @@index([workspaceId, productId, creadoEn])
 }

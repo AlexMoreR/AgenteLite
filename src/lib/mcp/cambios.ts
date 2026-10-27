@@ -1,3 +1,4 @@
+import { registrarVersionProtegido, type QuienCambio } from "@/features/embudo/servicios/versiones";
 import { prisma } from "@/lib/prisma";
 
 /*
@@ -30,6 +31,8 @@ export type CambioDelMcp = {
   despues: Record<string, unknown>;
   /** Si hay que volver a publicar el agente después de deshacer. */
   agenteId?: string | null;
+  /** Embudo 3: el producto cuyo embudo tocó el cambio, para crear la versión al deshacerlo. */
+  productoId?: string | null;
   deshecho?: boolean;
 };
 
@@ -81,6 +84,7 @@ export async function anotarCambioMcp(
 export async function deshacerCambioMcp(
   workspaceId: string,
   cambioId: string,
+  quien?: QuienCambio,
 ): Promise<{ ok: true; titulo: string; agenteId?: string | null } | { ok: false; error: string }> {
   const lista = await listarCambiosMcp(workspaceId);
   const cambio = lista.find((fila) => fila.id === cambioId);
@@ -108,6 +112,17 @@ export async function deshacerCambioMcp(
     await revertir(workspaceId, cambio);
   } catch (fallo) {
     return { ok: false, error: fallo instanceof Error ? fallo.message : "No se pudo deshacer" };
+  }
+
+  // Embudo 3: deshacer un cambio del embudo también deja una versión (protegida: nunca impide deshacer).
+  if (cambio.productoId) {
+    await registrarVersionProtegido({
+      workspaceId,
+      productId: cambio.productoId,
+      nota: `Se deshizo: ${cambio.titulo}`,
+      quien,
+      origen: "deshacer",
+    });
   }
 
   await guardarLista(

@@ -14,6 +14,7 @@ import {
   type OrigenDeEvento,
   type TrazaDelTurno,
 } from "../dominio/eventos";
+import { marcarVersionDelChat } from "./versiones";
 import { claveDeProductoDelV3, embudoActivo, leerConfigEmbudo } from "./config";
 
 /**
@@ -136,7 +137,7 @@ function datosDeLaFoto(foto: FotoDelLead) {
  * Aplica los eventos nuevos a la foto del lead. Con candado optimista (`version`): si otro
  * proceso la cambió entre la lectura y la escritura, se vuelve a leer y a aplicar (3 intentos).
  */
-async function actualizarLead(contexto: ContextoDelLead, eventos: EventoDelEmbudo[]): Promise<void> {
+async function actualizarLead(contexto: ContextoDelLead, eventos: EventoDelEmbudo[]): Promise<string | null> {
   for (let intento = 0; intento < 3; intento += 1) {
     const fila = await prisma.embudoLead.findUnique({ where: { conversationId: contexto.conversationId } });
     const anterior = comoFoto(fila as unknown as Record<string, unknown> | null);
@@ -144,12 +145,12 @@ async function actualizarLead(contexto: ContextoDelLead, eventos: EventoDelEmbud
     for (const evento of eventos) {
       foto = aplicarEvento(foto, evento, contexto);
     }
-    if (!foto) return;
+    if (!foto) return null;
 
     if (!fila) {
       try {
         await prisma.embudoLead.create({ data: { conversationId: contexto.conversationId, ...datosDeLaFoto(foto) } });
-        return;
+        return foto.productoActual ?? null;
       } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
           continue; // Otro proceso lo creó primero: se reintenta como actualización.
@@ -162,9 +163,10 @@ async function actualizarLead(contexto: ContextoDelLead, eventos: EventoDelEmbud
       where: { conversationId: contexto.conversationId, version: fila.version },
       data: { ...datosDeLaFoto(foto), version: { increment: 1 } },
     });
-    if (count > 0) return;
+    if (count > 0) return foto.productoActual ?? null;
   }
   anotarError("no se pudo actualizar el lead tras 3 intentos", null, { conversationId: contexto.conversationId });
+  return null;
 }
 
 /**
@@ -207,7 +209,9 @@ export async function registrarEventos(base: BaseDelEvento, eventos: EventoDelEm
     // Los que solo se registran (un frenado) no cambian la foto del lead: ni la crean.
     const paraLaFoto = nuevos.filter((evento) => !SOLO_REGISTRO.has(evento.tipo));
     if (paraLaFoto.length) {
-      await actualizarLead(contexto, paraLaFoto);
+      const productoClave = await actualizarLead(contexto, paraLaFoto);
+      // Embudo 3: el chat se queda con la versión del embudo que tenía su producto al aparecer.
+      await marcarVersionDelChat({ workspaceId: base.workspaceId, conversationId: base.conversationId, productoClave });
     }
     return nuevos.length;
   } catch (error) {
