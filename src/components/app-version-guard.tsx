@@ -3,7 +3,10 @@
 import * as React from "react";
 import { RefreshCw } from "lucide-react";
 import {
+  ESPERA_MAX_REVISION_MS,
   EVENTO_REVISAR_VERSION,
+  type UltimaRevision,
+  revisionVigente,
   decidirRecarga,
   estaOcupada,
   leerRecargas,
@@ -56,7 +59,28 @@ export async function hayVersionNueva(): Promise<boolean> {
     return false;
   }
   const delServidor = await leerVersionDelServidor();
-  return Boolean(delServidor) && delServidor !== VERSION_CARGADA;
+  const vieja = Boolean(delServidor) && delServidor !== VERSION_CARGADA;
+  // Solo se recuerda una respuesta real del servidor (si no contesto, no hay nada que recordar).
+  ultimaRevision = delServidor ? { en: Date.now(), vieja } : null;
+  return vieja;
+}
+
+let ultimaRevision: UltimaRevision = null;
+
+/**
+ * Para revisar justo antes de enviar un texto: usa la ultima revision si es de hace menos de 15 s;
+ * si no, pregunta y espera como mucho 1,5 s. Si /api/version no contesta a tiempo, responde `false`
+ * (se envia normal, como siempre).
+ */
+export async function hayVersionNuevaAntesDeEnviar(): Promise<boolean> {
+  const reciente = revisionVigente(ultimaRevision, Date.now());
+  if (reciente !== null) {
+    return reciente;
+  }
+  return Promise.race([
+    hayVersionNueva(),
+    new Promise<boolean>((resolver) => window.setTimeout(() => resolver(false), ESPERA_MAX_REVISION_MS)),
+  ]);
 }
 
 export function AppVersionGuard() {

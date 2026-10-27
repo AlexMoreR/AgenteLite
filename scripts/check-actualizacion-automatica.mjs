@@ -175,4 +175,72 @@ prueba("pendiente: no se reenvia a otro chat ni con hora en el futuro ni vacio",
   assert.equal(A.puedeReenviarPendiente({ pendiente: { ...pendiente, texto: "  " }, chatAbiertoId: "c1", ahora: T0 + 1_000, yaGuardado: false }), false);
 });
 
+// --- Revisar la version antes de enviar (D) ---
+async function pruebaAsync(nombre, fn) {
+  await fn();
+  pruebas += 1;
+  console.log(`ok - ${nombre}`);
+}
+
+await pruebaAsync("envio: con version nueva guarda el pendiente y NO envia", async () => {
+  let enviados = 0;
+  let guardados = 0;
+  const r = await A.enviarSiLaVersionEstaAlDia({
+    hayVersionNueva: async () => true,
+    enviar: async () => void (enviados += 1),
+    guardarPendiente: () => void (guardados += 1),
+  });
+  assert.deepEqual([r.enviado, enviados, guardados], [false, 0, 1]);
+});
+
+await pruebaAsync("envio: con la misma version envia y no guarda pendiente", async () => {
+  let guardados = 0;
+  const r = await A.enviarSiLaVersionEstaAlDia({
+    hayVersionNueva: async () => false,
+    enviar: async () => "listo",
+    guardarPendiente: () => void (guardados += 1),
+  });
+  assert.deepEqual([r.enviado, r.resultado, guardados], [true, "listo", 0]);
+});
+
+await pruebaAsync("envio: si /api/version falla o no contesta, envia normal", async () => {
+  const r = await A.enviarSiLaVersionEstaAlDia({
+    hayVersionNueva: async () => {
+      throw new Error("sin red");
+    },
+    enviar: async () => "listo",
+    guardarPendiente: () => assert.fail("no debe guardar pendiente"),
+  });
+  assert.equal(r.enviado, true);
+});
+
+prueba("revision reciente: se reutiliza si tiene menos de 15 s, si no se vuelve a preguntar", () => {
+  assert.equal(A.revisionVigente({ en: T0, vieja: true }, T0 + 14_999), true);
+  assert.equal(A.revisionVigente({ en: T0, vieja: false }, T0 + 5_000), false);
+  assert.equal(A.revisionVigente({ en: T0, vieja: true }, T0 + 15_001), null);
+  assert.equal(A.revisionVigente(null, T0), null);
+});
+
+prueba("pendiente por version nueva: se usa una sola vez", () => {
+  const almacen = almacenFalso();
+  A.guardarEnvioPendiente(pendiente, almacen);
+  assert.notEqual(A.tomarEnvioPendiente(almacen), null);
+  assert.equal(A.tomarEnvioPendiente(almacen), null);
+});
+
+// --- Lineas [nota-de-voz] (A): una subida que salio bien no debe parecer falla ---
+{
+  const { esLineaDeErrorReal } = await import("../trabajador-tablero/lib/zonas.mjs");
+  const ruta = fs.readFileSync("src/app/api/cliente/chats/upload-audio/route.ts", "utf8");
+  const accion = fs.readFileSync("src/app/actions/agent-actions.ts", "utf8");
+  prueba("nota de voz: el campo error solo se escribe cuando hay error", () => {
+    assert.match(ruta, /\.\.\.\(error !== null \|\| !respuesta\.ok \? \{ error \} : \{\}\)/);
+    assert.match(accion, /\.\.\.\(error !== null \? \{ error \} : \{\}\)/);
+    const buena = `[nota-de-voz] ${JSON.stringify({ paso: "subida", resultado: "ok", status: 200, bytes: 100, mime: "audio/webm", ms: 90, userId: "u1" })}`;
+    const mala = `[nota-de-voz] ${JSON.stringify({ paso: "subida", resultado: "error", status: 400, bytes: 100, mime: "audio/webm", ms: 90, userId: "u1", error: "Audio vacio" })}`;
+    assert.equal(esLineaDeErrorReal(buena), false);
+    assert.equal(esLineaDeErrorReal(mala), true);
+  });
+}
+
 console.log(`\n${pruebas} pruebas OK`);

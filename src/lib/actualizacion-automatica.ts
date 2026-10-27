@@ -264,3 +264,42 @@ export function puedeReenviarPendiente(input: {
   }
   return !yaGuardado;
 }
+
+/* ------------------- Revisar la version antes de enviar (tarjeta maqn9g47) ------------------- */
+
+/** Si la ultima revision de version tiene menos que esto, se usa su resultado sin preguntar de nuevo. */
+export const REVISION_VIGENTE_MS = 15_000;
+/** Cuanto se espera como maximo la respuesta de /api/version antes de enviar. */
+export const ESPERA_MAX_REVISION_MS = 1_500;
+
+export type UltimaRevision = { en: number; vieja: boolean } | null;
+
+/** Resultado de revisar la version: `null` = el servidor no contesto (se envia normal). */
+export function revisionVigente(ultima: UltimaRevision, ahora: number): boolean | null {
+  if (!ultima || ahora - ultima.en < 0 || ahora - ultima.en > REVISION_VIGENTE_MS) {
+    return null;
+  }
+  return ultima.vieja;
+}
+
+/**
+ * Si hay version nueva, el mensaje NO se manda al servidor viejo: queda como pendiente (para
+ * reenviarse una sola vez tras la recarga). Si no, o ante cualquier duda, se envia como siempre.
+ */
+export async function enviarSiLaVersionEstaAlDia<T>(opciones: {
+  hayVersionNueva: () => Promise<boolean>;
+  enviar: () => Promise<T>;
+  guardarPendiente: () => void;
+}): Promise<{ enviado: true; resultado: T } | { enviado: false }> {
+  let vieja = false;
+  try {
+    vieja = await opciones.hayVersionNueva();
+  } catch {
+    vieja = false;
+  }
+  if (vieja) {
+    opciones.guardarPendiente();
+    return { enviado: false };
+  }
+  return { enviado: true, resultado: await opciones.enviar() };
+}

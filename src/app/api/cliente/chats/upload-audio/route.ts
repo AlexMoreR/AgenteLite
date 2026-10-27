@@ -81,7 +81,8 @@ export async function POST(request: Request) {
         mime: registro.mime,
         ms: Date.now() - inicio,
         userId: registro.userId,
-        error,
+        // Solo si hubo error: la vigilancia cuenta como falla toda linea con la palabra "error".
+        ...(error !== null || !respuesta.ok ? { error } : {}),
       })}`,
     );
     return respuesta;

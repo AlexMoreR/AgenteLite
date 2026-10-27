@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { hayVersionNueva } from "@/components/app-version-guard";
+import { hayVersionNueva, hayVersionNuevaAntesDeEnviar } from "@/components/app-version-guard";
 import {
+  enviarSiLaVersionEstaAlDia,
   guardarEnvioPendiente,
   marcarOcupada,
   pedirRevisionDeVersion,
@@ -2511,8 +2512,28 @@ export function SharedInbox({
       });
 
       // Envio sin navegacion: la accion valida internamente y devuelve un resultado.
-      void Promise.resolve(composer.action(formData))
-        .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
+      // Antes de hablarle al servidor se mira la version: si ya hay una nueva, el mensaje no se manda
+      // al servidor viejo; queda pendiente y sale UNA vez cuando la app se recarga sola.
+      void enviarSiLaVersionEstaAlDia({
+        hayVersionNueva: hayVersionNuevaAntesDeEnviar,
+        enviar: () => Promise.resolve(composer.action(formData)),
+        guardarPendiente: () => {
+          guardarEnvioPendiente({
+            chatKey: chatDelEnvio,
+            conversationId: renderedConversation.id,
+            campos: camposDelFormulario(formData),
+            texto: message.trim(),
+            contenido: mensajeVisible,
+            creadoEn: Date.now(),
+          });
+          pedirRevisionDeVersion();
+        },
+      })
+        .then((envio) =>
+          envio.enviado
+            ? finalizeOptimisticSend(optimisticId, envio.resultado ?? { ok: true })
+            : finalizeOptimisticSend(optimisticId, null),
+        )
         .catch(() => finalizeOptimisticSend(optimisticId, null))
         .finally(liberar);
       return true;
