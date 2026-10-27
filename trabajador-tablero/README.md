@@ -55,7 +55,7 @@ minuto y antes que cualquier otra tarjeta.
     conjuntos o anuncios, queda esperando el sí (nunca sube presupuesto, prende ni crea gasto solo). Leer,
     reportes, pausar, textos y configuraciones sin gasto suben solos. Las herramientas de Meta Ads que se
     usan desde fuera del repo no las controla esta regla.
-- **Vigilancia de 30 minutos** (`repos.*.vigilancia`: `minutos`, `cadaSegundos`, `maxErroresNuevos`, `maxSubidaDeEnvios`, `minEnviosParaComparar`), solo
+- **Vigilancia de 30 minutos** (`repos.*.vigilancia`: `minutos`, `cadaSegundos`, `maxErroresNuevos`, `maxSubidaDeEnvios`, `minEnviosParaComparar`, `graciaServerActionMinutos`: 10 por defecto, los minutos en que `Failed to find Server Action` no cuenta como falla), solo
   para esas zonas: antes de subir se toma una foto de los logs del servidor (`ssh.logs`, y `ssh.estado` para
   saber si el contenedor corre y cuántas veces se reinició); después de subir y de comprobar la versión, se
   vigilan los logs. Si aparecen `maxErroresNuevos` líneas de error que no estaban antes, el contenedor se

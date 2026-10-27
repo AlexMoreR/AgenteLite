@@ -192,9 +192,35 @@ function huellaDeLinea(linea) {
     .trim();
 }
 
-/** Las líneas de error del log (huellas únicas). */
-export function erroresDeLog(log) {
-  return [...new Set(String(log ?? "").split(/\r?\n/).filter((linea) => LINEA_DE_ERROR.test(linea)).map(huellaDeLinea))];
+/** Minutos después de subir en los que `Failed to find Server Action` no cuenta (un celular con la versión vieja abierta lo provoca). */
+export const GRACIA_SERVER_ACTION_MIN = 10;
+
+const SERVER_ACTION_VIEJA = /Failed to find Server Action/i;
+
+/** Lo que parece error y no lo es: campos vacíos, resultados buenos y conteos en cero. Se quita de la línea antes de buscar errores. */
+const SIN_ERROR_REAL = [
+  /"error"\s*:\s*(?:null|false|"")/gi,
+  /"resultado"\s*:\s*"ok"/gi,
+  /"ok"\s*:\s*true/gi,
+  /\berrores?\s*[:=]\s*0\b/gi,
+  /\b0\s+errors?\b/gi,
+];
+
+/**
+ * ¿La línea del log es una falla de verdad? Usa LINEA_DE_ERROR pero no cuenta `"error":null` / `""` / `false`, `"resultado":"ok"`,
+ * `"ok":true` ni «errores: 0» / «0 errors» (si la línea trae además otra palabra de error, sí cuenta). `Failed to find Server Action`
+ * no cuenta en los primeros `graciaServerActionMin` minutos desde la subida; sin `minutosDesdeSubir` cuenta siempre.
+ */
+export function esLineaDeErrorReal(linea, { minutosDesdeSubir, graciaServerActionMin = GRACIA_SERVER_ACTION_MIN } = {}) {
+  const texto = String(linea ?? "");
+  if (!LINEA_DE_ERROR.test(texto)) return false;
+  if (SERVER_ACTION_VIEJA.test(texto) && Number.isFinite(minutosDesdeSubir) && minutosDesdeSubir < graciaServerActionMin) return false;
+  return LINEA_DE_ERROR.test(SIN_ERROR_REAL.reduce((resto, patron) => resto.replace(patron, " "), texto));
+}
+
+/** Las líneas de error del log (huellas únicas). `opciones` = { minutosDesdeSubir, graciaServerActionMin }. */
+export function erroresDeLog(log, opciones) {
+  return [...new Set(String(log ?? "").split(/\r?\n/).filter((linea) => esLineaDeErrorReal(linea, opciones)).map(huellaDeLinea))];
 }
 
 /** Las líneas del log que muestran un mensaje enviado: las palabras de ENVIOS_DE_MENSAJES más las del log. */
@@ -212,20 +238,36 @@ export function minutosDeLaVentana(comando) {
  * Los mensajes enviados y los envíos fallidos (envío y error en la misma línea) del log, POR MINUTO.
  * `patron` cambia las palabras que cuentan como envío; `minutos` es lo que cubre el comando que leyó el log.
  */
-export function enviosDeLog(log, patron = ENVIO_EN_LOG, minutos = 3) {
+export function enviosDeLog(log, patron = ENVIO_EN_LOG, minutos = 3, opciones) {
   const ventana = Number(minutos) > 0 ? Number(minutos) : 3;
   let enviados = 0;
   let fallidos = 0;
   for (const linea of String(log ?? "").split(/\r?\n/)) {
     if (!patron.test(linea)) continue;
-    if (LINEA_DE_ERROR.test(linea)) fallidos += 1;
+    if (esLineaDeErrorReal(linea, opciones)) fallidos += 1;
     else enviados += 1;
   }
   return { enviados: enviados / ventana, fallidos: fallidos / ventana };
 }
 
-/** Los errores del log que no estaban antes de subir (`base` = huellas de antes). */
-export function erroresNuevosDeLog(log, base = []) {
+/** Las líneas de envío fallido del log, tal cual salieron (para nombrarlas en el motivo). */
+export function lineasDeEnvioFallidoDeLog(log, patron = ENVIO_EN_LOG, opciones) {
+  return String(log ?? "").split(/\r?\n/).filter((linea) => patron.test(linea) && esLineaDeErrorReal(linea, opciones));
+}
+
+/** Los errores del log que no estaban antes de subir, con la línea tal cual salió ({ huella, linea }); `base` = huellas de antes. */
+export function lineasDeErrorNuevasDeLog(log, base = [], opciones) {
   const conocidos = new Set(base);
-  return erroresDeLog(log).filter((huella) => !conocidos.has(huella));
+  const vistas = new Map();
+  for (const linea of String(log ?? "").split(/\r?\n/)) {
+    if (!esLineaDeErrorReal(linea, opciones)) continue;
+    const huella = huellaDeLinea(linea);
+    if (!conocidos.has(huella) && !vistas.has(huella)) vistas.set(huella, { huella, linea: linea.trim() });
+  }
+  return [...vistas.values()];
+}
+
+/** Los errores del log que no estaban antes de subir (`base` = huellas de antes). */
+export function erroresNuevosDeLog(log, base = [], opciones) {
+  return lineasDeErrorNuevasDeLog(log, base, opciones).map((nuevo) => nuevo.huella);
 }

@@ -65,6 +65,8 @@ import {
   enviosDeLog,
   erroresDeLog,
   erroresNuevosDeLog,
+  lineasDeEnvioFallidoDeLog,
+  lineasDeErrorNuevasDeLog,
   minutosDeLaVentana,
   pruebaExtraDeLasZonas,
   zonasTocadas,
@@ -1866,8 +1868,10 @@ async function fotoDelServidor(contexto) {
 async function vigilarElServidor(contexto, repo, foto) {
   const { config, registro } = contexto;
   const { minutos, cadaSegundos, maxErroresNuevos, maxSubidaDeEnvios = 1.5, minEnviosParaComparar = 5 } = repo.vigilancia;
-  const fin = Date.now() + minutos * MINUTO;
-  const nuevos = new Set();
+  // La hora en que arranca la vigilancia (la versión nueva ya corre): de acá se cuentan los minutos desde la subida.
+  const inicio = Date.now();
+  const fin = inicio + minutos * MINUTO;
+  const nuevos = new Map();
   let fallosSeguidos = 0;
   registro.info(`vigilancia de ${minutos} min del servidor después de subir`);
   for (;;) {
@@ -1875,12 +1879,16 @@ async function vigilarElServidor(contexto, repo, foto) {
     const logs = await leerDelServidor(config, config.ssh.logs, contexto.senal);
     if (logs.ok) {
       fallosSeguidos = 0;
-      for (const huella of erroresNuevosDeLog(logs.salida, foto.errores)) nuevos.add(huella);
+      const minutosDesdeSubir = (Date.now() - inicio) / MINUTO;
+      const opciones = { minutosDesdeSubir, graciaServerActionMin: repo.vigilancia.graciaServerActionMinutos };
+      for (const { huella, linea } of lineasDeErrorNuevasDeLog(logs.salida, foto.errores, opciones)) {
+        if (!nuevos.has(huella)) nuevos.set(huella, { linea, minuto: Math.floor(minutosDesdeSubir) });
+      }
       // Los envíos de mensajes por minuto, contra los de antes de subir: un bucle que repite mensajes o envíos que fallan.
-      const envios = enviosDeLog(logs.salida, undefined, minutosDeLaVentana(config.ssh.logs));
+      const envios = enviosDeLog(logs.salida, undefined, minutosDeLaVentana(config.ssh.logs), opciones);
       const antes = foto.envios ?? { enviados: 0, fallidos: 0 };
       if (envios.fallidos > antes.fallidos && envios.fallidos > 0) {
-        return { ok: false, motivo: `suben los envíos de mensajes que fallan: ${redondear(antes.fallidos)} por minuto antes de subir y ${redondear(envios.fallidos)} ahora` };
+        return { ok: false, motivo: `suben los envíos de mensajes que fallan: ${redondear(antes.fallidos)} por minuto antes de subir y ${redondear(envios.fallidos)} ahora. Líneas: ${lineasDeEnvioFallidoDeLog(logs.salida, undefined, opciones).slice(0, 3).map((linea) => linea.trim().slice(0, 200)).join(" | ")}` };
       }
       if (envios.enviados > antes.enviados * maxSubidaDeEnvios && envios.enviados > minEnviosParaComparar) {
         return { ok: false, motivo: `suben mucho los envíos de mensajes: ${redondear(antes.enviados)} por minuto antes de subir y ${redondear(envios.enviados)} ahora (más de ${maxSubidaDeEnvios} veces)` };
@@ -1894,7 +1902,7 @@ async function vigilarElServidor(contexto, repo, foto) {
       return { ok: false, motivo: `el contenedor del CRM se reinició después de subir (${estado.reinicios - foto.estado.reinicios} vez/veces)` };
     }
     if (nuevos.size >= maxErroresNuevos) {
-      return { ok: false, motivo: `${nuevos.size} línea(s) de falla nueva(s) en los logs: ${[...nuevos].slice(0, 3).join(" | ").slice(0, 400)}` };
+      return { ok: false, motivo: `${nuevos.size} línea(s) de falla nueva(s) en los logs: ${[...nuevos.values()].slice(0, 5).map(({ linea, minuto }) => `[minuto ${minuto}] ${linea.slice(0, 200)}`).join(" | ")}` };
     }
     if (fallosSeguidos >= 5) return { ok: false, motivo: "no se pudieron leer los logs del servidor 5 veces seguidas (no se puede vigilar)" };
     const falta = fin - Date.now();

@@ -45,7 +45,7 @@ import {
 import { armarLatido, crearLatido } from "../lib/latido.mjs";
 import { faltanRecursos, leerCarga } from "../lib/recursos.mjs";
 import { crearRegistro } from "../lib/registro.mjs";
-import { enviosDeLog, globARegex, minutosDeLaVentana, motivoPorElQueNoSubeSola, pruebaExtraDeLasZonas, zonasTocadas } from "../lib/zonas.mjs";
+import { GRACIA_SERVER_ACTION_MIN, enviosDeLog, erroresDeLog, erroresNuevosDeLog, esLineaDeErrorReal, globARegex, lineasDeErrorNuevasDeLog, minutosDeLaVentana, motivoPorElQueNoSubeSola, pruebaExtraDeLasZonas, zonasTocadas } from "../lib/zonas.mjs";
 import { crearRescatador, decidirRescate } from "../lib/rescate-por-revisar.mjs";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
@@ -62,6 +62,42 @@ async function prueba(nombre, fn) {
 }
 
 /* ─────────────────────────────────────────────────────────── piezas puras ── */
+
+await prueba("zonas: esLineaDeErrorReal no cuenta error vacío, resultado ok ni conteos en cero, y sí los errores de verdad", async () => {
+  const nota = (resto) => `[nota-de-voz] {"paso":"subida",${resto},"status":200,"ms":120}`;
+  assert.equal(esLineaDeErrorReal(nota('"resultado":"ok","error":null')), false);
+  assert.equal(esLineaDeErrorReal(nota('"resultado":"ok"')), false);
+  assert.equal(esLineaDeErrorReal(nota('"error":""')), false);
+  assert.equal(esLineaDeErrorReal(nota('"error":false')), false);
+  assert.equal(esLineaDeErrorReal('{"ok":true,"error":null}'), false);
+  assert.equal(esLineaDeErrorReal("resumen errores: 0"), false);
+  assert.equal(esLineaDeErrorReal("build finished with 0 errors"), false);
+  assert.equal(esLineaDeErrorReal(nota('"error":"timeout"')), true);
+  assert.equal(esLineaDeErrorReal(nota('"error":null,"detalle":"ECONNREFUSED 10.0.0.1"')), true);
+  assert.equal(esLineaDeErrorReal(nota('"error":null,"nota":"unhandled"')), true);
+  assert.equal(esLineaDeErrorReal("connect ECONNREFUSED 127.0.0.1:5432"), true);
+  assert.equal(esLineaDeErrorReal("Unhandled rejection en el bot"), true);
+  assert.equal(esLineaDeErrorReal("todo bien"), false);
+});
+
+await prueba("zonas: 'Failed to find Server Action' no cuenta en los primeros 10 minutos y después sí", async () => {
+  const linea = 'Error: Failed to find Server Action "abc123". This request might be from an older or newer deployment.';
+  assert.equal(GRACIA_SERVER_ACTION_MIN, 10);
+  assert.equal(esLineaDeErrorReal(linea, { minutosDesdeSubir: 3 }), false);
+  assert.equal(esLineaDeErrorReal(linea, { minutosDesdeSubir: 12 }), true);
+  assert.equal(esLineaDeErrorReal(linea), true, "sin minutos cuenta como antes");
+  assert.equal(esLineaDeErrorReal(linea, { minutosDesdeSubir: 3, graciaServerActionMin: 0 }), true);
+  assert.deepEqual(erroresNuevosDeLog(linea, [], { minutosDesdeSubir: 3 }), []);
+  assert.equal(erroresNuevosDeLog(linea, [], { minutosDesdeSubir: 12 }).length, 1);
+  assert.equal(erroresDeLog(`${linea}\nconnect ECONNREFUSED 1.1.1.1:80`, { minutosDesdeSubir: 3 }).length, 1, "ECONNREFUSED sigue contando");
+  // la línea exacta, no la huella con #
+  assert.equal(lineasDeErrorNuevasDeLog(`  ${linea}  `, [], { minutosDesdeSubir: 12 })[0].linea, linea);
+});
+
+await prueba("zonas: un envío con error null cuenta como enviado y uno con error timeout como fallido", async () => {
+  const log = ['sendText {"error":null}', 'sendText {"error":"timeout"}'].join("\n");
+  assert.deepEqual(enviosDeLog(log, undefined, 1), { enviados: 1, fallidos: 1 });
+});
 
 await prueba("zonas: enviosDeLog cuenta enviados y fallidos por minuto, acepta otro patrón y no confunde errores sin envío", async () => {
   const log = [
@@ -1456,6 +1492,10 @@ try {
     assert.equal(con({ maxSubidaDeEnvios: 2, minEnviosParaComparar: 10 }).minEnviosParaComparar, 10);
     assert.equal(con({ minEnviosParaComparar: "x" }).minEnviosParaComparar, 5);
     assert.throws(() => con({ maxSubidaDeEnvios: 0.5 }), /maxSubidaDeEnvios/);
+    assert.equal(con({}).graciaServerActionMinutos, 10);
+    assert.equal(con({ graciaServerActionMinutos: 5 }).graciaServerActionMinutos, 5);
+    assert.equal(con({ graciaServerActionMinutos: 0 }).graciaServerActionMinutos, 0);
+    assert.equal(con({ graciaServerActionMinutos: "x" }).graciaServerActionMinutos, 10);
   });
 
   await prueba("zonas que suben solas: la configuración exige ssh.logs y rutas de cada zona", async () => {
@@ -1588,6 +1628,7 @@ try {
     const t = tarjetas.get(id);
     assert.equal(t.estado, "ERROR");
     assert.match(t.resultado.error.motivo, /Revertida|error\(es\) nuevo\(s\)/);
+    assert.match(t.resultado.error.motivo, /\[minuto \d+\] .*Unhandled rejection en el bot/, "el motivo nombra la línea exacta");
     // main tiene el commit de la tarjeta Y encima un revert nuevo (historia intacta: sin force-push).
     g(REPO, "fetch", "origin");
     const log = g(REPO, "log", "--format=%s", "-8", "origin/main");
