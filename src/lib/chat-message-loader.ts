@@ -5,6 +5,8 @@ import { extractEvolutionMessageText } from "@/lib/evolution-webhook";
 export type AgentConversationMessageRecord = {
   id: string;
   externalId: string | null;
+  /** Si lo escribio un agente (bot) trae el id; una asesora desde el CRM no. */
+  agentId: string | null;
   content: string | null;
   direction: "INBOUND" | "OUTBOUND";
   createdAt: Date;
@@ -225,6 +227,7 @@ export async function loadAgentConversationDetail(input: {
     select: {
       id: true,
       externalId: true,
+      agentId: true,
       content: true,
       direction: true,
       createdAt: true,
@@ -340,6 +343,7 @@ async function conLlamadas(input: {
 
     return {
       id: `llamada:${llamada.id}`,
+      agentId: null,
       externalId: null,
       // Una llamada no es un envio de WhatsApp: no lleva acuse, y RECEIVED no dibuja check.
       status: "RECEIVED" as const,

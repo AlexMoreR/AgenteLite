@@ -53,6 +53,8 @@ export type SharedInboxMessageItem = {
   id: string;
   /** Id de WhatsApp. Es lo que trae una cita para decir a que mensaje responde. */
   externalId?: string | null;
+  /** Id del agente si lo mando el bot; una asesora desde el CRM no lo trae. */
+  agentId?: string | null;
   content: string | null;
   direction: "INBOUND" | "OUTBOUND";
   createdAt: Date;

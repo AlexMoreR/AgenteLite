@@ -68,6 +68,7 @@ function pedirDetalleDeContacto(contactId: string): Promise<DetalleDeContacto> {
 }
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { hayVersionNueva } from "@/components/app-version-guard";
+import { puedeEditarseMensaje } from "@/lib/editar-mensaje";
 import { ACCEPT_DOCUMENTOS_CHAT, revisarArchivoAntesDeSubir } from "@/lib/chat-envio-seguro";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import {
@@ -185,6 +186,7 @@ type ConversationPanelProps = {
   onRetryFailedMessage?: (message: SharedInboxMessageItem) => void;
   onReplyToMessage?: (message: SharedInboxMessageItem) => void;
   onDeleteMessage?: (message: SharedInboxMessageItem) => void;
+  onEditMessage?: (message: SharedInboxMessageItem) => void;
   replyTarget?: ComposerReplyTarget | null;
   onCancelReply?: () => void;
   renderedConversation: SharedInboxSelectedConversation | null;
@@ -326,6 +328,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   onRetryFailedMessage,
   onReplyToMessage,
   onDeleteMessage,
+  onEditMessage,
   replyTarget,
   onCancelReply,
   renderedConversation,
@@ -1621,6 +1624,29 @@ export const ConversationPanel = memo(function ConversationPanel({
                     </button>
                   ) : null}
 
+                  {unicoSeleccionado && onEditMessage && puedeEditarseMensaje({
+                    direction: unicoSeleccionado.direction,
+                    type: unicoSeleccionado.type,
+                    externalId: unicoSeleccionado.externalId,
+                    agentId: unicoSeleccionado.agentId,
+                    deletedAt: unicoSeleccionado.deletedAt,
+                    rawPayload: unicoSeleccionado.rawPayload,
+                    enviadoEn: unicoSeleccionado.createdAt,
+                  }) ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onEditMessage(unicoSeleccionado);
+                        setSeleccionados([]);
+                      }}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-foreground transition hover:bg-muted"
+                      aria-label="Editar"
+                      title="Editar"
+                    >
+                      <Pencil className="h-5 w-5" />
+                    </button>
+                  ) : null}
+
                   {onDeleteMessage ? (
                     <button
                       type="button"
@@ -2012,6 +2038,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                         onReply={onReplyToMessage}
                         onForward={setMensajeAReenviar}
                         onDelete={onDeleteMessage}
+                        onEdit={onEditMessage}
                         seleccionado={seleccionados.includes(message.id)}
                         haySeleccion={seleccionados.length > 0}
                         onSeleccionar={alternarSeleccion}

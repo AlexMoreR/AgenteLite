@@ -1656,6 +1656,28 @@ export async function borrarMensajeWaha(input: {
 }
 
 /**
+ * Edita el texto de un mensaje ya enviado.
+ *
+ * `PUT /api/{sesion}/chats/{chat}/messages/{id}` con `{ text }`, la misma ruta con la que se borra.
+ * Como al borrar, NO se traga el error: si WAHA o el motor no permiten editar, la pantalla tiene
+ * que enterarse para no cambiar nada en el CRM.
+ */
+export async function editarMensajeWaha(input: {
+  connection: WahaConnection;
+  sesion: string;
+  chatId: string;
+  mensajeId: string;
+  texto: string;
+}): Promise<void> {
+  await wahaRequest(
+    input.connection,
+    `/api/${encodeURIComponent(input.sesion)}/chats/${encodeURIComponent(input.chatId)}` +
+      `/messages/${encodeURIComponent(input.mensajeId)}`,
+    { method: "PUT", body: JSON.stringify({ text: input.texto }), esperaJson: false },
+  );
+}
+
+/**
  * Bloquea (o desbloquea) un contacto en WhatsApp, desde la linea de esta sesion.
  *
  * Contrato sacado del OpenAPI del servidor (02-10-2026): `POST /api/contacts/block` y

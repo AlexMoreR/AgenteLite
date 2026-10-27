@@ -25,7 +25,8 @@ import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { persistAvatarUrl } from "@/lib/contact-avatar-refresh";
 import { backfillEvolutionMessagesByPhone } from "@/lib/evolution-chat-sync";
-import { buildEvolutionGoHistoryAnchor, deleteEvolutionMessageForEveryone, fetchEvolutionProfilePictureUrl, readGatewayConnection, requestEvolutionGoHistorySync, sendEvolutionTextMessage } from "@/lib/evolution";
+import { MAXIMO_TEXTO_EDITADO, puedeEditarseMensaje } from "@/lib/editar-mensaje";
+import { buildEvolutionGoHistoryAnchor, deleteEvolutionMessageForEveryone, editEvolutionMessage, fetchEvolutionProfilePictureUrl, readGatewayConnection, requestEvolutionGoHistorySync, sendEvolutionTextMessage } from "@/lib/evolution";
 import {
   WAHA_GATEWAY_KIND,
   enviarReaccionWaha,
@@ -1042,6 +1043,96 @@ export async function deleteChatMessageAction(formData: FormData): Promise<{ ok:
   });
 
   return { ok: true };
+}
+
+const editChatMessageSchema = z.object({
+  messageId: z.string().trim().min(1),
+  text: z.string().trim().min(1).max(MAXIMO_TEXTO_EDITADO),
+});
+
+/**
+ * Edita un texto ya enviado desde el CRM (hasta 15 minutos, solo por WAHA).
+ *
+ * Primero se edita en WhatsApp y SOLO si WhatsApp lo acepta se guarda en el CRM: si falla, no se
+ * toca nada. No manda ningun mensaje nuevo; WhatsApp cambia el que ya existe.
+ */
+export async function editChatMessageAction(formData: FormData): Promise<{ ok: boolean; error?: string; editedAt?: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { ok: false, error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { ok: false, error: "Workspace no encontrado" };
+  }
+
+  if (await estaEnModoMonitoreo({ workspaceId: membership.workspace.id, userId: session.user.id })) {
+    return { ok: false, error: AVISO_MODO_MONITOREO };
+  }
+
+  const parsed = editChatMessageSchema.safeParse({
+    messageId: formData.get("messageId"),
+    text: formData.get("text"),
+  });
+  if (!parsed.success) {
+    return { ok: false, error: "El texto no puede estar vacio" };
+  }
+
+  const message = await prisma.message.findFirst({
+    where: { id: parsed.data.messageId, workspaceId: membership.workspace.id },
+    select: {
+      id: true,
+      externalId: true,
+      direction: true,
+      type: true,
+      agentId: true,
+      content: true,
+      deletedAt: true,
+      sentAt: true,
+      createdAt: true,
+      rawPayload: true,
+      channel: { select: { evolutionInstanceName: true } },
+      contact: { select: { phoneNumber: true } },
+    },
+  });
+
+  if (!message) {
+    return { ok: false, error: "Mensaje no encontrado" };
+  }
+
+  if (!puedeEditarseMensaje({ ...message, enviadoEn: message.sentAt ?? message.createdAt })) {
+    return { ok: false, error: "No se pudo editar: solo se editan textos enviados por una asesora en los ultimos 15 minutos" };
+  }
+
+  const instanceName = message.channel?.evolutionInstanceName;
+  const phoneNumber = message.contact?.phoneNumber;
+  if (!instanceName || !phoneNumber) {
+    return { ok: false, error: "No se pudo editar: esta linea no permite editar mensajes" };
+  }
+
+  if (parsed.data.text === (message.content ?? "").trim()) {
+    return { ok: true };
+  }
+
+  try {
+    await editEvolutionMessage({
+      instanceName,
+      key: { id: message.externalId!, remoteJid: `${phoneNumber}@s.whatsapp.net` },
+      text: parsed.data.text,
+    });
+  } catch {
+    return { ok: false, error: "No se pudo editar: WhatsApp no lo permitió" };
+  }
+
+  const editedAt = new Date();
+  await prisma.message.update({
+    where: { id: message.id },
+    data: { content: parsed.data.text, editedAt },
+  });
+
+  return { ok: true, editedAt: editedAt.toISOString() };
 }
 
 export async function toggleConversationAutomationAction(formData: FormData): Promise<void> {

@@ -1058,6 +1058,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     const detailMessages = detail?.messages.map((message) => ({
       id: message.id,
       externalId: message.externalId,
+      agentId: message.agentId,
       content: message.content,
       direction: message.direction,
       createdAt: message.createdAt,

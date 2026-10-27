@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { extractEvolutionLocation } from "@/lib/evolution-webhook";
+import { puedeEditarseMensaje } from "@/lib/editar-mensaje";
 import { AudioMessageCard } from "@/components/chats/audio-message-card";
 import { DetalleDeLlamadaDialog } from "@/components/chats/detalle-de-llamada-dialog";
 import { tapaDePdfDesdeUrl, type TapaDePdf } from "@/lib/portada-de-pdf";
@@ -601,6 +602,18 @@ function FilaDeReacciones({
   );
 }
 
+function datosParaEditar(message: SharedInboxMessageItem) {
+  return {
+    direction: message.direction,
+    type: message.type,
+    externalId: message.externalId,
+    agentId: message.agentId,
+    deletedAt: message.deletedAt,
+    rawPayload: message.rawPayload,
+    enviadoEn: message.createdAt,
+  };
+}
+
 function MessageTouchActionsSheet({
   message,
   open,
@@ -608,6 +621,7 @@ function MessageTouchActionsSheet({
   onReply,
   onForward,
   onDelete,
+  onEdit,
 }: {
   message: SharedInboxMessageItem;
   open: boolean;
@@ -615,6 +629,7 @@ function MessageTouchActionsSheet({
   onReply?: (message: SharedInboxMessageItem) => void;
   onForward?: (message: SharedInboxMessageItem) => void;
   onDelete?: (message: SharedInboxMessageItem) => void;
+  onEdit?: (message: SharedInboxMessageItem) => void;
 }) {
   // Se cierra primero y despues se actua: Eliminar levanta un confirm() del
   // navegador y pelearia con el foco atrapado de la hoja.
@@ -631,6 +646,9 @@ function MessageTouchActionsSheet({
     { label: "Responder", icon: Reply, onClick: onReply ? () => onReply(message) : undefined },
     { label: "Reenviar", icon: Forward, onClick: onForward ? () => onForward(message) : undefined },
     { label: "Copiar", icon: Copy, onClick: () => copyMessageText(message) },
+    ...(onEdit && puedeEditarseMensaje(datosParaEditar(message))
+      ? [{ label: "Editar", icon: Pencil, onClick: () => onEdit(message), destructive: false }]
+      : []),
     { label: "Eliminar", icon: Trash2, onClick: onDelete ? () => onDelete(message) : undefined, destructive: true },
   ];
 
@@ -678,6 +696,7 @@ function MessageActionsMenu({
   onReply,
   onForward,
   onDelete,
+  onEdit,
   audioUrl,
 }: {
   message: SharedInboxMessageItem;
@@ -685,6 +704,7 @@ function MessageActionsMenu({
   onReply?: (message: SharedInboxMessageItem) => void;
   onForward?: (message: SharedInboxMessageItem) => void;
   onDelete?: (message: SharedInboxMessageItem) => void;
+  onEdit?: (message: SharedInboxMessageItem) => void;
   /** Solo en las notas de voz: habilita "Descargar audio". */
   audioUrl?: string | null;
 }) {
@@ -727,6 +747,11 @@ function MessageActionsMenu({
         <DropdownMenuItem onClick={handleCopy}>
           <Copy className="size-4" /> Copiar
         </DropdownMenuItem>
+        {onEdit && puedeEditarseMensaje(datosParaEditar(message)) ? (
+          <DropdownMenuItem onClick={() => onEdit(message)}>
+            <Pencil className="size-4" /> Editar
+          </DropdownMenuItem>
+        ) : null}
 
         {/*
           Bajar la nota de voz al computador.
@@ -782,6 +807,7 @@ export const MessageBubble = memo(function MessageBubble({
   onReply,
   onForward,
   onDelete,
+  onEdit,
   seleccionado,
   haySeleccion,
   onSeleccionar,
@@ -796,6 +822,8 @@ export const MessageBubble = memo(function MessageBubble({
   onReply?: (message: SharedInboxMessageItem) => void;
   onForward?: (message: SharedInboxMessageItem) => void;
   onDelete?: (message: SharedInboxMessageItem) => void;
+  /** Editar un texto propio de menos de 15 minutos (ver editar-mensaje.ts). */
+  onEdit?: (message: SharedInboxMessageItem) => void;
   /** Esta burbuja esta seleccionada: se pinta la fila entera. */
   seleccionado?: boolean;
   /** Hay una seleccion abierta: un toque simple suma o saca, sin mantener apretado. */
@@ -1251,7 +1279,7 @@ export const MessageBubble = memo(function MessageBubble({
         >
           {tieneAcciones ? (
             <>
-              <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onForward={onForward} onDelete={onDelete} audioUrl={audioUrl} />
+              <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onForward={onForward} onDelete={onDelete} onEdit={onEdit} audioUrl={audioUrl} />
               <MessageTouchActionsSheet
                 message={message}
                 open={isTouchMenuOpen}
@@ -1259,6 +1287,7 @@ export const MessageBubble = memo(function MessageBubble({
                 onReply={onReply}
                 onForward={onForward}
                 onDelete={onDelete}
+                onEdit={onEdit}
               />
             </>
           ) : null}

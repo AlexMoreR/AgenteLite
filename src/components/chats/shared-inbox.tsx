@@ -25,8 +25,9 @@ import {
   usePendingConversationSelection,
   type PendingChatSelection,
 } from "./chat-selection-store";
-import { deleteChatMessageAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
+import { deleteChatMessageAction, editChatMessageAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
 import { AppSidebar } from "./appsidebar";
+import { EditMessageDialog } from "./edit-message-dialog";
 import {
   leerFiltrosDeBandeja,
   paramsDeFiltros,
@@ -432,6 +433,9 @@ export function SharedInbox({
   const [reintentoCargaDelChat, setReintentoCargaDelChat] = useState(0);
   const [replyTarget, setReplyTarget] = useState<ComposerReplyTarget | null>(null);
   const [deletedMessageIds, setDeletedMessageIds] = useState<ReadonlySet<string>>(() => new Set());
+  // Mensaje que se esta editando (abre el cuadro) y textos editados que el servidor aun no refleja.
+  const [mensajeEnEdicion, setMensajeEnEdicion] = useState<SharedInboxMessageItem | null>(null);
+  const [textosEditados, setTextosEditados] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [editContactOpen, setEditContactOpen] = useState(false);
   const handleCloseEditContact = useCallback(() => setEditContactOpen(false), []);
   const handleOpenEditContact = useCallback(() => setEditContactOpen(true), []);
@@ -2280,14 +2284,18 @@ export function SharedInbox({
   // servidor confirma (si falla, se revierte el id en deletedMessageIds).
   const renderedMessages = useMemo(
     () =>
-      deletedMessageIds.size === 0
+      deletedMessageIds.size === 0 && textosEditados.size === 0
         ? baseRenderedMessages
-        : baseRenderedMessages.map((message) =>
-            deletedMessageIds.has(message.id) && !message.deletedAt
-              ? { ...message, deletedAt: new Date() }
-              : message,
-          ),
-    [baseRenderedMessages, deletedMessageIds],
+        : baseRenderedMessages.map((message) => {
+            if (deletedMessageIds.has(message.id) && !message.deletedAt) {
+              return { ...message, deletedAt: new Date() };
+            }
+            const textoEditado = textosEditados.get(message.id);
+            return textoEditado !== undefined
+              ? { ...message, content: textoEditado, editedAt: message.editedAt ?? new Date() }
+              : message;
+          }),
+    [baseRenderedMessages, deletedMessageIds, textosEditados],
   );
   // Ref para leer el último mensaje dentro de efectos sin meter el array en deps
   // (un array en deps cambia de tamaño y React lanza error).
@@ -2552,6 +2560,45 @@ export function SharedInbox({
         toast.error("No se pudo eliminar el mensaje");
       });
   }, []);
+
+  const handleEditMessage = useCallback((target: SharedInboxMessageItem) => {
+    if (!target.id || target.id.startsWith("optimistic:")) {
+      return;
+    }
+    setMensajeEnEdicion(target);
+  }, []);
+
+  const handleSaveEditedMessage = useCallback((texto: string) => {
+    const target = mensajeEnEdicion;
+    setMensajeEnEdicion(null);
+    if (!target) {
+      return;
+    }
+    const quitarOptimista = () =>
+      setTextosEditados((current) => {
+        const next = new Map(current);
+        next.delete(target.id);
+        return next;
+      });
+
+    // Cambio optimista: se ve el texto nuevo al instante. Si WhatsApp no lo acepta, se revierte.
+    setTextosEditados((current) => new Map(current).set(target.id, texto));
+
+    const formData = new FormData();
+    formData.set("messageId", target.id);
+    formData.set("text", texto);
+    void Promise.resolve(editChatMessageAction(formData))
+      .then((result) => {
+        if (!result?.ok) {
+          quitarOptimista();
+          toast.error(result?.error || "No se pudo editar el mensaje");
+        }
+      })
+      .catch(() => {
+        quitarOptimista();
+        toast.error("No se pudo editar el mensaje");
+      });
+  }, [mensajeEnEdicion]);
 
   useEffect(() => {
     setReplyTarget(null);
@@ -3440,6 +3487,11 @@ export function SharedInbox({
 
   return (
     <>
+    <EditMessageDialog
+      textoActual={mensajeEnEdicion ? (mensajeEnEdicion.content ?? "") : null}
+      onGuardar={handleSaveEditedMessage}
+      onCerrar={() => setMensajeEnEdicion(null)}
+    />
     <div
       className={`chat-inbox-grid flex h-full min-h-0 flex-1 flex-col gap-0 overflow-hidden md:grid ${
         hasSidebar ? "md:grid-cols-[250px_360px_minmax(0,1fr)]" : "md:grid-cols-[380px_minmax(0,1fr)]"
@@ -3569,6 +3621,7 @@ export function SharedInbox({
         onRetryFailedMessage={handleRetryFailedMessage}
         onReplyToMessage={handleReplyToMessage}
         onDeleteMessage={handleDeleteMessage}
+        onEditMessage={handleEditMessage}
         replyTarget={replyTarget}
         onCancelReply={handleCancelReply}
         renderedConversation={renderedConversation}
