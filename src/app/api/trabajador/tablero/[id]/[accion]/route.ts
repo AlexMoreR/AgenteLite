@@ -29,9 +29,13 @@ export const dynamic = "force-dynamic";
               (dependencia), la madre queda donde estaba, sin candado. Desde EN_CURSO las hijas quedan
               PLAN_APROBADO con su parte como plan; desde PLANEANDO (medir antes de planear) quedan APROBADO,
               sin plan. 409 si ya está partida o es una parte.
-  - depender  { referencias: [id o título] }      APROBADO | PLANEANDO: pone la flecha de dependencia hacia esas
+  - depender  { referencias: [id o título] }      APROBADO | PLANEANDO | EN_CURSO (EN_CURSO vuelve a PLAN_APROBADO): pone la flecha de dependencia hacia esas
               tarjetas (mismo tablero, sin ciclos). Si alguna no está HECHO, PLANEANDO vuelve a APROBADO sin ERROR
               ni contar el intento: queda "Esperando a «X»". -> { creadas, esperando, soltada }
+  - ya-hecha  { commit, motivo?, nota?, etapa? }  PLANEANDO | EN_CURSO -> HECHO con la nota "ya estaba hecho (commit X)" (27-oct-2026;
+              el Coordinador ya comprobó con git que el commit está en main).
+  - limpieza  { repo, errores: [texto] }          main trae errores viejos: crea UNA tarjeta "Limpieza: main trae errores viejos (<repo>)"
+              (APROBADO, mismo tablero) o le agrega los errores a la abierta. No mueve la tarjeta que la pidió. -> { creada, agregados }
   - recoger   { decision: reintentar | partir | dueno, causa?, error?, partes?, linea? }   ERROR: recoge una tarjeta
               vieja en ERROR (máximo 2 veces por tarjeta; el tope diario lo lleva el Coordinador). reintentar vuelve
               a la fila, partir crea las hijas, dueno deja UNA línea para el dueño y sigue en ERROR.

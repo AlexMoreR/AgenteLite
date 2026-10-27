@@ -72,12 +72,14 @@ const ID_DE_TARJETA = /\bcm[a-z0-9]{20,28}\b/g;
 const TITULO_ENTRE_COMILLAS = /[«"“]([^«»"“”\n]{4,120})[»"”]/g;
 
 /**
- * Las tarjetas que el texto nombra como molde o requisito: { ids, titulos }. Solo cuenta lo que aparece CERCA de una palabra
+ * Las tarjetas que el título, el detalle y el plan nombran como molde o requisito: { ids, titulos }. Solo cuenta lo que aparece CERCA de una palabra
  * que lo anuncia ("molde", "depende de", "requiere"…), dentro de la misma frase: un id nombrado como ejemplo o como causa de
  * un error ("Cerebro cmv…: build bloqueado") NO es una dependencia. Nunca incluye a la propia tarjeta.
  */
 export function referenciasDeLaTarjeta(tarjeta) {
-  const texto = String(tarjeta?.detalle ?? "");
+  // 27-oct-2026: también el título y el plan aprobado (antes solo el detalle: "Alertas de Tecnología" gastó 5 intentos porque su
+  // dependencia estaba escrita en el plan y no en el detalle).
+  const texto = [tarjeta?.titulo, tarjeta?.detalle, tarjeta?.plan].map((parte) => String(parte ?? "")).join("\n");
   const ids = new Set();
   const titulos = new Set();
   for (const frase of texto.split(/(?<=[.;:!?\n])\s+/)) {

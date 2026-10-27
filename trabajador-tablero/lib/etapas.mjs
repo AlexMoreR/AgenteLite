@@ -46,6 +46,7 @@ import {
   webDeGithub,
 } from "./git.mjs";
 import { dificultadDeLaTarea, modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
+import { dependenciasDeLaRespuesta, esSoloLoDeMain, firmasDeFalla, yaEstaHechoDe } from "./revision-previa.mjs";
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
 import { esperarResultado, lanzarEnNube } from "./nube.mjs";
 import { vigilarSesion } from "./atasco.mjs";
@@ -256,6 +257,29 @@ function configDelRepo(contexto, tarjeta) {
   return repo;
 }
 
+/**
+ * YA_ESTA_HECHO (27-oct-2026): ¿ese commit existe de verdad y ya está en la rama base? Una sesión que se equivoca no cierra tarjetas:
+ * si el commit no existe o no está en main, devuelve false y la etapa sigue como si la palabra no se hubiera escrito.
+ */
+export async function commitEstaEnMain(repo, commit) {
+  if (!/^[0-9a-f]{7,40}$/i.test(String(commit ?? ""))) return false;
+  const existe = await git(repo.ruta, ["cat-file", "-e", `${commit}^{commit}`], { permitirFallo: true });
+  if (existe.codigo !== 0) return false;
+  const dentro = await git(repo.ruta, ["merge-base", "--is-ancestor", commit, `${repo.remoto}/${repo.ramaBase}`], { permitirFallo: true });
+  return dentro.codigo === 0;
+}
+
+/** Lo que la sesión dijo de la revisión previa: { yaHecho: { commit, motivo } } (comprobado con git), { dependeDe: [...] } o null. */
+async function palabrasDeRevisionPrevia(contexto, repo, texto, ventana) {
+  const ya = yaEstaHechoDe(texto, ventana);
+  if (ya) {
+    if (await commitEstaEnMain(repo, ya.commit)) return { yaHecho: ya };
+    contexto.registro?.aviso?.(`la sesión dijo YA_ESTA_HECHO con el commit ${ya.commit}, pero no está en ${repo.remoto}/${repo.ramaBase}: no le creo`);
+  }
+  const dependeDe = dependenciasDeLaRespuesta(texto, ventana);
+  return dependeDe.length ? { dependeDe } : null;
+}
+
 const carpetaDe = (contexto, tarjeta, etapa) => path.join(contexto.config.carpetaTrabajo, "wt", `${idCorto(tarjeta.id)}-${etapa}`);
 
 /**
@@ -306,9 +330,12 @@ async function pasoSinTurno(contexto, comando, { cwd, reloj, que, motivo, entrad
     );
   }
   if (resultado.codigo !== 0) {
-    throw new ErrorDeEtapa(
+    const falla = new ErrorDeEtapa(
       `${motivo ?? `Falló ${que}`}. No se subió nada.\nDetalle técnico (${comoTexto(comando)}):\n${detalleDeFalla(resultado)}`,
     );
+    // La salida completa (el final): verificar() la compara con lo que ya fallaba en main (revision-previa.mjs).
+    falla.salida = `${resultado.salida ?? ""}\n${resultado.errores ?? ""}`;
+    throw falla;
   }
   // Salió bien: la salida completa ya no hace falta.
   if (resultado.archivoSalida) fs.rmSync(resultado.archivoSalida, { force: true });
@@ -581,6 +608,15 @@ const INSTRUCCION_DEL_RESUMEN =
 const INSTRUCCION_NECESITO =
   'Si de verdad no puedes seguir sin algo que solo el dueño puede darte (una clave, un acceso o una decisión), escribe en una línea sola, al principio de la línea: "NECESITO: <clave|acceso|decisión> <qué necesitas y para qué>". Úsalo SOLO cuando no hay otra salida (no por una duda pequeña): la tarea queda parada esperando al dueño y no se reintenta. Nunca le escribas a un cliente.';
 
+/**
+ * Revisión previa (27-oct-2026): dos palabras que la sesión escribe cuando lo pedido no se puede hacer ahora. El Coordinador las lee
+ * y deja la tarjeta esperando (DEPENDE_DE) o la cierra como HECHO (YA_ESTA_HECHO, solo si el commit está de verdad en main).
+ */
+const INSTRUCCION_DEPENDE_DE =
+  'Si descubres que lo pedido necesita algo que OTRA tarjeta todavía no subió a main (una página, una función, una tabla), no lo inventes ni lo dupliques: escribe en una línea sola, al principio de la línea: "DEPENDE_DE: <id o «título» de esa tarjeta>". La tarjeta queda esperando a esa otra y arranca sola cuando suba, sin gastar intentos.';
+const INSTRUCCION_YA_HECHO =
+  'Si lo pedido YA está hecho en main, escribe en una línea sola, al principio de la línea: "YA_ESTA_HECHO: <commit> — <motivo en una frase>" (el commit de main donde quedó, que el Coordinador comprueba con git).';
+
 export function promptDelPlan(tarjeta, repo, motor = "claude", { lecciones = "" } = {}) {
   return [
     `${identidadDelAgente(repo)} Eres parte del Coordinador de Sistemas de Magilus. Tienes que escribir un PLAN para esta tarea del repositorio "${repo.clave}". ${
@@ -604,6 +640,7 @@ export function promptDelPlan(tarjeta, repo, motor = "claude", { lecciones = "" 
     fraseAlTerminar(repo),
     INSTRUCCION_DE_RIESGO,
     INSTRUCCION_NECESITO,
+    `Antes de planear revisa que se pueda hacer. ${INSTRUCCION_DEPENDE_DE} ${INSTRUCCION_YA_HECHO} En esos dos casos contesta SOLO esa línea, sin plan.`,
     "Contesta SOLO con el plan.",
   ]
     .filter(Boolean)
@@ -707,6 +744,8 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
       "- Al final corre `npx tsc --noEmit`, el lint SOLO de los archivos que cambiaste (`npx eslint <esos archivos>`, sin errores nuevos) y las pruebas del módulo que tocaste, y arregla lo que falle. NO corras `eslint .` del repo entero ni toda la batería de pruebas: el Coordinador corre todo eso al terminar, de a uno en aizen1.",
       "- Si terminas SIN haber cambiado ningún archivo (porque ya estaba hecho, o no se puede hacer), escribe como última línea: NO_CAMBIE: <el motivo en una frase>. Es la única forma de decir que no hacía falta cambiar nada.",
       `- ${INSTRUCCION_NECESITO}`,
+      `- ${INSTRUCCION_DEPENDE_DE}`,
+      `- ${INSTRUCCION_YA_HECHO}`,
       `- ${INSTRUCCION_DEL_RESUMEN}`,
     ].join("\n"),
   ]
@@ -754,7 +793,7 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
       "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). El Coordinador las ensaya después contra producción, no tú.",
       `- ${reglaDelManual(tarjeta)}`,
     ].join("\n"),
-    `Respeta el estilo del repo y escribe los comentarios en español. Si terminas SIN haber cambiado ningún archivo, escribe como última línea de tu resumen: NO_CAMBIE: <el motivo en una frase>. ${INSTRUCCION_NECESITO} ${INSTRUCCION_DEL_RESUMEN}`,
+    `Respeta el estilo del repo y escribe los comentarios en español. Si terminas SIN haber cambiado ningún archivo, escribe como última línea de tu resumen: NO_CAMBIE: <el motivo en una frase>. ${INSTRUCCION_NECESITO} ${INSTRUCCION_DEPENDE_DE} ${INSTRUCCION_YA_HECHO} ${INSTRUCCION_DEL_RESUMEN}`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -984,8 +1023,69 @@ function erroresNuevos(base, despues) {
   return nuevos;
 }
 
-/** Instalar + verificar + pruebas en el worktree. Devuelve el texto de "pruebas" para el resultado. */
-async function verificar(contexto, repo, cwd, reloj, prioridad = PRIORIDAD.verificar) {
+/**
+ * Lo que ya fallaba en main (27-oct-2026): las firmas de falla de UN comando de verificación en el commit `sha` de main.
+ * Se guardan por commit y comando (<carpetaTrabajo>/cache/main/…json), como el lint: cada versión de main se revisa una vez.
+ * Corre el comando parado en `sha` (el trabajo ya está en commit) y vuelve a donde estaba. -> Set de firmas (vacío = main pasa).
+ */
+async function firmasDeMain(contexto, repo, cwd, reloj, comando, sha, prioridad) {
+  const llave = crypto.createHash("sha1").update(JSON.stringify(comando)).digest("hex").slice(0, 8);
+  const archivo = path.join(contexto.config.carpetaTrabajo, "cache", "main", `${String(repo.clave ?? "repo").replace(/[^\w-]/g, "")}-${sha}-${llave}.json`);
+  try {
+    const guardado = new Set(JSON.parse(fs.readFileSync(archivo, "utf8")));
+    contexto.registro?.info?.(`${comoTexto(comando)} en main ${sha.slice(0, 8)}: ya estaba medido (no se vuelve a correr)`);
+    return guardado;
+  } catch {
+    // No estaba o no se pudo leer: se mide.
+  }
+  const rama = (await git(cwd, ["symbolic-ref", "--short", "-q", "HEAD"], { permitirFallo: true })).salida.trim();
+  const cabeza = (await git(cwd, ["rev-parse", "HEAD"])).salida.trim();
+  await git(cwd, ["checkout", "--detach", sha]);
+  let firmas;
+  try {
+    const timeoutMs = Math.min(reloj.resta(), contexto.config.tiempos.comandoMinutos * MINUTO);
+    const resultado = await conTurno(contexto, reloj, prioridad, `correr ${comoTexto(comando)} en main`, () =>
+      correr(comando, { cwd, env: entornoSeguro(), senal: contexto.senal, timeoutMs }),
+    );
+    if (resultado.vencido || resultado.cancelado) return new Set();
+    firmas = resultado.codigo === 0 ? new Set() : firmasDeFalla(`${resultado.salida}\n${resultado.errores}`);
+  } finally {
+    await git(cwd, rama ? ["checkout", rama] : ["checkout", "--detach", cabeza]);
+  }
+  try {
+    fs.mkdirSync(path.dirname(archivo), { recursive: true });
+    fs.writeFileSync(archivo, JSON.stringify([...firmas]));
+  } catch {
+    // Guardar es una ayuda: si falla, la próxima vez se mide de nuevo.
+  }
+  return firmas;
+}
+
+/**
+ * Un comando de verificación falló: ¿falla SOLO en lo que main ya fallaba? Devuelve las firmas viejas (la tarea pasa) o null
+ * (la falla es de la tarea: sigue frenando). Cualquier falla nueva, o una salida sin firmas reconocibles, deja la falla como está.
+ */
+async function perdonarSiYaFallabaEnMain(contexto, repo, cwd, reloj, comando, error, { sha, prioridad }) {
+  if (!sha || !(error instanceof ErrorDeEtapa) || error.categoria || typeof error.salida !== "string") return null;
+  const deLaTarea = firmasDeFalla(error.salida);
+  if (!deLaTarea.size) return null;
+  let deMain;
+  try {
+    deMain = await firmasDeMain(contexto, repo, cwd, reloj, comando, sha, prioridad);
+  } catch (otro) {
+    if (contexto.senal?.aborted) throw otro;
+    contexto.registro?.aviso?.(`no se pudo medir ${comoTexto(comando)} en main (la falla se cuenta como de la tarea): ${String(otro.message).split("\n")[0]}`);
+    return null;
+  }
+  return esSoloLoDeMain(deLaTarea, deMain) ? [...deLaTarea] : null;
+}
+
+/**
+ * Instalar + verificar + pruebas en el worktree. Devuelve el texto de "pruebas" para el resultado.
+ * `base` { sha, viejos } (27-oct-2026): si un comando falla SOLO en lo que main ya fallaba en `sha`, la tarea pasa ese comando y las
+ * firmas viejas se anotan en `viejos` (el bucle crea UNA tarjeta de limpieza). Cualquier falla nueva sigue frenando.
+ */
+async function verificar(contexto, repo, cwd, reloj, prioridad = PRIORIDAD.verificar, base = null) {
   const lineas = [];
   // Panel "Coordinador en vivo": desde acá la tarea está "probando".
   contexto.fase?.("probando");
@@ -994,7 +1094,17 @@ async function verificar(contexto, repo, cwd, reloj, prioridad = PRIORIDAD.verif
     await esperarAlPc(contexto, reloj, `correr ${comoTexto(comando)}`);
     // Un build que quedó a medias (otro intento, una sesión) deja .next/lock: se borra antes de compilar (24-oct-2026).
     if (/\bbuild\b/.test(comoTexto(comando))) await cerrarRestos(contexto, cwd);
-    const resultado = await paso(contexto, comando, { cwd, reloj, que: "la verificación", motivo: motivoDeVerificacion(comando, esPrueba), prioridad });
+    let resultado;
+    try {
+      resultado = await paso(contexto, comando, { cwd, reloj, que: "la verificación", motivo: motivoDeVerificacion(comando, esPrueba), prioridad });
+    } catch (error) {
+      const viejas = base ? await perdonarSiYaFallabaEnMain(contexto, repo, cwd, reloj, comando, error, { sha: base.sha, prioridad }) : null;
+      if (!viejas) throw error;
+      contexto.registro?.aviso?.(`${comoTexto(comando)} falla igual en main (${viejas.length} falla(s) vieja(s)): no se le cobra a esta tarea`);
+      base.viejos?.push(...viejas);
+      lineas.push(`⚠ ${comoTexto(comando)} falla igual en main (${viejas.length} falla(s) vieja(s)); la tarea no agregó ninguna nueva`);
+      continue;
+    }
     const cola = ultimasLineas(resultado.salida, 3);
     lineas.push(`✔ ${comoTexto(comando)}${cola ? `\n  ${cola.replace(/\n/g, "\n  ")}` : ""}`);
   }
@@ -1023,6 +1133,9 @@ export async function planear(contexto, tarjeta) {
       tarjeta,
       modelo,
     });
+    // Revisión previa (27-oct-2026): la sesión contestó "DEPENDE_DE: …" o "YA_ESTA_HECHO: …" en vez del plan.
+    const previa = await palabrasDeRevisionPrevia(contexto, repo, texto, { inicio: 5 });
+    if (previa) return { ...previa, motor, modelo };
     const plan = `${texto.replace(MARCA_DEL_PLAN, "").trimEnd()}\n\n${firmaDelPlan(motor, modelo)}`;
     // "NECESITO: …" (26-oct-2026): el plan queda en "Plan listo" esperando el sí del dueño (la línea APROBAR PLAN que espera
     // gana sobre cualquier "SOLO") y el bucle manda UN aviso "necesita".
@@ -1143,6 +1256,13 @@ export async function construir(contexto, tarjeta) {
       registro.info(`el agente necesita ${necesita.tipo}: ${necesita.detalle}`);
       return { necesita, resumen: `El agente necesita ${necesita.tipo}: ${necesita.detalle}\n\n${String(resumenDelMotor).slice(-3000)}`, pruebas: "", paso: false, subeSolo: false };
     }
+    // Revisión previa (27-oct-2026): "DEPENDE_DE: …" -> la tarjeta espera a la otra, sin intento ni reparación; "YA_ESTA_HECHO: …"
+    // (con el commit comprobado en main) solo vale si la sesión no cambió ningún archivo.
+    const dependeDe = dependenciasDeLaRespuesta(resumenDelMotor, { final: 12 });
+    if (dependeDe.length) {
+      registro.info(`la sesión dice que depende de otra tarjeta: ${dependeDe.join(", ")}`);
+      return { dependeDe, resumen: String(resumenDelMotor).slice(-1500), pruebas: "", paso: false, subeSolo: false };
+    }
     const motores = { ...(motorDelPlan(tarjeta.plan) ? { plan: motorDelPlan(tarjeta.plan) } : {}), construir: motor };
     // Qué modelo hizo cada paso (para mostrarlo en la tarjeta). Codex no tiene modelo que elijamos acá.
     const modelos = {
@@ -1189,6 +1309,11 @@ export async function construir(contexto, tarjeta) {
     }
     const cambios = await archivosCambiados(carpeta, base);
     if (!cambios.length) {
+      const previa = await palabrasDeRevisionPrevia(contexto, repo, resumenDelMotor, { final: 12 });
+      if (previa?.yaHecho) {
+        registro.info(`ya estaba hecho (commit ${previa.yaHecho.commit}): ${previa.yaHecho.motivo}`);
+        return { yaHecho: previa.yaHecho, resumen: String(resumenDelMotor).slice(-1500), pruebas: "", paso: false, subeSolo: false };
+      }
       // "NO_CAMBIE: <motivo>" es la forma de decir que no hacía falta cambiar nada: ese motivo es la causa.
       const noCambie = String(resumenDelMotor).match(/^\s*NO_CAMBIE:\s*(.+)$/im)?.[1]?.trim();
       throw new ErrorDeEtapa(`${nombreDelMotor(motor)} no cambió ningún archivo${noCambie ? ` (NO_CAMBIE: ${noCambie})` : ""}.`, { categoria: "no_cambio_nada", archivosCambiados: 0 });
@@ -1217,6 +1342,8 @@ export async function construir(contexto, tarjeta) {
     let linkWorkflow = null;
     let verificadoEn = confiarEnLaNube ? "nube" : "aizen1";
     let yaSubida = false;
+    // Lo que main ya traía mal (27-oct-2026): no se le cobra a la tarea; el bucle crea UNA tarjeta de limpieza con esta lista.
+    const erroresViejos = [];
     if (usarActions) {
       reloj.resta();
       await pushDeRama(carpeta, repo.remoto, rama, { forzar: !nube });
@@ -1236,7 +1363,7 @@ export async function construir(contexto, tarjeta) {
       if (confiarEnLaNube) {
         pruebas = [`✔ build=OK y tests=OK en la nube sobre este mismo código (commit ${nube.commitVerificado.slice(0, 10)}): aizen1 no vuelve a compilar ni a probar`];
       } else {
-        pruebas = [...(pruebas ?? []), ...(await verificar(contexto, repo, carpeta, reloj))];
+        pruebas = [...(pruebas ?? []), ...(await verificar(contexto, repo, carpeta, reloj, PRIORIDAD.verificar, { sha: baseSha, viejos: erroresViejos }))];
         // Cayó al modo de antes: el lint de main no se midió, se mide ahora parado un momento en la base.
         if (repo.lint && !lintBase) {
           await git(carpeta, ["checkout", "--detach", baseSha]);
@@ -1248,6 +1375,7 @@ export async function construir(contexto, tarjeta) {
         }
       }
     }
+    if (lintBase?.size) erroresViejos.push(...[...lintBase.keys()].map((firma) => `lint|${firma}`));
     if (lintBase && verificadoEn !== "github-actions") {
       const nuevos = erroresNuevos(lintBase, await conTurno(contexto, reloj, PRIORIDAD.verificar, "lint", () => erroresDeLint(contexto, repo, carpeta, reloj)));
       if (nuevos.length) throw new ErrorDeEtapa(`El lint tiene ${nuevos.length} error(es) nuevo(s):\n${nuevos.slice(0, 15).join("\n")}\nNo se subió nada.`, { categoria: "lint" });
@@ -1330,6 +1458,7 @@ export async function construir(contexto, tarjeta) {
       subeSolo,
       ...(esperaPor ? { esperaPor } : {}),
       base: baseSha,
+      ...(erroresViejos.length ? { erroresViejos: [...new Set(erroresViejos)].slice(0, 60) } : {}),
       // Para la última revisión de riesgo del CRM: los archivos que de verdad cambió y lo destructivo de la migración.
       archivos: archivos.slice(0, 300),
       migracionDestructiva: destructivo,
@@ -1831,7 +1960,10 @@ export async function subir(contexto, tarjeta) {
           pruebas = [`✔ la nube verificó build y pruebas (commit ${tarjeta.resultado.commit.slice(0, 10)}); ${repo.ramaBase} no cambió los archivos de la tarea (salvo .md): aizen1 no compila ni prueba (el CI de ${repo.ramaBase} cubre el resto)`];
         } else {
           if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: PRIORIDAD.subir });
-          pruebas = await verificar(contexto, repo, carpeta, reloj, PRIORIDAD.subir);
+          const viejas = { sha: antes, viejos: [] };
+          pruebas = await verificar(contexto, repo, carpeta, reloj, PRIORIDAD.subir, viejas);
+          // main ya traía esas fallas: la subida sigue y el resumen lo dice (la tarjeta de limpieza ya se creó al construir).
+          if (viejas.viejos.length) registro.info(`al subir: ${viejas.viejos.length} falla(s) vieja(s) de ${repo.ramaBase}; no son de esta tarea`);
         }
         contexto.fase?.("subiendo");
         const cambios = await archivosCambiados(carpeta, base);
