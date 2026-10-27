@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { CrmInformeView } from "@/features/crm/components/CrmInformeView";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
 import { getAuthorizedCrmData } from "../_lib";
 
 export const metadata: Metadata = {
@@ -10,6 +13,10 @@ export const metadata: Metadata = {
 };
 
 export default async function ClienteCrmInformePage() {
+  // Solo dueño o administrador (Alex, 26-10-2026): las demás cuentas vuelven a Mi día.
+  const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
+  if (!esJefeDelNegocio(access)) redirect("/cliente/crm/mi-dia");
+
   const { esInformePersonal, ...data } = await getAuthorizedCrmData();
 
   return (

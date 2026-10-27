@@ -111,9 +111,7 @@ export function AppSidebar({
   brandName = "Workspace",
   user,
   currentConnectionKey = "",
-  puedeSupervisarElEquipo = false,
   esJefeDelNegocio = false,
-  veRecuperacion = false,
   chatSidebarItems = [],
   ...props
 }: AppSidebarProps) {
@@ -219,9 +217,7 @@ export function AppSidebar({
                           : "mi-dia"
                 }
                 isCrmRoute={pathname.startsWith("/cliente/crm")}
-                puedeSupervisar={puedeSupervisarElEquipo}
                 esJefe={esJefeDelNegocio}
-                veRecuperacion={veRecuperacion}
               />
             ) : null}
             {/* El coach de ventas: el jefe ve al equipo; cada asesora, solo lo suyo. */}
@@ -243,7 +239,7 @@ export function AppSidebar({
               una vista de trabajo. A una asesora no se le muestra; la pagina igual exige ser dueño o
               administrador del negocio.
             */}
-            {user?.role && user.role !== "EMPLEADO" ? (
+            {esJefeDelNegocio ? (
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton

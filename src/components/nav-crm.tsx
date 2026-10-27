@@ -24,16 +24,13 @@ const crmViews: Array<{
   title: string;
   view: CrmView;
   icon: LucideIcon;
+  /** Solo dueño o administrador del negocio (Alex, 26-10-2026): ni supervisoras ni asesoras. */
   soloJefes?: boolean;
-  /** Solo dueño o administrador (no supervisoras). */
-  soloDueno?: boolean;
-  /** Dueño, administrador o la supervisora del Supervisor accionable. */
-  soloRecuperacion?: boolean;
 }> = [
   { title: "Mi día", view: "mi-dia", icon: Sun },
   // Registro ya no está en el menú (Alex, 26-10-2026): la pantalla y los datos siguen, solo se esconde el botón.
   { title: "Kanban", view: "kanban", icon: KanbanSquare },
-  // Informe y Guiones: solo quien supervisa; las asesoras ven solo Mi día y Kanban.
+  // Informe y Guiones: solo dueño o administrador; las demás cuentas ven solo Mi día y Kanban.
   { title: "Informe", view: "informe", icon: ChartNoAxesCombined, soloJefes: true },
   // Solo para quien supervisa: es como viene CADA asesora, no el trabajo de una.
   { title: "Tablero", view: "tablero", icon: Gauge, soloJefes: true },
@@ -43,11 +40,10 @@ const crmViews: Array<{
   { title: "Comparar embudos", view: "comparar-embudos", icon: GitCompareArrows, soloJefes: true },
   // Pauta: qué campaña y anuncio de Meta traen ventas y cuánto cuesta cada una (solo lectura).
   { title: "Pauta", view: "pauta", icon: Target, soloJefes: true },
-  // Recuperación de leads (13-10-2026): dueño / administrador y la supervisora del accionable.
-  { title: "Recuperación", view: "recuperacion", icon: LifeBuoy, soloRecuperacion: true },
-  // El Supervisor: solo dueño o administrador (Alex, 13-10-2026). Las supervisoras siguen
-  // entrando por los avisos (la página no cambia sus permisos).
-  { title: "Supervisor", view: "supervisor", icon: ShieldCheck, soloDueno: true },
+  // Recuperación de leads (13-10-2026): desde el 26-10-2026 solo dueño / administrador.
+  { title: "Recuperación", view: "recuperacion", icon: LifeBuoy, soloJefes: true },
+  // El Supervisor: solo dueño o administrador (Alex, 13-10-2026); desde el 26-10-2026 la página también las bloquea.
+  { title: "Supervisor", view: "supervisor", icon: ShieldCheck, soloJefes: true },
   // El Agente de Ventas (molde de agentes de área): lo ven los mismos que ven el Tablero.
   { title: "Agente de Ventas", view: "agente-de-ventas", icon: Bot, soloJefes: true },
   // El Agente de Marketing: el mismo molde, junto al de Ventas.
@@ -60,18 +56,12 @@ const crmViews: Array<{
 export function NavCrm({
   currentView,
   isCrmRoute,
-  puedeSupervisar = false,
   esJefe = false,
-  veRecuperacion = false,
 }: {
   currentView: CrmView;
   isCrmRoute: boolean;
-  /** Dueño, administrador o supervisora: a ellos se les muestra el Tablero del equipo. */
-  puedeSupervisar?: boolean;
-  /** Dueño o administrador del negocio: ve también el Supervisor. */
+  /** Dueño o administrador del negocio: los únicos que ven los apartados de jefe. */
   esJefe?: boolean;
-  /** Dueño, administrador o la supervisora del Supervisor accionable: ve Recuperación. */
-  veRecuperacion?: boolean;
 }) {
   const [manualOpen, setManualOpen] = useState(false);
   const open = manualOpen || isCrmRoute;
@@ -92,10 +82,7 @@ export function NavCrm({
         <CollapsibleContent>
           <SidebarMenuSub>
             {crmViews
-              .filter(
-                (item) =>
-                  (!item.soloJefes || puedeSupervisar) && (!item.soloDueno || esJefe) && (!item.soloRecuperacion || veRecuperacion),
-              )
+              .filter((item) => !item.soloJefes || esJefe)
               .map((item) => (
               <SidebarMenuSubItem key={item.view}>
                 {/* Sin `prefetch`: eran seis vistas del CRM pedidas enteras desde cualquier pantalla. */}

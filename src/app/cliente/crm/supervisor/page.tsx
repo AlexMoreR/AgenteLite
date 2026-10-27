@@ -34,7 +34,7 @@ import { PanelAccionableView } from "@/features/supervisor-accionable/components
 import { anclaDeAlerta } from "@/features/supervisor-accionable/dominio/reglas";
 import { leerConfigAccionable, leerPanelAccionable } from "@/features/supervisor-accionable/servicios/accionable";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
-import { puedeSupervisar } from "@/lib/permisos-del-equipo";
+import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
 
 export const metadata: Metadata = { robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -96,7 +96,7 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
   const pedida = (await searchParams).alerta;
   const alertaPedida = typeof pedida === "string" ? pedida : null;
   const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
-  if (!(await puedeSupervisar(access))) {
+  if (!esJefeDelNegocio(access)) {
     redirect("/cliente/crm/mi-dia");
   }
   const workspaceId = access.workspaceId;

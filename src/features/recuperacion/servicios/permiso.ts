@@ -1,20 +1,17 @@
 import { CacheConTtl } from "@/lib/cache-en-memoria";
+import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
 import { prisma } from "@/lib/prisma";
 
+export { esJefeDelNegocio };
+
 /**
- * Quién ve el módulo Recuperación (Alex, 13-10-2026): el dueño o un administrador del negocio (igual
- * que el Supervisor en el menú) y LA supervisora del Supervisor accionable
- * (`supervisor:accionable:<ws>`.supervisoraId). Las asesoras no.
+ * Quién ve el módulo Recuperación: desde el 26-10-2026 solo el dueño o un administrador del negocio
+ * (antes también LA supervisora del Supervisor accionable, hoy Ingrid). Las demás cuentas no.
  *
- * La supervisora se lee directo de AppSetting (sin cargar el servicio del accionable) con un minuto
- * de memoria: el menú lo pregunta en cada página.
+ * `esLaSupervisora` sigue existiendo para otros usos; se lee de AppSetting con un minuto de memoria.
  */
 
 const supervisoras = new CacheConTtl<string | null>({ ttlMs: 60_000, maxEntradas: 50 });
-
-export function esJefeDelNegocio(access: { isOwner: boolean; role: string; membershipRole: string }): boolean {
-  return access.isOwner || access.role === "ADMIN" || access.membershipRole === "OWNER" || access.membershipRole === "ADMIN";
-}
 
 async function supervisoraDelAccionable(workspaceId: string): Promise<string | null> {
   return supervisoras.obtener(workspaceId, async () => {
@@ -40,6 +37,5 @@ export async function puedeVerRecuperacion(access: {
   role: string;
   membershipRole: string;
 }): Promise<boolean> {
-  if (esJefeDelNegocio(access)) return true;
-  return (await supervisoraDelAccionable(access.workspaceId)) === access.userId;
+  return esJefeDelNegocio(access);
 }

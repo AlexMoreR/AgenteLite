@@ -6,7 +6,7 @@ import { numerosDeRespuestaBienvenida } from "@/features/agentes-de-area/servici
 import { agenteActivo, leerEquipoDeAvisos } from "@/features/agentes-de-area/servicios/config";
 import { leerEnviosDelDia, leerResumenDelDia, leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
-import { puedeSupervisar } from "@/lib/permisos-del-equipo";
+import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
 import { prisma } from "@/lib/prisma";
 
 /** Marketing guarda su línea para Alexander y su recomendación dentro de `meta`. */
@@ -39,7 +39,7 @@ function hora(fecha: Date): string {
  */
 export async function PaginaDeAgenteDeArea({ area: AREA, searchParams }: { area: Area; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
-  if (!(await puedeSupervisar(access))) redirect("/cliente/crm/mi-dia");
+  if (!esJefeDelNegocio(access)) redirect("/cliente/crm/mi-dia");
   const workspaceId = access.workspaceId;
 
   const pedida = (await searchParams).fecha;
