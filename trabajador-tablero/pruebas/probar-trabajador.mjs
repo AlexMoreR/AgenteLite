@@ -1089,6 +1089,9 @@ const servidor = http.createServer(async (pedido, respuesta) => {
   if (veredicto) return contestar(409, { ok: false, error: veredicto });
   if (accion === "latido") {
     if (latidoVencido.has(id)) return contestar(409, { ok: false, error: "El candado de esta tarjeta ya venció" });
+    // Como el CRM real: un latido sin candado (la tarjeta ya soltó su candado con el resultado) no lo vuelve a armar. Sin esto, un latido
+    // que llegaba un instante después del /resultado dejaba la tarjeta SUBIENDO "con candado" y nadie la tomaba (prueba intermitente).
+    if (!tarjeta.venceEn) return contestar(409, { ok: false, error: "El candado de esta tarjeta ya venció" });
     tarjeta.venceEn = ahora + 5 * 60_000;
     return contestar(200, { ok: true });
   }
