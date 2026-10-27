@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:commercial-stage": "node scripts/check-commercial-stage.mjs",
+    "test:ventas-sin-admin": "node scripts/check-ventas-sin-admin.mjs",
     "test:origen-ventas": "node scripts/check-origen-ventas.mjs",
     "test:generar-cotizacion": "node scripts/check-generar-cotizacion.mjs",
     "test:contraentrega": "node scripts/check-contraentrega.mjs",

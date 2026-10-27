@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 
-import { agruparPorAnuncio, diaAnterior, type ConversacionDeAnuncio, type NumerosDeAnuncio } from "../dominio/reglas";
+import { CANAL_ADMIN_ID, agruparPorAnuncio, diaAnterior, type ConversacionDeAnuncio, type NumerosDeAnuncio } from "../dominio/reglas";
 import { rangoDelDia } from "./numeros";
 
 /**
@@ -61,7 +61,10 @@ export async function numerosDeMarketing(workspaceId: string, fecha: string, dia
                 ELSE GREATEST(EXTRACT(EPOCH FROM (e."primeraRespuestaAsesoraEn" - e."entradaEn")) / 60.0, 0) END AS "minutos"
       FROM "EmbudoLead" e
       JOIN "Contact" ct ON ct."id" = e."contactId"
+      LEFT JOIN "WhatsAppChannel" w ON w."id" = e."channelId"
      WHERE e."workspaceId" = ${workspaceId}
+       AND e."channelId" <> ${CANAL_ADMIN_ID}
+       AND (w."purpose" IS NULL OR w."purpose" <> 'ADMIN')
        AND e."entradaEn" >= ${desde} AND e."entradaEn" < ${hasta}
      ORDER BY e."entradaEn" DESC
      LIMIT ${MAX_CONVERSACIONES}`);

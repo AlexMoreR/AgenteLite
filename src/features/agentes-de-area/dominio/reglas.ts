@@ -368,6 +368,64 @@ export function agruparPorAnuncio(conversaciones: ConversacionDeAnuncio[]): {
 }
 
 /* ------------------------------------------------------------------------------------------------
+   VENTAS: UN TELÉFONO, UNA VENTA, Y LA LÍNEA ADMIN NUNCA SUMA
+------------------------------------------------------------------------------------------------ */
+
+/** La línea Admin (la de cobros y avisos). Respaldo por si el campo `purpose` de la línea no está bien puesto. */
+export const CANAL_ADMIN_ID = "cmt06kiob00lw2hk2mgllstsb";
+
+/** Un cambio de etapa del día, con el chat, el contacto (un teléfono) y la línea donde ocurrió. */
+export type CambioDeEtapaDelDia = {
+  asesoraId: string | null;
+  conversationId: string;
+  contactId: string;
+  etapaNueva: string;
+  canalId: string | null;
+  /** `WhatsAppChannel.purpose` de la línea del chat ("ADMIN", "SALES"...). */
+  proposito: string | null;
+};
+
+export function esLineaAdmin(canalId: string | null | undefined, proposito: string | null | undefined): boolean {
+  return canalId === CANAL_ADMIN_ID || proposito === "ADMIN";
+}
+
+/**
+ * Cuenta cotizaciones y ventas por asesora. La línea Admin no cuenta nunca (la venta cuenta en la línea
+ * de ventas, a nombre de quien vendió) y se cuenta por contacto: el mismo teléfono es una sola venta
+ * aunque tenga dos chats. Si hay varios chats de ventas, gana el primero que llegó a esa etapa.
+ */
+export function contarEtapasPorAsesora(
+  cambios: CambioDeEtapaDelDia[],
+): Map<string, { asesoraId: string | null; cotizaciones: number; ventas: number }> {
+  const cotizadas = new Set<string>();
+  const vendidas = new Set<string>();
+  const resultado = new Map<string, { asesoraId: string | null; cotizaciones: number; ventas: number }>();
+  const dato = (asesoraId: string | null) => {
+    const clave = asesoraId ?? "sin-asesora";
+    let fila = resultado.get(clave);
+    if (!fila) {
+      fila = { asesoraId, cotizaciones: 0, ventas: 0 };
+      resultado.set(clave, fila);
+    }
+    return fila;
+  };
+  for (const cambio of cambios) {
+    if (esLineaAdmin(cambio.canalId, cambio.proposito)) continue;
+    if (cambio.etapaNueva === "PROPUESTA" || cambio.etapaNueva === "NEGOCIACION" || cambio.etapaNueva === "GANADO") {
+      if (!cotizadas.has(cambio.contactId)) {
+        cotizadas.add(cambio.contactId);
+        dato(cambio.asesoraId).cotizaciones += 1;
+      }
+    }
+    if (cambio.etapaNueva === "GANADO" && !vendidas.has(cambio.contactId)) {
+      vendidas.add(cambio.contactId);
+      dato(cambio.asesoraId).ventas += 1;
+    }
+  }
+  return resultado;
+}
+
+/* ------------------------------------------------------------------------------------------------
    AGENTE DE SISTEMAS: revisión al día siguiente de cada subida (solo lectura)
 ------------------------------------------------------------------------------------------------ */
 

@@ -3,7 +3,9 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 import {
+  contarEtapasPorAsesora,
   medirSugeridos,
+  type CambioDeEtapaDelDia,
   tasaDeCierre,
   type ActividadDelSugerido,
   type MedidaDeLosSugeridos,
@@ -37,7 +39,6 @@ export type NumerosDeAsesora = {
 };
 
 type FilaAtendidos = { asesoraId: string | null; asesora: string | null; atendidos: bigint | number };
-type FilaEtapas = { asesoraId: string | null; cotizaciones: bigint | number; ventas: bigint | number };
 type FilaRespuesta = { asesoraId: string | null; mediana: number | null };
 
 const numero = (valor: bigint | number | null | undefined) => Number(valor ?? 0);
@@ -56,15 +57,18 @@ export async function numerosDelDia(workspaceId: string, fecha: string): Promise
        AND m."rawPayload"->>'source' IN ('manual', 'instance')
      GROUP BY c."assignedToUserId", u."name"`);
 
-  const etapas = await prisma.$queryRaw<FilaEtapas[]>(Prisma.sql`
-    SELECT c."assignedToUserId" AS "asesoraId",
-           count(DISTINCT h."conversationId") FILTER (WHERE h."etapaNueva" IN ('PROPUESTA', 'NEGOCIACION', 'GANADO')) AS "cotizaciones",
-           count(DISTINCT h."conversationId") FILTER (WHERE h."etapaNueva" = 'GANADO') AS "ventas"
+  // Un cambio por fila, con la línea del chat: la regla (sin Admin, un teléfono una venta) vive en `reglas.ts`.
+  const cambios = await prisma.$queryRaw<CambioDeEtapaDelDia[]>(Prisma.sql`
+    SELECT c."assignedToUserId" AS "asesoraId", h."conversationId" AS "conversationId", c."contactId" AS "contactId",
+           h."etapaNueva"::text AS "etapaNueva", c."channelId" AS "canalId", w."purpose"::text AS "proposito"
       FROM "HistorialEtapa" h
       JOIN "Conversation" c ON c."id" = h."conversationId"
+      LEFT JOIN "WhatsAppChannel" w ON w."id" = c."channelId"
      WHERE h."workspaceId" = ${workspaceId}
        AND h."creadoEn" >= ${desde} AND h."creadoEn" < ${hasta}
-     GROUP BY c."assignedToUserId"`);
+       AND h."etapaNueva"::text IN ('PROPUESTA', 'NEGOCIACION', 'GANADO')
+     ORDER BY h."creadoEn" ASC`);
+  const etapas = [...contarEtapasPorAsesora(cambios).values()];
 
   const respuestas = await prisma.$queryRaw<FilaRespuesta[]>(Prisma.sql`
     SELECT x."asesoraId", percentile_cont(0.5) WITHIN GROUP (ORDER BY x."minutos") AS "mediana"
@@ -106,8 +110,8 @@ export async function numerosDelDia(workspaceId: string, fecha: string): Promise
   for (const fila of atendidos) obtener(fila.asesoraId, fila.asesora).chatsAtendidos = numero(fila.atendidos);
   for (const fila of etapas) {
     const dato = obtener(fila.asesoraId, null);
-    dato.cotizaciones = numero(fila.cotizaciones);
-    dato.ventas = numero(fila.ventas);
+    dato.cotizaciones = fila.cotizaciones;
+    dato.ventas = fila.ventas;
   }
   for (const fila of respuestas) {
     obtener(fila.asesoraId, null).tiempoDeRespuestaMin = fila.mediana === null ? null : Math.round(Number(fila.mediana));

@@ -119,6 +119,7 @@ export async function computeDailyMetrics(
         // se conoce y contarlos por updatedAt era justo lo que hacía el reporte poco confiable.
         where: {
           workspaceId,
+          excludedFromCrm: false,
           OR: [
             { crmStage: "GANADO", wonAt: range },
             { crmStage: "PERDIDO", updatedAt: range },
