@@ -11,6 +11,7 @@ import { isMarkedAsLid, readDiscoveredPhone } from "@/lib/whatsapp-lid";
 import { turnoDeLaConversacion, type EventoDelChat, type TurnoDeLaConversacion } from "@/lib/turno-de-la-conversacion";
 
 import { esCaliente, type ChatAbierto } from "../dominio/detectores-atencion";
+import { motivoDeChatAutomatico } from "../dominio/chat-automatico";
 import { motivoDeExclusion } from "../dominio/exclusiones";
 import type { FlujoConocido } from "../dominio/guardian";
 import { fichaDelLead, type FichaDelLead, type MensajeDelSupervisor } from "../dominio/lead";
@@ -122,6 +123,8 @@ type FilaDeChat = {
   asignadaA: string | null;
   temperatura: string | null;
   nombreCliente: string | null;
+  excluidoDelCrm?: boolean | null;
+  bloqueadoEn?: Date | null;
   /** Los últimos 40 mensajes y notas (JSON): turno y "solo acusa recibo de un acuerdo". */
   eventos?: Array<{ d: string; t: string; o: string | null; x: string | null; en: string }> | null;
 };
@@ -161,15 +164,57 @@ export function turnoDeLaFila(fila: Pick<FilaDeChat, "eventos" | "etapa" | "temp
   });
 }
 
-/** Lo de las exclusiones (exterior, LID, dormido) desde las columnas de la fila. */
-function datosDeExclusion(fila: { telefono: string | null; metadata: unknown; dormidoHasta: Date | null }) {
+/** Lo de las exclusiones (exterior, LID, dormido, oculto, robot) desde las columnas de la fila. */
+function datosDeExclusion(fila: {
+  telefono: string | null;
+  metadata: unknown;
+  dormidoHasta: Date | null;
+  nombreCliente?: string | null;
+  excluidoDelCrm?: boolean | null;
+  bloqueadoEn?: Date | null;
+  textosCliente?: string[] | null;
+  ultimaRespuestaHumanaEn?: Date | null;
+}) {
+  const metadata = fila.metadata && typeof fila.metadata === "object" ? (fila.metadata as Record<string, unknown>) : null;
+  // Si el dueño ya lo volvió a mostrar (queda la nota `chatAutomatico`), el Supervisor no lo oculta de nuevo.
+  const yaRevisado = Boolean(metadata?.chatAutomatico);
+  const automatico =
+    !yaRevisado &&
+    motivoDeChatAutomatico({
+      nombre: fila.nombreCliente,
+      textos: fila.textosCliente ?? [],
+      ultimaRespuestaHumanaEn: fila.ultimaRespuestaHumanaEn ? new Date(fila.ultimaRespuestaHumanaEn) : null,
+    }) !== null;
   return {
     telefono: fila.telefono,
     metadata: fila.metadata,
     esLid: isMarkedAsLid(fila.metadata),
     telefonoDescubierto: readDiscoveredPhone(fila.metadata),
     dormidoHasta: fila.dormidoHasta ? new Date(fila.dormidoHasta) : null,
+    ocultoDelCrm: Boolean(fila.excluidoDelCrm || fila.bloqueadoEn),
+    automatico,
   };
+}
+
+/**
+ * Oculta del CRM los contactos de estos chats que son robots (igual que un proveedor): Mi día, CRM,
+ * Llamadas y Campañas ya respetan `excludedFromCrm`. Deja la nota `metadata.chatAutomatico` (motivo y
+ * fecha); si el dueño lo vuelve a mostrar, la nota queda y no se oculta de nuevo. No toca chats ni envía nada.
+ */
+export async function ocultarChatsAutomaticos(workspaceId: string, conversationIds: string[], ahora: Date): Promise<number> {
+  let ocultados = 0;
+  const nota = JSON.stringify({ chatAutomatico: { motivo: "robot", en: ahora.toISOString() } });
+  for (const conversationId of new Set(conversationIds)) {
+    ocultados += await prisma.$executeRaw`
+      UPDATE "Contact" ct
+         SET "excludedFromCrm" = true,
+             "metadata" = coalesce(ct."metadata", '{}'::jsonb) || ${nota}::jsonb
+        FROM "Conversation" c
+       WHERE c."contactId" = ct."id" AND c."id" = ${conversationId} AND c."workspaceId" = ${workspaceId}
+         AND ct."excludedFromCrm" = false
+         AND NOT (coalesce(ct."metadata", '{}'::jsonb) ? 'chatAutomatico')`;
+  }
+  return ocultados;
 }
 
 type FilaDeExclusion = {
@@ -182,6 +227,9 @@ type FilaDeExclusion = {
   ultimaRespuestaHumanaEn: Date | null;
   textosCliente: string[] | null;
   estado: string | null;
+  nombreCliente: string | null;
+  excluidoDelCrm: boolean | null;
+  bloqueadoEn: Date | null;
 };
 
 /** Los últimos 20 textos del cliente (para no tratar como "del exterior" a quien nombra una ciudad de Colombia). */
@@ -202,7 +250,7 @@ export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[
   const filas = await prisma.$queryRaw<FilaDeExclusion[]>(Prisma.sql`
     SELECT c."id" AS "conversationId", ct."crmStage"::text AS "etapa", ct."phoneNumber" AS "telefono", ct."metadata",
            l."dormidoHasta", cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", todos."textosCliente",
-           c."status"::text AS "estado"
+           c."status"::text AS "estado", ct."name" AS "nombreCliente", ct."excludedFromCrm" AS "excluidoDelCrm", ct."bloqueadoEn"
       FROM "Conversation" c
       JOIN "Contact" ct ON ct."id" = c."contactId"
       LEFT JOIN "EmbudoLead" l ON l."conversationId" = c."id"
@@ -218,12 +266,15 @@ export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[
       ${LATERAL_TEXTOS_DEL_CLIENTE}
      WHERE c."workspaceId" = ${workspaceId} AND c."id" IN (${Prisma.join(unicos)})`);
   const excluidos = new Set<string>();
+  const robots: string[] = [];
   for (const fila of filas) {
+    const datos = datosDeExclusion(fila);
+    if (datos.automatico && !datos.ocultoDelCrm) robots.push(fila.conversationId);
     const motivo = motivoDeExclusion(
       {
         etapa: fila.etapa,
         resuelto: estaResuelto(fila.estado),
-        ...datosDeExclusion(fila),
+        ...datos,
         ultimoClienteEn: fila.ultimoClienteEn ? new Date(fila.ultimoClienteEn) : null,
         ultimaRespuestaHumanaEn: fila.ultimaRespuestaHumanaEn ? new Date(fila.ultimaRespuestaHumanaEn) : null,
         textos: fila.textosCliente ?? [],
@@ -232,6 +283,8 @@ export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[
     );
     if (motivo) excluidos.add(fila.conversationId);
   }
+  // Los robots con aviso abierto también salen de las listas del CRM (si falla, el aviso igual se cierra).
+  await ocultarChatsAutomaticos(workspaceId, robots, ahora).catch(() => 0);
   return excluidos;
 }
 
@@ -255,7 +308,7 @@ export async function leerChatsAbiertos(input: {
            cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", txt."textos",
            ct."phoneNumber" AS "telefono", ct."metadata", l."dormidoHasta", todos."textosCliente",
            asg."createdAt" AS "asignadaEn", asg."asignadaA", l."temperatura", ct."name" AS "nombreCliente",
-           ev."eventos"
+           ev."eventos", ct."excludedFromCrm" AS "excluidoDelCrm", ct."bloqueadoEn"
       FROM "Conversation" c
       JOIN "Contact" ct ON ct."id" = c."contactId"
       LEFT JOIN "User" u ON u."id" = c."assignedToUserId"

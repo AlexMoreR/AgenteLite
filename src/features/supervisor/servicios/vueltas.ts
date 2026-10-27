@@ -19,7 +19,7 @@ import { leerConfigGravedad } from "@/features/avisos-gravedad/servicios/enrutad
 import { avisarTareasSinDuena, gestionarAcciones, leerConfigAccionable } from "@/features/supervisor-accionable/servicios/accionable";
 import { avisarAlDueno } from "./avisar";
 import { claveLibroVisto, negociosConSupervisor, revalidacionActiva } from "./config";
-import { chatsExcluidosDeAtencion, leerChatsAbiertos, leerFichasRecientes, leerFlujosDelLibro, leerLineaDelLibro, nombresDeAsesoras } from "./datos";
+import { chatsExcluidosDeAtencion, leerChatsAbiertos, ocultarChatsAutomaticos, leerFichasRecientes, leerFlujosDelLibro, leerLineaDelLibro, nombresDeAsesoras } from "./datos";
 import { purgarAcusesConAcuerdo, purgarChatsExcluidos, purgarPausasAcordadas } from "../dominio/exclusiones";
 import {
   arreglosDeLosIncidentes,
@@ -111,6 +111,9 @@ async function chequearAtencion(workspaceId: string, ahora: Date): Promise<numbe
   // Turno de la conversación (lib/turno-de-la-conversacion.ts). Apagado = exactamente lo de antes.
   const turno = await leerConfigTurno(workspaceId).catch(() => CONFIG_TURNO_APAGADO);
   const chats = await leerChatsAbiertos({ workspaceId, ahora, conTurno: turno.activo });
+  // Robots (bancos, códigos de verificación): salen del CRM como un proveedor y los detectores los ignoran.
+  const robots = chats.filter((chat) => chat.automatico && !chat.ocultoDelCrm).map((chat) => chat.conversationId);
+  await ocultarChatsAutomaticos(workspaceId, robots, ahora).catch(() => 0);
   // Pausa acordada (interruptor `pausaAcordada.activo` del seguimiento inteligente, apagado por defecto):
   // el cliente que dejó la compra en pausa y ya fue atendido no es alerta. Apagado = exactamente lo de antes.
   const pausa = await leerConfigSeguimiento(workspaceId).then((c) => c.pausaAcordada).catch(() => null);

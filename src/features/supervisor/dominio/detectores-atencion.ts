@@ -44,6 +44,9 @@ export type ChatAbierto = {
   telefonoDescubierto?: string | null;
   metadata?: unknown;
   dormidoHasta?: Date | null;
+  /** Contacto oculto del CRM o bloqueado, y chat robot (ver exclusiones.ts / chat-automatico.ts). */
+  ocultoDelCrm?: boolean;
+  automatico?: boolean;
   /** Los últimos textos del cliente (no solo los pendientes): si nombra Colombia no es "del exterior". */
   textosDelCliente?: string[];
   /** Cuándo se le asignó el chat a la asesora actual (nota "auto-asignado"), si se sabe. */
