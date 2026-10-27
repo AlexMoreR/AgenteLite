@@ -323,12 +323,14 @@ function EditarPersonaDialog({
   const [whatsappDeAvisos, setWhatsappDeAvisos] = React.useState(
     employee.whatsappDeAvisos ? `+${employee.whatsappDeAvisos}` : "",
   );
+  const [nombre, setNombre] = React.useState(employee.name);
   const [guardando, startTransition] = React.useTransition();
 
   const guardar = () =>
     startTransition(async () => {
       const resultado = await guardarPersonaDelEquipoAction({
         memberId: employee.id,
+        nombre,
         rol,
         modulos: modules,
         lineas: lineas.map((linea) => ({ channelId: linea.channelId, estado: linea.estado })),
@@ -362,6 +364,21 @@ function EditarPersonaDialog({
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-1">
+          <section className="space-y-2">
+            <label
+              htmlFor={`nombre-${employee.id}`}
+              className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+            >
+              Nombre visible
+            </label>
+            <Input
+              id={`nombre-${employee.id}`}
+              value={nombre}
+              onChange={(event) => setNombre(event.target.value)}
+              maxLength={100}
+            />
+          </section>
+
           <section className="space-y-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Rol</p>
             {esAdmin ? (

@@ -30,6 +30,7 @@
     "test:pauta-migracion": "node scripts/check-pauta-migracion.mjs",
     "test:mcp-ventas-por-campana": "node scripts/check-mcp-ventas-por-campana.mjs",
     "test:anti-bloqueo": "node scripts/check-anti-bloqueo.mjs",
+    "test:equipo-nombre": "node scripts/check-equipo-nombre.mjs",
     "test:fallas-crm": "node scripts/check-fallas-crm.mjs",
     "embudo:backfill": "node scripts/embudo-backfill.mjs",
     "test:supervisor": "node scripts/check-supervisor.mjs",
