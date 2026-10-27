@@ -1013,4 +1013,67 @@ prueba("pausa acordada: las alertas abiertas con chats en pausa se cierran (meno
   assert.equal(incidentes[1].estado, "ABIERTA");
 });
 
+/* ------------------------------------------------------------------ chats automáticos (robots) */
+
+const auto = cargar("src/features/supervisor/dominio/chat-automatico.ts");
+
+prueba("chat automático: Bancolombia, Nequi, Daviplata y códigos de verificación son robot", () => {
+  assert.equal(auto.esChatAutomatico({ nombre: "Bancolombia", textos: ["hola"] }), true);
+  assert.equal(auto.esChatAutomatico({ nombre: "Nequi", textos: [] }), true);
+  assert.equal(auto.esChatAutomatico({ nombre: "DaviPlata", textos: [] }), true);
+  assert.equal(auto.esChatAutomatico({ nombre: null, textos: ["Bancolombia le informa: recibiste una transferencia por $87.400 de JUAN"] }), true);
+  assert.equal(auto.esChatAutomatico({ nombre: null, textos: ["Tu código de verificación es 123456. No lo compartas."] }), true);
+  assert.equal(auto.esChatAutomatico({ nombre: null, textos: ["Compra por $87.400 en TIENDA. No responda este mensaje."] }), true);
+});
+
+prueba("chat automático: un cliente real o un chat respondido por una persona NO es robot", () => {
+  assert.equal(auto.esChatAutomatico({ nombre: "María", textos: ["ya pagué, adjunto comprobante"] }), false);
+  assert.equal(auto.esChatAutomatico({ nombre: "Carlos Banco", textos: ["hola, quiero la camilla"] }), false);
+  // Mezcla de notificación con una frase humana: ante la duda, no.
+  assert.equal(auto.esChatAutomatico({ nombre: null, textos: ["Bancolombia le informa: transferencia por $87.400", "ya pagué, ¿me confirman?"] }), false);
+  assert.equal(auto.esChatAutomatico({ nombre: "Bancolombia", textos: [], ultimaRespuestaHumanaEn: new Date() }), false);
+  assert.equal(auto.esChatAutomatico({ nombre: null, textos: [] }), false);
+});
+
+prueba("exclusiones: robot, oculto del CRM y bloqueado salen; si el dueño lo mostró (nota) ya no se decide por reglas", () => {
+  const ahora = new Date(LUNES_10AM);
+  const base = { etapa: "NUEVO", telefono: "573013536788", ultimoClienteEn: new Date(LUNES_10AM - 2 * H) };
+  assert.equal(exclusiones.motivoDeExclusion({ ...base, nombreCliente: "Bancolombia" }, ahora), "automatico");
+  assert.equal(exclusiones.motivoDeExclusion({ ...base, textos: ["Bancolombia le informa: transferencia por $87.400"] }, ahora), "automatico");
+  assert.equal(exclusiones.motivoDeExclusion({ ...base, ocultoDelCrm: true }, ahora), "automatico");
+  assert.equal(exclusiones.motivoDeExclusion({ ...base, bloqueado: true }, ahora), "automatico");
+  assert.equal(exclusiones.motivoDeExclusion({ ...base, nombreCliente: "Bancolombia", metadata: { chatAutomatico: { motivo: "nombre_de_banco" } } }, ahora), null);
+  assert.equal(exclusiones.motivoDeExclusion({ ...base, nombreCliente: "María", textos: ["ya pagué, adjunto comprobante"] }, ahora), null);
+});
+
+prueba("robot: ni 'ya pagó / comprobante sin respuesta' ni los detectores de atención apuntan a él", () => {
+  const ahora = new Date(LUNES_10AM);
+  const robot = {
+    conversationId: "robot1",
+    asesoraId: null,
+    etapa: "NUEVO",
+    nombreCliente: "Bancolombia",
+    telefono: "573013536788",
+    ultimoClienteEn: new Date(LUNES_10AM - 3 * H),
+    ultimaRespuestaHumanaEn: null,
+    textosPendientes: ["Bancolombia le informa: comprobante de transferencia por $87.400"],
+  };
+  const real = { ...robot, conversationId: "real1", nombreCliente: "María", telefono: "573001234567", textosPendientes: ["ya pagué, adjunto comprobante"] };
+  const { detectarPagoSinRespuesta } = cargar("src/features/avisos-gravedad/dominio/reglas.ts");
+  const ids = (hs) => hs.flatMap((h) => h.evidencia.chats);
+  assert.ok(!ids(detectarPagoSinRespuesta([robot], ahora, 30)).includes("robot1"));
+  assert.ok(ids(detectarPagoSinRespuesta([real], ahora, 30)).includes("real1"));
+  assert.ok(!ids(atencion.detectarAtencion([robot], ahora)).includes("robot1"));
+});
+
+prueba("robot: la alerta con solo un robot se cierra RESUELTA; con uno real conserva solo el real", () => {
+  const ahora = new Date(LUNES_10AM);
+  const hall = (clave, chats) => ({ clave, familia: "ATENCION", severidad: "CRITICO", titulo: "t", que: "q", leadsAfectados: chats.length, evidencia: { chats, reglas: [], versiones: [] }, hechos: chats.map((c) => `Chat ${c}: comprobante`), hipotesis: [] });
+  const inc = (clave, chats) => ({ clave, familia: "ATENCION", estado: "ABIERTA", severidad: "CRITICO", hallazgos: [hall(clave, chats)] });
+  const { incidentes } = excl.purgarChatsExcluidos([inc("ATENCION:pago-sin-respuesta:a", ["robot1"]), inc("ATENCION:pago-sin-respuesta:b", ["robot1", "real1"])], new Set(["robot1"]), ahora);
+  assert.equal(incidentes[0].estado, "RESUELTA");
+  assert.equal(incidentes[1].estado, "ABIERTA");
+  assert.deepEqual(incidentes[1].hallazgos[0].evidencia.chats, ["real1"]);
+});
+
 console.log(`\n${pruebas} pruebas del Supervisor OK`);

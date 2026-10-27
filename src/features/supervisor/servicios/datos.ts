@@ -118,6 +118,9 @@ type FilaDeChat = {
   telefono: string | null;
   metadata: unknown;
   dormidoHasta: Date | null;
+  contactoId: string | null;
+  ocultoDelCrm: boolean | null;
+  bloqueadoEn: Date | null;
   asignadaEn: Date | null;
   asignadaA: string | null;
   temperatura: string | null;
@@ -162,8 +165,10 @@ export function turnoDeLaFila(fila: Pick<FilaDeChat, "eventos" | "etapa" | "temp
 }
 
 /** Lo de las exclusiones (exterior, LID, dormido) desde las columnas de la fila. */
-function datosDeExclusion(fila: { telefono: string | null; metadata: unknown; dormidoHasta: Date | null }) {
+function datosDeExclusion(fila: { telefono: string | null; metadata: unknown; dormidoHasta: Date | null; ocultoDelCrm?: boolean | null; bloqueadoEn?: Date | null }) {
   return {
+    ocultoDelCrm: Boolean(fila.ocultoDelCrm),
+    bloqueado: Boolean(fila.bloqueadoEn),
     telefono: fila.telefono,
     metadata: fila.metadata,
     esLid: isMarkedAsLid(fila.metadata),
@@ -181,6 +186,9 @@ type FilaDeExclusion = {
   ultimoClienteEn: Date | null;
   ultimaRespuestaHumanaEn: Date | null;
   textosCliente: string[] | null;
+  nombreCliente: string | null;
+  ocultoDelCrm: boolean | null;
+  bloqueadoEn: Date | null;
   estado: string | null;
 };
 
@@ -194,7 +202,7 @@ const LATERAL_TEXTOS_DEL_CLIENTE = Prisma.sql`
 
 /**
  * Los chats (de las alertas de atención abiertas) que ya no son tarea: PERDIDO/GANADO, resueltos, fuera de
- * Colombia, dormidos o ya respondidos por una persona. UNA consulta, solo dentro del negocio.
+ * Colombia, dormidos, ya respondidos por una persona o automáticos/ocultos. UNA consulta, solo dentro del negocio.
  */
 export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[], ahora: Date): Promise<Set<string>> {
   const unicos = [...new Set(ids)].filter(Boolean);
@@ -202,7 +210,7 @@ export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[
   const filas = await prisma.$queryRaw<FilaDeExclusion[]>(Prisma.sql`
     SELECT c."id" AS "conversationId", ct."crmStage"::text AS "etapa", ct."phoneNumber" AS "telefono", ct."metadata",
            l."dormidoHasta", cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", todos."textosCliente",
-           c."status"::text AS "estado"
+           c."status"::text AS "estado", ct."name" AS "nombreCliente", ct."excludedFromCrm" AS "ocultoDelCrm", ct."bloqueadoEn"
       FROM "Conversation" c
       JOIN "Contact" ct ON ct."id" = c."contactId"
       LEFT JOIN "EmbudoLead" l ON l."conversationId" = c."id"
@@ -223,6 +231,7 @@ export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[
       {
         etapa: fila.etapa,
         resuelto: estaResuelto(fila.estado),
+        nombreCliente: fila.nombreCliente,
         ...datosDeExclusion(fila),
         ultimoClienteEn: fila.ultimoClienteEn ? new Date(fila.ultimoClienteEn) : null,
         ultimaRespuestaHumanaEn: fila.ultimaRespuestaHumanaEn ? new Date(fila.ultimaRespuestaHumanaEn) : null,
@@ -255,6 +264,7 @@ export async function leerChatsAbiertos(input: {
            cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", txt."textos",
            ct."phoneNumber" AS "telefono", ct."metadata", l."dormidoHasta", todos."textosCliente",
            asg."createdAt" AS "asignadaEn", asg."asignadaA", l."temperatura", ct."name" AS "nombreCliente",
+           ct."id" AS "contactoId", ct."excludedFromCrm" AS "ocultoDelCrm", ct."bloqueadoEn",
            ev."eventos"
       FROM "Conversation" c
       JOIN "Contact" ct ON ct."id" = c."contactId"
@@ -297,6 +307,7 @@ export async function leerChatsAbiertos(input: {
     textosPendientes: fila.textos ?? [],
     textosDelCliente: fila.textosCliente ?? [],
     ...datosDeExclusion(fila),
+    contactoId: fila.contactoId,
     // Solo cuenta la asignación a la asesora ACTUAL (si la nota es de otra, no se sabe desde cuándo).
     asignadaEn: fila.asignadaEn && (!fila.asignadaA || fila.asignadaA === fila.asesoraId) ? new Date(fila.asignadaEn) : null,
     temperatura: fila.temperatura,

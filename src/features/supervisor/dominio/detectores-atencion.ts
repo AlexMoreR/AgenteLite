@@ -43,6 +43,11 @@ export type ChatAbierto = {
   esLid?: boolean;
   telefonoDescubierto?: string | null;
   metadata?: unknown;
+  /** Contacto oculto del CRM o bloqueado (ver exclusiones.ts). */
+  ocultoDelCrm?: boolean;
+  bloqueado?: boolean;
+  /** Id del contacto, para ocultar los chats automáticos. */
+  contactoId?: string | null;
   dormidoHasta?: Date | null;
   /** Los últimos textos del cliente (no solo los pendientes): si nombra Colombia no es "del exterior". */
   textosDelCliente?: string[];

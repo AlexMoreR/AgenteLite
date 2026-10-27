@@ -20,7 +20,8 @@ import { avisarTareasSinDuena, gestionarAcciones, leerConfigAccionable } from "@
 import { avisarAlDueno } from "./avisar";
 import { claveLibroVisto, negociosConSupervisor, revalidacionActiva } from "./config";
 import { chatsExcluidosDeAtencion, leerChatsAbiertos, leerFichasRecientes, leerFlujosDelLibro, leerLineaDelLibro, nombresDeAsesoras } from "./datos";
-import { purgarAcusesConAcuerdo, purgarChatsExcluidos, purgarPausasAcordadas } from "../dominio/exclusiones";
+import { ocultarChatsAutomaticos } from "./ocultar-automaticos";
+import { motivoDeExclusion, purgarAcusesConAcuerdo, purgarChatsExcluidos, purgarPausasAcordadas } from "../dominio/exclusiones";
 import {
   arreglosDeLosIncidentes,
   confirmarArreglo,
@@ -111,6 +112,9 @@ async function chequearAtencion(workspaceId: string, ahora: Date): Promise<numbe
   // Turno de la conversación (lib/turno-de-la-conversacion.ts). Apagado = exactamente lo de antes.
   const turno = await leerConfigTurno(workspaceId).catch(() => CONFIG_TURNO_APAGADO);
   const chats = await leerChatsAbiertos({ workspaceId, ahora, conTurno: turno.activo });
+  // Robots (bancos, códigos…): se ocultan del CRM como los proveedores. Los detectores ya los saltan
+  // (exclusiones.ts, motivo "automatico"); si esto falla el Supervisor sigue igual.
+  await ocultarChatsAutomaticos(workspaceId, chats, ahora).catch((error) => console.error("[supervisor] ocultar automaticos", workspaceId, error instanceof Error ? error.message : error));
   // Pausa acordada (interruptor `pausaAcordada.activo` del seguimiento inteligente, apagado por defecto):
   // el cliente que dejó la compra en pausa y ya fue atendido no es alerta. Apagado = exactamente lo de antes.
   const pausa = await leerConfigSeguimiento(workspaceId).then((c) => c.pausaAcordada).catch(() => null);
@@ -137,6 +141,8 @@ async function chequearAtencion(workspaceId: string, ahora: Date): Promise<numbe
     abiertosCrudos.flatMap((inc) => inc.hallazgos.flatMap((h) => h.evidencia.chats)),
     ahora,
   ).catch(() => new Set<string>());
+  // Los robots de esta vuelta salen aunque el aviso apunte a un chat que la consulta de arriba no trajo.
+  for (const chat of chats) if (motivoDeExclusion({ ...chat, textos: [...(chat.textosDelCliente ?? []), ...chat.textosPendientes] }, ahora) === "automatico") excluidos.add(chat.conversationId);
   // Con el turno: los chats donde ya respondimos y esperamos al cliente también salen de las alertas abiertas.
   if (turno.activo && turno.asignadoSinRespuesta === "turno") {
     for (const chat of chats) if (esTurnoDelCliente(chat)) excluidos.add(chat.conversationId);

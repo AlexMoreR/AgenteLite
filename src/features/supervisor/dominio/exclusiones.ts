@@ -9,7 +9,9 @@
  *  - cliente fuera de Colombia: marcado por el seguimiento inteligente o, sin marca, teléfono con
  *    indicativo distinto de 57 (un LID sin teléfono real NO se decide);
  *  - lead dormido por una fecha futura de compra ("finales de noviembre");
- *  - la asesora ya respondió después del último mensaje del cliente.
+ *  - la asesora ya respondió después del último mensaje del cliente;
+ *  - chat automático (robot de un banco, códigos de verificación…, 26-10-2026): ver chat-automatico.ts;
+ *    también los contactos ya ocultos del CRM (proveedores) o bloqueados.
  *
  * Si una alerta ABIERTA tiene chats que pasan a estar excluidos, al recalcular salen de la alerta, y
  * la alerta se cierra si queda vacía (ver purgarChatsExcluidos).
@@ -17,8 +19,9 @@
 
 import { esDelExterior } from "../../seguimiento-inteligente/dominio/exterior";
 import type { Incidente } from "./alertas";
+import { esChatAutomatico } from "./chat-automatico";
 
-export type MotivoDeExclusion = "etapa_cerrada" | "resuelto" | "fuera_de_colombia" | "dormido" | "ya_respondio";
+export type MotivoDeExclusion = "etapa_cerrada" | "resuelto" | "fuera_de_colombia" | "dormido" | "ya_respondio" | "automatico";
 
 export type DatosDeExclusion = {
   etapa: string | null;
@@ -28,6 +31,10 @@ export type DatosDeExclusion = {
   esLid?: boolean;
   telefonoDescubierto?: string | null;
   metadata?: unknown;
+  /** Contacto oculto del CRM (proveedores, robots) o bloqueado: el Supervisor no lo mira. */
+  ocultoDelCrm?: boolean;
+  bloqueado?: boolean;
+  nombreCliente?: string | null;
   dormidoHasta?: Date | null;
   ultimoClienteEn?: Date | null;
   ultimaRespuestaHumanaEn?: Date | null;
@@ -35,9 +42,19 @@ export type DatosDeExclusion = {
   textos?: Array<string | null | undefined>;
 };
 
+/** La ficha del contacto ya lleva la nota `chatAutomatico` (el Supervisor lo ocultó antes). */
+export function yaRevisadoComoAutomatico(metadata: unknown): boolean {
+  return Boolean(metadata && typeof metadata === "object" && (metadata as Record<string, unknown>).chatAutomatico);
+}
+
 export function motivoDeExclusion(d: DatosDeExclusion, ahora: Date): MotivoDeExclusion | null {
   if (d.etapa === "PERDIDO" || d.etapa === "GANADO") return "etapa_cerrada";
   if (d.resuelto) return "resuelto";
+  if (d.ocultoDelCrm || d.bloqueado) return "automatico";
+  // Si el dueño ya lo mostró de nuevo (queda la nota `chatAutomatico`), no se vuelve a decidir por reglas.
+  if (!yaRevisadoComoAutomatico(d.metadata) && esChatAutomatico({ nombre: d.nombreCliente, textos: d.textos, ultimaRespuestaHumanaEn: d.ultimaRespuestaHumanaEn })) {
+    return "automatico";
+  }
   if (esDelExterior({ metadata: d.metadata, telefono: d.telefono, esLid: d.esLid, telefonoDescubierto: d.telefonoDescubierto, textos: d.textos })) {
     return "fuera_de_colombia";
   }
