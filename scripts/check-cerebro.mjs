@@ -116,6 +116,7 @@ function almacenFalso(filasIniciales = []) {
         versionDrive: f.versionDrive,
         modificadoEnDrive: f.modificadoEnDrive,
         enDrive: f.enDrive,
+        tipo: f.tipo,
         tieneTexto: f.texto !== null && f.texto !== undefined,
       }));
     },
@@ -785,6 +786,171 @@ await prueba("alerta CEREBRO:desconectado: IMPORTANTE, una sola, se cierra al si
   assert.ok(!/avisarAlDueno|whatsapp|push/i.test(fuente.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")), "no llama a WhatsApp ni push");
   const cron = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8");
   assert.match(cron, /sincronizarCerebroDeTodos\(\);\s*await revisarAlertaDeConexion\(\);/);
+});
+
+/* ── Lo que NO es del cerebro: archivos con punto, export-dudas y capturas .png ── */
+
+await prueba("seIgnora: punto al inicio (.git, .obsidian, .gitignore), rutas ignoradas configurables y .png", () => {
+  const si = (ruta, nombre = ruta.split("/").at(-1), tipo = "text/markdown") => assert.equal(reglas.seIgnora(ruta, nombre, tipo), true, ruta);
+  const no = (ruta, nombre = ruta.split("/").at(-1), tipo = "text/markdown") => assert.equal(reglas.seIgnora(ruta, nombre, tipo), false, ruta);
+  si(".git");
+  si(".git/objects/ab/cdef", "cdef", "application/octet-stream");
+  si(".obsidian/app.json", "app.json", "application/json");
+  si(".claude/settings.json");
+  si(".gitignore");
+  si("Ventas/.trash/viejo.md");
+  si("CRM-Gestion/export-dudas-2026-10-26", "export-dudas-2026-10-26", reglas.MIME_CARPETA);
+  si("CRM-Gestion/export-dudas-2026-10-26/q001.json", "q001.json", "application/json");
+  si("crm-gestion/EXPORT-DUDAS-2026-10-26/q123.json", "q123.json", "application/json");
+  si("Ventas/captura.png", "captura.png", "image/png");
+  si("Ventas/Captura de pantalla.PNG", "Captura de pantalla.PNG", "application/octet-stream");
+  si("Ventas/sin-extension", "sin-extension", "image/png");
+  no("Ventas/precios.md");
+  no("Ventas/Guion v1.2.md");
+  no("CRM-Gestion/export-dudas-2026-10-27/q001.json", "q001.json", "application/json");
+  no("CRM-Gestion/export-dudas-2026-10-26-bis.md");
+  no("Marketing/foto.jpg", "foto.jpg", "image/jpeg");
+  assert.ok(reglas.RUTAS_IGNORADAS.includes("CRM-Gestion/export-dudas-2026-10-26"));
+  assert.equal(reglas.seIgnora("Otra/carpeta/x.md", "x.md", "text/markdown", ["Otra/carpeta"]), true, "la lista se puede cambiar");
+});
+
+await prueba("el plan deja fuera lo ignorado: no entra lo nuevo y lo viejo se marca aunque el recorrido venga truncado", () => {
+  const bueno = archivo("ok", "ok.md");
+  const gitHead = archivo("g1", "HEAD", { ruta: ".git/HEAD", tipo: "application/octet-stream" });
+  const captura = archivo("p1", "captura.png", { ruta: "Ventas/captura.png", tipo: "image/png" });
+  const duda = archivo("q1", "q001.json", { ruta: "CRM-Gestion/export-dudas-2026-10-26/q001.json", tipo: "application/json" });
+  const plan = reglas.planificarSincronizacion(
+    [bueno, captura, archivo("n1", ".gitignore", { ruta: ".gitignore", tipo: "text/plain" })],
+    [copia(bueno), copia(gitHead, { tipo: gitHead.tipo }), copia(captura, { tipo: "image/png" }), copia(duda, { tipo: duda.tipo }), copia(archivo("viejo", "viejo.md"))],
+  );
+  assert.deepEqual(plan.nuevos, [], ".gitignore no entra");
+  assert.deepEqual(plan.ignorados.sort(), ["g1", "p1", "q1"]);
+  assert.deepEqual(plan.ausentes, ["viejo"], "lo ignorado no se cuenta como ausente");
+  assert.equal(plan.igualesSinCambio, 1);
+});
+
+/** Un Drive de mentira para el cliente real: responde cada "'<id>' in parents" con sus hijos y anota qué carpetas se listaron. */
+function driveDeCarpetas(arbol) {
+  const listadas = [];
+  const fetchFalso = async (url) => {
+    const texto = decodeURIComponent(String(url));
+    const madre = /'([^']+)' in parents/.exec(texto)?.[1];
+    if (madre) {
+      listadas.push(madre);
+      return new Response(JSON.stringify({ files: arbol[madre] ?? [] }), { status: 200 });
+    }
+    if (/\/files\/raiz\?/.test(texto)) return new Response(JSON.stringify({ id: "raiz", name: "Magilus", mimeType: reglas.MIME_CARPETA }), { status: 200 });
+    if (/alt=media/.test(texto)) return new Response("texto del documento", { status: 200 });
+    return new Response("{}", { status: 404 });
+  };
+  return { listadas, fetchFalso };
+}
+
+const carpetaCruda = (id, name) => ({ id, name, mimeType: reglas.MIME_CARPETA, version: "1", modifiedTime: "2026-10-20T10:00:00.000Z" });
+const archivoCrudo = (id, name, mimeType = "text/markdown") => ({ id, name, mimeType, version: "1", modifiedTime: "2026-10-20T10:00:00.000Z" });
+
+const arbolConBasura = {
+  raiz: [
+    carpetaCruda("git", ".git"),
+    carpetaCruda("obs", ".obsidian"),
+    archivoCrudo("gi", ".gitignore", "text/plain"),
+    carpetaCruda("ven", "Ventas"),
+    carpetaCruda("crm", "CRM-Gestion"),
+    archivoCrudo("cap0", "captura.png", "image/png"),
+  ],
+  // La .git real tiene miles de archivos: si se recorriera, el tope (MAXIMO_ARCHIVOS) dejaría todo truncado.
+  git: Array.from({ length: reglas.MAXIMO_ARCHIVOS + 500 }, (_, i) => archivoCrudo(`obj${i}`, `obj${i}`, "application/octet-stream")),
+  obs: [archivoCrudo("app", "app.json", "application/json")],
+  ven: [archivoCrudo("precios", "precios.md"), archivoCrudo("cap1", "captura.png", "image/png")],
+  crm: [carpetaCruda("dudas", "export-dudas-2026-10-26"), archivoCrudo("crmnota", "notas.md")],
+  dudas: [archivoCrudo("q001", "q001.json", "application/json")],
+};
+
+await prueba("recorrer NO entra a .git/.obsidian/export-dudas ni trae .png: no se trunca y solo quedan los documentos del cerebro", async () => {
+  const { listadas, fetchFalso } = driveDeCarpetas(arbolConBasura);
+  const recorrido = await crearClienteDeDrive("token", fetchFalso).recorrer("raiz");
+  assert.equal(recorrido.truncado, false, "sin la .git ya no llega al tope");
+  assert.deepEqual(recorrido.archivos.map((a) => a.ruta).sort(), ["CRM-Gestion", "CRM-Gestion/notas.md", "Ventas", "Ventas/precios.md"]);
+  assert.ok(!listadas.includes("git") && !listadas.includes("obs") && !listadas.includes("dudas"), `no se listan carpetas ignoradas: ${listadas}`);
+});
+
+await prueba("sincronizar con basura en el Drive: no se indexa nada ignorado y las filas viejas quedan fuera (sin borrarse)", async () => {
+  const vieja = (id, ruta, tipo) => ({ ...archivo(id, ruta.split("/").at(-1), { ruta, tipo }), texto: "viejo", enDrive: true });
+  const almacen = almacenFalso([
+    vieja("obj7", ".git/obj7", "application/octet-stream"),
+    vieja("app", ".obsidian/app.json", "application/json"),
+    vieja("q001", "CRM-Gestion/export-dudas-2026-10-26/q001.json", "application/json"),
+    vieja("cap1", "Ventas/captura.png", "image/png"),
+    vieja("precios", "Ventas/precios.md", "text/markdown"),
+  ]);
+  const { fetchFalso } = driveDeCarpetas(arbolConBasura);
+  const resultado = await sincronizarConAlmacen({ workspaceId: "ws", carpetaId: "raiz", drive: crearClienteDeDrive("token", fetchFalso), almacen });
+  assert.equal(resultado.ok, true);
+  assert.equal(resultado.truncado, false);
+  assert.equal(resultado.ignorados, 4);
+  for (const id of ["obj7", "app", "q001", "cap1"]) {
+    assert.equal(almacen.filas.get(id).enDrive, false, `${id} queda fuera del cerebro`);
+    assert.equal(almacen.filas.get(id).texto, "viejo", `${id}: la fila no se borra`);
+  }
+  for (const id of ["gi", "cap0", "obj0", "dudas"]) assert.equal(almacen.filas.has(id), false, `${id} no se indexa`);
+  const vigentes = [...almacen.filas.values()].filter((f) => f.enDrive && !f.esCarpeta).map((f) => f.ruta).sort();
+  assert.deepEqual(vigentes, ["CRM-Gestion/notas.md", "Ventas/precios.md"]);
+});
+
+await prueba("con el recorrido truncado lo ignorado igual se marca fuera, pero lo dudoso no se declara ausente", async () => {
+  const almacen = almacenFalso([
+    { ...archivo("g", "HEAD", { ruta: ".git/HEAD", tipo: "application/octet-stream" }), texto: "x", enDrive: true },
+    { ...archivo("z", "z.md"), texto: "Z", enDrive: true },
+  ]);
+  const resultado = await sincronizarConAlmacen({ workspaceId: "ws", carpetaId: "raiz", drive: driveFalso({ archivos: [], truncado: true }), almacen });
+  assert.equal(resultado.ok, true);
+  assert.equal(almacen.filas.get("g").enDrive, false);
+  assert.equal(almacen.filas.get("z").enDrive, true);
+  assert.deepEqual([resultado.ausentes, resultado.ignorados], [0, 1]);
+});
+
+await prueba("consultas, MCP y pantalla: lo ignorado no se lista, no se busca, no se lee y no se cuenta", async () => {
+  const fila = (driveId, ruta, extra = {}) => ({
+    driveId,
+    padreId: null,
+    nombre: ruta.split("/").at(-1),
+    ruta,
+    tipo: "text/markdown",
+    esCarpeta: false,
+    modificadoEnDrive: null,
+    linkDrive: null,
+    enDrive: true,
+    texto: "precio camilla",
+    ...extra,
+  });
+  const filas = [
+    fila("precios", "Ventas/precios.md"),
+    fila("g", ".git/HEAD"),
+    fila("q", "CRM-Gestion/export-dudas-2026-10-26/q001.json", { tipo: "application/json" }),
+    fila("p", "Ventas/precio-captura.png", { tipo: "image/png" }),
+  ];
+  const prismaFalso = {
+    prisma: {
+      cerebroDocumento: {
+        findMany: async () => filas,
+        findUnique: async ({ where }) => filas.find((f) => f.driveId === where.workspaceId_driveId.driveId) ?? null,
+      },
+    },
+  };
+  const consultas = cargar("src/features/cerebro/services/consultas.ts", { "@/lib/prisma": prismaFalso, "./conexion": nada });
+  assert.deepEqual((await consultas.filasDelCerebro("ws")).map((f) => f.driveId), ["precios"]);
+  assert.deepEqual((await consultas.buscarEnElCerebro("ws", "precio camilla")).map((r) => r.driveId), ["precios"]);
+  await assert.rejects(() => consultas.leerDocumentoDelCerebro("ws", "g", false), /no está en el cerebro/);
+  const arbol = reglas.armarArbol(
+    [{ driveId: "c", padreId: null, nombre: "Ventas", esCarpeta: true }, { driveId: "d1", padreId: "c", nombre: "a.md", esCarpeta: false }, { driveId: "d2", padreId: null, nombre: "b.md", esCarpeta: false }],
+    "raiz",
+  );
+  assert.equal(reglas.contarDocumentos(arbol), 2, "se cuentan documentos, no carpetas");
+  const mcp = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/cerebro.ts"), "utf8");
+  assert.match(mcp, /documentos_en_el_cerebro: documentosEnElCerebro/);
+  const pantalla = fs.readFileSync(path.join(RAIZ, "src/features/cerebro/components/CerebroPantalla.tsx"), "utf8");
+  assert.match(pantalla, /contarDocumentos\(arbol\)/);
+  assert.match(pantalla, /en el cerebro/);
 });
 
 console.log(`\n${pruebas} pruebas del cerebro: OK`);

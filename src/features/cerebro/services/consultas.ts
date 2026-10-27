@@ -8,6 +8,7 @@ import {
   palabrasDeLaConsulta,
   recortarTexto,
   sePuedeEscribir,
+  seIgnora,
   type PedazoDelCerebro,
 } from "./reglas";
 
@@ -43,7 +44,9 @@ export async function filasDelCerebro(workspaceId: string): Promise<FilaDelCereb
       enDrive: true,
     },
   });
-  return filas.map((fila) => ({
+  // Red de seguridad: lo ignorado (.git, .obsidian, export-dudas, .png) no se muestra aunque la próxima sincronización aún no lo haya marcado.
+  const delCerebro = filas.filter((fila) => !seIgnora(fila.ruta, fila.nombre, fila.tipo));
+  return delCerebro.map((fila) => ({
     ...fila,
     modificadoEnDrive: fila.modificadoEnDrive ? fila.modificadoEnDrive.toISOString() : null,
     legible: !fila.esCarpeta && esLegible(fila.nombre, fila.tipo),
@@ -83,7 +86,7 @@ export type DocumentoLeido = {
  */
 export async function leerDocumentoDelCerebro(workspaceId: string, driveId: string, enVivo: boolean): Promise<DocumentoLeido> {
   const fila = await prisma.cerebroDocumento.findUnique({ where: { workspaceId_driveId: { workspaceId, driveId } } });
-  if (!fila) throw new Error("Ese documento no está en el cerebro. Usa cerebro_listar o cerebro_buscar para ver los ids.");
+  if (!fila || seIgnora(fila.ruta, fila.nombre, fila.tipo)) throw new Error("Ese documento no está en el cerebro. Usa cerebro_listar o cerebro_buscar para ver los ids.");
   const desdeLaCopia = (explicacion?: string): DocumentoLeido => ({
     driveId: fila.driveId,
     nombre: fila.nombre,
@@ -142,10 +145,12 @@ export async function buscarEnElCerebro(workspaceId: string, consulta: string, m
         { texto: { contains: palabra, mode: "insensitive" as const } },
       ]),
     },
-    select: { driveId: true, nombre: true, ruta: true, texto: true },
+    select: { driveId: true, nombre: true, ruta: true, tipo: true, texto: true },
     take: 200,
   });
-  return ordenarPorRelevancia(candidatos, consulta, maximo);
+  // Red de seguridad: lo ignorado no aparece aunque la próxima sincronización aún no lo haya marcado.
+  const delCerebro = candidatos.filter((fila) => !seIgnora(fila.ruta, fila.nombre, fila.tipo));
+  return ordenarPorRelevancia(delCerebro, consulta, maximo);
 }
 
 /**
@@ -183,10 +188,12 @@ export async function reglasDelCerebroParaElCoach(workspaceId: string): Promise<
         })),
       },
       orderBy: { modificadoEnDrive: "desc" },
-      select: { ruta: true, texto: true },
+      select: { ruta: true, nombre: true, tipo: true, texto: true },
       take: 4,
     });
-    return documentos.map((documento) => `Del cerebro (${documento.ruta}): ${(documento.texto ?? "").replace(/\s+/g, " ").trim().slice(0, 1500)}`);
+    return documentos
+      .filter((documento) => !seIgnora(documento.ruta, documento.nombre, documento.tipo))
+      .map((documento) => `Del cerebro (${documento.ruta}): ${(documento.texto ?? "").replace(/\s+/g, " ").trim().slice(0, 1500)}`);
   } catch (fallo) {
     console.error("[cerebro] reglas para el coach", fallo);
     return [];

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { buscarEnElCerebroAction, leerDocumentoAction, sincronizarAhoraAction } from "@/app/actions/cerebro-actions";
 import type { DocumentoLeido, FilaDelCerebro } from "../services/consultas";
-import { TEXTO_DEL_ESTADO_DE_NOTA, type NodoDelArbol, type PedazoDelCerebro } from "../services/reglas";
+import { contarDocumentos, TEXTO_DEL_ESTADO_DE_NOTA, type NodoDelArbol, type PedazoDelCerebro } from "../services/reglas";
 import type { NotaReciente } from "../services/notas-por-crear";
 
 type Nodo = NodoDelArbol<FilaDelCerebro>;
@@ -69,6 +69,8 @@ export function CerebroPantalla({ arbol, ultimaSincronizacion, cambios, notas = 
   const [abriendo, setAbriendo] = useState<string | null>(null);
   const [consulta, setConsulta] = useState("");
   const [resultados, setResultados] = useState<PedazoDelCerebro[] | null>(null);
+  // El árbol ya viene sin lo ignorado ni lo que ya no está en el Drive: se cuentan solo los documentos (no carpetas).
+  const totalDeDocumentos = contarDocumentos(arbol);
 
   const abrir = async (driveId: string, nombre: string) => {
     setAbriendo(driveId);
@@ -83,7 +85,7 @@ export function CerebroPantalla({ arbol, ultimaSincronizacion, cambios, notas = 
       const respuesta = await sincronizarAhoraAction();
       if (respuesta.ok) {
         const r = respuesta.resultado;
-        toast.success(`Sincronizado: ${r.nuevos} nuevos, ${r.cambiados} cambiados, ${r.ausentes} que ya no están en el Drive.`);
+        toast.success(`Sincronizado: ${r.nuevos} nuevos, ${r.cambiados} cambiados, ${r.ausentes} que ya no están en el Drive${r.ignorados ? `, ${r.ignorados} ignorados (.git, .obsidian, capturas…)` : ""}.`);
         router.refresh();
       } else toast.error(respuesta.error);
     });
@@ -116,6 +118,7 @@ export function CerebroPantalla({ arbol, ultimaSincronizacion, cambios, notas = 
           </Button>
         </form>
         <span className="text-xs text-muted-foreground">
+          {`${totalDeDocumentos} documento${totalDeDocumentos === 1 ? "" : "s"} en el cerebro · `}
           {ultimaSincronizacion ? `Última sincronización: ${FECHA.format(new Date(ultimaSincronizacion))}` : "Todavía no se ha sincronizado"}
         </span>
         <Button onClick={sincronizar} disabled={pendiente}>

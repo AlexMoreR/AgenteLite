@@ -26,6 +26,8 @@ export type ResultadoDeSincronizacion = {
   cambiados: number;
   movidos: number;
   ausentes: number;
+  /** Filas que estaban en la copia y ahora quedan fuera por seIgnora (marcadas, no borradas). */
+  ignorados: number;
   sinCambio: number;
   noSePudoLeer: string[];
   truncado: boolean;
@@ -67,6 +69,9 @@ export async function sincronizarConAlmacen(datos: {
     // Solo cambió el nombre o el lugar: la ficha se actualiza y el texto se deja.
     for (const archivo of plan.movidos) await almacen.guardar(workspaceId, archivo, null, ahora);
     if (plan.ausentes.length) await almacen.marcarAusentes(workspaceId, plan.ausentes, ahora);
+    // Lo ignorado por regla (.git, .obsidian, export-dudas, .png) sale del cerebro aunque el recorrido venga truncado.
+    // Se marca igual que "ya no está" (enDrive = false): la fila se queda, no se borra nada.
+    if (plan.ignorados.length) await almacen.marcarAusentes(workspaceId, plan.ignorados, ahora);
 
     await almacen.anotarSincronizacion(workspaceId, { ok: true, error: null }, ahora);
     return {
@@ -75,6 +80,7 @@ export async function sincronizarConAlmacen(datos: {
       cambiados: plan.cambiados.length,
       movidos: plan.movidos.length,
       ausentes: plan.ausentes.length,
+      ignorados: plan.ignorados.length,
       sinCambio: plan.igualesSinCambio,
       noSePudoLeer,
       truncado: recorrido.truncado,
@@ -82,6 +88,6 @@ export async function sincronizarConAlmacen(datos: {
   } catch (fallo) {
     const error = fallo instanceof Error ? fallo.message : "No se pudo sincronizar";
     await almacen.anotarSincronizacion(workspaceId, { ok: false, error }, ahora).catch(() => undefined);
-    return { ok: false, nuevos: 0, cambiados: 0, movidos: 0, ausentes: 0, sinCambio: 0, noSePudoLeer: [], truncado: false, error };
+    return { ok: false, nuevos: 0, cambiados: 0, movidos: 0, ausentes: 0, ignorados: 0, sinCambio: 0, noSePudoLeer: [], truncado: false, error };
   }
 }

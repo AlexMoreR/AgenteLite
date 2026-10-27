@@ -12,7 +12,7 @@ export async function sincronizarElCerebro(workspaceId: string): Promise<Resulta
   } catch (fallo) {
     const error = fallo instanceof Error ? fallo.message : "No se pudo sincronizar";
     await almacenDeLaBase.anotarSincronizacion(workspaceId, { ok: false, error }, new Date()).catch(() => undefined);
-    return { ok: false, nuevos: 0, cambiados: 0, movidos: 0, ausentes: 0, sinCambio: 0, noSePudoLeer: [], truncado: false, error };
+    return { ok: false, nuevos: 0, cambiados: 0, movidos: 0, ausentes: 0, ignorados: 0, sinCambio: 0, noSePudoLeer: [], truncado: false, error };
   }
 }
 

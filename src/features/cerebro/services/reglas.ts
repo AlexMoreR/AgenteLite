@@ -32,6 +32,55 @@ export const esLegible = (nombre: string, mime: string) => tipoDeLectura(nombre,
 /** Los .md y .txt se pueden escribir sin perder formato; un Google Doc no (se reemplazaría todo el formato). */
 export const sePuedeEscribir = (nombre: string, mime: string) => tipoDeLectura(nombre, mime) === "texto";
 
+/* ── Lo que NO es del cerebro ─────────────────────────────────────────────────────────────────── */
+
+/**
+ * Rutas (relativas a la carpeta del cerebro) que no se indexan: ni ellas ni lo que cuelga de ellas.
+ * Se comparan sin importar mayúsculas. Para ignorar otra carpeta, agregarla aquí.
+ */
+export const RUTAS_IGNORADAS: readonly string[] = ["CRM-Gestion/export-dudas-2026-10-26"];
+
+/** Extensiones que no se indexan (capturas de pantalla). */
+export const EXTENSIONES_IGNORADAS: readonly string[] = ["png"];
+
+const rutaLimpia = (ruta: string) =>
+  ruta
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "")
+    .toLowerCase();
+
+/**
+ * ¿Este archivo o carpeta queda FUERA del cerebro? Sí si alguna parte de la ruta (o el nombre) empieza con
+ * punto (.git, .obsidian, .claude, .gitignore…), si está en RUTAS_IGNORADAS o debajo, o si es una imagen .png.
+ * No borra nada: solo dice que no se recorre, no se indexa y no se muestra.
+ */
+export function seIgnora(
+  ruta: string,
+  nombre: string,
+  tipo?: string | null,
+  rutasIgnoradas: readonly string[] = RUTAS_IGNORADAS,
+): boolean {
+  const partes = [...ruta.split(/[\\/]/), nombre];
+  if (partes.some((parte) => parte.trim().startsWith("."))) return true;
+  const limpia = rutaLimpia(ruta);
+  for (const ignorada of rutasIgnoradas) {
+    const base = rutaLimpia(ignorada);
+    if (base && (limpia === base || limpia.startsWith(`${base}/`))) return true;
+  }
+  const extension = /\.([a-z0-9]+)$/i.exec(nombre)?.[1]?.toLowerCase();
+  if (extension && EXTENSIONES_IGNORADAS.includes(extension)) return true;
+  return EXTENSIONES_IGNORADAS.some((ext) => tipo === `image/${ext}`);
+}
+
+type NodoContable = { esCarpeta: boolean; hijos: readonly NodoContable[] };
+
+/** Cuántos documentos (no carpetas) tiene un árbol ya filtrado: lo que se muestra como "documentos en el cerebro". */
+export function contarDocumentos(nodos: readonly NodoContable[]): number {
+  let total = 0;
+  for (const nodo of nodos) total += (nodo.esCarpeta ? 0 : 1) + contarDocumentos(nodo.hijos);
+  return total;
+}
+
 export function recortarTexto(texto: string, maximo = MAXIMO_TEXTO_POR_DOCUMENTO) {
   if (texto.length <= maximo) return { texto, truncado: false };
   return { texto: texto.slice(0, maximo), truncado: true };
@@ -94,6 +143,8 @@ export type CopiaDeArchivo = {
   modificadoEnDrive: string | null;
   enDrive: boolean;
   tieneTexto: boolean;
+  /** El tipo (mime) que tenía: sirve para reconocer imágenes ignoradas. */
+  tipo?: string | null;
 };
 
 export type PlanDeSincronizacion = {
@@ -105,6 +156,11 @@ export type PlanDeSincronizacion = {
   movidos: ArchivoDeDrive[];
   /** Están en la copia y ya no en el Drive: se marcan "ya no está en Drive" (no se borran de la copia). */
   ausentes: string[];
+  /**
+   * Están vigentes en la copia pero quedan fuera por seIgnora: se marcan igual que los ausentes, aunque el
+   * recorrido venga truncado (no es duda: es la regla). Nunca se borran filas.
+   */
+  ignorados: string[];
   /** Estaban marcados ausentes y volvieron: se actualizan igual que los cambiados. */
   igualesSinCambio: number;
 };
@@ -120,9 +176,15 @@ export function planificarSincronizacion(
 ): PlanDeSincronizacion {
   const enCopia = new Map(copia.map((fila) => [fila.driveId, fila]));
   const vistos = new Set<string>();
-  const plan: PlanDeSincronizacion = { nuevos: [], cambiados: [], movidos: [], ausentes: [], igualesSinCambio: 0 };
+  const ignorados = new Set<string>();
+  const plan: PlanDeSincronizacion = { nuevos: [], cambiados: [], movidos: [], ausentes: [], ignorados: [], igualesSinCambio: 0 };
 
   for (const archivo of delDrive) {
+    // Red de seguridad: aunque el recorrido ya los salta, lo ignorado nunca entra a la copia.
+    if (seIgnora(archivo.ruta, archivo.nombre, archivo.tipo)) {
+      if (enCopia.get(archivo.driveId)?.enDrive) ignorados.add(archivo.driveId);
+      continue;
+    }
     vistos.add(archivo.driveId);
     const previo = enCopia.get(archivo.driveId);
     if (!previo) {
@@ -145,8 +207,11 @@ export function planificarSincronizacion(
     }
   }
   for (const fila of copia) {
-    if (!vistos.has(fila.driveId) && fila.enDrive) plan.ausentes.push(fila.driveId);
+    if (!fila.enDrive || vistos.has(fila.driveId)) continue;
+    if (ignorados.has(fila.driveId) || seIgnora(fila.ruta, fila.nombre, fila.tipo)) ignorados.add(fila.driveId);
+    else plan.ausentes.push(fila.driveId);
   }
+  plan.ignorados = [...ignorados];
   return plan;
 }
 

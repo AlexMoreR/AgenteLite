@@ -4,6 +4,7 @@ import {
   MIME_CARPETA,
   MIME_DOCUMENTO_GOOGLE,
   rutaDe,
+  seIgnora,
   tipoDeLectura,
   type ArchivoDeDrive,
 } from "./reglas";
@@ -135,6 +136,8 @@ export function crearClienteDeDrive(token: string, fetchFn: FetchDeDrive = fetch
             // Los atajos a otros archivos no se siguen: serían copias de algo que está en otro lado.
             if (hijo.tipo === "application/vnd.google-apps.shortcut") continue;
             const ruta = rutaDe(carpeta.ruta, hijo.nombre);
+            // Lo que no es del cerebro (.git, .obsidian, export-dudas, capturas .png): no se cuenta ni se entra.
+            if (seIgnora(ruta, hijo.nombre, hijo.tipo)) continue;
             const esCarpeta = hijo.tipo === MIME_CARPETA;
             archivos.push({
               driveId: hijo.driveId,

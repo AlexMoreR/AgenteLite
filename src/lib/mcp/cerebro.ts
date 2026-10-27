@@ -27,7 +27,7 @@ export const HERRAMIENTAS_MCP_CEREBRO = [
     name: "cerebro_listar",
     title: "Listar el cerebro",
     description:
-      "El cerebro es la base de conocimiento del negocio: lo que ya está decidido (decisiones, políticas, reglas, precios, aprendizajes), en una carpeta de Google Drive. Esto lista sus carpetas y documentos con el id de cada uno, la ruta, la fecha de la última modificación en el Drive y cuándo se sincronizó por última vez. Consúltalo antes de preguntar o suponer algo que quizá ya esté decidido.",
+      "El cerebro es la base de conocimiento del negocio: lo que ya está decidido (decisiones, políticas, reglas, precios, aprendizajes), en una carpeta de Google Drive. Esto lista sus carpetas y documentos con el id de cada uno (y `documentos_en_el_cerebro`: cuántos documentos tiene, sin contar carpetas ni lo ignorado), la ruta, la fecha de la última modificación en el Drive y cuándo se sincronizó por última vez. Consúltalo antes de preguntar o suponer algo que quizá ya esté decidido.",
     inputSchema: {
       type: "object",
       properties: {
@@ -116,9 +116,10 @@ export async function ejecutarHerramientaMcpCerebro(nombre: string, args: Argume
   switch (nombre) {
     case "cerebro_listar": {
       const carpeta = texto(args.carpeta).toLowerCase();
-      const filas = (await filasDelCerebro(contexto.workspaceId)).filter(
-        (fila) => fila.enDrive && (!carpeta || fila.ruta.toLowerCase().startsWith(carpeta)),
-      );
+      // filasDelCerebro ya deja fuera lo ignorado (.git, .obsidian, export-dudas, .png); enDrive = false es "ya no está" o ignorado.
+      const vigentes = (await filasDelCerebro(contexto.workspaceId)).filter((fila) => fila.enDrive);
+      const documentosEnElCerebro = vigentes.filter((fila) => !fila.esCarpeta).length;
+      const filas = vigentes.filter((fila) => !carpeta || fila.ruta.toLowerCase().startsWith(carpeta));
       const notas = (await notasRecientes(contexto.workspaceId, 10)).filter(
         (nota) => nota.estado !== "CREADA" || !filas.some((fila) => fila.ruta.toLowerCase() === nota.ruta.toLowerCase()),
       );
@@ -127,6 +128,7 @@ export async function ejecutarHerramientaMcpCerebro(nombre: string, args: Argume
         carpeta_del_cerebro: conexion.carpetaNombre,
         ultima_sincronizacion: conexion.ultimaSincronizacion?.toISOString() ?? null,
         ...(conexion.ultimoError ? { ultimo_error: conexion.ultimoError } : {}),
+        documentos_en_el_cerebro: documentosEnElCerebro,
         total: filas.length,
         documentos: filas.slice(0, 400).map((fila) => ({
           id: fila.driveId,
