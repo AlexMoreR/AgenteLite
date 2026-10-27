@@ -80,7 +80,7 @@ function tituloDelIncidente(clave: string, todos: Hallazgo[]): string {
 }
 
 /**
- * Escalamiento por combinación: un cambio de regla del primer mensaje JUNTO con ráfagas, precio
+ * Escalamiento por combinación: un cambio de regla del primer mensaje JUNTO con precio
  * antes de identificar o caída de respuesta es CRÍTICO aunque cada pieza sola sea IMPORTANTE.
  */
 export function severidadDelIncidente(todos: Hallazgo[]): Severidad {
@@ -90,7 +90,9 @@ export function severidadDelIncidente(todos: Hallazgo[]): Severidad {
   const claves = hallazgos.map((h) => h.clave);
   // Un cambio de regla que es el ARREGLO de otro incidente (cambioEsperadoPor) no escala nada.
   const cambioDeRegla = hallazgos.some((h) => h.clave.startsWith("BOT:regla-primer-mensaje") && !h.valores?.cambioEsperadoPor);
-  const comportamiento = claves.some((c) => c.startsWith("BOT:rafaga_inicial") || c.startsWith("BOT:precio_o_fotos"));
+  // La ráfaga sola no entra en la combinación: la bienvenida + catálogo es el diseño elegido; si la
+  // respuesta baja de verdad, eso lo cubre `caida`.
+  const comportamiento = claves.some((c) => c.startsWith("BOT:precio_o_fotos"));
   const caida =
     claves.some((c) => c.startsWith("EMBUDO:respondio_2h:")) ||
     hallazgos.some((h) => h.clave.startsWith("CAMBIO:post-cambio") && h.severidad !== "OBSERVACION");

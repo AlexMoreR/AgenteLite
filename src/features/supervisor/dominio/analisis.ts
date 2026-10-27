@@ -109,14 +109,15 @@ export function vigilanciaPostCambio(input: {
   const rafaga = compararAntesYDespues(input.fichas, "rafaga_inicial", input.ahora, input.cambio.en, input.filtro, { ...regla, puntosMinimos: 20 }, limites);
   const reglas = distribucionDeReglas(input.fichas, input.ahora, input.filtro, 5, input.cambio.en);
 
-  const empeoro = (respuesta.significativo && respuesta.direccion === "baja") || (rafaga?.significativo && rafaga.direccion === "sube");
+  // La ráfaga sola ya no marca "EMPEORÓ": hace falta que baje la respuesta (la bienvenida + catálogo es el diseño elegido).
+  const empeoro = respuesta.significativo && respuesta.direccion === "baja";
   const mejoro = (respuesta.significativo && respuesta.direccion === "sube") || (rafaga?.significativo && rafaga.direccion === "baja");
   const severidad: Severidad = empeoro ? "IMPORTANTE" : "OBSERVACION";
   const veredicto = empeoro ? "EMPEORÓ" : mejoro ? "MEJORÓ" : "sin cambio claro";
   const hechos = [
     `Respuesta en 2 h: ${pct(respuesta.tasaObservada)} (${respuesta.observado.exitos}/${respuesta.observado.total}) con la versión ${input.cambio.version} vs ${pct(respuesta.tasaEsperada)} (${respuesta.esperado.exitos}/${respuesta.esperado.total}) ${previoUsado ? `desde la versión ${previoUsado.version} hasta este cambio` : "en los 14 días anteriores"} (z = ${respuesta.z.toFixed(1)}).`,
   ];
-  if (rafaga) hechos.push(`Ráfaga inicial (>3 mensajes en 5 min): ${pct(rafaga.tasaObservada)} vs ${pct(rafaga.tasaEsperada)} antes.`);
+  if (rafaga) hechos.push(`Ráfaga inicial (>3 envíos en 5 min, bienvenida + catálogo = 1): ${pct(rafaga.tasaObservada)} vs ${pct(rafaga.tasaEsperada)} antes.`);
   if (reglas?.modaObservada.clave) {
     hechos.push(
       `Regla del primer mensaje desde el cambio: "${reglas.modaObservada.clave.slice(0, 70)}" (${pct(reglas.modaObservada.participacion)}); antes: "${(reglas.modaBase.clave ?? "—").slice(0, 70)}" (${pct(reglas.modaBase.participacion)}).`,

@@ -43,6 +43,7 @@
 import type { LibroDeReglas } from "../../agente-v3/domain/reglas";
 import { OPCIONES_POR_DEFECTO, type Incidente } from "./alertas";
 import { comparar, pct, type Proporcion } from "./estadistica";
+import { limpiarIncidentesDelLibro } from "./limpieza-de-incidentes";
 import { evaluarEscenario, type Escenario, type FlujoConocido } from "./guardian";
 import { MADURA_EN, MALO_SI_SUBE, NOMBRE_DEL_INDICADOR, disponible, valorDelIndicador, type FichaDelLead } from "./lead";
 import type { FiltroDeLeads, IndicadorDeTasa } from "./linea-base";
@@ -619,9 +620,16 @@ export function aplicarRevalidaciones(input: {
       }
     }
   }
-  return {
+  /*
+    Con la revalidación ya aplicada, se limpia el libro: se cierran las alertas de versiones viejas
+    (menos las que SIGUEN) y se juntan las repetidas (limpieza-de-incidentes.ts).
+  */
+  const limpio = limpiarIncidentesDelLibro({
     incidentes: input.incidentes.filter((inc) => !quitar.has(inc.clave)),
     avisar: avisar.filter((a) => !silenciar.has(a.incidente.clave)),
-    revalidaciones,
-  };
+    versionActual: input.versionActual,
+    ahora: input.ahora,
+    siguen: new Set(revalidaciones.filter((r) => r.decision === "SIGUE").map((r) => r.clave)),
+  });
+  return { incidentes: limpio.incidentes, avisar: limpio.avisar, revalidaciones };
 }
