@@ -13,6 +13,7 @@ const CLIENTE = "573205557788";
 const db = {
   settings: new Map(),
   envios: [],
+  alertas: [],
   dias: new Map(),
   enviados: [],
   evolutionFalla: false,
@@ -63,6 +64,23 @@ const prisma = {
       return {};
     },
     findMany: async () => db.envios,
+  },
+  // Página de Alertas (29-oct-2026): una alerta abierta por clave; se refresca en vez de duplicar.
+  alertaInterna: {
+    findFirst: async ({ where }) => db.alertas.find((a) => a.workspaceId === where.workspaceId && a.clave === where.clave && ["NUEVA", "VISTA"].includes(a.estado)) ?? null,
+    create: async ({ data }) => {
+      const fila = { id: `al${db.siguiente++}`, estado: "NUEVA", salioPorWhatsApp: false, veces: 1, ...data };
+      db.alertas.push(fila);
+      return { id: fila.id };
+    },
+    update: async ({ where, data }) => {
+      const fila = db.alertas.find((a) => a.id === where.id);
+      for (const [k, v] of Object.entries(data)) fila[k] = v && typeof v === "object" && "increment" in v ? fila[k] + v.increment : v;
+      return fila;
+    },
+    updateMany: async ({ where, data }) => {
+      for (const a of db.alertas.filter((x) => x.workspaceId === where.workspaceId && x.clave === where.clave)) Object.assign(a, data);
+    },
   },
   agenteDeAreaDia: {
     upsert: async ({ where, create, update }) => {
@@ -130,6 +148,7 @@ async function prueba(nombre, fn) {
 
 function reiniciar({ activo }) {
   db.envios.length = 0;
+  db.alertas.length = 0;
   db.enviados.length = 0;
   db.dias.clear();
   db.evolutionFalla = false;
@@ -138,7 +157,7 @@ function reiniciar({ activo }) {
   db.settings.set(`agente-v3:avisos:${WS}`, JSON.stringify({ canalId: "admin1", destinos: [{ numero: ALEX, soloDe: null }, { numero: `+57 ${MARIA.slice(2, 5)} ${MARIA.slice(5)}`, soloDe: "maria", userId: "maria" }] }));
   if (activo) db.settings.set(`agente-area:ventas:${WS}`, JSON.stringify({ activo: true }));
 }
-const pedir = (numero, tipo = "ASESORA", texto = "Tu lista del día") => ({ workspaceId: WS, area: "ventas", pedido: { tipo, numero, texto, destinatario: null } });
+const pedir = (numero, tipo = "ASESORA", texto = "Tu lista del día", extra = {}) => ({ workspaceId: WS, area: "ventas", pedido: { tipo, numero, texto, destinatario: null, ...extra } });
 
 /* ------------------------------------------------------------------ reglas puras */
 
@@ -205,16 +224,51 @@ await prueba("con el interruptor apagado no se manda nada", async () => {
   assert.equal(db.envios[0].estado, "BLOQUEADO");
 });
 
-await prueba("Alexander recibe el mensaje de las 7:30 UNA sola vez, por la línea Admin", async () => {
+await prueba("Alexander recibe una alerta URGENTE UNA sola vez, por la línea Admin, y corta (2 líneas con el link)", async () => {
   reiniciar({ activo: true });
-  const primero = await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER", "Números de ayer"));
-  const segundo = await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER", "Otra vez"));
+  const largo = "Cayó la respuesta de los clientes nuevos del libro v292: del 60,1 % al 26,8 %. " + "Detalle largo. ".repeat(40);
+  const primero = await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER", largo, { prioridad: "URGENTE", titulo: "Cayó la respuesta de clientes nuevos (60,1 % → 26,8 %)" }));
+  const segundo = await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER", "Otra vez", { prioridad: "URGENTE" }));
   assert.equal(primero.ok, true);
   assert.equal(segundo.ok, false);
   assert.equal(segundo.motivo, "ya se le mandó hoy");
   assert.equal(db.enviados.length, 1);
   assert.equal(db.enviados[0].instanceName, "admin-instancia");
   assert.equal(db.enviados[0].phoneNumber, ALEX);
+  assert.equal(db.enviados[0].text.split("\n").length, 2);
+  assert.match(db.enviados[0].text, /^🚨 Urgente: Cayó la respuesta[^\n]*\nVer: https:\/\/app\.aizenbot\.com\/cliente\/alertas$/);
+  const guardada = db.alertas.find((a) => a.prioridad === "URGENTE" && a.detalle === largo.trim());
+  assert.ok(guardada, "el texto completo queda en la página");
+  assert.equal(guardada.origen, "Agente de Ventas");
+  assert.equal(guardada.salioPorWhatsApp, true);
+});
+
+await prueba("lo que Alexander recibía sin prioridad (o con una que no es urgente) queda SOLO en la página de Alertas", async () => {
+  reiniciar({ activo: true });
+  const sin = await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER", "Números de ayer"));
+  const media = await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER", "Algo a medias", { prioridad: "MEDIA" }));
+  assert.equal(sin.ok, false);
+  assert.equal(sin.soloEnPagina, true);
+  assert.equal(media.soloEnPagina, true);
+  assert.equal(db.enviados.length, 0, "no sale nada por WhatsApp");
+  assert.deepEqual(db.alertas.map((a) => [a.prioridad, a.titulo]), [["MEDIA", "Números de ayer"], ["MEDIA", "Algo a medias"]]);
+  // La misma alerta otra vez no se duplica.
+  await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER", "Números de ayer"));
+  assert.equal(db.alertas.length, 2);
+  assert.equal(db.alertas[0].veces, 2);
+  // Después, una urgente del mismo día sí sale (los bloqueados no gastan el "una vez al día").
+  const urgente = await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER", "Cayó algo grave", { prioridad: "URGENTE" }));
+  assert.equal(urgente.ok, true);
+  assert.equal(db.enviados.length, 1);
+});
+
+await prueba("con el interruptor de alertas apagado, Alexander recibe el mensaje completo como antes", async () => {
+  reiniciar({ activo: true });
+  db.settings.set(`alertas:solo-urgentes:${WS}`, "false");
+  const r = await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER", "Números de ayer"));
+  assert.equal(r.ok, true);
+  assert.equal(db.enviados[0].text, "Números de ayer");
+  assert.equal(db.alertas.length, 0);
 });
 
 await prueba("cada asesora recibe UN solo mensaje: sale el primero y el segundo no", async () => {

@@ -3,6 +3,8 @@ import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/web-push";
 
+import { ORIGEN_LINEA, ORIGEN_SUPERVISOR, prioridadDeGravedad } from "@/features/alertas/dominio/reglas";
+import { registrarAlerta, soloUrgentesPrendido } from "@/features/alertas/servicios/alertas";
 import type { Incidente } from "@/features/supervisor/dominio/alertas";
 import { textoDelAviso } from "@/features/supervisor/dominio/alertas";
 import { ORDEN_DE_SEVERIDAD } from "@/features/supervisor/dominio/tipos";
@@ -330,11 +332,32 @@ export async function enrutarAlertasDelSupervisor(input: {
       nueva.pushLeads = leads;
     }
 
-    if (canales.includes("alexander_whatsapp") && decidirWhatsApp({ marca, leads, ahora, enfriamientoMin: config.enfriamientoMin })) {
-      const enlace = await enlaceDelIncidente(workspaceId, inc);
-      const texto = input.textoCritico ? input.textoCritico(inc, motivo, enlace) : textoWhatsAppCritico(inc, motivo, enlace);
-      const ok = await whatsAppAAlexander({ workspaceId, config, texto });
-      if (ok) {
+    const mandarWhatsApp = canales.includes("alexander_whatsapp") && decidirWhatsApp({ marca, leads, ahora, enfriamientoMin: config.enfriamientoMin });
+    // ALERTAS (29-oct-2026): toda alerta queda en la página /cliente/alertas (CRÍTICO = Urgente, IMPORTANTE = Alta,
+    // OPERATIVO = Media, OBSERVACIÓN = Baja). Se registra al verse por primera vez, al cambiar de gravedad, en un
+    // recordatorio y cuando sale el WhatsApp, para no contar una repetición por cada vuelta del reloj.
+    if (mandarWhatsApp || !marca || marca.gravedad !== gravedad || recordatorio) {
+      const enlace = mandarWhatsApp ? await enlaceDelIncidente(workspaceId, inc) : ENLACE_SUPERVISOR;
+      const soloUrgentes = await soloUrgentesPrendido(workspaceId);
+      const principal = [...inc.hallazgos].sort((a, b) => ORDEN_DE_SEVERIDAD[b.severidad] - ORDEN_DE_SEVERIDAD[a.severidad])[0];
+      const resultado = await registrarAlerta({
+        workspaceId,
+        clave: `sup:${inc.clave}`,
+        prioridad: gravedad === "OPERATIVO" ? "MEDIA" : prioridadDeGravedad(gravedad),
+        titulo: inc.titulo,
+        detalle: [principal?.que, motivo ? `Motivo: ${motivo}` : null, enlace !== ENLACE_SUPERVISOR ? enlace : null].filter(Boolean).join("\n"),
+        origen: ORIGEN_SUPERVISOR,
+        // Con "solo urgentes" el WhatsApp del crítico es el corto (2 líneas y el link a la página); apagado, el de siempre.
+        enviar: mandarWhatsApp
+          ? (corto) =>
+              whatsAppAAlexander({
+                workspaceId,
+                config,
+                texto: soloUrgentes ? corto : input.textoCritico ? input.textoCritico(inc, motivo, enlace) : textoWhatsAppCritico(inc, motivo, enlace),
+              })
+          : undefined,
+      });
+      if (resultado.salioPorWhatsApp) {
         salieron.push("alexander_whatsapp");
         enviados += 1;
         nueva.waEn = ahora.toISOString();
@@ -369,20 +392,35 @@ export async function avisarLineaCaidaPorWhatsApp(input: {
 }): Promise<boolean> {
   try {
     const config = await leerConfigGravedad(input.workspaceId);
-    if (!config.activo) return false;
     const ahora = input.ahora ?? new Date();
     const clave = `LINEA:caida:${input.canalId}`;
+    // Una línea caída es Urgente: queda SIEMPRE en la página de alertas, aunque el interruptor de gravedad esté apagado.
+    if (!config.activo) {
+      await registrarAlerta({ workspaceId: input.workspaceId, clave, prioridad: "URGENTE", titulo: input.titulo, detalle: input.cuerpo, origen: ORIGEN_LINEA });
+      return false;
+    }
     const estado = await leerEstado(input.workspaceId);
     const marca = estado[clave] ?? null;
-    let ok = false;
-    if (decidirWhatsApp({ marca, leads: 1, ahora, enfriamientoMin: config.enfriamientoMin })) {
-      ok = await whatsAppAAlexander({
-        workspaceId: input.workspaceId,
-        config,
-        texto: ["🚨 *CRÍTICO* · Línea de WhatsApp", "", `📌 ${input.titulo}`, input.cuerpo].join("\n"),
-        evitarCanalId: input.canalId,
-      });
-    }
+    const soloUrgentes = await soloUrgentesPrendido(input.workspaceId);
+    const mandar = decidirWhatsApp({ marca, leads: 1, ahora, enfriamientoMin: config.enfriamientoMin });
+    const resultado = await registrarAlerta({
+      workspaceId: input.workspaceId,
+      clave,
+      prioridad: "URGENTE",
+      titulo: input.titulo,
+      detalle: input.cuerpo,
+      origen: ORIGEN_LINEA,
+      enviar: mandar
+        ? (corto) =>
+            whatsAppAAlexander({
+              workspaceId: input.workspaceId,
+              config,
+              texto: soloUrgentes ? corto : ["🚨 *CRÍTICO* · Línea de WhatsApp", "", `📌 ${input.titulo}`, input.cuerpo].join("\n"),
+              evitarCanalId: input.canalId,
+            })
+        : undefined,
+    });
+    const ok = resultado.salioPorWhatsApp;
     estado[clave] = {
       gravedad: "CRITICO",
       pushEn: marca?.pushEn ?? null,

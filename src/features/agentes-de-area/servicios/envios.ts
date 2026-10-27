@@ -1,3 +1,5 @@
+import { ORIGEN_POR_AREA, claveDeAlerta, textoDeUrgente, tituloCorto, tituloDelTexto } from "@/features/alertas/dominio/reglas";
+import { marcarSalioPorWhatsApp, registrarAlerta, soloUrgentesPrendido } from "@/features/alertas/servicios/alertas";
 import { leerConfigGravedad, lineaInterna } from "@/features/avisos-gravedad/servicios/enrutador";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
@@ -23,6 +25,9 @@ import { agenteActivo, leerEquipoDeAvisos } from "./config";
  *  2. El interruptor del agente tiene que estar prendido.
  *  3. Sale por la línea INTERNA (Admin), la misma de los avisos del Supervisor; nunca una de ventas.
  *  4. Un solo envío vivo por número, área y día: lo garantiza un índice único parcial en la base.
+ *  5. ALERTAS (29-oct-2026): lo que va a Alexander se guarda en la página de Alertas. Por WhatsApp solo sale si el agente lo
+ *     marca con prioridad URGENTE, y sale corto (título + link). Lo demás queda solo en la página. Lo que va a una
+ *     asesora (su lista del día) no es una alerta y sale como siempre. Interruptor `alertas:solo-urgentes:<ws>`.
  *
  * Cada intento queda anotado (a quién, qué texto y si salió o por qué no). Nunca lanza.
  */
@@ -32,7 +37,11 @@ export type ResultadoDeEnvio = {
   estado: EstadoDeEnvio;
   motivo: string | null;
   envioId: string | null;
+  /** Quedó guardada en la página de Alertas (no era urgente, así que no salió por WhatsApp). */
+  soloEnPagina?: boolean;
 };
+
+export const MOTIVO_SOLO_EN_PAGINA = "no es urgente: quedó guardada en la página de Alertas y no salió por WhatsApp";
 
 function esChoqueDeUnico(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "P2002");
@@ -87,6 +96,23 @@ export async function mandarWhatsAppAlEquipo(input: {
   // 2. El interruptor.
   if (!(await agenteActivo(area, workspaceId))) return bloquear(MOTIVO_INTERRUPTOR_APAGADO);
 
+  // 2b. ALERTAS: lo de Alexander queda en la página; solo lo urgente sigue camino, y corto.
+  let pedidoFinal = pedido;
+  let claveDeLaAlerta: string | null = null;
+  if (pedido.tipo === "ALEXANDER" && (await soloUrgentesPrendido(workspaceId))) {
+    const titulo = pedido.titulo ? tituloCorto(pedido.titulo) : tituloDelTexto(pedido.texto);
+    const origen = ORIGEN_POR_AREA[area] ?? "Agente de área";
+    claveDeLaAlerta = claveDeAlerta(origen, titulo);
+    const urgente = pedido.prioridad === "URGENTE";
+    await registrarAlerta({ workspaceId, clave: claveDeLaAlerta, prioridad: pedido.prioridad ?? "MEDIA", titulo, detalle: pedido.texto, origen });
+    if (!urgente) {
+      const bloqueado = await bloquear(MOTIVO_SOLO_EN_PAGINA);
+      return { ...bloqueado, soloEnPagina: true };
+    }
+    pedidoFinal = { ...pedido, texto: textoDeUrgente(titulo) };
+  }
+  const baseFinal = { ...base, pedido: pedidoFinal };
+
   // 3. La línea interna (Admin), nunca una de ventas.
   const config = await leerConfigGravedad(workspaceId);
   const linea = await lineaInterna(workspaceId, config).catch(() => null);
@@ -99,7 +125,7 @@ export async function mandarWhatsAppAlEquipo(input: {
   // 4. Un solo envío vivo por número y día: se reserva antes de mandar.
   let envioId: string | null;
   try {
-    envioId = await anotar(base, "PENDIENTE", null);
+    envioId = await anotar(baseFinal, "PENDIENTE", null);
   } catch (error) {
     if (esChoqueDeUnico(error)) return bloquear(MOTIVO_YA_SE_MANDO);
     throw error;
@@ -108,12 +134,13 @@ export async function mandarWhatsAppAlEquipo(input: {
   if (!envioId) return { ok: false, estado: "FALLIDO", motivo: "no se pudo reservar el envío: no se mandó", envioId: null };
 
   try {
-    await sendEvolutionTextMessageWithReconnect({ instanceName: linea.instancia, phoneNumber: pedido.numero, text: pedido.texto });
+    await sendEvolutionTextMessageWithReconnect({ instanceName: linea.instancia, phoneNumber: pedido.numero, text: pedidoFinal.texto });
   } catch (error) {
     const motivo = `no salió: ${error instanceof Error ? error.message : String(error)}`.slice(0, 300);
     if (envioId) await prisma.agenteDeAreaEnvio.update({ where: { id: envioId }, data: { estado: "FALLIDO", motivo } }).catch(() => {});
     return { ok: false, estado: "FALLIDO", motivo, envioId };
   }
   if (envioId) await prisma.agenteDeAreaEnvio.update({ where: { id: envioId }, data: { estado: "ENVIADO", motivo: null } }).catch(() => {});
+  if (claveDeLaAlerta) await marcarSalioPorWhatsApp(workspaceId, claveDeLaAlerta);
   return { ok: true, estado: "ENVIADO", motivo: null, envioId };
 }

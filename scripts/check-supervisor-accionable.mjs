@@ -531,10 +531,22 @@ await prueba("ENCENDIDO: la alerta de chat NO va a Alexander por el camino de ho
   assert.deepEqual(enviados.push.map((p) => p.tag), ["supervisor:INC:libro-v187:combo-camilla"]);
 });
 
-await prueba("ENCENDIDO + avisos por gravedad: el crítico del bot sale por WhatsApp con el formato completo", async () => {
+await prueba("ENCENDIDO + avisos por gravedad + alertas en solo-urgentes: el crítico del bot sale por WhatsApp corto (2 líneas y el link a la página)", async () => {
   reiniciar();
   settings.set("supervisor:accionable:ws1", JSON.stringify({ activo: true }));
   settings.set("avisos:gravedad:ws1", JSON.stringify({ activo: true }));
+  const bot = incidente("INC:libro-v187:combo-camilla", "CRITICO", [], "BOT");
+  await avisar.avisarAlDueno({ workspaceId: WS, avisos: [{ incidente: bot, motivo: "nuevo" }], incidentes: [], ahora: T0 });
+  assert.equal(enviados.whatsapp.length, 1);
+  assert.equal(enviados.whatsapp[0].text.split("\n").length, 2);
+  assert.match(enviados.whatsapp[0].text, /^🚨 Urgente: .*\nVer: https:\/\/app\.aizenbot\.com\/cliente\/alertas$/);
+});
+
+await prueba("ENCENDIDO + avisos por gravedad con las alertas 'solo urgentes' APAGADAS: el crítico del bot sale por WhatsApp con el formato completo", async () => {
+  reiniciar();
+  settings.set("supervisor:accionable:ws1", JSON.stringify({ activo: true }));
+  settings.set("avisos:gravedad:ws1", JSON.stringify({ activo: true }));
+  settings.set("alertas:solo-urgentes:ws1", "false");
   const bot = incidente("INC:libro-v187:combo-camilla", "CRITICO", [], "BOT");
   await avisar.avisarAlDueno({ workspaceId: WS, avisos: [{ incidente: bot, motivo: "nuevo" }, { incidente: incidente(CALIENTE, "CRITICO"), motivo: "nuevo" }], incidentes: [], ahora: T0 });
   assert.equal(enviados.whatsapp.length, 1);

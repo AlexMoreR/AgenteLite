@@ -61,7 +61,19 @@ export function esTipoDeEnvio(valor: unknown): valor is TipoDeEnvio {
   return valor === "ALEXANDER" || valor === "ASESORA";
 }
 
-export type PedidoDeEnvio = { tipo: TipoDeEnvio; numero: string; texto: string; destinatario: string | null };
+/**
+ * `prioridad` y `titulo` (29-oct-2026, página de Alertas): lo que el agente manda a Alexander se guarda en /cliente/alertas;
+ * por WhatsApp solo sale si la prioridad es URGENTE, y sale corto (título + link). Sin prioridad = no urgente.
+ */
+/** Las prioridades de la página de Alertas (las mismas de src/features/alertas; este archivo no importa nada a propósito). */
+export type PrioridadDelPedido = "URGENTE" | "ALTA" | "MEDIA" | "BAJA";
+
+function leerPrioridadDelPedido(valor: unknown): PrioridadDelPedido | null {
+  const texto = typeof valor === "string" ? valor.trim().toUpperCase() : "";
+  return texto === "URGENTE" || texto === "ALTA" || texto === "MEDIA" || texto === "BAJA" ? texto : null;
+}
+
+export type PedidoDeEnvio = { tipo: TipoDeEnvio; numero: string; texto: string; destinatario: string | null; prioridad?: PrioridadDelPedido | null; titulo?: string | null };
 
 /** Valida lo que manda el agente. Devuelve el pedido limpio o el error legible. */
 export function leerPedidoDeEnvio(args: Record<string, unknown>): { ok: true; pedido: PedidoDeEnvio } | { ok: false; error: string } {
@@ -73,7 +85,12 @@ export function leerPedidoDeEnvio(args: Record<string, unknown>): { ok: true; pe
   if (!texto) return { ok: false, error: "Falta el texto del mensaje." };
   if (texto.length > MAX_TEXTO_DEL_MENSAJE) return { ok: false, error: `El mensaje pasa de ${MAX_TEXTO_DEL_MENSAJE} caracteres: hay que acortarlo.` };
   const destinatario = typeof args.destinatario === "string" && args.destinatario.trim() ? args.destinatario.trim().slice(0, 120) : null;
-  return { ok: true, pedido: { tipo, numero, texto, destinatario } };
+  const prioridad = leerPrioridadDelPedido(args.prioridad);
+  if (args.prioridad !== undefined && args.prioridad !== null && args.prioridad !== "" && !prioridad) {
+    return { ok: false, error: 'La prioridad tiene que ser "urgente", "alta", "media" o "baja".' };
+  }
+  const titulo = typeof args.titulo === "string" && args.titulo.trim() ? args.titulo.trim().slice(0, 200) : null;
+  return { ok: true, pedido: { tipo, numero, texto, destinatario, prioridad, titulo } };
 }
 
 /** ¿Este número está en la lista del equipo (Mi empresa → Equipo)? Compara por número canónico. */

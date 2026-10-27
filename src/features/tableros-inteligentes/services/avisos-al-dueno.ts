@@ -1,3 +1,5 @@
+import { ORIGEN_COORDINADOR, esDeDineroMetaOClave, textoDeVariasUrgentes, tituloDelTexto, type Prioridad } from "@/features/alertas/dominio/reglas";
+import { marcarSalioPorWhatsApp, registrarAlerta, soloUrgentesPrendido } from "@/features/alertas/servicios/alertas";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
@@ -24,6 +26,14 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
   dueño guardado en Mi empresa → Claude, validado acá (no puede ser el de una asesora ni el de una línea del
   negocio); nadie puede pasar otro número. Un solo aviso por problema: se repite solo si sigue igual después de 3
   horas. Silencio de 9:00 p. m. a 7:00 a. m. (Bogotá), salvo "caido". Interruptor: empieza prendido.
+
+  ALERTAS (29-oct-2026): cada aviso queda también en la página /cliente/alertas y, con el interruptor
+  `alertas:solo-urgentes:<ws>` prendido (por defecto), por WhatsApp salen SOLO los urgentes, con un mensaje de 2 líneas y el
+  link a la página. Esto CAMBIA lo del 26-oct (los 5 tipos por WhatsApp). Prioridades (ver prioridadDelAviso):
+    caido, limite              → URGENTE (WhatsApp)
+    necesita                   → URGENTE solo si es por dinero, Meta Ads o una clave; si no, ALTA (solo la página)
+    trabado, sin_trabajo       → ALTA (solo la página; ya no llegan por WhatsApp)
+  Interruptor apagado = exactamente lo anterior.
 
   Todo se guarda en AppSetting (sin tablas nuevas). El reloj del servidor (api/cron/follows) llama a
   revisarAvisosAlDueno cada minuto. Antes de este archivo el aviso del Coordinador devolvía 412 porque nadie
@@ -249,7 +259,14 @@ export type SituacionDeSistemas = {
   esperando: TarjetaEsperando[];
 };
 
-export type AvisoCalculado = { clave: string; tipo: TipoDeAviso; lineas: string[]; link: string };
+export type AvisoCalculado = { clave: string; tipo: TipoDeAviso; lineas: string[]; link: string; prioridad: Prioridad; titulo: string };
+
+/** La prioridad de cada tipo de aviso (regla del dueño, 29-oct-2026). `motivo` solo importa en "necesita". */
+export function prioridadDelAviso(tipo: TipoDeAviso, motivo?: string | null): Prioridad {
+  if (tipo === "caido" || tipo === "limite") return "URGENTE";
+  if (tipo === "necesita") return esDeDineroMetaOClave(motivo ?? "") ? "URGENTE" : "ALTA";
+  return "ALTA";
+}
 
 const QUE_NECESITA: Record<string, string> = {
   POR_APROBAR: "aprobar la tarea",
@@ -309,6 +326,8 @@ export function calcularAvisos(situacion: SituacionDeSistemas, ahora: Date): Avi
       tipo: "caido",
       lineas: [`🔴 Sistemas está detenido: el Coordinador no da señales hace ${minutosSinSenales} min.`, "Puede ser aizen1 apagado, el proceso caído o sin internet."],
       link: linkDelCoordinador(),
+      prioridad: prioridadDelAviso("caido"),
+      titulo: `Sistemas detenido: el Coordinador no da señales hace ${minutosSinSenales} min`,
     });
   }
 
@@ -323,6 +342,8 @@ export function calcularAvisos(situacion: SituacionDeSistemas, ahora: Date): Avi
       tipo: "trabado",
       lineas: [`⚠️ ${entreComillas(tarjeta.titulo)} lleva ${Math.floor(horas)} h ${ESTADO_EN_CURSO[tarjeta.estado] ?? "sin avanzar"} sin avanzar.`],
       link: linkDeLaTarjeta(tarjeta.id),
+      prioridad: prioridadDelAviso("trabado"),
+      titulo: `${entreComillas(tarjeta.titulo)} lleva ${Math.floor(horas)} h sin avanzar`,
     });
   }
 
@@ -337,6 +358,8 @@ export function calcularAvisos(situacion: SituacionDeSistemas, ahora: Date): Avi
       tipo: "trabado",
       lineas: [`⚠️ ${entreComillas(tarjeta.titulo)} quedó en error después de los reintentos.`, `Causa: ${unaLinea(tarjeta.error ?? "sin causa escrita", 120)}`],
       link: linkDeLaTarjeta(tarjeta.id),
+      prioridad: prioridadDelAviso("trabado"),
+      titulo: `${entreComillas(tarjeta.titulo)} quedó en error`,
     });
   }
 
@@ -348,6 +371,8 @@ export function calcularAvisos(situacion: SituacionDeSistemas, ahora: Date): Avi
       tipo: "sin_trabajo",
       lineas: ["⏸️ Sistemas se quedó sin trabajo: nada en curso ni en fila.", `Esperan tu decisión: ${lista(necesitan.map((x) => x.tarjeta))}`],
       link: linkDeHoy(),
+      prioridad: prioridadDelAviso("sin_trabajo"),
+      titulo: "Sistemas se quedó sin trabajo: esperan tu decisión",
     });
   }
 
@@ -359,6 +384,8 @@ export function calcularAvisos(situacion: SituacionDeSistemas, ahora: Date): Avi
         tipo: "necesita",
         lineas: [`👆 ${entreComillas(tarjeta.titulo)} necesita tu decisión (${QUE_NECESITA[tarjeta.estado] ?? "decidir"}).`, `Motivo: ${unaLinea(motivo ?? "", 120)}`],
         link: linkDeLaTarjeta(tarjeta.id),
+        prioridad: prioridadDelAviso("necesita", motivo),
+        titulo: `${entreComillas(tarjeta.titulo)} necesita tu decisión`,
       });
     }
   }
@@ -375,6 +402,11 @@ export function armarMensaje(avisos: readonly AvisoCalculado[]): string {
   const primeras = avisos.slice(0, 2).map((aviso) => aviso.lineas[0]);
   if (avisos.length > 2) primeras[1] = `y ${avisos.length - 1} avisos más de Sistemas.`;
   return aTresLineas([...primeras, `Ver: ${linkDeHoy()}`].join("\n"));
+}
+
+/** Con "solo urgentes": un mensaje de 2 líneas (título corto + link a la página de alertas). */
+export function armarMensajeUrgente(avisos: readonly AvisoCalculado[]): string {
+  return textoDeVariasUrgentes(avisos.map((aviso) => aviso.titulo));
 }
 
 /* ───────────────────────────────────────────────────────────────────── la base ── */
@@ -453,6 +485,19 @@ export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<
   }
 
   let porAvisar = calculados.filter((aviso) => !yaSeAvisoDe(estado, aviso.clave, ahora));
+  // ALERTAS: todo queda en la página (sin tocar lo ya abierto); con "solo urgentes", por WhatsApp salen solo las urgentes.
+  const soloUrgentes = await soloUrgentesPrendido(workspaceId);
+  for (const aviso of porAvisar) {
+    await registrarAlerta({ workspaceId, clave: aviso.clave, prioridad: aviso.prioridad, titulo: aviso.titulo, detalle: aviso.lineas.join("\n"), origen: ORIGEN_COORDINADOR, refrescar: false });
+  }
+  if (soloUrgentes) {
+    for (const aviso of porAvisar) {
+      if (aviso.prioridad === "URGENTE") continue;
+      estado.avisados[aviso.clave] = ahora.toISOString();
+      cambio = true;
+    }
+    porAvisar = porAvisar.filter((aviso) => aviso.prioridad === "URGENTE");
+  }
   // Silencio de 9 p. m. a 7 a. m.: solo "Coordinador caído"; lo demás sale a las 7 a. m. si sigue igual.
   if (enSilencioDeAvisos(ahora)) porAvisar = porAvisar.filter((aviso) => aviso.tipo === "caido");
   if (!porAvisar.length) {
@@ -460,9 +505,14 @@ export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<
     return { enviados: 0 };
   }
 
-  const texto = armarMensaje(porAvisar);
+  const texto = soloUrgentes ? armarMensajeUrgente(porAvisar) : armarMensaje(porAvisar);
   const envio = await enviarAlDueno(workspaceId, texto);
-  if (envio.salio) for (const aviso of porAvisar) estado.avisados[aviso.clave] = ahora.toISOString();
+  if (envio.salio) {
+    for (const aviso of porAvisar) {
+      estado.avisados[aviso.clave] = ahora.toISOString();
+      await marcarSalioPorWhatsApp(workspaceId, aviso.clave);
+    }
+  }
   anotarEnHistorial(estado, {
     cuando: ahora.toISOString(),
     tipo: porAvisar.map((aviso) => aviso.tipo).join("+"),
@@ -500,12 +550,29 @@ export async function registrarAvisoDelCoordinador(
 ): Promise<{ descartado?: true; apagado?: true; silenciado?: true; repetido?: true; salio?: boolean; motivo?: string | null; linea?: string; numero?: string }> {
   if (typeof tipo !== "string" || !(TIPOS_DEL_COORDINADOR as readonly string[]).includes(tipo)) return { descartado: true };
   if (!(await avisosPrendidos(workspaceId))) return { apagado: true };
-  if (enSilencioDeAvisos(ahora)) return { silenciado: true };
-  const estado = await leerEstadoDeAvisos(workspaceId);
   const clave = `coord:${tipo}:${texto}`;
+  // ALERTAS: "limite" es Urgente; "necesita" solo si es por dinero, Meta Ads o una clave. Todo queda en la página.
+  const prioridad = prioridadDelAviso(tipo as TipoDeAviso, texto);
+  const titulo = tituloDelTexto(texto);
+  const soloUrgentes = await soloUrgentesPrendido(workspaceId);
+  if (enSilencioDeAvisos(ahora)) {
+    await registrarAlerta({ workspaceId, clave, prioridad, titulo, detalle: texto, origen: ORIGEN_COORDINADOR, refrescar: false });
+    return { silenciado: true };
+  }
+  const estado = await leerEstadoDeAvisos(workspaceId);
   if (yaSeAvisoDe(estado, clave, ahora)) return { repetido: true };
-  const envio = await enviarAlDueno(workspaceId, texto);
-  if (envio.salio) estado.avisados[clave] = ahora.toISOString();
+  await registrarAlerta({ workspaceId, clave, prioridad, titulo, detalle: texto, origen: ORIGEN_COORDINADOR, refrescar: false });
+  if (soloUrgentes && prioridad !== "URGENTE") {
+    // No sale por WhatsApp: se revisa en la página de alertas.
+    estado.avisados[clave] = ahora.toISOString();
+    await guardarEstadoDeAvisos(workspaceId, estado);
+    return { salio: false, motivo: "no es urgente: quedó en la página de alertas" };
+  }
+  const envio = await enviarAlDueno(workspaceId, soloUrgentes ? textoDeVariasUrgentes([titulo]) : texto);
+  if (envio.salio) {
+    estado.avisados[clave] = ahora.toISOString();
+    await marcarSalioPorWhatsApp(workspaceId, clave);
+  }
   anotarEnHistorial(estado, { cuando: ahora.toISOString(), tipo, texto, salio: envio.salio, motivo: envio.salio ? null : `no salió: ${envio.motivo}` });
   await guardarEstadoDeAvisos(workspaceId, estado);
   return envio;

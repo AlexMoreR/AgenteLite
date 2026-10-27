@@ -2501,3 +2501,28 @@ model VentaDePauta {
   @@unique([workspaceId, ventaGestionId])
   @@index([workspaceId, pagadaEn])
 }
+
+/// Alertas internas (página /cliente/alertas): TODA alerta se guarda aquí; por WhatsApp solo salen las URGENTES.
+/// `clave` identifica el problema: mientras siga abierto (NUEVA o VISTA) no se duplica, se refresca y sube `veces`.
+model AlertaInterna {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  clave            String
+  /// URGENTE, ALTA, MEDIA o BAJA.
+  prioridad        String
+  titulo           String
+  detalle          String?
+  /// El sistema que la generó (Supervisor, Agente de Ventas, Coordinador, Línea de WhatsApp…).
+  origen           String
+  /// NUEVA, VISTA o RESUELTA.
+  estado           String    @default("NUEVA")
+  salioPorWhatsApp Boolean   @default(false)
+  /// Cuántas veces llegó la misma alerta mientras seguía abierta.
+  veces            Int       @default(1)
+  creadoEn         DateTime  @default(now())
+  vistaEn          DateTime?
+  resueltaEn       DateTime?
+
+  @@index([workspaceId, estado, prioridad])
+  @@index([workspaceId, clave])
+}

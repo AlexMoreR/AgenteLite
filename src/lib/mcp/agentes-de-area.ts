@@ -171,7 +171,7 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
     name: "mandar_whatsapp_al_equipo",
     title: "Mandar un WhatsApp interno al equipo",
     description:
-      "Manda UN WhatsApp interno desde la línea Admin, SOLO a un número de la lista del equipo (Mi empresa → Equipo). El servidor lo valida: un número que no es del equipo se rechaza ('ese número no es del equipo'), con el interruptor del Agente de Ventas apagado no sale nada ('interruptor apagado: no se mandó') y a cada persona le sale un solo mensaje por día ('ya se le mandó hoy'). Nunca a clientes. Cada intento queda anotado en la pantalla Agente de Ventas.",
+      "Manda UN WhatsApp interno desde la línea Admin, SOLO a un número de la lista del equipo (Mi empresa → Equipo). El servidor lo valida: un número que no es del equipo se rechaza ('ese número no es del equipo'), con el interruptor del Agente de Ventas apagado no sale nada ('interruptor apagado: no se mandó') y a cada persona le sale un solo mensaje por día ('ya se le mandó hoy'). Nunca a clientes. Lo que va a Alexander se guarda SIEMPRE en la página de Alertas y por WhatsApp solo sale si prioridad = urgente (mensaje corto con el link): el texto completo lo lee en la página. Cada intento queda anotado en la pantalla Agente de Ventas.",
     inputSchema: {
       type: "object",
       properties: {
@@ -179,6 +179,8 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
         numero: { type: "string", description: "Número de WhatsApp con indicativo (solo dígitos)." },
         texto: { type: "string", description: "El mensaje, completo." },
         destinatario: { type: "string", description: "Nombre de la persona (solo para la pantalla)." },
+        prioridad: { type: "string", enum: ["urgente", "alta", "media", "baja"], description: "Solo \"urgente\" sale por WhatsApp (corto, con el link a la página de Alertas). Sin prioridad o con otra, el mensaje a Alexander queda SOLO en la página de Alertas. No aplica a la lista del día de una asesora." },
+        titulo: { type: "string", description: "Título corto de la alerta (máx. 90 caracteres): es lo que sale en el WhatsApp urgente. Sin título se usa la primera línea del texto." },
       },
       required: ["tipo", "numero", "texto"],
       additionalProperties: false,
@@ -423,6 +425,7 @@ async function mandarAlEquipo(args: Argumentos, contexto: Contexto) {
   return {
     se_mando: resultado.ok,
     estado: resultado.estado,
+    ...(resultado.soloEnPagina ? { guardada_en_alertas: true } : {}),
     ...(resultado.motivo ? { motivo: resultado.motivo } : {}),
     mensaje: resultado.ok ? "Mensaje enviado." : resultado.motivo,
   };

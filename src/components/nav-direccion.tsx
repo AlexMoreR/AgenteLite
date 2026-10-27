@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Bot, ChevronDown, Compass, Megaphone, ServerCog, ShieldCheck, type LucideIcon } from "lucide-react";
+import { Bell, Bot, ChevronDown, Compass, Megaphone, ServerCog, ShieldCheck, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -22,6 +22,8 @@ const direccionViews: Array<{
   title: string;
   view: string;
   icon: LucideIcon;
+  /** Ruta propia cuando la pantalla no vive bajo /cliente/direccion. */
+  href?: string;
   /** Solo dueño o administrador del negocio (mismas banderas que tenían dentro del CRM). */
   soloJefes?: boolean;
 }> = [
@@ -32,6 +34,8 @@ const direccionViews: Array<{
   { title: "Agente de Marketing", view: "agente-de-marketing", icon: Megaphone, soloJefes: true },
   // El Agente de Sistemas revisa que lo subido funcione. Solo lee.
   { title: "Agente de Sistemas", view: "agente-de-sistemas", icon: ServerCog, soloJefes: true },
+  // Todas las alertas internas por prioridad; por WhatsApp solo llegan las urgentes.
+  { title: "Alertas", view: "alertas", icon: Bell, soloJefes: true, href: "/cliente/alertas" },
 ];
 
 export function NavDireccion({
@@ -43,7 +47,7 @@ export function NavDireccion({
   esJefe?: boolean;
 }) {
   const [manualOpen, setManualOpen] = useState(false);
-  const isDireccionRoute = currentPath.startsWith("/cliente/direccion");
+  const isDireccionRoute = currentPath.startsWith("/cliente/direccion") || currentPath.startsWith("/cliente/alertas");
   const open = manualOpen || isDireccionRoute;
 
   const items = direccionViews.filter((item) => !item.soloJefes || esJefe);
@@ -68,8 +72,8 @@ export function NavDireccion({
             {items.map((item) => (
               <SidebarMenuSubItem key={item.view}>
                 <SidebarMenuSubButton
-                  render={<Link href={`/cliente/direccion/${item.view}`} />}
-                  isActive={currentPath.startsWith(`/cliente/direccion/${item.view}`)}
+                  render={<Link href={item.href ?? `/cliente/direccion/${item.view}`} />}
+                  isActive={currentPath.startsWith(item.href ?? `/cliente/direccion/${item.view}`)}
                 >
                   <item.icon />
                   <span>{item.title}</span>

@@ -25,6 +25,7 @@ const reiniciar = () => {
     esperando: [],
     historial: new Map(),
     enviados: [],
+    alertas: [],
     fallaElEnvio: false,
   });
 };
@@ -59,6 +60,23 @@ const falso = {
   },
   historialTarjeta: {
     groupBy: async () => [...estado.historial].map(([tarjetaId, creadoEn]) => ({ tarjetaId, _max: { creadoEn } })),
+  },
+  // Página de Alertas (29-oct-2026): una alerta abierta por clave.
+  alertaInterna: {
+    findFirst: async ({ where }) => estado.alertas.find((a) => a.workspaceId === where.workspaceId && a.clave === where.clave && ["NUEVA", "VISTA"].includes(a.estado)) ?? null,
+    create: async ({ data }) => {
+      const fila = { id: `al${estado.alertas.length + 1}`, estado: "NUEVA", salioPorWhatsApp: false, veces: 1, ...data };
+      estado.alertas.push(fila);
+      return { id: fila.id };
+    },
+    update: async ({ where, data }) => {
+      const fila = estado.alertas.find((a) => a.id === where.id);
+      for (const [k, v] of Object.entries(data)) fila[k] = v && typeof v === "object" && "increment" in v ? fila[k] + v.increment : v;
+      return fila;
+    },
+    updateMany: async ({ where, data }) => {
+      for (const a of estado.alertas.filter((x) => x.workspaceId === where.workspaceId && x.clave === where.clave)) Object.assign(a, data);
+    },
   },
   tableroInteligente: { findMany: async () => [{ workspaceId: "ws1" }] },
 };
@@ -213,14 +231,58 @@ await prueba("5. Límite de Claude: lo manda el Coordinador con tipo 'limite' o 
   const salio = await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto, tipo: "limite" }, DIA);
   assert.equal(salio.salio, true);
   assert.equal(estado.enviados.length, 1);
-  assert.equal(estado.enviados[0].text, texto);
+  // Alertas (29-oct-2026): el límite es Urgente y sale corto: 2 líneas (título + link a la página de alertas).
+  assert.equal(estado.enviados[0].text, "🚨 Urgente: Claude llegó a su límite de uso: Sistemas quedó en pausa.\nVer: https://app.aizenbot.com/cliente/alertas");
   assert.equal(estado.enviados[0].phoneNumber, "573001112233");
+  assert.equal(estado.alertas.length, 1, "queda en la página");
+  assert.equal(estado.alertas[0].prioridad, "URGENTE");
+  assert.equal(estado.alertas[0].origen, "Coordinador");
+  assert.equal(estado.alertas[0].detalle, texto, "el texto completo, en la página");
   // El mismo aviso otra vez (pasado el minuto) no se repite antes de 3 horas; después sí.
   const luego = new Date(DIA.getTime() + 5 * 60_000);
   assert.deepEqual(await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto, tipo: "limite" }, luego), { repetido: true });
   const mas = new Date(DIA.getTime() + 3 * HORA + 60_000);
   assert.equal((await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto, tipo: "limite" }, mas)).salio, true);
   assert.equal(estado.enviados.length, 2);
+});
+
+/* ------------------------------------------------------------------ las alertas: prioridad y página */
+
+await prueba("alertas: caído y límite son Urgente; trabado y sin trabajo, Alta; necesita es Urgente solo por dinero, Meta Ads o una clave", async () => {
+  assert.equal(avisos.prioridadDelAviso("caido"), "URGENTE");
+  assert.equal(avisos.prioridadDelAviso("limite"), "URGENTE");
+  assert.equal(avisos.prioridadDelAviso("trabado"), "ALTA");
+  assert.equal(avisos.prioridadDelAviso("sin_trabajo"), "ALTA");
+  assert.equal(avisos.prioridadDelAviso("necesita", "toca Meta Ads"), "URGENTE");
+  assert.equal(avisos.prioridadDelAviso("necesita", "falta una clave, un acceso o un permiso"), "URGENTE");
+  assert.equal(avisos.prioridadDelAviso("necesita", "mueve dinero del presupuesto"), "URGENTE");
+  assert.equal(avisos.prioridadDelAviso("necesita", "el cambio agrega un envío de mensaje en chats"), "ALTA");
+  const base = { latidoEn: DIA.toISOString(), enCurso: [], enFila: 1 }; // con fila no es "sin trabajo"
+  const meta = avisos.calcularAvisos({ ...base, esperando: [esperando({ estado: "POR_REVISAR", zonaProtegida: ["META_ADS"] })] }, DIA).find((a) => a.tipo === "necesita");
+  assert.equal(meta.prioridad, "URGENTE");
+  const chats = avisos.calcularAvisos({ ...base, esperando: [esperando({ estado: "POR_REVISAR", resultado: null, esperaPor: "el cambio agrega un envío de mensaje en chats" })] }, DIA).find((a) => a.tipo === "necesita");
+  assert.equal(chats.prioridad, "ALTA");
+});
+
+await prueba("alertas: de lo que se calcula, todo queda en la página y por WhatsApp sale solo lo urgente, en 2 líneas con el link", async () => {
+  guardarNumero();
+  // Coordinador caído (urgente) + una tarjeta trabada (alta) en la misma vuelta.
+  estado.latido = hace(30 * 60_000).toISOString();
+  estado.enCurso = [{ id: "c9", titulo: "Una trabada", estado: "EN_CURSO" }];
+  estado.historial.set("c9", hace(5 * HORA));
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
+  assert.equal(estado.enviados.length, 1);
+  assert.equal(estado.enviados[0].text, "🚨 Urgente: Sistemas detenido: el Coordinador no da señales hace 30 min\nVer: https://app.aizenbot.com/cliente/alertas");
+  assert.deepEqual(estado.alertas.map((a) => a.prioridad).sort(), ["URGENTE"], "con el Coordinador caído la trabada no se avisa");
+  // Ya vuelto el Coordinador, la trabada se guarda (Alta) y no sale; y no se repite cada minuto.
+  estado.latido = DIA.toISOString();
+  const luego = new Date(DIA.getTime() + 60_000);
+  estado.latido = luego.toISOString();
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(luego), { enviados: 0 });
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(new Date(luego.getTime() + 60_000)), { enviados: 0 });
+  assert.deepEqual(estado.alertas.map((a) => a.prioridad).sort(), ["ALTA", "URGENTE"]);
+  assert.equal(estado.alertas.find((a) => a.prioridad === "ALTA").veces, 1, "no suma una vez por minuto");
+  assert.equal(estado.alertas.find((a) => a.prioridad === "URGENTE").salioPorWhatsApp, true);
 });
 
 /* ------------------------------------------------------------------ las reglas de todos los avisos */
@@ -265,8 +327,19 @@ await prueba("revisión: el latido no cuenta como avance (se mide con el histori
   guardarNumero();
   estado.enCurso = [{ id: "c1", titulo: "Una tarea vieja", estado: "SUBIENDO" }];
   estado.historial.set("c1", hace(2.5 * HORA));
+  // Alertas (29-oct-2026): "trabado" es Alta: queda en la página y ya no sale por WhatsApp.
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
+  assert.equal(estado.enviados.length, 0);
+  assert.equal(estado.alertas.length, 1);
+  assert.equal(estado.alertas[0].prioridad, "ALTA");
+  assert.match(estado.alertas[0].titulo, /"Una tarea vieja" lleva 2 h sin avanzar/);
+  assert.match(estado.alertas[0].detalle, /lleva 2 h subiendo sin avanzar/);
+  // Con el interruptor de alertas apagado vuelve lo de antes: sale por WhatsApp, completo.
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  estado.ajustes.delete("tablero:avisos-dueno:estado:ws1");
   assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
   assert.match(estado.enviados[0].text, /"Una tarea vieja" lleva 2 h subiendo sin avanzar/);
+  assert.equal(estado.alertas.length, 1, "la misma alerta abierta no se duplica");
 });
 
 await prueba("revisión: una tarjeta SIN repo (tarea humana) en EN_CURSO hace 3 h no avisa 'trabado'", async () => {
@@ -277,12 +350,17 @@ await prueba("revisión: una tarjeta SIN repo (tarea humana) en EN_CURSO hace 3 
   assert.equal(estado.enviados.length, 0);
   // La misma tarjeta con repo (la ejecuta el Coordinador) sí avisa.
   estado.enCurso = [{ id: "h1", titulo: "Revisar mejoras del Agente SEO", estado: "EN_CURSO", repo: "aizencrm" }];
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 }, "trabado es Alta: solo en la página");
+  assert.equal(estado.alertas.length, 1);
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  estado.ajustes.delete("tablero:avisos-dueno:estado:ws1");
   assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
   assert.match(estado.enviados[0].text, /lleva 3 h construyendo sin avanzar/);
 });
 
 await prueba("silencio: de 9:00 p. m. a 7:00 a. m. no sale nada, salvo Coordinador caído; a las 7 a. m. sale lo que siga igual", async () => {
   guardarNumero();
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false"); // el silencio es el mismo con o sin "solo urgentes"; "trabado" solo sale por WhatsApp apagado
   estado.enCurso = [{ id: "c1", titulo: "Trabada", estado: "EN_CURSO" }];
   estado.historial.set("c1", hace(5 * HORA, NOCHE));
   estado.latido = NOCHE.toISOString();
@@ -363,7 +441,7 @@ await prueba("sin número no hay error 412: queda anotado 'falta su número' y s
   await avisos.revisarAvisosAlDueno(new Date(DIA.getTime() + 60_000));
   assert.equal((await avisos.avisosParaLaPantalla("ws1")).ultimos.length, 1);
   // El aviso del Coordinador tampoco lanza 412: contesta con el motivo.
-  const respuesta = await deltrabajador.enviarAvisoDelTrabajador({ workspaceId: "ws1" }, { texto: "x", tipo: "necesita" }, new Date("2026-10-29T15:00:00Z"));
+  const respuesta = await deltrabajador.enviarAvisoDelTrabajador({ workspaceId: "ws1" }, { texto: "x", tipo: "limite" }, new Date("2026-10-29T15:00:00Z"));
   assert.equal(respuesta.salio, false);
   assert.match(respuesta.motivo, /falta su número/);
   // El ajuste viejo (llenado a mano) sirve de respaldo.
@@ -394,6 +472,19 @@ await prueba("varios problemas en una vuelta se juntan en UN mensaje de máximo 
   const tres = avisos.armarMensaje(dosAvisos);
   assert.equal(lineas(tres).length, 3);
   assert.match(tres, /y 2 avisos más de Sistemas/);
+});
+
+await prueba("alertas: un 'necesita' del Coordinador sin dinero, Meta Ads ni clave queda en la página y no sale", async () => {
+  guardarNumero();
+  const contexto = { workspaceId: "ws1" };
+  const resultado = await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto: "Necesito que elijas el color del botón.", tipo: "necesita" }, new Date("2026-11-02T15:00:00Z"));
+  assert.equal(resultado.salio, false);
+  assert.equal(estado.enviados.length, 0);
+  assert.equal(estado.alertas[0].prioridad, "ALTA");
+  const dinero = await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto: "Necesito tu sí para subir el presupuesto de Meta Ads.", tipo: "necesita" }, new Date("2026-11-02T15:05:00Z"));
+  assert.equal(dinero.salio, true);
+  assert.equal(estado.enviados.length, 1);
+  assert.equal(estado.enviados[0].text.split("\n").length, 2);
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);

@@ -1,3 +1,5 @@
+import { ORIGEN_SUPERVISOR, prioridadDeGravedad } from "@/features/alertas/dominio/reglas";
+import { registrarAlerta } from "@/features/alertas/servicios/alertas";
 import { enrutarAlertasDelSupervisor, leerConfigGravedad } from "@/features/avisos-gravedad/servicios/enrutador";
 import { manejaElAccionable, vaALaSupervisora } from "@/features/supervisor-accionable/dominio/reglas";
 import { leerConfigAccionable, textoCriticoDeIncidente } from "@/features/supervisor-accionable/servicios/accionable";
@@ -60,6 +62,15 @@ export async function avisarAlDueno(input: {
   });
   let enviados = 0;
   for (const aviso of input.avisos) {
+    // Sin el enrutador por gravedad, el aviso igual queda en la página de alertas (CRÍTICO = Urgente; sin WhatsApp aquí).
+    await registrarAlerta({
+      workspaceId: input.workspaceId,
+      clave: `sup:${aviso.incidente.clave}`,
+      prioridad: prioridadDeGravedad(aviso.incidente.severidad),
+      titulo: aviso.incidente.titulo,
+      detalle: aviso.incidente.hallazgos[0]?.que ?? null,
+      origen: ORIGEN_SUPERVISOR,
+    });
     const { title, body } = textoDelAviso(aviso.incidente, aviso.motivo);
     for (const jefe of jefes) {
       enviados += await sendPushToUser({
