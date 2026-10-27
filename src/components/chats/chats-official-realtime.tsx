@@ -30,6 +30,7 @@ export function ChatsOfficialRealtime({
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptsRef = useRef(0);
   const closedByUsRef = useRef(false);
+  const huboCaidaRef = useRef(false);
   // En un ref para leer el usuario al llegar cada aviso sin reabrir el socket si cambia.
   const userIdRef = useRef(userId);
   useEffect(() => {
@@ -61,6 +62,12 @@ export function ChatsOfficialRealtime({
 
       socket.onopen = () => {
         attemptsRef.current = 0;
+        // Si era una RE-conexion (se habia caido), lo que llego mientras tanto no se aviso:
+        // ChatsAutoRefresh lo trae al momento, sin esperar su siguiente tick ni recargar.
+        if (huboCaidaRef.current) {
+          huboCaidaRef.current = false;
+          window.dispatchEvent(new CustomEvent("chat-reconexion", { detail: { origen: "altavoz" } }));
+        }
       };
 
       socket.onmessage = (event) => {
@@ -167,6 +174,7 @@ export function ChatsOfficialRealtime({
 
       socket.onclose = () => {
         socketRef.current = null;
+        huboCaidaRef.current = true;
         scheduleReconnect();
       };
 
@@ -188,9 +196,26 @@ export function ChatsOfficialRealtime({
       reconnectTimerRef.current = setTimeout(connect, delay);
     };
 
+    // Vuelve la señal o la pestaña: si el socket no esta abierto no se espera al backoff (hasta 30 s).
+    const reconectarYa = () => {
+      if (document.visibilityState !== "visible" || closedByUsRef.current) return;
+      const socket = socketRef.current;
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      attemptsRef.current = 0;
+      connect();
+    };
+    window.addEventListener("online", reconectarYa);
+    document.addEventListener("visibilitychange", reconectarYa);
+
     connect();
 
     return () => {
+      window.removeEventListener("online", reconectarYa);
+      document.removeEventListener("visibilitychange", reconectarYa);
       closedByUsRef.current = true;
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);

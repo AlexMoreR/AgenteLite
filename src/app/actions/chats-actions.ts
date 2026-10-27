@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { sendManualAgentReplyAction, type SendChatReplyResult } from "@/app/actions/agent-actions";
+import { idDeMensajeValido } from "@/lib/chat-envio-reintento";
 import { generarSugerenciaDeRespuesta, registrarEnvioDeSugerencia, registrarFlujoDeSugerencia } from "@/lib/sugerencia-de-respuesta";
 import { createFollow, createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { dentroDelHorario, NOMBRE_FOLLOW_REACTIVACION, reprogramarFueraDeHorario } from "@/lib/anti-bloqueo/reglas";
@@ -706,6 +707,8 @@ const sendUnifiedChatReplySchema = z.object({
   // El chat que la asesora tiene A LA VISTA al tocar enviar (lo pone el navegador). Si no coincide
   // con conversationId, el texto NO sale: iba para otro cliente (ver chat-envio-seguro).
   chatEsperado: z.string().trim().max(200).nullish(),
+  // Numero unico del mensaje (lo pone el navegador). Queda guardado con el mensaje para no duplicarlo.
+  clientMessageId: z.string().trim().max(80).nullish(),
 });
 
 const toggleConversationAutomationSchema = z.object({
@@ -756,6 +759,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     quotedContent: formData.get("quotedContent"),
     quotedDirection: formData.get("quotedDirection"),
     chatEsperado: formData.get("chatEsperado"),
+    clientMessageId: formData.get("clientMessageId"),
   });
 
   // Errores como resultado (sin redirect) para mostrarlos en la burbuja sin recarga.
@@ -845,6 +849,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       message: messageWithSignature,
       source: "manual",
       enviadoPorUserId: session.user.id,
+      clientMessageId: idDeMensajeValido(parsed.data.clientMessageId),
     });
 
     if (!result.ok) {
@@ -913,6 +918,10 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
   }
   nextData.set("conversationId", parsed.data.conversationId);
   nextData.set("message", messageWithSignature);
+  const clientMessageIdValido = idDeMensajeValido(parsed.data.clientMessageId);
+  if (clientMessageIdValido) {
+    nextData.set("clientMessageId", clientMessageIdValido);
+  }
   nextData.set("returnTo", safeReturnTo || `/cliente/chats?chatKey=agent:${parsed.data.conversationId}`);
   if (parsed.data.quotedMessageId) {
     nextData.set("quotedMessageId", parsed.data.quotedMessageId);

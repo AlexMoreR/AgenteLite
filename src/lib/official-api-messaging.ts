@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { getMetaGraphErrorMessage, isMetaGraphAuthError } from "@/lib/official-api-graph";
 import { updateOfficialApiConnectionStatus } from "@/lib/official-api-connection-status";
 import { prisma } from "@/lib/prisma";
+import { TIEMPO_LIMITE_GATEWAY_MS } from "@/lib/chat-envio-reintento";
 
 type OfficialApiMessagingConfig = {
   id: string;
@@ -211,30 +212,45 @@ export async function sendOfficialApiTextMessage(input: {
   source: "manual" | "automation";
   /** Quien lo escribio, cuando lo escribio una persona. Para la pantalla de Actividad. */
   enviadoPorUserId?: string | null;
+  /** Numero unico que puso el navegador: queda en los datos del mensaje para no duplicarlo. */
+  clientMessageId?: string | null;
 }) {
   if (!input.config.accessToken?.trim() || !input.config.phoneNumberId?.trim()) {
     return { ok: false as const, error: "La API oficial no tiene credenciales activas." };
   }
 
-  const response = await fetch(
-    `https://graph.facebook.com/v23.0/${encodeURIComponent(input.config.phoneNumberId)}/messages`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${input.config.accessToken}`,
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: input.to,
-        type: "text",
-        text: {
-          body: input.message,
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://graph.facebook.com/v23.0/${encodeURIComponent(input.config.phoneNumberId)}/messages`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${input.config.accessToken}`,
         },
-      }),
-      cache: "no-store",
-    },
-  );
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: input.to,
+          type: "text",
+          text: {
+            body: input.message,
+          },
+        }),
+        cache: "no-store",
+        // Sin tiempo limite, un gateway colgado dejaba el envio girando hasta fallar.
+        signal: AbortSignal.timeout(TIEMPO_LIMITE_GATEWAY_MS),
+      },
+    );
+  } catch (error) {
+    const agotado = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    return {
+      ok: false as const,
+      error: agotado
+        ? "WhatsApp no respondio a tiempo. Revisa el chat antes de reenviar."
+        : "No se pudo enviar el mensaje con la API oficial (sin conexion con Meta).",
+    };
+  }
 
   const payload = (await response.json().catch(() => null)) as
     | {
@@ -264,59 +280,69 @@ export async function sendOfficialApiTextMessage(input: {
   }
 
   const now = new Date();
-  await prisma.$executeRaw`
-    INSERT INTO "OfficialApiMessage" (
-      "id",
-      "configId",
-      "conversationId",
-      "contactId",
-      "externalMessageId",
-      "direction",
-      "type",
-      "status",
-      "content",
-      "rawPayload",
-      "sentAt",
-      "createdAt",
-      "updatedAt"
-    )
-    VALUES (
-      ${randomUUID()},
-      ${input.config.id},
-      ${input.conversationId},
-      ${input.contactId},
-      ${payload?.messages?.[0]?.id ?? null},
-      'OUTBOUND'::"OfficialApiMessageDirection",
-      'TEXT'::"OfficialApiMessageType",
-      'SENT'::"OfficialApiMessageStatus",
-      ${input.message},
-      ${JSON.stringify({
-        source: input.source,
-        enviadoPorUserId: input.enviadoPorUserId ?? null,
-        meta: payload,
-      })},
-      ${now},
-      ${now},
-      ${now}
-    )
-  `;
+  /*
+    Meta ya acepto el mensaje. Si guardarlo en la base falla, NO se devuelve error: la asesora veria
+    "No se envio" aunque el cliente lo recibio, y al reintentar lo recibiria dos veces. El mensaje
+    se completa luego por el aviso (webhook) de Meta; el error queda en el registro.
+  */
+  try {
+    await prisma.$executeRaw`
+      INSERT INTO "OfficialApiMessage" (
+        "id",
+        "configId",
+        "conversationId",
+        "contactId",
+        "externalMessageId",
+        "direction",
+        "type",
+        "status",
+        "content",
+        "rawPayload",
+        "sentAt",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        ${randomUUID()},
+        ${input.config.id},
+        ${input.conversationId},
+        ${input.contactId},
+        ${payload?.messages?.[0]?.id ?? null},
+        'OUTBOUND'::"OfficialApiMessageDirection",
+        'TEXT'::"OfficialApiMessageType",
+        'SENT'::"OfficialApiMessageStatus",
+        ${input.message},
+        ${JSON.stringify({
+          source: input.source,
+          enviadoPorUserId: input.enviadoPorUserId ?? null,
+          ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
+          meta: payload,
+        })},
+        ${now},
+        ${now},
+        ${now}
+      )
+    `;
 
-  await prisma.$executeRaw`
-    UPDATE "OfficialApiConversation"
-    SET
-      "lastMessageAt" = ${now},
-      "status" = 'OPEN'::"OfficialApiConversationStatus",
-      "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ${input.conversationId}
-  `;
+    await prisma.$executeRaw`
+      UPDATE "OfficialApiConversation"
+      SET
+        "lastMessageAt" = ${now},
+        "status" = 'OPEN'::"OfficialApiConversationStatus",
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${input.conversationId}
+    `;
 
-  await prisma.$executeRaw`
-    UPDATE "OfficialApiContact"
-    SET
-      "lastMessageAt" = ${now},
-      "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ${input.contactId}
-  `;
+    await prisma.$executeRaw`
+      UPDATE "OfficialApiContact"
+      SET
+        "lastMessageAt" = ${now},
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${input.contactId}
+    `;
+  } catch (error) {
+    console.error("[sendOfficialApiTextMessage] el mensaje salio pero no se pudo guardar", error);
+  }
 
   return { ok: true as const };
 }
