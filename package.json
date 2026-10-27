@@ -15,6 +15,7 @@
     "test:recibiendo-clientes": "node scripts/check-recibiendo-clientes.mjs",
     "test:nota-de-voz": "node scripts/check-nota-de-voz.mjs",
     "test:reenviar": "node scripts/check-reenviar.mjs",
+    "test:deslizar-para-responder": "node scripts/check-deslizar-para-responder.mjs",
     "test:agente-v3-foto": "node scripts/check-agente-v3-foto.mjs",
     "test:v3-mapa": "node scripts/check-v3-mapa.mjs",
     "test:velocidad-bandeja": "node scripts/check-velocidad-bandeja.mjs",

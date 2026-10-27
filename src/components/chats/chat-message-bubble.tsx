@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { extractEvolutionLocation } from "@/lib/evolution-webhook";
+import { useSwipeToReply } from "@/components/chats/use-swipe-to-reply";
 import { AudioMessageCard } from "@/components/chats/audio-message-card";
 import { DetalleDeLlamadaDialog } from "@/components/chats/detalle-de-llamada-dialog";
 import { tapaDePdfDesdeUrl, type TapaDePdf } from "@/lib/portada-de-pdf";
@@ -1035,6 +1036,36 @@ export const MessageBubble = memo(function MessageBubble({
     setIsTouchMenuOpen(true);
   }, [message, onSeleccionar]);
   const longPress = useLongPress(abrirMenuTactil, tieneAcciones);
+  /*
+    Deslizar a la derecha = "Responder", igual que el menu. Con la seleccion abierta el toque es
+    para marcar, asi que el gesto se apaga. El mantener apretado y el deslizar se reparten el dedo:
+    el primero se cancela solo en cuanto el dedo se mueve.
+  */
+  const responderAlDeslizar = useCallback(() => onReply?.(message), [message, onReply]);
+  const deslizar = useSwipeToReply(responderAlDeslizar, Boolean(onReply) && !haySeleccion);
+  const gestosDeLaBurbuja = {
+    ...longPress,
+    onPointerDown: (evento: React.PointerEvent) => {
+      longPress.onPointerDown(evento);
+      deslizar.handlers.onPointerDown(evento);
+    },
+    onPointerMove: (evento: React.PointerEvent) => {
+      longPress.onPointerMove(evento);
+      deslizar.handlers.onPointerMove(evento);
+    },
+    onPointerUp: () => {
+      longPress.onPointerUp();
+      deslizar.handlers.onPointerUp();
+    },
+    onPointerCancel: () => {
+      longPress.onPointerCancel();
+      deslizar.handlers.onPointerCancel();
+    },
+    onClickCapture: (evento: React.MouseEvent) => {
+      longPress.onClickCapture(evento);
+      deslizar.handlers.onClickCapture(evento);
+    },
+  };
 
   /*
     La hora del mensaje, que en las notas de voz cambia de lugar.
@@ -1242,13 +1273,24 @@ export const MessageBubble = memo(function MessageBubble({
         }}
       >
         <div
-          {...longPress}
-          className={`group/bubble relative max-w-[88%] rounded-[8px] px-[7px] py-[6px] text-[14px] leading-5 shadow-[0_1px_1px_rgba(15,23,42,0.14)] [-webkit-touch-callout:none] md:max-w-[72%] [@media(pointer:coarse)]:select-none ${
+          {...gestosDeLaBurbuja}
+          style={deslizar.dx > 0 ? { transform: `translateX(${deslizar.dx}px)` } : undefined}
+          className={`group/bubble relative touch-pan-y max-w-[88%] rounded-[8px] px-[7px] py-[6px] text-[14px] leading-5 shadow-[0_1px_1px_rgba(15,23,42,0.14)] [-webkit-touch-callout:none] md:max-w-[72%] [@media(pointer:coarse)]:select-none ${
             outbound
               ? "rounded-tr-[3px] bg-[var(--chat-out-bubble)] text-[var(--chat-out-text)]"
               : "rounded-tl-[3px] border border-border bg-card text-card-foreground"
           } ${isTouchMenuOpen ? "ring-2 ring-[var(--primary)]/40" : ""}`}
         >
+          {deslizar.dx > 0 ? (
+            // La flechita de "responder": crece con el dedo y queda a la izquierda de la burbuja.
+            <span
+              aria-hidden
+              className="pointer-events-none absolute right-full top-1/2 mr-3 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-muted text-muted-foreground"
+              style={{ opacity: deslizar.progreso, transform: `translateY(-50%) scale(${0.5 + deslizar.progreso / 2})` }}
+            >
+              <Reply className="h-4 w-4" />
+            </span>
+          ) : null}
           {tieneAcciones ? (
             <>
               <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onForward={onForward} onDelete={onDelete} audioUrl={audioUrl} />
