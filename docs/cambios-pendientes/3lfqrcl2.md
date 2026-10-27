@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `numeros_de_ventas`: el campo `cotizaciones` sale de Gestión (GET /api/cotizaciones?desde=&hasta= con la misma llave del catálogo), por vendedora cruzada con la asesora por nombre; una vendedora sin asesora en el CRM sale en su propia fila "(solo en Gestión)". Si Gestión no responde, `cotizaciones` es null y el aviso va en `no_se_pudo_leer`. El número que antes se llamaba "cotizaciones" (chats que llegaron a Tibio o Caliente) ahora es `chatsCalientes`.

@@ -385,14 +385,15 @@ export type CambioDeEtapaDeChat = {
   canalId: string | null;
 };
 
-export type ContadorDeEtapas = { cotizaciones: number; ventas: number };
+export type ContadorDeEtapas = { chatsCalientes: number; ventas: number };
 
 export function esLineaAdmin(canalId: string | null, proposito: string | null): boolean {
   return proposito === "ADMIN" || canalId === CANAL_ADMIN_ID;
 }
 
 /**
- * Cuenta cotizaciones y ventas por asesora. La línea Admin nunca cuenta (ahí solo se cobra: la venta cuenta en
+ * Cuenta chats calientes (llegaron a Tibio o Caliente: PROPUESTA, NEGOCIACION o GANADO) y ventas por asesora.
+ * OJO: esto NO son cotizaciones; las cotizaciones salen de Gestión (`contarCotizacionesPorVendedora`). La línea Admin nunca cuenta (ahí solo se cobra: la venta cuenta en
  * la línea donde se vendió, a nombre de quien vendió). Un teléfono (contacto) es UNA venta aunque tenga
  * varios chats GANADO; se le da a la asesora del primer chat de ventas que lo cerró.
  */
@@ -400,17 +401,17 @@ export function contarEtapasPorAsesora(cambios: CambioDeEtapaDeChat[]): Map<stri
   const resultado = new Map<string | null, ContadorDeEtapas>();
   const contador = (id: string | null) => {
     let c = resultado.get(id);
-    if (!c) resultado.set(id, (c = { cotizaciones: 0, ventas: 0 }));
+    if (!c) resultado.set(id, (c = { chatsCalientes: 0, ventas: 0 }));
     return c;
   };
-  const cotizo = new Set<string>();
+  const caliente = new Set<string>();
   const vendio = new Set<string>();
   for (const cambio of cambios) {
     if (esLineaAdmin(cambio.canalId, cambio.proposito)) continue;
     const llave = `${cambio.asesoraId ?? ""}|${cambio.contactId}`;
-    if (["PROPUESTA", "NEGOCIACION", "GANADO"].includes(cambio.etapaNueva) && !cotizo.has(llave)) {
-      cotizo.add(llave);
-      contador(cambio.asesoraId).cotizaciones += 1;
+    if (["PROPUESTA", "NEGOCIACION", "GANADO"].includes(cambio.etapaNueva) && !caliente.has(llave)) {
+      caliente.add(llave);
+      contador(cambio.asesoraId).chatsCalientes += 1;
     }
     if (cambio.etapaNueva === "GANADO" && !vendio.has(cambio.contactId)) {
       vendio.add(cambio.contactId);
@@ -418,6 +419,52 @@ export function contarEtapasPorAsesora(cambios: CambioDeEtapaDeChat[]): Map<stri
     }
   }
   return resultado;
+}
+
+/** Una cotización creada en Gestión, con el nombre de la vendedora tal como está allá. */
+export type CotizacionDeGestion = { vendedora: string | null };
+
+export type CotizacionesPorVendedora = {
+  /** Cotizaciones por id de asesora del CRM (solo las que se pudieron cruzar por nombre). */
+  porAsesora: Map<string, number>;
+  /** Vendedoras de Gestión que no coinciden con ninguna asesora: salen en su propia fila, con su nombre de Gestión. */
+  sinAsesora: Array<{ vendedora: string; cotizaciones: number }>;
+};
+
+const sinTildes = (texto: string) => texto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+
+/**
+ * Cuenta las cotizaciones de Gestión por vendedora y las cruza con las asesoras del CRM por nombre (sin tildes ni
+ * mayúsculas). Si el nombre no coincide, la cotización NO se pierde ni se le da a otra persona: queda en `sinAsesora`.
+ */
+export function contarCotizacionesPorVendedora(
+  cotizaciones: CotizacionDeGestion[],
+  asesoras: Array<{ id: string; nombre: string | null }>,
+): CotizacionesPorVendedora {
+  const idPorNombre = new Map<string, string>();
+  const repetidos = new Set<string>();
+  for (const asesora of asesoras) {
+    const nombre = sinTildes(asesora.nombre ?? "");
+    if (!nombre) continue;
+    // Dos asesoras con el mismo nombre: no se adivina a cuál darle la cotización.
+    if (idPorNombre.has(nombre) && idPorNombre.get(nombre) !== asesora.id) repetidos.add(nombre);
+    idPorNombre.set(nombre, asesora.id);
+  }
+  const porAsesora = new Map<string, number>();
+  const sinAsesora = new Map<string, { vendedora: string; cotizaciones: number }>();
+  for (const cotizacion of cotizaciones) {
+    const original = (cotizacion.vendedora ?? "").trim() || "sin vendedora";
+    const nombre = sinTildes(original);
+    const id = repetidos.has(nombre) ? undefined : idPorNombre.get(nombre);
+    if (id) {
+      porAsesora.set(id, (porAsesora.get(id) ?? 0) + 1);
+      continue;
+    }
+    const previo = sinAsesora.get(nombre);
+    if (previo) previo.cotizaciones += 1;
+    else sinAsesora.set(nombre, { vendedora: original, cotizaciones: 1 });
+  }
+  return { porAsesora, sinAsesora: [...sinAsesora.values()] };
 }
 
 /* ------------------------------------------------------------------------------------------------

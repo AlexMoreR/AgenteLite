@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 
 import {
   CANAL_ADMIN_ID,
+  contarCotizacionesPorVendedora,
   contarEtapasPorAsesora,
   medirSugeridos,
   tasaDeCierre,
@@ -13,6 +14,7 @@ import {
   type Area,
   type Sugerido,
 } from "../dominio/reglas";
+import { cotizacionesDelDiaEnGestion } from "./cotizaciones-de-gestion";
 import { leerResumenDelDia } from "./resumenes";
 
 /**
@@ -32,7 +34,10 @@ export type NumerosDeAsesora = {
   asesoraId: string | null;
   asesora: string;
   chatsAtendidos: number;
-  cotizaciones: number;
+  /** Cotizaciones creadas ese día en Gestión por esa vendedora. Null si Gestión no respondió. */
+  cotizaciones: number | null;
+  /** Chats que llegaron a Tibio o Caliente (PROPUESTA, NEGOCIACION o GANADO). No son cotizaciones. */
+  chatsCalientes: number;
   ventas: number;
   cierrePorCiento: number | null;
   /** Mediana, en minutos, entre un mensaje del cliente y la primera respuesta humana. */
@@ -45,7 +50,9 @@ type FilaRespuesta = { asesoraId: string | null; mediana: number | null };
 
 const numero = (valor: bigint | number | null | undefined) => Number(valor ?? 0);
 
-export async function numerosDelDia(workspaceId: string, fecha: string): Promise<NumerosDeAsesora[]> {
+export type NumerosDelDia = { filas: NumerosDeAsesora[]; avisos: string[] };
+
+export async function numerosDelDia(workspaceId: string, fecha: string): Promise<NumerosDelDia> {
   const { desde, hasta } = rangoDelDia(fecha);
 
   const atendidos = await prisma.$queryRaw<FilaAtendidos[]>(Prisma.sql`
@@ -103,7 +110,8 @@ export async function numerosDelDia(workspaceId: string, fecha: string): Promise
       asesoraId: id,
       asesora: nombre ?? "sin asesora",
       chatsAtendidos: 0,
-      cotizaciones: 0,
+      cotizaciones: null,
+      chatsCalientes: 0,
       ventas: 0,
       cierrePorCiento: null,
       tiempoDeRespuestaMin: null,
@@ -114,7 +122,7 @@ export async function numerosDelDia(workspaceId: string, fecha: string): Promise
   for (const fila of atendidos) obtener(fila.asesoraId, fila.asesora).chatsAtendidos = numero(fila.atendidos);
   for (const [asesoraId, cuenta] of etapas) {
     const dato = obtener(asesoraId, null);
-    dato.cotizaciones = cuenta.cotizaciones;
+    dato.chatsCalientes = cuenta.chatsCalientes;
     dato.ventas = cuenta.ventas;
   }
   for (const fila of respuestas) {
@@ -131,8 +139,44 @@ export async function numerosDelDia(workspaceId: string, fecha: string): Promise
       if (dato && usuario.name) dato.asesora = usuario.name;
     }
   }
+
+  // Cotizaciones reales: salen de Gestión (creadas ese día, por vendedora), no de las etapas del chat.
+  const avisos: string[] = [];
+  const deGestion = await cotizacionesDelDiaEnGestion(workspaceId, fecha);
+  if (deGestion.cotizaciones === null) {
+    avisos.push(`cotizaciones (Gestión): ${deGestion.motivo}`);
+  } else {
+    const miembros = await prisma.workspaceMember
+      .findMany({ where: { workspaceId }, select: { user: { select: { id: true, name: true } } } })
+      .catch(() => []);
+    const conocidas = new Map<string, string | null>();
+    for (const miembro of miembros) conocidas.set(miembro.user.id, miembro.user.name);
+    for (const dato of porAsesora.values()) if (dato.asesoraId) conocidas.set(dato.asesoraId, dato.asesora);
+    const conteo = contarCotizacionesPorVendedora(
+      deGestion.cotizaciones,
+      [...conocidas].map(([id, nombre]) => ({ id, nombre })),
+    );
+    for (const dato of porAsesora.values()) dato.cotizaciones = dato.asesoraId ? conteo.porAsesora.get(dato.asesoraId) ?? 0 : 0;
+    // Asesoras con cotizaciones pero sin otra actividad ese día: tienen su propia fila.
+    for (const [asesoraId, cotizaciones] of conteo.porAsesora) {
+      if (!porAsesora.has(clave(asesoraId))) obtener(asesoraId, conocidas.get(asesoraId) ?? null).cotizaciones = cotizaciones;
+    }
+    // Vendedoras de Gestión sin asesora en el CRM: fila aparte con su nombre de Gestión.
+    for (const otra of conteo.sinAsesora) {
+      porAsesora.set(`gestion:${otra.vendedora}`, {
+        asesoraId: null,
+        asesora: `${otra.vendedora} (solo en Gestión)`,
+        chatsAtendidos: 0,
+        cotizaciones: otra.cotizaciones,
+        chatsCalientes: 0,
+        ventas: 0,
+        cierrePorCiento: null,
+        tiempoDeRespuestaMin: null,
+      });
+    }
+  }
   for (const dato of porAsesora.values()) dato.cierrePorCiento = tasaDeCierre(dato.ventas, dato.chatsAtendidos);
-  return [...porAsesora.values()].sort((a, b) => b.chatsAtendidos - a.chatsAtendidos);
+  return { filas: [...porAsesora.values()].sort((a, b) => b.chatsAtendidos - a.chatsAtendidos), avisos };
 }
 
 export type AvisosDelSupervisor = { critico: number; importante: number; observacion: number } | null;

@@ -14,7 +14,7 @@ const transpiled = ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
 });
 const mod = { exports: {} };
 new Function("exports", "require", "module", "__filename", "__dirname", transpiled.outputText)(mod.exports, require, mod, sourcePath, path.dirname(sourcePath));
-const { contarEtapasPorAsesora, CANAL_ADMIN_ID } = mod.exports;
+const { contarEtapasPorAsesora, contarCotizacionesPorVendedora, CANAL_ADMIN_ID } = mod.exports;
 
 const cambio = (o) => ({ conversationId: "c", contactId: "k", asesoraId: "yair", etapaNueva: "GANADO", proposito: "SALES", canalId: "ventas1", ...o });
 const ventas = (mapa, id) => mapa.get(id)?.ventas ?? 0;
@@ -48,10 +48,36 @@ prueba("dos chats de ventas del mismo teléfono cuentan 1", () => {
 prueba("una venta normal de Ventas 2 no cambia", () => {
   const m = contarEtapasPorAsesora([cambio({ contactId: "z", asesoraId: "ana", canalId: "ventas2" })]);
   assert.equal(ventas(m, "ana"), 1);
-  assert.equal(m.get("ana").cotizaciones, 1);
+  assert.equal(m.get("ana").chatsCalientes, 1);
 });
-prueba("cotizaciones: PROPUESTA y GANADO del mismo cliente cuentan una vez por asesora", () => {
+prueba("chats calientes: PROPUESTA y GANADO del mismo cliente cuentan una vez por asesora", () => {
   const m = contarEtapasPorAsesora([cambio({ etapaNueva: "PROPUESTA" }), cambio({ etapaNueva: "GANADO" })]);
-  assert.deepEqual(m.get("yair"), { cotizaciones: 1, ventas: 1 });
+  assert.deepEqual(m.get("yair"), { chatsCalientes: 1, ventas: 1 });
+});
+
+const asesoras = [
+  { id: "maria", nombre: "María Bautista" },
+  { id: "yair", nombre: "Yair Silvera" },
+  { id: "ingrid", nombre: "Ingrid Sánchez" },
+];
+prueba("26-oct: Gestión trae COT-00150 (Yair) y COT-00151 (Ingrid): María 0, Yair 1, Ingrid 1", () => {
+  const r = contarCotizacionesPorVendedora([{ vendedora: "Yair Silvera" }, { vendedora: "Ingrid Sanchez" }], asesoras);
+  assert.equal(r.porAsesora.get("maria") ?? 0, 0);
+  assert.equal(r.porAsesora.get("yair"), 1);
+  assert.equal(r.porAsesora.get("ingrid"), 1);
+  assert.equal(r.sinAsesora.length, 0);
+});
+prueba("María con 2 chats calientes y 0 cotizaciones de Gestión", () => {
+  const m = contarEtapasPorAsesora([
+    cambio({ contactId: "a", asesoraId: "maria", etapaNueva: "PROPUESTA" }),
+    cambio({ contactId: "b", asesoraId: "maria", etapaNueva: "NEGOCIACION" }),
+  ]);
+  assert.equal(m.get("maria").chatsCalientes, 2);
+  assert.equal(contarCotizacionesPorVendedora([], asesoras).porAsesora.get("maria") ?? 0, 0);
+});
+prueba("una vendedora de Gestión sin asesora en el CRM sale aparte, con su nombre", () => {
+  const r = contarCotizacionesPorVendedora([{ vendedora: "Laura Pérez" }, { vendedora: "laura perez" }, { vendedora: "YAIR SILVERA" }], asesoras);
+  assert.deepEqual(r.sinAsesora, [{ vendedora: "Laura Pérez", cotizaciones: 2 }]);
+  assert.equal(r.porAsesora.get("yair"), 1);
 });
 console.log(`\n${n} pruebas pasaron`);
