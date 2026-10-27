@@ -2,15 +2,6 @@
 
 import * as React from "react";
 import { RefreshCw } from "lucide-react";
-import {
-  EVENTO_REVISAR_VERSION,
-  decidirRecarga,
-  estaOcupada,
-  leerRecargas,
-  olvidarRecargas,
-  pedirGuardadoDeBorrador,
-  registrarRecarga,
-} from "@/lib/actualizacion-automatica";
 
 /**
  * Avisa cuando la pagina abierta quedo vieja despues de un despliegue.
@@ -26,11 +17,6 @@ import {
  * noche entera mientras se desplegaba seis veces, nunca perdio el foco, nunca se entero, y lo que
  * vio fue un panel que no cargaba y un "cambiar asesor" que no hacia nada (24-sep-2026). En el
  * servidor eso se lee como "Failed to find Server Action".
- *
- * Desde el 27-oct-2026 ya no pide tocar nada: al detectar la version nueva la app se recarga SOLA
- * en un momento seguro (la asesora quieta, sin envio ni audio ni archivo en curso), con el
- * borrador guardado. La pastilla "Actualizamos la app" queda solo de respaldo, si tras 2
- * recargas seguidas la app sigue vieja. Reglas en src/lib/actualizacion-automatica.ts.
  */
 
 const VERSION_CARGADA = process.env.NEXT_PUBLIC_DEPLOYMENT_ID?.trim() || "";
@@ -69,83 +55,27 @@ export function AppVersionGuard() {
     }
 
     let cancelado = false;
-    let hayNueva = false;
-    let esperando: number | null = null;
 
-    const dejarDeEsperar = () => {
-      if (esperando !== null) {
-        window.clearInterval(esperando);
-        esperando = null;
-      }
-    };
-
-    /**
-     * Recarga sola cuando es seguro (ver decidirRecarga). Si la asesora esta haciendo algo, se
-     * reintenta cada segundo hasta que quede quieta. El borrador se guarda justo antes.
-     */
-    const intentarRecargar = (ignorar: string[] = []) => {
-      if (cancelado || !hayNueva) {
-        return;
-      }
-      const decision = decidirRecarga({
-        ahora: Date.now(),
-        ocupada: estaOcupada(Date.now(), ignorar),
-        recargas: leerRecargas(),
-      });
-      if (decision === "pastilla") {
-        dejarDeEsperar();
-        setVieja(true);
-        return;
-      }
-      if (decision === "esperar") {
-        if (esperando === null) {
-          esperando = window.setInterval(() => intentarRecargar(), 1000);
-        }
-        return;
-      }
-      dejarDeEsperar();
-      pedirGuardadoDeBorrador();
-      registrarRecarga();
-      window.location.reload();
-    };
-
-    const comprobar = async (ignorar: string[] = []) => {
+    const comprobar = async () => {
       if (cancelado || document.visibilityState !== "visible") {
         return;
       }
       if (await hayVersionNueva()) {
-        if (cancelado) return;
-        hayNueva = true;
-        intentarRecargar(ignorar);
-      } else if (!cancelado) {
-        // Al dia: se olvidan los intentos y se quita la pastilla si estaba.
-        hayNueva = false;
-        dejarDeEsperar();
-        olvidarRecargas();
-        setVieja(false);
+        if (!cancelado) setVieja(true);
       }
     };
 
-    const alVolver = () => void comprobar();
-    const alPedirRevision = (evento: Event) => {
-      const ignorar = (evento as CustomEvent<{ ignorar?: string[] }>).detail?.ignorar ?? [];
-      void comprobar(ignorar);
-    };
-
     void comprobar();
-    document.addEventListener("visibilitychange", alVolver);
-    window.addEventListener("focus", alVolver);
-    window.addEventListener(EVENTO_REVISAR_VERSION, alPedirRevision);
-    // Cada minuto: es una respuesta de dos lineas, y solo corre con la pestaña a la vista.
-    const reloj = window.setInterval(alVolver, 60 * 1000);
+    document.addEventListener("visibilitychange", comprobar);
+    window.addEventListener("focus", comprobar);
+    // Cada 3 minutos: es una respuesta de dos lineas, y solo corre con la pestaña a la vista.
+    const reloj = window.setInterval(comprobar, 3 * 60 * 1000);
 
     return () => {
       cancelado = true;
-      dejarDeEsperar();
       window.clearInterval(reloj);
-      document.removeEventListener("visibilitychange", alVolver);
-      window.removeEventListener("focus", alVolver);
-      window.removeEventListener(EVENTO_REVISAR_VERSION, alPedirRevision);
+      document.removeEventListener("visibilitychange", comprobar);
+      window.removeEventListener("focus", comprobar);
     };
   }, []);
 
