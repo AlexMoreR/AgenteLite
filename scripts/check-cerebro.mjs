@@ -807,9 +807,28 @@ await prueba("seIgnora: punto al inicio (.git, .obsidian, .gitignore), rutas ign
   si("Ventas/sin-extension", "sin-extension", "image/png");
   no("Ventas/precios.md");
   no("Ventas/Guion v1.2.md");
-  no("CRM-Gestion/export-dudas-2026-10-27/q001.json", "q001.json", "application/json");
+  no("CRM-Gestion/export-dudas-2026-10-27/q001.md", "q001.md");
   no("CRM-Gestion/export-dudas-2026-10-26-bis.md");
-  no("Marketing/foto.jpg", "foto.jpg", "image/jpeg");
+  si("Marketing/foto.jpg", "foto.jpg", "image/jpeg");
+  // node_modules, dist, código, datos, imágenes y archivos sin extensión de librerías
+  si("Tecnologia/seo/node_modules/gaxios/README.md", "README.md");
+  si("Tecnologia/seo/node_modules", "node_modules", reglas.MIME_CARPETA);
+  si("node_modules/x/index.d.ts", "index.d.ts", "video/mp2t");
+  si("Web/dist/app.md", "app.md");
+  si("Web/node_modules/p/src/a.md", "a.md");
+  si("Web/node_modules/p/test/a.md", "a.md");
+  si("LICENSE", "LICENSE", "application/octet-stream");
+  si("Tecnologia/seo/node_modules/x/license", "license", "text/plain");
+  si("CODEOWNERS", "CODEOWNERS", "application/octet-stream");
+  si("CRM-Gestion/fichas-imagenes-2026-10-26/a.jpg", "a.jpg", "image/jpeg");
+  for (const nombre of ["a.webp", "a.jpeg", "a.csv", "a.html", "a.json", "a.mjs", "a.js", "a.map", "a.sql", "a.cmd"]) si(`Datos/${nombre}`, nombre, "application/octet-stream");
+  no("Ventas/Notas.txt", "Notas.txt", "text/plain");
+  no("Ventas/Guion de ventas", "Guion de ventas", reglas.MIME_DOCUMENTO_GOOGLE);
+  no("Ventas/Carpeta normal", "Carpeta normal", reglas.MIME_CARPETA);
+  no("Ventas/datos.json", "datos.json", reglas.MIME_CARPETA);
+  no("Ventas/src", "src", reglas.MIME_CARPETA);
+  no("Ventas/src/guion.md", "guion.md");
+  no("Ventas/test/guion.md", "guion.md");
   assert.ok(reglas.RUTAS_IGNORADAS.includes("CRM-Gestion/export-dudas-2026-10-26"));
   assert.equal(reglas.seIgnora("Otra/carpeta/x.md", "x.md", "text/markdown", ["Otra/carpeta"]), true, "la lista se puede cambiar");
 });
@@ -826,6 +845,17 @@ await prueba("el plan deja fuera lo ignorado: no entra lo nuevo y lo viejo se ma
   assert.deepEqual(plan.nuevos, [], ".gitignore no entra");
   assert.deepEqual(plan.ignorados.sort(), ["g1", "p1", "q1"]);
   assert.deepEqual(plan.ausentes, ["viejo"], "lo ignorado no se cuenta como ausente");
+  assert.equal(plan.igualesSinCambio, 1);
+});
+
+await prueba("el plan marca como ignoradas las filas viejas de node_modules e imágenes y no borra ninguna", () => {
+  const bueno = archivo("ok", "ok.md");
+  const libreria = archivo("nm1", "README.md", { ruta: "Tecnologia/seo/node_modules/gaxios/README.md" });
+  const foto = archivo("f1", "a.jpg", { ruta: "CRM-Gestion/fichas-imagenes-2026-10-26/a.jpg", tipo: "image/jpeg" });
+  const plan = reglas.planificarSincronizacion([bueno], [copia(bueno), copia(libreria), copia(foto, { tipo: foto.tipo })]);
+  assert.deepEqual(plan.ignorados.sort(), ["f1", "nm1"]);
+  assert.deepEqual(plan.ausentes, [], "no se cuentan como ausentes");
+  assert.deepEqual([plan.nuevos, plan.cambiados, plan.movidos], [[], [], []]);
   assert.equal(plan.igualesSinCambio, 1);
 });
 
