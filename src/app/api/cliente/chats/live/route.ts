@@ -5,7 +5,11 @@ import { getOfficialApiChatsData } from "@/features/official-api/services/getOff
 import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { readGatewayConnection, resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
 import { WAHA_GATEWAY_KIND, suscribirPresenciaWaha } from "@/lib/waha";
-import { enmascararSiEsTelefono, enmascararTelefono, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
+import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
+import { getVisibleChannelIds } from "@/lib/channel-visibility";
+import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
+import { esSupervisora } from "@/lib/permisos-del-equipo";
+import { puedeAbrirChatPorClave } from "@/lib/chats-acceso-por-enlace";
 import { scheduleSingleContactAvatarRefresh } from "@/lib/contact-avatar-refresh";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { prisma } from "@/lib/prisma";
@@ -102,10 +106,11 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     pagina. Tapando solo en el render del servidor, bastaba con abrir un chat para que el numero
     real volviera entero. Ver `modo-monitoreo.ts`.
   */
-  const taparTelefonos = await estaEnModoMonitoreo({
+  const canalesMonitoreados = await canalesQueMonitorea({
     workspaceId: membership.workspace.id,
     userId: session.user.id,
   });
+  const taparTelefonos = canalesMonitoreados.length > 0;
   t.marca("auth");
 
   const requestUrl = new URL(request.url);
@@ -126,6 +131,32 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
 
   if (!parsed) {
     return NextResponse.json({ ok: false, error: "Chat invalido" }, { status: 400 });
+  }
+
+  /*
+    Quien pide el chat tiene que poder abrirlo (mismas reglas que la lista de la bandeja).
+
+    Sin esto, llamando directo a esta ruta con la clave de un chat ajeno se leian sus mensajes
+    aunque la pantalla ya no lo abriera. Se responde igual que con un chat que no existe.
+  */
+  const esJefe =
+    esJefeDelNegocio(access) || (await esSupervisora(membership.workspace.id, session.user.id));
+  const canalesVisibles = await getVisibleChannelIds({
+    workspaceId: membership.workspace.id,
+    userId: session.user.id,
+    esJefe: access.isOwner || access.role === "ADMIN",
+  });
+  const permitido = await puedeAbrirChatPorClave({
+    workspaceId: membership.workspace.id,
+    userId: session.user.id,
+    fuente: parsed.source,
+    conversationId: parsed.conversationId,
+    esJefe,
+    canalesVisibles,
+    canalesMonitoreados,
+  });
+  if (!permitido) {
+    return NextResponse.json({ ok: false, error: "Conversacion no encontrada" }, { status: 404 });
   }
 
   /**
