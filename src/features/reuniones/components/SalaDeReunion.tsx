@@ -4,13 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Loader2,
   LogOut,
+  Maximize,
   MessageSquare,
+  Minimize,
   Mic,
   MicOff,
   MonitorUp,
   PhoneOff,
   Send,
   X,
+  ZoomOut,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -48,9 +51,25 @@ function AudioDePista({ pista }: { pista: PistaLK }) {
   return <audio ref={audio} autoPlay />;
 }
 
-/** Pega la pantalla compartida de otra persona a un video grande. Al soltarla, la despega. */
-function PantallaGrande({ pista, nombre }: { pista: PistaLK; nombre: string }) {
+/** Distancia entre dos dedos, para el zoom. */
+function distancia(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/**
+ * Pantalla compartida en grande (la de otra persona o la propia). Se ajusta sin cortarse, con botón de
+ * pantalla completa (o a toda la ventana si el navegador no la permite) y zoom con dos dedos / arrastre.
+ * El video va siempre sin sonido: el audio de la reunión llega por las pistas de los micrófonos (evita eco).
+ */
+function PantallaGrande({ pista, nombre, propia }: { pista: PistaLK; nombre: string; propia: boolean }) {
   const video = useRef<HTMLVideoElement>(null);
+  const caja = useRef<HTMLDivElement>(null);
+  const [completa, setCompleta] = useState(false);
+  const [ventanaCompleta, setVentanaCompleta] = useState(false);
+  const [zoom, setZoom] = useState({ escala: 1, x: 0, y: 0 });
+  const dedos = useRef(new Map<number, { x: number; y: number }>());
+  const previa = useRef<{ separacion: number; centro: { x: number; y: number } } | null>(null);
+
   useEffect(() => {
     const elemento = video.current;
     if (!elemento) {
@@ -61,32 +80,163 @@ function PantallaGrande({ pista, nombre }: { pista: PistaLK; nombre: string }) {
       pista.detach(elemento);
     };
   }, [pista]);
+
+  useEffect(() => {
+    const alCambiar = () => setCompleta(document.fullscreenElement === caja.current);
+    document.addEventListener("fullscreenchange", alCambiar);
+    return () => document.removeEventListener("fullscreenchange", alCambiar);
+  }, []);
+
+  const alternarCompleta = async () => {
+    const elemento = caja.current;
+    if (!elemento) {
+      return;
+    }
+    if (completa || ventanaCompleta) {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen().catch(() => undefined);
+      }
+      setVentanaCompleta(false);
+      return;
+    }
+    try {
+      await elemento.requestFullscreen();
+    } catch {
+      // Respaldo (por ejemplo iPhone): se agranda a toda la ventana.
+      setVentanaCompleta(true);
+    }
+  };
+
+  const limitar = (escala: number, x: number, y: number) => {
+    const ancho = caja.current?.clientWidth ?? 0;
+    const alto = caja.current?.clientHeight ?? 0;
+    const maxX = (ancho * (escala - 1)) / 2;
+    const maxY = (alto * (escala - 1)) / 2;
+    return { escala, x: Math.max(-maxX, Math.min(maxX, x)), y: Math.max(-maxY, Math.min(maxY, y)) };
+  };
+
+  const alBajar = (evento: React.PointerEvent) => {
+    evento.currentTarget.setPointerCapture(evento.pointerId);
+    dedos.current.set(evento.pointerId, { x: evento.clientX, y: evento.clientY });
+    previa.current = null;
+  };
+  const alMover = (evento: React.PointerEvent) => {
+    if (!dedos.current.has(evento.pointerId)) {
+      return;
+    }
+    dedos.current.set(evento.pointerId, { x: evento.clientX, y: evento.clientY });
+    const puntos = Array.from(dedos.current.values());
+    if (puntos.length >= 2) {
+      const separacion = distancia(puntos[0], puntos[1]);
+      const centro = { x: (puntos[0].x + puntos[1].x) / 2, y: (puntos[0].y + puntos[1].y) / 2 };
+      const anterior = previa.current;
+      if (anterior) {
+        setZoom((actual) =>
+          limitar(
+            Math.max(1, Math.min(5, actual.escala * (separacion / anterior.separacion))),
+            actual.x + centro.x - anterior.centro.x,
+            actual.y + centro.y - anterior.centro.y,
+          ),
+        );
+      }
+      previa.current = { separacion, centro };
+    } else if (puntos.length === 1) {
+      const anterior = previa.current;
+      if (anterior) {
+        setZoom((actual) =>
+          actual.escala > 1 ? limitar(actual.escala, actual.x + puntos[0].x - anterior.centro.x, actual.y + puntos[0].y - anterior.centro.y) : actual,
+        );
+      }
+      previa.current = { separacion: 0, centro: puntos[0] };
+    }
+  };
+  const alSoltar = (evento: React.PointerEvent) => {
+    dedos.current.delete(evento.pointerId);
+    previa.current = null;
+  };
+
+  const ampliada = completa || ventanaCompleta;
   return (
-    <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg bg-black">
-      <video ref={video} autoPlay playsInline muted className="size-full object-contain" />
+    <div
+      ref={caja}
+      className={cn(
+        "relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg bg-black",
+        ventanaCompleta && "fixed inset-0 z-50 rounded-none",
+      )}
+    >
+      <div
+        className="size-full touch-none"
+        onPointerDown={alBajar}
+        onPointerMove={alMover}
+        onPointerUp={alSoltar}
+        onPointerCancel={alSoltar}
+        onDoubleClick={() => setZoom({ escala: 1, x: 0, y: 0 })}
+      >
+        <video
+          ref={video}
+          autoPlay
+          playsInline
+          muted
+          className="size-full object-contain"
+          style={{ transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.escala})` }}
+        />
+      </div>
       <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
-        Pantalla de {nombre}
+        {propia ? "Estás compartiendo tu pantalla" : `Pantalla de ${nombre}`}
       </span>
+      <div className="absolute top-1.5 right-1.5 flex gap-1.5">
+        {zoom.escala > 1 ? (
+          <button
+            type="button"
+            onClick={() => setZoom({ escala: 1, x: 0, y: 0 })}
+            aria-label="Tamaño normal"
+            className="flex items-center gap-1 rounded bg-black/60 px-2 py-1 text-xs text-white hover:bg-black/80"
+          >
+            <ZoomOut className="size-3.5" /> Normal
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => void alternarCompleta()}
+          aria-label={ampliada ? "Salir de pantalla completa" : "Pantalla completa"}
+          className="rounded bg-black/60 p-1.5 text-white hover:bg-black/80"
+        >
+          {ampliada ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
+        </button>
+      </div>
     </div>
   );
 }
 
-function Cuadro({ participante }: { participante: ParticipanteLK }) {
+function Cuadro({ participante, compacto = false }: { participante: ParticipanteLK; compacto?: boolean }) {
   const nombre = participante.name || participante.identity;
   return (
     <div
       className={cn(
         "relative flex aspect-video min-h-0 items-center justify-center overflow-hidden rounded-lg bg-neutral-800",
+        compacto && "h-full shrink-0 md:h-auto md:w-full",
         participante.isSpeaking && "ring-2 ring-emerald-400",
       )}
     >
-      <span className="flex size-14 items-center justify-center rounded-full bg-neutral-700 text-xl font-semibold text-white">
+      <span
+        className={cn(
+          "flex items-center justify-center rounded-full bg-neutral-700 font-semibold text-white",
+          compacto ? "size-8 text-sm" : "size-14 text-xl",
+        )}
+      >
         {nombre.slice(0, 1).toUpperCase()}
       </span>
-      <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
-        {participante.isMicrophoneEnabled ? null : <MicOff className="size-3" />}
-        {nombre}
-        {participante.isLocal ? " (tú)" : ""}
+      <span
+        className={cn(
+          "absolute bottom-1 left-1 flex max-w-[calc(100%-0.5rem)] items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-white",
+          compacto ? "text-[10px]" : "text-xs",
+        )}
+      >
+        {participante.isMicrophoneEnabled ? null : <MicOff className="size-3 shrink-0" />}
+        <span className="truncate">
+          {nombre}
+          {participante.isLocal ? " (tú)" : ""}
+        </span>
       </span>
     </div>
   );
@@ -298,10 +448,9 @@ export function SalaDeReunion({
         )
     : [];
 
-  // Pantalla de otra persona: se ve en grande; la propia solo se ve en pequeño.
+  // Pantalla compartida (de otra persona o la propia): se ve en grande y las personas pasan a una tira.
   const pantalla = lk
     ? participantes
-        .filter((participante) => !participante.isLocal)
         .map((participante) => ({
           participante,
           publicacion: Array.from(participante.trackPublications.values()).find(
@@ -325,7 +474,12 @@ export function SalaDeReunion({
       ) : null}
 
       <div className="flex min-h-0 flex-1">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
+        <div
+          className={cn(
+            "flex min-h-0 min-w-0 flex-1 gap-2 p-2",
+            pantalla ? "flex-col md:flex-row" : "flex-col overflow-y-auto",
+          )}
+        >
           {estado === "conectando" || !lk ? (
             <div className="flex flex-1 items-center justify-center gap-2 text-sm text-white/80">
               <Loader2 className="size-4 animate-spin" /> Entrando…
@@ -337,16 +491,18 @@ export function SalaDeReunion({
                   key={pantalla.publicacion.trackSid}
                   pista={pantalla.publicacion.track}
                   nombre={pantalla.participante.name || pantalla.participante.identity}
+                  propia={pantalla.participante.isLocal}
                 />
               ) : null}
               <div
                 className={cn(
-                  "grid gap-2",
-                  pantalla ? "shrink-0 grid-cols-3 md:grid-cols-6" : "grid-cols-2 md:grid-cols-3",
+                  pantalla
+                    ? "flex h-20 shrink-0 gap-2 overflow-x-auto md:h-auto md:w-44 md:flex-col md:overflow-y-auto md:overflow-x-hidden"
+                    : "grid grid-cols-2 gap-2 md:grid-cols-3",
                 )}
               >
                 {participantes.map((participante) => (
-                  <Cuadro key={participante.identity} participante={participante} />
+                  <Cuadro key={participante.identity} participante={participante} compacto={!!pantalla} />
                 ))}
               </div>
             </>
