@@ -6,7 +6,7 @@ import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { cn } from "@/lib/utils";
 import { ANCHO_CENTRO, ANCHO_TARJETA } from "../services/disposicion";
 import type { Contadores } from "../services/niveles";
-import { colorDeTipoValido, fondoSuaveDeTipo, inicialDeLaPersona } from "../services/reglas";
+import { colorDeTipoValido, inicialDeLaPersona } from "../services/reglas";
 import { IconoDeTipo } from "./IconoDeTipo";
 
 export type DatosNodoTarjeta = {
@@ -44,8 +44,8 @@ export function lineasDeContadores({ teToca, enCurso, siguen, hecho }: Contadore
 
 /**
  * Una tarjeta en el mapa como ETIQUETA de solo texto, al estilo del tablero "Tareas Magilus": el
- * nombre en negrita (hasta 3 líneas; entero al pasar el mouse) y debajo los contadores que no son cero. Borde y fondo suave con el color de su tipo (más el ícono); si tiene algo que "te toca" lleva un puntico
- * rojo. La del centro (el nivel actual) es más grande, con borde grueso y fondo más fuerte. Ancho según el texto, sin pasar de las medidas de services/disposicion.ts.
+ * nombre en negrita (hasta 3 líneas; entero al pasar el mouse) y debajo los contadores que no son cero. Fondo blanco y borde gris suave, con el color del tipo solo en el ícono; si tiene algo que "te toca" el borde es rojo.
+ * La del centro (el nivel actual) es más grande y con borde más marcado. Ancho según el texto, sin pasar de las medidas de services/disposicion.ts.
  * Mantener presionada una con hijas abre su ficha sin entrar.
  */
 function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
@@ -69,15 +69,17 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
       style={{
         maxWidth: centro ? ANCHO_CENTRO : ANCHO_TARJETA,
         minWidth: centro ? 120 : 90,
-        // El color del tipo: borde puro y fondo suave (el texto no depende del color elegido).
-        ...(colorTipo ? { borderColor: colorTipo, backgroundColor: fondoSuaveDeTipo(colorTipo, centro ? 30 : 16) } : {}),
       }}
       className={cn(
         "relative flex w-max select-none flex-col items-center justify-center overflow-hidden rounded-md border text-center leading-tight transition-opacity [-webkit-touch-callout:none]",
-        centro
-          ? "min-h-14 gap-0.5 border-2 px-4 py-2 text-zinc-900 shadow-md dark:text-zinc-50"
-          : "min-h-11 border px-2.5 py-1.5 text-zinc-900 dark:text-zinc-100",
-        !colorTipo && (centro ? "border-zinc-500 bg-zinc-200 dark:bg-zinc-800" : "border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-900"),
+        // Todas blancas (superficie de tarjeta en oscuro) con borde gris suave; el color del tipo va solo en el ícono.
+        "bg-card text-zinc-900 dark:text-zinc-100",
+        centro ? "min-h-14 gap-0.5 border-2 px-4 py-2 shadow-md" : "min-h-11 border px-2.5 py-1.5",
+        teToca
+          ? "border-rose-600 dark:border-rose-500"
+          : centro
+            ? "border-zinc-400 dark:border-zinc-600"
+            : "border-zinc-300 dark:border-zinc-700",
         selected && "ring-2 ring-primary ring-offset-2 ring-offset-background",
         data.atenuado && "opacity-25",
       )}
@@ -108,14 +110,6 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
     >
       {/* Las líneas se dibujan solas: los puntos de conexión no se muestran ni se arrastran. */}
       <Handle type="target" position={Position.Top} className="!pointer-events-none !opacity-0" isConnectable={false} />
-      {/* "Te toca": un puntico rojo en la esquina, sin tapar el color del tipo. */}
-      {teToca ? (
-        <span
-          className="absolute top-1 left-1 size-2 rounded-full bg-rose-600 ring-1 ring-background dark:bg-rose-500"
-          title="Te toca"
-          aria-label="Te toca"
-        />
-      ) : null}
       {data.responsable ? (
         <span
           className="absolute top-0.5 right-0.5 flex size-4 items-center justify-center rounded-full bg-zinc-900 text-[9px] font-semibold leading-none text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900"
@@ -126,7 +120,7 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
         </span>
       ) : null}
       {/* El título: hasta 3 líneas (con o sin contadores) y entero al pasar el mouse. */}
-      <p className={cn("line-clamp-3 max-w-full break-words font-semibold", centro ? "text-sm" : "text-xs")}>
+      <p className={cn("line-clamp-3 max-w-full break-words font-semibold", centro ? "text-sm font-bold" : "text-xs")}>
         {colorTipo ? (
           <IconoDeTipo icono={data.iconoTipo} color={colorTipo} className="mr-1 -mt-0.5 inline-block size-3.5 align-middle" />
         ) : null}
@@ -136,8 +130,8 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
         <p
           key={linea}
           className={cn(
-            "max-w-full truncate tabular-nums",
-            centro ? "text-xs opacity-80" : "text-[11px] text-zinc-500 dark:text-zinc-400",
+            "max-w-full truncate tabular-nums text-zinc-500 dark:text-zinc-400",
+            centro ? "text-xs" : "text-[11px]",
           )}
         >
           {linea}
