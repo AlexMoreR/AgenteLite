@@ -12,6 +12,7 @@ import {
 import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
 import { revisarConvivencia } from "@/features/seguimiento-inteligente/servicios/convivencia";
 import { limpiarFrasesProhibidas } from "@/lib/reglas-de-redaccion";
+import { marcaDelResultado, redactarSeguimiento } from "@/features/seguimientos/services/seguimiento-que-escucha";
 
 import { cumpleLasCondiciones } from "../motor/decidir";
 import { elV3AtendioLaCharla, guardarEstado, leerEstado } from "../motor/estado";
@@ -266,8 +267,47 @@ export async function ejecutarSeguimientosV3(
         continue;
       }
 
+      /*
+        Seguimientos que escuchan al cliente (26-10-2026): despues de todos los frenos, el redactor
+        lee la charla (audios incluidos) y escribe el recordatorio con lo que ESTE cliente dijo. Solo
+        cambia el texto: cuando sale y cuantos salen no cambia. Si falla, sale el del libro. Va
+        solo si la regla trae un unico mensaje; el interruptor es `seguimientos-que-escuchan:apagado`.
+      */
+      // Los vencidos quedan marcados aunque haya salido solo el ultimo (ver mas abajo).
+      const marcados = delPaso.filter((fila) => fila.minutos <= toca.minutos).map((fila) => fila.minutos);
+      let textosAEnviar = textos;
+      let marcaIa: ReturnType<typeof marcaDelResultado> = null;
+      if (textos.length === 1) {
+        const redaccion = await redactarSeguimiento({
+          workspaceId: canal.workspaceId,
+          contactId: conversacion.contactId,
+          channelId: canal.id,
+          conversationId: conversacion.id,
+          textoDeSiempre: textos[0],
+          ahora,
+        });
+        if (redaccion.origen === "diferir") {
+          // Se redactan pocos por vuelta: este sale en la siguiente (no se marca como enviado).
+          continue;
+        }
+        if (redaccion.origen === "omitir") {
+          // Sin texto aceptable: no sale, queda anotado y no se reintenta cada minuto.
+          frenados += 1;
+          anotar(redaccion.motivo);
+          await guardarEstado(conversacion.id, {
+            ...estado,
+            seguimientosEnviados: [...new Set([...yaSalieron, ...marcados])],
+          });
+          continue;
+        }
+        if (redaccion.origen !== "apagado") {
+          textosAEnviar = [redaccion.texto];
+          marcaIa = marcaDelResultado(redaccion);
+        }
+      }
+
       try {
-        for (const texto of textos) {
+        for (const texto of textosAEnviar) {
           const resultado = await sendEvolutionTextMessageWithReconnect({
             instanceName: canal.evolutionInstanceName,
             phoneNumber: telefono,
@@ -285,7 +325,11 @@ export async function ejecutarSeguimientosV3(
               status: "SENT",
               content: texto,
               sentAt: new Date(),
-              rawPayload: { source: "agente-v3-seguimiento", evolution: resultado } as never,
+              rawPayload: {
+                source: marcaIa ? "agente-v3-seguimiento-ia" : "agente-v3-seguimiento",
+                evolution: resultado,
+                ...(marcaIa ? { seguimientoIa: marcaIa } : {}),
+              } as never,
             },
           });
         }
@@ -304,7 +348,6 @@ export async function ejecutarSeguimientosV3(
           60 min de otro paso dejaba marcado el "60" de este. Caso 12-oct •••• 5474: salió el de 15
           a los 104 min y el de 1 h ya no salió nunca.
         */
-        const marcados = delPaso.filter((fila) => fila.minutos <= toca.minutos).map((fila) => fila.minutos);
         await guardarEstado(conversacion.id, {
           ...estado,
           seguimientosEnviados: [...new Set([...yaSalieron, ...marcados])],
@@ -324,7 +367,7 @@ export async function ejecutarSeguimientosV3(
           productoV3: estado.productoActivo,
           reglaId: toca.regla.id,
           reglaNombre: toca.regla.nombre,
-          datos: { minutos: toca.minutos, mensajes: textos.length },
+          datos: { minutos: toca.minutos, mensajes: textosAEnviar.length, ...(marcaIa ? { redactor: marcaIa.origen } : {}) },
         });
       } catch (error) {
         console.error("[agente-v3] no se pudo enviar el seguimiento", {

@@ -1,0 +1,5 @@
+## Automatizaciones
+- `seguimientos_que_escuchan`: justo antes de mandar un seguimiento automático de texto (15 min y 1 h del libro V3, 1 día, 3 días, 7 días), la IA (gpt-4.1-mini) lee la conversación con los audios transcritos y escribe un mensaje de máximo 2 líneas que menciona lo que ese cliente dijo, sin frases de robot, sin repetir seguimientos ya enviados y sin cifras, fechas ni plazos que no estén en el libro V3 o en el chat. Si la IA falla se usa el texto de siempre (si pasa la revisión), si no la pregunta corta del producto, y si no hay producto el seguimiento no sale y queda el motivo. Interruptor: `AppSetting` `seguimientos-que-escuchan:apagado` = `si`. Cada mensaje redactado lleva `rawPayload.seguimientoIa` con el texto que reemplazó (los del V3 además con origen `agente-v3-seguimiento-ia`).
+
+## Advertencias de operación
+- `seguimientos_que_escuchan`: redacta como máximo 8 seguimientos por minuto; los demás se difieren un minuto. Sin `OPENAI_API_KEY` o con el interruptor en `si` todo sale con los textos de antes.

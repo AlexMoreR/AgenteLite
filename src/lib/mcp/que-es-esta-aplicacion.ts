@@ -494,7 +494,7 @@ async function automatizaciones(
   descritas: Map<string, string>,
   v3: { reglasSinRespuesta: number; hayLineasConV3: boolean },
 ) {
-  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, descarteTras, transcripcionApagada] =
+  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, descarteTras, transcripcionApagada, escuchanApagado] =
     await Promise.all([
       prisma.followRule.count({ where: { workspaceId, isActive: true } }),
       prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
@@ -506,6 +506,7 @@ async function automatizaciones(
       bandera(`crm:descarte-automatico:${workspaceId}`),
       bandera(`crm:descarte-tras-seguimientos:${workspaceId}`),
       bandera("transcripcion-de-audios:apagada"),
+      bandera("seguimientos-que-escuchan:apagado"),
     ]);
 
   const sinInterruptor = "activa (no tiene interruptor: corre siempre)";
@@ -541,6 +542,11 @@ async function automatizaciones(
       : transcripcionApagada === "si"
         ? "apagada (transcripcion-de-audios:apagada = si)"
         : "activa",
+    seguimientos_que_escuchan: !process.env.OPENAI_API_KEY?.trim()
+      ? "apagada: falta la clave de OpenAI (los seguimientos salen con el texto de siempre)"
+      : escuchanApagado?.trim().toLowerCase() === "si"
+        ? "apagada (seguimientos-que-escuchan:apagado = si): los seguimientos salen con el texto de siempre"
+        : "activa: antes de cada seguimiento automatico de texto la IA lee la charla y escribe el mensaje",
     purga_de_webhooks: sinInterruptor,
     informe_diario: ultimoInforme
       ? `activa: ultimo informe del ${ultimoInforme.reportDate.toISOString().slice(0, 10)}`

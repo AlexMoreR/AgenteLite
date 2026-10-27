@@ -34,6 +34,7 @@ import {
 import { PREFIJO_FOLLOW_INTELIGENTE, revisarConvivencia } from "@/features/seguimiento-inteligente/servicios/convivencia";
 import { PREFIJO_FOLLOW_TRAS_ASESORA } from "@/features/seguimiento-inteligente/dominio/tras-asesora";
 import { revisarDiaSiguienteAlEnviar } from "@/features/seguimiento-inteligente/servicios/dia-siguiente-al-enviar";
+import { marcaDelResultado, redactarSeguimiento, type MarcaDelSeguimiento } from "./seguimiento-que-escucha";
 
 export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
 export type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
@@ -794,6 +795,8 @@ async function persistFollowMessage(input: {
   content: string | null;
   mediaUrl: string | null;
   result: FollowSendResult;
+  /** Si el texto lo escribio el redactor (seguimiento-que-escucha): queda marcado, con el texto que reemplazo. */
+  marca?: MarcaDelSeguimiento | null;
 }) {
   const conversation = await resolveFollowConversation({
     workspaceId: input.workspaceId,
@@ -823,6 +826,7 @@ async function persistFollowMessage(input: {
     rawPayload: {
       source: "follow",
       evolution: input.result.raw,
+      ...(input.marca ? { seguimientoIa: input.marca } : {}),
     } as Prisma.InputJsonValue,
   };
 
@@ -1756,7 +1760,7 @@ async function revisarAntiBloqueoDelFollow(
   return resultado.enviar ? null : resultado;
 }
 
-async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeFreno | MotivoAntiBloqueo) {
+async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeFreno | MotivoAntiBloqueo | string) {
   const now = new Date();
   const hasActionsColumn = await hasFollowActionsColumn("Follow");
   const actions = buildCancelledFollowActions({
@@ -1874,6 +1878,48 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
   const actionErrors: Array<{ order: number; message: string }> = [];
   let lineaUsada: string | null = follow.channelId;
 
+  /*
+    Seguimientos que escuchan al cliente (26-10-2026): despues de TODOS los frenos y justo antes de
+    enviar, el redactor lee la charla y reemplaza el texto de un automatico de texto. Solo cambia el
+    texto del que ya iba a salir. Interruptor: AppSetting `seguimientos-que-escuchan:apagado` = si.
+  */
+  let textoRedactado: string | null = null;
+  let marcaDelTexto: MarcaDelSeguimiento | null = null;
+  const unicaAccion = actions.length === 1 ? actions[0] : null;
+  if (clase === "automatico" && unicaAccion && unicaAccion.status === "PENDING" && !unicaAccion.flowId && unicaAccion.messageType === "TEXT" && unicaAccion.content?.trim()) {
+    const redaccion = await redactarSeguimiento({
+      workspaceId: follow.workspaceId,
+      contactId: follow.contactId,
+      channelId: follow.channelId,
+      textoDeSiempre: unicaAccion.content.trim(),
+    });
+    if (redaccion.origen === "diferir") {
+      await reprogramarFollow(follow, new Date(Date.now() + 60_000));
+      return { ok: true as const, executionError: null, frenado: "redaccion_diferida" };
+    }
+    if (redaccion.origen === "omitir") {
+      await cancelarFollowFrenado(follow, redaccion.motivo);
+      anotarFrenado({
+        workspaceId: follow.workspaceId,
+        contactId: follow.contactId,
+        channelId: follow.channelId,
+        motor: "follow",
+        motivo: redaccion.motivo,
+        claveUnica: `follow:${follow.id}:${redaccion.motivo}`,
+        reglaId: follow.followRuleId,
+        reglaNombre: follow.name,
+        datos: { followId: follow.id, clase },
+      });
+      return { ok: true as const, executionError: null, frenado: redaccion.motivo };
+    }
+    if (redaccion.origen === "ia" || redaccion.origen === "pregunta_del_producto") {
+      textoRedactado = redaccion.texto;
+      marcaDelTexto = marcaDelResultado(redaccion);
+    } else if (redaccion.origen === "respaldo") {
+      textoRedactado = redaccion.texto;
+    }
+  }
+
   for (const action of actions) {
     if (action.status !== "PENDING") {
       continue;
@@ -1906,7 +1952,7 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
         contactId: follow.contactId,
         channelId: follow.channelId,
         messageType: action.messageType,
-        content: action.content,
+        content: textoRedactado ?? action.content,
         mediaUrl: action.mediaUrl,
       });
       lineaUsada = sendResult.channel.id;
@@ -1919,9 +1965,10 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
           workspaceId: follow.workspaceId,
           contactId: follow.contactId,
           messageType: action.messageType,
-          content: action.content,
+          content: textoRedactado ?? action.content,
           mediaUrl: action.mediaUrl,
           result: sendResult,
+          marca: marcaDelTexto,
         });
       } catch (persistError) {
         console.error("[follows] No se pudo persistir el mensaje de seguimiento en chats", {

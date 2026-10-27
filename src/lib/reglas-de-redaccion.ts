@@ -45,6 +45,21 @@ export function frasesProhibidas(texto: string): string[] {
   return problemas;
 }
 
+/**
+ * Las frases de robot de los seguimientos (Alex, 26-10-2026): no le dan al cliente razon para
+ * contestar. Aparte de `frasesProhibidas` a proposito: esas aplican a toda respuesta y al libro;
+ * estas solo a los seguimientos que escriben la IA y sus textos de respaldo.
+ */
+export function frasesRoboticas(texto: string): string[] {
+  const problemas: string[] = [];
+  const plano = texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (/pudiste (ver|revisar)( lo que| la informacion| los datos| las fotos)?/.test(plano)) problemas.push('dice "¿pudiste ver lo que te envié?"');
+  if (/aqui estoy para (ayudarte|ayudar)/.test(plano)) problemas.push('dice "aquí estoy para ayudarte"');
+  if (/si (te )?(queda|tienes|surge)( alguna)? (duda|pregunta)/.test(plano)) problemas.push('dice "si te queda alguna duda"');
+  if (/quedo (atent[ao]|pendiente)|cuando quieras|sin afan|sin prisa/.test(plano)) problemas.push('usa un cierre pasivo ("quedo atenta", "cuando quieras")');
+  return problemas;
+}
+
 /** Ademas de las frases: un seguimiento es corto, con una sola pregunta y al final. */
 export function problemasDeSeguimiento(texto: string): string[] {
   const problemas = frasesProhibidas(texto);
