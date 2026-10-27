@@ -1,10 +1,12 @@
 import { prisma } from "@/lib/prisma";
 
 import {
+  areaDeLaRuta,
   ordenarAlertas,
   salePorWhatsApp,
   textoDeUrgente,
   tituloCorto,
+  type AreaDeAlerta,
   type EstadoDeAlerta,
   type Prioridad,
 } from "../dominio/reglas";
@@ -158,4 +160,42 @@ export async function marcarAlerta(workspaceId: string, id: string, nuevo: "VIST
     data: nuevo === "VISTA" ? { estado: "VISTA", vistaEn: ahora } : { estado: "RESUELTA", resueltaEn: ahora, vistaEn: actual.vistaEn ?? ahora },
   });
   return true;
+}
+
+/**
+ * SOLO LECTURA. El área de cada tarjeta del tablero (por su id) para la etiqueta y el filtro de la página: sube por las
+ * madres juntando las carpetas "Área" (tipo sin estados) y deja que `areaDeLaRuta` elija (dentro de Tecnología, la
+ * subárea madre). Tarjeta borrada, sin área o fuera de la lista fija = null (la página la manda a "General").
+ */
+export async function leerAreasDeTarjetas(workspaceId: string, ids: readonly string[]): Promise<Map<string, AreaDeAlerta | null>> {
+  const resultado = new Map<string, AreaDeAlerta | null>();
+  const unicos = [...new Set(ids)];
+  if (unicos.length === 0) return resultado;
+  type Nodo = { id: string; titulo: string; padreId: string | null; borradoEn: Date | null; area: string | null; usaEstados: boolean };
+  const nodos = new Map<string, Nodo>();
+  let pendientes = unicos;
+  // Máximo 8 niveles hacia arriba: una cadena de madres con vuelta no puede colgar la página.
+  for (let nivel = 0; nivel < 8 && pendientes.length > 0; nivel += 1) {
+    const filas = await prisma.tarjetaTablero.findMany({
+      where: { id: { in: pendientes }, tablero: { workspaceId } },
+      select: { id: true, titulo: true, padreId: true, borradoEn: true, area: true, tipo: { select: { usaEstados: true } } },
+    });
+    for (const fila of filas) nodos.set(fila.id, { id: fila.id, titulo: fila.titulo, padreId: fila.padreId, borradoEn: fila.borradoEn, area: fila.area, usaEstados: fila.tipo.usaEstados });
+    pendientes = [...new Set(filas.map((fila) => fila.padreId).filter((id): id is string => !!id && !nodos.has(id)))];
+  }
+  for (const id of unicos) {
+    const tarjeta = nodos.get(id);
+    if (!tarjeta || tarjeta.borradoEn) {
+      resultado.set(id, null);
+      continue;
+    }
+    const ruta: string[] = [];
+    const vistos = new Set<string>();
+    for (let actual: Nodo | undefined = tarjeta; actual && !vistos.has(actual.id); actual = actual.padreId ? nodos.get(actual.padreId) : undefined) {
+      vistos.add(actual.id);
+      if (!actual.usaEstados) ruta.unshift(actual.titulo);
+    }
+    resultado.set(id, areaDeLaRuta(ruta) ?? areaDeLaRuta(tarjeta.area ? [tarjeta.area] : []));
+  }
+  return resultado;
 }
