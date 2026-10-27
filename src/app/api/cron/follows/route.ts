@@ -3,6 +3,7 @@ import { executePendingFollows } from "@/features/seguimientos/services/follows"
 import { demoteUnresponsiveStaleLeads } from "@/features/llamadas/services/lead-cooldown";
 import { enfriarLeadsSinRespuesta } from "@/features/crm/services/lead-temperature";
 import { ejecutarDescarteAutomatico } from "@/features/crm/services/descarte-automatico";
+import { ejecutarDescarteTrasSeguimientos } from "@/features/crm/services/descarte-tras-seguimientos";
 import { procesarTandasDeCampanas } from "@/features/campanas/services/campaigns";
 import { purgeOldWebhookEventLogs } from "@/lib/webhook-log-retention";
 import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimientos";
@@ -170,6 +171,19 @@ async function handleCron(request: Request) {
       descartados = await ejecutarDescarteAutomatico();
     } catch (error) {
       console.error("[cron/follows] descarte automatico error", error);
+    }
+  }
+
+  /*
+    Descarte tras los seguimientos: el seguimiento de 3 dias salio, pasaron 24 h y nadie contesto.
+    Sin senal de compra se descarta; con senal va a LLAMAR. Tambien reabre a quien vuelve a escribir.
+    Se apaga con `crm:descarte-tras-seguimientos:<negocio>` = "off"; mueve maximo 50 por vuelta.
+  */
+  if (new Date().getMinutes() % 10 === 0) {
+    try {
+      await ejecutarDescarteTrasSeguimientos();
+    } catch (error) {
+      console.error("[cron/follows] descarte tras seguimientos error", error);
     }
   }
 

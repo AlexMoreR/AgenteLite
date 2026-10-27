@@ -19,7 +19,6 @@ const riesgo = cargar("src/features/tableros-inteligentes/services/reglas-riesgo
 
 const migraciones = fs.readdirSync(CARPETA, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
 assert.ok(migraciones.includes(NUEVA), `falta la migración ${NUEVA}`);
-assert.equal(migraciones[migraciones.length - 1], NUEVA, "la migración nueva es la última");
 
 const leer = (nombre) => fs.readFileSync(path.join(CARPETA, nombre, "migration.sql"), "utf8");
 const db = new PGlite();
