@@ -25,18 +25,18 @@ import {
 /**
  * Pone en marcha la regla de `domain/descarte-tras-seguimientos.ts` contra la base.
  *
- * El seguimiento de 3 días es un dato del embudo (ProductStageFollowUp del paso Bienvenida), no
+ * El seguimiento de 7 días es un dato del embudo (ProductStageFollowUp del paso Bienvenida), no
  * código. Mientras no exista, ningún lead tiene el evento SEGUIMIENTO_ENVIADO de ese seguimiento y
  * esto no encuentra a nadie: no hace nada.
  *
  * "Salió de verdad" = existe el evento SEGUIMIENTO_ENVIADO con el followId de un Follow del paso
- * Bienvenida que espera 3 días. Si el anti-bloqueo lo frenó o falló, no hay evento y ese lead queda
+ * Bienvenida que espera 7 días. Si el anti-bloqueo lo frenó o falló, no hay evento y ese lead queda
  * como hoy (lado seguro).
  */
 
 const CLAVE_BANDERA = "crm:descarte-tras-seguimientos:";
 const PREFIJO_FOLLOW = `Etapa ${PRODUCT_FUNNEL_STAGES[0].label} · `;
-const MINUTOS_DE_3_DIAS = 3 * 1440;
+const MINUTOS_DE_7_DIAS = 7 * 1440;
 
 /** Prendido de fábrica (decisión del dueño); se apaga poniendo "off". */
 export async function descarteTrasSeguimientosEncendido(workspaceId: string): Promise<boolean> {
@@ -46,7 +46,7 @@ export async function descarteTrasSeguimientosEncendido(workspaceId: string): Pr
 
 type Fila = { contactId: string; etapa: string; enviadoEn: Date };
 
-/** Los leads cuyo seguimiento de 3 días salió hace 24 h o más y siguen sin respuesta de nadie. */
+/** Los leads cuyo seguimiento de 7 días salió hace 24 h o más y siguen sin respuesta de nadie. */
 async function buscarCandidatos(workspaceId: string, limite: number): Promise<Candidato[]> {
   const filas = await prisma.$queryRaw<Fila[]>`
     WITH enviados AS (
@@ -56,7 +56,7 @@ async function buscarCandidatos(workspaceId: string, limite: number): Promise<Ca
       WHERE f."workspaceId" = ${workspaceId}
         AND f."status"::text = 'EXECUTED'
         AND f."name" LIKE ${`${PREFIJO_FOLLOW}%`}
-        AND f."timeValue" * (CASE f."timeType"::text WHEN 'MINUTES' THEN 1 WHEN 'HOURS' THEN 60 ELSE 1440 END) = ${MINUTOS_DE_3_DIAS}
+        AND f."timeValue" * (CASE f."timeType"::text WHEN 'MINUTES' THEN 1 WHEN 'HOURS' THEN 60 ELSE 1440 END) = ${MINUTOS_DE_7_DIAS}
       ORDER BY f."contactId", e."createdAt" DESC
     )
     SELECT c."id" AS "contactId", c."crmStage"::text AS etapa, en.enviado_en AS "enviadoEn"

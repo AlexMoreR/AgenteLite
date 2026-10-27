@@ -175,7 +175,7 @@ async function handleCron(request: Request) {
   }
 
   /*
-    Descarte tras los seguimientos: el seguimiento de 3 dias salio, pasaron 24 h y nadie contesto.
+    Descarte tras los seguimientos: el seguimiento de 7 dias (redes) salio, pasaron 24 h y nadie contesto.
     Sin senal de compra se descarta; con senal va a LLAMAR. Tambien reabre a quien vuelve a escribir.
     Se apaga con `crm:descarte-tras-seguimientos:<negocio>` = "off"; mueve maximo 50 por vuelta.
   */

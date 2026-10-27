@@ -534,7 +534,7 @@ async function automatizaciones(
     descarte_tras_seguimientos:
       descarteTras === "off"
         ? "apagada (crm:descarte-tras-seguimientos = off)"
-        : "activa: descarta a quien no contesta 24 h despues del seguimiento de 3 dias (o lo pasa a LLAMAR si mostro ganas de comprar); no hace nada mientras no exista ese seguimiento",
+        : "activa: descarta a quien no contesta 24 h despues del seguimiento de 7 dias (redes) (o lo pasa a LLAMAR si mostro ganas de comprar); no hace nada mientras no exista ese seguimiento",
     campanas: campanasEnCurso > 0 ? `activa: ${campanasEnCurso} en curso` : "sin campañas en curso",
     transcripcion_de_audios: !process.env.OPENAI_API_KEY?.trim()
       ? "apagada: falta la clave de OpenAI"

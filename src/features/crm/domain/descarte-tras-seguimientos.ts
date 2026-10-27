@@ -5,7 +5,7 @@ import { detectarSenales, type TipoDeSenal } from "../../embudo/dominio/senales"
  * descarta solo a quien nunca contesta. Código puro, sin base: lo prueba
  * `npm run test:descarte-tras-seguimientos`.
  *
- * La regla: el seguimiento de 3 días del paso Bienvenida salió, pasaron 24 h y el cliente no escribió
+ * La regla: el seguimiento de 7 días del paso Bienvenida salió, pasaron 24 h y el cliente no escribió
  * nada (ni una asesora le escribió a mano).
  *  - Sin señal de compra: pasa a Descartado con el motivo "Sin respuesta".
  *  - Con señal de compra (o cotización o anticipo): NO se descarta; va a la lista LLAMAR de su
@@ -13,7 +13,7 @@ import { detectarSenales, type TipoDeSenal } from "../../embudo/dominio/senales"
  *  - Si el cliente escribe después de descartarlo, se reabre en la etapa en que estaba.
  */
 
-/** Horas de espera después del seguimiento de 3 días. */
+/** Horas de espera después del seguimiento de 7 días. */
 export const HORAS_DE_ESPERA = 24;
 /** Lo que el cliente escribe en sus primeros minutos es el texto automático del anuncio: no es señal. */
 export const MINUTOS_DEL_TEXTO_DEL_ANUNCIO = 2;
@@ -48,7 +48,7 @@ export type MensajeDelCliente = { texto: string | null; creadoEn: Date };
 
 export type HechosDelLead = {
   etapa: string;
-  /** Cuándo salió el seguimiento de 3 días. */
+  /** Cuándo salió el seguimiento de 7 días. */
   enviadoEn: Date;
   ahora: Date;
   /** El cliente escribió algo después del seguimiento. */
@@ -89,7 +89,7 @@ export type Candidato = { contactId: string; etapa: string; enviadoEn: Date };
 
 export type Puerto = {
   encendido(): Promise<boolean>;
-  /** Leads con el seguimiento de 3 días enviado hace 24 h o más, sin respuesta ni asesora, abiertos y sin LLAMAR. */
+  /** Leads con el seguimiento de 7 días enviado hace 24 h o más, sin respuesta ni asesora, abiertos y sin LLAMAR. */
   buscarCandidatos(limite: number): Promise<Candidato[]>;
   hechos(candidato: Candidato): Promise<HechosDelLead>;
   descartar(candidato: Candidato): Promise<boolean>;

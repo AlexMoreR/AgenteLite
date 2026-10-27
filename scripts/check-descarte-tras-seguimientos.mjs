@@ -1,5 +1,5 @@
 // Pruebas del descarte tras seguimientos (src/features/crm/domain/descarte-tras-seguimientos.ts):
-// la regla de 24 h despues del seguimiento de 3 dias, las excepciones (LLAMAR, cotizacion, asesora),
+// la regla de 24 h despues del seguimiento de 7 dias, las excepciones (LLAMAR, cotizacion, asesora),
 // la vuelta con una base de mentira (interruptor, tope de 50, idempotencia). No necesita base ni red.
 // Correr: npm run test:descarte-tras-seguimientos
 import fs from "node:fs";
