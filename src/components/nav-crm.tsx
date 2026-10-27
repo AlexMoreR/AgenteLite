@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, Filter, Gauge, GitCompareArrows, KanbanSquare, Bot, Megaphone, ServerCog, Target, LifeBuoy, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, ChevronDown, Filter, Gauge, GitCompareArrows, KanbanSquare, Bot, Megaphone, ServerCog, Target, LifeBuoy, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -31,9 +31,10 @@ const crmViews: Array<{
   soloRecuperacion?: boolean;
 }> = [
   { title: "Mi día", view: "mi-dia", icon: Sun },
-  { title: "Registro", view: "registro", icon: FileText },
+  // Registro ya no está en el menú (Alex, 26-10-2026): la pantalla y los datos siguen, solo se esconde el botón.
   { title: "Kanban", view: "kanban", icon: KanbanSquare },
-  { title: "Informe", view: "informe", icon: ChartNoAxesCombined },
+  // Informe y Guiones: solo quien supervisa; las asesoras ven solo Mi día y Kanban.
+  { title: "Informe", view: "informe", icon: ChartNoAxesCombined, soloJefes: true },
   // Solo para quien supervisa: es como viene CADA asesora, no el trabajo de una.
   { title: "Tablero", view: "tablero", icon: Gauge, soloJefes: true },
   // El embudo del Combo (F1): de la entrada del anuncio al anticipo. También solo para quien supervisa.
@@ -53,7 +54,7 @@ const crmViews: Array<{
   { title: "Agente de Marketing", view: "agente-de-marketing", icon: Megaphone, soloJefes: true },
   // El Agente de Sistemas: el mismo molde; revisa que lo subido funcione. Solo lee.
   { title: "Agente de Sistemas", view: "agente-de-sistemas", icon: ServerCog, soloJefes: true },
-  { title: "Guiones", view: "guiones", icon: BookOpen },
+  { title: "Guiones", view: "guiones", icon: BookOpen, soloJefes: true },
 ];
 
 export function NavCrm({

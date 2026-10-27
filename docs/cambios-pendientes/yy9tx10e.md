@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `menu_crm_asesoras`: el menú CRM de una asesora muestra solo Mi día y Kanban; Informe y Guiones son solo para quien supervisa (dueño, administrador, supervisoras) y Registro ya no está en el menú de nadie. Es ocultar, no bloquear: las direcciones `/cliente/crm/registro` e `/informe` siguen abriendo. Lo que dice `docs/crm-contexto.md` (el informe "no es solo-dueño") quedó desactualizado.
