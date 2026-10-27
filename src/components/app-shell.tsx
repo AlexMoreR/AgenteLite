@@ -69,11 +69,9 @@ type AppShellProps = {
   // Quien esta conectado, para que el sonido respete a quien le toca cada chat.
   chatRealtimeUserId?: string | null;
   /** Dueño, administrador o supervisora: le aparece el Tablero del equipo en CRM. */
-  puedeSupervisarElEquipo?: boolean;
   /** Dueño o administrador del negocio: le aparece el Supervisor en el menú del CRM. */
   esJefeDelNegocio?: boolean;
   /** Dueño, administrador o la supervisora del Supervisor accionable: le aparece Recuperación en el CRM. */
-  veRecuperacion?: boolean;
   /** Entra en el reparto de alguna línea de ventas: le sale el interruptor "Recibiendo clientes". */
   participaDelReparto?: boolean;
 };
@@ -213,9 +211,7 @@ export function AppShell({
   sidebarDefaultOpen = true,
   chatRealtimeWorkspaceId = null,
   chatRealtimeUserId = null,
-  puedeSupervisarElEquipo = false,
   esJefeDelNegocio = false,
-  veRecuperacion = false,
   participaDelReparto = false,
 }: AppShellProps) {
   const { data } = useSession();
@@ -318,9 +314,7 @@ export function AppShell({
           }}
           currentConnectionKey={currentConnectionKey}
           chatSidebarItems={chatSidebarItems}
-          puedeSupervisarElEquipo={puedeSupervisarElEquipo}
           esJefeDelNegocio={esJefeDelNegocio}
-          veRecuperacion={veRecuperacion}
         />
         <AppVersionGuard />
         <LatidoDeActividad />

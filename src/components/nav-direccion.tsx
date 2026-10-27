@@ -24,49 +24,32 @@ const direccionViews: Array<{
   icon: LucideIcon;
   /** Ruta propia cuando la pantalla no vive bajo /cliente/direccion. */
   href?: string;
-  /** Solo dueño o administrador del negocio (mismas banderas que tenían dentro del CRM). */
-  soloJefes?: boolean;
-  /** Además de jefe, exige `veRecuperacion` (hoy es lo mismo que ser jefe). */
-  soloRecuperacion?: boolean;
 }> = [
   // El Supervisor: solo dueño o administrador; la página también bloquea a las demás cuentas.
-  { title: "Supervisor", view: "supervisor", icon: ShieldCheck, soloJefes: true },
+  { title: "Supervisor", view: "supervisor", icon: ShieldCheck },
   // Los agentes de área (molde `PaginaDeAgenteDeArea`): los ven los mismos que ven el Supervisor.
-  { title: "Agente de Ventas", view: "agente-de-ventas", icon: Bot, soloJefes: true },
-  { title: "Agente de Marketing", view: "agente-de-marketing", icon: Megaphone, soloJefes: true },
+  { title: "Agente de Ventas", view: "agente-de-ventas", icon: Bot },
+  { title: "Agente de Marketing", view: "agente-de-marketing", icon: Megaphone },
   // El Agente de Sistemas revisa que lo subido funcione. Solo lee.
-  { title: "Agente de Sistemas", view: "agente-de-sistemas", icon: ServerCog, soloJefes: true },
+  { title: "Agente de Sistemas", view: "agente-de-sistemas", icon: ServerCog },
   // Todas las alertas internas por prioridad; por WhatsApp solo llegan las urgentes.
   // El embudo del Combo: de la entrada del anuncio al anticipo.
-  { title: "Embudo", view: "embudo", icon: Filter, soloJefes: true },
+  { title: "Embudo", view: "embudo", icon: Filter },
   // Comparar dos versiones del libro lado a lado (solo lectura).
-  { title: "Comparar embudos", view: "comparar-embudos", icon: GitCompareArrows, soloJefes: true },
+  { title: "Comparar embudos", view: "comparar-embudos", icon: GitCompareArrows },
   // Pauta: qué campaña y anuncio de Meta traen ventas y cuánto cuesta cada una (solo lectura).
-  { title: "Pauta", view: "pauta", icon: Target, soloJefes: true },
+  { title: "Pauta", view: "pauta", icon: Target },
   // Recuperación de leads: solo dueño / administrador.
-  { title: "Recuperación", view: "recuperacion", icon: LifeBuoy, soloJefes: true, soloRecuperacion: true },
-  { title: "Informe", view: "informe", icon: ChartNoAxesCombined, soloJefes: true },
-  { title: "Alertas", view: "alertas", icon: Bell, soloJefes: true, href: "/cliente/alertas" },
+  { title: "Recuperación", view: "recuperacion", icon: LifeBuoy },
+  { title: "Informe", view: "informe", icon: ChartNoAxesCombined },
+  { title: "Alertas", view: "alertas", icon: Bell, href: "/cliente/alertas" },
 ];
 
-export function NavDireccion({
-  currentPath,
-  esJefe = false,
-  veRecuperacion = false,
-}: {
-  currentPath: string;
-  /** Dueño o administrador del negocio: los únicos que ven estas pantallas. */
-  esJefe?: boolean;
-  /** Puede ver Recuperación (dueño, administrador o la supervisora del Supervisor accionable). */
-  veRecuperacion?: boolean;
-}) {
+/** El sidebar solo lo dibuja para el dueño y los administradores (`puedeVerDireccion`). */
+export function NavDireccion({ currentPath }: { currentPath: string }) {
   const [manualOpen, setManualOpen] = useState(false);
   const isDireccionRoute = currentPath.startsWith("/cliente/direccion") || currentPath.startsWith("/cliente/alertas");
   const open = manualOpen || isDireccionRoute;
-
-  const items = direccionViews.filter((item) => (!item.soloJefes || esJefe) && (!item.soloRecuperacion || veRecuperacion));
-  // A las asesoras no les aparece el grupo vacío.
-  if (items.length === 0) return null;
 
   return (
     <SidebarMenu>
@@ -83,7 +66,7 @@ export function NavDireccion({
 
         <CollapsibleContent>
           <SidebarMenuSub>
-            {items.map((item) => (
+            {direccionViews.map((item) => (
               <SidebarMenuSubItem key={item.view}>
                 <SidebarMenuSubButton
                   render={<Link href={item.href ?? `/cliente/direccion/${item.view}`} />}

@@ -18,3 +18,8 @@ export function esJefeDelNegocio(access: AccesoDelCrm): boolean {
 export function puedeVerRegistro(access: AccesoDelCrm, esMonitora: boolean): boolean {
   return esJefeDelNegocio(access) || esMonitora;
 }
+
+/** Dirección: dueño y administradores (Alex, 26-10-2026). Es la misma regla que `esJefeDelNegocio`, con nombre propio. */
+export function puedeVerDireccion(access: AccesoDelCrm): boolean {
+  return esJefeDelNegocio(access);
+}

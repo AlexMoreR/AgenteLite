@@ -25,8 +25,7 @@ import {
 } from "@/lib/system-settings";
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
-import { puedeSupervisar } from "@/lib/permisos-del-equipo";
-import { puedeVerRecuperacion } from "@/features/recuperacion/servicios/permiso";
+import { esJefeDelNegocio as esJefeDelNegocioDelCrm } from "@/lib/permisos-del-crm";
 import "./globals.css";
 import "@xyflow/react/dist/style.css";
 import "react-toastify/dist/ReactToastify.css";
@@ -302,19 +301,8 @@ export default async function RootLayout({
                 : null
             }
             chatRealtimeUserId={session?.user?.id ?? null}
-            /* El Tablero del equipo (CRM) es de jefes y supervisoras: ver permisos-del-equipo.ts. */
-            puedeSupervisarElEquipo={clientAccess ? await puedeSupervisar(clientAccess) : false}
-            /* El Supervisor en el menú: solo dueño o administrador (Alex, 13-10-2026). */
-            esJefeDelNegocio={
-              clientAccess
-                ? clientAccess.isOwner ||
-                  clientAccess.role === "ADMIN" ||
-                  clientAccess.membershipRole === "OWNER" ||
-                  clientAccess.membershipRole === "ADMIN"
-                : false
-            }
-            /* Recuperación de leads: dueño, administrador o la supervisora del Supervisor accionable. */
-            veRecuperacion={clientAccess ? await puedeVerRecuperacion(clientAccess).catch(() => false) : false}
+            /* Dirección y el Supervisor en el menú: solo dueño o administrador (Alex, 13-10-2026). */
+            esJefeDelNegocio={clientAccess ? esJefeDelNegocioDelCrm(clientAccess) : false}
             participaDelReparto={participaDelReparto}
           >
             {children}
