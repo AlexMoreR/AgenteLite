@@ -57,8 +57,9 @@ jobs:
       - name: Tipos tsc
         run: npx tsc --noEmit
 
-      # Solo los archivos que cambió la rama respecto de main (igual que la regla del Coordinador "sin errores nuevos"):
-      # los errores de lint viejos del repo no frenan la rama. Sin archivos .ts/.tsx/.js/.mjs cambiados, el paso pasa.
+      # Solo los archivos que cambió la rama respecto de main, y SOLO los errores NUEVOS (27-oct-2026): se corre eslint sobre esos
+      # archivos en la rama y en main (merge-base) y falla únicamente lo que main no tenía (misma regla, archivo y mensaje).
+      # Un error viejo de un archivo que la tarea tocó ya no se le cobra a la tarea. Sin archivos .ts/.tsx/.js/.mjs cambiados, el paso pasa.
       - name: Lint
         env:
           RAMA_BASE: ${{ github.event.repository.default_branch }}
@@ -75,7 +76,46 @@ jobs:
           fi
           echo "Lint de ${#archivos[@]} archivo(s) cambiados respecto de $RAMA_BASE:"
           printf '  %s\n' "${archivos[@]}"
-          npx eslint --no-warn-ignored -- "${archivos[@]}"
+          npx eslint --no-warn-ignored -f json -- "${archivos[@]}" > "$RUNNER_TEMP/lint-rama.json" || true
+          # El mismo lint en main (merge-base), con las mismas dependencias; los archivos nuevos no existen allá y no tienen errores viejos.
+          git worktree add --detach "$RUNNER_TEMP/base" "$base"
+          ln -s "$PWD/node_modules" "$RUNNER_TEMP/base/node_modules"
+          existentes=()
+          for archivo in "${archivos[@]}"; do
+            if [ -f "$RUNNER_TEMP/base/$archivo" ]; then existentes+=("$archivo"); fi
+          done
+          echo '[]' > "$RUNNER_TEMP/lint-base.json"
+          if [ "${#existentes[@]}" -gt 0 ]; then
+            (cd "$RUNNER_TEMP/base" && npx eslint --no-warn-ignored -f json -- "${existentes[@]}" > "$RUNNER_TEMP/lint-base.json" || true)
+          fi
+          node - "$RUNNER_TEMP/lint-rama.json" "$RUNNER_TEMP/lint-base.json" "$PWD" "$RUNNER_TEMP/base" <<'JS'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const [ramaJson, baseJson, raizRama, raizBase] = process.argv.slice(2);
+          const leer = (archivo, raiz) => {
+            const cuenta = new Map();
+            let datos = [];
+            try { datos = JSON.parse(fs.readFileSync(archivo, "utf8")); } catch { return null; }
+            for (const archivoLint of datos) {
+              const relativo = path.relative(raiz, archivoLint.filePath ?? "").replace(/\\/g, "/");
+              for (const m of archivoLint.messages ?? []) {
+                if (m.severity !== 2) continue;
+                const firma = `${relativo}|${m.ruleId ?? "?"}|${m.message}`;
+                cuenta.set(firma, (cuenta.get(firma) ?? 0) + 1);
+              }
+            }
+            return cuenta;
+          };
+          const rama = leer(ramaJson, raizRama);
+          const base = leer(baseJson, raizBase) ?? new Map();
+          if (!rama) { console.error("eslint no devolvió JSON: no se pudo revisar el lint."); process.exit(1); }
+          const nuevos = [];
+          for (const [firma, veces] of rama) if (veces > (base.get(firma) ?? 0)) nuevos.push(firma);
+          const viejos = [...rama.keys()].filter((firma) => !nuevos.includes(firma)).length;
+          if (viejos) console.log(`${viejos} error(es) de lint que main ya tenía: no se le cobran a la rama.`);
+          if (nuevos.length) { console.error(`El lint tiene ${nuevos.length} error(es) nuevo(s):\n${nuevos.slice(0, 40).join("\n")}`); process.exit(1); }
+          console.log("Lint sin errores nuevos.");
+          JS
 
       - name: Build
         run: npm run build

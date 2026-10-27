@@ -155,9 +155,10 @@ export function motivoDeChoque(a, b) {
 
 /**
  * De las candidatas (lo que /candidatas dice que se podría tomar), las que chocan con alguna de las
- * que ya corren: { id: motivo }. `repos` = config.repos (para las zonas por ruta).
+ * que ya corren: { id: motivo }. `repos` = config.repos (para las zonas por ruta). `contraQuien` (opcional) se llena con { id: id de la
+ * tarjeta contraria }.
  */
-export function candidatasQueChocan(candidatas, corriendo, repos) {
+export function candidatasQueChocan(candidatas, corriendo, repos, contraQuien = null) {
   const chocan = {};
   for (const candidata of candidatas ?? []) {
     if (!candidata?.hacer) continue;
@@ -166,6 +167,8 @@ export function candidatasQueChocan(candidatas, corriendo, repos) {
       const motivo = motivoDeChoque(huella, otra);
       if (motivo) {
         chocan[candidata.id] = `choca con "${otra.titulo}": ${motivo}`;
+        // Con quién choca (27-oct-2026): la espera se suelta sola cuando esa tarjeta deja de correr.
+        if (contraQuien) contraQuien[candidata.id] = otra.id;
         break;
       }
     }
