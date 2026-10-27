@@ -18,10 +18,12 @@ import { linkDeLaTarjetaEnPantalla } from "./DialogoDeTablero";
 
 const REFRESCO_MS = 60_000;
 
-const GRUPOS: { clave: "listas" | "conProblema" | "teToca"; titulo: string; vacio: string }[] = [
+const GRUPOS: { clave: "listas" | "conProblema" | "teToca" | "yaHechas"; titulo: string; vacio: string }[] = [
   { clave: "listas", titulo: "Listas hoy ✅", vacio: "Hoy no ha terminado ninguna." },
   { clave: "conProblema", titulo: "Con problema hoy ⚠️", vacio: "Ninguna con problema." },
   { clave: "teToca", titulo: "Te toca a ti 👆", vacio: "No hay nada esperando tu sí." },
+  // Solo sale cuando hay alguna (el Coordinador encontró que ya estaba en main y la cerró con su commit).
+  { clave: "yaHechas", titulo: "Ya estaban hechas 🗂️", vacio: "" },
 ];
 
 function Linea({ linea }: { linea: LineaDeHoy }) {
@@ -78,10 +80,10 @@ export function VistaDeHoy() {
       {!datos ? <Loader2 className="mx-auto animate-spin text-muted-foreground" aria-label="Cargando" /> : null}
 
       {datos
-        ? GRUPOS.map(({ clave, titulo, vacio }) => (
+        ? GRUPOS.filter(({ clave }) => clave !== "yaHechas" || datos.yaHechas?.length).map(({ clave, titulo, vacio }) => (
             <div key={clave} className="space-y-1.5">
               <h2 className="text-sm font-medium">
-                {titulo} <span className="text-muted-foreground tabular-nums">({datos[clave].length})</span>
+                {titulo} <span className="text-muted-foreground tabular-nums">({(datos[clave] ?? []).length})</span>
               </h2>
               {datos[clave].length ? (
                 <ul className="space-y-1.5">

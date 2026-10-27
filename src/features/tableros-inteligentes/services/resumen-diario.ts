@@ -55,6 +55,8 @@ export type ResumenDelDia = {
   aprobadas: { tarjetaId: string; titulo: string; momento: string; motivo: string | null; cuando: string }[];
   subidas: { tarjetaId: string; titulo: string; commit: string | null; linkCommit: string | null; cuando: string; tresLineas?: TresLineasDeHoy }[];
   fallas: { tarjetaId: string; titulo: string; motivo: string; cuando: string }[];
+  /** Las que el Coordinador cerró porque ya estaban en main (27-oct-2026): salen aparte, con su commit, y no cuentan como construidas ese día. */
+  yaHechas: { tarjetaId: string; titulo: string; commit: string | null; cuando: string }[];
 };
 
 /** Las 3 líneas con que el agente cierra una tarea subida (26-oct-2026); cada una puede faltar. */
@@ -77,7 +79,7 @@ const texto = (valor: unknown) => (typeof valor === "string" && valor.trim() ? v
 /** Arma el resumen de un día con las filas del historial: solo cuenta lo que pasó ese día de Bogotá. */
 export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): ResumenDelDia {
   const { desde, hasta } = rangoDelDia(dia);
-  const resumen: ResumenDelDia = { dia, aprobadas: [], subidas: [], fallas: [] };
+  const resumen: ResumenDelDia = { dia, aprobadas: [], subidas: [], fallas: [], yaHechas: [] };
   const delDia = filas
     .filter((fila) => fila.creadoEn.getTime() >= desde.getTime() && fila.creadoEn.getTime() < hasta.getTime())
     .sort((a, b) => a.creadoEn.getTime() - b.creadoEn.getTime());
@@ -94,7 +96,10 @@ export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): R
       });
     } else if (fila.origen === "TRABAJADOR" && fila.accion === "estado") {
       const subida = comoObjeto(despues.subida);
-      if (Object.keys(subida).length) {
+      const yaEstabaHecho = comoObjeto(despues.yaEstabaHecho);
+      if (Object.keys(yaEstabaHecho).length) {
+        resumen.yaHechas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, commit: texto(yaEstabaHecho.commit), cuando });
+      } else if (Object.keys(subida).length) {
         resumen.subidas.push({
           tarjetaId: fila.tarjetaId,
           titulo: fila.titulo,
@@ -185,6 +190,8 @@ export type VistaDeHoy = {
   listas: LineaDeHoy[];
   conProblema: LineaDeHoy[];
   teToca: LineaDeHoy[];
+  /** "Ya estaban hechas": cerradas por el Coordinador con el commit donde ya estaban (no se confunden con lo construido hoy). */
+  yaHechas: LineaDeHoy[];
 };
 
 const unaLinea = (valor: string | null) => (valor && valor.length > 140 ? `${valor.slice(0, 139).trimEnd()}…` : valor);
@@ -219,6 +226,10 @@ export async function vistaDeHoy(workspaceId: string, ahora = new Date()): Promi
     dia,
     listas: lineas(idsListas),
     conProblema: lineas(idsProblema),
+    yaHechas: resumen.yaHechas
+      .filter((ya, indice, todas) => todas.findIndex((otra) => otra.tarjetaId === ya.tarjetaId) === indice)
+      .slice(0, MAX_POR_GRUPO)
+      .map((ya) => ({ tarjetaId: ya.tarjetaId, titulo: tituloCorto(ya.titulo), resumen: ya.commit ? `ya estaba hecho (commit ${ya.commit.slice(0, 10)})` : "ya estaba hecho" })),
     teToca: pendientes.slice(0, MAX_POR_GRUPO).map((p) => ({
       tarjetaId: p.id,
       titulo: tituloCorto(p.titulo),

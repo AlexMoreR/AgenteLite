@@ -54,6 +54,8 @@ import {
   unirZonas,
   vencimientoDelCandado,
   latidoDeEntrada,
+  notaDeYaHecha,
+  tituloDeLimpieza,
   zonasDeEntrada,
   zonasQueNoArrancanSolas,
   zonasQuePidenTuSi,
@@ -691,6 +693,7 @@ export async function accionDelTrabajador(
 
   if (accion === "partir") return partirTarjeta(contexto, actual, cuerpo, ahora);
   if (accion === "depender") return ponerDependencias(contexto, actual, cuerpo, ahora);
+  if (accion === "limpieza") return pedirLimpieza(contexto, actual, cuerpo, ahora);
   if (accion === "recoger") return recogerTarjeta(contexto, actual, cuerpo, ahora);
 
   let a = TRANSICIONES_DEL_TRABAJADOR[accion].a as EstadoTarjetaTablero;
@@ -854,6 +857,17 @@ export async function accionDelTrabajador(
         despues.vigilancia = vigilancia;
       }
       despues.nota = `subido a main, commit ${subida.commit?.slice(0, 10) ?? "?"}; en producción, versión ${subida.version?.slice(0, 10) ?? "?"}`;
+    } else if (accion === "ya-hecha") {
+      // Ya estaba en main (el Coordinador comprobó el commit con git): HECHO con la nota, sin pedirle nada al dueño.
+      const commit = typeof cuerpo.commit === "string" ? cuerpo.commit.trim().slice(0, 40) : "";
+      if (!/^[0-9a-f]{7,40}$/i.test(commit)) throw new ErrorDelTrabajador("Falta el commit de main donde ya estaba hecho.", 400);
+      const motivo = typeof cuerpo.motivo === "string" ? cuerpo.motivo.trim().slice(0, 300) : "";
+      const yaEstabaHecho = { commit, motivo, nota: notaDeYaHecha(commit), cuando: ahora.toISOString() };
+      const { error: _errorViejo, ...sinError } = previo;
+      void _errorViejo;
+      datos.resultado = { ...sinError, yaEstabaHecho } as Prisma.InputJsonValue;
+      despues.yaEstabaHecho = yaEstabaHecho;
+      despues.nota = motivo ? `${yaEstabaHecho.nota}: ${motivo}` : yaEstabaHecho.nota;
     } else if (accion === "error") {
       // Con `categoria` es una escalada del protocolo de reparación: el motivo es el resumen de máximo 3 líneas
       // para el dueño, y queda una fila de intentos (escalar, cuenta como intento) con el error técnico.
@@ -912,7 +926,7 @@ export async function accionDelTrabajador(
     if (aprobacionDelPlan) await anotarAprobacionAutomatica(tx, actual.id, { estado: "PLAN_LISTO" }, aprobacionDelPlan);
     if (intentoPorGuardar) await anotarIntento(tx, actual.id, intentoPorGuardar, ahora);
     // Una parte que sube puede ser la última: entonces la madre se cierra (HECHO, o FALLIDO si otra parte quedó fallida).
-    if (accion === "subida") await cerrarLaMadreSiToca(tx, contexto, actual);
+    if (accion === "subida" || accion === "ya-hecha") await cerrarLaMadreSiToca(tx, contexto, actual);
     await tocarTableros(tx, [actual.tableroId], ahora);
     return { ok: true, estado: a, link: linkDeLaTarjeta(actual.id) };
   });
@@ -1106,18 +1120,98 @@ async function ponerDependencias(contexto: ContextoTrabajador, actual: FilaParaT
     const pendientes = candidatas.filter((tarjeta) => flechas.some((flecha) => flecha.origenId === tarjeta.id) && tarjeta.estado !== "HECHO");
     const etiqueta = etiquetaEsperando(pendientes);
     let estado = actual.estado as EstadoTarjetaTablero;
-    if (etiqueta && estado === "PLANEANDO") {
+    // Con candado (PLANEANDO / EN_CURSO) vuelve a la fila sin ERROR ni intento gastado: PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO.
+    const vuelve: EstadoTarjetaTablero | null = estado === "PLANEANDO" ? "APROBADO" : estado === "EN_CURSO" ? "PLAN_APROBADO" : null;
+    let soltada = false;
+    if (etiqueta && vuelve) {
       const hecho = await tx.tarjetaTablero.updateMany({
-        where: { id: actual.id, estado: "PLANEANDO", borradoEn: null },
-        data: { estado: "APROBADO", trabajoVenceEn: null, intentos: Math.max(0, actual.intentos - 1) },
+        where: { id: actual.id, estado: actual.estado, borradoEn: null },
+        data: { estado: vuelve, trabajoVenceEn: null, intentos: Math.max(0, actual.intentos - 1) },
       });
       if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
-      estado = "APROBADO";
-      await anotarTrabajador(tx, contexto, actual.id, { estado: "PLANEANDO" }, { estado: "APROBADO", nota: etiqueta });
-      await anotarIntento(tx, actual.id, { etapa: "planear", categoria: "otra", causa: causaDeEntrada(etiqueta), error: null, accion: "esperar", cuentaComoIntento: false }, ahora);
+      await anotarTrabajador(tx, contexto, actual.id, { estado: actual.estado }, { estado: vuelve, nota: etiqueta });
+      await anotarIntento(
+        tx,
+        actual.id,
+        { etapa: estado === "EN_CURSO" ? "construir" : "planear", categoria: "otra", causa: causaDeEntrada(etiqueta), error: null, accion: "esperar", cuentaComoIntento: false },
+        ahora,
+      );
+      estado = vuelve;
+      soltada = true;
     }
-    if (creadas.length) await tocarTableros(tx, [actual.tableroId], ahora);
-    return { ok: true, estado, creadas, esperando: etiqueta, soltada: Boolean(etiqueta) && actual.estado === "PLANEANDO", link: linkDeLaTarjeta(actual.id) };
+    if (creadas.length || soltada) await tocarTableros(tx, [actual.tableroId], ahora);
+    return { ok: true, estado, creadas, esperando: etiqueta, soltada, link: linkDeLaTarjeta(actual.id) };
+  });
+}
+
+/**
+ * POST /:id/limpieza (27-oct-2026): main ya traía errores viejos (lint, tipos, pruebas) al verificar esta tarea. No se le culpa a la
+ * tarea: el Coordinador pide UNA sola tarjeta de limpieza por repo ("Limpieza: main trae errores viejos (<repo>)"), en el mismo tablero y en
+ * APROBADO, que sigue el camino normal. Si ya hay una abierta (ni HECHO ni FALLIDO), no crea otra: le agrega los errores que no tenía.
+ * No mueve la tarjeta que la pidió. -> { creada, agregados, tarjetaId }
+ */
+async function pedirLimpieza(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
+  const repo = typeof cuerpo.repo === "string" && cuerpo.repo.trim() ? cuerpo.repo.trim() : (actual.repo ?? "");
+  if (!(REPOS_DEL_TRABAJADOR as readonly string[]).includes(repo)) throw new ErrorDelTrabajador("Falta el repo de la limpieza (gestion o aizencrm).", 400);
+  const errores = [
+    ...new Set(
+      (Array.isArray(cuerpo.errores) ? cuerpo.errores : [])
+        .filter((valor): valor is string => typeof valor === "string" && valor.trim().length > 0)
+        .map((valor) => valor.trim().replace(/\s+/g, " ").slice(0, 300)),
+    ),
+  ].slice(0, 60);
+  if (!errores.length) throw new ErrorDelTrabajador("Faltan los errores viejos de main.", 400);
+  const titulo = tituloDeLimpieza(repo);
+
+  return prisma.$transaction(async (tx) => {
+    const abierta = await tx.tarjetaTablero.findFirst({
+      where: { tableroId: actual.tableroId, borradoEn: null, titulo, estado: { notIn: ["HECHO", "FALLIDO"] } },
+      orderBy: { creadoEn: "asc" },
+      select: { id: true, detalle: true },
+    });
+    if (abierta) {
+      const nuevos = errores.filter((error) => !abierta.detalle.includes(error));
+      if (!nuevos.length) return { ok: true, creada: false, agregados: 0, tarjetaId: abierta.id, link: linkDeLaTarjeta(abierta.id) };
+      const detalle = `${abierta.detalle.trimEnd()}\n${nuevos.map((error) => `- ${error}`).join("\n")}`.slice(0, 20_000);
+      await tx.tarjetaTablero.update({ where: { id: abierta.id }, data: { detalle } });
+      await anotarTrabajador(tx, contexto, abierta.id, {}, { nota: `se agregaron ${nuevos.length} error(es) viejo(s) de main que encontró «${actual.titulo}»` });
+      await tocarTableros(tx, [actual.tableroId], ahora);
+      return { ok: true, creada: false, agregados: nuevos.length, tarjetaId: abierta.id, link: linkDeLaTarjeta(abierta.id) };
+    }
+    const origen = await tx.tarjetaTablero.findFirst({ where: { id: actual.id }, select: { tipoId: true, area: true, creadoPor: true, orden: true } });
+    if (!origen) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    const detalle = [
+      `main de ${repo} ya trae errores que no son de ninguna tarea nueva: el Coordinador los encontró al verificar «${actual.titulo}» y dejó pasar la tarea porque no los empeoró.`,
+      "Arréglalos sin cambiar lo que hace el sistema (solo lint, tipos o pruebas):",
+      ...errores.map((error) => `- ${error}`),
+    ]
+      .join("\n")
+      .slice(0, 20_000);
+    const nueva = await tx.tarjetaTablero.create({
+      data: { tableroId: actual.tableroId, titulo, detalle, area: origen.area, estado: "APROBADO", orden: origen.orden + 1, tipoId: origen.tipoId, repo, creadoPor: origen.creadoPor },
+      select: { id: true },
+    });
+    await tx.historialTarjeta.create({
+      data: {
+        tarjetaId: nueva.id,
+        quien: quienEs(contexto),
+        origen: "TRABAJADOR",
+        accion: "crear",
+        despues: { titulo, estado: "APROBADO", nota: `limpieza pedida al verificar «${actual.titulo}»` } as Prisma.InputJsonValue,
+      },
+    });
+    await tx.historialTarjeta.create({
+      data: {
+        tarjetaId: nueva.id,
+        quien: quienEs(contexto),
+        origen: "TRABAJADOR",
+        accion: "aprobar",
+        antes: { estado: "APROBADO" } as Prisma.InputJsonValue,
+        despues: { estado: "APROBADO", momento: "tarea", como: "heredada", heredadaDe: actual.id } as Prisma.InputJsonValue,
+      },
+    });
+    await tocarTableros(tx, [actual.tableroId], ahora);
+    return { ok: true, creada: true, agregados: errores.length, tarjetaId: nueva.id, link: linkDeLaTarjeta(nueva.id) };
   });
 }
 
