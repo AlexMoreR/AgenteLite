@@ -18,9 +18,18 @@ const db = {
   evolutionFalla: false,
   proposito: "ADMIN",
   siguiente: 1,
+  cambiosDeEtapa: [],
+  gestion: { url: "https://gestion.test/api/catalogo", llave: "x" },
+  respuestaGestion: null,
 };
 
 const MEMBRESIAS = new Map([[`${WS}:alex`, { role: "OWNER", user: { role: "CLIENTE" }, workspace: { ownerId: "alex" } }]]);
+
+const USUARIOS = [
+  { id: "maria", name: "María Bautista" },
+  { id: "yair", name: "Yair Silvera" },
+  { id: "ingrid", name: "Ingrid Sánchez" },
+];
 
 const prisma = {
   appSetting: {
@@ -30,7 +39,6 @@ const prisma = {
       return {};
     },
   },
-  workspaceMember: { findFirst: async ({ where }) => MEMBRESIAS.get(`${where.workspaceId}:${where.userId}`) ?? null },
   whatsAppChannel: {
     findFirst: async ({ where, select }) => {
       if (where.id !== "admin1") return null;
@@ -71,7 +79,13 @@ const prisma = {
     },
     findMany: async () => [...db.dias.values()].sort((a, b) => (a.fecha < b.fecha ? 1 : -1)),
   },
-  $queryRaw: async () => [],
+  workspaceMember: {
+    findFirst: async ({ where }) => MEMBRESIAS.get(`${where.workspaceId}:${where.userId}`) ?? null,
+    findMany: async () => USUARIOS.map((user) => ({ user })),
+  },
+  user: { findMany: async ({ where }) => USUARIOS.filter((u) => where.id.in.includes(u.id)) },
+  // Solo el historial de etapas devuelve filas (los chats calientes de María); el resto de lecturas sale vacío.
+  $queryRaw: async (consulta) => (String(consulta?.[0]?.join?.("") ?? "").includes('"HistorialEtapa"') ? db.cambiosDeEtapa : []),
 };
 
 const mocks = {
@@ -84,6 +98,7 @@ const mocks = {
     cacheDeCanales: { obtener: (_c, fn) => fn(), invalidar: () => {}, vaciar: () => {} },
     invalidarTrasEscritura: () => {},
   },
+  "@/lib/sincronizacion-gestion": { leerConexionConGestion: async () => db.gestion },
   "@/lib/web-push": { sendPushToUser: async () => 0 },
   "@/lib/evolution": {
     sendEvolutionTextMessageWithReconnect: async (args) => {
@@ -347,6 +362,51 @@ await prueba("bienvenida: numeros_de_ventas trae el campo y, si falla la lectura
   assert.ok("tasa_respuesta_bienvenida" in r);
   assert.ok(Array.isArray(r.por_asesora));
   assert.equal(db.enviados.length, 0);
+});
+
+const reporteDel26 = async () => {
+  reiniciar({ activo: true });
+  db.cambiosDeEtapa = ["a", "b"].map((k, i) => ({
+    conversationId: `c${i}`, contactId: k, asesoraId: "maria", etapaNueva: i ? "NEGOCIACION" : "PROPUESTA", proposito: "SALES", canalId: "ventas1",
+  }));
+  return mcp.ejecutarHerramientaMcpAgentesDeArea("numeros_de_ventas", { fecha: "2026-10-26" }, { workspaceId: WS, userId: "alex" });
+};
+const fetchReal = globalThis.fetch;
+const conGestion = async (respuesta, fn) => {
+  globalThis.fetch = async () => respuesta();
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = fetchReal;
+  }
+};
+const json = (cuerpo, status = 200) => new Response(JSON.stringify(cuerpo), { status, headers: { "content-type": "application/json" } });
+const fila = (r, nombre) => r.por_asesora.find((f) => f.asesora.startsWith(nombre));
+
+await prueba("26-oct con Gestión: María 0 cotizaciones y 2 chats calientes, Yair 1 e Ingrid 1", async () => {
+  const r = await conGestion(
+    () => json({ cotizaciones: [{ numero: "COT-00150", vendedora: "Yair Silvera" }, { numero: "COT-00151", vendedora: "Ingrid Sanchez" }] }),
+    reporteDel26,
+  );
+  assert.equal(fila(r, "María").cotizaciones, 0);
+  assert.equal(fila(r, "María").chatsCalientes, 2);
+  assert.equal(fila(r, "Yair").cotizaciones, 1);
+  assert.equal(fila(r, "Ingrid").cotizaciones, 1);
+  assert.equal(r.total.cotizaciones, 2);
+  assert.equal(r.total.chatsCalientes, 2);
+  assert.equal(r.no_se_pudo_leer, undefined);
+});
+await prueba("una vendedora de Gestión sin asesora en el CRM sale en su propia fila", async () => {
+  const r = await conGestion(() => json({ cotizaciones: [{ vendedora: "Laura Pérez" }] }), reporteDel26);
+  assert.equal(fila(r, "Laura Pérez").cotizaciones, 1);
+  assert.equal(r.total.cotizaciones, 1);
+});
+await prueba("Gestión caída: cotizaciones null y aviso en no_se_pudo_leer (no se muestra el número viejo)", async () => {
+  const r = await conGestion(() => json({}, 500), reporteDel26);
+  assert.equal(fila(r, "María").cotizaciones, null);
+  assert.equal(fila(r, "María").chatsCalientes, 2);
+  assert.equal(r.total.cotizaciones, null);
+  assert.ok(r.no_se_pudo_leer.some((a) => a.includes("Gestión")));
 });
 
 console.log(`\n${pruebas} pruebas ok, ${fallas.length} con falla`);
