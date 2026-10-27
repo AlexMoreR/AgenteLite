@@ -5,7 +5,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CrmStageControl } from "./crm-stage-control";
 import { ResolveChatControl } from "./resolve-chat-control";
 import { SnoozeChatControl } from "./snooze-chat-control";
-import { EnEsperaChatControl } from "./en-espera-chat-control";
 import type { CrmStage } from "@/features/crm/types";
 import { BotonLlamar } from "@/features/llamadas/components/BotonLlamar";
 import { AssignChatControl } from "./assign-chat-control";
@@ -54,8 +53,6 @@ export function ChatHeaderActions({
         <BotonLlamar telefono={telefono} nombre={nombreContacto} avatarUrl={avatarUrl} channelId={channelId} />
         {contactId ? <CrmStageControl contactId={contactId} stage={stage} /> : null}
         <InterruptorDeIA conversationId={conversationId} automationPaused={automationPaused} source={source} />
-        {/* "En espera": la asesora avisa que está averiguando algo y el Supervisor no le quita el chat. */}
-        <EnEsperaChatControl conversationId={conversationId} source={source} />
         <ResolveChatControl conversationId={conversationId} status={status} source={source} />
         {/* Las dos salidas del chat: resolver es "esto se termino", posponer es "sigue, pero
             no hoy". Por eso van pegados. */}
@@ -142,7 +139,6 @@ export function BarraDeAccionesDelChat({
       <InterruptorDeIA conversationId={conversationId} automationPaused={automationPaused} source={source} conEtiqueta />
       <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
       <AssignChatControl conversationId={conversationId} assignee={assignee} source={source} compacto />
-      <EnEsperaChatControl conversationId={conversationId} source={source} compacto />
       {contactId ? <BotonMapaDelLead chatKey={`${source}:${conversationId}`} compacto /> : null}
       <div className="order-last flex items-center gap-1.5">
         <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />

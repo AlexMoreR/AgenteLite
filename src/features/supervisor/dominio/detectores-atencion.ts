@@ -24,10 +24,6 @@ export { esAgradecimientoSinPendiente };
 
 const MIN = 60_000;
 
-/** Notas del sistema del botón "En espera" (rawPayload.origen): cuando la asesora lo pone y cuando lo quita. */
-export const ORIGEN_EN_ESPERA = "en-espera";
-export const ORIGEN_FIN_DE_ESPERA = "en-espera-fin";
-
 export type ChatAbierto = {
   conversationId: string;
   asesoraId: string | null;
@@ -76,17 +72,6 @@ export type ChatAbierto = {
    * (undefined / null) todo es exactamente como antes.
    */
   pausaAcordada?: { dias: number } | null;
-  /**
-   * La primera vez que la asesora ASIGNADA le escribió al cliente desde que le llegó el chat (desde el
-   * CRM con su usuario, o desde el celular de la línea pasado el primer minuto del chat). El bot, los
-   * flujos, los seguimientos, las notas y otra persona del equipo desde el CRM no cuentan. Sin dato
-   * (undefined) se asume que no ha respondido, como antes.
-   */
-  primeraRespuestaAsesoraEn?: Date | null;
-  /** La última vez que esa misma asesora le escribió al cliente (acaba la espera del botón "En espera"). */
-  ultimaRespuestaAsesoraEn?: Date | null;
-  /** Cuándo la asesora puso el chat "En espera" (nota del sistema) y no lo ha quitado; sin vencer no se mide aquí. */
-  enEsperaDesde?: Date | null;
 };
 
 export type HorarioLaboral = { desde: number; hasta: number; dias: number[] };

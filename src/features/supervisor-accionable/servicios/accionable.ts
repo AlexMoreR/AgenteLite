@@ -13,7 +13,6 @@ import {
   whatsAppAAlexander,
 } from "@/features/avisos-gravedad/servicios/enrutador";
 import type { Incidente } from "@/features/supervisor/dominio/alertas";
-import { leerConfigReasignacion } from "@/features/supervisor-reasignacion/servicios/config";
 import type { ChatAbierto } from "@/features/supervisor/dominio/detectores-atencion";
 import type { Hallazgo } from "@/features/supervisor/dominio/tipos";
 
@@ -178,7 +177,6 @@ async function whatsAppAlEquipo(workspaceId: string, userId: string, texto: stri
 async function ejecutar(workspaceId: string, estado: EstadoAccionable, eventos: Evento[], config: ConfigAccionable, ahora: Date): Promise<number> {
   let enviados = 0;
   const gravedad = await leerConfigGravedad(workspaceId).catch(() => CONFIG_GRAVEDAD_POR_DEFECTO);
-  const avisosNuevos = (await leerConfigReasignacion(workspaceId).catch(() => null))?.avisosActivos === true;
   const paraAlexander: Tarjeta[] = [];
   for (const evento of eventos) {
     try {
@@ -190,13 +188,9 @@ async function ejecutar(workspaceId: string, estado: EstadoAccionable, eventos: 
         const { title, body } = pushParaLaAsesora(acciones, segundo, nocturno, ahora, config.segundaOportunidadMin);
         const url = acciones.length === 1 && acciones[0].conversationId ? `/cliente/chats?chatKey=agent:${acciones[0].conversationId}&assigned=all` : "/cliente/crm/mi-dia";
         enviados += await sendPushToUser({ userId: evento.responsableId, payload: { title, body, tag: `accionable:${evento.responsableId}`, url } }).catch(() => 0);
-        // Con los avisos nuevos del Supervisor prendidos (supervisor-reasignacion), "asignado" y
-        // "caliente" ya le llegan por ese lado: aquí no se repite el WhatsApp (el push sí sigue).
-        // Fuera de horario los avisos nuevos no corren: ahí el WhatsApp de este lado sigue igual.
-        const paraWhatsApp = avisosNuevos && !nocturno ? acciones.filter((a) => a.tipo !== "asignado" && a.tipo !== "caliente") : acciones;
-        if (config.asesoraWhatsApp && paraWhatsApp.length) {
-          const enlaces = new Map(paraWhatsApp.map((a) => [a.id, enlaceAbsoluto(a)]));
-          if (await whatsAppAlEquipo(workspaceId, evento.responsableId, textoParaLaAsesora({ acciones: paraWhatsApp, enlaces, ahora, segundo, fueraDeHorario: nocturno, segundaOportunidadMin: config.segundaOportunidadMin }))) enviados += 1;
+        if (config.asesoraWhatsApp) {
+          const enlaces = new Map(acciones.map((a) => [a.id, enlaceAbsoluto(a)]));
+          if (await whatsAppAlEquipo(workspaceId, evento.responsableId, textoParaLaAsesora({ acciones, enlaces, ahora, segundo, fueraDeHorario: nocturno, segundaOportunidadMin: config.segundaOportunidadMin }))) enviados += 1;
         }
         if (evento.tipo === "segundo_aviso" && evento.supervisoraId) {
           const aviso = pushParaLaSupervisora(acciones);

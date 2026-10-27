@@ -15,7 +15,6 @@ import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
 import { sincronizarSiTocaHoy } from "@/lib/sincronizacion-gestion";
 import { correrPautaDeTodos } from "@/features/pauta/servicios/correr-pauta";
 import { vueltaDeCadaHora, vueltaDeCincoMinutos } from "@/features/supervisor/servicios/vueltas";
-import { vigilarAvisosYReasignacion } from "@/features/supervisor-reasignacion/servicios/vigilante";
 import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente/servicios/motor";
 import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/servicio";
 import { procesarColaDeReuniones } from "@/features/reuniones/servicios/cola-de-reuniones";
@@ -288,19 +287,6 @@ async function handleCron(request: Request) {
       }
     });
   }
-
-  /*
-    SUPERVISOR: AVISOS POR WHATSAPP Y REASIGNACIÓN (ver src/features/supervisor-reasignacion). Cada
-    minuto y en segundo plano. APAGADO por defecto: sin `supervisor:reasignacion:<negocio>` con un
-    interruptor prendido es UNA consulta a AppSetting y sale.
-  */
-  after(async () => {
-    try {
-      await vigilarAvisosYReasignacion();
-    } catch (error) {
-      console.error("[cron/follows] supervisor reasignacion error", error);
-    }
-  });
 
   /*
     SUPERVISOR (solo lee, analiza, alerta y recomienda; ver src/features/supervisor). APAGADO por
