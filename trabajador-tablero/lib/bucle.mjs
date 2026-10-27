@@ -32,11 +32,12 @@ import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
 import { TOPE_DE_REPARACIONES, decidir, diagnosticar, enUnaLinea, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "./diagnostico.mjs";
 import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, medirConClaude, partirTarea, planear, subir } from "./etapas.mjs";
-import { idCorto } from "./git.mjs";
+import { git, idCorto } from "./git.mjs";
 import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedida } from "./medir.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
 import { esTareaGrande } from "./nube.mjs";
+import { confirmacionesDelCoordinador, motivoPorElQueNoSubeSola, zonasTocadas } from "./zonas.mjs";
 import { crearPausaPorUso } from "./pausa-uso.mjs";
 import { crearMedidor, faltanRecursos } from "./recursos.mjs";
 
@@ -567,6 +568,75 @@ function registroDeLaSesion(registro, etiqueta) {
  * Un semáforo de `maximo` puestos: `tomar(senal)` espera su turno y devuelve la función que lo libera (una sola vez).
  * Si la señal se aborta esperando, rechaza. Lo usan las verificaciones de lo que vuelve de la nube.
  */
+/**
+ * El rescate de las POR_REVISAR (27-oct-2026, decisión del dueño: "que Sistemas deje de pedirme el sí final"). Una tarjeta de chats
+ * o del bot que pasó todo pero quedó esperando solo porque nadie escribió la frase "sin mensajes nuevos a clientes" se revisa de
+ * nuevo: el Coordinador trae la rama, mira el diff REAL de las rutas de la zona y, si no agrega ningún envío de mensajes (y no hay
+ * otra causa para esperar), escribe él la confirmación y la pasa a SUBIENDO (/revisado). Si hay un envío nuevo, no la toca: sigue
+ * esperando el sí del dueño. Cada commit se revisa una sola vez. Nunca lanza: lo que falla se anota y se reintenta a la próxima.
+ *   revisar() -> { revisadas, subidas: [{ id, titulo }], esperan: [{ id, titulo, motivo }] }
+ */
+export function crearRescatadorDePorRevisar({ crm, config, registro, cadaMinutos = 5, ahora = () => Date.now() }) {
+  const vistas = new Map();
+  let ultima = 0;
+  return {
+    async revisar() {
+      if (ahora() - ultima < cadaMinutos * 60_000) return { revisadas: 0, subidas: [], esperan: [] };
+      ultima = ahora();
+      const resultado = { revisadas: 0, subidas: [], esperan: [] };
+      let tarjetas = [];
+      try {
+        ({ tarjetas = [] } = await crm.porRevisar());
+      } catch (error) {
+        // Un CRM que todavía no conoce /por-revisar (404) no es problema.
+        if (error?.status !== 404) registro.aviso(`rescatar POR_REVISAR: no se pudo pedir la lista (${String(error?.message ?? error).split("\n")[0]})`);
+        return resultado;
+      }
+      for (const tarjeta of tarjetas) {
+        const clave = `${tarjeta.id}:${tarjeta.commit}`;
+        if (vistas.has(clave)) continue;
+        const repo = config.repos?.[tarjeta.repo];
+        if (!repo?.ruta || repo.subirSolo !== true || !tarjeta.rama || !tarjeta.base) continue;
+        try {
+          const remoto = repo.remoto ?? "origin";
+          await git(repo.ruta, ["fetch", remoto, `+refs/heads/${tarjeta.rama}:refs/remotes/${remoto}/${tarjeta.rama}`]);
+          const ref = `${remoto}/${tarjeta.rama}`;
+          if (tarjeta.commit) {
+            const punta = (await git(repo.ruta, ["rev-parse", ref])).salida.trim();
+            // La rama ya no es la que se probó: no se confirma nada sobre otro código.
+            if (!punta.startsWith(String(tarjeta.commit).slice(0, 10))) {
+              registro.aviso(`rescatar POR_REVISAR "${tarjeta.titulo}": la rama ya no está en el commit probado (${String(tarjeta.commit).slice(0, 10)}): sigue esperando`);
+              vistas.set(clave, true);
+              continue;
+            }
+          }
+          const nombres = (await git(repo.ruta, ["diff", "--name-only", "--no-renames", `${tarjeta.base}...${ref}`])).salida.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+          const tocadas = zonasTocadas(nombres, repo.zonasProtegidas);
+          const zonas = [...new Set([...Object.keys(tocadas), ...(tarjeta.zonaProtegida ?? [])])];
+          const diffDe = async (archivos) => (await git(repo.ruta, ["diff", "--unified=0", "--no-renames", `${tarjeta.base}...${ref}`, "--", ...archivos])).salida;
+          const diffs = { todo: await diffDe(nombres) };
+          for (const zona of Object.keys(tocadas)) diffs[zona] = await diffDe(tocadas[zona]);
+          const propias = confirmacionesDelCoordinador({ zonas, zonasQueSubenSolas: repo.zonasQueSubenSolas ?? [], diffs, texto: "" });
+          const motivo = motivoPorElQueNoSubeSola({ zonas, zonasQueSubenSolas: repo.zonasQueSubenSolas ?? [], diffs, plan: tarjeta.plan, texto: propias.join("\n") });
+          resultado.revisadas += 1;
+          vistas.set(clave, true);
+          if (!propias.length || motivo) {
+            registro.info(`rescatar POR_REVISAR "${tarjeta.titulo}": sigue esperando el sí (${motivo ?? "no se pudo comprobar con el diff"})`);
+            resultado.esperan.push({ id: tarjeta.id, titulo: tarjeta.titulo, motivo: motivo ?? "no se pudo comprobar con el diff" });
+            continue;
+          }
+          await crm.revisado(tarjeta.id, { confirmaciones: propias });
+          registro.info(`rescatar POR_REVISAR "${tarjeta.titulo}": comprobé el diff (sin envíos nuevos a clientes) y la pasé a SUBIENDO`);
+          resultado.subidas.push({ id: tarjeta.id, titulo: tarjeta.titulo });
+        } catch (error) {
+          registro.aviso(`rescatar POR_REVISAR "${tarjeta.titulo}": ${String(error?.message ?? error).split("\n")[0]}`);
+        }
+      }
+      return resultado;
+    },
+  };
+}
+
 export function crearSemaforo(maximo) {
   let usados = 0;
   const cola = [];

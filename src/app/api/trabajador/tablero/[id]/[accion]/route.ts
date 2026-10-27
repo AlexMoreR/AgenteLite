@@ -35,6 +35,8 @@ export const dynamic = "force-dynamic";
   - recoger   { decision: reintentar | partir | dueno, causa?, error?, partes?, linea? }   ERROR: recoge una tarjeta
               vieja en ERROR (máximo 2 veces por tarjeta; el tope diario lo lleva el Coordinador). reintentar vuelve
               a la fila, partir crea las hijas, dueno deja UNA línea para el dueño y sigue en ERROR.
+  - revisado  { confirmaciones: [línea] }         POR_REVISAR -> SUBIENDO: el Coordinador comprobó con el diff real la prueba extra
+              de chats o del bot (sin envíos nuevos a clientes). 409 si la tarjeta esperaba por otra cosa.
   (El arranque del Coordinador es otra ruta: /api/trabajador/tablero/arranque.)
   409 si la tarjeta no está en el estado de esa acción. Ver services/trabajador.ts.
 */

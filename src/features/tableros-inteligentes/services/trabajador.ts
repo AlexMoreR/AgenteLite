@@ -19,6 +19,9 @@ import {
   causaConEstrategia,
   causaDeEntrada,
   destinoDelResultado,
+  duenoYaAprobo,
+  esperaSoloLaPruebaExtra,
+  porQueLaAprobacionNoSeHereda,
   errorDeIntentoDeEntrada,
   decisionDeRecogerDeEntrada,
   dependenciaHaceCiclo,
@@ -689,6 +692,7 @@ export async function accionDelTrabajador(
     });
   }
 
+  if (accion === "revisado") return marcarRevisada(contexto, actual, cuerpo, ahora);
   if (accion === "partir") return partirTarjeta(contexto, actual, cuerpo, ahora);
   if (accion === "depender") return ponerDependencias(contexto, actual, cuerpo, ahora);
   if (accion === "recoger") return recogerTarjeta(contexto, actual, cuerpo, ahora);
@@ -701,6 +705,8 @@ export async function accionDelTrabajador(
   let aprobacionDelPlan: ReturnType<typeof registroDeAprobacionAutomatica> | null = null;
   // true si ese plan se aprobó por la regla del dueño (24-oct) y no por el riesgo BAJO.
   let reglaDelDueno = false;
+  // La aprobación del dueño que se hereda al llegar el resultado (abajo): se anota como una aprobación aparte.
+  let aprobacionHeredada: ReturnType<typeof registroDeAprobacionAutomatica> | null = null;
   // La fila de intentos que deja una escalada (/error con categoria).
   let intentoPorGuardar: IntentoPorGuardar | null = null;
   // Las zonas protegidas que marca el Coordinador (el cambio toca esas rutas): se suman, nunca se quitan.
@@ -816,6 +822,31 @@ export async function accionDelTrabajador(
       }
       // Sube sola (SUBIENDO pendiente, la toma enseguida) o espera el sí final del dueño (POR_REVISAR).
       a = destinoDelResultado({ paso: resultado.paso, subeSolo, zonaProtegida: zonas });
+      // Aprobación heredada (27-oct-2026, decisión del dueño): si una persona ya aprobó esta tarjeta (la tarea, el plan o la
+      // subida), esa aprobación vale aunque se haya reconstruido o reparado: no se le pide dos veces. Solo cuando el Coordinador
+      // quería subirla sola (o dijo por qué no) y no es dinero, gasto en Meta Ads, un envío nuevo, una clave o una migración
+      // destructiva (porQueLaAprobacionNoSeHereda). Sin `esperaPor` y sin querer subirla sola, el repo simplemente no sube solo.
+      if (a === "POR_REVISAR" && resultado.paso && !zonasQuePidenTuSi(zonas).length && (resultado.subeSolo || resultado.esperaPor)) {
+        const historial = await prisma.historialTarjeta.findMany({
+          where: { tarjetaId: actual.id, accion: "aprobar" },
+          select: { accion: true, despues: true, deshechoEn: true },
+        });
+        const noSeHereda = porQueLaAprobacionNoSeHereda({
+          esperaPor: resultado.esperaPor,
+          plan: actual.plan,
+          migracionDestructiva: resultado.migracionDestructiva ?? null,
+        });
+        if (duenoYaAprobo(historial) && !noSeHereda) {
+          a = "SUBIENDO";
+          subeSolo = true;
+          aprobacionHeredada = registroDeAprobacionAutomatica({
+            estado: "SUBIENDO",
+            momento: "subir",
+            motivo: "el dueño ya aprobó esta tarjeta y el cambio no toca dinero ni gasto en Meta Ads",
+            regla: "heredada-27-oct",
+          });
+        }
+      }
       datos.estado = a;
       despues.estado = a;
       // Lo que queda guardado dice lo que de verdad pasó: si el riesgo subió a ALTO, ya no "sube solo".
@@ -825,7 +856,9 @@ export async function accionDelTrabajador(
       const zonasQueSuben = zonas.filter((zona) => !zonasQuePidenTuSi([zona]).length);
       despues.nota =
         a === "SUBIENDO"
-          ? zonasQueSuben.length
+          ? aprobacionHeredada
+            ? "construido, sube solo (aprobación del dueño heredada)"
+            : zonasQueSuben.length
             ? `construido, sube solo (zona ${zonasQueSuben.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")})`
             : "construido, sube solo"
           : resultado.esperaPor
@@ -910,12 +943,123 @@ export async function accionDelTrabajador(
     }
     await anotarTrabajador(tx, contexto, actual.id, { estado }, despues);
     if (aprobacionDelPlan) await anotarAprobacionAutomatica(tx, actual.id, { estado: "PLAN_LISTO" }, aprobacionDelPlan);
+    if (aprobacionHeredada) await anotarAprobacionAutomatica(tx, actual.id, { estado: "EN_CURSO" }, aprobacionHeredada);
     if (intentoPorGuardar) await anotarIntento(tx, actual.id, intentoPorGuardar, ahora);
     // Una parte que sube puede ser la última: entonces la madre se cierra (HECHO, o FALLIDO si otra parte quedó fallida).
     if (accion === "subida") await cerrarLaMadreSiToca(tx, contexto, actual);
     await tocarTableros(tx, [actual.tableroId], ahora);
     return { ok: true, estado: a, link: linkDeLaTarjeta(actual.id) };
   });
+}
+
+/**
+ * POST /:id/revisado (27-oct-2026), desde POR_REVISAR: el Coordinador volvió a mirar el diff real de una tarjeta que solo esperaba la
+ * prueba extra de chats o del bot (falta la prueba de que no manda mensajes nuevos a clientes) y NO encontró ningún envío nuevo: la pasa a
+ * SUBIENDO (sube sola con la vigilancia de 30 min). `cuerpo.confirmaciones` = las líneas que escribió. Si la tarjeta esperaba por otra
+ * cosa (dinero, gasto en Meta Ads, un envío nuevo, la simulación V3...), 409: sigue esperando al dueño.
+ */
+async function marcarRevisada(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
+  const previo = resultadoComoObjeto(actual.resultado);
+  if (previo.paso !== true) throw new ErrorDelTrabajador("El Coordinador no dijo que todo pasó (resultado.paso no es sí): no se sube.", 409);
+  if (zonasQuePidenTuSi(actual.zonaProtegida).length) throw new ErrorDelTrabajador("La tarjeta toca una zona que pide el sí del dueño.", 409);
+  const esperaPor = typeof previo.esperaPor === "string" ? previo.esperaPor : null;
+  if (!esperaSoloLaPruebaExtra(esperaPor)) {
+    throw new ErrorDelTrabajador(`La tarjeta no esperaba solo la prueba extra (${esperaPor ?? "sin motivo guardado"}): sigue esperando.`, 409);
+  }
+  const confirmaciones = Array.isArray(cuerpo.confirmaciones)
+    ? cuerpo.confirmaciones.filter((linea): linea is string => typeof linea === "string" && linea.trim() !== "").map((linea) => linea.trim().slice(0, 300)).slice(0, 5)
+    : [];
+  if (!confirmaciones.length) throw new ErrorDelTrabajador("Falta la confirmación del Coordinador (`confirmaciones`).", 400);
+  const { esperaPor: _espera, ...sinEspera } = previo;
+  void _espera;
+  const pruebas = [typeof previo.pruebas === "string" ? previo.pruebas : "", ...confirmaciones, "→ construido, sube solo (revisado por el Coordinador)"].filter(Boolean).join("\n").slice(0, 7000);
+  const resultado = { ...sinEspera, pruebas, subeSolo: true };
+  return prisma.$transaction(async (tx) => {
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: { id: actual.id, estado: "POR_REVISAR", actualizadoEn: actual.actualizadoEn, borradoEn: null },
+      data: { estado: "SUBIENDO", trabajoVenceEn: null, resultado: resultado as Prisma.InputJsonValue },
+    });
+    if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    await anotarTrabajador(tx, contexto, actual.id, { estado: "POR_REVISAR" }, { estado: "SUBIENDO", nota: "el Coordinador comprobó la prueba extra con el diff: sube sola", confirmaciones });
+    await tocarTableros(tx, [actual.tableroId], ahora);
+    return { ok: true, estado: "SUBIENDO", link: linkDeLaTarjeta(actual.id) };
+  });
+}
+
+/**
+ * POST /por-revisar (27-oct-2026): las tarjetas POR_REVISAR que solo esperaban la prueba extra de chats o del bot (con su rama,
+ * commit y base para que el Coordinador vuelva a mirar el diff). Solo lee.
+ */
+export async function porRevisarDelTrabajador(contexto: ContextoTrabajador) {
+  const filas = await prisma.tarjetaTablero.findMany({
+    where: { estado: "POR_REVISAR", borradoEn: null, repo: { in: [...REPOS_DEL_TRABAJADOR] }, tablero: { workspaceId: contexto.workspaceId } },
+    orderBy: { actualizadoEn: "asc" },
+    take: 50,
+    select: SELECT_PARA_TRABAJAR,
+  });
+  const tarjetas = [];
+  for (const fila of filas) {
+    const resultado = resultadoComoObjeto(fila.resultado);
+    if (resultado.paso !== true || !esperaSoloLaPruebaExtra(typeof resultado.esperaPor === "string" ? resultado.esperaPor : null)) continue;
+    if (zonasQuePidenTuSi(fila.zonaProtegida).length) continue;
+    tarjetas.push({
+      id: fila.id,
+      titulo: fila.titulo,
+      repo: fila.repo,
+      plan: fila.plan,
+      zonaProtegida: fila.zonaProtegida,
+      rama: typeof resultado.rama === "string" ? resultado.rama : null,
+      commit: typeof resultado.commit === "string" ? resultado.commit : null,
+      base: typeof resultado.base === "string" ? resultado.base : null,
+      archivos: Array.isArray(resultado.archivos) ? resultado.archivos : [],
+      esperaPor: resultado.esperaPor,
+    });
+  }
+  return { tarjetas };
+}
+
+/**
+ * La vuelta del reloj (27-oct-2026): las tarjetas POR_REVISAR que ya aprobó una persona y que el Coordinador quería subir solas
+ * (su resultado dice "→ construido, sube solo") pasan a SUBIENDO: la aprobación se hereda, no se pide dos veces. Las que esperaban
+ * por dinero, gasto en Meta Ads, un envío nuevo, una clave o una migración destructiva se quedan (porQueLaAprobacionNoSeHereda).
+ * Devuelve cuántas pasó.
+ */
+export async function heredarAprobacionesPorRevisar(limite = 100): Promise<number> {
+  const filas = await prisma.tarjetaTablero.findMany({
+    where: { estado: "POR_REVISAR", borradoEn: null, repo: { in: [...REPOS_DEL_TRABAJADOR] } },
+    orderBy: { actualizadoEn: "asc" },
+    take: limite,
+    select: SELECT_PARA_TRABAJAR,
+  });
+  let pasadas = 0;
+  for (const fila of filas) {
+    const resultado = resultadoComoObjeto(fila.resultado);
+    if (resultado.paso !== true || zonasQuePidenTuSi(fila.zonaProtegida).length) continue;
+    const pruebas = typeof resultado.pruebas === "string" ? resultado.pruebas : "";
+    if (!pruebas.includes("→ construido, sube solo")) continue;
+    const esperaPor = typeof resultado.esperaPor === "string" ? resultado.esperaPor : null;
+    if (porQueLaAprobacionNoSeHereda({ esperaPor, plan: fila.plan, migracionDestructiva: Array.isArray(resultado.migracionDestructiva) ? (resultado.migracionDestructiva as string[]) : null })) continue;
+    const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: fila.id, accion: "aprobar" }, select: { accion: true, despues: true, deshechoEn: true } });
+    if (!duenoYaAprobo(historial)) continue;
+    const registro = registroDeAprobacionAutomatica({
+      estado: "SUBIENDO",
+      momento: "subir",
+      motivo: "el dueño ya aprobó esta tarjeta y el cambio no toca dinero ni gasto en Meta Ads",
+      regla: "heredada-27-oct",
+    });
+    const hecho = await prisma.$transaction(async (tx) => {
+      const cambio = await tx.tarjetaTablero.updateMany({
+        where: { id: fila.id, estado: "POR_REVISAR", actualizadoEn: fila.actualizadoEn, borradoEn: null },
+        data: { estado: "SUBIENDO", trabajoVenceEn: null, resultado: { ...resultado, subeSolo: true } as Prisma.InputJsonValue },
+      });
+      if (cambio.count !== 1) return false;
+      await anotarAprobacionAutomatica(tx, fila.id, { estado: "POR_REVISAR" }, registro);
+      await tocarTableros(tx, [fila.tableroId], new Date());
+      return true;
+    });
+    if (hecho) pasadas += 1;
+  }
+  return pasadas;
 }
 
 /**

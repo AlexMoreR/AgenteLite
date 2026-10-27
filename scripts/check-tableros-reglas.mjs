@@ -850,7 +850,7 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
-    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null },
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null, revisado: "SUBIENDO" },
   );
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.AL_TOMAR).map(([de, regla]) => [de, [regla.a, regla.etapa]])),
@@ -2085,5 +2085,46 @@ prueba("inicialDeLaPersona: la inicial en mayúscula; '?' si no hay nombre", () 
     assert.equal(trabajo.estadoAlPonerRepo("IDEA", null, "aizencrm"), "IDEA");
   });
 }
+
+prueba("aprobación heredada: duenoYaAprobo cuenta solo las aprobaciones de una persona que no se deshicieron", () => {
+  const fila = (despues, extra = {}) => ({ accion: "aprobar", despues, deshechoEn: null, ...extra });
+  assert.equal(trabajo.duenoYaAprobo([]), false);
+  assert.equal(trabajo.duenoYaAprobo([fila({ momento: "tarea", via: "pantalla" })]), true);
+  assert.equal(trabajo.duenoYaAprobo([fila({ momento: "plan", via: "voz" })]), true);
+  assert.equal(trabajo.duenoYaAprobo([fila({ momento: "subir", via: "pantalla" })]), true);
+  assert.equal(trabajo.duenoYaAprobo([fila({ momento: "tarea" })]), true, "las de la fase 1 no traían via: eran en la pantalla");
+  assert.equal(trabajo.duenoYaAprobo([fila({ momento: "tarea", via: "automatica", automatica: true })]), false);
+  assert.equal(trabajo.duenoYaAprobo([fila({ momento: "tarea", via: "pantalla" }, { deshechoEn: new Date() })]), false);
+  assert.equal(trabajo.duenoYaAprobo([{ accion: "estado", despues: { via: "pantalla" }, deshechoEn: null }]), false);
+});
+
+prueba("aprobación heredada: no se hereda con dinero, gasto en Meta Ads, envío nuevo en chats, clave, simulación V3 ni migración destructiva", () => {
+  const no = trabajo.porQueLaAprobacionNoSeHereda;
+  assert.equal(no({ esperaPor: null, plan: "RIESGO: BAJO — cambia un texto", migracionDestructiva: [] }), null);
+  assert.equal(no({}), null);
+  assert.ok(no({ esperaPor: "gasto en Meta Ads (daily_budget)" }));
+  assert.ok(no({ esperaPor: "el cambio agrega un envío de mensaje en chats (espera el sí del dueño aunque el plan lo mencione)" }));
+  assert.ok(no({ esperaPor: "falta la prueba de que los chats no mandan mensajes nuevos a clientes" }), "esa la comprueba el Coordinador con el diff, no se hereda");
+  assert.ok(no({ esperaPor: "falta la simulación V3 (✔ simulación V3: sin cambios fuera de lo pedido)" }));
+  assert.ok(no({ plan: "Cambia el cálculo de la nómina y los pagos" }));
+  assert.ok(no({ plan: "GASTO EN META ADS: crea una campaña nueva" }));
+  assert.ok(no({ migracionDestructiva: ["DROP"] }));
+  assert.ok(no({ migracionDestructiva: true }));
+});
+
+prueba("esperaSoloLaPruebaExtra: solo la falta de la frase de chats o del bot; el resto sigue con el dueño", () => {
+  assert.equal(trabajo.esperaSoloLaPruebaExtra("falta la prueba de que los chats no mandan mensajes nuevos a clientes (✔ chats: sin mensajes nuevos a clientes)"), true);
+  assert.equal(trabajo.esperaSoloLaPruebaExtra("falta la prueba de que no se mandan mensajes nuevos a clientes"), true);
+  assert.equal(trabajo.esperaSoloLaPruebaExtra("gasto en Meta Ads (daily_budget)"), false);
+  assert.equal(trabajo.esperaSoloLaPruebaExtra("el cambio agrega un envío de mensaje en chats"), false);
+  assert.equal(trabajo.esperaSoloLaPruebaExtra("falta la simulación V3"), false);
+  assert.equal(trabajo.esperaSoloLaPruebaExtra(null), false);
+});
+
+prueba("revisado: el Coordinador la usa solo desde POR_REVISAR y pasa a SUBIENDO", () => {
+  assert.equal(trabajo.puedeElTrabajador("revisado", "POR_REVISAR"), null);
+  assert.match(trabajo.puedeElTrabajador("revisado", "EN_CURSO"), /solo vale desde POR_REVISAR/);
+  assert.ok(trabajo.ACCIONES_DEL_TRABAJADOR.includes("revisado"));
+});
 
 console.log(`\n${pruebas} pruebas, todas bien`);

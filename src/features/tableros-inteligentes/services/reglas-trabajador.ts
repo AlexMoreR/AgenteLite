@@ -57,7 +57,7 @@ import {
   sePuedeMarcarHechoAMano,
 } from "./reglas";
 import { type ModelosDelResultado, esLinkDeSesion, modelosDeEntrada } from "./modelos-del-coordinador";
-import { archivosDeEntrada, migracionDestructivaDeEntrada } from "./reglas-riesgo";
+import { archivosDeEntrada, migracionDestructivaDeEntrada, porQueElPlanEsperaTuSi } from "./reglas-riesgo";
 
 /* ───────────────────────────────────────────────────────────────────── repos ── */
 
@@ -270,7 +270,7 @@ export function opcionesDeTomar(pedido: PedidoDeTomar) {
 }
 
 
-export type AccionDelTrabajador = "latido" | "plan" | "resultado" | "subida" | "error" | "soltar" | "reparar" | "partir" | "depender" | "recoger";
+export type AccionDelTrabajador = "latido" | "plan" | "resultado" | "subida" | "error" | "soltar" | "reparar" | "partir" | "depender" | "recoger" | "revisado";
 export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "latido",
   "plan",
@@ -282,6 +282,7 @@ export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "partir",
   "depender",
   "recoger",
+  "revisado",
 ];
 
 /**
@@ -317,6 +318,9 @@ export const TRANSICIONES_DEL_TRABAJADOR: Record<
   // Recoger (26-oct-2026): una vez al día el Coordinador revisa las tarjetas en ERROR; esta acción las reintenta, las
   // parte o deja una línea para el dueño (la tarjeta sigue en ERROR). a = null: depende de la decisión.
   recoger: { desde: ["ERROR"], a: null },
+  // Revisado (27-oct-2026): una tarjeta POR_REVISAR que solo esperaba la prueba extra de chats o del bot; el Coordinador
+  // la comprobó con el diff real y la pasa a SUBIENDO (sube sola con la vigilancia de 30 min).
+  revisado: { desde: ["POR_REVISAR"], a: "SUBIENDO" },
 };
 
 /** ¿Puede el Coordinador hacer `accion` con una tarjeta en `estado`? */
@@ -341,6 +345,52 @@ export function destinoDelResultado(datos: {
   zonaProtegida: readonly string[];
 }): "SUBIENDO" | "POR_REVISAR" {
   return datos.paso && datos.subeSolo && zonasQuePidenTuSi(datos.zonaProtegida).length === 0 ? "SUBIENDO" : "POR_REVISAR";
+}
+
+/**
+ * Aprobación heredada (27-oct-2026, decisión del dueño: "no me pidan dos veces lo que ya aprobé"). ¿Alguna fila del
+ * historial es una aprobación de una PERSONA (pantalla o voz; la tarea, el plan o la subida) que no se deshizo?
+ * Las automáticas y las del Coordinador no cuentan. Vale aunque la tarea se reconstruya o se repare.
+ */
+export function duenoYaAprobo(
+  historial: readonly { accion: string; despues: unknown; deshechoEn?: Date | null }[],
+): boolean {
+  return historial.some((fila) => {
+    if (fila.accion !== "aprobar" || fila.deshechoEn) return false;
+    const despues = (fila.despues ?? {}) as Record<string, unknown>;
+    if (despues.automatica === true) return false;
+    const via = typeof despues.via === "string" ? despues.via : "pantalla";
+    return via === "pantalla" || via === "voz";
+  });
+}
+
+/** Lo que del `esperaPor` del Coordinador sigue esperando al dueño aunque ya haya aprobado: gasto en Meta Ads, un envío nuevo a clientes, una clave o un acceso. */
+const ESPERA_QUE_NO_SE_HEREDA =
+  /gasto en meta ads|env[ií]o de mensaje|mensajes? nuevos?|simulaci[oó]n|versi[oó]n anterior|clave|acceso|dinero/i;
+
+/** ¿Lo único que esperaba la tarjeta es la prueba extra de chats o del bot? (lo que el Coordinador ahora comprueba solo). */
+export function esperaSoloLaPruebaExtra(esperaPor: string | null | undefined): boolean {
+  return /^falta la prueba de que (los chats no mandan|no se mandan) mensajes nuevos a clientes/i.test(String(esperaPor ?? "").trim());
+}
+
+/**
+ * ¿Por qué una aprobación previa NO alcanza para subir? Devuelve el motivo o null si se hereda. Siguen con el dueño:
+ * dinero (pagos, nómina, comisiones, abonos, facturación), gasto en Meta Ads, envíos nuevos a clientes en chats, las
+ * claves o accesos y una migración que borra o cambia lo que ya existe. Las demás causas (p. ej. "falta la prueba
+ * extra", que ahora escribe el Coordinador) no cuentan: el dueño ya dijo que sí.
+ */
+export function porQueLaAprobacionNoSeHereda(datos: {
+  esperaPor?: string | null;
+  plan?: string | null;
+  migracionDestructiva?: readonly string[] | boolean | null;
+}): string | null {
+  const espera = datos.esperaPor?.trim();
+  if (espera && ESPERA_QUE_NO_SE_HEREDA.test(espera)) return espera;
+  const delPlan = datos.plan ? porQueElPlanEsperaTuSi(datos.plan) : null;
+  if (delPlan) return delPlan;
+  const destructivo = Array.isArray(datos.migracionDestructiva) ? datos.migracionDestructiva.length > 0 : datos.migracionDestructiva === true;
+  if (destructivo) return "la migración borra o cambia lo que ya existe";
+  return null;
 }
 
 /* ───────────────────────────────────────────────────────────────────── aprobaciones ── */

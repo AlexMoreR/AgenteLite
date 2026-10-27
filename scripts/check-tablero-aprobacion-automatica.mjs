@@ -20,6 +20,7 @@ const coincide = (fila, where) =>
     if (esperado && typeof esperado === "object" && "isEmpty" in esperado) return (valor ?? []).length === 0 === esperado.isEmpty;
     if (esperado && typeof esperado === "object" && "equals" in esperado) return JSON.stringify(valor ?? []) === JSON.stringify(esperado.equals);
     if (esperado && typeof esperado === "object" && "not" in esperado) return valor !== esperado.not;
+    if (esperado && typeof esperado === "object" && "in" in esperado) return esperado.in.includes(valor);
     return valor === esperado;
   });
 
@@ -42,6 +43,7 @@ const falso = {
       estado.historial.push(data);
       return data;
     },
+    findMany: async ({ where }) => estado.historial.filter((fila) => (!where.tarjetaId || fila.tarjetaId === where.tarjetaId) && (!where.accion || fila.accion === where.accion)),
   },
   appSetting: {
     findUnique: async ({ where }) => (estado.ajustes.has(where.key) ? { value: estado.ajustes.get(where.key) } : null),
@@ -367,6 +369,101 @@ await prueba("resultado: ALTO con zona CHATS (26-oct-2026) sube sola como el bot
   enCurso({ riesgo: "ALTO" });
   const gasto = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ zonaProtegida: ["META_ADS"], subeSolo: false }));
   assert.equal(gasto.estado, "POR_REVISAR");
+});
+
+/* ------------------------------------------------------------------ aprobación heredada (27-oct-2026) */
+
+const aprobacionDelDueno = (extra = {}) => ({
+  tarjetaId: "t1",
+  accion: "aprobar",
+  origen: "PANTALLA",
+  quien: "user1",
+  despues: { estado: "APROBADO", momento: "tarea", via: "pantalla", quienNombre: "Alexander" },
+  deshechoEn: null,
+  ...extra,
+});
+
+await prueba("heredada: el dueño ya aprobó y la tarea se reconstruyó: el resultado con zona CHATS sube sola sin pedir el sí otra vez", async () => {
+  enCurso({ riesgo: "BAJO", zonaProtegida: [] });
+  estado.historial.push(aprobacionDelDueno());
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ zonaProtegida: ["CHATS"] }));
+  assert.equal(r.estado, "SUBIENDO");
+  const t = estado.tarjetas.get("t1");
+  assert.equal(t.resultado.subeSolo, true);
+  const heredada = estado.historial.find((fila) => fila.despues?.regla === "heredada-27-oct");
+  assert.ok(heredada, "queda la fila de la aprobación heredada");
+  assert.equal(heredada.despues.momento, "subir");
+  assert.equal(heredada.despues.automatica, true);
+  assert.match(heredada.despues.textoConfirmacion, /aprobación del dueño heredada/);
+});
+
+await prueba("heredada: sin una aprobación de una persona sigue en POR_REVISAR (las automáticas y las deshechas no cuentan)", async () => {
+  enCurso({ riesgo: "BAJO" });
+  estado.historial.push(aprobacionDelDueno({ despues: { momento: "tarea", via: "automatica", automatica: true } }), aprobacionDelDueno({ deshechoEn: new Date() }));
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ zonaProtegida: ["CHATS"] }));
+  assert.equal(r.estado, "POR_REVISAR");
+  assert.ok(!estado.historial.some((fila) => fila.despues?.regla === "heredada-27-oct"));
+});
+
+await prueba("heredada: con la aprobación previa se pide de nuevo si es dinero, gasto en Meta Ads, un envío nuevo o una migración destructiva", async () => {
+  const casos = {
+    "gasto en Meta Ads": { plan: "RIESGO: BAJO — ok", resultado: resultadoLimpio({ zonaProtegida: ["CHATS"], subeSolo: false, esperaPor: "gasto en Meta Ads (daily_budget)" }) },
+    "envío nuevo en chats": { plan: "RIESGO: BAJO — ok", resultado: resultadoLimpio({ zonaProtegida: ["CHATS"], subeSolo: false, esperaPor: "el cambio agrega un envío de mensaje en chats (espera el sí del dueño aunque el plan lo mencione)" }) },
+    "plan que habla de pagos y nómina": { plan: "Cambia el cálculo de la nómina y los pagos de comisiones.", resultado: resultadoLimpio({ zonaProtegida: ["CHATS"] }) },
+    "plan con gasto declarado en Meta Ads": { plan: "GASTO EN META ADS: sube el presupuesto diario", resultado: resultadoLimpio({ zonaProtegida: ["CHATS"] }) },
+    "migración destructiva": { plan: "RIESGO: BAJO — ok", resultado: resultadoLimpio({ zonaProtegida: ["CHATS"], migracionDestructiva: ["DROP"] }) },
+  };
+  for (const [nombre, { plan, resultado }] of Object.entries(casos)) {
+    estado.tarjetas.clear();
+    estado.historial.length = 0;
+    enCurso({ riesgo: "BAJO", plan });
+    estado.historial.push(aprobacionDelDueno());
+    const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultado);
+    assert.equal(r.estado, "POR_REVISAR", nombre);
+    assert.ok(!estado.historial.some((fila) => fila.despues?.regla === "heredada-27-oct"), nombre);
+  }
+});
+
+await prueba("heredada: un repo que no sube solo (sin subeSolo ni esperaPor) no hereda nada", async () => {
+  enCurso({ riesgo: "ALTO" });
+  estado.historial.push(aprobacionDelDueno());
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ subeSolo: false }));
+  assert.equal(r.estado, "POR_REVISAR");
+});
+
+await prueba("heredada: la vuelta del reloj pasa a SUBIENDO las POR_REVISAR ya aprobadas que el Coordinador quería subir solas; las de dinero o sin aprobación se quedan", async () => {
+  const porRevisar = (id, extra = {}) =>
+    tarjeta({ id, estado: "POR_REVISAR", repo: "aizencrm", plan: "RIESGO: BAJO — ok", resultado: { paso: true, subeSolo: false, pruebas: "→ construido, sube solo (zona CHATS; la vigilan 30 min)", ...extra } });
+  porRevisar("a");
+  porRevisar("b");
+  porRevisar("c", { esperaPor: "gasto en Meta Ads (daily_budget)" });
+  porRevisar("d", { pruebas: "→ construido, espera tu sí (zona X)" });
+  porRevisar("e", { migracionDestructiva: ["DROP"] });
+  for (const id of ["a", "c", "d", "e"]) estado.historial.push(aprobacionDelDueno({ tarjetaId: id }));
+  assert.equal(await trabajador.heredarAprobacionesPorRevisar(), 1);
+  assert.equal(estado.tarjetas.get("a").estado, "SUBIENDO");
+  assert.equal(estado.tarjetas.get("a").resultado.subeSolo, true);
+  for (const id of ["b", "c", "d", "e"]) assert.equal(estado.tarjetas.get(id).estado, "POR_REVISAR", id);
+});
+
+await prueba("revisado: POR_REVISAR que solo esperaba la prueba extra pasa a SUBIENDO con la confirmación del Coordinador; otra causa da 409", async () => {
+  tarjeta({
+    id: "r1",
+    estado: "POR_REVISAR",
+    zonaProtegida: ["CHATS"],
+    resultado: { paso: true, subeSolo: false, pruebas: "ok", esperaPor: "falta la prueba de que los chats no mandan mensajes nuevos a clientes (✔ chats: sin mensajes nuevos a clientes)" },
+  });
+  await assert.rejects(trabajador.accionDelTrabajador(contexto, "r1", "revisado", {}), /Falta la confirmación/);
+  const r = await trabajador.accionDelTrabajador(contexto, "r1", "revisado", { confirmaciones: ["✔ chats: sin mensajes nuevos a clientes (comprobado por el Coordinador con el diff del código)"] });
+  assert.equal(r.estado, "SUBIENDO");
+  const t = estado.tarjetas.get("r1");
+  assert.equal(t.resultado.subeSolo, true);
+  assert.equal(t.resultado.esperaPor, undefined);
+  assert.match(t.resultado.pruebas, /comprobado por el Coordinador/);
+  tarjeta({ id: "r2", estado: "POR_REVISAR", resultado: { paso: true, subeSolo: false, esperaPor: "el cambio agrega un envío de mensaje en chats (espera el sí del dueño aunque el plan lo mencione)" } });
+  await assert.rejects(trabajador.accionDelTrabajador(contexto, "r2", "revisado", { confirmaciones: ["x"] }), /no esperaba solo la prueba extra/);
+  tarjeta({ id: "r3", estado: "EN_CURSO" });
+  await assert.rejects(trabajador.accionDelTrabajador(contexto, "r3", "revisado", { confirmaciones: ["x"] }), /solo vale desde POR_REVISAR/);
 });
 
 /* ------------------------------------------------------------------ regla del dueño 24-oct */

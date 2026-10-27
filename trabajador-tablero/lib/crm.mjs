@@ -62,6 +62,10 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     depender: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/depender`, limpio(datos)),
     /** Las tarjetas en ERROR (las más viejas primero) con lo necesario para recogerlas. -> { tarjetas } */
     errores: () => pedir("/api/trabajador/tablero/errores"),
+    /** Las tarjetas POR_REVISAR que solo esperaban la prueba extra de chats o del bot (27-oct-2026), con rama, commit y base. -> { tarjetas } */
+    porRevisar: () => pedir("/api/trabajador/tablero/por-revisar"),
+    /** POR_REVISAR -> SUBIENDO: el Coordinador comprobó la prueba extra con el diff real. { confirmaciones: [línea] }. 409 si esperaba por otra cosa. */
+    revisado: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/revisado`, datos),
     /** Recoge una tarjeta en ERROR: { decision: "reintentar" | "partir" | "dueno", causa, error, categoria, partes, linea }. 409 si ya se recogió 2 veces. */
     recoger: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/recoger`, limpio(datos)),
     /** Al arrancar el Coordinador: el CRM suelta todo lo que el proceso anterior dejó con candado (PLANEANDO / EN_CURSO). -> { sueltas } */

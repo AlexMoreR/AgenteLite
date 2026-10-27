@@ -65,6 +65,7 @@ import {
   erroresDeLog,
   erroresNuevosDeLog,
   minutosDeLaVentana,
+  confirmacionesDelCoordinador,
   motivoPorElQueNoSubeSola,
   zonasTocadas,
 } from "./zonas.mjs";
@@ -641,7 +642,7 @@ export const INSTRUCCION_DE_RIESGO = [
 export function reglasDeZonasQueSubenSolas(repo) {
   const zonas = repo.zonasQueSubenSolas ?? [];
   if (!zonas.length) return "";
-  const lineas = [`Zonas que suben solas a producción (sin el sí final del dueño): ${zonas.join(", ")}. Para que suban solas, deja escrito en tu RESUMEN final lo siguiente (si falta, la tarjeta espera el sí del dueño):`];
+  const lineas = [`Zonas que suben solas a producción (sin el sí final del dueño): ${zonas.join(", ")}. Para que suban solas, deja escrito en tu RESUMEN final lo siguiente (si falta, la tarjeta espera el sí del dueño; la prueba de chats y del bot, si la olvidas, la comprueba el Coordinador con el diff real y la escribe él):`];
   if (zonas.includes("LIBRO_V3")) {
     lineas.push(
       `- Libro V3: corre el simulador (v3_probar_mensaje / v3_simular_conversacion) con conversaciones reales recientes y escribe "${CONFIRMACION_LIBRO_V3}" y "versión anterior del libro: <número>" (con ese número se vuelve atrás con v3_volver_a_version).`,
@@ -652,7 +653,7 @@ export function reglasDeZonasQueSubenSolas(repo) {
   }
   if (zonas.includes("CHATS")) {
     lineas.push(
-      `- Chats: sube sola solo si está actualizada con main, compila, pasa TODAS las pruebas, nunca usa force-push y queda con la vigilancia de 30 minutos. COMPRUEBA primero que el cambio no manda ningún mensaje nuevo ni distinto a clientes (ningún envío nuevo en las rutas de chats) y RECIÉN ENTONCES escribe "${CONFIRMACION_CHATS}". Si agrega cualquier envío, aunque el plan lo mencione, espera el sí del dueño.`,
+      `- Chats: sube sola solo si está actualizada con main, compila, pasa TODAS las pruebas, nunca usa force-push y queda con la vigilancia de 30 minutos. COMPRUEBA primero que el cambio no manda ningún mensaje nuevo ni distinto a clientes (ningún envío nuevo en las rutas de chats) y RECIÉN ENTONCES escribe "${CONFIRMACION_CHATS}". Si agrega cualquier envío, aunque el plan lo mencione, espera el sí del dueño (el Coordinador lo vuelve a comprobar con el diff).`,
     );
   }
   if (zonas.includes("META_ADS")) {
@@ -1283,7 +1284,12 @@ export async function construir(contexto, tarjeta) {
     if (repo.subirSolo === true && !zonasQuePidenSi.length && zonasDeLaTarjeta.length) {
       const diffs = { todo: await diffDeArchivos(carpeta, base, archivos) };
       for (const zona of zonasDeLaTarjeta) if (tocadas[zona]) diffs[zona] = await diffDeArchivos(carpeta, base, tocadas[zona]);
-      esperaPor = motivoPorElQueNoSubeSola({ zonas: zonasDeLaTarjeta, zonasQueSubenSolas: zonasSolas, diffs, plan: tarjeta.plan, texto: `${resumenDelMotor}\n${(pruebas ?? []).join("\n")}` });
+      // La prueba extra de chats y del bot la hace el Coordinador con el diff real: si el que construyó no escribió la frase y el
+      // cambio no agrega ningún envío de mensajes, la escribe él. Si hay un envío nuevo, no escribe nada y la tarjeta espera el sí.
+      const textoDelMotor = `${resumenDelMotor}\n${(pruebas ?? []).join("\n")}`;
+      const propias = confirmacionesDelCoordinador({ zonas: zonasDeLaTarjeta, zonasQueSubenSolas: zonasSolas, diffs, texto: textoDelMotor });
+      for (const linea of propias) pruebas.push(`✔ ${linea.replace(/^✔\s*/, "")}`);
+      esperaPor = motivoPorElQueNoSubeSola({ zonas: zonasDeLaTarjeta, zonasQueSubenSolas: zonasSolas, diffs, plan: tarjeta.plan, texto: `${textoDelMotor}\n${propias.join("\n")}` });
     }
     const subeSolo = repo.subirSolo === true && !zonasQuePidenSi.length && !esperaPor;
     const alTerminar = subeSolo

@@ -140,12 +140,38 @@ export function motivoPorElQueNoSubeSola({ zonas, zonasQueSubenSolas, diffs, pla
     if (envios.length && !planMencionaEnvios(plan)) return "el cambio agrega un envío de mensaje que el plan no menciona";
   }
   if (suben("CHATS")) {
-    if (!String(texto ?? "").includes(CONFIRMACION_CHATS)) return "falta la prueba de que los chats no mandan mensajes nuevos a clientes (✔ chats: sin mensajes nuevos a clientes)";
     // Más duro que el bot: aunque el plan lo mencione, cualquier envío nuevo en los archivos de chats espera el sí del dueño.
+    // Se mira primero: así un envío nuevo se dice como tal y no como "falta la prueba".
     const envios = enviosNuevosDeMensajes(diffDe("CHATS"));
     if (envios.length) return "el cambio agrega un envío de mensaje en chats (espera el sí del dueño aunque el plan lo mencione)";
+    if (!String(texto ?? "").includes(CONFIRMACION_CHATS)) return "falta la prueba de que los chats no mandan mensajes nuevos a clientes (✔ chats: sin mensajes nuevos a clientes)";
   }
   return null;
+}
+
+/**
+ * La prueba extra la hace el Coordinador (27-oct-2026, decisión del dueño: "no me pidan el sí final por esto"). Si
+ * el que construyó no escribió la frase de chats o del bot, el Coordinador mira él mismo el diff real de las rutas de
+ * la zona y, si NO agrega ningún envío de mensajes, escribe la confirmación. Devuelve las líneas que escribe (vacío = no
+ * hace falta o no se puede asegurar: sin diff, o con un envío nuevo, la tarjeta sigue esperando como antes).
+ * El libro V3 no entra: su prueba es una simulación con el simulador, que el Coordinador no puede reemplazar.
+ */
+export function confirmacionesDelCoordinador({ zonas, zonasQueSubenSolas, diffs, texto }) {
+  const suben = (zona) => zonasQueSubenSolas.includes(zona) && zonas.includes(zona);
+  const diffDe = (zona) => diffs?.[zona] ?? diffs?.todo ?? "";
+  const yaEscrita = (frase) => String(texto ?? "").includes(frase);
+  const sinEnvios = (zona) => {
+    const diff = diffDe(zona);
+    return String(diff).trim() !== "" && enviosNuevosDeMensajes(diff).length === 0;
+  };
+  const lineas = [];
+  if (suben("CHATS") && !yaEscrita(CONFIRMACION_CHATS) && sinEnvios("CHATS")) {
+    lineas.push(`${CONFIRMACION_CHATS} (comprobado por el Coordinador con el diff del código)`);
+  }
+  if (suben("BOT_VENTAS") && !yaEscrita(CONFIRMACION_BOT_VENTAS) && sinEnvios("BOT_VENTAS")) {
+    lineas.push(`${CONFIRMACION_BOT_VENTAS} (comprobado por el Coordinador con el diff del código)`);
+  }
+  return lineas;
 }
 
 /* ─────────────────────────── vigilancia de 30 minutos después de subir ── */

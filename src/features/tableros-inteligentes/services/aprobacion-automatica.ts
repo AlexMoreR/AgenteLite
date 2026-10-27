@@ -42,6 +42,8 @@ export const TEXTO_PLAN_SOLO = "plan aprobado automáticamente (regla del dueño
 
 export const TEXTO_TAREA_SOLA = "aprobada automáticamente (regla del dueño 25-oct)";
 
+export const TEXTO_HEREDADA = "aprobación del dueño heredada (regla del dueño 27-oct)";
+
 export const claveDelInterruptorDeTareas = (workspaceId: string) => `tablero:tareas-solas:${workspaceId}`;
 export const claveDelInterruptor = (workspaceId: string) => `tablero:aprobacion-automatica:${workspaceId}`;
 export const claveDelInterruptorDePlanes = (workspaceId: string) => `tablero:planes-solos:${workspaceId}`;
@@ -86,12 +88,26 @@ export async function ponerAprobacionAutomatica(workspaceId: string, prendida: b
 
 /** Lo que queda en `HistorialTarjeta.despues` de una aprobación automática (misma forma que una de la pantalla). */
 export function registroDeAprobacionAutomatica(datos: {
-  estado: "APROBADO" | "PLAN_APROBADO";
-  momento: "tarea" | "plan";
+  estado: "APROBADO" | "PLAN_APROBADO" | "SUBIENDO";
+  momento: "tarea" | "plan" | "subir";
   motivo: string;
-  /** "dueno-24-oct": el plan se aprobó por la regla del dueño (no por el riesgo BAJO). */
-  regla?: "dueno-24-oct" | "dueno-25-oct";
+  /** "dueno-24-oct": el plan se aprobó por la regla del dueño (no por el riesgo BAJO). "heredada-27-oct": la subida usa una aprobación que una persona ya dio. */
+  regla?: "dueno-24-oct" | "dueno-25-oct" | "heredada-27-oct";
 }) {
+  if (datos.regla === "heredada-27-oct") {
+    return {
+      estado: datos.estado,
+      momento: datos.momento,
+      via: "automatica",
+      quienNombre: NOMBRE_AUTOMATICO,
+      userId: QUIEN_AUTOMATICO,
+      textoConfirmacion: TEXTO_HEREDADA,
+      como: TEXTO_HEREDADA,
+      automatica: true,
+      regla: datos.regla,
+      motivo: datos.motivo,
+    };
+  }
   if (datos.regla === "dueno-25-oct") {
     return {
       estado: datos.estado,

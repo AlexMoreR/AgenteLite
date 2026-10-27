@@ -180,9 +180,13 @@ await prueba("3. Trabado: más de 2 horas en el mismo estado, o ERROR con la cau
 await prueba("4. Necesita al dueño: Meta Ads, dinero o presupuesto, o un error que pide clave o permiso", async () => {
   const base = { latidoEn: DIA.toISOString(), enCurso: [{ id: "x", titulo: "X", estado: "EN_CURSO", desde: hace(HORA) }], enFila: 0 };
   const necesita = (tarjeta) => avisos.calcularAvisos({ ...base, esperando: [esperando(tarjeta)] }, DIA).filter((a) => a.tipo === "necesita");
-  const meta = necesita({ estado: "POR_REVISAR", zonaProtegida: ["META_ADS"] });
+  // 27-oct-2026: el dueño solo decide dinero y gasto en Meta Ads (y un envío nuevo a clientes): tocar la zona de Meta Ads o de chats ya no basta.
+  assert.equal(necesita({ estado: "POR_REVISAR", zonaProtegida: ["META_ADS"] }).length, 0);
+  assert.equal(necesita({ estado: "POR_REVISAR", zonaProtegida: ["CHATS"], esperaPor: null }).length, 0);
+  const meta = necesita({ estado: "POR_REVISAR", zonaProtegida: ["META_ADS"], esperaPor: "gasto en Meta Ads (daily_budget, pasa algo a ACTIVE)" });
   assert.equal(meta.length, 1);
-  assert.match(avisos.armarMensaje(meta), /necesita tu decisión \(revisar el resultado\)\.\nMotivo: toca Meta Ads\nVer: /);
+  assert.match(avisos.armarMensaje(meta), /necesita tu decisión \(revisar el resultado\)\.\nMotivo: gasto en Meta Ads\nVer: /);
+  assert.equal(necesita({ estado: "POR_REVISAR", zonaProtegida: ["CHATS"], esperaPor: "el cambio agrega un envío de mensaje en chats (espera el sí del dueño aunque el plan lo mencione)" }).length, 1);
   assert.equal(necesita({ estado: "PLAN_LISTO", plan: "Subir el presupuesto de la campaña de Meta Ads." }).length, 1);
   assert.equal(necesita({ estado: "POR_APROBAR", titulo: "Calcular las comisiones y el nómina", detalle: "pagos del mes" }).length, 1);
   const clave = necesita({ estado: "ERROR", error: "Falta la clave de la API de Meta: 403 sin permiso" });

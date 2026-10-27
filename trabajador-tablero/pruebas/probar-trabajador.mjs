@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
 import { crearVigilante, sumarDescendientes } from "../lib/atasco.mjs";
-import { crearPlanificador, crearSemaforo, procesar, unaVuelta } from "../lib/bucle.mjs";
+import { crearPlanificador, crearRescatadorDePorRevisar, crearSemaforo, procesar, unaVuelta } from "../lib/bucle.mjs";
 import { PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
@@ -1069,6 +1069,13 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     if (avisosSilenciados) return contestar(200, { ok: true, silenciado: true });
     return contestar(200, { ok: true, linea: "Admin" });
   }
+  if (pedido.url === "/api/trabajador/tablero/por-revisar") {
+    llamadas.push({ accion: "por-revisar" });
+    const lista = [...tarjetas.values()]
+      .filter((t) => t.estado === "POR_REVISAR" && t.resultado?.paso === true && reglas.esperaSoloLaPruebaExtra(t.resultado?.esperaPor))
+      .map((t) => ({ id: t.id, titulo: t.titulo, repo: t.repo, plan: t.plan, zonaProtegida: t.zonaProtegida, rama: t.resultado.rama, commit: t.resultado.commit, base: t.resultado.base, archivos: t.resultado.archivos ?? [], esperaPor: t.resultado.esperaPor }));
+    return contestar(200, { ok: true, tarjetas: lista });
+  }
   if (pedido.url === "/api/trabajador/tablero/candidatas") {
     llamadas.push({ accion: "candidatas" });
     return contestar(200, {
@@ -1118,6 +1125,14 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     tarjeta.estado = "ERROR";
     Object.assign(tarjeta, { venceEn: null, resultado: { ...(tarjeta.resultado ?? {}), error: { motivo: reglas.resumenDeEscalada(cuerpo.motivo), categoria: cuerpo.categoria } } });
     return contestar(200, { ok: true, estado: "ERROR" });
+  }
+  if (accion === "revisado") {
+    // Como el CRM: solo si esperaba únicamente la prueba extra y el Coordinador manda su confirmación.
+    if (!reglas.esperaSoloLaPruebaExtra(tarjeta.resultado?.esperaPor)) return contestar(409, { ok: false, error: "No esperaba solo la prueba extra" });
+    if (!Array.isArray(cuerpo.confirmaciones) || !cuerpo.confirmaciones.length) return contestar(400, { ok: false, error: "Falta la confirmación" });
+    const { esperaPor: _quitada, ...resto } = tarjeta.resultado;
+    Object.assign(tarjeta, { estado: "SUBIENDO", venceEn: null, resultado: { ...resto, subeSolo: true, pruebas: `${resto.pruebas ?? ""}\n${cuerpo.confirmaciones.join("\n")}` } });
+    return contestar(200, { ok: true, estado: "SUBIENDO" });
   }
   tarjeta.estado = reglas.TRANSICIONES_DEL_TRABAJADOR[accion].a;
   tarjeta.venceEn = null;
@@ -1408,15 +1423,23 @@ try {
     sinRestos();
   });
 
-  await prueba("zonas que suben solas: libro V3 sin la simulación V3 y bot sin la prueba de mensajes esperan el sí", async () => {
+  await prueba("zonas que suben solas: libro V3 sin la simulación V3 espera el sí (el Coordinador no puede simular)", async () => {
     const v3 = nueva("Libro sin simular [solas-v3-sin]", "PLAN_APROBADO", { plan: "El plan" });
     assert.equal((await vuelta(configSolas())).ok, true);
     assert.equal(tarjetas.get(v3).estado, "POR_REVISAR");
     assert.match(tarjetas.get(v3).resultado.esperaPor, /falta la simulación V3/);
+    sinRestos();
+  });
+
+  await prueba("prueba extra del Coordinador: bot sin la frase de 'sin mensajes nuevos' y sin envíos nuevos la escribe él y sube sola", async () => {
     const bot = nueva("Bot sin probar [solas-bot-sin]", "PLAN_APROBADO", { plan: "El plan" });
     assert.equal((await vuelta(configSolas())).ok, true);
-    assert.equal(tarjetas.get(bot).estado, "POR_REVISAR");
-    assert.match(tarjetas.get(bot).resultado.esperaPor, /mensajes nuevos a clientes/);
+    const t = tarjetas.get(bot);
+    assert.equal(t.estado, "SUBIENDO");
+    assert.equal(t.resultado.subeSolo, true);
+    assert.match(t.resultado.pruebas, /✔ sin mensajes nuevos a clientes \(comprobado por el Coordinador/);
+    await vuelta(configSolas());
+    assert.equal(t.estado, "HECHO");
     sinRestos();
   });
 
@@ -1428,13 +1451,40 @@ try {
     sinRestos();
   });
 
-  await prueba("zonas que suben solas: CHATS sin la confirmación 'sin mensajes nuevos a clientes' espera el sí del dueño", async () => {
+  await prueba("prueba extra del Coordinador: chats sin la frase del constructor y sin envíos nuevos: la escribe el Coordinador y sube sola", async () => {
+    reiniciarLogs();
     const id = nueva("Cambio en chats [solas-chats-sin]", "PLAN_APROBADO", { plan: "El plan" });
+    const mainAhora = shaDe("main");
+    assert.equal((await vuelta(configSolas())).ok, true);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "SUBIENDO", "sube sola, sin pedir el sí del dueño");
+    assert.equal(t.resultado.subeSolo, true);
+    assert.equal(t.resultado.esperaPor, undefined);
+    assert.match(t.resultado.pruebas, /✔ chats: sin mensajes nuevos a clientes \(comprobado por el Coordinador con el diff/);
+    assert.deepEqual(t.zonaProtegida, ["CHATS"]);
+    assert.equal(shaDe("main"), mainAhora, "construir no toca main");
+    const subida = await vuelta(configSolas());
+    assert.equal(subida.ok, true, subida.motivo);
+    assert.equal(t.estado, "HECHO", "sube con la vigilancia de 30 min");
+    assert.equal(t.resultado.subida.vigilancia.ok, true);
+    sinRestos();
+  });
+
+  await prueba("prueba extra del Coordinador: si el constructor ya escribió la frase no se repite", async () => {
+    const id = nueva("Cambio en chats [solas-chats]", "PLAN_APROBADO", { plan: "El plan" });
+    assert.equal((await vuelta(configSolas())).ok, true);
+    assert.equal(tarjetas.get(id).estado, "SUBIENDO");
+    assert.doesNotMatch(tarjetas.get(id).resultado.pruebas, /comprobado por el Coordinador/);
+    await vuelta(configSolas());
+    sinRestos();
+  });
+
+  await prueba("prueba extra del Coordinador: chats con un envío nuevo y sin frase espera el sí (dice el envío, no 'falta la prueba')", async () => {
+    const id = nueva("Chats con aviso sin frase [solas-chats-sin] [solas-chats-envio]", "PLAN_APROBADO", { plan: "El plan" });
     assert.equal((await vuelta(configSolas())).ok, true);
     assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
-    assert.equal(tarjetas.get(id).resultado.subeSolo, false);
-    assert.match(tarjetas.get(id).resultado.esperaPor, /chats no mandan mensajes nuevos a clientes/);
-    assert.deepEqual(tarjetas.get(id).zonaProtegida, ["CHATS"]);
+    assert.match(tarjetas.get(id).resultado.esperaPor, /envío de mensaje en chats/);
+    assert.doesNotMatch(tarjetas.get(id).resultado.pruebas, /comprobado por el Coordinador/);
     sinRestos();
   });
 
@@ -1445,6 +1495,58 @@ try {
     assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
     assert.match(tarjetas.get(id).resultado.esperaPor, /envío de mensaje en chats/);
     assert.equal(shaDe("main"), mainAhora);
+    sinRestos();
+  });
+
+  // ── Rescate de las POR_REVISAR (27-oct-2026): lo único que esperaban era la frase de chats ──
+  const construirYDejarEsperando = async (titulo) => {
+    const id = nueva(titulo, "PLAN_APROBADO", { plan: "El plan" });
+    assert.equal((await vuelta(configSolas())).ok, true);
+    const t = tarjetas.get(id);
+    // Como quedaba antes: POR_REVISAR esperando solo la frase que nadie escribió.
+    const { subeSolo: _s, ...resto } = t.resultado;
+    Object.assign(t, { estado: "POR_REVISAR", resultado: { ...resto, subeSolo: false, esperaPor: "falta la prueba de que los chats no mandan mensajes nuevos a clientes (✔ chats: sin mensajes nuevos a clientes)" } });
+    return id;
+  };
+
+  await prueba("rescate: una tarjeta de chats POR_REVISAR que solo esperaba la frase, sin envíos nuevos: el Coordinador la comprueba y la pasa a SUBIENDO", async () => {
+    reiniciarLogs();
+    const id = await construirYDejarEsperando("Buscador de la bandeja [solas-chats]");
+    const rescatador = crearRescatadorDePorRevisar({ crm, config: configSolas(), registro, cadaMinutos: 0 });
+    const r = await rescatador.revisar();
+    assert.deepEqual(r.subidas.map((x) => x.id), [id]);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "SUBIENDO");
+    assert.equal(t.resultado.subeSolo, true);
+    assert.match(t.resultado.pruebas, /✔ chats: sin mensajes nuevos a clientes \(comprobado por el Coordinador/);
+    const subida = await vuelta(configSolas());
+    assert.equal(subida.ok, true, subida.motivo);
+    assert.equal(t.estado, "HECHO");
+    assert.equal(t.resultado.subida.vigilancia.ok, true, "sube con la vigilancia de 30 min");
+    sinRestos();
+  });
+
+  await prueba("rescate: si el cambio agrega un envío nuevo en chats, no la toca: sigue esperando el sí del dueño", async () => {
+    const id = await construirYDejarEsperando("Chats con aviso [solas-chats-envio]");
+    const rescatador = crearRescatadorDePorRevisar({ crm, config: configSolas(), registro, cadaMinutos: 0 });
+    const r = await rescatador.revisar();
+    assert.deepEqual(r.subidas, []);
+    assert.equal(r.esperan[0]?.id, id);
+    assert.match(r.esperan[0].motivo, /envío de mensaje en chats/);
+    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    assert.ok(!llamadas.some((l) => l.accion === "revisado" && l.id === id));
+    sinRestos();
+  });
+
+  await prueba("rescate: lo que espera por gasto en Meta Ads u otra causa no se rescata", async () => {
+    const id = await construirYDejarEsperando("Chats [solas-chats]");
+    tarjetas.get(id).resultado.esperaPor = "gasto en Meta Ads (daily_budget)";
+    const rescatador = crearRescatadorDePorRevisar({ crm, config: configSolas(), registro, cadaMinutos: 0 });
+    const r = await rescatador.revisar();
+    // (la del envío nuevo de la prueba de arriba sigue en la lista y sigue esperando; esta ni siquiera se pide)
+    assert.deepEqual(r.subidas, []);
+    assert.ok(!r.esperan.some((x) => x.id === id) && !llamadas.some((l) => l.accion === "revisado" && l.id === id));
+    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
     sinRestos();
   });
 

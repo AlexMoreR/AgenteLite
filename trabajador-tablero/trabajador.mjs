@@ -16,7 +16,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { actualizarCuandoSeaPosible, crearVigilanteDeVersion, marcarActualizacionOk, raizDelRepo } from "./lib/autoactualizar.mjs";
-import { crearPlanificador, unaVuelta } from "./lib/bucle.mjs";
+import { crearPlanificador, crearRescatadorDePorRevisar, unaVuelta } from "./lib/bucle.mjs";
 import { entornoSeguro, partirTarea } from "./lib/etapas.mjs";
 import { leerConfig } from "./lib/config.mjs";
 import { crearCrm } from "./lib/crm.mjs";
@@ -128,6 +128,8 @@ const recogedor = crearRecogedor({
   partir: (tarjeta, causa, error) => partirTarea({ config, registro, motorDe: null }, tarjeta, { causa, error }),
 });
 // Las notas NUEVAS del cerebro (lib/notas-boveda.mjs): si boveda.ruta está, cada minuto se crean en la bóveda local.
+// POR_REVISAR que solo esperaban la prueba extra de chats o del bot (27-oct-2026): el Coordinador mira el diff y las deja subir.
+const rescatador = crearRescatadorDePorRevisar({ crm, config, registro });
 const notasDeBoveda = crearNotasDeBoveda({ crm, config, registro });
 if (config.boveda.ruta) registro.info(`notas de la bóveda: creo las notas nuevas del cerebro en ${config.boveda.ruta}`);
 let primeraVueltaBien = false;
@@ -156,6 +158,13 @@ while (!parar) {
     if (!planificador.pausadoPorUso()) await recogedor.revisar();
   } catch (error) {
     registro.aviso(`recoger errores: ${String(error.message).split("\n")[0]}`);
+  }
+  if (parar) break;
+  try {
+    // Solo git y regex (sin Claude): corre también en la pausa por uso.
+    await rescatador.revisar();
+  } catch (error) {
+    registro.aviso(`rescatar POR_REVISAR: ${String(error.message).split("\n")[0]}`);
   }
   if (parar) break;
   try {

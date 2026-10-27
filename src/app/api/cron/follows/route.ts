@@ -18,6 +18,7 @@ import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente
 import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/servicio";
 import { procesarColaDeReuniones } from "@/features/reuniones/servicios/cola-de-reuniones";
 import { aprobarPlanesListosQueEsperan, aprobarSolasLasPendientes } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { heredarAprobacionesPorRevisar } from "@/features/tableros-inteligentes/services/trabajador";
 import { sincronizarCerebroDeTodos } from "@/features/cerebro/services/sincronizar-negocio";
 import { revisarAlertaDeConexion } from "@/features/cerebro/services/alerta-de-conexion";
 import { revisarAvisosAlDueno } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
@@ -215,6 +216,12 @@ async function handleCron(request: Request) {
       await aprobarPlanesListosQueEsperan();
     } catch (error) {
       console.error("[cron/follows] aprobacion de planes del tablero error", error);
+    }
+    try {
+      // Aprobación heredada (27-oct): lo que el dueño ya aprobó y quedó POR_REVISAR sin motivo de dinero ni Meta Ads sube solo.
+      await heredarAprobacionesPorRevisar();
+    } catch (error) {
+      console.error("[cron/follows] aprobacion heredada del tablero error", error);
     }
     try {
       await revisarAvisosAlDueno();

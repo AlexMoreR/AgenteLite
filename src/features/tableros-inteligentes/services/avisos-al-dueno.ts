@@ -15,7 +15,8 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
     2. sin_trabajo nada en curso ni en fila y hay tarjetas esperando al dueño (dice cuáles y qué necesitan).
     3. trabado     una tarjeta lleva más de 2 horas planeando, construyendo o subiendo sin cambiar de estado, o
                    quedó en ERROR (el Coordinador ya gastó sus 3 reparaciones): dice la causa en una línea.
-    4. necesita    espera al dueño y toca Meta Ads, dinero o presupuesto, o su error pide una clave o un permiso.
+    4. necesita    espera al dueño y toca dinero o gasto en Meta Ads (27-oct: ya no por tocar chats ni la zona de Meta Ads sin gasto),
+                   o su error pide una clave o un permiso.
                    También lo puede mandar el Coordinador por /api/trabajador/aviso con tipo "necesita".
     5. limite      Claude se agotó y todo quedó en pausa: lo manda el Coordinador (tipo "limite") con la hora de vuelta.
 
@@ -234,6 +235,8 @@ export type TarjetaEsperando = {
   plan: string | null;
   zonaProtegida: string[];
   error: string | null;
+  /** Por qué el Coordinador no la sube sola (resultado.esperaPor): solo en POR_REVISAR. Opcional para no romper lo anterior. */
+  esperaPor?: string | null;
 };
 export type SituacionDeSistemas = {
   /** Cuándo el CRM recibió el último latido del Coordinador (null = nunca ha dado señales). */
@@ -269,6 +272,15 @@ const PIDE_CLAVE_O_ACCESO = /\b(clave|claves|token|tokens|credencial\w*|contrase
 export function porQueNecesitaAlDueno(tarjeta: TarjetaEsperando): string | null {
   if (tarjeta.estado === "ERROR" || tarjeta.estado === "FALLIDO") {
     return tarjeta.error && PIDE_CLAVE_O_ACCESO.test(tarjeta.error) ? "falta una clave, un acceso o un permiso" : null;
+  }
+  // Desde el 27-oct-2026 el dueño solo decide dinero y gasto en Meta Ads (y un envío nuevo a clientes en chats): una tarjeta
+  // POR_REVISAR que solo toca la zona de Meta Ads, sin gasto, sube sola. Se mira lo que dijo el Coordinador.
+  if (tarjeta.estado === "POR_REVISAR") {
+    const espera = tarjeta.esperaPor ?? "";
+    if (/gasto en meta ads/i.test(espera)) return "gasto en Meta Ads";
+    if (/env[ií]o de mensaje/i.test(espera)) return "agrega un envío de mensajes a clientes";
+    if (/dinero|pagos?|n[oó]mina|comisi/i.test(espera)) return "toca dinero";
+    return null;
   }
   if (tarjeta.zonaProtegida.includes("META_ADS")) return "toca Meta Ads";
   if (tarjeta.estado === "PLAN_LISTO" && tarjeta.plan) return porQueElPlanEsperaTuSi(tarjeta.plan);
@@ -383,6 +395,12 @@ function textoDelError(resultado: unknown): string | null {
   return null;
 }
 
+function esperaPorDe(resultado: unknown): string | null {
+  if (!resultado || typeof resultado !== "object" || Array.isArray(resultado)) return null;
+  const { esperaPor } = resultado as { esperaPor?: unknown };
+  return typeof esperaPor === "string" && esperaPor.trim() ? esperaPor.trim() : null;
+}
+
 export async function leerSituacion(workspaceId: string): Promise<SituacionDeSistemas> {
   const alcance = { borradoEn: null, tablero: { workspaceId } };
   const [latido, enCursoFilas, enFila, pendientes] = await Promise.all([
@@ -419,6 +437,7 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
       plan: p.plan,
       zonaProtegida: p.zonaProtegida,
       error: textoDelError(p.resultado),
+      esperaPor: esperaPorDe(p.resultado),
     })),
   };
 }
