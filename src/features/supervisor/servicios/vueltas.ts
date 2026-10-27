@@ -20,7 +20,7 @@ import { avisarTareasSinDuena, gestionarAcciones, leerConfigAccionable } from "@
 import { avisarAlDueno } from "./avisar";
 import { claveLibroVisto, negociosConSupervisor, revalidacionActiva } from "./config";
 import { chatsExcluidosDeAtencion, leerChatsAbiertos, leerFichasRecientes, leerFlujosDelLibro, leerLineaDelLibro, nombresDeAsesoras } from "./datos";
-import { purgarAcusesConAcuerdo, purgarChatsExcluidos } from "../dominio/exclusiones";
+import { purgarAcusesConAcuerdo, purgarChatsExcluidos, purgarPausasAcordadas } from "../dominio/exclusiones";
 import {
   arreglosDeLosIncidentes,
   confirmarArreglo,
@@ -30,6 +30,7 @@ import {
 } from "../dominio/version-del-incidente";
 import { hallazgosDeTareasSinDuena, tareasSinDuenaConTurno } from "../dominio/tareas-sin-duena";
 import { leerTareasSinDuena } from "@/features/seguimiento-inteligente/servicios/tareas";
+import { leerConfigSeguimiento } from "@/features/seguimiento-inteligente/servicios/config";
 
 /**
  * LAS VUELTAS DEL SUPERVISOR (las llama el reloj de /api/cron/follows).
@@ -110,6 +111,10 @@ async function chequearAtencion(workspaceId: string, ahora: Date): Promise<numbe
   // Turno de la conversación (lib/turno-de-la-conversacion.ts). Apagado = exactamente lo de antes.
   const turno = await leerConfigTurno(workspaceId).catch(() => CONFIG_TURNO_APAGADO);
   const chats = await leerChatsAbiertos({ workspaceId, ahora, conTurno: turno.activo });
+  // Pausa acordada (interruptor `pausaAcordada.activo` del seguimiento inteligente, apagado por defecto):
+  // el cliente que dejó la compra en pausa y ya fue atendido no es alerta. Apagado = exactamente lo de antes.
+  const pausa = await leerConfigSeguimiento(workspaceId).then((c) => c.pausaAcordada).catch(() => null);
+  if (pausa?.activo) for (const chat of chats) chat.pausaAcordada = { dias: pausa.dias };
   const todasSinDuena = await leerTareasSinDuena(workspaceId, ahora).catch(() => []);
   // Con el turno: las tareas sin dueña de chats donde esperamos al cliente no van a la supervisora
   // (salvo formulario / cotización / fecha cercana / caliente).
@@ -139,7 +144,10 @@ async function chequearAtencion(workspaceId: string, ahora: Date): Promise<numbe
   const { incidentes: purgados } = purgarChatsExcluidos(abiertosCrudos, excluidos, ahora);
   // El cliente solo acusa recibo de algo ya acordado: sale de las alertas abiertas (menos las de pago).
   const conAcuse = new Set(chats.filter((chat) => estadoDeEspera(chat, ahora).acuse).map((chat) => chat.conversationId));
-  const { incidentes: abiertos } = purgarAcusesConAcuerdo(purgados, conAcuse, ahora);
+  const { incidentes: sinAcuses } = purgarAcusesConAcuerdo(purgados, conAcuse, ahora);
+  // Y los que dejaron la compra en pausa y ya fueron atendidos (pausa acordada).
+  const enPausa = new Set(chats.filter((chat) => estadoDeEspera(chat, ahora).pausa).map((chat) => chat.conversationId));
+  const { incidentes: abiertos } = purgarPausasAcordadas(sinAcuses, enPausa, ahora);
   const resultado = consolidar({ abiertos, hallazgos, ahora, cambios: [], familiasEvaluadas: ["ATENCION"] });
   await guardarIncidentes(workspaceId, resultado.incidentes, ahora);
   // Con el accionable, avisarAlDueno deja fuera las alertas de chat: las maneja gestionarAcciones.

@@ -805,9 +805,13 @@ export function avanzar(input: {
     }
     // El cliente solo acusa recibo de algo ya acordado ("Sí señora, está bien" tras el cierre o su
     // compromiso de pago, 13-10-2026): ya no es tarea, aunque estuviera escalada. Un pago nunca.
-    if (a.tipo !== "pago" && estadoDeEspera(chat, ahora).acuse) {
-      a.estado = "YA_NO_APLICA";
-      continue;
+    // Igual si dejó la compra en pausa y ya lo atendieron (pausa acordada, con su interruptor; 26-10-2026).
+    if (a.tipo !== "pago") {
+      const espera = estadoDeEspera(chat, ahora);
+      if (espera.acuse || espera.pausa) {
+        a.estado = "YA_NO_APLICA";
+        continue;
+      }
     }
     if (a.estado === "ESCALADA") continue;
     if (a.fueraDeHorario) {

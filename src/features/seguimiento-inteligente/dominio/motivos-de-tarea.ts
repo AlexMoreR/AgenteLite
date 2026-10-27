@@ -15,6 +15,7 @@ export const MOTIVOS_DE_TAREA: Record<string, string> = {
   cadencia_tope_de_automaticos: "Seguimiento después de tu mensaje",
   recuperacion_72h: "Recuperación 72 h · último intento",
   compromiso_pendiente: "Quedó en algo para esta hora",
+  pausa_acordada_retomar: "Pausa acordada: hoy toca retomar",
 };
 
 export function nombreDelMotivo(motivo: string | null | undefined): string {

@@ -23,6 +23,11 @@
  *  - recuperacion72h.modo: "apagado" | "sombra" | "activo" (último intento humano a las 72 h).
  *    · recuperacion72h.vencerTrasDias (7; 13-10-2026): la tarea cuyo cliente lleva más de esos días
  *      sin escribir sale de las listas y queda para reactivación. 0 = como antes.
+ *  - pausaAcordada.activo (APAGADO; 26-10-2026): el cliente que dejó la compra en pausa con contexto
+ *    ("espero que me organicen el lugar", "reuniendo la plata", "te aviso") y ya fue atendido queda
+ *    dormido (motivo `pausa_acordada`) hasta la fecha que dio o `dias` días (3), y ese día aparece una
+ *    tarea para la asesora con un mensaje de valor. El Supervisor tampoco lo alerta. Ver
+ *    supervisor/dominio/pausa-acordada.ts. Apagado = exactamente como antes.
  *  - diaSiguiente.rearmar: true | false (Alexander, 13-10-2026). El seguimiento de "día siguiente"
  *    del paso del Playbook se vuelve a armar en cada silencio, contando desde nuestra última
  *    respuesta (ver dominio/dia-siguiente.ts). false = como antes: solo al entrar al paso.
@@ -226,7 +231,22 @@ export type ConfigSeguimientoInteligente = {
     /** Minutos callado después de nuestra respuesta antes de armarlo (deja terminar la tanda del bot). */
     minutosDeCalma: number;
   };
+  /**
+   * PAUSA ACORDADA (Alexander, 26-10-2026; regla en supervisor/dominio/pausa-acordada.ts). Con `activo`,
+   * el chat donde el cliente dijo que espera algo y una persona ya respondió pasa a seguimiento
+   * programado (no es alerta del Supervisor) y se retoma con una tarea en la fecha del cliente o a
+   * los `dias` días. El sistema nunca le escribe al cliente. false = exactamente como antes.
+   */
+  pausaAcordada: {
+    activo: boolean;
+    /** Días para retomar cuando el cliente no dio una fecha. */
+    dias: number;
+  };
 };
+
+/** Los motivos de la pausa acordada: dormido hasta la fecha, y la tarea de retomar. */
+export const MOTIVO_PAUSA_ACORDADA = "pausa_acordada";
+export const MOTIVO_PAUSA_RETOMAR = "pausa_acordada_retomar";
 
 export const TEXTO_EXTERIOR_POR_DEFECTO =
   "¡Hola! 😊 Gracias por escribirnos. Por ahora solo vendemos y enviamos dentro de *Colombia*. Si estás en Colombia, cuéntame en qué ciudad y con gusto te ayudo 🙌";
@@ -282,6 +302,7 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
     vencerTrasDias: 7,
   },
   diaSiguiente: { rearmar: false, minutosDeCalma: 3 },
+  pausaAcordada: { activo: false, dias: 3 },
 };
 
 function objeto(valor: unknown): Record<string, unknown> {
@@ -359,6 +380,7 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
   const tra = objeto(crudo.trasAsesora);
   const rec = objeto(crudo.recuperacion72h);
   const dsg = objeto(crudo.diaSiguiente);
+  const pau = objeto(crudo.pausaAcordada);
   const recDesde = numero(rec.desdeHora, d.recuperacion72h.desdeHora, 0, 23);
   let recHasta = numero(rec.hastaHora, d.recuperacion72h.hastaHora, 1, 24);
   if (recHasta <= recDesde) recHasta = Math.min(24, recDesde + 1);
@@ -451,6 +473,10 @@ export function leerConfigDeTexto(texto: string | null | undefined): ConfigSegui
     diaSiguiente: {
       rearmar: bandera(dsg.rearmar, d.diaSiguiente.rearmar),
       minutosDeCalma: numero(dsg.minutosDeCalma, d.diaSiguiente.minutosDeCalma, 0, 120),
+    },
+    pausaAcordada: {
+      activo: bandera(pau.activo, d.pausaAcordada.activo),
+      dias: Math.round(numero(pau.dias, d.pausaAcordada.dias, 1, 30)),
     },
   };
 }

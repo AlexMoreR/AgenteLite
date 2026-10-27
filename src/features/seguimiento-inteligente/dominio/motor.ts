@@ -33,8 +33,9 @@
  */
 
 import { dentroDelHorario, esMensajeHumano, reprogramarFueraDeHorario } from "../../../lib/anti-bloqueo/reglas";
-import { MOTIVO_COMPROMISO, compromisoPrendido, esExcepcionQueActua, type ConfigSeguimientoInteligente, type ModoDelMotor } from "./config";
+import { MOTIVO_COMPROMISO, MOTIVO_PAUSA_ACORDADA, MOTIVO_PAUSA_RETOMAR, compromisoPrendido, esExcepcionQueActua, type ConfigSeguimientoInteligente, type ModoDelMotor } from "./config";
 import { detectarCompromiso, mensajeDeCompromiso } from "./compromiso";
+import { detectarPausaAcordada, mensajeDePausa } from "../../supervisor/dominio/pausa-acordada";
 import { detectarFechaFutura, type FechaFutura } from "./fecha-futura";
 import { mencionaColombia, type Pais } from "./exterior";
 import { colorDelCliente, esPedidoDeDatos, siguienteHoraLaboral } from "./formulario";
@@ -256,6 +257,12 @@ export function modoDeLaDecision(decision: Pick<Decision, "accion" | "motivo">, 
 function dormidoPorFecha(c: Pick<Contexto, "mensajes" | "delCliente" | "config" | "ahora">): boolean {
   const ultimoCliente = c.delCliente.at(-1) ?? null;
   if (!ultimoCliente) return false;
+  // Pausa acordada vigente (interruptor propio): también duerme la Recuperación y el toque tras la asesora.
+  if (c.config.pausaAcordada?.activo) {
+    const f = c.config.formulario;
+    const pausa = detectarPausaAcordada({ mensajes: c.mensajes }, c.ahora, { horario: { desde: f.desdeHora, hasta: f.hastaHora, dias: f.dias }, dias: c.config.pausaAcordada.dias });
+    if (pausa) return true;
+  }
   const ultimoOut = [...c.mensajes].reverse().find((m) => m.direccion === "OUT") ?? null;
   if (!ultimoOut || ultimoCliente.en.getTime() > ultimoOut.en.getTime()) return false;
   const anterior = [...c.mensajes].reverse().find((m) => m.direccion === "OUT" && m.en.getTime() < ultimoCliente.en.getTime()) ?? null;
@@ -439,6 +446,36 @@ function decidir(c: Contexto): Decision {
     }
     // La asesora ya le escribió por la fecha: desde ahí corre la cadencia.
     inicioCadencia = tareaEn;
+  }
+
+  // 4b. PAUSA ACORDADA (Alexander, 26-10-2026; interruptor `pausaAcordada.activo`): el cliente dijo que
+  //     espera algo ("espero que me organicen el lugar") y una persona ya le respondió. Queda dormido
+  //     hasta la fecha que dio (o 3 días) y ese día es una tarea de valor para la asesora. Se cae sola
+  //     si el cliente vuelve a escribir algo que no sea un acuse. Si la asesora ya lo retomó, o la
+  //     tarea lleva 3 días sin hacerse, sigue lo de siempre.
+  if (config.pausaAcordada?.activo) {
+    const horario = { desde: config.formulario.desdeHora, hasta: config.formulario.hastaHora, dias: config.formulario.dias };
+    // Sin `ahora`: aquí el motor decide qué pasa ANTES y DESPUÉS de la fecha (el detector del Supervisor sí corta).
+    const pausa = detectarPausaAcordada({ mensajes }, new Date(0), { horario, dias: config.pausaAcordada.dias });
+    if (pausa) {
+      const fecha: FechaFutura = { fecha: pausa.retomarEn, fragmento: pausa.frase, como: pausa.como };
+      if (ahora.getTime() < pausa.retomarEn.getTime()) {
+        return base("dormido", MOTIVO_PAUSA_ACORDADA, {
+          dormidoHasta: pausa.retomarEn,
+          fechaCompra: fecha,
+          revisarEn: pausa.retomarEn,
+          detalle: `Dijo: «${pausa.frase}»`,
+        });
+      }
+      const hecha = mensajes.some((m) => esHumano(m, c.inicio) && m.en.getTime() >= pausa.retomarEn.getTime() - 2 * HORA && m.en.getTime() > pausa.respondioEn.getTime());
+      const vencida = ahora.getTime() >= pausa.retomarEn.getTime() + 3 * DIA;
+      if (!hecha && !vencida) {
+        const decision = tarea("B", MOTIVO_PAUSA_RETOMAR, mensajeDePausa(pausa, ficha.nombre), pausa.retomarEn, "pausa_acordada");
+        decision.fechaCompra = fecha;
+        decision.detalle = `Retomar sin presionar: dijo «${pausa.frase}»`;
+        return decision;
+      }
+    }
   }
 
   // 5. El cliente está esperando respuesta.
