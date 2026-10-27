@@ -340,7 +340,9 @@ await prueba("resultado: BAJO que toca algo de riesgo alto, migración destructi
     enCurso();
     const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", cuerpo);
     const t = estado.tarjetas.get("t1");
-    assert.equal(r.estado, "POR_REVISAR", nombre);
+    // Chats y bot de ventas que no suben solos pasan a ERROR con el motivo (27-oct-2026); lo demás espera el sí del dueño.
+    assert.equal(r.estado, nombre === "zona protegida marcada" ? "ERROR" : "POR_REVISAR", nombre);
+    if (nombre === "zona protegida marcada") assert.match(t.resultado.error.motivo, /^construido, no sube: /);
     assert.equal(t.riesgo, "ALTO", nombre);
     assert.equal(t.riesgoPor, "TRABAJADOR", nombre);
     assert.ok(t.riesgoMotivo, nombre);
@@ -373,15 +375,15 @@ await prueba("resultado: ALTO con zona CHATS (26-oct-2026) sube sola como el bot
 await prueba("resultado: el sí del dueño ya dado se hereda aunque la tarea se reconstruya (27-oct); dinero, gasto en Meta Ads o un envío nuevo piden de nuevo", async () => {
   const sinSi = { subeSolo: false, zonaProtegida: ["CHATS"], esperaPor: "falta la prueba de que los chats no mandan mensajes nuevos a clientes" };
   const conSiDelDueno = () => estado.historial.push({ tarjetaId: "t1", accion: "aprobar", despues: { via: "voz", momento: "tarea" } });
-  // Sin sí del dueño en el historial, espera como antes.
+  // Sin sí del dueño en el historial, una de chats que no sube ya no espera: ERROR con el motivo (27-oct-2026).
   estado.historial.length = 0;
   enCurso({ riesgo: "ALTO" });
-  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "POR_REVISAR");
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "ERROR");
   // Un sí automático no cuenta.
   estado.tarjetas.clear();
   estado.historial.push({ tarjetaId: "t1", accion: "aprobar", despues: { via: "automatica" } });
   enCurso({ riesgo: "ALTO" });
-  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "POR_REVISAR");
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "ERROR");
   // Con el sí del dueño sube sola, con la nota de la herencia, y el motivo viejo se borra.
   estado.tarjetas.clear();
   conSiDelDueno();
@@ -401,7 +403,8 @@ await prueba("resultado: el sí del dueño ya dado se hereda aunque la tarea se 
     estado.tarjetas.clear();
     enCurso({ riesgo: "ALTO", ...tarjetaExtra });
     const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ ...sinSi, esperaPor: undefined, ...extra }));
-    assert.equal(r.estado, "POR_REVISAR", etiqueta);
+    // Solo el gasto en Meta Ads (zona META_ADS) sigue esperando al dueño; chats que no sube pasa a ERROR (27-oct-2026).
+    assert.equal(r.estado, etiqueta === "gasto en Meta Ads" ? "POR_REVISAR" : "ERROR", etiqueta);
   }
   estado.historial.length = 0;
 });

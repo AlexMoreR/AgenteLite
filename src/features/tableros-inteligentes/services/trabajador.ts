@@ -19,6 +19,8 @@ import {
   causaConEstrategia,
   causaDeEntrada,
   destinoDelResultado,
+  esGastoEnMetaAds,
+  soloChatsOBot,
   TEXTO_APROBACION_HEREDADA,
   aprobacionDelDuenoEnElHistorial,
   esperaSoloPorLaPruebaExtra,
@@ -112,7 +114,8 @@ import { cerrarLaMadreDeLaParte, cerrarLaMadreSiToca as cerrarMadrePartida } fro
     nube, 180 min). Construyendo trae { lugar, sesion }: se guarda en resultado.construccion (25-oct-2026).
   - /:id/subida acepta también resumenTres { hizo, ahora, revisar } (las 3 líneas del agente; se recortan y se descartan si vienen vacías).
   - /:id/plan, /resultado, /subida y /error la mueven de estado (reglas-trabajador.ts). /resultado
-    pasa a SUBIENDO (sube sola) o a POR_REVISAR (espera el sí final) según destinoDelResultado.
+    pasa a SUBIENDO (sube sola), a POR_REVISAR (espera el sí final) o a ERROR (chats o bot de ventas que no suben) según destinoDelResultado.
+  - /:id/revisar_de_nuevo { subeSolo, motivo?, pruebas? } (27-oct-2026, desde POR_REVISAR): saca una de CHATS o BOT_VENTAS que ya esperaba: SUBIENDO pendiente o ERROR.
 
   Cuando algo falla (24-oct-2026, "reparar"): el Coordinador diagnostica y cada paso deja una fila en
   IntentoTarjeta (el historial de intentos de la tarjeta):
@@ -679,6 +682,52 @@ async function rescatarTarjeta(contexto: ContextoTrabajador, actual: FilaParaTra
   });
 }
 
+/**
+ * POST /:id/revisar_de_nuevo (27-oct-2026, desde POR_REVISAR): saca una tarjeta de CHATS o BOT_VENTAS que ya esperaba el sí del
+ * dueño. `{ subeSolo, motivo?, pruebas? }`: con `subeSolo: true` pasa a SUBIENDO pendiente (sus zonasAprobadas salen de sus zonas
+ * y subir() la vigila 30 min); con `false`, a ERROR con "construido, no sube: <motivo>". Solo vale si pasó la construcción, todas sus
+ * zonas son CHATS o BOT_VENTAS y no espera por gasto en Meta Ads; si no, 409 y no cambia nada. La usa el Coordinador, no la pantalla.
+ */
+async function revisarDeNuevo(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
+  const previo = resultadoComoObjeto(actual.resultado);
+  if (previo.paso !== true) throw new ErrorDelTrabajador("Solo se revisa de nuevo una tarjeta que pasó build y pruebas.", 409);
+  if (!soloChatsOBot(actual.zonaProtegida)) throw new ErrorDelTrabajador("Solo vale para tarjetas cuyas zonas son todas CHATS o BOT_VENTAS.", 409);
+  const esperaPor = typeof previo.esperaPor === "string" ? previo.esperaPor : null;
+  if (esGastoEnMetaAds(esperaPor)) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${esperaPor}.`, 409);
+  if (typeof cuerpo.subeSolo !== "boolean") throw new ErrorDelTrabajador("Falta subeSolo (true o false).", 400);
+  const sube = cuerpo.subeSolo;
+  const motivo = typeof cuerpo.motivo === "string" && cuerpo.motivo.trim() ? cuerpo.motivo.trim().slice(0, 300) : null;
+  const pruebas = Array.isArray(cuerpo.pruebas)
+    ? cuerpo.pruebas.filter((p): p is string => typeof p === "string" && p.trim() !== "").map((p) => p.trim().slice(0, 300)).slice(0, 20)
+    : [];
+
+  let nuevo: EstadoTarjetaTablero;
+  let resultadoNuevo: Record<string, unknown>;
+  let nota: string;
+  if (sube) {
+    nuevo = "SUBIENDO";
+    const { esperaPor: _quitada, ...sinEspera } = previo;
+    void _quitada;
+    resultadoNuevo = { ...sinEspera, subeSolo: true };
+    nota = `revisada de nuevo por el Coordinador, sube sola${motivo ? ` (${motivo})` : ""}`;
+  } else {
+    nuevo = "ERROR";
+    const razon = `construido, no sube: ${motivo ?? esperaPor ?? "el Coordinador no la dejó subir sola"}`.slice(0, 400);
+    resultadoNuevo = { ...previo, error: { motivo: razon, en: "POR_REVISAR", cuando: ahora.toISOString() } };
+    nota = razon;
+  }
+  return prisma.$transaction(async (tx) => {
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: { id: actual.id, estado: "POR_REVISAR", borradoEn: null },
+      data: { estado: nuevo, trabajoVenceEn: null, resultado: resultadoNuevo as Prisma.InputJsonValue },
+    });
+    if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    await anotarTrabajador(tx, contexto, actual.id, { estado: actual.estado }, { estado: nuevo, nota, ...(pruebas.length ? { pruebas } : {}) });
+    await tocarTableros(tx, [actual.tableroId], ahora);
+    return { ok: true, estado: nuevo, sube, link: linkDeLaTarjeta(actual.id) };
+  });
+}
+
 /** Una tarjeta de ESTE negocio, o 404. */
 async function tarjetaDelTrabajador(contexto: ContextoTrabajador, tarjetaId: string) {
   const fila = await prisma.tarjetaTablero.findFirst({
@@ -802,6 +851,7 @@ export async function accionDelTrabajador(
   if (accion === "limpieza") return pedirLimpieza(contexto, actual, cuerpo, ahora);
   if (accion === "recoger") return recogerTarjeta(contexto, actual, cuerpo, ahora);
   if (accion === "rescatar") return rescatarTarjeta(contexto, actual, cuerpo, ahora);
+  if (accion === "revisar_de_nuevo") return revisarDeNuevo(contexto, actual, cuerpo, ahora);
 
   let a = TRANSICIONES_DEL_TRABAJADOR[accion].a as EstadoTarjetaTablero;
   const previo = resultadoComoObjeto(actual.resultado);
@@ -940,9 +990,18 @@ export async function accionDelTrabajador(
           }) === null;
       }
       // Sube sola (SUBIENDO pendiente, la toma enseguida) o espera el sí final del dueño (POR_REVISAR).
-      a = destinoDelResultado({ paso: resultado.paso, subeSolo, zonaProtegida: zonas, aprobacionHeredada });
+      a = destinoDelResultado({ paso: resultado.paso, subeSolo, zonaProtegida: zonas, aprobacionHeredada, esperaPor: resultado.esperaPor ?? null });
       datos.estado = a;
       despues.estado = a;
+      // Chats y bot de ventas que se construyeron bien pero no pueden subir solas: ERROR con el motivo en una línea (no esperan el sí).
+      const motivoNoSube =
+        a === "ERROR"
+          ? `construido, no sube: ${resultado.esperaPor ?? (datos.riesgoMotivo as string | undefined) ?? "el Coordinador no la dejó subir sola"}`.slice(0, 400)
+          : null;
+      if (motivoNoSube) {
+        (resultado as Record<string, unknown>).error = { motivo: motivoNoSube, en: "EN_CURSO", cuando: ahora.toISOString() };
+        despues.motivo = motivoNoSube;
+      }
       // Lo que queda guardado dice lo que de verdad pasó: si el riesgo subió a ALTO, ya no "sube solo".
       if (a === "SUBIENDO" && aprobacionHeredada) {
         subeSolo = true;
@@ -953,7 +1012,9 @@ export async function accionDelTrabajador(
       despues.resultado = resultado;
       const zonasQueSuben = zonas.filter((zona) => !zonasQuePidenTuSi([zona]).length);
       despues.nota =
-        a === "SUBIENDO" && aprobacionHeredada
+        motivoNoSube
+          ? motivoNoSube
+          : a === "SUBIENDO" && aprobacionHeredada
           ? TEXTO_APROBACION_HEREDADA
           : a === "SUBIENDO"
           ? zonasQueSuben.length

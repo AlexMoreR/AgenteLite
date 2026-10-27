@@ -1272,6 +1272,8 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     tarjeta.resultado = reglas.resultadoDeEntrada(cuerpo);
     if (cuerpo.zonaProtegida) tarjeta.zonaProtegida = reglas.unirZonas(tarjeta.zonaProtegida, reglas.zonasDeEntrada(cuerpo.zonaProtegida));
     tarjeta.estado = reglas.destinoDelResultado({ ...tarjeta.resultado, zonaProtegida: tarjeta.zonaProtegida });
+    // Como el CRM real (27-oct-2026): chats o bot de ventas que no suben pasan a ERROR con "construido, no sube: <motivo>".
+    if (tarjeta.estado === "ERROR") tarjeta.resultado = { ...tarjeta.resultado, error: { motivo: `construido, no sube: ${tarjeta.resultado.esperaPor ?? "el Coordinador no la dejó subir sola"}`, en: "EN_CURSO" } };
   }
   if (accion === "subida") tarjeta.resultado = { ...tarjeta.resultado, subida: { commit: cuerpo.commit, version: cuerpo.version, linkCommit: cuerpo.linkCommit, ...(cuerpo.vigilancia ? { vigilancia: reglas.vigilanciaDeEntrada(cuerpo.vigilancia) } : {}), ...(cuerpo.resumenTres ? { resumenTres: reglas.resumenDeTresLineasDeEntrada(cuerpo.resumenTres) } : {}) } };
   if (accion === "error") {
@@ -1456,13 +1458,14 @@ try {
     sinRestos();
   });
 
-  await prueba("zona protegida: toca src/bot/, se marca BOT_VENTAS y queda POR_REVISAR esperando el sí (no sube sola)", async () => {
+  await prueba("zona protegida: toca src/bot/, se marca BOT_VENTAS y, como no sube sola, queda ERROR 'construido, no sube' (no espera el sí)", async () => {
     const id = nueva("Cambiar el saludo [zona]", "PLAN_APROBADO", { plan: "El plan" });
     const mainAhora = shaDe("main");
     const resultado = await vuelta(crearConfig({}, { subirSolo: true }));
     assert.equal(resultado.ok, true, resultado.motivo);
     const t = tarjetas.get(id);
-    assert.equal(t.estado, "POR_REVISAR");
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, /^construido, no sube: /);
     assert.equal(t.resultado.subeSolo, false);
     assert.match(t.resultado.resumen, /espera tu sí \(zona BOT_VENTAS \(src\/bot\/respuesta\.ts\)\)/);
     assert.deepEqual(t.zonaProtegida, ["BOT_VENTAS"]);
@@ -1470,11 +1473,11 @@ try {
     sinRestos();
   });
 
-  await prueba("con la zona aprobada en la pantalla, el mismo cambio sí pasa", async () => {
+  await prueba("con la zona aprobada en la pantalla, el mismo cambio sí pasa (pero sin subirSolo queda ERROR, no espera el sí)", async () => {
     const id = nueva("Cambiar el saludo aprobado [zona]", "PLAN_APROBADO", { plan: "El plan", zonaProtegida: ["BOT_VENTAS"] });
     const resultado = await vuelta();
     assert.equal(resultado.ok, true, resultado.motivo);
-    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    assert.equal(tarjetas.get(id).estado, "ERROR");
     sinRestos();
   });
 
@@ -1579,10 +1582,12 @@ try {
     sinRestos();
   });
 
-  await prueba("zonas que suben solas: un envío nuevo de mensaje en el bot que el plan no menciona no sube solo", async () => {
+  await prueba("zonas que suben solas: un envío nuevo de mensaje en el bot que el plan no menciona no sube solo (queda ERROR)", async () => {
     const id = nueva("Bot con aviso [solas-bot] [solas-bot-envio]", "PLAN_APROBADO", { plan: "Cambiar el saludo." });
     assert.equal((await vuelta(configSolas())).ok, true);
-    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    // Bot de ventas que no puede subir: ERROR con el motivo (27-oct-2026), ya no espera el sí.
+    assert.equal(tarjetas.get(id).estado, "ERROR");
+    assert.match(tarjetas.get(id).resultado.error.motivo, /^construido, no sube: .*envío de mensaje que el plan no menciona/);
     assert.match(tarjetas.get(id).resultado.esperaPor, /envío de mensaje que el plan no menciona/);
     sinRestos();
   });
@@ -1601,11 +1606,12 @@ try {
     sinRestos();
   });
 
-  await prueba("zonas que suben solas: un envío nuevo en src/chats espera el sí aunque el plan lo mencione", async () => {
+  await prueba("zonas que suben solas: un envío nuevo en src/chats no sube solo aunque el plan lo mencione (queda ERROR)", async () => {
     const id = nueva("Chats con aviso [solas-chats-envio]", "PLAN_APROBADO", { plan: "Se enviará un mensaje nuevo al cliente." });
     const mainAhora = shaDe("main");
     assert.equal((await vuelta(configSolas())).ok, true);
-    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    assert.equal(tarjetas.get(id).estado, "ERROR");
+    assert.match(tarjetas.get(id).resultado.error.motivo, /^construido, no sube: .*envío de mensaje en chats/);
     assert.match(tarjetas.get(id).resultado.esperaPor, /envío de mensaje en chats/);
     assert.equal(shaDe("main"), mainAhora);
     sinRestos();
