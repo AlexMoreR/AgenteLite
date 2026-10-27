@@ -1156,4 +1156,60 @@ prueba("limpieza dentro de aplicarRevalidaciones: lo cerrado no vuelve a salir e
   assert.equal(r.avisar.length, 0);
 });
 
+/* ------------------------------------------------------------------ chats automáticos (26-oct) */
+
+const robot = cargar("src/features/supervisor/dominio/chat-automatico.ts");
+const gravedadReglas = cargar("src/features/avisos-gravedad/dominio/reglas.ts");
+
+prueba("chat automático: Bancolombia, Nequi, Daviplata y códigos de verificación son robot", () => {
+  assert.ok(robot.esChatAutomatico({ textos: ["Bancolombia le informa una transferencia por $87.400 desde cta *1234"] }));
+  assert.ok(robot.esChatAutomatico({ nombre: "Bancolombia" }));
+  assert.ok(robot.esChatAutomatico({ nombre: "Nequi", textos: ["hola"] }));
+  assert.ok(robot.esChatAutomatico({ nombre: "Daviplata" }));
+  assert.ok(robot.esChatAutomatico({ textos: ["Tu código de verificación es 482913. No lo compartas con nadie."] }));
+  assert.ok(robot.esChatAutomatico({ textos: ["Transferencia exitosa", "Recibiste $20.000 de Juan"] }));
+  assert.ok(robot.esChatAutomatico({ textos: ["Este es un mensaje automático, no responda este mensaje"] }));
+});
+
+prueba("chat automático: un cliente real o uno ya respondido por una persona NO es robot", () => {
+  assert.equal(robot.esChatAutomatico({ textos: ["ya pagué, adjunto comprobante"] }), false);
+  assert.equal(robot.esChatAutomatico({ textos: ["Hola, hice la transferencia por $87.400 a su cuenta"] }), false);
+  // Mezcla de notificación con una frase de persona: ante la duda no se marca.
+  assert.equal(robot.esChatAutomatico({ textos: ["Bancolombia le informa una transferencia por $87.400", "ya les pagué, me confirman?"] }), false);
+  assert.equal(robot.esChatAutomatico({ textos: [] }), false);
+  assert.equal(robot.esChatAutomatico({ nombre: "María Bancolombiano", textos: ["buenas"] }), false);
+  // Si una persona ya le respondió, nunca es robot (aunque el nombre sea de banco).
+  assert.equal(robot.esChatAutomatico({ nombre: "Bancolombia", textos: ["Bancolombia le informa…"], ultimaRespuestaHumanaEn: new Date() }), false);
+});
+
+prueba("exclusiones: oculto del CRM, bloqueado y automático no generan avisos, ni el de comprobante sin respuesta", () => {
+  const ahora = new Date(LUNES_10AM);
+  const base = { asesoraId: null, etapa: "NUEVO", telefono: "573013536788", ultimoClienteEn: new Date(LUNES_10AM - 40 * M), ultimaRespuestaHumanaEn: null, textosPendientes: ["ya pagué, adjunto comprobante de 87.400"] };
+  assert.equal(exclusiones.motivoDeExclusion({ ...base, ocultoDelCrm: true }, ahora), "oculto");
+  assert.equal(exclusiones.motivoDeExclusion({ ...base, automatico: true }, ahora), "automatico");
+  assert.equal(exclusiones.motivoDeExclusion(base, ahora), null);
+  const real = { ...base, conversationId: "cvReal" };
+  const banco = { ...base, conversationId: "cvBanco", automatico: true };
+  const oculto = { ...base, conversationId: "cvOculto", ocultoDelCrm: true };
+  assert.equal(atencion.detectarAtencion([banco, oculto], ahora).length, 0);
+  assert.equal(gravedadReglas.detectarPagoSinRespuesta([banco, oculto], ahora, 15).length, 0);
+  const pagos = gravedadReglas.detectarPagoSinRespuesta([real, banco, oculto], ahora, 15);
+  assert.deepEqual(pagos.flatMap((h) => h.evidencia.chats), ["cvReal"]);
+});
+
+prueba("exclusiones: la alerta abierta con solo un robot se cierra RESUELTA y con uno real conserva solo el real", () => {
+  const ahora = new Date(LUNES_10AM);
+  const inc = (clave, hallazgos) => ({ clave, familia: "ATENCION", severidad: "CRITICO", titulo: clave, producto: null, primeraVezEn: ahora, ultimaVezEn: ahora, desde: ahora, vecesVista: 1, estado: "ABIERTA", resueltaEn: null, notificadaEn: null, severidadNotificada: null, hallazgos });
+  const h = (chats) => hallazgo("ATENCION:pago-sin-respuesta", "CRITICO", ahora, {
+    familia: "ATENCION",
+    evidencia: { chats, reglas: [], versiones: [] },
+    hechos: chats.map((c) => `Chat ${c}: comprobante de 87.400.`),
+    leadsAfectados: chats.length,
+  });
+  const r = exclusiones.purgarChatsExcluidos([inc("A", [h(["cvBanco"])]), inc("B", [h(["cvBanco", "cvReal"])])], new Set(["cvBanco"]), ahora);
+  assert.equal(r.incidentes[0].estado, "RESUELTA");
+  assert.equal(r.incidentes[1].estado, "ABIERTA");
+  assert.deepEqual(r.incidentes[1].hallazgos[0].evidencia.chats, ["cvReal"]);
+});
+
 console.log(`\n${pruebas} pruebas del Supervisor OK`);

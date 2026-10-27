@@ -9,7 +9,9 @@
  *  - cliente fuera de Colombia: marcado por el seguimiento inteligente o, sin marca, teléfono con
  *    indicativo distinto de 57 (un LID sin teléfono real NO se decide);
  *  - lead dormido por una fecha futura de compra ("finales de noviembre");
- *  - la asesora ya respondió después del último mensaje del cliente.
+ *  - la asesora ya respondió después del último mensaje del cliente;
+ *  - contacto oculto del CRM (proveedores, o lo que el dueño ocultó) o bloqueado;
+ *  - chat automático (robot de banco, códigos de verificación: ver chat-automatico.ts).
  *
  * Si una alerta ABIERTA tiene chats que pasan a estar excluidos, al recalcular salen de la alerta, y
  * la alerta se cierra si queda vacía (ver purgarChatsExcluidos).
@@ -18,7 +20,7 @@
 import { esDelExterior } from "../../seguimiento-inteligente/dominio/exterior";
 import type { Incidente } from "./alertas";
 
-export type MotivoDeExclusion = "etapa_cerrada" | "resuelto" | "fuera_de_colombia" | "dormido" | "ya_respondio";
+export type MotivoDeExclusion = "etapa_cerrada" | "resuelto" | "fuera_de_colombia" | "dormido" | "ya_respondio" | "oculto" | "automatico";
 
 export type DatosDeExclusion = {
   etapa: string | null;
@@ -31,11 +33,17 @@ export type DatosDeExclusion = {
   dormidoHasta?: Date | null;
   ultimoClienteEn?: Date | null;
   ultimaRespuestaHumanaEn?: Date | null;
+  /** Contacto con `excludedFromCrm` (proveedor u oculto a mano) o con `bloqueadoEn`. */
+  ocultoDelCrm?: boolean;
+  /** Chat detectado como robot (chat-automatico.ts). */
+  automatico?: boolean;
   /** Lo que escribió el cliente: si nombra un lugar de Colombia no se excluye por el teléfono. */
   textos?: Array<string | null | undefined>;
 };
 
 export function motivoDeExclusion(d: DatosDeExclusion, ahora: Date): MotivoDeExclusion | null {
+  if (d.ocultoDelCrm) return "oculto";
+  if (d.automatico) return "automatico";
   if (d.etapa === "PERDIDO" || d.etapa === "GANADO") return "etapa_cerrada";
   if (d.resuelto) return "resuelto";
   if (esDelExterior({ metadata: d.metadata, telefono: d.telefono, esLid: d.esLid, telefonoDescubierto: d.telefonoDescubierto, textos: d.textos })) {
