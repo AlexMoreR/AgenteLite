@@ -1,6 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+import { META_RESPUESTA_BIENVENIDA, type RespuestaBienvenidaDelDia } from "@/features/agentes-de-area/dominio/reglas";
+
 import { InterruptorDelAgente } from "./InterruptorDelAgente";
 import { TablaDeCampanas } from "./TablaDeCampanas";
 import { TablaDeRevisiones } from "./TablaDeRevisiones";
@@ -27,6 +29,8 @@ export type DatosDelPanel = {
   } | null;
   envios: Array<{ id: string; tipo: string; destinatario: string | null; numero: string; estado: string; motivo: string | null; texto: string; hora: string }>;
   historial: Array<{ fecha: string; esPrueba: boolean; salioTarde: boolean; resumen: string | null }>;
+  /** Solo ventas: la tasa de respuesta a la bienvenida de los últimos 14 días (null = no se pudo leer). */
+  bienvenida?: RespuestaBienvenidaDelDia[] | null;
   /** Asesoras del equipo sin número en Mi empresa → Equipo: no les llega nada. */
   sinNumeroDeAvisos: string[];
 };
@@ -42,6 +46,66 @@ function aTexto(valor: unknown): string {
   if (valor === null || valor === undefined) return "";
   if (typeof valor === "string") return valor;
   return JSON.stringify(valor, null, 2);
+}
+
+const porCiento = (valor: number | null) => (valor === null ? "sin dato" : `${valor.toLocaleString("es-CO")} %`);
+
+/** La tasa de respuesta a la bienvenida: el día que se mira por línea y por anuncio, y la línea de 14 días. */
+function TarjetaDeBienvenida({ serie }: { serie: RespuestaBienvenidaDelDia[] | null | undefined }) {
+  const dia = serie?.length ? serie[serie.length - 1] : null;
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle>Tasa de respuesta a la bienvenida</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        {!serie || !dia ? (
+          <p className="text-muted-foreground">Sin dato: no se pudo leer.</p>
+        ) : (
+          <>
+            <p className="text-xs text-muted-foreground">
+              De los leads que entraron ese día (sin importar a qué etapa pasaron), cuántos mandaron al menos un mensaje más después del primero. Meta:{" "}
+              {META_RESPUESTA_BIENVENIDA} %. Solo lectura.
+            </p>
+            <p className="font-medium">
+              {dia.fecha}: {porCiento(dia.respondieronPorCiento)} ({dia.respondieron} de {dia.leads}) · en menos de 2 h: {porCiento(dia.menosDe2hPorCiento)}{" "}
+              {dia.cumpleMeta === null ? null : <Badge variant={dia.cumpleMeta ? "default" : "secondary"}>{dia.cumpleMeta ? "Cumple la meta" : "Bajo la meta"}</Badge>}
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Bloque titulo="Por línea">
+                {dia.porLinea.length === 0 ? <p className="text-xs text-muted-foreground">Sin dato.</p> : null}
+                {dia.porLinea.map((fila) => (
+                  <p key={fila.linea} className="text-xs">
+                    <span className="font-medium">{fila.linea}</span>: {porCiento(fila.respondieronPorCiento)} ({fila.respondieron} de {fila.leads}) · &lt; 2 h: {porCiento(fila.menosDe2hPorCiento)}
+                  </p>
+                ))}
+              </Bloque>
+              <Bloque titulo="Por anuncio">
+                {dia.porAnuncio.length === 0 ? <p className="text-xs text-muted-foreground">Sin dato.</p> : null}
+                {dia.porAnuncio.map((fila) => (
+                  <p key={fila.anuncioId ?? "sin-anuncio"} className="text-xs">
+                    <span className="font-medium">{fila.anuncio}</span>: {porCiento(fila.respondieronPorCiento)} ({fila.respondieron} de {fila.leads}) · &lt; 2 h: {porCiento(fila.menosDe2hPorCiento)}
+                  </p>
+                ))}
+              </Bloque>
+            </div>
+            <Bloque titulo="Últimos 14 días">
+              <div className="space-y-0.5 text-xs">
+                {serie.map((fila) => (
+                  <p key={fila.fecha} className="flex flex-wrap gap-x-2">
+                    <span className="w-24 font-medium">{fila.fecha}</span>
+                    <span className="w-20">{porCiento(fila.respondieronPorCiento)}</span>
+                    <span className="w-20 text-muted-foreground">&lt; 2 h: {porCiento(fila.menosDe2hPorCiento)}</span>
+                    <span className="text-muted-foreground">{fila.leads} leads</span>
+                  </p>
+                ))}
+              </div>
+            </Bloque>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function Bloque({ titulo, children }: { titulo: string; children: React.ReactNode }) {
@@ -151,6 +215,8 @@ export function PanelAgenteDeArea({ datos }: { datos: DatosDelPanel }) {
           )}
         </CardContent>
       </Card>
+
+      {datos.area === "ventas" ? <TarjetaDeBienvenida serie={datos.bienvenida} /> : null}
 
       {resumen && Object.keys(resumen.subagentes).length ? (
         Object.entries(resumen.subagentes).map(([nombre, entrega]) => (
