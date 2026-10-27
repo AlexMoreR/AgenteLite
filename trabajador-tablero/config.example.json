@@ -179,7 +179,8 @@
         "cadaSegundos": 60,
         "maxErroresNuevos": 3,
         "maxSubidaDeEnvios": 1.5,
-        "minEnviosParaComparar": 5
+        "minEnviosParaComparar": 5,
+        "graciaServerActionMinutos": 10
       },
       "sinChoque": [
         "**/*.md"

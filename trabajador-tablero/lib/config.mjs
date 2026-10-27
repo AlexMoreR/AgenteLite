@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { agenteDelRepo } from "./agentes.mjs";
 import { MODELOS_POR_DEFECTO } from "./modelos.mjs";
+import { GRACIA_SERVER_ACTION_MIN } from "./zonas.mjs";
 
 /** Lo que Claude puede usar al CONSTRUIR (acceptEdits): editar dentro del worktree y correr pruebas. */
 export const HERRAMIENTAS_PERMITIDAS = [
@@ -224,6 +225,10 @@ export function completarConfig(datos, base = process.cwd()) {
       maxSubidaDeEnvios: Number(repo.vigilancia?.maxSubidaDeEnvios) >= 1 ? Number(repo.vigilancia.maxSubidaDeEnvios) : 1.5,
       // Por debajo de estos envíos por minuto no se compara (un número chico daría falsas alarmas).
       minEnviosParaComparar: Number(repo.vigilancia?.minEnviosParaComparar) >= 0 ? Number(repo.vigilancia.minEnviosParaComparar) : 5,
+      // Minutos después de subir en los que "Failed to find Server Action" no cuenta (celulares con la versión vieja abierta).
+      graciaServerActionMinutos: [undefined, null, ""].includes(repo.vigilancia?.graciaServerActionMinutos) || !(Number(repo.vigilancia.graciaServerActionMinutos) >= 0)
+        ? GRACIA_SERVER_ACTION_MIN
+        : Number(repo.vigilancia.graciaServerActionMinutos),
     };
     if (repo.vigilancia?.maxSubidaDeEnvios !== undefined && !(Number(repo.vigilancia.maxSubidaDeEnvios) >= 1)) {
       errores.push(`repos.${clave}.vigilancia.maxSubidaDeEnvios: 1 o más (1.5 = hasta 50 % más envíos que antes de subir).`);
