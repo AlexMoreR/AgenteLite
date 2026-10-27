@@ -578,7 +578,7 @@ export async function toggleContactCrmHiddenAction(
 
   revalidatePath("/cliente/crm/registro");
   revalidatePath("/cliente/crm/kanban");
-  revalidatePath("/cliente/crm/informe");
+  revalidatePath("/cliente/direccion/informe");
   revalidatePath("/cliente/contactos");
 
   return { ok: true, excludedFromCrm: hidden };

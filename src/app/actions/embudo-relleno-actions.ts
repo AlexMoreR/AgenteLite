@@ -9,7 +9,7 @@ import {
 } from "@/features/embudo/servicios/relleno";
 
 /**
- * Relleno histórico del embudo desde /cliente/crm/embudo (sección "Historia").
+ * Relleno histórico del embudo desde /cliente/direccion/embudo (sección "Historia").
  * Solo el dueño del negocio (o un admin de la plataforma): el mismo criterio que `ownerOnly`
  * de requireClientWorkspaceAccess. Se verifica aquí, en el servidor, en cada llamada.
  */

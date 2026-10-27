@@ -645,7 +645,7 @@ export function claveHerramientaParaContar(nombre: unknown): string | null {
   return limpio;
 }
 
-/** Las pantallas que una subida tocó: `src/app/cliente/crm/pauta/page.tsx` → `/cliente/crm/pauta` (a lo más tres niveles, como el contador). */
+/** Las pantallas que una subida tocó: `src/app/cliente/direccion/pauta/page.tsx` → `/cliente/direccion/pauta` (a lo más tres niveles, como el contador). */
 export function pantallasDeArchivos(archivos: unknown): string[] {
   if (!Array.isArray(archivos)) return [];
   const rutas = new Set<string>();

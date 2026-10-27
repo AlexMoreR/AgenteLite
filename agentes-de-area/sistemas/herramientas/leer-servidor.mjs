@@ -1,6 +1,6 @@
 // LEER EL SERVIDOR (VPS) POR SSH (Agente de Sistemas). SOLO LECTURA.
 //
-//   node herramientas/leer-servidor.mjs --que logs --ruta /cliente/crm/pauta [--horas 24]
+//   node herramientas/leer-servidor.mjs --que logs --ruta /cliente/direccion/pauta [--horas 24]
 //   node herramientas/leer-servidor.mjs --que disco | uptime | inicio
 //
 // Entra por ssh al VPS con la misma llave del trabajador y corre SOLO una lista cerrada de comandos de lectura, armados

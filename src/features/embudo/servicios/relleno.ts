@@ -8,7 +8,7 @@ import { enSegundoPlano } from "./eventos";
 import { ejecutarRelleno, type BaseDelRelleno, type ProgresoDelRelleno } from "./relleno-motor";
 
 /**
- * EL RELLENO HISTÓRICO DESDE LA APP (sección "Historia" de /cliente/crm/embudo).
+ * EL RELLENO HISTÓRICO DESDE LA APP (sección "Historia" de /cliente/direccion/embudo).
  *
  * El dueño elige línea y fechas y aprieta "Simular" (solo cuenta) o "Guardar historia" (escribe en
  * EmbudoEvento/EmbudoLead). Corre en segundo plano y deja su estado en AppSetting

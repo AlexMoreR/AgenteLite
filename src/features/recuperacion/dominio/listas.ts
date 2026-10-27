@@ -4,7 +4,7 @@
  * la lista de un grupo tiene exactamente los leads que cuenta su número (lo prueba
  * scripts/check-recuperacion.mjs).
  *
- * URL: /cliente/crm/recuperacion?vista=leads&grupo=<grupo>&semana=<lunes>[&asesora=…][&ver=400]
+ * URL: /cliente/direccion/recuperacion?vista=leads&grupo=<grupo>&semana=<lunes>[&asesora=…][&ver=400]
  */
 
 import { MOTIVO_RECUPERACION_72H } from "@/features/seguimiento-inteligente/dominio/reactivacion";
@@ -95,7 +95,7 @@ export function hrefDeRecuperacion(p: ParamsDeRecuperacion, semanaPorDefecto: st
   if (p.vista === "leads" && p.asesora) q.set("asesora", p.asesora);
   if (p.vista === "leads" && p.ver && p.ver > PAGINA) q.set("ver", String(p.ver));
   const texto = q.toString();
-  return texto ? `/cliente/crm/recuperacion?${texto}` : "/cliente/crm/recuperacion";
+  return texto ? `/cliente/direccion/recuperacion?${texto}` : "/cliente/direccion/recuperacion";
 }
 
 /* ------------------------------------------------------------------------------------------------

@@ -129,6 +129,13 @@ await prueba("una tarjeta que pasó a HECHO hace 3 horas entra en la revisión; 
   assert.deepEqual(r[0].pantallas, ["/cliente/crm/pauta"], "la pantalla sale de los archivos que tocó");
 });
 
+await prueba("la pantalla sale bien de un archivo del módulo Dirección", async () => {
+  const archivo = "src/app/cliente/direccion/pauta/page.tsx";
+  db.historial = [hecha("d", "Pantalla en Dirección", 2, { resultado: { rama: "tablero/d", archivos: [archivo], subida: { commit: "commitd" } } })];
+  const r = await revision.tarjetasHechasRecientemente(WS, AHORA);
+  assert.deepEqual(r[0].pantallas, ["/cliente/direccion/pauta"], "Dirección → /cliente/direccion/pauta");
+});
+
 await prueba("entran juntas las tarjetas de los dos repos y de varios tableros; cada una una sola vez", async () => {
   db.historial = [
     hecha("a", "En CRM", 2),

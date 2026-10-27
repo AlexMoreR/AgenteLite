@@ -275,14 +275,14 @@ prueba("leads: URL (grupo, semana por defecto, asesora, ver más)", () => {
   assert.equal(li.grupoPedido("tipo:nada"), "llegaron");
   assert.equal(li.grupoPedido("vencidas"), "vencidas");
   assert.equal(li.grupoPedido(undefined), "llegaron");
-  assert.equal(li.hrefDeRecuperacion({ semana: "2026-10-06" }, "2026-10-06"), "/cliente/crm/recuperacion");
+  assert.equal(li.hrefDeRecuperacion({ semana: "2026-10-06" }, "2026-10-06"), "/cliente/direccion/recuperacion");
   assert.equal(
     li.hrefDeRecuperacion({ semana: "2026-09-29", vista: "leads", grupo: "tipo:bot" }, "2026-10-06"),
-    "/cliente/crm/recuperacion?vista=leads&grupo=tipo%3Abot&semana=2026-09-29",
+    "/cliente/direccion/recuperacion?vista=leads&grupo=tipo%3Abot&semana=2026-09-29",
   );
   assert.equal(
     li.hrefDeRecuperacion({ semana: "2026-10-06", vista: "leads", grupo: "vencidas", asesora: "Ingrid", ver: 400 }, "2026-10-06"),
-    "/cliente/crm/recuperacion?vista=leads&grupo=vencidas&asesora=Ingrid&ver=400",
+    "/cliente/direccion/recuperacion?vista=leads&grupo=vencidas&asesora=Ingrid&ver=400",
   );
   assert.equal(li.cuantosVer(""), 200);
   assert.equal(li.cuantosVer("400"), 400);

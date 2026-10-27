@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { claseDeSeguimiento, type EventoDelLead, type LeadDeRecuperacion } from "../dominio/semana";
 
 /**
- * Lo que lee la pantalla "Semana" de Recuperación (/cliente/crm/recuperacion). Definiciones en
+ * Lo que lee la pantalla "Semana" de Recuperación (/cliente/direccion/recuperacion). Definiciones en
  * dominio/semana.ts.
  *
  * DOS consultas por semana, acotadas por negocio y fechas:

@@ -1,5 +1,5 @@
 /**
- * EL EMBUDO SEMANAL POR FAMILIA (pantalla /cliente/crm/embudo, Alex 12-10-2026), en código puro.
+ * EL EMBUDO SEMANAL POR FAMILIA (pantalla /cliente/direccion/embudo, Alex 12-10-2026), en código puro.
  *
  * Se calcula desde los MENSAJES REALES (Message + Conversation + Contact, y EmbudoLead/EmbudoEvento
  * cuando existen), no solo desde EmbudoEvento: el registro del embudo empezó el 10-oct y tiene poca

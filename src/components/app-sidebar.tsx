@@ -113,6 +113,7 @@ export function AppSidebar({
   user,
   currentConnectionKey = "",
   esJefeDelNegocio = false,
+  veRecuperacion = false,
   chatSidebarItems = [],
   ...props
 }: AppSidebarProps) {
@@ -191,16 +192,6 @@ export function AppSidebar({
                 currentView={
                   pathname.startsWith("/cliente/crm/tablero")
                     ? "tablero"
-                    : pathname.startsWith("/cliente/crm/informe")
-                      ? "informe"
-                    : pathname.startsWith("/cliente/crm/pauta")
-                      ? "pauta"
-                    : pathname.startsWith("/cliente/crm/comparar-embudos")
-                      ? "comparar-embudos"
-                    : pathname.startsWith("/cliente/crm/embudo")
-                      ? "embudo"
-                    : pathname.startsWith("/cliente/crm/recuperacion")
-                      ? "recuperacion"
                     : pathname.startsWith("/cliente/crm/kanban")
                       ? "kanban"
                       : pathname.startsWith("/cliente/crm/registro")
@@ -218,6 +209,7 @@ export function AppSidebar({
               <NavDireccion
                 currentPath={pathname}
                 esJefe={esJefeDelNegocio}
+                veRecuperacion={veRecuperacion}
               />
             ) : null}
             {/* El coach de ventas: el jefe ve al equipo; cada asesora, solo lo suyo. */}

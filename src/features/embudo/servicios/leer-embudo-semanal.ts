@@ -13,7 +13,7 @@ import {
 } from "../dominio/semanal";
 
 /**
- * Lo que lee la pantalla del embudo semanal (/cliente/crm/embudo). Ver las definiciones en
+ * Lo que lee la pantalla del embudo semanal (/cliente/direccion/embudo). Ver las definiciones en
  * dominio/semanal.ts.
  *
  * DOS consultas por semana, acotadas:
