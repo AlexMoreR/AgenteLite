@@ -16,7 +16,7 @@ import {
 } from "@/features/embudo/dominio/semanal";
 import { chatsDeLaFuga, leerEmbudoSemanal } from "@/features/embudo/servicios/leer-embudo-semanal";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
-import { puedeSupervisar } from "@/lib/permisos-del-equipo";
+import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
 
 import { VistaClasicaDelEmbudo } from "./vista-clasica";
 
@@ -40,7 +40,7 @@ const texto = (valor: string | string[] | undefined) => (typeof valor === "strin
  */
 export default async function EmbudoPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
-  if (!(await puedeSupervisar(access))) {
+  if (!esJefeDelNegocio(access)) {
     redirect("/cliente/crm/mi-dia");
   }
 

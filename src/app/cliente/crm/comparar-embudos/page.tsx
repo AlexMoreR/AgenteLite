@@ -7,7 +7,7 @@ import { esDiaValido, esOrigen } from "@/features/embudo/dominio/comparar";
 import { esFamilia, nombreDeFamilia, type ClaveDeFamilia } from "@/features/embudo/dominio/semanal";
 import { leerComparacion, leerLineasDeVentas } from "@/features/embudo/servicios/leer-comparacion";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
-import { puedeSupervisar } from "@/lib/permisos-del-equipo";
+import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
 
 export const metadata: Metadata = { robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ function versionPedida(valor: string): number | null | undefined {
  */
 export default async function CompararEmbudosPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
-  if (!(await puedeSupervisar(access))) {
+  if (!esJefeDelNegocio(access)) {
     redirect("/cliente/crm/mi-dia");
   }
 
