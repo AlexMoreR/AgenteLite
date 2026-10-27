@@ -32,6 +32,10 @@ import { leerConfigGravedad, leerResumenDelDia } from "@/features/avisos-graveda
 import { PanelAccionableView } from "@/features/supervisor-accionable/components/PanelAccionable";
 import { anclaDeAlerta } from "@/features/supervisor-accionable/dominio/reglas";
 import { leerConfigAccionable, leerPanelAccionable } from "@/features/supervisor-accionable/servicios/accionable";
+import { PanelReasignacionView } from "@/features/supervisor-reasignacion/components/PanelReasignacion";
+import { leerConfigReasignacion } from "@/features/supervisor-reasignacion/servicios/config";
+import { asesorasSinNumeroDeAvisos, leerRegistroDelDia } from "@/features/supervisor-reasignacion/servicios/registro";
+import { nombresDeAsesoras } from "@/features/supervisor/servicios/datos";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 
@@ -117,6 +121,14 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
   const panelAccionable = configAccionable?.activo
     ? await leerPanelAccionable(workspaceId, (alertas ?? []).filter((alerta) => alerta.estado === "ABIERTA"), ahora, chatsFueraDeHorario).catch(() => null)
     : null;
+
+  // Avisos y reasignación de chats: ajustes (solo el dueño los edita), lista de hoy y conteo por asesora.
+  const nombresReasignacion = await nombresDeAsesoras(workspaceId).catch(() => ({}) as Record<string, string>);
+  const [configReasignacion, registroReasignacion, sinNumeroReasignacion] = await Promise.all([
+    leerConfigReasignacion(workspaceId),
+    leerRegistroDelDia(workspaceId).catch(() => null),
+    asesorasSinNumeroDeAvisos(workspaceId, nombresReasignacion),
+  ]);
 
   const configAvisos = await leerConfigGravedad(workspaceId).catch(() => null);
   const avisos = {
@@ -223,6 +235,14 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
       ) : null}
 
       {panelAccionable ? <PanelAccionableView panel={panelAccionable} /> : null}
+
+      <PanelReasignacionView
+        config={configReasignacion}
+        registro={registroReasignacion}
+        nombres={nombresReasignacion}
+        sinNumero={sinNumeroReasignacion}
+        puedeEditar={access.isOwner}
+      />
 
       {avisos.resumen ? (
         <Card size="sm">

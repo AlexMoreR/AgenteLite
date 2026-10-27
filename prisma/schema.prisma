@@ -2479,3 +2479,26 @@ model VentaDePauta {
   @@unique([workspaceId, ventaGestionId])
   @@index([workspaceId, pagadaEn])
 }
+
+/// Registro de lo que hizo el vigilante de reasignacion del Supervisor: cada aviso por WhatsApp a una
+/// asesora y cada chat que paso de una a otra. Sin claves foraneas (es un registro de vigilancia).
+/// La regla unica (conversationId, tipo, episodio) es lo que evita avisar dos veces lo mismo: el
+/// episodio es la hora del mensaje del cliente que lo provoco. Ver src/features/supervisor-reasignacion.
+model SupervisorAviso {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  conversationId   String
+  /// AVISO | REASIGNACION | CALIENTE_24H | BOT_PIDIO_ASESORA | SIN_CANDIDATA | ESCALADA_DUENO (texto, no enum)
+  tipo             String
+  asesoraId        String?
+  asesoraNuevaId   String?
+  /// Hora del mensaje del cliente que provoco el aviso (o, en CALIENTE_24H, del ultimo mensaje de la asesora).
+  episodio         DateTime
+  minutosEsperando Int      @default(0)
+  whatsappEnviado  Boolean  @default(false)
+  error            String?
+  creadoEn         DateTime @default(now())
+
+  @@unique([conversationId, tipo, episodio])
+  @@index([workspaceId, creadoEn])
+}

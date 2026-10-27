@@ -10,6 +10,7 @@ import {
   pushAAlexander,
   whatsAppAAlexander,
 } from "@/features/avisos-gravedad/servicios/enrutador";
+import { leerConfigReasignacion } from "@/features/supervisor-reasignacion/servicios/config";
 import type { Incidente } from "@/features/supervisor/dominio/alertas";
 import type { ChatAbierto } from "@/features/supervisor/dominio/detectores-atencion";
 import type { Hallazgo } from "@/features/supervisor/dominio/tipos";
@@ -174,6 +175,9 @@ async function ejecutar(workspaceId: string, estado: EstadoAccionable, eventos: 
   let enviados = 0;
   const gravedad = await leerConfigGravedad(workspaceId).catch(() => CONFIG_GRAVEDAD_POR_DEFECTO);
   const paraAlexander: Tarjeta[] = [];
+  // Con los avisos del vigilante de reasignación prendidos, ÉL manda el WhatsApp de "asignado sin respuesta" y
+  // "caliente esperando" (a los 5 min): este no lo repite, para que la asesora no reciba dos por el mismo chat.
+  const vigilanteAvisa = (await leerConfigReasignacion(workspaceId).catch(() => null))?.avisosActivo === true;
   for (const evento of eventos) {
     try {
       if (evento.tipo === "avisar" || evento.tipo === "segundo_aviso") {
@@ -184,9 +188,10 @@ async function ejecutar(workspaceId: string, estado: EstadoAccionable, eventos: 
         const { title, body } = pushParaLaAsesora(acciones, segundo, nocturno, ahora, config.segundaOportunidadMin);
         const url = acciones.length === 1 && acciones[0].conversationId ? `/cliente/chats?chatKey=agent:${acciones[0].conversationId}&assigned=all` : "/cliente/crm/mi-dia";
         enviados += await sendPushToUser({ userId: evento.responsableId, payload: { title, body, tag: `accionable:${evento.responsableId}`, url } }).catch(() => 0);
-        if (config.asesoraWhatsApp) {
-          const enlaces = new Map(acciones.map((a) => [a.id, enlaceAbsoluto(a)]));
-          if (await whatsAppAlEquipo(workspaceId, evento.responsableId, textoParaLaAsesora({ acciones, enlaces, ahora, segundo, fueraDeHorario: nocturno, segundaOportunidadMin: config.segundaOportunidadMin }))) enviados += 1;
+        const paraWhatsApp = vigilanteAvisa ? acciones.filter((a) => a.tipo !== "asignado" && a.tipo !== "caliente") : acciones;
+        if (config.asesoraWhatsApp && paraWhatsApp.length) {
+          const enlaces = new Map(paraWhatsApp.map((a) => [a.id, enlaceAbsoluto(a)]));
+          if (await whatsAppAlEquipo(workspaceId, evento.responsableId, textoParaLaAsesora({ acciones: paraWhatsApp, enlaces, ahora, segundo, fueraDeHorario: nocturno, segundaOportunidadMin: config.segundaOportunidadMin }))) enviados += 1;
         }
         if (evento.tipo === "segundo_aviso" && evento.supervisoraId) {
           const aviso = pushParaLaSupervisora(acciones);

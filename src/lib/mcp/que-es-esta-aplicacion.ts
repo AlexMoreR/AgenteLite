@@ -6,6 +6,8 @@ import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
 import { prisma } from "@/lib/prisma";
+import { leerConfigReasignacion } from "@/features/supervisor-reasignacion/servicios/config";
+import { leerRegistroDelDia } from "@/features/supervisor-reasignacion/servicios/registro";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
@@ -489,6 +491,13 @@ async function estadoDeLaPauta(workspaceId: string) {
   return `activa: una vez al día (4 a. m.) guarda el origen de ${origenes} chat(s) de anuncio y de ${ventas} venta(s); ${meta ? "Meta Ads conectado en solo lectura" : "SIN llave de Meta Ads (META_ADS_ACCESS_TOKEN y META_ADS_ACCOUNT_ID): el gasto sale no disponible y no hay nombre de campaña"}`;
 }
 
+async function estadoDelVigilanteDeReasignacion(workspaceId: string) {
+  const [config, hoy] = await Promise.all([leerConfigReasignacion(workspaceId), leerRegistroDelDia(workspaceId).catch(() => null)]);
+  const prendidos = [config.avisosActivo ? `avisos a los ${config.avisoMin} min` : null, config.reasignacionActiva ? `reasignacion a los ${config.reasignarMin} min` : null].filter(Boolean);
+  if (!prendidos.length) return "apagada: los dos interruptores (avisos y reasignacion) estan apagados; se prenden en la pantalla del Supervisor";
+  return `activa: ${prendidos.join(" y ")}, solo en horario laboral${hoy ? `; hoy ${hoy.total} registro(s) en SupervisorAviso` : ""}`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -546,6 +555,7 @@ async function automatizaciones(
     aprobar_tareas_solas_tablero: await estadoDeAprobarTareasSolo(workspaceId).catch(() => "no se pudo leer"),
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(),
+    supervisor_avisos_y_reasignacion: await estadoDelVigilanteDeReasignacion(workspaceId).catch(() => "no se pudo leer"),
     avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
     cerebro_sincronizacion: await estadoDelCerebro(workspaceId).catch(() => "no se pudo leer"),
     origen_de_pauta: await estadoDeLaPauta(workspaceId).catch(() => "no se pudo leer"),

@@ -14,6 +14,7 @@ import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
 import { sincronizarSiTocaHoy } from "@/lib/sincronizacion-gestion";
 import { correrPautaDeTodos } from "@/features/pauta/servicios/correr-pauta";
 import { vueltaDeCadaHora, vueltaDeCincoMinutos } from "@/features/supervisor/servicios/vueltas";
+import { vueltaDeReasignacion } from "@/features/supervisor-reasignacion/servicios/vigilante";
 import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente/servicios/motor";
 import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/servicio";
 import { procesarColaDeReuniones } from "@/features/reuniones/servicios/cola-de-reuniones";
@@ -291,6 +292,18 @@ async function handleCron(request: Request) {
       }
     });
   }
+  /*
+    VIGILANTE DE REASIGNACIÓN (ver src/features/supervisor-reasignacion). En cada vuelta y en segundo plano:
+    avisa por WhatsApp a la asesora (5 min sin responder, Caliente 24 h) y pasa el chat a otra a los 30 min,
+    solo en horario laboral. Sin `supervisor:reasignacion:<negocio>` prendido es UNA consulta a AppSetting y sale.
+  */
+  after(async () => {
+    try {
+      await vueltaDeReasignacion();
+    } catch (error) {
+      console.error("[cron/follows] vigilante de reasignacion error", error);
+    }
+  });
   /*
     SEGUIMIENTO INTELIGENTE (ver src/features/seguimiento-inteligente). APAGADO por defecto: sin
     `seguimiento-inteligente:config:<negocio>` es UNA consulta a AppSetting y sale. En cada vuelta y
