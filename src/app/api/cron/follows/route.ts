@@ -3,6 +3,7 @@ import { executePendingFollows } from "@/features/seguimientos/services/follows"
 import { demoteUnresponsiveStaleLeads } from "@/features/llamadas/services/lead-cooldown";
 import { enfriarLeadsSinRespuesta } from "@/features/crm/services/lead-temperature";
 import { ejecutarDescarteAutomatico } from "@/features/crm/services/descarte-automatico";
+import { ejecutarDescarteTrasSeguimientos } from "@/features/crm/services/descarte-tras-seguimientos";
 import { procesarTandasDeCampanas } from "@/features/campanas/services/campaigns";
 import { purgeOldWebhookEventLogs } from "@/lib/webhook-log-retention";
 import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimientos";
@@ -170,6 +171,22 @@ async function handleCron(request: Request) {
       descartados = await ejecutarDescarteAutomatico();
     } catch (error) {
       console.error("[cron/follows] descarte automatico error", error);
+    }
+  }
+
+  /*
+    Descarte tras los seguimientos: el lead que recibió los 5 seguimientos del paso (el último, el de
+    7 días con las redes) y nunca contestó pasa a Descartado. Con señal de compra no se descarta.
+
+    APAGADO por bandera hasta que Alex la prenda. Mismo throttle de 10 minutos y tope de 50 por
+    corrida que el descarte de 30 días. No le escribe nada al cliente.
+  */
+  let descartadosTrasSeguimientos: { descartados: number; revisados: number } | null = null;
+  if (new Date().getMinutes() % 10 === 5) {
+    try {
+      descartadosTrasSeguimientos = await ejecutarDescarteTrasSeguimientos();
+    } catch (error) {
+      console.error("[cron/follows] descarte tras seguimientos error", error);
     }
   }
 
@@ -355,6 +372,7 @@ async function handleCron(request: Request) {
     seguimientosV3,
     clientesEsperando,
     descartados,
+    descartadosTrasSeguimientos,
     mensajesRescatados,
     rescatados,
     deMadrugada,

@@ -62,6 +62,7 @@
     "test:mcp-supervisor": "node scripts/check-mcp-supervisor.mjs",
     "test:rescate-mensajes": "node scripts/check-rescate-mensajes.mjs",
     "test:turno": "node scripts/check-turno.mjs",
+    "test:descarte-tras-seguimientos": "node scripts/check-descarte-tras-seguimientos.mjs",
     "test:recuperacion-72h": "node scripts/check-recuperacion-72h.mjs",
     "test:recuperacion": "node scripts/check-recuperacion.mjs",
     "test:mapa-lead": "node scripts/check-mapa-lead.mjs",
