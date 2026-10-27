@@ -1280,7 +1280,11 @@ export const ConversationPanel = memo(function ConversationPanel({
       return;
     }
 
-    const maxHeight = 160;
+    // Tope de 6 renglones, calculado con el alto real de la línea y el relleno de cada pantalla.
+    const estilo = window.getComputedStyle(target);
+    const altoLinea = Number.parseFloat(estilo.lineHeight) || Number.parseFloat(estilo.fontSize) * 1.35 || 21;
+    const relleno = (Number.parseFloat(estilo.paddingTop) || 0) + (Number.parseFloat(estilo.paddingBottom) || 0);
+    const maxHeight = Math.round(altoLinea * 6 + relleno);
     target.style.height = "auto";
     const nextHeight = Math.min(target.scrollHeight, maxHeight);
     target.style.height = `${nextHeight}px`;
@@ -2286,7 +2290,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex min-h-[38px] min-w-0 flex-1 items-center gap-0.5 rounded-2xl border border-border bg-card px-1.5 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
+                      <div className="flex min-h-[48px] min-w-0 flex-1 items-end gap-0.5 rounded-3xl border border-border bg-card px-2.5 py-1 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[46px]">
                         {mediaConfig ? (
                           <>
                             <input
@@ -2642,7 +2646,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                            * corrida. Ademas se lee, que era la queja: con 14px las asesoras no
                            * veian bien lo que escribian.
                            */
-                          className="min-h-[38px] min-w-0 flex-1 resize-none bg-transparent py-2 pr-2 text-[16px] leading-[1.35] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[46px] md:py-3 md:text-sm"
+                          className="min-h-[40px] min-w-0 flex-1 resize-none bg-transparent px-1 py-2.5 text-[16px] leading-[1.35] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[40px] md:text-[15px]"
                         />
                         <Button
                           type="button"
