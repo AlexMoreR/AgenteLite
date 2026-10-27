@@ -6,7 +6,7 @@ import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { cn } from "@/lib/utils";
 import { ANCHO_CENTRO, ANCHO_TARJETA } from "../services/disposicion";
 import type { Contadores } from "../services/niveles";
-import { colorDeTipoValido, fondoSuaveDeTipo, inicialDeLaPersona } from "../services/reglas";
+import { colorDeTipoValido, inicialDeLaPersona } from "../services/reglas";
 import { IconoDeTipo } from "./IconoDeTipo";
 
 export type DatosNodoTarjeta = {
@@ -44,8 +44,8 @@ export function lineasDeContadores({ teToca, enCurso, siguen, hecho }: Contadore
 
 /**
  * Una tarjeta en el mapa como ETIQUETA de solo texto, al estilo del tablero "Tareas Magilus": el
- * nombre en negrita (hasta 3 líneas; entero al pasar el mouse) y debajo los contadores que no son cero. Borde y fondo suave con el color de su tipo (más el ícono); si tiene algo que "te toca" lleva un puntico
- * rojo. La del centro (el nivel actual) es más grande, con borde grueso y fondo más fuerte. Ancho según el texto, sin pasar de las medidas de services/disposicion.ts.
+ * nombre en negrita (hasta 3 líneas; entero al pasar el mouse) y debajo los contadores que no son cero. Fondo blanco y borde gris suave; el color del tipo va
+ * solo en el ícono; si tiene algo que "te toca", todo el borde es rojo. La del centro (el nivel actual) es más grande, con borde grueso y sombra. Ancho según el texto, sin pasar de las medidas de services/disposicion.ts.
  * Mantener presionada una con hijas abre su ficha sin entrar.
  */
 function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
@@ -69,15 +69,17 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
       style={{
         maxWidth: centro ? ANCHO_CENTRO : ANCHO_TARJETA,
         minWidth: centro ? 120 : 90,
-        // El color del tipo: borde puro y fondo suave (el texto no depende del color elegido).
-        ...(colorTipo ? { borderColor: colorTipo, backgroundColor: fondoSuaveDeTipo(colorTipo, centro ? 30 : 16) } : {}),
       }}
+      // 27-oct-2026 (decisión del dueño): todas las tarjetas en blanco con borde gris suave; el color del tipo va
+      // solo en el ícono; "te toca" vuelve a ser el contorno rojo de toda la tarjeta.
       className={cn(
-        "relative flex w-max select-none flex-col items-center justify-center overflow-hidden rounded-md border text-center leading-tight transition-opacity [-webkit-touch-callout:none]",
-        centro
-          ? "min-h-14 gap-0.5 border-2 px-4 py-2 text-zinc-900 shadow-md dark:text-zinc-50"
-          : "min-h-11 border px-2.5 py-1.5 text-zinc-900 dark:text-zinc-100",
-        !colorTipo && (centro ? "border-zinc-500 bg-zinc-200 dark:bg-zinc-800" : "border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-900"),
+        "relative flex w-max select-none flex-col items-center justify-center overflow-hidden rounded-md border bg-white text-center leading-tight text-zinc-900 transition-opacity [-webkit-touch-callout:none] dark:bg-zinc-900 dark:text-zinc-100",
+        centro ? "min-h-14 gap-0.5 border-2 px-4 py-2 shadow-md" : "min-h-11 px-2.5 py-1.5",
+        teToca
+          ? "border-rose-500 dark:border-rose-500"
+          : centro
+            ? "border-zinc-300 dark:border-zinc-600"
+            : "border-zinc-200 dark:border-zinc-700",
         selected && "ring-2 ring-primary ring-offset-2 ring-offset-background",
         data.atenuado && "opacity-25",
       )}
@@ -108,14 +110,6 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
     >
       {/* Las líneas se dibujan solas: los puntos de conexión no se muestran ni se arrastran. */}
       <Handle type="target" position={Position.Top} className="!pointer-events-none !opacity-0" isConnectable={false} />
-      {/* "Te toca": un puntico rojo en la esquina, sin tapar el color del tipo. */}
-      {teToca ? (
-        <span
-          className="absolute top-1 left-1 size-2 rounded-full bg-rose-600 ring-1 ring-background dark:bg-rose-500"
-          title="Te toca"
-          aria-label="Te toca"
-        />
-      ) : null}
       {data.responsable ? (
         <span
           className="absolute top-0.5 right-0.5 flex size-4 items-center justify-center rounded-full bg-zinc-900 text-[9px] font-semibold leading-none text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900"
