@@ -91,7 +91,7 @@ export function SnoozeChatControl({
               <ChevronDown className="size-3.5 text-muted-foreground" />
             </button>
           </PopoverTrigger>
-          <PopoverContent align="end" sideOffset={6} className="w-56 rounded-lg p-1 leading-5">
+          <PopoverContent align="end" sideOffset={6} className="w-56 rounded-lg border border-border bg-popover p-1 leading-5 text-popover-foreground">
             <ResolveChatControl
               conversationId={conversationId}
               status={estado}
@@ -125,7 +125,7 @@ export function SnoozeChatControl({
             <ChevronDown className="h-3.5 w-3.5" />
           </button>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-52 p-1.5">
+        <PopoverContent align="end" className="w-52 border border-border bg-popover p-1.5 text-popover-foreground">
           {/* Base UI: el onSelect del menu se ignora en silencio, por eso va onClick. */}
           <button
             type="button"

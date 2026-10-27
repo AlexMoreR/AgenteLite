@@ -1646,7 +1646,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                     >
                       <MoreVertical className="h-5 w-5" />
                     </PopoverTrigger>
-                    <PopoverContent align="end" className="w-44 p-1">
+                    <PopoverContent align="end" className="w-44 border border-border bg-popover p-1 text-popover-foreground">
                       <button
                         type="button"
                         onClick={copiarSeleccionados}
