@@ -53,6 +53,8 @@ export const TIPOS_DE_EVENTO = [
   "RECUPERACION_72H",
   /** Automático después de la asesora: agendado (activo) o "habría salido" (sombra). Solo registro. */
   "SEGUIMIENTO_TRAS_ASESORA",
+  /** Descarte tras los seguimientos: descartado, pasado a LLAMAR o reabierto (datos.accion). Solo registro. */
+  "DESCARTE_TRAS_SEGUIMIENTOS",
 ] as const;
 
 export type TipoDeEvento = (typeof TIPOS_DE_EVENTO)[number];

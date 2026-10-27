@@ -494,7 +494,7 @@ async function automatizaciones(
   descritas: Map<string, string>,
   v3: { reglasSinRespuesta: number; hayLineasConV3: boolean },
 ) {
-  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, transcripcionApagada] =
+  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, descarteTras, transcripcionApagada] =
     await Promise.all([
       prisma.followRule.count({ where: { workspaceId, isActive: true } }),
       prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
@@ -504,6 +504,7 @@ async function automatizaciones(
         select: { reportDate: true },
       }),
       bandera(`crm:descarte-automatico:${workspaceId}`),
+      bandera(`crm:descarte-tras-seguimientos:${workspaceId}`),
       bandera("transcripcion-de-audios:apagada"),
     ]);
 
@@ -530,6 +531,10 @@ async function automatizaciones(
     enfriamiento_por_llamadas: sinInterruptor,
     temperatura: sinInterruptor,
     descarte_automatico: descarte === "on" ? "ACTIVA: mueve leads a Descartado" : "apagada",
+    descarte_tras_seguimientos:
+      descarteTras === "off"
+        ? "apagada (crm:descarte-tras-seguimientos = off)"
+        : "activa: descarta a quien no contesta 24 h despues del seguimiento de 3 dias (o lo pasa a LLAMAR si mostro ganas de comprar); no hace nada mientras no exista ese seguimiento",
     campanas: campanasEnCurso > 0 ? `activa: ${campanasEnCurso} en curso` : "sin campañas en curso",
     transcripcion_de_audios: !process.env.OPENAI_API_KEY?.trim()
       ? "apagada: falta la clave de OpenAI"
