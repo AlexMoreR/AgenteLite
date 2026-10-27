@@ -13,6 +13,7 @@ import { anotarAprendizaje, leerCerebroDelArea, marcarDatoViejo } from "@/featur
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { mandarWhatsAppAlEquipo } from "@/features/agentes-de-area/servicios/envios";
 import { numerosDeMarketing } from "@/features/agentes-de-area/servicios/numeros-de-marketing";
+import { numerosDeRespuestaBienvenida } from "@/features/agentes-de-area/servicios/numeros-respuesta-bienvenida";
 import { avisosDelSupervisor, medirLosSugeridosDe, numerosDelDia } from "@/features/agentes-de-area/servicios/numeros";
 import {
   guardarResumenDelDia,
@@ -68,7 +69,7 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
     name: "numeros_de_ventas",
     title: "Números de ventas del día",
     description:
-      "Los números de UN día (por defecto ayer, hora de Colombia) POR ASESORA: chats atendidos, chats que llegaron a cotización o cierre, ventas (la venta cuenta en la línea de ventas, a nombre de quien vendió; la línea Admin nunca suma y un teléfono es una sola venta), tasa de cierre y tiempo de respuesta (mediana en minutos), más los avisos que detectó el Supervisor ese día. También MIDE los sugeridos del último resumen guardado: a cuáles les escribió el equipo, cuáles respondieron y cuáles compraron. Así el agente no abre los chats uno por uno. Las ventas, abonos y saldos de dinero NO salen de aquí: se leen en el MCP de Gestión. Solo lectura.",
+      "Los números de UN día (por defecto ayer, hora de Colombia) POR ASESORA: chats atendidos, chats que llegaron a cotización o cierre, ventas (la venta cuenta en la línea de ventas, a nombre de quien vendió; la línea Admin nunca suma y un teléfono es una sola venta), tasa de cierre y tiempo de respuesta (mediana en minutos), más los avisos que detectó el Supervisor ese día. También MIDE los sugeridos del último resumen guardado: a cuáles les escribió el equipo, cuáles respondieron y cuáles compraron. Trae también `tasa_respuesta_bienvenida`: de los leads nuevos del día (todos los que entraron, sin importar su etapa), qué % mandó al menos un mensaje más después del primero y qué % lo hizo en menos de 2 horas, en total, por línea y por anuncio, con la meta de 60 % y la serie de los últimos 14 días (null = sin dato). Así el agente no abre los chats uno por uno. Las ventas, abonos y saldos de dinero NO salen de aquí: se leen en el MCP de Gestión. Solo lectura.",
     inputSchema: {
       type: "object",
       properties: {
@@ -352,6 +353,7 @@ async function verNumeros(args: Argumentos, contexto: Contexto) {
     },
     null,
   );
+  const bienvenida = await intentar("tasa de respuesta a la bienvenida", () => numerosDeRespuestaBienvenida(contexto.workspaceId, fecha), null);
   const total = porAsesora.reduce(
     (suma, fila) => ({ chatsAtendidos: suma.chatsAtendidos + fila.chatsAtendidos, cotizaciones: suma.cotizaciones + fila.cotizaciones, ventas: suma.ventas + fila.ventas }),
     { chatsAtendidos: 0, cotizaciones: 0, ventas: 0 },
@@ -362,6 +364,18 @@ async function verNumeros(args: Argumentos, contexto: Contexto) {
     total,
     avisos_del_supervisor: supervisor,
     sugeridos_medidos: sugeridos,
+    tasa_respuesta_bienvenida: bienvenida
+      ? {
+          fecha: bienvenida.fecha,
+          meta_por_ciento: bienvenida.delDia.metaPorCiento,
+          total: bienvenida.delDia,
+          por_linea: bienvenida.delDia.porLinea,
+          por_anuncio: bienvenida.delDia.porAnuncio,
+          serie_14_dias: bienvenida.serie.map(({ porLinea, porAnuncio, ...dia }) => ({ ...dia, por_linea: porLinea.map((l) => ({ linea: l.linea, leads: l.leads, respondieron_por_ciento: l.respondieronPorCiento })) })),
+          conversaciones_sin_registro: bienvenida.conversacionesSinRegistro,
+          advertencias: bienvenida.advertencias,
+        }
+      : null,
     advertencias: [
       "Las ventas aquí son cambios de etapa a GANADO en el CRM; el dinero (ventas, abonos, saldos) se lee en el MCP de Gestión.",
       "Chats atendidos = chats con al menos un mensaje saliente humano ese día, por la asesora a la que están asignados HOY.",

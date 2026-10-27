@@ -51,6 +51,11 @@ El cerebro es la carpeta "Magilus" del Drive: lo que el dueño ya decidió. Lo l
 1. **Números de ayer.** Llama `numeros_de_ventas` (por defecto es ayer; en lunes mira también el sábado si hace
    falta). Saca por asesora: chats atendidos, cotizaciones, ventas, cierre y tiempo de respuesta. Calcula el cierre
    total y las ventas de ayer contra la meta.
+   **Respuesta a la bienvenida.** Lee también el campo `tasa_respuesta_bienvenida` de la misma llamada: el total de
+   ayer (`total.respondieronPorCiento`, cuántos de cuántos leads y `total.menosDe2hPorCiento`), la línea de Ventas 1
+   (`por_linea`) y la meta de 60 %. Pon UNA línea en el mensaje a Alexander, por ejemplo "Respuesta a la bienvenida:
+   49 % (30 de 61 leads), 38 % en menos de 2 h; meta 60 %". Si el campo viene vacío, en `no_se_pudo_leer` o el día no
+   tuvo leads (null), escribe "Respuesta a la bienvenida: sin dato". No la inventes ni la calcules a mano.
 2. **Mide los sugeridos de ayer.** `numeros_de_ventas` trae `sugeridos_medidos`: a cuáles les escribieron, cuáles
    respondieron y cuáles compraron. Anota qué funcionó y ajusta las instrucciones que le das hoy a cada subagente.
 3. **Reparte.** Lee el `PROMPT.md` de cada subagente de hoy y lánzalo con la herramienta de subagentes (Task/Agent),
