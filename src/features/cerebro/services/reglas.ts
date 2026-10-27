@@ -40,8 +40,17 @@ export const sePuedeEscribir = (nombre: string, mime: string) => tipoDeLectura(n
  */
 export const RUTAS_IGNORADAS: readonly string[] = ["CRM-Gestion/export-dudas-2026-10-26"];
 
-/** Extensiones que no se indexan (capturas de pantalla). */
-export const EXTENSIONES_IGNORADAS: readonly string[] = ["png"];
+/** Carpetas que no se indexan en ningún nivel (librerías y compilados): ni ellas ni lo que cuelga de ellas. */
+export const CARPETAS_IGNORADAS: readonly string[] = ["node_modules", "dist"];
+
+/** Extensiones que no se indexan: código, configuración, datos sueltos e imágenes. Para mostrar una, quitarla de aquí. */
+export const EXTENSIONES_IGNORADAS: readonly string[] = [
+  "js", "mjs", "ts", "map", "json", "sql", "cmd", "csv", "html",
+  "jpg", "jpeg", "png", "webp",
+];
+
+/** Nombres sin extensión que no se indexan (se comparan sin importar mayúsculas). */
+export const NOMBRES_IGNORADOS: readonly string[] = ["license", "codeowners"];
 
 const rutaLimpia = (ruta: string) =>
   ruta
@@ -51,7 +60,8 @@ const rutaLimpia = (ruta: string) =>
 
 /**
  * ¿Este archivo o carpeta queda FUERA del cerebro? Sí si alguna parte de la ruta (o el nombre) empieza con
- * punto (.git, .obsidian, .claude, .gitignore…), si está en RUTAS_IGNORADAS o debajo, o si es una imagen .png.
+ * punto (.git, .obsidian, .claude, .gitignore…), si está en RUTAS_IGNORADAS o debajo, si pasa por una carpeta de
+ * CARPETAS_IGNORADAS (node_modules, dist), o si es un archivo (nunca una carpeta) de código, datos o imagen.
  * No borra nada: solo dice que no se recorre, no se indexa y no se muestra.
  */
 export function seIgnora(
@@ -67,6 +77,12 @@ export function seIgnora(
     const base = rutaLimpia(ignorada);
     if (base && (limpia === base || limpia.startsWith(`${base}/`))) return true;
   }
+  // La carpeta ignorada puede ser la propia (el nombre) o cualquiera de las de arriba (la ruta).
+  const carpetas = tipo === MIME_CARPETA ? [...partes] : ruta.split(/[\\/]/);
+  if (carpetas.some((parte) => CARPETAS_IGNORADAS.includes(parte.trim().toLowerCase()))) return true;
+  // Las carpetas solo se ignoran por su nombre o su ruta, nunca por extensión (una carpeta "datos.json" se ve).
+  if (tipo === MIME_CARPETA) return false;
+  if (NOMBRES_IGNORADOS.includes(nombre.trim().toLowerCase())) return true;
   const extension = /\.([a-z0-9]+)$/i.exec(nombre)?.[1]?.toLowerCase();
   if (extension && EXTENSIONES_IGNORADAS.includes(extension)) return true;
   return EXTENSIONES_IGNORADAS.some((ext) => tipo === `image/${ext}`);
