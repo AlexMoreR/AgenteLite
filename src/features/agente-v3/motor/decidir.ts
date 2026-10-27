@@ -13,6 +13,7 @@ import {
   preguntaPorLaFoto,
   type FotoDelCliente,
 } from "./foto-y-precio";
+import { mezclarTemas } from "./varias-preguntas";
 
 /**
  * EL MOTOR: dado un mensaje y el estado de la conversación, elige UNA regla.
@@ -237,6 +238,26 @@ export function decidir(input: {
   });
 
   const ganadora = ordenadas[0].regla;
+
+  /*
+    VARIAS PREGUNTAS EN UN MENSAJE (caso del 26-oct-2026, ver varias-preguntas.ts).
+
+    Si ganó una regla de tema y otras también encajaron, las respuestas se juntan en un solo mensaje
+    corto en vez de dejar ganar solo una. Si ganó cualquier otra cosa, todo sigue exactamente igual.
+  */
+  const mezcla = mezclarTemas(ordenadas.map(({ regla }) => regla));
+  if (mezcla) {
+    const juntas = new Set(mezcla.juntas.map((regla) => regla.id));
+    return {
+      regla: ganadora,
+      saludo,
+      acciones: mezcla.acciones,
+      porque: `Varias preguntas en un mensaje: se juntaron ${mezcla.juntas.map((regla) => `"${regla.nombre}"`).join(", ")} porque ${comoSeLee(ganadora)} y también encajaron las otras. Se contestan todas en un solo mensaje corto.`,
+      tambienEncajaban: ordenadas
+        .filter(({ regla }) => regla.id !== ganadora.id && !juntas.has(regla.id))
+        .map(({ regla }) => ({ id: regla.id, nombre: regla.nombre })),
+    };
+  }
 
   /*
     Si la regla mueve de paso, el mensaje de ESE paso sale en el mismo turno.
