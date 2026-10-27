@@ -68,6 +68,16 @@ function pedirDetalleDeContacto(contactId: string): Promise<DetalleDeContacto> {
 }
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { hayVersionNueva } from "@/components/app-version-guard";
+import {
+  ESPERA_GUARDAR_BORRADOR_MS,
+  EVENTO_GUARDAR_BORRADOR,
+  borrarBorrador,
+  guardarBorrador,
+  leerBorrador,
+  marcarEscritura,
+  marcarOcupada,
+  pedirRevisionDeVersion,
+} from "@/lib/actualizacion-automatica";
 import { ACCEPT_DOCUMENTOS_CHAT, revisarArchivoAntesDeSubir } from "@/lib/chat-envio-seguro";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import {
@@ -1291,6 +1301,54 @@ export const ConversationPanel = memo(function ConversationPanel({
     target.style.overflowY = target.scrollHeight > maxHeight ? "auto" : "hidden";
   }, []);
 
+  /*
+    Actualizacion automatica (tarjeta maqn9g47): la app se recarga sola tras cada subida, asi que el
+    texto a medias se guarda en la pestaña, por chat, y vuelve igual. La caja es no controlada: se
+    lee y se escribe directo en el textarea. Reglas en src/lib/actualizacion-automatica.ts.
+  */
+  const hayCajaDeTexto = Boolean(composer && renderedConversation);
+  const borradorTimerRef = useRef<number | null>(null);
+  const guardarBorradorAhora = useCallback((chat: string) => {
+    if (borradorTimerRef.current !== null) {
+      window.clearTimeout(borradorTimerRef.current);
+      borradorTimerRef.current = null;
+    }
+    const textarea = composerTextAreaRef.current;
+    if (textarea && chat) {
+      guardarBorrador(chat, textarea.value);
+    }
+  }, []);
+  useEffect(() => {
+    const chat = selectedConversationId ?? "";
+    const textarea = composerTextAreaRef.current;
+    if (textarea && chat) {
+      const borrador = leerBorrador(chat);
+      textarea.value = borrador;
+      setComposerHasText(borrador.trim().length > 0);
+      autoResizeComposer(textarea);
+    }
+    const guardarYa = () => guardarBorradorAhora(chat);
+    window.addEventListener(EVENTO_GUARDAR_BORRADOR, guardarYa);
+    window.addEventListener("pagehide", guardarYa);
+    return () => {
+      window.removeEventListener(EVENTO_GUARDAR_BORRADOR, guardarYa);
+      window.removeEventListener("pagehide", guardarYa);
+      // Al cambiar de chat, el texto del que se deja queda guardado en el suyo.
+      guardarYa();
+    };
+  }, [selectedConversationId, hayCajaDeTexto, autoResizeComposer, guardarBorradorAhora]);
+  // Avisos de "ocupada": mientras haya algo en curso, la app no se recarga sola.
+  useEffect(() => {
+    marcarOcupada("enviando", enviandoTexto || isSendingMedia || isSendingAudio);
+    marcarOcupada("grabando", isRecordingAudio);
+    marcarOcupada("adjuntar", isAttachMenuOpen || pendingMediaFiles.length > 0);
+    return () => {
+      marcarOcupada("enviando", false);
+      marcarOcupada("grabando", false);
+      marcarOcupada("adjuntar", false);
+    };
+  }, [enviandoTexto, isSendingMedia, isSendingAudio, isRecordingAudio, isAttachMenuOpen, pendingMediaFiles.length]);
+
   const firma = chatSignature.trim();
 
   /**
@@ -2142,6 +2200,12 @@ export const ConversationPanel = memo(function ConversationPanel({
                     }
                     setComposerHasText(false);
                     setDesdeRespuestaRapida(false);
+                    // El mensaje salio de la caja: ya no hay borrador (y se cancela el guardado pendiente).
+                    if (borradorTimerRef.current !== null) {
+                      window.clearTimeout(borradorTimerRef.current);
+                      borradorTimerRef.current = null;
+                    }
+                    borrarBorrador(selectedConversationId ?? "");
                     form.reset();
                     autoResizeComposer(composerTextAreaRef.current);
                   }}
@@ -2344,7 +2408,14 @@ export const ConversationPanel = memo(function ConversationPanel({
                                 }
                               }}
                             />
-                            <Popover open={isAttachMenuOpen} onOpenChange={setIsAttachMenuOpen}>
+                            <Popover
+                              open={isAttachMenuOpen}
+                              onOpenChange={(abierto) => {
+                                setIsAttachMenuOpen(abierto);
+                                // Abrir "adjuntar": se actualiza ANTES de elegir el archivo (el archivo no se puede guardar).
+                                if (abierto) pedirRevisionDeVersion(["adjuntar"]);
+                              }}
+                            >
                               <PopoverTrigger asChild>
                                 <Button
                                   type="button"
@@ -2588,9 +2659,18 @@ export const ConversationPanel = memo(function ConversationPanel({
                           rows={1}
                           placeholder={isSendingAudio ? "Enviando nota de voz..." : composer.placeholder || "Escribe un mensaje..."}
                           disabled={isSendingAudio}
+                          // Tocar la caja: se mira si hay version nueva antes de que escriba.
+                          onFocus={() => pedirRevisionDeVersion()}
                           onChange={(event) => {
                             const conTexto = event.currentTarget.value.trim().length > 0;
                             setComposerHasText(conTexto);
+                            marcarEscritura();
+                            const chatDelBorrador = selectedConversationId ?? "";
+                            if (borradorTimerRef.current !== null) window.clearTimeout(borradorTimerRef.current);
+                            borradorTimerRef.current = window.setTimeout(
+                              () => guardarBorradorAhora(chatDelBorrador),
+                              ESPERA_GUARDAR_BORRADOR_MS,
+                            );
                             if (!conTexto) sugerenciaEnLaCaja.current = null;
                             autoResizeComposer(event.currentTarget);
                           }}
