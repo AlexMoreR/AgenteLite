@@ -237,6 +237,12 @@ export function eventosDelTurno(input: {
    LA FOTO DEL LEAD
 ------------------------------------------------------------------------------------------------ */
 
+/** Un cambio de paso guardado en la foto (los últimos 10). `motor` dice quién lo hizo. */
+export type CambioDePaso = { paso: string; producto: string | null; en: string; motor: "v3" | "v2" };
+
+/** Cuántos cambios de paso se guardan en la foto del lead. */
+export const MAXIMO_DE_CAMBIOS_DE_PASO = 10;
+
 export type SenalGuardada = { tipo: TipoDeSenal; fragmento: string; en: string };
 
 export type FotoDelLead = {
@@ -268,6 +274,10 @@ export type FotoDelLead = {
   cotizacionEn: Date | null;
   anticipoEn: Date | null;
   ventaEn: Date | null;
+  /* Detalle del paso. Opcionales: las fotos viejas no los traen. */
+  pasoAnterior?: string | null;
+  pasoDesde?: Date | null;
+  pasoHistorial?: CambioDePaso[] | null;
   /* F2 (seguimiento inteligente). Opcionales: el relleno histórico de F1 no los conoce. */
   productoInteres?: string | null;
   temperaturaEn?: Date | null;
@@ -307,6 +317,9 @@ export function leadVacio(contexto: ContextoDelLead): FotoDelLead {
     libroVersionEntrada: null,
     pasoActual: null,
     pasoMaximo: null,
+    pasoAnterior: null,
+    pasoDesde: null,
+    pasoHistorial: null,
     temperatura: null,
     puntaje: null,
     motivo: null,
@@ -340,6 +353,31 @@ function texto(valor: unknown): string | null {
 const MAXIMO_DE_SENALES = 20;
 
 /**
+ * Deja escrito el cambio de paso: paso anterior, desde cuándo está en el actual y el historial
+ * corto (últimos 10). Solo cuenta si cambió el paso o el producto; el paso anterior solo se mueve
+ * si cambió el paso. Un evento de otro orden en el tiempo (más viejo que `pasoDesde`) no mueve nada.
+ */
+function anotarCambioDePaso(
+  lead: FotoDelLead,
+  entrada: { pasoPrevio: string | null; productoPrevio: string | null; evento: EventoDelEmbudo; cuando: Date },
+): void {
+  const { pasoPrevio, productoPrevio, evento, cuando } = entrada;
+  const cambioElPaso = lead.pasoActual !== pasoPrevio;
+  const cambioElProducto = evento.tipo === "PASO_ENTRA" && Boolean(lead.productoActual) && lead.productoActual !== productoPrevio;
+  if (!cambioElPaso && !cambioElProducto) return;
+  if (!lead.pasoActual) return;
+  if (lead.pasoDesde && cuando.getTime() < lead.pasoDesde.getTime()) return;
+  if (cambioElPaso) {
+    lead.pasoAnterior = pasoPrevio;
+    lead.pasoDesde = cuando;
+  }
+  const motor = evento.datos?.motor === "v2" ? "v2" : "v3";
+  const historial = [...(lead.pasoHistorial ?? [])];
+  historial.push({ paso: lead.pasoActual, producto: lead.productoActual, en: cuando.toISOString(), motor });
+  lead.pasoHistorial = historial.slice(-MAXIMO_DE_CAMBIOS_DE_PASO);
+}
+
+/**
  * Cómo queda la foto del lead después de un evento. Pura: recibe la foto anterior (o null si el
  * lead no existía) y devuelve la nueva. Nunca baja el paso máximo ni deshace una asignación.
  */
@@ -347,6 +385,9 @@ export function aplicarEvento(anterior: FotoDelLead | null, evento: EventoDelEmb
   const lead: FotoDelLead = anterior ? { ...anterior } : leadVacio(contexto);
   const cuando = evento.createdAt ?? new Date();
   const datos = evento.datos ?? {};
+
+  const pasoPrevio = lead.pasoActual;
+  const productoPrevio = lead.productoActual;
 
   // El producto que trae cualquier evento cuenta como "actual" (y como entrada si no había).
   if (evento.producto && evento.tipo !== "ENTRADA") {
@@ -359,6 +400,7 @@ export function aplicarEvento(anterior: FotoDelLead | null, evento: EventoDelEmb
   if (evento.paso && ordenDelPaso(evento.paso) >= 0) {
     lead.pasoMaximo = pasoMayor(lead.pasoMaximo, evento.paso);
   }
+  anotarCambioDePaso(lead, { pasoPrevio, productoPrevio, evento, cuando });
 
   switch (evento.tipo) {
     case "ENTRADA": {

@@ -84,7 +84,12 @@ function comoFoto(fila: Record<string, unknown> | null): FotoDelLead | null {
   if (!fila) return null;
   const foto = fila as unknown as FotoDelLead;
   const accionDatos = fila.accionDatos && typeof fila.accionDatos === "object" && !Array.isArray(fila.accionDatos) ? (fila.accionDatos as Record<string, unknown>) : null;
-  return { ...foto, accionDatos, senales: Array.isArray(fila.senales) ? (fila.senales as FotoDelLead["senales"]) : null };
+  return {
+    ...foto,
+    accionDatos,
+    senales: Array.isArray(fila.senales) ? (fila.senales as FotoDelLead["senales"]) : null,
+    pasoHistorial: Array.isArray(fila.pasoHistorial) ? (fila.pasoHistorial as FotoDelLead["pasoHistorial"]) : null,
+  };
 }
 
 function datosDeLaFoto(foto: FotoDelLead) {
@@ -102,6 +107,9 @@ function datosDeLaFoto(foto: FotoDelLead) {
     libroVersionEntrada: foto.libroVersionEntrada,
     pasoActual: foto.pasoActual,
     pasoMaximo: foto.pasoMaximo,
+    pasoAnterior: foto.pasoAnterior,
+    pasoDesde: foto.pasoDesde,
+    pasoHistorial: foto.pasoHistorial ? (foto.pasoHistorial as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
     temperatura: foto.temperatura,
     puntaje: foto.puntaje,
     motivo: foto.motivo,
@@ -487,6 +495,24 @@ export function registrarDesdeActividad(input: {
       },
     ];
   });
+}
+
+/**
+ * PASO_ENTRA del Agente V2: cambió de etapa del embudo (funnel-stage-sync). Mismo aviso que el
+ * del V3 pero marcado `motor: "v2"`. Idempotente por chat, producto y paso. En segundo plano y
+ * sin lanzar: si falla, el V2 sigue igual.
+ */
+export function registrarPasoDelV2(input: BaseDelEvento & { paso: string; desde?: string | null; producto?: string | null }): void {
+  registrarEnSegundoPlano(input, async () => [
+    {
+      tipo: "PASO_ENTRA",
+      origen: "motor",
+      paso: input.paso,
+      producto: input.producto ?? null,
+      datos: { desde: input.desde ?? null, motor: "v2" },
+      claveUnica: `PASO:${input.conversationId}:${input.producto ?? "-"}:${input.paso}`,
+    },
+  ]);
 }
 
 /** VENTA: una persona marcó GANADO con su número de cotización de Gestión. */

@@ -217,6 +217,9 @@ export function EmbudoSemanalVista(props: EmbudoSemanalVistaProps) {
           <Link href={props.hrefClasica} className="mt-1 inline-flex min-h-11 items-center self-start underline">
             Ver la vista clásica del embudo
           </Link>
+          <Link href="/cliente/crm/embudo-por-paso" className="inline-flex min-h-11 items-center self-start underline">
+            Ver en qué paso del bot se cae la gente
+          </Link>
         </div>
       </div>
     </div>
