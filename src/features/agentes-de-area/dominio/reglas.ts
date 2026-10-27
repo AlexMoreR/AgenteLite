@@ -368,6 +368,59 @@ export function agruparPorAnuncio(conversaciones: ConversacionDeAnuncio[]): {
 }
 
 /* ------------------------------------------------------------------------------------------------
+   VENTAS POR ASESORA: la línea Admin nunca suma y un teléfono es una sola venta
+------------------------------------------------------------------------------------------------ */
+
+/** Línea Admin fija (respaldo por si el campo `purpose` de la línea no está bien puesto). */
+export const CANAL_ADMIN_ID = "cmt06kiob00lw2hk2mgllstsb";
+
+export type CambioDeEtapaDeChat = {
+  conversationId: string;
+  contactId: string;
+  asesoraId: string | null;
+  /** Etapa a la que pasó el chat en ese cambio (PROPUESTA, NEGOCIACION, GANADO...). */
+  etapaNueva: string;
+  /** `WhatsAppChannel.purpose` de la línea del chat; null si el chat no tiene línea. */
+  proposito: string | null;
+  canalId: string | null;
+};
+
+export type ContadorDeEtapas = { cotizaciones: number; ventas: number };
+
+export function esLineaAdmin(canalId: string | null, proposito: string | null): boolean {
+  return proposito === "ADMIN" || canalId === CANAL_ADMIN_ID;
+}
+
+/**
+ * Cuenta cotizaciones y ventas por asesora. La línea Admin nunca cuenta (ahí solo se cobra: la venta cuenta en
+ * la línea donde se vendió, a nombre de quien vendió). Un teléfono (contacto) es UNA venta aunque tenga
+ * varios chats GANADO; se le da a la asesora del primer chat de ventas que lo cerró.
+ */
+export function contarEtapasPorAsesora(cambios: CambioDeEtapaDeChat[]): Map<string | null, ContadorDeEtapas> {
+  const resultado = new Map<string | null, ContadorDeEtapas>();
+  const contador = (id: string | null) => {
+    let c = resultado.get(id);
+    if (!c) resultado.set(id, (c = { cotizaciones: 0, ventas: 0 }));
+    return c;
+  };
+  const cotizo = new Set<string>();
+  const vendio = new Set<string>();
+  for (const cambio of cambios) {
+    if (esLineaAdmin(cambio.canalId, cambio.proposito)) continue;
+    const llave = `${cambio.asesoraId ?? ""}|${cambio.contactId}`;
+    if (["PROPUESTA", "NEGOCIACION", "GANADO"].includes(cambio.etapaNueva) && !cotizo.has(llave)) {
+      cotizo.add(llave);
+      contador(cambio.asesoraId).cotizaciones += 1;
+    }
+    if (cambio.etapaNueva === "GANADO" && !vendio.has(cambio.contactId)) {
+      vendio.add(cambio.contactId);
+      contador(cambio.asesoraId).ventas += 1;
+    }
+  }
+  return resultado;
+}
+
+/* ------------------------------------------------------------------------------------------------
    AGENTE DE SISTEMAS: revisión al día siguiente de cada subida (solo lectura)
 ------------------------------------------------------------------------------------------------ */
 

@@ -119,6 +119,8 @@ export async function computeDailyMetrics(
         // se conoce y contarlos por updatedAt era justo lo que hacía el reporte poco confiable.
         where: {
           workspaceId,
+          // Un contacto oculto del CRM no cuenta como venta.
+          excludedFromCrm: false,
           OR: [
             { crmStage: "GANADO", wonAt: range },
             { crmStage: "PERDIDO", updatedAt: range },

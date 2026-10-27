@@ -62,7 +62,7 @@ try {
     const sin = completarConfig({ urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", repos: { a: { ruta: "." } } });
     assert.deepEqual(sin.boveda, { ruta: null, cadaSegundos: 60 });
     const con = completarConfig({ urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", repos: { a: { ruta: "." } }, boveda: { ruta: "D:/Magilus" } }, T);
-    assert.equal(con.boveda.ruta, path.resolve("D:/Magilus"));
+    assert.equal(con.boveda.ruta, path.resolve(T, "D:/Magilus"));
     assert.throws(() => completarConfig({ urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", repos: { a: { ruta: "." } }, boveda: { ruta: 3 } }), /boveda\.ruta/);
   });
 
