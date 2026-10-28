@@ -50,7 +50,7 @@ import {
 } from "@/lib/evolution";
 import { getPublicBaseUrl } from "@/lib/app-url";
 import { claveDeNotaDeVoz, urlAbsolutaParaEnviar } from "@/lib/reenviar-mensaje";
-import { parseWorkspaceBusinessConfig } from "@/lib/workspace-business-config";
+import { parseWorkspaceBusinessConfig, textoDeLaUbicacionDelLocal } from "@/lib/workspace-business-config";
 import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import {
   sendOfficialApiAudioMessage,
@@ -3676,6 +3676,11 @@ export async function sendChatLocationReplyAction(input: {
   const name = businessConfig.locationLabel.trim() || workspace?.name?.trim() || "Ubicación";
   const address = businessConfig.locationAddress.trim() || businessConfig.location.trim() || "";
 
+  /*
+    El pin va SIN nombre ni dirección: con el nombre ("Magilus"), al tocarlo Google Maps buscaba esa palabra y
+    decía "no encuentra Magilus" (no tenemos perfil en Google). Sin nombre, WhatsApp abre las coordenadas exactas.
+    La dirección escrita y el link al punto van justo después, en un texto.
+  */
   let outbound;
   try {
     outbound = await sendEvolutionLocationMessage({
@@ -3683,12 +3688,28 @@ export async function sendChatLocationReplyAction(input: {
       phoneNumber: conversation.contact.phoneNumber,
       latitude,
       longitude,
-      name,
-      address,
+      name: null,
+      address: null,
     });
   } catch (locationError) {
     const detail = locationError instanceof Error ? locationError.message : "";
     return { error: detail ? `No se pudo enviar la ubicación: ${detail}` : "No se pudo enviar la ubicación" };
+  }
+
+  const textoDireccion = textoDeLaUbicacionDelLocal({ nombre: name, direccion: address, latitude, longitude });
+  let outboundTexto: Awaited<ReturnType<typeof sendEvolutionTextMessage>> | null = null;
+  try {
+    outboundTexto = await sendEvolutionTextMessage({
+      instanceName: conversation.channel.evolutionInstanceName,
+      phoneNumber: conversation.contact.phoneNumber,
+      text: textoDireccion,
+    });
+  } catch (textoError) {
+    // El pin ya salió: no se corta por el texto, solo queda en el log.
+    console.error("[ubicacion] no se pudo enviar la dirección escrita", {
+      conversationId: conversation.id,
+      error: textoError instanceof Error ? textoError.message : String(textoError),
+    });
   }
 
   const now = new Date();
@@ -3713,6 +3734,25 @@ export async function sendChatLocationReplyAction(input: {
       } as never,
     },
   });
+
+  if (outboundTexto) {
+    await prisma.message.create({
+      data: {
+        workspaceId: membership.workspace.id,
+        conversationId: conversation.id,
+        channelId: conversation.channel.id,
+        contactId: conversation.contact.id,
+        agentId: input.agentId?.trim() || conversation.agentId || null,
+        externalId: outboundTexto.externalId,
+        direction: "OUTBOUND",
+        type: "TEXT",
+        status: "SENT",
+        content: textoDireccion,
+        sentAt: new Date(now.getTime() + 1),
+        rawPayload: { source: "manual", enviadoPorUserId: session.user.id, evolution: outboundTexto.raw } as never,
+      },
+    });
+  }
 
   await syncLeadLifecycleForContact({
     workspaceId: membership.workspace.id,

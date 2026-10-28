@@ -115,3 +115,21 @@ export function parseLatLngFromText(value: string): { latitude: number; longitud
 
   return null;
 }
+
+/**
+ * El link que abre el PIN EXACTO en Google Maps, por coordenadas. No depende de que el negocio tenga perfil
+ * en Google: con el nombre ("Magilus"), Maps buscaba la palabra y decía que no la encontraba (28-10-2026).
+ */
+export function linkDeMapsPorCoordenadas(latitude: number, longitude: number): string {
+  return `https://www.google.com/maps/search/?api=1&query=${latitude.toFixed(6)},${longitude.toFixed(6)}`;
+}
+
+/** El texto que acompaña al pin: la dirección escrita y el link al punto exacto. */
+export function textoDeLaUbicacionDelLocal(input: { nombre: string; direccion: string; latitude: number; longitude: number }): string {
+  const lineas = [
+    `📍 ${input.nombre.trim() || "Nuestro local"}`,
+    input.direccion.trim(),
+    linkDeMapsPorCoordenadas(input.latitude, input.longitude),
+  ];
+  return lineas.filter(Boolean).join("\n");
+}

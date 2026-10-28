@@ -62,7 +62,7 @@
     "test:reuniones-sin-grabar": "node scripts/check-reuniones-sin-grabar.mjs",
     "test:reuniones-pase": "node scripts/check-reuniones-pase.mjs",
     "test:reuniones-migracion": "node scripts/check-reuniones-migracion.mjs",
-    "test:migraciones-pglite":"node scripts/ensayo-migraciones-pglite.mjs",
+    "test:migraciones-pglite": "node scripts/ensayo-migraciones-pglite.mjs",
     "test:trabajador-tablero": "node trabajador-tablero/pruebas/probar-reparto.mjs && node trabajador-tablero/pruebas/probar-medir.mjs && node trabajador-tablero/pruebas/probar-pausa-uso.mjs && node trabajador-tablero/pruebas/probar-trabajador.mjs && node trabajador-tablero/pruebas/probar-modelos.mjs && node trabajador-tablero/pruebas/probar-autoactualizar.mjs && node trabajador-tablero/pruebas/probar-notas-boveda.mjs && node trabajador-tablero/pruebas/probar-no-colgarse.mjs",
     "test:seguimiento-inteligente": "node scripts/check-seguimiento-inteligente.mjs",
     "test:alertas": "node scripts/check-alertas.mjs",
@@ -106,7 +106,8 @@
     "test:e2e": "playwright test -c e2e",
     "db:seed": "node prisma/seed.js",
     "test:hora-lista": "npx tsx scripts/check-hora-lista.ts",
-    "test:permisos-del-crm": "npx tsx --test src/lib/permisos-del-crm.test.ts"
+    "test:permisos-del-crm": "npx tsx --test src/lib/permisos-del-crm.test.ts",
+    "test:ubicacion-del-local": "node scripts/check-ubicacion-del-local.mjs"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
