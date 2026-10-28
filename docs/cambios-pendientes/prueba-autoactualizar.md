@@ -1,1 +1,0 @@
-- 27-oct-2026: prueba de la actualización automática de la app (versión nueva sin cambios de código).

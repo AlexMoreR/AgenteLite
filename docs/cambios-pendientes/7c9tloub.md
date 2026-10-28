@@ -1,5 +1,0 @@
-## Automatizaciones
-- `cerebro_sincronizacion`: además de lo que ya ignoraba, el Cerebro ignora las carpetas `node_modules` y `dist` en cualquier nivel (con todo lo de adentro, incluidos sus `src` y `test`), los archivos de código y datos (`.js`, `.mjs`, `.ts`, `.d.ts`, `.map`, `.json`, `.sql`, `.cmd`, `.csv`, `.html`), las imágenes (`.jpg`, `.jpeg`, `.png`, `.webp`) y los archivos `LICENSE` y `CODEOWNERS`. Quedan los `.md`, los `.txt` y los Google Docs (y los PDF solo por nombre). Las carpetas nunca se ignoran por extensión. Las filas viejas se marcan `enDrive = false` en la primera sincronización; no se borra nada del Drive.
-
-## Advertencias de operación
-- `cerebro_sincronizacion`: la lista de lo que se ignora está en `CARPETAS_IGNORADAS`, `EXTENSIONES_IGNORADAS` y `NOMBRES_IGNORADOS` de `src/features/cerebro/services/reglas.ts`. Si hace falta volver a ver los `.json`, `.csv` o `.html` del Drive, se quita la extensión de esa lista. Tras la primera sincronización, `cerebro_listar` debe mostrar menos de 300 documentos y ninguno dentro de `node_modules`.

@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `npm_install_en_magilus`: no correr `npm install` (ni crear `node_modules`) dentro de la carpeta `Magilus`: se sincroniza al Drive y llena el cerebro de miles de archivos de código. La herramienta del reporte SEO (`gsc-reporte.mjs`, `package.json`, `node_modules`) vive fuera de `Magilus`, en `D:\Proyectos\agentes\seo`, y solo los reportes `.md` se guardan en `Tecnologia/seo/datos`.
