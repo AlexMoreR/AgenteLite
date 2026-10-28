@@ -2532,9 +2532,13 @@ model AlertaInterna {
   creadoEn         DateTime  @default(now())
   vistaEn          DateTime?
   resueltaEn       DateTime?
+  /// De quién es la alerta. null = alerta del negocio (la ven el dueño y los administradores, como siempre); con
+  /// valor = alerta personal de esa persona del equipo (solo ella la ve en /cliente/alertas, y el dueño si es suya).
+  destinatarioId   String?
 
   @@index([workspaceId, estado, prioridad])
   @@index([workspaceId, clave])
+  @@index([workspaceId, destinatarioId, estado])
 }
 
 /// Embudo 3: una foto completa del embudo de un producto (bienvenida, guiones, pasos quitados y

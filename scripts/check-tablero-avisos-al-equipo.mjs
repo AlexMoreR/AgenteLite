@@ -39,6 +39,7 @@ const reiniciar = () => {
     updates: [],
     historiales: [],
     fallaElEnvio: false,
+    alertas: [],
   });
   estado.ajustes.set("tablero:avisos-dueno:telefono:ws1", "573196892277");
 };
@@ -97,6 +98,17 @@ const falso = {
       return { count: fila ? 1 : 0 };
     },
   },
+  alertaInterna: {
+    findFirst: async ({ where }) =>
+      [...estado.alertas].reverse().find((a) => a.workspaceId === where.workspaceId && a.clave === where.clave && a.destinatarioId === where.destinatarioId && where.estado.in.includes(a.estado)) ?? null,
+    create: async ({ data }) => {
+      const fila = { id: `al${estado.alertas.length + 1}`, estado: "NUEVA", veces: 1, ...data };
+      estado.alertas.push(fila);
+      return { id: fila.id };
+    },
+    update: async ({ where, data }) => Object.assign(estado.alertas.find((a) => a.id === where.id), data),
+    updateMany: async () => ({ count: 0 }),
+  },
   tableroInteligente: { findMany: async () => [{ workspaceId: "ws1" }] },
 };
 
@@ -140,6 +152,7 @@ const SIETE = new Date("2026-10-28T12:00:00Z");
 const HORA = 3_600_000;
 const mas = (horas, desde = DIA) => new Date(desde.getTime() + horas * HORA);
 const link = (id) => `https://app.aizenbot.com/cliente/tablero-ia?tarjeta=${id}`;
+const linkAlerta = (id) => `https://app.aizenbot.com/cliente/alertas?alerta=${id}`;
 
 const tarjeta = (extra = {}) => ({
   id: "t1",
@@ -196,12 +209,50 @@ await prueba("1. asignar una tarjeta manda UN aviso con nombre, título y link; 
   assert.deepEqual(estado.enviados[0], {
     instanceName: "admin-inst",
     phoneNumber: "573001110001",
-    text: `Emanuel, tienes una tarea nueva: Revisar mejoras del Agente SEO. ${link("t1")}`,
+    text: `Emanuel, tienes una tarea nueva: Revisar mejoras del Agente SEO. ${linkAlerta("al1")}`,
   });
   await vuelta(mas(0.2));
   await vuelta(mas(0.3));
   assert.equal(estado.enviados.length, 1, "no se repite");
   assert.equal(estado.avisos.find((a) => a.motivo === "asignada:u_em").estado, "ENVIADO");
+});
+
+await prueba("cada aviso queda TAMBIÉN como alerta de la persona, con el link directo a esa alerta en el WhatsApp", async () => {
+  await prenderYBase();
+  estado.tarjetas = [tarjeta({ responsableId: "u_em" })];
+  await vuelta(mas(0.1));
+  assert.equal(estado.alertas.length, 1);
+  const alerta = estado.alertas[0];
+  assert.equal(alerta.destinatarioId, "u_em", "es de Emanuel");
+  assert.equal(alerta.workspaceId, "ws1");
+  assert.equal(alerta.clave, "auto:equipo:t1:asignada:u_em");
+  assert.equal(alerta.prioridad, "MEDIA");
+  assert.equal(alerta.titulo, "Emanuel, tienes una tarea nueva: Revisar mejoras del Agente SEO.", "sin el link en el título");
+  assert.ok(alerta.detalle.includes(link("t1")), "la alerta guarda el link de la tarjeta");
+  assert.ok(estado.enviados[0].text.endsWith(`https://app.aizenbot.com/cliente/alertas?alerta=${alerta.id}`));
+  await vuelta(mas(0.2));
+  assert.equal(estado.alertas.length, 1, "la segunda pasada no duplica la alerta");
+});
+
+await prueba("el aviso del Coordinador sin responsable queda como alerta ALTA del dueño; ERROR de otra persona no se mezcla", async () => {
+  await prenderYBase();
+  estado.tarjetas = [tarjeta({ estado: "ERROR", resultado: { error: "falta una clave de API" } }), tarjeta({ id: "t2", responsableId: "u_ana" })];
+  await vuelta(mas(0.1));
+  const delDueno = estado.alertas.find((a) => a.destinatarioId === "u_alex");
+  assert.ok(delDueno && delDueno.prioridad === "ALTA" && /^auto:equipo:t1:necesita:ERROR/.test(delDueno.clave));
+  assert.equal(estado.alertas.find((a) => a.destinatarioId === "u_ana").clave, "auto:equipo:t2:asignada:u_ana");
+  assert.equal(estado.alertas.filter((a) => a.destinatarioId === "u_em").length, 0);
+});
+
+await prueba("si el WhatsApp falla la alerta igual queda guardada; sin número o con avisos apagados no hay alerta", async () => {
+  await prenderYBase();
+  estado.fallaElEnvio = true;
+  estado.tarjetas = [tarjeta({ responsableId: "u_em" }), tarjeta({ id: "t3", responsableId: "u_sin" }), tarjeta({ id: "t4", responsableId: "u_off" })];
+  estado.ajustes.set("tablero:avisos-equipo:persona:u_off", "false");
+  await vuelta(mas(0.1));
+  assert.deepEqual(estado.alertas.map((a) => a.destinatarioId), ["u_em"]);
+  await vuelta(mas(0.2));
+  assert.equal(estado.alertas.length, 1, "el reintento no duplica la alerta");
 });
 
 await prueba("cambiar de responsable le avisa a la persona nueva, y la primera no recibe otro", async () => {
@@ -225,7 +276,7 @@ await prueba("2. marcar urgente manda un segundo aviso que empieza por URGENTE, 
   await vuelta(NOCHE);
   assert.equal(estado.enviados.length, 2);
   assert.match(estado.enviados[1].text, /^URGENTE: Emanuel, /);
-  assert.ok(estado.enviados[1].text.includes(link("t1")));
+  assert.ok(estado.enviados[1].text.endsWith(linkAlerta("al2")), "el link del WhatsApp es el de la alerta urgente");
   await vuelta(mas(1, NOCHE));
   assert.equal(estado.enviados.length, 2);
 });

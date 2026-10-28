@@ -1,4 +1,6 @@
 import { leerConfigDeAvisos, numeroDeAvisosDe } from "@/features/agente-v3/servicios/avisos";
+import { linkDeLaAlerta, type Prioridad } from "@/features/alertas/dominio/reglas";
+import { registrarAlerta } from "@/features/alertas/servicios/alertas";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
@@ -150,9 +152,10 @@ export function calcularAvisosAlEquipo(tarjetas: readonly TarjetaParaAvisar[], a
 const tituloSinUrgente = (titulo: string) => titulo.replace(/^\s*urgente\b[\s:.\-–—]*/i, "").trim() || titulo;
 
 /** El mensaje corto de cada caso, con el link a la tarjeta. `nombre` es el primer nombre de quien lo recibe. */
-export function textoDelAviso(aviso: AvisoAlEquipo, nombre: string | null): string {
+export function textoDelAviso(aviso: AvisoAlEquipo, nombre: string | null, linkDeLaAlertaDelAviso?: string | null): string {
   const titulo = unaLinea(aviso.tarjeta.titulo, 120);
-  const link = linkDeLaTarjeta(aviso.tarjeta.id);
+  // El link va a la alerta de la persona (ahí está el de la tarjeta); si la alerta no se pudo guardar, a la tarjeta.
+  const link = linkDeLaAlertaDelAviso || linkDeLaTarjeta(aviso.tarjeta.id);
   const saludo = nombre ? `${nombre}, ` : "";
   switch (aviso.tipo) {
     case "asignada":
@@ -197,7 +200,7 @@ export async function guardarAvisosDeLaPersona(userId: string, activo: boolean) 
 
 /* ───────────────────────────────────────────────────────────────────── a quién y cómo ── */
 
-type Destino = { ok: true; numero: string; nombre: string | null } | { ok: false; motivo: string };
+type Destino = { ok: true; numero: string; nombre: string | null; userId: string } | { ok: false; motivo: string };
 
 const primerNombre = (nombre: string | null | undefined) => nombre?.trim().split(/\s+/)[0] || null;
 
@@ -235,10 +238,10 @@ async function conocerAlNegocio(workspaceId: string) {
     if (!(await quiereAvisos(id))) return { ok: false, motivo: "apagó los avisos del Tablero IA en su perfil" };
     const nombre = primerNombre(nombres.get(id) ?? (esElDueno ? await nombreDeUsuario(id) : null));
     const delEquipo = normalizarTelefono(numeroDeAvisosDe(config, id));
-    if (delEquipo) return { ok: true, numero: delEquipo, nombre };
+    if (delEquipo) return { ok: true, numero: delEquipo, nombre, userId: id };
     if (esElDueno) {
       const dueno = await duenoValidado();
-      return dueno.ok ? { ok: true, numero: dueno.numero, nombre } : { ok: false, motivo: dueno.error };
+      return dueno.ok ? { ok: true, numero: dueno.numero, nombre, userId: id } : { ok: false, motivo: dueno.error };
     }
     return { ok: false, motivo: "no tiene número de avisos en Mi empresa → Equipo" };
   }
@@ -249,6 +252,26 @@ async function conocerAlNegocio(workspaceId: string) {
 async function nombreDeUsuario(userId: string): Promise<string | null> {
   const usuario = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
   return usuario?.name ?? null;
+}
+
+const PRIORIDAD_DEL_AVISO: Record<TipoDeAvisoAlEquipo, Prioridad> = { urgente: "URGENTE", necesita: "ALTA", asignada: "MEDIA", recordatorio: "BAJA" };
+
+/**
+ * Deja el aviso también como alerta PERSONAL de quien lo recibe (la ve en /cliente/alertas) y devuelve el link directo
+ * a esa alerta. No manda WhatsApp (eso lo hace este revisor) y no lanza: sin alerta guardada devuelve null.
+ */
+async function guardarAlertaDelAviso(workspaceId: string, aviso: AvisoAlEquipo, destinatarioId: string, textoSinLink: string): Promise<string | null> {
+  const resultado = await registrarAlerta({
+    workspaceId,
+    clave: `auto:equipo:${aviso.tarjeta.id}:${aviso.motivo}`,
+    prioridad: PRIORIDAD_DEL_AVISO[aviso.tipo],
+    titulo: textoSinLink,
+    detalle: `Tarjeta: ${linkDeLaTarjeta(aviso.tarjeta.id)}`,
+    origen: "Tablero IA",
+    destinatarioId,
+    refrescar: false,
+  });
+  return resultado.id ? linkDeLaAlerta(resultado.id) : null;
 }
 
 /** Manda por la línea Admin. Nunca lanza y nunca usa otra línea. */
@@ -418,7 +441,9 @@ export async function revisarAvisosDelEquipoDelNegocio(workspaceId: string, ahor
       }
     }
 
-    const envio = await enviarPorLaLineaAdmin(workspaceId, destino.numero, textoDelAviso(aviso, destino.nombre));
+    const sinLink = textoDelAviso(aviso, destino.nombre, "").replace(/\s*https?:\/\/\S+$/, "");
+    const linkDeLaAlertaDelAviso = await guardarAlertaDelAviso(workspaceId, aviso, destino.userId, sinLink);
+    const envio = await enviarPorLaLineaAdmin(workspaceId, destino.numero, textoDelAviso(aviso, destino.nombre, linkDeLaAlertaDelAviso));
     if (envio.salio) {
       enviados += 1;
       await prisma.avisoTarjetaEquipo.updateMany({ where: { id }, data: { estado: "ENVIADO", enviadoEn: new Date(), detalle: null } });

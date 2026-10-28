@@ -13,6 +13,8 @@ import { ETIQUETA_DE_ESTADO, ETIQUETA_DE_PRIORIDAD, leerAreaDeAlerta, type Estad
 
 export type FilaDeAlerta = {
   id: string;
+  /** Es la que abrió el link directo (?alerta=<id>). */
+  resaltada?: boolean;
   prioridad: string;
   titulo: string;
   detalle: string | null;
@@ -94,7 +96,7 @@ export function ListaDeAlertas({ alertas, areas, conteoPorArea }: { alertas: Fil
       {visibles.length === 0 ? <p className="text-sm text-muted-foreground">No hay alertas con estos filtros.</p> : null}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {visibles.map((alerta) => (
-        <Card key={alerta.id} size="sm" className={alerta.estado === "RESUELTA" ? "opacity-60" : undefined}>
+        <Card key={alerta.id} size="sm" className={cn(alerta.estado === "RESUELTA" && "opacity-60", alerta.resaltada && "ring-2 ring-primary")}>
           <CardContent className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={COLOR_PRIORIDAD[alerta.prioridad as Prioridad] ?? "outline"}>

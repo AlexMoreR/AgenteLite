@@ -48,6 +48,7 @@ export type AlertaGuardada = {
   creadoEn: Date;
   vistaEn: Date | null;
   resueltaEn: Date | null;
+  destinatarioId: string | null;
 };
 
 export type PedidoDeAlerta = {
@@ -57,6 +58,8 @@ export type PedidoDeAlerta = {
   titulo: string;
   detalle?: string | null;
   origen: string;
+  /** De quién es: una persona del equipo (solo ella la ve). Sin esto es del negocio (dueño y administradores). */
+  destinatarioId?: string | null;
   /** false = si la alerta ya está abierta no se toca (para quien la registra en cada vuelta del reloj). Por defecto true. */
   refrescar?: boolean;
   /**
@@ -76,7 +79,7 @@ export async function registrarAlerta(pedido: PedidoDeAlerta): Promise<Resultado
   let creada = false;
   try {
     const abierta = await prisma.alertaInterna.findFirst({
-      where: { workspaceId: pedido.workspaceId, clave: pedido.clave, estado: { in: ["NUEVA", "VISTA"] } },
+      where: { workspaceId: pedido.workspaceId, clave: pedido.clave, destinatarioId: pedido.destinatarioId ?? null, estado: { in: ["NUEVA", "VISTA"] } },
       orderBy: { creadoEn: "desc" },
       select: { id: true },
     });
@@ -91,7 +94,7 @@ export async function registrarAlerta(pedido: PedidoDeAlerta): Promise<Resultado
       id = abierta.id;
     } else {
       const fila = await prisma.alertaInterna.create({
-        data: { workspaceId: pedido.workspaceId, clave: pedido.clave, prioridad: pedido.prioridad, titulo, detalle, origen: pedido.origen },
+        data: { workspaceId: pedido.workspaceId, clave: pedido.clave, prioridad: pedido.prioridad, titulo, detalle, origen: pedido.origen, destinatarioId: pedido.destinatarioId ?? null },
         select: { id: true },
       });
       id = fila.id;
@@ -124,12 +127,21 @@ export async function marcarSalioPorWhatsApp(workspaceId: string, clave: string)
 
 export type FiltroDeAlertas = { estado?: EstadoDeAlerta | "ABIERTAS" | "TODAS"; prioridad?: Prioridad | null };
 
+/**
+ * Quién mira la página: el jefe (dueño o administrador) ve las del negocio y las suyas; cualquier otra persona, solo
+ * las suyas. Las personales de otra persona no las ve nadie más.
+ */
+export type Mirando = { userId: string; esJefe: boolean };
+const dondeMira = (mirando?: Mirando) =>
+  mirando ? (mirando.esJefe ? { OR: [{ destinatarioId: null }, { destinatarioId: mirando.userId }] } : { destinatarioId: mirando.userId }) : {};
+
 /** Las alertas del negocio ya ordenadas (prioridad y, dentro, de la más nueva a la más vieja). Por defecto, sin las resueltas. */
-export async function listarAlertas(workspaceId: string, filtro: FiltroDeAlertas = {}, limite = 300): Promise<AlertaGuardada[]> {
+export async function listarAlertas(workspaceId: string, filtro: FiltroDeAlertas = {}, limite = 300, mirando?: Mirando): Promise<AlertaGuardada[]> {
   const estado = filtro.estado ?? "ABIERTAS";
   const filas = await prisma.alertaInterna.findMany({
     where: {
       workspaceId,
+      ...dondeMira(mirando),
       ...(estado === "ABIERTAS" ? { estado: { in: ["NUEVA", "VISTA"] } } : estado === "TODAS" ? {} : { estado }),
       ...(filtro.prioridad ? { prioridad: filtro.prioridad } : {}),
     },
@@ -140,19 +152,19 @@ export async function listarAlertas(workspaceId: string, filtro: FiltroDeAlertas
 }
 
 /** Cuántas alertas hay por estado (para los contadores de la página). */
-export async function contarAlertas(workspaceId: string): Promise<Record<EstadoDeAlerta, number>> {
-  const filas = await prisma.alertaInterna.groupBy({ by: ["estado"], where: { workspaceId }, _count: { _all: true } });
+export async function contarAlertas(workspaceId: string, mirando?: Mirando): Promise<Record<EstadoDeAlerta, number>> {
+  const filas = await prisma.alertaInterna.groupBy({ by: ["estado"], where: { workspaceId, ...dondeMira(mirando) }, _count: { _all: true } });
   const cuenta: Record<EstadoDeAlerta, number> = { NUEVA: 0, VISTA: 0, RESUELTA: 0 };
   for (const fila of filas) if (fila.estado in cuenta) cuenta[fila.estado as EstadoDeAlerta] = fila._count._all;
   return cuenta;
 }
 
 /**
- * Marca una alerta como vista o resuelta. Siempre filtra por negocio: no se puede tocar la de otro. Una resuelta no
+ * Marca una alerta como vista o resuelta. Siempre filtra por negocio (y, si se dice quién mira, por lo que esa persona ve): no se puede tocar la de otro. Una resuelta no
  * vuelve a "vista"; una vista conserva su primera hora.
  */
-export async function marcarAlerta(workspaceId: string, id: string, nuevo: "VISTA" | "RESUELTA", ahora = new Date()): Promise<boolean> {
-  const actual = await prisma.alertaInterna.findFirst({ where: { id, workspaceId }, select: { estado: true, vistaEn: true } });
+export async function marcarAlerta(workspaceId: string, id: string, nuevo: "VISTA" | "RESUELTA", ahora = new Date(), mirando?: Mirando): Promise<boolean> {
+  const actual = await prisma.alertaInterna.findFirst({ where: { id, workspaceId, ...dondeMira(mirando) }, select: { estado: true, vistaEn: true } });
   if (!actual) return false;
   if (nuevo === "VISTA" && actual.estado !== "NUEVA") return true;
   await prisma.alertaInterna.update({

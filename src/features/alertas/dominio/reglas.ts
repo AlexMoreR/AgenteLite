@@ -21,6 +21,9 @@ export const ORDEN_DE_PRIORIDAD: Record<Prioridad, number> = { URGENTE: 0, ALTA:
 export const ENLACE_DE_ALERTAS = "https://app.aizenbot.com/cliente/alertas";
 export const MAXIMO_TITULO = 90;
 
+/** El link directo a una alerta: la página la abre y la resalta (?alerta=<id>). */
+export const linkDeLaAlerta = (id: string) => `${ENLACE_DE_ALERTAS}?alerta=${encodeURIComponent(id)}`;
+
 /** Los sistemas que generan alertas (lo que se ve en la columna "Sistema"). */
 export const ORIGEN_SUPERVISOR = "Supervisor";
 export const ORIGEN_COORDINADOR = "Coordinador";
@@ -121,10 +124,10 @@ export function leerAreaDeAlerta(valor: unknown): AreaDeAlerta | null {
   return AREAS_DE_ALERTA.find((area) => sinTildes(area) === texto) ?? null;
 }
 
-/** El id de la tarjeta de una clave `auto:trabado:<tarjeta>:<estado>` o `auto:necesita:<tarjeta>:<estado>`; null si no es de tarjeta. */
+/** El id de la tarjeta de una clave `auto:trabado:<tarjeta>:<estado>`, `auto:necesita:<tarjeta>:<estado>` o `auto:equipo:<tarjeta>:<motivo>` (aviso al equipo); null si no es de tarjeta. */
 export function idDeTarjetaDeLaClave(clave: string): string | null {
   const partes = String(clave ?? "").split(":");
-  if (partes[0] !== "auto" || (partes[1] !== "trabado" && partes[1] !== "necesita")) return null;
+  if (partes[0] !== "auto" || (partes[1] !== "trabado" && partes[1] !== "necesita" && partes[1] !== "equipo")) return null;
   return partes[2]?.trim() || null;
 }
 

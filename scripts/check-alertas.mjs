@@ -10,6 +10,8 @@ let contador = 0;
 const abierta = (f) => f.estado === "NUEVA" || f.estado === "VISTA";
 const coincide = (f, where = {}) =>
   Object.entries(where).every(([campo, valor]) => {
+    if (campo === "OR") return valor.some((opcion) => coincide(f, opcion));
+    if (valor === null) return (f[campo] ?? null) === null;
     if (valor && typeof valor === "object" && "in" in valor) return valor.in.includes(f[campo]);
     return f[campo] === valor;
   });
@@ -39,6 +41,11 @@ const falso = {
       for (const f of filas.filter((x) => coincide(x, where))) Object.assign(f, data);
     },
     findMany: async ({ where }) => filas.filter((f) => coincide(f, where)),
+    groupBy: async ({ where }) => {
+      const cuenta = {};
+      for (const f of filas.filter((x) => coincide(x, where))) cuenta[f.estado] = (cuenta[f.estado] ?? 0) + 1;
+      return Object.entries(cuenta).map(([estado, n]) => ({ estado, _count: { _all: n } }));
+    },
   },
 };
 const ajustes = new Map();
@@ -323,6 +330,31 @@ await prueba("áreas: los conteos solo cuentan las abiertas y un área desconoci
   assert.equal(cuenta["Gestión"], 2);
   assert.equal(cuenta["General"], 1);
   assert.equal(cuenta["Ventas"], 0);
+});
+
+await prueba("alertas personales: la persona ve solo las suyas; el jefe, las del negocio y las suyas; nadie toca la de otro", async () => {
+  await servicio.registrarAlerta({ workspaceId: "ws1", clave: "auto:equipo:t1:asignada:u_em", prioridad: "MEDIA", titulo: "Emanuel, tienes una tarea nueva", origen: "Tablero IA", destinatarioId: "u_em" });
+  await servicio.registrarAlerta({ workspaceId: "ws1", clave: "auto:equipo:t2:asignada:u_ana", prioridad: "MEDIA", titulo: "Ana, tienes una tarea nueva", origen: "Tablero IA", destinatarioId: "u_ana" });
+  await servicio.registrarAlerta({ workspaceId: "ws1", clave: "auto:equipo:t3:necesita:ERROR", prioridad: "ALTA", titulo: "Para el dueño", origen: "Tablero IA", destinatarioId: "u_alex" });
+  await servicio.registrarAlerta({ workspaceId: "ws1", clave: "del-negocio", prioridad: "URGENTE", titulo: "Del negocio", origen: "Supervisor" });
+  const titulos = async (mirando) => (await servicio.listarAlertas("ws1", {}, 300, mirando)).map((a) => a.titulo).sort();
+  assert.deepEqual(await titulos({ userId: "u_em", esJefe: false }), ["Emanuel, tienes una tarea nueva"]);
+  assert.deepEqual(await titulos({ userId: "u_ana", esJefe: false }), ["Ana, tienes una tarea nueva"]);
+  assert.deepEqual(await titulos({ userId: "u_alex", esJefe: true }), ["Del negocio", "Para el dueño"], "el dueño no ve las de Emanuel ni Ana");
+  assert.equal((await servicio.listarAlertas("ws1")).length, 4, "sin quién mira (lo de antes) sigue viendo todo el negocio");
+  const cuenta = await servicio.contarAlertas("ws1", { userId: "u_em", esJefe: false });
+  assert.equal(cuenta.NUEVA, 1);
+  const deAna = filas.find((f) => f.destinatarioId === "u_ana").id;
+  assert.equal(await servicio.marcarAlerta("ws1", deAna, "VISTA", new Date(), { userId: "u_em", esJefe: false }), false, "Emanuel no puede tocar la de Ana");
+  assert.equal(await servicio.marcarAlerta("ws1", deAna, "VISTA", new Date(), { userId: "u_ana", esJefe: false }), true);
+  const delNegocio = filas.find((f) => f.clave === "del-negocio").id;
+  assert.equal(await servicio.marcarAlerta("ws1", delNegocio, "VISTA", new Date(), { userId: "u_em", esJefe: false }), false, "una persona del equipo no toca las del negocio");
+  // La misma clave de dos destinatarios distintos no se mezcla.
+  await servicio.registrarAlerta({ workspaceId: "ws1", clave: "k", prioridad: "BAJA", titulo: "A", origen: "x", destinatarioId: "u_em" });
+  await servicio.registrarAlerta({ workspaceId: "ws1", clave: "k", prioridad: "BAJA", titulo: "A", origen: "x", destinatarioId: "u_ana" });
+  assert.equal(filas.filter((f) => f.clave === "k").length, 2);
+  assert.equal(reglas.linkDeLaAlerta("abc"), "https://app.aizenbot.com/cliente/alertas?alerta=abc");
+  assert.equal(reglas.idDeTarjetaDeLaClave("auto:equipo:t1:asignada:u_em"), "t1");
 });
 
 console.log(`\n${pruebas} pruebas ok`);

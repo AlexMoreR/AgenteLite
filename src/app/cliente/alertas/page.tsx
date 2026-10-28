@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { BellRing } from "lucide-react";
 
 import { PageHeader } from "@/components/ui/page-header";
@@ -34,22 +33,24 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
   ALERTAS: todas las alertas internas en un solo lugar, por prioridad (Urgente, Alta, Media, Baja) y, dentro de cada
   una, de la más nueva a la más vieja. Por WhatsApp solo llegan las urgentes, cortas y con el link a esta página.
   Filtros por link: ?estado=abiertas|nueva|vista|resuelta|todas (por defecto abiertas: oculta las resueltas) y
-  ?prioridad=urgente|alta|media|baja. Solo dueño o administrador.
+  ?prioridad=urgente|alta|media|baja. ?alerta=<id> abre la lista en "todas" y resalta esa alerta (el link de los WhatsApp al equipo).
+  Dueño y administradores ven las del negocio y las suyas; cualquier otra persona del equipo, solo las suyas.
 */
 export default async function AlertasPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
-  if (!esJefeDelNegocio(access)) redirect("/cliente/crm/mi-dia");
+  const mirando = { userId: access.userId, esJefe: esJefeDelNegocio(access) };
 
   const parametros = await searchParams;
-  const estadoPedido = uno(parametros.estado)?.toUpperCase() ?? "ABIERTAS";
+  const alertaPedida = uno(parametros.alerta);
+  const estadoPedido = uno(parametros.estado)?.toUpperCase() ?? (alertaPedida ? "TODAS" : "ABIERTAS");
   const estado = estadoPedido === "TODAS" || estadoPedido === "ABIERTAS" || (ESTADOS_DE_ALERTA as readonly string[]).includes(estadoPedido) ? estadoPedido : "ABIERTAS";
   const prioridad = leerPrioridad(uno(parametros.prioridad));
 
   const [alertas, abiertas, cuenta] = await Promise.all([
-    listarAlertas(access.workspaceId, { estado: estado as EstadoDeAlerta | "ABIERTAS" | "TODAS", prioridad }).catch(() => null),
+    listarAlertas(access.workspaceId, { estado: estado as EstadoDeAlerta | "ABIERTAS" | "TODAS", prioridad }, undefined, mirando).catch(() => null),
     // Para los números de los botones de área: todas las abiertas, sin importar el estado ni la prioridad elegidos.
-    listarAlertas(access.workspaceId, { estado: "ABIERTAS" }).catch(() => []),
-    contarAlertas(access.workspaceId).catch(() => null),
+    listarAlertas(access.workspaceId, { estado: "ABIERTAS" }, undefined, mirando).catch(() => []),
+    contarAlertas(access.workspaceId, mirando).catch(() => null),
   ]);
 
   // Área de cada alerta (solo lectura). Si la lectura de tarjetas falla, todo cae en el área por defecto y la página sigue.
@@ -78,6 +79,7 @@ export default async function AlertasPage({ searchParams }: PageProps) {
 
   const filas = (alertas ?? []).map((alerta) => ({
     id: alerta.id,
+    resaltada: alerta.id === alertaPedida,
     prioridad: alerta.prioridad,
     titulo: alerta.titulo,
     detalle: alerta.detalle,
