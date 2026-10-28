@@ -3679,7 +3679,7 @@ export async function sendChatLocationReplyAction(input: {
   /*
     El pin va SIN nombre ni dirección: con el nombre ("Magilus"), al tocarlo Google Maps buscaba esa palabra y
     decía "no encuentra Magilus" (no tenemos perfil en Google). Sin nombre, WhatsApp abre las coordenadas exactas.
-    La dirección escrita y el link al punto van justo después, en un texto.
+    La dirección escrita va justo después, en un texto (sin link: su vista previa confundía).
   */
   let outbound;
   try {
@@ -3696,7 +3696,7 @@ export async function sendChatLocationReplyAction(input: {
     return { error: detail ? `No se pudo enviar la ubicación: ${detail}` : "No se pudo enviar la ubicación" };
   }
 
-  const textoDireccion = textoDeLaUbicacionDelLocal({ nombre: name, direccion: address, latitude, longitude });
+  const textoDireccion = textoDeLaUbicacionDelLocal({ nombre: name, direccion: address });
   let outboundTexto: Awaited<ReturnType<typeof sendEvolutionTextMessage>> | null = null;
   try {
     outboundTexto = await sendEvolutionTextMessage({
