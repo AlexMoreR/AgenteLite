@@ -74,7 +74,13 @@ prueba("el cliente confirma: 'te consigno', 'voy a ir', 'ya pagué', comprobante
 
 prueba("un 'sí' suelto cuenta SOLO si lo último del negocio fue una pregunta de cierre o de pago", () => {
   assert.equal(decidir([IN(0, "Hola"), BOT(1, "¿Te lo separo con el 50% de anticipo?"), IN(2, "Sí")])?.codigo, "cliente_confirmo");
-  assert.equal(decidir([IN(0, "Hola"), BOT(1, "¿Hacemos el pago por Nequi o por transferencia?"), IN(2, "dale")])?.codigo, "cliente_confirmo");
+  assert.equal(decidir([IN(0, "Hola"), BOT(1, "¿Hacemos el pago por Nequi?"), IN(2, "dale")])?.codigo, "cliente_confirmo");
+  // Caso real 28-10: la presentación del combo habla de separar y pagar, pero lo que pregunta es nombre y ciudad.
+  const presentacion =
+    "Te lo llevamos con *envío gratis a tu local o domicilio* 🚚 separándolo con el *50 %*. También puedes pagarlo *contraentrega*.  ¿Cómo te llamas y en qué *ciudad* lo necesitas?";
+  assert.equal(decidir([IN(0, "Hola, me interesa el COMBO"), BOT(1, presentacion), IN(2, "Perfecto")]), null);
+  // Una pregunta de "esto o lo otro": un "perfecto" no elige.
+  assert.equal(decidir([IN(0, "Hola"), BOT(1, "¿Prefieres separarlo con el *50 %* o pagarlo *contraentrega*?"), IN(2, "Perfecto")]), null);
   // Un 'sí' a una pregunta que no es de cierre no apaga nada.
   assert.equal(decidir([IN(0, "Hola"), BOT(1, "¿Quieres que te cuente más del producto?"), IN(2, "Sí")]), null);
   // Un 'sí' sin pregunta antes tampoco.

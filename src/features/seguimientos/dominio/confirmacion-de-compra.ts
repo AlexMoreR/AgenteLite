@@ -50,6 +50,16 @@ const SI_SUELTO = /^(si+|claro( que si)?|dale|de una|listo|vale|perfecto)( (seno
 const PREGUNTA_DE_CIERRE =
   /(separ|apart|reserv|\bpago\b|pagar|consign|transfer|\bcuenta\b|nequi|daviplata|llave|cerr(amos|emos|ar)|proced|confirm\w* (el |la )?(pedido|compra|orden)|lo llevas|la llevas|lo quieres|la quieres|te lo (envio|mando|despacho)|despach|hacemos (el |la )?(pedido|envio|compra)|quieres (comprar|pagar)|link de pago)/;
 
+/**
+ * Solo cuenta la FRASE que pregunta, no el resto del mensaje: la presentación del combo dice "separándolo con el
+ * 50 %… ¿Cómo te llamas y en qué ciudad?" y un "Perfecto" ahí no es una compra (falso positivo del 28-10-2026).
+ * Una pregunta de "esto o lo otro" tampoco: un "perfecto" no elige.
+ */
+function preguntaDeCierre(textoDelNegocio: string): boolean {
+  const preguntas = textoDelNegocio.match(/¿[^?]*\?|[^.!?¿]*\?/g) ?? [];
+  return preguntas.some((p) => PREGUNTA_DE_CIERRE.test(p) && !/ o /.test(p));
+}
+
 const TEXTO_DE_PAGO = /(\bpago\b|pagar|consign|transfer|\bcuenta\b|nequi|daviplata|llave|bancolombia|comprobante)/;
 
 /**
@@ -71,7 +81,7 @@ export function clienteConfirmoCompra(mensajes: MensajeDelChat[], ahora: Date): 
     const texto = normalizar(m.texto);
     if (!texto || texto.includes("?") || NEGACION.test(texto)) continue;
     if (CONFIRMA_COMPRA.some((patron) => patron.test(texto))) return true;
-    if (SI_SUELTO.test(texto) && ultimoDelNegocio && ultimoDelNegocio.includes("?") && PREGUNTA_DE_CIERRE.test(ultimoDelNegocio)) return true;
+    if (SI_SUELTO.test(texto) && ultimoDelNegocio && preguntaDeCierre(ultimoDelNegocio)) return true;
   }
   return false;
 }
