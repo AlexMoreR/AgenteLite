@@ -41,6 +41,7 @@ import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
 import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
+import { etapaAlAsignar, etapaCaliente } from "@/lib/etapa-automatica-crm";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
   getOfficialApiConfigByWorkspaceId,
@@ -706,6 +707,9 @@ const sendUnifiedChatReplySchema = z.object({
   // El chat que la asesora tiene A LA VISTA al tocar enviar (lo pone el navegador). Si no coincide
   // con conversationId, el texto NO sale: iba para otro cliente (ver chat-envio-seguro).
   chatEsperado: z.string().trim().max(200).nullish(),
+  // "1" cuando el texto que sale todavia trae el total que inserto el panel de envio (lo comprueba
+  // el navegador al enviar). Solo asi el lead pasa a Caliente: insertar no alcanza.
+  conTotalDePanel: z.string().trim().nullish(),
 });
 
 const toggleConversationAutomationSchema = z.object({
@@ -756,6 +760,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     quotedContent: formData.get("quotedContent"),
     quotedDirection: formData.get("quotedDirection"),
     chatEsperado: formData.get("chatEsperado"),
+    conTotalDePanel: formData.get("conTotalDePanel"),
   });
 
   // Errores como resultado (sin redirect) para mostrarlos en la burbuja sin recarga.
@@ -864,6 +869,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     const conversationIdDelEnvio = parsed.data.conversationId;
     const sugerenciaIdDelEnvio = parsed.data.sugerenciaId;
     const mensajeDelEnvio = parsed.data.message;
+    const conTotalDePanelDelEnvio = parsed.data.conTotalDePanel === "1";
     after(async () => {
       // Va la ficha del CRM, NO el id de la tabla oficial: ContactTag apunta a Contact, asi que
       // con el id oficial la consulta reventaba por clave foranea en CADA respuesta enviada por
@@ -889,6 +895,16 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
         conversationId: conversationIdDelEnvio,
         workspaceId: workspaceIdDelEnvio,
       });
+
+      // El panel de envio salio al cliente con el total: Caliente (nunca lanza).
+      if (conTotalDePanelDelEnvio) {
+        await etapaCaliente({
+          workspaceId: workspaceIdDelEnvio,
+          source: "official",
+          conversationId: conversationIdDelEnvio,
+          motivo: { tipo: "panel-de-envio" },
+        });
+      }
 
       if (sugerenciaIdDelEnvio) {
         try {
@@ -932,6 +948,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     const conversationIdDelEnvio = parsed.data.conversationId;
     const sugerenciaIdDelEnvio = parsed.data.sugerenciaId;
     const mensajeDelEnvio = parsed.data.message;
+    const conTotalDePanelDelEnvio = parsed.data.conTotalDePanel === "1";
     after(async () => {
       try {
         const userId = (await auth())?.user?.id ?? "";
@@ -944,6 +961,15 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
           conversationId: conversationIdDelEnvio,
           workspaceId: membership.workspace.id,
         });
+        // El panel de envio salio al cliente con el total: Caliente (nunca lanza).
+        if (conTotalDePanelDelEnvio) {
+          await etapaCaliente({
+            workspaceId: membership.workspace.id,
+            source: "agent",
+            conversationId: conversationIdDelEnvio,
+            motivo: { tipo: "panel-de-envio" },
+          });
+        }
         if (sugerenciaIdDelEnvio && userId) {
           await registrarEnvioDeSugerencia({
             sugerenciaId: sugerenciaIdDelEnvio,
@@ -1914,6 +1940,16 @@ async function assignOfficialApiChat(input: {
     await avisarCambioDeEstado(input.workspaceId, conversation.id, "official", "OPEN");
   }
 
+  // Asignada a una asesora: si seguía en "---" pasa a Frío (nunca lanza).
+  if (input.targetUserId) {
+    await etapaAlAsignar({
+      workspaceId: input.workspaceId,
+      source: "official",
+      conversationId: conversation.id,
+      asesora: assignedTo?.name,
+    });
+  }
+
   revalidatePath("/cliente/chats");
   return { ok: true, assignedTo };
 }
@@ -2049,6 +2085,16 @@ export async function assignChatAction(input: {
       text: `${actorName} reabrió`,
     });
     await avisarCambioDeEstado(membership.workspace.id, conversation.id, "agent", "OPEN");
+  }
+
+  // Asignada a una asesora: si seguía en "---" pasa a Frío (nunca lanza).
+  if (targetUserId) {
+    await etapaAlAsignar({
+      workspaceId: membership.workspace.id,
+      source: "agent",
+      conversationId: conversation.id,
+      asesora: assignedTo?.name,
+    });
   }
 
   revalidatePath("/cliente/chats");

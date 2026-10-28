@@ -507,7 +507,7 @@ async function automatizaciones(
   descritas: Map<string, string>,
   v3: { reglasSinRespuesta: number; hayLineasConV3: boolean },
 ) {
-  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, descarteTras, transcripcionApagada] =
+  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, descarteTras, transcripcionApagada, etapaAuto] =
     await Promise.all([
       prisma.followRule.count({ where: { workspaceId, isActive: true } }),
       prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
@@ -519,6 +519,7 @@ async function automatizaciones(
       bandera(`crm:descarte-automatico:${workspaceId}`),
       bandera(`crm:descarte-tras-seguimientos:${workspaceId}`),
       bandera("transcripcion-de-audios:apagada"),
+      bandera(`crm:etapa-automatica:${workspaceId}`),
     ]);
 
   const sinInterruptor = "activa (no tiene interruptor: corre siempre)";
@@ -548,6 +549,10 @@ async function automatizaciones(
       descarteTras === "off"
         ? "apagada (crm:descarte-tras-seguimientos = off)"
         : "activa: descarta a quien no contesta 24 h despues del seguimiento de 7 dias (redes) (o lo pasa a LLAMAR si mostro ganas de comprar); no hace nada mientras no exista ese seguimiento",
+    etapa_automatica:
+      etapaAuto === "off"
+        ? "apagada (crm:etapa-automatica:<negocio> = off)"
+        : "activa: pasa a Frio al asignar un chat en NUEVO y a Caliente al cotizar o enviar el total; nunca pone Ganado ni Perdido ni baja a un lead",
     campanas: campanasEnCurso > 0 ? `activa: ${campanasEnCurso} en curso` : "sin campañas en curso",
     transcripcion_de_audios: !process.env.OPENAI_API_KEY?.trim()
       ? "apagada: falta la clave de OpenAI"

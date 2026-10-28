@@ -289,7 +289,8 @@ await prueba("la pantalla: ruta nueva, menú junto a Ventas, mismo panel con la 
   assert.ok(compartida.includes("esJefeDelNegocio(access)"), "mismos permisos que Ventas");
   const nav = fs.readFileSync(path.join(RAIZ, "src/components/nav-direccion.tsx"), "utf8");
   assert.ok(nav.indexOf('view: "agente-de-ventas"') < nav.indexOf('view: "agente-de-marketing"'));
-  assert.ok(nav.includes('title: "Agente de Marketing"') && /agente-de-marketing[^\n]*soloJefes: true/.test(nav));
+  // El menú vive en Dirección, que ya es solo para dueño y administradores: no hace falta `soloJefes` por ítem.
+  assert.ok(nav.includes('title: "Agente de Marketing"') && nav.includes('view: "agente-de-marketing"'));
   const panel = fs.readFileSync(path.join(RAIZ, "src/features/agentes-de-area/components/PanelAgenteDeArea.tsx"), "utf8");
   assert.ok(panel.includes("TablaDeCampanas") && panel.includes("InterruptorDelAgente"));
   const acciones = fs.readFileSync(path.join(RAIZ, "src/app/actions/agentes-de-area-actions.ts"), "utf8");
