@@ -1120,44 +1120,61 @@ export function textoDelPlazo(a: Accion, ahora: Date, opciones: { segundo?: bool
   return `en los próximos ${a.plazoMin > 0 ? a.plazoMin : 15} min`;
 }
 
+const NUMEROS_EMOJI = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"];
+const MAX_CLIENTES_EN_EL_AVISO = NUMEROS_EMOJI.length;
+
 /**
- * El WhatsApp a la asesora: cliente exacto, motivo, cuánto espera, qué hacer (mensaje sugerido),
- * enlace y PLAZO. Varios chats de la misma vuelta van en un solo mensaje (máx. 5 detallados).
+ * La razón del aviso en una frase corta y fija (27-10-2026: los avisos largos no se leían). Nunca lleva
+ * lo que dijo el cliente ni textos con corchetes: todas las frases salen de aquí. Usa el detector de
+ * señales del embudo sobre la frase del cliente; si hay varias gana la primera de esta lista.
+ */
+export function razonCorta(a: Pick<Accion, "tipo" | "frase">): { emoji: string; texto: string } {
+  if (a.tipo === "pago") return { emoji: "💰", texto: "Mandó el pago." };
+  if (a.tipo === "asignado") return { emoji: "👋", texto: "Nadie le ha escrito." };
+  const tipos = new Set(detectarSenales(a.frase).map((s) => s.tipo));
+  if (tipos.has("comprobante")) return { emoji: "💰", texto: "Mandó el pago." };
+  if (tipos.has("envio_ciudad")) return { emoji: "🚚", texto: "Pregunta por el envío." };
+  if (tipos.has("precio")) return { emoji: "💰", texto: "Pregunta el precio." };
+  if (tipos.has("forma_pago") || tipos.has("anticipo_pago")) return { emoji: "💰", texto: "Pregunta cómo pagar." };
+  if (tipos.has("color_medidas")) return { emoji: "🎨", texto: "Pregunta por colores." };
+  if (tipos.has("fotos_producto") || tipos.has("fotos_video")) return { emoji: "📸", texto: "Pide fotos." };
+  return { emoji: "❓", texto: "Tiene una duda." };
+}
+
+/**
+ * El WhatsApp a la asesora, corto (formato aprobado por el dueño el 27-10-2026): campanita, quién y
+ * cuántos esperan, y por cada cliente un número, la razón en una frase y el link. Sin teléfono, sin lo
+ * que dijo el cliente, sin respuesta sugerida y sin plazo (eso está al abrir el chat y en la push).
+ * Máx. 5 clientes; el resto se resume en "➕ y N más en el CRM". Los links se piden SIN "https://"
+ * (el que llama los quita) para que WhatsApp no arme la tarjeta de vista previa.
  */
 export function textoParaLaAsesora(input: {
   acciones: Accion[];
   enlaces: Map<string, string>;
-  ahora: Date;
+  ahora?: Date;
   segundo?: boolean;
   /** Aviso a la supervisora fuera de horario. */
   fueraDeHorario?: boolean;
-  /** Minutos laborales de la segunda oportunidad (config.segundaOportunidadMin), para el plazo del segundo aviso de día. */
   segundaOportunidadMin?: number;
 }): string {
-  const { acciones, ahora } = input;
-  const primero = acciones[0];
-  const nombre = primerNombre(primero?.responsableNombre) ?? "";
-  const varios = acciones.length > 1;
-  const encabezado = input.fueraDeHorario
-    ? input.segundo
-      ? `⏰ *Segundo aviso · fuera de horario*${nombre ? ` · ${nombre}` : ""}\n${varios ? "Estos clientes calientes siguen" : "Este cliente caliente sigue"} sin respuesta. Si no puedes, queda pendiente y a las 8 a. m. pasa a su asesora.`
-      : `🌙 *Supervisor · fuera de horario*${nombre ? ` · ${nombre}` : ""}\n${varios ? "Clientes calientes esperan" : "Un cliente caliente espera"} respuesta y la asesora ya no está: te ${varios ? "tocan" : "toca"} a ti.`
-    : input.segundo
-      ? `⏰ *Segundo aviso del Supervisor*${nombre ? ` · ${nombre}` : ""}\nSe venció el plazo y ${acciones.length === 1 ? "este cliente sigue" : "estos clientes siguen"} sin respuesta. Si no puedes, avísale a tu supervisora.`
-      : `📋 *Supervisor · tarea para ti*${nombre ? ` · ${nombre}` : ""}`;
-  const lineas = [encabezado, ""];
-  acciones.slice(0, 5).forEach((a, i) => {
-    lineas.push(`${acciones.length > 1 ? `${i + 1}) ` : ""}${ICONO_DEL_TIPO[a.tipo]} *${a.cliente}*${a.telefono && a.cliente !== a.telefono ? ` (${a.telefono})` : ""}`);
-    lineas.push(`${a.motivo} · espera ${duracion(minutosDesde(a.esperandoDesde, ahora))}`);
-    if (input.fueraDeHorario) lineas.push(a.duenaNombre ? `Chat de ${a.duenaNombre}` : "Chat tuyo");
-    if (a.frase) lineas.push(`Dijo: «${a.frase}»`);
-    if (a.mensajeSugerido) lineas.push(`Responde: "${a.mensajeSugerido.slice(0, 280)}"`);
-    lineas.push(`⏱️ Plazo: ${textoDelPlazo(a, ahora, { segundo: input.segundo, fueraDeHorario: input.fueraDeHorario, segundaOportunidadMin: input.segundaOportunidadMin })}`);
+  const { acciones } = input;
+  const nombre = primerNombre(acciones[0]?.responsableNombre) ?? "Equipo";
+  const esperan = `${acciones.length} ${acciones.length === 1 ? "cliente espera" : "clientes esperan"}`;
+  const lineas = [
+    input.segundo ? "🔔🔔 *SUPERVISOR · 2.º aviso*" : "🔔 *SUPERVISOR*",
+    `👩‍💼 ${nombre} · ⏳ ${esperan}${input.fueraDeHorario ? " · 🌙 fuera de horario" : ""}`,
+    "",
+  ];
+  acciones.slice(0, MAX_CLIENTES_EN_EL_AVISO).forEach((a, i) => {
+    const razon = razonCorta(a);
+    // Fuera de horario la supervisora necesita saber de quién es el chat.
+    const dueno = input.fueraDeHorario ? ` (${a.duenaNombre ? `chat de ${a.duenaNombre}` : "chat tuyo"})` : "";
+    lineas.push(`${NUMEROS_EMOJI[i]} ${razon.emoji} ${razon.texto.replace(/\.$/, "")}${dueno}.`);
     const enlace = input.enlaces.get(a.id);
-    if (enlace) lineas.push(enlace);
+    if (enlace) lineas.push(`👉 ${enlace}`);
     lineas.push("");
   });
-  if (acciones.length > 5) lineas.push(`…y ${acciones.length - 5} más en tu Mi día.`);
+  if (acciones.length > MAX_CLIENTES_EN_EL_AVISO) lineas.push(`➕ y ${acciones.length - MAX_CLIENTES_EN_EL_AVISO} más en el CRM`);
   return lineas.join("\n").trim();
 }
 

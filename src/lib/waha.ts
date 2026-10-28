@@ -641,6 +641,8 @@ export async function enviarTextoWaha(input: {
   telefono: string;
   texto: string;
   citarId?: string | null;
+  /** Sin tarjeta de vista previa del link. Ausente = el envío sale idéntico al de siempre. */
+  sinVistaPrevia?: boolean;
 }): Promise<{ externalId: string | null; raw: unknown }> {
   const destino = await chatIdParaEnviar(input);
   await marcarChatLeidoAntesDeResponder(input.connection, input.sesion, destino);
@@ -655,6 +657,7 @@ export async function enviarTextoWaha(input: {
           chatId,
           text: input.texto,
           ...(input.citarId ? { reply_to: input.citarId } : {}),
+          ...(input.sinVistaPrevia ? { linkPreview: false } : {}),
         }),
       },
     ),
