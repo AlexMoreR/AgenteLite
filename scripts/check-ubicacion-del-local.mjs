@@ -16,7 +16,7 @@ assert.equal(cfg.textoDeLaUbicacionDelLocal({ nombre: "Magilus", direccion: "" }
 
 const accion = fs.readFileSync("src/app/actions/agent-actions.ts", "utf8");
 const envio = accion.slice(accion.indexOf("export async function sendChatLocationReplyAction"));
-assert.match(envio, /sendEvolutionLocationMessage\(\{[^}]*name: null,[^}]*address: null,/s, "el pin va sin nombre");
+assert.match(envio, /sendEvolutionLocationMessage\(\{[^}]*name: null,[^}]*address: address \|\| null,/s, "el pin va sin nombre y con la dirección");
 assert.match(envio, /textoDeLaUbicacionDelLocal\(/, "debajo va la dirección escrita");
 assert.ok(!/google\.com\/maps|linkDeMaps/.test(envio.slice(0, 6000)), "sin link de Google Maps");
 

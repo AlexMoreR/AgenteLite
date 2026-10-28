@@ -3677,8 +3677,9 @@ export async function sendChatLocationReplyAction(input: {
   const address = businessConfig.locationAddress.trim() || businessConfig.location.trim() || "";
 
   /*
-    El pin va SIN nombre ni dirección: con el nombre ("Magilus"), al tocarlo Google Maps buscaba esa palabra y
-    decía "no encuentra Magilus" (no tenemos perfil en Google). Sin nombre, WhatsApp abre las coordenadas exactas.
+    El pin va SIN nombre: con el nombre ("Magilus"), al tocarlo Google Maps buscaba esa palabra y
+    decía "no encuentra Magilus" (no tenemos perfil en Google). Lleva las coordenadas exactas y la dirección
+    escrita como rótulo (en WAHA el rótulo es la dirección).
     La dirección escrita va justo después, en un texto (sin link: su vista previa confundía).
   */
   let outbound;
@@ -3689,7 +3690,7 @@ export async function sendChatLocationReplyAction(input: {
       latitude,
       longitude,
       name: null,
-      address: null,
+      address: address || null,
     });
   } catch (locationError) {
     const detail = locationError instanceof Error ? locationError.message : "";

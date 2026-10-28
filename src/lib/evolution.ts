@@ -2429,8 +2429,9 @@ export async function sendEvolutionLocationMessage(input: {
       telefono: input.phoneNumber,
       latitud: input.latitude,
       longitud: input.longitude,
-      // WAHA lleva un solo rotulo: se prefiere el nombre del sitio y, si no hay, la direccion.
-      titulo: input.name?.trim() || input.address?.trim() || null,
+      // WAHA lleva un solo rotulo: se prefiere la direccion escrita (con solo el nombre, Maps busca
+      // "Magilus" y no lo encuentra) y, si no hay, el nombre del sitio.
+      titulo: input.address?.trim() || input.name?.trim() || null,
     });
   }
 

@@ -108,7 +108,8 @@
     "db:seed": "node prisma/seed.js",
     "test:hora-lista": "npx tsx scripts/check-hora-lista.ts",
     "test:permisos-del-crm": "npx tsx --test src/lib/permisos-del-crm.test.ts",
-    "test:ubicacion-del-local": "node scripts/check-ubicacion-del-local.mjs"
+    "test:ubicacion-del-local": "node scripts/check-ubicacion-del-local.mjs",
+    "test:ubicacion-local": "node scripts/check-ubicacion-local.mjs"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
