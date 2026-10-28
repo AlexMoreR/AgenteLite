@@ -16,6 +16,7 @@ import {
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { crearCotizacionEnGestion } from "@/lib/cotizacion-en-gestion";
+import { etapaCaliente } from "@/lib/etapa-automatica-crm";
 import { origenDelContacto } from "@/lib/origen-de-venta-crm";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -175,6 +176,13 @@ export async function generarCotizacionEnGestionAction(input: {
       channelId: conversacion.channelId,
       cotizacion: respuesta.codigo,
       actorUserId: ctx.user.id,
+    });
+    // Hay cotizacion para este cliente: pasa a Caliente (nunca baja ni cierra; nunca lanza).
+    await etapaCaliente({
+      workspaceId: ctx.workspaceId,
+      source: "agent",
+      conversationId: conversacion.id,
+      motivo: { tipo: "cotizacion", referencia: respuesta.codigo },
     });
   }
 

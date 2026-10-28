@@ -240,32 +240,79 @@ export async function getLlamadasVendedoraData(
     }));
 
     // Nuevos sin tocar: etapa NUEVO y CERO llamadas registradas. Máx. 10, los más recientes.
-    const nuevosRows = await prisma.contact.findMany({
-      where: {
-        workspaceId,
-        excludedFromCrm: false,
-        crmStage: "NUEVO",
-        callAttempts: { none: {} },
-        conversations: {
-          some: { OR: [{ assignedToUserId: userId }, { assignedToUserId: null }] },
-        },
+    const duenaOSinDuena = { some: { OR: [{ assignedToUserId: userId }, { assignedToUserId: null }] } };
+    const seleccionNuevos = {
+      id: true,
+      name: true,
+      phoneNumber: true,
+      avatarUrl: true,
+      crmStage: true,
+      metadata: true,
+      createdAt: true,
+      conversations: {
+        select: { id: true },
+        orderBy: { lastMessageAt: "desc" as const },
+        take: 1,
       },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        avatarUrl: true,
-        crmStage: true,
-        metadata: true,
-        conversations: {
-          select: { id: true },
-          orderBy: { lastMessageAt: "desc" },
-          take: 1,
+    };
+    const [nuevosEnNuevo, friosDelSistema] = await Promise.all([
+      prisma.contact.findMany({
+        where: {
+          workspaceId,
+          excludedFromCrm: false,
+          crmStage: "NUEVO",
+          callAttempts: { none: {} },
+          conversations: duenaOSinDuena,
         },
-      },
-    });
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: seleccionNuevos,
+      }),
+      /*
+        Con la etapa automatica los recien asignados ya no estan en NUEVO sino en Frio, y esta lista
+        quedaria casi vacia. Siguen siendo "nuevos sin tocar" los Frio que:
+          - puso el sistema (historial AUTOMATICO "etapa automatica") y ninguna asesora movio;
+          - no tienen respuesta humana (mismo criterio de "respondidos hoy": mensajes manual/instance);
+          - no tienen llamadas.
+      */
+      prisma.contact.findMany({
+        where: {
+          workspaceId,
+          excludedFromCrm: false,
+          crmStage: "CALIFICADO",
+          callAttempts: { none: {} },
+          conversations: duenaOSinDuena,
+          AND: [
+            {
+              historialEtapas: {
+                some: { origen: "AUTOMATICO", etapaNueva: "CALIFICADO", nota: { startsWith: "etapa automática" } },
+              },
+            },
+            { historialEtapas: { none: { origen: "ASESORA" } } },
+            {
+              messages: {
+                none: {
+                  direction: "OUTBOUND",
+                  type: { not: "SYSTEM" },
+                  OR: [
+                    { rawPayload: { path: ["source"], equals: "manual" } },
+                    { rawPayload: { path: ["source"], equals: "instance" } },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: seleccionNuevos,
+      }),
+    ]);
+    // Sin repetir y con el mismo limite de 10, los mas recientes primero.
+    const nuevosRows = [...nuevosEnNuevo, ...friosDelSistema]
+      .filter((contact, indice, todos) => todos.findIndex((otro) => otro.id === contact.id) === indice)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 10);
     nuevos = nuevosRows.map((contact) => ({
       contactId: contact.id,
       name: contact.name?.trim() || contact.phoneNumber,

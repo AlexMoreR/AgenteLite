@@ -49,7 +49,7 @@ export function MiDiaView({
   llamadasUrgentes?: ReactNode;
   llamadasDespues?: ReactNode;
 }) {
-  const { leads } = data;
+  const { leads, sinEtapa } = data;
   const [leadAbierto, setLeadAbierto] = useState<MiDiaLead | null>(null);
   const waiting = leads.filter((lead) => lead.waitingOnUs).length;
   // Desglose por etapa: la asesora ve de un golpe cuanto de lo que tiene entre manos es plata
@@ -90,6 +90,32 @@ export function MiDiaView({
       </div>
 
       {llamadasUrgentes}
+
+      {sinEtapa && sinEtapa.total > 0 ? (
+        <details className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-500/30 dark:bg-amber-500/10">
+          <summary className="cursor-pointer text-sm font-semibold text-amber-800 dark:text-amber-300">
+            Tienes {sinEtapa.total} {sinEtapa.total === 1 ? "chat sin etapa" : "chats sin etapa"} — clasifícalos antes de
+            terminar el día
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {sinEtapa.chats.map((chat) => (
+              <li key={chat.chatKey}>
+                <Link
+                  href={`/cliente/chats?chatKey=${encodeURIComponent(chat.chatKey)}`}
+                  className="block truncate rounded-md px-2 py-1 text-[13px] text-foreground hover:bg-amber-100 dark:hover:bg-amber-500/20"
+                >
+                  {chat.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {sinEtapa.total > sinEtapa.chats.length ? (
+            <p className="mt-1 px-2 text-[12px] text-muted-foreground">
+              Se muestran {sinEtapa.chats.length}; al clasificar estos aparecen los demás.
+            </p>
+          ) : null}
+        </details>
+      ) : null}
 
       {porEtapa.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">

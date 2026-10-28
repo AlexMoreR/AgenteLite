@@ -52,6 +52,7 @@ import {
   sendAndPersistEvolutionFlowStepResilient,
 } from "@/lib/evolution-envio";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import { etapaAlAsignar } from "@/lib/etapa-automatica-crm";
 import { prisma } from "@/lib/prisma";
 import { avisarAsesorPorWhatsApp, esNumeroDelEquipo } from "@/features/agente-v3/servicios/avisos";
 import { responderConElRedactor } from "@/features/agente-v3/servicios/redactor";
@@ -791,6 +792,14 @@ async function assignAdLeadByCampaign(args: {
     // Queda escrito POR QUE le toco a esa persona: si manana el reparto parece raro, la
     // conversacion misma lo explica sin tener que revisar configuraciones.
     text: `${nombre} asignado por la campaña "${args.adTitle || "anuncio"}"`,
+  });
+
+  // Si el lead seguía en "---", sale solo a Frío (nunca lanza; ver etapa-automatica-crm).
+  await etapaAlAsignar({
+    workspaceId: args.workspaceId,
+    source: "agent",
+    conversationId: args.conversationId,
+    asesora: nombre,
   });
 
   console.log("[EVOLUTION] ad_campaign_assign", {

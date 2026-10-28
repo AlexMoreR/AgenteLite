@@ -1,0 +1,5 @@
+## Automatizaciones
+- `etapa_automatica`: saca solos a los leads de "---" (NUEVO). Al asignarse el chat a una asesora (reparto, "la que contesta se queda el chat", asignación a mano o regla por campaña) pasa a Frío; al crear la cotización en Gestión desde el chat, o al ENVIAR al cliente el panel de envío con el total, pasa a Caliente. Nunca pone Ganado ni Perdido, nunca baja a un lead y no toca cerrados, "fuera del CRM" ni la línea administrativa. Deja la nota "Etapa movida por el sistema: ..." en el chat y una fila en el historial de etapas (origen AUTOMATICO, nota "etapa automática"). Se apaga con el AppSetting `crm:etapa-automatica:<negocio>` = `off`.
+
+## Advertencias de operación
+- `etapa_automatica_seguimientos`: si algún día se crea una regla de seguimiento por etapa Frío o Caliente (CRM_STAGE), se dispararía en unos 90 leads al día. Hoy las reglas activas son por producto y por paso del agente, así que no sale ningún mensaje nuevo. Los NUEVO de antes no se mueven solos: se clasifican desde "Mi día", que avisa cuántos chats suyos siguen sin etapa.
