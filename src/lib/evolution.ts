@@ -2361,6 +2361,8 @@ export async function sendEvolutionTextMessage(input: {
   text: string;
   delayMs?: number;
   quoted?: { id: string; remoteJid?: string; fromMe?: boolean; text?: string } | null;
+  /** Pide a WhatsApp que no arme la tarjeta de vista previa del link. Sin esto, el envío sale como siempre. */
+  sinVistaPrevia?: boolean;
 }) {
   const waha = await conexionWahaDe(input.instanceName);
   if (waha) {
@@ -2370,6 +2372,7 @@ export async function sendEvolutionTextMessage(input: {
       telefono: input.phoneNumber,
       texto: input.text,
       citarId: input.quoted?.id ?? null,
+      sinVistaPrevia: input.sinVistaPrevia,
     });
   }
 
@@ -2382,11 +2385,13 @@ export async function sendEvolutionTextMessage(input: {
       number: sendNumber,
       text: input.text,
       delay: input.delayMs ?? 1200,
+      ...(input.sinVistaPrevia ? { linkPreview: false } : {}),
     },
     legacyBody: {
       number: sendNumber,
       text: input.text,
       delay: input.delayMs ?? 1200,
+      ...(input.sinVistaPrevia ? { linkPreview: false } : {}),
       ...(input.quoted?.id
         ? {
             quoted: {
@@ -2919,6 +2924,7 @@ export async function sendEvolutionTextMessageWithReconnect(input: {
   text: string;
   delayMs?: number;
   quoted?: { id: string; remoteJid?: string; fromMe?: boolean; text?: string } | null;
+  sinVistaPrevia?: boolean;
 }) {
   try {
     return await sendEvolutionTextMessage(input);

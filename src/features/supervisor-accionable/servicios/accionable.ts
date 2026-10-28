@@ -156,14 +156,14 @@ function enlaceAbsoluto(a: Accion): string {
 }
 
 /** WhatsApp a una persona del equipo por la línea INTERNA (nunca la de ventas). */
-async function whatsAppAlEquipo(workspaceId: string, userId: string, texto: string): Promise<boolean> {
+async function whatsAppAlEquipo(workspaceId: string, userId: string, texto: string, opciones: { sinVistaPrevia?: boolean } = {}): Promise<boolean> {
   const numero = await numeroDeAvisosDeLaPersona(workspaceId, userId).catch(() => null);
   if (!numero) return false;
   const gravedad = await leerConfigGravedad(workspaceId).catch(() => CONFIG_GRAVEDAD_POR_DEFECTO);
   const linea = await lineaInterna(workspaceId, gravedad).catch(() => null);
   if (!linea) return false;
   try {
-    await sendEvolutionTextMessageWithReconnect({ instanceName: linea.instancia, phoneNumber: numero, text: texto });
+    await sendEvolutionTextMessageWithReconnect({ instanceName: linea.instancia, phoneNumber: numero, text: texto, sinVistaPrevia: opciones.sinVistaPrevia });
     return true;
   } catch (error) {
     console.warn("[supervisor-accionable] no salió el WhatsApp a la asesora", {
@@ -189,8 +189,9 @@ async function ejecutar(workspaceId: string, estado: EstadoAccionable, eventos: 
         const url = acciones.length === 1 && acciones[0].conversationId ? `/cliente/chats?chatKey=agent:${acciones[0].conversationId}&assigned=all` : "/cliente/crm/mi-dia";
         enviados += await sendPushToUser({ userId: evento.responsableId, payload: { title, body, tag: `accionable:${evento.responsableId}`, url } }).catch(() => 0);
         if (config.asesoraWhatsApp) {
-          const enlaces = new Map(acciones.map((a) => [a.id, enlaceAbsoluto(a)]));
-          if (await whatsAppAlEquipo(workspaceId, evento.responsableId, textoParaLaAsesora({ acciones, enlaces, ahora, segundo, fueraDeHorario: nocturno, segundaOportunidadMin: config.segundaOportunidadMin }))) enviados += 1;
+          // El aviso corto lleva el link sin "https://" y sin tarjeta de vista previa.
+          const enlaces = new Map(acciones.map((a) => [a.id, enlaceAbsoluto(a).replace(/^https?:\/\//, "")]));
+          if (await whatsAppAlEquipo(workspaceId, evento.responsableId, textoParaLaAsesora({ acciones, enlaces, ahora, segundo, fueraDeHorario: nocturno }), { sinVistaPrevia: true })) enviados += 1;
         }
         if (evento.tipo === "segundo_aviso" && evento.supervisoraId) {
           const aviso = pushParaLaSupervisora(acciones);

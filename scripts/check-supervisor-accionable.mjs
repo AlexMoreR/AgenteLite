@@ -455,17 +455,44 @@ await prueba("escalada con chat cerrado, ganado, perdido o ya respondido no sigu
   assert.equal(r.escaladaSigueVigente(a, { etapa: "NEGOCIACION", ultimaRespuestaHumanaEn: null }), true);
 });
 
-await prueba("el aviso a la asesora: cliente, motivo, espera, qué responder, plazo y enlace; sin teléfono completo", () => {
+await prueba("el aviso a la asesora (27-oct): corto, con campanita, razón fija y link; sin teléfono, sin lo que dijo el cliente, sin sugerido ni plazo", () => {
   const { estado } = vuelta(r.estadoVacio(), { chats: [maria()], hallazgos: [hallazgo(CALIENTE, ["c1"])], ahora: T0 });
   const a = estado.acciones.c1;
-  const texto = r.textoParaLaAsesora({ acciones: [a], enlaces: new Map([["c1", "https://app.aizenbot.com/c/1000"]]), ahora: T0 });
-  assert.match(texto, /Laura Gómez/);
-  assert.match(texto, /•••• 4567/);
-  assert.match(texto, /espera 20 min/);
-  assert.match(texto, /Responde: "/);
-  assert.match(texto, /Plazo: antes de las 10:15/);
-  assert.match(texto, /app\.aizenbot\.com\/c\/1000/);
-  assert.ok(!texto.includes("3001234567"));
+  const texto = r.textoParaLaAsesora({ acciones: [a], enlaces: new Map([["c1", "app.aizenbot.com/c/1000"]]), ahora: T0 });
+  assert.match(texto, /^🔔 \*SUPERVISOR\*\n👩‍💼 Maria · ⏳ 1 cliente espera\n\n1️⃣ /);
+  assert.match(texto, /\n👉 app\.aizenbot\.com\/c\/1000$/);
+  for (const prohibido of ["Laura", "•••• 4567", "3001234567", "Dijo", "Responde", "Plazo", "espera 20 min", "[", "]", "https://"]) {
+    assert.ok(!texto.includes(prohibido), `el aviso no trae "${prohibido}"`);
+  }
+});
+
+await prueba("el aviso corto: igual al ejemplo del dueño (envío y pago), 2.º aviso con doble campanita y máx. 5 clientes", () => {
+  const base = vuelta(r.estadoVacio(), { chats: [maria()], hallazgos: [hallazgo(CALIENTE, ["c1"])], ahora: T0 }).estado.acciones.c1;
+  const pago = { ...base, id: "c2", tipo: "pago", frase: "ya pagué" };
+  const envio = { ...base, id: "c1", tipo: "caliente", frase: "¿cuánto cuesta el envío a Cali?" };
+  const enlaces = new Map([["c1", "app.aizenbot.com/c/5469"], ["c2", "app.aizenbot.com/c/5472"]]);
+  const ingrid = { responsableNombre: "Ingrid Pérez" };
+  const texto = r.textoParaLaAsesora({ acciones: [{ ...envio, ...ingrid }, { ...pago, ...ingrid }], enlaces, ahora: T0 });
+  assert.equal(
+    texto,
+    "🔔 *SUPERVISOR*\n👩‍💼 Ingrid · ⏳ 2 clientes esperan\n\n1️⃣ 🚚 Pregunta por el envío.\n👉 app.aizenbot.com/c/5469\n\n2️⃣ 💰 Mandó el pago.\n👉 app.aizenbot.com/c/5472",
+  );
+  const segundo = r.textoParaLaAsesora({ acciones: [envio], enlaces, ahora: T0, segundo: true });
+  assert.ok(segundo.startsWith("🔔🔔 *SUPERVISOR · 2.º aviso*\n"));
+  const siete = Array.from({ length: 7 }, (_, i) => ({ ...base, id: `x${i}`, frase: null }));
+  const largo = r.textoParaLaAsesora({ acciones: siete, enlaces: new Map(siete.map((x, i) => [x.id, `app.aizenbot.com/c/${i}`])), ahora: T0 });
+  assert.match(largo, /7 clientes esperan/);
+  assert.ok(largo.includes("5️⃣") && !largo.includes("6️⃣"));
+  assert.ok(largo.endsWith("➕ y 2 más en el CRM"));
+});
+
+await prueba("razón corta: orden de prioridad y frase fija de respaldo", () => {
+  const de = (tipo, frase) => r.razonCorta({ tipo, frase });
+  assert.equal(de("asignado", "hola").texto, "Nadie le ha escrito.");
+  assert.equal(de("caliente", "cuanto vale el envio a Bogota").emoji, "🚚");
+  assert.equal(de("caliente", "qué colores tiene").texto, "Pregunta por colores.");
+  assert.deepEqual(de("caliente", null), { emoji: "❓", texto: "Tiene una duda." });
+  assert.deepEqual(de("sin_duena", "xyz"), { emoji: "❓", texto: "Tiene una duda." });
 });
 
 await prueba("limpieza: lo cerrado hace más de 24 h pasa al historial y el historial guarda 8 días", () => {
@@ -674,10 +701,11 @@ await prueba("fuera de horario · caliente el domingo (sin alerta del detector) 
   assert.equal(a.duenaNombre, "Maria Bautista");
   assert.equal(a.plazoMin, 30);
   assert.equal(r.horaBogota(a.venceEn), "15:30", "plazo de RELOJ: 30 min");
-  const texto = r.textoParaLaAsesora({ acciones: [a], enlaces: new Map([["c1", "https://app.aizenbot.com/c/1000"]]), ahora: DOMINGO, fueraDeHorario: true });
-  for (const parte of ["fuera de horario", "Laura Gómez", "•••• 4567", "Chat de Maria Bautista", "espera 30 min", "Responde: \"", "Plazo: antes de las 15:30", "app.aizenbot.com/c/1000"]) {
+  const texto = r.textoParaLaAsesora({ acciones: [a], enlaces: new Map([["c1", "app.aizenbot.com/c/1000"]]), ahora: DOMINGO, fueraDeHorario: true });
+  for (const parte of ["🔔 *SUPERVISOR*", "🌙 fuera de horario", "(chat de Maria Bautista)", "app.aizenbot.com/c/1000"]) {
     assert.ok(texto.includes(parte), `el aviso trae "${parte}"`);
   }
+  assert.ok(!texto.includes("Laura") && !texto.includes("•••• 4567"), "sin nombre ni teléfono del cliente");
   assert.ok(!texto.includes("3001234567"), "nunca el teléfono completo");
   const push = r.pushParaLaAsesora([a], false, true);
   assert.match(push.title, /Fuera de horario/);
@@ -693,7 +721,7 @@ await prueba("fuera de horario · Ingrid no actúa → segundo aviso a ella a lo
   assert.equal(res.estado.acciones.c1.estado, "SEGUNDO_AVISO");
   assert.equal(res.estado.acciones.c1.incumplida, false, "fuera de horario no cuenta para el patrón");
   const texto = r.textoParaLaAsesora({ acciones: [res.estado.acciones.c1], enlaces: new Map(), ahora: mas(DOMINGO, 30), segundo: true, fueraDeHorario: true });
-  assert.match(texto, /a las 8 a\. m\. pasa a su asesora/);
+  assert.ok(texto.startsWith("🔔🔔 *SUPERVISOR · 2.º aviso*") && texto.includes("🌙 fuera de horario"));
   for (const min of [60, 120, 600]) {
     res = enNoche(res.estado, { chats: [mariaDomingo()], hallazgos: [hallazgo(CALIENTE, ["c1"])], ahora: mas(DOMINGO, min) });
     assert.equal(res.eventos.length, 0, `a los ${min} min: nada (ni a Alexander)`);
@@ -762,7 +790,7 @@ await prueba("fuera de horario · chat de la propia Ingrid → igual se le avisa
   const res = enNoche(r.estadoVacio(), { chats: [propio], ahora: DOMINGO });
   assert.deepEqual(res.eventos.map((e) => [e.tipo, e.responsableId]), [["avisar", "ingrid"]]);
   assert.equal(res.estado.acciones.c1.duenaNombre, null);
-  assert.match(r.textoParaLaAsesora({ acciones: [res.estado.acciones.c1], enlaces: new Map(), ahora: DOMINGO, fueraDeHorario: true }), /Chat tuyo/);
+  assert.match(r.textoParaLaAsesora({ acciones: [res.estado.acciones.c1], enlaces: new Map(), ahora: DOMINGO, fueraDeHorario: true }), /\(chat tuyo\)/);
 });
 
 await prueba("fuera de horario · sin spam: varios chats = UN aviso agrupado; máx. 1 aviso por chat por noche (+ el segundo)", () => {
@@ -1014,15 +1042,14 @@ await prueba("plazo (11-oct): nunca 'Plazo: YA'; segundo aviso fuera de horario 
   res = enNoche(res.estado, { chats: [mariaDomingo()], ahora: mas(DOMINGO, 30) });
   const a = res.estado.acciones.c1;
   const texto = r.textoParaLaAsesora({ acciones: [a], enlaces: new Map(), ahora: mas(DOMINGO, 30), segundo: true, fueraDeHorario: true });
-  assert.ok(!/Plazo: YA/.test(texto), "sin 'Plazo: YA'");
-  assert.match(texto, /⏱️ Plazo: antes de las 16:00/, "segundo aviso 15:30 + 30 min de reloj");
+  assert.ok(!/Plazo/.test(texto), "el WhatsApp ya no lleva plazo");
   assert.match(r.pushParaLaAsesora([a], true, true, mas(DOMINGO, 30)).body, /Plazo: antes de las 16:00/);
   // De día: segundo aviso 10:15 + 10 min laborales = 10:25 (cuando se escala).
   let dia = vuelta(r.estadoVacio(), { chats: [chat()], hallazgos: [hallazgo("ATENCION:caliente-esperando:ingrid", ["c1"])], ahora: T0 });
   dia = vuelta(dia.estado, { chats: [chat()], ahora: mas(T0, 15) });
   const d = dia.estado.acciones.c1;
   assert.equal(d.estado, "SEGUNDO_AVISO");
-  assert.match(r.textoParaLaAsesora({ acciones: [d], enlaces: new Map(), ahora: mas(T0, 15), segundo: true, segundaOportunidadMin: 10 }), /⏱️ Plazo: antes de las 10:25/);
+  assert.ok(!/Plazo/.test(r.textoParaLaAsesora({ acciones: [d], enlaces: new Map(), ahora: mas(T0, 15), segundo: true })));
   // Sin con qué calcular → "en los próximos N min" (N = plazoMin).
   assert.equal(r.textoDelPlazo({ ...d, venceEn: mas(T0, -5).toISOString(), plazoMin: 30 }, T0), "en los próximos 30 min");
 });
