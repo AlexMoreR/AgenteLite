@@ -1660,6 +1660,50 @@ prueba("zonasQueNoArrancanSolas (regla 25-oct): CHATS y BOT_VENTAS arrancan sola
   assert.deepEqual(trabajo.zonasQuePidenTuSi(["CHATS"]), []);
 });
 
+prueba("laAprobacionDejaArrancar (regla 28-oct): voz cuenta como pantalla solo con CHATS / BOT_VENTAS; LIBRO_V3 y META_ADS piden pantalla", () => {
+  const deja = trabajo.laAprobacionDejaArrancar;
+  // Sin zona, cualquier vía (o ninguna).
+  for (const via of ["pantalla", "voz", "automatica", "", null, undefined]) assert.equal(deja([], via), true, String(via));
+  // Pantalla: siempre.
+  for (const zona of ["CHATS", "BOT_VENTAS", "LIBRO_V3", "META_ADS"]) assert.equal(deja([zona], "pantalla"), true, zona);
+  // Voz y automática: solo CHATS y/o BOT_VENTAS.
+  assert.equal(deja(["CHATS"], "voz"), true, "voz + CHATS entra");
+  assert.equal(deja(["BOT_VENTAS"], "voz"), true, "voz + BOT_VENTAS entra");
+  assert.equal(deja(["CHATS", "BOT_VENTAS"], "voz"), true);
+  assert.equal(deja(["CHATS", "BOT_VENTAS"], "automatica"), true);
+  assert.equal(deja(["LIBRO_V3"], "voz"), false, "voz + LIBRO_V3 no entra");
+  assert.equal(deja(["META_ADS"], "voz"), false, "voz + META_ADS no entra");
+  assert.equal(deja(["CHATS", "LIBRO_V3"], "voz"), false, "una zona que pide pantalla frena a todas");
+  assert.equal(deja(["LIBRO_V3"], "automatica"), false);
+  // Sin vía conocida (o sin aprobación), con zona: no.
+  assert.equal(deja(["CHATS"], ""), false);
+  assert.equal(deja(["CHATS"], null), false);
+  // Las zonas que esperan la pantalla y el texto de la alerta / la ficha.
+  assert.deepEqual(trabajo.zonasQueEsperanLaPantalla(["CHATS", "LIBRO_V3"], "voz"), ["LIBRO_V3"]);
+  assert.deepEqual(trabajo.zonasQueEsperanLaPantalla(["CHATS"], "voz"), []);
+  assert.deepEqual(trabajo.zonasQueEsperanLaPantalla(["LIBRO_V3"], "pantalla"), []);
+  assert.deepEqual(trabajo.zonasQueEsperanLaPantalla(["CHATS"], ""), ["CHATS"]);
+  assert.equal(
+    trabajo.textoDeAprobarEnPantalla("Arreglar el libro", ["LIBRO_V3"], "voz"),
+    "«Arreglar el libro» está aprobada por voz pero toca Libro V3: apruébala en pantalla para que arranque",
+  );
+  assert.match(trabajo.textoDeAprobarEnPantalla("X", ["META_ADS"], ""), /aprobada por otra vía pero toca Meta Ads/);
+});
+
+prueba("aprobar en pantalla una APROBADO / PLAN_APROBADO que espera la pantalla (28-oct); si no espera, no", () => {
+  const enPantalla = { via: "pantalla", origen: "PANTALLA", textoConfirmacion: undefined, zonaProtegida: ["LIBRO_V3"] };
+  assert.equal(destino({ ...enPantalla, estado: "APROBADO", viaDeLaUltimaAprobacion: "voz" }), "APROBADO");
+  assert.equal(destino({ ...enPantalla, momento: "plan", estado: "PLAN_APROBADO", tienePlan: true, viaDeLaUltimaAprobacion: "voz" }), "PLAN_APROBADO");
+  // Ya aprobada en pantalla, o solo CHATS por voz (ya arranca), o sin saber la vía: "ya está aprobada".
+  assert.match(destino({ ...enPantalla, estado: "APROBADO", viaDeLaUltimaAprobacion: "pantalla" }), /ya está aprobada/);
+  assert.match(destino({ ...enPantalla, zonaProtegida: ["CHATS"], estado: "APROBADO", viaDeLaUltimaAprobacion: "voz" }), /ya está aprobada/);
+  assert.match(destino({ ...enPantalla, estado: "APROBADO" }), /ya está aprobada/);
+  // Por voz no se destraba (la voz no basta para LIBRO_V3).
+  assert.match(destino({ zonaProtegida: ["LIBRO_V3"], estado: "APROBADO", viaDeLaUltimaAprobacion: "voz" }), /ya está aprobada/);
+  // Solo el dueño (zona protegida).
+  assert.match(destino({ ...enPantalla, estado: "APROBADO", viaDeLaUltimaAprobacion: "voz", persona: todo }), /solo el dueño/);
+});
+
 prueba("motivosDelResultado: archivos de riesgo, migración destructiva, zona o sin lista dan motivos", () => {
   const m = riesgo.motivosDelResultado;
   assert.deepEqual(m({ archivos: ["src/features/reportes/x.tsx"], migracionDestructiva: [], zonaProtegida: [] }), []);

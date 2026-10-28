@@ -13,7 +13,7 @@
   (SQL_PASAR_VENCIDAS_A_ERROR y SQL_ARRANQUE también escriben filas de IntentoTarjeta: 20261024120000_tablero_intentos.)
 */
 
-import { MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE, MINUTOS_POR_ETAPA } from "./reglas-trabajador";
+import { MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE, MINUTOS_POR_ETAPA, VIAS_QUE_ARRANCAN_ZONAS_SOLAS, ZONAS_QUE_ARRANCAN_SOLAS } from "./reglas-trabajador";
 
 const AHORA = `($2::timestamptz AT TIME ZONE 'UTC')`;
 
@@ -182,14 +182,41 @@ WHERE b."workspaceId" = $1
   AND c."trabajoVenceEn" > ${AHORA}
 ORDER BY c."trabajoIniciadoEn" ASC`;
 
+/** Lista SQL de textos ('A', 'B') a partir de una lista fija del código (solo letras, números y _). */
+const listaSql = (valores: readonly string[]) => valores.map((v) => `'${v.replace(/[^A-Za-z0-9_]/g, "")}'`).join(", ");
+
+/** La vía de la última aprobación vigente de la tarjeta `c` ('' si no hay). */
+const VIA_DE_LA_ULTIMA_APROBACION = `COALESCE((
+        SELECT h."despues"->>'via'
+        FROM "HistorialTarjeta" h
+        WHERE h."tarjetaId" = c."id" AND h."accion" = 'aprobar' AND h."deshechoEn" IS NULL
+        ORDER BY h."creadoEn" DESC
+        LIMIT 1
+      ), '')`;
+
 /**
- * Qué se puede tomar: solo tipos con aprobación, con repo de la lista (`repos`, el parámetro text[]),
- * sin borrar, en APROBADO, PLAN_APROBADO (con plan) o SUBIENDO pendiente (sin candado). Una con zona
- * protegida solo si su última aprobación fue en la pantalla, o automática si son solo CHATS / BOT_VENTAS (25-oct). Una APROBADO o PLAN_APROBADO con una
- * dependencia sin terminar (flecha esDependencia cuyo origen, sin borrar y de un tipo con estados, no está HECHO) espera (un Área no tiene estado y bloquearía para siempre); una
+ * ¿La vía de la última aprobación deja tomar la tarjeta `c`? La misma regla que laAprobacionDejaArrancar
+ * (reglas-trabajador.ts): sin zona, sí; en la pantalla, sí; con zonas SOLO CHATS y/o BOT_VENTAS
+ * (ZONAS_QUE_ARRANCAN_SOLAS), también automática (25-oct) o por voz (28-oct); con LIBRO_V3 o META_ADS, solo pantalla.
+ * Nunca da NULL (para poder negarla en SQL_FUERA_POR_LA_VIA).
+ */
+const CONDICION_DE_LA_VIA = `(
+      cardinality(c."zonaProtegida") = 0
+      OR ${VIA_DE_LA_ULTIMA_APROBACION} = 'pantalla'
+      OR (
+        c."zonaProtegida" <@ ARRAY[${listaSql(ZONAS_QUE_ARRANCAN_SOLAS)}]::text[]
+        AND ${VIA_DE_LA_ULTIMA_APROBACION} IN (${listaSql(VIAS_QUE_ARRANCAN_ZONAS_SOLAS)})
+      )
+    )`;
+
+/**
+ * Lo que se pide para tomar, MENOS la vía de la aprobación: solo tipos con aprobación, con repo de la lista
+ * (`repos`, el parámetro text[]), sin borrar, en APROBADO, PLAN_APROBADO (con plan) o SUBIENDO pendiente (sin
+ * candado). Una APROBADO o PLAN_APROBADO con una dependencia sin terminar (flecha esDependencia cuyo origen, sin
+ * borrar y de un tipo con estados, no está HECHO) espera (un Área no tiene estado y bloquearía para siempre); una
  * SUBIENDO no (ya construyó).
  */
-const wherePara = (repos: string) => `
+const whereSinLaVia = (repos: string) => `
   WHERE b."workspaceId" = $1
     AND c."borradoEn" IS NULL
     AND k."requiereAprobacion" AND k."usaEstados"
@@ -209,28 +236,11 @@ const wherePara = (repos: string) => `
         WHERE x."destinoId" = c."id" AND x."esDependencia" AND o."borradoEn" IS NULL AND o."estado" <> 'HECHO'
           AND ot."usaEstados"
       )
-    )
-    AND (
-      cardinality(c."zonaProtegida") = 0
-      OR (
-        SELECT h."despues"->>'via'
-        FROM "HistorialTarjeta" h
-        WHERE h."tarjetaId" = c."id" AND h."accion" = 'aprobar' AND h."deshechoEn" IS NULL
-        ORDER BY h."creadoEn" DESC
-        LIMIT 1
-      ) = 'pantalla'
-      -- Regla del dueño (25-oct): CHATS y BOT_VENTAS arrancan con la aprobación automática, sin pasar por la pantalla.
-      OR (
-        c."zonaProtegida" <@ ARRAY['CHATS', 'BOT_VENTAS']::text[]
-        AND (
-          SELECT h."despues"->>'via'
-          FROM "HistorialTarjeta" h
-          WHERE h."tarjetaId" = c."id" AND h."accion" = 'aprobar' AND h."deshechoEn" IS NULL
-          ORDER BY h."creadoEn" DESC
-          LIMIT 1
-        ) = 'automatica'
-      )
     )`;
+
+/** Qué se puede tomar: whereSinLaVia y, si tiene zona protegida, que la vía de su última aprobación alcance (CONDICION_DE_LA_VIA). */
+const wherePara = (repos: string) => `${whereSinLaVia(repos)}
+    AND ${CONDICION_DE_LA_VIA}`;
 
 /** Primero una SUBIENDO pendiente (la que sube sola no espera detrás de otras); después la que más espera. */
 const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, c."actualizadoEn" ASC, c."creadoEn" ASC`;
@@ -283,6 +293,23 @@ SET "estado" = CASE elegida."antes"
 FROM elegida
 WHERE t."id" = elegida."id"
 RETURNING t."id", t."tableroId", elegida."antes", t."estado"::text AS "estado"`;
+
+/**
+ * Las APROBADO / PLAN_APROBADO que el Coordinador tomaría si no fuera por la VÍA de su aprobación (28-oct-2026): tienen
+ * una zona que exige la pantalla (LIBRO_V3, META_ADS) y su última aprobación fue por voz u otra vía. Con esto el CRM
+ * deja una alerta del Coordinador por tarjeta (avisos-al-dueno.ts), para que no esperen en silencio.
+ * Parámetros: $1 = workspaceId, $2 = repos (text[]). Devuelve id, titulo, estado, zonaProtegida y via ('' si no hay).
+ */
+export const SQL_FUERA_POR_LA_VIA = `
+SELECT c."id", c."titulo", c."estado"::text AS "estado", c."zonaProtegida", ${VIA_DE_LA_ULTIMA_APROBACION} AS "via"
+FROM "TarjetaTablero" c
+JOIN "TableroInteligente" b ON b."id" = c."tableroId"
+JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
+${whereSinLaVia("$2")}
+  AND c."estado" IN ('APROBADO', 'PLAN_APROBADO')
+  AND NOT ${CONDICION_DE_LA_VIA}
+ORDER BY c."actualizadoEn" ASC, c."creadoEn" ASC
+LIMIT 50`;
 
 /**
  * Las madres partidas del negocio que todavía están en su etapa (PLANEANDO o EN_CURSO, sin candado): /tomar

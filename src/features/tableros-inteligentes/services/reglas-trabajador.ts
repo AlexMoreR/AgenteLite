@@ -28,7 +28,10 @@
      confirmación.
   3. Por el MCP (via 'voz') se aprueba solo si la persona lo dijo explícitamente: el texto tiene que
      decir "sí" y "apruebo". Las tarjetas con zona protegida se aprueban solo por el dueño; las de bot de
-     ventas, Meta Ads, libro V3 y chats también se aprueban por voz (ZONAS_QUE_SUBEN_SOLAS).
+     ventas, Meta Ads, libro V3 y chats también se aprueban por voz (ZONAS_QUE_SUBEN_SOLAS). Para que el
+     Coordinador TOME una tarjeta con zona (28-oct-2026, laAprobacionDejaArrancar = el filtro SQL de /tomar): la
+     voz cuenta igual que la pantalla si las zonas son solo CHATS y/o BOT_VENTAS; con LIBRO_V3 o META_ADS se
+     vuelve a aprobar en la pantalla (y queda una alerta del Coordinador hasta que se haga).
   4. El sí final ('subir') lo da solo el DUEÑO del negocio (SI_FINAL_SOLO_DUENO), y solo si el
      Coordinador dijo que todo pasó (resultado.paso = true). Hoy solo hace falta para las tarjetas con
      zona protegida de chats, las de un repo con `subirSolo` apagado y las
@@ -126,6 +129,42 @@ export const ZONAS_QUE_ARRANCAN_SOLAS: readonly ZonaProtegida[] = ["CHATS", "BOT
 /** De estas zonas, las que NO arrancan solas (vacío = todas arrancan solas, o no hay zona). */
 export function zonasQueNoArrancanSolas(zonas: readonly string[]): string[] {
   return zonas.filter((zona) => !(ZONAS_QUE_ARRANCAN_SOLAS as readonly string[]).includes(zona));
+}
+
+/**
+ * Vías con las que una tarjeta de zona SOLO CHATS / BOT_VENTAS arranca (regla del dueño 28-oct-2026): la automática (25-oct)
+ * y la voz cuentan igual que la pantalla. LIBRO_V3 y META_ADS siguen pidiendo la pantalla: la voz no basta.
+ */
+export const VIAS_QUE_ARRANCAN_ZONAS_SOLAS = ["automatica", "voz"] as const;
+
+/**
+ * ¿La última aprobación deja que el Coordinador tome esta tarjeta? Es la MISMA regla que el filtro de /candidatas y
+ * /tomar (condicionDeLaVia en sql-trabajador.ts): sin zona, siempre; en la pantalla, siempre; con zona SOLO CHATS y/o
+ * BOT_VENTAS, también por voz o automática; con LIBRO_V3 o META_ADS, solo en la pantalla.
+ */
+export function laAprobacionDejaArrancar(zonas: readonly string[], via: string | null | undefined): boolean {
+  if (!zonas.length || via === "pantalla") return true;
+  if (zonasQueNoArrancanSolas(zonas).length) return false;
+  return (VIAS_QUE_ARRANCAN_ZONAS_SOLAS as readonly string[]).includes(via ?? "");
+}
+
+/**
+ * Las zonas por las que una tarjeta aprobada espera la pantalla ([] = la vía alcanza). Solo las que no arrancan solas
+ * (LIBRO_V3, META_ADS); si la vía no es conocida y todas arrancan solas, todas las de la tarjeta.
+ */
+export function zonasQueEsperanLaPantalla(zonas: readonly string[], via: string | null | undefined): string[] {
+  if (laAprobacionDejaArrancar(zonas, via)) return [];
+  const faltan = zonasQueNoArrancanSolas(zonas);
+  return faltan.length ? faltan : [...zonas];
+}
+
+const COMO_SE_APROBO: Record<string, string> = { voz: "por voz", automatica: "automáticamente", pantalla: "en pantalla" };
+
+/** "«Título» está aprobada por voz pero toca Libro V3: apruébala en pantalla para que arranque" (alerta y ficha). */
+export function textoDeAprobarEnPantalla(titulo: string, zonas: readonly string[], via: string | null | undefined): string {
+  const nombres = zonas.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ");
+  const como = COMO_SE_APROBO[via ?? ""] ?? "por otra vía";
+  return `«${titulo.trim()}» está aprobada ${como} pero toca ${nombres}: apruébala en pantalla para que arranque`;
 }
 
 export function esZona(valor: unknown): valor is ZonaProtegida {
@@ -637,6 +676,11 @@ export type PedidoDeAprobacion = {
   resultadoPaso: boolean;
   textoConfirmacion?: unknown;
   persona: PersonaQueAprueba;
+  /**
+   * La vía de la última aprobación vigente (del historial; null si no hay). Con ella, una APROBADO o PLAN_APROBADO que
+   * espera la pantalla (aprobada por voz y toca LIBRO_V3 / META_ADS, 28-oct-2026) se puede volver a aprobar en la pantalla.
+   */
+  viaDeLaUltimaAprobacion?: string | null;
 };
 
 /** ¿Esta persona puede aprobar este momento de esta tarjeta? (sin mirar el estado) */
@@ -671,15 +715,18 @@ export function personaPuedeAprobarMomento(
  *  - tarea: POR_APROBAR -> APROBADO; desde ERROR (reintentar) -> APROBADO, y el Coordinador planea de nuevo.
  *  - plan:  PLAN_LISTO -> PLAN_APROBADO; desde ERROR (reintentar con el mismo plan) -> PLAN_APROBADO.
  *  - subir: POR_REVISAR con resultado.paso = true -> SUBIENDO (pendiente: lo toma el Coordinador).
+ *  - `esperaLaPantalla` (28-oct-2026): una APROBADO / PLAN_APROBADO que el Coordinador no toma por la vía de su aprobación
+ *    se vuelve a aprobar (queda en el mismo estado, con la aprobación nueva en el historial).
  */
 export function destinoDeLaAprobacion(
   momento: MomentoDeAprobacion,
   estado: EstadoTarjetaTablero,
-  datos: { repo: string | null; tienePlan: boolean; resultadoPaso: boolean },
+  datos: { repo: string | null; tienePlan: boolean; resultadoPaso: boolean; esperaLaPantalla?: boolean },
 ): { a: EstadoTarjetaTablero } | { error: string } {
   if (momento === "tarea") {
     if (estado === "POR_APROBAR") return { a: "APROBADO" };
     if (estado === "ERROR") return { a: "APROBADO" };
+    if (estado === "APROBADO" && datos.esperaLaPantalla) return { a: "APROBADO" };
     if (estado === "APROBADO") return { error: "La tarea ya está aprobada." };
     return { error: `La tarea se aprueba cuando está POR_APROBAR (o se reintenta desde ERROR). Está ${estado}.` };
   }
@@ -687,6 +734,7 @@ export function destinoDeLaAprobacion(
     return { error: "Esta tarjeta no tiene repo: no la ejecuta el Coordinador, así que no tiene plan ni subida. Se aprueba la tarea." };
   }
   if (momento === "plan") {
+    if (estado === "PLAN_APROBADO" && datos.esperaLaPantalla && datos.tienePlan) return { a: "PLAN_APROBADO" };
     if (estado !== "PLAN_LISTO" && estado !== "ERROR") {
       return { error: `El plan se aprueba cuando está PLAN_LISTO (o se reintenta desde ERROR). Está ${estado}.` };
     }
@@ -734,6 +782,11 @@ export function puedeAprobarMomento(pedido: PedidoDeAprobacion): { a: EstadoTarj
     repo: pedido.repo,
     tienePlan: pedido.tienePlan,
     resultadoPaso: pedido.resultadoPaso,
+    // Solo en la pantalla: volver a aprobar por voz no la destraba (para LIBRO_V3 / META_ADS la voz no basta).
+    esperaLaPantalla:
+      pedido.via === "pantalla" &&
+      pedido.viaDeLaUltimaAprobacion !== undefined &&
+      !laAprobacionDejaArrancar(pedido.zonaProtegida, pedido.viaDeLaUltimaAprobacion),
   });
   if ("error" in destino) return destino;
   return { a: destino.a, momento };

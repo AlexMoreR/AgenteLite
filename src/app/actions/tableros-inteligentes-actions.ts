@@ -12,6 +12,7 @@ import {
   crearTipo,
   editarTarjeta,
   editarTipo,
+  esperaLaPantallaDeLaTarjeta,
   historialDeTarjeta,
   intentosDeLaTarjeta,
   marcarDependencia,
@@ -430,6 +431,22 @@ export async function intentosDeTarjetaAction(
     return { ok: true, intentos: await intentosDeLaTarjeta(alcanceDe(access), tarjetaId) };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudieron leer los intentos") };
+  }
+}
+
+/**
+ * La ficha (28-oct-2026): ¿esta tarjeta aprobada espera que la vuelvan a aprobar en la pantalla? (aprobada por voz y toca
+ * LIBRO_V3 o META_ADS: el Coordinador no la toma). La línea para la ficha y qué momento se vuelve a aprobar; null si no.
+ */
+export async function esperaLaPantallaAction(
+  tarjetaId: string,
+): Promise<{ ok: true; espera: { texto: string; momento: MomentoDeAprobacion } | null } | { ok: false; error: string }> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  try {
+    const espera = await esperaLaPantallaDeLaTarjeta(alcanceDe(access), tarjetaId);
+    return { ok: true, espera: espera ? { texto: espera.texto, momento: espera.momento } : null };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo revisar la aprobación") };
   }
 }
 

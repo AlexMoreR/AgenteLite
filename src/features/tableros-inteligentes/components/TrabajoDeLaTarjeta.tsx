@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { Ban, Check, ChevronRight, ExternalLink, Gauge, GitBranch, Loader2, RotateCcw, Rocket, ShieldAlert, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -13,6 +13,7 @@ import {
   cambiarRiesgoAction,
   cerrarComoFallidaAction,
   cambiarZonasAction,
+  esperaLaPantallaAction,
   marcarHechoAManoAction,
 } from "@/app/actions/tableros-inteligentes-actions";
 import {
@@ -100,6 +101,24 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
   const zonasQuePiden = zonasQuePidenTuSi(tarjeta.zonaProtegida);
   // Con zona protegida aprueba solo el dueño (lo dice el servidor; acá solo no se ofrece el botón).
   const puedeEstaTarjeta = puedeAprobar && (!conZona || esDueno);
+
+  // 28-oct-2026: aprobada por voz (u otra vía) y toca LIBRO_V3 o META_ADS: el Coordinador no la toma hasta que se
+  // apruebe en la pantalla. Se pregunta al servidor (la misma regla que /tomar) solo si está en la fila con zona.
+  const enFilaConZona =
+    pideAprobacion && conZona && Boolean(tarjeta.repo) && (tarjeta.estado === "APROBADO" || tarjeta.estado === "PLAN_APROBADO");
+  const claveDeLaEspera = `${tarjeta.id}|${tarjeta.actualizadoEn}`;
+  const [esperaPantalla, setEsperaPantalla] = useState<{ clave: string; texto: string; momento: MomentoDeAprobacion } | null>(null);
+  useEffect(() => {
+    if (!enFilaConZona) return;
+    let vigente = true;
+    void esperaLaPantallaAction(tarjeta.id).then((respuesta) => {
+      if (vigente) setEsperaPantalla(respuesta.ok && respuesta.espera ? { clave: claveDeLaEspera, ...respuesta.espera } : null);
+    });
+    return () => {
+      vigente = false;
+    };
+  }, [enFilaConZona, tarjeta.id, claveDeLaEspera]);
+  const esperaLaPantalla = enFilaConZona && esperaPantalla?.clave === claveDeLaEspera ? esperaPantalla : null;
 
   const aprobar = (momento: MomentoDeAprobacion, listo: string) => {
     const vistaEn = tarjeta.actualizadoEn;
@@ -276,7 +295,22 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
         )
       ) : null}
 
-      {estado === "APROBADO" && tarjeta.repo ? espera("Aprobada: el Coordinador la toma en el próximo minuto y escribe el plan.") : null}
+      {esperaLaPantalla ? (
+        <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+          <p>{esperaLaPantalla.texto}.</p>
+          {esDueno ? (
+            <Button
+              className={BOTON}
+              onClick={() => aprobar(esperaLaPantalla.momento, esperaLaPantalla.momento === "plan" ? "Plan aprobado en pantalla" : "Tarea aprobada en pantalla")}
+              disabled={ocupado}
+            >
+              {ocupado ? <Loader2 className="animate-spin" /> : <Check />}
+              {esperaLaPantalla.momento === "plan" ? "Aprobar el plan en pantalla" : "Aprobar en pantalla"}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {estado === "APROBADO" && tarjeta.repo && !esperaLaPantalla ? espera("Aprobada: el Coordinador la toma en el próximo minuto y escribe el plan.") : null}
       {tarjeta.reparaciones > 0 && (estado === "APROBADO" || estado === "PLAN_APROBADO")
         ? espera(`Falló y está en reparación (${tarjeta.reparaciones} de 3): el Coordinador la toma enseguida con la causa y el error exacto.`)
         : null}
@@ -287,7 +321,7 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
         ? espera("Nadie la está trabajando: el Coordinador no la tiene. Si sigue así 30 minutos pasa sola a Error; también la puedes cerrar como fallida.")
         : null}
       {estado === "PLANEANDO" && !huerfana && !partes ? espera("El Coordinador está escribiendo el plan…") : null}
-      {estado === "PLAN_APROBADO" ? espera("Plan aprobado: el Coordinador la toma en el próximo minuto y la construye.") : null}
+      {estado === "PLAN_APROBADO" && !esperaLaPantalla ? espera("Plan aprobado: el Coordinador la toma en el próximo minuto y la construye.") : null}
       {estado === "EN_CURSO" && tarjeta.repo && !huerfana && !partes ? (
         donde?.lugar === "nube" ? (
           <p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">

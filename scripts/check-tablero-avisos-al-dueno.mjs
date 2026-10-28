@@ -23,6 +23,7 @@ const reiniciar = () => {
     enCurso: [],
     enFila: 0,
     esperando: [],
+    fueraPorLaVia: [],
     historial: new Map(),
     enviados: [],
     alertas: [],
@@ -79,6 +80,8 @@ const falso = {
     },
   },
   tableroInteligente: { findMany: async () => [{ workspaceId: "ws1" }] },
+  // SQL_FUERA_POR_LA_VIA (28-oct-2026): las aprobadas que esperan la pantalla.
+  $queryRawUnsafe: async () => estado.fueraPorLaVia,
 };
 
 const mocks = {
@@ -283,6 +286,39 @@ await prueba("alertas: de lo que se calcula, todo queda en la página y por What
   assert.deepEqual(estado.alertas.map((a) => a.prioridad).sort(), ["ALTA", "URGENTE"]);
   assert.equal(estado.alertas.find((a) => a.prioridad === "ALTA").veces, 1, "no suma una vez por minuto");
   assert.equal(estado.alertas.find((a) => a.prioridad === "URGENTE").salioPorWhatsApp, true);
+});
+
+await prueba("aprobada por voz con LIBRO_V3 / META_ADS (28-oct): una alerta Alta del Coordinador por tarjeta, con el link; CHATS por voz no", async () => {
+  const base = { latidoEn: DIA.toISOString(), enCurso: [], enFila: 2, esperando: [] };
+  const fuera = [
+    { id: "t1", titulo: "Arreglar el libro", estado: "APROBADO", zonaProtegida: ["LIBRO_V3"], via: "voz" },
+    { id: "t2", titulo: "Campaña nueva", estado: "PLAN_APROBADO", zonaProtegida: ["CHATS", "META_ADS"], via: "voz" },
+    // Ya no espera (voz + CHATS): no avisa aunque llegara.
+    { id: "t3", titulo: "Chats", estado: "APROBADO", zonaProtegida: ["CHATS"], via: "voz" },
+  ];
+  const calculados = avisos.calcularAvisos({ ...base, fueraPorLaVia: fuera }, DIA).filter((a) => a.tipo === "aprobar_en_pantalla");
+  assert.deepEqual(calculados.map((a) => [a.clave, a.prioridad, a.link]), [
+    ["auto:necesita:t1:VIA_PANTALLA", "ALTA", "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=t1"],
+    ["auto:necesita:t2:VIA_PANTALLA", "ALTA", "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=t2"],
+  ]);
+  assert.equal(calculados[0].titulo, "«Arreglar el libro» está aprobada por voz pero toca Libro V3: apruébala en pantalla para que arranque");
+  assert.match(calculados[1].titulo, /toca Meta Ads: apruébala en pantalla/);
+  assert.deepEqual(avisos.calcularAvisos(base, DIA), [], "sin la lista, nada");
+
+  // De punta a punta: queda en la página (origen Coordinador), una sola por tarjeta aunque pasen vueltas, y no sale por WhatsApp.
+  reiniciar();
+  guardarNumero();
+  estado.enFila = 1;
+  estado.fueraPorLaVia = [fuera[0]];
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(new Date(DIA.getTime() + 60_000)), { enviados: 0 });
+  const delLibro = estado.alertas.filter((a) => a.clave === "auto:necesita:t1:VIA_PANTALLA");
+  assert.equal(delLibro.length, 1);
+  assert.equal(delLibro[0].prioridad, "ALTA");
+  assert.equal(delLibro[0].origen, "Coordinador");
+  assert.equal(delLibro[0].veces, 1);
+  assert.equal(estado.enviados.length, 0);
+  reiniciar();
 });
 
 /* ------------------------------------------------------------------ las reglas de todos los avisos */

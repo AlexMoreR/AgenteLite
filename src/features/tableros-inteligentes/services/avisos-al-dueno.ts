@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 
 import { ultimoLatido } from "./coordinador-en-vivo";
 import { porQueElPlanEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
-import { zonasQueNoArrancanSolas } from "./reglas-trabajador";
+import { REPOS_DEL_TRABAJADOR, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
+import { SQL_FUERA_POR_LA_VIA } from "./sql-trabajador";
 import { tituloCorto } from "./resumen-corto";
 import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, todoElNegocio } from "./tableros";
 
@@ -21,6 +22,9 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
     4. necesita    espera al dueño y toca Meta Ads, dinero o presupuesto, o su error pide una clave o un permiso.
                    También lo puede mandar el Coordinador por /api/trabajador/aviso con tipo "necesita".
     5. limite      Claude se agotó y todo quedó en pausa: lo manda el Coordinador (tipo "limite") con la hora de vuelta.
+    6. aprobar_en_pantalla (28-oct-2026) una APROBADO / PLAN_APROBADO que el Coordinador no toma SOLO por la vía de su
+                   aprobación (toca LIBRO_V3 o META_ADS y se aprobó por voz u otra vía; SQL_FUERA_POR_LA_VIA): una alerta
+                   ALTA por tarjeta, "«título» está aprobada por voz pero toca Libro V3: apruébala en pantalla para que arranque".
 
   Reglas: sale SOLO desde la línea Admin (id fijo; si no existe, la llamada "Admin") y SOLO al número personal del
   dueño guardado en Mi empresa → Claude, validado acá (no puede ser el de una asesora ni el de una línea del
@@ -48,7 +52,7 @@ export const claveEstadoDeAvisos = (workspaceId: string) => `tablero:avisos-duen
 /** El ajuste que usaba el aviso del Coordinador antes de que existiera la caja de Mi empresa. */
 const claveTelefonoViejo = (workspaceId: string) => `trabajador:aviso-telefono:${workspaceId}`;
 
-export const TIPOS_DE_AVISO = ["caido", "sin_trabajo", "trabado", "necesita", "limite"] as const;
+export const TIPOS_DE_AVISO = ["caido", "sin_trabajo", "trabado", "necesita", "limite", "aprobar_en_pantalla"] as const;
 export type TipoDeAviso = (typeof TIPOS_DE_AVISO)[number];
 
 /** Lo que puede mandar el Coordinador (los otros tres los calcula el servidor). */
@@ -257,7 +261,12 @@ export type SituacionDeSistemas = {
   enFila: number;
   /** Las que esperan una decisión del dueño. */
   esperando: TarjetaEsperando[];
+  /** Aprobadas que el Coordinador no toma solo por la vía de su aprobación (28-oct-2026). */
+  fueraPorLaVia?: TarjetaFueraPorLaVia[];
 };
+
+/** Una APROBADO / PLAN_APROBADO con zona que pide la pantalla y aprobada por voz u otra vía (SQL_FUERA_POR_LA_VIA). */
+export type TarjetaFueraPorLaVia = { id: string; titulo: string; estado: string; zonaProtegida: string[]; via: string };
 
 export type AvisoCalculado = { clave: string; tipo: TipoDeAviso; lineas: string[]; link: string; prioridad: Prioridad; titulo: string };
 
@@ -389,6 +398,21 @@ export function calcularAvisos(situacion: SituacionDeSistemas, ahora: Date): Avi
       });
     }
   }
+
+  // 6. Aprobada pero fuera de la fila solo por la vía (voz con LIBRO_V3 / META_ADS): una alerta por tarjeta.
+  for (const tarjeta of situacion.fueraPorLaVia ?? []) {
+    const zonas = zonasQueEsperanLaPantalla(tarjeta.zonaProtegida, tarjeta.via);
+    if (!zonas.length) continue;
+    const texto = textoDeAprobarEnPantalla(tituloCorto(tarjeta.titulo), zonas, tarjeta.via);
+    avisos.push({
+      clave: `auto:necesita:${tarjeta.id}:VIA_PANTALLA`,
+      tipo: "aprobar_en_pantalla",
+      lineas: [`👆 ${texto}.`],
+      link: linkDeLaTarjeta(tarjeta.id),
+      prioridad: prioridadDelAviso("aprobar_en_pantalla"),
+      titulo: texto,
+    });
+  }
   return avisos;
 }
 
@@ -426,9 +450,19 @@ export function textoDelError(resultado: unknown): string | null {
   return null;
 }
 
+/** Las aprobadas que el Coordinador no toma solo por la vía de su aprobación (SQL_FUERA_POR_LA_VIA). Nunca lanza. */
+async function aprobadasFueraPorLaVia(workspaceId: string): Promise<TarjetaFueraPorLaVia[]> {
+  try {
+    return await prisma.$queryRawUnsafe<TarjetaFueraPorLaVia[]>(SQL_FUERA_POR_LA_VIA, workspaceId, [...REPOS_DEL_TRABAJADOR]);
+  } catch (error) {
+    console.warn("[avisos-al-dueno] no se pudo leer las aprobadas fuera de la fila", error instanceof Error ? error.message : String(error));
+    return [];
+  }
+}
+
 export async function leerSituacion(workspaceId: string): Promise<SituacionDeSistemas> {
   const alcance = { borradoEn: null, tablero: { workspaceId } };
-  const [latido, enCursoFilas, enFila, pendientes] = await Promise.all([
+  const [latido, enCursoFilas, enFila, pendientes, fueraPorLaVia] = await Promise.all([
     ultimoLatido(workspaceId),
     prisma.tarjetaTablero.findMany({
       // Solo las que ejecuta el Coordinador (con repo): una tarea humana que alguien dejó en EN_CURSO a mano no es
@@ -438,6 +472,8 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
     }),
     prisma.tarjetaTablero.count({ where: { ...alcance, repo: { not: null }, estado: { in: [...ESTADOS_EN_FILA] } } }),
     pendientesDelDueno(todoElNegocio(workspaceId)),
+    // Las mismas condiciones que /tomar, menos la vía: si falla, no tumba los demás avisos.
+    aprobadasFueraPorLaVia(workspaceId),
   ]);
   // El latido NO cuenta como avance: se mide con el último cambio del historial, no con actualizadoEn.
   const ultimos = enCursoFilas.length
@@ -464,6 +500,7 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
       error: textoDelError(p.resultado),
       esperaPor: textoDeEsperaPor(p.resultado),
     })),
+    fueraPorLaVia,
   };
 }
 

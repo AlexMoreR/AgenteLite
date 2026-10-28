@@ -211,6 +211,7 @@ const REPOS = ["gestion", "aizencrm"];
 const tomar = (ws = "ws1", ahora = AHORA, vence = EN_5_MIN, excluir = []) => filas(sql.SQL_TOMAR_UNA, [ws, ahora, REPOS, vence, excluir]);
 const hay = (ws = "ws1", ahora = AHORA) => filas(sql.SQL_TRABAJANDO, [ws, ahora]);
 const candidatas = (ws = "ws1") => filas(sql.SQL_CANDIDATAS, [ws, REPOS]);
+const fueraPorLaVia = (ws = "ws1") => filas(sql.SQL_FUERA_POR_LA_VIA, [ws, REPOS]);
 
 await db.exec(`
   UPDATE "TarjetaTablero" SET "repo" = 'aizencrm', "actualizadoEn" = '2026-10-20 10:00:00' WHERE "id" = 'c3';
@@ -223,7 +224,7 @@ await db.exec(`
     ('zona', 'tab1', 'Toca el bot', 'APROBADO', 'u-dueno', '2026-10-20 06:00:00', 'tarea', 'aizencrm', NULL),
     ('borrada', 'tab1', 'Borrada', 'APROBADO', 'u-dueno', '2026-10-20 05:00:00', 'tarea', 'aizencrm', NULL),
     ('ajena', 'tab2', 'De otro negocio', 'APROBADO', 'u-dueno', '2026-10-20 04:00:00', 'tarea2', 'aizencrm', NULL);
-  UPDATE "TarjetaTablero" SET "zonaProtegida" = ARRAY['BOT_VENTAS'] WHERE "id" = 'zona';
+  UPDATE "TarjetaTablero" SET "zonaProtegida" = ARRAY['LIBRO_V3'] WHERE "id" = 'zona';
   UPDATE "TarjetaTablero" SET "borradoEn" = '2026-10-20 05:30:00' WHERE "id" = 'borrada';
   INSERT INTO "HistorialTarjeta" ("id", "tarjetaId", "quien", "origen", "accion", "despues", "creadoEn") VALUES
     ('hz', 'zona', 'u-dueno', 'MCP', 'aprobar', '{"estado":"APROBADO","via":"voz"}', '2026-10-20 06:00:00');
@@ -291,9 +292,54 @@ await prueba("tomar: la más vieja con repo de la lista y tipo con aprobación; 
   );
 });
 
+await prueba("vía de la aprobación (28-oct): voz + CHATS o BOT_VENTAS entra; voz + LIBRO_V3 / META_ADS no y queda en SQL_FUERA_POR_LA_VIA", async () => {
+  // 'zona' (LIBRO_V3, aprobada por voz) no se tomó: es la única que espera la pantalla.
+  assert.deepEqual((await fueraPorLaVia()).map((f) => [f.id, f.estado, f.zonaProtegida, f.via]), [["zona", "APROBADO", ["LIBRO_V3"], "voz"]]);
+  assert.deepEqual(await fueraPorLaVia("ws2"), [], "no se ve desde otro negocio");
+  await db.query("BEGIN");
+  await db.exec(`
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "plan", "zonaProtegida") VALUES
+      ('voz-chats', 'tab1', 'Chats por voz', 'APROBADO', 'u-dueno', '2026-10-20 03:00:00', 'tarea', 'aizencrm', NULL, ARRAY['CHATS']),
+      ('voz-bot', 'tab1', 'Bot por voz', 'PLAN_APROBADO', 'u-dueno', '2026-10-20 03:10:00', 'tarea', 'aizencrm', 'El plan', ARRAY['BOT_VENTAS']),
+      ('voz-ambas', 'tab1', 'Chats y bot por voz', 'APROBADO', 'u-dueno', '2026-10-20 03:20:00', 'tarea', 'aizencrm', NULL, ARRAY['CHATS', 'BOT_VENTAS']),
+      ('voz-meta', 'tab1', 'Meta por voz', 'PLAN_APROBADO', 'u-dueno', '2026-10-20 03:30:00', 'tarea', 'aizencrm', 'El plan', ARRAY['META_ADS']),
+      ('voz-mezcla', 'tab1', 'Chats y libro por voz', 'APROBADO', 'u-dueno', '2026-10-20 03:40:00', 'tarea', 'aizencrm', NULL, ARRAY['CHATS', 'LIBRO_V3']),
+      ('pant-libro', 'tab1', 'Libro en pantalla', 'APROBADO', 'u-dueno', '2026-10-20 03:50:00', 'tarea', 'aizencrm', NULL, ARRAY['LIBRO_V3']),
+      ('sin-aprob', 'tab1', 'Chats sin aprobación', 'APROBADO', 'u-dueno', '2026-10-20 03:55:00', 'tarea', 'aizencrm', NULL, ARRAY['CHATS']);
+    INSERT INTO "HistorialTarjeta" ("id", "tarjetaId", "quien", "origen", "accion", "despues", "creadoEn") VALUES
+      ('hv1', 'voz-chats', 'u-dueno', 'MCP', 'aprobar', '{"estado":"APROBADO","via":"voz"}', '2026-10-20 03:00:00'),
+      ('hv2', 'voz-bot', 'u-dueno', 'MCP', 'aprobar', '{"estado":"PLAN_APROBADO","via":"voz"}', '2026-10-20 03:10:00'),
+      ('hv3', 'voz-ambas', 'u-dueno', 'MCP', 'aprobar', '{"estado":"APROBADO","via":"voz"}', '2026-10-20 03:20:00'),
+      ('hv4', 'voz-meta', 'u-dueno', 'MCP', 'aprobar', '{"estado":"PLAN_APROBADO","via":"voz"}', '2026-10-20 03:30:00'),
+      ('hv5', 'voz-mezcla', 'u-dueno', 'MCP', 'aprobar', '{"estado":"APROBADO","via":"voz"}', '2026-10-20 03:40:00'),
+      -- la última manda: primero voz, después pantalla.
+      ('hv6', 'pant-libro', 'u-dueno', 'MCP', 'aprobar', '{"estado":"APROBADO","via":"voz"}', '2026-10-20 03:45:00'),
+      ('hv7', 'pant-libro', 'u-dueno', 'PANTALLA', 'aprobar', '{"estado":"APROBADO","via":"pantalla"}', '2026-10-20 03:50:00');
+  `);
+  assert.deepEqual(
+    (await candidatas()).map((f) => f.id),
+    ["voz-chats", "voz-bot", "voz-ambas", "pant-libro"],
+    "voz + CHATS, voz + BOT_VENTAS, voz + ambas y pantalla + LIBRO_V3 entran",
+  );
+  assert.deepEqual(
+    (await fueraPorLaVia()).map((f) => [f.id, f.via]),
+    [
+      ["voz-meta", "voz"],
+      ["voz-mezcla", "voz"],
+      ["sin-aprob", ""],
+      ["zona", "voz"],
+    ],
+    "voz + META_ADS, voz + CHATS y LIBRO_V3, sin aprobación y voz + LIBRO_V3 quedan fuera y avisan",
+  );
+  const [tomada] = await tomar();
+  assert.equal(tomada.id, "voz-chats", "voz + CHATS se toma de verdad");
+  await db.query("ROLLBACK");
+});
+
 await prueba("zona protegida: se toma solo si la última aprobación fue en la pantalla", async () => {
   await db.exec(`INSERT INTO "HistorialTarjeta" ("id", "tarjetaId", "quien", "origen", "accion", "despues", "creadoEn") VALUES
     ('hz2', 'zona', 'u-dueno', 'PANTALLA', 'aprobar', '{"estado":"APROBADO","via":"pantalla"}', '2026-10-20 06:30:00')`);
+  assert.deepEqual(await fueraPorLaVia(), [], "aprobada en pantalla ya no espera");
   const [tomada] = await tomar();
   assert.equal(tomada.id, "zona");
   assert.equal(tomada.estado, "PLANEANDO");

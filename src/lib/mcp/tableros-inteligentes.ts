@@ -1,5 +1,6 @@
 import {
   aprobarTarjeta,
+  esperaLaPantallaDeLaTarjeta,
   borrarTarjeta,
   cambiarEstadoTarjeta,
   conectarTarjetas,
@@ -492,6 +493,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
       "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del Coordinador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan; desde el 24-oct-2026 el plan pasa SOLO a construir al aprobar la tarea, así que el sí del plan solo se pide si toca dinero de Gestión o puede subir presupuesto, activar campañas o crear gasto en Meta Ads, o si el dueño apagó 'Aprobar planes solo') o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
       "'subir' solo aplica a las tarjetas que tocan chats, a las de Meta Ads que gastan plata (presupuesto, prender campañas, conjuntos o anuncios, gasto nuevo) o a las que no pasaron las pruebas extra de su zona, y a las que ya estaban POR_REVISAR de antes: las demás las sube solo el Coordinador cuando todo pasa (quedan HECHO con el link del commit, o ERROR si algo falla). El bot de ventas, Meta Ads (sin gasto) y el libro V3 suben solos y el Coordinador los vigila 30 minutos. " +
       "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con la zona protegida de chats no se aprueba acá: solo en la pantalla (las de bot de ventas, Meta Ads y libro V3 sí se aprueban por voz). " +
+      "PARA QUE ARRANQUE (regla del dueño 28-oct-2026, la misma que usa el Coordinador para tomarla): la tarea o el plan aprobados por voz cuentan igual que en la pantalla si la zona es SOLO chats y/o bot de ventas (o no hay zona). Si toca libro V3 o Meta Ads, la voz NO basta: queda aprobada pero el Coordinador no la toma hasta que el dueño la apruebe en la pantalla (la ficha muestra el botón 'Aprobar en pantalla' y queda una alerta del Coordinador). Avísale eso a la persona. " +
       "Aprueba la cuenta que creó la clave de Claude (no la que mira la pantalla): tiene que ser la cuenta dueña de este negocio. Si no lo es, el error dice qué cuenta llegó y por qué." +
       REGLA_DEL_TABLERO,
     inputSchema: {
@@ -1035,12 +1037,15 @@ export async function ejecutarHerramientaMcpTableros(
         via: "voz",
         textoConfirmacion: args.texto_confirmacion,
       });
+      // 28-oct-2026: con libro V3 o Meta Ads la voz no basta para que el Coordinador la tome: se dice de una vez.
+      const esperaLaPantalla = await esperaLaPantallaDeLaTarjeta(contexto, args.tarjeta_id).catch(() => null);
       return {
         ok: true,
         tablero: referencia(tablero),
         cambio_id: resultado.cambioId,
         antes: resultado.antes,
         ahora: resultado.ahora,
+        ...(esperaLaPantalla ? { espera_la_pantalla: `${esperaLaPantalla.texto}. El Coordinador no la toma hasta entonces.` } : {}),
         aviso: `Aprobado por voz con la cuenta ${resultado.quien}${resultado.quienCorreo ? ` (${resultado.quienCorreo})` : ""}: ${NOMBRE_DEL_MOMENTO[resultado.momento]} de "${resultado.titulo}". Quedó ${resultado.ahora}${
           resultado.ahora === "SUBIENDO" ? ": el Coordinador la sube a producción en el próximo minuto" : ""
         }. Una aprobación no se deshace.`,

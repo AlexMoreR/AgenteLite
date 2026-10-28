@@ -54,9 +54,11 @@ import {
   registroDeCierreComoFallida,
   registroDeHechoAMano,
   repoDeEntrada,
+  textoDeAprobarEnPantalla,
   textoDeConfirmacionParaBorrar,
   unirZonas,
   zonasDeEntrada,
+  zonasQueEsperanLaPantalla,
   type CuentaQueAprueba,
   type MomentoDeAprobacion,
   type PersonaQueAprueba,
@@ -2057,6 +2059,35 @@ export type PedidoDeAprobar = {
 
 const CAMBIO_MIENTRAS_MIRABAS = "La tarjeta cambió mientras la mirabas. Revísala de nuevo antes de aprobar.";
 
+/** La vía de la última aprobación vigente (sin deshacer) de la tarjeta, como la lee el filtro de /tomar: '' si no hay. */
+async function viaDeLaUltimaAprobacion(tarjetaId: string): Promise<string> {
+  const fila = await prisma.historialTarjeta.findFirst({
+    where: { tarjetaId, accion: "aprobar", deshechoEn: null },
+    orderBy: { creadoEn: "desc" },
+    select: { despues: true },
+  });
+  const via = (fila?.despues as { via?: unknown } | null)?.via;
+  return typeof via === "string" ? via : "";
+}
+
+/**
+ * La ficha (28-oct-2026): si la tarjeta está APROBADO / PLAN_APROBADO y el Coordinador no la toma SOLO por la vía de su
+ * aprobación (toca LIBRO_V3 o META_ADS y se aprobó por voz u otra vía), la línea que lo dice y el momento que se vuelve
+ * a aprobar en la pantalla. null si no espera nada de eso.
+ */
+export async function esperaLaPantallaDeLaTarjeta(
+  alcance: Alcance,
+  tarjetaId: unknown,
+): Promise<{ texto: string; zonas: string[]; via: string; momento: MomentoDeAprobacion } | null> {
+  const tarjeta = await tarjetaDelNegocio(alcance, tarjetaId, { comoResponsable: true });
+  if (!tarjeta.zonaProtegida.length || !tarjeta.repo) return null;
+  if (tarjeta.estado !== "APROBADO" && !(tarjeta.estado === "PLAN_APROBADO" && tarjeta.plan?.trim())) return null;
+  const via = await viaDeLaUltimaAprobacion(tarjeta.id);
+  const zonas = zonasQueEsperanLaPantalla(tarjeta.zonaProtegida, via);
+  if (!zonas.length) return null;
+  return { texto: textoDeAprobarEnPantalla(tarjeta.titulo, zonas, via), zonas, via, momento: tarjeta.estado === "APROBADO" ? "tarea" : "plan" };
+}
+
 /**
  * Aprobar: la tarea (POR_APROBAR -> APROBADO), el plan (PLAN_LISTO -> PLAN_APROBADO), o el sí final
  * (POR_REVISAR -> SUBIENDO, solo el dueño). Reintentar desde ERROR es aprobar la tarea o el plan otra
@@ -2066,9 +2097,12 @@ const CAMBIO_MIENTRAS_MIRABAS = "La tarjeta cambió mientras la mirabas. Revísa
  */
 export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unknown, pedido: PedidoDeAprobar) {
   const actual = await tarjetaDelNegocio(contexto, tarjetaId);
-  const [tipo, persona] = await Promise.all([
+  // Solo hace falta mirarla si ya está en la fila con zona (puede estar esperando la pantalla, 28-oct-2026).
+  const mirarLaVia = actual.zonaProtegida.length > 0 && (actual.estado === "APROBADO" || actual.estado === "PLAN_APROBADO");
+  const [tipo, persona, viaAnterior] = await Promise.all([
     reglasDelTipo(actual.tipoId),
     personaQueAprueba(contexto.workspaceId, contexto.userId),
+    mirarLaVia ? viaDeLaUltimaAprobacion(actual.id) : Promise.resolve(undefined),
   ]);
   const resultado = (actual.resultado ?? {}) as { paso?: unknown };
   const veredicto = puedeAprobarMomento({
@@ -2084,6 +2118,7 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
     resultadoPaso: resultado.paso === true,
     textoConfirmacion: pedido.textoConfirmacion,
     persona,
+    ...(viaAnterior !== undefined ? { viaDeLaUltimaAprobacion: viaAnterior } : {}),
   });
   if ("error" in veredicto) throw new Error(veredicto.error);
   if (pedido.vistaEn && pedido.vistaEn !== actual.actualizadoEn.toISOString()) {
