@@ -22,6 +22,7 @@ import { aprobarPlanesListosQueEsperan, aprobarSolasLasPendientes } from "@/feat
 import { sincronizarCerebroDeTodos } from "@/features/cerebro/services/sincronizar-negocio";
 import { revisarAlertaDeConexion } from "@/features/cerebro/services/alerta-de-conexion";
 import { revisarAvisosAlDueno } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
+import { revisarAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -234,6 +235,13 @@ async function handleCron(request: Request) {
       await revisarAvisosAlDueno();
     } catch (error) {
       console.error("[cron/follows] avisos al dueno del tablero error", error);
+    }
+    try {
+      // Avisos por WhatsApp al equipo (tarea asignada, urgente, el Coordinador necesita algo, recordatorio): después
+      // de los del dueño, para no repetirle a Alexander lo que ya recibió. Apagado hasta prender su interruptor.
+      await revisarAvisosAlEquipo();
+    } catch (error) {
+      console.error("[cron/follows] avisos al equipo del tablero error", error);
     }
   });
 

@@ -189,7 +189,7 @@ function anotarEnHistorial(estado: EstadoDeAvisos, nuevo: AvisoAnotado) {
 
 /* ───────────────────────────────────────────────────────────────────── el envío ── */
 
-async function lineaAdmin(workspaceId: string) {
+export async function lineaAdmin(workspaceId: string) {
   const porId = await prisma.whatsAppChannel.findFirst({
     where: { id: LINEA_ADMIN_ID, workspaceId, isActive: true, evolutionInstanceName: { not: null } },
     select: { name: true, evolutionInstanceName: true },
@@ -414,12 +414,12 @@ export function armarMensajeUrgente(avisos: readonly AvisoCalculado[]): string {
 const ESTADOS_EN_CURSO = ["PLANEANDO", "EN_CURSO", "SUBIENDO"] as const;
 const ESTADOS_EN_FILA = ["APROBADO", "PLAN_APROBADO"] as const;
 
-function textoDeEsperaPor(resultado: unknown): string | null {
+export function textoDeEsperaPor(resultado: unknown): string | null {
   const valor = resultado && typeof resultado === "object" ? (resultado as { esperaPor?: unknown }).esperaPor : null;
   return typeof valor === "string" && valor.trim() ? valor.trim() : null;
 }
 
-function textoDelError(resultado: unknown): string | null {
+export function textoDelError(resultado: unknown): string | null {
   if (!resultado || typeof resultado !== "object" || Array.isArray(resultado)) return null;
   const { error, resumen } = resultado as { error?: unknown; resumen?: unknown };
   for (const valor of [error, resumen]) if (typeof valor === "string" && valor.trim()) return valor.trim();

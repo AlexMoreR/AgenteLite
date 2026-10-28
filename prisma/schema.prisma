@@ -2100,6 +2100,8 @@ model TarjetaTablero {
   reparaciones      Int                @default(0)
   /// userId de la persona activa del negocio a quien se asignó la tarjeta (opcional). Si se borra el usuario, queda sin responsable.
   responsableId     String?
+  /// Marca "urgente" (avisos al equipo por WhatsApp): la pone el botón de la ficha, el MCP o un título que empieza por URGENTE.
+  urgente           Boolean            @default(false)
   responsable   User?              @relation("TarjetaResponsable", fields: [responsableId], references: [id], onDelete: SetNull)
   tablero       TableroInteligente @relation(fields: [tableroId], references: [id], onDelete: Cascade)
   tipo          TipoTarjeta        @relation(fields: [tipoId], references: [id], onDelete: Restrict)
@@ -2573,4 +2575,25 @@ model EmbudoChatVersion {
 
   @@index([versionId])
   @@index([workspaceId, productId, creadoEn])
+}
+
+/// Avisos por WhatsApp al equipo por una tarjeta del Tablero IA (avisos-al-equipo.ts): una fila por tarjeta y motivo.
+/// El índice único (tarjetaId, motivo) garantiza un solo aviso aunque el reloj corra dos veces a la vez. Sin llave foránea.
+model AvisoTarjetaEquipo {
+  id          String    @id @default(cuid())
+  workspaceId String
+  tarjetaId   String
+  /// asignada:<userId> | urgente:<userId> | necesita:<estado> | recordatorio:<userId>
+  motivo      String
+  userId      String?
+  numero      String?
+  /// PENDIENTE | ENVIADO | FALLIDO | YA_VISTO
+  estado      String    @default("PENDIENTE")
+  intentos    Int       @default(0)
+  detalle     String?
+  creadoEn    DateTime  @default(now())
+  enviadoEn   DateTime?
+
+  @@unique([tarjetaId, motivo])
+  @@index([workspaceId, estado])
 }

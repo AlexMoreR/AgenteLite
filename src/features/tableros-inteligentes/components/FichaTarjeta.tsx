@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, CornerLeftUp, ExternalLink, History, Layers, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CornerLeftUp, ExternalLink, History, Layers, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { cn } from "@/lib/utils";
 import {
   cambiarResponsableAction,
+  marcarUrgenteAction,
   historialDeTarjetaAction,
   marcarDependenciaAction,
   type CambioDeTarjetaVista,
@@ -62,6 +63,7 @@ const CAMPO: Record<string, string> = {
   riesgoMotivo: "motivo del riesgo",
   riesgoPor: "quién puso el riesgo",
   responsableId: "responsable",
+  urgente: "urgente",
 };
 
 function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyMap<string, string>): string | null {
@@ -174,6 +176,7 @@ export function FichaTarjeta({
   const [historial, setHistorial] = useState<{ tarjetaId: string; cambios: CambioDeTarjetaVista[] } | null>(null);
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
   const [asignando, setAsignando] = useState(false);
+  const [marcandoUrgente, setMarcandoUrgente] = useState(false);
 
   const titulo = new Map(tarjetas.map((otra) => [otra.id, otra.titulo]));
   const nombreDelTipo = new Map([...tipos.values()].map((tipo) => [tipo.id, tipo.nombre]));
@@ -210,6 +213,20 @@ export function FichaTarjeta({
     setAsignando(false);
     if (resultado.ok) {
       toast.success(responsableId ? "Tarjeta asignada" : "Sin responsable");
+      setHistorial(null);
+    } else {
+      toast.error(resultado.error);
+    }
+    alAprobar();
+  };
+
+  const marcarUrgente = async () => {
+    if (!tarjeta) return;
+    setMarcandoUrgente(true);
+    const resultado = await marcarUrgenteAction(tarjeta.id);
+    setMarcandoUrgente(false);
+    if (resultado.ok) {
+      toast.success(resultado.yaEstaba ? "Ya estaba marcada como urgente" : "Marcada como urgente: el responsable recibe su aviso");
       setHistorial(null);
     } else {
       toast.error(resultado.error);
@@ -300,6 +317,13 @@ export function FichaTarjeta({
                   <span className="text-xs font-medium text-muted-foreground">Responsable: </span>
                   {tarjeta.responsableNombre}
                 </p>
+              ) : null}
+
+              {puedeAsignar && tarjeta.responsableId ? (
+                <Button variant="outline" className="h-10 w-full justify-start" disabled={marcandoUrgente} onClick={() => void marcarUrgente()}>
+                  {marcandoUrgente ? <Loader2 className="animate-spin" /> : <AlertTriangle />}
+                  Marcar urgente
+                </Button>
               ) : null}
 
               <TrabajoDeLaTarjeta

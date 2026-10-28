@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
+import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 
 /**
@@ -427,6 +428,18 @@ async function estadoDeAvisosAlDueno(workspaceId: string) {
   return `PRENDIDA: el reloj revisa cada minuto y avisa por la línea Admin solo si el Coordinador se cae, se queda sin trabajo, una tarjeta se traba o algo necesita al dueño (o Claude se agota)${cola}`;
 }
 
+/** Avisos por WhatsApp al equipo por las tarjetas del Tablero IA: interruptor general, último aviso enviado y último que no salió. */
+async function estadoDeAvisosAlEquipo(workspaceId: string) {
+  const { activo, ultimo, ultimoFallido } = await resumenDeAvisosAlEquipo(workspaceId);
+  const cola = ultimo?.enviadoEn
+    ? `; último aviso enviado: ${ultimo.motivo.split(":")[0]} del ${ultimo.enviadoEn.toISOString().slice(0, 16).replace("T", " ")} UTC`
+    : "; todavía no ha salido ninguno";
+  const fallo = ultimoFallido ? `; último que no salió (${ultimoFallido.motivo.split(":")[0]}): ${ultimoFallido.detalle ?? "sin detalle"}` : "";
+  return activo
+    ? `PRENDIDA: el reloj revisa cada minuto y avisa por la línea Admin solo a personas activas del equipo con número en Mi empresa → Equipo (tarea asignada, urgente, el Coordinador necesita algo, recordatorio a las 24 h)${cola}${fallo}`
+    : `APAGADA: interruptor tablero:avisos-equipo:<negocio> apagado (empieza apagado), no sale nada${cola}${fallo}`;
+}
+
 /** Agente de Ventas: el interruptor y cuándo se guardó el último resumen (corre en aizen1). */
 async function estadoDelAgenteDeVentas(workspaceId: string) {
   const [activo, ultimos] = await Promise.all([agenteActivo("ventas", workspaceId), leerUltimosResumenes(workspaceId, "ventas", 1)]);
@@ -552,6 +565,7 @@ async function automatizaciones(
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(),
     avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
+    avisos_al_equipo_tablero: await estadoDeAvisosAlEquipo(workspaceId).catch(() => "no se pudo leer"),
     cerebro_sincronizacion: await estadoDelCerebro(workspaceId).catch(() => "no se pudo leer"),
     origen_de_pauta: await estadoDeLaPauta(workspaceId).catch(() => "no se pudo leer"),
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),

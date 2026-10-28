@@ -34,6 +34,7 @@ import {
   elegirMiembro,
   sePuedeMarcarHechoAMano,
 } from "@/features/tableros-inteligentes/services/reglas";
+import { marcarUrgente } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { textoDelCoordinador, vistaDelCoordinador } from "@/features/tableros-inteligentes/services/coordinador-en-vivo";
 import { contarHijas } from "@/features/tableros-inteligentes/services/niveles";
 import { dondeSeConstruyo } from "@/features/tableros-inteligentes/services/modelos-del-coordinador";
@@ -348,6 +349,11 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
         riesgo: { ...PROPIEDAD_RIESGO, enum: [...RIESGOS, ""], description: `${PROPIEDAD_RIESGO.description} Vacío para quitarlo (queda como ALTO). Claude no puede bajar a BAJO una tarjeta que el trabajador o el dueño dejaron en ALTO.` },
         motivo_riesgo: PROPIEDAD_MOTIVO_RIESGO,
         responsable: { ...PROPIEDAD_RESPONSABLE, description: `${PROPIEDAD_RESPONSABLE.description} Vacío para quitar el responsable.` },
+        urgente: {
+          type: "boolean",
+          description:
+            "true para marcar la tarjeta URGENTE: si tiene responsable, le llega un WhatsApp que empieza por URGENTE (también de noche). Solo se marca, no se quita. No cambia el estado ni la aprobación.",
+        },
       },
       required: ["tarjeta_id"],
       additionalProperties: false,
@@ -808,6 +814,21 @@ export async function ejecutarHerramientaMcpTableros(
     }
     case "editar_tarjeta": {
       const tablero = await tableroDeLaTarjeta(contexto,args.tarjeta_id);
+      if (args.urgente !== undefined && args.urgente !== true) throw new Error("urgente solo se puede marcar: va true.");
+      const hayOtrosCambios = Object.entries(args).some(([campo, valor]) => campo !== "tarjeta_id" && campo !== "urgente" && valor !== undefined);
+      if (args.urgente === true && !hayOtrosCambios) {
+        const { yaEstaba } = await marcarUrgente(contexto, args.tarjeta_id);
+        return {
+          ok: true,
+          tablero: referencia(tablero),
+          tarjeta_id: args.tarjeta_id,
+          urgente: true,
+          aviso: yaEstaba
+            ? "Ya estaba marcada como urgente."
+            : "Marcada urgente. Si tiene responsable, en menos de un minuto le llega un WhatsApp que empieza por URGENTE (si los avisos al equipo están prendidos).",
+          link: linkDeLaTarjeta(String(args.tarjeta_id)),
+        };
+      }
       const resultado = await editarTarjeta(contexto, args.tarjeta_id, {
         titulo: args.titulo,
         detalle: args.detalle,
@@ -824,6 +845,7 @@ export async function ejecutarHerramientaMcpTableros(
         motivoRiesgo: args.motivo_riesgo,
         responsable: args.responsable,
       });
+      if (args.urgente === true) await marcarUrgente(contexto, args.tarjeta_id);
       const aviso = resultado.aprobacionAutomatica?.aprobada
         ? "Quedó APROBADA sola (regla del dueño 25-oct, o de bajo riesgo con el interruptor apagado): el trabajador la toma enseguida, sin pedirle permiso al dueño."
         : resultado.avisoDeRiesgo
@@ -851,6 +873,7 @@ export async function ejecutarHerramientaMcpTableros(
         repo: resultado.tarjeta.repo,
         riesgo: resultado.tarjeta.repo ? (resultado.tarjeta.riesgo ?? "ALTO (sin riesgo puesto)") : null,
         zona_protegida: resultado.tarjeta.zonaProtegida,
+        ...(args.urgente === true ? { urgente: true } : {}),
         ...(resultado.aprobacionAutomatica?.aprobada ? { aprobada_sola: true } : {}),
         cambio_id: resultado.cambioId,
         aviso: aviso ? `${aviso} ${avisoBase}` : avisoBase,

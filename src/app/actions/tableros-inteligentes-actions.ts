@@ -43,6 +43,7 @@ import {
   guardarConfigDeAvisos,
   mandarPruebaAlDueno,
 } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
+import { marcarUrgente } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { resumenDeHoyParaLaPantalla, vistaDeHoy, type VistaDeHoy } from "@/features/tableros-inteligentes/services/resumen-diario";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 
@@ -145,6 +146,17 @@ export async function cambiarResponsableAction(tarjetaId: string, responsableId:
   } catch (fallo) {
     const texto = mensaje(fallo, "No se pudo asignar la tarjeta");
     return texto === "No hay nada distinto para cambiar." ? { ok: true } : { ok: false, error: texto };
+  }
+}
+
+/** Marcar la tarjeta como urgente: el responsable recibe un WhatsApp "URGENTE" (avisos-al-equipo.ts). */
+export async function marcarUrgenteAction(tarjetaId: string): Promise<{ ok: true; yaEstaba: boolean } | { ok: false; error: string }> {
+  const contexto = await contextoDePantalla();
+  try {
+    const { yaEstaba } = await marcarUrgente(contexto, tarjetaId);
+    return { ok: true, yaEstaba };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo marcar como urgente") };
   }
 }
 
