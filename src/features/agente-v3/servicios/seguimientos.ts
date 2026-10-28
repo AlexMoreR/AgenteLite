@@ -10,6 +10,7 @@ import {
   revisarAntiBloqueo,
 } from "@/lib/anti-bloqueo/servicio";
 import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
+import { apagarSiCorresponde } from "@/features/seguimientos/services/follows";
 import { revisarConvivencia } from "@/features/seguimiento-inteligente/servicios/convivencia";
 import { limpiarFrasesProhibidas } from "@/lib/reglas-de-redaccion";
 
@@ -235,6 +236,23 @@ export async function ejecutarSeguimientosV3(
       if (convivencia) {
         frenados += 1;
         anotar(convivencia);
+        continue;
+      }
+
+      /*
+        Seguimientos apagados (28-10-2026): interruptor del chat, etapa de venta, el cliente confirmó la compra
+        o la asesora escribió a mano en las últimas 24 h. Cancela los pendientes y deja la nota interna.
+      */
+      const apagado = await apagarSiCorresponde({
+        workspaceId: canal.workspaceId,
+        contactId: conversacion.contactId,
+        channelId: canal.id,
+        conversationId: conversacion.id,
+        tipo: "embudo",
+      });
+      if (apagado) {
+        frenados += 1;
+        anotar("seguimientos_apagados");
         continue;
       }
 

@@ -27,6 +27,7 @@
  */
 
 import { esMensajeHumano } from "../../../lib/anti-bloqueo/reglas";
+import { clienteConfirmoCompra, ETAPAS_DE_VENTA } from "../../seguimientos/dominio/confirmacion-de-compra";
 import { esAgradecimientoSinPendiente, esCortesiaDeCierre } from "../../../lib/cierre-de-conversacion";
 import { detectarCompromiso, esAcuseDelCliente } from "./compromiso";
 import type { Horario } from "./formulario";
@@ -48,8 +49,19 @@ const ORIGENES_AUTOMATICOS = ["agente-v3-seguimiento", "agente-v3-seguimiento-ia
 const PROMESA =
   /\b(ya|ahora|ahorita|en un (momento|rato|ratico)|ma[ñn]ana|m[aá]s tarde|en breve)\b[^.?!\n]{0,25}\b(te|le)\s+(env[ií]o|mando|paso|comparto|confirmo|aviso|cotizo|llamo|marco|escribo|consigo|averiguo)\b|\b(d[eé]jame|perm[ií]teme|dame|voy a)\s+(un\s+(momento|segundo|minuto)|verificar|confirmar|consultar|revisar|averiguar|preguntar|mirar|cotizar)|\bte\s+(confirmo|aviso|llamo|marco|escribo|env[ií]o|mando)\s+(en un|m[aá]s tarde|ma[ñn]ana|ahorita|ya|apenas|en cuanto|cuando)\b|\b(estoy|ando)\s+(verificando|confirmando|consultando|revisando|cotizando)\b/i;
 
+/**
+ * "Deme un momento y te envío todo", "te mando", "ya te paso" (caso •••• de la clienta de Yair,
+ * 28-10-2026): la asesora pide esperar o promete enviar algo. Quien tiene que responder es ella, no el
+ * cliente, y un "¿pudiste ver lo que te envié?" la contradice. Es el presente ("te envío"), no el pasado
+ * ("te envié"), y "ya te paso" cuenta (lo cubre PROMESA); "ya te pasé" no.
+ */
+const PROMESA_DE_ENVIO =
+  /\b(te|le)\s+(env[ií]o|mando)\b|\b(d[eé]me|d[eé]jame|d[aá]me|perm[ií]teme|espera(me)?|esp[eé]ra(me)?)\s+(un|una|unos|unas)?\s*(momento|momentico|momentito|segundo|segundito|minuto|minutico|ratico|rato|ratito)s?\b|\ben\s+un\s+(momento|momentico|momentito|ratico|rato|ratito)\b/i;
+
 export function asesoraPrometio(texto: string | null | undefined): boolean {
-  return PROMESA.test(texto ?? "");
+  const t = texto ?? "";
+  // Una pregunta ("¿Te comparto fotos?") ofrece, no promete.
+  return PROMESA.test(t) || PROMESA_DE_ENVIO.test(t.replace(/¿[^?]*\?/g, " "));
 }
 
 /** Lo que manda una persona que ya ENTREGA algo (fotos, catálogo, audio, ubicación). */
@@ -146,6 +158,8 @@ export function decidirTrasAsesora(input: {
   const no = (motivo: string, revisarEn: Date | null = null): DecisionTrasAsesora => ({ sale: false, motivo, revisarEn });
   if (config.modo === "apagado" || !config.horas.length) return no("apagado");
   if (input.etapaCrm === "GANADO" || input.etapaCrm === "PERDIDO") return no("etapa_cerrada");
+  // Etapa de venta o cierre del CRM (Negociación): el cliente ya está comprando, no hay nada que "ver".
+  if (input.etapaCrm && ETAPAS_DE_VENTA[input.etapaCrm]) return no("etapa_de_venta");
   // Sin pausa, los recordatorios son del reloj del V3 (como hoy): no se duplican.
   if (!input.pausado) return no("ia_activa");
   if (input.noInteresa) return no("no_le_interesa");
@@ -170,6 +184,11 @@ export function decidirTrasAsesora(input: {
   // La tanda de la persona (lo último que escribió) no puede dejar una promesa sin cumplir.
   const tanda = mensajes.filter((m) => esHumano(m) && m.en.getTime() > ultimoCliente.en.getTime());
   if (promesaPendiente(tanda)) return no("asesora_prometio");
+  // Lo ÚLTIMO que escribió la asesora promete enviar algo o pide esperar ("deme un momento y te envío todo").
+  const ultimaDeLaPersona = tanda[tanda.length - 1] ?? ultimoHumano;
+  if (asesoraPrometio(ultimaDeLaPersona.texto)) return no("asesora_prometio");
+  // El cliente ya confirmó la compra o el pago ("te consigno", "voy a ir", un comprobante).
+  if (clienteConfirmoCompra(mensajes, ahora)) return no("cliente_confirmo");
   // El cliente dejó un compromiso con momento: en vez del toque, tarea a esa hora (la crea el motor).
   if (config.compromisoATarea && detectarCompromiso({ mensajes, horario: input.horario ?? HORARIO_LABORAL })) return no("compromiso_a_tarea");
   // La charla terminó en cierre ("Mil gracias" → "Gracias a ti"): no hay nada que "ver".

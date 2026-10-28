@@ -33,6 +33,8 @@ import {
 } from "@/lib/anti-bloqueo/servicio";
 import { PREFIJO_FOLLOW_INTELIGENTE, revisarConvivencia } from "@/features/seguimiento-inteligente/servicios/convivencia";
 import { PREFIJO_FOLLOW_TRAS_ASESORA } from "@/features/seguimiento-inteligente/dominio/tras-asesora";
+import { tipoDeSeguimiento, type TipoDeSeguimiento } from "@/features/seguimientos/dominio/apagado";
+import { anotarSeguimientosApagados, revisarApagadoDelChat } from "@/features/seguimientos/services/apagado";
 import { revisarDiaSiguienteAlEnviar } from "@/features/seguimiento-inteligente/servicios/dia-siguiente-al-enviar";
 
 export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
@@ -1655,6 +1657,38 @@ export async function cancelarAutomaticosPendientesDelContacto(input: {
 }
 
 /**
+ * Revisa si los seguimientos automáticos de este contacto deben apagarse (ver dominio/apagado.ts). Si sí,
+ * cancela TODOS los pendientes automáticos del contacto (sin borrar el historial), deja la nota interna
+ * "Seguimientos apagados: <motivo>" en el chat y devuelve el id del chat. Si no, devuelve null.
+ */
+export async function apagarSiCorresponde(input: {
+  workspaceId: string;
+  contactId: string;
+  channelId?: string | null;
+  conversationId?: string | null;
+  tipo: TipoDeSeguimiento;
+  soloInterruptor?: boolean;
+}): Promise<string | null> {
+  const revision = await revisarApagadoDelChat(input);
+  if (!revision) return null;
+  if (input.soloInterruptor && revision.motivo.codigo !== "interruptor") return null;
+  await cancelarAutomaticosPendientesDelContacto({
+    workspaceId: input.workspaceId,
+    contactId: input.contactId,
+    motivo: "seguimientos_apagados",
+    aunqueEsteApagado: true,
+  });
+  await anotarSeguimientosApagados({
+    workspaceId: input.workspaceId,
+    conversationId: revision.conversationId,
+    channelId: revision.channelId,
+    contactId: input.contactId,
+    motivo: revision.motivo.texto,
+  });
+  return revision.conversationId;
+}
+
+/**
  * Las medidas anti-bloqueo de un seguimiento, antes de enviarlo. Devuelve null si puede salir.
  * Cada clase de seguimiento tiene las suyas (ver clasificarFollow).
  */
@@ -1812,6 +1846,22 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
         nombre: follow.name,
       });
       if (motivo) antiBloqueo = { motivo, reprogramarPara: null, conversationId: null };
+    }
+    /*
+      Seguimientos apagados (28-10-2026): interruptor del chat, etapa de venta, el cliente confirmó la compra,
+      la asesora escribió a mano (solo los del paso/producto) o prometió enviar algo (solo "Tras asesora").
+      Cancela TODOS los pendientes automáticos del contacto y deja la nota interna en el chat. Ver dominio/apagado.ts.
+    */
+    if (!antiBloqueo && (clase === "automatico" || clase === "reactivacion" || clase === "automatizacion")) {
+      const apagado = await apagarSiCorresponde({
+        workspaceId: follow.workspaceId,
+        contactId: follow.contactId,
+        channelId: follow.channelId,
+        tipo: clase === "automatico" ? tipoDeSeguimiento(follow) : "otro",
+        // Una "Automatización" o la reactivación son decisión de una persona: solo las frena el interruptor.
+        soloInterruptor: clase !== "automatico",
+      });
+      if (apagado) antiBloqueo = { motivo: "seguimientos_apagados", reprogramarPara: null, conversationId: apagado };
     }
     antiBloqueo ??= await revisarAntiBloqueoDelFollow(follow, clase);
   } catch (error) {

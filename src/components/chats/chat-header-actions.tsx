@@ -1,6 +1,7 @@
 "use client";
 
 import { InterruptorDeIA } from "./interruptor-ia";
+import { InterruptorDeSeguimientos } from "./interruptor-seguimientos";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CrmStageControl } from "./crm-stage-control";
 import { ResolveChatControl } from "./resolve-chat-control";
@@ -53,6 +54,7 @@ export function ChatHeaderActions({
         <BotonLlamar telefono={telefono} nombre={nombreContacto} avatarUrl={avatarUrl} channelId={channelId} />
         {contactId ? <CrmStageControl contactId={contactId} stage={stage} /> : null}
         <InterruptorDeIA conversationId={conversationId} automationPaused={automationPaused} source={source} />
+        {source === "agent" ? <InterruptorDeSeguimientos key={conversationId} conversationId={conversationId} /> : null}
         <ResolveChatControl conversationId={conversationId} status={status} source={source} />
         {/* Las dos salidas del chat: resolver es "esto se termino", posponer es "sigue, pero
             no hoy". Por eso van pegados. */}
@@ -137,6 +139,7 @@ export function BarraDeAccionesDelChat({
       {contactId ? <CrmStageControl contactId={contactId} stage={stage} variant="chip" /> : null}
       {/* Con la etiqueta "IA" a la vista: en el celular el interruptor solo no se entendia. */}
       <InterruptorDeIA conversationId={conversationId} automationPaused={automationPaused} source={source} conEtiqueta />
+      {source === "agent" ? <InterruptorDeSeguimientos key={conversationId} conversationId={conversationId} conEtiqueta /> : null}
       <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
       <AssignChatControl conversationId={conversationId} assignee={assignee} source={source} compacto />
       {contactId ? <BotonMapaDelLead chatKey={`${source}:${conversationId}`} compacto /> : null}

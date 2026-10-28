@@ -48,6 +48,7 @@ export async function barrerTrasAsesora(workspaceId: string, config: ConfigSegui
         JOIN "WhatsAppChannel" w ON w."id" = c."channelId"
        WHERE c."workspaceId" = ${workspaceId}
          AND c."automationPaused" = true
+         AND c."seguimientosApagados" = false
          AND (w."metadata"->>'agenteV3') = 'true'
          AND ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO')
          ${SQL_CHAT_ABIERTO}

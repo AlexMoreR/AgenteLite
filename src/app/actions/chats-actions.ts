@@ -6,7 +6,8 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { sendManualAgentReplyAction, type SendChatReplyResult } from "@/app/actions/agent-actions";
 import { generarSugerenciaDeRespuesta, registrarEnvioDeSugerencia, registrarFlujoDeSugerencia } from "@/lib/sugerencia-de-respuesta";
-import { createFollow, createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
+import { cancelarAutomaticosPendientesDelContacto, createFollow, createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
+import { anotarSeguimientosApagados } from "@/features/seguimientos/services/apagado";
 import { dentroDelHorario, NOMBRE_FOLLOW_REACTIVACION, reprogramarFueraDeHorario } from "@/lib/anti-bloqueo/reglas";
 import { anotarFrenado, leerConfigAntiBloqueo } from "@/lib/anti-bloqueo/servicio";
 import { after } from "next/server";
@@ -1409,6 +1410,93 @@ export async function fijarPausaDeIAEnChatAction(formData: FormData): Promise<Re
     return { ok: true, pausada };
   } catch (error) {
     console.error("[fijarPausaDeIAEnChatAction] no se pudo cambiar la IA", error);
+    return { ok: false, error: "Sin conexión con el servidor" };
+  }
+}
+
+export type RespuestaSeguimientosAutomaticos = { ok: true; apagados: boolean } | { ok: false; error: string };
+
+type ChatDeSeguimientos =
+  | { error: string }
+  | { error?: undefined; userId: string; workspaceId: string; chat: { id: string; channelId: string | null; contactId: string; seguimientosApagados: boolean } };
+
+async function chatDeSeguimientos(conversationId: string): Promise<ChatDeSeguimientos> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Negocio no encontrado" };
+  }
+  const chat = await prisma.conversation.findFirst({
+    where: { id: conversationId.trim(), workspaceId: membership.workspace.id },
+    select: { id: true, channelId: true, contactId: true, seguimientosApagados: true },
+  });
+  if (!chat) {
+    return { error: "Chat no encontrado" };
+  }
+  const userId: string = session.user.id;
+  return { userId, workspaceId: membership.workspace.id, chat };
+}
+
+/** Estado del interruptor "Seguimientos automáticos" de un chat (apagados = true). */
+export async function leerSeguimientosAutomaticosAction(conversationId: string): Promise<RespuestaSeguimientosAutomaticos> {
+  try {
+    const contexto = await chatDeSeguimientos(conversationId);
+    if (contexto.error !== undefined) return { ok: false, error: contexto.error };
+    return { ok: true, apagados: contexto.chat.seguimientosApagados };
+  } catch (error) {
+    console.error("[fijarSeguimientosAutomaticosAction] no se pudo leer", error);
+    return { ok: false, error: "Sin conexión con el servidor" };
+  }
+}
+
+/**
+ * Interruptor "Seguimientos automáticos" del chat. Apagar cancela los pendientes automáticos del cliente (sin
+ * borrar el historial) y deja la nota interna "Seguimientos apagados: …"; encender solo los vuelve a permitir.
+ * No toca la IA del chat ni manda nada al cliente. Devuelve el estado que REALMENTE quedó.
+ */
+export async function fijarSeguimientosAutomaticosAction(input: {
+  conversationId: string;
+  apagar: boolean;
+}): Promise<RespuestaSeguimientosAutomaticos> {
+  try {
+    const contexto = await chatDeSeguimientos(input.conversationId);
+    if (contexto.error !== undefined) return { ok: false, error: contexto.error };
+    const { chat, workspaceId, userId } = contexto;
+
+    if (chat.seguimientosApagados !== input.apagar) {
+      await prisma.conversation.update({
+        where: { id: chat.id },
+        data: input.apagar
+          ? { seguimientosApagados: true, seguimientosApagadosAt: new Date(), seguimientosApagadosPor: userId }
+          : { seguimientosApagados: false, seguimientosApagadosAt: null, seguimientosApagadosPor: null },
+      });
+    }
+    if (input.apagar) {
+      await cancelarAutomaticosPendientesDelContacto({
+        workspaceId,
+        contactId: chat.contactId,
+        motivo: "seguimientos_apagados",
+        aunqueEsteApagado: true,
+      });
+      const usuario = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
+      await anotarSeguimientosApagados({
+        workspaceId,
+        conversationId: chat.id,
+        channelId: chat.channelId,
+        contactId: chat.contactId,
+        motivo: `los apagó ${usuario?.name?.trim() || usuario?.email || "alguien del equipo"} en este chat`,
+        actorUserId: userId,
+      });
+    }
+    const despues = await prisma.conversation.findUnique({ where: { id: chat.id }, select: { seguimientosApagados: true } });
+    revalidatePath("/cliente/chats");
+    return { ok: true, apagados: despues?.seguimientosApagados ?? input.apagar };
+  } catch (error) {
+    console.error("[fijarSeguimientosAutomaticosAction] no se pudo cambiar", error);
     return { ok: false, error: "Sin conexión con el servidor" };
   }
 }

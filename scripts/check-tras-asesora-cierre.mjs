@@ -64,7 +64,7 @@ const entradaTA = (mensajes, parcial = {}) => ({
   nombre: "Danna",
   pausado: true,
   pausadoEn: bog(13, 10, 35, 2),
-  etapaCrm: "NEGOCIACION",
+  etapaCrm: "PROPUESTA",
   noInteresa: false,
   dormido: false,
   pospuesto: false,
@@ -78,7 +78,7 @@ const entradaTA = (mensajes, parcial = {}) => ({
 const ficha = (mensajes, parcial = {}) => ({
   conversationId: "cvcasoreal00000000006626",
   nombre: "Danna",
-  etapaCrm: "NEGOCIACION",
+  etapaCrm: "PROPUESTA",
   pausado: true,
   asignadaA: "maria",
   pais: "CO",

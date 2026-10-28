@@ -309,6 +309,11 @@ model Conversation {
   funnelStage             String?
   funnelStageCount        Int                      @default(0)
   funnelNotifiedAt        DateTime?
+  /// Interruptor "Seguimientos automáticos" del chat: true = la asesora los apagó para este cliente
+  /// (ningún seguimiento automático sale ni se agenda). Ver features/seguimientos/dominio/apagado.ts.
+  seguimientosApagados    Boolean                  @default(false)
+  seguimientosApagadosAt  DateTime?
+  seguimientosApagadosPor String?
   agent                   Agent?                   @relation(fields: [agentId], references: [id])
   channel                 WhatsAppChannel?         @relation(fields: [channelId], references: [id])
   contact                 Contact                  @relation(fields: [contactId], references: [id], onDelete: Cascade)
