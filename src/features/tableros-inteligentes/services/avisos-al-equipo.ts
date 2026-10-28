@@ -189,6 +189,42 @@ export async function avisosAlEquipoPrendidos(workspaceId: string): Promise<bool
   }
 }
 
+/**
+ * El interruptor general desde la pantalla (solo el dueño; el permiso lo mira la acción). Al PRENDERLO se borra la base
+ * para que la vuelta siguiente del reloj anote todo lo ya asignado como YA_VISTO (sin ola de mensajes), y lo que quedó
+ * PENDIENTE de antes de apagarlo tampoco sale. Al APAGARLO no sale nada más (el revisor corta al empezar la vuelta).
+ */
+export async function ponerAvisosAlEquipo(workspaceId: string, activo: boolean) {
+  if (activo) {
+    await prisma.appSetting.deleteMany({ where: { key: claveBase(workspaceId) } });
+    await prisma.avisoTarjetaEquipo.updateMany({
+      where: { workspaceId, estado: "PENDIENTE" },
+      data: { estado: "YA_VISTO", detalle: "quedó pendiente con los avisos apagados" },
+    });
+  }
+  await guardarAjuste(claveInterruptorDelEquipo(workspaceId), JSON.stringify({ activo }));
+  if (!activo) await prisma.appSetting.deleteMany({ where: { key: claveBase(workspaceId) } });
+}
+
+/**
+ * Los nombres de las personas activas del negocio sin número de avisos en Mi empresa → Equipo (a ellas no les llega
+ * nada). El dueño no sale si tiene su número en Mi empresa → Claude, que es el que se usa para él.
+ */
+export async function equipoSinNumeroDeAvisos(workspaceId: string): Promise<string[]> {
+  const [miembros, config, negocio, telefonoDelDueno] = await Promise.all([
+    prisma.workspaceMember.findMany({ where: { workspaceId, isActive: true }, select: { userId: true, user: { select: { name: true } } } }),
+    leerConfigDeAvisos(workspaceId).catch(() => null),
+    prisma.workspace.findUnique({ where: { id: workspaceId }, select: { ownerId: true } }),
+    telefonoGuardado(workspaceId).catch(() => null),
+  ]);
+  const ownerId = negocio?.ownerId ?? null;
+  return miembros
+    .filter((miembro) => !normalizarTelefono(numeroDeAvisosDe(config, miembro.userId)))
+    .filter((miembro) => !(miembro.userId === ownerId && telefonoDelDueno))
+    .map((miembro) => miembro.user?.name?.trim() || "Sin nombre")
+    .sort((a, b) => a.localeCompare(b, "es"));
+}
+
 /** La casilla del perfil: prendida salvo que la persona la haya apagado. */
 export async function personaRecibeAvisos(userId: string): Promise<boolean> {
   return (await leerAjuste(clavePersonaDelEquipo(userId))) !== "false";

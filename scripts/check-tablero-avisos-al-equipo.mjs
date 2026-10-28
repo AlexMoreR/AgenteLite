@@ -93,6 +93,11 @@ const falso = {
       return { id: fila.id };
     },
     updateMany: async ({ where, data }) => {
+      if (where.id === undefined) {
+        const filas = estado.avisos.filter((a) => a.workspaceId === where.workspaceId && (where.estado === undefined || a.estado === where.estado));
+        for (const f of filas) Object.assign(f, data);
+        return { count: filas.length };
+      }
       const fila = estado.avisos.find((a) => a.id === where.id && (where.estado === undefined || a.estado === where.estado) && (where.intentos === undefined || a.intentos === where.intentos));
       if (fila) Object.assign(fila, data);
       return { count: fila ? 1 : 0 };
@@ -443,6 +448,52 @@ await prueba("si la línea falla una vez y vuelve, el aviso sale en la vuelta si
   await vuelta(mas(0.2));
   await vuelta(mas(0.3));
   assert.equal(estado.enviados.length, 1);
+});
+
+await prueba("interruptor de la pantalla: prender no manda una ola, apagar no manda nada", async () => {
+  estado.tarjetas = [tarjeta({ responsableId: "u_em" }), tarjeta({ id: "t2", responsableId: "u_ana", urgente: true })];
+  await equipo.ponerAvisosAlEquipo("ws1", true);
+  assert.equal(await equipo.avisosAlEquipoPrendidos("ws1"), true);
+  assert.equal(estado.ajustes.get("tablero:avisos-equipo:ws1"), JSON.stringify({ activo: true }));
+  await vuelta();
+  await vuelta(mas(0.1));
+  assert.deepEqual(estado.enviados, [], "lo ya asignado no se avisa");
+  assert.ok(estado.avisos.length > 0 && estado.avisos.every((a) => a.estado === "YA_VISTO"));
+  // Una tarea nueva con el interruptor prendido sí avisa.
+  estado.tarjetas.push(tarjeta({ id: "t3", responsableId: "u_em" }));
+  await vuelta(mas(0.2));
+  assert.equal(estado.enviados.length, 1);
+  // Apagado: nada sale aunque lleguen tareas nuevas.
+  await equipo.ponerAvisosAlEquipo("ws1", false);
+  assert.equal(await equipo.avisosAlEquipoPrendidos("ws1"), false);
+  estado.tarjetas.push(tarjeta({ id: "t4", responsableId: "u_ana" }));
+  await vuelta(mas(0.3));
+  await vuelta(mas(0.4));
+  assert.equal(estado.enviados.length, 1);
+  // Un aviso que quedó PENDIENTE (línea caída) antes de apagar no sale al volver a prender, ni lo de mientras tanto.
+  estado.avisos.push({ id: "viejo", workspaceId: "ws1", tarjetaId: "t9", motivo: "asignada:u_em", estado: "PENDIENTE", intentos: 1 });
+  await equipo.ponerAvisosAlEquipo("ws1", true);
+  await vuelta(mas(0.5));
+  await vuelta(mas(0.6));
+  assert.equal(estado.enviados.length, 1, "lo que llegó con los avisos apagados no sale al prenderlos");
+  assert.equal(estado.avisos.find((a) => a.id === "viejo").estado, "YA_VISTO");
+});
+
+await prueba("interruptor rápido: prendido, apagado y prendido sin vuelta en medio no avisa lo de mientras tanto", async () => {
+  await equipo.ponerAvisosAlEquipo("ws1", true);
+  await vuelta();
+  await equipo.ponerAvisosAlEquipo("ws1", false);
+  estado.tarjetas = [tarjeta({ responsableId: "u_em" })];
+  await equipo.ponerAvisosAlEquipo("ws1", true);
+  await vuelta(mas(0.1));
+  await vuelta(mas(0.2));
+  assert.deepEqual(estado.enviados, []);
+});
+
+await prueba("equipoSinNumeroDeAvisos: solo los nombres de quien no tiene número (el dueño no, si tiene el suyo)", async () => {
+  assert.deepEqual(await equipo.equipoSinNumeroDeAvisos("ws1"), ["Sin Número"]);
+  estado.ajustes.delete("tablero:avisos-dueno:telefono:ws1");
+  assert.deepEqual(await equipo.equipoSinNumeroDeAvisos("ws1"), ["Alexander Mora", "Sin Número"]);
 });
 
 await prueba("dos vueltas del reloj a la vez mandan UN solo mensaje", async () => {

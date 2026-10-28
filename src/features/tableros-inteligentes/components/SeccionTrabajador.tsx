@@ -13,6 +13,7 @@ import {
   cambiarAprobacionAutomaticaAction,
   cambiarAprobarPlanesSoloAction,
   cambiarAprobarTareasSoloAction,
+  cambiarAvisosAlEquipoAction,
   crearClaveTrabajadorAction,
   panelTrabajadorAction,
   quitarAprobadorAction,
@@ -171,6 +172,40 @@ export function SeccionTrabajador() {
               Aprobada la tarea, el plan pasa solo a construir. Solo te espera el plan que toca dinero de Gestión o puede subir presupuesto,
               activar campañas o crear gasto en Meta Ads. Apagado, todos los planes piden tu sí.
             </span>
+            {!panel.esDueno ? (
+              <span className="mt-1 block text-xs text-muted-foreground">Solo el dueño del negocio mueve este interruptor.</span>
+            ) : null}
+          </span>
+        </label>
+      ) : null}
+
+      {panel ? (
+        <label className="flex items-start gap-3 rounded-xl border bg-card p-4 text-sm">
+          <Switch
+            checked={panel.avisosAlEquipo}
+            disabled={ocupado || !panel.esDueno}
+            onCheckedChange={(valor) =>
+              hacer(
+                () => cambiarAvisosAlEquipoAction(Boolean(valor)),
+                valor ? "Avisos al equipo prendidos: lo ya asignado no se avisa" : "Avisos al equipo apagados",
+              )
+            }
+            className="mt-0.5"
+          />
+          <span>
+            <span className="font-medium">Avisos al equipo por WhatsApp</span>
+            <span className="block text-xs text-muted-foreground">
+              Avisa por WhatsApp (línea Admin) y en su página de alertas a la persona responsable: tarea asignada, urgente, cuando el
+              Coordinador la necesita y recordatorio de 24 h. Solo a quien tenga número en Mi empresa → Equipo. De 9 p. m. a 7 a. m. solo
+              lo urgente.
+            </span>
+            {panel.sinNumeroDeAvisos.length ? (
+              <span className="mt-1 block text-xs text-amber-700 dark:text-amber-400">
+                Sin número (no les llega nada): {panel.sinNumeroDeAvisos.join(", ")}.
+              </span>
+            ) : (
+              <span className="mt-1 block text-xs text-muted-foreground">Todo el equipo tiene número cargado.</span>
+            )}
             {!panel.esDueno ? (
               <span className="mt-1 block text-xs text-muted-foreground">Solo el dueño del negocio mueve este interruptor.</span>
             ) : null}

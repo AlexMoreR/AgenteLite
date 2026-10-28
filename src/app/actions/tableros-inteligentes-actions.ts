@@ -43,7 +43,12 @@ import {
   guardarConfigDeAvisos,
   mandarPruebaAlDueno,
 } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
-import { marcarUrgente } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
+import {
+  avisosAlEquipoPrendidos,
+  equipoSinNumeroDeAvisos,
+  marcarUrgente,
+  ponerAvisosAlEquipo,
+} from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { resumenDeHoyParaLaPantalla, vistaDeHoy, type VistaDeHoy } from "@/features/tableros-inteligentes/services/resumen-diario";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 
@@ -206,6 +211,10 @@ export type PanelTrabajadorVista = {
   aprobarPlanesSolo: boolean;
   /** El interruptor "Aprobar tareas solo" (regla del dueño 25-oct; prendido por defecto). */
   aprobarTareasSolo: boolean;
+  /** El interruptor "Avisos al equipo por WhatsApp" (empieza apagado). */
+  avisosAlEquipo: boolean;
+  /** Nombres de las personas activas sin número de avisos en Mi empresa → Equipo (a ellas no les llega nada). */
+  sinNumeroDeAvisos: string[];
   /** Quien mira es el dueño del negocio: solo él mueve el interruptor. */
   esDueno: boolean;
 };
@@ -222,13 +231,16 @@ export async function panelTrabajadorAction(): Promise<{ ok: true; panel: PanelT
   const access = await accesoDelDueno();
   if (!access) return { ok: false, error: SOLO_EL_DUENO_TRABAJADOR };
   try {
-    const [claves, { aprobadores, candidatos }, aprobacionAutomatica, aprobarPlanesSolo, aprobarTareasSolo, persona] = await Promise.all([
+    const [claves, { aprobadores, candidatos }, aprobacionAutomatica, aprobarPlanesSolo, aprobarTareasSolo, persona, avisosAlEquipo, sinNumeroDeAvisos] =
+      await Promise.all([
       listarClavesTrabajador(access.workspaceId),
       listarAprobadores(access.workspaceId),
       aprobacionAutomaticaPrendida(access.workspaceId),
       aprobarPlanesSoloPrendido(access.workspaceId),
       aprobarTareasSoloPrendido(access.workspaceId),
       personaQueAprueba(access.workspaceId, access.userId),
+      avisosAlEquipoPrendidos(access.workspaceId),
+      equipoSinNumeroDeAvisos(access.workspaceId),
     ]);
     return {
       ok: true,
@@ -245,6 +257,8 @@ export async function panelTrabajadorAction(): Promise<{ ok: true; panel: PanelT
         aprobacionAutomatica,
         aprobarPlanesSolo,
         aprobarTareasSolo,
+        avisosAlEquipo,
+        sinNumeroDeAvisos,
         esDueno: persona.esDueno,
       },
     };
@@ -556,5 +570,21 @@ export async function mandarPruebaDeAvisosAction(): Promise<Resultado> {
     return envio.salio ? { ok: true } : { ok: false, error: `No salió: ${envio.motivo}` };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo mandar la prueba") };
+  }
+}
+
+/**
+ * Prende o apaga "Avisos al equipo por WhatsApp" (empieza apagado). Solo el dueño. Al prenderlo, lo ya asignado se anota
+ * como visto y no se avisa (no sale una ola); apagado, no sale ningún aviso al equipo.
+ */
+export async function cambiarAvisosAlEquipoAction(prendida: boolean): Promise<Resultado> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  try {
+    const persona = await personaQueAprueba(access.workspaceId, access.userId);
+    if (!persona.esDueno) return { ok: false, error: "Prender o apagar los avisos al equipo es solo del dueño del negocio." };
+    await ponerAvisosAlEquipo(access.workspaceId, prendida === true);
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo cambiar los avisos al equipo") };
   }
 }
