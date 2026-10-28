@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 
-import { leerHistorialDelLibro, leerLibro } from "@/features/agente-v3/servicios/almacen";
+import { leerHistorialDelLibro, leerLibro, versionResultanteDe } from "@/features/agente-v3/servicios/almacen";
 import type { LibroDeReglas } from "@/features/agente-v3/domain/reglas";
 import { leerConfigEmbudo } from "@/features/embudo/servicios/config";
 import { getFlowReply } from "@/lib/agent-product-flow";
@@ -375,7 +375,7 @@ export async function leerLineaDelLibro(workspaceId: string): Promise<LineaDelLi
   libros.set(actual.version, actual);
   // El historial guarda la versión ANTERIOR con la hora del cambio: la N+1 rige desde ese `at`.
   const cambios: CambioDelLibro[] = historial
-    .map((fila) => ({ version: fila.version + 1, anterior: fila.version, en: new Date(fila.at), autor: fila.autor ?? null, resumen: fila.resumen ?? null }))
+    .map((fila) => ({ version: versionResultanteDe(fila), anterior: fila.version, en: new Date(fila.at), autor: fila.autor ?? null, resumen: fila.resumen ?? null }))
     .filter((cambio) => libros.has(cambio.version))
     .sort((a, b) => a.en.getTime() - b.en.getTime());
   const versionEn = (cuando: Date) => {

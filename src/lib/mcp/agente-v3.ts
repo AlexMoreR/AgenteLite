@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  cambiosDelHistorial,
   guardarLibro,
   leerHistorialDelLibro,
   leerLibro,
@@ -206,14 +207,16 @@ export const HERRAMIENTAS_MCP_V3 = [
   {
     name: "v3_historial",
     title: "Versiones del libro (V3)",
-    description: "Las versiones guardadas del libro de reglas, con quien las hizo y que cambio.",
+    description:
+      "Los cambios del libro de reglas, del mas nuevo al mas viejo. Cada fila trae la version que DEJO ese cambio (version), la que habia antes (anterior), quien lo hizo y que cambio.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: SOLO_LECTURA,
   },
   {
     name: "v3_volver_a_version",
     title: "Volver a una version (V3)",
-    description: "Deja el libro como estaba en esa version. Lo de ahora se guarda como una version mas.",
+    description:
+      "Deja el libro como estaba en esa version (el numero que muestra v3_historial). Lo de ahora se guarda como una version mas.",
     inputSchema: {
       type: "object",
       properties: { version: { type: "number" } },
@@ -470,13 +473,16 @@ export async function ejecutarHerramientaMcpV3(
 
   if (nombre === "v3_historial") {
     const historial = await leerHistorialDelLibro(contexto.workspaceId);
+    // Cada fila es un cambio con el número de la versión que DEJÓ ("318 · el cambio que creó la 318").
     return {
-      versiones: historial.map((version) => ({
-        version: version.version,
-        cuando: version.at,
-        autor: version.autor,
-        que_cambio: version.resumen,
-        reglas: version.libro.reglas.length,
+      actual: libro.version,
+      versiones: cambiosDelHistorial(libro, historial).map((cambio) => ({
+        version: cambio.version,
+        anterior: cambio.anterior,
+        cuando: cambio.at,
+        autor: cambio.autor,
+        que_cambio: cambio.resumen,
+        reglas: cambio.reglas,
       })),
     };
   }
