@@ -2,7 +2,11 @@
 
 import { useEffect, useRef } from "react";
 
-import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
+import {
+  CHAT_STATUS_CHANGED_EVENT,
+  REALTIME_RECONECTADO_EVENT,
+  type ChatStatusChangedDetail,
+} from "@/components/chats/chat-inbox-types";
 import { iniciarMedicion } from "@/lib/metricas-chats";
 import { avisoAjenoCoincideConSuLista } from "@/lib/vista-de-la-bandeja";
 
@@ -30,6 +34,8 @@ export function ChatsOfficialRealtime({
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptsRef = useRef(0);
   const closedByUsRef = useRef(false);
+  // true cuando el socket se cayo: al volver se avisa para traer lo que llego mientras estuvo caido.
+  const tuvoCaidaRef = useRef(false);
   // En un ref para leer el usuario al llegar cada aviso sin reabrir el socket si cambia.
   const userIdRef = useRef(userId);
   useEffect(() => {
@@ -61,6 +67,10 @@ export function ChatsOfficialRealtime({
 
       socket.onopen = () => {
         attemptsRef.current = 0;
+        if (tuvoCaidaRef.current) {
+          tuvoCaidaRef.current = false;
+          window.dispatchEvent(new CustomEvent(REALTIME_RECONECTADO_EVENT));
+        }
       };
 
       socket.onmessage = (event) => {
@@ -167,6 +177,7 @@ export function ChatsOfficialRealtime({
 
       socket.onclose = () => {
         socketRef.current = null;
+        tuvoCaidaRef.current = true;
         scheduleReconnect();
       };
 
@@ -190,7 +201,20 @@ export function ChatsOfficialRealtime({
 
     connect();
 
+    // Cuando el celular recupera internet no se espera al backoff (hasta 30 s): se reconecta ya.
+    const alVolverInternet = () => {
+      if (closedByUsRef.current || socketRef.current) return;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      attemptsRef.current = 0;
+      connect();
+    };
+    window.addEventListener("online", alVolverInternet);
+
     return () => {
+      window.removeEventListener("online", alVolverInternet);
       closedByUsRef.current = true;
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);

@@ -311,3 +311,9 @@ export type MensajeEncontrado = {
   deQuien: "cliente" | "nosotros";
   createdAt: string;
 };
+
+/**
+ * Se dispara cuando un socket (altavoz o Evolution) vuelve despues de una caida, o el celular
+ * recupera internet: quien escucha trae al instante lo que llego mientras estuvo caido.
+ */
+export const REALTIME_RECONECTADO_EVENT = "chat-realtime-reconectado";

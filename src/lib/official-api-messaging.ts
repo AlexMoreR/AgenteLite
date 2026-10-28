@@ -3,6 +3,9 @@ import { getMetaGraphErrorMessage, isMetaGraphAuthError } from "@/lib/official-a
 import { updateOfficialApiConnectionStatus } from "@/lib/official-api-connection-status";
 import { prisma } from "@/lib/prisma";
 
+/** Tiempo limite del envio de texto con Meta. */
+const TIEMPO_LIMITE_ENVIO_OFICIAL_MS = 25_000;
+
 type OfficialApiMessagingConfig = {
   id: string;
   accessToken: string | null;
@@ -211,30 +214,46 @@ export async function sendOfficialApiTextMessage(input: {
   source: "manual" | "automation";
   /** Quien lo escribio, cuando lo escribio una persona. Para la pantalla de Actividad. */
   enviadoPorUserId?: string | null;
+  /** Numero unico del envio (lo pone el navegador): queda guardado para no mandarlo dos veces. */
+  clientMessageId?: string | null;
 }) {
   if (!input.config.accessToken?.trim() || !input.config.phoneNumberId?.trim()) {
     return { ok: false as const, error: "La API oficial no tiene credenciales activas." };
   }
 
-  const response = await fetch(
-    `https://graph.facebook.com/v23.0/${encodeURIComponent(input.config.phoneNumberId)}/messages`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${input.config.accessToken}`,
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: input.to,
-        type: "text",
-        text: {
-          body: input.message,
+  // Tiempo limite: si Meta se cuelga, el envio no queda girando para siempre. Si se agota, no se
+  // sabe si salio, asi que NO se reintenta solo (ver chat-envio-reintento).
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://graph.facebook.com/v23.0/${encodeURIComponent(input.config.phoneNumberId)}/messages`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${input.config.accessToken}`,
         },
-      }),
-      cache: "no-store",
-    },
-  );
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: input.to,
+          type: "text",
+          text: {
+            body: input.message,
+          },
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(TIEMPO_LIMITE_ENVIO_OFICIAL_MS),
+      },
+    );
+  } catch (error) {
+    const agotado = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    return {
+      ok: false as const,
+      error: agotado
+        ? "La API oficial no respondio a tiempo (timeout)."
+        : `No se pudo conectar con la API oficial: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 
   const payload = (await response.json().catch(() => null)) as
     | {
@@ -263,60 +282,70 @@ export async function sendOfficialApiTextMessage(input: {
     };
   }
 
-  const now = new Date();
-  await prisma.$executeRaw`
-    INSERT INTO "OfficialApiMessage" (
-      "id",
-      "configId",
-      "conversationId",
-      "contactId",
-      "externalMessageId",
-      "direction",
-      "type",
-      "status",
-      "content",
-      "rawPayload",
-      "sentAt",
-      "createdAt",
-      "updatedAt"
-    )
-    VALUES (
-      ${randomUUID()},
-      ${input.config.id},
-      ${input.conversationId},
-      ${input.contactId},
-      ${payload?.messages?.[0]?.id ?? null},
-      'OUTBOUND'::"OfficialApiMessageDirection",
-      'TEXT'::"OfficialApiMessageType",
-      'SENT'::"OfficialApiMessageStatus",
-      ${input.message},
-      ${JSON.stringify({
-        source: input.source,
-        enviadoPorUserId: input.enviadoPorUserId ?? null,
-        meta: payload,
-      })},
-      ${now},
-      ${now},
-      ${now}
-    )
-  `;
+  /*
+    El mensaje ya lo acepto Meta. Si el guardado falla, NO se responde "No se envio" (la asesora
+    reintentaria y el cliente lo recibiria dos veces): se anota y el mensaje se completa luego por
+    el aviso (webhook) de Meta o la sincronizacion.
+  */
+  try {
+    const now = new Date();
+    await prisma.$executeRaw`
+      INSERT INTO "OfficialApiMessage" (
+        "id",
+        "configId",
+        "conversationId",
+        "contactId",
+        "externalMessageId",
+        "direction",
+        "type",
+        "status",
+        "content",
+        "rawPayload",
+        "sentAt",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        ${randomUUID()},
+        ${input.config.id},
+        ${input.conversationId},
+        ${input.contactId},
+        ${payload?.messages?.[0]?.id ?? null},
+        'OUTBOUND'::"OfficialApiMessageDirection",
+        'TEXT'::"OfficialApiMessageType",
+        'SENT'::"OfficialApiMessageStatus",
+        ${input.message},
+        ${JSON.stringify({
+          source: input.source,
+          enviadoPorUserId: input.enviadoPorUserId ?? null,
+          ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
+          meta: payload,
+        })},
+        ${now},
+        ${now},
+        ${now}
+      )
+    `;
 
-  await prisma.$executeRaw`
-    UPDATE "OfficialApiConversation"
-    SET
-      "lastMessageAt" = ${now},
-      "status" = 'OPEN'::"OfficialApiConversationStatus",
-      "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ${input.conversationId}
-  `;
+    await prisma.$executeRaw`
+      UPDATE "OfficialApiConversation"
+      SET
+        "lastMessageAt" = ${now},
+        "status" = 'OPEN'::"OfficialApiConversationStatus",
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${input.conversationId}
+    `;
 
-  await prisma.$executeRaw`
-    UPDATE "OfficialApiContact"
-    SET
-      "lastMessageAt" = ${now},
-      "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ${input.contactId}
-  `;
+    await prisma.$executeRaw`
+      UPDATE "OfficialApiContact"
+      SET
+        "lastMessageAt" = ${now},
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${input.contactId}
+    `;
+  } catch (error) {
+    console.error("[sendOfficialApiTextMessage] guardado fallo (mensaje ya enviado)", error);
+  }
 
   return { ok: true as const };
 }

@@ -1,5 +1,6 @@
 "use server";
 
+import { idDeEnvioValido } from "@/lib/chat-envio-reintento";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -710,6 +711,8 @@ const sendUnifiedChatReplySchema = z.object({
   // "1" cuando el texto que sale todavia trae el total que inserto el panel de envio (lo comprueba
   // el navegador al enviar). Solo asi el lead pasa a Caliente: insertar no alcanza.
   conTotalDePanel: z.string().trim().nullish(),
+  // Numero unico del mensaje (lo pone el navegador): un reintento del mismo mensaje no sale dos veces.
+  clientMessageId: z.string().trim().max(80).nullish(),
 });
 
 const toggleConversationAutomationSchema = z.object({
@@ -761,6 +764,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     quotedDirection: formData.get("quotedDirection"),
     chatEsperado: formData.get("chatEsperado"),
     conTotalDePanel: formData.get("conTotalDePanel"),
+    clientMessageId: formData.get("clientMessageId"),
   });
 
   // Errores como resultado (sin redirect) para mostrarlos en la burbuja sin recarga.
@@ -850,6 +854,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       message: messageWithSignature,
       source: "manual",
       enviadoPorUserId: session.user.id,
+      clientMessageId: idDeEnvioValido(parsed.data.clientMessageId),
     });
 
     if (!result.ok) {
@@ -929,6 +934,10 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
   }
   nextData.set("conversationId", parsed.data.conversationId);
   nextData.set("message", messageWithSignature);
+  const clientMessageId = idDeEnvioValido(parsed.data.clientMessageId);
+  if (clientMessageId) {
+    nextData.set("clientMessageId", clientMessageId);
+  }
   nextData.set("returnTo", safeReturnTo || `/cliente/chats?chatKey=agent:${parsed.data.conversationId}`);
   if (parsed.data.quotedMessageId) {
     nextData.set("quotedMessageId", parsed.data.quotedMessageId);

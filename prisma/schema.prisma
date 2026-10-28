@@ -2604,3 +2604,30 @@ model AvisoTarjetaEquipo {
   @@unique([tarjetaId, motivo])
   @@index([workspaceId, estado])
 }
+
+/// Cada error al enviar un texto desde Chats (línea, hora, motivo), para medir cuántos quedan por día.
+/// Se anota desde el servidor, o desde el navegador cuando ni llegó al servidor. Sin relaciones a propósito:
+/// es un registro de medición y no debe estorbar si se borra una línea o una conversación.
+model ChatSendError {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  conversationId  String?
+  lineaId         String?
+  lineaNombre     String?
+  /// WAHA, EVOLUTION_GO, EVOLUTION_API u OFFICIAL.
+  gateway         String?
+  /// version_vieja, sin_red, timeout_gateway, gateway_rechazo, conexion_cerrada, guardado_fallo, sesion u otro.
+  motivo          String
+  /// Texto del error, recortado.
+  detalle         String?
+  clientMessageId String?
+  userId          String?
+  /// Número del intento en que falló (1, 2 o 3).
+  intento         Int      @default(1)
+  /// servidor o navegador.
+  origen          String   @default("servidor")
+  createdAt       DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([lineaId, createdAt])
+}

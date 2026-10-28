@@ -14,6 +14,7 @@
     "test:firma-del-chat": "node scripts/check-firma-del-chat.mjs",
     "test:recibiendo-clientes": "node scripts/check-recibiendo-clientes.mjs",
     "test:nota-de-voz": "node scripts/check-nota-de-voz.mjs",
+    "test:envio-reintento": "node scripts/check-envio-reintento.mjs",
     "test:reenviar": "node scripts/check-reenviar.mjs",
     "test:agente-v3-foto": "node scripts/check-agente-v3-foto.mjs",
     "test:agente-v3-historial": "node scripts/check-agente-v3-historial.mjs",

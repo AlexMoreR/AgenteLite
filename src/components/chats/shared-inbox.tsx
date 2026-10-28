@@ -1,9 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { hayVersionNueva, hayVersionNuevaParaEnviar } from "@/components/app-version-guard";
+import { hayVersionNueva } from "@/components/app-version-guard";
 import {
-  enviarSalvoVersionVieja,
+  enviarTextoPorRuta,
+  guardarFallidos,
+  leerFallidosGuardados,
+  registrarFalloSinServidor,
+  vaciarFallosSinServidor,
+  type FallidoGuardado,
+} from "@/lib/chat-envio-reintento";
+import {
   guardarEnvioPendiente,
   marcarOcupada,
   pedirRevisionDeVersion,
@@ -436,6 +443,13 @@ export function SharedInbox({
   mensajesFallidosRef.current = mensajesFallidos;
   /** Envios de texto en camino, por id optimista: el resultado se resuelve contra ESTE registro. */
   const enviosEnCursoRef = useRef<Map<string, OptimisticDraftMessage>>(new Map());
+  /*
+    Fallidos que se pueden reenviar solos al volver la conexion: los que fallaron por una causa donde
+    es seguro que NO salieron (sin internet, version vieja, gateway caido) tras los reintentos. Se
+    reenvian con su mismo numero unico, asi que no salen dos veces.
+  */
+  const reenviablesSolosRef = useRef<Set<string>>(new Set());
+  const reenviarAutomaticosRef = useRef<() => void>(() => undefined);
   /* Carga del chat abierto: fallo /live, o cuando empezo a cargar (para el limite de espera). */
   const [falloCargaDelChat, setFalloCargaDelChat] = useState<string | null>(null);
   const [reintentoCargaDelChat, setReintentoCargaDelChat] = useState(0);
@@ -2325,7 +2339,10 @@ export function SharedInbox({
   // - result.suppressOptimistic -> se disparo un flujo -> quitar la burbuja del texto
   // - ok (o void) -> dejar la burbuja; el sync en tiempo real la reemplaza por el real
   const finalizeOptimisticSend = useCallback(
-    (optimisticId: string, result: { ok?: boolean; suppressOptimistic?: boolean; error?: string } | null) => {
+    (
+      optimisticId: string,
+      result: { ok?: boolean; suppressOptimistic?: boolean; error?: string; reintentable?: boolean } | null,
+    ) => {
       terminarMedicion(`envio:${optimisticId}`, "enviar_ok", {
         ok: Boolean(result && result.ok !== false),
         suprimido: Boolean(result?.suppressOptimistic),
@@ -2344,6 +2361,9 @@ export function SharedInbox({
           setMensajesFallidos((lista) =>
             agregarFallido(lista, { ...enviado, outboundStatusLabel: "error", errorDetail: errorMessage }),
           );
+          if (result?.reintentable) {
+            reenviablesSolosRef.current.add(optimisticId);
+          }
         }
         /*
           Si el envio se cayo (la accion lanzo excepcion, no fue una respuesta de error) y el servidor
@@ -2375,6 +2395,10 @@ export function SharedInbox({
 
       if (result?.ok && !result.suppressOptimistic) {
         scheduleConversationRefreshAfterSend();
+      }
+      // Salio uno: si hay otros que quedaron esperando la conexion, se sigue con el siguiente.
+      if (result?.ok) {
+        reenviarAutomaticosRef.current();
       }
     },
     [scheduleConversationRefreshAfterSend],
@@ -2511,18 +2535,12 @@ export function SharedInbox({
         envio: { chatKey: chatDelEnvio, campos: camposDelFormulario(formData) },
       });
 
-      // Envio sin navegacion: la accion valida internamente y devuelve un resultado.
-      // Antes de hablarle al servidor se mira la version: si hay una nueva, el mensaje NO se envia
-      // (nunca llega al servidor, asi que no puede salir dos veces): queda como pendiente, la app se
-      // recarga sola y al volver sale UNA vez. Si /api/version no contesta, se envia normal.
-      void enviarSalvoVersionVieja({
-        hayVersionNueva: hayVersionNuevaParaEnviar,
-        enviar: () => Promise.resolve(composer.action(formData)),
-        dejarPendiente: () => finalizeOptimisticSend(optimisticId, null),
-      })
-        .then((salida) => {
-          if (salida.enviado) finalizeOptimisticSend(optimisticId, salida.resultado ?? { ok: true });
-        })
+      // Envio sin navegacion, por la ruta normal /api/cliente/chats/enviar (no por una accion del servidor:
+      // esas se rompen en las pestañas abiertas cuando se sube una version nueva). El mensaje lleva un
+      // numero unico: si falla de forma segura de repetir se reintenta solo 1 o 2 veces, y el servidor
+      // no lo manda dos veces. Si igual falla, queda "No se envió · Reintentar" con su texto.
+      void enviarTextoPorRuta({ formData, alFallarSinServidor: registrarFalloSinServidor })
+        .then((resultado) => finalizeOptimisticSend(optimisticId, resultado))
         .catch(() => finalizeOptimisticSend(optimisticId, null))
         .finally(liberar);
       return true;
@@ -3067,14 +3085,128 @@ export function SharedInbox({
     setOptimisticOutgoingMessage(burbuja);
     enviosEnCursoRef.current.set(optimisticId, burbuja);
 
-    void Promise.resolve(composerValue.action(formData))
-      .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
+    void enviarTextoPorRuta({ formData, alFallarSinServidor: registrarFalloSinServidor })
+      .then((result) => finalizeOptimisticSend(optimisticId, result))
       .catch(() => finalizeOptimisticSend(optimisticId, null))
       .finally(liberar);
   }, [finalizeOptimisticSend]);
 
   const handleRetryFailedMessage = useCallback((target: SharedInboxMessageItem) => {
     reenviarFallido(mensajesFallidosRef.current.find((item) => item.id === target.id) ?? null);
+  }, [reenviarFallido]);
+
+  /*
+    Los textos que no salieron sobreviven a una recarga: se guardan en el navegador de la asesora
+    (con su numero unico) y al volver siguen ahi con su texto y su "Reintentar".
+  */
+  const [fallidosCargados, setFallidosCargados] = useState(false);
+  useEffect(() => {
+    let guardados: FallidoGuardado[] = [];
+    try {
+      guardados = leerFallidosGuardados(window.localStorage);
+    } catch {
+      // Sin almacenamiento (ventana privada o bloqueado): los fallidos viven solo mientras no se recargue.
+    }
+    if (guardados.length > 0) {
+      setMensajesFallidos((lista) =>
+        guardados.reduce<OptimisticDraftMessage[]>(
+          (acumulada, guardado) =>
+            acumulada.some((item) => item.id === guardado.id)
+              ? acumulada
+              : agregarFallido(acumulada, {
+                  id: guardado.id,
+                  conversationId: guardado.conversationId,
+                  content: guardado.contenido,
+                  matchContent: guardado.texto,
+                  direction: "OUTBOUND",
+                  createdAt: new Date(guardado.creadoEn),
+                  authorType: "user",
+                  outboundStatusLabel: "error",
+                  errorDetail: guardado.error,
+                  type: "TEXT",
+                  mediaUrl: null,
+                  rawPayload: { optimistic: true },
+                  isOptimistic: true,
+                  envio: { chatKey: guardado.chatKey, campos: guardado.campos },
+                }),
+          lista,
+        ),
+      );
+    }
+    setFallidosCargados(true);
+  }, []);
+  useEffect(() => {
+    // No se escribe hasta haber leido, o una lista vacia borraria lo guardado.
+    if (!fallidosCargados) {
+      return;
+    }
+    const lista: FallidoGuardado[] = mensajesFallidos.flatMap((fallido) => {
+      const texto = (fallido.matchContent ?? fallido.content ?? "").trim();
+      if (!fallido.envio || !texto || (fallido.type ?? "TEXT") !== "TEXT") {
+        return [];
+      }
+      return [
+        {
+          id: fallido.id,
+          conversationId: fallido.conversationId,
+          chatKey: fallido.envio.chatKey,
+          campos: fallido.envio.campos,
+          texto,
+          contenido: fallido.content ?? texto,
+          creadoEn: fallido.createdAt.getTime(),
+          error: fallido.errorDetail ?? "No se pudo enviar el mensaje",
+        },
+      ];
+    });
+    try {
+      guardarFallidos(window.localStorage, lista);
+    } catch {
+      // Ver arriba: sin almacenamiento no se guarda.
+    }
+  }, [fallidosCargados, mensajesFallidos]);
+
+  /*
+    Reconexion sola: cuando el celular recupera internet o la asesora vuelve a la pestaña, los textos
+    que NO salieron por una causa segura (sin internet, version vieja, gateway caido) se reenvian con
+    su mismo numero unico, de a uno por chat, y se anotan los errores que el servidor no alcanzo a ver.
+  */
+  useEffect(() => {
+    const reenviarAutomaticos = () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return;
+      }
+      const chatsUsados = new Set<string>();
+      for (const id of Array.from(reenviablesSolosRef.current)) {
+        const fallido = mensajesFallidosRef.current.find((item) => item.id === id);
+        if (!fallido?.envio) {
+          reenviablesSolosRef.current.delete(id);
+          continue;
+        }
+        const chat = fallido.envio.chatKey;
+        if (chatsUsados.has(chat) || textoEnCursoRef.current.has(chat)) {
+          continue;
+        }
+        chatsUsados.add(chat);
+        reenviablesSolosRef.current.delete(id);
+        reenviarFallido(fallido);
+      }
+    };
+    reenviarAutomaticosRef.current = reenviarAutomaticos;
+    const alVolverLaConexion = () => {
+      void vaciarFallosSinServidor();
+      reenviarAutomaticos();
+    };
+    const alVolverALaPestana = () => {
+      if (document.visibilityState === "visible") {
+        alVolverLaConexion();
+      }
+    };
+    window.addEventListener("online", alVolverLaConexion);
+    document.addEventListener("visibilitychange", alVolverALaPestana);
+    return () => {
+      window.removeEventListener("online", alVolverLaConexion);
+      document.removeEventListener("visibilitychange", alVolverALaPestana);
+    };
   }, [reenviarFallido]);
 
   /*

@@ -438,6 +438,9 @@ const PROVISION_DEADLINE_MS = 45_000;
 
 // Corta la espera y FALLA (a diferencia del withTimeout del detalle, que devuelve un valor
 // por defecto). Aca queremos que el usuario se entere de que no se pudo.
+/** Tiempo limite del envio de texto contra el gateway (Evolution GO y Evolution API). */
+const TIEMPO_LIMITE_ENVIO_TEXTO_MS = 25_000;
+
 function withDeadline<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), ms);
@@ -486,8 +489,11 @@ async function evolutionRequest<T>(
     });
   } catch (error) {
     if (isAbortError(error)) {
-      throw new Error(
-        `WhatsApp no respondio a tiempo (${Math.round((options.timeoutMs ?? 0) / 1000)}s). Volve a intentar en un minuto.`,
+      throw Object.assign(
+        new Error(
+          `WhatsApp no respondio a tiempo (${Math.round((options.timeoutMs ?? 0) / 1000)}s). Volve a intentar en un minuto.`,
+        ),
+        { tiempoAgotado: true },
       );
     }
     throw error;
@@ -495,7 +501,10 @@ async function evolutionRequest<T>(
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
-    throw new Error(errorText || `Evolution API respondio con ${response.status}`);
+    // El status viaja en el error para decidir si es seguro probar otra ruta (ver evolutionInstanceRequest).
+    throw Object.assign(new Error(errorText || `Evolution API respondio con ${response.status}`), {
+      status: response.status,
+    });
   }
 
   if (response.status === 204) {
@@ -622,6 +631,15 @@ async function conexionWahaDe(instanceName: string): Promise<WahaConnection | nu
   return { baseUrl: conexion.baseUrl, apiToken: conexion.apiToken };
 }
 
+/** Que gateway atiende este canal (para anotar los errores de envio por gateway). */
+export async function gatewayDelCanal(instanceName: string): Promise<"WAHA" | "EVOLUTION_GO" | "EVOLUTION_API"> {
+  const tipo = (await getStoredEvolutionInstanceAuth(instanceName.trim()))?.connection?.kind;
+  if (tipo === WAHA_GATEWAY_KIND) {
+    return "WAHA";
+  }
+  return tipo === "EVOLUTION_API" ? "EVOLUTION_API" : "EVOLUTION_GO";
+}
+
 async function resolveEvolutionInstance(instanceName: string): Promise<EvolutionResolvedInstance | null> {
   const normalizedInstanceName = instanceName.trim();
   if (!normalizedInstanceName) {
@@ -738,6 +756,12 @@ async function evolutionInstanceRequest<T>(input: {
   // Opcional: aborta el fetch (p. ej. la foto de perfil, que evogo cuelga ~75s cuando
   // WhatsApp rate-limitea). Solo lo usan los callers que lo necesiten.
   signal?: AbortSignal;
+  // Tiempo limite del pedido, en ms (el envio de texto: que un gateway colgado no deje girando).
+  timeoutMs?: number;
+  // Envios que no se pueden repetir: la ruta "vieja" solo se prueba si la principal no existe
+  // (404/405) o ni llego al gateway. Con tiempo agotado o error del servidor el mensaje pudo
+  // haber salido, y la ruta vieja lo mandaria dos veces.
+  legacySoloSiNoExiste?: boolean;
 }) {
   // resolveEvolutionInstance enumera las instancias del gateway (otra llamada HTTP) para
   // traer el `raw`, que aqui no usamos: solo hacen falta id/token, y ya estan en nuestra
@@ -783,10 +807,16 @@ async function evolutionInstanceRequest<T>(input: {
         headers: buildInstanceHeaders(instance, { useInstanceApiKey: true }),
         ...(input.signal ? { signal: input.signal } : {}),
         ...(typeof input.body === "undefined" ? {} : { body: JSON.stringify(input.body) }),
-      }, { connection });
+      }, { connection, ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) });
     } catch (error) {
       if (!input.legacyPath) {
         throw error;
+      }
+      if (input.legacySoloSiNoExiste) {
+        const detalle = error as { tiempoAgotado?: boolean; status?: number };
+        if (detalle.tiempoAgotado || (typeof detalle.status === "number" && detalle.status >= 500)) {
+          throw error;
+        }
       }
     }
   }
@@ -800,7 +830,7 @@ async function evolutionInstanceRequest<T>(input: {
     method,
     ...(input.signal ? { signal: input.signal } : {}),
     ...(typeof legacyRequestBody === "undefined" ? {} : { body: JSON.stringify(legacyRequestBody) }),
-  }, { connection });
+  }, { connection, ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) });
 }
 
 function inferMediaMimeType(input: { mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT"; mimeType?: string | null }) {
@@ -2377,6 +2407,8 @@ export async function sendEvolutionTextMessage(input: {
   const response = await evolutionInstanceRequest<EvolutionSendTextResponse>({
     instanceName: input.instanceName,
     path: "/send/text",
+    timeoutMs: TIEMPO_LIMITE_ENVIO_TEXTO_MS,
+    legacySoloSiNoExiste: true,
     legacyPath: `/message/sendText/${input.instanceName}`,
     body: {
       number: sendNumber,

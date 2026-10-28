@@ -70,6 +70,7 @@ import {
 } from "@/lib/workspace";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { resolveEvolutionQuickResponseFlow } from "@/features/flows/services/resolveEvolutionQuickResponseFlow";
+import { idDeEnvioValido } from "@/lib/chat-envio-reintento";
 
 /*
   Hasta aca se guarda el respaldo en base64 de un archivo que se manda por chat.
@@ -2578,6 +2579,9 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
   await requireClientWorkspaceAccess("chats");
   envioMarca("sesion");
 
+  // Numero unico del envio (lo pone el navegador): queda guardado en el mensaje para que un
+  // reintento del mismo mensaje no salga dos veces (ver /api/cliente/chats/enviar).
+  const clientMessageId = idDeEnvioValido(formData.get("clientMessageId"));
   const parsed = sendManualAgentReplySchema.safeParse({
     agentId: formData.get("agentId"),
     conversationId: formData.get("conversationId"),
@@ -2703,6 +2707,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             rawPayload: {
               source: "manual",
               enviadoPorUserId: session.user.id,
+              ...(clientMessageId ? { clientMessageId } : {}),
               evolution: outbound.raw,
             } as never,
           },
@@ -2733,6 +2738,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             rawPayload: {
               source: "manual",
               enviadoPorUserId: session.user.id,
+              ...(clientMessageId ? { clientMessageId } : {}),
               evolution: outbound.raw,
             } as never,
           },
@@ -2763,6 +2769,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             rawPayload: {
               source: "manual",
               enviadoPorUserId: session.user.id,
+              ...(clientMessageId ? { clientMessageId } : {}),
               evolution: outbound.raw,
             } as never,
           },
@@ -2792,6 +2799,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             rawPayload: {
               source: "manual",
               enviadoPorUserId: session.user.id,
+              ...(clientMessageId ? { clientMessageId } : {}),
               evolution: outbound.raw,
             } as never,
           },
@@ -2823,6 +2831,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             rawPayload: {
               source: "manual",
               enviadoPorUserId: session.user.id,
+              ...(clientMessageId ? { clientMessageId } : {}),
               evolution: outbound.raw,
             } as never,
           },
@@ -2975,27 +2984,37 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
   }
   envioMarca("whatsapp");
 
-  await prisma.message.create({
-    data: {
-      workspaceId: membership.workspace.id,
-      conversationId: conversation.id,
-      channelId: conversation.channel.id,
-      contactId: conversation.contact.id,
-      agentId: messageAgentId,
-      externalId: outbound.externalId,
-      direction: "OUTBOUND",
-      type: "TEXT",
-      status: "SENT",
-      content: parsed.data.message,
-      sentAt: new Date(),
-      rawPayload: {
-        source: "manual",
-        enviadoPorUserId: session.user.id,
-        evolution: outbound.raw,
-        ...(replyTo ? { replyTo } : {}),
-      } as never,
-    },
-  });
+  /*
+    WhatsApp ya acepto el mensaje. Si el guardado falla NO se responde "No se envio": la asesora
+    reintentaria y el cliente lo recibiria dos veces. Se anota y el mensaje se completa luego por el
+    aviso (webhook) del gateway o por la sincronizacion.
+  */
+  try {
+    await prisma.message.create({
+      data: {
+        workspaceId: membership.workspace.id,
+        conversationId: conversation.id,
+        channelId: conversation.channel.id,
+        contactId: conversation.contact.id,
+        agentId: messageAgentId,
+        externalId: outbound.externalId,
+        direction: "OUTBOUND",
+        type: "TEXT",
+        status: "SENT",
+        content: parsed.data.message,
+        sentAt: new Date(),
+        rawPayload: {
+          source: "manual",
+          enviadoPorUserId: session.user.id,
+          ...(clientMessageId ? { clientMessageId } : {}),
+          evolution: outbound.raw,
+          ...(replyTo ? { replyTo } : {}),
+        } as never,
+      },
+    });
+  } catch (error) {
+    console.error("[sendManualAgentReplyAction] guardado fallo (mensaje ya enviado)", error);
+  }
   envioMarca("guardado");
 
   // El mensaje YA se envio a WhatsApp y se guardo en BD: el envio fue exitoso.

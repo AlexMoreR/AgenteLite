@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useRef } from "react";
+import { REALTIME_RECONECTADO_EVENT } from "./chat-inbox-types";
 import { usePendingConversationSelection } from "./chat-selection-store";
 import {
   extractEvolutionEventName,
@@ -336,6 +337,7 @@ export function ChatsRealtimeSync({
 
     let nativeSocket: WebSocket | null = null;
     let nativeReconnectTimer: number | null = null;
+    let nativeSocketTuvoCaida = false;
     let nativeSocketClosedByCleanup = false;
     const listUpdateTimers = listUpdateTimerRefs.current;
     const listUpdateFollowUpTimers = listUpdateFollowUpTimerRefs.current;
@@ -1126,12 +1128,21 @@ export function ChatsRealtimeSync({
         }
       };
 
+      // Al volver despues de una caida se avisa para traer lo que llego mientras estuvo caido.
+      nativeSocket.onopen = () => {
+        if (nativeSocketTuvoCaida) {
+          nativeSocketTuvoCaida = false;
+          window.dispatchEvent(new CustomEvent(REALTIME_RECONECTADO_EVENT));
+        }
+      };
+
       nativeSocket.onclose = () => {
         nativeSocket = null;
         if (nativeSocketClosedByCleanup) {
           return;
         }
 
+        nativeSocketTuvoCaida = true;
         clearNativeReconnectTimer();
         nativeReconnectTimer = window.setTimeout(() => {
           connectNativeSocket();
@@ -1141,7 +1152,17 @@ export function ChatsRealtimeSync({
 
     connectNativeSocket();
 
+    // Cuando el celular recupera internet no se espera al reintento: se reconecta al instante.
+    const alVolverInternet = () => {
+      if (!nativeSocket && !nativeSocketClosedByCleanup) {
+        clearNativeReconnectTimer();
+        connectNativeSocket();
+      }
+    };
+    window.addEventListener("online", alVolverInternet);
+
     return () => {
+      window.removeEventListener("online", alVolverInternet);
       nativeSocketClosedByCleanup = true;
       clearLiveUpdateTimer();
       clearLiveUpdateFollowUpTimer();

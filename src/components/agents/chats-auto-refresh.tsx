@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { useOpenChatKey } from "@/components/chats/chat-selection-store";
+import { REALTIME_RECONECTADO_EVENT } from "@/components/chats/chat-inbox-types";
 
 type ChatsAutoRefreshProps = {
   intervalMs?: number;
@@ -152,7 +153,9 @@ export function ChatsAutoRefresh({
       return;
     }
 
-    const timer = window.setInterval(async () => {
+    // `forzar`: viene de una reconexion (socket de vuelta, internet de vuelta, pestaña de vuelta) y
+    // trae YA lo que llego mientras no hubo conexion, sin esperar al siguiente intervalo.
+    const tick = async (forzar = false) => {
       const chatKey = selectedConversationKeyRef.current?.trim() ?? "";
 
       if (chatKey.startsWith("agent:")) {
@@ -163,7 +166,7 @@ export function ChatsAutoRefresh({
         // Aunque exista realtime, mantenemos un fallback de polling.
         // Si el websocket falla o no emite el evento esperado, esto evita
         // que la conversación quede congelada sin refrescarse.
-        if (realtimeEnabled && wasRecentlyUpdated) {
+        if (!forzar && realtimeEnabled && wasRecentlyUpdated) {
           return;
         }
 
@@ -200,16 +203,30 @@ export function ChatsAutoRefresh({
       // cuando el realtime lleva un intervalo entero sin dar señales (o no hay realtime,
       // como en API oficial), que es justo cuando hace falta la red de seguridad.
       const listWasRecentlyUpdated = Date.now() - lastListUpdateAtRef.current < intervalMs;
-      if (realtimeEnabled && listWasRecentlyUpdated) {
+      if (!forzar && realtimeEnabled && listWasRecentlyUpdated) {
         return;
       }
 
       startTransition(() => {
         router.refresh();
       });
-    }, intervalMs);
+    };
+    const timer = window.setInterval(() => void tick(), intervalMs);
 
-    return () => window.clearInterval(timer);
+    const alReconectar = () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return;
+      }
+      void tick(true);
+    };
+    window.addEventListener(REALTIME_RECONECTADO_EVENT, alReconectar);
+    window.addEventListener("online", alReconectar);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener(REALTIME_RECONECTADO_EVENT, alReconectar);
+      window.removeEventListener("online", alReconectar);
+    };
     // The interval should not reset when the active chat changes.
   }, [enabled, isVisible, intervalMs, realtimeEnabled, router, startTransition]);
 
