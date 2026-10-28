@@ -2,6 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  diagnosticoVacio,
+  EmpaquetadorPcm,
+  hayQueDescartar,
+  leerRutaElegida,
+  OPCIONES_CANAL_PCM,
+  type DiagnosticoDeLlamada,
+} from "./audio-de-llamada";
 import { empezarTimbrado, pitidoDeContestada, pitidoDeFin, vibrar } from "./sonidos-de-llamada";
 
 /**
@@ -60,6 +68,15 @@ function reloj(segundos: number) {
 
 const FRECUENCIA = 16000;
 const CANAL_PCM = "pcm";
+/** Cada cuanto se mira la red durante la llamada. */
+const REVISION_MS = 5000;
+/**
+ * El microfono, con el procesamiento de una llamada: sin cancelacion de eco, si la asesora usa
+ * parlantes el cliente se escucha a si mismo y el control de ganancia termina bajando su voz.
+ */
+const RESTRICCIONES_MIC: MediaStreamConstraints = {
+  audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+};
 
 type Opciones = {
   /** Canal del chat: la llamada sale por SU numero. */
@@ -130,6 +147,29 @@ function esperarRutas(pc: RTCPeerConnection, topeMs = 3000) {
   });
 }
 
+/**
+ * Deja en los registros del servidor cuanto audio fue y vino en la llamada. `keepalive` hace que
+ * salga aunque la asesora cierre la pestaña al colgar.
+ */
+function enviarDiagnostico(
+  callId: string,
+  channelId: string | undefined,
+  diagnostico: DiagnosticoDeLlamada,
+  segundosHablados: number,
+) {
+  try {
+    void fetch("/api/wacalls/llamada", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      keepalive: true,
+      body: JSON.stringify({ accion: "diagnostico", callId, channelId, segundosHablados, diagnostico }),
+    }).catch(() => {});
+  } catch {
+    // El diagnostico nunca puede romper el colgar.
+  }
+}
+
 export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
   const [estado, setEstado] = useState<EstadoLlamada>("libre");
   const [silenciado, setSilenciado] = useState(false);
@@ -162,6 +202,9 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
   const temporizadoresRef = useRef<number[]>([]);
   /** Veces que se busco la llamada en el historial de WaCalls sin encontrarla todavia. */
   const busquedasEnHistorialRef = useRef(0);
+  /** Lo que se cuenta del audio para saber despues si fue en los dos sentidos (audio-de-llamada.ts). */
+  const diagnosticoRef = useRef<DiagnosticoDeLlamada>(diagnosticoVacio());
+  const revisionRef = useRef<number | null>(null);
 
   const cambiarEstado = useCallback((siguiente: EstadoLlamada) => {
     estadoRef.current = siguiente;
@@ -176,6 +219,16 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
       window.clearInterval(sondeoRef.current);
       sondeoRef.current = null;
     }
+    if (revisionRef.current !== null) {
+      window.clearInterval(revisionRef.current);
+      revisionRef.current = null;
+    }
+    // Antes de soltar todo, se deja constancia en el servidor de cuanto audio fue y vino. Es lo
+    // que permite contestar "¿el cliente la escuchaba?" sin depender de lo que cada uno recuerde.
+    if (callIdRef.current && (diagnosticoRef.current.enviados > 0 || diagnosticoRef.current.recibidos > 0)) {
+      enviarDiagnostico(callIdRef.current, canalRef.current, diagnosticoRef.current, segundosRef.current);
+    }
+    diagnosticoRef.current = diagnosticoVacio();
     // El micrófono se apaga SIEMPRE, incluso si algo falló antes: dejar la lucecita del micro
     // encendida después de colgar es lo que hace que la gente desconfíe de la herramienta.
     micRef.current?.getTracks().forEach((track) => track.stop());
@@ -328,8 +381,9 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
       setMotivoFin(null);
       cambiarEstado("marcando");
       try {
-        const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mic = await navigator.mediaDevices.getUserMedia(RESTRICCIONES_MIC);
         micRef.current = mic;
+        diagnosticoRef.current = diagnosticoVacio();
 
         // La linea queda fijada ANTES de iniciar: si algo falla despues, el colgar va a la misma.
         canalRef.current = channelId ?? undefined;
@@ -351,12 +405,20 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
         pcRef.current = pc;
 
         // El canal se crea ANTES de la oferta: si no, no aparece en el saludo y del otro lado
-        // nunca llega el audio.
-        const canal = pc.createDataChannel(CANAL_PCM, { ordered: true });
+        // nunca llega el audio. Sin orden y sin reenvios: ver audio-de-llamada.ts, es LA causa de
+        // que a veces el cliente no escuchara a la asesora.
+        const canal = pc.createDataChannel(CANAL_PCM, OPCIONES_CANAL_PCM);
         canal.binaryType = "arraybuffer";
 
         const ctx = new AudioContext({ sampleRate: FRECUENCIA });
         ctxRef.current = ctx;
+        // Si el sistema suspende el audio (otra app tomo el parlante, el celular bloqueo la
+        // pantalla), se vuelve a encender: suspendido, no sale ni entra nada.
+        ctx.onstatechange = () => {
+          if (ctxRef.current === ctx && ctx.state !== "running" && ctx.state !== "closed") {
+            void ctx.resume().catch(() => {});
+          }
+        };
         await ctx.audioWorklet.addModule("/worklets/capture-processor.js");
         await ctx.audioWorklet.addModule("/worklets/playback-processor.js");
         await ctx.resume();
@@ -367,15 +429,78 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
         }
         sondeoRef.current = window.setInterval(() => void revisarEstado(), SONDEO_MS);
 
-        // Micrófono → canal de datos.
-        const fuenteMic = ctx.createMediaStreamSource(mic);
+        // Micrófono → canal de datos, en paquetes de 20 ms.
+        const diagnostico = diagnosticoRef.current;
+        const empaquetador = new EmpaquetadorPcm();
+        let ultimoEnvio = 0;
         const captura = new AudioWorkletNode(ctx, "capture-processor");
         captura.port.onmessage = (evento: MessageEvent<Float32Array>) => {
-          if (canal.readyState === "open") {
-            canal.send(aEnteros(evento.data));
+          if (canal.readyState !== "open") {
+            return;
+          }
+          for (const paquete of empaquetador.agregar(evento.data)) {
+            const cola = canal.bufferedAmount;
+            if (cola > diagnostico.colaMaxima) diagnostico.colaMaxima = cola;
+            // Con la red ahogada se tira audio NUEVO en vez de apilarlo: apilado llega tarde y
+            // WaCalls lo descarta igual, despues de varios segundos de silencio para el cliente.
+            if (hayQueDescartar(cola)) {
+              diagnostico.descartados += 1;
+              continue;
+            }
+            try {
+              canal.send(aEnteros(paquete));
+            } catch {
+              diagnostico.descartados += 1;
+              continue;
+            }
+            const ahora = performance.now();
+            if (ultimoEnvio && estadoRef.current === "hablando") {
+              diagnostico.huecoMaximoEnviadoMs = Math.max(diagnostico.huecoMaximoEnviadoMs, Math.round(ahora - ultimoEnvio));
+            }
+            ultimoEnvio = ahora;
+            diagnostico.enviados += 1;
           }
         };
+        let fuenteMic = ctx.createMediaStreamSource(mic);
         fuenteMic.connect(captura);
+
+        /*
+          Si el microfono se apaga solo (se desconecto el auricular, otro programa lo tomo), antes
+          la llamada seguia "andando" y el cliente dejaba de escuchar sin que nadie se enterara.
+          Ahora se pide de nuevo y se reconecta; si no se puede, se avisa.
+        */
+        const vigilarMicrofono = (stream: MediaStream) => {
+          stream.getAudioTracks().forEach((pista) => {
+            pista.addEventListener("ended", () => {
+              if (micRef.current !== stream || ctxRef.current !== ctx) {
+                return;
+              }
+              diagnostico.microfonoCaido += 1;
+              void navigator.mediaDevices
+                .getUserMedia(RESTRICCIONES_MIC)
+                .then((nuevo) => {
+                  if (ctxRef.current !== ctx) {
+                    nuevo.getTracks().forEach((t) => t.stop());
+                    return;
+                  }
+                  // Si estaba silenciada, sigue silenciada.
+                  const activo = pista.enabled;
+                  nuevo.getAudioTracks().forEach((t) => {
+                    t.enabled = activo;
+                  });
+                  fuenteMic.disconnect();
+                  micRef.current = nuevo;
+                  fuenteMic = ctx.createMediaStreamSource(nuevo);
+                  fuenteMic.connect(captura);
+                  vigilarMicrofono(nuevo);
+                })
+                .catch(() => {
+                  onError?.("Se desconectó el micrófono: el cliente no te escucha. Revisá el auricular y volvé a llamar.");
+                });
+            });
+          });
+        };
+        vigilarMicrofono(mic);
         // El procesador no escribe nada en su salida; conectarlo al destino es lo que lo mantiene
         // vivo, no se escucha a si misma la asesora.
         captura.connect(ctx.destination);
@@ -384,9 +509,37 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
         const reproduccion = new AudioWorkletNode(ctx, "playback-processor");
         const destino = ctx.createMediaStreamDestination();
         reproduccion.connect(destino);
+        let ultimoRecibido = 0;
         canal.onmessage = (evento: MessageEvent<ArrayBuffer>) => {
+          const ahora = performance.now();
+          if (ultimoRecibido && estadoRef.current === "hablando") {
+            diagnostico.huecoMaximoRecibidoMs = Math.max(diagnostico.huecoMaximoRecibidoMs, Math.round(ahora - ultimoRecibido));
+          }
+          ultimoRecibido = ahora;
+          diagnostico.recibidos += 1;
+          diagnostico.bytesRecibidos += evento.data.byteLength;
           reproduccion.port.postMessage(aFlotantes(evento.data));
         };
+
+        // Cada 5 s: cuanto paso de verdad por la red (sale en el diagnostico al colgar).
+        revisionRef.current = window.setInterval(() => {
+          if (pcRef.current !== pc) {
+            return;
+          }
+          void pc
+            .getStats()
+            .then((reporte) => {
+              const reportes: Array<Record<string, unknown>> = [];
+              reporte.forEach((r) => reportes.push(r as Record<string, unknown>));
+              const ruta = leerRutaElegida(reportes);
+              if (ruta) {
+                diagnostico.bytesEnviadosRed = ruta.bytesEnviados;
+                diagnostico.bytesRecibidosRed = ruta.bytesRecibidos;
+                if (ruta.rttMs !== null) diagnostico.rttMs = ruta.rttMs;
+              }
+            })
+            .catch(() => {});
+        }, REVISION_MS);
         if (audioRef.current) {
           audioRef.current.srcObject = destino.stream;
           void audioRef.current.play().catch(() => {

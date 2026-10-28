@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
  * era repetir ese bloque cuatro veces con el riesgo de que una quedara sin control.
  */
 
-type Accion = "iniciar" | "webrtc" | "colgar" | "silenciar" | "estado";
+type Accion = "iniciar" | "webrtc" | "colgar" | "silenciar" | "estado" | "diagnostico";
 
 type Cuerpo = {
   accion?: Accion;
@@ -35,7 +35,25 @@ type Cuerpo = {
   callId?: string;
   sdpOffer?: string;
   muted?: boolean;
+  /** Solo "diagnostico": los contadores de audio del navegador (audio-de-llamada.ts). */
+  diagnostico?: Record<string, unknown>;
+  segundosHablados?: number;
 };
+
+/** Los campos del diagnostico que se aceptan; todo lo demas se ignora. */
+const CAMPOS_DIAGNOSTICO = [
+  "enviados",
+  "descartados",
+  "recibidos",
+  "bytesRecibidos",
+  "colaMaxima",
+  "huecoMaximoRecibidoMs",
+  "huecoMaximoEnviadoMs",
+  "microfonoCaido",
+  "bytesEnviadosRed",
+  "bytesRecibidosRed",
+  "rttMs",
+] as const;
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -202,6 +220,29 @@ export async function POST(request: Request) {
         endReason: fila?.endReason ?? null,
         enHistorial: Boolean(fila),
       });
+    }
+
+    /*
+      Lo que conto el navegador del audio de la llamada, al colgar. No se guarda en la base: va
+      a los registros del servicio (docker service logs aizenlite_aizenbot_app | grep
+      "llamadas:diagnostico") para poder contestar, llamada por llamada, si el audio fue en los
+      dos sentidos. Ver audio-de-llamada.ts.
+    */
+    case "diagnostico": {
+      if (!cuerpo.callId || !cuerpo.diagnostico || typeof cuerpo.diagnostico !== "object") {
+        return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
+      }
+      const limpio: Record<string, number | null> = {};
+      for (const campo of CAMPOS_DIAGNOSTICO) {
+        const valor = cuerpo.diagnostico[campo];
+        limpio[campo] = typeof valor === "number" && Number.isFinite(valor) ? Math.round(valor) : null;
+      }
+      const segundos = typeof cuerpo.segundosHablados === "number" && Number.isFinite(cuerpo.segundosHablados) ? Math.round(cuerpo.segundosHablados) : null;
+      console.info(
+        "[llamadas:diagnostico]",
+        JSON.stringify({ callId: cuerpo.callId.slice(0, 64), sid, operadorId, segundosHablados: segundos, ...limpio }),
+      );
+      return NextResponse.json({ ok: true });
     }
 
     default:
