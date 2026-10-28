@@ -28,7 +28,8 @@ const falso = {
   alertaInterna: {
     findFirst: async ({ where }) => [...filas].reverse().find((f) => coincide(f, where)) ?? null,
     create: async ({ data }) => {
-      const fila = { id: `a${++contador}`, estado: "NUEVA", salioPorWhatsApp: false, veces: 1, creadoEn: new Date(2026, 9, 29, 10, contador), vistaEn: null, resueltaEn: null, detalle: null, ...data };
+      const creadoEn = new Date(2026, 9, 1, 10, contador);
+      const fila = { id: `a${++contador}`, estado: "NUEVA", salioPorWhatsApp: false, veces: 1, creadoEn, ultimaVez: creadoEn, vistaEn: null, resueltaEn: null, detalle: null, ...data };
       filas.push(fila);
       return fila;
     },
@@ -355,6 +356,58 @@ await prueba("alertas personales: la persona ve solo las suyas; el jefe, las del
   assert.equal(filas.filter((f) => f.clave === "k").length, 2);
   assert.equal(reglas.linkDeLaAlerta("abc"), "https://app.aizenbot.com/cliente/alertas?alerta=abc");
   assert.equal(reglas.idDeTarjetaDeLaClave("auto:equipo:t1:asignada:u_em"), "t1");
+});
+
+await prueba("repetida SUBE: guarda la hora de la ÚLTIMA vez, queda arriba de las más nuevas y conserva la primera", async () => {
+  const antes = Date.now();
+  await servicio.registrarAlerta({ workspaceId: "ws1", clave: "vieja", prioridad: "ALTA", titulo: "Vieja que se repite", origen: "Supervisor" });
+  await servicio.registrarAlerta({ workspaceId: "ws1", clave: "nueva", prioridad: "ALTA", titulo: "Nueva una vez", origen: "Supervisor" });
+  const vieja = filas.find((f) => f.clave === "vieja");
+  const primera = vieja.creadoEn;
+  assert.deepEqual((await servicio.listarAlertas("ws1")).map((a) => a.titulo), ["Nueva una vez", "Vieja que se repite"]);
+  await servicio.registrarAlerta({ workspaceId: "ws1", clave: "vieja", prioridad: "ALTA", titulo: "Vieja que se repite", origen: "Supervisor" });
+  assert.equal(vieja.veces, 2);
+  assert.equal(vieja.creadoEn, primera, "creadoEn sigue siendo la primera vez");
+  assert.ok(vieja.ultimaVez instanceof Date && vieja.ultimaVez.getTime() >= antes, "ultimaVez = hora de la repetición");
+  assert.deepEqual((await servicio.listarAlertas("ws1")).map((a) => a.titulo), ["Vieja que se repite", "Nueva una vez"]);
+  // refrescar:false no la toca (ni las veces ni la hora).
+  const marca = vieja.ultimaVez;
+  await servicio.registrarAlerta({ workspaceId: "ws1", clave: "vieja", prioridad: "ALTA", titulo: "x", origen: "Supervisor", refrescar: false });
+  assert.equal(vieja.ultimaVez, marca);
+  assert.equal(vieja.veces, 2);
+});
+
+await prueba("orden por la última vez; las filas sin ultimaVez (de antes) usan creadoEn; la prioridad sigue mandando", () => {
+  const lista = [
+    { id: "a", prioridad: "ALTA", creadoEn: new Date("2026-10-27T08:00:00Z"), ultimaVez: new Date("2026-10-27T21:00:00Z") },
+    { id: "b", prioridad: "ALTA", creadoEn: new Date("2026-10-27T20:00:00Z"), ultimaVez: new Date("2026-10-27T20:00:00Z") },
+    { id: "c", prioridad: "ALTA", creadoEn: new Date("2026-10-27T20:30:00Z") },
+    { id: "d", prioridad: "URGENTE", creadoEn: new Date("2026-10-26T08:00:00Z"), ultimaVez: null },
+  ];
+  assert.deepEqual(reglas.ordenarAlertas(lista).map((a) => a.id), ["d", "a", "c", "b"]);
+});
+
+await prueba("texto de la página: 'última vez HH:MM · se repitió N veces' (con el día si no fue hoy)", () => {
+  const ahora = new Date("2026-10-27T23:00:00Z"); // 18:00 en Bogotá
+  assert.equal(reglas.textoDeRepeticion(1, new Date("2026-10-27T22:05:00Z"), ahora), "");
+  assert.equal(reglas.textoDeRepeticion(3, new Date("2026-10-27T22:05:00Z"), ahora), "última vez 17:05 · se repitió 3 veces");
+  assert.equal(reglas.textoDeRepeticion(2, new Date("2026-10-26T14:40:00Z"), ahora), "última vez 26/10 09:40 · se repitió 2 veces");
+});
+
+await prueba("área: los incidentes del Supervisor sobre el libro V3, el bot o el embudo van a CRM Ventas", () => {
+  const mapa = new Map();
+  const sup = (clave) => reglas.areaDeAlerta({ clave, origen: "Supervisor" }, mapa);
+  assert.equal(sup("sup:INC:libro-v318:combo-camilla"), "CRM Ventas");
+  assert.equal(sup("sup:INC:libro-v5:todos"), "CRM Ventas");
+  assert.equal(sup("sup:CAMBIO:libro:v318"), "CRM Ventas");
+  assert.equal(sup("sup:CAMBIO:post-cambio:v318:combo"), "CRM Ventas");
+  assert.equal(sup("sup:BOT:regla-primer-mensaje:combo"), "CRM Ventas");
+  assert.equal(sup("sup:EMBUDO:respondio_2h_cusum:combo"), "CRM Ventas");
+  // Lo demás del Supervisor no cambia (asesoras esperando, claves sin incidente).
+  assert.equal(sup("sup:ATENCION:caliente-esperando:u1"), "General");
+  assert.equal(sup("x:1"), "General");
+  // La misma clave de otro sistema no se cuela.
+  assert.equal(reglas.areaDeAlerta({ clave: "sup:BOT:x", origen: "Coordinador" }, mapa), "Coordinador");
 });
 
 console.log(`\n${pruebas} pruebas ok`);

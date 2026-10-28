@@ -2529,7 +2529,10 @@ model AlertaInterna {
   salioPorWhatsApp Boolean   @default(false)
   /// Cuántas veces llegó la misma alerta mientras seguía abierta.
   veces            Int       @default(1)
+  /// La PRIMERA vez que llegó.
   creadoEn         DateTime  @default(now())
+  /// La ÚLTIMA vez que llegó (se actualiza en cada repetición): la página ordena y muestra por esta hora.
+  ultimaVez        DateTime  @default(now())
   vistaEn          DateTime?
   resueltaEn       DateTime?
   /// De quién es la alerta. null = alerta del negocio (la ven el dueño y los administradores, como siempre); con

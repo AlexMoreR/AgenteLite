@@ -34,7 +34,25 @@ export const ORIGEN_POR_AREA: Record<string, string> = {
   sistemas: "Agente de Sistemas",
 };
 
-export type AlertaOrdenable = { prioridad: string; creadoEn: Date | string };
+/** `ultimaVez` = la última vez que llegó (sube al repetirse); sin ella (filas de antes) cuenta `creadoEn`. */
+export type AlertaOrdenable = { prioridad: string; creadoEn: Date | string; ultimaVez?: Date | string | null };
+
+/** La hora con la que se ordena y se muestra una alerta: la de la ÚLTIMA vez que llegó. */
+export const ultimaVezDe = (alerta: Pick<AlertaOrdenable, "creadoEn" | "ultimaVez">): Date => new Date(alerta.ultimaVez ?? alerta.creadoEn);
+
+const ZONA = "America/Bogota";
+const diaEnBogota = (fecha: Date) => fecha.toLocaleDateString("en-CA", { timeZone: ZONA });
+
+/**
+ * "última vez HH:MM · se repitió N veces" (con el día delante si no fue hoy). Para una alerta que llegó una sola
+ * vez no hay nada que decir: "".
+ */
+export function textoDeRepeticion(veces: number, ultimaVez: Date, ahora = new Date()): string {
+  if (!(veces > 1)) return "";
+  const hora = ultimaVez.toLocaleTimeString("es-CO", { timeZone: ZONA, hour: "2-digit", minute: "2-digit", hour12: false });
+  const dia = diaEnBogota(ultimaVez) === diaEnBogota(ahora) ? "" : `${ultimaVez.toLocaleDateString("es-CO", { timeZone: ZONA, day: "2-digit", month: "2-digit" })} `;
+  return `última vez ${dia}${hora} · se repitió ${veces} veces`;
+}
 
 /** Texto → prioridad. Lo que no se reconoce es null (quien llama decide el valor por defecto). */
 export function leerPrioridad(valor: unknown): Prioridad | null {
@@ -49,10 +67,13 @@ export function leerPrioridad(valor: unknown): Prioridad | null {
 /** Por WhatsApp solo salen las URGENTES. */
 export const salePorWhatsApp = (prioridad: Prioridad | string): boolean => prioridad === "URGENTE";
 
-/** Por prioridad (Urgente primero) y, dentro de cada una, de la más nueva a la más vieja. No cambia la lista original. */
+/**
+ * Por prioridad (Urgente primero) y, dentro de cada una, de la más reciente a la más vieja según la ÚLTIMA vez que
+ * llegó: una alerta que se repite sube. No cambia la lista original.
+ */
 export function ordenarAlertas<T extends AlertaOrdenable>(alertas: readonly T[]): T[] {
   const peso = (alerta: T) => ORDEN_DE_PRIORIDAD[alerta.prioridad as Prioridad] ?? PRIORIDADES.length;
-  return [...alertas].sort((a, b) => peso(a) - peso(b) || new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime());
+  return [...alertas].sort((a, b) => peso(a) - peso(b) || ultimaVezDe(b).getTime() - ultimaVezDe(a).getTime());
 }
 
 /** Un título en una sola línea y de largo acotado. */
@@ -161,7 +182,19 @@ export function areaDelOrigen(origen: string): AreaDeAlerta {
 export function areaDeAlerta(alerta: { clave: string; origen: string }, areasDeTarjetas: ReadonlyMap<string, AreaDeAlerta | null>): AreaDeAlerta {
   const tarjetaId = idDeTarjetaDeLaClave(alerta.clave);
   if (tarjetaId) return areasDeTarjetas.get(tarjetaId) ?? areaDelOrigen(alerta.origen);
-  return areaDelOrigen(alerta.origen);
+  return areaDelSupervisor(alerta) ?? areaDelOrigen(alerta.origen);
+}
+
+/**
+ * Los incidentes del Supervisor sobre el libro V3 o el bot son del CRM de Ventas (el bot vive ahí). Se reconocen
+ * por la clave `sup:<incidente>`: `INC:libro-v<N>:…` (después de un cambio del libro), `CAMBIO:` (el cambio del libro
+ * mismo), `BOT:` (el bot) y `EMBUDO:` (los indicadores del embudo del bot). Los demás del Supervisor (p. ej.
+ * `ATENCION:` de asesoras) siguen por quién los generó. null = esta regla no aplica.
+ */
+const RE_SUPERVISOR_CRM_VENTAS = /^sup:(INC:libro-v\d+:|CAMBIO:|BOT:|EMBUDO:)/;
+export function areaDelSupervisor(alerta: { clave: string; origen: string }): AreaDeAlerta | null {
+  if (alerta.origen !== ORIGEN_SUPERVISOR) return null;
+  return RE_SUPERVISOR_CRM_VENTAS.test(String(alerta.clave ?? "")) ? "CRM Ventas" : null;
 }
 
 /** Cuántas alertas ABIERTAS (nuevas o vistas) hay por área; las resueltas no cuentan. */

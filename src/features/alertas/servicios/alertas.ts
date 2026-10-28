@@ -16,7 +16,8 @@ import {
  *  1. Toda alerta se guarda SIEMPRE en la página (guardar va primero: si el WhatsApp falla, la alerta queda).
  *  2. Solo las URGENTES salen por WhatsApp, con un mensaje de 2 líneas y el link a la página.
  *  3. Las demás no salen: se revisan en /cliente/alertas.
- *  4. La misma clave mientras sigue abierta (NUEVA o VISTA) no se duplica: se refresca y sube `veces`.
+ *  4. La misma clave mientras sigue abierta (NUEVA o VISTA) no se duplica: se refresca, sube `veces` y `ultimaVez` pasa a la hora
+ *     de esta repetición (así queda arriba en la página).
  *
  * Interruptor: AppSetting `alertas:solo-urgentes:<workspaceId>`; sin fila empieza PRENDIDO. Apagado, cada fuente
  * vuelve a avisar como antes (la alerta igual se guarda en la página).
@@ -46,6 +47,8 @@ export type AlertaGuardada = {
   salioPorWhatsApp: boolean;
   veces: number;
   creadoEn: Date;
+  /** La última vez que llegó (sube al repetirse). */
+  ultimaVez: Date;
   vistaEn: Date | null;
   resueltaEn: Date | null;
   destinatarioId: string | null;
@@ -89,7 +92,8 @@ export async function registrarAlerta(pedido: PedidoDeAlerta): Promise<Resultado
       // La misma alerta sigue abierta: se refresca (no se duplica). Si subió de prioridad, la prioridad nueva manda.
       await prisma.alertaInterna.update({
         where: { id: abierta.id },
-        data: { prioridad: pedido.prioridad, titulo, detalle, veces: { increment: 1 } },
+        // Y sube en la lista: `ultimaVez` es la hora de esta repetición (creadoEn sigue siendo la primera).
+        data: { prioridad: pedido.prioridad, titulo, detalle, veces: { increment: 1 }, ultimaVez: new Date() },
       });
       id = abierta.id;
     } else {
@@ -135,7 +139,7 @@ export type Mirando = { userId: string; esJefe: boolean };
 const dondeMira = (mirando?: Mirando) =>
   mirando ? (mirando.esJefe ? { OR: [{ destinatarioId: null }, { destinatarioId: mirando.userId }] } : { destinatarioId: mirando.userId }) : {};
 
-/** Las alertas del negocio ya ordenadas (prioridad y, dentro, de la más nueva a la más vieja). Por defecto, sin las resueltas. */
+/** Las alertas del negocio ya ordenadas (prioridad y, dentro, por la última vez que llegaron). Por defecto, sin las resueltas. */
 export async function listarAlertas(workspaceId: string, filtro: FiltroDeAlertas = {}, limite = 300, mirando?: Mirando): Promise<AlertaGuardada[]> {
   const estado = filtro.estado ?? "ABIERTAS";
   const filas = await prisma.alertaInterna.findMany({
@@ -145,7 +149,7 @@ export async function listarAlertas(workspaceId: string, filtro: FiltroDeAlertas
       ...(estado === "ABIERTAS" ? { estado: { in: ["NUEVA", "VISTA"] } } : estado === "TODAS" ? {} : { estado }),
       ...(filtro.prioridad ? { prioridad: filtro.prioridad } : {}),
     },
-    orderBy: { creadoEn: "desc" },
+    orderBy: [{ ultimaVez: "desc" }, { creadoEn: "desc" }],
     take: limite,
   });
   return ordenarAlertas(filas);

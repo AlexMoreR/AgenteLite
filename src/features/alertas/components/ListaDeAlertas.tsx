@@ -26,8 +26,12 @@ export type FilaDeAlerta = {
   estado: string;
   veces: number;
   salioPorWhatsApp: boolean;
-  /** Ya formateada (hora de Bogotá) en el servidor. */
+  /** La de la ÚLTIMA vez que llegó, ya formateada (hora de Bogotá) en el servidor. */
   fecha: string;
+  /** La primera vez que llegó (formateada); solo se muestra si se repitió. */
+  primeraVez?: string;
+  /** "última vez HH:MM · se repitió N veces"; vacío si llegó una sola vez. */
+  repeticion?: string;
 };
 
 const COLOR_PRIORIDAD: Record<Prioridad, "destructive" | "default" | "secondary" | "outline"> = {
@@ -105,8 +109,7 @@ export function ListaDeAlertas({ alertas, areas, conteoPorArea }: { alertas: Fil
               <Badge variant="secondary">{alerta.area}</Badge>
               <Badge variant="outline">{ETIQUETA_DE_ESTADO[alerta.estado as EstadoDeAlerta] ?? alerta.estado}</Badge>
               <span className="text-xs text-muted-foreground">
-                {alerta.fecha} · {alerta.origen}
-                {alerta.veces > 1 ? ` · se repitió ${alerta.veces} veces` : ""}
+                {alerta.repeticion ? `${alerta.repeticion} · ${alerta.origen} · primera vez ${alerta.primeraVez ?? ""}` : `${alerta.fecha} · ${alerta.origen}`}
                 {alerta.salioPorWhatsApp ? " · avisada por WhatsApp" : ""}
               </span>
             </div>

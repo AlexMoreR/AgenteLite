@@ -15,6 +15,8 @@ import {
   ETIQUETA_DE_PRIORIDAD,
   PRIORIDADES,
   leerPrioridad,
+  textoDeRepeticion,
+  ultimaVezDe,
   type EstadoDeAlerta,
 } from "@/features/alertas/dominio/reglas";
 import { contarAlertas, leerAreasDeTarjetas, listarAlertas } from "@/features/alertas/servicios/alertas";
@@ -77,6 +79,7 @@ export default async function AlertasPage({ searchParams }: PageProps) {
   const chip = (activo: boolean) =>
     cn("rounded-md border px-2.5 py-1 text-xs font-medium", activo ? "border-primary bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted");
 
+  const ahora = new Date();
   const filas = (alertas ?? []).map((alerta) => ({
     id: alerta.id,
     resaltada: alerta.id === alertaPedida,
@@ -89,7 +92,10 @@ export default async function AlertasPage({ searchParams }: PageProps) {
     estado: alerta.estado,
     veces: alerta.veces,
     salioPorWhatsApp: alerta.salioPorWhatsApp,
-    fecha: alerta.creadoEn.toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "short", timeStyle: "short" }),
+    // La hora que se muestra es la de la ÚLTIMA vez que llegó; la primera queda aparte si se repitió.
+    fecha: ultimaVezDe(alerta).toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "short", timeStyle: "short" }),
+    primeraVez: alerta.creadoEn.toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "short", timeStyle: "short" }),
+    repeticion: textoDeRepeticion(alerta.veces, ultimaVezDe(alerta), ahora),
   }));
 
   return (
