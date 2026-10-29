@@ -30,7 +30,9 @@ import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
 import { LARGO_MAXIMO_DEL_AVISO, decidir, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
 import { buscarCorridaDelDespliegue, esLimiteDeUso, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
-import { MAX_DESCRIPCION, descripcionParaLaNube, esTareaGrande, estaDentroDe, lanzarEnNube, linkDeSesion, preguntaDeConfianza, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
+import { MAX_DESCRIPCION, descripcionParaLaNube, esCommitDeInicio, esTareaGrande, estaDentroDe, esperarResultado, lanzarEnNube, linkDeSesion, preguntaDeConfianza, preguntaDelCommit, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
+import { preguntasAbiertasDelPlan, primeraPreguntaAbierta } from "../lib/preguntas-abiertas.mjs";
+import { debePartirAntes, parteDelSistema, partesDelSistemaDelPlan, partesSinAlcanceNuevo } from "../lib/reparto.mjs";
 import { detalleDeFalla, lineasQueFallaron } from "../lib/procesos.mjs";
 import { destructivoDelSql, migracionDestructiva } from "../lib/riesgo.mjs";
 import {
@@ -650,6 +652,176 @@ await prueba("decisiones: el límite de Claude espera sin contar; 3 reparaciones
   assert.equal(decidir({ diagnostico: lento, tarjeta: {}, etapa: "construir", archivosCambiados: 12 }).accion, "partir", "muchos archivos: se parte");
   assert.equal(decidir({ diagnostico: lento, tarjeta: {}, etapa: "construir", archivosCambiados: 2 }).accion, "reparar", "pocos archivos y primera vez: se repara");
   assert.equal(decidir({ diagnostico: lento, tarjeta: { esParte: true }, etapa: "construir", archivosCambiados: 12 }).accion, "reparar", "una parte no se parte más");
+});
+
+/* ── 29-oct-2026: 0 HECHO, 19 en ERROR y el 62 % del uso semanal en reintentos (tarjeta ykpl83z3) ── */
+
+const LINK_PRUEBA = "https://claude.ai/code/session_01XuE6FZe3k8GDZESRjd9996";
+
+await prueba("29-oct: la nube sin resultado, la nube que pregunta y el plan con preguntas van directo al dueño (sin reparar), con el link", async () => {
+  const sinResultado = diagnosticar({
+    error: Object.assign(new Error(`La sesión de la nube no dejó el commit "resultado:" en la rama tablero/ykpl83z3-${"x".repeat(80)} en 120 min (¿se quedó pensando o hizo una pregunta?). Mírala: ${LINK_PRUEBA}`), { categoria: "nube_sin_resultado" }),
+    etapa: "construir",
+  });
+  assert.equal(sinResultado.categoria, "nube_sin_resultado");
+  assert.ok(sinResultado.causa.endsWith(LINK_PRUEBA), `el link no se corta: ${sinResultado.causa}`);
+  assert.ok(sinResultado.causa.length <= 200);
+  // Sin la categoría (un error que llega como texto), el mensaje igual se reconoce (y no como tiempo_agotado).
+  assert.equal(diagnosticar({ error: new Error(`La sesión de la nube no dio señal (ni el commit "inicio:" ni ningún otro) en la rama r en 20 min: se cortó la espera. Mírala: ${LINK_PRUEBA}`), etapa: "construir" }).categoria, "nube_sin_resultado");
+  assert.equal(diagnosticar({ error: new Error(`La sesión de la nube hizo una pregunta y paró: ¿Qué ruta usa el CRM?. Mírala: ${LINK_PRUEBA}`), etapa: "construir" }).categoria, "nube_pregunta");
+  for (const categoria of ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas"]) {
+    const decision = decidir({ diagnostico: { categoria, causa: "x" }, tarjeta: { reparaciones: 0, ultimosIntentos: [] }, etapa: "construir" });
+    assert.deepEqual([decision.accion, decision.cuenta], ["escalar", true], categoria);
+  }
+  const resumen = resumenDeEscalada({ tarjeta: {}, intentos: [], diagnostico: sinResultado });
+  assert.match(resumen, new RegExp(LINK_PRUEBA.replace(/[.]/g, "\\.")));
+  assert.match(resumen.split("\n")[2], /^Qué necesita de ti: Abrir el link de la sesión de la nube/);
+});
+
+await prueba("29-oct: la misma causa 2 veces en la tarjeta (contando todos los intentos) se escala; las ajenas a la tarea no", async () => {
+  const compila = { categoria: "no_compila", causa: "No compila" };
+  const dos = [{ accion: "reparar", categoria: "no_compila" }, { accion: "esperar", categoria: "limite_claude" }, { accion: "partir", categoria: "no_compila" }];
+  assert.equal(decidir({ diagnostico: compila, tarjeta: { reparaciones: 1, ultimosIntentos: dos }, etapa: "construir" }).accion, "escalar", "2 iguales (reparar y partir) -> escala");
+  assert.match(decidir({ diagnostico: compila, tarjeta: { reparaciones: 1, ultimosIntentos: dos }, etapa: "construir" }).motivo, /ya falló 2 veces/);
+  // Una sola igual: se repara, y como es la 2ª seguida con Sonnet, con Opus.
+  const una = decidir({ diagnostico: compila, tarjeta: { reparaciones: 1, ultimosIntentos: [{ accion: "reparar", categoria: "no_compila" }] }, etapa: "construir", modeloConstruir: "sonnet" });
+  assert.deepEqual([una.accion, una.estrategia], ["reparar", "opus"]);
+  // Las ajenas a la tarea siguen con su tope de esperas.
+  const pc = { categoria: "pc_sobrecargado", causa: "PC" };
+  const muchas = Array.from({ length: 3 }, () => ({ accion: "esperar", categoria: "pc_sobrecargado" }));
+  assert.equal(decidir({ diagnostico: pc, tarjeta: { esperasSeguidas: 3, ultimosIntentos: muchas }, etapa: "construir" }).accion, "esperar");
+  const cortado = { categoria: "coordinador_cortado", causa: "cortado" };
+  assert.equal(decidir({ diagnostico: cortado, tarjeta: { esperasSeguidas: 2, ultimosIntentos: muchas.map((i) => ({ ...i, categoria: "coordinador_cortado" })) }, etapa: "construir" }).accion, "esperar");
+  // tiempo_agotado la 2ª vez todavía se parte (antes de escalar a la 3ª).
+  const lento = { categoria: "tiempo_agotado", causa: "lento" };
+  assert.equal(decidir({ diagnostico: lento, tarjeta: { ultimosIntentos: [{ accion: "reparar", categoria: "tiempo_agotado" }] }, etapa: "construir" }).accion, "partir");
+});
+
+await prueba("29-oct: preguntas abiertas del plan (la sección PREGUNTAS ABIERTAS y las frases de duda); el plan de ykpl83z3 las tiene", async () => {
+  const ykpl = [
+    "Al terminar: espera tu sí",
+    "RIESGO: ALTO — Lee saldos de dinero. No cambia ningún dato, pero hay que confirmar con el CRM cómo se envía el mensaje.",
+    "APROBAR PLAN: SOLO",
+    "## 3. Riesgos",
+    "- **Cómo se envía el WhatsApp:** No pude comprobar que exista una dirección HTTP con llave.",
+    "  - Antes de construir hay que revisar con el CRM cuál es esa entrada.",
+    "## 6. Cómo se va a probar",
+    "- Pruebas de la regla pura.",
+    "",
+    "Lo que no revisé y queda pendiente:",
+    "- El contrato exacto de envío de WhatsApp del CRM.",
+    "",
+    "Plan escrito con: Claude Code (Sonnet)",
+  ].join("\n");
+  const preguntas = preguntasAbiertasDelPlan(ykpl);
+  assert.equal(preguntas.length, 4);
+  assert.match(preguntas[0], /hay que confirmar con el CRM/);
+  assert.match(preguntas[3], /^Lo que no revisé y queda pendiente: El contrato exacto de envío de WhatsApp del CRM\.$/);
+  assert.match(primeraPreguntaAbierta(ykpl), /hay que confirmar/);
+  // La sección: "ninguna" no cuenta; una lista numerada sí.
+  assert.deepEqual(preguntasAbiertasDelPlan("## 1. Qué se cambia\nUn botón.\n\nPREGUNTAS ABIERTAS: ninguna\n\nPlan escrito con: x"), []);
+  assert.deepEqual(preguntasAbiertasDelPlan("**PREGUNTAS ABIERTAS:**\n- Ninguna.\n"), []);
+  assert.deepEqual(preguntasAbiertasDelPlan("## 6. Pruebas\nx\n\nPREGUNTAS ABIERTAS:\n1. ¿Existe la ruta del CRM?\n2. Qué línea usa\n\nPlan escrito con: x"), ["¿Existe la ruta del CRM?", "Qué línea usa"]);
+  assert.deepEqual(preguntasAbiertasDelPlan("PREGUNTAS ABIERTAS: ¿Quién recibe el aviso?"), ["¿Quién recibe el aviso?"]);
+  // Lo de negocio no es una duda: una venta que "queda pendiente de pago".
+  assert.deepEqual(preguntasAbiertasDelPlan("## 1. Qué se cambia\nLa venta queda pendiente de pago hasta el abono.\nPREGUNTAS ABIERTAS: ninguna"), []);
+  assert.equal(primeraPreguntaAbierta("Un plan limpio.\nPREGUNTAS ABIERTAS: ninguna"), null);
+  // La instrucción de planear pide la sección.
+  const repo = { clave: "aizencrm" };
+  assert.match(promptDelPlan({ id: "t", titulo: "t", detalle: "d", tablero: "E" }, repo), /"PREGUNTAS ABIERTAS:"[^\n]*"PREGUNTAS ABIERTAS: ninguna"/);
+});
+
+await prueba("29-oct: la nube deja 'inicio:' y, si pregunta, 'pregunta:'; esperarResultado corta enseguida o a los sinSenalMinutos", async () => {
+  assert.equal(preguntaDelCommit("pregunta: ¿Cuál es la ruta del CRM para mandar WhatsApp?"), "¿Cuál es la ruta del CRM para mandar WhatsApp?");
+  assert.equal(preguntaDelCommit("Pregunta:   "), null);
+  assert.equal(preguntaDelCommit("arreglar la pregunta: x"), null);
+  assert.ok(esCommitDeInicio("inicio: tablero/x") && !esCommitDeInicio("tablero: inicio: x"));
+  const texto = promptDeNube({ id: "t", titulo: "t", detalle: "d", tablero: "E", plan: "p" }, { clave: "aizencrm" }, "tablero/abc");
+  assert.match(texto, /git commit --allow-empty -m "inicio: tablero\/abc" && git push origin tablero\/abc/);
+  assert.match(texto, /NO preguntes en el chat[^\n]*git commit --allow-empty -m "pregunta: <la pregunta en una línea>"/);
+  // Un `gh` falso: contesta los commits que dice GH_COMMITS_PRUEBA (JSON por línea, del más nuevo al más viejo).
+  const gh = [process.execPath, "-e", "process.stdout.write(process.env.GH_COMMITS_PRUEBA || '')"];
+  const esperar = (commits, nube) => {
+    process.env.GH_COMMITS_PRUEBA = commits.map((c) => JSON.stringify(c)).join("\n");
+    const contexto = { config: { nube: { comandoGh: gh, vigilarCadaSegundos: 0.05, esperaMinutos: 1, sinSenalMinutos: 1, ...nube } }, registro: { info() {}, aviso() {} } };
+    return esperarResultado(contexto, { repo: { github: "a/b", ruta: AQUI }, rama: "tablero/abc", vistos: new Set(["viejo"]), reloj: { resta: () => 1e9 }, link: LINK_PRUEBA });
+  };
+  try {
+    const empezo = Date.now();
+    await assert.rejects(esperar([{ sha: "p1", mensaje: "pregunta: ¿Qué ruta usa el CRM?" }, { sha: "i1", mensaje: "inicio: tablero/abc" }]), (error) => {
+      assert.equal(error.categoria, "nube_pregunta");
+      assert.match(error.message, /hizo una pregunta y paró: ¿Qué ruta usa el CRM\?/);
+      assert.ok(error.message.includes(LINK_PRUEBA));
+      return true;
+    });
+    assert.ok(Date.now() - empezo < 20_000, "la pregunta corta enseguida, no a los 120 min");
+    // Ni inicio ni nada: corta a los sinSenalMinutos (acá 0,002 min) aunque la espera larga sea de 1 min.
+    await assert.rejects(esperar([{ sha: "viejo", mensaje: "base" }], { sinSenalMinutos: 0.002 }), (error) => {
+      assert.equal(error.categoria, "nube_sin_resultado");
+      assert.match(error.message, /no dio señal/);
+      return true;
+    });
+    // Con inicio pero sin resultado: respeta la espera larga y al vencer es nube_sin_resultado (no tiempo_agotado).
+    await assert.rejects(esperar([{ sha: "i1", mensaje: "inicio: tablero/abc" }], { sinSenalMinutos: 0.001, esperaMinutos: 0.004 }), (error) => {
+      assert.equal(error.categoria, "nube_sin_resultado");
+      assert.match(error.message, /no dejó el commit "resultado:"/);
+      return true;
+    });
+    // Un "resultado:" después de la pregunta (más nuevo) manda.
+    const bien = await esperar([{ sha: "r1", mensaje: "resultado: build=OK tests=OK segundos=9" }, { sha: "p1", mensaje: "pregunta: x" }]);
+    assert.deepEqual([bien.paso, bien.sha], [true, "r1"]);
+  } finally {
+    delete process.env.GH_COMMITS_PRUEBA;
+  }
+  // La configuración: sinSenalMinutos por defecto 20, validado y nunca más que la espera.
+  const base = { urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: os.tmpdir(), repos: { aizencrm: { ruta: AQUI } } };
+  assert.equal(completarConfig(base).nube.sinSenalMinutos, 20);
+  assert.equal(completarConfig({ ...base, nube: { esperaMinutos: 10, sinSenalMinutos: 30 } }).nube.sinSenalMinutos, 10);
+  assert.throws(() => completarConfig({ ...base, nube: { sinSenalMinutos: 0 } }), /nube\.sinSenalMinutos/);
+});
+
+await prueba("29-oct: un plan que toca más de una parte del sistema se parte antes de construir; partir compara por parte, no por nombre exacto", async () => {
+  const planYkpl = [
+    "## 1. Qué se cambia",
+    "Una ruta en Gestión, como `/api/catalogo` y `/api/transporte`, y un script con cron diario en aizen1, como el respaldo nocturno.",
+    "## 5. Archivos que se tocan",
+    "- `src/app/api/alertas/cuentas/route.ts`",
+    "- `src/modules/alertas-cuentas/domain/alerta-cuentas.ts`",
+    "- `src/modules/alertas-cuentas/domain/alerta-cuentas.test.ts`",
+    "- `src/modules/alertas-cuentas/application/revisar-cuentas.ts`",
+    "- `scripts/alertas/avisar-cuentas.sh`",
+    "- `src/modules/balances/infrastructure/prisma-money-without-account.ts`",
+    "- `CLAUDE.md`",
+    "- `docs/asesor/gestion.md`",
+    "## 6. Cómo se va a probar",
+  ].join("\n");
+  assert.deepEqual(parteDelSistema("src/app/api/alertas/cuentas/route.ts"), { clave: "app/api/alertas", nombre: "alerta" });
+  assert.deepEqual(parteDelSistema("src/modules/alertas-cuentas/domain/x.ts"), { clave: "modules/alertas-cuentas", nombre: "alerta" });
+  assert.equal(parteDelSistema("src/lib/prisma.ts"), null, "el pegamento no es una parte");
+  assert.equal(parteDelSistema("src/app/actions/x-actions.ts"), null);
+  assert.equal(parteDelSistema("docs/asesor/gestion.md"), null);
+  const { partes, otroSistema } = partesDelSistemaDelPlan(planYkpl);
+  assert.equal(partes.length, 2, partes.join(" | "));
+  assert.match(otroSistema, /cron diario en aizen1/);
+  const decision = debePartirAntes({ plan: planYkpl });
+  assert.equal(decision.partir, true);
+  assert.match(decision.motivo, /3 partes del sistema/);
+  assert.equal(debePartirAntes({ plan: planYkpl }, { soloPorPartes: true }).partir, true);
+  // Pantalla + su módulo del mismo tema es UNA parte; una sola parte en la nube no se parte.
+  const unaParte = "## 5. Archivos\n- src/features/tableros-inteligentes/services/x.ts\n- src/app/cliente/tablero-ia/page.tsx\n- src/app/actions/tableros-inteligentes-actions.ts\n- prisma/schema.prisma";
+  assert.equal(partesDelSistemaDelPlan(unaParte).partes.length, 1);
+  assert.equal(debePartirAntes({ plan: unaParte }, { soloPorPartes: true }).partir, false);
+  assert.equal(debePartirAntes({ plan: planYkpl, esParte: true }).partir, false, "una parte no se parte más");
+  // Otro repo nombrado en el plan cuenta como otro sistema.
+  assert.ok(partesDelSistemaDelPlan("## 5. Archivos\n- src/features/a/x.ts\nY en el repo gestion una ruta nueva.", { otrosRepos: ["gestion"] }).otroSistema);
+  // Las partes de ykpl83z3 que se rechazaron el 29-oct ("lib, modules, prisma, scripts/respaldo", "app/api/transporte/ubicaciones"): ahora pasan.
+  const partesYkpl = [
+    { titulo: "Regla y ruta", detalle: "## Archivos\n- src/modules/alertas-cuentas/domain/alerta-cuentas.ts\n- src/app/api/alertas/cuentas/route.ts\n- src/lib/prisma.ts\n- prisma/schema.prisma\n- Ver src/app/api/transporte/ubicaciones/route.ts y src/app/api/catalogo/productos/route.ts como molde" },
+    { titulo: "Script y cron", detalle: "## Archivos\n- scripts/alertas/avisar-cuentas.sh\n- como scripts/respaldo/respaldo.sh" },
+  ];
+  assert.deepEqual(partesSinAlcanceNuevo(planYkpl, partesYkpl), { ok: true, fuera: [] });
+  // Una parte de verdad nueva (un tema que el plan no nombra) sigue fuera.
+  assert.deepEqual(partesSinAlcanceNuevo(planYkpl, [...partesYkpl, { titulo: "Extra", detalle: "- src/modules/nomina/x.ts" }]), { ok: false, fuera: ["modules/nomina"] });
 });
 
 await prueba("aviso de reversión al dueño: máximo 3 líneas y 500 caracteres aunque el motivo sea larguísimo (26-oct-2026: uno de 869 no salió)", () => {
@@ -1922,23 +2094,47 @@ try {
     sinRestos();
   });
 
-  await prueba("3 reparaciones que no alcanzan: queda en ERROR con un resumen de 3 líneas (qué falló, qué se probó, qué necesita)", async () => {
+  await prueba("la misma causa 2 veces y la 3ª no se repara: queda en ERROR con un resumen de 3 líneas (qué falló, qué se probó, qué necesita)", async () => {
     const id = nuevaModerna("Nunca compila [tsc]");
-    for (const esperado of ["reparar", "reparar", "reparar", "escalar"]) {
+    // 29-oct-2026: con 2 fallas iguales ya no se reintenta a ciegas (antes eran 3 reparaciones).
+    for (const esperado of ["reparar", "reparar", "escalar"]) {
       const resultado = await vuelta();
       assert.equal(resultado.accion, esperado);
     }
     const t = tarjetas.get(id);
     assert.equal(t.estado, "ERROR");
-    assert.equal(t.reparaciones, 3);
-    assert.deepEqual(t.intentosLista.map((i) => i.accion), ["reparar", "reparar", "reparar", "escalar"]);
+    assert.equal(t.reparaciones, 2);
+    assert.deepEqual(t.intentosLista.map((i) => i.accion), ["reparar", "reparar", "escalar"]);
     const lineas = t.resultado.error.motivo.split("\n");
     assert.equal(lineas.length, 3, "máximo 3 líneas");
     assert.match(lineas[0], /^Qué falló:/);
-    assert.match(lineas[1], /^Qué se probó:.*3 reparaciones/);
+    assert.match(lineas[1], /^Qué se probó:.*2 reparaciones/);
     assert.match(lineas[2], /^Qué necesita de ti:/);
     assert.equal(t.resultado.error.categoria, "no_compila");
-    assert.match(t.intentosLista[3].error, /error TS2322/, "el error exacto queda en el intento");
+    assert.match(t.intentosLista[2].error, /error TS2322/, "el error exacto queda en el intento");
+    sinRestos();
+  });
+
+  await prueba("29-oct: un plan con preguntas abiertas que se aprobó solo no se construye: ERROR plan_con_preguntas y un aviso al dueño; aprobado por el dueño, sí", async () => {
+    const plan = "## 1. Qué se cambia\nUn aviso.\n## 3. Riesgos\nAntes de construir hay que revisar con el CRM cuál es la entrada.\n## 5. Archivos que se tocan\n- src/features/a/x.ts\n\nPREGUNTAS ABIERTAS:\n- ¿Qué ruta del CRM manda el WhatsApp?";
+    const avisosAntes = llamadas.filter((l) => l.accion === "aviso").length;
+    const id = nuevaModerna("Plan con dudas [preguntas]", "PLAN_APROBADO", { plan });
+    const resultado = await vuelta();
+    assert.deepEqual([resultado.ok, resultado.accion, resultado.categoria], [false, "escalar", "plan_con_preguntas"]);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.equal(t.reparaciones ?? 0, 0, "no gasta reparaciones");
+    assert.match(t.resultado.error.motivo, /^Qué falló: El plan tiene preguntas abiertas: ¿Qué ruta del CRM manda el WhatsApp\?/, "primero la sección PREGUNTAS ABIERTAS");
+    assert.equal(ultimaDeClaude("Plan con dudas [preguntas]"), undefined, "no abre la sesión de construir");
+    const avisos = llamadas.filter((l) => l.accion === "aviso").slice(avisosAntes);
+    assert.equal(avisos.length, 1);
+    assert.equal(avisos[0].cuerpo.tipo, "necesita");
+    assert.match(avisos[0].cuerpo.texto, /no se construye: el plan tiene preguntas abiertas/);
+    // El dueño aprobó el plan tal cual (pantalla o voz): se construye.
+    const id2 = nuevaModerna("Plan con dudas aprobado [preguntas]", "PLAN_APROBADO", { plan, planAprobadoPorElDueno: true });
+    assert.equal((await vuelta()).ok, true);
+    assert.equal(tarjetas.get(id2).estado, "POR_REVISAR");
+    soltarTodas(id2);
     sinRestos();
   });
 
@@ -2972,7 +3168,8 @@ try {
     await planificador.esperarTodas();
     const t = tarjetas.get(id);
     assert.equal(t.estado, "ERROR");
-    assert.match(t.resultado.error.motivo, /no dejó el commit "resultado:"/);
+    // 29-oct-2026: sin ningún commit (ni "inicio:") corta a los sinSenalMinutos (acá iguales a la espera).
+    assert.match(t.resultado.error.motivo, /no dejó el commit "resultado:"|no dio señal/);
     assert.ok(t.resultado.error.motivo.includes(enlaceDe("Se quedó pensando [nube-sin-resultado]")));
     planificador.parar();
     sinRestos();

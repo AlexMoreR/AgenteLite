@@ -151,7 +151,9 @@ siguen en aizen1.
   `gh api repos/<dueño>/<repo>/commits?sha=<rama>` buscando el commit vacío
   `resultado: build=OK|FALLO tests=OK|FALLO segundos=N`. **Nunca** `claude --teleport`. Mientras tanto el
   latido de la tarjeta sigue (con `{ lugar: "nube", sesion }`: el CRM guarda el link `claude.ai/code/session_…` y
-  da 180 minutos en vez de 90). Si no aparece en `nube.esperaMinutos` (120), la tarjeta pasa a ERROR con el link. Lo que vuelve se verifica en
+  da 180 minutos en vez de 90). La sesión deja primero un commit vacío `inicio: <rama>`; si no aparece ningún commit en
+  `nube.sinSenalMinutos` (20), o deja `pregunta: <…>`, o no aparece `resultado:` en `nube.esperaMinutos` (120), la
+  tarjeta pasa a ERROR con el link, sin reparación automática. Lo que vuelve se verifica en
   aizen1 con su propio reloj (`nube.verificarMinutos`, 45) y, como mucho, 2 a la vez (`maxParalelo`): la
   verificación de la nube hace fila para no pasar de los puestos de aizen1.
 - **Al volver con `build=OK tests=OK`** (`nube.confiarEnResultado`, sí por defecto; 26-oct-2026, regla del
@@ -363,6 +365,21 @@ etapa falla, el Coordinador (`lib/bucle.mjs`, `lib/diagnostico.mjs`):
    *escalar* (después de 3 reparaciones queda en ERROR con un resumen de 3 líneas: qué falló, qué se probó y qué
    necesita del dueño).
 3. Cada paso queda en la ficha de la tarjeta ("Por qué está en ERROR" e "Intentos").
+
+**Sin reintentos ciegos (29-oct-2026, el 62 % del uso semanal se fue en reintentos):**
+
+| Categoría | Qué pasó | Qué hace el Coordinador |
+|---|---|---|
+| `nube_sin_resultado` | la sesión de la nube no dejó `inicio:` ni ningún commit en `nube.sinSenalMinutos` (20), o no dejó `resultado:` en `nube.esperaMinutos` (120) | ERROR enseguida, con el link de la sesión; **no se repara sola** |
+| `nube_pregunta` | la sesión dejó el commit vacío `pregunta: <…>` (no pregunta en el chat) | ERROR enseguida con la pregunta y el link |
+| `plan_con_preguntas` | el plan aprobado SOLO trae "PREGUNTAS ABIERTAS:" o frases como "hay que confirmar", "antes de construir hay que", "lo que no revisé" (`lib/preguntas-abiertas.mjs`, espejo en `reglas-riesgo.ts`) | no se construye: ERROR + aviso "necesita"; si el dueño aprobó el plan tal cual, sí se construye |
+| cualquier otra | la MISMA categoría ya falló 2 veces en la tarjeta (todos los intentos) | escala (salvo `limite_claude`, `pc_sobrecargado`, `carpeta_trabada`, `coordinador_cortado`, que tienen su tope de esperas) |
+
+Además: un plan con preguntas abiertas no se aprueba solo (queda PLAN_LISTO con el motivo), y una tarea cuyo plan
+toca **más de una parte del sistema** (`src/modules/X`, `src/features/X`, `src/app/<área>`, `scripts/X`, otro
+repo o un cron en aizen1; `lib`, `prisma`, `app/actions`… no cuentan) se parte antes de construir, en aizen1 y en
+la nube (`reparto.mjs: partesDelSistemaDelPlan`). Las partes heredan la aprobación si no traen partes del sistema
+que el plan no nombre (por ruta o por tema).
 
 Lo que se guarda cuando un comando falla (`lib/procesos.mjs`): las líneas que fallaron (`not ok`, `error`,
 `FAIL`...) con un poco de contexto, las últimas 60 líneas, y la salida COMPLETA en un archivo

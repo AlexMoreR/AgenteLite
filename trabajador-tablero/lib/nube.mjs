@@ -462,14 +462,36 @@ const dormir = (ms, senal) =>
   });
 
 /**
+ * La pregunta de un commit vacío "pregunta: <la pregunta en una línea>" (29-oct-2026): la sesión de la nube no pregunta en
+ * el chat (nadie la lee), deja este commit y termina. null si el commit no es una pregunta (o viene vacía).
+ */
+export function preguntaDelCommit(mensaje) {
+  const primera = String(mensaje ?? "").split(/\r?\n/)[0].trim();
+  const coincide = primera.match(/^pregunta:\s*(.+)$/i);
+  return coincide ? coincide[1].trim() || null : null;
+}
+
+/** ¿Es el commit vacío "inicio: …" que la sesión de la nube deja en sus primeros minutos (la señal de que arrancó)? */
+export const esCommitDeInicio = (mensaje) => /^inicio:/i.test(String(mensaje ?? "").split(/\r?\n/)[0].trim());
+
+/**
  * Espera el commit "resultado:" nuevo (que no estaba en `vistos`) en la rama. Mira cada
  * config.nube.vigilarCadaSegundos; no pasa de config.nube.esperaMinutos ni del reloj de la etapa.
+ * 29-oct-2026 (4 sesiones de 2 h paradas en una pregunta, sin un commit): ahora también corta antes:
+ *   - un commit "pregunta: …" -> error enseguida (nube_pregunta, con la pregunta y el link: no se repara solo);
+ *   - ni "inicio:" ni ningún commit nuevo en config.nube.sinSenalMinutos -> error (nube_sin_resultado, con el link);
+ *   - con señal pero sin "resultado:" al vencer la espera larga -> nube_sin_resultado (antes tiempo_agotado, que se reparaba solo).
  * Devuelve { build, tests, segundos, paso, detalle, sha, mensaje }.
  */
 export async function esperarResultado(contexto, { repo, rama, vistos, reloj, link }) {
   const { config, senal, registro } = contexto;
-  const limite = Date.now() + config.nube.esperaMinutos * MINUTO;
+  const inicio = Date.now();
+  const limite = inicio + config.nube.esperaMinutos * MINUTO;
+  const sinSenalMinutos = config.nube.sinSenalMinutos ?? config.nube.esperaMinutos;
+  const limiteSinSenal = inicio + sinSenalMinutos * MINUTO;
+  const mirala = link ? ` Mírala: ${link}` : "";
   let ultimoFallo = "";
+  let huboSenal = false;
   for (;;) {
     if (senal?.aborted) throw new ErrorDeEtapa("Se canceló la espera de la nube: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
     reloj.resta();
@@ -479,18 +501,31 @@ export async function esperarResultado(contexto, { repo, rama, vistos, reloj, li
       ultimoFallo = error;
     } else {
       ultimoFallo = "";
+      // Del más nuevo al más viejo: lo último que dejó la sesión manda (un "resultado:" después de una pregunta vale).
       for (const commit of commits) {
         if (vistos.has(commit.sha)) continue;
+        if (!huboSenal) registro?.info?.(`la nube dio señal en la rama ${rama}: ${String(commit.mensaje).split(/\r?\n/)[0].slice(0, 120)}`);
+        huboSenal = true;
         const resultado = resultadoDelCommit(commit.mensaje);
         if (resultado) return { ...resultado, sha: commit.sha, mensaje: commit.mensaje };
+        const pregunta = preguntaDelCommit(commit.mensaje);
+        if (pregunta) {
+          throw new ErrorDeEtapa(`La sesión de la nube hizo una pregunta y paró: ${pregunta}.${mirala}`, { categoria: "nube_pregunta" });
+        }
       }
+    }
+    if (!huboSenal && !error && Date.now() >= limiteSinSenal) {
+      throw new ErrorDeEtapa(`La sesión de la nube no dio señal (ni el commit "inicio:" ni ningún otro) en la rama ${rama} en ${sinSenalMinutos} min: se cortó la espera.${mirala}`, {
+        categoria: "nube_sin_resultado",
+      });
     }
     if (Date.now() >= limite) {
       throw new ErrorDeEtapa(
-        `La sesión de la nube no dejó el commit "resultado:" en la rama ${rama} en ${config.nube.esperaMinutos} min (¿se quedó pensando o hizo una pregunta?).${link ? ` Mírala: ${link}` : ""}`,
-        { categoria: "tiempo_agotado" },
+        `La sesión de la nube no dejó el commit "resultado:" en la rama ${rama} en ${config.nube.esperaMinutos} min (¿se quedó pensando o hizo una pregunta?).${mirala}`,
+        { categoria: "nube_sin_resultado" },
       );
     }
-    await dormir(Math.min(config.nube.vigilarCadaSegundos * 1000, Math.max(50, limite - Date.now())), senal);
+    const proximo = huboSenal ? limite : Math.min(limite, limiteSinSenal);
+    await dormir(Math.min(config.nube.vigilarCadaSegundos * 1000, Math.max(50, proximo - Date.now())), senal);
   }
 }

@@ -322,11 +322,82 @@ export function gastoDeclaradoEnElPlan(plan: string): string | null {
   return null;
 }
 
+/* ─────────────────────────────────────────────── preguntas abiertas del plan (29-oct-2026) ── */
+
+/*
+  Un plan con preguntas abiertas no se aprueba solo (tarjeta ykpl83z3: el plan decía "hay que confirmarlo" y "Antes de
+  construir hay que revisar con el CRM…", se aprobó solo y se construyó 4 veces en la nube sin resultado). La instrucción
+  de planear pide una sección final "PREGUNTAS ABIERTAS:" (o "ninguna"); además se buscan las frases que delatan una duda.
+  ESPEJO de trabajador-tablero/lib/preguntas-abiertas.mjs: si cambia una regla acá, cambiarla allá igual.
+*/
+
+const ENCABEZADO_DE_PREGUNTAS = /^[\s>#*_-]*preguntas abiertas\**\s*:?\**\s*(.*)$/;
+const SIN_PREGUNTAS = /^[\s*_.:\-—–]*(ninguna?s?|no hay( ninguna?)?|sin preguntas( abiertas)?|n\/a|-|—)[\s*_.!]*$/;
+const FRASES_DE_DUDA = [
+  /hay que confirmar/,
+  // "queda pendiente" solo al final de la línea o antes de ":" (una venta "queda pendiente de pago" no es una duda).
+  /quedan? pendientes?\s*(?::|$)/,
+  /pendientes? de (?:confirmar|revisar|decidir|comprobar|definir)/,
+  /no pude (?:comprobar|confirmar|verificar|revisar)/,
+  /lo que no revise/,
+  /antes de construir hay que/,
+  /falta (?:decidir|confirmar|definir)/,
+];
+
+const lineaLimpia = (linea: string) =>
+  linea
+    .replace(/^[\s>*_#-]*(?:\d+[.)]\s*)?/, "")
+    .replace(/\*+/g, "")
+    .trim();
+
+const esOtroEncabezadoDelPlan = (linea: string) =>
+  /^\s*#{1,6}\s/.test(linea) || /^\s*\**\s*\d+[.)]\s+\**[A-ZÁÉÍÓÚ]/.test(linea) || /^\s*Plan escrito con:/i.test(linea);
+
+/** Las preguntas abiertas del plan, en orden, cada una en una línea ([] si no tiene). */
+export function preguntasAbiertasDelPlan(plan: string): string[] {
+  const lineas = plan.replace(/\r\n/g, "\n").split("\n");
+  const preguntas: string[] = [];
+  const agregar = (texto: string) => {
+    const una = lineaLimpia(texto).replace(/\s+/g, " ");
+    if (una && !preguntas.includes(una)) preguntas.push(una);
+  };
+  for (let i = 0; i < lineas.length; i += 1) {
+    const calce = ENCABEZADO_DE_PREGUNTAS.exec(normalizar(lineas[i]));
+    if (!calce) continue;
+    if (calce[1].trim() && !SIN_PREGUNTAS.test(calce[1])) agregar(lineas[i].replace(/^[\s>#*_-]*preguntas abiertas\**\s*:?\**\s*/i, ""));
+    for (let j = i + 1; j < lineas.length; j += 1) {
+      if (!lineas[j].trim()) continue;
+      if (/^\s*#{1,6}\s/.test(lineas[j]) || /^\s*Plan escrito con:/i.test(lineas[j])) break;
+      if (!SIN_PREGUNTAS.test(normalizar(lineas[j]))) agregar(lineas[j]);
+    }
+  }
+  for (let i = 0; i < lineas.length; i += 1) {
+    const texto = normalizar(lineas[i]);
+    if (ENCABEZADO_DE_PREGUNTAS.test(texto) || !FRASES_DE_DUDA.some((frase) => frase.test(texto))) continue;
+    let pregunta = lineaLimpia(lineas[i]);
+    if (/:\s*$/.test(pregunta)) {
+      const siguiente = lineas.slice(i + 1).find((linea) => linea.trim());
+      if (siguiente && !esOtroEncabezadoDelPlan(siguiente)) pregunta = `${pregunta} ${lineaLimpia(siguiente)}`;
+    }
+    agregar(pregunta);
+  }
+  return preguntas;
+}
+
+/** El motivo para no aprobar solo un plan con preguntas abiertas ("el plan tiene preguntas abiertas: <la primera>"), o null. */
+export function porQueElPlanTienePreguntas(plan: string): string | null {
+  const [primera] = preguntasAbiertasDelPlan(plan);
+  return primera ? `el plan tiene preguntas abiertas: ${primera}`.slice(0, 300) : null;
+}
+
 /**
  * ¿El plan espera el sí del dueño aunque la tarea ya esté aprobada? Devuelve el motivo en una línea, o null
  * si el plan pasa solo a construir. Sin base: se prueba con `npm run test:tableros`.
  */
 export function porQueElPlanEsperaTuSi(plan: string): string | null {
+  // 29-oct-2026: un plan con preguntas abiertas espera al dueño (lo que sea que diga su línea APROBAR PLAN).
+  const preguntas = porQueElPlanTienePreguntas(plan);
+  if (preguntas) return preguntas;
   const linea = lineaAprobarPlan(plan);
   if (linea?.espera) return `el trabajador dice que espera tu sí${linea.motivo ? `: ${linea.motivo}` : ""}`.slice(0, 300);
   const texto = plan.replace(/\r\n/g, "\n");

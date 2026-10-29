@@ -99,6 +99,9 @@ const NUBE_POR_DEFECTO = {
   // Cuánto se espera el commit "resultado:" de la nube y, aparte, cuánto se da para verificar en aizen1 lo que volvió
   // (instalar, tipos, build, pruebas, ensayo): 120 + 45 caben en los 180 min que da el CRM.
   esperaMinutos: 120,
+  // 29-oct-2026: si en estos minutos la sesión no dejó el commit "inicio:" ni ningún otro, se corta (nube_sin_resultado) y
+  // pasa al dueño con el link, en vez de esperar las 2 horas enteras.
+  sinSenalMinutos: 20,
   verificarMinutos: 45,
   terminal: "auto",
   lanzarMinutos: 5,
@@ -412,10 +415,12 @@ export function completarConfig(datos, base = process.cwd()) {
     nube[campo] = Number(nube[campo]);
     if (!Number.isFinite(nube[campo]) || nube[campo] < 1) errores.push(`nube.${campo}: un número, 1 o más.`);
   }
-  for (const campo of ["vigilarCadaSegundos", "esperaMinutos", "verificarMinutos", "lanzarMinutos"]) {
+  for (const campo of ["vigilarCadaSegundos", "esperaMinutos", "sinSenalMinutos", "verificarMinutos", "lanzarMinutos"]) {
     nube[campo] = Number(nube[campo]);
     if (!Number.isFinite(nube[campo]) || nube[campo] <= 0) errores.push(`nube.${campo}: un número, más de 0.`);
   }
+  // Sin señal no se espera más que la espera entera: si se pone más, vale la espera.
+  if (Number.isFinite(nube.sinSenalMinutos) && Number.isFinite(nube.esperaMinutos)) nube.sinSenalMinutos = Math.min(nube.sinSenalMinutos, nube.esperaMinutos);
   // El CRM da 12 tarjetas a la vez entre aizen1 y la nube: más que eso lo recorta en silencio y contesta "ocupado".
   if (nube.activa === true && Number.isFinite(maxParalelo) && maxParalelo + nube.maxTareas > 12) {
     errores.push(`maxParalelo (${maxParalelo}) + nube.maxTareas (${nube.maxTareas}) no pueden pasar de 12: es lo que da el CRM a la vez entre aizen1 y la nube.`);
@@ -487,6 +492,7 @@ export function completarConfig(datos, base = process.cwd()) {
       maxArchivosChica: Math.floor(nube.maxArchivosChica),
       vigilarCadaSegundos: nube.vigilarCadaSegundos,
       esperaMinutos: nube.esperaMinutos,
+      sinSenalMinutos: nube.sinSenalMinutos,
       verificarMinutos: nube.verificarMinutos,
       lanzarMinutos: nube.lanzarMinutos,
       terminal: nube.terminal,

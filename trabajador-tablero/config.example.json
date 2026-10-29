@@ -27,6 +27,7 @@
     "maxArchivosChica": 8,
     "vigilarCadaSegundos": 60,
     "esperaMinutos": 120,
+    "sinSenalMinutos": 20,
     "verificarMinutos": 45,
     "terminal": "auto",
     "confiarEnResultado": true,

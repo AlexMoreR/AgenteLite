@@ -26,8 +26,25 @@ export const CATEGORIAS = [
   "tarea_muy_grande",
   "coordinador_cortado",
   "sesion_atascada",
+  // 29-oct-2026: la sesión de la nube no dejó el commit "resultado:" (o no dio señal) / dejó un commit "pregunta:".
+  "nube_sin_resultado",
+  "nube_pregunta",
+  // 29-oct-2026: el plan aprobado tiene preguntas abiertas (preguntas-abiertas.mjs): no se construye.
+  "plan_con_preguntas",
   "otra",
 ];
+
+/**
+ * Las categorías que NO se reparan solas (29-oct-2026, 62 % del uso semanal se fue en reintentos ciegos): van directo al
+ * dueño con el link y la línea de qué necesita. Repetirlas no cambia nada hasta que alguien encuentre la causa.
+ */
+export const SIN_REPARACION_AUTOMATICA = ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas"];
+
+/** Las que no son de la tarea (ya tienen su tope de esperas): no cuentan para "la misma causa 2 veces". */
+const AJENAS_A_LA_TAREA = ["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado"];
+
+/** Con cuántas fallas previas de la MISMA categoría (en los intentos de la tarjeta) ya no se repara: se escala. */
+export const TOPE_DE_FALLAS_IGUALES = 2;
 
 /** Las acciones del historial. */
 export const ACCIONES = ["reparar", "partir", "esperar", "escalar"];
@@ -116,6 +133,10 @@ const REGLAS = [
   ["pc_sobrecargado", /ENOMEM|out of memory|heap out of memory|JavaScript heap|allocation failed|PC (?:saturado|sobrecargado|lleno)|con el PC saturado/i],
   // Una sesión que lanzó tareas en segundo plano y se quedó esperándolas, o que el vigilante cortó por quieta.
   ["sesion_atascada", SESION_ATASCADA],
+  // La nube preguntó (commit "pregunta:") o no dejó el commit "resultado:" / no dio señal (nube.mjs: esperarResultado).
+  ["nube_pregunta", /sesi[oó]n de la nube hizo una pregunta/i],
+  ["nube_sin_resultado", /sesi[oó]n de la nube no (?:dej[oó] el commit|dio se[nñ]al)/i],
+  ["plan_con_preguntas", /el plan tiene preguntas abiertas/i],
   // Lo que el trabajador no controla.
   ["coordinador_cortado", /venció en el CRM|se canceló|coordinador[^\n]*cortad|la sesión se cayó|se cortó el coordinador|ECONNRESET/i],
   // Las que la etapa nombra con palabras sencillas.
@@ -144,6 +165,9 @@ const CAUSA_BASE = {
   tarea_muy_grande: "La tarea es demasiado grande para una sola sesión",
   coordinador_cortado: "El Coordinador se cortó mientras trabajaba (se reinició o se canceló)",
   sesion_atascada: "La sesión de Claude se quedó esperando tareas en segundo plano y no avanzó (sesión atascada)",
+  nube_sin_resultado: "La sesión de la nube no dejó su resultado (ni dio señal a tiempo)",
+  nube_pregunta: "La sesión de la nube hizo una pregunta y paró",
+  plan_con_preguntas: "El plan tiene preguntas abiertas",
   otra: "No se reconoció la causa",
 };
 
@@ -171,6 +195,16 @@ function lineaClave(texto) {
   );
 }
 
+const LINK_DE_LA_NUBE = /https:\/\/claude\.ai\/code\/session_[A-Za-z0-9_-]+/;
+
+/** La causa en una línea de máximo 200 que termina con el link de la sesión de la nube (si el texto trae uno). */
+function conElLink(frase, texto) {
+  const link = String(texto ?? "").match(LINK_DE_LA_NUBE)?.[0];
+  const sinLink = String(frase).replace(LINK_DE_LA_NUBE, "").replace(/\s*M[ií]rala:\s*$/i, "").replace(/\s+/g, " ").trim();
+  if (!link) return enUnaLinea(sinLink);
+  return `${enUnaLinea(sinLink.replace(/[.:\s]+$/, ""), LARGO_DE_LA_CAUSA - link.length - 3)} — ${link}`;
+}
+
 /**
  * Una línea con la causa: lo que la etapa dijo (su titular) si dice algo útil; si no, la frase de la categoría.
  * `no_cambio_nada` agrega el motivo que Claude escribió en "NO_CAMBIE: <motivo>".
@@ -181,6 +215,8 @@ function causaDe(categoria, titular, texto) {
     return enUnaLinea(motivo ? `${CAUSA_BASE.no_cambio_nada}: ${motivo}` : CAUSA_BASE.no_cambio_nada);
   }
   if (categoria === "otra") return enUnaLinea(titular || CAUSA_BASE.otra);
+  // La nube y el plan con preguntas: el link de la sesión no se corta nunca (es lo que el dueño abre para ver dónde se quedó).
+  if (SIN_REPARACION_AUTOMATICA.includes(categoria)) return conElLink(titular || CAUSA_BASE[categoria], texto);
   // El titular de una sesión cortada por Claude no dice nada útil ("Claude falló al construir (código 1)"): se dice la causa.
   if (categoria === "sesion_atascada" && !/atascada|quieta/i.test(titular)) return enUnaLinea(CAUSA_BASE.sesion_atascada);
   if (!titular) return enUnaLinea(CAUSA_BASE[categoria]);
@@ -297,6 +333,17 @@ export function decidir({ diagnostico, tarjeta = {}, etapa, config = {}, archivo
       : { accion: "escalar", cuenta: true, motivo: `${categoria} ${TOPE_DE_ESPERAS_SEGUIDAS} veces seguidas y ya no quedan reparaciones` };
   }
 
+  // 29-oct-2026: la nube que no dejó resultado (o preguntó) y el plan con preguntas abiertas no se reparan solos.
+  if (SIN_REPARACION_AUTOMATICA.includes(categoria)) {
+    return { accion: "escalar", cuenta: true, motivo: `${categoria}: no se repara solo, lo ve el dueño (con el link)` };
+  }
+  // La MISMA causa ya falló TOPE_DE_FALLAS_IGUALES veces en la tarjeta (contando todos los intentos, no solo las
+  // reparaciones): queda quieta en ERROR hasta que alguien encuentre la causa. Las ajenas a la tarea tienen su tope de esperas.
+  if (!AJENAS_A_LA_TAREA.includes(categoria)) {
+    const iguales = intentos.filter((intento) => intento?.categoria === categoria).length;
+    if (iguales >= TOPE_DE_FALLAS_IGUALES) return { accion: "escalar", cuenta: true, motivo: `${categoria} ya falló ${iguales} veces en esta tarjeta: no se reintenta a ciegas` };
+  }
+
   const puedePartir = etapa === "construir" && !esParte;
   const sesionesPasadas = intentos.filter((intento) => intento.categoria === "tiempo_agotado").length;
   if ((categoria === "tiempo_agotado" || categoria === "tarea_muy_grande") && puedePartir) {
@@ -317,8 +364,9 @@ export function decidir({ diagnostico, tarjeta = {}, etapa, config = {}, archivo
 
   if (reparaciones >= tope) return { accion: "escalar", cuenta: true, motivo: `ya se hicieron ${reparaciones} reparaciones` };
 
-  // La 2ª reparación seguida con la misma categoría cambia de estrategia: modelo más fuerte o partir.
-  if (reparacionesSeguidasCon(intentos, categoria) >= 2) {
+  // La 2ª reparación seguida con la misma categoría cambia de estrategia: modelo más fuerte o partir. (Desde el 29-oct, con 2
+  // fallas iguales se escala arriba: el cambio de estrategia llega en la 2ª, no en la 3ª.)
+  if (reparacionesSeguidasCon(intentos, categoria) >= 1) {
     const yaEsOpus = /opus/i.test(String(modeloConstruir ?? ""));
     if (etapa === "construir" && !esParte && yaEsOpus) return { accion: "partir", cuenta: false, motivo: `${categoria} otra vez y Opus ya lo intentó: se parte` };
     if (etapa === "construir" && !yaEsOpus) return { accion: "reparar", cuenta: true, estrategia: "opus", motivo: `${categoria} otra vez: se repara con un modelo más fuerte (Opus)` };
@@ -341,6 +389,9 @@ const NECESITA = {
   tarea_muy_grande: "Dividir la tarea en tarjetas más chicas.",
   coordinador_cortado: "Revisar que el Coordinador esté encendido en aizen1 y tocar Reintentar.",
   sesion_atascada: "Tocar Reintentar; si se vuelve a atascar, dividir la tarea en partes más chicas.",
+  nube_sin_resultado: "Abrir el link de la sesión de la nube, ver dónde se quedó y, con la causa clara, tocar Reintentar.",
+  nube_pregunta: "Responder la pregunta (en el detalle de la tarjeta) y aprobar de nuevo la tarea para que se planee con la respuesta.",
+  plan_con_preguntas: "Responder las preguntas del plan (en el detalle de la tarjeta) y aprobar de nuevo la tarea, o aprobar el plan tal cual.",
   otra: "Que alguien mire los Detalles técnicos y diga qué hacer.",
 };
 

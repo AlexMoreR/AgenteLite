@@ -57,6 +57,7 @@ import { PRIORIDAD } from "./cola.mjs";
 import { tamanoDeLaRespuesta } from "./medir.mjs";
 import { carpetaDeIntentos } from "./registro.mjs";
 import { migracionDestructiva } from "./riesgo.mjs";
+import { primeraPreguntaAbierta } from "./preguntas-abiertas.mjs";
 import {
   CONFIRMACION_BOT_VENTAS,
   CONFIRMACION_CHATS,
@@ -635,6 +636,8 @@ export function promptDelPlan(tarjeta, repo, motor = "claude", { lecciones = "" 
       "4. Migración de base de datos: sí o no. Si sí, cuál (solo aditiva y escrita a mano). El CRM revisa esta parte buscando SQL destructivo: NO escribas las palabras DROP, DELETE, UPDATE, RENAME ni TRUNCATE (ni siquiera para decir que no se usan) salvo que de verdad se vayan a usar.",
       "5. Archivos que se tocan.",
       "6. Cómo se va a probar.",
+      // 29-oct-2026: un plan con dudas sin resolver no se construye (preguntas-abiertas.mjs); el dueño las responde antes.
+      'Al FINAL, una sección "PREGUNTAS ABIERTAS:" con cada duda que no pudiste resolver leyendo el código (lo que hay que confirmar, decidir o revisar antes de construir, una pieza de otro sistema que no comprobaste), una por línea. Si no tienes ninguna, escribe "PREGUNTAS ABIERTAS: ninguna". No las escondas en los riesgos: un plan con preguntas abiertas espera al dueño y no se construye.',
     ].join("\n"),
     `Reglas: ${REGLAS_DE_ZONAS} Si la tarea lo requiere, dilo claro al principio del plan: "TOCA ZONA PROTEGIDA: <cuál y por qué>".`,
     motor === "codex" ? SIN_SUBAGENTES_AL_PLANEAR : SUBAGENTES_AL_PLANEAR,
@@ -774,6 +777,8 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
     "LO PRIMERO: lee el archivo CLAUDE.md de la raíz del repositorio y cumple sus REGLAS DE EJECUCIÓN (son obligatorias).",
     [
       "LECCIONES OBLIGATORIAS:",
+      `0. SEÑAL DE INICIO, en tus primeros minutos y antes de cualquier otra cosa: git commit --allow-empty -m "inicio: ${rama}" && git push origin ${rama}. Si el Coordinador no ve ese commit (ni ningún otro) en unos minutos, da la sesión por perdida.`,
+      `   SI TIENES UNA PREGUNTA O TE FALTA ALGO (una decisión, un dato, una pieza de otro sistema): NO preguntes en el chat (nadie lo lee). Deja un commit vacío con la pregunta en UNA línea, súbelo y TERMINA: git commit --allow-empty -m "pregunta: <la pregunta en una línea>" && git push origin ${rama}. (O, si ya intentaste y no se puede, el commit "resultado:" con FALLO del punto 4.)`,
       `1. PREPARACIÓN, en este orden: ${pasos.join(" → ")}. Sin \`npx prisma generate\` el build falla con errores de tipos falsos.`,
       variables.length
         ? `   Antes de compilar o probar, exporta estas variables (NO son secretas, son direcciones falsas a propósito):\n${variables.map((linea) => `   ${linea}`).join("\n")}`
@@ -1143,6 +1148,13 @@ export async function planear(contexto, tarjeta) {
     // gana sobre cualquier "SOLO") y el bucle manda UN aviso "necesita".
     const necesita = necesitoDe(texto);
     if (necesita) return { plan: `APROBAR PLAN: ESPERA TU SÍ — el agente necesita ${necesita.tipo}: ${necesita.detalle}\n\n${plan}`, motor, modelo, necesita };
+    // Preguntas abiertas (29-oct-2026): igual que NECESITO, el plan espera el sí del dueño (no se aprueba solo) y va UN aviso.
+    const pregunta = primeraPreguntaAbierta(plan);
+    if (pregunta) {
+      contexto.registro?.info?.(`el plan tiene preguntas abiertas: ${pregunta}`);
+      const detalle = `el plan tiene preguntas abiertas: ${pregunta}`;
+      return { plan: `APROBAR PLAN: ESPERA TU SÍ — ${detalle}\n\n${plan}`, motor, modelo, necesita: { tipo: "decisión", detalle: enUnaLinea(detalle, 400) } };
+    }
     return { plan, motor, modelo };
   } finally {
     await quitarWorktree(repo, carpeta);

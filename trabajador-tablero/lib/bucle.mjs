@@ -39,6 +39,7 @@ import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
 import { esTareaGrande } from "./nube.mjs";
 import { crearPausaPorUso } from "./pausa-uso.mjs";
+import { primeraPreguntaAbierta } from "./preguntas-abiertas.mjs";
 import { crearMedidor, faltanRecursos } from "./recursos.mjs";
 
 const ETAPAS = { planear, construir, subir };
@@ -153,8 +154,12 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
   try {
     const etapa = ETAPAS[hacer];
     if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este Coordinador no sabe hacer (¿hay que actualizarlo?).`);
-    if (hacer === "construir" && !enNube && conReparaciones) {
-      const partida = await partirAntesDeConstruir({ crm, config, registro, contexto }, tarjeta);
+    // Un plan con preguntas abiertas no se construye (29-oct-2026), salvo que el dueño lo haya aprobado tal cual.
+    if (hacer === "construir" && conReparaciones) await frenarPlanConPreguntas({ crm, registro }, tarjeta);
+    // Partir antes de construir: en aizen1 por tamaño o por partes del sistema; en la nube solo por partes del sistema
+    // (el tamaño ya lo decidió esTareaGrande al mandarla allá).
+    if (hacer === "construir" && conReparaciones) {
+      const partida = await partirAntesDeConstruir({ crm, config, registro, contexto }, tarjeta, { soloPorPartes: enNube });
       if (partida) return { ok: true, estado: "EN_CURSO", partes: partida };
     }
     // Medir ANTES de planear (26-oct-2026): dependencias sin terminar y tarjetas muy grandes no abren la sesión de plan.
@@ -324,15 +329,35 @@ async function avisarReversion(crm, registro, tarjeta, motivo, reversion) {
 }
 
 /**
+ * PLAN CON PREGUNTAS ABIERTAS (29-oct-2026, preguntas-abiertas.mjs): no se construye un plan que dice "hay que confirmar",
+ * "queda pendiente:"… o trae la sección "PREGUNTAS ABIERTAS:" con algo, si se aprobó solo (la tarjeta ykpl83z3 gastó 8 h en la
+ * nube parada en esa misma duda). Va UN aviso "necesita" al dueño y se lanza el error plan_con_preguntas: decidir() lo escala
+ * directo (ERROR), sin reparaciones. Si el dueño aprobó el plan tal cual (planAprobadoPorElDueno, lo dice /tomar), se construye.
+ */
+async function frenarPlanConPreguntas({ crm, registro }, tarjeta) {
+  if (tarjeta.planAprobadoPorElDueno === true) return;
+  const pregunta = primeraPreguntaAbierta(tarjeta.plan);
+  if (!pregunta) return;
+  registro.aviso(`el plan tiene preguntas abiertas y se aprobó solo: no lo construyo (${pregunta})`);
+  try {
+    await crm.aviso(recortarAviso(`"${enUnaLinea(tarjeta.titulo, 120)}" no se construye: el plan tiene preguntas abiertas.\n${enUnaLinea(pregunta, 250)}\nRespóndela en la tarjeta y apruébala de nuevo (o aprueba el plan tal cual).`), "necesita");
+  } catch (error) {
+    registro.aviso(`no salió el aviso del plan con preguntas (${error.status ?? "sin respuesta"}): ${error.message}`);
+  }
+  throw new ErrorDeEtapa(`El plan tiene preguntas abiertas: ${pregunta}`, { categoria: "plan_con_preguntas" });
+}
+
+/**
  * PARTIR ANTES de construir (25-oct-2026, reparto.mjs: debePartirAntes): una tarea de aizen1 con un plan muy grande se
  * parte en 2 a 4 partes chicas, en orden, en vez de gastar 90 min y caerse por tiempo o por choque con main. Las partes
  * las crea el CRM (/partir) en PLAN_APROBADO, heredando la aprobación de la madre: eso vale SOLO si no agregan alcance
  * (partesSinAlcanceNuevo); si agregan, o si partir falla, se construye la tarea entera como siempre.
  * Devuelve cuántas partes quedaron, o 0 si no se partió. El límite de uso de Claude se deja subir (la tarjeta se suelta).
  */
-async function partirAntesDeConstruir({ crm, config, registro, contexto }, tarjeta) {
+async function partirAntesDeConstruir({ crm, config, registro, contexto }, tarjeta, { soloPorPartes = false } = {}) {
   const repo = config.repos[tarjeta.repo];
-  const decision = debePartirAntes(tarjeta, { partir: config.partir, carpetaMigraciones: repo?.carpetaMigraciones ?? undefined, sinChoque: repo?.sinChoque });
+  const otrosRepos = Object.keys(config.repos ?? {}).filter((clave) => clave !== tarjeta.repo);
+  const decision = debePartirAntes(tarjeta, { partir: config.partir, carpetaMigraciones: repo?.carpetaMigraciones ?? undefined, sinChoque: repo?.sinChoque, otrosRepos, soloPorPartes });
   if (!decision.partir) return 0;
   registro.info(`tarea grande (${decision.motivo}): la parto en partes chicas antes de construir`);
   const causa = enUnaLinea(`Tarea grande: ${decision.motivo}. Se partió antes de construir para que no se caiga por tiempo ni choque con main.`);

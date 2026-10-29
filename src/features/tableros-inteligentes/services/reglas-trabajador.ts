@@ -438,6 +438,17 @@ export function aprobacionDelDuenoEnElHistorial(filas: readonly { accion: string
   });
 }
 
+/**
+ * ¿La ÚLTIMA aprobación del plan la dio una persona (pantalla o voz) y no la aprobación automática? (29-oct-2026) El
+ * Coordinador no construye un plan con preguntas abiertas que se aprobó solo; si el dueño lo aprobó tal cual, sí.
+ * `filas`: las filas "aprobar" del historial, de la más nueva a la más vieja.
+ */
+export function planAprobadoPorElDuenoEnElHistorial(filas: readonly { accion: string; despues: unknown }[]): boolean {
+  const ultima = filas.find((fila) => fila.accion === "aprobar" && (fila.despues as { momento?: unknown } | null)?.momento === "plan");
+  const via = (ultima?.despues as { via?: unknown } | null | undefined)?.via;
+  return via === "pantalla" || via === "voz";
+}
+
 /** ¿Lo que dejó el Coordinador en `esperaPor` es solo que faltaba su prueba extra (no un envío ni un gasto)? */
 export function esperaSoloPorLaPruebaExtra(esperaPor: string | null | undefined): boolean {
   return typeof esperaPor === "string" && /^falta la prueba de que/i.test(esperaPor.trim());
@@ -1112,6 +1123,11 @@ export const CATEGORIAS_DE_INTENTO = [
   "tarea_muy_grande",
   "coordinador_cortado",
   "sesion_atascada",
+  // 29-oct-2026: la nube no dejó resultado (o no dio señal) / dejó un commit "pregunta:" / el plan tiene preguntas abiertas.
+  // El Coordinador no las repara solas: van directo a ERROR con el link (diagnostico.mjs: SIN_REPARACION_AUTOMATICA).
+  "nube_sin_resultado",
+  "nube_pregunta",
+  "plan_con_preguntas",
   "otra",
 ] as const;
 export type CategoriaDeIntento = (typeof CATEGORIAS_DE_INTENTO)[number];

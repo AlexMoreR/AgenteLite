@@ -21,6 +21,7 @@ import {
   destinoDelResultado,
   TEXTO_APROBACION_HEREDADA,
   aprobacionDelDuenoEnElHistorial,
+  planAprobadoPorElDuenoEnElHistorial,
   esperaSoloPorLaPruebaExtra,
   porQueNoHeredaLaAprobacion,
   errorDeIntentoDeEntrada,
@@ -69,7 +70,7 @@ import {
   type EtapaDelTrabajador,
   type PedidoDeTomar,
 } from "./reglas-trabajador";
-import { archivosDeEntrada, frase, motivosDeLosArchivos, motivosDelResultado, porQueElPlanEsperaTuSi, porQueLaTareaEsperaTuSi, porQueNoSeApruebaSola, riesgoDelPlan } from "./reglas-riesgo";
+import { archivosDeEntrada, frase, motivosDeLosArchivos, motivosDelResultado, porQueElPlanEsperaTuSi, porQueElPlanTienePreguntas, porQueLaTareaEsperaTuSi, porQueNoSeApruebaSola, riesgoDelPlan } from "./reglas-riesgo";
 import {
   anotarAprobacionAutomatica,
   aprobacionAutomaticaPrendida,
@@ -316,11 +317,13 @@ type DatosDeIntentos = {
     cuentaComoIntento: boolean;
   }[];
   ultimoError: string | null;
+  /** La última aprobación del plan la dio una persona (no la automática): un plan con preguntas abiertas igual se construye. */
+  planAprobadoPorElDueno: boolean;
 };
 
 /** Los últimos 6 intentos (del más viejo al más nuevo), las esperas seguidas, el último error y si es una parte. */
 async function datosDeIntentos(tx: Tx, fila: { id: string; tableroId: string }): Promise<DatosDeIntentos> {
-  const [recientes, madre] = await Promise.all([
+  const [recientes, madre, aprobaciones] = await Promise.all([
     tx.intentoTarjeta.findMany({
       where: { tarjetaId: fila.id },
       orderBy: { numero: "desc" },
@@ -328,6 +331,12 @@ async function datosDeIntentos(tx: Tx, fila: { id: string; tableroId: string }):
       select: { numero: true, etapa: true, categoria: true, causa: true, error: true, accion: true, cuentaComoIntento: true },
     }),
     tx.$queryRawUnsafe<{ id: string }[]>(SQL_ES_PARTE, fila.tableroId, fila.id),
+    tx.historialTarjeta.findMany({
+      where: { tarjetaId: fila.id, accion: "aprobar", deshechoEn: null },
+      orderBy: { creadoEn: "desc" },
+      take: 20,
+      select: { accion: true, despues: true },
+    }),
   ]);
   const viejoANuevo = [...recientes].reverse();
   return {
@@ -338,6 +347,7 @@ async function datosDeIntentos(tx: Tx, fila: { id: string; tableroId: string }):
       return intento;
     }),
     ultimoError: recientes.find((intento) => intento.error)?.error ?? null,
+    planAprobadoPorElDueno: planAprobadoPorElDuenoEnElHistorial(aprobaciones),
   };
 }
 
@@ -349,6 +359,7 @@ function paraElTrabajador(fila: FilaParaTrabajar, intentos: DatosDeIntentos) {
     esParte: intentos.esParte,
     ultimosIntentos: intentos.ultimosIntentos,
     ultimoError: intentos.ultimoError,
+    planAprobadoPorElDueno: intentos.planAprobadoPorElDueno,
     id: fila.id,
     titulo: fila.titulo,
     detalle: fila.detalle,
@@ -869,7 +880,10 @@ export async function accionDelTrabajador(
             riesgo: actual.riesgo,
             prendido,
           });
-          if (!noSola && !esperaPorRegla) {
+          // 29-oct-2026: un plan con preguntas abiertas no se aprueba solo, aunque sea BAJO.
+          const preguntas = porQueElPlanTienePreguntas(plan);
+          if (preguntas) despues.nota = `plan listo, espera tu sí (${preguntas})`;
+          if (!noSola && !esperaPorRegla && !preguntas) {
             const motivo = motivoDeLaAprobacionAutomatica(revision.motivoDeclarado ?? actual.riesgoMotivo);
             aprobacionDelPlan = registroDeAprobacionAutomatica({ estado: "PLAN_APROBADO", momento: "plan", motivo });
             a = "PLAN_APROBADO";

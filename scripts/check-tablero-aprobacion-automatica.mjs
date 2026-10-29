@@ -300,6 +300,34 @@ await prueba("plan: BAJO con zona protegida ya puesta no se aprueba solo (regla 
   assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planDe() })).estado, "PLAN_LISTO");
 });
 
+await prueba("plan (29-oct): un plan con preguntas abiertas no se aprueba solo, ni BAJO ni con la regla del dueño 24-oct", async () => {
+  const conDudas = `${planDe()}\nAPROBAR PLAN: SOLO\n\nLo que no revisé y queda pendiente:\n- El contrato exacto de envío de WhatsApp del CRM.`;
+  // Con la regla del dueño prendida (cualquier riesgo).
+  planeando({ riesgo: "ALTO" });
+  let r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: conDudas });
+  assert.equal(r.estado, "PLAN_LISTO");
+  assert.match(estado.tarjetas.get("t1").riesgoMotivo, /preguntas abiertas: Lo que no revisé y queda pendiente: El contrato exacto/);
+  assert.ok(!estado.historial.some((fila) => fila.accion === "aprobar"), "no hay aprobación automática");
+  // BAJO con la regla del dueño apagada (la aprobación por bajo riesgo).
+  estado.tarjetas.clear();
+  estado.historial.length = 0;
+  apagarPlanes();
+  planeando();
+  r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: `${planDe()}\n\nPREGUNTAS ABIERTAS:\n- ¿Qué línea manda el aviso?` });
+  assert.equal(r.estado, "PLAN_LISTO");
+  assert.ok(!estado.historial.some((fila) => fila.accion === "aprobar"));
+  // La vuelta del reloj tampoco lo pasa a construir.
+  estado.tarjetas.clear();
+  estado.historial.length = 0;
+  tarjeta({ estado: "PLAN_LISTO", plan: conDudas });
+  assert.equal(await auto.aprobarPlanesListosQueEsperan(), 0);
+  // "PREGUNTAS ABIERTAS: ninguna" sí pasa.
+  estado.tarjetas.clear();
+  estado.historial.length = 0;
+  planeando();
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: `${planDe()}\n\nPREGUNTAS ABIERTAS: ninguna` })).estado, "PLAN_APROBADO");
+});
+
 /* ------------------------------------------------------------------ trabajador: resultado */
 
 const enCurso = (extra = {}) => tarjeta({ estado: "EN_CURSO", ...extra });
