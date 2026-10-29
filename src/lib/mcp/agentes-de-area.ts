@@ -69,7 +69,7 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
     name: "numeros_de_ventas",
     title: "Números de ventas del día",
     description:
-      "Los números de UN día (por defecto ayer, hora de Colombia) POR ASESORA: chats atendidos, cotizaciones (las REALES: las que se crearon ese día en Gestión por esa vendedora, igual que listar_cotizaciones; null si Gestión no respondió), chats calientes (chats que llegaron a Tibio o Caliente: Propuesta, Negociación o Ganado; NO son cotizaciones), ventas (la venta cuenta en la línea de ventas, a nombre de quien vendió; la línea Admin nunca suma y un teléfono es una sola venta), tasa de cierre y tiempo de respuesta (mediana en minutos), más los avisos que detectó el Supervisor ese día. También MIDE los sugeridos del último resumen guardado: a cuáles les escribió el equipo, cuáles respondieron y cuáles compraron. Trae también `tasa_respuesta_bienvenida`: de los leads nuevos del día (todos los que entraron, sin importar su etapa), qué % mandó al menos un mensaje más después del primero y qué % lo hizo en menos de 2 horas, en total, por línea y por anuncio, con la meta de 60 % y la serie de los últimos 14 días (null = sin dato). Así el agente no abre los chats uno por uno. Las ventas, abonos y saldos de dinero NO salen de aquí: se leen en el MCP de Gestión. Solo lectura.",
+      "Los números de UN día (por defecto ayer, hora de Colombia) POR ASESORA: chats atendidos, cotizaciones (las REALES: las que se crearon ese día en Gestión por esa vendedora, igual que listar_cotizaciones; null si Gestión no respondió), chats calientes (chats que llegaron a Tibio o Caliente: Propuesta, Negociación o Ganado; NO son cotizaciones), ventas (la venta cuenta en la línea de ventas, a nombre de quien vendió; la línea Admin nunca suma y un teléfono es una sola venta), tasa de cierre y tiempo de respuesta (mediana en minutos), más los avisos que detectó el Supervisor ese día. También MIDE los sugeridos del último resumen guardado: a cuáles les escribió el equipo, cuáles respondieron y cuáles compraron. Trae también `tasa_respuesta_bienvenida`: de los leads nuevos del día (todos los que entraron, sin importar su etapa), qué % mandó al menos un mensaje más después del primero y qué % lo hizo en menos de 2 horas, en total, por línea y por anuncio, con la meta de 60 %, separando los que respondieron la bienvenida, los recuperados por cada seguimiento (15 min, 1 hora, 1 día) y los que nunca respondieron, y la serie de los últimos 14 días (null = sin dato). Así el agente no abre los chats uno por uno. Las ventas, abonos y saldos de dinero NO salen de aquí: se leen en el MCP de Gestión. Solo lectura.",
     inputSchema: {
       type: "object",
       properties: {
@@ -382,7 +382,8 @@ async function verNumeros(args: Argumentos, contexto: Contexto) {
           total: bienvenida.delDia,
           por_linea: bienvenida.delDia.porLinea,
           por_anuncio: bienvenida.delDia.porAnuncio,
-          serie_14_dias: bienvenida.serie.map(({ porLinea, porAnuncio, ...dia }) => ({ ...dia, por_linea: porLinea.map((l) => ({ linea: l.linea, leads: l.leads, respondieron_por_ciento: l.respondieronPorCiento })) })),
+          como_leerlo: "respondieronLaBienvenida = contestaron antes de cualquier seguimiento; recuperados = escribieron solo después de un seguimiento (recuperadosPorSeguimiento: min15, hora1, dia1); nuncaRespondieron = jamás escribieron. Si dia1 sube de 0, el seguimiento de 1 día sí recupera clientes.",
+          serie_14_dias: bienvenida.serie.map(({ porLinea, porAnuncio, ...dia }) => ({ ...dia, por_linea: porLinea })),
           conversaciones_sin_registro: bienvenida.conversacionesSinRegistro,
           advertencias: bienvenida.advertencias,
         }

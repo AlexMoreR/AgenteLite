@@ -59,6 +59,9 @@ El cerebro es la carpeta "Magilus" del Drive: lo que el dueño ya decidió. Lo l
    (`por_linea`) y la meta de 60 %. Pon UNA línea en el mensaje a Alexander, por ejemplo "Respuesta a la bienvenida:
    49 % (30 de 61 leads), 38 % en menos de 2 h; meta 60 %". Si el campo viene vacío, en `no_se_pudo_leer` o el día no
    tuvo leads (null), escribe "Respuesta a la bienvenida: sin dato". No la inventes ni la calcules a mano.
+   Del mismo campo lee `respondieronLaBienvenida`, `recuperados` (con `recuperadosPorSeguimiento`: `min15`, `hora1`,
+   `dia1`) y `nuncaRespondieron`; en una frase di cuántos contestaron la bienvenida y cuántos los trajo cada seguimiento
+   (si `dia1` sube de 0, ese seguimiento sí recupera clientes).
 2. **Mide los sugeridos de ayer.** `numeros_de_ventas` trae `sugeridos_medidos`: a cuáles les escribieron, cuáles
    respondieron y cuáles compraron. Anota qué funcionó y ajusta las instrucciones que le das hoy a cada subagente.
 3. **Reparte.** Lee el `PROMPT.md` de cada subagente de hoy y lánzalo con la herramienta de subagentes (Task/Agent),

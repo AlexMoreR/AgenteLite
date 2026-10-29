@@ -71,6 +71,11 @@ function TarjetaDeBienvenida({ serie }: { serie: RespuestaBienvenidaDelDia[] | n
               {dia.fecha}: {porCiento(dia.respondieronPorCiento)} ({dia.respondieron} de {dia.leads}) · en menos de 2 h: {porCiento(dia.menosDe2hPorCiento)}{" "}
               {dia.cumpleMeta === null ? null : <Badge variant={dia.cumpleMeta ? "default" : "secondary"}>{dia.cumpleMeta ? "Cumple la meta" : "Bajo la meta"}</Badge>}
             </p>
+            <p className="text-xs text-muted-foreground">
+              Contestaron la bienvenida: {dia.respondieronLaBienvenida} · Recuperados por seguimiento: {dia.recuperados} (15 min: {dia.recuperadosPorSeguimiento.min15}, 1 hora:{" "}
+              {dia.recuperadosPorSeguimiento.hora1}, 1 día: {dia.recuperadosPorSeguimiento.dia1}
+              {dia.recuperadosPorSeguimiento.otro ? `, otro: ${dia.recuperadosPorSeguimiento.otro}` : ""}) · Nunca respondieron: {dia.nuncaRespondieron}
+            </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <Bloque titulo="Por línea">
                 {dia.porLinea.length === 0 ? <p className="text-xs text-muted-foreground">Sin dato.</p> : null}

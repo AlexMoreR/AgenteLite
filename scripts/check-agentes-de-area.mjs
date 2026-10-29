@@ -410,6 +410,41 @@ await prueba("bienvenida: cuenta a todos los leads sin importar su etapa; la lí
   assert.equal(sin.leads, 1);
 });
 
+const seg = (minutosDesdeElPrimero, minutosDeclarados = null) => ({ minutosDesdeElPrimero, minutosDeclarados });
+
+await prueba("bienvenida: separa respondió la bienvenida, recuperados por seguimiento y nunca respondieron; suman el total", async () => {
+  const leads = [
+    lead({ mensajes: 2, minutosAlSegundo: 5, seguimientos: [seg(15, 15)] }), // respondió antes del seguimiento
+    lead({ mensajes: 2, minutosAlSegundo: 7 }), // sin eventos
+    lead({ mensajes: 2, minutosAlSegundo: 20, seguimientos: [seg(15, 15)] }), // recuperado por 15 min
+    lead({ mensajes: 3, minutosAlSegundo: 70, seguimientos: [seg(15, 15), seg(60, 60)] }), // recuperado por 1 hora
+    lead({ mensajes: 3, minutosAlSegundo: 1500, seguimientos: [seg(15, 15), seg(60, 60), seg(1440, 1440)] }), // recuperado por 1 día
+    lead({ mensajes: 2, minutosAlSegundo: 40, seguimientos: [seg(20)] }), // motor viejo: franja 15 min
+    lead({ mensajes: 2, minutosAlSegundo: 200, seguimientos: [seg(120)] }), // motor viejo: franja 1 hora
+    lead({ mensajes: 2, minutosAlSegundo: 90, seguimientos: [seg(30, 45)] }), // minutos raros: otro
+    lead({ seguimientos: [seg(15, 15), seg(60, 60)] }), // nunca respondió
+    lead(), // nunca respondió, sin eventos
+    lead({ canalId: "admin", proposito: "ADMIN", linea: "Admin", mensajes: 5, minutosAlSegundo: 1, seguimientos: [seg(1, 15)] }), // Admin no entra
+  ];
+  const m = reglas.medirRespuestaBienvenida(leads);
+  assert.equal(m.leads, 10);
+  assert.equal(m.respondieronLaBienvenida, 2);
+  assert.deepEqual(m.recuperadosPorSeguimiento, { min15: 2, hora1: 2, dia1: 1, otro: 1 });
+  assert.equal(m.recuperados, 6);
+  assert.equal(m.nuncaRespondieron, 2);
+  assert.equal(m.respondieronLaBienvenida + m.recuperados + m.nuncaRespondieron, m.leads);
+  // Los campos viejos no cambian: respondieron = todos los de 2+ mensajes.
+  assert.equal(m.respondieron, 8);
+  assert.equal(m.respondieronEnMenosDe2h, 6);
+  const dia = reglas.serieDeRespuestaBienvenida(leads, "2026-10-26").at(-1);
+  assert.equal(dia.recuperadosPorSeguimiento.dia1, 1);
+  assert.equal(dia.porLinea[0].respondieronLaBienvenida + dia.porLinea[0].recuperados + dia.porLinea[0].nuncaRespondieron, dia.porLinea[0].leads);
+  assert.match(reglas.lineaDeRespuestaBienvenida(m), /1 día: 1/);
+  const vacio = reglas.medirRespuestaBienvenida([]);
+  assert.equal(vacio.nuncaRespondieronPorCiento, null);
+  assert.equal(vacio.recuperadosPorSeguimiento.dia1, 0);
+});
+
 await prueba("bienvenida: numeros_de_ventas trae el campo y, si falla la lectura, solo esa parte sale en no_se_pudo_leer", async () => {
   reiniciar({ activo: true });
   const r = await mcp.ejecutarHerramientaMcpAgentesDeArea("numeros_de_ventas", { fecha: "2026-10-26" }, { workspaceId: WS, userId: "alex" });
