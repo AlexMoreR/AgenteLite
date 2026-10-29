@@ -85,6 +85,7 @@
     "test:dia-siguiente": "node scripts/check-dia-siguiente.mjs",
     "test:tras-asesora-cierre": "node scripts/check-tras-asesora-cierre.mjs",
     "test:aviso-pausa": "node scripts/check-aviso-pausa.mjs",
+    "test:pausa-lectura-segura": "node scripts/check-pausa-lectura-segura.mjs",
     "test:listas-bandeja": "node scripts/check-listas-bandeja.mjs",
     "test:historial-etapa-migracion": "node scripts/check-historial-etapa-migracion.mjs",
     "test:historial-etapa": "node scripts/check-historial-etapa.mjs",
