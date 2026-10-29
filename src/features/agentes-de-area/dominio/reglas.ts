@@ -702,7 +702,21 @@ export type LeadDeBienvenida = {
   mensajes: number;
   /** Minutos entre el primer y el segundo mensaje del cliente; null si no hubo segundo. */
   minutosAlSegundo: number | null;
+  /** Seguimientos automáticos que salieron en ese chat (EmbudoEvento SEGUIMIENTO_ENVIADO); vacío o ausente = ninguno. */
+  seguimientos?: SeguimientoDeBienvenida[];
 };
+
+export type SeguimientoDeBienvenida = {
+  /** Minutos entre el primer mensaje del cliente y el envío del seguimiento; null si no se pudo calcular. */
+  minutosDesdeElPrimero: number | null;
+  /** `datos.minutos` del evento (15, 60, 1440). Los del motor viejo no lo guardan: null. */
+  minutosDeclarados: number | null;
+};
+
+/** Cuál seguimiento recuperó al lead. `otro` = uno que no encaja en 15 min, 1 hora ni 1 día (para que la suma cuadre). */
+export type SeguimientoRecuperador = "min15" | "hora1" | "dia1" | "otro";
+
+export type RecuperadosPorSeguimiento = Record<SeguimientoRecuperador, number>;
 
 export type MedidaDeBienvenida = {
   leads: number;
@@ -714,9 +728,47 @@ export type MedidaDeBienvenida = {
   metaPorCiento: number;
   /** null = sin dato. */
   cumpleMeta: boolean | null;
+  /** Respondieron ANTES de recibir cualquier seguimiento automático (o no les salió ninguno). */
+  respondieronLaBienvenida: number;
+  respondieronLaBienvenidaPorCiento: number | null;
+  /** No respondieron antes del primer seguimiento, recibieron seguimiento(s) y escribieron después. */
+  recuperados: number;
+  recuperadosPorCiento: number | null;
+  /** Recuperados según el último seguimiento recibido antes de su respuesta. */
+  recuperadosPorSeguimiento: RecuperadosPorSeguimiento;
+  /** Nunca mandaron un segundo mensaje. respondieronLaBienvenida + recuperados + nuncaRespondieron = leads. */
+  nuncaRespondieron: number;
+  nuncaRespondieronPorCiento: number | null;
 };
 
 const unDecimal = (valor: number) => Math.round(valor * 10) / 10;
+
+/** Franjas del motor viejo (sin `datos.minutos`): hasta 30 min = 15 min, hasta 3 h = 1 hora, más = 1 día. */
+function seguimientoRecuperador(seguimiento: SeguimientoDeBienvenida): SeguimientoRecuperador {
+  const { minutosDeclarados, minutosDesdeElPrimero } = seguimiento;
+  if (minutosDeclarados !== null && minutosDeclarados !== undefined) {
+    if (minutosDeclarados === 15) return "min15";
+    if (minutosDeclarados === 60) return "hora1";
+    if (minutosDeclarados === 1440) return "dia1";
+    return "otro";
+  }
+  if (minutosDesdeElPrimero === null || minutosDesdeElPrimero === undefined) return "otro";
+  if (minutosDesdeElPrimero <= 30) return "min15";
+  if (minutosDesdeElPrimero <= 180) return "hora1";
+  return "dia1";
+}
+
+/** Dónde cae un lead que respondió: antes del primer seguimiento (bienvenida) o recuperado por el último que ya había salido. */
+function clasificarRespuesta(lead: LeadDeBienvenida): "bienvenida" | SeguimientoRecuperador {
+  const segundo = lead.minutosAlSegundo;
+  const salidos = (lead.seguimientos ?? [])
+    .filter((s) => s.minutosDesdeElPrimero !== null && s.minutosDesdeElPrimero !== undefined)
+    .sort((a, b) => (a.minutosDesdeElPrimero as number) - (b.minutosDesdeElPrimero as number));
+  if (segundo === null || segundo === undefined || !salidos.length) return "bienvenida";
+  const antes = salidos.filter((s) => (s.minutosDesdeElPrimero as number) < segundo);
+  if (!antes.length) return "bienvenida";
+  return seguimientoRecuperador(antes[antes.length - 1]);
+}
 
 export function medirRespuestaBienvenida(leads: LeadDeBienvenida[]): MedidaDeBienvenida {
   const validos = leads.filter((lead) => !esLineaAdmin(lead.canalId, lead.proposito));
@@ -725,7 +777,25 @@ export function medirRespuestaBienvenida(leads: LeadDeBienvenida[]): MedidaDeBie
     (lead) => lead.mensajes >= 2 && lead.minutosAlSegundo !== null && lead.minutosAlSegundo < MINUTOS_RESPUESTA_RAPIDA,
   ).length;
   const porCiento = validos.length ? unDecimal((respondieron / validos.length) * 100) : null;
+  const porcentaje = (n: number) => (validos.length ? unDecimal((n / validos.length) * 100) : null);
+  const recuperadosPorSeguimiento: RecuperadosPorSeguimiento = { min15: 0, hora1: 0, dia1: 0, otro: 0 };
+  let respondieronLaBienvenida = 0;
+  for (const lead of validos) {
+    if (lead.mensajes < 2) continue;
+    const grupo = clasificarRespuesta(lead);
+    if (grupo === "bienvenida") respondieronLaBienvenida += 1;
+    else recuperadosPorSeguimiento[grupo] += 1;
+  }
+  const recuperados = Object.values(recuperadosPorSeguimiento).reduce((a, b) => a + b, 0);
+  const nuncaRespondieron = validos.length - respondieronLaBienvenida - recuperados;
   return {
+    respondieronLaBienvenida,
+    respondieronLaBienvenidaPorCiento: porcentaje(respondieronLaBienvenida),
+    recuperados,
+    recuperadosPorCiento: porcentaje(recuperados),
+    recuperadosPorSeguimiento,
+    nuncaRespondieron,
+    nuncaRespondieronPorCiento: porcentaje(nuncaRespondieron),
     leads: validos.length,
     respondieron,
     respondieronPorCiento: porCiento,
@@ -771,5 +841,6 @@ export function serieDeRespuestaBienvenida(leads: LeadDeBienvenida[], fecha: str
 export function lineaDeRespuestaBienvenida(medida: MedidaDeBienvenida | null | undefined): string {
   if (!medida || medida.respondieronPorCiento === null) return "Respuesta a la bienvenida: sin dato";
   const meta = medida.cumpleMeta ? "cumple" : "no llega a";
-  return `Respuesta a la bienvenida: ${medida.respondieronPorCiento} % (${medida.respondieron} de ${medida.leads} leads nuevos), ${medida.menosDe2hPorCiento} % en menos de 2 h; ${meta} la meta de ${medida.metaPorCiento} %`;
+  return `Respuesta a la bienvenida: ${medida.respondieronPorCiento} % (${medida.respondieron} de ${medida.leads} leads nuevos), ${medida.menosDe2hPorCiento} % en menos de 2 h; ${meta} la meta de ${medida.metaPorCiento} %. ` +
+    `Contestaron la bienvenida ${medida.respondieronLaBienvenida}, los recuperó un seguimiento ${medida.recuperados} (1 día: ${medida.recuperadosPorSeguimiento.dia1}), nunca respondieron ${medida.nuncaRespondieron}`;
 }
