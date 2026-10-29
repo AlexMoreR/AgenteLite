@@ -50,6 +50,10 @@ type FilaComparar = {
   wonAt: Date | null;
   respondio: boolean | null;
   dioCiudad: boolean | null;
+  /** [{ m: minutos que esperaba, en: cuándo salió }] de los SEGUIMIENTO_ENVIADO. */
+  seguimientos: Array<{ m: number | null; en: string }> | null;
+  /** Cuándo escribió el cliente (CLIENTE_RESPONDIO). */
+  respuestas: string[] | null;
 };
 
 export function bogotaHoy(ahora = new Date()): string {
@@ -78,6 +82,20 @@ async function cargar(workspaceId: string, desde: string, hasta: string): Promis
              SELECT 1 FROM "EmbudoEvento" e
              WHERE e."conversationId" = el."conversationId" AND e."tipo" = 'CLIENTE_RESPONDIO'
            ) AS "respondio",
+           (
+             SELECT json_agg(json_build_object(
+                      'm', COALESCE(NULLIF(se."datos"->>'minutos', '')::int,
+                                    f."timeValue" * (CASE f."timeType"::text WHEN 'MINUTES' THEN 1 WHEN 'HOURS' THEN 60 ELSE 1440 END)),
+                      'en', se."createdAt" AT TIME ZONE 'UTC'))
+             FROM "EmbudoEvento" se
+             LEFT JOIN "Follow" f ON f."id" = se."datos"->>'followId'
+             WHERE se."conversationId" = el."conversationId" AND se."tipo" = 'SEGUIMIENTO_ENVIADO'
+           ) AS "seguimientos",
+           (
+             SELECT json_agg(re."createdAt" AT TIME ZONE 'UTC')
+             FROM "EmbudoEvento" re
+             WHERE re."conversationId" = el."conversationId" AND re."tipo" = 'CLIENTE_RESPONDIO'
+           ) AS "respuestas",
            COALESCE(el."senales" @> '[{"tipo":"envio_ciudad"}]'::jsonb, false) AS "dioCiudad"
     FROM "EmbudoLead" el
     JOIN "Contact" ct ON ct."id" = el."contactId"
@@ -112,6 +130,10 @@ async function cargar(workspaceId: string, desde: string, hasta: string): Promis
       ventaEn: compro ? (fila.wonAt ?? fila.ventaEn) : null,
       // El CRM no guarda el monto (vive en Gestión): sale "no disponible".
       monto: null,
+      seguimientos: (fila.seguimientos ?? [])
+        .filter((seg) => seg.m !== null)
+        .map((seg) => ({ minutos: seg.m as number, enviadoEn: seg.en })),
+      respuestasEn: fila.respuestas ?? [],
     };
   });
 }
