@@ -68,6 +68,8 @@ function reloj(segundos: number) {
 
 const FRECUENCIA = 16000;
 const CANAL_PCM = "pcm";
+/** Se sube cuando cambian los procesadores de audio: el navegador guarda los .js y las asesoras seguirian con el viejo. */
+const VERSION_WORKLETS = "2";
 /** Cada cuanto se mira la red durante la llamada. */
 const REVISION_MS = 5000;
 /**
@@ -419,8 +421,8 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
             void ctx.resume().catch(() => {});
           }
         };
-        await ctx.audioWorklet.addModule("/worklets/capture-processor.js");
-        await ctx.audioWorklet.addModule("/worklets/playback-processor.js");
+        await ctx.audioWorklet.addModule(`/worklets/capture-processor.js?v=${VERSION_WORKLETS}`);
+        await ctx.audioWorklet.addModule(`/worklets/playback-processor.js?v=${VERSION_WORKLETS}`);
         await ctx.resume();
 
         // "Tuuu... tuuu..." hasta que el cliente conteste, y desde ya se pregunta en que va.

@@ -1,0 +1,3 @@
+## Advertencias de operación
+- `llamadas_servidor_lejos`: el servicio de llamadas (WaCalls) está en el VPS de Francia: el audio hace Colombia → Francia → WhatsApp (~200 ms de ida y vuelta). Si tras los arreglos de audio el retraso sigue alto (`[llamadas:diagnostico]` con `rttMs` arriba de ~250), la salida más barata es mover solo WaCalls a un VPS pequeño en Miami o Virginia y cambiar `WACALLS_URL` (debe seguir siendo un subdominio de aizenbot.com). Es cambio de infraestructura, no de código.
+- `llamadas_cache_worklets`: los procesadores de audio (`public/worklets/*.js`) los guarda el navegador; al cambiarlos hay que subir `VERSION_WORKLETS` en `useLlamada.ts` o las asesoras siguen con el viejo hasta recargar.
