@@ -150,6 +150,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       puedeAprobar={personaPuedeAprobar(access) || persona.esDueno || Boolean(persona.aprobador)}
       puedeEditarTipos={personaPuedeAprobar(access)}
       esDueno={persona.esDueno}
+      puedeSubir={persona.esDueno || (persona.aprobador?.alcance === "SISTEMAS" && persona.sistemasVigente === true)}
       puedeCerebro={puedeCerebro}
       puedeAsignar={puedeAsignarResponsable(alcance.soloDe, elegido.duenoUserId)}
     />

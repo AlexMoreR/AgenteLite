@@ -291,7 +291,7 @@ export async function revocarClaveTrabajadorAction(id: string): Promise<Resultad
   }
 }
 
-export async function agregarAprobadorAction(userId: string, alcance: "DESARROLLO" | "TODO" = "DESARROLLO"): Promise<Resultado> {
+export async function agregarAprobadorAction(userId: string, alcance: "DESARROLLO" | "TODO" | "SISTEMAS" = "DESARROLLO"): Promise<Resultado> {
   const access = await accesoDelDueno();
   if (!access) return { ok: false, error: SOLO_EL_DUENO_TRABAJADOR };
   try {
@@ -565,13 +565,15 @@ export async function avisosAlDuenoAction(): Promise<{ ok: true; avisos: AvisosA
 }
 
 /** Guarda el número personal del dueño (validado en el servidor) y/o el interruptor de los avisos. */
-export async function guardarAvisosAlDuenoAction(cambios: { telefono?: string; activo?: boolean }): Promise<Resultado> {
+export async function guardarAvisosAlDuenoAction(cambios: { telefono?: string; activo?: boolean; telefonoSistemas?: string; activoSistemas?: boolean }): Promise<Resultado> {
   const access = await accesoDeJefe();
   if (!access) return { ok: false, error: SOLO_JEFES_AVISOS };
   try {
     return await guardarConfigDeAvisos(access.workspaceId, {
       ...(typeof cambios.telefono === "string" ? { telefono: cambios.telefono } : {}),
       ...(typeof cambios.activo === "boolean" ? { activo: cambios.activo } : {}),
+      ...(typeof cambios.telefonoSistemas === "string" ? { telefonoSistemas: cambios.telefonoSistemas } : {}),
+      ...(typeof cambios.activoSistemas === "boolean" ? { activoSistemas: cambios.activoSistemas } : {}),
     });
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo guardar") };

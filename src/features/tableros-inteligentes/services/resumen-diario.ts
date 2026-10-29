@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { QUIEN_AUTOMATICO, aprobacionAutomaticaPrendida } from "./aprobacion-automatica";
+import { avisosPrendidos, enviarAlDueno } from "./avisos-al-dueno";
 import { resumenCorto, tituloCorto } from "./resumen-corto";
-import { linkDeHoy, pendientesDelDueno, todoElNegocio } from "./tableros";
+import { pendientesDelDueno, todoElNegocio } from "./tableros";
 
 /*
   RESUMEN DIARIO del Tablero IA (22-oct-2026; formato corto el 26-oct-2026). Es el texto corto de 2 líneas que se
@@ -9,6 +10,10 @@ import { linkDeHoy, pendientesDelDueno, todoElNegocio } from "./tableros";
     Hoy: 4 listas ✅, 1 con problema ⚠️, 2 esperando tu sí 👆
     Ver: <link al tablero filtrado en lo de hoy>
   Si una cifra es 0, esa parte no sale. Sin commits, ramas, ids ni títulos largos.
+
+  29-oct-2026 (Emanuel responsable de Sistemas): el texto cambia a un RESUMEN DIARIO de máximo 4 líneas, sin links: qué se arregló,
+  qué falló y qué está pendiente. VUELVE a salir por WhatsApp a Alexander UNA vez al día (enviarResumenDiario, desde la línea Admin,
+  con el cron de siempre y el silencio nocturno). Lo de abajo del 26-oct queda como historia del formato anterior.
 
   26-oct-2026 (decisión del dueño: "WhatsApp solo cuando sea súper importante, lo demás lo miro en el tablero"):
   YA NO SE MANDA POR WHATSAPP. Los únicos avisos al dueño son los de avisos-al-dueno.ts (Sistemas detenido o
@@ -134,18 +139,37 @@ export function cifrasDelDia(resumen: ResumenDelDia, esperando: number): CifrasD
 
 export const haySinMovimiento = (cifras: CifrasDelDia) => !cifras.listas && !cifras.conProblema && !cifras.esperando;
 
+/** Los títulos cortos de cada parte (opcional): con ellos el resumen dice de qué tarjetas habla. */
+export type TitulosDelDia = { arregladas?: readonly string[]; fallidas?: readonly string[]; pendientes?: readonly string[] };
+
+export const MAXIMO_LINEAS_DEL_RESUMEN = 4;
+const MAXIMO_TITULOS_POR_LINEA = 2;
+
+function parteDelResumen(icono: string, que: string, cuantas: number, titulos: readonly string[] = []): string {
+  if (!cuantas) return `${icono} ${que}: nada`;
+  const dichos = [...new Set(titulos.map((titulo) => tituloCorto(titulo, 5)).filter(Boolean))].slice(0, MAXIMO_TITULOS_POR_LINEA);
+  const resto = cuantas - dichos.length;
+  const detalle = dichos.length ? ` (${dichos.join(", ")}${resto > 0 ? ` y ${resto} más` : ""})` : "";
+  return `${icono} ${que}: ${cuantas}${detalle}`;
+}
+
 /**
- * El texto que se manda por WhatsApp y se ve en la caja "Resumen de hoy": 2 líneas fijas. Texto vacío si
- * las tres cifras son 0 (entonces no se manda nada).
+ * El resumen diario (29-oct-2026, decisión de Alexander: Emanuel lleva Sistemas, a él solo le llega un resumen corto). Es el texto
+ * que sale por WhatsApp y se ve en la caja "Resumen de hoy": MÁXIMO 4 LÍNEAS, sin links ni listas para revisar:
+ *   Sistemas, resumen de hoy:
+ *   ✅ Se arregló: 4 (…)
+ *   ⚠️ Falló: 1 (…)
+ *   👆 Pendiente: 2 (…)
+ * Texto vacío si las tres cifras son 0 (entonces no se manda nada).
  */
-export function textoDelResumen(cifras: CifrasDelDia, link: string = linkDeHoy()): string {
-  const partes = [
-    cifras.listas ? `${cifras.listas} ${cifras.listas === 1 ? "lista" : "listas"} ✅` : null,
-    cifras.conProblema ? `${cifras.conProblema} con problema ⚠️` : null,
-    cifras.esperando ? `${cifras.esperando} esperando tu sí 👆` : null,
-  ].filter((parte): parte is string => parte !== null);
-  if (!partes.length) return "";
-  return `Hoy: ${partes.join(", ")}\nVer: ${link}`;
+export function textoDelResumen(cifras: CifrasDelDia, titulos: TitulosDelDia = {}): string {
+  if (haySinMovimiento(cifras)) return "";
+  return [
+    "Sistemas, resumen de hoy:",
+    parteDelResumen("✅", "Se arregló", cifras.listas, titulos.arregladas),
+    parteDelResumen("⚠️", "Falló", cifras.conProblema, titulos.fallidas),
+    parteDelResumen("👆", "Pendiente", cifras.esperando, titulos.pendientes),
+  ].join("\n");
 }
 
 /* ───────────────────────────────────────────────────────────────────── la base ── */
@@ -250,8 +274,68 @@ export async function resumenDeHoyParaLaPantalla(workspaceId: string, ahora = ne
   return {
     dia,
     cifras,
-    // El texto corto del día; vacío si hoy no hay nada que contar.
+    // El texto corto del día (máximo 4 líneas, sin links); vacío si hoy no hay nada que contar.
     texto: textoDelResumen(cifras),
     aprobacionAutomatica: prendida,
   };
+}
+
+
+/* ───────────────────────────────────────────────────────────────────── el envío diario ── */
+
+/** Se manda entre las 6:00 p. m. y las 9:00 p. m. de Bogotá (antes del silencio nocturno). */
+export const HORA_DEL_RESUMEN_DIARIO = 18;
+const MINUTOS_ENTRE_INTENTOS = 30;
+
+export const claveResumenEnviado = (workspaceId: string) => `tablero:resumen-diario:enviado:${workspaceId}`;
+
+/** ¿Toca mandar el resumen ahora? Dentro de la ventana, sin haberlo mandado hoy y sin un intento fallido hace menos de 30 minutos. */
+export function tocaMandarElResumen(ahora: Date, marca: string | null | undefined): boolean {
+  const hora = horaDeBogota(ahora);
+  if (hora < HORA_DEL_RESUMEN_DIARIO || hora >= 21) return false;
+  const [dia, resultado, cuando] = String(marca ?? "").split("|");
+  if (dia !== diaDeBogota(ahora)) return true;
+  if (resultado === "ok") return false;
+  const ultimo = Date.parse(cuando ?? "");
+  return !Number.isFinite(ultimo) || ahora.getTime() - ultimo >= MINUTOS_ENTRE_INTENTOS * 60_000;
+}
+
+async function mandarElResumenDe(workspaceId: string, ahora: Date): Promise<boolean> {
+  const marcaFila = await prisma.appSetting.findUnique({ where: { key: claveResumenEnviado(workspaceId) }, select: { value: true } });
+  if (!tocaMandarElResumen(ahora, marcaFila?.value)) return false;
+  if (!(await avisosPrendidos(workspaceId))) return false;
+  const dia = diaDeBogota(ahora);
+  const [resumen, pendientes] = await Promise.all([resumenDelDia(workspaceId, dia), pendientesDelDueno(todoElNegocio(workspaceId))]);
+  const cifras = cifrasDelDia(resumen, pendientes.length);
+  const texto = textoDelResumen(cifras, {
+    arregladas: resumen.subidas.map((s) => s.titulo),
+    fallidas: resumen.fallas.map((f) => f.titulo),
+    pendientes: pendientes.map((p) => p.titulo),
+  });
+  const guardar = (value: string) =>
+    prisma.appSetting.upsert({ where: { key: claveResumenEnviado(workspaceId) }, create: { key: claveResumenEnviado(workspaceId), value }, update: { value } });
+  // Sin movimiento no se manda nada: se anota para no volver a mirar hoy.
+  if (!texto) {
+    await guardar(`${dia}|ok|${ahora.toISOString()}`);
+    return false;
+  }
+  const envio = await enviarAlDueno(workspaceId, texto, MAXIMO_LINEAS_DEL_RESUMEN);
+  await guardar(`${dia}|${envio.salio ? "ok" : "fallo"}|${ahora.toISOString()}`);
+  return envio.salio;
+}
+
+/** La vuelta del reloj (cada minuto): una vez al día manda el resumen a Alexander. Nunca lanza por un negocio. */
+export async function enviarResumenDiario(ahora = new Date()): Promise<{ enviados: number }> {
+  const hora = horaDeBogota(ahora);
+  if (hora < HORA_DEL_RESUMEN_DIARIO || hora >= 21) return { enviados: 0 };
+  const negocios = await prisma.tableroInteligente.findMany({ distinct: ["workspaceId"], select: { workspaceId: true } });
+  let enviados = 0;
+  for (const { workspaceId } of negocios) {
+    try {
+      if (await mandarElResumenDe(workspaceId, ahora)) enviados += 1;
+    } catch (error) {
+      console.error("[resumen-diario] no se pudo mandar el resumen", { workspaceId, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { enviados };
 }

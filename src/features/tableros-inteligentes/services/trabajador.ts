@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { esEstado, type EstadoTarjetaTablero } from "./reglas";
 import {
+  ALCANCE_SISTEMAS,
   AL_TOMAR,
   ETAPA_DEL_ESTADO,
   MINUTOS_DE_GRACIA_DEL_LATIDO,
@@ -230,10 +231,10 @@ export async function listarAprobadores(workspaceId: string) {
   };
 }
 
-/** Agrega un miembro activo del negocio como aprobador (alcance DESARROLLO o TODO). */
+/** Agrega un miembro activo del negocio como aprobador (alcance DESARROLLO, TODO o SISTEMAS: Emanuel, periodo de prueba). Idempotente para SISTEMAS: si ya es aprobador, no cambia nada. */
 export async function agregarAprobador(workspaceId: string, userId: unknown, alcance: unknown) {
   const id = typeof userId === "string" ? userId : "";
-  const elAlcance = alcance === "TODO" ? "TODO" : "DESARROLLO";
+  const elAlcance = alcance === "TODO" ? "TODO" : alcance === ALCANCE_SISTEMAS ? ALCANCE_SISTEMAS : "DESARROLLO";
   const miembro = await prisma.workspaceMember.findFirst({ where: { workspaceId, userId: id, isActive: true }, select: { id: true } });
   if (!miembro) throw new Error("Esa persona no es miembro activo del negocio. Cuando tenga usuario, se agrega.");
   try {

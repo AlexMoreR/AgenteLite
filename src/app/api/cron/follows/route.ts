@@ -22,6 +22,7 @@ import { aprobarPlanesListosQueEsperan, aprobarSolasLasPendientes } from "@/feat
 import { sincronizarCerebroDeTodos } from "@/features/cerebro/services/sincronizar-negocio";
 import { revisarAlertaDeConexion } from "@/features/cerebro/services/alerta-de-conexion";
 import { revisarAvisosAlDueno } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
+import { enviarResumenDiario } from "@/features/tableros-inteligentes/services/resumen-diario";
 import { revisarAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 
 function resolveCronSecret() {
@@ -216,8 +217,8 @@ async function handleCron(request: Request) {
     TABLERO IA (ver src/features/tableros-inteligentes): cada vuelta aprueba solas las tareas con repo que
     quedaron POR_APROBAR (regla del dueño 25-oct, salvo dinero o Meta Ads; apagado "Aprobar tareas solo", solo las
     de riesgo bajo) y revisa si hay que avisarle al dueño por WhatsApp (línea Admin) que Sistemas se detuvo o lo
-    necesita: Coordinador caído, sin trabajo, trabado, necesita al dueño (avisos-al-dueno.ts; ya no hay resumen
-    por WhatsApp). Sin nada pendiente son un par de lecturas; en segundo plano.
+    necesita: Coordinador caído, sin trabajo, trabado, necesita al dueño (avisos-al-dueno.ts; lo técnico va a
+    Emanuel) y una vez al día manda a Alexander el resumen de 4 líneas (resumen-diario.ts). Sin nada pendiente son un par de lecturas; en segundo plano.
   */
   after(async () => {
     try {
@@ -235,6 +236,12 @@ async function handleCron(request: Request) {
       await revisarAvisosAlDueno();
     } catch (error) {
       console.error("[cron/follows] avisos al dueno del tablero error", error);
+    }
+    try {
+      // Resumen DIARIO a Alexander (máximo 4 líneas, una vez al día entre las 6 y las 9 p. m.).
+      await enviarResumenDiario();
+    } catch (error) {
+      console.error("[cron/follows] resumen diario del tablero error", error);
     }
     try {
       // Avisos por WhatsApp al equipo (tarea asignada, urgente, el Coordinador necesita algo, recordatorio): después

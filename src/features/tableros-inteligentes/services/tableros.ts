@@ -46,7 +46,10 @@ import {
   estadoAlPonerRepo,
   motivoNoEsDueno,
   partidaDelResultado,
+  ALCANCE_SISTEMAS,
+  MARCA_PERIODO_DE_PRUEBA,
   puedeAprobarMomento,
+  sistemasVigente,
   puedeCerrarComoFallida,
   puedeCambiarZonas,
   puedeMarcarHechoAMano,
@@ -2045,6 +2048,7 @@ export async function personaQueAprueba(
     cuenta,
     // Un aprobador que ya no es miembro activo del negocio no aprueba.
     aprobador: aprobador && miembro ? aprobador : null,
+    sistemasVigente: sistemasVigente(),
   };
 }
 
@@ -2118,6 +2122,7 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
     resultadoPaso: resultado.paso === true,
     textoConfirmacion: pedido.textoConfirmacion,
     persona,
+    textoDeLaTarjeta: [actual.titulo, actual.detalle, actual.plan].filter(Boolean).join("\n"),
     ...(viaAnterior !== undefined ? { viaDeLaUltimaAprobacion: viaAnterior } : {}),
   });
   if ("error" in veredicto) throw new Error(veredicto.error);
@@ -2132,6 +2137,8 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
     quienNombre: persona.nombre,
     userId: contexto.userId,
     textoConfirmacion: texto || null,
+    // Lo de Emanuel queda marcado: Alexander ve en el historial qué se aprobó en el periodo de prueba.
+    ...(!persona.esDueno && persona.aprobador?.alcance === ALCANCE_SISTEMAS ? { marca: MARCA_PERIODO_DE_PRUEBA } : {}),
   });
   return prisma.$transaction(async (tx) => {
     // Condicionado al estado, al momento en que se leyó, al tipo y al repo: si Claude la editó o el

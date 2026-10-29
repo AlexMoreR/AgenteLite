@@ -624,7 +624,7 @@ export async function ejecutarHerramientaMcpTableros(
           : {}),
         estados: Object.entries(NOMBRE_DEL_ESTADO).map(([clave, texto]) => ({ clave, texto })),
         quien_aprueba:
-          "El dueño del negocio (o un aprobador que él agregó), en la pantalla o con aprobar_tarjeta cuando lo dice explícitamente; solo tarjetas de un tipo que pide aprobación. El sí final (subir a producción) lo da solo el dueño. Las de la zona protegida de chats, solo en la pantalla.",
+          "El dueño del negocio (o un aprobador que él agregó), en la pantalla o con aprobar_tarjeta cuando lo dice explícitamente; solo tarjetas de un tipo que pide aprobación. El sí final (subir a producción) lo da el dueño y, en el periodo de prueba hasta el 29-nov-2026, el aprobador de Sistemas (Emanuel) en tarjetas de Tecnología; las que tocan dinero de Gestión o Meta Ads las aprueba solo Alexander. Las de la zona protegida de chats, solo en la pantalla.",
       };
     }
     case "crear_tablero": {

@@ -8,7 +8,8 @@ import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resum
 import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
-import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
+import { avisosPrendidos, leerEstadoDeAvisos, sistemasPrendido, telefonoDeSistemasValido, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
+import { claveResumenEnviado } from "@/features/tableros-inteligentes/services/resumen-diario";
 import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 
@@ -413,9 +414,12 @@ async function estadoDeAprobarPlanesSolo(workspaceId: string) {
     : `APAGADA: todos los planes piden el sí del dueño (${esperando} en PLAN_LISTO ahora)`;
 }
 
-/** Tablero IA: el resumen del día ya no sale por WhatsApp (26-oct-2026): solo se ve en el tablero. */
-async function estadoDelResumenDiario() {
-  return "solo en el tablero: la caja \"Resumen de hoy\" y la pestaña \"Hoy\"; ya no se manda por WhatsApp (decisión del dueño, 26-oct-2026)";
+/** Tablero IA: el resumen de 4 líneas sale una vez al día a Alexander (29-oct-2026) y se ve en la caja "Resumen de hoy". */
+async function estadoDelResumenDiario(workspaceId: string) {
+  const fila = await prisma.appSetting.findUnique({ where: { key: claveResumenEnviado(workspaceId) }, select: { value: true } });
+  const [dia, resultado] = (fila?.value ?? "").split("|");
+  const cola = dia ? `; último intento: ${dia}, ${resultado === "ok" ? "salió (o no había nada que contar)" : "no salió"}` : "; todavía no ha salido ninguno";
+  return `una vez al día entre las 6 y las 9 p. m. (Bogotá), por la línea Admin al número del dueño, máximo 4 líneas sin links: qué se arregló, qué falló y qué está pendiente${cola}`;
 }
 
 /** Tablero IA: los avisos de WhatsApp al dueño (solo Sistemas detenido o que lo necesita): interruptor, número y último aviso. */
@@ -425,7 +429,10 @@ async function estadoDeAvisosAlDueno(workspaceId: string) {
   const cola = ultimo ? `; último: ${ultimo.tipo} del ${ultimo.cuando.slice(0, 16).replace("T", " ")} UTC, ${ultimo.salio ? "salió" : (ultimo.motivo ?? "no salió")}` : "; todavía no ha salido ninguno";
   if (!prendido) return `APAGADA: interruptor apagado en Mi empresa → Claude, no sale nada${cola}`;
   if (!telefono) return `PRENDIDA pero SIN NÚMERO: falta guardar el número del dueño en Mi empresa → Claude, así que nada sale${cola}`;
-  return `PRENDIDA: el reloj revisa cada minuto y avisa por la línea Admin solo si el Coordinador se cae, se queda sin trabajo, una tarjeta se traba o algo necesita al dueño (o Claude se agota)${cola}`;
+  const sistemas = (await sistemasPrendido(workspaceId)) && (await telefonoDeSistemasValido(workspaceId))
+    ? "lo técnico va al WhatsApp de Sistemas (Emanuel); al dueño solo dinero, Meta Ads y claves"
+    : "SIN número de Sistemas válido (o apagado): todo le llega al dueño";
+  return `PRENDIDA: el reloj revisa cada minuto y avisa por la línea Admin solo si el Coordinador se cae, se queda sin trabajo, una tarjeta se traba o algo necesita al dueño (o Claude se agota); ${sistemas}${cola}`;
 }
 
 /** Avisos por WhatsApp al equipo por las tarjetas del Tablero IA: interruptor general, último aviso enviado y último que no salió. */
@@ -568,7 +575,7 @@ async function automatizaciones(
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
     aprobar_tareas_solas_tablero: await estadoDeAprobarTareasSolo(workspaceId).catch(() => "no se pudo leer"),
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
-    resumen_diario_tablero: await estadoDelResumenDiario(),
+    resumen_diario_tablero: await estadoDelResumenDiario(workspaceId).catch(() => "no se pudo leer"),
     avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
     avisos_al_equipo_tablero: await estadoDeAvisosAlEquipo(workspaceId).catch(() => "no se pudo leer"),
     cerebro_sincronizacion: await estadoDelCerebro(workspaceId).catch(() => "no se pudo leer"),

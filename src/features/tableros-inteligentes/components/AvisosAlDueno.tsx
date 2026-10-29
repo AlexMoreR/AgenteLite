@@ -26,6 +26,7 @@ const FECHA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day
 export function AvisosAlDueno() {
   const [avisos, setAvisos] = useState<AvisosAlDuenoVista | null>(null);
   const [telefono, setTelefono] = useState("");
+  const [telefonoSistemas, setTelefonoSistemas] = useState("");
   const [ocupado, empezar] = useTransition();
 
   const cargar = useCallback(async () => {
@@ -36,6 +37,7 @@ export function AvisosAlDueno() {
     }
     setAvisos(respuesta.avisos);
     setTelefono(respuesta.avisos.telefono ?? "");
+    setTelefonoSistemas(respuesta.avisos.telefonoSistemas ?? "");
   }, []);
 
   useEffect(() => {
@@ -45,6 +47,7 @@ export function AvisosAlDueno() {
       if (respuesta.ok) {
         setAvisos(respuesta.avisos);
         setTelefono(respuesta.avisos.telefono ?? "");
+        setTelefonoSistemas(respuesta.avisos.telefonoSistemas ?? "");
       } else toast.error(respuesta.error);
     });
     return () => {
@@ -52,7 +55,7 @@ export function AvisosAlDueno() {
     };
   }, []);
 
-  const guardar = (cambios: { telefono?: string; activo?: boolean }, bien: string) =>
+  const guardar = (cambios: { telefono?: string; activo?: boolean; telefonoSistemas?: string; activoSistemas?: boolean }, bien: string) =>
     empezar(async () => {
       const respuesta = await guardarAvisosAlDuenoAction(cambios);
       if (respuesta.ok) toast.success(bien);
@@ -111,6 +114,36 @@ export function AvisosAlDueno() {
               {ocupado ? <Loader2 className="animate-spin" /> : <Send />}
               Mandar prueba
             </Button>
+          </div>
+
+          <div className="space-y-2 rounded-lg border bg-background p-3 text-sm">
+            <p className="font-medium">WhatsApp de Sistemas (Emanuel)</p>
+            <p className="text-muted-foreground">
+              Las alertas técnicas (tarjetas en error, atascadas, el Coordinador caído o sin trabajo, el límite de uso) le llegan a él. Lo de
+              dinero, Meta Ads o claves sigue llegando a usted. Sin su número, todo le sigue llegando a usted.
+            </p>
+            <label className="flex items-center gap-3">
+              <Switch
+                checked={avisos.activoSistemas}
+                disabled={ocupado}
+                onCheckedChange={(valor) => guardar({ activoSistemas: Boolean(valor) }, valor ? "Avisos de Sistemas prendidos" : "Avisos de Sistemas apagados")}
+              />
+              <span className="font-medium">{avisos.activoSistemas ? "Prendidos" : "Apagados"}</span>
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                value={telefonoSistemas}
+                onChange={(evento) => setTelefonoSistemas(evento.target.value)}
+                inputMode="tel"
+                placeholder="Número de Emanuel, con indicativo (573001234567)"
+                aria-label="Número de WhatsApp de Sistemas"
+                disabled={ocupado}
+                className="sm:max-w-xs"
+              />
+              <Button type="button" variant="outline" disabled={ocupado} onClick={() => guardar({ telefonoSistemas }, "Número de Sistemas guardado")}>
+                Guardar número
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-1 text-sm">

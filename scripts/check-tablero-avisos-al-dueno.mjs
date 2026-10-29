@@ -28,6 +28,8 @@ const reiniciar = () => {
     enviados: [],
     alertas: [],
     fallaElEnvio: false,
+    aprobadores: [],
+    sinTelefono: [],
   });
 };
 reiniciar();
@@ -50,7 +52,7 @@ const falso = {
     findMany: async ({ where }) => estado.lineas.filter((l) => l.workspaceId === where.workspaceId),
     findFirst: async ({ where }) => estado.lineas.find((l) => coincideLinea(l, where)) ?? null,
   },
-  workspaceMember: { findMany: async () => estado.miembros },
+  workspaceMember: { findMany: async () => estado.miembros, findFirst: async ({ where }) => (estado.aprobadores.some((a) => a.userId === where.userId) ? { id: "m1" } : null) },
   tarjetaTablero: {
     // Como Prisma: con `repo: { not: null }` quedan fuera las tarjetas sin repo (tareas humanas). Sin decir repo, es de aizencrm.
     findMany: async ({ where } = {}) =>
@@ -66,6 +68,11 @@ const falso = {
   alertaInterna: {
     findFirst: async ({ where }) => estado.alertas.find((a) => a.workspaceId === where.workspaceId && a.clave === where.clave && ["NUEVA", "VISTA"].includes(a.estado)) ?? null,
     create: async ({ data }) => {
+      // Sin teléfono de Sistemas queda esta alerta aparte (29-oct-2026); no se mezcla con las que cuentan las pruebas viejas.
+      if (data.clave === "sistemas:sin-telefono") {
+        estado.sinTelefono.push(data);
+        return { id: "sin-telefono" };
+      }
       const fila = { id: `al${estado.alertas.length + 1}`, estado: "NUEVA", salioPorWhatsApp: false, veces: 1, ...data };
       estado.alertas.push(fila);
       return { id: fila.id };
@@ -80,6 +87,8 @@ const falso = {
     },
   },
   tableroInteligente: { findMany: async () => [{ workspaceId: "ws1" }] },
+  // SISTEMAS (29-oct-2026): sin aprobador SISTEMAS en estas pruebas (el ruteo a Emanuel se prueba en check-tablero-aprobador-sistemas.mjs).
+  aprobadorTablero: { findMany: async () => estado.aprobadores },
   // SQL_FUERA_POR_LA_VIA (28-oct-2026): las aprobadas que esperan la pantalla.
   $queryRawUnsafe: async () => estado.fueraPorLaVia,
 };
@@ -237,10 +246,13 @@ await prueba("5. Límite de Claude: lo manda el Coordinador con tipo 'limite' o 
   // Alertas (29-oct-2026): el límite es Urgente y sale corto: 2 líneas (título + link a la página de alertas).
   assert.equal(estado.enviados[0].text, "🚨 Urgente: Claude llegó a su límite de uso: Sistemas quedó en pausa.\nVer: https://app.aizenbot.com/cliente/alertas");
   assert.equal(estado.enviados[0].phoneNumber, "573001112233");
-  assert.equal(estado.alertas.length, 1, "queda en la página");
-  assert.equal(estado.alertas[0].prioridad, "URGENTE");
-  assert.equal(estado.alertas[0].origen, "Coordinador");
-  assert.equal(estado.alertas[0].detalle, texto, "el texto completo, en la página");
+  // Sin teléfono de Sistemas el aviso sigue yendo a Alexander y queda además UNA alerta que dice que falta (29-oct-2026).
+  assert.ok((estado.sinTelefono ?? []).length >= 1, "avisa que falta el teléfono de Sistemas");
+  const delAviso = estado.alertas;
+  assert.equal(delAviso.length, 1, "queda en la página");
+  assert.equal(delAviso[0].prioridad, "URGENTE");
+  assert.equal(delAviso[0].origen, "Coordinador");
+  assert.equal(delAviso[0].detalle, texto, "el texto completo, en la página");
   // El mismo aviso otra vez (pasado el minuto) no se repite antes de 3 horas; después sí.
   const luego = new Date(DIA.getTime() + 5 * 60_000);
   assert.deepEqual(await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto, tipo: "limite" }, luego), { repetido: true });
@@ -319,6 +331,87 @@ await prueba("aprobada por voz con LIBRO_V3 / META_ADS (28-oct): una alerta Alta
   assert.equal(delLibro[0].veces, 1);
   assert.equal(estado.enviados.length, 0);
   reiniciar();
+});
+
+/* ------------------------------------------------------------------ SISTEMAS: lo técnico a Emanuel (29-oct-2026) */
+
+const NUMERO_DE_EMANUEL = "573115554444";
+const prenderSistemas = () => {
+  estado.aprobadores = [{ userId: "emanuel" }];
+  estado.ajustes.set("tablero:avisos-sistemas:telefono:ws1", NUMERO_DE_EMANUEL);
+};
+
+await prueba("destinoDelAviso: lo técnico va a Sistemas; dinero, Meta Ads, claves y aprobar en pantalla, a Alexander", async () => {
+  for (const tipo of ["caido", "sin_trabajo", "trabado", "limite"]) assert.equal(avisos.destinoDelAviso(tipo), "sistemas", tipo);
+  assert.equal(avisos.destinoDelAviso("necesita", "el Coordinador pide revisar un test"), "sistemas");
+  assert.equal(avisos.destinoDelAviso("necesita", "toca Meta Ads"), "dueno");
+  assert.equal(avisos.destinoDelAviso("necesita", "mueve dinero del presupuesto"), "dueno");
+  assert.equal(avisos.destinoDelAviso("necesita", "falta una clave, un acceso o un permiso"), "dueno");
+  assert.equal(avisos.destinoDelAviso("aprobar_en_pantalla"), "dueno");
+});
+
+await prueba("Sistemas: Coordinador caído y tarjeta trabada salen al WhatsApp de Emanuel (sin 'solo urgentes') y quedan como alertas SUYAS", async () => {
+  guardarNumero();
+  prenderSistemas();
+  estado.latido = hace(30 * 60_000).toISOString();
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
+  assert.equal(estado.enviados.length, 1);
+  assert.equal(estado.enviados[0].phoneNumber, NUMERO_DE_EMANUEL, "a Emanuel, no a Alexander");
+  assert.match(estado.enviados[0].text, /Sistemas está detenido/);
+  assert.equal(estado.alertas[0].destinatarioId, "emanuel");
+  assert.equal(estado.sinTelefono.length, 0);
+  // Una trabada (Alta) también le llega a Emanuel por WhatsApp.
+  estado.latido = DIA.toISOString();
+  estado.enCurso = [{ id: "c9", titulo: "Una trabada", estado: "EN_CURSO" }];
+  estado.historial.set("c9", hace(5 * HORA));
+  const luego = new Date(DIA.getTime() + 60_000);
+  estado.latido = luego.toISOString();
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(luego), { enviados: 1 });
+  assert.equal(estado.enviados.at(-1).phoneNumber, NUMERO_DE_EMANUEL);
+  assert.match(estado.enviados.at(-1).text, /"Una trabada" lleva 5 h/);
+  assert.ok(estado.enviados.every((e) => e.phoneNumber !== "573001112233"), "nada técnico para Alexander");
+});
+
+await prueba("Sistemas: lo que toca Meta Ads sigue yendo a Alexander aunque Emanuel tenga su número", async () => {
+  guardarNumero();
+  prenderSistemas();
+  estado.enFila = 1;
+  estado.esperando = [esperando({ id: "m1", estado: "POR_REVISAR", zonaProtegida: ["META_ADS"] })];
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
+  assert.equal(estado.enviados[0].phoneNumber, "573001112233");
+  assert.equal(estado.alertas[0].destinatarioId ?? null, null, "la alerta es del negocio (Alexander), no de Emanuel");
+});
+
+await prueba("Sistemas: el aviso del Coordinador 'limite' va a Emanuel; uno 'necesita' por una clave, a Alexander", async () => {
+  guardarNumero();
+  prenderSistemas();
+  const contexto = { workspaceId: "ws1" };
+  const limite = "⛔ Claude llegó a su límite de uso: Sistemas quedó en pausa.\nVuelve a trabajar solo a las 3:20 p. m.";
+  assert.equal((await avisos.registrarAvisoDelCoordinador(contexto.workspaceId, "limite", limite, DIA)).salio, true);
+  assert.equal(estado.enviados[0].phoneNumber, NUMERO_DE_EMANUEL);
+  assert.equal(estado.alertas[0].destinatarioId, "emanuel");
+  const clave = "Falta una clave de la API para seguir";
+  assert.equal((await avisos.registrarAvisoDelCoordinador(contexto.workspaceId, "necesita", clave, DIA)).salio, true);
+  assert.equal(estado.enviados[1].phoneNumber, "573001112233");
+});
+
+await prueba("Sistemas: sin teléfono válido, o con el interruptor apagado, todo sigue yendo a Alexander y queda una alerta que lo dice", async () => {
+  guardarNumero();
+  estado.aprobadores = [{ userId: "emanuel" }];
+  estado.latido = hace(30 * 60_000).toISOString();
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
+  assert.equal(estado.enviados[0].phoneNumber, "573001112233", "sin número de Sistemas, a Alexander");
+  assert.ok(estado.sinTelefono.length >= 1, "queda el aviso de que falta");
+  // El número de una línea del negocio no sirve para Sistemas.
+  assert.equal((await avisos.guardarConfigDeAvisos("ws1", { telefonoSistemas: "573008880000" })).ok, false);
+  // Interruptor apagado.
+  reiniciar();
+  guardarNumero();
+  prenderSistemas();
+  assert.deepEqual(await avisos.guardarConfigDeAvisos("ws1", { activoSistemas: false }), { ok: true });
+  estado.latido = hace(30 * 60_000).toISOString();
+  await avisos.revisarAvisosAlDueno(DIA);
+  assert.equal(estado.enviados[0].phoneNumber, "573001112233");
 });
 
 /* ------------------------------------------------------------------ las reglas de todos los avisos */

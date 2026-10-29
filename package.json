@@ -43,6 +43,7 @@
     "embudo:backfill": "node scripts/embudo-backfill.mjs",
     "test:supervisor": "node scripts/check-supervisor.mjs",
     "test:tableros": "node scripts/check-tableros-reglas.mjs",
+    "test:tablero-aprobador-sistemas": "node scripts/check-tablero-aprobador-sistemas.mjs",
     "test:cerebro": "node scripts/check-cerebro.mjs",
     "test:cerebro-de-los-agentes": "node scripts/check-cerebro-de-los-agentes.mjs",
     "test:cerebro-migracion": "node scripts/check-cerebro-migracion.mjs && node scripts/check-cerebro-notas-migracion.mjs",

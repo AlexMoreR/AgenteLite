@@ -112,9 +112,29 @@ export function prioridadDeGravedad(gravedad: string): Prioridad {
   return "ALTA";
 }
 
+const sinTildesYMayusculas = (texto: string) =>
+  String(texto ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+/**
+ * ¿El texto toca dinero de Gestión o gasto/campañas de Meta Ads? (29-oct-2026: lo que Emanuel NO puede aprobar). Compara sin
+ * tildes. Ante la duda se prefiere que sí: es mejor pedirle el sí a Alexander de más que de menos. No incluye claves ni accesos
+ * (eso lo suma `esDeDineroMetaOClave`).
+ */
+export function tocaDineroOMetaAds(texto: string): boolean {
+  return /\b(meta ?ads?|facebook ads|dinero|plata|presupuestos?|gastos?|pagos?|pagar|pagado|cobros?|cobrar|abonos?|saldos?|nomina|sueldos?|salarios?|comision(?:es)?|factur\w*|campanas?|anuncios?|ingresos?|egresos?|costos?|precios?|deudas?|creditos?|cartera|reembolsos?|recaudo|tesoreria|utilidad(?:es)?)\b/.test(
+    sinTildesYMayusculas(texto),
+  );
+}
+
 /** ¿El motivo habla de dinero, Meta Ads o una clave/permiso? Solo eso hace urgente un "necesita tu decisión". */
 export function esDeDineroMetaOClave(texto: string): boolean {
-  return /\b(meta ads?|dinero|presupuesto|gasto|pago|pagos|cobro|plata|clave|claves|token|tokens|credencial\w*|contrase\w+|api ?key|secret\w*|acceso|permiso\w*)\b/i.test(String(texto ?? ""));
+  return (
+    tocaDineroOMetaAds(texto) ||
+    /\b(clave|claves|token|tokens|credencial\w*|contrase\w+|api ?key|secret\w*|acceso|permiso\w*)\b/i.test(String(texto ?? ""))
+  );
 }
 
 /** La clave de una alerta sin clave propia: el sistema y el título (hash corto, para no guardar textos largos). */

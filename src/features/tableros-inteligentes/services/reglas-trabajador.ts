@@ -48,7 +48,11 @@
      obligatoria, commit opcional, y por voz el texto "sí, márcala hecha" con la clave de la cuenta
      dueña. Nunca mientras el Coordinador la tiene. Queda en el historial (registroDeHechoAMano). La
      regla general no cambia: en el camino normal el HECHO lo pone solo el Coordinador.
+  9. SISTEMAS (29-oct-2026): un aprobador con alcance SISTEMAS (Emanuel) aprueba tarea, plan y sí final de las tarjetas de
+     Tecnología hasta el 29-nov-2026, salvo las que tocan dinero de Gestión o Meta Ads (veredictoDeSistemas).
 */
+
+import { tocaDineroOMetaAds } from "@/features/alertas/dominio/reglas";
 
 import {
   COMO_MARCAR_HECHO_A_MANO,
@@ -485,6 +489,22 @@ export type ViaDeAprobacion = "pantalla" | "voz";
  */
 export const SI_FINAL_SOLO_DUENO = true;
 
+/**
+ * Aprobador de SISTEMAS (29-oct-2026, decisión de Alexander): Emanuel Díaz aprueba la tarea, el plan y la subida de las
+ * tarjetas de Tecnología (con repo gestion o aizencrm), salvo las que tocan dinero de Gestión o Meta Ads. Periodo de prueba:
+ * vence el 29-nov-2026 (fin del día en Bogotá) y vuelve solo a como era. Para prorrogarlo se cambia SOLO este valor.
+ */
+export const ALCANCE_SISTEMAS = "SISTEMAS";
+export const FIN_DE_LA_PRUEBA_DE_SISTEMAS = "2026-11-30T05:00:00.000Z";
+export const MARCA_PERIODO_DE_PRUEBA = "periodo de prueba";
+
+/** ¿Sigue vigente el permiso de Sistemas? (El fin es exclusivo.) */
+export function sistemasVigente(ahora: Date = new Date()): boolean {
+  return ahora.getTime() < Date.parse(FIN_DE_LA_PRUEBA_DE_SISTEMAS);
+}
+
+export const MENSAJE_DINERO_O_META_ADS = "Esta tarjeta toca dinero o Meta Ads: la aprueba Alexander.";
+
 export function esMomento(valor: unknown): valor is MomentoDeAprobacion {
   return typeof valor === "string" && (MOMENTOS_DE_APROBACION as readonly string[]).includes(valor);
 }
@@ -652,6 +672,8 @@ export type PersonaQueAprueba = {
   esAdminPlataforma: boolean;
   /** Su fila en AprobadorTablero, si la tiene. */
   aprobador: { alcance: string; puedeSubir: boolean } | null;
+  /** El permiso SISTEMAS sigue vigente (antes del 29-nov-2026). Sin decirlo se asume que ya venció. */
+  sistemasVigente?: boolean;
   /** La cuenta, para decir en el error con quién llegó y por qué no es la dueña. */
   cuenta?: CuentaQueAprueba;
 };
@@ -676,12 +698,35 @@ export type PedidoDeAprobacion = {
   resultadoPaso: boolean;
   textoConfirmacion?: unknown;
   persona: PersonaQueAprueba;
+  /** Título, detalle y plan de la tarjeta juntos: con ellos se ve si toca dinero o Meta Ads (límite del aprobador SISTEMAS). */
+  textoDeLaTarjeta?: string;
   /**
    * La vía de la última aprobación vigente (del historial; null si no hay). Con ella, una APROBADO o PLAN_APROBADO que
    * espera la pantalla (aprobada por voz y toca LIBRO_V3 / META_ADS, 28-oct-2026) se puede volver a aprobar en la pantalla.
    */
   viaDeLaUltimaAprobacion?: string | null;
 };
+
+/**
+ * El aprobador SISTEMAS: tarea, plan y subida, solo de tarjetas de Tecnología (repo gestion o aizencrm), sin zona protegida y
+ * sin tocar dinero ni Meta Ads (se mira el texto: ante la duda, bloquea). Vencido el permiso, no aprueba nada.
+ */
+function veredictoDeSistemas(
+  persona: PersonaQueAprueba,
+  repo: string | null,
+  zonaProtegida: readonly string[],
+  textoDeLaTarjeta: string,
+): Veredicto {
+  if (persona.sistemasVigente !== true) return "Tu permiso de Sistemas (periodo de prueba) venció: aprueba el dueño del negocio.";
+  if (!repo || !(REPOS_DE_DESARROLLO as readonly string[]).includes(repo)) {
+    return "Tu alcance es SISTEMAS: apruebas solo tarjetas de Tecnología (con repo gestion o aizencrm).";
+  }
+  if (tocaDineroOMetaAds(textoDeLaTarjeta) || zonaProtegida.includes("META_ADS")) return MENSAJE_DINERO_O_META_ADS;
+  if (zonaProtegida.length) {
+    return `Esta tarjeta toca una zona protegida: la aprueba solo el dueño, en la pantalla.${conLaCuenta(persona, "pantalla")}`;
+  }
+  return null;
+}
 
 /** ¿Esta persona puede aprobar este momento de esta tarjeta? (sin mirar el estado) */
 export function personaPuedeAprobarMomento(
@@ -690,7 +735,11 @@ export function personaPuedeAprobarMomento(
   via: ViaDeAprobacion,
   repo: string | null,
   zonaProtegida: readonly string[],
+  textoDeLaTarjeta: string = "",
 ): Veredicto {
+  if (!persona.esDueno && persona.aprobador?.alcance === ALCANCE_SISTEMAS) {
+    return veredictoDeSistemas(persona, repo, zonaProtegida, textoDeLaTarjeta);
+  }
   if (momento === "subir") {
     const puede = persona.esDueno || (!SI_FINAL_SOLO_DUENO && Boolean(persona.aprobador?.puedeSubir));
     return puede ? null : `El sí final (subir a producción) lo da solo el dueño del negocio.${conLaCuenta(persona, via)}`;
@@ -776,7 +825,7 @@ export function puedeAprobarMomento(pedido: PedidoDeAprobacion): { a: EstadoTarj
     const texto = textoDeConfirmacionValido(pedido.textoConfirmacion);
     if (texto) return { error: texto };
   }
-  const quien = personaPuedeAprobarMomento(pedido.persona, momento, pedido.via, pedido.repo, pedido.zonaProtegida);
+  const quien = personaPuedeAprobarMomento(pedido.persona, momento, pedido.via, pedido.repo, pedido.zonaProtegida, pedido.textoDeLaTarjeta ?? "");
   if (quien) return { error: quien };
   const destino = destinoDeLaAprobacion(momento, pedido.estado, {
     repo: pedido.repo,
@@ -800,6 +849,8 @@ export type RegistroDeAprobacion = {
   quienNombre: string;
   userId: string;
   textoConfirmacion: string | null;
+  /** "periodo de prueba" cuando aprobó el aprobador SISTEMAS (29-oct-2026). */
+  marca?: string;
   /** "aprobado por voz" o "aprobado en pantalla". */
   como: string;
 };

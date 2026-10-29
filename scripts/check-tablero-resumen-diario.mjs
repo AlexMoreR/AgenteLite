@@ -50,7 +50,12 @@ const mocks = {
     pendientesDelDueno: async () => estado.esperando,
     todoElNegocio: (workspaceId) => ({ workspaceId, soloDe: null }),
     linkDeHoy: () => "https://app.aizenbot.com/cliente/tablero-ia?vista=hoy",
+    linkDelCoordinador: () => "https://app.aizenbot.com/cliente/tablero-ia?vista=coordinador",
+    linkDeLaTarjeta: (id) => `https://app.aizenbot.com/cliente/tablero-ia?tarjeta=${id}`,
   },
+  // resumen-diario.ts importa el envío de avisos-al-dueno.ts (29-oct-2026): su cola de dependencias va falsa.
+  "@/lib/evolution": { sendEvolutionTextMessageWithReconnect: async () => {} },
+  "./coordinador-en-vivo": { ultimoLatido: async () => null },
 };
 
 const resumen = cargar("src/features/tableros-inteligentes/services/resumen-diario.ts", mocks);
@@ -138,14 +143,11 @@ await prueba("el resumen de ayer: 4 listas, 1 con problema y 2 esperando -> 2 l�
   const cifras = resumen.cifrasDelDia(r, 2);
   assert.deepEqual(cifras, { listas: 4, conProblema: 1, esperando: 2 });
   const texto = resumen.textoDelResumen(cifras);
-  assert.equal(texto, "Hoy: 4 listas ✅, 1 con problema ⚠️, 2 esperando tu sí 👆\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy");
+  assert.equal(texto, "Sistemas, resumen de hoy:\n✅ Se arregló: 4\n⚠️ Falló: 1\n👆 Pendiente: 2");
   const lineas = texto.split("\n");
-  assert.ok(lineas.length <= 3, "3 líneas o menos");
-  assert.equal(lineas[0], "Hoy: 4 listas ✅, 1 con problema ⚠️, 2 esperando tu sí 👆");
-  assert.equal(texto.match(/https?:\/\//g).length, 1, "un solo link");
-  assert.ok(lineas[1].endsWith("/cliente/tablero-ia?vista=hoy"), "abre el tablero filtrado en hoy");
-  const sinLink = texto.replace(/https?:\/\/\S+/g, "");
-  assert.doesNotMatch(sinLink, /commit|rama|http|tablero\/|abcdef|Tarjeta larguísima/i);
+  assert.ok(lineas.length <= 4, "máximo 4 líneas");
+  assert.doesNotMatch(texto, /https?:\/\//, "sin links");
+  assert.doesNotMatch(texto, /commit|rama|tablero\/|abcdef|Tarjeta larguísima/i);
 });
 
 await prueba("cifras: una tarjeta que falló y luego subió cuenta una sola vez, como lista", () => {
@@ -159,15 +161,19 @@ await prueba("cifras: una tarjeta que falló y luego subió cuenta una sola vez,
   assert.deepEqual(resumen.cifrasDelDia(r, 0), { listas: 1, conProblema: 1, esperando: 0 });
 });
 
-await prueba("textoDelResumen: la cifra en 0 no sale; con las tres en 0 no hay texto", () => {
+await prueba("textoDelResumen: máximo 4 líneas sin links, con títulos cortos; con las tres en 0 no hay texto", () => {
   assert.equal(
     resumen.textoDelResumen({ listas: 1, conProblema: 0, esperando: 0 }),
-    "Hoy: 1 lista ✅\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy",
+    "Sistemas, resumen de hoy:\n✅ Se arregló: 1\n⚠️ Falló: nada\n👆 Pendiente: nada",
   );
-  assert.equal(
-    resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 3 }),
-    "Hoy: 3 esperando tu sí 👆\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy",
+  const conTitulos = resumen.textoDelResumen(
+    { listas: 4, conProblema: 1, esperando: 3 },
+    { arregladas: ["Fichas técnicas por producto: fase 1", "Descripciones faltantes", "Otra", "Otra más"], fallidas: ["Reporte de ventas — arreglar el total"], pendientes: ["Reuniones (parte 2)"] },
   );
+  assert.equal(conTitulos.split("\n").length, 4);
+  assert.match(conTitulos, /Se arregló: 4 \(Fichas técnicas por producto, Descripciones faltantes y 2 más\)/);
+  assert.match(conTitulos, /Falló: 1 \(Reporte de ventas\)/);
+  assert.doesNotMatch(conTitulos, /https?:\/\//);
   assert.equal(resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 0 }), "");
   assert.equal(resumen.haySinMovimiento({ listas: 0, conProblema: 0, esperando: 0 }), true);
 });
@@ -213,21 +219,20 @@ await prueba("vistaDeHoy muestra las 3 líneas de la subida y, sin ellas, se ve 
 
 /* ------------------------------------------------------------------ envío */
 
-await prueba("resumenDeHoyParaLaPantalla devuelve las cifras, el texto corto y el interruptor (sin envío por WhatsApp)", async () => {
+await prueba("resumenDeHoyParaLaPantalla devuelve las cifras, el texto corto y el interruptor (el envío diario se prueba en check-tablero-aprobador-sistemas.mjs)", async () => {
   estado.historial.push(subida({ tarjetaId: "h1", titulo: "Hoy 1" }), subida({ tarjetaId: "v1", titulo: "De ayer", creadoEn: AYER }));
   const ahora = new Date("2026-10-23T02:30:00Z");
   const antes = await resumen.resumenDeHoyParaLaPantalla("ws1", ahora);
   assert.equal(antes.dia, "2026-10-22");
   assert.deepEqual(antes.cifras, { listas: 1, conProblema: 0, esperando: 0 });
-  assert.equal(antes.texto, "Hoy: 1 lista ✅\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy");
+  assert.equal(antes.texto, "Sistemas, resumen de hoy:\n✅ Se arregló: 1\n⚠️ Falló: nada\n👆 Pendiente: nada");
   assert.equal(antes.aprobacionAutomatica, true);
-  assert.ok(!("envioDeHoy" in antes) && !("ultimoEnvio" in antes), "ya no hay envío por WhatsApp");
-  // Al día siguiente, sin movimiento, el texto queda vacío.
+    // Al día siguiente, sin movimiento, el texto queda vacío.
   const manana = await resumen.resumenDeHoyParaLaPantalla("ws1", new Date("2026-10-23T15:00:00Z"));
   assert.equal(manana.texto, "");
 });
 
-assert.equal(resumen.enviarResumenDiarioSiToca, undefined, "el resumen ya no se manda por WhatsApp");
+assert.equal(typeof resumen.enviarResumenDiario, "function", "desde el 29-oct-2026 el resumen de 4 líneas sale una vez al día");
 assert.equal(estado.mensajes.length, 0);
 
 console.log(`\n${pruebas} pruebas, todas bien`);

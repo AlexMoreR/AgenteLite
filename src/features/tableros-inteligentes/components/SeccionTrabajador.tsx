@@ -47,7 +47,7 @@ export function SeccionTrabajador() {
   const [nombreClave, setNombreClave] = useState("aizen1");
   const [claveNueva, setClaveNueva] = useState<string | null>(null);
   const [candidato, setCandidato] = useState("");
-  const [alcance, setAlcance] = useState<"DESARROLLO" | "TODO">("DESARROLLO");
+  const [alcance, setAlcance] = useState<"DESARROLLO" | "TODO" | "SISTEMAS">("DESARROLLO");
 
   const cargar = useCallback(async () => {
     const respuesta = await panelTrabajadorAction();
@@ -299,8 +299,9 @@ export function SeccionTrabajador() {
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
-              <NativeSelect value={alcance} onChange={(evento) => setAlcance(evento.target.value === "TODO" ? "TODO" : "DESARROLLO")}>
+              <NativeSelect value={alcance} onChange={(evento) => setAlcance(evento.target.value === "TODO" ? "TODO" : evento.target.value === "SISTEMAS" ? "SISTEMAS" : "DESARROLLO")}>
                 <NativeSelectOption value="DESARROLLO">Desarrollo</NativeSelectOption>
+                <NativeSelectOption value="SISTEMAS">Sistemas (prueba hasta el 29-nov)</NativeSelectOption>
                 <NativeSelectOption value="TODO">Todo</NativeSelectOption>
               </NativeSelect>
               <Button
