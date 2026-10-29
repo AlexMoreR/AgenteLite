@@ -164,6 +164,84 @@ prueba("el texto para decir por voz nombra la ganadora y la caída", () => {
   assert.ok(texto.includes("se cae sobre todo entre"));
 });
 
+// ---- Niveles (bienvenida, seguimientos 15 min / 1 h / 1 día, sin respuesta, meta 3 de cada 100)
+const min = (m) => new Date(Date.parse("2026-10-01T15:00:00.000Z") + m * 60_000).toISOString();
+const envio = (minutos, tras) => ({ minutos, enviadoEn: min(tras) });
+
+prueba("niveles: bienvenida, recuperados por seguimiento y sin respuesta", () => {
+  const leads = [
+    lead({ respondio: true, respuestasEn: [min(2)], seguimientos: [] }), // respondió la bienvenida
+    lead({ respondio: true, respuestasEn: [min(20)], seguimientos: [envio(15, 15)] }), // recuperado por el de 15
+    lead({ respondio: true, respuestasEn: [min(70)], seguimientos: [envio(15, 15), envio(60, 60)] }), // por el de 1 h
+    lead({ respuestasEn: [], seguimientos: [envio(15, 15), envio(60, 60), envio(1440, 1440)] }), // nunca respondió
+    lead({ respuestasEn: [], seguimientos: [] }), // nunca respondió, sin seguimientos
+  ];
+  const n = comparar.resumirNiveles(leads);
+  assert.equal(n.llegaron, 5);
+  assert.equal(n.respondieronBienvenida, 1);
+  assert.equal(n.nuncaRespondieron, 4);
+  const [s15, s60, s1440] = n.seguimientos;
+  assert.deepEqual([s15.enviados, s15.recuperados], [3, 1]);
+  assert.deepEqual([s60.enviados, s60.recuperados], [2, 1]);
+  assert.deepEqual([s1440.enviados, s1440.recuperados], [1, 0]);
+  assert.equal(n.recuperadosEnTotal, 2);
+  assert.equal(n.sinRespuesta, 2);
+  assert.equal(n.pctSinRespuesta, 40);
+});
+
+prueba("niveles: un chat sin respuesta ni asesora cuenta como nunca respondió (y no se le asigna nada)", () => {
+  const sinAsesora = Object.freeze(lead({ respuestasEn: [], seguimientos: [] }));
+  const n = comparar.resumirNiveles([sinAsesora]);
+  assert.equal(n.nuncaRespondieron, 1);
+  assert.equal(n.sinRespuesta, 1);
+});
+
+prueba("niveles: sin eventos de respuesta se usa la bandera respondio", () => {
+  const n = comparar.resumirNiveles([lead({ respondio: true }), lead({})]);
+  assert.equal(n.respondieronBienvenida, 1);
+  assert.equal(n.sinRespuesta, 1);
+});
+
+prueba("niveles: plazos raros no cuentan y el nivel se reconoce con holgura", () => {
+  assert.equal(comparar.nivelDeSeguimiento(15), "s15");
+  assert.equal(comparar.nivelDeSeguimiento(60), "s60");
+  assert.equal(comparar.nivelDeSeguimiento(1440), "s1440");
+  assert.equal(comparar.nivelDeSeguimiento(10080), null);
+  assert.equal(comparar.nivelDeSeguimiento(NaN), null);
+});
+
+prueba("niveles: meta de 3 de cada 100", () => {
+  const r = comparar.resumirVersion(3, v3); // compran 4 de 100
+  assert.equal(r.niveles.compranPorCien, 4);
+  assert.equal(r.niveles.cumpleMeta, true);
+  const malo = comparar.resumirVersion(3, [...muchos(99, {}), lead({ compro: true })]);
+  assert.equal(malo.niveles.cumpleMeta, false);
+  assert.equal(comparar.resumirVersion(3, []).niveles.cumpleMeta, null);
+});
+
+prueba('niveles: con pocos seguimientos sale "faltan datos" y la propuesta de descarte no se aventura', () => {
+  const pocos = comparar.resumirNiveles([lead({ respuestasEn: [], seguimientos: [envio(1440, 1440)] })]);
+  assert.equal(pocos.seguimientos[2].faltanDatos, true);
+  const p = comparar.propuestaDeDescarte(pocos);
+  assert.equal(p.datosSuficientes, false);
+  assert.ok(p.texto.includes("Faltan datos"));
+  assert.equal(comparar.propuestaDeDescarte(comparar.resumirNiveles([])).datosSuficientes, false);
+});
+
+prueba("niveles: con muchos datos el descarte se propone según lo que recupera el de 1 día", () => {
+  const sinRecuperar = muchos(40, { respuestasEn: [], seguimientos: [envio(1440, 1440)] });
+  const p = comparar.propuestaDeDescarte(comparar.resumirNiveles(sinRecuperar));
+  assert.equal(p.datosSuficientes, true);
+  assert.ok(p.texto.includes("descartado") && p.texto.includes("no se enciende sola"));
+  const recupera = muchos(40, { respondio: true, respuestasEn: [min(1500)], seguimientos: [envio(1440, 1440)] });
+  assert.ok(comparar.propuestaDeDescarte(comparar.resumirNiveles(recupera)).texto.includes("seguir insistiendo"));
+});
+
+prueba("niveles: el texto del MCP los incluye", () => {
+  const texto = comparar.textoDeComparacion(comparar.compararVersiones([...v3, ...v4], 3, 4));
+  assert.ok(texto.includes("Niveles de Versión 3") && texto.includes("Descarte (Versión 4)"));
+});
+
 prueba("familiaDePedido", () => {
   assert.equal(comparar.familiaDePedido("camillas"), "camillas");
   assert.equal(comparar.familiaDePedido("Marketplace"), "marketplace");

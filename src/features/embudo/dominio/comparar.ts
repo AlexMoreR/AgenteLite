@@ -13,6 +13,10 @@
  *  4. Llegó a Caliente (temperatura CALIENTE o ya tiene cotización/anticipo).
  *  5. Compró (Ganado en el CRM o EmbudoLead.ventaEn).
  *
+ * LOS NIVELES (embudo por niveles, meta 3 de cada 100): además de los cinco pasos, se mide cuánto
+ * recupera cada seguimiento automático (15 min, 1 h y 1 día). Solo LEE eventos que ya existen
+ * (CLIENTE_RESPONDIO, SEGUIMIENTO_ENVIADO); no manda ni cambia ningún mensaje. Ver `resumirNiveles`.
+ *
  * PLATA: el CRM no guarda el monto (vive en Gestión). Si el lead trae `monto` se suma; si ninguno
  * lo trae, la plata sale como "no disponible" y el resto sigue igual.
  */
@@ -59,6 +63,10 @@ export type LeadParaComparar = {
   ventaEn?: Date | string | null;
   /** Plata de la venta, si se pudo leer de Gestión. */
   monto?: number | null;
+  /** Seguimientos automáticos que salieron (evento SEGUIMIENTO_ENVIADO) y a los cuántos minutos esperaban. */
+  seguimientos?: Array<{ minutos: number; enviadoEn: Date | string }>;
+  /** Cuándo escribió el cliente con contenido (eventos CLIENTE_RESPONDIO). */
+  respuestasEn?: Array<Date | string>;
 };
 
 export type FiltrosDeComparacion = {
@@ -125,6 +133,59 @@ export type CaidaMayor = {
   pctQuedaron: number;
 };
 
+/** Meta del dueño: de cada 100 clientes que llegan, cerrar como mínimo 3. */
+export const META_CIERRE_POR_CIEN = 3;
+
+/** Con menos seguimientos enviados que esto en un nivel, el % de recuperados engaña. */
+export const MINIMO_POR_NIVEL = 30;
+
+export const NIVELES_DE_SEGUIMIENTO = [
+  { clave: "s15", nombre: "Seguimiento de 15 min", minutos: 15 },
+  { clave: "s60", nombre: "Seguimiento de 1 h", minutos: 60 },
+  { clave: "s1440", nombre: "Seguimiento de 1 día", minutos: 1440 },
+] as const;
+export type ClaveDeNivel = (typeof NIVELES_DE_SEGUIMIENTO)[number]["clave"];
+
+/** A qué nivel pertenece un seguimiento por lo que esperaba (con holgura). Otro plazo = null: no se mide. */
+export function nivelDeSeguimiento(minutos: number): ClaveDeNivel | null {
+  if (!Number.isFinite(minutos)) return null;
+  if (minutos >= 10 && minutos <= 30) return "s15";
+  if (minutos >= 45 && minutos <= 90) return "s60";
+  if (minutos >= 1200 && minutos <= 1800) return "s1440";
+  return null;
+}
+
+export type NivelResumen = {
+  clave: ClaveDeNivel;
+  nombre: string;
+  /** Chats a los que les salió este seguimiento. */
+  enviados: number;
+  /** De esos, los que escribieron después y antes del siguiente seguimiento. */
+  recuperados: number;
+  /** % de los enviados que se recuperaron. null = no salió ninguno. */
+  pctRecuperados: number | null;
+  faltanDatos: boolean;
+};
+
+export type NivelesDelEmbudo = {
+  llegaron: number;
+  /** Respondieron antes de que saliera cualquier seguimiento. */
+  respondieronBienvenida: number;
+  pctRespondieronBienvenida: number | null;
+  /** Nunca respondieron la bienvenida (incluye los chats sin asesora: no se les asigna nada). */
+  nuncaRespondieron: number;
+  seguimientos: NivelResumen[];
+  /** Escribieron algo gracias a algún seguimiento (cada chat cuenta una vez). */
+  recuperadosEnTotal: number;
+  /** Ni respondieron la bienvenida ni se recuperaron: el chat se quedó callado. */
+  sinRespuesta: number;
+  pctSinRespuesta: number | null;
+  /** Compraron por cada 100 que llegaron. */
+  compranPorCien: number | null;
+  metaPorCien: number;
+  cumpleMeta: boolean | null;
+};
+
 export type ResumenDeVersion = {
   /** null = los chats sin versión. */
   version: number | null;
@@ -132,6 +193,7 @@ export type ResumenDeVersion = {
   chats: number;
   faltanDatos: boolean;
   pasos: PasoResumen[];
+  niveles: NivelesDelEmbudo;
   pctRespondio: number | null;
   pctCiudad: number | null;
   pctCaliente: number | null;
@@ -186,6 +248,103 @@ export function mayorCaidaDe(pasos: ReadonlyArray<PasoResumen>): CaidaMayor | nu
   return mejor;
 }
 
+/**
+ * Los niveles del embudo de arriba hacia abajo. Sin eventos de seguimiento ni de respuesta (chats
+ * viejos) se usa la bandera `respondio` y los seguimientos salen en cero: no se inventa nada.
+ *
+ * Un chat se "recupera" en un nivel si escribió después de que salió ese seguimiento y antes de que
+ * saliera uno posterior: así la respuesta se le atribuye al último seguimiento que recibió.
+ */
+export function resumirNiveles(leads: ReadonlyArray<LeadParaComparar>): NivelesDelEmbudo {
+  const llegaron = leads.length;
+  const enviados = new Map<ClaveDeNivel, number>();
+  const recuperados = new Map<ClaveDeNivel, number>();
+  let respondieronBienvenida = 0;
+  let recuperadosEnTotal = 0;
+  let sinRespuesta = 0;
+
+  for (const lead of leads) {
+    // Primer envío por nivel (un chat cuenta una vez por nivel aunque el seguimiento se repita).
+    const envios = new Map<ClaveDeNivel, number>();
+    for (const seg of lead.seguimientos ?? []) {
+      const nivel = nivelDeSeguimiento(seg.minutos);
+      const cuando = ms(seg.enviadoEn);
+      if (!nivel || !Number.isFinite(cuando)) continue;
+      envios.set(nivel, Math.min(envios.get(nivel) ?? Infinity, cuando));
+    }
+    const respuestas = (lead.respuestasEn ?? []).map(ms).filter((valor) => Number.isFinite(valor));
+    const primerEnvio = envios.size ? Math.min(...envios.values()) : Infinity;
+    const sabeCuando = lead.respuestasEn !== undefined;
+
+    const respondioBienvenida = sabeCuando ? respuestas.some((r) => r < primerEnvio) : lead.respondio;
+    if (respondioBienvenida) respondieronBienvenida += 1;
+
+    let seRecupero = false;
+    for (const [nivel, desde] of envios) {
+      enviados.set(nivel, (enviados.get(nivel) ?? 0) + 1);
+      const siguientes = [...envios.values()].filter((cuando) => cuando > desde);
+      const hasta = siguientes.length ? Math.min(...siguientes) : Infinity;
+      if (respuestas.some((r) => r > desde && r < hasta)) {
+        recuperados.set(nivel, (recuperados.get(nivel) ?? 0) + 1);
+        seRecupero = true;
+      }
+    }
+    if (seRecupero) recuperadosEnTotal += 1;
+    if (!respondioBienvenida && !seRecupero) sinRespuesta += 1;
+  }
+
+  const compraron = leads.filter((lead) => lead.compro).length;
+  const compranPorCien = porcentaje(compraron, llegaron);
+  return {
+    llegaron,
+    respondieronBienvenida,
+    pctRespondieronBienvenida: porcentaje(respondieronBienvenida, llegaron),
+    nuncaRespondieron: llegaron - respondieronBienvenida,
+    seguimientos: NIVELES_DE_SEGUIMIENTO.map((nivel) => {
+      const enviadosAqui = enviados.get(nivel.clave) ?? 0;
+      const recuperadosAqui = recuperados.get(nivel.clave) ?? 0;
+      return {
+        clave: nivel.clave,
+        nombre: nivel.nombre,
+        enviados: enviadosAqui,
+        recuperados: recuperadosAqui,
+        pctRecuperados: porcentaje(recuperadosAqui, enviadosAqui),
+        faltanDatos: enviadosAqui < MINIMO_POR_NIVEL,
+      };
+    }),
+    recuperadosEnTotal,
+    sinRespuesta,
+    pctSinRespuesta: porcentaje(sinRespuesta, llegaron),
+    compranPorCien,
+    metaPorCien: META_CIERRE_POR_CIEN,
+    cumpleMeta: compranPorCien === null ? null : compranPorCien >= META_CIERRE_POR_CIEN,
+  };
+}
+
+/**
+ * PROPUESTA de descarte (solo texto, no enciende nada): hasta dónde insistir. Se apoya en lo que
+ * recuperó el seguimiento de 1 día: si recupera poco, dar el chat por descartado al día siguiente de
+ * ese seguimiento pierde poco. La decisión y el interruptor son del dueño.
+ */
+export function propuestaDeDescarte(niveles: NivelesDelEmbudo): { datosSuficientes: boolean; texto: string } {
+  const dia = niveles.seguimientos.find((nivel) => nivel.clave === "s1440");
+  if (!dia || dia.enviados === 0 || dia.pctRecuperados === null) {
+    return { datosSuficientes: false, texto: "Todavía no salió ningún seguimiento de 1 día: no hay con qué proponer un descarte más corto." };
+  }
+  if (dia.faltanDatos) {
+    return {
+      datosSuficientes: false,
+      texto: `Faltan datos para proponer el descarte: el seguimiento de 1 día salió solo ${dia.enviados} veces (mínimo ${MINIMO_POR_NIVEL}).`,
+    };
+  }
+  const pct = coma(dia.pctRecuperados);
+  const texto =
+    dia.pctRecuperados < 5
+      ? `El seguimiento de 1 día recupera solo ${pct} %: se puede proponer dar el chat por descartado si no responde después de ese seguimiento (hoy se espera al de 7 días).`
+      : `El seguimiento de 1 día todavía recupera ${pct} %: descartar al día siguiente perdería esos clientes. Conviene seguir insistiendo hasta el de 7 días.`;
+  return { datosSuficientes: true, texto: `${texto} Es una propuesta: no se enciende sola.` };
+}
+
 /** Arma los números de UNA versión a partir de sus chats. */
 export function resumirVersion(version: number | null, leads: ReadonlyArray<LeadParaComparar>): ResumenDeVersion {
   const chats = leads.length;
@@ -208,6 +367,7 @@ export function resumirVersion(version: number | null, leads: ReadonlyArray<Lead
     chats,
     faltanDatos: chats < MINIMO_DE_CHATS,
     pasos,
+    niveles: resumirNiveles(leads),
     pctRespondio: pct("respondio"),
     pctCiudad: pct("ciudad"),
     pctCaliente: pct("caliente"),
@@ -307,6 +467,23 @@ export function compararVersiones(
 
 const pctTexto = (valor: number | null) => (valor === null ? "sin dato" : `${coma(valor)} %`);
 
+/** Los niveles de un resumen en frases (MCP). */
+export function textoDeNiveles(resumen: ResumenDeVersion): string[] {
+  const n = resumen.niveles;
+  const lineas = [
+    `Niveles de ${resumen.etiqueta}: llegaron ${n.llegaron}; respondieron la bienvenida ${pctTexto(n.pctRespondieronBienvenida)}; ` +
+      n.seguimientos
+        .map((nivel) => `${nivel.nombre.toLowerCase()}: salió a ${nivel.enviados}, recuperó ${nivel.recuperados} (${pctTexto(nivel.pctRecuperados)})`)
+        .join("; ") +
+      `; quedaron sin respuesta ${n.sinRespuesta} (${pctTexto(n.pctSinRespuesta)}); compran ${pctTexto(n.compranPorCien)} de cada 100 (meta ${n.metaPorCien}).`,
+  ];
+  if (n.seguimientos.some((nivel) => nivel.enviados > 0 && nivel.faltanDatos)) {
+    lineas.push(`Faltan datos en algún seguimiento de ${resumen.etiqueta} (menos de ${MINIMO_POR_NIVEL} enviados): el % de recuperados puede engañar.`);
+  }
+  lineas.push(`Descarte (${resumen.etiqueta}): ${propuestaDeDescarte(n).texto}`);
+  return lineas;
+}
+
 /** Lo mismo que la pantalla, en frases para que Claude lo diga por voz. */
 export function textoDeComparacion(comparacion: Comparacion): string {
   const { a, b } = comparacion;
@@ -337,6 +514,7 @@ export function textoDeComparacion(comparacion: Comparacion): string {
         : `En ${resumen.etiqueta} no hay caída que señalar.`,
     );
   }
+  for (const resumen of [a, b]) lineas.push(...textoDeNiveles(resumen));
   lineas.push(...comparacion.avisos);
   return lineas.join("\n");
 }

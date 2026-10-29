@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 
 import {
   MINIMO_DE_CHATS,
+  propuestaDeDescarte,
   type Comparacion,
   type Diferencia,
   type IndicadorComparado,
@@ -81,6 +82,49 @@ function EmbudoDibujado({ resumen }: { resumen: ResumenDeVersion }) {
   );
 }
 
+/** Los niveles de arriba hacia abajo: bienvenida, cada seguimiento, sin respuesta y compras contra la meta. */
+function NivelesDibujados({ resumen }: { resumen: ResumenDeVersion }) {
+  const n = resumen.niveles;
+  const propuesta = propuestaDeDescarte(n);
+  return (
+    <section className="flex flex-col gap-2 border-t border-border pt-3" aria-label={`Niveles de ${resumen.etiqueta}`}>
+      <h3 className="text-sm font-bold text-foreground">Por niveles</h3>
+      <dl className="flex flex-col divide-y divide-border text-sm">
+        <div className="flex justify-between gap-3 py-1.5">
+          <dt className="text-muted-foreground">Respondieron la bienvenida</dt>
+          <dd className="font-bold">
+            {n.respondieronBienvenida.toLocaleString("es-CO")} · {textoPct(n.pctRespondieronBienvenida)}
+          </dd>
+        </div>
+        {n.seguimientos.map((nivel) => (
+          <div key={nivel.clave} className="flex justify-between gap-3 py-1.5">
+            <dt className="text-muted-foreground">{nivel.nombre}: recuperó</dt>
+            <dd className="text-right font-bold">
+              {nivel.recuperados.toLocaleString("es-CO")} de {nivel.enviados.toLocaleString("es-CO")} · {textoPct(nivel.pctRecuperados)}
+              {nivel.enviados > 0 && nivel.faltanDatos ? <span className="block text-xs font-normal text-amber-700 dark:text-amber-300">Faltan datos</span> : null}
+            </dd>
+          </div>
+        ))}
+        <div className="flex justify-between gap-3 py-1.5">
+          <dt className="text-muted-foreground">Quedaron sin respuesta</dt>
+          <dd className="font-bold">
+            {n.sinRespuesta.toLocaleString("es-CO")} · {textoPct(n.pctSinRespuesta)}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-3 py-1.5">
+          <dt className="text-muted-foreground">Compran de cada 100 (meta {n.metaPorCien})</dt>
+          <dd className={cn("font-bold", n.cumpleMeta === true ? "text-green-700 dark:text-green-400" : n.cumpleMeta === false ? "text-red-700 dark:text-red-400" : "")}>
+            {textoPct(n.compranPorCien)}
+          </dd>
+        </div>
+      </dl>
+      <p className="text-xs text-muted-foreground">
+        Descarte: {propuesta.texto} Solo se lee: no cambia ningún mensaje ni cierra ningún chat.
+      </p>
+    </section>
+  );
+}
+
 function ColumnaDeVersion({ resumen, comparacion, lado }: { resumen: ResumenDeVersion; comparacion: Comparacion; lado: "a" | "b" }) {
   const gana = comparacion.ganadora === lado;
   return (
@@ -109,6 +153,7 @@ function ColumnaDeVersion({ resumen, comparacion, lado }: { resumen: ResumenDeVe
           ))}
         </dl>
         <EmbudoDibujado resumen={resumen} />
+        <NivelesDibujados resumen={resumen} />
       </CardContent>
     </Card>
   );
