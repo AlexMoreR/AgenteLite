@@ -12,7 +12,8 @@ import { crearReunion } from "@/features/reuniones/servicios/crear-reunion";
 import { cerrarSala, leerConfigLivekit } from "@/features/reuniones/servicios/livekit";
 import { carpetaDeReuniones, rutaDeArchivo } from "@/features/reuniones/servicios/archivos-de-reuniones";
 import { puedeBorrarLaReunionDe, sePuedeBorrarPorEstado } from "@/features/reuniones/servicios/borrar-reunion";
-import { esDuenoOAdmin, puedeTerminarLaReunion, puedeVerReuniones } from "@/features/reuniones/servicios/permisos";
+import { esDuenoOAdmin, puedeIniciarLaSala, puedeTerminarLaReunion, puedeVerReuniones } from "@/features/reuniones/servicios/permisos";
+import { abrirOCrearReunionDeSala } from "@/features/reuniones/servicios/salas";
 
 async function contexto() {
   const session = await auth();
@@ -36,6 +37,29 @@ export async function crearReunionAction(titulo?: string, sinGrabar?: boolean): 
   const reunion = await crearReunion(prisma, { workspaceId: access.workspaceId, creadaPorId: access.userId, titulo, sinGrabar });
   revalidatePath("/cliente/reuniones");
   return reunion;
+}
+
+/**
+ * «Iniciar reunión» en el link fijo de una sala (/reunion/sala/<codigo>): usa la reunión que esté
+ * Esperando o En vivo, o crea una nueva. Devuelve el código para entrar por /reunion/<codigo>.
+ */
+export async function iniciarReunionDeSalaAction(salaId: string): Promise<{ codigo?: string; error?: string }> {
+  const access = await contexto();
+  if (!access || typeof salaId !== "string" || !salaId) {
+    return { error: "No autorizado" };
+  }
+  const sala = await prisma.salaDeReuniones.findUnique({ where: { id: salaId }, select: { id: true, workspaceId: true } });
+  if (!sala || !puedeIniciarLaSala(access, sala)) {
+    return { error: "No autorizado" };
+  }
+  const reunion = await abrirOCrearReunionDeSala(sala.id, access.userId);
+  if (!reunion) {
+    return { error: "Esta sala ya no existe." };
+  }
+  if (reunion.creada) {
+    revalidatePath("/cliente/reuniones");
+  }
+  return { codigo: reunion.codigo };
 }
 
 /**

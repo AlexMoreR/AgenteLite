@@ -70,6 +70,7 @@ const accesos = {
   emanuel: { userId: "emanuel", workspaceId: "ws1", isOwner: false, role: "ASESOR" },
   karen: { userId: "karen", workspaceId: "ws1", isOwner: false, role: "ASESOR" },
   ajeno: { userId: "ajeno", workspaceId: "ws2", isOwner: true, role: "ADMIN" },
+  sinModulo: { userId: "sinModulo", workspaceId: "ws1", isOwner: false, role: "ASESOR", sinReuniones: true },
 };
 base.miembros.push(
   { workspaceId: "ws1", userId: "admin", isActive: true },
@@ -81,11 +82,12 @@ const mocks = {
   "@/lib/prisma": { prisma },
   "@/lib/client-workspace-access": {
     getClientWorkspaceAccessForUser: async (userId) => accesos[userId] ?? null,
-    canAccessClientModule: () => true,
+    // Todos tienen el módulo Reuniones menos quien trae `sinReuniones`.
+    canAccessClientModule: (access) => !access.sinReuniones,
   },
 };
 const { crearSala, editarSala, abrirOCrearReunionDeSala } = cargar("src/features/reuniones/servicios/salas.ts", mocks);
-const { puedeTerminarLaReunion, puedeAdministrarSalas } = cargar("src/features/reuniones/servicios/permisos.ts", mocks);
+const { puedeTerminarLaReunion, puedeAdministrarSalas, puedeIniciarLaSala } = cargar("src/features/reuniones/servicios/permisos.ts", mocks);
 
 // ── Pruebas ───────────────────────────────────────────────────────────────────────────────────────
 let sistemas;
@@ -192,6 +194,16 @@ await prueba("cuando la reunión ya terminó se crea otra; la de otra sala no cu
   const guardada = base.reuniones.find((reunion) => reunion.id === deSistemas.id);
   assert.equal(guardada.sinGrabar, false);
   assert.equal(guardada.salaFijaId, sistemas.id);
+});
+
+await prueba("«Iniciar reunión» en el link fijo: quien tiene el módulo en el negocio de la sala, nadie más", async () => {
+  const sala = { workspaceId: "ws1" };
+  assert.equal(puedeIniciarLaSala(accesos.alex, sala), true, "el dueño");
+  assert.equal(puedeIniciarLaSala(accesos.admin, sala), true, "un admin");
+  assert.equal(puedeIniciarLaSala(accesos.karen, sala), true, "una asesora con el módulo");
+  assert.equal(puedeIniciarLaSala(accesos.sinModulo, sala), false, "sin el módulo Reuniones");
+  assert.equal(puedeIniciarLaSala(accesos.ajeno, sala), false, "el dueño de otro negocio");
+  assert.equal(puedeIniciarLaSala(null, sala), false, "un invitado sin sesión");
 });
 
 await prueba("una sala que no existe devuelve null", async () => {
