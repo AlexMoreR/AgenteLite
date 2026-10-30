@@ -90,6 +90,7 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
     }
   }
   const idsDeHoy = new Set(candidatasDeHoy.map((conversacion) => conversacion.id));
+  const idsDeBienvenida = new Set(candidatasDeBienvenida.map((conversacion) => conversacion.id));
   const candidatas = [...porId.values()];
 
   let repartidos = 0;
@@ -121,6 +122,10 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
     }
     const esperaDeHoy = idsDeHoy.has(conversacion.id) && ultimo?.direction === "INBOUND";
     if (!esperaDeHoy) {
+      // El segundo caso es solo de líneas de ventas: los demás candidatos no entran por aquí.
+      if (!idsDeBienvenida.has(conversacion.id)) {
+        continue;
+      }
       // Segundo caso: el último fue nuestro, pero ¿el cliente ya había respondido la bienvenida?
       const mensajes = await prisma.message.findMany({
         where: { conversationId: conversacion.id, type: { not: "SYSTEM" }, deletedAt: null },
