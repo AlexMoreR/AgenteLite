@@ -39,6 +39,8 @@ import { linkDeLaTarjeta } from "./tableros";
   - Interruptor general `tablero:avisos-equipo:<ws>` = {"activo": true}; EMPIEZA APAGADO. Al prenderlo, lo que ya
     estaba asignado se anota YA_VISTO y no se avisa (no sale una ola de mensajes).
   - Si la línea falla, se reintenta hasta 3 veces en los minutos siguientes y queda FALLIDO.
+  - Quien se asigna su propia tarjeta (responsable = quien la creó) no recibe "tarea nueva" ni el recordatorio de 24 horas:
+    es él mismo quien la acaba de dictar (el dueño por voz). Sí le llegan lo URGENTE y lo que cae en ERROR o espera su sí.
   - Sin responsable, si el aviso de siempre al dueño ya le mandó esa misma tarjeta, este no sale (no duplicar).
 */
 
@@ -73,6 +75,8 @@ export type TarjetaParaAvisar = {
   estado: string;
   urgente: boolean;
   responsableId: string | null;
+  /** userId de quien la creó: si es el mismo responsable, no se le avisa "tarea nueva" ni el recordatorio. */
+  creadoPor?: string | null;
   repo: string | null;
   plan: string | null;
   zonaProtegida: string[];
@@ -133,10 +137,12 @@ export function calcularAvisosAlEquipo(tarjetas: readonly TarjetaParaAvisar[], a
     const responsable = tarjeta.responsableId;
     if (responsable && !terminada) {
       const urgente = esUrgente(tarjeta);
-      avisos.push({ tarjeta, tipo: "asignada", motivo: `asignada:${responsable}`, userId: responsable, ...(urgente ? { cubierta: true } : {}) });
+      // Se la asignó a sí mismo: ya lo sabe, no hay "tarea nueva" ni recordatorio (lo urgente y lo que espera su sí siguen).
+      const propia = tarjeta.creadoPor === responsable;
+      if (!propia) avisos.push({ tarjeta, tipo: "asignada", motivo: `asignada:${responsable}`, userId: responsable, ...(urgente ? { cubierta: true } : {}) });
       if (urgente) avisos.push({ tarjeta, tipo: "urgente", motivo: `urgente:${responsable}`, userId: responsable });
       const enManosDelCoordinador = Boolean(tarjeta.repo) && ESTADOS_DEL_COORDINADOR.includes(tarjeta.estado);
-      if (!enManosDelCoordinador && ahora.getTime() - tarjeta.ultimoMovimiento.getTime() >= HORAS_SIN_MOVERSE * MS_HORA) {
+      if (!propia && !enManosDelCoordinador && ahora.getTime() - tarjeta.ultimoMovimiento.getTime() >= HORAS_SIN_MOVERSE * MS_HORA) {
         avisos.push({ tarjeta, tipo: "recordatorio", motivo: `recordatorio:${responsable}`, userId: responsable });
       }
     }
@@ -343,6 +349,7 @@ async function leerTarjetas(workspaceId: string): Promise<TarjetaParaAvisar[]> {
       plan: true,
       zonaProtegida: true,
       resultado: true,
+      creadoPor: true,
       creadoEn: true,
     },
   });
@@ -356,6 +363,7 @@ async function leerTarjetas(workspaceId: string): Promise<TarjetaParaAvisar[]> {
     estado: fila.estado,
     urgente: fila.urgente,
     responsableId: fila.responsableId,
+    creadoPor: fila.creadoPor,
     repo: fila.repo,
     plan: fila.plan,
     zonaProtegida: fila.zonaProtegida,

@@ -392,6 +392,32 @@ await prueba("4. si la tarjeta se movió, no hay recordatorio; si la tiene el Co
   assert.deepEqual(estado.enviados, []);
 });
 
+await prueba("una tarjeta que el dueño creó y se asignó a sí mismo no le avisa (ni al pasar 24 horas); en ERROR o URGENTE sí", async () => {
+  estado.tarjetas = [tarjeta({ id: "p1", responsableId: "u_alex", creadoPor: "u_alex" })];
+  estado.historial.set("p1", DIA);
+  await prenderYBase();
+  estado.tarjetas.push(tarjeta({ id: "p2", responsableId: "u_alex", creadoPor: "u_alex" }));
+  await vuelta(mas(0.1));
+  await vuelta(mas(30));
+  assert.deepEqual(estado.enviados, [], "ni WhatsApp");
+  assert.equal(estado.alertas.length, 0, "ni alerta");
+  estado.tarjetas[0].estado = "ERROR";
+  estado.tarjetas[0].resultado = { error: "falló la prueba" };
+  estado.tarjetas[1].urgente = true;
+  await vuelta(mas(31));
+  assert.ok(textos().some((t) => /el Coordinador necesita algo/.test(t)), "el ERROR sí avisa");
+  assert.ok(textos().some((t) => /^URGENTE: Alexander, /.test(t)), "lo urgente sí avisa");
+  assert.ok(!textos().some((t) => /tarea nueva/.test(t)));
+});
+
+await prueba("una tarjeta que el dueño creó y asignó a Emanuel sí le avisa a Emanuel", async () => {
+  await prenderYBase();
+  estado.tarjetas = [tarjeta({ responsableId: "u_em", creadoPor: "u_alex" })];
+  await vuelta(mas(0.1));
+  assert.equal(estado.enviados.length, 1);
+  assert.match(estado.enviados[0].text, /^Emanuel, tienes una tarea nueva/);
+});
+
 await prueba("no avisa si la persona está inactiva, no tiene número o apagó sus avisos en el perfil (y queda anotado el motivo)", async () => {
   await prenderYBase();
   estado.ajustes.set("tablero:avisos-equipo:persona:u_off", "false");
