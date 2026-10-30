@@ -2086,6 +2086,13 @@ export async function personaQueAprueba(
   };
 }
 
+/** El resumen, las pruebas y lo que espera, que escribió el Coordinador en `resultado`, más el motivo del riesgo (para el límite de dinero y Meta Ads). */
+function textosDelCoordinador(resultado: unknown, riesgoMotivo: string | null): string {
+  const datos = resultado && typeof resultado === "object" && !Array.isArray(resultado) ? (resultado as Record<string, unknown>) : {};
+  const textos = ["resumen", "pruebas", "esperaPor", "error"].map((clave) => datos[clave]).filter((valor): valor is string => typeof valor === "string");
+  return [...textos, riesgoMotivo ?? ""].join("\n");
+}
+
 /** AppSetting con el último día del permiso de prueba del aprobador de Sistemas (opcional; sin fila vale PRUEBA_SISTEMAS_HASTA). */
 export const claveSistemasHasta = (workspaceId: string) => `tablero:aprobador-sistemas:hasta:${workspaceId}`;
 
@@ -2153,6 +2160,8 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
         titulo: actual.titulo,
         detalle: actual.detalle,
         plan: actual.plan,
+        // Título y detalle se pueden editar hasta POR_REVISAR: también se mira lo que dejó el Coordinador (no editable).
+        extra: textosDelCoordinador(actual.resultado, actual.riesgoMotivo),
         area: (await leerAreasDeTarjetas(contexto.workspaceId, [actual.id])).get(actual.id) ?? null,
       }
     : null;

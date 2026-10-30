@@ -543,12 +543,19 @@ export function permisoDeSistemasVigente(ahora: Date, hasta: string = PRUEBA_SIS
 }
 
 /** Lo que se mira de una tarjeta para saber si Emanuel la puede aprobar. */
-export type TarjetaParaSistemas = { titulo: string; detalle: string; plan: string | null; area: string | null };
+export type TarjetaParaSistemas = {
+  titulo: string;
+  detalle: string;
+  plan: string | null;
+  area: string | null;
+  /** Lo que no se puede editar a mano (el resumen y las pruebas del Coordinador, el motivo del riesgo): también cuenta para el límite. */
+  extra?: string | null;
+};
 
 /** ¿La tarjeta toca dinero de Gestión o Meta Ads? Mira el título, la descripción, el plan, el área y la zona. Ante la duda, sí. */
 export function tarjetaTocaDineroOMetaAds(tarjeta: TarjetaParaSistemas, zonaProtegida: readonly string[]): boolean {
   if (zonaProtegida.includes("META_ADS")) return true;
-  return tocaDineroOMetaAds([tarjeta.titulo, tarjeta.detalle, tarjeta.plan ?? "", tarjeta.area ?? ""].join("\n"));
+  return tocaDineroOMetaAds([tarjeta.titulo, tarjeta.detalle, tarjeta.plan ?? "", tarjeta.area ?? "", tarjeta.extra ?? ""].join("\n"));
 }
 
 /**
