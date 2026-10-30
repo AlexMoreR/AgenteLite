@@ -1792,6 +1792,8 @@ const llamadas = [];
 let avisosSilenciados = false;
 /** true: la tarjeta de limpieza que crea el CRM falso queda APROBADO (como el real) y entra a la fila; false: no estorba a las demás pruebas. */
 let limpiezaEnLaFila = false;
+/** true: /causa-externa contesta 500 (el CRM falla): la tarjeta tiene que seguir el camino de siempre. */
+let causaExternaFalla = false;
 const latidoVencido = new Set();
 /** Cuántas tuvo el trabajador a la vez (con candado), por etapa: { construir: 2, subir: 1, ... }. */
 const aLaVez = {};
@@ -1960,6 +1962,7 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     return contestar(200, { ok: true, creada: true, agregados: cuerpo.errores.length, tarjetaId: idNueva });
   }
   if (accion === "causa-externa") {
+    if (causaExternaFalla) return contestar(500, { ok: false, error: "El CRM falló (falso)." });
     // Como pedirCausaExterna de services/trabajador.ts (30-oct-2026): reusa la abierta con el título fijo (1 por causa y repo) o la crea,
     // pone la flecha y suelta esta sin ERROR ni intento. La nueva queda POR_APROBAR en el falso (como la limpieza): no estorba a las demás.
     if (reglas.esTarjetaDeCausaExterna(tarjeta.titulo)) return contestar(409, { ok: false, error: "Esta ya es una tarjeta de causa: no pide otra." });
@@ -2730,6 +2733,24 @@ try {
     assert.ok(!candidatasDelFalso().some((c) => c.id === id), "espera fuera de la fila");
     causa.estado = "HECHO";
     assert.ok(candidatasDelFalso().some((c) => c.id === id), "vuelve sola cuando la de la causa queda HECHO");
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("causa externa: si el CRM falla al pedir la tarjeta de la causa, se repara como siempre (nunca queda peor que antes)", async () => {
+    const config = crearConfig({}, { lint: { comando: [node, "-e", lintViejo] } });
+    const id = nuevaModerna("Tarea con el CRM caído");
+    causaExternaFalla = true;
+    let resultado;
+    try {
+      resultado = await vuelta(config);
+    } finally {
+      causaExternaFalla = false;
+    }
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.accion, "reparar");
+    assert.equal(tarjetas.get(id).reparaciones, 1);
+    assert.equal(tarjetas.get(id).dependeDe, undefined, "sin flecha");
     soltarTodas(id);
     sinRestos();
   });
