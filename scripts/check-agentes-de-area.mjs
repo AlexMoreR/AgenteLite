@@ -103,8 +103,12 @@ const prisma = {
   },
   user: { findMany: async ({ where }) => USUARIOS.filter((u) => where.id.in.includes(u.id)) },
   // Solo el historial de etapas devuelve filas (los chats calientes de María); el resto de lecturas sale vacío.
-  $queryRaw: async (consulta) => (String(consulta?.[0]?.join?.("") ?? "").includes('"HistorialEtapa"') ? db.cambiosDeEtapa : []),
+  $queryRaw: async (consulta) => {
+    if (db.sinBase && String(consulta?.[0]?.join?.("") ?? "").includes('FROM "Message" m')) throw new Error("base sin respuesta");
+    return await respuestaCruda(consulta);
+  },
 };
+const respuestaCruda = async (consulta) => (String(consulta?.[0]?.join?.("") ?? "").includes('"HistorialEtapa"') ? db.cambiosDeEtapa : []);
 
 const mocks = {
   "@/lib/prisma": { prisma },
@@ -451,6 +455,24 @@ await prueba("bienvenida: numeros_de_ventas trae el campo y, si falla la lectura
   assert.ok("tasa_respuesta_bienvenida" in r);
   assert.ok(Array.isArray(r.por_asesora));
   assert.equal(db.enviados.length, 0);
+});
+
+await prueba("leads nuevos: sin base, numeros_de_ventas avisa 'leads nuevos' en no_se_pudo_leer y el resto sale igual", async () => {
+  reiniciar({ activo: true });
+  db.sinBase = true;
+  try {
+    const r = await mcp.ejecutarHerramientaMcpAgentesDeArea("numeros_de_ventas", { fecha: "2026-10-26" }, { workspaceId: WS, userId: "alex" });
+    assert.ok(r.no_se_pudo_leer.some((e) => e.startsWith("leads nuevos: ")));
+    assert.equal(r.leads_nuevos, null);
+    assert.ok(Array.isArray(r.por_asesora));
+    assert.ok("tasa_respuesta_bienvenida" in r);
+    assert.ok(r.total);
+  } finally {
+    db.sinBase = false;
+  }
+  const bien = await mcp.ejecutarHerramientaMcpAgentesDeArea("numeros_de_ventas", { fecha: "2026-10-26" }, { workspaceId: WS, userId: "alex" });
+  assert.equal(bien.leads_nuevos.total, 0);
+  assert.equal(bien.leads_nuevos.por_linea.solo_ventas, 0);
 });
 
 const reporteDel26 = async () => {

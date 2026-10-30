@@ -12,6 +12,7 @@ import { ETIQUETA_DE_AGENTE, leerPedidoDeDatoViejo } from "@/features/agentes-de
 import { anotarAprendizaje, leerCerebroDelArea, marcarDatoViejo } from "@/features/agentes-de-area/servicios/cerebro-del-area";
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { mandarWhatsAppAlEquipo } from "@/features/agentes-de-area/servicios/envios";
+import { leadsNuevosDelDia } from "@/features/leads-nuevos/servicios/leads-nuevos-del-dia";
 import { numerosDeMarketing } from "@/features/agentes-de-area/servicios/numeros-de-marketing";
 import { numerosDeRespuestaBienvenida } from "@/features/agentes-de-area/servicios/numeros-respuesta-bienvenida";
 import { avisosDelSupervisor, medirLosSugeridosDe, numerosDelDia } from "@/features/agentes-de-area/servicios/numeros";
@@ -69,7 +70,7 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
     name: "numeros_de_ventas",
     title: "Números de ventas del día",
     description:
-      "Los números de UN día (por defecto ayer, hora de Colombia) POR ASESORA: chats atendidos, cotizaciones (las REALES: las que se crearon ese día en Gestión por esa vendedora, igual que listar_cotizaciones; null si Gestión no respondió), chats calientes (chats que llegaron a Tibio o Caliente: Propuesta, Negociación o Ganado; NO son cotizaciones), ventas (la venta cuenta en la línea de ventas, a nombre de quien vendió; la línea Admin nunca suma y un teléfono es una sola venta), tasa de cierre y tiempo de respuesta (mediana en minutos), más los avisos que detectó el Supervisor ese día. También MIDE los sugeridos del último resumen guardado: a cuáles les escribió el equipo, cuáles respondieron y cuáles compraron. Trae también `tasa_respuesta_bienvenida`: de los leads nuevos del día (todos los que entraron, sin importar su etapa), qué % mandó al menos un mensaje más después del primero y qué % lo hizo en menos de 2 horas, en total, por línea y por anuncio, con la meta de 60 %, separando los que respondieron la bienvenida, los recuperados por cada seguimiento (15 min, 1 hora, 1 día) y los que nunca respondieron, y la serie de los últimos 14 días (null = sin dato). Así el agente no abre los chats uno por uno. Las ventas, abonos y saldos de dinero NO salen de aquí: se leen en el MCP de Gestión. Solo lectura.",
+      "Los números de UN día (por defecto ayer, hora de Colombia) POR ASESORA: chats atendidos, cotizaciones (las REALES: las que se crearon ese día en Gestión por esa vendedora, igual que listar_cotizaciones; null si Gestión no respondió), chats calientes (chats que llegaron a Tibio o Caliente: Propuesta, Negociación o Ganado; NO son cotizaciones), ventas (la venta cuenta en la línea de ventas, a nombre de quien vendió; la línea Admin nunca suma y un teléfono es una sola venta), tasa de cierre y tiempo de respuesta (mediana en minutos), más los avisos que detectó el Supervisor ese día. También MIDE los sugeridos del último resumen guardado: a cuáles les escribió el equipo, cuáles respondieron y cuáles compraron. Trae también `tasa_respuesta_bienvenida`: de los leads nuevos del día (todos los que entraron, sin importar su etapa), qué % mandó al menos un mensaje más después del primero y qué % lo hizo en menos de 2 horas, en total, por línea y por anuncio, con la meta de 60 %, separando los que respondieron la bienvenida, los recuperados por cada seguimiento (15 min, 1 hora, 1 día) y los que nunca respondieron, y la serie de los últimos 14 días (null = sin dato). Así el agente no abre los chats uno por uno. Trae también `leads_nuevos`: los clientes cuyo primer mensaje de la vida cae ese día (un cliente cuenta una vez aunque escriba por dos líneas, y la línea Admin también entra), con el total, por_origen (meta, marketplace con por_texto y por_linea, directo), por_linea (admin, ventas_1, ventas_2, solo_ventas = Ventas 1 + 2; Marketplace por línea = Ventas 2) y por_asesora (más sin_asignar). Las ventas, abonos y saldos de dinero NO salen de aquí: se leen en el MCP de Gestión. Solo lectura.",
     inputSchema: {
       type: "object",
       properties: {
@@ -358,6 +359,7 @@ async function verNumeros(args: Argumentos, contexto: Contexto) {
     null,
   );
   const bienvenida = await intentar("tasa de respuesta a la bienvenida", () => numerosDeRespuestaBienvenida(contexto.workspaceId, fecha), null);
+  const leadsNuevos = await intentar("leads nuevos", () => leadsNuevosDelDia(contexto.workspaceId, fecha), null);
   // Si Gestión no respondió, las cotizaciones quedan en null: no se muestra el número de chats calientes con esa etiqueta.
   const gestionNoRespondio = numeros.avisos.length > 0;
   const total = porAsesora.reduce(
@@ -388,10 +390,23 @@ async function verNumeros(args: Argumentos, contexto: Contexto) {
           advertencias: bienvenida.advertencias,
         }
       : null,
+    leads_nuevos: leadsNuevos
+      ? {
+          total: leadsNuevos.total,
+          por_origen: leadsNuevos.por_origen,
+          por_linea: leadsNuevos.por_linea,
+          por_asesora: leadsNuevos.por_asesora,
+          sin_asignar: leadsNuevos.sin_asignar,
+          como_leerlo:
+            "Lead nuevo = el primer mensaje de la vida del cliente cae ese día (hora de Colombia). Un cliente cuenta una vez aunque escriba por dos líneas, y la línea Admin también cuenta. solo_ventas = Ventas 1 + Ventas 2. Marketplace por línea = Ventas 2.",
+          advertencias: leadsNuevos.advertencias,
+        }
+      : null,
     advertencias: [
       "Las ventas aquí son cambios de etapa a GANADO en el CRM; el dinero (ventas, abonos, saldos) se lee en el MCP de Gestión.",
       "Cotizaciones = las creadas ese día en Gestión por cada vendedora (cruzadas con la asesora por nombre; una vendedora sin asesora en el CRM sale en su propia fila). Si dice null, Gestión no respondió: míralo en no_se_pudo_leer y no lo reemplaces con otro número.",
       "Chats calientes = chats que llegaron a Tibio o Caliente ese día (Propuesta, Negociación o Ganado en el CRM). No son cotizaciones.",
+      "Leads nuevos = clientes cuyo primer mensaje de la vida cae ese día, por cualquier línea (Admin incluida); un cliente cuenta una vez aunque escriba por dos líneas. solo_ventas = Ventas 1 + Ventas 2. Marketplace por línea = Ventas 2. Si dice null, la lectura falló: míralo en no_se_pudo_leer.",
       "Chats atendidos = chats con al menos un mensaje saliente humano ese día, por la asesora a la que están asignados HOY.",
     ],
     ...(noSePudoLeer.length ? { no_se_pudo_leer: noSePudoLeer } : {}),
