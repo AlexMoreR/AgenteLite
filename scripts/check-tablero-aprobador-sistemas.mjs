@@ -7,13 +7,16 @@ import { cargar } from "./supervisor-cargar.mjs";
 
 const ajustes = new Map();
 const enviados = [];
+const sit = { latido: null, esperando: [], historial: [], falla: false };
 const falso = {
   appSetting: {
     findUnique: async ({ where }) => (ajustes.has(where.key) ? { value: ajustes.get(where.key) } : null),
     upsert: async ({ where, create, update }) => void ajustes.set(where.key, ajustes.has(where.key) ? update.value : create.value),
   },
   user: { findUnique: async () => ({ phone: null }) },
-  historialTarjeta: { findMany: async () => [] },
+  historialTarjeta: { findMany: async () => sit.historial, groupBy: async () => [] },
+  tarjetaTablero: { findMany: async () => [], count: async () => 0 },
+  $queryRawUnsafe: async () => [],
   whatsAppChannel: {
     findFirst: async () => ({ name: "Admin", evolutionInstanceName: "admin-inst" }),
     findMany: async () => [{ name: "Admin", phoneNumber: "573009990000" }],
@@ -23,10 +26,15 @@ const falso = {
 const mocks = {
   "@/lib/prisma": { prisma: falso },
   "@prisma/client": { Prisma: {} },
-  "@/lib/evolution": { sendEvolutionTextMessageWithReconnect: async (datos) => void enviados.push(datos) },
-  "./coordinador-en-vivo": { ultimoLatido: async () => null },
+  "@/lib/evolution": {
+    sendEvolutionTextMessageWithReconnect: async (datos) => {
+      if (sit.falla) throw new Error("línea caída");
+      enviados.push(datos);
+    },
+  },
+  "./coordinador-en-vivo": { ultimoLatido: async () => (sit.latido ? { recibidoEn: sit.latido } : null) },
   "./tableros": {
-    pendientesDelDueno: async () => [],
+    pendientesDelDueno: async () => sit.esperando,
     todoElNegocio: (workspaceId) => ({ workspaceId, soloDe: null }),
     linkDeHoy: () => "https://app.aizenbot.com/cliente/tablero-ia?vista=hoy",
     linkDelCoordinador: () => "https://app.aizenbot.com/cliente/tablero-ia?vista=coordinador",
@@ -183,6 +191,63 @@ await prueba("el resumen diario sale una sola vez al día, desde las 7 p. m. y n
   assert.equal(enviados.length, 0);
   assert.equal((await avisos.enviarResumenDiario("ws1", siete)).enviado, false);
   assert.equal(ajustes.get("tablero:resumen-diario:ultimo:ws1"), "2026-11-09");
+});
+
+
+await prueba("con cifras: el resumen sale de máximo 4 líneas sin links, marca el día solo si salió y se reintenta si falla", async () => {
+  ajustes.clear();
+  ajustes.set("tablero:avisos-dueno:telefono:ws1", "573001112233");
+  enviados.length = 0;
+  const siete = new Date("2026-11-10T00:30:00Z"); // 7:30 p. m. del 9-nov en Bogotá
+  sit.esperando = [{ id: "p1", titulo: "X", estado: "POR_REVISAR" }];
+  sit.historial = [{
+    tarjetaId: "t1", accion: "estado", origen: "TRABAJADOR", quien: "Coordinador", creadoEn: new Date("2026-11-09T20:00:00Z"),
+    despues: { estado: "HECHO" }, tarjeta: { titulo: "Arreglar" },
+  }];
+  sit.falla = true;
+  assert.equal((await avisos.enviarResumenDiario("ws1", siete)).enviado, false);
+  assert.equal(ajustes.has("tablero:resumen-diario:ultimo:ws1"), false, "si no salió, no se marca el día");
+  sit.falla = false;
+  assert.equal((await avisos.enviarResumenDiario("ws1", siete)).enviado, true);
+  const texto = enviados.at(-1).text;
+  assert.ok(texto.split("\n").length <= 4);
+  assert.doesNotMatch(texto, /https?:|Ver:/);
+  assert.match(texto, /Se arregló: 1 tarea[\s\S]*Pendiente: 1 tarjeta/);
+  assert.equal(ajustes.get("tablero:resumen-diario:ultimo:ws1"), "2026-11-09");
+  const antes = enviados.length;
+  assert.equal((await avisos.enviarResumenDiario("ws1", siete)).enviado, false, "una sola vez al día");
+  assert.equal(enviados.length, antes);
+});
+
+await prueba("revisarNegocio: lo técnico va a Sistemas y lo de Meta Ads a Alexander, en dos mensajes; sin número de Sistemas todo a Alexander", async () => {
+  ajustes.clear();
+  ajustes.set("tablero:avisos-dueno:telefono:ws1", "573001112233");
+  ajustes.set("tablero:avisos-sistemas:telefono:ws1", "573004445566");
+  const ahora = new Date("2026-11-10T15:00:00Z");
+  sit.latido = new Date(ahora.getTime() - 30 * 60_000).toISOString();
+  sit.historial = [];
+  sit.esperando = [{ id: "m1", titulo: "Subir el presupuesto", detalle: "", estado: "POR_REVISAR", plan: null, zonaProtegida: ["META_ADS"], resultado: null }];
+  enviados.length = 0;
+  assert.equal((await avisos.revisarNegocio("ws1", ahora)).enviados, 2);
+  assert.deepEqual(enviados.map((e) => e.phoneNumber).sort(), ["573001112233", "573004445566"]);
+  assert.match(enviados.find((e) => e.phoneNumber === "573004445566").text, /detenido/);
+  assert.match(enviados.find((e) => e.phoneNumber === "573001112233").text, /Meta Ads/);
+  // Sin número de Sistemas: los dos mensajes salen a Alexander.
+  ajustes.clear();
+  ajustes.set("tablero:avisos-dueno:telefono:ws1", "573001112233");
+  enviados.length = 0;
+  assert.equal((await avisos.revisarNegocio("ws1", ahora)).enviados, 2);
+  assert.deepEqual([...new Set(enviados.map((e) => e.phoneNumber))], ["573001112233"]);
+  sit.latido = null;
+  sit.esperando = [];
+});
+
+await prueba("personaQueAprueba llena sistemasVigente con el ajuste de vencimiento; aprobarTarjeta deja la marca de prueba", async () => {
+  const fuente = (await import("node:fs")).readFileSync("src/features/tableros-inteligentes/services/tableros.ts", "utf8");
+  assert.match(fuente, /aprobador\.alcance === ALCANCE_SISTEMAS\s*\?\s*\{ sistemasVigente: permisoDeSistemasVigente\(new Date\(\), await vencimientoDeSistemas\(workspaceId\)\)/);
+  assert.match(fuente, /claveVencimientoDeSistemas = \(workspaceId: string\) => `tablero:sistemas-vence:\$\{workspaceId\}`/);
+  assert.match(fuente, /persona\.aprobador\?\.alcance === ALCANCE_SISTEMAS \? \{ periodoDePrueba: true as const \}/);
+  assert.match(fuente, /textoDeLaTarjeta: textoDeLaTarjetaParaElLimite\(actual\)/);
 });
 
 console.log(`\n${pruebas} pruebas del aprobador de Sistemas: todas bien`);
