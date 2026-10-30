@@ -40,7 +40,13 @@ import { linkDeLaTarjeta } from "./tableros";
     estaba asignado se anota YA_VISTO y no se avisa (no sale una ola de mensajes).
   - Si la línea falla, se reintenta hasta 3 veces en los minutos siguientes y queda FALLIDO.
   - Sin responsable, si el aviso de siempre al dueño ya le mandó esa misma tarjeta, este no sale (no duplicar).
+  - La tabla AvisoTarjetaEquipo la comparte el aviso "terminada" al dueño (avisos-de-terminadas.ts, motivo "terminada"). Esas
+    filas NO son de este revisor: su resumen, su "último aviso", su reinicio al prender el interruptor y cualquier consulta
+    de esta tabla las ignoran (motivo: { not: "terminada" }).
 */
+
+/** El motivo de las filas del aviso "terminada" al dueño (avisos-de-terminadas.ts): no son de este revisor. */
+const MOTIVO_AJENO = "terminada";
 
 export const claveInterruptorDelEquipo = (workspaceId: string) => `tablero:avisos-equipo:${workspaceId}`;
 export const clavePersonaDelEquipo = (userId: string) => `tablero:avisos-equipo:persona:${userId}`;
@@ -198,7 +204,7 @@ export async function ponerAvisosAlEquipo(workspaceId: string, activo: boolean) 
   if (activo) {
     await prisma.appSetting.deleteMany({ where: { key: claveBase(workspaceId) } });
     await prisma.avisoTarjetaEquipo.updateMany({
-      where: { workspaceId, estado: "PENDIENTE" },
+      where: { workspaceId, estado: "PENDIENTE", motivo: { not: MOTIVO_AJENO } },
       data: { estado: "YA_VISTO", detalle: "quedó pendiente con los avisos apagados" },
     });
   }
@@ -387,7 +393,7 @@ export async function revisarAvisosDelEquipoDelNegocio(workspaceId: string, ahor
 
   const existentes = calculados.length
     ? await prisma.avisoTarjetaEquipo.findMany({
-        where: { workspaceId, tarjetaId: { in: [...new Set(calculados.map((aviso) => aviso.tarjeta.id))] } },
+        where: { workspaceId, motivo: { not: MOTIVO_AJENO }, tarjetaId: { in: [...new Set(calculados.map((aviso) => aviso.tarjeta.id))] } },
         select: { id: true, tarjetaId: true, motivo: true, estado: true, intentos: true },
       })
     : [];
@@ -543,8 +549,8 @@ export async function marcarUrgente(contexto: ContextoUrgente, tarjetaId: unknow
 export async function resumenDeAvisosAlEquipo(workspaceId: string) {
   const [activo, ultimo, fallidos] = await Promise.all([
     avisosAlEquipoPrendidos(workspaceId),
-    prisma.avisoTarjetaEquipo.findFirst({ where: { workspaceId, estado: "ENVIADO" }, orderBy: { enviadoEn: "desc" }, select: { motivo: true, enviadoEn: true } }),
-    prisma.avisoTarjetaEquipo.findFirst({ where: { workspaceId, estado: "FALLIDO" }, orderBy: { creadoEn: "desc" }, select: { motivo: true, detalle: true } }),
+    prisma.avisoTarjetaEquipo.findFirst({ where: { workspaceId, estado: "ENVIADO", motivo: { not: MOTIVO_AJENO } }, orderBy: { enviadoEn: "desc" }, select: { motivo: true, enviadoEn: true } }),
+    prisma.avisoTarjetaEquipo.findFirst({ where: { workspaceId, estado: "FALLIDO", motivo: { not: MOTIVO_AJENO } }, orderBy: { creadoEn: "desc" }, select: { motivo: true, detalle: true } }),
   ]);
   return { activo, ultimo, ultimoFallido: fallidos };
 }

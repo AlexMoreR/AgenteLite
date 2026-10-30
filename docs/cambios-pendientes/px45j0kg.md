@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `avisos_de_terminadas`: el aviso «terminó la tarea» al dueño (avisos-de-terminadas.ts) es una excepción nueva a «solo urgentes por WhatsApp»: sale solo cuando el Coordinador deja en HECHO una tarjeta con repo (no el HECHO a mano), con su propio interruptor `tablero:avisos-dueno:terminadas:<workspaceId>` (empieza prendido) y prioridad BAJA en /cliente/alertas. Todavía no lo llama el reloj. Usa filas de AvisoTarjetaEquipo con motivo «terminada», que avisos-al-equipo ignora.

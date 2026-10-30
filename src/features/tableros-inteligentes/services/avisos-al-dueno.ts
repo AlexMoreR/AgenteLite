@@ -39,6 +39,12 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
     trabado, sin_trabajo       → ALTA (solo la página; ya no llegan por WhatsApp)
   Interruptor apagado = exactamente lo anterior.
 
+  EXCEPCIÓN "TERMINADA" (30-oct-2026): lo de "ni terminó" y "solo urgentes por WhatsApp" tiene UNA excepción nueva: el aviso
+  "terminó la tarea" (avisos-de-terminadas.ts). Solo cuando el Coordinador deja una tarjeta con repo en HECHO (no el HECHO
+  a mano), con su propio interruptor `tablero:avisos-dueno:terminadas:<ws>` (empieza prendido; también respeta el general),
+  prioridad BAJA en la página /cliente/alertas y SÍ sale por WhatsApp aunque no sea urgente. Sale por enviarAlDueno (misma
+  línea Admin y mismo número de arriba), respeta el silencio de 9 p. m. a 7 a. m. y no cuenta como ninguno de los tipos de arriba.
+
   Todo se guarda en AppSetting (sin tablas nuevas). El reloj del servidor (api/cron/follows) llama a
   revisarAvisosAlDueno cada minuto. Antes de este archivo el aviso del Coordinador devolvía 412 porque nadie
   guardaba el número en ninguna pantalla.
