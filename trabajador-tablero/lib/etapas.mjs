@@ -76,6 +76,7 @@ import {
   MARCA_GASTO_META_ADS,
   enviosDeLog,
   erroresDeLog,
+  esperaAlDueno,
   erroresNuevosDeLog,
   lineasDeEnvioFallidoDeLog,
   lineasDeErrorNuevasDeLog,
@@ -699,18 +700,18 @@ export const INSTRUCCION_DE_RIESGO = [
 export function reglasDeZonasQueSubenSolas(repo) {
   const zonas = repo.zonasQueSubenSolas ?? [];
   if (!zonas.length) return "";
-  const lineas = [`Zonas que suben solas a producción (sin el sí final del dueño): ${zonas.join(", ")}. Para que suban solas, deja escrito en tu RESUMEN final lo siguiente (si falta, la tarjeta espera el sí del dueño):`];
+  const lineas = [`Zonas que suben solas a producción (sin el sí final del dueño): ${zonas.join(", ")}. Para que suban solas, deja escrito en tu RESUMEN final lo siguiente (si falta, no sube sola: el libro V3 espera el sí del dueño; chats y el bot de ventas quedan en ERROR con el motivo):`];
   if (zonas.includes("LIBRO_V3")) {
     lineas.push(
       `- Libro V3: corre el simulador (v3_probar_mensaje / v3_simular_conversacion) con conversaciones reales recientes y escribe "${CONFIRMACION_LIBRO_V3}" y "versión anterior del libro: <número>" (con ese número se vuelve atrás con v3_volver_a_version).`,
     );
   }
   if (zonas.includes("BOT_VENTAS")) {
-    lineas.push(`- Bot de ventas: comprueba que no se manda ningún mensaje nuevo ni distinto a clientes fuera de lo pedido y escribe "${CONFIRMACION_BOT_VENTAS}". Si se te olvida, el Coordinador lo comprueba con el diff real y la escribe él.`);
+    lineas.push(`- Bot de ventas: comprueba que no se manda ningún mensaje nuevo ni distinto a clientes fuera de lo pedido y escribe "${CONFIRMACION_BOT_VENTAS}". Si agrega un envío nuevo a clientes que el plan no menciona, la tarjeta queda en ERROR con el motivo. Si se te olvida la frase, el Coordinador lo comprueba con el diff real y la escribe él.`);
   }
   if (zonas.includes("CHATS")) {
     lineas.push(
-      `- Chats: sube sola solo si está actualizada con main, compila, pasa TODAS las pruebas, nunca usa force-push y queda con la vigilancia de 30 minutos. COMPRUEBA primero que el cambio no manda ningún mensaje nuevo ni distinto a clientes (ningún envío nuevo en las rutas de chats) y RECIÉN ENTONCES escribe "${CONFIRMACION_CHATS}". Si agrega cualquier envío, aunque el plan lo mencione, espera el sí del dueño. Si se te olvida la frase, el Coordinador comprueba el diff real y la escribe él.`,
+      `- Chats: sube sola solo si está actualizada con main, compila, pasa TODAS las pruebas, nunca usa force-push y queda con la vigilancia de 30 minutos. COMPRUEBA primero que el cambio no manda ningún mensaje nuevo ni distinto a clientes (ningún envío nuevo en las rutas de chats) y RECIÉN ENTONCES escribe "${CONFIRMACION_CHATS}". Si agrega un envío nuevo a clientes, aunque el plan lo mencione, la tarjeta queda en ERROR con el motivo. Si se te olvida la frase, el Coordinador comprueba el diff real y la escribe él.`,
     );
   }
   if (zonas.includes("META_ADS")) {
@@ -1574,6 +1575,11 @@ export async function construir(contexto, tarjeta) {
       const prueba = pruebaExtraDeLasZonas({ zonas: zonasDeLaTarjeta, zonasQueSubenSolas: zonasSolas, diffs, plan: tarjeta.plan, texto: `${resumenDelMotor}\n${(pruebas ?? []).join("\n")}` });
       esperaPor = prueba.esperaPor;
       pruebas.push(...prueba.confirmaciones);
+    }
+    // 30-oct-2026: chats y el bot de ventas ya no esperan el sí del dueño. Si no pueden subir solas (p. ej. un envío nuevo a
+    // clientes), la tarjeta queda en ERROR con el motivo, sin reintentos (categoría "zona"). El gasto en Meta Ads sigue esperando.
+    if (esperaPor && !esperaAlDueno(esperaPor) && zonasDeLaTarjeta.every((zona) => ["CHATS", "BOT_VENTAS"].includes(zona))) {
+      throw new ErrorDeEtapa(`No sube: ${esperaPor}`, { categoria: "zona", zonas: zonasDeLaTarjeta });
     }
     const subeSolo = repo.subirSolo === true && !zonasQuePidenSi.length && !esperaPor;
     const alTerminar = subeSolo

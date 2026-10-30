@@ -36,6 +36,9 @@ export const CATEGORIAS = [
   // 29-oct-2026: la sesión de la nube iba a quedar sin el repo conectado (claude --cloud subió una copia sin remoto) o la
   // sesión fija del proyecto no responde: no puede subir su rama. No se repara sola.
   "nube_sin_acceso_repo",
+  // 30-oct-2026: una tarjeta de chats o del bot de ventas que no puede subir sola (p. ej. agrega un envío nuevo a clientes): ERROR
+  // con el motivo. Repararla sola podría borrar el envío que se pidió.
+  "zona",
   "otra",
 ];
 
@@ -43,7 +46,7 @@ export const CATEGORIAS = [
  * Las categorías que NO se reparan solas (29-oct-2026, 62 % del uso semanal se fue en reintentos ciegos): van directo al
  * dueño con el link y la línea de qué necesita. Repetirlas no cambia nada hasta que alguien encuentre la causa.
  */
-export const SIN_REPARACION_AUTOMATICA = ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas", "revision_no_paso", "nube_sin_acceso_repo"];
+export const SIN_REPARACION_AUTOMATICA = ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas", "revision_no_paso", "nube_sin_acceso_repo", "zona"];
 
 /** Las que no son de la tarea (ya tienen su tope de esperas): no cuentan para "la misma causa 2 veces". */
 const AJENAS_A_LA_TAREA = ["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado"];
@@ -177,6 +180,7 @@ const CAUSA_BASE = {
   plan_con_preguntas: "El plan tiene preguntas abiertas",
   revision_no_paso: "Los revisores siguieron pidiendo cambios tras 2 vueltas de corrección",
   nube_sin_acceso_repo: "La nube no tiene acceso al repo",
+  zona: "El cambio de chats o del bot de ventas no puede subir solo",
   otra: "No se reconoció la causa",
 };
 
@@ -403,6 +407,7 @@ const NECESITA = {
   plan_con_preguntas: "Responder las preguntas del plan (en el detalle de la tarjeta) y aprobar de nuevo la tarea, o aprobar el plan tal cual.",
   revision_no_paso: "Leer qué pidió el revisor (en el detalle de la tarjeta): si tiene razón, aclarar el plan y aprobar de nuevo; si no, tocar Reintentar.",
   nube_sin_acceso_repo: "Revisar que la app de GitHub de Claude tenga acceso al repo (o abrir la sesión fija del proyecto en claude.ai y ver que siga viva) y tocar Reintentar.",
+  zona: "Leer el motivo (No sube: …): si el envío a clientes no se pidió, aclarar el plan y aprobar de nuevo; si sí se pidió, subirlo a mano.",
   otra: "Que alguien mire los Detalles técnicos y diga qué hacer.",
 };
 

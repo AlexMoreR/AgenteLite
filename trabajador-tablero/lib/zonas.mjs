@@ -1,7 +1,9 @@
 // Zonas protegidas: qué rutas del repo son de los chats, del bot de ventas (agentes y flujos), del libro
 // V3 o de Meta Ads (globs en la configuración de cada repo). Si el cambio toca alguna, la tarjeta se
-// construye y prueba igual pero NO sube sola: queda POR_REVISAR marcada con esa zona, esperando el sí
-// del dueño en la pantalla.
+// construye y prueba igual. Las de `zonasQueSubenSolas` suben solas con sus pruebas extra; si a una de
+// chats o del bot de ventas le falta algo (p. ej. agrega un envío nuevo a clientes), queda en ERROR con
+// su motivo (30-oct-2026). Solo el gasto en Meta Ads y el libro V3 sin su simulación siguen esperando el
+// sí del dueño en la pantalla.
 
 /** Un glob simple a expresión regular: "**" = cualquier cosa (también "/"), "*" = sin "/", "?" = un carácter. */
 export function globARegex(glob) {
@@ -52,6 +54,14 @@ export function zonasTocadas(archivos, zonas = {}) {
 
 /** Marca del plan: el Coordinador la escribe cuando el cambio de Meta Ads puede gastar plata. */
 export const MARCA_GASTO_META_ADS = "GASTO EN META ADS";
+
+/**
+ * ¿El motivo por el que no sube sola es de los que esperan el sí del dueño? Solo el gasto en Meta Ads (30-oct-2026, la misma
+ * regla que `esGastoEnMetaAds` del CRM). Los demás motivos de chats y del bot dejan la tarjeta en ERROR con el motivo.
+ */
+export function esperaAlDueno(motivo) {
+  return typeof motivo === "string" && motivo.startsWith("gasto en Meta Ads");
+}
 
 /** Lo que el que construye tiene que dejar escrito en sus pruebas / resumen (por zona) para que suba sola. */
 export const CONFIRMACION_BOT_VENTAS = "✔ sin mensajes nuevos a clientes";
@@ -122,7 +132,7 @@ export function versionAnteriorDelLibro(texto) {
  * toca el cambio y las que ya traía), `diffs` = { todo, BOT_VENTAS?, ... } (el diff de cada zona; si falta, el de todo).
  * `confirmaElCoordinador` (27-oct-2026): la prueba extra del bot y de chats ("sin mensajes nuevos a clientes") la hace el propio
  * Coordinador con el diff real: si el constructor no escribió la frase, ya no es un motivo para esperar el sí del dueño (la frase la
- * escribe `confirmacionesDelCoordinador`). Un envío nuevo en esas rutas sigue esperando. El libro V3 no cambia: su simulación
+ * escribe `confirmacionesDelCoordinador`). Un envío nuevo en esas rutas sigue sin subir (ERROR con el motivo). El libro V3 no cambia: su simulación
  * no se puede comprobar con el diff.
  */
 export function motivoPorElQueNoSubeSola({ zonas, zonasQueSubenSolas, diffs, plan, texto, confirmaElCoordinador = false }) {
@@ -145,9 +155,9 @@ export function motivoPorElQueNoSubeSola({ zonas, zonasQueSubenSolas, diffs, pla
   }
   if (suben("CHATS")) {
     if (!confirmaElCoordinador && !String(texto ?? "").includes(CONFIRMACION_CHATS)) return "falta la prueba de que los chats no mandan mensajes nuevos a clientes (✔ chats: sin mensajes nuevos a clientes)";
-    // Más duro que el bot: aunque el plan lo mencione, cualquier envío nuevo en los archivos de chats espera el sí del dueño.
+    // Más duro que el bot: aunque el plan lo mencione, cualquier envío nuevo en los archivos de chats no sube solo.
     const envios = enviosNuevosDeMensajes(diffDe("CHATS"));
-    if (envios.length) return "el cambio agrega un envío de mensaje en chats (espera el sí del dueño aunque el plan lo mencione)";
+    if (envios.length) return "agrega un envío nuevo de mensaje a clientes en chats";
   }
   return null;
 }
@@ -171,7 +181,7 @@ export function confirmacionesDelCoordinador({ zonas, zonasQueSubenSolas, texto 
 
 /**
  * La prueba extra completa, hecha por el Coordinador (27-oct-2026): { esperaPor, confirmaciones }. `esperaPor` es el motivo por el
- * que sigue esperando el sí del dueño (null = sube sola); `confirmaciones` son las frases que escribió el Coordinador.
+ * que no sube sola (null = sube sola; con `esperaAlDueno` se sabe si espera el sí del dueño o queda en ERROR); `confirmaciones` son las frases que escribió el Coordinador.
  */
 export function pruebaExtraDeLasZonas({ zonas, zonasQueSubenSolas, diffs, plan, texto }) {
   const esperaPor = motivoPorElQueNoSubeSola({ zonas, zonasQueSubenSolas, diffs, plan, texto, confirmaElCoordinador: true });

@@ -42,14 +42,15 @@ minuto y antes que cualquier otra tarjeta.
 - **Zonas que suben solas (24-oct-2026, decisión del dueño): `BOT_VENTAS`, `META_ADS`, `LIBRO_V3` y `CHATS` (26-oct-2026).** La
   lista es `zonasQueSubenSolas` del repo (la misma `ZONAS_QUE_SUBEN_SOLAS` del CRM; una zona nueva se agrega a las dos). Sin la lista en
   `config.json`, todo sigue pidiendo el sí. Una tarjeta de esas zonas sube sola si compila y pasa las pruebas,
-  más estas **pruebas extra** (si falta una, queda POR_REVISAR con "espera tu sí (motivo)"):
+  más estas **pruebas extra** (si falta una: chats y el bot de ventas quedan en ERROR con el motivo, "No sube: <motivo>", sin
+  reintentos (30-oct-2026); el libro V3 y el gasto en Meta Ads quedan POR_REVISAR con "espera tu sí (motivo)"):
   - **Libro V3**: el que construye escribe `✔ simulación V3: sin cambios fuera de lo pedido` y
     `versión anterior del libro: <número>` (con ese número se vuelve con `v3_volver_a_version`).
   - **Bot de ventas**: escribe `✔ sin mensajes nuevos a clientes`; además, un envío de mensaje nuevo en el
-    cambio (`sendMessage`, `enviarMensaje`...) que el plan no menciona no sube solo.
+    cambio (`sendMessage`, `enviarMensaje`...) que el plan no menciona no sube solo: queda en ERROR con el motivo.
   - **Chats**: el que construye comprueba que el cambio no manda mensajes nuevos a clientes y recién entonces
     escribe `✔ chats: sin mensajes nuevos a clientes`. Regla más dura que la del bot: cualquier envío nuevo en las
-    rutas de chats (`sendMessage`, `enviarMensaje`...) deja la tarjeta esperando el sí, aunque el plan lo mencione.
+    rutas de chats (`sendMessage`, `enviarMensaje`...) deja la tarjeta en ERROR con el motivo, aunque el plan lo mencione.
   - **Meta Ads, la única excepción**: si el plan trae la línea `GASTO EN META ADS: <qué>` o el cambio agrega
     `daily_budget`, `lifetime_budget`, `bid_amount`, pasar algo a `ACTIVE`, activar o crear campañas,
     conjuntos o anuncios, queda esperando el sí (nunca sube presupuesto, prende ni crea gasto solo). Leer,

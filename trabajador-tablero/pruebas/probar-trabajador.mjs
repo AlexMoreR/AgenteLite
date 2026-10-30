@@ -29,7 +29,7 @@ import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstado
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
 import { LARGO_MAXIMO_DEL_AVISO, decidir, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
-import { buscarCorridaDelDespliegue, esLimiteDeUso, planParaLaNube, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
+import { buscarCorridaDelDespliegue, esLimiteDeUso, planParaLaNube, promptDeConstruir, promptDeNube, promptDelPlan, reglasDeZonasQueSubenSolas } from "../lib/etapas.mjs";
 import { MAX_DESCRIPCION, descripcionParaLaNube, esCommitDeInicio, esTareaGrande, estaDentroDe, esperarResultado, lanzarEnNube, lineaSinRepo, linkDeLaSesionFija, linkDeSesion, nombreDelProyecto, olvidarSinAcceso, sesionFijaDe, sinAccesoALaNube, preguntaDeConfianza, preguntaDelCommit, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
 import { preguntasAbiertasDelPlan, primeraPreguntaAbierta } from "../lib/preguntas-abiertas.mjs";
 import {
@@ -64,7 +64,7 @@ import {
 import { armarLatido, crearLatido } from "../lib/latido.mjs";
 import { faltanRecursos, leerCarga } from "../lib/recursos.mjs";
 import { crearRegistro } from "../lib/registro.mjs";
-import { GRACIA_SERVER_ACTION_MIN, enviosDeLog, erroresDeLog, erroresNuevosDeLog, esLineaDeErrorReal, globARegex, lineasDeErrorNuevasDeLog, minutosDeLaVentana, motivoPorElQueNoSubeSola, pruebaExtraDeLasZonas, zonasTocadas } from "../lib/zonas.mjs";
+import { GRACIA_SERVER_ACTION_MIN, enviosDeLog, erroresDeLog, erroresNuevosDeLog, esLineaDeErrorReal, esperaAlDueno, globARegex, lineasDeErrorNuevasDeLog, minutosDeLaVentana, motivoPorElQueNoSubeSola, pruebaExtraDeLasZonas, zonasTocadas } from "../lib/zonas.mjs";
 import { crearRescatador, decidirRescate } from "../lib/rescate-por-revisar.mjs";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
@@ -149,8 +149,11 @@ await prueba("zonas: la prueba extra de chats y del bot la hace el Coordinador c
   const sinEnvio = "+export const x = 1;\n";
   const conEnvio = "+export const avisar = (x) => sendMessage(x);\n";
   const prueba = (zonas, diff, texto = "", plan = "El plan") => pruebaExtraDeLasZonas({ zonas, zonasQueSubenSolas: SOLAS, diffs: { todo: diff }, plan, texto });
-  // Sin la frase del constructor: el motivo de antes sigue por defecto, pero con la comprobación del Coordinador ya no.
-  assert.match(motivoPorElQueNoSubeSola({ zonas: ["CHATS"], zonasQueSubenSolas: SOLAS, diffs: { todo: sinEnvio }, plan: "", texto: "" }), /falta la prueba/);
+  // Sin la frase del constructor: el motivo de antes sigue por defecto, pero con la comprobación del Coordinador ya no. Ese motivo
+  // no espera al dueño (30-oct-2026): va a ERROR, nunca a POR_REVISAR.
+  const sinFrase = motivoPorElQueNoSubeSola({ zonas: ["CHATS"], zonasQueSubenSolas: SOLAS, diffs: { todo: sinEnvio }, plan: "", texto: "" });
+  assert.match(sinFrase, /falta la prueba/);
+  assert.equal(esperaAlDueno(sinFrase), false);
   const chats = prueba(["CHATS"], sinEnvio);
   assert.equal(chats.esperaPor, null);
   assert.match(chats.confirmaciones.join("\n"), /^✔ chats: sin mensajes nuevos a clientes \(comprobado por el Coordinador/);
@@ -158,8 +161,8 @@ await prueba("zonas: la prueba extra de chats y del bot la hace el Coordinador c
   assert.equal(bot.confirmaciones.length, 2);
   // Si el constructor ya escribió la frase, no se repite.
   assert.deepEqual(prueba(["CHATS"], sinEnvio, "✔ chats: sin mensajes nuevos a clientes").confirmaciones, []);
-  // Un envío nuevo en chats espera el sí aunque el plan lo mencione; en el bot, si el plan no lo menciona.
-  assert.match(prueba(["CHATS"], conEnvio, "", "Se enviará un mensaje nuevo").esperaPor, /envío de mensaje en chats/);
+  // Un envío nuevo en chats no sube solo aunque el plan lo mencione; en el bot, si el plan no lo menciona.
+  assert.match(prueba(["CHATS"], conEnvio, "", "Se enviará un mensaje nuevo").esperaPor, /agrega un envío nuevo de mensaje a clientes en chats/);
   assert.deepEqual(prueba(["CHATS"], conEnvio).confirmaciones, []);
   assert.match(prueba(["BOT_VENTAS"], conEnvio).esperaPor, /envío de mensaje que el plan no menciona/);
   // Meta Ads con señales de gasto, o el plan que lo declara, sigue esperando.
@@ -167,6 +170,40 @@ await prueba("zonas: la prueba extra de chats y del bot la hace el Coordinador c
   assert.match(prueba(["META_ADS"], sinEnvio, "", "GASTO EN META ADS: prende la campaña").esperaPor, /gasto en Meta Ads/);
   // El libro V3 necesita su simulación: el diff no la comprueba.
   assert.match(prueba(["LIBRO_V3"], sinEnvio).esperaPor, /falta la simulación V3/);
+});
+
+await prueba("zonas: esperaAlDueno solo es verdadero para el gasto en Meta Ads; chats y el bot quedan en ERROR con el motivo (30-oct)", () => {
+  assert.equal(esperaAlDueno("gasto en Meta Ads (daily_budget)"), true);
+  assert.equal(esperaAlDueno("gasto en Meta Ads (el plan lo declara)"), true);
+  assert.equal(esperaAlDueno("agrega un envío nuevo de mensaje a clientes en chats"), false);
+  assert.equal(esperaAlDueno("falta la prueba de que los chats no mandan mensajes nuevos a clientes (✔ chats: sin mensajes nuevos a clientes)"), false);
+  assert.equal(esperaAlDueno("el cambio agrega un envío de mensaje que el plan no menciona"), false);
+  assert.equal(esperaAlDueno(""), false);
+  assert.equal(esperaAlDueno(null), false);
+  assert.equal(esperaAlDueno(undefined), false);
+  // Lo que se le dice al que construye: chats y el bot ya no "esperan el sí"; Meta Ads y el libro V3 no cambian.
+  const reglas = reglasDeZonasQueSubenSolas({ zonasQueSubenSolas: ["BOT_VENTAS", "META_ADS", "LIBRO_V3", "CHATS"] });
+  const linea = (inicio) => reglas.split("\n").find((l) => l.startsWith(inicio)) ?? "";
+  for (const zona of ["- Chats:", "- Bot de ventas:"]) {
+    assert.doesNotMatch(linea(zona), /espera el sí del dueño/, zona);
+    assert.match(linea(zona), /queda en ERROR con el motivo/, zona);
+  }
+  assert.match(linea("- Chats:"), /✔ chats: sin mensajes nuevos a clientes/);
+  assert.match(linea("- Bot de ventas:"), /✔ sin mensajes nuevos a clientes/);
+  assert.match(linea("- Meta Ads:"), /sigue esperando el sí del dueño/);
+  assert.match(linea("- Libro V3:"), /✔ simulación V3: sin cambios fuera de lo pedido/);
+});
+
+await prueba("diagnóstico: la categoría \"zona\" (chats o bot que no suben solos) va directo a ERROR, sin reparar (30-oct)", () => {
+  const error = Object.assign(new Error("No sube: agrega un envío nuevo de mensaje a clientes en chats"), { categoria: "zona" });
+  const diagnostico = diagnosticar({ error, etapa: "construir", textoLog: "", tarjeta: { id: "z1", reparaciones: 0, topeReparaciones: 2 } });
+  assert.equal(diagnostico.categoria, "zona");
+  assert.match(diagnostico.causa, /^No sube: agrega un envío nuevo de mensaje a clientes en chats/);
+  const decision = decidir({ diagnostico, tarjeta: { id: "z1", reparaciones: 0, topeReparaciones: 2, ultimosIntentos: [] }, etapa: "construir", config: {} });
+  assert.equal(decision.accion, "escalar");
+  const resumen = resumenDeEscalada({ tarjeta: { ultimosIntentos: [] }, diagnostico });
+  assert.match(resumen, /No sube: agrega un envío nuevo de mensaje a clientes en chats/);
+  assert.doesNotMatch(resumen, /espera tu sí/);
 });
 
 await prueba("rescate: una tarjeta POR_REVISAR que solo esperaba la prueba extra sube sola; con un envío nuevo, dinero en el CRM o V3 no", async () => {
@@ -178,7 +215,7 @@ await prueba("rescate: una tarjeta POR_REVISAR que solo esperaba la prueba extra
   assert.match(sube.confirmacion, /✔ chats: sin mensajes nuevos a clientes/);
   const envio = await decidirRescate(base, repo, diffDe(["src/chats/buscador.ts"], "+x.sendMessage(y);\n"));
   assert.equal(envio.accion, "esperar");
-  assert.match(envio.motivo, /envío de mensaje en chats/);
+  assert.match(envio.motivo, /agrega un envío nuevo de mensaje a clientes en chats/);
   const v3 = await decidirRescate({ ...base, zonaProtegida: ["LIBRO_V3"] }, repo, diffDe(["src/agente-v3/libro.ts"], "+x\n"));
   assert.equal(v3.accion, "saltar");
   const conAprobacion = await decidirRescate({ ...base, zonaProtegida: [], esperaPor: null, aprobadaPorElDueno: true }, repo, diffDe(["src/otra/cosa.ts"], "+x\n"));
@@ -2018,11 +2055,17 @@ try {
     sinRestos();
   });
 
-  await prueba("zonas que suben solas: un envío nuevo de mensaje en el bot que el plan no menciona no sube solo", async () => {
-    const id = nueva("Bot con aviso [solas-bot] [solas-bot-envio]", "PLAN_APROBADO", { plan: "Cambiar el saludo." });
-    assert.equal((await vuelta(configSolas())).ok, true);
+  await prueba("zonas que suben solas: un envío nuevo de mensaje en el bot que el plan no menciona no sube solo: ERROR con el motivo (30-oct)", async () => {
+    const id = nueva("Bot con aviso [solas-bot] [solas-bot-envio]", "PLAN_APROBADO", { plan: "Cambiar el saludo.", moderno: true });
+    const mainAhora = shaDe("main");
+    const resultado = await vuelta(configSolas());
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.categoria, "zona");
+    assert.equal(resultado.accion, "escalar");
     assert.equal(tarjetas.get(id).estado, "ERROR");
-    assert.match(tarjetas.get(id).resultado.esperaPor, /envío de mensaje que el plan no menciona/);
+    assert.match(tarjetas.get(id).resultado.error.motivo, /No sube: el cambio agrega un envío de mensaje que el plan no menciona/);
+    assert.doesNotMatch(tarjetas.get(id).resultado.error.motivo, /espera tu sí/);
+    assert.equal(shaDe("main"), mainAhora);
     sinRestos();
   });
 
@@ -2040,13 +2083,20 @@ try {
     sinRestos();
   });
 
-  await prueba("zonas que suben solas: un envío nuevo en src/chats espera el sí aunque el plan lo mencione", async () => {
-    const id = nueva("Chats con aviso [solas-chats-envio]", "PLAN_APROBADO", { plan: "Se enviará un mensaje nuevo al cliente." });
+  await prueba("zonas que suben solas: un envío nuevo en src/chats queda en ERROR \"No sube: …\" aunque el plan lo mencione, sin reintento (30-oct)", async () => {
+    const id = nueva("Chats con aviso [solas-chats-envio]", "PLAN_APROBADO", { plan: "Se enviará un mensaje nuevo al cliente.", moderno: true });
     const mainAhora = shaDe("main");
-    assert.equal((await vuelta(configSolas())).ok, true);
-    // CHATS que no puede subir sola ya no espera el sí: ERROR "construido, no sube: <motivo>" (30-oct-2026).
-    assert.equal(tarjetas.get(id).estado, "ERROR");
-    assert.match(tarjetas.get(id).resultado.esperaPor, /envío de mensaje en chats/);
+    const resultado = await vuelta(configSolas());
+    // El Coordinador corta con ERROR y el motivo; nunca POR_REVISAR esperando el sí.
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.categoria, "zona");
+    assert.equal(resultado.accion, "escalar", "no se repara sola");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, /No sube: agrega un envío nuevo de mensaje a clientes en chats/);
+    assert.doesNotMatch(t.resultado.error.motivo, /espera tu sí/);
+    assert.ok(!(t.intentosLista ?? []).some((intento) => intento.accion === "reparar"), "no se reintentó");
+    assert.equal(t.intentosLista?.at(-1)?.accion, "escalar");
     assert.equal(shaDe("main"), mainAhora);
     sinRestos();
   });
