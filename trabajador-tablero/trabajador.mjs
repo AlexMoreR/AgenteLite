@@ -16,7 +16,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { aplicarVersion, crearVigilanteDeVersion, marcarActualizacionOk, raizDelRepo } from "./lib/autoactualizar.mjs";
-import { crearPlanificador, unaVuelta } from "./lib/bucle.mjs";
+import { crearPlanificador, crearRevisorDeNuevo, unaVuelta } from "./lib/bucle.mjs";
 import { entornoSeguro, partirTarea } from "./lib/etapas.mjs";
 import { leerConfig } from "./lib/config.mjs";
 import { crearCrm } from "./lib/crm.mjs";
@@ -131,6 +131,8 @@ const recogedor = crearRecogedor({
 });
 // Lo que espera el sí del dueño sin necesitarlo (27-oct-2026, lib/rescate-por-revisar.mjs): se revisa de nuevo con el diff real y sube sola.
 const rescatador = crearRescatador({ crm, config, registro });
+// Las tarjetas de chats y del bot que quedaron en Por revisar (30-oct-2026, lib/bucle.mjs): de a una, rebase, build, pruebas y envíos; suben solas o ERROR.
+const revisorDeNuevo = crearRevisorDeNuevo({ crm, config, registro, colaPesada: planificador.colaPesada() });
 // Las notas NUEVAS del cerebro (lib/notas-boveda.mjs): si boveda.ruta está, cada minuto se crean en la bóveda local.
 const notasDeBoveda = crearNotasDeBoveda({ crm, config, registro });
 if (config.boveda.ruta) registro.info(`notas de la bóveda: creo las notas nuevas del cerebro en ${config.boveda.ruta}`);
@@ -145,6 +147,8 @@ const TOPES = {
   "manual de la noche": 30 * MINUTO,
   "recoger errores": 30 * MINUTO,
   "rescate de tarjetas por revisar": 10 * MINUTO,
+  // Lleva build y pruebas: pasado el tope sigue por su cuenta (en vuelo, no se lanza otra) y la vuelta no lo espera.
+  "revisar de nuevo por revisar": 2 * MINUTO,
   "notas de la bóveda": 5 * MINUTO,
   autoactualizar: 10 * MINUTO,
   "aplicar la versión nueva": 10 * MINUTO,
@@ -191,6 +195,12 @@ while (!parar) {
     if (r.error) registro.aviso(`rescate de tarjetas por revisar: ${primeraLinea(r.error)}`);
   }
   if (parar) break;
+  if (!pendiente && !trabajoLargoEnVuelo()) {
+    // No usa Claude: git, build y pruebas en la cola de pasos pesados. Corre también en la pausa por uso.
+    const r = await conTope("revisar de nuevo por revisar", () => revisorDeNuevo.revisar());
+    if (r.error) registro.aviso(`revisar de nuevo por revisar: ${primeraLinea(r.error)}`);
+  }
+  if (parar) break;
   {
     // No usa Claude ni el PC: corre también en la pausa por uso.
     const r = await conTope("notas de la bóveda", () => notasDeBoveda.revisar());
@@ -208,7 +218,7 @@ while (!parar) {
     }
   }
   if (pendiente) {
-    const ocupado = planificador.corriendo() > 0 || tareas.algunaEnVuelo("llenar", "manual de la noche", "recoger errores");
+    const ocupado = planificador.corriendo() > 0 || tareas.algunaEnVuelo("llenar", "manual de la noche", "recoger errores", "revisar de nuevo por revisar");
     if (!ocupado) {
       const r = await conTope("aplicar la versión nueva", () =>
         aplicarVersion({

@@ -86,6 +86,29 @@ minuto y antes que cualquier otra tarjeta.
 - Un archivo nuevo de chats, agentes o Meta Ads que no calce con ningún glob **subiría solo**: al
   crear carpetas nuevas de esas áreas, agregarlas a `zonasProtegidas`.
 
+### Revisar de nuevo lo que quedó en Por revisar (30-oct-2026)
+
+Las tarjetas de CHATS y del bot de ventas construidas antes de la regla nueva quedaron POR_REVISAR esperando un sí que ya
+no hace falta. En cada vuelta el Coordinador toma **a lo sumo UNA** de la lista `paraRevisarDeNuevo` de `/por-revisar`
+(pasó la construcción, rama `tablero/…`, zonas solo CHATS y/o BOT_VENTAS, sin gasto en Meta Ads) y la revisa él mismo
+(`revisarDeNuevo` en `lib/etapas.mjs`, el revisor en `lib/bucle.mjs`), sin creerle a lo que escribió quien la construyó:
+
+1. `git fetch`, worktree de la rama y `rebaseSobre(origin/main)` (el mismo de `subir()`). Si choca: ERROR
+   «choca con lo ya subido: <archivos>».
+2. Si después del rebase no cambia nada o solo `.md`: ERROR «obsoleta: lo que hacía ya está en main».
+3. `instalar`, build y todas las pruebas (`verificar`). Si falla: ERROR con las líneas que fallaron.
+4. Revisión mecánica: `enviosNuevosDeMensajes` en lo que agregan los archivos de CHATS y BOT_VENTAS (`zonasTocadas`). Si
+   hay uno: ERROR «agrega envío nuevo a clientes: <línea>».
+5. Si pasa: push de la rama ya actualizada (solo la `tablero/…` de la tarjeta, con `--force` porque el rebase la reescribe;
+   a main nunca) y `/revisar_de_nuevo` con `subeSolo`, las pruebas, «✔ chats: sin mensajes nuevos a clientes (revisión del
+   Coordinador)», el `commit` y la `base`. El CRM la pasa a SUBIENDO y `subir()` la sube sin compilar otra vez (main no
+   cambió y la rama es la probada), con la vigilancia de 30 min y la reversión automática.
+
+No arranca mientras otra subida está en su vigilancia de 30 min (`hayVigilanciaEnCurso()`). Una falla del PC, de la red
+o del Coordinador no la pasa a ERROR: sigue en Por revisar y se reintenta en la vuelta siguiente, después de las que todavía
+no se intentaron. Si el CRM contesta 409 (por ejemplo, el plan toca dinero), no se vuelve a pedir hasta reiniciar. Como lleva
+build, corre con tope propio en la vuelta (2 min): pasado el tope sigue por su cuenta y la vuelta no lo espera.
+
 Desde ERROR el dueño toca **Reintentar**. Si el cambio ya se terminó por fuera del trabajador (por ejemplo,
 lo subió Claude Code a mano), no se borra la tarjeta: el dueño toca **Marcar hecho a mano** (desde ERROR,
 FALLIDO o POR_REVISAR) con una nota de qué se hizo, y queda HECHO sin que el trabajador la toque.
@@ -610,7 +633,7 @@ Pruebas: `pruebas/probar-autoactualizar.mjs` (repos git temporales y un Coordina
 
 El 27-oct el Coordinador quedó ~25 min mudo con el proceso vivo (esperaba a las tarjetas de la nube para autoactualizarse). Ahora:
 
-- **Cada trabajo de la vuelta tiene tope** (`lib/vuelta.mjs`): llenar 15 min, manual de la noche y recoger errores 30 min, rescate 10, notas 5, autoactualizar 10. Si se pasa, se anota "lleva más de … sin terminar" y la vuelta sigue; no se vuelve a lanzar hasta que termine (nunca dos `llenar` a la vez). Cada pedido al CRM tiene además un tope duro propio (`crm.mjs`), aunque el fetch no respete la señal.
+- **Cada trabajo de la vuelta tiene tope** (`lib/vuelta.mjs`): llenar 15 min, manual de la noche y recoger errores 30 min, rescate 10, revisar de nuevo 2 (sigue por su cuenta), notas 5, autoactualizar 10. Si se pasa, se anota "lleva más de … sin terminar" y la vuelta sigue; no se vuelve a lanzar hasta que termine (nunca dos `llenar` a la vez). Cada pedido al CRM tiene además un tope duro propio (`crm.mjs`), aunque el fetch no respete la señal.
 - **Marca de vida**: `<carpetaTrabajo>/vivo.json` con `pid`, `ultimaVuelta` (la última vuelta completa) y `ocupadoEn`/`ocupadoHasta` (qué hace y hasta cuándo puede tardar sin estar colgado).
 - **Perro guardián** (`lanzador.mjs`): cada 30 s lee la marca; si max(`ultimaVuelta`, `ocupadoHasta`) tiene más de `perroGuardianMinutos` (config, 10 por defecto; 0 = apagado), mata el proceso con sus hijos y lo arranca de nuevo, con una línea en `logs/lanzador.log` y en el log del día. Solo vigila un Coordinador que ya escribió su marca (una versión vieja sin marca no se reinicia por eso). El lanzador nuevo empieza a vigilar cuando la tarea de Windows lo arranca otra vez.
 

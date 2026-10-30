@@ -29,6 +29,7 @@ import { agenteDelRepo, leccionesParaElPrompt, necesitoDe, textoDeIdentidad } fr
 import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, enUnaLinea, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
 import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
 import {
+  ErrorDeGit,
   archivosCambiados,
   crearWorktree,
   diffDeArchivos,
@@ -61,7 +62,7 @@ import {
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
 import { esperarResultado, lanzarSesionDeLaNube, sesionFijaDe } from "./nube.mjs";
 import { vigilarSesion } from "./atasco.mjs";
-import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, ultimasLineas } from "./procesos.mjs";
+import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, lineasQueFallaron, ultimasLineas } from "./procesos.mjs";
 import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
 import { crearSerieDeBuilds, conReintentoPorCandado } from "./candado-de-build.mjs";
 import { PRIORIDAD } from "./cola.mjs";
@@ -75,6 +76,7 @@ import {
   CONFIRMACION_LIBRO_V3,
   MARCA_GASTO_META_ADS,
   enviosDeLog,
+  enviosNuevosDeMensajes,
   erroresDeLog,
   esperaAlDueno,
   erroresNuevosDeLog,
@@ -334,7 +336,7 @@ async function pasoSinTurno(contexto, comando, { cwd, reloj, que, motivo, entrad
   const timeoutMs = Math.min(reloj.resta(), config.tiempos.comandoMinutos * MINUTO);
   // La salida completa queda en un archivo (intentos/<tarjeta>/salida-...): si el comando falla, el diagnóstico
   // lee las líneas que fallaron y el final, no solo el principio.
-  const tarjetaCorta = path.basename(cwd).replace(/-(?:plan|construir|subir|partir)$/, "");
+  const tarjetaCorta = path.basename(cwd).replace(/-(?:plan|construir|subir|partir|revisar)$/, "");
   const archivoSalida = path.join(config.carpetaTrabajo, "intentos", tarjetaCorta, `salida-${new Date().toISOString().replace(/[:.]/g, "-")}-${path.basename(String(comando[comando.length - 1]))}.log`);
   const resultado = await correr(comando, { cwd, env: entornoSeguro(), senal, timeoutMs, entrada, archivoSalida });
   if (resultado.cancelado) throw new ErrorDeEtapa(`Se canceló ${que}: la tarjeta venció en el CRM.`, { categoria: "coordinador_cortado" });
@@ -1976,6 +1978,9 @@ async function esperarVersion(contexto, repo, commit, reloj, { sinCi = false } =
 // mezcle con otro cambio. Es una promesa compartida por todo el proceso del Coordinador.
 let vigilandoAhora = null;
 
+/** ¿Hay una subida en su vigilancia de 30 min ahora? (revisar de nuevo no arranca mientras tanto). */
+export const hayVigilanciaEnCurso = () => Boolean(vigilandoAhora);
+
 /** Espera a que termine la vigilancia en curso (si hay). El tiempo esperado se le devuelve al reloj de la etapa. */
 async function esperarFinDeLaVigilancia(contexto, reloj, registro) {
   while (vigilandoAhora) {
@@ -2206,6 +2211,122 @@ export async function subir(contexto, tarjeta) {
     return { commit, version: version ?? commit, pruebas, linkCommit: web ? `${web}/commit/${commit}` : null, ...(vigilancia ? { vigilancia } : {}) };
   } finally {
     soltarVigilancia?.();
+    await quitarWorktree(repo, carpeta, ramaLocal);
+  }
+}
+
+/* ─────────────────────────── revisar de nuevo lo que quedó en Por revisar (30-oct-2026) ── */
+
+// Las tarjetas de CHATS y del bot de ventas que se construyeron antes de la regla nueva quedaron en POR_REVISAR esperando un sí
+// del dueño que ya no hace falta. El Coordinador las revisa de nuevo él mismo, sin creerle a lo que escribió quien las construyó:
+// rebase sobre main, build y pruebas otra vez, y la revisión mecánica de envíos nuevos a clientes con el diff real. Si pasa, el
+// CRM la pasa a SUBIENDO y subir() la lleva a producción con la vigilancia de 30 min y la reversión automática de siempre.
+
+/** Las zonas que se pueden revisar de nuevo: las que nunca esperan el sí final del dueño. */
+const ZONAS_QUE_SE_REVISAN_DE_NUEVO = ["CHATS", "BOT_VENTAS"];
+
+/** La frase que deja el Coordinador en las pruebas cuando la revisión mecánica no encontró envíos nuevos. */
+export const CONFIRMACION_REVISION_DE_NUEVO = `${CONFIRMACION_CHATS} (revisión del Coordinador)`;
+
+/** ¿Se puede revisar de nuevo? Pasó la construcción, su rama es del Coordinador (tablero/...) y sus zonas son solo CHATS y/o BOT_VENTAS. */
+export function sePuedeRevisarDeNuevo(tarjeta) {
+  const zonas = tarjeta?.zonaProtegida ?? [];
+  return (
+    tarjeta?.paso === true &&
+    esRamaDelTrabajador(tarjeta.rama) &&
+    zonas.length > 0 &&
+    zonas.every((zona) => ZONAS_QUE_SE_REVISAN_DE_NUEVO.includes(zona))
+  );
+}
+
+const PALABRAS_DE_RED = /ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|socket hang up|network|Could not resolve host|unable to access/i;
+
+/**
+ * ¿La falla es del PC, de la red o del Coordinador (y no de la tarjeta)? Esas no la pasan a ERROR: sigue en Por revisar y se
+ * reintenta en la vuelta siguiente. `deRed`: el paso que falló depende de la red (instalar), así que una palabra de red cuenta.
+ */
+function esFallaDelEntorno(error, { deRed = false } = {}) {
+  if (error instanceof ErrorDeGit) return true;
+  if (error?.esperaDeCola || error?.limiteDeUso) return true;
+  if (["pc_sobrecargado", "coordinador_cortado", "carpeta_trabada", "tiempo_agotado"].includes(error?.categoria)) return true;
+  return deRed && PALABRAS_DE_RED.test(String(error?.message ?? error));
+}
+
+/** El motivo de una verificación que falló, en una línea con las líneas que fallaron (o lo último que dijo). */
+function motivoDeVerificacionFallida(error) {
+  const texto = String(error?.message ?? error);
+  const titular = enUnaLinea(texto.split("\n")[0].replace(/\s*No se subió nada\.?$/, ""), 160);
+  const fallas = lineasQueFallaron(error?.salida ?? texto, { contexto: 0, maximo: 6 }) || ultimasLineas(error?.salida ?? texto, 3);
+  return enUnaLinea(`no pasa build o pruebas: ${titular}${fallas ? ` — ${fallas.replace(/\n/g, " | ")}` : ""}`, 500);
+}
+
+/**
+ * POR_REVISAR -> SUBIENDO o ERROR. `contexto.crm` es el cliente del CRM (crm.mjs). Devuelve { accion: "subir", commit, base } o
+ * { accion: "error", motivo }. Lanza solo si la falla es del PC, de la red o del Coordinador (la tarjeta queda como estaba).
+ * Pasos: fetch; worktree de la rama; rebase sobre main (rebaseSobre, el mismo de subir); vacía o solo .md = obsoleta; npm ci,
+ * build y pruebas (verificar); envíos nuevos en los archivos de CHATS y BOT_VENTAS; push de la rama (solo la tablero/..., con
+ * --force porque el rebase la reescribe; a main nunca) y /revisar_de_nuevo con subeSolo, las pruebas, el commit y la base.
+ */
+export async function revisarDeNuevo(contexto, tarjeta) {
+  const { config, registro, crm } = contexto;
+  if (!sePuedeRevisarDeNuevo(tarjeta)) {
+    throw new ErrorDeEtapa(`"${tarjeta?.titulo}" no se puede revisar de nuevo: no pasó la construcción, su rama no es del Coordinador o tiene zonas fuera de CHATS y BOT_VENTAS.`);
+  }
+  const repo = configDelRepo(contexto, tarjeta);
+  const reloj = relojDeEtapa(config.tiempos.subirMinutos, "revisar de nuevo", { topeMinutos: TOPE_DEL_CRM.subir });
+  const base = `${repo.remoto}/${repo.ramaBase}`;
+  const carpeta = carpetaDe(contexto, tarjeta, "revisar");
+  const ramaLocal = `revisar/${idCorto(tarjeta.id)}`;
+  const frenar = async (motivo) => {
+    registro.info(`revisar de nuevo: "${tarjeta.titulo}" queda en ERROR: ${motivo}`);
+    await crm.revisarDeNuevo(tarjeta.id, { subeSolo: false, motivo });
+    return { accion: "error", motivo };
+  };
+  await git(repo.ruta, ["fetch", repo.remoto]);
+  // Sin red, ls-remote falla y lanza (se reintenta); solo una respuesta vacía dice que la rama ya no está.
+  const enElRemoto = await git(repo.ruta, ["ls-remote", "--heads", repo.remoto, `refs/heads/${tarjeta.rama}`]);
+  if (!enElRemoto.salida.trim()) return frenar(`la rama ${tarjeta.rama} ya no existe en GitHub: no hay qué subir`);
+  try {
+    await crearWorktree(repo, carpeta, `${repo.remoto}/${tarjeta.rama}`, ramaLocal);
+    const antes = (await git(carpeta, ["rev-parse", base])).salida.trim();
+    const rebase = await rebaseSobre(carpeta, base, { identidad: config.git, carpetaTrabajo: config.carpetaTrabajo, sinChoque: repo.sinChoque, nombre: repo.clave });
+    if (!rebase.ok) return frenar(`choca con lo ya subido: ${rebase.conflicto.length ? rebase.conflicto.join(", ") : "conflicto en el rebase"}`);
+    const cambios = await archivosCambiados(carpeta, base);
+    if (!cambios.some(({ archivo }) => !SOLO_TEXTO.test(archivo))) return frenar("obsoleta: lo que hacía ya está en main");
+
+    let pruebas;
+    try {
+      if (repo.instalar) {
+        try {
+          await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: PRIORIDAD.subir });
+        } catch (error) {
+          if (esFallaDelEntorno(error, { deRed: true })) throw error;
+          return frenar(motivoDeVerificacionFallida(error));
+        }
+      }
+      const viejas = { sha: antes, viejos: [] };
+      pruebas = await verificar(contexto, repo, carpeta, reloj, PRIORIDAD.subir, viejas);
+      if (viejas.viejos.length) registro.info(`revisar de nuevo: ${viejas.viejos.length} falla(s) vieja(s) de ${repo.ramaBase}; no son de esta tarea`);
+    } catch (error) {
+      if (esFallaDelEntorno(error)) throw error;
+      return frenar(motivoDeVerificacionFallida(error));
+    }
+
+    // La revisión mecánica, con el diff real después del rebase: solo lo que agregan los archivos de CHATS y BOT_VENTAS.
+    const tocadas = zonasTocadas(cambios.map(({ archivo }) => archivo), repo.zonasProtegidas);
+    const archivosDeLasZonas = [...new Set(ZONAS_QUE_SE_REVISAN_DE_NUEVO.flatMap((zona) => tocadas[zona] ?? []))];
+    const envios = archivosDeLasZonas.length ? enviosNuevosDeMensajes(await diffDeArchivos(carpeta, base, archivosDeLasZonas)) : [];
+    if (envios.length) return frenar(`agrega envío nuevo a clientes: ${enUnaLinea(envios[0].trim(), 200)}`);
+
+    reloj.resta();
+    const commit = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
+    // Solo la rama tablero/... de la tarjeta (pushDeRama se niega con cualquier otra); a main la sube subir() sin --force.
+    await pushDeRama(carpeta, repo.remoto, tarjeta.rama, { forzar: true });
+    const lineas = [`✔ revisada de nuevo por el Coordinador: rebase sobre ${repo.ramaBase} (${antes.slice(0, 10)}), build y pruebas otra vez`, ...pruebas, CONFIRMACION_REVISION_DE_NUEVO];
+    await crm.revisarDeNuevo(tarjeta.id, { subeSolo: true, pruebas: lineas, commit, base: antes });
+    registro.info(`revisar de nuevo: "${tarjeta.titulo}" pasa a SUBIENDO (rama ${tarjeta.rama} en ${commit.slice(0, 10)})`);
+    return { accion: "subir", commit, base: antes };
+  } finally {
     await quitarWorktree(repo, carpeta, ramaLocal);
   }
 }

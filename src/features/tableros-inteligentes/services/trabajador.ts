@@ -624,7 +624,10 @@ export async function erroresDelTrabajador(contexto: ContextoTrabajador) {
 /**
  * Las tarjetas POR_REVISAR que pasaron build y pruebas y a las que solo les faltaba la prueba extra de su zona (o que ya traen
  * un sí del dueño): el Coordinador las revisa de nuevo con el diff real (/:id/rescatar). Solo lee.
- * `{ tarjetas: [{ id, titulo, repo, plan, zonaProtegida, rama, base, commit, archivos, esperaPor, aprobadaPorElDueno }] }`.
+ * `{ tarjetas: [{ id, titulo, repo, plan, zonaProtegida, rama, base, commit, archivos, esperaPor, aprobadaPorElDueno }], paraRevisarDeNuevo }`.
+ * `paraRevisarDeNuevo` (30-oct-2026): las POR_REVISAR que pasaron, cuyas zonas son solo CHATS / BOT_VENTAS y que no esperan por gasto
+ * en Meta Ads, también las que tienen un envío nuevo como motivo o esperan el sí sin otro motivo (la lista de arriba las deja fuera).
+ * El Coordinador las vuelve a probar él mismo y llama /:id/revisar_de_nuevo.
  */
 export async function porRevisarDelTrabajador(contexto: ContextoTrabajador) {
   const filas = await prisma.tarjetaTablero.findMany({
@@ -634,9 +637,23 @@ export async function porRevisarDelTrabajador(contexto: ContextoTrabajador) {
     select: SELECT_PARA_TRABAJAR,
   });
   const tarjetas = [];
+  const paraRevisarDeNuevo = [];
   for (const fila of filas) {
     const resultado = resultadoComoObjeto(fila.resultado);
     const esperaPor = typeof resultado.esperaPor === "string" ? resultado.esperaPor : null;
+    if (resultado.paso === true && soloChatsOBot(fila.zonaProtegida) && !esGastoEnMetaAds(esperaPor)) {
+      paraRevisarDeNuevo.push({
+        id: fila.id,
+        titulo: fila.titulo,
+        repo: fila.repo,
+        zonaProtegida: fila.zonaProtegida,
+        paso: true,
+        rama: typeof resultado.rama === "string" ? resultado.rama : null,
+        base: typeof resultado.base === "string" ? resultado.base : null,
+        commit: typeof resultado.commit === "string" ? resultado.commit : null,
+        esperaPor,
+      });
+    }
     // Solo las que pasaron todo, sin zona que pida el sí y sin otro motivo para esperar que la prueba extra.
     if (resultado.paso !== true || zonasQuePidenTuSi(fila.zonaProtegida).length || (esperaPor && !esperaSoloPorLaPruebaExtra(esperaPor))) continue;
     const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: fila.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
@@ -660,7 +677,7 @@ export async function porRevisarDelTrabajador(contexto: ContextoTrabajador) {
       riesgo: fila.riesgo,
     });
   }
-  return { tarjetas };
+  return { tarjetas, paraRevisarDeNuevo };
 }
 
 /**
@@ -728,6 +745,8 @@ async function rescatarTarjeta(contexto: ContextoTrabajador, actual: FilaParaTra
  * del dueño. `subeSolo: true` -> SUBIENDO pendiente (sin candado, la toma enseguida y la vigila 30 min; sus zonasAprobadas
  * salen de sus zonas al tomarla); `subeSolo: false` -> ERROR con "construido, no sube: <motivo>". Solo vale si pasó la
  * construcción, todas sus zonas son CHATS o BOT_VENTAS y no espera por gasto en Meta Ads; si no, 409 y no cambia nada.
+ * Con `subeSolo: true` acepta además `commit` y `base` (sha de la rama después del rebase del Coordinador y de main en ese momento) y
+ * guarda las `pruebas` en el resultado: así subir() sabe que la rama actualizada ya se compiló y probó y no la manda de vuelta a la nube.
  */
 async function revisarDeNuevo(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
   if (typeof cuerpo.subeSolo !== "boolean") throw new ErrorDelTrabajador("Falta subeSolo (sí o no).", 400);
@@ -740,6 +759,13 @@ async function revisarDeNuevo(contexto: ContextoTrabajador, actual: FilaParaTrab
     ? cuerpo.pruebas.filter((texto): texto is string => typeof texto === "string" && texto.trim().length > 0).slice(0, 20).map((texto) => texto.trim().slice(0, 300))
     : [];
   const sube = cuerpo.subeSolo;
+  const shaDe = (valor: unknown, nombre: string) => {
+    if (valor === undefined || valor === null) return null;
+    if (typeof valor !== "string" || !/^[0-9a-f]{7,40}$/i.test(valor)) throw new ErrorDelTrabajador(`${nombre} no es un commit válido.`, 400);
+    return valor;
+  };
+  const commit = shaDe(cuerpo.commit, "commit");
+  const base = shaDe(cuerpo.base, "base");
   if (sube) {
     // Lo mismo que comprueba rescatar: el dinero de Gestión y los cambios destructivos siguen esperando el sí del dueño.
     const migracion = Array.isArray(previo.migracionDestructiva) ? (previo.migracionDestructiva as unknown[]) : [];
@@ -761,7 +787,15 @@ async function revisarDeNuevo(contexto: ContextoTrabajador, actual: FilaParaTrab
     ? (() => {
         const { esperaPor: _quitada, ...sinEspera } = previo;
         void _quitada;
-        return { ...sinEspera, subeSolo: true };
+        const antes = typeof previo.pruebas === "string" ? previo.pruebas : "";
+        return {
+          ...sinEspera,
+          subeSolo: true,
+          ...(commit ? { commit } : {}),
+          ...(base ? { base } : {}),
+          // Lo nuevo primero: las pruebas de antes del rebase quedan debajo y son las que se recortan.
+          ...(pruebas.length ? { pruebas: `${pruebas.join("\n")}${antes ? `\n${antes}` : ""}`.slice(0, 6000) } : {}),
+        };
       })()
     : { ...previo, error: { motivo, en: "POR_REVISAR", cuando: ahora.toISOString() } };
   return prisma.$transaction(async (tx) => {

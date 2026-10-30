@@ -43,7 +43,20 @@ import {
   sinMarcaDeEstrategia,
   textoDelAvisoDeReversion,
 } from "./diagnostico.mjs";
-import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, medirConClaude, partirTarea, planear, subir } from "./etapas.mjs";
+import {
+  ErrorDeEtapa,
+  construir,
+  diagnosticarConClaude,
+  entornoSeguro,
+  hayVigilanciaEnCurso,
+  limpiarCarpetasDeTrabajo,
+  medirConClaude,
+  partirTarea,
+  planear,
+  revisarDeNuevo,
+  sePuedeRevisarDeNuevo,
+  subir,
+} from "./etapas.mjs";
 import { idCorto } from "./git.mjs";
 import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedida } from "./medir.mjs";
 import { notaDeYaHecho } from "./revision-previa.mjs";
@@ -701,6 +714,50 @@ function registroDeLaSesion(registro, etiqueta) {
 }
 
 /**
+ * REVISAR DE NUEVO lo que quedó en Por revisar (30-oct-2026): en cada vuelta toma a lo sumo UNA tarjeta de la lista
+ * `paraRevisarDeNuevo` del CRM (POR_REVISAR que pasó, rama tablero/... y zonas solo CHATS / BOT_VENTAS) y llama a
+ * revisarDeNuevo (etapas.mjs). Va de a una (el bucle no la lanza otra vez mientras corre) y no arranca mientras otra
+ * subida está en su vigilancia de 30 min. Una falla del PC, de la red o del Coordinador deja la tarjeta como estaba: se
+ * reintenta en la vuelta siguiente, después de las que todavía no se intentaron. Si el CRM dice 409 (por ejemplo, el
+ * plan toca dinero), no se vuelve a pedir en este arranque. `revisar` y `hayVigilancia` se inyectan para probar.
+ * revisar() -> { hizo, tarjetaId?, accion?: "subir" | "error" | "reintentar" | "esperar", motivo? }
+ */
+export function crearRevisorDeNuevo({ crm, config, registro, colaPesada = null, revisar = revisarDeNuevo, hayVigilancia = hayVigilanciaEnCurso, ahora = () => Date.now() }) {
+  // id -> cuándo se intentó por última vez sin terminar (falla del entorno): las nuevas van primero.
+  const intentadas = new Map();
+  // Las que el CRM rechazó (409): no se repiten hasta que el Coordinador se reinicie.
+  const rechazadas = new Set();
+  return {
+    async revisar() {
+      if (hayVigilancia()) return { hizo: false, motivo: "otra subida está en su vigilancia de 30 min" };
+      const respuesta = await crm.porRevisar();
+      const candidatas = (respuesta?.paraRevisarDeNuevo ?? []).filter(
+        (tarjeta) => sePuedeRevisarDeNuevo(tarjeta) && config.repos?.[tarjeta.repo] && !rechazadas.has(tarjeta.id),
+      );
+      if (!candidatas.length) return { hizo: false, motivo: "ninguna tarjeta para revisar de nuevo" };
+      const tarjeta = [...candidatas].sort((a, b) => (intentadas.get(a.id) ?? 0) - (intentadas.get(b.id) ?? 0))[0];
+      registro.info(`revisar de nuevo: "${tarjeta.titulo}" (${tarjeta.id}, ${tarjeta.zonaProtegida.join(", ")}): rebase, build, pruebas y envíos`);
+      const contexto = { config, registro, crm, colaPesada, lugar: "aizen1", etiqueta: `[revisar ${idCorto(tarjeta.id)}]` };
+      try {
+        const salida = await revisar(contexto, tarjeta);
+        intentadas.delete(tarjeta.id);
+        return { hizo: true, tarjetaId: tarjeta.id, accion: salida.accion, motivo: salida.motivo ?? null };
+      } catch (error) {
+        const motivo = enUnaLinea(String(error?.message ?? error), 300);
+        if (error?.status === 409) {
+          rechazadas.add(tarjeta.id);
+          registro.aviso(`revisar de nuevo: el CRM no dejó mover "${tarjeta.titulo}" (${motivo}); sigue en Por revisar`);
+          return { hizo: true, tarjetaId: tarjeta.id, accion: "esperar", motivo };
+        }
+        intentadas.set(tarjeta.id, ahora());
+        registro.aviso(`revisar de nuevo: "${tarjeta.titulo}" sigue en Por revisar y se reintenta en la vuelta siguiente: ${motivo}`);
+        return { hizo: true, tarjetaId: tarjeta.id, accion: "reintentar", motivo };
+      }
+    },
+  };
+}
+
+/**
  * Un semáforo de `maximo` puestos: `tomar(senal)` espera su turno y devuelve la función que lo libera (una sola vez).
  * Si la señal se aborta esperando, rechaza. Lo usan las verificaciones de lo que vuelve de la nube.
  */
@@ -1111,6 +1168,8 @@ export function crearPlanificador({
       }
     },
     corriendo: () => sesiones.size + enNube.size,
+    /** La cola de pasos pesados de aizen1 (o null): revisar de nuevo compila en la misma fila que las sesiones. */
+    colaPesada: () => colaPesada,
     /** ¿Alguna tarjeta está subiendo a main ahora? (el trabajo de noche del manual no empieza mientras tanto). */
     subiendo: () => [...sesiones.values(), ...enNube.values()].some((sesion) => sesion.hacer === "subir"),
     /** Cuántas hay en aizen1 y cuántas en la nube (la nube no ocupa puestos de aizen1). */

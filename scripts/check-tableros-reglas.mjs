@@ -2292,4 +2292,101 @@ prueba("el código T-123 llega a la tarjeta, al cuadrito, a la ficha y al MCP", 
   assert.ok((mcp.match(/codigo/g) ?? []).length >= 8, "el MCP devuelve codigo en las herramientas de tarjetas");
 });
 
+// Revisar de nuevo (30-oct-2026): la lista `paraRevisarDeNuevo` de /por-revisar y /:id/revisar_de_nuevo con commit, base y pruebas,
+// con las funciones reales de services/trabajador.ts y un prisma FALSO en memoria (como check-tablero-aprobacion-automatica.mjs).
+{
+  const DbNull = Symbol("DbNull");
+  const filas = new Map();
+  const historial = [];
+  const coincide = (fila, where) =>
+    Object.entries(where).every(([campo, esperado]) => {
+      if (campo === "tablero") return fila.tablero.workspaceId === esperado.workspaceId;
+      if (esperado && typeof esperado === "object" && "in" in esperado) return esperado.in.includes(fila[campo]);
+      return fila[campo] === esperado;
+    });
+  const falso = {
+    tarjetaTablero: {
+      findFirst: async ({ where }) => [...filas.values()].find((t) => coincide(t, where)) ?? null,
+      findMany: async ({ where, take }) => [...filas.values()].filter((t) => coincide(t, where)).slice(0, take ?? 1000),
+      updateMany: async ({ where, data }) => {
+        const dentro = [...filas.values()].filter((t) => coincide(t, where));
+        for (const t of dentro) Object.assign(t, data);
+        return { count: dentro.length };
+      },
+    },
+    historialTarjeta: {
+      create: async ({ data }) => void historial.push(data),
+      findMany: async ({ where }) => historial.filter((fila) => fila.tarjetaId === where.tarjetaId && (!where.accion || fila.accion === where.accion)),
+    },
+    tableroInteligente: { update: async () => undefined, updateMany: async () => ({ count: 1 }) },
+    $transaction: async (fn) => fn(falso),
+  };
+  const servicio = cargar("src/features/tableros-inteligentes/services/trabajador.ts", {
+    "@/lib/prisma": { prisma: falso },
+    "@prisma/client": { Prisma: { DbNull } },
+    "./tableros": { QUIEN_TRABAJADOR: "trabajador:", linkDeLaTarjeta: (id) => `https://crm.test/tablero/${id}` },
+  });
+  const contexto = { claveId: "k1", workspaceId: "ws1", nombre: "Coordinador" };
+  const porRevisar = (id, zonaProtegida, resultado) =>
+    filas.set(id, {
+      id,
+      tableroId: "tb1",
+      titulo: `Tarjeta ${id}`,
+      detalle: "Arreglo de la bandeja de chats",
+      estado: "POR_REVISAR",
+      repo: "aizencrm",
+      zonaProtegida,
+      riesgo: "ALTO",
+      riesgoMotivo: null,
+      plan: "RIESGO: ALTO\nArreglar la bandeja.",
+      resultado: { paso: true, rama: `tablero/${id}`, base: "a".repeat(40), commit: "b".repeat(40), pruebas: "✔ build viejo", archivos: ["src/chats/x.ts"], ...resultado },
+      intentos: 1,
+      reparaciones: 0,
+      trabajoIniciadoEn: null,
+      trabajoVenceEn: null,
+      actualizadoEn: T0,
+      borradoEn: null,
+      tablero: { workspaceId: "ws1", nombre: "Pruebas" },
+    });
+  porRevisar("conEnvio", ["CHATS"], { esperaPor: "agrega un envío nuevo de mensaje a clientes en chats" });
+  porRevisar("sinMotivo", ["CHATS", "BOT_VENTAS"], {});
+  porRevisar("gasto", ["CHATS"], { esperaPor: "gasto en Meta Ads (daily_budget)" });
+  porRevisar("otraZona", ["CHATS", "META_ADS"], {});
+  porRevisar("noPaso", ["CHATS"], { paso: false });
+
+  const lista = await servicio.porRevisarDelTrabajador(contexto);
+  assert.deepEqual(lista.paraRevisarDeNuevo.map((t) => t.id).sort(), ["conEnvio", "sinMotivo"], "solo las que pasaron, solo CHATS / BOT_VENTAS y sin gasto en Meta Ads");
+  const conEnvio = lista.paraRevisarDeNuevo.find((t) => t.id === "conEnvio");
+  assert.equal(conEnvio.paso, true);
+  assert.equal(conEnvio.rama, "tablero/conEnvio");
+  assert.ok(!lista.tarjetas.some((t) => t.id === "conEnvio"), "la lista de rescatar sigue dejándola fuera");
+
+  // subeSolo con commit, base y pruebas: SUBIENDO, el commit y la base nuevos quedan, el motivo viejo se borra y las pruebas nuevas van primero.
+  const commit = "c".repeat(40);
+  const base = "d".repeat(12);
+  const sube = await servicio.accionDelTrabajador(contexto, "sinMotivo", "revisar_de_nuevo", {
+    subeSolo: true,
+    commit,
+    base,
+    pruebas: ["✔ npm run build", "✔ chats: sin mensajes nuevos a clientes (revisión del Coordinador)"],
+  });
+  assert.equal(sube.estado, "SUBIENDO");
+  const subida = filas.get("sinMotivo").resultado;
+  assert.equal(subida.commit, commit);
+  assert.equal(subida.base, base);
+  assert.equal(subida.subeSolo, true);
+  assert.match(subida.pruebas, /^✔ npm run build\n✔ chats: sin mensajes nuevos a clientes \(revisión del Coordinador\)\n✔ build viejo$/);
+
+  // Un commit que no es un sha: 400 y no cambia nada.
+  await assert.rejects(() => servicio.accionDelTrabajador(contexto, "conEnvio", "revisar_de_nuevo", { subeSolo: true, commit: "main; rm -rf /" }), (error) => error.status === 400);
+  assert.equal(filas.get("conEnvio").estado, "POR_REVISAR");
+  // Sin commit ni base sigue como antes (parte 1): ERROR con el motivo del Coordinador.
+  const frenada = await servicio.accionDelTrabajador(contexto, "conEnvio", "revisar_de_nuevo", { subeSolo: false, motivo: "agrega envío nuevo a clientes: await sendMessage(x)" });
+  assert.equal(frenada.estado, "ERROR");
+  assert.equal(filas.get("conEnvio").resultado.error.motivo, "construido, no sube: agrega envío nuevo a clientes: await sendMessage(x)");
+  assert.equal(filas.get("conEnvio").resultado.commit, "b".repeat(40), "sin subir no cambia el commit");
+  pruebas += 1;
+  console.log("ok - revisar de nuevo (30-oct-2026): /por-revisar trae paraRevisarDeNuevo y /revisar_de_nuevo guarda commit, base y pruebas");
+}
+
 console.log(`\n${pruebas} pruebas, todas bien`);

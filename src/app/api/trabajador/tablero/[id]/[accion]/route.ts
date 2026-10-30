@@ -39,8 +39,10 @@ export const dynamic = "force-dynamic";
   - recoger   { decision: reintentar | partir | dueno, causa?, error?, partes?, linea? }   ERROR: recoge una tarjeta
               vieja en ERROR (máximo 2 veces por tarjeta; el tope diario lo lleva el Coordinador). reintentar vuelve
               a la fila, partir crea las hijas, dueno deja UNA línea para el dueño y sigue en ERROR.
-  revisar_de_nuevo { subeSolo, motivo?, pruebas?: [texto] }   POR_REVISAR de CHATS / BOT_VENTAS (que pasó la construcción y no espera por
+  revisar_de_nuevo { subeSolo, motivo?, pruebas?: [texto], commit?, base? }   POR_REVISAR de CHATS / BOT_VENTAS (que pasó la construcción y no espera por
               gasto en Meta Ads) -> SUBIENDO pendiente (subeSolo) o ERROR "construido, no sube: <motivo>". 409 en cualquier otro caso.
+              Con subeSolo, `commit` y `base` (sha de la rama tras el rebase del Coordinador y de main) y las pruebas quedan en el
+              resultado: subir() no vuelve a compilar la rama ya probada. 400 si commit o base no son un sha.
   (El arranque del Coordinador es otra ruta: /api/trabajador/tablero/arranque.)
   409 si la tarjeta no está en el estado de esa acción. Ver services/trabajador.ts.
 */

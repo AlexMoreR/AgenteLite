@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
 import { crearVigilante, sumarDescendientes } from "../lib/atasco.mjs";
-import { crearPlanificador, crearSemaforo, procesar, reparacionDeLaTarjeta, unaVuelta } from "../lib/bucle.mjs";
+import { crearPlanificador, crearRevisorDeNuevo, crearSemaforo, procesar, reparacionDeLaTarjeta, unaVuelta } from "../lib/bucle.mjs";
 import { PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
@@ -29,7 +29,17 @@ import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstado
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
 import { LARGO_MAXIMO_DEL_AVISO, decidir, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
-import { buscarCorridaDelDespliegue, esLimiteDeUso, planParaLaNube, promptDeConstruir, promptDeNube, promptDelPlan, reglasDeZonasQueSubenSolas } from "../lib/etapas.mjs";
+import {
+  CONFIRMACION_REVISION_DE_NUEVO,
+  buscarCorridaDelDespliegue,
+  esLimiteDeUso,
+  planParaLaNube,
+  promptDeConstruir,
+  promptDeNube,
+  promptDelPlan,
+  reglasDeZonasQueSubenSolas,
+  sePuedeRevisarDeNuevo,
+} from "../lib/etapas.mjs";
 import { MAX_DESCRIPCION, descripcionParaLaNube, esCommitDeInicio, esTareaGrande, estaDentroDe, esperarResultado, lanzarEnNube, lineaSinRepo, linkDeLaSesionFija, linkDeSesion, nombreDelProyecto, olvidarSinAcceso, sesionFijaDe, sinAccesoALaNube, preguntaDeConfianza, preguntaDelCommit, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
 import { preguntasAbiertasDelPlan, primeraPreguntaAbierta } from "../lib/preguntas-abiertas.mjs";
 import {
@@ -1804,7 +1814,15 @@ const servidor = http.createServer(async (pedido, respuesta) => {
       candidatas: candidatasDelFalso().map((t) => ({ ...t, hacer: reglas.AL_TOMAR[t.estado].etapa })),
     });
   }
-  const [, id, accion] = pedido.url.match(/^\/api\/trabajador\/tablero\/([^/]+)\/([a-z-]+)$/) ?? [];
+  if (pedido.url === "/api/trabajador/tablero/por-revisar") {
+    // Como porRevisarDelTrabajador (30-oct-2026): solo la lista nueva `paraRevisarDeNuevo` (la de rescatar no se prueba acá).
+    llamadas.push({ accion: "por-revisar" });
+    const paraRevisarDeNuevo = [...tarjetas.values()]
+      .filter((t) => t.estado === "POR_REVISAR" && t.resultado?.paso === true && reglas.soloChatsOBot(t.zonaProtegida) && !reglas.esGastoEnMetaAds(t.resultado?.esperaPor))
+      .map((t) => ({ id: t.id, titulo: t.titulo, repo: t.repo, zonaProtegida: t.zonaProtegida, paso: true, rama: t.resultado.rama ?? null, base: t.resultado.base ?? null, commit: t.resultado.commit ?? null, esperaPor: t.resultado.esperaPor ?? null }));
+    return contestar(200, { ok: true, tarjetas: [], paraRevisarDeNuevo });
+  }
+  const [, id, accion] = pedido.url.match(/^\/api\/trabajador\/tablero\/([^/]+)\/([a-z_-]+)$/) ?? [];
   const tarjeta = tarjetas.get(id);
   llamadas.push({ accion, id, cuerpo });
   if (!tarjeta) return contestar(404, { ok: false, error: "No existe" });
@@ -1874,6 +1892,19 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     // El CRM real la deja en APROBADO; las pruebas de siempre no quieren que entre a la fila (limpiezaEnLaFila).
     const idNueva = nueva(titulo, limpiezaEnLaFila ? "APROBADO" : "POR_APROBAR", { detalle: cuerpo.errores.map((e) => `- ${e}`).join("\n"), moderno: true });
     return contestar(200, { ok: true, creada: true, agregados: cuerpo.errores.length, tarjetaId: idNueva });
+  }
+  if (accion === "revisar_de_nuevo") {
+    // Como revisarDeNuevo de services/trabajador.ts: subeSolo -> SUBIENDO pendiente con commit, base y pruebas; si no, ERROR con el motivo.
+    if (cuerpo.subeSolo) {
+      const { esperaPor: _quitada, ...sinEspera } = tarjeta.resultado;
+      void _quitada;
+      tarjeta.resultado = { ...sinEspera, subeSolo: true, commit: cuerpo.commit ?? sinEspera.commit, base: cuerpo.base ?? sinEspera.base, pruebas: [...(cuerpo.pruebas ?? []), sinEspera.pruebas ?? ""].join("\n") };
+      Object.assign(tarjeta, { estado: "SUBIENDO", venceEn: null });
+    } else {
+      tarjeta.resultado = { ...tarjeta.resultado, error: { motivo: `construido, no sube: ${reglas.motivoDeEntrada(cuerpo.motivo)}` } };
+      Object.assign(tarjeta, { estado: "ERROR", venceEn: null });
+    }
+    return contestar(200, { ok: true, estado: tarjeta.estado });
   }
   if (accion === "error" && cuerpo.categoria) {
     // Escalar con motivo: el resumen de máximo 3 líneas y el intento "escalar".
@@ -4232,6 +4263,193 @@ try {
     }
     sinRestos();
   });
+
+  // ── REVISAR DE NUEVO lo que quedó en Por revisar (30-oct-2026): tarjetas de CHATS en POR_REVISAR, rebase, build, pruebas y envíos ──
+  {
+    const configRevisar = () => crearConfig({}, { subirSolo: true, zonasQueSubenSolas: ["BOT_VENTAS", "META_ADS", "LIBRO_V3", "CHATS"], vigilancia: { minutos: 0.02, cadaSegundos: 0.3, maxErroresNuevos: 2 } });
+    const cerrarLasDemas = () => {
+      for (const t of tarjetas.values()) if (!["HECHO", "ERROR"].includes(t.estado)) Object.assign(t, { estado: "HECHO", venceEn: null });
+    };
+    const cambiarMainRevisar = async (relativo, texto) => {
+      g(REPO, "pull", "--quiet", "--ff-only", "origin", "main");
+      archivo(relativo, texto);
+      g(REPO, "add", "-A");
+      g(REPO, "commit", "--quiet", "-m", `main cambia ${relativo}`);
+      g(REPO, "push", "--quiet", "origin", "main");
+      await new Promise((resolver) => setTimeout(resolver, 300));
+    };
+    /** Una tarjeta POR_REVISAR de CHATS como las 8 viejas: su rama tablero/… en el remoto, construida sobre el main de ese momento. */
+    const porRevisarDeChats = (titulo, nombre, archivos) => {
+      g(REPO, "pull", "--quiet", "--ff-only", "origin", "main");
+      const base = g(REPO, "rev-parse", "HEAD");
+      const clon = path.join(T, `clon-rn-${nombre}`);
+      fs.rmSync(clon, { recursive: true, force: true });
+      execFileSync("git", ["clone", "--quiet", REMOTO, clon], { stdio: "ignore" });
+      const rama = `tablero/rn-${nombre}`;
+      g(clon, "checkout", "--quiet", "-b", rama, "origin/main");
+      for (const [relativo, texto] of Object.entries(archivos)) {
+        fs.mkdirSync(path.dirname(path.join(clon, relativo)), { recursive: true });
+        fs.writeFileSync(path.join(clon, relativo), texto);
+      }
+      g(clon, "add", "-A");
+      g(clon, "commit", "--quiet", "-m", `cambios de ${nombre}`);
+      g(clon, "push", "--quiet", "origin", rama);
+      const commit = g(clon, "rev-parse", "HEAD");
+      fs.rmSync(clon, { recursive: true, force: true });
+      const id = nueva(titulo, "POR_REVISAR", {
+        plan: "El plan",
+        zonaProtegida: ["CHATS"],
+        resultado: { paso: true, rama, commit, base, subeSolo: false, pruebas: "✔ build de cuando se construyó", esperaPor: "falta el sí del dueño (construida antes de la regla nueva)" },
+      });
+      return { id, rama, commit, base };
+    };
+    /** El revisor de la vuelta, mirando solo la tarjeta de la prueba (otras pruebas dejan tarjetas POR_REVISAR). */
+    const revisorDe = (id, config) =>
+      crearRevisorDeNuevo({
+        crm: { ...crm, porRevisar: async () => {
+          const respuesta = await crm.porRevisar();
+          return { ...respuesta, paraRevisarDeNuevo: respuesta.paraRevisarDeNuevo.filter((t) => t.id === id) };
+        } },
+        config,
+        registro,
+        hayVigilancia: () => false,
+      });
+
+    await prueba("revisar de nuevo: solo tarjetas que pasaron, con rama tablero/… y zonas solo CHATS / BOT_VENTAS", async () => {
+      const base = { paso: true, rama: "tablero/abc-chats", zonaProtegida: ["CHATS"] };
+      assert.equal(sePuedeRevisarDeNuevo(base), true);
+      assert.equal(sePuedeRevisarDeNuevo({ ...base, zonaProtegida: ["CHATS", "BOT_VENTAS"] }), true);
+      assert.equal(sePuedeRevisarDeNuevo({ ...base, zonaProtegida: ["BOT_VENTAS"] }), true);
+      assert.equal(sePuedeRevisarDeNuevo({ ...base, paso: false }), false);
+      assert.equal(sePuedeRevisarDeNuevo({ ...base, rama: "main" }), false);
+      assert.equal(sePuedeRevisarDeNuevo({ ...base, rama: "claude/otra" }), false);
+      assert.equal(sePuedeRevisarDeNuevo({ ...base, zonaProtegida: [] }), false);
+      assert.equal(sePuedeRevisarDeNuevo({ ...base, zonaProtegida: ["CHATS", "META_ADS"] }), false);
+      assert.equal(sePuedeRevisarDeNuevo({ ...base, zonaProtegida: ["LIBRO_V3"] }), false);
+    });
+
+    await prueba("revisar de nuevo: de a una, no arranca en vigilancia, una falla del PC o la red se reintenta después de las otras y un 409 no se repite", async () => {
+      const lista = [
+        { id: "a", titulo: "A", repo: "aizencrm", paso: true, rama: "tablero/a", zonaProtegida: ["CHATS"] },
+        { id: "b", titulo: "B", repo: "aizencrm", paso: true, rama: "tablero/b", zonaProtegida: ["BOT_VENTAS"] },
+        { id: "c", titulo: "C", repo: "otro-repo", paso: true, rama: "tablero/c", zonaProtegida: ["CHATS"] },
+      ];
+      const crmFalso = { porRevisar: async () => ({ tarjetas: [], paraRevisarDeNuevo: lista }) };
+      let vigilando = true;
+      const vistas = [];
+      const fallas = { a: "red", b: "409" };
+      const revisor = crearRevisorDeNuevo({
+        crm: crmFalso,
+        config: { repos: { aizencrm: {} } },
+        registro: { info: () => undefined, aviso: () => undefined },
+        hayVigilancia: () => vigilando,
+        revisar: async (contexto, tarjeta) => {
+          vistas.push(tarjeta.id);
+          assert.equal(contexto.crm, crmFalso);
+          if (fallas[tarjeta.id] === "red") throw new Error("git fetch origin falló: Could not resolve host");
+          if (fallas[tarjeta.id] === "409") throw Object.assign(new Error("Espera el sí del dueño: toca dinero"), { status: 409 });
+          return { accion: "subir" };
+        },
+      });
+      assert.equal((await revisor.revisar()).hizo, false, "con una vigilancia de 30 min en curso no arranca");
+      assert.deepEqual(vistas, []);
+      vigilando = false;
+      const primera = await revisor.revisar();
+      assert.deepEqual([primera.tarjetaId, primera.accion], ["a", "reintentar"], "falla de red: sigue en Por revisar");
+      const segunda = await revisor.revisar();
+      assert.deepEqual([segunda.tarjetaId, segunda.accion], ["b", "esperar"], "la que no se intentó va antes que la que falló");
+      delete fallas.a;
+      const tercera = await revisor.revisar();
+      assert.deepEqual([tercera.tarjetaId, tercera.accion], ["a", "subir"], "la b (409) no se vuelve a pedir; la a se reintenta");
+      assert.deepEqual(vistas, ["a", "b", "a"], "de a una por vuelta; la del repo que no está en este PC no se toca");
+    });
+
+    await prueba("revisar de nuevo: una tarjeta de CHATS en Por revisar que pasa -> rebase sobre main, build y pruebas otra vez, SUBIENDO y sube con la vigilancia de 30 min", async () => {
+      cerrarLasDemas();
+      const { id, rama, commit: viejo } = porRevisarDeChats("Chats: arreglo viejo que pasa", "pasa", { "src/chats/rn-pasa.ts": "export const arreglo = 1;\n" });
+      await cambiarMainRevisar("src/otra-cosa-rn.ts", "export const otra = 2;\n");
+      const mainAntes = shaDe("main");
+      const config = configRevisar();
+      const salida = await revisorDe(id, config).revisar();
+      const t = tarjetas.get(id);
+      assert.equal(salida.accion, "subir", salida.motivo);
+      assert.equal(t.estado, "SUBIENDO");
+      assert.equal(t.resultado.esperaPor, undefined, "el motivo viejo se borra");
+      assert.notEqual(shaDe(rama), viejo, "la rama quedó con el rebase");
+      assert.equal(execFileSync("git", ["--git-dir", REMOTO, "rev-parse", `${rama}^`], { encoding: "utf8" }).trim(), mainAntes, "la rama queda encima de main");
+      assert.equal(t.resultado.commit, shaDe(rama));
+      assert.equal(t.resultado.base, mainAntes);
+      assert.ok(t.resultado.pruebas.includes(CONFIRMACION_REVISION_DE_NUEVO), t.resultado.pruebas);
+      assert.match(t.resultado.pruebas, /✔ .*verificar\.mjs/, "corrió la verificación");
+      assert.equal(shaDe("main"), mainAntes, "revisar de nuevo no toca main");
+      const enviadas = llamadas.filter((l) => l.id === id && l.accion === "revisar_de_nuevo");
+      assert.equal(enviadas.length, 1);
+      assert.equal(enviadas[0].cuerpo.subeSolo, true);
+      // La subida de siempre: main no cambió y la rama es la que se probó -> no vuelve a compilar; vigilancia y HECHO.
+      const subida = await vuelta(config);
+      assert.equal(subida.hizo, "subir");
+      assert.equal(subida.ok, true, subida.motivo);
+      assert.equal(t.estado, "HECHO");
+      assert.ok(execFileSync("git", ["--git-dir", REMOTO, "ls-tree", "-r", "--name-only", "main"], { encoding: "utf8" }).includes("src/chats/rn-pasa.ts"), "subió a main");
+      assert.equal(t.resultado.subida.vigilancia?.ok, true, "con la vigilancia de 30 min");
+      sinRestos();
+    });
+
+    await prueba("revisar de nuevo: si choca con main en el rebase queda en ERROR «choca con lo ya subido: <archivos>» y no se empuja nada", async () => {
+      cerrarLasDemas();
+      const { id, rama, commit } = porRevisarDeChats("Chats: arreglo viejo que choca", "choca", { "src/chats/rn-choca.ts": "export const lado = 'tarea';\n" });
+      await cambiarMainRevisar("src/chats/rn-choca.ts", "export const lado = 'main';\n");
+      const salida = await revisorDe(id, configRevisar()).revisar();
+      const t = tarjetas.get(id);
+      assert.equal(salida.accion, "error");
+      assert.equal(t.estado, "ERROR");
+      assert.equal(t.resultado.error.motivo, "construido, no sube: choca con lo ya subido: src/chats/rn-choca.ts");
+      assert.equal(shaDe(rama), commit, "la rama queda como estaba");
+      sinRestos();
+    });
+
+    await prueba("revisar de nuevo: si después del rebase no queda nada (o solo .md) queda en ERROR «obsoleta: lo que hacía ya está en main»", async () => {
+      cerrarLasDemas();
+      const { id } = porRevisarDeChats("Chats: arreglo viejo que ya está", "obsoleta", { "src/chats/rn-obsoleta.ts": "export const ya = true;\n", "docs/nota-rn.md": "una nota\n" });
+      await cambiarMainRevisar("src/chats/rn-obsoleta.ts", "export const ya = true;\n");
+      const salida = await revisorDe(id, configRevisar()).revisar();
+      const t = tarjetas.get(id);
+      assert.equal(salida.accion, "error");
+      assert.equal(t.estado, "ERROR");
+      assert.equal(t.resultado.error.motivo, "construido, no sube: obsoleta: lo que hacía ya está en main");
+      sinRestos();
+    });
+
+    await prueba("revisar de nuevo: si agrega un envío nuevo a clientes en chats queda en ERROR «agrega envío nuevo a clientes: <línea>», aunque compile y pase las pruebas", async () => {
+      cerrarLasDemas();
+      const { id, rama, commit } = porRevisarDeChats("Chats: aviso nuevo al cliente", "envio", { "src/chats/rn-envio.ts": "// comentario: sendMessage no cuenta\nexport async function avisar(api, numero) {\n  await api.sendMessage(numero, 'hola');\n}\n" });
+      const salida = await revisorDe(id, configRevisar()).revisar();
+      const t = tarjetas.get(id);
+      assert.equal(salida.accion, "error");
+      assert.equal(t.estado, "ERROR");
+      assert.equal(t.resultado.error.motivo, "construido, no sube: agrega envío nuevo a clientes: await api.sendMessage(numero, 'hola');");
+      assert.equal(shaDe(rama), commit, "no se empujó la rama");
+      sinRestos();
+    });
+
+    await prueba("revisar de nuevo: si no compila queda en ERROR con las líneas que fallaron; sin red sigue en Por revisar", async () => {
+      cerrarLasDemas();
+      const { id } = porRevisarDeChats("Chats: arreglo viejo que ya no compila", "tsc", { "src/chats/rn-tsc.ts": "export const x = 1;\n", ROMPER_TSC: "si\n" });
+      const salida = await revisorDe(id, configRevisar()).revisar();
+      const t = tarjetas.get(id);
+      assert.equal(salida.accion, "error");
+      assert.equal(t.estado, "ERROR");
+      assert.match(t.resultado.error.motivo, /^construido, no sube: no pasa build o pruebas: No pasó la verificación.*error TS2322: el tipo no calza/);
+      // Sin red (el remoto no existe): la tarjeta no se mueve y se reintenta en la vuelta siguiente.
+      const { id: otra } = porRevisarDeChats("Chats: arreglo viejo sin red", "sin-red", { "src/chats/rn-sin-red.ts": "export const y = 1;\n" });
+      const sinRed = crearConfig({}, { remoto: "remoto-que-no-existe", subirSolo: true });
+      const reintento = await revisorDe(otra, sinRed).revisar();
+      assert.equal(reintento.accion, "reintentar", reintento.motivo);
+      assert.equal(tarjetas.get(otra).estado, "POR_REVISAR");
+      Object.assign(tarjetas.get(otra), { estado: "HECHO" });
+      sinRestos();
+    });
+  }
 
 } finally {
   servidor.close();
