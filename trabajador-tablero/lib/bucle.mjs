@@ -608,6 +608,7 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
       const quedan = (Number(tarjeta.reparaciones) || 0) < (Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES);
       // Si se partía porque la causa se repetía igual, reparar sería repetir a ciegas: se escala.
       decision.accion = quedan && !decision.mismaCausa ? "reparar" : "escalar";
+      if (decision.mismaCausa) decision.motivo = "misma causa que el intento anterior, nada distinto que probar";
       resultado.accion = decision.accion;
     }
   }
