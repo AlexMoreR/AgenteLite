@@ -1,5 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { LeadsNuevosAgrupados } from "../dominio/reglas";
 
 /**
@@ -18,8 +25,10 @@ export function LeadsNuevosDelDia({ data }: { data: LeadsNuevosAgrupados }) {
     ["Admin", data.por_linea.admin],
     ["Ventas 1", data.por_linea.ventas_1],
     ["Ventas 2", data.por_linea.ventas_2],
-    ...(data.por_linea.otras ? ([["Otras", data.por_linea.otras]] as Array<[string, number]>) : []),
-    ["Solo ventas", data.por_linea.solo_ventas],
+    ...(data.por_linea.otras
+      ? ([["Otras", data.por_linea.otras]] as Array<[string, number]>)
+      : []),
+    ["Solo ventas (sin Admin)", data.por_linea.solo_ventas],
   ];
   const filasDeAsesora: Array<[string, number]> = [
     ...data.por_asesora.map((a) => [a.asesora, a.total] as [string, number]),
@@ -29,31 +38,62 @@ export function LeadsNuevosDelDia({ data }: { data: LeadsNuevosAgrupados }) {
   return (
     <div className="space-y-3">
       <div>
-        <h2 className="text-base font-semibold">Leads nuevos de hoy (empresa)</h2>
+        <h2 className="text-base font-semibold">
+          Leads nuevos de hoy (empresa)
+        </h2>
         <p className="text-xs text-muted-foreground">
-          {data.fecha} · Total: <span className="text-foreground">{data.total}</span>
+          {data.fecha} · Total:{" "}
+          <span className="text-foreground">{data.total}</span>
         </p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <TablaDeConteo titulo="Por origen" filas={filasDeOrigen} />
-        <TablaDeConteo titulo="Por línea" filas={filasDeLinea} />
-        <TablaDeConteo titulo="Por asesora" filas={filasDeAsesora} />
-      </div>
+      {data.total === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Hoy no han entrado leads.
+        </p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <TablaDeConteo
+            titulo="Por origen"
+            columna="Origen"
+            filas={filasDeOrigen}
+          />
+          <TablaDeConteo
+            titulo="Por línea"
+            columna="Línea"
+            filas={filasDeLinea}
+          />
+          <TablaDeConteo
+            titulo="Por asesora"
+            columna="Asesora"
+            filas={filasDeAsesora}
+          />
+        </div>
+      )}
     </div>
   );
 }
 
-function TablaDeConteo({ titulo, filas }: { titulo: string; filas: Array<[string, number]> }) {
+function TablaDeConteo({
+  titulo,
+  columna,
+  filas,
+}: {
+  titulo: string;
+  columna: string;
+  filas: Array<[string, number]>;
+}) {
   return (
     <Card>
       <CardHeader className="pb-1">
-        <CardTitle className="text-xs text-muted-foreground">{titulo}</CardTitle>
+        <CardTitle className="text-xs text-muted-foreground">
+          {titulo}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nombre</TableHead>
+              <TableHead>{columna}</TableHead>
               <TableHead className="text-right">Leads</TableHead>
             </TableRow>
           </TableHeader>
@@ -61,7 +101,9 @@ function TablaDeConteo({ titulo, filas }: { titulo: string; filas: Array<[string
             {filas.map(([nombre, cantidad]) => (
               <TableRow key={nombre}>
                 <TableCell className="break-words">{nombre}</TableCell>
-                <TableCell className="text-right font-medium">{cantidad}</TableCell>
+                <TableCell className="text-right font-medium">
+                  {cantidad}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

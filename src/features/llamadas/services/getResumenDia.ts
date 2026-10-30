@@ -88,7 +88,8 @@ export async function getResumenDiaData(input: {
   try {
     const [leads, empresa, calls, sales] = await Promise.all([
       leadsNuevosDelDia(input.workspaceId, fecha, { asesoraId: input.userId }),
-      input.esJefe ? leadsNuevosDelDia(input.workspaceId, fecha) : Promise.resolve(null),
+      // Si el conteo de la empresa falla, no se pierde el informe de la asesora.
+      input.esJefe ? leadsNuevosDelDia(input.workspaceId, fecha).catch(() => null) : Promise.resolve(null),
       prisma.callAttempt.findMany({
         where: { workspaceId: input.workspaceId, calledByUserId: input.userId, calledAt: { gte: start, lt: end } },
         orderBy: { calledAt: "asc" },

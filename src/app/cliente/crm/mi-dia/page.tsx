@@ -173,7 +173,11 @@ export default async function ClienteCrmMiDiaPage() {
       }
       llamadasDespues={
         <>
-          {empresa ? <LeadsNuevosDelDia data={empresa} /> : null}
+          {empresa ? (
+            <LeadsNuevosDelDia data={empresa} />
+          ) : esJefe ? (
+            <p className="text-xs text-muted-foreground">No se pudo cargar el conteo de leads de hoy. Recarga la página.</p>
+          ) : null}
           {vendedora ? <LlamadasDeMiDia vendedora={vendedora} marcadorUrl={marcadorUrl} momento="despues" /> : null}
           {resumen ? (
             <details className="rounded-xl border border-border bg-card px-4 py-3">
