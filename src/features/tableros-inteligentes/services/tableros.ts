@@ -29,6 +29,7 @@ import {
   soloCambiaResponsable,
   tieneAprobacion,
   ESTADOS_CON_APROBACION,
+  codigoDeTarjeta,
   problemaDelNombreDeTablero,
   textoLimpio,
   type AccionCambio,
@@ -163,6 +164,9 @@ const NO_BORRADA = { borradoEn: null } as const;
 /** Lo que la pantalla necesita de cada tarjeta (también es lo que viaja en el refresco). */
 export type TarjetaVista = {
   id: string;
+  /** Número corto de la tarjeta y su código ("T-123"); vacío si no tiene número. */
+  numero: number | null;
+  codigo: string;
   titulo: string;
   detalle: string;
   area: string | null;
@@ -276,6 +280,7 @@ export function porAprobarDe(porEstado: Partial<Record<string, number>>) {
 
 const SELECT_TARJETA = {
   id: true,
+  numero: true,
   titulo: true,
   detalle: true,
   area: true,
@@ -306,6 +311,8 @@ type FilaTarjeta = Prisma.TarjetaTableroGetPayload<{ select: typeof SELECT_TARJE
 function aVista(fila: FilaTarjeta): TarjetaVista {
   return {
     id: fila.id,
+    numero: fila.numero ?? null,
+    codigo: codigoDeTarjeta(fila.numero),
     titulo: fila.titulo,
     detalle: fila.detalle,
     area: fila.area,
@@ -682,6 +689,32 @@ export async function tableroDeLaTarjeta(alcance: Alcance, tarjetaId: unknown): 
     select: { tablero: { select: SELECT_REFERENCIA } },
   });
   return fila ? aReferencia(fila.tablero) : null;
+}
+
+/**
+ * Si lo que llega es el código de una tarjeta ("T-123", en mayúscula o minúscula), devuelve su id real; todo lo
+ * demás (un id, vacío, un código que no existe en el negocio) vuelve igual para que falle o siga como siempre.
+ */
+export async function idDeTarjetaPorCodigo(alcance: Alcance, valor: unknown): Promise<unknown> {
+  const texto = typeof valor === "string" ? valor.trim() : "";
+  const partes = /^T-(\d{1,9})$/i.exec(texto);
+  if (!partes) return valor;
+  const fila = await prisma.tarjetaTablero.findFirst({
+    where: { numero: Number(partes[1]), tablero: dondeTablero(alcance) },
+    select: { id: true },
+  });
+  return fila ? fila.id : valor;
+}
+
+/** El código ("T-123") de una tarjeta por su id, para las respuestas que no traen la tarjeta; "" si no tiene. */
+export async function codigoDeLaTarjeta(alcance: Alcance, tarjetaId: unknown): Promise<string> {
+  const id = typeof tarjetaId === "string" ? tarjetaId.trim() : "";
+  if (!id) return "";
+  const fila = await prisma.tarjetaTablero.findFirst({
+    where: { id, tablero: dondeTablero(alcance) },
+    select: { numero: true },
+  });
+  return fila ? codigoDeTarjeta(fila.numero) : "";
 }
 
 export async function tableroDelTipo(alcance: Alcance, tipoId: unknown): Promise<TableroDeReferencia | null> {

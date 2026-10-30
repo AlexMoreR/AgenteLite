@@ -267,7 +267,14 @@ export function FichaTarjeta({
                   <span className="text-xs text-muted-foreground">Para el {DIA.format(new Date(tarjeta.fecha))}</span>
                 ) : null}
               </div>
-              <SheetTitle className="text-lg leading-snug">{tarjeta.titulo}</SheetTitle>
+              <SheetTitle className="text-lg leading-snug">
+                {tarjeta.codigo ? (
+                  <span className="mr-2 align-middle text-xs font-medium tabular-nums text-zinc-400 dark:text-zinc-500">
+                    {tarjeta.codigo}
+                  </span>
+                ) : null}
+                {tarjeta.titulo}
+              </SheetTitle>
               <SheetDescription className="sr-only">Detalle de la tarjeta</SheetDescription>
             </SheetHeader>
 

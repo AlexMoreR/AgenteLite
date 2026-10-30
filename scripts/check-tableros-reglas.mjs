@@ -2172,4 +2172,17 @@ prueba("codigoDeTarjeta: T-<numero> sin ceros, y vacío sin número", () => {
   assert.equal(reglas.codigoDeTarjeta(undefined), "");
 });
 
+prueba("el código T-123 llega a la tarjeta, al cuadrito, a la ficha y al MCP", async () => {
+  const { readFileSync } = await import("node:fs");
+  const leer = (ruta) => readFileSync(new URL(`../${ruta}`, import.meta.url), "utf8");
+  const servicio = leer("src/features/tableros-inteligentes/services/tableros.ts");
+  assert.match(servicio, /const SELECT_TARJETA = \{\s*id: true,\s*numero: true,/);
+  assert.match(servicio, /codigo: codigoDeTarjeta\(fila\.numero\)/);
+  assert.match(leer("src/features/tableros-inteligentes/components/NodoTarjeta.tsx"), /data\.codigo \?/);
+  assert.match(leer("src/features/tableros-inteligentes/components/FichaTarjeta.tsx"), /tarjeta\.codigo \?/);
+  const mcp = leer("src/lib/mcp/tableros-inteligentes.ts");
+  assert.match(mcp, /idDeTarjetaPorCodigo/);
+  assert.ok((mcp.match(/codigo/g) ?? []).length >= 8, "el MCP devuelve codigo en las herramientas de tarjetas");
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);
