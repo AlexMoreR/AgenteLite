@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi, porQueNoSeApruebaSola } from "./reglas-riesgo";
-import { tareaAprobadaPorElDuenoEnElHistorial, zonasQueNoArrancanSolas } from "./reglas-trabajador";
+import { esDuenoDelNegocio, tareaAprobadaPorElDuenoEnElHistorial, zonasQueNoArrancanSolas } from "./reglas-trabajador";
 
 /*
   APROBACIÓN AUTOMÁTICA del Tablero IA (22-oct-2026, decisión de Alexander: "las cosas básicas que
@@ -23,8 +23,8 @@ import { tareaAprobadaPorElDuenoEnElHistorial, zonasQueNoArrancanSolas } from ".
   puede subir presupuesto, activar campañas o crear gasto en Meta Ads, o le faltan criterios de aceptación. El plan que
   toca dinero de Gestión también espera, salvo que el dueño ya haya aprobado la TAREA en la pantalla o por voz (UN SOLO
   SÍ, 30-oct-2026): ese sí vale también para el plan (MOTIVO_UN_SOLO_SI). La aprobación automática de la tarea (25-oct)
-  no cuenta. Tiene su propio interruptor ("Aprobar planes solo", prendido sin fila). La vuelta del reloj
-  (aprobarPlanesListosQueEsperan) pasa a construir las PLAN_LISTO que esperaban y ya no tienen motivo.
+  y la de alguien que no es la cuenta dueña no cuentan (tareaAprobadaPorElDueno). Tiene su propio interruptor
+  ("Aprobar planes solo", prendido sin fila). La vuelta del reloj (aprobarPlanesListosQueEsperan) pasa a construir las PLAN_LISTO que esperaban y ya no tienen motivo.
 
   REGLA DEL DUEÑO (25-oct-2026, por voz: "¿por qué esperan mi aprobación si ya dije que no la necesitan?"): toda
   TAREA con repo que entra en POR_APROBAR pasa sola a APROBADO, con cualquier riesgo ("aprobada automáticamente
@@ -91,15 +91,61 @@ export async function ponerAprobacionAutomatica(workspaceId: string, prendida: b
 }
 
 /**
- * Regla del dueño (24-oct) con el sí único (30-oct): ¿el plan nuevo espera el sí del dueño? `historial`: las filas
- * "aprobar" de la tarjeta. Devuelve el motivo de la espera, o el motivo que se anota al aprobarlo solo
- * (MOTIVO_UN_SOLO_SI si sin el sí de la tarea habría esperado). Sin base.
+ * ¿El DUEÑO aprobó la tarea de esta tarjeta (un solo sí, 30-oct-2026)? Una fila "aprobar" de la tarea en la pantalla o
+ * por voz (tareaAprobadaPorElDuenoEnElHistorial) hecha por la cuenta dueña del negocio (esDuenoDelNegocio): el sí de un
+ * ADMIN de la plataforma o de un aprobador no cuenta. Una parte que heredó la aprobación ("heredada") mira la de su
+ * madre (hasta 3 niveles): si la madre se aprobó sola, no hay sí del dueño.
+ */
+export async function tareaAprobadaPorElDueno(tarjetaId: string, workspaceId: string, db: Db = prisma): Promise<boolean> {
+  const negocio = await db.workspace.findUnique({ where: { id: workspaceId }, select: { ownerId: true } });
+  const vistas = new Set<string>();
+  let ids = [tarjetaId];
+  for (let nivel = 0; nivel < 4 && ids.length; nivel += 1) {
+    const madres: string[] = [];
+    for (const id of ids) {
+      if (vistas.has(id)) continue;
+      vistas.add(id);
+      const filas = await db.historialTarjeta.findMany({ where: { tarjetaId: id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
+      for (const fila of filas) {
+        const despues = fila.despues as { como?: unknown; heredadaDe?: unknown; userId?: unknown } | null;
+        if (despues?.como === "heredada") {
+          if (typeof despues.heredadaDe === "string") madres.push(despues.heredadaDe);
+          continue;
+        }
+        if (!tareaAprobadaPorElDuenoEnElHistorial([fila]) || typeof despues?.userId !== "string") continue;
+        if (await esLaCuentaDuena(db, workspaceId, despues.userId, negocio?.ownerId ?? null)) return true;
+      }
+    }
+    ids = madres;
+  }
+  return false;
+}
+
+/** ¿Esta cuenta es la dueña del negocio? (las mismas reglas que personaQueAprueba en tableros.ts). */
+async function esLaCuentaDuena(db: Db, workspaceId: string, userId: string, ownerId: string | null): Promise<boolean> {
+  const [usuario, miembro] = await Promise.all([
+    db.user.findUnique({ where: { id: userId }, select: { role: true } }),
+    db.workspaceMember.findFirst({ where: { workspaceId, userId, isActive: true }, select: { role: true } }),
+  ]);
+  return esDuenoDelNegocio({
+    nombre: "",
+    correo: null,
+    tipoCuenta: usuario?.role ?? null,
+    miembroActivo: Boolean(miembro),
+    rolEnNegocio: miembro?.role ?? null,
+    esDuenaRegistrada: Boolean(ownerId) && ownerId === userId,
+    duena: null,
+  });
+}
+
+/**
+ * Regla del dueño (24-oct) con el sí único (30-oct): ¿el plan nuevo espera el sí del dueño? Devuelve el motivo de la
+ * espera, o el motivo que se anota al aprobarlo solo (MOTIVO_UN_SOLO_SI si sin el sí de la tarea habría esperado). Sin base.
  */
 export function siDelPlanPorLaRegla(
   plan: string,
-  historial: readonly { accion: string; despues: unknown }[],
+  tareaAprobadaPorElDueno: boolean,
 ): { espera: string; motivo?: undefined } | { espera: null; motivo: string } {
-  const tareaAprobadaPorElDueno = tareaAprobadaPorElDuenoEnElHistorial(historial);
   const espera = porQueElPlanNuevoEsperaTuSi(plan, { tareaAprobadaPorElDueno });
   if (espera) return { espera };
   if (tareaAprobadaPorElDueno && porQueElPlanNuevoEsperaTuSi(plan)) return { espera: null, motivo: MOTIVO_UN_SOLO_SI };
@@ -317,8 +363,7 @@ export async function aprobarPlanesListosQueEsperan(limite = 100): Promise<numbe
       if (!prendidos.get(workspaceId) || !tarjeta.plan || zonasQueNoArrancanSolas(tarjeta.zonaProtegida).length) continue;
       // 29-oct-2026: también los criterios de aceptación y los supuestos de negocio (un plan en PLAN_LISTO todavía no se aprobó).
       // 30-oct-2026 (un solo sí): si el dueño ya aprobó la tarea, el dinero de Gestión no pide un segundo sí.
-      const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: tarjeta.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
-      const si = siDelPlanPorLaRegla(tarjeta.plan, historial);
+      const si = siDelPlanPorLaRegla(tarjeta.plan, await tareaAprobadaPorElDueno(tarjeta.id, workspaceId));
       if (si.espera !== null) continue;
       const registro = registroDeAprobacionAutomatica({
         estado: "PLAN_APROBADO",

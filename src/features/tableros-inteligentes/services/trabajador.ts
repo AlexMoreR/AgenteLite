@@ -93,6 +93,7 @@ import {
   motivoDeLaAprobacionAutomatica,
   registroDeAprobacionAutomatica,
   siDelPlanPorLaRegla,
+  tareaAprobadaPorElDueno,
 } from "./aprobacion-automatica";
 import {
   SQL_ARRANQUE,
@@ -947,8 +948,7 @@ export async function accionDelTrabajador(
       if (planesSolos && zonasQueNoArrancanSolas(actual.zonaProtegida).length) {
         esperaPorRegla = `tiene zona protegida (${zonasQueNoArrancanSolas(actual.zonaProtegida).join(", ")}): su plan se aprueba en la pantalla`;
       } else if (planesSolos) {
-        const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: actual.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
-        const si = siDelPlanPorLaRegla(plan, historial);
+        const si = siDelPlanPorLaRegla(plan, await tareaAprobadaPorElDueno(actual.id, contexto.workspaceId));
         esperaPorRegla = si.espera;
         if (si.espera === null) motivoPorRegla = si.motivo;
       }

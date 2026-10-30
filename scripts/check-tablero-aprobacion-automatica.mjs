@@ -44,6 +44,12 @@ const falso = {
     },
     findMany: async ({ where, take }) => estado.historial.filter((fila) => fila.tarjetaId === where.tarjetaId && (!where.accion || fila.accion === where.accion)).slice(0, take ?? 1000),
   },
+  // Un solo sí (30-oct): la cuenta dueña de ws1 es "dueno" (CLIENTE y OWNER del negocio); "admin" es ADMIN de la plataforma.
+  workspace: { findUnique: async ({ where }) => (where.id === "ws1" ? { ownerId: "dueno" } : { ownerId: null }) },
+  user: { findUnique: async ({ where }) => ({ dueno: { role: "CLIENTE" }, admin: { role: "ADMIN" }, emanuel: { role: "EMPLEADO" } })[where.id] ?? null },
+  workspaceMember: {
+    findFirst: async ({ where }) => (where.workspaceId === "ws1" ? ({ dueno: { role: "OWNER" }, admin: { role: "ADMIN" }, emanuel: { role: "MEMBER" } })[where.userId] ?? null : null),
+  },
   appSetting: {
     findUnique: async ({ where }) => (estado.ajustes.has(where.key) ? { value: estado.ajustes.get(where.key) } : null),
     upsert: async ({ where, create, update }) => {
@@ -609,8 +615,16 @@ await prueba("aprobarPlanesListosQueEsperan: con el interruptor apagado no hace 
 const MOTIVO_UN_SOLO_SI = "la tarea ya la aprobó el dueño (un solo sí, 30-oct)";
 const planDeAbonos = () => planDe({ archivos: "- src/features/abonos/tabla.tsx" });
 // La fila que deja el sí del dueño a la tarea (registroDeAprobacion): momento "tarea" y via "pantalla" o "voz".
-const siDeLaTarea = (tarjetaId, via = "voz") =>
-  estado.historial.push({ tarjetaId, accion: "aprobar", quien: "u1", despues: { estado: "APROBADO", momento: "tarea", via } });
+const siDeLaTarea = (tarjetaId, via = "voz", userId = "dueno") =>
+  estado.historial.push({ tarjetaId, accion: "aprobar", quien: userId, despues: { estado: "APROBADO", momento: "tarea", via, userId } });
+// La fila que deja una parte al heredar la aprobación de su madre (partirTarjeta en trabajador.ts, con zona protegida).
+const siHeredado = (tarjetaId, madre) =>
+  estado.historial.push({
+    tarjetaId,
+    accion: "aprobar",
+    quien: "trabajador:k1",
+    despues: { estado: "APROBADO", momento: "tarea", via: "pantalla", userId: "trabajador:k1", como: "heredada", heredadaDe: madre },
+  });
 
 await prueba("un solo sí: con la tarea aprobada por voz, un plan de abonos pasa a PLAN_APROBADO con la regla 24-oct y el motivo del sí único", async () => {
   planeando({ riesgo: "BAJO" });
@@ -677,6 +691,33 @@ await prueba("un solo sí: aprobarPlanesListosQueEsperan pasa la PLAN_LISTO de a
   assert.equal(nueva.despues.regla, "dueno-24-oct");
   assert.equal(nueva.despues.motivo, MOTIVO_UN_SOLO_SI);
   assert.deepEqual(nueva.antes, { estado: "PLAN_LISTO" });
+});
+
+await prueba("un solo sí: el sí en pantalla de quien no es la cuenta dueña (ADMIN, aprobador) no cuenta: el plan de abonos queda PLAN_LISTO", async () => {
+  for (const quien of ["admin", "emanuel", "nadie"]) {
+    estado.tarjetas.clear();
+    estado.historial.length = 0;
+    planeando({ riesgo: "BAJO" });
+    siDeLaTarea("t1", "pantalla", quien);
+    const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planDeAbonos() });
+    assert.equal(r.estado, "PLAN_LISTO", quien);
+  }
+});
+
+await prueba("un solo sí: una parte con la aprobación heredada vale solo si el dueño aprobó la tarea madre", async () => {
+  // Madre aprobada sola (regla 25-oct): la parte hereda una fila con via "pantalla", pero no hay sí del dueño.
+  estado.historial.push({ tarjetaId: "madre-sola", accion: "aprobar", quien: auto.QUIEN_AUTOMATICO, despues: { estado: "APROBADO", momento: "tarea", via: "automatica", userId: auto.QUIEN_AUTOMATICO } });
+  planeando({ riesgo: "BAJO" });
+  siHeredado("t1", "madre-sola");
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planDeAbonos() });
+  assert.equal(r.estado, "PLAN_LISTO");
+  // Madre aprobada por el dueño: la parte sí pasa.
+  siDeLaTarea("madre-dueno", "pantalla");
+  planeando({ id: "t2", riesgo: "BAJO" });
+  siHeredado("t2", "madre-dueno");
+  const r2 = await trabajador.accionDelTrabajador(contexto, "t2", "plan", { plan: planDeAbonos() });
+  assert.equal(r2.estado, "PLAN_APROBADO");
+  assert.equal(estado.historial.at(-1).despues.motivo, MOTIVO_UN_SOLO_SI);
 });
 
 /* ------------------------------------------------------------------ regla del dueño 25-oct: las tareas arrancan solas */
