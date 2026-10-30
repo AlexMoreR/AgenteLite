@@ -1,72 +1,29 @@
 import { prisma } from "@/lib/prisma";
 import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
-import { SALUDOS_DEL_V3_DE_RESPALDO, turnoMereceAsesora, type MensajeDelTurno } from "@/lib/turno-con-contenido";
-import { leerConfigReparto } from "@/lib/reparto-config";
-import { leerLibro } from "@/features/agente-v3/servicios/almacen";
+import { respondioLaBienvenida } from "@/lib/turno-con-contenido";
 
 /**
- * EL REPARTO POR TURNO: la clienta que conversa bien con el bot también recibe asesora.
+ * EL REPARTO: la clienta recibe asesora apenas responde la bienvenida.
  *
- * Regla de Alex (02-10-2026). Hasta hoy una asesora recibía el chat solo cuando el agente pedía
- * ayuda, o cuando el chat llevaba media hora sin dueño con la clienta esperando. Si el bot iba
- * contestando bien, nadie lo recibía nunca: una clienta escribió 5 veces desde las 4:24 p. m. y
- * estuvo toda la tarde sola con el bot.
+ * Regla de Alex (30-10-2026, pisa la del 02-10 y el interruptor `exigirPrecioOFotos` del 12-10).
+ * Se asigna cuando se cumplen tres cosas: el chat no tiene asesora, la línea es de ventas
+ * (`purpose = SALES`) y la clienta ya mandó un mensaje DESPUÉS del primer mensaje nuestro
+ * (`respondioLaBienvenida`, en turno-con-contenido.ts). Cuenta cualquier respuesta, hasta un "ok":
+ * ya no se filtra por contenido. El primer mensaje de la clienta sigue sin asignar.
  *
- * Ahora, cada vez que la clienta escribe, se mira su TURNO (lo que escribió desde nuestra última
- * respuesta). Si antes le había contestado el agente o un flujo y el turno dice algo —no solo
- * saludo, emoji, "ok" o "gracias"; ver turno-con-contenido.ts—, el chat se reparte por la misma
- * rueda de siempre (reparto-de-leads.ts): colaboradoras de la línea, menos las pausadas y las que
- * están fuera de su horario. El dueño saca o mete a alguien desde Mi empresa → Equipo, sin código.
+ * Se mira todo el historial y no "lo último": esta revisión corre en `after()`, cuando el bot ya
+ * contestó, y por eso antes la respuesta de la clienta quedaba como "ya atendida" y nadie la recibía.
+ * El chat se reparte por la misma rueda de siempre (reparto-de-leads.ts): colaboradoras de la línea,
+ * menos las pausadas y las fuera de horario.
  *
  * Lo que NO hace:
  *  - No toca un chat que ya tiene asesora, ni las asignaciones viejas.
- *  - No corre en la línea administrativa: solo en las de ventas (`purpose = SALES`).
- *  - No cambia al agente: asignar no lo pausa. Sigue contestando hasta que la asesora escribe
- *    (escribir, desde el CRM o desde el celular, es lo que pausa la IA).
- *
- * Con el interruptor `reparto:config:<workspaceId>` = {"exigirPrecioOFotos": true} (Alex,
- * 12-10-2026) además el bot o un flujo tiene que haberle mandado antes precio o fotos (ver
- * `botYaMandoPrecioOFotos` en turno-con-contenido.ts). Sin la fila, todo como antes. Los otros
- * caminos que asignan (aviso del agente, rescate de huérfanos, madrugada, recuperación 72 h) no
- * miran este interruptor.
+ *  - No corre en la línea administrativa.
+ *  - No cambia al agente ni manda mensajes: asignar no lo pausa.
  */
 
-/** El libro cambia poco: se lee como mucho cada 5 minutos, no en cada mensaje. */
-const VIDA_DE_LOS_SALUDOS_MS = 5 * 60_000;
-const saludosEnMemoria = new Map<string, { frases: string[]; leidoEn: number }>();
-
-/**
- * Los saludos de la regla "Solo saluda sin decir qué busca" del libro del Agente V3, para que
- * "saludo" quiera decir lo mismo para el agente y para el reparto. Si el libro no responde, se usa
- * la copia de respaldo.
- */
-async function saludosDelV3(workspaceId: string): Promise<string[]> {
-  const guardado = saludosEnMemoria.get(workspaceId);
-  if (guardado && Date.now() - guardado.leidoEn < VIDA_DE_LOS_SALUDOS_MS) {
-    return guardado.frases;
-  }
-  let frases = SALUDOS_DEL_V3_DE_RESPALDO;
-  try {
-    const libro = await leerLibro(workspaceId);
-    const delLibro = libro.reglas
-      .filter((regla) => regla.cuando.tipo === "frase" && /saluda/i.test(regla.nombre ?? ""))
-      .flatMap((regla) => (regla.cuando.tipo === "frase" ? regla.cuando.frases : []))
-      .filter((frase): frase is string => typeof frase === "string" && frase.trim().length > 0);
-    if (delLibro.length > 0) {
-      frases = [...new Set([...delLibro, ...SALUDOS_DEL_V3_DE_RESPALDO])];
-    }
-  } catch {
-    // Sin libro se reparte con la copia: es la misma lista al 02-10-2026.
-  }
-  saludosEnMemoria.set(workspaceId, { frases, leidoEn: Date.now() });
-  return frases;
-}
-
-/** Cuántos mensajes hacia atrás se miran para encontrar el turno y nuestra última respuesta. */
-const MENSAJES_A_MIRAR = 30;
-
-/** Con `exigirPrecioOFotos` se mira más atrás: el precio o las fotos pueden ser de hace rato. */
-const MENSAJES_A_MIRAR_CON_PRECIO = 200;
+/** Cuántos mensajes (los primeros del chat) se leen: sobran para ver nuestro primer mensaje y una respuesta. */
+const MENSAJES_A_MIRAR = 60;
 
 export async function repartirSiElTurnoLoAmerita(input: {
   conversationId: string;
@@ -87,39 +44,14 @@ export async function repartirSiElTurnoLoAmerita(input: {
     return { asignada: false };
   }
 
-  const config = await leerConfigReparto(input.workspaceId);
+  const mensajes = await prisma.message.findMany({
+    where: { conversationId: input.conversationId, type: { not: "SYSTEM" }, deletedAt: null },
+    orderBy: { createdAt: "asc" },
+    take: MENSAJES_A_MIRAR,
+    select: { direction: true, type: true, content: true, createdAt: true },
+  });
 
-  let mensajes: MensajeDelTurno[];
-  if (config.exigirPrecioOFotos) {
-    /*
-      Para saber si el bot ya mandó precio o fotos hace falta quién mandó cada mensaje
-      (`rawPayload.source`) y mirar más atrás: el precio puede estar a decenas de mensajes. Se lee
-      solo esa llave del JSON, no el payload entero.
-    */
-    mensajes = await prisma.$queryRaw<MensajeDelTurno[]>`
-      SELECT "direction"::text AS "direction", "type"::text AS "type", "content",
-             "rawPayload"->>'source' AS "origen"
-      FROM "Message"
-      WHERE "conversationId" = ${input.conversationId}
-        AND "type" <> 'SYSTEM'
-        AND "deletedAt" IS NULL
-      ORDER BY "createdAt" DESC
-      LIMIT ${MENSAJES_A_MIRAR_CON_PRECIO}
-    `;
-  } else {
-    mensajes = await prisma.message.findMany({
-      where: { conversationId: input.conversationId, type: { not: "SYSTEM" }, deletedAt: null },
-      orderBy: { createdAt: "desc" },
-      take: MENSAJES_A_MIRAR,
-      select: { direction: true, type: true, content: true },
-    });
-  }
-
-  if (
-    !turnoMereceAsesora(mensajes, await saludosDelV3(input.workspaceId), {
-      exigirPrecioOFotos: config.exigirPrecioOFotos,
-    })
-  ) {
+  if (!respondioLaBienvenida(mensajes)) {
     return { asignada: false };
   }
 

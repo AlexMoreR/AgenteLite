@@ -142,4 +142,32 @@ prueba("leerConfigRepartoDeTexto: sin fila / roto / false = como hoy; true = exi
   assert.equal(t.claveConfigReparto("ws1"), "reparto:config:ws1");
 });
 
+/* 6. Responder la bienvenida (Alex, 30-10-2026) */
+let minuto = 0;
+const con = (m, extra = {}) => ({ ...m, createdAt: new Date(Date.UTC(2026, 9, 29, 12, minuto++)), ...extra });
+const viejoAlNuevo = (...ms) => ms.map((m) => con(m));
+const SYS = () => ({ direction: "OUTBOUND", type: "SYSTEM", content: "Chat asignado" });
+prueba("respondioLaBienvenida: caso real (cliente, bienvenida, cliente, bot) = true", () => {
+  assert.equal(t.respondioLaBienvenida(viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), IN("Masajes"), BOT(PASO_2))), true);
+});
+prueba("respondioLaBienvenida: solo el primer mensaje = false", () => {
+  assert.equal(t.respondioLaBienvenida(viejoAlNuevo(IN(ANUNCIO))), false);
+});
+prueba("respondioLaBienvenida: cliente y bienvenida sin respuesta = false", () => {
+  assert.equal(t.respondioLaBienvenida(viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA))), false);
+});
+prueba("respondioLaBienvenida: un 'ok' después de la bienvenida = true", () => {
+  assert.equal(t.respondioLaBienvenida(viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), IN("ok"))), true);
+});
+prueba("respondioLaBienvenida: una nota SYSTEM no cuenta como mensaje nuestro = false", () => {
+  assert.equal(t.respondioLaBienvenida(viejoAlNuevo(IN(ANUNCIO), SYS(), IN("Masajes"))), false);
+});
+prueba("respondioLaBienvenida: un mensaje borrado de la clienta no cuenta = false", () => {
+  assert.equal(t.respondioLaBienvenida(viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), { ...IN("hola"), borrado: true })), false);
+});
+prueba("respondioLaBienvenida: ordena por fecha aunque lleguen al revés", () => {
+  assert.equal(t.respondioLaBienvenida([...viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), IN("Masajes"))].reverse()), true);
+  assert.equal(t.respondioLaBienvenida([...viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA))].reverse()), false);
+});
+
 console.log(`\n${pruebas} pruebas ok`);
