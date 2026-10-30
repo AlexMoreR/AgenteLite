@@ -122,7 +122,7 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
         </span>
       ) : null}
       {data.codigo ? (
-        <span className="max-w-full truncate text-[10px] font-medium leading-none tabular-nums text-zinc-400 dark:text-zinc-500">
+        <span className="max-w-full truncate text-[11px] font-medium leading-none tabular-nums text-zinc-500 dark:text-zinc-400">
           {data.codigo}
         </span>
       ) : null}

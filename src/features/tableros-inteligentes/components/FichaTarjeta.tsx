@@ -269,7 +269,7 @@ export function FichaTarjeta({
               </div>
               <SheetTitle className="text-lg leading-snug">
                 {tarjeta.codigo ? (
-                  <span className="mr-2 align-middle text-xs font-medium tabular-nums text-zinc-400 dark:text-zinc-500">
+                  <span className="mr-2 align-middle text-xs font-medium tabular-nums text-zinc-500 dark:text-zinc-400">
                     {tarjeta.codigo}
                   </span>
                 ) : null}
