@@ -8,7 +8,7 @@ import { variantesDeTelefono } from "../dominio/reporte";
  * (con y sin 57) y guarda cada venta con la campaña de ese cliente. Sin chat de anuncio = ORGANICO_OTRO.
  *
  * Gestión: GET /api/ventas/pagadas?desde=AAAA-MM-DD&hasta=AAAA-MM-DD (misma conexión y llave del
- * catálogo) → { ventas: [{ id, cotizacion, telefono, monto, pagadaEn }] }. Hoy ese endpoint puede no
+ * catálogo) → { ventas: [{ id, cotizacion, telefono, monto, pagadaEn, ciudad?, departamento? }] }. Hoy ese endpoint puede no
  * existir en Gestión: entonces la lista sale de los GANADO del CRM (fecha y cotización, SIN monto).
  */
 
@@ -18,6 +18,9 @@ export type VentaPagada = {
   telefono: string | null;
   monto: number | null;
   pagadaEn: Date;
+  /** Opcionales: solo si Gestión los manda. Los usa el mapa de Colombia de la pauta. */
+  ciudad?: string | null;
+  departamento?: string | null;
 };
 
 export type FuenteDeVentas = "gestion" | "crm";
@@ -50,6 +53,8 @@ async function pedirAGestion(workspaceId: string, desde: string, hasta: string):
         telefono: typeof v.telefono === "string" ? v.telefono : null,
         monto: v.monto !== null && v.monto !== undefined && Number.isFinite(monto) ? monto : null,
         pagadaEn: pagada,
+        ...(typeof v.ciudad === "string" && v.ciudad.trim() ? { ciudad: v.ciudad.trim() } : {}),
+        ...(typeof v.departamento === "string" && v.departamento.trim() ? { departamento: v.departamento.trim() } : {}),
       });
     }
     return ventas;
