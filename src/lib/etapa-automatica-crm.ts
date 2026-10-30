@@ -27,29 +27,16 @@ export { textoTraeElTotal } from "@/lib/etapa-automatica-crm-texto";
  *
  * Interruptor: AppSetting `crm:etapa-automatica:<negocio>` = `off`. Viene prendido.
  * NUNCA lanza: la asignación, la cotización o el envío ya ocurrieron y no se pueden romper por esto.
- *
- * LO QUE DICE EL CLIENTE (23-oct-2026, ver features/crm/services/etapa-por-lectura.ts): con cada
- * mensaje del cliente se lee la intención y se mueve a Caliente, Tibio o Descartado. Además de lo de
- * arriba:
- *  - si una persona movió la etapa a mano en las últimas 24 horas, no se cambia nada;
- *  - Descartado es la ÚNICA bajada, sale solo de una frase clara (nunca de la IA) y tiene su propio
- *    interruptor: `crm:etapa-automatica:descarte:<negocio>` = `off`. Viene prendido;
- *  - Tibio sobre un Caliente no lo baja: solo le deja la fecha de recontacto en la ficha;
- *  - no dispara las reglas de seguimiento por etapa: leer un mensaje no puede terminar en un WhatsApp.
  */
 
 export type MotivoDeEtapaAutomatica =
   | { tipo: "asignado"; asesora?: string | null }
   | { tipo: "cotizacion"; referencia?: string | null }
-  | { tipo: "panel-de-envio" }
-  /** Lo dijo el cliente. `metodo`: si lo decidió una frase clara o la IA. */
-  | { tipo: "lectura"; porque: string; metodo: "frase" | "ia" };
+  | { tipo: "panel-de-envio" };
 
 const ETIQUETA: Partial<Record<CrmStage, string>> = {
   CALIFICADO: "Frío",
-  PROPUESTA: "Tibio",
   NEGOCIACION: "Caliente",
-  PERDIDO: "Descartado",
 };
 
 /** Prefijo de la nota del historial: así el embudo y la lista de Llamadas reconocen estos cambios. */
@@ -67,27 +54,6 @@ export async function etapaAutomaticaPrendida(workspaceId: string): Promise<bool
   return fila?.value?.trim().toLowerCase() !== "off";
 }
 
-/** Interruptor aparte, solo para el descarte por lo que dice el cliente. */
-export function claveInterruptorDescarteAutomatico(workspaceId: string): string {
-  return `crm:etapa-automatica:descarte:${workspaceId}`;
-}
-
-export async function descartePorLecturaPrendido(workspaceId: string): Promise<boolean> {
-  const fila = await prisma.appSetting.findUnique({
-    where: { key: claveInterruptorDescarteAutomatico(workspaceId) },
-    select: { value: true },
-  });
-  return fila?.value?.trim().toLowerCase() !== "off";
-}
-
-/** Donde queda, en Contact.metadata, cuándo volver a escribirle a un Tibio (texto ISO). */
-export const CLAVE_RECONTACTO = "recontactarEl";
-/** Donde queda la frase exacta con la que el cliente se descartó solo. */
-export const CLAVE_DESCARTE_POR_LECTURA = "descartePorLectura";
-
-/** Lo que una persona movió a mano en las últimas 24 horas se respeta. */
-const RESPETO_A_LA_PERSONA_MS = 24 * 60 * 60 * 1000;
-
 /** "se asignó a Laura", "se creó la cotización COT-123", "se envió el panel de envío con el total". */
 export function textoDelMotivo(motivo: MotivoDeEtapaAutomatica): string {
   if (motivo.tipo === "asignado") {
@@ -96,7 +62,6 @@ export function textoDelMotivo(motivo: MotivoDeEtapaAutomatica): string {
   if (motivo.tipo === "cotizacion") {
     return motivo.referencia?.trim() ? `se creó la cotización ${motivo.referencia.trim()}` : "se creó la cotización";
   }
-  if (motivo.tipo === "lectura") return motivo.porque;
   return "se envió el panel de envío con el total";
 }
 
@@ -105,13 +70,7 @@ export function notaDelChat(destino: CrmStage, motivo: MotivoDeEtapaAutomatica):
   return `Etapa movida por el sistema: ${ETIQUETA[destino] ?? destino} (${textoDelMotivo(motivo)})`;
 }
 
-/** La nota del historial. Con lectura lleva el método al final ("[frase]" o "[ia]"), para poder contarlos. */
-export function notaDelHistorial(motivo: MotivoDeEtapaAutomatica): string {
-  const metodo = motivo.tipo === "lectura" ? ` [${motivo.metodo}]` : "";
-  return `${NOTA_ETAPA_AUTOMATICA}: ${textoDelMotivo(motivo)}${metodo}`;
-}
-
-type Destino = "CALIFICADO" | "PROPUESTA" | "NEGOCIACION" | "PERDIDO";
+type Destino = "CALIFICADO" | "NEGOCIACION";
 
 type Entrada = {
   workspaceId: string;
@@ -120,40 +79,7 @@ type Entrada = {
   conversationId: string;
   destino: Destino;
   motivo: MotivoDeEtapaAutomatica;
-  /** Tibio: cuándo volver a escribirle. Se guarda aunque la etapa no cambie (un Caliente que dice "lo pienso"). */
-  recontactarEl?: Date | null;
-  /** Descartado: el motivo de la lista (Contact.lostReason) y la frase exacta del cliente. */
-  descarte?: { lostReason: string; frase: string } | null;
 };
-
-function leerMetadata(valor: unknown): Record<string, unknown> {
-  return valor && typeof valor === "object" && !Array.isArray(valor) ? { ...(valor as Record<string, unknown>) } : {};
-}
-
-/** ¿Una persona (asesora o MCP) movió la etapa de este lead en las últimas 24 horas? */
-async function movidaAManoHacePoco(workspaceId: string, contactId: string): Promise<boolean> {
-  const fila = await prisma.historialEtapa.findFirst({
-    where: {
-      workspaceId,
-      contactId,
-      origen: { in: ["ASESORA", "MCP"] },
-      creadoEn: { gte: new Date(Date.now() - RESPETO_A_LA_PERSONA_MS) },
-    },
-    select: { id: true },
-  });
-  return Boolean(fila);
-}
-
-/**
- * La etapa que le toca. Descartado sale solo de una frase clara del cliente, con su interruptor, y
- * nunca sobre un lead cerrado. Lo demás pasa por el candado del bot (solo sube, nunca cierra).
- */
-async function decidirDestino(entrada: Entrada, actual: CrmStage): Promise<CrmStage | null> {
-  if (entrada.destino !== "PERDIDO") return decidirEtapaDeAgente(entrada.destino, actual).destino;
-  if (entrada.motivo.tipo !== "lectura" || entrada.motivo.metodo !== "frase" || !entrada.descarte) return null;
-  if (actual === "GANADO" || actual === "PERDIDO") return null;
-  return (await descartePorLecturaPrendido(entrada.workspaceId)) ? "PERDIDO" : null;
-}
 
 async function dejarNotaOficial(input: { configId: string; conversationId: string; texto: string }) {
   const ahora = new Date();
@@ -177,100 +103,49 @@ async function dejarNotaOficial(input: { configId: string; conversationId: strin
   `;
 }
 
-type ChatDelLead = Pick<Entrada, "workspaceId" | "source" | "conversationId">;
-
-/**
- * El lead del chat, o null si no es del embudo: línea administrativa, "fuera del CRM" o sin ficha.
- * Siempre dentro del negocio (workspaceId).
- */
-async function leerLead(entrada: ChatDelLead) {
-  let contactId: string | null = null;
-  let channelId: string | null = null;
-  let configId: string | null = null;
-
-  if (entrada.source === "agent") {
-    const conversacion = await prisma.conversation.findFirst({
-      where: { id: entrada.conversationId, workspaceId: entrada.workspaceId },
-      select: { contactId: true, channelId: true, channel: { select: { purpose: true } } },
-    });
-    if (!conversacion) return null;
-    // La línea administrativa no es del embudo de ventas.
-    if (conversacion.channel && conversacion.channel.purpose !== "SALES") return null;
-    contactId = conversacion.contactId;
-    channelId = conversacion.channelId;
-  } else {
-    const conversacion = await prisma.officialApiConversation.findUnique({
-      where: { id: entrada.conversationId },
-      select: { configId: true, contact: { select: { crmContactId: true } } },
-    });
-    contactId = conversacion?.contact?.crmContactId ?? null;
-    configId = conversacion?.configId ?? null;
-  }
-  if (!contactId) return null;
-
-  const contacto = await prisma.contact.findFirst({
-    where: { id: contactId, workspaceId: entrada.workspaceId },
-    select: { crmStage: true, excludedFromCrm: true, metadata: true },
-  });
-  if (!contacto || contacto.excludedFromCrm) return null;
-  return { contactId, channelId, configId, contacto };
-}
-
-/**
- * La etapa del lead si lo que diga el cliente lo puede mover, o null: no es del embudo, está cerrado
- * (Ganado o Perdido) o una persona lo movió en las últimas 24 horas. Sirve para no preguntarle a la IA
- * por un chat que igual no se va a tocar.
- */
-export async function etapaQueSePuedeLeer(entrada: ChatDelLead): Promise<CrmStage | null> {
-  const lead = await leerLead(entrada);
-  if (!lead) return null;
-  const actual = lead.contacto.crmStage as CrmStage;
-  if (actual === "GANADO" || actual === "PERDIDO") return null;
-  if (await movidaAManoHacePoco(entrada.workspaceId, lead.contactId)) return null;
-  return actual;
-}
-
 /** Devuelve la etapa a la que quedó el lead, o null si no se movió. Nunca lanza. */
 export async function moverEtapaAutomatica(entrada: Entrada): Promise<CrmStage | null> {
   try {
     if (!(await etapaAutomaticaPrendida(entrada.workspaceId))) return null;
 
-    const lead = await leerLead(entrada);
-    if (!lead) return null;
-    const { contactId, channelId, configId, contacto } = lead;
+    let contactId: string | null = null;
+    let channelId: string | null = null;
+    let configId: string | null = null;
+
+    if (entrada.source === "agent") {
+      const conversacion = await prisma.conversation.findFirst({
+        where: { id: entrada.conversationId, workspaceId: entrada.workspaceId },
+        select: { contactId: true, channelId: true, channel: { select: { purpose: true } } },
+      });
+      if (!conversacion) return null;
+      // La línea administrativa no es del embudo de ventas.
+      if (conversacion.channel && conversacion.channel.purpose !== "SALES") return null;
+      contactId = conversacion.contactId;
+      channelId = conversacion.channelId;
+    } else {
+      const conversacion = await prisma.officialApiConversation.findUnique({
+        where: { id: entrada.conversationId },
+        select: { configId: true, contact: { select: { crmContactId: true } } },
+      });
+      contactId = conversacion?.contact?.crmContactId ?? null;
+      configId = conversacion?.configId ?? null;
+    }
+    if (!contactId) return null;
+
+    const contacto = await prisma.contact.findFirst({
+      where: { id: contactId, workspaceId: entrada.workspaceId },
+      select: { crmStage: true, excludedFromCrm: true },
+    });
+    if (!contacto || contacto.excludedFromCrm) return null;
 
     const actual = contacto.crmStage as CrmStage;
-    const lectura = entrada.motivo.tipo === "lectura";
-    if (lectura && (await movidaAManoHacePoco(entrada.workspaceId, contactId))) return null;
-
-    const destino = await decidirDestino(entrada, actual);
-    const metadata = leerMetadata(contacto.metadata);
-    if (entrada.recontactarEl) metadata[CLAVE_RECONTACTO] = entrada.recontactarEl.toISOString();
-
-    if (!destino) {
-      // No sube (ya estaba igual o más arriba): un Tibio sobre un lead abierto igual deja la fecha.
-      if (entrada.recontactarEl && actual !== "GANADO" && actual !== "PERDIDO") {
-        await prisma.contact.updateMany({
-          where: { id: contactId, workspaceId: entrada.workspaceId, crmStage: actual },
-          data: { metadata: metadata as object },
-        });
-      }
-      return null;
-    }
-
-    if (destino === "NEGOCIACION") delete metadata[CLAVE_RECONTACTO];
-    if (destino === "PERDIDO" && entrada.descarte) {
-      metadata[CLAVE_DESCARTE_POR_LECTURA] = { frase: entrada.descarte.frase, en: new Date().toISOString() };
-    }
+    const { destino } = decidirEtapaDeAgente(entrada.destino, actual);
+    if (!destino) return null;
 
     // Solo si sigue en la etapa leída: si alguien lo movió en el medio, gana la persona.
     const guardado = await prisma.contact.updateMany({
       where: { id: contactId, workspaceId: entrada.workspaceId, crmStage: actual },
-      data: {
-        crmStage: destino,
-        ...(lectura ? { metadata: metadata as object } : {}),
-        ...(destino === "PERDIDO" && entrada.descarte ? { lostReason: entrada.descarte.lostReason } : {}),
-      },
+      data: { crmStage: destino },
     });
     if (guardado.count === 0) return null;
 
@@ -281,19 +156,16 @@ export async function moverEtapaAutomatica(entrada: Entrada): Promise<CrmStage |
       etapaAnterior: actual,
       etapaNueva: destino,
       origen: "AUTOMATICO",
-      nota: notaDelHistorial(entrada.motivo),
+      nota: `${NOTA_ETAPA_AUTOMATICA}: ${textoDelMotivo(entrada.motivo)}`,
     });
 
     // Las mismas consecuencias que mover la tarjeta a mano (hoy no hay reglas de seguimiento por etapa).
-    // Con lo que dijo el cliente NO: leer un mensaje no puede terminar en un WhatsApp nuevo.
-    if (!lectura) {
-      await createFollowsFromRulesForSource({
-        workspaceId: entrada.workspaceId,
-        contactId,
-        sourceType: "CRM_STAGE",
-        sourceId: destino,
-      }).catch(() => {});
-    }
+    await createFollowsFromRulesForSource({
+      workspaceId: entrada.workspaceId,
+      contactId,
+      sourceType: "CRM_STAGE",
+      sourceId: destino,
+    }).catch(() => {});
 
     const texto = notaDelChat(destino, entrada.motivo);
     try {

@@ -19,9 +19,7 @@ import { prisma } from "@/lib/prisma";
  *  - tiene cotización hecha: una asesora le mandó un documento (la cotización formal sale de
  *    Gestión como PDF) o le escribió de la cotización, o ya tiene número de cotización de Ganado;
  *  - está en Caliente con una fecha de próximo contacto futura (de una llamada, o porque se
- *    pospuso): alguien ya decidió cuándo volver a hablarle;
- *  - tiene fecha de recontacto futura porque el cliente lo dejó para después ("voy en noviembre",
- *    metadata.recontactarEl, ver etapa-por-lectura.ts): bajarlo antes de esa fecha sería mentir.
+ *    pospuso): alguien ya decidió cuándo volver a hablarle.
  */
 
 export const INTENTOS_SIN_RESPUESTA = 3;
@@ -98,8 +96,6 @@ export async function contactosQueBajan(etapa: "PROPUESTA" | "NEGOCIACION"): Pro
           OR COALESCE(v."metadata"->>'snoozedUntil', '') > to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS')
         )
       )
-      -- Nunca antes de la fecha de recontacto que dio el cliente.
-      AND COALESCE(v."metadata"->>'recontactarEl', '') <= to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS')
     LIMIT ${TOPE_POR_CORRIDA}
   `;
 }

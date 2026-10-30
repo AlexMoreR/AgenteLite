@@ -22,7 +22,6 @@ import {
 import { marcarCierreDeCompra, moverEtapaDesdeAgente, syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
 import { syncFunnelStageFromCommercialStage } from "@/lib/funnel-stage-sync";
 import { recalentarLeadSiRespondio } from "@/features/crm/services/lead-temperature";
-import { etapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
 import { agendarSeguimientoDeEtapa } from "@/features/crm/services/stage-follow-up";
 import {
   buildActiveProductContextNote,
@@ -1830,16 +1829,6 @@ export async function POST(request: NextRequest) {
           workspaceId: channel.workspaceId,
           contactId: contact.id,
         }).catch(() => false);
-        // Lo que dijo el cliente pone la etapa sola (Caliente, Tibio o Descartado). Va después del
-        // recalentamiento para leer la etapa ya devuelta. Nunca lanza ni le escribe al cliente.
-        if (messageType === "TEXT") {
-          await etapaPorLectura({
-            workspaceId: channel.workspaceId,
-            source: "agent",
-            conversationId: conversation.id,
-            texto: messageText ?? null,
-          });
-        }
       });
     } catch {
       // La auto-asignación nunca debe romper el procesamiento del mensaje.

@@ -12,7 +12,6 @@ import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/feature
 import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
-import { estadoDeEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -573,7 +572,6 @@ async function automatizaciones(
       etapaAuto === "off"
         ? "apagada (crm:etapa-automatica:<negocio> = off)"
         : "activa: pasa a Frio al asignar un chat en NUEVO y a Caliente al cotizar o enviar el total; nunca pone Ganado ni Perdido ni baja a un lead",
-    etapa_por_lectura: await estadoDeEtapaPorLectura(workspaceId).catch(() => "no se pudo leer"),
     campanas: campanasEnCurso > 0 ? `activa: ${campanasEnCurso} en curso` : "sin campañas en curso",
     transcripcion_de_audios: !process.env.OPENAI_API_KEY?.trim()
       ? "apagada: falta la clave de OpenAI"
