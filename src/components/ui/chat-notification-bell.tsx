@@ -35,7 +35,7 @@ type AvisoDeChat = { cuenta: number; cuando: number };
 
 type ConversationListResponse = {
   ok?: boolean;
-  isManager?: boolean;
+  assignedFilter?: string;
   conversations?: NotificationConversation[];
 };
 
@@ -143,7 +143,7 @@ export function ChatNotificationBell({ className }: { className?: string }) {
         }
 
         const payload = (await response.json().catch(() => null)) as ConversationListResponse | null;
-        recordarVistaDeLaBandeja(payload?.isManager);
+        recordarVistaDeLaBandeja(payload?.assignedFilter);
         if (!cancelled && payload?.ok && Array.isArray(payload.conversations)) {
           const ahora = Date.now();
           const cuentas: Record<string, AvisoDeChat> = {};
