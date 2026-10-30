@@ -1,53 +1,26 @@
 import { prisma } from "@/lib/prisma";
 import { getCallResultLabel, getCrmLostReasonLabel } from "@/features/crm/domain/crm-config";
+import { hoyEnBogota } from "@/features/agentes-de-area/dominio/reglas";
+import type { DesgloseDeOrigen } from "@/features/leads-nuevos/dominio/reglas";
+import { leadsNuevosDelDia, type LeadsNuevosDelDia } from "@/features/leads-nuevos/servicios/leads-nuevos-del-dia";
 
 // El día del informe es el día en Bogotá (UTC-5), no el del servidor: si no, a las 7pm ya se
-// estaría contando el día siguiente.
+// estaría contando el día siguiente. La fecha sale de hoyEnBogota, la misma que usa el MCP.
 const BOGOTA_OFFSET_MS = 5 * 60 * 60 * 1000;
 
-function bogotaDayRange(now: Date) {
-  const bogotaNow = new Date(now.getTime() - BOGOTA_OFFSET_MS);
-  const startUtc = Date.UTC(bogotaNow.getUTCFullYear(), bogotaNow.getUTCMonth(), bogotaNow.getUTCDate(), 0, 0, 0, 0);
-  return {
-    start: new Date(startUtc + BOGOTA_OFFSET_MS),
-    end: new Date(startUtc + BOGOTA_OFFSET_MS + 24 * 60 * 60 * 1000),
-  };
+function bogotaDayRange(fecha: string) {
+  const start = new Date(new Date(`${fecha}T00:00:00Z`).getTime() + BOGOTA_OFFSET_MS);
+  return { start, end: new Date(start.getTime() + 24 * 60 * 60 * 1000) };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function readString(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-/**
- * Origen legible del lead. Sale de lo que dejó guardado el webhook al entrar por un anuncio
- * (metadata.source = "meta ads", sourceApp = instagram/facebook…) o de la carga manual.
- */
-function resolveLeadOrigin(metadata: unknown): string {
-  if (!isRecord(metadata)) {
-    return "Otro";
-  }
-
-  const raw = (
-    readString(metadata.sourceApp) ||
-    readString(metadata.source) ||
-    readString(metadata.crmOrigin) ||
-    readString(metadata.origin) ||
-    readString(metadata.leadOrigin) ||
-    readString(metadata.campaignSource)
-  ).toLowerCase();
-
-  if (!raw) return "Otro";
-  if (raw.includes("instagram")) return "Instagram";
-  if (raw.includes("facebook") || raw.includes("fb")) return "Facebook";
-  if (raw.includes("meta") || raw.includes("ads") || raw.includes("anuncio")) return "Meta Ads";
-  if (raw.includes("marketplace")) return "Marketplace";
-  if (raw.includes("recomend")) return "Recomendado";
-  if (raw.includes("whatsapp")) return "WhatsApp directo";
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
+/** Los orígenes del lead nuevo, con el nombre que se lee en el informe (solo los que tienen algo). */
+function origenesLegibles(origen: DesgloseDeOrigen): Array<{ origin: string; count: number }> {
+  return [
+    { origin: "Meta", count: origen.meta },
+    { origin: "Marketplace (por texto)", count: origen.marketplace.por_texto },
+    { origin: "Marketplace (por línea)", count: origen.marketplace.por_linea },
+    { origin: "Directo", count: origen.directo },
+  ].filter((fila) => fila.count > 0);
 }
 
 export type ResumenLlamada = {
@@ -63,9 +36,11 @@ export type ResumenLlamada = {
 };
 
 export type ResumenDiaData = {
+  /** Día del informe, AAAA-MM-DD, en hora de Colombia. */
+  fecha: string;
   dateLabel: string;
   advisorName: string;
-  // Leads que entraron hoy, con su origen.
+  // Leads nuevos de ESTA asesora hoy (primer mensaje de la vida del cliente), por origen.
   newLeads: { total: number; byOrigin: Array<{ origin: string; count: number }> };
   // Llamadas que registró ESTA asesora hoy.
   calls: {
@@ -77,6 +52,8 @@ export type ResumenDiaData = {
   };
   // Ventas cerradas hoy (fecha real de venta).
   sales: Array<{ name: string; phoneNumber: string }>;
+  // Conteo de toda la empresa: solo para el dueño y las administradoras (null para una asesora).
+  empresa: LeadsNuevosDelDia | null;
 };
 
 const NO_ANSWER_RESULT = "no_contesto";
@@ -85,9 +62,11 @@ export async function getResumenDiaData(input: {
   workspaceId: string;
   userId: string;
   advisorName: string;
+  esJefe?: boolean;
 }): Promise<ResumenDiaData> {
   const now = new Date();
-  const { start, end } = bogotaDayRange(now);
+  const fecha = hoyEnBogota(now);
+  const { start, end } = bogotaDayRange(fecha);
 
   const dateLabel = new Intl.DateTimeFormat("es-CO", {
     weekday: "long",
@@ -97,19 +76,19 @@ export async function getResumenDiaData(input: {
   }).format(now);
 
   const empty: ResumenDiaData = {
+    fecha,
     dateLabel,
     advisorName: input.advisorName,
     newLeads: { total: 0, byOrigin: [] },
     calls: { total: 0, answered: 0, noAnswer: 0, scheduled: 0, items: [] },
     sales: [],
+    empresa: null,
   };
 
   try {
-    const [leads, calls, sales] = await Promise.all([
-      prisma.contact.findMany({
-        where: { workspaceId: input.workspaceId, excludedFromCrm: false, createdAt: { gte: start, lt: end } },
-        select: { metadata: true },
-      }),
+    const [leads, empresa, calls, sales] = await Promise.all([
+      leadsNuevosDelDia(input.workspaceId, fecha, { asesoraId: input.userId }),
+      input.esJefe ? leadsNuevosDelDia(input.workspaceId, fecha) : Promise.resolve(null),
       prisma.callAttempt.findMany({
         where: { workspaceId: input.workspaceId, calledByUserId: input.userId, calledAt: { gte: start, lt: end } },
         orderBy: { calledAt: "asc" },
@@ -123,16 +102,16 @@ export async function getResumenDiaData(input: {
         },
       }),
       prisma.contact.findMany({
-        where: { workspaceId: input.workspaceId, crmStage: "GANADO", wonAt: { gte: start, lt: end } },
+        // Solo las ventas de SUS chats, no las de toda la empresa.
+        where: {
+          workspaceId: input.workspaceId,
+          crmStage: "GANADO",
+          wonAt: { gte: start, lt: end },
+          conversations: { some: { assignedToUserId: input.userId } },
+        },
         select: { name: true, phoneNumber: true },
       }),
     ]);
-
-    const originCounts = new Map<string, number>();
-    for (const lead of leads) {
-      const origin = resolveLeadOrigin(lead.metadata);
-      originCounts.set(origin, (originCounts.get(origin) ?? 0) + 1);
-    }
 
     const items: ResumenLlamada[] = calls.map((call) => ({
       name: call.contact?.name?.trim() || call.contact?.phoneNumber || "Sin nombre",
@@ -146,14 +125,10 @@ export async function getResumenDiaData(input: {
     }));
 
     return {
+      fecha,
       dateLabel,
       advisorName: input.advisorName,
-      newLeads: {
-        total: leads.length,
-        byOrigin: Array.from(originCounts.entries())
-          .map(([origin, count]) => ({ origin, count }))
-          .sort((a, b) => b.count - a.count),
-      },
+      newLeads: { total: leads.total, byOrigin: origenesLegibles(leads.por_origen) },
       calls: {
         total: items.length,
         answered: items.filter((item) => item.answered).length,
@@ -165,6 +140,7 @@ export async function getResumenDiaData(input: {
         name: sale.name?.trim() || sale.phoneNumber,
         phoneNumber: sale.phoneNumber,
       })),
+      empresa,
     };
   } catch (error) {
     console.error("[getResumenDiaData] error", error);

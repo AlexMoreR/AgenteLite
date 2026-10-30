@@ -25,7 +25,7 @@ function formatDate(iso: string) {
 function buildReportText(data: ResumenDiaData, quotes: string, notes: string) {
   const lines: string[] = [];
   lines.push(`*Informe del día — ${data.advisorName}*`);
-  lines.push(data.dateLabel);
+  lines.push(`${data.dateLabel} (${data.fecha})`);
   lines.push("");
 
   lines.push(`*Leads nuevos:* ${data.newLeads.total}`);
@@ -77,6 +77,13 @@ export function ResumenDiaView({ data }: { data: ResumenDiaData }) {
   const reportText = useMemo(() => buildReportText(data, quotes, notes), [data, quotes, notes]);
 
   const handleCopy = async () => {
+    // Si la página quedó abierta de otro día, el informe es viejo: no se copia, se recarga.
+    const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+    if (hoy !== data.fecha) {
+      toast.error("El informe es de otro día. Se recarga la página para traer el de hoy.");
+      window.setTimeout(() => window.location.reload(), 1500);
+      return;
+    }
     try {
       await navigator.clipboard.writeText(reportText);
       setCopied(true);
@@ -92,7 +99,7 @@ export function ResumenDiaView({ data }: { data: ResumenDiaData }) {
       <div>
         <h2 className="text-base font-semibold">Resumen del día</h2>
         <p className="text-xs text-muted-foreground">
-          {data.dateLabel} · {data.advisorName}
+          {data.dateLabel} ({data.fecha}) · {data.advisorName}
         </p>
       </div>
 

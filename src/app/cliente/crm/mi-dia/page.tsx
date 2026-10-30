@@ -23,6 +23,9 @@ import { LlamadasDeMiDia } from "@/features/llamadas/components/LlamadasDeMiDia"
 import { getLlamadasVendedoraData } from "@/features/llamadas/services/getLlamadasData";
 import { getResumenDiaData } from "@/features/llamadas/services/getResumenDia";
 import { ResumenDiaView } from "@/features/llamadas/components/ResumenDiaView";
+import { LeadsNuevosDelDia } from "@/features/leads-nuevos/components/LeadsNuevosDelDia";
+import { leadsNuevosDelDia } from "@/features/leads-nuevos/servicios/leads-nuevos-del-dia";
+import { hoyEnBogota } from "@/features/agentes-de-area/dominio/reglas";
 import { prisma } from "@/lib/prisma";
 import { canAccessClientModule } from "@/lib/client-workspace-access";
 import { buildWaCallsDialerUrl } from "@/lib/wacalls";
@@ -42,10 +45,11 @@ export default async function ClienteCrmMiDiaPage() {
   // donde mandarlo segun sus permisos.
   const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
   // Su dia: la lista trae SUS leads y los que no tienen dueno, no los de otra persona.
+  const esJefe = access.isOwner || access.role === "ADMIN";
   const visibleChannelIds = await getVisibleChannelIds({
     workspaceId: access.workspaceId,
     userId: access.userId,
-    esJefe: access.isOwner || access.role === "ADMIN",
+    esJefe,
   });
 
   /*
@@ -75,6 +79,7 @@ export default async function ClienteCrmMiDiaPage() {
           workspaceId: access.workspaceId,
           userId: access.userId,
           advisorName: quien?.name?.trim() || quien?.email || "Asesora",
+          esJefe,
         })
       : Promise.resolve(null),
     // "Lo que te dejó el Coach": sus pendientes del último informe (solo lectura, solo los suyos).
@@ -84,6 +89,10 @@ export default async function ClienteCrmMiDiaPage() {
     // Supervisor accionable: lo que le pidió el Supervisor, con plazo (null con el interruptor apagado).
     leerPedidosDelSupervisor(access.workspaceId, access.userId).catch(() => null),
   ]);
+  // Leads nuevos de hoy de toda la empresa: solo el dueño y las administradoras (las mismas cifras del MCP).
+  const empresa = esJefe
+    ? (resumen?.empresa ?? (await leadsNuevosDelDia(access.workspaceId, hoyEnBogota()).catch(() => null)))
+    : null;
   /*
     Recuperación 72 h (solo en modo ACTIVO): sus últimos intentos (Llamar → Audio → Espera 24 h) y,
     si ella es quien aprueba, los descartes de intención fuerte que esperan su decisión.
@@ -164,6 +173,7 @@ export default async function ClienteCrmMiDiaPage() {
       }
       llamadasDespues={
         <>
+          {empresa ? <LeadsNuevosDelDia data={empresa} /> : null}
           {vendedora ? <LlamadasDeMiDia vendedora={vendedora} marcadorUrl={marcadorUrl} momento="despues" /> : null}
           {resumen ? (
             <details className="rounded-xl border border-border bg-card px-4 py-3">

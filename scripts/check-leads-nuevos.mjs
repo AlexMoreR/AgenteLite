@@ -149,4 +149,28 @@ caso("sin leads: todo en cero", () => {
   assert.deepEqual(r.por_asesora, []);
 });
 
+// "Mi día": el resumen usa los leads nuevos reales de la asesora, la fecha de Colombia y el bloque de empresa.
+const leer = (ruta) => fs.readFileSync(path.resolve(ruta), "utf8");
+const resumen = leer("src/features/llamadas/services/getResumenDia.ts");
+const vista = leer("src/features/llamadas/components/ResumenDiaView.tsx");
+const pagina = leer("src/app/cliente/crm/mi-dia/page.tsx");
+
+caso("Mi día: los leads nuevos son los de la asesora y la fecha sale de hoyEnBogota", () => {
+  assert.match(resumen, /leadsNuevosDelDia\(input\.workspaceId, fecha, \{ asesoraId: input\.userId \}\)/);
+  assert.match(resumen, /hoyEnBogota\(now\)/);
+  assert.doesNotMatch(resumen, /excludedFromCrm: false, createdAt/);
+  assert.match(resumen, /conversations: \{ some: \{ assignedToUserId: input\.userId \} \}/);
+});
+
+caso("Mi día: la empresa solo se pide a jefes", () => {
+  assert.match(resumen, /input\.esJefe \? leadsNuevosDelDia\(input\.workspaceId, fecha\)/);
+  assert.match(pagina, /const empresa = esJefe/);
+});
+
+caso("Mi día: copiar con fecha vieja no copia y recarga la página", () => {
+  assert.match(vista, /timeZone: "America\/Bogota"/);
+  assert.match(vista, /hoy !== data\.fecha/);
+  assert.match(vista, /window\.location\.reload\(\)/);
+});
+
 console.log(`\n${pasadas} casos ok`);
