@@ -177,40 +177,67 @@ async function dejarNotaOficial(input: { configId: string; conversationId: strin
   `;
 }
 
+type ChatDelLead = Pick<Entrada, "workspaceId" | "source" | "conversationId">;
+
+/**
+ * El lead del chat, o null si no es del embudo: línea administrativa, "fuera del CRM" o sin ficha.
+ * Siempre dentro del negocio (workspaceId).
+ */
+async function leerLead(entrada: ChatDelLead) {
+  let contactId: string | null = null;
+  let channelId: string | null = null;
+  let configId: string | null = null;
+
+  if (entrada.source === "agent") {
+    const conversacion = await prisma.conversation.findFirst({
+      where: { id: entrada.conversationId, workspaceId: entrada.workspaceId },
+      select: { contactId: true, channelId: true, channel: { select: { purpose: true } } },
+    });
+    if (!conversacion) return null;
+    // La línea administrativa no es del embudo de ventas.
+    if (conversacion.channel && conversacion.channel.purpose !== "SALES") return null;
+    contactId = conversacion.contactId;
+    channelId = conversacion.channelId;
+  } else {
+    const conversacion = await prisma.officialApiConversation.findUnique({
+      where: { id: entrada.conversationId },
+      select: { configId: true, contact: { select: { crmContactId: true } } },
+    });
+    contactId = conversacion?.contact?.crmContactId ?? null;
+    configId = conversacion?.configId ?? null;
+  }
+  if (!contactId) return null;
+
+  const contacto = await prisma.contact.findFirst({
+    where: { id: contactId, workspaceId: entrada.workspaceId },
+    select: { crmStage: true, excludedFromCrm: true, metadata: true },
+  });
+  if (!contacto || contacto.excludedFromCrm) return null;
+  return { contactId, channelId, configId, contacto };
+}
+
+/**
+ * La etapa del lead si lo que diga el cliente lo puede mover, o null: no es del embudo, está cerrado
+ * (Ganado o Perdido) o una persona lo movió en las últimas 24 horas. Sirve para no preguntarle a la IA
+ * por un chat que igual no se va a tocar.
+ */
+export async function etapaQueSePuedeLeer(entrada: ChatDelLead): Promise<CrmStage | null> {
+  const lead = await leerLead(entrada);
+  if (!lead) return null;
+  const actual = lead.contacto.crmStage as CrmStage;
+  if (actual === "GANADO" || actual === "PERDIDO") return null;
+  if (await movidaAManoHacePoco(entrada.workspaceId, lead.contactId)) return null;
+  return actual;
+}
+
 /** Devuelve la etapa a la que quedó el lead, o null si no se movió. Nunca lanza. */
 export async function moverEtapaAutomatica(entrada: Entrada): Promise<CrmStage | null> {
   try {
     if (!(await etapaAutomaticaPrendida(entrada.workspaceId))) return null;
 
-    let contactId: string | null = null;
-    let channelId: string | null = null;
-    let configId: string | null = null;
-
-    if (entrada.source === "agent") {
-      const conversacion = await prisma.conversation.findFirst({
-        where: { id: entrada.conversationId, workspaceId: entrada.workspaceId },
-        select: { contactId: true, channelId: true, channel: { select: { purpose: true } } },
-      });
-      if (!conversacion) return null;
-      // La línea administrativa no es del embudo de ventas.
-      if (conversacion.channel && conversacion.channel.purpose !== "SALES") return null;
-      contactId = conversacion.contactId;
-      channelId = conversacion.channelId;
-    } else {
-      const conversacion = await prisma.officialApiConversation.findUnique({
-        where: { id: entrada.conversationId },
-        select: { configId: true, contact: { select: { crmContactId: true } } },
-      });
-      contactId = conversacion?.contact?.crmContactId ?? null;
-      configId = conversacion?.configId ?? null;
-    }
-    if (!contactId) return null;
-
-    const contacto = await prisma.contact.findFirst({
-      where: { id: contactId, workspaceId: entrada.workspaceId },
-      select: { crmStage: true, excludedFromCrm: true, metadata: true },
-    });
-    if (!contacto || contacto.excludedFromCrm) return null;
+    const lead = await leerLead(entrada);
+    if (!lead) return null;
+    const { contactId, channelId, configId, contacto } = lead;
 
     const actual = contacto.crmStage as CrmStage;
     const lectura = entrada.motivo.tipo === "lectura";

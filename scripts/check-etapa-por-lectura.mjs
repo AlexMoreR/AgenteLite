@@ -29,8 +29,7 @@ const db = {
 const prisma = {
   appSetting: { findUnique: async ({ where }) => (db.settings.has(where.key) ? { value: db.settings.get(where.key) } : null) },
   conversation: {
-    findFirst: async ({ select }) =>
-      select.contact ? { contact: { crmStage: db.contacto.crmStage } } : { contactId: "ct", channelId: "ch", channel: { purpose: db.canal } },
+    findFirst: async () => ({ contactId: "ct", channelId: "ch", channel: { purpose: db.canal } }),
   },
   officialApiConversation: { findUnique: async () => ({ configId: "cfg", contact: { crmContactId: "ct" } }) },
   contact: {
@@ -282,6 +281,21 @@ await prueba("a la IA no se le pregunta por un \"ok\" ni por un lead ya Caliente
   reiniciar("NEGOCIACION");
   assert.equal(await leer("quisiera saber más de la camilla doble para mi spa"), null);
   assert.equal(db.ia.length, 0);
+});
+
+await prueba("línea Admin, \"fuera del CRM\" o movido a mano en 24 h: el mensaje no sale a la IA", async () => {
+  db.respuestaIA = "CALIENTE";
+  const texto = "quisiera saber más de la camilla doble para mi spa";
+  db.canal = "ADMIN";
+  assert.equal(await leer(texto), null);
+  reiniciar();
+  db.contacto.excludedFromCrm = true;
+  assert.equal(await leer(texto), null);
+  reiniciar();
+  db.manualReciente = true;
+  assert.equal(await leer(texto), null);
+  assert.equal(db.ia.length, 0);
+  assert.equal(db.contacto.crmStage, "NUEVO");
 });
 
 await prueba("una IA caída o sin texto no rompe nada", async () => {

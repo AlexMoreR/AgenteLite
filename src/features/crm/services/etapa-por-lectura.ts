@@ -5,6 +5,7 @@ import {
   claveInterruptorDescarteAutomatico,
   claveInterruptorEtapaAutomatica,
   etapaAutomaticaPrendida,
+  etapaQueSePuedeLeer,
   moverEtapaAutomatica,
 } from "@/lib/etapa-automatica-crm";
 import {
@@ -65,30 +66,8 @@ async function preguntarALaIA(texto: string): Promise<"CALIENTE" | "TIBIO" | nul
   return interpretarRespuestaDeLaIA(datos.choices?.[0]?.message?.content);
 }
 
-/** La etapa actual del lead del chat (sin las protecciones: eso lo hace el motor). Para no gastar IA. */
-async function etapaDelChat(input: { workspaceId: string; source: "agent" | "official"; conversationId: string }) {
-  if (input.source === "agent") {
-    const fila = await prisma.conversation.findFirst({
-      where: { id: input.conversationId, workspaceId: input.workspaceId },
-      select: { contact: { select: { crmStage: true } } },
-    });
-    return (fila?.contact?.crmStage as CrmStage | undefined) ?? null;
-  }
-  const fila = await prisma.officialApiConversation.findUnique({
-    where: { id: input.conversationId },
-    select: { contact: { select: { crmContactId: true } } },
-  });
-  const contactId = fila?.contact?.crmContactId;
-  if (!contactId) return null;
-  const contacto = await prisma.contact.findFirst({
-    where: { id: contactId, workspaceId: input.workspaceId },
-    select: { crmStage: true },
-  });
-  return (contacto?.crmStage as CrmStage | undefined) ?? null;
-}
-
-/** Lo que la IA no puede subir: Caliente, Ganado y Perdido. Ahí no se le pregunta. */
-const SIN_IA: CrmStage[] = ["NEGOCIACION", "GANADO", "PERDIDO"];
+/** La IA solo sube a Caliente o Tibio: a un Caliente no se le pregunta. */
+const SIN_IA: CrmStage[] = ["NEGOCIACION"];
 
 export async function etapaPorLectura(input: {
   workspaceId: string;
@@ -107,7 +86,9 @@ export async function etapaPorLectura(input: {
     let lectura: LecturaDelMensaje | null = leerIntencionPorFrase(texto, cuando);
     let metodo: "frase" | "ia" = "frase";
     if (!lectura && vaALaIA(texto)) {
-      const etapa = await etapaDelChat(input);
+      // Solo si el chat se puede mover: ni línea Admin, ni "fuera del CRM", ni cerrado, ni movido a mano
+      // en las últimas 24 h. Así esos mensajes no salen a la IA ni gastan.
+      const etapa = await etapaQueSePuedeLeer(input);
       if (etapa && !SIN_IA.includes(etapa)) {
         const ia = await preguntarALaIA(texto).catch((error) => {
           console.warn("[etapa-por-lectura] la IA no respondió", {
