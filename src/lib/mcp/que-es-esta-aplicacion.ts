@@ -10,6 +10,7 @@ import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasS
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
+import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 
 /**
@@ -440,6 +441,24 @@ async function estadoDeAvisosAlEquipo(workspaceId: string) {
     : `APAGADA: interruptor tablero:avisos-equipo:<negocio> apagado (empieza apagado), no sale nada${cola}${fallo}`;
 }
 
+/** Aviso al dueño de cada tarea terminada: interruptor propio + el general, último aviso enviado y cuántos quedaron FALLIDO. */
+async function estadoDeAvisosDeTerminadas(workspaceId: string) {
+  const donde = { workspaceId, motivo: MOTIVO_TERMINADA };
+  const [general, propio, ultimo, fallidos] = await Promise.all([
+    avisosPrendidos(workspaceId),
+    terminadasPrendidas(workspaceId),
+    prisma.avisoTarjetaEquipo.findFirst({ where: { ...donde, estado: "ENVIADO" }, orderBy: { enviadoEn: "desc" }, select: { enviadoEn: true, detalle: true } }),
+    prisma.avisoTarjetaEquipo.count({ where: { ...donde, estado: "FALLIDO" } }),
+  ]);
+  const cola = ultimo?.enviadoEn
+    ? `; último aviso enviado: ${ultimo.enviadoEn.toISOString().slice(0, 16).replace("T", " ")} UTC${ultimo.detalle ? ` (${ultimo.detalle})` : ""}`
+    : "; todavía no ha salido ninguno";
+  const fallo = `; ${fallidos} quedaron FALLIDO`;
+  if (!general) return `APAGADA: el interruptor general de avisos al dueño está apagado (Mi empresa → Claude), no sale nada${cola}${fallo}`;
+  if (!propio) return `APAGADA: interruptor tablero:avisos-dueno:terminadas:<negocio> en false, no sale nada${cola}${fallo}`;
+  return `PRENDIDA: el reloj revisa cada minuto y avisa por la línea Admin cuando el Coordinador deja una tarjeta en HECHO (silencio de 9 p. m. a 7 a. m.)${cola}${fallo}`;
+}
+
 /** Agente de Ventas: el interruptor y cuándo se guardó el último resumen (corre en aizen1). */
 async function estadoDelAgenteDeVentas(workspaceId: string) {
   const [activo, ultimos] = await Promise.all([agenteActivo("ventas", workspaceId), leerUltimosResumenes(workspaceId, "ventas", 1)]);
@@ -571,6 +590,7 @@ async function automatizaciones(
     resumen_diario_tablero: await estadoDelResumenDiario(),
     avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
     avisos_al_equipo_tablero: await estadoDeAvisosAlEquipo(workspaceId).catch(() => "no se pudo leer"),
+    avisos_de_terminadas_tablero: await estadoDeAvisosDeTerminadas(workspaceId).catch(() => "no se pudo leer"),
     cerebro_sincronizacion: await estadoDelCerebro(workspaceId).catch(() => "no se pudo leer"),
     origen_de_pauta: await estadoDeLaPauta(workspaceId).catch(() => "no se pudo leer"),
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
