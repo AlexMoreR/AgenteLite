@@ -852,7 +852,7 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
-    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null, rescatar: null },
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null, rescatar: null, revisar_de_nuevo: null },
   );
   // Revisión previa (27-oct-2026): la nota de "ya estaba hecha" y el título único de la tarjeta de limpieza.
   assert.equal(trabajo.notaDeYaHecha("f4759b0"), "ya estaba hecho (commit f4759b0)");
@@ -1129,6 +1129,37 @@ prueba("zonas que suben solas (24-oct-2026): bot, Meta Ads, libro V3 y chats (26
   assert.equal(trabajo.resultadoDeEntrada({ resumen: "x", esperaPor: "gasto en Meta Ads" }).esperaPor, "gasto en Meta Ads");
 });
 
+prueba("CHATS y BOT_VENTAS nunca esperan el sí final (30-oct-2026): si no suben solas van a ERROR; el gasto en Meta Ads sigue esperando", () => {
+  const destinoDe = (zonaProtegida, extra = {}) => trabajo.destinoDelResultado({ paso: true, subeSolo: false, zonaProtegida, ...extra });
+  // CHATS sin la confirmación de que no manda mensajes nuevos: ERROR.
+  assert.equal(destinoDe(["CHATS"], { esperaPor: "falta la prueba de que no se mandan mensajes nuevos a clientes" }), "ERROR");
+  assert.equal(destinoDe(["CHATS"]), "ERROR");
+  assert.equal(destinoDe(["CHATS", "BOT_VENTAS"]), "ERROR");
+  // BOT_VENTAS bien (subeSolo): SUBIENDO.
+  assert.equal(destinoDe(["BOT_VENTAS"], { subeSolo: true }), "SUBIENDO");
+  // Meta Ads con gasto, Libro V3 y tarjetas sin zona: siguen esperando el sí.
+  assert.equal(destinoDe(["META_ADS"], { esperaPor: "gasto en Meta Ads (daily_budget)" }), "POR_REVISAR");
+  assert.equal(destinoDe(["CHATS"], { esperaPor: "Gasto en META ADS" }), "POR_REVISAR");
+  assert.equal(destinoDe(["LIBRO_V3"]), "POR_REVISAR");
+  assert.equal(destinoDe([]), "POR_REVISAR");
+  // Si no pasó la construcción, se trata como siempre.
+  assert.equal(destinoDe(["CHATS"], { paso: false }), "POR_REVISAR");
+  // Ayudas.
+  assert.equal(trabajo.soloChatsOBot(["CHATS", "BOT_VENTAS"]), true);
+  assert.equal(trabajo.soloChatsOBot([]), false);
+  assert.equal(trabajo.soloChatsOBot(["CHATS", "META_ADS"]), false);
+  assert.equal(trabajo.esGastoEnMetaAds("el cambio tiene gasto en Meta Ads"), true);
+  assert.equal(trabajo.esGastoEnMetaAds("sin tildes: GASTO en meta ads"), true);
+  assert.equal(trabajo.esGastoEnMetaAds("solo Meta Ads"), false);
+  assert.equal(trabajo.esGastoEnMetaAds(null), false);
+  // revisar_de_nuevo: solo desde POR_REVISAR; cualquier otro estado se rechaza.
+  assert.equal(trabajo.puedeElTrabajador("revisar_de_nuevo", "POR_REVISAR"), null);
+  for (const estado of ["EN_CURSO", "SUBIENDO", "ERROR", "HECHO", "PLAN_APROBADO"]) {
+    assert.match(trabajo.puedeElTrabajador("revisar_de_nuevo", estado), /solo vale desde POR_REVISAR/, estado);
+  }
+  assert.ok(trabajo.ACCIONES_DEL_TRABAJADOR.includes("revisar_de_nuevo"));
+});
+
 prueba("el sí del dueño se hereda (27-oct-2026): vale aunque la tarea se reconstruya, salvo dinero, Meta Ads, envío nuevo en chats o migración destructiva", () => {
   const siDelDueno = [{ accion: "aprobar", despues: { via: "voz", momento: "tarea" } }];
   const tarea = { titulo: "Buscador de la bandeja", detalle: "Un buscador por nombre.", plan: "RIESGO: ALTO\nAPROBAR PLAN: sí\nBuscar en la bandeja.", historial: siDelDueno };
@@ -1148,7 +1179,7 @@ prueba("el sí del dueño se hereda (27-oct-2026): vale aunque la tarea se recon
   // destinoDelResultado: con la aprobación heredada sube aunque el Coordinador no lo dijera, pero nunca si no pasó o una zona pide el sí.
   const destino = (extra) => trabajo.destinoDelResultado({ paso: true, subeSolo: false, zonaProtegida: ["CHATS"], aprobacionHeredada: true, ...extra });
   assert.equal(destino({}), "SUBIENDO");
-  assert.equal(destino({ aprobacionHeredada: false }), "POR_REVISAR");
+  assert.equal(destino({ aprobacionHeredada: false }), "ERROR", "CHATS que no sube sola ya no espera el sí: ERROR");
   assert.equal(destino({ paso: false }), "POR_REVISAR");
   assert.equal(destino({ zonaProtegida: ["OTRA_ZONA"] }), "POR_REVISAR");
   // Rescatar: solo desde POR_REVISAR.

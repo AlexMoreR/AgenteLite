@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
   - plan      { plan }                            PLANEANDO -> PLAN_LISTO.
   - resultado { resumen, pruebas, paso, rama, linkRama, commit, migracion, subeSolo, base, zonaProtegida?,
                 construidoEn?, linkSesion?, segundosNube?, linkWorkflow?, verificadoEn? }   (construidoEn = "aizen1" | "nube")
-                EN_CURSO -> SUBIENDO pendiente (paso, subeSolo y sin zona protegida) o POR_REVISAR.
+                EN_CURSO -> SUBIENDO pendiente (paso, subeSolo y sin zona protegida), ERROR (CHATS / BOT_VENTAS que no sube sola) o POR_REVISAR.
   - subida    { commit, version, linkCommit }     SUBIENDO -> HECHO.
   - error     { motivo, categoria?, causa?, resumen?, error?, etapa?, zonaProtegida?, reversion? }
               PLANEANDO | EN_CURSO | SUBIENDO -> ERROR. reversion = { commit, revert, ok }: el despliegue
@@ -39,6 +39,8 @@ export const dynamic = "force-dynamic";
   - recoger   { decision: reintentar | partir | dueno, causa?, error?, partes?, linea? }   ERROR: recoge una tarjeta
               vieja en ERROR (máximo 2 veces por tarjeta; el tope diario lo lleva el Coordinador). reintentar vuelve
               a la fila, partir crea las hijas, dueno deja UNA línea para el dueño y sigue en ERROR.
+  revisar_de_nuevo { subeSolo, motivo?, pruebas?: [texto] }   POR_REVISAR de CHATS / BOT_VENTAS (que pasó la construcción y no espera por
+              gasto en Meta Ads) -> SUBIENDO pendiente (subeSolo) o ERROR "construido, no sube: <motivo>". 409 en cualquier otro caso.
   (El arranque del Coordinador es otra ruta: /api/trabajador/tablero/arranque.)
   409 si la tarjeta no está en el estado de esa acción. Ver services/trabajador.ts.
 */

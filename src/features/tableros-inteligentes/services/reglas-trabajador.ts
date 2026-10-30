@@ -18,6 +18,9 @@
   marcada y espera el sí final del dueño (momento 'subir'). El bot de ventas, Meta Ads, el libro V3 y los chats
   ya NO piden ese sí (24-oct-2026; chats, 26-oct-2026, ZONAS_QUE_SUBEN_SOLAS): suben solos, con pruebas extra y vigilancia de 30 minutos. Si el despliegue falla después
   de subir, el Coordinador hace revert del commit en main y la deja ERROR.
+  CHATS y BOT_VENTAS nunca esperan el sí final (30-oct-2026): si la tarjeta construyó bien y no puede subir sola,
+  pasa a ERROR con el motivo en una línea ("construido, no sube: ..."). Solo siguen esperando al dueño el dinero de
+  Gestión y el gasto en Meta Ads (esperaPor). 'revisar_de_nuevo' saca las que ya estaban esperando en POR_REVISAR.
 
   Lo que no se negocia:
   1. Las transiciones del Coordinador (PLANEANDO, PLAN_LISTO, EN_CURSO, POR_REVISAR, SUBIENDO, HECHO,
@@ -33,9 +36,9 @@
      voz cuenta igual que la pantalla si las zonas son solo CHATS y/o BOT_VENTAS; con LIBRO_V3 o META_ADS se
      vuelve a aprobar en la pantalla (y queda una alerta del Coordinador hasta que se haga).
   4. El sí final ('subir') lo da solo el DUEÑO del negocio (SI_FINAL_SOLO_DUENO), y solo si el
-     Coordinador dijo que todo pasó (resultado.paso = true). Hoy solo hace falta para las tarjetas con
-     zona protegida de chats, las de un repo con `subirSolo` apagado y las
-     que ya estaban POR_REVISAR.
+     Coordinador dijo que todo pasó (resultado.paso = true). Hoy solo hace falta para las tarjetas sin zona de un
+     repo con `subirSolo` apagado, las de Libro V3, el gasto en Meta Ads y las que ya estaban POR_REVISAR (las de
+     CHATS y BOT_VENTAS ya no esperan: suben o quedan en ERROR).
   5. Un aprobador (AprobadorTablero) con alcance DESARROLLO aprueba la tarea y el plan solo de
      tarjetas con repo de desarrollo (gestion, aizencrm); con alcance TODO, cualquiera.
   6. La zona protegida se puede PONER desde el MCP (y la pone el Coordinador si el cambio toca una de
@@ -320,6 +323,7 @@ export type AccionDelTrabajador =
   | "partir"
   | "depender"
   | "recoger"
+  | "revisar_de_nuevo"
   | "ya-hecha"
   | "limpieza"
   | "rescatar";
@@ -334,6 +338,7 @@ export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "partir",
   "depender",
   "recoger",
+  "revisar_de_nuevo",
   "ya-hecha",
   "limpieza",
   "rescatar",
@@ -341,7 +346,8 @@ export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
 
 /**
  * Desde qué estados puede llamar el Coordinador cada acción, y a cuál pasa (null = no cambia). El
- * "resultado" pasa a POR_REVISAR, o a SUBIENDO pendiente si sube sola (destinoDelResultado).
+ * "resultado" figura como POR_REVISAR, pero destinoDelResultado decide: SUBIENDO pendiente si sube sola, o ERROR si es
+ * de CHATS / BOT_VENTAS y no puede subir sola (el ERROR lo decide esa función, no esta tabla).
  */
 export const TRANSICIONES_DEL_TRABAJADOR: Record<
   AccionDelTrabajador,
@@ -382,6 +388,9 @@ export const TRANSICIONES_DEL_TRABAJADOR: Record<
   // Rescatar (27-oct-2026): el Coordinador vuelve a revisar una tarjeta POR_REVISAR que pasó todo y solo esperaba su prueba extra (o
   // ya traía el sí del dueño): si la comprobó él mismo con el diff real, pasa a SUBIENDO; si no, sigue POR_REVISAR con el motivo.
   rescatar: { desde: ["POR_REVISAR"], a: null },
+  // Revisar de nuevo (30-oct-2026): saca de POR_REVISAR a una tarjeta de CHATS / BOT_VENTAS que ya estaba esperando: a SUBIENDO
+  // pendiente (subeSolo) o a ERROR con el motivo. La usa el Coordinador, no la pantalla. a = null: depende de `subeSolo`.
+  revisar_de_nuevo: { desde: ["POR_REVISAR"], a: null },
 };
 
 /** La nota de una tarjeta que ya estaba hecha (27-oct-2026): "ya estaba hecho (commit X)". */
@@ -404,11 +413,24 @@ export function puedeElTrabajador(accion: AccionDelTrabajador, estado: EstadoTar
   return null;
 }
 
+/** Hay al menos una zona y todas son CHATS o BOT_VENTAS (las que nunca esperan el sí final del dueño). */
+export function soloChatsOBot(zonas: readonly string[]): boolean {
+  return zonas.length > 0 && zonas.every((zona) => zona === "CHATS" || zona === "BOT_VENTAS");
+}
+
+/** ¿El motivo de espera habla de gasto en Meta Ads? (sin importar mayúsculas ni tildes). Ese sí sigue siendo del dueño. */
+export function esGastoEnMetaAds(esperaPor: string | null | undefined): boolean {
+  if (typeof esperaPor !== "string") return false;
+  const limpio = esperaPor.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  return limpio.includes("gasto") && limpio.includes("meta ads");
+}
+
 /**
  * A qué estado pasa la tarjeta con el /resultado: SUBIENDO (pendiente: el Coordinador la sube enseguida)
  * solo si todo pasó, el Coordinador dice que sube solo y la tarjeta no tiene una zona que pida el sí (ni la
  * que ya tenía ni la que marcó el Coordinador; BOT_VENTAS, META_ADS, LIBRO_V3 y CHATS ya suben solas, ver
- * ZONAS_QUE_SUBEN_SOLAS). Si no, POR_REVISAR: espera el sí final del dueño.
+ * ZONAS_QUE_SUBEN_SOLAS). Si no sube y la tarjeta es solo de CHATS / BOT_VENTAS (y no espera por gasto en Meta Ads),
+ * pasa a ERROR: esas zonas nunca esperan el sí final. En lo demás, POR_REVISAR: espera el sí final del dueño.
  */
 export function destinoDelResultado(datos: {
   paso: boolean;
@@ -416,9 +438,12 @@ export function destinoDelResultado(datos: {
   zonaProtegida: readonly string[];
   /** El dueño ya aprobó esta tarjeta y nada nuevo toca dinero ni Meta Ads (heredaAprobacionDelDueno): sube aunque el Coordinador no lo dijera. */
   aprobacionHeredada?: boolean;
-}): "SUBIENDO" | "POR_REVISAR" {
+  /** Lo que el Coordinador dejó como motivo de espera (resultado.esperaPor). */
+  esperaPor?: string | null;
+}): "SUBIENDO" | "POR_REVISAR" | "ERROR" {
   if (!datos.paso || zonasQuePidenTuSi(datos.zonaProtegida).length > 0) return "POR_REVISAR";
-  return datos.subeSolo || datos.aprobacionHeredada ? "SUBIENDO" : "POR_REVISAR";
+  if (datos.subeSolo || datos.aprobacionHeredada) return "SUBIENDO";
+  return soloChatsOBot(datos.zonaProtegida) && !esGastoEnMetaAds(datos.esperaPor) ? "ERROR" : "POR_REVISAR";
 }
 
 /* ───────────────────────────────────────────── el sí del dueño se hereda (27-oct-2026) ── */
@@ -945,7 +970,8 @@ export type ResultadoDelTrabajador = {
   verificadoEn?: VerificadoEn;
   /**
    * Por qué NO sube sola aunque su zona suba sola (24-oct-2026): "gasto en Meta Ads", "falta la simulación V3",
-   * "mensaje nuevo a clientes". Lo escribe el Coordinador; la tarjeta lo muestra como "espera tu sí (motivo)".
+   * "mensaje nuevo a clientes". Lo escribe el Coordinador; la tarjeta lo muestra como "espera tu sí (motivo)" (solo si es gasto en Meta Ads o una zona que no sea de
+   * CHATS / BOT_VENTAS) o, en CHATS / BOT_VENTAS, como el motivo del ERROR "construido, no sube: ...".
    */
   esperaPor?: string;
 };

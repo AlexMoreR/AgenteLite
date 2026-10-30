@@ -411,7 +411,8 @@ await prueba("resultado: BAJO que toca algo de riesgo alto, migración destructi
     enCurso();
     const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", cuerpo);
     const t = estado.tarjetas.get("t1");
-    assert.equal(r.estado, "POR_REVISAR", nombre);
+    // CHATS que no sube sola ya no espera el sí: ERROR (30-oct-2026).
+    assert.equal(r.estado, nombre === "zona protegida marcada" ? "ERROR" : "POR_REVISAR", nombre);
     assert.equal(t.riesgo, "ALTO", nombre);
     assert.equal(t.riesgoPor, "TRABAJADOR", nombre);
     assert.ok(t.riesgoMotivo, nombre);
@@ -447,12 +448,14 @@ await prueba("resultado: el sí del dueño ya dado se hereda aunque la tarea se 
   // Sin sí del dueño en el historial, espera como antes.
   estado.historial.length = 0;
   enCurso({ riesgo: "ALTO" });
-  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "POR_REVISAR");
+  // (CHATS ya no espera el sí final: sin sí del dueño que se herede, va a ERROR con su motivo; 30-oct-2026.)
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "ERROR");
   // Un sí automático no cuenta.
   estado.tarjetas.clear();
   estado.historial.push({ tarjetaId: "t1", accion: "aprobar", despues: { via: "automatica" } });
   enCurso({ riesgo: "ALTO" });
-  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "POR_REVISAR");
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "ERROR");
+  assert.match(estado.tarjetas.get("t1").resultado.error.motivo, /^construido, no sube: falta la prueba/);
   // Con el sí del dueño sube sola, con la nota de la herencia, y el motivo viejo se borra.
   estado.tarjetas.clear();
   conSiDelDueno();
@@ -472,7 +475,8 @@ await prueba("resultado: el sí del dueño ya dado se hereda aunque la tarea se 
     estado.tarjetas.clear();
     enCurso({ riesgo: "ALTO", ...tarjetaExtra });
     const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ ...sinSi, esperaPor: undefined, ...extra }));
-    assert.equal(r.estado, "POR_REVISAR", etiqueta);
+    // Solo el gasto en Meta Ads sigue esperando el sí; lo demás en CHATS ya no se queda esperando: ERROR.
+    assert.equal(r.estado, extra.zonaProtegida?.includes("META_ADS") ? "POR_REVISAR" : "ERROR", etiqueta);
   }
   estado.historial.length = 0;
 });
