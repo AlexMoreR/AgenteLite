@@ -2,13 +2,16 @@ import { prisma } from "@/lib/prisma";
 
 import {
   areaDeLaRuta,
+  claveResponsableDeSistemas,
   ordenarAlertas,
+  puedeVerAlerta,
   salePorWhatsApp,
   textoDeUrgente,
   tituloCorto,
   type AreaDeAlerta,
   type EstadoDeAlerta,
   type Prioridad,
+  type QuienMira,
 } from "../dominio/reglas";
 
 /**
@@ -132,16 +135,67 @@ export async function marcarSalioPorWhatsApp(workspaceId: string, clave: string)
 export type FiltroDeAlertas = { estado?: EstadoDeAlerta | "ABIERTAS" | "TODAS"; prioridad?: Prioridad | null };
 
 /**
- * Quién mira la página: el jefe (dueño o administrador) ve las del negocio y las suyas; cualquier otra persona, solo
- * las suyas. Las personales de otra persona no las ve nadie más.
+ * Quién mira la página. Sin responsable de Sistemas configurado: el jefe (dueño o administrador) ve las del negocio y
+ * las suyas; cualquier otra persona, solo las suyas. Con responsable: el responsable ve las de Sistemas (sea jefe o no)
+ * y el jefe, por defecto, las de Negocio (con `verTodas`, todas). Las personales de otra persona no las ve nadie más.
  */
-export type Mirando = { userId: string; esJefe: boolean };
+export type Mirando = QuienMira;
+const veNegocio = (mirando: Mirando) => mirando.esJefe || (!!mirando.responsableSistemasId && mirando.responsableSistemasId === mirando.userId);
 const dondeMira = (mirando?: Mirando) =>
-  mirando ? (mirando.esJefe ? { OR: [{ destinatarioId: null }, { destinatarioId: mirando.userId }] } : { destinatarioId: mirando.userId }) : {};
+  mirando ? (veNegocio(mirando) ? { OR: [{ destinatarioId: null }, { destinatarioId: mirando.userId }] } : { destinatarioId: mirando.userId }) : {};
+/** Con responsable configurado, qué alertas del negocio se ven se decide en código (no se guarda en la tabla). */
+const filtraEnCodigo = (mirando?: Mirando) => !!mirando && !!mirando.responsableSistemasId;
+const MAXIMO_A_LEER = 5000;
+
+const AJUSTE_SIN_VALOR = new Set(["", "null"]);
+
+/** El id del responsable de Sistemas (AppSetting); null si no hay o no se pudo leer (todo se ve como antes). */
+export async function leerResponsableDeSistemas(workspaceId: string): Promise<string | null> {
+  try {
+    const fila = await prisma.appSetting.findUnique({ where: { key: claveResponsableDeSistemas(workspaceId) }, select: { value: true } });
+    const valor = (fila?.value ?? "").trim();
+    return AJUSTE_SIN_VALOR.has(valor) ? null : valor;
+  } catch {
+    return null;
+  }
+}
+
+/** Guarda quién es el responsable de Sistemas (null = quitarlo). Quien llama ya validó permisos y que sea del equipo. */
+export async function guardarResponsableDeSistemas(workspaceId: string, userId: string | null): Promise<void> {
+  const key = claveResponsableDeSistemas(workspaceId);
+  const value = userId ?? "";
+  await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+}
+
+/** Las personas activas del equipo (para elegir al responsable de Sistemas). */
+export async function listarEquipoParaResponsable(workspaceId: string): Promise<{ id: string; nombre: string }[]> {
+  const miembros = await prisma.workspaceMember.findMany({
+    where: { workspaceId, isActive: true },
+    select: { userId: true, user: { select: { name: true, email: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  return miembros.map((m) => ({ id: m.userId, nombre: m.user?.name?.trim() || m.user?.email || m.userId }));
+}
+
+/**
+ * Elige (o quita, con null) al responsable de Sistemas. Solo un jefe puede, y la persona tiene que ser un miembro activo
+ * del negocio: así no se esconden alertas detrás de un id inventado.
+ */
+export async function elegirResponsableDeSistemas(workspaceId: string, esJefe: boolean, userId: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!esJefe) return { ok: false, error: "Sin permiso." };
+  if (userId !== null) {
+    if (typeof userId !== "string" || !userId.trim()) return { ok: false, error: "Pedido inválido." };
+    const miembro = await prisma.workspaceMember.findFirst({ where: { workspaceId, userId, isActive: true }, select: { userId: true } });
+    if (!miembro) return { ok: false, error: "Esa persona no es del equipo." };
+  }
+  await guardarResponsableDeSistemas(workspaceId, userId);
+  return { ok: true };
+}
 
 /** Las alertas del negocio ya ordenadas (prioridad y, dentro, por la última vez que llegaron). Por defecto, sin las resueltas. */
 export async function listarAlertas(workspaceId: string, filtro: FiltroDeAlertas = {}, limite = 300, mirando?: Mirando): Promise<AlertaGuardada[]> {
   const estado = filtro.estado ?? "ABIERTAS";
+  const enCodigo = filtraEnCodigo(mirando);
   const filas = await prisma.alertaInterna.findMany({
     where: {
       workspaceId,
@@ -150,15 +204,26 @@ export async function listarAlertas(workspaceId: string, filtro: FiltroDeAlertas
       ...(filtro.prioridad ? { prioridad: filtro.prioridad } : {}),
     },
     orderBy: [{ ultimaVez: "desc" }, { creadoEn: "desc" }],
-    take: limite,
+    // El límite se aplica DESPUÉS de filtrar por responsable: si no, una lista larga cortaría alertas que sí se ven.
+    take: enCodigo ? MAXIMO_A_LEER : limite,
   });
-  return ordenarAlertas(filas);
+  const visibles = enCodigo && mirando ? filas.filter((fila) => puedeVerAlerta(fila, mirando)) : filas;
+  return ordenarAlertas(visibles.slice(0, limite));
 }
 
-/** Cuántas alertas hay por estado (para los contadores de la página). */
+/** Cuántas alertas hay por estado (para los contadores de la página): solo las que esa persona ve. */
 export async function contarAlertas(workspaceId: string, mirando?: Mirando): Promise<Record<EstadoDeAlerta, number>> {
-  const filas = await prisma.alertaInterna.groupBy({ by: ["estado"], where: { workspaceId, ...dondeMira(mirando) }, _count: { _all: true } });
   const cuenta: Record<EstadoDeAlerta, number> = { NUEVA: 0, VISTA: 0, RESUELTA: 0 };
+  if (filtraEnCodigo(mirando) && mirando) {
+    const filas = await prisma.alertaInterna.findMany({
+      where: { workspaceId, ...dondeMira(mirando) },
+      select: { estado: true, origen: true, clave: true, destinatarioId: true },
+      take: MAXIMO_A_LEER,
+    });
+    for (const fila of filas) if (fila.estado in cuenta && puedeVerAlerta(fila, mirando)) cuenta[fila.estado as EstadoDeAlerta] += 1;
+    return cuenta;
+  }
+  const filas = await prisma.alertaInterna.groupBy({ by: ["estado"], where: { workspaceId, ...dondeMira(mirando) }, _count: { _all: true } });
   for (const fila of filas) if (fila.estado in cuenta) cuenta[fila.estado as EstadoDeAlerta] = fila._count._all;
   return cuenta;
 }
@@ -168,8 +233,12 @@ export async function contarAlertas(workspaceId: string, mirando?: Mirando): Pro
  * vuelve a "vista"; una vista conserva su primera hora.
  */
 export async function marcarAlerta(workspaceId: string, id: string, nuevo: "VISTA" | "RESUELTA", ahora = new Date(), mirando?: Mirando): Promise<boolean> {
-  const actual = await prisma.alertaInterna.findFirst({ where: { id, workspaceId, ...dondeMira(mirando) }, select: { estado: true, vistaEn: true } });
+  const actual = await prisma.alertaInterna.findFirst({
+    where: { id, workspaceId, ...dondeMira(mirando) },
+    select: { estado: true, vistaEn: true, origen: true, clave: true, destinatarioId: true },
+  });
   if (!actual) return false;
+  if (filtraEnCodigo(mirando) && mirando && !puedeVerAlerta(actual, mirando)) return false;
   if (nuevo === "VISTA" && actual.estado !== "NUEVA") return true;
   await prisma.alertaInterna.update({
     where: { id },
