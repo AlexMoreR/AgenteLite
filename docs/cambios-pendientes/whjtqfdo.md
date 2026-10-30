@@ -1,0 +1,2 @@
+## Qué no existe hoy
+- `leads_nuevos`: hay un contador de leads nuevos reales del día (servicio `leadsNuevosDelDia`, aún sin pantalla ni MCP). Cuenta clientes cuyo primer mensaje entrante de la vida cae en ese día de Colombia (corte 05:00 UTC), por cualquier línea y una sola vez por cliente. Origen: anuncio de Meta, luego Marketplace por texto, luego Marketplace por línea (Ventas 2), si no Directo. Limitación: los pases de NETMAGI sin texto de Marketplace que no entren por Ventas 2 quedan como Directo; los chats de la API oficial (OfficialApiConversation) no se leen.
