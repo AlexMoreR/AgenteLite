@@ -390,26 +390,49 @@ export function porQueElPlanTienePreguntas(plan: string): string | null {
   return primera ? `el plan tiene preguntas abiertas: ${primera}`.slice(0, 300) : null;
 }
 
+/** Opciones del sí del plan. */
+export type OpcionesDelSiDelPlan = {
+  /**
+   * Un solo sí del dueño (30-oct-2026): si el dueño ya aprobó la tarea (pantalla o voz), el dinero de Gestión no pide
+   * un segundo sí al plan. Se saltan los archivos de dinero, las palabras de Gestión y la línea "APROBAR PLAN: ESPERA
+   * TU SÍ" cuando su único motivo es Gestión. Lo demás (preguntas, Meta Ads, criterios, supuestos) sigue igual.
+   */
+  tareaAprobadaPorElDueno?: boolean;
+};
+
+/** ¿El motivo de la línea "APROBAR PLAN: ESPERA TU SÍ" es solo dinero de Gestión (sin "el agente necesita" ni Meta Ads)? */
+function esperaSoloPorGestion(motivo: string | null): boolean {
+  if (!motivo) return false;
+  const normal = normalizar(motivo);
+  if (/el agente necesita/.test(normal) || /meta|\bads\b|anuncio|campan|libro.v3/.test(normal) || PALABRAS_DE_GASTO_EN_META.test(normal)) return false;
+  return PALABRAS_DE_DINERO_DE_GESTION.test(normal) || /\bgestion\b/.test(normal);
+}
+
 /**
  * ¿El plan espera el sí del dueño aunque la tarea ya esté aprobada? Devuelve el motivo en una línea, o null
  * si el plan pasa solo a construir. Sin base: se prueba con `npm run test:tableros`.
  */
-export function porQueElPlanEsperaTuSi(plan: string): string | null {
+export function porQueElPlanEsperaTuSi(plan: string, opciones: OpcionesDelSiDelPlan = {}): string | null {
+  const unSoloSi = opciones.tareaAprobadaPorElDueno === true;
   // 29-oct-2026: un plan con preguntas abiertas espera al dueño (lo que sea que diga su línea APROBAR PLAN).
   const preguntas = porQueElPlanTienePreguntas(plan);
   if (preguntas) return preguntas;
+  // Con un solo sí, un plan que trae "NECESITO:" (el agente pide algo que solo el dueño da) sigue esperando. Sin la
+  // opción no se mira acá: lo ve el Coordinador.
+  const necesito = unSoloSi ? plan.replace(/\r\n/g, "\n").split("\n").find((linea) => /^[\s>*_#-]*\**necesito\**\s*:/i.test(linea)) : undefined;
+  if (necesito) return `el agente necesita algo del dueño: ${necesito.replace(/^[\s>*_#-]*\**necesito\**\s*:\**\s*/i, "").trim()}`.slice(0, 300);
   const linea = lineaAprobarPlan(plan);
-  if (linea?.espera) return `el trabajador dice que espera tu sí${linea.motivo ? `: ${linea.motivo}` : ""}`.slice(0, 300);
+  if (linea?.espera && !(unSoloSi && esperaSoloPorGestion(linea.motivo))) return `el trabajador dice que espera tu sí${linea.motivo ? `: ${linea.motivo}` : ""}`.slice(0, 300);
   const texto = plan.replace(/\r\n/g, "\n");
   const gasto = gastoDeclaradoEnElPlan(texto);
   if (gasto) return `el plan declara gasto en Meta Ads (${gasto})`.slice(0, 300);
   // Archivos de dinero: las mismas rutas que ya vuelven ALTO una tarjeta.
-  const dinero = motivosDeLosArchivos(rutasDelTexto(texto)).find((motivo) => motivo.startsWith("toca dinero"));
+  const dinero = unSoloSi ? undefined : motivosDeLosArchivos(rutasDelTexto(texto)).find((motivo) => motivo.startsWith("toca dinero"));
   if (dinero) return `el plan ${dinero}`.slice(0, 300);
   const normal = normalizar(texto);
   if (PALABRAS_DE_GASTO_EN_META.test(normal)) return "el plan habla de presupuesto, de activar campañas o de gasto en Meta Ads";
   // Sin la línea (un trabajador sin actualizar) no hay quien diga que no toca dinero: se miran las palabras.
-  if (!linea && PALABRAS_DE_DINERO_DE_GESTION.test(normal)) {
+  if (!unSoloSi && !linea && PALABRAS_DE_DINERO_DE_GESTION.test(normal)) {
     return "el plan habla de dinero de Gestión (abonos, saldos, nómina, comisiones, facturación o pagos) y no trae la línea APROBAR PLAN";
   }
   return null;
@@ -476,8 +499,8 @@ export function porQueUnSupuestoEsDeNegocio(plan: string): string | null {
  * (porQueElPlanEsperaTuSi) más los criterios de aceptación y los supuestos de negocio. NO se usa para heredar una
  * aprobación ya dada (porQueNoHeredaLaAprobacion): un plan viejo ya aprobado sin estas secciones sigue construyéndose.
  */
-export function porQueElPlanNuevoEsperaTuSi(plan: string): string | null {
-  return porQueElPlanEsperaTuSi(plan) ?? porQueFaltanCriterios(plan) ?? porQueUnSupuestoEsDeNegocio(plan);
+export function porQueElPlanNuevoEsperaTuSi(plan: string, opciones: OpcionesDelSiDelPlan = {}): string | null {
+  return porQueElPlanEsperaTuSi(plan, opciones) ?? porQueFaltanCriterios(plan) ?? porQueUnSupuestoEsDeNegocio(plan);
 }
 
 /* ─────────────────────────────────────────────────────── el sí de la tarea (regla 25-oct) ── */
