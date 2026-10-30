@@ -21,6 +21,7 @@ import {
   NOMBRE_DEL_REPO,
   esRepo,
   esZona,
+  tocaDineroOMetaAds,
   zonasQuePidenTuSi,
   type MomentoDeAprobacion,
 } from "../services/reglas-trabajador";
@@ -65,6 +66,8 @@ type Props = {
   puedeAprobar: boolean;
   /** Dueño del negocio: el sí final y quitar zonas protegidas. */
   esDueno: boolean;
+  /** Aprobador SISTEMAS con el permiso de prueba vigente: también da el sí final, salvo en tarjetas de dinero o Meta Ads. */
+  puedeSubirSistemas?: boolean;
   /** Dueño o ADMIN de la plataforma: "Cerrar como fallida". */
   puedeCerrarComoFallida?: boolean;
   alCambiar: () => void;
@@ -88,7 +91,7 @@ function EnlaceDeLaSesion({ link }: { link: string }) {
 const BOTON = "h-11 w-full text-base";
 const BOTON_GRANDE = "h-14 w-full text-lg font-semibold";
 
-export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDueno, puedeCerrarComoFallida = false, alCambiar }: Props) {
+export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDueno, puedeSubirSistemas = false, puedeCerrarComoFallida = false, alCambiar }: Props) {
   const [ocupado, empezar] = useTransition();
   const [confirmarSubida, setConfirmarSubida] = useState(false);
   const [confirmarFallida, setConfirmarFallida] = useState(false);
@@ -100,7 +103,10 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
   // Bot de ventas, Meta Ads y libro V3 ya no piden el sí final (24-oct-2026): suben solas. Solo chats lo sigue pidiendo.
   const zonasQuePiden = zonasQuePidenTuSi(tarjeta.zonaProtegida);
   // Con zona protegida aprueba solo el dueño (lo dice el servidor; acá solo no se ofrece el botón).
-  const puedeEstaTarjeta = puedeAprobar && (!conZona || esDueno);
+  // Aprobador de Sistemas (prueba): no aprueba lo que toca dinero o Meta Ads (el servidor lo vuelve a revisar).
+  const sistemasBloqueada = puedeSubirSistemas && !esDueno && tocaDineroOMetaAds([tarjeta.titulo, tarjeta.detalle, tarjeta.plan ?? ""].join("\n"), tarjeta.zonaProtegida);
+  const puedeEstaTarjeta = puedeAprobar && (!conZona || esDueno) && !sistemasBloqueada;
+  const puedeDarElSiFinal = esDueno || (puedeSubirSistemas && !conZona && !sistemasBloqueada);
 
   // 28-oct-2026: aprobada por voz (u otra vía) y toca LIBRO_V3 o META_ADS: el Coordinador no la toma hasta que se
   // apruebe en la pantalla. Se pregunta al servidor (la misma regla que /tomar) solo si está en la fila con zona.
@@ -291,7 +297,7 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
             Aprobar tarea
           </Button>
         ) : (
-          espera("Espera la aprobación del dueño.")
+          espera(sistemasBloqueada ? "Esta tarjeta toca dinero o Meta Ads: la aprueba Alexander." : "Espera la aprobación del dueño.")
         )
       ) : null}
 
@@ -353,7 +359,7 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
             Aprobar plan
           </Button>
         ) : (
-          espera("El plan espera la aprobación del dueño (toca dinero de Gestión o gasto en Meta Ads, tiene zona protegida, o “Aprobar planes solo” está apagado).")
+          espera(sistemasBloqueada ? "Esta tarjeta toca dinero o Meta Ads: la aprueba Alexander." : "El plan espera la aprobación del dueño (toca dinero de Gestión o gasto en Meta Ads, tiene zona protegida, o “Aprobar planes solo” está apagado).")
         )
       ) : null}
 
@@ -367,8 +373,8 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
       {estado === "POR_REVISAR" ? (
         resultado?.paso !== true ? (
           espera("El Coordinador no dijo que todo pasó: no se puede subir. Revisa el resultado en “Ver detalles”.")
-        ) : !esDueno ? (
-          espera("Lista en su rama: el sí final lo da solo el dueño.")
+        ) : !puedeDarElSiFinal ? (
+          espera(sistemasBloqueada ? "Esta tarjeta toca dinero o Meta Ads: la aprueba Alexander." : "Lista en su rama: el sí final lo da solo el dueño.")
         ) : confirmarSubida ? (
           <div role="alertdialog" aria-label="Confirmar la subida a producción" className="space-y-3 rounded-lg border-2 border-primary p-3">
             <p className="text-base font-medium">Se sube a producción. ¿Seguro?</p>

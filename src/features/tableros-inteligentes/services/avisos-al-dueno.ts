@@ -1,9 +1,10 @@
 import { ORIGEN_COORDINADOR, esDeDineroMetaOClave, textoDeVariasUrgentes, tituloDelTexto, type Prioridad } from "@/features/alertas/dominio/reglas";
-import { marcarSalioPorWhatsApp, registrarAlerta, soloUrgentesPrendido } from "@/features/alertas/servicios/alertas";
+import { leerResponsableDeSistemas, marcarSalioPorWhatsApp, registrarAlerta, soloUrgentesPrendido } from "@/features/alertas/servicios/alertas";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
 import { ultimoLatido } from "./coordinador-en-vivo";
+import { cifrasDeHoy, diaDeBogota, horaDeBogota, textoDelResumenDiario } from "./resumen-diario";
 import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
 import { REPOS_DEL_TRABAJADOR, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
 import { SQL_FUERA_POR_LA_VIA } from "./sql-trabajador";
@@ -56,6 +57,9 @@ export const LINEA_ADMIN_ID = "cmt06kiob00lw2hk2mgllstsb";
 export const claveTelefonoDelDueno = (workspaceId: string) => `tablero:avisos-dueno:telefono:${workspaceId}`;
 export const claveInterruptorDeAvisos = (workspaceId: string) => `tablero:avisos-dueno:activo:${workspaceId}`;
 export const claveEstadoDeAvisos = (workspaceId: string) => `tablero:avisos-dueno:estado:${workspaceId}`;
+/** Teléfono de Sistemas (Emanuel) para las alertas técnicas, con su propio interruptor (mismo mecanismo que el del dueño). */
+export const claveTelefonoDeSistemas = (workspaceId: string) => `tablero:avisos-sistemas:telefono:${workspaceId}`;
+export const claveInterruptorDeSistemas = (workspaceId: string) => `tablero:avisos-sistemas:activo:${workspaceId}`;
 /** El ajuste que usaba el aviso del Coordinador antes de que existiera la caja de Mi empresa. */
 const claveTelefonoViejo = (workspaceId: string) => `trabajador:aviso-telefono:${workspaceId}`;
 
@@ -213,13 +217,13 @@ export async function lineaAdmin(workspaceId: string) {
   return porNombre?.evolutionInstanceName ? { name: porNombre.name, instancia: porNombre.evolutionInstanceName } : null;
 }
 
-/** El texto recortado a las primeras 3 líneas con contenido. */
-export function aTresLineas(texto: string): string {
+/** El texto recortado a las primeras 3 líneas con contenido (o `maximo`, p. ej. 4 para el resumen diario). */
+export function aTresLineas(texto: string, maximo: number = MAXIMO_LINEAS): string {
   return texto
     .split("\n")
     .map((linea) => linea.trimEnd())
     .filter((linea) => linea.trim())
-    .slice(0, MAXIMO_LINEAS)
+    .slice(0, maximo)
     .join("\n");
 }
 
@@ -229,7 +233,7 @@ export type ResultadoDelEnvio = { salio: boolean; motivo: string | null; linea?:
  * Manda el texto al dueño desde la línea Admin. El destino SOLO sale de lo guardado (validado otra vez acá).
  * Nunca lanza: devuelve por qué no salió. No mira el silencio ni el interruptor (eso es de quien llama).
  */
-export async function enviarAlDueno(workspaceId: string, texto: string): Promise<ResultadoDelEnvio> {
+export async function enviarAlDueno(workspaceId: string, texto: string, maximoLineas: number = MAXIMO_LINEAS): Promise<ResultadoDelEnvio> {
   const guardado = await telefonoGuardado(workspaceId);
   if (!guardado) return { salio: false, motivo: "falta su número en Mi empresa → Claude" };
   const validado = await validarTelefonoDelDueno(workspaceId, guardado);
@@ -237,12 +241,84 @@ export async function enviarAlDueno(workspaceId: string, texto: string): Promise
   const linea = await lineaAdmin(workspaceId);
   if (!linea) return { salio: false, motivo: 'no hay línea Admin conectada (ni la fija ni una llamada "Admin")' };
   try {
-    await sendEvolutionTextMessageWithReconnect({ instanceName: linea.instancia, phoneNumber: validado.numero, text: aTresLineas(texto) });
+    await sendEvolutionTextMessageWithReconnect({ instanceName: linea.instancia, phoneNumber: validado.numero, text: aTresLineas(texto, maximoLineas) });
     return { salio: true, motivo: null, linea: linea.name, numero: `…${validado.numero.slice(-4)}` };
   } catch (error) {
     console.warn("[avisos-al-dueno] no salió el WhatsApp", { numero: `…${validado.numero.slice(-4)}`, error: error instanceof Error ? error.message : String(error) });
     return { salio: false, motivo: "la línea Admin no pudo enviar el mensaje (¿está desconectada?)" };
   }
+}
+
+/* ───────────────────────────────────────────── a quién le llega cada aviso: Alexander o Sistemas ── */
+
+export type DestinoDelAviso = "dueno" | "sistemas";
+
+/**
+ * Decisión del dueño (29-oct-2026): lo técnico (Coordinador caído, sin trabajo, tarjetas en error o atascadas, límite de
+ * uso) le llega a Sistemas (Emanuel). Lo que necesita dinero, Meta Ads o una clave, o el sí del dueño en la pantalla,
+ * sigue yendo a Alexander.
+ */
+export function destinoDelAviso(tipo: TipoDeAviso, prioridad: Prioridad): DestinoDelAviso {
+  if (tipo === "aprobar_en_pantalla") return "dueno";
+  if (tipo === "necesita") return prioridad === "URGENTE" ? "dueno" : "sistemas";
+  return "sistemas";
+}
+
+/** El número de Sistemas, validado: el guardado con su interruptor o, sin eso, el del responsable de Sistemas. Null si no hay uno que sirva. */
+export async function telefonoDeSistemas(workspaceId: string): Promise<string | null> {
+  const [interruptor, guardado, responsableId] = await Promise.all([
+    prisma.appSetting.findUnique({ where: { key: claveInterruptorDeSistemas(workspaceId) }, select: { value: true } }),
+    prisma.appSetting.findUnique({ where: { key: claveTelefonoDeSistemas(workspaceId) }, select: { value: true } }),
+    leerResponsableDeSistemas(workspaceId),
+  ]);
+  if (interruptor?.value === "false") return null;
+  let numero = normalizarTelefono(guardado?.value);
+  if (!numero && responsableId) {
+    const usuario = await prisma.user.findUnique({ where: { id: responsableId }, select: { phone: true } });
+    numero = normalizarTelefono(usuario?.phone);
+  }
+  if (!numero) return null;
+  // Nunca a una línea del negocio (se mandaría el aviso a sí mismo).
+  const lineas = await prisma.whatsAppChannel.findMany({ where: { workspaceId }, select: { phoneNumber: true } });
+  return lineas.some((linea) => igualNumero(linea.phoneNumber, numero)) ? null : numero;
+}
+
+/** Guarda el teléfono de Sistemas ("" = quitarlo) y/o su interruptor. Quien llama ya validó que es el dueño. */
+export async function guardarConfigDeSistemas(workspaceId: string, cambios: { telefono?: string; activo?: boolean }): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (cambios.telefono !== undefined) {
+    if (!String(cambios.telefono).trim()) {
+      await guardarAjuste(claveTelefonoDeSistemas(workspaceId), "");
+    } else {
+      const numero = normalizarTelefono(cambios.telefono);
+      if (!numero) return { ok: false, error: "El número no sirve: escríbalo solo con dígitos y con indicativo (por ejemplo 573001234567)." };
+      const lineas = await prisma.whatsAppChannel.findMany({ where: { workspaceId }, select: { name: true, phoneNumber: true } });
+      const choque = lineas.find((linea) => igualNumero(linea.phoneNumber, numero));
+      if (choque) return { ok: false, error: `Ese número es de la línea "${choque.name}": tiene que ser el número personal de Sistemas.` };
+      await guardarAjuste(claveTelefonoDeSistemas(workspaceId), numero);
+    }
+  }
+  if (cambios.activo !== undefined) await guardarAjuste(claveInterruptorDeSistemas(workspaceId), cambios.activo ? "true" : "false");
+  return { ok: true };
+}
+
+/**
+ * Manda el aviso a su destinatario. Los técnicos van a Sistemas; sin número válido de Sistemas (o si la línea no pudo enviar)
+ * se mantiene el comportamiento de antes: sale a Alexander, y el motivo queda anotado.
+ */
+export async function enviarAviso(workspaceId: string, texto: string, destino: DestinoDelAviso): Promise<ResultadoDelEnvio> {
+  if (destino === "dueno") return enviarAlDueno(workspaceId, texto);
+  const numero = await telefonoDeSistemas(workspaceId);
+  const linea = numero ? await lineaAdmin(workspaceId) : null;
+  if (numero && linea) {
+    try {
+      await sendEvolutionTextMessageWithReconnect({ instanceName: linea.instancia, phoneNumber: numero, text: aTresLineas(texto) });
+      return { salio: true, motivo: null, linea: linea.name, numero: `…${numero.slice(-4)}` };
+    } catch (error) {
+      console.warn("[avisos-al-dueno] no salió el WhatsApp a Sistemas", { numero: `…${numero.slice(-4)}`, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  const respaldo = await enviarAlDueno(workspaceId, texto);
+  return { ...respaldo, motivo: respaldo.salio ? "sin teléfono de Sistemas que sirva: salió a Alexander" : respaldo.motivo };
 }
 
 /* ───────────────────────────────────────────────────────────────────── las reglas (puras) ── */
@@ -549,23 +625,60 @@ export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<
     return { enviados: 0 };
   }
 
-  const texto = soloUrgentes ? armarMensajeUrgente(porAvisar) : armarMensaje(porAvisar);
-  const envio = await enviarAlDueno(workspaceId, texto);
-  if (envio.salio) {
-    for (const aviso of porAvisar) {
-      estado.avisados[aviso.clave] = ahora.toISOString();
-      await marcarSalioPorWhatsApp(workspaceId, aviso.clave);
+  // Un mensaje por destinatario: lo técnico a Sistemas, lo que necesita dinero, Meta Ads o una clave a Alexander.
+  let enviados = 0;
+  for (const destino of ["sistemas", "dueno"] as const) {
+    const grupo = porAvisar.filter((aviso) => destinoDelAviso(aviso.tipo, aviso.prioridad) === destino);
+    if (!grupo.length) continue;
+    const texto = soloUrgentes ? armarMensajeUrgente(grupo) : armarMensaje(grupo);
+    const envio = await enviarAviso(workspaceId, texto, destino);
+    if (envio.salio) {
+      for (const aviso of grupo) {
+        estado.avisados[aviso.clave] = ahora.toISOString();
+        await marcarSalioPorWhatsApp(workspaceId, aviso.clave);
+      }
+      enviados += 1;
     }
+    anotarEnHistorial(estado, {
+      cuando: ahora.toISOString(),
+      tipo: grupo.map((aviso) => aviso.tipo).join("+"),
+      texto,
+      salio: envio.salio,
+      motivo: envio.salio ? (envio.motivo ?? null) : `no salió: ${envio.motivo}`,
+    });
   }
-  anotarEnHistorial(estado, {
-    cuando: ahora.toISOString(),
-    tipo: porAvisar.map((aviso) => aviso.tipo).join("+"),
-    texto,
-    salio: envio.salio,
-    motivo: envio.salio ? null : `no salió: ${envio.motivo}`,
-  });
   await guardarEstadoDeAvisos(workspaceId, estado);
-  return { enviados: envio.salio ? 1 : 0 };
+  return { enviados };
+}
+
+/* ───────────────────────────────────────────────────────────────────── el resumen diario a Alexander ── */
+
+/** Hora de Bogotá en que sale el resumen diario (antes del silencio de las 9 p. m.). */
+export const HORA_DEL_RESUMEN_DIARIO = 19;
+export const claveUltimoResumenDiario = (workspaceId: string) => `tablero:resumen-diario:ultimo:${workspaceId}`;
+
+/**
+ * Una vez al día (desde las 7 p. m. de Bogotá, nunca en el silencio) manda a Alexander, por la línea Admin, el resumen de
+ * máximo 4 líneas. Respeta el interruptor de avisos. Si hoy no pasó nada, no manda nada. Si no sale, se reintenta
+ * en la vuelta siguiente hasta las 9 p. m.
+ */
+export async function enviarResumenDiario(workspaceId: string, ahora: Date = new Date()): Promise<{ enviado: boolean }> {
+  if (horaDeBogota(ahora) < HORA_DEL_RESUMEN_DIARIO || enSilencioDeAvisos(ahora)) return { enviado: false };
+  if (!(await avisosPrendidos(workspaceId))) return { enviado: false };
+  const dia = diaDeBogota(ahora);
+  const ultimo = await prisma.appSetting.findUnique({ where: { key: claveUltimoResumenDiario(workspaceId) }, select: { value: true } });
+  if (ultimo?.value === dia) return { enviado: false };
+  const texto = textoDelResumenDiario(await cifrasDeHoy(workspaceId, ahora));
+  if (!texto) {
+    await guardarAjuste(claveUltimoResumenDiario(workspaceId), dia);
+    return { enviado: false };
+  }
+  const envio = await enviarAlDueno(workspaceId, texto, 4);
+  if (envio.salio) await guardarAjuste(claveUltimoResumenDiario(workspaceId), dia);
+  const estado = await leerEstadoDeAvisos(workspaceId);
+  anotarEnHistorial(estado, { cuando: ahora.toISOString(), tipo: "resumen_diario", texto, salio: envio.salio, motivo: envio.salio ? null : `no salió: ${envio.motivo}` });
+  await guardarEstadoDeAvisos(workspaceId, estado);
+  return { enviado: envio.salio };
 }
 
 /** La vuelta del reloj (cada minuto): revisa cada negocio con tableros. Nunca lanza por un negocio. */
@@ -575,6 +688,7 @@ export async function revisarAvisosAlDueno(ahora = new Date()): Promise<{ enviad
   for (const { workspaceId } of negocios) {
     try {
       enviados += (await revisarNegocio(workspaceId, ahora)).enviados;
+      if ((await enviarResumenDiario(workspaceId, ahora)).enviado) enviados += 1;
     } catch (error) {
       console.error("[avisos-al-dueno] no se pudo revisar el negocio", { workspaceId, error: error instanceof Error ? error.message : String(error) });
     }
@@ -612,7 +726,7 @@ export async function registrarAvisoDelCoordinador(
     await guardarEstadoDeAvisos(workspaceId, estado);
     return { salio: false, motivo: "no es urgente: quedó en la página de alertas" };
   }
-  const envio = await enviarAlDueno(workspaceId, soloUrgentes ? textoDeVariasUrgentes([titulo]) : texto);
+  const envio = await enviarAviso(workspaceId, soloUrgentes ? textoDeVariasUrgentes([titulo]) : texto, destinoDelAviso(tipo as TipoDeAviso, prioridad));
   if (envio.salio) {
     estado.avisados[clave] = ahora.toISOString();
     await marcarSalioPorWhatsApp(workspaceId, clave);

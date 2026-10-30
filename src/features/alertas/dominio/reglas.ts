@@ -112,9 +112,20 @@ export function prioridadDeGravedad(gravedad: string): Prioridad {
   return "ALTA";
 }
 
-/** ¿El motivo habla de dinero, Meta Ads o una clave/permiso? Solo eso hace urgente un "necesita tu decisión". */
+/**
+ * ¿El texto habla de dinero, Meta Ads o una clave/permiso? Hace urgente un "necesita tu decisión" y es el límite de
+ * Emanuel (Sistemas, periodo de prueba): lo que toca esto lo aprueba solo Alexander. Sin tildes ni mayúsculas, y en la duda
+ * se prefiere que cuente (pedirle el sí a Alexander de más que de menos).
+ */
+const RE_DINERO_META_O_CLAVE =
+  /\b(meta[ -]?ads?|facebook ads|pixel|dinero|presupuesto|gastos?|pagos?|pagar|cobros?|cobrar|plata|abonos?|saldos?|nomina|sueldos?|salarios?|comisi\w+|factur\w+|campan\w+|anunci\w+|pauta|cartera|deuda\w*|credito|ingresos?|egresos?|recaudo|reembolso\w*|clave|claves|token|tokens|credencial\w*|contrasen\w+|api ?key|secret\w*|acceso|permiso\w*)\b/;
+
 export function esDeDineroMetaOClave(texto: string): boolean {
-  return /\b(meta ads?|dinero|presupuesto|gasto|pago|pagos|cobro|plata|clave|claves|token|tokens|credencial\w*|contrase\w+|api ?key|secret\w*|acceso|permiso\w*)\b/i.test(String(texto ?? ""));
+  const limpio = String(texto ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return RE_DINERO_META_O_CLAVE.test(limpio);
 }
 
 /** La clave de una alerta sin clave propia: el sistema y el título (hash corto, para no guardar textos largos). */

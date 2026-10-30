@@ -302,6 +302,12 @@ const PALABRAS_DE_GASTO_EN_META =
   /\b(presupuesto\w*|budget\w*|(activ\w*|encend\w*|prend\w*|lanz\w*|reanud\w*|publica\w*|cre[ao]\w*) (las |los |la |el |una |un |nuevas? |nuevos? )?(campan\w*|anuncio\w*|ads)|(subir|aumentar|subid\w*|aument\w*|crear|cree|crea) (el |un |nuevo )?gasto\w*|gasto\w* (en|de|con) (meta|anuncio\w*|publicidad|ads)|gastar en (meta|anuncio\w*|publicidad|ads))\b/;
 
 /** La marca del plan para los cambios de Meta Ads que gastan plata (24-oct-2026): "GASTO EN META ADS: <qué>". */
+/** ¿El texto habla de dinero de Gestión (abonos, saldos, nómina, comisiones, facturación, pagos) o de presupuesto, campañas o gasto en Meta Ads? */
+export function hablaDeDineroOMetaAds(texto: string): boolean {
+  const normal = normalizar(texto);
+  return PALABRAS_DE_DINERO_DE_GESTION.test(normal) || PALABRAS_DE_GASTO_EN_META.test(normal);
+}
+
 export const MARCA_GASTO_EN_META_ADS = "GASTO EN META ADS";
 
 const LINEA_GASTO_EN_META_ADS = /^[ \t>*_#-]*\**gasto en meta ads\**\s*[:.\u2014\u2013-]?\s*\**\s*(.*)$/;

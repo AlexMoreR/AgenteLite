@@ -47,6 +47,8 @@ import {
   estadoAlPonerRepo,
   motivoNoEsDueno,
   partidaDelResultado,
+  ALCANCE_SISTEMAS,
+  permisoDeSistemasVigente,
   puedeAprobarMomento,
   puedeCerrarComoFallida,
   puedeCambiarZonas,
@@ -2078,7 +2080,28 @@ export async function personaQueAprueba(
     cuenta,
     // Un aprobador que ya no es miembro activo del negocio no aprueba.
     aprobador: aprobador && miembro ? aprobador : null,
+    // Solo importa al aprobador SISTEMAS: su permiso de prueba vence el 29-nov-2026 (o la fecha del ajuste del negocio).
+    ...(aprobador && miembro && aprobador.alcance === ALCANCE_SISTEMAS
+      ? { sistemasVigente: permisoDeSistemasVigente(new Date(), await vencimientoDeSistemas(workspaceId)) }
+      : {}),
   };
+}
+
+/** Ajuste opcional con otra fecha de vencimiento del permiso de Sistemas (ISO). Sin fila, vale la fecha fija (29-nov-2026). */
+export const claveVencimientoDeSistemas = (workspaceId: string) => `tablero:sistemas-vence:${workspaceId}`;
+
+async function vencimientoDeSistemas(workspaceId: string): Promise<string | undefined> {
+  try {
+    const fila = await prisma.appSetting.findUnique({ where: { key: claveVencimientoDeSistemas(workspaceId) }, select: { value: true } });
+    return fila?.value?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** El texto que mira el límite de dinero y Meta Ads: título, detalle, plan y repo de la tarjeta. */
+function textoDeLaTarjetaParaElLimite(tarjeta: { titulo: string; detalle?: string | null; plan?: string | null }) {
+  return [tarjeta.titulo, tarjeta.detalle ?? "", tarjeta.plan ?? ""].join("\n");
 }
 
 /** Cómo llega una aprobación: el momento, por dónde, el texto de la persona (voz) y lo que vio (pantalla). */
@@ -2151,6 +2174,7 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
     resultadoPaso: resultado.paso === true,
     textoConfirmacion: pedido.textoConfirmacion,
     persona,
+    textoDeLaTarjeta: textoDeLaTarjetaParaElLimite(actual),
     ...(viaAnterior !== undefined ? { viaDeLaUltimaAprobacion: viaAnterior } : {}),
   });
   if ("error" in veredicto) throw new Error(veredicto.error);
@@ -2165,6 +2189,8 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
     quienNombre: persona.nombre,
     userId: contexto.userId,
     textoConfirmacion: texto || null,
+    // Toda aprobación de Emanuel (aprobador SISTEMAS) queda marcada como "periodo de prueba".
+    ...(!persona.esDueno && persona.aprobador?.alcance === ALCANCE_SISTEMAS ? { periodoDePrueba: true as const } : {}),
   });
   return prisma.$transaction(async (tx) => {
     // Condicionado al estado, al momento en que se leyó, al tipo y al repo: si Claude la editó o el

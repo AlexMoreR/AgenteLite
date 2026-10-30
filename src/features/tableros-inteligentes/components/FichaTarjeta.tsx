@@ -133,6 +133,8 @@ type Props = {
   puedeAprobar: boolean;
   /** Dueño del negocio: el sí final (subir a producción) y quitar zonas protegidas. */
   esDueno: boolean;
+  /** Aprobador SISTEMAS vigente (periodo de prueba): da también el sí final en lo que no toca dinero ni Meta Ads. */
+  puedeSubirSistemas?: boolean;
   /** Dueño o ADMIN de la plataforma: "Cerrar como fallida" (el servidor vuelve a revisarlo). */
   puedeCerrarComoFallida?: boolean;
   /** Puede usar el cerebro (el dueño o quien él autorizó): muestra "Pasar al cerebro" en tarjetas hechas o de decisión. */
@@ -164,6 +166,7 @@ export function FichaTarjeta({
   lado,
   puedeAprobar,
   esDueno,
+  puedeSubirSistemas,
   puedeCerrarComoFallida = false,
   puedeCerebro = false,
   miembros,
@@ -338,6 +341,7 @@ export function FichaTarjeta({
                 pideAprobacion={pideAprobacion}
                 puedeAprobar={puedeAprobar}
                 esDueno={esDueno}
+                puedeSubirSistemas={puedeSubirSistemas}
                 puedeCerrarComoFallida={puedeCerrarComoFallida}
                 alCambiar={() => {
                   setHistorial(null);

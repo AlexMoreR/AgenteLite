@@ -148,6 +148,28 @@ export function textoDelResumen(cifras: CifrasDelDia, link: string = linkDeHoy()
   return `Hoy: ${partes.join(", ")}\nVer: ${link}`;
 }
 
+/**
+ * El resumen DIARIO que sale por WhatsApp a Alexander (29-oct-2026: Emanuel lleva Sistemas, Alexander solo recibe esto).
+ * Máximo 4 líneas: qué se arregló, qué falló y qué está pendiente. Sin links, sin títulos ni listas para revisar.
+ * Vacío si las tres cifras son 0 (entonces no se manda nada).
+ */
+export function textoDelResumenDiario(cifras: CifrasDelDia): string {
+  if (haySinMovimiento(cifras)) return "";
+  const cuantas = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
+  return [
+    "Sistemas hoy:",
+    `✅ Se arregló: ${cifras.listas ? cuantas(cifras.listas, "tarea", "tareas") : "nada"}`,
+    `⚠️ Falló: ${cifras.conProblema ? cuantas(cifras.conProblema, "tarea", "tareas") : "nada"}`,
+    `👆 Pendiente: ${cifras.esperando ? cuantas(cifras.esperando, "tarjeta", "tarjetas") : "nada"}`,
+  ].join("\n");
+}
+
+/** Las cifras de HOY para el resumen diario (lo mismo que la caja "Resumen de hoy"). */
+export async function cifrasDeHoy(workspaceId: string, ahora = new Date()): Promise<CifrasDelDia> {
+  const [resumen, esperando] = await Promise.all([resumenDelDia(workspaceId, diaDeBogota(ahora)), cuantasEsperan(workspaceId)]);
+  return cifrasDelDia(resumen, esperando);
+}
+
 /* ───────────────────────────────────────────────────────────────────── la base ── */
 
 /** Lo del historial del negocio en ese día: las aprobaciones automáticas y lo que hizo el Coordinador. */

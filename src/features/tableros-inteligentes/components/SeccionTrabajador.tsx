@@ -28,7 +28,7 @@ import {
   - Crear clave: se muestra UNA vez (se guarda solo su huella). Va en trabajador-tablero/config.local.json.
   - Revocar: el Coordinador deja de entrar al instante.
   - Último uso: la última vez que el Coordinador preguntó (pregunta cada minuto: si es viejo, está apagado).
-  - Aprobadores: miembros del negocio con alcance DESARROLLO (aprueban la tarea y el plan de tarjetas
+  - Aprobadores: miembros del negocio con alcance SISTEMAS (Emanuel, prueba hasta el 29-nov-2026), DESARROLLO (aprueban la tarea y el plan de tarjetas
     con repo gestion/aizencrm) o TODO. El sí final (subir a producción) es siempre del dueño. Si la
     persona todavía no tiene usuario en el negocio, se agrega cuando lo tenga.
 */
@@ -47,7 +47,7 @@ export function SeccionTrabajador() {
   const [nombreClave, setNombreClave] = useState("aizen1");
   const [claveNueva, setClaveNueva] = useState<string | null>(null);
   const [candidato, setCandidato] = useState("");
-  const [alcance, setAlcance] = useState<"DESARROLLO" | "TODO">("DESARROLLO");
+  const [alcance, setAlcance] = useState<"DESARROLLO" | "TODO" | "SISTEMAS">("DESARROLLO");
 
   const cargar = useCallback(async () => {
     const respuesta = await panelTrabajadorAction();
@@ -269,8 +269,8 @@ export function SeccionTrabajador() {
         <div className="space-y-2 rounded-xl border bg-card p-4">
           <p className="text-sm font-medium">Quién más aprueba</p>
           <p className="text-xs text-muted-foreground">
-            Tú apruebas todo. Un aprobador DESARROLLO aprueba la tarea y el plan de tarjetas con repo (Gestión, AizenCRM). El sí final
-            para subir a producción es solo tuyo.
+            Tú apruebas todo. Un aprobador DESARROLLO aprueba la tarea y el plan de tarjetas con repo (Gestión, AizenCRM). Un aprobador SISTEMAS (periodo de prueba hasta el 29-nov-2026) aprueba la tarea, el plan y el sí final de las tarjetas de Tecnología, menos las que tocan dinero o Meta Ads. El sí final
+            para subir a producción es solo tuyo, salvo ese caso.
           </p>
           {panel?.aprobadores.map((aprobador) => (
             <div key={aprobador.id} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
@@ -299,8 +299,9 @@ export function SeccionTrabajador() {
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
-              <NativeSelect value={alcance} onChange={(evento) => setAlcance(evento.target.value === "TODO" ? "TODO" : "DESARROLLO")}>
+              <NativeSelect value={alcance} onChange={(evento) => setAlcance(evento.target.value === "TODO" ? "TODO" : evento.target.value === "SISTEMAS" ? "SISTEMAS" : "DESARROLLO")}>
                 <NativeSelectOption value="DESARROLLO">Desarrollo</NativeSelectOption>
+                <NativeSelectOption value="SISTEMAS">Sistemas (prueba)</NativeSelectOption>
                 <NativeSelectOption value="TODO">Todo</NativeSelectOption>
               </NativeSelect>
               <Button

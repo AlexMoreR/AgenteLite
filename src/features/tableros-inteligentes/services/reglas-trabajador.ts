@@ -41,6 +41,9 @@
      CHATS y BOT_VENTAS ya no esperan: suben o quedan en ERROR).
   5. Un aprobador (AprobadorTablero) con alcance DESARROLLO aprueba la tarea y el plan solo de
      tarjetas con repo de desarrollo (gestion, aizencrm); con alcance TODO, cualquiera.
+  5b. Alcance SISTEMAS (Emanuel, periodo de prueba hasta el 29-nov-2026): aprueba la tarea, el plan Y el sí final de
+     subida, solo en tarjetas con repo de desarrollo, sin zona protegida y que NO toquen dinero ni Meta Ads
+     (tocaDineroOMetaAds sobre título, detalle, plan y zona; en la duda se bloquea). Vencido el permiso deja de aprobar.
   6. La zona protegida se puede PONER desde el MCP (y la pone el Coordinador si el cambio toca una de
      esas rutas), pero quitarla lo hace solo el dueño en la pantalla.
   7. Por el MCP, una tarjeta PLAN_LISTO o ERROR se borra solo si el dueño lo pidió por voz: texto con
@@ -62,8 +65,9 @@ import {
   estaTrabajando,
   sePuedeMarcarHechoAMano,
 } from "./reglas";
+import { esDeDineroMetaOClave } from "@/features/alertas/dominio/reglas";
 import { type ModelosDelResultado, esLinkDeSesion, modelosDeEntrada } from "./modelos-del-coordinador";
-import { archivosDeEntrada, migracionDestructivaDeEntrada, porQueElPlanEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
+import { archivosDeEntrada, hablaDeDineroOMetaAds, migracionDestructivaDeEntrada, porQueElPlanEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
 
 /* ───────────────────────────────────────────────────────────────────── repos ── */
 
@@ -517,9 +521,31 @@ export type ViaDeAprobacion = "pantalla" | "voz";
 
 /**
  * El sí final (subir a producción) lo da SOLO el dueño del negocio. Si algún día se quiere que un
- * aprobador con `puedeSubir` también pueda, se cambia esto a false (y nada más).
+ * aprobador con `puedeSubir` también pueda, se cambia esto a false (y nada más). La única excepción es el
+ * aprobador SISTEMAS vigente (periodo de prueba) y solo en tarjetas que no tocan dinero ni Meta Ads.
  */
 export const SI_FINAL_SOLO_DUENO = true;
+
+/* ───────────────────────────────────────────────────── aprobador de Sistemas (periodo de prueba) ── */
+
+export const ALCANCE_SISTEMAS = "SISTEMAS";
+/** Último día de la prueba (29-nov-2026, hora de Bogotá, UTC-5): vence al terminar ese día. Se puede mover con el ajuste del negocio. */
+export const FIN_DE_LA_PRUEBA_DE_SISTEMAS = "2026-11-30T05:00:00.000Z";
+export const MENSAJE_DINERO_O_META_ADS = "Esta tarjeta toca dinero o Meta Ads: la aprueba Alexander.";
+
+/** ¿El permiso de Sistemas sigue vigente? Fecha ilegible = vencido (no se da permiso por un ajuste roto). */
+export function permisoDeSistemasVigente(ahora: Date, venceEn: string | null | undefined = FIN_DE_LA_PRUEBA_DE_SISTEMAS): boolean {
+  const vence = Date.parse(venceEn ?? FIN_DE_LA_PRUEBA_DE_SISTEMAS);
+  return Number.isFinite(vence) && ahora.getTime() < vence;
+}
+
+/** ¿La tarjeta toca dinero de Gestión o Meta Ads? Mira el texto (título, detalle, plan) y las zonas. Sin texto no se sabe: cuenta como que sí. */
+export function tocaDineroOMetaAds(texto: string | undefined, zonaProtegida: readonly string[] = []): boolean {
+  if (texto === undefined) return true;
+  if (zonaProtegida.includes("META_ADS")) return true;
+  const completo = [texto, ...zonaProtegida].join(" ");
+  return hablaDeDineroOMetaAds(completo) || esDeDineroMetaOClave(completo);
+}
 
 export function esMomento(valor: unknown): valor is MomentoDeAprobacion {
   return typeof valor === "string" && (MOMENTOS_DE_APROBACION as readonly string[]).includes(valor);
@@ -688,6 +714,8 @@ export type PersonaQueAprueba = {
   esAdminPlataforma: boolean;
   /** Su fila en AprobadorTablero, si la tiene. */
   aprobador: { alcance: string; puedeSubir: boolean } | null;
+  /** Solo para alcance SISTEMAS: ¿el permiso de prueba sigue vigente hoy? (sin dato = vencido) */
+  sistemasVigente?: boolean;
   /** La cuenta, para decir en el error con quién llegó y por qué no es la dueña. */
   cuenta?: CuentaQueAprueba;
 };
@@ -717,6 +745,8 @@ export type PedidoDeAprobacion = {
    * espera la pantalla (aprobada por voz y toca LIBRO_V3 / META_ADS, 28-oct-2026) se puede volver a aprobar en la pantalla.
    */
   viaDeLaUltimaAprobacion?: string | null;
+  /** Título, detalle y plan de la tarjeta, para el límite de dinero y Meta Ads del aprobador SISTEMAS. Sin esto, SISTEMAS no aprueba. */
+  textoDeLaTarjeta?: string;
 };
 
 /** ¿Esta persona puede aprobar este momento de esta tarjeta? (sin mirar el estado) */
@@ -726,7 +756,18 @@ export function personaPuedeAprobarMomento(
   via: ViaDeAprobacion,
   repo: string | null,
   zonaProtegida: readonly string[],
+  textoDeLaTarjeta?: string,
 ): Veredicto {
+  const esSistemas = !persona.esDueno && persona.aprobador?.alcance === ALCANCE_SISTEMAS;
+  if (esSistemas) {
+    if (!persona.sistemasVigente) return "Tu permiso de Sistemas (periodo de prueba) ya venció: lo decide Alexander.";
+    if (!repo || !(REPOS_DE_DESARROLLO as readonly string[]).includes(repo)) {
+      return "Tu alcance es SISTEMAS: apruebas solo tarjetas de Tecnología (con repo gestion o aizencrm).";
+    }
+    if (zonaProtegida.length) return `Esta tarjeta toca una zona protegida: la aprueba solo el dueño, en la pantalla.${conLaCuenta(persona, via)}`;
+    if (tocaDineroOMetaAds(textoDeLaTarjeta, zonaProtegida)) return MENSAJE_DINERO_O_META_ADS;
+    return null;
+  }
   if (momento === "subir") {
     const puede = persona.esDueno || (!SI_FINAL_SOLO_DUENO && Boolean(persona.aprobador?.puedeSubir));
     return puede ? null : `El sí final (subir a producción) lo da solo el dueño del negocio.${conLaCuenta(persona, via)}`;
@@ -812,7 +853,7 @@ export function puedeAprobarMomento(pedido: PedidoDeAprobacion): { a: EstadoTarj
     const texto = textoDeConfirmacionValido(pedido.textoConfirmacion);
     if (texto) return { error: texto };
   }
-  const quien = personaPuedeAprobarMomento(pedido.persona, momento, pedido.via, pedido.repo, pedido.zonaProtegida);
+  const quien = personaPuedeAprobarMomento(pedido.persona, momento, pedido.via, pedido.repo, pedido.zonaProtegida, pedido.textoDeLaTarjeta);
   if (quien) return { error: quien };
   const destino = destinoDeLaAprobacion(momento, pedido.estado, {
     repo: pedido.repo,
@@ -836,12 +877,15 @@ export type RegistroDeAprobacion = {
   quienNombre: string;
   userId: string;
   textoConfirmacion: string | null;
-  /** "aprobado por voz" o "aprobado en pantalla". */
+  /** "aprobado por voz" o "aprobado en pantalla" (y "(periodo de prueba)" si la dio el aprobador de Sistemas). */
   como: string;
+  /** true si la dio el aprobador SISTEMAS en su periodo de prueba. */
+  periodoDePrueba?: true;
 };
 
 export function registroDeAprobacion(datos: Omit<RegistroDeAprobacion, "como">): RegistroDeAprobacion {
-  return { ...datos, como: datos.via === "voz" ? "aprobado por voz" : "aprobado en pantalla" };
+  const base = datos.via === "voz" ? "aprobado por voz" : "aprobado en pantalla";
+  return { ...datos, como: datos.periodoDePrueba ? `${base} (periodo de prueba)` : base };
 }
 
 /* ───────────────────────────────────────────────────────────────────── hecho a mano ── */

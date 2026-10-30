@@ -58,6 +58,7 @@
     "test:tablero-responsable": "node scripts/check-tablero-responsable.mjs",
     "test:tablero-resumen-diario": "node scripts/check-tablero-resumen-diario.mjs",
     "test:tablero-avisos-al-dueno": "node scripts/check-tablero-avisos-al-dueno.mjs",
+    "test:tablero-aprobador-sistemas": "node scripts/check-tablero-aprobador-sistemas.mjs",
     "test:tablero-avisos-al-equipo": "node scripts/check-tablero-avisos-al-equipo.mjs",
     "test:tablero-avisos-de-terminadas": "node scripts/check-tablero-avisos-de-terminadas.mjs",
     "test:coordinador-en-vivo": "node scripts/check-coordinador-en-vivo.mjs",

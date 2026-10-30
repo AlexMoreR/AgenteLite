@@ -246,10 +246,10 @@ export async function listarAprobadores(workspaceId: string) {
   };
 }
 
-/** Agrega un miembro activo del negocio como aprobador (alcance DESARROLLO o TODO). */
+/** Agrega un miembro activo del negocio como aprobador (alcance DESARROLLO, TODO o SISTEMAS: el de Emanuel, en prueba). */
 export async function agregarAprobador(workspaceId: string, userId: unknown, alcance: unknown) {
   const id = typeof userId === "string" ? userId : "";
-  const elAlcance = alcance === "TODO" ? "TODO" : "DESARROLLO";
+  const elAlcance = alcance === "TODO" ? "TODO" : alcance === "SISTEMAS" ? "SISTEMAS" : "DESARROLLO";
   const miembro = await prisma.workspaceMember.findFirst({ where: { workspaceId, userId: id, isActive: true }, select: { id: true } });
   if (!miembro) throw new Error("Esa persona no es miembro activo del negocio. Cuando tenga usuario, se agrega.");
   try {

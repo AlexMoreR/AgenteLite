@@ -8,7 +8,7 @@ import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resum
 import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
-import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
+import { avisosPrendidos, leerEstadoDeAvisos, telefonoDeSistemas, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 
@@ -413,9 +413,17 @@ async function estadoDeAprobarPlanesSolo(workspaceId: string) {
     : `APAGADA: todos los planes piden el sí del dueño (${esperando} en PLAN_LISTO ahora)`;
 }
 
-/** Tablero IA: el resumen del día ya no sale por WhatsApp (26-oct-2026): solo se ve en el tablero. */
+/** Tablero IA: el resumen del día se ve en el tablero y, desde el 29-oct-2026, sale a Alexander una vez al día (máximo 4 líneas, sin links). */
 async function estadoDelResumenDiario() {
-  return "solo en el tablero: la caja \"Resumen de hoy\" y la pestaña \"Hoy\"; ya no se manda por WhatsApp (decisión del dueño, 26-oct-2026)";
+  return "en el tablero: la caja \"Resumen de hoy\" y la pestaña \"Hoy\"; y por WhatsApp a Alexander una vez al día desde las 7 p. m. (máximo 4 líneas: qué se arregló, qué falló, qué está pendiente; sin links; decisión del dueño, 29-oct-2026). Sin movimiento ese día no se manda";
+}
+
+/** Tablero IA: las alertas técnicas van al WhatsApp de Sistemas (Emanuel); si no hay número que sirva, salen a Alexander. */
+async function estadoDeAlertasTecnicasASistemas(workspaceId: string) {
+  const numero = await telefonoDeSistemas(workspaceId);
+  return numero
+    ? "PRENDIDAS: Coordinador caído, sin trabajo, tarjetas en error o atascadas y límite de uso salen al WhatsApp de Sistemas; lo de dinero, Meta Ads o claves sigue a Alexander"
+    : "SIN NÚMERO DE SISTEMAS (o apagadas): las alertas técnicas siguen saliendo a Alexander como antes";
 }
 
 /** Tablero IA: los avisos de WhatsApp al dueño (solo Sistemas detenido o que lo necesita): interruptor, número y último aviso. */
@@ -570,6 +578,7 @@ async function automatizaciones(
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(),
     avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
+    alertas_tecnicas_a_sistemas: await estadoDeAlertasTecnicasASistemas(workspaceId).catch(() => "no se pudo leer"),
     avisos_al_equipo_tablero: await estadoDeAvisosAlEquipo(workspaceId).catch(() => "no se pudo leer"),
     cerebro_sincronizacion: await estadoDelCerebro(workspaceId).catch(() => "no se pudo leer"),
     origen_de_pauta: await estadoDeLaPauta(workspaceId).catch(() => "no se pudo leer"),
