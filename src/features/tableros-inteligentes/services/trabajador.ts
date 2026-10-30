@@ -723,9 +723,10 @@ async function revisarDeNuevo(contexto: ContextoTrabajador, actual: FilaParaTrab
     .slice(0, 20)
     .map((texto) => texto.trim().slice(0, 200));
   const sube = cuerpo.subeSolo;
-  const motivo = motivoDeEntrada(cuerpo.motivo ?? esperaPor ?? "el Coordinador no la dejó subir sola");
   const a: EstadoTarjetaTablero = sube ? "SUBIENDO" : "ERROR";
-  const nota = sube ? `revisada de nuevo por el Coordinador, sube sola${motivo ? ` (${motivo})` : ""}` : `construido, no sube: ${motivo}`;
+  const motivoDado = typeof cuerpo.motivo === "string" && cuerpo.motivo.trim() ? motivoDeEntrada(cuerpo.motivo) : "";
+  const motivo = motivoDado || esperaPor || "el Coordinador no la dejó subir sola";
+  const nota = (sube ? `revisada de nuevo por el Coordinador, sube sola${motivoDado ? ` (${motivoDado})` : ""}` : `construido, no sube: ${motivo}`).slice(0, 300);
   const { esperaPor: _quitada, ...sinEspera } = previo;
   void _quitada;
   const resultado = sube
