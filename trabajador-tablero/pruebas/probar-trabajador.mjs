@@ -3205,6 +3205,21 @@ try {
     assert.equal(tarjetas.get(a).resultado.construidoEn, "nube");
   });
 
+  await prueba("nube: un proyecto con construirEn \"aizen1\" se construye en aizen1 aunque todoEnLaNube esté prendido", async () => {
+    despejar();
+    const a = nueva("Gestión en aizen1 [mod:gea]", "PLAN_APROBADO", { plan: planDe("gea") });
+    const config = crearConfig({ construirNubeMinutos: 2 }, { subirSolo: true, github: "prueba/repo", construirEn: "aizen1" }, {
+      maxParalelo: 2,
+      nube: { activa: true, maxTareas: 8, todoEnLaNube: true, vigilarCadaSegundos: 0.3, esperaMinutos: 1, lanzarMinutos: 1, terminal: "sin-terminal", comandoGh: [node, falso("gh-falso.mjs")] },
+    });
+    const planificador = planificar(config);
+    await planificador.llenar();
+    assert.deepEqual(planificador.cupos(), { aizen1: 1, nube: 0 }, "nada va a la nube");
+    assert.equal(planificador.estado().tareas.find((x) => x.tarjetaId === a).lugar, "aizen1");
+    await correrHasta(planificador, () => tarjetas.get(a).estado === "HECHO", 180_000);
+    assert.equal(tarjetas.get(a).resultado.construidoEn, "aizen1");
+  });
+
   await prueba("nube: con 2 corriendo en aizen1, la tercera aprobada va a la nube (desborde); la que espera plan NO; la nube no ocupa puesto de aizen1", async () => {
     despejar();
     const desde = leerLog(LOGS.claude).length;

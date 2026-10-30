@@ -213,6 +213,11 @@ export function completarConfig(datos, base = process.cwd()) {
     }
     const zonasProtegidas = repo.zonasProtegidas && typeof repo.zonasProtegidas === "object" ? repo.zonasProtegidas : {};
     const subirSolo = repo.subirSolo === true;
+    // Dónde se CONSTRUYE este proyecto (29-oct-2026): "aizen1" lo saca de la nube aunque nube.todoEnLaNube esté prendido
+    // (Gestión: las sesiones de la nube arrancan sin el repo conectado y no pueden subir). Por defecto, como diga nube.
+    if (repo.construirEn !== undefined && !["nube", "aizen1"].includes(repo.construirEn)) {
+      errores.push(`repos.${clave}.construirEn: "nube" o "aizen1".`);
+    }
     // Un descuido en la configuración no puede hacer que un cambio de chats suba solo: en AizenCRM,
     // subirSolo exige la zona CHATS con sus rutas.
     if (subirSolo && clave === "aizencrm" && !(Array.isArray(zonasProtegidas.CHATS) && zonasProtegidas.CHATS.length)) {
@@ -263,6 +268,7 @@ export function completarConfig(datos, base = process.cwd()) {
         clave,
         agente: agente && typeof agente === "object" && !Array.isArray(agente) ? { nombre: agente.nombre, lecciones: agente.lecciones, maxEnParalelo: agente.maxEnParalelo } : undefined,
         subirSolo,
+        construirEn: repo.construirEn === "aizen1" ? "aizen1" : "nube",
         zonasQueSubenSolas,
         vigilancia,
         // "dueño/repo" en GitHub: la vigilancia de la rama en la nube lo usa (si falta, se saca del remoto).

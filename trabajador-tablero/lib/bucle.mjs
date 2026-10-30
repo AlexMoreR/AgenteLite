@@ -812,6 +812,8 @@ export function crearPlanificador({
     const aizenParaEsta = aizenOk && !(hacer === "construir" && colaEnFila > 0);
     // Todo el desarrollo en la nube (26-oct-2026, decisión del dueño): construir NUNCA va a aizen1; si la nube no está
     // libre (o está apagada), la tarjeta espera en la fila.
+    // Un proyecto con construirEn "aizen1" no va a la nube (29-oct-2026, decisión del dueño para Gestión).
+    if (hacer === "construir" && config.repos[tarjeta.repo]?.construirEn === "aizen1") return aizenParaEsta ? { donde: "aizen1", motivo: "este proyecto se construye en aizen1" } : null;
     if (hacer === "construir" && nubeConfig.todoEnLaNube) return nubeUsable && nubeLibre ? { donde: "nube", motivo: "todo el desarrollo se construye en la nube" } : null;
     if (hacer !== "construir" || !nubeUsable) return aizenParaEsta ? { donde: "aizen1", motivo: null } : null;
     const { grande, motivos } = esTareaGrande(tarjeta, { repo: config.repos[tarjeta.repo], maxArchivosChica: nubeConfig.maxArchivosChica });
