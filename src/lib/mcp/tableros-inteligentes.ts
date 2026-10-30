@@ -63,8 +63,10 @@ import {
   permite, y llevar un link.
 
   Fase 2 (20-oct-2026): las tarjetas con `repo` (gestion, aizencrm) las ejecuta el Coordinador (un PC
-  aparte): arma un plan (desde el 24-oct pasa solo a construir; solo espera el sí del dueño si toca dinero de
-  Gestión o gasto en Meta Ads, si tiene zona protegida o si "Aprobar planes solo" está apagado), lo construye en una rama, el dueño da el sí final y lo
+  aparte): arma un plan (desde el 24-oct pasa solo a construir; desde el 30-oct un solo sí del dueño, a la tarea, aprueba
+  también el plan aunque toque dinero de Gestión; solo espera el sí del dueño si toca Meta Ads, si tiene preguntas abiertas
+  o un NECESITO, si la tarea pasó sola sin el sí del dueño, si tiene zona protegida o si "Aprobar planes solo" está
+  apagado), lo construye en una rama, el dueño da el sí final y lo
   sube. ver_plan_y_resultado muestra todo eso; aprobar_tarjeta aprueba la tarea, el plan o el sí final
   SOLO cuando la persona lo dijo explícitamente en la conversación.
   Desde el 21-oct-2026 (Planear -> Aprobar plan -> Hacer): si todo pasa, el Coordinador sube solo a
@@ -78,6 +80,9 @@ import {
   de dinero de Gestión (abonos, saldos, nómina, comisiones, facturación, pagos) o de subir presupuesto, activar
   campañas o crear gasto en Meta Ads, o si tiene zona Meta Ads o libro V3, se queda POR_APROBAR con su motivo.
   CHATS y BOT_VENTAS también arrancan solas (la subida no cambia). El dueño la apaga con "Aprobar tareas solo".
+  Un solo sí (30-oct-2026): si el dueño aprueba esa tarea (en la pantalla o por voz), su plan de dinero de Gestión pasa
+  solo a construir, sin un segundo sí. El plan sigue esperando solo si toca Meta Ads, si tiene preguntas abiertas o un
+  NECESITO (llegan por WhatsApp como aviso urgente), o si la tarea pasó sola sin el sí del dueño.
 
   Riesgo y aprobación automática (22-oct-2026, decisión del dueño): una tarjeta con repo es de riesgo BAJO
   o ALTO (reglas-riesgo.ts; sin riesgo cuenta como ALTO). Claude lo propone en crear_tarjeta /
@@ -492,7 +497,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     title: "Aprobar una tarjeta (solo si la persona lo dijo)",
     description:
       "Úsala SOLO si la persona lo dijo explícitamente en esta conversación. Antes, léele el título y qué se aprueba, y espera que diga 'sí, apruebo'. Nunca apruebes por tu cuenta. Desde el 25-oct-2026 casi nunca hace falta para la tarea: toda tarea con repo pasa SOLA a APROBADO ('aprobada automáticamente (regla del dueño 25-oct)'; también CHATS y BOT_VENTAS). Solo se queda POR_APROBAR esperando este sí la que habla de dinero de Gestión (abonos, saldos, nómina, comisiones, facturación, pagos), de subir presupuesto, activar campañas o crear gasto en Meta Ads, o la de zona Meta Ads o libro V3, o cualquiera si el dueño apagó 'Aprobar tareas solo'. " +
-      "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del Coordinador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan; desde el 24-oct-2026 el plan pasa SOLO a construir al aprobar la tarea, así que el sí del plan solo se pide si toca dinero de Gestión o puede subir presupuesto, activar campañas o crear gasto en Meta Ads, o si el dueño apagó 'Aprobar planes solo') o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
+      "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del Coordinador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan; desde el 24-oct-2026 el plan pasa SOLO a construir al aprobar la tarea, y desde el 30-oct-2026 un solo sí del dueño, a la tarea, aprueba también el plan aunque toque dinero de Gestión; así que el sí del plan solo se pide si puede subir presupuesto, activar campañas o crear gasto en Meta Ads, si tiene preguntas abiertas o un NECESITO, si toca dinero de Gestión y la tarea pasó sola sin el sí del dueño, o si el dueño apagó 'Aprobar planes solo') o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
       "'subir' solo aplica a las tarjetas que tocan chats, a las de Meta Ads que gastan plata (presupuesto, prender campañas, conjuntos o anuncios, gasto nuevo) o a las que no pasaron las pruebas extra de su zona, y a las que ya estaban POR_REVISAR de antes: las demás las sube solo el Coordinador cuando todo pasa (quedan HECHO con el link del commit, o ERROR si algo falla). El bot de ventas, Meta Ads (sin gasto) y el libro V3 suben solos y el Coordinador los vigila 30 minutos. " +
       "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con la zona protegida de chats no se aprueba acá: solo en la pantalla (las de bot de ventas, Meta Ads y libro V3 sí se aprueban por voz). " +
       "PARA QUE ARRANQUE (regla del dueño 28-oct-2026, la misma que usa el Coordinador para tomarla): la tarea o el plan aprobados por voz cuentan igual que en la pantalla si la zona es SOLO chats y/o bot de ventas (o no hay zona). Si toca libro V3 o Meta Ads, la voz NO basta: queda aprobada pero el Coordinador no la toma hasta que el dueño la apruebe en la pantalla (la ficha muestra el botón 'Aprobar en pantalla' y queda una alerta del Coordinador). Avísale eso a la persona. " +
@@ -555,7 +560,7 @@ function queFalta(estado: string, conRepo: boolean, conZona: boolean, hechoAMano
     case "PLANEANDO":
       return "El Coordinador está escribiendo el plan.";
     case "PLAN_LISTO":
-      return `El plan está listo y espera el sí del dueño (toca dinero de Gestión o gasto en Meta Ads, o 'Aprobar planes solo' está apagado), ${dondeAprobar}.`;
+      return `El plan está listo y espera el sí del dueño (toca Meta Ads, tiene preguntas abiertas o un NECESITO, toca dinero de Gestión y la tarea pasó sola sin el sí del dueño, o 'Aprobar planes solo' está apagado), ${dondeAprobar}.`;
     case "PLAN_APROBADO":
       return "Plan aprobado: el Coordinador la toma en el próximo minuto y la construye en una rama.";
     case "EN_CURSO":

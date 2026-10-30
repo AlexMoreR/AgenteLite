@@ -28,6 +28,8 @@ const reiniciar = () => {
     enviados: [],
     alertas: [],
     fallaElEnvio: false,
+    // Un solo sí (30-oct-2026): las tarjetas cuya tarea aprobó el dueño (pantalla o voz, cuenta dueña).
+    tareasDelDueno: new Set(),
   });
 };
 reiniciar();
@@ -93,6 +95,7 @@ const mocks = {
       estado.enviados.push(datos);
     },
   },
+  "./aprobacion-automatica": { tareaAprobadaPorElDueno: async (id) => estado.tareasDelDueno.has(id) },
   "./coordinador-en-vivo": { ultimoLatido: async () => (estado.latido ? { recibidoEn: estado.latido } : null) },
   "./tableros": {
     pendientesDelDueno: async () => estado.esperando,
@@ -251,7 +254,7 @@ await prueba("5. Límite de Claude: lo manda el Coordinador con tipo 'limite' o 
 
 /* ------------------------------------------------------------------ las alertas: prioridad y página */
 
-await prueba("alertas: caído y límite son Urgente; trabado y sin trabajo, Alta; necesita es Urgente solo por dinero, Meta Ads o una clave", async () => {
+await prueba("alertas: caído y límite son Urgente; trabado y sin trabajo, Alta; necesita es Urgente por dinero, Meta Ads, una clave o una duda de negocio", async () => {
   assert.equal(avisos.prioridadDelAviso("caido"), "URGENTE");
   assert.equal(avisos.prioridadDelAviso("limite"), "URGENTE");
   assert.equal(avisos.prioridadDelAviso("trabado"), "ALTA");
@@ -260,6 +263,10 @@ await prueba("alertas: caído y límite son Urgente; trabado y sin trabajo, Alta
   assert.equal(avisos.prioridadDelAviso("necesita", "falta una clave, un acceso o un permiso"), "URGENTE");
   assert.equal(avisos.prioridadDelAviso("necesita", "mueve dinero del presupuesto"), "URGENTE");
   assert.equal(avisos.prioridadDelAviso("necesita", "el cambio agrega un envío de mensaje en chats"), "ALTA");
+  // Un solo sí (30-oct-2026): las dudas de negocio también son Urgente, para que lleguen por WhatsApp.
+  assert.equal(avisos.prioridadDelAviso("necesita", "el plan tiene preguntas abiertas: ¿los abonos se muestran con IVA?"), "URGENTE");
+  assert.equal(avisos.prioridadDelAviso("necesita", "el trabajador dice que espera tu sí: el agente necesita decisión: elegir el color"), "URGENTE");
+  assert.equal(avisos.prioridadDelAviso("necesita", "el agente necesita algo del dueño: decisión sobre el texto del botón"), "URGENTE");
   const base = { latidoEn: DIA.toISOString(), enCurso: [], enFila: 1 }; // con fila no es "sin trabajo"
   const meta = avisos.calcularAvisos({ ...base, esperando: [esperando({ estado: "POR_REVISAR", zonaProtegida: ["META_ADS"] })] }, DIA).find((a) => a.tipo === "necesita");
   assert.equal(meta.prioridad, "URGENTE");
@@ -521,6 +528,65 @@ await prueba("alertas: un 'necesita' del Coordinador sin dinero, Meta Ads ni cla
   assert.equal(dinero.salio, true);
   assert.equal(estado.enviados.length, 1);
   assert.equal(estado.enviados[0].text.split("\n").length, 2);
+});
+
+/* ------------------------------------------------------------------ un solo sí del dueño (30-oct-2026) */
+
+const PLAN_DE_ABONOS = [
+  "APROBAR PLAN: ESPERA TU SÍ — toca los abonos de Gestión",
+  "Mostrar los abonos en la ficha del cliente.",
+  "",
+  "CRITERIOS DE ACEPTACIÓN:",
+  "- Los abonos se ven en la ficha del cliente en el celular.",
+].join("\n");
+const PLAN_DE_ABONOS_CON_PREGUNTAS = `${PLAN_DE_ABONOS}\n\nPREGUNTAS ABIERTAS:\n- ¿Los abonos se muestran con IVA o sin IVA?`;
+
+await prueba("un solo sí: un plan de abonos con el sí del dueño a la tarea no avisa; sin ese sí, sí avisa", async () => {
+  const plan = (extra = {}) => esperando({ id: "g1", titulo: "Abonos en la ficha", estado: "PLAN_LISTO", plan: PLAN_DE_ABONOS, error: null, ...extra });
+  assert.equal(avisos.porQueNecesitaAlDueno(plan({ tareaAprobadaPorElDueno: true })), null);
+  assert.match(avisos.porQueNecesitaAlDueno(plan()), /abonos/);
+  assert.match(avisos.porQueNecesitaAlDueno(plan({ tareaAprobadaPorElDueno: false })), /abonos/);
+  const base = { latidoEn: DIA.toISOString(), enCurso: [], enFila: 1 };
+  assert.equal(avisos.calcularAvisos({ ...base, esperando: [plan({ tareaAprobadaPorElDueno: true })] }, DIA).length, 0);
+  assert.equal(avisos.calcularAvisos({ ...base, esperando: [plan()] }, DIA).filter((a) => a.tipo === "necesita").length, 1);
+});
+
+await prueba("un solo sí: un plan de Gestión con preguntas abiertas y el sí del dueño sigue avisando, Urgente y con la pregunta en el Motivo", async () => {
+  const tarjeta = esperando({ id: "g2", titulo: "Abonos en la ficha", estado: "PLAN_LISTO", plan: PLAN_DE_ABONOS_CON_PREGUNTAS, error: null, tareaAprobadaPorElDueno: true });
+  assert.match(avisos.porQueNecesitaAlDueno(tarjeta), /preguntas abiertas: ¿Los abonos se muestran con IVA/);
+  const necesita = avisos.calcularAvisos({ latidoEn: DIA.toISOString(), enCurso: [], enFila: 1, esperando: [tarjeta] }, DIA).filter((a) => a.tipo === "necesita");
+  assert.equal(necesita.length, 1);
+  assert.equal(necesita[0].prioridad, "URGENTE");
+  // La misma clave anti-repetición del aviso "necesita": un aviso por tarjeta.
+  assert.equal(necesita[0].clave, "auto:necesita:g2:PLAN_LISTO");
+  assert.match(necesita[0].lineas[1], /^Motivo: el plan tiene preguntas abiertas: ¿Los abonos/);
+});
+
+await prueba("un solo sí: leerSituacion marca el sí del dueño en los planes listos y la revisión no avisa del plan de Gestión que ya no espera", async () => {
+  estado.esperando = [
+    esperando({ id: "g1", titulo: "Abonos en la ficha", estado: "PLAN_LISTO", plan: PLAN_DE_ABONOS }),
+    esperando({ id: "g3", titulo: "Saldos en la ficha", estado: "PLAN_LISTO", plan: PLAN_DE_ABONOS }),
+  ];
+  estado.tareasDelDueno = new Set(["g1"]);
+  const situacion = await avisos.leerSituacion("ws1");
+  assert.deepEqual(situacion.esperando.map((t) => [t.id, t.tareaAprobadaPorElDueno]), [["g1", true], ["g3", false]]);
+  const necesita = avisos.calcularAvisos({ ...situacion, enFila: 1 }, DIA).filter((a) => a.tipo === "necesita");
+  assert.deepEqual(necesita.map((a) => a.clave), ["auto:necesita:g3:PLAN_LISTO"]);
+});
+
+await prueba("un solo sí: con 'solo urgentes', la pregunta abierta de un plan llega por WhatsApp una sola vez", async () => {
+  guardarNumero();
+  estado.esperando = [esperando({ id: "g2", titulo: "Abonos en la ficha", estado: "PLAN_LISTO", plan: PLAN_DE_ABONOS_CON_PREGUNTAS })];
+  estado.tareasDelDueno = new Set(["g2"]);
+  estado.enFila = 1;
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
+  assert.deepEqual(estado.alertas.map((a) => a.prioridad), ["URGENTE"]);
+  assert.equal(estado.alertas[0].salioPorWhatsApp, true);
+  assert.equal(estado.enviados.length, 1);
+  const luego = new Date(DIA.getTime() + 10 * 60_000);
+  estado.latido = luego.toISOString();
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(luego), { enviados: 0 });
+  assert.equal(estado.enviados.length, 1, "no se repite");
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);

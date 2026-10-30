@@ -4,6 +4,7 @@ import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
 import { ultimoLatido } from "./coordinador-en-vivo";
+import { tareaAprobadaPorElDueno } from "./aprobacion-automatica";
 import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
 import { REPOS_DEL_TRABAJADOR, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
 import { SQL_FUERA_POR_LA_VIA } from "./sql-trabajador";
@@ -329,6 +330,11 @@ export type TarjetaEsperando = {
   error: string | null;
   /** Lo que dejó el Coordinador en resultado.esperaPor (solo POR_REVISAR). */
   esperaPor?: string | null;
+  /**
+   * Un solo sí (30-oct-2026): el dueño aprobó la tarea en pantalla o por voz (solo se lee para PLAN_LISTO). Con él, un plan
+   * que solo tocaba dinero de Gestión ya no espera y no se avisa. Sin el campo, se avisa como antes.
+   */
+  tareaAprobadaPorElDueno?: boolean;
 };
 export type SituacionDeSistemas = {
   /** Cuándo el CRM recibió el último latido del Coordinador (null = nunca ha dado señales). */
@@ -348,10 +354,16 @@ export type TarjetaFueraPorLaVia = { id: string; titulo: string; estado: string;
 
 export type AvisoCalculado = { clave: string; tipo: TipoDeAviso; lineas: string[]; link: string; prioridad: Prioridad; titulo: string };
 
+/**
+ * Una duda de negocio para el dueño (30-oct-2026): el plan tiene preguntas abiertas o el agente pidió una decisión
+ * ("NECESITO: decisión …"). Va URGENTE para que llegue por WhatsApp aunque esté prendido "solo urgentes".
+ */
+const ES_UNA_DUDA_DE_NEGOCIO = /preguntas abiertas|el agente necesita (una |algo del due[nñ]o: )?decisi[oó]n/i;
+
 /** La prioridad de cada tipo de aviso (regla del dueño, 29-oct-2026). `motivo` solo importa en "necesita". */
 export function prioridadDelAviso(tipo: TipoDeAviso, motivo?: string | null): Prioridad {
   if (tipo === "caido" || tipo === "limite") return "URGENTE";
-  if (tipo === "necesita") return esDeDineroMetaOClave(motivo ?? "") ? "URGENTE" : "ALTA";
+  if (tipo === "necesita") return esDeDineroMetaOClave(motivo ?? "") || ES_UNA_DUDA_DE_NEGOCIO.test(motivo ?? "") ? "URGENTE" : "ALTA";
   return "ALTA";
 }
 
@@ -381,7 +393,10 @@ export function porQueNecesitaAlDueno(tarjeta: TarjetaEsperando): string | null 
   // Regla del dueño (27-oct-2026): un resultado POR_REVISAR solo lo espera a él por gasto en Meta Ads o por un envío nuevo a
   // clientes en chats. Si solo faltaba la prueba extra, el Coordinador la hace él mismo y no se le avisa.
   if (tarjeta.estado === "POR_REVISAR") return tarjeta.esperaPor && !/^falta la prueba de que/i.test(tarjeta.esperaPor) ? tarjeta.esperaPor : null;
-  if (tarjeta.estado === "PLAN_LISTO" && tarjeta.plan) return porQueElPlanNuevoEsperaTuSi(tarjeta.plan);
+  // Un solo sí (30-oct-2026): si el dueño ya aprobó la tarea, el plan de Gestión no espera y no se avisa.
+  if (tarjeta.estado === "PLAN_LISTO" && tarjeta.plan) {
+    return porQueElPlanNuevoEsperaTuSi(tarjeta.plan, { tareaAprobadaPorElDueno: tarjeta.tareaAprobadaPorElDueno });
+  }
   if (tarjeta.estado === "POR_APROBAR") {
     return porQueLaTareaEsperaTuSi({
       titulo: tarjeta.titulo,
@@ -559,6 +574,16 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
     : [];
   const porTarjeta = new Map(ultimos.map((fila) => [fila.tarjetaId, fila._max.creadoEn]));
   const pendientesFilas = pendientes.filter((p) => ["POR_APROBAR", "PLAN_LISTO", "POR_REVISAR", "ERROR", "FALLIDO"].includes(p.estado));
+  // Un solo sí (30-oct-2026): para cada plan listo, ¿el dueño aprobó la tarea? Las mismas reglas que usa el Coordinador al
+  // aprobar el plan (la última aprobación de la tarea, con tareaAprobadaPorElDuenoEnElHistorial y de la cuenta dueña), para
+  // no callar un aviso de un plan que en verdad sigue esperando. Si falla la lectura, se avisa como antes.
+  const tareasDelDueno = new Map(
+    await Promise.all(
+      pendientesFilas
+        .filter((p) => p.estado === "PLAN_LISTO")
+        .map(async (p) => [p.id, await tareaAprobadaPorElDueno(p.id, workspaceId).catch(() => false)] as const),
+    ),
+  );
   return {
     latidoEn: latido?.recibidoEn ?? null,
     enCurso: enCursoFilas.map((fila) => ({
@@ -577,6 +602,7 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
       zonaProtegida: p.zonaProtegida,
       error: textoDelError(p.resultado),
       esperaPor: textoDeEsperaPor(p.resultado),
+      tareaAprobadaPorElDueno: tareasDelDueno.get(p.id) ?? false,
     })),
     fueraPorLaVia,
   };
