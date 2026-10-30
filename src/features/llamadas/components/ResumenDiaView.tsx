@@ -16,6 +16,23 @@ function formatDate(iso: string) {
   return new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "2-digit" }).format(date);
 }
 
+/** Leads nuevos de la asesora por origen (los que valen 0 no se listan). */
+function originRows(data: ResumenDiaData): Array<[string, number]> {
+  const o = data.newLeads.porOrigen;
+  const rows: Array<[string, number]> = [
+    ["Meta", o.meta],
+    ["Marketplace por texto", o.marketplace.por_texto],
+    ["Marketplace por línea", o.marketplace.por_linea],
+    ["Directo", o.directo],
+  ];
+  return rows.filter(([, n]) => n > 0);
+}
+
+/** Fecha de hoy en Colombia (AAAA-MM-DD), calculada en el navegador. */
+function todayInBogota() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+}
+
 /**
  * Arma el texto del informe tal como se va a leer en WhatsApp.
  *
@@ -29,8 +46,8 @@ function buildReportText(data: ResumenDiaData, quotes: string, notes: string) {
   lines.push("");
 
   lines.push(`*Leads nuevos:* ${data.newLeads.total}`);
-  for (const origin of data.newLeads.byOrigin) {
-    lines.push(`  • ${origin.origin}: ${origin.count}`);
+  for (const [nombre, cantidad] of originRows(data)) {
+    lines.push(`  • ${nombre}: ${cantidad}`);
   }
   lines.push("");
 
@@ -77,6 +94,12 @@ export function ResumenDiaView({ data }: { data: ResumenDiaData }) {
   const reportText = useMemo(() => buildReportText(data, quotes, notes), [data, quotes, notes]);
 
   const handleCopy = async () => {
+    // Si la página quedó abierta de otro día, el informe es viejo: no se copia, se recarga.
+    if (data.date !== todayInBogota()) {
+      toast.error("El informe es de otro día. Recargo la página para traer el de hoy.");
+      window.setTimeout(() => window.location.reload(), 1500);
+      return;
+    }
     try {
       await navigator.clipboard.writeText(reportText);
       setCopied(true);
@@ -106,9 +129,9 @@ export function ResumenDiaView({ data }: { data: ResumenDiaData }) {
           <CardContent>
             <p className="text-2xl font-semibold">{data.newLeads.total}</p>
             <div className="mt-1 space-y-0.5">
-              {data.newLeads.byOrigin.map((origin) => (
-                <p key={origin.origin} className="text-xs text-muted-foreground">
-                  {origin.origin}: <span className="text-foreground">{origin.count}</span>
+              {originRows(data).map(([nombre, cantidad]) => (
+                <p key={nombre} className="text-xs text-muted-foreground">
+                  {nombre}: <span className="text-foreground">{cantidad}</span>
                 </p>
               ))}
             </div>

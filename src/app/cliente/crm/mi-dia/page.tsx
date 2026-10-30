@@ -22,6 +22,7 @@ import { MiDiaView } from "@/features/crm/components/MiDiaView";
 import { LlamadasDeMiDia } from "@/features/llamadas/components/LlamadasDeMiDia";
 import { getLlamadasVendedoraData } from "@/features/llamadas/services/getLlamadasData";
 import { getResumenDiaData } from "@/features/llamadas/services/getResumenDia";
+import { LeadsNuevosDelDia } from "@/features/leads-nuevos/components/LeadsNuevosDelDia";
 import { ResumenDiaView } from "@/features/llamadas/components/ResumenDiaView";
 import { prisma } from "@/lib/prisma";
 import { canAccessClientModule } from "@/lib/client-workspace-access";
@@ -75,6 +76,7 @@ export default async function ClienteCrmMiDiaPage() {
           workspaceId: access.workspaceId,
           userId: access.userId,
           advisorName: quien?.name?.trim() || quien?.email || "Asesora",
+          esJefe: access.isOwner || access.role === "ADMIN",
         })
       : Promise.resolve(null),
     // "Lo que te dejó el Coach": sus pendientes del último informe (solo lectura, solo los suyos).
@@ -165,6 +167,7 @@ export default async function ClienteCrmMiDiaPage() {
       llamadasDespues={
         <>
           {vendedora ? <LlamadasDeMiDia vendedora={vendedora} marcadorUrl={marcadorUrl} momento="despues" /> : null}
+          {resumen?.empresa ? <LeadsNuevosDelDia datos={resumen.empresa} /> : null}
           {resumen ? (
             <details className="rounded-xl border border-border bg-card px-4 py-3">
               <summary className="cursor-pointer text-sm font-medium text-foreground">
