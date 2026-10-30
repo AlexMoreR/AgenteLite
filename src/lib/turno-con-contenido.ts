@@ -148,6 +148,28 @@ export function turnoMereceAsesora(
   return turno.some((mensaje) => mensajeConContenido(mensaje, saludos));
 }
 
+/**
+ * ¿La clienta ya respondió la bienvenida? (Alex, 30-10-2026)
+ *
+ * True si hay al menos un mensaje de la clienta (INBOUND) que llegó DESPUÉS del primer mensaje
+ * nuestro (OUTBOUND: bot, flujo o persona). Mira todo el chat, no "lo último": da igual que el bot
+ * ya haya contestado después. Las notas del sistema y los mensajes borrados no cuentan, ni como
+ * nuestros ni como de la clienta. Ordena por fecha; sin fecha, `mensajes` va del más viejo al más nuevo.
+ */
+export function respondioLaBienvenida(mensajes: ReadonlyArray<MensajeDelTurno>): boolean {
+  const validos = mensajes
+    .filter((m) => !m.borrado && (m.type ?? "TEXT").toUpperCase() !== "SYSTEM")
+    .map((m, indice) => ({ m, indice, hora: m.createdAt == null ? null : new Date(m.createdAt).getTime() }));
+  validos.sort((a, b) =>
+    a.hora != null && b.hora != null && !Number.isNaN(a.hora) && !Number.isNaN(b.hora) && a.hora !== b.hora
+      ? a.hora - b.hora
+      : a.indice - b.indice,
+  );
+  const primerNuestro = validos.findIndex(({ m }) => m.direction === "OUTBOUND");
+  if (primerNuestro === -1) return false;
+  return validos.slice(primerNuestro + 1).some(({ m }) => m.direction === "INBOUND");
+}
+
 /* ------------------------------------------------------------------------------------------------
    ¿EL BOT YA LE MANDÓ PRECIO O FOTOS? (Alex, 12-10-2026)
 
@@ -172,6 +194,10 @@ export type MensajeDelTurno = {
   content?: string | null;
   /** `rawPayload.source` del mensaje: quién lo mandó. null/undefined = el bot o un flujo. */
   origen?: string | null;
+  /** Cuándo se escribió. Con fecha, `respondioLaBienvenida` ordena solo; sin ella, vale el orden recibido. */
+  createdAt?: Date | string | number | null;
+  /** El mensaje se borró (`deletedAt` lleno): no cuenta para nada. */
+  borrado?: boolean;
 };
 
 /** Salientes que NO son del bot: una persona, o lo traído del historial (no se sabe quién fue). */
