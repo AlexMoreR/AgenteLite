@@ -17,7 +17,9 @@ export const LIMITE_AMARILLO = 70;
 export const DISCO_LIBRE_ROJO_GB = 10;
 export const DISCO_LIBRE_AMARILLO_GB = 20;
 
-export const ETAPAS_VISIBLES = ["planeando", "construyendo", "probando", "subiendo"] as const;
+// 29-oct-2026: "revisando" = los 4 revisores (seguridad, experiencia, diseño, código) miran el cambio antes de subir;
+// "vigilando" = la vigilancia de 30 min después de subir (antes el panel la descartaba y mostraba "Subiendo").
+export const ETAPAS_VISIBLES = ["planeando", "construyendo", "probando", "revisando", "subiendo", "vigilando"] as const;
 export type EtapaVisible = (typeof ETAPAS_VISIBLES)[number];
 export const LUGARES = ["aizen1", "nube", "github"] as const;
 export type Lugar = (typeof LUGARES)[number];
@@ -41,7 +43,124 @@ export type TareaDelLatido = {
   reparacionDe: number | null;
   linkSesion: string | null;
   linkWorkflow: string | null;
+  /** La revisión de los 4 mientras la etapa es "revisando" (29-oct-2026); null si no revisa o el Coordinador es viejo. */
+  revision: RevisionDelLatido | null;
 };
+
+/* ── La revisión de los 4 (29-oct-2026, trabajador-tablero/lib/revisores.mjs) ── */
+
+export const REVISORES_VISIBLES = ["seguridad", "experiencia", "diseno", "codigo"] as const;
+export type RevisorVisible = (typeof REVISORES_VISIBLES)[number];
+/** revisando = gris, aprobado = verde, cambios = rojo, no_aplica = el cambio no toca pantallas (cuenta como aprobado). */
+export const ESTADOS_DEL_REVISOR = ["revisando", "aprobado", "cambios", "no_aplica"] as const;
+export type EstadoDelRevisor = (typeof ESTADOS_DEL_REVISOR)[number];
+export type RevisionDelLatido = { vuelta: number; revisores: Record<RevisorVisible, EstadoDelRevisor> };
+
+export const NOMBRE_DEL_REVISOR: Record<RevisorVisible, string> = {
+  seguridad: "Seguridad",
+  experiencia: "Experiencia del usuario",
+  diseno: "Diseño",
+  codigo: "Código",
+};
+
+/** La revisión que manda el Coordinador, validada: vuelta de 1 a 9 y cada revisor con un estado conocido (si no, "revisando"). */
+export function revisionDeEntrada(valor: unknown): RevisionDelLatido | null {
+  if (!esObjeto(valor)) return null;
+  const vuelta = numeroEnRango(valor.vuelta, 1, 9);
+  if (vuelta === null) return null;
+  const revisores = esObjeto(valor.revisores) ? valor.revisores : {};
+  return {
+    vuelta,
+    revisores: Object.fromEntries(REVISORES_VISIBLES.map((clave) => [clave, enLista(ESTADOS_DEL_REVISOR, revisores[clave]) ?? "revisando"])) as Record<RevisorVisible, EstadoDelRevisor>,
+  };
+}
+
+/* ── La línea de pasos de una tarjeta: Plan → Construir → Revisar → Aprobar → Subido (29-oct-2026) ── */
+
+export const PASOS_DE_LA_TARJETA = ["plan", "construir", "revisar", "aprobar", "subido"] as const;
+export type PasoDeLaTarjeta = (typeof PASOS_DE_LA_TARJETA)[number];
+export const NOMBRE_DEL_PASO: Record<PasoDeLaTarjeta, string> = { plan: "Plan", construir: "Construir", revisar: "Revisar", aprobar: "Aprobar", subido: "Subido" };
+export type EstadoDelPaso = "hecho" | "actual" | "pendiente" | "necesita_humano";
+export type PasosVista = {
+  /** El paso donde va (o donde se paró). */
+  actual: PasoDeLaTarjeta;
+  /** true si la tarjeta está parada esperando al dueño (ERROR, espera tu sí, necesita algo): se muestra "Necesita humano". */
+  necesitaHumano: boolean;
+  pasos: { clave: PasoDeLaTarjeta; nombre: string; estado: EstadoDelPaso }[];
+};
+
+/**
+ * El mapeo de estados a pasos, en UNA sola función (la usan el panel y la herramienta MCP ver_coordinador):
+ *   APROBADO, PLANEANDO -> Plan.  POR_APROBAR (antes del plan) y PLAN_LISTO (el plan espera tu sí) -> Necesita humano en Plan.
+ *   PLAN_APROBADO, EN_CURSO -> Construir (con la etapa "revisando" del latido -> Revisar).
+ *   POR_REVISAR (espera tu sí final o necesita algo) -> Necesita humano en Aprobar.
+ *   SUBIENDO -> Aprobar (la aprobación ya dada, el merge, el CI y la versión) y, con la etapa "vigilando", Subido.
+ *   HECHO -> Subido (todo hecho).  ERROR / FALLIDO -> Necesita humano donde se paró (`pasoDelError`, si no Construir).
+ */
+export function pasosDeLaTarjeta({ estado, etapa = null, pasoDelError = null }: { estado: string; etapa?: string | null; pasoDelError?: PasoDeLaTarjeta | null }): PasosVista {
+  let actual: PasoDeLaTarjeta = "construir";
+  let necesitaHumano = false;
+  let todoHecho = false;
+  switch (estado) {
+    case "POR_APROBAR":
+      actual = "plan";
+      necesitaHumano = true;
+      break;
+    case "PLAN_LISTO":
+      // El plan ya está escrito: lo que falta es tu sí para construir.
+      actual = "construir";
+      necesitaHumano = true;
+      break;
+    case "APROBADO":
+    case "PLANEANDO":
+      actual = "plan";
+      break;
+    case "PLAN_APROBADO":
+    case "EN_CURSO":
+      actual = etapa === "revisando" ? "revisar" : "construir";
+      break;
+    case "POR_REVISAR":
+      actual = "aprobar";
+      necesitaHumano = true;
+      break;
+    case "SUBIENDO":
+      actual = etapa === "vigilando" ? "subido" : "aprobar";
+      break;
+    case "HECHO":
+      actual = "subido";
+      todoHecho = true;
+      break;
+    case "ERROR":
+    case "FALLIDO":
+      actual = pasoDelError ?? "construir";
+      necesitaHumano = true;
+      break;
+    default:
+      break;
+  }
+  const donde = PASOS_DE_LA_TARJETA.indexOf(actual);
+  return {
+    actual,
+    necesitaHumano,
+    pasos: PASOS_DE_LA_TARJETA.map((clave, i) => ({
+      clave,
+      nombre: NOMBRE_DEL_PASO[clave],
+      estado: todoHecho || i < donde ? "hecho" : i === donde ? (necesitaHumano ? "necesita_humano" : "actual") : "pendiente",
+    })),
+  };
+}
+
+/**
+ * Dónde se paró una tarjeta en ERROR, con lo que dejó en `resultado`: la revisión que no pasó -> Revisar; ya construida (con
+ * rama o commit, o falló al subir) -> Aprobar; con plan -> Construir; sin plan -> Plan.
+ */
+export function pasoDelError({ resultado, plan }: { resultado: unknown; plan: string | null | undefined }): PasoDeLaTarjeta {
+  const datos = esObjeto(resultado) ? resultado : {};
+  const error = esObjeto(datos.error) ? datos.error : {};
+  if (error.categoria === "revision_no_paso") return "revisar";
+  if (datos.paso === true || typeof datos.commit === "string" || esObjeto(datos.subida)) return "aprobar";
+  return plan ? "construir" : "plan";
+}
 
 export type CargaDelLatido = {
   cpu: number | null;
@@ -183,6 +302,7 @@ function tareaDeEntrada(valor: unknown, hostPropio: string | null): TareaDelLati
     reparacionDe: enteroOpcional(valor.reparacionDe, 99),
     linkSesion: linkPermitido(valor.linkSesion, hostPropio),
     linkWorkflow: linkPermitido(valor.linkWorkflow, hostPropio),
+    revision: etapa === "revisando" ? revisionDeEntrada(valor.revision) : null,
   };
 }
 
@@ -302,7 +422,9 @@ export const NOMBRE_DE_LA_ETAPA: Record<EtapaVisible, string> = {
   planeando: "Planeando",
   construyendo: "Construyendo",
   probando: "Probando",
+  revisando: "Revisando",
   subiendo: "Subiendo",
+  vigilando: "Vigilando (30 min)",
 };
 
 export const NOMBRE_DEL_LUGAR: Record<Lugar, string> = {

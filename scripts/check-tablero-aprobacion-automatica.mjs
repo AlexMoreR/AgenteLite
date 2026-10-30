@@ -218,9 +218,12 @@ const planDe = (extra = {}) => {
     migracion: "No hay migración.",
     archivos: "- src/features/reportes/Reporte.tsx",
     zonas: "Zonas: ninguna. (No toca las rutas de chats, ni del bot de ventas.)",
+    // 29-oct-2026: los planes nuevos traen criterios de aceptación (sin ellos no se aprueban solos).
+    finales:
+      "CRITERIOS DE ACEPTACIÓN:\n1. `npm run test:reportes` pasa.\n2. La página /cliente/reportes muestra la tabla de ventas por mes.\n\nFUERA DE ALCANCE:\n- Exportar a Excel.\n\nSUPUESTOS:\n- El mes se cuenta en hora de Bogotá, como el resto de reportes.",
     ...extra,
   };
-  return `${p.riesgo}\n\n1. Contexto\nUn reporte de ventas por mes.\n\n2. Qué se cambia\nUn componente nuevo.\n\n3. Zonas protegidas\n${p.zonas}\n\n4. Migración\n${p.migracion}\n\n5. Archivos que se tocan\n${p.archivos}\n\n6. Pruebas\nCorrer todo.`;
+  return `${p.riesgo}\n\n1. Contexto\nUn reporte de ventas por mes.\n\n2. Qué se cambia\nUn componente nuevo.\n\n3. Zonas protegidas\n${p.zonas}\n\n4. Migración\n${p.migracion}\n\n5. Archivos que se tocan\n${p.archivos}\n\n6. Pruebas\nCorrer todo.${p.finales ? `\n\n${p.finales}` : ""}`;
 };
 const planeando = (extra = {}) => tarjeta({ estado: "PLANEANDO", ...extra });
 
@@ -326,6 +329,46 @@ await prueba("plan (29-oct): un plan con preguntas abiertas no se aprueba solo, 
   estado.historial.length = 0;
   planeando();
   assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: `${planDe()}\n\nPREGUNTAS ABIERTAS: ninguna` })).estado, "PLAN_APROBADO");
+});
+
+await prueba("plan (29-oct, criterios de aceptación): con criterios pasa; sin criterios o con un supuesto de negocio espera tu sí; uno viejo ya aprobado sigue", async () => {
+  const riesgo = cargar("src/features/tableros-inteligentes/services/reglas-riesgo.ts", mocks);
+  // Con criterios (planDe los trae): pasa solo, BAJO y con la regla del dueño.
+  planeando();
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: `${planDe()}\n\nPREGUNTAS ABIERTAS: ninguna` })).estado, "PLAN_APROBADO");
+  assert.deepEqual(riesgo.seccionFinalDelPlan(planDe(), "criterios de aceptacion"), ["`npm run test:reportes` pasa.", "La página /cliente/reportes muestra la tabla de ventas por mes."]);
+  assert.deepEqual(riesgo.seccionFinalDelPlan(planDe(), "fuera de alcance"), ["Exportar a Excel."]);
+  // Sin criterios: espera tu sí con el motivo claro (BAJO con la regla apagada, y cualquier riesgo con la regla prendida).
+  const sinCriterios = planDe({ finales: "FUERA DE ALCANCE: ninguno\n\nSUPUESTOS: ninguno" });
+  for (const [prender, extra] of [[true, { riesgo: "ALTO" }], [false, {}]]) {
+    estado.tarjetas.clear();
+    estado.historial.length = 0;
+    if (!prender) apagarPlanes();
+    planeando(extra);
+    const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: `${sinCriterios}\n\nPREGUNTAS ABIERTAS: ninguna` });
+    assert.equal(r.estado, "PLAN_LISTO", `sin criterios (regla del dueño ${prender ? "prendida" : "apagada"})`);
+    assert.ok(!estado.historial.some((fila) => fila.accion === "aprobar"), "no hay aprobación automática");
+  }
+  assert.match(riesgo.porQueElPlanNuevoEsperaTuSi(sinCriterios), /no trae CRITERIOS DE ACEPTACIÓN/);
+  // Un supuesto que es una decisión de negocio (precio, gratis o pagado, texto público…) espera tu sí.
+  const conSupuesto = planDe({
+    finales: "CRITERIOS DE ACEPTACIÓN:\n1. La página /cliente/reportes muestra el total.\n\nSUPUESTOS:\n- El envío a Bogotá queda gratis porque el pedido no dice el precio.",
+  });
+  estado.tarjetas.clear();
+  estado.historial.length = 0;
+  estado.ajustes.clear();
+  planeando({ riesgo: "ALTO" });
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: conSupuesto })).estado, "PLAN_LISTO");
+  assert.match(estado.tarjetas.get("t1").riesgoMotivo, /supone una decisión de negocio: El envío a Bogotá queda gratis/);
+  // La vuelta del reloj tampoco pasa a construir un plan nuevo sin criterios que espera en PLAN_LISTO.
+  estado.tarjetas.clear();
+  estado.historial.length = 0;
+  tarjeta({ estado: "PLAN_LISTO", plan: sinCriterios });
+  assert.equal(await auto.aprobarPlanesListosQueEsperan(), 0);
+  // Un plan VIEJO ya aprobado (sin las secciones): heredar la aprobación y subir siguen igual (porQueElPlanEsperaTuSi no mira criterios).
+  const viejo = planDe({ finales: "" });
+  assert.equal(riesgo.porQueElPlanEsperaTuSi(viejo), null);
+  assert.equal(riesgo.porQueFaltanCriterios(viejo), "el plan no trae CRITERIOS DE ACEPTACIÓN (cómo se comprueba que quedó bien)");
 });
 
 /* ------------------------------------------------------------------ trabajador: resultado */

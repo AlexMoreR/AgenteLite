@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { porQueElPlanEsperaTuSi, porQueLaTareaEsperaTuSi, porQueNoSeApruebaSola } from "./reglas-riesgo";
+import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi, porQueNoSeApruebaSola } from "./reglas-riesgo";
 import { zonasQueNoArrancanSolas } from "./reglas-trabajador";
 
 /*
@@ -292,7 +292,8 @@ export async function aprobarPlanesListosQueEsperan(limite = 100): Promise<numbe
     try {
       if (!prendidos.has(workspaceId)) prendidos.set(workspaceId, await aprobarPlanesSoloPrendido(workspaceId));
       if (!prendidos.get(workspaceId) || !tarjeta.plan || zonasQueNoArrancanSolas(tarjeta.zonaProtegida).length) continue;
-      if (porQueElPlanEsperaTuSi(tarjeta.plan)) continue;
+      // 29-oct-2026: también los criterios de aceptación y los supuestos de negocio (un plan en PLAN_LISTO todavía no se aprobó).
+      if (porQueElPlanNuevoEsperaTuSi(tarjeta.plan)) continue;
       const registro = registroDeAprobacionAutomatica({
         estado: "PLAN_APROBADO",
         momento: "plan",

@@ -2,7 +2,8 @@
 // REGLAS FIJAS EN CÓDIGO: ninguna IA decide el modelo. Todo sale de datos que la tarjeta ya trae.
 //
 //   planear   -> Opus SOLO si la tarea es difícil (reglas de abajo); si no, Sonnet.
-//   construir -> Sonnet.      revisar -> Sonnet.      subagentes -> Sonnet.
+//   construir -> Sonnet.      revisar -> Sonnet.      subagentes -> Sonnet.      revisarSeguridad -> Opus.
+//   Cambios con fecha (29-oct-2026): modelos.desde = [{ fecha, paso, modelo }] (p. ej. construir -> Opus desde el 30-oct).
 //   leer      -> Haiku (pasos que solo leen o resumen: hoy, mirar el uso del plan con `claude -p /usage`).
 //
 // Los nombres de modelo se cambian en config.local.json -> modelos (ver MODELOS_POR_DEFECTO).
@@ -17,9 +18,53 @@ export const MODELOS_POR_DEFECTO = {
   planearSencillo: "sonnet",
   construir: "sonnet",
   revisar: "sonnet",
+  // 29-oct-2026 (como la Software Factory): el revisor de SEGURIDAD de la revisión de los 4 va en Opus; experiencia, diseño
+  // y código usan `revisar`.
+  revisarSeguridad: "opus",
   subagentes: "sonnet",
   leer: "haiku",
 };
+
+/** Los pasos que acepta `modelos.desde` (los de MODELOS_POR_DEFECTO). */
+export const PASOS_CON_MODELO = Object.keys(MODELOS_POR_DEFECTO);
+
+/**
+ * Cambios de modelo CON FECHA (29-oct-2026): `modelos.desde: [{ fecha: "2026-10-30T12:00:00Z", paso: "construir", modelo: "opus" }]`.
+ * Así un cambio entra solo a la hora pedida (p. ej. cuando se reinicia el uso semanal), sin que nadie edite la config.
+ * Valida y normaliza: -> { desde: [{ fecha (ISO), paso, modelo }], errores: [...] }.
+ */
+export function cambiosDeModeloConFecha(valor) {
+  const errores = [];
+  if (valor === undefined || valor === null) return { desde: [], errores };
+  if (!Array.isArray(valor)) return { desde: [], errores: ['modelos.desde: una lista de { "fecha", "paso", "modelo" }.'] };
+  const desde = [];
+  valor.forEach((entrada, i) => {
+    const fecha = typeof entrada?.fecha === "string" && /^\d{4}-\d{2}-\d{2}T/.test(entrada.fecha) ? Date.parse(entrada.fecha) : NaN;
+    const fechaBien = Number.isFinite(fecha);
+    const pasoBien = PASOS_CON_MODELO.includes(entrada?.paso);
+    const modeloBien = typeof entrada?.modelo === "string" && /^[\w.:-]+$/.test(entrada.modelo.trim());
+    if (!fechaBien) errores.push(`modelos.desde[${i}].fecha: una fecha ISO con hora (p. ej. "2026-10-30T12:00:00Z").`);
+    if (!pasoBien) errores.push(`modelos.desde[${i}].paso: uno de ${PASOS_CON_MODELO.join(", ")}.`);
+    if (!modeloBien) errores.push(`modelos.desde[${i}].modelo: un nombre de modelo ("opus", "sonnet" o el id completo).`);
+    if (fechaBien && pasoBien && modeloBien) desde.push({ fecha: new Date(fecha).toISOString(), paso: entrada.paso, modelo: entrada.modelo.trim() });
+  });
+  return { desde, errores };
+}
+
+/** Los modelos que valen AHORA: los de la config con, por paso, la entrada de `desde` más reciente cuya fecha ya pasó. */
+export function modelosVigentes(config, ahora = Date.now()) {
+  const modelos = { ...MODELOS_POR_DEFECTO, ...(config?.modelos ?? {}) };
+  delete modelos.desde;
+  const momento = ahora instanceof Date ? ahora.getTime() : Number(ahora);
+  const vigentes = {};
+  for (const entrada of Array.isArray(config?.modelos?.desde) ? config.modelos.desde : []) {
+    const fecha = Date.parse(entrada?.fecha);
+    if (!Number.isFinite(fecha) || fecha > momento || !entrada.paso || !entrada.modelo) continue;
+    if (!vigentes[entrada.paso] || fecha >= vigentes[entrada.paso].fecha) vigentes[entrada.paso] = { fecha, modelo: entrada.modelo };
+  }
+  for (const [paso, { modelo }] of Object.entries(vigentes)) modelos[paso] = modelo;
+  return modelos;
+}
 
 /** Cuántos caracteres de detalle hacen una tarea "larga". */
 export const DETALLE_LARGO = 1200;
@@ -68,8 +113,9 @@ export function dificultadDeLaTarea(tarjeta) {
 }
 
 /** El modelo de cada paso para esta tarjeta. `paso`: planear | construir | revisar | subagentes | leer. */
-export function modeloDelPaso(config, paso, tarjeta = null) {
-  const modelos = { ...MODELOS_POR_DEFECTO, ...(config?.modelos ?? {}) };
+// Con `ahora`: respeta los cambios con fecha (`modelos.desde`) que ya entraron (construir -> Opus desde el 30-oct, p. ej.).
+export function modeloDelPaso(config, paso, tarjeta = null, ahora = Date.now()) {
+  const modelos = modelosVigentes(config, ahora);
   if (paso === "planear") return dificultadDeLaTarea(tarjeta).dificil ? modelos.planear : modelos.planearSencillo;
   return modelos[paso];
 }

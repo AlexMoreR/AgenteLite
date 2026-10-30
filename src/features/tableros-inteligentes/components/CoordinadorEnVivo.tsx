@@ -22,6 +22,7 @@ import {
   type Semaforo,
 } from "../services/reglas-coordinador-en-vivo";
 import { linkDeLaTarjetaEnPantalla } from "./DialogoDeTablero";
+import { CuadritosDeRevision, LineaDePasos } from "./PasosDelCoordinador";
 
 const UMBRALES_DE_PAUSA = [50, 60, 70, 75, 80, 85, 90, 95];
 
@@ -81,6 +82,8 @@ function FichaDeTarea({ tarea, ahora }: { tarea: TareaEnVivo; ahora: number }) {
         </Link>
         <span className="shrink-0 rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground">{tarea.etapaTexto}</span>
       </div>
+      {tarea.pasos ? <LineaDePasos pasos={tarea.pasos} /> : null}
+      {tarea.revision ? <CuadritosDeRevision revision={tarea.revision} /> : null}
       <div className="flex flex-wrap gap-1.5 text-xs">
         {tarea.agente ? <span className="rounded-full border px-2 py-0.5 font-medium">{tarea.agente}</span> : null}
         <span className="rounded-full border px-2 py-0.5">En {tarea.lugarTexto}</span>
@@ -149,12 +152,17 @@ function ListaDeFila({ items }: { items: ItemDeFila[] }) {
       {items.map((item, indice) => (
         <li key={item.tarjetaId} className="flex items-start gap-2 rounded-lg border bg-card px-3 py-2 text-sm">
           {item.motivo === null ? <span className="mt-px w-5 shrink-0 text-muted-foreground tabular-nums">{indice + 1}.</span> : null}
-          <span className="min-w-0">
+          <div className="min-w-0">
             <Link href={linkDeLaTarjetaEnPantalla(item.tarjetaId)} className="line-clamp-2 font-medium hover:underline" title={item.titulo}>
               {item.titulo}
             </Link>
             {item.motivo ? <span className="block text-xs text-muted-foreground">{item.motivo}</span> : null}
-          </span>
+            {item.pasos ? (
+              <div className="mt-1">
+                <LineaDePasos pasos={item.pasos} />
+              </div>
+            ) : null}
+          </div>
         </li>
       ))}
     </ul>

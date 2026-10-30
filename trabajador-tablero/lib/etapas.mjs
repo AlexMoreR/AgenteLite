@@ -47,6 +47,17 @@ import {
 } from "./git.mjs";
 import { dificultadDeLaTarea, modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { dependenciasDeLaRespuesta, esSoloLoDeMain, firmasDeFalla, yaEstaHechoDe } from "./revision-previa.mjs";
+import { evidenciaDeCriterios, instruccionDeEvidencia } from "./criterios.mjs";
+import {
+  dosLineasDeLaSesion,
+  dosLineasDelCoordinador,
+  motivoDeRevisionQueNoPaso,
+  promptDeCorregir,
+  promptDeRevisor,
+  revisarConCuatro,
+  revisorPorClave,
+  textoParaLaNube,
+} from "./revisores.mjs";
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
 import { esperarResultado, lanzarEnNube } from "./nube.mjs";
 import { vigilarSesion } from "./atasco.mjs";
@@ -74,7 +85,7 @@ import {
 } from "./zonas.mjs";
 
 export class ErrorDeEtapa extends Error {
-  constructor(message, { zonas = [], reversion = null, limiteDeUso = false, motor = null, categoria = null, archivosCambiados = null, esperaDeCola = false, verificarEnNube = false } = {}) {
+  constructor(message, { zonas = [], reversion = null, limiteDeUso = false, motor = null, categoria = null, archivosCambiados = null, esperaDeCola = false, verificarEnNube = false, paraElDueno = null } = {}) {
     super(message);
     this.zonas = zonas;
     this.reversion = reversion;
@@ -91,6 +102,9 @@ export class ErrorDeEtapa extends Error {
     this.esperaDeCola = esperaDeCola;
     // Lo que verificó la nube ya no es lo que se subiría (confiarEnResultado): se repara verificándolo otra vez en la nube.
     this.verificarEnNube = verificarEnNube;
+    // 29-oct-2026: las 2 líneas para el dueño (por qué se paró / qué decisión necesita) cuando la revisión no pasó: el
+    // bucle las manda tal cual como motivo del ERROR en vez del resumen de 3 líneas.
+    this.paraElDueno = paraElDueno;
   }
 }
 
@@ -637,7 +651,9 @@ export function promptDelPlan(tarjeta, repo, motor = "claude", { lecciones = "" 
       "5. Archivos que se tocan.",
       "6. Cómo se va a probar.",
       // 29-oct-2026: un plan con dudas sin resolver no se construye (preguntas-abiertas.mjs); el dueño las responde antes.
-      'Al FINAL, una sección "PREGUNTAS ABIERTAS:" con cada duda que no pudiste resolver leyendo el código (lo que hay que confirmar, decidir o revisar antes de construir, una pieza de otro sistema que no comprobaste), una por línea. Si no tienes ninguna, escribe "PREGUNTAS ABIERTAS: ninguna". No las escondas en los riesgos: un plan con preguntas abiertas espera al dueño y no se construye.',
+      // 29-oct-2026 (spec-writer de la Software Factory): criterios de aceptación, fuera de alcance y supuestos (criterios.mjs).
+      'Al final, en este orden: "CRITERIOS DE ACEPTACIÓN:" (lista numerada; cada punto un comportamiento observable y cómo se comprueba: un comando, una página y qué debe mostrar, o un archivo y qué debe contener; que lo compruebe alguien que solo tiene el repo), "FUERA DE ALCANCE:" (lo que quien construye podría querer hacer y no debe) y "SUPUESTOS:" (las decisiones que tomaste donde el pedido era ambiguo, cada una con su razón en una línea; una decisión de negocio, como precios, textos públicos, qué es gratis o pagado o dinero, no se supone: va a PREGUNTAS ABIERTAS). Corto. Un plan sin criterios no se aprueba solo.',
+      'De ÚLTIMA, una sección "PREGUNTAS ABIERTAS:" con cada duda que no pudiste resolver leyendo el código (lo que hay que confirmar, decidir o revisar antes de construir, una pieza de otro sistema que no comprobaste), una por línea. Si no tienes ninguna, escribe "PREGUNTAS ABIERTAS: ninguna". No las escondas en los riesgos: un plan con preguntas abiertas espera al dueño y no se construye.',
     ].join("\n"),
     `Reglas: ${REGLAS_DE_ZONAS} Si la tarea lo requiere, dilo claro al principio del plan: "TOCA ZONA PROTEGIDA: <cuál y por qué>".`,
     motor === "codex" ? SIN_SUBAGENTES_AL_PLANEAR : SUBAGENTES_AL_PLANEAR,
@@ -752,6 +768,7 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
       `- ${INSTRUCCION_DEPENDE_DE}`,
       `- ${INSTRUCCION_YA_HECHO}`,
       `- ${INSTRUCCION_DEL_RESUMEN}`,
+      ...(instruccionDeEvidencia(tarjeta.plan, "en tu RESUMEN final, antes de las 3 últimas líneas") ? [`- ${instruccionDeEvidencia(tarjeta.plan, "en tu RESUMEN final, antes de las 3 últimas líneas")}`] : []),
     ].join("\n"),
   ]
     .filter(Boolean)
@@ -763,7 +780,7 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
  * leer CLAUDE.md, las 4 lecciones, las prohibiciones y la orden de dejar todo en la rama tablero/<id>. Nunca lleva
  * claves, .env ni tokens: `entorno` solo trae variables NO secretas (la dirección de base falsa de siempre).
  */
-export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null, lecciones = "" } = {}) {
+export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null, lecciones = "", revision = true, modeloRevisar = "sonnet", modeloRevisarSeguridad = "opus", vueltasRevision = 2 } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   const pasos = [repo.instalar, ...(repo.verificar ?? []), ...(repo.pruebas ?? [])].filter(Boolean).map((comando) => `\`${comoTexto(comando)}\``);
   const variables = Object.entries(entorno).map(([nombre, valor]) => `export ${nombre}="${valor}"`);
@@ -783,14 +800,18 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
       variables.length
         ? `   Antes de compilar o probar, exporta estas variables (NO son secretas, son direcciones falsas a propósito):\n${variables.map((linea) => `   ${linea}`).join("\n")}`
         : "",
-      "2. TODO EN PRIMER PLANO: nada en segundo plano ni subagentes esperando. No digas \"reviso más tarde\": la sesión no termina hasta tener el resultado (OK o error).",
+      `2. TODO EN PRIMER PLANO: nada en segundo plano ni subagentes esperando. No digas "reviso más tarde": la sesión no termina hasta tener el resultado (OK o error).${revision ? " Los ÚNICOS subagentes permitidos son los 4 de la REVISIÓN de abajo, en primer plano y esperando su respuesta." : ""}`,
       `3. DEJA TODO EN LA RAMA ${rama}: haz commit y \`git push origin ${rama}\` (sin --force). No uses otra rama ni abras pull requests. Como ÚLTIMO paso deja un commit VACÍO y súbelo:`,
-      '   git commit --allow-empty -m "resultado: build=OK tests=OK segundos=<N>"',
-      "   (build=FALLO o tests=FALLO si algo falló; <N> = los segundos que tardó todo).",
+      `   git commit --allow-empty -m "resultado: build=OK tests=OK segundos=<N>${revision ? " revision=OK" : ""}"`,
+      `   (build=FALLO o tests=FALLO si algo falló; <N> = los segundos que tardó todo${revision ? "; revision= como dice la REVISIÓN de abajo" : ""}).`,
       '4. SI FALLA: no preguntes ni te quedes dando vueltas. Si no lo puedes arreglar, deja el commit vacío con FALLO y pon en su CUERPO las últimas 30 líneas del error: git commit --allow-empty -m "resultado: build=FALLO tests=FALLO segundos=<N>" -m "<últimas 30 líneas>", y súbelo.',
     ]
       .filter(Boolean)
       .join("\n"),
+    // 29-oct-2026: los 4 revisores (revisores.mjs) los lanza esta misma sesión antes de su commit "resultado:".
+    // 29-oct-2026: comprobar los criterios de aceptación del plan y dejar la evidencia (criterios.mjs); un plan viejo sin criterios no lo pide.
+    instruccionDeEvidencia(tarjeta.plan, 'en el CUERPO del commit "resultado:"'),
+    revision ? textoParaLaNube({ modelo: modeloRevisar, modeloSeguridad: modeloRevisarSeguridad, vueltas: vueltasRevision, rama }) : "",
     [
       "PROHIBIDO:",
       "- Tocar bases de datos (nada de prisma migrate, db push, psql ni conexiones reales), claves, tokens, archivos .env ni nada secreto. No hay claves de producción acá y no se piden.",
@@ -819,6 +840,83 @@ async function ramaParaLaNube(repo, tarjeta) {
   throw new ErrorDeEtapa(`Ya hay 20 ramas de la nube para esta tarjeta en GitHub (${principal}-nube…): hay que borrarlas a mano.`);
 }
 
+/** ¿Está prendida la revisión de los 4 (config.revision.activa, sí por defecto)? */
+export const revisionActiva = (config) => config?.revision?.activa !== false;
+
+/** Cuántas correcciones como mucho tras la 1ª revisión (config.revision.vueltas; 2 por defecto). */
+const vueltasDeRevision = (config) => config?.revision?.vueltas ?? 2;
+
+/** La línea de la revisión de la nube para el resumen de la tarjeta (o "" si la revisión está apagada). */
+export function revisionDeLaNube(resultado, { conRevision = true } = {}) {
+  if (!conRevision) return "";
+  if (resultado?.revision === "OK") return "Revisión (4 revisores, en la nube): APROBADA.";
+  if (resultado?.revision === "FALLO") return `Revisión (4 revisores, en la nube): NO PASÓ (${resultado.revisor ?? "?"}: ${resultado.motivoRevision ?? "?"}).`;
+  return "Revisión (4 revisores): la sesión de la nube no dejó revision= en su commit (sesión vieja o se le pasó): no consta.";
+}
+
+/**
+ * La revisión de los 4 en aizen1 (29-oct-2026, revisores.mjs): sobre lo que dejó el que construyó (sin commit), antes de
+ * la verificación completa del Coordinador (así tsc, build, pruebas y lint cubren también las correcciones). Cada revisor
+ * es `claude -p --model <modelos.revisar> --permission-mode plan` (solo lee; Codex en solo lectura si Claude está en pausa)
+ * y el que corrige es el MISMO motor y modelo que construyó. -> { texto } o ErrorDeEtapa "revision_no_paso".
+ */
+async function revisarEnAizen1(contexto, { tarjeta, repo, rama, carpeta, baseSha, reloj, motor, modelo, evidencia = [] }) {
+  const { config, registro } = contexto;
+  await git(carpeta, ["add", "-A"]);
+  const archivos = (await git(carpeta, ["diff", "--cached", "--name-only", baseSha])).salida.split(/\r?\n/).filter(Boolean);
+  if (!archivos.length) return null;
+  const vueltas = vueltasDeRevision(config);
+  const revisorMotor = motorDelPaso(contexto, "revisar") ?? motor;
+  // Seguridad va en Opus (modelos.revisarSeguridad); experiencia, diseño y código en modelos.revisar (Sonnet).
+  const modeloRevisar = modeloDelPaso(config, "revisar", tarjeta);
+  const modeloSeguridad = modeloDelPaso(config, "revisarSeguridad", tarjeta);
+  const modeloDe = (revisor) => (revisor.clave === "seguridad" ? modeloSeguridad : modeloRevisar);
+  registro.info(
+    `revisión de los 4 (${archivos.length} archivo(s)): ${revisorMotor === "claude" ? `claude ${nombreDelModelo(modeloRevisar)} (seguridad: ${nombreDelModelo(modeloSeguridad)})` : revisorMotor}, solo lectura`,
+  );
+  const tiempo = () => Math.max(1000, Math.min(reloj.resta(), REVISORES_MAXIMO_MINUTOS * MINUTO));
+  const revision = await revisarConCuatro({
+    archivos,
+    vueltas,
+    registro,
+    // El panel "Coordinador en vivo": etapa Revisar con la vuelta y cada revisor (gris, verde, rojo).
+    alAvanzar: (progreso) => contexto.fase?.("revisando", { lugar: "aizen1", revision: progreso }),
+    revisar: async (revisor, { vuelta, anterior }) => {
+      await git(carpeta, ["add", "-A"]);
+      const diff = (await git(carpeta, ["diff", "--cached", baseSha])).salida;
+      const prompt = promptDeRevisor(revisor, { tarjeta, repo, rama, diff, vuelta, anterior, evidencia, contexto: contextoDeLaTarjeta(tarjeta) });
+      const que = `revisar (${revisor.nombre})`;
+      if (revisorMotor === "codex") return codex(contexto, prompt, { cwd: carpeta, timeoutMs: tiempo(), que, sandbox: "read-only" });
+      return claude(contexto, ["-p", "--model", modeloDe(revisor), "--permission-mode", "plan", "--output-format", "text"], prompt, { cwd: carpeta, timeoutMs: tiempo(), que });
+    },
+    corregir: async (pendientes, vuelta) => {
+      try {
+        return await correrMotor(
+          contexto,
+          motor,
+          "construir",
+          promptDeCorregir({ tarjeta, repo, rama, pendientes, vuelta, de: vueltas, identidad: identidadDelAgente(repo), reglas: REGLAS_DE_ZONAS }),
+          { cwd: carpeta, timeoutMs: reloj.resta(), que: `corregir la revisión (${vuelta} de ${vueltas})`, tarjeta, modelo },
+        );
+      } finally {
+        await cerrarRestos(contexto, carpeta);
+      }
+    },
+  });
+  // Las 2 líneas para el dueño las arma el Coordinador con el informe de los revisores (en aizen1 cada corrección es una
+  // sesión `-p` aparte: no queda una sesión viva que las redacte).
+  if (!revision.paso) {
+    throw new ErrorDeEtapa(`${motivoDeRevisionQueNoPaso(revision.pendientes, { vueltas: revision.correcciones })}\nNo se subió nada.`, {
+      categoria: "revision_no_paso",
+      paraElDueno: dosLineasDelCoordinador(revision.pendientes),
+    });
+  }
+  return revision;
+}
+
+/** Cada vuelta de los revisores (corren a la vez) no pasa de esto. */
+const REVISORES_MAXIMO_MINUTOS = 10;
+
 /**
  * La parte de CONSTRUIR que pasa en la nube: crea la rama desde main y la sube (sin --force), lanza `claude --cloud`,
  * guarda el link de la sesión (contexto.fase -> el latido se lo cuenta al CRM) y vigila la rama hasta el commit
@@ -836,7 +934,9 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
     // El modelo sale de la misma regla fija que en aizen1 (modelos.mjs): construir -> Sonnet, nunca Opus.
     const modelo = modeloDelPaso(config, "construir", tarjeta);
     registro.info(`construir en la nube: modelo ${nombreDelModelo(modelo)}`);
-    const lanzado = await lanzarEnNube(contexto, { cwd: carpeta, prompt: promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo) }), modelo });
+    const conRevision = revisionActiva(config);
+    const prompt = promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo), revision: conRevision, modeloRevisar: modeloDelPaso(config, "revisar", tarjeta), modeloRevisarSeguridad: modeloDelPaso(config, "revisarSeguridad", tarjeta), vueltasRevision: vueltasDeRevision(config) });
+    const lanzado = await lanzarEnNube(contexto, { cwd: carpeta, prompt, modelo });
     contexto.fase?.("construyendo", { lugar: "nube", linkSesion: lanzado.link });
     registro.info(`construyo en la nube: sesión ${lanzado.link}, rama ${rama} (${lanzado.via})`);
     let resultado;
@@ -846,7 +946,9 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
       if (error instanceof ErrorDeEtapa && !error.message.includes(lanzado.link)) error.message += `\nSesión de la nube: ${lanzado.link}`;
       throw error;
     }
-    registro.info(`la nube terminó: build=${resultado.build} tests=${resultado.tests} segundos=${resultado.segundos ?? "?"}`);
+    registro.info(
+      `la nube terminó: build=${resultado.build} tests=${resultado.tests} segundos=${resultado.segundos ?? "?"}${resultado.revision ? ` revision=${resultado.revision}${resultado.revisor ? ` revisor=${resultado.revisor}` : ""}` : ""}`,
+    );
     if (!resultado.paso) {
       if (esLimiteDeUso(resultado.detalle)) {
         throw new ErrorDeEtapa(`Claude llegó a su límite de uso en la nube: ${ultimasLineas(resultado.detalle, 5)}`, { limiteDeUso: true, motor: "claude" });
@@ -855,6 +957,19 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
         `La sesión de la nube dejó el resultado FALLO (build=${resultado.build} tests=${resultado.tests}). No se subió nada.\nÚltimas líneas del error que dejó en la rama ${rama}:\n${ultimasLineas(resultado.detalle, 30) || "(no dejó líneas)"}\nSesión de la nube: ${lanzado.link}`,
       );
     }
+    // La revisión de los 4 (29-oct-2026, revisores.mjs): con FALLO no se sube nada y va al dueño (revision_no_paso, sin
+    // reparar). Un commit sin `revision=` (sesión vieja, o la sesión no lo puso) sigue como antes: se anota en el resumen.
+    const textoRevision = revisionDeLaNube(resultado, { conRevision });
+    if (resultado.revision === "FALLO" && conRevision) {
+      const revisor = revisorPorClave(resultado.revisor) ?? { nombre: resultado.revisor || "un revisor" };
+      const informes = ultimasLineas(resultado.detalle, 12);
+      throw new ErrorDeEtapa(
+        `${motivoDeRevisionQueNoPaso([{ revisor, cambios: [resultado.motivoRevision || "(no dijo qué)"] }], { vueltas: vueltasDeRevision(config) })}${informes ? `\nInformes de los revisores:\n${informes}` : ""}\nNo se subió nada.\nSesión de la nube: ${lanzado.link}`,
+        // Las 2 líneas para el dueño: las que redactó la sesión (DUEÑO 1 / DUEÑO 2); si no las dejó bien, las arma el Coordinador.
+        { categoria: "revision_no_paso", paraElDueno: dosLineasDeLaSesion(resultado.detalle) ?? dosLineasDelCoordinador([{ revisor, cambios: [resultado.motivoRevision || "(no dijo qué)"] }]) },
+      );
+    }
+    if (conRevision && !resultado.revision) registro.aviso(`la nube no dejó revision= en su commit "resultado:": no consta la revisión de los 4 (sigo como antes)`);
     // La rama vuelve a aizen1: se verifica sobre el commit de main del que salió (así lo que se prueba es lo de la nube).
     await git(repo.ruta, ["fetch", repo.remoto]);
     const baseComun = (await git(repo.ruta, ["merge-base", base, `${repo.remoto}/${rama}`])).salida.trim();
@@ -869,6 +984,7 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
       resumen: [
         lanzado.modeloForzado ? "" : "La nube no deja elegir modelo; se pidió en el prompt.",
         `Construido por Claude en la nube (${resultado.segundos === null ? "sin tiempo" : `${resultado.segundos} s`}): build=${resultado.build} tests=${resultado.tests}. Sesión: ${lanzado.link}`,
+        textoRevision,
         resultado.detalle ? `Lo que dejó en la rama:\n${resultado.detalle}` : "",
       ]
         .filter(Boolean)
@@ -1308,6 +1424,13 @@ export async function construir(contexto, tarjeta) {
       }
     }
 
+    // La revisión de los 4 (29-oct-2026): en la nube la hizo la propia sesión (nube.resumen trae su línea); en aizen1, acá.
+    // Si no pasa tras las correcciones, ErrorDeEtapa "revision_no_paso": a ERROR sin reparar (diagnostico.mjs).
+    let revisionDeLos4 = null;
+    if (!nube && revisionActiva(config)) {
+      revisionDeLos4 = await revisarEnAizen1(contexto, { tarjeta, repo, rama, carpeta, baseSha, reloj, motor, modelo: modeloElegido, evidencia: evidenciaDeCriterios(resumenDelMotor) });
+    }
+
     // Marcas de conflicto que quedaron (de reaplicar a 3 vías): no se compila ni se sube nada con ellas.
     const sinResolver = await archivosConMarcasDeConflicto(carpeta);
     if (sinResolver.length) {
@@ -1458,6 +1581,7 @@ export async function construir(contexto, tarjeta) {
       resumen: [
         resumenDelMotor.slice(-3500),
         revision ? `Revisión (${motores.revisar}): ${revision.slice(-800)}` : null,
+        revisionDeLos4?.texto ?? null,
         `Archivos (${archivos.length}): ${archivos.slice(0, 40).join(", ")}${archivos.length > 40 ? "…" : ""}`,
         `Motores: ${textoMotores}.`,
         `Construida en: ${nube ? `la nube (${nube.link})` : "aizen1"}.`,

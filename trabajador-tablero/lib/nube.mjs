@@ -18,6 +18,7 @@ import { esLimiteDeUso } from "./diagnostico.mjs";
 import { ErrorDeEtapa, entornoSeguro } from "./etapas.mjs";
 import { urlDelRemoto, webDeGithub } from "./git.mjs";
 import { correr, ultimasLineas } from "./procesos.mjs";
+import { progresoDelCommit } from "./revisores.mjs";
 
 const MINUTO = 60_000;
 
@@ -436,8 +437,11 @@ export async function commitsDeLaRama(contexto, repo, rama) {
 }
 
 /**
- * Lee la línea "resultado: build=OK|FALLO tests=OK|FALLO segundos=N" de un mensaje de commit. Lo que sigue (el
- * cuerpo) es el detalle: en un FALLO, las últimas 30 líneas del error. null si no es un commit de resultado.
+ * Lee la línea "resultado: build=OK|FALLO tests=OK|FALLO segundos=N [revision=OK|FALLO revisor=<x> motivo=<…>]" de un
+ * mensaje de commit. Lo que sigue (el cuerpo) es el detalle: en un FALLO, las últimas 30 líneas del error; con la
+ * revisión, una línea por revisor. null si no es un commit de resultado.
+ * La revisión (29-oct-2026, revisores.mjs) es opcional: una sesión vieja sin `revision=` sigue valiendo como antes (sin
+ * los campos). Con ella: { revision: "OK"|"FALLO", revisor, motivoRevision }.
  */
 export function resultadoDelCommit(mensaje) {
   const [primera = "", ...resto] = String(mensaje ?? "").split(/\r?\n/);
@@ -445,7 +449,13 @@ export function resultadoDelCommit(mensaje) {
   if (!coincide) return null;
   const build = coincide[1].toUpperCase();
   const tests = coincide[2].toUpperCase();
-  return { build, tests, segundos: coincide[3] === undefined ? null : Number(coincide[3]), paso: build === "OK" && tests === "OK", detalle: resto.join("\n").trim() };
+  const resultado = { build, tests, segundos: coincide[3] === undefined ? null : Number(coincide[3]), paso: build === "OK" && tests === "OK", detalle: resto.join("\n").trim() };
+  const revision = primera.match(/\brevisi[oó]n=([A-Za-z]+)/i);
+  if (!revision) return resultado;
+  const estado = revision[1].toUpperCase() === "OK" ? "OK" : "FALLO";
+  const revisor = primera.match(/\brevisor=["'<]?([^\s"'>]+)/i)?.[1] ?? null;
+  const motivo = primera.match(/\bmotivo=(.+)$/i)?.[1]?.trim().replace(/^["'<]|["'>]$/g, "").trim() || null;
+  return { ...resultado, revision: estado, revisor: estado === "FALLO" ? revisor : null, motivoRevision: estado === "FALLO" ? motivo : null };
 }
 
 const dormir = (ms, senal) =>
@@ -480,6 +490,7 @@ export const esCommitDeInicio = (mensaje) => /^inicio:/i.test(String(mensaje ?? 
  * 29-oct-2026 (4 sesiones de 2 h paradas en una pregunta, sin un commit): ahora también corta antes:
  *   - un commit "pregunta: …" -> error enseguida (nube_pregunta, con la pregunta y el link: no se repara solo);
  *   - ni "inicio:" ni ningún commit nuevo en config.nube.sinSenalMinutos -> error (nube_sin_resultado, con el link);
+ *   - un commit "revision: R<n> …" (el progreso de los 4 revisores) va al panel con contexto.fase("revisando") y es señal;
  *   - con señal pero sin "resultado:" al vencer la espera larga -> nube_sin_resultado (antes tiempo_agotado, que se reparaba solo).
  * Devuelve { build, tests, segundos, paso, detalle, sha, mensaje }.
  */
@@ -492,6 +503,7 @@ export async function esperarResultado(contexto, { repo, rama, vistos, reloj, li
   const mirala = link ? ` Mírala: ${link}` : "";
   let ultimoFallo = "";
   let huboSenal = false;
+  let progresoVisto = null;
   for (;;) {
     if (senal?.aborted) throw new ErrorDeEtapa("Se canceló la espera de la nube: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
     reloj.resta();
@@ -511,6 +523,17 @@ export async function esperarResultado(contexto, { repo, rama, vistos, reloj, li
         const pregunta = preguntaDelCommit(commit.mensaje);
         if (pregunta) {
           throw new ErrorDeEtapa(`La sesión de la nube hizo una pregunta y paró: ${pregunta}.${mirala}`, { categoria: "nube_pregunta" });
+        }
+        // 29-oct-2026: el progreso de la revisión de los 4 ("revision: R1 seguridad=OK …"): el más nuevo va al panel (latido).
+        // Como cualquier commit nuevo, también cuenta como señal para el corte sin señal.
+        const progreso = progresoDelCommit(commit.mensaje);
+        if (progreso) {
+          if (progresoVisto !== commit.sha) {
+            progresoVisto = commit.sha;
+            contexto.fase?.("revisando", { lugar: "nube", revision: progreso });
+            registro?.info?.(`la nube revisa (R${progreso.vuelta}): ${Object.entries(progreso.revisores).map(([clave, estado]) => `${clave}=${estado}`).join(" ")}`);
+          }
+          break;
         }
       }
     }

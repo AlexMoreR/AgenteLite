@@ -74,6 +74,40 @@ prueba("la config manda: cambiar los nombres por paso, y una config vieja (sin p
   assert.throws(() => completarConfig({ ...base, modelos: { planearSencillo: "" } }), /modelos\.planearSencillo/);
 });
 
+prueba("29-oct: el revisor de seguridad va en Opus (revisarSeguridad); los otros 3 revisores en revisar (Sonnet)", () => {
+  const config = completarConfig(base);
+  assert.equal(modeloDelPaso(config, "revisarSeguridad", sencilla), "opus");
+  assert.equal(modeloDelPaso(config, "revisar", sencilla), "sonnet");
+  assert.equal(modeloDelPaso(completarConfig({ ...base, modelos: { revisarSeguridad: "sonnet" } }), "revisarSeguridad"), "sonnet", "se cambia en la config");
+});
+
+prueba("29-oct: cambios de modelo con fecha (modelos.desde): antes de la fecha Sonnet, después Opus; sin desde, igual que siempre", () => {
+  const desde = [{ fecha: "2026-10-30T12:00:00Z", paso: "construir", modelo: "opus" }];
+  const config = completarConfig({ ...base, modelos: { desde } });
+  assert.deepEqual(config.modelos.desde, [{ fecha: "2026-10-30T12:00:00.000Z", paso: "construir", modelo: "opus" }], "normalizada");
+  const antes = Date.parse("2026-10-30T11:59:59Z");
+  const despues = Date.parse("2026-10-30T12:00:00Z");
+  assert.equal(modeloDelPaso(config, "construir", sencilla, antes), "sonnet", "antes de las 7:00 a. m. de Bogotá");
+  assert.equal(modeloDelPaso(config, "construir", sencilla, despues), "opus", "desde las 7:00 a. m. de Bogotá");
+  assert.equal(modeloDelPaso(config, "revisar", sencilla, despues), "sonnet", "solo cambia el paso de la entrada");
+  // La entrada más reciente que ya pasó manda (el orden en la lista no importa).
+  const dos = completarConfig({ ...base, modelos: { desde: [{ fecha: "2026-11-05T12:00:00Z", paso: "construir", modelo: "sonnet" }, ...desde] } });
+  assert.equal(modeloDelPaso(dos, "construir", sencilla, Date.parse("2026-11-01T00:00:00Z")), "opus");
+  assert.equal(modeloDelPaso(dos, "construir", sencilla, Date.parse("2026-11-06T00:00:00Z")), "sonnet");
+  // Sin desde: igual que siempre (y la config de hoy no cambia nada).
+  const sin = completarConfig(base);
+  assert.deepEqual(sin.modelos.desde, []);
+  assert.equal(modeloDelPaso(sin, "construir", sencilla, despues), "sonnet");
+  // Planear difícil también se puede cambiar con fecha (el paso "planear").
+  const plan = completarConfig({ ...base, modelos: { desde: [{ fecha: "2026-10-01T00:00:00Z", paso: "planearSencillo", modelo: "haiku" }] } });
+  assert.equal(modeloDelPaso(plan, "planear", sencilla, despues), "haiku");
+  // Validación: fecha ISO, paso conocido y modelo no vacío.
+  assert.throws(() => completarConfig({ ...base, modelos: { desde: [{ fecha: "30/10/2026", paso: "construir", modelo: "opus" }] } }), /modelos\.desde\[0\]\.fecha/);
+  assert.throws(() => completarConfig({ ...base, modelos: { desde: [{ fecha: "2026-10-30T12:00:00Z", paso: "volar", modelo: "opus" }] } }), /modelos\.desde\[0\]\.paso/);
+  assert.throws(() => completarConfig({ ...base, modelos: { desde: [{ fecha: "2026-10-30T12:00:00Z", paso: "construir", modelo: " " }] } }), /modelos\.desde\[0\]\.modelo/);
+  assert.throws(() => completarConfig({ ...base, modelos: { desde: { paso: "construir" } } }), /modelos\.desde: una lista/);
+});
+
 prueba("nombres para mostrar", () => {
   assert.equal(nombreDelModelo("opus"), "Opus");
   assert.equal(nombreDelModelo("claude-sonnet-4-5"), "Sonnet");

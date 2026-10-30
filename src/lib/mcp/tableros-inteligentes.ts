@@ -1071,6 +1071,13 @@ export async function ejecutarHerramientaMcpTableros(
           link: tarea.link,
           ...(tarea.linkSesion ? { link_sesion: tarea.linkSesion } : {}),
           ...(tarea.linkWorkflow ? { link_workflow: tarea.linkWorkflow } : {}),
+          // 29-oct-2026: el paso (Plan → Construir → Revisar → Aprobar → Subido) y, en Revisar, los 4 revisores.
+          paso: tarea.pasos.pasos.find((paso) => paso.clave === tarea.pasos.actual)?.nombre ?? null,
+          necesita_humano: tarea.pasos.necesitaHumano,
+          pasos: tarea.pasos.pasos.map((paso) => ({ paso: paso.nombre, estado: paso.estado })),
+          revision: tarea.revision
+            ? { vuelta: `R${tarea.revision.vuelta}`, revisores: tarea.revision.revisores.map((revisor) => ({ revisor: revisor.nombre, estado: revisor.estado })) }
+            : null,
         })),
         carga_de_aizen1: vista.carga
           ? {

@@ -415,6 +415,71 @@ export function porQueElPlanEsperaTuSi(plan: string): string | null {
   return null;
 }
 
+/* ──────────────────────────── criterios de aceptación, fuera de alcance y supuestos (29-oct-2026) ── */
+
+/*
+  Como el spec-writer de la Software Factory (zazencodes): el plan termina con "CRITERIOS DE ACEPTACIÓN:" (comportamientos
+  observables con cómo se comprueban), "FUERA DE ALCANCE:" y "SUPUESTOS:" (las decisiones donde el pedido era ambiguo).
+  Un plan NUEVO sin criterios no se aprueba solo, y un supuesto que en realidad es una decisión de negocio (precios, texto
+  público, qué es gratis o pagado, dinero, gasto en Meta Ads) tampoco: los dos esperan el sí del dueño. Los planes ya
+  aprobados sin estas secciones (los viejos) se siguen construyendo: esto solo mira el plan al aprobarlo.
+  ESPEJO de trabajador-tablero/lib/criterios.mjs: si cambia una regla acá, cambiarla allá igual.
+*/
+
+export const SECCIONES_FINALES_DEL_PLAN = ["criterios de aceptacion", "fuera de alcance", "supuestos", "preguntas abiertas"] as const;
+export type SeccionFinalDelPlan = (typeof SECCIONES_FINALES_DEL_PLAN)[number];
+
+const ENCABEZADO_DE_SECCION_FINAL = /^[\s>#*_-]*(criterios de aceptacion|fuera de alcance|supuestos|preguntas abiertas)\**\s*:?\**\s*(.*)$/;
+const SECCION_VACIA = /^[\s*_.:\-—–]*(ningun[oa]?s?|no hay( ningun[oa]?)?|n\/a|-|—)[\s*_.!]*$/;
+
+/** Las líneas de una sección final del plan ("CRITERIOS DE ACEPTACIÓN:" …), sin viñetas ni numeración ([] si no está o dice "ninguno"). */
+export function seccionFinalDelPlan(plan: string, seccion: SeccionFinalDelPlan): string[] {
+  const lineas = plan.replace(/\r\n/g, "\n").split("\n");
+  const items: string[] = [];
+  const agregar = (texto: string) => {
+    const una = lineaLimpia(texto).replace(/\s+/g, " ");
+    if (una && !SECCION_VACIA.test(normalizar(una)) && !items.includes(una)) items.push(una);
+  };
+  for (let i = 0; i < lineas.length; i += 1) {
+    const calce = ENCABEZADO_DE_SECCION_FINAL.exec(normalizar(lineas[i]));
+    if (!calce || calce[1] !== seccion) continue;
+    if (calce[2].trim()) agregar(lineas[i].replace(/^[^:]*:\**\s*/, ""));
+    for (let j = i + 1; j < lineas.length; j += 1) {
+      if (!lineas[j].trim()) continue;
+      if (ENCABEZADO_DE_SECCION_FINAL.test(normalizar(lineas[j])) || /^\s*#{1,6}\s/.test(lineas[j]) || /^\s*Plan escrito con:/i.test(lineas[j])) break;
+      agregar(lineas[j]);
+    }
+  }
+  return items;
+}
+
+/** Lo que vuelve un supuesto una decisión de NEGOCIO (además del dinero de Gestión y el gasto en Meta Ads). */
+const PALABRAS_DE_DECISION_DE_NEGOCIO =
+  /\b(precio\w*|tarifa\w*|descuento\w*|promocion\w*|gratis|gratuit\w*|pagad[oa]s?|de pago|cobr\w*|dinero|plata|texto publico|textos publicos|publico del negocio|lo que ven los clientes|mensaje a (los )?clientes)\b/;
+
+/** El motivo para no aprobar solo un plan NUEVO sin criterios de aceptación, o null si los trae. */
+export function porQueFaltanCriterios(plan: string): string | null {
+  return seccionFinalDelPlan(plan, "criterios de aceptacion").length ? null : "el plan no trae CRITERIOS DE ACEPTACIÓN (cómo se comprueba que quedó bien)";
+}
+
+/** El primer supuesto del plan que es una decisión de negocio, como motivo ("el plan supone una decisión de negocio: …"), o null. */
+export function porQueUnSupuestoEsDeNegocio(plan: string): string | null {
+  const supuesto = seccionFinalDelPlan(plan, "supuestos").find((linea) => {
+    const normal = normalizar(linea);
+    return PALABRAS_DE_DINERO_DE_GESTION.test(normal) || PALABRAS_DE_GASTO_EN_META.test(normal) || PALABRAS_DE_DECISION_DE_NEGOCIO.test(normal);
+  });
+  return supuesto ? `el plan supone una decisión de negocio: ${supuesto}`.slice(0, 300) : null;
+}
+
+/**
+ * ¿Un plan NUEVO (al llegar del Coordinador o mientras espera en PLAN_LISTO) espera el sí del dueño? Lo de siempre
+ * (porQueElPlanEsperaTuSi) más los criterios de aceptación y los supuestos de negocio. NO se usa para heredar una
+ * aprobación ya dada (porQueNoHeredaLaAprobacion): un plan viejo ya aprobado sin estas secciones sigue construyéndose.
+ */
+export function porQueElPlanNuevoEsperaTuSi(plan: string): string | null {
+  return porQueElPlanEsperaTuSi(plan) ?? porQueFaltanCriterios(plan) ?? porQueUnSupuestoEsDeNegocio(plan);
+}
+
 /* ─────────────────────────────────────────────────────── el sí de la tarea (regla 25-oct) ── */
 
 /**

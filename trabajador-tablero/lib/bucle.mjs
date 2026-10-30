@@ -622,7 +622,11 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
     }
   }
   // Escalar: el resumen de máximo 3 líneas para el dueño; el detalle técnico queda en "Detalles técnicos".
-  const resumen = resumenDeEscalada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico });
+  // 29-oct-2026: la revisión que no pasó trae sus 2 líneas para el dueño (por qué se paró / qué decisión necesita): van tal cual.
+  const resumen =
+    diagnostico.categoria === "revision_no_paso" && Array.isArray(error?.paraElDueno) && error.paraElDueno.length === 2
+      ? error.paraElDueno.join("\n")
+      : resumenDeEscalada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico });
   try {
     await crm.error(tarjeta.id, resumen, error?.zonas, error?.reversion, { ...intento, resumen });
   } catch (otro) {
@@ -1086,6 +1090,8 @@ export function crearPlanificador({
           reparacionDe: Number(tarjeta.topeReparaciones) || null,
           linkWorkflow: vivo.linkWorkflow ?? null,
           linkSesion: vivo.linkSesion ?? null,
+          // 29-oct-2026: la revisión de los 4 (vuelta y estado de cada revisor), solo mientras la etapa es "revisando".
+          revision: vivo.etapa === "revisando" ? (vivo.revision ?? null) : null,
         }));
       return {
         tareas,

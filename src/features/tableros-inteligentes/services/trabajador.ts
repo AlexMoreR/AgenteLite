@@ -70,7 +70,20 @@ import {
   type EtapaDelTrabajador,
   type PedidoDeTomar,
 } from "./reglas-trabajador";
-import { archivosDeEntrada, frase, motivosDeLosArchivos, motivosDelResultado, porQueElPlanEsperaTuSi, porQueElPlanTienePreguntas, porQueLaTareaEsperaTuSi, porQueNoSeApruebaSola, riesgoDelPlan } from "./reglas-riesgo";
+import {
+  archivosDeEntrada,
+  frase,
+  motivosDeLosArchivos,
+  motivosDelResultado,
+  porQueElPlanEsperaTuSi,
+  porQueElPlanNuevoEsperaTuSi,
+  porQueElPlanTienePreguntas,
+  porQueFaltanCriterios,
+  porQueLaTareaEsperaTuSi,
+  porQueNoSeApruebaSola,
+  porQueUnSupuestoEsDeNegocio,
+  riesgoDelPlan,
+} from "./reglas-riesgo";
 import {
   anotarAprobacionAutomatica,
   aprobacionAutomaticaPrendida,
@@ -854,7 +867,7 @@ export async function accionDelTrabajador(
         ? null
         : zonasQueNoArrancanSolas(actual.zonaProtegida).length
           ? `tiene zona protegida (${zonasQueNoArrancanSolas(actual.zonaProtegida).join(", ")}): su plan se aprueba en la pantalla`
-          : porQueElPlanEsperaTuSi(plan);
+          : porQueElPlanNuevoEsperaTuSi(plan);
       if (actual.riesgo === "BAJO") {
         const motivos = revision.motivosAlto;
         if (motivos.length) {
@@ -880,8 +893,9 @@ export async function accionDelTrabajador(
             riesgo: actual.riesgo,
             prendido,
           });
-          // 29-oct-2026: un plan con preguntas abiertas no se aprueba solo, aunque sea BAJO.
-          const preguntas = porQueElPlanTienePreguntas(plan);
+          // 29-oct-2026: un plan con preguntas abiertas, sin criterios de aceptación o con un supuesto de negocio no se
+          // aprueba solo, aunque sea BAJO.
+          const preguntas = porQueElPlanTienePreguntas(plan) ?? porQueFaltanCriterios(plan) ?? porQueUnSupuestoEsDeNegocio(plan);
           if (preguntas) despues.nota = `plan listo, espera tu sí (${preguntas})`;
           if (!noSola && !esperaPorRegla && !preguntas) {
             const motivo = motivoDeLaAprobacionAutomatica(revision.motivoDeclarado ?? actual.riesgoMotivo);

@@ -31,6 +31,8 @@ export const CATEGORIAS = [
   "nube_pregunta",
   // 29-oct-2026: el plan aprobado tiene preguntas abiertas (preguntas-abiertas.mjs): no se construye.
   "plan_con_preguntas",
+  // 29-oct-2026: los 4 revisores (revisores.mjs) siguieron pidiendo cambios tras 2 vueltas de corrección.
+  "revision_no_paso",
   "otra",
 ];
 
@@ -38,7 +40,7 @@ export const CATEGORIAS = [
  * Las categorías que NO se reparan solas (29-oct-2026, 62 % del uso semanal se fue en reintentos ciegos): van directo al
  * dueño con el link y la línea de qué necesita. Repetirlas no cambia nada hasta que alguien encuentre la causa.
  */
-export const SIN_REPARACION_AUTOMATICA = ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas"];
+export const SIN_REPARACION_AUTOMATICA = ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas", "revision_no_paso"];
 
 /** Las que no son de la tarea (ya tienen su tope de esperas): no cuentan para "la misma causa 2 veces". */
 const AJENAS_A_LA_TAREA = ["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado"];
@@ -137,6 +139,7 @@ const REGLAS = [
   ["nube_pregunta", /sesi[oó]n de la nube hizo una pregunta/i],
   ["nube_sin_resultado", /sesi[oó]n de la nube no (?:dej[oó] el commit|dio se[nñ]al)/i],
   ["plan_con_preguntas", /el plan tiene preguntas abiertas/i],
+  ["revision_no_paso", /la revisi[oó]n no pas[oó]/i],
   // Lo que el trabajador no controla.
   ["coordinador_cortado", /venció en el CRM|se canceló|coordinador[^\n]*cortad|la sesión se cayó|se cortó el coordinador|ECONNRESET/i],
   // Las que la etapa nombra con palabras sencillas.
@@ -168,6 +171,7 @@ const CAUSA_BASE = {
   nube_sin_resultado: "La sesión de la nube no dejó su resultado (ni dio señal a tiempo)",
   nube_pregunta: "La sesión de la nube hizo una pregunta y paró",
   plan_con_preguntas: "El plan tiene preguntas abiertas",
+  revision_no_paso: "Los revisores siguieron pidiendo cambios tras 2 vueltas de corrección",
   otra: "No se reconoció la causa",
 };
 
@@ -392,6 +396,7 @@ const NECESITA = {
   nube_sin_resultado: "Abrir el link de la sesión de la nube, ver dónde se quedó y, con la causa clara, tocar Reintentar.",
   nube_pregunta: "Responder la pregunta (en el detalle de la tarjeta) y aprobar de nuevo la tarea para que se planee con la respuesta.",
   plan_con_preguntas: "Responder las preguntas del plan (en el detalle de la tarjeta) y aprobar de nuevo la tarea, o aprobar el plan tal cual.",
+  revision_no_paso: "Leer qué pidió el revisor (en el detalle de la tarjeta): si tiene razón, aclarar el plan y aprobar de nuevo; si no, tocar Reintentar.",
   otra: "Que alguien mire los Detalles técnicos y diga qué hacer.",
 };
 

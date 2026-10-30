@@ -77,6 +77,10 @@
     "esperaSegundos": 60,
     "maximoEsperas": 10
   },
+  "revision": {
+    "activa": true,
+    "vueltas": 2
+  },
   "partir": {
     "archivosMinimos": 8,
     "archivosAntes": 25,
@@ -552,7 +556,9 @@
     "planearSencillo": "sonnet",
     "construir": "sonnet",
     "revisar": "sonnet",
+    "revisarSeguridad": "opus",
     "subagentes": "sonnet",
-    "leer": "haiku"
+    "leer": "haiku",
+    "desde": []
   }
 }

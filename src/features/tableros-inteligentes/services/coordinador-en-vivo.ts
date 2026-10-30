@@ -11,6 +11,14 @@ import {
   type PausaUsoDelLatido,
   type Semaforo,
   type UsoDelLatido,
+  type PasosVista,
+  type RevisionDelLatido,
+  type RevisorVisible,
+  type EstadoDelRevisor,
+  REVISORES_VISIBLES,
+  NOMBRE_DEL_REVISOR,
+  pasoDelError,
+  pasosDeLaTarjeta,
   armarHoy,
   etapaDelEstado,
   estaApagado,
@@ -97,11 +105,24 @@ export type TareaEnVivo = {
   enQueVa: string;
   linkSesion: string | null;
   linkWorkflow: string | null;
+  /** La línea de pasos Plan → Construir → Revisar → Aprobar → Subido (29-oct-2026). */
+  pasos: PasosVista;
+  /** Los 4 revisores mientras está en Revisar (vuelta R1, R2…); null si no revisa. */
+  revision: RevisionVista | null;
 };
+
+export type RevisionVista = { vuelta: number; revisores: { clave: RevisorVisible; nombre: string; estado: EstadoDelRevisor }[] };
+
+/** La revisión del latido como la muestra el panel (los 4 en orden, con su nombre). */
+export function revisionVista(revision: RevisionDelLatido | null | undefined): RevisionVista | null {
+  if (!revision) return null;
+  return { vuelta: revision.vuelta, revisores: REVISORES_VISIBLES.map((clave) => ({ clave, nombre: NOMBRE_DEL_REVISOR[clave], estado: revision.revisores[clave] })) };
+}
 
 export type CargaVista = CargaDelLatido & { semaforo: Semaforo | null };
 
-export type ItemDeFila = { tarjetaId: string; titulo: string; link: string; motivo: string | null };
+/** `pasos` (29-oct-2026): en las que esperan al dueño y las de ERROR, la línea de pasos con "Necesita humano". */
+export type ItemDeFila = { tarjetaId: string; titulo: string; link: string; motivo: string | null; pasos?: PasosVista };
 
 export type VistaDelCoordinador = {
   generadoEn: string;
@@ -195,7 +216,7 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
       },
       orderBy: { actualizadoEn: "asc" },
       take: 50,
-      select: { id: true, titulo: true, estado: true, resultado: true },
+      select: { id: true, titulo: true, estado: true, resultado: true, plan: true },
     }),
   ]);
 
@@ -218,15 +239,28 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
     else if (esperas.has(tarjeta.id)) bloqueadas.push(item(tarjeta, esperas.get(tarjeta.id) || "Espera a que termine otra tarea"));
     else siguientes.push(item(tarjeta, null));
   }
-  for (const tarjeta of esperandoAlDueno) bloqueadas.push(item(tarjeta, MOTIVO_DEL_DUENO[tarjeta.estado] ?? "Espera tu sí"));
-  // En ERROR: el motivo es la línea para el dueño que dejó la recogida diaria, si hay una.
-  const errores = enError.map((tarjeta) => item(tarjeta, recogidaDelResultado(tarjeta.resultado).linea));
+  for (const tarjeta of esperandoAlDueno) bloqueadas.push({ ...item(tarjeta, MOTIVO_DEL_DUENO[tarjeta.estado] ?? "Espera tu sí"), pasos: pasosDeLaTarjeta({ estado: tarjeta.estado }) });
+  // En ERROR: el motivo es la línea para el dueño que dejó la recogida diaria, si hay una; si la revisión de los 4 no pasó
+  // (29-oct-2026), las 2 líneas que dejó el Coordinador (por qué se paró / qué decisión necesita).
+  const errores = enError.map((tarjeta) => ({
+    ...item(tarjeta, recogidaDelResultado(tarjeta.resultado).linea ?? lineasDeRevisionQueNoPaso(tarjeta.resultado)),
+    pasos: pasosDeLaTarjeta({ estado: tarjeta.estado, pasoDelError: pasoDelError({ resultado: tarjeta.resultado, plan: tarjeta.plan }) }),
+  }));
   return {
     siguientes: siguientes.slice(0, MAXIMO_DE_FILA),
     bloqueadas: bloqueadas.slice(0, MAXIMO_DE_FILA),
     errores: { cantidad: errores.length, tarjetas: errores.slice(0, MAXIMO_DE_FILA) },
     esperandoAOtra: { cantidad: esperando.length, tarjetas: esperando.slice(0, MAXIMO_DE_FILA) },
   };
+}
+
+/** Las 2 líneas para el dueño de una tarjeta en ERROR porque la revisión de los 4 no pasó; null si no es eso. */
+export function lineasDeRevisionQueNoPaso(resultado: unknown): string | null {
+  if (!resultado || typeof resultado !== "object" || Array.isArray(resultado)) return null;
+  const error = (resultado as Record<string, unknown>).error;
+  if (!error || typeof error !== "object" || Array.isArray(error)) return null;
+  const { categoria, motivo } = error as Record<string, unknown>;
+  return categoria === "revision_no_paso" && typeof motivo === "string" && motivo.trim() ? motivo.trim() : null;
 }
 
 async function hoyDelCoordinador(workspaceId: string, ahora: Date): Promise<HoyVista> {
@@ -290,6 +324,8 @@ export async function vistaDelCoordinador(workspaceId: string, ahora = new Date(
       enQueVa: dato ? enQueVa(dato) : enQueVa({ intento: tarjeta.intentos, reparacion: tarjeta.reparaciones, reparacionDe: null }),
       linkSesion: dato?.linkSesion ?? null,
       linkWorkflow: dato?.linkWorkflow ?? null,
+      pasos: pasosDeLaTarjeta({ estado: tarjeta.estado, etapa }),
+      revision: etapa === "revisando" ? revisionVista(dato?.revision) : null,
     });
   }
 
@@ -312,6 +348,14 @@ export async function vistaDelCoordinador(workspaceId: string, ahora = new Date(
   };
 }
 
+const TEXTO_DEL_REVISOR: Record<EstadoDelRevisor, string> = { revisando: "revisando", aprobado: "aprobó", cambios: "pidió cambios", no_aplica: "no aplica" };
+
+/** "Construir (Plan hecho)" / "Necesita humano en Aprobar": la línea de pasos en palabras. */
+export function textoDeLosPasos(pasos: PasosVista): string {
+  const actual = pasos.pasos.find((paso) => paso.clave === pasos.actual)?.nombre ?? pasos.actual;
+  return pasos.necesitaHumano ? `Necesita humano en ${actual}` : actual;
+}
+
 /** La misma vista en texto sencillo, para que Claude la lea por voz (herramienta MCP ver_coordinador). */
 export function textoDelCoordinador(vista: VistaDelCoordinador): string {
   const ahora = new Date(vista.generadoEn).getTime();
@@ -325,7 +369,8 @@ export function textoDelCoordinador(vista: VistaDelCoordinador): string {
     lineas.push(`Ahora mismo (${vista.tareas.length}):`);
     for (const tarea of vista.tareas) {
       const desde = tarea.inicioEn ? `, empezó ${haceTexto(ahora - Date.parse(tarea.inicioEn))}` : "";
-      lineas.push(`- «${tarea.titulo}»: ${tarea.etapaTexto.toLowerCase()} en ${tarea.lugarTexto}${tarea.agente ? ` (${tarea.agente})` : ""}${tarea.modeloTexto ? ` con ${tarea.modeloTexto}` : ""}${desde}, ${tarea.enQueVa}.`);
+      lineas.push(`- «${tarea.titulo}»: ${tarea.etapaTexto.toLowerCase()} en ${tarea.lugarTexto}${tarea.agente ? ` (${tarea.agente})` : ""}${tarea.modeloTexto ? ` con ${tarea.modeloTexto}` : ""}${desde}, ${tarea.enQueVa}. Paso: ${textoDeLosPasos(tarea.pasos)}.`);
+      if (tarea.revision) lineas.push(`  Revisión R${tarea.revision.vuelta}: ${tarea.revision.revisores.map((revisor) => `${revisor.nombre} ${TEXTO_DEL_REVISOR[revisor.estado]}`).join(", ")}.`);
     }
   } else lineas.push("Ahora mismo no tiene ninguna tarea en marcha.");
 

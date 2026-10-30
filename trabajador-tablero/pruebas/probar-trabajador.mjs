@@ -32,6 +32,23 @@ import { LARGO_MAXIMO_DEL_AVISO, decidir, diagnosticar, recortarAviso, resumenDe
 import { buscarCorridaDelDespliegue, esLimiteDeUso, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
 import { MAX_DESCRIPCION, descripcionParaLaNube, esCommitDeInicio, esTareaGrande, estaDentroDe, esperarResultado, lanzarEnNube, linkDeSesion, preguntaDeConfianza, preguntaDelCommit, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
 import { preguntasAbiertasDelPlan, primeraPreguntaAbierta } from "../lib/preguntas-abiertas.mjs";
+import {
+  PREGUNTA_POR_DEFECTO,
+  REVISORES,
+  dosLineasDeLaSesion,
+  dosLineasDelCoordinador,
+  estadoParaElPanel,
+  motivoDeRevisionQueNoPaso,
+  progresoDelCommit,
+  promptDeRevisor,
+  revisarConCuatro,
+  revisorPorClave,
+  sonDosLineasParaElDueno,
+  textoParaLaNube,
+  tocaPantallas,
+  veredictoDeLaRespuesta,
+} from "../lib/revisores.mjs";
+import { criteriosDelPlan, evidenciaDeCriterios, instruccionDeEvidencia, porQueFaltanCriterios, porQueUnSupuestoEsDeNegocio, seccionFinalDelPlan } from "../lib/criterios.mjs";
 import { debePartirAntes, parteDelSistema, partesDelSistemaDelPlan, partesSinAlcanceNuevo } from "../lib/reparto.mjs";
 import { detalleDeFalla, lineasQueFallaron } from "../lib/procesos.mjs";
 import { destructivoDelSql, migracionDestructiva } from "../lib/riesgo.mjs";
@@ -824,6 +841,249 @@ await prueba("29-oct: un plan que toca más de una parte del sistema se parte an
   assert.deepEqual(partesSinAlcanceNuevo(planYkpl, [...partesYkpl, { titulo: "Extra", detalle: "- src/modules/nomina/x.ts" }]), { ok: false, fuera: ["modules/nomina"] });
 });
 
+/* ── 29-oct-2026: la revisión de los 4 (seguridad, experiencia, diseño, código) antes de subir ── */
+
+await prueba("29-oct revisión: veredictos, pantallas, 'resultado:' con y sin revision=, la categoría revision_no_paso (sin reparar) y la instrucción de la nube", async () => {
+  assert.deepEqual(veredictoDeLaRespuesta("APROBADO\n(nada que decir)"), { estado: "APROBADO", cambios: [] });
+  assert.deepEqual(veredictoDeLaRespuesta("Miré todo.\n**VEREDICTO: CAMBIOS**\n- src/a.ts: validar quién llama\n2. src/b.ts: falta el caso vacío\nGracias."), {
+    estado: "CAMBIOS",
+    cambios: ["src/a.ts: validar quién llama", "src/b.ts: falta el caso vacío"],
+  });
+  assert.deepEqual(veredictoDeLaRespuesta("CAMBIOS"), { estado: "CAMBIOS", cambios: ["(no dijo qué cambiar)"] });
+  assert.equal(veredictoDeLaRespuesta("Me parece razonable.").estado, "sin respuesta", "sin veredicto no frena");
+  assert.equal(veredictoDeLaRespuesta(`CAMBIOS\n${Array.from({ length: 9 }, (_, i) => `- a${i}.ts: x`).join("\n")}`).cambios.length, 5, "como mucho 5 pedidos");
+  assert.ok(!tocaPantallas(["trabajador-tablero/lib/a.mjs", "src/lib/x.ts"]) && tocaPantallas(["src/app/cliente/page.tsx"]) && tocaPantallas(["src/app/globals.css"]));
+  assert.equal(revisorPorClave("Diseño").clave, "diseno");
+  assert.equal(revisorPorClave("CODIGO").clave, "codigo");
+  // El commit "resultado:" de una sesión VIEJA (sin revision=) sigue igual: sin campos nuevos.
+  assert.deepEqual(resultadoDelCommit("resultado: build=OK tests=OK segundos=9"), { build: "OK", tests: "OK", segundos: 9, paso: true, detalle: "" });
+  const ok = resultadoDelCommit("resultado: build=OK tests=OK segundos=9 revision=OK\n\nseguridad: APROBADO");
+  assert.deepEqual([ok.paso, ok.revision, ok.revisor, ok.motivoRevision, ok.segundos], [true, "OK", null, null, 9]);
+  const fallo = resultadoDelCommit("resultado: build=OK tests=OK segundos=9 revision=FALLO revisor=seguridad motivo=src/a.ts: validar quién llama\n\nseguridad: CAMBIOS — src/a.ts");
+  assert.deepEqual([fallo.paso, fallo.revision, fallo.revisor, fallo.motivoRevision], [true, "FALLO", "seguridad", "src/a.ts: validar quién llama"]);
+  assert.equal(fallo.detalle, "seguridad: CAMBIOS — src/a.ts");
+  assert.equal(resultadoDelCommit('resultado: build=OK tests=OK revisión=FALLO revisor="codigo" motivo="falta la prueba"').motivoRevision, "falta la prueba");
+  // El diagnóstico: con la categoría o solo por el texto; no se repara sola (como nube_sin_resultado) y dice qué hacer.
+  const motivo = motivoDeRevisionQueNoPaso([{ revisor: REVISORES[0], cambios: ["src/api/ruta.ts: validar quién llama"] }], { link: LINK_PRUEBA });
+  assert.match(motivo, /^La revisión no pasó tras 2 vueltas de corrección: seguridad pidió: src\/api\/ruta\.ts: validar quién llama\n/);
+  const diagnostico = diagnosticar({ error: Object.assign(new Error(motivo), { categoria: "revision_no_paso" }), etapa: "construir" });
+  assert.equal(diagnostico.categoria, "revision_no_paso");
+  assert.ok(diagnostico.causa.startsWith("La revisión no pasó tras 2 vueltas de corrección: seguridad pidió") && diagnostico.causa.endsWith(LINK_PRUEBA), diagnostico.causa);
+  assert.equal(diagnosticar({ error: new Error("La revisión no pasó tras 2 vueltas de corrección: código pidió: x"), etapa: "construir" }).categoria, "revision_no_paso");
+  const decision = decidir({ diagnostico, tarjeta: { reparaciones: 0, ultimosIntentos: [] }, etapa: "construir" });
+  assert.deepEqual([decision.accion, decision.cuenta], ["escalar", true]);
+  const resumen = resumenDeEscalada({ tarjeta: {}, intentos: [], diagnostico }).split("\n");
+  assert.match(resumen[0], /^Qué falló: La revisión no pasó/);
+  assert.match(resumen[2], /^Qué necesita de ti: Leer qué pidió el revisor/);
+  // La instrucción de la nube: los 4 subagentes en primer plano (seguridad en Opus, los demás en Sonnet), 2 correcciones,
+  // el campo revision= y las 2 líneas para el dueño (corta).
+  const tarjeta = { id: "t", titulo: "t", detalle: "d", tablero: "E", plan: "p" };
+  const texto = promptDeNube(tarjeta, { clave: "aizencrm" }, "tablero/abc", { modeloRevisar: "sonnet", modeloRevisarSeguridad: "opus" });
+  assert.match(texto, /REVISIÓN \(obligatoria[^\n]*4 subagentes \(herramienta Agent o Task, cada uno con el model que dice abajo\) y ESPERA aquí sus respuestas/);
+  assert.match(texto, /^- seguridad \(model "opus"\): /m);
+  for (const clave of ["experiencia", "diseno", "codigo"]) assert.match(texto, new RegExp(`^- ${clave} \\(model "sonnet"\\): `, "m"), clave);
+  assert.match(texto, /DUEÑO 1: <por qué se paró[^\n]*DUEÑO 2: <la decisión que necesita, como pregunta cerrada/);
+  assert.match(texto, /NO lances experiencia ni diseno/);
+  assert.match(texto, /Máximo 2 correcciones/);
+  assert.match(texto, /resultado: build=OK tests=OK segundos=<N> revision=OK/);
+  assert.match(texto, /revision=FALLO revisor=<seguridad\|experiencia\|diseno\|codigo> motivo=/);
+  assert.match(texto, /Los ÚNICOS subagentes permitidos son los 4 de la REVISIÓN/);
+  assert.ok(textoParaLaNube().length < 3200, `el bloque de la nube es corto (${textoParaLaNube().length})`);
+  const sinRevision = promptDeNube(tarjeta, { clave: "aizencrm" }, "tablero/abc", { revision: false });
+  assert.ok(!/REVISIÓN \(obligatoria|revision=/.test(sinRevision), "con la revisión apagada la nube no la hace");
+  // La configuración: prendida y 2 vueltas por defecto; validada.
+  const base = { urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: os.tmpdir(), repos: { aizencrm: { ruta: AQUI } } };
+  assert.deepEqual(completarConfig(base).revision, { activa: true, vueltas: 2 });
+  assert.deepEqual(completarConfig({ ...base, revision: { activa: false } }).revision, { activa: false, vueltas: 2 });
+  assert.throws(() => completarConfig({ ...base, revision: { vueltas: 3 } }), /revision\.vueltas/);
+});
+
+await prueba("29-oct revisión: revisarConCuatro aprueba a la primera, corrige en 1 vuelta (solo re-revisa al que pidió), no pasa tras 2 y sin pantallas no lanza experiencia ni diseño", async () => {
+  const correr = async (archivos, contesta) => {
+    const llamadas = [];
+    const correcciones = [];
+    const resultado = await revisarConCuatro({
+      archivos,
+      revisar: async (revisor, { vuelta, anterior }) => {
+        llamadas.push(`${revisor.clave}@${vuelta}${anterior ? "+" : ""}`);
+        return contesta(revisor.clave, vuelta);
+      },
+      corregir: async (pendientes, vuelta) => correcciones.push(`${vuelta}:${pendientes.map((p) => p.revisor.clave).join(",")}`),
+    });
+    return { resultado, llamadas, correcciones };
+  };
+  const limpia = await correr(["src/x.ts"], () => "APROBADO");
+  assert.equal(limpia.resultado.paso, true);
+  assert.deepEqual(limpia.llamadas.sort(), ["codigo@1", "seguridad@1"], "sin pantallas: experiencia y diseño no se lanzan");
+  assert.match(limpia.resultado.texto, /APROBADA a la primera — seguridad APROBADO · experiencia no aplica · diseño no aplica · código APROBADO/);
+  const conPantallas = await correr(["src/app/page.tsx"], () => "APROBADO");
+  assert.equal(conPantallas.llamadas.length, 4, "con pantallas van los 4");
+  const unaVuelta = await correr(["src/x.ts"], (clave, vuelta) => (clave === "codigo" && vuelta === 1 ? "CAMBIOS\n- src/x.ts: falta el caso vacío" : "APROBADO"));
+  assert.equal(unaVuelta.resultado.paso, true);
+  assert.deepEqual(unaVuelta.correcciones, ["1:codigo"]);
+  assert.deepEqual(unaVuelta.llamadas.sort(), ["codigo@1", "codigo@2+", "seguridad@1"], "la 2ª vuelta solo re-revisa al que pidió");
+  assert.match(unaVuelta.resultado.texto, /APROBADA tras 1 corrección/);
+  const nunca = await correr(["src/x.ts"], (clave) => (clave === "seguridad" ? "CAMBIOS\n- src/api/ruta.ts: validar quién llama" : "APROBADO"));
+  assert.equal(nunca.resultado.paso, false);
+  assert.deepEqual(nunca.correcciones, ["1:seguridad", "2:seguridad"], "máximo 2 correcciones");
+  assert.equal(nunca.llamadas.filter((l) => l.startsWith("seguridad")).length, 3);
+  assert.deepEqual(nunca.resultado.pendientes.map((p) => [p.revisor.clave, p.cambios]), [["seguridad", ["src/api/ruta.ts: validar quién llama"]]]);
+  // Un revisor que se cae (no por límite) no frena; el límite de uso sí se propaga.
+  const caido = await revisarConCuatro({
+    archivos: ["a.ts"],
+    revisar: async (revisor) => {
+      if (revisor.clave === "codigo") throw new Error("se cayó");
+      return "APROBADO";
+    },
+    corregir: async () => {},
+  });
+  assert.equal(caido.paso, true);
+  assert.equal(caido.informes.codigo.estado, "sin respuesta");
+  const sinCupo = revisarConCuatro({
+    archivos: ["a.ts"],
+    revisar: async () => {
+      throw Object.assign(new Error("límite"), { limiteDeUso: true });
+    },
+    corregir: async () => {},
+  });
+  await assert.rejects(sinCupo, /límite/);
+  // El progreso para el panel: antes de cada vuelta los que revisan en gris, después el veredicto de cada uno.
+  const progreso = [];
+  await revisarConCuatro({
+    archivos: ["src/x.ts"],
+    revisar: async (revisor, { vuelta }) => (revisor.clave === "codigo" && vuelta === 1 ? "CAMBIOS\n- x" : "APROBADO"),
+    corregir: async () => {},
+    alAvanzar: (dato) => progreso.push(`R${dato.vuelta} ${Object.values(dato.revisores).join(",")}`),
+  });
+  assert.deepEqual(progreso, [
+    "R1 revisando,no_aplica,no_aplica,revisando",
+    "R1 aprobado,no_aplica,no_aplica,cambios",
+    "R2 aprobado,no_aplica,no_aplica,revisando",
+    "R2 aprobado,no_aplica,no_aplica,aprobado",
+  ]);
+});
+
+await prueba("29-oct revisión: los commits de progreso de la nube ('revision: R1 seguridad=OK ux=CAMBIOS …') se leen, van al panel y cuentan como señal", async () => {
+  assert.deepEqual(progresoDelCommit("revision: R1 seguridad=OK ux=CAMBIOS diseno=NA codigo=REVISANDO"), {
+    vuelta: 1,
+    revisores: { seguridad: "aprobado", experiencia: "cambios", diseno: "no_aplica", codigo: "revisando" },
+  });
+  assert.deepEqual(progresoDelCommit("Revisión: R2 código=APROBADO").revisores, { seguridad: "revisando", experiencia: "revisando", diseno: "revisando", codigo: "aprobado" });
+  assert.equal(progresoDelCommit("resultado: build=OK tests=OK revision=OK"), null, "el resultado no es progreso");
+  assert.equal(progresoDelCommit("tablero: revision: R1"), null);
+  assert.equal(progresoDelCommit("revision: sin vuelta"), null);
+  assert.equal(resultadoDelCommit("revision: R1 seguridad=OK"), null);
+  assert.deepEqual(estadoParaElPanel({ seguridad: { estado: "APROBADO" }, experiencia: { estado: "no aplica" }, codigo: { estado: "CAMBIOS" } }, [REVISORES[3]]), {
+    seguridad: "aprobado",
+    experiencia: "no_aplica",
+    diseno: "revisando",
+    codigo: "revisando",
+  });
+  // esperarResultado: el progreso más nuevo va a contexto.fase("revisando") una vez, y es señal (no corta por "sin señal").
+  const gh = [process.execPath, "-e", "process.stdout.write(process.env.GH_COMMITS_PRUEBA || '')"];
+  const fases = [];
+  const contexto = {
+    config: { nube: { comandoGh: gh, vigilarCadaSegundos: 0.05, esperaMinutos: 0.004, sinSenalMinutos: 0.001 } },
+    registro: { info() {}, aviso() {} },
+    fase: (etapa, extra) => fases.push([etapa, extra.lugar, extra.revision.vuelta, extra.revision.revisores.codigo]),
+  };
+  process.env.GH_COMMITS_PRUEBA = [
+    { sha: "r2", mensaje: "revision: R2 seguridad=OK codigo=REVISANDO" },
+    { sha: "r1", mensaje: "revision: R1 seguridad=OK codigo=CAMBIOS" },
+  ]
+    .map((c) => JSON.stringify(c))
+    .join("\n");
+  try {
+    await assert.rejects(esperarResultado(contexto, { repo: { github: "a/b", ruta: AQUI }, rama: "tablero/abc", vistos: new Set(), reloj: { resta: () => 1e9 }, link: LINK_PRUEBA }), (error) => {
+      assert.equal(error.categoria, "nube_sin_resultado");
+      assert.match(error.message, /no dejó el commit "resultado:"/, "con progreso hubo señal: corta por la espera larga, no por 'no dio señal'");
+      return true;
+    });
+  } finally {
+    delete process.env.GH_COMMITS_PRUEBA;
+  }
+  assert.deepEqual(fases, [["revisando", "nube", 2, "revisando"]], "solo el más nuevo, una vez");
+});
+
+await prueba("29-oct revisión: las 2 líneas para el dueño (por qué se paró / pregunta cerrada con opciones): de la sesión o, si no, del Coordinador", () => {
+  const pendientes = [{ revisor: REVISORES[0], cambios: ["src/api/ruta.ts: validar quién llama", "src/api/otra.ts: no devolver el error interno"] }, { revisor: REVISORES[3], cambios: ["x"] }];
+  const lineas = dosLineasDelCoordinador(pendientes);
+  assert.equal(lineas.length, 2);
+  assert.equal(lineas[0], "Se paró porque el revisor de seguridad (también código) no aprobó tras 2 correcciones: pide src/api/ruta.ts: validar quién llama; src/api/otra.ts: no devolver el error interno.");
+  assert.equal(lineas[1], PREGUNTA_POR_DEFECTO);
+  assert.ok(sonDosLineasParaElDueno(lineas), "tiene la forma pedida");
+  assert.ok(lineas.every((linea) => !linea.includes("\n") && linea.length <= 280));
+  assert.ok(dosLineasDelCoordinador([{ revisor: REVISORES[3], cambios: ["y".repeat(900)] }])[0].length <= 280, "cabe en la línea del CRM");
+  // La forma: 2 líneas, la 2ª una pregunta cerrada (¿…?) con opciones (" o ").
+  assert.ok(!sonDosLineasParaElDueno(["Se paró por seguridad, pide validar quién llama."]), "una sola línea no");
+  assert.ok(!sonDosLineasParaElDueno(["Se paró por seguridad, pide validar quién llama.", "Dime qué hago."]), "sin pregunta no");
+  assert.ok(!sonDosLineasParaElDueno(["Se paró por seguridad, pide validar quién llama.", "¿Qué hago?"]), "sin opciones no");
+  // Las que redactó la sesión de la nube en el cuerpo del commit.
+  const cuerpo = "seguridad: CAMBIOS — x\nDUEÑO 1: La revisión de seguridad no aprobó: pide validar quién llama en src/api/ruta.ts.\nDUEÑO 2: ¿Lo subo así, lo corrijo con tu indicación o lo cierro?";
+  assert.deepEqual(dosLineasDeLaSesion(cuerpo), ["La revisión de seguridad no aprobó: pide validar quién llama en src/api/ruta.ts.", "¿Lo subo así, lo corrijo con tu indicación o lo cierro?"]);
+  assert.equal(dosLineasDeLaSesion("DUEÑO 1: algo corto\nDUEÑO 2: decide tú"), null, "mal formadas: las arma el Coordinador");
+  assert.equal(dosLineasDeLaSesion("seguridad: CAMBIOS"), null);
+});
+
+await prueba("29-oct criterios de aceptación: el plan los pide (antes de PREGUNTAS ABIERTAS), quien construye deja la evidencia y los revisores la leen; espejo con el CRM", () => {
+  const plan = [
+    "## 1. Qué se cambia",
+    "Un reporte.",
+    "## 6. Cómo se va a probar",
+    "npm test",
+    "",
+    "CRITERIOS DE ACEPTACIÓN:",
+    "1. `npm run test:reportes` pasa.",
+    "2. La página /cliente/reportes muestra la tabla de ventas por mes.",
+    "",
+    "**FUERA DE ALCANCE:**",
+    "- Exportar a Excel.",
+    "",
+    "SUPUESTOS:",
+    "- El mes se cuenta en hora de Bogotá, como el resto de reportes.",
+    "",
+    "PREGUNTAS ABIERTAS: ninguna",
+    "",
+    "Plan escrito con: Claude Code (Opus)",
+  ].join("\n");
+  assert.deepEqual(criteriosDelPlan(plan), ["`npm run test:reportes` pasa.", "La página /cliente/reportes muestra la tabla de ventas por mes."]);
+  assert.deepEqual(seccionFinalDelPlan(plan, "fuera de alcance"), ["Exportar a Excel."]);
+  assert.deepEqual(seccionFinalDelPlan(plan, "supuestos"), ["El mes se cuenta en hora de Bogotá, como el resto de reportes."]);
+  assert.equal(porQueFaltanCriterios(plan), null);
+  assert.equal(porQueUnSupuestoEsDeNegocio(plan), null);
+  const sinCriterios = plan.replace(/CRITERIOS DE ACEPTACIÓN:\n1\.[^\n]*\n2\.[^\n]*\n/, "CRITERIOS DE ACEPTACIÓN: ninguno\n");
+  assert.match(porQueFaltanCriterios(sinCriterios), /no trae CRITERIOS DE ACEPTACIÓN/);
+  const deNegocio = plan.replace("- El mes se cuenta en hora de Bogotá, como el resto de reportes.", "- El envío a Bogotá queda gratis porque el pedido no dice el precio.");
+  assert.match(porQueUnSupuestoEsDeNegocio(deNegocio), /decisión de negocio: El envío a Bogotá queda gratis/);
+  // El espejo del CRM (reglas-riesgo.ts) dice lo mismo.
+  for (const texto of [plan, sinCriterios, deNegocio, "Un plan viejo sin secciones."]) {
+    assert.deepEqual(reglasDeRiesgo.seccionFinalDelPlan(texto, "criterios de aceptacion"), criteriosDelPlan(texto));
+    assert.equal(reglasDeRiesgo.porQueFaltanCriterios(texto), porQueFaltanCriterios(texto));
+    assert.equal(reglasDeRiesgo.porQueUnSupuestoEsDeNegocio(texto), porQueUnSupuestoEsDeNegocio(texto));
+  }
+  // La instrucción de planear pide las 3 secciones en orden, antes de PREGUNTAS ABIERTAS.
+  const delPlan = promptDelPlan({ id: "t", titulo: "t", detalle: "d", tablero: "E" }, { clave: "aizencrm" });
+  const donde = ["\"CRITERIOS DE ACEPTACIÓN:\"", "\"FUERA DE ALCANCE:\"", "\"SUPUESTOS:\"", "\"PREGUNTAS ABIERTAS:\""].map((seccion) => delPlan.indexOf(seccion));
+  assert.ok(donde.every((i, n) => i > 0 && (n === 0 || i > donde[n - 1])), `en orden: ${donde}`);
+  assert.match(delPlan, /cómo se comprueba: un comando, una página y qué debe mostrar, o un archivo y qué debe contener/);
+  // Construir (aizen1 y nube) deja la evidencia; un plan viejo sin criterios no la pide.
+  const tarjeta = { id: "t", titulo: "t", detalle: "d", tablero: "E", plan };
+  assert.match(promptDeConstruir(tarjeta, { clave: "aizencrm" }, "tablero/x"), /CRITERIOS DE ACEPTACIÓN \(2[^\n]*evidencia en tu RESUMEN final[^\n]*"CRITERIO <n>: OK\|FALLA — /);
+  assert.match(promptDeNube(tarjeta, { clave: "aizencrm" }, "tablero/x"), /evidencia en el CUERPO del commit "resultado:"/);
+  assert.match(promptDeNube(tarjeta, { clave: "aizencrm" }, "tablero/x"), /Dales también tu evidencia de los CRITERIOS DE ACEPTACIÓN[^\n]*\n[^\n]*con lo que pidió cada uno para que compruebe que se arregló/);
+  const viejo = { ...tarjeta, plan: "El plan" };
+  assert.equal(instruccionDeEvidencia(viejo.plan, "x"), "");
+  assert.ok(!/CRITERIO <n>/.test(promptDeConstruir(viejo, { clave: "aizencrm" }, "tablero/x")), "un plan viejo se construye como antes");
+  // Los revisores leen los criterios (están en el plan) y la evidencia; el de código pide CAMBIOS si falta o no se cumple.
+  const evidencia = evidenciaDeCriterios("RESUMEN: listo\nCRITERIO 1: OK — npm run test:reportes: 12 pruebas bien\ncriterio 2: FALLA — la página no carga\nQué se hizo: x");
+  assert.deepEqual(evidencia, ["CRITERIO 1: OK — npm run test:reportes: 12 pruebas bien", "criterio 2: FALLA — la página no carga"]);
+  const codigo = REVISORES.find((revisor) => revisor.clave === "codigo");
+  const delRevisor = promptDeRevisor(codigo, { tarjeta, repo: { clave: "aizencrm" }, rama: "tablero/x", diff: "d", vuelta: 2, anterior: { cambios: ["a.ts: falta el caso vacío"] }, evidencia });
+  assert.match(delRevisor, /EVIDENCIA de los criterios de aceptación[^\n]*\nCRITERIO 1: OK/);
+  assert.match(delRevisor, /CAMBIOS si alguno no se cumple o no tiene evidencia/);
+  assert.match(delRevisor, /En la vuelta anterior pediste esto; mira si quedó corregido:\n- a\.ts: falta el caso vacío/);
+});
+
 await prueba("aviso de reversión al dueño: máximo 3 líneas y 500 caracteres aunque el motivo sea larguísimo (26-oct-2026: uno de 869 no salió)", () => {
   const motivo = `Se subió, no arrancó y se deshizo; producción vuelve a la versión anterior.\nCommit deshecho: 602d0beb01 (revert 66918ed0e7).\nDetalle técnico: Subió a main (commit 602d0beb01) pero el CI falló: 'servicio' is assigned a value but never used\n${"error  A require() style import is forbidden\n".repeat(30)}`;
   const reversion = { commit: "602d0beb01d949b85e6bdc7200fa4229ed4dc069", revert: "66918ed0e7dbd48e0c40520e8b2a499a84afdf0b", ok: true };
@@ -945,7 +1205,8 @@ await prueba("motores: por defecto todo Claude (Opus planea, Sonnet construye y 
   const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
   const porDefecto = completarConfig(base);
   assert.deepEqual(porDefecto.motores, { planear: "claude", construir: "claude", revisar: "claude", respaldoClaude: false, respaldoCodex: false });
-  assert.deepEqual(porDefecto.modelos, { planear: "opus", planearSencillo: "sonnet", construir: "sonnet", revisar: "sonnet", subagentes: "sonnet", leer: "haiku" });
+  // 29-oct-2026: el revisor de seguridad va en Opus (revisarSeguridad) y `desde` (cambios con fecha) viene vacío.
+  assert.deepEqual(porDefecto.modelos, { planear: "opus", planearSencillo: "sonnet", construir: "sonnet", revisar: "sonnet", revisarSeguridad: "opus", subagentes: "sonnet", leer: "haiku", desde: [] });
   assert.throws(() => completarConfig({ ...base, modelos: { planear: "opus 5" } }), /modelos\.planear/);
   const sinRespaldo = crearEstadoDeMotores(porDefecto);
   sinRespaldo.ponerClaudeAlto({ periodo: "sesion", porcentaje: 83, reinicio: "3:20pm" });
@@ -1741,7 +2002,8 @@ try {
   await prueba("zonas que suben solas: bot sin la frase del constructor y sin envíos nuevos: el Coordinador la escribe y sube sola (27-oct)", async () => {
     reiniciarLogs();
     const bot = nueva("Bot sin probar [solas-bot-sin]", "PLAN_APROBADO", { plan: "El plan" });
-    assert.equal((await vuelta(configSolas())).ok, true);
+    const construida = await vuelta(configSolas());
+    assert.equal(construida.ok, true, construida.motivo);
     assert.equal(tarjetas.get(bot).estado, "SUBIENDO");
     assert.equal(tarjetas.get(bot).resultado.esperaPor, undefined);
     assert.match(tarjetas.get(bot).resultado.pruebas, /✔ sin mensajes nuevos a clientes \(comprobado por el Coordinador/);
@@ -2135,6 +2397,64 @@ try {
     assert.equal((await vuelta()).ok, true);
     assert.equal(tarjetas.get(id2).estado, "POR_REVISAR");
     soltarTodas(id2);
+    sinRestos();
+  });
+
+  /* ── 29-oct-2026: la revisión de los 4 en aizen1 (Sonnet, solo lectura; corrige el mismo que construyó) ── */
+  const revisionesDe = (titulo) => leerLog(`${LOGS.claude}.revisores`).filter((l) => l.titulo === titulo);
+
+  await prueba("29-oct revisión en aizen1: pasa a la primera (seguridad con Opus, código con Sonnet, en modo plan; sin pantallas, experiencia y diseño no aplican)", async () => {
+    const titulo = "Revisión limpia";
+    const id = nuevaModerna(titulo);
+    const resultado = await vuelta();
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR");
+    assert.match(t.resultado.resumen, /Revisión \(4 revisores\): APROBADA a la primera — seguridad APROBADO · experiencia no aplica · diseño no aplica · código APROBADO\./);
+    const revisiones = revisionesDe(titulo);
+    assert.deepEqual(revisiones.map((r) => r.revisor).sort(), ["código", "seguridad"]);
+    assert.deepEqual(Object.fromEntries(revisiones.map((r) => [r.revisor, r.modelo])), { seguridad: "opus", código: "sonnet" }, "seguridad en Opus, el resto en Sonnet");
+    assert.ok(revisiones.every((r) => r.modo === "plan"), "solo lectura");
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("29-oct revisión en aizen1: código pide un cambio, el mismo motor corrige en 1 vuelta, se re-revisa solo código y sube con la corrección", async () => {
+    const titulo = "Revisión con un cambio [rev-cambios-1]";
+    const id = nuevaModerna(titulo);
+    const resultado = await vuelta();
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.match(t.resultado.resumen, /APROBADA tras 1 corrección/);
+    assert.ok(t.resultado.archivos.includes("correccion-1.txt"), "la corrección queda en la rama");
+    assert.deepEqual(revisionesDe(titulo).map((r) => `${r.revisor}@${r.vuelta}`).sort(), ["código@1", "código@2", "seguridad@1"]);
+    const correccion = leerLog(LOGS.claude).findLast((l) => l.titulo === titulo && l.prompt.includes("CORRECCIÓN DE LA REVISIÓN 1 de 2"));
+    assert.ok(correccion, "la corrección la pidió el Coordinador");
+    assert.equal(correccion.modo, "acceptEdits");
+    assert.equal(correccion.argumentos[correccion.argumentos.indexOf("--model") + 1], "sonnet", "el mismo modelo que construyó");
+    assert.match(correccion.prompt, /código:\n- cambio\.txt: falta el caso vacío/);
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("29-oct revisión en aizen1: tras 2 correcciones seguridad sigue pidiendo cambios -> ERROR revision_no_paso, sin reparar, con qué pidió y qué necesita de ti", async () => {
+    const titulo = "Revisión que no pasa [rev-no-pasa]";
+    const id = nuevaModerna(titulo);
+    const resultado = await vuelta();
+    assert.deepEqual([resultado.ok, resultado.accion, resultado.categoria], [false, "escalar", "revision_no_paso"]);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.equal(t.reparaciones ?? 0, 0, "no se repara sola");
+    assert.equal(t.resultado.error.categoria, "revision_no_paso");
+    // Las 2 líneas para el dueño (aizen1: las arma el Coordinador con el informe de los revisores).
+    assert.deepEqual(t.resultado.error.motivo.split("\n"), [
+      "Se paró porque el revisor de seguridad no aprobó tras 2 correcciones: pide src/api/ruta.ts: validar quién llama antes de leer los datos.",
+      "¿Lo subo así, lo corrijo con tu indicación o lo cierro?",
+    ]);
+    assert.match(t.intentosLista.at(-1).error, /^La revisión no pasó tras 2 vueltas de corrección: seguridad pidió: src\/api\/ruta\.ts: validar quién llama/, "el detalle técnico queda en el intento");
+    assert.equal(revisionesDe(titulo).filter((r) => r.revisor === "seguridad").length, 3, "1ª revisión + 2 re-revisiones");
+    assert.equal(leerLog(LOGS.claude).filter((l) => l.titulo === titulo && l.prompt.includes("CORRECCIÓN DE LA REVISIÓN")).length, 2, "máximo 2 correcciones");
+    assert.ok(!ramasDelRemoto().includes(nombreDeRama(t)), "no se subió nada");
     sinRestos();
   });
 
@@ -2991,6 +3311,55 @@ try {
     assert.equal(tarjetas.get(id).estado, "ERROR");
     assert.ok(ramasDelRemoto().includes(`${rama}-nube2`), "el reintento usa su propia rama");
     assert.equal(shaDe(rama), antes, "la rama del primer intento queda intacta");
+    sinRestos();
+  });
+
+  await prueba("29-oct revisión en la nube: revision=FALLO (build y pruebas OK) -> ERROR revision_no_paso sin reparar, con el revisor, lo que pidió y el link", async () => {
+    despejar();
+    const titulo = "Revisión de la nube no pasa [nube-rev-fallo]";
+    const desde = leerLog(LOGS.claude).length;
+    const id = nueva(titulo, "PLAN_APROBADO", { plan: planDe("revfallo", 9), moderno: true });
+    const planificador = planificar(nubeConfig());
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.equal(t.reparaciones ?? 0, 0, "no se repara sola");
+    assert.equal(t.resultado.error.categoria, "revision_no_paso");
+    // Las 2 líneas para el dueño las redactó la misma sesión de la nube (DUEÑO 1 / DUEÑO 2 en el cuerpo del commit).
+    assert.deepEqual(t.resultado.error.motivo.split("\n"), [
+      "La revisión de seguridad no aprobó: pide que src/api/ruta.ts revise quién llama antes de leer los datos.",
+      "¿Lo subo así, lo corrijo con tu indicación o lo cierro?",
+    ]);
+    const intento = t.intentosLista.at(-1);
+    assert.ok(intento.causa.includes(enlaceDe(titulo)), "la causa trae el link de la sesión");
+    assert.match(intento.error, /Informes de los revisores:\nseguridad: CAMBIOS — src\/api\/ruta\.ts: validar quién llama/);
+    // La instrucción que recibió la nube trae la revisión (seguridad en Opus, los demás en Sonnet, progreso y revision=).
+    const [lanzada] = llamadasALaNube(desde);
+    assert.match(lanzada.prompt, /^- seguridad \(model "opus"\)/m);
+    assert.match(lanzada.prompt, /^- codigo \(model "sonnet"\)/m);
+    assert.match(lanzada.prompt, /git commit --allow-empty -m "revision: R<N> seguridad=/);
+    sinRestos();
+  });
+
+  await prueba("29-oct revisión en la nube: revision=OK sigue como siempre y el resumen lo dice; un 'resultado:' viejo sin revision= también sigue", async () => {
+    despejar();
+    const id = nueva("Revisión de la nube pasa [nube-rev-ok]", "PLAN_APROBADO", { plan: planDe("revok", 9) });
+    const vieja = nueva("Sesión vieja sin revisión", "PLAN_APROBADO", { plan: planDe("revvieja", 9) });
+    const planificador = planificar(nubeConfig());
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    planificador.parar();
+    for (const [cual, texto] of [
+      [id, /Revisión \(4 revisores, en la nube\): APROBADA\./],
+      [vieja, /la sesión de la nube no dejó revision= en su commit \(sesión vieja o se le pasó\): no consta/],
+    ]) {
+      const t = tarjetas.get(cual);
+      assert.notEqual(t.estado, "ERROR", t.resultado?.error?.motivo);
+      assert.equal(t.resultado.paso, true);
+      assert.match(t.resultado.resumen, texto);
+    }
     sinRestos();
   });
 

@@ -490,4 +490,134 @@ await prueba("POST /api/trabajador/latido: sin clave o con clave mala, 401; con 
   assert.equal(rutaLatido.GET().status, 405);
 });
 
+/* ------------------------------------------------------------------ 29-oct-2026: pasos y revisores */
+
+const resumenDePasos = (pasos) => [pasos.actual, pasos.necesitaHumano, pasos.pasos.map((paso) => paso.estado).join(",")];
+
+await prueba("pasos: el mapeo de estados a Plan → Construir → Revisar → Aprobar → Subido, con «Necesita humano» donde se para", () => {
+  const p = (estado, extra = {}) => resumenDePasos(reglas.pasosDeLaTarjeta({ estado, ...extra }));
+  assert.deepEqual(p("APROBADO"), ["plan", false, "actual,pendiente,pendiente,pendiente,pendiente"]);
+  assert.deepEqual(p("PLANEANDO"), ["plan", false, "actual,pendiente,pendiente,pendiente,pendiente"]);
+  assert.deepEqual(p("POR_APROBAR"), ["plan", true, "necesita_humano,pendiente,pendiente,pendiente,pendiente"]);
+  assert.deepEqual(p("PLAN_LISTO"), ["construir", true, "hecho,necesita_humano,pendiente,pendiente,pendiente"]);
+  assert.deepEqual(p("PLAN_APROBADO"), ["construir", false, "hecho,actual,pendiente,pendiente,pendiente"]);
+  assert.deepEqual(p("EN_CURSO", { etapa: "construyendo" }), ["construir", false, "hecho,actual,pendiente,pendiente,pendiente"]);
+  assert.deepEqual(p("EN_CURSO", { etapa: "probando" }), ["construir", false, "hecho,actual,pendiente,pendiente,pendiente"]);
+  assert.deepEqual(p("EN_CURSO", { etapa: "revisando" }), ["revisar", false, "hecho,hecho,actual,pendiente,pendiente"]);
+  assert.deepEqual(p("POR_REVISAR"), ["aprobar", true, "hecho,hecho,hecho,necesita_humano,pendiente"]);
+  assert.deepEqual(p("SUBIENDO", { etapa: "subiendo" }), ["aprobar", false, "hecho,hecho,hecho,actual,pendiente"]);
+  assert.deepEqual(p("SUBIENDO", { etapa: "vigilando" }), ["subido", false, "hecho,hecho,hecho,hecho,actual"]);
+  assert.deepEqual(p("HECHO"), ["subido", false, "hecho,hecho,hecho,hecho,hecho"]);
+  assert.deepEqual(p("ERROR"), ["construir", true, "hecho,necesita_humano,pendiente,pendiente,pendiente"]);
+  assert.deepEqual(p("ERROR", { pasoDelError: "revisar" }), ["revisar", true, "hecho,hecho,necesita_humano,pendiente,pendiente"]);
+  // Dónde se paró una en ERROR.
+  assert.equal(reglas.pasoDelError({ resultado: { error: { categoria: "revision_no_paso" } }, plan: "p" }), "revisar");
+  assert.equal(reglas.pasoDelError({ resultado: { paso: true, commit: "abc" }, plan: "p" }), "aprobar");
+  assert.equal(reglas.pasoDelError({ resultado: null, plan: "p" }), "construir");
+  assert.equal(reglas.pasoDelError({ resultado: null, plan: null }), "plan");
+  assert.deepEqual(reglas.pasosDeLaTarjeta({ estado: "EN_CURSO" }).pasos.map((paso) => paso.nombre), ["Plan", "Construir", "Revisar", "Aprobar", "Subido"]);
+});
+
+await prueba("revisores: el latido trae la vuelta y el estado de cada uno (validado); solo en la etapa «revisando»; uno viejo no los trae", () => {
+  const latido = reglas.latidoDeEntrada(
+    {
+      tareas: [
+        { tarjetaId: "t1", etapa: "revisando", revision: { vuelta: 2, revisores: { seguridad: "aprobado", experiencia: "no_aplica", diseno: "inventado", codigo: "cambios" } } },
+        { tarjetaId: "t2", etapa: "construyendo", revision: { vuelta: 1, revisores: {} } },
+        { tarjetaId: "t3", etapa: "revisando", revision: "basura" },
+        { tarjetaId: "t4", etapa: "vigilando" },
+      ],
+    },
+    AHORA,
+  );
+  assert.deepEqual(latido.tareas[0].revision, { vuelta: 2, revisores: { seguridad: "aprobado", experiencia: "no_aplica", diseno: "revisando", codigo: "cambios" } });
+  assert.equal(latido.tareas[1].revision, null, "fuera de Revisar no hay cuadritos");
+  assert.equal(latido.tareas[2].revision, null);
+  assert.equal(latido.tareas[3].etapa, "vigilando", "la vigilancia de 30 min ya no se descarta");
+  assert.equal(reglas.latidoDeEntrada({ tareas: [{ tarjetaId: "t", etapa: "construyendo" }] }, AHORA).tareas[0].revision, null, "un Coordinador viejo no manda revisión");
+});
+
+await prueba("la vista y ver_coordinador: pasos y revisores en «Ahora mismo»; «Necesita humano» en las de error y las que esperan tu sí", async () => {
+  estado.tarjetas.push(
+    tarjeta({ id: "t1", titulo: "Con revisores", estado: "EN_CURSO" }),
+    tarjeta({ id: "t2", titulo: "Construyendo", estado: "EN_CURSO" }),
+    tarjeta({
+      id: "e1",
+      titulo: "No pasó la revisión",
+      estado: "ERROR",
+      trabajoVenceEn: null,
+      plan: "p",
+      resultado: { error: { categoria: "revision_no_paso", motivo: "Se paró porque el revisor de seguridad no aprobó: pide validar quién llama.\n¿Lo subo así, lo corrijo con tu indicación o lo cierro?" } },
+    }),
+    tarjeta({ id: "r1", titulo: "Espera tu sí", estado: "POR_REVISAR", trabajoVenceEn: null }),
+  );
+  await servicio.guardarLatido(
+    contexto,
+    {
+      tareas: [
+        { tarjetaId: "t1", titulo: "Con revisores", etapa: "revisando", lugar: "nube", revision: { vuelta: 1, revisores: { seguridad: "revisando", experiencia: "no_aplica", diseno: "no_aplica", codigo: "cambios" } } },
+        { tarjetaId: "t2", titulo: "Construyendo", etapa: "construyendo", lugar: "nube" },
+      ],
+    },
+    hace(0.2),
+  );
+  const vista = await servicio.vistaDelCoordinador("ws1", AHORA);
+  const [revisando, construyendo] = vista.tareas;
+  assert.deepEqual(resumenDePasos(revisando.pasos), ["revisar", false, "hecho,hecho,actual,pendiente,pendiente"]);
+  assert.equal(revisando.etapaTexto, "Revisando");
+  assert.deepEqual(revisando.revision, {
+    vuelta: 1,
+    revisores: [
+      { clave: "seguridad", nombre: "Seguridad", estado: "revisando" },
+      { clave: "experiencia", nombre: "Experiencia del usuario", estado: "no_aplica" },
+      { clave: "diseno", nombre: "Diseño", estado: "no_aplica" },
+      { clave: "codigo", nombre: "Código", estado: "cambios" },
+    ],
+  });
+  assert.equal(construyendo.revision, null);
+  assert.equal(construyendo.pasos.actual, "construir");
+  assert.deepEqual(resumenDePasos(vista.errores.tarjetas[0].pasos), ["revisar", true, "hecho,hecho,necesita_humano,pendiente,pendiente"]);
+  // La línea para el dueño (linea_para_el_dueno de ver_coordinador): las 2 líneas de la revisión que no pasó.
+  assert.deepEqual(vista.errores.tarjetas[0].motivo.split("\n"), [
+    "Se paró porque el revisor de seguridad no aprobó: pide validar quién llama.",
+    "¿Lo subo así, lo corrijo con tu indicación o lo cierro?",
+  ]);
+  const espera = vista.fila.bloqueadas.find((item) => item.tarjetaId === "r1");
+  assert.deepEqual(resumenDePasos(espera.pasos), ["aprobar", true, "hecho,hecho,hecho,necesita_humano,pendiente"]);
+  const texto = servicio.textoDelCoordinador(vista);
+  assert.match(texto, /«Con revisores»: revisando en Nube de Claude[^\n]*Paso: Revisar\./);
+  assert.match(texto, /Revisión R1: Seguridad revisando, Experiencia del usuario no aplica, Diseño no aplica, Código pidió cambios\./);
+});
+
+await prueba("render: la línea de pasos resalta el actual, marca los hechos y corta en «Necesita humano»; los 4 cuadritos con R1/R2", async () => {
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const React = await import("react");
+  const componentes = cargar("src/features/tableros-inteligentes/components/PasosDelCoordinador.tsx", mocks);
+  const html = (elemento, props) => renderToStaticMarkup(React.createElement(elemento, props));
+  const enRevision = html(componentes.LineaDePasos, { pasos: reglas.pasosDeLaTarjeta({ estado: "EN_CURSO", etapa: "revisando" }) });
+  assert.equal((enRevision.match(/data-paso="hecho"/g) ?? []).length, 2);
+  assert.match(enRevision, /aria-current="step" data-paso="actual">Revisar</);
+  assert.equal((enRevision.match(/data-paso="pendiente"/g) ?? []).length, 2, "Aprobar y Subido pendientes");
+  assert.ok(!enRevision.includes("Necesita humano"));
+  const parada = html(componentes.LineaDePasos, { pasos: reglas.pasosDeLaTarjeta({ estado: "POR_REVISAR" }) });
+  assert.match(parada, /Necesita humano/);
+  assert.ok(!/>Aprobar<|>Subido</.test(parada), "en lugar del paso siguiente sale «Necesita humano»");
+  const revision = {
+    vuelta: 2,
+    revisores: [
+      { clave: "seguridad", nombre: "Seguridad", estado: "aprobado" },
+      { clave: "experiencia", nombre: "Experiencia del usuario", estado: "revisando" },
+      { clave: "diseno", nombre: "Diseño", estado: "no_aplica" },
+      { clave: "codigo", nombre: "Código", estado: "cambios" },
+    ],
+  };
+  const cuadritos = html(componentes.CuadritosDeRevision, { revision });
+  assert.match(cuadritos, />R2</);
+  assert.match(cuadritos, /data-revisor="seguridad" data-estado="aprobado"[^>]*>.*Seguridad.*aprobó/);
+  assert.match(cuadritos, /class="[^"]*bg-muted[^"]*" data-revisor="experiencia"/, "revisando = gris");
+  assert.match(cuadritos, /class="[^"]*bg-emerald-500\/15[^"]*" data-revisor="seguridad"/, "aprobó = verde");
+  assert.match(cuadritos, /class="[^"]*bg-red-500\/15[^"]*" data-revisor="codigo"/, "pidió cambios = rojo");
+  assert.match(cuadritos, /grid-cols-2 gap-1\.5 sm:grid-cols-4/, "2 por fila en el celular");
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);

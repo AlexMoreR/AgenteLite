@@ -1128,6 +1128,9 @@ export const CATEGORIAS_DE_INTENTO = [
   "nube_sin_resultado",
   "nube_pregunta",
   "plan_con_preguntas",
+  // 29-oct-2026: los 4 revisores (seguridad, experiencia, diseño, código) siguieron pidiendo cambios tras 2 vueltas de
+  // corrección (trabajador-tablero/lib/revisores.mjs). Tampoco se repara sola: va a ERROR con lo que pidió el revisor.
+  "revision_no_paso",
   "otra",
 ] as const;
 export type CategoriaDeIntento = (typeof CATEGORIAS_DE_INTENTO)[number];

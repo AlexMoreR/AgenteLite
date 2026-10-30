@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { agenteDelRepo } from "./agentes.mjs";
-import { MODELOS_POR_DEFECTO } from "./modelos.mjs";
+import { MODELOS_POR_DEFECTO, cambiosDeModeloConFecha } from "./modelos.mjs";
 import { GRACIA_SERVER_ACTION_MIN } from "./zonas.mjs";
 
 /** Lo que Claude puede usar al CONSTRUIR (acceptEdits): editar dentro del worktree y correr pruebas. */
@@ -143,6 +143,12 @@ const PARTIR_POR_DEFECTO = { archivosMinimos: 8, archivosAntes: 25, archivosConM
 
 /** Reparar solo (24-oct-2026). diagnosticoConClaude: si no se reconoce la causa, una sesión corta de Claude (solo lectura) lee el log. */
 const REPARAR_POR_DEFECTO = { diagnosticoConClaude: true, diagnosticoMinutos: 3 };
+
+/**
+ * La revisión de los 4 (29-oct-2026, revisores.mjs): seguridad, experiencia, diseño y código miran el diff antes de subir;
+ * hasta `vueltas` correcciones del que construyó. activa: false la apaga (en aizen1 y en la instrucción de la nube).
+ */
+const REVISION_POR_DEFECTO = { activa: true, vueltas: 2 };
 
 /** Sesión atascada (24-oct-2026): sin tocar archivos ni usar el procesador por `minutos`, se corta. 0 = apagado. */
 const ATASCO_POR_DEFECTO = { minutos: 15, revisarCadaSegundos: 60, cpuMinimaSegundos: 0.3 };
@@ -385,6 +391,10 @@ export function completarConfig(datos, base = process.cwd()) {
     atasco[campo] = Number(atasco[campo]);
     if (!Number.isFinite(atasco[campo]) || atasco[campo] < 0) errores.push(`atasco.${campo}: un número, 0 o más (atasco.minutos en 0 apaga el vigilante).`);
   }
+  const revision = { ...REVISION_POR_DEFECTO, ...(datos.revision ?? {}) };
+  if (typeof revision.activa !== "boolean") errores.push("revision.activa: true o false.");
+  revision.vueltas = Number(revision.vueltas);
+  if (!Number.isInteger(revision.vueltas) || revision.vueltas < 0 || revision.vueltas > 2) errores.push("revision.vueltas: cuántas correcciones tras la revisión, un entero de 0 a 2.");
   const reparar = { ...REPARAR_POR_DEFECTO, ...(datos.reparar ?? {}) };
   reparar.diagnosticoMinutos = Number(reparar.diagnosticoMinutos);
   if (typeof reparar.diagnosticoConClaude !== "boolean") errores.push("reparar.diagnosticoConClaude: true o false.");
@@ -453,6 +463,9 @@ export function completarConfig(datos, base = process.cwd()) {
   for (const paso of Object.keys(MODELOS_POR_DEFECTO)) {
     if (typeof modelos[paso] !== "string" || !/^[\w.:-]+$/.test(modelos[paso])) errores.push(`modelos.${paso}: un nombre de modelo ("opus", "sonnet" o el id completo).`);
   }
+  // 29-oct-2026: cambios de modelo con fecha (modelos.mjs: cambiosDeModeloConFecha). Fecha ISO, paso conocido y modelo no vacío.
+  const conFecha = cambiosDeModeloConFecha(datos.modelos?.desde);
+  errores.push(...conFecha.errores);
   const pausaLimiteCodexMinutos = datos.pausaLimiteCodexMinutos === undefined ? 30 : Number(datos.pausaLimiteCodexMinutos);
   if (!Number.isFinite(pausaLimiteCodexMinutos) || pausaLimiteCodexMinutos < 1) errores.push("pausaLimiteCodexMinutos: minutos, 1 o más.");
   const umbralClaude = datos.umbralClaude === undefined ? 80 : Number(datos.umbralClaude);
@@ -513,6 +526,7 @@ export function completarConfig(datos, base = process.cwd()) {
     partir: { archivosMinimos: partir.archivosMinimos, archivosAntes: partir.archivosAntes, archivosConMigracion: partir.archivosConMigracion },
     atasco: { minutos: atasco.minutos, revisarCadaSegundos: atasco.revisarCadaSegundos, cpuMinimaSegundos: atasco.cpuMinimaSegundos },
     reparar: { diagnosticoConClaude: reparar.diagnosticoConClaude, diagnosticoMinutos: reparar.diagnosticoMinutos },
+    revision: { activa: revision.activa, vueltas: revision.vueltas },
     comandoClaude: comando(datos.comandoClaude, "comandoClaude") ?? ["claude"],
     comandoCodex,
     motores: {
@@ -522,7 +536,7 @@ export function completarConfig(datos, base = process.cwd()) {
       respaldoClaude: motores.respaldoClaude,
       respaldoCodex: motores.respaldoCodex,
     },
-    modelos: Object.fromEntries(Object.keys(MODELOS_POR_DEFECTO).map((paso) => [paso, modelos[paso]])),
+    modelos: { ...Object.fromEntries(Object.keys(MODELOS_POR_DEFECTO).map((paso) => [paso, modelos[paso]])), desde: conFecha.desde },
     pausaLimiteCodexMinutos,
     umbralClaude,
     pausaUso: { activa: pausaUso.activa, umbral: Number(pausaUso.umbral), cercaDesde: Number(pausaUso.cercaDesde), vigilarCercaMinutos: Number(pausaUso.vigilarCercaMinutos) },

@@ -211,9 +211,16 @@ toman `CLAUDE_CODE_SUBAGENT_MODEL`:
 | Planear, tarea difícil | Opus | `planear` |
 | Planear, tarea sencilla | Sonnet | `planearSencillo` |
 | Construir | Sonnet | `construir` |
-| Revisar | Sonnet | `revisar` |
+| Revisar (y los revisores de experiencia, diseño y código) | Sonnet | `revisar` |
+| Revisor de seguridad (revisión de los 4) | Opus | `revisarSeguridad` |
 | Subagentes | Sonnet | `subagentes` |
 | Leer / resumir (hoy: `claude -p /usage`) | Haiku | `leer` |
+
+**Cambios de modelo con fecha (29-oct-2026).** `modelos.desde` es una lista de `{ "fecha", "paso", "modelo" }`: desde esa fecha
+(ISO con hora, en UTC) el `paso` usa ese `modelo`; si hay varias del mismo paso, manda la más reciente que ya pasó. Vale en
+aizen1, en la nube y en las reparaciones que reconstruyen (todo sale de `modeloDelPaso`). Ejemplo (construir en Opus desde el
+viernes 30-oct-2026, 7:00 a. m. de Bogotá):
+`"modelos": { "desde": [{ "fecha": "2026-10-30T12:00:00Z", "paso": "construir", "modelo": "opus" }] }`.
 
 **Tarea difícil** = basta UNA de estas: es un reintento (`intentos` > 1); trae la marca `#dificil`, `[dificil]` o
 `[opus]` en el título o el detalle; toca la base (nombra `prisma/` o migraciones, o dice migración / prisma /
@@ -258,6 +265,39 @@ Se elige en `config.local.json`:
 - **Qué motor hizo qué.** El log lo dice (`[s1 abcd1234] construir: motor: codex`), el plan termina con
   "Plan escrito con: Claude Code" (o Codex) y el resultado de la tarjeta trae `motor`
   (`{ plan, construir, revisar }`) y la línea "Motores: plan claude · construir codex · revisar claude".
+
+### La revisión de los 4 (29-oct-2026, `lib/revisores.mjs`)
+
+Después de construir (build y pruebas OK) y ANTES de subir, cuatro revisores miran el diff contra el plan aprobado:
+**seguridad**, **experiencia**, **diseño** y **código** (idea de la "software factory" de zazencodes, sin instalar nada).
+Cada uno contesta `APROBADO` o `CAMBIOS` con hasta 5 líneas `- <archivo>: <qué cambiar>`; solo problemas reales dentro
+del plan, nada de gustos. Si el cambio no toca pantallas (`.tsx`, `.jsx`, `.css`…), experiencia y diseño ni se lanzan
+("no aplica"). Si alguno pide cambios, **el mismo que construyó** corrige y se re-revisa solo a los que pidieron;
+máximo `revision.vueltas` (2) correcciones. Si sigue sin pasar: ERROR `revision_no_paso` (no se repara sola).
+
+- **En la nube** la hace la propia sesión: lanza los 4 como subagentes Sonnet (en primer plano), corrige ella misma, deja
+  commits vacíos de progreso `revision: R1 seguridad=OK experiencia=NA diseno=NA codigo=CAMBIOS` (el Coordinador los
+  lee en `esperarResultado`, los pasa al panel y cuentan como señal) y termina con
+  `resultado: build=OK tests=OK segundos=N revision=OK` o `… revision=FALLO revisor=<x> motivo=<…>` (en el cuerpo, una
+  línea por revisor). Un `resultado:` viejo sin `revision=` sigue valiendo (el resumen dice que no consta).
+- **En aizen1** cada revisor es `claude -p --model <modelos.revisar> --permission-mode plan` (solo lee; con el diff en el
+  prompt) y corren a la vez; el que corrige es el mismo motor y modelo de construir. Va antes de la verificación
+  completa del Coordinador (tsc, build, pruebas, lint), así esa verificación cubre también las correcciones.
+- Log: `revisión vuelta 1: seguridad APROBADO · experiencia no aplica · diseño no aplica · código CAMBIOS (1)`,
+  `corrijo lo que pidió la revisión (corrección 1 de 2): código: …`, `Revisión (4 revisores): APROBADA tras 1 corrección — …`.
+- Panel "Coordinador en vivo": la etapa `revisando` con la vuelta (R1, R2…) y cada revisor (gris, verde, rojo).
+- `"revision": { "activa": false }` la apaga (en aizen1 y en la instrucción de la nube).
+- Modelos: seguridad en Opus (`modelos.revisarSeguridad`), los otros 3 en `modelos.revisar` (Sonnet); en la nube el prompt dice el
+  `model` de cada subagente.
+- Si no pasa: la tarjeta queda en ERROR con **2 líneas** para el dueño (por qué se paró: qué revisor y qué pidió / la decisión que
+  necesita como pregunta cerrada, p. ej. "¿Lo subo así, lo corrijo con tu indicación o lo cierro?"). En la nube las redacta la
+  misma sesión (`DUEÑO 1:` / `DUEÑO 2:` en el cuerpo del commit); si no las deja bien, o en aizen1, las arma el Coordinador.
+- **Criterios de aceptación** (`lib/criterios.mjs`, espejo en `reglas-riesgo.ts`): el plan termina con `CRITERIOS DE ACEPTACIÓN:`,
+  `FUERA DE ALCANCE:` y `SUPUESTOS:` (antes de `PREGUNTAS ABIERTAS:`). Un plan nuevo sin criterios, o con un supuesto que es una
+  decisión de negocio (precios, textos públicos, gratis o pagado, dinero, gasto en Meta Ads), espera el sí del dueño. Quien
+  construye comprueba cada criterio y deja `CRITERIO <n>: OK|FALLA — <cómo y qué mostró>` (en su resumen, o en el cuerpo del
+  `resultado:` en la nube); el revisor de código pide CAMBIOS si uno no se cumple o no tiene evidencia. Los planes viejos ya
+  aprobados sin estas secciones se construyen como antes.
 
 ### Alerta de uso de Claude
 
@@ -372,6 +412,7 @@ etapa falla, el Coordinador (`lib/bucle.mjs`, `lib/diagnostico.mjs`):
 |---|---|---|
 | `nube_sin_resultado` | la sesión de la nube no dejó `inicio:` ni ningún commit en `nube.sinSenalMinutos` (20), o no dejó `resultado:` en `nube.esperaMinutos` (120) | ERROR enseguida, con el link de la sesión; **no se repara sola** |
 | `nube_pregunta` | la sesión dejó el commit vacío `pregunta: <…>` (no pregunta en el chat) | ERROR enseguida con la pregunta y el link |
+| `revision_no_paso` | los 4 revisores (ver "La revisión de los 4") siguieron pidiendo cambios tras 2 correcciones | ERROR con el revisor, lo que pide y el link de la sesión; **no se repara sola** |
 | `plan_con_preguntas` | el plan aprobado SOLO trae "PREGUNTAS ABIERTAS:" o frases como "hay que confirmar", "antes de construir hay que", "lo que no revisé" (`lib/preguntas-abiertas.mjs`, espejo en `reglas-riesgo.ts`) | no se construye: ERROR + aviso "necesita"; si el dueño aprobó el plan tal cual, sí se construye |
 | cualquier otra | la MISMA categoría ya falló 2 veces en la tarjeta (todos los intentos) | escala (salvo `limite_claude`, `pc_sobrecargado`, `carpeta_trabada`, `coordinador_cortado`, que tienen su tope de esperas) |
 

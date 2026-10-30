@@ -42,6 +42,11 @@ if (argumentos[0] === "--trabajo-de-la-nube") {
     else if (titulo.includes("[nube-fallo]")) {
       const lineas = Array.from({ length: 35 }, (_, i) => `linea ${i + 1} del error`).join("\n");
       git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "resultado: build=FALLO tests=OK segundos=7", "-m", lineas);
+    } else if (titulo.includes("[nube-rev-fallo]")) {
+      // La revisión de los 4 no pasó tras 2 correcciones (29-oct-2026): build y pruebas OK, revision=FALLO.
+      git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "resultado: build=OK tests=OK segundos=50 revision=FALLO revisor=seguridad motivo=src/api/ruta.ts: validar quién llama", "-m", "seguridad: CAMBIOS — src/api/ruta.ts: validar quién llama\nexperiencia: no aplica\ndiseno: no aplica\ncodigo: APROBADO\nDUEÑO 1: La revisión de seguridad no aprobó: pide que src/api/ruta.ts revise quién llama antes de leer los datos.\nDUEÑO 2: ¿Lo subo así, lo corrijo con tu indicación o lo cierro?");
+    } else if (titulo.includes("[nube-rev-ok]")) {
+      git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "resultado: build=OK tests=OK segundos=44 revision=OK", "-m", "seguridad: APROBADO\nexperiencia: no aplica\ndiseno: no aplica\ncodigo: APROBADO — tras 1 corrección");
     } else git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "resultado: build=OK tests=OK segundos=42");
     git(carpeta, "push", "--quiet", "origin", `HEAD:refs/heads/${rama}`);
   }
@@ -62,7 +67,8 @@ if (descripcion === null) for await (const pedazo of process.stdin) prompt += pe
 
 const titulo = (prompt.match(/^Tarea: (.*)$/m) ?? [])[1] ?? "";
 const modo = argumentos[argumentos.indexOf("--permission-mode") + 1];
-if (process.env.CLAUDE_FALSO_LOG) {
+// Los revisores (29-oct-2026) se anotan aparte (CLAUDE_FALSO_LOG.revisores): así "la última llamada" sigue siendo la de construir.
+if (process.env.CLAUDE_FALSO_LOG && !prompt.startsWith("Eres un REVISOR DE ")) {
   fs.appendFileSync(process.env.CLAUDE_FALSO_LOG, `${JSON.stringify({ argumentos, cwd: process.cwd(), titulo, modo, prompt: prompt.slice(0, 8000), terminal: Boolean(process.stdout.isTTY) })}\n`);
 }
 
@@ -169,6 +175,34 @@ const palabraDeRevisionPrevia = () => {
   if (titulo.includes("[ya-hecho]")) return `YA_ESTA_HECHO: ${commitDeMain()} — ya estaba construida desde el 20-oct`;
   return null;
 };
+
+// La revisión de los 4 (29-oct-2026, revisores.mjs): "Eres un REVISOR DE <X>… Revisión, vuelta N." (modo plan, solo lee).
+//   [rev-cambios-1]  el de CÓDIGO pide un cambio en la vuelta 1 y aprueba después.
+//   [rev-no-pasa]    el de SEGURIDAD pide siempre el mismo cambio (nunca pasa).
+//   [rev-mudo]       el de CÓDIGO contesta sin veredicto (no frena).
+// Anota cada revisión en CLAUDE_FALSO_LOG.revisores (revisor, vuelta, modelo, modo).
+if (prompt.startsWith("Eres un REVISOR DE ")) {
+  const revisor = prompt.match(/^Eres un REVISOR DE (\S+)/)[1].toLowerCase();
+  const vuelta = Number(prompt.match(/Revisión, vuelta (\d+)/)?.[1] ?? 1);
+  if (process.env.CLAUDE_FALSO_LOG) {
+    fs.appendFileSync(`${process.env.CLAUDE_FALSO_LOG}.revisores`, `${JSON.stringify({ revisor, vuelta, modelo: argumentos[argumentos.indexOf("--model") + 1], modo, titulo })}\n`);
+  }
+  if (titulo.includes("[rev-no-pasa]") && revisor === "seguridad") {
+    console.log("CAMBIOS\n- src/api/ruta.ts: validar quién llama antes de leer los datos");
+  } else if (titulo.includes("[rev-cambios-1]") && revisor === "código" && vuelta === 1) {
+    console.log("CAMBIOS\n- cambio.txt: falta el caso vacío");
+  } else if (titulo.includes("[rev-mudo]") && revisor === "código") {
+    console.log("Miré el cambio y me parece razonable.");
+  } else console.log(`APROBADO\n(${revisor}, vuelta ${vuelta})`);
+  process.exit(0);
+}
+// La corrección de lo que pidió la revisión: escribe un archivo por corrección (el Coordinador lo verifica y lo sube).
+if (prompt.includes("CORRECCIÓN DE LA REVISIÓN")) {
+  const vuelta = prompt.match(/CORRECCIÓN DE LA REVISIÓN (\d+)/)[1];
+  fs.writeFileSync(`correccion-${vuelta}.txt`, `${titulo}\n`);
+  console.log(`RESUMEN: corregí lo que pidió la revisión (${vuelta}).`);
+  process.exit(0);
+}
 
 if (modo === "plan") {
   const previa = palabraDeRevisionPrevia();

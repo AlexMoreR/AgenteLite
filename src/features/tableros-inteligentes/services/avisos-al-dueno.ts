@@ -4,7 +4,7 @@ import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
 import { ultimoLatido } from "./coordinador-en-vivo";
-import { porQueElPlanEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
+import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
 import { REPOS_DEL_TRABAJADOR, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
 import { SQL_FUERA_POR_LA_VIA } from "./sql-trabajador";
 import { tituloCorto } from "./resumen-corto";
@@ -303,7 +303,7 @@ export function porQueNecesitaAlDueno(tarjeta: TarjetaEsperando): string | null 
   // Regla del dueño (27-oct-2026): un resultado POR_REVISAR solo lo espera a él por gasto en Meta Ads o por un envío nuevo a
   // clientes en chats. Si solo faltaba la prueba extra, el Coordinador la hace él mismo y no se le avisa.
   if (tarjeta.estado === "POR_REVISAR") return tarjeta.esperaPor && !/^falta la prueba de que/i.test(tarjeta.esperaPor) ? tarjeta.esperaPor : null;
-  if (tarjeta.estado === "PLAN_LISTO" && tarjeta.plan) return porQueElPlanEsperaTuSi(tarjeta.plan);
+  if (tarjeta.estado === "PLAN_LISTO" && tarjeta.plan) return porQueElPlanNuevoEsperaTuSi(tarjeta.plan);
   if (tarjeta.estado === "POR_APROBAR") {
     return porQueLaTareaEsperaTuSi({
       titulo: tarjeta.titulo,
