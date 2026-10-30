@@ -37,6 +37,7 @@ await prueba("Emanuel aprueba la tarea, el plan y la subida de una tarjeta de Te
 await prueba("Emanuel no aprueba lo que toca dinero o Meta Ads (en español, varias formas)", () => {
   const casos = [
     { titulo: "Calcular las comisiones del mes" },
+    { extra: "El Coordinador cambió el cálculo de la nómina." },
     { titulo: "Mostrar el saldo pendiente de cada abono" },
     { detalle: "Arreglar la nómina de noviembre" },
     { titulo: "Facturación electrónica de los pedidos" },
