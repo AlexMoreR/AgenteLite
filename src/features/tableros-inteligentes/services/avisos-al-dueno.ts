@@ -1,4 +1,4 @@
-import { ORIGEN_COORDINADOR, esDeDineroMetaOClave, textoDeVariasUrgentes, tituloDelTexto, type Prioridad } from "@/features/alertas/dominio/reglas";
+import { ORIGEN_COORDINADOR, esDeDineroMetaOClave, idDeTarjetaDeLaClave, textoDeVariasUrgentes, tituloDelTexto, type Prioridad } from "@/features/alertas/dominio/reglas";
 import { leerResponsableDeSistemas, marcarSalioPorWhatsApp, registrarAlerta, soloUrgentesPrendido } from "@/features/alertas/servicios/alertas";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
@@ -713,18 +713,42 @@ export async function revisarAvisosAlDueno(ahora = new Date()): Promise<{ enviad
 }
 
 /**
+ * La clave del aviso del Coordinador. Con tipo "necesita" y la tarjeta de la que habla (30-oct-2026): `coord:necesita:<id>:<texto>`,
+ * para que la alerta se cierre sola al responder o aprobar esa tarjeta (idDeTarjetaDeLaClave). Sin tarjeta, como antes.
+ */
+export function claveDelAvisoDelCoordinador(tipo: string, texto: string, tarjetaId?: string | null): string {
+  const id = idDeTarjetaValido(tarjetaId);
+  return tipo === "necesita" && id ? `coord:necesita:${id}:${texto}` : `coord:${tipo}:${texto}`;
+}
+
+/** El id tal cual si tiene forma de id de tarjeta (el mismo que después lee idDeTarjetaDeLaClave); null si no. */
+function idDeTarjetaValido(tarjetaId: string | null | undefined): string | null {
+  return tarjetaId && idDeTarjetaDeLaClave(`coord:necesita:${tarjetaId}:-`) === tarjetaId ? tarjetaId : null;
+}
+
+/** El WhatsApp de un urgente de una sola tarjeta: el mismo texto, pero la línea "Ver:" lleva a la tarjeta (máximo 3 líneas). */
+export function conVerDeLaTarjeta(texto: string, tarjetaId: string): string {
+  const sinVer = aTresLineas(texto, Number.MAX_SAFE_INTEGER)
+    .split("\n")
+    .filter((linea) => !/^\s*Ver:/i.test(linea));
+  return [...sinVer.slice(0, MAXIMO_LINEAS - 1), `Ver: ${linkDeLaTarjeta(tarjetaId)}`].join("\n");
+}
+
+/**
  * Un aviso que manda el Coordinador (POST /api/trabajador/aviso): solo "limite" o "necesita"; otro tipo, o sin
  * tipo, se descarta sin error. Respeta interruptor, silencio y el "uno por problema cada 3 horas".
+ * `tarjetaId` (opcional, 30-oct-2026): la tarjeta de la que habla, ya comprobada del negocio por quien llama.
  */
 export async function registrarAvisoDelCoordinador(
   workspaceId: string,
   tipo: unknown,
   texto: string,
   ahora: Date = new Date(),
+  tarjetaId: string | null = null,
 ): Promise<{ descartado?: true; apagado?: true; silenciado?: true; repetido?: true; salio?: boolean; motivo?: string | null; linea?: string; numero?: string }> {
   if (typeof tipo !== "string" || !(TIPOS_DEL_COORDINADOR as readonly string[]).includes(tipo)) return { descartado: true };
   if (!(await avisosPrendidos(workspaceId))) return { apagado: true };
-  const clave = `coord:${tipo}:${texto}`;
+  const clave = claveDelAvisoDelCoordinador(tipo, texto, tarjetaId);
   // ALERTAS: "limite" es Urgente; "necesita" solo si es por dinero, Meta Ads o una clave. Todo queda en la página.
   const prioridad = prioridadDelAviso(tipo as TipoDeAviso, texto);
   const titulo = tituloDelTexto(texto);
@@ -745,7 +769,10 @@ export async function registrarAvisoDelCoordinador(
     await guardarEstadoDeAvisos(workspaceId, estado);
     return { salio: false, motivo: "no es urgente: quedó en la página de alertas" };
   }
-  const textoAviso = soloUrgentes ? textoDeVariasUrgentes([titulo]) : texto;
+  const textoComun = soloUrgentes ? textoDeVariasUrgentes([titulo]) : texto;
+  // Un urgente de una sola tarjeta lleva a esa tarjeta, no a la lista de alertas.
+  const tarjeta = idDeTarjetaValido(tarjetaId);
+  const textoAviso = prioridad === "URGENTE" && tarjeta ? conVerDeLaTarjeta(textoComun, tarjeta) : textoComun;
   const envio = sistemas ? await enviarDesdeAdmin(workspaceId, sistemas.numero, textoAviso) : await enviarAlDueno(workspaceId, textoAviso);
   if (envio.salio) {
     estado.avisados[clave] = ahora.toISOString();

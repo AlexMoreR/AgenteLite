@@ -30,6 +30,12 @@ const reiniciar = () => {
     fallaElEnvio: false,
     // Un solo sí (30-oct-2026): las tarjetas cuya tarea aprobó el dueño (pantalla o voz, cuenta dueña).
     tareasDelDueno: new Set(),
+    // Las tarjetas que comprueba el aviso del Coordinador con tarjetaId.
+    tarjetas: [
+      { id: "tarj1", workspaceId: "ws1", borradoEn: null },
+      { id: "borrada1", workspaceId: "ws1", borradoEn: new Date("2026-10-29T00:00:00Z") },
+      { id: "ajena1", workspaceId: "ws2", borradoEn: null },
+    ],
   });
 };
 reiniciar();
@@ -60,6 +66,9 @@ const falso = {
         .map((t) => ({ repo: "aizencrm", ...t, trabajoIniciadoEn: null, creadoEn: new Date("2026-10-26T00:00:00Z") }))
         .filter((t) => !(where?.repo && "not" in where.repo && where.repo.not === null) || t.repo !== null),
     count: async () => estado.enFila,
+    // El aviso con tarjetaId (30-oct-2026): solo cuenta la tarjeta del mismo negocio y no borrada.
+    findFirst: async ({ where }) =>
+      estado.tarjetas.find((t) => t.id === where.id && (where.borradoEn !== null || !t.borradoEn) && t.workspaceId === where.tablero?.workspaceId) ?? null,
   },
   historialTarjeta: {
     groupBy: async () => [...estado.historial].map(([tarjetaId, creadoEn]) => ({ tarjetaId, _max: { creadoEn } })),
@@ -587,6 +596,68 @@ await prueba("un solo sí: con 'solo urgentes', la pregunta abierta de un plan l
   estado.latido = luego.toISOString();
   assert.deepEqual(await avisos.revisarAvisosAlDueno(luego), { enviados: 0 });
   assert.equal(estado.enviados.length, 1, "no se repite");
+});
+
+/* ------------------------------------------------------------------ el aviso habla de una tarjeta (30-oct-2026) */
+
+const PREGUNTA = "Necesito tu sí para subir el presupuesto de Meta Ads.";
+const ALERTA_LISTA = "https://app.aizenbot.com/cliente/alertas";
+// Días nuevos: el "uno por minuto" del aviso del Coordinador vive en memoria entre pruebas.
+const DIA_TARJETA = new Date("2026-11-03T15:00:00Z");
+const DIA_SIN_TARJETA = new Date("2026-11-04T15:00:00Z");
+
+await prueba("tarjetaId: con una tarjeta del negocio, el 'necesita' queda con la clave coord:necesita:<id>:<texto> y el urgente lleva a la tarjeta", async () => {
+  guardarNumero();
+  const resultado = await deltrabajador.enviarAvisoDelTrabajador({ workspaceId: "ws1" }, { texto: PREGUNTA, tipo: "necesita", tarjetaId: "tarj1" }, DIA_TARJETA);
+  assert.equal(resultado.salio, true);
+  assert.equal(estado.alertas.length, 1);
+  assert.equal(estado.alertas[0].clave, `coord:necesita:tarj1:${PREGUNTA}`);
+  assert.equal(estado.alertas[0].prioridad, "URGENTE");
+  assert.equal(estado.alertas[0].salioPorWhatsApp, true);
+  const texto = estado.enviados[0].text;
+  assert.equal(texto.split("\n").length, 2);
+  assert.match(texto, /\nVer: https:\/\/app\.aizenbot\.com\/cliente\/tablero-ia\?tarjeta=tarj1$/);
+  assert.ok(!texto.includes(ALERTA_LISTA), "no lleva a la lista de alertas");
+  // El mismo aviso otra vez no se repite antes de 3 horas (la clave nueva también cuenta como avisada).
+  assert.deepEqual(await deltrabajador.enviarAvisoDelTrabajador({ workspaceId: "ws1" }, { texto: PREGUNTA, tipo: "necesita", tarjetaId: "tarj1" }, new Date(DIA_TARJETA.getTime() + 5 * 60_000)), { repetido: true });
+});
+
+await prueba("tarjetaId: de otro negocio, borrada, inexistente, mal escrita o sin id, se guarda coord:necesita:<texto> como antes", async () => {
+  guardarNumero();
+  const casos = [{ tarjetaId: "ajena1" }, { tarjetaId: "borrada1" }, { tarjetaId: "no-existe" }, { tarjetaId: 123 }, { tarjetaId: "  " }, {}];
+  for (const [i, extra] of casos.entries()) {
+    reiniciar();
+    guardarNumero();
+    const resultado = await deltrabajador.enviarAvisoDelTrabajador({ workspaceId: "ws1" }, { texto: PREGUNTA, tipo: "necesita", ...extra }, new Date(DIA_SIN_TARJETA.getTime() + i * 2 * 60_000));
+    assert.equal(resultado.salio, true, JSON.stringify(extra));
+    assert.equal(estado.alertas[0].clave, `coord:necesita:${PREGUNTA}`, JSON.stringify(extra));
+    assert.equal(estado.enviados[0].text, `🚨 Urgente: ${PREGUNTA}\nVer: ${ALERTA_LISTA}`, "el WhatsApp sale como hoy");
+  }
+});
+
+await prueba("tarjetaId: registrarAvisoDelCoordinador sin el parámetro guarda como antes; sin 'solo urgentes' cambia solo la línea Ver; uno no urgente no sale", async () => {
+  guardarNumero();
+  assert.equal(avisos.claveDelAvisoDelCoordinador("necesita", "hola"), "coord:necesita:hola");
+  assert.equal(avisos.claveDelAvisoDelCoordinador("necesita", "hola", "tarj1"), "coord:necesita:tarj1:hola");
+  assert.equal(avisos.claveDelAvisoDelCoordinador("necesita", "hola", "mal:id"), "coord:necesita:hola", "un id con ':' no rompe la clave");
+  assert.equal(avisos.claveDelAvisoDelCoordinador("limite", "hola", "tarj1"), "coord:limite:hola", "el límite no cambia de clave");
+  // Sin "solo urgentes": el texto del Coordinador, con la línea Ver: cambiada por la de la tarjeta (máximo 3 líneas).
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  const texto = "Necesito tu sí para el presupuesto de Meta Ads.\nSon 50.000 pesos.\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy";
+  assert.equal((await avisos.registrarAvisoDelCoordinador("ws1", "necesita", texto, DIA, "tarj1")).salio, true);
+  assert.equal(estado.enviados[0].text, "Necesito tu sí para el presupuesto de Meta Ads.\nSon 50.000 pesos.\nVer: https://app.aizenbot.com/cliente/tablero-ia?tarjeta=tarj1");
+  assert.equal(estado.alertas[0].detalle, texto, "la página guarda el texto completo");
+  // Uno no urgente queda en la página con su clave de tarjeta y no sale (con "solo urgentes", como hoy).
+  estado.ajustes.delete("alertas:solo-urgentes:ws1");
+  const comun = await avisos.registrarAvisoDelCoordinador("ws1", "necesita", "Elige el color del botón.", DIA, "tarj1");
+  assert.equal(comun.salio, false);
+  assert.equal(estado.alertas[1].clave, "coord:necesita:tarj1:Elige el color del botón.");
+  assert.equal(estado.alertas[1].prioridad, "ALTA");
+  assert.equal(estado.enviados.length, 1);
+  // De noche: queda en la página con la clave de la tarjeta y no sale nada.
+  assert.deepEqual(await avisos.registrarAvisoDelCoordinador("ws1", "necesita", PREGUNTA, NOCHE, "tarj1"), { silenciado: true });
+  assert.equal(estado.alertas.at(-1).clave, `coord:necesita:tarj1:${PREGUNTA}`);
+  assert.equal(estado.enviados.length, 1);
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);
