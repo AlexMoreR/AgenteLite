@@ -17,6 +17,7 @@ const db = {
   dias: new Map(),
   enviados: [],
   evolutionFalla: false,
+  leadsFalla: false,
   proposito: "ADMIN",
   siguiente: 1,
   cambiosDeEtapa: [],
@@ -103,7 +104,10 @@ const prisma = {
   },
   user: { findMany: async ({ where }) => USUARIOS.filter((u) => where.id.in.includes(u.id)) },
   // Solo el historial de etapas devuelve filas (los chats calientes de María); el resto de lecturas sale vacío.
-  $queryRaw: async (consulta) => (String(consulta?.[0]?.join?.("") ?? "").includes('"HistorialEtapa"') ? db.cambiosDeEtapa : []),
+  $queryRaw: async (consulta) => {
+    if (db.leadsFalla) throw new Error("sin base");
+    return (String(consulta?.[0]?.join?.("") ?? "").includes('"HistorialEtapa"') ? db.cambiosDeEtapa : []);
+  },
 };
 
 const mocks = {
@@ -152,6 +156,7 @@ function reiniciar({ activo }) {
   db.enviados.length = 0;
   db.dias.clear();
   db.evolutionFalla = false;
+  db.leadsFalla = false;
   db.proposito = "ADMIN";
   db.settings.clear();
   db.settings.set(`agente-v3:avisos:${WS}`, JSON.stringify({ canalId: "admin1", destinos: [{ numero: ALEX, soloDe: null }, { numero: `+57 ${MARIA.slice(2, 5)} ${MARIA.slice(5)}`, soloDe: "maria", userId: "maria" }] }));
@@ -451,6 +456,19 @@ await prueba("bienvenida: numeros_de_ventas trae el campo y, si falla la lectura
   assert.ok("tasa_respuesta_bienvenida" in r);
   assert.ok(Array.isArray(r.por_asesora));
   assert.equal(db.enviados.length, 0);
+});
+
+await prueba("leads nuevos: numeros_de_ventas trae el bloque y, si la lectura falla, avisa en no_se_pudo_leer y el resto sale", async () => {
+  reiniciar({ activo: true });
+  const bueno = await mcp.ejecutarHerramientaMcpAgentesDeArea("numeros_de_ventas", { fecha: "2026-10-26" }, { workspaceId: WS, userId: "alex" });
+  assert.equal(bueno.leads_nuevos.total, 0);
+  assert.equal(bueno.leads_nuevos.por_linea.solo_ventas, 0);
+  db.leadsFalla = true;
+  const r = await mcp.ejecutarHerramientaMcpAgentesDeArea("numeros_de_ventas", { fecha: "2026-10-26" }, { workspaceId: WS, userId: "alex" });
+  assert.equal(r.leads_nuevos, null);
+  assert.ok(r.no_se_pudo_leer.some((e) => e.startsWith("leads nuevos:")));
+  assert.ok(Array.isArray(r.por_asesora) && r.total && Array.isArray(r.advertencias));
+  db.leadsFalla = false;
 });
 
 const reporteDel26 = async () => {
