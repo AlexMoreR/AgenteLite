@@ -22,7 +22,9 @@ import {
   TEXTO_APROBACION_HEREDADA,
   aprobacionDelDuenoEnElHistorial,
   planAprobadoPorElDuenoEnElHistorial,
+  esGastoEnMetaAds,
   esperaSoloPorLaPruebaExtra,
+  soloChatsOBot,
   porQueNoHeredaLaAprobacion,
   errorDeIntentoDeEntrada,
   decisionDeRecogerDeEntrada,
@@ -703,6 +705,54 @@ async function rescatarTarjeta(contexto: ContextoTrabajador, actual: FilaParaTra
   });
 }
 
+/**
+ * POST /:id/revisar_de_nuevo (desde POR_REVISAR, 30-oct-2026): saca a una tarjeta de CHATS / BOT_VENTAS que ya esperaba el sí
+ * del dueño. `subeSolo: true` -> SUBIENDO pendiente (sin candado, la toma enseguida y la vigila 30 min; sus zonasAprobadas
+ * salen de sus zonas al tomarla); `subeSolo: false` -> ERROR con "construido, no sube: <motivo>". Solo vale si pasó la
+ * construcción, todas sus zonas son CHATS o BOT_VENTAS y no espera por gasto en Meta Ads; si no, 409 y no cambia nada.
+ */
+async function revisarDeNuevo(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
+  if (typeof cuerpo.subeSolo !== "boolean") throw new ErrorDelTrabajador("Falta subeSolo (sí o no).", 400);
+  const previo = resultadoComoObjeto(actual.resultado);
+  if (previo.paso !== true) throw new ErrorDelTrabajador("Solo se revisa de nuevo una tarjeta que pasó build y pruebas.", 409);
+  if (!soloChatsOBot(actual.zonaProtegida)) throw new ErrorDelTrabajador("Solo vale para tarjetas cuyas zonas son CHATS o BOT_VENTAS.", 409);
+  const esperaPor = typeof previo.esperaPor === "string" ? previo.esperaPor : null;
+  if (esGastoEnMetaAds(esperaPor)) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${esperaPor}.`, 409);
+  const pruebas = Array.isArray(cuerpo.pruebas)
+    ? cuerpo.pruebas.filter((texto): texto is string => typeof texto === "string" && texto.trim().length > 0).slice(0, 20).map((texto) => texto.trim().slice(0, 300))
+    : [];
+  const sube = cuerpo.subeSolo;
+  const motivo = sube ? null : `construido, no sube: ${motivoDeEntrada(cuerpo.motivo ?? esperaPor ?? "el Coordinador no la dejó subir sola")}`.slice(0, 600);
+  const vuelve: EstadoTarjetaTablero = sube ? "SUBIENDO" : "ERROR";
+  const resultado = sube
+    ? (() => {
+        const { esperaPor: _quitada, ...sinEspera } = previo;
+        void _quitada;
+        return { ...sinEspera, subeSolo: true };
+      })()
+    : { ...previo, error: { motivo, en: "POR_REVISAR", cuando: ahora.toISOString() } };
+  return prisma.$transaction(async (tx) => {
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: { id: actual.id, estado: "POR_REVISAR", borradoEn: null },
+      data: { estado: vuelve, trabajoVenceEn: null, resultado: resultado as Prisma.InputJsonValue },
+    });
+    if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    await anotarTrabajador(
+      tx,
+      contexto,
+      actual.id,
+      { estado: actual.estado },
+      {
+        estado: vuelve,
+        nota: sube ? "revisada de nuevo por el Coordinador, sube sola (zona CHATS / BOT_VENTAS)" : motivo,
+        ...(pruebas.length ? { pruebas } : {}),
+      },
+    );
+    await tocarTableros(tx, [actual.tableroId], ahora);
+    return { ok: true, estado: vuelve, sube, link: linkDeLaTarjeta(actual.id) };
+  });
+}
+
 /** Una tarjeta de ESTE negocio, o 404. */
 async function tarjetaDelTrabajador(contexto: ContextoTrabajador, tarjetaId: string) {
   const fila = await prisma.tarjetaTablero.findFirst({
@@ -826,6 +876,7 @@ export async function accionDelTrabajador(
   if (accion === "limpieza") return pedirLimpieza(contexto, actual, cuerpo, ahora);
   if (accion === "recoger") return recogerTarjeta(contexto, actual, cuerpo, ahora);
   if (accion === "rescatar") return rescatarTarjeta(contexto, actual, cuerpo, ahora);
+  if (accion === "revisar_de_nuevo") return revisarDeNuevo(contexto, actual, cuerpo, ahora);
 
   let a = TRANSICIONES_DEL_TRABAJADOR[accion].a as EstadoTarjetaTablero;
   const previo = resultadoComoObjeto(actual.resultado);
@@ -968,20 +1019,29 @@ export async function accionDelTrabajador(
           }) === null;
       }
       // Sube sola (SUBIENDO pendiente, la toma enseguida) o espera el sí final del dueño (POR_REVISAR).
-      a = destinoDelResultado({ paso: resultado.paso, subeSolo, zonaProtegida: zonas, aprobacionHeredada });
+      a = destinoDelResultado({ paso: resultado.paso, subeSolo, zonaProtegida: zonas, aprobacionHeredada, esperaPor: resultado.esperaPor ?? null });
       datos.estado = a;
       despues.estado = a;
+      // CHATS / BOT_VENTAS que construyó bien y no puede subir sola: ERROR con el motivo en una línea (no espera el sí del dueño).
+      let motivoDeError: string | null = null;
+      if (a === "ERROR") {
+        motivoDeError = `construido, no sube: ${resultado.esperaPor || datos.riesgoMotivo || "el Coordinador no la dejó subir sola"}`.slice(0, 600);
+      }
       // Lo que queda guardado dice lo que de verdad pasó: si el riesgo subió a ALTO, ya no "sube solo".
       if (a === "SUBIENDO" && aprobacionHeredada) {
         subeSolo = true;
         delete resultado.esperaPor;
       }
       resultado.subeSolo = subeSolo;
-      datos.resultado = resultado as unknown as Prisma.InputJsonValue;
-      despues.resultado = resultado;
+      // Mismo formato que deja /error: { motivo, en, cuando }.
+      const resultadoGuardado = motivoDeError ? { ...resultado, error: { motivo: motivoDeError, en: estado, cuando: ahora.toISOString() } } : resultado;
+      datos.resultado = resultadoGuardado as unknown as Prisma.InputJsonValue;
+      despues.resultado = resultadoGuardado;
       const zonasQueSuben = zonas.filter((zona) => !zonasQuePidenTuSi([zona]).length);
       despues.nota =
-        a === "SUBIENDO" && aprobacionHeredada
+        motivoDeError
+          ? motivoDeError
+          : a === "SUBIENDO" && aprobacionHeredada
           ? TEXTO_APROBACION_HEREDADA
           : a === "SUBIENDO"
           ? zonasQueSuben.length
