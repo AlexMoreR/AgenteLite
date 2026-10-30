@@ -1304,7 +1304,7 @@ export const MessageBubble = memo(function MessageBubble({
           {swipe.offset > 0 ? (
             <span
               aria-hidden
-              className={`pointer-events-none absolute right-full top-1/2 mr-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors ${
+              className={`pointer-events-none absolute right-full top-1/2 mr-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full transition-colors ${
                 swipe.listo ? "bg-[var(--primary)]/20 text-[var(--primary)]" : "bg-muted text-muted-foreground"
               }`}
               style={{ opacity: Math.min(1, swipe.offset / 40), transform: `translateY(-50%) scale(${swipe.listo ? 1 : 0.7 + swipe.offset / 200})` }}
