@@ -63,13 +63,13 @@ export function useSwipeToReply(onReply: () => void, enabled: boolean) {
 
   const onPointerDown = useCallback(
     (event: React.PointerEvent) => {
+      firedRef.current = false;
       if (!enabled || event.pointerType !== "touch" || !event.isPrimary) {
         return;
       }
       if (event.target instanceof Element && event.target.closest(SELECTOR_SIN_SWIPE)) {
         return;
       }
-      firedRef.current = false;
       originRef.current = { x: event.clientX, y: event.clientY };
       estadoRef.current = "indeciso";
       dxRef.current = 0;
@@ -108,6 +108,10 @@ export function useSwipeToReply(onReply: () => void, enabled: boolean) {
     const abrir = estadoRef.current === "horizontal" && swipeAlcanzaUmbral(dxRef.current);
     if (estadoRef.current === "horizontal") {
       firedRef.current = true;
+      // Si el navegador no manda el clic (lo normal tras arrastrar), no debe quedar pegado.
+      window.setTimeout(() => {
+        firedRef.current = false;
+      }, 100);
     }
     reset();
     if (abrir) {
@@ -125,6 +129,8 @@ export function useSwipeToReply(onReply: () => void, enabled: boolean) {
   }, []);
 
   return {
+    /** Ya se decidio que el dedo va de lado: el mantener apretado debe cancelarse. */
+    esHorizontal: () => estadoRef.current === "horizontal",
     handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: reset, onClickCapture },
     offset,
     arrastrando,

@@ -1054,7 +1054,7 @@ export const MessageBubble = memo(function MessageBubble({
   const longPress = useLongPress(abrirMenuTactil, tieneAcciones);
   // Deslizar a la derecha abre la misma respuesta citada del menu. Con la seleccion abierta no.
   const responderDeslizando = useCallback(() => onReply?.(message), [message, onReply]);
-  const swipe = useSwipeToReply(responderDeslizando, Boolean(onReply) && !haySeleccion);
+  const swipe = useSwipeToReply(responderDeslizando, Boolean(onReply) && tieneAcciones && !haySeleccion);
   // Un solo juego de eventos para la burbuja: primero el deslizar, luego el mantener apretado.
   const gestosDeLaBurbuja = {
     ...longPress,
@@ -1064,6 +1064,10 @@ export const MessageBubble = memo(function MessageBubble({
     },
     onPointerMove: (evento: React.PointerEvent) => {
       swipe.handlers.onPointerMove(evento);
+      if (swipe.esHorizontal()) {
+        longPress.onPointerCancel();
+        return;
+      }
       longPress.onPointerMove(evento);
     },
     onPointerUp: () => {
@@ -1251,7 +1255,7 @@ export const MessageBubble = memo(function MessageBubble({
         data-wa-id={idWhatsApp ?? undefined}
         // El id del mensaje en la base: el buscador ("Mensajes") abre el chat y salta hasta aca.
         data-message-id={message.id}
-        className={`flex ${outbound ? "justify-end" : "justify-start"} ${
+        className={`flex overflow-x-clip ${outbound ? "justify-end" : "justify-start"} ${
           seleccionado ? "-mx-2 rounded-md bg-[var(--primary)]/12 px-2 py-0.5" : ""
         } ${
           // Recien enviada (optimista): entra desde abajo con un fundido corto (globals.css). La
@@ -1287,11 +1291,10 @@ export const MessageBubble = memo(function MessageBubble({
       >
         <div
           {...gestosDeLaBurbuja}
-          style={
-            swipe.offset > 0
-              ? { transform: `translateX(${swipe.offset}px)`, transition: swipe.arrastrando ? "none" : "transform 150ms ease-out" }
-              : undefined
-          }
+          style={{
+            transform: swipe.offset > 0 ? `translateX(${swipe.offset}px)` : undefined,
+            transition: swipe.arrastrando ? "none" : "transform 150ms ease-out",
+          }}
           className={`group/bubble relative touch-pan-y max-w-[88%] rounded-[8px] px-[7px] py-[6px] text-[14px] leading-5 shadow-[0_1px_1px_rgba(15,23,42,0.14)] [-webkit-touch-callout:none] md:max-w-[72%] [@media(pointer:coarse)]:select-none ${
             outbound
               ? "rounded-tr-[3px] bg-[var(--chat-out-bubble)] text-[var(--chat-out-text)]"
@@ -1302,7 +1305,7 @@ export const MessageBubble = memo(function MessageBubble({
             <span
               aria-hidden
               className={`pointer-events-none absolute right-full top-1/2 mr-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors ${
-                swipe.listo ? "bg-[var(--primary)]/20 text-[var(--primary)]" : ""
+                swipe.listo ? "bg-[var(--primary)]/20 text-[var(--primary)]" : "bg-muted text-muted-foreground"
               }`}
               style={{ opacity: Math.min(1, swipe.offset / 40), transform: `translateY(-50%) scale(${swipe.listo ? 1 : 0.7 + swipe.offset / 200})` }}
             >
