@@ -84,8 +84,8 @@ const falso = {
   },
   $transaction: async (operaciones) => Promise.all(operaciones),
   avisoTarjetaEquipo: {
-    findMany: async ({ where }) => estado.avisos.filter((a) => a.workspaceId === where.workspaceId && where.tarjetaId.in.includes(a.tarjetaId)).map((a) => ({ ...a })),
-    findFirst: async () => null,
+    findMany: async ({ where }) => estado.avisos.filter((a) => a.workspaceId === where.workspaceId && where.tarjetaId.in.includes(a.tarjetaId) && (!where.motivo?.not || a.motivo !== where.motivo.not)).map((a) => ({ ...a })),
+    findFirst: async ({ where }) => [...estado.avisos].reverse().find((a) => a.workspaceId === where.workspaceId && a.estado === where.estado && (!where.motivo?.not || a.motivo !== where.motivo.not)) ?? null,
     create: async ({ data }) => {
       if (estado.avisos.some((a) => a.tarjetaId === data.tarjetaId && a.motivo === data.motivo)) throw Object.assign(new Error("único"), { code: "P2002" });
       const fila = { id: `av${estado.avisos.length + 1}`, intentos: 0, ...data };
@@ -94,7 +94,7 @@ const falso = {
     },
     updateMany: async ({ where, data }) => {
       if (where.id === undefined) {
-        const filas = estado.avisos.filter((a) => a.workspaceId === where.workspaceId && (where.estado === undefined || a.estado === where.estado));
+        const filas = estado.avisos.filter((a) => a.workspaceId === where.workspaceId && (where.estado === undefined || a.estado === where.estado) && (!where.motivo?.not || a.motivo !== where.motivo.not));
         for (const f of filas) Object.assign(f, data);
         return { count: filas.length };
       }
@@ -546,6 +546,16 @@ await prueba("queNecesitaLaTarjeta: ERROR siempre dice algo; una tarjeta común 
   assert.match(equipo.queNecesitaLaTarjeta(base), /quedó en error/);
   assert.equal(equipo.queNecesitaLaTarjeta({ ...base, estado: "POR_REVISAR", esperaPor: "falta la prueba de que no se manda nada" }), null);
   assert.match(equipo.queNecesitaLaTarjeta({ ...base, estado: "POR_REVISAR", esperaPor: "configurar el VPS" }), /VPS/);
+});
+
+await prueba("los avisos 'terminada' al dueño (mismo AvisoTarjetaEquipo) no cuentan: ni en el resumen ni al prender el interruptor", async () => {
+  const fila = (id, estadoDelAviso) => ({ id, workspaceId: "ws1", tarjetaId: `x${id}`, motivo: "terminada", estado: estadoDelAviso, intentos: 0, enviadoEn: DIA });
+  estado.avisos.push(fila("a", "ENVIADO"), fila("b", "FALLIDO"), fila("c", "PENDIENTE"));
+  const resumen = await equipo.resumenDeAvisosAlEquipo("ws1");
+  assert.equal(resumen.ultimo, null, "su último aviso enviado no es uno 'terminada'");
+  assert.equal(resumen.ultimoFallido, null);
+  await equipo.ponerAvisosAlEquipo("ws1", true);
+  assert.equal(estado.avisos.find((a) => a.id === "c").estado, "PENDIENTE", "prender el equipo no toca el pendiente de 'terminada'");
 });
 
 console.log(`\n${pruebas} pruebas de los avisos al equipo: todas pasaron.`);
