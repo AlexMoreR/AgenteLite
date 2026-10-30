@@ -206,3 +206,47 @@ export function contarAbiertasPorArea(alertas: readonly { estado: string; area: 
   }
   return cuenta;
 }
+
+/* ───────────── RESPONSABLE (Sistemas o Negocio; se calcula al leer, no se guarda) ───────────── */
+
+export const RESPONSABLES_DE_ALERTA = ["SISTEMAS", "NEGOCIO"] as const;
+export type ResponsableDeAlerta = (typeof RESPONSABLES_DE_ALERTA)[number];
+export const ETIQUETA_DE_RESPONSABLE: Record<ResponsableDeAlerta, string> = { SISTEMAS: "Sistemas", NEGOCIO: "Negocio" };
+
+/** Orígenes futuros (aún ninguna fuente los genera): la regla deja su lugar listo. */
+export const ORIGEN_MARKETPLACE = "CRM Marketplace";
+export const ORIGEN_RUTINAS = "Rutinas";
+
+/** AppSetting con el id de la persona responsable de Sistemas (Emanuel). Sin fila, todo se ve como antes. */
+export const claveResponsableDeSistemas = (workspaceId: string) => `alertas:responsable-sistemas:${workspaceId}`;
+
+const ORIGENES_DE_SISTEMAS = new Set<string>([ORIGEN_POR_AREA.sistemas, ORIGEN_LINEA, ORIGEN_MARKETPLACE, ORIGEN_RUTINAS]);
+/** Del Coordinador: se cayó, tarjeta trabada o en error, Claude llegó al límite. Las demás (necesita decisión, sin trabajo) son del dueño. */
+const RE_COORDINADOR_DE_SISTEMAS = /^(auto:caido$|auto:trabado:|coord:limite:)/;
+
+/**
+ * ¿De quién es la alerta? Sistemas (Emanuel) o Negocio (Alexander). Todo lo que no se reconoce es Negocio: así un
+ * error de clasificación nunca esconde una alerta (el jefe siempre la ve).
+ */
+export function responsableDeAlerta(alerta: { origen: string; clave: string }): ResponsableDeAlerta {
+  const clave = String(alerta.clave ?? "");
+  if (ORIGENES_DE_SISTEMAS.has(alerta.origen) || clave.startsWith("LINEA:caida:")) return "SISTEMAS";
+  if (alerta.origen === ORIGEN_COORDINADOR) return RE_COORDINADOR_DE_SISTEMAS.test(clave) ? "SISTEMAS" : "NEGOCIO";
+  if (alerta.origen === ORIGEN_SUPERVISOR) return clave.startsWith("sup:CEREBRO:") ? "SISTEMAS" : "NEGOCIO";
+  return "NEGOCIO";
+}
+
+/**
+ * Quién mira la página. `responsableSistemasId` = el ajuste (null = sin configurar). `verTodas` = el jefe pidió ver también las de Sistemas.
+ */
+export type QuienMira = { userId: string; esJefe: boolean; responsableSistemasId?: string | null; verTodas?: boolean };
+
+/** ¿Esta persona ve esta alerta? Las personales solo las ve su destinatario; las del negocio dependen del responsable. */
+export function puedeVerAlerta(alerta: { origen: string; clave: string; destinatarioId: string | null }, mirando: QuienMira): boolean {
+  if (alerta.destinatarioId) return alerta.destinatarioId === mirando.userId;
+  const responsable = mirando.responsableSistemasId || null;
+  if (responsable && mirando.userId === responsable) return responsableDeAlerta(alerta) === "SISTEMAS";
+  if (!mirando.esJefe) return false;
+  if (!responsable || mirando.verTodas) return true;
+  return responsableDeAlerta(alerta) === "NEGOCIO";
+}

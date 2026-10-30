@@ -13,13 +13,15 @@ import {
   ESTADOS_DE_ALERTA,
   ETIQUETA_DE_ESTADO,
   ETIQUETA_DE_PRIORIDAD,
+  responsableDeAlerta,
   PRIORIDADES,
   leerPrioridad,
   textoDeRepeticion,
   ultimaVezDe,
   type EstadoDeAlerta,
 } from "@/features/alertas/dominio/reglas";
-import { contarAlertas, leerAreasDeTarjetas, listarAlertas } from "@/features/alertas/servicios/alertas";
+import { ResponsableDeSistemas } from "@/features/alertas/components/ResponsableDeSistemas";
+import { contarAlertas, leerAreasDeTarjetas, leerResponsableDeSistemas, listarEquipoParaResponsable, listarAlertas } from "@/features/alertas/servicios/alertas";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
 import { cn } from "@/lib/utils";
@@ -40,9 +42,16 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
 */
 export default async function AlertasPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
-  const mirando = { userId: access.userId, esJefe: esJefeDelNegocio(access) };
-
+  const esJefe = esJefeDelNegocio(access);
+  const responsableSistemasId = await leerResponsableDeSistemas(access.workspaceId);
   const parametros = await searchParams;
+  // Solo el jefe que NO es el responsable puede pedir ver también las de Sistemas (?ver=todas).
+  const verTodas = esJefe && !!responsableSistemasId && responsableSistemasId !== access.userId && uno(parametros.ver) === "todas";
+  const mirando = { userId: access.userId, esJefe, responsableSistemasId, verTodas };
+  const esElResponsable = !!responsableSistemasId && responsableSistemasId === access.userId;
+  const quienVe = !responsableSistemasId ? null : verTodas ? "todas" : esElResponsable ? "Sistemas" : esJefe ? "Negocio" : null;
+  const equipo = esJefe ? await listarEquipoParaResponsable(access.workspaceId).catch(() => []) : [];
+
   const alertaPedida = uno(parametros.alerta);
   const estadoPedido = uno(parametros.estado)?.toUpperCase() ?? (alertaPedida ? "TODAS" : "ABIERTAS");
   const estado = estadoPedido === "TODAS" || estadoPedido === "ABIERTAS" || (ESTADOS_DE_ALERTA as readonly string[]).includes(estadoPedido) ? estadoPedido : "ABIERTAS";
@@ -67,12 +76,13 @@ export default async function AlertasPage({ searchParams }: PageProps) {
   };
   const conteoPorArea = contarAbiertasPorArea(abiertas.map((alerta) => ({ estado: alerta.estado, area: areaDe(alerta) })));
 
-  const enlace = (cambios: { estado?: string; prioridad?: string | null }) => {
+  const enlace = (cambios: { estado?: string; prioridad?: string | null; ver?: boolean }) => {
     const query = new URLSearchParams();
     const nuevoEstado = cambios.estado ?? estado.toLowerCase();
     const nuevaPrioridad = cambios.prioridad === undefined ? prioridad?.toLowerCase() : cambios.prioridad;
     if (nuevoEstado !== "abiertas") query.set("estado", nuevoEstado);
     if (nuevaPrioridad) query.set("prioridad", nuevaPrioridad);
+    if (cambios.ver ?? verTodas) query.set("ver", "todas");
     const texto = query.toString();
     return texto ? `/cliente/alertas?${texto}` : "/cliente/alertas";
   };
@@ -88,6 +98,7 @@ export default async function AlertasPage({ searchParams }: PageProps) {
     detalle: alerta.detalle,
     origen: alerta.origen,
     area: areaDe(alerta),
+    responsable: responsableDeAlerta(alerta),
     tarjetaId: idDeTarjetaDeLaClave(alerta.clave),
     estado: alerta.estado,
     veces: alerta.veces,
@@ -106,6 +117,18 @@ export default async function AlertasPage({ searchParams }: PageProps) {
         {cuenta ? ` Nuevas: ${cuenta.NUEVA} · Vistas: ${cuenta.VISTA} · Resueltas: ${cuenta.RESUELTA}.` : ""}
       </p>
 
+      {quienVe ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-medium">Mostrando: {quienVe}</span>
+          {esJefe && !esElResponsable ? (
+            <Link href={enlace({ ver: !verTodas })} className={chip(false)}>
+              {verTodas ? "Ver solo las de Negocio" : "Ver también las de Sistemas"}
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
+      {esJefe ? <ResponsableDeSistemas equipo={equipo} actualId={responsableSistemasId} /> : null}
+
       <div className="flex flex-wrap gap-2">
         {[{ valor: "abiertas", texto: "Abiertas" }, ...ESTADOS_DE_ALERTA.map((e) => ({ valor: e.toLowerCase(), texto: ETIQUETA_DE_ESTADO[e] })), { valor: "todas", texto: "Todas" }].map((opcion) => (
           <Link key={opcion.valor} href={enlace({ estado: opcion.valor })} className={chip(estado.toLowerCase() === opcion.valor)}>
@@ -123,7 +146,7 @@ export default async function AlertasPage({ searchParams }: PageProps) {
         ))}
       </div>
 
-      {alertas === null ? <p className="text-sm text-destructive">No se pudieron leer las alertas. Vuelve a intentar en un momento.</p> : <ListaDeAlertas alertas={filas} areas={[...AREAS_DE_ALERTA]} conteoPorArea={conteoPorArea} />}
+      {alertas === null ? <p className="text-sm text-destructive">No se pudieron leer las alertas. Vuelve a intentar en un momento.</p> : <ListaDeAlertas alertas={filas} areas={[...AREAS_DE_ALERTA]} conteoPorArea={conteoPorArea} verTodas={verTodas} />}
     </div>
   );
 }

@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { ETIQUETA_DE_ESTADO, ETIQUETA_DE_PRIORIDAD, leerAreaDeAlerta, type EstadoDeAlerta, type Prioridad } from "../dominio/reglas";
+import { ETIQUETA_DE_ESTADO, ETIQUETA_DE_PRIORIDAD, ETIQUETA_DE_RESPONSABLE, leerAreaDeAlerta, type EstadoDeAlerta, type Prioridad, type ResponsableDeAlerta } from "../dominio/reglas";
 
 export type FilaDeAlerta = {
   id: string;
@@ -21,6 +21,8 @@ export type FilaDeAlerta = {
   origen: string;
   /** Área de la alerta (lista fija de reglas.ts). */
   area: string;
+  /** De quién es: Sistemas o Negocio (reglas.ts). */
+  responsable: ResponsableDeAlerta;
   /** Si viene de una tarjeta del tablero, su id (para abrirla). */
   tarjetaId: string | null;
   estado: string;
@@ -43,7 +45,7 @@ const COLOR_PRIORIDAD: Record<Prioridad, "destructive" | "default" | "secondary"
 
 const CLAVE_DEL_FILTRO = "alertas:filtro-de-area";
 
-export function ListaDeAlertas({ alertas, areas, conteoPorArea }: { alertas: FilaDeAlerta[]; areas: string[]; conteoPorArea: Record<string, number> }) {
+export function ListaDeAlertas({ alertas, areas, conteoPorArea, verTodas = false }: { alertas: FilaDeAlerta[]; areas: string[]; conteoPorArea: Record<string, number>; verTodas?: boolean }) {
   // null = "Todas". El filtro recordado se lee al montar; si ya no existe o el navegador no deja leer, queda "Todas".
   const [filtro, setFiltro] = useState<string | null>(null);
   useEffect(() => {
@@ -73,7 +75,7 @@ export function ListaDeAlertas({ alertas, areas, conteoPorArea }: { alertas: Fil
   const marcar = (id: string, nuevo: "VISTA" | "RESUELTA") => {
     setError(null);
     empezar(async () => {
-      const resultado = await marcarAlertaAction(id, nuevo);
+      const resultado = await marcarAlertaAction(id, nuevo, verTodas);
       if (!resultado.ok) setError(resultado.error);
       router.refresh();
     });
@@ -106,6 +108,7 @@ export function ListaDeAlertas({ alertas, areas, conteoPorArea }: { alertas: Fil
               <Badge variant={COLOR_PRIORIDAD[alerta.prioridad as Prioridad] ?? "outline"}>
                 {ETIQUETA_DE_PRIORIDAD[alerta.prioridad as Prioridad] ?? alerta.prioridad}
               </Badge>
+              <Badge variant={alerta.responsable === "SISTEMAS" ? "default" : "outline"}>{ETIQUETA_DE_RESPONSABLE[alerta.responsable]}</Badge>
               <Badge variant="secondary">{alerta.area}</Badge>
               <Badge variant="outline">{ETIQUETA_DE_ESTADO[alerta.estado as EstadoDeAlerta] ?? alerta.estado}</Badge>
               <span className="text-xs text-muted-foreground">

@@ -24,7 +24,10 @@ const falso = {
     },
   },
   whatsAppChannel: { findFirst: async ({ where }) => (where.id === "admin1" ? { id: "admin1", evolutionInstanceName: "admin-inst" } : null) },
-  workspaceMember: { findMany: async () => [] },
+  workspaceMember: {
+    findMany: async () => [],
+    findFirst: async ({ where }) => (miembros.includes(`${where.workspaceId}:${where.userId}`) ? { userId: where.userId } : null),
+  },
   alertaInterna: {
     findFirst: async ({ where }) => [...filas].reverse().find((f) => coincide(f, where)) ?? null,
     create: async ({ data }) => {
@@ -50,6 +53,7 @@ const falso = {
   },
 };
 const ajustes = new Map();
+const miembros = ["wsR:u_em", "wsR:u_alex", "wsR:u_ana"];
 
 // Tarjetas falsas del tablero: Tecnología (área) > Gestión (subárea) > Tarea; Ventas (área) > Tarea; una huérfana y una borrada.
 const tarjetas = [
@@ -408,6 +412,93 @@ await prueba("área: los incidentes del Supervisor sobre el libro V3, el bot o e
   assert.equal(sup("x:1"), "General");
   // La misma clave de otro sistema no se cuela.
   assert.equal(reglas.areaDeAlerta({ clave: "sup:BOT:x", origen: "Coordinador" }, mapa), "Coordinador");
+});
+
+await prueba("responsable: cada clave es de Sistemas o de Negocio", () => {
+  const de = (origen, clave) => reglas.responsableDeAlerta({ origen, clave });
+  assert.equal(de("Coordinador", "auto:trabado:abc:ERROR"), "SISTEMAS");
+  assert.equal(de("Coordinador", "auto:caido"), "SISTEMAS");
+  assert.equal(de("Coordinador", "coord:limite:Claude llegó al límite"), "SISTEMAS");
+  assert.equal(de("Coordinador", "auto:necesita:abc:POR_APROBAR"), "NEGOCIO");
+  assert.equal(de("Coordinador", "coord:necesita:Aprueba el gasto"), "NEGOCIO");
+  assert.equal(de("Coordinador", "auto:sin_trabajo"), "NEGOCIO");
+  assert.equal(de("Línea de WhatsApp", "LINEA:caida:c1"), "SISTEMAS");
+  assert.equal(de("Supervisor", "sup:CEREBRO:dato-viejo"), "SISTEMAS");
+  assert.equal(de("Supervisor", "sup:ATENCION:caliente-esperando:u1"), "NEGOCIO");
+  assert.equal(de("Supervisor", "sup:BOT:regla"), "NEGOCIO");
+  assert.equal(de("Supervisor", "sup:EMBUDO:x"), "NEGOCIO");
+  assert.equal(de("Agente de Sistemas", "x:1"), "SISTEMAS");
+  assert.equal(de("CRM Marketplace", "x:1"), "SISTEMAS");
+  assert.equal(de("Rutinas", "x:1"), "SISTEMAS");
+  assert.equal(de("Agente de Ventas", "x:1"), "NEGOCIO");
+  assert.equal(de("Agente de Marketing", "x:1"), "NEGOCIO");
+  assert.equal(de("Origen raro", "x:1"), "NEGOCIO");
+});
+
+await prueba("quién ve qué: Emanuel (responsable) solo Sistemas, Alexander solo Negocio (o todas), sin ajuste todo como hoy", async () => {
+  const ws = "wsR";
+  const reg = (clave, origen, titulo, destinatarioId) => servicio.registrarAlerta({ workspaceId: ws, clave, prioridad: "ALTA", titulo, origen, destinatarioId });
+  await reg("auto:trabado:t9:ERROR", "Coordinador", "S: tarjeta en error");
+  await reg("coord:limite:x", "Coordinador", "S: límite de Claude");
+  await reg("LINEA:caida:c1", "Línea de WhatsApp", "S: línea caída");
+  await reg("auto:necesita:t9:POR_APROBAR", "Coordinador", "N: decisión del dueño");
+  await reg("sup:ATENCION:x", "Supervisor", "N: asesora esperando");
+  await reg("k:1", "Origen raro", "N: desconocida");
+  await reg("p:em", "Tablero IA", "P: de Emanuel", "u_em");
+  await reg("p:ana", "Tablero IA", "P: de Ana", "u_ana");
+  await reg("p:alex", "Tablero IA", "P: de Alexander", "u_alex");
+  const ver = async (mirando) => (await servicio.listarAlertas(ws, {}, 300, mirando)).map((a) => a.titulo).sort();
+  const emanuel = { userId: "u_em", esJefe: false };
+  const alexander = { userId: "u_alex", esJefe: true };
+  const todasN = ["N: decisión del dueño", "N: asesora esperando", "N: desconocida"];
+  const todasS = ["S: tarjeta en error", "S: límite de Claude", "S: línea caída"];
+
+  // Sin el ajuste: todo como antes (el jefe ve todo el negocio y lo suyo; el empleado, lo suyo).
+  assert.deepEqual(await ver(alexander), [...todasN, ...todasS, "P: de Alexander"].sort());
+  assert.deepEqual(await ver(emanuel), ["P: de Emanuel"]);
+  assert.equal(await servicio.leerResponsableDeSistemas(ws), null);
+
+  // Un jefe puede elegir a un miembro; no a alguien de fuera ni sin ser jefe.
+  assert.deepEqual(await servicio.elegirResponsableDeSistemas(ws, false, "u_em"), { ok: false, error: "Sin permiso." });
+  assert.equal((await servicio.elegirResponsableDeSistemas(ws, true, "u_extrano")).ok, false, "no es del equipo");
+  assert.equal(await servicio.leerResponsableDeSistemas(ws), null, "los rechazos no guardan nada");
+  assert.deepEqual(await servicio.elegirResponsableDeSistemas(ws, true, "u_em"), { ok: true });
+  assert.equal(await servicio.leerResponsableDeSistemas(ws), "u_em");
+
+  const resp = "u_em";
+  // Emanuel (no jefe): solo Sistemas + sus personales.
+  assert.deepEqual(await ver({ ...emanuel, responsableSistemasId: resp }), [...todasS, "P: de Emanuel"].sort());
+  // Aunque pida ver todas, el no jefe no ve Negocio.
+  assert.deepEqual(await ver({ ...emanuel, responsableSistemasId: resp, verTodas: true }), [...todasS, "P: de Emanuel"].sort());
+  // Alexander: por defecto Negocio + lo suyo; con verTodas, todo el negocio.
+  assert.deepEqual(await ver({ ...alexander, responsableSistemasId: resp }), [...todasN, "P: de Alexander"].sort());
+  assert.deepEqual(await ver({ ...alexander, responsableSistemasId: resp, verTodas: true }), [...todasN, ...todasS, "P: de Alexander"].sort());
+  // Ana (no jefe, no responsable): solo lo suyo.
+  assert.deepEqual(await ver({ userId: "u_ana", esJefe: false, responsableSistemasId: resp }), ["P: de Ana"]);
+  // El límite se aplica después de filtrar.
+  assert.equal((await servicio.listarAlertas(ws, {}, 2, { ...alexander, responsableSistemasId: resp })).length, 2);
+
+  // Contadores: solo lo que cada uno ve.
+  assert.equal((await servicio.contarAlertas(ws, { ...emanuel, responsableSistemasId: resp })).NUEVA, 4);
+  assert.equal((await servicio.contarAlertas(ws, { ...alexander, responsableSistemasId: resp })).NUEVA, 4);
+  assert.equal((await servicio.contarAlertas(ws, { ...alexander, responsableSistemasId: resp, verTodas: true })).NUEVA, 7);
+
+  // Marcar: Emanuel una de Sistemas sí; una de Negocio y la personal de otro no.
+  const id = (clave) => filas.find((f) => f.workspaceId === ws && f.clave === clave).id;
+  const mEm = { ...emanuel, responsableSistemasId: resp };
+  assert.equal(await servicio.marcarAlerta(ws, id("auto:trabado:t9:ERROR"), "VISTA", new Date(), mEm), true);
+  assert.equal(await servicio.marcarAlerta(ws, id("auto:necesita:t9:POR_APROBAR"), "VISTA", new Date(), mEm), false);
+  assert.equal(await servicio.marcarAlerta(ws, id("p:ana"), "VISTA", new Date(), mEm), false);
+  assert.equal(await servicio.marcarAlerta(ws, id("p:em"), "RESUELTA", new Date(), mEm), true);
+  // Alexander: no marca una de Sistemas por defecto; con verTodas sí.
+  const mAlex = { ...alexander, responsableSistemasId: resp };
+  assert.equal(await servicio.marcarAlerta(ws, id("coord:limite:x"), "VISTA", new Date(), mAlex), false);
+  assert.equal(await servicio.marcarAlerta(ws, id("coord:limite:x"), "VISTA", new Date(), { ...mAlex, verTodas: true }), true);
+  assert.equal(await servicio.marcarAlerta(ws, id("sup:ATENCION:x"), "VISTA", new Date(), mAlex), true);
+
+  // Quitar al responsable: vuelve todo a verse junto.
+  assert.deepEqual(await servicio.elegirResponsableDeSistemas(ws, true, null), { ok: true });
+  assert.equal(await servicio.leerResponsableDeSistemas(ws), null);
 });
 
 console.log(`\n${pruebas} pruebas ok`);
