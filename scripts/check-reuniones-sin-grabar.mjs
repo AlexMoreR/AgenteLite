@@ -109,7 +109,10 @@ await prueba("la cola de transcripción nunca toma una reunión sin grabar", () 
 await prueba("crearReunionAction guarda sinGrabar y por defecto queda en no", () => {
   const fuente = readFileSync("src/app/actions/reuniones-actions.ts", "utf8");
   assert.match(fuente, /crearReunionAction\(titulo\?: string, sinGrabar\?: boolean\)/);
-  assert.match(fuente, /sinGrabar: sinGrabar === true/);
+  assert.match(fuente, /crearReunion\(prisma, \{[^}]*sinGrabar \}\)/);
+  // La creación vive en crear-reunion.ts (la comparten "Nueva reunión" y las salas fijas).
+  const servicio = readFileSync("src/features/reuniones/servicios/crear-reunion.ts", "utf8");
+  assert.match(servicio, /sinGrabar: datos\.sinGrabar === true/);
 });
 
 await prueba("la migración solo agrega la columna, con valor por defecto falso", () => {
