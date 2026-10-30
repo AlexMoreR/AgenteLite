@@ -91,32 +91,32 @@ export async function ponerAprobacionAutomatica(workspaceId: string, prendida: b
 }
 
 /**
- * ¿El DUEÑO aprobó la tarea de esta tarjeta (un solo sí, 30-oct-2026)? Una fila "aprobar" de la tarea en la pantalla o
- * por voz (tareaAprobadaPorElDuenoEnElHistorial) hecha por la cuenta dueña del negocio (esDuenoDelNegocio): el sí de un
- * ADMIN de la plataforma o de un aprobador no cuenta. Una parte que heredó la aprobación ("heredada") mira la de su
- * madre (hasta 3 niveles): si la madre se aprobó sola, no hay sí del dueño.
+ * ¿El DUEÑO aprobó la tarea de esta tarjeta (un solo sí, 30-oct-2026)? Mira la ÚLTIMA aprobación de la tarea (un sí
+ * viejo no vale si después la tarea volvió a aprobarse sola): cuenta si es en la pantalla o por voz
+ * (tareaAprobadaPorElDuenoEnElHistorial) y la hizo la cuenta dueña del negocio (esDuenoDelNegocio): el sí de un ADMIN de
+ * la plataforma o de un aprobador no cuenta. Si es "heredada" (una parte), se mira la de su madre (hasta 4 niveles).
  */
 export async function tareaAprobadaPorElDueno(tarjetaId: string, workspaceId: string, db: Db = prisma): Promise<boolean> {
-  const negocio = await db.workspace.findUnique({ where: { id: workspaceId }, select: { ownerId: true } });
   const vistas = new Set<string>();
-  let ids = [tarjetaId];
-  for (let nivel = 0; nivel < 4 && ids.length; nivel += 1) {
-    const madres: string[] = [];
-    for (const id of ids) {
-      if (vistas.has(id)) continue;
-      vistas.add(id);
-      const filas = await db.historialTarjeta.findMany({ where: { tarjetaId: id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
-      for (const fila of filas) {
-        const despues = fila.despues as { como?: unknown; heredadaDe?: unknown; userId?: unknown } | null;
-        if (despues?.como === "heredada") {
-          if (typeof despues.heredadaDe === "string") madres.push(despues.heredadaDe);
-          continue;
-        }
-        if (!tareaAprobadaPorElDuenoEnElHistorial([fila]) || typeof despues?.userId !== "string") continue;
-        if (await esLaCuentaDuena(db, workspaceId, despues.userId, negocio?.ownerId ?? null)) return true;
-      }
+  let id: string | null = tarjetaId;
+  for (let nivel = 0; nivel < 4 && id && !vistas.has(id); nivel += 1) {
+    vistas.add(id);
+    const filas = await db.historialTarjeta.findMany({
+      where: { tarjetaId: id, accion: "aprobar" },
+      orderBy: { creadoEn: "desc" },
+      select: { accion: true, despues: true },
+      take: 100,
+    });
+    const ultima = filas.find((fila) => (fila.despues as { momento?: unknown } | null)?.momento === "tarea");
+    if (!ultima) return false;
+    const despues = ultima.despues as { como?: unknown; heredadaDe?: unknown; userId?: unknown } | null;
+    if (despues?.como === "heredada") {
+      id = typeof despues.heredadaDe === "string" ? despues.heredadaDe : null;
+      continue;
     }
-    ids = madres;
+    if (!tareaAprobadaPorElDuenoEnElHistorial([ultima]) || typeof despues?.userId !== "string") return false;
+    const negocio = await db.workspace.findUnique({ where: { id: workspaceId }, select: { ownerId: true } });
+    return esLaCuentaDuena(db, workspaceId, despues.userId, negocio?.ownerId ?? null);
   }
   return false;
 }

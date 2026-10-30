@@ -42,7 +42,11 @@ const falso = {
       estado.historial.push(data);
       return data;
     },
-    findMany: async ({ where, take }) => estado.historial.filter((fila) => fila.tarjetaId === where.tarjetaId && (!where.accion || fila.accion === where.accion)).slice(0, take ?? 1000),
+    findMany: async ({ where, take, orderBy }) => {
+      const filas = estado.historial.filter((fila) => fila.tarjetaId === where.tarjetaId && (!where.accion || fila.accion === where.accion));
+      // Las filas se agregan en orden: "desc" es al revés.
+      return (orderBy?.creadoEn === "desc" ? filas.reverse() : filas).slice(0, take ?? 1000);
+    },
   },
   // Un solo sí (30-oct): la cuenta dueña de ws1 es "dueno" (CLIENTE y OWNER del negocio); "admin" es ADMIN de la plataforma.
   workspace: { findUnique: async ({ where }) => (where.id === "ws1" ? { ownerId: "dueno" } : { ownerId: null }) },
@@ -718,6 +722,20 @@ await prueba("un solo sí: una parte con la aprobación heredada vale solo si el
   const r2 = await trabajador.accionDelTrabajador(contexto, "t2", "plan", { plan: planDeAbonos() });
   assert.equal(r2.estado, "PLAN_APROBADO");
   assert.equal(estado.historial.at(-1).despues.motivo, MOTIVO_UN_SOLO_SI);
+});
+
+await prueba("un solo sí: vale la ÚLTIMA aprobación de la tarea: si después del sí del dueño se aprobó sola, el plan de abonos queda PLAN_LISTO", async () => {
+  planeando({ riesgo: "BAJO" });
+  siDeLaTarea("t1", "pantalla");
+  siDeLaTarea("t1", "automatica", auto.QUIEN_AUTOMATICO);
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planDeAbonos() });
+  assert.equal(r.estado, "PLAN_LISTO");
+  // Y al revés: una aprobación sola vieja y después el sí del dueño, pasa.
+  planeando({ id: "t2", riesgo: "BAJO" });
+  siDeLaTarea("t2", "automatica", auto.QUIEN_AUTOMATICO);
+  siDeLaTarea("t2", "voz");
+  const r2 = await trabajador.accionDelTrabajador(contexto, "t2", "plan", { plan: planDeAbonos() });
+  assert.equal(r2.estado, "PLAN_APROBADO");
 });
 
 /* ------------------------------------------------------------------ regla del dueño 25-oct: las tareas arrancan solas */
