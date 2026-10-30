@@ -166,6 +166,7 @@ const tarjeta = (extra = {}) => ({
   estado: "IDEA",
   urgente: false,
   responsableId: null,
+  creadoPor: null,
   repo: null,
   plan: null,
   zonaProtegida: [],
@@ -295,6 +296,38 @@ await prueba("2. un título que empieza por URGENTE también avisa (un solo mens
   assert.equal(estado.tarjetas[0].urgente, true, "la marca queda puesta");
   await vuelta(mas(0.2));
   assert.equal(estado.enviados.length, 1);
+});
+
+await prueba("la tarjeta que el responsable creó y se asignó a sí mismo no manda 'tarea nueva' ni recordatorio de 24 horas", async () => {
+  estado.destinos.push({ numero: "573001110006", userId: "u_alex", soloDe: "u_alex" });
+  await prenderYBase();
+  estado.tarjetas = [tarjeta({ responsableId: "u_alex", creadoPor: "u_alex" })];
+  await vuelta(mas(0.1));
+  await vuelta(mas(30));
+  assert.deepEqual(estado.enviados, []);
+  assert.equal(estado.alertas.length, 0);
+});
+
+await prueba("esa misma tarjeta en ERROR o marcada URGENTE sí le avisa", async () => {
+  estado.destinos.push({ numero: "573001110006", userId: "u_alex", soloDe: "u_alex" });
+  await prenderYBase();
+  estado.tarjetas = [
+    tarjeta({ id: "e1", estado: "ERROR", responsableId: "u_alex", creadoPor: "u_alex", resultado: { error: "falló la prueba" } }),
+    tarjeta({ id: "u1", urgente: true, responsableId: "u_alex", creadoPor: "u_alex" }),
+  ];
+  await vuelta(mas(0.1));
+  assert.equal(estado.enviados.length, 2);
+  assert.ok(estado.enviados.some((e) => /error/i.test(e.text)));
+  assert.ok(estado.enviados.some((e) => e.text.startsWith("URGENTE:")));
+  assert.ok(!estado.enviados.some((e) => /tarea nueva/.test(e.text)));
+});
+
+await prueba("una tarjeta creada por Alexander y asignada a Emanuel sí le avisa a Emanuel", async () => {
+  await prenderYBase();
+  estado.tarjetas = [tarjeta({ responsableId: "u_em", creadoPor: "u_alex" })];
+  await vuelta(mas(0.1));
+  assert.equal(estado.enviados.length, 1);
+  assert.match(estado.enviados[0].text, /^Emanuel, tienes una tarea nueva/);
 });
 
 await prueba("una tarjeta urgente SIN responsable no avisa a nadie", async () => {
