@@ -1,3 +1,5 @@
+import { leerMapaDeLineas } from "@/lib/origen-de-venta-crm";
+import { TIPOS_DE_ORIGEN, esTipoDeOrigen, origenDelCliente, type TipoDeOrigen } from "@/lib/origen-del-cliente";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { HERRAMIENTAS_MCP_V3, ejecutarHerramientaMcpV3, esHerramientaV3 } from "@/lib/mcp/agente-v3";
 import {
@@ -171,6 +173,14 @@ const HERRAMIENTAS_DE_LECTURA = [
         },
         canal_id: { type: "string", description: "Solo una linea de WhatsApp (opcional)" },
         buscar: { type: "string", description: "Nombre o telefono del contacto (opcional)" },
+        origen: {
+          description:
+            "De donde llego el cliente: anuncio (anuncio de Meta), marketplace u organico (organico / desconocido). Una sola o varias. Con este filtro se revisan hasta 500 chats del periodo y se devuelven los primeros 'limite'. Cada conversacion trae su 'origen' aunque no se filtre. Evolution no entrega la campana: solo el anuncio",
+          anyOf: [
+            { type: "string" },
+            { type: "array", items: { type: "string", enum: [...TIPOS_DE_ORIGEN] } },
+          ],
+        },
         limite: { type: "number", description: "Maximo de conversaciones (1 a 100, por defecto 30)" },
       },
       additionalProperties: false,
@@ -634,6 +644,15 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
   }
   const etapas = etapasPedidas as EtapaCrm[];
 
+  // Origen del cliente: anuncio, marketplace u organico (las mismas palabras de comparar_embudos).
+  const origenesPedidos = lista(args, "origen", false).map((origen) => origen.toLowerCase());
+  const origenesNoValidos = origenesPedidos.filter((origen) => !esTipoDeOrigen(origen));
+  if (origenesNoValidos.length > 0) {
+    throw new Error(`Origen no valido: ${origenesNoValidos.join(", ")}. Los que existen son ${TIPOS_DE_ORIGEN.join(", ")}.`);
+  }
+  const origenes = origenesPedidos as TipoDeOrigen[];
+  const MAX_CHATS_CON_ORIGEN = 500;
+
   /*
     Por etiqueta: una o varias, por nombre o por su slug, sin importar mayusculas. Una etiqueta que
     no existe en el negocio es un error y no una lista vacia: una lista vacia se leeria como "no hay
@@ -735,7 +754,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
     AND: condicionesDelContacto,
   };
 
-  const conversaciones = await prisma.conversation.findMany({
+  const candidatas = await prisma.conversation.findMany({
     where: {
       workspaceId: contexto.workspaceId,
       // Con etapa, el rango ya se aplico sobre la fecha de la etapa: pedirlo tambien sobre el
@@ -746,19 +765,21 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       contact: contactoWhere,
     },
     orderBy: { lastMessageAt: "desc" },
-    take: limite,
+    // Con filtro de origen se revisan mas chats y despues se recorta a `limite`.
+    take: origenes.length > 0 ? MAX_CHATS_CON_ORIGEN : limite,
     select: {
       id: true,
       contactId: true,
       status: true,
       lastMessageAt: true,
       automationPaused: true,
-      channel: { select: { id: true, name: true } },
+      channel: { select: { id: true, name: true, purpose: true, metadata: true } },
       assignedTo: { select: { name: true } },
       contact: {
         select: {
           name: true,
           phoneNumber: true,
+          metadata: true,
           crmStage: true,
           excludedFromCrm: true,
           ContactTag: { select: { Tag: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
@@ -766,6 +787,28 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       },
     },
   });
+
+  /*
+    ORIGEN de cada chat, con la regla de origen-del-cliente.ts (anuncio > marketplace > organico).
+    Si el mapa de lineas no se puede leer, leerMapaDeLineas devuelve vacio y se sigue sin el.
+  */
+  const mapaDeLineas = await leerMapaDeLineas(contexto.workspaceId);
+  const clasificadas = candidatas.map((fila) => ({
+    fila,
+    origen: origenDelCliente({
+      metadataContacto: fila.contact.metadata,
+      linea: fila.channel
+        ? { channelId: fila.channel.id, nombre: fila.channel.name, purpose: fila.channel.purpose, metadata: fila.channel.metadata }
+        : null,
+      mapa: mapaDeLineas,
+    }),
+  }));
+  const totalesPorOrigen = Object.fromEntries(
+    TIPOS_DE_ORIGEN.map((tipo) => [tipo, clasificadas.filter((c) => c.origen.tipo === tipo).length]),
+  );
+  const elegidas = (origenes.length > 0 ? clasificadas.filter((c) => origenes.includes(c.origen.tipo)) : clasificadas).slice(0, limite);
+  const conversaciones = elegidas.map((c) => c.fila);
+  const origenDeLaFila = new Map(elegidas.map((c) => [c.fila.id, c.origen]));
 
   const conteos = conversaciones.length
     ? await prisma.message.groupBy({
@@ -823,6 +866,14 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
     hasta: hasta ? hora(new Date(hasta.getTime() - 1)) : null,
     filtrado_por: etapas.length > 0 ? "etapa" : "movimiento_del_chat",
     incluye_ocultos_del_crm: incluirOcultos,
+    ...(origenes.length > 0
+      ? {
+          origenes_pedidos: origenes,
+          filtro_de_origen: `aplicado sobre los ultimos ${MAX_CHATS_CON_ORIGEN} chats del periodo como maximo (${candidatas.length} revisados)`,
+        }
+      : {}),
+    // Cuenta de los chats revisados (todos si no hay filtro de origen, hasta 'limite'). Evolution no entrega la campana, solo el anuncio.
+    totales_por_origen: totalesPorOrigen,
     ...(etiquetasPedidas.length > 0 ? { etiquetas_pedidas: etiquetasPedidas } : {}),
     /*
       Con que fecha se ubico cada etapa en el periodo. Va en la respuesta a proposito: sin esto,
@@ -869,6 +920,12 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
       ultimo_mensaje: hora(fila.lastMessageAt),
       mensajes_del_cliente: cuantos(fila.id, "INBOUND"),
       mensajes_enviados: cuantos(fila.id, "OUTBOUND"),
+      origen: (() => {
+        const origen = origenDeLaFila.get(fila.id);
+        return origen
+          ? { tipo: origen.tipo, anuncio_titulo: origen.anuncioTitulo, anuncio_id: origen.anuncioId, red: origen.red }
+          : null;
+      })(),
     })),
   };
 }

@@ -19,6 +19,7 @@ import {
   ImageIcon,
   LoaderCircle,
   MapPin,
+  Megaphone,
   MessageSquareText,
   MoreVertical,
   PenLine,
@@ -87,6 +88,8 @@ import {
   refreshContactAvatarNowAction,
 } from "@/app/actions/chats-actions";
 import { sendChatLocationReplyAction } from "@/app/actions/agent-actions";
+import { leerOrigenDelContactoAction } from "@/app/actions/origen-del-contacto-actions";
+import type { OrigenDelCliente } from "@/lib/origen-del-cliente";
 import { clearPendingConversationSelection } from "@/components/chats/chat-selection-store";
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
@@ -692,6 +695,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isContactPanelOpen, setIsContactPanelOpen] = useState(false);
   const isMobile = useIsMobile();
   const [contactCity, setContactCity] = useState("");
+  const [contactOrigin, setContactOrigin] = useState<OrigenDelCliente | null>(null);
   // Chat en el que la asesora abrio "Calcular envio" (null = ninguno; otro chat = cerrado).
   const [envioAbiertoEn, setEnvioAbiertoEn] = useState<string | null>(null);
   // Etiquetas REALES del contacto para el panel. renderedConversation.tags viene del detalle
@@ -713,6 +717,25 @@ export const ConversationPanel = memo(function ConversationPanel({
       void pedirDetalleDeContacto(panelContactId);
     });
   }, [panelContactId]);
+
+  // Origen del cliente (anuncio, Marketplace u orgánico). Si falla, la línea simplemente no sale.
+  useEffect(() => {
+    if (!isContactPanelOpen || !panelContactId) {
+      setContactOrigin(null);
+      return;
+    }
+    let cancelled = false;
+    leerOrigenDelContactoAction({ contactId: panelContactId })
+      .then((result) => {
+        if (!cancelled) setContactOrigin("origen" in result ? result.origen : null);
+      })
+      .catch(() => {
+        if (!cancelled) setContactOrigin(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isContactPanelOpen, panelContactId]);
 
   useEffect(() => {
     if (!isContactPanelOpen || !panelContactId) {
@@ -1554,6 +1577,20 @@ export const ConversationPanel = memo(function ConversationPanel({
             <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
               <MapPin className="h-3.5 w-3.5 shrink-0" />
               <span className="min-w-0 truncate">{contactCity}</span>
+            </p>
+          ) : null}
+          {contactOrigin ? (
+            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Megaphone className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 truncate" title={contactOrigin.etiqueta}>
+                {contactOrigin.anuncioUrl ? (
+                  <a href={contactOrigin.anuncioUrl} target="_blank" rel="noopener noreferrer" className="underline-offset-2 hover:underline">
+                    {contactOrigin.etiqueta}
+                  </a>
+                ) : (
+                  contactOrigin.etiqueta
+                )}
+              </span>
             </p>
           ) : null}
         </div>
@@ -3105,6 +3142,20 @@ export const ConversationPanel = memo(function ConversationPanel({
                     <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
                       <MapPin className="h-3.5 w-3.5 shrink-0" />
                       <span className="min-w-0 truncate">{contactCity}</span>
+                    </p>
+                  ) : null}
+                  {contactOrigin ? (
+                    <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Megaphone className="h-3.5 w-3.5 shrink-0" />
+                      <span className="min-w-0 truncate" title={contactOrigin.etiqueta}>
+                        {contactOrigin.anuncioUrl ? (
+                          <a href={contactOrigin.anuncioUrl} target="_blank" rel="noopener noreferrer" className="underline-offset-2 hover:underline">
+                            {contactOrigin.etiqueta}
+                          </a>
+                        ) : (
+                          contactOrigin.etiqueta
+                        )}
+                      </span>
                     </p>
                   ) : null}
                 </div>
