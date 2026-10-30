@@ -104,7 +104,7 @@ const prisma = {
   user: { findMany: async ({ where }) => USUARIOS.filter((u) => where.id.in.includes(u.id)) },
   // Solo el historial de etapas devuelve filas (los chats calientes de María); el resto de lecturas sale vacío.
   $queryRaw: async (consulta) => {
-    if (db.sinBase && String(consulta?.[0]?.join?.("") ?? "").includes('FROM "Message" m')) throw new Error("base sin respuesta");
+    if (db.sinBase && String(consulta?.[0]?.join?.("") ?? "").includes(`x."createdAt" <`)) throw new Error("base sin respuesta");
     return await respuestaCruda(consulta);
   },
 };
@@ -460,13 +460,17 @@ await prueba("bienvenida: numeros_de_ventas trae el campo y, si falla la lectura
 await prueba("leads nuevos: sin base, numeros_de_ventas avisa 'leads nuevos' en no_se_pudo_leer y el resto sale igual", async () => {
   reiniciar({ activo: true });
   db.sinBase = true;
+  db.cambiosDeEtapa = [{ conversationId: "c0", contactId: "a", asesoraId: "maria", etapaNueva: "PROPUESTA", proposito: "SALES", canalId: "ventas1" }];
   try {
     const r = await mcp.ejecutarHerramientaMcpAgentesDeArea("numeros_de_ventas", { fecha: "2026-10-26" }, { workspaceId: WS, userId: "alex" });
-    assert.ok(r.no_se_pudo_leer.some((e) => e.startsWith("leads nuevos: ")));
+    // El aviso de Gestión no es de la base (en la prueba no hay red); lo demás de la base no debe fallar.
+    const deLaBase = r.no_se_pudo_leer.filter((e) => !e.includes("Gestión"));
+    assert.equal(deLaBase.length, 1, JSON.stringify(r.no_se_pudo_leer));
+    assert.ok(deLaBase[0].startsWith("leads nuevos: "));
     assert.equal(r.leads_nuevos, null);
-    assert.ok(Array.isArray(r.por_asesora));
+    assert.ok(r.por_asesora.length > 0);
+    assert.equal(r.total.chatsCalientes, 1);
     assert.ok("tasa_respuesta_bienvenida" in r);
-    assert.ok(r.total);
   } finally {
     db.sinBase = false;
   }
