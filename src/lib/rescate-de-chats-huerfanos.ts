@@ -79,7 +79,7 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
     },
     select: seleccion,
     orderBy: { lastMessageAt: "desc" },
-    take: CUANTOS_POR_VUELTA * 3,
+    take: CUANTOS_POR_VUELTA * 6, // más margen: los que nunca respondieron se quedan en la lista
   });
 
   // Los dos casos juntos, sin repetir id; el caso de hoy va primero.
