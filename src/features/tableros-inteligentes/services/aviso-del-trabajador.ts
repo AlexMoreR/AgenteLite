@@ -1,3 +1,5 @@
+import { prisma } from "@/lib/prisma";
+
 import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
 import { TIPOS_DEL_COORDINADOR, aTresLineas, enSilencioDeAvisos, registrarAvisoDelCoordinador } from "./avisos-al-dueno";
 
@@ -18,9 +20,14 @@ import { TIPOS_DEL_COORDINADOR, aTresLineas, enSilencioDeAvisos, registrarAvisoD
   26-oct-2026: el aviso lleva MÁXIMO 3 LÍNEAS (si llega con más, se recorta a 3) y hay SILENCIO de 9:00 p. m.
   a 7:00 a. m. (Bogotá): en ese horario no se manda y se contesta `silenciado: true` (200), para que el
   Coordinador lo vuelva a intentar y salga a las 7 a. m. si sigue siendo cierto.
+
+  30-oct-2026: el cuerpo puede traer `tarjetaId` (opcional): la tarjeta de la que habla el aviso. Solo se usa si existe, no
+  está borrada y es de este negocio; si no, se ignora sin error y el aviso sale como siempre. Con ella, el "necesita" queda
+  con la clave `coord:necesita:<id>:<texto>` (se cierra solo al responder o aprobar la tarjeta) y el urgente lleva a la tarjeta.
 */
 
 export const MAXIMO_TEXTO_DE_AVISO = 500;
+const MAXIMO_ID_DE_TARJETA = 64;
 const UN_MINUTO = 60_000;
 
 /** ¿Es hora de silencio (9:00 p. m. a 6:59 a. m. de Bogotá, UTC-5 todo el año)? */
@@ -47,8 +54,21 @@ export function puedeAvisarAhora(workspaceId: string, ahora = Date.now()): boole
   return true;
 }
 
+/** La tarjeta de la que habla el aviso, solo si existe, no está borrada y es de este negocio. Nunca lanza: si no, null. */
+export async function tarjetaDelNegocio(workspaceId: string, valor: unknown): Promise<string | null> {
+  const id = typeof valor === "string" ? valor.trim() : "";
+  if (!id || id.length > MAXIMO_ID_DE_TARJETA) return null;
+  try {
+    const tarjeta = await prisma.tarjetaTablero.findFirst({ where: { id, borradoEn: null, tablero: { workspaceId } }, select: { id: true } });
+    return tarjeta?.id ?? null;
+  } catch (error) {
+    console.warn("[aviso-del-trabajador] no se pudo comprobar la tarjeta del aviso", error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}
+
 export async function enviarAvisoDelTrabajador(contexto: ContextoTrabajador, cuerpo: unknown, ahora: Date = new Date()) {
-  const datos = cuerpo as { texto?: unknown; tipo?: unknown } | null;
+  const datos = cuerpo as { texto?: unknown; tipo?: unknown; tarjetaId?: unknown } | null;
   const texto = textoDeAvisoDeEntrada(datos?.texto);
   // Sin tipo permitido ("limite" o "necesita") se descarta sin error: el Coordinador viejo sigue andando sin molestar al dueño.
   if (!TIPOS_DEL_COORDINADOR.includes(datos?.tipo as never)) return { descartado: true as const };
@@ -57,7 +77,8 @@ export async function enviarAvisoDelTrabajador(contexto: ContextoTrabajador, cue
   if (!puedeAvisarAhora(contexto.workspaceId, ahora.getTime())) {
     throw new ErrorDelTrabajador("Ya salió un aviso en el último minuto: se manda como mucho uno por minuto.", 429);
   }
-  const respuesta = await registrarAvisoDelCoordinador(contexto.workspaceId, datos?.tipo, texto, ahora);
+  const tarjetaId = await tarjetaDelNegocio(contexto.workspaceId, datos?.tarjetaId);
+  const respuesta = await registrarAvisoDelCoordinador(contexto.workspaceId, datos?.tipo, texto, ahora, tarjetaId);
   // Lo que no se mandó (apagado, repetido, sin número, línea caída) no cuenta para el límite de 1 por minuto.
   if (respuesta.salio !== true) ultimoAviso.delete(contexto.workspaceId);
   return respuesta;
