@@ -39,7 +39,7 @@ export async function leerMapaDeLineas(workspaceId: string): Promise<MapaDeLinea
  * La línea del chat que trajo al cliente: la de su PRIMERA conversación (primer toque), sea por
  * Evolution/WAHA o por la API oficial. Si después siguió por Admin, igual cuenta por dónde llegó.
  */
-async function lineaDelPrimerChat(workspaceId: string, contactId: string): Promise<LineaDelChat | null> {
+export async function lineaDelPrimerChat(workspaceId: string, contactId: string): Promise<LineaDelChat | null> {
   const [porEvolution, porOficial] = await Promise.all([
     prisma.conversation.findFirst({
       where: { workspaceId, contactId, channelId: { not: null } },

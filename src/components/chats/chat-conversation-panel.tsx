@@ -724,6 +724,8 @@ export const ConversationPanel = memo(function ConversationPanel({
       setContactOrigin(null);
       return;
     }
+    // Al cambiar de chat se borra el origen anterior para no mostrar el de otro cliente.
+    setContactOrigin(null);
     let cancelled = false;
     leerOrigenDelContactoAction({ contactId: panelContactId })
       .then((result) => {
