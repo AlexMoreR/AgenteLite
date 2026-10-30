@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { clasificarFalloDelGateway, type MotivoDeFallo } from "@/lib/chat-envio-reintento";
+import { MENSAJE_GATEWAY_TARDO, clasificarFalloDelGateway, type MotivoDeFallo } from "@/lib/chat-envio-reintento";
 import { getMetaGraphErrorMessage, isMetaGraphAuthError } from "@/lib/official-api-graph";
 import { updateOfficialApiConnectionStatus } from "@/lib/official-api-connection-status";
 import { prisma } from "@/lib/prisma";
@@ -258,10 +258,7 @@ export async function sendOfficialApiTextMessage(input: {
     const motivo = clasificarFalloDelGateway(error);
     return {
       ok: false as const,
-      error:
-        motivo === "timeout_gateway"
-          ? `WhatsApp no respondio a tiempo (${Math.round(input.limiteMs / 1000)}s).`
-          : "No se pudo conectar con la API oficial.",
+      error: motivo === "timeout_gateway" ? MENSAJE_GATEWAY_TARDO : "No se pudo conectar con la API oficial.",
       motivo,
     };
   }

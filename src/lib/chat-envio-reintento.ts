@@ -94,7 +94,7 @@ function textoDelError(error: unknown): string {
  */
 export function clasificarFalloDelGateway(error: unknown): MotivoDeFallo {
   const texto = textoDelError(error);
-  if (/no respondio a tiempo|timeout|timed out|aborted|ETIMEDOUT|ECONNRESET|socket hang up|UND_ERR_SOCKET/i.test(texto)) {
+  if (/no respondio a tiempo|tardó en responder|timeout|timed out|aborted|ETIMEDOUT|ECONNRESET|socket hang up|UND_ERR_SOCKET/i.test(texto)) {
     return "timeout_gateway";
   }
   if (/connection closed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|fetch failed/i.test(texto)) {
@@ -115,6 +115,8 @@ export type RespuestaDelEnvio =
   | { ok: false; error: string; motivo: MotivoDeFallo; reintentable: boolean };
 
 export const MENSAJE_SIN_RED = "Sin conexión: no se pudo enviar el mensaje.";
+/** Cuando el gateway tardo: pudo haber salido, por eso se pide mirar el chat antes de reintentar. */
+export const MENSAJE_GATEWAY_TARDO = "WhatsApp tardó en responder. Revisa el chat y toca Reintentar si no salió.";
 export const MENSAJE_SERVIDOR_NO_RESPONDE = "El servidor no respondió. Toca Reintentar.";
 
 /** El envio ni llego al servidor (sin internet, la app reiniciando). Seguro que no salio. */

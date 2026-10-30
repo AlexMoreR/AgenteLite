@@ -63,6 +63,7 @@ import { buildDefaultWorkspacePlan } from "@/lib/plans";
 import { AVISO_MODO_MONITOREO, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import {
   LIMITE_GATEWAY_TEXTO_MS,
+  MENSAJE_GATEWAY_TARDO,
   clasificarFalloDelGateway,
   idDeMensajeValido,
   type MotivoDeFallo,
@@ -3000,10 +3001,17 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     });
     envioMarca("whatsapp");
     envioLog("error");
+    const motivo = clasificarFalloDelGateway(error);
     return {
       ok: false,
-      error: detail ? `No se pudo enviar el mensaje: ${detail}` : "No se pudo enviar el mensaje",
-      motivo: clasificarFalloDelGateway(error),
+      // Si tardo, pudo haber salido: se le pide mirar el chat antes de reintentar.
+      error:
+        motivo === "timeout_gateway"
+          ? MENSAJE_GATEWAY_TARDO
+          : detail
+            ? `No se pudo enviar el mensaje: ${detail}`
+            : "No se pudo enviar el mensaje",
+      motivo,
     };
   }
   envioMarca("whatsapp");

@@ -106,6 +106,7 @@ import {
 import {
   CLAVE_FALLOS_POR_ANOTAR,
   CLAVE_NO_ENVIADOS,
+  MENSAJE_GATEWAY_TARDO,
   agregarFallosPorAnotar,
   enviarConReintentos,
   falloDeRed,
@@ -276,7 +277,7 @@ async function enviarTextoPorRuta(campos: Array<[string, string]>, intento: numb
   } catch (error) {
     // Se corto la espera con el pedido ya adentro: pudo haber salido, no se repite solo.
     if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
-      return { ok: false, error: "El envío tardó demasiado. Toca Reintentar.", motivo: "timeout_gateway", reintentable: false };
+      return { ok: false, error: MENSAJE_GATEWAY_TARDO, motivo: "timeout_gateway", reintentable: false };
     }
     return falloDeRed();
   }

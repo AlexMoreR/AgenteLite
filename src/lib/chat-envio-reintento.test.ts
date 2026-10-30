@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   ESPERAS_REINTENTO_MS,
   MAX_NO_ENVIADOS,
+  MENSAJE_GATEWAY_TARDO,
   VIDA_NO_ENVIADO_MS,
   agregarFallosPorAnotar,
   clasificarFalloDelGateway,
@@ -52,7 +53,7 @@ function servidorDePrueba(guion: Array<"sin_red" | "caido" | "rechazo" | "timeou
     if (accion === "timeout") {
       // El gateway tardo y SI lo mando: no se sabe desde aca.
       entregadosAlCliente.set(clientMessageId, 1);
-      return leerRespuestaDelEnvio(200, { ok: false, error: "WhatsApp no respondio a tiempo (25s).", motivo: "timeout_gateway", reintentable: false });
+      return leerRespuestaDelEnvio(200, { ok: false, error: MENSAJE_GATEWAY_TARDO, motivo: "timeout_gateway", reintentable: false });
     }
     entregadosAlCliente.set(clientMessageId, 1);
     if (accion === "respuesta_perdida") {
@@ -170,6 +171,7 @@ test("clasificarFalloDelGateway: tardo vs no estaba vs rechazo", () => {
   assert.equal(clasificarFalloDelGateway(new Error("WhatsApp no respondio a tiempo (25s). Volve a intentar en un minuto.")), "timeout_gateway");
   assert.equal(clasificarFalloDelGateway(Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } })), "timeout_gateway");
   assert.equal(clasificarFalloDelGateway(Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } })), "conexion_cerrada");
+  assert.equal(clasificarFalloDelGateway(new Error(MENSAJE_GATEWAY_TARDO)), "timeout_gateway");
   assert.equal(clasificarFalloDelGateway(new Error("connection closed")), "conexion_cerrada");
   assert.equal(clasificarFalloDelGateway(new Error("WAHA respondio 500")), "gateway_rechazo");
   assert.equal(motivoSeReintentaSolo("timeout_gateway"), false);
