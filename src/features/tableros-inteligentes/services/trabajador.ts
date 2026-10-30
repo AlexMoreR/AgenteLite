@@ -71,6 +71,7 @@ import {
   type CategoriaDeIntento,
   type EtapaDelTrabajador,
   type PedidoDeTomar,
+  ALCANCE_SISTEMAS,
 } from "./reglas-trabajador";
 import {
   archivosDeEntrada,
@@ -246,12 +247,23 @@ export async function listarAprobadores(workspaceId: string) {
   };
 }
 
-/** Agrega un miembro activo del negocio como aprobador (alcance DESARROLLO o TODO). */
+/**
+ * Agrega un miembro activo del negocio como aprobador (alcance DESARROLLO, TODO o SISTEMAS). SISTEMAS (Emanuel, periodo de
+ * prueba) es idempotente: si ya es aprobador, solo le cambia el alcance y puede dar el sí final (el límite lo pone reglas-trabajador).
+ */
 export async function agregarAprobador(workspaceId: string, userId: unknown, alcance: unknown) {
   const id = typeof userId === "string" ? userId : "";
-  const elAlcance = alcance === "TODO" ? "TODO" : "DESARROLLO";
+  const elAlcance = alcance === "TODO" ? "TODO" : alcance === ALCANCE_SISTEMAS ? ALCANCE_SISTEMAS : "DESARROLLO";
   const miembro = await prisma.workspaceMember.findFirst({ where: { workspaceId, userId: id, isActive: true }, select: { id: true } });
   if (!miembro) throw new Error("Esa persona no es miembro activo del negocio. Cuando tenga usuario, se agrega.");
+  if (elAlcance === ALCANCE_SISTEMAS) {
+    await prisma.aprobadorTablero.upsert({
+      where: { workspaceId_userId: { workspaceId, userId: id } },
+      create: { workspaceId, userId: id, alcance: ALCANCE_SISTEMAS, puedeSubir: true },
+      update: { alcance: ALCANCE_SISTEMAS, puedeSubir: true },
+    });
+    return;
+  }
   try {
     await prisma.aprobadorTablero.create({ data: { workspaceId, userId: id, alcance: elAlcance } });
   } catch (fallo) {

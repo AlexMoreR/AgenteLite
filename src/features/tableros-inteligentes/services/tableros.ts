@@ -1,5 +1,6 @@
 import { Prisma, type EstadoTarjeta } from "@prisma/client";
 
+import { leerAreasDeTarjetas } from "@/features/alertas/servicios/alertas";
 import { prisma } from "@/lib/prisma";
 import {
   TIPOS_POR_DEFECTO,
@@ -48,6 +49,7 @@ import {
   motivoNoEsDueno,
   partidaDelResultado,
   puedeAprobarMomento,
+  ALCANCE_SISTEMAS,
   puedeCerrarComoFallida,
   puedeCambiarZonas,
   puedeMarcarHechoAMano,
@@ -2046,7 +2048,7 @@ export async function personaQueAprueba(
   workspaceId: string,
   userId: string,
 ): Promise<PersonaQueAprueba & { nombre: string; correo: string | null }> {
-  const [usuario, miembro, negocio, aprobador] = await Promise.all([
+  const [usuario, miembro, negocio, aprobador, hastaGuardado] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, role: true } }),
     prisma.workspaceMember.findFirst({ where: { workspaceId, userId, isActive: true }, select: { role: true } }),
     prisma.workspace.findUnique({
@@ -2057,6 +2059,7 @@ export async function personaQueAprueba(
       where: { workspaceId_userId: { workspaceId, userId } },
       select: { alcance: true, puedeSubir: true },
     }),
+    prisma.appSetting.findUnique({ where: { key: claveSistemasHasta(workspaceId) }, select: { value: true } }),
   ]);
   const nombre = usuario?.name?.trim() || usuario?.email || "Alguien";
   const cuenta: CuentaQueAprueba = {
@@ -2078,8 +2081,13 @@ export async function personaQueAprueba(
     cuenta,
     // Un aprobador que ya no es miembro activo del negocio no aprueba.
     aprobador: aprobador && miembro ? aprobador : null,
+    // Prorrogar la prueba de Sistemas sin desplegar: el último día (AAAA-MM-DD) del ajuste manda sobre la constante.
+    ...(/^\d{4}-\d{2}-\d{2}$/.test(hastaGuardado?.value?.trim() ?? "") ? { sistemasHasta: hastaGuardado!.value.trim() } : {}),
   };
 }
+
+/** AppSetting con el último día del permiso de prueba del aprobador de Sistemas (opcional; sin fila vale PRUEBA_SISTEMAS_HASTA). */
+export const claveSistemasHasta = (workspaceId: string) => `tablero:aprobador-sistemas:hasta:${workspaceId}`;
 
 /** Cómo llega una aprobación: el momento, por dónde, el texto de la persona (voz) y lo que vio (pantalla). */
 export type PedidoDeAprobar = {
@@ -2138,6 +2146,16 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
     mirarLaVia ? viaDeLaUltimaAprobacion(actual.id) : Promise.resolve(undefined),
   ]);
   const resultado = (actual.resultado ?? {}) as { paso?: unknown };
+  // Solo el aprobador de Sistemas necesita el área de la tarjeta (sube por las madres): a los demás no se les gasta la consulta.
+  const esSistemas = !persona.esDueno && persona.aprobador?.alcance === ALCANCE_SISTEMAS;
+  const tarjetaParaSistemas = esSistemas
+    ? {
+        titulo: actual.titulo,
+        detalle: actual.detalle,
+        plan: actual.plan,
+        area: (await leerAreasDeTarjetas(contexto.workspaceId, [actual.id])).get(actual.id) ?? null,
+      }
+    : null;
   const veredicto = puedeAprobarMomento({
     momento: pedido.momento,
     via: pedido.via,
@@ -2151,6 +2169,7 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
     resultadoPaso: resultado.paso === true,
     textoConfirmacion: pedido.textoConfirmacion,
     persona,
+    tarjeta: tarjetaParaSistemas,
     ...(viaAnterior !== undefined ? { viaDeLaUltimaAprobacion: viaAnterior } : {}),
   });
   if ("error" in veredicto) throw new Error(veredicto.error);
@@ -2165,6 +2184,8 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
     quienNombre: persona.nombre,
     userId: contexto.userId,
     textoConfirmacion: texto || null,
+    // Toda aprobación de Emanuel queda marcada como "periodo de prueba".
+    ...(esSistemas ? { periodoDePrueba: true as const } : {}),
   });
   return prisma.$transaction(async (tx) => {
     // Condicionado al estado, al momento en que se leyó, al tipo y al repo: si Claude la editó o el

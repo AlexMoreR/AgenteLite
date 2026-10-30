@@ -65,6 +65,8 @@ type Props = {
   puedeAprobar: boolean;
   /** Dueño del negocio: el sí final y quitar zonas protegidas. */
   esDueno: boolean;
+  /** Ve el botón del sí final: el dueño o Emanuel mientras dure su prueba (el servidor decide si esa tarjeta sí). */
+  puedeSubir?: boolean;
   /** Dueño o ADMIN de la plataforma: "Cerrar como fallida". */
   puedeCerrarComoFallida?: boolean;
   alCambiar: () => void;
@@ -88,7 +90,7 @@ function EnlaceDeLaSesion({ link }: { link: string }) {
 const BOTON = "h-11 w-full text-base";
 const BOTON_GRANDE = "h-14 w-full text-lg font-semibold";
 
-export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDueno, puedeCerrarComoFallida = false, alCambiar }: Props) {
+export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDueno, puedeSubir = esDueno, puedeCerrarComoFallida = false, alCambiar }: Props) {
   const [ocupado, empezar] = useTransition();
   const [confirmarSubida, setConfirmarSubida] = useState(false);
   const [confirmarFallida, setConfirmarFallida] = useState(false);
@@ -367,7 +369,7 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
       {estado === "POR_REVISAR" ? (
         resultado?.paso !== true ? (
           espera("El Coordinador no dijo que todo pasó: no se puede subir. Revisa el resultado en “Ver detalles”.")
-        ) : !esDueno ? (
+        ) : !puedeSubir ? (
           espera("Lista en su rama: el sí final lo da solo el dueño.")
         ) : confirmarSubida ? (
           <div role="alertdialog" aria-label="Confirmar la subida a producción" className="space-y-3 rounded-lg border-2 border-primary p-3">

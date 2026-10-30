@@ -47,7 +47,7 @@ export function SeccionTrabajador() {
   const [nombreClave, setNombreClave] = useState("aizen1");
   const [claveNueva, setClaveNueva] = useState<string | null>(null);
   const [candidato, setCandidato] = useState("");
-  const [alcance, setAlcance] = useState<"DESARROLLO" | "TODO">("DESARROLLO");
+  const [alcance, setAlcance] = useState<"DESARROLLO" | "TODO" | "SISTEMAS">("DESARROLLO");
 
   const cargar = useCallback(async () => {
     const respuesta = await panelTrabajadorAction();
@@ -270,14 +270,25 @@ export function SeccionTrabajador() {
           <p className="text-sm font-medium">Quién más aprueba</p>
           <p className="text-xs text-muted-foreground">
             Tú apruebas todo. Un aprobador DESARROLLO aprueba la tarea y el plan de tarjetas con repo (Gestión, AizenCRM). El sí final
-            para subir a producción es solo tuyo.
+            para subir a producción es solo tuyo, salvo el aprobador de Sistemas (periodo de prueba): aprueba y sube las tarjetas
+            técnicas, nunca las de dinero o Meta Ads.
           </p>
           {panel?.aprobadores.map((aprobador) => (
             <div key={aprobador.id} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{aprobador.nombre}</p>
-                <p className="text-xs text-muted-foreground">{aprobador.alcance}</p>
+                <p className="text-xs text-muted-foreground">{aprobador.alcance === "SISTEMAS" ? "SISTEMAS (periodo de prueba)" : aprobador.alcance}</p>
               </div>
+              {aprobador.alcance !== "SISTEMAS" ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={ocupado}
+                  onClick={() => hacer(() => agregarAprobadorAction(aprobador.userId, "SISTEMAS"), "Ahora es aprobador de Sistemas")}
+                >
+                  Pasar a Sistemas
+                </Button>
+              ) : null}
               <Button
                 variant="ghost"
                 size="icon"
@@ -299,9 +310,10 @@ export function SeccionTrabajador() {
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
-              <NativeSelect value={alcance} onChange={(evento) => setAlcance(evento.target.value === "TODO" ? "TODO" : "DESARROLLO")}>
+              <NativeSelect value={alcance} onChange={(evento) => setAlcance(evento.target.value === "TODO" ? "TODO" : evento.target.value === "SISTEMAS" ? "SISTEMAS" : "DESARROLLO")}>
                 <NativeSelectOption value="DESARROLLO">Desarrollo</NativeSelectOption>
                 <NativeSelectOption value="TODO">Todo</NativeSelectOption>
+                <NativeSelectOption value="SISTEMAS">Sistemas (prueba)</NativeSelectOption>
               </NativeSelect>
               <Button
                 variant="outline"

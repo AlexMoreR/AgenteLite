@@ -39,6 +39,10 @@
      Coordinador dijo que todo pasó (resultado.paso = true). Hoy solo hace falta para las tarjetas sin zona de un
      repo con `subirSolo` apagado, las de Libro V3, el gasto en Meta Ads y las que ya estaban POR_REVISAR (las de
      CHATS y BOT_VENTAS ya no esperan: suben o quedan en ERROR).
+  4b. EXCEPCIÓN DE PRUEBA (30-oct-2026, decisión del dueño): un aprobador con alcance SISTEMAS (Emanuel) aprueba la tarea,
+     el plan y TAMBIÉN el sí final, pero solo de tarjetas de Tecnología (CRM Ventas, Gestión, CRM Marketplace, Coordinador,
+     General), nunca las que tocan dinero de Gestión o Meta Ads (vetoDeSistemas) ni las de zona protegida, y solo hasta el
+     29-nov-2026 (PRUEBA_SISTEMAS_HASTA). Pasada la fecha vuelve a valer lo de antes sin que nadie lo toque.
   5. Un aprobador (AprobadorTablero) con alcance DESARROLLO aprueba la tarea y el plan solo de
      tarjetas con repo de desarrollo (gestion, aizencrm); con alcance TODO, cualquiera.
   6. La zona protegida se puede PONER desde el MCP (y la pone el Coordinador si el cambio toca una de
@@ -62,6 +66,7 @@ import {
   estaTrabajando,
   sePuedeMarcarHechoAMano,
 } from "./reglas";
+import { type AreaDeAlerta, leerAreaDeAlerta, tocaDineroOMetaAds } from "@/features/alertas/dominio/reglas";
 import { type ModelosDelResultado, esLinkDeSesion, modelosDeEntrada } from "./modelos-del-coordinador";
 import { archivosDeEntrada, migracionDestructivaDeEntrada, porQueElPlanEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
 
@@ -521,6 +526,55 @@ export type ViaDeAprobacion = "pantalla" | "voz";
  */
 export const SI_FINAL_SOLO_DUENO = true;
 
+/* ──────────────────────────────────────────────────────────── aprobador de Sistemas (prueba) ── */
+
+/** El alcance de Emanuel como responsable de Sistemas. */
+export const ALCANCE_SISTEMAS = "SISTEMAS";
+/** Las áreas de Tecnología que puede aprobar (las demás, como Ventas o Marketing, son del dueño). */
+export const AREAS_DE_TECNOLOGIA: readonly AreaDeAlerta[] = ["CRM Ventas", "Gestión", "CRM Marketplace", "Coordinador", "General"];
+/** Último día (incluido, día de Bogotá) del periodo de prueba. Prorrogar = cambiar este valor o el ajuste del negocio. */
+export const PRUEBA_SISTEMAS_HASTA = "2026-11-29";
+export const MENSAJE_DINERO_O_META = "Esta tarjeta toca dinero o Meta Ads: la aprueba Alexander.";
+
+/** ¿Sigue vigente el permiso de prueba? Compara el día de Bogotá (UTC-5 todo el año) con el último día. */
+export function permisoDeSistemasVigente(ahora: Date, hasta: string = PRUEBA_SISTEMAS_HASTA): boolean {
+  const hoy = new Date(ahora.getTime() - 5 * 3_600_000).toISOString().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(hasta) && hoy <= hasta;
+}
+
+/** Lo que se mira de una tarjeta para saber si Emanuel la puede aprobar. */
+export type TarjetaParaSistemas = { titulo: string; detalle: string; plan: string | null; area: string | null };
+
+/** ¿La tarjeta toca dinero de Gestión o Meta Ads? Mira el título, la descripción, el plan, el área y la zona. Ante la duda, sí. */
+export function tarjetaTocaDineroOMetaAds(tarjeta: TarjetaParaSistemas, zonaProtegida: readonly string[]): boolean {
+  if (zonaProtegida.includes("META_ADS")) return true;
+  return tocaDineroOMetaAds([tarjeta.titulo, tarjeta.detalle, tarjeta.plan ?? "", tarjeta.area ?? ""].join("\n"));
+}
+
+/**
+ * ¿Por qué un aprobador SISTEMAS NO puede con esta tarjeta? null = puede. Sin saber la tarjeta, no puede.
+ * Un área desconocida solo se acepta si la tarjeta es de un repo de desarrollo (es trabajo técnico).
+ */
+export function vetoDeSistemas(
+  persona: PersonaQueAprueba,
+  tarjeta: TarjetaParaSistemas | null | undefined,
+  repo: string | null,
+  zonaProtegida: readonly string[],
+  ahora: Date,
+): string | null {
+  if (!permisoDeSistemasVigente(ahora, persona.sistemasHasta)) {
+    return "El permiso de prueba de Sistemas ya venció: aprueba el dueño del negocio.";
+  }
+  if (!tarjeta) return "No se pudo comprobar de qué área es la tarjeta: la aprueba el dueño del negocio.";
+  if (zonaProtegida.length) return "Esta tarjeta toca una zona protegida: la aprueba solo el dueño, en la pantalla.";
+  if (tarjetaTocaDineroOMetaAds(tarjeta, zonaProtegida)) return MENSAJE_DINERO_O_META;
+  const area = leerAreaDeAlerta(tarjeta.area ?? "");
+  const esTecnologia = area
+    ? AREAS_DE_TECNOLOGIA.includes(area)
+    : Boolean(repo) && (REPOS_DE_DESARROLLO as readonly string[]).includes(repo as string);
+  return esTecnologia ? null : "Tu permiso de Sistemas cubre solo tarjetas de Tecnología (CRM Ventas, Gestión, CRM Marketplace, Coordinador y General).";
+}
+
 export function esMomento(valor: unknown): valor is MomentoDeAprobacion {
   return typeof valor === "string" && (MOMENTOS_DE_APROBACION as readonly string[]).includes(valor);
 }
@@ -688,6 +742,8 @@ export type PersonaQueAprueba = {
   esAdminPlataforma: boolean;
   /** Su fila en AprobadorTablero, si la tiene. */
   aprobador: { alcance: string; puedeSubir: boolean } | null;
+  /** Último día (AAAA-MM-DD) del permiso de un aprobador SISTEMAS; sin valor, PRUEBA_SISTEMAS_HASTA. */
+  sistemasHasta?: string;
   /** La cuenta, para decir en el error con quién llegó y por qué no es la dueña. */
   cuenta?: CuentaQueAprueba;
 };
@@ -717,6 +773,10 @@ export type PedidoDeAprobacion = {
    * espera la pantalla (aprobada por voz y toca LIBRO_V3 / META_ADS, 28-oct-2026) se puede volver a aprobar en la pantalla.
    */
   viaDeLaUltimaAprobacion?: string | null;
+  /** La tarjeta (para el aprobador SISTEMAS: su área y si toca dinero o Meta Ads). */
+  tarjeta?: TarjetaParaSistemas | null;
+  /** El momento de la aprobación (solo cambia la vigencia del permiso de prueba; por defecto, ahora). */
+  ahora?: Date;
 };
 
 /** ¿Esta persona puede aprobar este momento de esta tarjeta? (sin mirar el estado) */
@@ -726,8 +786,13 @@ export function personaPuedeAprobarMomento(
   via: ViaDeAprobacion,
   repo: string | null,
   zonaProtegida: readonly string[],
+  tarjeta?: TarjetaParaSistemas | null,
+  ahora: Date = new Date(),
 ): Veredicto {
+  const esSistemas = !persona.esDueno && persona.aprobador?.alcance === ALCANCE_SISTEMAS;
   if (momento === "subir") {
+    // Emanuel (prueba): da el sí final solo en lo suyo; todo lo demás sigue siendo del dueño.
+    if (esSistemas) return vetoDeSistemas(persona, tarjeta, repo, zonaProtegida, ahora);
     const puede = persona.esDueno || (!SI_FINAL_SOLO_DUENO && Boolean(persona.aprobador?.puedeSubir));
     return puede ? null : `El sí final (subir a producción) lo da solo el dueño del negocio.${conLaCuenta(persona, via)}`;
   }
@@ -737,6 +802,7 @@ export function personaPuedeAprobarMomento(
   if (persona.esDueno) return null;
   if (via === "pantalla" && persona.esAdminPlataforma) return null;
   const alcance = persona.aprobador?.alcance;
+  if (alcance === ALCANCE_SISTEMAS) return vetoDeSistemas(persona, tarjeta, repo, zonaProtegida, ahora);
   if (alcance === "TODO") return null;
   if (alcance === "DESARROLLO") {
     return repo && (REPOS_DE_DESARROLLO as readonly string[]).includes(repo)
@@ -812,7 +878,7 @@ export function puedeAprobarMomento(pedido: PedidoDeAprobacion): { a: EstadoTarj
     const texto = textoDeConfirmacionValido(pedido.textoConfirmacion);
     if (texto) return { error: texto };
   }
-  const quien = personaPuedeAprobarMomento(pedido.persona, momento, pedido.via, pedido.repo, pedido.zonaProtegida);
+  const quien = personaPuedeAprobarMomento(pedido.persona, momento, pedido.via, pedido.repo, pedido.zonaProtegida, pedido.tarjeta, pedido.ahora);
   if (quien) return { error: quien };
   const destino = destinoDeLaAprobacion(momento, pedido.estado, {
     repo: pedido.repo,
@@ -838,10 +904,13 @@ export type RegistroDeAprobacion = {
   textoConfirmacion: string | null;
   /** "aprobado por voz" o "aprobado en pantalla". */
   como: string;
+  /** true cuando aprobó Emanuel con el permiso de prueba de Sistemas (queda marcado en el historial). */
+  periodoDePrueba?: true;
 };
 
 export function registroDeAprobacion(datos: Omit<RegistroDeAprobacion, "como">): RegistroDeAprobacion {
-  return { ...datos, como: datos.via === "voz" ? "aprobado por voz" : "aprobado en pantalla" };
+  const como = datos.via === "voz" ? "aprobado por voz" : "aprobado en pantalla";
+  return { ...datos, como: datos.periodoDePrueba ? `${como} (periodo de prueba)` : como };
 }
 
 /* ───────────────────────────────────────────────────────────────────── hecho a mano ── */

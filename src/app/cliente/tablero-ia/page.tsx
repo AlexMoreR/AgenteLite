@@ -5,6 +5,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { permisosDelCerebro } from "@/features/cerebro/services/permisos";
 import { personaPuedeAprobar, puedeAsignarResponsable } from "@/features/tableros-inteligentes/services/reglas";
+import { ALCANCE_SISTEMAS, permisoDeSistemasVigente } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { nivelDeLaTarjeta } from "@/features/tableros-inteligentes/services/niveles";
 import {
   RUTA_TABLEROS,
@@ -150,6 +151,8 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       puedeAprobar={personaPuedeAprobar(access) || persona.esDueno || Boolean(persona.aprobador)}
       puedeEditarTipos={personaPuedeAprobar(access)}
       esDueno={persona.esDueno}
+      // Emanuel (prueba hasta el 29-nov): ve el botón del sí final; el servidor lo niega si toca dinero, Meta Ads u otra área.
+      puedeSubir={persona.esDueno || (persona.aprobador?.alcance === ALCANCE_SISTEMAS && permisoDeSistemasVigente(new Date(), persona.sistemasHasta))}
       puedeCerebro={puedeCerebro}
       puedeAsignar={puedeAsignarResponsable(alcance.soloDe, elegido.duenoUserId)}
     />

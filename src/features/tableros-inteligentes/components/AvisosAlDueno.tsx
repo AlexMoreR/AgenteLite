@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   avisosAlDuenoAction,
   guardarAvisosAlDuenoAction,
+  guardarAvisosDeSistemasAction,
   mandarPruebaDeAvisosAction,
   type AvisosAlDuenoVista,
 } from "@/app/actions/tableros-inteligentes-actions";
@@ -26,6 +27,7 @@ const FECHA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day
 export function AvisosAlDueno() {
   const [avisos, setAvisos] = useState<AvisosAlDuenoVista | null>(null);
   const [telefono, setTelefono] = useState("");
+  const [telefonoSistemas, setTelefonoSistemas] = useState("");
   const [ocupado, empezar] = useTransition();
 
   const cargar = useCallback(async () => {
@@ -36,6 +38,7 @@ export function AvisosAlDueno() {
     }
     setAvisos(respuesta.avisos);
     setTelefono(respuesta.avisos.telefono ?? "");
+    setTelefonoSistemas(respuesta.avisos.sistemas.telefono ?? "");
   }, []);
 
   useEffect(() => {
@@ -45,6 +48,7 @@ export function AvisosAlDueno() {
       if (respuesta.ok) {
         setAvisos(respuesta.avisos);
         setTelefono(respuesta.avisos.telefono ?? "");
+        setTelefonoSistemas(respuesta.avisos.sistemas.telefono ?? "");
       } else toast.error(respuesta.error);
     });
     return () => {
@@ -55,6 +59,14 @@ export function AvisosAlDueno() {
   const guardar = (cambios: { telefono?: string; activo?: boolean }, bien: string) =>
     empezar(async () => {
       const respuesta = await guardarAvisosAlDuenoAction(cambios);
+      if (respuesta.ok) toast.success(bien);
+      else toast.error(respuesta.error);
+      await cargar();
+    });
+
+  const guardarSistemas = (cambios: { telefono?: string; activo?: boolean }, bien: string) =>
+    empezar(async () => {
+      const respuesta = await guardarAvisosDeSistemasAction(cambios);
       if (respuesta.ok) toast.success(bien);
       else toast.error(respuesta.error);
       await cargar();
@@ -111,6 +123,36 @@ export function AvisosAlDueno() {
               {ocupado ? <Loader2 className="animate-spin" /> : <Send />}
               Mandar prueba
             </Button>
+          </div>
+
+          <div className="space-y-2 rounded-lg border bg-background p-3 text-sm">
+            <p className="font-medium">Avisos técnicos a Emanuel (Sistemas)</p>
+            <p className="text-muted-foreground">
+              Coordinador apagado, sin trabajo, tarjetas en error o atascadas y el límite de Claude le llegan a Emanuel. Lo que pide
+              dinero, Meta Ads o una clave le sigue llegando a usted. Sin número válido, todo le llega a usted como antes.
+            </p>
+            <label className="flex items-center gap-3">
+              <Switch
+                checked={avisos.sistemas.activo}
+                disabled={ocupado}
+                onCheckedChange={(valor) => guardarSistemas({ activo: Boolean(valor) }, valor ? "Avisos a Emanuel prendidos" : "Avisos a Emanuel apagados")}
+              />
+              <span className="font-medium">{avisos.sistemas.activo ? "Prendidos" : "Apagados"}</span>
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                value={telefonoSistemas}
+                onChange={(evento) => setTelefonoSistemas(evento.target.value)}
+                inputMode="tel"
+                placeholder="WhatsApp de Emanuel, con indicativo (573001234567)"
+                aria-label="WhatsApp de Emanuel"
+                disabled={ocupado}
+                className="sm:max-w-xs"
+              />
+              <Button type="button" variant="outline" disabled={ocupado} onClick={() => guardarSistemas({ telefono: telefonoSistemas }, "Número de Emanuel guardado")}>
+                Guardar número
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-1 text-sm">

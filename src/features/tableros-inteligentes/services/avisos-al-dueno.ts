@@ -1,5 +1,5 @@
 import { ORIGEN_COORDINADOR, esDeDineroMetaOClave, textoDeVariasUrgentes, tituloDelTexto, type Prioridad } from "@/features/alertas/dominio/reglas";
-import { marcarSalioPorWhatsApp, registrarAlerta, soloUrgentesPrendido } from "@/features/alertas/servicios/alertas";
+import { leerResponsableDeSistemas, marcarSalioPorWhatsApp, registrarAlerta, soloUrgentesPrendido } from "@/features/alertas/servicios/alertas";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
@@ -46,6 +46,13 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
   también manda), prioridad BAJA en /cliente/alertas, y usa enviarAlDueno de este archivo (misma línea Admin, mismo
   número, mismo silencio de 9 p. m. a 7 a. m.). Ningún otro aviso cambia.
 
+  AVISOS TÉCNICOS A EMANUEL (30-oct-2026, decisión del dueño: Sistemas pasa a Emanuel, prueba hasta el 29-nov): los avisos
+  caido, sin_trabajo, trabado (tarjetas en ERROR o atascadas) y limite salen al WhatsApp de Emanuel (el teléfono de Sistemas,
+  con su interruptor), desde la misma línea Admin y con el mismo silencio. Se mandan todos, no solo los urgentes: es su
+  trabajo. Quedan en /cliente/alertas con Emanuel como destinatario. Los que piden dinero, Meta Ads o una clave
+  (necesita) y aprobar_en_pantalla siguen yendo a Alexander. RESPALDO: sin teléfono de Sistemas válido (o con su interruptor
+  apagado) todo sale como antes, al dueño, y queda anotado en el historial.
+
   Todo se guarda en AppSetting (sin tablas nuevas). El reloj del servidor (api/cron/follows) llama a
   revisarAvisosAlDueno cada minuto. Antes de este archivo el aviso del Coordinador devolvía 412 porque nadie
   guardaba el número en ninguna pantalla.
@@ -56,11 +63,18 @@ export const LINEA_ADMIN_ID = "cmt06kiob00lw2hk2mgllstsb";
 export const claveTelefonoDelDueno = (workspaceId: string) => `tablero:avisos-dueno:telefono:${workspaceId}`;
 export const claveInterruptorDeAvisos = (workspaceId: string) => `tablero:avisos-dueno:activo:${workspaceId}`;
 export const claveEstadoDeAvisos = (workspaceId: string) => `tablero:avisos-dueno:estado:${workspaceId}`;
+/** El WhatsApp de Emanuel (responsable de Sistemas) y su interruptor: mismo mecanismo que el del dueño, otra clave. */
+export const claveTelefonoDeSistemas = (workspaceId: string) => `tablero:avisos-sistemas:telefono:${workspaceId}`;
+export const claveInterruptorDeSistemas = (workspaceId: string) => `tablero:avisos-sistemas:activo:${workspaceId}`;
 /** El ajuste que usaba el aviso del Coordinador antes de que existiera la caja de Mi empresa. */
 const claveTelefonoViejo = (workspaceId: string) => `trabajador:aviso-telefono:${workspaceId}`;
 
 export const TIPOS_DE_AVISO = ["caido", "sin_trabajo", "trabado", "necesita", "limite", "aprobar_en_pantalla"] as const;
 export type TipoDeAviso = (typeof TIPOS_DE_AVISO)[number];
+
+/** Los avisos técnicos: los atiende Emanuel. Los que piden dinero, Meta Ads o una clave no están acá. */
+const TIPOS_TECNICOS: readonly TipoDeAviso[] = ["caido", "sin_trabajo", "trabado", "limite"];
+export const esAvisoTecnico = (tipo: TipoDeAviso): boolean => TIPOS_TECNICOS.includes(tipo);
 
 /** Lo que puede mandar el Coordinador (los otros tres los calcula el servidor). */
 export const TIPOS_DEL_COORDINADOR: readonly TipoDeAviso[] = ["limite", "necesita"];
@@ -128,6 +142,15 @@ export async function validarTelefonoDelDueno(workspaceId: string, valor: unknow
   return { ok: true, numero };
 }
 
+/** El número de Emanuel: solo se rechaza el de una línea de WhatsApp del negocio (él es del equipo, su número puede estar ahí). */
+export async function validarTelefonoDeSistemas(workspaceId: string, valor: unknown): Promise<{ ok: true; numero: string } | { ok: false; error: string }> {
+  const numero = normalizarTelefono(valor);
+  if (!numero) return { ok: false, error: "El número no sirve: escríbalo solo con dígitos y con indicativo (por ejemplo 573001234567)." };
+  const lineas = await prisma.whatsAppChannel.findMany({ where: { workspaceId }, select: { name: true, phoneNumber: true } });
+  const choque = lineas.find((linea) => linea.phoneNumber && igualNumero(linea.phoneNumber, numero));
+  return choque ? { ok: false, error: `Ese número es de la línea "${choque.name}": tiene que ser el WhatsApp personal de Emanuel.` } : { ok: true, numero };
+}
+
 /* ───────────────────────────────────────────────────────────────────── los ajustes ── */
 
 export async function avisosPrendidos(workspaceId: string): Promise<boolean> {
@@ -161,6 +184,49 @@ export async function guardarConfigDeAvisos(workspaceId: string, cambios: { tele
   }
   if (cambios.activo !== undefined) await guardarAjuste(claveInterruptorDeAvisos(workspaceId), cambios.activo ? "true" : "false");
   return { ok: true };
+}
+
+export async function sistemasPrendido(workspaceId: string): Promise<boolean> {
+  const fila = await prisma.appSetting.findUnique({ where: { key: claveInterruptorDeSistemas(workspaceId) }, select: { value: true } });
+  return fila?.value !== "false";
+}
+
+/** El número guardado de Emanuel, ya limpio (null si no hay o no sirve). */
+export async function telefonoDeSistemasGuardado(workspaceId: string): Promise<string | null> {
+  const fila = await prisma.appSetting.findUnique({ where: { key: claveTelefonoDeSistemas(workspaceId) }, select: { value: true } });
+  return normalizarTelefono(fila?.value);
+}
+
+export async function guardarConfigDeSistemas(workspaceId: string, cambios: { telefono?: string; activo?: boolean }): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (cambios.telefono !== undefined) {
+    if (!String(cambios.telefono).trim()) {
+      await guardarAjuste(claveTelefonoDeSistemas(workspaceId), "");
+    } else {
+      const validado = await validarTelefonoDeSistemas(workspaceId, cambios.telefono);
+      if (!validado.ok) return validado;
+      await guardarAjuste(claveTelefonoDeSistemas(workspaceId), validado.numero);
+    }
+  }
+  if (cambios.activo !== undefined) await guardarAjuste(claveInterruptorDeSistemas(workspaceId), cambios.activo ? "true" : "false");
+  return { ok: true };
+}
+
+/**
+ * A quién van hoy los avisos técnicos: el número de Emanuel (validado otra vez acá) y su userId si ya hay responsable de
+ * Sistemas en alertas. null = sin teléfono válido o interruptor apagado: los avisos salen como antes, al dueño (respaldo).
+ */
+export async function destinoDeSistemas(workspaceId: string): Promise<{ numero: string; responsableId: string | null } | null> {
+  try {
+    if (!(await sistemasPrendido(workspaceId))) return null;
+    const guardado = await telefonoDeSistemasGuardado(workspaceId);
+    if (!guardado) return null;
+    const validado = await validarTelefonoDeSistemas(workspaceId, guardado);
+    if (!validado.ok) return null;
+    return { numero: validado.numero, responsableId: await leerResponsableDeSistemas(workspaceId) };
+  } catch (error) {
+    console.warn("[avisos-al-dueno] no se pudo leer el destino de Sistemas", error instanceof Error ? error.message : String(error));
+    return null;
+  }
 }
 
 /* ───────────────────────────────────────────────────────────────────── lo ya avisado ── */
@@ -213,13 +279,13 @@ export async function lineaAdmin(workspaceId: string) {
   return porNombre?.evolutionInstanceName ? { name: porNombre.name, instancia: porNombre.evolutionInstanceName } : null;
 }
 
-/** El texto recortado a las primeras 3 líneas con contenido. */
-export function aTresLineas(texto: string): string {
+/** El texto recortado a las primeras 3 líneas con contenido (el resumen diario pide 4). */
+export function aTresLineas(texto: string, maximo: number = MAXIMO_LINEAS): string {
   return texto
     .split("\n")
     .map((linea) => linea.trimEnd())
     .filter((linea) => linea.trim())
-    .slice(0, MAXIMO_LINEAS)
+    .slice(0, maximo)
     .join("\n");
 }
 
@@ -229,18 +295,23 @@ export type ResultadoDelEnvio = { salio: boolean; motivo: string | null; linea?:
  * Manda el texto al dueño desde la línea Admin. El destino SOLO sale de lo guardado (validado otra vez acá).
  * Nunca lanza: devuelve por qué no salió. No mira el silencio ni el interruptor (eso es de quien llama).
  */
-export async function enviarAlDueno(workspaceId: string, texto: string): Promise<ResultadoDelEnvio> {
+export async function enviarAlDueno(workspaceId: string, texto: string, maximoLineas: number = MAXIMO_LINEAS): Promise<ResultadoDelEnvio> {
   const guardado = await telefonoGuardado(workspaceId);
   if (!guardado) return { salio: false, motivo: "falta su número en Mi empresa → Claude" };
   const validado = await validarTelefonoDelDueno(workspaceId, guardado);
   if (!validado.ok) return { salio: false, motivo: validado.error };
+  return enviarDesdeAdmin(workspaceId, validado.numero, texto, maximoLineas);
+}
+
+/** Manda desde la línea Admin a un número ya validado. Nunca lanza. */
+async function enviarDesdeAdmin(workspaceId: string, numero: string, texto: string, maximoLineas: number = MAXIMO_LINEAS): Promise<ResultadoDelEnvio> {
   const linea = await lineaAdmin(workspaceId);
   if (!linea) return { salio: false, motivo: 'no hay línea Admin conectada (ni la fija ni una llamada "Admin")' };
   try {
-    await sendEvolutionTextMessageWithReconnect({ instanceName: linea.instancia, phoneNumber: validado.numero, text: aTresLineas(texto) });
-    return { salio: true, motivo: null, linea: linea.name, numero: `…${validado.numero.slice(-4)}` };
+    await sendEvolutionTextMessageWithReconnect({ instanceName: linea.instancia, phoneNumber: numero, text: aTresLineas(texto, maximoLineas) });
+    return { salio: true, motivo: null, linea: linea.name, numero: `…${numero.slice(-4)}` };
   } catch (error) {
-    console.warn("[avisos-al-dueno] no salió el WhatsApp", { numero: `…${validado.numero.slice(-4)}`, error: error instanceof Error ? error.message : String(error) });
+    console.warn("[avisos-al-dueno] no salió el WhatsApp", { numero: `…${numero.slice(-4)}`, error: error instanceof Error ? error.message : String(error) });
     return { salio: false, motivo: "la línea Admin no pudo enviar el mensaje (¿está desconectada?)" };
   }
 }
@@ -511,6 +582,31 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
   };
 }
 
+/**
+ * Manda los avisos técnicos al WhatsApp de Emanuel (todos, no solo los urgentes; con el silencio de la noche, salvo "caido").
+ * Marca como avisados los que salieron y anota en el historial. Devuelve true si cambió el estado.
+ */
+async function avisarASistemas(workspaceId: string, numero: string, avisos: readonly AvisoCalculado[], estado: EstadoDeAvisos, ahora: Date): Promise<boolean> {
+  const aEnviar = enSilencioDeAvisos(ahora) ? avisos.filter((aviso) => aviso.tipo === "caido") : avisos;
+  if (!aEnviar.length) return false;
+  const texto = armarMensaje(aEnviar);
+  const envio = await enviarDesdeAdmin(workspaceId, numero, texto);
+  if (envio.salio) {
+    for (const aviso of aEnviar) {
+      estado.avisados[aviso.clave] = ahora.toISOString();
+      await marcarSalioPorWhatsApp(workspaceId, aviso.clave);
+    }
+  }
+  anotarEnHistorial(estado, {
+    cuando: ahora.toISOString(),
+    tipo: `sistemas:${aEnviar.map((aviso) => aviso.tipo).join("+")}`,
+    texto,
+    salio: envio.salio,
+    motivo: envio.salio ? null : `no salió a Emanuel: ${envio.motivo}`,
+  });
+  return true;
+}
+
 /** La revisión de un negocio. Devuelve lo que mandó. */
 export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<{ enviados: number }> {
   if (!(await avisosPrendidos(workspaceId))) return { enviados: 0 };
@@ -529,10 +625,18 @@ export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<
   }
 
   let porAvisar = calculados.filter((aviso) => !yaSeAvisoDe(estado, aviso.clave, ahora));
+  // Los técnicos son de Emanuel; sin su teléfono válido (o apagado), todo sigue yendo al dueño como antes.
+  const sistemas = porAvisar.some((aviso) => esAvisoTecnico(aviso.tipo)) ? await destinoDeSistemas(workspaceId) : null;
   // ALERTAS: todo queda en la página (sin tocar lo ya abierto); con "solo urgentes", por WhatsApp salen solo las urgentes.
   const soloUrgentes = await soloUrgentesPrendido(workspaceId);
   for (const aviso of porAvisar) {
-    await registrarAlerta({ workspaceId, clave: aviso.clave, prioridad: aviso.prioridad, titulo: aviso.titulo, detalle: aviso.lineas.join("\n"), origen: ORIGEN_COORDINADOR, refrescar: false });
+    const paraEmanuel = sistemas?.responsableId && esAvisoTecnico(aviso.tipo) ? { destinatarioId: sistemas.responsableId } : {};
+    await registrarAlerta({ workspaceId, clave: aviso.clave, prioridad: aviso.prioridad, titulo: aviso.titulo, detalle: aviso.lineas.join("\n"), origen: ORIGEN_COORDINADOR, refrescar: false, ...paraEmanuel });
+  }
+  if (sistemas) {
+    const tecnicos = porAvisar.filter((aviso) => esAvisoTecnico(aviso.tipo));
+    porAvisar = porAvisar.filter((aviso) => !esAvisoTecnico(aviso.tipo));
+    if (await avisarASistemas(workspaceId, sistemas.numero, tecnicos, estado, ahora)) cambio = true;
   }
   if (soloUrgentes) {
     for (const aviso of porAvisar) {
@@ -599,20 +703,24 @@ export async function registrarAvisoDelCoordinador(
   const prioridad = prioridadDelAviso(tipo as TipoDeAviso, texto);
   const titulo = tituloDelTexto(texto);
   const soloUrgentes = await soloUrgentesPrendido(workspaceId);
+  // El límite de uso de Claude es técnico: va a Emanuel (si su teléfono sirve; si no, al dueño como antes).
+  const sistemas = esAvisoTecnico(tipo as TipoDeAviso) ? await destinoDeSistemas(workspaceId) : null;
+  const paraEmanuel = sistemas?.responsableId ? { destinatarioId: sistemas.responsableId } : {};
   if (enSilencioDeAvisos(ahora)) {
-    await registrarAlerta({ workspaceId, clave, prioridad, titulo, detalle: texto, origen: ORIGEN_COORDINADOR, refrescar: false });
+    await registrarAlerta({ workspaceId, clave, prioridad, titulo, detalle: texto, origen: ORIGEN_COORDINADOR, refrescar: false, ...paraEmanuel });
     return { silenciado: true };
   }
   const estado = await leerEstadoDeAvisos(workspaceId);
   if (yaSeAvisoDe(estado, clave, ahora)) return { repetido: true };
-  await registrarAlerta({ workspaceId, clave, prioridad, titulo, detalle: texto, origen: ORIGEN_COORDINADOR, refrescar: false });
+  await registrarAlerta({ workspaceId, clave, prioridad, titulo, detalle: texto, origen: ORIGEN_COORDINADOR, refrescar: false, ...paraEmanuel });
   if (soloUrgentes && prioridad !== "URGENTE") {
     // No sale por WhatsApp: se revisa en la página de alertas.
     estado.avisados[clave] = ahora.toISOString();
     await guardarEstadoDeAvisos(workspaceId, estado);
     return { salio: false, motivo: "no es urgente: quedó en la página de alertas" };
   }
-  const envio = await enviarAlDueno(workspaceId, soloUrgentes ? textoDeVariasUrgentes([titulo]) : texto);
+  const textoAviso = soloUrgentes ? textoDeVariasUrgentes([titulo]) : texto;
+  const envio = sistemas ? await enviarDesdeAdmin(workspaceId, sistemas.numero, textoAviso) : await enviarAlDueno(workspaceId, textoAviso);
   if (envio.salio) {
     estado.avisados[clave] = ahora.toISOString();
     await marcarSalioPorWhatsApp(workspaceId, clave);
@@ -634,6 +742,12 @@ export async function mandarPruebaAlDueno(workspaceId: string, ahora: Date = new
 
 /** Lo que muestra la caja de Mi empresa → Claude (solo la ven el dueño o un administrador). */
 export async function avisosParaLaPantalla(workspaceId: string) {
-  const [activo, telefono, estado] = await Promise.all([avisosPrendidos(workspaceId), telefonoGuardado(workspaceId), leerEstadoDeAvisos(workspaceId)]);
-  return { activo, telefono, ultimos: estado.historial };
+  const [activo, telefono, estado, sistemasActivo, sistemasTelefono] = await Promise.all([
+    avisosPrendidos(workspaceId),
+    telefonoGuardado(workspaceId),
+    leerEstadoDeAvisos(workspaceId),
+    sistemasPrendido(workspaceId),
+    telefonoDeSistemasGuardado(workspaceId),
+  ]);
+  return { activo, telefono, ultimos: estado.historial, sistemas: { activo: sistemasActivo, telefono: sistemasTelefono } };
 }

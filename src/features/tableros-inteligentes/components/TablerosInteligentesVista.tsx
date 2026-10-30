@@ -116,6 +116,7 @@ type Props = {
   cuentas: CuentasDeTableros;
   /** Dueño del negocio: el sí final y quitar zonas protegidas. */
   esDueno: boolean;
+  puedeSubir?: boolean;
   /** Puede usar el cerebro (el dueño o quien él autorizó): "Pasar al cerebro" en las tarjetas hechas. */
   puedeCerebro?: boolean;
   /** Puede cambiar el responsable de las tarjetas de este tablero (quien lo edita). */
@@ -242,6 +243,7 @@ export function TablerosInteligentesVista({
   puedeEditarTipos,
   cuentas,
   esDueno,
+  puedeSubir,
   puedeCerebro = false,
   puedeAsignar,
 }: Props) {
@@ -619,6 +621,7 @@ export function TablerosInteligentesVista({
         lado={angosta ? "bottom" : "right"}
         puedeAprobar={puedeAprobar}
         esDueno={esDueno}
+        puedeSubir={puedeSubir}
         puedeCerrarComoFallida={esDueno || puedeEditarTipos}
         puedeCerebro={puedeCerebro}
         miembros={cuentas.miembros}

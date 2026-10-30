@@ -112,9 +112,22 @@ export function prioridadDeGravedad(gravedad: string): Prioridad {
   return "ALTA";
 }
 
+/**
+ * Dinero y Meta Ads (ampliada el 30-oct-2026 para el límite de Emanuel: abonos, saldos, nómina, comisiones, facturación y
+ * campañas). Es la lista que decide qué le toca siempre a Alexander. Ante la duda, de más: pedirle el sí de más es barato.
+ */
+const DINERO_O_META_ADS =
+  /\b(meta ads?|dinero|presupuesto\w*|gasto\w*|pago\w*|pagar\w*|cobro\w*|cobrar|plata|abono\w*|saldo\w*|n[oó]mina\w*|sueldo\w*|salario\w*|comisi[oó]n(?:es)?|factura\w*|facturaci[oó]n|campa[nñ]as?|anuncio\w*|pauta|reembolso\w*)\b/i;
+
+/** ¿El texto toca dinero (de Gestión) o Meta Ads (gasto y campañas)? Sirve para bloquear a Emanuel en esas tarjetas. */
+export function tocaDineroOMetaAds(texto: string): boolean {
+  return DINERO_O_META_ADS.test(String(texto ?? ""));
+}
+
 /** ¿El motivo habla de dinero, Meta Ads o una clave/permiso? Solo eso hace urgente un "necesita tu decisión". */
 export function esDeDineroMetaOClave(texto: string): boolean {
-  return /\b(meta ads?|dinero|presupuesto|gasto|pago|pagos|cobro|plata|clave|claves|token|tokens|credencial\w*|contrase\w+|api ?key|secret\w*|acceso|permiso\w*)\b/i.test(String(texto ?? ""));
+  const valor = String(texto ?? "");
+  return DINERO_O_META_ADS.test(valor) || /\b(clave|claves|token|tokens|credencial\w*|contrase\w+|api ?key|secret\w*|acceso|permiso\w*)\b/i.test(valor);
 }
 
 /** La clave de una alerta sin clave propia: el sistema y el título (hash corto, para no guardar textos largos). */

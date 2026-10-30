@@ -496,7 +496,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
       "'subir' solo aplica a las tarjetas que tocan chats, a las de Meta Ads que gastan plata (presupuesto, prender campañas, conjuntos o anuncios, gasto nuevo) o a las que no pasaron las pruebas extra de su zona, y a las que ya estaban POR_REVISAR de antes: las demás las sube solo el Coordinador cuando todo pasa (quedan HECHO con el link del commit, o ERROR si algo falla). El bot de ventas, Meta Ads (sin gasto) y el libro V3 suben solos y el Coordinador los vigila 30 minutos. " +
       "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con la zona protegida de chats no se aprueba acá: solo en la pantalla (las de bot de ventas, Meta Ads y libro V3 sí se aprueban por voz). " +
       "PARA QUE ARRANQUE (regla del dueño 28-oct-2026, la misma que usa el Coordinador para tomarla): la tarea o el plan aprobados por voz cuentan igual que en la pantalla si la zona es SOLO chats y/o bot de ventas (o no hay zona). Si toca libro V3 o Meta Ads, la voz NO basta: queda aprobada pero el Coordinador no la toma hasta que el dueño la apruebe en la pantalla (la ficha muestra el botón 'Aprobar en pantalla' y queda una alerta del Coordinador). Avísale eso a la persona. " +
-      "Aprueba la cuenta que creó la clave de Claude (no la que mira la pantalla): tiene que ser la cuenta dueña de este negocio. Si no lo es, el error dice qué cuenta llegó y por qué." +
+      "Aprueba la cuenta que creó la clave de Claude (no la que mira la pantalla): la cuenta dueña de este negocio o, hasta el 29-nov-2026 (periodo de prueba), la de Emanuel como aprobador de Sistemas: él aprueba la tarea, el plan y el sí final SOLO de tarjetas de Tecnología (CRM Ventas, Gestión, CRM Marketplace, Coordinador, General) y nunca las que tocan dinero de Gestión o Meta Ads (responde 'la aprueba Alexander'). Si no es ninguna, el error dice qué cuenta llegó y por qué." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -631,7 +631,7 @@ export async function ejecutarHerramientaMcpTableros(
           : {}),
         estados: Object.entries(NOMBRE_DEL_ESTADO).map(([clave, texto]) => ({ clave, texto })),
         quien_aprueba:
-          "El dueño del negocio (o un aprobador que él agregó), en la pantalla o con aprobar_tarjeta cuando lo dice explícitamente; solo tarjetas de un tipo que pide aprobación. El sí final (subir a producción) lo da solo el dueño. Las de la zona protegida de chats, solo en la pantalla.",
+          "El dueño del negocio (o un aprobador que él agregó), en la pantalla o con aprobar_tarjeta cuando lo dice explícitamente; solo tarjetas de un tipo que pide aprobación. El sí final (subir a producción) lo da solo el dueño; hasta el 29-nov-2026 también Emanuel (aprobador de Sistemas, periodo de prueba) en tarjetas de Tecnología que no tocan dinero ni Meta Ads. Las de la zona protegida de chats, solo en la pantalla.",
       };
     }
     case "crear_tablero": {

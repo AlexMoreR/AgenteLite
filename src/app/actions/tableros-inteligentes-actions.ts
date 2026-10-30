@@ -42,6 +42,7 @@ import { guardarPausaPorUso } from "@/features/tableros-inteligentes/services/pa
 import {
   avisosParaLaPantalla,
   guardarConfigDeAvisos,
+  guardarConfigDeSistemas,
   mandarPruebaAlDueno,
 } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import {
@@ -291,7 +292,7 @@ export async function revocarClaveTrabajadorAction(id: string): Promise<Resultad
   }
 }
 
-export async function agregarAprobadorAction(userId: string, alcance: "DESARROLLO" | "TODO" = "DESARROLLO"): Promise<Resultado> {
+export async function agregarAprobadorAction(userId: string, alcance: "DESARROLLO" | "TODO" | "SISTEMAS" = "DESARROLLO"): Promise<Resultado> {
   const access = await accesoDelDueno();
   if (!access) return { ok: false, error: SOLO_EL_DUENO_TRABAJADOR };
   try {
@@ -570,6 +571,20 @@ export async function guardarAvisosAlDuenoAction(cambios: { telefono?: string; a
   if (!access) return { ok: false, error: SOLO_JEFES_AVISOS };
   try {
     return await guardarConfigDeAvisos(access.workspaceId, {
+      ...(typeof cambios.telefono === "string" ? { telefono: cambios.telefono } : {}),
+      ...(typeof cambios.activo === "boolean" ? { activo: cambios.activo } : {}),
+    });
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo guardar") };
+  }
+}
+
+/** Guarda el WhatsApp de Emanuel (avisos técnicos de Sistemas) y/o su interruptor. Solo el dueño o un administrador. */
+export async function guardarAvisosDeSistemasAction(cambios: { telefono?: string; activo?: boolean }): Promise<Resultado> {
+  const access = await accesoDeJefe();
+  if (!access) return { ok: false, error: SOLO_JEFES_AVISOS };
+  try {
+    return await guardarConfigDeSistemas(access.workspaceId, {
       ...(typeof cambios.telefono === "string" ? { telefono: cambios.telefono } : {}),
       ...(typeof cambios.activo === "boolean" ? { activo: cambios.activo } : {}),
     });

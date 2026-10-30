@@ -22,6 +22,7 @@ import { aprobarPlanesListosQueEsperan, aprobarSolasLasPendientes } from "@/feat
 import { sincronizarCerebroDeTodos } from "@/features/cerebro/services/sincronizar-negocio";
 import { revisarAlertaDeConexion } from "@/features/cerebro/services/alerta-de-conexion";
 import { revisarAvisosAlDueno } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
+import { enviarResumenDiarioAlDueno } from "@/features/tableros-inteligentes/services/resumen-diario";
 import { revisarAvisosDeTerminadas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { revisarAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 
@@ -217,8 +218,8 @@ async function handleCron(request: Request) {
     TABLERO IA (ver src/features/tableros-inteligentes): cada vuelta aprueba solas las tareas con repo que
     quedaron POR_APROBAR (regla del dueño 25-oct, salvo dinero o Meta Ads; apagado "Aprobar tareas solo", solo las
     de riesgo bajo) y revisa si hay que avisarle al dueño por WhatsApp (línea Admin) que Sistemas se detuvo o lo
-    necesita: Coordinador caído, sin trabajo, trabado, necesita al dueño (avisos-al-dueno.ts; ya no hay resumen
-    por WhatsApp). También avisa cuando el Coordinador deja una tarjeta en HECHO ("✅ ¡Listo! Terminó la tarea
+    necesita: Coordinador caído, sin trabajo, trabado, necesita al dueño (avisos-al-dueno.ts; los técnicos van a Emanuel). El resumen diario (4 líneas) sale una vez al día
+    (resumen-diario.ts). También avisa cuando el Coordinador deja una tarjeta en HECHO ("✅ ¡Listo! Terminó la tarea
     T-123", avisos-de-terminadas.ts). Sin nada pendiente son un par de lecturas; en segundo plano.
   */
   after(async () => {
@@ -237,6 +238,12 @@ async function handleCron(request: Request) {
       await revisarAvisosAlDueno();
     } catch (error) {
       console.error("[cron/follows] avisos al dueno del tablero error", error);
+    }
+    try {
+      // Resumen diario a Alexander (máximo 4 líneas, una vez al día, por la línea Admin).
+      await enviarResumenDiarioAlDueno();
+    } catch (error) {
+      console.error("[cron/follows] resumen diario del tablero error", error);
     }
     try {
       await revisarAvisosDeTerminadas();

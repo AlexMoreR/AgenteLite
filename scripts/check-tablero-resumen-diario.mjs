@@ -30,6 +30,12 @@ const falso = {
     findMany: async ({ where }) => estado.tarjetas.filter((t) => where.id.in.includes(t.id)),
   },
   tableroInteligente: { findMany: async () => estado.negocios.map((workspaceId) => ({ workspaceId })) },
+  // La línea Admin conectada (el resumen sale por ahí) y nadie más en la lista de números prohibidos.
+  whatsAppChannel: {
+    findMany: async () => [{ name: "Admin", phoneNumber: "573009990000" }],
+    findFirst: async () => ({ name: "Admin", evolutionInstanceName: "admin-inst" }),
+  },
+  workspaceMember: { findMany: async () => [] },
 };
 
 const enrutador = {
@@ -50,7 +56,17 @@ const mocks = {
     pendientesDelDueno: async () => estado.esperando,
     todoElNegocio: (workspaceId) => ({ workspaceId, soloDe: null }),
     linkDeHoy: () => "https://app.aizenbot.com/cliente/tablero-ia?vista=hoy",
+    linkDelCoordinador: () => "https://app.aizenbot.com/cliente/tablero-ia?vista=coordinador",
+    linkDeLaTarjeta: (id) => `https://app.aizenbot.com/cliente/tablero-ia?tarjeta=${id}`,
   },
+  // El resumen sale por la línea Admin con avisos-al-dueno.ts (30-oct-2026): envío y latido falsos.
+  "@/lib/evolution": {
+    sendEvolutionTextMessageWithReconnect: async (datos) => {
+      if (!estado.whatsappSale) throw new Error("línea caída");
+      estado.mensajes.push(datos);
+    },
+  },
+  "./coordinador-en-vivo": { ultimoLatido: async () => null },
 };
 
 const resumen = cargar("src/features/tableros-inteligentes/services/resumen-diario.ts", mocks);
@@ -138,14 +154,10 @@ await prueba("el resumen de ayer: 4 listas, 1 con problema y 2 esperando -> 2 l�
   const cifras = resumen.cifrasDelDia(r, 2);
   assert.deepEqual(cifras, { listas: 4, conProblema: 1, esperando: 2 });
   const texto = resumen.textoDelResumen(cifras);
-  assert.equal(texto, "Hoy: 4 listas ✅, 1 con problema ⚠️, 2 esperando tu sí 👆\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy");
+  assert.equal(texto, "Resumen de Sistemas de hoy:\n✅ Se arregló: 4 tareas\n⚠️ Falló: 1 tarea\n👆 Pendiente: 2 tareas");
   const lineas = texto.split("\n");
-  assert.ok(lineas.length <= 3, "3 líneas o menos");
-  assert.equal(lineas[0], "Hoy: 4 listas ✅, 1 con problema ⚠️, 2 esperando tu sí 👆");
-  assert.equal(texto.match(/https?:\/\//g).length, 1, "un solo link");
-  assert.ok(lineas[1].endsWith("/cliente/tablero-ia?vista=hoy"), "abre el tablero filtrado en hoy");
-  const sinLink = texto.replace(/https?:\/\/\S+/g, "");
-  assert.doesNotMatch(sinLink, /commit|rama|http|tablero\/|abcdef|Tarjeta larguísima/i);
+  assert.ok(lineas.length <= 4, "4 líneas o menos");
+  assert.doesNotMatch(texto, /commit|rama|http|tablero\/|abcdef|Tarjeta larguísima/i, "sin links ni detalles para revisar");
 });
 
 await prueba("cifras: una tarjeta que falló y luego subió cuenta una sola vez, como lista", () => {
@@ -159,17 +171,55 @@ await prueba("cifras: una tarjeta que falló y luego subió cuenta una sola vez,
   assert.deepEqual(resumen.cifrasDelDia(r, 0), { listas: 1, conProblema: 1, esperando: 0 });
 });
 
-await prueba("textoDelResumen: la cifra en 0 no sale; con las tres en 0 no hay texto", () => {
+await prueba("textoDelResumen: máximo 4 líneas, sin links, y con las tres en 0 no hay texto", () => {
   assert.equal(
     resumen.textoDelResumen({ listas: 1, conProblema: 0, esperando: 0 }),
-    "Hoy: 1 lista ✅\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy",
+    "Resumen de Sistemas de hoy:\n✅ Se arregló: 1 tarea\n⚠️ Falló: nada\n👆 Pendiente: nada",
   );
   assert.equal(
     resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 3 }),
-    "Hoy: 3 esperando tu sí 👆\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy",
+    "Resumen de Sistemas de hoy:\n✅ Se arregló: nada\n⚠️ Falló: nada\n👆 Pendiente: 3 tareas",
   );
   assert.equal(resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 0 }), "");
   assert.equal(resumen.haySinMovimiento({ listas: 0, conProblema: 0, esperando: 0 }), true);
+  for (const cifras of [{ listas: 9, conProblema: 9, esperando: 9 }, { listas: 0, conProblema: 2, esperando: 0 }]) {
+    const texto = resumen.textoDelResumen(cifras);
+    assert.ok(texto.split("\n").length <= 4);
+    assert.doesNotMatch(texto, /https?:\/\//);
+  }
+});
+
+await prueba("enviarResumenDiarioAlDueno: una vez al día, a la hora, sin silencio ni movimiento vacío", async () => {
+  const TARDE = new Date("2026-10-30T23:30:00Z"); // 6:30 p. m. de Bogotá
+  const MANANA = new Date("2026-10-30T15:00:00Z"); // 10:00 a. m.
+  const NOCHE = new Date("2026-10-31T03:00:00Z"); // 10:00 p. m.
+  estado.ajustes.set("tablero:avisos-dueno:telefono:ws1", "573001112233");
+  estado.esperando.push({ id: "t3", titulo: "Reuniones", detalle: "x", plan: null, resultado: null });
+  assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(MANANA), { enviados: 0 }, "antes de las 6 p. m. no sale");
+  assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(NOCHE), { enviados: 0 }, "en el silencio no sale");
+  assert.equal(estado.mensajes.length, 0);
+  assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(TARDE), { enviados: 1 });
+  assert.equal(estado.mensajes.length, 1);
+  assert.equal(estado.mensajes[0].text.split("\n").length, 4);
+  assert.doesNotMatch(estado.mensajes[0].text, /https?:\/\//);
+  assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(new Date(TARDE.getTime() + 60_000)), { enviados: 0 }, "no se repite el mismo día");
+  assert.equal(estado.mensajes.length, 1);
+});
+
+await prueba("enviarResumenDiarioAlDueno: sin movimiento no manda nada; si no salió, reintenta; apagado no sale", async () => {
+  const TARDE = new Date("2026-10-30T23:30:00Z");
+  estado.ajustes.set("tablero:avisos-dueno:telefono:ws1", "573001112233");
+  assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(TARDE), { enviados: 0 });
+  assert.equal(estado.mensajes.length, 0, "día vacío: nada");
+  estado.esperando.push({ id: "t3", titulo: "Reuniones", detalle: "x", plan: null, resultado: null });
+  estado.ajustes.set("tablero:resumen-diario:ultimo:ws1", "2026-10-29");
+  estado.ajustes.set("tablero:resumen-diario:activo:ws1", "false");
+  assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(TARDE), { enviados: 0 }, "interruptor del resumen apagado");
+  estado.ajustes.delete("tablero:resumen-diario:activo:ws1");
+  estado.whatsappSale = false;
+  assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(TARDE), { enviados: 0 });
+  estado.whatsappSale = true;
+  assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(TARDE), { enviados: 1 }, "reintenta el siguiente minuto");
 });
 
 await prueba("vistaDeHoy: títulos cortos, una línea de resumen y los tres grupos", async () => {
@@ -219,7 +269,7 @@ await prueba("resumenDeHoyParaLaPantalla devuelve las cifras, el texto corto y e
   const antes = await resumen.resumenDeHoyParaLaPantalla("ws1", ahora);
   assert.equal(antes.dia, "2026-10-22");
   assert.deepEqual(antes.cifras, { listas: 1, conProblema: 0, esperando: 0 });
-  assert.equal(antes.texto, "Hoy: 1 lista ✅\nVer: https://app.aizenbot.com/cliente/tablero-ia?vista=hoy");
+  assert.equal(antes.texto, "Resumen de Sistemas de hoy:\n✅ Se arregló: 1 tarea\n⚠️ Falló: nada\n👆 Pendiente: nada");
   assert.equal(antes.aprobacionAutomatica, true);
   assert.ok(!("envioDeHoy" in antes) && !("ultimoEnvio" in antes), "ya no hay envío por WhatsApp");
   // Al día siguiente, sin movimiento, el texto queda vacío.
