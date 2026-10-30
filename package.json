@@ -51,6 +51,7 @@
     "test:tablero-intentos-migracion": "node scripts/check-tablero-intentos-migracion.mjs",
     "test:tableros-por-cuenta-migracion": "node scripts/check-tableros-por-cuenta-migracion.mjs",
     "test:tablero-riesgo-migracion": "node scripts/check-tablero-riesgo-migracion.mjs",
+    "test:tablero-numero-migracion": "node scripts/check-tablero-numero-migracion.mjs",
     "test:tablero-aprobacion-automatica": "node scripts/check-tablero-aprobacion-automatica.mjs",
     "test:tablero-responsable-migracion": "node scripts/check-tablero-responsable-migracion.mjs",
     "test:tablero-responsable": "node scripts/check-tablero-responsable.mjs",

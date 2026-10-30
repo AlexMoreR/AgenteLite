@@ -101,6 +101,12 @@ export const NOMBRE_DEL_ESTADO: Record<EstadoTarjetaTablero, string> = {
   ERROR: "Error",
 };
 
+/** Código corto de la tarjeta para mostrar: 123 -> "T-123" (sin número, vacío). */
+export function codigoDeTarjeta(numero: number | null | undefined): string {
+  if (typeof numero !== "number" || !Number.isFinite(numero)) return "";
+  return `T-${Math.trunc(numero)}`;
+}
+
 export function esEstado(valor: unknown): valor is EstadoTarjetaTablero {
   return typeof valor === "string" && (ESTADOS_TARJETA as readonly string[]).includes(valor);
 }

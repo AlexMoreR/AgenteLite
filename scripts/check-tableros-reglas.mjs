@@ -2165,4 +2165,11 @@ prueba("inicialDeLaPersona: la inicial en mayúscula; '?' si no hay nombre", () 
   });
 }
 
+prueba("codigoDeTarjeta: T-<numero> sin ceros, y vacío sin número", () => {
+  assert.equal(reglas.codigoDeTarjeta(123), "T-123");
+  assert.equal(reglas.codigoDeTarjeta(1), "T-1");
+  assert.equal(reglas.codigoDeTarjeta(null), "");
+  assert.equal(reglas.codigoDeTarjeta(undefined), "");
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);

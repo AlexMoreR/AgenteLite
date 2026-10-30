@@ -2063,6 +2063,8 @@ model TipoTarjetaPadre {
 /// Una idea del tablero: título, detalle, área, estado y fecha. Toda escritura deja una fila en HistorialTarjeta.
 model TarjetaTablero {
   id            String             @id @default(cuid())
+  /// Código corto de la tarjeta: T-<numero>, sin ceros adelante. No se repite nunca.
+  numero        Int                @unique @default(autoincrement())
   tableroId     String
   titulo        String
   detalle       String             @default("")
