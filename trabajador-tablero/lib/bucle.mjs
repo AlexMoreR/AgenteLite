@@ -606,7 +606,8 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
       registro.aviso(`no se pudo partir (${String(otro.message).split("\n")[0]}): se repara o se escala`);
       // Sigue: reparar si quedan, si no escalar.
       const quedan = (Number(tarjeta.reparaciones) || 0) < (Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES);
-      decision.accion = quedan ? "reparar" : "escalar";
+      // Si se partía porque la causa se repetía igual, reparar sería repetir a ciegas: se escala.
+      decision.accion = quedan && !decision.mismaCausa ? "reparar" : "escalar";
       resultado.accion = decision.accion;
     }
   }
@@ -630,7 +631,7 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
   const resumen =
     diagnostico.categoria === "revision_no_paso" && Array.isArray(error?.paraElDueno) && error.paraElDueno.length === 2
       ? error.paraElDueno.join("\n")
-      : resumenDeEscalada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico });
+      : resumenDeEscalada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico, razon: decision.mismaCausa && decision.accion === "escalar" && /^misma causa que el intento anterior/.test(decision.motivo) ? decision.motivo : "" });
   try {
     const resumenSiempre = motivoSeguro(resumen, datosDelIntento);
     await crm.error(tarjeta.id, resumenSiempre, error?.zonas, error?.reversion, { ...intento, resumen: resumenSiempre });

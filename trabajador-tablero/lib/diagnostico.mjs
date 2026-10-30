@@ -380,6 +380,7 @@ function reparacionesSeguidasCon(intentos, categoria) {
  *   estrategia  "opus" cuando la 2ª reparación seguida con la misma categoría cambia de modelo
  *   arreglo     "sin_claude": el Coordinador lo arregla solo (cierra procesos, limpia la carpeta, espera al PC)
  *   motivo      por qué, para el log
+ *   mismaCausa  (30-oct-2026) true si la decisión viene de que la causa se repitió igual que en el intento anterior
  *   causa       (30-oct-2026) la causa en una frase, nunca vacía
  *   queCambia   (30-oct-2026) qué cambia en el siguiente intento frente al anterior, en una frase
  *
@@ -450,10 +451,10 @@ function decidirBase({ diagnostico, tarjeta = {}, etapa, config = {}, archivosCa
   if (ultimo && ultimo.categoria === categoria && esLaMismaCausa(ultimo.causa, diagnostico?.causa)) {
     const yaEsOpus = /opus/i.test(String(modeloConstruir ?? ""));
     const estrategiaPrevia = estrategiaDeLaCausa(ultimo.causa);
-    if (etapa === "construir" && !yaEsOpus && estrategiaPrevia !== "opus") return { accion: "reparar", cuenta: true, estrategia: "opus", motivo: `${categoria} con la misma causa: se repara con un modelo más fuerte (Opus)` };
-    if (etapa === "construir" && !esParte) return { accion: "partir", cuenta: false, motivo: `${categoria} con la misma causa y Opus ya lo intentó: se parte` };
-    if (verificarEnNube && estrategiaPrevia !== "nube") return { accion: "reparar", cuenta: true, estrategia: "nube", motivo: `${categoria} con la misma causa: se verifica otra vez en la nube` };
-    return { accion: "escalar", cuenta: true, motivo: "misma causa que el intento anterior, nada distinto que probar" };
+    if (etapa === "construir" && !yaEsOpus && estrategiaPrevia !== "opus") return { accion: "reparar", cuenta: true, mismaCausa: true, estrategia: "opus", motivo: `${categoria} con la misma causa: se repara con un modelo más fuerte (Opus)` };
+    if (etapa === "construir" && !esParte) return { accion: "partir", cuenta: false, mismaCausa: true, motivo: `${categoria} con la misma causa y Opus ya lo intentó: se parte` };
+    if (verificarEnNube && estrategiaPrevia !== "nube") return { accion: "reparar", cuenta: true, mismaCausa: true, estrategia: "nube", motivo: `${categoria} con la misma causa: se verifica otra vez en la nube` };
+    return { accion: "escalar", cuenta: true, mismaCausa: true, motivo: "misma causa que el intento anterior, nada distinto que probar" };
   }
 
   // La 2ª reparación seguida con la misma categoría cambia de estrategia: modelo más fuerte o partir. (Desde el 29-oct, con 2
@@ -514,9 +515,9 @@ const NECESITA = {
 
 /**
  * El resumen para el dueño, de MÁXIMO 3 líneas sencillas (qué falló / qué se probó / qué necesita).
- *   { tarjeta, intentos, diagnostico }  `intentos`: los de la tarjeta (más viejo a más nuevo), si se tienen.
+ *   { tarjeta, intentos, diagnostico, razon }  `intentos`: los de la tarjeta (más viejo a más nuevo), si se tienen; `razon`: por qué se escala, si es por repetir la misma causa.
  */
-export function resumenDeEscalada({ tarjeta = {}, intentos, diagnostico } = {}) {
+export function resumenDeEscalada({ tarjeta = {}, intentos, diagnostico, razon = "" } = {}) {
   const lista = intentos ?? tarjeta.ultimosIntentos ?? [];
   const categoria = diagnostico?.categoria ?? "otra";
   const queFallo = `Qué falló: ${enUnaLinea(diagnostico?.causa || CAUSA_BASE[categoria], 220)}`;
@@ -530,7 +531,9 @@ export function resumenDeEscalada({ tarjeta = {}, intentos, diagnostico } = {}) 
   const causas = [...new Set(lista.filter((intento) => intento.accion === "reparar").map((intento) => intento.categoria))].filter(Boolean);
   const queSeProbo = `Qué se probó: ${hecho.length ? `${hecho.join(", ")}${causas.length ? ` (causas: ${causas.join(", ")})` : ""}` : "nada todavía, no había forma segura de repararlo solo"}.`;
   const necesita = `Qué necesita de ti: ${NECESITA[categoria] ?? NECESITA.otra}`;
-  return [queFallo.replace(/\.?$/, "."), enUnaLinea(queSeProbo, 240), enUnaLinea(necesita, 240)].join("\n");
+  // 30-oct-2026: si se escala por repetir la misma causa, el dueño lee la razón (queda en el motivo de la tarjeta).
+  const probado = razon ? `${queSeProbo.replace(/\.?$/, ".")} Se escala: ${razon}.` : queSeProbo;
+  return [queFallo.replace(/\.?$/, "."), enUnaLinea(probado, razon ? 300 : 240), enUnaLinea(necesita, 240)].join("\n");
 }
 
 /** El CRM no acepta avisos al dueño de más de 500 caracteres (26-oct-2026: uno de 869 no salió). */

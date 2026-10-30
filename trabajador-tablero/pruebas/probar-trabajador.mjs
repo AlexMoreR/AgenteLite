@@ -708,6 +708,10 @@ await prueba("30-oct: misma categoría y misma causa que el intento anterior, si
   const planear = decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: previo }, etapa: "planear" });
   assert.equal(planear.accion, "escalar");
   assert.equal(planear.motivo, "misma causa que el intento anterior, nada distinto que probar");
+  assert.equal(planear.mismaCausa, true);
+  const resumenMisma = resumenDeEscalada({ tarjeta: { ultimosIntentos: previo }, diagnostico: falla, razon: planear.motivo });
+  assert.equal(resumenMisma.split("\n").length, 3);
+  assert.match(resumenMisma, /Se escala: misma causa que el intento anterior, nada distinto que probar\./);
   // Una causa distinta sí se repara.
   const otra = decidir({ diagnostico: { categoria: "no_compila", causa: "No compila: Cannot find module './x'" }, tarjeta: { reparaciones: 1, ultimosIntentos: previo }, etapa: "planear" });
   assert.equal(otra.accion, "reparar");
