@@ -5,6 +5,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { horaDeBogotaAUtc, validarFechaExacta } from "@/features/seguimientos/dominio/fecha-exacta";
 import {
   cancelPendingFollowsByContact,
   createFollow,
@@ -466,6 +467,8 @@ const chatFollowUpSchema = z.object({
   timeValue: z.coerce.number().int().min(1).max(9999),
   content: z.string().trim().min(2).max(5000),
   cancelOnActivity: z.boolean().optional().default(true),
+  // 'YYYY-MM-DDTHH:mm' en hora de Colombia (input datetime-local). Si viene, manda sobre timeType/timeValue.
+  fechaExacta: z.string().trim().optional(),
 });
 
 export type ChatFollowUpInput = z.input<typeof chatFollowUpSchema>;
@@ -497,19 +500,39 @@ export async function createChatFollowUpAction(
     return { error: "Workspace no encontrado" };
   }
 
+  let fechaExacta: Date | null = null;
+  if (parsed.data.fechaExacta) {
+    const fecha = horaDeBogotaAUtc(parsed.data.fechaExacta);
+    const ahora = new Date();
+    const validacion = fecha ? validarFechaExacta(fecha, ahora) : null;
+    if (!fecha || !validacion || !validacion.ok) {
+      return {
+        error:
+          validacion && !validacion.ok && validacion.motivo === "muy lejana"
+            ? "Escoge una fecha dentro de los próximos 90 días"
+            : "Escoge una fecha y hora que todavía no haya pasado",
+      };
+    }
+    fechaExacta = fecha;
+  }
+  // Con fecha exacta, timeType/timeValue quedan solo como dato informativo (minutos que faltan).
+  const minutosQueFaltan = fechaExacta
+    ? Math.max(1, Math.ceil((fechaExacta.getTime() - Date.now()) / 60_000))
+    : null;
+
   const follow = await createFollow({
     workspaceId: membership.workspace.id,
     contactId: parsed.data.contactId,
     name: "Seguimiento desde el chat",
     followRuleId: null,
     channelId: null,
-    timeType: parsed.data.timeType,
-    timeValue: parsed.data.timeValue,
+    timeType: fechaExacta ? "MINUTES" : parsed.data.timeType,
+    timeValue: minutosQueFaltan ?? parsed.data.timeValue,
     messageType: "TEXT",
     content: parsed.data.content,
     mediaUrl: null,
     actions: [{ order: 1, messageType: "TEXT", content: parsed.data.content, mediaUrl: "" }],
-    executeAt: null,
+    executeAt: fechaExacta,
     cancelOnActivity: parsed.data.cancelOnActivity ?? true,
   });
 
