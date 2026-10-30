@@ -109,6 +109,7 @@
     "test:resuelto": "node scripts/check-resuelto.mjs",
     "test:respaldo": "node scripts/check-respaldo.mjs",
     "test:etapa-automatica": "node scripts/check-etapa-automatica.mjs",
+    "test:etapa-por-lectura": "node scripts/check-etapa-por-lectura.mjs",
     "supervisor:guardian": "node scripts/supervisor-guardian.mjs",
     "supervisor:simular": "node scripts/supervisor-simulacion.mjs",
     "test:e2e": "playwright test -c e2e",
