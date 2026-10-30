@@ -34,7 +34,7 @@ import {
   usePendingConversationSelection,
   type PendingChatSelection,
 } from "./chat-selection-store";
-import { deleteChatMessageAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
+import { deleteChatMessageAction, editChatMessageAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
 import { AppSidebar } from "./appsidebar";
 import {
   leerFiltrosDeBandeja,
@@ -94,6 +94,7 @@ import type { CrmStage } from "@/features/crm/types";
 import { resolveCallTarget } from "@/lib/whatsapp-lid";
 import { iniciarMedicion, terminarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 import { aplicarFirmaDelChat } from "@/lib/firma-del-chat";
+import { EditarMensajeDialog } from "@/components/chats/editar-mensaje-dialog";
 import {
   agregarFallido,
   estadoCargaDelChat,
@@ -441,6 +442,11 @@ export function SharedInbox({
   const [reintentoCargaDelChat, setReintentoCargaDelChat] = useState(0);
   const [replyTarget, setReplyTarget] = useState<ComposerReplyTarget | null>(null);
   const [deletedMessageIds, setDeletedMessageIds] = useState<ReadonlySet<string>>(() => new Set());
+  // Ediciones optimistas: el texto nuevo se ve al instante; si el servidor (WhatsApp) no la acepta, se quita.
+  const [editedMessages, setEditedMessages] = useState<ReadonlyMap<string, { content: string; editedAt: Date }>>(
+    () => new Map(),
+  );
+  const [messageToEdit, setMessageToEdit] = useState<SharedInboxMessageItem | null>(null);
   const [editContactOpen, setEditContactOpen] = useState(false);
   const handleCloseEditContact = useCallback(() => setEditContactOpen(false), []);
   const handleOpenEditContact = useCallback(() => setEditContactOpen(true), []);
@@ -2289,14 +2295,16 @@ export function SharedInbox({
   // servidor confirma (si falla, se revierte el id en deletedMessageIds).
   const renderedMessages = useMemo(
     () =>
-      deletedMessageIds.size === 0
+      deletedMessageIds.size === 0 && editedMessages.size === 0
         ? baseRenderedMessages
-        : baseRenderedMessages.map((message) =>
-            deletedMessageIds.has(message.id) && !message.deletedAt
-              ? { ...message, deletedAt: new Date() }
-              : message,
-          ),
-    [baseRenderedMessages, deletedMessageIds],
+        : baseRenderedMessages.map((message) => {
+            const edicion = editedMessages.get(message.id);
+            const conEdicion = edicion ? { ...message, content: edicion.content, editedAt: edicion.editedAt } : message;
+            return deletedMessageIds.has(message.id) && !message.deletedAt
+              ? { ...conEdicion, deletedAt: new Date() }
+              : conEdicion;
+          }),
+    [baseRenderedMessages, deletedMessageIds, editedMessages],
   );
   // Ref para leer el último mensaje dentro de efectos sin meter el array en deps
   // (un array en deps cambia de tamaño y React lanza error).
@@ -2551,6 +2559,39 @@ export function SharedInbox({
   }, []);
 
   const handleCancelReply = useCallback(() => setReplyTarget(null), []);
+
+  const handleEditMessage = useCallback((target: SharedInboxMessageItem) => {
+    if (!target.id || target.id.startsWith("optimistic:")) {
+      return;
+    }
+    setMessageToEdit(target);
+  }, []);
+
+  const handleSaveEditedMessage = useCallback((target: SharedInboxMessageItem, texto: string) => {
+    setMessageToEdit(null);
+    const quitarEdicion = () =>
+      setEditedMessages((current) => {
+        const next = new Map(current);
+        next.delete(target.id);
+        return next;
+      });
+    setEditedMessages((current) => new Map(current).set(target.id, { content: texto, editedAt: new Date() }));
+
+    const formData = new FormData();
+    formData.set("messageId", target.id);
+    formData.set("text", texto);
+    void Promise.resolve(editChatMessageAction(formData))
+      .then((result) => {
+        if (!result?.ok) {
+          quitarEdicion();
+          toast.error(result?.error || "No se pudo editar: WhatsApp no lo permitió");
+        }
+      })
+      .catch(() => {
+        quitarEdicion();
+        toast.error("No se pudo editar: WhatsApp no lo permitió");
+      });
+  }, []);
 
   const handleDeleteMessage = useCallback((target: SharedInboxMessageItem) => {
     if (!target.id || target.id.startsWith("optimistic:")) {
@@ -3674,6 +3715,7 @@ export function SharedInbox({
         onRetryFailedMessage={handleRetryFailedMessage}
         onReplyToMessage={handleReplyToMessage}
         onDeleteMessage={handleDeleteMessage}
+        onEditMessage={handleEditMessage}
         replyTarget={replyTarget}
         onCancelReply={handleCancelReply}
         renderedConversation={renderedConversation}
@@ -3694,6 +3736,12 @@ export function SharedInbox({
         contactPanelHeaderActions={clientContactPanelHeaderActions ?? contactPanelHeaderActions}
       />
     </div>
+
+    <EditarMensajeDialog
+      mensaje={messageToEdit}
+      alCerrar={() => setMessageToEdit(null)}
+      alGuardar={handleSaveEditedMessage}
+    />
 
     {renderedConversation?.contactId ? (
       <EditContactModal

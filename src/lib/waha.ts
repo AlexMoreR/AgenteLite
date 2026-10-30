@@ -1659,6 +1659,30 @@ export async function borrarMensajeWaha(input: {
 }
 
 /**
+ * Edita el texto de un mensaje propio ya enviado.
+ *
+ * Ruta de WAHA: `PUT /api/{sesion}/chats/{chat}/messages/{id}` con `{ text }`; es la hermana de la
+ * que borra. WhatsApp solo deja editar dentro de los 15 minutos y solo texto.
+ *
+ * NO se traga el error: quien edita esta mirando la pantalla y tiene que saber si el cliente
+ * sigue viendo el texto viejo (hay motores de WAHA que no editan).
+ */
+export async function editarMensajeWaha(input: {
+  connection: WahaConnection;
+  sesion: string;
+  chatId: string;
+  mensajeId: string;
+  texto: string;
+}): Promise<void> {
+  await wahaRequest(
+    input.connection,
+    `/api/${encodeURIComponent(input.sesion)}/chats/${encodeURIComponent(input.chatId)}` +
+      `/messages/${encodeURIComponent(input.mensajeId)}`,
+    { method: "PUT", body: JSON.stringify({ text: input.texto }), esperaJson: false },
+  );
+}
+
+/**
  * Bloquea (o desbloquea) un contacto en WhatsApp, desde la linea de esta sesion.
  *
  * Contrato sacado del OpenAPI del servidor (02-10-2026): `POST /api/contacts/block` y

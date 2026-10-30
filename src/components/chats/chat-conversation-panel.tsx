@@ -196,6 +196,7 @@ type ConversationPanelProps = {
   onRetryFailedMessage?: (message: SharedInboxMessageItem) => void;
   onReplyToMessage?: (message: SharedInboxMessageItem) => void;
   onDeleteMessage?: (message: SharedInboxMessageItem) => void;
+  onEditMessage?: (message: SharedInboxMessageItem) => void;
   replyTarget?: ComposerReplyTarget | null;
   onCancelReply?: () => void;
   renderedConversation: SharedInboxSelectedConversation | null;
@@ -337,6 +338,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   onRetryFailedMessage,
   onReplyToMessage,
   onDeleteMessage,
+  onEditMessage,
   replyTarget,
   onCancelReply,
   renderedConversation,
@@ -2088,6 +2090,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                         }
                         onReply={onReplyToMessage}
                         onForward={setMensajeAReenviar}
+                        onEdit={onEditMessage}
                         onDelete={onDeleteMessage}
                         seleccionado={seleccionados.includes(message.id)}
                         haySeleccion={seleccionados.length > 0}
