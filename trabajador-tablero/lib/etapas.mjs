@@ -780,6 +780,17 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
  * leer CLAUDE.md, las 4 lecciones, las prohibiciones y la orden de dejar todo en la rama tablero/<id>. Nunca lleva
  * claves, .env ni tokens: `entorno` solo trae variables NO secretas (la dirección de base falsa de siempre).
  */
+/**
+ * El plan tal como va a la nube, sin las órdenes de subir a main (30-oct-2026, pedido del dueño): a veces el plan dice
+ * "Sube a main", pero la sesión solo empuja SU rama y el que sube es el Coordinador.
+ */
+export function planParaLaNube(plan) {
+  return String(plan ?? "").replace(
+    /(?<!Coordinador )\b(?:s[uú]belo|sube|subir|haz(?: un)? (?:git )?push|push|merge|mezcla)(?: directo)? (?:a|en|hacia) (?:la rama )?(?:`main`|main\b|producci[oó]n\b)\.?/gi,
+    "Deja todo en tu rama (el Coordinador lo sube a main).",
+  );
+}
+
 export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null, lecciones = "", revision = true, modeloRevisar = "sonnet", modeloRevisarSeguridad = "opus", vueltasRevision = 2, sesionFija = false } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   const pasos = [repo.instalar, ...(repo.verificar ?? []), ...(repo.pruebas ?? [])].filter(Boolean).map((comando) => `\`${comoTexto(comando)}\``);
@@ -792,7 +803,8 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
   return [
     `${nuevaEnSesionFija}${identidadDelAgente(repo)} Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en una sesión de Claude en la nube, sobre la rama ${rama} (ya existe en GitHub: es la tuya).`,
     contextoDeLaTarjeta(tarjeta),
-    `PLAN APROBADO:\n${tarjeta.plan}`,
+    'Subir a main y a producción lo hace el Coordinador, nunca tú: las líneas "Al terminar: …" del plan son para él. Tú solo empujas tu rama.',
+    `PLAN APROBADO:\n${planParaLaNube(tarjeta.plan)}`,
     bloqueDeLecciones(lecciones),
     bloqueDeReparacion(tarjeta),
     modelo ? `MODELO PEDIDO: ${nombreDelModelo(modelo)} (construir se hace con ese modelo; no cambies a otro).` : "",

@@ -29,7 +29,7 @@ import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstado
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
 import { LARGO_MAXIMO_DEL_AVISO, decidir, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
-import { buscarCorridaDelDespliegue, esLimiteDeUso, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
+import { buscarCorridaDelDespliegue, esLimiteDeUso, planParaLaNube, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
 import { MAX_DESCRIPCION, descripcionParaLaNube, esCommitDeInicio, esTareaGrande, estaDentroDe, esperarResultado, lanzarEnNube, lineaSinRepo, linkDeLaSesionFija, linkDeSesion, nombreDelProyecto, olvidarSinAcceso, sesionFijaDe, sinAccesoALaNube, preguntaDeConfianza, preguntaDelCommit, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
 import { preguntasAbiertasDelPlan, primeraPreguntaAbierta } from "../lib/preguntas-abiertas.mjs";
 import {
@@ -567,6 +567,11 @@ await prueba("nube: se lee el link de la sesión y la línea 'resultado:' del co
 });
 
 await prueba("nube: la descripción para `claude --cloud` cabe en la línea de comandos de Windows sin perder rama, plan (recortado) ni reglas", async () => {
+  // 30-oct-2026: el plan que va a la nube no puede ordenar subir a main (lo hace el Coordinador).
+  assert.equal(planParaLaNube("Pruebas en verde. Sube a main.\n6) Fin"), "Pruebas en verde. Deja todo en tu rama (el Coordinador lo sube a main).\n6) Fin");
+  assert.equal(planParaLaNube("Haz push a main"), "Deja todo en tu rama (el Coordinador lo sube a main).");
+  assert.equal(planParaLaNube("El Coordinador sube a main después"), "El Coordinador sube a main después");
+  assert.equal(planParaLaNube("git checkout main"), "git checkout main");
   const corta = "Eres el Coordinador… rama tablero/x\n\nTarea: t\n\nPLAN APROBADO:\n1. algo";
   assert.equal(descripcionParaLaNube(corta), corta, "si cabe, va entera");
   const larga = ["Eres el Coordinador… sobre la rama tablero/abc-larga", "Tarea: Larga", `PLAN APROBADO:\n1. Qué se cambia\n${"x".repeat(60_000)}\n6. Pruebas: FIN_DEL_PLAN`, "LECCIONES OBLIGATORIAS:\n1. …", "PROHIBIDO:\n- git push --force"].join("\n\n");
