@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:commercial-stage": "node scripts/check-commercial-stage.mjs",
+    "test:origen-del-cliente": "node scripts/check-origen-del-cliente.mjs",
     "test:origen-ventas": "node scripts/check-origen-ventas.mjs",
     "test:leads-nuevos": "node scripts/check-leads-nuevos.mjs",
     "test:generar-cotizacion": "node scripts/check-generar-cotizacion.mjs",

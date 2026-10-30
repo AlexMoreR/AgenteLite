@@ -19,6 +19,7 @@ import {
   ImageIcon,
   LoaderCircle,
   MapPin,
+  Megaphone,
   MessageSquareText,
   MoreVertical,
   PenLine,
@@ -53,6 +54,7 @@ const BARRAS_DE_GRABACION = 36;
 */
 const VIDA_DE_LA_CACHE_MS = 30_000;
 type DetalleDeContacto = Awaited<ReturnType<typeof getContactDetailsAction>>;
+
 const cacheDeContactos = new Map<string, { pedido: Promise<DetalleDeContacto>; at: number }>();
 
 function pedirDetalleDeContacto(contactId: string): Promise<DetalleDeContacto> {
@@ -65,6 +67,27 @@ function pedirDetalleDeContacto(contactId: string): Promise<DetalleDeContacto> {
   );
   cacheDeContactos.set(contactId, { pedido, at: Date.now() });
   return pedido;
+}
+
+/** La línea "Origen" de la ficha: de qué anuncio, Marketplace u orgánico llegó el cliente. */
+function OrigenDelContacto({ origen }: { origen: OrigenDelCliente | null }) {
+  if (!origen) return null;
+  return (
+    <p className="flex items-center gap-1 text-xs text-muted-foreground">
+      <Megaphone className="h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 truncate" title={origen.etiqueta}>{origen.etiqueta}</span>
+      {origen.enlace ? (
+        <a
+          href={origen.enlace}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 underline underline-offset-2 hover:text-foreground"
+        >
+          Abrir
+        </a>
+      ) : null}
+    </p>
+  );
 }
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { hayVersionNueva } from "@/components/app-version-guard";
@@ -86,6 +109,8 @@ import {
   marcarFlujoDeSugerenciaAction,
   refreshContactAvatarNowAction,
 } from "@/app/actions/chats-actions";
+import { leerOrigenDelContactoAction } from "@/app/actions/origen-del-contacto-actions";
+import type { OrigenDelCliente } from "@/lib/origen-del-cliente";
 import { sendChatLocationReplyAction } from "@/app/actions/agent-actions";
 import { clearPendingConversationSelection } from "@/components/chats/chat-selection-store";
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
@@ -692,6 +717,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isContactPanelOpen, setIsContactPanelOpen] = useState(false);
   const isMobile = useIsMobile();
   const [contactCity, setContactCity] = useState("");
+  const [contactOrigen, setContactOrigen] = useState<OrigenDelCliente | null>(null);
   // Chat en el que la asesora abrio "Calcular envio" (null = ninguno; otro chat = cerrado).
   const [envioAbiertoEn, setEnvioAbiertoEn] = useState<string | null>(null);
   // Etiquetas REALES del contacto para el panel. renderedConversation.tags viene del detalle
@@ -717,6 +743,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   useEffect(() => {
     if (!isContactPanelOpen || !panelContactId) {
       setContactCity("");
+      setContactOrigen(null);
       setContactPanelTags(null);
       return;
     }
@@ -729,6 +756,16 @@ export const ConversationPanel = memo(function ConversationPanel({
         setContactPanelTags(result.details.tags.map((tag) => ({ label: tag.name, color: tag.color })));
       }
     });
+
+    // El origen es un dato extra: si falla, la ficha sigue igual, solo sin la línea "Origen".
+    setContactOrigen(null);
+    leerOrigenDelContactoAction(panelContactId)
+      .then((result) => {
+        if (!cancelled) setContactOrigen("origen" in result ? result.origen : null);
+      })
+      .catch(() => {
+        if (!cancelled) setContactOrigen(null);
+      });
 
     return () => {
       cancelled = true;
@@ -1556,6 +1593,7 @@ export const ConversationPanel = memo(function ConversationPanel({
               <span className="min-w-0 truncate">{contactCity}</span>
             </p>
           ) : null}
+          <OrigenDelContacto origen={contactOrigen} />
         </div>
       </div>
 
@@ -3107,6 +3145,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                       <span className="min-w-0 truncate">{contactCity}</span>
                     </p>
                   ) : null}
+                  <OrigenDelContacto origen={contactOrigen} />
                 </div>
               </div>
 
