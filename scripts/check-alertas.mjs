@@ -303,6 +303,49 @@ await prueba("áreas: el id de la tarjeta sale de las claves auto:trabado y auto
   assert.equal(reglas.idDeTarjetaDeLaClave("supervisor:abc"), null);
 });
 
+await prueba("cierre solo: la clave nueva del Coordinador trae el id de la tarjeta; la vieja (solo texto) no", () => {
+  assert.equal(reglas.idDeTarjetaDeLaClave("coord:necesita:cm9x1abc:Agente Gestión necesita tu decisión"), "cm9x1abc");
+  assert.equal(reglas.idDeTarjetaDeLaClave("coord:necesita:t1:Agente: ¿qué color?"), "t1");
+  assert.equal(reglas.idDeTarjetaDeLaClave("coord:necesita:Agente Gestión necesita tu decisión: el color"), null);
+  assert.equal(reglas.idDeTarjetaDeLaClave("coord:necesita:Agente Gestión necesita tu decisión"), null);
+  assert.equal(reglas.idDeTarjetaDeLaClave("coord:necesita:Aprobación"), null);
+  assert.equal(reglas.idDeTarjetaDeLaClave("coord:necesita:Atención: falta algo"), null, "con tilde no es un id");
+  assert.equal(reglas.idDeTarjetaDeLaClave("coord:limite:t1:algo"), null);
+  assert.equal(reglas.idDeTarjetaDeLaClave("terminada:t1"), null);
+  assert.equal(reglas.idDeTarjetaDeLaClave("auto:equipo:t1:asignada:u_em"), "t1");
+});
+
+await prueba("cierre solo: qué claves cierra cada motivo (y solo de esa tarjeta)", () => {
+  const cierra = (motivo, clave) => reglas.motivoCierraLaClave(motivo, clave, "t1");
+  for (const clave of ["auto:necesita:t1:PLAN_LISTO", "auto:trabado:t1:ERROR", "coord:necesita:t1:Agente necesita"]) {
+    assert.equal(cierra("APROBACION", clave), true, clave);
+  }
+  assert.equal(cierra("APROBACION", "auto:equipo:t1:asignada:u_em"), false);
+  assert.equal(cierra("RESPUESTA", "coord:necesita:t1:Agente necesita"), true);
+  for (const clave of ["auto:necesita:t1:PLAN_LISTO", "auto:trabado:t1:ERROR", "auto:equipo:t1:asignada:u_em"]) {
+    assert.equal(cierra("RESPUESTA", clave), false, clave);
+  }
+  for (const clave of ["auto:necesita:t1:PLAN_LISTO", "auto:trabado:t1:ERROR", "auto:equipo:t1:asignada:u_em", "coord:necesita:t1:Agente necesita"]) {
+    assert.equal(cierra("CIERRE", clave), true, clave);
+  }
+  assert.equal(cierra("CIERRE", "terminada:t1"), false, "el aviso de terminada no se toca");
+  // Otra tarjeta (aunque el id empiece igual), la clave vieja o una sin tarjeta: nunca.
+  for (const motivo of reglas.MOTIVOS_DE_CIERRE) {
+    assert.equal(cierra(motivo, "auto:necesita:t10:PLAN_LISTO"), false);
+    assert.equal(cierra(motivo, "coord:necesita:t2:Agente necesita"), false);
+    assert.equal(cierra(motivo, "coord:necesita:Agente Gestión necesita algo"), false);
+    assert.equal(cierra(motivo, "auto:caido"), false);
+  }
+});
+
+await prueba("cierre solo: la línea de cierre dice el motivo y la hora de Bogotá (d-mmm HH:mm)", () => {
+  const hora = new Date("2026-10-30T19:05:00Z"); // 2:05 p. m. en Bogotá
+  assert.equal(reglas.lineaDeCierre("APROBACION", hora), "Resuelta sola: aprobación del dueño (30-oct 14:05)");
+  assert.equal(reglas.lineaDeCierre("RESPUESTA", hora), "Resuelta sola: respuesta del dueño (30-oct 14:05)");
+  assert.equal(reglas.lineaDeCierre("CIERRE", new Date("2026-01-01T04:30:00Z")), "Resuelta sola: la tarjeta se cerró (31-dic 23:30)");
+  assert.equal(reglas.lineaDeCierre("CIERRE", new Date("2026-03-05T05:07:00Z")), "Resuelta sola: la tarjeta se cerró (5-mar 00:07)");
+});
+
 await prueba("áreas: directa, subárea madre dentro de Tecnología, huérfana y borrada caen donde deben", async () => {
   const mapa = await servicio.leerAreasDeTarjetas("ws1", ["t1", "tt", "t2", "huerfana", "borrada", "noexiste"]);
   assert.equal(mapa.get("t1"), "Gestión");

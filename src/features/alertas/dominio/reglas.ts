@@ -158,11 +158,64 @@ export function leerAreaDeAlerta(valor: unknown): AreaDeAlerta | null {
   return AREAS_DE_ALERTA.find((area) => sinTildes(area) === texto) ?? null;
 }
 
-/** El id de la tarjeta de una clave `auto:trabado:<tarjeta>:<estado>`, `auto:necesita:<tarjeta>:<estado>` o `auto:equipo:<tarjeta>:<motivo>` (aviso al equipo); null si no es de tarjeta. */
+/** Cómo es el id de una tarjeta dentro de una clave: letras sin tilde, números, `_` o `-`. Un texto con espacios o tildes no es un id. */
+const RE_ID_DE_TARJETA = /^[A-Za-z0-9_-]+$/;
+
+/** El tipo de una clave de tarjeta (`auto:trabado`, `auto:necesita`, `auto:equipo` o `coord:necesita`); null si no es de tarjeta. */
+function tipoDeClaveDeTarjeta(partes: readonly string[]): string | null {
+  const tipo = `${partes[0]}:${partes[1]}`;
+  return tipo === "auto:trabado" || tipo === "auto:necesita" || tipo === "auto:equipo" || tipo === "coord:necesita" ? tipo : null;
+}
+
+/**
+ * El id de la tarjeta de una clave `auto:trabado:<tarjeta>:<estado>`, `auto:necesita:<tarjeta>:<estado>`,
+ * `auto:equipo:<tarjeta>:<motivo>` (aviso al equipo) o `coord:necesita:<tarjeta>:<texto>` (pregunta del Coordinador);
+ * null si no es de tarjeta. La clave vieja del Coordinador (`coord:necesita:<texto>`) no trae id: da null.
+ */
 export function idDeTarjetaDeLaClave(clave: string): string | null {
   const partes = String(clave ?? "").split(":");
-  if (partes[0] !== "auto" || (partes[1] !== "trabado" && partes[1] !== "necesita" && partes[1] !== "equipo")) return null;
-  return partes[2]?.trim() || null;
+  if (!tipoDeClaveDeTarjeta(partes)) return null;
+  const id = partes[2]?.trim() ?? "";
+  // La del Coordinador necesita el texto después del id: sin él, el segmento es el texto viejo y no un id.
+  if (partes[0] === "coord" && partes.length < 4) return null;
+  return RE_ID_DE_TARJETA.test(id) ? id : null;
+}
+
+/* ───────────── CIERRE SOLO (al aprobar, responder, terminar o borrar la tarjeta) ───────────── */
+
+export const MOTIVOS_DE_CIERRE = ["APROBACION", "RESPUESTA", "CIERRE"] as const;
+export type MotivoDeCierre = (typeof MOTIVOS_DE_CIERRE)[number];
+export const ETIQUETA_DE_MOTIVO_DE_CIERRE: Record<MotivoDeCierre, string> = {
+  APROBACION: "aprobación del dueño",
+  RESPUESTA: "respuesta del dueño",
+  CIERRE: "la tarjeta se cerró",
+};
+
+/** Qué tipos de clave cierra cada motivo. El cierre (HECHO, FALLIDO o borrada) cierra todas las de la tarjeta (menos `terminada:<id>`, que no es de esta lista). */
+const TIPOS_QUE_CIERRA: Record<MotivoDeCierre, readonly string[] | null> = {
+  APROBACION: ["auto:necesita", "auto:trabado", "coord:necesita"],
+  RESPUESTA: ["coord:necesita"],
+  CIERRE: null,
+};
+
+/** ¿Este motivo cierra esta alerta de esta tarjeta? Solo si la clave es de esa tarjeta y de un tipo que el motivo cierra. */
+export function motivoCierraLaClave(motivo: MotivoDeCierre, clave: string, tarjetaId: string): boolean {
+  if (!tarjetaId || idDeTarjetaDeLaClave(clave) !== tarjetaId) return false;
+  const tipos = TIPOS_QUE_CIERRA[motivo];
+  return tipos === null || tipos.includes(tipoDeClaveDeTarjeta(String(clave).split(":")) ?? "");
+}
+
+const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+/** La línea que se agrega al detalle de una alerta que se cerró sola: "Resuelta sola: <motivo> (<d-mmm HH:mm>)", hora de Bogotá. */
+export function lineaDeCierre(motivo: MotivoDeCierre, ahora: Date): string {
+  const partes = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone: ZONA, day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(ahora)
+      .map((parte) => [parte.type, parte.value]),
+  );
+  const cuando = `${Number(partes.day)}-${MESES_CORTOS[Number(partes.month) - 1]} ${partes.hour}:${partes.minute}`;
+  return `Resuelta sola: ${ETIQUETA_DE_MOTIVO_DE_CIERRE[motivo]} (${cuando})`;
 }
 
 /**

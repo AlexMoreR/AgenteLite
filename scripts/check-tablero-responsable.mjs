@@ -19,6 +19,9 @@ const estado = {
   historial: [],
   intentos: [],
   conexiones: [],
+  alertas: [],
+  /** true = el prisma falso falla al guardar una alerta (la acción sobre la tarjeta tiene que salir bien igual). */
+  alertaFalla: false,
   contador: 0,
   reloj: Date.parse("2026-10-24T12:00:00Z"),
 };
@@ -26,7 +29,7 @@ const estado = {
 const ahora = () => new Date((estado.reloj += 1000));
 const siguiente = (prefijo) => `${prefijo}${(estado.contador += 1)}`;
 
-const OPERADORES = ["not", "in", "gte", "lte", "isEmpty"];
+const OPERADORES = ["not", "in", "gte", "lte", "isEmpty", "startsWith"];
 const igual = (a, b) =>
   a instanceof Date || b instanceof Date ? a instanceof Date && b instanceof Date && a.getTime() === b.getTime() : a === b;
 
@@ -40,6 +43,7 @@ function cumple(valor, esperado) {
       if (clave === "in") return x.includes(valor);
       if (clave === "gte") return valor.getTime() >= x.getTime();
       if (clave === "lte") return valor.getTime() <= x.getTime();
+      if (clave === "startsWith") return typeof valor === "string" && valor.startsWith(x);
       return ((valor ?? []).length === 0) === x;
     });
   }
@@ -169,6 +173,15 @@ const falso = {
     findMany: async ({ where }) => estado.conexiones.filter((c) => coincide(c, where)),
     count: async ({ where }) => estado.conexiones.filter((c) => coincide(c, where)).length,
   },
+  alertaInterna: {
+    findMany: async ({ where }) => estado.alertas.filter((a) => coincide(a, where)).map((a) => ({ ...a })),
+    updateMany: async ({ where, data }) => {
+      if (estado.alertaFalla) throw new Error("la base de alertas no responde");
+      const dentro = estado.alertas.filter((a) => coincide(a, where));
+      for (const a of dentro) Object.assign(a, data);
+      return { count: dentro.length };
+    },
+  },
   tableroInteligente: {
     findFirst: async ({ where }) => hidratarTablero([...estado.tableros.values()].find((t) => coincide(hidratarTablero(t), where))),
     update: async ({ where }) => {
@@ -201,6 +214,8 @@ const falso = {
   claveTrabajador: { findMany: async () => [] },
   // "Aprobar tareas solo" (regla del 25-oct) apagado: estas pruebas miran que asignar no aprueba y que editar quita la aprobación.
   appSetting: { findUnique: async ({ where }) => (where.key.startsWith("tablero:tareas-solas:") ? { value: "false" } : null) },
+  // "¿Es parte de una tarjeta partida?": en estas pruebas ninguna lo es.
+  $queryRawUnsafe: async () => [],
   $transaction: async (fn) => fn(falso),
 };
 
@@ -225,6 +240,8 @@ function sembrar() {
   estado.historial.length = 0;
   estado.intentos.length = 0;
   estado.conexiones.length = 0;
+  estado.alertas.length = 0;
+  estado.alertaFalla = false;
 
   usuario("u-dueno", "Alex Dueño");
   usuario("u-ana", "Ana Pérez");
@@ -697,6 +714,132 @@ await prueba("la persona asignada no puede aprobar si no es aprobadora", async (
   const ok = await tableros.aprobarTarjeta(duenoPantalla, "mia", pedido);
   assert.equal(ok.ahora, "APROBADO");
   assert.equal(de("mia").responsableId, "u-ana", "aprobar no toca al responsable");
+});
+
+/* ------------------------------------------------------------------ las alertas de la tarjeta se cierran solas */
+
+seccion("las alertas de la tarjeta se cierran solas");
+
+/** Una alerta abierta (NUEVA) del negocio ws1 con esa clave. */
+function alerta(clave, extra = {}) {
+  const fila = { id: siguiente("al"), workspaceId: "ws1", clave, estado: "NUEVA", detalle: "Lo que pasó", resueltaEn: null, destinatarioId: null, ...extra };
+  estado.alertas.push(fila);
+  return fila;
+}
+const alertaDe = (clave) => estado.alertas.find((a) => a.clave === clave);
+const sigueAbierta = (clave) => assert.equal(alertaDe(clave).estado, "NUEVA", `${clave} sigue abierta`);
+function quedoResuelta(clave, motivo) {
+  const fila = alertaDe(clave);
+  assert.equal(fila.estado, "RESUELTA", `${clave} quedó resuelta`);
+  assert.ok(fila.resueltaEn instanceof Date, `${clave} tiene resueltaEn`);
+  assert.match(fila.detalle, new RegExp(`^Lo que pasó\\n\\nResuelta sola: ${motivo} \\(\\d{1,2}-[a-z]{3} \\d{2}:\\d{2}\\)$`), `${clave}: ${fila.detalle}`);
+}
+
+await prueba("aprobar cierra auto:necesita y coord:necesita de la tarjeta; la de otra tarjeta sigue NUEVA", async () => {
+  tarjeta("c1", { estado: "POR_APROBAR", repo: "aizencrm", riesgo: "ALTO", riesgoPor: "CLAUDE" });
+  alerta("auto:necesita:c1:PLAN_LISTO");
+  alerta("coord:necesita:c1:Agente Gestión necesita tu decisión: el color");
+  alerta("auto:necesita:c2:PLAN_LISTO");
+  alerta("coord:necesita:Agente Gestión necesita tu decisión (clave vieja)");
+  alerta("auto:equipo:c1:asignada:u-bruno", { destinatarioId: "u-bruno" });
+  alerta("auto:necesita:c1:POR_APROBAR", { workspaceId: "ws2" });
+  const r = await tableros.aprobarTarjeta(duenoPantalla, "c1", { momento: "tarea", via: "pantalla" });
+  assert.equal(r.ahora, "APROBADO");
+  quedoResuelta("auto:necesita:c1:PLAN_LISTO", "aprobación del dueño");
+  quedoResuelta("coord:necesita:c1:Agente Gestión necesita tu decisión: el color", "aprobación del dueño");
+  sigueAbierta("auto:necesita:c2:PLAN_LISTO");
+  sigueAbierta("coord:necesita:Agente Gestión necesita tu decisión (clave vieja)");
+  sigueAbierta("auto:equipo:c1:asignada:u-bruno");
+  assert.equal(estado.alertas.find((a) => a.workspaceId === "ws2").estado, "NUEVA", "la de otro negocio no se toca");
+});
+
+await prueba("una alerta ya resuelta a mano no se vuelve a tocar", async () => {
+  tarjeta("c1", { estado: "POR_APROBAR", repo: "aizencrm", riesgo: "ALTO", riesgoPor: "CLAUDE" });
+  const antes = new Date("2026-10-01T00:00:00Z");
+  alerta("auto:necesita:c1:PLAN_LISTO", { estado: "RESUELTA", resueltaEn: antes });
+  await tableros.aprobarTarjeta(duenoPantalla, "c1", { momento: "tarea", via: "pantalla" });
+  assert.equal(alertaDe("auto:necesita:c1:PLAN_LISTO").resueltaEn, antes);
+  assert.equal(alertaDe("auto:necesita:c1:PLAN_LISTO").detalle, "Lo que pasó");
+});
+
+await prueba("editar el detalle cierra solo la coord:necesita (respuesta del dueño); responsable o riesgo no cierran nada", async () => {
+  tarjeta("c1", { estado: "POR_APROBAR", repo: "aizencrm", riesgo: "ALTO", riesgoPor: "CLAUDE", riesgoMotivo: "toca alertas" });
+  alerta("auto:necesita:c1:POR_APROBAR");
+  alerta("coord:necesita:c1:Agente CRM necesita: ¿qué color?");
+
+  await tableros.editarTarjeta(dueno, "c1", { responsable: "Bruno" });
+  sigueAbierta("coord:necesita:c1:Agente CRM necesita: ¿qué color?");
+  await tableros.editarTarjeta(dueno, "c1", { motivoRiesgo: "toca alertas y aprobación" });
+  assert.equal(de("c1").riesgoMotivo, "toca alertas y aprobación");
+  await tableros.editarTarjeta(duenoPantalla, "c1", { riesgo: "BAJO" });
+  assert.equal(de("c1").riesgo, "BAJO");
+  sigueAbierta("coord:necesita:c1:Agente CRM necesita: ¿qué color?");
+  sigueAbierta("auto:necesita:c1:POR_APROBAR");
+
+  await tableros.editarTarjeta(dueno, "c1", { detalle: "Respuesta del dueño: azul." });
+  quedoResuelta("coord:necesita:c1:Agente CRM necesita: ¿qué color?", "respuesta del dueño");
+  sigueAbierta("auto:necesita:c1:POR_APROBAR");
+});
+
+const DE_LA_TARJETA = (id) => [`auto:necesita:${id}:ERROR`, `auto:trabado:${id}:ERROR`, `auto:equipo:${id}:asignada:u-bruno`, `coord:necesita:${id}:Agente necesita algo`];
+function sembrarAlertasDe(id) {
+  for (const clave of DE_LA_TARJETA(id)) alerta(clave);
+  alerta(`terminada:${id}`);
+  alerta("auto:necesita:otra:ERROR");
+}
+function cerroTodasMenosTerminada(id) {
+  for (const clave of DE_LA_TARJETA(id)) quedoResuelta(clave, "la tarjeta se cerró");
+  sigueAbierta(`terminada:${id}`);
+  sigueAbierta("auto:necesita:otra:ERROR");
+}
+
+await prueba("pasar a HECHO cierra todas las alertas de la tarjeta (incluida auto:equipo) menos terminada:<id>", async () => {
+  tarjeta("c1", { tipo: "idea", estado: "IDEA" });
+  sembrarAlertasDe("c1");
+  const r = await tableros.cambiarEstadoTarjeta(dueno, "c1", "HECHO");
+  assert.equal(r.ahora, "HECHO");
+  cerroTodasMenosTerminada("c1");
+});
+
+await prueba("pasar a otro estado (no HECHO ni FALLIDO) no cierra nada", async () => {
+  tarjeta("c1", { tipo: "idea", estado: "IDEA" });
+  sembrarAlertasDe("c1");
+  await tableros.cambiarEstadoTarjeta(dueno, "c1", "EN_CURSO");
+  for (const clave of DE_LA_TARJETA("c1")) sigueAbierta(clave);
+});
+
+await prueba("cerrarComoFallida cierra todas las alertas de la tarjeta menos terminada:<id>", async () => {
+  tarjeta("c1", { estado: "ERROR", repo: "aizencrm", riesgo: "ALTO", riesgoPor: "CLAUDE" });
+  sembrarAlertasDe("c1");
+  const r = await tableros.cerrarComoFallida(duenoPantalla, "c1");
+  assert.equal(r.ahora, "FALLIDO");
+  cerroTodasMenosTerminada("c1");
+});
+
+await prueba("borrarTarjeta cierra todas las alertas de la tarjeta menos terminada:<id>", async () => {
+  tarjeta("c1");
+  sembrarAlertasDe("c1");
+  await tableros.borrarTarjeta(duenoPantalla, "c1");
+  assert.ok(de("c1").borradoEn instanceof Date);
+  cerroTodasMenosTerminada("c1");
+});
+
+await prueba("si guardar la alerta falla, aprobar igual sale bien (y la alerta queda como estaba)", async () => {
+  tarjeta("c1", { estado: "POR_APROBAR", repo: "aizencrm", riesgo: "ALTO", riesgoPor: "CLAUDE" });
+  alerta("auto:necesita:c1:POR_APROBAR");
+  estado.alertaFalla = true;
+  const avisos = [];
+  const warnOriginal = console.warn;
+  console.warn = (...args) => void avisos.push(args.map(String).join(" "));
+  try {
+    const r = await tableros.aprobarTarjeta(duenoPantalla, "c1", { momento: "tarea", via: "pantalla" });
+    assert.equal(r.ahora, "APROBADO");
+  } finally {
+    console.warn = warnOriginal;
+  }
+  assert.equal(de("c1").estado, "APROBADO");
+  sigueAbierta("auto:necesita:c1:POR_APROBAR");
+  assert.ok(avisos.some((linea) => linea.includes("no se pudieron cerrar las alertas")), "deja la línea en el registro");
 });
 
 /* ------------------------------------------------------------------ el MCP */

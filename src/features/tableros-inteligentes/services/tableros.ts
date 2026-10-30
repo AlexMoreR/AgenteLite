@@ -1,6 +1,6 @@
 import { Prisma, type EstadoTarjeta } from "@prisma/client";
 
-import { leerAreasDeTarjetas } from "@/features/alertas/servicios/alertas";
+import { cerrarAlertasDeTarjeta, leerAreasDeTarjetas } from "@/features/alertas/servicios/alertas";
 import { prisma } from "@/lib/prisma";
 import {
   TIPOS_POR_DEFECTO,
@@ -1732,6 +1732,9 @@ export async function editarTarjeta(
       tipo: tipoFinal,
     };
   });
+  // Cambiar el detalle es la respuesta del dueño a la pregunta del Coordinador: esa alerta se cierra sola. El plan no se
+  // edita acá, y cambiar solo el responsable o el riesgo no responde nada.
+  if (nuevo.detalle !== undefined) await cerrarAlertasDeTarjeta(contexto.workspaceId, actual.id, "RESPUESTA");
   // Si quedó POR_APROBAR con repo, se aprueba sola otra vez (si corresponde por las reglas de aprobación automática).
   // Asignar a alguien no aprueba nada: ahí el estado se queda como estaba.
   const aprobacion = soloCambiaResponsable(Object.keys(nuevo))
@@ -1890,6 +1893,8 @@ export async function cambiarEstadoTarjeta(
     await tocarTablero(tx, actual.tableroId);
     return { cambioId: cambio.id, antes: actual.estado, ahora: estado as EstadoTarjetaTablero, titulo: actual.titulo };
   });
+  // La tarjeta terminó (HECHO o FALLIDO): sus alertas abiertas se cierran solas.
+  if (estado === "HECHO" || estado === "FALLIDO") await cerrarAlertasDeTarjeta(contexto.workspaceId, actual.id, "CIERRE");
   // POR_APROBAR con repo: se aprueba sola si corresponde (regla del dueño 25-oct; con el interruptor apagado, solo BAJO).
   if (estado !== "POR_APROBAR" || !actual.repo) return { ...cambiado, aprobacionAutomatica: null };
   const aprobacion = await aprobarSolaLaTarea(actual.id);
@@ -1940,7 +1945,7 @@ export async function marcarHechoAMano(contexto: ContextoTablero, tarjetaId: unk
     commit: veredicto.commit,
     textoConfirmacion: pedido.via === "voz" ? texto || null : null,
   });
-  return prisma.$transaction(async (tx) => {
+  const marcada = await prisma.$transaction(async (tx) => {
     // Condicionado al estado y al momento en que se leyó, al tipo y al repo: si el Coordinador la tomó
     // o alguien la editó un instante antes, no se marca.
     const hecho = await tx.tarjetaTablero.updateMany({
@@ -1969,6 +1974,8 @@ export async function marcarHechoAMano(contexto: ContextoTablero, tarjetaId: unk
       commit: veredicto.commit,
     };
   });
+  await cerrarAlertasDeTarjeta(contexto.workspaceId, actual.id, "CIERRE");
+  return marcada;
 }
 
 /** Si `parte` es una parte de una tarjeta partida y ya no queda ninguna en camino, cierra a la madre (con su historial). */
@@ -2016,7 +2023,7 @@ export async function cerrarComoFallida(contexto: ContextoTablero, tarjetaId: un
     antes: actual.estado,
     esDueno: persona.esDueno,
   });
-  return prisma.$transaction(async (tx) => {
+  const cerrada = await prisma.$transaction(async (tx) => {
     // Condicionado al estado, al momento en que se leyó, al repo y a que el Coordinador no tenga el candado vigente.
     const hecho = await tx.tarjetaTablero.updateMany({
       where: {
@@ -2036,6 +2043,8 @@ export async function cerrarComoFallida(contexto: ContextoTablero, tarjetaId: un
     await tocarTablero(tx, actual.tableroId);
     return { cambioId: cambio.id, titulo: actual.titulo, antes: actual.estado, ahora: "FALLIDO" as EstadoTarjetaTablero, quien: persona.nombre };
   });
+  await cerrarAlertasDeTarjeta(contexto.workspaceId, actual.id, "CIERRE");
+  return cerrada;
 }
 
 /**
@@ -2196,7 +2205,7 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
     // Toda aprobación de Emanuel queda marcada como "periodo de prueba".
     ...(esSistemas ? { periodoDePrueba: true as const } : {}),
   });
-  return prisma.$transaction(async (tx) => {
+  const aprobada = await prisma.$transaction(async (tx) => {
     // Condicionado al estado, al momento en que se leyó, al tipo y al repo: si Claude la editó o el
     // Coordinador la movió un instante antes, no se aprueba algo que la persona no vio.
     const hecho = await tx.tarjetaTablero.updateMany({
@@ -2228,6 +2237,9 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
       quienCorreo: persona.correo,
     };
   });
+  // El dueño ya decidió: los avisos de "necesita tu decisión" y de tarjeta trabada se cierran solos.
+  await cerrarAlertasDeTarjeta(contexto.workspaceId, actual.id, "APROBACION");
+  return aprobada;
 }
 
 /**
@@ -2289,7 +2301,7 @@ export async function borrarTarjeta(contexto: ContextoTablero, tarjetaId: unknow
         como: `borrado por voz por ${persona.nombre}`,
       }
     : {};
-  return prisma.$transaction(async (tx) => {
+  const borrada = await prisma.$transaction(async (tx) => {
     const flechas: FlechaGuardada[] = await tx.conexionTarjeta.findMany({
       where: { tableroId: actual.tableroId, OR: [{ origenId: actual.id }, { destinoId: actual.id }] },
       select: { id: true, origenId: true, destinoId: true, esDependencia: true },
@@ -2327,6 +2339,8 @@ export async function borrarTarjeta(contexto: ContextoTablero, tarjetaId: unknow
       como: persona ? `borrado por voz por ${persona.nombre}` : null,
     };
   });
+  await cerrarAlertasDeTarjeta(contexto.workspaceId, actual.id, "CIERRE");
+  return borrada;
 }
 
 export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId: unknown) {

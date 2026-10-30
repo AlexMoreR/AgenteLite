@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import {
   areaDeLaRuta,
   claveResponsableDeSistemas,
+  lineaDeCierre,
+  motivoCierraLaClave,
   ordenarAlertas,
   puedeVerAlerta,
   salePorWhatsApp,
@@ -10,6 +12,7 @@ import {
   tituloCorto,
   type AreaDeAlerta,
   type EstadoDeAlerta,
+  type MotivoDeCierre,
   type Prioridad,
   type QuienMira,
 } from "../dominio/reglas";
@@ -245,6 +248,41 @@ export async function marcarAlerta(workspaceId: string, id: string, nuevo: "VIST
     data: nuevo === "VISTA" ? { estado: "VISTA", vistaEn: ahora } : { estado: "RESUELTA", resueltaEn: ahora, vistaEn: actual.vistaEn ?? ahora },
   });
   return true;
+}
+
+/**
+ * Cierra solas las alertas abiertas de una tarjeta cuando el dueño la aprueba, responde la pregunta o la tarjeta se
+ * cierra (HECHO, FALLIDO o borrada). Qué claves cierra cada motivo lo dice `motivoCierraLaClave`. Cada una queda
+ * RESUELTA, con su hora y la línea "Resuelta sola: …" al final del detalle. Nunca lanza: una alerta no puede hacer
+ * fallar la acción sobre la tarjeta. Devuelve cuántas cerró.
+ */
+export async function cerrarAlertasDeTarjeta(workspaceId: string, tarjetaId: string, motivo: MotivoDeCierre, ahora = new Date()): Promise<number> {
+  try {
+    const abiertas = await prisma.alertaInterna.findMany({
+      where: {
+        workspaceId,
+        estado: { not: "RESUELTA" },
+        OR: ["auto:necesita", "auto:trabado", "auto:equipo", "coord:necesita"].map((tipo) => ({ clave: { startsWith: `${tipo}:${tarjetaId}:` } })),
+      },
+      select: { id: true, clave: true, detalle: true },
+    });
+    const linea = lineaDeCierre(motivo, ahora);
+    let cerradas = 0;
+    for (const alerta of abiertas) {
+      if (!motivoCierraLaClave(motivo, alerta.clave, tarjetaId)) continue;
+      const detalle = alerta.detalle?.trim() ? `${alerta.detalle.trim()}\n\n${linea}` : linea;
+      // Condicionada a que siga abierta: si alguien la resolvió un instante antes, no se le pisa la hora.
+      const hecho = await prisma.alertaInterna.updateMany({
+        where: { id: alerta.id, estado: { not: "RESUELTA" } },
+        data: { estado: "RESUELTA", resueltaEn: ahora, detalle },
+      });
+      cerradas += hecho.count;
+    }
+    return cerradas;
+  } catch (error) {
+    console.warn("[alertas] no se pudieron cerrar las alertas de la tarjeta", { tarjetaId, motivo, error: error instanceof Error ? error.message : String(error) });
+    return 0;
+  }
 }
 
 /**
