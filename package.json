@@ -113,6 +113,7 @@
     "test:e2e": "playwright test -c e2e",
     "db:seed": "node prisma/seed.js",
     "test:hora-lista": "npx tsx scripts/check-hora-lista.ts",
+    "test:deslizar-responder": "npx tsx --test src/components/chats/use-swipe-to-reply.test.ts",
     "test:permisos-del-crm": "npx tsx --test src/lib/permisos-del-crm.test.ts",
     "test:ubicacion-del-local": "node scripts/check-ubicacion-del-local.mjs",
     "test:seguimiento-fecha-exacta": "node scripts/check-seguimiento-fecha-exacta.mjs"

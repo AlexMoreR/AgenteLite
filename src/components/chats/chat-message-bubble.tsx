@@ -30,6 +30,7 @@ import {
 import { extractEvolutionLocation } from "@/lib/evolution-webhook";
 import { puedeEditarseMensaje } from "@/lib/editar-mensaje";
 import { AudioMessageCard } from "@/components/chats/audio-message-card";
+import { useSwipeToReply } from "@/components/chats/use-swipe-to-reply";
 import { DetalleDeLlamadaDialog } from "@/components/chats/detalle-de-llamada-dialog";
 import { tapaDePdfDesdeUrl, type TapaDePdf } from "@/lib/portada-de-pdf";
 import { Badge } from "@/components/ui/badge";
@@ -1051,6 +1052,33 @@ export const MessageBubble = memo(function MessageBubble({
     setIsTouchMenuOpen(true);
   }, [message, onSeleccionar]);
   const longPress = useLongPress(abrirMenuTactil, tieneAcciones);
+  // Deslizar a la derecha abre la misma respuesta citada del menu. Con la seleccion abierta no.
+  const responderDeslizando = useCallback(() => onReply?.(message), [message, onReply]);
+  const swipe = useSwipeToReply(responderDeslizando, Boolean(onReply) && !haySeleccion);
+  // Un solo juego de eventos para la burbuja: primero el deslizar, luego el mantener apretado.
+  const gestosDeLaBurbuja = {
+    ...longPress,
+    onPointerDown: (evento: React.PointerEvent) => {
+      swipe.handlers.onPointerDown(evento);
+      longPress.onPointerDown(evento);
+    },
+    onPointerMove: (evento: React.PointerEvent) => {
+      swipe.handlers.onPointerMove(evento);
+      longPress.onPointerMove(evento);
+    },
+    onPointerUp: () => {
+      swipe.handlers.onPointerUp();
+      longPress.onPointerUp();
+    },
+    onPointerCancel: () => {
+      swipe.handlers.onPointerCancel();
+      longPress.onPointerCancel();
+    },
+    onClickCapture: (evento: React.MouseEvent) => {
+      swipe.handlers.onClickCapture(evento);
+      longPress.onClickCapture(evento);
+    },
+  };
 
   /*
     La hora del mensaje, que en las notas de voz cambia de lugar.
@@ -1258,13 +1286,29 @@ export const MessageBubble = memo(function MessageBubble({
         }}
       >
         <div
-          {...longPress}
-          className={`group/bubble relative max-w-[88%] rounded-[8px] px-[7px] py-[6px] text-[14px] leading-5 shadow-[0_1px_1px_rgba(15,23,42,0.14)] [-webkit-touch-callout:none] md:max-w-[72%] [@media(pointer:coarse)]:select-none ${
+          {...gestosDeLaBurbuja}
+          style={
+            swipe.offset > 0
+              ? { transform: `translateX(${swipe.offset}px)`, transition: swipe.arrastrando ? "none" : "transform 150ms ease-out" }
+              : undefined
+          }
+          className={`group/bubble relative touch-pan-y max-w-[88%] rounded-[8px] px-[7px] py-[6px] text-[14px] leading-5 shadow-[0_1px_1px_rgba(15,23,42,0.14)] [-webkit-touch-callout:none] md:max-w-[72%] [@media(pointer:coarse)]:select-none ${
             outbound
               ? "rounded-tr-[3px] bg-[var(--chat-out-bubble)] text-[var(--chat-out-text)]"
               : "rounded-tl-[3px] border border-border bg-card text-card-foreground"
           } ${isTouchMenuOpen ? "ring-2 ring-[var(--primary)]/40" : ""}`}
         >
+          {swipe.offset > 0 ? (
+            <span
+              aria-hidden
+              className={`pointer-events-none absolute right-full top-1/2 mr-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors ${
+                swipe.listo ? "bg-[var(--primary)]/20 text-[var(--primary)]" : ""
+              }`}
+              style={{ opacity: Math.min(1, swipe.offset / 40), transform: `translateY(-50%) scale(${swipe.listo ? 1 : 0.7 + swipe.offset / 200})` }}
+            >
+              <Reply className="size-4" />
+            </span>
+          ) : null}
           {tieneAcciones ? (
             <>
               <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onForward={onForward} onEdit={onEdit} onDelete={onDelete} audioUrl={audioUrl} />
