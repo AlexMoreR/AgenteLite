@@ -36,6 +36,11 @@ export const dynamic = "force-dynamic";
               el Coordinador ya comprobó con git que el commit está en main).
   - limpieza  { repo, errores: [texto] }          main trae errores viejos: crea UNA tarjeta "Limpieza: main trae errores viejos (<repo>)"
               (APROBADO, mismo tablero) o le agrega los errores a la abierta. No mueve la tarjeta que la pidió. -> { creada, agregados }
+  - causa-externa { tipo: vigilancia | main_roto | servidor | choque, repo?, detalle?, referencia?, etapa?, categoria?, causa? }
+              PLANEANDO | EN_CURSO | SUBIENDO: la falla no es de la tarjeta. Crea (o reusa la abierta con el título fijo de esa causa y
+              repo: 1 abierta por causa) la tarjeta que la arregla, en APROBADO con la aprobación heredada; con `referencia` (choque) no
+              crea nada. Pone la flecha de dependencia (sin ciclos) y suelta esta sin ERROR ni intento (PLANEANDO -> APROBADO, EN_CURSO y
+              SUBIENDO -> PLAN_APROBADO): "Esperando a «X»". -> { creada, tarjetaId, esperando, soltada, estado }
   - recoger   { decision: reintentar | partir | dueno, causa?, error?, partes?, linea? }   ERROR: recoge una tarjeta
               vieja en ERROR (máximo 2 veces por tarjeta; el tope diario lo lleva el Coordinador). reintentar vuelve
               a la fila, partir crea las hijas, dueno deja UNA línea para el dueño y sigue en ERROR.

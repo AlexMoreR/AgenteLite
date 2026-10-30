@@ -28,7 +28,7 @@ import { crearCrm } from "../lib/crm.mjs";
 import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstadoDelManual } from "../lib/manual-nocturno.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
-import { LARGO_MAXIMO_DEL_AVISO, decidir, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
+import { LARGO_MAXIMO_DEL_AVISO, causaExterna, causasDistintas, decidir, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion, tituloDeCausa } from "../lib/diagnostico.mjs";
 import {
   CONFIRMACION_REVISION_DE_NUEVO,
   buscarCorridaDelDespliegue,
@@ -1278,6 +1278,72 @@ await prueba("29-oct criterios de aceptación: el plan los pide (antes de PREGUN
   assert.match(delRevisor, /En la vuelta anterior pediste esto; mira si quedó corregido:\n- a\.ts: falta el caso vacío/);
 });
 
+await prueba("causa externa (puro): vigilancia, main roto, choque y servidor; null si la reversión falló, si ya es de causa o si es de la tarea", () => {
+  const tarjeta = { id: "t1", titulo: "Bot nuevo" };
+  const reversion = { commit: "602d0beb01d949b85e6bdc7200fa4229ed4dc069", revert: "66918ed0e7dbd48e0c40520e8b2a499a84afdf0b", ok: true };
+  // Textos reales de las tarjetas que fallaron (30-oct-2026).
+  const revertida = diagnosticar({ error: Object.assign(new Error("Revertida: 3 línea(s) de falla nueva(s) en los logs: [minuto 4] error: 'fetch failed' | [minuto 5] prisma:error\nSubió sola, la vigilancia de 30 min vio la falla y se deshizo."), { categoria: "otra", reversion }), etapa: "subir" });
+  const vigilancia = causaExterna(revertida, { reversion, repo: "aizencrm", tarjeta });
+  assert.equal(vigilancia.tipo, "vigilancia");
+  assert.equal(vigilancia.titulo, "Vigilancia: la vigilancia de 30 min revirtió una subida (aizencrm)");
+  assert.match(vigilancia.detalle, /«Bot nuevo»[\s\S]*602d0beb01[\s\S]*fetch failed/);
+  // La reversión que no se pudo hacer sigue siendo URGENTE (camino de siempre).
+  assert.equal(causaExterna(revertida, { reversion: { ...reversion, ok: false }, repo: "aizencrm", tarjeta }), null);
+  // Una reversión que no es de la vigilancia (el despliegue no arrancó) no es externa.
+  assert.equal(causaExterna(diagnosticar({ error: "Se subió, no arrancó y se deshizo.\nDetalle técnico: TypeError en page.tsx", etapa: "subir" }), { reversion, repo: "aizencrm", tarjeta }), null);
+  // Una tarjeta de causa nunca pide otra.
+  for (const tipo of ["vigilancia", "main_roto", "servidor"]) assert.equal(causaExterna(revertida, { reversion, repo: "aizencrm", tarjeta: { titulo: tituloDeCausa(tipo, "aizencrm") } }), null);
+  const lint = causaExterna({ categoria: "lint", causa: "El lint encontró errores nuevos: regla-x", error: "El lint tiene 1 error(es) nuevo(s):\na.ts: regla-x (ya fallaba en main)" }, { repo: "gestion", tarjeta });
+  assert.deepEqual([lint.tipo, lint.titulo], ["main_roto", "Main roto: lint o pruebas fallan sin el cambio (gestion)"]);
+  assert.equal(causaExterna({ categoria: "fallan_pruebas", causa: "Fallaron las pruebas: not ok 3", error: "not ok 3 - x\ntambién falla en main" }, { repo: "gestion", tarjeta }).tipo, "main_roto");
+  // Un lint de la tarea (sin decir que main ya lo trae) no es externo.
+  assert.equal(causaExterna({ categoria: "lint", causa: "El lint encontró errores nuevos", error: "a.ts: no-unused-vars" }, { repo: "gestion", tarjeta }), null);
+  const choque = causaExterna({ categoria: "otra", causa: "No se pudo seguir", error: "El cambio choca con la tarjeta «Chats: nuevo filtro» que está subiendo" }, { repo: "aizencrm", tarjeta });
+  assert.deepEqual([choque.tipo, choque.referencia], ["choque", "Chats: nuevo filtro"]);
+  const ssh = causaExterna(diagnosticar({ error: "No se pudieron leer los logs del servidor (ssh) antes de subir.\nDetalle técnico: ssh: connect to host 1.2.3.4 port 22: Connection timed out", etapa: "subir" }), { repo: "aizencrm", tarjeta });
+  assert.deepEqual([ssh.tipo, ssh.titulo], ["servidor", "Servidor: el servidor, el SSH o la base no responde (aizencrm)"]);
+  assert.match(ssh.detalle, /ssh: connect to host/);
+  assert.equal(causaExterna({ categoria: "tiempo_agotado", causa: "Se pasó del tiempo", error: "Error: P1001: Can't reach database server at db:5432" }, { repo: "gestion", tarjeta }).tipo, "servidor");
+  // "Can't reach database server" en el build o en las pruebas es de la tarea (la base de las pruebas es falsa a propósito).
+  assert.equal(causaExterna({ categoria: "no_compila", causa: "No compiló", error: "Can't reach database server at 127.0.0.1:1" }, { repo: "gestion", tarjeta }), null);
+  assert.equal(causaExterna({ categoria: "fallan_pruebas", causa: "Fallaron", error: "ECONNREFUSED 127.0.0.1:1" }, { repo: "gestion", tarjeta }), null);
+  assert.equal(causaExterna({ categoria: "no_compila", causa: "error TS2322", error: "error TS2322" }, { repo: "gestion", tarjeta }), null);
+  assert.equal(causaExterna(null), null);
+  // El título es el mismo del lado del CRM (reglas-trabajador.ts): así se reusa la abierta.
+  for (const tipo of ["vigilancia", "main_roto", "servidor"]) assert.equal(tituloDeCausa(tipo, "gestion"), reglas.tituloDeCausaExterna(tipo, "gestion"));
+  assert.equal(reglas.tituloDeCausaExterna("choque", "gestion"), null);
+  assert.equal(reglas.esTarjetaDeCausaExterna("Servidor: el servidor, el SSH o la base no responde (gestion)"), true);
+  assert.equal(reglas.esTarjetaDeCausaExterna("Chats: filtro"), false);
+});
+
+await prueba("causas distintas (puro): sin las esperas, más la falla de ahora; la misma causa con otro número o con la marca de estrategia no cuenta dos veces", () => {
+  const intentos = [
+    { accion: "reparar", categoria: "no_compila", causa: "El código no compila: error TS2322 en a.ts:10" },
+    { accion: "esperar", categoria: "limite_claude", causa: "Claude llegó al límite" },
+    { accion: "reparar", categoria: "no_compila", causa: "El código no compila: error TS2322 en a.ts:12 [estrategia: opus]" },
+    { accion: "reparar", categoria: "lint", causa: "El lint encontró errores nuevos" },
+  ];
+  assert.deepEqual(causasDistintas(intentos, null).map((c) => c.categoria), ["no_compila", "lint"]);
+  assert.deepEqual(causasDistintas(intentos, { categoria: "fallan_pruebas", causa: "not ok 3" }).map((c) => c.categoria), ["no_compila", "lint", "fallan_pruebas"]);
+  // Misma categoría con causa distinta: cuenta.
+  assert.equal(causasDistintas(intentos, { categoria: "lint", causa: "otra regla rota" }).length, 3);
+  assert.equal(causasDistintas([], null).length, 0);
+});
+
+await prueba("cliente HTTP: causaExterna llama a POST /api/trabajador/tablero/<id>/causa-externa sin los campos vacíos", async () => {
+  const pedidos = [];
+  const fetchFalso = async (url, init) => {
+    pedidos.push({ url, init });
+    return new Response(JSON.stringify({ ok: true, soltada: true, esperando: "Esperando a «X»" }), { status: 200 });
+  };
+  const cliente = crearCrm({ urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x" }, { fetch: fetchFalso });
+  const respuesta = await cliente.causaExterna("t/1", { tipo: "vigilancia", titulo: "Vigilancia: x", detalle: "d", referencia: undefined, repo: "aizencrm" });
+  assert.equal(respuesta.soltada, true);
+  assert.equal(pedidos[0].url, "https://crm.test/api/trabajador/tablero/t%2F1/causa-externa");
+  assert.equal(pedidos[0].init.method, "POST");
+  assert.deepEqual(JSON.parse(pedidos[0].init.body), { tipo: "vigilancia", titulo: "Vigilancia: x", detalle: "d", repo: "aizencrm" });
+});
+
 await prueba("aviso de reversión al dueño: máximo 3 líneas y 500 caracteres aunque el motivo sea larguísimo (26-oct-2026: uno de 869 no salió)", () => {
   const motivo = `Se subió, no arrancó y se deshizo; producción vuelve a la versión anterior.\nCommit deshecho: 602d0beb01 (revert 66918ed0e7).\nDetalle técnico: Subió a main (commit 602d0beb01) pero el CI falló: 'servicio' is assigned a value but never used\n${"error  A require() style import is forbidden\n".repeat(30)}`;
   const reversion = { commit: "602d0beb01d949b85e6bdc7200fa4229ed4dc069", revert: "66918ed0e7dbd48e0c40520e8b2a499a84afdf0b", ok: true };
@@ -1893,6 +1959,30 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     const idNueva = nueva(titulo, limpiezaEnLaFila ? "APROBADO" : "POR_APROBAR", { detalle: cuerpo.errores.map((e) => `- ${e}`).join("\n"), moderno: true });
     return contestar(200, { ok: true, creada: true, agregados: cuerpo.errores.length, tarjetaId: idNueva });
   }
+  if (accion === "causa-externa") {
+    // Como pedirCausaExterna de services/trabajador.ts (30-oct-2026): reusa la abierta con el título fijo (1 por causa y repo) o la crea,
+    // pone la flecha y suelta esta sin ERROR ni intento. La nueva queda POR_APROBAR en el falso (como la limpieza): no estorba a las demás.
+    if (reglas.esTarjetaDeCausaExterna(tarjeta.titulo)) return contestar(409, { ok: false, error: "Esta ya es una tarjeta de causa: no pide otra." });
+    const titulo = cuerpo.tipo === "choque" ? null : reglas.tituloDeCausaExterna(cuerpo.tipo, cuerpo.repo ?? tarjeta.repo);
+    let causa = null;
+    let creada = false;
+    if (titulo) {
+      causa = [...tarjetas.values()].find((t) => t.titulo === titulo && !["HECHO", "FALLIDO"].includes(t.estado)) ?? null;
+      if (causa && cuerpo.detalle && !causa.detalle.includes(cuerpo.detalle)) causa.detalle += `\n\n${cuerpo.detalle}`;
+      if (!causa) {
+        causa = tarjetas.get(nueva(titulo, "POR_APROBAR", { detalle: cuerpo.detalle ?? "", moderno: true }));
+        creada = true;
+      }
+    } else {
+      causa = [...tarjetas.values()].find((t) => t.id !== id && (t.id === cuerpo.referencia || t.titulo.toLowerCase() === String(cuerpo.referencia).toLowerCase())) ?? null;
+    }
+    if (!causa || causa.estado === "HECHO") return contestar(200, { ok: true, creada, soltada: false, estado: tarjeta.estado });
+    tarjeta.dependeDe = [...new Set([...(tarjeta.dependeDe ?? []), causa.id])];
+    const etiqueta = `Esperando a «${causa.titulo}»`;
+    anotarIntento(tarjeta, { etapa: cuerpo.etapa, categoria: cuerpo.categoria, causa: `${etiqueta}: ${cuerpo.causa}` }, "esperar", false);
+    Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado), venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1), esperando: etiqueta });
+    return contestar(200, { ok: true, creada, tarjetaId: causa.id, esperando: etiqueta, soltada: true, estado: tarjeta.estado });
+  }
   if (accion === "revisar_de_nuevo") {
     // Como revisarDeNuevo de services/trabajador.ts: subeSolo -> SUBIENDO pendiente con commit, base y pruebas; si no, ERROR con el motivo.
     if (cuerpo.subeSolo) {
@@ -2320,8 +2410,25 @@ try {
     }
     assert.equal(resultado.ok, false);
     const t = tarjetas.get(id);
-    assert.equal(t.estado, "ERROR");
-    assert.match(t.resultado.error.motivo, patron);
+    if (t.moderno) {
+      // 30-oct-2026 (causa externa): con un CRM nuevo la reversión de la vigilancia no va a ERROR ni gasta reparación: se pide la tarjeta
+      // "Vigilancia: …" (1 abierta por repo) y esta queda PLAN_APROBADO esperándola, con un intento "esperar" que no cuenta.
+      const titulo = reglas.tituloDeCausaExterna("vigilancia", "aizencrm");
+      const abiertas = [...tarjetas.values()].filter((otra) => otra.titulo === titulo && !["HECHO", "FALLIDO"].includes(otra.estado));
+      assert.equal(abiertas.length, 1, "una sola tarjeta de vigilancia abierta");
+      assert.match(abiertas[0].detalle, patron, "el detalle de la tarjeta de causa trae la línea del log");
+      assert.equal(resultado.accion, "esperar");
+      assert.equal(t.estado, "PLAN_APROBADO", "no queda en ERROR: espera a la tarjeta de la causa");
+      assert.ok(t.dependeDe.includes(abiertas[0].id), "con la flecha de dependencia");
+      assert.equal(t.esperando, `Esperando a «${titulo}»`);
+      assert.equal(t.intentos, 1, "el intento de subir no se contó");
+      assert.ok(!(t.intentosLista ?? []).some((intento) => intento.accion === "reparar" || intento.accion === "escalar"), "sin reparación ni escalada");
+      assert.equal(t.intentosLista.at(-1).accion, "esperar");
+      assert.ok(!llamadas.some((l) => l.accion === "error" && l.id === id), "no se mandó /error");
+    } else {
+      assert.equal(t.estado, "ERROR");
+      assert.match(t.resultado.error.motivo, patron);
+    }
     g(REPO, "fetch", "origin");
     assert.match(g(REPO, "log", "--format=%s", "-8", "origin/main"), /^revert: deshacer [0-9a-f]{10} \(la vigilancia de 30 min vio una falla\)/m);
     assert.equal(g(REPO, "merge-base", "--is-ancestor", antes, "origin/main"), "", "el commit subido sigue en la historia de main (sin force-push)");
@@ -2341,6 +2448,14 @@ try {
 
   await prueba("zonas que suben solas: si los envíos fallan, la vigilancia deshace y avisa (tarjeta moderna, camino de manejarFalla)", async () => {
     await cortaPorEnvios("SSH_FALSO_ENVIOS_FALLIDOS", /suben los envíos de mensajes que fallan: 0 por minuto antes de subir y 1 ahora/, "Bot que falla al enviar [solas-bot] [moderno]");
+  });
+
+  await prueba("causa externa: otra reversión de la vigilancia reusa la MISMA tarjeta 'Vigilancia: …' abierta (tope 1 por causa) y le agrega el detalle", async () => {
+    await cortaPorEnvios("SSH_FALSO_ERRORES", /Unhandled rejection en el bot/, "Bot que rompe otra vez [solas-bot] [moderno]");
+    const titulo = reglas.tituloDeCausaExterna("vigilancia", "aizencrm");
+    assert.equal([...tarjetas.values()].filter((t) => t.titulo === titulo).length, 1, "no se creó otra");
+    assert.equal(llamadas.filter((l) => l.accion === "causa-externa").length, 2, "las dos la pidieron");
+    assert.match([...tarjetas.values()].find((t) => t.titulo === titulo).detalle, /suben los envíos[\s\S]*Unhandled rejection/, "trae las dos causas");
   });
 
   await prueba("zonas que suben solas: por debajo de minEnviosParaComparar no corta aunque los envíos se dupliquen", async () => {
@@ -2582,6 +2697,82 @@ try {
     assert.match(segunda.prompt, /error TS2322/);
     assert.match(segunda.prompt, /Corrige solo eso/);
     assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  // Un lint que marca los archivos de la tarea con un error que dice que main ya lo trae (en main no hay archivos cambio-*: allá pasa).
+  const lintViejo = [
+    'const fs = require("node:fs"); const path = require("node:path");',
+    'const salida = fs.readdirSync(".").filter((n) => n.startsWith("cambio-")).map((n) => ({ filePath: path.resolve(n), messages: [{ severity: 2, ruleId: "regla-vieja", message: "esta regla ya fallaba en main sin el cambio" }] }));',
+    "console.log(JSON.stringify(salida)); process.exit(salida.length ? 1 : 0);",
+  ].join("\n");
+
+  await prueba("causa externa: lint que ya falla en main sin el cambio -> tarjeta 'Main roto: …' y la original espera sin contar intento ni reparación", async () => {
+    const config = crearConfig({}, { lint: { comando: [node, "-e", lintViejo] } });
+    const id = nuevaModerna("Tarea limpia con main roto");
+    const resultado = await vuelta(config);
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.accion, "esperar");
+    const titulo = reglas.tituloDeCausaExterna("main_roto", "aizencrm");
+    assert.equal(titulo, "Main roto: lint o pruebas fallan sin el cambio (aizencrm)");
+    const causa = [...tarjetas.values()].find((t) => t.titulo === titulo);
+    assert.ok(causa, "se creó la tarjeta de la causa");
+    assert.match(causa.detalle, /ya fallaba en main/);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_APROBADO");
+    assert.equal(t.esperando, `Esperando a «${titulo}»`);
+    assert.ok(t.dependeDe.includes(causa.id));
+    assert.equal(t.intentos, 0, "no se contó el intento");
+    assert.equal(t.reparaciones ?? 0, 0, "ni una reparación");
+    assert.deepEqual(t.intentosLista.map((i) => [i.accion, i.categoria]), [["esperar", "lint"]]);
+    // Mientras la de la causa no esté HECHO, la original no se vuelve a tomar.
+    assert.ok(!candidatasDelFalso().some((c) => c.id === id), "espera fuera de la fila");
+    causa.estado = "HECHO";
+    assert.ok(candidatasDelFalso().some((c) => c.id === id), "vuelve sola cuando la de la causa queda HECHO");
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("causa externa: una tarjeta de causa que falla no pide otra (sin cadena) y sigue el camino de siempre", async () => {
+    const config = crearConfig({}, { lint: { comando: [node, "-e", lintViejo] } });
+    const id = nuevaModerna("Main roto: lint o pruebas fallan sin el cambio (gestion)");
+    const pedidas = llamadas.filter((l) => l.accion === "causa-externa").length;
+    const resultado = await vuelta(config);
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.accion, "reparar", "se repara como siempre");
+    assert.equal(llamadas.filter((l) => l.accion === "causa-externa").length, pedidas, "no pidió otra tarjeta de causa");
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("aviso al CTO: tres causas distintas escriben UNA fila en el registro del Coordinador y no mandan aviso al dueño", async () => {
+    const boveda = path.join(T, "boveda-cto");
+    fs.mkdirSync(path.join(boveda, "CRM-Gestion"), { recursive: true });
+    const registroCto = path.join(boveda, "CRM-Gestion", "2026-10-25-coordinador-registro.md");
+    fs.writeFileSync(registroCto, "# Coordinador — registro horario\n\n## Registro horario\n| Hora | Tarjeta | Quién | Qué |\n|---|---|---|---|\n| 30-oct 09:00 | abcd1234 | coordinador | revisé |");
+    const config = crearConfig({}, {}, { boveda: { ruta: boveda } });
+    const previos = [
+      { numero: 1, etapa: "construir", categoria: "fallan_pruebas", causa: "Fallaron las pruebas que ya existían: not ok 1 - a", accion: "reparar", cuentaComoIntento: true },
+      { numero: 2, etapa: "construir", categoria: "limite_claude", causa: "Claude llegó al límite", accion: "esperar", cuentaComoIntento: false },
+      { numero: 3, etapa: "construir", categoria: "lint", causa: "El lint encontró errores nuevos: regla-x", accion: "reparar", cuentaComoIntento: true },
+    ];
+    const id = nuevaModerna("Tres causas distintas [tsc]", "PLAN_APROBADO", { intentosLista: previos, reparaciones: 2 });
+    const avisos = llamadas.filter((l) => l.accion === "aviso").length;
+    const resultado = await vuelta(config);
+    assert.equal(resultado.ok, false);
+    const texto = fs.readFileSync(registroCto, "utf8");
+    assert.ok(texto.startsWith("# Coordinador — registro horario\n"), "no sobrescribe lo que había");
+    const filas = texto.split("\n").filter((linea) => linea.includes("AVISO AL CTO"));
+    assert.equal(filas.length, 1);
+    assert.match(filas[0], new RegExp(`^\\| \\d{1,2}-[a-z]{3} \\d{2}:\\d{2} \\| ${idCorto(id)} \\| coordinador \\| AVISO AL CTO: «Tres causas distintas \\[tsc\\]» — causas: fallan_pruebas: [^,]+, lint: [^,]+, no_compila: [^|]+ \\|$`));
+    assert.match(texto, /\| revisé \|\n\| /, "la fila nueva va en su propia línea, al final");
+    // Al dueño no se le escribe por esto.
+    assert.equal(llamadas.filter((l) => l.accion === "aviso").length, avisos, "sin aviso al dueño");
+    // Otra falla de la misma tarjeta no repite la fila.
+    await vuelta(config);
+    assert.equal(fs.readFileSync(registroCto, "utf8").split("\n").filter((linea) => linea.includes("AVISO AL CTO")).length, 1, "no repite la fila");
+    assert.equal(llamadas.filter((l) => l.accion === "aviso").length, avisos, "sigue sin aviso al dueño");
     soltarTodas(id);
     sinRestos();
   });

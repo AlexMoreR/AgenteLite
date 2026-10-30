@@ -31,7 +31,10 @@ import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.
 import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
 import {
+  CAUSAS_PARA_AVISAR_AL_CTO,
   TOPE_DE_REPARACIONES,
+  causaExterna,
+  causasDistintas,
   decidir,
   diagnosticar,
   enUnaLinea,
@@ -59,6 +62,7 @@ import {
 } from "./etapas.mjs";
 import { idCorto } from "./git.mjs";
 import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedida } from "./medir.mjs";
+import { anotarAvisoAlCto } from "./notas-boveda.mjs";
 import { notaDeYaHecho } from "./revision-previa.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
@@ -597,6 +601,16 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
 
   nota.diagnostico = diagnostico;
 
+  // 2b. Tres causas distintas sin resolverse: una línea para el CTO en el registro del Coordinador (al dueño no se le escribe).
+  avisarAlCtoSiHaceFalta({ config, registro }, tarjeta, diagnostico);
+
+  // 2c. La causa no es de la tarjeta: se pide la tarjeta que la arregla y esta espera, sin reparación, ERROR ni intento.
+  const externa = causaExterna(diagnostico, { reversion: error?.reversion ?? null, repo: tarjeta.repo, tarjeta });
+  if (externa) {
+    const espera = await esperarPorCausaExterna({ crm, registro }, tarjeta, hacer, diagnostico, externa);
+    if (espera) return { ok: false, motivo, zonas: error?.zonas ?? [], categoria: diagnostico.categoria, accion: "esperar", causaExterna: externa.tipo, esperando: espera.esperando };
+  }
+
   // 3. Decidir.
   const estrategiaActual = tarjeta.reparacion?.estrategia;
   const modeloConstruir = estrategiaActual === "opus" ? (config.modelos?.planear ?? "opus") : modeloDelPaso(config, "construir", tarjeta);
@@ -676,6 +690,57 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
     registro.error(`no se pudo avisar el error al CRM: ${otro.message}`);
   }
   return { ...resultado, accion: "escalar" };
+}
+
+/**
+ * CAUSA EXTERNA (30-oct-2026): pide al CRM la tarjeta que arregla la causa (o reusa la abierta con el mismo título) y deja esta
+ * "Esperando a «X»" con la flecha de dependencia: vuelve sola cuando la otra llega a HECHO. Devuelve { esperando } si quedó esperando,
+ * o null si el CRM falló o no la soltó (entonces sigue el camino de siempre: nunca queda peor que antes).
+ */
+async function esperarPorCausaExterna({ crm, registro }, tarjeta, hacer, diagnostico, externa) {
+  let respuesta;
+  try {
+    respuesta = await crm.causaExterna(tarjeta.id, {
+      tipo: externa.tipo,
+      titulo: externa.titulo,
+      detalle: externa.detalle,
+      referencia: externa.referencia,
+      repo: tarjeta.repo,
+      etapa: hacer,
+      categoria: diagnostico.categoria,
+      causa: enUnaLinea(diagnostico.causa) || sinCausa(hacer, tarjeta.intentos),
+    });
+  } catch (error) {
+    registro.aviso(`no se pudo pedir la tarjeta de la causa externa (${externa.tipo}: ${error.message}): sigue el camino de siempre`);
+    return null;
+  }
+  if (!respuesta?.soltada) {
+    registro.aviso(`el CRM no dejó esperando a "${tarjeta.titulo}" por la causa externa (${externa.tipo}): sigue el camino de siempre`);
+    return null;
+  }
+  const esperando = respuesta.esperando ?? `Esperando a «${externa.titulo}»`;
+  registro.info(
+    `causa externa (${externa.tipo}): ${externa.referencia ? "espera a la tarjeta con la que choca" : respuesta.creada ? `creé la tarjeta «${externa.titulo}»` : `reusé la tarjeta abierta «${externa.titulo}»`}; "${tarjeta.titulo}": ${esperando}, sin gastar intento`,
+  );
+  return { esperando };
+}
+
+/** Tres causas distintas sin resolverse: la fila "AVISO AL CTO" en el registro del Coordinador. Nunca lanza ni escribe al dueño. */
+function avisarAlCtoSiHaceFalta({ config, registro }, tarjeta, diagnostico) {
+  const causas = causasDistintas(tarjeta.ultimosIntentos, diagnostico);
+  if (causas.length < CAUSAS_PARA_AVISAR_AL_CTO) return;
+  const lista = causas.map((causa) => `${causa.categoria}: ${causa.causa}`);
+  const boveda = config.boveda?.ruta ?? null;
+  if (!boveda) {
+    registro.aviso(`AVISO AL CTO: «${tarjeta.titulo}» — causas: ${lista.join(", ")} (sin bóveda configurada: solo queda en el log)`);
+    return;
+  }
+  try {
+    const hecho = anotarAvisoAlCto(boveda, { tarjeta, causas: lista });
+    if (hecho.accion === "agregada") registro.aviso(`AVISO AL CTO anotado en el registro del Coordinador: «${tarjeta.titulo}» — ${causas.length} causas distintas`);
+  } catch (error) {
+    registro.aviso(`no se pudo anotar el AVISO AL CTO en la bóveda (${error?.message ?? error}): «${tarjeta.titulo}» — causas: ${lista.join(", ")}`);
+  }
 }
 
 /** CPU y memoria de ahora (si hay medidor) para saber si un "se pasó del tiempo" fue por el PC lleno. */

@@ -8,7 +8,7 @@ import path from "node:path";
 
 import { completarConfig } from "../lib/config.mjs";
 import { crearCrm } from "../lib/crm.mjs";
-import { crearNotasDeBoveda, destinoEnLaBoveda, escribirNotaEnLaBoveda, problemaDeRuta, rutaDelEstadoDeNotas } from "../lib/notas-boveda.mjs";
+import { REGISTRO_DEL_COORDINADOR, anotarAvisoAlCto, crearNotasDeBoveda, destinoEnLaBoveda, escribirNotaEnLaBoveda, fechaDelRegistro, problemaDeRuta, rutaDelEstadoDeNotas } from "../lib/notas-boveda.mjs";
 
 let pruebas = 0;
 async function prueba(nombre, fn) {
@@ -189,6 +189,52 @@ try {
     assert.equal(llamadas[0].init.headers.Authorization, "Bearer aizen_trab_x");
     assert.equal(llamadas[1].init.method, "POST");
     assert.deepEqual(JSON.parse(llamadas[1].init.body), { id: "n1", estado: "ERROR", motivo: "ruta mala" });
+  });
+
+  await prueba("aviso al CTO: agrega UNA fila fechada al final del registro del Coordinador, sin sobrescribir y sin repetirla", async () => {
+    const boveda = path.join(T, "boveda-cto");
+    fs.mkdirSync(path.join(boveda, "CRM-Gestion"), { recursive: true });
+    const archivo = path.join(boveda, ...REGISTRO_DEL_COORDINADOR.split("/"));
+    assert.equal(REGISTRO_DEL_COORDINADOR, "CRM-Gestion/2026-10-25-coordinador-registro.md");
+    fs.writeFileSync(archivo, "# Coordinador — registro horario\n| 30-oct 09:00 | abcd1234 | coordinador | revisé |");
+    // 30-oct-2026 19:05 UTC = 14:05 en Bogotá.
+    const ahora = Date.UTC(2026, 9, 30, 19, 5);
+    const tarjeta = { id: "cmvt24l7900hz2wmnykpl83z3", titulo: "Coordinador | parte 3" };
+    const primera = anotarAvisoAlCto(boveda, { tarjeta, causas: ["no_compila: error TS2322", "lint: regla | x", "fallan_pruebas: not ok 3"], ahora });
+    assert.equal(primera.accion, "agregada");
+    assert.equal(
+      fs.readFileSync(archivo, "utf8"),
+      "# Coordinador — registro horario\n| 30-oct 09:00 | abcd1234 | coordinador | revisé |\n| 30-oct 14:05 | ykpl83z3 | coordinador | AVISO AL CTO: «Coordinador / parte 3» — causas: no_compila: error TS2322, lint: regla / x, fallan_pruebas: not ok 3 |\n",
+    );
+    // Otra vez con la misma tarjeta: no se repite.
+    assert.equal(anotarAvisoAlCto(boveda, { tarjeta, causas: ["a", "b", "c"], ahora }).accion, "ya_estaba");
+    assert.equal(fs.readFileSync(archivo, "utf8").split("\n").filter((linea) => linea.includes("AVISO AL CTO")).length, 1);
+    // Otra tarjeta sí agrega su fila.
+    assert.equal(anotarAvisoAlCto(boveda, { tarjeta: { id: "otra00000001", titulo: "Otra" }, causas: ["a", "b", "c"], ahora }).accion, "agregada");
+    assert.equal(fs.readFileSync(archivo, "utf8").split("\n").filter((linea) => linea.includes("AVISO AL CTO")).length, 2);
+  });
+
+  await prueba("aviso al CTO: si el registro no existe lo crea con la fila; la fecha va en la hora de Bogotá", async () => {
+    const boveda = path.join(T, "boveda-cto-vacia");
+    fs.mkdirSync(boveda, { recursive: true });
+    const hecho = anotarAvisoAlCto(boveda, { tarjeta: { id: "t1", titulo: "X" }, causas: ["a", "b", "c"], ahora: Date.UTC(2026, 10, 1, 3, 7) });
+    assert.equal(hecho.accion, "agregada");
+    assert.equal(fs.readFileSync(path.join(boveda, "CRM-Gestion", "2026-10-25-coordinador-registro.md"), "utf8"), "| 31-oct 22:07 | t1 | coordinador | AVISO AL CTO: «X» — causas: a, b, c |\n");
+    assert.equal(fechaDelRegistro(new Date(Date.UTC(2026, 0, 5, 14, 0))), "5-ene 09:00");
+  });
+
+  await prueba("aviso al CTO: no escribe fuera de la bóveda aunque CRM-Gestion sea un enlace que sale", async () => {
+    const boveda = path.join(T, "boveda-cto-enlace");
+    const afuera = path.join(T, "afuera-cto");
+    fs.mkdirSync(boveda, { recursive: true });
+    fs.mkdirSync(afuera, { recursive: true });
+    try {
+      fs.symlinkSync(afuera, path.join(boveda, "CRM-Gestion"), "junction");
+    } catch {
+      return; // Sin permiso para enlaces: no se puede probar aquí.
+    }
+    assert.throws(() => anotarAvisoAlCto(boveda, { tarjeta: { id: "t1", titulo: "X" }, causas: ["a"] }), /se sale de la bóveda/);
+    assert.deepEqual(fs.readdirSync(afuera), []);
   });
 } finally {
   fs.rmSync(T, { recursive: true, force: true });
