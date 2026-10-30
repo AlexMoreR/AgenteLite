@@ -79,7 +79,6 @@ import {
   motivosDeLosArchivos,
   motivosDelResultado,
   porQueElPlanEsperaTuSi,
-  porQueElPlanNuevoEsperaTuSi,
   porQueElPlanTienePreguntas,
   porQueFaltanCriterios,
   porQueLaTareaEsperaTuSi,
@@ -93,6 +92,7 @@ import {
   aprobarPlanesSoloPrendido,
   motivoDeLaAprobacionAutomatica,
   registroDeAprobacionAutomatica,
+  siDelPlanPorLaRegla,
 } from "./aprobacion-automatica";
 import {
   SQL_ARRANQUE,
@@ -940,12 +940,18 @@ export async function accionDelTrabajador(
       // o gasto en Meta Ads. Una tarjeta con zona protegida también espera: /tomar exige que su plan se apruebe en la
       // pantalla, así que aprobarlo solo la dejaría parada en PLAN_APROBADO sin que nadie lo vea. Desde el 25-oct, CHATS y BOT_VENTAS
       // arrancan solas (ZONAS_QUE_ARRANCAN_SOLAS): su plan se aprueba solo igual que el de cualquier otra tarjeta.
+      // Un solo sí (30-oct): si el dueño ya aprobó la tarea (pantalla o voz), el dinero de Gestión no pide otro sí al plan.
       const planesSolos = await aprobarPlanesSoloPrendido(contexto.workspaceId);
-      const esperaPorRegla = !planesSolos
-        ? null
-        : zonasQueNoArrancanSolas(actual.zonaProtegida).length
-          ? `tiene zona protegida (${zonasQueNoArrancanSolas(actual.zonaProtegida).join(", ")}): su plan se aprueba en la pantalla`
-          : porQueElPlanNuevoEsperaTuSi(plan);
+      let esperaPorRegla: string | null = null;
+      let motivoPorRegla = "el plan no toca dinero de Gestión ni gasto en Meta Ads";
+      if (planesSolos && zonasQueNoArrancanSolas(actual.zonaProtegida).length) {
+        esperaPorRegla = `tiene zona protegida (${zonasQueNoArrancanSolas(actual.zonaProtegida).join(", ")}): su plan se aprueba en la pantalla`;
+      } else if (planesSolos) {
+        const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: actual.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
+        const si = siDelPlanPorLaRegla(plan, historial);
+        esperaPorRegla = si.espera;
+        if (si.espera === null) motivoPorRegla = si.motivo;
+      }
       if (actual.riesgo === "BAJO") {
         const motivos = revision.motivosAlto;
         if (motivos.length) {
@@ -983,9 +989,9 @@ export async function accionDelTrabajador(
           }
         }
       }
-      // Regla del dueño (24-oct): aprobada la tarea, el plan pasa solo a construir. Única excepción: el plan toca
-      // dinero de Gestión o gasto en Meta Ads (queda PLAN_LISTO con el motivo). Con el interruptor apagado, todo
-      // como antes.
+      // Regla del dueño (24-oct): aprobada la tarea, el plan pasa solo a construir. Excepción: el plan toca gasto en
+      // Meta Ads, o dinero de Gestión sin que el dueño haya aprobado la tarea (queda PLAN_LISTO con el motivo). Con el
+      // interruptor apagado, todo como antes.
       if (!aprobacionDelPlan && planesSolos) {
         if (esperaPorRegla) {
           despues.nota = `plan listo, espera tu sí (${esperaPorRegla})`;
@@ -1000,7 +1006,7 @@ export async function accionDelTrabajador(
           aprobacionDelPlan = registroDeAprobacionAutomatica({
             estado: "PLAN_APROBADO",
             momento: "plan",
-            motivo: "el plan no toca dinero de Gestión ni gasto en Meta Ads",
+            motivo: motivoPorRegla,
             regla: "dueno-24-oct",
           });
           reglaDelDueno = true;

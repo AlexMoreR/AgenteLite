@@ -169,8 +169,9 @@ export function SeccionTrabajador() {
           <span>
             <span className="font-medium">Aprobar planes solo</span>
             <span className="block text-xs text-muted-foreground">
-              Aprobada la tarea, el plan pasa solo a construir. Solo te espera el plan que toca dinero de Gestión o puede subir presupuesto,
-              activar campañas o crear gasto en Meta Ads. Apagado, todos los planes piden tu sí.
+              Aprobada la tarea, el plan pasa solo a construir. Un plan que toca dinero de Gestión pasa solo si tú ya aprobaste la tarea.
+              Lo que puede subir presupuesto, activar campañas o crear gasto en Meta Ads sigue esperando tu sí. Apagado, todos los planes
+              piden tu sí.
             </span>
             {!panel.esDueno ? (
               <span className="mt-1 block text-xs text-muted-foreground">Solo el dueño del negocio mueve este interruptor.</span>

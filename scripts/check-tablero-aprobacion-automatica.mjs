@@ -604,6 +604,81 @@ await prueba("aprobarPlanesListosQueEsperan: con el interruptor apagado no hace 
   assert.equal(estado.tarjetas.get("b").estado, "PLAN_APROBADO");
 });
 
+/* ------------------------------------------------------------------ un solo sí del dueño (30-oct) */
+
+const MOTIVO_UN_SOLO_SI = "la tarea ya la aprobó el dueño (un solo sí, 30-oct)";
+const planDeAbonos = () => planDe({ archivos: "- src/features/abonos/tabla.tsx" });
+// La fila que deja el sí del dueño a la tarea (registroDeAprobacion): momento "tarea" y via "pantalla" o "voz".
+const siDeLaTarea = (tarjetaId, via = "voz") =>
+  estado.historial.push({ tarjetaId, accion: "aprobar", quien: "u1", despues: { estado: "APROBADO", momento: "tarea", via } });
+
+await prueba("un solo sí: con la tarea aprobada por voz, un plan de abonos pasa a PLAN_APROBADO con la regla 24-oct y el motivo del sí único", async () => {
+  planeando({ riesgo: "BAJO" });
+  siDeLaTarea("t1", "voz");
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planDeAbonos() });
+  assert.equal(r.estado, "PLAN_APROBADO");
+  assert.equal(estado.tarjetas.get("t1").estado, "PLAN_APROBADO");
+  const ultima = estado.historial.at(-1);
+  assert.equal(ultima.accion, "aprobar");
+  assert.equal(ultima.quien, auto.QUIEN_AUTOMATICO);
+  assert.equal(ultima.despues.estado, "PLAN_APROBADO");
+  assert.equal(ultima.despues.momento, "plan");
+  assert.equal(ultima.despues.via, "automatica");
+  assert.equal(ultima.despues.regla, "dueno-24-oct");
+  assert.equal(ultima.despues.motivo, MOTIVO_UN_SOLO_SI);
+  assert.equal(auto.MOTIVO_UN_SOLO_SI, MOTIVO_UN_SOLO_SI);
+});
+
+await prueba("un solo sí: si la tarea se aprobó sola (via automatica), el plan de abonos queda PLAN_LISTO", async () => {
+  planeando({ riesgo: "BAJO" });
+  siDeLaTarea("t1", "automatica");
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planDeAbonos() });
+  assert.equal(r.estado, "PLAN_LISTO");
+  assert.equal(estado.tarjetas.get("t1").estado, "PLAN_LISTO");
+  assert.equal(estado.historial.filter((fila) => fila.despues?.momento === "plan").length, 0);
+  assert.match(estado.historial.at(-1).despues.nota, /espera tu sí/);
+});
+
+await prueba("un solo sí: un plan normal con la tarea aprobada conserva el motivo de siempre", async () => {
+  planeando({ riesgo: "ALTO", riesgoPor: "DUENO" });
+  siDeLaTarea("t1", "pantalla");
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planAlto() });
+  assert.equal(r.estado, "PLAN_APROBADO");
+  assert.equal(estado.historial.at(-1).despues.motivo, "el plan no toca dinero de Gestión ni gasto en Meta Ads");
+});
+
+await prueba("un solo sí: un plan de Meta Ads con la tarea aprobada por el dueño sigue en PLAN_LISTO", async () => {
+  planeando({ riesgo: "ALTO", riesgoPor: "CLAUDE" });
+  siDeLaTarea("t1", "pantalla");
+  const r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", {
+    plan: planAlto({ archivos: "- src/features/meta/ajuste.ts\nSube el presupuesto diario de la campaña." }),
+  });
+  assert.equal(r.estado, "PLAN_LISTO");
+  assert.equal(estado.tarjetas.get("t1").estado, "PLAN_LISTO");
+  assert.equal(estado.historial.filter((fila) => fila.despues?.momento === "plan").length, 0);
+  // La vuelta del reloj tampoco lo pasa.
+  assert.equal(await auto.aprobarPlanesListosQueEsperan(), 0);
+  assert.equal(estado.tarjetas.get("t1").estado, "PLAN_LISTO");
+});
+
+await prueba("un solo sí: aprobarPlanesListosQueEsperan pasa la PLAN_LISTO de abonos con el sí del dueño y deja la que no lo tiene", async () => {
+  tarjeta({ id: "consi", estado: "PLAN_LISTO", plan: planDeAbonos(), riesgo: "ALTO" });
+  tarjeta({ id: "sinsi", estado: "PLAN_LISTO", plan: planDeAbonos(), riesgo: "ALTO" });
+  tarjeta({ id: "automatica", estado: "PLAN_LISTO", plan: planDeAbonos(), riesgo: "ALTO" });
+  tarjeta({ id: "meta", estado: "PLAN_LISTO", plan: planAlto({ archivos: "- src/features/meta/ajuste.ts\nActivar las campañas nuevas." }), riesgo: "ALTO" });
+  siDeLaTarea("consi", "pantalla");
+  siDeLaTarea("automatica", "automatica");
+  siDeLaTarea("meta", "voz");
+  assert.equal(await auto.aprobarPlanesListosQueEsperan(), 1);
+  assert.equal(estado.tarjetas.get("consi").estado, "PLAN_APROBADO");
+  for (const id of ["sinsi", "automatica", "meta"]) assert.equal(estado.tarjetas.get(id).estado, "PLAN_LISTO", id);
+  const nueva = estado.historial.at(-1);
+  assert.equal(nueva.tarjetaId, "consi");
+  assert.equal(nueva.despues.regla, "dueno-24-oct");
+  assert.equal(nueva.despues.motivo, MOTIVO_UN_SOLO_SI);
+  assert.deepEqual(nueva.antes, { estado: "PLAN_LISTO" });
+});
+
 /* ------------------------------------------------------------------ regla del dueño 25-oct: las tareas arrancan solas */
 
 const FRASE_TAREA_SOLA = "aprobada automáticamente (regla del dueño 25-oct)";

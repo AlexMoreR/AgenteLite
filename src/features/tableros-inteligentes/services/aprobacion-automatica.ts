@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi, porQueNoSeApruebaSola } from "./reglas-riesgo";
-import { zonasQueNoArrancanSolas } from "./reglas-trabajador";
+import { tareaAprobadaPorElDuenoEnElHistorial, zonasQueNoArrancanSolas } from "./reglas-trabajador";
 
 /*
   APROBACIÓN AUTOMÁTICA del Tablero IA (22-oct-2026, decisión de Alexander: "las cosas básicas que
@@ -18,10 +18,13 @@ import { zonasQueNoArrancanSolas } from "./reglas-trabajador";
 
   REGLA DEL DUEÑO (24-oct-2026, por voz: "si ya construyó un plan, ¿por qué tiene que esperarme?"): aprobada la
   TAREA, el plan también pasa solo a construir, con cualquier riesgo. Las tarjetas con zona protegida no
-  entran: su plan se aprueba en la pantalla (así lo exige /tomar) y siguen pidiendo el sí final. ÚNICA excepción: el plan toca dinero de Gestión o puede subir presupuesto, activar
-  campañas o crear gasto en Meta Ads (porQueElPlanEsperaTuSi, en reglas-riesgo.ts): queda PLAN_LISTO con su
-  motivo. Tiene su propio interruptor ("Aprobar planes solo", prendido sin fila). La vuelta del reloj
-  (aprobarPlanesListosQueEsperan) pasa a construir las PLAN_LISTO que esperaban y no caen en la excepción.
+  entran: su plan se aprueba en la pantalla (así lo exige /tomar) y siguen pidiendo el sí final. Queda PLAN_LISTO con
+  su motivo (porQueElPlanNuevoEsperaTuSi, en reglas-riesgo.ts) el plan que tiene preguntas abiertas, trae "NECESITO:",
+  puede subir presupuesto, activar campañas o crear gasto en Meta Ads, o le faltan criterios de aceptación. El plan que
+  toca dinero de Gestión también espera, salvo que el dueño ya haya aprobado la TAREA en la pantalla o por voz (UN SOLO
+  SÍ, 30-oct-2026): ese sí vale también para el plan (MOTIVO_UN_SOLO_SI). La aprobación automática de la tarea (25-oct)
+  no cuenta. Tiene su propio interruptor ("Aprobar planes solo", prendido sin fila). La vuelta del reloj
+  (aprobarPlanesListosQueEsperan) pasa a construir las PLAN_LISTO que esperaban y ya no tienen motivo.
 
   REGLA DEL DUEÑO (25-oct-2026, por voz: "¿por qué esperan mi aprobación si ya dije que no la necesitan?"): toda
   TAREA con repo que entra en POR_APROBAR pasa sola a APROBADO, con cualquier riesgo ("aprobada automáticamente
@@ -39,6 +42,9 @@ export const NOMBRE_AUTOMATICO = "Aprobación automática";
 export const TEXTO_AUTOMATICO = "aprobado automáticamente por regla de bajo riesgo";
 
 export const TEXTO_PLAN_SOLO = "plan aprobado automáticamente (regla del dueño 24-oct)";
+
+/** El motivo que queda en el historial cuando el plan de Gestión pasa solo porque el dueño ya aprobó la tarea. */
+export const MOTIVO_UN_SOLO_SI = "la tarea ya la aprobó el dueño (un solo sí, 30-oct)";
 
 export const TEXTO_TAREA_SOLA = "aprobada automáticamente (regla del dueño 25-oct)";
 
@@ -82,6 +88,22 @@ export async function ponerAprobacionAutomatica(workspaceId: string, prendida: b
   const key = claveDelInterruptor(workspaceId);
   const value = prendida ? "true" : "false";
   await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+}
+
+/**
+ * Regla del dueño (24-oct) con el sí único (30-oct): ¿el plan nuevo espera el sí del dueño? `historial`: las filas
+ * "aprobar" de la tarjeta. Devuelve el motivo de la espera, o el motivo que se anota al aprobarlo solo
+ * (MOTIVO_UN_SOLO_SI si sin el sí de la tarea habría esperado). Sin base.
+ */
+export function siDelPlanPorLaRegla(
+  plan: string,
+  historial: readonly { accion: string; despues: unknown }[],
+): { espera: string; motivo?: undefined } | { espera: null; motivo: string } {
+  const tareaAprobadaPorElDueno = tareaAprobadaPorElDuenoEnElHistorial(historial);
+  const espera = porQueElPlanNuevoEsperaTuSi(plan, { tareaAprobadaPorElDueno });
+  if (espera) return { espera };
+  if (tareaAprobadaPorElDueno && porQueElPlanNuevoEsperaTuSi(plan)) return { espera: null, motivo: MOTIVO_UN_SOLO_SI };
+  return { espera: null, motivo: "el plan no toca dinero de Gestión ni gasto en Meta Ads" };
 }
 
 /** Lo que queda en `HistorialTarjeta.despues` de una aprobación automática (misma forma que una de la pantalla). */
@@ -274,7 +296,8 @@ export async function aprobarSolasLasPendientes(limite = 200): Promise<number> {
 
 /**
  * La vuelta del reloj de la regla del dueño (24-oct): pasa a PLAN_APROBADO las tarjetas que esperaban en
- * PLAN_LISTO y cuyo plan no cae en la excepción de dinero / Meta Ads. No toca las que están en ERROR ni
+ * PLAN_LISTO y cuyo plan ya no tiene motivo para esperar (siDelPlanPorLaRegla: con el sí único del 30-oct, el de
+ * dinero de Gestión pasa si el dueño aprobó la tarea). No toca las que están en ERROR ni
  * hace nada en un negocio con "Aprobar planes solo" apagado. Devuelve cuántas pasó.
  */
 export async function aprobarPlanesListosQueEsperan(limite = 100): Promise<number> {
@@ -293,11 +316,14 @@ export async function aprobarPlanesListosQueEsperan(limite = 100): Promise<numbe
       if (!prendidos.has(workspaceId)) prendidos.set(workspaceId, await aprobarPlanesSoloPrendido(workspaceId));
       if (!prendidos.get(workspaceId) || !tarjeta.plan || zonasQueNoArrancanSolas(tarjeta.zonaProtegida).length) continue;
       // 29-oct-2026: también los criterios de aceptación y los supuestos de negocio (un plan en PLAN_LISTO todavía no se aprobó).
-      if (porQueElPlanNuevoEsperaTuSi(tarjeta.plan)) continue;
+      // 30-oct-2026 (un solo sí): si el dueño ya aprobó la tarea, el dinero de Gestión no pide un segundo sí.
+      const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: tarjeta.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
+      const si = siDelPlanPorLaRegla(tarjeta.plan, historial);
+      if (si.espera !== null) continue;
       const registro = registroDeAprobacionAutomatica({
         estado: "PLAN_APROBADO",
         momento: "plan",
-        motivo: "el plan no toca dinero de Gestión ni gasto en Meta Ads",
+        motivo: si.motivo,
         regla: "dueno-24-oct",
       });
       const hecha = await prisma.$transaction(async (tx) => {
