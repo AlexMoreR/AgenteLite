@@ -14,6 +14,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { createChatFollowUpAction } from "@/app/actions/follow-actions";
+import {
+  MAXIMO_DIAS_FECHA_EXACTA,
+  ahoraEnBogotaParaInput,
+  formatoBogota,
+  horaDeBogotaAUtc,
+  validarFechaExacta,
+} from "@/features/seguimientos/dominio/fecha-exacta";
 
 // Atajos de cuando volver a escribir. Son los tiempos que se usan de verdad al vender: mismo dia,
 // al otro dia, o unos dias despues. Sin esto habria que llenar un formulario para cada seguimiento.
@@ -24,14 +31,6 @@ const PRESETS: Array<{ label: string; timeType: "HOURS" | "DAYS"; timeValue: num
   { label: "En 3 días", timeType: "DAYS", timeValue: 3 },
   { label: "En 1 semana", timeType: "DAYS", timeValue: 7 },
 ];
-
-function formatWhen(iso: string) {
-  const date = new Date(iso);
-  if (!Number.isFinite(date.getTime())) {
-    return "";
-  }
-  return new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short" }).format(date);
-}
 
 /**
  * "Agendar seguimiento" desde el chat: la asesora elige cuándo y qué escribir, y el mensaje sale
@@ -50,33 +49,51 @@ export function FollowUpDialog({
   const [isPending, startTransition] = useTransition();
   const [presetIndex, setPresetIndex] = useState(1);
   const [content, setContent] = useState("");
+  // Sexto boton "Otra fecha": la hora escrita se toma siempre como hora de Colombia.
+  const [otraFecha, setOtraFecha] = useState(false);
+  const [fechaExacta, setFechaExacta] = useState("");
 
   useEffect(() => {
     if (open) {
       setPresetIndex(1);
       setContent("");
+      setOtraFecha(false);
+      setFechaExacta("");
     }
   }, [open]);
+
+  const ahora = new Date();
+  const fechaUtc = fechaExacta ? horaDeBogotaAUtc(fechaExacta) : null;
+  const validacion = fechaUtc ? validarFechaExacta(fechaUtc, ahora) : null;
+  const fechaValida = validacion?.ok === true;
 
   const handleSave = () => {
     if (!contactId) {
       toast.error("No se pudo identificar el contacto.");
       return;
     }
+    if (otraFecha && !fechaValida) {
+      toast.error("Escoge una fecha y hora válidas.");
+      return;
+    }
     const preset = PRESETS[presetIndex];
     startTransition(async () => {
-      const result = await createChatFollowUpAction({
-        contactId,
-        timeType: preset.timeType,
-        timeValue: preset.timeValue,
-        content,
-      });
+      // Con "Otra fecha" el servidor usa fechaExacta; timeType/timeValue son relleno porque el schema los exige.
+      const result = await createChatFollowUpAction(
+        otraFecha
+          ? { contactId, timeType: "MINUTES", timeValue: 1, fechaExacta, content }
+          : { contactId, timeType: preset.timeType, timeValue: preset.timeValue, content },
+      );
       if ("error" in result) {
         toast.error(result.error);
         return;
       }
-      const when = formatWhen(result.executeAt);
-      toast.success(when ? `Seguimiento agendado para el ${when}` : "Seguimiento agendado");
+      const executeAt = new Date(result.executeAt);
+      toast.success(
+        Number.isFinite(executeAt.getTime())
+          ? `Seguimiento agendado para el ${formatoBogota(executeAt)}`
+          : "Seguimiento agendado",
+      );
       onClose();
       router.refresh();
     });
@@ -102,9 +119,12 @@ export function FollowUpDialog({
                 <button
                   key={preset.label}
                   type="button"
-                  onClick={() => setPresetIndex(index)}
+                  onClick={() => {
+                    setPresetIndex(index);
+                    setOtraFecha(false);
+                  }}
                   className={`rounded-full border px-3 py-1.5 text-[13px] transition ${
-                    index === presetIndex
+                    !otraFecha && index === presetIndex
                       ? "border-primary bg-primary/10 font-medium text-primary"
                       : "border-border text-foreground hover:bg-muted"
                   }`}
@@ -112,7 +132,40 @@ export function FollowUpDialog({
                   {preset.label}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => setOtraFecha(true)}
+                className={`rounded-full border px-3 py-1.5 text-[13px] transition ${
+                  otraFecha
+                    ? "border-primary bg-primary/10 font-medium text-primary"
+                    : "border-border text-foreground hover:bg-muted"
+                }`}
+              >
+                Otra fecha
+              </button>
             </div>
+            {otraFecha ? (
+              <div className="space-y-1.5">
+                <input
+                  type="datetime-local"
+                  value={fechaExacta}
+                  min={ahoraEnBogotaParaInput(ahora)}
+                  max={ahoraEnBogotaParaInput(new Date(ahora.getTime() + MAXIMO_DIAS_FECHA_EXACTA * 24 * 60 * 60 * 1000))}
+                  onChange={(event) => setFechaExacta(event.target.value)}
+                  className="h-9 w-full min-w-0 rounded-xl border border-border bg-card px-2.5 text-[13px] text-foreground outline-none"
+                  aria-label="Fecha y hora del seguimiento (hora de Colombia)"
+                />
+                {fechaUtc && validacion ? (
+                  <p className={`text-[12px] ${validacion.ok ? "text-muted-foreground" : "text-destructive"}`}>
+                    {validacion.ok
+                      ? `Sale el ${formatoBogota(fechaUtc)} (hora de Colombia)`
+                      : validacion.motivo === "pasada"
+                        ? "Escoge una fecha y hora que todavía no haya pasado"
+                        : `Escoge una fecha de máximo ${MAXIMO_DIAS_FECHA_EXACTA} días desde hoy`}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <div className="space-y-1.5">
@@ -135,7 +188,7 @@ export function FollowUpDialog({
           <Button variant="outline" onClick={onClose} disabled={isPending}>
             Cancelar
           </Button>
-          <Button onClick={handleSave} disabled={isPending || content.trim().length < 2}>
+          <Button onClick={handleSave} disabled={isPending || content.trim().length < 2 || (otraFecha && !fechaValida)}>
             {isPending ? "Agendando…" : "Agendar"}
           </Button>
         </DialogFooter>
