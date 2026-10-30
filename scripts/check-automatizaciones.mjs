@@ -56,6 +56,9 @@ function foto(parcial = {}) {
     ultimoMensajeEn: hace(4 * DIA),
     ultimoClienteEn: hace(4 * DIA),
     recuperacionVencida: false,
+    pasoActual: null,
+    pasoMaximo: null,
+    respondio: true,
     ...parcial,
   };
 }
@@ -551,6 +554,160 @@ prueba("G: el motor no la vuelve a abrir; si el cliente responde, el flujo norma
 prueba("G: el servicio cuenta la fase «automatizacion» como cerrada", () => {
   const servicio = fs.readFileSync(path.join(RAIZ, "src/features/seguimiento-inteligente/servicios/recuperacion.ts"), "utf8");
   assert.match(servicio, /d\.fase === FASE_ATENDIDA_POR_AUTOMATIZACION/);
+});
+
+/* ================================================================================================
+   H. PASO DEL EMBUDO (30-oct-2026) y la regla fija de Asignar
+================================================================================================ */
+
+const conPaso = (operador, valores, acciones = [{ tipo: "nota", texto: "x" }]) => ({
+  condiciones: [{ campo: "paso_embudo", operador, valores }],
+  soloAbiertas: true,
+  acciones,
+});
+
+prueba("H: paso del embudo: está en la lista con «es» y «ya pasó», y los pasos van en orden", () => {
+  assert.ok(md.CAMPOS_DE_CONDICION.some((c) => c.campo === "paso_embudo" && c.etiqueta === "Paso del embudo"));
+  assert.deepEqual(md.OPERADORES.paso_embudo.map((o) => o.etiqueta), ["es", "ya pasó"]);
+  assert.deepEqual(
+    md.PASOS_DEL_EMBUDO.map((p) => p.etiqueta),
+    ["Bienvenida", "Respondió", "Identificación", "Presentación del producto", "Dudas y objeciones", "Cierre"],
+  );
+});
+
+prueba("H: paso del embudo: limpieza (válidos, vacíos y desconocidos)", () => {
+  const c = md.criteriosDelBorrador({
+    condiciones: [
+      { campo: "paso_embudo", operador: "ya_paso", valores: ["PRESENTACION", "INVENTADO", "PRESENTACION"] },
+      { campo: "paso_embudo", operador: "es", valores: [] },
+      { campo: "paso_embudo", operador: "es", valores: ["INVENTADO"] },
+      { campo: "paso_embudo", operador: "raro", valores: ["CIERRE", "RESPONDIO"] },
+    ],
+    acciones: [],
+  });
+  assert.deepEqual(c.condiciones, [
+    { campo: "paso_embudo", operador: "ya_paso", valores: ["PRESENTACION"] },
+    { campo: "paso_embudo", operador: "ya_paso", valores: ["RESPONDIO", "CIERRE"] },
+  ]);
+  const base = { nombre: "x", condiciones: [{ campo: "paso_embudo", operador: "es", valores: [] }], soloAbiertas: true, cantidad: null, acciones: [{ tipo: "nota", texto: "x" }], automatica: false, ritmo: md.RITMO_POR_DEFECTO };
+  assert.equal(md.problemaDelBorrador(base), "Completa la condición «Paso del embudo»");
+});
+
+prueba("H: paso del embudo «es»: paso de hoy; en Bienvenida o sin paso, Respondió o Bienvenida según sus mensajes", () => {
+  const bienvenida = conPaso("es", ["PRESENTACION"]);
+  const respondio = conPaso("es", ["RESPONDIO"]);
+  const identificacion = conPaso("es", ["IDENTIFICACION"]);
+  assert.equal(cd.cumpleCondiciones(foto({ pasoActual: "PRESENTACION", respondio: false }), bienvenida, AHORA), true);
+  assert.equal(cd.cumpleCondiciones(foto({ pasoActual: null, respondio: false }), bienvenida, AHORA), true, "sin fila en el embudo");
+  assert.equal(cd.cumpleCondiciones(foto({ pasoActual: "PRESENTACION", respondio: true }), bienvenida, AHORA), false);
+  assert.equal(cd.cumpleCondiciones(foto({ pasoActual: "PRESENTACION", respondio: true }), respondio, AHORA), true);
+  assert.equal(cd.cumpleCondiciones(foto({ pasoActual: null, respondio: true }), respondio, AHORA), true);
+  assert.equal(cd.cumpleCondiciones(foto({ pasoActual: "IDENTIFICACION" }), identificacion, AHORA), true);
+  assert.equal(cd.cumpleCondiciones(foto({ pasoActual: "IDENTIFICACION" }), respondio, AHORA), false);
+  assert.equal(cd.cumpleCondiciones(foto({ pasoActual: "PRODUCTO", pasoMaximo: "PRODUCTO" }), identificacion, AHORA), false);
+  // Varios: alguno de los elegidos.
+  assert.equal(cd.cumpleCondiciones(foto({ pasoActual: "CIERRE" }), conPaso("es", ["OBJECIONES", "CIERRE"]), AHORA), true);
+});
+
+prueba("H: paso del embudo «ya pasó»: respondió y su paso más alto va después (con varios, el más bajo)", () => {
+  const pasoBienvenida = conPaso("ya_paso", ["PRESENTACION"]);
+  assert.equal(cd.cumpleCondiciones(foto({ respondio: true }), pasoBienvenida, AHORA), true);
+  assert.equal(cd.cumpleCondiciones(foto({ respondio: false }), pasoBienvenida, AHORA), false, "nunca respondió");
+  assert.equal(
+    cd.cumpleCondiciones(foto({ respondio: false, pasoActual: "IDENTIFICACION", pasoMaximo: "IDENTIFICACION" }), pasoBienvenida, AHORA),
+    false,
+    "paso más alto IDENTIFICACION pero no respondió: no",
+  );
+  const pasoRespondio = conPaso("ya_paso", ["RESPONDIO"]);
+  assert.equal(cd.cumpleCondiciones(foto({ respondio: true, pasoActual: "PRESENTACION" }), pasoRespondio, AHORA), false);
+  assert.equal(cd.cumpleCondiciones(foto({ respondio: true, pasoActual: "PRESENTACION", pasoMaximo: "IDENTIFICACION" }), pasoRespondio, AHORA), true, "volvió atrás: vale el más alto");
+  const pasoProducto = conPaso("ya_paso", ["PRODUCTO"]);
+  assert.equal(cd.cumpleCondiciones(foto({ pasoMaximo: "PRODUCTO", pasoActual: "PRODUCTO" }), pasoProducto, AHORA), false);
+  assert.equal(cd.cumpleCondiciones(foto({ pasoMaximo: "OBJECIONES" }), pasoProducto, AHORA), true);
+  assert.equal(cd.cumpleCondiciones(foto({ pasoMaximo: "CIERRE" }), conPaso("ya_paso", ["CIERRE"]), AHORA), false, "no hay paso después de Cierre");
+  assert.equal(cd.cumpleCondiciones(foto({ pasoMaximo: "IDENTIFICACION" }), conPaso("ya_paso", ["CIERRE", "PRESENTACION"]), AHORA), true, "vale el más bajo");
+  assert.deepEqual(md.loQuePideYaPaso(["PRESENTACION"]), { guardados: ["IDENTIFICACION", "PRODUCTO", "OBJECIONES", "CIERRE"], bastaResponder: true, nunca: false });
+  assert.deepEqual(md.loQuePideYaPaso(["CIERRE"]), { guardados: [], bastaResponder: false, nunca: true });
+});
+
+prueba("H: paso del embudo: Asignado = nadie + ya pasó Bienvenida no toma a los que nunca respondieron", () => {
+  const a = {
+    condiciones: [
+      { campo: "asignado", operador: "es", valores: [md.SIN_ASIGNAR] },
+      { campo: "paso_embudo", operador: "ya_paso", valores: ["PRESENTACION"] },
+    ],
+    soloAbiertas: true,
+    acciones: [{ tipo: "asignar", usuarioId: MARIA }],
+  };
+  assert.equal(cd.cumpleCondiciones(foto({ asignadoA: null, respondio: true }), a, AHORA), true);
+  assert.equal(cd.cumpleCondiciones(foto({ asignadoA: null, respondio: false }), a, AHORA), false);
+  assert.equal(cd.cumpleCondiciones(foto({ asignadoA: INGRID, respondio: true }), a, AHORA), false);
+});
+
+prueba("H: regla de Asignar: sin el filtro, igual nunca toma chats que no respondieron la bienvenida", () => {
+  const asignar = { condiciones: [{ campo: "asignado", operador: "es", valores: [md.SIN_ASIGNAR] }], soloAbiertas: true, acciones: [{ tipo: "asignar", usuarioId: MARIA }] };
+  assert.equal(cd.cumpleCondiciones(foto({ asignadoA: null, respondio: true }), asignar, AHORA), true);
+  assert.equal(cd.cumpleCondiciones(foto({ asignadoA: null, respondio: false }), asignar, AHORA), false);
+  // Sin Asignar, la regla no aplica (una etiqueta o una nota sí pueden ir a los que no respondieron).
+  const etiquetar = { ...asignar, acciones: [{ tipo: "anadir_etiqueta", etiquetaId: "t1" }] };
+  assert.equal(cd.cumpleCondiciones(foto({ asignadoA: null, respondio: false }), etiquetar, AHORA), true);
+});
+
+prueba("H: regla de Asignar: la ejecución tampoco asigna a uno que no respondió", async () => {
+  const a = md.leerAutomatizacionGuardada({
+    id: "h1",
+    nombre: "Sin dueña a María",
+    condiciones: [{ campo: "asignado", operador: "es", valores: [md.SIN_ASIGNAR] }],
+    acciones: [{ tipo: "asignar", usuarioId: MARIA }],
+  });
+  const vivo = foto({ asignadoA: null, respondio: true });
+  const muerto = foto({ asignadoA: null, respondio: false });
+  const aplicados = [];
+  const r = await ej.ejecutarAutomatizacion(
+    a,
+    {
+      buscarLeads: async () => [vivo, muerto],
+      marcarProcesado: async () => true,
+      aplicar: async (accion, f) => aplicados.push(f.conversationId),
+      agendarEnvio: async () => undefined,
+      ultimoEnvioAgendado: async () => null,
+      horario: null,
+    },
+    AHORA,
+  );
+  assert.equal(r.leads, 1);
+  assert.deepEqual(aplicados, [vivo.conversationId]);
+});
+
+prueba("H: paso del embudo: una guardada antes del cambio (sin paso_embudo) se lee igual", () => {
+  const guardada = {
+    id: "h2",
+    nombre: "Recuperación de María",
+    condiciones: [
+      { campo: "asignado", operador: "es", valores: [MARIA] },
+      { campo: "recuperacion_vencida", operador: "si" },
+    ],
+    soloAbiertas: true,
+    cantidad: 20,
+    acciones: [{ tipo: "enviar_texto", texto: "Hola" }],
+    automatica: true,
+    ritmo: { tanda: 10, cadaMinutos: 15 },
+    historial: [],
+    ultimaAutomaticaEn: null,
+  };
+  const a = md.leerAutomatizacionGuardada(guardada);
+  assert.deepEqual(a.condiciones, guardada.condiciones);
+  assert.deepEqual(a.acciones, guardada.acciones);
+  assert.equal(a.automatica, true);
+  // Sin Asignar, no cambia a quién toma: tampoco mira si respondió.
+  assert.equal(cd.cumpleCondiciones(foto({ recuperacionVencida: true, respondio: false }), a, AHORA), true);
+});
+
+prueba("H: el servicio cuenta con el mismo filtro (sqlDeCondicion con paso_embudo, y Asignar exige respondió)", () => {
+  const servicio = fs.readFileSync(path.join(RAIZ, "src/features/automatizaciones/servicio.ts"), "utf8");
+  assert.match(servicio, /case "paso_embudo":\s*return sqlDePasoDelEmbudo\(condicion\)/);
+  assert.match(servicio, /if \(destino\) \{[\s\S]*?partes\.push\(SQL_RESPONDIO\)/);
+  assert.match(servicio, /export async function contarLeads[\s\S]*?dondeDe\(/);
 });
 
 await Promise.all(pendientes);

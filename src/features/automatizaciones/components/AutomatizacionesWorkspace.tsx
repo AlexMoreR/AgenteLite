@@ -21,6 +21,7 @@ import {
   RITMO_POR_DEFECTO,
   SIN_ASIGNAR,
   TIPOS_DE_ACCION,
+  nombreDePasoDelEmbudo,
   problemaDelBorrador,
   tieneEnvios,
   type Accion,
@@ -83,6 +84,8 @@ function textoDeCondicion(c: Condicion, m: Mapas): string {
       return `${c.dias}+ días sin mensajes`;
     case "recuperacion_vencida":
       return c.operador === "si" ? "Recuperación vencida" : "Sin recuperación vencida";
+    case "paso_embudo":
+      return `Paso del embudo ${c.operador === "es" ? "es" : "ya pasó"} ${c.valores.map(nombreDePasoDelEmbudo).join(", ")}`;
   }
 }
 

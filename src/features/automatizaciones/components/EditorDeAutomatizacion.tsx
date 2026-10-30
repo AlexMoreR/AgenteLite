@@ -16,6 +16,7 @@ import {
   ETAPAS,
   ETAPAS_DESTINO,
   OPERADORES,
+  PASOS_DEL_EMBUDO,
   SIN_ASIGNAR,
   TIPOS_DE_ACCION,
   accionVacia,
@@ -38,6 +39,7 @@ const MOTIVOS_DE_PERDIDA = CRM_LOST_REASONS.filter((motivo) => motivo.value !== 
 const aOpciones = (lista: Opcion[]): OpcionDeSelector[] => lista.map((opcion) => ({ value: opcion.id, label: opcion.nombre }));
 const OPCIONES_DE_ETAPA: OpcionDeSelector[] = ETAPAS.map((etapa) => ({ value: etapa, label: getCrmStageMeta(etapa).label }));
 const OPCIONES_DE_ETAPA_DESTINO: OpcionDeSelector[] = ETAPAS_DESTINO.map((etapa) => ({ value: etapa, label: getCrmStageMeta(etapa).label }));
+const OPCIONES_DE_PASO: OpcionDeSelector[] = PASOS_DEL_EMBUDO.map((paso) => ({ value: paso.paso, label: paso.etiqueta }));
 const OPCIONES_DE_MOTIVO: OpcionDeSelector[] = MOTIVOS_DE_PERDIDA.map((motivo) => ({ value: motivo.value, label: motivo.label }));
 
 /* ------------------------------------------------------------------------------------------------
@@ -97,6 +99,9 @@ function FilaDeCondicion({
           <span className="text-[12px] text-muted-foreground">días</span>
         </div>
       );
+      break;
+    case "paso_embudo":
+      valor = multiple(OPCIONES_DE_PASO);
       break;
     case "recuperacion_vencida":
       valor = <span className="flex min-h-8 items-center text-[12px] text-muted-foreground">Tarea de llamada 72 h vencida (la de la alarma)</span>;
@@ -315,6 +320,7 @@ export function EditorDeAutomatizacion({
     onCambio({ ...borrador, acciones });
   };
   const conEnvios = tieneEnvios(borrador.acciones);
+  const conAsignar = borrador.acciones.some((accion) => accion.tipo === "asignar");
 
   return (
     <div className="space-y-5">
@@ -388,6 +394,7 @@ export function EditorDeAutomatizacion({
         <Button variant="outline" size="sm" onClick={() => onCambio({ ...borrador, acciones: [...borrador.acciones, accionVacia("asignar")] })}>
           <Plus className="size-4" /> Añadir acción
         </Button>
+        {conAsignar ? <p className="text-[11px] text-muted-foreground">Asignar nunca toma chats que no respondieron la bienvenida.</p> : null}
       </section>
 
       {conEnvios ? (

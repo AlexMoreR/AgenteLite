@@ -5,7 +5,8 @@
  * Alexander (13-10-2026) pidió armarlas en dos bloques:
  *
  *   CONDICIONES (todas se cumplen, Y): Etapa, Asignado, Etiquetas, Canal, Días sin responder,
- *   Días sin mensajes, Recuperación vencida, más "Solo chats abiertos" y "Cantidad máxima".
+ *   Días sin mensajes, Recuperación vencida, Paso del embudo, más "Solo chats abiertos" y
+ *   "Cantidad máxima".
  *   ACCIONES (en orden): Asignar, Añadir / Quitar etiqueta, Resolver, Posponer, Abrir, Enviar
  *   flujo, Enviar texto, Añadir nota, Cambiar etapa.
  *
@@ -26,6 +27,51 @@ export const ETAPAS_DESTINO: readonly Etapa[] = ["NUEVO", "CALIFICADO", "PROPUES
 export const SIN_ASIGNAR = "sin_asignar";
 
 /* ------------------------------------------------------------------------------------------------
+   PASOS DEL EMBUDO (condición "Paso del embudo", 30-oct-2026)
+
+   Los del libro V3 que guarda EmbudoLead (pasoActual / pasoMaximo), con los nombres del Mapa del
+   lead (PRESENTACION se llama "Bienvenida"), más RESPONDIO entre Bienvenida e Identificación.
+   RESPONDIO no lo guarda el embudo: sale de los mensajes (la clienta escribió después de nuestro
+   primer mensaje, la misma regla que `respondioLaBienvenida` en src/lib/turno-con-contenido.ts).
+------------------------------------------------------------------------------------------------ */
+
+export const RESPONDIO = "RESPONDIO";
+export const PASOS_DEL_EMBUDO = [
+  { paso: "PRESENTACION", etiqueta: "Bienvenida" },
+  { paso: RESPONDIO, etiqueta: "Respondió" },
+  { paso: "IDENTIFICACION", etiqueta: "Identificación" },
+  { paso: "PRODUCTO", etiqueta: "Presentación del producto" },
+  { paso: "OBJECIONES", etiqueta: "Dudas y objeciones" },
+  { paso: "CIERRE", etiqueta: "Cierre" },
+] as const;
+export type PasoDelEmbudo = (typeof PASOS_DEL_EMBUDO)[number]["paso"];
+const CLAVES_DE_PASOS: readonly string[] = PASOS_DEL_EMBUDO.map((p) => p.paso);
+
+/** Los pasos que sí guarda el embudo después de Bienvenida (los que cuentan por sí solos). */
+export const PASOS_GUARDADOS_ALTOS = ["IDENTIFICACION", "PRODUCTO", "OBJECIONES", "CIERRE"] as const;
+
+/** Posición del paso (0 = Bienvenida). -1 si no es un paso. */
+export function ordenDePaso(paso: string | null | undefined): number {
+  return paso ? CLAVES_DE_PASOS.indexOf(paso) : -1;
+}
+
+export function nombreDePasoDelEmbudo(paso: string): string {
+  return PASOS_DEL_EMBUDO.find((p) => p.paso === paso)?.etiqueta ?? paso;
+}
+
+/**
+ * "ya pasó" con estos pasos elegidos (vale el más bajo): basta con haber respondido, o además hace
+ * falta que su paso guardado sea uno de `guardados`. `nunca` = no hay paso después (ya pasó Cierre).
+ */
+export function loQuePideYaPaso(valores: ReadonlyArray<string>): { guardados: string[]; bastaResponder: boolean; nunca: boolean } {
+  const ordenes = valores.map(ordenDePaso).filter((o) => o >= 0);
+  const minimo = ordenes.length ? Math.min(...ordenes) : CLAVES_DE_PASOS.length - 1;
+  const bastaResponder = minimo < ordenDePaso(RESPONDIO);
+  const guardados = PASOS_GUARDADOS_ALTOS.filter((p) => ordenDePaso(p) > minimo);
+  return { guardados, bastaResponder, nunca: !bastaResponder && guardados.length === 0 };
+}
+
+/* ------------------------------------------------------------------------------------------------
    CONDICIONES
 ------------------------------------------------------------------------------------------------ */
 
@@ -41,7 +87,12 @@ export type Condicion =
   /** Nadie escribió en el chat (ni el cliente ni nosotros) hace al menos N días. */
   | { campo: "dias_sin_mensajes"; operador: "al_menos"; dias: number }
   /** Tiene vencida la tarea de la Recuperación 72 h (la misma de la alarma de Recuperación). */
-  | { campo: "recuperacion_vencida"; operador: "si" | "no" };
+  | { campo: "recuperacion_vencida"; operador: "si" | "no" }
+  /**
+   * "es" = el paso en que está hoy; "ya_paso" = respondió la bienvenida y su paso más alto va
+   * después del elegido (si se eligen varios, vale el más bajo). Ver PASOS DEL EMBUDO.
+   */
+  | { campo: "paso_embudo"; operador: "es" | "ya_paso"; valores: PasoDelEmbudo[] };
 
 export type CampoDeCondicion = Condicion["campo"];
 
@@ -53,6 +104,7 @@ export const CAMPOS_DE_CONDICION: ReadonlyArray<{ campo: CampoDeCondicion; etiqu
   { campo: "dias_sin_responder", etiqueta: "Días sin responder" },
   { campo: "dias_sin_mensajes", etiqueta: "Días sin mensajes" },
   { campo: "recuperacion_vencida", etiqueta: "Recuperación vencida" },
+  { campo: "paso_embudo", etiqueta: "Paso del embudo" },
 ];
 
 export const OPERADORES: Record<CampoDeCondicion, ReadonlyArray<{ valor: string; etiqueta: string }>> = {
@@ -78,6 +130,10 @@ export const OPERADORES: Record<CampoDeCondicion, ReadonlyArray<{ valor: string;
     { valor: "si", etiqueta: "sí" },
     { valor: "no", etiqueta: "no" },
   ],
+  paso_embudo: [
+    { valor: "es", etiqueta: "es" },
+    { valor: "ya_paso", etiqueta: "ya pasó" },
+  ],
 };
 
 /** Una condición nueva del campo elegido (la fila recién añadida en el editor). */
@@ -96,6 +152,8 @@ export function condicionVacia(campo: CampoDeCondicion): Condicion {
       return { campo, operador: "al_menos", dias: 3 };
     case "recuperacion_vencida":
       return { campo, operador: "si" };
+    case "paso_embudo":
+      return { campo, operador: "ya_paso", valores: [] };
   }
 }
 
@@ -262,6 +320,10 @@ function limpiarCondicion(valor: unknown): Condicion | null {
     }
     case "recuperacion_vencida":
       return { campo: "recuperacion_vencida", operador: c.operador === "no" ? "no" : "si" };
+    case "paso_embudo": {
+      const valores = Array.isArray(c.valores) ? PASOS_DEL_EMBUDO.map((p) => p.paso).filter((p) => (c.valores as unknown[]).includes(p)) : [];
+      return valores.length ? { campo: "paso_embudo", operador: c.operador === "es" ? "es" : "ya_paso", valores } : null;
+    }
     default:
       return null;
   }

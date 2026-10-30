@@ -22,12 +22,15 @@ import { destinoDeAsignacion, type FotoDelLead } from "./dominio/condiciones";
 import { comoEjecucion, ejecutarAutomatizacion, type EnvioAgendado, type Puertos, type ResultadoDeEjecucion } from "./dominio/ejecutar";
 import {
   MAXIMO_POR_EJECUCION,
+  PASOS_GUARDADOS_ALTOS,
   PREFIJO_FOLLOW_AUTOMATIZACION,
+  RESPONDIO,
   SIN_ASIGNAR,
   conEjecucion,
   idCortoDelEnvio,
   leTocaAlReloj,
   leerAutomatizacionGuardada,
+  loQuePideYaPaso,
   nombreDelEnvio,
   tieneEnvios,
   type Accion,
@@ -97,6 +100,39 @@ export async function actualizarAutomatizacion(workspaceId: string, id: string, 
 
 type Criterios = Pick<Automatizacion, "condiciones" | "soloAbiertas" | "acciones">;
 
+/**
+ * La clienta escribió después de nuestro primer mensaje. Es la regla de `respondioLaBienvenida`
+ * (src/lib/turno-con-contenido.ts) en SQL: notas del sistema y mensajes borrados no cuentan; sin
+ * mensaje nuestro, min() es NULL y no cumple. Usa el índice (conversationId, direction, createdAt).
+ */
+const SQL_RESPONDIO = Prisma.sql`EXISTS (
+  SELECT 1 FROM "Message" mi
+   WHERE mi."conversationId" = c."id" AND mi."direction" = 'INBOUND' AND mi."type" <> 'SYSTEM' AND mi."deletedAt" IS NULL
+     AND mi."createdAt" > (SELECT min(mo."createdAt") FROM "Message" mo
+                            WHERE mo."conversationId" = c."id" AND mo."direction" = 'OUTBOUND' AND mo."type" <> 'SYSTEM' AND mo."deletedAt" IS NULL))`;
+const SQL_PASO_ACTUAL = Prisma.sql`COALESCE((SELECT e."pasoActual" FROM "EmbudoLead" e WHERE e."conversationId" = c."id"), '')`;
+const SQL_PASO_MAXIMO = Prisma.sql`COALESCE((SELECT e."pasoMaximo" FROM "EmbudoLead" e WHERE e."conversationId" = c."id"), '')`;
+
+/** "Paso del embudo" en SQL: lo mismo que `cumpleCondicion` (dominio/condiciones.ts). */
+function sqlDePasoDelEmbudo(condicion: Extract<Condicion, { campo: "paso_embudo" }>): Prisma.Sql {
+  const valores: readonly string[] = condicion.valores;
+  if (condicion.operador === "ya_paso") {
+    const pide = loQuePideYaPaso(valores);
+    if (pide.nunca) return Prisma.sql`FALSE`;
+    if (pide.bastaResponder) return SQL_RESPONDIO;
+    const guardados = Prisma.join(pide.guardados);
+    return Prisma.sql`(${SQL_RESPONDIO} AND (${SQL_PASO_MAXIMO} IN (${guardados}) OR ${SQL_PASO_ACTUAL} IN (${guardados})))`;
+  }
+  // "es": en Bienvenida (o sin paso) cuenta como Respondió o Bienvenida según sus mensajes.
+  const partes: Prisma.Sql[] = [];
+  const altos = PASOS_GUARDADOS_ALTOS.filter((p) => valores.includes(p));
+  if (altos.length) partes.push(Prisma.sql`${SQL_PASO_ACTUAL} IN (${Prisma.join(altos)})`);
+  const enBienvenida = Prisma.sql`${SQL_PASO_ACTUAL} NOT IN (${Prisma.join([...PASOS_GUARDADOS_ALTOS])})`;
+  if (valores.includes("PRESENTACION")) partes.push(Prisma.sql`(${enBienvenida} AND NOT ${SQL_RESPONDIO})`);
+  if (valores.includes(RESPONDIO)) partes.push(Prisma.sql`(${enBienvenida} AND ${SQL_RESPONDIO})`);
+  return partes.length ? Prisma.sql`(${Prisma.join(partes, " OR ")})` : Prisma.sql`FALSE`;
+}
+
 function sqlDeCondicion(condicion: Condicion, ahora: Date, recuperacion: Prisma.Sql): Prisma.Sql {
   switch (condicion.campo) {
     case "etapa": {
@@ -127,6 +163,8 @@ function sqlDeCondicion(condicion: Condicion, ahora: Date, recuperacion: Prisma.
       return Prisma.sql`c."lastMessageAt" <= ${new Date(ahora.getTime() - condicion.dias * DIA)}`;
     case "recuperacion_vencida":
       return condicion.operador === "si" ? recuperacion : Prisma.sql`NOT ${recuperacion}`;
+    case "paso_embudo":
+      return sqlDePasoDelEmbudo(condicion);
   }
 }
 
@@ -135,9 +173,13 @@ async function dondeDe(workspaceId: string, criterios: Criterios, ahora: Date, a
   const recuperacion = await condicionRecuperacionVencida(workspaceId, ahora);
   const partes: Prisma.Sql[] = [Prisma.sql`c."workspaceId" = ${workspaceId}`];
   if (criterios.soloAbiertas) partes.push(Prisma.sql`c."status" IN ('OPEN', 'PENDING')`);
-  // Con "Asignar a X": nunca los que ya son de X ("asignarle 20" son 20 NUEVOS).
+  // Con "Asignar a X": nunca los que ya son de X ("asignarle 20" son 20 NUEVOS), y nunca chats que
+  // no respondieron la bienvenida (regla vigente; igual en cumpleCondiciones).
   const destino = destinoDeAsignacion(criterios.acciones);
-  if (destino) partes.push(Prisma.sql`COALESCE(c."assignedToUserId", '') <> ${destino}`);
+  if (destino) {
+    partes.push(Prisma.sql`COALESCE(c."assignedToUserId", '') <> ${destino}`);
+    partes.push(SQL_RESPONDIO);
+  }
   // Con envíos: nunca Ganado / Descartado ni ocultos del CRM.
   if (tieneEnvios(criterios.acciones)) {
     partes.push(Prisma.sql`ct."crmStage"::text NOT IN ('GANADO', 'PERDIDO') AND ct."excludedFromCrm" = false`);
@@ -199,6 +241,9 @@ type FilaDelLead = {
   ultimoMensajeEn: Date | null;
   ultimoClienteEn: Date | null;
   recuperacionVencida: boolean;
+  pasoActual: string | null;
+  pasoMaximo: string | null;
+  respondio: boolean;
   nombre: string | null;
   telefono: string | null;
   asesora: string | null;
@@ -216,12 +261,14 @@ async function leerLeads(workspaceId: string, automatizacion: Criterios & { id?:
            (SELECT max(m."createdAt") FROM "Message" m
              WHERE m."conversationId" = c."id" AND m."direction" = 'INBOUND' AND m."type" <> 'SYSTEM' AND m."deletedAt" IS NULL) AS "ultimoClienteEn",
            (CASE WHEN ${recuperacion} THEN true ELSE false END) AS "recuperacionVencida",
+           eb."pasoActual", eb."pasoMaximo", (CASE WHEN ${SQL_RESPONDIO} THEN true ELSE false END) AS "respondio",
            NULLIF(btrim(ct."name"), '') AS "nombre", ct."phoneNumber" AS "telefono",
            u."name" AS "asesora", w."name" AS "linea"
       FROM "Conversation" c
       JOIN "Contact" ct ON ct."id" = c."contactId"
       LEFT JOIN "User" u ON u."id" = c."assignedToUserId"
       LEFT JOIN "WhatsAppChannel" w ON w."id" = c."channelId"
+      LEFT JOIN "EmbudoLead" eb ON eb."conversationId" = c."id"
      WHERE ${donde}
      ORDER BY c."lastMessageAt" DESC NULLS LAST
      LIMIT ${limite}`);
@@ -240,6 +287,9 @@ function aFoto(fila: FilaDelLead): FotoDelLead {
     ultimoMensajeEn: fila.ultimoMensajeEn ? new Date(fila.ultimoMensajeEn) : null,
     ultimoClienteEn: fila.ultimoClienteEn ? new Date(fila.ultimoClienteEn) : null,
     recuperacionVencida: Boolean(fila.recuperacionVencida),
+    pasoActual: fila.pasoActual,
+    pasoMaximo: fila.pasoMaximo,
+    respondio: Boolean(fila.respondio),
   };
 }
 

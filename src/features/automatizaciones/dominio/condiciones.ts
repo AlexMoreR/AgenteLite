@@ -6,7 +6,17 @@
  * cambiar de etapa o de dueña, y lo que decide si se le escribe tiene que ser lo de AHORA.
  */
 
-import { ETAPAS_CERRADAS, SIN_ASIGNAR, type Accion, type Automatizacion, type Condicion, type Etapa } from "./modelo";
+import {
+  ETAPAS_CERRADAS,
+  PASOS_GUARDADOS_ALTOS,
+  RESPONDIO,
+  SIN_ASIGNAR,
+  loQuePideYaPaso,
+  type Accion,
+  type Automatizacion,
+  type Condicion,
+  type Etapa,
+} from "./modelo";
 
 const DIA = 86_400_000;
 
@@ -26,7 +36,32 @@ export type FotoDelLead = {
   /** Último mensaje del cliente (no SYSTEM). */
   ultimoClienteEn: Date | null;
   recuperacionVencida: boolean;
+  /** EmbudoLead.pasoActual / pasoMaximo (null = sin fila en el embudo o sin paso). */
+  pasoActual: string | null;
+  pasoMaximo: string | null;
+  /**
+   * La clienta escribió después de nuestro primer mensaje (notas del sistema y borrados no cuentan).
+   * Misma regla que `respondioLaBienvenida` (src/lib/turno-con-contenido.ts); en SQL, servicio.ts.
+   */
+  respondio: boolean;
 };
+
+const esPasoAlto = (paso: string | null): paso is string => paso !== null && (PASOS_GUARDADOS_ALTOS as readonly string[]).includes(paso);
+
+/** El paso de hoy para "es": en Bienvenida (o sin paso) cuenta como Respondió si ya respondió. */
+export function pasoDeHoy(foto: Pick<FotoDelLead, "pasoActual" | "respondio">): string {
+  if (esPasoAlto(foto.pasoActual)) return foto.pasoActual;
+  return foto.respondio ? RESPONDIO : "PRESENTACION";
+}
+
+/** "ya pasó": respondió y su paso más alto va después del más bajo de los elegidos. */
+function yaPaso(foto: Pick<FotoDelLead, "pasoActual" | "pasoMaximo" | "respondio">, valores: ReadonlyArray<string>): boolean {
+  const pide = loQuePideYaPaso(valores);
+  if (pide.nunca || !foto.respondio) return false;
+  if (pide.bastaResponder) return true;
+  const alcanzados = [foto.pasoMaximo, foto.pasoActual].filter(esPasoAlto);
+  return alcanzados.some((paso) => pide.guardados.includes(paso));
+}
 
 export function cumpleCondicion(foto: FotoDelLead, condicion: Condicion, ahora: Date): boolean {
   switch (condicion.campo) {
@@ -54,6 +89,8 @@ export function cumpleCondicion(foto: FotoDelLead, condicion: Condicion, ahora: 
       return foto.ultimoMensajeEn === null ? false : ahora.getTime() - foto.ultimoMensajeEn.getTime() >= condicion.dias * DIA;
     case "recuperacion_vencida":
       return condicion.operador === "si" ? foto.recuperacionVencida : !foto.recuperacionVencida;
+    case "paso_embudo":
+      return condicion.operador === "es" ? (condicion.valores as readonly string[]).includes(pasoDeHoy(foto)) : yaPaso(foto, condicion.valores);
   }
 }
 
@@ -66,7 +103,8 @@ export function destinoDeAsignacion(acciones: ReadonlyArray<Accion>): string | n
 /**
  * ¿El lead entra en la automatización? Todas las condiciones (Y), más:
  *  - "Solo chats abiertos";
- *  - con la acción Asignar, no los que ya son de esa persona ("asignarle 20" son 20 NUEVOS);
+ *  - con la acción Asignar, no los que ya son de esa persona ("asignarle 20" son 20 NUEVOS) ni los
+ *    que nunca respondieron la bienvenida (regla vigente: nunca asignar chats que nunca respondieron);
  *  - con envíos, nunca Ganado / Descartado ni contactos ocultos del CRM.
  */
 export function cumpleCondiciones(
@@ -76,7 +114,7 @@ export function cumpleCondiciones(
 ): boolean {
   if (automatizacion.soloAbiertas && !foto.abierta) return false;
   const destino = destinoDeAsignacion(automatizacion.acciones);
-  if (destino && foto.asignadoA === destino) return false;
+  if (destino && (foto.asignadoA === destino || !foto.respondio)) return false;
   if (automatizacion.acciones.some((a) => a.tipo === "enviar_flujo" || a.tipo === "enviar_texto") && motivoParaNoEnviar(foto)) {
     return false;
   }
