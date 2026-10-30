@@ -871,6 +871,13 @@ prueba("reparar y partir: tope de 3 reparaciones, resumen de máximo 3 líneas, 
   // El resumen de escalada: 3 líneas con texto como máximo, sin líneas vacías.
   assert.equal(trabajo.resumenDeEscalada("a\n\n b \nc\nd\ne"), "a\nb\nc");
   assert.equal(trabajo.resumenDeEscalada(""), "El Coordinador no dijo el motivo.");
+  // 30-oct-2026: sin motivo (o sin causa) queda la etapa y el intento, nunca un texto vacío o sin datos.
+  assert.equal(trabajo.sinMotivoDelCoordinador("construir", 2), "El Coordinador no mandó motivo (etapa construir, intento 2).");
+  assert.equal(trabajo.sinMotivoDelCoordinador("planear", 1, "causa"), "El Coordinador no mandó causa (etapa planear, intento 1).");
+  assert.equal(trabajo.resumenDeEscalada("  \n ", trabajo.sinMotivoDelCoordinador("subir", 3)), "El Coordinador no mandó motivo (etapa subir, intento 3).");
+  assert.equal(trabajo.motivoDeEntrada(undefined, trabajo.sinMotivoDelCoordinador("planear", 1)), "El Coordinador no mandó motivo (etapa planear, intento 1).");
+  assert.equal(trabajo.motivoDeEntrada(" no compila "), "no compila");
+  assert.equal(trabajo.causaDeEntrada("", trabajo.sinMotivoDelCoordinador("construir", 2, "causa")), "El Coordinador no mandó causa (etapa construir, intento 2).");
   assert.ok(trabajo.MOTIVO_VENCIDA.split("\n").length <= 3);
   // La causa es una sola línea.
   assert.equal(trabajo.causaDeEntrada("  primera   línea \nsegunda"), "primera línea");
@@ -2187,6 +2194,19 @@ prueba("inicialDeLaPersona: la inicial en mayúscula; '?' si no hay nombre", () 
     assert.equal(trabajo.MINUTOS_PARA_HUERFANA, 30);
     assert.match(trabajo.MOTIVO_HUERFANA, /^Quedó huérfana: nadie la estaba trabajando/);
     assert.equal(trabajo.MOTIVO_HUERFANA.split("\n").length, 3);
+  });
+
+  prueba("vencidas y huérfanas (30-oct-2026): el motivo y la causa del intento llevan siempre la frase fija con el estado", () => {
+    const sql = cargar("src/features/tableros-inteligentes/services/sql-trabajador.ts");
+    for (const [consulta, frase] of [
+      [sql.SQL_PASAR_VENCIDAS_A_ERROR, `'venció el candado en ' || x."antes" || ' sin respuesta del Coordinador'`],
+      [sql.SQL_PASAR_HUERFANAS_A_ERROR, `'huérfana: ' || v."antes" || ' sin candado'`],
+    ]) {
+      // El motivo arranca con la frase (nunca vacío aunque $3 llegue vacío) y la fila de IntentoTarjeta también la usa.
+      assert.ok(consulta.includes(`'motivo', ((${frase}) || COALESCE(E'\\n' || NULLIF(btrim($3::text), ''), ''))`), "motivo con la frase fija");
+      assert.ok(consulta.split(frase).length >= 3, "la frase está en el motivo y en la causa del intento");
+      assert.match(consulta, /AS "motivo"/, "devuelve el motivo guardado para el historial");
+    }
   });
 
   const AHORA = new Date("2026-10-26T20:00:00Z");

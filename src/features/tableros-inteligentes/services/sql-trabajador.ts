@@ -30,6 +30,14 @@ const etapaDelAntes = (v: string) =>
 /** El número del próximo intento de la tarjeta `v."id"`: las filas que tiene + 1. */
 const numeroSiguiente = (v: string) => `(SELECT count(*) FROM "IntentoTarjeta" n WHERE n."tarjetaId" = ${v}."id")::int + 1`;
 
+/**
+ * El motivo que queda en resultado.error de una vencida o una huérfana (30-oct-2026): nunca vacío y siempre con el estado
+ * en que estaba. Primero la frase fija y, debajo, el motivo que manda el servidor ($3) si trae algo.
+ */
+const motivoConEstado = (frase: string) => `(${frase} || COALESCE(E'\\n' || NULLIF(btrim($3::text), ''), ''))`;
+const fraseDeVencida = (v: string) => `('venció el candado en ' || ${v}."antes" || ' sin respuesta del Coordinador')`;
+const fraseDeHuerfana = (v: string) => `('huérfana: ' || ${v}."antes" || ' sin candado')`;
+
 /** Un id para una fila de IntentoTarjeta insertada desde SQL (sin depender de extensiones). */
 const idDelIntento = (v: string) => `'int' || md5(random()::text || clock_timestamp()::text || ${v}."id")`;
 
@@ -82,18 +90,18 @@ sueltas AS (
       "actualizadoEn" = ${AHORA}
   FROM x
   WHERE t."id" = x."id" AND x."vuelve"
-  RETURNING t."id", t."tableroId", x."antes", t."estado"::text AS "estado"
+  RETURNING t."id", t."tableroId", x."antes", t."estado"::text AS "estado", NULL::text AS "motivo"
 ),
 fallidas AS (
   UPDATE "TarjetaTablero" t
   SET "estado" = 'ERROR'::"EstadoTarjeta",
       "trabajoVenceEn" = NULL,
       "resultado" = COALESCE(t."resultado", '{}'::jsonb)
-        || jsonb_build_object('error', jsonb_build_object('motivo', $3::text, 'en', x."antes", 'cuando', $4::text)),
+        || jsonb_build_object('error', jsonb_build_object('motivo', ${motivoConEstado(fraseDeVencida("x"))}, 'en', x."antes", 'cuando', $4::text)),
       "actualizadoEn" = ${AHORA}
   FROM x
   WHERE t."id" = x."id" AND NOT x."vuelve"
-  RETURNING t."id", t."tableroId", x."antes", t."estado"::text AS "estado"
+  RETURNING t."id", t."tableroId", x."antes", t."estado"::text AS "estado", t."resultado"->'error'->>'motivo' AS "motivo"
 ),
 intentos AS (
   INSERT INTO "IntentoTarjeta" ("id", "tarjetaId", "numero", "etapa", "categoria", "causa", "error", "accion", "cuentaComoIntento", "creadoEn")
@@ -101,8 +109,8 @@ intentos AS (
          CASE WHEN x."portope" AND NOT x."vuelve" THEN 'tiempo_agotado' ELSE 'coordinador_cortado' END,
          CASE
            WHEN x."vuelve" THEN 'El Coordinador dejó de dar señales (se cortó o se apagó); la tarjeta vuelve a la fila.'
-           WHEN x."portope" THEN 'La etapa se pasó de su tiempo máximo.'
-           ELSE 'El Coordinador dejó de dar señales y ya había esperado varias veces seguidas.'
+           WHEN x."portope" THEN 'La etapa se pasó de su tiempo máximo: ' || ${fraseDeVencida("x")} || '.'
+           ELSE 'El Coordinador dejó de dar señales y ya había esperado varias veces seguidas: ' || ${fraseDeVencida("x")} || '.'
          END,
          NULL,
          CASE WHEN x."vuelve" THEN 'esperar' ELSE 'escalar' END,
@@ -111,9 +119,9 @@ intentos AS (
   FROM x
   RETURNING "id"
 )
-SELECT "id", "tableroId", "antes", "estado" FROM sueltas
+SELECT "id", "tableroId", "antes", "estado", "motivo" FROM sueltas
 UNION ALL
-SELECT "id", "tableroId", "antes", "estado" FROM fallidas`;
+SELECT "id", "tableroId", "antes", "estado", "motivo" FROM fallidas`;
 
 /**
  * /arranque: el Coordinador acaba de arrancar, así que lo que el negocio tenía en PLANEANDO o EN_CURSO con
@@ -361,17 +369,17 @@ fallidas AS (
   UPDATE "TarjetaTablero" t
   SET "estado" = 'ERROR'::"EstadoTarjeta",
       "resultado" = COALESCE(t."resultado", '{}'::jsonb)
-        || jsonb_build_object('error', jsonb_build_object('motivo', $3::text, 'en', v."antes", 'cuando', $4::text)),
+        || jsonb_build_object('error', jsonb_build_object('motivo', ${motivoConEstado(fraseDeHuerfana("v"))}, 'en', v."antes", 'cuando', $4::text)),
       "actualizadoEn" = ${AHORA}
   FROM v
   WHERE t."id" = v."id"
-  RETURNING t."id", t."tableroId", v."antes"
+  RETURNING t."id", t."tableroId", v."antes", t."resultado"->'error'->>'motivo' AS "motivo"
 ),
 intentos AS (
   INSERT INTO "IntentoTarjeta" ("id", "tarjetaId", "numero", "etapa", "categoria", "causa", "error", "accion", "cuentaComoIntento", "creadoEn")
   SELECT ${idDelIntento("v")}, v."id", ${numeroSiguiente("v")}, ${etapaDelAntes("v")}, 'coordinador_cortado',
-         'Quedó huérfana: estaba en su etapa sin el candado del Coordinador y nadie la trabajaba.', NULL, 'escalar', false, ${AHORA}
+         'Quedó ' || ${fraseDeHuerfana("v")} || ' (nadie la trabajaba).', NULL, 'escalar', false, ${AHORA}
   FROM v
   RETURNING "id"
 )
-SELECT "id", "tableroId", "antes" FROM fallidas`;
+SELECT "id", "tableroId", "antes", "motivo" FROM fallidas`;

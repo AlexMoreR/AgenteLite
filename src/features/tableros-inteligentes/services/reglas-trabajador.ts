@@ -1200,10 +1200,18 @@ export function reversionDeEntrada(valor: unknown): ReversionDelTrabajador | nul
   return { commit: textoONull(datos.commit, 80), revert: textoONull(datos.revert, 80), ok: datos.ok === true };
 }
 
+/**
+ * Lo que se guarda cuando el Coordinador manda a ERROR (o a reparar) sin motivo (30-oct-2026): nunca un texto vacío ni
+ * uno sin datos, para que la tarjeta diga al menos en qué etapa y en qué intento pasó.
+ */
+export function sinMotivoDelCoordinador(etapa: string, intento: number, que: "motivo" | "causa" = "motivo"): string {
+  return `El Coordinador no mandó ${que} (etapa ${etapa}, intento ${intento}).`;
+}
+
 /** El motivo de un error del Coordinador. */
-export function motivoDeEntrada(valor: unknown): string {
+export function motivoDeEntrada(valor: unknown, porDefecto = "El Coordinador no dijo el motivo."): string {
   const motivo = typeof valor === "string" ? valor.trim().slice(0, 4000) : "";
-  return motivo || "El Coordinador no dijo el motivo.";
+  return motivo || porDefecto;
 }
 
 /* ───────────────────────────────────────────────────────────────────── reparar, partir y esperar ── */
@@ -1297,13 +1305,13 @@ export function errorDeIntentoDeEntrada(valor: unknown): string | null {
 }
 
 /** El resumen que escribe el Coordinador al escalar: máximo 3 líneas con texto (cada una hasta 300 letras). */
-export function resumenDeEscalada(valor: unknown): string {
+export function resumenDeEscalada(valor: unknown, porDefecto = "El Coordinador no dijo el motivo."): string {
   const lineas = (typeof valor === "string" ? valor.split(/\r?\n/) : [])
     .map((linea) => linea.replace(/\s+/g, " ").trim())
     .filter(Boolean)
     .slice(0, MAXIMO_LINEAS_DEL_RESUMEN)
     .map((linea) => linea.slice(0, MAXIMO_LINEA_DEL_RESUMEN));
-  return lineas.join("\n") || "El Coordinador no dijo el motivo.";
+  return lineas.join("\n") || porDefecto;
 }
 
 /** La estrategia que sugiere el Coordinador al reparar: solo se anota ("opus" | "partir"); null si no vino o no es una. */

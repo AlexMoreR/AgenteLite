@@ -44,6 +44,7 @@ import {
   linkDeEntrada,
   opcionesDeTomar,
   motivoDeEntrada,
+  sinMotivoDelCoordinador,
   partesDeEntrada,
   partidaDelResultado,
   planDeEntrada,
@@ -291,6 +292,10 @@ async function anotarTrabajador(
   antes: Record<string, unknown>,
   despues: Record<string, unknown>,
 ) {
+  // Ninguna tarjeta pasa a ERROR sin motivo en el historial (30-oct-2026): si no llegó, se dice en qué etapa estaba.
+  const sinMotivo = despues.estado === "ERROR" && !(typeof despues.motivo === "string" && despues.motivo.trim());
+  const etapa = ETAPA_DEL_ESTADO[antes.estado as EstadoTarjetaTablero] ?? String(antes.estado ?? "?");
+  const conMotivo = sinMotivo ? { ...despues, motivo: `El Coordinador no mandó motivo (etapa ${etapa}).` } : despues;
   await tx.historialTarjeta.create({
     data: {
       tarjetaId,
@@ -298,7 +303,7 @@ async function anotarTrabajador(
       origen: "TRABAJADOR",
       accion: "estado",
       antes: antes as Prisma.InputJsonValue,
-      despues: despues as Prisma.InputJsonValue,
+      despues: conMotivo as Prisma.InputJsonValue,
     },
   });
 }
@@ -424,7 +429,7 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
 
     // Las vencidas sin latido vuelven a la fila (sueltas) o, si se pasaron del tope, esperaron mucho o
     // estaban subiendo, pasan a ERROR (con su fila en IntentoTarjeta).
-    const vencidasODejadas = await tx.$queryRawUnsafe<{ id: string; tableroId: string; antes: string; estado: string }[]>(
+    const vencidasODejadas = await tx.$queryRawUnsafe<{ id: string; tableroId: string; antes: string; estado: string; motivo: string | null }[]>(
       SQL_PASAR_VENCIDAS_A_ERROR,
       contexto.workspaceId,
       iso,
@@ -435,7 +440,7 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
     const vencidas = vencidasODejadas.filter((fila) => fila.estado === "ERROR");
     const sueltas = vencidasODejadas.filter((fila) => fila.estado !== "ERROR");
     for (const vencida of vencidas) {
-      await anotarTrabajador(tx, contexto, vencida.id, { estado: vencida.antes }, { estado: "ERROR", motivo: MOTIVO_VENCIDA });
+      await anotarTrabajador(tx, contexto, vencida.id, { estado: vencida.antes }, { estado: "ERROR", motivo: vencida.motivo || MOTIVO_VENCIDA });
     }
     for (const suelta of sueltas) {
       await anotarTrabajador(
@@ -461,7 +466,7 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
     // Red de seguridad: las HUÉRFANAS (PLANEANDO o EN_CURSO sin candado, sin cambios hace más de
     // MINUTOS_PARA_HUERFANA, que no esperan a sus partes) pasan a ERROR: nadie las trabaja y nunca vencerían.
     // SUBIENDO pendiente no entra: esa sí espera, a propósito, sin candado.
-    const huerfanas = await tx.$queryRawUnsafe<{ id: string; tableroId: string; antes: string }[]>(
+    const huerfanas = await tx.$queryRawUnsafe<{ id: string; tableroId: string; antes: string; motivo: string | null }[]>(
       SQL_PASAR_HUERFANAS_A_ERROR,
       contexto.workspaceId,
       iso,
@@ -470,7 +475,7 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
       MINUTOS_PARA_HUERFANA,
     );
     for (const huerfana of huerfanas) {
-      await anotarTrabajador(tx, contexto, huerfana.id, { estado: huerfana.antes }, { estado: "ERROR", motivo: MOTIVO_HUERFANA });
+      await anotarTrabajador(tx, contexto, huerfana.id, { estado: huerfana.antes }, { estado: "ERROR", motivo: huerfana.motivo || MOTIVO_HUERFANA });
     }
 
     await tocarTableros(
@@ -871,10 +876,11 @@ export async function accionDelTrabajador(
     const tope = puedeReparar(actual.reparaciones);
     if (tope) throw new ErrorDelTrabajador(tope, 409);
     const vuelve = estadoTrasReparar(estado);
+    const etapa = etapaDeEntrada(cuerpo.etapa, estado);
     const intento: IntentoPorGuardar = {
-      etapa: etapaDeEntrada(cuerpo.etapa, estado),
+      etapa,
       categoria: categoriaDeEntrada(cuerpo.categoria) ?? "otra",
-      causa: causaConEstrategia(causaDeEntrada(cuerpo.causa), estrategiaDeEntrada(cuerpo.estrategia)),
+      causa: causaConEstrategia(causaDeEntrada(cuerpo.causa, sinMotivoDelCoordinador(etapa, actual.intentos, "causa")), estrategiaDeEntrada(cuerpo.estrategia)),
       error: errorDeIntentoDeEntrada(cuerpo.error),
       accion: "reparar",
       cuentaComoIntento: true,
@@ -1121,7 +1127,9 @@ export async function accionDelTrabajador(
       // Con `categoria` es una escalada del protocolo de reparación: el motivo es el resumen de máximo 3 líneas
       // para el dueño, y queda una fila de intentos (escalar, cuenta como intento) con el error técnico.
       const categoria = categoriaDeEntrada(cuerpo.categoria);
-      const motivo = categoria ? resumenDeEscalada(cuerpo.motivo ?? cuerpo.resumen) : motivoDeEntrada(cuerpo.motivo);
+      // Sin motivo (30-oct-2026): queda "El Coordinador no mandó motivo (etapa X, intento N)", nunca vacío ni sin datos.
+      const sinMotivo = sinMotivoDelCoordinador(etapaDeEntrada(cuerpo.etapa, estado), actual.intentos);
+      const motivo = categoria ? resumenDeEscalada(cuerpo.motivo ?? cuerpo.resumen, sinMotivo) : motivoDeEntrada(cuerpo.motivo, sinMotivo);
       const reversion = reversionDeEntrada(cuerpo.reversion);
       const causa = categoria ? causaDeEntrada(cuerpo.causa, causaDeEntrada(motivo)) : null;
       const error = {

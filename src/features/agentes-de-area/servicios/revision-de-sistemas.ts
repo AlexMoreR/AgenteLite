@@ -99,15 +99,37 @@ export async function tarjetasAtascadas(workspaceId: string, ahora: Date): Promi
 
 export type TarjetaEnError = { tarjetaId: string; titulo: string; tablero: string; motivo: string };
 
+/**
+ * El motivo de una tarjeta en ERROR. El error que guarda el CRM es una ficha ({ motivo, en, cuando, ... }), no un texto:
+ * hasta el 30-oct se leía como texto y salía "sin motivo guardado" aunque el motivo estuviera. Si no hay, la última
+ * causa anotada en sus intentos; y si tampoco, una frase fija con el estado en que estaba.
+ */
+export function motivoDelError(resultadoGuardado: unknown, ultimaCausa: string | null = null): string {
+  const resultado = comoObjeto(resultadoGuardado);
+  const error = comoObjeto(resultado.error);
+  const motivo = texto(error.motivo) ?? texto(resultado.error) ?? texto(resultado.motivo) ?? texto(ultimaCausa);
+  if (motivo) return motivo;
+  const en = texto(error.en);
+  return en ? `en ERROR sin motivo guardado (estaba en ${en})` : "en ERROR sin motivo guardado";
+}
+
 export async function tarjetasEnError(workspaceId: string): Promise<TarjetaEnError[]> {
   const filas = await prisma.tarjetaTablero.findMany({
     where: { estado: "ERROR", borradoEn: null, repo: { not: null }, tablero: { workspaceId } },
-    select: { id: true, titulo: true, resultado: true, tablero: { select: { nombre: true } } },
+    select: {
+      id: true,
+      titulo: true,
+      resultado: true,
+      tablero: { select: { nombre: true } },
+      intentosDeTrabajo: { select: { causa: true }, orderBy: { numero: "desc" }, take: 1 },
+    },
   });
-  return filas.map((fila) => {
-    const resultado = comoObjeto(fila.resultado);
-    return { tarjetaId: fila.id, titulo: fila.titulo, tablero: fila.tablero.nombre, motivo: texto(resultado.error) ?? texto(resultado.motivo) ?? "sin motivo guardado" };
-  });
+  return filas.map((fila) => ({
+    tarjetaId: fila.id,
+    titulo: fila.titulo,
+    tablero: fila.tablero.nombre,
+    motivo: motivoDelError(fila.resultado, fila.intentosDeTrabajo?.[0]?.causa ?? null),
+  }));
 }
 
 /** ¿Está vivo el trabajador? Por el último uso de su clave "aizen1" (si no hay con ese nombre, la más usada). */
