@@ -561,7 +561,7 @@ function contextoDeLaTarjeta(tarjeta) {
 
 /**
  * Reparación (24-oct-2026): lo que el Coordinador ya sabe del intento anterior que falló. `tarjeta.reparacion` =
- * { numero, de, causa, categoria, error, estrategia } (lo arma el bucle con lo que trae /tomar). `patchAplicado`:
+ * { numero, de, causa, categoria, error, estrategia, queCambia } (lo arma el bucle con lo que trae /tomar). `patchAplicado`:
  * el trabajo del intento anterior ya está puesto en los archivos del worktree.
  */
 export function bloqueDeReparacion(tarjeta, { patchAplicado = false } = {}) {
@@ -578,9 +578,11 @@ export function bloqueDeReparacion(tarjeta, { patchAplicado = false } = {}) {
           .join("\n")
       : "";
   }
+  // 30-oct-2026: el bloque empieza con la causa y qué cambia frente al intento anterior (no se repite a ciegas).
   return [
+    `CAUSA: ${enUnaLinea(r.causa) || "el Coordinador no supo la causa"}${r.categoria ? ` (categoría: ${r.categoria})` : ""}`,
+    `QUÉ CAMBIA: ${enUnaLinea(r.queCambia) || "se corrige solo la causa de arriba, sin rehacer lo demás"}`,
     `REPARACIÓN ${r.numero} de ${r.de ?? 3}: el intento anterior falló y SOLO eso hay que corregir.`,
-    `La causa fue: ${r.causa || "(no se sabe)"}${r.categoria ? ` (categoría: ${r.categoria})` : ""}.`,
     r.error ? `El error exacto es:\n${recortar(r.error, 3500)}` : "",
     "Corrige solo eso y no rehagas lo demás.",
     r.categoria === "sesion_atascada"

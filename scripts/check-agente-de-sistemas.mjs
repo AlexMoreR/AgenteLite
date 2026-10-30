@@ -161,6 +161,26 @@ await prueba("2 h 10 min en EN_CURSO sale atascada; 1 h 50 min no; en ERROR sale
   assert.deepEqual(errores.map((e) => [e.tarjetaId, e.motivo]), [["e", "no compila: falta un import"]]);
 });
 
+await prueba("ERROR: el motivo sale de la ficha del error; si no, de la última causa de sus intentos; si no, con el estado en que estaba", async () => {
+  const t = (id, resultado, intentosDeTrabajo = []) => ({ id, titulo: `T ${id}`, estado: "ERROR", resultado, intentosDeTrabajo, tablero: { nombre: "Magilus General" } });
+  db.tarjetas = [
+    t("ficha", { error: { motivo: "venció el candado en EN_CURSO sin respuesta del Coordinador", en: "EN_CURSO", cuando: "2026-10-30T10:00:00.000Z" } }),
+    t("causa", { error: { motivo: "  ", en: "PLANEANDO" } }, [{ causa: "Quedó huérfana: PLANEANDO sin candado." }]),
+    t("nada", { error: { en: "SUBIENDO" } }),
+    t("vacia", null),
+  ];
+  const errores = await revision.tarjetasEnError(WS);
+  assert.deepEqual(
+    errores.map((e) => [e.tarjetaId, e.motivo]),
+    [
+      ["ficha", "venció el candado en EN_CURSO sin respuesta del Coordinador"],
+      ["causa", "Quedó huérfana: PLANEANDO sin candado."],
+      ["nada", "en ERROR sin motivo guardado (estaba en SUBIENDO)"],
+      ["vacia", "en ERROR sin motivo guardado"],
+    ],
+  );
+});
+
 await prueba("la clave del trabajador sin uso hace 40 minutos sale 'sin señal'; hace 5 minutos, viva", async () => {
   db.claves = [{ nombre: "aizen1", ultimoUsoEn: hace(0, 40) }, { nombre: "otra", ultimoUsoEn: hace(0, 1) }];
   const sin = await revision.vidaDelTrabajadorDelNegocio(WS, AHORA);

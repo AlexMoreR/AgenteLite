@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
 import { crearVigilante, sumarDescendientes } from "../lib/atasco.mjs";
-import { crearPlanificador, crearSemaforo, procesar, unaVuelta } from "../lib/bucle.mjs";
+import { crearPlanificador, crearSemaforo, procesar, reparacionDeLaTarjeta, unaVuelta } from "../lib/bucle.mjs";
 import { PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
@@ -754,6 +754,136 @@ await prueba("29-oct: la misma causa 2 veces en la tarjeta (contando todos los i
   // tiempo_agotado la 2ª vez todavía se parte (antes de escalar a la 3ª).
   const lento = { categoria: "tiempo_agotado", causa: "lento" };
   assert.equal(decidir({ diagnostico: lento, tarjeta: { ultimosIntentos: [{ accion: "reparar", categoria: "tiempo_agotado" }] }, etapa: "construir" }).accion, "partir");
+});
+
+/* ── 30-oct-2026: diagnóstico antes de reintentar (tarjeta t8qupn87): no repetir a ciegas y nunca ERROR sin motivo ── */
+
+await prueba("30-oct: dos fallas seguidas con la MISMA causa en planear terminan en escalar (sin un tercer intento igual)", async () => {
+  const falla = { categoria: "otra", causa: "El plan no dice qué archivos toca (línea 12)" };
+  const primera = decidir({ diagnostico: falla, tarjeta: { reparaciones: 0, intentos: 1, ultimosIntentos: [] }, etapa: "planear" });
+  assert.equal(primera.accion, "reparar");
+  assert.equal(primera.causa, falla.causa, "antes de reparar arma la causa en una frase");
+  assert.match(primera.queCambia, /primer arreglo/);
+  // La segunda falla es la misma (cambia solo un número): no hay estrategia distinta en planear -> escala.
+  const previos = [{ accion: "reparar", etapa: "planear", categoria: "otra", causa: "El plan no dice qué archivos toca (línea 7)" }];
+  const segunda = decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, intentos: 2, ultimosIntentos: previos }, etapa: "planear" });
+  assert.deepEqual([segunda.accion, segunda.cuenta, segunda.motivo], ["escalar", true, "misma causa que el intento anterior, nada distinto que probar"]);
+  assert.equal(segunda.mismaCausa, true);
+  // El resumen para el dueño lo dice.
+  const resumen = resumenDeEscalada({ tarjeta: { reparaciones: 1 }, intentos: previos, diagnostico: falla, decision: segunda });
+  assert.equal(resumen.split("\n").length, 3);
+  assert.match(resumen.split("\n")[1], /misma causa que el intento anterior, nada distinto que probar/);
+  // Una espera en medio (límite de Claude) no cuenta como intento anterior: se compara con la reparación.
+  const conEspera = [...previos, { accion: "esperar", categoria: "limite_claude", causa: "cupo" }];
+  assert.equal(decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: conEspera }, etapa: "planear" }).accion, "escalar");
+});
+
+await prueba("30-oct: una causa distinta a la anterior sí se repara, y QUÉ CAMBIA lo dice", async () => {
+  const previos = [{ accion: "reparar", etapa: "planear", categoria: "otra", causa: "El plan no dice qué archivos toca" }];
+  const distinta = decidir({ diagnostico: { categoria: "otra", causa: "El plan contradice al cerebro del negocio" }, tarjeta: { reparaciones: 1, ultimosIntentos: previos }, etapa: "planear" });
+  assert.equal(distinta.accion, "reparar");
+  assert.match(distinta.queCambia, /distinta a la del intento anterior \(otra: El plan no dice qué archivos toca\)/);
+  // Misma categoría pero otra causa también se repara.
+  const otraCategoria = decidir({ diagnostico: { categoria: "fallan_pruebas", causa: "Fallaron las pruebas: not ok 3" }, tarjeta: { reparaciones: 1, ultimosIntentos: previos }, etapa: "planear" });
+  assert.equal(otraCategoria.accion, "reparar");
+});
+
+await prueba("30-oct: construir con la misma causa: primero Opus; si Opus ya se usó, se parte; si es una parte, escala", async () => {
+  const falla = { categoria: "no_compila", causa: "El código no compila: error TS2322: el tipo no calza" };
+  const previo = (causa) => [{ accion: "reparar", etapa: "construir", categoria: "no_compila", causa }];
+  const opus = decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: previo(falla.causa) }, etapa: "construir", modeloConstruir: "sonnet" });
+  assert.deepEqual([opus.accion, opus.estrategia], ["reparar", "opus"]);
+  assert.match(opus.queCambia, /Opus/);
+  // La marca de estrategia no hace distinta la causa: Opus ya se usó -> se parte.
+  const yaOpus = previo(`${falla.causa} [estrategia: opus]`);
+  assert.equal(decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: yaOpus }, etapa: "construir", modeloConstruir: "sonnet" }).accion, "partir");
+  const parte = decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, esParte: true, ultimosIntentos: yaOpus }, etapa: "construir", modeloConstruir: "sonnet" });
+  assert.deepEqual([parte.accion, parte.motivo], ["escalar", "misma causa que el intento anterior, nada distinto que probar"]);
+  // Verificar en la nube: la 1ª vez se repara en la nube; si eso ya se probó y la causa es la misma, escala.
+  const nube = decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: previo(falla.causa) }, etapa: "subir", verificarEnNube: true });
+  assert.deepEqual([nube.accion, nube.estrategia], ["reparar", "nube"]);
+  assert.match(nube.queCambia, /nube/);
+  assert.equal(decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: previo(`${falla.causa} [estrategia: nube]`) }, etapa: "subir", verificarEnNube: true }).accion, "escalar");
+  // Las esperas no cambian: el PC lleno con la misma causa sigue esperando.
+  const pc = { categoria: "pc_sobrecargado", causa: "PC" };
+  assert.equal(decidir({ diagnostico: pc, tarjeta: { esperasSeguidas: 1, ultimosIntentos: [{ accion: "reparar", categoria: "pc_sobrecargado", causa: "PC" }] }, etapa: "construir" }).accion, "esperar");
+});
+
+await prueba("30-oct: el bucle no gasta un intento igual: escala con la causa y el motivo, y al reparar manda CAUSA y QUÉ CAMBIA", async () => {
+  const config = completarConfig({ urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: fs.mkdtempSync(path.join(os.tmpdir(), "misma-causa-")), repos: { a: { ruta: "." } } });
+  const llamadas = [];
+  const crmFalso = {
+    latido: async () => ({ ok: true }),
+    reparar: async (id, datos) => (llamadas.push(["reparar", id, datos]), { ok: true, reparaciones: 1 }),
+    error: async (id, motivo, zonas, reversion, extra) => (llamadas.push(["error", id, motivo, extra]), { ok: true }),
+    soltar: async () => ({ ok: true }),
+  };
+  const lineas = [];
+  const registroFalso = { info: (m) => lineas.push(m), aviso: (m) => lineas.push(m), error: (m) => lineas.push(m) };
+  // Una etapa que este Coordinador no conoce falla siempre con el mismo error: sirve para probar la decisión sin Claude.
+  const causa = 'El CRM pidió "repetir", que este Coordinador no sabe hacer (¿hay que actualizarlo?).';
+  const base = { id: "mc1", titulo: "Misma causa", repo: "aizencrm", topeReparaciones: 3, intentos: 2 };
+  const igual = await procesar({ crm: crmFalso, config, registro: registroFalso }, { ...base, reparaciones: 1, ultimosIntentos: [{ accion: "reparar", etapa: "repetir", categoria: "otra", causa }] }, "repetir");
+  assert.equal(igual.accion, "escalar");
+  assert.equal(llamadas.filter(([que]) => que === "reparar").length, 0, "no hay un tercer intento igual");
+  const [, , motivo, extra] = llamadas.find(([que]) => que === "error");
+  assert.match(motivo, /misma causa que el intento anterior, nada distinto que probar/);
+  assert.ok(extra.causa.trim(), "crm.error lleva la causa");
+  // Con otra causa antes: se repara, con la causa y lo que cambia.
+  llamadas.length = 0;
+  const distinta = await procesar({ crm: crmFalso, config, registro: registroFalso }, { ...base, reparaciones: 1, ultimosIntentos: [{ accion: "reparar", etapa: "repetir", categoria: "no_compila", causa: "No compila" }] }, "repetir");
+  assert.equal(distinta.accion, "reparar");
+  const [, , datos] = llamadas.find(([que]) => que === "reparar");
+  assert.equal(datos.causa, causa);
+  assert.ok(lineas.some((linea) => /^CAUSA: .+ \| QUÉ CAMBIA: la falla es distinta/.test(linea)), "queda escrito antes de reparar");
+});
+
+await prueba("30-oct: el prompt de la reparación empieza con CAUSA y QUÉ CAMBIA (armado con los intentos guardados)", async () => {
+  const repo = { clave: "aizencrm", ruta: "." };
+  const tarjeta = {
+    id: "rp1",
+    titulo: "Reparar con causa",
+    detalle: "x",
+    plan: "El plan",
+    repo: "aizencrm",
+    reparaciones: 2,
+    topeReparaciones: 3,
+    ultimoError: "error TS2322",
+    ultimosIntentos: [
+      { accion: "reparar", etapa: "construir", categoria: "fallan_pruebas", causa: "Fallaron las pruebas: not ok 4" },
+      { accion: "reparar", etapa: "construir", categoria: "no_compila", causa: "El código no compila: error TS2322 [estrategia: opus]" },
+    ],
+  };
+  const prompt = promptDeConstruir({ ...tarjeta, reparacion: reparacionDeLaTarjeta(tarjeta) }, repo, "tablero/rp1");
+  const bloque = prompt.slice(prompt.indexOf("\nCAUSA: ") + 1);
+  const [causa, queCambia, reparacion] = bloque.split("\n");
+  assert.equal(causa, "CAUSA: El código no compila: error TS2322 (categoría: no_compila)", "sin la marca de estrategia");
+  assert.match(queCambia, /^QUÉ CAMBIA: se construye con un modelo más fuerte \(Opus\)/);
+  assert.match(reparacion, /^REPARACIÓN 2 de 3/);
+  // Sin estrategia y con otra causa antes, QUÉ CAMBIA lo dice; sin intentos previos, es el primer arreglo.
+  const sinMarca = { ...tarjeta, ultimosIntentos: [tarjeta.ultimosIntentos[0], { ...tarjeta.ultimosIntentos[1], causa: "El código no compila: error TS2322" }] };
+  assert.match(reparacionDeLaTarjeta(sinMarca).queCambia, /distinta a la del intento anterior \(fallan_pruebas/);
+  assert.match(reparacionDeLaTarjeta({ ...tarjeta, reparaciones: 1, ultimosIntentos: [tarjeta.ultimosIntentos[0]] }).queCambia, /primer arreglo/);
+});
+
+await prueba("30-oct: crm.error y crm.reparar nunca salen con el motivo o la causa vacíos", async () => {
+  const cuerpos = [];
+  const fetchFalso = async (url, opciones) => {
+    cuerpos.push([url.split("/").pop(), JSON.parse(opciones.body)]);
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
+  };
+  const crm = crearCrm({ urlCrm: "https://crm.test", claveTrabajador: "k" }, { fetch: fetchFalso });
+  await crm.error("t1", "   ", undefined, undefined, { etapa: "planear", categoria: "otra", causa: "" });
+  await crm.error("t2", "");
+  await crm.reparar("t3", { etapa: "construir", categoria: "no_compila", causa: " " });
+  const [[, error1], [, error2], [, reparar]] = cuerpos;
+  assert.equal(error1.motivo, "El Coordinador no supo la causa (etapa planear).");
+  assert.equal(error1.causa, "El Coordinador no supo la causa (etapa planear).");
+  assert.equal(error2.motivo, "El Coordinador no supo la causa (etapa ?).");
+  assert.equal(reparar.causa, "El Coordinador no supo la causa (etapa construir).");
+  // Lo que sí trae texto viaja tal cual.
+  await crm.error("t4", "No compila", undefined, undefined, { etapa: "construir", categoria: "no_compila", causa: "error TS2322" });
+  assert.deepEqual([cuerpos[3][1].motivo, cuerpos[3][1].causa], ["No compila", "error TS2322"]);
 });
 
 await prueba("29-oct: preguntas abiertas del plan (la sección PREGUNTAS ABIERTAS y las frases de duda); el plan de ykpl83z3 las tiene", async () => {
@@ -2404,7 +2534,8 @@ try {
     const segunda = ultimaDeClaude("Se rompe una vez [tsc-una-vez]");
     assert.notEqual(segunda.prompt, primera.prompt, "no repite lo mismo");
     assert.match(segunda.prompt, /REPARACIÓN 1 de 3/);
-    assert.match(segunda.prompt, /La causa fue: .*compil/i);
+    // 30-oct-2026: el bloque de la reparación empieza con CAUSA y QUÉ CAMBIA (antes de "REPARACIÓN 1 de 3").
+    assert.match(segunda.prompt, /\nCAUSA: [^\n]*compil[^\n]*\nQUÉ CAMBIA: es el primer arreglo[^\n]*\nREPARACIÓN 1 de 3/i);
     assert.match(segunda.prompt, /error TS2322/);
     assert.match(segunda.prompt, /Corrige solo eso/);
     assert.equal(tarjetas.get(id).estado, "POR_REVISAR");

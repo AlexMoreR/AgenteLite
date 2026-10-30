@@ -380,9 +380,15 @@ await prueba("vencidas: las que pasaron su vencimiento quedan ERROR con motivo (
   const [fila] = await filas(`SELECT "estado", "resultado", "trabajoVenceEn" FROM "TarjetaTablero" WHERE "id" = 'sube'`);
   assert.equal(fila.estado, "ERROR");
   assert.equal(fila.trabajoVenceEn, null);
-  assert.deepEqual(fila.resultado.error, { motivo: "Se pasó del tiempo", en: "SUBIENDO", cuando: "2026-10-20T15:06:00.000Z" });
-  const [escalada] = await filas(`SELECT "accion", "cuentaComoIntento" FROM "IntentoTarjeta" WHERE "tarjetaId" = 'sube'`);
-  assert.deepEqual(escalada, { accion: "escalar", cuentaComoIntento: true }, "una tarjeta en ERROR siempre deja su motivo en el historial");
+  // 30-oct-2026: el motivo dice en qué estado venció (y debajo, el que manda el servidor).
+  assert.deepEqual(fila.resultado.error, { motivo: "venció el candado en SUBIENDO sin respuesta del Coordinador\nSe pasó del tiempo", en: "SUBIENDO", cuando: "2026-10-20T15:06:00.000Z" });
+  assert.equal(vencidas.find((f) => f.id === "sube").motivo, fila.resultado.error.motivo, "devuelve el motivo guardado (para el historial)");
+  const [escalada] = await filas(`SELECT "accion", "cuentaComoIntento", "causa" FROM "IntentoTarjeta" WHERE "tarjetaId" = 'sube'`);
+  assert.deepEqual(
+    escalada,
+    { accion: "escalar", cuentaComoIntento: true, causa: "El Coordinador dejó de dar señales y ya había esperado varias veces seguidas: venció el candado en SUBIENDO sin respuesta del Coordinador." },
+    "una tarjeta en ERROR siempre deja su motivo (con el estado) en el historial",
+  );
   assert.deepEqual((await hay("ws1", "2026-10-20T15:06:00.000Z")).map((f) => f.id), ["sube-ya"]);
   // La de otro negocio, idea-repo (EN_CURSO sin candado) y sube-ya no se tocaron.
   const [idea] = await filas(`SELECT "estado" FROM "TarjetaTablero" WHERE "id" = 'idea-repo'`);
@@ -394,7 +400,8 @@ await prueba("vencidas: construir en la nube tiene tope de 180 min (en aizen1, 9
     INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "intentos", "trabajoIniciadoEn", "trabajoVenceEn", "resultado") VALUES
       ('tp-nube', 'tab2', 'En la nube', 'EN_CURSO', 'u-dueno', now(), 'tarea2', 'aizencrm', 1, '2026-10-25 10:00:00', '2026-10-25 11:40:00', '{"construccion":{"lugar":"nube"}}'),
       ('tp-aizen', 'tab2', 'En aizen1', 'EN_CURSO', 'u-dueno', now(), 'tarea2', 'aizencrm', 1, '2026-10-25 10:00:00', '2026-10-25 11:40:00', '{"construccion":{"lugar":"aizen1"}}')`);
-  const vencidas = await filas(sql.SQL_PASAR_VENCIDAS_A_ERROR, ["ws2", "2026-10-25T12:00:00.000Z", "Se pasó del tiempo", "2026-10-25T12:00:00.000Z", 5]);
+  // Sin motivo del servidor ($3 vacío) igual queda la frase fija con el estado: nunca un motivo vacío.
+  const vencidas = await filas(sql.SQL_PASAR_VENCIDAS_A_ERROR, ["ws2", "2026-10-25T12:00:00.000Z", "  ", "2026-10-25T12:00:00.000Z", 5]);
   assert.deepEqual(
     vencidas.map((f) => [f.id, f.antes, f.estado]).sort(),
     [
@@ -403,6 +410,8 @@ await prueba("vencidas: construir en la nube tiene tope de 180 min (en aizen1, 9
     ],
     "con el tope de 90 la de aizen1 ya lo pasó; la de la nube tiene hasta los 180",
   );
+  const [aizen] = await filas(`SELECT "resultado" FROM "TarjetaTablero" WHERE "id" = 'tp-aizen'`);
+  assert.equal(aizen.resultado.error.motivo, "venció el candado en EN_CURSO sin respuesta del Coordinador");
 });
 
 await prueba("arranque: lo que el Coordinador anterior dejó con candado vuelve a la fila, sin ERROR y sin gastar el intento", async () => {
@@ -492,18 +501,20 @@ await prueba("huérfanas (26-oct-2026): PLANEANDO o EN_CURSO sin candado y sin c
   );
   assert.equal(estados["hu-obra"].estado, "ERROR");
   assert.equal(estados["hu-obra"].resultado.previo, 1, "conserva el resultado anterior");
-  assert.equal(estados["hu-obra"].resultado.error.motivo, "Quedó huérfana: nadie la estaba trabajando");
+  assert.equal(estados["hu-obra"].resultado.error.motivo, "huérfana: EN_CURSO sin candado\nQuedó huérfana: nadie la estaba trabajando");
+  assert.equal(estados["hu-plan"].resultado.error.motivo.split("\n")[0], "huérfana: PLANEANDO sin candado");
+  assert.equal(huerfanas.find((f) => f.id === "hu-obra").motivo, estados["hu-obra"].resultado.error.motivo);
   assert.equal(estados["hu-obra"].resultado.error.en, "EN_CURSO");
   for (const id of ["hu-reciente", "hu-candado", "hu-sin-repo", "hu-idea"]) assert.equal(estados[id].estado, "EN_CURSO", `${id} no se toca`);
   assert.equal(estados["hu-sube"].estado, "SUBIENDO", "SUBIENDO pendiente es válida");
   assert.equal(estados["hu-madre"].estado, "PLANEANDO", "la madre espera a su parte 2");
   const intentos = await filas(
-    `SELECT "tarjetaId", "etapa", "accion", "cuentaComoIntento" FROM "IntentoTarjeta" WHERE "tarjetaId" LIKE 'hu-%' ORDER BY "tarjetaId"`,
+    `SELECT "tarjetaId", "etapa", "accion", "cuentaComoIntento", "causa" FROM "IntentoTarjeta" WHERE "tarjetaId" LIKE 'hu-%' ORDER BY "tarjetaId"`,
   );
-  assert.deepEqual(intentos.map((i) => [i.tarjetaId, i.etapa, i.accion, i.cuentaComoIntento]), [
-    ["hu-madre-sola", "construir", "escalar", false],
-    ["hu-obra", "construir", "escalar", false],
-    ["hu-plan", "planear", "escalar", false],
+  assert.deepEqual(intentos.map((i) => [i.tarjetaId, i.etapa, i.accion, i.cuentaComoIntento, i.causa]), [
+    ["hu-madre-sola", "construir", "escalar", false, "Quedó huérfana: EN_CURSO sin candado (nadie la trabajaba)."],
+    ["hu-obra", "construir", "escalar", false, "Quedó huérfana: EN_CURSO sin candado (nadie la trabajaba)."],
+    ["hu-plan", "planear", "escalar", false, "Quedó huérfana: PLANEANDO sin candado (nadie la trabajaba)."],
   ]);
   // Otra vuelta no las vuelve a tocar (ya están en ERROR), ni se ven desde otro negocio.
   assert.deepEqual(await filas(sql.SQL_PASAR_HUERFANAS_A_ERROR, ["ws4", AHORA_H, "x", AHORA_H, 30]), []);

@@ -11,6 +11,10 @@
 /** Un objeto sin los campos vacíos (undefined / null): así un CRM viejo no recibe nada que no conoce. */
 const limpio = (datos) => Object.fromEntries(Object.entries(datos ?? {}).filter(([, valor]) => valor !== undefined && valor !== null));
 
+/** Un texto con algo escrito, o `porDefecto` (30-oct-2026: /reparar y /error nunca salen con la causa o el motivo vacíos). */
+const conTexto = (valor, porDefecto) => (typeof valor === "string" && valor.trim() ? valor : porDefecto);
+const sinCausaDe = (datos) => `El Coordinador no supo la causa (etapa ${datos?.etapa ?? "?"}).`;
+
 // Reparar solo (24-oct-2026): `reparar`, `partir` y `arranque` son acciones nuevas; `soltar` y `error` aceptan
 // campos nuevos (categoria, causa, error, etapa). /tomar trae reparaciones, topeReparaciones, esperasSeguidas,
 // esParte, ultimosIntentos y ultimoError. Un CRM que no manda topeReparaciones es uno viejo: el bucle sigue
@@ -69,7 +73,7 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     /** Devuelve la tarjeta a la fila sin ERROR. `extra` { categoria, causa, error, etapa }: el CRM guarda un intento "esperar" que no cuenta. */
     soltar: (id, motivo, extra) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/soltar`, { motivo, ...limpio(extra) }),
     /** La falla se repara: vuelve a la fila (PLAN_APROBADO o APROBADO), reparaciones + 1. 409 si ya hizo las 3. { etapa, categoria, causa, error, estrategia? } */
-    reparar: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/reparar`, limpio(datos)),
+    reparar: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/reparar`, limpio({ ...datos, causa: conTexto(datos?.causa, sinCausaDe(datos)) })),
     /** La tarea era muy grande: crea las partes (2 a 4) que salieron de la sesión de partir. { causa, error, partes: [{ titulo, detalle }] } */
     partir: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/partir`, limpio(datos)),
     /** Medir antes de planear: la tarjeta nombra a otras como molde o requisito. { referencias: [id o título] } -> { creadas, esperando, soltada }. Si alguna no está HECHO, PLANEANDO vuelve a la fila ("Esperando a «X»") sin ERROR. */
@@ -110,10 +114,11 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
      */
     error: (id, motivo, zonaProtegida, reversion, extra) =>
       pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/error`, {
-        motivo,
+        motivo: conTexto(motivo, sinCausaDe(extra)),
         ...(zonaProtegida?.length ? { zonaProtegida } : {}),
         ...(reversion ? { reversion } : {}),
         ...limpio(extra),
+        ...(extra?.categoria ? { causa: conTexto(extra.causa, sinCausaDe(extra)) } : {}),
       }),
   };
 }

@@ -30,7 +30,19 @@ import { agenteDelRepo, anotarLeccion, leccionDe, tresLineasDe } from "./agentes
 import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.mjs";
 import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
-import { TOPE_DE_REPARACIONES, decidir, diagnosticar, enUnaLinea, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "./diagnostico.mjs";
+import {
+  MARCA_DE_ESTRATEGIA,
+  TOPE_DE_REPARACIONES,
+  decidir,
+  diagnosticar,
+  enUnaLinea,
+  estrategiaDeLaCausa,
+  queCambiaFrenteAlAnterior,
+  recortarAviso,
+  resumenDeEscalada,
+  sinCausa,
+  textoDelAvisoDeReversion,
+} from "./diagnostico.mjs";
 import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, medirConClaude, partirTarea, planear, subir } from "./etapas.mjs";
 import { idCorto } from "./git.mjs";
 import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedida } from "./medir.mjs";
@@ -63,27 +75,31 @@ function modeloDeLaSesion(config, motores, tarjeta, hacer, reparacion) {
 //      partir (/partir: 2 a 4 partes en orden) o escalar (/error con un resumen de máximo 3 líneas).
 // Un CRM que no manda `topeReparaciones` en la tarjeta es uno viejo: se sigue como antes (a la primera falla, /error).
 
-/** La marca que `reparar` deja en la causa cuando cambia de estrategia: "[estrategia: opus]". */
-// "nube" (26-oct-2026): lo que verificó la nube cambió al subir; la reparación se vuelve a construir y verificar en la nube.
-const MARCA_DE_ESTRATEGIA = /\s*\[estrategia: (opus|partir|nube)\]\s*$/;
-
 /**
  * Lo que /tomar dice de intentos anteriores, armado como `tarjeta.reparacion` para el prompt de la etapa:
- * { numero, de, causa, categoria, error, estrategia }. null si la tarjeta no viene de una reparación.
+ * { numero, de, causa, categoria, error, estrategia, queCambia }. null si la tarjeta no viene de una reparación.
+ * `queCambia` (30-oct-2026) sale de lo guardado en los intentos: la reparación de ahora frente al intento de antes.
+ * (La marca de estrategia "[estrategia: opus]" que deja `reparar` en la causa está en diagnostico.mjs.)
  */
 export function reparacionDeLaTarjeta(tarjeta) {
   if (tarjeta.reparacion) return tarjeta.reparacion;
   const hechas = Number(tarjeta.reparaciones) || 0;
   if (hechas < 1) return null;
-  const ultima = [...(tarjeta.ultimosIntentos ?? [])].reverse().find((intento) => intento.accion === "reparar");
+  const intentos = tarjeta.ultimosIntentos ?? [];
+  const indice = intentos.findLastIndex((intento) => intento?.accion === "reparar");
+  const ultima = indice >= 0 ? intentos[indice] : null;
   const causa = String(ultima?.causa ?? "");
+  const estrategia = estrategiaDeLaCausa(causa);
+  const categoria = ultima?.categoria ?? "otra";
+  const sinMarca = causa.replace(MARCA_DE_ESTRATEGIA, "");
   return {
     numero: hechas,
     de: Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES,
-    causa: causa.replace(MARCA_DE_ESTRATEGIA, ""),
-    categoria: ultima?.categoria ?? "otra",
+    causa: sinMarca,
+    categoria,
     error: tarjeta.ultimoError ?? null,
-    estrategia: causa.match(MARCA_DE_ESTRATEGIA)?.[1] ?? null,
+    estrategia,
+    queCambia: queCambiaFrenteAlAnterior({ categoria, causa: sinMarca }, indice >= 0 ? intentos.slice(0, indice) : [], estrategia),
   };
 }
 
@@ -268,7 +284,8 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
       arreglo: "Pasó al dueño (ERROR).",
     });
     try {
-      await crm.error(tarjeta.id, motivo, error?.zonas, error?.reversion);
+      // Nunca un motivo vacío (30-oct-2026): si la etapa no dijo nada, se dice en qué etapa e intento pasó.
+      await crm.error(tarjeta.id, motivo.trim() ? motivo : sinCausa(hacer, tarjeta.intentos), error?.zonas, error?.reversion);
     } catch (otro) {
       registro.error(`no se pudo avisar el error al CRM: ${otro.message}`);
     }
@@ -570,12 +587,21 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
   // 3. Decidir.
   const estrategiaActual = tarjeta.reparacion?.estrategia;
   const modeloConstruir = estrategiaActual === "opus" ? (config.modelos?.planear ?? "opus") : modeloDelPaso(config, "construir", tarjeta);
-  const decision = decidir({ diagnostico, tarjeta, etapa: hacer, config, archivosCambiados: error?.archivosCambiados ?? undefined, reversion: error?.reversion ?? null, modeloConstruir });
-  // Lo que verificó la nube ya no es lo que se subiría: la reparación va a la NUBE (nunca a compilar en aizen1).
-  if (error?.verificarEnNube && decision.accion === "reparar") decision.estrategia = "nube";
+  // Lo que verificó la nube ya no es lo que se subiría: decidir() manda la reparación a la NUBE (nunca a compilar en aizen1).
+  const decision = decidir({
+    diagnostico,
+    tarjeta,
+    etapa: hacer,
+    config,
+    archivosCambiados: error?.archivosCambiados ?? undefined,
+    reversion: error?.reversion ?? null,
+    modeloConstruir,
+    verificarEnNube: Boolean(error?.verificarEnNube),
+  });
   registro.info(`diagnóstico: ${diagnostico.categoria} — ${diagnostico.causa}; decisión: ${decision.accion} (${decision.motivo})${decision.estrategia === "nube" ? "; se verifica otra vez en la nube" : ""}`);
   const resultado = { ok: false, motivo, zonas: error?.zonas ?? [], categoria: diagnostico.categoria, accion: decision.accion };
-  const intento = { etapa: hacer, categoria: diagnostico.categoria, causa: diagnostico.causa, error: diagnostico.error };
+  // La causa nunca va vacía al CRM (30-oct-2026): si no se supo, se dice en qué etapa e intento.
+  const intento = { etapa: hacer, categoria: diagnostico.categoria, causa: enUnaLinea(diagnostico.causa) || sinCausa(hacer, tarjeta.intentos), error: diagnostico.error };
 
   // 4. Hacerlo.
   if (decision.accion === "esperar") {
@@ -607,7 +633,10 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
     }
   }
   if (decision.accion === "reparar") {
-    const causa = decision.estrategia ? `${enUnaLinea(diagnostico.causa, 170)} [estrategia: ${decision.estrategia}]` : diagnostico.causa;
+    const causa = decision.estrategia ? `${enUnaLinea(intento.causa, 170)} [estrategia: ${decision.estrategia}]` : intento.causa;
+    // Antes de reparar, la causa y qué cambia frente al intento anterior (el siguiente intento los recibe en su prompt).
+    const queCambia = decision.queCambia ?? queCambiaFrenteAlAnterior(diagnostico, tarjeta.ultimosIntentos, decision.estrategia);
+    registro.info(`CAUSA: ${intento.causa} | QUÉ CAMBIA: ${queCambia}`);
     try {
       const respuesta = await crm.reparar(tarjeta.id, { ...intento, causa, estrategia: decision.estrategia });
       registro.info(`a reparar: la tarjeta vuelve a la fila${respuesta?.reparaciones ? ` (reparación ${respuesta.reparaciones} de ${tarjeta.topeReparaciones})` : ""}`);
@@ -626,7 +655,7 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
   const resumen =
     diagnostico.categoria === "revision_no_paso" && Array.isArray(error?.paraElDueno) && error.paraElDueno.length === 2
       ? error.paraElDueno.join("\n")
-      : resumenDeEscalada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico });
+      : resumenDeEscalada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico, decision });
   try {
     await crm.error(tarjeta.id, resumen, error?.zonas, error?.reversion, { ...intento, resumen });
   } catch (otro) {

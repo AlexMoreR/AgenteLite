@@ -54,6 +54,10 @@ export type FilaDelHistorial = {
   quien: string;
   despues: unknown;
   creadoEn: Date;
+  /** (Opcional) El resultado de la tarjeta hoy: su `error.motivo` sirve si la fila no trae el motivo. */
+  resultado?: unknown;
+  /** (Opcional) La última causa anotada en los intentos de la tarjeta (IntentoTarjeta). */
+  ultimaCausa?: string | null;
 };
 
 export type ResumenDelDia = {
@@ -81,6 +85,20 @@ export function tresLineasDeLaSubida(subida: unknown): TresLineasDeHoy | undefin
 const comoObjeto = (valor: unknown): Record<string, unknown> =>
   valor && typeof valor === "object" && !Array.isArray(valor) ? (valor as Record<string, unknown>) : {};
 const texto = (valor: unknown) => (typeof valor === "string" && valor.trim() ? valor.trim() : null);
+
+/**
+ * El motivo de una falla: el de la fila del historial; si no trae, la nota de ese paso, el motivo guardado en el error de
+ * la tarjeta y la última causa de sus intentos. Solo si no hay nada, "sin motivo".
+ */
+function motivoDeLaFalla(despues: Record<string, unknown>, fila: FilaDelHistorial): string {
+  return (
+    texto(despues.motivo) ??
+    texto(despues.nota) ??
+    texto(comoObjeto(comoObjeto(fila.resultado).error).motivo) ??
+    texto(fila.ultimaCausa) ??
+    "sin motivo"
+  );
+}
 
 /** Arma el resumen de un día con las filas del historial: solo cuenta lo que pasó ese día de Bogotá. */
 export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): ResumenDelDia {
@@ -118,7 +136,7 @@ export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): R
         // Terminada sin subir a producción (tareas que no llevan repo): también es "lista".
         resumen.subidas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, commit: null, linkCommit: null, cuando });
       } else if (despues.estado === "ERROR") {
-        resumen.fallas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, motivo: texto(despues.motivo) ?? "sin motivo", cuando });
+        resumen.fallas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, motivo: motivoDeLaFalla(despues, fila), cuando });
       }
     }
   }
@@ -175,12 +193,19 @@ export async function resumenDelDia(workspaceId: string, dia: string): Promise<R
       quien: true,
       despues: true,
       creadoEn: true,
-      tarjeta: { select: { titulo: true } },
+      tarjeta: {
+        select: { titulo: true, resultado: true, intentosDeTrabajo: { select: { causa: true }, orderBy: { numero: "desc" }, take: 1 } },
+      },
     },
   });
   return armarResumen(
     dia,
-    filas.map((fila) => ({ ...fila, titulo: fila.tarjeta.titulo })),
+    filas.map((fila) => ({
+      ...fila,
+      titulo: fila.tarjeta.titulo,
+      resultado: fila.tarjeta.resultado,
+      ultimaCausa: fila.tarjeta.intentosDeTrabajo?.[0]?.causa ?? null,
+    })),
   );
 }
 
