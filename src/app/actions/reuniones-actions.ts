@@ -13,7 +13,7 @@ import { cerrarSala, leerConfigLivekit } from "@/features/reuniones/servicios/li
 import { carpetaDeReuniones, rutaDeArchivo } from "@/features/reuniones/servicios/archivos-de-reuniones";
 import { puedeBorrarLaReunionDe, sePuedeBorrarPorEstado } from "@/features/reuniones/servicios/borrar-reunion";
 import { esDuenoOAdmin, puedeIniciarLaSala, puedeTerminarLaReunion, puedeVerReuniones } from "@/features/reuniones/servicios/permisos";
-import { abrirOCrearReunionDeSala } from "@/features/reuniones/servicios/salas";
+import { abrirOCrearReunionDeSala, crearSala, editarSala } from "@/features/reuniones/servicios/salas";
 
 async function contexto() {
   const session = await auth();
@@ -37,6 +37,50 @@ export async function crearReunionAction(titulo?: string, sinGrabar?: boolean): 
   const reunion = await crearReunion(prisma, { workspaceId: access.workspaceId, creadaPorId: access.userId, titulo, sinGrabar });
   revalidatePath("/cliente/reuniones");
   return reunion;
+}
+
+type DatosDeLaSala = { nombre: string; liderId?: string | null; sinGrabar?: boolean };
+
+/** Lo que llega del navegador se revisa aquí: solo textos y un sí/no. */
+function limpiarDatosDeLaSala(datos: DatosDeLaSala | null | undefined) {
+  return {
+    nombre: typeof datos?.nombre === "string" ? datos.nombre : "",
+    liderId: typeof datos?.liderId === "string" && datos.liderId ? datos.liderId : null,
+    sinGrabar: datos?.sinGrabar === true,
+  };
+}
+
+/**
+ * «Nueva sala»: una sala fija de un área con su link que no cambia. Solo el dueño o un administrador
+ * (lo revisa crearSala con puedeAdministrarSalas), y el líder tiene que ser del equipo.
+ */
+export async function crearSalaAction(datos: DatosDeLaSala): Promise<{ id?: string; codigo?: string; error?: string }> {
+  const access = await contexto();
+  if (!access) {
+    return { error: "No autorizado" };
+  }
+  const resultado = await crearSala({ userId: access.userId, workspaceId: access.workspaceId, ...limpiarDatosDeLaSala(datos) });
+  if (!resultado.error) {
+    revalidatePath("/cliente/reuniones");
+  }
+  return resultado;
+}
+
+/** «Editar» una sala: nombre, líder y si se graba. El link (codigo) no cambia. Mismas reglas que crear. */
+export async function editarSalaAction(salaId: string, datos: DatosDeLaSala): Promise<{ ok?: true; error?: string }> {
+  const access = await contexto();
+  if (!access || typeof salaId !== "string" || !salaId) {
+    return { error: "No autorizado" };
+  }
+  const sala = await prisma.salaDeReuniones.findUnique({ where: { id: salaId }, select: { id: true, workspaceId: true } });
+  if (!sala || sala.workspaceId !== access.workspaceId) {
+    return { error: "No autorizado" };
+  }
+  const resultado = await editarSala({ userId: access.userId, salaId: sala.id, ...limpiarDatosDeLaSala(datos) });
+  if (!resultado.error) {
+    revalidatePath("/cliente/reuniones");
+  }
+  return resultado;
 }
 
 /**

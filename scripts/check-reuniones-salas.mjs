@@ -206,6 +206,66 @@ await prueba("«Iniciar reunión» en el link fijo: quien tiene el módulo en el
   assert.equal(puedeIniciarLaSala(null, sala), false, "un invitado sin sesión");
 });
 
+// ── Las acciones de la pantalla (crearSalaAction / editarSalaAction) ─────────────────────────────
+let sesion = null;
+const revalidadas = [];
+const acciones = cargar("src/app/actions/reuniones-actions.ts", {
+  ...mocks,
+  "@/auth": { auth: async () => (sesion ? { user: { id: sesion } } : null) },
+  "next/cache": { revalidatePath: (ruta) => revalidadas.push(ruta) },
+  "@/features/reuniones/servicios/avisos-de-livekit": { revisarSiTermino: async () => {} },
+  "@/features/reuniones/servicios/livekit": { cerrarSala: async () => {}, leerConfigLivekit: () => null },
+  "@/features/reuniones/servicios/archivos-de-reuniones": { carpetaDeReuniones: () => "/tmp", rutaDeArchivo: () => "/tmp/x" },
+});
+
+await prueba("crearSalaAction: el dueño crea con líder del equipo y se revalida la pantalla", async () => {
+  sesion = "alex";
+  revalidadas.length = 0;
+  const creada = await acciones.crearSalaAction({ nombre: "Compras", liderId: "karen", sinGrabar: true });
+  assert.equal(creada.codigo, "compras");
+  const guardada = base.salas.find((sala) => sala.id === creada.id);
+  assert.equal(guardada.workspaceId, "ws1");
+  assert.equal(guardada.liderId, "karen");
+  assert.equal(guardada.sinGrabar, true);
+  assert.deepEqual(revalidadas, ["/cliente/reuniones"]);
+});
+
+await prueba("crearSalaAction: sin sesión, una asesora o un líder de otro negocio no pasan", async () => {
+  const antes = base.salas.length;
+  sesion = null;
+  assert.deepEqual(await acciones.crearSalaAction({ nombre: "X" }), { error: "No autorizado" });
+  sesion = "karen";
+  assert.deepEqual(await acciones.crearSalaAction({ nombre: "X" }), { error: "No autorizado" });
+  sesion = "sinModulo";
+  assert.deepEqual(await acciones.crearSalaAction({ nombre: "X" }), { error: "No autorizado" });
+  sesion = "admin";
+  assert.ok((await acciones.crearSalaAction({ nombre: "X", liderId: "ajeno" })).error);
+  assert.equal(base.salas.length, antes);
+});
+
+await prueba("editarSalaAction: cambia nombre, líder y grabar, y el link no cambia", async () => {
+  sesion = "admin";
+  revalidadas.length = 0;
+  assert.deepEqual(await acciones.editarSalaAction(ventas.id, { nombre: "Ventas - Karen", liderId: null, sinGrabar: false }), { ok: true });
+  const guardada = base.salas.find((sala) => sala.id === ventas.id);
+  assert.equal(guardada.nombre, "Ventas - Karen");
+  assert.equal(guardada.liderId, null);
+  assert.equal(guardada.sinGrabar, false);
+  assert.equal(guardada.codigo, "ventas-2");
+  assert.deepEqual(revalidadas, ["/cliente/reuniones"]);
+});
+
+await prueba("editarSalaAction: una asesora, el dueño de otro negocio o una sala que no existe no pasan", async () => {
+  sesion = "karen";
+  assert.deepEqual(await acciones.editarSalaAction(ventas.id, { nombre: "Mía" }), { error: "No autorizado" });
+  sesion = "ajeno";
+  assert.deepEqual(await acciones.editarSalaAction(ventas.id, { nombre: "Mía" }), { error: "No autorizado" });
+  sesion = "alex";
+  assert.deepEqual(await acciones.editarSalaAction("no-existe", { nombre: "Mía" }), { error: "No autorizado" });
+  assert.ok((await acciones.editarSalaAction(ventas.id, { nombre: "   " })).error);
+  assert.equal(base.salas.find((sala) => sala.id === ventas.id).nombre, "Ventas - Karen");
+});
+
 await prueba("una sala que no existe devuelve null", async () => {
   assert.equal(await abrirOCrearReunionDeSala("no-existe", "alex"), null);
 });
