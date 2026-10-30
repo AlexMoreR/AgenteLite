@@ -220,7 +220,7 @@ await prueba("4. Necesita al dueño: Meta Ads, dinero o presupuesto, o un error 
   assert.equal(clave.length, 1);
   assert.match(avisos.armarMensaje(clave), /falta una clave, un acceso o un permiso/);
   // Una tarjeta común que espera su sí no es "necesita" (eso se ve en el tablero).
-  assert.equal(necesita({ estado: "PLAN_LISTO", plan: "Cambiar el color del botón." }).length, 0);
+  assert.equal(necesita({ estado: "PLAN_LISTO", plan: "Cambiar el color del botón.\n\nCRITERIOS DE ACEPTACIÓN:\n1. El botón se ve del color nuevo." }).length, 0);
   assert.equal(necesita({ estado: "ERROR", error: "falló una prueba" }).length, 0);
 });
 
