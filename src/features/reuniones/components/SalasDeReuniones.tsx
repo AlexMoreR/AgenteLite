@@ -44,8 +44,8 @@ export function linkDeLaSala(codigo: string) {
 const formatearDia = (iso: string) =>
   new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", year: "numeric", timeZone: "America/Bogota" }).format(new Date(iso));
 
-/** "Copiar link", "Enviar por WhatsApp" (wa.me: lo manda quien lo toca, no usa las líneas del CRM) y "Entrar". */
-function CompartirSala({ sala }: { sala: SalaDeLaPantalla }) {
+/** "Copiar link", "Enviar por WhatsApp" (wa.me: lo manda quien lo toca, no usa las líneas del CRM) e "Iniciar"/"Entrar". */
+export function CompartirSala({ sala }: { sala: Pick<SalaDeLaPantalla, "nombre" | "codigo" | "abierta"> }) {
   const copiar = async () => {
     try {
       await navigator.clipboard.writeText(linkDeLaSala(sala.codigo));
@@ -67,7 +67,7 @@ function CompartirSala({ sala }: { sala: SalaDeLaPantalla }) {
         <MessageCircle /> Enviar por WhatsApp
       </Button>
       <Button size="sm" render={<Link href={`/reunion/sala/${sala.codigo}`} target="_blank" />}>
-        <Video /> Entrar
+        <Video /> {sala.abierta ? "Entrar" : "Iniciar"}
       </Button>
     </div>
   );
@@ -161,6 +161,27 @@ function FormularioDeSala({
   );
 }
 
+/** «Editar» una sala con el mismo formulario de la lista (en la pantalla de la sala). Solo dueño o admin. */
+export function BotonEditarSala({ sala, usuarios }: { sala: SalaDeLaPantalla; usuarios: UsuarioDelNegocio[] }) {
+  const [abierto, setAbierto] = useState(false);
+  return (
+    <>
+      <Button size="sm" variant="outline" onClick={() => setAbierto(true)}>
+        <Pencil /> Editar
+      </Button>
+      <Dialog open={abierto} onOpenChange={setAbierto}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar sala</DialogTitle>
+            <DialogDescription>Una sala por área, con un link fijo para todas sus reuniones.</DialogDescription>
+          </DialogHeader>
+          {abierto ? <FormularioDeSala sala={sala} usuarios={usuarios} alCerrar={() => setAbierto(false)} /> : null}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export function SalasDeReuniones({
   salas,
   usuarios,
@@ -206,7 +227,7 @@ export function SalasDeReuniones({
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="min-w-0 truncate text-sm font-semibold text-foreground">{sala.nombre}</span>
+                    <Link href={`/cliente/reuniones/sala/${sala.id}`} className="min-w-0 truncate text-sm font-semibold text-foreground hover:underline">{sala.nombre}</Link>
                     {sala.enVivo ? <Badge variant="destructive">● En vivo</Badge> : null}
                     {sala.sinGrabar ? <Badge variant="outline">Sin grabar</Badge> : null}
                   </div>

@@ -38,6 +38,10 @@ const prisma = {
       const sala = base.salas.find((fila) => cumple(fila, where));
       return sala ? elegir(sala, select) : null;
     },
+    findFirst: async ({ where, select }) => {
+      const sala = base.salas.find((fila) => cumple(fila, where));
+      return sala ? elegir(sala, select) : null;
+    },
     create: async ({ data, select }) => {
       const sala = { id: nuevoId("sala"), sinGrabar: false, liderId: null, ...data };
       base.salas.push(sala);
@@ -59,6 +63,11 @@ const prisma = {
       const reunion = { id: nuevoId("r"), estado: "ESPERANDO", ...data };
       base.reuniones.push(reunion);
       return elegir(reunion, select);
+    },
+    update: async ({ where, data }) => {
+      const reunion = base.reuniones.find((fila) => cumple(fila, where));
+      Object.assign(reunion, data);
+      return reunion;
     },
   },
 };
@@ -264,6 +273,92 @@ await prueba("editarSalaAction: una asesora, el dueño de otro negocio o una sal
   assert.deepEqual(await acciones.editarSalaAction("no-existe", { nombre: "Mía" }), { error: "No autorizado" });
   assert.ok((await acciones.editarSalaAction(ventas.id, { nombre: "   " })).error);
   assert.equal(base.salas.find((sala) => sala.id === ventas.id).nombre, "Ventas - Karen");
+});
+
+// ── «Sala» en el detalle: moverReunionDeSalaAction ──────────────────────────────────────────────
+const vieja = {
+  id: "vieja",
+  workspaceId: "ws1",
+  codigo: "vieja",
+  estado: "LISTA",
+  salaFijaId: null,
+  sala: "reunion_vieja",
+  transcripcion: [{ nombre: "Alex", texto: "hola", inicioMs: 0 }],
+  acta: { resumen: "Se habló de ventas" },
+  textoActa: "Se habló de ventas",
+};
+base.reuniones.push(vieja, { id: "deOtro", workspaceId: "ws2", codigo: "deotro", estado: "LISTA", salaFijaId: null });
+const salaDeOtro = { id: "salaOtro", workspaceId: "ws2", nombre: "Ajena", codigo: "ajena", liderId: null };
+base.salas.push(salaDeOtro);
+
+await prueba("moverReunionDeSalaAction: el dueño pasa una reunión vieja a una sala y solo cambia salaFijaId", async () => {
+  sesion = "alex";
+  revalidadas.length = 0;
+  const antes = JSON.stringify({ ...vieja, salaFijaId: undefined });
+  assert.deepEqual(await acciones.moverReunionDeSalaAction("vieja", ventas.id), { ok: true });
+  assert.equal(vieja.salaFijaId, ventas.id);
+  assert.equal(JSON.stringify({ ...vieja, salaFijaId: undefined }), antes, "audio, transcripción y acta iguales");
+  assert.deepEqual(revalidadas, ["/cliente/reuniones", "/cliente/reuniones/vieja", `/cliente/reuniones/sala/${ventas.id}`]);
+});
+
+await prueba("moverReunionDeSalaAction: un admin la cambia de sala y la deja «Sin sala»; se revalidan las dos salas", async () => {
+  sesion = "admin";
+  revalidadas.length = 0;
+  assert.deepEqual(await acciones.moverReunionDeSalaAction("vieja", sistemas.id), { ok: true });
+  assert.equal(vieja.salaFijaId, sistemas.id);
+  assert.ok(revalidadas.includes(`/cliente/reuniones/sala/${ventas.id}`));
+  assert.ok(revalidadas.includes(`/cliente/reuniones/sala/${sistemas.id}`));
+  assert.deepEqual(await acciones.moverReunionDeSalaAction("vieja", null), { ok: true });
+  assert.equal(vieja.salaFijaId, null);
+});
+
+await prueba("moverReunionDeSalaAction: el líder, una asesora, otro negocio o una sala ajena no pasan", async () => {
+  vieja.salaFijaId = null;
+  sesion = "karen";
+  assert.deepEqual(await acciones.moverReunionDeSalaAction("vieja", ventas.id), { error: "No autorizado" });
+  sesion = "emanuel";
+  assert.deepEqual(await acciones.moverReunionDeSalaAction("vieja", sistemas.id), { error: "No autorizado" }, "el líder de la sala");
+  sesion = null;
+  assert.deepEqual(await acciones.moverReunionDeSalaAction("vieja", ventas.id), { error: "No autorizado" });
+  sesion = "ajeno";
+  assert.deepEqual(await acciones.moverReunionDeSalaAction("vieja", ventas.id), { error: "No autorizado" }, "el dueño de otro negocio");
+  sesion = "alex";
+  assert.ok((await acciones.moverReunionDeSalaAction("vieja", salaDeOtro.id)).error, "una sala de otro negocio");
+  assert.deepEqual(await acciones.moverReunionDeSalaAction("deOtro", ventas.id), { error: "No autorizado" }, "una reunión de otro negocio");
+  assert.ok((await acciones.moverReunionDeSalaAction("vieja", { id: ventas.id })).error, "un id que no es texto");
+  assert.equal(vieja.salaFijaId, null);
+  assert.equal(base.reuniones.find((reunion) => reunion.id === "deOtro").salaFijaId, null);
+});
+
+// ── El MCP dice la sala de cada reunión (sala_fija) ──────────────────────────────────────────────
+await prueba("MCP: listar_reuniones y ver_reunion traen sala_fija (el nombre o null)", async () => {
+  const mcp = cargar("src/lib/mcp/reuniones.ts", {
+    "@/lib/prisma": {
+      prisma: {
+        workspaceMember: { findFirst: async () => ({ role: "OWNER", moduleAccess: [], user: { role: "CLIENTE" }, workspace: { ownerId: "alex" } }) },
+        reunion: {
+          findFirst: async ({ where, select }) => {
+            assert.ok(select.salaFija, "ver_reunion pide la sala");
+            return where.id === "conSala"
+              ? { id: "conSala", titulo: "T", origen: "VIVO", sinGrabar: false, estado: "LISTA", createdAt: new Date(), participantes: [], salaFija: { nombre: "Ventas" } }
+              : { id: "suelta", titulo: "T", origen: "VIVO", sinGrabar: false, estado: "LISTA", createdAt: new Date(), participantes: [], salaFija: null };
+          },
+        },
+        user: { findMany: async () => [] },
+      },
+    },
+    "@/features/reuniones/servicios/buscar-reuniones": {
+      buscarReuniones: async () => [
+        { id: "a", estado: "LISTA", origen: "VIVO", createdAt: new Date(), salaFija: { id: "s", nombre: "Ventas" } },
+        { id: "b", estado: "LISTA", origen: "VIVO", createdAt: new Date(), salaFija: null },
+      ],
+    },
+  });
+  const contexto = { workspaceId: "ws1", userId: "alex" };
+  const lista = await mcp.ejecutarHerramientaMcpReuniones("listar_reuniones", {}, contexto);
+  assert.deepEqual(lista.reuniones.map((reunion) => reunion.sala_fija), ["Ventas", null]);
+  assert.equal((await mcp.ejecutarHerramientaMcpReuniones("ver_reunion", { id: "conSala" }, contexto)).sala_fija, "Ventas");
+  assert.equal((await mcp.ejecutarHerramientaMcpReuniones("ver_reunion", { id: "suelta" }, contexto)).sala_fija, null);
 });
 
 await prueba("una sala que no existe devuelve null", async () => {

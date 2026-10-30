@@ -1,14 +1,13 @@
 import type { Metadata } from "next";
 
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
-import { prisma } from "@/lib/prisma";
 import { esDuenoOAdmin, puedeAdministrarSalas } from "@/features/reuniones/servicios/permisos";
 import { puedeBorrarLaReunionDe } from "@/features/reuniones/servicios/borrar-reunion";
 import { ReunionesWorkspace } from "@/features/reuniones/components/ReunionesWorkspace";
 import { buscarReuniones } from "@/features/reuniones/servicios/buscar-reuniones";
 import { claveDeOpenAI } from "@/features/reuniones/servicios/cola-de-reuniones";
 import { leerConfigLivekit } from "@/features/reuniones/servicios/livekit";
-import { listarSalas } from "@/features/reuniones/servicios/salas";
+import { listarSalas, usuariosDelNegocio } from "@/features/reuniones/servicios/salas";
 
 export const metadata: Metadata = {
   title: "Reuniones",
@@ -16,24 +15,6 @@ export const metadata: Metadata = {
 };
 
 export const dynamic = "force-dynamic";
-
-/** Quienes pueden ser líderes de una sala: el dueño y los miembros activos del negocio. */
-async function usuariosDelNegocio(workspaceId: string) {
-  const [negocio, miembros] = await Promise.all([
-    prisma.workspace.findUnique({ where: { id: workspaceId }, select: { owner: { select: { id: true, name: true, email: true } } } }),
-    prisma.workspaceMember.findMany({
-      where: { workspaceId, isActive: true },
-      select: { user: { select: { id: true, name: true, email: true } } },
-    }),
-  ]);
-  const usuarios = new Map<string, string>();
-  for (const usuario of [negocio?.owner, ...miembros.map((miembro) => miembro.user)]) {
-    if (usuario) {
-      usuarios.set(usuario.id, usuario.name?.trim() || usuario.email || "Sin nombre");
-    }
-  }
-  return [...usuarios].map(([id, nombre]) => ({ id, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-}
 
 /**
  * Reuniones: videollamadas propias (LiveKit) que se graban por persona, se pasan a texto y dejan

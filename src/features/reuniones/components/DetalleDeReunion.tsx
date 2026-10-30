@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { EstadoReunion } from "@prisma/client";
-import { ArrowLeft, Loader2, RotateCcw } from "lucide-react";
+import { ArrowLeft, Loader2, PhoneOff, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { reintentarReunionAction } from "@/app/actions/reuniones-actions";
+import { Label } from "@/components/ui/label";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { moverReunionDeSalaAction, reintentarReunionAction, terminarReunionAction } from "@/app/actions/reuniones-actions";
 import { ESTADOS_EN_CURSO, ESTADOS_PARA_ENTRAR } from "@/features/reuniones/estados";
 import type { Acta } from "@/features/reuniones/servicios/hacer-acta";
 import type { FraseDeReunion } from "@/features/reuniones/servicios/unir-pistas";
@@ -31,8 +33,14 @@ type Detalle = {
   pistas: Array<{ id: string; nombre: string; estado: string; empiezaEn: string | null; link: string | null }>;
   frases: FraseDeReunion[];
   acta: Acta | null;
+  /** La sala fija de la reunión, o null si es suelta («Sin sala»). */
+  salaFija: { id: string; nombre: string } | null;
+  /** Quien la creó, el líder de su sala, el dueño o un admin (el servidor igual lo revisa). */
+  puedeTerminar: boolean;
   puedeBorrar: boolean;
 };
+
+type SalaParaElegir = { id: string; nombre: string };
 
 const ESTADO_DE_LA_PISTA: Record<string, string> = {
   GRABANDO: "Grabando",
@@ -66,7 +74,75 @@ function Lista({ titulo, items }: { titulo: string; items: string[] }) {
   );
 }
 
-export function DetalleDeReunion({ reunion }: { reunion: Detalle }) {
+/** «Sala»: pasa la reunión a otra sala o a «Sin sala». Solo cambia la sala: el audio y el acta quedan iguales. */
+function ElegirSala({ reunionId, salaId, salas }: { reunionId: string; salaId: string | null; salas: SalaParaElegir[] }) {
+  const router = useRouter();
+  const [elegida, setElegida] = useState(salaId ?? "");
+  const [moviendo, startMover] = useTransition();
+  const mover = (nueva: string) => {
+    const anterior = elegida;
+    setElegida(nueva);
+    startMover(async () => {
+      const resultado = await moverReunionDeSalaAction(reunionId, nueva || null);
+      if (resultado.error) {
+        setElegida(anterior);
+        toast.error(resultado.error);
+        return;
+      }
+      toast.success(nueva ? "Reunión movida a la sala" : "Reunión movida a «Sin sala»");
+      router.refresh();
+    });
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Label htmlFor="reunion-sala" className="text-sm">
+        Sala
+      </Label>
+      <NativeSelect id="reunion-sala" className="min-w-0 max-w-full" value={elegida} disabled={moviendo} onChange={(evento) => mover(evento.target.value)}>
+        <NativeSelectOption value="">Sin sala</NativeSelectOption>
+        {salas.map((sala) => (
+          <NativeSelectOption key={sala.id} value={sala.id}>
+            {sala.nombre}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+      {moviendo ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : null}
+      {salaId && !moviendo ? (
+        <Link href={`/cliente/reuniones/sala/${salaId}`} className="text-xs text-muted-foreground hover:text-foreground hover:underline">
+          Ver la sala
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+/** «Terminar reunión»: cierra la videollamada para todos. */
+function BotonTerminar({ codigo }: { codigo: string }) {
+  const router = useRouter();
+  const [terminando, startTerminar] = useTransition();
+  const terminar = () => {
+    if (!window.confirm("¿Terminar la reunión para todos?")) {
+      return;
+    }
+    startTerminar(async () => {
+      const resultado = await terminarReunionAction(codigo);
+      if (resultado.error) {
+        toast.error(resultado.error);
+        return;
+      }
+      toast.success("Reunión terminada");
+      router.refresh();
+    });
+  };
+  return (
+    <Button size="sm" variant="destructive" onClick={terminar} disabled={terminando}>
+      {terminando ? <Loader2 className="animate-spin" /> : <PhoneOff />}
+      Terminar reunión
+    </Button>
+  );
+}
+
+export function DetalleDeReunion({ reunion, salas }: { reunion: Detalle; /** null: no puede mover la reunión de sala. */ salas: SalaParaElegir[] | null }) {
   const router = useRouter();
   const [reintentando, startReintentar] = useTransition();
 
@@ -112,11 +188,24 @@ export function DetalleDeReunion({ reunion }: { reunion: Detalle }) {
           {reunion.creadaPor ? ` · ${reunion.creadaPor}` : ""}
           {reunion.origen === "SUBIDA" ? " · Audio subido (no se separa quién habló)" : ""}
         </p>
+        {reunion.salaFija && !salas ? (
+          <p className="text-xs text-muted-foreground">
+            Sala:{" "}
+            <Link href={`/cliente/reuniones/sala/${reunion.salaFija.id}`} className="font-medium text-foreground hover:underline">
+              {reunion.salaFija.nombre}
+            </Link>
+          </p>
+        ) : null}
         {reunion.aviso ? <p className="text-xs text-amber-600">{reunion.aviso}</p> : null}
       </div>
 
+      {salas ? <ElegirSala reunionId={reunion.id} salaId={reunion.salaFija?.id ?? null} salas={salas} /> : null}
+
       {reunion.origen === "VIVO" && ESTADOS_PARA_ENTRAR.includes(reunion.estado) ? (
-        <CompartirLink codigo={reunion.codigo} titulo={reunion.titulo} />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <CompartirLink codigo={reunion.codigo} titulo={reunion.titulo} />
+          {reunion.puedeTerminar ? <BotonTerminar codigo={reunion.codigo} /> : null}
+        </div>
       ) : null}
 
       {reunion.puedeBorrar ? <BotonBorrar reunionId={reunion.id} despues={() => router.push("/cliente/reuniones")} /> : null}

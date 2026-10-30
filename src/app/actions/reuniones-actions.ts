@@ -12,7 +12,7 @@ import { crearReunion } from "@/features/reuniones/servicios/crear-reunion";
 import { cerrarSala, leerConfigLivekit } from "@/features/reuniones/servicios/livekit";
 import { carpetaDeReuniones, rutaDeArchivo } from "@/features/reuniones/servicios/archivos-de-reuniones";
 import { puedeBorrarLaReunionDe, sePuedeBorrarPorEstado } from "@/features/reuniones/servicios/borrar-reunion";
-import { esDuenoOAdmin, puedeIniciarLaSala, puedeTerminarLaReunion, puedeVerReuniones } from "@/features/reuniones/servicios/permisos";
+import { esDuenoOAdmin, puedeAdministrarSalas, puedeIniciarLaSala, puedeTerminarLaReunion, puedeVerReuniones } from "@/features/reuniones/servicios/permisos";
 import { abrirOCrearReunionDeSala, crearSala, editarSala } from "@/features/reuniones/servicios/salas";
 
 async function contexto() {
@@ -104,6 +104,45 @@ export async function iniciarReunionDeSalaAction(salaId: string): Promise<{ codi
     revalidatePath("/cliente/reuniones");
   }
   return { codigo: reunion.codigo };
+}
+
+/**
+ * «Sala» en el detalle de una reunión: la pasa a una sala fija (o a «Sin sala», con null). Sirve para
+ * ordenar las reuniones de antes de las salas. Solo el dueño o un administrador, y la reunión y la sala
+ * tienen que ser del mismo negocio. Solo cambia salaFijaId: el audio, las pistas, la transcripción y el
+ * acta quedan iguales.
+ */
+export async function moverReunionDeSalaAction(reunionId: string, salaId: string | null): Promise<{ ok?: true; error?: string }> {
+  const access = await contexto();
+  if (!access || typeof reunionId !== "string" || !reunionId || (salaId !== null && (typeof salaId !== "string" || !salaId))) {
+    return { error: "No autorizado" };
+  }
+  if (!(await puedeAdministrarSalas(access.userId, access.workspaceId))) {
+    return { error: "No autorizado" };
+  }
+  const reunion = await prisma.reunion.findFirst({
+    where: { id: reunionId, workspaceId: access.workspaceId },
+    select: { id: true, salaFijaId: true },
+  });
+  if (!reunion) {
+    return { error: "No autorizado" };
+  }
+  const sala = salaId
+    ? await prisma.salaDeReuniones.findFirst({ where: { id: salaId, workspaceId: access.workspaceId }, select: { id: true } })
+    : null;
+  if (salaId && !sala) {
+    return { error: "Esa sala no existe." };
+  }
+  await prisma.reunion.update({ where: { id: reunion.id }, data: { salaFijaId: sala?.id ?? null } });
+  revalidatePath("/cliente/reuniones");
+  revalidatePath(`/cliente/reuniones/${reunion.id}`);
+  // La sala de antes y la nueva: las dos cambian su historial.
+  for (const id of new Set([reunion.salaFijaId, sala?.id])) {
+    if (id) {
+      revalidatePath(`/cliente/reuniones/sala/${id}`);
+    }
+  }
+  return { ok: true };
 }
 
 /**

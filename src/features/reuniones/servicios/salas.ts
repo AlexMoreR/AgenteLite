@@ -30,6 +30,24 @@ async function esDelNegocio(userId: string, workspaceId: string): Promise<boolea
   return dueno + miembro > 0;
 }
 
+/** Quienes pueden ser líderes de una sala: el dueño y los miembros activos del negocio. */
+export async function usuariosDelNegocio(workspaceId: string) {
+  const [negocio, miembros] = await Promise.all([
+    prisma.workspace.findUnique({ where: { id: workspaceId }, select: { owner: { select: { id: true, name: true, email: true } } } }),
+    prisma.workspaceMember.findMany({
+      where: { workspaceId, isActive: true },
+      select: { user: { select: { id: true, name: true, email: true } } },
+    }),
+  ]);
+  const usuarios = new Map<string, string>();
+  for (const usuario of [negocio?.owner, ...miembros.map((miembro) => miembro.user)]) {
+    if (usuario) {
+      usuarios.set(usuario.id, usuario.name?.trim() || usuario.email || "Sin nombre");
+    }
+  }
+  return [...usuarios].map(([id, nombre]) => ({ id, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+}
+
 export async function crearSala(datos: {
   userId: string;
   workspaceId: string;
@@ -141,7 +159,7 @@ export type ReunionDelHistorial = {
   empezoEn: Date | null;
   terminoEn: Date | null;
   createdAt: Date;
-  participantes: { nombre: string; userId: string | null; entroEn: Date; salioEn: Date | null }[];
+  participantes: { nombre: string; identidad: string; userId: string | null; entroEn: Date; salioEn: Date | null }[];
   resumen: string | null;
 };
 
@@ -160,7 +178,7 @@ export async function leerHistorialDeLaSala(salaId: string): Promise<ReunionDelH
       terminoEn: true,
       createdAt: true,
       acta: true,
-      participantes: { orderBy: { entroEn: "asc" }, select: { nombre: true, userId: true, entroEn: true, salioEn: true } },
+      participantes: { orderBy: { entroEn: "asc" }, select: { nombre: true, identidad: true, userId: true, entroEn: true, salioEn: true } },
     },
   });
   return reuniones.map(({ acta, ...reunion }) => ({ ...reunion, resumen: resumenDelActa(acta) }));

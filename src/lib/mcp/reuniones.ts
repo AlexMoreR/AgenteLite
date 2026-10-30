@@ -10,6 +10,7 @@ import { buscarReuniones } from "@/features/reuniones/servicios/buscar-reuniones
 
   - listar_reuniones: las reuniones del negocio, y busca por texto en títulos, transcripciones y actas.
   - ver_reunion: la transcripción con nombres y horas, y el acta.
+  Las dos dicen la sala fija de cada reunión (`sala_fija`: su nombre, o null si es suelta).
 
   Mismo permiso que la pantalla /cliente/reuniones: el dueño, los administradores y quien tenga el
   módulo "Reuniones". Los audios no salen por acá.
@@ -25,7 +26,7 @@ export const HERRAMIENTAS_MCP_REUNIONES = [
     name: "listar_reuniones",
     title: "Listar reuniones",
     description:
-      "Las reuniones del módulo Reuniones (videollamadas propias grabadas y audios subidos), de la más nueva a la más vieja, con su estado (Esperando, En vivo, En cola, Transcribiendo, Haciendo acta, Lista, Error) y el resumen del acta. Con `texto` busca en títulos, transcripciones y actas. Para leer una completa, usa ver_reunion con su id.",
+      "Las reuniones del módulo Reuniones (videollamadas propias grabadas y audios subidos), de la más nueva a la más vieja, con su estado (Esperando, En vivo, En cola, Transcribiendo, Haciendo acta, Lista, Error) y el resumen del acta y su sala fija (`sala_fija`: el nombre, o null si no tiene sala). Con `texto` busca en títulos, transcripciones y actas. Para leer una completa, usa ver_reunion con su id.",
     inputSchema: {
       type: "object",
       properties: {
@@ -40,7 +41,7 @@ export const HERRAMIENTAS_MCP_REUNIONES = [
     name: "ver_reunion",
     title: "Ver una reunión",
     description:
-      "Una reunión completa: quiénes entraron, la transcripción con nombre y hora de cada frase, y el acta (resumen, decisiones, tareas con responsable y fecha, mejoras en ventas y qué puede mejorar Alexander como dueño).",
+      "Una reunión completa: su sala fija (`sala_fija`: el nombre, o null), quiénes entraron, la transcripción con nombre y hora de cada frase, y el acta (resumen, decisiones, tareas con responsable y fecha, mejoras en ventas y qué puede mejorar Alexander como dueño).",
     inputSchema: {
       type: "object",
       properties: { id: { type: "string", description: "El id de la reunión (sale en listar_reuniones)." } },
@@ -89,6 +90,7 @@ async function listarReuniones(args: Argumentos, contexto: Contexto) {
       empezo_en: fecha(reunion.empezoEn),
       termino_en: fecha(reunion.terminoEn),
       creada_por: reunion.creadaPor,
+      sala_fija: reunion.salaFija?.nombre ?? null,
       personas: reunion.participantes,
       resumen: reunion.resumen,
       ...(reunion.aviso ? { aviso: reunion.aviso } : {}),
@@ -118,6 +120,7 @@ async function verReunion(args: Argumentos, contexto: Contexto) {
       textoTranscripcion: true,
       acta: true,
       creadaPor: { select: { name: true, email: true } },
+      salaFija: { select: { nombre: true } },
       participantes: { orderBy: { entroEn: "asc" }, select: { nombre: true, identidad: true, userId: true, entroEn: true, salioEn: true } },
     },
   });
@@ -134,6 +137,7 @@ async function verReunion(args: Argumentos, contexto: Contexto) {
     empezo_en: fecha(reunion.empezoEn),
     termino_en: fecha(reunion.terminoEn),
     creada_por: reunion.creadaPor?.name?.trim() || reunion.creadaPor?.email || null,
+    sala_fija: reunion.salaFija?.nombre ?? null,
     participantes: personasDeLaReunion(reunion.participantes, await nombresDeUsuariosPara(reunion.participantes)).map((participante) => ({
       nombre: participante.nombreVisible,
       entro_en: fecha(participante.entroEn),
