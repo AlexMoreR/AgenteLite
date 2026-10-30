@@ -722,7 +722,22 @@ async function revisarDeNuevo(contexto: ContextoTrabajador, actual: FilaParaTrab
     ? cuerpo.pruebas.filter((texto): texto is string => typeof texto === "string" && texto.trim().length > 0).slice(0, 20).map((texto) => texto.trim().slice(0, 300))
     : [];
   const sube = cuerpo.subeSolo;
-  const motivo = sube ? null : `construido, no sube: ${motivoDeEntrada(cuerpo.motivo ?? esperaPor ?? "el Coordinador no la dejó subir sola")}`.slice(0, 600);
+  if (sube) {
+    // Lo mismo que comprueba rescatar: el dinero de Gestión y los cambios destructivos siguen esperando el sí del dueño.
+    const migracion = Array.isArray(previo.migracionDestructiva) ? (previo.migracionDestructiva as unknown[]) : [];
+    if (migracion.length) throw new ErrorDelTrabajador("La migración tiene cambios destructivos: espera el sí del dueño.", 409);
+    const plan = porQueElPlanEsperaTuSi(actual.plan ?? "");
+    if (plan) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${plan}.`, 409);
+    const dinero = motivosDeLosArchivos(Array.isArray(previo.archivos) ? (previo.archivos as string[]) : []).find((m) => m.startsWith("toca dinero"));
+    if (dinero) throw new ErrorDelTrabajador(`Espera el sí del dueño: el cambio ${dinero}.`, 409);
+    const tarea = porQueLaTareaEsperaTuSi({ titulo: actual.titulo, detalle: actual.detalle, zonaProtegida: [], zonasQueEsperan: [] });
+    if (tarea) {
+      const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: actual.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
+      if (!aprobacionDelDuenoEnElHistorial(historial)) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${tarea}.`, 409);
+    }
+  }
+  const motivoDelCuerpo = typeof cuerpo.motivo === "string" && cuerpo.motivo.trim() ? cuerpo.motivo : null;
+  const motivo = sube ? null : `construido, no sube: ${motivoDeEntrada(motivoDelCuerpo ?? esperaPor ?? "el Coordinador no la dejó subir sola")}`.slice(0, 600);
   const vuelve: EstadoTarjetaTablero = sube ? "SUBIENDO" : "ERROR";
   const resultado = sube
     ? (() => {
