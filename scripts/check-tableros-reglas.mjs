@@ -1968,6 +1968,62 @@ prueba("porQueElPlanEsperaTuSi: sin línea y hablando de abonos espera; sin lín
   assert.equal(riesgo.porQueElPlanEsperaTuSi("Muestra los abonos en una lista.\nAPROBAR PLAN: SOLO"), null);
 });
 
+prueba("porQueElPlanEsperaTuSi: con la tarea aprobada por el dueño, el dinero de Gestión no pide un segundo sí", () => {
+  const abonos = "Archivos:\n- src/features/abonos/tabla.tsx\nCRITERIOS DE ACEPTACIÓN:\n- la tabla muestra los abonos\nAPROBAR PLAN: SOLO";
+  assert.equal(riesgo.porQueElPlanEsperaTuSi(abonos, { tareaAprobadaPorElDueno: true }), null);
+  assert.equal(riesgo.porQueElPlanNuevoEsperaTuSi(abonos, { tareaAprobadaPorElDueno: true }), null);
+  // Con false (o sin opción) da el motivo de Gestión de hoy.
+  assert.match(riesgo.porQueElPlanEsperaTuSi(abonos, { tareaAprobadaPorElDueno: false }), /toca dinero/);
+  assert.match(riesgo.porQueElPlanEsperaTuSi(abonos), /toca dinero/);
+  assert.match(riesgo.porQueElPlanNuevoEsperaTuSi(abonos), /toca dinero/);
+  // Sin la línea, las palabras de Gestión tampoco frenan.
+  const palabras = "Se cambia cómo se muestran los abonos en la lista.";
+  assert.equal(riesgo.porQueElPlanEsperaTuSi(palabras, { tareaAprobadaPorElDueno: true }), null);
+  assert.match(riesgo.porQueElPlanEsperaTuSi(palabras), /dinero de Gestión/);
+  // ESPERA TU SÍ con el único motivo de Gestión no frena; sin la opción, sí.
+  const espera = "Cambia los saldos.\nAPROBAR PLAN: ESPERA TU SÍ — toca abonos y saldos de Gestión";
+  assert.equal(riesgo.porQueElPlanEsperaTuSi(espera, { tareaAprobadaPorElDueno: true }), null);
+  assert.match(riesgo.porQueElPlanEsperaTuSi(espera), /espera tu sí/);
+});
+
+prueba("porQueElPlanEsperaTuSi: con la tarea aprobada por el dueño, Meta Ads, preguntas, NECESITO y el agente necesita siguen esperando", () => {
+  const si = { tareaAprobadaPorElDueno: true };
+  assert.match(riesgo.porQueElPlanEsperaTuSi("APROBAR PLAN: SOLO\nGASTO EN META ADS: sube el tope diario", si), /gasto en Meta Ads/);
+  assert.ok(riesgo.porQueElPlanEsperaTuSi("Activar las campañas nuevas de Meta.\nAPROBAR PLAN: SOLO", si));
+  assert.match(riesgo.porQueElPlanEsperaTuSi("Cambia abonos.\nAPROBAR PLAN: ESPERA TU SÍ — zona META_ADS y abonos", si), /META_ADS/);
+  assert.match(riesgo.porQueElPlanEsperaTuSi("Cambia abonos.\nAPROBAR PLAN: ESPERA TU SÍ — toca el LIBRO_V3 y los pagos", si), /LIBRO_V3/);
+  assert.match(riesgo.porQueElPlanEsperaTuSi("Cambia abonos.\nAPROBAR PLAN: ESPERA TU SÍ — el agente necesita la clave de pagos", si), /el agente necesita/);
+  // Sin motivo no se sabe que sea solo Gestión: sigue esperando.
+  assert.ok(riesgo.porQueElPlanEsperaTuSi("Cambia algo.\nAPROBAR PLAN: ESPERA TU SÍ.", si));
+  assert.match(riesgo.porQueElPlanEsperaTuSi("Cambia abonos.\nPREGUNTAS ABIERTAS:\n- ¿el abono mínimo es 35 % o 50 %?\nAPROBAR PLAN: SOLO", si), /preguntas abiertas/);
+  assert.match(riesgo.porQueElPlanEsperaTuSi("Cambia abonos.\nNECESITO: acceso a la pasarela de pagos\nAPROBAR PLAN: SOLO", si), /necesita algo del dueño: acceso a la pasarela/);
+  // Sin la opción, NECESITO no se mira acá (como hoy).
+  assert.equal(riesgo.porQueElPlanEsperaTuSi("Cambia una pantalla.\nNECESITO: una clave\nAPROBAR PLAN: SOLO"), null);
+  // Plan nuevo: criterios y supuestos de negocio siguen esperando.
+  assert.match(riesgo.porQueElPlanNuevoEsperaTuSi("Cambia abonos.\nAPROBAR PLAN: SOLO", si), /CRITERIOS DE ACEPTACIÓN/);
+  assert.match(
+    riesgo.porQueElPlanNuevoEsperaTuSi("Cambia abonos.\nCRITERIOS DE ACEPTACIÓN:\n- se ve\nSUPUESTOS:\n- el precio baja 10 %\nAPROBAR PLAN: SOLO", si),
+    /decisión de negocio/,
+  );
+  // La tarea con zona META_ADS sigue esperando (esa regla no cambia).
+  assert.ok(riesgo.porQueLaTareaEsperaTuSi({ titulo: "x", detalle: "y", zonaProtegida: ["META_ADS"], zonasQueEsperan: ["META_ADS"] }));
+});
+
+prueba("tareaAprobadaPorElDuenoEnElHistorial: solo el sí de la tarea dado en pantalla o por voz", () => {
+  const fila = (despues, accion = "aprobar") => [{ accion, despues }];
+  assert.equal(trabajo.tareaAprobadaPorElDuenoEnElHistorial(fila({ momento: "tarea", via: "voz" })), true);
+  assert.equal(trabajo.tareaAprobadaPorElDuenoEnElHistorial(fila({ momento: "tarea", via: "pantalla" })), true);
+  assert.equal(trabajo.tareaAprobadaPorElDuenoEnElHistorial(fila({ momento: "tarea", via: "automatica" })), false);
+  assert.equal(trabajo.tareaAprobadaPorElDuenoEnElHistorial(fila({ momento: "tarea" })), false);
+  assert.equal(trabajo.tareaAprobadaPorElDuenoEnElHistorial(fila({ momento: "plan", via: "pantalla" })), false);
+  assert.equal(trabajo.tareaAprobadaPorElDuenoEnElHistorial(fila({ momento: "tarea", via: "voz" }, "estado")), false);
+  assert.equal(trabajo.tareaAprobadaPorElDuenoEnElHistorial(fila(null)), false);
+  assert.equal(trabajo.tareaAprobadaPorElDuenoEnElHistorial([]), false);
+  // Una hija que heredó el sí de su madre (via "pantalla") cuenta.
+  const heredada = trabajo.registroDeAprobacion({ estado: "APROBADO", momento: "tarea", via: "pantalla", quienNombre: "el dueño (en la tarjeta madre)", userId: "u", textoConfirmacion: null });
+  assert.equal(trabajo.tareaAprobadaPorElDuenoEnElHistorial(fila({ ...heredada, como: "heredada", heredadaDe: "madre" })), true);
+});
+
 /* ------------------------------------------------------------------ responsable de la tarjeta */
 
 prueba("puedeAsignarResponsable: el dueño y el ADMIN (soloDe null) siempre; la dueña del tablero; otra persona no", () => {

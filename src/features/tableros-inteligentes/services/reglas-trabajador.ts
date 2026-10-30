@@ -469,6 +469,19 @@ export function aprobacionDelDuenoEnElHistorial(filas: readonly { accion: string
 }
 
 /**
+ * ¿El dueño aprobó la TAREA (30-oct-2026)? Una fila "aprobar" con momento "tarea" y via "pantalla" o "voz" (como las
+ * escribe registroDeAprobacion). La aprobación automática (via "automatica") o una fila sin via no cuentan. Una hija que
+ * heredó el sí de su madre con via "pantalla" cuenta. Sin base.
+ */
+export function tareaAprobadaPorElDuenoEnElHistorial(filas: readonly { accion: string; despues: unknown }[]): boolean {
+  return filas.some((fila) => {
+    if (fila.accion !== "aprobar") return false;
+    const despues = fila.despues as { momento?: unknown; via?: unknown } | null;
+    return despues?.momento === "tarea" && (despues.via === "pantalla" || despues.via === "voz");
+  });
+}
+
+/**
  * ¿La ÚLTIMA aprobación del plan la dio una persona (pantalla o voz) y no la aprobación automática? (29-oct-2026) El
  * Coordinador no construye un plan con preguntas abiertas que se aprobó solo; si el dueño lo aprobó tal cual, sí.
  * `filas`: las filas "aprobar" del historial, de la más nueva a la más vieja.
