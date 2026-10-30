@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `sonido_de_mensaje_nuevo`: el sonido y el aviso de mensaje nuevo (campanita y notificación al celular) solo le llegan a quien tiene el chat asignado. Jefes, monitoras y las demás asesoras ya no lo oyen, aunque sigan viendo el chat en su lista. Un chat sin asignar no le suena a nadie; el primer mensaje de un chat que se reparte por turno puede no sonar (la asesora recibe el aviso "Nuevo chat asignado"). El socket directo de Evolution en la pantalla de Chats ya no hace sonar nada.

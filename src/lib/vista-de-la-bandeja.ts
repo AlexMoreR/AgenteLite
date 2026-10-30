@@ -1,25 +1,23 @@
 /**
- * Si la lista de quien mira es solo "Mias" o algo mas amplio (jefe, supervisora o monitora).
+ * Si quien mira tiene vista general de la bandeja (jefe o supervisora) o solo lo suyo.
  *
- * Lo aprende el navegador de la respuesta de /api/cliente/chats/list (`assignedFilter`), que ya
- * pide la campanita en toda la app con `assigned=all`: la ruta solo le impone "mine" a quien no es
- * jefe, supervisora ni monitora. Sirve para una sola cosa: saber si el aviso `noSeEnteran` del
- * altavoz coincide con lo que muestra su lista. Para quien ve solo "Mias" coincide (no se entera
- * de lo que no tiene asignado, ver quien-se-entera-del-mensaje); para los demas NO -su lista
- * muestra chats que no tienen asignados y que no les suenan-, asi que a ellos nunca se les salta
- * nada.
+ * Lo aprende el navegador de la respuesta de /api/cliente/chats/list (`isManager`), que ya pide la
+ * campanita en toda la app. Sirve para una sola cosa: saber si el aviso `noSeEnteran` del altavoz
+ * coincide con lo que muestra su lista. Para una asesora coincide (misma regla que la lista, ver
+ * quien-se-entera-del-mensaje); para una supervisora NO -su lista muestra "Todas" de sus lineas,
+ * pero el aviso solo la incluye en sus chats asignados-, asi que a ella nunca se le salta nada.
  *
  * Mientras no se sepa (null), se comporta como antes: no se salta ningun aviso.
  */
 let tieneVistaGeneral: boolean | null = null;
 
-export function recordarVistaDeLaBandeja(assignedFilter: unknown) {
-  if (typeof assignedFilter === "string") {
-    tieneVistaGeneral = assignedFilter !== "mine";
+export function recordarVistaDeLaBandeja(isManager: unknown) {
+  if (typeof isManager === "boolean") {
+    tieneVistaGeneral = isManager;
   }
 }
 
-/** true solo cuando ya se sabe que su lista es "Mias". */
+/** true solo cuando ya se sabe que su lista es "Mias" (o la de lo que monitorea). */
 export function avisoAjenoCoincideConSuLista() {
   return tieneVistaGeneral === false;
 }
