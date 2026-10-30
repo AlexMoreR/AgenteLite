@@ -170,4 +170,15 @@ prueba("respondioLaBienvenida: ordena por fecha aunque lleguen al revés", () =>
   assert.equal(t.respondioLaBienvenida([...viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA))].reverse()), false);
 });
 
+prueba("respondioLaBienvenida: forma del rescate (mensajes con type, direction y createdAt, sin origen)", () => {
+  const deRescate = [
+    { direction: "INBOUND", type: "TEXT", createdAt: new Date(Date.UTC(2026, 9, 29, 13, 0)) },
+    { direction: "OUTBOUND", type: "TEXT", createdAt: new Date(Date.UTC(2026, 9, 29, 13, 1)) },
+    { direction: "INBOUND", type: "TEXT", createdAt: new Date(Date.UTC(2026, 9, 29, 13, 5)) },
+    { direction: "OUTBOUND", type: "TEXT", createdAt: new Date(Date.UTC(2026, 9, 29, 13, 5, 30)) },
+  ];
+  assert.equal(t.respondioLaBienvenida(deRescate), true);
+  assert.equal(t.respondioLaBienvenida(deRescate.slice(0, 2)), false);
+});
+
 console.log(`\n${pruebas} pruebas ok`);
