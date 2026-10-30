@@ -10,6 +10,7 @@ import {
   MINUTOS_PARA_HUERFANA,
   MOTIVO_HUERFANA,
   MOTIVO_VENCIDA,
+  motivoConEstado,
   NOMBRE_DE_LA_ZONA,
   REPOS_DEL_TRABAJADOR,
   TOPE_DE_ESPERAS_SEGUIDAS,
@@ -420,7 +421,7 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
     const vencidas = vencidasODejadas.filter((fila) => fila.estado === "ERROR");
     const sueltas = vencidasODejadas.filter((fila) => fila.estado !== "ERROR");
     for (const vencida of vencidas) {
-      await anotarTrabajador(tx, contexto, vencida.id, { estado: vencida.antes }, { estado: "ERROR", motivo: MOTIVO_VENCIDA });
+      await anotarTrabajador(tx, contexto, vencida.id, { estado: vencida.antes }, { estado: "ERROR", motivo: motivoConEstado(MOTIVO_VENCIDA, vencida.antes) });
     }
     for (const suelta of sueltas) {
       await anotarTrabajador(
@@ -455,7 +456,7 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
       MINUTOS_PARA_HUERFANA,
     );
     for (const huerfana of huerfanas) {
-      await anotarTrabajador(tx, contexto, huerfana.id, { estado: huerfana.antes }, { estado: "ERROR", motivo: MOTIVO_HUERFANA });
+      await anotarTrabajador(tx, contexto, huerfana.id, { estado: huerfana.antes }, { estado: "ERROR", motivo: motivoConEstado(MOTIVO_HUERFANA, huerfana.antes) });
     }
 
     await tocarTableros(
@@ -796,7 +797,11 @@ export async function accionDelTrabajador(
     const intento: IntentoPorGuardar = {
       etapa: etapaDeEntrada(cuerpo.etapa, estado),
       categoria: categoriaDeEntrada(cuerpo.categoria) ?? "otra",
-      causa: causaConEstrategia(causaDeEntrada(cuerpo.causa), estrategiaDeEntrada(cuerpo.estrategia)),
+      // 30-oct-2026: la causa nunca queda vacía.
+      causa: causaConEstrategia(
+        causaDeEntrada(cuerpo.causa, `El Coordinador no mandó la causa (etapa ${etapaDeEntrada(cuerpo.etapa, estado)}, intento ${actual.intentos})`),
+        estrategiaDeEntrada(cuerpo.estrategia),
+      ),
       error: errorDeIntentoDeEntrada(cuerpo.error),
       accion: "reparar",
       cuentaComoIntento: true,
@@ -1028,7 +1033,9 @@ export async function accionDelTrabajador(
       // Con `categoria` es una escalada del protocolo de reparación: el motivo es el resumen de máximo 3 líneas
       // para el dueño, y queda una fila de intentos (escalar, cuenta como intento) con el error técnico.
       const categoria = categoriaDeEntrada(cuerpo.categoria);
-      const motivo = categoria ? resumenDeEscalada(cuerpo.motivo ?? cuerpo.resumen) : motivoDeEntrada(cuerpo.motivo);
+      // 30-oct-2026: ninguna tarjeta queda en ERROR sin motivo: si no llega, queda escrito en qué etapa e intento pasó.
+      const sinMotivo = `El Coordinador no mandó motivo (etapa ${etapaDeEntrada(cuerpo.etapa, estado)}, intento ${actual.intentos})`;
+      const motivo = categoria ? resumenDeEscalada(cuerpo.motivo ?? cuerpo.resumen, sinMotivo) : motivoDeEntrada(cuerpo.motivo, sinMotivo);
       const reversion = reversionDeEntrada(cuerpo.reversion);
       const causa = categoria ? causaDeEntrada(cuerpo.causa, causaDeEntrada(motivo)) : null;
       const error = {

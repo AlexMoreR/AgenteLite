@@ -264,8 +264,9 @@ export function vencimientoDelCandado(etapa: EtapaDelTrabajador, iniciadoEn: Dat
 }
 
 // Tres líneas (qué falló, qué se probó, qué necesita del dueño), igual que el resumen de una escalada.
+// 30-oct-2026: "{estado}" se cambia por el estado en que estaba la tarjeta (motivoConEstado y, en SQL, replace).
 export const MOTIVO_VENCIDA = [
-  "Se pasó del tiempo: el Coordinador dejó de dar señales (sin latido) o la etapa superó su tope.",
+  "Se pasó del tiempo en {estado}: venció el candado sin respuesta del Coordinador (sin latido) o la etapa superó su tope.",
   "Se volvió a intentar sola y no avanzó.",
   "Necesita que la veas: pulsa Reintentar o, si es muy grande, pide partirla.",
 ].join("\n");
@@ -1086,9 +1087,9 @@ export function reversionDeEntrada(valor: unknown): ReversionDelTrabajador | nul
 }
 
 /** El motivo de un error del Coordinador. */
-export function motivoDeEntrada(valor: unknown): string {
+export function motivoDeEntrada(valor: unknown, porDefecto = "El Coordinador no dijo el motivo."): string {
   const motivo = typeof valor === "string" ? valor.trim().slice(0, 4000) : "";
-  return motivo || "El Coordinador no dijo el motivo.";
+  return motivo || porDefecto;
 }
 
 /* ───────────────────────────────────────────────────────────────────── reparar, partir y esperar ── */
@@ -1182,13 +1183,13 @@ export function errorDeIntentoDeEntrada(valor: unknown): string | null {
 }
 
 /** El resumen que escribe el Coordinador al escalar: máximo 3 líneas con texto (cada una hasta 300 letras). */
-export function resumenDeEscalada(valor: unknown): string {
+export function resumenDeEscalada(valor: unknown, porDefecto = "El Coordinador no dijo el motivo."): string {
   const lineas = (typeof valor === "string" ? valor.split(/\r?\n/) : [])
     .map((linea) => linea.replace(/\s+/g, " ").trim())
     .filter(Boolean)
     .slice(0, MAXIMO_LINEAS_DEL_RESUMEN)
     .map((linea) => linea.slice(0, MAXIMO_LINEA_DEL_RESUMEN));
-  return lineas.join("\n") || "El Coordinador no dijo el motivo.";
+  return lineas.join("\n") || porDefecto;
 }
 
 /** La estrategia que sugiere el Coordinador al reparar: solo se anota ("opus" | "partir"); null si no vino o no es una. */
@@ -1447,10 +1448,15 @@ export const MINUTOS_PARA_HUERFANA = 30;
 
 // Tres líneas, como MOTIVO_VENCIDA.
 export const MOTIVO_HUERFANA = [
-  "Quedó huérfana: nadie la estaba trabajando (estaba en planear o construir sin el candado del Coordinador).",
+  "Quedó huérfana: nadie la estaba trabajando (estaba en {estado} sin el candado del Coordinador).",
   "No se volvió a intentar sola.",
   "Necesita que la veas: pulsa Reintentar o, si ya no va, Cerrar como fallida.",
 ].join("\n");
+
+/** El motivo de una vencida o huérfana con el estado en que estaba la tarjeta (nunca queda vacío). */
+export function motivoConEstado(motivo: string, estado: string): string {
+  return motivo.replace(/\{estado\}/g, estado).trim() || `venció el candado en ${estado} sin respuesta del Coordinador`;
+}
 
 /** Los estados desde los que el dueño cierra una tarjeta con repo como fallida en la pantalla. */
 export const ESTADOS_QUE_SE_CIERRAN_COMO_FALLIDA = ["ERROR", "PLANEANDO", "EN_CURSO"] as const;

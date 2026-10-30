@@ -97,17 +97,44 @@ export async function tarjetasAtascadas(workspaceId: string, ahora: Date): Promi
   return atascadas.sort((a, b) => b.horasAtascada - a.horasAtascada);
 }
 
+/**
+ * El motivo de una tarjeta en ERROR (30-oct-2026). `resultado.error` es una ficha { motivo, en, cuando, categoria, causa }
+ * (antes se leía como si fuera un texto y salía "sin motivo guardado" aunque el motivo estuviera guardado). Orden:
+ * el motivo de la ficha, la causa de la ficha, el error como texto, `resultado.motivo`, la última causa anotada en los
+ * intentos de la tarjeta y, si no hay nada, una frase fija con el estado en que estaba.
+ */
+export function motivoDeLaTarjetaEnError(resultado: unknown, ultimaCausa: string | null, estado: string | null): string {
+  const datos = comoObjeto(resultado);
+  const ficha = comoObjeto(datos.error);
+  return (
+    texto(ficha.motivo) ??
+    texto(ficha.causa) ??
+    texto(datos.error) ??
+    texto(datos.motivo) ??
+    texto(ultimaCausa) ??
+    `en ERROR sin motivo guardado (estaba en ${texto(ficha.en) ?? texto(estado) ?? "un estado que no se guardó"})`
+  );
+}
+
 export type TarjetaEnError = { tarjetaId: string; titulo: string; tablero: string; motivo: string };
 
 export async function tarjetasEnError(workspaceId: string): Promise<TarjetaEnError[]> {
   const filas = await prisma.tarjetaTablero.findMany({
     where: { estado: "ERROR", borradoEn: null, repo: { not: null }, tablero: { workspaceId } },
-    select: { id: true, titulo: true, resultado: true, tablero: { select: { nombre: true } } },
+    select: {
+      id: true,
+      titulo: true,
+      resultado: true,
+      tablero: { select: { nombre: true } },
+      intentosDeTrabajo: { orderBy: { numero: "desc" }, take: 1, select: { causa: true } },
+    },
   });
-  return filas.map((fila) => {
-    const resultado = comoObjeto(fila.resultado);
-    return { tarjetaId: fila.id, titulo: fila.titulo, tablero: fila.tablero.nombre, motivo: texto(resultado.error) ?? texto(resultado.motivo) ?? "sin motivo guardado" };
-  });
+  return filas.map((fila) => ({
+    tarjetaId: fila.id,
+    titulo: fila.titulo,
+    tablero: fila.tablero.nombre,
+    motivo: motivoDeLaTarjetaEnError(fila.resultado, fila.intentosDeTrabajo?.[0]?.causa ?? null, "ERROR"),
+  }));
 }
 
 /** ¿Está vivo el trabajador? Por el último uso de su clave "aizen1" (si no hay con ese nombre, la más usada). */

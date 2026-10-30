@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
 import { crearVigilante, sumarDescendientes } from "../lib/atasco.mjs";
-import { crearPlanificador, crearSemaforo, procesar, unaVuelta } from "../lib/bucle.mjs";
+import { crearPlanificador, crearSemaforo, procesar, reparacionDeLaTarjeta, unaVuelta } from "../lib/bucle.mjs";
 import { PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
@@ -28,7 +28,7 @@ import { crearCrm } from "../lib/crm.mjs";
 import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstadoDelManual } from "../lib/manual-nocturno.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
-import { LARGO_MAXIMO_DEL_AVISO, decidir, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
+import { LARGO_MAXIMO_DEL_AVISO, causaSegura, decidir, diagnosticar, motivoSeguro, queCambiaEntre, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
 import { buscarCorridaDelDespliegue, esLimiteDeUso, planParaLaNube, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
 import { MAX_DESCRIPCION, descripcionParaLaNube, esCommitDeInicio, esTareaGrande, estaDentroDe, esperarResultado, lanzarEnNube, lineaSinRepo, linkDeLaSesionFija, linkDeSesion, nombreDelProyecto, olvidarSinAcceso, sesionFijaDe, sinAccesoALaNube, preguntaDeConfianza, preguntaDelCommit, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
 import { preguntasAbiertasDelPlan, primeraPreguntaAbierta } from "../lib/preguntas-abiertas.mjs";
@@ -659,7 +659,8 @@ await prueba("diagnóstico: el aviso de 'carpeta sin confianza' no es la causa; 
 await prueba("decisiones: el límite de Claude espera sin contar; 3 reparaciones y escala con resumen de 3 líneas; tarea grande se parte", async () => {
   const limite = diagnosticar({ error: Object.assign(new Error("Claude llegó a su límite de uso al construir: usage limit reached"), { limiteDeUso: true }), etapa: "construir" });
   assert.equal(limite.categoria, "limite_claude");
-  assert.deepEqual(decidir({ diagnostico: limite, tarjeta: { reparaciones: 3 }, etapa: "construir" }), { accion: "esperar", cuenta: false, motivo: "límite de uso de Claude: se espera su reinicio" });
+  const esperaLimite = decidir({ diagnostico: limite, tarjeta: { reparaciones: 3 }, etapa: "construir" });
+  assert.deepEqual({ accion: esperaLimite.accion, cuenta: esperaLimite.cuenta, motivo: esperaLimite.motivo }, { accion: "esperar", cuenta: false, motivo: "límite de uso de Claude: se espera su reinicio" });
   const compila = diagnosticar({ error: new Error("No compiló: el código tiene errores de tipos (TypeScript)\nerror TS2322: el tipo no calza"), etapa: "construir" });
   assert.equal(compila.categoria, "no_compila");
   assert.equal(decidir({ diagnostico: compila, tarjeta: { reparaciones: 2, topeReparaciones: 3 }, etapa: "construir" }).accion, "reparar");
@@ -698,6 +699,39 @@ await prueba("29-oct: la nube sin resultado, la nube que pregunta y el plan con 
   const resumen = resumenDeEscalada({ tarjeta: {}, intentos: [], diagnostico: sinResultado });
   assert.match(resumen, new RegExp(LINK_PRUEBA.replace(/[.]/g, "\\.")));
   assert.match(resumen.split("\n")[2], /^Qué necesita de ti: Abrir el link de la sesión de la nube/);
+});
+
+await prueba("30-oct: misma categoría y misma causa que el intento anterior, sin estrategia distinta: se escala (no hay un 3er intento igual)", () => {
+  const falla = { categoria: "no_compila", causa: "El código no compila: error TS2322 en línea 41" };
+  // Planear no tiene otra estrategia: la misma causa dos veces seguidas termina en escalar.
+  const previo = [{ accion: "reparar", categoria: "no_compila", causa: "El código no compila: error TS2322 en línea 87", etapa: "planear" }];
+  const planear = decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: previo }, etapa: "planear" });
+  assert.equal(planear.accion, "escalar");
+  assert.equal(planear.motivo, "misma causa que el intento anterior, nada distinto que probar");
+  // Una causa distinta sí se repara.
+  const otra = decidir({ diagnostico: { categoria: "no_compila", causa: "No compila: Cannot find module './x'" }, tarjeta: { reparaciones: 1, ultimosIntentos: previo }, etapa: "planear" });
+  assert.equal(otra.accion, "reparar");
+  assert.match(otra.queCambia, /causa es distinta/);
+  // Construir con la misma causa: primero Opus; con Opus ya usado se parte; una parte de otra tarea escala.
+  const igual = [{ accion: "reparar", categoria: "no_compila", causa: "El código no compila: error TS2322 en línea 87 [estrategia: opus]" }];
+  assert.equal(decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: previo }, etapa: "construir", modeloConstruir: "sonnet" }).estrategia, "opus");
+  assert.equal(decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: igual }, etapa: "construir", modeloConstruir: "opus" }).accion, "partir");
+  assert.equal(decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, esParte: true, ultimosIntentos: igual }, etapa: "construir", modeloConstruir: "opus" }).accion, "escalar");
+  // Verificar otra vez en la nube cuenta como algo distinto.
+  assert.equal(decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: previo }, etapa: "subir", verificarEnNube: true }).estrategia, "nube");
+  // Las esperas no cuentan como "el intento anterior", y la causa siempre sale escrita.
+  const espera = decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: [...previo, { accion: "esperar", categoria: "limite_claude", causa: "límite" }] }, etapa: "planear" });
+  assert.equal(espera.accion, "escalar");
+  assert.ok(espera.causa && espera.queCambia);
+});
+
+await prueba("30-oct: causa y motivo nunca quedan vacíos", () => {
+  assert.equal(decidir({ diagnostico: { categoria: "otra", causa: "" }, tarjeta: { intentos: 2 }, etapa: "construir" }).causa, "El Coordinador no supo la causa (etapa construir, intento 2)");
+  assert.equal(causaSegura("   ", { etapa: "planear", intento: 1 }), "El Coordinador no supo la causa (etapa planear, intento 1)");
+  assert.equal(motivoSeguro("", { etapa: "subir", intento: 3 }), "El Coordinador no mandó motivo (etapa subir, intento 3)");
+  assert.equal(motivoSeguro("algo falló"), "algo falló");
+  assert.match(queCambiaEntre({ categoria: "no_compila", causa: "x [estrategia: opus]" }, null), /Opus/);
+  assert.match(reparacionDeLaTarjeta({ reparaciones: 1, topeReparaciones: 3, ultimosIntentos: [{ accion: "reparar", categoria: "lint", causa: "El lint falló" }] }).queCambia, /\S/);
 });
 
 await prueba("29-oct: la misma causa 2 veces en la tarjeta (contando todos los intentos) se escala; las ajenas a la tarea no", async () => {
@@ -2353,6 +2387,10 @@ try {
     const segunda = ultimaDeClaude("Se rompe una vez [tsc-una-vez]");
     assert.notEqual(segunda.prompt, primera.prompt, "no repite lo mismo");
     assert.match(segunda.prompt, /REPARACIÓN 1 de 3/);
+    // 30-oct-2026: el bloque de reparación empieza con la causa y qué cambia frente al intento anterior.
+    assert.match(segunda.prompt, /CAUSA: .*compil/i);
+    assert.match(segunda.prompt, /QUÉ CAMBIA: \S+/);
+    assert.ok(segunda.prompt.indexOf("CAUSA:") < segunda.prompt.indexOf("REPARACIÓN 1 de 3"), "CAUSA va antes que el resto");
     assert.match(segunda.prompt, /La causa fue: .*compil/i);
     assert.match(segunda.prompt, /error TS2322/);
     assert.match(segunda.prompt, /Corrige solo eso/);

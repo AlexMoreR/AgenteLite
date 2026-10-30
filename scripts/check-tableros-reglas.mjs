@@ -872,6 +872,16 @@ prueba("reparar y partir: tope de 3 reparaciones, resumen de máximo 3 líneas, 
   assert.equal(trabajo.resumenDeEscalada("a\n\n b \nc\nd\ne"), "a\nb\nc");
   assert.equal(trabajo.resumenDeEscalada(""), "El Coordinador no dijo el motivo.");
   assert.ok(trabajo.MOTIVO_VENCIDA.split("\n").length <= 3);
+  // 30-oct-2026: ninguna vencida ni huérfana queda sin motivo, y dicen en qué estado estaban.
+  assert.match(trabajo.motivoConEstado(trabajo.MOTIVO_VENCIDA, "EN_CURSO"), /^Se pasó del tiempo en EN_CURSO/);
+  assert.match(trabajo.motivoConEstado(trabajo.MOTIVO_HUERFANA, "PLANEANDO"), /estaba en PLANEANDO sin el candado/);
+  assert.equal(trabajo.motivoConEstado("", "SUBIENDO"), "venció el candado en SUBIENDO sin respuesta del Coordinador");
+  assert.doesNotMatch(trabajo.motivoConEstado(trabajo.MOTIVO_VENCIDA, "EN_CURSO"), /\{estado\}/);
+  // Un motivo o una causa que llegan vacíos se llenan con lo que se sabe (etapa e intento).
+  const sinMotivo = "El Coordinador no mandó motivo (etapa construir, intento 2)";
+  assert.equal(trabajo.motivoDeEntrada("  ", sinMotivo), sinMotivo);
+  assert.equal(trabajo.resumenDeEscalada(" \n ", sinMotivo), sinMotivo);
+  assert.equal(trabajo.causaDeEntrada("", "El Coordinador no mandó la causa (etapa planear, intento 1)"), "El Coordinador no mandó la causa (etapa planear, intento 1)");
   // La causa es una sola línea.
   assert.equal(trabajo.causaDeEntrada("  primera   línea \nsegunda"), "primera línea");
   assert.equal(trabajo.categoriaDeEntrada("limite_claude"), "limite_claude");

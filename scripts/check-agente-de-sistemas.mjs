@@ -161,6 +161,15 @@ await prueba("2 h 10 min en EN_CURSO sale atascada; 1 h 50 min no; en ERROR sale
   assert.deepEqual(errores.map((e) => [e.tarjetaId, e.motivo]), [["e", "no compila: falta un import"]]);
 });
 
+await prueba("30-oct: el motivo de una tarjeta en ERROR se lee de la ficha resultado.error, o de la última causa, o es una frase fija con el estado", () => {
+  const ficha = { error: { motivo: "Se pasó del tiempo en EN_CURSO", en: "EN_CURSO", cuando: "2026-10-30T10:00:00Z" } };
+  assert.equal(revision.motivoDeLaTarjetaEnError(ficha, "otra causa", "ERROR"), "Se pasó del tiempo en EN_CURSO");
+  assert.equal(revision.motivoDeLaTarjetaEnError({ error: { causa: "No compila" } }, null, "ERROR"), "No compila");
+  assert.equal(revision.motivoDeLaTarjetaEnError({ error: {} }, "El lint falló", "ERROR"), "El lint falló", "sin motivo en la ficha: la última causa de los intentos");
+  assert.equal(revision.motivoDeLaTarjetaEnError({ error: { en: "PLANEANDO" } }, null, "ERROR"), "en ERROR sin motivo guardado (estaba en PLANEANDO)");
+  assert.equal(revision.motivoDeLaTarjetaEnError(null, null, "ERROR"), "en ERROR sin motivo guardado (estaba en ERROR)");
+});
+
 await prueba("la clave del trabajador sin uso hace 40 minutos sale 'sin señal'; hace 5 minutos, viva", async () => {
   db.claves = [{ nombre: "aizen1", ultimoUsoEn: hace(0, 40) }, { nombre: "otra", ultimoUsoEn: hace(0, 1) }];
   const sin = await revision.vidaDelTrabajadorDelNegocio(WS, AHORA);

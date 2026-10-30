@@ -76,8 +76,12 @@ const comoObjeto = (valor: unknown): Record<string, unknown> =>
   valor && typeof valor === "object" && !Array.isArray(valor) ? (valor as Record<string, unknown>) : {};
 const texto = (valor: unknown) => (typeof valor === "string" && valor.trim() ? valor.trim() : null);
 
-/** Arma el resumen de un día con las filas del historial: solo cuenta lo que pasó ese día de Bogotá. */
-export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): ResumenDelDia {
+/**
+ * Arma el resumen de un día con las filas del historial: solo cuenta lo que pasó ese día de Bogotá.
+ * `ultimasCausas` (30-oct-2026): la última causa anotada en los intentos de cada tarjeta; se usa cuando el paso a ERROR no trae
+ * motivo, para no rendirse con "sin motivo".
+ */
+export function armarResumen(dia: string, filas: readonly FilaDelHistorial[], ultimasCausas: ReadonlyMap<string, string> = new Map()): ResumenDelDia {
   const { desde, hasta } = rangoDelDia(dia);
   const resumen: ResumenDelDia = { dia, aprobadas: [], subidas: [], fallas: [], yaHechas: [] };
   const delDia = filas
@@ -112,7 +116,7 @@ export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): R
         // Terminada sin subir a producción (tareas que no llevan repo): también es "lista".
         resumen.subidas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, commit: null, linkCommit: null, cuando });
       } else if (despues.estado === "ERROR") {
-        resumen.fallas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, motivo: texto(despues.motivo) ?? "sin motivo", cuando });
+        resumen.fallas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, motivo: texto(despues.motivo) ?? texto(despues.nota) ?? ultimasCausas.get(fila.tarjetaId) ?? "sin motivo", cuando });
       }
     }
   }
@@ -171,10 +175,29 @@ export async function resumenDelDia(workspaceId: string, dia: string): Promise<R
       tarjeta: { select: { titulo: true } },
     },
   });
-  return armarResumen(
-    dia,
-    filas.map((fila) => ({ ...fila, titulo: fila.tarjeta.titulo })),
-  );
+  const resumen = filas.map((fila) => ({ ...fila, titulo: fila.tarjeta.titulo }));
+  // Los pasos a ERROR sin motivo ni nota buscan la última causa de los intentos de su tarjeta antes de rendirse.
+  const sinMotivo = [
+    ...new Set(
+      resumen
+        .filter((fila) => fila.origen === "TRABAJADOR" && fila.accion === "estado")
+        .filter((fila) => {
+          const despues = comoObjeto(fila.despues);
+          return despues.estado === "ERROR" && !texto(despues.motivo) && !texto(despues.nota);
+        })
+        .map((fila) => fila.tarjetaId),
+    ),
+  ];
+  const ultimasCausas = new Map<string, string>();
+  if (sinMotivo.length) {
+    const intentos = await prisma.intentoTarjeta.findMany({
+      where: { tarjetaId: { in: sinMotivo } },
+      orderBy: { numero: "desc" },
+      select: { tarjetaId: true, causa: true },
+    });
+    for (const intento of intentos) if (!ultimasCausas.has(intento.tarjetaId) && texto(intento.causa)) ultimasCausas.set(intento.tarjetaId, intento.causa.trim());
+  }
+  return armarResumen(dia, resumen, ultimasCausas);
 }
 
 /** Cuántas tarjetas esperan en este momento al dueño (la misma lista de "Te toca a ti"). */

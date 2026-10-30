@@ -578,6 +578,9 @@ export function bloqueDeReparacion(tarjeta, { patchAplicado = false } = {}) {
       : "";
   }
   return [
+    // 30-oct-2026: lo primero que lee el siguiente intento es la causa y qué cambia frente al anterior.
+    `CAUSA: ${r.causa || "(no se sabe)"}`,
+    `QUÉ CAMBIA: ${r.queCambia || "(no se sabe)"}`,
     `REPARACIÓN ${r.numero} de ${r.de ?? 3}: el intento anterior falló y SOLO eso hay que corregir.`,
     `La causa fue: ${r.causa || "(no se sabe)"}${r.categoria ? ` (categoría: ${r.categoria})` : ""}.`,
     r.error ? `El error exacto es:\n${recortar(r.error, 3500)}` : "",

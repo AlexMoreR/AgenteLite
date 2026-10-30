@@ -89,7 +89,7 @@ fallidas AS (
   SET "estado" = 'ERROR'::"EstadoTarjeta",
       "trabajoVenceEn" = NULL,
       "resultado" = COALESCE(t."resultado", '{}'::jsonb)
-        || jsonb_build_object('error', jsonb_build_object('motivo', $3::text, 'en', x."antes", 'cuando', $4::text)),
+        || jsonb_build_object('error', jsonb_build_object('motivo', COALESCE(NULLIF(btrim(replace($3::text, '{estado}', x."antes")), ''), 'venció el candado en ' || x."antes" || ' sin respuesta del Coordinador'), 'en', x."antes", 'cuando', $4::text)),
       "actualizadoEn" = ${AHORA}
   FROM x
   WHERE t."id" = x."id" AND NOT x."vuelve"
@@ -100,11 +100,11 @@ intentos AS (
   SELECT ${idDelIntento("x")}, x."id", ${numeroSiguiente("x")}, ${etapaDelAntes("x")},
          CASE WHEN x."portope" AND NOT x."vuelve" THEN 'tiempo_agotado' ELSE 'coordinador_cortado' END,
          CASE
-           WHEN x."vuelve" THEN 'El Coordinador dejó de dar señales (se cortó o se apagó); la tarjeta vuelve a la fila.'
-           WHEN x."portope" THEN 'La etapa se pasó de su tiempo máximo.'
-           ELSE 'El Coordinador dejó de dar señales y ya había esperado varias veces seguidas.'
+           WHEN x."vuelve" THEN 'El Coordinador dejó de dar señales (se cortó o se apagó); la tarjeta vuelve a la fila. Estaba en ' || x."antes" || '.'
+           WHEN x."portope" THEN 'La etapa se pasó de su tiempo máximo: venció el candado en ' || x."antes" || ' sin respuesta del Coordinador.'
+           ELSE 'El Coordinador dejó de dar señales y ya había esperado varias veces seguidas: venció el candado en ' || x."antes" || ' sin respuesta.'
          END,
-         NULL,
+         'venció el candado en ' || x."antes" || ' sin respuesta del Coordinador',
          CASE WHEN x."vuelve" THEN 'esperar' ELSE 'escalar' END,
          NOT x."vuelve",
          ${AHORA}
@@ -361,7 +361,7 @@ fallidas AS (
   UPDATE "TarjetaTablero" t
   SET "estado" = 'ERROR'::"EstadoTarjeta",
       "resultado" = COALESCE(t."resultado", '{}'::jsonb)
-        || jsonb_build_object('error', jsonb_build_object('motivo', $3::text, 'en', v."antes", 'cuando', $4::text)),
+        || jsonb_build_object('error', jsonb_build_object('motivo', COALESCE(NULLIF(btrim(replace($3::text, '{estado}', v."antes")), ''), 'huérfana: ' || v."antes" || ' sin candado'), 'en', v."antes", 'cuando', $4::text)),
       "actualizadoEn" = ${AHORA}
   FROM v
   WHERE t."id" = v."id"
@@ -370,7 +370,7 @@ fallidas AS (
 intentos AS (
   INSERT INTO "IntentoTarjeta" ("id", "tarjetaId", "numero", "etapa", "categoria", "causa", "error", "accion", "cuentaComoIntento", "creadoEn")
   SELECT ${idDelIntento("v")}, v."id", ${numeroSiguiente("v")}, ${etapaDelAntes("v")}, 'coordinador_cortado',
-         'Quedó huérfana: estaba en su etapa sin el candado del Coordinador y nadie la trabajaba.', NULL, 'escalar', false, ${AHORA}
+         'Quedó huérfana: estaba en ' || v."antes" || ' sin el candado del Coordinador y nadie la trabajaba.', 'huérfana: ' || v."antes" || ' sin candado', 'escalar', false, ${AHORA}
   FROM v
   RETURNING "id"
 )

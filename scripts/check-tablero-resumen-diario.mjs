@@ -119,6 +119,14 @@ await prueba("armarResumen lista solo lo de hoy (no lo de ayer)", () => {
   assert.deepEqual(resumen.cifrasDelDia(resumen.armarResumen("2026-10-22", [aprobada({ creadoEn: AYER })]), 0), { listas: 0, conProblema: 0, esperando: 0 });
 });
 
+await prueba("30-oct: una falla sin motivo usa la nota del paso y, si no, la última causa de los intentos antes de rendirse", () => {
+  const sinMotivo = fila({ tarjetaId: "m1", despues: { estado: "ERROR" } });
+  const conNota = fila({ tarjetaId: "m2", despues: { estado: "ERROR", nota: "se pasó del tiempo" } });
+  const r = resumen.armarResumen("2026-10-22", [sinMotivo, conNota], new Map([["m1", "No compiló: error TS2322"]]));
+  assert.deepEqual(r.fallas.map((f) => [f.tarjetaId, f.motivo]), [["m1", "No compiló: error TS2322"], ["m2", "se pasó del tiempo"]]);
+  assert.equal(resumen.armarResumen("2026-10-22", [sinMotivo]).fallas[0].motivo, "sin motivo", "sin ninguna pista, queda la frase de siempre");
+});
+
 await prueba("las que ya estaban hechas (27-oct-2026) salen aparte, con su commit, y no cuentan como construidas ese día", () => {
   const r = resumen.armarResumen("2026-10-22", [
     subida({ tarjetaId: "b", titulo: "Reporte B" }),

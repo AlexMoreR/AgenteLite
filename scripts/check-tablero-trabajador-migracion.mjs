@@ -363,7 +363,7 @@ await prueba("vencidas: las que pasaron su vencimiento quedan ERROR con motivo (
   // Protocolo de reparación: las de planear/construir que vencieron por falta de latido (antes de su tope de
   // etapa) vuelven a la fila sin ERROR y sin gastar el intento; las que estaban SUBIENDO pasan a ERROR.
   // El quinto parámetro es el tope de esperas seguidas.
-  const vencidas = await filas(sql.SQL_PASAR_VENCIDAS_A_ERROR, ["ws1", "2026-10-20T15:06:00.000Z", "Se pasó del tiempo", "2026-10-20T15:06:00.000Z", 5]);
+  const vencidas = await filas(sql.SQL_PASAR_VENCIDAS_A_ERROR, ["ws1", "2026-10-20T15:06:00.000Z", "Se pasó del tiempo en {estado}", "2026-10-20T15:06:00.000Z", 5]);
   assert.deepEqual(vencidas.map((f) => [f.id, f.antes, f.estado]).sort(), [
     ["c3", "PLANEANDO", "APROBADO"],
     ["plan-ok", "EN_CURSO", "PLAN_APROBADO"],
@@ -380,9 +380,11 @@ await prueba("vencidas: las que pasaron su vencimiento quedan ERROR con motivo (
   const [fila] = await filas(`SELECT "estado", "resultado", "trabajoVenceEn" FROM "TarjetaTablero" WHERE "id" = 'sube'`);
   assert.equal(fila.estado, "ERROR");
   assert.equal(fila.trabajoVenceEn, null);
-  assert.deepEqual(fila.resultado.error, { motivo: "Se pasó del tiempo", en: "SUBIENDO", cuando: "2026-10-20T15:06:00.000Z" });
-  const [escalada] = await filas(`SELECT "accion", "cuentaComoIntento" FROM "IntentoTarjeta" WHERE "tarjetaId" = 'sube'`);
-  assert.deepEqual(escalada, { accion: "escalar", cuentaComoIntento: true }, "una tarjeta en ERROR siempre deja su motivo en el historial");
+  assert.deepEqual(fila.resultado.error, { motivo: "Se pasó del tiempo en SUBIENDO", en: "SUBIENDO", cuando: "2026-10-20T15:06:00.000Z" });
+  const [escalada] = await filas(`SELECT "accion", "cuentaComoIntento", "causa", "error" FROM "IntentoTarjeta" WHERE "tarjetaId" = 'sube'`);
+  assert.deepEqual([escalada.accion, escalada.cuentaComoIntento], ["escalar", true], "una tarjeta en ERROR siempre deja su motivo en el historial");
+  assert.match(escalada.causa, /venció el candado en SUBIENDO sin respuesta/, "30-oct-2026: la causa dice en qué estado estaba");
+  assert.equal(escalada.error, "venció el candado en SUBIENDO sin respuesta del Coordinador", "y el error ya no queda vacío");
   assert.deepEqual((await hay("ws1", "2026-10-20T15:06:00.000Z")).map((f) => f.id), ["sube-ya"]);
   // La de otro negocio, idea-repo (EN_CURSO sin candado) y sube-ya no se tocaron.
   const [idea] = await filas(`SELECT "estado" FROM "TarjetaTablero" WHERE "id" = 'idea-repo'`);
@@ -394,7 +396,7 @@ await prueba("vencidas: construir en la nube tiene tope de 180 min (en aizen1, 9
     INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "intentos", "trabajoIniciadoEn", "trabajoVenceEn", "resultado") VALUES
       ('tp-nube', 'tab2', 'En la nube', 'EN_CURSO', 'u-dueno', now(), 'tarea2', 'aizencrm', 1, '2026-10-25 10:00:00', '2026-10-25 11:40:00', '{"construccion":{"lugar":"nube"}}'),
       ('tp-aizen', 'tab2', 'En aizen1', 'EN_CURSO', 'u-dueno', now(), 'tarea2', 'aizencrm', 1, '2026-10-25 10:00:00', '2026-10-25 11:40:00', '{"construccion":{"lugar":"aizen1"}}')`);
-  const vencidas = await filas(sql.SQL_PASAR_VENCIDAS_A_ERROR, ["ws2", "2026-10-25T12:00:00.000Z", "Se pasó del tiempo", "2026-10-25T12:00:00.000Z", 5]);
+  const vencidas = await filas(sql.SQL_PASAR_VENCIDAS_A_ERROR, ["ws2", "2026-10-25T12:00:00.000Z", "", "2026-10-25T12:00:00.000Z", 5]);
   assert.deepEqual(
     vencidas.map((f) => [f.id, f.antes, f.estado]).sort(),
     [
@@ -403,6 +405,9 @@ await prueba("vencidas: construir en la nube tiene tope de 180 min (en aizen1, 9
     ],
     "con el tope de 90 la de aizen1 ya lo pasó; la de la nube tiene hasta los 180",
   );
+  // 30-oct-2026: con el motivo de entrada vacío, la tarjeta en ERROR igual queda con uno, con el estado en que estaba.
+  const [enError] = await filas(`SELECT "resultado" FROM "TarjetaTablero" WHERE "id" = 'tp-aizen'`);
+  assert.equal(enError.resultado.error.motivo, "venció el candado en EN_CURSO sin respuesta del Coordinador");
 });
 
 await prueba("arranque: lo que el Coordinador anterior dejó con candado vuelve a la fila, sin ERROR y sin gastar el intento", async () => {
@@ -477,7 +482,7 @@ await prueba("huérfanas (26-oct-2026): PLANEANDO o EN_CURSO sin candado y sin c
   assert.deepEqual(madres.map((f) => f.id).sort(), ["hu-madre", "hu-madre-sola"]);
 
   const AHORA_H = "2026-10-26T20:00:00.000Z";
-  const huerfanas = await filas(sql.SQL_PASAR_HUERFANAS_A_ERROR, ["ws4", AHORA_H, "Quedó huérfana: nadie la estaba trabajando", AHORA_H, 30]);
+  const huerfanas = await filas(sql.SQL_PASAR_HUERFANAS_A_ERROR, ["ws4", AHORA_H, "", AHORA_H, 30]);
   assert.deepEqual(
     huerfanas.map((f) => [f.id, f.antes]).sort(),
     [
@@ -492,14 +497,18 @@ await prueba("huérfanas (26-oct-2026): PLANEANDO o EN_CURSO sin candado y sin c
   );
   assert.equal(estados["hu-obra"].estado, "ERROR");
   assert.equal(estados["hu-obra"].resultado.previo, 1, "conserva el resultado anterior");
-  assert.equal(estados["hu-obra"].resultado.error.motivo, "Quedó huérfana: nadie la estaba trabajando");
+  // 30-oct-2026: aunque el motivo de entrada venga vacío, queda uno con el estado en que estaba.
+  assert.equal(estados["hu-obra"].resultado.error.motivo, "huérfana: EN_CURSO sin candado");
+  assert.equal(estados["hu-plan"].resultado.error.motivo, "huérfana: PLANEANDO sin candado");
   assert.equal(estados["hu-obra"].resultado.error.en, "EN_CURSO");
   for (const id of ["hu-reciente", "hu-candado", "hu-sin-repo", "hu-idea"]) assert.equal(estados[id].estado, "EN_CURSO", `${id} no se toca`);
   assert.equal(estados["hu-sube"].estado, "SUBIENDO", "SUBIENDO pendiente es válida");
   assert.equal(estados["hu-madre"].estado, "PLANEANDO", "la madre espera a su parte 2");
   const intentos = await filas(
-    `SELECT "tarjetaId", "etapa", "accion", "cuentaComoIntento" FROM "IntentoTarjeta" WHERE "tarjetaId" LIKE 'hu-%' ORDER BY "tarjetaId"`,
+    `SELECT "tarjetaId", "etapa", "accion", "cuentaComoIntento", "causa", "error" FROM "IntentoTarjeta" WHERE "tarjetaId" LIKE 'hu-%' ORDER BY "tarjetaId"`,
   );
+  assert.ok(intentos.every((i) => i.causa && i.error), "cada fila lleva su causa y su error");
+  assert.match(intentos.find((i) => i.tarjetaId === "hu-plan").causa, /estaba en PLANEANDO sin el candado/);
   assert.deepEqual(intentos.map((i) => [i.tarjetaId, i.etapa, i.accion, i.cuentaComoIntento]), [
     ["hu-madre-sola", "construir", "escalar", false],
     ["hu-obra", "construir", "escalar", false],
