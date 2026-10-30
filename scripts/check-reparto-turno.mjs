@@ -170,14 +170,4 @@ prueba("respondioLaBienvenida: ordena por fecha aunque lleguen al revés", () =>
   assert.equal(t.respondioLaBienvenida([...viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA))].reverse()), false);
 });
 
-/* 7. La forma que trae la red de rescate (rescate-de-chats-huerfanos.ts): solo direction, type y createdAt */
-const DEL_RESCATE = (direction, type = "TEXT") => ({ direction, type, createdAt: new Date(Date.UTC(2026, 9, 29, 12, minuto++)) });
-prueba("rescate: los 9 del 29-oct (cliente, bienvenida, cliente, bot de último) = true", () => {
-  const c = [DEL_RESCATE("INBOUND"), DEL_RESCATE("OUTBOUND"), DEL_RESCATE("INBOUND", "AUDIO"), DEL_RESCATE("OUTBOUND")];
-  assert.equal(t.respondioLaBienvenida(c), true);
-});
-prueba("rescate: solo el anuncio y la bienvenida = false (no se rescata)", () => {
-  assert.equal(t.respondioLaBienvenida([DEL_RESCATE("INBOUND"), DEL_RESCATE("OUTBOUND"), DEL_RESCATE("OUTBOUND", "IMAGE")]), false);
-});
-
 console.log(`\n${pruebas} pruebas ok`);

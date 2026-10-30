@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `reparto_al_responder_la_bienvenida`: desde el 30-10-2026 el reparto asigna asesora apenas el cliente responde la bienvenida (cualquier mensaje suyo después del primero nuestro, incluso "ok"); `reparto:config` → `exigirPrecioOFotos` y el filtro de contenido ya no frenan esa asignación; y la red de rescate (`rescatarChatsHuerfanos`, cada minuto, de a 15) recoge los chats de ventas que se escapen sin asesora hasta 48 h atrás.
