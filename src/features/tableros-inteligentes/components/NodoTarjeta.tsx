@@ -11,6 +11,8 @@ import { IconoDeTipo } from "./IconoDeTipo";
 
 export type DatosNodoTarjeta = {
   titulo: string;
+  /** Código corto ("T-123"); vacío o ausente si la tarjeta no tiene número. */
+  codigo?: string;
   /** Cuántas hijas (no borradas) tiene: si tiene, tocarla entra a su nivel. */
   hijas: number;
   /** Ella y toda su descendencia (services/niveles.ts, contadoresRecursivos). */
@@ -117,6 +119,11 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
           aria-label={`Responsable: ${data.responsable}`}
         >
           {inicialDeLaPersona(data.responsable)}
+        </span>
+      ) : null}
+      {data.codigo ? (
+        <span className="max-w-full truncate text-[11px] font-medium leading-none tabular-nums text-zinc-500 dark:text-zinc-400">
+          {data.codigo}
         </span>
       ) : null}
       {/* El título: hasta 3 líneas (con o sin contadores) y entero al pasar el mouse. */}
