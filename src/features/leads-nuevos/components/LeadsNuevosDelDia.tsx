@@ -20,6 +20,7 @@ export function LeadsNuevosDelDia({ datos }: { datos: LeadsNuevosAgrupados }) {
     ["Admin", linea.admin],
     ["Ventas 1", linea.ventas_1],
     ["Ventas 2", linea.ventas_2],
+    ...(linea.otras > 0 ? ([["Otras líneas", linea.otras]] as Array<[string, number]>) : []),
     ["Solo ventas", linea.solo_ventas],
   ];
 
