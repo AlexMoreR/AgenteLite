@@ -31,7 +31,6 @@ import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.
 import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
 import {
-  MARCA_DE_ESTRATEGIA,
   TOPE_DE_REPARACIONES,
   decidir,
   diagnosticar,
@@ -41,6 +40,7 @@ import {
   recortarAviso,
   resumenDeEscalada,
   sinCausa,
+  sinMarcaDeEstrategia,
   textoDelAvisoDeReversion,
 } from "./diagnostico.mjs";
 import { ErrorDeEtapa, construir, diagnosticarConClaude, entornoSeguro, limpiarCarpetasDeTrabajo, medirConClaude, partirTarea, planear, subir } from "./etapas.mjs";
@@ -91,7 +91,7 @@ export function reparacionDeLaTarjeta(tarjeta) {
   const causa = String(ultima?.causa ?? "");
   const estrategia = estrategiaDeLaCausa(causa);
   const categoria = ultima?.categoria ?? "otra";
-  const sinMarca = causa.replace(MARCA_DE_ESTRATEGIA, "");
+  const sinMarca = sinMarcaDeEstrategia(causa);
   return {
     numero: hechas,
     de: Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES,
@@ -633,7 +633,8 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
     }
   }
   if (decision.accion === "reparar") {
-    const causa = decision.estrategia ? `${enUnaLinea(intento.causa, 170)} [estrategia: ${decision.estrategia}]` : intento.causa;
+    // 160 + la marca (19) + lo que agrega el CRM (" (estrategia: opus)", 19) caben en sus 200 letras: la marca no se corta.
+    const causa = decision.estrategia ? `${enUnaLinea(intento.causa, 160)} [estrategia: ${decision.estrategia}]` : intento.causa;
     // Antes de reparar, la causa y qué cambia frente al intento anterior (el siguiente intento los recibe en su prompt).
     const queCambia = decision.queCambia ?? queCambiaFrenteAlAnterior(diagnostico, tarjeta.ultimosIntentos, decision.estrategia);
     registro.info(`CAUSA: ${intento.causa} | QUÉ CAMBIA: ${queCambia}`);

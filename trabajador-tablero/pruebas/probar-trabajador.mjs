@@ -799,6 +799,18 @@ await prueba("30-oct: construir con la misma causa: primero Opus; si Opus ya se 
   assert.equal(decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: yaOpus }, etapa: "construir", modeloConstruir: "sonnet" }).accion, "partir");
   const parte = decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, esParte: true, ultimosIntentos: yaOpus }, etapa: "construir", modeloConstruir: "sonnet" });
   assert.deepEqual([parte.accion, parte.motivo], ["escalar", "misma causa que el intento anterior, nada distinto que probar"]);
+  // La causa tal como la guarda el CRM (le agrega " (estrategia: opus)" y recorta a 200): igual se reconoce Opus.
+  const comoElCrm = (marcada) => {
+    const cola = " (estrategia: opus)";
+    return `${marcada.slice(0, 200 - cola.length)}${cola}`;
+  };
+  const delCrm = previo(comoElCrm(`${falla.causa} [estrategia: opus]`));
+  assert.equal(decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: delCrm }, etapa: "construir", modeloConstruir: "sonnet" }).accion, "partir");
+  const larga = { ...falla, causa: `El código no compila: ${"x".repeat(170)}` };
+  const cortada = previo(comoElCrm(`${larga.causa.slice(0, 159)}… [estrategia: opus]`));
+  assert.equal(decidir({ diagnostico: larga, tarjeta: { reparaciones: 1, ultimosIntentos: cortada }, etapa: "construir", modeloConstruir: "sonnet" }).accion, "partir", "con la causa larga recortada también");
+  assert.equal(reparacionDeLaTarjeta({ reparaciones: 1, ultimosIntentos: [{ accion: "reparar", categoria: "no_compila", causa: "X [estrategia: op (estrategia: opus)" }] }).causa, "X");
+  assert.equal(reparacionDeLaTarjeta({ reparaciones: 1, ultimosIntentos: [{ accion: "reparar", categoria: "no_compila", causa: "X [estrategia: op (estrategia: opus)" }] }).estrategia, "opus");
   // Verificar en la nube: la 1ª vez se repara en la nube; si eso ya se probó y la causa es la misma, escala.
   const nube = decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: previo(falla.causa) }, etapa: "subir", verificarEnNube: true });
   assert.deepEqual([nube.accion, nube.estrategia], ["reparar", "nube"]);

@@ -306,13 +306,23 @@ export function diagnosticar({ error, etapa, textoLog = "", tarjeta = null, recu
 
 export const MISMA_CAUSA = "misma causa que el intento anterior, nada distinto que probar";
 
-/** La marca que `reparar` deja en la causa cuando cambia de estrategia: "[estrategia: opus]". */
+/**
+ * La marca que `reparar` deja en la causa cuando cambia de estrategia: "[estrategia: opus]". El CRM, al guardarla, le
+ * agrega " (estrategia: opus)" y recorta a 200 letras (causaConEstrategia): en la base puede quedar
+ * "X [estrategia: opus] (estrategia: opus)" o "X [estrategia: op (estrategia: opus)". Se reconocen todas.
+ */
 // "nube" (26-oct-2026): lo que verificó la nube cambió al subir; la reparación se vuelve a construir y verificar en la nube.
-export const MARCA_DE_ESTRATEGIA = /\s*\[estrategia: (opus|partir|nube)\]\s*$/;
+const MARCAS_DE_ESTRATEGIA = /\s*[[(]estrategia:[^\])]*(?:[\])]|$)/g;
+const ESTRATEGIA_MARCADA = /[[(]estrategia: (opus|partir|nube)\b/g;
 
-/** La estrategia que quedó marcada en la causa de un intento ("opus", "partir", "nube") o null. */
+/** La causa sin las marcas de estrategia. */
+export function sinMarcaDeEstrategia(causa) {
+  return String(causa ?? "").replace(MARCAS_DE_ESTRATEGIA, "").trim();
+}
+
+/** La estrategia que quedó marcada en la causa de un intento ("opus", "partir", "nube") o null (la última si hay varias). */
 export function estrategiaDeLaCausa(causa) {
-  return String(causa ?? "").match(MARCA_DE_ESTRATEGIA)?.[1] ?? null;
+  return [...String(causa ?? "").matchAll(ESTRATEGIA_MARCADA)].at(-1)?.[1] ?? null;
 }
 
 /**
@@ -320,8 +330,7 @@ export function estrategiaDeLaCausa(causa) {
  * hace distinta la falla), en minúsculas y con espacios simples.
  */
 export function causaParaComparar(causa) {
-  return String(causa ?? "")
-    .replace(MARCA_DE_ESTRATEGIA, "")
+  return sinMarcaDeEstrategia(causa)
     .replace(/https?:\/\/\S+/g, "")
     .replace(/\d+/g, "#")
     .toLowerCase()
@@ -334,11 +343,18 @@ export function intentoAnterior(intentos) {
   return [...(intentos ?? [])].reverse().find((intento) => intento && intento.accion !== "esperar") ?? null;
 }
 
-/** ¿La falla (categoría y causa) es la misma del intento anterior? */
+/** Desde cuántas letras una causa recortada (la que guardó el CRM con la marca) cuenta como el principio de la otra. */
+const LARGO_PARA_PREFIJO = 60;
+
+/** ¿La falla (categoría y causa) es la misma del intento anterior? Una causa recortada al guardarla cuenta como la misma. */
 export function esLaMismaCausa(diagnostico, anterior) {
-  if (!anterior || !diagnostico) return false;
-  const causa = causaParaComparar(diagnostico.causa);
-  return anterior.categoria === diagnostico.categoria && Boolean(causa) && causa === causaParaComparar(anterior.causa);
+  if (!anterior || !diagnostico || anterior.categoria !== diagnostico.categoria) return false;
+  const ahora = causaParaComparar(diagnostico.causa);
+  const antes = causaParaComparar(anterior.causa);
+  if (!ahora || !antes) return false;
+  if (ahora === antes) return true;
+  const [corta, larga] = ahora.length < antes.length ? [ahora, antes] : [antes, ahora];
+  return corta.length >= LARGO_PARA_PREFIJO && larga.startsWith(corta);
 }
 
 /** La causa cuando no se supo (nunca se manda vacía al CRM). */
@@ -363,7 +379,7 @@ export function queCambiaFrenteAlAnterior(diagnostico, intentosPrevios, estrateg
   const anterior = intentoAnterior(intentosPrevios);
   if (!anterior) return "es el primer arreglo: se corrige solo esta causa, sin rehacer lo demás";
   if (esLaMismaCausa(diagnostico, anterior)) return "nada: es la misma causa que el intento anterior";
-  const antes = enUnaLinea(String(anterior.causa ?? "").replace(MARCA_DE_ESTRATEGIA, "") || anterior.categoria || "otra", 120);
+  const antes = enUnaLinea(sinMarcaDeEstrategia(anterior.causa) || anterior.categoria || "otra", 120);
   return enUnaLinea(`la falla es distinta a la del intento anterior (${anterior.categoria ?? "otra"}: ${antes}): se corrige esta, sin repetir lo de antes`);
 }
 
