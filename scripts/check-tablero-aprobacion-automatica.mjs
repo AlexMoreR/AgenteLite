@@ -411,7 +411,13 @@ await prueba("resultado: BAJO que toca algo de riesgo alto, migración destructi
     enCurso();
     const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", cuerpo);
     const t = estado.tarjetas.get("t1");
-    assert.equal(r.estado, "POR_REVISAR", nombre);
+    // Chats y bot de ventas nunca esperan el sí final (30-oct-2026): si no suben solas quedan en ERROR con el motivo.
+    if (nombre === "zona protegida marcada") {
+      assert.equal(r.estado, "ERROR", nombre);
+      assert.match(t.resultado.error.motivo, /^construido, no sube: /, nombre);
+    } else {
+      assert.equal(r.estado, "POR_REVISAR", nombre);
+    }
     assert.equal(t.riesgo, "ALTO", nombre);
     assert.equal(t.riesgoPor, "TRABAJADOR", nombre);
     assert.ok(t.riesgoMotivo, nombre);
@@ -447,12 +453,13 @@ await prueba("resultado: el sí del dueño ya dado se hereda aunque la tarea se 
   // Sin sí del dueño en el historial, espera como antes.
   estado.historial.length = 0;
   enCurso({ riesgo: "ALTO" });
-  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "POR_REVISAR");
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "ERROR");
   // Un sí automático no cuenta.
   estado.tarjetas.clear();
   estado.historial.push({ tarjetaId: "t1", accion: "aprobar", despues: { via: "automatica" } });
   enCurso({ riesgo: "ALTO" });
-  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "POR_REVISAR");
+  // 30-oct-2026: chats no espera el sí final; sin el sí del dueño no hereda y queda en ERROR con el motivo.
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio(sinSi))).estado, "ERROR");
   // Con el sí del dueño sube sola, con la nota de la herencia, y el motivo viejo se borra.
   estado.tarjetas.clear();
   conSiDelDueno();
@@ -472,7 +479,8 @@ await prueba("resultado: el sí del dueño ya dado se hereda aunque la tarea se 
     estado.tarjetas.clear();
     enCurso({ riesgo: "ALTO", ...tarjetaExtra });
     const r = await trabajador.accionDelTrabajador(contexto, "t1", "resultado", resultadoLimpio({ ...sinSi, esperaPor: undefined, ...extra }));
-    assert.equal(r.estado, "POR_REVISAR", etiqueta);
+    // Chats y bot de ventas ya no esperan el sí final (ERROR "construido, no sube"); solo el gasto en Meta Ads sigue esperando.
+    assert.equal(r.estado, etiqueta === "gasto en Meta Ads" ? "POR_REVISAR" : "ERROR", etiqueta);
   }
   estado.historial.length = 0;
 });

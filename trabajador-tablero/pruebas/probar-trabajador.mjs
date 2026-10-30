@@ -1894,13 +1894,13 @@ try {
     sinRestos();
   });
 
-  await prueba("zona protegida: toca src/bot/, se marca BOT_VENTAS y queda POR_REVISAR esperando el sí (no sube sola)", async () => {
+  await prueba("zona protegida: toca src/bot/, se marca BOT_VENTAS y queda en ERROR (construido, no sube: ni sube sola ni espera el sí)", async () => {
     const id = nueva("Cambiar el saludo [zona]", "PLAN_APROBADO", { plan: "El plan" });
     const mainAhora = shaDe("main");
     const resultado = await vuelta(crearConfig({}, { subirSolo: true }));
     assert.equal(resultado.ok, true, resultado.motivo);
     const t = tarjetas.get(id);
-    assert.equal(t.estado, "POR_REVISAR");
+    assert.equal(t.estado, "ERROR");
     assert.equal(t.resultado.subeSolo, false);
     assert.match(t.resultado.resumen, /espera tu sí \(zona BOT_VENTAS \(src\/bot\/respuesta\.ts\)\)/);
     assert.deepEqual(t.zonaProtegida, ["BOT_VENTAS"]);
@@ -1912,7 +1912,7 @@ try {
     const id = nueva("Cambiar el saludo aprobado [zona]", "PLAN_APROBADO", { plan: "El plan", zonaProtegida: ["BOT_VENTAS"] });
     const resultado = await vuelta();
     assert.equal(resultado.ok, true, resultado.motivo);
-    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    assert.equal(tarjetas.get(id).estado, "ERROR");
     sinRestos();
   });
 
@@ -2018,10 +2018,10 @@ try {
     sinRestos();
   });
 
-  await prueba("zonas que suben solas: un envío nuevo de mensaje en el bot que el plan no menciona no sube solo", async () => {
+  await prueba("zonas que suben solas: un envío nuevo de mensaje en el bot que el plan no menciona no sube solo (queda en ERROR, no espera el sí)", async () => {
     const id = nueva("Bot con aviso [solas-bot] [solas-bot-envio]", "PLAN_APROBADO", { plan: "Cambiar el saludo." });
     assert.equal((await vuelta(configSolas())).ok, true);
-    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    assert.equal(tarjetas.get(id).estado, "ERROR");
     assert.match(tarjetas.get(id).resultado.esperaPor, /envío de mensaje que el plan no menciona/);
     sinRestos();
   });
@@ -2040,11 +2040,11 @@ try {
     sinRestos();
   });
 
-  await prueba("zonas que suben solas: un envío nuevo en src/chats espera el sí aunque el plan lo mencione", async () => {
+  await prueba("zonas que suben solas: un envío nuevo en src/chats queda en ERROR (no sube) aunque el plan lo mencione", async () => {
     const id = nueva("Chats con aviso [solas-chats-envio]", "PLAN_APROBADO", { plan: "Se enviará un mensaje nuevo al cliente." });
     const mainAhora = shaDe("main");
     assert.equal((await vuelta(configSolas())).ok, true);
-    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    assert.equal(tarjetas.get(id).estado, "ERROR");
     assert.match(tarjetas.get(id).resultado.esperaPor, /envío de mensaje en chats/);
     assert.equal(shaDe("main"), mainAhora);
     sinRestos();
