@@ -39,6 +39,11 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
     trabado, sin_trabajo       → ALTA (solo la página; ya no llegan por WhatsApp)
   Interruptor apagado = exactamente lo anterior.
 
+  EXCEPCIÓN "TERMINADA" (30-oct-2026): contradice lo de arriba solo en un caso. Cuando el Coordinador deja una tarea en HECHO,
+  avisos-de-terminadas.ts manda un WhatsApp ("✅ ¡Listo! Terminó la tarea T-123…") aunque no sea urgente, con su propio
+  interruptor (`tablero:avisos-dueno:terminadas:<ws>`, empieza prendido) y respetando el general y el silencio. Queda en la
+  página de alertas con prioridad BAJA. Nada de esto cambia los 6 tipos de arriba ni su lógica.
+
   Todo se guarda en AppSetting (sin tablas nuevas). El reloj del servidor (api/cron/follows) llama a
   revisarAvisosAlDueno cada minuto. Antes de este archivo el aviso del Coordinador devolvía 412 porque nadie
   guardaba el número en ninguna pantalla.

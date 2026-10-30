@@ -58,6 +58,7 @@
     "test:tablero-resumen-diario": "node scripts/check-tablero-resumen-diario.mjs",
     "test:tablero-avisos-al-dueno": "node scripts/check-tablero-avisos-al-dueno.mjs",
     "test:tablero-avisos-al-equipo": "node scripts/check-tablero-avisos-al-equipo.mjs",
+    "test:tablero-avisos-de-terminadas": "node scripts/check-tablero-avisos-de-terminadas.mjs",
     "test:coordinador-en-vivo": "node scripts/check-coordinador-en-vivo.mjs",
     "test:reuniones-unir-pistas": "node scripts/check-reuniones-unir-pistas.mjs",
     "test:reuniones-link-firmado": "node scripts/check-reuniones-link-firmado.mjs",
