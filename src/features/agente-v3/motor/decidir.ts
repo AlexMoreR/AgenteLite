@@ -1,4 +1,5 @@
 import {
+  esLaBienvenidaGeneral,
   normalizar,
   pesoDeLaRegla,
   type Accion,
@@ -51,10 +52,26 @@ export type EstadoDeLaCharla = {
   avisoDePausaEnviado?: boolean;
 };
 
+/**
+ * Qué pasó con la bienvenida general en este mensaje, para el simulador y el "por qué".
+ *
+ * `reemplazadaPor` es la regla que ya manda su propia bienvenida (o la misma general adentro), y
+ * por eso la general no se antepuso.
+ */
+export type Bienvenida = {
+  sale: boolean;
+  motivo: string;
+  reemplazadaPor: { id: string; nombre: string } | null;
+};
+
 export type Decision = {
   regla: ReglaV3 | null;
-  /** Lo que sale SIEMPRE antes, aunque gane otra regla: hoy, el saludo del primer mensaje. */
+  /**
+   * Lo que sale ANTES de la regla que gana: la bienvenida general del primer mensaje. Viene vacío
+   * si la regla ganadora ya trae su propia bienvenida.
+   */
   saludo: Accion[];
+  bienvenida: Bienvenida;
   acciones: Accion[];
   /** En palabras: por qué ganó ésta. Es lo que se va a poder leer en el chat. */
   porque: string;
@@ -176,22 +193,21 @@ export function decidir(input: {
   const intenciones = input.intencionesReconocidas ?? [];
 
   /*
-    El saludo del primer mensaje sale SIEMPRE, aunque gane otra regla.
+    El saludo del primer mensaje sale antes de la regla que gana.
 
     No compite: se suma. Si compitiera, un cliente que escribe "quiero el combo de estetica" en su
     primer mensaje entraria directo al embudo y nunca recibiria la bienvenida, que es obligatoria
     (Alex, 21-sep-2026). Son las reglas de tipo "siempre" atadas al primer mensaje.
+
+    La unica excepcion es que la regla ganadora ya traiga su propia bienvenida (ver
+    `bienvenidaDelPrimerMensaje`): ahi sale una sola, la de esa regla.
   */
-  const saludo = input.estado.esPrimerMensaje
-    ? input.libro.reglas
-        .filter((regla) => regla.activa && regla.cuando.tipo === "siempre" && regla.soloSi?.esPrimerMensaje === true)
-        .flatMap((regla) => regla.entonces)
+  const reglasDelSaludo = input.estado.esPrimerMensaje
+    ? input.libro.reglas.filter((regla) => regla.activa && esLaBienvenidaGeneral(regla))
     : [];
-  const esDelSaludo = new Set(
-    input.libro.reglas
-      .filter((regla) => regla.cuando.tipo === "siempre" && regla.soloSi?.esPrimerMensaje === true)
-      .map((regla) => regla.id),
-  );
+  const saludo = reglasDelSaludo.flatMap((regla) => regla.entonces);
+  const esDelSaludo = new Set(input.libro.reglas.filter(esLaBienvenidaGeneral).map((regla) => regla.id));
+  const bienvenidaSinGanadora = describirBienvenida(input.estado, reglasDelSaludo, saludo);
 
   const candidatas = input.libro.reglas
     .filter((regla) => !esDelSaludo.has(regla.id))
@@ -213,6 +229,7 @@ export function decidir(input: {
     intenciones,
     esDelSaludo,
     saludo,
+    bienvenida: bienvenidaSinGanadora,
     candidatas: candidatas.map(({ regla }) => regla),
   });
   if (fotoYPrecio) {
@@ -223,6 +240,7 @@ export function decidir(input: {
     return {
       regla: null,
       saludo,
+      bienvenida: bienvenidaSinGanadora,
       acciones: [],
       porque: saludo.length
         ? "Sale el saludo del primer mensaje; ninguna otra regla encajó."
@@ -262,15 +280,98 @@ export function decidir(input: {
         )
       : undefined;
 
+  const acciones = reglaDelPaso ? [...ganadora.entonces, ...reglaDelPaso.entonces] : ganadora.entonces;
+  const bienvenida = bienvenidaDelPrimerMensaje({
+    reglasDelSaludo,
+    saludo,
+    deLaGanadora: reglaDelPaso ? [ganadora, reglaDelPaso] : [ganadora],
+    acciones,
+    porDefecto: bienvenidaSinGanadora,
+  });
+  const porque = reglaDelPaso
+    ? `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}. Y como pasó al paso ${despues.pasoActual}, sigue con "${reglaDelPaso.nombre}".`
+    : `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}.`;
+
   return {
     regla: ganadora,
-    saludo,
-    acciones: reglaDelPaso ? [...ganadora.entonces, ...reglaDelPaso.entonces] : ganadora.entonces,
-    porque: reglaDelPaso
-      ? `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}. Y como pasó al paso ${despues.pasoActual}, sigue con "${reglaDelPaso.nombre}".`
-      : `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}.`,
+    saludo: bienvenida.sale ? saludo : [],
+    bienvenida,
+    acciones,
+    // Solo se explica cuando la bienvenida NO sale: es lo que alguien va a preguntar al ver el chat.
+    porque: saludo.length > 0 && !bienvenida.sale ? `${porque} ${bienvenida.motivo}` : porque,
     tambienEncajaban: ordenadas.slice(1).map(({ regla }) => ({ id: regla.id, nombre: regla.nombre })),
   };
+}
+
+function nombresDe(reglas: ReglaV3[]): string {
+  return reglas.map((regla) => `"${regla.nombre}"`).join(" y ");
+}
+
+/** La bienvenida cuando todavía no se sabe qué regla gana (o no gana ninguna). */
+function describirBienvenida(estado: EstadoDeLaCharla, reglasDelSaludo: ReglaV3[], saludo: Accion[]): Bienvenida {
+  if (!estado.esPrimerMensaje) {
+    return { sale: false, motivo: "No es el primer mensaje del cliente.", reemplazadaPor: null };
+  }
+  if (saludo.length === 0) {
+    return {
+      sale: false,
+      motivo: "El libro no tiene una bienvenida activa (regla \"siempre\" en el primer mensaje).",
+      reemplazadaPor: null,
+    };
+  }
+  return { sale: true, motivo: `Sale primero la bienvenida ${nombresDe(reglasDelSaludo)}.`, reemplazadaPor: null };
+}
+
+/**
+ * ¿Se antepone la bienvenida general a lo que hace la regla que ganó?
+ *
+ * Sí, salvo en dos casos, y en los dos al cliente le llega UNA sola bienvenida (caso del combo,
+ * 30-10-2026: le salían la General y la del combo, una detrás de la otra):
+ * 1. La regla ganadora (o la del paso que se encadena) está marcada `reemplazaLaBienvenida`: trae
+ *    su propia bienvenida, por ejemplo la del anuncio del combo.
+ * 2. La regla ganadora ya manda el mismo flujo que la bienvenida: anteponerla la mandaría dos
+ *    veces. Así no hace falta marcar las reglas que ya traían la General adentro.
+ */
+function bienvenidaDelPrimerMensaje(input: {
+  reglasDelSaludo: ReglaV3[];
+  saludo: Accion[];
+  deLaGanadora: ReglaV3[];
+  acciones: Accion[];
+  porDefecto: Bienvenida;
+}): Bienvenida {
+  if (input.saludo.length === 0) return input.porDefecto;
+  const general = nombresDe(input.reglasDelSaludo);
+
+  const marcada = input.deLaGanadora.find((regla) => regla.reemplazaLaBienvenida === true);
+  if (marcada) {
+    return {
+      sale: false,
+      motivo: `No sale la bienvenida ${general} porque "${marcada.nombre}" ya manda su propia bienvenida.`,
+      reemplazadaPor: { id: marcada.id, nombre: marcada.nombre },
+    };
+  }
+
+  const flujosDeLaGanadora = new Set(
+    input.acciones.flatMap((accion) => (accion.tipo === "flujo" ? [accion.flujoId] : [])),
+  );
+  const repetido = input.saludo.some((accion) => accion.tipo === "flujo" && flujosDeLaGanadora.has(accion.flujoId));
+  if (repetido) {
+    const quien =
+      input.deLaGanadora.find((regla) =>
+        regla.entonces.some(
+          (accion) =>
+            accion.tipo === "flujo" &&
+            input.saludo.some((delSaludo) => delSaludo.tipo === "flujo" && delSaludo.flujoId === accion.flujoId),
+        ),
+      ) ?? input.deLaGanadora[0];
+    return {
+      sale: false,
+      motivo: `No se antepone la bienvenida ${general} porque "${quien.nombre}" ya la manda: sale una sola vez.`,
+      reemplazadaPor: { id: quien.id, nombre: quien.nombre },
+    };
+  }
+
+  return input.porDefecto;
 }
 
 /**
@@ -285,6 +386,7 @@ function decidirFotoYPrecio(input: {
   intenciones: string[];
   esDelSaludo: Set<string>;
   saludo: Accion[];
+  bienvenida: Bienvenida;
   candidatas: ReglaV3[];
 }): Decision | null {
   if (!input.fotoDelCliente) return null;
@@ -311,6 +413,7 @@ function decidirFotoYPrecio(input: {
   return {
     regla: ganadora,
     saludo: input.saludo,
+    bienvenida: input.bienvenida,
     acciones: ganadora.entonces,
     porque: delLibro
       ? `Ganó "${ganadora.nombre}" porque la clienta mandó una foto${pie} y ahora pregunta por ella: no se aplican las reglas genéricas de precio.`

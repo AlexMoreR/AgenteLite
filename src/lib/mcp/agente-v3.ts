@@ -9,7 +9,13 @@ import {
 } from "@/features/agente-v3/servicios/almacen";
 import { simularConversacion } from "@/features/agente-v3/servicios/simulador";
 import { decidir } from "@/features/agente-v3/motor/decidir";
-import { PASOS_DEL_EMBUDO, revisarLibro, type ReglaV3 } from "@/features/agente-v3/domain/reglas";
+import {
+  PASOS_DEL_EMBUDO,
+  esLaBienvenidaGeneral,
+  leDiceAlgoAlCliente,
+  revisarLibro,
+  type ReglaV3,
+} from "@/features/agente-v3/domain/reglas";
 
 /*
   AGENTE V3 POR MCP: el libro de reglas se dicta hablando.
@@ -96,6 +102,11 @@ const ESQUEMA_DE_REGLA = {
       },
     },
     activa: { type: "boolean", description: "Por defecto true" },
+    reemplaza_bienvenida: {
+      type: "boolean",
+      description:
+        "true si esta regla ya manda su propia bienvenida (ej. la del combo): cuando gana en el primer mensaje NO se antepone la bienvenida general y al cliente le llega una sola. Si no la trae, dejarla en false: el cliente se quedaria sin bienvenida.",
+    },
   },
   required: ["nombre", "cuando", "entonces"],
 } as const;
@@ -174,7 +185,7 @@ export const HERRAMIENTAS_MCP_V3 = [
     name: "v3_probar_mensaje",
     title: "Probar un mensaje (V3)",
     description:
-      "Dice que regla ganaria con ese mensaje y por que, sin mandar nada. Sirve para responder '¿por que contesto eso?' antes de que pase.",
+      "Dice que regla ganaria con ese mensaje y por que, sin mandar nada. Sirve para responder '¿por que contesto eso?' antes de que pase. En el primer mensaje, 'bienvenida' dice si sale la bienvenida general o si la reemplaza la regla que gana.",
     inputSchema: {
       type: "object",
       properties: {
@@ -243,6 +254,11 @@ function comoRegla(argumentos: Argumentos, base?: ReglaV3): ReglaV3 {
     soloSi: (argumentos.soloSi as ReglaV3["soloSi"]) ?? base?.soloSi,
     entonces,
     activa: typeof argumentos.activa === "boolean" ? argumentos.activa : (base?.activa ?? true),
+    // Solo se guarda cuando está marcada: una regla sin la marca queda igual que antes.
+    reemplazaLaBienvenida:
+      (typeof argumentos.reemplaza_bienvenida === "boolean"
+        ? argumentos.reemplaza_bienvenida
+        : base?.reemplazaLaBienvenida) === true || undefined,
     autor: base?.autor,
     creadaEl: base?.creadaEl ?? new Date().toISOString(),
   };
@@ -264,6 +280,7 @@ export async function ejecutarHerramientaMcpV3(
         regla_id: regla.id,
         nombre: regla.nombre,
         activa: regla.activa,
+        reemplaza_bienvenida: regla.reemplazaLaBienvenida === true,
         cuando: regla.cuando,
         solo_si: regla.soloSi,
         entonces: regla.entonces,
@@ -357,6 +374,27 @@ export async function ejecutarHerramientaMcpV3(
         falta: "No hay nada para el primer mensaje: al cliente nuevo no lo recibe nadie.",
         preguntar: "Cuando alguien escribe por primera vez, ¿qué tiene que recibir?",
       });
+    }
+    /*
+      Una sola bienvenida por cliente nuevo (caso del combo, 30-10-2026). Con dos reglas "siempre"
+      en el primer mensaje salen las dos, una detras de la otra; y una regla marcada que no le dice
+      nada al cliente lo deja sin bienvenida.
+    */
+    const bienvenidas = libro.reglas.filter((regla) => regla.activa && esLaBienvenidaGeneral(regla));
+    if (bienvenidas.length > 1) {
+      huecos.push({
+        falta: `Hay ${bienvenidas.length} bienvenidas generales activas (${bienvenidas.map((regla) => `"${regla.nombre}"`).join(", ")}): al cliente nuevo le salen todas juntas.`,
+        preguntar:
+          "¿Cuál es la bienvenida general? Las otras van como regla propia (por frase o intención) marcada con reemplaza_bienvenida.",
+      });
+    }
+    for (const regla of libro.reglas) {
+      if (regla.activa && regla.reemplazaLaBienvenida === true && !leDiceAlgoAlCliente(regla)) {
+        huecos.push({
+          falta: `"${regla.nombre}" reemplaza la bienvenida pero no le dice nada al cliente: ese cliente entra sin bienvenida.`,
+          preguntar: `¿Qué bienvenida tiene que recibir el cliente cuando gana "${regla.nombre}"? Si no trae una, quitarle la marca.`,
+        });
+      }
     }
     const productos = new Set(
       libro.reglas.flatMap((regla) =>
@@ -454,6 +492,11 @@ export async function ejecutarHerramientaMcpV3(
       gana: decision.regla ? { regla_id: decision.regla.id, nombre: decision.regla.nombre } : null,
       haria: [...decision.saludo, ...decision.acciones],
       porque: decision.porque,
+      bienvenida: {
+        sale: decision.bienvenida.sale,
+        motivo: decision.bienvenida.motivo,
+        reemplazada_por: decision.bienvenida.reemplazadaPor,
+      },
       tambien_encajaban: decision.tambienEncajaban,
     };
   }

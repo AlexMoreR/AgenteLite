@@ -83,6 +83,15 @@ export type ReglaV3 = {
   soloSi?: Condiciones;
   entonces: Accion[];
   activa: boolean;
+  /**
+   * Esta regla ya trae su propia bienvenida: si gana en el primer mensaje, NO se antepone la
+   * bienvenida general (la regla "siempre" del primer mensaje). Así al cliente le llega UNA sola.
+   *
+   * Nace del caso del combo (30-10-2026): al cliente del anuncio le salían la Bienvenida General y
+   * la Bienvenida Combo Camillas, una detrás de la otra. Sin la marca, la regla se comporta como
+   * siempre: primero la bienvenida general y después lo suyo.
+   */
+  reemplazaLaBienvenida?: boolean;
   /** Para el historial: quién la escribió y cuándo. */
   autor?: string;
   creadaEl?: string;
@@ -130,6 +139,21 @@ export function pesoDeLaRegla(regla: ReglaV3): number {
     return regla.soloSi?.productoActivo && regla.soloSi.productoActivo !== "cualquiera" ? 50 : 60;
   }
   return 90;
+}
+
+/**
+ * La bienvenida general: las reglas "siempre" atadas al primer mensaje. No compiten con las demás;
+ * salen antes de la que gana, salvo que esa ya traiga su propia bienvenida (ver `decidir`).
+ */
+export function esLaBienvenidaGeneral(regla: ReglaV3): boolean {
+  return regla.cuando.tipo === "siempre" && regla.soloSi?.esPrimerMensaje === true;
+}
+
+/** La regla le dice algo al cliente: un texto, un flujo o una respuesta de la IA. */
+export function leDiceAlgoAlCliente(regla: ReglaV3): boolean {
+  return regla.entonces.some(
+    (accion) => accion.tipo === "mensaje" || accion.tipo === "flujo" || accion.tipo === "responder_con_ia",
+  );
 }
 
 /**

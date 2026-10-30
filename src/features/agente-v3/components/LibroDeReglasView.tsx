@@ -175,6 +175,12 @@ export function LibroDeReglasView({ libro, problemas }: { libro: LibroDeReglas; 
                     {comoSeLeeLaCondicion(regla) ? `, ${comoSeLeeLaCondicion(regla)}` : ""}
                   </p>
 
+                  {regla.reemplazaLaBienvenida ? (
+                    <p className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                      <Sparkles className="size-3 shrink-0" /> Reemplaza la bienvenida general
+                    </p>
+                  ) : null}
+
                   <ul className="space-y-1">
                     {regla.entonces.map((accion, indice) => (
                       <li key={indice} className="flex items-start gap-1.5 text-[13px] text-foreground">
