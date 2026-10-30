@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { extractEvolutionLocation } from "@/lib/evolution-webhook";
+import { puedeEditarseMensaje } from "@/lib/editar-mensaje";
 import { AudioMessageCard } from "@/components/chats/audio-message-card";
 import { DetalleDeLlamadaDialog } from "@/components/chats/detalle-de-llamada-dialog";
 import { tapaDePdfDesdeUrl, type TapaDePdf } from "@/lib/portada-de-pdf";
@@ -607,6 +608,7 @@ function MessageTouchActionsSheet({
   onOpenChange,
   onReply,
   onForward,
+  onEdit,
   onDelete,
 }: {
   message: SharedInboxMessageItem;
@@ -614,6 +616,7 @@ function MessageTouchActionsSheet({
   onOpenChange: (open: boolean) => void;
   onReply?: (message: SharedInboxMessageItem) => void;
   onForward?: (message: SharedInboxMessageItem) => void;
+  onEdit?: (message: SharedInboxMessageItem) => void;
   onDelete?: (message: SharedInboxMessageItem) => void;
 }) {
   // Se cierra primero y despues se actua: Eliminar levanta un confirm() del
@@ -631,6 +634,10 @@ function MessageTouchActionsSheet({
     { label: "Responder", icon: Reply, onClick: onReply ? () => onReply(message) : undefined },
     { label: "Reenviar", icon: Forward, onClick: onForward ? () => onForward(message) : undefined },
     { label: "Copiar", icon: Copy, onClick: () => copyMessageText(message) },
+    // "Editar" solo se ofrece si el mensaje todavia se puede editar (texto propio, menos de 15 min).
+    ...(onEdit && puedeEditarseMensaje(message)
+      ? [{ label: "Editar", icon: Pencil, onClick: () => onEdit(message), destructive: false }]
+      : []),
     { label: "Eliminar", icon: Trash2, onClick: onDelete ? () => onDelete(message) : undefined, destructive: true },
   ];
 
@@ -677,6 +684,7 @@ function MessageActionsMenu({
   outbound,
   onReply,
   onForward,
+  onEdit,
   onDelete,
   audioUrl,
 }: {
@@ -684,6 +692,7 @@ function MessageActionsMenu({
   outbound: boolean;
   onReply?: (message: SharedInboxMessageItem) => void;
   onForward?: (message: SharedInboxMessageItem) => void;
+  onEdit?: (message: SharedInboxMessageItem) => void;
   onDelete?: (message: SharedInboxMessageItem) => void;
   /** Solo en las notas de voz: habilita "Descargar audio". */
   audioUrl?: string | null;
@@ -764,6 +773,11 @@ function MessageActionsMenu({
           <Star className="size-4" /> Destacar
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        {onEdit && puedeEditarseMensaje(message) ? (
+          <DropdownMenuItem onClick={() => onEdit(message)}>
+            <Pencil className="size-4" /> Editar
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem variant="destructive" onClick={() => onDelete?.(message)}>
           <Trash2 className="size-4" /> Eliminar
         </DropdownMenuItem>
@@ -781,6 +795,7 @@ export const MessageBubble = memo(function MessageBubble({
   onRetry,
   onReply,
   onForward,
+  onEdit,
   onDelete,
   seleccionado,
   haySeleccion,
@@ -795,6 +810,7 @@ export const MessageBubble = memo(function MessageBubble({
   onRetry?: (message: SharedInboxMessageItem) => void;
   onReply?: (message: SharedInboxMessageItem) => void;
   onForward?: (message: SharedInboxMessageItem) => void;
+  onEdit?: (message: SharedInboxMessageItem) => void;
   onDelete?: (message: SharedInboxMessageItem) => void;
   /** Esta burbuja esta seleccionada: se pinta la fila entera. */
   seleccionado?: boolean;
@@ -1251,13 +1267,14 @@ export const MessageBubble = memo(function MessageBubble({
         >
           {tieneAcciones ? (
             <>
-              <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onForward={onForward} onDelete={onDelete} audioUrl={audioUrl} />
+              <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onForward={onForward} onEdit={onEdit} onDelete={onDelete} audioUrl={audioUrl} />
               <MessageTouchActionsSheet
                 message={message}
                 open={isTouchMenuOpen}
                 onOpenChange={setIsTouchMenuOpen}
                 onReply={onReply}
                 onForward={onForward}
+                onEdit={onEdit}
                 onDelete={onDelete}
               />
             </>

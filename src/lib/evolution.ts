@@ -4,6 +4,7 @@ import {
   WAHA_GATEWAY_KIND,
   asegurarSesionWaha,
   borrarMensajeWaha,
+  editarMensajeWaha,
   escribiendoWaha,
   chatIdDeTelefono,
   borrarSesionWaha,
@@ -2503,6 +2504,29 @@ export async function deleteEvolutionMessageForEveryone(input: {
       fromMe: input.key.fromMe,
       ...(input.key.participant ? { participant: input.key.participant } : {}),
     },
+  });
+}
+
+/**
+ * Edita un mensaje de texto ya enviado. Solo las lineas WAHA lo permiten; en las demas devuelve
+ * un error claro y no toca nada.
+ */
+export async function editEvolutionMessage(input: {
+  instanceName: string;
+  key: { id: string; remoteJid: string };
+  text: string;
+}) {
+  const waha = await conexionWahaDe(input.instanceName);
+  if (!waha) {
+    throw new Error("Esta linea no permite editar mensajes");
+  }
+  const telefono = input.key.remoteJid.split("@")[0] ?? "";
+  await editarMensajeWaha({
+    connection: waha,
+    sesion: input.instanceName,
+    chatId: telefono ? chatIdDeTelefono(telefono) : input.key.remoteJid,
+    mensajeId: input.key.id,
+    texto: input.text,
   });
 }
 

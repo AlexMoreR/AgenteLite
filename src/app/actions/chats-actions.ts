@@ -26,7 +26,7 @@ import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { persistAvatarUrl } from "@/lib/contact-avatar-refresh";
 import { backfillEvolutionMessagesByPhone } from "@/lib/evolution-chat-sync";
-import { buildEvolutionGoHistoryAnchor, deleteEvolutionMessageForEveryone, fetchEvolutionProfilePictureUrl, readGatewayConnection, requestEvolutionGoHistorySync, sendEvolutionTextMessage } from "@/lib/evolution";
+import { buildEvolutionGoHistoryAnchor, deleteEvolutionMessageForEveryone, editEvolutionMessage, fetchEvolutionProfilePictureUrl, readGatewayConnection, requestEvolutionGoHistorySync, sendEvolutionTextMessage } from "@/lib/evolution";
 import {
   WAHA_GATEWAY_KIND,
   enviarReaccionWaha,
@@ -60,6 +60,7 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { Prisma } from "@prisma/client";
 import { headers } from "next/headers";
 import { leerDispositivo } from "@/lib/actividad-del-equipo";
+import { puedeEditarseMensaje } from "@/lib/editar-mensaje";
 
 const updateContactSchema = z.object({
   contactId: z.string().trim().min(1),
@@ -1069,6 +1070,112 @@ export async function deleteChatMessageAction(formData: FormData): Promise<{ ok:
   });
 
   return { ok: true };
+}
+
+const editChatMessageSchema = z.object({
+  messageId: z.string().trim().min(1),
+  text: z.string().trim().min(1).max(4096),
+});
+
+/**
+ * Edita un mensaje de texto que una asesora ya mando (hasta 15 minutos despues, solo por WAHA).
+ *
+ * El texto nuevo se guarda en el CRM SOLO si WhatsApp confirma la edicion. Si algo falla, se
+ * devuelve el aviso y no se toca nada.
+ */
+export async function editChatMessageAction(formData: FormData): Promise<{ ok: boolean; error?: string; editedAt?: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { ok: false, error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { ok: false, error: "Workspace no encontrado" };
+  }
+
+  if (await estaEnModoMonitoreo({ workspaceId: membership.workspace.id, userId: session.user.id })) {
+    return { ok: false, error: AVISO_MODO_MONITOREO };
+  }
+
+  const parsed = editChatMessageSchema.safeParse({
+    messageId: formData.get("messageId"),
+    text: formData.get("text"),
+  });
+  if (!parsed.success) {
+    return { ok: false, error: "Escribe el texto del mensaje" };
+  }
+
+  const message = await prisma.message.findFirst({
+    where: { id: parsed.data.messageId, workspaceId: membership.workspace.id },
+    select: {
+      id: true,
+      externalId: true,
+      direction: true,
+      type: true,
+      content: true,
+      createdAt: true,
+      sentAt: true,
+      deletedAt: true,
+      rawPayload: true,
+      conversationId: true,
+      channel: { select: { provider: true, evolutionInstanceName: true } },
+      contact: { select: { phoneNumber: true } },
+    },
+  });
+
+  if (!message) {
+    return { ok: false, error: "Mensaje no encontrado" };
+  }
+
+  if (!puedeEditarseMensaje(message)) {
+    return { ok: false, error: "No se puede editar: solo mensajes de texto enviados hace menos de 15 minutos" };
+  }
+  // Solo quien envio el mensaje puede editarlo.
+  const enviadoPor = (message.rawPayload as Record<string, unknown> | null)?.enviadoPorUserId;
+  if (enviadoPor !== session.user.id) {
+    return { ok: false, error: "Solo quien envió el mensaje puede editarlo" };
+  }
+  if (
+    message.channel?.provider !== "EVOLUTION" ||
+    !message.channel.evolutionInstanceName ||
+    !message.contact?.phoneNumber
+  ) {
+    return { ok: false, error: "No se pudo editar: esta linea no permite editar mensajes" };
+  }
+  if (parsed.data.text === (message.content ?? "").trim()) {
+    return { ok: true };
+  }
+
+  try {
+    await editEvolutionMessage({
+      instanceName: message.channel.evolutionInstanceName,
+      key: { id: message.externalId!, remoteJid: `${message.contact.phoneNumber}@s.whatsapp.net` },
+      text: parsed.data.text,
+    });
+  } catch (error) {
+    const detalle = error instanceof Error ? error.message : "";
+    return {
+      ok: false,
+      error: detalle.includes("no permite editar")
+        ? "No se pudo editar: esta linea no permite editar mensajes"
+        : "No se pudo editar: WhatsApp no lo permitió",
+    };
+  }
+
+  const editedAt = new Date();
+  await prisma.message.update({
+    where: { id: message.id },
+    data: { content: parsed.data.text, editedAt },
+  });
+  await notifyRealtimeUpdate({
+    workspaceId: membership.workspace.id,
+    conversationId: message.conversationId,
+    type: "waha-update",
+  }).catch(() => {});
+
+  return { ok: true, editedAt: editedAt.toISOString() };
 }
 
 export async function toggleConversationAutomationAction(formData: FormData): Promise<void> {
