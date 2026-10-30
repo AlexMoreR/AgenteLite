@@ -10,7 +10,9 @@ import {
   deshacerCambioTarjeta,
   editarTarjeta,
   editarTipo,
+  codigoDeLaTarjeta,
   historialDeTarjeta,
+  idDeTarjetaPorCodigo,
   linkDeLaTarjeta,
   linkDelTablero,
   listarTableros,
@@ -335,7 +337,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     inputSchema: {
       type: "object",
       properties: {
-        tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero)" },
+        tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero) o su código, por ejemplo T-123" },
         titulo: { type: "string" },
         detalle: { type: "string" },
         tipo: { type: "string", description: "Nombre o id del tipo nuevo (ver listar_tipos)" },
@@ -393,7 +395,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     inputSchema: {
       type: "object",
       properties: {
-        tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero)" },
+        tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero) o su código, por ejemplo T-123" },
         estado: { type: "string", enum: [...ESTADOS_SIN_APROBAR] },
         texto_confirmacion: {
           type: "string",
@@ -425,7 +427,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     inputSchema: {
       type: "object",
       properties: {
-        tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero)" },
+        tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero) o su código, por ejemplo T-123" },
         texto_confirmacion: {
           type: "string",
           description:
@@ -444,7 +446,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
       "Quién cambió la tarjeta, cuándo, desde dónde (Claude o la pantalla) y qué tenía antes. Devuelve el id de cada cambio para deshacer. Sirve también con una tarjeta borrada (para deshacer el borrado).",
     inputSchema: {
       type: "object",
-      properties: { tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero)" } },
+      properties: { tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero) o su código, por ejemplo T-123" } },
       required: ["tarjeta_id"],
       additionalProperties: false,
     },
@@ -471,7 +473,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
       "Muestra en qué va una tarjeta que ejecuta el trabajador: estado, repo, zona protegida, el plan que escribió, dónde se construyó (construida_en: aizen1 o la nube de Claude, con link_sesion para mirar la sesión), el resultado (resumen, pruebas, si pasó, si sube sola, la rama con su link, commit, migración, la subida con el link del commit o el error con su motivo y la reversión si la hubo) y quién aprobó qué (la tarea, el plan, el sí final), cuándo y por dónde (pantalla o voz). Llamarla antes de aprobar_tarjeta para poder leerle a la persona lo que aprueba.",
     inputSchema: {
       type: "object",
-      properties: { tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero)" } },
+      properties: { tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero) o su código, por ejemplo T-123" } },
       required: ["tarjeta_id"],
       additionalProperties: false,
     },
@@ -499,7 +501,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     inputSchema: {
       type: "object",
       properties: {
-        tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero)" },
+        tarjeta_id: { type: "string", description: "Id de la tarjeta (ver ver_tablero) o su código, por ejemplo T-123" },
         momento: { type: "string", enum: [...MOMENTOS_DE_APROBACION], description: "Qué se aprueba: tarea, plan o subir" },
         texto_confirmacion: {
           type: "string",
@@ -594,12 +596,17 @@ const datosDelTipo = (args: Argumentos) => ({
 
 export async function ejecutarHerramientaMcpTableros(
   nombre: string,
-  args: Argumentos,
+  argumentos: Argumentos,
   contextoMcp: Contexto,
 ): Promise<unknown> {
   // Todo lo que entra por acá queda anotado como hecho por Claude. La clave es del negocio: ve TODOS los
   // tableros (soloDe null), aunque los tableros sean por cuenta en la pantalla.
   const contexto: ContextoTablero = { ...contextoMcp, soloDe: null, origen: "MCP" };
+  // Una tarjeta también se puede pedir por su código ("T-123"): se cambia por su id y todo sigue igual.
+  const args: Argumentos =
+    typeof argumentos.tarjeta_id === "string"
+      ? { ...argumentos, tarjeta_id: await idDeTarjetaPorCodigo(contexto, argumentos.tarjeta_id) }
+      : argumentos;
 
   switch (nombre) {
     case "listar_tableros": {
@@ -689,6 +696,7 @@ export async function ejecutarHerramientaMcpTableros(
           const tipo = tipoDe.get(tarjeta.tipoId);
           return {
             tarjeta_id: tarjeta.id,
+            ...(tarjeta.codigo ? { codigo: tarjeta.codigo } : {}),
             titulo: tarjeta.titulo,
             tipo: tipo
               ? {
@@ -792,6 +800,7 @@ export async function ejecutarHerramientaMcpTableros(
         ok: true,
         tablero: referencia(resultado.tablero),
         tarjeta_id: resultado.tarjeta.id,
+        ...(resultado.tarjeta.codigo ? { codigo: resultado.tarjeta.codigo } : {}),
         tipo: resultado.tipo.nombre,
         padre_id: resultado.tarjeta.padreId,
         estado: resultado.tipo.usaEstados ? resultado.tarjeta.estado : null,
@@ -868,6 +877,7 @@ export async function ejecutarHerramientaMcpTableros(
         ok: true,
         tablero: referencia(tablero),
         tarjeta_id: resultado.tarjeta.id,
+        ...(resultado.tarjeta.codigo ? { codigo: resultado.tarjeta.codigo } : {}),
         tipo: resultado.tipo.nombre,
         padre_id: resultado.tarjeta.padreId,
         estado: resultado.tipo.usaEstados ? resultado.tarjeta.estado : null,
@@ -905,9 +915,11 @@ export async function ejecutarHerramientaMcpTableros(
         nota: args.nota,
         commit: args.commit,
       });
+      const codigo = await codigoDeLaTarjeta(contexto, tarjetaId).catch(() => "");
       return {
         ok: true,
         tablero: referencia(tablero),
+        ...(codigo ? { codigo } : {}),
         cambio_id: resultado.cambioId,
         antes: resultado.antes,
         ahora: resultado.ahora,
@@ -946,6 +958,7 @@ export async function ejecutarHerramientaMcpTableros(
       return {
         tablero: referencia(tablero),
         tarjeta_id: tarjeta.id,
+        ...(tarjeta.codigo ? { codigo: tarjeta.codigo } : {}),
         titulo: tarjeta.titulo,
         estado: tarjeta.estado,
         ...(borrada ? { borrada: true } : {}),
@@ -985,6 +998,7 @@ export async function ejecutarHerramientaMcpTableros(
       return {
         tablero: referencia(tablero),
         tarjeta_id: tarjeta.id,
+        ...(tarjeta.codigo ? { codigo: tarjeta.codigo } : {}),
         titulo: tarjeta.titulo,
         estado: tarjeta.estado,
         estado_texto: NOMBRE_DEL_ESTADO[tarjeta.estado],
@@ -1039,9 +1053,11 @@ export async function ejecutarHerramientaMcpTableros(
       });
       // 28-oct-2026: con libro V3 o Meta Ads la voz no basta para que el Coordinador la tome: se dice de una vez.
       const esperaLaPantalla = await esperaLaPantallaDeLaTarjeta(contexto, args.tarjeta_id).catch(() => null);
+      const codigo = await codigoDeLaTarjeta(contexto, args.tarjeta_id).catch(() => "");
       return {
         ok: true,
         tablero: referencia(tablero),
+        ...(codigo ? { codigo } : {}),
         cambio_id: resultado.cambioId,
         antes: resultado.antes,
         ahora: resultado.ahora,
