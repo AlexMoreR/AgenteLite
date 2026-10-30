@@ -2,6 +2,7 @@ import { leerMarcaExterior } from "@/features/seguimiento-inteligente/dominio/ex
 import { ventanaDeMadrugada } from "@/lib/en-linea-reglas";
 import { prisma } from "@/lib/prisma";
 import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
+import { respondioLaBienvenida } from "@/lib/turno-con-contenido";
 
 /**
  * LA RED: un cliente esperando y sin nadie a cargo.
@@ -17,6 +18,13 @@ import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
  * Esto lo tapa: cada vuelta busca chats donde el último que habló fue el cliente, nadie contestó
  * en media hora y no tienen dueño. Los reparte por turnos, igual que el resto.
  *
+ * Segundo caso (Alex, 30-10-2026): el cliente que respondió la bienvenida y quedó sin asesora aunque
+ * el último mensaje del chat sea nuestro. El reparto corre en `after()` del webhook, cuando el bot
+ * ya contestó; si ese reparto falló o se saltó, el último mensaje es la respuesta del bot y el caso
+ * de arriba nunca lo ve (el 29-10 quedaron 9 así). Por eso aquí se mira el chat entero: sin asesora,
+ * línea de ventas, movimiento en las últimas 48 h y `respondioLaBienvenida` (cualquier mensaje del
+ * cliente después del primero nuestro, incluso "ok"). Sin la espera de 30 minutos: el bot ya habló.
+ *
  * No manda ningún mensaje al cliente: solo pone a alguien a cargo. Quien decide qué decirle es la
  * asesora que lo recibe.
  */
@@ -27,11 +35,25 @@ const ESPERA_MINUTOS = 30;
 /** Un chat de ayer no es un rescate: es otra conversación. */
 const VENTANA_MAXIMA_HORAS = 12;
 
+/** Segundo caso: cuánto atrás se buscan clientes que respondieron la bienvenida y siguen sin asesora. */
+const VENTANA_BIENVENIDA_HORAS = 48;
+
+/** Cuántos mensajes se leen por chat para saber si respondió la bienvenida (los primeros bastan). */
+const MENSAJES_A_MIRAR = 60;
+
 /** Por vuelta: el cron corre cada minuto, así que un atraso se drena solo. */
 const CUANTOS_POR_VUELTA = 15;
 
 export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repartidos: number; revisados: number }> {
-  const candidatas = await prisma.conversation.findMany({
+  const seleccion = {
+    id: true,
+    channelId: true,
+    workspaceId: true,
+    lastMessageAt: true,
+    contact: { select: { metadata: true } },
+  } as const;
+
+  const candidatasDeHoy = await prisma.conversation.findMany({
     where: {
       assignedToUserId: null,
       status: { notIn: ["CLOSED", "ARCHIVED"] },
@@ -41,10 +63,34 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
         gte: new Date(ahora.getTime() - VENTANA_MAXIMA_HORAS * 3_600_000),
       },
     },
-    select: { id: true, channelId: true, workspaceId: true, lastMessageAt: true, contact: { select: { metadata: true } } },
+    select: seleccion,
     orderBy: { lastMessageAt: "desc" },
     take: CUANTOS_POR_VUELTA * 3,
   });
+
+  // Segundo caso: línea de ventas, sin espera, hasta 48 h atrás (se confirma con los mensajes abajo).
+  const candidatasDeBienvenida = await prisma.conversation.findMany({
+    where: {
+      assignedToUserId: null,
+      status: { notIn: ["CLOSED", "ARCHIVED"] },
+      channelId: { not: null },
+      channel: { is: { purpose: "SALES" } },
+      lastMessageAt: { gte: new Date(ahora.getTime() - VENTANA_BIENVENIDA_HORAS * 3_600_000) },
+    },
+    select: seleccion,
+    orderBy: { lastMessageAt: "desc" },
+    take: CUANTOS_POR_VUELTA * 3,
+  });
+
+  // Los dos casos juntos, sin repetir id; el caso de hoy va primero.
+  const porId = new Map<string, (typeof candidatasDeHoy)[number]>();
+  for (const conversacion of [...candidatasDeHoy, ...candidatasDeBienvenida]) {
+    if (!porId.has(conversacion.id)) {
+      porId.set(conversacion.id, conversacion);
+    }
+  }
+  const idsDeHoy = new Set(candidatasDeHoy.map((conversacion) => conversacion.id));
+  const candidatas = [...porId.values()];
 
   let repartidos = 0;
   let revisados = 0;
@@ -70,8 +116,21 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
       orderBy: { createdAt: "desc" },
       select: { direction: true },
     });
-    if (!ultimo || ultimo.direction !== "INBOUND" || !conversacion.channelId) {
+    if (!conversacion.channelId) {
       continue;
+    }
+    const esperaDeHoy = idsDeHoy.has(conversacion.id) && ultimo?.direction === "INBOUND";
+    if (!esperaDeHoy) {
+      // Segundo caso: el último fue nuestro, pero ¿el cliente ya había respondido la bienvenida?
+      const mensajes = await prisma.message.findMany({
+        where: { conversationId: conversacion.id, type: { not: "SYSTEM" }, deletedAt: null },
+        orderBy: { createdAt: "asc" },
+        take: MENSAJES_A_MIRAR,
+        select: { direction: true, type: true, createdAt: true },
+      });
+      if (!respondioLaBienvenida(mensajes)) {
+        continue;
+      }
     }
 
     try {

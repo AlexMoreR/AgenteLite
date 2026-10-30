@@ -169,5 +169,10 @@ prueba("respondioLaBienvenida: ordena por fecha aunque lleguen al revés", () =>
   assert.equal(t.respondioLaBienvenida([...viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), IN("Masajes"))].reverse()), true);
   assert.equal(t.respondioLaBienvenida([...viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA))].reverse()), false);
 });
+prueba("respondioLaBienvenida: forma de los mensajes del rescate (sin content, deletedAt ya filtrado), último del bot = true", () => {
+  const fila = (direction, minuto) => ({ direction, type: "TEXT", createdAt: new Date(Date.UTC(2026, 9, 29, 15, minuto)) });
+  assert.equal(t.respondioLaBienvenida([fila("INBOUND", 0), fila("OUTBOUND", 1), fila("INBOUND", 2), fila("OUTBOUND", 3)]), true);
+  assert.equal(t.respondioLaBienvenida([fila("INBOUND", 0), fila("OUTBOUND", 1), fila("OUTBOUND", 3)]), false);
+});
 
 console.log(`\n${pruebas} pruebas ok`);
