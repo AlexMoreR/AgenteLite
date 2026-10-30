@@ -2172,9 +2172,9 @@ export const ConversationPanel = memo(function ConversationPanel({
               se declara con `viewport-fit: cover` (ver generateViewport en app/layout).
             */}
             {composer && renderedConversation ? (
-              <div className="chat-composer z-20 shrink-0 bg-transparent px-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] pt-1.5 md:px-2 md:py-2">
+              <div className="chat-composer z-20 shrink-0 bg-transparent px-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] pt-1.5 md:px-5 md:py-2">
                 <form
-                  className="mx-auto w-full max-w-5xl"
+                  className="mx-auto w-full min-w-0 max-w-5xl"
                   onSubmit={(event: FormEvent<HTMLFormElement>) => {
                     event.preventDefault();
                     const form = event.currentTarget;
@@ -2307,7 +2307,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                     </div>
                   ) : null}
 
-                  <div className="flex items-end gap-2 md:gap-3">
+                  <div className="flex w-full min-w-0 items-end gap-2 md:gap-3">
                     {isRecordingAudio ? (
                       /*
                         Grabando, como en WhatsApp: arriba el tiempo y la onda que se mueve con la voz;
@@ -2380,7 +2380,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex min-h-[48px] min-w-0 flex-1 items-end gap-0.5 rounded-3xl border border-border bg-card px-2 py-1 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[48px]">
+                      <div className="flex min-h-[48px] w-full min-w-0 flex-1 items-end gap-0.5 rounded-3xl border border-border bg-card px-2 py-1 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[48px]">
                         {mediaConfig ? (
                           <>
                             <input
@@ -2799,7 +2799,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                 renglon convierte una ausencia rara en una regla entendible, y de paso le recuerda
                 a quien mira que esta viendo trabajar al agente, no atendiendo.
               */
-              <div className="z-20 shrink-0 px-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] pt-1.5 md:px-2 md:py-2">
+              <div className="z-20 shrink-0 px-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] pt-1.5 md:px-5 md:py-2">
                 <p className="mx-auto w-full max-w-5xl rounded-xl border border-border bg-muted/60 px-3 py-2.5 text-center text-[13px] leading-snug text-muted-foreground">
                   Modo monitoreo: podés ver la conversación, pero no escribir.
                 </p>
