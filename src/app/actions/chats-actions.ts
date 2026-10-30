@@ -1132,6 +1132,11 @@ export async function editChatMessageAction(formData: FormData): Promise<{ ok: b
   if (!puedeEditarseMensaje(message)) {
     return { ok: false, error: "No se puede editar: solo mensajes de texto enviados hace menos de 15 minutos" };
   }
+  // Solo quien envio el mensaje puede editarlo.
+  const enviadoPor = (message.rawPayload as Record<string, unknown> | null)?.enviadoPorUserId;
+  if (enviadoPor !== session.user.id) {
+    return { ok: false, error: "Solo quien envió el mensaje puede editarlo" };
+  }
   if (
     message.channel?.provider !== "EVOLUTION" ||
     !message.channel.evolutionInstanceName ||

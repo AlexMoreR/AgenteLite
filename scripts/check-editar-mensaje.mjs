@@ -120,6 +120,7 @@ await prueba("la accion guarda solo despues de que WAHA confirma, y el eco del w
   const accion = fs.readFileSync("src/app/actions/chats-actions.ts", "utf8");
   const cuerpo = accion.slice(accion.indexOf("export async function editChatMessageAction"));
   assert.ok(cuerpo.indexOf("await editEvolutionMessage(") < cuerpo.indexOf("prisma.message.update("));
+  assert.ok(cuerpo.includes("enviadoPor !== session.user.id"));
   assert.ok(cuerpo.indexOf("estaEnModoMonitoreo") < cuerpo.indexOf("await editEvolutionMessage("));
   const webhook = fs.readFileSync("src/app/api/webhooks/waha/route.ts", "utf8");
   assert.ok(webhook.includes("cambio.texto === mensaje.content"));

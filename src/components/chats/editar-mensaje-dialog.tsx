@@ -4,6 +4,7 @@ import * as React from "react";
 
 import type { SharedInboxMessageItem } from "@/components/chats/chat-inbox-types";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 /**
@@ -23,7 +24,7 @@ export function EditarMensajeDialog({
 }) {
   return (
     <Dialog open={Boolean(mensaje)} onOpenChange={(abierto) => (abierto ? undefined : alCerrar())}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[calc(var(--app-viewport-height,100dvh)-2rem)] overflow-y-auto sm:max-w-md max-sm:top-4 max-sm:translate-y-0">
         {mensaje ? <Contenido key={mensaje.id} mensaje={mensaje} alCerrar={alCerrar} alGuardar={alGuardar} /> : null}
       </DialogContent>
     </Dialog>
@@ -56,14 +57,19 @@ function Contenido({
       <DialogHeader>
         <DialogTitle>Editar mensaje</DialogTitle>
       </DialogHeader>
-      <textarea
+      <Textarea
         autoFocus
+        onFocus={(evento) => {
+          // El cursor al final del texto, no al principio.
+          const largo = evento.currentTarget.value.length;
+          evento.currentTarget.setSelectionRange(largo, largo);
+        }}
         value={texto}
         onChange={(evento) => setTexto(evento.target.value)}
         rows={5}
         maxLength={4096}
         aria-label="Texto del mensaje"
-        className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="resize-none"
       />
       <p className="text-xs text-muted-foreground">
         El cliente verá el texto nuevo con la marca &quot;Editado&quot; en su WhatsApp.
