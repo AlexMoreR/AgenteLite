@@ -7,6 +7,9 @@
  * 2. Inserta un negocio, un usuario, una reunión con participantes y pistas.
  * 3. Comprueba los índices únicos (codigo, sala, (reunionId, identidad), egressId), los valores por
  *    defecto, las FK (SET NULL y CASCADE) y que se puede volver a aplicar sin fallar.
+ * 4. Salas fijas (20261110120000_reunion_salas): en otra base, aplica todo lo anterior, crea una reunión
+ *    con participantes y pistas, aplica la migración de salas (dos veces) y comprueba que la reunión
+ *    queda igual y sin sala, que el link de la sala es único y que borrar la sala no borra sus reuniones.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -17,6 +20,7 @@ import { PGlite } from "@electric-sql/pglite";
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CARPETA = path.join(RAIZ, "prisma", "migrations");
 const NUEVA = "20261023120000_reuniones";
+const SALAS = "20261110120000_reunion_salas";
 
 const migraciones = fs
   .readdirSync(CARPETA, { withFileTypes: true })
@@ -24,6 +28,7 @@ const migraciones = fs
   .map((entrada) => entrada.name)
   .sort();
 assert.ok(migraciones.includes(NUEVA), `falta la migración ${NUEVA}`);
+assert.ok(migraciones.includes(SALAS), `falta la migración ${SALAS}`);
 
 const leer = (nombre) => fs.readFileSync(path.join(CARPETA, nombre, "migration.sql"), "utf8");
 
@@ -170,5 +175,110 @@ await prueba("borrar el negocio borra en cascada sus reuniones, participantes y 
   assert.equal(await contar("ReunionParticipante"), 1);
 });
 
+await prueba("la migración de salas, aplicada en orden sobre la base vacía, corre otra vez sin fallar", async () => {
+  await db.exec(leer(SALAS));
+  const columna = await filas(`SELECT 1 FROM information_schema.columns WHERE table_name = 'Reunion' AND column_name = 'salaFijaId'`);
+  assert.equal(columna.length, 1);
+});
+
 await db.close();
+
+// ── Salas fijas: una base con reuniones de antes, y después la migración de salas ─────────────────────
+const antes = new PGlite();
+const filasAntes = async (sql, valores = []) => (await antes.query(sql, valores)).rows;
+for (const nombre of migraciones.filter((nombre) => nombre < SALAS)) {
+  await antes.exec(leer(nombre));
+}
+await antes.exec(`
+  INSERT INTO "User" ("id", "email", "password", "updatedAt") VALUES
+    ('alex', 'alex@magilus.co', 'x', now()),
+    ('emanuel', 'emanuel@magilus.co', 'x', now());
+  INSERT INTO "Workspace" ("id", "name", "slug", "ownerId", "updatedAt") VALUES ('ws1', 'Magilus', 'magilus', 'alex', now());
+  INSERT INTO "Reunion" ("id", "workspaceId", "creadaPorId", "titulo", "codigo", "sala", "updatedAt") VALUES
+    ('vieja', 'ws1', 'alex', 'Reunión de antes', 'reunion-de-antes', 'sala-vieja', now());
+  INSERT INTO "ReunionParticipante" ("id", "reunionId", "identidad", "nombre", "userId") VALUES
+    ('pv1', 'vieja', 'u_alex', 'Alex', 'alex'),
+    ('pv2', 'vieja', 'i_invitado', 'Invitado', NULL);
+  INSERT INTO "ReunionPista" ("id", "reunionId", "participanteId", "egressId", "trackSid", "archivo") VALUES
+    ('tv1', 'vieja', 'pv1', 'EG_V1', 'TR_V1', 'sala-vieja/TR_V1.ogg');
+`);
+
+await prueba("la migración de salas es una transacción (BEGIN/COMMIT) y solo aditiva", async () => {
+  const sql = leer(SALAS);
+  assert.match(sql, /^BEGIN;$/m);
+  assert.match(sql, /^COMMIT;$/m);
+  // Las reglas de las FK (ON DELETE / ON UPDATE) no cuentan: no tocan filas.
+  const sinReglas = sql.replace(/\bON\s+(DELETE|UPDATE)\b/gi, "");
+  assert.doesNotMatch(sinReglas, /\b(DROP|DELETE|UPDATE|TRUNCATE|RENAME)\b/i);
+  assert.doesNotMatch(sql, /ALTER\s+COLUMN/i);
+});
+
+await prueba("en una base con reuniones de antes, la migración de salas corre dos veces sin fallar", async () => {
+  await antes.exec(leer(SALAS));
+  await antes.exec(leer(SALAS));
+  const tablas = await filasAntes(`SELECT 1 FROM information_schema.tables WHERE table_name = 'SalaDeReuniones'`);
+  assert.equal(tablas.length, 1);
+  const restricciones = await filasAntes(`SELECT 1 FROM pg_constraint WHERE conname = 'Reunion_salaFijaId_fkey'`);
+  assert.equal(restricciones.length, 1);
+  const indices = await filasAntes(
+    `SELECT indexname FROM pg_indexes WHERE indexname IN ('SalaDeReuniones_codigo_key', 'SalaDeReuniones_workspaceId_idx', 'Reunion_salaFijaId_createdAt_idx') ORDER BY indexname`,
+  );
+  assert.equal(indices.length, 3);
+});
+
+await prueba("la reunión de antes queda sin sala fija y conserva sus participantes y pistas", async () => {
+  const [reunion] = await filasAntes(`SELECT "salaFijaId", "titulo", "codigo", "sala", "creadaPorId" FROM "Reunion" WHERE "id" = 'vieja'`);
+  assert.deepEqual(reunion, { salaFijaId: null, titulo: "Reunión de antes", codigo: "reunion-de-antes", sala: "sala-vieja", creadaPorId: "alex" });
+  assert.equal((await filasAntes(`SELECT 1 FROM "ReunionParticipante" WHERE "reunionId" = 'vieja'`)).length, 2);
+  const [pista] = await filasAntes(`SELECT "participanteId", "archivo" FROM "ReunionPista" WHERE "id" = 'tv1'`);
+  assert.deepEqual(pista, { participanteId: "pv1", archivo: "sala-vieja/TR_V1.ogg" });
+});
+
+await prueba("la sala: sinGrabar en false por defecto y el codigo (link fijo) es único", async () => {
+  await antes.exec(`
+    INSERT INTO "SalaDeReuniones" ("id", "workspaceId", "nombre", "codigo", "liderId", "creadaPorId", "updatedAt") VALUES
+      ('s1', 'ws1', 'Sistemas - Emanuel', 'sistemas-emanuel', 'emanuel', 'alex', now());
+  `);
+  const [sala] = await filasAntes(`SELECT "sinGrabar", "createdAt" FROM "SalaDeReuniones" WHERE "id" = 's1'`);
+  assert.equal(sala.sinGrabar, false);
+  assert.ok(sala.createdAt);
+  await assert.rejects(
+    antes.exec(`INSERT INTO "SalaDeReuniones" ("id", "workspaceId", "nombre", "codigo", "updatedAt") VALUES ('s2', 'ws1', 'Otra', 'sistemas-emanuel', now())`),
+  );
+  await assert.rejects(
+    antes.exec(`INSERT INTO "SalaDeReuniones" ("id", "workspaceId", "nombre", "codigo", "updatedAt") VALUES ('s3', 'nadie', 'X', 'x', now())`),
+  );
+});
+
+await prueba("una reunión no puede apuntar a una sala que no existe (FK)", async () => {
+  await assert.rejects(antes.exec(`UPDATE "Reunion" SET "salaFijaId" = 'no-existe' WHERE "id" = 'vieja'`));
+});
+
+await prueba("borrar al líder deja la sala sin líder (SET NULL)", async () => {
+  await antes.exec(`DELETE FROM "User" WHERE "id" = 'emanuel'`);
+  const [sala] = await filasAntes(`SELECT "liderId" FROM "SalaDeReuniones" WHERE "id" = 's1'`);
+  assert.equal(sala.liderId, null);
+});
+
+await prueba("al borrar una sala, sus reuniones quedan sin sala fija (SET NULL) y no se borran", async () => {
+  await antes.exec(`
+    INSERT INTO "Reunion" ("id", "workspaceId", "titulo", "codigo", "sala", "salaFijaId", "updatedAt") VALUES
+      ('ds1', 'ws1', 'Sistemas 1', 'sistemas-1', 'sala-ds1', 's1', now());
+    INSERT INTO "ReunionParticipante" ("id", "reunionId", "identidad", "nombre") VALUES ('pds1', 'ds1', 'u_alex', 'Alex');
+  `);
+  await antes.exec(`DELETE FROM "SalaDeReuniones" WHERE "id" = 's1'`);
+  const [reunion] = await filasAntes(`SELECT "salaFijaId" FROM "Reunion" WHERE "id" = 'ds1'`);
+  assert.equal(reunion.salaFijaId, null);
+  assert.equal((await filasAntes(`SELECT 1 FROM "ReunionParticipante" WHERE "reunionId" = 'ds1'`)).length, 1);
+});
+
+await prueba("borrar el negocio borra en cascada sus salas", async () => {
+  await antes.exec(`
+    INSERT INTO "SalaDeReuniones" ("id", "workspaceId", "nombre", "codigo", "updatedAt") VALUES ('s4', 'ws1', 'Ventas', 'ventas', now());
+  `);
+  await antes.exec(`DELETE FROM "Workspace" WHERE "id" = 'ws1'`);
+  assert.equal((await filasAntes(`SELECT 1 FROM "SalaDeReuniones"`)).length, 0);
+});
+
+await antes.close();
 console.log(`\n${pruebas} pruebas de la migración de reuniones OK`);

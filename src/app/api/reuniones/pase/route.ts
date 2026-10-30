@@ -37,7 +37,7 @@ export async function POST(request: Request) {
 
   const reunion = await prisma.reunion.findUnique({
     where: { codigo },
-    select: { id: true, sala: true, estado: true, origen: true, workspaceId: true, creadaPorId: true },
+    select: { id: true, sala: true, estado: true, origen: true, workspaceId: true, creadaPorId: true, salaFija: { select: { liderId: true } } },
   });
   if (!reunion || reunion.origen !== "VIVO") {
     return NextResponse.json({ ok: false, error: "Esta reunión no existe." }, { status: 404, headers: SIN_CACHE });

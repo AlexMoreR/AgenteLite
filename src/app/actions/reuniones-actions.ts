@@ -1,6 +1,5 @@
 "use server";
 
-import { randomBytes } from "node:crypto";
 import { rmdir } from "node:fs/promises";
 
 import { revalidatePath } from "next/cache";
@@ -9,7 +8,7 @@ import { auth } from "@/auth";
 import { getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { revisarSiTermino } from "@/features/reuniones/servicios/avisos-de-livekit";
-import { slugLibre } from "@/features/reuniones/servicios/slug-de-reunion";
+import { crearReunion } from "@/features/reuniones/servicios/crear-reunion";
 import { cerrarSala, leerConfigLivekit } from "@/features/reuniones/servicios/livekit";
 import { carpetaDeReuniones, rutaDeArchivo } from "@/features/reuniones/servicios/archivos-de-reuniones";
 import { puedeBorrarLaReunionDe, sePuedeBorrarPorEstado } from "@/features/reuniones/servicios/borrar-reunion";
@@ -34,29 +33,14 @@ export async function crearReunionAction(titulo?: string, sinGrabar?: boolean): 
   if (!access) {
     return { error: "No autorizado" };
   }
-  const limpio = titulo?.replace(/\s+/g, " ").trim().slice(0, 120);
-  const ahora = new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Bogota" }).format(new Date());
-  const tituloFinal = limpio || `Reunión ${ahora}`;
-  const codigo = await slugLibre(tituloFinal, async (c) => (await prisma.reunion.count({ where: { codigo: c } })) > 0);
-  const reunion = await prisma.reunion.create({
-    data: {
-      workspaceId: access.workspaceId,
-      creadaPorId: access.userId,
-      titulo: tituloFinal,
-      // El link sale del título (reunion-de-ventas, -2, -3 si ya existe); los viejos, al azar, siguen valiendo.
-      codigo,
-      sala: `reunion_${randomBytes(9).toString("hex")}`,
-      sinGrabar: sinGrabar === true,
-    },
-    select: { id: true, codigo: true },
-  });
+  const reunion = await crearReunion(prisma, { workspaceId: access.workspaceId, creadaPorId: access.userId, titulo, sinGrabar });
   revalidatePath("/cliente/reuniones");
   return reunion;
 }
 
 /**
  * "Terminar reunión" (botón de la sala, que conoce el código del link): cierra la sala para todos.
- * Solo quien la creó, el dueño o un administrador.
+ * Solo quien la creó, el líder de su sala fija, el dueño o un administrador.
  */
 export async function terminarReunionAction(codigo: string): Promise<{ ok?: true; error?: string }> {
   const session = await auth();
@@ -65,7 +49,7 @@ export async function terminarReunionAction(codigo: string): Promise<{ ok?: true
   }
   const reunion = await prisma.reunion.findUnique({
     where: { codigo },
-    select: { id: true, sala: true, estado: true, workspaceId: true, creadaPorId: true },
+    select: { id: true, sala: true, estado: true, workspaceId: true, creadaPorId: true, salaFija: { select: { liderId: true } } },
   });
   if (!reunion || !(await puedeTerminarLaReunion(session.user.id, reunion))) {
     return { error: "No autorizado" };

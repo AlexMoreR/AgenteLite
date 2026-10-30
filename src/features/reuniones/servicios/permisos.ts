@@ -5,8 +5,9 @@ import { canAccessClientModule, getClientWorkspaceAccessForUser, type ClientWork
 
   - Ver la sección y crear reuniones: el dueño, los administradores y quien tenga el módulo
     "Reuniones" en la pantalla de permisos (canAccessClientModule).
-  - "Terminar reunión" en la sala: quien la creó, el dueño del negocio y los administradores.
-    Un invitado nunca: su pase no trae permiso de administrar la sala.
+  - "Terminar reunión" en la sala: quien la creó, el dueño del negocio, los administradores y, en una
+    sala fija, su líder. Un invitado nunca: su pase no trae permiso de administrar la sala.
+  - Crear y editar salas fijas: solo el dueño o un administrador.
 */
 
 export const esDuenoOAdmin = (access: ClientWorkspaceAccess) => access.isOwner || access.role === "ADMIN";
@@ -15,10 +16,18 @@ export function puedeVerReuniones(access: ClientWorkspaceAccess | null): access 
   return Boolean(access && canAccessClientModule(access, "reuniones"));
 }
 
-export async function puedeTerminarLaReunion(userId: string, reunion: { workspaceId: string; creadaPorId: string | null }) {
+export async function puedeTerminarLaReunion(
+  userId: string,
+  reunion: { workspaceId: string; creadaPorId: string | null; salaFija?: { liderId: string | null } | null },
+) {
   const access = await getClientWorkspaceAccessForUser(userId);
   if (!access || access.workspaceId !== reunion.workspaceId) {
     return false;
   }
-  return reunion.creadaPorId === userId || esDuenoOAdmin(access);
+  return reunion.creadaPorId === userId || reunion.salaFija?.liderId === userId || esDuenoOAdmin(access);
+}
+
+export async function puedeAdministrarSalas(userId: string, workspaceId: string) {
+  const access = await getClientWorkspaceAccessForUser(userId);
+  return Boolean(access && access.workspaceId === workspaceId && esDuenoOAdmin(access));
 }

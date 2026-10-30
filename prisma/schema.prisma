@@ -40,6 +40,8 @@ model User {
   tablerosInteligentes  TableroInteligente[]  @relation("TableroDueno")
   tarjetasAsignadas     TarjetaTablero[]      @relation("TarjetaResponsable")
   reunionesCreadas      Reunion[]             @relation("ReunionCreadaPor")
+  salasQueLidera        SalaDeReuniones[]     @relation("SalaDeReunionesLider")
+  salasCreadas          SalaDeReuniones[]     @relation("SalaDeReunionesCreadaPor")
 }
 
 model EmailAuthToken {
@@ -91,6 +93,7 @@ model Workspace {
   aprobadoresTablero    AprobadorTablero[]
   clavesTrabajador      ClaveTrabajador[]
   reuniones             Reunion[]
+  salasDeReuniones      SalaDeReuniones[]
   messages              Message[]
   officialApiConfig     OfficialApiClientConfig?
   quickReplies          QuickReply[]
@@ -2283,15 +2286,41 @@ model Reunion {
   textoActa          String?
   /// Reunión "Sin grabar": la videollamada funciona igual, pero no se graba, no se transcribe y no hay acta.
   sinGrabar          Boolean               @default(false)
+  /// La sala fija (de un área) a la que pertenece; null en las reuniones sueltas. No es `sala`, que es la sala de LiveKit.
+  salaFijaId         String?
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
   workspace          Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   creadaPor          User?                 @relation("ReunionCreadaPor", fields: [creadaPorId], references: [id], onDelete: SetNull)
+  salaFija           SalaDeReuniones?      @relation(fields: [salaFijaId], references: [id], onDelete: SetNull)
   participantes      ReunionParticipante[]
   pistas             ReunionPista[]
 
   @@index([workspaceId, createdAt])
   @@index([estado])
+  @@index([salaFijaId, createdAt])
+}
+
+/// Una sala fija de reuniones por área (como un canal de Teams): un link que no cambia (/reunion/<codigo>) y el historial de todas sus reuniones. Al entrar se abre la reunión que esté Esperando o En vivo, o se crea una nueva.
+model SalaDeReuniones {
+  id          String    @id @default(cuid())
+  workspaceId String
+  nombre      String
+  /// El link fijo: sale del nombre al crearla ("Sistemas - Emanuel" -> sistemas-emanuel) y no cambia al renombrarla.
+  codigo      String    @unique
+  /// Quien dirige la sala: puede terminar sus reuniones.
+  liderId     String?
+  /// Las reuniones de esta sala se crean "Sin grabar".
+  sinGrabar   Boolean   @default(false)
+  creadaPorId String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lider       User?     @relation("SalaDeReunionesLider", fields: [liderId], references: [id], onDelete: SetNull)
+  creadaPor   User?     @relation("SalaDeReunionesCreadaPor", fields: [creadaPorId], references: [id], onDelete: SetNull)
+  reuniones   Reunion[]
+
+  @@index([workspaceId])
 }
 
 /// Quién entró a una reunión. identidad es la de LiveKit (u_<userId> con sesión, i_<azar> invitado); si alguien se cae y vuelve, es la misma fila.
