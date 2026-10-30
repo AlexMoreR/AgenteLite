@@ -45,7 +45,7 @@ import {
   sqlLiberarAvisoDePausa,
   sqlReclamarAvisoDePausa,
 } from "@/features/agente-v3/motor/aviso-pausa";
-import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
+import { leerPausaParaElBot, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import {
   persistEvolutionMessage,
   sendAndPersistEvolutionFlowStep,
@@ -2610,7 +2610,7 @@ export async function POST(request: NextRequest) {
 
   after(async () => {
     try {
-      const [outboundCount, workspace, conversationAutomationPaused] = await Promise.all([
+      const [outboundCount, workspace, pausaDelChat] = await Promise.all([
         existingContact
           ? prisma.message.count({
               where: {
@@ -2624,11 +2624,13 @@ export async function POST(request: NextRequest) {
           where: { id: channel.workspaceId },
           select: { businessConfig: true },
         }),
-        getConversationAutomationPaused({
+        leerPausaParaElBot({
           conversationId: conversation.id,
           workspaceId: channel.workspaceId,
         }),
       ]);
+      // Solo "libre" deja hablar al bot: si no se pudo leer la pausa, se trata como pausado.
+      const conversationAutomationPaused = pausaDelChat !== "libre";
 
       const autoTagNewLeads =
         workspace &&
@@ -2880,12 +2882,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, message: "V3: cliente fuera de Colombia (solo vendemos en Colombia)" });
   }
 
-  const v3Pausado = canalUsaV3
-    ? await getConversationAutomationPaused({
+  const pausaV3 = canalUsaV3
+    ? await leerPausaParaElBot({
         conversationId: conversation.id,
         workspaceId: channel.workspaceId,
       })
-    : false;
+    : "libre";
+  // Solo "libre" deja hablar al bot: si no se pudo leer la pausa, se trata como pausado (sin aviso).
+  const v3Pausado = pausaV3 !== "libre";
   /*
     Chat pausado: el bot NO retoma la conversacion, pero tampoco deja a la clienta en visto.
 
@@ -2897,7 +2901,7 @@ export async function POST(request: NextRequest) {
     Sale UN solo acuse por pausa, y solo si la asesora todavia no escribio. Si ya escribio, quien
     contesta es ella y un mensaje automatico encima sobraria.
   */
-  if (v3Pausado && channel.evolutionInstanceName && !fromMe && !isCallEvent) {
+  if (pausaV3 === "pausado" && channel.evolutionInstanceName && !fromMe && !isCallEvent) {
     console.log("[EVOLUTION] v3_chat_pausado", { conversationId: conversation.id });
     const instanciaPausa = channel.evolutionInstanceName;
     after(async () => {
@@ -3135,11 +3139,12 @@ export async function POST(request: NextRequest) {
       le paso a Ingrid, que escribio a las 15:56:21 y el bot solto su respuesta a las 15:56:24
       (25-09-2026). Por eso se vuelve a mirar ACA, que es el ultimo momento antes de hablar.
     */
-    const pausadoDuranteLaEspera = await getConversationAutomationPaused({
+    const pausaDuranteLaEspera = await leerPausaParaElBot({
       conversationId: conversation.id,
       workspaceId: channel.workspaceId,
     });
-    if (pausadoDuranteLaEspera) {
+    // Solo "libre" deja hablar: si no se pudo leer la pausa, el bot se calla.
+    if (pausaDuranteLaEspera !== "libre") {
       console.log("[EVOLUTION] v3_pausado_durante_la_espera", { conversationId: conversation.id });
       return NextResponse.json({ ok: true, message: "V3: una persona tomo el chat mientras esperabamos" });
     }
