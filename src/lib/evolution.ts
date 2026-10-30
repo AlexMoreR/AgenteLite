@@ -496,7 +496,10 @@ async function evolutionRequest<T>(
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
-    throw new Error(errorText || `Evolution API respondio con ${response.status}`);
+    // Con el status a mano: el envio manual solo prueba la ruta vieja si la nueva no existe (404).
+    throw Object.assign(new Error(errorText || `Evolution API respondio con ${response.status}`), {
+      status: response.status,
+    });
   }
 
   if (response.status === 204) {
@@ -739,6 +742,12 @@ async function evolutionInstanceRequest<T>(input: {
   // Opcional: aborta el fetch (p. ej. la foto de perfil, que evogo cuelga ~75s cuando
   // WhatsApp rate-limitea). Solo lo usan los callers que lo necesiten.
   signal?: AbortSignal;
+  /*
+    Envio manual de las asesoras (tarjeta whovymqk): tiempo limite con el gateway y la ruta vieja
+    SOLO si la nueva no existe (404). Si la nueva se agoto o dio error del servidor, el mensaje
+    pudo haber salido: probar la vieja lo mandaba dos veces. Sin esto, todo sigue como siempre.
+  */
+  limiteMs?: number;
 }) {
   // resolveEvolutionInstance enumera las instancias del gateway (otra llamada HTTP) para
   // traer el `raw`, que aqui no usamos: solo hacen falta id/token, y ya estan en nuestra
@@ -777,6 +786,8 @@ async function evolutionInstanceRequest<T>(input: {
   // subir medios o traer fotos). Si el canal es API y hay legacyPath, vamos directo a el.
   const skipGoPath = connection?.kind === "EVOLUTION_API" && Boolean(input.legacyPath);
 
+  const conLimite = input.limiteMs ? { timeoutMs: input.limiteMs } : {};
+
   if (!skipGoPath && (instance?.id || instance?.token)) {
     try {
       return await evolutionRequest<T>(normalizedPath, {
@@ -784,9 +795,12 @@ async function evolutionInstanceRequest<T>(input: {
         headers: buildInstanceHeaders(instance, { useInstanceApiKey: true }),
         ...(input.signal ? { signal: input.signal } : {}),
         ...(typeof input.body === "undefined" ? {} : { body: JSON.stringify(input.body) }),
-      }, { connection });
+      }, { connection, ...conLimite });
     } catch (error) {
       if (!input.legacyPath) {
+        throw error;
+      }
+      if (input.limiteMs && (error as { status?: unknown } | null)?.status !== 404) {
         throw error;
       }
     }
@@ -801,7 +815,7 @@ async function evolutionInstanceRequest<T>(input: {
     method,
     ...(input.signal ? { signal: input.signal } : {}),
     ...(typeof legacyRequestBody === "undefined" ? {} : { body: JSON.stringify(legacyRequestBody) }),
-  }, { connection });
+  }, { connection, ...conLimite });
 }
 
 function inferMediaMimeType(input: { mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT"; mimeType?: string | null }) {
@@ -2364,6 +2378,8 @@ export async function sendEvolutionTextMessage(input: {
   quoted?: { id: string; remoteJid?: string; fromMe?: boolean; text?: string } | null;
   /** Pide a WhatsApp que no arme la tarjeta de vista previa del link. Sin esto, el envío sale como siempre. */
   sinVistaPrevia?: boolean;
+  /** Solo el envio manual de Chats: tiempo limite con el gateway (ver evolutionInstanceRequest). WAHA ya tiene el suyo. */
+  limiteMs?: number;
 }) {
   const waha = await conexionWahaDe(input.instanceName);
   if (waha) {
@@ -2382,6 +2398,7 @@ export async function sendEvolutionTextMessage(input: {
     instanceName: input.instanceName,
     path: "/send/text",
     legacyPath: `/message/sendText/${input.instanceName}`,
+    ...(input.limiteMs ? { limiteMs: input.limiteMs } : {}),
     body: {
       number: sendNumber,
       text: input.text,
@@ -2949,6 +2966,7 @@ export async function sendEvolutionTextMessageWithReconnect(input: {
   delayMs?: number;
   quoted?: { id: string; remoteJid?: string; fromMe?: boolean; text?: string } | null;
   sinVistaPrevia?: boolean;
+  limiteMs?: number;
 }) {
   try {
     return await sendEvolutionTextMessage(input);

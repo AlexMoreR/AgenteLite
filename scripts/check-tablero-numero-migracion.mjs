@@ -25,7 +25,8 @@ const migraciones = fs
   .map((entrada) => entrada.name)
   .sort();
 assert.ok(migraciones.includes(NUEVA), `falta la migración ${NUEVA}`);
-assert.equal(migraciones[migraciones.length - 1], NUEVA, "la migración nueva tiene que ser la más reciente");
+// No se exige que sea la última: las migraciones que vienen después (otras tarjetas) no la cambian, y
+// abajo solo se aplican las anteriores a esta, como en las demás pruebas de migración.
 
 const leer = (nombre) => fs.readFileSync(path.join(CARPETA, nombre, "migration.sql"), "utf8");
 const db = new PGlite();

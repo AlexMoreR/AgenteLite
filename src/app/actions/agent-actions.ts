@@ -61,6 +61,13 @@ import {
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { buildDefaultWorkspacePlan } from "@/lib/plans";
 import { AVISO_MODO_MONITOREO, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
+import {
+  LIMITE_GATEWAY_TEXTO_MS,
+  clasificarFalloDelGateway,
+  idDeMensajeValido,
+  type MotivoDeFallo,
+} from "@/lib/chat-envio-reintento";
+import { anotarErrorDeEnvio } from "@/lib/chat-errores-de-envio";
 import { prisma } from "@/lib/prisma";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import {
@@ -2555,8 +2562,10 @@ export async function toggleAgentStatusAction(formData: FormData): Promise<void>
 }
 
 export type SendChatReplyResult =
-  | { ok: true; suppressOptimistic?: boolean }
-  | { ok: false; error: string };
+  // repetido: ese numero unico ya se habia enviado; no salio de nuevo.
+  | { ok: true; suppressOptimistic?: boolean; repetido?: boolean }
+  // motivo: solo cuando fallo el gateway (para medir y decidir si se reintenta solo).
+  | { ok: false; error: string; motivo?: MotivoDeFallo };
 
 export async function sendManualAgentReplyAction(formData: FormData): Promise<SendChatReplyResult> {
   // Medicion (fase 0 de "Chats instantaneo"): ms acumulados desde el inicio en cada paso.
@@ -2587,6 +2596,8 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     quotedContent: formData.get("quotedContent"),
     quotedDirection: formData.get("quotedDirection"),
   });
+  // Numero unico del mensaje (lo pone el navegador): con el, un reintento nunca sale dos veces.
+  const clientMessageId = idDeMensajeValido(formData.get("clientMessageId"));
 
   // Errores devueltos como resultado (sin redirect): el inbox los valida
   // internamente y los muestra en la burbuja, sin navegacion ni efecto de recarga.
@@ -2634,6 +2645,25 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
 
   if (!conversation || conversation.channel?.provider !== "EVOLUTION" || !conversation.channel.evolutionInstanceName || !conversation.contact?.phoneNumber) {
     return { ok: false, error: "No se encontro el canal o contacto" };
+  }
+
+  /*
+    Mismo numero unico ya guardado: es un reintento de un mensaje que SI salio (la respuesta se
+    perdio en el camino). No se vuelve a mandar.
+  */
+  if (clientMessageId) {
+    const yaEnviado = await prisma.message.findFirst({
+      where: {
+        conversationId: conversation.id,
+        direction: "OUTBOUND",
+        rawPayload: { path: ["clientMessageId"], equals: clientMessageId },
+      },
+      select: { id: true },
+    });
+    if (yaEnviado) {
+      envioLog("repetido");
+      return { ok: true, repetido: true };
+    }
   }
 
   /*
@@ -2949,6 +2979,8 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
       // respeta Evolution API y hacía que el envío manual saliera ~1,2s más lento que en
       // Evolution GO (que ignora el delay).
       delayMs: 0,
+      // Tiempo limite con el gateway y sin la ruta vieja si la nueva se agoto (no duplicar).
+      limiteMs: LIMITE_GATEWAY_TEXTO_MS,
       quoted: quotedKey
         ? { id: quotedKey.id, remoteJid: quotedKey.remoteJid, fromMe: quotedKey.fromMe, text: replyTo?.content ?? "" }
         : null,
@@ -2971,31 +3003,59 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     return {
       ok: false,
       error: detail ? `No se pudo enviar el mensaje: ${detail}` : "No se pudo enviar el mensaje",
+      motivo: clasificarFalloDelGateway(error),
     };
   }
   envioMarca("whatsapp");
 
-  await prisma.message.create({
-    data: {
-      workspaceId: membership.workspace.id,
+  /*
+    WhatsApp YA acepto el mensaje: si falla el guardado, igual es "enviado". Antes la asesora veia
+    "No se envió", reintentaba y el cliente lo recibia dos veces. Se anota el error y el mensaje se
+    completa despues con el aviso del gateway (el eco) o la sincronizacion.
+  */
+  try {
+    await prisma.message.create({
+      data: {
+        workspaceId: membership.workspace.id,
+        conversationId: conversation.id,
+        channelId: conversation.channel.id,
+        contactId: conversation.contact.id,
+        agentId: messageAgentId,
+        externalId: outbound.externalId,
+        direction: "OUTBOUND",
+        type: "TEXT",
+        status: "SENT",
+        content: parsed.data.message,
+        sentAt: new Date(),
+        rawPayload: {
+          source: "manual",
+          enviadoPorUserId: session.user.id,
+          evolution: outbound.raw,
+          ...(replyTo ? { replyTo } : {}),
+          ...(clientMessageId ? { clientMessageId } : {}),
+        } as never,
+      },
+    });
+  } catch (error) {
+    const detalle = error instanceof Error ? error.message : String(error);
+    console.error("[sendManualAgentReplyAction] WhatsApp acepto el mensaje pero no se pudo guardar", {
       conversationId: conversation.id,
-      channelId: conversation.channel.id,
-      contactId: conversation.contact.id,
-      agentId: messageAgentId,
-      externalId: outbound.externalId,
-      direction: "OUTBOUND",
-      type: "TEXT",
-      status: "SENT",
-      content: parsed.data.message,
-      sentAt: new Date(),
-      rawPayload: {
-        source: "manual",
-        enviadoPorUserId: session.user.id,
-        evolution: outbound.raw,
-        ...(replyTo ? { replyTo } : {}),
-      } as never,
-    },
-  });
+      error: detalle,
+    });
+    const workspaceIdDelFallo = membership.workspace.id;
+    const userIdDelFallo = session.user.id;
+    after(() =>
+      anotarErrorDeEnvio({
+        workspaceId: workspaceIdDelFallo,
+        source: "agent",
+        conversationId: conversation.id,
+        motivo: "guardado_fallo",
+        detalle,
+        clientMessageId,
+        userId: userIdDelFallo,
+      }),
+    );
+  }
   envioMarca("guardado");
 
   // El mensaje YA se envio a WhatsApp y se guardo en BD: el envio fue exitoso.

@@ -52,6 +52,8 @@ import {
   setOfficialApiConversationStatus,
 } from "@/lib/official-api-config";
 import { sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
+import { LIMITE_GATEWAY_TEXTO_MS, idDeMensajeValido } from "@/lib/chat-envio-reintento";
+import { anotarErrorDeEnvio } from "@/lib/chat-errores-de-envio";
 import { AD_CAMPAIGN_ROUTING_METADATA_KEY } from "@/lib/ad-campaign-routing";
 import { alCambiarEstadoDelChat } from "@/lib/al-resolver-chat";
 import { getVisibleChannelIds } from "@/lib/channel-visibility";
@@ -844,6 +846,22 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       return { ok: false, error: "No se encontro el contacto oficial" };
     }
 
+    // Mismo numero unico ya guardado: es un reintento de un mensaje que SI salio. No se repite.
+    const clientMessageId = idDeMensajeValido(formData.get("clientMessageId"));
+    if (clientMessageId) {
+      const yaEnviado = await prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT m."id"
+        FROM "OfficialApiMessage" m
+        WHERE m."conversationId" = ${conversation.id}
+          AND m."direction" = 'OUTBOUND'::"OfficialApiMessageDirection"
+          AND m."rawPayload"->>'clientMessageId' = ${clientMessageId}
+        LIMIT 1
+      `;
+      if (yaEnviado.length > 0) {
+        return { ok: true, repetido: true };
+      }
+    }
+
     const result = await sendOfficialApiTextMessage({
       config,
       conversationId: conversation.id,
@@ -852,10 +870,30 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       message: messageWithSignature,
       source: "manual",
       enviadoPorUserId: session.user.id,
+      clientMessageId,
+      limiteMs: LIMITE_GATEWAY_TEXTO_MS,
     });
 
     if (!result.ok) {
-      return { ok: false, error: result.error };
+      return { ok: false, error: result.error, ...(result.motivo ? { motivo: result.motivo } : {}) };
+    }
+
+    // Meta lo acepto pero no se guardo: es "enviado" igual; se anota para medir.
+    if (result.guardadoFallo) {
+      const detalleDelGuardado = result.guardadoFallo;
+      const workspaceIdDelFallo = membership.workspace.id;
+      const userIdDelFallo = session.user.id;
+      after(() =>
+        anotarErrorDeEnvio({
+          workspaceId: workspaceIdDelFallo,
+          source: "official",
+          conversationId: conversation.id,
+          motivo: "guardado_fallo",
+          detalle: detalleDelGuardado,
+          clientMessageId,
+          userId: userIdDelFallo,
+        }),
+      );
     }
 
     /*
@@ -941,12 +979,17 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
   if (parsed.data.quotedDirection) {
     nextData.set("quotedDirection", parsed.data.quotedDirection);
   }
+  const clientMessageIdDelEnvio = idDeMensajeValido(formData.get("clientMessageId"));
+  if (clientMessageIdDelEnvio) {
+    nextData.set("clientMessageId", clientMessageIdDelEnvio);
+  }
   const resultado = await sendManualAgentReplyAction(nextData);
 
   // Quien contesta se queda con el lead si no tenia dueño (ver conversation-claim). Va DESPUES
   // del envio: si el mensaje no salio, la asesora no se quedo con nada. Y va en after(): el
   // mensaje ya salio, la asesora no tiene por que esperar esto para ver su "ok".
-  if (resultado.ok) {
+  // Un reintento que ya habia salido (repetido) no lo repite: ya se hizo con el primero.
+  if (resultado.ok && !resultado.repetido) {
     const conversationIdDelEnvio = parsed.data.conversationId;
     const sugerenciaIdDelEnvio = parsed.data.sugerenciaId;
     const mensajeDelEnvio = parsed.data.message;

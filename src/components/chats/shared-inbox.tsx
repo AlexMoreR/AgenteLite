@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { hayVersionNueva, hayVersionNuevaParaEnviar } from "@/components/app-version-guard";
+import { hayVersionNueva } from "@/components/app-version-guard";
 import {
-  enviarSalvoVersionVieja,
   guardarEnvioPendiente,
   marcarOcupada,
   pedirRevisionDeVersion,
@@ -104,6 +103,21 @@ import {
   resolverDestinoDelEnvio,
   textoCoincideConGuardado,
 } from "@/lib/chat-envio-seguro";
+import {
+  CLAVE_FALLOS_POR_ANOTAR,
+  CLAVE_NO_ENVIADOS,
+  agregarFallosPorAnotar,
+  enviarConReintentos,
+  falloDeRed,
+  guardarNoEnviados,
+  leerFallosPorAnotar,
+  leerNoEnviados,
+  leerRespuestaDelEnvio,
+  nuevoIdDeMensaje,
+  type FalloPorAnotar,
+  type NoEnviadoGuardado,
+  type RespuestaDelEnvio,
+} from "@/lib/chat-envio-reintento";
 
 const CONVERSATION_LIST_LOAD_BATCH_SIZE = 10;
 // Logs de depuración de la lista desactivados (ensuciaban la consola en desarrollo).
@@ -232,6 +246,168 @@ function camposDelFormulario(formData: FormData): Array<[string, string]> {
     }
   });
   return campos;
+}
+
+/*
+  Envio de texto por la ruta normal (tarjeta whovymqk): a diferencia de la accion del servidor, no
+  se rompe cuando se sube una version nueva con la pestaña abierta. El numero unico del mensaje va
+  en los campos, asi cada reintento (automatico o con Reintentar) es el MISMO mensaje.
+*/
+const RUTA_ENVIAR_TEXTO = "/api/cliente/chats/enviar";
+const RUTA_ANOTAR_FALLOS = "/api/cliente/chats/enviar/fallo";
+// El servidor corta al gateway a los 25 s; esto es solo para no esperar para siempre.
+const LIMITE_ESPERA_ENVIO_MS = 60_000;
+
+async function enviarTextoPorRuta(campos: Array<[string, string]>, intento: number): Promise<RespuestaDelEnvio> {
+  const datos = new FormData();
+  for (const [nombre, valor] of campos) {
+    datos.set(nombre, valor);
+  }
+  datos.set("intento", String(intento));
+  let respuesta: Response;
+  try {
+    respuesta = await fetch(RUTA_ENVIAR_TEXTO, {
+      method: "POST",
+      body: datos,
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: AbortSignal.timeout(LIMITE_ESPERA_ENVIO_MS),
+    });
+  } catch (error) {
+    // Se corto la espera con el pedido ya adentro: pudo haber salido, no se repite solo.
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      return { ok: false, error: "El envío tardó demasiado. Toca Reintentar.", motivo: "timeout_gateway", reintentable: false };
+    }
+    return falloDeRed();
+  }
+  const cuerpo = await respuesta.json().catch(() => null);
+  return leerRespuestaDelEnvio(respuesta.status, cuerpo);
+}
+
+/* El almacenamiento del navegador puede no estar (modo privado, bloqueado): nunca rompe el envio. */
+function leerDelNavegador(clave: string): string | null {
+  try {
+    return window.localStorage.getItem(clave);
+  } catch {
+    return null;
+  }
+}
+
+function escribirEnNavegador(clave: string, valor: string | null) {
+  try {
+    if (valor === null) {
+      window.localStorage.removeItem(clave);
+    } else {
+      window.localStorage.setItem(clave, valor);
+    }
+  } catch {
+    // sin almacenamiento: el "No se envió" sigue en pantalla mientras no se recargue
+  }
+}
+
+/** Fallos que no llegaron al servidor: se guardan y se mandan a medir cuando hay red. */
+function anotarFallosSinLlegar(nuevos: FalloPorAnotar[]) {
+  if (nuevos.length === 0) {
+    return;
+  }
+  escribirEnNavegador(
+    CLAVE_FALLOS_POR_ANOTAR,
+    JSON.stringify(agregarFallosPorAnotar(leerFallosPorAnotar(leerDelNavegador(CLAVE_FALLOS_POR_ANOTAR)), nuevos)),
+  );
+  void mandarFallosPorAnotar();
+}
+
+let mandandoFallos = false;
+async function mandarFallosPorAnotar() {
+  if (mandandoFallos || (typeof navigator !== "undefined" && navigator.onLine === false)) {
+    return;
+  }
+  const fallos = leerFallosPorAnotar(leerDelNavegador(CLAVE_FALLOS_POR_ANOTAR));
+  if (fallos.length === 0) {
+    return;
+  }
+  mandandoFallos = true;
+  try {
+    const respuesta = await fetch(RUTA_ANOTAR_FALLOS, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fallos }),
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    if (respuesta.ok) {
+      // Solo se borran los que se mandaron; los que se sumaron mientras tanto quedan.
+      const actuales = leerFallosPorAnotar(leerDelNavegador(CLAVE_FALLOS_POR_ANOTAR));
+      const resto = actuales.slice(fallos.length);
+      escribirEnNavegador(CLAVE_FALLOS_POR_ANOTAR, resto.length > 0 ? JSON.stringify(resto) : null);
+    }
+  } catch {
+    // sin red todavia: se manda al volver
+  } finally {
+    mandandoFallos = false;
+  }
+}
+
+function campoDe(campos: Array<[string, string]>, nombre: string) {
+  return campos.find(([clave]) => clave === nombre)?.[1] ?? "";
+}
+
+function fallosSinLlegar(campos: Array<[string, string]>, sinLlegar: Array<{ intento: number; motivo: FalloPorAnotar["motivo"]; detalle: string }>): FalloPorAnotar[] {
+  return sinLlegar.map((fallo) => ({
+    conversationId: campoDe(campos, "conversationId"),
+    source: campoDe(campos, "source") === "official" ? "official" : "agent",
+    motivo: fallo.motivo,
+    detalle: fallo.detalle,
+    clientMessageId: campoDe(campos, "clientMessageId") || null,
+    intento: fallo.intento,
+    ocurrioEn: Date.now(),
+  }));
+}
+
+/** Manda el texto con hasta 2 reintentos seguros y anota lo que ni llego al servidor. */
+async function enviarTextoConReintentos(campos: Array<[string, string]>): Promise<RespuestaDelEnvio> {
+  const { resultado, sinLlegar } = await enviarConReintentos({
+    enviar: (intento) => enviarTextoPorRuta(campos, intento),
+  });
+  anotarFallosSinLlegar(fallosSinLlegar(campos, sinLlegar));
+  return resultado;
+}
+
+function noEnviadoParaGuardar(fallido: OptimisticDraftMessage): NoEnviadoGuardado | null {
+  if (!fallido.envio || (fallido.type ?? "TEXT") !== "TEXT") {
+    return null;
+  }
+  const rawPayload = fallido.rawPayload as { replyTo?: NoEnviadoGuardado["replyTo"] } | null | undefined;
+  return {
+    id: fallido.id,
+    conversationId: fallido.conversationId,
+    chatKey: fallido.envio.chatKey,
+    content: fallido.content ?? "",
+    matchContent: fallido.matchContent ?? fallido.content ?? "",
+    campos: fallido.envio.campos,
+    createdAt: fallido.createdAt.getTime(),
+    errorDetail: fallido.errorDetail ?? "",
+    replyTo: rawPayload?.replyTo ?? null,
+  };
+}
+
+function noEnviadoGuardadoAMensaje(guardado: NoEnviadoGuardado): OptimisticDraftMessage {
+  return {
+    id: guardado.id,
+    conversationId: guardado.conversationId,
+    content: guardado.content,
+    matchContent: guardado.matchContent,
+    direction: "OUTBOUND",
+    createdAt: new Date(guardado.createdAt),
+    authorType: "user",
+    outboundStatusLabel: "error",
+    errorDetail: guardado.errorDetail || null,
+    type: "TEXT",
+    mediaUrl: null,
+    rawPayload: guardado.replyTo ? { optimistic: true, replyTo: guardado.replyTo } : { optimistic: true },
+    isOptimistic: true,
+    envio: { chatKey: guardado.chatKey, campos: guardado.campos },
+  };
 }
 
 function buildComposerHiddenFields(
@@ -435,6 +611,36 @@ export function SharedInbox({
   const [mensajesFallidos, setMensajesFallidos] = useState<OptimisticDraftMessage[]>([]);
   const mensajesFallidosRef = useRef(mensajesFallidos);
   mensajesFallidosRef.current = mensajesFallidos;
+  /*
+    Los "No se envió" tambien quedan en el navegador (tarjeta whovymqk): si la asesora recarga,
+    siguen ahi con su texto y su Reintentar. Se cargan al abrir y se guardan en cada cambio.
+  */
+  const noEnviadosCargadosRef = useRef(false);
+  useEffect(() => {
+    const guardados = leerNoEnviados(leerDelNavegador(CLAVE_NO_ENVIADOS), Date.now());
+    noEnviadosCargadosRef.current = true;
+    if (guardados.length > 0) {
+      setMensajesFallidos((lista) =>
+        guardados.reduce((acumulado, guardado) => agregarFallido(acumulado, noEnviadoGuardadoAMensaje(guardado)), lista),
+      );
+    }
+  }, []);
+  useEffect(() => {
+    if (!noEnviadosCargadosRef.current) {
+      return;
+    }
+    const paraGuardar = mensajesFallidos
+      .map(noEnviadoParaGuardar)
+      .filter((fila): fila is NoEnviadoGuardado => fila !== null);
+    escribirEnNavegador(CLAVE_NO_ENVIADOS, paraGuardar.length > 0 ? guardarNoEnviados(paraGuardar) : null);
+  }, [mensajesFallidos]);
+  // Fallos que no llegaron al servidor: se mandan a medir al abrir y cada vez que vuelve la red.
+  useEffect(() => {
+    void mandarFallosPorAnotar();
+    const alVolverLaRed = () => void mandarFallosPorAnotar();
+    window.addEventListener("online", alVolverLaRed);
+    return () => window.removeEventListener("online", alVolverLaRed);
+  }, []);
   /** Envios de texto en camino, por id optimista: el resultado se resuelve contra ESTE registro. */
   const enviosEnCursoRef = useRef<Map<string, OptimisticDraftMessage>>(new Map());
   /* Carga del chat abierto: fallo /live, o cuando empezo a cargar (para el limite de espera). */
@@ -2513,24 +2719,20 @@ export function SharedInbox({
         setReplyTarget(null);
       }
 
+      // Numero unico del mensaje: viaja en cada intento y en Reintentar, asi nunca sale dos veces.
+      formData.set("clientMessageId", nuevoIdDeMensaje());
+      const campos = camposDelFormulario(formData);
+
       // Registro del envio: si falla, de aca sale la burbuja "No se envió" y su Reintentar.
       enviosEnCursoRef.current.set(optimisticId, {
         ...burbuja,
-        envio: { chatKey: chatDelEnvio, campos: camposDelFormulario(formData) },
+        envio: { chatKey: chatDelEnvio, campos },
       });
 
-      // Envio sin navegacion: la accion valida internamente y devuelve un resultado.
-      // Antes de hablarle al servidor se mira la version: si hay una nueva, el mensaje NO se envia
-      // (nunca llega al servidor, asi que no puede salir dos veces): queda como pendiente, la app se
-      // recarga sola y al volver sale UNA vez. Si /api/version no contesta, se envia normal.
-      void enviarSalvoVersionVieja({
-        hayVersionNueva: hayVersionNuevaParaEnviar,
-        enviar: () => Promise.resolve(composer.action(formData)),
-        dejarPendiente: () => finalizeOptimisticSend(optimisticId, null),
-      })
-        .then((salida) => {
-          if (salida.enviado) finalizeOptimisticSend(optimisticId, salida.resultado ?? { ok: true });
-        })
+      // Envio sin navegacion por la ruta normal (no se rompe con una version nueva). Si falla de
+      // una forma en que seguro no salio, se reintenta solo hasta 2 veces con el mismo numero.
+      void enviarTextoConReintentos(campos)
+        .then((resultado) => finalizeOptimisticSend(optimisticId, resultado))
         .catch(() => finalizeOptimisticSend(optimisticId, null))
         .finally(liberar);
       return true;
@@ -3068,8 +3270,8 @@ export function SharedInbox({
       return;
     }
 
-    // Se repite el envio TAL CUAL (mismo chat, misma firma, misma cita), no con los campos del
-    // chat que este abierto ahora.
+    // Se repite el envio TAL CUAL (mismo chat, misma firma, misma cita y mismo numero unico: si
+    // el primero si habia salido, el servidor no lo repite), no con los campos del chat abierto ahora.
     const formData = new FormData();
     if (failed.envio) {
       for (const [nombre, valor] of failed.envio.campos) {
@@ -3086,6 +3288,10 @@ export function SharedInbox({
       }
     }
     formData.set("message", text);
+    if (!formData.get("clientMessageId")) {
+      formData.set("clientMessageId", nuevoIdDeMensaje());
+    }
+    const campos = camposDelFormulario(formData);
 
     textoEnCursoRef.current.add(chatDelEnvio);
     setChatsConTextoEnCurso((actual) => [...actual, chatDelEnvio]);
@@ -3103,13 +3309,14 @@ export function SharedInbox({
       outboundStatusLabel: null,
       errorDetail: null,
       createdAt: new Date(),
+      envio: { chatKey: chatDelEnvio, campos },
     };
     setMensajesFallidos((lista) => quitarFallido(lista, failed.id));
     setOptimisticOutgoingMessage(burbuja);
     enviosEnCursoRef.current.set(optimisticId, burbuja);
 
-    void Promise.resolve(composerValue.action(formData))
-      .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
+    void enviarTextoConReintentos(campos)
+      .then((resultado) => finalizeOptimisticSend(optimisticId, resultado))
       .catch(() => finalizeOptimisticSend(optimisticId, null))
       .finally(liberar);
   }, [finalizeOptimisticSend]);

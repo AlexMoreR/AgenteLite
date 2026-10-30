@@ -1985,6 +1985,31 @@ model SupervisorAlerta {
   @@index([workspaceId, createdAt])
 }
 
+/// Cada mensaje de una asesora que NO salio desde Chats (chat-errores-de-envio.ts): linea, gateway,
+/// hora y motivo, para medir los errores de envio por dia. Sin llaves foraneas: es un registro de
+/// medicion y no puede impedir borrar un chat ni una linea. Lo lee la herramienta errores_de_envio_de_chats.
+model ChatSendError {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  conversationId  String?
+  lineaId         String?
+  lineaNombre     String?
+  /// WAHA | EVOLUTION_GO | EVOLUTION_API | OFFICIAL
+  gateway         String?
+  /// version_vieja | sin_red | timeout_gateway | gateway_rechazo | conexion_cerrada | guardado_fallo | otro
+  motivo          String
+  detalle         String?
+  clientMessageId String?
+  userId          String?
+  intento         Int      @default(1)
+  /// servidor | navegador
+  origen          String   @default("servidor")
+  createdAt       DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([lineaId, createdAt])
+}
+
 /// Estado de una tarjeta de un Tablero inteligente. Aprobar (APROBADO, PLAN_APROBADO, SUBIENDO) es su propia
 /// acción: el dueño (o un aprobador) en la pantalla, o por el MCP con aprobar_tarjeta y la confirmación
 /// explícita de la persona; nunca moviendo el estado. Fase 2 (trabajador): APROBADO -> PLANEANDO ->

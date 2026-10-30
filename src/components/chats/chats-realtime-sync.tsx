@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePendingConversationSelection } from "./chat-selection-store";
+import { EVENTO_CHATS_RECONECTADO } from "@/lib/chat-envio-reintento";
 import {
   extractEvolutionEventName,
   extractEvolutionPhoneNumber,
@@ -337,6 +338,8 @@ export function ChatsRealtimeSync({
     let nativeSocket: WebSocket | null = null;
     let nativeReconnectTimer: number | null = null;
     let nativeSocketClosedByCleanup = false;
+    // Se cayo (no lo cerramos nosotros): al volver a abrir hay que ponerse al dia.
+    let nativeSocketSeCayo = false;
     const listUpdateTimers = listUpdateTimerRefs.current;
     const listUpdateFollowUpTimers = listUpdateFollowUpTimerRefs.current;
     const listUpdatePendingByKey = listUpdatePendingByKeyRef.current;
@@ -1097,6 +1100,14 @@ export function ChatsRealtimeSync({
         return;
       }
 
+      nativeSocket.onopen = () => {
+        // Volvio despues de caerse: lo que llego mientras tanto no lo aviso nadie. Se trae ya.
+        if (nativeSocketSeCayo) {
+          nativeSocketSeCayo = false;
+          window.dispatchEvent(new CustomEvent(EVENTO_CHATS_RECONECTADO));
+        }
+      };
+
       nativeSocket.onmessage = (event) => {
         try {
           const rawFrame = typeof event.data === "string" ? event.data : "";
@@ -1131,6 +1142,7 @@ export function ChatsRealtimeSync({
         if (nativeSocketClosedByCleanup) {
           return;
         }
+        nativeSocketSeCayo = true;
 
         clearNativeReconnectTimer();
         nativeReconnectTimer = window.setTimeout(() => {
@@ -1141,7 +1153,18 @@ export function ChatsRealtimeSync({
 
     connectNativeSocket();
 
+    // El celular recupero internet: se reconecta ya, sin esperar el siguiente intento.
+    const alVolverLaRed = () => {
+      if (nativeSocket || nativeSocketClosedByCleanup) {
+        return;
+      }
+      clearNativeReconnectTimer();
+      connectNativeSocket();
+    };
+    window.addEventListener("online", alVolverLaRed);
+
     return () => {
+      window.removeEventListener("online", alVolverLaRed);
       nativeSocketClosedByCleanup = true;
       clearLiveUpdateTimer();
       clearLiveUpdateFollowUpTimer();

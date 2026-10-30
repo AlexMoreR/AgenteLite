@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { clasificarFalloDelGateway, type MotivoDeFallo } from "@/lib/chat-envio-reintento";
 import { getMetaGraphErrorMessage, isMetaGraphAuthError } from "@/lib/official-api-graph";
 import { updateOfficialApiConnectionStatus } from "@/lib/official-api-connection-status";
 import { prisma } from "@/lib/prisma";
@@ -211,30 +212,59 @@ export async function sendOfficialApiTextMessage(input: {
   source: "manual" | "automation";
   /** Quien lo escribio, cuando lo escribio una persona. Para la pantalla de Actividad. */
   enviadoPorUserId?: string | null;
-}) {
+  /** Numero unico del mensaje que puso el navegador (envio manual de Chats): queda guardado para no duplicarlo. */
+  clientMessageId?: string | null;
+  /*
+    Solo el envio manual de Chats (tarjeta whovymqk): tiempo limite con Meta y errores como
+    resultado (con su motivo) en vez de excepcion. Si Meta acepto el mensaje y falla el guardado,
+    se responde ok igual (guardadoFallo): el cliente SI lo recibio y "No se envió" seria falso.
+    Sin esto, todo sigue como siempre.
+  */
+  limiteMs?: number;
+}): Promise<
+  | { ok: true; guardadoFallo?: string }
+  | { ok: false; error: string; motivo?: MotivoDeFallo }
+> {
   if (!input.config.accessToken?.trim() || !input.config.phoneNumberId?.trim()) {
     return { ok: false as const, error: "La API oficial no tiene credenciales activas." };
   }
 
-  const response = await fetch(
-    `https://graph.facebook.com/v23.0/${encodeURIComponent(input.config.phoneNumberId)}/messages`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${input.config.accessToken}`,
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: input.to,
-        type: "text",
-        text: {
-          body: input.message,
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://graph.facebook.com/v23.0/${encodeURIComponent(input.config.phoneNumberId)}/messages`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${input.config.accessToken}`,
         },
-      }),
-      cache: "no-store",
-    },
-  );
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: input.to,
+          type: "text",
+          text: {
+            body: input.message,
+          },
+        }),
+        cache: "no-store",
+        ...(input.limiteMs ? { signal: AbortSignal.timeout(input.limiteMs) } : {}),
+      },
+    );
+  } catch (error) {
+    if (!input.limiteMs) {
+      throw error;
+    }
+    const motivo = clasificarFalloDelGateway(error);
+    return {
+      ok: false as const,
+      error:
+        motivo === "timeout_gateway"
+          ? `WhatsApp no respondio a tiempo (${Math.round(input.limiteMs / 1000)}s).`
+          : "No se pudo conectar con la API oficial.",
+      motivo,
+    };
+  }
 
   const payload = (await response.json().catch(() => null)) as
     | {
@@ -260,9 +290,40 @@ export async function sendOfficialApiTextMessage(input: {
       error: isMetaGraphAuthError(payload)
         ? "El access token de Meta ya no es valido. Pide al administrador reconectar la API oficial."
         : getMetaGraphErrorMessage(payload, "No se pudo enviar el mensaje con la API oficial."),
+      motivo: "gateway_rechazo" as const,
     };
   }
 
+  try {
+    await guardarTextoOficialEnviado(input, payload?.messages?.[0]?.id ?? null, payload);
+  } catch (error) {
+    if (!input.limiteMs) {
+      throw error;
+    }
+    const detalle = error instanceof Error ? error.message : String(error);
+    console.error("[sendOfficialApiTextMessage] Meta acepto el mensaje pero no se pudo guardar", {
+      conversationId: input.conversationId,
+      error: detalle,
+    });
+    return { ok: true as const, guardadoFallo: detalle };
+  }
+
+  return { ok: true as const };
+}
+
+async function guardarTextoOficialEnviado(
+  input: {
+    config: OfficialApiMessagingConfig;
+    conversationId: string;
+    contactId: string;
+    message: string;
+    source: "manual" | "automation";
+    enviadoPorUserId?: string | null;
+    clientMessageId?: string | null;
+  },
+  externalMessageId: string | null,
+  payload: unknown,
+) {
   const now = new Date();
   await prisma.$executeRaw`
     INSERT INTO "OfficialApiMessage" (
@@ -285,7 +346,7 @@ export async function sendOfficialApiTextMessage(input: {
       ${input.config.id},
       ${input.conversationId},
       ${input.contactId},
-      ${payload?.messages?.[0]?.id ?? null},
+      ${externalMessageId},
       'OUTBOUND'::"OfficialApiMessageDirection",
       'TEXT'::"OfficialApiMessageType",
       'SENT'::"OfficialApiMessageStatus",
@@ -293,6 +354,7 @@ export async function sendOfficialApiTextMessage(input: {
       ${JSON.stringify({
         source: input.source,
         enviadoPorUserId: input.enviadoPorUserId ?? null,
+        ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
         meta: payload,
       })},
       ${now},
@@ -317,8 +379,6 @@ export async function sendOfficialApiTextMessage(input: {
       "updatedAt" = CURRENT_TIMESTAMP
     WHERE "id" = ${input.contactId}
   `;
-
-  return { ok: true as const };
 }
 
 export async function sendOfficialApiDirectTextMessage(input: {

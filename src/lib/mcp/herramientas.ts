@@ -13,6 +13,11 @@ import {
   esHerramientaDeLaAplicacion,
 } from "@/lib/mcp/que-es-esta-aplicacion";
 import {
+  HERRAMIENTAS_MCP_ERRORES_DE_ENVIO,
+  ejecutarHerramientaMcpErroresDeEnvio,
+  esHerramientaDeErroresDeEnvio,
+} from "@/lib/mcp/errores-de-envio-de-chats";
+import {
   HERRAMIENTAS_MCP_DIAGRAMA,
   ejecutarHerramientaMcpDiagrama,
   esHerramientaDeDiagrama,
@@ -1122,6 +1127,7 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_MCP_APLICACION,
   ...HERRAMIENTAS_DE_LECTURA,
   ...HERRAMIENTAS_MCP_SUPERVISOR,
+  ...HERRAMIENTAS_MCP_ERRORES_DE_ENVIO,
   ...HERRAMIENTAS_MCP_COMPARAR_EMBUDOS,
   ...HERRAMIENTAS_MCP_EMBUDO_POR_PASO,
   ...HERRAMIENTAS_MCP_VENTAS_POR_CAMPANA,
@@ -1144,6 +1150,9 @@ export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, c
   }
   if (esHerramientaDelSupervisor(nombre)) {
     return ejecutarHerramientaMcpSupervisor(nombre, args, contexto);
+  }
+  if (esHerramientaDeErroresDeEnvio(nombre)) {
+    return ejecutarHerramientaMcpErroresDeEnvio(nombre, args, contexto);
   }
   if (esHerramientaDeCompararEmbudos(nombre)) {
     return ejecutarHerramientaMcpCompararEmbudos(nombre, args, contexto);

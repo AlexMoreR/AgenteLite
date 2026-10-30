@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { useOpenChatKey } from "@/components/chats/chat-selection-store";
+import { EVENTO_CHATS_RECONECTADO } from "@/lib/chat-envio-reintento";
 
 type ChatsAutoRefreshProps = {
   intervalMs?: number;
@@ -231,6 +232,70 @@ export function ChatsAutoRefresh({
 
   const isVisibleRef = useRef(isVisible);
   isVisibleRef.current = isVisible;
+
+  /*
+    Ponerse al dia sin recargar (tarjeta whovymqk). Cuando un socket vuelve despues de caerse,
+    cuando el celular recupera internet o cuando la asesora vuelve a la pestaña despues de un rato,
+    se trae YA el chat abierto y la lista. Antes se esperaba al siguiente aviso o al respaldo (hasta
+    60 s) y la asesora recargaba para ver si le habian escrito.
+  */
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    let ultimaVez = 0;
+    let ocultaDesde = document.visibilityState === "visible" ? 0 : Date.now();
+    const VOLVER_TRAS_MS = 30_000;
+
+    const ponerseAlDia = () => {
+      const ahora = Date.now();
+      // Los tres avisos suelen llegar juntos (vuelve la red y con ella el socket): uno solo.
+      if (ahora - ultimaVez < 3000) {
+        return;
+      }
+      ultimaVez = ahora;
+      const chatKey = selectedConversationKeyRef.current?.trim() ?? "";
+      if (chatKey.startsWith("agent:")) {
+        const query = `chatKey=${encodeURIComponent(chatKey)}`;
+        void Promise.all([
+          fetch(`/api/cliente/chats/live?${query}`, { credentials: "same-origin", cache: "no-store" }),
+          fetch(`/api/cliente/chats/summary?${query}`, { credentials: "same-origin", cache: "no-store" }),
+        ])
+          .then(async ([liveResponse, summaryResponse]) => {
+            await publicarChatAbierto(liveResponse, chatKey);
+            await publicarFila(summaryResponse);
+          })
+          .catch(() => {
+            // Sin red todavia: el respaldo lo recoge.
+          });
+      }
+      // La lista entera (y el chat oficial): lo que cambio en otros chats mientras estuvo caido.
+      startTransition(() => {
+        router.refresh();
+      });
+    };
+
+    const alVolverALaPestana = () => {
+      if (document.visibilityState !== "visible") {
+        ocultaDesde = Date.now();
+        return;
+      }
+      const estuvoUnRato = ocultaDesde > 0 && Date.now() - ocultaDesde > VOLVER_TRAS_MS;
+      ocultaDesde = 0;
+      if (estuvoUnRato) {
+        ponerseAlDia();
+      }
+    };
+
+    window.addEventListener("online", ponerseAlDia);
+    window.addEventListener(EVENTO_CHATS_RECONECTADO, ponerseAlDia);
+    document.addEventListener("visibilitychange", alVolverALaPestana);
+    return () => {
+      window.removeEventListener("online", ponerseAlDia);
+      window.removeEventListener(EVENTO_CHATS_RECONECTADO, ponerseAlDia);
+      document.removeEventListener("visibilitychange", alVolverALaPestana);
+    };
+  }, [enabled, router, startTransition]);
 
   /*
     El altavoz avisa en el instante que algo cambio. Que hacer depende de si el aviso dice DONDE.

@@ -19,6 +19,7 @@
     "test:audio-de-llamada": "node scripts/check-audio-de-llamada.mjs",
     "test:editar-mensaje": "node scripts/check-editar-mensaje.mjs",
     "test:reenviar": "node scripts/check-reenviar.mjs",
+    "test:chat-envio-reintento": "npx tsx --test src/lib/chat-envio-reintento.test.ts",
     "test:agente-v3-foto": "node scripts/check-agente-v3-foto.mjs",
     "test:agente-v3-historial": "node scripts/check-agente-v3-historial.mjs",
     "test:v3-mapa": "node scripts/check-v3-mapa.mjs",

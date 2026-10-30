@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
+import { EVENTO_CHATS_RECONECTADO } from "@/lib/chat-envio-reintento";
 import { iniciarMedicion } from "@/lib/metricas-chats";
 import { avisoAjenoCoincideConSuLista } from "@/lib/vista-de-la-bandeja";
 
@@ -60,6 +61,10 @@ export function ChatsOfficialRealtime({
       socketRef.current = socket;
 
       socket.onopen = () => {
+        // Volvio despues de caerse: lo que llego mientras tanto no lo aviso nadie. Se trae ya.
+        if (attemptsRef.current > 0) {
+          window.dispatchEvent(new CustomEvent(EVENTO_CHATS_RECONECTADO));
+        }
         attemptsRef.current = 0;
       };
 
@@ -190,7 +195,19 @@ export function ChatsOfficialRealtime({
 
     connect();
 
+    // El celular recupero internet: no se espera el backoff (hasta 30 s), se reconecta ya.
+    const alVolverLaRed = () => {
+      if (closedByUsRef.current || socketRef.current) return;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      connect();
+    };
+    window.addEventListener("online", alVolverLaRed);
+
     return () => {
+      window.removeEventListener("online", alVolverLaRed);
       closedByUsRef.current = true;
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
