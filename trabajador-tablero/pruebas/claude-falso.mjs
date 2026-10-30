@@ -61,15 +61,38 @@ if (argumentos[0] === "--trabajo-de-la-nube") {
 // `claude --cloud "<descripción>"` (la terminal real, 25-oct-2026): la instrucción llega como argumento justo después
 // de --cloud y NO por stdin (en una terminal real stdin nunca se cierra).
 const trasCloud = argumentos[argumentos.indexOf("--cloud") + 1];
-const descripcion = argumentos.includes("--cloud") && trasCloud !== undefined && !trasCloud.startsWith("-") ? trasCloud : null;
-let prompt = descripcion ?? "";
-if (descripcion === null) for await (const pedazo of process.stdin) prompt += pedazo;
+// La SESIÓN FIJA (29-oct-2026): `claude -p "<mensaje>" --cloud session_… --output-format json` le escribe a una sesión que ya
+// existe; el mensaje es el argumento justo después de -p.
+const sesionFija = argumentos.includes("--cloud") && /^session_/.test(trasCloud ?? "") ? trasCloud : null;
+const descripcion = sesionFija ? null : argumentos.includes("--cloud") && trasCloud !== undefined && !trasCloud.startsWith("-") ? trasCloud : null;
+let prompt = sesionFija ? String(argumentos[argumentos.indexOf("-p") + 1] ?? "") : (descripcion ?? "");
+if (descripcion === null && !sesionFija) for await (const pedazo of process.stdin) prompt += pedazo;
 
 const titulo = (prompt.match(/^Tarea: (.*)$/m) ?? [])[1] ?? "";
 const modo = argumentos[argumentos.indexOf("--permission-mode") + 1];
 // Los revisores (29-oct-2026) se anotan aparte (CLAUDE_FALSO_LOG.revisores): así "la última llamada" sigue siendo la de construir.
 if (process.env.CLAUDE_FALSO_LOG && !prompt.startsWith("Eres un REVISOR DE ")) {
   fs.appendFileSync(process.env.CLAUDE_FALSO_LOG, `${JSON.stringify({ argumentos, cwd: process.cwd(), titulo, modo, prompt: prompt.slice(0, 8000), terminal: Boolean(process.stdout.isTTY) })}\n`);
+}
+
+// La sesión fija: "session_MUERTA…" no responde (como una archivada o que no existe). "/clear" contesta ok. Una tarea:
+// contesta { ok, session_id, url } y hace de "máquina de la nube" en la rama que pide el `git checkout -B <rama>`.
+if (sesionFija) {
+  if (/^session_MUERTA/.test(sesionFija)) {
+    console.error(`Error: session ${sesionFija} not found or archived`);
+    process.exit(1);
+  }
+  const rama = prompt.match(/git checkout -B (\S+) origin\//)?.[1];
+  if (prompt !== "/clear" && rama) {
+    const remoto = execFileSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" }).trim();
+    spawn(process.execPath, [fileURLToPath(import.meta.url), "--trabajo-de-la-nube", JSON.stringify({ remoto, rama, titulo, demora: Number(process.env.NUBE_FALSA_DEMORA_MS ?? 2500) })], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    }).unref();
+  }
+  console.log(JSON.stringify({ ok: true, session_id: sesionFija, url: `https://claude.ai/code/${sesionFija}` }));
+  process.exit(0);
 }
 
 // `claude -p --cloud`: lanza la sesión de la nube. El link sale del título (para que la prueba sepa cuál es).
@@ -125,9 +148,23 @@ if (argumentos.includes("--cloud")) {
     process.stdin.pause();
     process.stdout.write("\u001b[2J\u001b[H");
   }
+  // --debug-file (el chequeo previo, 29-oct-2026): el log de la CLI. [nube-sin-app] escribe lo que dijo la CLI 2.1 con
+  // AlexMoreR/Gestion (la app de GitHub "no está", sube una copia sin remoto) y NO trabaja en la rama (no podría subir).
+  const depuracion = argumentos.includes("--debug-file") ? argumentos[argumentos.indexOf("--debug-file") + 1] : null;
+  const sinApp = titulo.includes("[nube-sin-app]");
+  if (depuracion) {
+    const lineas = sinApp
+      ? ["[DEBUG] Checking GitHub app installation for prueba/repo", "[DEBUG] GitHub app is not installed on prueba/repo", "[DEBUG] [teleportToRemote] Bundling (reason: github_preflight_failed)"]
+      : ["[DEBUG] Checking GitHub app installation for prueba/repo", "[DEBUG] GitHub app is installed on prueba/repo"];
+    fs.appendFileSync(depuracion, `${lineas.join("\n")}\n`);
+  }
   const rama = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim();
   const remoto = execFileSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" }).trim();
   const sesion = `https://claude.ai/code/session_FALSA_${Buffer.from(titulo).toString("hex").slice(0, 24)}`;
+  if (sinApp && descripcion === null) {
+    console.log(JSON.stringify({ type: "result", subtype: "success", result: `Sesión de la nube creada: ${sesion}`, session_url: sesion }));
+    process.exit(0);
+  }
   spawn(process.execPath, [fileURLToPath(import.meta.url), "--trabajo-de-la-nube", JSON.stringify({ remoto, rama, titulo, demora: Number(process.env.NUBE_FALSA_DEMORA_MS ?? 2500) })], {
     detached: true,
     stdio: "ignore",

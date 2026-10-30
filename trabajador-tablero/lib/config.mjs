@@ -112,7 +112,35 @@ const NUBE_POR_DEFECTO = {
   // Coordinador (planear, ensayar migraciones, subir) y el editor de video. Ninguna tarea construye en aizen1.
   // Se prende en config.local.json / config.example.json (por defecto apagado para no cambiar las pruebas de aizen1).
   todoEnLaNube: false,
+  // 29-oct-2026 (pedido del dueño): CHEQUEO PREVIO de la nube. Con `claude --cloud` (modo "cli") se lanza con --debug-file y
+  // se lee si la CLI subió una copia SIN el repo conectado ("GitHub app is not installed", "Bundling (reason:
+  // github_preflight_failed)"): esa sesión no puede subir nada. Si pasa (o si la sesión fija no responde), la tarjeta
+  // va a ERROR nube_sin_acceso_repo y el proyecto no se manda a la nube durante `sinAccesoMinutos` (no gasta uso).
+  chequeoPrevio: true,
+  sinAccesoMinutos: 60,
 };
+
+/**
+ * repos.<repo>.nube (29-oct-2026): { sesionFija: "session_…" }. Con sesión fija, construir en la nube le manda la tarea a esa
+ * sesión (creada a mano en claude.ai/code con el repo seleccionado: así puede subir su rama) en vez de crear otra con
+ * `claude --cloud`. Una tarea a la vez. Sin sesión fija, todo como siempre.
+ */
+function nubeDelRepo(valor, clave, errores) {
+  if (valor === undefined || valor === null) return { sesionFija: null };
+  if (typeof valor !== "object" || Array.isArray(valor)) {
+    errores.push(`repos.${clave}.nube: un bloque { sesionFija }.`);
+    return { sesionFija: null };
+  }
+  const sesionFija = typeof valor.sesionFija === "string" ? valor.sesionFija.trim() : "";
+  // Vacía (como en config.example.json) = sin sesión fija.
+  if (!sesionFija) return { sesionFija: null };
+  if (!/^session_[A-Za-z0-9_-]+$/.test(sesionFija)) {
+    errores.push(`repos.${clave}.nube.sesionFija: el id de la sesión ("session_…", sale en su link claude.ai/code/session_…).`);
+    return { sesionFija: null };
+  }
+  return { sesionFija };
+}
+
 
 /** Si la CPU (promedio SOSTENIDO de los últimos cpuPromedioMinutos) o la memoria pasan de esto, no se abre otra sesión. */
 // esperaMaximaMinutos (24-oct-2026): con 0 sesiones y el PC por encima de los límites, el Coordinador espera
@@ -269,6 +297,8 @@ export function completarConfig(datos, base = process.cwd()) {
         agente: agente && typeof agente === "object" && !Array.isArray(agente) ? { nombre: agente.nombre, lecciones: agente.lecciones, maxEnParalelo: agente.maxEnParalelo } : undefined,
         subirSolo,
         construirEn: repo.construirEn === "aizen1" ? "aizen1" : "nube",
+        // La sesión fija de la nube de este proyecto (29-oct-2026), o null.
+        nube: nubeDelRepo(repo.nube, clave, errores),
         zonasQueSubenSolas,
         vigilancia,
         // "dueño/repo" en GitHub: la vigilancia de la rama en la nube lo usa (si falta, se saca del remoto).
@@ -444,6 +474,9 @@ export function completarConfig(datos, base = process.cwd()) {
   if (!["auto", "sin-terminal", "pty"].includes(nube.terminal)) errores.push('nube.terminal: "auto", "sin-terminal" o "pty".');
   if (typeof nube.confiarEnResultado !== "boolean") errores.push("nube.confiarEnResultado: true o false.");
   if (typeof nube.todoEnLaNube !== "boolean") errores.push("nube.todoEnLaNube: true o false.");
+  if (typeof nube.chequeoPrevio !== "boolean") errores.push("nube.chequeoPrevio: true o false.");
+  nube.sinAccesoMinutos = Number(nube.sinAccesoMinutos);
+  if (!Number.isFinite(nube.sinAccesoMinutos) || nube.sinAccesoMinutos < 0) errores.push("nube.sinAccesoMinutos: minutos, 0 o más.");
   let comandoGh = ["gh"];
   let comandoClaudeNube = null;
   try {
@@ -517,6 +550,8 @@ export function completarConfig(datos, base = process.cwd()) {
       terminal: nube.terminal,
       confiarEnResultado: nube.confiarEnResultado,
       todoEnLaNube: nube.todoEnLaNube,
+      chequeoPrevio: nube.chequeoPrevio,
+      sinAccesoMinutos: nube.sinAccesoMinutos,
       comandoGh,
       comandoClaude: comandoClaudeNube,
       entorno: entornoNube,

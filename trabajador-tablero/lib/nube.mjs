@@ -11,7 +11,16 @@
 //                       "resultado: build=OK|FALLO tests=OK|FALLO segundos=N". NUNCA usa `claude --teleport`.
 //
 // Lo que se hace con la rama cuando vuelve (verificar, zonas, ensayo, subir) está en etapas.mjs (construirEnNube).
+//
+// 29-oct-2026 (Gestión: `claude --cloud` sube una copia sin el repo conectado y la sesión no puede subir su rama):
+//   lanzarSesionDeLaNube  con repos.<repo>.nube.sesionFija -> le manda la tarea a esa sesión (creada en la web con el repo
+//                         seleccionado): `/clear` y la instrucción, con `claude -p … --cloud <id>`. Una tarea a la vez.
+//                         Sin sesión fija -> `claude --cloud` como siempre, con --debug-file y el CHEQUEO PREVIO: si la CLI
+//                         dice que la app de GitHub no está en el repo (github_preflight_failed), ERROR enseguida.
+//                         Si falla (nube_sin_acceso_repo) deja una MARCA por repo (sinAccesoALaNube): durante
+//                         nube.sinAccesoMinutos las tarjetas siguientes de ese proyecto no se mandan a la nube.
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { archivosDelPlan } from "./choques.mjs";
 import { esLimiteDeUso } from "./diagnostico.mjs";
@@ -211,7 +220,7 @@ export function rutaDelEjecutable(nombre) {
  * como argumento posicional justo después de --cloud). Lee el link de la sesión y cierra la terminal apenas lo tiene
  * (Claude se queda esperando y no debe colgar al Coordinador). -> { link, via, salida, modeloForzado }.
  */
-async function lanzarConTerminalReal(contexto, { cwd, prompt, base, modelo, timeoutMs, antes }) {
+async function lanzarConTerminalReal(contexto, { cwd, prompt, base, modelo, timeoutMs, antes, depuracion = null }) {
   const { registro } = contexto;
   let pty;
   try {
@@ -226,18 +235,56 @@ async function lanzarConTerminalReal(contexto, { cwd, prompt, base, modelo, time
   const confiar = estaDentroDe(cwd, contexto.config?.carpetaTrabajo);
   const lanzar = (conModelo) => {
     registro?.info?.(`claude --cloud: lo lanzo con una terminal real (node-pty, ${archivo})`);
-    return unaTerminal(contexto, pty, archivo, [...base.slice(1), "--cloud", descripcion, ...(conModelo ? ["--model", modelo] : [])], { cwd, timeoutMs, antes, confiar });
+    return unaTerminal(contexto, pty, archivo, [...base.slice(1), "--cloud", descripcion, ...(conModelo ? ["--model", modelo] : []), ...(depuracion ? ["--debug-file", depuracion] : [])], {
+      cwd,
+      timeoutMs,
+      antes,
+      confiar,
+      depuracion,
+    });
   };
   const primero = await lanzar(Boolean(modelo));
+  if (primero.sinRepo) return { ...primero, modeloForzado: Boolean(modelo) };
   if (primero.link) return { ...primero, modeloForzado: Boolean(modelo) };
   if (modelo && NO_ACEPTA_MODELO.test(primero.salida)) {
     registro?.aviso?.("claude --cloud no deja elegir modelo con --model: lo lanzo sin él (el modelo va pedido en el prompt)");
     const segundo = await lanzar(false);
-    if (segundo.link) return { ...segundo, modeloForzado: false };
+    if (segundo.link || segundo.sinRepo) return { ...segundo, modeloForzado: false };
     throw segundo.error;
   }
   throw primero.error;
 }
+
+/* ── el CHEQUEO PREVIO de `claude --cloud` (29-oct-2026) ──
+ * La CLI 2.1 mira si la app de GitHub de Claude está en el repo. Si dice que no, NO conecta el repo: sube una copia local
+ * sin remoto ("[teleportToRemote] Bundling (reason: github_preflight_failed)") y la sesión no puede hacer push (el proxy da
+ * 403). Pasó con AlexMoreR/Gestion aunque la app sí tiene acceso. Eso solo se ve en el log de --debug-file.
+ */
+const SIN_REPO_EN_LA_NUBE = /GitHub app is not installed[^\n]*|Bundling \(reason: github_preflight_failed\)[^\n]*|github_preflight_failed[^\n]*/i;
+
+/** La línea del log de la CLI que dice que la sesión va sin el repo conectado, o null. */
+export function lineaSinRepo(texto) {
+  return String(texto ?? "").match(SIN_REPO_EN_LA_NUBE)?.[0]?.trim() ?? null;
+}
+
+/** El archivo de --debug-file de un lanzamiento: al lado del worktree (fuera de él: nunca entra en la copia que se sube). */
+export const archivoDeDepuracion = (cwd) => `${cwd}.debug-nube.log`;
+
+const leerSiHay = (archivo) => {
+  try {
+    return fs.readFileSync(archivo, "utf8");
+  } catch {
+    return "";
+  }
+};
+
+const borrarSiHay = (archivo) => {
+  try {
+    fs.rmSync(archivo, { force: true });
+  } catch {
+    // Windows a veces lo tiene abierto: queda y se pisa en el próximo lanzamiento.
+  }
+};
 
 /**
  * Suelta el hilo que lee la salida de la terminal en Windows. node-pty solo lo suelta en kill(): si Claude sale solo
@@ -274,7 +321,7 @@ function cerrarTerminal(hijo, recibioDatos) {
 }
 
 /** Una terminal real: { link, via, salida } si salió el link, o { error, salida } si no. Rechaza solo al cancelar. */
-function unaTerminal(contexto, pty, archivo, argumentos, { cwd, timeoutMs, antes, confiar = false }) {
+function unaTerminal(contexto, pty, archivo, argumentos, { cwd, timeoutMs, antes, confiar = false, depuracion = null }) {
   const { senal, registro } = contexto;
   return new Promise((resolver, rechazar) => {
     let texto = "";
@@ -292,6 +339,7 @@ function unaTerminal(contexto, pty, archivo, argumentos, { cwd, timeoutMs, antes
       listo = true;
       clearTimeout(reloj);
       clearInterval(vigiaDeConfianza);
+      clearInterval(vigiaDelChequeo);
       senal?.removeEventListener?.("abort", cortar);
       // Si ya salió no se mata (node-pty en Windows se queja con "AttachConsole failed").
       if (!salio) cerrarTerminal(hijo, texto.length > 0);
@@ -303,6 +351,8 @@ function unaTerminal(contexto, pty, archivo, argumentos, { cwd, timeoutMs, antes
     const sinLink = (porque) => {
       const link = linkDeSesion(sinColores(texto));
       if (link) return ganar(link);
+      const sinRepo = depuracion ? lineaSinRepo(leerSiHay(depuracion)) : null;
+      if (sinRepo) return terminar(() => resolver({ sinRepo, link: null, via: "terminal-real", salida: sinColores(texto) }));
       return terminar(() =>
         esLimiteDeUso(sinColores(texto))
           ? resolver({ error: new ErrorDeEtapa(`Claude llegó a su límite de uso al lanzar en la nube: ${ultimasLineas(sinColores(texto), 5)}`, { limiteDeUso: true, motor: "claude" }), salida: sinColores(texto) })
@@ -310,6 +360,13 @@ function unaTerminal(contexto, pty, archivo, argumentos, { cwd, timeoutMs, antes
       );
     };
     const reloj = setTimeout(() => sinLink(`la terminal real no dio el link en ${Math.round(timeoutMs / 1000)} s`), timeoutMs);
+    // El chequeo previo (29-oct-2026): si el log de --debug-file dice que el repo no se conecta, se cierra la terminal YA
+    // (antes del link, si se alcanza: así ni se crea la sesión sin repo).
+    const vigiaDelChequeo = setInterval(() => {
+      if (listo || !depuracion) return;
+      const linea = lineaSinRepo(leerSiHay(depuracion));
+      if (linea) terminar(() => resolver({ sinRepo: linea, link: linkDeSesion(sinColores(texto)), via: "terminal-real", salida: sinColores(texto) }));
+    }, 300);
     // La pregunta "¿Confías en esta carpeta?": se contesta con la pantalla quieta (400 ms sin datos) y, después de cada
     // tecla, solo cuando la pantalla ya respondió (al arrancar la CLI tarda en leer teclas: mandarlas a ciegas da la
     // vuelta a las opciones y termina en "No, exit"). Si no respondió en TECLA_PERDIDA_MS, la tecla se perdió: otra vez.
@@ -374,18 +431,50 @@ function unaTerminal(contexto, pty, archivo, argumentos, { cwd, timeoutMs, antes
  * una versión futura lo acepta; las pruebas lo usan con un claude falso).
  * Devuelve { link, via, salida, modeloForzado }. Lanza ErrorDeEtapa (límite de uso, o sin forma de lanzarlo).
  */
-export async function lanzarEnNube(contexto, { cwd, prompt, modelo = null }) {
+export async function lanzarEnNube(contexto, { cwd, prompt, modelo = null, repo = null }) {
+  const { config } = contexto;
+  // El chequeo previo (29-oct-2026): la CLI escribe su log en este archivo y se mira si conectó el repo.
+  const depuracion = config.nube.chequeoPrevio === false ? null : archivoDeDepuracion(cwd);
+  if (depuracion) borrarSiHay(depuracion);
+  try {
+    const lanzado = await lanzarConLaCli(contexto, { cwd, prompt, modelo, depuracion });
+    if (!depuracion) return lanzado;
+    let linea = lanzado.sinRepo ?? lineaSinRepo(leerSiHay(depuracion));
+    // El link puede llegar antes de que la CLI termine de escribir su log: se mira un momento más.
+    for (let i = 0; !linea && lanzado.link && i < 5 && fs.existsSync(depuracion); i += 1) {
+      await new Promise((resolver) => setTimeout(resolver, 200));
+      linea = lineaSinRepo(leerSiHay(depuracion));
+    }
+    if (!linea) return lanzado;
+    throw errorSinAccesoAlRepo(repo, {
+      detalle: `\`claude --cloud\` no conectó el repo (su log dice: "${linea}"): subió una copia sin remoto y esa sesión no podría subir la rama.`,
+      link: lanzado.link,
+      extra: lanzado.link ? "Esa sesión quedó creada SIN el repo: no hará nada útil; ciérrala en claude.ai si sigue abierta." : "Se cortó antes de crear la sesión.",
+    });
+  } finally {
+    if (depuracion) borrarSiHay(depuracion);
+  }
+}
+
+/** `claude --cloud` (terminal real o -p). -> { link, via, salida, modeloForzado, sinRepo? }. */
+async function lanzarConLaCli(contexto, { cwd, prompt, modelo = null, depuracion = null }) {
   const { config, senal, registro } = contexto;
   const base = config.nube.comandoClaude ?? config.comandoClaude;
   const timeoutMs = Math.max(1000, config.nube.lanzarMinutos * MINUTO);
   if (config.nube.terminal !== "sin-terminal") {
-    return lanzarConTerminalReal(contexto, { cwd, prompt, base, modelo, timeoutMs, antes: "claude -p --cloud no se intenta: la CLI no deja --cloud con --print." });
+    return lanzarConTerminalReal(contexto, { cwd, prompt, base, modelo, timeoutMs, depuracion, antes: "claude -p --cloud no se intenta: la CLI no deja --cloud con --print." });
   }
   // El modelo va explícito con --model (la misma regla fija que en aizen1). Si esta versión de `--cloud` no lo
   // acepta, se lanza sin él (el prompt ya trae el modelo pedido) y la tarjeta lo dice (modeloForzado: false).
   let aceptaModelo = Boolean(modelo);
   const lanzar = (conModelo) =>
-    correr([...base, "-p", "--cloud", ...(conModelo ? ["--model", modelo] : []), "--output-format", "json"], { cwd, entrada: prompt, timeoutMs, senal, env: entornoSeguro() });
+    correr([...base, "-p", "--cloud", ...(conModelo ? ["--model", modelo] : []), "--output-format", "json", ...(depuracion ? ["--debug-file", depuracion] : [])], {
+      cwd,
+      entrada: prompt,
+      timeoutMs,
+      senal,
+      env: entornoSeguro(),
+    });
   let resultado = await lanzar(Boolean(modelo));
   const salidaDelIntento = () => `${resultado.errores}\n${resultado.salida}`;
   if (modelo && !resultado.cancelado && !linkDeSesion(salidaDelIntento()) && NO_ACEPTA_MODELO.test(salidaDelIntento())) {
@@ -397,11 +486,150 @@ export async function lanzarEnNube(contexto, { cwd, prompt, modelo = null }) {
   const texto = sinColores(`${resultado.errores}\n${resultado.salida}`);
   const link = linkDeSesion(texto);
   if (link) return { link, via: "sin-terminal", salida: texto, modeloForzado: aceptaModelo };
+  // Sin link pero con el log diciendo que no conectó el repo: es eso (no "sin terminal").
+  const sinRepo = depuracion ? lineaSinRepo(leerSiHay(depuracion)) : null;
+  if (sinRepo) return { link: null, via: "sin-terminal", salida: texto, modeloForzado: aceptaModelo, sinRepo };
   if (esLimiteDeUso(texto)) {
     throw new ErrorDeEtapa(`Claude llegó a su límite de uso al lanzar en la nube: ${ultimasLineas(texto, 5)}`, { limiteDeUso: true, motor: "claude" });
   }
   const antes = `claude -p --cloud ${resultado.vencido ? "no contestó a tiempo" : `salió con código ${resultado.codigo} sin dar el link de la sesión`}:\n${ultimasLineas(texto, 15)}`;
   throw new ErrorDeEtapa(mensajeSinTerminal(antes), { categoria: "otra" });
+}
+
+/* ───────────────────────────────────────────────────────── sin acceso al repo: la marca por proyecto ── */
+
+/** clave del proyecto -> { hasta, motivo }: mientras dure, ese proyecto no se manda a la nube. Vive en memoria. */
+const SIN_ACCESO = new Map();
+
+/** Marca el proyecto `clave` sin acceso a la nube por `minutos` (0 = no marca). */
+export function marcarSinAcceso(clave, motivo, minutos, ahora = Date.now()) {
+  if (!clave || !(Number(minutos) > 0)) return;
+  SIN_ACCESO.set(clave, { hasta: ahora + Number(minutos) * MINUTO, motivo: String(motivo ?? "").split(/\r?\n/)[0] });
+}
+
+/** ¿El proyecto `clave` está marcado sin acceso a la nube ahora? -> { hasta, motivo } o null (la marca vencida se borra). */
+export function sinAccesoALaNube(clave, ahora = Date.now()) {
+  const marca = SIN_ACCESO.get(clave);
+  if (!marca) return null;
+  if (marca.hasta <= ahora) {
+    SIN_ACCESO.delete(clave);
+    return null;
+  }
+  return marca;
+}
+
+/** Borra la marca de un proyecto (o todas, sin clave). Para las pruebas y para cuando el dueño lo arregla y reinicia. */
+export function olvidarSinAcceso(clave = null) {
+  if (clave) SIN_ACCESO.delete(clave);
+  else SIN_ACCESO.clear();
+}
+
+/** El ErrorDeEtapa nube_sin_acceso_repo: "La nube no tiene acceso al repo …" + el detalle y el link (si hay). */
+export function errorSinAccesoAlRepo(repo, { detalle, link = null, extra = "" }) {
+  const nombre = repo?.github ?? repo?.clave ?? "el repo";
+  return new ErrorDeEtapa(
+    [`La nube no tiene acceso al repo ${nombre}: ${detalle}`, extra, link ? `Sesión de la nube: ${link}` : ""].filter(Boolean).join("\n"),
+    { categoria: "nube_sin_acceso_repo" },
+  );
+}
+
+/* ───────────────────────────────────────────────────────── la SESIÓN FIJA del proyecto ── */
+
+/*
+ * 29-oct-2026 (decisión del dueño): un proyecto puede tener una sesión de la nube FIJA (repos.<repo>.nube.sesionFija), creada
+ * a mano en claude.ai/code con el repo seleccionado (así sí puede subir su rama). Construir en la nube no crea otra: le manda
+ * la instrucción a esa con `claude -p "<instrucción>" --cloud <session_id> --output-format json` (si estaba apagada, el mensaje
+ * la despierta; lo que corría cuando se apagó no se recupera). Antes de cada tarea le manda `/clear` por la misma vía. Una sola
+ * tarea a la vez por sesión fija (bucle.mjs: las demás del proyecto esperan en la fila).
+ */
+
+/** El id de la sesión fija de un proyecto ("session_…"), o null. */
+export const sesionFijaDe = (repo) => repo?.nube?.sesionFija ?? null;
+
+/** Cómo se llama el proyecto para el dueño: el nombre de su agente sin "Agente" ("Gestión"), o su clave. */
+export function nombreDelProyecto(repo) {
+  const nombre = String(repo?.agente?.nombre ?? "").replace(/^agente\s+/i, "").trim();
+  return nombre || repo?.clave || "el proyecto";
+}
+
+/** El link de la sesión que contesta `claude -p … --cloud <id> --output-format json` ({ ok, session_id, url }), o null. */
+export function linkDeLaSesionFija(datos, id) {
+  const url = typeof datos?.url === "string" ? datos.url : "";
+  if (/^https:\/\/claude\.ai\/code\//.test(url)) return url;
+  const sesion = typeof datos?.session_id === "string" && /^session_[A-Za-z0-9_-]+$/.test(datos.session_id) ? datos.session_id : id;
+  return `https://claude.ai/code/${sesion}`;
+}
+
+/** El último objeto JSON de la salida de la CLI (la respuesta de --output-format json), o null. */
+function jsonDeLaSalida(texto) {
+  const lineas = String(texto ?? "").trim().split(/\r?\n/).reverse();
+  for (const linea of [String(texto ?? "").trim(), ...lineas]) {
+    try {
+      const datos = JSON.parse(linea);
+      if (datos && typeof datos === "object") return datos;
+    } catch {
+      // No es JSON: la siguiente.
+    }
+  }
+  return null;
+}
+
+/** El ErrorDeEtapa "la sesión fija de <proyecto> no responde" (nube_sin_acceso_repo: no se repara sola). */
+function errorSesionFija(repo, detalle) {
+  const github = repo?.github ?? repo?.clave ?? "el repo";
+  return new ErrorDeEtapa(
+    `La sesión fija de ${nombreDelProyecto(repo)} no responde (la nube no tiene acceso al repo ${github}): ${detalle}\nSesión fija: https://claude.ai/code/${sesionFijaDe(repo)}`,
+    { categoria: "nube_sin_acceso_repo" },
+  );
+}
+
+/** Un mensaje a la sesión fija. -> { ok, link, texto } o lanza ErrorDeEtapa (cancelada, límite de uso, no responde). */
+async function mensajeASesionFija(contexto, repo, mensaje, { cwd }) {
+  const { config, senal } = contexto;
+  const base = config.nube.comandoClaude ?? config.comandoClaude;
+  const id = sesionFijaDe(repo);
+  const timeoutMs = Math.max(1000, config.nube.lanzarMinutos * MINUTO);
+  const resultado = await correr([...base, "-p", mensaje, "--cloud", id, "--output-format", "json"], { cwd, timeoutMs, senal, env: entornoSeguro() });
+  if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló el lanzamiento en la nube: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
+  const texto = sinColores(`${resultado.salida}\n${resultado.errores}`);
+  const datos = jsonDeLaSalida(resultado.salida);
+  if (resultado.codigo === 0 && datos && datos.ok !== false && !datos.is_error) return { link: linkDeLaSesionFija(datos, id), texto };
+  if (esLimiteDeUso(texto)) throw new ErrorDeEtapa(`Claude llegó a su límite de uso al escribirle a la sesión fija: ${ultimasLineas(texto, 5)}`, { limiteDeUso: true, motor: "claude" });
+  const porQue = resultado.vencido ? `no contestó en ${config.nube.lanzarMinutos} min` : `salió con código ${resultado.codigo}${datos?.ok === false ? " (ok: false)" : ""}`;
+  throw errorSesionFija(repo, `\`claude -p … --cloud ${id}\` ${porQue}. ${ultimasLineas(texto, 8).replace(/\s+/g, " ").trim()}`.trim());
+}
+
+/**
+ * Manda una tarea a la sesión fija del proyecto: primero `/clear` (contexto limpio), después la instrucción.
+ * -> { link, via: "sesion-fija", salida, modeloForzado: false } (el modelo de la sesión lo fija quien la creó; el prompt lo pide).
+ */
+export async function mandarASesionFija(contexto, { repo, cwd, prompt }) {
+  const { registro } = contexto;
+  const id = sesionFijaDe(repo);
+  registro?.info?.(`nube por sesión fija: ${id} (${nombreDelProyecto(repo)}): /clear y la tarea`);
+  await mensajeASesionFija(contexto, repo, "/clear", { cwd });
+  const descripcion = descripcionParaLaNube(prompt);
+  if (descripcion.length < String(prompt ?? "").length) registro?.aviso?.(`sesión fija: la instrucción tenía ${String(prompt).length} caracteres; la recorté a ${descripcion.length} (el plan, por el medio)`);
+  const { link, texto } = await mensajeASesionFija(contexto, repo, descripcion, { cwd });
+  return { link, via: "sesion-fija", salida: texto, modeloForzado: false };
+}
+
+/**
+ * Lanza la sesión de la nube de una tarjeta: a la sesión fija del proyecto si la tiene; si no, `claude --cloud` con el chequeo
+ * previo. Si la nube no tiene acceso al repo (nube_sin_acceso_repo), marca el proyecto por config.nube.sinAccesoMinutos.
+ */
+export async function lanzarSesionDeLaNube(contexto, { repo, cwd, prompt, modelo = null }) {
+  try {
+    if (sesionFijaDe(repo)) return await mandarASesionFija(contexto, { repo, cwd, prompt });
+    return await lanzarEnNube(contexto, { cwd, prompt, modelo, repo });
+  } catch (error) {
+    if (error?.categoria === "nube_sin_acceso_repo") {
+      const minutos = contexto.config.nube.sinAccesoMinutos ?? 60;
+      marcarSinAcceso(repo?.clave, error.message, minutos);
+      contexto.registro?.aviso?.(`${String(error.message).split(/\r?\n/)[0]} — no mando tarjetas de "${repo?.clave}" a la nube en ${minutos} min`);
+    }
+    throw error;
+  }
 }
 
 /* ───────────────────────────────────────────────────────── vigilar la rama en GitHub ── */

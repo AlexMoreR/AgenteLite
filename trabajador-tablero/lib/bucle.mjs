@@ -37,7 +37,7 @@ import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedi
 import { notaDeYaHecho } from "./revision-previa.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
-import { esTareaGrande } from "./nube.mjs";
+import { esTareaGrande, nombreDelProyecto, sesionFijaDe, sinAccesoALaNube } from "./nube.mjs";
 import { crearPausaPorUso } from "./pausa-uso.mjs";
 import { primeraPreguntaAbierta } from "./preguntas-abiertas.mjs";
 import { crearMedidor, faltanRecursos } from "./recursos.mjs";
@@ -810,21 +810,34 @@ export function crearPlanificador({
    */
   function dondeCorre(tarjeta, hacer, { aizenOk, nubeUsable, nubeLibre, colaEnFila = 0 }) {
     const aizenParaEsta = aizenOk && !(hacer === "construir" && colaEnFila > 0);
+    // 29-oct-2026: un proyecto marcado "la nube no tiene acceso al repo" (nube.mjs: sinAccesoALaNube) no se manda a la nube
+    // hasta que venza la marca: sus tarjetas esperan en la fila sin gastar uso.
+    // Con SESIÓN FIJA (repos.<repo>.nube.sesionFija) va una tarea a la vez: mientras otra del proyecto construye ahí, espera.
+    const nubeParaEsta = nubeLibre && !(hacer === "construir" && (sinAccesoALaNube(tarjeta.repo) || sesionFijaOcupada(tarjeta.repo)));
     // Todo el desarrollo en la nube (26-oct-2026, decisión del dueño): construir NUNCA va a aizen1; si la nube no está
     // libre (o está apagada), la tarjeta espera en la fila.
     // Un proyecto con construirEn "aizen1" no va a la nube (29-oct-2026, decisión del dueño para Gestión).
     if (hacer === "construir" && config.repos[tarjeta.repo]?.construirEn === "aizen1") return aizenParaEsta ? { donde: "aizen1", motivo: "este proyecto se construye en aizen1" } : null;
-    if (hacer === "construir" && nubeConfig.todoEnLaNube) return nubeUsable && nubeLibre ? { donde: "nube", motivo: "todo el desarrollo se construye en la nube" } : null;
+    if (hacer === "construir" && nubeConfig.todoEnLaNube) return nubeUsable && nubeParaEsta ? { donde: "nube", motivo: "todo el desarrollo se construye en la nube" } : null;
     if (hacer !== "construir" || !nubeUsable) return aizenParaEsta ? { donde: "aizen1", motivo: null } : null;
     const { grande, motivos } = esTareaGrande(tarjeta, { repo: config.repos[tarjeta.repo], maxArchivosChica: nubeConfig.maxArchivosChica });
-    if (grande) return nubeLibre ? { donde: "nube", motivo: `es grande: ${motivos.join("; ")}` } : null;
+    if (grande) return nubeParaEsta ? { donde: "nube", motivo: `es grande: ${motivos.join("; ")}` } : null;
     if (aizenParaEsta) return { donde: "aizen1", motivo: null };
     const porque = aizenOk ? `la cola de pasos pesados de aizen1 tiene ${colaEnFila} en fila` : `aizen1 no tiene puesto libre (${sesiones.size}/${max})`;
-    return nubeLibre ? { donde: "nube", motivo: `desborde: ${porque}` } : null;
+    return nubeParaEsta ? { donde: "nube", motivo: `desborde: ${porque}` } : null;
   }
 
+  /** ¿El proyecto tiene sesión fija y ya hay una tarjeta suya construyendo en la nube (en esa sesión)? */
+  const sesionFijaOcupada = (clave) => Boolean(sesionFijaDe(config.repos[clave])) && [...enNube.values()].some((s) => s.tarjeta.repo === clave && s.hacer === "construir");
+
   /** Por qué una candidata no tiene dónde correr ahora (para el log y el panel "esperan en fila"). */
-  function motivoDeEspera(hacer, { aizenOk, nubeUsable, colaEnFila = 0 }) {
+  function motivoDeEspera(hacer, { aizenOk, nubeUsable, colaEnFila = 0 }, tarjeta = null) {
+    const marca = hacer === "construir" && nubeUsable && tarjeta ? sinAccesoALaNube(tarjeta.repo) : null;
+    if (marca) {
+      const hora = new Date(marca.hasta).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" });
+      return `espera: la nube no tiene acceso al repo de "${tarjeta.repo}" (no se manda a la nube hasta las ${hora})`;
+    }
+    if (hacer === "construir" && nubeUsable && tarjeta && sesionFijaOcupada(tarjeta.repo)) return `espera: la sesión de ${nombreDelProyecto(config.repos[tarjeta.repo])} está ocupada`;
     if (hacer === "construir" && aizenOk && colaEnFila > 0 && !nubeUsable) return `espera: la cola de pasos pesados de aizen1 tiene ${colaEnFila} en fila`;
     return hacer === "construir" && nubeUsable ? "espera un puesto en la nube" : "espera un puesto en aizen1";
   }
@@ -1006,7 +1019,7 @@ export function crearPlanificador({
         for (const c of candidatas) {
           if (chocan[c.id]) continue;
           if (descartadas.has(c.id)) chocan[c.id] = `(${descartadas.get(c.id)})`;
-          else if (!dondeCorre(c, c.hacer, estadoDeCupos)) chocan[c.id] = `(${motivoDeEspera(c.hacer, estadoDeCupos)})`;
+          else if (!dondeCorre(c, c.hacer, estadoDeCupos)) chocan[c.id] = `(${motivoDeEspera(c.hacer, estadoDeCupos, c)})`;
         }
         excluir = [...new Set([...Object.keys(chocan), ...descartadas.keys()])];
         esperasDeFila = new Map(Object.entries(chocan).map(([id, motivo]) => [id, { motivo: String(motivo).replace(/^\(|\)$/g, ""), contra: contraQuien[id] ?? null }]));
@@ -1042,7 +1055,7 @@ export function crearPlanificador({
       const lugar = dondeCorre(tarjeta, hacer, estadoDeCupos);
       if (!lugar) {
         registro.info(`"${tarjeta.titulo}" no tiene dónde correr ahora (${hacer}): la suelto y espera en fila`);
-        const espera = motivoDeEspera(hacer, estadoDeCupos);
+        const espera = motivoDeEspera(hacer, estadoDeCupos, tarjeta);
         descartadas.set(tarjeta.id, espera);
         if (await soltar(crm, registro, tarjeta, `Espera en fila: no hay dónde construirla ahora (${espera}).`)) continue;
         return;

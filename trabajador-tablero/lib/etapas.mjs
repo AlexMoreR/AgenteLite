@@ -59,7 +59,7 @@ import {
   textoParaLaNube,
 } from "./revisores.mjs";
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
-import { esperarResultado, lanzarEnNube } from "./nube.mjs";
+import { esperarResultado, lanzarSesionDeLaNube, sesionFijaDe } from "./nube.mjs";
 import { vigilarSesion } from "./atasco.mjs";
 import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, ultimasLineas } from "./procesos.mjs";
 import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
@@ -780,12 +780,17 @@ export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patch
  * leer CLAUDE.md, las 4 lecciones, las prohibiciones y la orden de dejar todo en la rama tablero/<id>. Nunca lleva
  * claves, .env ni tokens: `entorno` solo trae variables NO secretas (la dirección de base falsa de siempre).
  */
-export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null, lecciones = "", revision = true, modeloRevisar = "sonnet", modeloRevisarSeguridad = "opus", vueltasRevision = 2 } = {}) {
+export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null, lecciones = "", revision = true, modeloRevisar = "sonnet", modeloRevisarSeguridad = "opus", vueltasRevision = 2, sesionFija = false } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   const pasos = [repo.instalar, ...(repo.verificar ?? []), ...(repo.pruebas ?? [])].filter(Boolean).map((comando) => `\`${comoTexto(comando)}\``);
   const variables = Object.entries(entorno).map(([nombre, valor]) => `export ${nombre}="${valor}"`);
+  // 29-oct-2026: la SESIÓN FIJA del proyecto ya hizo otras tareas y está en otra rama. Lo primero (en el primer bloque, el
+  // que nunca se recorta): la tarea es nueva y se cambia a la rama de esta tarjeta (el Coordinador ya la subió).
+  const nuevaEnSesionFija = sesionFija
+    ? `TAREA NUEVA E INDEPENDIENTE de las anteriores de esta sesión: no sigas nada de lo que hiciste antes. ANTES DE TODO: git fetch origin && git checkout -B ${rama} origin/${rama}. Todo tu trabajo va en esa rama; nunca hagas push a main ni a otra rama. No uses ningún conector ni herramienta MCP de esta sesión.\n`
+    : "";
   return [
-    `${identidadDelAgente(repo)} Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en una sesión de Claude en la nube, sobre la rama ${rama} (ya existe en GitHub: es la tuya).`,
+    `${nuevaEnSesionFija}${identidadDelAgente(repo)} Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en una sesión de Claude en la nube, sobre la rama ${rama} (ya existe en GitHub: es la tuya).`,
     contextoDeLaTarjeta(tarjeta),
     `PLAN APROBADO:\n${tarjeta.plan}`,
     bloqueDeLecciones(lecciones),
@@ -816,6 +821,8 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
       "PROHIBIDO:",
       "- Tocar bases de datos (nada de prisma migrate, db push, psql ni conexiones reales), claves, tokens, archivos .env ni nada secreto. No hay claves de producción acá y no se piden.",
       "- git push --force (ni --force-with-lease) a ninguna rama.",
+      // 29-oct-2026: la sesión fija de Gestión trae conectores de claude.ai (Meta Ads, AizenCRM, Gmail…): ni uno.
+      "- Usar CUALQUIER conector o herramienta MCP (Meta Ads, AizenCRM, Gmail, Drive ni ninguna otra), aunque la sesión los tenga. Trabaja SOLO con git, el código del repo, la terminal y los subagentes.",
       `- ${REGLAS_DE_ZONAS} Zonas protegidas aprobadas por el dueño para esta tarea: ${aprobadas}.`,
       ...(reglasDeZonasQueSubenSolas(repo) ? [`- ${reglasDeZonasQueSubenSolas(repo)}`] : []),
       "- Migraciones: solo aditivas, escritas a mano (una carpeta nueva en prisma/migrations con su migration.sql, con BEGIN/COMMIT y guardas IF NOT EXISTS). El Coordinador las ensaya después contra producción, no tú.",
@@ -935,8 +942,10 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
     const modelo = modeloDelPaso(config, "construir", tarjeta);
     registro.info(`construir en la nube: modelo ${nombreDelModelo(modelo)}`);
     const conRevision = revisionActiva(config);
-    const prompt = promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo), revision: conRevision, modeloRevisar: modeloDelPaso(config, "revisar", tarjeta), modeloRevisarSeguridad: modeloDelPaso(config, "revisarSeguridad", tarjeta), vueltasRevision: vueltasDeRevision(config) });
-    const lanzado = await lanzarEnNube(contexto, { cwd: carpeta, prompt, modelo });
+    const prompt = promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo), revision: conRevision, modeloRevisar: modeloDelPaso(config, "revisar", tarjeta), modeloRevisarSeguridad: modeloDelPaso(config, "revisarSeguridad", tarjeta), vueltasRevision: vueltasDeRevision(config), sesionFija: Boolean(sesionFijaDe(repo)) });
+    // 29-oct-2026: a la sesión fija del proyecto (repos.<repo>.nube.sesionFija) si la tiene; si no, `claude --cloud` con el
+    // chequeo previo. La rama ya está en GitHub (pushDeRama de arriba) antes de lanzar: la sesión fija la baja con git fetch.
+    const lanzado = await lanzarSesionDeLaNube(contexto, { repo, cwd: carpeta, prompt, modelo });
     contexto.fase?.("construyendo", { lugar: "nube", linkSesion: lanzado.link });
     registro.info(`construyo en la nube: sesión ${lanzado.link}, rama ${rama} (${lanzado.via})`);
     let resultado;

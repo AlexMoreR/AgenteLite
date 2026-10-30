@@ -1131,6 +1131,9 @@ export const CATEGORIAS_DE_INTENTO = [
   // 29-oct-2026: los 4 revisores (seguridad, experiencia, diseño, código) siguieron pidiendo cambios tras 2 vueltas de
   // corrección (trabajador-tablero/lib/revisores.mjs). Tampoco se repara sola: va a ERROR con lo que pidió el revisor.
   "revision_no_paso",
+  // 29-oct-2026: la sesión de la nube iba a quedar sin el repo conectado (o la sesión fija del proyecto no responde): no puede subir
+  // su rama. Tampoco se repara sola (trabajador-tablero/lib/nube.mjs: chequeo previo).
+  "nube_sin_acceso_repo",
   "otra",
 ] as const;
 export type CategoriaDeIntento = (typeof CATEGORIAS_DE_INTENTO)[number];

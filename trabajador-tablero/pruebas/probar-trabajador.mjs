@@ -30,7 +30,7 @@ import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
 import { LARGO_MAXIMO_DEL_AVISO, decidir, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
 import { buscarCorridaDelDespliegue, esLimiteDeUso, promptDeConstruir, promptDeNube, promptDelPlan } from "../lib/etapas.mjs";
-import { MAX_DESCRIPCION, descripcionParaLaNube, esCommitDeInicio, esTareaGrande, estaDentroDe, esperarResultado, lanzarEnNube, linkDeSesion, preguntaDeConfianza, preguntaDelCommit, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
+import { MAX_DESCRIPCION, descripcionParaLaNube, esCommitDeInicio, esTareaGrande, estaDentroDe, esperarResultado, lanzarEnNube, lineaSinRepo, linkDeLaSesionFija, linkDeSesion, nombreDelProyecto, olvidarSinAcceso, sesionFijaDe, sinAccesoALaNube, preguntaDeConfianza, preguntaDelCommit, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
 import { preguntasAbiertasDelPlan, primeraPreguntaAbierta } from "../lib/preguntas-abiertas.mjs";
 import {
   PREGUNTA_POR_DEFECTO,
@@ -3242,7 +3242,12 @@ try {
     assert.equal(nube.length, 1, "solo la tercera salió a la nube");
     assert.equal(nube[0].titulo, "Desborde tres [mod:tres]");
     assert.match(nube[0].cwd, /-nube$/, "lanzada desde un worktree de la rama");
-    assert.deepEqual(nube[0].argumentos, ["-p", "--cloud", "--model", "sonnet", "--output-format", "json"], "la nube pide Sonnet para construir, igual que aizen1");
+    assert.deepEqual(nube[0].argumentos.slice(0, 6), ["-p", "--cloud", "--model", "sonnet", "--output-format", "json"], "la nube pide Sonnet para construir, igual que aizen1");
+    // El chequeo previo (29-oct-2026): --debug-file al lado del worktree (fuera de él), y se borra al terminar.
+    assert.equal(nube[0].argumentos[6], "--debug-file");
+    assert.equal(nube[0].argumentos[7], `${nube[0].cwd}.debug-nube.log`);
+    assert.equal(fs.existsSync(nube[0].argumentos[7]), false, "el log de la CLI no queda");
+    assert.ok(!/git fetch origin/.test(nube[0].prompt), "en modo cli la sesión ya arranca en la rama: no se le pide cambiar");
     assert.match(nube[0].prompt, /MODELO PEDIDO: Sonnet/);
     assert.equal(tarjetas.get(c).resultado.modelo.construir, "sonnet", "la tarjeta guarda el modelo con que corrió la nube");
     assert.equal(tarjetas.get(c).resultado.construidoEn, "nube");
@@ -3459,6 +3464,131 @@ try {
     sinRestos();
   });
 
+  /* ── La SESIÓN FIJA y el chequeo previo (29-oct-2026): Gestión con el repo seleccionado ── */
+
+  const FIJA = "session_01FijaDePrueba";
+  const fijaConfig = (sesionFija = FIJA, nube = {}) =>
+    crearConfig({ construirNubeMinutos: 2 }, { subirSolo: true, github: "prueba/repo", agente: { nombre: "Agente Gestión" }, nube: { sesionFija } }, {
+      maxParalelo: 2,
+      nube: { activa: true, maxTareas: 8, vigilarCadaSegundos: 0.3, esperaMinutos: 1, lanzarMinutos: 1, terminal: "sin-terminal", comandoGh: [node, falso("gh-falso.mjs")], todoEnLaNube: true, ...nube },
+    });
+  const llamadasAFija = (desde, id = FIJA) => leerLog(LOGS.claude).slice(desde).filter((l) => l.argumentos.includes("--cloud") && l.argumentos.includes(id));
+
+  await prueba("sesión fija (config y piezas): sin nada no hay sesión fija; el id es session_…; el prompt empieza con la tarea nueva y prohíbe conectores", () => {
+    assert.deepEqual(crearConfig().repos.aizencrm.nube, { sesionFija: null }, "sin nada: como siempre");
+    assert.equal(crearConfig().nube.chequeoPrevio, true);
+    assert.equal(crearConfig().nube.sinAccesoMinutos, 60);
+    assert.deepEqual(crearConfig({}, { nube: { sesionFija: "" } }).repos.aizencrm.nube, { sesionFija: null }, "vacía (como en el ejemplo) = sin sesión fija");
+    assert.throws(() => crearConfig({}, { nube: { sesionFija: "https://claude.ai/code/x" } }), /nube\.sesionFija/);
+    const repo = fijaConfig().repos.aizencrm;
+    assert.equal(sesionFijaDe(repo), FIJA);
+    assert.equal(nombreDelProyecto(repo), "Gestión");
+    assert.equal(linkDeLaSesionFija({ ok: true, session_id: FIJA }, FIJA), `https://claude.ai/code/${FIJA}`);
+    assert.equal(lineaSinRepo("x\n[DEBUG] GitHub app is not installed on AlexMoreR/Gestion\ny"), "GitHub app is not installed on AlexMoreR/Gestion");
+    assert.equal(lineaSinRepo("[DEBUG] [teleportToRemote] Bundling (reason: github_preflight_failed)"), "Bundling (reason: github_preflight_failed)");
+    assert.equal(lineaSinRepo("[DEBUG] GitHub app is installed on AlexMoreR/AgenteLite"), null);
+    const prompt = promptDeNube({ id: "t1", titulo: "T", plan: "p" }, repo, "tablero/abc-t", { sesionFija: true });
+    assert.match(prompt, /^TAREA NUEVA E INDEPENDIENTE/, "lo primero: la tarea es nueva");
+    assert.match(prompt.split("\n\n")[0], /git fetch origin && git checkout -B tablero\/abc-t origin\/tablero\/abc-t/);
+    assert.match(prompt, /Usar CUALQUIER conector o herramienta MCP/);
+    const sinFija = promptDeNube({ id: "t1", titulo: "T", plan: "p" }, repo, "tablero/abc-t");
+    assert.ok(!/TAREA NUEVA|git checkout -B/.test(sinFija), "sin sesión fija no");
+    assert.match(sinFija, /Usar CUALQUIER conector o herramienta MCP/, "la prohibición de conectores va siempre");
+    // El diagnóstico: por la categoría o por el texto; no se repara solo.
+    assert.equal(diagnosticar({ error: new Error("La sesión fija de Gestión no responde (la nube no tiene acceso al repo x): salió con código 1"), etapa: "construir" }).categoria, "nube_sin_acceso_repo");
+    assert.equal(diagnosticar({ error: new Error("La nube no tiene acceso al repo AlexMoreR/Gestion: no conectó"), etapa: "construir" }).categoria, "nube_sin_acceso_repo");
+    assert.equal(decidir({ diagnostico: { categoria: "nube_sin_acceso_repo" }, tarjeta: {}, etapa: "construir" }).accion, "escalar");
+  });
+
+  await prueba("sesión fija: /clear y la tarea a la misma sesión (sin crear otra); la segunda tarjeta del proyecto espera 'la sesión de Gestión está ocupada'; las dos quedan HECHO", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const desde = leerLog(LOGS.claude).length;
+    const a = nueva("Gestión fija uno [mod:fijauno]", "PLAN_APROBADO", { plan: planDe("fijauno") });
+    const b = nueva("Gestión fija dos [mod:fijados]", "PLAN_APROBADO", { plan: planDe("fijados") });
+    const planificador = planificar(fijaConfig());
+    await planificador.llenar();
+    assert.equal(planificador.cupos().nube, 1, "una sola a la vez en la sesión fija");
+    const enCola = [a, b].find((id) => tarjetas.get(id).estado === "PLAN_APROBADO");
+    assert.ok(enCola, "la otra espera en la fila sin candado");
+    assert.match(planificador.estado().esperas.find((e) => e.tarjetaId === enCola)?.motivo ?? "", /la sesión de Gestión está ocupada/);
+    await correrHasta(planificador, () => [a, b].every((id) => ["HECHO", "ERROR"].includes(tarjetas.get(id).estado)), 240_000);
+    await planificador.esperarTodas();
+    planificador.parar();
+    for (const id of [a, b]) {
+      const t = tarjetas.get(id);
+      assert.equal(t.estado, "HECHO", t.resultado?.error?.motivo);
+      assert.equal(t.resultado.construidoEn, "nube");
+      assert.equal(t.resultado.linkSesion, `https://claude.ai/code/${FIJA}`);
+    }
+    assert.equal(aLaVez.EN_CURSO, 1, "nunca dos construyendo a la vez en la sesión fija");
+    const fija = llamadasAFija(desde);
+    assert.equal(llamadasALaNube(desde).length, fija.length, "no se creó ninguna sesión nueva con claude --cloud");
+    assert.deepEqual(fija.map((l) => (l.prompt === "/clear" ? "/clear" : "tarea")), ["/clear", "tarea", "/clear", "tarea"], "/clear antes de cada tarea");
+    for (const llamada of fija) {
+      assert.deepEqual([llamada.argumentos[0], llamada.argumentos.slice(2)], ["-p", ["--cloud", FIJA, "--output-format", "json"]]);
+    }
+    const tarea = fija[1];
+    const rama = tarjetas.get(tarea.titulo === "Gestión fija uno [mod:fijauno]" ? a : b).resultado.rama;
+    assert.match(tarea.prompt, /^TAREA NUEVA E INDEPENDIENTE/);
+    assert.ok(tarea.prompt.includes(`git fetch origin && git checkout -B ${rama} origin/${rama}`));
+    assert.match(tarea.prompt, /DEJA TODO EN LA RAMA tablero\//);
+    sinRestos();
+  });
+
+  await prueba("sesión fija: si no responde (no existe o archivada) -> ERROR nube_sin_acceso_repo sin reparar ('la sesión fija de Gestión no responde') y el proyecto queda marcado", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const muerta = "session_MUERTA01";
+    const desde = leerLog(LOGS.claude).length;
+    const id = nueva("Gestión con la sesión muerta [mod:fijamuerta]", "PLAN_APROBADO", { plan: planDe("fijamuerta"), moderno: true });
+    let planificador = planificar(fijaConfig(muerta));
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.equal(t.resultado.error.categoria, "nube_sin_acceso_repo");
+    assert.equal(t.reparaciones ?? 0, 0, "no se repara sola");
+    assert.match(t.resultado.error.motivo, /la sesión fija de Gestión no responde/i);
+    assert.ok(sinAccesoALaNube("aizencrm"), "el proyecto quedó marcado");
+    // La siguiente del proyecto no se manda: espera en la fila.
+    const otra = nueva("Gestión siguiente [mod:fijamuerta2]", "PLAN_APROBADO", { plan: planDe("fijamuerta2") });
+    planificador = planificar(fijaConfig(muerta));
+    await planificador.llenar();
+    assert.equal(tarjetas.get(otra).estado, "PLAN_APROBADO");
+    assert.match(planificador.estado().esperas.find((e) => e.tarjetaId === otra)?.motivo ?? "", /la nube no tiene acceso al repo de "aizencrm"/);
+    assert.equal(llamadasAFija(desde, muerta).length, 1, "solo el /clear de la primera: la segunda no gastó nada");
+    planificador.parar();
+    olvidarSinAcceso();
+    tarjetas.get(otra).estado = "HECHO";
+    sinRestos();
+  });
+
+  await prueba("chequeo previo (sin sesión fija): el log de --debug-file dice github_preflight_failed -> ERROR nube_sin_acceso_repo enseguida (sin esperar la señal), con el link", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const titulo = "Gestión sin app de GitHub [nube-sin-app]";
+    const id = nueva(titulo, "PLAN_APROBADO", { plan: planDe("sinapp"), moderno: true });
+    const planificador = planificar(nubeConfig({ todoEnLaNube: true }));
+    const inicio = Date.now();
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.equal(t.resultado.error.categoria, "nube_sin_acceso_repo");
+    assert.equal(t.reparaciones ?? 0, 0, "no se repara sola");
+    assert.ok(Date.now() - inicio < 30_000, `no esperó la señal de la sesión (${Date.now() - inicio} ms)`);
+    assert.match(t.resultado.error.motivo, /La nube no tiene acceso al repo prueba\/repo/);
+    assert.match(t.resultado.error.motivo, /github_preflight_failed|GitHub app is not installed/);
+    assert.ok(JSON.stringify(t).includes(enlaceDe(titulo)), "con el link de la sesión que quedó sin repo");
+    assert.ok(sinAccesoALaNube("aizencrm"), "el proyecto quedó marcado");
+    olvidarSinAcceso();
+    sinRestos();
+  });
+
+
   // La terminal real (node-pty): solo si está instalado (en aizen1 sí; en otros PCs se salta).
   const hayPty = await import("node-pty").then(
     () => true,
@@ -3480,7 +3610,8 @@ try {
     assert.equal(llamada.terminal, true, "en una terminal real");
     assert.equal(llamada.argumentos[0], "--cloud");
     assert.ok(llamada.argumentos[1].startsWith("Eres el Agente CRM"), "la descripción es el argumento justo después de --cloud");
-    assert.deepEqual(llamada.argumentos.slice(2), ["--model", "sonnet"]);
+    assert.deepEqual(llamada.argumentos.slice(2, 4), ["--model", "sonnet"]);
+    assert.equal(llamada.argumentos[4], "--debug-file", "con el chequeo previo");
     assert.equal(llamada.titulo, titulo, "el título con comillas y acentos llegó entero");
     assert.match(llamada.prompt, /PLAN APROBADO:\nPLAN\n4\. Migración: no\./);
     assert.ok(llamada.prompt.includes(nota), "comillas, barras y símbolos intactos");

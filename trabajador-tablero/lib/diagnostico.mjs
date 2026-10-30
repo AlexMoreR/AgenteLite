@@ -33,6 +33,9 @@ export const CATEGORIAS = [
   "plan_con_preguntas",
   // 29-oct-2026: los 4 revisores (revisores.mjs) siguieron pidiendo cambios tras 2 vueltas de corrección.
   "revision_no_paso",
+  // 29-oct-2026: la sesión de la nube iba a quedar sin el repo conectado (claude --cloud subió una copia sin remoto) o la
+  // sesión fija del proyecto no responde: no puede subir su rama. No se repara sola.
+  "nube_sin_acceso_repo",
   "otra",
 ];
 
@@ -40,7 +43,7 @@ export const CATEGORIAS = [
  * Las categorías que NO se reparan solas (29-oct-2026, 62 % del uso semanal se fue en reintentos ciegos): van directo al
  * dueño con el link y la línea de qué necesita. Repetirlas no cambia nada hasta que alguien encuentre la causa.
  */
-export const SIN_REPARACION_AUTOMATICA = ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas", "revision_no_paso"];
+export const SIN_REPARACION_AUTOMATICA = ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas", "revision_no_paso", "nube_sin_acceso_repo"];
 
 /** Las que no son de la tarea (ya tienen su tope de esperas): no cuentan para "la misma causa 2 veces". */
 const AJENAS_A_LA_TAREA = ["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado"];
@@ -136,6 +139,7 @@ const REGLAS = [
   // Una sesión que lanzó tareas en segundo plano y se quedó esperándolas, o que el vigilante cortó por quieta.
   ["sesion_atascada", SESION_ATASCADA],
   // La nube preguntó (commit "pregunta:") o no dejó el commit "resultado:" / no dio señal (nube.mjs: esperarResultado).
+  ["nube_sin_acceso_repo", /la nube no tiene acceso al repo|la sesi[oó]n fija de [^\n]* no responde/i],
   ["nube_pregunta", /sesi[oó]n de la nube hizo una pregunta/i],
   ["nube_sin_resultado", /sesi[oó]n de la nube no (?:dej[oó] el commit|dio se[nñ]al)/i],
   ["plan_con_preguntas", /el plan tiene preguntas abiertas/i],
@@ -172,6 +176,7 @@ const CAUSA_BASE = {
   nube_pregunta: "La sesión de la nube hizo una pregunta y paró",
   plan_con_preguntas: "El plan tiene preguntas abiertas",
   revision_no_paso: "Los revisores siguieron pidiendo cambios tras 2 vueltas de corrección",
+  nube_sin_acceso_repo: "La nube no tiene acceso al repo",
   otra: "No se reconoció la causa",
 };
 
@@ -397,6 +402,7 @@ const NECESITA = {
   nube_pregunta: "Responder la pregunta (en el detalle de la tarjeta) y aprobar de nuevo la tarea para que se planee con la respuesta.",
   plan_con_preguntas: "Responder las preguntas del plan (en el detalle de la tarjeta) y aprobar de nuevo la tarea, o aprobar el plan tal cual.",
   revision_no_paso: "Leer qué pidió el revisor (en el detalle de la tarjeta): si tiene razón, aclarar el plan y aprobar de nuevo; si no, tocar Reintentar.",
+  nube_sin_acceso_repo: "Revisar que la app de GitHub de Claude tenga acceso al repo (o abrir la sesión fija del proyecto en claude.ai y ver que siga viva) y tocar Reintentar.",
   otra: "Que alguien mire los Detalles técnicos y diga qué hacer.",
 };
 

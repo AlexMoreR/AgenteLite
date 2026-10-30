@@ -195,6 +195,40 @@ siguen en aizen1.
 - `config.local.json` de aizen1 (no está en el repo): poner `"maxParalelo": 2` (bajarlo de 3) y copiar el bloque
   `nube` y los `github` de `config.example.json`.
 
+#### La SESIÓN FIJA de un proyecto (desde el 29-oct-2026)
+
+Con `AlexMoreR/Gestion`, `claude --cloud` (CLI 2.1) corre un chequeo previo que dice "GitHub app is not installed" aunque
+la app sí tiene acceso: sube una copia sin remoto (`Bundling (reason: github_preflight_failed)`) y la sesión no puede
+subir su rama (403). Por eso un proyecto puede tener una **sesión fija**, creada a mano en claude.ai/code con el repo
+seleccionado:
+
+```json
+"gestion": { "nube": { "sesionFija": "session_01XuE6FdupseQWg3mMsf45er" } }
+```
+
+(La de Gestión es `session_01XuE6FdupseQWg3mMsf45er`, "GESTION": environment Default, Opus 5.5 en modo Auto. Va solo en
+`config.local.json`; en `config.example.json` el campo queda vacío.)
+
+- Construir en la nube **no crea otra sesión**: le manda la tarea a esa con
+  `claude -p "<instrucción>" --cloud <session_id> --output-format json` (responde `{ ok, session_id, url }`). Si la sesión
+  estaba apagada, el mensaje la despierta; lo que corría cuando se apagó no se recupera.
+- **Una tarea a la vez** por sesión fija: mientras una tarjeta del proyecto construye ahí, las demás esperan en la fila sin
+  candado ("la sesión de Gestión está ocupada"). Antes de cada tarea se le manda `/clear` por la misma vía.
+- La instrucción empieza diciendo que la tarea es **nueva e independiente** y pide
+  `git fetch origin && git checkout -B <rama> origin/<rama>` (el Coordinador ya subió la rama). Lo demás no cambia: rama
+  `tablero/…`, commits `inicio:`, `pregunta:`, `revision:`, `resultado:`, los revisores como subagentes y la vigilancia de
+  la rama. Toda instrucción de la nube **prohíbe usar conectores o herramientas MCP** (la sesión fija trae Meta Ads,
+  AizenCRM, Gmail…): solo git, el código y los subagentes.
+- Si el envío falla (o la sesión no existe o está archivada): ERROR `nube_sin_acceso_repo` ("la sesión fija de Gestión no
+  responde"), sin reparar, y el proyecto queda marcado `nube.sinAccesoMinutos` (60).
+- **Chequeo previo** (`nube.chequeoPrevio`, sí por defecto), para los proyectos SIN sesión fija: `claude --cloud` se lanza
+  con `--debug-file` y, si el log dice "GitHub app is not installed" o "github_preflight_failed", se corta enseguida (sin
+  esperar los 20 min sin señal): ERROR `nube_sin_acceso_repo` ("la nube no tiene acceso al repo", **no se repara sola**) y
+  el proyecto queda marcado `nube.sinAccesoMinutos`: sus tarjetas siguientes esperan en la fila sin mandarse a la nube.
+- La marca vive en memoria: reiniciar el Coordinador la borra.
+- `repos.<repo>.construirEn: "aizen1"` manda sobre todo esto (ese proyecto no va a la nube). Hoy Gestión lo tiene como
+  solución temporal; cuando la sesión fija esté probada se quita `construirEn` y se pone `nube.sesionFija`.
+
 ### Motores (Codex y Claude) (desde el 23-oct-2026)
 
 El trabajador usa dos "motores" de IA que ya están logueados en aizen1:
@@ -412,6 +446,7 @@ etapa falla, el Coordinador (`lib/bucle.mjs`, `lib/diagnostico.mjs`):
 |---|---|---|
 | `nube_sin_resultado` | la sesión de la nube no dejó `inicio:` ni ningún commit en `nube.sinSenalMinutos` (20), o no dejó `resultado:` en `nube.esperaMinutos` (120) | ERROR enseguida, con el link de la sesión; **no se repara sola** |
 | `nube_pregunta` | la sesión dejó el commit vacío `pregunta: <…>` (no pregunta en el chat) | ERROR enseguida con la pregunta y el link |
+| `nube_sin_acceso_repo` | `claude --cloud` no conectó el repo (log: "GitHub app is not installed" / `github_preflight_failed`) o la sesión fija no responde | ERROR enseguida ("la nube no tiene acceso al repo"); el proyecto no va a la nube en `nube.sinAccesoMinutos` (60); **no se repara sola** |
 | `revision_no_paso` | los 4 revisores (ver "La revisión de los 4") siguieron pidiendo cambios tras 2 correcciones | ERROR con el revisor, lo que pide y el link de la sesión; **no se repara sola** |
 | `plan_con_preguntas` | el plan aprobado SOLO trae "PREGUNTAS ABIERTAS:" o frases como "hay que confirmar", "antes de construir hay que", "lo que no revisé" (`lib/preguntas-abiertas.mjs`, espejo en `reglas-riesgo.ts`) | no se construye: ERROR + aviso "necesita"; si el dueño aprobó el plan tal cual, sí se construye |
 | cualquier otra | la MISMA categoría ya falló 2 veces en la tarjeta (todos los intentos) | escala (salvo `limite_claude`, `pc_sobrecargado`, `carpeta_trabada`, `coordinador_cortado`, que tienen su tope de esperas) |

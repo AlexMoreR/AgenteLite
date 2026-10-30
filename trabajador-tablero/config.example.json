@@ -353,6 +353,9 @@
       "ruta": "D:/Proyectos/Gestion",
       "ramaBase": "main",
       "remoto": "origin",
+      "nube": {
+        "sesionFija": ""
+      },
       "agente": {
         "nombre": "Agente Gestión",
         "lecciones": "",
