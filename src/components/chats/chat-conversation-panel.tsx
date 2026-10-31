@@ -1677,15 +1677,18 @@ export const ConversationPanel = memo(function ConversationPanel({
 
   return (
     <Card
-      className={`${selectedConversationId ? "flex md:flex" : "!hidden md:!flex"} chat-inbox-panel relative min-h-0 flex-1 overflow-hidden rounded-none border border-border bg-transparent p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
+      className={`${selectedConversationId ? "flex md:flex" : "!hidden md:!flex"} chat-inbox-panel relative min-h-0 flex-1 overflow-clip rounded-none border border-border bg-transparent p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
     >
       <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={CHAT_MESSAGES_BACKGROUND_BASE_STYLE} />
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-[0.08] dark:opacity-[0.14] dark:invert" style={CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE} />
       {renderedConversation ? (
         <div className="relative z-10 flex min-h-0 h-full w-full flex-1">
         {/* @container/chathdr: la cabecera y la barra de abajo deciden por el ANCHO DEL CHAT, no
-            de la pantalla, asi reaccionan tambien a la ficha del contacto abierta. */}
-        <div className="@container/chathdr flex min-h-0 h-full min-w-0 flex-1 flex-col">
+            de la pantalla, asi reaccionan tambien a la ficha del contacto abierta.
+            overflow-x-clip (y overflow-clip en la tarjeta y en la grilla): con overflow-hidden lo
+            que sobresalia de lado dejaba que el navegador corriera la caja al enfocar o desplazar,
+            y la barra de escribir quedaba cortada a la izquierda contra la lista (T-314). */}
+        <div className="@container/chathdr flex min-h-0 h-full min-w-0 flex-1 flex-col overflow-x-clip">
           <div className="shrink-0 border-b border-border bg-card px-3 pb-2 pt-[max(env(safe-area-inset-top),0.5rem)] min-h-[3.25rem] md:min-h-0 md:px-[10px] md:py-[10px]">
             {/*
               Los accesos rapidos de la seleccion, en el lugar de la cabecera.
@@ -1916,10 +1919,10 @@ export const ConversationPanel = memo(function ConversationPanel({
           {/*
             Barra de primera accion, solo con la cabecera angosta (celular, o ficha abierta): arriba
             no entra y antes vivia escondida en tres puntos. Con la cabecera ancha todo esto ya
-            esta arriba, en linea.
+            esta arriba, en linea. Si no cabe, se desplaza dentro de su fila en vez de ensanchar el chat.
           */}
           {(hasSettledConversation || barraAnticipada) && seleccionados.length === 0 && barraVisible && (headerBar || mediaConfig) ? (
-            <div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-card px-3 py-1.5 @min-[520px]/chathdr:hidden">
+            <div className="flex min-w-0 shrink-0 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-b border-border bg-card px-3 py-1.5 @min-[520px]/chathdr:hidden">
               {headerBar}
               {!mediaConfig && barraAnticipada ? (
                 // Nota, seguimiento y etiquetas, en silueta hasta que el chat este cargado.
@@ -1967,7 +1970,7 @@ export const ConversationPanel = memo(function ConversationPanel({
             Pestañas del chat. "Cotizaciones" tiene la ficha de datos del cliente: la que hoy se
             llena releyendo la conversacion hacia arriba para copiar la cedula y la direccion.
           */}
-          <div className="flex shrink-0 items-center gap-4 border-b border-border bg-card px-3 md:px-5">
+          <div className="flex min-w-0 shrink-0 items-center gap-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-b border-border bg-card px-3 md:px-5">
             {(["mensajes", "cotizaciones"] as const).map((pestana) => {
               const activa = pestanaChat === pestana;
               return (

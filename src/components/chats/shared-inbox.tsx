@@ -3808,7 +3808,7 @@ export function SharedInbox({
   return (
     <>
     <div
-      className={`chat-inbox-grid flex h-full min-h-0 flex-1 flex-col gap-0 overflow-hidden md:grid ${
+      className={`chat-inbox-grid flex h-full min-h-0 flex-1 flex-col gap-0 overflow-clip md:grid ${
         hasSidebar ? "md:grid-cols-[250px_360px_minmax(0,1fr)]" : "md:grid-cols-[380px_minmax(0,1fr)]"
       }`}
     >
