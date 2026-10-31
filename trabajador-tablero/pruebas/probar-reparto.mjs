@@ -2,7 +2,8 @@
 //   node trabajador-tablero/pruebas/probar-reparto.mjs   (va dentro de npm run test:trabajador-tablero)
 //
 // - choques: los .md (docs/que-es-esta-aplicacion.md) y los globs de repos.<x>.sinChoque no hacen chocar; la parte
-//   "5. Archivos" se encuentra por su encabezado aunque la parte 1 tenga una lista numerada;
+//   "5. Archivos" se encuentra por su encabezado aunque la parte 1 tenga una lista numerada; una carpeta o un glob de la
+//   parte 5 choca con los archivos que contiene;
 // - cola de pasos pesados: de a `maximo`, primero subir, después verificar, después preparar; se cancela con la señal;
 // - reparto: el orden de las candidatas, cuándo se parte antes de construir y que las partes no agreguen alcance;
 // - subir: rebaseSobre junta solo los dos lados de un .md y deja el worktree limpio si choca código;
@@ -15,7 +16,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { crearPlanificador } from "../lib/bucle.mjs";
-import { archivosDelPlan, huellaDeTarjeta, motivoDeChoque, noChoca } from "../lib/choques.mjs";
+import { archivosDelPlan, huellaDeTarjeta, moduloDe, motivoDeChoque, noChoca, rutasChocan } from "../lib/choques.mjs";
 import { COLA_LIBRE, PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { completarConfig } from "../lib/config.mjs";
 import { agenteDelRepo, textoDeIdentidad } from "../lib/agentes.mjs";
@@ -68,6 +69,37 @@ await prueba("choques: la parte 5 se busca por su encabezado 'Archivos' (una lis
   assert.deepEqual(archivosDelPlan(plan).sort(), ["docs/que-es-esta-aplicacion.md", "src/features/coach/a.ts"]);
   // Sin archivos en la parte 5, se buscan en todo el plan (no queda "el plan no dice archivos").
   assert.deepEqual(archivosDelPlan("## 5. Archivos que se tocan\nlos de siempre\n## 6. Pruebas\nsrc/x/a.ts"), ["src/x/a.ts"]);
+});
+
+await prueba("choques: una carpeta y los globs de la parte 5 chocan con los archivos que contienen", async () => {
+  const repo = { zonasProtegidas: {} };
+  const h = (id, plan) => huellaDeTarjeta({ id, titulo: id, repo: "aizencrm", plan }, "construir", repo);
+  // Los globs se conservan al leer el plan (antes "src/lib/**" quedaba "src/lib"); la negrita del markdown no.
+  assert.deepEqual(archivosDelPlan(planCon("`src/lib/**`", "src/features/*/page.tsx", "**src/features/coach/a.ts**", "src/features/coach/")).sort(), [
+    "src/features/*/page.tsx",
+    "src/features/coach",
+    "src/features/coach/a.ts",
+    "src/lib/**",
+  ]);
+  assert.deepEqual(archivosDelPlan("## 5. Archivos\n- **/*.css\n## 6. Pruebas"), ["**/*.css"]);
+  assert.equal(moduloDe("src/lib/**"), "lib");
+  assert.equal(moduloDe("src/features/coach/*.ts"), "features/coach");
+  // Una carpeta declarada choca con cualquier archivo de adentro.
+  assert.match(motivoDeChoque(h("a", planCon("src/features/coach/")), h("b", planCon("src/features/coach/x.ts"))) ?? "", /features\/coach/);
+  assert.match(motivoDeChoque(h("a", planCon("src/app/actions/")), h("b", planCon("src/app/actions/guardar.ts"))) ?? "", /src\/app\/actions y src\/app\/actions\/guardar\.ts/, "también en una carpeta común");
+  // Un glob, con los archivos que calzan.
+  assert.match(motivoDeChoque(h("a", planCon("src/lib/**")), h("b", planCon("src/lib/a.ts"))) ?? "", /src\/lib\/\*\* y src\/lib\/a\.ts/);
+  assert.match(motivoDeChoque(h("a", planCon("src/features/**")), h("b", planCon("src/features/coach/servicios/x.ts"))) ?? "", /choca|tocan/);
+  assert.match(motivoDeChoque(h("a", planCon("src/app/cliente/*/page.tsx")), h("b", planCon("src/app/cliente/chats/page.tsx"))) ?? "", /tocan/);
+  assert.equal(rutasChocan("src/lib/*.ts", "src/lib/mcp/a.ts"), false, "un * no baja de carpeta");
+  assert.equal(rutasChocan("src/lib/**", "src/features/**"), false);
+  assert.equal(rutasChocan("src/lib/**", "src/lib/mcp/"), true, "glob contra carpeta de adentro");
+  // Carpetas distintas no chocan (ni las que solo empiezan igual).
+  assert.equal(motivoDeChoque(h("a", planCon("src/features/coach/")), h("b", planCon("src/features/ventas/"))), null);
+  assert.equal(motivoDeChoque(h("a", planCon("src/app/actions/uno/")), h("b", planCon("src/app/actions/uno-mas/x.ts"))), null);
+  assert.equal(motivoDeChoque(h("a", planCon("src/lib/**")), h("b", planCon("src/features/coach/x.ts"))), null);
+  // Los .md siguen sin chocar aunque estén dentro de la carpeta declarada.
+  assert.equal(motivoDeChoque(h("a", planCon("docs/**")), h("b", planCon("docs/otra-nota.md"))), null);
 });
 
 await prueba("cola de pasos pesados: de a uno, primero subir, después verificar, después preparar; se cancela con la señal", async () => {

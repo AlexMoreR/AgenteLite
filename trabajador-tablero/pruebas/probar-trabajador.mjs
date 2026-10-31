@@ -4286,6 +4286,30 @@ try {
     sinRestos();
   });
 
+  await prueba("caso 4b — una carpeta o un glob del plan choca con el archivo de adentro: la segunda espera (contra = la primera) y se toma sola al terminar", async () => {
+    cerrarLoDeAntes();
+    // Módulos distintos ("lib" y "lib/cambio"): solo la comparación ruta-contra-ruta las junta.
+    const primera = nueva("Ventas: todo lib [mod:ventas]", "PLAN_APROBADO", { plan: "PLAN\n5. Archivos: src/lib/**\n6. Pruebas: npm test" });
+    const segunda = nueva("Ventas: un archivo de lib [mod:ventas]", "PLAN_APROBADO", { plan: "PLAN\n5. Archivos: src/lib/cambio.ts\n6. Pruebas: npm test", moderno: true });
+    const planificador = planificar({ ...enParalelo, maxParalelo: 3 });
+    await planificador.llenar(); // toma la primera; la segunda choca y queda en espera
+    assert.equal(planificador.corriendo(), 1, "la segunda no se toma mientras corre la primera");
+    assert.equal(tarjetas.get(segunda).estado, "PLAN_APROBADO");
+    const espera = planificador.estado().esperas.find((e) => e.tarjetaId === segunda);
+    assert.equal(espera?.contra, primera);
+    assert.match(espera?.motivo ?? "", /choca con "Ventas: todo lib.*src\/lib\/cambio\.ts y src\/lib\/\*\*/);
+    await planificador.esperarTodas();
+    assert.ok(!planificador.estado().esperas.some((e) => e.tarjetaId === segunda), "la espera se soltó");
+    await correrHasta(planificador, () => tarjetas.get(segunda).estado !== "PLAN_APROBADO", 120_000);
+    assert.notEqual(tarjetas.get(segunda).estado, "PLAN_APROBADO", "se tomó sola cuando la primera terminó");
+    sinFinal(primera);
+    sinFinal(segunda);
+    await planificador.esperarTodas();
+    planificador.parar();
+    soltarTodas(primera, segunda);
+    sinRestos();
+  });
+
   // ── REVISAR DE NUEVO lo que quedó en Por revisar (30-oct-2026): tarjetas de CHATS en POR_REVISAR, rebase, build, pruebas y envíos ──
   {
     const configRevisar = () => crearConfig({}, { subirSolo: true, zonasQueSubenSolas: ["BOT_VENTAS", "META_ADS", "LIBRO_V3", "CHATS"], vigilancia: { minutos: 0.02, cadaSegundos: 0.3, maxErroresNuevos: 2 } });
