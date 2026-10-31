@@ -153,7 +153,9 @@ construye todo otra vez:
 4. Con `CHOQUE_SIMPLE` el Coordinador no le cree a ciegas: comprueba que no quede ninguna marca `<<<<<<<`, que solo
    cambiaron los archivos en conflicto y sigue el rebase (`git add` + `rebase --continue`; si el commit siguiente de la
    rama choca también, otra vuelta, hasta 5). Al terminar, `instalar` y el `verificar` de siempre (compila y pasan todas
-   las pruebas). Si todo pasa, sube como siempre (ensayo de la migración, push sin `--force`, CI, versión).
+   las pruebas). En los archivos juntados de CHATS y BOT_VENTAS se busca otra vez un envío nuevo a clientes
+   (`enviosNuevosDeMensajes`): si la sesión agregó uno, no se sube (ERROR, categoría `zona`). Si todo pasa, sube como
+   siempre (ensayo de la migración, push sin `--force`, CI, versión).
 5. Lo que no se pudo resolver (no compila, la sesión tocó otros archivos, quedaron marcas, no dijo ninguna de las dos
    líneas): se cancela el rebase (la rama vuelve a como estaba) y la falla es `choca_con_main`, que **no gasta intento**:
    se reconstruye desde el main más nuevo, hasta 3 choques seguidos (`TOPE_DE_CHOQUES_SEGUIDOS`); el 4.º escala al dueño.

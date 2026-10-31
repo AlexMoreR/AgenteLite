@@ -245,16 +245,18 @@ if (prompt.includes("CORRECCIÓN DE LA REVISIÓN")) {
 // Resolver el choque con main al subir (31-oct-2026, resolver-choque.mjs): la sesión corta en la carpeta de subida.
 //   [choque-simple]  borra las marcas de los archivos en conflicto conservando las dos versiones y contesta CHOQUE_SIMPLE: OK
 //   [choque-logica]  no toca nada y contesta CHOQUE_DE_LOGICA: <motivo>
+//   [choque-envio]   como [choque-simple], pero al juntar agrega un envío a clientes (sendMessage) en el primer archivo
 //   si no, contesta sin ninguna de las dos líneas (no se pudo resolver).
 if (prompt.startsWith("RESOLVER EL CHOQUE CON MAIN")) {
   if (titulo.includes("[choque-logica]")) {
     console.log("Miré los dos cambios.\nCHOQUE_DE_LOGICA: main cambió el texto del archivo compartido y la tarea también, de forma distinta");
-  } else if (titulo.includes("[choque-simple]")) {
+  } else if (titulo.includes("[choque-simple]") || titulo.includes("[choque-envio]")) {
     const enConflicto = [...prompt.matchAll(/^- (\S.*)$/gm)].map((una) => una[1].trim());
     for (const archivo of enConflicto) {
       const texto = fs.readFileSync(archivo, "utf8");
       fs.writeFileSync(archivo, texto.split(/\r?\n/).filter((linea) => !/^(<{7}|={7}|>{7})( |$)/.test(linea)).join("\n"));
     }
+    if (titulo.includes("[choque-envio]")) fs.appendFileSync(enConflicto[0], "\nexport const avisar = (x: string) => sendMessage(x);\n");
     console.log(`Junté las dos versiones de ${enConflicto.join(", ")}.\nCHOQUE_SIMPLE: OK`);
   } else console.log("No pude juntarlos.");
   process.exit(0);

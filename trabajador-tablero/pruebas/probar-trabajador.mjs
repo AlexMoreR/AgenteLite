@@ -2371,6 +2371,26 @@ try {
     });
   }
 
+  await prueba("chats que suben solos: si al resolver el choque con main la sesión agrega un envío a clientes, no se sube (ERROR, main no cambia)", async () => {
+    reiniciarLogs();
+    const id = nueva("Chats que chocan con main [solas-chats] [choque-envio]", "PLAN_APROBADO", { plan: "El plan" });
+    assert.equal((await vuelta(configSolas())).ok, true);
+    assert.equal(tarjetas.get(id).estado, "SUBIENDO");
+    // main cambia el mismo archivo de chats mientras tanto.
+    g(REPO, "pull", "--ff-only", "origin", "main");
+    archivo("src/chats/bandeja.ts", "export const deMain = 1;\n");
+    g(REPO, "commit", "-am", "main cambia la bandeja");
+    g(REPO, "push", "origin", "main");
+    const mainAhora = shaDe("main");
+    const subida = await vuelta(configSolas());
+    assert.equal(subida.ok, false);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, /Al resolver el choque con main quedó un envío nuevo a clientes \(.*sendMessage/);
+    assert.equal(shaDe("main"), mainAhora, "no subió nada");
+    sinRestos();
+  });
+
   await prueba("zonas que suben solas: Meta Ads con daily_budget / ACTIVE queda POR_REVISAR esperando el sí (gasto)", async () => {
     const id = nueva("Subir presupuesto [solas-ads-gasto]", "PLAN_APROBADO", { plan: "El plan" });
     const mainAhora = shaDe("main");

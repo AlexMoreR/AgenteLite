@@ -2176,6 +2176,17 @@ export async function subir(contexto, tarjeta) {
         }
         resuelto = await resolverElChoque(contexto, { tarjeta, repo, carpeta, rebase, reloj, antes });
         if (resuelto.resultado !== "simple") throw errorDelChoque(repo, rama, resuelto);
+        // Lo que escribió la sesión al juntar no lo vio la revisión de construir: en los archivos de CHATS y BOT_VENTAS se
+        // busca otra vez un envío nuevo a clientes (la misma revisión mecánica de revisar de nuevo).
+        const tocadas = zonasTocadas(resuelto.archivos, repo.zonasProtegidas);
+        const deLasZonas = [...new Set(ZONAS_QUE_SE_REVISAN_DE_NUEVO.flatMap((zona) => tocadas[zona] ?? []))];
+        const envios = deLasZonas.length ? enviosNuevosDeMensajes(await diffDeArchivos(carpeta, base, deLasZonas)) : [];
+        if (envios.length) {
+          throw new ErrorDeEtapa(`Al resolver el choque con ${repo.ramaBase} quedó un envío nuevo a clientes (${enUnaLinea(envios[0].trim(), 200)}): no se sube. No se subió nada.`, {
+            categoria: "zona",
+            zonas: ZONAS_QUE_SE_REVISAN_DE_NUEVO.filter((zona) => tocadas[zona]?.length),
+          });
+        }
         registro.info(`choque con ${repo.ramaBase} resuelto solo (${resuelto.archivos.join(", ")}): sigue la subida`);
       }
       if (confiarEnLaNube) {
