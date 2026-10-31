@@ -19,6 +19,7 @@ import {
   categoriaDeEntrada,
   causaConEstrategia,
   causaDeEntrada,
+  causaExternaDeEntrada,
   destinoDelResultado,
   TEXTO_APROBACION_HEREDADA,
   aprobacionDelDuenoEnElHistorial,
@@ -994,6 +995,7 @@ export async function accionDelTrabajador(
   if (accion === "partir") return partirTarjeta(contexto, actual, cuerpo, ahora);
   if (accion === "depender") return ponerDependencias(contexto, actual, cuerpo, ahora);
   if (accion === "limpieza") return pedirLimpieza(contexto, actual, cuerpo, ahora);
+  if (accion === "causa-externa") return pedirCausaExterna(contexto, actual, cuerpo, ahora);
   if (accion === "recoger") return recogerTarjeta(contexto, actual, cuerpo, ahora);
   if (accion === "rescatar") return rescatarTarjeta(contexto, actual, cuerpo, ahora);
   if (accion === "revisar_de_nuevo") return revisarDeNuevo(contexto, actual, cuerpo, ahora);
@@ -1555,6 +1557,119 @@ async function pedirLimpieza(contexto: ContextoTrabajador, actual: FilaParaTraba
     });
     await tocarTableros(tx, [actual.tableroId], ahora);
     return { ok: true, creada: true, agregados: errores.length, tarjetaId: nueva.id, link: linkDeLaTarjeta(nueva.id) };
+  });
+}
+
+/**
+ * POST /:id/causa-externa (31-oct-2026): la falla no es de la tarea (la vigilancia revirtió la subida, main ya trae lint o pruebas
+ * rotas, choca con otra tarjeta, el servidor / SSH / base no responde). En una transacción:
+ *  1. Busca una tarjeta abierta (ni HECHO ni FALLIDO) con ese título exacto en el mismo tablero y la reusa (le agrega el detalle nuevo):
+ *     es el tope de 1 abierta por causa. Si no hay, la crea en APROBADO con la aprobación heredada (como la de limpieza). Con
+ *     `referencia` (choque) no crea nada: busca esa tarjeta por id o por título.
+ *  2. Pone la flecha de dependencia (causa -> esta), sin ciclos.
+ *  3. Suelta esta sin ERROR ni intento gastado (PLANEANDO -> APROBADO; EN_CURSO y SUBIENDO -> PLAN_APROBADO), con la nota "Esperando a «X»".
+ *     Vuelve sola cuando la otra llega a HECHO (el mecanismo de dependencia de siempre).
+ * Si la otra ya está HECHO o la flecha haría un ciclo, no la suelta (soltada: false): el Coordinador sigue el camino de siempre.
+ * -> { creada, tarjetaId, esperando, soltada, estado, link }
+ */
+async function pedirCausaExterna(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
+  const causa = causaExternaDeEntrada(cuerpo);
+  if (typeof causa === "string") throw new ErrorDelTrabajador(causa, 400);
+  const estado = actual.estado as EstadoTarjetaTablero;
+  const etapa = etapaDeEntrada(cuerpo.etapa, estado);
+  const categoria = categoriaDeEntrada(cuerpo.categoria) ?? "otra";
+  const repo = (REPOS_DEL_TRABAJADOR as readonly string[]).includes(actual.repo ?? "") ? (actual.repo as string) : null;
+
+  return prisma.$transaction(async (tx) => {
+    let origen: { id: string; titulo: string; estado: string } | null = null;
+    let creada = false;
+    if (causa.referencia) {
+      const buscada = causa.referencia.toLowerCase();
+      const candidatas = await tx.tarjetaTablero.findMany({
+        where: { tableroId: actual.tableroId, borradoEn: null, id: { not: actual.id }, tipo: { usaEstados: true } },
+        select: { id: true, titulo: true, estado: true },
+      });
+      origen = candidatas.find((tarjeta) => tarjeta.id === causa.referencia) ?? candidatas.find((tarjeta) => tarjeta.titulo.trim().toLowerCase() === buscada) ?? null;
+    } else {
+      const abierta = await tx.tarjetaTablero.findFirst({
+        where: { tableroId: actual.tableroId, borradoEn: null, titulo: causa.titulo, estado: { notIn: ["HECHO", "FALLIDO"] } },
+        orderBy: { creadoEn: "asc" },
+        select: { id: true, titulo: true, estado: true, detalle: true },
+      });
+      if (abierta) {
+        origen = abierta;
+        if (abierta.id !== actual.id && !abierta.detalle.includes(causa.detalle)) {
+          await tx.tarjetaTablero.update({ where: { id: abierta.id }, data: { detalle: `${abierta.detalle.trimEnd()}\n\n${causa.detalle}`.slice(0, 20_000) } });
+          await anotarTrabajador(tx, contexto, abierta.id, {}, { nota: `la misma causa frenó también a «${actual.titulo}»` });
+        }
+      } else {
+        const madre = await tx.tarjetaTablero.findFirst({ where: { id: actual.id }, select: { tipoId: true, area: true, creadoPor: true, orden: true } });
+        if (!madre) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+        const nueva = await tx.tarjetaTablero.create({
+          data: { tableroId: actual.tableroId, titulo: causa.titulo, detalle: causa.detalle, area: madre.area, estado: "APROBADO", orden: madre.orden + 1, tipoId: madre.tipoId, repo, creadoPor: madre.creadoPor },
+          select: { id: true, titulo: true, estado: true },
+        });
+        await tx.historialTarjeta.create({
+          data: {
+            tarjetaId: nueva.id,
+            quien: quienEs(contexto),
+            origen: "TRABAJADOR",
+            accion: "crear",
+            despues: { titulo: causa.titulo, estado: "APROBADO", nota: `causa externa que frenó a «${actual.titulo}»` } as Prisma.InputJsonValue,
+          },
+        });
+        await tx.historialTarjeta.create({
+          data: {
+            tarjetaId: nueva.id,
+            quien: quienEs(contexto),
+            origen: "TRABAJADOR",
+            accion: "aprobar",
+            antes: { estado: "APROBADO" } as Prisma.InputJsonValue,
+            despues: { estado: "APROBADO", momento: "tarea", como: "heredada", heredadaDe: actual.id } as Prisma.InputJsonValue,
+          },
+        });
+        origen = nueva;
+        creada = true;
+      }
+    }
+    const sinSoltar = { ok: true, creada, tarjetaId: origen?.id ?? null, esperando: null, soltada: false, estado, link: linkDeLaTarjeta(actual.id) };
+    if (!origen || origen.estado === "HECHO") {
+      if (creada) await tocarTableros(tx, [actual.tableroId], ahora);
+      return sinSoltar;
+    }
+
+    const dependencias = await tx.conexionTarjeta.findMany({ where: { tableroId: actual.tableroId, esDependencia: true }, select: { origenId: true, destinoId: true } });
+    if (!dependencias.some((flecha) => flecha.origenId === origen.id && flecha.destinoId === actual.id)) {
+      if (dependenciaHaceCiclo(dependencias, origen.id, actual.id)) {
+        if (creada) await tocarTableros(tx, [actual.tableroId], ahora);
+        return sinSoltar;
+      }
+      await tx.conexionTarjeta.create({ data: { tableroId: actual.tableroId, origenId: origen.id, destinoId: actual.id, esDependencia: true } });
+      dependencias.push({ origenId: origen.id, destinoId: actual.id });
+      await anotarTrabajador(tx, contexto, actual.id, { estado }, { estado, nota: `depende de «${origen.titulo}» (causa externa: ${causa.tipo})` });
+    }
+    // De quién depende ahora (con lo de antes): la etiqueta "Esperando a «X»".
+    const deQuien = dependencias.filter((flecha) => flecha.destinoId === actual.id).map((flecha) => flecha.origenId);
+    const pendientes = await tx.tarjetaTablero.findMany({
+      where: { id: { in: deQuien }, borradoEn: null, tipo: { usaEstados: true } },
+      select: { titulo: true, estado: true },
+    });
+    const etiqueta = etiquetaEsperando(pendientes.map((tarjeta) => ({ titulo: tarjeta.titulo, estado: tarjeta.estado ?? "" }))) ?? `Esperando a «${origen.titulo}»`;
+    const vuelve = estadoTrasReparar(estado);
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: { id: actual.id, estado: actual.estado, borradoEn: null },
+      data: { estado: vuelve, trabajoVenceEn: null, intentos: Math.max(0, actual.intentos - 1) },
+    });
+    if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    await anotarTrabajador(tx, contexto, actual.id, { estado }, { estado: vuelve, nota: etiqueta, categoria });
+    await anotarIntento(
+      tx,
+      actual.id,
+      { etapa, categoria, causa: causaDeEntrada(cuerpo.causa, causaDeEntrada(etiqueta)), error: errorDeIntentoDeEntrada(cuerpo.error), accion: "esperar", cuentaComoIntento: false },
+      ahora,
+    );
+    await tocarTableros(tx, [actual.tableroId], ahora);
+    return { ok: true, creada, tarjetaId: origen.id, esperando: etiqueta, soltada: true, estado: vuelve, link: linkDeLaTarjeta(actual.id) };
   });
 }
 

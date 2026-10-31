@@ -11,6 +11,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { idCorto } from "./git.mjs";
+
 export const rutaDelEstadoDeNotas = (carpetaTrabajo) => path.join(carpetaTrabajo, "notas-boveda.json");
 const MAXIMO_RECORDADAS = 500;
 
@@ -76,6 +78,49 @@ export function escribirNotaEnLaBoveda(boveda, ruta, contenido) {
   // Siempre queda "texto anterior" + línea en blanco + "---" + línea en blanco + lo nuevo.
   const separador = !antes.trim() ? "" : antes.endsWith("\n\n") ? "---\n\n" : antes.endsWith("\n") ? "\n---\n\n" : SEPARADOR;
   fs.appendFileSync(archivo, `${separador}${texto}`);
+  return { accion: "agregada", archivo };
+}
+
+/*
+  AVISO AL CTO (31-oct-2026): una tarjeta que juntó 3 causas distintas sin resolverse deja UNA fila fechada al final del registro
+  del Coordinador en la bóveda, con el formato de la tabla "Registro horario":
+    | 30-oct 14:05 | <id corto> | coordinador | AVISO AL CTO: «<tarjeta>» — causas: a, b, c |
+  Al dueño no se le escribe por esto (ni avisos-al-dueño ni WhatsApp). Nunca sobrescribe y no repite la fila de la misma tarjeta.
+*/
+export const REGISTRO_DEL_COORDINADOR = "CRM-Gestion/2026-10-25-coordinador-registro.md";
+
+const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+/** "30-oct 14:05" en la hora de Bogotá. */
+export function fechaDelRegistro(fecha = new Date()) {
+  const partes = Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", { timeZone: "America/Bogota", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(fecha)
+      .map((parte) => [parte.type, parte.value]),
+  );
+  return `${Number(partes.day)}-${MESES[Number(partes.month) - 1]} ${partes.hour}:${partes.minute}`;
+}
+
+/** Un texto apto para una celda de la tabla: en una línea, sin "|" y de máximo `n` letras. */
+const celda = (texto, n) => {
+  const limpio = String(texto ?? "").replace(/\|/g, "/").replace(/\s+/g, " ").trim();
+  return limpio.length > n ? `${limpio.slice(0, n - 1)}…` : limpio;
+};
+
+/**
+ * Agrega la fila "AVISO AL CTO" al registro del Coordinador. `tarjeta` { id, titulo }; `causas`: textos (una por causa distinta).
+ * -> { accion: "agregada" | "repetida", archivo }. Lanza si la bóveda no existe o la ruta se sale.
+ */
+export function anotarAvisoAlCto(boveda, { tarjeta, causas, ahora = new Date() }) {
+  if (!boveda || !fs.existsSync(boveda) || !fs.statSync(boveda).isDirectory()) throw new Error(`no existe la carpeta de la bóveda (${boveda ?? "sin configurar"})`);
+  const archivo = destinoEnLaBoveda(boveda, REGISTRO_DEL_COORDINADOR);
+  const corto = idCorto(tarjeta?.id ?? "") || "?";
+  const antes = fs.existsSync(archivo) ? fs.readFileSync(archivo, "utf8") : "";
+  if (antes.split(/\r?\n/).some((linea) => linea.includes("AVISO AL CTO") && linea.includes(`| ${corto} |`))) return { accion: "repetida", archivo };
+  const fila = `| ${fechaDelRegistro(ahora)} | ${corto} | coordinador | AVISO AL CTO: «${celda(tarjeta?.titulo, 120)}» — causas: ${celda((causas ?? []).join(", "), 600)} |`;
+  fs.mkdirSync(path.dirname(archivo), { recursive: true });
+  // Solo se agrega al final (nunca se reescribe el archivo): si no termina en salto de línea, se pone uno antes.
+  fs.appendFileSync(archivo, `${antes && !antes.endsWith("\n") ? "\n" : ""}${fila}\n`);
   return { accion: "agregada", archivo };
 }
 

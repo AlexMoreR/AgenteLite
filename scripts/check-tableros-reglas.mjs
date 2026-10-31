@@ -843,6 +843,7 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
     recoger: ["ERROR"],
     "ya-hecha": ["PLANEANDO", "EN_CURSO"],
     limpieza: ["EN_CURSO", "SUBIENDO", "POR_REVISAR", "HECHO"],
+    "causa-externa": ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
   };
   for (const [accion, validos] of Object.entries(esperado)) {
     for (const estado of reglas.ESTADOS_TARJETA) {
@@ -852,7 +853,7 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
-    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null, rescatar: null, revisar_de_nuevo: null },
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null, rescatar: null, revisar_de_nuevo: null, "causa-externa": null },
   );
   // Revisión previa (27-oct-2026): la nota de "ya estaba hecha" y el título único de la tarjeta de limpieza.
   assert.equal(trabajo.notaDeYaHecha("f4759b0"), "ya estaba hecho (commit f4759b0)");
