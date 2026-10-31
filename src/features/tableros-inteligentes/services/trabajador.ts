@@ -14,6 +14,7 @@ import {
   REPOS_DEL_TRABAJADOR,
   TOPE_DE_ESPERAS_SEGUIDAS,
   TOPE_DE_REPARACIONES,
+  TOPE_DE_CHOQUES_SEGUIDOS,
   TRANSICIONES_DEL_TRABAJADOR,
   categoriaDeEntrada,
   causaConEstrategia,
@@ -30,6 +31,8 @@ import {
   decisionDeRecogerDeEntrada,
   dependenciaHaceCiclo,
   esperasSeguidas,
+  choquesSeguidos,
+  puedeReconstruirPorChoque,
   esZona,
   estadoDeLasHijas,
   estadoTrasRecoger,
@@ -537,6 +540,51 @@ export async function arranqueDelTrabajador(contexto: ContextoTrabajador, ahora 
   });
 }
 
+/**
+ * /reparar con `cuenta: false` y choca_con_main (31-oct-2026): main cambió mientras se construía, no es culpa de la tarea.
+ * Vuelve a construir (estadoTrasReparar) desde el main más nuevo SIN sumar reparación ni gastar el intento, y deja una fila
+ * "esperar" que no cuenta. Con TOPE_DE_CHOQUES_SEGUIDOS choques seguidos, 409: el Coordinador escala con /error.
+ */
+async function reconstruirPorChoque(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
+  const estado = actual.estado as EstadoTarjetaTablero;
+  const vuelve = estadoTrasReparar(estado);
+  const etapa = etapaDeEntrada(cuerpo.etapa, estado);
+  const intento: IntentoPorGuardar = {
+    etapa,
+    categoria: "choca_con_main",
+    causa: causaDeEntrada(cuerpo.causa, sinMotivoDelCoordinador(etapa, actual.intentos, "causa")),
+    error: errorDeIntentoDeEntrada(cuerpo.error),
+    accion: "esperar",
+    cuentaComoIntento: false,
+  };
+  return prisma.$transaction(async (tx) => {
+    const recientes = await tx.intentoTarjeta.findMany({
+      where: { tarjetaId: actual.id },
+      orderBy: { numero: "desc" },
+      take: 50,
+      select: { categoria: true, cuentaComoIntento: true },
+    });
+    const choques = choquesSeguidos([...recientes].reverse());
+    const tope = puedeReconstruirPorChoque(choques);
+    if (tope) throw new ErrorDelTrabajador(tope, 409);
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: { id: actual.id, estado: actual.estado, borradoEn: null },
+      data: { estado: vuelve, trabajoVenceEn: null, intentos: Math.max(0, actual.intentos - 1) },
+    });
+    if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    await anotarTrabajador(
+      tx,
+      contexto,
+      actual.id,
+      { estado },
+      { estado: vuelve, nota: `choca con main (${choques + 1} de ${TOPE_DE_CHOQUES_SEGUIDOS} seguidos, no cuenta): se reconstruye desde el main más nuevo: ${intento.causa}`, categoria: intento.categoria },
+    );
+    await anotarIntento(tx, actual.id, intento, ahora);
+    await tocarTableros(tx, [actual.tableroId], ahora);
+    return { ok: true, estado: vuelve, reparaciones: actual.reparaciones, choques: choques + 1, link: linkDeLaTarjeta(actual.id) };
+  });
+}
+
 /** Guarda una fila de IntentoTarjeta (el número es consecutivo por tarjeta). */
 async function anotarIntento(
   tx: Tx,
@@ -903,6 +951,10 @@ export async function accionDelTrabajador(
       await tocarTableros(tx, [actual.tableroId], ahora);
       return { ok: true, estado: vuelve, link: linkDeLaTarjeta(actual.id) };
     });
+  }
+
+  if (accion === "reparar" && cuerpo.cuenta === false && categoriaDeEntrada(cuerpo.categoria) === "choca_con_main") {
+    return reconstruirPorChoque(contexto, actual, cuerpo, ahora);
   }
 
   if (accion === "reparar") {

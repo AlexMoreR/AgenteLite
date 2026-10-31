@@ -1257,6 +1257,9 @@ export const CATEGORIAS_DE_INTENTO = [
   // 29-oct-2026: la sesión de la nube iba a quedar sin el repo conectado (o la sesión fija del proyecto no responde): no puede subir
   // su rama. Tampoco se repara sola (trabajador-tablero/lib/nube.mjs: chequeo previo).
   "nube_sin_acceso_repo",
+  // 31-oct-2026: lo nuevo de main y la tarea no encajan aunque el rebase no tuvo conflicto de texto. Siempre escala, no se
+  // repara sola (diagnostico.mjs: SIN_REPARACION_AUTOMATICA).
+  "choque_de_logica",
   "otra",
 ] as const;
 export type CategoriaDeIntento = (typeof CATEGORIAS_DE_INTENTO)[number];
@@ -1351,6 +1354,28 @@ export function esperasSeguidas(intentos: readonly { cuentaComoIntento: boolean 
   let esperas = 0;
   for (let i = intentos.length - 1; i >= 0 && !intentos[i].cuentaComoIntento; i -= 1) esperas += 1;
   return esperas;
+}
+
+/**
+ * Cuántos choques con main seguidos se reconstruyen sin gastar una reparación (31-oct-2026); el siguiente escala. Igual a
+ * TOPE_DE_CHOQUES_SEGUIDOS de trabajador-tablero/lib/diagnostico.mjs.
+ */
+export const TOPE_DE_CHOQUES_SEGUIDOS = 3;
+
+/** Los choques con main seguidos: las filas choca_con_main entre las que no cuentan después de la última que sí cuenta. */
+export function choquesSeguidos(intentos: readonly { cuentaComoIntento: boolean; categoria: string }[]): number {
+  let choques = 0;
+  for (let i = intentos.length - 1; i >= 0 && !intentos[i].cuentaComoIntento; i -= 1) {
+    if (intentos[i].categoria === "choca_con_main") choques += 1;
+  }
+  return choques;
+}
+
+/** ¿Se puede reconstruir un choque con main sin contarlo? Con TOPE_DE_CHOQUES_SEGUIDOS seguidos, no: escala con /error. */
+export function puedeReconstruirPorChoque(choques: number): Veredicto {
+  return choques >= TOPE_DE_CHOQUES_SEGUIDOS
+    ? `Ya chocó con main ${choques} veces seguidas (el tope es ${TOPE_DE_CHOQUES_SEGUIDOS}): escala con /error y un resumen para el dueño.`
+    : null;
 }
 
 export type ParteDeLaTarjeta = { titulo: string; detalle: string };

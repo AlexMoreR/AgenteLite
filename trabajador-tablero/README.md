@@ -473,7 +473,9 @@ etapa falla, el Coordinador (`lib/bucle.mjs`, `lib/diagnostico.mjs`):
 | `nube_sin_acceso_repo` | `claude --cloud` no conectó el repo (log: "GitHub app is not installed" / `github_preflight_failed`) o la sesión fija no responde | ERROR enseguida ("la nube no tiene acceso al repo"); el proyecto no va a la nube en `nube.sinAccesoMinutos` (60); **no se repara sola** |
 | `revision_no_paso` | los 4 revisores (ver "La revisión de los 4") siguieron pidiendo cambios tras 2 correcciones | ERROR con el revisor, lo que pide y el link de la sesión; **no se repara sola** |
 | `plan_con_preguntas` | el plan aprobado SOLO trae "PREGUNTAS ABIERTAS:" o frases como "hay que confirmar", "antes de construir hay que", "lo que no revisé" (`lib/preguntas-abiertas.mjs`, espejo en `reglas-riesgo.ts`) | no se construye: ERROR + aviso "necesita"; si el dueño aprobó el plan tal cual, sí se construye |
-| cualquier otra | la MISMA categoría ya falló 2 veces en la tarjeta (todos los intentos) | escala (salvo `limite_claude`, `pc_sobrecargado`, `carpeta_trabada`, `coordinador_cortado`, que tienen su tope de esperas) |
+| `choca_con_main` | main cambió los mismos archivos mientras se construía (conflicto en el rebase, push rechazado, o lo que verificó la nube cambió) | se reconstruye desde el main más nuevo **sin gastar reparación** (`/reparar` con `cuenta: false`: intento "esperar" que no cuenta); al 4.º choque seguido (`TOPE_DE_CHOQUES_SEGUIDOS` = 3, igual en el CRM) escala |
+| `choque_de_logica` | lo nuevo de main y la tarea no encajan aunque el rebase no tuvo conflicto | ERROR enseguida; **no se repara sola** |
+| cualquier otra | la MISMA categoría ya falló 2 veces en la tarjeta (todos los intentos) | escala (salvo `limite_claude`, `pc_sobrecargado`, `carpeta_trabada`, `coordinador_cortado` y `choca_con_main`, que tienen su tope de esperas o de choques) |
 
 Además: un plan con preguntas abiertas no se aprueba solo (queda PLAN_LISTO con el motivo), y una tarea cuyo plan
 toca **más de una parte del sistema** (`src/modules/X`, `src/features/X`, `src/app/<área>`, `scripts/X`, otro

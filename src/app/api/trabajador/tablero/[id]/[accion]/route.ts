@@ -24,7 +24,9 @@ export const dynamic = "force-dynamic";
               PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente, sin ERROR ni contar el intento (Claude llegó
               a su límite de uso, o choca con otra que corre). Con `categoria` queda un intento "esperar".
   - reparar   { etapa, categoria, causa, error, estrategia? }   PLANEANDO | EN_CURSO | SUBIENDO -> la fila sin
-              ERROR (APROBADO / PLAN_APROBADO), reparaciones + 1. 409 si ya lleva 3.
+              ERROR (APROBADO / PLAN_APROBADO), reparaciones + 1. 409 si ya lleva 3. Con `cuenta: false` y categoria
+              choca_con_main: vuelve a construir sin sumar reparación (intento "esperar" que no cuenta); 409 con 3
+              choques seguidos.
   - partir    { causa, error, partes: [{ titulo, detalle }] }   EN_CURSO | PLANEANDO: crea de 2 a 4 hijas en orden
               (dependencia), la madre queda donde estaba, sin candado. Desde EN_CURSO las hijas quedan
               PLAN_APROBADO con su parte como plan; desde PLANEANDO (medir antes de planear) quedan APROBADO,

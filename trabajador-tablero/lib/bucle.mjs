@@ -617,6 +617,24 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
   const intento = { etapa: hacer, categoria: diagnostico.categoria, causa: enUnaLinea(diagnostico.causa) || sinCausa(hacer, tarjeta.intentos), error: diagnostico.error };
 
   // 4. Hacerlo.
+  // 31-oct-2026: choca con main -> se reconstruye desde el main más nuevo sin gastar reparación (cuenta: false). /reparar
+  // la devuelve a construir y guarda un intento que no cuenta; si el CRM ya no deja (su tope de choques seguidos), se escala.
+  if (decision.arreglo === "reconstruir") {
+    const causa = error?.verificarEnNube ? `${enUnaLinea(intento.causa, 160)} [estrategia: nube]` : intento.causa;
+    try {
+      await crm.reparar(tarjeta.id, { ...intento, causa, cuenta: false });
+      registro.info("choca con main: la tarjeta vuelve a construir desde el main más nuevo (no gasta reparación)");
+      return resultado;
+    } catch (otro) {
+      if (otro?.status !== 409) {
+        registro.error(`no se pudo pedir la reconstrucción al CRM: ${otro.message}`);
+        return resultado;
+      }
+      registro.aviso(`el CRM no deja reconstruir más (${otro.message}): se escala`);
+      decision.accion = "escalar";
+      resultado.accion = "escalar";
+    }
+  }
   if (decision.accion === "esperar") {
     if (decision.arreglo === "sin_claude") await arreglarSinClaude(contexto, tarjeta, diagnostico.categoria, registro);
     await soltar(crm, registro, tarjeta, `${diagnostico.causa} Se reintenta después.`, intento);

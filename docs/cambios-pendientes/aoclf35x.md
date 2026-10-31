@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `coordinador_choca_con_main`: un choque con main (main cambió los mismos archivos mientras se construía) ya no gasta reparación: la tarjeta vuelve sola a construir desde el main más nuevo, con un intento "Esperó" que no cuenta; al 4.º choque seguido pasa a ERROR para el dueño. La categoría nueva `choque_de_logica` (main y la tarea no encajan aunque el rebase no chocó) siempre va al dueño, no se repara sola.

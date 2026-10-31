@@ -88,7 +88,8 @@ export function esTareaGrande(tarjeta, { repo = null, maxArchivosChica = 8 } = {
   const previa = categorias.find((categoria) => CATEGORIAS_DE_TAMANO.includes(categoria));
   if (previa) motivos.push(`ya falló por tamaño o recursos (${previa})`);
   // Lo que verificó la nube cambió al subir (confiarEnResultado): se verifica otra vez en la nube, no en aizen1.
-  const ultimaReparacion = [...(tarjeta?.ultimosIntentos ?? [])].reverse().find((intento) => intento?.accion === "reparar");
+  // El choque con main que se reconstruye sin contar (31-oct-2026) queda como "esperar" con su marca de estrategia.
+  const ultimaReparacion = [...(tarjeta?.ultimosIntentos ?? [])].reverse().find((intento) => intento?.accion === "reparar" || (intento?.accion === "esperar" && intento?.categoria === "choca_con_main"));
   if (tarjeta?.reparacion?.estrategia === "nube" || /\[estrategia: nube\]\s*$/.test(String(ultimaReparacion?.causa ?? ""))) {
     motivos.push("lo que verificó la nube cambió al subir: se verifica otra vez en la nube");
   }

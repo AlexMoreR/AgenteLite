@@ -39,6 +39,9 @@ export const CATEGORIAS = [
   // 30-oct-2026: una tarjeta de chats o del bot de ventas que no puede subir sola (p. ej. agrega un envío nuevo a clientes): ERROR
   // con el motivo. Repararla sola podría borrar el envío que se pidió.
   "zona",
+  // 31-oct-2026: el rebase con main no tuvo conflicto de texto, pero lo nuevo de main y la tarea no encajan (la lógica
+  // choca). No se repara sola: reconstruir otra vez no lo arregla, alguien tiene que decidir cómo juntarlos.
+  "choque_de_logica",
   "otra",
 ];
 
@@ -46,10 +49,13 @@ export const CATEGORIAS = [
  * Las categorías que NO se reparan solas (29-oct-2026, 62 % del uso semanal se fue en reintentos ciegos): van directo al
  * dueño con el link y la línea de qué necesita. Repetirlas no cambia nada hasta que alguien encuentre la causa.
  */
-export const SIN_REPARACION_AUTOMATICA = ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas", "revision_no_paso", "nube_sin_acceso_repo", "zona"];
+export const SIN_REPARACION_AUTOMATICA = ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas", "revision_no_paso", "nube_sin_acceso_repo", "zona", "choque_de_logica"];
 
-/** Las que no son de la tarea (ya tienen su tope de esperas): no cuentan para "la misma causa 2 veces". */
-const AJENAS_A_LA_TAREA = ["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado"];
+/**
+ * Las que no son de la tarea (ya tienen su tope de esperas): no cuentan para "la misma causa 2 veces". El choque con main
+ * (31-oct-2026) tampoco: es main que cambió mientras tanto, no la tarea; tiene su propio tope (TOPE_DE_CHOQUES_SEGUIDOS).
+ */
+const AJENAS_A_LA_TAREA = ["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado", "choca_con_main"];
 
 /** Con cuántas fallas previas de la MISMA categoría (en los intentos de la tarjeta) ya no se repara: se escala. */
 export const TOPE_DE_FALLAS_IGUALES = 2;
@@ -60,6 +66,8 @@ export const ACCIONES = ["reparar", "partir", "esperar", "escalar"];
 /** Iguales a reglas-trabajador.ts del CRM. */
 export const TOPE_DE_REPARACIONES = 3;
 export const TOPE_DE_ESPERAS_SEGUIDAS = 5;
+/** Cuántos choques con main seguidos se reconstruyen sin gastar una reparación; el siguiente se escala. */
+export const TOPE_DE_CHOQUES_SEGUIDOS = 3;
 export const MAXIMO_DE_PARTES = 4;
 export const MINIMO_DE_PARTES = 2;
 
@@ -181,6 +189,7 @@ const CAUSA_BASE = {
   revision_no_paso: "Los revisores siguieron pidiendo cambios tras 2 vueltas de corrección",
   nube_sin_acceso_repo: "La nube no tiene acceso al repo",
   zona: "El cambio de chats o del bot de ventas no puede subir solo",
+  choque_de_logica: "Lo nuevo de main y el cambio de la tarea no encajan (choque de lógica)",
   otra: "No se reconoció la causa",
 };
 
@@ -383,6 +392,20 @@ export function queCambiaFrenteAlAnterior(diagnostico, intentosPrevios, estrateg
   return enUnaLinea(`la falla es distinta a la del intento anterior (${anterior.categoria ?? "otra"}: ${antes}): se corrige esta, sin repetir lo de antes`);
 }
 
+/**
+ * Los choques con main seguidos que ya se reconstruyeron sin contar: los intentos con choca_con_main entre los que NO
+ * cuentan después del último que sí cuenta (las mismas filas que esperasSeguidas en reglas-trabajador.ts del CRM).
+ */
+export function choquesSeguidos(intentos) {
+  let n = 0;
+  for (const intento of [...(intentos ?? [])].reverse()) {
+    const cuenta = intento?.cuentaComoIntento ?? intento?.accion !== "esperar";
+    if (cuenta) break;
+    if (intento.categoria === "choca_con_main") n += 1;
+  }
+  return n;
+}
+
 /** ¿Lo que se intentó antes (los últimos intentos de la tarjeta) ya tiene `categoria` N veces seguidas contando reparaciones? */
 function reparacionesSeguidasCon(intentos, categoria) {
   let n = 0;
@@ -399,7 +422,8 @@ function reparacionesSeguidasCon(intentos, categoria) {
  *   accion      "reparar" | "partir" | "esperar" | "escalar"
  *   cuenta      si cuenta como una de las 3 reparaciones (reparar y escalar sí; esperar y partir no)
  *   estrategia  "opus" cuando la 2ª reparación seguida con la misma categoría cambia de modelo; "nube" si se verifica otra vez en la nube
- *   arreglo     "sin_claude": el Coordinador lo arregla solo (cierra procesos, limpia la carpeta, espera al PC)
+ *   arreglo     "sin_claude": el Coordinador lo arregla solo (cierra procesos, limpia la carpeta, espera al PC);
+ *               "reconstruir": choca con main, se construye otra vez desde el main más nuevo sin gastar reparación
  *   motivo      por qué, para el log
  *   causa, queCambia  (al reparar) la causa en una frase y qué cambia frente al intento anterior
  *   mismaCausa  true cuando escala porque la falla es igual a la anterior y no hay nada distinto que probar
@@ -444,6 +468,16 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
     return reparaciones < tope
       ? { accion: "reparar", cuenta: true, motivo: `${categoria} ${TOPE_DE_ESPERAS_SEGUIDAS} veces seguidas: cuenta como reparación` }
       : { accion: "escalar", cuenta: true, motivo: `${categoria} ${TOPE_DE_ESPERAS_SEGUIDAS} veces seguidas y ya no quedan reparaciones` };
+  }
+
+  // 31-oct-2026: un choque con main no es culpa de la tarea: se reconstruye desde el main más nuevo sin gastar una reparación
+  // (cuenta: false), hasta TOPE_DE_CHOQUES_SEGUIDOS seguidos; el siguiente escala.
+  if (categoria === "choca_con_main") {
+    const choques = choquesSeguidos(intentos);
+    if (choques < TOPE_DE_CHOQUES_SEGUIDOS) {
+      return { accion: "esperar", cuenta: false, arreglo: "reconstruir", motivo: `choca con main: se reconstruye desde el main más nuevo sin gastar reparación (${choques + 1}º choque seguido de ${TOPE_DE_CHOQUES_SEGUIDOS})` };
+    }
+    return { accion: "escalar", cuenta: true, motivo: `choca con main ${choques + 1} veces seguidas: main sigue cambiando lo mismo, lo ve el dueño` };
   }
 
   // 29-oct-2026: la nube que no dejó resultado (o preguntó) y el plan con preguntas abiertas no se reparan solos.
@@ -524,6 +558,7 @@ const NECESITA = {
   plan_con_preguntas: "Responder las preguntas del plan (en el detalle de la tarjeta) y aprobar de nuevo la tarea, o aprobar el plan tal cual.",
   revision_no_paso: "Leer qué pidió el revisor (en el detalle de la tarjeta): si tiene razón, aclarar el plan y aprobar de nuevo; si no, tocar Reintentar.",
   nube_sin_acceso_repo: "Revisar que la app de GitHub de Claude tenga acceso al repo (o abrir la sesión fija del proyecto en claude.ai y ver que siga viva) y tocar Reintentar.",
+  choque_de_logica: "Mirar qué cambió en main y qué pide la tarea (Detalles técnicos) y decidir cómo juntarlos; después tocar Reintentar.",
   zona: "Leer el motivo (No sube: …): si el envío a clientes no se pidió, aclarar el plan y aprobar de nuevo; si sí se pidió, subirlo a mano.",
   otra: "Que alguien mire los Detalles técnicos y diga qué hacer.",
 };

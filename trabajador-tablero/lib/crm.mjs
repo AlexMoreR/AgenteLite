@@ -72,7 +72,11 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     candidatas: () => pedir("/api/trabajador/tablero/candidatas"),
     /** Devuelve la tarjeta a la fila sin ERROR. `extra` { categoria, causa, error, etapa }: el CRM guarda un intento "esperar" que no cuenta. */
     soltar: (id, motivo, extra) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/soltar`, { motivo, ...limpio(extra) }),
-    /** La falla se repara: vuelve a la fila (PLAN_APROBADO o APROBADO), reparaciones + 1. 409 si ya hizo las 3. { etapa, categoria, causa, error, estrategia? } */
+    /**
+     * La falla se repara: vuelve a la fila (PLAN_APROBADO o APROBADO), reparaciones + 1. 409 si ya hizo las 3. { etapa, categoria, causa, error, estrategia?, cuenta? }
+     * `cuenta: false` (31-oct-2026, solo con choca_con_main): vuelve a construir desde el main más nuevo SIN sumar reparación
+     * (intento que no cuenta); 409 si ya lleva TOPE_DE_CHOQUES_SEGUIDOS choques seguidos. `limpio` deja pasar el false.
+     */
     reparar: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/reparar`, limpio({ ...datos, causa: conTexto(datos?.causa, sinCausaDe(datos)) })),
     /** La tarea era muy grande: crea las partes (2 a 4) que salieron de la sesión de partir. { causa, error, partes: [{ titulo, detalle }] } */
     partir: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/partir`, limpio(datos)),

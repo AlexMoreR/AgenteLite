@@ -888,6 +888,64 @@ await prueba("30-oct: el prompt de la reparación empieza con CAUSA y QUÉ CAMBI
   assert.match(reparacionDeLaTarjeta({ ...tarjeta, reparaciones: 1, ultimosIntentos: [tarjeta.ultimosIntentos[0]] }).queCambia, /primer arreglo/);
 });
 
+await prueba("31-oct: choca con main no gasta reparación: 1º a 3º choque seguido se reconstruye (cuenta: false), el 4º escala; choque_de_logica siempre escala", () => {
+  const choque = { categoria: "choca_con_main", causa: "Choca con lo nuevo de main: conflicto en el rebase de tablero/x" };
+  const choques = (n) => Array.from({ length: n }, () => ({ accion: "esperar", categoria: "choca_con_main", causa: choque.causa, cuentaComoIntento: false }));
+  for (const previos of [0, 1, 2]) {
+    const decision = decidir({ diagnostico: choque, tarjeta: { reparaciones: 1, topeReparaciones: 3, ultimosIntentos: [{ accion: "reparar", categoria: "no_compila", causa: "X", cuentaComoIntento: true }, ...choques(previos)] }, etapa: "subir" });
+    assert.deepEqual([decision.accion, decision.cuenta, decision.arreglo], ["esperar", false, "reconstruir"], `${previos + 1}º choque seguido`);
+  }
+  // Ni la regla de "misma categoría 2 veces" ni la de "misma causa" ni el tope de reparaciones lo frenan: no es culpa de la tarea.
+  assert.equal(decidir({ diagnostico: choque, tarjeta: { reparaciones: 3, topeReparaciones: 3, ultimosIntentos: [{ accion: "reparar", categoria: "choca_con_main", causa: choque.causa, cuentaComoIntento: true }, ...choques(2)] }, etapa: "subir" }).cuenta, false);
+  const cuarto = decidir({ diagnostico: choque, tarjeta: { reparaciones: 0, ultimosIntentos: choques(3) }, etapa: "subir" });
+  assert.equal(cuarto.accion, "escalar", "el 4º choque seguido escala");
+  assert.equal(cuarto.motivo.includes("\n"), false, "el motivo en una línea");
+  assert.match(cuarto.motivo, /4 veces seguidas/);
+  // Una falla que sí cuenta en medio corta la racha: vuelve a reconstruir.
+  assert.equal(decidir({ diagnostico: choque, tarjeta: { ultimosIntentos: [...choques(3), { accion: "reparar", categoria: "no_compila", causa: "X", cuentaComoIntento: true }] }, etapa: "subir" }).accion, "esperar");
+  // Otras esperas en medio (límite de Claude) no cortan la racha.
+  assert.equal(decidir({ diagnostico: choque, tarjeta: { ultimosIntentos: [...choques(2), { accion: "esperar", categoria: "limite_claude", cuentaComoIntento: false }, ...choques(1)] }, etapa: "subir" }).accion, "escalar");
+  // El CRM cuenta igual (los topes del Coordinador y del CRM son los mismos).
+  assert.equal(reglas.TOPE_DE_CHOQUES_SEGUIDOS, 3);
+  assert.equal(reglas.choquesSeguidos(choques(3)), 3);
+  assert.equal(reglas.puedeReconstruirPorChoque(2), null);
+  assert.match(reglas.puedeReconstruirPorChoque(3), /3 veces seguidas/);
+  // choque_de_logica: categoría nueva, siempre escala, no se repara sola.
+  assert.ok(reglas.CATEGORIAS_DE_INTENTO.includes("choque_de_logica"));
+  const logica = decidir({ diagnostico: { categoria: "choque_de_logica", causa: "main y la tarea no encajan" }, tarjeta: { reparaciones: 0, ultimosIntentos: [] }, etapa: "subir" });
+  assert.deepEqual([logica.accion, logica.cuenta], ["escalar", true]);
+  assert.match(resumenDeEscalada({ tarjeta: {}, intentos: [], diagnostico: { categoria: "choque_de_logica", causa: "" } }), /choque de lógica[\s\S]*decidir cómo juntarlos/);
+});
+
+await prueba("31-oct: el bucle reconstruye un choque con main con /reparar cuenta: false; si el CRM ya no deja (409), escala", async () => {
+  const config = completarConfig({ urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: fs.mkdtempSync(path.join(os.tmpdir(), "choque-")), repos: { a: { ruta: "." } } });
+  const llamadas = [];
+  let tope = false;
+  const crmFalso = {
+    latido: async () => ({ ok: true }),
+    reparar: async (id, datos) => {
+      llamadas.push(["reparar", id, datos]);
+      if (tope) throw Object.assign(new Error("Ya chocó con main 3 veces seguidas"), { status: 409 });
+      return { ok: true, reparaciones: 0 };
+    },
+    error: async (id, motivo) => (llamadas.push(["error", id, motivo]), { ok: true }),
+    soltar: async (id) => (llamadas.push(["soltar", id]), { ok: true }),
+  };
+  const registroFalso = { info: () => {}, aviso: () => {}, error: () => {} };
+  // Una etapa que este Coordinador no conoce falla siempre, con su nombre en el error: así el error dice "choca con lo nuevo".
+  const base = { id: "ch1", titulo: "Choque", repo: "aizencrm", topeReparaciones: 3, reparaciones: 0, intentos: 1, ultimosIntentos: [] };
+  const primera = await procesar({ crm: crmFalso, config, registro: registroFalso }, base, "Choca con lo nuevo de main: conflicto en el rebase");
+  assert.equal(primera.categoria, "choca_con_main");
+  const [, , datos] = llamadas.find(([que]) => que === "reparar");
+  assert.deepEqual([datos.cuenta, datos.categoria], [false, "choca_con_main"]);
+  assert.equal(llamadas.some(([que]) => que === "error" || que === "soltar"), false, "ni ERROR ni soltar");
+  llamadas.length = 0;
+  tope = true;
+  const otra = await procesar({ crm: crmFalso, config, registro: registroFalso }, base, "Choca con lo nuevo de main: conflicto en el rebase");
+  assert.equal(otra.accion, "escalar");
+  assert.equal(llamadas.filter(([que]) => que === "error").length, 1, "con el 409 del CRM se escala");
+});
+
 await prueba("30-oct: crm.error y crm.reparar nunca salen con el motivo o la causa vacíos", async () => {
   const cuerpos = [];
   const fetchFalso = async (url, opciones) => {
@@ -1861,6 +1919,14 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     Object.assign(tarjeta, { venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1), soltada: cuerpo.motivo });
     return contestar(200, { ok: true, estado: tarjeta.estado });
   }
+  if (accion === "reparar" && cuerpo.cuenta === false && cuerpo.categoria === "choca_con_main") {
+    // Como el CRM (31-oct-2026): choca con main -> vuelve a construir sin sumar reparación; tope de 3 choques seguidos.
+    const tope = reglas.puedeReconstruirPorChoque(reglas.choquesSeguidos(tarjeta.intentosLista ?? []));
+    if (tope) return contestar(409, { ok: false, error: tope });
+    anotarIntento(tarjeta, cuerpo, "esperar", false);
+    Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado), venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1) });
+    return contestar(200, { ok: true, estado: tarjeta.estado, reparaciones: tarjeta.reparaciones ?? 0 });
+  }
   if (accion === "reparar") {
     // Como el CRM: tope de 3 reparaciones, vuelve a la fila y deja el intento (con la causa y el error exacto).
     if ((tarjeta.reparaciones ?? 0) >= reglas.TOPE_DE_REPARACIONES) return contestar(409, { ok: false, error: "Ya lleva 3 reparaciones" });
@@ -2547,6 +2613,24 @@ try {
     assert.match(tarjetas.get(id).resultado.error.motivo, /conflicto en el rebase/);
     assert.equal(shaDe("main"), mainAhora, "no subió nada");
     sinRestos();
+  });
+
+  await prueba("CRM simulado: reconstruir por choque con main (/reparar cuenta: false) guarda un intento que no cuenta, vuelve a construir y no sube 'reparaciones'; el 4º da 409", async () => {
+    const crm = crearCrm(crearConfig());
+    const id = nueva("Choca con main sin gastar [solo-crm]", "SUBIENDO", { plan: "El plan", moderno: true, reparaciones: 1, intentos: 2 });
+    const datos = { etapa: "subir", categoria: "choca_con_main", causa: "Choca con lo nuevo de main", cuenta: false };
+    for (const vez of [1, 2, 3]) {
+      Object.assign(tarjetas.get(id), { estado: "SUBIENDO", venceEn: null });
+      const respuesta = await crm.reparar(id, datos);
+      const t = tarjetas.get(id);
+      assert.equal(respuesta.reparaciones, 1, `choque ${vez}: no sube reparaciones`);
+      assert.deepEqual([t.estado, t.reparaciones], ["PLAN_APROBADO", 1], `choque ${vez}: vuelve a construir`);
+      assert.deepEqual([t.intentosLista.at(-1).accion, t.intentosLista.at(-1).cuentaComoIntento], ["esperar", false]);
+    }
+    Object.assign(tarjetas.get(id), { estado: "SUBIENDO", venceEn: null });
+    await assert.rejects(crm.reparar(id, datos), (error) => error.status === 409 && /3 veces seguidas/.test(error.message));
+    assert.equal(tarjetas.get(id).reparaciones, 1);
+    Object.assign(tarjetas.get(id), { estado: "HECHO", venceEn: null });
   });
 
   /* ── Reparar solo (24-oct-2026): diagnosticar, reparar, partir, esperar y escalar ── */
@@ -4048,8 +4132,10 @@ try {
     await correrHasta(planificador, () => tarjetas.get(id).estado === "HECHO" || tarjetas.get(id).estado === "ERROR", 180_000);
     const t = tarjetas.get(id);
     assert.equal(t.estado, "HECHO", t.resultado?.error?.motivo);
-    const reparacion = (t.intentosLista ?? []).find((intento) => intento.accion === "reparar");
-    assert.ok(reparacion, "se mandó a reparar (no ERROR)");
+    // 31-oct-2026: el choque con main se reconstruye sin gastar reparación (intento "esperar" que no cuenta).
+    const reparacion = (t.intentosLista ?? []).find((intento) => intento.categoria === "choca_con_main");
+    assert.ok(reparacion, "se mandó a reconstruir (no ERROR)");
+    assert.deepEqual([reparacion.accion, reparacion.cuentaComoIntento, t.reparaciones ?? 0], ["esperar", false, 0]);
     assert.match(reparacion.causa ?? "", /\[estrategia: nube\]$/);
     assert.match(reparacion.error ?? "", /cambió archivos que la tarea también cambia y la nube no verificó juntos \(src\/compartido\.ts\)/);
     assert.equal(llamadasALaNube(desde).length, 1, "se volvió a construir y verificar en la nube (es chica: sin la estrategia iría a aizen1)");
