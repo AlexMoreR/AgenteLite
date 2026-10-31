@@ -86,6 +86,8 @@ function archivosDeTexto(texto) {
   // ("**src/a.ts**"): los de adelante si siguen con una letra, los de atrás si no vienen después de una "/".
   for (const crudo of texto.split(/[\s`'"“”‘’(),;<>|]+/)) {
     if (!crudo || /^[a-z]+:\/\//i.test(crudo) || crudo.includes("://")) continue;
+    // El largo se mira antes de limpiar (el bucle de abajo recorre la palabra en cada vuelta); 20 de margen para el markdown.
+    if (crudo.length > MAX_LARGO_DE_RUTA + 20) continue;
     // Sin puntuación al final ("src/a.ts." o "src/a/:") ni ":12" de línea; se repite porque puede venir pegada
     // al markdown ("**src/a.ts**." o "**src/a.ts.**").
     let limpio = crudo.replace(/^\*+(?=[\w@[])/, "").replace(/\\/g, "/").replace(/^\.\//, "");
