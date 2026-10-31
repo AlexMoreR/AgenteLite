@@ -112,7 +112,7 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
               role="tab"
               aria-selected={vista === clave}
               onClick={() => elegirVista(clave)}
-              className={`h-11 min-w-0 flex-1 rounded-lg px-1.5 text-sm font-medium sm:px-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-9 ${
+              className={`h-11 min-w-0 flex-1 rounded-lg px-1 text-xs font-medium sm:px-3 sm:text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-9 ${
                 vista === clave ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
             >

@@ -40,7 +40,11 @@ function Fila({ tarjeta, ocupada, alDesarchivar }: { tarjeta: ArchivadaVista; oc
           <span className="max-w-full truncate" title={tarjeta.tableroNombre}>
             En {tarjeta.tableroNombre}
           </span>
-          {tarjeta.repo ? <span>Repo: {tarjeta.repo}</span> : null}
+          {tarjeta.repo ? (
+            <span className="max-w-full truncate" title={tarjeta.repo}>
+              Repo: {tarjeta.repo}
+            </span>
+          ) : null}
           {tarjeta.linkCommit ? (
             <a
               href={tarjeta.linkCommit}

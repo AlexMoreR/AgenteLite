@@ -2599,6 +2599,8 @@ export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId:
   if (estadoRestaurado) {
     datos.estado = estadoRestaurado;
     ahora.estado = tarjeta.estado;
+    // Volver a un estado abierto desarchiva la tarjeta, como al cambiarle el estado.
+    Object.assign(datos, alReabrir(estadoRestaurado));
   }
   const enManos = puedeEditarTarjeta(tarjeta.estado, Boolean(tarjeta.repo));
   if (enManos) throw new Error(enManos);

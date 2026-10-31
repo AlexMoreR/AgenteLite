@@ -296,6 +296,9 @@ await prueba("tableros.ts: el límite, el mapa, los contadores y 'Te toca a ti' 
   assert.equal((cuerpo("listarTableros").match(/\.\.\.VISIBLE/g) ?? []).length, 2, "los contadores del selector");
   assert.match(cuerpo("pendientesDelDueno"), /\.\.\.VISIBLE,/, "Te toca a ti");
   assert.match(cuerpo("cambiarEstadoTarjeta"), /data: \{ estado, \.\.\.alReabrir\(estado\) \}/, "se desarchiva al reabrir");
+  assert.match(cuerpo("editarTarjeta"), /data: \{ \.\.\.nuevo, estado, \.\.\.alReabrir\(estado\) \}/, "editar a un estado abierto desarchiva");
+  assert.match(cuerpo("aprobarTarjeta"), /\.\.\.alReabrir\(veredicto\.a\)/, "reintentar una FALLIDO archivada la desarchiva");
+  assert.match(cuerpo("deshacerCambioTarjeta"), /Object\.assign\(datos, alReabrir\(estadoRestaurado\)\)/, "deshacer a un estado abierto desarchiva");
 });
 
 await prueba("el Coordinador NO filtra las archivadas (una parte archivada sigue contando como HECHO)", async () => {
