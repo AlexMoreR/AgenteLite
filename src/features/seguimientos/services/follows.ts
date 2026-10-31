@@ -36,6 +36,11 @@ import { PREFIJO_FOLLOW_TRAS_ASESORA } from "@/features/seguimiento-inteligente/
 import { tipoDeSeguimiento, type TipoDeSeguimiento } from "@/features/seguimientos/dominio/apagado";
 import { anotarSeguimientosApagados, revisarApagadoDelChat } from "@/features/seguimientos/services/apagado";
 import { revisarDiaSiguienteAlEnviar } from "@/features/seguimiento-inteligente/servicios/dia-siguiente-al-enviar";
+import {
+  empezarVueltaDelRedactor,
+  redactarSeguimientoQueEscucha,
+  type MarcaDelSeguimiento,
+} from "@/features/seguimientos/services/seguimiento-que-escucha";
 
 export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
 export type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
@@ -796,6 +801,8 @@ async function persistFollowMessage(input: {
   content: string | null;
   mediaUrl: string | null;
   result: FollowSendResult;
+  /** Seguimientos que escuchan al cliente: el texto lo escribio la IA (y cual reemplazo). */
+  seguimientoQueEscucha?: MarcaDelSeguimiento | null;
 }) {
   const conversation = await resolveFollowConversation({
     workspaceId: input.workspaceId,
@@ -825,6 +832,7 @@ async function persistFollowMessage(input: {
     rawPayload: {
       source: "follow",
       evolution: input.result.raw,
+      ...(input.seguimientoQueEscucha ? { seguimientoQueEscucha: input.seguimientoQueEscucha } : {}),
     } as Prisma.InputJsonValue,
   };
 
@@ -1790,7 +1798,13 @@ async function revisarAntiBloqueoDelFollow(
   return resultado.enviar ? null : resultado;
 }
 
-async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeFreno | MotivoAntiBloqueo) {
+/** El redactor de "seguimientos que escuchan" no encontró un texto que pase la revisión. */
+const MOTIVO_SIN_TEXTO_QUE_PASE = "seguimiento_sin_texto_que_pase";
+
+async function cancelarFollowFrenado(
+  follow: ClaimedFollowRow,
+  motivo: MotivoDeFreno | MotivoAntiBloqueo | typeof MOTIVO_SIN_TEXTO_QUE_PASE,
+) {
   const now = new Date();
   const hasActionsColumn = await hasFollowActionsColumn("Follow");
   const actions = buildCancelledFollowActions({
@@ -1812,6 +1826,66 @@ async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeF
       "updatedAt" = ${now}
     WHERE "id" = ${follow.id}
   `);
+}
+
+/**
+ * Pide el texto al redactor de "seguimientos que escuchan" si este seguimiento es de los que
+ * reescribe; null si no lo es (sale como siempre). Si algo falla, null: sale el texto fijo.
+ */
+async function redactarSiCorresponde(
+  follow: ClaimedFollowRow,
+  clase: ClaseDeFollow,
+  actions: FollowActionRecord[],
+) {
+  if (clase !== "automatico" || tipoDeSeguimiento(follow) !== "embudo") return null;
+  const pendientes = actions.filter((action) => action.status === "PENDING");
+  const [accion] = pendientes;
+  if (
+    actions.length !== 1 ||
+    pendientes.length !== 1 ||
+    accion.messageType !== "TEXT" ||
+    accion.mediaUrl?.trim() ||
+    accion.flowId ||
+    !accion.content?.trim()
+  ) {
+    return null;
+  }
+  try {
+    const charla = await prisma.conversation.findFirst({
+      where: { workspaceId: follow.workspaceId, contactId: follow.contactId, ...(follow.channelId ? { channelId: follow.channelId } : {}) },
+      orderBy: { lastMessageAt: "desc" },
+      select: { id: true },
+    });
+    if (!charla) return null;
+    // Paso = seguimientos que ya salieron desde el último mensaje del cliente, más este.
+    const ultimoDelCliente = await prisma.message.findFirst({
+      where: { conversationId: charla.id, direction: "INBOUND", deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    });
+    const yaSalieron = await prisma.message.count({
+      where: {
+        conversationId: charla.id,
+        direction: "OUTBOUND",
+        deletedAt: null,
+        rawPayload: { path: ["source"], equals: "follow" },
+        ...(ultimoDelCliente ? { createdAt: { gt: ultimoDelCliente.createdAt } } : {}),
+      },
+    });
+    return await redactarSeguimientoQueEscucha({
+      conversationId: charla.id,
+      workspaceId: follow.workspaceId,
+      textoFijo: accion.content,
+      paso: yaSalieron + 1,
+      origen: follow.name ?? "seguimiento",
+    });
+  } catch (error) {
+    console.error("[follows] fallo el redactor de seguimientos; sale el texto fijo", {
+      followId: follow.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
 }
 
 async function executeFollowRecord(follow: ClaimedFollowRow) {
@@ -1920,6 +1994,38 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
   }
 
   const actions = resolveFollowExecutionActions(follow);
+
+  /*
+    Seguimientos que escuchan al cliente (parte 2). Ya pasaron TODOS los frenos de arriba: aquí solo
+    se decide el TEXTO, nunca si sale ni cuándo. Solo los automáticos de texto de la escalera
+    (1, 3 y 7 días: regla, "Etapa …" o "Sin responder …") con una sola acción de texto; los de una
+    asesora, con foto, video, audio, documento o flujo salen igual que antes.
+  */
+  const redaccion = await redactarSiCorresponde(follow, clase, actions);
+  if (redaccion && !redaccion.enviar) {
+    if (redaccion.esperarVuelta) {
+      // Tope por vuelta del reloj: no se cancela, sale en la vuelta siguiente.
+      await reprogramarFollow(follow, new Date(Date.now() + 60_000));
+      return { ok: true as const, executionError: null, frenado: "redactor_en_espera" as const };
+    }
+    await cancelarFollowFrenado(follow, MOTIVO_SIN_TEXTO_QUE_PASE);
+    anotarFrenado({
+      workspaceId: follow.workspaceId,
+      contactId: follow.contactId,
+      channelId: follow.channelId,
+      motor: "follow",
+      motivo: MOTIVO_SIN_TEXTO_QUE_PASE,
+      claveUnica: `follow:${follow.id}:${MOTIVO_SIN_TEXTO_QUE_PASE}`,
+      reglaId: follow.followRuleId,
+      reglaNombre: follow.name,
+      datos: { followId: follow.id, clase, detalle: redaccion.motivo },
+    });
+    return { ok: true as const, executionError: null, frenado: MOTIVO_SIN_TEXTO_QUE_PASE };
+  }
+  const textoRedactado = redaccion?.enviar ? redaccion.texto : null;
+  const marcaDelSeguimiento: MarcaDelSeguimiento | null =
+    redaccion?.enviar && redaccion.deIA ? { deIA: true, textoReemplazado: redaccion.textoReemplazado } : null;
+
   const workerId = follow.lockedBy || randomUUID();
   const actionErrors: Array<{ order: number; message: string }> = [];
   let lineaUsada: string | null = follow.channelId;
@@ -1951,12 +2057,15 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
         continue;
       }
 
+      // El texto del redactor (si hubo) reemplaza al fijo solo en lo que se envía y se guarda en el
+      // chat; el Follow conserva su definición (la usa la revisión de "texto vigente").
+      const contenido = textoRedactado ?? action.content;
       const sendResult = await sendFollowMessage({
         workspaceId: follow.workspaceId,
         contactId: follow.contactId,
         channelId: follow.channelId,
         messageType: action.messageType,
-        content: action.content,
+        content: contenido,
         mediaUrl: action.mediaUrl,
       });
       lineaUsada = sendResult.channel.id;
@@ -1969,9 +2078,10 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
           workspaceId: follow.workspaceId,
           contactId: follow.contactId,
           messageType: action.messageType,
-          content: action.content,
+          content: contenido,
           mediaUrl: action.mediaUrl,
           result: sendResult,
+          seguimientoQueEscucha: marcaDelSeguimiento,
         });
       } catch (persistError) {
         console.error("[follows] No se pudo persistir el mensaje de seguimiento en chats", {
@@ -2044,6 +2154,8 @@ export async function executePendingFollows(input: {
 }) {
   const workerId = input.workerId?.trim() || randomUUID();
   const limit = Math.max(1, Math.min(100, input.limit ?? 25));
+  // Seguimientos que escuchan: el tope de redacciones con IA se cuenta por vuelta del reloj.
+  empezarVueltaDelRedactor();
   const claimed = await claimDueFollowsForExecution({
     workspaceId: input.workspaceId,
     limit,
