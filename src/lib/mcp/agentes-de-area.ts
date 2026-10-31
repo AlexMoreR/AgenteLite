@@ -13,6 +13,7 @@ import { anotarAprendizaje, leerCerebroDelArea, marcarDatoViejo } from "@/featur
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { mandarWhatsAppAlEquipo } from "@/features/agentes-de-area/servicios/envios";
 import { numerosDeMarketing } from "@/features/agentes-de-area/servicios/numeros-de-marketing";
+import { leerMapa, resumenParaDecir, type DepartamentoDelMapa } from "@/features/pauta/servicios/leer-mapa";
 import { leadsNuevosDelDia } from "@/features/leads-nuevos/servicios/leads-nuevos-del-dia";
 import { numerosDeRespuestaBienvenida } from "@/features/agentes-de-area/servicios/numeros-respuesta-bienvenida";
 import { avisosDelSupervisor, medirLosSugeridosDe, numerosDelDia } from "@/features/agentes-de-area/servicios/numeros";
@@ -39,6 +40,7 @@ import { puedeVerElSupervisor } from "@/lib/mcp/supervisor";
 
   El Agente de Marketing (segunda área, mismo molde) agrega dos más:
     - numeros_de_marketing (lee)   → conversaciones por anuncio de origen: Tibio/Caliente, ventas, sin respuesta.
+                                     Con por_departamento=true: gasto, chats y ventas del mes por departamento (mapa de Colombia).
     - agente_de_marketing (lee)    → el estado, el resumen de hoy, su línea y su recomendación.
   Su resumen se guarda con guardar_resumen_del_dia (area = "marketing"). Marketing NO manda WhatsApp: su línea
   va dentro del mensaje de las 7:30 que arma Ventas. Solo LEE Meta Ads (eso lo traba aizen1, no el CRM).
@@ -192,12 +194,14 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
     name: "numeros_de_marketing",
     title: "Números de marketing por anuncio",
     description:
-      "Las conversaciones NUEVAS por ANUNCIO de origen de UN día (por defecto ayer, hora de Colombia) o de los últimos 7 días (dias=7): cuántas llegaron, cuántas quedaron en Tibio/Caliente (temperatura del sistema y etapa de la asesora), cuántas son venta (GANADO, con su cotización de Gestión), cuántas NO tuvieron respuesta y en cuánto se respondió la primera vez, y cuántas son de fuera de Colombia. Con un solo día trae además los primeros mensajes cortos de cada cliente (precio, ciudad, envío) para separar clientes reales de curiosos. Dice cuántas conversaciones NO tienen anuncio de origen y el porcentaje. El CRM guarda el anuncio, no la campaña: la campaña se une leyendo Meta. El gasto sale de Meta, no de aquí. Solo lectura.",
+      "Las conversaciones NUEVAS por ANUNCIO de origen de UN día (por defecto ayer, hora de Colombia) o de los últimos 7 días (dias=7): cuántas llegaron, cuántas quedaron en Tibio/Caliente (temperatura del sistema y etapa de la asesora), cuántas son venta (GANADO, con su cotización de Gestión), cuántas NO tuvieron respuesta y en cuánto se respondió la primera vez, y cuántas son de fuera de Colombia. Con un solo día trae además los primeros mensajes cortos de cada cliente (precio, ciudad, envío) para separar clientes reales de curiosos. Dice cuántas conversaciones NO tienen anuncio de origen y el porcentaje. El CRM guarda el anuncio, no la campaña: la campaña se une leyendo Meta. El gasto sale de Meta, no de aquí. Con por_departamento=true responde otra cosa, el MAPA DE COLOMBIA de un mes (mes = AAAA-MM, por defecto el mes en curso; fecha y dias no aplican): por departamento el gasto de Meta y su porcentaje, los chats de anuncio, las ventas y el valor vendido; los departamentos en rojo (gastan y no venden en los últimos 60 días); lo que quedó sin ubicar; qué fuente no estuvo disponible; y `resumen_para_decir`, una frase que contesta ¿de dónde vienen las ventas?. Solo lectura.",
     inputSchema: {
       type: "object",
       properties: {
         fecha: { type: "string", description: "AAAA-MM-DD (hora de Colombia): último día del rango. Por defecto, ayer." },
         dias: { type: "number", enum: [1, 7], description: "1 = solo ese día (con primeros mensajes); 7 = los últimos 7 días. Por defecto, 1." },
+        por_departamento: { type: "boolean", description: "true = el mapa de Colombia del mes: gasto, chats y ventas por departamento, y los departamentos en rojo. Por defecto, false (los números por anuncio de siempre)." },
+        mes: { type: "string", description: "Solo con por_departamento: AAAA-MM (hora de Colombia). Por defecto, el mes en curso." },
       },
       additionalProperties: false,
     },
@@ -448,9 +452,32 @@ async function mandarAlEquipo(args: Argumentos, contexto: Contexto) {
 
 async function verNumerosDeMarketing(args: Argumentos, contexto: Contexto) {
   await exigirPermiso(contexto);
+  if (args.por_departamento === true || args.por_departamento === "true") return verMapaPorDepartamento(args, contexto);
   const fecha = leerFecha(args, "fecha", diaAnterior(hoyEnBogota()));
   const dias = args.dias === 7 || args.dias === "7" ? 7 : 1;
   return numerosDeMarketing(contexto.workspaceId, fecha, dias);
+}
+
+/** El mapa de Colombia del mes, para el agente: solo los departamentos con algún dato, de más a menos ventas. */
+async function verMapaPorDepartamento(args: Argumentos, contexto: Contexto) {
+  const mapa = await leerMapa(contexto.workspaceId, { mes: texto(args.mes) || null });
+  const conDatos = (d: DepartamentoDelMapa) => Boolean(d.gasto || d.chats || d.ventas || d.rojo);
+  return {
+    mes: mapa.mes,
+    desde: mapa.desde,
+    hasta: mapa.hasta,
+    resumen_para_decir: resumenParaDecir(mapa),
+    por_departamento: mapa.departamentos
+      .filter(conDatos)
+      .sort((a, b) => (b.ventas ?? 0) - (a.ventas ?? 0) || (b.gasto ?? 0) - (a.gasto ?? 0) || (b.chats ?? 0) - (a.chats ?? 0)),
+    en_rojo: mapa.departamentos.filter((d) => d.rojo).map((d) => ({ clave: d.clave, nombre: d.nombre, gasto60d: d.gasto60d })),
+    rojo: mapa.rojo,
+    sin_ubicar: mapa.sinUbicar,
+    otras_regiones: mapa.otrasRegiones,
+    totales: mapa.totales,
+    aviso: mapa.aviso,
+    fuentes: mapa.fuentes,
+  };
 }
 
 /** La línea para Alexander y la recomendación viajan dentro de `meta` del resumen de marketing. */
