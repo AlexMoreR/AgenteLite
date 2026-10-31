@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
 import { crearVigilante, sumarDescendientes } from "../lib/atasco.mjs";
-import { crearPlanificador, crearRevisorDeNuevo, crearSemaforo, procesar, reparacionDeLaTarjeta, unaVuelta } from "../lib/bucle.mjs";
+import { crearPlanificador, crearRevisorDeNuevo, crearSemaforo, procesar, queTomarEsperandoVersion, reparacionDeLaTarjeta, unaVuelta } from "../lib/bucle.mjs";
 import { PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
@@ -40,6 +40,7 @@ import {
   promptDelPlan,
   reglasDeZonasQueSubenSolas,
   sePuedeRevisarDeNuevo,
+  subir,
 } from "../lib/etapas.mjs";
 import { MAX_DESCRIPCION, descripcionParaLaNube, esCommitDeInicio, esTareaGrande, estaDentroDe, esperarResultado, lanzarEnNube, lineaSinRepo, linkDeLaSesionFija, linkDeSesion, nombreDelProyecto, olvidarSinAcceso, sesionFijaDe, sinAccesoALaNube, preguntaDeConfianza, preguntaDelCommit, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
 import { preguntasAbiertasDelPlan, primeraPreguntaAbierta } from "../lib/preguntas-abiertas.mjs";
@@ -568,6 +569,169 @@ await prueba("nube: la configuración no deja pasar de 12 entre aizen1 y la nube
   unico();
   const otra = await lleno.tomar();
   otra();
+});
+
+/* ── Cupos por proyecto y "sin puesto" (31-oct-2026): CRM y Gestión en paralelo siempre ── */
+
+const planConArchivo = (archivo) => `1. Qué se cambia\n5. Archivos que se tocan\n- ${archivo}\n6. Cómo se va a probar: npm test`;
+/** El CRM y Gestión con sus puestos: aizen1 3 (CRM 2, Gestión 1) y la nube 2 (CRM 1, Gestión 1 por defecto). */
+const configDeCupos = (extra = {}) =>
+  completarConfig({
+    urlCrm: "https://app.aizenbot.com",
+    claveTrabajador: "aizen_trab_x",
+    carpetaTrabajo: fs.mkdtempSync(path.join(os.tmpdir(), "cupos-")),
+    motores: { planear: "claude", construir: "claude", revisar: "claude" },
+    vigilarUsoMinutos: 0,
+    maxParalelo: 3,
+    nube: { activa: true, maxTareas: 2, todoEnLaNube: true },
+    repos: { aizencrm: { ruta: ".", cuposAizen1: 2 }, gestion: { ruta: ".", cuposAizen1: 1 } },
+    ...extra,
+  });
+/**
+ * Un CRM falso (lista de candidatas; /tomar da la primera no excluida) y un `procesar` falso: la sesión queda viva hasta
+ * terminar(id) y guarda sus opciones (alSoltarPuesto). El planificador real reparte.
+ */
+function repartoFalso(config) {
+  const lista = [];
+  const pedidos = [];
+  const soltadas = [];
+  const lineas = [];
+  const sesionesFalsas = new Map();
+  const crm = {
+    candidatas: async () => ({ candidatas: lista.filter((c) => !c.tomada) }),
+    tomar: async (datos) => {
+      pedidos.push(datos);
+      const c = lista.find((x) => !x.tomada && !datos.excluir.includes(x.id));
+      if (!c) return { tarjeta: null, motivo: "nada" };
+      c.tomada = true;
+      return { tarjeta: c, hacer: c.hacer };
+    },
+    soltar: async (id) => {
+      soltadas.push(id);
+      const c = lista.find((x) => x.id === id);
+      if (c) c.tomada = false;
+    },
+  };
+  const procesarTarjeta = (opciones, tarjeta) =>
+    new Promise((resolver) => {
+      opciones.vivo.lugar = opciones.lugar;
+      sesionesFalsas.set(tarjeta.id, { opciones, terminar: () => resolver({ ok: true }) });
+    });
+  const registroFalso = { info: (texto) => lineas.push(texto), aviso: (texto) => lineas.push(texto), error: (texto) => lineas.push(texto) };
+  const planificador = crearPlanificador({ crm, config, registro: registroFalso, medidor: sinMedirAqui, motores: crearEstadoDeMotores(config), vigilante: null, colaPesada: null, procesarTarjeta });
+  const agregar = (id, repo, hacer, archivo) => lista.push({ id, titulo: id, repo, hacer, plan: hacer === "planear" ? null : planConArchivo(archivo ?? `src/features/${id}/a.ts`), zonaProtegida: [] });
+  const dondeEsta = (id) => planificador.estado().tareas.find((t) => t.tarjetaId === id)?.lugar ?? null;
+  return { planificador, agregar, pedidos, soltadas, lineas, sesionesFalsas, dondeEsta };
+}
+
+await prueba("cupos (d): repos.<repo>.cuposNube vale 1 sin la clave, null no pone tope, y la suma no pasa de nube.maxTareas", async () => {
+  const config = configDeCupos();
+  assert.equal(config.repos.aizencrm.cuposNube, 1, "sin la clave vale 1");
+  assert.equal(config.repos.gestion.cuposNube, 1);
+  assert.equal(configDeCupos({ repos: { aizencrm: { ruta: ".", cuposNube: null } } }).repos.aizencrm.cuposNube, null, "null = sin tope propio");
+  assert.equal(configDeCupos({ nube: { activa: true, maxTareas: 8 }, repos: { aizencrm: { ruta: ".", cuposNube: 3 }, gestion: { ruta: ".", cuposNube: 2 } } }).repos.aizencrm.cuposNube, 3);
+  assert.throws(() => configDeCupos({ repos: { aizencrm: { ruta: ".", cuposNube: 2 }, gestion: { ruta: ".", cuposNube: 1 } } }), /cuposNube suman 3 .*nube\.maxTareas \(2\)/);
+  assert.throws(() => configDeCupos({ repos: { aizencrm: { ruta: ".", cuposNube: 0 } } }), /repos\.aizencrm\.cuposNube/);
+  assert.throws(() => configDeCupos({ repos: { aizencrm: { ruta: ".", cuposNube: "dos" } } }), /repos\.aizencrm\.cuposNube/);
+  const ejemplo = completarConfig(JSON.parse(fs.readFileSync(path.join(AQUI, "..", "config.example.json"), "utf8")));
+  assert.equal(ejemplo.repos.aizencrm.cuposNube, 1, "el ejemplo lo documenta");
+  assert.equal(ejemplo.repos.gestion.cuposNube, 1);
+});
+
+await prueba("cupos (a): con el CRM lleno en aizen1 y en la nube, una tarjeta de Gestión arranca", async () => {
+  const r = repartoFalso(configDeCupos());
+  r.agregar("crm-plan-1", "aizencrm", "planear");
+  r.agregar("crm-plan-2", "aizencrm", "planear");
+  r.agregar("crm-construir-1", "aizencrm", "construir");
+  await r.planificador.llenar();
+  assert.deepEqual(r.planificador.cupos(), { aizen1: 2, nube: 1 }, "el CRM usa sus 2 de aizen1 y su 1 de la nube");
+  assert.equal(r.dondeEsta("crm-construir-1"), "nube");
+  r.agregar("crm-plan-3", "aizencrm", "planear");
+  r.agregar("crm-construir-2", "aizencrm", "construir");
+  r.agregar("gestion-construir-1", "gestion", "construir");
+  await r.planificador.llenar();
+  assert.equal(r.dondeEsta("gestion-construir-1"), "nube", "Gestión tiene su puesto de la nube aunque el CRM tenga fila");
+  assert.equal(r.dondeEsta("crm-plan-3"), null);
+  assert.equal(r.dondeEsta("crm-construir-2"), null);
+  const esperas = Object.fromEntries(r.planificador.estado().esperas.map((e) => [e.tarjetaId, e.motivo]));
+  assert.match(esperas["crm-construir-2"], /aizencrm ya usa su\(s\) 1 puesto\(s\) de la nube/);
+  assert.match(esperas["crm-plan-3"], /aizencrm ya usa sus 2 puesto\(s\) de aizen1/);
+  // Y una de Gestión para planear también arranca (su puesto de aizen1).
+  r.agregar("gestion-plan-1", "gestion", "planear");
+  await r.planificador.llenar();
+  assert.equal(r.dondeEsta("gestion-plan-1"), "aizen1");
+  assert.deepEqual(r.planificador.cupos(), { aizen1: 3, nube: 2 });
+  r.planificador.parar();
+});
+
+await prueba("cupos (c): a /tomar se le excluyen las candidatas del proyecto sin puesto (ni en aizen1 ni en la nube)", async () => {
+  const r = repartoFalso(configDeCupos());
+  r.agregar("crm-plan-1", "aizencrm", "planear");
+  r.agregar("crm-plan-2", "aizencrm", "planear");
+  r.agregar("crm-construir-1", "aizencrm", "construir");
+  await r.planificador.llenar();
+  r.agregar("crm-plan-3", "aizencrm", "planear");
+  r.agregar("crm-construir-2", "aizencrm", "construir");
+  r.agregar("gestion-plan-1", "gestion", "planear");
+  const antes = r.pedidos.length;
+  await r.planificador.llenar();
+  const pedido = r.pedidos[antes];
+  assert.ok(pedido.excluir.includes("crm-plan-3") && pedido.excluir.includes("crm-construir-2"), `excluir: ${pedido.excluir}`);
+  assert.equal(pedido.excluir.includes("gestion-plan-1"), false, "la de Gestión sí se pide");
+  assert.equal(r.dondeEsta("gestion-plan-1"), "aizen1", "/tomar entregó la de Gestión");
+  assert.deepEqual(r.soltadas, [], "no se tomó y soltó ninguna del CRM");
+  // Solo quedan del CRM (sin puesto): ni se llama a /tomar.
+  const despues = r.pedidos.length;
+  await r.planificador.llenar();
+  assert.equal(r.pedidos.length, despues, "sin nada que se pueda correr no se le pide nada al CRM");
+  r.planificador.parar();
+});
+
+await prueba("cupos (b): una sesión que llama alSoltarPuesto('subiendo') suelta su puesto, el planificador toma otra y el registro dice «sin puesto»", async () => {
+  const r = repartoFalso(configDeCupos());
+  r.agregar("crm-subir", "aizencrm", "subir", "src/features/subir/a.ts");
+  r.agregar("crm-plan-1", "aizencrm", "planear");
+  await r.planificador.llenar();
+  r.agregar("crm-plan-2", "aizencrm", "planear");
+  await r.planificador.llenar();
+  assert.equal(r.dondeEsta("crm-plan-2"), null, "el CRM tiene sus 2 puestos de aizen1 ocupados");
+  r.sesionesFalsas.get("crm-subir").opciones.alSoltarPuesto("subiendo");
+  assert.ok(r.lineas.some((l) => /\+1 sin puesto \(subiendo\)/.test(l)), r.lineas.join("\n"));
+  assert.equal(r.planificador.estado().tareas.find((t) => t.tarjetaId === "crm-subir").sinPuesto, "subiendo", "el latido lo marca");
+  await r.planificador.llenar();
+  assert.equal(r.dondeEsta("crm-plan-2"), "aizen1", "con el puesto suelto se toma otra del CRM");
+  assert.equal(r.pedidos.at(-1).maxParalelo, 3 + 1 + 2, "la sin puesto sigue tomada en el CRM: se suma al tope de /tomar");
+  // La vigilancia después de subir solo cambia el motivo.
+  r.sesionesFalsas.get("crm-subir").opciones.alSoltarPuesto("vigilando");
+  assert.equal(r.planificador.estado().tareas.find((t) => t.tarjetaId === "crm-subir").sinPuesto, "vigilando");
+  assert.equal(r.planificador.tareasLargas(), 1);
+  // Y la etapa subir de verdad lo llama al empezar (aunque después falle por falta de rama).
+  const motivos = [];
+  await assert.rejects(subir({ config: configDeCupos(), registro: { info() {}, aviso() {}, error() {} }, alSoltarPuesto: (motivo) => motivos.push(motivo) }, { id: "x", titulo: "x", repo: "aizencrm", resultado: {} }));
+  assert.deepEqual(motivos, ["subiendo"]);
+  for (const sesion of r.sesionesFalsas.values()) sesion.terminar();
+  await r.planificador.esperarTodas();
+  assert.deepEqual(r.planificador.cupos(), { aizen1: 0, nube: 0 });
+  r.planificador.parar();
+});
+
+await prueba("cupos (e): esperando la versión nueva solo se toman tarjetas para planear, y solo si queda una tarea larga corriendo", async () => {
+  assert.deepEqual(queTomarEsperandoVersion({ pendiente: null, tareasLargas: 0 }), { tomar: true, soloPlanear: false }, "sin versión nueva: todo");
+  assert.deepEqual(queTomarEsperandoVersion({ pendiente: { nueva: "abc" }, tareasLargas: 2 }), { tomar: true, soloPlanear: true });
+  assert.deepEqual(queTomarEsperandoVersion({ pendiente: { nueva: "abc" }, tareasLargas: 0 }), { tomar: false, soloPlanear: false }, "sin tareas largas: se actualiza");
+  const r = repartoFalso(configDeCupos());
+  r.agregar("crm-construir-1", "aizencrm", "construir");
+  await r.planificador.llenar();
+  assert.equal(r.planificador.tareasLargas(), 1, "una en la nube es tarea larga");
+  r.agregar("gestion-construir-1", "gestion", "construir");
+  r.agregar("crm-subir", "aizencrm", "subir", "src/features/subir/a.ts");
+  r.agregar("crm-plan-1", "aizencrm", "planear");
+  await r.planificador.llenar({ soloPlanear: true });
+  assert.equal(r.dondeEsta("crm-plan-1"), "aizen1", "planear sí");
+  assert.equal(r.dondeEsta("gestion-construir-1"), null, "construir espera la versión nueva");
+  assert.equal(r.dondeEsta("crm-subir"), null, "subir espera la versión nueva");
+  assert.match(r.planificador.estado().esperas.find((e) => e.tarjetaId === "crm-subir").motivo, /versión nueva/);
+  r.planificador.parar();
 });
 
 await prueba("nube: la regla de reparto (GRANDE = más de 8 archivos, migración, agente nuevo o ya falló por tamaño o recursos)", async () => {
@@ -2322,6 +2486,8 @@ const crearConfig = (tiempos = {}, delRepo = {}, extra = {}) =>
           campoVersion: "version",
           versionMinutos: 1,
         },
+        // Las pruebas de siempre mandan varias del mismo proyecto a la nube: sin tope propio (los cupos tienen las suyas).
+        cuposNube: null,
         ...delRepo,
       },
     },

@@ -120,6 +120,21 @@ const NUBE_POR_DEFECTO = {
   sinAccesoMinutos: 60,
 };
 
+/** Puestos de la nube que no pone tope propio: 1 si no se escribe la clave. */
+const CUPOS_NUBE_POR_DEFECTO = 1;
+
+/**
+ * repos.<repo>.cuposNube (31-oct-2026): cuántas tarjetas de este proyecto construyen a la vez en la nube.
+ * Un entero de 1 o más; null = sin tope propio (solo el de nube.maxTareas); sin la clave = 1.
+ */
+function cuposNubeDelRepo(repo, clave, errores) {
+  if (repo.cuposNube === undefined) return CUPOS_NUBE_POR_DEFECTO;
+  if (repo.cuposNube === null) return null;
+  if (Number.isInteger(repo.cuposNube) && repo.cuposNube >= 1) return repo.cuposNube;
+  errores.push(`repos.${clave}.cuposNube: cuántas tarjetas de este proyecto a la vez en la nube, un entero de 1 o más (o null para no poner tope propio).`);
+  return null;
+}
+
 /**
  * repos.<repo>.nube (29-oct-2026): { sesionFija: "session_…" }. Con sesión fija, construir en la nube le manda la tarea a esa
  * sesión (creada a mano en claude.ai/code con el repo seleccionado: así puede subir su rama) en vez de crear otra con
@@ -300,6 +315,9 @@ export function completarConfig(datos, base = process.cwd()) {
         // Puestos de aizen1 de este proyecto (31-oct-2026, decisión del dueño: CRM 2 y Gestión 1, que nunca se frenen entre sí).
         // null = sin tope propio (comparte los de config.maxParalelo, como antes).
         cuposAizen1: Number.isInteger(repo.cuposAizen1) && repo.cuposAizen1 >= 1 ? repo.cuposAizen1 : null,
+        // Puestos de la nube de este proyecto (31-oct-2026): el CRM nunca llena la nube y deja a Gestión esperando.
+        // Sin la clave vale 1; null = sin tope propio (solo el de nube.maxTareas). La suma no pasa de nube.maxTareas.
+        cuposNube: cuposNubeDelRepo(repo, clave, errores),
         // La sesión fija de la nube de este proyecto (29-oct-2026), o null.
         nube: nubeDelRepo(repo.nube, clave, errores),
         zonasQueSubenSolas,
@@ -473,6 +491,14 @@ export function completarConfig(datos, base = process.cwd()) {
   // El CRM da 12 tarjetas a la vez entre aizen1 y la nube: más que eso lo recorta en silencio y contesta "ocupado".
   if (nube.activa === true && Number.isFinite(maxParalelo) && maxParalelo + nube.maxTareas > 12) {
     errores.push(`maxParalelo (${maxParalelo}) + nube.maxTareas (${nube.maxTareas}) no pueden pasar de 12: es lo que da el CRM a la vez entre aizen1 y la nube.`);
+  }
+  // Los puestos de la nube de cada proyecto (repos.<repo>.cuposNube) no pueden sumar más que el tope de la nube.
+  {
+    const suma = Object.values(repos).reduce((total, repo) => total + (repo?.cuposNube ?? 0), 0);
+    if (Number.isFinite(nube.maxTareas) && suma > nube.maxTareas) {
+      const detalle = Object.values(repos).filter((repo) => repo?.cuposNube).map((repo) => `${repo.clave} ${repo.cuposNube}`).join(", ");
+      errores.push(`repos.*.cuposNube suman ${suma} (${detalle}) y no pueden pasar de nube.maxTareas (${nube.maxTareas}).`);
+    }
   }
   if (!["auto", "sin-terminal", "pty"].includes(nube.terminal)) errores.push('nube.terminal: "auto", "sin-terminal" o "pty".');
   if (typeof nube.confiarEnResultado !== "boolean") errores.push("nube.confiarEnResultado: true o false.");

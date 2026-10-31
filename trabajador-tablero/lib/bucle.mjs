@@ -130,7 +130,7 @@ export async function unaVuelta({ crm, config, registro }) {
   return { hizo: hacer, tarjetaId: tarjeta.id, ...resultado };
 }
 
-export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null, colaPesada = null, etiqueta = "", alVigilar = null }, tarjeta, hacer) {
+export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null, colaPesada = null, etiqueta = "", alSoltarPuesto = null }, tarjeta, hacer) {
   const control = new AbortController();
   // Pausa por uso de Claude (pausa-uso.mjs): el planificador pide detener esta sesión con `vivo.detenerPorPausa()`.
   let pausadaPorUso = false;
@@ -183,7 +183,7 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     linkSesion: null,
   });
   const fase = (etapa, extra = {}) => Object.assign(vivo, { etapa }, extra);
-  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1", alVigilar };
+  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1", alSoltarPuesto };
   try {
     const etapa = ETAPAS[hacer];
     if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este Coordinador no sabe hacer (¿hay que actualizarlo?).`);
@@ -868,6 +868,16 @@ export function crearSemaforo(maximo) {
 }
 
 /**
+ * ¿Se toman tarjetas en esta vuelta? (31-oct-2026, causa del 30-oct a las 11:50 p. m.: esperando la versión nueva la fila
+ * quedaba quieta 30 a 45 min). Sin versión nueva pendiente, sí y de todo. Con versión pendiente, solo para planear y solo
+ * mientras quede una tarea larga (sin puesto o en la nube); sin tareas largas, nada: se actualiza.
+ */
+export function queTomarEsperandoVersion({ pendiente, tareasLargas }) {
+  if (!pendiente) return { tomar: true, soloPlanear: false };
+  return tareasLargas > 0 ? { tomar: true, soloPlanear: true } : { tomar: false, soloPlanear: false };
+}
+
+/**
  * El planificador: varias tarjetas a la vez, hasta config.maxParalelo.
  *   llenar()        toma tarjetas hasta llenar los cupos (o hasta que no haya, choquen o falten recursos).
  *   esperar(ms)     duerme hasta ms, o menos si terminó una sesión (hay un cupo libre).
@@ -883,6 +893,8 @@ export function crearPlanificador({
   vigilante = crearVigilanteDeUso({ config, registro, estado: motores, entorno: entornoSeguro(), pausa: pausaUso }),
   // La cola de pasos pesados se puede dar hecha (las pruebas la llenan a mano); undefined = la de la configuración.
   colaPesada: colaDada = undefined,
+  // Lo que hace cada sesión (procesar); las pruebas del reparto lo cambian por uno falso que no corre etapas.
+  procesarTarjeta = procesar,
 }) {
   const max = config.maxParalelo;
   const nubeConfig = config.nube ?? { activa: false, maxTareas: 0, maxArchivosChica: 8 };
@@ -939,13 +951,25 @@ export function crearPlanificador({
   /** Cuántas tarjetas de este agente (proyecto) corren ahora, en aizen1 y en la nube. */
   const corriendoDelAgente = (clave) => [...sesiones.values(), ...enNube.values()].filter((s) => s.tarjeta.repo === clave).length;
 
-  // 31-oct-2026: una sesión en su vigilancia de 30 min solo lee logs y NO ocupa puesto de aizen1.
-  /** Las sesiones de aizen1 que ocupan puesto (todas menos las que vigilan). */
-  const ocupadas = () => [...sesiones.values()].filter((s) => !s.vivo.enVigilancia);
+  // 31-oct-2026: una sesión que solo espera (vigilancia de 30 min, subir con su deploy y sus pruebas, las pruebas de GitHub
+  // Actions al construir) suelta su puesto con alSoltarPuesto(motivo): sigue en `sesiones` / `enNube` y tomada en el CRM,
+  // pero no cuenta en los puestos ocupados ni en los de su proyecto.
+  const ocupa = (sesion) => !sesion.vivo.sinPuesto;
+  /** Las sesiones de aizen1 que ocupan puesto (todas menos las que soltaron el suyo). */
+  const ocupadas = () => [...sesiones.values()].filter(ocupa);
+  /** Las de la nube que ocupan puesto. */
+  const ocupadasEnNube = () => [...enNube.values()].filter(ocupa);
+  /** Las que soltaron su puesto (en aizen1 y en la nube): siguen tomadas en el CRM. */
+  const sinPuesto = () => [...sesiones.values(), ...enNube.values()].filter((sesion) => !ocupa(sesion));
   /** ¿El proyecto tiene puesto de aizen1 libre? Con repos.<repo>.cuposAizen1 cada proyecto tiene los suyos y no le quita al otro. */
   const repoConPuesto = (clave) => {
     const cupos = config.repos[clave]?.cuposAizen1;
     return !cupos || ocupadas().filter((s) => s.tarjeta.repo === clave).length < cupos;
+  };
+  /** ¿El proyecto tiene puesto de la nube libre? repos.<repo>.cuposNube (1 por defecto; null = solo el tope de nube.maxTareas). */
+  const repoConPuestoEnNube = (clave) => {
+    const cupos = config.repos[clave]?.cuposNube;
+    return !cupos || ocupadasEnNube().filter((s) => s.tarjeta.repo === clave).length < cupos;
   };
 
   function contarCorriendo() {
@@ -953,8 +977,9 @@ export function crearPlanificador({
       ...[...sesiones.entries()].sort(([a], [b]) => a - b).map(([n, s]) => `s${n} "${s.tarjeta.titulo}" (${s.hacer}, ${s.tarjeta.repo}${nombreDeAgente(s.tarjeta)})`),
       ...[...enNube.values()].map((s) => `nube "${s.tarjeta.titulo}" (${s.hacer}, ${s.tarjeta.repo}${nombreDeAgente(s.tarjeta)})`),
     ];
-    const vigilando = sesiones.size - ocupadas().length;
-    registro.info(`corriendo ${ocupadas().length}/${max} tarjetas al tiempo en aizen1${vigilando ? ` (+${vigilando} en vigilancia, sin puesto)` : ""}${enNube.size ? ` y ${enNube.size} en la nube` : ""}${lista.length ? `: ${lista.join("; ")}` : ""}`);
+    const sueltas = sinPuesto();
+    const motivos = [...new Set(sueltas.map((s) => s.vivo.sinPuesto))].join("/");
+    registro.info(`corriendo ${ocupadas().length}/${max} tarjetas al tiempo en aizen1${sueltas.length ? ` (+${sueltas.length} sin puesto (${motivos}))` : ""}${enNube.size ? ` y ${enNube.size} en la nube` : ""}${lista.length ? `: ${lista.join("; ")}` : ""}`);
   }
 
   /** ¿Se puede construir en la nube? Prendida en la configuración y con Claude como motor de construir (y no en pausa por su límite). */
@@ -974,7 +999,8 @@ export function crearPlanificador({
     // 29-oct-2026: un proyecto marcado "la nube no tiene acceso al repo" (nube.mjs: sinAccesoALaNube) no se manda a la nube
     // hasta que venza la marca: sus tarjetas esperan en la fila sin gastar uso.
     // Con SESIÓN FIJA (repos.<repo>.nube.sesionFija) va una tarea a la vez: mientras otra del proyecto construye ahí, espera.
-    const nubeParaEsta = nubeLibre && !(hacer === "construir" && (sinAccesoALaNube(tarjeta.repo) || sesionFijaOcupada(tarjeta.repo)));
+    // 31-oct-2026: además del tope de todo el Coordinador (nubeLibre), el del proyecto (repos.<repo>.cuposNube).
+    const nubeParaEsta = nubeLibre && repoConPuestoEnNube(tarjeta.repo) && !(hacer === "construir" && (sinAccesoALaNube(tarjeta.repo) || sesionFijaOcupada(tarjeta.repo)));
     // Todo el desarrollo en la nube (26-oct-2026, decisión del dueño): construir NUNCA va a aizen1; si la nube no está
     // libre (o está apagada), la tarjeta espera en la fila.
     // Un proyecto con construirEn "aizen1" no va a la nube (29-oct-2026, decisión del dueño para Gestión).
@@ -1000,6 +1026,9 @@ export function crearPlanificador({
     }
     if (hacer === "construir" && nubeUsable && tarjeta && sesionFijaOcupada(tarjeta.repo)) return `espera: la sesión de ${nombreDelProyecto(config.repos[tarjeta.repo])} está ocupada`;
     if (hacer === "construir" && aizenOk && colaEnFila > 0 && !nubeUsable) return `espera: la cola de pasos pesados de aizen1 tiene ${colaEnFila} en fila`;
+    if (hacer === "construir" && nubeUsable && tarjeta && config.repos[tarjeta.repo]?.construirEn !== "aizen1" && !repoConPuestoEnNube(tarjeta.repo)) {
+      return `espera: ${tarjeta.repo} ya usa su(s) ${config.repos[tarjeta.repo].cuposNube} puesto(s) de la nube`;
+    }
     if (tarjeta && aizenOk && !repoConPuesto(tarjeta.repo) && !(hacer === "construir" && nubeUsable)) return `espera: ${tarjeta.repo} ya usa sus ${config.repos[tarjeta.repo].cuposAizen1} puesto(s) de aizen1`;
     return hacer === "construir" && nubeUsable ? "espera un puesto en la nube" : "espera un puesto en aizen1";
   }
@@ -1023,7 +1052,7 @@ export function crearPlanificador({
     else sesiones.set(n, sesion);
     contarCorriendo();
     if (!nube) esperaPcDesde = null;
-    sesion.promesa = procesar(
+    sesion.promesa = procesarTarjeta(
       {
         crm,
         config,
@@ -1036,9 +1065,13 @@ export function crearPlanificador({
         puestoParaVerificar: (senal) => puestosDeVerificacion.tomar(senal),
         colaPesada,
         etiqueta: nube ? `nube ${idCorto(tarjeta.id)}` : `s${n} ${idCorto(tarjeta.id)}`,
-        alVigilar: () => {
-          vivo.enVigilancia = true;
+        // La vigilancia de 30 min, subir y las pruebas que solo esperan sueltan el puesto: otra tarjeta trabaja mientras tanto.
+        alSoltarPuesto: (motivo = "sin puesto") => {
+          const yaSuelto = Boolean(vivo.sinPuesto);
+          if (vivo.sinPuesto === motivo) return;
+          vivo.sinPuesto = motivo;
           contarCorriendo();
+          if (yaSuelto) return;
           if (despertar) despertar();
           else cupoNuevo = true;
         },
@@ -1111,7 +1144,12 @@ export function crearPlanificador({
     }
   }
 
-  async function llenar() {
+  /**
+   * soloPlanear (31-oct-2026, causa del 30-oct a las 11:50 p. m.): mientras el Coordinador espera para pasar a su versión
+   * nueva, solo toma tarjetas para PLANEAR (unos minutos), y trabajador.mjs lo pide solo mientras quede alguna tarea larga
+   * (sin puesto o en la nube). Construir y subir esperan a la versión nueva.
+   */
+  async function llenar({ soloPlanear = false } = {}) {
     soltarEsperasTerminadas();
     await vigilante?.vigilar();
     await avisarPausaPorUso();
@@ -1126,7 +1164,7 @@ export function crearPlanificador({
     const descartadas = new Map();
     for (;;) {
       const nubeUsable = nubeUtilizable();
-      const nubeLibre = nubeUsable && enNube.size < nubeConfig.maxTareas;
+      const nubeLibre = nubeUsable && ocupadasEnNube().length < nubeConfig.maxTareas;
       if (ocupadas().length >= max && !nubeLibre) return;
       const sinMotor = etapasSinMotor();
       if (sinMotor.length) {
@@ -1173,6 +1211,7 @@ export function crearPlanificador({
         const contraQuien = {};
         const chocan = corriendo.length ? candidatasQueChocan(candidatas, corriendo, config.repos, contraQuien) : {};
         for (const c of candidatas) if (!chocan[c.id] && sinMotor.includes(c.hacer)) chocan[c.id] = `(sin motor para ${c.hacer})`;
+        if (soloPlanear) for (const c of candidatas) if (!chocan[c.id] && c.hacer !== "planear") chocan[c.id] = `(espera la versión nueva del Coordinador para ${c.hacer})`;
         // La cola de cada proyecto: un agente no pasa de su `maxEnParalelo` (sesiones de aizen1 y de la nube juntas).
         for (const c of candidatas) {
           if (chocan[c.id]) continue;
@@ -1203,8 +1242,8 @@ export function crearPlanificador({
         if (elegida && libres.length > 1) excluir = [...excluir, ...libres.filter((c) => c.id !== elegida.id).map((c) => c.id)];
       }
       // El CRM cuenta las de aizen1 y las de la nube juntas: el tope que se le da es la suma.
-      // Las que vigilan siguen tomadas en el CRM aunque no ocupen puesto: se suman al tope.
-      const respuesta = await crm.tomar({ maxParalelo: max + (sesiones.size - ocupadas().length) + (nubeConfig.activa ? nubeConfig.maxTareas : 0), excluir });
+      // Las que soltaron su puesto (subiendo, vigilando, esperando pruebas) siguen tomadas en el CRM: se suman al tope.
+      const respuesta = await crm.tomar({ maxParalelo: max + sinPuesto().length + (nubeConfig.activa ? nubeConfig.maxTareas : 0), excluir });
       if (respuesta.vencidas?.length) registro.aviso(`el CRM pasó a ERROR por vencidas: ${respuesta.vencidas.join(", ")}`);
       if (!respuesta.tarjeta) {
         avisarUnaVez(`sin-${respuesta.motivo}-${sesiones.size}`, null);
@@ -1212,6 +1251,12 @@ export function crearPlanificador({
       }
       ultimoAviso = "";
       const { tarjeta, hacer } = respuesta;
+      // Entre /candidatas y /tomar pudo cambiar la etapa: esperando la versión nueva solo se planea.
+      if (soloPlanear && hacer !== "planear") {
+        registro.info(`"${tarjeta.titulo}" es para ${hacer} y espero la versión nueva del Coordinador: la suelto`);
+        await soltar(crm, registro, tarjeta, `Espera en fila: el Coordinador pasa a su versión nueva antes de ${hacer}.`);
+        return;
+      }
       const huella = huellaDeTarjeta(tarjeta, hacer, config.repos[tarjeta.repo]);
       // Entre /candidatas y /tomar pudo aparecer otra que choca: se suelta (sin error) y espera en fila.
       const choque = corriendo.map((otra) => [otra, motivoDeChoque(huella, otra)]).find(([, motivo]) => motivo);
@@ -1250,6 +1295,8 @@ export function crearPlanificador({
       }
     },
     corriendo: () => sesiones.size + enNube.size,
+    /** Las tareas largas que corren: sin puesto (subiendo, vigilando, esperando pruebas) o en la nube. */
+    tareasLargas: () => [...sesiones.values()].filter((sesion) => !ocupa(sesion)).length + enNube.size,
     /** La cola de pasos pesados de aizen1 (o null): revisar de nuevo compila en la misma fila que las sesiones. */
     colaPesada: () => colaPesada,
     /** ¿Alguna tarjeta está subiendo a main ahora? (el trabajo de noche del manual no empieza mientras tanto). */
@@ -1276,6 +1323,8 @@ export function crearPlanificador({
           reparacionDe: Number(tarjeta.topeReparaciones) || null,
           linkWorkflow: vivo.linkWorkflow ?? null,
           linkSesion: vivo.linkSesion ?? null,
+          // 31-oct-2026: soltó su puesto (subiendo, vigilando, esperando pruebas) o null.
+          sinPuesto: vivo.sinPuesto ?? null,
           // 29-oct-2026: la revisión de los 4 (vuelta y estado de cada revisor), solo mientras la etapa es "revisando".
           revision: vivo.etapa === "revisando" ? (vivo.revision ?? null) : null,
         }));
