@@ -38,6 +38,9 @@ const compositor = clasesDe(panel, "chat-composer z-20");
 const mensajes = clasesDe(panel, "chat-messages-scroll");
 assert.ok(compositor.has("md:px-5"), "el contenedor chat-composer debe tener md:px-5");
 assert.ok(mensajes.has("md:px-5"), "chat-messages-scroll debe tener md:px-5");
+// En escritorio la barra no se queda en 1024 px mientras los mensajes ocupan todo el ancho.
+const formulario = clasesDe(panel, "mx-auto w-full min-w-0 max-w-5xl");
+assert.ok(formulario.has("md:max-w-none"), "en escritorio la barra debe medir lo mismo que los mensajes (md:max-w-none)");
 // En celular la barra se queda como estaba.
 assert.ok(compositor.has("px-1.5"), "en celular la barra conserva px-1.5");
 

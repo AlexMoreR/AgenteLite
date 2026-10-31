@@ -2217,8 +2217,9 @@ export const ConversationPanel = memo(function ConversationPanel({
             */}
             {composer && renderedConversation ? (
               <div className="chat-composer z-20 shrink-0 bg-transparent px-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] pt-1.5 md:px-5 md:py-2">
+                {/* md:max-w-none: en escritorio la barra mide lo mismo que el area de mensajes (T-314). */}
                 <form
-                  className="mx-auto w-full min-w-0 max-w-5xl"
+                  className="mx-auto w-full min-w-0 max-w-5xl md:max-w-none"
                   onSubmit={(event: FormEvent<HTMLFormElement>) => {
                     event.preventDefault();
                     const form = event.currentTarget;
