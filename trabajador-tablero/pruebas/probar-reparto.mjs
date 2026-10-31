@@ -97,6 +97,11 @@ await prueba("choques: una carpeta o un glob de la parte 5 choca con los archivo
   assert.deepEqual(archivosDelPlan(planCon(malicioso)), ["src"]);
   const inicio = Date.now();
   assert.ok(motivoDeChoque(h("a", malicioso), h("b", `src/${"a".repeat(40)}.ts`)));
+  // Pocos grupos pero de muchos "*" ("***…" vale "**"): tampoco se cuelga y choca.
+  const tandas = `src/${"*".repeat(30)}a${"*".repeat(30)}a${"*".repeat(30)}b.ts`;
+  assert.deepEqual(archivosDelPlan(planCon(tandas)), ["src/**a**a**b.ts"]);
+  assert.ok(motivoDeChoque(h("a", tandas), h("b", `src/${"a".repeat(150)}b.ts`)));
+  assert.equal(motivoDeChoque(h("a", tandas), h("b", `src/${"a".repeat(150)}.ts`)), null);
   assert.ok(Date.now() - inicio < 1000, "no se cuelga");
   // Los .md siguen sin chocar aunque estén dentro de la carpeta.
   assert.equal(motivoDeChoque(h("a", "docs/guias/"), h("b", "docs/guias/uso.md")), null);

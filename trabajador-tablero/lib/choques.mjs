@@ -95,9 +95,10 @@ function archivosDeTexto(texto) {
     if (!partes.length || !/^[\w.@[\]*-]+$/.test(partes.join(""))) continue;
     const esRuta = partes.length > 1 ? EXTENSIONES.test(limpio) || RAICES.has(partes[0]) : EXTENSIONES.test(limpio) && /^[\w.-]+$/.test(limpio);
     if (!esRuta) continue;
-    const ruta = partes.join("/");
     // Tope (31-oct-2026): el glob viene del texto del plan y se vuelve regex (rutasChocan). Con muchos "*" la regex
     // puede tardar minutos y colgar la vuelta; ahí vale su parte fija, que choca con todo lo de adentro (en fila, seguro).
+    // "***…" es lo mismo que "**" (y en la regex cada par sería otro ".*"): se deja en "**" antes de contar.
+    const ruta = partes.join("/").replace(/\*{3,}/g, "**");
     if (ruta.length > LARGO_MAXIMO) continue;
     const comodines = ruta.match(/\*+/g)?.length ?? 0;
     const segura = comodines > COMODINES_MAXIMOS ? baseFija(ruta) : ruta;
